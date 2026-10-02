@@ -1153,7 +1153,7 @@ steps:
     args: --mode strict
 YAML
 printf 'steps_pre_pr: [traversal]\n' >"$FX/adopter/planwright.yml"
-# The resolver runs several times per hook call on a loaded host, so these
+# The resolver runs once per wired point per hook call on a loaded host, so these
 # functional rows lift the resolution deadline; the bound rows below keep the
 # default.
 FX_ENV=("PLANWRIGHT_ROOT=$FX/core" "CLAUDE_PLUGIN_ROOT=$FX/core"

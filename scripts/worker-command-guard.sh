@@ -15,8 +15,11 @@
 #     NEVER exits non-zero — approval is upgrade-only; blocking stays with
 #     permissions.deny/ask (REQ-A1.2, REQ-B1.7). A hook `allow` therefore never
 #     needs to (and by design never does) auto-approve a deny-listed command:
-#     the allowlist is read-only shapes with zero overlap with the worker deny
-#     block, and the adversarial suite pins that (REQ-A1.3, REQ-B1.6).
+#     the enumerated allowlist is read-only shapes with zero overlap with the
+#     worker deny block, and the adversarial suite pins that (REQ-A1.3,
+#     REQ-B1.6). A declared step's line is the exception: it is whatever an
+#     operator declared, its trust resting on the declaring layer, not on the
+#     deny block (see declared_line_ok).
 #   * The extracted command is treated strictly as INERT DATA — never eval-ed,
 #     re-expanded, glob-expanded, or used as a pattern/format/unquoted arg — so
 #     analyzing a hostile command can never execute it (REQ-B1.1).
@@ -32,7 +35,8 @@
 # the earlier claim here that variables arrive expanded was never true, and
 # every shape built on it deferred). It is split — quote- and operator-aware —
 # into segments on the control operators `;` `&&` `||` `|` `&` and newlines;
-# EVERY segment's simple command must be independently known-safe (REQ-A1.4). A
+# EVERY segment's simple command must be independently known-safe, or a
+# declared step's line (REQ-A1.4). A
 # command is known-safe only when (a) its verb is on the enumerated allowlist
 # below, (b) its flags/args designate no output/target file and enable no write
 # or arbitrary execution (REQ-A1.8), and (c) it uses no construct the analyzer
@@ -73,7 +77,8 @@ export LC_ALL
 # the normal prompt). Because `fish -c "<inner>"` re-enters analyze_command on
 # the inner string (each entry independently re-checked against MAX_CMD_LEN),
 # the end-to-end worst case is that per-entry cost multiplied by the number of
-# levels — up to MAX_DEPTH+1 entries, i.e. ~2 s worst case, not ~0.5 s. 8 KiB is
+# levels — up to MAX_DEPTH+1 entries, i.e. ~2 s worst case, not ~0.5 s, plus
+# STEPS_DEADLINE when a segment reaches the declared-step fallback. 8 KiB is
 # far above any real worker command shape. MAX_DEPTH caps `fish -c` recursion so
 # a nested-`fish -c` bomb can never spin.
 readonly MAX_CMD_LEN=8192
@@ -2002,8 +2007,10 @@ classify_verb() {
 # together. The unwired points run nothing, so they declare nothing.
 readonly STEP_POINTS='pre-implementation pre-ci convergence pre-pr post-pr pre-ready-flip pre-spec-ready-flip'
 # Seconds the resolution may take, all points resolved in parallel. The
-# PLANWRIGHT_GUARD_STEPS_DEADLINE override (1..60) only changes how long a
-# segment waits before it defers, never what is approved.
+# PLANWRIGHT_GUARD_STEPS_DEADLINE override (1..60) changes only how long the
+# resolution may run: it never widens the set of lines a segment can match,
+# though a resolution that finishes in time can approve where a shorter
+# deadline would have deferred.
 readonly STEPS_DEADLINE=2
 DECL_RESOLVED=0
 DECL_LINES=''
@@ -2132,11 +2139,15 @@ resolve_declared() {
     wait "$pid" 2>/dev/null
     rc=$?
     [ "$rc" = 0 ] || continue
+    # The --explain columns resolve-steps.sh documents; it prints `-` for an
+    # empty field, which a tab IFS would otherwise collapse.
     while IFS=$TAB read -r dec _ _ _ _ target _ kind args _ _ _ loc; do
       [ "$dec" = run ] && [ "$kind" = command ] || continue
       step_location_ok "$loc" "$target" || continue
       key=$loc
       if [ "$args" != - ]; then
+        # Checked before the unquoted split, which would otherwise glob-expand
+        # a `*` or `?` in the args against the working directory.
         case $args in
           *[!A-Za-z0-9._/:=@%,+\ -]*) continue ;;
         esac
