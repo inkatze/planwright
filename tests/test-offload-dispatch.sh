@@ -75,7 +75,7 @@ sandbox_env() {
   PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet-home" \
     PLANWRIGHT_CONFIG_DEFAULTS="$tmp/core-defaults.yml" \
     PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter" \
-    PLANWRIGHT_REPO_ROOT="$tmp/repo-root" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="" \
     "$@"
 }

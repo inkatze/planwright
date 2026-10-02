@@ -1,0 +1,1 @@
+- 2026-10-02 [planwright] tests/test-flight-dispatch.sh runs as one monolithic file (about 18 minutes on a loaded machine) with no way to run a single section, so a targeted re-run after a one-case fix means hand-slicing the harness; a section selector or a split into smaller files would make targeted verification cheap.

@@ -69,6 +69,7 @@ adopter_root="$tmp/adopter"
 core_cfg="$tmp/core.yml"
 stubbin="$tmp/stubbin"
 mkdir -p "$fleet_home" "$repo/.claude" "$adopter_root" "$stubbin"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$repo" || fail "git init"
 cp "$REPO_ROOT/config/defaults.yml" "$core_cfg" || fail "seeding the core config"
 
 promptfile="$tmp/petition.txt"

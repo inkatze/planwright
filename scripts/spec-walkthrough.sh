@@ -18,9 +18,9 @@
 #   spec-walkthrough.sh [--scope <selector>] [--reveal] <spec-path>
 #
 # <spec-path> is `specs/<spec>` or the bare `<spec>` (the two sanctioned forms,
-# the same pair the sibling skills accept), resolved relative to the current
-# directory — the repo-root invocation contract, as `mise run check:specs`
-# calls the validator. <selector> names which part to render (REQ-B1.2):
+# the same pair the sibling skills accept), resolved under the spec root the
+# working directory's repository resolves (scripts/resolve-root.sh spec); with
+# no root resolved it is refused. <selector> names which part to render (REQ-B1.2):
 #   whole                 the whole bundle (default)
 #   file:<name>           one source file (requirements|design|tasks|test-spec)
 #   reqs:<GROUP>          one requirement group (e.g. reqs:A)
@@ -47,7 +47,8 @@
 #      of it. A clear message names what is absent / the available scopes; never
 #      an opaque halt (REQ-A1.5).
 #   2  clean refusal: a malformed invocation (usage), or a hostile/malformed
-#      spec identifier or a path that escapes the specs/ tree. Hostile input is
+#      spec identifier, a path that escapes the spec root, or a root that does
+#      not resolve. Hostile input is
 #      refused before any read, never echoed back, and never becomes a path
 #      (REQ-A1.6).
 #
@@ -170,16 +171,30 @@ if ! check_spec_id "$spec"; then
   exit 2
 fi
 
-bundle_dir="specs/$spec"
+# The spec root, as the checkout this runs in resolves it. Messages name it
+# relative to the working directory when it lies beneath it, as they always
+# have. A root that does not resolve (no repository, or a refused spec_root)
+# is refused before any read; the resolver says why.
+specs_root=$(/bin/sh "$(dirname "$0")/resolve-root.sh" spec) || {
+  echo "spec-walkthrough: the spec root did not resolve; refused before any read" >&2
+  exit 2
+}
+here_real=$(pwd -P)
+case $specs_root in
+  "$here_real"/*) specs_disp=${specs_root#"$here_real"/} ;;
+  *) specs_disp=$specs_root ;;
+esac
+bundle_dir="$specs_root/$spec"
+bundle_disp="$specs_disp/$spec"
 
 # Path containment (REQ-A1.6): when the bundle directory exists, its real path
-# must sit inside the real specs/ tree. A symlink whose target escapes specs/ is
+# must sit inside the real spec root. A symlink whose target escapes the root is
 # refused before any file is read; the resolved path is never echoed. The gate
 # fails closed: if either real path cannot be resolved, the containment decision
 # cannot be made, so we refuse before any read rather than fall through to the
 # file load with the check silently skipped.
 if [ -d "$bundle_dir" ]; then
-  specs_real=$(cd specs 2>/dev/null && pwd -P) || specs_real=
+  specs_real=$(cd "$specs_root" 2>/dev/null && pwd -P) || specs_real=
   bundle_real=$(cd "$bundle_dir" 2>/dev/null && pwd -P) || bundle_real=
   if [ -z "$specs_real" ] || [ -z "$bundle_real" ]; then
     echo "spec-walkthrough: could not resolve the bundle's real path for the containment check; refused before any read" >&2
@@ -188,7 +203,7 @@ if [ -d "$bundle_dir" ]; then
   case "$bundle_real/" in
     "$specs_real/"*) ;;
     *)
-      echo "spec-walkthrough: resolved bundle path escapes the specs/ tree; refused before any read" >&2
+      echo "spec-walkthrough: resolved bundle path escapes the $specs_disp/ tree; refused before any read" >&2
       exit 2
       ;;
   esac
@@ -197,7 +212,7 @@ fi
 # Missing bundle: a clear, non-opaque degradation naming the expected location
 # and the four files it would hold (REQ-A1.5).
 if [ ! -d "$bundle_dir" ]; then
-  echo "spec-walkthrough: no bundle at specs/$spec — the directory is absent (expected requirements.md, design.md, tasks.md, test-spec.md)" >&2
+  echo "spec-walkthrough: no bundle at $bundle_disp — the directory is absent (expected requirements.md, design.md, tasks.md, test-spec.md)" >&2
   exit 1
 fi
 
@@ -215,7 +230,7 @@ done
 # An empty bundle (directory present, none of the four files): degrade rather
 # than render an empty artifact (REQ-A1.5).
 if [ -z "$present" ]; then
-  echo "spec-walkthrough: bundle at specs/$spec holds none of the four spec files (expected requirements.md, design.md, tasks.md, test-spec.md)" >&2
+  echo "spec-walkthrough: bundle at $bundle_disp holds none of the four spec files (expected requirements.md, design.md, tasks.md, test-spec.md)" >&2
   exit 1
 fi
 
@@ -274,7 +289,7 @@ case ${scope:-whole} in
         if [ -f "$bundle_dir/$name.md" ]; then
           scope_label="file $name.md"
         else
-          printf '%s\n' "spec-walkthrough: scope '$scope_safe' names a file absent from specs/$spec; available files: $present" >&2
+          printf '%s\n' "spec-walkthrough: scope '$scope_safe' names a file absent from $bundle_disp; available files: $present" >&2
           exit 1
         fi
         ;;
@@ -293,13 +308,13 @@ case ${scope:-whole} in
         ;;
     esac
     if [ ! -f "$bundle_dir/requirements.md" ]; then
-      printf '%s\n' "spec-walkthrough: scope '$scope_safe' names a requirement group, but requirements.md is absent from specs/$spec" >&2
+      printf '%s\n' "spec-walkthrough: scope '$scope_safe' names a requirement group, but requirements.md is absent from $bundle_disp" >&2
       exit 1
     fi
     if grep -qE "^## REQ-$group( |\$)" "$bundle_dir/requirements.md" 2>/dev/null; then
       scope_label="requirement group $group"
     else
-      printf '%s\n' "spec-walkthrough: scope '$scope_safe' resolves to no requirement group in specs/$spec; available groups: $(req_groups)" >&2
+      printf '%s\n' "spec-walkthrough: scope '$scope_safe' resolves to no requirement group in $bundle_disp; available groups: $(req_groups)" >&2
       exit 1
     fi
     ;;
@@ -307,7 +322,7 @@ case ${scope:-whole} in
     if [ -f "$bundle_dir/design.md" ] && grep -qE '^### D-[0-9]+:' "$bundle_dir/design.md" 2>/dev/null; then
       scope_label="decision set"
     else
-      echo "spec-walkthrough: scope 'decisions' resolves to no decision set in specs/$spec; design.md is absent or holds no decisions" >&2
+      echo "spec-walkthrough: scope 'decisions' resolves to no decision set in $bundle_disp; design.md is absent or holds no decisions" >&2
       exit 1
     fi
     ;;
@@ -315,7 +330,7 @@ case ${scope:-whole} in
     if [ -f "$bundle_dir/tasks.md" ]; then
       scope_label="task graph"
     else
-      echo "spec-walkthrough: scope 'tasks' resolves to no task graph in specs/$spec; tasks.md is absent" >&2
+      echo "spec-walkthrough: scope 'tasks' resolves to no task graph in $bundle_disp; tasks.md is absent" >&2
       exit 1
     fi
     ;;
@@ -330,13 +345,13 @@ case ${scope:-whole} in
         ;;
     esac
     if [ ! -f "$bundle_dir/design.md" ]; then
-      printf '%s\n' "spec-walkthrough: scope '$scope_safe' names a decision, but design.md is absent from specs/$spec" >&2
+      printf '%s\n' "spec-walkthrough: scope '$scope_safe' names a decision, but design.md is absent from $bundle_disp" >&2
       exit 1
     fi
     if grep -qE "^### D-$did:" "$bundle_dir/design.md" 2>/dev/null; then
       scope_label="decision D-$did"
     else
-      printf '%s\n' "spec-walkthrough: scope '$scope_safe' resolves to no decision in specs/$spec; available decisions: $(decision_ids)" >&2
+      printf '%s\n' "spec-walkthrough: scope '$scope_safe' resolves to no decision in $bundle_disp; available decisions: $(decision_ids)" >&2
       exit 1
     fi
     ;;

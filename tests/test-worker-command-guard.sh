@@ -1108,7 +1108,7 @@ echo "### custom-steps REQ-G1.3 — declared command step lines"
 FX="$(cd "$SANDBOX" && pwd -P)/steps-fx"
 mkdir -p "$FX/core/config" "$FX/adopter/catalogs" "$FX/repo/.claude/catalogs" \
   "$FX/repo/tools" "$FX/bin" "$FX/claude"
-: >"$FX/repo/.git"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$FX/repo"
 cp "$REPO_ROOT/config/steps.yaml" "$FX/core/config/steps.yaml"
 {
   printf 'dispatch_isolation: per-unit\n'

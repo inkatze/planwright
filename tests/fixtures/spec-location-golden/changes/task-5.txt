@@ -1,0 +1,17 @@
+# Task 5 migrates the script callers onto scripts/resolve-root.sh. Every probe
+# it changes, with the correction owning the change: the repo-root override is
+# honoured only when it names a git toplevel (a caller that means "no repo-side
+# layer" now says PLANWRIGHT_REPO_ROOT=none), and a dispatch from a worktree
+# places the task worktree under the primary checkout.
+@@ overlay-repo-root-override primary repo-root-narrowing
+planwright: refusing PLANWRIGHT_REPO_ROOT='<PRIMARY>/specs': it does not name the toplevel of a git working tree
+rc=0
+@@ overlay-repo-root-override worktree repo-root-narrowing
+planwright: refusing PLANWRIGHT_REPO_ROOT='<WORKTREE>/specs': it does not name the toplevel of a git working tree
+rc=0
+@@ dispatch-worktree worktree worktree-placement
+fleet-dispatch-worktree: NOTE: no remote reachable; basing on local main (degraded, D-9)
+dispatch	branch	planwright/demo/task-1
+dispatch	worktree	<PRIMARY>/.claude/worktrees/demo-task-1
+dispatch	base	<SHA>
+rc=0

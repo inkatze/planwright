@@ -21,8 +21,10 @@
 #               git directory, so every linked worktree answers with the
 #               primary checkout (a submodule answers with its own working
 #               tree). PLANWRIGHT_REPO_ROOT, when non-empty, is used instead, but
-#               only if it is an absolute path naming a git toplevel; any
-#               other value is refused, never ignored.
+#               only if it is an absolute path naming a git toplevel; the
+#               value none means no repository (exit 3), which is how a caller
+#               asks for no repo-side config layer; any other value is
+#               refused, never ignored.
 #   --checkout  the current toplevel; PLANWRIGHT_REPO_ROOT never affects it.
 #   Both views discover from the working directory: an inherited GIT_DIR,
 #   GIT_WORK_TREE, or command-line config (a git hook exports them) is
@@ -30,7 +32,9 @@
 #   repository's own config only, as git does.
 # spec      where bundles and the reserved accumulators live: the spec_root
 #           option, read through the config overlay as resolved from the
-#           primary checkout, else <checkout>/specs. A value is absolute,
+#           primary checkout (the repo --primary answer, so
+#           PLANWRIGHT_REPO_ROOT applies and none is exit 3), else
+#           <checkout>/specs. A value is absolute,
 #           ~/-prefixed (~ alone is HOME; ~user is refused), or relative to
 #           the primary checkout; a ~ value needs an absolute HOME. Empty is
 #           unset in its layer. A value that names no directory, escapes the
@@ -80,13 +84,14 @@
 #   primary that cannot be named from here: a linked worktree of a separate
 #   git dir, or a core.worktree that is gone; --primary still answers from
 #   inside a repository's git directory, and a separate git dir named .git
-#   answers with the directory holding it) · 4 PLANWRIGHT_REPO_ROOT
-#   refused · 5 spec_root refused (bad value, missing or invalid marker, a ~
-#   value without an absolute HOME, a control byte or tab in the canonical
-#   path; --init could not derive a project identifier or write, or was
-#   given a repo-tracked value outside the primary checkout) · 6
-#   spec_root unreadable (a malformed repo-tracked config file, or a
-#   repo-tracked value carrying a control byte; or a broken install).
+#   answers with the directory holding it; PLANWRIGHT_REPO_ROOT=none) · 4
+#   PLANWRIGHT_REPO_ROOT refused · 5 spec_root refused (bad value, missing
+#   or invalid marker, a ~ value without an absolute HOME, a control byte or
+#   tab in the canonical path; --init could not derive a project identifier
+#   or write, or was given a repo-tracked value outside the primary
+#   checkout) · 6 spec_root unreadable (a malformed repo-tracked config
+#   file, or a repo-tracked value carrying a control byte; or a broken
+#   install).
 #   Callers treat 3 as "no repository" and degrade; they never compose a
 #   path from an empty root.
 #
@@ -250,6 +255,10 @@ resolve_primary() {
   rp_common=""
   if [ -n "${PLANWRIGHT_REPO_ROOT:-}" ]; then
     case $PLANWRIGHT_REPO_ROOT in
+      none)
+        say "no repository root: PLANWRIGHT_REPO_ROOT is none"
+        exit 3
+        ;;
       /*) ;;
       *)
         say "refusing PLANWRIGHT_REPO_ROOT='$PLANWRIGHT_REPO_ROOT': it must be an absolute path"
@@ -350,7 +359,7 @@ read_spec_root() {
     exit 6
   }
   sr_rc=0
-  sr_line=$(PLANWRIGHT_REPO_ROOT=$rp_path "$sr_knob" --explain --key spec_root \
+  sr_line=$(PLANWRIGHT_REPO_ROOT=$rp_path PLANWRIGHT_REPO_ROOT_CHECKED=$rp_path "$sr_knob" --explain --key spec_root \
     --type path --fallback '') || sr_rc=$?
   [ "$sr_rc" -eq 0 ] || {
     say "spec_root unreadable: the config overlay could not be read (exit $sr_rc)"

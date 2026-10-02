@@ -150,9 +150,9 @@ case "$layer" in
     echo "resolve-context-budget-threshold: warning: the $layer overlay sets context_budget_threshold to a malformed value ('$value' is not a positive integer or 'off'); degrading to the core default" >&2
     # Re-resolve with the overlay layers neutralized so config-get returns the
     # core default. config-get keeps PLANWRIGHT_CONFIG_DEFAULTS; we only blank
-    # the three overlay roots. mktemp gives an empty repo root (no
-    # .claude/planwright.yml → repo-tracked and derived machine-local both
-    # absent); a guaranteed-absent adopter path blanks the adopter layer.
+    # the three overlay roots. PLANWRIGHT_REPO_ROOT=none leaves repo-tracked
+    # and derived machine-local both absent; a guaranteed-absent adopter path
+    # under a scratch dir blanks the adopter layer.
     scratch=$(mktemp -d) || {
       echo "resolve-context-budget-threshold: could not create a scratch dir to read the core default" >&2
       exit 5
@@ -161,7 +161,7 @@ case "$layer" in
     crc=0
     core_value=$(
       PLANWRIGHT_ADOPTER_OVERLAY="$scratch/no-adopter" \
-        PLANWRIGHT_REPO_ROOT="$scratch" \
+        PLANWRIGHT_REPO_ROOT=none \
         PLANWRIGHT_LOCAL_CONFIG="" \
         "$config_get" context_budget_threshold
     ) || crc=$?

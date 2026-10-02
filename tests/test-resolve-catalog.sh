@@ -76,7 +76,8 @@ rc() {
   sb="$1"
   shift
   # The core root chain skips a root holding neither doctrine/ nor scripts/.
-  mkdir -p "$sb/core/scripts"
+  mkdir -p "$sb/core/scripts" "$sb/repo"
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$sb/repo"
   base PLANWRIGHT_ROOT="$sb/core" PLANWRIGHT_ADOPTER_OVERLAY="$sb/adopter" \
     PLANWRIGHT_REPO_ROOT="$sb/repo" /bin/bash "$RESOLVER" "$@"
 }
@@ -341,9 +342,7 @@ assert "trailing bare -- after the name is valid" 0 $?
 #     transcribed, so growing the catalog stays a data-only change (the
 #     2026-07-12 stale-count observation).
 # ---------------------------------------------------------------------------
-sb="$tmp/realdd"
-mkdir -p "$sb/repo"
-out="$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_REPO_ROOT="$sb/repo" \
+out="$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_REPO_ROOT=none \
   /bin/bash "$RESOLVER" decision-domains 2>/dev/null)"
 assert "real decision-domains: exit 0" 0 $?
 for id in data-storage caching queues-async api-surface auth secrets-config \
@@ -359,7 +358,7 @@ if [ "${seed_count:-0}" -lt 1 ]; then
   echo "FAIL: real decision-domains: the seed-count pattern matched nothing" >&2
   failures=$((failures + 1))
 fi
-exp="$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_REPO_ROOT="$sb/repo" \
+exp="$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_REPO_ROOT=none \
   /bin/bash "$RESOLVER" decision-domains --explain 2>/dev/null | grep -c '	core$')"
 assert_eq "real decision-domains: every seed entry attributed to core via --explain" \
   "$seed_count" "$exp"
@@ -369,9 +368,7 @@ assert_eq "real decision-domains: every seed entry attributed to core via --expl
 #      (prompt-hygiene REQ-C1.5, Task 8): the builder can recommend the
 #      instruction-hygiene guard + kept-eval convention to adopters.
 # ---------------------------------------------------------------------------
-sb="$tmp/realgc"
-mkdir -p "$sb/repo"
-out="$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_REPO_ROOT="$sb/repo" \
+out="$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_REPO_ROOT=none \
   /bin/bash "$RESOLVER" guard-catalog 2>/dev/null)"
 assert "real guard-catalog: exit 0" 0 $?
 assert_contains "real guard-catalog: instruction-hygiene entry present" \
