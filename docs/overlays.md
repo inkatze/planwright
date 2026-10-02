@@ -448,17 +448,14 @@ of the hook.
 **Trust posture.** Step catalogs and point lists are read only from the
 human-owned layers. The core and adopter layers sit outside the worktree and
 outside a dispatched worker's write set. The repo-tracked and machine-local
-layers are the repository's own, so they get the trust the hook already
-gives a script under the repository's `scripts/`: repository code is trusted
-to run. Declaring a command step in `.claude/catalogs/steps.yaml` is
-therefore a decision to let every worker in that repository run the line
-without a prompt, and belongs in review the same way a new script does. The
-repository is the one found from the worker's current directory, but, as
-§2 describes, its repo-side layers are read from the primary checkout, also
-when the worker runs in a linked worktree: a declaration edited only in a
-task worktree's copy approves nothing until the primary checkout's working
-tree carries it. The worker permission profile is unchanged, and a skill
-step gets no elevation.
+layers sit inside the worktree, so they get the trust the hook already gives
+a script under the repository's `scripts/`: repository code is trusted to
+run. Declaring a command step in `.claude/catalogs/steps.yaml` is therefore
+a decision to let every worker in that repository run the line without a
+prompt, and belongs in review the same way a new script does. The
+repo-tracked layer is the one found from the worker's current directory, the
+same way a script call's containment is checked against it. The worker
+permission profile is unchanged, and a skill step gets no elevation.
 
 **Degraded path.** The hook resolves the declarations at most once per
 command, all points in parallel, under a short deadline (`STEPS_DEADLINE` in
