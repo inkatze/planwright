@@ -1230,6 +1230,14 @@ assert_defer "a context prefix with a unit kind the resolver refuses deferred" \
   "$(ctx_prefix bogus 7 '' pre-ci) $DECLARED --mode strict" Bash "$FXC"
 assert_defer "a context prefix with task ids outside the grammar deferred" \
   "$(ctx_prefix task '7..1' '' pre-ci) $DECLARED --mode strict" Bash "$FXC"
+# The hook's own directory holds a file the glob would match.
+mkdir -p "$FX/globdir"
+: >"$FX/globdir/7.1"
+fx_pwd=$PWD
+cd "$FX/globdir" || exit 1
+assert_defer "a context prefix with task ids carrying a glob deferred" \
+  "$(ctx_prefix task '7*' '' pre-ci) $DECLARED --mode strict" Bash "$FXC"
+cd "$fx_pwd" || exit 1
 assert_defer "a context prefix with a non-numeric PR number deferred" \
   "$(ctx_prefix task 7 12a pre-ci) $DECLARED --mode strict" Bash "$FXC"
 assert_defer "a context prefix naming an unwired point deferred" \

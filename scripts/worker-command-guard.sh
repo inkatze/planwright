@@ -2036,8 +2036,9 @@ step_context_value_ok() {
       esac
       ;;
     TASK_IDS)
+      # The charset first: the unquoted split below would glob-expand a `*`.
       case $v in
-        ' '* | *' ' | *'  '*) return 1 ;;
+        *[!0-9.\ ]* | ' '* | *' ' | *'  '*) return 1 ;;
       esac
       for id in $v; do
         case $id in
