@@ -961,11 +961,48 @@ has "**PS-4**"
 verdict "a revert naming fewer than 7 hex digits drops nothing" "PS-4 dropped"
 has "**PS-5** fix\(s\): both markers · commit"
 verdict "the legacy suffix is dropped beside a trailer" "the suffix survived beside PS-5"
-[ "$(printf '%s\n' "$cl" | sed -n 's/^- \[ \] \*\*\([^*]*\)\*\*.*/\1/p' | tr '\n' ' ')" = "PS-4 PS-5 PS-10000000000 legacy legacy " ]
+[ "$(printf '%s\n' "$cl" | sed -n 's/^- \*\*\([^*]*\)\*\*.*/\1/p' | tr '\n' ' ')" = "PS-4 PS-5 PS-10000000000 legacy legacy " ]
 verdict "legacy entries sort after every id, however large" "entries out of order"
 # shellcheck disable=SC2016 # literal backticks in the expected line
 has "Reject with: \`git revert -m 1 $M8\`"
 verdict "a legacy merge commit's recipe reverts against its first parent" "no first-parent revert recipe"
+
+# Approval semantics inside the section, and a shared commit's disclosure and
+# per-item recipe (human-gates REQ-B1.5, REQ-B1.6).
+APPROVAL="The approval act that lets the PR merge signs off every pending-sign-off item, never the ready flip; reject one before it by its printed recipe."
+w9="$tmp/w9"
+fresh "$w9"
+c9() { git -C "$w9" commit -q --allow-empty -F -; }
+B9=$(git -C "$w9" rev-parse HEAD)
+printf '%s\n' "fix(m): two interleaved findings, one regression test" "" \
+  "Planwright-Sign-Off: PS-1" "Planwright-Sign-Off: PS-2" | c9
+S9=$(git -C "$w9" rev-parse --short=7 HEAD)
+S9FULL=$(git -C "$w9" rev-parse HEAD)
+printf '%s\n' "fix(n): an isolable finding" "" "Planwright-Sign-Off: PS-3" | c9
+N9=$(git -C "$w9" rev-parse --short=7 HEAD)
+cl=$("$SR" --worktree "$w9" regenerate --base "$B9" --head HEAD --checklist-only)
+[ "$(printf '%s\n' "$cl" | sed -n 3p)" = "$APPROVAL" ]
+verdict "the section states the approval act and the rejection rule under its heading" "no approval statement inside the section"
+! printf '%s\n' "$cl" | grep -Fq -- '[ ]'
+verdict "no checkbox reads as the approval control" "a checkbox survived"
+[ "$(printf '%s\n' "$cl" | grep -c "· commit \`$S9\`")" = 2 ]
+verdict "a shared commit renders one entry per finding" "the shared commit is not two entries"
+has "  - Shared commit: also carries PS-2" && has "  - Shared commit: also carries PS-1"
+verdict "each entry of a shared commit discloses it" "a shared-commit disclosure missing"
+# shellcheck disable=SC2016 # literal backticks in the expected lines
+has '  - Reject with: a commit undoing its part, carrying `Planwright-Sign-Off-Rejected: PS-1`' \
+  && has '  - Reject with: a commit undoing its part, carrying `Planwright-Sign-Off-Rejected: PS-2`'
+verdict "each finding of a shared commit gets its own rejection recipe" "a per-item recipe missing"
+! has "git revert $S9" && has "Reject with: \`git revert $N9\`"
+verdict "only an isolable commit's recipe is a whole revert" "a shared commit offered a whole revert"
+printf '%s\n' "Revert part of \"fix(m)\"" "" "This reverts commit $S9FULL." "" \
+  "Planwright-Sign-Off-Rejected: PS-1" | c9
+cl=$("$SR" --worktree "$w9" regenerate --base "$B9" --head HEAD --checklist-only)
+! has "**PS-1**" && has "**PS-2**" && has "**PS-3**"
+verdict "a partial revert carrying the rejected trailer drops only its item" "the partial revert dropped the wrong items"
+empty=$("$SR" --worktree "$w9" regenerate --base HEAD --head HEAD --checklist-only)
+! printf '%s\n' "$empty" | grep -Fq "$APPROVAL"
+verdict "an empty checklist carries no approval statement" "the none row carries the statement"
 
 # The resolver's vocabulary and step-record's are the same list.
 mine=$(sed -n '/^is_point() {/,/return 0 ;;/p' "$SR" | tr -d '\134' | tr '|' '\n' \
