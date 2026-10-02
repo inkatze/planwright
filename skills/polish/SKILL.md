@@ -19,7 +19,7 @@ only irreducible Needs-human-judgment forks remain, then hand off a
 projection of the audit record and the file holding it in full. Polish is
 **local-only** per the invariants below: nested `/self-review` passes reuse
 the base pinned at pre-flight, and the skill owning PR creation carries its
-pending-sign-off checklist to the draft PR.
+checklist to the draft PR.
 
 ## Doctrine
 
@@ -175,7 +175,7 @@ instantiation of the wiring's loop-end rule: iterations run and the reason
 the loop ended (converged, or the safety condition that fired), per-bucket
 counts across the run, then the residue itself projected — each pending
 sign-off and each queued fork as one line of decision and options — and the
-path to the file; then print each trailered commit's SHA and `git log --format='%h
+path to the file; print each trailered commit's SHA and the command `git log --format='%h
 %(trailers:key=Planwright-Sign-Off,key=Planwright-Sign-Off-Rejected,separator=%x20)
 %s' <base>..HEAD`.
 The approval act, never the ready flip, signs off

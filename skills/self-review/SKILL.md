@@ -175,7 +175,7 @@ produced, whose Notes cells quote tooling output.
   never asked about first, per that same discipline (its
   `Planwright-Sign-Off` trailer via
   `scripts/planwright-commit-trailers.sh --sign-off`), and entered in the
-  pending-sign-off checklist.
+  checklist.
 - Needs-human-judgment candidates climb the resolution ladder; every
   consulted rung is recorded. Only irreducible forks queue, with bespoke
   options.
@@ -215,15 +215,15 @@ summary at the end):
 
 1. The lens-coverage table.
 2. In the wiring doc's formats: the four bucket tables, the declined log, and
-   the pending-sign-off checklist regenerated from the sign-off trailers
-   ahead of the base.
+   the pending-sign-off checklist regenerated from the trailers ahead of
+   the base.
 3. Queued irreducible forks with their bespoke options.
 4. The pass summary: resolved mode, base used, tooling and wider-suite
    results, and any reverts or surfaced failures.
 
 The **turn** gets the wiring's projection: counts, each pending sign-off and
 each fork; standalone, only forks are questions. Print each trailered
-commit's SHA and `git log --format='%h
+commit's SHA and the command `git log --format='%h
 %(trailers:key=Planwright-Sign-Off,key=Planwright-Sign-Off-Rejected,separator=%x20)
 %s' <base>..HEAD`.
 The approval act, never the ready flip, signs off

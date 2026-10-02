@@ -26,7 +26,7 @@ fail() {
 APPROVAL="the approval act, never the ready flip, signs off pending-sign-off items; reject one before it by its printed recipe"
 APPLY="attended or unattended, a needs-sign-off fix is committed on the branch, never asked about first"
 # shellcheck disable=SC2016 # literal backticks and format placeholders
-HANDOFF='print each trailered commit'"'"'s SHA and `git log --format='"'"'%h %(trailers:key=Planwright-Sign-Off,key=Planwright-Sign-Off-Rejected,separator=%x20) %s'"'"' <base>..HEAD`'
+HANDOFF='print each trailered commit'"'"'s SHA and the command `git log --format='"'"'%h %(trailers:key=Planwright-Sign-Off,key=Planwright-Sign-Off-Rejected,separator=%x20) %s'"'"' <base>..HEAD`'
 
 # flat <file>: the file with every run of whitespace collapsed to one space,
 # compared lowercased, so a statement matches however the markdown wraps it or

@@ -418,8 +418,8 @@ classify the edit on the amendment axis:
 **Hand off.** Report: the unit and spec, the freshness-gate result, tests
 written and CI outcome, step counts per point, the convergence summary, the verified anchor, the
 push/PR outcome (or degradation note), and the human's decisions — the
-pending-sign-off checklist and any queued forks; print each trailered
-commit's SHA and `git log --format='%h
+pending-sign-off checklist and queued forks; print each trailered
+commit's SHA and the command `git log --format='%h
 %(trailers:key=Planwright-Sign-Off,key=Planwright-Sign-Off-Rejected,separator=%x20)
 %s' <base>..HEAD`.
 Apply artifact data-hygiene to everything surfaced.

@@ -1,0 +1,8 @@
+{
+  "fixture": "polish-attended-apply",
+  "outcome": "fail",
+  "cost_usd": 0.682817,
+  "per_run_cost_usd": [
+    0.6828162000000002
+  ]
+}
