@@ -1012,6 +1012,22 @@ D10=$(git -C "$w10" rev-parse --short=7 HEAD)
 cl=$("$SR" --worktree "$w10" regenerate --base "$B10" --head HEAD --checklist-only)
 ! has "Shared commit" && has "Reject with: \`git revert $D10\`"
 verdict "an id stamped twice is not a shared commit" "a lone finding disclosed itself as shared"
+D10FULL=$(git -C "$w10" rev-parse HEAD)
+printf '%s\n' "Revert \"fix(d)\"" "" "This reverts commit $D10FULL." "" \
+  "Planwright-Sign-Off-Rejected: PS-9" | git -C "$w10" commit -q --allow-empty -F -
+git -C "$w10" checkout -q -b side
+git -C "$w10" commit -q --allow-empty -m "fix(e): on the side branch"
+git -C "$w10" checkout -q main
+git -C "$w10" commit -q --allow-empty -m "chore: main work"
+git -C "$w10" merge -q --no-ff side -m "Merge side" \
+  -m "$(printf '%s\n' "Planwright-Sign-Off: PS-2" "Planwright-Sign-Off: PS-3")" >/dev/null
+cl=$("$SR" --worktree "$w10" regenerate --base "$B10" --head HEAD --checklist-only)
+! has "**PS-1**"
+verdict "a revert whose rejected trailer names no id of its target undoes it whole" "the revert read as partial"
+# shellcheck disable=SC2016 # literal backticks in the expected line
+has "  - Shared commit: also carries PS-3" \
+  && has '  - Reject with: a later commit carrying `Planwright-Sign-Off-Rejected: PS-2`'
+verdict "a shared merge commit discloses it and keeps the merge recipe" "the shared merge entry is wrong"
 
 # The resolver's vocabulary and step-record's are the same list.
 mine=$(sed -n '/^is_point() {/,/return 0 ;;/p' "$SR" | tr -d '\134' | tr '|' '\n' \
