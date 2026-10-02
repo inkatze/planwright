@@ -49,7 +49,8 @@
 #               branch rule, then the never-pushed check: the upstream tracking
 #               ref is refreshed and no remote-tracking ref may contain a
 #               rewritten commit. A rebase with -x/--exec denies: its
-#               command runs below this hook.
+#               command runs below this hook. A commit with an expansion among
+#               its options denies: it could spell an amend.
 #   push       a force or bulk push denies; every other push reads the
 #               protected set and denies a target inside it.
 #   gh api      classified by the act it performs, its names matched in any
@@ -140,13 +141,15 @@ RE_GH_PR='(^|[^[:alnum:]_.-])gh[^[:alnum:]_.-](.*[^[:alnum:]_-])?pr[^[:alnum:]_-
 RE_GIT_HEAD='(^|[^[:alnum:]_.-])git([[:space:]]+-[^[:space:]]*([[:space:]]+[^-[:space:]][^[:space:]]*)?)*[[:space:]]+'
 RE_GIT_ACT="${RE_GIT_HEAD}(merge|pull|rebase|push)([^[:alnum:]_-]|\$)"
 RE_GIT_REWRITE="${RE_GIT_HEAD}commit([[:space:]].*)?[[:space:]]--(am|sq|fix)"
+# A substitution after `git commit` could produce --amend at run time.
+RE_GIT_COMMIT_SUBST="${RE_GIT_HEAD}"'commit([^[:alnum:]_-].*)?(\$\(|`)'
 
 raw_evidence_one() {
   local t=$1 rc=1
   # Case-insensitive: a case-insensitive filesystem runs `git REBASE`.
   shopt -s nocasematch
   if [[ $t =~ $RE_GH_API ]] || [[ $t =~ $RE_GH_PR ]] || [[ $t =~ $RE_GIT_ACT ]] \
-    || [[ $t =~ $RE_GIT_REWRITE ]]; then
+    || [[ $t =~ $RE_GIT_REWRITE ]] || [[ $t =~ $RE_GIT_COMMIT_SUBST ]]; then
     rc=0
   fi
   shopt -u nocasematch
@@ -1270,13 +1273,14 @@ classify_gh_api() {
         case $name in
           include | paginate | silent | slurp | verbose | help)
             case $(lower "$val") in
-              true | false | t | f | 1 | 0) ;;
+              true | t | 1) [ "$name" != help ] || help=1 ;;
+              # --help=false switches help off, so the request runs.
+              false | f | 0) [ "$name" != help ] || help=0 ;;
               *)
                 ghapi_opaque "the flag --$(sanitize_printable "$name" 'a flag') carries a value the guard does not parse"
                 return 0
                 ;;
             esac
-            [ "$name" != help ] || help=1
             ;;
           *)
             opt "$name" "$val" 1 "$wl"
@@ -2123,7 +2127,7 @@ classify_git_rebase() {
 
 COMMIT_VLONG=' message file reuse-message reedit-message author date template cleanup trailer pathspec-from-file '
 classify_git_commit() {
-  local k=$1 dir=$2 dir_ok=$3 n=${#SW[@]} w name v amend=0 targets='' endopts=0 bad=''
+  local k=$1 dir=$2 dir_ok=$3 n=${#SW[@]} w name v amend=0 targets='' endopts=0 bad='' unread=0
   while [ "$k" -lt "$n" ]; do
     w=${SW[$k]}
     if [ "$endopts" = 1 ]; then
@@ -2143,6 +2147,8 @@ classify_git_commit() {
             hv=1
             ;;
         esac
+        # An expansion in the option name could spell --amend, --squash, or --fixup.
+        case $name in *[!a-z0-9-]*) [ "${SWL[$k]}" = 1 ] || unread=1 ;; esac
         # git reads any unique prefix of a long option: --am is --amend.
         local am=amend sq=squash fx=fixup
         if [ "${#name}" -ge 2 ] && [ "$name" = "${am:0:${#name}}" ]; then
@@ -2184,12 +2190,18 @@ classify_git_commit() {
               b=''
               ;;
             S | u) b='' ;;
+            [!a-zA-Z0-9]) [ "${SWL[$k]}" = 1 ] || unread=1 ;;
           esac
         done
         ;;
+      *) [ "${SWL[$k]}" = 1 ] || unread=1 ;;
     esac
     k=$((k + 1))
   done
+  if [ "$unread" = 1 ]; then
+    deny_now 'this git commit carries an expansion before -- that could spell --amend, --squash, or --fixup - refusing (fail closed). Write its options literally and put expanded paths after --.'
+    return 0
+  fi
   [ "$amend" = 1 ] || [ -n "$targets" ] || return 0
   tower_refuses 'amending, squashing, or fixing up a commit' && return 0
   if [ -n "$bad" ]; then

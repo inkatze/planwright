@@ -50,6 +50,8 @@ HIDDEN=(
   'a=git; b=push; /usr/bin/$a $b --force origin main' 'a=git; b=push; ${a:-/} $b --force origin main'
   "export BASH_ENV=\"\\\$(git push --force origin main)\"; bash -c true"
   "cat <<X${NL_}\$(git push --force origin main)${NL_}X"
+  'F=--amend; git commit $F -m replacement' 'git commit "$F" --no-edit' 'git commit -m x --"$A"'
+  'git commit -"$A" --no-edit' 'git commit --$(echo amend) --no-edit' 'git commit `echo --amend`'
 )
 for cmd in "${HIDDEN[@]}"; do
   pg worker "$cmd"
@@ -86,6 +88,9 @@ ROUTINE=(
   "git commit -m \"\$(cat <<EOF${NL_}docs: say why git rebase is refused${NL_}EOF${NL_})\""
   '[ -d .git ] && git status' '[[ -n "$x" ]] && git log --oneline -1' 'if [ -n "$x" ]; then git status; fi'
   "git commit -m 'refuse \`git rebase\` in workers'" 'for f in a b; do echo "$f"; done'
+  'git commit -m "$MSG"' 'git commit -m"$MSG"' 'git commit --message="$MSG"' 'git commit -F "$F"'
+  'git commit -m x -- "$FILE"' 'git commit --author="$A" -m x'
+  'git log -1 --format=%s "$(git rev-parse HEAD)"'
 )
 for cmd in "${ROUTINE[@]}"; do
   pg worker "$cmd"

@@ -48,6 +48,18 @@ pg worker "$(q markPullRequestReadyForReview)"
 reason_has 'gh pr ready <number>' "the gh api flip deny names gh pr ready as the remedy"
 pg worker 'gh api -X PUT repos/acme/widgets/pulls/42/update-branch'
 reason_has 'converge-sync-main' "the gh api base-merge deny names the sync helper as the remedy"
+# pflag reads --help=false as help off, so the request runs; the last setting wins.
+for cmd in 'gh api --help=false -X PUT repos/acme/widgets/pulls/42/merge' \
+  'gh api --help --help=f -X PUT repos/acme/widgets/pulls/42/merge' \
+  'gh api -h --help=0 -X PUT repos/acme/widgets/pulls/42/merge'; do
+  pg worker "$cmd"
+  expect deny "[worker] help switched off still runs the request: $cmd"
+done
+for cmd in 'gh api --help=true -X PUT repos/acme/widgets/pulls/42/merge' \
+  'gh api --help=false --help -X PUT repos/acme/widgets/pulls/42/merge'; do
+  pg worker "$cmd"
+  expect defer "[worker] help switched on prints help and sends nothing: $cmd"
+done
 
 echo "# gh api: protected-ref writes read only the protected set"
 set_knobs 'protected_branches:'
