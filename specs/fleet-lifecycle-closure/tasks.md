@@ -328,19 +328,24 @@ outstanding at kickoff (kickoff brief, Finding 3.2).
 
 - **Deliverables:** a throwaway spec bundle used solely as rehearsal input,
   carrying no real work; a rehearsal harness that dispatches a real worker
-  against it on each session-grade rung, deliberately wedges the worker at a
-  permission prompt, and drives the full lifecycle from there; assertions that
-  the detector classifies the wedged worker `waiting-on-a-human` rather than
-  `working`, that `stop` closes it, and that every resource class in the
-  release set is empty afterwards; coverage of **both sweep modes**, so the observing-only
+  against it on each session-grade rung, deliberately wedges the worker (at a
+  permission prompt on a rung that can pend; held mid-command on
+  `headless-oneshot`, which has no pend path), and drives the full lifecycle
+  from there; assertions that the detector classifies the worker wedged at a
+  permission prompt `waiting-on-a-human` rather than `working`, and the held
+  headless worker as live and unfinished, and, on every rung, that `stop`
+  closes the worker and every resource class in the release set is empty
+  afterwards; coverage of **both sweep modes**, so the observing-only
   path that ships by default is exercised rather than left to rot until
   promotion; an opt-in entry point outside ordinary CI,
   documented alongside the other opt-in suites, so no unrelated change pays
   for a live session; a visible skip, never a silent pass, where the live
   session cannot be established.
 - **Done when:** the rehearsal runs on both session-grade rungs and passes;
-  the wedged worker classifies `waiting-on-a-human`, asserted against the
-  running CLI rather than a captured fixture; a post-close sweep of the
+  on a rung that can pend, the worker wedged at a permission prompt
+  classifies `waiting-on-a-human`, and on `headless-oneshot` the held worker
+  reads as live and unfinished, both asserted against the running CLI rather
+  than a captured fixture; a post-close sweep of the
   release set finds nothing held; the rehearsal is absent from the default
   `mise run check` path and present as its own opt-in task; an environment
   without a live session reports a skip with its reason rather than a pass;
@@ -354,7 +359,15 @@ outstanding at kickoff (kickoff brief, Finding 3.2).
 
 ## Awaiting input
 
-(none yet)
+- **Task 12** — anchor re-review pending: the two 2026-10-02 amendments
+  (requirements Changelog), operator decisions on the Task 12 PR: the
+  rehearsal's waiting-on-a-human assertion narrowed to rungs that can pend
+  (REQ-A1.6, D-13, Task 12 and the REQ-A1.6 test-spec entry), and terminate
+  mode exercised by verifying the refusal while the sweep refuses it (the
+  REQ-F1.7 test-spec entry). The kickoff
+  brief's anchor is re-recorded by an attended `/spec-kickoff` delta
+  re-walkthrough, which removes this bullet at its sign-off; until then the
+  execution freshness gate stays closed for this bundle.
 
 ## Deferred
 

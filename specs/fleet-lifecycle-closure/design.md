@@ -367,9 +367,11 @@ inferential. It also removes a known dispatch race as a side effect.
 ### D-13: The floor is proven by a deliberate-wedge rehearsal, not by fixtures alone  (B, kickoff 2026-08-18)
 
 **Decision:** The bundle adds a repeatable, opt-in end-to-end rehearsal: a real
-worker dispatched against a throwaway spec bundle, deliberately wedged at a
-permission prompt, then asserted to classify `waiting-on-a-human`, to close on
-`stop`, and to leave every resource class empty afterwards.
+worker dispatched against a throwaway spec bundle, deliberately wedged, then
+asserted to close on `stop` and to leave every resource class empty
+afterwards. On a rung that can pend, the wedge is a permission prompt and the
+worker must classify `waiting-on-a-human`; on `headless-oneshot`, which has
+no pend path, it is held mid-command and must read as live and unfinished.
 
 **Alternatives considered:**
 - Rely on the fixture suite and the three `[manual]` entries. Rejected
