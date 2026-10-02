@@ -5602,7 +5602,8 @@ tower_presence() {
         # fleet-presence.sh's own publish temporaries, and one orphaned by a
         # killed publish would otherwise hold this gate open for a fleet with
         # nothing running. Not a `case`: inside `$( )`, bash 3.2 (macOS
-        # /bin/sh) reads a pattern's `)` as the end of the substitution.
+        # /bin/sh) reads a bare pattern `)` as the end of the substitution,
+        # and shfmt rewrites the `(.*)` form that would parse back to it.
         [ "${_pf#.}" = "$_pf" ] || continue
         is_tower "$_pf" || continue
         [ -f "$_pd/$_pp/$_pf" ] && [ ! -L "$_pd/$_pp/$_pf" ] || continue
