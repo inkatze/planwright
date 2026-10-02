@@ -158,8 +158,9 @@
 #   at least 7 characters)
 #     - Route reason: <the body's first `Route reason:` line, or `not
 #       recorded in the commit`>
-#     - Shared commit: also carries <the commit's other IDs> (only when the
-#       commit carries more than one)
+#     - Shared commit: also carries <the commit's other IDs still listed>,
+#       or `its other findings were rejected` when none is (only when the
+#       commit carries more than one distinct ID)
 #     - <each manifest line: a body line `- <file> — before: …`, joined with
 #       the indented lines that continue it>
 #     - Reject with: `git revert <sha7>` (plus the hand-edit note when a
@@ -938,7 +939,7 @@ cmd_regenerate() {
         for (j = 1; j <= nid; j++) {
           id = cid[j]
           if (id != "legacy" && ((id in taken) || (id in rejected))) continue
-          taken[id] = 1
+          taken[id] = 1; rend[i, id] = 1
           count++
           late[count] = (id == "legacy"); key[count] = late[count] ? i : substr(id, 4) + 0
           entry[count] = i; eid[count] = id; esubj[count] = s; ord[count] = count
@@ -955,8 +956,12 @@ cmd_regenerate() {
         printf "- **%s** %s · commit `%s`\n", eid[a], safe(esubj[a]), short[i]
         printf "  - Route reason: %s\n", ((i in route) ? safe(route[i]) : "not recorded in the commit")
         if (shared[i] != "") {
-          s = shared[i] " "; sub(" " eid[a] " ", " ", s); gsub(/^ +| +$/, "", s); gsub(/ +/, ", ", s)
-          printf "  - Shared commit: also carries %s\n", s
+          # Only siblings still listed from this commit: a rejected one, or
+          # one an older commit owns, no longer sits beside this entry.
+          m = split(shared[i], r, " "); s = ""
+          for (j = 1; j <= m; j++) if (r[j] != eid[a] && ((i, r[j]) in rend)) s = s (s == "" ? "" : ", ") r[j]
+          if (s == "") print "  - Shared commit: its other findings were rejected"
+          else printf "  - Shared commit: also carries %s\n", s
         }
         for (j = 1; j <= man[i]; j++) printf "  - %s\n", safe(M[i, j])
         if (shared[i] != "" && !merge[i]) printf "  - Reject with: a commit undoing its part, carrying `Planwright-Sign-Off-Rejected: %s`\n", eid[a]

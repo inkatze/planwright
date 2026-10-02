@@ -1000,6 +1000,19 @@ printf '%s\n' "Revert part of \"fix(m)\"" "" "This reverts commit $S9FULL." "" \
 cl=$("$SR" --worktree "$w9" regenerate --base "$B9" --head HEAD --checklist-only)
 ! has "**PS-1**" && has "**PS-2**" && has "**PS-3**"
 verdict "a partial revert carrying the rejected trailer drops only its item" "the partial revert dropped the wrong items"
+! has "also carries PS-1"
+verdict "a rejected sibling drops out of the shared-commit line" "the shared-commit line still names a rejected sibling"
+has "  - Shared commit: its other findings were rejected"
+verdict "a shared commit with no live sibling still discloses it" "the lone survivor's entry hides the shared commit"
+# shellcheck disable=SC2016 # literal backticks in the expected line
+has '  - Reject with: a commit undoing its part, carrying `Planwright-Sign-Off-Rejected: PS-2`'
+verdict "the last live finding of a shared commit keeps the part-undo recipe" "the lone survivor lost its part-undo recipe"
+printf '%s\n' "fix(t): three findings, one test" "" "Planwright-Sign-Off: PS-4" \
+  "Planwright-Sign-Off: PS-5" "Planwright-Sign-Off: PS-6" | c9
+printf '%s\n' "chore: reject PS-4 by hand" "" "Planwright-Sign-Off-Rejected: PS-4" | c9
+cl=$("$SR" --worktree "$w9" regenerate --base "$B9" --head HEAD --checklist-only)
+has "  - Shared commit: also carries PS-6" && has "  - Shared commit: also carries PS-5" && ! has "PS-4"
+verdict "a shared-commit line lists only the live siblings" "a rejected id stayed in a shared-commit line"
 empty=$("$SR" --worktree "$w9" regenerate --base HEAD --head HEAD --checklist-only)
 ! printf '%s\n' "$empty" | grep -Fq "$APPROVAL"
 verdict "an empty checklist carries no approval statement" "the none row carries the statement"
