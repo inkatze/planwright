@@ -658,6 +658,18 @@ check "an unreadable head after the record parks (exit 4)" [ "$CODE" = 4 ]
 check "no flip when the head cannot be re-read" [ "$(calls 'pr ready')" = 0 ]
 check "the follow-up says the head could not be re-read" grep -q 'could not be re-read.*parked under' "$GHS/comment.2"
 
+echo "# the CI wait is bounded by the clock too"
+fixture
+mkdir -p "$F/wt/.claude"
+printf 'ready_flip_policy: unit-owner\nready_flip_ci_wait: 2s\n' >"$F/wt/.claude/planwright.local.yml"
+echo 0123456789012345678901234567890123456789 >"$GHS/head_override"
+printf '' >"$GHS/head_at_flip"
+OUT=$(cd "$F/wt" && env PATH="$STUBBIN:$PATH" GHS="$GHS" GHS_ORIGIN="$F/origin.git" \
+  GHS_BRANCH="$BRANCH" PLANWRIGHT_REPO_ROOT="$F/wt" PLANWRIGHT_LOCAL_CONFIG= \
+  PLANWRIGHT_ADOPTER_OVERLAY="$SANDBOX/noadopter" PLANWRIGHT_READY_FLIP_POLL_SECONDS=1 \
+  PLANWRIGHT_READY_GUARD_RETRY_DELAY=0 /bin/bash "$HELPER" flip --spec specs/demo --task 1 2>&1)
+check "head re-reads inside an attempt do not stretch the wait past its bound" [ "$(rollups)" = 1 ]
+
 echo "# no tracking ref: reconcile fetches one before deciding what to push"
 fixture
 set_policy unit-owner

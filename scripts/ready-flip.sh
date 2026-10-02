@@ -420,11 +420,13 @@ POLL=${PLANWRIGHT_READY_FLIP_POLL_SECONDS:-15}
 [[ $POLL =~ ^[0-9]{1,4}$ ]] || POLL=15
 ATTEMPTS=1
 WAIT_TEXT=''
+WAIT_SECS=0
 read_wait() {
   local v s
   v=$(/bin/sh "$SCRIPTS/resolve-policy-knob.sh" ready_flip_ci_wait 2>/dev/null) || return 1
   WAIT_TEXT=$v
   s=$(duration_seconds "$v")
+  WAIT_SECS=$s
   if [ "$POLL" = 0 ]; then
     ATTEMPTS=${PLANWRIGHT_READY_FLIP_MAX_POLLS:-1}
     [[ $ATTEMPTS =~ ^[1-9][0-9]{0,3}$ ]] || ATTEMPTS=1
@@ -649,8 +651,10 @@ ROLLUP_JQ='
 # branch, so a park could not be pushed on top of it and none is attempted.
 HEAD_MOVED=0
 pred_ci() {
-  local i=0 raw oid verdict last='the check rollup could not be read'
-  while [ "$i" -lt "$ATTEMPTS" ]; do
+  local i=0 raw oid verdict last='the check rollup could not be read' deadline=$((SECONDS + WAIT_SECS))
+  # The read count bounds the wait, and so does the clock: a head re-read
+  # inside an attempt naps too, and must not stretch the bound.
+  while [ "$i" -lt "$ATTEMPTS" ] && { [ "$POLL" = 0 ] || [ "$i" = 0 ] || [ "$SECONDS" -lt "$deadline" ]; }; do
     i=$((i + 1))
     raw=$(gh pr view "$PR" --json headRefOid,statusCheckRollup 2>/dev/null) || raw=''
     if [ -n "$raw" ] && oid=$(printf '%s' "$raw" | jq -r '.headRefOid // empty' 2>/dev/null) && [ -n "$oid" ]; then
