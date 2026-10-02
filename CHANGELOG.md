@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.50.0](https://github.com/inkatze/planwright/compare/v0.49.0...v0.50.0) (2026-10-02)
+
+
+### Features
+
+* **fleet:** deliberate-wedge lifecycle rehearsal ([#553](https://github.com/inkatze/planwright/issues/553)) ([6edf026](https://github.com/inkatze/planwright/commit/6edf0260bb749377d10f291d1ddaaa41feeeffc9))
+* **fleet:** dispatch-record reconcile and multi-tower adversarial suite ([#550](https://github.com/inkatze/planwright/issues/550)) ([a885467](https://github.com/inkatze/planwright/commit/a88546746a2279d8fa1328d74dfcbc789d72a341))
+* **guards:** add the policy guard and the profile floor ([#549](https://github.com/inkatze/planwright/issues/549)) ([af2690c](https://github.com/inkatze/planwright/commit/af2690c9044dd271c3e814d3deb8a78c68aac5d6))
+* **skills:** sign-off prose in the gate-wired skills ([#552](https://github.com/inkatze/planwright/issues/552)) ([fffadbe](https://github.com/inkatze/planwright/commit/fffadbe15627ce0be526474e6a85c198f0a8e66f))
+* **spec-location:** migrate the script callers onto the resolved spec root ([#548](https://github.com/inkatze/planwright/issues/548)) ([dee2dea](https://github.com/inkatze/planwright/commit/dee2dea6add7603d1436323c4e40553efec5bba1))
+* **tower:** shared flight sweep and its derived index (tower-front-door task 7) ([#539](https://github.com/inkatze/planwright/issues/539)) ([cb58e33](https://github.com/inkatze/planwright/commit/cb58e3392d49284ed3bdcc6d09aa6ff6fc8c3e3c))
+* **worker-guard:** approve declared command step lines ([#551](https://github.com/inkatze/planwright/issues/551)) ([be85b5e](https://github.com/inkatze/planwright/commit/be85b5e281300cf4695e1f2463af1d530385da9e))
+
+
+### Bug Fixes
+
+* **scripts:** make check-no-ci-evals and tower-queue parse under bash 3.2 ([#556](https://github.com/inkatze/planwright/issues/556)) ([90e3b4b](https://github.com/inkatze/planwright/commit/90e3b4bed821e1456d5d1c41bcbdbbf4c203d0f9))
+
 ## [0.49.0](https://github.com/inkatze/planwright/compare/v0.48.0...v0.49.0) (2026-09-30)
 
 
