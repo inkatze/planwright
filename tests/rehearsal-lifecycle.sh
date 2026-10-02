@@ -931,21 +931,21 @@ rehearse() {
   case $r:$state in
     sj:waiting-on-a-human) pass "$r" "the detector classifies the wedged worker waiting-on-a-human (reason: $reason)" ;;
     sj:*) flunk "$r" "the detector classifies the wedged worker '$state' (reason: $reason), not waiting-on-a-human" ;;
-    hl:dead | hl:finished-but-unreaped | hl: | hl:unclassified)
-      # An unclassified completion is a sweep candidate, so it is as wrong for
-      # a held worker as finished is.
-      case $state:$reason in
-        unclassified:completion-*) flunk "$r" "the detector reads a held, live worker as a completion (reason: $reason)" ;;
-        unclassified:*)
-          pass "$r" "the detector does not read the held worker as dead or finished (state: $state, reason: $reason)"
-          na "$r" "waiting-on-a-human: headless-oneshot has no pend path; an unapproved ask fails under --print instead of waiting"
-          ;;
-        *) flunk "$r" "the detector classifies a held, live worker '$state' (reason: $reason)" ;;
-      esac
-      ;;
+    # The states a held, live headless worker may honestly read as. An
+    # unclassified completion is a sweep candidate, so it is as wrong here as
+    # finished is; so is any state this list does not name.
     hl:*)
-      pass "$r" "the detector does not read the held worker as dead or finished (state: $state, reason: $reason)"
-      na "$r" "waiting-on-a-human: headless-oneshot has no pend path; an unapproved ask fails under --print instead of waiting"
+      case $state:$reason in
+        unclassified:completion-*) hl_ok='' ;;
+        working:* | waiting-on-a-human:* | unclassified:*) hl_ok=1 ;;
+        *) hl_ok='' ;;
+      esac
+      if [ -n "$hl_ok" ]; then
+        pass "$r" "the detector reads the held worker as live and unfinished (state: $state, reason: $reason)"
+        na "$r" "waiting-on-a-human: headless-oneshot has no pend path; an unapproved ask fails under --print instead of waiting"
+      else
+        flunk "$r" "the detector classifies a held, live worker '$state' (reason: $reason)"
+      fi
       ;;
   esac
   if [ "$r" = hl ]; then
