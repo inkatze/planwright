@@ -36,15 +36,19 @@
 #              minutes, so it is opt-in (`mise run rehearsal:lifecycle`) and
 #              never part of `check` or CI. One worker at a time.
 #
-# ISOLATION. Everything planwright resolves is under one mktemp root: the
-# fleet home (registry, presence, attention store), the headless state, the
-# throwaway repository the worker runs in, and the overlay layers. Under
+# ISOLATION. Everything planwright writes is under one mktemp root: the fleet
+# home (registry, presence, attention store), the headless state, the
+# throwaway repository the worker runs in, and the adopter and machine-local
+# overlay layers; the scripts and core defaults are read from this checkout.
+# Under
 # --live the CLI itself keeps the real HOME, where its login lives, so it
 # records its own session state there as any session does. Ambient
 # fleet and tower identity is stripped, CLAUDE_PLUGIN_DATA included, and the
 # resolved fleet home is checked to be the temp one before anything launches.
 # On exit every process naming the root in its argv or running inside it,
-# with its descendants, is killed and the absence re-checked; anything still
+# with its descendants, and every process of the tree snapshotted at the
+# wedge that is still the same process, is killed and the absence
+# re-checked; anything still
 # there at exit is a failure, because the close should already have ended it.
 #
 # EXIT  0 every check passed · 1 a check failed · 2 the harness could not run
@@ -403,13 +407,21 @@ reach=$(awk '
   }
   !was_in && /^\[/ { cur = ""; next }
   cur == "" { next }
+  # Prose naming a task is not a call to it.
+  !was_in && /^[ \t]*description[ \t]*=/ { next }
   /rehearsal:lifecycle|rehearsal-lifecycle\.sh.*--live/ { live[cur] = 1 }
+  # Every word after `mise run` / `mise r` up to a shell separator, flags
+  # dropped and quotes stripped, is an edge: arguments that are not tasks
+  # only add edges to nothing.
   {
-    line = $0
-    while (match(line, /mise[ \t]+(run[ \t]+|r[ \t]+)?[A-Za-z0-9:_.-]+/)) {
-      k = split(substr(line, RSTART, RLENGTH), w, /[ \t]+/)
-      dep[cur] = dep[cur] " " w[k]
-      line = substr(line, RSTART + RLENGTH)
+    k = split($0, w, /[ \t]+/)
+    for (i = 1; i <= k; i++) gsub(/["\047]/, "", w[i])
+    for (i = 1; i < k; i++) {
+      if (w[i] != "mise" || (w[i + 1] != "run" && w[i + 1] != "r")) continue
+      for (j = i + 2; j <= k; j++) {
+        if (w[j] == "&&" || w[j] == "||" || w[j] == ";" || w[j] == "|") break
+        if (w[j] != "" && substr(w[j], 1, 1) != "-") dep[cur] = dep[cur] " " w[j]
+      }
     }
   }
   !was_in && /^[ \t]*(depends|depends_post|wait_for)[ \t]*=/ { indep = 1 }
@@ -460,8 +472,8 @@ mk=$mk_phys
 # The root reaches a worker's prompt, awk -v and the cwd scan as one plain
 # word.
 case $mk in
-  *[!A-Za-z0-9._/-]*)
-    echo "rehearsal: the temp root '$mk' has characters outside [A-Za-z0-9._/-]; set TMPDIR to a plain path" >&2
+  *[!A-Za-z0-9._/+-]*)
+    echo "rehearsal: the temp root '$mk' has characters outside [A-Za-z0-9._/+-]; set TMPDIR to a plain path" >&2
     exit 2
     ;;
 esac
@@ -1053,7 +1065,8 @@ skip_path() {
       3:*'SKIP no live session'*) pass skip-path "--live without a CLI exits 3 with its reason, not 0" ;;
       # Removing the CLI's PATH entries also removed a tool the harness needs
       # (jq, or coreutils when the CLI sits in /usr/bin): this check cannot run.
-      2:*) na skip-path "--live without a CLI: the CLI shares a PATH entry with a tool the harness needs: $(clip "$sp_out")" ;;
+      # Any other exit 2, a usage error included, is a broken entry point.
+      2:*'jq is required'* | 2:*'missing or not executable'*) na skip-path "--live without a CLI: the CLI shares a PATH entry with a tool the harness needs: $(clip "$sp_out")" ;;
       *) flunk skip-path "--live without a CLI exited $sp_rc: $(clip "$sp_out")" ;;
     esac
   fi
