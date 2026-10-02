@@ -89,8 +89,10 @@
 # cleanly (no PR, no gh, PR not open or already ready, policy not unit-owner);
 # 4 not flipped, park written and pushed (for evaluate, which never parks: a
 # precondition failed); 5 not flipped and no park pushed (the park could not
-# be written or pushed, reconcile failed, an unreadable policy, an
-# unsupported bundle, a wrong branch or a fork PR).
+# be written or pushed, the PR head moved off the checked head, reconcile
+# failed, an unreadable policy, an unsupported bundle, a wrong branch or a
+# fork PR). A head someone else moved gets no park, since one could not be
+# pushed on top of it; the handoff says to sync and re-run.
 #
 # Environment: PLANWRIGHT_READY_FLIP_POLL_SECONDS (default 15) is the CI poll
 # interval; at 0 the wait makes PLANWRIGHT_READY_FLIP_MAX_POLLS reads
@@ -352,10 +354,11 @@ commit_tasks() {
 
 push_branch() { git push -q "$REMOTE" "$BRANCH" >/dev/null 2>&1; }
 
-# unpushed — 0 when the branch holds commits its remote-tracking ref lacks
-# (a missing ref counts), such as a park whose push failed last run.
+# unpushed — 0 when the branch holds commits its remote-tracking ref lacks,
+# such as a park whose push failed last run. With no tracking ref nothing is
+# known, so nothing is pushed; the CI read's head check catches a mismatch.
 unpushed() {
-  git rev-parse --verify -q "refs/remotes/$REMOTE/$BRANCH" >/dev/null || return 0
+  git rev-parse --verify -q "refs/remotes/$REMOTE/$BRANCH" >/dev/null || return 1
   [ "$(git rev-list --count "refs/remotes/$REMOTE/$BRANCH..HEAD" 2>/dev/null)" != 0 ]
 }
 
@@ -629,14 +632,24 @@ ROLLUP_JQ='
     elif any($v[]; . == "green") then "green \([$v[] | select(. == "green")] | length)"
     else "none" end'
 
+# Set when the host keeps reporting another head: someone else moved the
+# branch, so a park could not be pushed on top of it and none is attempted.
+HEAD_MOVED=0
 pred_ci() {
-  local i=0 raw oid verdict last='the check rollup could not be read'
+  local i=0 moved=0 raw oid verdict last='the check rollup could not be read'
   while [ "$i" -lt "$ATTEMPTS" ]; do
     i=$((i + 1))
     raw=$(gh pr view "$PR" --json headRefOid,statusCheckRollup 2>/dev/null) || raw=''
     if [ -n "$raw" ] && oid=$(printf '%s' "$raw" | jq -r '.headRefOid // empty' 2>/dev/null) && [ -n "$oid" ]; then
-      # The host can lag a push by seconds, so another head is retried.
+      # The host can lag a push by seconds, so another head is retried a few
+      # times; one that persists is a branch someone else moved.
       if [ "$oid" != "$HEAD_SHA" ]; then
+        moved=$((moved + 1))
+        if [ "$moved" -ge "$LOOKUP_ATTEMPTS" ]; then
+          HEAD_MOVED=1
+          set_pred ci-rollup fail "the PR head is $(printf '%s' "${oid:0:12}" | tr -cd '0-9a-f'), not the pinned head ${HEAD_SHA:0:12}"
+          return
+        fi
         verdict=moved
         last="the PR head is $(printf '%s' "${oid:0:12}" | tr -cd '0-9a-f'), not the pinned head ${HEAD_SHA:0:12},"
       else
@@ -651,7 +664,7 @@ pred_ci() {
           set_pred ci-rollup fail "a check failed on ${HEAD_SHA:0:12}"
           return
           ;;
-        moved) ;;
+        moved) [ "$i" -lt "$ATTEMPTS" ] || HEAD_MOVED=1 ;;
         pending) last='checks still pending' ;;
         none) last='no check has reported a success' ;;
         *) last='the check rollup could not be read' ;;
@@ -747,12 +760,32 @@ park() {
   commit_tasks "chore($SPEC_NAME): park the ready-flip of $(unit_label)"
 }
 
-# pr_head_pinned — 0 when the host still reports the pinned head for the PR.
+# pr_head_pinned — 0 when the host still reports the pinned head for the PR,
+# 1 when it reports another, 2 when it cannot be read after a few tries.
 pr_head_pinned() {
-  [ "$(gh pr view "$PR" --json headRefOid --jq .headRefOid 2>/dev/null)" = "$HEAD_SHA" ]
+  local i=0 oid
+  while [ "$i" -lt "$LOOKUP_ATTEMPTS" ]; do
+    i=$((i + 1))
+    oid=$(gh pr view "$PR" --json headRefOid --jq .headRefOid 2>/dev/null) || oid=''
+    if [ -n "$oid" ]; then
+      [ "$oid" = "$HEAD_SHA" ] && return 0
+      return 1
+    fi
+    [ "$i" -ge "$LOOKUP_ATTEMPTS" ] || nap
+  done
+  return 2
+}
+
+# not_pinned_text <pr_head_pinned status> — the handoff and comment wording.
+not_pinned_text() {
+  if [ "$1" = 1 ]; then echo 'the PR head moved off the checked head'; else echo 'the PR head could not be re-read'; fi
 }
 
 park_and_exit() { # <predicates>
+  if [ "$HEAD_MOVED" = 1 ]; then
+    say "not flipped: $1 failed on ${HEAD_SHA:0:12} because someone else moved the branch; no park was written, since it could not be pushed on top. Sync the branch and re-run."
+    exit 5
+  fi
   if park "$1"; then
     say "not flipped: $1 failed on ${HEAD_SHA:0:12}; parked under ## Awaiting input in $TASKS"
     [ -z "$GUARD_REASON" ] || say "ready-guard: $(sanitize_printable "$GUARD_REASON")"
@@ -842,23 +875,43 @@ fi
 
 [ -z "$FAILED" ] || park_and_exit "$FAILED"
 
-pr_head_pinned || park_and_exit head-moved
+pr_head_pinned
+pin=$?
+if [ "$pin" != 0 ]; then
+  [ "$pin" != 1 ] || HEAD_MOVED=1
+  park_and_exit head-check
+fi
 record_body "$POLICY" >"$SCRATCH/record.md"
 gh pr comment "$PR" --body-file "$SCRATCH/record.md" >/dev/null 2>&1 || park_and_exit record-write
-rc=0
-if pr_head_pinned; then
+pr_head_pinned
+pin=$?
+if [ "$pin" = 0 ]; then
   gh pr ready "$PR" >/dev/null 2>&1
   rc=$?
+  why="gh exit $rc"
 else
-  rc='head-moved'
+  rc=1
+  why=$(not_pinned_text "$pin")
+  [ "$pin" != 1 ] || HEAD_MOVED=1
 fi
-if [ "$rc" != 0 ]; then
-  # shellcheck disable=SC2016
-  printf '**Ready-flip follow-up.** The flip call failed after the record above (%s), so PR #%s stays draft and the flip is parked under `## Awaiting input`.\n' \
-    "$([ "$rc" = head-moved ] && echo 'the PR head moved first' || echo "gh exit $rc")" "$PR" >"$SCRATCH/follow.md"
-  gh pr comment "$PR" --body-file "$SCRATCH/follow.md" >/dev/null 2>&1 \
-    || say 'the follow-up comment could not be written either'
-  park_and_exit flip-call
+if [ "$rc" = 0 ]; then
+  say "flipped PR #$PR ready at $HEAD_SHA"
+  exit 0
 fi
-say "flipped PR #$PR ready at $HEAD_SHA"
-exit 0
+# The record already claims the flip, so the follow-up says what became of it.
+outcome=5
+if [ "$HEAD_MOVED" = 1 ]; then
+  parked='no park was written, since the branch moved under it'
+elif park flip-call; then
+  outcome=4
+  # shellcheck disable=SC2016 # markdown backticks for the comment
+  parked='the flip is parked under `## Awaiting input`'
+else
+  parked="the park could not be written either ($COMMIT_ERR)"
+fi
+printf '**Ready-flip follow-up.** The flip was not made after the record above (%s), so PR #%s stays draft; %s.\n' \
+  "$why" "$PR" "$parked" >"$SCRATCH/follow.md"
+gh pr comment "$PR" --body-file "$SCRATCH/follow.md" >/dev/null 2>&1 \
+  || say 'the follow-up comment could not be written either'
+say "not flipped after the record ($why); $parked"
+exit "$outcome"

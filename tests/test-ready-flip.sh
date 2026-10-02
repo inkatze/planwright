@@ -61,6 +61,9 @@ case "$1 $2" in
           exit 1
         fi
         [ ! -f "$GHS/head_override" ] || head=$(cat "$GHS/head_override")
+        # head_lag_until reports a stale head for the first n reads.
+        [ ! -f "$GHS/head_lag_until" ] || [ "$n" -gt "$(cat "$GHS/head_lag_until")" ] \
+          || head=0123456789012345678901234567890123456789
         case $(cat "$GHS/ci") in
           green) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"StatusContext","context":"lint","state":"SUCCESS"}]' ;;
           failing) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
@@ -72,7 +75,13 @@ case "$1 $2" in
         printf '{"headRefOid":"%s","statusCheckRollup":%s}\n' "$head" "$roll"
         ;;
       *'--jq .headRefOid'*)
+        h=0
+        [ ! -f "$GHS/pin_n" ] || h=$(cat "$GHS/pin_n")
+        h=$((h + 1))
+        echo "$h" >"$GHS/pin_n"
         [ ! -f "$GHS/head_at_flip" ] || head=$(cat "$GHS/head_at_flip")
+        # head_after_record moves the head from the second re-read on.
+        [ ! -f "$GHS/head_after_record" ] || [ "$h" -lt 2 ] || head=$(cat "$GHS/head_after_record")
         printf '%s\n' "$head"
         ;;
       *mergeable*)
@@ -406,7 +415,7 @@ fixture
 set_policy unit-owner
 echo 0123456789012345678901234567890123456789 >"$GHS/head_override"
 run_helper flip --spec specs/demo --task 1
-check "a rollup for another head fails ci-rollup" [ "$CODE" = 4 ]
+check "a rollup that keeps naming another head is refused unparked (exit 5)" [ "$CODE" = 5 ]
 check "no flip on a moved head" [ "$(calls 'pr ready')" = 0 ]
 
 echo "# the ready-guard is the currency floor"
@@ -432,7 +441,8 @@ echo 1 >"$GHS/ready_rc"
 run_helper flip --spec specs/demo --task 1
 check "a failing flip call parks (exit 4)" [ "$CODE" = 4 ]
 check "the record and a follow-up comment were both written" [ "$(calls 'pr comment')" = 2 ]
-check "the follow-up names the failed flip" grep -qi 'flip call failed' "$GHS/comment.2"
+check "the follow-up names the failed flip" grep -qi 'flip was not made.*gh exit 1' "$GHS/comment.2"
+check "the follow-up says the flip was parked" grep -q 'parked under' "$GHS/comment.2"
 check "the park names flip-call" grep -q 'pending ready-flip: flip-call' <<<"$(bullet)"
 
 echo "# skips: no PR, no host CLI, already ready, the human policy"
@@ -589,6 +599,37 @@ echo 0123456789012345678901234567890123456789 >"$GHS/head_at_flip"
 run_helper flip --spec specs/demo --task 1
 check "a head that moved after the checks is not flipped" [ "$(calls 'pr ready')" = 0 ]
 check "a head that moved after the checks writes no record" [ "$(calls 'pr comment')" = 0 ]
+
+fixture
+set_policy unit-owner
+echo 0123456789012345678901234567890123456789 >"$GHS/head_after_record"
+before=$(origin_head)
+run_helper flip --spec specs/demo --task 1
+check "a head that moves after the record is not flipped (exit 5)" [ "$CODE" = 5 ]
+check "no flip call once the head moved after the record" [ "$(calls 'pr ready')" = 0 ]
+check "the record and its follow-up were both written" [ "$(calls 'pr comment')" = 2 ]
+check "the follow-up says the head moved and nothing was parked" grep -q 'head moved.*no park was written' "$GHS/comment.2"
+check "no park is pushed on top of a moved branch" [ "$(origin_head)" = "$before" ]
+check "no local park commit is stranded" [ "$(gitf rev-parse HEAD)" = "$before" ]
+fixture
+set_policy unit-owner
+echo 0123456789012345678901234567890123456789 >"$GHS/head_override"
+before=$(origin_head)
+run_helper flip --spec specs/demo --task 1
+check "a head someone else moved refuses with no park (exit 5)" [ "$CODE" = 5 ]
+check "a moved branch gets no stranded park commit" [ "$(gitf rev-parse HEAD)" = "$before" ]
+fixture
+set_policy unit-owner
+echo 1 >"$GHS/head_lag_until"
+run_helper flip --spec specs/demo --task 1
+check "a host lagging one read behind the push still flips" [ "$CODE" = 0 ]
+
+echo "# no tracking ref: reconcile pushes nothing it cannot account for"
+fixture
+set_policy unit-owner
+gitf update-ref -d "refs/remotes/origin/$BRANCH"
+run_helper reconcile --spec specs/demo --task 1
+check "reconcile with no tracking ref and nothing to clear exits 0" [ "$CODE" = 0 ]
 
 echo "# a hand-in that failed, or names too little, is never trusted"
 fixture
