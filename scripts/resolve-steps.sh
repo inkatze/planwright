@@ -189,7 +189,8 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 }
 
 TAB=$(printf '\t')
-# scripts/step-record.sh's is_point holds the same vocabulary; the lists
+# scripts/step-record.sh's is_point holds the same vocabulary, and
+# scripts/worker-command-guard.sh's STEP_POINTS the wired points; the lists
 # change together.
 WIRED_POINTS="pre-implementation pre-ci convergence pre-pr post-pr pre-ready-flip pre-spec-ready-flip"
 UNWIRED_POINTS="spec-drafted kickoff-signed-off unit-selected pre-dispatch post-dispatch unit-halted post-merge orchestrator-idle"

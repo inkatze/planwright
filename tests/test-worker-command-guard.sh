@@ -1099,6 +1099,144 @@ assert_allow "regression — tracked trusted-root assignment then a script call"
   "R=$PLUGIN_ROOT; \$R/scripts/plug.sh --flag" Bash "$PLUGIN_CWD"
 HOOK_ENV=()
 
+echo "### custom-steps REQ-G1.3 — declared command step lines"
+# A fixture overlay stack for scripts/resolve-steps.sh: a core root whose
+# defaults leave every point empty, a repo-tracked layer declaring command
+# steps and naming them from two points, and an adopter layer declaring a
+# traversal target (malformed there, so dropped with a warning). The hook
+# resolves these itself; nothing here tells it what is declared.
+FX="$(cd "$SANDBOX" && pwd -P)/steps-fx"
+mkdir -p "$FX/core/config" "$FX/adopter/catalogs" "$FX/repo/.claude/catalogs" \
+  "$FX/repo/tools" "$FX/bin" "$FX/claude"
+: >"$FX/repo/.git"
+cp "$REPO_ROOT/config/steps.yaml" "$FX/core/config/steps.yaml"
+{
+  printf 'dispatch_isolation: per-unit\n'
+  for p in pre-implementation pre-ci convergence pre-pr post-pr pre-ready-flip \
+    pre-spec-ready-flip spec-drafted kickoff-signed-off unit-selected pre-dispatch \
+    post-dispatch unit-halted post-merge orchestrator-idle; do
+    printf 'steps_%s: []\n' "${p//-/_}"
+  done
+} >"$FX/core/config/defaults.yml"
+for t in declared.sh other.sh undeclared.sh; do
+  printf '#!/bin/sh\nexit 0\n' >"$FX/repo/tools/$t"
+  chmod +x "$FX/repo/tools/$t"
+done
+printf '#!/bin/sh\nexit 0\n' >"$FX/bin/fixture-tool"
+chmod +x "$FX/bin/fixture-tool"
+DECLARED="$FX/repo/tools/declared.sh"
+OTHER="$FX/repo/tools/other.sh"
+cat >"$FX/repo/.claude/catalogs/steps.yaml" <<YAML
+steps:
+  - id: declared
+    kind: command
+    target: $DECLARED
+    args: --mode strict
+  - id: bare
+    kind: command
+    target: fixture-tool
+    args: --x
+  - id: noargs
+    kind: command
+    target: $OTHER
+  - id: unlisted
+    kind: command
+    target: $FX/repo/tools/undeclared.sh
+    args: --mode strict
+YAML
+printf 'steps_pre_ci: [declared, bare]\nsteps_post_pr: [noargs]\n' >"$FX/repo/.claude/planwright.yml"
+cat >"$FX/adopter/catalogs/steps.yaml" <<YAML
+steps:
+  - id: traversal
+    kind: command
+    target: $FX/repo/tools/../tools/declared.sh
+    args: --mode strict
+YAML
+printf 'steps_pre_pr: [traversal]\n' >"$FX/adopter/planwright.yml"
+# The resolver runs several times per hook call on a loaded host, so these
+# functional rows lift the resolution deadline; the bound rows below keep the
+# default.
+FX_ENV=("PLANWRIGHT_ROOT=$FX/core" "CLAUDE_PLUGIN_ROOT=$FX/core"
+  "PLANWRIGHT_CONFIG_DEFAULTS=$FX/core/config/defaults.yml"
+  "PLANWRIGHT_ADOPTER_OVERLAY=$FX/adopter" "PLANWRIGHT_REPO_ROOT=$FX/repo"
+  "PLANWRIGHT_LOCAL_CONFIG=" "CLAUDE_DIR=$FX/claude" "PATH=$FX/bin:$PATH")
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
+FXC="$FX/repo"
+# The runner's own spelling: the context prefix, then the location and args,
+# each single-quoted, exactly as resolve-steps.sh --line renders it.
+RUNNER_LINE="$(env PLANWRIGHT_STEP_SPEC=custom-steps PLANWRIGHT_STEP_TASK_IDS=7 \
+  PLANWRIGHT_STEP_UNIT_KIND=task PLANWRIGHT_STEP_BRANCH=planwright/custom-steps/task-7 \
+  PLANWRIGHT_STEP_BASE_BRANCH=main PLANWRIGHT_STEP_WORKTREE="$FXC" PLANWRIGHT_STEP_PR_NUMBER= \
+  PLANWRIGHT_STEP_ID=declared PLANWRIGHT_STEP_PREV_RECORD= \
+  /bin/bash "$REPO_ROOT/scripts/resolve-steps.sh" pre-ci --line "$DECLARED" --mode strict)"
+assert_allow "declared line approved" "$DECLARED --mode strict" Bash "$FXC"
+assert_allow "declared line with the context assignments prefixed approved" "$RUNNER_LINE" Bash "$FXC"
+assert_allow "word-identical respelling approved" "'$DECLARED' \"--mode\" strict" Bash "$FXC"
+assert_allow "bare target's resolved location approved" "$FX/bin/fixture-tool --x" Bash "$FXC"
+assert_allow "declared line with no args approved" "$OTHER" Bash "$FXC"
+assert_allow "declared line chained with a known-safe segment approved" \
+  "$DECLARED --mode strict && git status" Bash "$FXC"
+assert_defer "bare target instead of its resolved location deferred" "fixture-tool --x" Bash "$FXC"
+assert_defer "segment sharing only the first word deferred" "$DECLARED --mode lax" Bash "$FXC"
+assert_defer "declared line plus an extra arg deferred" "$DECLARED --mode strict --extra" Bash "$FXC"
+assert_defer "declared location without its args deferred" "$DECLARED" Bash "$FXC"
+assert_defer "declared no-args line given an arg deferred" "$OTHER extra" Bash "$FXC"
+assert_defer "non-declared command deferred" "$FX/repo/tools/undeclared.sh --mode strict" Bash "$FXC"
+assert_defer "path target with a traversal segment deferred" \
+  "$FX/repo/tools/../tools/declared.sh --mode strict" Bash "$FXC"
+assert_defer "declared line chained with an unsafe segment deferred" \
+  "$DECLARED --mode strict; rm -rf x" Bash "$FXC"
+assert_defer "declared line with a write redirect deferred" "$DECLARED --mode strict > out" Bash "$FXC"
+assert_defer "declared line behind a non-context assignment deferred" \
+  "LD_PRELOAD=/x.so $DECLARED --mode strict" Bash "$FXC"
+assert_defer "declared line behind a context assignment carrying an expansion deferred" \
+  "PLANWRIGHT_STEP_SPEC=\"\$HOME\" $DECLARED --mode strict" Bash "$FXC"
+assert_defer "declared line behind a quoted-name assignment deferred" \
+  "'PLANWRIGHT_STEP_SPEC=x' $DECLARED --mode strict" Bash "$FXC"
+assert_defer "declared words split across a quoted word deferred" "'$DECLARED --mode' strict" Bash "$FXC"
+HOOK_ENV=()
+assert_defer "declared line with no declaring overlay deferred" "$DECLARED --mode strict" Bash "$FXC"
+
+# The guard's own location checks, independent of what the resolver refuses:
+# a copy of the hook beside a stub resolver that prints the location given.
+stub_root() {
+  local root=$1 location=$2 target=$3
+  mkdir -p "$root/scripts"
+  cp "$HOOK" "$root/scripts/worker-command-guard.sh"
+  cat >"$root/scripts/resolve-steps.sh" <<STUB
+#!/bin/bash
+[ "\$1" = pre-ci ] || exit 0
+printf 'run\tx\tpre-ci\trepo-tracked\trepo-tracked\t%s\tin-session\tcommand\t-\thalt\t-\t-\t%s\n' '$target' '$location'
+STUB
+}
+REAL_HOOK=$HOOK
+stub_root "$FX/stub-ok" "$DECLARED" "$DECLARED"
+HOOK="$FX/stub-ok/scripts/worker-command-guard.sh"
+HOOK_ENV=("PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
+assert_allow "stub: a clean printed location approved" "$DECLARED" Bash "$FXC"
+stub_root "$FX/stub-dotdot" "$FX/repo/tools/../tools/declared.sh" "$FX/repo/tools/../tools/declared.sh"
+HOOK="$FX/stub-dotdot/scripts/worker-command-guard.sh"
+assert_defer "stub: a printed path location with a traversal segment deferred" \
+  "$FX/repo/tools/../tools/declared.sh" Bash "$FXC"
+stub_root "$FX/stub-dot" "$FX/repo/tools/./declared.sh" "$FX/repo/tools/./declared.sh"
+HOOK="$FX/stub-dot/scripts/worker-command-guard.sh"
+assert_defer "stub: a printed path location with a dot segment deferred" \
+  "$FX/repo/tools/./declared.sh" Bash "$FXC"
+cp "$DECLARED" "$FX/repo/tools/til~de.sh"
+stub_root "$FX/stub-charset" "$FX/repo/tools/til~de.sh" "$FX/repo/tools/til~de.sh"
+HOOK="$FX/stub-charset/scripts/worker-command-guard.sh"
+assert_defer "stub: a printed location outside the charset deferred" \
+  "'$FX/repo/tools/til~de.sh'" Bash "$FXC"
+stub_root "$FX/stub-missing" "$FX/repo/nodir/declared.sh" "$FX/repo/nodir/declared.sh"
+HOOK="$FX/stub-missing/scripts/worker-command-guard.sh"
+assert_defer "stub: a printed path location that does not canonicalize deferred" \
+  "$FX/repo/nodir/declared.sh" Bash "$FXC"
+stub_root "$FX/stub-relative" "tools/declared.sh" "tools/declared.sh"
+HOOK="$FX/stub-relative/scripts/worker-command-guard.sh"
+assert_defer "stub: a printed location that is not absolute deferred" "tools/declared.sh" Bash "$FXC"
+HOOK=$REAL_HOOK
+HOOK_ENV=()
+
 echo "### REQ-B1.7 — bounded runtime on pathological input"
 big="$(head -c 200000 /dev/zero | tr '\0' 'a')"
 run_hook "echo $big"
@@ -1116,6 +1254,35 @@ if [ "$CODE" -eq 0 ] && is_empty && [ "$elapsed" -le 2 ]; then
   pass "over-cap command defers quickly (length short-circuit)"
 else
   fail "over-cap command — code=$CODE empty=$(is_empty && echo y || echo n) secs=$elapsed"
+fi
+# The same bound with the fixture catalog present: the declared steps are
+# consulted only for a segment not already known-safe, and an over-cap
+# command never reaches a segment.
+HOOK_ENV=("${FX_ENV[@]}")
+SECONDS=0
+run_hook "echo $over" Bash "$FXC"
+elapsed=$SECONDS
+if [ "$CODE" -eq 0 ] && is_empty && [ "$elapsed" -le 2 ]; then
+  pass "over-cap command defers quickly with a declaring catalog present"
+else
+  fail "over-cap command with a declaring catalog — code=$CODE empty=$(is_empty && echo y || echo n) secs=$elapsed"
+fi
+HOOK_ENV=()
+# A resolver that never returns cannot hold the hook past its resolution
+# deadline: the segment defers once the default deadline passes.
+mkdir -p "$FX/stub-slow/scripts"
+cp "$HOOK" "$FX/stub-slow/scripts/worker-command-guard.sh"
+printf '#!/bin/bash\nsleep 30\n' >"$FX/stub-slow/scripts/resolve-steps.sh"
+REAL_HOOK=$HOOK
+HOOK="$FX/stub-slow/scripts/worker-command-guard.sh"
+SECONDS=0
+run_hook "$DECLARED --mode strict" Bash "$FXC"
+elapsed=$SECONDS
+HOOK=$REAL_HOOK
+if [ "$CODE" -eq 0 ] && is_empty && [ "$elapsed" -le 4 ]; then
+  pass "a resolver past the deadline defers within the bound"
+else
+  fail "slow resolver — code=$CODE empty=$(is_empty && echo y || echo n) secs=$elapsed"
 fi
 
 echo
