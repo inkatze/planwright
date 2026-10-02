@@ -1992,7 +1992,8 @@ nothing added:
   no observable change), Agent-resolvable findings (backed by a
   failing-then-passing regression test plus green CI), Needs-sign-off
   applications (the fix lands on the branch per the gate's commit discipline,
-  its own commit for a behavior fix or the loop iteration's batched prose
+  its own commit for a behavior fix (or one green commit shared with findings it
+  cannot be isolated from) or the loop iteration's batched prose
   commit for a prose-only one; your approval happens at PR review, where you
   leave the commit or reject with what its pending-sign-off checklist entry
   names), and pre-approved operational hygiene (reclaiming merged workers,

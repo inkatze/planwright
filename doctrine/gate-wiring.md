@@ -10,7 +10,8 @@ Citations: REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7 · D-4, D-5, D-6 ·
 operator-dialogue REQ-I1.2, REQ-I1.4 · operator-dialogue D-14, D-15 ·
 prose-disposition REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4 ·
 prose-disposition D-5 · custom-steps REQ-D1.2, REQ-D1.5 · human-gates
-REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.9, REQ-B1.10, D-3, D-16.
+REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-B1.9,
+REQ-B1.10, D-3, D-12, D-13, D-16.
 The PR-body assembly section additionally realizes output-hygiene
 REQ-A1.1–REQ-A1.4 and D-2.
 
@@ -69,13 +70,15 @@ pass opens.
 - **A Needs-sign-off fix that changes code behaviour commits on its own**, so
   `git revert <sha>` undoes exactly one finding. A fix that edits code and
   its prose together is that code fix's commit, never a batch member.
+  Findings not file-isolable, or sharing a regression test, share one green
+  commit, disclosed in their checklist entries.
 - **Needs-sign-off fixes that edit only prose batch** into one commit per
   loop iteration, carrying the manifest below. A partial revert there is a
   hand edit the manifest guides: the per-finding revert guarantee earns its
   cost for behaviour, where a partial revert can break things, and not for
   wording.
-- Both sign-off shapes carry the sign-off trailer below, stamped once on a
-  batch, so the branch itself identifies them.
+- Sign-off commits carry the trailer below per finding, once on a batch, so
+  the branch identifies them.
 - **Auto-applicable and Agent-resolvable items may batch** into one commit
   per loop iteration; their audit rows record the commit they landed in.
   Declared scoping (per [Proportionality](proportionality.md)): not pending a
@@ -118,8 +121,7 @@ mainline subject; a merge commit keeps them as ancestor history; a rebase
 merge lands them on mainline, unread.
 
 A legacy `[pending-sign-off]` subject suffix counts as a `Planwright-Sign-Off: PS-legacy-<sha7>` trailer;
-no history is rewritten and no branch is swept. Until skills stamp the
-trailer, a suffix-writing skill conforms through this line.
+no history is rewritten and no branch is swept.
 
 ## Pending-sign-off checklist
 
@@ -133,7 +135,9 @@ names, never from a side state file. A range it cannot resolve fails by name, ne
 ```markdown
 ## Pending sign-off
 
-- [ ] **PS-1** <one-line finding and the fix applied> · commit `<sha>`
+<approval statement>
+
+- **PS-1** <one-line finding and the fix applied> · commit `<sha>`
   - Route reason: <which Needs-sign-off route matched>
   - Reject with: `git revert <sha>`
 ```
@@ -141,7 +145,7 @@ names, never from a side state file. A range it cannot resolve fails by name, ne
 - IDs are the trailer values, so they are stable across regenerations and
   never reused: a reverted or rejected item drops out of the rendered
   checklist and its number stays a gap.
-- The checkbox is a reading aid, not the approval: the human approves every
+- The section's approval statement: the human approves every
   item by the approval act [Human Gates](human-gates.md) names, never by the
   draft→ready flip, and rejects one before that act by its recipe.
 - An empty checklist still emits, with a single `none` row.
@@ -150,7 +154,7 @@ A batched prose commit renders as **one entry with one sub-item per manifest
 line**:
 
 ```markdown
-- [ ] **PS-2** 2 meaning-class prose fixes · commit `<sha>`
+- **PS-2** 2 meaning-class prose fixes · commit `<sha>`
   - Route reason: meaning-class prose on surfaces that predate the PR
   - `<file>` — before: `<rule>` · after: `<rule>`
   - `<file>` — before: absent · after: `<rule>`
@@ -319,7 +323,9 @@ Closes the unowned-refresh gap REQ-E1 names: a merged task's block gets `Complet
 
 ## Pending sign-off
 
-- [ ] **PS-1** 2 meaning-class prose fixes · commit `def5678`
+<approval statement>
+
+- **PS-1** 2 meaning-class prose fixes · commit `def5678`
   - Route reason: meaning-class prose on surfaces that predate the PR
   - `docs/annotations.md` — before: the degraded case prints no stamp · after: it prints the date-only form
   - `scripts/tasks-pr-sync.sh` header comment — before: the no-remote arm must stamp · after: it may stamp
