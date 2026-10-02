@@ -1143,8 +1143,12 @@ steps:
     kind: command
     target: $FX/repo/tools/undeclared.sh
     args: --mode strict
+  - id: rel
+    kind: command
+    target: tools/declared.sh
+    args: --rel
 YAML
-printf 'steps_pre_ci: [declared, bare]\nsteps_post_pr: [noargs]\n' >"$FX/repo/.claude/planwright.yml"
+printf 'steps_pre_ci: [declared, bare, rel]\nsteps_post_pr: [noargs]\n' >"$FX/repo/.claude/planwright.yml"
 cat >"$FX/adopter/catalogs/steps.yaml" <<YAML
 steps:
   - id: traversal
@@ -1235,6 +1239,12 @@ assert_defer "a context prefix value carrying a control byte deferred" \
 assert_defer "a context prefix with the quote at the equals sign deferred" \
   "$(ctx_prefix task 7 '' pre-ci | sed "s/PLANWRIGHT_STEP_SPEC='s'/PLANWRIGHT_STEP_SPEC\"=s\"/") $DECLARED --mode strict" Bash "$FXC"
 assert_defer "a context prefix with no command deferred" "$(ctx_prefix task 7 '' pre-ci)" Bash "$FXC"
+assert_allow "relative target's location, joined to the working directory, approved" \
+  "$FXC/tools/declared.sh --rel" Bash "$FXC"
+assert_defer "relative target's location from another working directory deferred" \
+  "$FXC/tools/declared.sh --rel" Bash "$FXC/tools"
+assert_allow "declared line inside fish -c approved" "fish -c '$DECLARED --mode strict'" Bash "$FXC"
+assert_defer "changed declared line inside fish -c deferred" "fish -c '$DECLARED --mode lax'" Bash "$FXC"
 HOOK_ENV=()
 assert_defer "declared line with no declaring overlay deferred" "$DECLARED --mode strict" Bash "$FXC"
 
@@ -1266,7 +1276,7 @@ assert_defer "stub: a printed path location with a dot segment deferred" \
 cp "$DECLARED" "$FX/repo/tools/til~de.sh"
 stub_root "$FX/stub-charset" "$FX/repo/tools/til~de.sh" "$FX/repo/tools/til~de.sh"
 HOOK="$FX/stub-charset/scripts/worker-command-guard.sh"
-assert_defer "stub: a printed location outside the charset deferred" \
+assert_defer "stub: a segment outside the location charset deferred" \
   "'$FX/repo/tools/til~de.sh'" Bash "$FXC"
 stub_root "$FX/stub-missing" "$FX/repo/nodir/declared.sh" "$FX/repo/nodir/declared.sh"
 HOOK="$FX/stub-missing/scripts/worker-command-guard.sh"
@@ -1274,7 +1284,48 @@ assert_defer "stub: a printed path location that does not canonicalize deferred"
   "$FX/repo/nodir/declared.sh" Bash "$FXC"
 stub_root "$FX/stub-relative" "tools/declared.sh" "tools/declared.sh"
 HOOK="$FX/stub-relative/scripts/worker-command-guard.sh"
-assert_defer "stub: a printed location that is not absolute deferred" "tools/declared.sh" Bash "$FXC"
+assert_defer "stub: a segment whose first word is not absolute deferred" "tools/declared.sh" Bash "$FXC"
+
+# stub_line <root> <decision> <kind> <exit>: a stub resolver printing one
+# pre-ci line for $DECLARED with the given decision and kind, then exiting
+# with <exit>, and recording each call in <root>/calls.
+stub_line() {
+  local root=$1 dec=$2 kind=$3 rc=$4
+  mkdir -p "$root/scripts"
+  cp "$REAL_HOOK" "$root/scripts/worker-command-guard.sh"
+  cat >"$root/scripts/resolve-steps.sh" <<STUB
+#!/bin/bash
+echo "\$1" >>'$root/calls'
+[ "\$1" = pre-ci ] || exit 0
+printf '%s\tx\tpre-ci\trepo-tracked\trepo-tracked\t%s\tin-session\t%s\t-\thalt\t-\t-\t%s\n' '$dec' '$DECLARED' '$kind' '$DECLARED'
+exit $rc
+STUB
+  HOOK="$root/scripts/worker-command-guard.sh"
+}
+stub_line "$FX/stub-run" run command 0
+assert_allow "stub: a run command line approved" "$DECLARED" Bash "$FXC"
+for d in skip park ask; do
+  stub_line "$FX/stub-$d" "$d" command 0
+  assert_defer "stub: a $d decision deferred" "$DECLARED" Bash "$FXC"
+done
+stub_line "$FX/stub-rc" run command 1
+assert_defer "stub: a resolver exiting non-zero deferred" "$DECLARED" Bash "$FXC"
+stub_line "$FX/stub-skill" run skill 0
+assert_defer "stub: a skill step's location deferred" "$DECLARED" Bash "$FXC"
+stub_line "$FX/stub-calls" run command 0
+assert_allow "stub: a known-safe segment approved" "git status" Bash "$FXC"
+assert_defer "stub: a segment without a declared line's shape deferred" "foo bar" Bash "$FXC"
+if [ -e "$FX/stub-calls/calls" ]; then
+  fail "the resolver ran for a known-safe or non-declared-shape segment"
+else
+  pass "the resolver never runs for a known-safe or non-declared-shape segment"
+fi
+assert_allow "stub: two declared segments approved" "$DECLARED && $DECLARED" Bash "$FXC"
+if [ "$(grep -c '^pre-ci$' "$FX/stub-calls/calls")" = 1 ]; then
+  pass "the resolver runs once per point per hook call"
+else
+  fail "the resolver ran pre-ci $(grep -c '^pre-ci$' "$FX/stub-calls/calls") times in one hook call"
+fi
 HOOK=$REAL_HOOK
 HOOK_ENV=()
 
@@ -1313,14 +1364,14 @@ HOOK_ENV=()
 # deadline: the segment defers once the default deadline passes.
 mkdir -p "$FX/stub-slow/scripts"
 cp "$HOOK" "$FX/stub-slow/scripts/worker-command-guard.sh"
-printf '#!/bin/bash\nsleep 30\n' >"$FX/stub-slow/scripts/resolve-steps.sh"
+printf '#!/bin/bash\n: >"%s/stub-slow/ran"\nsleep 30\n' "$FX" >"$FX/stub-slow/scripts/resolve-steps.sh"
 REAL_HOOK=$HOOK
 HOOK="$FX/stub-slow/scripts/worker-command-guard.sh"
 SECONDS=0
 run_hook "$DECLARED --mode strict" Bash "$FXC"
 elapsed=$SECONDS
 HOOK=$REAL_HOOK
-if [ "$CODE" -eq 0 ] && is_empty && [ "$elapsed" -le 4 ]; then
+if [ "$CODE" -eq 0 ] && is_empty && [ -e "$FX/stub-slow/ran" ] && [ "$elapsed" -ge 1 ] && [ "$elapsed" -le 4 ]; then
   pass "a resolver past the deadline defers within the bound"
 else
   fail "slow resolver — code=$CODE empty=$(is_empty && echo y || echo n) secs=$elapsed"
