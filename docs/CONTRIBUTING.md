@@ -109,6 +109,34 @@ Actions runs the same gate on every pull request. This is dev tooling
 only — planwright's **runtime** scripts stay plain portable bash with no mise
 dependency.
 
+### Opt-in suites, outside the gate
+
+Some checks need a live Claude session and spend model tokens, so nothing in
+`check` or CI runs them. Run them when a change touches what they cover:
+
+- `mise run eval:skill`, `mise run eval:behavioral`, `mise run eval:turn-shape`
+  — the prompt and behavioral evals (`check:no-ci-evals` keeps the `eval:`
+  namespace out of CI);
+- `mise run smoke:dispatch`, plus its `--live` form, after updating the
+  installed plugin (see [release-checklist.md](release-checklist.md));
+- `mise run rehearsal:lifecycle` — the deliberate-wedge lifecycle rehearsal
+  (`tests/rehearsal-lifecycle.sh --live`). On each session-grade rung it
+  dispatches one real worker against a throwaway spec bundle, wedges it, and
+  asserts both sweep modes leave it alone, `stop` closes it, and nothing it
+  held is left behind. On the stream-json rung it also asserts the detector
+  reads the wedged worker waiting on a human. The headless rung has no pend
+  path, so there the worker is held mid-command instead and must read as live
+  and unfinished, and the waiting-on-a-human check reports N/A with the
+  reason. While the sweep
+  refuses `terminate` everywhere, the terminate cycle observes and the check
+  requires the sweep to say so. Everything planwright writes lands under one
+  temp directory (the CLI keeps its own session state under your real home),
+  one worker at a time. Run it after changing a
+  close, the detector, the sweep, or a rung's launch. Exit 3 is a skip (no
+  live session could be established) and is never a pass. Without `--live` the
+  same file runs against a scripted CLI inside `check`, which covers the
+  harness but not the floor.
+
 ### Purged identifiers
 
 A handful of identifiers were removed from this history deliberately, and

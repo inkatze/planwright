@@ -65,9 +65,13 @@ exists to make visible when a backend is added.
 ### REQ-A1.6 — The deliberate-wedge rehearsal [rehearsal]
 
 A real worker is dispatched against the throwaway rehearsal bundle on each
-session-grade rung and deliberately wedged at a permission prompt. Asserts the
-detector classifies it `waiting-on-a-human` and not `working`; that `stop`
-closes it; and that every class in the release set is empty afterwards. The
+session-grade rung and deliberately wedged. On a rung that can pend
+(`stream-json-persistent`) it is wedged at a permission prompt, and the entry
+asserts the detector classifies it `waiting-on-a-human` and not `working`. On
+a rung with no pend path (`headless-oneshot`) it is held mid-command, and the
+entry asserts the detector reads it as live and unfinished. On every rung it
+asserts that `stop` closes the worker and that every class in the release set
+is empty afterwards. The
 governing negative: a run where the live session cannot be established reports
 a visible skip, never a pass, so an unavailable rehearsal can never be mistaken
 for a discharged floor. This is the only entry that exercises the untidy path
@@ -325,6 +329,9 @@ release.
 
 The REQ-A1.6 rehearsal runs the sweep in both modes, so the observing-only path
 that ships by default is exercised rather than left to rot until promotion.
+While the sweep refuses `terminate` everywhere, the terminate cycle exercises
+that mode by verifying the refusal: the knob must be read and the sweep must
+say it refused, observing instead.
 
 ## REQ-G — Steer
 

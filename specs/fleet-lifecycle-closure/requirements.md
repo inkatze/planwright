@@ -167,7 +167,11 @@ ending and what evidence that authorization required.
 - **REQ-A1.6** The floor's instantiation SHALL be proven end-to-end by a
   repeatable **deliberate-wedge rehearsal**: a real worker dispatched against a
   throwaway spec bundle, wedged on purpose, then detected, closed, and
-  confirmed to have released every resource class. Fixture coverage alone
+  confirmed to have released every resource class. The waiting-on-a-human
+  detection applies on a rung that can pend on a permission prompt; a rung
+  with no pend path (`headless-oneshot`, where an unapproved ask fails under
+  `--print`) is instead held mid-command and shown to read as live and
+  unfinished, then closed and released. Fixture coverage alone
   SHALL NOT be treated as discharging the floor, because the leak this bundle
   exists to close is invisible on the path a passing fixture exercises. The
   rehearsal SHALL be opt-in rather than gating ordinary CI, since it consumes
@@ -509,6 +513,23 @@ ending and what evidence that authorization required.
   pass tightened Task 11: heal through the register seam's validation,
   idempotent per handle, audited in both sweep modes, the marker declared as
   a resource class, and pre-marker records left unchanged.
+
+- 2026-10-02 — Amendment (meaning-class, operator decision on the Task 12
+  PR). The rehearsal's waiting-on-a-human assertion is narrowed to rungs that
+  can pend on a permission prompt: `headless-oneshot` has no pend path, so on
+  that rung the rehearsal asserts the held worker reads as live and
+  unfinished, and that `stop` closes it and releases every class. REQ-A1.6,
+  D-13, Task 12 and the REQ-A1.6 test-spec entry carry the narrowed wording.
+  The kickoff brief and its anchor are re-recorded by a `/spec-kickoff` delta
+  re-walkthrough, not by this change.
+
+- 2026-10-02 — Amendment (meaning-class, operator decision on the Task 12
+  PR). REQ-F1.7's "both sweep modes" is discharged for terminate mode by
+  verifying the refusal while the sweep refuses `terminate` everywhere: the
+  terminate cycle must read the knob and say it refused. Once terminate is
+  re-enabled the rehearsal exercises it as honoured. Noted on the REQ-F1.7
+  test-spec entry; the same `/spec-kickoff` delta re-walkthrough re-records
+  the anchor.
 
 ## Sources
 

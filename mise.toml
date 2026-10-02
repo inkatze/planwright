@@ -41,6 +41,10 @@ run = "scripts/release-arm.sh"
 description = "Prove a dispatched worker will not stall at the permission gate, against the INSTALLED plugin (what a worker actually loads) rather than this checkout. Run after updating the plugin: a guard fix merged to main reaches no worker until a release carrying it is installed, so this is the only check that answers 'did the fix actually land?'. Add --live to also launch one real worker and assert zero permission requests; that costs tokens and wall clock, so it is deliberately not wired into check or CI."
 run = "/bin/bash tests/smoke-worker-dispatch.sh --installed"
 
+[tasks."rehearsal:lifecycle"]
+description = "The deliberate-wedge lifecycle rehearsal against the real claude CLI: on each session-grade rung, dispatch one worker against a throwaway spec bundle, wedge it, and assert both sweep modes leave it alone, `stop` closes it, and nothing it held is left behind; on the stream-json rung, also that the detector reads the wedged worker waiting on a human (the headless rung has no pend path, so there the worker is held mid-command and must read as live and unfinished, and that check reports N/A). Everything planwright writes lands under one mktemp root (the CLI keeps its own session state under the real home), one worker at a time; while the sweep refuses terminate everywhere, the terminate cycle observes and the check requires the sweep to say so. Spends model tokens and a few minutes, so it is opt-in and never wired into check or CI; a run that cannot establish a live session exits 3 as a skip, never 0. Without --live the same file runs against a scripted CLI inside `check`."
+run = "/bin/bash tests/rehearsal-lifecycle.sh --live"
+
 [tasks.test]
 description = "Run the shell test suites under /bin/bash (the bash 3.2 floor), up to N files at a time via scripts/run-tests.sh (N = core count; PLANWRIGHT_TEST_JOBS overrides), bounded machine-wide by a shared ticket pool (PLANWRIGHT_TEST_SLOTS, default core count)"
 run = '/bin/bash scripts/run-tests.sh'
