@@ -74,8 +74,10 @@
 #       --home defaults to what `home` declares; the tower passes the home it
 #       already stated so the record lands where it said. `--home pr` is
 #       refused (exit 2) when `home` would not declare it; `--home file` skips
-#       the `gh` check, and is refused (exit 2) when the spec root lies outside
-#       the checkout, since the record is committed on the flight's branch.
+#       the `gh` check. A file home, given or declared, is refused (exit 2)
+#       before anything is placed when the spec root lies outside the
+#       checkout, since the record is committed on the flight's branch; the
+#       refusal names why the PR home is unavailable when it is.
 #       For `file`, dispatch computes the record path and the
 #       brief's land line passes it to scripts/flight-record.sh
 #       (`--record-path`), which composes none of its own.
@@ -1040,6 +1042,16 @@ cmd_dispatch() {
   elif [ "$home" = pr ] && [ "$HOME_DECL" != pr ]; then
     die 2 "refusing --home pr: $HOME_REASON; nothing was placed"
   fi
+  # A file-home record is committed on the flight's branch, so a spec root
+  # outside the checkout cannot hold it: refused here, before the fetch, the
+  # lock, or a minted id.
+  resolve_spec_rel
+  if [ "$home" = file ] && [ "$spec_inside" -ne 1 ]; then
+    if [ -n "$HOME_REASON" ]; then
+      die 2 "the spec root lies outside this checkout, so a flight record cannot be committed there, and the PR home is unavailable: $HOME_REASON; nothing was placed"
+    fi
+    die 2 "the spec root lies outside this checkout, so a flight record cannot be committed there; dispatch without --home file to carry it in the PR body; nothing was placed"
+  fi
 
   resolve_convergence
 
@@ -1084,12 +1096,9 @@ cmd_dispatch() {
   /bin/sh "$FLIGHT_ID" check "$flight_id" 2>/dev/null || die 5 "the minted flight id failed its own grammar check"
   branch=planwright/flight/$flight_id
   suffix=flight-$flight_id
-  resolve_spec_rel
   if [ "$home" = pr ]; then
     record="draft PR body"
   else
-    [ "$spec_inside" -eq 1 ] \
-      || die 2 "the spec root lies outside this checkout, so a flight record cannot be committed there; declare --home pr to carry it in the PR body"
     record="$spec_rel/_flights/$flight_id.md"
   fi
   if [ "$backend" = tmux ]; then
