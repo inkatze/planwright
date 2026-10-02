@@ -1622,6 +1622,45 @@ for bad in "pre-ci post-merge --explain --unattended" "pre-ci pre-ci --explain -
   [ "$RC" = 2 ] && [ -z "$OUT" ] || fail "multi-point usage '$bad': rc=$RC out='$OUT'"
 done
 ok "several points refuse an unwired or repeated point, a run without --explain, --check, and the render modes"
+# Each point's own diagnostics in a multi-point run are those its single run
+# prints, under its own name.
+for att in --unattended --attended; do
+  # shellcheck disable=SC2086 # the point list is meant to word-split
+  run $WIRED --explain "$att" >/dev/null 2>"$tmp/multi-err"
+  for p in $WIRED; do
+    run "$p" --explain "$att" >/dev/null 2>"$tmp/single-err"
+    [ "$(grep "^resolve-steps: $p: " "$tmp/multi-err")" = "$(grep "^resolve-steps: $p: " "$tmp/single-err")" ] \
+      || fail "multi-point $att: $p's diagnostics differ: multi='$(grep "^resolve-steps: $p: " "$tmp/multi-err")' single='$(grep "^resolve-steps: $p: " "$tmp/single-err")'"
+  done
+done
+ok "several points print each point's own diagnostics as its single run does"
+for bad in '' 'pre-ci post-pr' 'pre-ci '; do
+  capture "$bad" --explain --unattended
+  [ "$RC" = 2 ] && [ -z "$OUT" ] || fail "point operand '$bad': rc=$RC out='$OUT'"
+  capture pre-ci "$bad" --explain --unattended
+  [ "$RC" = 2 ] && [ -z "$OUT" ] || fail "second point operand '$bad': rc=$RC out='$OUT'"
+done
+ok "an empty point operand, or one carrying a blank, is a usage error"
+# An unwired point outside check mode reads its list and nothing else.
+calls="$tmp/catalog-calls"
+cstub="$tmp/cstub"
+mkdir -p "$cstub/scripts"
+cp "$repo_root"/scripts/*.sh "$cstub/scripts/"
+ln -s "$repo_root/doctrine" "$cstub/doctrine"
+mv "$cstub/scripts/resolve-catalog.sh" "$cstub/scripts/resolve-catalog.real.sh"
+# shellcheck disable=SC2016 # the stub expands its own arguments
+printf '#!/bin/bash\necho "$*" >>%q\nexec "$(dirname "$0")/resolve-catalog.real.sh" "$@"\n' "$calls" >"$cstub/scripts/resolve-catalog.sh"
+chmod +x "$cstub/scripts/resolve-catalog.sh"
+rm -f "$calls"
+RS_SAVED=$RS
+RS="$cstub/scripts/resolve-steps.sh"
+capture post-merge --unattended
+cu_rc=$RC
+capture post-merge --check --unattended
+RS=$RS_SAVED
+[ "$cu_rc" = 0 ] && [ "$(grep -c . "$calls" 2>/dev/null)" = 2 ]
+verdict "an unwired point reads the catalog only in check mode" "unwired reads: rc=$cu_rc calls='$(cat "$calls" 2>/dev/null)'"
+
 # A broken shared read fails every point: no rows at all.
 printf 'steps:\n  - id: tool\n  bad indent\n' >"$tracked_cat"
 capture pre-ci post-pr --explain --unattended

@@ -255,6 +255,14 @@ while [ $# -gt 0 ]; do
       usage
       ;;
     *)
+      # A point is one word of the vocabulary's charset; anything else would
+      # be split or vanish in the list below.
+      case "$1" in
+        "" | *[!a-z-]*)
+          echo "resolve-steps: unknown point (expected one of: $WIRED_POINTS $UNWIRED_POINTS)" >&2
+          exit 2
+          ;;
+      esac
       points="${points:+$points }$1"
       n_points=$((n_points + 1))
       ;;
@@ -264,7 +272,8 @@ done
 [ "$n_points" -ge 1 ] || usage
 
 # Every point name is validated against the vocabulary before it reaches a
-# key or a message: any other name is a usage error.
+# key or a message: any other name is a usage error. With one point, the
+# loop's wired / unwired verdict is that point's.
 for point in $points; do
   wired=0
   unwired=0
@@ -280,21 +289,21 @@ done
 # and check mode's verdict are single-point.
 if [ "$n_points" -gt 1 ]; then
   seen=" "
-  for point in $points; do
+  for p in $points; do
     case " $WIRED_POINTS " in
-      *" $point "*) ;;
+      *" $p "*) ;;
       *)
         echo "resolve-steps: several points take wired points only" >&2
         usage
         ;;
     esac
     case "$seen" in
-      *" $point "*)
+      *" $p "*)
         echo "resolve-steps: a point is named twice" >&2
         usage
         ;;
     esac
-    seen="$seen$point "
+    seen="$seen$p "
   done
   if [ "$explain" -eq 0 ] || [ "$check" -eq 1 ] || [ $((preamble + prefix + line_mode)) -gt 0 ]; then
     echo "resolve-steps: several points take --explain and an attendance flag only" >&2
@@ -449,7 +458,7 @@ done
 work=""
 pf_pids=""
 # shellcheck disable=SC2086 # the pid list is meant to word-split
-trap '[ -z "$pf_pids" ] || kill $pf_pids 2>/dev/null; [ -z "$work" ] || rm -rf "$work"' EXIT
+trap '[ -z "${pf_pids// /}" ] || kill $pf_pids 2>/dev/null; [ -z "$work" ] || rm -rf "$work"' EXIT
 work=$(mktemp -d) || die 5 "could not create a scratch directory"
 scratch="$work/scratch"
 replayed="$work/replayed"
@@ -465,7 +474,7 @@ prefetch() {
   pf_name=$1
   shift
   "$@" </dev/null >"$work/$pf_name.out" 2>"$work/$pf_name.err" &
-  eval "pf_pid_$pf_name=\$!"
+  eval "pf_pid_$pf_name=\$! pf_rc_$pf_name="
   pf_pids="$pf_pids $!"
 }
 # collect <name>: wait for a prefetched read and return its status, with
@@ -509,17 +518,23 @@ PLANWRIGHT_REPO_ROOT_CHECKED=$PLANWRIGHT_REPO_ROOT
 export PLANWRIGHT_REPO_ROOT PLANWRIGHT_REPO_ROOT_CHECKED
 
 point_keys=""
+config_keys="review_sequence"
 for p in $points; do
   point_keys="$point_keys steps_${p//-/_}"
 done
+config_keys="review_sequence$point_keys"
 # shellcheck disable=SC2086 # the keys are validated identifiers, split on purpose
 prefetch config "$config_get_sh" --layers review_sequence $point_keys
-prefetch isolation "$isolation_sh"
-prefetch catalog "$catalog_sh" steps
-prefetch catalog_explain "$catalog_sh" steps --explain
-prefetch core_root "$overlay_root_sh" core
-if [ -z "${PLANWRIGHT_SKILLS_ROOT:-}" ] && [ -r "$script_dir/resolve-root.sh" ]; then
-  prefetch install_roots /bin/sh "$script_dir/resolve-root.sh" install --all
+install_roots_read=0
+if [ "$n_points" -gt 1 ] || [ "$unwired" -eq 0 ] || [ "$check" -eq 1 ]; then
+  prefetch isolation "$isolation_sh"
+  prefetch catalog "$catalog_sh" steps
+  prefetch catalog_explain "$catalog_sh" steps --explain
+  prefetch core_root "$overlay_root_sh" core
+  if [ -z "${PLANWRIGHT_SKILLS_ROOT:-}" ] && [ -r "$script_dir/resolve-root.sh" ]; then
+    prefetch install_roots /bin/sh "$script_dir/resolve-root.sh" install --all
+    install_roots_read=1
+  fi
 fi
 
 # valid_id <token>: the step-id (and skill-name) charset ^[a-z][a-z0-9-]*$,
@@ -586,7 +601,7 @@ EOF
     0) [ ! -s "$scratch" ] || DEGRADED=1 ;;
     3) ;;
     4) exit 4 ;;
-    *) die 5 "config-get exited $rl_rc reading $1 (broken install)" ;;
+    *) die 5 "config-get exited $rl_rc reading $config_keys (broken install)" ;;
   esac
   return "$rl_rc"
 }
@@ -738,9 +753,10 @@ EOF
   ids="$IDS"
 }
 
-# A single point's list is judged before the shared reads, as an unwired
-# point stops there; several points judge theirs one by one once the shared
-# reads are in (below).
+# A single point's list is judged before the shared reads are collected, as
+# an unwired point stops there (and reads nothing else unless checking);
+# several points judge theirs one by one once the shared reads are in
+# (below).
 [ "$n_points" -gt 1 ] || point_list
 
 # An unwired point resolves no steps; a non-empty list there is reported,
@@ -1223,11 +1239,13 @@ entry_of() {
 skills_root=""
 if [ -n "${PLANWRIGHT_SKILLS_ROOT:-}" ]; then
   skills_root="$PLANWRIGHT_SKILLS_ROOT"
-elif [ ! -r "$script_dir/resolve-root.sh" ]; then
+elif [ "$install_roots_read" -eq 0 ]; then
   printf '%s\n' "resolve-steps: warning: the root helper '$script_dir/resolve-root.sh' is missing or unreadable (broken install); the plugin skills root is unresolved" >&2
 else
   collect install_roots
-  replay "$scratch"
+  # The helper's stderr passes through raw, as it always has: its
+  # diagnostics keep a non-ASCII path's bytes, which replay would strip.
+  [ ! -s "$scratch" ] || cat "$scratch" >&2
   while IFS= read -r root; do
     if [ -n "$root" ] && [ -d "$root/skills" ]; then
       skills_root="$root/skills"
@@ -1528,9 +1546,7 @@ point_steps() {
     i=$((i + 1))
   done
 
-  # ---------------------------------------------------------------------------
   # The missing-step matrix (REQ-C1.4, D-6) and the output (REQ-H1.3).
-  # ---------------------------------------------------------------------------
   case "$list_layer/$attendance" in
     core/*) missing_token=park ;;
     repo-tracked/attended | adopter/attended | machine-local/attended) missing_token=ask ;;
