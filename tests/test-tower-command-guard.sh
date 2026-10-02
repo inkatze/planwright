@@ -70,7 +70,12 @@ SANDBOX="$(mktemp -d)" || exit 1
 # A separate fake plugin root with a scripts/ dir, for the resolved-literal-path
 # plugin-script allow fixtures (CLAUDE_PLUGIN_ROOT delivery).
 PLUGIN_ROOT="$(mktemp -d)" || exit 1
-trap 'rm -rf "$SANDBOX" "$PLUGIN_ROOT"' EXIT
+# A real directory outside both roots holding a same-named script, so a
+# lookalike defers on containment rather than on a path that does not exist.
+LOOKALIKE="$(mktemp -d)" || exit 1
+trap 'rm -rf "$SANDBOX" "$PLUGIN_ROOT" "$LOOKALIKE"' EXIT
+mkdir -p "$LOOKALIKE/scripts"
+: >"$LOOKALIKE/scripts/fleet-streamjson.sh"
 mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests" "$SANDBOX/sub"
 : >"$SANDBOX/.git" # worktree-style .git file marker
 : >"$SANDBOX/scripts/ok.sh"
@@ -80,6 +85,7 @@ mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests" "$SANDBOX/sub"
 ln -sf /etc/hosts "$SANDBOX/scripts/evillink.sh"
 mkdir -p "$PLUGIN_ROOT/scripts"
 : >"$PLUGIN_ROOT/scripts/orchestrate-select.sh"
+: >"$PLUGIN_ROOT/scripts/fleet-streamjson.sh"
 ln -sf /etc/hosts "$PLUGIN_ROOT/scripts/evillink.sh"
 
 # run_hook <command> [tool_name] [cwd] -> sets OUT and CODE. CLAUDE_PLUGIN_ROOT
@@ -194,6 +200,21 @@ assert_allow "repo script direct" "scripts/ok.sh"
 assert_allow "repo script bash-prefixed" "bash scripts/ok.sh arg1"
 assert_allow "plugin script absolute path direct" "$PLUGIN_ROOT/scripts/orchestrate-select.sh specs/x"
 assert_allow "plugin script bash-prefixed" "bash $PLUGIN_ROOT/scripts/orchestrate-select.sh"
+
+# The pending-request read: the shipped profile approves it through this guard
+# rather than a static allow entry, so it works out of the box as long as the
+# tower calls it by the resolved literal path. The drifted spellings that left a
+# fleet blocked for hours (a `~` path, an unexpanded variable) still defer.
+echo "### the tower's pending-request read, by resolved literal path"
+assert_allow "pending read, every worker" "$PLUGIN_ROOT/scripts/fleet-streamjson.sh pending"
+assert_allow "pending read, named workers" "$PLUGIN_ROOT/scripts/fleet-streamjson.sh pending sjw1 sjw2"
+assert_allow "pending read piped to head" "$PLUGIN_ROOT/scripts/fleet-streamjson.sh pending sjw1 | head -n 40"
+# HOME points at the plugin root, so the tilde path would land inside it if the
+# guard ever expanded it.
+# shellcheck disable=SC2088 # the literal, unexpanded tilde is the case under test
+HOME="$PLUGIN_ROOT" assert_defer "pending read via a tilde path" "~/scripts/fleet-streamjson.sh pending"
+assert_defer "pending read via an unexpanded variable" "\$CLAUDE_PLUGIN_ROOT/scripts/fleet-streamjson.sh pending"
+assert_defer "pending read from a lookalike outside the roots" "$LOOKALIKE/scripts/fleet-streamjson.sh pending"
 
 echo "### REQ-C1.1 — read-only state observation ALLOWS (shared with worker)"
 assert_allow "git status" "git status"

@@ -47,7 +47,10 @@
 #       read, the fleet home or the flights directory is not private to the
 #       user, or an entry's name carries a newline (exit 4). A removal that
 #       fails is named on stderr and exits 4. No fleet home yet is a clean
-#       exit 0 with no output. Every dispatch runs the same sweep under its
+#       exit 0 with no output, and so is a checkout no brief names, answered
+#       without taking its lock. A lock another holds past
+#       PLANWRIGHT_FLIGHT_LOCK_WAIT seconds (default 60) exits 4 with nothing
+#       removed. Every dispatch runs the same sweep under its
 #       lock: there a failed removal is only named on stderr, while a refused
 #       sweep stops the dispatch with exit 4 before anything is placed.
 #   dispatch <slug> --backend <tmux|print> --ask-file <file>
@@ -160,9 +163,11 @@ REGISTER="$script_dir/fleet-register.sh"
 ENVWRAP="$script_dir/fleet-dispatch-env.sh"
 MANIFEST_SKILL="$root_dir/skills/execute-task/SKILL.md"
 TEXT="$script_dir/flight-text.sh"
+COMMON="$script_dir/flight-common.sh"
 
-# How long a dispatch waits on another holding the checkout's flight lock
-# before it declines to wait. Overridable for tests.
+# How long a dispatch or retire waits on another holding the checkout's flight
+# lock before it declines to wait. fleet-sweep.sh passes 0, so its retire never
+# waits on a dispatch; tests shorten it too.
 LOCK_WAIT="${PLANWRIGHT_FLIGHT_LOCK_WAIT:-60}"
 case $LOCK_WAIT in
   '' | *[!0-9]*) LOCK_WAIT=60 ;;
@@ -184,13 +189,15 @@ EOF
 }
 
 for _h in "$FLIGHT_ID" "$WORKTREE" "$STATE" "$CONFIG" "$STEPS" "$ROOTS" \
-  "$ALLOC" "$LADDER" "$FETCH" "$REGISTER" "$ENVWRAP" "$MANIFEST_SKILL" "$TEXT"; do
+  "$ALLOC" "$LADDER" "$FETCH" "$REGISTER" "$ENVWRAP" "$MANIFEST_SKILL" "$TEXT" "$COMMON"; do
   [ -r "$_h" ] || die 2 "required helper missing: $_h"
 done
 # shellcheck source=scripts/flight-text.sh
 . "$TEXT"
 # shellcheck source=scripts/allocation-ladder.sh
 . "$LADDER"
+# shellcheck source=scripts/flight-common.sh
+. "$COMMON"
 
 resolve_repo() {
   if [ -z "$repo_root" ]; then
@@ -239,18 +246,6 @@ release_lock() {
     PLANWRIGHT_FLEET_STATE_DIR=$lock_home /bin/sh "$STATE" unlock >/dev/null 2>&1 </dev/null
   fi
   lock_held=0
-}
-
-# origin_dest <url> — print `<host>/<owner>/<repo>` (lower-cased, `.git`
-# dropped) for a network remote URL in the URL or scp-like form; nothing for a
-# local path or anything else. Userinfo carrying `#`, `?`, `\` or `:` is
-# refused: a parser that ends the authority there reads a different host than
-# the one git connects to.
-origin_dest() {
-  printf '%s\n' "$1" | sed -n -E \
-    -e 's~^(https|http|ssh|git|git\+ssh|ssh\+git)://([^/@#?\\:]+@)?([A-Za-z0-9][A-Za-z0-9.-]*)(:[0-9]+)?/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/?$~\3/\5/\6~p' \
-    -e 's#^([A-Za-z0-9._-]+@)?([A-Za-z0-9][A-Za-z0-9.-]*):([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/?$#\2/\3/\4#p' \
-    | head -n 1 | sed 's/\.git$//' | tr '[:upper:]' '[:lower:]'
 }
 
 # read_hosts — set HOSTS to the `flight_pr_hosts` entries, one per line,
@@ -490,55 +485,14 @@ in_roster() {
   return 1
 }
 
-plugin_version() {
-  _pj="$1/.claude-plugin/plugin.json"
-  [ -r "$_pj" ] || {
-    echo -
-    return
-  }
-  _ver=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$_pj" | head -n 1)
-  _ver=$(printf '%s' "$_ver" | tr -d '\000-\037\177')
-  printf '%s\n' "${_ver:--}"
-}
-
-# worker_root — the first installed root Claude Code records, which is what a
-# worker launched through `claude` loads planwright from.
-worker_root() {
-  _cands=$(/bin/sh "$ROOTS" 2>/dev/null </dev/null) || _cands=''
-  _old_ifs=$IFS
-  IFS=$LF
-  for _r in $_cands; do
-    if [ -d "$_r" ]; then
-      IFS=$_old_ifs
-      (cd "$_r" && pwd -P) | tr -d '\000-\037\177'
-      return
-    fi
-  done
-  IFS=$_old_ifs
-}
-
 # quote_block — the cleaned ask as a Markdown quote, one `> ` per line: data
 # for the worker, never a heading or fence that could restructure the brief.
 quote_block() {
   sed 's/^/> /' <"$1"
 }
 
-# has_ctl <text> — true when the text carries a control byte, which would
-# break a TAB-separated report line or split it in two.
-has_ctl() {
-  [ "$(printf '%s' "$1" | tr -d '\000-\037\177')" != "$1" ]
-}
-
 sh_quote() {
   printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
-}
-
-# private_dir <dir> — a real directory the invoking user owns that neither
-# group nor others can write: the brief it holds is a worker's instructions.
-private_dir() {
-  [ ! -L "$1" ] && [ -d "$1" ] || return 1
-  _pd_uid=$(id -u) || return 1
-  [ -n "$(find "$1" -maxdepth 0 -user "$_pd_uid" ! -perm -0020 ! -perm -0002 2>/dev/null)" ]
 }
 
 # resolve_fleet_home [--create] — set `fleet_home` to the fleet home's
@@ -933,6 +887,17 @@ cmd_retire() {
   resolve_repo
   ! has_ctl "$repo_root" || die 2 "refusing a repo root whose path carries a control character"
   resolve_fleet_home
+  # Nothing to retire where no brief names this checkout, so a checkout that
+  # never flew is answered without its lock; a flights directory that cannot
+  # be judged goes on to sweep_briefs, which refuses it by name.
+  _rt_flights="$fleet_home/flights"
+  [ -e "$_rt_flights" ] || [ -L "$_rt_flights" ] || exit 0
+  if private_dir "$_rt_flights" && [ -r "$_rt_flights" ] && [ -x "$_rt_flights" ] \
+    && [ -z "$(find "$_rt_flights" -mindepth 1 -maxdepth 1 -name "*$LF*" 2>/dev/null </dev/null)" ] \
+    && [ -z "$(find "$_rt_flights" -mindepth 2 -maxdepth 2 -name checkout -type f \
+      -exec grep -Flx -e "$repo_root" {} + 2>/dev/null </dev/null | head -n 1)" ]; then
+    exit 0
+  fi
   trap 'exit 130' INT
   trap 'exit 143' TERM
   trap 'exit 129' HUP
@@ -1206,22 +1171,7 @@ cmd_dispatch() {
       fi
     fi
   fi
-  _tv=$(plugin_version "$root_dir")
-  printf 'root\ttower\t%s\t%s\n' "$root_dir" "$_tv"
-  if [ -n "$_wr" ]; then
-    _wv=$(plugin_version "$_wr")
-    printf 'root\tworker\t%s\t%s\n' "$_wr" "$_wv"
-    if [ "$_tv" = - ] || [ "$_wv" = - ]; then
-      printf 'root-skew\tunknown\n'
-    elif [ "$_tv" = "$_wv" ]; then
-      printf 'root-skew\tno\n'
-    else
-      printf 'root-skew\tyes\n'
-    fi
-  else
-    printf 'root\tworker\tunknown\t-\n'
-    printf 'root-skew\tunknown\n'
-  fi
+  print_root_pair "$root_dir" "$_wr"
 }
 
 [ $# -ge 1 ] || usage

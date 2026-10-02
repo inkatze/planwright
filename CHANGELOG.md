@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.49.0](https://github.com/inkatze/planwright/compare/v0.48.0...v0.49.0) (2026-09-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* **config:** ready_flip_policy ships as unit-owner, so task PRs will be marked ready by the executing skill instead of waiting for a person once the ready-flip helper lands; set ready_flip_policy: human to keep the old behaviour.
+* **custom-steps:** the review_sequence config key is removed; rename it to steps_convergence in every layer that sets it.
+
+### Features
+
+* **config:** declare the human-gate policy knobs ([#525](https://github.com/inkatze/planwright/issues/525)) ([a5d5a96](https://github.com/inkatze/planwright/commit/a5d5a965636d51da77e425b6c5ecf1a2e40c68c4))
+* **custom-steps:** add step records and the PR-body fold ([#531](https://github.com/inkatze/planwright/issues/531)) ([f9808e5](https://github.com/inkatze/planwright/commit/f9808e527ce1d6bf29a0b3116080253cc94b109b))
+* **execute-task:** wire the unit points into /execute-task ([#535](https://github.com/inkatze/planwright/issues/535)) ([ad501ac](https://github.com/inkatze/planwright/commit/ad501ac733ed965a89f76b84e46394312f5bec53))
+* **fleet-streamjson:** add a read-only pending verb so a tower can see what a worker is asking ([#538](https://github.com/inkatze/planwright/issues/538)) ([72d10d8](https://github.com/inkatze/planwright/commit/72d10d8fb50311f9e164e34e6f8137ee4a63e7c3))
+* **fleet:** check every frame before it reaches a worker's stdin ([#516](https://github.com/inkatze/planwright/issues/516)) ([0700751](https://github.com/inkatze/planwright/commit/07007515d7d170be00a33fce888c8194abbcaa83))
+* **fleet:** reap a leaked worker process with fleet-cleanup.sh process ([#523](https://github.com/inkatze/planwright/issues/523)) ([c9c3787](https://github.com/inkatze/planwright/commit/c9c37871e6888ed80f1116f3459e5b03aeb66fb7))
+* **fleet:** run the periodic sweep on a schedule with an observing reap ([#536](https://github.com/inkatze/planwright/issues/536)) ([56a353e](https://github.com/inkatze/planwright/commit/56a353ed69bebbb2419b8d362c4572bda3e860ea))
+* **resolve-root:** add the spec kind with a configurable spec root ([#521](https://github.com/inkatze/planwright/issues/521)) ([821fb2f](https://github.com/inkatze/planwright/commit/821fb2f8d063646e5b26d123da91fb576918b954))
+* **sign-off:** record sign-offs in trailers and rebuild the checklist from them ([#530](https://github.com/inkatze/planwright/issues/530)) ([dca8ae4](https://github.com/inkatze/planwright/commit/dca8ae44f3a84d1131a6f0ff7fdcfc0c930fbda0))
+* **spec-location:** converge the root chain and overlay layers on the resolver ([#533](https://github.com/inkatze/planwright/issues/533)) ([47667c9](https://github.com/inkatze/planwright/commit/47667c946a071965e27b61087620be1ee75548e5))
+* **spec-location:** golden fixture and literal-path guard ([#528](https://github.com/inkatze/planwright/issues/528)) ([a2c0046](https://github.com/inkatze/planwright/commit/a2c004616657f064a734af9be0335f22f578918d))
+* **spec:** test-throughput kickoff sign-off ([#522](https://github.com/inkatze/planwright/issues/522)) ([a9b1be5](https://github.com/inkatze/planwright/commit/a9b1be577c6a1a3bae9eb51556b2b2459f091203))
+* **test-runner:** share one machine-wide ticket pool across test runs ([#537](https://github.com/inkatze/planwright/issues/537)) ([75c941a](https://github.com/inkatze/planwright/commit/75c941a03a3a4046bdd43bca0acc99bf7c983714))
+* **tower:** render and land the visual-flight audit record ([#527](https://github.com/inkatze/planwright/issues/527)) ([2d71e5b](https://github.com/inkatze/planwright/commit/2d71e5b7f62fc457516b2dae2147f26e3a0d0df1))
+* **tower:** routing behavioral eval fixtures and the eval-only seam ([#534](https://github.com/inkatze/planwright/issues/534)) ([4e07441](https://github.com/inkatze/planwright/commit/4e07441d83c0615850f12453e8b14d340636002e))
+
+
+### Bug Fixes
+
+* **guard-wiring:** ignore comment mentions and resolve every mise edge form ([#514](https://github.com/inkatze/planwright/issues/514)) ([12bcc88](https://github.com/inkatze/planwright/commit/12bcc8825d717f1c92a50d20df165fe41658c469))
+* **secrets:** allowlist the fleet-cleanup strand-key test fixture ([#526](https://github.com/inkatze/planwright/issues/526)) ([b9a217f](https://github.com/inkatze/planwright/commit/b9a217fb643247f1b975e7edeb59f7858c450a51))
+* **spec-location:** rebase the golden fixture on the retired review-sequence knob ([#532](https://github.com/inkatze/planwright/issues/532)) ([4745163](https://github.com/inkatze/planwright/commit/47451636e3e65f4c19efdeb44296ff782263affb))
+
+
+### Code Refactoring
+
+* **custom-steps:** retire the review-sequence knob; flights run skill steps only ([#524](https://github.com/inkatze/planwright/issues/524)) ([c4a9a83](https://github.com/inkatze/planwright/commit/c4a9a839ac2f6d9e97fb9fa811b3e6b18b0528c5))
+
 ## [0.48.0](https://github.com/inkatze/planwright/compare/v0.47.0...v0.48.0) (2026-09-28)
 
 

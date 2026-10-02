@@ -1,7 +1,7 @@
 # Human gates — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-09-28
+**Last reviewed:** 2026-10-01
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -335,7 +335,8 @@ force-push; the MCP names), the shipped profiles gaining the `master` and
 `planwright/*/spec` globs they lack today. The floor entries a profile
 cannot express (an agent PR merge outside `policy-class`; a rewrite of a
 pushed commit outside D-8's tower path) are guard-only, and the sanctioned
-helpers behind them re-resolve the policy and fail closed internally. Acts a
+helpers behind them re-resolve the policy and fail closed internally; so are
+the `gh api` spellings of the floor acts, pinned by the policy-guard suite. Acts a
 policy can permit leave the profile deny lists for the tiers the policy can
 grant them to, and a deny-emitting **policy guard** (`scripts/policy-guard.sh`,
 the ready-guard's sibling in modality) enforces the resolved value at
@@ -365,6 +366,54 @@ command guards, both profiles, and the policy guard. Every script this
 bundle adds sources `scripts/echo-safety.sh` and validates identifiers
 before use.
 
+The policy guard also reads `gh api`. A profile glob sees command text, not
+the request: it cannot read a query from a file, stdin, or a variable, and a
+text match on a mutation name is both evadable and refuses a reply that
+merely mentions one, so the profiles keep `gh api` writes at the permission
+prompt by operator decision and the guard is the refusing layer.
+
+- **Classified acts.** The flip, its undo, a PR merge (including enabling
+  auto-merge and enqueueing), a base merge, and a forced ref update deny at
+  every tier under every value with no knob read; a protected-ref write
+  reads only `protected_branches`. A policy that permits one of these acts
+  permits a spelling whose predicates a guard can check: a `gh api` flip
+  names its PR by an opaque node id and the ready-guard never reads it, so
+  admitting one would skip the currency check `gh pr ready` gets.
+- **Readable.** The command is a simple command whose verb is `gh api`,
+  after the ready-guard's prefix handling (`VAR=value`, `command`, `exec`);
+  every flag parses in each spelling gh accepts (attached and `=`-joined
+  values, bundled short flags with a value-taking flag ending the bundle,
+  a repeated flag's last value winning, the method case-insensitive), the
+  walk reusing the worker command guard's `gh api` flag handling; and the
+  endpoint, the method, and every field value are literal: free of shell
+  expansion, command substitution, ANSI-C quoting, a backslash escape or
+  `$` outside single quotes, and an unquoted glob or brace character. gh's
+  `{owner}` and `{repo}` placeholders are literal; `{branch}` in a `query`
+  field or a protected-ref target is not. A field gives the request an
+  implied POST.
+- **Matching.** Mutation names match case-sensitively as substrings of the
+  quote-removed text of every field, whatever the endpoint, so an alias, a
+  fragment, a concatenated quote, or a name inside a string or comment
+  classifies (failing closed). REST paths match after stripping the
+  scheme, host, `/api/v3`, a leading slash, the query string, and the
+  fragment; a literal path carrying `%`, `..`, or `//` is unreadable;
+  `pulls/<segment>/merge` matches whatever the segment.
+- **Boundaries.** An attended session with no tier profile is outside the
+  guard's jurisdiction and meets a `gh api` write only at the permission
+  prompt. A helper's own GitHub calls run below the hook, so the guard
+  recognises a helper by its invocation; a skill never issues a helper's
+  `gh api` call itself. The ready-guard's accepted residual for these
+  forms (merge-currency-guard REQ-C1.10) stands; in a tier session the
+  policy guard covers them. The review skills' readable thread and reviewer
+  writes are not refused, and still reach the prompt.
+- **Deny messages and drift.** Each deny names its remedy: the `gh pr`
+  spelling or helper for a classified act, a literal inline form for an
+  unreadable one. The grammar was taken from gh 2.96.0's `gh api --help`;
+  a gh upgrade that adds a request-shaping flag is re-checked against it,
+  and an unknown flag is unreadable meanwhile.
+
+*(Amended at kickoff amendment 2026-10-01: the `gh api` spellings.)*
+
 **Alternatives considered:**
 - Generate the profiles from the policy at dispatch. Rejected because: a
   profile is read once at launch and cannot follow a knob that changes
@@ -375,6 +424,18 @@ before use.
 - Read every knob on every guarded call. Rejected because: the resolver
   costs tens of milliseconds per knob and the guard sits on every Bash call;
   the ready-guard's jurisdiction-first rule already answers this.
+- Deny every non-GET `gh api` call. Rejected because: `gh api graphql`
+  always sends a POST, so the review skills' thread resolutions would be
+  refused under a tier profile.
+- Give a `gh api` flip the verdict `ready_flip_policy` gives `gh pr ready`.
+  Rejected because: the ready-guard never reads `gh api`, so under
+  `unit-owner` a worker would flip with no currency or CI check.
+- Add literal-name `gh api` denies to the profiles. Rejected because: a
+  text match is evadable and refuses harmless mentions, and the operator
+  kept `gh api` writes at the prompt.
+- Accept wrapped forms (`bash -c`, `env gh`, `xargs gh`) as residuals, as
+  the ready-guard does. Rejected because: denying on raw-text evidence is
+  cheap and fails closed.
 
 **Chosen because:** deny precedence means a profile can never be the
 policy-following layer, and worker-permission-ergonomics D-1 already makes
