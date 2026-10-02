@@ -442,5 +442,36 @@ if grep -Eq '^[[:space:]]*\.[[:space:]]+"[^"]*/echo-safety\.sh"' "$REAL_SCRIPTS/
 else
   fail "the guard does not source scripts/echo-safety.sh"
 fi
+
+echo "# policy is read from the primary checkout, never the command's own worktree"
+WT="$SANDBOX/linked"
+gitq -C "$UNIT" worktree add -b planwright/demo/task-7 "$WT" HEAD
+mkdir -p "$UNIT/.claude" "$WT/.claude"
+printf 'ready_flip_policy: human\n' >"$UNIT/.claude/planwright.local.yml"
+printf 'ready_flip_policy: unit-owner\n' >"$WT/.claude/planwright.local.yml"
+printf 'ready_flip_policy: unit-owner\n' >"$WT/.claude/planwright.yml"
+PG_LOCAL_CONFIG='' PG_REPO_ROOT='' pg worker 'gh pr ready 42' "$WT" "$WT"
+expect deny "[worker] a worktree's own config cannot raise ready_flip_policy over the primary checkout's"
+printf 'ready_flip_policy: unit-owner\n' >"$UNIT/.claude/planwright.local.yml"
+printf 'ready_flip_policy: human\n' >"$WT/.claude/planwright.local.yml"
+PG_LOCAL_CONFIG='' PG_REPO_ROOT='' pg worker 'gh pr ready 42' "$WT" "$WT"
+expect defer "[worker] the primary checkout's ready_flip_policy governs a linked worktree"
+rm -f "$UNIT/.claude/planwright.local.yml" "$WT/.claude/planwright.local.yml" "$WT/.claude/planwright.yml"
+printf 'protected_branches: release/*\n' >"$UNIT/.claude/planwright.yml"
+printf 'protected_branches:\n' >"$WT/.claude/planwright.yml"
+PG_LOCAL_CONFIG='' PG_REPO_ROOT='' pg worker 'gh api -X PATCH repos/acme/widgets/git/refs/heads/release/1 -f sha=abc' "$WT" "$WT"
+expect deny "[worker] a worktree's own config cannot shrink the primary checkout's protected set"
+rm -f "$UNIT/.claude/planwright.yml" "$WT/.claude/planwright.yml"
+BARE="$SANDBOX/bare.git"
+BWT="$SANDBOX/bare-linked"
+gitq clone --bare "$ORIGIN" "$BARE"
+gitq -C "$BARE" worktree add "$BWT" planwright/demo/task-1
+for d in "$BWT" "$SANDBOX"; do
+  pg worker 'gh pr ready 42' "$d" "$d"
+  expect deny "[worker] no primary checkout to read policy from denies: $d"
+  reads none "[worker] the unresolvable primary checkout denies before any read: $d"
+done
+reason_has 'primary checkout' "the unresolvable-primary deny says why"
+
 no_gh_calls
 finish

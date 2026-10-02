@@ -685,10 +685,14 @@ case $PG_WIRED in
 esac
 PG_CFG="$SANDBOX/pg-local.yml"
 mkdir -p "$SANDBOX/pg-adopter"
+# The policy guard reads policy from the primary checkout, so the flip runs
+# inside a repository.
+PG_REPO="$SANDBOX/pg-repo"
+git init -q "$PG_REPO" || fail "fixture: could not create the policy-guard repository"
 for v in unit-owner human; do
   printf 'ready_flip_policy: %s\n' "$v" >"$PG_CFG"
   pg_rc=0
-  pg_out=$(bash_payload "$BASH_FLIP" | env CLAUDE_PLUGIN_ROOT="$REPO_ROOT" PLANWRIGHT_LOCAL_CONFIG="$PG_CFG" \
+  pg_out=$(bash_payload "$BASH_FLIP" "$PG_REPO" | env CLAUDE_PLUGIN_ROOT="$REPO_ROOT" PLANWRIGHT_LOCAL_CONFIG="$PG_CFG" \
     PLANWRIGHT_ADOPTER_OVERLAY="$SANDBOX/pg-adopter" PLANWRIGHT_REPO_ROOT="$SANDBOX" \
     /bin/bash -c "$PG_WIRED" 2>/dev/null) || pg_rc=$?
   case "$v:$pg_rc:$pg_out" in

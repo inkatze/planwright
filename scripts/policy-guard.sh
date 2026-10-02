@@ -22,7 +22,10 @@
 # merge, the tower's refusals, a `gh api` act, a request the guard cannot
 # read) denies before any read. Only then does the guard read what the matched
 # act needs (its knob, the protected set) through
-# scripts/resolve-policy-knob.sh, each read bounded by
+# scripts/resolve-policy-knob.sh, always from the primary checkout of the
+# repository the act runs in (from git's common dir, so a worker's own
+# worktree config governs nothing until it merges; no primary checkout
+# denies), each read bounded by
 # PLANWRIGHT_POLICY_GUARD_TIMEOUT seconds (default 10) and the upstream
 # refresh by PLANWRIGHT_POLICY_GUARD_FETCH_TIMEOUT (default 20), each with a
 # two-second kill grace, and all of them by a deadline for the whole call;
@@ -643,6 +646,25 @@ gitq() {
 # --------------------------------------------------------------------------
 # Knob reads.
 
+# policy_root <dir> — set POLICY_ROOT to the primary checkout of the
+# repository <dir> belongs to (the main worktree, from git's common dir), or
+# deny. Policy is read there, never from the command's own worktree, so a
+# worker's edit to its own .claude/planwright*.yml governs nothing until it
+# merges.
+POLICY_ROOT_FOR='' POLICY_ROOT=''
+policy_root() {
+  local dir=$1 common
+  [ "$dir" != "$POLICY_ROOT_FOR" ] || return 0
+  common=$(gitq "$dir" rev-parse --path-format=absolute --git-common-dir) || common=''
+  case $common in
+    /*/.git) POLICY_ROOT=${common%/.git} ;;
+    *) POLICY_ROOT='' ;;
+  esac
+  [ -n "$POLICY_ROOT" ] && [ -d "$POLICY_ROOT" ] \
+    || emit_deny "the primary checkout of the repository this act runs in could not be found (a bare repository, or not a repository), and the policy is read only from there - refusing (fail closed). Run the command from a worktree of a non-bare clone."
+  POLICY_ROOT_FOR=$dir
+}
+
 # read_knob <knob> <dir> <legal...> — the resolved value, or a deny. A knob
 # read once for a directory is not read again within the call.
 KNOB_CACHE=''
@@ -661,7 +683,8 @@ read_knob() {
     || emit_deny "the policy resolver is missing beside this guard, so $knob could not be read - refusing (fail closed). Reinstall planwright."
   [ -d "$dir" ] \
     || emit_deny "the directory this act runs in does not exist, so the policy knob $knob cannot be read for it - refusing (fail closed). Run the command from your worktree."
-  v=$(cd -- "$dir" 2>/dev/null && "$TB" -k 2 "$KNOB_B" /bin/sh "$GUARD_DIR/resolve-policy-knob.sh" "$knob" 2>/dev/null </dev/null) || rc=$?
+  policy_root "$dir"
+  v=$(cd -- "$POLICY_ROOT" 2>/dev/null && PLANWRIGHT_REPO_ROOT=$POLICY_ROOT "$TB" -k 2 "$KNOB_B" /bin/sh "$GUARD_DIR/resolve-policy-knob.sh" "$knob" 2>/dev/null </dev/null) || rc=$?
   if [ "$rc" = 124 ]; then
     emit_deny "reading the policy knob $knob did not finish within ${KNOB_B}s - refusing (fail closed). This is a timeout, not a policy decision: retry, and report a resolver that stays slow."
   fi
@@ -688,7 +711,8 @@ check_unprotected() {
     || emit_deny "the protected-set reader is missing beside this guard - refusing $what (fail closed). Reinstall planwright."
   [ -d "$dir" ] \
     || emit_deny "the directory $what runs in does not exist, so the protected set cannot be read for it - refusing (fail closed). Run the command from your worktree."
-  err=$(cd -- "$dir" 2>/dev/null && "$TB" -k 2 "$KNOB_B" /bin/sh "$GUARD_DIR/protected-branch.sh" "$@" 2>&1 >/dev/null </dev/null) || rc=$?
+  policy_root "$dir"
+  err=$(cd -- "$POLICY_ROOT" 2>/dev/null && PLANWRIGHT_REPO_ROOT=$POLICY_ROOT "$TB" -k 2 "$KNOB_B" /bin/sh "$GUARD_DIR/protected-branch.sh" "$@" 2>&1 >/dev/null </dev/null) || rc=$?
   case $rc in
     0) return 0 ;;
     1)

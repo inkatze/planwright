@@ -20,7 +20,14 @@ or malformed falls back to the tracked defaults below and surfaces a
 warning when it reads the config, before any default-driven action fires
 (REQ-K1.7). The human-gate policy knobs are the exception: a malformed
 overlay degrades each to its strict value, or refuses the act, as its row
-states.
+states. The policy guard (`scripts/policy-guard.sh`) reads those knobs and
+`protected_branches` only from the primary checkout of the repository the act
+runs in (its main worktree, found through git's common directory), never from
+the worker's own worktree or an inherited `PLANWRIGHT_REPO_ROOT`: an edit a
+worker makes to its worktree's `.claude/planwright.yml` or
+`.claude/planwright.local.yml` governs nothing until it merges. A repository
+whose primary checkout cannot be found (a bare repository's worktree, or no
+repository at all) refuses the act.
 
 Format constraints the checker relies on: each row's first table cell must
 contain only the backticked option name (annotations go in the Effect

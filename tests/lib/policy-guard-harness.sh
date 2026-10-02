@@ -112,10 +112,13 @@ pg() {
   pg_payload "$tier" bash "$payload" "$proj"
 }
 
+# PG_LOCAL_CONFIG='' and PG_REPO_ROOT='' drop the explicit machine-local file
+# and repository root, so both layers are derived from the repository the
+# guard reads policy from.
 pg_run() { # <tier> <surface> <project-dir>; the payload on stdin
   env PATH="$BIN:$PATH" CLAUDE_PROJECT_DIR="$3" \
-    PLANWRIGHT_ADOPTER_OVERLAY="$SANDBOX/adopter" PLANWRIGHT_REPO_ROOT="$UNIT" \
-    PLANWRIGHT_LOCAL_CONFIG="$LOCAL_CFG" PLANWRIGHT_POLICY_GUARD_TIMEOUT="${PG_TIMEOUT:-10}" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$SANDBOX/adopter" PLANWRIGHT_REPO_ROOT="${PG_REPO_ROOT-$UNIT}" \
+    PLANWRIGHT_LOCAL_CONFIG="${PG_LOCAL_CONFIG-$LOCAL_CFG}" PLANWRIGHT_POLICY_GUARD_TIMEOUT="${PG_TIMEOUT:-10}" \
     STUB_FAIL_KNOB="${STUB_FAIL_KNOB:-}" STUB_SLEEP="${STUB_SLEEP:-}" \
     /bin/bash "$HOOK" "$1" "$2" 2>/dev/null
 }
