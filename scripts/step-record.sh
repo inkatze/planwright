@@ -205,17 +205,19 @@ set -f
 
 work=''
 pending=''
+token=''
 seq_claim=''
 done_claim=''
 cleanup() {
   [ -z "$pending" ] || rm -f "$pending"
-  [ -z "$seq_claim" ] || rmdir "$seq_claim" 2>/dev/null
+  [ -z "$token" ] || rm -f "$token"
+  [ -z "$seq_claim" ] || rm -f "$seq_claim"
   # A completion record already linked keeps its claim, whatever the signal
   # interrupted.
   if [ -n "$done_claim" ]; then
     _run_dir=${done_claim%/*}
     _point=${done_claim##*/.done-}
-    [ -n "$(glob_names "$_run_dir" "[0-9][0-9][0-9]-done-$_point.rec")" ] || rmdir "$done_claim" 2>/dev/null
+    [ -n "$(glob_names "$_run_dir" "[0-9][0-9][0-9]-done-$_point.rec")" ] || rm -f "$done_claim"
   fi
   [ -z "$work" ] || rm -rf "$work"
 }
@@ -474,6 +476,15 @@ put() {
   printf '%s\t%s\n' "$1" "$2" || die 1 "cannot write a temporary file"
 }
 
+# take_token <run-dir>: the empty file this writer hard-links to take a
+# marker. link(2) refuses an existing name, so a marker has one owner; a
+# mkdir(1) cannot be trusted for that (uutils' reports success to several
+# racers on one name).
+take_token() {
+  [ -n "$token" ] && return 0
+  token=$(mktemp "$1/.claim-XXXXXX") || die 1 "cannot write to the record cache"
+}
+
 # claim <run> <stem> <type> <body-file> [<point>]: write the record under
 # the run's next sequence number, claimed atomically, and print its absolute
 # path. Given a point, refuse once the point's completion is claimed: a
@@ -481,33 +492,39 @@ put() {
 # number came first still sorts before the completion.
 claim() {
   dir="$cache/$1"
+  take_token "$dir"
   last=$(glob_names "$dir" '.seq-[0-9][0-9][0-9]' | tail -n 1)
   last=${last#.seq-}
   next=$((1${last:-000} - 1000 + 1))
+  lost=0
   while :; do
-    [ "$next" -le 999 ] || die 1 "the run's record counter is exhausted"
+    if [ "$next" -gt 999 ]; then
+      [ "$lost" -eq 0 ] || die 1 "cannot write to the record cache"
+      die 1 "the run's record counter is exhausted"
+    fi
     seq=$(printf '%03d' "$next")
-    if mkdir "$dir/.seq-$seq" 2>/dev/null; then
+    if ln "$token" "$dir/.seq-$seq" 2>/dev/null; then
       seq_claim="$dir/.seq-$seq"
       break
     fi
-    [ -d "$dir/.seq-$seq" ] || die 1 "cannot write to the record cache"
+    # A marker gone again was released by a refused writer: the gap is
+    # harmless, so move on rather than fail.
+    [ -e "$dir/.seq-$seq" ] || [ -L "$dir/.seq-$seq" ] || lost=1
     next=$((next + 1))
   done
-  if [ -n "${5:-}" ] && [ -d "$dir/.done-$5" ]; then
+  if [ -n "${5:-}" ] && [ -e "$dir/.done-$5" ]; then
     bad --point "already completed in this run"
   fi
-  pending="$dir/.rec-$seq"
-  set -C
+  pending=$(mktemp "$dir/.rec-XXXXXX") || die 1 "cannot write to the record cache"
   { printf 'type\t%s\nrun\t%s\nseq\t%s\n' "$3" "$1" "$seq" && cat "$4"; } >"$pending" \
     || die 1 "cannot write to the record cache"
-  set +C
   path="$dir/$seq-$2.rec"
   ln "$pending" "$path" || die 1 "cannot write to the record cache"
   seq_claim=''
   done_claim=''
-  rm -f "$pending"
+  rm -f "$pending" "$token"
   pending=''
+  token=''
   printf '%s\n' "$path" || die 1 "cannot print the record path"
 }
 
@@ -557,7 +574,7 @@ cmd_write() {
   valid_run "$run"
   is_point "$point" || bad --point "not a point of the vocabulary"
   is_head "$head" || bad --head "not a full commit id"
-  [ ! -d "$cache/$run/.done-$point" ] || bad --point "already completed in this run"
+  [ ! -e "$cache/$run/.done-$point" ] || bad --point "already completed in this run"
 
   if [ "$completion" -eq 1 ]; then
     for f in "$step" "$kind" "$target" "$hosting" "$backend" "$session" \
@@ -580,10 +597,11 @@ cmd_write() {
         put warning "$w"
       done <"$work/screened"
     } >"$work/body" || die 1 "cannot write a temporary file"
-    if mkdir "$cache/$run/.done-$point" 2>/dev/null; then
+    take_token "$cache/$run"
+    if ln "$token" "$cache/$run/.done-$point" 2>/dev/null; then
       done_claim="$cache/$run/.done-$point"
     else
-      [ ! -d "$cache/$run/.done-$point" ] || bad --point "already completed in this run"
+      [ ! -e "$cache/$run/.done-$point" ] || bad --point "already completed in this run"
       die 1 "cannot write to the record cache"
     fi
     claim "$run" "done-$point" completion "$work/body"
