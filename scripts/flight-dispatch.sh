@@ -226,8 +226,13 @@ spec_rel=''
 spec_inside=0
 resolve_spec_rel() {
   [ -z "$spec_rel" ] || return 0
-  _sr=$(cd "$repo_root" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec) \
-    || die 2 "the spec root did not resolve for this checkout"
+  _sr_rc=0
+  _sr=$(cd "$repo_root" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec) || _sr_rc=$?
+  case $_sr_rc in
+    0) ;;
+    6) die 4 "the spec root could not be read (an unreadable config overlay); nothing was placed" ;;
+    *) die 2 "the spec root did not resolve for this checkout" ;;
+  esac
   case $_sr in
     "$repo_root"/*)
       spec_rel=${_sr#"$repo_root"/}
