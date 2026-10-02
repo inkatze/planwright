@@ -98,12 +98,12 @@
 # per the floor's declare-every-class rule: it is not acquired by this rung at
 # all — a stream-json worker is a detached supervisor/worker pair with no
 # window. The dispatch registry record is written at launch and is NOT released
-# here: it is fleet-wide inventory rather than this worker's runtime. Nothing
-# reconciles it (`scripts/fleet-register.sh` says so where it writes the
-# record), so a stopped worker keeps its inventory row. The worktree, the
-# branch, and the unit's fence are never touched: the release set is exactly
-# the reproducible resources, and the
-# worktree is the one holding work that cannot be recovered. No audit record is
+# here: it is fleet-wide inventory rather than this worker's runtime. The
+# periodic sweep's registry reconcile retires it, marked closed, once the
+# worker has positive death evidence (`scripts/fleet-registry-reconcile.sh`).
+# The worktree, the branch, and the unit's fence are never touched: the
+# release set is exactly the reproducible resources, and the worktree is the
+# one holding work that cannot be recovered. No audit record is
 # written either — the reap path that needs one owns it, so that an autonomous
 # close writes exactly one record rather than two.
 #
@@ -1219,6 +1219,14 @@ guard_preflight() {
   # cannot run would otherwise read as "does not approve" every root below.
   if [ ! -x "$gp_guard" ]; then
     echo "$me: launch preflight: the auto-approve hook $gp_guard is missing or not executable; the worker would prompt on every routine command" >&2
+    [ "$gp_mode" = warn ] && return 0
+    return 9
+  fi
+  # The worker profile leaves the base merge and the never-pushed rewrites to
+  # the policy guard, so a hook root without it would leave them unrefused (a
+  # hook that fails to run blocks nothing).
+  if [ ! -x "$gp_hook_root/scripts/policy-guard.sh" ]; then
+    echo "$me: launch preflight: the policy guard $gp_hook_root/scripts/policy-guard.sh is missing or not executable; the worker's merges and history rewrites would go unchecked" >&2
     [ "$gp_mode" = warn ] && return 0
     return 9
   fi

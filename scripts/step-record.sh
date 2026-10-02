@@ -145,21 +145,29 @@
 # <sha>` followed by `.`, `,`, ` (`, or the line's end, the sha full or, as
 # `--reference` writes it, abbreviated to at least 7 hex digits that prefix
 # exactly one earlier commit in the range), a commit being live unless a
-# live revert undoes it; or when a live commit's
+# live revert undoes it, and a revert whose rejected trailer names one of its
+# target's IDs being partial, undoing none of it; or when a live commit's
 # `Planwright-Sign-Off-Rejected:` trailer names its PS ID (a legacy entry has
 # no ID a trailer can name).
+# A non-empty checklist opens with the approval statement (the act that lets
+# the PR merge signs off every item, never the ready flip; an item is rejected
+# before it by its recipe), so no checkbox stands in for the approval.
 # Entries order by ID number, legacy entries last in commit order; an ID
 # marked twice keeps its oldest live commit. An entry is
-#   - [ ] **<id>** <subject> · commit `<sha7>` (<sha7>: the abbreviated sha,
+#   - **<id>** <subject> · commit `<sha7>` (<sha7>: the abbreviated sha,
 #   at least 7 characters)
 #     - Route reason: <the body's first `Route reason:` line, or `not
 #       recorded in the commit`>
+#     - Shared commit: also carries <the commit's other IDs still listed>,
+#       or `its other findings were rejected` when none is (only when the
+#       commit carries more than one distinct ID)
 #     - <each manifest line: a body line `- <file> — before: …`, joined with
 #       the indented lines that continue it>
 #     - Reject with: `git revert <sha7>` (plus the hand-edit note when a
-#       manifest is present), or, for a merge commit, a later commit's
-#       `Planwright-Sign-Off-Rejected: <id>` trailer (`git revert -m 1
-#       <sha7>` for a legacy one, which no trailer can name)
+#       manifest is present); for a shared commit, a commit undoing its part
+#       carrying `Planwright-Sign-Off-Rejected: <id>`; for a merge commit, a
+#       later commit's `Planwright-Sign-Off-Rejected: <id>` trailer
+#       (`git revert -m 1 <sha7>` for a legacy one, which no trailer can name)
 # An empty checklist renders `- none`. A <base> or <head> that does not
 # resolve, or a range git cannot read, fails by name.
 #
@@ -893,13 +901,19 @@ cmd_regenerate() {
       # A revert undoes its target only while it is itself live; walking
       # newest first settles a reverted revert before the commit it names.
       # An abbreviated sha names the one earlier commit it prefixes.
+      # A revert whose rejected trailer names an id its target carries is a
+      # partial revert: the trailer drops that one item, not the whole target.
       for (i = n; i >= 1; i--) {
         live[i] = !(i in undone)
         if (!live[i]) continue
         for (j = 1; j <= nr[i]; j++) {
           hit = 0; L = length(R[i, j])
           for (c = 1; c < i; c++) if (substr(sha[c], 1, L) == R[i, j]) { hit = hit ? -1 : c }
-          if (hit > 0) undone[hit] = 1
+          if (hit <= 0) continue
+          partial = 0; own = " " ids[hit] " "; gsub(/,/, " ", own)
+          m = split(rej[i], r, /[ ,]+/)
+          for (k = 1; k <= m; k++) if (r[k] ~ /^PS-[1-9][0-9]*$/ && index(own, " " r[k] " ")) partial = 1
+          if (!partial) undone[hit] = 1
         }
       }
       for (i = 1; i <= n; i++) if (live[i]) {
@@ -919,10 +933,13 @@ cmd_regenerate() {
           if (!legacy) continue
           nid = 1; cid[1] = "legacy"
         }
+        shared[i] = ""; nd = 0
+        for (j = 1; j <= nid; j++) if (!index(shared[i] " ", " " cid[j] " ")) { shared[i] = shared[i] " " cid[j]; nd++ }
+        if (nd < 2) shared[i] = ""
         for (j = 1; j <= nid; j++) {
           id = cid[j]
           if (id != "legacy" && ((id in taken) || (id in rejected))) continue
-          taken[id] = 1
+          taken[id] = 1; rend[i, id] = 1
           count++
           late[count] = (id == "legacy"); key[count] = late[count] ? i : substr(id, 4) + 0
           entry[count] = i; eid[count] = id; esubj[count] = s; ord[count] = count
@@ -933,12 +950,22 @@ cmd_regenerate() {
       for (a = 2; a <= count; a++)
         for (b = a; b > 1 && after(ord[b - 1], ord[b]); b--) { t = ord[b]; ord[b] = ord[b - 1]; ord[b - 1] = t }
       if (count == 0) print "- none"
+      else print "The approval act that lets the PR merge signs off every pending-sign-off item, never the ready flip; reject one before it by its printed recipe.\n"
       for (o = 1; o <= count; o++) {
         a = ord[o]; i = entry[a]
-        printf "- [ ] **%s** %s · commit `%s`\n", eid[a], safe(esubj[a]), short[i]
+        printf "- **%s** %s · commit `%s`\n", eid[a], safe(esubj[a]), short[i]
         printf "  - Route reason: %s\n", ((i in route) ? safe(route[i]) : "not recorded in the commit")
+        if (shared[i] != "") {
+          # Only siblings still listed from this commit: a rejected one, or
+          # one an older commit owns, no longer sits beside this entry.
+          m = split(shared[i], r, " "); s = ""
+          for (j = 1; j <= m; j++) if (r[j] != eid[a] && ((i, r[j]) in rend)) s = s (s == "" ? "" : ", ") r[j]
+          if (s == "") print "  - Shared commit: its other findings were rejected"
+          else printf "  - Shared commit: also carries %s\n", s
+        }
         for (j = 1; j <= man[i]; j++) printf "  - %s\n", safe(M[i, j])
-        if (merge[i] && eid[a] != "legacy") printf "  - Reject with: a later commit carrying `Planwright-Sign-Off-Rejected: %s`\n", eid[a]
+        if (shared[i] != "" && !merge[i]) printf "  - Reject with: a commit undoing its part, carrying `Planwright-Sign-Off-Rejected: %s`\n", eid[a]
+        else if (merge[i] && eid[a] != "legacy") printf "  - Reject with: a later commit carrying `Planwright-Sign-Off-Rejected: %s`\n", eid[a]
         else if (merge[i]) printf "  - Reject with: `git revert -m 1 %s`\n", short[i]
         else if (man[i]) printf "  - Reject with: `git revert %s`; rejecting one sub-item is a hand edit the manifest guides\n", short[i]
         else printf "  - Reject with: `git revert %s`\n", short[i]

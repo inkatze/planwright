@@ -1099,6 +1099,246 @@ assert_allow "regression — tracked trusted-root assignment then a script call"
   "R=$PLUGIN_ROOT; \$R/scripts/plug.sh --flag" Bash "$PLUGIN_CWD"
 HOOK_ENV=()
 
+echo "### custom-steps REQ-G1.3 — declared command step lines"
+# A fixture overlay stack for scripts/resolve-steps.sh: a core root whose
+# defaults leave every point empty, a repo-tracked layer declaring command
+# steps and naming them from two points, and an adopter layer declaring a
+# traversal target (malformed there, so dropped with a warning). The hook
+# resolves these itself; nothing here tells it what is declared.
+FX="$(cd "$SANDBOX" && pwd -P)/steps-fx"
+mkdir -p "$FX/core/config" "$FX/adopter/catalogs" "$FX/repo/.claude/catalogs" \
+  "$FX/repo/tools" "$FX/bin" "$FX/claude"
+: >"$FX/repo/.git"
+cp "$REPO_ROOT/config/steps.yaml" "$FX/core/config/steps.yaml"
+{
+  printf 'dispatch_isolation: per-unit\n'
+  for p in pre-implementation pre-ci convergence pre-pr post-pr pre-ready-flip \
+    pre-spec-ready-flip spec-drafted kickoff-signed-off unit-selected pre-dispatch \
+    post-dispatch unit-halted post-merge orchestrator-idle; do
+    printf 'steps_%s: []\n' "${p//-/_}"
+  done
+} >"$FX/core/config/defaults.yml"
+for t in declared.sh other.sh undeclared.sh; do
+  printf '#!/bin/sh\nexit 0\n' >"$FX/repo/tools/$t"
+  chmod +x "$FX/repo/tools/$t"
+done
+printf '#!/bin/sh\nexit 0\n' >"$FX/bin/fixture-tool"
+chmod +x "$FX/bin/fixture-tool"
+DECLARED="$FX/repo/tools/declared.sh"
+OTHER="$FX/repo/tools/other.sh"
+cat >"$FX/repo/.claude/catalogs/steps.yaml" <<YAML
+steps:
+  - id: declared
+    kind: command
+    target: $DECLARED
+    args: --mode strict
+  - id: bare
+    kind: command
+    target: fixture-tool
+    args: --x
+  - id: noargs
+    kind: command
+    target: $OTHER
+  - id: unlisted
+    kind: command
+    target: $FX/repo/tools/undeclared.sh
+    args: --mode strict
+  - id: rel
+    kind: command
+    target: tools/declared.sh
+    args: --rel
+YAML
+printf 'steps_pre_ci: [declared, bare, rel]\nsteps_post_pr: [noargs]\n' >"$FX/repo/.claude/planwright.yml"
+cat >"$FX/adopter/catalogs/steps.yaml" <<YAML
+steps:
+  - id: traversal
+    kind: command
+    target: $FX/repo/tools/../tools/declared.sh
+    args: --mode strict
+YAML
+printf 'steps_pre_pr: [traversal]\n' >"$FX/adopter/planwright.yml"
+# The resolver runs once per wired point per hook call on a loaded host, so these
+# functional rows lift the resolution deadline; the bound rows below keep the
+# default.
+FX_ENV=("PLANWRIGHT_ROOT=$FX/core" "CLAUDE_PLUGIN_ROOT=$FX/core"
+  "PLANWRIGHT_CONFIG_DEFAULTS=$FX/core/config/defaults.yml"
+  "PLANWRIGHT_ADOPTER_OVERLAY=$FX/adopter" "PLANWRIGHT_REPO_ROOT=$FX/repo"
+  "PLANWRIGHT_LOCAL_CONFIG=" "CLAUDE_DIR=$FX/claude" "PATH=$FX/bin:$PATH")
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
+FXC="$FX/repo"
+# The runner's own spelling: the context prefix, then the location and args,
+# each single-quoted, exactly as resolve-steps.sh --line renders it.
+RUNNER_LINE="$(env PLANWRIGHT_STEP_SPEC=custom-steps PLANWRIGHT_STEP_TASK_IDS=7 \
+  PLANWRIGHT_STEP_UNIT_KIND=task PLANWRIGHT_STEP_BRANCH=planwright/custom-steps/task-7 \
+  PLANWRIGHT_STEP_BASE_BRANCH=main PLANWRIGHT_STEP_WORKTREE="$FXC" PLANWRIGHT_STEP_PR_NUMBER= \
+  PLANWRIGHT_STEP_ID=declared PLANWRIGHT_STEP_PREV_RECORD= \
+  /bin/bash "$REPO_ROOT/scripts/resolve-steps.sh" pre-ci --line "$DECLARED" --mode strict)"
+assert_allow "declared line approved" "$DECLARED --mode strict" Bash "$FXC"
+assert_allow "declared line with the context assignments prefixed approved" "$RUNNER_LINE" Bash "$FXC"
+assert_allow "word-identical respelling approved" "'$DECLARED' \"--mode\" strict" Bash "$FXC"
+assert_allow "bare target's resolved location approved" "$FX/bin/fixture-tool --x" Bash "$FXC"
+assert_allow "declared line with no args approved" "$OTHER" Bash "$FXC"
+assert_allow "declared line chained with a known-safe segment approved" \
+  "$DECLARED --mode strict && git status" Bash "$FXC"
+assert_defer "bare target instead of its resolved location deferred" "fixture-tool --x" Bash "$FXC"
+assert_defer "segment sharing only the first word deferred" "$DECLARED --mode lax" Bash "$FXC"
+assert_defer "declared line plus an extra arg deferred" "$DECLARED --mode strict --extra" Bash "$FXC"
+assert_defer "declared location without its args deferred" "$DECLARED" Bash "$FXC"
+assert_defer "declared no-args line given an arg deferred" "$OTHER extra" Bash "$FXC"
+assert_defer "non-declared command deferred" "$FX/repo/tools/undeclared.sh --mode strict" Bash "$FXC"
+assert_defer "path target with a traversal segment deferred" \
+  "$FX/repo/tools/../tools/declared.sh --mode strict" Bash "$FXC"
+assert_defer "declared line chained with an unsafe segment deferred" \
+  "$DECLARED --mode strict; rm -rf x" Bash "$FXC"
+assert_defer "declared line with a write redirect deferred" "$DECLARED --mode strict > out" Bash "$FXC"
+assert_defer "declared line behind a non-context assignment deferred" \
+  "LD_PRELOAD=/x.so $DECLARED --mode strict" Bash "$FXC"
+assert_defer "declared line behind a context assignment carrying an expansion deferred" \
+  "PLANWRIGHT_STEP_SPEC=\"\$HOME\" $DECLARED --mode strict" Bash "$FXC"
+assert_defer "declared line behind a quoted-name assignment deferred" \
+  "'PLANWRIGHT_STEP_SPEC=x' $DECLARED --mode strict" Bash "$FXC"
+assert_defer "declared words split across a quoted word deferred" "'$DECLARED --mode' strict" Bash "$FXC"
+assert_defer "declared line behind a context assignment carrying a backtick substitution deferred" \
+  "PLANWRIGHT_STEP_SPEC=\`id\` $DECLARED --mode strict" Bash "$FXC"
+assert_defer "declared line behind an unknown PLANWRIGHT_STEP_ name deferred" \
+  "PLANWRIGHT_STEP_OTHER=x $DECLARED --mode strict" Bash "$FXC"
+assert_defer "declared line followed by an unsafe command on the next line deferred" \
+  "$DECLARED --mode strict
+rm -rf x" Bash "$FXC"
+assert_defer "declared line with a glob in an arg deferred" "$DECLARED --mode stric*" Bash "$FXC"
+case $RUNNER_LINE in
+  "PLANWRIGHT_STEP_SPEC='custom-steps' "*) pass "the runner's line carries the context prefix" ;;
+  *) fail "the runner's line lost its context prefix: $RUNNER_LINE" ;;
+esac
+# ctx_prefix <unit-kind> <task-ids> <pr> <point>: the ten context assignments
+# in the resolver's order, with the given values for the validated fields.
+ctx_prefix() {
+  printf "PLANWRIGHT_STEP_SPEC='s' PLANWRIGHT_STEP_TASK_IDS='%s' PLANWRIGHT_STEP_UNIT_KIND='%s' PLANWRIGHT_STEP_BRANCH='b' PLANWRIGHT_STEP_BASE_BRANCH='main' PLANWRIGHT_STEP_WORKTREE='%s' PLANWRIGHT_STEP_PR_NUMBER='%s' PLANWRIGHT_STEP_POINT='%s' PLANWRIGHT_STEP_ID='declared' PLANWRIGHT_STEP_PREV_RECORD=''" \
+    "$2" "$1" "$FXC" "$3" "$4"
+}
+assert_allow "hand-written full context prefix approved" \
+  "$(ctx_prefix task '7 8.1' 12 pre-ci) $DECLARED --mode strict" Bash "$FXC"
+assert_allow "full context prefix with double-quoted and bare values approved" \
+  "PLANWRIGHT_STEP_SPEC=\"s\" PLANWRIGHT_STEP_TASK_IDS= PLANWRIGHT_STEP_UNIT_KIND= PLANWRIGHT_STEP_BRANCH=b PLANWRIGHT_STEP_BASE_BRANCH=main PLANWRIGHT_STEP_WORKTREE=/w PLANWRIGHT_STEP_PR_NUMBER= PLANWRIGHT_STEP_POINT=pre-ci PLANWRIGHT_STEP_ID=x PLANWRIGHT_STEP_PREV_RECORD= $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a partial context prefix deferred" \
+  "PLANWRIGHT_STEP_SPEC=x $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a reordered context prefix deferred" \
+  "$(ctx_prefix task 7 '' pre-ci | sed 's/^\(PLANWRIGHT_STEP_SPEC=[^ ]*\) \(PLANWRIGHT_STEP_TASK_IDS=[^ ]*\)/\2 \1/') $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a context prefix with a repeated name deferred" \
+  "PLANWRIGHT_STEP_SPEC=x $(ctx_prefix task 7 '' pre-ci) $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a context prefix with a unit kind the resolver refuses deferred" \
+  "$(ctx_prefix bogus 7 '' pre-ci) $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a context prefix with task ids outside the grammar deferred" \
+  "$(ctx_prefix task '7..1' '' pre-ci) $DECLARED --mode strict" Bash "$FXC"
+# The hook's own directory holds a file the glob would match.
+mkdir -p "$FX/globdir"
+: >"$FX/globdir/7.1"
+fx_pwd=$PWD
+cd "$FX/globdir" || exit 1
+assert_defer "a context prefix with task ids carrying a glob deferred" \
+  "$(ctx_prefix task '7*' '' pre-ci) $DECLARED --mode strict" Bash "$FXC"
+cd "$fx_pwd" || exit 1
+assert_defer "a context prefix with a non-numeric PR number deferred" \
+  "$(ctx_prefix task 7 12a pre-ci) $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a context prefix naming two points deferred" \
+  "$(ctx_prefix task 7 '' 'pre-ci convergence') $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a context prefix naming an unwired point deferred" \
+  "$(ctx_prefix task 7 '' post-merge) $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a context prefix value carrying a control byte deferred" \
+  "$(ctx_prefix task 7 '' pre-ci | sed "s/BRANCH='b'/BRANCH='b$(printf '\001')'/") $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a context prefix with the quote at the equals sign deferred" \
+  "$(ctx_prefix task 7 '' pre-ci | sed "s/PLANWRIGHT_STEP_SPEC='s'/PLANWRIGHT_STEP_SPEC\"=s\"/") $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a context prefix with no command deferred" "$(ctx_prefix task 7 '' pre-ci)" Bash "$FXC"
+assert_allow "relative target's location, joined to the working directory, approved" \
+  "$FXC/tools/declared.sh --rel" Bash "$FXC"
+assert_defer "relative target's location from another working directory deferred" \
+  "$FXC/tools/declared.sh --rel" Bash "$FXC/tools"
+assert_allow "declared line inside fish -c approved" "fish -c '$DECLARED --mode strict'" Bash "$FXC"
+assert_defer "changed declared line inside fish -c deferred" "fish -c '$DECLARED --mode lax'" Bash "$FXC"
+HOOK_ENV=()
+assert_defer "declared line with no declaring overlay deferred" "$DECLARED --mode strict" Bash "$FXC"
+
+# The guard's own location checks, independent of what the resolver refuses:
+# a copy of the hook beside a stub resolver that prints the location given.
+stub_root() {
+  local root=$1 location=$2 target=$3
+  mkdir -p "$root/scripts"
+  cp "$HOOK" "$root/scripts/worker-command-guard.sh"
+  cat >"$root/scripts/resolve-steps.sh" <<STUB
+#!/bin/bash
+[ "\$1" = pre-ci ] || exit 0
+printf 'run\tx\tpre-ci\trepo-tracked\trepo-tracked\t%s\tin-session\tcommand\t-\thalt\t-\t-\t%s\n' '$target' '$location'
+STUB
+}
+REAL_HOOK=$HOOK
+stub_root "$FX/stub-ok" "$DECLARED" "$DECLARED"
+HOOK="$FX/stub-ok/scripts/worker-command-guard.sh"
+HOOK_ENV=("PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
+assert_allow "stub: a clean printed location approved" "$DECLARED" Bash "$FXC"
+stub_root "$FX/stub-dotdot" "$FX/repo/tools/../tools/declared.sh" "$FX/repo/tools/../tools/declared.sh"
+HOOK="$FX/stub-dotdot/scripts/worker-command-guard.sh"
+assert_defer "stub: a printed path location with a traversal segment deferred" \
+  "$FX/repo/tools/../tools/declared.sh" Bash "$FXC"
+stub_root "$FX/stub-dot" "$FX/repo/tools/./declared.sh" "$FX/repo/tools/./declared.sh"
+HOOK="$FX/stub-dot/scripts/worker-command-guard.sh"
+assert_defer "stub: a printed path location with a dot segment deferred" \
+  "$FX/repo/tools/./declared.sh" Bash "$FXC"
+cp "$DECLARED" "$FX/repo/tools/til~de.sh"
+stub_root "$FX/stub-charset" "$FX/repo/tools/til~de.sh" "$FX/repo/tools/til~de.sh"
+HOOK="$FX/stub-charset/scripts/worker-command-guard.sh"
+assert_defer "stub: a segment outside the location charset deferred" \
+  "'$FX/repo/tools/til~de.sh'" Bash "$FXC"
+stub_root "$FX/stub-missing" "$FX/repo/nodir/declared.sh" "$FX/repo/nodir/declared.sh"
+HOOK="$FX/stub-missing/scripts/worker-command-guard.sh"
+assert_defer "stub: a printed path location that does not canonicalize deferred" \
+  "$FX/repo/nodir/declared.sh" Bash "$FXC"
+stub_root "$FX/stub-relative" "tools/declared.sh" "tools/declared.sh"
+HOOK="$FX/stub-relative/scripts/worker-command-guard.sh"
+assert_defer "stub: a segment whose first word is not absolute deferred" "tools/declared.sh" Bash "$FXC"
+
+# stub_line <root> <decision> <kind> <exit>: a stub resolver printing one
+# pre-ci line for $DECLARED with the given decision and kind, then exiting
+# with <exit>, and recording each call in <root>/calls.
+stub_line() {
+  local root=$1 dec=$2 kind=$3 rc=$4
+  mkdir -p "$root/scripts"
+  cp "$REAL_HOOK" "$root/scripts/worker-command-guard.sh"
+  cat >"$root/scripts/resolve-steps.sh" <<STUB
+#!/bin/bash
+echo "\$1" >>'$root/calls'
+[ "\$1" = pre-ci ] || exit 0
+printf '%s\tx\tpre-ci\trepo-tracked\trepo-tracked\t%s\tin-session\t%s\t-\thalt\t-\t-\t%s\n' '$dec' '$DECLARED' '$kind' '$DECLARED'
+exit $rc
+STUB
+  HOOK="$root/scripts/worker-command-guard.sh"
+}
+stub_line "$FX/stub-run" run command 0
+assert_allow "stub: a run command line approved" "$DECLARED" Bash "$FXC"
+for d in skip park ask; do
+  stub_line "$FX/stub-$d" "$d" command 0
+  assert_defer "stub: a $d decision deferred" "$DECLARED" Bash "$FXC"
+done
+stub_line "$FX/stub-rc" run command 1
+assert_defer "stub: a resolver exiting non-zero deferred" "$DECLARED" Bash "$FXC"
+stub_line "$FX/stub-skill" run skill 0
+assert_defer "stub: a skill step's location deferred" "$DECLARED" Bash "$FXC"
+stub_line "$FX/stub-calls" run command 0
+assert_allow "stub: a known-safe segment approved" "git status" Bash "$FXC"
+assert_defer "stub: a segment without a declared line's shape deferred" "foo bar" Bash "$FXC"
+if [ -e "$FX/stub-calls/calls" ]; then
+  fail "the resolver ran for a known-safe or non-declared-shape segment"
+else
+  pass "the resolver never runs for a known-safe or non-declared-shape segment"
+fi
+assert_allow "stub: two declared segments approved" "$DECLARED && $DECLARED" Bash "$FXC"
+if [ "$(grep -c '^pre-ci$' "$FX/stub-calls/calls")" = 1 ]; then
+  pass "the resolver runs once per point per hook call"
+else
+  fail "the resolver ran pre-ci $(grep -c '^pre-ci$' "$FX/stub-calls/calls") times in one hook call"
+fi
+HOOK=$REAL_HOOK
+HOOK_ENV=()
+
 echo "### REQ-B1.7 — bounded runtime on pathological input"
 big="$(head -c 200000 /dev/zero | tr '\0' 'a')"
 run_hook "echo $big"
@@ -1116,6 +1356,35 @@ if [ "$CODE" -eq 0 ] && is_empty && [ "$elapsed" -le 2 ]; then
   pass "over-cap command defers quickly (length short-circuit)"
 else
   fail "over-cap command — code=$CODE empty=$(is_empty && echo y || echo n) secs=$elapsed"
+fi
+# The same bound with the fixture catalog present: the declared steps are
+# consulted only for a segment not already known-safe, and an over-cap
+# command never reaches a segment.
+HOOK_ENV=("${FX_ENV[@]}")
+SECONDS=0
+run_hook "echo $over" Bash "$FXC"
+elapsed=$SECONDS
+if [ "$CODE" -eq 0 ] && is_empty && [ "$elapsed" -le 2 ]; then
+  pass "over-cap command defers quickly with a declaring catalog present"
+else
+  fail "over-cap command with a declaring catalog — code=$CODE empty=$(is_empty && echo y || echo n) secs=$elapsed"
+fi
+HOOK_ENV=()
+# A resolver that never returns cannot hold the hook past its resolution
+# deadline: the segment defers once the default deadline passes.
+mkdir -p "$FX/stub-slow/scripts"
+cp "$HOOK" "$FX/stub-slow/scripts/worker-command-guard.sh"
+printf '#!/bin/bash\n: >"%s/stub-slow/ran"\nsleep 30\n' "$FX" >"$FX/stub-slow/scripts/resolve-steps.sh"
+REAL_HOOK=$HOOK
+HOOK="$FX/stub-slow/scripts/worker-command-guard.sh"
+SECONDS=0
+run_hook "$DECLARED --mode strict" Bash "$FXC"
+elapsed=$SECONDS
+HOOK=$REAL_HOOK
+if [ "$CODE" -eq 0 ] && is_empty && [ -e "$FX/stub-slow/ran" ] && [ "$elapsed" -ge 1 ] && [ "$elapsed" -le 4 ]; then
+  pass "a resolver past the deadline defers within the bound"
+else
+  fail "slow resolver — code=$CODE empty=$(is_empty && echo y || echo n) secs=$elapsed"
 fi
 
 echo

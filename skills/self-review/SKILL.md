@@ -171,11 +171,11 @@ produced, whose Notes cells quote tooling output.
 - Auto-applicable and Agent-resolvable items are applied or resolved with
   their audit and evidence rows, and committed per the wiring doc's commit
   discipline; their fixes get solution validation per `validation-rigor`.
-- Needs-sign-off items are applied on the branch, committed per that same
-  discipline with the `[pending-sign-off]` subject marker, and entered in the
-  pending-sign-off checklist. A behaviour-changing fix commits alone;
-  prose-only ones batch into one commit per loop iteration carrying the wiring
-  doc's manifest, so one commit can carry several checklist entries.
+- Attended or unattended, a Needs-sign-off fix is committed on the branch,
+  never asked about first, per that same discipline (its
+  `Planwright-Sign-Off` trailer via
+  `scripts/planwright-commit-trailers.sh --sign-off`), and entered in the
+  checklist.
 - Needs-human-judgment candidates climb the resolution ladder; every
   consulted rung is recorded. Only irreducible forks queue, with bespoke
   options.
@@ -215,18 +215,22 @@ summary at the end):
 
 1. The lens-coverage table.
 2. In the wiring doc's formats: the four bucket tables, the declined log, and
-   the pending-sign-off checklist regenerated from the `[pending-sign-off]`
-   commits ahead of the base.
+   the pending-sign-off checklist regenerated from sign-off trailers ahead of
+   the base.
 3. Queued irreducible forks with their bespoke options.
 4. The pass summary: resolved mode, base used, tooling and wider-suite
    results, and any reverts or surfaced failures.
 
 The **turn** gets the wiring's projection: counts, each pending sign-off and
-each fork; standalone, only forks are questions.
+each fork; standalone, only forks are questions. Print each trailered
+commit's SHA and the command `git log --format='%h
+%(trailers:key=Planwright-Sign-Off,key=Planwright-Sign-Off-Rejected,separator=%x20)
+%s' <base>..HEAD`.
+The approval act, never the ready flip, signs off
+pending-sign-off items; reject one before it by its printed recipe.
 
 ## Publishing the audit record (standalone only)
 
-Skipped entirely in nested mode; the invoking skill owns push and PR.
 Publishing is the pass's final action: the Observations and Maintenance
 steps below run first, so their chore commits land before the push.
 

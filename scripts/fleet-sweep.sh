@@ -12,7 +12,7 @@
 # tower, which the reap needs (see --tower-id below). The dirty-tree grace (`fleet_dirty_tree_threshold`) defers one
 # escalation and never gates a cycle.
 #
-# FIVE PASSES, ONE CYCLE, in this order.
+# SIX PASSES, ONE CYCLE, in this order.
 #
 # 1. WORKTREE SCAN. The disk-scan reconcile (fleet-worktree-track.sh scan) over
 #    the tower's checkout, so a worktree no dispatch seam recorded is tracked
@@ -72,12 +72,20 @@
 #    actuator gave, so a sweep that declined everything reads differently from
 #    one that found nothing.
 #
-# 5. FLIGHT RESIDUES. A visual flight leaves two residues outside git: its
+# 5. REGISTRY RECONCILE. fleet-registry-reconcile.sh rebuilds a worker record
+#    whose write failed from its dispatch marker, and retires the record of a
+#    worker with positive death evidence. It terminates nothing, so it runs in
+#    both reap modes, after the reap, so a worker this cycle closed is retired
+#    in the same cycle once its death evidence is positive.
+#
+# 6. FLIGHT RESIDUES. A visual flight leaves two residues outside git: its
 #    worker brief under the fleet home, retired once its worktree is gone
 #    (flight-dispatch.sh retire), and the derived flight index of a checkout
 #    that no longer exists (flight-sweep.sh prune). Both are swept here, each
 #    removal audited, so neither outlives its flight silently. Flight
 #    worktrees themselves are registered worktrees, already in the scope of passes 1 and 2.
+#    It runs after the registry reconcile, so the dispatch records it reads
+#    are already healed or retired for this cycle.
 #
 # KILL-SWITCH + AUDIT. The cycle gates through fleet-daemon-gate.sh at entry
 # (a set fleet_daemon_pause pauses the whole cycle; the reap actuator also
@@ -116,6 +124,11 @@
 #       status=<ok|degraded|paused>: degraded when a store could not be read
 #       or a close is missing from the audit trail, which outranks paused;
 #       paused when the kill-switch was set mid-pass.
+#   registry <line>
+#       each line the registry reconcile printed (heal, retire, keep, refuse,
+#       paused, summary), or `registry paused` when the kill-switch stopped it
+#       at entry / `registry failed <exit>`, or `registry failed no-checkout`
+#       when the checkout could not be entered to run it.
 #
 # Exit codes: 0 sweep completed (a watch loop runs until signalled); 2 usage;
 #   4 the kill-switch paused a one-shot sweep. Per-tree inspection failures are
@@ -148,6 +161,7 @@ OVERLAY="$script_dir/resolve-overlay-root.sh"
 DET="$script_dir/fleet-stuck-detector.sh"
 CLEANUP="$script_dir/fleet-cleanup.sh"
 FS="$script_dir/fleet-state.sh"
+RECONCILE="$script_dir/fleet-registry-reconcile.sh"
 TAB=$(printf '\t')
 
 warn() { printf 'fleet-sweep: %s\n' "$*" >&2; }
@@ -763,6 +777,30 @@ EOF
     "$rp_mode" "$rp_workers" "$rp_cand" "$rp_reaped" "$rp_observed" "$rp_declined" "$rp_closed" "$rp_status"
 }
 
+registry_pass() {
+  rg_rc=0
+  # Its stderr passes through: a heal or retirement that failed names itself
+  # there, and the summary line only says the pass was degraded.
+  # A checkout the subshell cannot enter is not a reconcile that failed: it
+  # never ran, and says so with its own exit.
+  rg_out=$(
+    cd "$repo" || exit 125
+    /bin/sh "$RECONCILE" </dev/null
+  ) || rg_rc=$?
+  case $rg_rc in
+    0) printf '%s\n' "$rg_out" | awk 'NF { print "registry\t" $0 }' ;;
+    4) printf 'registry\tpaused\n' ;;
+    125)
+      warn "could not enter the checkout to run the registry reconcile — it did not run this cycle"
+      printf 'registry\tfailed\tno-checkout\n'
+      ;;
+    *)
+      warn "the registry reconcile exited $rg_rc — no record was healed or retired this cycle"
+      printf 'registry\tfailed\t%s\n' "$rg_rc"
+      ;;
+  esac
+}
+
 # flight_residue <helper...> — run one residue helper, auditing each removal
 # it reports and warning its failure with the reason; contention or a failure
 # just means next cycle. Its result lines and its stderr share one capture,
@@ -789,7 +827,7 @@ flight_residue() {
   done
 }
 
-# flight_residue_pass — pass 5. The brief retire never waits on a dispatch
+# flight_residue_pass — pass 6. The brief retire never waits on a dispatch
 # holding the checkout's flight lock, and takes no lock at all in a checkout
 # no brief names.
 flight_residue_pass() {
@@ -815,6 +853,7 @@ cycle() {
   dirty_tree_pass
   reconcile_pass
   reap_pass
+  registry_pass
   flight_residue_pass
   return 0
 }

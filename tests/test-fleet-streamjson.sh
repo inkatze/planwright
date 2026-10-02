@@ -1685,6 +1685,18 @@ senv "$home" "$rec" "CLAUDE_DIR=$cdir" "CLAUDE_PLUGIN_ROOT=$preset" SHIM_EVENTS=
 grep -q "$preset/scripts/worker-command-guard.sh" "$tmp/pf33p.err" \
   || fail "c33: the refusal must name the guard under the worker's plugin root, got: $(cat "$tmp/pf33p.err")"
 [ ! -s "$rec/argv" ] || fail "c33: a missing worker-side guard must never spawn the worker"
+# A root carrying the command guard but no policy guard refuses too: the worker
+# profile leaves merges and rewrites to that guard.
+mkdir -p "$preset/scripts"
+cp "$here/../scripts/worker-command-guard.sh" "$preset/scripts/"
+: >"$rec/argv"
+senv "$home" "$rec" "CLAUDE_DIR=$cdir" "CLAUDE_PLUGIN_ROOT=$preset" SHIM_EVENTS="$ev" -- \
+  launch sjw33q execution-backends:4 --prompt-file "$tmp/prompt33" --foreground \
+  >/dev/null 2>"$tmp/pf33q.err"
+[ $? -eq 9 ] || fail "c33: a preset plugin root without the policy guard must refuse (exit 9), stderr: $(cat "$tmp/pf33q.err")"
+grep -q "$preset/scripts/policy-guard.sh" "$tmp/pf33q.err" \
+  || fail "c33: the refusal must name the policy guard under the worker's plugin root, got: $(cat "$tmp/pf33q.err")"
+[ ! -s "$rec/argv" ] || fail "c33: a missing policy guard must never spawn the worker"
 # The proof's own failure is a refusal with a cause, never a pass: a record it
 # cannot create exits 2 and says why.
 : >"$rec/argv"

@@ -262,7 +262,7 @@ it when relaying to or cleaning up after a worker.
   worktree per unit; completion notifies the tower, and its questions funnel to
   the tower's single prompt queue. The shipped `config/worker-settings.json`
   pre-approves the routine `/execute-task` toolset and denies the
-  merge/force-push/rebase/amend guardrails; a human merges it in (planwright
+  PR-merge/force-push guardrails; a human merges it in (planwright
   never edits settings.json, REQ-I1.2).
 - **tmux** (opt-in). An interactive worker in a named window via `claude
   --worktree`. Observe stuck/finished/errored workers with **capture-pane**,

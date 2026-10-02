@@ -15,8 +15,11 @@
 #     NEVER exits non-zero — approval is upgrade-only; blocking stays with
 #     permissions.deny/ask (REQ-A1.2, REQ-B1.7). A hook `allow` therefore never
 #     needs to (and by design never does) auto-approve a deny-listed command:
-#     the allowlist is read-only shapes with zero overlap with the worker deny
-#     block, and the adversarial suite pins that (REQ-A1.3, REQ-B1.6).
+#     the enumerated allowlist is read-only shapes with zero overlap with the
+#     worker deny block, and the adversarial suite pins that (REQ-A1.3,
+#     REQ-B1.6). A declared step's line is the exception: it is whatever an
+#     operator declared, its trust resting on the declaring layer, not on the
+#     deny block (see declared_line_ok).
 #   * The extracted command is treated strictly as INERT DATA — never eval-ed,
 #     re-expanded, glob-expanded, or used as a pattern/format/unquoted arg — so
 #     analyzing a hostile command can never execute it (REQ-B1.1).
@@ -32,7 +35,8 @@
 # the earlier claim here that variables arrive expanded was never true, and
 # every shape built on it deferred). It is split — quote- and operator-aware —
 # into segments on the control operators `;` `&&` `||` `|` `&` and newlines;
-# EVERY segment's simple command must be independently known-safe (REQ-A1.4). A
+# EVERY segment's simple command must be independently known-safe, or a
+# declared step's line (REQ-A1.4). A
 # command is known-safe only when (a) its verb is on the enumerated allowlist
 # below, (b) its flags/args designate no output/target file and enable no write
 # or arbitrary execution (REQ-A1.8), and (c) it uses no construct the analyzer
@@ -50,6 +54,8 @@
 # for itself (REQ-A1.10; see is_planwright_script — the reason this needs no
 # per-machine, version-pinned allow entry). `fish -c "<inner>"` recurses the same
 # analysis on the inner string within a bounded depth.
+# A segment none of these shapes approve is still approved when it is exactly
+# a command step an operator declared (see declared_line_ok).
 #
 # Portable bash (3.2 floor / BSD compatible), no dependency on python, fish,
 # mise, tmux, or Ansible; the security-critical analysis is pure shell. jq is
@@ -71,7 +77,8 @@ export LC_ALL
 # the normal prompt). Because `fish -c "<inner>"` re-enters analyze_command on
 # the inner string (each entry independently re-checked against MAX_CMD_LEN),
 # the end-to-end worst case is that per-entry cost multiplied by the number of
-# levels — up to MAX_DEPTH+1 entries, i.e. ~2 s worst case, not ~0.5 s. 8 KiB is
+# levels — up to MAX_DEPTH+1 entries, i.e. ~2 s worst case, not ~0.5 s, plus
+# STEPS_DEADLINE when a segment reaches the declared-step fallback. 8 KiB is
 # far above any real worker command shape. MAX_DEPTH caps `fish -c` recursion so
 # a nested-`fish -c` bomb can never spin.
 readonly MAX_CMD_LEN=8192
@@ -1831,16 +1838,23 @@ assign_name_ok() {
   return 0
 }
 
-# assign_value_ok <value> <cwd>: the VALUE rule above.
-assign_value_ok() {
-  local v=$1 cwd=$2 canon
-  case $v in
+# bare_abs_path_ok <word>: 0 when the word is an absolute path of
+# [A-Za-z0-9/._-] only, so it carries no `$`, glob, quote, or space.
+bare_abs_path_ok() {
+  case $1 in
     /*) ;;
     *) return 1 ;;
   esac
-  case $v in
+  case $1 in
     *[!A-Za-z0-9/._-]*) return 1 ;;
   esac
+  return 0
+}
+
+# assign_value_ok <value> <cwd>: the VALUE rule above.
+assign_value_ok() {
+  local v=$1 cwd=$2 canon
+  bare_abs_path_ok "$v" || return 1
   canon=$(cd "$v" 2>/dev/null && pwd -P) || return 1
   is_trusted_dir "$canon" "$cwd"
 }
@@ -1982,11 +1996,234 @@ classify_verb() {
   esac
 }
 
-# verify_simple: verify one simple command. Reads the accumulated word array
-# `cw` (0=verb) / count `cwn` and the redirect arrays `ro` (ops) / `rt`
-# (targets) / `rn` from the caller via dynamic scope. Returns 0 (safe) or
-# non-zero (DEFER).
+# --------------------------------------------------------------------------
+# Declared command steps (custom-steps REQ-G1.2, REQ-G1.3). A segment no rule
+# above approved is still approved when its words equal a command step an
+# operator declared at a named point: the step's location exactly as
+# scripts/resolve-steps.sh prints it on this host, then its args as written,
+# after any leading context assignments in the runner's form. The declaration
+# carries the trust (its overlay layer is human-owned, and the repo-tracked
+# and machine-local layers inherit the trust already given to the repo's
+# scripts/), so the match is exact: a segment sharing only the first word, a
+# bare target, or an extra arg defers. The declarations are resolved at most
+# once per hook call, only when a segment reaches this fallback and already
+# has a declared line's shape, and under STEPS_DEADLINE; a resolver that
+# fails, refuses, or overruns contributes nothing.
+
+# The wired points of resolve-steps.sh's WIRED_POINTS; the lists change
+# together. The unwired points run nothing, so they declare nothing.
+readonly STEP_POINTS='pre-implementation pre-ci convergence pre-pr post-pr pre-ready-flip pre-spec-ready-flip'
+# Seconds the resolution may take, all points resolved in parallel. The
+# PLANWRIGHT_GUARD_STEPS_DEADLINE override (1..60) changes only how long the
+# resolution may run: it never widens the set of lines a segment can match,
+# though a resolution that finishes in time can approve where a shorter
+# deadline would have deferred.
+readonly STEPS_DEADLINE=2
+DECL_RESOLVED=0
+DECL_LINES=''
+DECL_TMP=''
+
+# The context names in the order resolve-steps.sh's CONTEXT_FIELDS renders
+# them in --prefix; the lists change together.
+readonly STEP_CONTEXT_FIELDS='SPEC TASK_IDS UNIT_KIND BRANCH BASE_BRANCH WORKTREE PR_NUMBER POINT ID PREV_RECORD'
+
+# step_context_value_ok <field> <value>: a value the resolver would render,
+# refusing what it refuses (a control byte; a unit kind, task ids, or PR number
+# outside their grammar; a point outside the wired ones) plus any `$`.
+step_context_value_ok() {
+  local f=$1 v=$2 id
+  case $v in
+    *[[:cntrl:]]* | *'$'*) return 1 ;;
+  esac
+  case $f in
+    UNIT_KIND)
+      case $v in
+        '' | task | spec | flight) ;;
+        *) return 1 ;;
+      esac
+      ;;
+    TASK_IDS)
+      # The charset first: the unquoted split below would glob-expand a `*`.
+      case $v in
+        *[!0-9.\ ]* | ' '* | *' ' | *'  '*) return 1 ;;
+      esac
+      for id in $v; do
+        case $id in
+          *[!0-9.]* | . | *.*.* | .* | *.) return 1 ;;
+        esac
+      done
+      ;;
+    PR_NUMBER)
+      case $v in
+        *[!0-9]*) return 1 ;;
+      esac
+      ;;
+    POINT)
+      case $v in
+        *' '*) return 1 ;;
+      esac
+      case " $STEP_POINTS " in
+        *" $v "*) ;;
+        *) return 1 ;;
+      esac
+      ;;
+  esac
+  return 0
+}
+
+# step_arg_ok <word>: the resolver's args charset.
+step_arg_ok() {
+  case $1 in
+    '' | *[!A-Za-z0-9._/:=@%,+-]*) return 1 ;;
+  esac
+  return 0
+}
+
+# step_location_ok <location> <target>: the location is absolute and in the
+# guard's path charset; for a path target (one naming a directory) it also
+# carries no `.`, `..`, or empty segment and canonicalizes to an executable
+# file. A bare target's location is whatever the host's PATH lookup found.
+step_location_ok() {
+  local loc=$1 target=$2 d
+  bare_abs_path_ok "$loc" || return 1
+  case $target in
+    */*)
+      case $loc in
+        */./* | */../* | */. | */.. | *//*) return 1 ;;
+      esac
+      d=$(cd "$(dirname "$loc")" 2>/dev/null && pwd -P) || return 1
+      [ -f "$d/$(basename "$loc")" ] && [ -x "$d/$(basename "$loc")" ] || return 1
+      ;;
+  esac
+  return 0
+}
+
+# resolve_declared: fill DECL_LINES with one `<location> <arg>...` line per
+# declared command step that resolves to `run`, resolving every wired point
+# from HOOK_CWD in parallel. Runs once per hook call.
+resolve_declared() {
+  local rs deadline ticks alive pid p i rc
+  local dec target kind args loc key w _
+  local -a pids=()
+  DECL_RESOLVED=1
+  [ -n "${HOOK_SELF_ROOT:-}" ] || return 0
+  rs="$HOOK_SELF_ROOT/scripts/resolve-steps.sh"
+  [ -r "$rs" ] || return 0
+  deadline=${PLANWRIGHT_GUARD_STEPS_DEADLINE:-}
+  case $deadline in
+    '' | *[!0-9]*) deadline=$STEPS_DEADLINE ;;
+  esac
+  { [ "$deadline" -ge 1 ] && [ "$deadline" -le 60 ]; } 2>/dev/null || deadline=$STEPS_DEADLINE
+  DECL_TMP=$(mktemp -d "${TMPDIR:-/tmp}/planwright-guard.XXXXXX" 2>/dev/null) || {
+    DECL_TMP=''
+    return 0
+  }
+  for p in $STEP_POINTS; do
+    (cd "$HOOK_CWD" 2>/dev/null && exec /bin/bash "$rs" "$p" --explain --unattended) \
+      </dev/null >"$DECL_TMP/$p" 2>/dev/null &
+    pids[${#pids[@]}]=$!
+  done
+  ticks=$((deadline * 10))
+  while [ "$ticks" -gt 0 ]; do
+    alive=0
+    for pid in "${pids[@]}"; do
+      kill -0 "$pid" 2>/dev/null && alive=1
+    done
+    [ "$alive" = 0 ] && break
+    sleep 0.1
+    ticks=$((ticks - 1))
+  done
+  i=0
+  for p in $STEP_POINTS; do
+    pid=${pids[i]}
+    i=$((i + 1))
+    if kill -0 "$pid" 2>/dev/null; then
+      kill "$pid" 2>/dev/null
+      continue
+    fi
+    wait "$pid" 2>/dev/null
+    rc=$?
+    [ "$rc" = 0 ] || continue
+    # The --explain columns resolve-steps.sh documents; it prints `-` for an
+    # empty field, which a tab IFS would otherwise collapse.
+    while IFS=$TAB read -r dec _ _ _ _ target _ kind args _ _ _ loc; do
+      [ "$dec" = run ] && [ "$kind" = command ] || continue
+      step_location_ok "$loc" "$target" || continue
+      key=$loc
+      if [ "$args" != - ]; then
+        # Checked before the unquoted split, which would otherwise glob-expand
+        # a `*` or `?` in the args against the working directory.
+        case $args in
+          *[!A-Za-z0-9._/:=@%,+\ -]*) continue ;;
+        esac
+        for w in $args; do
+          key="$key $w"
+        done
+      fi
+      DECL_LINES="$DECL_LINES$key$NL"
+    done <"$DECL_TMP/$p"
+  done
+  return 0
+}
+
+# declared_line_ok: 0 when the current simple command, as tokenized (`sw` /
+# `swq` / `swn` from verify_simple, before any tracked-assignment
+# substitution), is a declared step's line. Reads `rn` via dynamic scope.
+declared_line_ok() {
+  local i=0 f w name key
+  [ "$rn" -eq 0 ] || return 1
+  case ${sw[0]} in
+    PLANWRIGHT_STEP_*)
+      for f in $STEP_CONTEXT_FIELDS; do
+        [ "$i" -lt "$swn" ] || return 1
+        w=${sw[i]}
+        name=PLANWRIGHT_STEP_$f
+        case $w in
+          "$name="*) ;;
+          *) return 1 ;;
+        esac
+        # A quote before the `=` makes the word a command name, not an assignment.
+        if [ "${swq[i]}" -ge 0 ] && [ "${swq[i]}" -le "${#name}" ]; then
+          return 1
+        fi
+        step_context_value_ok "$f" "${w#*=}" || return 1
+        i=$((i + 1))
+      done
+      ;;
+  esac
+  [ "$i" -lt "$swn" ] || return 1
+  key=${sw[i]}
+  bare_abs_path_ok "$key" || return 1
+  i=$((i + 1))
+  while [ "$i" -lt "$swn" ]; do
+    step_arg_ok "${sw[i]}" || return 1
+    key="$key ${sw[i]}"
+    i=$((i + 1))
+  done
+  [ "$DECL_RESOLVED" = 1 ] || resolve_declared
+  case $NL$DECL_LINES in
+    *"$NL$key$NL"*) return 0 ;;
+  esac
+  return 1
+}
+
+# verify_simple: verify one simple command — known-safe by the rules below, or
+# else a declared step's line. Reads the accumulated word array `cw` (0=verb)
+# / count `cwn` and the redirect arrays `ro` (ops) / `rt` (targets) / `rn`
+# from the caller via dynamic scope. Returns 0 (safe) or non-zero (DEFER).
 verify_simple() {
+  local i swn=$cwn
+  local -a sw=() swq=()
+  for ((i = 0; i < cwn; i++)); do
+    sw[i]=${cw[i]}
+    swq[i]=${cqp[i]}
+  done
+  verify_known_simple && return 0
+  declared_line_ok
+}
+
+# verify_known_simple: the enumerated known-safe rules for one simple command.
+verify_known_simple() {
   local i verb
   # Redirects first: a write to a real file defers regardless of the verb
   # (covers a leading redirect with no command too, e.g. `> f cat x`).
@@ -2339,6 +2576,7 @@ INSTALLED_ROOTS=$(installed_planwright_roots) || INSTALLED_ROOTS=''
 # Fail safe on any unexpected signal: empty stdout, exit 0 (REQ-B1.7). The hook
 # never blocks a worker's tool call.
 trap 'exit 0' HUP INT TERM PIPE
+trap '[ -z "$DECL_TMP" ] || rm -rf "$DECL_TMP"' EXIT
 
 main
 exit 0

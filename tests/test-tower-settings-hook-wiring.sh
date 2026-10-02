@@ -81,6 +81,25 @@ else
   fail "the wired hook script $HOOK_REL does not exist (REQ-C1.1)"
 fi
 
+# --- human-gates REQ-G1.5: the policy guard, wired with the tower tier ------
+# The deny-emitting policy guard learns its tier from this argument, so the
+# tier word is part of the wiring: under the Bash matcher and under the MCP
+# flip tool, in the same spelling as the command guard.
+for pg_wire in 'Bash|tower bash' 'mcp__github__update_pull_request|tower mcp'; do
+  pg_matcher=${pg_wire%%|*}
+  pg_args=${pg_wire#*|}
+  if jq -e --arg m "$pg_matcher" --arg a "$pg_args" '
+    (.hooks.PreToolUse // [])
+    | map(select(.matcher == $m))
+    | map(.hooks[]? | select(.type == "command") | .command)
+    | any(. == ("\"${CLAUDE_PLUGIN_ROOT}\"/scripts/policy-guard.sh " + $a))
+  ' "$tower_settings" >/dev/null 2>&1; then
+    ok "tower-settings wires the policy guard on $pg_matcher as '$pg_args' (human-gates REQ-G1.5)"
+  else
+    fail "tower-settings does not wire \"\${CLAUDE_PLUGIN_ROOT}\"/scripts/policy-guard.sh $pg_args on $pg_matcher (human-gates REQ-G1.5)"
+  fi
+done
+
 # --- REQ-C1.1: defaultMode stays `default` (never auto) ----------------------
 mode="$(jq -r '.permissions.defaultMode // empty' "$tower_settings")"
 if [ "$mode" = "default" ]; then
