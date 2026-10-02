@@ -362,6 +362,16 @@ unpushed() {
   [ "$(git rev-list --count "refs/remotes/$REMOTE/$BRANCH..HEAD" 2>/dev/null)" != 0 ]
 }
 
+# write_tasks — put the edited file in place; a failed or short write restores
+# the committed file, so a truncated tasks.md is never committed.
+write_tasks() {
+  if ! cat "$SCRATCH/tasks.new" >"$TASKS" 2>/dev/null || ! cmp -s "$SCRATCH/tasks.new" "$TASKS"; then
+    git checkout -q -- "$TASKS" 2>/dev/null
+    COMMIT_ERR="$TASKS could not be written"
+    return 1
+  fi
+}
+
 unit_label() {
   if [ "${#IDS[@]}" = 1 ]; then printf 'task %s' "${IDS[0]}"; else printf 'tasks %s' "${IDS[*]}"; fi
 }
@@ -378,7 +388,7 @@ reconcile() {
   rc=$?
   case $rc in
     0)
-      cat "$SCRATCH/tasks.new" >"$TASKS"
+      write_tasks || return 1
       commit_tasks "chore($SPEC_NAME): clear the parked ready-flip of $(unit_label)" || return 1
       ;;
     4) ;;
@@ -765,7 +775,7 @@ park() {
       return 1
       ;;
   esac
-  cat "$SCRATCH/tasks.new" >"$TASKS"
+  write_tasks || return 1
   commit_tasks "chore($SPEC_NAME): park the ready-flip of $(unit_label)"
 }
 

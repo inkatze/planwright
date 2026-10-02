@@ -504,6 +504,19 @@ check "the tree is clean" [ -z "$(gitf status --porcelain --untracked-files=no)"
 check "no commit was left behind" [ "$(gitf rev-parse HEAD)" = "$before" ]
 check "the handoff names the unwritten park" grep -qi 'park.*not written\|could not write' <<<"$OUT"
 
+echo "# a tasks.md that cannot be written is never committed"
+fixture
+set_policy unit-owner
+echo failing >"$GHS/ci"
+chmod 444 "$F/wt/$TASKS"
+before=$(gitf rev-parse HEAD)
+run_helper flip --spec specs/demo --task 1
+chmod 644 "$F/wt/$TASKS"
+check "an unwritable tasks.md exits 5" [ "$CODE" = 5 ]
+check "an unwritable tasks.md makes no commit" [ "$(gitf rev-parse HEAD)" = "$before" ]
+check "an unwritable tasks.md is named" grep -q 'could not be written' <<<"$OUT"
+check "an unwritable tasks.md keeps its content" grep -q '### Task 1' "$F/wt/$TASKS"
+
 echo "# argument and branch refusals"
 fixture
 set_policy unit-owner
