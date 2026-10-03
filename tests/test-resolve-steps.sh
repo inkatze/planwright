@@ -55,6 +55,9 @@ trap 'rm -rf "$tmp"' EXIT
 
 WIRED="pre-implementation pre-ci convergence pre-pr post-pr pre-ready-flip pre-spec-ready-flip"
 UNWIRED="spec-drafted kickoff-signed-off unit-selected pre-dispatch post-dispatch unit-halted post-merge orchestrator-idle"
+[ "$WIRED" = "$(sed -n 's/^WIRED_POINTS="\(.*\)"$/\1/p' "$RS")" ] \
+  && [ "$UNWIRED" = "$(sed -n 's/^UNWIRED_POINTS="\(.*\)"$/\1/p' "$RS")" ]
+verdict "the test's point lists are the resolver's WIRED_POINTS and UNWIRED_POINTS" "point lists drifted from scripts/resolve-steps.sh"
 
 # --- Fixture layout ----------------------------------------------------------
 core="$tmp/core"
@@ -1669,8 +1672,28 @@ verdict "an unwired point reads the catalog only in check mode" "unwired reads: 
 # A broken shared read fails every point: no rows at all.
 printf 'steps:\n  - id: tool\n  bad indent\n' >"$tracked_cat"
 capture pre-ci post-pr --explain --unattended
-[ "$RC" = 4 ] && [ -z "$OUT" ]
-verdict "a malformed repo-tracked catalog fails a multi-point run with no rows" "multi-point shared failure: rc=$RC out='$OUT'"
+[ "$RC" = 4 ] && [ -z "$OUT" ] && case $ERR in *"resolve-steps: pre-ci,post-pr: "*) true ;; *) false ;; esac
+verdict "a malformed repo-tracked catalog fails a multi-point run with no rows, named for every point" "multi-point shared failure: rc=$RC out='$OUT' err='$ERR'"
+# A shared read's warning prints once per run, under every point's name.
+reset_layers
+printf 'review_sequence: [polish]\n' >"$adopter_cfg"
+capture pre-ci post-pr --explain --unattended
+[ "$(printf '%s\n' "$ERR" | grep -c 'sets review_sequence')" = 1 ] \
+  && printf '%s\n' "$ERR" | grep -q "^resolve-steps: pre-ci,post-pr: warning: the adopter layer sets review_sequence"
+verdict "a shared read's warning prints once, named for every point" "multi-point shared warning: rc=$RC err='$ERR'"
+reset_layers
+# A failed shared config read names every key it read.
+gstub="$tmp/gstub"
+mkdir -p "$gstub/scripts"
+cp "$repo_root"/scripts/*.sh "$gstub/scripts/"
+ln -s "$repo_root/doctrine" "$gstub/doctrine"
+printf '#!/bin/sh\nexit 7\n' >"$gstub/scripts/config-get.sh"
+RS_SAVED=$RS
+RS="$gstub/scripts/resolve-steps.sh"
+capture pre-ci post-pr --explain --unattended
+RS=$RS_SAVED
+[ "$RC" = 5 ] && [ -z "$OUT" ] && case $ERR in *"config-get exited 7 reading review_sequence steps_pre_ci steps_post_pr "*) true ;; *) false ;; esac
+verdict "a failed shared config read exits 5 naming every key read" "shared config failure: rc=$RC out='$OUT' err='$ERR'"
 
 if [ "$failures" -ne 0 ]; then
   echo "FAIL: resolve-steps ($failures failure(s))" >&2

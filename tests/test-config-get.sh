@@ -672,6 +672,13 @@ esac
 case $err in
   *"'steps_pre_pr' unresolved"*) fail "--layers: a key another layer sets is not unresolved, got: $err" ;;
 esac
+rc=0
+got=$(PLANWRIGHT_CONFIG_DEFAULTS="$tmp/no-such-defaults.yml" PLANWRIGHT_ADOPTER_OVERLAY="$layers_root/adopter" \
+  PLANWRIGHT_REPO_ROOT="$layers_root/repo" PLANWRIGHT_LOCAL_CONFIG="" /bin/bash "$CG" --layers no_a steps_pre_pr 2>/dev/null) || rc=$?
+case $rc:$got in
+  0:*"steps_pre_pr	repo-tracked	"*) ;;
+  *) fail "--layers: with no core defaults, a key another layer sets still prints (rc 0), got rc=$rc out='$got'" ;;
+esac
 echo "ok: --layers reads several keys in one run; only --layers takes several"
 # The value reader: the first line setting the key wins, a key set to an
 # empty or empty-quoted value reads as set, and one pair of quotes and a
@@ -719,6 +726,14 @@ PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1 run_layers steps_pre_pr >/dev/null 2>&1 || r
 [ "$rc" = 6 ] || fail "strict overlays: a malformed machine-local overlay should exit 6, got $rc"
 got=$(run_layers steps_pre_pr 2>/dev/null) || fail "strict overlays: unset, a malformed machine-local overlay must still be skipped"
 [ "$got" = "[core-a]" ] || fail "strict overlays: unset, expected the core value, got '$got'"
+want="$(run_layers --layers only_core 2>/dev/null | sed 's/^/only_core	/')
+$(run_layers --layers steps_pre_pr 2>/dev/null | sed 's/^/steps_pre_pr	/')"
+got=$(run_layers --layers only_core steps_pre_pr 2>"$tmp/layers-err") || fail "--layers: several keys over a malformed machine-local layer must degrade"
+[ "$got" = "$want" ] || fail "--layers: several keys should skip the malformed machine-local layer for every key, got: $got"
+[ "$(grep -c 'machine-local overlay' "$tmp/layers-err")" = 1 ] || fail "--layers: several keys should warn about the malformed machine-local layer once, got: $(cat "$tmp/layers-err")"
+rc=0
+got=$(PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1 run_layers --layers only_core steps_pre_pr 2>/dev/null) || rc=$?
+[ "$rc" = 6 ] && [ -z "$got" ] || fail "strict overlays: several keys over a malformed machine-local layer should exit 6 printing nothing, got rc=$rc out='$got'"
 rm -f "$layers_root/repo/.claude/planwright.local.yml"
 # A later key failing the strict walk leaves no earlier key's lines behind.
 printf 'steps_pre_pr: a\nsteps_pre_pr: b\n' >"$layers_root/adopter/planwright.yml"

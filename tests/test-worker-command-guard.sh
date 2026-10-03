@@ -1375,19 +1375,25 @@ if [ -n "$step_points" ] && [ "$(cat "$FX/stub-calls/calls")" = "$step_points --
 else
   fail "the resolver calls in one hook call: $(tr '\n' '|' <"$FX/stub-calls/calls")"
 fi
-# The catalog check finds a target in the adopter and machine-local files,
-# quoted or not, and reads a `.` in the name as itself.
+# The catalog check finds a target in the core, adopter, and machine-local
+# files, quoted or not, and reads a `.` in the name as itself.
 cp "$FX/adopter/catalogs/steps.yaml" "$FX/adopter-steps.saved"
 mkdir -p "$FX/repo/.claude/catalogs.local"
-for t in adopter-tool local-tool quoted-tool dot.name; do
+for t in core-tool adopter-tool local-tool quoted-tool dot.name; do
   printf '#!/bin/sh\nexit 0\n' >"$FX/bin/$t"
   chmod +x "$FX/bin/$t"
 done
 printf '  - id: adopter-only\n    kind: command\n    target: %s\n' "$FX/bin/adopter-tool" >>"$FX/adopter/catalogs/steps.yaml"
 printf 'steps:\n  - id: local-only\n    kind: command\n    target: %s\n  - id: quoted\n    kind: command\n    target: "%s"\n  - id: dotted\n    kind: command\n    target: %s\n' \
   "$FX/bin/local-tool" "$FX/bin/quoted-tool" "$FX/bin/dotXname" >"$FX/repo/.claude/catalogs.local/steps.yaml"
-for t in adopter-tool local-tool quoted-tool; do
+for t in core-tool adopter-tool local-tool quoted-tool; do
   stub_line "$FX/stub-hit-$t" run command 0
+  # The fixture's core arms hold no doctrine/ or scripts/, so the core root
+  # is the stub's own install.
+  if [ "$t" = core-tool ]; then
+    mkdir -p "$FX/stub-hit-$t/config"
+    printf 'steps:\n  - id: core-only\n    kind: command\n    target: %s\n' "$FX/bin/core-tool" >"$FX/stub-hit-$t/config/steps.yaml"
+  fi
   run_hook "$FX/bin/$t" Bash "$FXC"
   check_invariants "the catalog check finds $t's target" || continue
   if [ -s "$FX/stub-hit-$t/calls" ]; then
@@ -1528,11 +1534,13 @@ else
   fail "partial overrun — code=$CODE empty=$(is_empty && echo y || echo n) err='$(cat "$FX/stub-partial/err")'"
 fi
 # A run that finishes but leaves a read it started still running takes that
-# read with it.
+# read with it and keeps its rows: the same row the overrun discarded
+# approves here.
 stub_scripts "$FX/stub-straggler"
 cat >"$FX/stub-straggler/scripts/resolve-steps.sh" <<STUB
 #!/bin/bash
 echo \$\$ >'$FX/stub-straggler/self'
+printf 'run\tx\tpre-ci\trepo-tracked\trepo-tracked\t%s\tin-session\tcommand\t--mode strict\thalt\t-\t-\t%s\n' '$DECLARED' '$DECLARED'
 sleep 30 </dev/null >/dev/null 2>&1 &
 echo \$! >'$FX/stub-straggler/child'
 exit 0
@@ -1540,10 +1548,10 @@ STUB
 HOOK="$FX/stub-straggler/scripts/worker-command-guard.sh"
 HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
 run_hook "$DECLARED --mode strict" Bash "$FXC"
-if [ "$CODE" -eq 0 ] && is_empty && no_survivors "$FX/stub-straggler"; then
-  pass "a finished run leaves no read it started running"
+if [ "$CODE" -eq 0 ] && is_allow && no_survivors "$FX/stub-straggler"; then
+  pass "a finished run keeps its rows and leaves no read it started running"
 else
-  fail "finished run left a straggler: child=$(cat "$FX/stub-straggler/child" 2>/dev/null)"
+  fail "finished run: allow=$(is_allow && echo y || echo n), child=$(cat "$FX/stub-straggler/child" 2>/dev/null)"
 fi
 HOOK="$FX/stub-partial/scripts/worker-command-guard.sh"
 # A hook signalled mid-resolution takes the run's whole group with it.
