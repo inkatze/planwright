@@ -294,7 +294,7 @@ auto-approves, allow-only, a segment whose words, minus leading
 `PLANWRIGHT_STEP_*` assignments in the resolver's exact form, equal a
 well-formed entry's location as printed on the guard's host, then its `args`,
 the location passing the guard's charset and path checks (REQ-G1.3); one
-deadline-bounded run, killed whole on overrun, resolves every wired point,
+deadline-bounded run, group-killed however it ends, resolves every wired point,
 only when the location's file name is cataloged. **A skill step runs under the worker's
 permission profile like any other skill, with no elevation**, an `isolated`
 session under the profile its backend gives any session it spawns
