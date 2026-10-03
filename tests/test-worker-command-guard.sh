@@ -1368,6 +1368,13 @@ fi
 assert_allow "stub: two declared segments approved" "$DECLARED && $DECLARED" Bash "$FXC"
 step_points=$(sed -n "s/^readonly STEP_POINTS='\(.*\)'\$/\1/p" "$REAL_HOOK")
 wired_points=$(sed -n 's/^WIRED_POINTS="\(.*\)"$/\1/p' "$REPO_ROOT/scripts/resolve-steps.sh")
+# The catalog check's per-layer files, in core, adopter, repo-tracked,
+# machine-local order, are the ones resolve-catalog.sh reads.
+# shellcheck disable=SC2016 # the pattern matches a literal $name
+want_rels=$(sed -n -E 's/^(core|adopter|repo|local)_rel="(.*)\$name\.yaml"$/\2steps.yaml/p' "$REPO_ROOT/scripts/resolve-catalog.sh")
+got_rels=$(sed -n 's/.*files\[\${#files\[@\]}\]=\$r\/\(.*steps\.yaml\)$/\1/p' "$REAL_HOOK")
+[ "$(printf '%s\n' "$want_rels" | grep -c .)" = 4 ] && [ "$got_rels" = "$want_rels" ] \
+  || fail "the guard's catalog files ('$(printf '%s' "$got_rels" | tr '\n' ' ')') differ from resolve-catalog.sh's ('$(printf '%s' "$want_rels" | tr '\n' ' ')')"
 [ -n "$step_points" ] && [ "$step_points" = "$wired_points" ] \
   || fail "the guard's STEP_POINTS ('$step_points') differ from resolve-steps.sh's WIRED_POINTS ('$wired_points')"
 if [ -n "$step_points" ] && [ "$(cat "$FX/stub-calls/calls")" = "$step_points --explain --unattended" ]; then
