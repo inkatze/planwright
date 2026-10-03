@@ -2015,7 +2015,7 @@ classify_verb() {
 # The wired points of resolve-steps.sh's WIRED_POINTS; the lists change
 # together. The unwired points run nothing, so they declare nothing.
 readonly STEP_POINTS='pre-implementation pre-ci convergence pre-pr post-pr pre-ready-flip pre-spec-ready-flip'
-# Seconds the catalog checks and the resolution may take together in one hook
+# Seconds the catalog check and the resolution may take together in one hook
 # call. The PLANWRIGHT_GUARD_STEPS_DEADLINE override (1..60) changes only how
 # long they may run: it never widens the set of lines a segment can match,
 # though a resolution that finishes in time can approve where a shorter
@@ -2024,7 +2024,6 @@ readonly STEPS_DEADLINE=2
 DECL_RESOLVED=0
 DECL_LINES=''
 DECL_TMP=''
-DECL_TICKS=''
 # The process group of a running resolution job, killed on any exit.
 DECL_PGID=''
 
@@ -2117,11 +2116,16 @@ step_name_cataloged() {
     "$ors" "$l" </dev/null >"$DECL_TMP/root-$l" 2>/dev/null &
   done
   wait
-  r=$(<"$DECL_TMP/root-core")
+  r=''
+  read -r r <"$DECL_TMP/root-core"
   [ -z "$r" ] || files[${#files[@]}]=$r/config/steps.yaml
-  r=$(<"$DECL_TMP/root-adopter")
+  r=''
+  read -r r <"$DECL_TMP/root-adopter"
   [ -z "$r" ] || files[${#files[@]}]=$r/catalogs/steps.yaml
-  r=$(<"$DECL_TMP/root-repo-tracked")
+  r=''
+  read -r r <"$DECL_TMP/root-repo-tracked"
+  # The machine-local catalog sits under the repo-tracked root, which
+  # resolve-overlay-root.sh gives both repo-side layers.
   if [ -n "$r" ]; then
     files[${#files[@]}]=$r/catalogs/steps.yaml
     files[${#files[@]}]=$r/catalogs.local/steps.yaml
@@ -2136,74 +2140,56 @@ step_name_cataloged() {
 
 # resolve_declared <location>: fill DECL_LINES with one `<location> <arg>...`
 # line per declared command step that resolves to `run`, when <location>'s
-# file name is cataloged, by one multi-point resolver run from HOOK_CWD. The
-# checks and the run share one job in its own process group, bounded by what
-# is left of the call's deadline and killed whole when it overruns, so a
-# timeout leaves no resolver or sibling read running.
+# file name is cataloged, by one multi-point resolver run from HOOK_CWD. Runs
+# once per hook call: a miss defers its segment, which ends the analysis. The
+# check and the run share one job in its own process group, bounded by
+# STEPS_DEADLINE and killed whole when it overruns or once it ends, so nothing
+# it started outlives the call.
 resolve_declared() {
-  local rs deadline pid killed=0
+  local rs deadline ticks pid killed=0
   local dec target kind args loc key w _
-  [ -n "${HOOK_SELF_ROOT:-}" ] || {
-    DECL_RESOLVED=1
-    return 0
-  }
+  DECL_RESOLVED=1
+  [ -n "${HOOK_SELF_ROOT:-}" ] || return 0
   rs="$HOOK_SELF_ROOT/scripts/resolve-steps.sh"
-  [ -r "$rs" ] || {
-    DECL_RESOLVED=1
+  [ -r "$rs" ] || return 0
+  deadline=${PLANWRIGHT_GUARD_STEPS_DEADLINE:-}
+  case $deadline in
+    '' | *[!0-9]*) deadline=$STEPS_DEADLINE ;;
+  esac
+  { [ "$deadline" -ge 1 ] && [ "$deadline" -le 60 ]; } 2>/dev/null || deadline=$STEPS_DEADLINE
+  DECL_TMP=$(mktemp -d "${TMPDIR:-/tmp}/planwright-guard.XXXXXX" 2>/dev/null) || {
+    DECL_TMP=''
     return 0
   }
-  if [ -z "$DECL_TICKS" ]; then
-    deadline=${PLANWRIGHT_GUARD_STEPS_DEADLINE:-}
-    case $deadline in
-      '' | *[!0-9]*) deadline=$STEPS_DEADLINE ;;
-    esac
-    { [ "$deadline" -ge 1 ] && [ "$deadline" -le 60 ]; } 2>/dev/null || deadline=$STEPS_DEADLINE
-    DECL_TICKS=$((deadline * 10))
-  fi
-  [ "$DECL_TICKS" -gt 0 ] || {
-    DECL_RESOLVED=1
-    return 0
-  }
-  if [ -z "$DECL_TMP" ]; then
-    DECL_TMP=$(mktemp -d "${TMPDIR:-/tmp}/planwright-guard.XXXXXX" 2>/dev/null) || {
-      DECL_TMP=''
-      DECL_RESOLVED=1
-      return 0
-    }
-  fi
-  rm -f "$DECL_TMP/resolving" "$DECL_TMP/out"
   # Job control gives the job its own process group; the resolver's scratch
   # files land under DECL_TMP, which the EXIT trap removes.
   set -m
   (
     cd "$HOOK_CWD" 2>/dev/null || exit 0
     step_name_cataloged "${1##*/}" || exit 0
-    : >"$DECL_TMP/resolving"
     # shellcheck disable=SC2086 # the wired points are meant to word-split
     TMPDIR=$DECL_TMP exec /bin/bash "$rs" $STEP_POINTS --explain --unattended
   ) </dev/null >"$DECL_TMP/out" 2>/dev/null &
-  pid=$!
+  DECL_PGID=$!
   set +m
-  DECL_PGID=$pid
+  pid=$DECL_PGID
+  ticks=$((deadline * 10))
   while kill -0 "$pid" 2>/dev/null; do
-    if [ "$DECL_TICKS" -le 0 ]; then
-      kill -KILL -- "-$pid" 2>/dev/null
+    if [ "$ticks" -le 0 ]; then
       killed=1
       break
     fi
     sleep 0.1
-    DECL_TICKS=$((DECL_TICKS - 1))
+    ticks=$((ticks - 1))
   done
+  # The group goes either way: an overrun leaves the run itself, a finished
+  # run can leave a sibling read it started. The pid is killed too in case
+  # the job never got a group of its own.
+  kill -KILL -- "-$pid" 2>/dev/null
+  [ "$killed" = 0 ] || kill -KILL "$pid" 2>/dev/null
   wait "$pid" 2>/dev/null
   DECL_PGID=''
-  # Resolved once the resolver started, whether or not it finished: a later
-  # segment never pays for a second run.
-  [ -e "$DECL_TMP/resolving" ] && DECL_RESOLVED=1
-  [ "$killed" = 0 ] || {
-    DECL_RESOLVED=1
-    return 0
-  }
-  [ -e "$DECL_TMP/resolving" ] || return 0
+  [ "$killed" = 0 ] || return 0
   # Only `run` rows count, so the exit status needs no reading: a point that
   # parks or asks prints those tokens, one that fails prints nothing, and
   # either leaves the other points' rows as their own runs print them.
