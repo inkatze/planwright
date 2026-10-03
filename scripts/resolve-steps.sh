@@ -1643,7 +1643,10 @@ fi
 # Several points: each resolves in its own subshell over the shared reads,
 # so a list that fails its point (a die) or a per-list drop never reaches
 # another point, and each prints its rows only once it has resolved. The run
-# exits with the largest per-point status.
+# exits with the largest per-point status. A subshell cannot wait on this
+# shell's children, so every read a point collects is collected here first
+# (collect keeps the status for the subshell's own call).
+collect config || true
 run_rc=0
 for point in $points; do
   rc=0
