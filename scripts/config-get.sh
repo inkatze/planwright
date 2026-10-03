@@ -72,7 +72,8 @@
 #   per key. Each line is `<key>\t<layer>\t<value>`, the keys in argument
 #   order, each key's lines exactly its own --layers read's; a key no layer
 #   sets prints nothing, so absence is never an exit status (0, or 4 / 6 as
-#   above, which print nothing at all). Only --layers takes several keys.
+#   above, which print nothing on stdout); a key left unresolved by missing
+#   core defaults is named on stderr. Only --layers takes several keys.
 #
 # Environment overrides (tests, adopters, worktree callers that know the
 # primary checkout's paths):

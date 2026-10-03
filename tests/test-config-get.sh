@@ -672,8 +672,10 @@ esac
 case $err in
   *"'steps_pre_pr' unresolved"*) fail "--layers: a key another layer sets is not unresolved, got: $err" ;;
 esac
-# The value reader: the first line setting the key wins, and a key set to an
-# empty or empty-quoted value reads as set.
+echo "ok: --layers reads several keys in one run; only --layers takes several"
+# The value reader: the first line setting the key wins, a key set to an
+# empty or empty-quoted value reads as set, and one pair of quotes and a
+# trailing comment are stripped.
 gv_cfg="$tmp/gv.yml"
 for case_ in 'a|dispatch_backend: a\ndispatch_backend: b\n' '|dispatch_backend: ""\n' '|dispatch_backend:\n' "x|dispatch_backend: 'x' # c\n"; do
   want_v=${case_%%|*}
@@ -684,7 +686,7 @@ for case_ in 'a|dispatch_backend: a\ndispatch_backend: b\n' '|dispatch_backend: 
     PLANWRIGHT_REPO_ROOT="$tmp/no-repo" PLANWRIGHT_LOCAL_CONFIG="" /bin/bash "$CG" dispatch_backend) || rc=$?
   [ "$rc" = 0 ] && [ "$got" = "$want_v" ] || fail "value reader: '${case_#*|}' should read '$want_v' (rc 0), got '$got' (rc $rc)"
 done
-echo "ok: --layers reads several keys in one run; only --layers takes several"
+echo "ok: the value reader takes the first setting line, keeps an empty value set, and strips quotes and a comment"
 printf 'steps_pre_pr:\n  - nested\n' >"$layers_root/adopter/planwright.yml"
 got=$(run_layers --layers steps_pre_pr 2>"$tmp/layers-err") || fail "--layers: a malformed adopter layer must degrade, not fail"
 [ "$got" = "$(printf 'core\t[core-a]\nrepo-tracked\t[repo-a]')" ] \

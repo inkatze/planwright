@@ -467,11 +467,12 @@ file name of the segment's location word (the first after any context prefix)
 is the last path component of a target some layer's steps catalog declares.
 That check and the run share a short deadline (`STEPS_DEADLINE` in
 `scripts/worker-command-guard.sh`, which `PLANWRIGHT_GUARD_STEPS_DEADLINE`
-overrides with 1 to 60 seconds), and an overrun kills the run as one process
-group, so nothing it started keeps running. If `jq` is absent, the resolver
-fails or refuses a layer for the declaring point (or for every point), the run
-overruns that deadline, or the host's location falls outside the plain
-charset, the segment defers to the normal permission prompt. The fallback is a manual allow entry in the **worker** settings for
+overrides with 1 to 60 seconds), and the run is killed as one process group
+when it overruns or ends, so nothing it started keeps running. If `jq` is
+absent, the resolver fails or refuses a layer for the declaring point (or for
+every point), the run overruns that deadline, or the host's location falls
+outside the plain charset, the segment defers to the normal permission
+prompt. The fallback is a manual allow entry in the **worker** settings for
 the step's resolved location, for example `Bash(/abs/path/to/tool:*)`. That
 entry is wider than the hook's match (it allows any args). It is also
 narrower in one way: the unmodeled question of whether Claude Code's allow
