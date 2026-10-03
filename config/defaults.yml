@@ -16,10 +16,11 @@ commit_on_state_move: true
 
 # Whether /spec-kickoff marks the spec PR ready as the terminal step of a clean
 # kickoff completion (D-6, D-7; REQ-D1.2, REQ-D1.3) — the narrow exception to
-# bootstrap D-26's all-drafts rule (only the spec PR; task PRs stay drafts; merge
-# stays human, never auto-merge). false leaves the spec PR draft for the human to
-# un-draft by hand. The flip never fires when sign-off parked on a fork or the
-# pre-flip verification did not converge, regardless of this value.
+# bootstrap D-26's all-drafts rule (only the spec PR here; task PRs follow
+# ready_flip_policy; merge stays human, never auto-merge). false leaves the spec
+# PR draft for the human to un-draft by hand. The flip never fires when sign-off
+# parked on a fork or the pre-flip verification did not converge, regardless of
+# this value.
 mark_spec_pr_ready_on_kickoff: true
 
 # The bounded wait /spec-kickoff's terminal ready-flip holds for the spec PR's
@@ -201,8 +202,8 @@ steps_pre_ci: []
 steps_convergence: [polish]
 steps_pre_pr: []
 steps_post_pr: []
-# The flip points: pre-ready-flip is defined for the first in-repo unit-PR
-# flipper; pre-spec-ready-flip is run by /spec-kickoff.
+# The flip points: pre-ready-flip is run by /execute-task's unit-PR flip
+# (scripts/ready-flip.sh); pre-spec-ready-flip is run by /spec-kickoff.
 steps_pre_ready_flip: []
 steps_pre_spec_ready_flip: []
 # Named, not wired (gated under custom-steps' Deferred): a non-empty list here
@@ -824,7 +825,8 @@ tower_reknock_age: 30m
 #
 # ready_flip_policy             who marks a task PR ready: human, or
 #                               unit-owner (the skill that executed the unit,
-#                               once the flip preconditions hold).
+#                               once the flip preconditions hold, through
+#                               scripts/ready-flip.sh).
 # ready_flip_ci_wait            the bounded wait for the head's checks before
 #                               that flip, as a duration (a bare number is
 #                               seconds, unlike kickoff_ready_ci_wait's

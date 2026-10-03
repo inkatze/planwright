@@ -46,10 +46,10 @@ step and before the terminal CI gate, on the head that flip lands on, once per
 sign-off that reaches that step, whether or not the flip is configured to
 follow (REQ-A1.2, D-13).
 
-**Defined here, wired by the first in-repo unit-PR flipper:** `pre-ready-flip`,
-immediately before any agent-issued draft-to-ready flip of a unit PR, on the
-head to be flipped, once per flip attempt. Nothing wires it yet; it is not
-reported unwired (REQ-A1.1, REQ-E1.3, D-2).
+**Run by `/execute-task`'s unit-PR flip (`scripts/ready-flip.sh`'s header
+owns the sequence):** `pre-ready-flip`, immediately before any agent-issued
+draft-to-ready flip of a unit PR, on the head to be flipped, once per flip
+attempt (REQ-A1.1, REQ-E1.3, D-2).
 
 **Named, not wired** (gated under custom-steps' Deferred): `spec-drafted`,
 `kickoff-signed-off`, `unit-selected`, `pre-dispatch`, `post-dispatch`,

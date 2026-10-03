@@ -1137,19 +1137,23 @@ w1() {
 
 # ---------------------------------------------------------------------------
 # Wiring 2 — the sync edit did not smuggle a ready-flip into `/execute-task`:
-# the draft-only contract stands and no `gh pr ready` / MCP ready call appears
-# in the skill body (REQ-B1.4).
+# the PR opens as a draft, no `gh pr ready` / MCP ready call appears in the
+# skill body (REQ-B1.4), and the only flip is the ready-flip helper's, under
+# `ready_flip_policy: unit-owner` (human-gates REQ-C1.5).
 # ---------------------------------------------------------------------------
 w2() {
   grep -Eq 'gh pr ready|mcp__github__update_pull_request' "$SKILL" \
-    && fail "w2: SKILL.md gained a ready-flip call — /execute-task must never flip ready"
+    && fail "w2: SKILL.md gained a direct ready-flip call — the flip goes only through scripts/ready-flip.sh"
   grep -q 'gh pr create --draft' "$SKILL" \
     || fail "w2: SKILL.md lost its draft-only PR creation instruction"
-  grep -q 'The PR is always a draft. Never mark it ready and never merge.' "$SKILL" \
-    || fail "w2: SKILL.md lost the PR-creation never-mark-ready contract"
-  grep -Eq '^- \*\*Never\*\* create a non-draft PR, mark a PR ready, or merge' "$SKILL" \
-    || fail "w2: SKILL.md lost the never-mark-ready invariant"
-  echo "ok w2: /execute-task still opens only a draft PR and never flips ready"
+  grep -q 'Never merge.' "$SKILL" \
+    || fail "w2: SKILL.md lost the PR-creation never-merge contract"
+  grep -Eq '^- \*\*Never\*\* create a non-draft PR or merge' "$SKILL" \
+    || fail "w2: SKILL.md lost the never-merge invariant"
+  # shellcheck disable=SC2016 # literal backticks of the skill's markdown
+  tr '\n' ' ' <"$SKILL" | grep -Eq 'flip one +ready outside the `unit-owner` path' \
+    || fail "w2: SKILL.md lost the invariant confining the flip to the unit-owner path"
+  echo "ok w2: /execute-task opens a draft PR and flips only through the unit-owner path"
 }
 
 c1

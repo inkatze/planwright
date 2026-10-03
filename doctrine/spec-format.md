@@ -478,7 +478,12 @@ validator rule enforces either, and the canonical extraction id-sorts regardless
 `**Task <id>**` (task-id grammar, naming an existing block); the block
 stays in `## Tasks`; unparking removes the bullet. The free text is the
 payload: the blocking question (Awaiting input), the version 1 deferral
-fields (Deferred), or the exclusion rationale (Out of scope).
+fields (Deferred), or the exclusion rationale (Out of scope). An Awaiting
+input payload may hold several segments separated by `;`; a segment opening
+`pending ready-flip:` is the ready-flip helper's park, which the
+Awaiting-input predicates of the flip (and of the merge class, once built)
+ignore, while every other segment, and any indented line under the bullet,
+still blocks ([human-gates](human-gates.md); `scripts/ready-flip.sh`).
 `## Awaiting input` holds reference bullets only; the other two sections
 may also hold plain non-task bullets as in version 1, which never count in
 the derivation. Every reference bullet names an existing task id; at most

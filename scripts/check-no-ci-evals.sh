@@ -303,7 +303,10 @@ if [ -z "$mise_toml" ]; then
   exit 0
 fi
 
-graph_awk="$(
+# The program is emitted by a function, not by a heredoc written inside the
+# command substitution: bash 3.2 (macOS /bin/sh) scans a heredoc body nested
+# in `$( )` for quotes and backticks and fails to parse this file.
+graph_awk_program() {
   cat <<'AWK'
 function isnamechar(c) {
   return (c != "" && c ~ /[[:alnum:]_:.-]/)
@@ -775,7 +778,8 @@ END {
   exit 1
 }
 AWK
-)"
+}
+graph_awk="$(graph_awk_program)"
 
 [ -n "$graph_awk" ] || fail_closed "the task-graph parser could not be assembled, so passes 2 and 3 could not run."
 
