@@ -1,5 +1,5 @@
 #!/bin/sh
-# config-get.sh — read one planwright config value with the four-layer overlay
+# config-get.sh — read planwright config values with the four-layer overlay
 # precedence the customization mechanism defines (D-1, D-4, D-5; REQ-A1.1,
 # REQ-B1.1). Extends the original two-layer (defaults + machine-local) model.
 #
@@ -50,6 +50,7 @@
 #     simply misses keys and exits 3, the same as the original two-layer reader.
 #
 # Usage: config-get.sh [--explain | --layers] <key>
+#        config-get.sh --layers <key> <key>...
 #   <key> matches ^[a-z][a-z0-9_]*$ and is validated before it is ever
 #   interpolated into a pattern (framework-script security, REQ-D1.6).
 #   --explain (D-9, REQ-B1.6): instead of the bare value, print provenance —
@@ -71,7 +72,7 @@
 #   per key. Each line is `<key>\t<layer>\t<value>`, the keys in argument
 #   order, each key's lines exactly its own --layers read's; a key no layer
 #   sets prints nothing, so absence is never an exit status (0, or 4 / 6 as
-#   above). Only --layers takes several keys.
+#   above, which print nothing at all). Only --layers takes several keys.
 #
 # Environment overrides (tests, adopters, worktree callers that know the
 # primary checkout's paths):
@@ -90,7 +91,8 @@
 # and repo-side layer roots honor resolve-overlay-root.sh's own overrides
 # (PLANWRIGHT_ADOPTER_OVERLAY, CLAUDE_PLUGIN_DATA, PLANWRIGHT_REPO_ROOT).
 #
-# Exit: 0 value printed; 3 key absent in every layer; 2 usage / invalid key;
+# Exit: 0 value printed; 3 key absent in every layer (never for several
+# keys); 2 usage / invalid key;
 # 4 malformed repo-tracked overlay (hard-fail); 6 malformed adopter or
 # machine-local overlay, only under PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1. Never
 # fails opaquely.

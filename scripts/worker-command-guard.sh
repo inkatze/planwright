@@ -2007,13 +2007,17 @@ classify_verb() {
 # scripts/), so the match is exact: a segment sharing only the first word, a
 # bare target, or an extra arg defers. The declarations are resolved at most
 # once per hook call, by one resolver run over every wired point, only when a
-# segment reaches this fallback with a declared line's shape and its first
-# word's file name appears in some layer's steps catalog, and under
-# STEPS_DEADLINE; a resolver that fails, refuses, or overruns contributes
-# nothing.
+# segment reaches this fallback with a declared line's shape and the file name
+# of its location word (the first after any context assignments) is the last
+# path component of a target some layer's steps catalog declares, and under
+# STEPS_DEADLINE. A run that fails before printing (a shared read or a usage
+# failure) or overruns contributes nothing; a point failing alone drops only
+# its own rows.
 
 # The wired points of resolve-steps.sh's WIRED_POINTS; the lists change
-# together. The unwired points run nothing, so they declare nothing.
+# together. The unwired points run nothing, so they declare nothing. Every
+# name must be a distinct wired point: they go to one multi-point run, which
+# refuses the whole run otherwise.
 readonly STEP_POINTS='pre-implementation pre-ci convergence pre-pr post-pr pre-ready-flip pre-spec-ready-flip'
 # Seconds the catalog check and the resolution may take together in one hook
 # call. The PLANWRIGHT_GUARD_STEPS_DEADLINE override (1..60) changes only how

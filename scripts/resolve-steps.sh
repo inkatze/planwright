@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# resolve-steps.sh — resolve one attachment point's step list into the chain
+# resolve-steps.sh — resolve an attachment point's step list (or several wired
+# points' lists in one --explain run) into the chain
 # the runner executes there, with provenance, the missing-step decision, and
 # the by-layer malformed policy applied before anything runs (custom-steps
 # Task 2; REQ-A1.3, REQ-A1.4, REQ-B1.1–B1.6, REQ-C1.1–C1.6, REQ-C1.8,
@@ -55,11 +56,13 @@
 #   <point>...    several distinct wired points in one run, --explain only
 #                 (the rows name their point): the config, catalog, and
 #                 host reads are made once and shared, and each point then
-#                 resolves on its own, printing exactly the rows and
-#                 warnings its single-point run prints, in operand order. A
-#                 shared read that fails fails every point (no rows); a
-#                 point's own list failing stops that point alone. The exit
-#                 is the largest per-point status.
+#                 resolves on its own, printing exactly the rows and the
+#                 per-point warnings (shadow, list degrade, skip, park, ask)
+#                 its single-point run prints, in operand order; the shared
+#                 reads' warnings print once for the run. A shared read that
+#                 fails fails every point (no rows); a point's own list
+#                 failing stops that point alone. The exit is the largest
+#                 per-point status.
 #
 # Output (resolution modes): one line per step in list order, tab-separated,
 # newline-terminated, emitted only once the whole point has resolved:
@@ -87,7 +90,8 @@
 # body screens it as untrusted data. A non-empty list at an unwired point
 # prints nothing.
 #
-# Diagnostics go to stderr prefixed `resolve-steps: <point>:`, every
+# Diagnostics go to stderr prefixed `resolve-steps: <point>:` (in a
+# several-point run, a shared read's diagnostic names `<point>,<point>...`), every
 # catalog-derived string in them passed through the house sanitizer
 # (scripts/echo-safety.sh). Every warning the point produces is printed on
 # every run: the sibling readers' own degrade warnings, the shadow warning
@@ -96,7 +100,8 @@
 # shadow), one stale-key warning per layer that sets review_sequence, the
 # unwired-point warning, and the skip warnings. A runner that records the
 # resolver's warnings therefore records them all; a sibling warning repeated
-# by several reads of the same layer is printed once.
+# by several reads of the same layer, or shared by the points of a
+# several-point run, is printed once.
 #
 # The preamble (--preamble; REQ-A1.4, D-14). The runner sets the
 # PLANWRIGHT_STEP_* variables in this script's environment and prepends the
@@ -145,8 +150,10 @@
 #      (nothing to run); or a context block or a line was rendered
 #   1  the point runs nothing: a park or an ask; or, in check mode, a
 #      failure the by-layer policy did not already map to 4 or 5
-#   2  usage: an unknown point, an attendance flag missing or doubled,
-#      --check with --attended, an unknown or conflicting flag; --line
+#   2  usage: an unknown, empty, or blank-carrying point, an attendance flag
+#      missing or doubled, --check with --attended, an unknown or conflicting
+#      flag; several points with an unwired or repeated point, without
+#      --explain, or with --check or a render mode; --line
 #      without an absolute location, with a control byte in it, or with an
 #      arg outside the charset
 #   4  a malformed repo-tracked list or entry, or a structurally malformed
@@ -157,7 +164,8 @@
 #      an unusable sibling script
 #   6  a refused context value (--preamble / --prefix / --line only)
 #   130 / 143  interrupted or terminated by a signal (the shell's own
-#      convention), the scratch file removed
+#      convention), the scratch directory removed and any sibling read
+#      still running stopped
 #
 # Environment: honors every override config-get.sh, resolve-catalog.sh, and
 # resolve-overlay-root.sh honor (PLANWRIGHT_ROOT, PLANWRIGHT_CONFIG_DEFAULTS,

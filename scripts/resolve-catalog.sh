@@ -186,6 +186,8 @@ local_root=$(root_of machine-local) || fail_layer machine-local
 # Per-layer catalog file location, expressed as (layer-root, path relative to
 # that root). The relative half is what canonicalize-then-contain joins onto the
 # root; keeping it separate is what lets the containment check reject an escape.
+# scripts/worker-command-guard.sh's step_name_cataloged reads the steps
+# catalog at these same locations; they change together.
 core_rel="config/$name.yaml"
 adopter_rel="catalogs/$name.yaml"
 repo_rel="catalogs/$name.yaml"

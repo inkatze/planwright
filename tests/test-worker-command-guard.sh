@@ -1157,8 +1157,8 @@ steps:
     args: --mode strict
 YAML
 printf 'steps_pre_pr: [traversal]\n' >"$FX/adopter/planwright.yml"
-# The resolver runs once per wired point per hook call on a loaded host, so these
-# functional rows lift the resolution deadline; the bound rows below keep the
+# These functional rows lift the resolution deadline so a loaded host cannot
+# turn an approval into a deferral; one row below and the bound rows keep the
 # default.
 FX_ENV=("PLANWRIGHT_ROOT=$FX/core" "CLAUDE_PLUGIN_ROOT=$FX/core"
   "PLANWRIGHT_CONFIG_DEFAULTS=$FX/core/config/defaults.yml"
@@ -1362,7 +1362,8 @@ else
   pass "the resolver never runs for a known-safe, non-declared-shape, or uncataloged segment"
 fi
 assert_allow "stub: two declared segments approved" "$DECLARED && $DECLARED" Bash "$FXC"
-if [ "$(cat "$FX/stub-calls/calls")" = "$(printf '%s ' pre-implementation pre-ci convergence pre-pr post-pr pre-ready-flip pre-spec-ready-flip)--explain --unattended" ]; then
+step_points=$(sed -n "s/^readonly STEP_POINTS='\(.*\)'\$/\1/p" "$REAL_HOOK")
+if [ -n "$step_points" ] && [ "$(cat "$FX/stub-calls/calls")" = "$step_points --explain --unattended" ]; then
   pass "the resolver runs once per hook call, over every wired point"
 else
   fail "the resolver calls in one hook call: $(tr '\n' '|' <"$FX/stub-calls/calls")"
