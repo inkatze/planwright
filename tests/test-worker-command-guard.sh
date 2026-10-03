@@ -1293,6 +1293,10 @@ stub_root "$FX/stub-ok" "$DECLARED" "$DECLARED"
 HOOK="$FX/stub-ok/scripts/worker-command-guard.sh"
 HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
 assert_allow "stub: a clean printed location approved" "$DECLARED" Bash "$FXC"
+# A leading zero reads as decimal, not as an octal operand that aborts the hook.
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=09")
+assert_allow "stub: a zero-led deadline override reads as decimal" "$DECLARED" Bash "$FXC"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
 stub_root "$FX/stub-dotdot" "$FX/repo/tools/../tools/declared.sh" "$FX/repo/tools/../tools/declared.sh"
 HOOK="$FX/stub-dotdot/scripts/worker-command-guard.sh"
 assert_defer "stub: a printed path location with a traversal segment deferred" \

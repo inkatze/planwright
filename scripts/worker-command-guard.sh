@@ -2160,6 +2160,8 @@ resolve_declared() {
   case $deadline in
     '' | *[!0-9]*) deadline=$STEPS_DEADLINE ;;
   esac
+  # Arithmetic reads a leading zero as octal, so strip it first.
+  deadline=${deadline#"${deadline%%[!0]*}"}
   { [ "$deadline" -ge 1 ] && [ "$deadline" -le 60 ]; } 2>/dev/null || deadline=$STEPS_DEADLINE
   DECL_TMP=$(mktemp -d "${TMPDIR:-/tmp}/planwright-guard.XXXXXX" 2>/dev/null) || {
     DECL_TMP=''
