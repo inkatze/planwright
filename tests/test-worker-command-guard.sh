@@ -1157,8 +1157,8 @@ steps:
     args: --mode strict
 YAML
 printf 'steps_pre_pr: [traversal]\n' >"$FX/adopter/planwright.yml"
-# The resolver runs once per wired point per hook call on a loaded host, so these
-# functional rows lift the resolution deadline; the bound rows below keep the
+# These functional rows lift the resolution deadline so a loaded host cannot
+# turn an approval into a deferral; one row below and the bound rows keep the
 # default.
 FX_ENV=("PLANWRIGHT_ROOT=$FX/core" "CLAUDE_PLUGIN_ROOT=$FX/core"
   "PLANWRIGHT_CONFIG_DEFAULTS=$FX/core/config/defaults.yml"
@@ -1255,26 +1255,48 @@ assert_defer "relative target's location from another working directory deferred
   "$FXC/tools/declared.sh --rel" Bash "$FXC/tools"
 assert_allow "declared line inside fish -c approved" "fish -c '$DECLARED --mode strict'" Bash "$FXC"
 assert_defer "changed declared line inside fish -c deferred" "fish -c '$DECLARED --mode lax'" Bash "$FXC"
+# At the default deadline, on the host running the suite, the resolution of
+# every wired point fits: a declared line is approved with no override.
+# A loaded runner gets one retry; a resolution that never fits still fails.
+HOOK_ENV=("${FX_ENV[@]}")
+run_hook "$DECLARED --mode strict" Bash "$FXC"
+is_allow || run_hook "$DECLARED --mode strict" Bash "$FXC"
+if ! check_invariants "declared line approved within the default deadline"; then
+  :
+elif is_allow; then
+  pass "declared line approved within the default deadline"
+else
+  fail "declared line approved within the default deadline — expected ALLOW on one of two tries, got defer"
+fi
 HOOK_ENV=()
 assert_defer "declared line with no declaring overlay deferred" "$DECLARED --mode strict" Bash "$FXC"
 
 # The guard's own location checks, independent of what the resolver refuses:
-# a copy of the hook beside a stub resolver that prints the location given.
+# a copy of the hook beside a stub resolver that prints the location given,
+# with the overlay-root helpers the guard's catalog check runs.
+stub_scripts() {
+  mkdir -p "$1/scripts"
+  cp "$REAL_HOOK" "$1/scripts/worker-command-guard.sh"
+  cp "$REPO_ROOT/scripts/resolve-overlay-root.sh" "$REPO_ROOT/scripts/resolve-root.sh" "$1/scripts/"
+}
 stub_root() {
   local root=$1 location=$2 target=$3
-  mkdir -p "$root/scripts"
-  cp "$HOOK" "$root/scripts/worker-command-guard.sh"
+  stub_scripts "$root"
   cat >"$root/scripts/resolve-steps.sh" <<STUB
 #!/bin/bash
-[ "\$1" = pre-ci ] || exit 0
+case " \$* " in *" pre-ci "*) ;; *) exit 0 ;; esac
 printf 'run\tx\tpre-ci\trepo-tracked\trepo-tracked\t%s\tin-session\tcommand\t-\thalt\t-\t-\t%s\n' '$target' '$location'
 STUB
 }
 REAL_HOOK=$HOOK
 stub_root "$FX/stub-ok" "$DECLARED" "$DECLARED"
 HOOK="$FX/stub-ok/scripts/worker-command-guard.sh"
-HOOK_ENV=("PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
 assert_allow "stub: a clean printed location approved" "$DECLARED" Bash "$FXC"
+# A leading zero reads as decimal, not as an octal operand that aborts the hook.
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=09")
+assert_allow "stub: a zero-led deadline override reads as decimal" "$DECLARED" Bash "$FXC"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
 stub_root "$FX/stub-dotdot" "$FX/repo/tools/../tools/declared.sh" "$FX/repo/tools/../tools/declared.sh"
 HOOK="$FX/stub-dotdot/scripts/worker-command-guard.sh"
 assert_defer "stub: a printed path location with a traversal segment deferred" \
@@ -1298,15 +1320,14 @@ assert_defer "stub: a segment whose first word is not absolute deferred" "tools/
 
 # stub_line <root> <decision> <kind> <exit>: a stub resolver printing one
 # pre-ci line for $DECLARED with the given decision and kind, then exiting
-# with <exit>, and recording each call in <root>/calls.
+# with <exit>, and recording each call's arguments in <root>/calls.
 stub_line() {
   local root=$1 dec=$2 kind=$3 rc=$4
-  mkdir -p "$root/scripts"
-  cp "$REAL_HOOK" "$root/scripts/worker-command-guard.sh"
+  stub_scripts "$root"
   cat >"$root/scripts/resolve-steps.sh" <<STUB
 #!/bin/bash
-echo "\$1" >>'$root/calls'
-[ "\$1" = pre-ci ] || exit 0
+echo "\$*" >>'$root/calls'
+case " \$* " in *" pre-ci "*) ;; *) exit 0 ;; esac
 printf '%s\tx\tpre-ci\trepo-tracked\trepo-tracked\t%s\tin-session\t%s\t-\thalt\t-\t-\t%s\n' '$dec' '$DECLARED' '$kind' '$DECLARED'
 exit $rc
 STUB
@@ -1318,24 +1339,87 @@ for d in skip park ask; do
   stub_line "$FX/stub-$d" "$d" command 0
   assert_defer "stub: a $d decision deferred" "$DECLARED" Bash "$FXC"
 done
+# One run covers every point, so a park at another point exits non-zero
+# without touching this point's run row.
 stub_line "$FX/stub-rc" run command 1
-assert_defer "stub: a resolver exiting non-zero deferred" "$DECLARED" Bash "$FXC"
+assert_allow "stub: a run row from a run another point parked approved" "$DECLARED" Bash "$FXC"
 stub_line "$FX/stub-skill" run skill 0
 assert_defer "stub: a skill step's location deferred" "$DECLARED" Bash "$FXC"
 stub_line "$FX/stub-calls" run command 0
 assert_allow "stub: a known-safe segment approved" "git status" Bash "$FXC"
 assert_defer "stub: a segment without a declared line's shape deferred" "foo bar" Bash "$FXC"
+printf '#!/bin/sh\nexit 0\n' >"$FX/bin/zz-uncataloged"
+chmod +x "$FX/bin/zz-uncataloged"
+assert_defer "stub: a declared line's shape whose file name no catalog carries deferred" \
+  "$FX/bin/zz-uncataloged --mode strict" Bash "$FXC"
+# The catalog check matches a target's last path component, not any text.
+for t in clared.sh unlisted; do
+  printf '#!/bin/sh\nexit 0\n' >"$FX/bin/$t"
+  chmod +x "$FX/bin/$t"
+done
+assert_defer "stub: a file name found only inside a cataloged target's name deferred" \
+  "$FX/bin/clared.sh --mode strict" Bash "$FXC"
+assert_defer "stub: a file name found only as a catalog id deferred" "$FX/bin/unlisted" Bash "$FXC"
 if [ -e "$FX/stub-calls/calls" ]; then
-  fail "the resolver ran for a known-safe or non-declared-shape segment"
+  fail "the resolver ran for a known-safe, non-declared-shape, or uncataloged segment"
 else
-  pass "the resolver never runs for a known-safe or non-declared-shape segment"
+  pass "the resolver never runs for a known-safe, non-declared-shape, or uncataloged segment"
 fi
 assert_allow "stub: two declared segments approved" "$DECLARED && $DECLARED" Bash "$FXC"
-if [ "$(grep -c '^pre-ci$' "$FX/stub-calls/calls")" = 1 ]; then
-  pass "the resolver runs once per point per hook call"
+step_points=$(sed -n "s/^readonly STEP_POINTS='\(.*\)'\$/\1/p" "$REAL_HOOK")
+wired_points=$(sed -n 's/^WIRED_POINTS="\(.*\)"$/\1/p' "$REPO_ROOT/scripts/resolve-steps.sh")
+# The catalog check's per-layer files, in core, adopter, repo-tracked,
+# machine-local order, are the ones resolve-catalog.sh reads.
+# shellcheck disable=SC2016 # the pattern matches a literal $name
+want_rels=$(sed -n -E 's/^(core|adopter|repo|local)_rel="(.*)\$name\.yaml"$/\2steps.yaml/p' "$REPO_ROOT/scripts/resolve-catalog.sh")
+got_rels=$(sed -n 's/.*files\[\${#files\[@\]}\]=\$r\/\(.*steps\.yaml\)$/\1/p' "$REAL_HOOK")
+[ "$(printf '%s\n' "$want_rels" | grep -c .)" = 4 ] && [ "$got_rels" = "$want_rels" ] \
+  || fail "the guard's catalog files ('$(printf '%s' "$got_rels" | tr '\n' ' ')') differ from resolve-catalog.sh's ('$(printf '%s' "$want_rels" | tr '\n' ' ')')"
+[ -n "$step_points" ] && [ "$step_points" = "$wired_points" ] \
+  || fail "the guard's STEP_POINTS ('$step_points') differ from resolve-steps.sh's WIRED_POINTS ('$wired_points')"
+if [ -n "$step_points" ] && [ "$(cat "$FX/stub-calls/calls")" = "$step_points --explain --unattended" ]; then
+  pass "the resolver runs once per hook call, over every wired point"
 else
-  fail "the resolver ran pre-ci $(grep -c '^pre-ci$' "$FX/stub-calls/calls") times in one hook call"
+  fail "the resolver calls in one hook call: $(tr '\n' '|' <"$FX/stub-calls/calls")"
 fi
+# The catalog check finds a target in the core, adopter, and machine-local
+# files, quoted or not, and reads a `.` in the name as itself.
+cp "$FX/adopter/catalogs/steps.yaml" "$FX/adopter-steps.saved"
+mkdir -p "$FX/repo/.claude/catalogs.local"
+for t in core-tool adopter-tool local-tool quoted-tool dot.name; do
+  printf '#!/bin/sh\nexit 0\n' >"$FX/bin/$t"
+  chmod +x "$FX/bin/$t"
+done
+printf '  - id: adopter-only\n    kind: command\n    target: %s\n' "$FX/bin/adopter-tool" >>"$FX/adopter/catalogs/steps.yaml"
+printf 'steps:\n  - id: local-only\n    kind: command\n    target: %s\n  - id: quoted\n    kind: command\n    target: "%s"\n  - id: dotted\n    kind: command\n    target: %s\n' \
+  "$FX/bin/local-tool" "$FX/bin/quoted-tool" "$FX/bin/dotXname" >"$FX/repo/.claude/catalogs.local/steps.yaml"
+for t in core-tool adopter-tool local-tool quoted-tool; do
+  stub_line "$FX/stub-hit-$t" run command 0
+  # The fixture's core arms hold no doctrine/ or scripts/, so the core root
+  # is the stub's own install.
+  if [ "$t" = core-tool ]; then
+    mkdir -p "$FX/stub-hit-$t/config"
+    printf 'steps:\n  - id: core-only\n    kind: command\n    target: %s\n' "$FX/bin/core-tool" >"$FX/stub-hit-$t/config/steps.yaml"
+  fi
+  run_hook "$FX/bin/$t" Bash "$FXC"
+  check_invariants "the catalog check finds $t's target" || continue
+  if [ -s "$FX/stub-hit-$t/calls" ]; then
+    pass "the catalog check finds $t's target"
+  else
+    fail "the catalog check missed $t's target"
+  fi
+done
+stub_line "$FX/stub-dot-name" run command 0
+assert_defer "stub: a file name matching a cataloged one only through a regex dot deferred" \
+  "$FX/bin/dot.name" Bash "$FXC"
+if [ -e "$FX/stub-dot-name/calls" ]; then
+  fail "the catalog check read a dot in the name as a regex operator"
+else
+  pass "the catalog check reads a dot in the name as itself"
+fi
+rm -f "$FX/repo/.claude/catalogs.local/steps.yaml"
+rmdir "$FX/repo/.claude/catalogs.local"
+mv "$FX/adopter-steps.saved" "$FX/adopter/catalogs/steps.yaml"
 HOOK=$REAL_HOOK
 HOOK_ENV=()
 
@@ -1371,21 +1455,132 @@ else
 fi
 HOOK_ENV=()
 # A resolver that never returns cannot hold the hook past its resolution
-# deadline: the segment defers once the default deadline passes.
-mkdir -p "$FX/stub-slow/scripts"
-cp "$HOOK" "$FX/stub-slow/scripts/worker-command-guard.sh"
-printf '#!/bin/bash\n: >"%s/stub-slow/ran"\nsleep 30\n' "$FX" >"$FX/stub-slow/scripts/resolve-steps.sh"
+# deadline: the segment defers once the default deadline passes, and the
+# resolver and the child it started are killed with their process group.
 REAL_HOOK=$HOOK
+stub_scripts "$FX/stub-slow"
+cat >"$FX/stub-slow/scripts/resolve-steps.sh" <<STUB
+#!/bin/bash
+echo \$\$ >'$FX/stub-slow/self'
+sleep 30 &
+echo \$! >'$FX/stub-slow/child'
+wait
+STUB
 HOOK="$FX/stub-slow/scripts/worker-command-guard.sh"
+HOOK_ENV=("${FX_ENV[@]}")
 SECONDS=0
 run_hook "$DECLARED --mode strict" Bash "$FXC"
 elapsed=$SECONDS
 HOOK=$REAL_HOOK
-if [ "$CODE" -eq 0 ] && is_empty && [ -e "$FX/stub-slow/ran" ] && [ "$elapsed" -ge 1 ] && [ "$elapsed" -le 4 ]; then
+HOOK_ENV=()
+if [ "$CODE" -eq 0 ] && is_empty && [ -s "$FX/stub-slow/child" ] && [ "$elapsed" -ge 1 ] && [ "$elapsed" -le 4 ]; then
   pass "a resolver past the deadline defers within the bound"
 else
   fail "slow resolver — code=$CODE empty=$(is_empty && echo y || echo n) secs=$elapsed"
 fi
+alive=''
+for f in self child; do
+  pid=$(cat "$FX/stub-slow/$f" 2>/dev/null) || continue
+  n=0
+  while kill -0 "$pid" 2>/dev/null && [ "$n" -lt 20 ]; do
+    sleep 0.1
+    n=$((n + 1))
+  done
+  ! kill -0 "$pid" 2>/dev/null || alive="$alive $f:$pid"
+done
+if [ -s "$FX/stub-slow/self" ] && [ -z "$alive" ]; then
+  pass "a resolver past the deadline leaves no process of its group running"
+else
+  fail "slow resolver left processes running:$alive"
+  for f in self child; do
+    pid=$(cat "$FX/stub-slow/$f" 2>/dev/null) && kill "$pid" 2>/dev/null
+  done
+fi
+
+# no_survivors <dir>: 0 when neither pid the stub in <dir> recorded is alive
+# within a short grace.
+# A missing pid file (the stub never ran) fails too, and every survivor is
+# killed before returning, so none leaks into later rows.
+no_survivors() {
+  local f pid n rc=0
+  for f in self child; do
+    pid=$(cat "$1/$f" 2>/dev/null) || {
+      rc=1
+      continue
+    }
+    n=0
+    while kill -0 "$pid" 2>/dev/null && [ "$n" -lt 20 ]; do
+      sleep 0.1
+      n=$((n + 1))
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+      kill "$pid" 2>/dev/null
+      rc=1
+    fi
+  done
+  return "$rc"
+}
+# A run that printed a declared line before overrunning contributes nothing.
+stub_scripts "$FX/stub-partial"
+cat >"$FX/stub-partial/scripts/resolve-steps.sh" <<STUB
+#!/bin/bash
+echo \$\$ >'$FX/stub-partial/self'
+printf 'run\tx\tpre-ci\trepo-tracked\trepo-tracked\t%s\tin-session\tcommand\t--mode strict\thalt\t-\t-\t%s\n' '$DECLARED' '$DECLARED'
+sleep 30 &
+echo \$! >'$FX/stub-partial/child'
+wait
+STUB
+HOOK="$FX/stub-partial/scripts/worker-command-guard.sh"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=2")
+payload="$(jq -n --arg c "$DECLARED --mode strict" --arg w "$FXC" '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}')"
+OUT="$(printf '%s' "$payload" | env -u CLAUDE_DIR HOME="$SANDBOX/no-home" "${HOOK_ENV[@]}" /bin/bash "$HOOK" 2>"$FX/stub-partial/err")"
+CODE=$?
+if [ "$CODE" -eq 0 ] && is_empty && no_survivors "$FX/stub-partial" && [ ! -s "$FX/stub-partial/err" ]; then
+  pass "a run that overran after printing a declared line defers, quietly, leaving nothing running"
+else
+  fail "partial overrun — code=$CODE empty=$(is_empty && echo y || echo n) err='$(cat "$FX/stub-partial/err")'"
+fi
+# A run that finishes but leaves a read it started still running takes that
+# read with it and keeps its rows: the same row the overrun discarded
+# approves here.
+stub_scripts "$FX/stub-straggler"
+cat >"$FX/stub-straggler/scripts/resolve-steps.sh" <<STUB
+#!/bin/bash
+echo \$\$ >'$FX/stub-straggler/self'
+printf 'run\tx\tpre-ci\trepo-tracked\trepo-tracked\t%s\tin-session\tcommand\t--mode strict\thalt\t-\t-\t%s\n' '$DECLARED' '$DECLARED'
+sleep 30 </dev/null >/dev/null 2>&1 &
+echo \$! >'$FX/stub-straggler/child'
+exit 0
+STUB
+HOOK="$FX/stub-straggler/scripts/worker-command-guard.sh"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
+run_hook "$DECLARED --mode strict" Bash "$FXC"
+if [ "$CODE" -eq 0 ] && is_allow && no_survivors "$FX/stub-straggler"; then
+  pass "a finished run keeps its rows and leaves no read it started running"
+else
+  fail "finished run: allow=$(is_allow && echo y || echo n), child=$(cat "$FX/stub-straggler/child" 2>/dev/null)"
+fi
+HOOK="$FX/stub-partial/scripts/worker-command-guard.sh"
+# A hook signalled mid-resolution takes the run's whole group with it.
+rm -f "$FX/stub-partial/self" "$FX/stub-partial/child"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
+printf '%s' "$payload" | env -u CLAUDE_DIR HOME="$SANDBOX/no-home" "${HOOK_ENV[@]}" /bin/bash "$HOOK" >/dev/null 2>&1 &
+hook_pid=$!
+n=0
+while [ ! -s "$FX/stub-partial/child" ] && [ "$n" -lt 100 ]; do
+  sleep 0.1
+  n=$((n + 1))
+done
+kill -TERM "$hook_pid" 2>/dev/null
+wait "$hook_pid"
+hook_rc=$?
+if [ -s "$FX/stub-partial/child" ] && [ "$hook_rc" -eq 0 ] && no_survivors "$FX/stub-partial"; then
+  pass "a hook terminated mid-resolution exits 0 and leaves nothing of the run running"
+else
+  fail "terminated hook — rc=$hook_rc child=$(cat "$FX/stub-partial/child" 2>/dev/null)"
+fi
+HOOK=$REAL_HOOK
+HOOK_ENV=()
 
 echo
 echo "=================================================="

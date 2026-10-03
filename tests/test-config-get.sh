@@ -641,15 +641,76 @@ got=$(run_layers --layers only_core) || fail "--layers: non-zero exit with only 
 rc=0
 run_layers --layers no_such_key >/dev/null 2>&1 || rc=$?
 [ "$rc" = 3 ] || fail "--layers: a key absent everywhere should exit 3, got $rc"
+# Several keys in one read: each key's lines, in argument order, are its own
+# read's lines led by the key; a key absent everywhere prints nothing.
+want=""
+for k in only_core steps_pre_pr; do
+  while IFS= read -r l; do
+    want="$want$k	$l
+"
+  done <<EOF
+$(run_layers --layers "$k")
+EOF
+done
+got=$(run_layers --layers only_core no_such_key steps_pre_pr) || fail "--layers: several keys exited non-zero"
+[ "$got
+" = "$want" ] || fail "--layers: several keys should print each key's lines led by the key, got: $got"
+for bad in "--layers steps_pre_pr Bad_key" "steps_pre_pr only_core" "--explain steps_pre_pr only_core"; do
+  rc=0
+  # shellcheck disable=SC2086 # the argument list is meant to word-split
+  run_layers $bad >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "several keys: '$bad' should be a usage error (2), got $rc"
+done
+got=$(run_layers --layers no_a no_b) || fail "--layers: several absent keys exited non-zero"
+[ -z "$got" ] || fail "--layers: several absent keys should print nothing, got: $got"
+err=$(PLANWRIGHT_CONFIG_DEFAULTS="$tmp/no-such-defaults.yml" PLANWRIGHT_ADOPTER_OVERLAY="$layers_root/adopter" \
+  PLANWRIGHT_REPO_ROOT="$layers_root/repo" PLANWRIGHT_LOCAL_CONFIG="" /bin/bash "$CG" --layers no_a steps_pre_pr 2>&1 >/dev/null)
+case $err in
+  *"tracked defaults not found"*"'no_a' unresolved"*) ;;
+  *) fail "--layers: several keys with no core defaults should name the unresolved key, got: $err" ;;
+esac
+case $err in
+  *"'steps_pre_pr' unresolved"*) fail "--layers: a key another layer sets is not unresolved, got: $err" ;;
+esac
+rc=0
+got=$(PLANWRIGHT_CONFIG_DEFAULTS="$tmp/no-such-defaults.yml" PLANWRIGHT_ADOPTER_OVERLAY="$layers_root/adopter" \
+  PLANWRIGHT_REPO_ROOT="$layers_root/repo" PLANWRIGHT_LOCAL_CONFIG="" /bin/bash "$CG" --layers no_a steps_pre_pr 2>/dev/null) || rc=$?
+case $rc:$got in
+  0:*"steps_pre_pr	repo-tracked	"*) ;;
+  *) fail "--layers: with no core defaults, a key another layer sets still prints (rc 0), got rc=$rc out='$got'" ;;
+esac
+echo "ok: --layers reads several keys in one run; only --layers takes several"
+# The value reader: the first line setting the key wins, a key set to an
+# empty or empty-quoted value reads as set, and one pair of quotes and a
+# trailing comment are stripped.
+gv_cfg="$tmp/gv.yml"
+for case_ in 'a|dispatch_backend: a\ndispatch_backend: b\n' '|dispatch_backend: ""\n' '|dispatch_backend:\n' "x|dispatch_backend: 'x' # c\n"; do
+  want_v=${case_%%|*}
+  # shellcheck disable=SC2059 # the case carries its own escapes
+  printf "${case_#*|}" >"$gv_cfg"
+  rc=0
+  got=$(PLANWRIGHT_CONFIG_DEFAULTS="$gv_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$tmp/no-adopter" \
+    PLANWRIGHT_REPO_ROOT="$tmp/no-repo" PLANWRIGHT_LOCAL_CONFIG="" /bin/bash "$CG" dispatch_backend) || rc=$?
+  [ "$rc" = 0 ] && [ "$got" = "$want_v" ] || fail "value reader: '${case_#*|}' should read '$want_v' (rc 0), got '$got' (rc $rc)"
+done
+echo "ok: the value reader takes the first setting line, keeps an empty value set, and strips quotes and a comment"
 printf 'steps_pre_pr:\n  - nested\n' >"$layers_root/adopter/planwright.yml"
 got=$(run_layers --layers steps_pre_pr 2>"$tmp/layers-err") || fail "--layers: a malformed adopter layer must degrade, not fail"
 [ "$got" = "$(printf 'core\t[core-a]\nrepo-tracked\t[repo-a]')" ] \
   || fail "--layers: a malformed adopter layer should be skipped, got: $got"
 grep -q 'adopter' "$tmp/layers-err" || fail "--layers: skipping a malformed adopter layer must warn"
+want="$(run_layers --layers only_core 2>/dev/null | sed 's/^/only_core	/')
+$(run_layers --layers steps_pre_pr 2>/dev/null | sed 's/^/steps_pre_pr	/')"
+got=$(run_layers --layers only_core steps_pre_pr 2>"$tmp/layers-err") || fail "--layers: several keys over a malformed adopter layer must degrade"
+[ "$got" = "$want" ] || fail "--layers: several keys should skip the malformed adopter layer for every key, got: $got"
+[ "$(grep -c 'adopter overlay' "$tmp/layers-err")" = 1 ] || fail "--layers: several keys should warn about the malformed adopter layer once, got: $(cat "$tmp/layers-err")"
 printf 'steps_pre_pr:\n  - nested\n' >"$layers_root/repo/.claude/planwright.yml"
 rc=0
 run_layers --layers steps_pre_pr >/dev/null 2>&1 || rc=$?
 [ "$rc" = 4 ] || fail "--layers: a malformed repo-tracked layer should hard-fail 4, got $rc"
+rc=0
+run_layers --layers only_core steps_pre_pr >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "--layers: several keys over a malformed repo-tracked layer should hard-fail 4, got $rc"
 echo "ok: --layers applies the same by-layer malformed policy as the merged read"
 
 # PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1: a malformed adopter or machine-local
@@ -665,7 +726,21 @@ PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1 run_layers steps_pre_pr >/dev/null 2>&1 || r
 [ "$rc" = 6 ] || fail "strict overlays: a malformed machine-local overlay should exit 6, got $rc"
 got=$(run_layers steps_pre_pr 2>/dev/null) || fail "strict overlays: unset, a malformed machine-local overlay must still be skipped"
 [ "$got" = "[core-a]" ] || fail "strict overlays: unset, expected the core value, got '$got'"
+want="$(run_layers --layers only_core 2>/dev/null | sed 's/^/only_core	/')
+$(run_layers --layers steps_pre_pr 2>/dev/null | sed 's/^/steps_pre_pr	/')"
+got=$(run_layers --layers only_core steps_pre_pr 2>"$tmp/layers-err") || fail "--layers: several keys over a malformed machine-local layer must degrade"
+[ "$got" = "$want" ] || fail "--layers: several keys should skip the malformed machine-local layer for every key, got: $got"
+[ "$(grep -c 'machine-local overlay' "$tmp/layers-err")" = 1 ] || fail "--layers: several keys should warn about the malformed machine-local layer once, got: $(cat "$tmp/layers-err")"
+rc=0
+got=$(PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1 run_layers --layers only_core steps_pre_pr 2>/dev/null) || rc=$?
+[ "$rc" = 6 ] && [ -z "$got" ] || fail "strict overlays: several keys over a malformed machine-local layer should exit 6 printing nothing, got rc=$rc out='$got'"
 rm -f "$layers_root/repo/.claude/planwright.local.yml"
+# A later key failing the strict walk leaves no earlier key's lines behind.
+printf 'steps_pre_pr: a\nsteps_pre_pr: b\n' >"$layers_root/adopter/planwright.yml"
+rc=0
+got=$(PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1 run_layers --layers only_core steps_pre_pr 2>/dev/null) || rc=$?
+[ "$rc" = 6 ] && [ -z "$got" ] || fail "strict overlays: several keys with a repeated adopter key should exit 6 printing nothing, got rc=$rc out='$got'"
+rm -f "$layers_root/adopter/planwright.yml"
 echo "ok: PLANWRIGHT_CONFIG_STRICT_OVERLAYS turns a skipped malformed overlay into exit 6"
 
 # A session in a linked worktree reads the primary checkout's repo-side

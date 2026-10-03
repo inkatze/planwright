@@ -2006,22 +2006,30 @@ classify_verb() {
 # and machine-local layers inherit the trust already given to the repo's
 # scripts/), so the match is exact: a segment sharing only the first word, a
 # bare target, or an extra arg defers. The declarations are resolved at most
-# once per hook call, only when a segment reaches this fallback and already
-# has a declared line's shape, and under STEPS_DEADLINE; a resolver that
-# fails, refuses, or overruns contributes nothing.
+# once per hook call, by one resolver run over every wired point, only when a
+# segment reaches this fallback with a declared line's shape and the file name
+# of its location word (the first after any context assignments) is the last
+# path component of a target some layer's steps catalog declares, and under
+# STEPS_DEADLINE. A run that fails before printing (a shared read or a usage
+# failure) or overruns contributes nothing; a point failing alone drops only
+# its own rows.
 
 # The wired points of resolve-steps.sh's WIRED_POINTS; the lists change
-# together. The unwired points run nothing, so they declare nothing.
+# together. The unwired points run nothing, so they declare nothing. Every
+# name must be a distinct wired point: they go to one multi-point run, which
+# refuses the whole run otherwise.
 readonly STEP_POINTS='pre-implementation pre-ci convergence pre-pr post-pr pre-ready-flip pre-spec-ready-flip'
-# Seconds the resolution may take, all points resolved in parallel. The
-# PLANWRIGHT_GUARD_STEPS_DEADLINE override (1..60) changes only how long the
-# resolution may run: it never widens the set of lines a segment can match,
+# Seconds the catalog check and the resolution may take together in one hook
+# call. The PLANWRIGHT_GUARD_STEPS_DEADLINE override (1..60) changes only how
+# long they may run: it never widens the set of lines a segment can match,
 # though a resolution that finishes in time can approve where a shorter
 # deadline would have deferred.
 readonly STEPS_DEADLINE=2
 DECL_RESOLVED=0
 DECL_LINES=''
 DECL_TMP=''
+# The process group of a running resolution job, killed on any exit.
+DECL_PGID=''
 
 # The context names in the order resolve-steps.sh's CONTEXT_FIELDS renders
 # them in --prefix; the lists change together.
@@ -2098,13 +2106,52 @@ step_location_ok() {
   return 0
 }
 
-# resolve_declared: fill DECL_LINES with one `<location> <arg>...` line per
-# declared command step that resolves to `run`, resolving every wired point
-# from HOOK_CWD in parallel. Runs once per hook call.
+# step_name_cataloged <name>: 0 when some layer's steps catalog file declares a
+# target whose last path component is <name>, each layer root found through
+# resolve-overlay-root.sh at the per-layer locations resolve-catalog.sh reads
+# (the locations change together). A declared step's location always ends in
+# its target's file name, so a miss means nothing can match; a hit only
+# admits the resolution.
+step_name_cataloged() {
+  local ors=$HOOK_SELF_ROOT/scripts/resolve-overlay-root.sh l r f re
+  local -a files=()
+  [ -x "$ors" ] || return 1
+  for l in core adopter repo-tracked; do
+    "$ors" "$l" </dev/null >"$DECL_TMP/root-$l" 2>/dev/null &
+  done
+  wait
+  r=''
+  IFS= read -r r <"$DECL_TMP/root-core"
+  [ -z "$r" ] || files[${#files[@]}]=$r/config/steps.yaml
+  r=''
+  IFS= read -r r <"$DECL_TMP/root-adopter"
+  [ -z "$r" ] || files[${#files[@]}]=$r/catalogs/steps.yaml
+  r=''
+  IFS= read -r r <"$DECL_TMP/root-repo-tracked"
+  # The machine-local catalog sits under the repo-tracked root, which
+  # resolve-overlay-root.sh gives both repo-side layers.
+  if [ -n "$r" ]; then
+    files[${#files[@]}]=$r/catalogs/steps.yaml
+    files[${#files[@]}]=$r/catalogs.local/steps.yaml
+  fi
+  # The name is in the location charset, where only `.` is a regex operator.
+  re=${1//./\\.}
+  for f in ${files[@]+"${files[@]}"}; do
+    [ -f "$f" ] && grep -Eq -e "^[[:space:]]*target:[[:space:]]*\"?([^\"]*/)?$re\"?[[:space:]]*\$" -- "$f" 2>/dev/null && return 0
+  done
+  return 1
+}
+
+# resolve_declared <location>: fill DECL_LINES with one `<location> <arg>...`
+# line per declared command step that resolves to `run`, when <location>'s
+# file name is cataloged, by one multi-point resolver run from HOOK_CWD. Runs
+# once per hook call: a miss defers its segment, which ends the analysis. The
+# check and the run share one job in its own process group, bounded by
+# STEPS_DEADLINE and killed whole when it overruns or once it ends, so nothing
+# it started outlives the call.
 resolve_declared() {
-  local rs deadline ticks alive pid p i rc
+  local rs deadline ticks pid killed=0
   local dec target kind args loc key w _
-  local -a pids=()
   DECL_RESOLVED=1
   [ -n "${HOOK_SELF_ROOT:-}" ] || return 0
   rs="$HOOK_SELF_ROOT/scripts/resolve-steps.sh"
@@ -2113,56 +2160,63 @@ resolve_declared() {
   case $deadline in
     '' | *[!0-9]*) deadline=$STEPS_DEADLINE ;;
   esac
+  # Arithmetic reads a leading zero as octal, so strip it first.
+  deadline=${deadline#"${deadline%%[!0]*}"}
   { [ "$deadline" -ge 1 ] && [ "$deadline" -le 60 ]; } 2>/dev/null || deadline=$STEPS_DEADLINE
   DECL_TMP=$(mktemp -d "${TMPDIR:-/tmp}/planwright-guard.XXXXXX" 2>/dev/null) || {
     DECL_TMP=''
     return 0
   }
-  for p in $STEP_POINTS; do
-    (cd "$HOOK_CWD" 2>/dev/null && exec /bin/bash "$rs" "$p" --explain --unattended) \
-      </dev/null >"$DECL_TMP/$p" 2>/dev/null &
-    pids[${#pids[@]}]=$!
-  done
+  # Job control gives the job its own process group; the resolver's scratch
+  # files land under DECL_TMP, which the EXIT trap removes.
+  set -m
+  (
+    cd "$HOOK_CWD" 2>/dev/null || exit 0
+    step_name_cataloged "${1##*/}" || exit 0
+    # shellcheck disable=SC2086 # the wired points are meant to word-split
+    TMPDIR=$DECL_TMP exec /bin/bash "$rs" $STEP_POINTS --explain --unattended
+  ) </dev/null >"$DECL_TMP/out" 2>/dev/null &
+  DECL_PGID=$!
+  set +m
+  pid=$DECL_PGID
   ticks=$((deadline * 10))
-  while [ "$ticks" -gt 0 ]; do
-    alive=0
-    for pid in "${pids[@]}"; do
-      kill -0 "$pid" 2>/dev/null && alive=1
-    done
-    [ "$alive" = 0 ] && break
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$ticks" -le 0 ]; then
+      killed=1
+      break
+    fi
     sleep 0.1
     ticks=$((ticks - 1))
   done
-  i=0
-  for p in $STEP_POINTS; do
-    pid=${pids[i]}
-    i=$((i + 1))
-    if kill -0 "$pid" 2>/dev/null; then
-      kill "$pid" 2>/dev/null
-      continue
+  # The group goes either way: an overrun leaves the run itself, a finished
+  # run can leave a sibling read it started. The pid is killed too in case
+  # the job never got a group of its own.
+  kill -KILL -- "-$pid" 2>/dev/null
+  [ "$killed" = 0 ] || kill -KILL "$pid" 2>/dev/null
+  wait "$pid" 2>/dev/null
+  DECL_PGID=''
+  [ "$killed" = 0 ] || return 0
+  # Only `run` rows count, so the exit status needs no reading: a point that
+  # parks or asks prints those tokens, one that fails prints nothing, and
+  # either leaves the other points' rows as their own runs print them.
+  # The --explain columns resolve-steps.sh documents; it prints `-` for an
+  # empty field, which a tab IFS would otherwise collapse.
+  while IFS=$TAB read -r dec _ _ _ _ target _ kind args _ _ _ loc; do
+    [ "$dec" = run ] && [ "$kind" = command ] || continue
+    step_location_ok "$loc" "$target" || continue
+    key=$loc
+    if [ "$args" != - ]; then
+      # Checked before the unquoted split, which would otherwise glob-expand
+      # a `*` or `?` in the args against the working directory.
+      case $args in
+        *[!A-Za-z0-9._/:=@%,+\ -]*) continue ;;
+      esac
+      for w in $args; do
+        key="$key $w"
+      done
     fi
-    wait "$pid" 2>/dev/null
-    rc=$?
-    [ "$rc" = 0 ] || continue
-    # The --explain columns resolve-steps.sh documents; it prints `-` for an
-    # empty field, which a tab IFS would otherwise collapse.
-    while IFS=$TAB read -r dec _ _ _ _ target _ kind args _ _ _ loc; do
-      [ "$dec" = run ] && [ "$kind" = command ] || continue
-      step_location_ok "$loc" "$target" || continue
-      key=$loc
-      if [ "$args" != - ]; then
-        # Checked before the unquoted split, which would otherwise glob-expand
-        # a `*` or `?` in the args against the working directory.
-        case $args in
-          *[!A-Za-z0-9._/:=@%,+\ -]*) continue ;;
-        esac
-        for w in $args; do
-          key="$key $w"
-        done
-      fi
-      DECL_LINES="$DECL_LINES$key$NL"
-    done <"$DECL_TMP/$p"
-  done
+    DECL_LINES="$DECL_LINES$key$NL"
+  done <"$DECL_TMP/out"
   return 0
 }
 
@@ -2170,7 +2224,7 @@ resolve_declared() {
 # `swq` / `swn` from verify_simple, before any tracked-assignment
 # substitution), is a declared step's line. Reads `rn` via dynamic scope.
 declared_line_ok() {
-  local i=0 f w name key
+  local i=0 i0 f w name key
   [ "$rn" -eq 0 ] || return 1
   case ${sw[0]} in
     PLANWRIGHT_STEP_*)
@@ -2192,6 +2246,7 @@ declared_line_ok() {
       ;;
   esac
   [ "$i" -lt "$swn" ] || return 1
+  i0=$i
   key=${sw[i]}
   bare_abs_path_ok "$key" || return 1
   i=$((i + 1))
@@ -2200,7 +2255,7 @@ declared_line_ok() {
     key="$key ${sw[i]}"
     i=$((i + 1))
   done
-  [ "$DECL_RESOLVED" = 1 ] || resolve_declared
+  [ "$DECL_RESOLVED" = 1 ] || resolve_declared "${sw[i0]}" 2>/dev/null
   case $NL$DECL_LINES in
     *"$NL$key$NL"*) return 0 ;;
   esac
@@ -2576,7 +2631,7 @@ INSTALLED_ROOTS=$(installed_planwright_roots) || INSTALLED_ROOTS=''
 # Fail safe on any unexpected signal: empty stdout, exit 0 (REQ-B1.7). The hook
 # never blocks a worker's tool call.
 trap 'exit 0' HUP INT TERM PIPE
-trap '[ -z "$DECL_TMP" ] || rm -rf "$DECL_TMP"' EXIT
+trap '[ -z "$DECL_PGID" ] || kill -KILL -- "-$DECL_PGID" 2>/dev/null; [ -z "$DECL_TMP" ] || rm -rf "$DECL_TMP"' EXIT
 
 main
 exit 0

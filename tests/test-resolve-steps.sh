@@ -55,6 +55,9 @@ trap 'rm -rf "$tmp"' EXIT
 
 WIRED="pre-implementation pre-ci convergence pre-pr post-pr pre-ready-flip pre-spec-ready-flip"
 UNWIRED="spec-drafted kickoff-signed-off unit-selected pre-dispatch post-dispatch unit-halted post-merge orchestrator-idle"
+[ "$WIRED" = "$(sed -n 's/^WIRED_POINTS="\(.*\)"$/\1/p' "$RS")" ] \
+  && [ "$UNWIRED" = "$(sed -n 's/^UNWIRED_POINTS="\(.*\)"$/\1/p' "$RS")" ]
+verdict "the test's point lists are the resolver's WIRED_POINTS and UNWIRED_POINTS" "point lists drifted from scripts/resolve-steps.sh"
 
 # --- Fixture layout ----------------------------------------------------------
 core="$tmp/core"
@@ -1571,6 +1574,126 @@ capture pre-pr --unattended
 RS=$RS_SAVED
 [ "$RC" = 5 ] && case $ERR in *"root helper"*"broken install"*) true ;; *) false ;; esac
 verdict "a copy without the root helper stops as a broken install naming it" "no helper: rc=$RC err='$ERR'"
+
+# Several points in one run: each point's rows are exactly what its own run
+# prints, in operand order, and the exit is the largest per-point status. The
+# fixture gives the points every outcome: a run list with a command and a skill
+# step, a park, a skip, a degraded list, an empty point, and a list that fails
+# its point alone.
+reset_layers
+printf '#!/bin/sh\nexit 0\n' >"$bin/fixture-tool"
+chmod +x "$bin/fixture-tool"
+cat_entry "$tracked_cat" tool "kind: command" "target: fixture-tool" "args: --a b"
+cat_entry "$tracked_cat" lint "kind: command" "target: no-such-tool"
+cat_entry "$tracked_cat" chained "kind: skill" "target: self-review" "hosting: continue"
+printf 'steps_pre_ci: [tool, polish, chained]\nsteps_pre_pr: [lint]\nsteps_pre_ready_flip: [tool, tool]\n' >"$tracked_cfg"
+printf 'steps_post_pr: [ghost, tool]\n' >"$adopter_cfg"
+printf 'steps_convergence: notalist\n' >"$mlocal_cfg"
+for att in --unattended --attended; do
+  want=""
+  want_rc=0
+  for p in $WIRED; do
+    OUT=$(run "$p" --explain "$att" 2>/dev/null)
+    RC=$?
+    [ -z "$OUT" ] || want="$want$OUT
+"
+    [ "$RC" -le "$want_rc" ] || want_rc=$RC
+  done
+  # shellcheck disable=SC2086 # the point list is meant to word-split
+  capture $WIRED --explain "$att"
+  [ "$RC" = "$want_rc" ] && [ "$OUT
+" = "$want" ]
+  verdict "several points in one run print each point's own rows, exit the largest status ($att)" \
+    "multi-point $att: rc=$RC want_rc=$want_rc out='$OUT' want='$want' err='$ERR'"
+done
+[ "$want_rc" = 4 ] && printf '%s' "$want" | grep -q "^ask${TAB}lint${TAB}pre-pr${TAB}" \
+  && printf '%s' "$want" | grep -q "^run${TAB}polish${TAB}convergence${TAB}core${TAB}"
+verdict "the multi-point fixture covers a failing point, an ask, and a degraded list" "multi-point fixture: rc=$want_rc rows='$want'"
+capture post-pr pre-ci --explain --unattended
+[ "$RC" = 0 ] && [ "$(printf '%s\n' "$OUT" | cut -f2,3 | tr '\t\n' '  ')" = "ghost post-pr tool post-pr tool pre-ci polish pre-ci chained pre-ci " ]
+verdict "several points print in operand order" "operand order: rc=$RC out='$OUT'"
+capture pre-ci post-pr --explain --unattended
+case $ERR in
+  *"ghost"*"skips"*) ok "a point's skip warning is still printed in a multi-point run" ;;
+  *) fail "multi-point run lost the skip warning: err='$ERR'" ;;
+esac
+for bad in "pre-ci post-merge --explain --unattended" "pre-ci pre-ci --explain --unattended" \
+  "pre-ci post-pr --unattended" "pre-ci post-pr --explain --check --unattended" \
+  "pre-ci post-pr --prefix" "pre-ci post-pr --preamble"; do
+  # shellcheck disable=SC2086 # the argument list is meant to word-split
+  capture $bad
+  [ "$RC" = 2 ] && [ -z "$OUT" ] || fail "multi-point usage '$bad': rc=$RC out='$OUT'"
+done
+ok "several points refuse an unwired or repeated point, a run without --explain, --check, and the render modes"
+# Each point's own diagnostics in a multi-point run are those its single run
+# prints, under its own name. The fixture keeps the shared reads silent, so
+# every line a single run prints under its point's name is that point's own.
+some_diag=0
+for att in --unattended --attended; do
+  # shellcheck disable=SC2086 # the point list is meant to word-split
+  run $WIRED --explain "$att" >/dev/null 2>"$tmp/multi-err"
+  for p in $WIRED; do
+    run "$p" --explain "$att" >/dev/null 2>"$tmp/single-err"
+    ! grep -q "^resolve-steps: $p: " "$tmp/single-err" || some_diag=1
+    [ "$(grep "^resolve-steps: $p: " "$tmp/multi-err")" = "$(grep "^resolve-steps: $p: " "$tmp/single-err")" ] \
+      || fail "multi-point $att: $p's diagnostics differ: multi='$(grep "^resolve-steps: $p: " "$tmp/multi-err")' single='$(grep "^resolve-steps: $p: " "$tmp/single-err")'"
+  done
+done
+[ "$some_diag" = 1 ] || fail "multi-point diagnostics: the fixture produced no per-point diagnostic to compare"
+ok "several points print each point's own diagnostics as its single run does"
+for bad in '' 'pre-ci post-pr' 'pre-ci '; do
+  capture "$bad" --explain --unattended
+  [ "$RC" = 2 ] && [ -z "$OUT" ] || fail "point operand '$bad': rc=$RC out='$OUT'"
+  capture pre-ci "$bad" --explain --unattended
+  [ "$RC" = 2 ] && [ -z "$OUT" ] || fail "second point operand '$bad': rc=$RC out='$OUT'"
+done
+ok "an empty point operand, or one carrying a blank, is a usage error"
+# An unwired point reads no catalog outside check mode.
+calls="$tmp/catalog-calls"
+cstub="$tmp/cstub"
+mkdir -p "$cstub/scripts"
+cp "$repo_root"/scripts/*.sh "$cstub/scripts/"
+ln -s "$repo_root/doctrine" "$cstub/doctrine"
+mv "$cstub/scripts/resolve-catalog.sh" "$cstub/scripts/resolve-catalog.real.sh"
+# shellcheck disable=SC2016 # the stub expands its own arguments
+printf '#!/bin/bash\necho "$*" >>%q\nexec "$(dirname "$0")/resolve-catalog.real.sh" "$@"\n' "$calls" >"$cstub/scripts/resolve-catalog.sh"
+chmod +x "$cstub/scripts/resolve-catalog.sh"
+rm -f "$calls"
+RS_SAVED=$RS
+RS="$cstub/scripts/resolve-steps.sh"
+capture post-merge --unattended
+cu_rc=$RC
+cu_calls=$(grep -c . "$calls" 2>/dev/null)
+capture post-merge --check --unattended
+RS=$RS_SAVED
+[ "$cu_rc" = 0 ] && [ "${cu_calls:-0}" = 0 ] && [ "$RC" = 0 ] && [ "$(grep -c . "$calls" 2>/dev/null)" -ge 1 ]
+verdict "an unwired point reads the catalog only in check mode" "unwired reads: rc=$cu_rc then $RC calls='$(cat "$calls" 2>/dev/null)'"
+
+# A broken shared read fails every point: no rows at all.
+printf 'steps:\n  - id: tool\n  bad indent\n' >"$tracked_cat"
+capture pre-ci post-pr --explain --unattended
+[ "$RC" = 4 ] && [ -z "$OUT" ] && case $ERR in *"resolve-steps: pre-ci,post-pr: "*) true ;; *) false ;; esac
+verdict "a malformed repo-tracked catalog fails a multi-point run with no rows, named for every point" "multi-point shared failure: rc=$RC out='$OUT' err='$ERR'"
+# A shared read's warning prints once per run, under every point's name.
+reset_layers
+printf 'review_sequence: [polish]\n' >"$adopter_cfg"
+capture pre-ci post-pr --explain --unattended
+[ "$(printf '%s\n' "$ERR" | grep -c 'sets review_sequence')" = 1 ] \
+  && printf '%s\n' "$ERR" | grep -q "^resolve-steps: pre-ci,post-pr: warning: the adopter layer sets review_sequence"
+verdict "a shared read's warning prints once, named for every point" "multi-point shared warning: rc=$RC err='$ERR'"
+reset_layers
+# A failed shared config read names every key it read.
+gstub="$tmp/gstub"
+mkdir -p "$gstub/scripts"
+cp "$repo_root"/scripts/*.sh "$gstub/scripts/"
+ln -s "$repo_root/doctrine" "$gstub/doctrine"
+printf '#!/bin/sh\nexit 7\n' >"$gstub/scripts/config-get.sh"
+RS_SAVED=$RS
+RS="$gstub/scripts/resolve-steps.sh"
+capture pre-ci post-pr --explain --unattended
+RS=$RS_SAVED
+[ "$RC" = 5 ] && [ -z "$OUT" ] && case $ERR in *"config-get exited 7 reading review_sequence steps_pre_ci steps_post_pr "*) true ;; *) false ;; esac
+verdict "a failed shared config read exits 5 naming every key read" "shared config failure: rc=$RC out='$OUT' err='$ERR'"
 
 if [ "$failures" -ne 0 ]; then
   echo "FAIL: resolve-steps ($failures failure(s))" >&2

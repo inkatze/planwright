@@ -291,6 +291,9 @@ case $layer in
     exit 0
     ;;
 
+  # scripts/worker-command-guard.sh's step_name_cataloged reads the
+  # machine-local catalog under the repo-tracked root on the strength of this
+  # shared arm; they change together.
   repo-tracked | machine-local)
     # Both repo-side layers live under <repo>/.claude (D-4); the kind resolver
     # selects the tracked vs .local-suffixed file/dir within it. No repository
