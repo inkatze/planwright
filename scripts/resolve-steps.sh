@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # resolve-steps.sh — resolve an attachment point's step list (or several wired
-# points' lists in one --explain run) into the chain
-# the runner executes there, with provenance, the missing-step decision, and
+# points' lists in one --explain run) into the chain the runner executes
+# there, with provenance, the missing-step decision, and
 # the by-layer malformed policy applied before anything runs (custom-steps
 # Task 2; REQ-A1.3, REQ-A1.4, REQ-B1.1–B1.6, REQ-C1.1–C1.6, REQ-C1.8,
 # REQ-D1.3, REQ-D1.8, REQ-D1.9, REQ-G1.1, REQ-H1.3; D-4, D-5, D-6, D-10,
@@ -526,7 +526,6 @@ PLANWRIGHT_REPO_ROOT_CHECKED=$PLANWRIGHT_REPO_ROOT
 export PLANWRIGHT_REPO_ROOT PLANWRIGHT_REPO_ROOT_CHECKED
 
 point_keys=""
-config_keys="review_sequence"
 for p in $points; do
   point_keys="$point_keys steps_${p//-/_}"
 done
@@ -1251,9 +1250,12 @@ elif [ "$install_roots_read" -eq 0 ]; then
   printf '%s\n' "resolve-steps: warning: the root helper '$script_dir/resolve-root.sh' is missing or unreadable (broken install); the plugin skills root is unresolved" >&2
 else
   collect install_roots
-  # The helper's stderr passes through raw, as it always has: its
-  # diagnostics keep a non-ASCII path's bytes, which replay would strip.
-  [ ! -s "$scratch" ] || cat "$scratch" >&2
+  # The helper's stderr keeps a non-ASCII path's bytes, which replay would
+  # strip, so it is deduplicated against the replayed lines but not sanitized.
+  if [ -s "$scratch" ]; then
+    awk 'FILENAME == ARGV[1] { seen[$0] = 1; next } !($0 in seen) { seen[$0] = 1; print }' \
+      "$replayed" "$scratch" | tee -a "$replayed" >&2
+  fi
   while IFS= read -r root; do
     if [ -n "$root" ] && [ -d "$root/skills" ]; then
       skills_root="$root/skills"

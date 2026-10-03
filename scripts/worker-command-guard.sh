@@ -2121,13 +2121,13 @@ step_name_cataloged() {
   done
   wait
   r=''
-  read -r r <"$DECL_TMP/root-core"
+  IFS= read -r r <"$DECL_TMP/root-core"
   [ -z "$r" ] || files[${#files[@]}]=$r/config/steps.yaml
   r=''
-  read -r r <"$DECL_TMP/root-adopter"
+  IFS= read -r r <"$DECL_TMP/root-adopter"
   [ -z "$r" ] || files[${#files[@]}]=$r/catalogs/steps.yaml
   r=''
-  read -r r <"$DECL_TMP/root-repo-tracked"
+  IFS= read -r r <"$DECL_TMP/root-repo-tracked"
   # The machine-local catalog sits under the repo-tracked root, which
   # resolve-overlay-root.sh gives both repo-side layers.
   if [ -n "$r" ]; then
