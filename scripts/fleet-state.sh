@@ -26,9 +26,9 @@
 # repository (orchestrate-marker-home.sh), and the per-spec effective-backend
 # failover record sits spec-locally beside the checkout-local marker copy — NOT
 # here. The spec-local lock home is the sibling's decision (confirmed against
-# orchestrate-lock.sh / orchestrate-marker-home.sh), not re-decided here; no
-# fleet path ever writes into a spec's `.orchestrate/` dir. The two homes differ because their state has
-# different scope (cross-spec vs per-spec).
+# orchestrate-lock.sh / orchestrate-marker-home.sh), not re-decided here;
+# no fleet path ever writes into a spec's `.orchestrate/` dir. The two homes
+# differ because their state has different scope (cross-spec vs per-spec).
 #
 # THE NAMED PRIMITIVE (reshaped R1). Because the cross-spec store is read by the
 # attention surface (Task 12) while the meta-tower's fleet-bound accounting

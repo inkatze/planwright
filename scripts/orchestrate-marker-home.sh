@@ -122,7 +122,13 @@ if rp=$(git -C "$spec_real" rev-parse --git-common-dir --show-toplevel 2>/dev/nu
   common=${rp%%"$nl"*}
   top=${rp#*"$nl"}
   [ "$top" != "$rp" ] || top=''
-  common=$(cd -P -- "$spec_real" 2>/dev/null && cd -P -- "$common" 2>/dev/null && pwd -P) || common=''
+  # More than two lines means a path carried a newline: no safe split.
+  case "$top" in
+    *"$nl"*) common='' top='' ;;
+  esac
+  if [ -n "$common" ]; then
+    common=$(cd -P -- "$spec_real" 2>/dev/null && cd -P -- "$common" 2>/dev/null && pwd -P) || common=''
+  fi
   if [ -n "$top" ]; then
     top=$(cd -P -- "$top" 2>/dev/null && pwd -P) || top=''
   fi
@@ -154,8 +160,11 @@ case "$first" in
 esac
 primary=$(cd -P -- "$primary" 2>/dev/null && pwd -P) || exit 0
 # A primary made with --separate-git-dir is unknown to git from a linked
-# worktree, which lists the git dir in its place: no copy can be found there.
-[ "$primary" != "$top" ] && [ "$primary" != "$common" ] || exit 0
+# worktree, which lists the git dir in its place: only a checkout whose own
+# .git resolves to the common dir is taken for the primary. (A git dir itself
+# named .git makes git treat its parent as the main worktree, and so does this.)
+[ "$primary" != "$top" ] || exit 0
+[ "$(cd -P -- "$primary/.git" 2>/dev/null && pwd -P)" = "$common" ] || exit 0
 case "$spec_real" in
   "$top"/*) emit "$primary/${spec_real#"$top"/}/.orchestrate/markers" ;;
 esac

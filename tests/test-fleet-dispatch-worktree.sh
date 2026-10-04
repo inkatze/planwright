@@ -1325,15 +1325,46 @@ c32() {
   echo 100 >"$tmp/primary/.claude/worktrees/tower/specs/demo/.orchestrate/markers/10"
   run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
   [ "$RC" -eq 6 ] || fail "c32: a stale shared marker must not read as in-flight (want the exit-6 refusal), got $RC"
-  # A symlink at the shared marker path is "cannot tell", which is live.
-  rm -f "$_shared/10"
-  ln -s "$tmp/nowhere" "$_shared/10"
+  # A shared home reached through a symlink holds nothing, as in the state
+  # engine, so a fresh entry there cannot wedge the unit as in flight.
+  _common=${_shared%/planwright/orchestrate/demo/markers}
+  mv "$_common/planwright" "$tmp/moved"
+  ln -s "$tmp/moved" "$_common/planwright"
+  date +%s >"$tmp/moved/orchestrate/demo/markers/10"
   run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
-  [ "$RC" -eq 3 ] || fail "c32: a symlink at the shared marker path must read as in-flight (exit 3), got $RC"
+  [ "$RC" -eq 6 ] || fail "c32: a symlinked shared home must not hold the unit in flight (want exit 6), got $RC"
+  rm -f "$_common/planwright"
+  # A dangling symlink at a checkout-local marker path holds nothing, as before.
+  ln -sf "$tmp/nowhere" "$tmp/primary/.claude/worktrees/tower/specs/demo/.orchestrate/markers/10"
+  rm -rf "$tmp/moved"
+  run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 6 ] || fail "c32: a dangling checkout-local marker symlink must not hold the unit (want exit 6), got $RC"
   export PLANWRIGHT_ORCH_STATE_DIR="$_saved_state_dir"
 }
 
-for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26 c27 c28 c29 c30 c31 c32; do
+# c33 — a dispatch whose shared marker home is unusable says so on stderr
+# instead of discarding the writer's warning, and still dispatches.
+c33() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c33.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+  _saved_state_dir=$PLANWRIGHT_ORCH_STATE_DIR
+  unset PLANWRIGHT_ORCH_STATE_DIR
+  : >"$tmp/primary/.git/planwright"
+  _err=$("$PRIM" dispatch demo 11 --repo-root "$tmp/primary" --no-attach </dev/null 2>&1 >/dev/null)
+  RC=$?
+  export PLANWRIGHT_ORCH_STATE_DIR="$_saved_state_dir"
+  [ "$RC" -eq 0 ] || fail "c33: a dispatch beside an unusable shared home must still succeed, got $RC"
+  case $_err in
+    *"skipping the shared marker dir"*) ;;
+    *) fail "c33: the writer's warning did not reach the operator: $_err" ;;
+  esac
+  [ -f "$tmp/primary/specs/demo/.orchestrate/markers/11" ] \
+    || fail "c33: no checkout-local marker beside an unusable shared home"
+}
+
+for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26 c27 c28 c29 c30 c31 c32 c33; do
   _before=$fails
   "$c"
   [ "$fails" -eq "$_before" ] && echo "ok $c" || true
