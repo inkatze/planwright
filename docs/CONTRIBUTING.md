@@ -46,7 +46,7 @@ the comprehension pass usually pays for itself.
 | Skills | `skills/<name>/SKILL.md` | The pipeline skills. Procedure, not doctrine — skills cite doctrine, they do not restate it. |
 | Scripts | [`scripts/`](../scripts/) | Portable bash entry points (validator, resolver, hooks, checks). Bash 3.2 + BSD tooling, **no fish/mise/tmux/Ansible** (REQ-K1.5). |
 | Config | [`config/defaults.yml`](../config/defaults.yml) | Tracked defaults. Every option must have an [options-reference](options-reference.md) entry or CI fails. |
-| Tests | `tests/*.sh` | Shell test suites, run under `/bin/bash`; a script may have more than one. Fixture libraries live under `tests/lib/`, sourced by a suite or run by the stub shims a fixture writes, and are linted, never run as suites. |
+| Tests | `tests/*.sh` | Shell test suites, run under `/bin/bash`; a script may have more than one. Fixture libraries live under `tests/lib/`, sourced by a suite or run by the stub shims a fixture harness writes, and are linted, never run as suites. |
 | Specs | `specs/<feature>/` | The four-file bundles, including planwright's own. |
 
 **Do not encode project- or team-specific style into core `doctrine/`.** That
