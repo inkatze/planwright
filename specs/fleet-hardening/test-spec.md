@@ -1,7 +1,7 @@
 # Fleet Hardening — Test Spec
 
-**Status:** Ready
-**Last reviewed:** 2026-09-03
+**Status:** Draft
+**Last reviewed:** 2026-10-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -10,7 +10,9 @@ Coverage mix: predominantly `[test]`, since every mechanism is deterministic scr
 on the push path, no `send-keys` in the decision channel, no `allow` for a deny-listed command, no
 local-`main` advance after a fetch). `[manual]` is reserved for the platform-contract confirmations
 that depend on the running Claude Code version (whether the `Notification` hook fires for a real
-fork-park; the tmux client-switch behavior of the native launch primitive). `[design-level]` covers
+fork-park; on a real tmux dispatch, that the detached launch returns, leaves the operator's client
+in place, and starts a worker whose own environment carries the pin and identity, and that the
+worker's `SessionStart` hook fires). `[design-level]` covers
 the checks whose signal is a design judgment rather than a mechanism's output — the doctrine statement
 (REQ-E1.1) and the review-confirmed halves of REQ-E1.2 / REQ-E1.4.
 
@@ -96,8 +98,10 @@ create) is GC-adopted/rolled back so the dispatch proceeds; the create exit-code
 client-switch mitigation is asserted by fixture (designed: detached launch or capture-and-restore), the
 tower deny floor is asserted to deny the dangerous `git worktree` forms, and a negative assertion
 confirms no model/API call in the branch-naming path (REQ-E1.3). `[manual]`: confirm on a real dispatch
-that `--tmux=classic` is used (not plain `--tmux`) and the client-switch mitigation holds so a watching
-tower is not disrupted.
+from inside a tmux client that the dispatch returns its report, the operator's client stays on its own
+session, and the worker runs in the placed worktree on the D-36 branch (the detached launch, D-10;
+this replaced the former `--tmux=classic` confirmation at the 2026-10-04 extension, since no tmux-rung
+worker launches with that shape any more).
 
 ## REQ-C — Tower self-governance
 
@@ -185,3 +189,134 @@ naming), a negative assertion confirms no model/API call occurs in its decision 
 `[design-level]`: review confirms no task introduces auto-merge or autonomous PR-ready-marking.
 `[test]`: the tower-guard deny block (REQ-C1.2) asserts `gh pr merge` and the never-ready guardrails
 are denied, giving the floor a mechanical anchor.
+
+## REQ-F — tmux launch behavior
+
+### REQ-F1.1 — The launch returns once the worker has started [test + manual]
+
+`[test]`: on the Task 11 harness, a dispatch whose stub worker keeps running returns within the
+fixture's bound with its report printed and the checkout's flight lock released (a second flight
+dispatch from the same checkout proceeds), and its exit status reflects the launch outcome, not
+the worker's. The bounded case from the parked flight's candidate commit, which hangs on the old
+launch, is kept as the regression. `[manual]`: Task 12's real-dispatch confirmation.
+
+### REQ-F1.2 — No tmux client is moved [test + manual]
+
+`[test]`: the stub tmux records every subcommand it receives; across task and flight dispatches
+no `switch-client`, `attach-session`, or other client-moving call appears, and the session is
+created with `-d`. `[manual]`: Task 12's real dispatch leaves the operator's client on its session.
+
+### REQ-F1.3 — The worker starts in the placed worktree [test]
+
+The stubbed session's start directory equals the physical placed worktree, and neither `--worktree`
+nor `--tmux` appears in the worker argv. A regression fixture with the placed branch checked out
+elsewhere asserts no second worktree and no `worktree-<suffix>` branch appear after the launch.
+
+### REQ-F1.4 — The pin reaches the worker under a bare server environment [test]
+
+With the stub server's environment lacking every pinned value, the worker process's environment
+carries `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` and the resolved planwright root; a stub
+launch that applies the wrapper outside the session fails the fixture (REQ-H1.2's harness property
+is what makes this assertion able to fail).
+
+### REQ-F1.5 — The worker carries its registry identity [test + manual]
+
+`[test]`: for a task dispatch and a flight dispatch, the worker's environment carries
+`PLANWRIGHT_WORKER_HANDLE` and `PLANWRIGHT_WORKER_SCOPE` equal to the registry record's handle and
+scope; the wrapper refuses a malformed or half-supplied identity with exit 2 and launches nothing;
+a liveness hook run with that environment records a transition for the handle.
+`[manual]`: on Task 12's real dispatch, the worker's process environment shows both variables and
+its fleet-status row is distinguishable from an unlaunched unit.
+
+## REQ-G — tmux launch safety
+
+### REQ-G1.1 — Format-expanded values hold to the charset [test]
+
+Fixtures feed a worktree path and a session-name input each carrying `#`, `#(…)`, a space, and a
+control byte; each is refused with a message naming the charset, the stub tmux receives no call at
+all, and no probe file a `#(…)` would create exists. A charset-conforming path launches. The
+liveness probes are asserted to run the same check before their `has-session` calls.
+
+### REQ-G1.2 — Physical path; a missing start directory is refused [test]
+
+A worktree reached through a symlinked ancestor is launched with its physical path; a start
+directory removed between create and launch is refused before `new-session`, and the stub tmux
+receives no session creation.
+
+### REQ-G1.3 — Every live launch passes the path-escape guard [test]
+
+A live standalone `attach` is refused with a usage error and no tmux call, while `attach --dry-run`
+still prints its plan; the dispatch arm's guard fixtures (symlinked `.claude`, symlinked
+`.claude/worktrees`, symlinked leaf, a worktree resolving outside the primary checkout's worktree
+root) each refuse with no tmux call.
+
+### REQ-G1.4 — Repo-qualified names; collisions before side effects; rollback [test]
+
+The computed session name is `<base>-<hash6>_<suffix'>` with every byte inside the session-name charset, a
+dotted task id written with `_`, and two checkouts sharing a basename producing different names. A
+live session already holding the name aborts the dispatch as already-in-flight before the
+worktree, branch, marker, or registry record exists (each asserted absent). A stub that makes
+`new-session` fail as a duplicate after the side effects leaves the just-created worktree and
+branch removed, the marker cleared, and a superseding terminal registry record written.
+
+### REQ-G1.5 — Fail-closed CLI resolution and startup confirmation [test + manual]
+
+`[test]`: a `claude` resolving to a relative path, a missing file, or a non-executable file is
+refused with exit 127 before any durable side effect. Task 13's outcome fixtures: a confirming
+stub worker reports started (exit 0); a session that exits before confirming reports
+failed-at-startup with its documented status; a session that stays up unconfirmed past the
+shortened cap reports started-unconfirmed with its documented status and the handles, and
+each shipped caller of the primitive treats it as placed; a store row stamped before the dispatch start is not a
+confirmation. `[manual]`: on a real dispatch, the worker's `SessionStart` arm fires and the
+dispatch reports started.
+
+### REQ-G1.6 — The death handle comes from session creation [test]
+
+The registered death handle equals the session name and window id the stub's `-P -F` output
+printed, and a decoy pane whose working directory is the worktree (created after the dispatch
+start) does not change it. A negative assertion confirms no pane-working-directory lookup remains
+in the launch path.
+
+### REQ-G1.7 — Liveness across the upgrade window [test]
+
+Liveness fixtures treat a session under the new name and one under the prior launcher's
+`<repo-basename>_worktree-<suffix'>` spelling as live, and a source assertion confirms no probe for
+the bare `worktree-<suffix>` name remains. Retiring the prior-launcher probe is the gated deferral
+in `tasks.md`.
+
+## REQ-H — tmux launch verification and docs
+
+### REQ-H1.1 — Launch fixtures are bounded [test]
+
+The Task 11 harness self-test: a deliberately blocking launch stub fails within the bound with a
+non-hang diagnosis, and every launch fixture in the touched test files runs through the bounded
+runner (a source assertion over those files).
+
+### REQ-H1.2 — Stub server environment differs from the dispatcher's [test]
+
+The harness self-test: a stub session's command sees a variable set only in the stub server's
+environment and does not see one set only in the dispatcher's.
+
+### REQ-H1.3 — Every refusal arm has a fixture that can fail [test + design-level]
+
+`[test]`: the refusal and failure fixtures listed under REQ-G1.1 through REQ-G1.6 exist and pass.
+`[design-level]`: review confirms each was run once against the code with its arm removed and
+failed, as the PR description records.
+
+### REQ-H1.4 — Canonical compares; race-free, self-reaping stubs [test]
+
+Launch fixtures pass when run under a symlinked temporary directory; after the suite, no process
+a stub started is still running (asserted by the harness); stub logs and pid files are written per
+invocation and atomically, so concurrent stub calls cannot interleave them.
+
+### REQ-H1.5 — No doc presents the old launch as the rung's [test]
+
+The Task 14 check under `mise run check` fails on a fixture doc presenting
+`claude --worktree <suffix> --tmux=classic` as the tmux rung's launch, passes on a doc labeling it
+an operator hand-launch, and passes on the repository.
+
+### REQ-H1.6 — The seam exemption covers only the tower relaunch [test]
+
+A fixture copy of `fleet-tower-watchdog.sh` gains a second tmux worker launch; the seam discovery
+reports it as missing from the manifest while the tower relaunch stays exempt, and the
+unreached-exemption guard still passes on the real file.
