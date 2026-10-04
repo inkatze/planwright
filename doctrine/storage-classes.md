@@ -44,9 +44,9 @@ lives under that repository's common git directory instead: outside every
 working tree, never tracked, and gone with the clone. The load-bearing property
 is that it must be **losable**: every consumer of runtime state carries a
 rebuild path — the reconcile sweep rebuilds progress state from branches, PRs,
-and commit trailers; a venture registry rebuilds by scanning the ventures root. If losing
-a piece of state would lose information, it is not runtime state, and it is in
-the wrong class.
+and commit trailers; a venture registry rebuilds by scanning the ventures
+root. If losing a piece of state would lose information, it is not runtime
+state, and it is in the wrong class.
 
 ### 3. User work products
 
