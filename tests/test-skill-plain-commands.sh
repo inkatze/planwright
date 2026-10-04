@@ -135,11 +135,11 @@ if printf '%s' "$oflat" | grep -qE 'fleet-tower-marker\.sh record <spec> --mode 
 else
   fail "orchestrate: tower-marker record lacks <spec> --mode --pid --checkout"
 fi
-if printf '%s' "$oflat" | grep -qE 'fleet-presence\.sh publish +--checkout <[a-z-]+>' \
+if printf '%s' "$oflat" | grep -qE 'fleet-presence\.sh publish +--checkout <[a-z-]+> +--pid <pid>' \
   && printf '%s' "$oflat" | grep -qE 'death handle'; then
-  ok "orchestrate: presence publish names --checkout and a death handle"
+  ok "orchestrate: presence publish names --checkout, --pid and a death handle"
 else
-  fail "orchestrate: presence publish lacks --checkout or the death handle"
+  fail "orchestrate: presence publish lacks --checkout, --pid or the death handle"
 fi
 publish_line="$(grep -n 'fleet-presence\.sh publish' "$orch" | head -n 1 | cut -d: -f1)"
 loop_line="$(grep -ni 'loop the full step' "$orch" | head -n 1 | cut -d: -f1)"
@@ -147,6 +147,12 @@ if [ -n "$publish_line" ] && [ -n "$loop_line" ] && [ "$publish_line" -lt "$loop
   ok "orchestrate: presence is published before the loop's first step"
 else
   fail "orchestrate: presence publish does not precede the loop's first step"
+fi
+marker_line="$(grep -n 'fleet-tower-marker\.sh record' "$orch" | head -n 1 | cut -d: -f1)"
+if [ -n "$marker_line" ] && [ -n "$loop_line" ] && [ "$marker_line" -lt "$loop_line" ]; then
+  ok "orchestrate: the tower marker is recorded before the loop's first step"
+else
+  fail "orchestrate: tower marker record does not precede the loop's first step"
 fi
 
 if [ "$failures" -gt 0 ]; then
