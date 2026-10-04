@@ -66,9 +66,8 @@
 #                     planwright/pre-spec-ready-flip statuses excluded; a host
 #                     read that fails is retried within the same bound
 #   ready-guard       scripts/ready-guard.sh defers `gh pr ready <n>`: the
-#                     shipped currency, mergeability and flip-point evidence
-#                     floor, called directly because the flip runs below any
-#                     hook
+#                     shipped currency and mergeability floor, called directly
+#                     because the flip runs below any hook
 # The local predicates run first; when one fails the host ones are skipped,
 # so a known park costs no CI wait.
 #
@@ -792,10 +791,10 @@ pred_guard() {
     return
   fi
   if [ -z "$(printf '%s' "$out" | tr -d '[:space:]')" ]; then
-    set_pred ready-guard pass 'currency, mergeability and flip-point evidence check passed'
+    set_pred ready-guard pass 'currency and mergeability check passed'
   else
     GUARD_REASON=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' 2>/dev/null)
-    set_pred ready-guard fail 'the currency, mergeability and flip-point evidence check refused'
+    set_pred ready-guard fail 'the currency and mergeability check refused'
   fi
 }
 
