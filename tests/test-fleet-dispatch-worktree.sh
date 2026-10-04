@@ -1334,11 +1334,24 @@ c32() {
   run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
   [ "$RC" -eq 6 ] || fail "c32: a symlinked shared home must not hold the unit in flight (want exit 6), got $RC"
   rm -f "$_common/planwright"
-  # A dangling symlink at a checkout-local marker path holds nothing, as before.
-  ln -sf "$tmp/nowhere" "$tmp/primary/.claude/worktrees/tower/specs/demo/.orchestrate/markers/10"
   rm -rf "$tmp/moved"
+  # A symlink at a marker path in the shared home holds nothing either.
+  mkdir -p "$_shared"
+  date +%s >"$tmp/fresh"
+  ln -s "$tmp/fresh" "$_shared/10"
+  run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 6 ] || fail "c32: a symlink at a shared marker path must not hold the unit (want exit 6), got $RC"
+  rm -f "$_shared/10"
+  # The dispatching checkout's own markers keep their old symlink tolerance:
+  # a dangling one holds nothing, one to a fresh marker holds the unit.
+  _local="$tmp/primary/specs/demo/.orchestrate/markers"
+  mkdir -p "$_local"
+  ln -s "$tmp/nowhere" "$_local/10"
   run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
   [ "$RC" -eq 6 ] || fail "c32: a dangling checkout-local marker symlink must not hold the unit (want exit 6), got $RC"
+  ln -sf "$tmp/fresh" "$_local/10"
+  run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 3 ] || fail "c32: a checkout-local marker symlink to a fresh marker must hold the unit (exit 3), got $RC"
   export PLANWRIGHT_ORCH_STATE_DIR="$_saved_state_dir"
 }
 
@@ -1356,12 +1369,23 @@ c33() {
   RC=$?
   export PLANWRIGHT_ORCH_STATE_DIR="$_saved_state_dir"
   [ "$RC" -eq 0 ] || fail "c33: a dispatch beside an unusable shared home must still succeed, got $RC"
-  case $_err in
-    *"skipping the shared marker dir"*) ;;
-    *) fail "c33: the writer's warning did not reach the operator: $_err" ;;
-  esac
+  printf '%s\n' "$_err" | grep -q '^fleet-dispatch-worktree: orchestrate-marker: skipping the shared marker dir' \
+    || fail "c33: the writer's warning did not reach the operator on a line of its own: $_err"
   [ -f "$tmp/primary/specs/demo/.orchestrate/markers/11" ] \
     || fail "c33: no checkout-local marker beside an unusable shared home"
+  # With the checkout-local dir unusable too, no marker lands: the writer's
+  # reason and the summary both reach the operator, and the dispatch goes on.
+  rm -rf "$tmp/primary/specs/demo/.orchestrate"
+  : >"$tmp/primary/specs/demo/.orchestrate"
+  unset PLANWRIGHT_ORCH_STATE_DIR
+  _err=$("$PRIM" dispatch demo 12 --repo-root "$tmp/primary" --no-attach </dev/null 2>&1 >/dev/null)
+  RC=$?
+  export PLANWRIGHT_ORCH_STATE_DIR="$_saved_state_dir"
+  [ "$RC" -eq 0 ] || fail "c33: a dispatch whose marker could not be written must still succeed, got $RC"
+  printf '%s\n' "$_err" | grep -q '^fleet-dispatch-worktree: orchestrate-marker: cannot use marker dir' \
+    || fail "c33: the writer's failure reason did not reach the operator: $_err"
+  printf '%s\n' "$_err" | tail -n 1 | grep -q 'the dispatch marker was not written' \
+    || fail "c33: the missing-marker summary is not the last line: $_err"
 }
 
 for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26 c27 c28 c29 c30 c31 c32 c33; do
