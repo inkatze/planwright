@@ -1002,6 +1002,58 @@ assert_state "$pout" 19 blocked "dep-period: dotted id '1.2.' keeps id 1.2 (peri
 echo "ok: a trailing period on a single-dependency line no longer fails open (id recognized)"
 
 # ---------------------------------------------------------------------------
+# 6u. REMOTE-ONLY TASK BRANCH — work pushed from another checkout or machine
+#     reaches this one only as a remote-tracking ref (the dispatch fetch maps
+#     origin's heads under refs/remotes/origin/*). A task whose
+#     origin/planwright/<spec>/task-<id> carries unmerged commits, with no local
+#     branch and no PR, must derive in-progress, never ready: a fresh dispatch
+#     would duplicate or clobber the pushed work. A local branch sitting at base
+#     (a zero-commit dispatch branch) must not mask the remote's commits either,
+#     and a remote-tracking ref already reachable from base adds nothing.
+# ---------------------------------------------------------------------------
+rrepo="$tmp/remoteonly"
+rspec="$rrepo/specs/demo"
+mkdir -p "$rspec"
+gitc_init "$rrepo"
+cat >"$rspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — remote-only branch with unmerged commits
+- **Dependencies:** none
+### Task 2 — local zero-commit branch, remote carries commits
+- **Dependencies:** none
+### Task 3 — remote branch already reachable from base
+- **Dependencies:** none
+### Task 4 — depends on the remote-only task
+- **Dependencies:** 1
+EOF
+gitc "$rrepo" add -A
+gitc "$rrepo" commit -q -m "base"
+gitc "$rrepo" remote add origin https://example.invalid/demo.git
+rbase=$(gitc "$rrepo" rev-parse HEAD)
+for t in 1 2; do
+  gitc "$rrepo" checkout -q -b "scratch-$t"
+  gitc "$rrepo" commit -q --allow-empty -m "task $t wip on another machine"
+  gitc "$rrepo" update-ref "refs/remotes/origin/planwright/demo/task-$t" "$(gitc "$rrepo" rev-parse HEAD)"
+  gitc "$rrepo" checkout -q main
+  gitc "$rrepo" branch -q -D "scratch-$t"
+done
+gitc "$rrepo" branch -q planwright/demo/task-2 "$rbase"
+gitc "$rrepo" update-ref refs/remotes/origin/planwright/demo/task-3 "$rbase"
+gitc "$rrepo" show-ref --verify --quiet refs/heads/planwright/demo/task-1 \
+  && fail "remote-only: fixture invalid — task 1 has a local branch"
+rstub="$tmp/binremoteonly"
+make_gh_stub "$rstub"
+rout=$(PATH="$rstub:$PATH" "$STATE" "$rspec") || fail "remote-only: engine exited non-zero"
+assert_state "$rout" 1 in-progress "remote-only: unmerged commits on origin's task branch hold the task"
+assert_evidence "$rout" 1 remote-branch-commits "remote-only: the hold rests on the remote-tracking branch"
+assert_state "$rout" 2 in-progress "remote-only: a zero-commit local branch does not mask the remote's commits"
+assert_evidence "$rout" 2 remote-branch-commits "remote-only: task 2 is held by the remote-tracking branch"
+assert_state "$rout" 3 ready "remote-only: a remote branch with nothing beyond base holds nothing"
+assert_state "$rout" 4 blocked "remote-only: a dependent of the held task stays blocked"
+echo "ok: a remote-only task branch with unmerged commits derives in-progress, not ready"
+
+# ---------------------------------------------------------------------------
 # 7. fail-closed on a missing / taskless bundle (matches the sibling scripts).
 # ---------------------------------------------------------------------------
 rc=0

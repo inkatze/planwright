@@ -20,8 +20,10 @@
 #               trailer is the durable anchor that survives branch deletion and
 #               covers solo direct-to-base commits and squash merges (R2).
 #   in-progress the branch exists with commits beyond base (not yet merged), OR
-#               gh reports its PR OPEN, OR a FRESH runtime dispatch marker (D-3)
-#               holds it across the branch-create → first-commit window.
+#               its origin remote-tracking ref does (work pushed from another
+#               checkout), OR gh reports its PR OPEN, OR a FRESH runtime dispatch
+#               marker (D-3) holds it across the branch-create → first-commit
+#               window.
 #   ready       no in-progress/completed evidence and every dependency is
 #               completed. A STALE marker (older than the staleness threshold,
 #               branch carrying no commits) no longer holds the task: a crashed
@@ -388,6 +390,16 @@ fi
 # Branch-reachability helper.
 branch_exists() { git -C "$repo_root" show-ref --verify --quiet "refs/heads/$1"; }
 
+# Work pushed from another checkout or machine exists here only as a
+# remote-tracking ref. This reads what the dispatch fetch already mapped under
+# refs/remotes/origin/* and adds no network call; an unfetched remote branch
+# stays invisible until the next fetch.
+remote_branch_ahead() {
+  git -C "$repo_root" show-ref --verify --quiet "refs/remotes/origin/$1" || return 1
+  rahead=$(git -C "$repo_root" rev-list --count "$base..refs/remotes/origin/$1" 2>/dev/null || echo 0)
+  [ "$rahead" -gt 0 ]
+}
+
 # Membership test: is commit $1 on base's first-parent mainline? Used by the
 # branch-merged check below to tell a stale zero-commit fork (tip ON the line)
 # from genuinely merged work (tip OFF it). base is loop-invariant, so the
@@ -480,6 +492,13 @@ while IFS="$TAB" read -r id deps; do
     fi
   fi
 
+  # Only consulted when the local branch shows no work of its own, so a
+  # zero-commit local dispatch branch cannot mask commits pushed elsewhere.
+  rbr_commits=0
+  if [ "$br_commits" -eq 0 ] && [ "$br_merged" -eq 0 ] && remote_branch_ahead "$branch"; then
+    rbr_commits=1
+  fi
+
   trailer_done=0
   case "$reachable_ours" in
     *" $id "*) trailer_done=1 ;;
@@ -540,6 +559,9 @@ while IFS="$TAB" read -r id deps; do
   elif [ "$br_commits" -eq 1 ]; then
     evstate=in-progress
     evidence="branch-commits"
+  elif [ "$rbr_commits" -eq 1 ]; then
+    evstate=in-progress
+    evidence="remote-branch-commits"
   elif [ "$pr_open" -eq 1 ]; then
     evstate=in-progress
     evidence="pr-open"
