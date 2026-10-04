@@ -1252,6 +1252,19 @@ verdict "a completion marker with no record still claims its point" "a second co
 [ "$("$SR" --worktree "$wl" new-run)" = 000009 ]
 verdict "new-run numbers past a pre-existing cache" "new-run reused or skipped an id"
 
+# A relative TMPDIR still writes: the scratch is resolved before the cache lock
+# moves the writer into the cache.
+wr="$tmp/wr"
+fresh "$wr"
+mkdir -p "$wr/reltmp"
+rr=$("$SR" --worktree "$wr" new-run)
+(cd "$wr" && TMPDIR=reltmp "$SR" write --run "$rr" --point pre-ci --step rel --kind command \
+  --target t --hosting isolated --backend runner --head "$HEAD_SHA" --start 2026-09-28T17:00:00Z \
+  --end 2026-09-28T17:00:01Z --outcome passed >/dev/null 2>"$tmp/errrel")
+rc=$?
+[ "$rc" -eq 0 ] && [ -z "$(find "$wr/reltmp" -mindepth 1)" ]
+verdict "a relative TMPDIR writes its record and leaves no scratch behind" "rc=$rc: $(cat "$tmp/errrel")"
+
 # --- the cache path is ignored ------------------------------------------------------
 git -C "$repo_root" check-ignore -q ".claude/steps/000001/x.rec"
 verdict "this repository ignores the record cache" ".claude/steps/ is not ignored"

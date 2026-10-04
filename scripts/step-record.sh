@@ -231,6 +231,8 @@ bad() { die 2 "$1: $2"; }
 scratch() {
   [ -n "$work" ] && return 0
   work=$(mktemp -d "${TMPDIR:-/tmp}/step-record.XXXXXX") || die 1 "cannot create a temporary directory"
+  # Absolute, because a claim reads it after lock_cache has changed directory.
+  case $work in /*) ;; *) work="$(pwd -P)/$work" ;; esac
 }
 
 # has_ctl <value>: true when the value carries a C0 control byte or DEL.
@@ -435,7 +437,7 @@ valid_run() {
 
 # lock_cache / unlock_cache: hold <cache>/.lock around a claim. The lock is
 # named from inside the cache because lock-lib refuses a path carrying `#`,
-# which a worktree path may; nothing after a claim resolves a relative path.
+# which a worktree path may; every path a claim reads is absolute by then.
 lock_cache() {
   cd "$cache" || die 1 "cannot enter the record cache"
   pw_lock_acquire .lock
