@@ -469,13 +469,18 @@ is_live() {
     # A shared home reached through a symlink, or a symlink at a marker path in
     # it, is never what the writer put there, so it holds nothing here, as in
     # the state engine; checkout-local dirs keep the symlink tolerance they
-    # always had.
+    # always had. A shared home that exists but cannot be entered is "cannot
+    # tell", which is live.
     _mfile="$_mdir/$_id"
     if [ -z "${PLANWRIGHT_ORCH_STATE_DIR:-}" ]; then
       case "$_mdir" in
         */.orchestrate/markers) ;;
         *)
-          [ "$(cd -P -- "$_mdir" 2>/dev/null && pwd -P)" = "$_mdir" ] || continue
+          if ! _mreal=$(cd -P -- "$_mdir" 2>/dev/null && pwd -P); then
+            [ ! -d "$_mdir" ] || [ -L "$_mdir" ] || return 0
+            continue
+          fi
+          [ "$_mreal" = "$_mdir" ] || continue
           [ ! -L "$_mfile" ] || continue
           ;;
       esac
