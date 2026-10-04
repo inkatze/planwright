@@ -347,12 +347,18 @@ stale_base_segments() {
     while IFS= read -r seg; do
       [ -n "$seg" ] || continue
       # Still on the base for this task: not stale.
-      awk -F '\t' -v id="$id" -v s="$seg" '$1 == id { n = split($3, p, "; "); for (i = 1; i <= n; i++) if (p[i] == s) f = 1 } END { exit !f }' \
-        "$SCRATCH/stale.baserefs" && continue
+      segment_held "$id" "$seg" <"$SCRATCH/stale.baserefs" && continue
       base_carried "$ref" "$id" "$seg" || continue
       printf '%s\t%s\n' "$line" "$seg" >>"$out"
     done <<<"${live//; /$'\n'}"
   done <"$SCRATCH/stale.local"
+}
+
+# segment_held <id> <segment> — 0 when task <id>'s row of the unit_refs
+# output on stdin holds <segment>. Both travel through the environment
+# because awk -v would unescape a backslash in the segment.
+segment_held() {
+  HELD_ID=$1 HELD_SEG=$2 awk -F '\t' '$1 == ENVIRON["HELD_ID"] { n = split($3, p, "; "); for (i = 1; i <= n; i++) if (p[i] == ENVIRON["HELD_SEG"]) f = 1 } END { exit !f }'
 }
 
 # base_carried <base ref> <id> <segment> — 0 when some commit of the base's
@@ -365,9 +371,7 @@ base_carried() {
   for c in $(git log --format=%H -S"$3" "$1" -- "$TASKS" 2>/dev/null); do
     for v in "$c" "$c^"; do
       git show "$v:$TASKS" >"$SCRATCH/carried.base" 2>/dev/null || continue
-      unit_refs "$SCRATCH/carried.base" 2>/dev/null \
-        | awk -F '\t' -v id="$2" -v s="$3" '$1 == id { n = split($3, p, "; "); for (i = 1; i <= n; i++) if (p[i] == s) f = 1 } END { exit !f }' \
-        && return 0
+      unit_refs "$SCRATCH/carried.base" 2>/dev/null | segment_held "$2" "$3" && return 0
     done
   done
   return 1

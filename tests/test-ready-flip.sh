@@ -413,6 +413,16 @@ run_helper flip --spec specs/demo --task 1
 check "a unit segment whose text the base once carried for another task still blocks (exit 4)" [ "$CODE" = 4 ]
 check "that segment survives" grep -q '^- \*\*Task 1\*\* — halt: blocked on a design question' <<<"$(bullet)"
 
+echo "# a copied segment holding a backslash is matched literally"
+fixture '- **Task 1** — halt: wait on C:\new\dir'
+set_policy unit-owner
+run_helper flip --spec specs/demo --task 1
+check "a backslash segment still on the base blocks (exit 4)" [ "$CODE" = 4 ]
+check "a backslash segment still on the base is kept" grep -qF 'halt: wait on C:\new\dir' <<<"$(bullet)"
+clear_base
+run_helper flip --spec specs/demo --task 1
+check "once the base clears a backslash segment, it no longer blocks (exit 0)" [ "$CODE" = 0 ]
+
 echo "# another task's bullet does not block this unit"
 fixture '- **Task 2** — halt: unrelated'
 set_policy unit-owner
