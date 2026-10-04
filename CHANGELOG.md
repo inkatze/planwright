@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.51.0](https://github.com/inkatze/planwright/compare/v0.50.0...v0.51.0) (2026-10-04)
+
+
+### Features
+
+* **human-gates:** add the ready-flip helper and its wiring ([#557](https://github.com/inkatze/planwright/issues/557)) ([732a63a](https://github.com/inkatze/planwright/commit/732a63a7cfa122337440db2d5b49fd7bc109a19b))
+
+
+### Bug Fixes
+
+* **custom-steps:** resolve every point in one pass so the guard fits its deadline ([#561](https://github.com/inkatze/planwright/issues/561)) ([783c2ac](https://github.com/inkatze/planwright/commit/783c2ac6b24448ea53d40d970bd23a4562e59ae8))
+* **orchestrate-state:** hold a task whose remote branch carries unmerged work ([#569](https://github.com/inkatze/planwright/issues/569)) ([a29b4f1](https://github.com/inkatze/planwright/commit/a29b4f1ca710392dcb91f68edd26aa65b3502929))
+* **ready-flip:** address the cubic findings on the ready-flip helper ([#565](https://github.com/inkatze/planwright/issues/565)) ([c49d28d](https://github.com/inkatze/planwright/commit/c49d28d6a1403414e888bd7615c186191369e552))
+* **skills:** issue one plain command per Bash call in dispatched runs ([#568](https://github.com/inkatze/planwright/issues/568)) ([df191ae](https://github.com/inkatze/planwright/commit/df191ae839cf7d6da7fedd80006910a161b7d55b))
+* **step-record:** take run ids and records under lock-lib ([#563](https://github.com/inkatze/planwright/issues/563)) ([52326ef](https://github.com/inkatze/planwright/commit/52326ef14de49dd39205478664109c98bdf4c32a))
+* **tests:** make the permission-matcher test parse under bash 3.2 ([#567](https://github.com/inkatze/planwright/issues/567)) ([8b38f4a](https://github.com/inkatze/planwright/commit/8b38f4a7e6e2b00b5681cc381c534699f9804562))
+
 ## [0.50.0](https://github.com/inkatze/planwright/compare/v0.49.0...v0.50.0) (2026-10-02)
 
 
