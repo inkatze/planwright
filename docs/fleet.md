@@ -1185,15 +1185,20 @@ falls strictly inside (see
 tower that `scripts/fleet-presence.sh discover` reports `live`, addressed by
 the `tmux-window` handle its presence record publishes. `discover` prints the
 peer's tower id but not that handle: read it from the record, the file named
-by the tower id in the directory `fleet-presence.sh surface` prints, whose
-ninth tab-separated field `tmux-window <session> <window>` is the target
-`<session>:<window>`. Never derive it from
-tmux's `pane_active` flag or "the active pane of the planwright window": a
-tower that is closing keeps its pane, and its input line, until the process
+by the tower id in the directory `scripts/fleet-presence.sh surface --checkout
+<repo-root>` prints, whose ninth tab-separated field
+`tmux-window <session> <window>` is the target `<session>:<window>`. Never
+derive it from tmux's `pane_active` flag or "the active pane of the planwright
+window": a tower that is closing keeps its pane, and its input line, until the process
 exits, so the active pane can be a stale session rather than the live one.
 A window-level target resolves to that window's active pane, so where a window
 holds more than one pane, address the pane by its `%` id. Read the target with
-`observe-command` before anyone submits the paste.
+`observe-command` before anyone submits the paste. `live` means only that the
+published tmux window still exists, not that the session in it will read the
+paste: a tower partway through closing still passes, and a pane capture
+carries no colour, so it cannot tell a dimmed prompt suggestion from typed
+input. When there is any doubt which session is the live one, ask the operator
+to name the target.
 
 **A paste stages; one Enter submits it.** The tmux relay loads its pointer
 line with no trailing newline, so the paste never submits itself and a single

@@ -350,7 +350,7 @@ case "$load" in
   *) fail "relay-command must load exactly one pointer line (header + read <file>), got: $load" ;;
 esac
 # The payload the emitted command loads is what tmux pastes: run the load half
-# with tmux replaced by a recorder and count the lines it receives.
+# with tmux replaced by a recorder and compare the bytes it receives.
 mkdir -p "$tmp/fakebin"
 cat >"$tmp/fakebin/tmux" <<'EOF'
 #!/bin/sh

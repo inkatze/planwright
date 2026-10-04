@@ -81,8 +81,8 @@ contains none.
 becomes an unsubmittable `[Pasted text]` placeholder that blocks every later
 paste. So the tmux paste is **one unterminated pointer line** (`… read
 <absolute message file>`), never the body, and delivery is confirmed by
-observe-command, never assumed. The handle is explicit (operator-named, or a
-live presence peer's), never the active pane. `relay-command stream-json`
+observe-command, never assumed. The handle is explicit (operator-named, or from
+a live peer's presence record), never the active pane. `relay-command stream-json`
 instead emits `fleet-streamjson.sh steer`: a user turn on the worker's own
 stdin, a real submit with a receipt row — the unattended path.
 
