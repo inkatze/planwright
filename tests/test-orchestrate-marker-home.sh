@@ -199,8 +199,8 @@ ln -s "$P/specs/demo" "$P/specs/alias"
 # A bundle dir named `-` is that dir, never OLDPWD.
 mkdir -p "$P/specs/-"
 dlist=$(cd "$P/specs" && OLDPWD=/ "$HOME_HELPER" write -)
-[ "$(printf '%s\n' "$dlist" | tail -n 1)" = "$P/specs/-/.orchestrate/markers" ] \
-  || fail "helper: a dir named '-' resolved elsewhere: $dlist"
+[ "$dlist" = "$P/specs/-/.orchestrate/markers" ] \
+  || fail "helper: a dir named '-' resolved elsewhere, or kept a shared home: $dlist"
 # An override carrying a newline cannot be one line of the list.
 rc=0
 (cd "$P" && PLANWRIGHT_ORCH_STATE_DIR="$tmp/a
@@ -329,6 +329,8 @@ if [ "$(id -u)" -ne 0 ]; then
   [ -f "$P/specs/demo/.orchestrate/markers/1" ] || fail "writer: no local marker beside an unwritable shared home"
   case "$werr" in *"not writable"*) ;; *) fail "writer: the unwritable shared home was not reported: $werr" ;; esac
   rm -rf "$P/specs/demo/.orchestrate/markers/1" "$gcommon/planwright"
+else
+  echo "skip: the unwritable-shared-home case (root bypasses dir permissions)"
 fi
 echo "ok: a shared home the writer cannot create or write is skipped with a warning, the local marker kept"
 
@@ -392,7 +394,30 @@ if [ "$(id -u)" -ne 0 ]; then
   [ "$rc" = 2 ] || fail "writer: a partial clear returned $rc, expected 2"
   [ ! -e "$shared/1" ] || fail "writer: a failed local removal stranded the shared copy"
   echo "ok: a clear failing in one dir still clears the shared home"
+else
+  echo "skip: the partial-clear case (root bypasses dir permissions)"
 fi
+
+# A temp that cannot be staged in the shared home, past the usability check,
+# drops that home rather than the write.
+shim="$tmp/mktemp-shim"
+mkdir -p "$shim"
+real_mktemp=$(command -v mktemp)
+cat >"$shim/mktemp" <<SHIM
+#!/bin/sh
+case "\$*" in
+  *"/planwright/orchestrate/"*".marker."*) exit 1 ;;
+esac
+exec "$real_mktemp" "\$@"
+SHIM
+chmod +x "$shim/mktemp"
+werr=$( (cd "$P" && PATH="$shim:$PATH" "$MARKER" write specs/demo 5) 2>&1) \
+  || fail "writer: a shared-home staging failure failed the whole write: $werr"
+[ -f "$P/specs/demo/.orchestrate/markers/5" ] || fail "writer: no local marker after a shared-home staging failure"
+[ -z "$(ls -A "$shared" 2>/dev/null)" ] || fail "writer: a shared-home staging failure left files there: $(ls -A "$shared")"
+case "$werr" in *"skipping the shared marker dir"*"cannot create a temp marker"*) ;; *) fail "writer: the staging skip was not reported: $werr" ;; esac
+rm -f "$P/specs/demo/.orchestrate/markers/5"
+echo "ok: a shared-home staging failure skips that home, the local marker kept"
 
 # An override path carrying a tab still round-trips through the manifest.
 tabdir="$tmp/state${TAB}dir"

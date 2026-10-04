@@ -264,8 +264,9 @@ manifest=$(mktemp "$last/.manifest.XXXXXX") || {
   say "cannot create a staging manifest in $last"
   exit 2
 }
+staged=''
 dir_at() {
-  printf '%s' "$kept" | sed -n "${1}p"
+  printf '%s' "$staged" | sed -n "${1}p"
 }
 # Remove every still-staged temp recorded in the manifest, then the manifest
 # itself. A temp already renamed into place no longer exists at its staged path,
@@ -279,58 +280,91 @@ roll_back_staged() {
 
 # Phase 1 — validate every marker path and stage a temp marker per id and dir.
 # The temp lives in its marker dir, so the phase-2 rename is same-filesystem.
+# A dir's temps reach the manifest only once all of its ids are staged, so a
+# failure in the shared home (a race past the usability check, a full disk
+# under .git) discards just that dir's temps and the write goes on with the
+# checkout-local dir; a failure in the last dir rolls back everything.
+#
+# stage_failed <message>: 0 when the current dir was dropped (keep going), or
+# exits 2 when it was the last dir.
+stage_failed() {
+  for _sf_tmp in $dir_temps; do
+    rm -f "$marker_dir/$_sf_tmp"
+  done
+  if [ "$marker_dir" = "$last" ]; then
+    say "$1"
+    roll_back_staged
+    exit 2
+  fi
+  say "skipping the shared marker dir $marker_dir ($1); other worktrees will not see this marker"
+}
 n=0
 while IFS= read -r marker_dir; do
   [ -n "$marker_dir" ] || continue
-  n=$((n + 1))
+  dir_temps=''
+  dir_lines=''
+  dropped=0
   base_real=$(cd "$marker_dir" 2>/dev/null && pwd -P) || {
-    say "cannot resolve marker dir $marker_dir"
-    roll_back_staged
-    exit 2
+    stage_failed "cannot resolve marker dir $marker_dir"
+    continue
   }
   for id in "$@"; do
     mfile="$marker_dir/$id"
     # A symlink at the marker path is never a legitimate marker (the writer emits
     # a regular file); refuse it rather than write through it (REQ-F1.1).
     if [ -L "$mfile" ]; then
-      say "refusing symlink at marker path $mfile (REQ-F1.1)"
-      roll_back_staged
-      exit 2
+      stage_failed "refusing symlink at marker path $mfile (REQ-F1.1)"
+      dropped=1
+      break
     fi
     # Likewise refuse any other non-regular file already at the path (e.g. a
     # directory): `mv -f` onto a directory moves the temp *inside* it and reports
     # success, leaving no marker. Only a regular file (re-dispatch) is overwritten.
     if [ -e "$mfile" ] && [ ! -f "$mfile" ]; then
-      say "refusing non-regular file at marker path $mfile (REQ-F1.1)"
-      roll_back_staged
-      exit 2
+      stage_failed "refusing non-regular file at marker path $mfile (REQ-F1.1)"
+      dropped=1
+      break
     fi
     # Containment: the marker must sit directly under its base dir after
     # canonicalization (defense in depth — the grammar already excludes slashes).
     file_dir=$(cd "$(dirname "$mfile")" 2>/dev/null && pwd -P) || file_dir=""
     if [ -z "$file_dir" ] || [ "$file_dir" != "$base_real" ]; then
-      say "refusing out-of-base marker path $mfile (REQ-F1.1)"
-      roll_back_staged
-      exit 2
+      stage_failed "refusing out-of-base marker path $mfile (REQ-F1.1)"
+      dropped=1
+      break
     fi
     tmpf=$(mktemp "$marker_dir/.marker.XXXXXX") || {
-      say "cannot create a temp marker in $marker_dir"
-      roll_back_staged
-      exit 2
+      stage_failed "cannot create a temp marker in $marker_dir"
+      dropped=1
+      break
     }
+    dir_temps="$dir_temps ${tmpf##*/}"
     printf '%s\n' "$now" >"$tmpf" || {
-      rm -f "$tmpf"
-      say "cannot write marker for task $id"
-      roll_back_staged
-      exit 2
+      stage_failed "cannot write marker for task $id"
+      dropped=1
+      break
     }
-    printf '%s%s%s%s%s\n' "$n" "$tab" "$id" "$tab" "${tmpf##*/}" >>"$manifest" || {
-      rm -f "$tmpf"
-      say "cannot record staged marker for task $id"
-      roll_back_staged
-      exit 2
-    }
+    dir_lines="$dir_lines$id$tab${tmpf##*/}$nl"
   done
+  [ "$dropped" -eq 0 ] || continue
+  n=$((n + 1))
+  # Recorded by its position among the dirs that staged, the list phase 2 and
+  # rollback read back through dir_at.
+  staged="$staged$marker_dir$nl"
+  while IFS="$tab" read -r _id _tmp; do
+    [ -n "$_tmp" ] || continue
+    # The manifest sits in the last dir: failing to extend it ends the write.
+    printf '%s%s%s%s%s\n' "$n" "$tab" "$_id" "$tab" "$_tmp" >>"$manifest" || {
+      for _t in $dir_temps; do
+        rm -f "$marker_dir/$_t"
+      done
+      say "cannot record staged marker for task $_id"
+      roll_back_staged
+      exit 2
+    }
+  done <<LINES
+$dir_lines
+LINES
 done <<EOF
 $kept
 EOF
