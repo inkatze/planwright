@@ -87,6 +87,14 @@
 #    It runs after the registry reconcile, so the dispatch records it reads
 #    are already healed or retired for this cycle.
 #
+# 7. FLIGHT CRASH POLICY. flight-lifecycle.sh supervise runs one pass of the
+#    fleet crash-loop policy over the checkout's flights: a flight worker with
+#    positive death evidence and no landing is counted, relaunched into its
+#    own worktree once its backoff has passed, and surfaced as a decision at
+#    the disable threshold. Each relaunch and disable is audited; a failed
+#    flight is warned and left for the next cycle. It runs last, after the
+#    registry reconcile and the residue pass, so it reads this cycle's records.
+#
 # KILL-SWITCH + AUDIT. The cycle gates through fleet-daemon-gate.sh at entry
 # (a set fleet_daemon_pause pauses the whole cycle; the reap actuator also
 # gates on its own). Escalations, reconciles that corrected drift, reaps, and
@@ -155,6 +163,7 @@ WT="$script_dir/fleet-worktree-track.sh"
 SYNC="$script_dir/tasks-pr-sync.sh"
 FLIGHT_DISPATCH="$script_dir/flight-dispatch.sh"
 FLIGHT_SWEEP="$script_dir/flight-sweep.sh"
+FLIGHT_LIFECYCLE="$script_dir/flight-lifecycle.sh"
 CONFIG_GET="$script_dir/config-get.sh"
 KNOB="$script_dir/resolve-config-knob.sh"
 OVERLAY="$script_dir/resolve-overlay-root.sh"
@@ -841,6 +850,25 @@ flight_residue_pass() {
   fi
 }
 
+# flight_crash_pass — pass 7.
+flight_crash_pass() {
+  [ -x "$FLIGHT_LIFECYCLE" ] || return 0
+  fc_all=$("$FLIGHT_LIFECYCLE" supervise --repo-root "$repo" 2>&1 </dev/null)
+  fc_rc=$?
+  fc_tab=$(printf '\t')
+  if [ "$fc_rc" -ne 0 ]; then
+    fc_why=$(printf '%s\n' "$fc_all" | tail -n 1)
+    warn "flight crash policy exited $fc_rc${fc_why:+ ($(sanitize_printable "$fc_why"))} — flight workers left for the next sweep"
+  fi
+  printf '%s\n' "$fc_all" | while IFS="$fc_tab" read -r fc_kind fc_id fc_what; do
+    case $fc_kind in
+      relaunched) audit flight-relaunch flight-crash "relaunched the dead worker of flight $fc_id into its own worktree (consecutive crash $fc_what)" ;;
+      disabled) audit flight-disable flight-crash "flight $fc_id reached the crash disable threshold after $fc_what crashes; queued for the operator" ;;
+      failed) warn "flight $fc_id crash policy: $(sanitize_printable "$fc_what") — left for the next sweep" ;;
+    esac
+  done
+}
+
 # cycle — one sweep; 4 when the kill-switch paused it before any pass.
 cycle() {
   # Kill-switch gate: the sweep is a daemon action. A set switch (or an
@@ -855,6 +883,7 @@ cycle() {
   reap_pass
   registry_pass
   flight_residue_pass
+  flight_crash_pass
   return 0
 }
 

@@ -1184,6 +1184,32 @@ do_dispatch() {
   return "$_attach_rc"
 }
 
+# attach_flight_worker — the standalone attach. A flight attach (one carrying
+# the flight's brief) starts a new worker in a flight worktree that already
+# exists, the crash-policy relaunch among them, so it registers that worker
+# under the flight's handle as the dispatch arm does: without the record the
+# new worker has no death handle and falls outside the crash policy. The
+# dispatch arm registers its own worker, so only this entry does.
+attach_flight_worker() {
+  afw_started=$(date +%s 2>/dev/null) || afw_started=0
+  case $afw_started in
+    '' | *[!0-9]*) afw_started=0 ;;
+  esac
+  do_attach "$@"
+  afw_rc=$?
+  [ "$afw_rc" -eq 0 ] && [ -n "$ATTACH_PROMPT" ] && [ "$_dry" -eq 0 ] || return "$afw_rc"
+  afw_repo=$(/bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null </dev/null) || afw_repo=''
+  if [ -z "$afw_repo" ] || ! afw_repo=$(cd "$afw_repo" 2>/dev/null && pwd -P); then
+    warn "cannot resolve the primary checkout: the attached flight worker is not registered and falls outside the crash policy"
+    return 0
+  fi
+  afw_wt=$(branch_checkout_path "$afw_repo" "planwright/flight/$_aflight")
+  [ -n "$afw_wt" ] || afw_wt="$afw_repo/.claude/worktrees/$_suffix"
+  afw_death=$(tmux_death_handle "$afw_wt" "$afw_started") || afw_death=''
+  register_dispatch "tmux-flight-$_aflight" "flight:$_aflight" "$afw_wt" "$afw_repo" "$afw_death"
+  return 0
+}
+
 # --- Entry -------------------------------------------------------------------
 
 [ "$#" -ge 1 ] || usage
@@ -1191,7 +1217,7 @@ sub=$1
 shift
 case $sub in
   dispatch) do_dispatch "$@" ;;
-  attach) do_attach "$@" ;;
+  attach) attach_flight_worker "$@" ;;
   *)
     warn "unknown subcommand: $sub"
     usage

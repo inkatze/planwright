@@ -1380,6 +1380,23 @@ handle dies `fleet_crash_disable_threshold` times, which today takes a human
 re-dispatching it under that same handle. The `completed` half needs no such help. Described with its
 twin where the ledger's feedback loop is covered below.
 
+### Flight lifecycle pushes
+
+A visual flight's three lifecycle events reach the attention store by push from
+the process that caused them, never by a tower polling for them, so they land
+with no tower session running (`scripts/flight-lifecycle.sh push`):
+
+| Event | Pushed by | Row written |
+| --- | --- | --- |
+| `dispatch` | `flight-dispatch.sh`, once the flight is placed | `working` (tmux rung), `idle` (print rung, no process until the operator launches it) |
+| `awaiting-decision` | the worker, at a hard pause, as its brief directs | `awaiting-input` with the reason, the one event the decision queue shows |
+| `completion` | the worker, right after it lands, as its brief directs | `pr-ready` (PR landing) or `done` (record landing); the landing reference is kept beside the brief and sent through `notification_channel` |
+
+Each row is the flight worker's own (`tmux-flight-<id>` or `print-flight-<id>`,
+scope `flight:<id>`), so the tower reads flights through the same `render` and
+`queue` as every other worker. Neither status push overwrites a queued
+decision. A retired flight's row is cleared with its brief.
+
 ### What planwright registers, and the event it deliberately does not
 
 The liveness hooks above are observers: they watch a session and write to the
@@ -1615,15 +1632,30 @@ reap     -  declined  no tower identity: all 2 candidate(s) declined; the sweep 
 The knobs are read from the `--repo` checkout's overlay layers wherever the
 sweep is started. The wait between cycles is never under one second.
 
-Each cycle runs six passes: the worktree disk scan, so a worktree nothing
+Each cycle runs seven passes: the worktree disk scan, so a worktree nothing
 recorded is tracked; the dirty-tree pass; the `tasks.md` reconcile backstop;
 the process reap; the registry reconcile, which heals and retires dispatch
 records from their markers (see *The dispatch record*) and, terminating
-nothing, runs in both modes; and the flight residues, which retire a gone
-flight's brief and prune the flight index of a checkout that no longer exists.
+nothing, runs in both modes; the flight residues, which retire a gone
+flight's brief (clearing its attention row) and prune the flight index of a
+checkout that no longer exists; and the flight crash policy, below.
 The registry reconcile follows the reap so a worker closed this cycle is
-retired in the same one, and the flight pass follows the reconcile so the
-dispatch records it reads are already settled. The reap hands every worker
+retired in the same one, and the flight passes follow the reconcile so the
+dispatch records they read are already settled.
+
+**Flight workers under the crash policy.** `scripts/flight-lifecycle.sh
+supervise` is the last pass. A visual flight's worker is a crash only when the
+shared flight sweep reads it `dead`: positive death evidence and no landing.
+Each death is counted once (keyed by the registry's death handle) through
+`crash-record` under the same `fleet_crash_backoff_base_seconds` and
+`fleet_crash_disable_threshold` knobs as any worker; once `crash-check`
+authorizes it, the worker relaunches into the flight's own worktree and branch
+with its own brief (`fleet-dispatch-worktree.sh attach`, which registers the
+new worker), and at the disable threshold nothing relaunches and the disable is
+a decision-queue entry. Each relaunch and disable is audited. The guarantee is
+bounded or surfaced: a worker whose death cannot be proven (a print-rung
+flight, an unreachable tmux server, a relaunch whose window could not be
+matched) is never relaunched and reads `unknown` in the sweep's render. The reap hands every worker
 whose session has ended to `fleet-cleanup.sh process`, so it refuses what that
 refuses and kills only through the rungs' `stop`.
 
