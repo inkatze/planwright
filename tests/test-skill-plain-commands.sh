@@ -57,16 +57,20 @@ flatten() {
 # an assignment, so prose spans holding a `;` are not mistaken for commands.
 compound_spans() {
   awk '
-    function check(c) {
+    # In a fence a bare assignment is a command of its own; in an inline span
+    # `name=value` is as likely a config value, so only a prefix counts there.
+    function check(c, infence) {
+      sub(/^[ \t]+/, "", c)
       if (c !~ /^(scripts\/|tests\/|\/|git |gh |tmux |printf |echo |cd |sh |bash |mise |claude |jq |cat |[A-Za-z_][A-Za-z0-9_]*=)/) return
+      if (infence && c ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { print c; return }
       if (c ~ /\$\(|&&|\|\||; |(^| )cd |^[A-Za-z_][A-Za-z0-9_]*=[^ ]* |echo rc|\$\?|\| *(sed|awk|head|tail|grep|cut|tr)( |$)/) print c
     }
     /^[ ]*```/ { fence = !fence; next }
-    fence { check($0); next }
+    fence { check($0, 1); next }
     { buf = buf " " $0 }
     END {
       while (match(buf, /`[^`]+`/)) {
-        check(substr(buf, RSTART + 1, RLENGTH - 2))
+        check(substr(buf, RSTART + 1, RLENGTH - 2), 0)
         buf = substr(buf, RSTART + RLENGTH)
       }
     }' "$1"
