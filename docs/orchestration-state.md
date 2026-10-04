@@ -127,11 +127,18 @@ A branch with zero commits is not yet evidence of work in flight (the derivation
 counts a branch *with commits*). The runtime marker covers exactly that gap: the
 window between branch-create and the branch acquiring its first commit.
 
-It is a durable, timestamped marker file, one per task, in the spec's runtime
-orchestration-state directory (`<spec-dir>/.orchestrate/markers/<id>` by default,
-overridable with the `PLANWRIGHT_ORCH_STATE_DIR` environment variable). The
-per-spec advisory lock lives beside it at `<spec-dir>/.orchestrate.lock`, not
-under the markers directory.
+It is a durable, timestamped marker file, one per task, under the repository's
+common git directory (`<git-common-dir>/planwright/orchestrate/<spec>/markers/<id>`),
+so every worktree of the repository counts it: a meta-tower running from one
+worktree sees the marker a subordinate dropped from another. Another clone has
+its own git directory and sees none of them. The writer also drops a copy in the
+checkout-local `<spec-dir>/.orchestrate/markers/<id>`, and readers consult that
+location too (and, from a linked worktree, the primary checkout's), so markers
+from a planwright version that knew only the old location still count.
+`scripts/orchestrate-marker-home.sh` resolves the list for the writer and every
+reader; the `PLANWRIGHT_ORCH_STATE_DIR` environment variable replaces it with one
+directory. The per-spec advisory lock lives at `<spec-dir>/.orchestrate.lock`,
+not under the markers directory.
 
 Branch-first ordering is also fail-safe: a dispatch that crashes after acquiring
 the lock but before creating the branch leaves **neither** branch nor marker, so

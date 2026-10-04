@@ -459,9 +459,15 @@ is_live() {
   # A flight has no spec dir and no marker; the reconcile treats its
   # registered worktree as live on its own.
   [ -n "$_sd" ] || return 1
-  _mdir="${PLANWRIGHT_ORCH_STATE_DIR:-$_sd/.orchestrate/markers}"
-  _mfile="$_mdir/$_id"
-  if [ -f "$_mfile" ]; then
+  # Every dir the writer may have used, the shared home included, so a marker
+  # dropped from another worktree of the repository keeps its worker live. A
+  # helper failure falls back to the checkout-local dir it always lists.
+  _mdirs=$(/bin/sh "$script_dir/orchestrate-marker-home.sh" read "$_sd" 2>/dev/null) \
+    || _mdirs="${PLANWRIGHT_ORCH_STATE_DIR:-$_sd/.orchestrate/markers}"
+  while IFS= read -r _mdir; do
+    [ -n "$_mdir" ] || continue
+    _mfile="$_mdir/$_id"
+    [ -f "$_mfile" ] || continue
     _written=$(cat "$_mfile" 2>/dev/null || echo '')
     case $_written in
       '' | *[!0-9]*) return 0 ;; # unparseable marker: fail safe, treat as live
@@ -478,7 +484,9 @@ is_live() {
     if [ "$_age" -lt 0 ] || [ "$_age" -lt "$LIVENESS_TTL" ]; then
       return 0
     fi
-  fi
+  done <<EOF
+$_mdirs
+EOF
   return 1
 }
 
