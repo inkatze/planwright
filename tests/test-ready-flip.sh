@@ -223,7 +223,8 @@ set_policy() { # <value>
 }
 
 # run_polled <poll seconds> <max polls> <args...> — the helper from the unit
-# clone, stub first on PATH.
+# clone, stub first on PATH. The helper reads <max polls> only at a poll of 0;
+# pass an empty one otherwise.
 run_polled() {
   local poll=$1 max=$2
   shift 2
@@ -832,7 +833,7 @@ mkdir -p "$F/wt/.claude"
 printf 'ready_flip_policy: unit-owner\nready_flip_ci_wait: 6s\n' >"$F/wt/.claude/planwright.local.yml"
 echo pending >"$GHS/ci"
 echo 3 >"$GHS/ci_green_from"
-run_polled 3 1 flip --spec specs/demo --task 1
+run_polled 3 '' flip --spec specs/demo --task 1
 check "checks going green by the deadline flip (exit 0)" [ "$CODE" = 0 ]
 check "a 6s wait polled every 3s reads at 0s, 3s and 6s" [ "$(rollups)" = 3 ]
 
@@ -842,7 +843,7 @@ mkdir -p "$F/wt/.claude"
 printf 'ready_flip_policy: unit-owner\nready_flip_ci_wait: 5s\n' >"$F/wt/.claude/planwright.local.yml"
 echo pending >"$GHS/ci"
 echo 3 >"$GHS/ci_green_from"
-run_polled 3 1 flip --spec specs/demo --task 1
+run_polled 3 '' flip --spec specs/demo --task 1
 check "checks going green between the last interval and the deadline flip (exit 0)" [ "$CODE" = 0 ]
 
 echo "# a poll interval with leading zeros is decimal"
@@ -856,7 +857,7 @@ check "a poll interval of 00 makes the max-polls reads" [ "$(rollups)" = 2 ]
 check "a poll interval of 00 raises no arithmetic error" not grep -qi 'division\|syntax error\|value too great' <<<"$OUT"
 fixture
 set_policy unit-owner
-run_polled 08 1 flip --spec specs/demo --task 1
+run_polled 08 '' flip --spec specs/demo --task 1
 check "a poll interval of 08 is decimal, not an octal error" not grep -qi 'value too great\|syntax error' <<<"$OUT"
 check "a poll interval of 08 flips on green checks (exit 0)" [ "$CODE" = 0 ]
 
@@ -927,7 +928,7 @@ fixture
 mkdir -p "$F/wt/.claude"
 printf 'ready_flip_policy: unit-owner\nready_flip_ci_wait: 2s\n' >"$F/wt/.claude/planwright.local.yml"
 echo 1 >"$GHS/lookup_fail_until"
-run_polled 3 1 flip --spec specs/demo --task 1
+run_polled 3 '' flip --spec specs/demo --task 1
 check "a wait shorter than one poll interval gives the lookup no retry nap" [ "$(cat "$GHS/lookup_n")" = 1 ]
 fixture
 set_policy unit-owner
