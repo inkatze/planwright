@@ -665,6 +665,7 @@ verdict "an all-invalid excerpt still writes its record" "all-invalid excerpt re
 shim="$tmp/shim"
 mkdir -p "$shim"
 # Only the record's hard link fails; the cache lock's symlink still goes through.
+# shellcheck disable=SC2016 # the shim's own $1 and $@, expanded when it runs
 printf '#!/bin/sh\n[ "$1" = -s ] && exec "%s" "$@"\nexit 1\n' "$(command -v ln)" >"$shim/ln"
 chmod +x "$shim/ln"
 r8=$(sr2 new-run)
