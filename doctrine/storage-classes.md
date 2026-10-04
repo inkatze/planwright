@@ -41,10 +41,10 @@ Never committed, never inside a work repo's tree, and never the source of
 truth for anything a human owns. State every worktree of one repository must
 share, and no other clone may see (the flight lock, the dispatch markers),
 lives under that repository's common git directory instead: outside every
-working tree, never tracked, and gone with the clone. The load-bearing property is that it must be
-**losable**: every consumer of runtime state carries a rebuild path — the
-reconcile sweep rebuilds progress state from branches, PRs, and commit
-trailers; a venture registry rebuilds by scanning the ventures root. If losing
+working tree, never tracked, and gone with the clone. The load-bearing property
+is that it must be **losable**: every consumer of runtime state carries a
+rebuild path — the reconcile sweep rebuilds progress state from branches, PRs,
+and commit trailers; a venture registry rebuilds by scanning the ventures root. If losing
 a piece of state would lose information, it is not runtime state, and it is in
 the wrong class.
 
