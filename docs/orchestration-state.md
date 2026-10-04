@@ -85,8 +85,15 @@ the engine applies them, are:
 3. **PR / merge state** via `gh` (only when a remote is configured).
 
 If none of those marks the task done, the in-progress signals are, in order: a
-**branch carrying commits**, an **open PR** (via `gh`), and finally a **fresh
+**branch carrying commits**, the task branch's **`origin` remote-tracking ref
+carrying commits** beyond the base and its remote counterpart (work pushed from
+another checkout or machine), an **open PR** (via `gh`), and finally a **fresh
 runtime dispatch marker** (covering the pre-first-commit window).
+
+The remote-tracking arm reads only refs the dispatch fetch already mapped, and
+that fetch passes no `--prune`. Unless `fetch.prune` is set, a remote task branch
+deleted on `origin` keeps holding its task until the stale ref goes: `git fetch
+--prune origin` releases it.
 
 Because git ground truth is checked first, a closed-unmerged PR whose work is
 nonetheless reachable in the base derives as **Completed** (reality wins over PR
@@ -227,8 +234,9 @@ branch is no longer an ancestor of `main`.
   true remote tip, fetch first (this derivation script never fetches; when driven
   through `/orchestrate`, the reconcile sweep runs a best-effort `git fetch
   origin` for you, so `origin/main` is refreshed before the union scan reads it).
-  Only the trailer scan widens this way; the branch/merge-reachability signals
-  stay base-local, since they reason about local task branches.
+  The merge-reachability signals stay base-local, since they reason about local
+  task branches. The remote-tracking in-progress arm excludes the same union, so
+  a lagging local base never makes a remote task branch look ahead.
 
 A related failure (risk R1): solo work whose branch was deleted *and* whose
 trailer is missing or mistyped derives as deps-met-but-no-evidence. The

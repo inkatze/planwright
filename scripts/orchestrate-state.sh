@@ -175,9 +175,10 @@ fi
 # remote-tracking counterpart so completion survives a stale local base. This
 # adds no network I/O (it reads whatever git already fetched) and never regresses
 # a local-only repo: with no upstream and no origin/<base>, the union is just
-# base. Only the TRAILER scan widens — the branch/merge-reachability arms below
-# stay base-local by design, because they reason about LOCAL task branches,
-# whereas a merged PR's completion anchor (the trailer) is what can lag the base.
+# base. The merge-reachability arms below stay base-local by design, because
+# they reason about LOCAL task branches, whereas a merged PR's completion anchor
+# (the trailer) is what can lag the base. The remote-tracking in-progress arm
+# reads this union too, for the opposite reason: its branch lives on the remote.
 scan_refs="$base"
 # Prefer the configured upstream (correct when tracking is set); fall back to a
 # conventional origin/<base> when base is a local branch with no tracking config
