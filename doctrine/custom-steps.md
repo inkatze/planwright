@@ -366,9 +366,8 @@ which the records hold. Written by the actor the hook binds, it guards a
 flipper that forgets, not one that forges. The two contexts are **excluded
 by name from every CI rollup judgement planwright makes**.
 
-**The evidence hook**, gated under custom-steps' Deferred until an in-repo
-unit-PR flipper runs the point, will refuse on the ready-guard's flip
-surfaces an in-session flip of a `planwright/` head lacking a `success`
-status in its branch-table context, deny on a read that errors, and defer on
-every other PR and on a fork head; the out-of-session flip is the recovery
-path. Until then this doc binds an agent-issued flip.
+**The evidence check.** Until custom-steps' Deferred evidence hook lands,
+`scripts/ready-guard.sh` carries it: on its flip surfaces it refuses an
+in-session flip of a `planwright/` head lacking a `success` status in its
+branch-table context, denies on a read that errors, and defers on every
+other PR and on a fork head; the out-of-session flip is the recovery path.
