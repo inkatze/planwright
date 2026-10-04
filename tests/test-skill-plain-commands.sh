@@ -130,25 +130,39 @@ fi
 
 orch="$REPO_ROOT/skills/orchestrate/SKILL.md"
 oflat="$(flatten "$orch")"
-if printf '%s' "$oflat" | grep -qE 'fleet-tower-marker\.sh record <spec> --mode unattended\|interactive +--pid <pid> +--checkout <[a-z-]+>'; then
-  ok "orchestrate: tower-marker record names its required arguments"
+# Backticks below are literal markdown.
+# shellcheck disable=SC2016
+if printf '%s' "$oflat" | grep -qE 'fleet-tower-marker\.sh record <spec> --mode <mode> +--pid <pid> +--checkout <[a-z-]+>' \
+  && printf '%s' "$oflat" | grep -qE '`interactive` plus `--session-id <uuid>`'; then
+  ok "orchestrate: tower-marker record names its required arguments and the interactive session id"
 else
-  fail "orchestrate: tower-marker record lacks <spec> --mode --pid --checkout"
+  fail "orchestrate: tower-marker record lacks <spec> --mode --pid --checkout, or the interactive --session-id"
 fi
+# Backticks below are literal markdown.
+# shellcheck disable=SC2016
 if printf '%s' "$oflat" | grep -qE 'fleet-presence\.sh publish +--checkout <[a-z-]+> +--pid <pid>' \
-  && printf '%s' "$oflat" | grep -qE 'death handle'; then
-  ok "orchestrate: presence publish names --checkout, --pid and a death handle"
+  && printf '%s' "$oflat" | grep -qE 'death handle' \
+  && printf '%s' "$oflat" | grep -qE '`--specs`, `--fenced` and, under `--meta`, `--meta`'; then
+  ok "orchestrate: presence publish names --checkout, --pid, the death handle and the record fields"
 else
-  fail "orchestrate: presence publish lacks --checkout, --pid or the death handle"
+  fail "orchestrate: presence publish lacks --checkout, --pid, the death handle, --specs, --fenced or --meta"
 fi
-publish_line="$(grep -n 'fleet-presence\.sh publish' "$orch" | head -n 1 | cut -d: -f1)"
-loop_line="$(grep -ni 'loop the full step' "$orch" | head -n 1 | cut -d: -f1)"
+# first_in_watch <pattern>: the line of the pattern's first match inside the
+# `## --watch` section, so a mention elsewhere in the skill cannot satisfy the
+# ordering checks below.
+first_in_watch() {
+  awk -v pat="$1" '
+    /^## / { inw = ($0 == "## --watch") }
+    inw && tolower($0) ~ pat { print NR; exit }' "$orch"
+}
+publish_line="$(first_in_watch 'fleet-presence[.]sh publish')"
+loop_line="$(first_in_watch 'loop the full step')"
 if [ -n "$publish_line" ] && [ -n "$loop_line" ] && [ "$publish_line" -lt "$loop_line" ]; then
   ok "orchestrate: presence is published before the loop's first step"
 else
   fail "orchestrate: presence publish does not precede the loop's first step"
 fi
-marker_line="$(grep -n 'fleet-tower-marker\.sh record' "$orch" | head -n 1 | cut -d: -f1)"
+marker_line="$(first_in_watch 'fleet-tower-marker[.]sh record')"
 if [ -n "$marker_line" ] && [ -n "$loop_line" ] && [ "$marker_line" -lt "$loop_line" ]; then
   ok "orchestrate: the tower marker is recorded before the loop's first step"
 else
