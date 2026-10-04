@@ -236,7 +236,11 @@ branch is no longer an ancestor of `main`.
   origin` for you, so `origin/main` is refreshed before the union scan reads it).
   The merge-reachability signals stay base-local, since they reason about local
   task branches. The remote-tracking in-progress arm excludes the same union, so
-  a lagging local base never makes a remote task branch look ahead.
+  a lagging local base does not make a remote task branch look ahead while the
+  union finds the remote counterpart. A full-ref override such as
+  `PLANWRIGHT_BASE_REF=refs/heads/main` finds none, so the arm then measures
+  against the base alone and a lagging base can hold a task on `origin/main`'s
+  newer commits.
 
 A related failure (risk R1): solo work whose branch was deleted *and* whose
 trailer is missing or mistyped derives as deps-met-but-no-evidence. The
