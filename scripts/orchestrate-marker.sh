@@ -133,25 +133,42 @@ nl='
 '
 tab=$(printf '\t')
 
-# The helper prints canonical paths, so a dir whose own `pwd -P` differs was
-# reached through a symlink and is refused rather than written or cleared
-# through. The override is a trusted knob, printed as given, and not checked.
+# The shared home is composed under the git common dir, where nothing has a
+# reason to be a symlink, so it must be canonical: a dir whose own `pwd -P`
+# differs from the path the helper printed was reached through a symlink and is
+# neither written nor cleared through. The checkout-local dirs keep the
+# tolerance they always had (a symlinked .orchestrate is a layout some
+# checkouts use), and the override is a trusted knob, printed as given.
 override=0
 [ -n "${PLANWRIGHT_ORCH_STATE_DIR:-}" ] && override=1
+strict() {
+  [ "$override" -eq 0 ] || return 1
+  case "$1" in
+    */.orchestrate/markers) return 1 ;;
+  esac
+  return 0
+}
 canonical_ok() {
-  [ "$override" -eq 1 ] && return 0
+  strict "$1" || return 0
   [ "$(cd -P -- "$1" 2>/dev/null && pwd -P)" = "$1" ]
 }
-# The same check on the deepest part of a not-yet-created dir that exists, so
-# `mkdir -p` never follows a planted symlink into creating dirs elsewhere.
-ancestor_ok() {
-  [ "$override" -eq 1 ] && return 0
+# Why a not-yet-created strict dir cannot be made safely, checked on its deepest
+# existing part so `mkdir -p` never follows a planted symlink into creating dirs
+# elsewhere; empty when it can.
+ancestor_problem() {
+  strict "$1" || return 0
   _a=$1
   while [ ! -e "$_a" ] && [ ! -L "$_a" ]; do
     _a=${_a%/*}
     [ -n "$_a" ] || _a=/
   done
-  [ ! -L "$_a" ] && [ -d "$_a" ] && canonical_ok "$_a"
+  if [ -L "$_a" ]; then
+    printf 'reached through a symlink'
+  elif [ ! -d "$_a" ]; then
+    printf '%s is not a directory' "$_a"
+  elif ! canonical_ok "$_a"; then
+    printf 'reached through a symlink'
+  fi
 }
 
 if [ "$cmd" = clear ]; then
@@ -182,19 +199,21 @@ fi
 
 # write: create the base dirs only now that every id has passed validation, so a
 # refused write leaves no marker state behind. The checkout-local dir (or the
-# override), always last, must be usable; a shared home that cannot be made or
-# is reached through a symlink is dropped with a warning, so a dispatch never
-# loses its marker for want of one.
+# override), always last, must be usable; a shared home that cannot be made, is
+# not writable, or is reached through a symlink is dropped with a warning, so a
+# dispatch never loses its marker for want of one.
 last=${marker_dirs##*"$nl"}
 kept=''
 while IFS= read -r marker_dir; do
-  why=''
-  if ! ancestor_ok "$marker_dir"; then
-    why="reached through a symlink"
+  why=$(ancestor_problem "$marker_dir")
+  if [ -n "$why" ]; then
+    :
   elif ! mkdir -p "$marker_dir" 2>/dev/null; then
     why="cannot create it"
   elif ! canonical_ok "$marker_dir"; then
     why="reached through a symlink"
+  elif [ ! -w "$marker_dir" ] || [ ! -x "$marker_dir" ]; then
+    why="not writable"
   fi
   if [ -n "$why" ]; then
     if [ "$marker_dir" = "$last" ]; then

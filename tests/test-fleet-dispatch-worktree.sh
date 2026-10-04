@@ -1325,6 +1325,11 @@ c32() {
   echo 100 >"$tmp/primary/.claude/worktrees/tower/specs/demo/.orchestrate/markers/10"
   run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
   [ "$RC" -eq 6 ] || fail "c32: a stale shared marker must not read as in-flight (want the exit-6 refusal), got $RC"
+  # A symlink at the shared marker path is "cannot tell", which is live.
+  rm -f "$_shared/10"
+  ln -s "$tmp/nowhere" "$_shared/10"
+  run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 3 ] || fail "c32: a symlink at the shared marker path must read as in-flight (exit 3), got $RC"
   export PLANWRIGHT_ORCH_STATE_DIR="$_saved_state_dir"
 }
 

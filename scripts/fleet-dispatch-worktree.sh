@@ -466,13 +466,19 @@ is_live() {
   [ -n "$_mdirs" ] || return 0
   while IFS= read -r _mdir; do
     [ -n "$_mdir" ] || continue
-    # The helper prints canonical paths: a dir reached through a symlink, or a
-    # symlink at the marker path, is never a marker this repository wrote.
-    if [ -z "${PLANWRIGHT_ORCH_STATE_DIR:-}" ]; then
-      [ "$(cd -P -- "$_mdir" 2>/dev/null && pwd -P)" = "$_mdir" ] || continue
-    fi
     _mfile="$_mdir/$_id"
-    [ -f "$_mfile" ] && [ ! -L "$_mfile" ] || continue
+    [ -e "$_mfile" ] || [ -L "$_mfile" ] || continue
+    # A shared home reached through a symlink, or a symlink at the marker path,
+    # is not a marker the writer leaves, but an entry is there: cannot tell,
+    # so live. Checkout-local dirs keep their old symlink tolerance.
+    if [ -z "${PLANWRIGHT_ORCH_STATE_DIR:-}" ]; then
+      case "$_mdir" in
+        */.orchestrate/markers) ;;
+        *) [ "$(cd -P -- "$_mdir" 2>/dev/null && pwd -P)" = "$_mdir" ] || return 0 ;;
+      esac
+    fi
+    [ ! -L "$_mfile" ] || return 0
+    [ -f "$_mfile" ] || continue
     _written=$(cat "$_mfile" 2>/dev/null || echo '')
     case $_written in
       '' | *[!0-9]*) return 0 ;; # unparseable marker: fail safe, treat as live
@@ -1111,7 +1117,11 @@ do_dispatch() {
   # until the marker ages past LIVENESS_TTL — bounded, never a PERMANENT wedge.
   [ -x "$TRACK" ] && "$TRACK" record-create "$_worktree" >/dev/null 2>&1 </dev/null || true
   if [ -x "$MARKER" ] && [ -n "$_spec_dir" ] && [ -d "$_spec_dir" ]; then
-    "$MARKER" write "$_spec_dir" "$_id" >/dev/null 2>&1 </dev/null || true
+    # The writer's warnings (a skipped shared home) and its failure reach the
+    # operator: a dispatch with no marker reads as not live to a later reconcile.
+    _merr=$("$MARKER" write "$_spec_dir" "$_id" 2>&1 >/dev/null </dev/null) \
+      || warn "the dispatch marker was not written; this unit may read as not in flight"
+    [ -z "$_merr" ] || warn "$_merr"
   fi
 
   # Register the dispatch (fleet-lifecycle-closure Task 3; REQ-E1.1). BEFORE
