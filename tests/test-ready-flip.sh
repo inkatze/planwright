@@ -56,11 +56,8 @@ case "$1 $2" in
         [ ! -f "$GHS/rollup_n" ] || n=$(cat "$GHS/rollup_n")
         n=$((n + 1))
         echo "$n" >"$GHS/rollup_n"
-        if [ -f "$GHS/rollup_fail_until" ] && [ "$n" -le "$(cat "$GHS/rollup_fail_until")" ]; then
-          echo 'HTTP 502: Bad Gateway' >&2
-          exit 1
-        fi
-        if [ -f "$GHS/rollup_fail_at" ] && [ "$n" = "$(cat "$GHS/rollup_fail_at")" ]; then
+        if { [ -f "$GHS/rollup_fail_until" ] && [ "$n" -le "$(cat "$GHS/rollup_fail_until")" ]; } \
+          || { [ -f "$GHS/rollup_fail_at" ] && [ "$n" = "$(cat "$GHS/rollup_fail_at")" ]; }; then
           echo 'HTTP 502: Bad Gateway' >&2
           exit 1
         fi
@@ -225,15 +222,19 @@ set_policy() { # <value>
   printf 'ready_flip_policy: %s\nready_flip_ci_wait: 30s\n' "$1" >"$F/wt/.claude/planwright.local.yml"
 }
 
-# run_helper <args...> — the helper from the unit clone, stub first on PATH.
-run_helper() {
+# run_polled <poll seconds> <max polls> <args...> — the helper from the unit
+# clone, stub first on PATH.
+run_polled() {
+  local poll=$1 max=$2
+  shift 2
   OUT=$(cd "$F/wt" && env PATH="$STUBBIN:$PATH" GHS="$GHS" GHS_ORIGIN="$F/origin.git" \
     GHS_BRANCH="$BRANCH" PLANWRIGHT_REPO_ROOT="$F/wt" PLANWRIGHT_LOCAL_CONFIG= \
-    PLANWRIGHT_ADOPTER_OVERLAY="$SANDBOX/noadopter" PLANWRIGHT_READY_FLIP_POLL_SECONDS=0 \
-    PLANWRIGHT_READY_FLIP_MAX_POLLS=3 PLANWRIGHT_READY_GUARD_RETRY_DELAY=0 \
+    PLANWRIGHT_ADOPTER_OVERLAY="$SANDBOX/noadopter" PLANWRIGHT_READY_FLIP_POLL_SECONDS="$poll" \
+    PLANWRIGHT_READY_FLIP_MAX_POLLS="$max" PLANWRIGHT_READY_GUARD_RETRY_DELAY=0 \
     /bin/bash "$HELPER" "$@" 2>&1)
   CODE=$?
 }
+run_helper() { run_polled 0 3 "$@"; }
 
 calls() { grep -c "^CALL $1" "$GHS/log" 2>/dev/null || true; }
 rollups() { grep -c 'statusCheckRollup' "$GHS/log" 2>/dev/null || true; }
@@ -371,21 +372,27 @@ check "the composition leaves one bullet for the task" [ "$(origin_tasks | grep 
 
 echo "# a segment copied from the base stops blocking once the base clears it"
 # clear_base — a person clears every Awaiting-input bullet on main.
-clear_base() {
-  git clone -q "$F/origin.git" "$F/main2" 2>/dev/null
-  git -C "$F/main2" config user.name 'Fixture'
-  git -C "$F/main2" config user.email 'fixture@example.invalid'
-  git -C "$F/main2" config commit.gpgsign false
-  git -C "$F/main2" config core.hooksPath "$SANDBOX/nohooks"
-  local wt_saved=$F
+# base_commit <message> [<awaiting-input lines>...] — commit tasks.md with
+# those lines on the base and push it.
+base_commit() {
+  local msg=$1 wt_saved=$F
+  shift
+  [ -d "$F/main2" ] || {
+    git clone -q "$F/origin.git" "$F/main2" 2>/dev/null
+    git -C "$F/main2" config user.name 'Fixture'
+    git -C "$F/main2" config user.email 'fixture@example.invalid'
+    git -C "$F/main2" config commit.gpgsign false
+    git -C "$F/main2" config core.hooksPath "$SANDBOX/nohooks"
+    mkdir -p "$F/main2-shim"
+    ln -s "$F/main2" "$F/main2-shim/wt"
+  }
   F="$F/main2-shim"
-  mkdir -p "$F"
-  ln -s "$wt_saved/main2" "$F/wt"
-  write_tasks
+  write_tasks "$@"
   F=$wt_saved
-  git -C "$F/main2" commit -q -am 'chore: the question is answered'
+  git -C "$F/main2" commit -q -am "$msg"
   git -C "$F/main2" push -q origin main 2>/dev/null
 }
+clear_base() { base_commit 'chore: the question is answered'; }
 fixture '- **Task 1** — halt: blocked on a design question'
 set_policy unit-owner
 run_helper flip --spec specs/demo --task 1
@@ -426,6 +433,18 @@ check "a backslash segment still on the base is kept" grep -qF 'halt: wait on C:
 clear_base
 run_helper flip --spec specs/demo --task 1
 check "once the base clears a backslash segment, it no longer blocks (exit 0)" [ "$CODE" = 0 ]
+
+echo "# a segment the base moved between tasks is found through the move"
+fixture '- **Task 2** — halt: blocked on a design question'
+set_policy unit-owner
+base_commit 'chore: the question belongs to Task 1' '- **Task 1** — halt: blocked on a design question'
+write_tasks '- **Task 1** — halt: blocked on a design question'
+gitf commit -q -am 'chore: copy the base park'
+gitf push -q origin "$BRANCH" 2>/dev/null
+record_review
+clear_base
+run_helper flip --spec specs/demo --task 1
+check "a copied segment the base carried for this task only after a move is dropped (exit 0)" [ "$CODE" = 0 ]
 
 echo "# another task's bullet does not block this unit"
 fixture '- **Task 2** — halt: unrelated'
@@ -807,28 +826,15 @@ OUT=$(cd "$F/wt" && env PATH="$STUBBIN:$PATH" GHS="$GHS" GHS_ORIGIN="$F/origin.g
   PLANWRIGHT_READY_GUARD_RETRY_DELAY=0 /bin/bash "$HELPER" flip --spec specs/demo --task 1 2>&1)
 check "head re-reads inside an attempt do not stretch the wait past its bound" [ "$(rollups)" = 1 ]
 
-# run_polled <poll seconds> <max polls> <args...> — the helper with its own
-# poll settings, which run_helper pins.
-run_polled() {
-  local poll=$1 max=$2
-  shift 2
-  OUT=$(cd "$F/wt" && env PATH="$STUBBIN:$PATH" GHS="$GHS" GHS_ORIGIN="$F/origin.git" \
-    GHS_BRANCH="$BRANCH" PLANWRIGHT_REPO_ROOT="$F/wt" PLANWRIGHT_LOCAL_CONFIG= \
-    PLANWRIGHT_ADOPTER_OVERLAY="$SANDBOX/noadopter" PLANWRIGHT_READY_FLIP_POLL_SECONDS="$poll" \
-    PLANWRIGHT_READY_FLIP_MAX_POLLS="$max" PLANWRIGHT_READY_GUARD_RETRY_DELAY=0 \
-    /bin/bash "$HELPER" "$@" 2>&1)
-  CODE=$?
-}
-
 echo "# the CI wait reads the rollup at its deadline too"
 fixture
 mkdir -p "$F/wt/.claude"
-printf 'ready_flip_policy: unit-owner\nready_flip_ci_wait: 4s\n' >"$F/wt/.claude/planwright.local.yml"
+printf 'ready_flip_policy: unit-owner\nready_flip_ci_wait: 6s\n' >"$F/wt/.claude/planwright.local.yml"
 echo pending >"$GHS/ci"
 echo 3 >"$GHS/ci_green_from"
-run_polled 2 1 flip --spec specs/demo --task 1
+run_polled 3 1 flip --spec specs/demo --task 1
 check "checks going green by the deadline flip (exit 0)" [ "$CODE" = 0 ]
-check "a 4s wait polled every 2s reads at 0s, 2s and 4s" [ "$(rollups)" = 3 ]
+check "a 6s wait polled every 3s reads at 0s, 3s and 6s" [ "$(rollups)" = 3 ]
 
 echo "# a wait that is not a multiple of the poll interval still reads at its deadline"
 fixture
@@ -848,6 +854,11 @@ run_polled 00 2 flip --spec specs/demo --task 1
 check "a poll interval of 00 behaves as 0 (exit 0)" [ "$CODE" = 0 ]
 check "a poll interval of 00 makes the max-polls reads" [ "$(rollups)" = 2 ]
 check "a poll interval of 00 raises no arithmetic error" not grep -qi 'division\|syntax error\|value too great' <<<"$OUT"
+fixture
+set_policy unit-owner
+run_polled 08 1 flip --spec specs/demo --task 1
+check "a poll interval of 08 is decimal, not an octal error" not grep -qi 'value too great\|syntax error' <<<"$OUT"
+check "a poll interval of 08 flips on green checks (exit 0)" [ "$CODE" = 0 ]
 
 echo "# an unreadable re-read is not a moved head"
 fixture
