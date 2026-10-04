@@ -170,6 +170,7 @@ primary=$(cd -P -- "$primary" 2>/dev/null && pwd -P) || exit 0
 [ -n "$common" ] && [ "$primary" != "$top" ] || exit 0
 [ "$(cd -P -- "$primary/.git" 2>/dev/null && pwd -P)" = "$common" ] || exit 0
 case "$spec_real" in
+  "$top") emit "$primary/.orchestrate/markers" ;;
   "$top"/*) emit "$primary/${spec_real#"$top"/}/.orchestrate/markers" ;;
 esac
 exit 0
