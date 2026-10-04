@@ -826,6 +826,15 @@ run_polled 2 1 flip --spec specs/demo --task 1
 check "checks going green by the deadline flip (exit 0)" [ "$CODE" = 0 ]
 check "a 4s wait polled every 2s reads at 0s, 2s and 4s" [ "$(rollups)" = 3 ]
 
+echo "# a wait that is not a multiple of the poll interval still reads at its deadline"
+fixture
+mkdir -p "$F/wt/.claude"
+printf 'ready_flip_policy: unit-owner\nready_flip_ci_wait: 5s\n' >"$F/wt/.claude/planwright.local.yml"
+echo pending >"$GHS/ci"
+echo 3 >"$GHS/ci_green_from"
+run_polled 3 1 flip --spec specs/demo --task 1
+check "checks going green between the last interval and the deadline flip (exit 0)" [ "$CODE" = 0 ]
+
 echo "# a poll interval with leading zeros is decimal"
 fixture
 set_policy unit-owner
