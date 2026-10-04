@@ -206,6 +206,12 @@ rc=0
 (cd "$P" && PLANWRIGHT_ORCH_STATE_DIR="$tmp/a
 b" "$HOME_HELPER" read specs/demo >/dev/null 2>&1) || rc=$?
 [ "$rc" = 2 ] || fail "helper: an override with a newline returned $rc, expected 2"
+# `.`, a trailing `/.`, and repeated slashes still name the bundle.
+for form in . demo/. demo//; do
+  case "$form" in .) at="$P/specs/demo" ;; *) at="$P/specs" ;; esac
+  [ "$(cd "$at" && "$HOME_HELPER" write "$form" | sed -n 1p)" = "$common/planwright/orchestrate/demo/markers" ] \
+    || fail "helper: the operand '$form' lost the shared home"
+done
 echo "ok: the helper keys by the addressed name, ignores the cwd, and refuses an unlistable override"
 
 # A bare repository's linked worktrees share one home too.
@@ -227,6 +233,22 @@ bare_common=$(cd "$B/repo.git" && pwd -P)
   || fail "helper: a bare repository has no primary checkout to read"
 echo "ok: the linked worktrees of a bare repository share one home"
 
+# A primary checkout made with --separate-git-dir is unknown to git from a
+# linked worktree; the read list names no stand-in for it.
+G="$tmp/sepgit"
+mkdir -p "$G/main/specs/demo"
+git -C "$G/main" -c init.defaultBranch=main init -q --separate-git-dir "$G/gitdir"
+printf '# t\n' >"$G/main/specs/demo/tasks.md"
+gitc "$G/main" add -A
+gitc "$G/main" commit -q -m base
+gitc "$G/main" worktree add -q -b side "$G/side"
+sep_gitdir=$(cd "$G/gitdir" && pwd -P)
+"$HOME_HELPER" read "$G/side/specs/demo" | grep -Fq "$sep_gitdir/specs/" \
+  && fail "helper: the git dir was taken for a separate-git-dir primary checkout"
+[ "$("$HOME_HELPER" read "$G/side/specs/demo" | sed -n 1p)" = "$sep_gitdir/planwright/orchestrate/demo/markers" ] \
+  || fail "helper: a separate-git-dir repository lost its shared home"
+echo "ok: a separate-git-dir repository shares its home, with no stand-in for its primary"
+
 # ---------------------------------------------------------------------------
 # 4. The writer: a shared home it cannot use never costs the marker, nothing is
 #    written or cleared through a symlinked dir, and a refusal leaves no strays.
@@ -242,9 +264,22 @@ shared="$gcommon/planwright/orchestrate/demo/markers"
 werr=$( (cd "$P" && "$MARKER" write specs/demo 1) 2>&1) \
   || fail "writer: an unusable shared home failed the write: $werr"
 [ -f "$P/specs/demo/.orchestrate/markers/1" ] || fail "writer: no local marker beside an unusable shared home"
-case "$werr" in *"skipping the shared marker dir"*) ;; *) fail "writer: the skipped shared home was not reported: $werr" ;; esac
+case "$werr" in *"skipping the shared marker dir"*"is not a directory"*) ;; *) fail "writer: the skipped shared home was not reported with its reason: $werr" ;; esac
 rm -f "$gcommon/planwright" "$P/specs/demo/.orchestrate/markers/1"
-echo "ok: a shared home the writer cannot create is skipped with a warning, the local marker kept"
+# An existing shared home the writer cannot write to is skipped the same way.
+if [ "$(id -u)" -ne 0 ]; then
+  mkdir -p "$shared"
+  chmod 555 "$shared"
+  werr=$( (cd "$P" && "$MARKER" write specs/demo 1) 2>&1) || {
+    chmod 755 "$shared"
+    fail "writer: an unwritable shared home failed the write: $werr"
+  }
+  chmod 755 "$shared"
+  [ -f "$P/specs/demo/.orchestrate/markers/1" ] || fail "writer: no local marker beside an unwritable shared home"
+  case "$werr" in *"not writable"*) ;; *) fail "writer: the unwritable shared home was not reported: $werr" ;; esac
+  rm -rf "$P/specs/demo/.orchestrate/markers/1" "$gcommon/planwright"
+fi
+echo "ok: a shared home the writer cannot create or write is skipped with a warning, the local marker kept"
 
 # A symlink planted at the shared home's parent is never followed.
 elsewhere="$tmp/elsewhere"
@@ -270,16 +305,20 @@ rc=0
 rm -f "$P/specs/demo/.orchestrate/markers/1"
 echo "ok: a refused write leaves no marker, temp, or manifest in the shared home"
 
-# clear never removes through a symlinked primary-checkout dir.
-victim="$tmp/victim"
-mkdir -p "$victim/markers"
-date +%s >"$victim/markers/1"
+# A checkout-local .orchestrate that is a symlink keeps the tolerance it always
+# had: written, read, and cleared through, beside the shared home.
+store="$tmp/store"
+mkdir -p "$store"
 rm -rf "$P/specs/demo/.orchestrate"
-ln -s "$victim" "$P/specs/demo/.orchestrate"
-(cd "$W" && "$MARKER" clear specs/demo 1 2>/dev/null) || fail "writer: clear failed beside a symlinked primary dir"
-[ -f "$victim/markers/1" ] || fail "writer: clear deleted through a symlinked primary dir"
+ln -s "$store" "$P/specs/demo/.orchestrate"
+(cd "$P" && "$MARKER" write specs/demo 1) || fail "writer: a symlinked checkout-local .orchestrate failed the write"
+[ -f "$store/markers/1" ] && [ -f "$shared/1" ] || fail "writer: a symlinked checkout-local .orchestrate lost a copy"
+rm -f "$shared/1"
+[ "$(state_in "$P" 1)" = in-progress ] || fail "reader: a marker under a symlinked checkout-local .orchestrate was not read"
+(cd "$P" && "$MARKER" clear specs/demo 1) || fail "writer: clear failed through a symlinked checkout-local .orchestrate"
+[ ! -e "$store/markers/1" ] || fail "writer: clear left the marker under a symlinked checkout-local .orchestrate"
 rm -f "$P/specs/demo/.orchestrate"
-echo "ok: clear skips a primary-checkout dir reached through a symlink"
+echo "ok: a symlinked checkout-local .orchestrate is written, read, and cleared as before"
 
 # A clear that fails in one dir still clears the others.
 if [ "$(id -u)" -ne 0 ]; then

@@ -16,7 +16,9 @@
 # one: the writer drops each marker there too, so an older reader in the same
 # checkout still counts it, and a reader also consults the primary checkout's
 # copy of the bundle, where an older writer running there left its marker. An
-# older writer in another linked worktree stays invisible from here.
+# older writer in another linked worktree stays invisible from here, as does
+# the primary checkout of a repository made with --separate-git-dir, which git
+# itself cannot name from a linked worktree.
 #
 # Usage: orchestrate-marker-home.sh write|read <spec-dir>
 #   write  the dirs a dispatch drops its marker in: the shared home, then the
@@ -104,8 +106,8 @@ emit() {
 }
 
 # The id the branches and trailers use: the bundle's name as addressed, not
-# the target of a symlinked bundle dir.
-spec_id=${spec%/}
+# the target of a symlinked bundle dir, with `.` and repeated slashes resolved.
+spec_id=$(cd -L -- "$spec_cd" 2>/dev/null && pwd -L) || spec_id=''
 spec_id=${spec_id##*/}
 id_ok=1
 case "$spec_id" in
@@ -136,14 +138,24 @@ printf '%s\n' "$spec_real/.orchestrate/markers"
 
 [ "$cmd" = read ] || exit 0
 
-# The primary checkout is the common dir's parent when the common dir is a
-# `.git` directory (not a bare repository); a bundle in a linked worktree has
-# its copy at the same path relative to it.
-case "$common" in
-  */.git) primary=${common%/.git} ;;
+# The primary checkout is the first entry git lists for the repository (a
+# bare repository's first entry is the bare dir, which holds no bundle copy);
+# a bundle in a linked worktree has its copy at the same path relative to it.
+[ -n "$top" ] || exit 0
+wl=$(git -C "$spec_real" worktree list --porcelain 2>/dev/null) || exit 0
+block=${wl%%"$nl$nl"*}
+case "$nl$block$nl" in
+  *"${nl}bare$nl"*) exit 0 ;;
+esac
+first=${block%%"$nl"*}
+case "$first" in
+  'worktree '*) primary=${first#worktree } ;;
   *) exit 0 ;;
 esac
-[ -n "$top" ] && [ "$primary" != "$top" ] || exit 0
+primary=$(cd -P -- "$primary" 2>/dev/null && pwd -P) || exit 0
+# A primary made with --separate-git-dir is unknown to git from a linked
+# worktree, which lists the git dir in its place: no copy can be found there.
+[ "$primary" != "$top" ] && [ "$primary" != "$common" ] || exit 0
 case "$spec_real" in
   "$top"/*) emit "$primary/${spec_real#"$top"/}/.orchestrate/markers" ;;
 esac
