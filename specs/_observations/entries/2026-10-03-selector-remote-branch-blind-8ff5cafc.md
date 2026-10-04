@@ -1,0 +1,1 @@
+- 2026-10-03 [planwright] orchestrate-state.sh derived a task as ready deps-met while origin/planwright/<spec>/task-<id> carried 8 unmerged commits and no PR, so meta-select picked it for a fresh dispatch; the live derivation reads only local task branches (dotfiles claude-instructions Task 2, 2026-10-03; recorded there as obs:d94cbae8). The operator resumed the existing branch.
