@@ -119,13 +119,15 @@ for name in orchestrate execute-task polish self-review; do
 done
 
 modes="$REPO_ROOT/doctrine/orchestration-modes.md"
-hits="$(compound_spans "$modes")"
 if [ ! -f "$modes" ]; then
   fail "doctrine/orchestration-modes.md missing"
-elif [ -z "$hits" ]; then
-  ok "orchestration-modes: no compound command shape in its code"
 else
-  fail "orchestration-modes: compound command shape(s): $hits"
+  hits="$(compound_spans "$modes")"
+  if [ -z "$hits" ]; then
+    ok "orchestration-modes: no compound command shape in its code"
+  else
+    fail "orchestration-modes: compound command shape(s): $hits"
+  fi
 fi
 
 orch="$REPO_ROOT/skills/orchestrate/SKILL.md"
@@ -142,10 +144,11 @@ fi
 # shellcheck disable=SC2016
 if printf '%s' "$oflat" | grep -qE 'fleet-presence\.sh publish +--checkout <[a-z-]+> +--pid <pid>' \
   && printf '%s' "$oflat" | grep -qE 'death handle' \
+  && printf '%s' "$oflat" | grep -qE '`--session-id <uuid>` when interactive' \
   && printf '%s' "$oflat" | grep -qE '`--specs`, `--fenced` and, under `--meta`, `--meta`'; then
   ok "orchestrate: presence publish names --checkout, --pid, the death handle and the record fields"
 else
-  fail "orchestrate: presence publish lacks --checkout, --pid, the death handle, --specs, --fenced or --meta"
+  fail "orchestrate: presence publish lacks --checkout, --pid, the interactive --session-id, the death handle, --specs, --fenced or --meta"
 fi
 # first_in_watch <pattern>: the line of the pattern's first match inside the
 # `## --watch` section, so a mention elsewhere in the skill cannot satisfy the

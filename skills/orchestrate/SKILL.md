@@ -278,16 +278,17 @@ it when relaying to or cleaning up after a worker.
 **Tower marker (fleet-autonomy D-4).** At watch-loop start record the marker,
 `scripts/fleet-tower-marker.sh record <spec> --mode <mode> --pid <pid>
 --checkout <primary>`: `<mode>` is `unattended` under `--unattended`, else
-`interactive` plus `--session-id <uuid>`, the signpost's resume handle
-(`docs/fleet.md`); clear it on graceful exit.
+`interactive` plus `--session-id <uuid>`, the signpost's resume handle; clear
+it on graceful exit.
 
-**Presence (coordination D-2).** Next, before any step can launch a subordinate
-(else it registers with an unknown owner), and each iteration:
-`scripts/fleet-presence.sh publish --checkout <primary> --pid <pid>` plus the
-death handle (`--tmux-session <s> --tmux-window <w>` under tmux; bare `--pid`
-otherwise), `--specs`, `--fenced` and, under `--meta`, `--meta`; then
-`discover` with the same identity flags. Never assume solitude; failure
-postures (exits 2–5) per `docs/fleet.md`.
+**Presence (coordination D-2).** Next, before any step launches a subordinate
+(else it registers ownerless), and each iteration:
+`scripts/fleet-presence.sh publish --checkout <primary> --pid <pid>` (and
+`--session-id <uuid>` when interactive) plus the death handle
+(`--tmux-session <s> --tmux-window <w>` under tmux; bare `--pid` otherwise),
+`--specs`, `--fenced` and, under `--meta`, `--meta`; then `discover` with the
+same identity flags. Never assume solitude; failure postures (exits 2–5) per
+`docs/fleet.md`.
 
 Then loop the full step (pre-flight → reconcile → select → dispatch record →
 dispatch), surfacing the reason the loop ends.
