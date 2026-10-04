@@ -39,9 +39,12 @@
 #                 atomically, and a step or completion record for a point the
 #                 run already completed is refused. A repeated write is a
 #                 second record; retrying is the caller's call. A write that
-#                 fails before its record exists leaves nothing claimed; an
-#                 exit 1 after the record exists (a failed print) leaves the
-#                 record in place.
+#                 fails before its record exists leaves nothing claimed,
+#                 short of an uncatchable kill, which leaves the cache lock
+#                 for the next writer to break once the killed process is
+#                 gone; an exit 1 after the record exists (a failed print)
+#                 leaves the record in place. A reader running while writers
+#                 are in flight may miss a record that lands during its read.
 #                 --excerpt-file resolves against the caller's directory.
 #   list          print every record of the run (every run when --run is
 #                 absent), oldest first, optionally one point's only: a
@@ -172,8 +175,8 @@
 # resolve, or a range git cannot read, fails by name.
 #
 # Exit: 0 success · 1 a runtime failure (an unresolvable or unreadable range,
-# a cache that cannot be read or written, an exhausted counter) · 2 a usage
-# or field-validation error.
+# a cache that cannot be read or written, an exhausted counter, a cache lock
+# another writer held past the wait) · 2 a usage or field-validation error.
 #
 # Portable POSIX sh + awk + iconv; bash 3.2 / BSD tooling floor.
 set -u
