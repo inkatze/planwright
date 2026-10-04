@@ -225,6 +225,79 @@ bare_common=$(cd "$B/repo.git" && pwd -P)
   || fail "helper: a bare repository has no primary checkout to read"
 echo "ok: the linked worktrees of a bare repository share one home"
 
+# ---------------------------------------------------------------------------
+# 4. The writer: a shared home it cannot use never costs the marker, nothing is
+#    written or cleared through a symlinked dir, and a refusal leaves no strays.
+# ---------------------------------------------------------------------------
+P="$tmp/writer"
+make_fixture "$P"
+W="$P/.claude/worktrees/meta"
+gcommon=$(cd "$P" && cd "$(git rev-parse --git-common-dir)" && pwd -P)
+shared="$gcommon/planwright/orchestrate/demo/markers"
+
+# A file where the shared home's parent belongs: the write keeps its local copy.
+: >"$gcommon/planwright"
+werr=$( (cd "$P" && "$MARKER" write specs/demo 1) 2>&1) \
+  || fail "writer: an unusable shared home failed the write: $werr"
+[ -f "$P/specs/demo/.orchestrate/markers/1" ] || fail "writer: no local marker beside an unusable shared home"
+case "$werr" in *"skipping the shared marker dir"*) ;; *) fail "writer: the skipped shared home was not reported: $werr" ;; esac
+rm -f "$gcommon/planwright" "$P/specs/demo/.orchestrate/markers/1"
+echo "ok: a shared home the writer cannot create is skipped with a warning, the local marker kept"
+
+# A symlink planted at the shared home's parent is never followed.
+elsewhere="$tmp/elsewhere"
+mkdir -p "$elsewhere"
+ln -s "$elsewhere" "$gcommon/planwright"
+(cd "$P" && "$MARKER" write specs/demo 1 2>/dev/null) || fail "writer: a symlinked shared home failed the write"
+[ -z "$(find "$elsewhere" -mindepth 1 | head -n 1)" ] || fail "writer: the write followed a symlinked shared home"
+[ -f "$P/specs/demo/.orchestrate/markers/1" ] || fail "writer: no local marker beside a symlinked shared home"
+date +%s >"$elsewhere/2"
+mkdir -p "$elsewhere/orchestrate/demo/markers"
+date +%s >"$elsewhere/orchestrate/demo/markers/2"
+[ "$(state_in "$P" 2)" = ready ] || fail "reader: a marker reached through a symlinked shared home was counted"
+rm -f "$gcommon/planwright" "$P/specs/demo/.orchestrate/markers/1"
+echo "ok: a symlinked shared home is neither written nor read through"
+
+# A refusal at the local marker path rolls back the copy staged in the shared home.
+mkdir -p "$P/specs/demo/.orchestrate/markers"
+ln -s "$tmp/target" "$P/specs/demo/.orchestrate/markers/1"
+rc=0
+(cd "$P" && "$MARKER" write specs/demo 1 2>/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "writer: a symlink at the local marker path returned $rc, expected 2"
+[ -z "$(ls -A "$shared" 2>/dev/null)" ] || fail "writer: the refused write left files in the shared home: $(ls -A "$shared")"
+rm -f "$P/specs/demo/.orchestrate/markers/1"
+echo "ok: a refused write leaves no marker, temp, or manifest in the shared home"
+
+# clear never removes through a symlinked primary-checkout dir.
+victim="$tmp/victim"
+mkdir -p "$victim/markers"
+date +%s >"$victim/markers/1"
+rm -rf "$P/specs/demo/.orchestrate"
+ln -s "$victim" "$P/specs/demo/.orchestrate"
+(cd "$W" && "$MARKER" clear specs/demo 1 2>/dev/null) || fail "writer: clear failed beside a symlinked primary dir"
+[ -f "$victim/markers/1" ] || fail "writer: clear deleted through a symlinked primary dir"
+rm -f "$P/specs/demo/.orchestrate"
+echo "ok: clear skips a primary-checkout dir reached through a symlink"
+
+# A clear that fails in one dir still clears the others.
+if [ "$(id -u)" -ne 0 ]; then
+  (cd "$P" && "$MARKER" write specs/demo 1) || fail "writer: setup write failed"
+  chmod 555 "$P/specs/demo/.orchestrate/markers"
+  rc=0
+  (cd "$P" && "$MARKER" clear specs/demo 1 2>/dev/null) || rc=$?
+  chmod 755 "$P/specs/demo/.orchestrate/markers"
+  [ "$rc" = 2 ] || fail "writer: a partial clear returned $rc, expected 2"
+  [ ! -e "$shared/1" ] || fail "writer: a failed local removal stranded the shared copy"
+  echo "ok: a clear failing in one dir still clears the shared home"
+fi
+
+# An override path carrying a tab still round-trips through the manifest.
+tabdir="$tmp/state${TAB}dir"
+(cd "$P" && PLANWRIGHT_ORCH_STATE_DIR="$tabdir" "$MARKER" write specs/demo 3) \
+  || fail "writer: an override path carrying a tab failed the write"
+[ -f "$tabdir/3" ] || fail "writer: no marker in an override path carrying a tab"
+echo "ok: a dir path carrying a tab survives the staging manifest"
+
 rc=0
 "$HOME_HELPER" write "$tmp/missing" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "helper: a missing spec dir returned $rc, expected 2"

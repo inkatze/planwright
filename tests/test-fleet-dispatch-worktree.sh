@@ -1305,18 +1305,27 @@ c32() {
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c32.XXXXXX")
   trap 'rm -rf "$tmp"' RETURN
   iso_env "$tmp"
-  unset PLANWRIGHT_ORCH_STATE_DIR
   seed_repo "$tmp"
   base=$(gitc "$tmp/primary" rev-parse main)
   gitc "$tmp/primary" worktree add -q -b tower "$tmp/primary/.claude/worktrees/tower" "$base"
   gitc "$tmp/primary" worktree add -q -b planwright/demo/task-10 \
     "$tmp/primary/.claude/worktrees/task-10" "$base"
+  # Restored at the end, so the cleared override never reaches a later case.
+  _saved_state_dir=$PLANWRIGHT_ORCH_STATE_DIR
+  unset PLANWRIGHT_ORCH_STATE_DIR
   (cd "$tmp/primary/.claude/worktrees/tower" && "$here/../scripts/orchestrate-marker.sh" write specs/demo 10) \
     || fail "c32: the marker write from the tower worktree failed"
   [ ! -e "$tmp/primary/specs/demo/.orchestrate/markers/10" ] \
     || fail "c32: setup invalid — the marker landed in the primary's own dir"
   run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
   [ "$RC" -eq 3 ] || fail "c32: a marker written from another worktree must read as in-flight (exit 3), got $RC"
+  # The same marker gone stale no longer holds the checkout.
+  _shared=$(cd "$tmp/primary" && cd "$(git rev-parse --git-common-dir)" && pwd -P)/planwright/orchestrate/demo/markers
+  echo 100 >"$_shared/10"
+  echo 100 >"$tmp/primary/.claude/worktrees/tower/specs/demo/.orchestrate/markers/10"
+  run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 6 ] || fail "c32: a stale shared marker must not read as in-flight (want the exit-6 refusal), got $RC"
+  export PLANWRIGHT_ORCH_STATE_DIR="$_saved_state_dir"
 }
 
 for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26 c27 c28 c29 c30 c31 c32; do
