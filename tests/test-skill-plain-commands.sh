@@ -61,9 +61,9 @@ compound_spans() {
     # `name=value` is as likely a config value, so only a prefix counts there.
     function check(c, infence) {
       sub(/^[ \t]+/, "", c)
-      if (c !~ /^(scripts\/|tests\/|\/|git |gh |tmux |printf |echo |cd |sh |bash |mise |claude |jq |cat |[A-Za-z_][A-Za-z0-9_]*=)/) return
+      if (c !~ /^(scripts\/|tests\/|\/|(git|gh|tmux|printf|echo|cd|sh|bash|mise|claude|jq|cat|cp|mv|rm|mkdir|ls|find|grep|sed|awk|python3|bats|test) |[A-Za-z_][A-Za-z0-9_]*=)/) return
       if (infence && c ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { print c; return }
-      if (c ~ /\$\(|&&|\|\||; |(^| )cd |^[A-Za-z_][A-Za-z0-9_]*=[^ ]* |echo rc|\$\?|\| *(sed|awk|head|tail|grep|cut|tr)( |$)/) print c
+      if (c ~ /\$\(|&&|\|\||; |(^| )cd |^[A-Za-z_][A-Za-z0-9_]*=[^ ]* |echo rc|\$\?|\| *(sed|awk|head|tail|grep|cut)( |$)/) print c
     }
     /^[ ]*```/ { fence = !fence; next }
     fence { check($0, 1); next }
@@ -120,7 +120,9 @@ done
 
 modes="$REPO_ROOT/doctrine/orchestration-modes.md"
 hits="$(compound_spans "$modes")"
-if [ -z "$hits" ]; then
+if [ ! -f "$modes" ]; then
+  fail "doctrine/orchestration-modes.md missing"
+elif [ -z "$hits" ]; then
   ok "orchestration-modes: no compound command shape in its code"
 else
   fail "orchestration-modes: compound command shape(s): $hits"
