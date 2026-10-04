@@ -343,7 +343,7 @@ fi
 # Class/expectation consistency is asserted below, so a row cannot be quietly
 # relabelled to make a regression look intentional.
 # ---------------------------------------------------------------------------
-FIXTURES=$(
+fixture_rows() {
   cat <<'ROWS'
 deny|load-bearing|git push --force origin HEAD|force flag in the leading position
 deny|load-bearing|git push -f origin HEAD|short force flag, leading position
@@ -494,7 +494,8 @@ deny|overblock|git commit -m "fix: handle --no-verify in the wrapper"|a commit m
 allow|legit|git commit -m "docs: use --amend carefully"|a commit message naming --amend is a plain commit again now that no amend glob is in the profile
 allow|legit|git commit -m "docs: --fix typo"|a message word starting with an abbreviated rewrite flag is a plain commit again
 ROWS
-)
+}
+FIXTURES=$(fixture_rows)
 
 # Row-level assertions, and (in the same pass) the per-row set of matching deny
 # rule indices that passes D and E consume.
@@ -624,7 +625,7 @@ ok "every deny rule is exercised by at least one fixture row (pass D)"
 # per removed rule, without the re-parse: removing rule i flips row r iff
 # r's matching set is exactly {i}.
 # ---------------------------------------------------------------------------
-REDUNDANT_BY_DESIGN=$(
+redundant_by_design_rows() {
   cat <<'ROWS'
 Bash(git push --force:*)|subsumed by Bash(git push --force*); kept as the explicit spelling of the plain force flag
 Bash(git push --force-with-lease:*)|subsumed by Bash(git push --force*); kept as the explicit spelling of the lease form
@@ -645,7 +646,8 @@ Bash(git push --all:*)|subsumed by Bash(git push --al*), the shortest prefix git
 Bash(git push * --all*)|subsumed by Bash(git push * --al*); kept as the explicit spelling
 Bash(git * --no-verify*)|subsumed by Bash(git * --no-veri*), the shortest prefix git reads as --no-verify; kept as the explicit spelling
 ROWS
-)
+}
+REDUNDANT_BY_DESIGN=$(redundant_by_design_rows)
 is_declared_redundant() {
   local rule="$1" line
   while IFS='|' read -r line _; do
