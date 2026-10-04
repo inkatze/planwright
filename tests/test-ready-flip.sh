@@ -401,6 +401,16 @@ run_helper flip --spec specs/demo --task 1
 check "a segment the unit wrote itself still blocks (exit 4)" [ "$CODE" = 4 ]
 check "the unit's own segment survives" grep -q 'halt: a question the unit raised' <<<"$(bullet)"
 check "the cleared base segment is dropped beside it" not grep -q 'blocked on a design question' <<<"$(bullet)"
+fixture '- **Task 2** — halt: blocked on a design question'
+set_policy unit-owner
+write_tasks '- **Task 1** — halt: blocked on a design question'
+gitf commit -q -am 'chore: the unit asks the same question'
+gitf push -q origin "$BRANCH" 2>/dev/null
+record_review
+clear_base
+run_helper flip --spec specs/demo --task 1
+check "a unit segment whose text the base once carried for another task still blocks (exit 4)" [ "$CODE" = 4 ]
+check "that segment survives" grep -q '^- \*\*Task 1\*\* — halt: blocked on a design question' <<<"$(bullet)"
 
 echo "# another task's bullet does not block this unit"
 fixture '- **Task 2** — halt: unrelated'

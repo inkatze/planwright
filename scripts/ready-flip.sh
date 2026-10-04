@@ -349,10 +349,28 @@ stale_base_segments() {
       # Still on the base for this task: not stale.
       awk -F '\t' -v id="$id" -v s="$seg" '$1 == id { n = split($3, p, "; "); for (i = 1; i <= n; i++) if (p[i] == s) f = 1 } END { exit !f }' \
         "$SCRATCH/stale.baserefs" && continue
-      [ -n "$(git log -1 --format=%H -S"$seg" "$ref" -- "$TASKS" 2>/dev/null)" ] || continue
+      base_carried "$ref" "$id" "$seg" || continue
       printf '%s\t%s\n' "$line" "$seg" >>"$out"
     done <<<"${live//; /$'\n'}"
   done <"$SCRATCH/stale.local"
+}
+
+# base_carried <base ref> <id> <segment> — 0 when some commit of the base's
+# tasks.md history (or its parent) carried <segment> in task <id>'s own
+# Awaiting-input bullet. The text search only nominates commits: matching the
+# text anywhere in the file would take a segment the unit wrote itself for
+# one the base once held under another task, and drop it.
+base_carried() {
+  local c v
+  for c in $(git log --format=%H -S"$3" "$1" -- "$TASKS" 2>/dev/null); do
+    for v in "$c" "$c^"; do
+      git show "$v:$TASKS" >"$SCRATCH/carried.base" 2>/dev/null || continue
+      unit_refs "$SCRATCH/carried.base" 2>/dev/null \
+        | awk -F '\t' -v id="$2" -v s="$3" '$1 == id { n = split($3, p, "; "); for (i = 1; i <= n; i++) if (p[i] == s) f = 1 } END { exit !f }' \
+        && return 0
+    done
+  done
+  return 1
 }
 
 # base_ref — the fetched remote-tracking ref of the PR base (or, with no PR
