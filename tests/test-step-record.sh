@@ -772,7 +772,7 @@ done
 verdict "a completion with no warning runs no screen" "the screen ran for a warning-free completion"
 wait "$slowpid"
 rc=$?
-left=$(ls -A "$w9/.claude/steps/$r9" | tr '\n' ' ')
+left=$(find "$w9/.claude/steps/$r9" -mindepth 1 -exec basename {} \; | sort | tr '\n' ' ')
 [ "$rc" -eq 2 ] && [ "$left" = "001-done-pre-ci.rec " ] && [ ! -e "$w9/.claude/steps/.lock" ]
 verdict "a step refused after its point completed leaves nothing behind" "rc=$rc, run holds: $left"
 
