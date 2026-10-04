@@ -1183,7 +1183,11 @@ falls strictly inside (see
 **Pick the relay target explicitly, never by the active pane.** The handle
 `orchestrate-relay.sh relay-command` takes must be one you name, or a peer
 tower that `scripts/fleet-presence.sh discover` reports `live`, addressed by
-the `tmux-window` handle its presence record publishes. Never derive it from
+the `tmux-window` handle its presence record publishes. `discover` prints the
+peer's tower id but not that handle: read it from the record, the file named
+by the tower id in the directory `fleet-presence.sh surface` prints, whose
+ninth tab-separated field `tmux-window <session> <window>` is the target
+`<session>:<window>`. Never derive it from
 tmux's `pane_active` flag or "the active pane of the planwright window": a
 tower that is closing keeps its pane, and its input line, until the process
 exits, so the active pane can be a stale session rather than the live one.
