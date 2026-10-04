@@ -392,12 +392,15 @@ branch_exists() { git -C "$repo_root" show-ref --verify --quiet "refs/heads/$1";
 
 # Work pushed from another checkout or machine exists here only as a
 # remote-tracking ref. This reads what the dispatch fetch already mapped under
-# refs/remotes/origin/* and adds no network call; an unfetched remote branch
-# stays invisible until the next fetch.
+# refs/remotes/origin/* (task branches carry no upstream config, so origin is
+# named directly) and adds no network call; an unfetched remote branch stays
+# invisible until the next fetch. The count excludes scan_refs, not base alone:
+# the fetch never advances local main, so measuring against a lagging base would
+# count origin/main's newer commits as the task's own work.
 remote_branch_ahead() {
   git -C "$repo_root" show-ref --verify --quiet "refs/remotes/origin/$1" || return 1
-  rahead=$(git -C "$repo_root" rev-list --count "$base..refs/remotes/origin/$1" 2>/dev/null || echo 0)
-  [ "$rahead" -gt 0 ]
+  # shellcheck disable=SC2086
+  [ "$(git -C "$repo_root" rev-list --count "refs/remotes/origin/$1" --not $scan_refs 2>/dev/null || echo 0)" -gt 0 ]
 }
 
 # Membership test: is commit $1 on base's first-parent mainline? Used by the

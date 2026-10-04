@@ -1053,6 +1053,50 @@ assert_state "$rout" 3 ready "remote-only: a remote branch with nothing beyond b
 assert_state "$rout" 4 blocked "remote-only: a dependent of the held task stays blocked"
 echo "ok: a remote-only task branch with unmerged commits derives in-progress, not ready"
 
+# 6v. The dispatch fetch advances origin/main but never local main, so a local
+#     base routinely lags. A remote task branch cut from the newer origin/main
+#     with no commits of its own, or one already merged into origin/main, carries
+#     nothing beyond the remote view of base and must hold nothing.
+lagrepo="$tmp/remotelag"
+lagspec="$lagrepo/specs/demo"
+mkdir -p "$lagspec"
+gitc_init "$lagrepo"
+cat >"$lagspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — remote branch cut from a newer origin/main, no commits of its own
+- **Dependencies:** none
+### Task 2 — remote branch merged into origin/main, no trailer
+- **Dependencies:** none
+### Task 3 — remote branch with real work beyond origin/main
+- **Dependencies:** none
+EOF
+gitc "$lagrepo" add -A
+gitc "$lagrepo" commit -q -m "base"
+gitc "$lagrepo" remote add origin https://example.invalid/demo.git
+lagbase=$(gitc "$lagrepo" rev-parse HEAD)
+gitc "$lagrepo" commit -q --allow-empty -m "task 2 work"
+lagt2=$(gitc "$lagrepo" rev-parse HEAD)
+gitc "$lagrepo" commit -q --allow-empty -m "unrelated work merged upstream"
+lagorigin=$(gitc "$lagrepo" rev-parse HEAD)
+gitc "$lagrepo" update-ref refs/remotes/origin/main "$lagorigin"
+gitc "$lagrepo" branch --set-upstream-to=origin/main main >/dev/null 2>&1
+gitc "$lagrepo" update-ref refs/remotes/origin/planwright/demo/task-1 "$lagorigin"
+gitc "$lagrepo" update-ref refs/remotes/origin/planwright/demo/task-2 "$lagt2"
+gitc "$lagrepo" commit -q --allow-empty -m "task 3 wip on another machine"
+gitc "$lagrepo" update-ref refs/remotes/origin/planwright/demo/task-3 "$(gitc "$lagrepo" rev-parse HEAD)"
+gitc "$lagrepo" reset -q --hard "$lagbase"
+[ "$(gitc "$lagrepo" rev-list --count main..origin/main)" = 2 ] \
+  || fail "remote-lag: fixture invalid — local main does not lag origin/main"
+lagstub="$tmp/binremotelag"
+make_gh_stub "$lagstub"
+lagout=$(PATH="$lagstub:$PATH" "$STATE" "$lagspec") || fail "remote-lag: engine exited non-zero"
+assert_state "$lagout" 1 ready "remote-lag: a zero-commit remote branch from a newer origin/main holds nothing"
+assert_state "$lagout" 2 ready "remote-lag: a remote branch already in origin/main holds nothing"
+assert_state "$lagout" 3 in-progress "remote-lag: real work beyond origin/main still holds the task"
+assert_evidence "$lagout" 3 remote-branch-commits "remote-lag: task 3 is held by its remote-tracking branch"
+echo "ok: a remote task branch is measured against the remote view of base, not a lagging local main"
+
 # ---------------------------------------------------------------------------
 # 7. fail-closed on a missing / taskless bundle (matches the sibling scripts).
 # ---------------------------------------------------------------------------
