@@ -812,6 +812,16 @@ run_polled 2 1 flip --spec specs/demo --task 1
 check "checks going green by the deadline flip (exit 0)" [ "$CODE" = 0 ]
 check "a 4s wait polled every 2s reads at 0s, 2s and 4s" [ "$(rollups)" = 3 ]
 
+echo "# a poll interval with leading zeros is decimal"
+fixture
+set_policy unit-owner
+echo pending >"$GHS/ci"
+echo 2 >"$GHS/ci_green_from"
+run_polled 00 2 flip --spec specs/demo --task 1
+check "a poll interval of 00 behaves as 0 (exit 0)" [ "$CODE" = 0 ]
+check "a poll interval of 00 makes the max-polls reads" [ "$(rollups)" = 2 ]
+check "a poll interval of 00 raises no arithmetic error" not grep -qi 'division\|syntax error\|value too great' <<<"$OUT"
+
 echo "# no tracking ref: reconcile fetches one before deciding what to push"
 fixture
 set_policy unit-owner

@@ -493,6 +493,8 @@ duration_seconds() { # <value> — a resolver-validated duration, rounded up
 
 POLL=${PLANWRIGHT_READY_FLIP_POLL_SECONDS:-15}
 [[ $POLL =~ ^[0-9]{1,4}$ ]] || POLL=15
+# Base 10 explicitly: bash arithmetic reads a leading zero as octal.
+POLL=$((10#$POLL))
 ATTEMPTS=1
 WAIT_TEXT=''
 WAIT_SECS=0
