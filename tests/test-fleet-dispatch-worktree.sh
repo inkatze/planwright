@@ -1343,13 +1343,16 @@ c32() {
   [ "$RC" -eq 6 ] || fail "c32: a symlink at a shared marker path must not hold the unit (want exit 6), got $RC"
   rm -f "$_shared/10"
   # A shared home that exists but cannot be entered is "cannot tell": live.
-  if [ "$(id -u)" -ne 0 ]; then
-    chmod 000 "$_shared"
+  # Only meaningful where the mode change really blocks entry (not as root,
+  # nor under a namespace that can still traverse it).
+  chmod 000 "$_shared"
+  if (cd "$_shared") 2>/dev/null; then
+    chmod 755 "$_shared"
+    echo "skip: c32 unreadable-shared-home case (this user can still enter a mode-000 dir)"
+  else
     run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
     chmod 755 "$_shared"
     [ "$RC" -eq 3 ] || fail "c32: an unreadable shared home must read as in-flight (exit 3), got $RC"
-  else
-    echo "skip: c32 unreadable-shared-home case (root bypasses dir permissions)"
   fi
   # The dispatching checkout's own markers keep their old symlink tolerance:
   # a dangling one holds nothing, one to a fresh marker holds the unit.

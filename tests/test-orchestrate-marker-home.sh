@@ -107,6 +107,9 @@ rc=0
 [ "$rc" = 0 ] || fail "cross: with nothing in flight the meta-tower should pick a unit (got $rc)"
 
 (cd "$P" && "$MARKER" write specs/demo 1) || fail "cross: write from the primary failed"
+cross_common=$(cd "$P" && cd "$(git rev-parse --git-common-dir)" && pwd -P)
+[ -f "$cross_common/planwright/orchestrate/demo/markers/1" ] \
+  || fail "cross: the write left no marker in the shared home under the common git dir"
 [ "$(state_in "$W" 1)" = in-progress ] \
   || fail "cross: a marker written in the primary is not in flight from the worktree"
 rc=0
