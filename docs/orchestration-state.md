@@ -143,9 +143,10 @@ checkout whose `.git` is not its git dir (made with `--separate-git-dir`, or a
 `.git` symlinked elsewhere), which git cannot name from a linked worktree.
 `scripts/orchestrate-marker-home.sh` resolves both lists, the readers' a
 superset of the writer's; the `PLANWRIGHT_ORCH_STATE_DIR` environment variable
-replaces them with one directory. A shared home reached through a symlink, or a
-symlink at a marker path in it, is neither written nor read (checkout-local
-dirs keep their old symlink tolerance). The writer skips such a shared home,
+replaces them with one directory, which is trusted as given (no symlink rule
+and no checkout-local fallback apply to it). Otherwise, a shared home reached
+through a symlink, or a symlink at a marker path in it, is neither written nor
+read (checkout-local dirs keep their old symlink tolerance). The writer skips such a shared home,
 and one it cannot create or write, with a warning rather than letting it cost
 the checkout-local marker. The per-spec advisory lock lives at
 `<spec-dir>/.orchestrate.lock`, not under the markers directory.
