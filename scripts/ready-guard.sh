@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # ready-guard.sh — deterministic, DENY-EMITTING PreToolUse hook that refuses a
 # draft->ready pull-request transition unless the PR is provably current with
-# its base branch and mergeable (merge-currency-guard Task 2; REQ-A1.1,
+# its base branch and mergeable, and, for a planwright/ head, carries its flip
+# point's success status (merge-currency-guard Task 2; REQ-A1.1,
 # REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.5, REQ-C1.6, REQ-C1.7, REQ-C1.8,
 # REQ-C1.9, REQ-C1.10, REQ-K1.1, REQ-K1.3; D-2, D-3, D-5, D-7, D-8).
 #
@@ -39,7 +40,8 @@
 #
 # Security contract:
 #   * No LLM and no model/API call in the decision path (REQ-C1.2, REQ-D1.4);
-#     purely deterministic shell over two GitHub reads.
+#     purely deterministic shell over two GitHub reads, plus a third, the head's
+#     commit status, for a same-repository planwright/ head.
 #   * The intercepted command / tool payload is strictly INERT DATA (REQ-C1.5):
 #     never eval-ed, re-expanded, glob-expanded, or executed. Selectors are
 #     grammar-validated and passed to gh as separate argv arguments, never
@@ -63,6 +65,14 @@
 # unprotected base (planwright's own `main`) a stale PR reads `CLEAN`, which is
 # exactly the false-allow this bundle exists to prevent. This script therefore
 # never requests `mergeStateStatus`; the suite pins that.
+#
+# Flip-point evidence (doctrine/custom-steps.md, *The flip points and their
+# evidence*). A same-repository head under `planwright/` additionally needs a
+# `success` commit status on `headRefOid` in the context its branch form names,
+# so a plain ready command cannot skip the point scripts/ready-flip.sh runs.
+# This is check state, which merge-currency-guard REQ-A1.2 kept out of this
+# guard; it stands in for the deferred separate evidence hook until a
+# host-side ready gate replaces both.
 #
 # Portable bash (3.2 floor / BSD tooling), matching the sibling guard family
 # rather than the tree's POSIX-sh default: the Bash-surface tokenizer needs
@@ -918,7 +928,7 @@ gh_pr_view() {
   # Deliberately NOT mergeStateStatus: it reports BEHIND only under the base's
   # "require up to date" protection, so keying currency on it false-allows a
   # stale PR on an unprotected base (D-3). The suite pins this argv.
-  argv[${#argv[@]}]='baseRefName,headRefOid,isDraft,mergeable,url'
+  argv[${#argv[@]}]='baseRefName,headRefName,headRefOid,isCrossRepository,isDraft,mergeable,url'
   GH_VIEW_OUT=$(cd -- "$cwd" 2>/dev/null && "$RG_TIMEOUT_BIN" "$RG_GH_T" gh "${argv[@]}" 2>/dev/null)
   GH_VIEW_RC=$?
 }
@@ -937,7 +947,7 @@ evaluate_predicate() {
     || emit_deny 'no timeout (or gtimeout) binary is on PATH, so the guard cannot bound its GitHub queries and will not make an unbounded call from a PreToolUse hook - refusing (fail closed). Install coreutils.'
   RG_GH_T=$(gh_timeout)
 
-  local base head_oid mergeable is_draft url
+  local base head_ref head_oid is_fork mergeable is_draft url
 
   gh_pr_view "$cwd"
   check_view_rc
@@ -1001,9 +1011,52 @@ evaluate_predicate() {
     emit_deny "this pull request is $behind commit(s) behind its base branch $(sanitize_printable "$base" 'its base'), so it has NOT been verified on a current head - refusing the draft->ready flip. Merge the base branch into it ('git fetch origin && git merge FETCH_HEAD'), let CI and review re-run, then retry."
   fi
 
-  # behind_by == 0 AND mergeable == MERGEABLE: the only conforming outcome.
-  # Emit nothing and let the flip proceed.
+  check_flip_evidence "$owner" "$repo"
+
+  # behind_by == 0 AND mergeable == MERGEABLE, plus the flip-point evidence a
+  # planwright/ head owes: the only conforming outcome. Emit nothing and let
+  # the flip proceed.
   return 0
+}
+
+# check_flip_evidence <owner> <repo> — a same-repository head under
+# planwright/ flips only once its flip point has posted `success` on that exact
+# head (doctrine/custom-steps.md, *The flip points and their evidence*): the
+# spec context for planwright/<spec>/spec, the unit context for every other
+# planwright/ head. Without this a plain ready command skipped the point that
+# scripts/ready-flip.sh runs. Fork heads and every other branch defer. The
+# context is one of a fixed pair, never built from the branch name.
+check_flip_evidence() {
+  local owner=$1 repo=$2 ctx mid state rc=0
+  { [ -n "$head_ref" ] && [ -n "$is_fork" ]; } \
+    || emit_deny 'the GitHub query for this pull request did not say which branch or repository its head is on, so its flip-point evidence could not be checked - refusing (fail closed).'
+  case $head_ref in
+    planwright/*) ;;
+    *) return 0 ;;
+  esac
+  [ "$is_fork" = false ] || return 0
+  ctx='planwright/pre-ready-flip'
+  case $head_ref in
+    planwright/*/spec)
+      mid=${head_ref#planwright/}
+      mid=${mid%/spec}
+      case $mid in
+        */*) ;;
+        *) ctx='planwright/pre-spec-ready-flip' ;;
+      esac
+      ;;
+  esac
+  state=$("$RG_TIMEOUT_BIN" "$RG_GH_T" gh api \
+    "repos/$owner/$repo/commits/$head_oid/status?per_page=100" \
+    --jq "[.statuses[]? | select(.context == \"$ctx\")][0].state // \"missing\"" \
+    2>/dev/null) || rc=$?
+  if [ "$rc" = 124 ]; then
+    emit_deny "the GitHub status query did not finish within ${RG_GH_T}s, so this head's $ctx status could not be confirmed - refusing (fail closed). Wait and retry."
+  fi
+  [ "$rc" = 0 ] \
+    || emit_deny "this head's $ctx status could not be read, so its flip point could not be confirmed to have passed on it - refusing (fail closed). Wait and retry."
+  [ "$state" = success ] \
+    || emit_deny "this planwright/ head carries no success $ctx status (read: $(sanitize_printable "$state" 'unreadable')), so its flip point has not passed on this exact head - refusing the draft->ready flip. Flip it through scripts/ready-flip.sh, which runs the point and posts the status, or flip it outside a Claude Code session if you have verified it yourself."
 }
 
 # read_view_fields — pull the predicate's fields out of the query answer into
@@ -1033,7 +1086,12 @@ read_view_fields() {
     *) emit_deny 'the GitHub query for this pull request returned an answer the guard could not read (its draft state is missing or malformed), so a draft->ready flip could not be ruled out - refusing (fail closed).' ;;
   esac
   base=$(json_field "$GH_VIEW_OUT" baseRefName)
+  head_ref=$(json_field "$GH_VIEW_OUT" headRefName)
   head_oid=$(json_field "$GH_VIEW_OUT" headRefOid)
+  # Type discipline again: only a real boolean may exempt a head as a fork.
+  is_fork=$(printf '%s' "$GH_VIEW_OUT" | jq -r '
+    if (.isCrossRepository | type) == "boolean" then (.isCrossRepository | tostring) else empty end' 2>/dev/null) \
+    || is_fork=''
   mergeable=$(json_field "$GH_VIEW_OUT" mergeable)
   url=$(json_field "$GH_VIEW_OUT" url)
   { [ -n "$base" ] && [ -n "$head_oid" ] && [ -n "$mergeable" ] && [ -n "$url" ]; } \

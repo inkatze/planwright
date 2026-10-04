@@ -86,7 +86,7 @@ case "$1 $2" in
         printf '%s\n' "$head"
         ;;
       *mergeable*)
-        printf '{"baseRefName":"main","headRefOid":"%s","isDraft":%s,"mergeable":"MERGEABLE","url":"https://github.com/acme/widgets/pull/42"}\n' "$head" "$draft"
+        printf '{"baseRefName":"main","headRefName":"%s","isCrossRepository":false,"headRefOid":"%s","isDraft":%s,"mergeable":"MERGEABLE","url":"https://github.com/acme/widgets/pull/42"}\n' "$GHS_BRANCH" "$head" "$draft"
         ;;
       *)
         if [ -f "$GHS/nopr" ]; then
@@ -110,7 +110,13 @@ case "$1 $2" in
     esac
     ;;
   'api '*)
-    if [ -f "$GHS/behind" ]; then cat "$GHS/behind"; else echo 0; fi
+    case $2 in
+      */status*)
+        # The flip-point status the ready-guard reads; its --jq is not run here.
+        if [ -f "$GHS/flip_status" ]; then cat "$GHS/flip_status"; else echo success; fi
+        ;;
+      *) if [ -f "$GHS/behind" ]; then cat "$GHS/behind"; else echo 0; fi ;;
+    esac
     ;;
   'pr comment')
     c=0
@@ -839,6 +845,13 @@ set_policy unit-owner
 echo 1 >"$GHS/behind"
 run_helper evaluate --spec specs/demo --task 1
 check "a behind head fails ready-guard in evaluate" grep -q 'ready-guard	fail' <<<"$OUT"
+
+echo "# a head the flip point never passed on is the ready-guard's refusal"
+fixture
+set_policy unit-owner
+echo missing >"$GHS/flip_status"
+run_helper evaluate --spec specs/demo --task 1
+check "a head with no flip-point status fails ready-guard in evaluate" grep -q 'ready-guard	fail' <<<"$OUT"
 
 echo "# no model in the decision path"
 check "the helper calls no model or dispatch backend" not grep -Eq '(^|[^[:alnum:]_-])(claude|anthropic|offload-dispatch)([^[:alnum:]_-]|$)' "$HELPER"
