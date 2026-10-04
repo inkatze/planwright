@@ -64,7 +64,10 @@ case "$1 $2" in
         # head_lag_until reports a stale head for the first n reads.
         [ ! -f "$GHS/head_lag_until" ] || [ "$n" -gt "$(cat "$GHS/head_lag_until")" ] \
           || head=0123456789012345678901234567890123456789
-        case $(cat "$GHS/ci") in
+        ci=$(cat "$GHS/ci")
+        # ci_green_from turns the rollup green from the nth read on.
+        [ ! -f "$GHS/ci_green_from" ] || [ "$n" -lt "$(cat "$GHS/ci_green_from")" ] || ci=green
+        case $ci in
           green) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"StatusContext","context":"lint","state":"SUCCESS"}]' ;;
           failing) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
           pending) roll='[{"__typename":"CheckRun","name":"test","status":"IN_PROGRESS","conclusion":""}]' ;;
@@ -785,6 +788,29 @@ OUT=$(cd "$F/wt" && env PATH="$STUBBIN:$PATH" GHS="$GHS" GHS_ORIGIN="$F/origin.g
   PLANWRIGHT_ADOPTER_OVERLAY="$SANDBOX/noadopter" PLANWRIGHT_READY_FLIP_POLL_SECONDS=1 \
   PLANWRIGHT_READY_GUARD_RETRY_DELAY=0 /bin/bash "$HELPER" flip --spec specs/demo --task 1 2>&1)
 check "head re-reads inside an attempt do not stretch the wait past its bound" [ "$(rollups)" = 1 ]
+
+# run_polled <poll seconds> <max polls> <args...> — the helper with its own
+# poll settings, which run_helper pins.
+run_polled() {
+  local poll=$1 max=$2
+  shift 2
+  OUT=$(cd "$F/wt" && env PATH="$STUBBIN:$PATH" GHS="$GHS" GHS_ORIGIN="$F/origin.git" \
+    GHS_BRANCH="$BRANCH" PLANWRIGHT_REPO_ROOT="$F/wt" PLANWRIGHT_LOCAL_CONFIG= \
+    PLANWRIGHT_ADOPTER_OVERLAY="$SANDBOX/noadopter" PLANWRIGHT_READY_FLIP_POLL_SECONDS="$poll" \
+    PLANWRIGHT_READY_FLIP_MAX_POLLS="$max" PLANWRIGHT_READY_GUARD_RETRY_DELAY=0 \
+    /bin/bash "$HELPER" "$@" 2>&1)
+  CODE=$?
+}
+
+echo "# the CI wait reads the rollup at its deadline too"
+fixture
+mkdir -p "$F/wt/.claude"
+printf 'ready_flip_policy: unit-owner\nready_flip_ci_wait: 4s\n' >"$F/wt/.claude/planwright.local.yml"
+echo pending >"$GHS/ci"
+echo 3 >"$GHS/ci_green_from"
+run_polled 2 1 flip --spec specs/demo --task 1
+check "checks going green by the deadline flip (exit 0)" [ "$CODE" = 0 ]
+check "a 4s wait polled every 2s reads at 0s, 2s and 4s" [ "$(rollups)" = 3 ]
 
 echo "# no tracking ref: reconcile fetches one before deciding what to push"
 fixture

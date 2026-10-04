@@ -506,8 +506,8 @@ read_wait() {
     ATTEMPTS=${PLANWRIGHT_READY_FLIP_MAX_POLLS:-1}
     [[ $ATTEMPTS =~ ^[1-9][0-9]{0,3}$ ]] || ATTEMPTS=1
   else
-    ATTEMPTS=$(((s + POLL - 1) / POLL))
-    [ "$ATTEMPTS" -ge 1 ] || ATTEMPTS=1
+    # A read at 0s and then one per interval up to and including the deadline.
+    ATTEMPTS=$((s / POLL + 1))
   fi
 }
 
@@ -727,10 +727,10 @@ ROLLUP_JQ='
 HEAD_MOVED=0
 pred_ci() {
   local i=0 raw oid verdict last='the check rollup could not be read' deadline=$((SECONDS + WAIT_SECS))
-  # The read count bounds the wait, and so does the clock: a head re-read
-  # inside an attempt naps too, so the bound can overrun by at most that one
-  # re-read's pauses.
-  while [ "$i" -lt "$ATTEMPTS" ] && { [ "$POLL" = 0 ] || [ "$i" = 0 ] || [ "$SECONDS" -lt "$deadline" ]; }; do
+  # The read count bounds the wait, and so does the clock: no nap starts once
+  # the deadline has passed, so a head re-read inside an attempt, which naps
+  # too, overruns the bound by at most one interval.
+  while [ "$i" -lt "$ATTEMPTS" ]; do
     i=$((i + 1))
     raw=$(gh pr view "$PR" --json headRefOid,statusCheckRollup 2>/dev/null) || raw=''
     if [ -n "$raw" ] && oid=$(printf '%s' "$raw" | jq -r '.headRefOid // empty' 2>/dev/null) && [ -n "$oid" ]; then
@@ -770,7 +770,9 @@ pred_ci() {
         *) last='the check rollup could not be read' ;;
       esac
     fi
-    [ "$i" -ge "$ATTEMPTS" ] || nap
+    [ "$i" -lt "$ATTEMPTS" ] || break
+    [ "$POLL" = 0 ] || [ "$SECONDS" -lt "$deadline" ] || break
+    nap
   done
   set_pred ci-rollup fail "$last at the end of the ${WAIT_TEXT:-bounded} wait"
 }
