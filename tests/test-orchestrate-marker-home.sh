@@ -247,6 +247,22 @@ sep_gitdir=$(cd "$G/gitdir" && pwd -P)
   && fail "helper: the git dir was taken for a separate-git-dir primary checkout"
 [ "$("$HOME_HELPER" read "$G/side/specs/demo" | sed -n 1p)" = "$sep_gitdir/planwright/orchestrate/demo/markers" ] \
   || fail "helper: a separate-git-dir repository lost its shared home"
+# A primary whose .git is a symlink to a git dir elsewhere is the same case.
+Y="$tmp/symgit"
+mkdir -p "$Y/main/specs/demo"
+git -C "$Y/main" -c init.defaultBranch=main init -q
+printf '# t\n' >"$Y/main/specs/demo/tasks.md"
+gitc "$Y/main" add -A
+gitc "$Y/main" commit -q -m base
+mv "$Y/main/.git" "$Y/store.git"
+ln -s "$Y/store.git" "$Y/main/.git"
+gitc "$Y/main" worktree add -q -b side "$Y/side"
+store_real=$(cd "$Y/store.git" && pwd -P)
+ylist=$("$HOME_HELPER" read "$Y/side/specs/demo")
+printf '%s\n' "$ylist" | grep -Fq "$store_real/specs/" \
+  && fail "helper: the git dir was taken for a primary whose .git is a symlink"
+[ "$(printf '%s\n' "$ylist" | sed -n 1p)" = "$store_real/planwright/orchestrate/demo/markers" ] \
+  || fail "helper: a repository whose .git is a symlink lost its shared home: $ylist"
 echo "ok: a separate-git-dir repository shares its home, with no stand-in for its primary"
 
 # A repository path carrying a newline cannot be split safely: no shared home.
@@ -316,6 +332,17 @@ date +%s >"$elsewhere/orchestrate/demo/markers/2"
 [ "$(state_in "$P" 2)" = ready ] || fail "reader: a marker reached through a symlinked shared home was counted"
 rm -f "$gcommon/planwright" "$P/specs/demo/.orchestrate/markers/1"
 echo "ok: a symlinked shared home is neither written nor read through"
+
+# A symlink at a marker path in the shared home drops that home, not the marker.
+mkdir -p "$shared"
+ln -s "$tmp/fresh-target" "$shared/4"
+werr=$( (cd "$P" && "$MARKER" write specs/demo 4) 2>&1) \
+  || fail "writer: a symlink at a shared marker path failed the write: $werr"
+[ -f "$P/specs/demo/.orchestrate/markers/4" ] || fail "writer: no local marker beside a symlinked shared marker path"
+[ -L "$shared/4" ] || fail "writer: the symlink at the shared marker path was written through or replaced"
+case "$werr" in *"skipping the shared marker dir"*"symlink sits at the marker path"*) ;; *) fail "writer: the skip was not reported: $werr" ;; esac
+rm -f "$shared/4" "$P/specs/demo/.orchestrate/markers/4"
+echo "ok: a symlink at a shared marker path skips the shared home, the local marker kept"
 
 # A refusal at the local marker path rolls back the copy staged in the shared home.
 mkdir -p "$P/specs/demo/.orchestrate/markers"

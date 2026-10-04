@@ -200,8 +200,9 @@ fi
 # write: create the base dirs only now that every id has passed validation, so a
 # refused write leaves no marker state behind. The checkout-local dir (or the
 # override), always last, must be usable; a shared home that cannot be made, is
-# not writable, or is reached through a symlink is dropped with a warning, so a
-# dispatch never loses its marker for want of one.
+# not writable, is reached through a symlink, or holds a symlink or non-regular
+# file at one of the marker paths is dropped with a warning, so a dispatch never
+# loses its marker for want of one.
 last=${marker_dirs##*"$nl"}
 kept=''
 while IFS= read -r marker_dir; do
@@ -214,6 +215,15 @@ while IFS= read -r marker_dir; do
     why="reached through a symlink"
   elif [ ! -w "$marker_dir" ] || [ ! -x "$marker_dir" ]; then
     why="not writable"
+  elif strict "$marker_dir"; then
+    for id in "$@"; do
+      if [ -L "$marker_dir/$id" ]; then
+        why="a symlink sits at the marker path for task $id"
+      elif [ -e "$marker_dir/$id" ] && [ ! -f "$marker_dir/$id" ]; then
+        why="a non-regular file sits at the marker path for task $id"
+      fi
+      [ -z "$why" ] || break
+    done
   fi
   if [ -n "$why" ]; then
     if [ "$marker_dir" = "$last" ]; then

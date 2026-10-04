@@ -124,17 +124,17 @@ them. The writer also drops a copy in the checkout-local
 `<spec-dir>/.orchestrate/markers/<id>`, and readers consult that location too
 (and, from a linked worktree, the primary checkout's), so a marker an older
 planwright version wrote at the old location still counts from the same
-checkout and, when it ran in the primary checkout, from every worktree; one it
+checkout and, when it ran in the primary checkout, from every worktree. One it
 wrote in another linked worktree is seen only there, and so is one in a primary
 checkout whose `.git` is not its git dir (made with `--separate-git-dir`, or a
-`.git` symlinked elsewhere), which git cannot name from a linked worktree. `scripts/orchestrate-marker-home.sh`
-resolves both lists, the readers' a superset of the writer's; the
-`PLANWRIGHT_ORCH_STATE_DIR` environment variable replaces them with one
-directory. A shared home reached through a symlink, or a symlink at a marker
-path in it, is neither written nor read (checkout-local dirs keep their old
-symlink tolerance), and a shared home the
-writer cannot create or write is skipped with a warning rather than costing the
-checkout-local marker. The per-spec advisory lock lives at
+`.git` symlinked elsewhere), which git cannot name from a linked worktree.
+`scripts/orchestrate-marker-home.sh` resolves both lists, the readers' a
+superset of the writer's; the `PLANWRIGHT_ORCH_STATE_DIR` environment variable
+replaces them with one directory. A shared home reached through a symlink, or a
+symlink at a marker path in it, is neither written nor read (checkout-local
+dirs keep their old symlink tolerance). The writer skips such a shared home,
+and one it cannot create or write, with a warning rather than letting it cost
+the checkout-local marker. The per-spec advisory lock lives at
 `<spec-dir>/.orchestrate.lock`, not under the markers directory.
 
 Branch-first ordering is also fail-safe: a dispatch that crashes after acquiring

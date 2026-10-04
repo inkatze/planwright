@@ -123,8 +123,9 @@ if rp=$(git -C "$spec_real" rev-parse --git-common-dir --show-toplevel 2>/dev/nu
   common=${rp%%"$nl"*}
   top=${rp#*"$nl"}
   [ "$top" != "$rp" ] || top=''
-  # Anything but exactly two lines means a path carried a newline (or git
-  # printed no worktree): no safe split.
+  # Anything but exactly two lines means a path carried a newline (or an older
+  # git printed no worktree): no safe split. Current git exits non-zero instead
+  # of printing one line, so the empty arm is defensive.
   case "$top" in
     '' | *"$nl"*) common='' top='' ;;
   esac
@@ -161,9 +162,10 @@ case "$first" in
   *) exit 0 ;;
 esac
 primary=$(cd -P -- "$primary" 2>/dev/null && pwd -P) || exit 0
-# A primary made with --separate-git-dir is unknown to git from a linked
-# worktree, which lists the git dir in its place: only a checkout whose own
-# .git resolves to the common dir is taken for the primary. (A git dir itself
+# A primary whose .git is not its git dir (made with --separate-git-dir, or a
+# .git symlinked elsewhere) is unknown to git from a linked worktree, which
+# lists the git dir in its place: only a checkout whose own .git resolves to
+# the common dir is taken for the primary. (A git dir itself
 # named .git makes git treat its parent as the main worktree, and so does this.)
 [ -n "$common" ] && [ "$primary" != "$top" ] || exit 0
 [ "$(cd -P -- "$primary/.git" 2>/dev/null && pwd -P)" = "$common" ] || exit 0
