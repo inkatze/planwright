@@ -104,25 +104,54 @@ for id in "$@"; do
   fi
 done
 
+# Diagnostics carry paths, so they are stripped of control bytes and printed
+# with printf, never echo (dash's echo turns a backslash sequence into a live
+# escape).
+say() {
+  printf 'orchestrate-marker: %s\n' "$(printf '%s' "$1" | tr -d '\000-\037\177')" >&2
+}
+
 # The marker dirs come from orchestrate-marker-home.sh, which every reader asks
 # too: `write` places a marker in each write dir, `clear` removes it from each
 # read dir, so a marker an older writer left in the primary checkout is cleared
-# along with this one. The per-id hardening (symlink refusal + containment) is
-# at the path, below.
+# along with this one. A copy an older writer left in another linked worktree
+# is outside both lists and ages out at the staleness threshold. The per-id
+# hardening (symlink refusal + containment) is at the path, below.
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 home_cmd="write"
 [ "$cmd" = clear ] && home_cmd="read"
 marker_dirs=$(/bin/sh "$script_dir/orchestrate-marker-home.sh" "$home_cmd" "$spec_dir") || {
-  echo "orchestrate-marker: cannot resolve the marker dirs for $spec_dir" >&2
+  say "cannot resolve the marker dirs for $spec_dir"
   exit 2
 }
 [ -n "$marker_dirs" ] || {
-  echo "orchestrate-marker: no marker dir resolved for $spec_dir" >&2
+  say "no marker dir resolved for $spec_dir"
   exit 2
 }
 nl='
 '
-IFS=$nl
+tab=$(printf '\t')
+
+# The helper prints canonical paths, so a dir whose own `pwd -P` differs was
+# reached through a symlink and is refused rather than written or cleared
+# through. The override is a trusted knob, printed as given, and not checked.
+override=0
+[ -n "${PLANWRIGHT_ORCH_STATE_DIR:-}" ] && override=1
+canonical_ok() {
+  [ "$override" -eq 1 ] && return 0
+  [ "$(cd -P -- "$1" 2>/dev/null && pwd -P)" = "$1" ]
+}
+# The same check on the deepest part of a not-yet-created dir that exists, so
+# `mkdir -p` never follows a planted symlink into creating dirs elsewhere.
+ancestor_ok() {
+  [ "$override" -eq 1 ] && return 0
+  _a=$1
+  while [ ! -e "$_a" ] && [ ! -L "$_a" ]; do
+    _a=${_a%/*}
+    [ -n "$_a" ] || _a=/
+  done
+  [ ! -L "$_a" ] && [ -d "$_a" ] && canonical_ok "$_a"
+}
 
 if [ "$cmd" = clear ]; then
   # Idempotent removal. rm -f on a missing path is a no-op (exit 0); on a symlink
@@ -132,30 +161,57 @@ if [ "$cmd" = clear ]; then
   # fail-closed contract everywhere else. Every id is attempted in every dir
   # before exiting, so one stuck marker never strands the rest of the cleanup.
   rc=0
-  for marker_dir in $marker_dirs; do
+  while IFS= read -r marker_dir; do
+    [ -d "$marker_dir" ] || continue
+    if ! canonical_ok "$marker_dir"; then
+      say "skipping marker dir $marker_dir: reached through a symlink"
+      continue
+    fi
     for id in "$@"; do
       if ! rm -f "$marker_dir/$id" 2>/dev/null; then
-        echo "orchestrate-marker: cannot remove marker for task $id in $marker_dir" >&2
+        say "cannot remove marker for task $id in $marker_dir"
         rc=2
       fi
     done
-  done
+  done <<EOF
+$marker_dirs
+EOF
   exit "$rc"
 fi
 
 # write: create the base dirs only now that every id has passed validation, so a
-# refused write leaves no marker state behind.
-for marker_dir in $marker_dirs; do
-  if ! mkdir -p "$marker_dir" 2>/dev/null; then
-    echo "orchestrate-marker: cannot create marker dir $marker_dir" >&2
-    exit 2
+# refused write leaves no marker state behind. The checkout-local dir (or the
+# override), always last, must be usable; a shared home that cannot be made or
+# is reached through a symlink is dropped with a warning, so a dispatch never
+# loses its marker for want of one.
+last=${marker_dirs##*"$nl"}
+kept=''
+while IFS= read -r marker_dir; do
+  why=''
+  if ! ancestor_ok "$marker_dir"; then
+    why="reached through a symlink"
+  elif ! mkdir -p "$marker_dir" 2>/dev/null; then
+    why="cannot create it"
+  elif ! canonical_ok "$marker_dir"; then
+    why="reached through a symlink"
   fi
-done
+  if [ -n "$why" ]; then
+    if [ "$marker_dir" = "$last" ]; then
+      say "cannot use marker dir $marker_dir: $why"
+      exit 2
+    fi
+    say "skipping the shared marker dir $marker_dir ($why); other worktrees will not see this marker"
+    continue
+  fi
+  kept="$kept$marker_dir$nl"
+done <<EOF
+$marker_dirs
+EOF
 
 now=$(date +%s)
 case "$now" in
   '' | *[!0-9]*)
-    echo "orchestrate-marker: could not read a numeric timestamp" >&2
+    say "could not read a numeric timestamp"
     exit 2
     ;;
 esac
@@ -170,28 +226,35 @@ esac
 # eliminated — and we never delete an already-placed (possibly pre-existing)
 # marker to "undo" a partial batch, which would revert a legitimately
 # in-progress task.
-tab=$(printf '\t')
-manifest_dir=${marker_dirs%%"$nl"*}
-manifest=$(mktemp "$manifest_dir/.manifest.XXXXXX") || {
-  echo "orchestrate-marker: cannot create a staging manifest in $manifest_dir" >&2
+#
+# The manifest lives in the last dir, the one the write cannot do without, and
+# names each temp's dir by its position in the kept list, so no path, whatever
+# bytes it carries, is ever split out of a manifest line.
+manifest=$(mktemp "$last/.manifest.XXXXXX") || {
+  say "cannot create a staging manifest in $last"
   exit 2
+}
+dir_at() {
+  printf '%s' "$kept" | sed -n "${1}p"
 }
 # Remove every still-staged temp recorded in the manifest, then the manifest
 # itself. A temp already renamed into place no longer exists at its staged path,
-# so its rm is a harmless no-op — rollback never touches a placed marker. The
-# helper drops any dir carrying a control byte, so a tab cannot split a line.
+# so its rm is a harmless no-op — rollback never touches a placed marker.
 roll_back_staged() {
-  while IFS="$tab" read -r _rb_dir _rb_id _rb_tmp; do
-    [ -n "$_rb_tmp" ] && rm -f "$_rb_dir/$_rb_tmp"
+  while IFS="$tab" read -r _rb_n _rb_id _rb_tmp; do
+    [ -n "$_rb_tmp" ] && rm -f "$(dir_at "$_rb_n")/$_rb_tmp"
   done <"$manifest"
   rm -f "$manifest"
 }
 
 # Phase 1 — validate every marker path and stage a temp marker per id and dir.
 # The temp lives in its marker dir, so the phase-2 rename is same-filesystem.
-for marker_dir in $marker_dirs; do
+n=0
+while IFS= read -r marker_dir; do
+  [ -n "$marker_dir" ] || continue
+  n=$((n + 1))
   base_real=$(cd "$marker_dir" 2>/dev/null && pwd -P) || {
-    echo "orchestrate-marker: cannot resolve marker dir $marker_dir" >&2
+    say "cannot resolve marker dir $marker_dir"
     roll_back_staged
     exit 2
   }
@@ -200,7 +263,7 @@ for marker_dir in $marker_dirs; do
     # A symlink at the marker path is never a legitimate marker (the writer emits
     # a regular file); refuse it rather than write through it (REQ-F1.1).
     if [ -L "$mfile" ]; then
-      echo "orchestrate-marker: refusing symlink at marker path $mfile (REQ-F1.1)" >&2
+      say "refusing symlink at marker path $mfile (REQ-F1.1)"
       roll_back_staged
       exit 2
     fi
@@ -208,7 +271,7 @@ for marker_dir in $marker_dirs; do
     # directory): `mv -f` onto a directory moves the temp *inside* it and reports
     # success, leaving no marker. Only a regular file (re-dispatch) is overwritten.
     if [ -e "$mfile" ] && [ ! -f "$mfile" ]; then
-      echo "orchestrate-marker: refusing non-regular file at marker path $mfile (REQ-F1.1)" >&2
+      say "refusing non-regular file at marker path $mfile (REQ-F1.1)"
       roll_back_staged
       exit 2
     fi
@@ -216,37 +279,40 @@ for marker_dir in $marker_dirs; do
     # canonicalization (defense in depth — the grammar already excludes slashes).
     file_dir=$(cd "$(dirname "$mfile")" 2>/dev/null && pwd -P) || file_dir=""
     if [ -z "$file_dir" ] || [ "$file_dir" != "$base_real" ]; then
-      echo "orchestrate-marker: refusing out-of-base marker path $mfile (REQ-F1.1)" >&2
+      say "refusing out-of-base marker path $mfile (REQ-F1.1)"
       roll_back_staged
       exit 2
     fi
     tmpf=$(mktemp "$marker_dir/.marker.XXXXXX") || {
-      echo "orchestrate-marker: cannot create a temp marker in $marker_dir" >&2
+      say "cannot create a temp marker in $marker_dir"
       roll_back_staged
       exit 2
     }
     printf '%s\n' "$now" >"$tmpf" || {
       rm -f "$tmpf"
-      echo "orchestrate-marker: cannot write marker for task $id" >&2
+      say "cannot write marker for task $id"
       roll_back_staged
       exit 2
     }
-    printf '%s%s%s%s%s\n' "$marker_dir" "$tab" "$id" "$tab" "${tmpf##*/}" >>"$manifest" || {
+    printf '%s%s%s%s%s\n' "$n" "$tab" "$id" "$tab" "${tmpf##*/}" >>"$manifest" || {
       rm -f "$tmpf"
-      echo "orchestrate-marker: cannot record staged marker for task $id" >&2
+      say "cannot record staged marker for task $id"
       roll_back_staged
       exit 2
     }
   done
-done
+done <<EOF
+$kept
+EOF
 
 # Phase 2 — place every staged temp via an atomic same-dir rename, so a
 # concurrent reader never sees a torn marker. Read the manifest by redirection
 # (not a pipe) so this loop runs in the current shell and a failure can exit.
-while IFS="$tab" read -r marker_dir id tmp; do
+while IFS="$tab" read -r n id tmp; do
   [ -n "$tmp" ] || continue
+  marker_dir=$(dir_at "$n")
   if ! mv -f "$marker_dir/$tmp" "$marker_dir/$id"; then
-    echo "orchestrate-marker: cannot place marker for task $id in $marker_dir" >&2
+    say "cannot place marker for task $id in $marker_dir"
     roll_back_staged
     exit 2
   fi

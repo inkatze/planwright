@@ -249,6 +249,20 @@ marker_dirs=$(/bin/sh "$script_dir/orchestrate-marker-home.sh" read "$spec_dir")
   echo "orchestrate-state: cannot resolve the marker dirs for $spec_dir" >&2
   exit 2
 }
+# The helper prints canonical paths; a dir whose own `pwd -P` differs was
+# reached through a symlink and holds nothing. Checked once, before the task
+# loop. The override is a trusted knob, printed as given, and kept.
+if [ -z "${PLANWRIGHT_ORCH_STATE_DIR:-}" ]; then
+  usable_dirs=''
+  while IFS= read -r marker_dir; do
+    [ "$(cd -P -- "$marker_dir" 2>/dev/null && pwd -P)" = "$marker_dir" ] || continue
+    usable_dirs="$usable_dirs$marker_dir
+"
+  done <<EOF
+$marker_dirs
+EOF
+  marker_dirs=$usable_dirs
+fi
 
 now=$(date +%s)
 

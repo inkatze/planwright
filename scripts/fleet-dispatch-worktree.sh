@@ -461,13 +461,18 @@ is_live() {
   [ -n "$_sd" ] || return 1
   # Every dir the writer may have used, the shared home included, so a marker
   # dropped from another worktree of the repository keeps its worker live. A
-  # helper failure falls back to the checkout-local dir it always lists.
-  _mdirs=$(/bin/sh "$script_dir/orchestrate-marker-home.sh" read "$_sd" 2>/dev/null) \
-    || _mdirs="${PLANWRIGHT_ORCH_STATE_DIR:-$_sd/.orchestrate/markers}"
+  # list the helper cannot give is "cannot tell", which fails safe to live.
+  _mdirs=$(/bin/sh "$script_dir/orchestrate-marker-home.sh" read "$_sd" 2>/dev/null) || return 0
+  [ -n "$_mdirs" ] || return 0
   while IFS= read -r _mdir; do
     [ -n "$_mdir" ] || continue
+    # The helper prints canonical paths: a dir reached through a symlink, or a
+    # symlink at the marker path, is never a marker this repository wrote.
+    if [ -z "${PLANWRIGHT_ORCH_STATE_DIR:-}" ]; then
+      [ "$(cd -P -- "$_mdir" 2>/dev/null && pwd -P)" = "$_mdir" ] || continue
+    fi
     _mfile="$_mdir/$_id"
-    [ -f "$_mfile" ] || continue
+    [ -f "$_mfile" ] && [ ! -L "$_mfile" ] || continue
     _written=$(cat "$_mfile" 2>/dev/null || echo '')
     case $_written in
       '' | *[!0-9]*) return 0 ;; # unparseable marker: fail safe, treat as live
