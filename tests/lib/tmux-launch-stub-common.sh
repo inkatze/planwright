@@ -29,10 +29,13 @@ stub_claim_seq() {
   while [ "$scs_n" -lt 1000000 ]; do
     scs_id=$((1000000 + scs_n))
     scs_id=${scs_id#1}
-    if ln -s "$STUB_WRITER" "$STUB_STATE/seq/$scs_kind.$scs_id" 2>/dev/null; then
+    if ln -sn "$STUB_WRITER" "$STUB_STATE/seq/$scs_kind.$scs_id" 2>/dev/null; then
       STUB_SEQ=$scs_id
       return 0
     fi
+    # Only a claim someone else holds moves us on; any other failure (a
+    # full disk, a state directory already removed) would loop forever.
+    [ -L "$STUB_STATE/seq/$scs_kind.$scs_id" ] || return 1
     scs_n=$((scs_n + 1))
   done
   return 1
@@ -79,14 +82,36 @@ stub_pid_ours() {
   [ -z "$spo_now" ] || [ "$spo_now" = "$spo_want" ]
 }
 
-# stub_kill_tree <signal> <pid> — the pid and its descendants, children first,
-# from one process-table snapshot.
+# stub_kill_tree <signal> <pid>... — each pid and its descendants. The trees
+# are frozen first, parents before children and re-walked until no new
+# process appears, so no parent can fork past the walk or have a child
+# reparented out of it; then every member gets <signal> and is continued.
+# STUB_TREE is set to the members, so a follow-up KILL can reach one whose
+# parent has since exited and taken it out of the tree.
 stub_kill_tree() {
-  for skt_p in $(ps -A -o pid= -o ppid= 2>/dev/null | awk -v r="$2" '
-    { kids[$2] = kids[$2] " " $1 }
-    function walk(p,   n, i, a) { n = split(kids[p], a, " "); for (i = 1; i <= n; i++) walk(a[i]); print p }
-    END { walk(r) }'); do
-    kill "-$1" "$skt_p" 2>/dev/null
+  skt_sig=$1
+  shift
+  skt_all=''
+  skt_round=0
+  while [ "$skt_round" -lt 5 ]; do
+    skt_new=$(ps -A -o pid= -o ppid= 2>/dev/null | awk -v roots="$*" -v seen="$skt_all" '
+      { kids[$2] = kids[$2] " " $1 }
+      function walk(p,   m, j, a) {
+        if (!(p in old)) print p
+        m = split(kids[p], a, " ")
+        for (j = 1; j <= m; j++) walk(a[j])
+      }
+      END {
+        n = split(seen, s, " "); for (i = 1; i <= n; i++) old[s[i]] = 1
+        n = split(roots, r, " "); for (i = 1; i <= n; i++) walk(r[i])
+      }')
+    [ -n "$skt_new" ] || break
+    for skt_p in $skt_new; do kill -STOP "$skt_p" 2>/dev/null; done
+    skt_all="$skt_all $skt_new"
+    skt_round=$((skt_round + 1))
   done
+  for skt_p in $skt_all; do kill "-$skt_sig" "$skt_p" 2>/dev/null; done
+  for skt_p in $skt_all; do kill -CONT "$skt_p" 2>/dev/null; done
+  STUB_TREE=$skt_all
   return 0
 }

@@ -1,9 +1,10 @@
 #!/bin/bash
 # Self-test for the tmux launch fixture harness (tests/lib/tmux-launch-harness.sh)
 # and its stubs. Each case below shows one harness property able to fail:
-#   h1  a blocking launch fails within the bound with a hang diagnosis and its
-#       process tree killed, a launch that returns is never cut off early, and
-#       a bound that does not exceed the confirm cap is refused (REQ-H1.1)
+#   h1  a blocking launch fails within the bound, with a diagnosis instead of
+#       a hung suite, and its process tree killed, even when it traps TERM; a
+#       launch that returns is never cut off early; a bound that does not
+#       exceed the confirm cap is refused (REQ-H1.1)
 #   h2  a stub session's command sees the server's environment, not the
 #       dispatcher's, and the harness scrubs the worker identity and the
 #       fleet home it inherits (REQ-H1.2)
@@ -80,8 +81,6 @@ wait_gone() {
 # --- h1 ---------------------------------------------------------------------
 h1() {
   local b=2 pid err rc i
-  [ "$TLH_LAUNCH_BOUND_SECONDS" -gt "$TLH_CONFIRM_CAP_SECONDS" ] \
-    || fail "h1: the default bound must exceed the confirm cap"
   err=$(TLH_LAUNCH_BOUND_SECONDS=2 TLH_CONFIRM_CAP_SECONDS=2 /bin/bash "$(child_suite cap 'exit 0')" 2>&1)
   rc=$?
   [ "$rc" -ne 0 ] || fail "h1: a bound that does not exceed the confirm cap must be refused at setup"
@@ -101,13 +100,27 @@ h1() {
   [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && fail "h1: a hang must kill the launch's whole process tree, the session's command included"
   expect_one_fail "h1: tlh_expect_returned on a hung run" tlh_expect_returned "h1 probe"
 
+  # A launch that traps TERM and exits 0 when cut off still hung, and a
+  # grandchild that ignores TERM goes with it.
+  tlh_run_bounded --bound 1 bash -c "trap 'exit 0' TERM
+sh -c 'echo \$\$ >\"$TLH_SANDBOX/grandchild\"; trap \"\" TERM; exec sleep 300' &
+while :; do sleep 0.05; done"
+  [ "$TLH_RC" -eq 124 ] || fail "h1: a launch that exits 0 on TERM was still cut off at its bound, got rc $TLH_RC"
+  [ -n "$TLH_DIAG" ] || fail "h1: a launch that exits 0 on TERM must still be diagnosed"
+  pid=$(cat "$TLH_SANDBOX/grandchild" 2>/dev/null)
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && {
+    fail "h1: a cut-off launch's TERM-ignoring descendant must be killed"
+    kill -9 "$pid"
+  }
+
   # A run that returns before its bound is never reported as a hang, however
   # the start falls against a whole-second clock.
   for i in 1 2 3; do
-    tlh_run_bounded --bound 1 sleep 0.6
-    [ "$TLH_RC" -eq 0 ] || fail "h1: a 0.6s run under a 1s bound was cut off (round $i, rc $TLH_RC)"
+    tlh_run_bounded --bound 2 sleep 1.2
+    [ "$TLH_RC" -eq 0 ] || fail "h1: a 1.2s run under a 2s bound was cut off (round $i, rc $TLH_RC)"
   done
   expect_one_fail "h1: a fractional bound" tlh_run_bounded --bound 1.5 true
+  expect_one_fail "h1: a bound with no command" tlh_run_bounded --bound 2
 
   tlh_run_bounded tmux new-session -d -s quick -P -F "#{session_name}${TAB}#{window_id}" -c "$wt" -- sleep 30
   tlh_expect_returned "h1: a returning launch"
@@ -123,7 +136,7 @@ h1() {
 
 # --- h2 ---------------------------------------------------------------------
 h2() {
-  local rec n out
+  local rec n out sb
   tlh_server_env TLH_PROBE_SERVER_ONLY=from-server CDPATH=/server-cdpath
   TLH_PROBE_DISPATCHER_ONLY=from-dispatcher
   export TLH_PROBE_DISPATCHER_ONLY
@@ -155,9 +168,10 @@ h2() {
     "unset|unset|unset|unset|"*) ;;
     *) fail "h2: the harness must scrub the inherited worker identity and plugin data, got: $out" ;;
   esac
-  case ${out#unset|unset|unset|unset|} in
-    "/leak|"*) fail "h2: the fleet home must be pinned inside the sandbox, got: $out" ;;
-  esac
+  sb=${out##*|}
+  [ "$(printf '%s\n' "$out" | cut -d'|' -f5)" = "$sb/fleet" ] \
+    || fail "h2: the fleet home must be pinned inside the sandbox, got: $out"
+  case $out in *FAIL:*) fail "h2: the scrub child reported a failure: $out" ;; esac
 }
 
 # --- h3 ---------------------------------------------------------------------
@@ -176,7 +190,8 @@ h3() {
   expect_one_fail "h3: different existing paths" tlh_assert_path_eq "h3 probe" "$wt" "$TLH_SANDBOX"
   expect_one_fail "h3: different missing paths sharing a basename" \
     tlh_assert_path_eq "h3 probe" /nonexistent-a/m/x /nonexistent-b/m/x
-  [ -z "$(tlh_record_field "$rec" argv)" ] || fail "h3: a worker given no arguments must record an empty argv"
+  grep -qx argv "$rec" && [ -z "$(tlh_record_field "$rec" argv)" ] \
+    || fail "h3: a worker given no arguments must record an empty argv line"
   tmux kill-session -t =pathprobe
 
   # A -c that names no directory starts in the server's HOME, without a word.
@@ -241,11 +256,11 @@ EOF
   done
   tlh_knob worker-confirm on
 
-  # A contested name, fresh and then stale (its command has exited), goes to
-  # exactly one creator.
-  tmux new-session -d -s contested -c "$wt" -- true
+  # A contested name goes to exactly one creator: fresh in round 1, held by a
+  # session whose command exited in round 2, by a killed one after that.
   r=1
   while [ "$r" -le "$rounds" ]; do
+    [ "$r" -eq 2 ] && tmux new-session -d -s contested -c "$wt" -- true
     wait_gone contested
     i=1
     while [ "$i" -le "$n_race" ]; do
@@ -256,7 +271,7 @@ EOF
     set -- "$TLH_SANDBOX"/won."$r".*
     wins=$#
     [ -e "$1" ] || wins=0
-    [ "$wins" -eq 1 ] || fail "h4: round $r: $n_race racing creates over a stale name must yield one session, got $wins"
+    [ "$wins" -eq 1 ] || fail "h4: round $r: $n_race racing creates over one name must yield one session, got $wins"
     tmux kill-session -t =contested
     r=$((r + 1))
   done
@@ -312,6 +327,11 @@ echo "rc=$TLH_RC"')" 2>&1) || rc=$?
   case $err in *"rc=3"*) ;; *) fail "h5: under set -e a bounded run's failing status must be captured, got: $err" ;; esac
   sb=$(cat "$TLH_SANDBOX/errexit.sb" 2>/dev/null)
   [ -n "$sb" ] && [ ! -e "$sb" ] || fail "h5: a set -e suite's teardown must remove its sandbox"
+
+  rc=0
+  /bin/bash "$(child_suite errexit-fails 'set -e
+false')" 2>/dev/null || rc=$?
+  [ "$rc" -eq 1 ] || fail "h5: a set -e suite's failing status must survive teardown, got $rc"
 }
 
 # --- h6 ---------------------------------------------------------------------
@@ -353,8 +373,9 @@ tlh_knob worker-confirm off
 launch s4 "$TLH_BIN/claude"
 tlh_knob worker-confirm on
 tlh_knob worker-exit 3
+n=$(tlh_worker_count)
 tmux new-session -d -s dies -c "$TLH_SANDBOX/w" -- "$TLH_BIN/claude"
-tlh_wait_workers $(($(tlh_worker_count) + 1)) 10
+tlh_wait_workers $((n + 1)) 10
 t=0
 while tmux has-session -t =dies 2>/dev/null && [ "$t" -lt 50 ]; do sleep 0.1; t=$((t + 1)); done
 tmux has-session -t =dies 2>/dev/null && echo "dies: still live" || echo "dies: gone"
@@ -372,11 +393,12 @@ tmux has-session -t =dies 2>/dev/null && echo "dies: still live" || echo "dies: 
   case $out in *"s4 confirm=off"*) ;; *) fail "h6: a fixture must be able to turn the confirmation off, got: $out" ;; esac
   case $out in *"s4 hook:"*) fail "h6: confirmation off must not call the hook, got: $out" ;; esac
   case $out in *"dies: gone"*) ;; *) fail "h6: a session whose worker exits must be gone, got: $out" ;; esac
+  case $out in *FAIL:*) fail "h6: the confirmation child reported a failure: $out" ;; esac
 }
 
 # --- h7 ---------------------------------------------------------------------
 h7() {
-  local err n rec
+  local err n rec k
   tmux new-session -d -s live.one -c "$wt" -- sleep 30
   tmux has-session -t =live_one || fail "h7: a dotted name must be stored with '.' written '_'"
   tmux has-session -t '=live_one:' || fail "h7: a '=<session>:' target must resolve"
@@ -449,14 +471,33 @@ h7() {
   tmux has-session -t "=$n" || fail "h7: an unnamed session must resolve by its number"
   tmux kill-session -t "=$n"
 
+  # Pane targets, formats with no client, a one-word command, list-panes.
+  tmux capture-pane -p -t =live_one 2>/dev/null && fail "h7: a bare '=<session>' pane target must be refused, as tmux 3.6 refuses it"
+  tmux capture-pane -p -t =live_one: || fail "h7: a '=<session>:' pane target must resolve"
+  [ -z "$(tmux display-message -p '#{client_session}')" ] \
+    || fail "h7: display-message -p must expand a client variable with no client to nothing"
+  tmux new-session -d -s single -c "$wt" -- "sleep 30 && true"
+  sleep 0.3
+  tmux has-session -t =single || fail "h7: a one-word command must run through a shell, as tmux runs it"
+  [ "$(tmux list-panes -t '=single:' -F '#{pane_pid}')" = "$(tlh_session_pid single)" ] \
+    || fail "h7: list-panes must report the session's pane pid"
+  tmux kill-session -t =single
+  tmux new-session -d -s 'has space' -c "$wt" -- sleep 30 2>/dev/null \
+    && fail "h7: a name the stub cannot model must be refused, not mangled"
+  tmux new-session -d -s fast -c "$wt" -- true ';' set-option -t =fast remain-on-exit off \
+    || fail "h7: a command chained after new-session must see the session it created"
+  expect_one_fail "h7: an unknown knob value" tlh_knob server unreachble
+
   # The last session gone, the server has exited, as tmux's does.
   tmux kill-session -t =live_one
   tmux kill-session -t =semi
+  wait_gone fast
   err=$(tmux has-session -t =live_one 2>&1) && fail "h7: a killed session must be gone"
   case $err in
     *"no server running"*) ;;
     *) fail "h7: with no session left the server must have exited, got: $err (live: $(tmux list-sessions 2>&1 | tr '\n' ' '))" ;;
   esac
+  tmux start-server || fail "h7: start-server must succeed with no server running"
 }
 
 for c in h1 h2 h3 h4 h5 h6 h7; do

@@ -4,13 +4,14 @@
 # that execs this with the stub state directory and the plugin root first).
 # Never run directly.
 #
-# On start it snapshots its environment untouched, then confirms its launch
-# the way a real worker does: it fires the plugin's liveness hook,
+# On start it snapshots its environment before changing anything (the shell
+# running it may still add PWD), then confirms its launch the way a real
+# worker does: it fires the plugin's liveness hook,
 # `<plugin root>/scripts/fleet-liveness.sh hook session-start`, in its OWN
 # environment (so the handle, scope, and launch token the hook reads are
 # whatever the launch actually delivered), with a SessionStart payload whose
-# source is `resume` when its argv carries --continue, -c, --resume, or -r and
-# `startup` otherwise. Until that hook accepts the session-start event it
+# source is `resume` when its flags (the words before any `--`) carry
+# --continue, -c, --resume[=...], or -r[=...], and `startup` otherwise. Until that hook accepts the session-start event it
 # refuses the push, and the record shows the hook's exit status. Writing
 # `<state>/knobs/worker-confirm` = off skips the hook.
 #
@@ -42,7 +43,10 @@ if [ "$STUB_KNOB" = off ]; then
 else
   start_source=startup
   for a; do
-    case $a in --continue | -c | --resume | --resume=* | -r | -r=*) start_source=resume ;; esac
+    case $a in
+      --) break ;;
+      --continue | -c | --resume | --resume=* | -r | -r=*) start_source=resume ;;
+    esac
   done
   printf '{"hook_event_name":"SessionStart","source":"%s"}\n' "$start_source" \
     | CLAUDE_PLUGIN_ROOT=$PLUGIN_ROOT "$PLUGIN_ROOT/scripts/fleet-liveness.sh" hook session-start \

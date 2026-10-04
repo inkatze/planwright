@@ -7,11 +7,16 @@
 # leaves no process behind. tests/test-tmux-launch-harness.sh is its
 # self-test. Safe under `set -e` and `set -u`.
 #
+# Inputs read before sourcing: TLH_LAUNCH_BOUND_SECONDS (default 30) and
+# TLH_CONFIRM_CAP_SECONDS (default 2), whole seconds; TLH_SYMLINKED_TMP;
+# TLH_PLUGIN_ROOT.
+#
 # Sourcing runs setup. It exits the sourcing suite (status 1) when the suite
 # has not defined a `fail` function (every assertion here reports through it),
-# when the default bound does not exceed the confirm cap, when a sandbox,
-# checkout, or plugin-root path holds a single quote or PATH a newline, or
-# when the sandbox cannot be built. Setup:
+# when the bound or the cap is not whole seconds or the bound does not exceed
+# the cap, when a sandbox, checkout, or plugin-root path holds a single quote
+# or a newline (or PATH a newline), or when the sandbox cannot be built.
+# Setup:
 #   - builds the sandbox under a SYMLINKED temporary directory, so
 #     $TLH_SANDBOX is never its own physical path and an uncanonicalized path
 #     compare fails (TLH_SYMLINKED_TMP=0 before sourcing opts out);
@@ -40,12 +45,15 @@
 #                                   harness only holds the bound above it
 #   tlh_run_bounded [--bound <s>] <cmd> [args...]
 #       run <cmd> with stdin from /dev/null, killing its whole process tree
-#       once the bound (whole seconds) elapses. Sets TLH_RC (124 on a hang),
-#       TLH_OUT, TLH_ERR, TLH_ELAPSED (whole seconds), and TLH_DIAG (empty
-#       unless it hung). A malformed bound fails and runs nothing.
+#       once the bound (whole seconds) elapses. Sets TLH_RC (124 when the run
+#       was still going at the bound, whatever status its kill left), TLH_OUT,
+#       TLH_ERR, TLH_ELAPSED (whole seconds), and TLH_DIAG (empty unless it
+#       was cut off). A malformed bound or a missing command fails, sets
+#       TLH_RC 2, and runs nothing.
 #   tlh_expect_returned <label>  fail with TLH_DIAG when the last run hung
 #   tlh_server_env KEY=VALUE...   add to (or replace in) the server environment
-#   tlh_knob <name> <value>       set a stub knob
+#   tlh_knob <name> <value>       set a stub knob; a value the stub would not
+#                                 recognize is refused
 #   tlh_tmux_calls                every stub tmux invocation, oldest first, one
 #                                 tab-separated argv per line
 #   tlh_worker_records            every stub worker record path, oldest first
@@ -99,6 +107,7 @@ STUB_STATE=''
 
 tlh_stub_pids_alive() {
   local f p
+  [ -n "$STUB_STATE" ] || return 0
   for f in "$STUB_STATE"/pids/*; do
     [ -f "$f" ] || continue
     p=${f##*/}
@@ -108,13 +117,21 @@ tlh_stub_pids_alive() {
 }
 
 tlh_reap() {
-  local p left t=0
-  for p in $(tlh_stub_pids_alive); do stub_kill_tree TERM "$p"; done
-  while [ -n "$(tlh_stub_pids_alive)" ] && [ "$t" -lt 10 ]; do
+  local left members t=0
+  left=$(tlh_stub_pids_alive)
+  [ -z "$left" ] && return 0
+  # shellcheck disable=SC2086 # one root per word
+  stub_kill_tree TERM $left
+  members=$STUB_TREE
+  while [ -n "$left" ] && [ "$t" -lt 10 ]; do
     sleep 0.1
     t=$((t + 1))
+    left=$(tlh_stub_pids_alive)
   done
-  for p in $(tlh_stub_pids_alive); do stub_kill_tree KILL "$p"; done
+  # Every member the TERM pass froze, recorded or not: a TERM-ignoring
+  # descendant whose parent obeyed is no longer under any recorded pid.
+  # shellcheck disable=SC2086
+  stub_kill_tree KILL $left $members
   t=0
   left=$(tlh_stub_pids_alive)
   while [ -n "$left" ] && [ "$t" -lt 5 ]; do
@@ -148,6 +165,7 @@ _tlh_setup_fail() {
 
 trap tlh_teardown EXIT
 _tlh_base=$(mktemp -d "${TMPDIR:-/tmp}/tlh.XXXXXX") || _tlh_setup_fail "cannot create the sandbox"
+_tlh_base=$(cd "$_tlh_base" && pwd) || _tlh_setup_fail "cannot resolve the sandbox"
 if [ "${TLH_SYMLINKED_TMP:-1}" = 1 ]; then
   { mkdir -p "$_tlh_base/real" && ln -s real "$_tlh_base/link" && mkdir -p "$_tlh_base/link/sb"; } \
     || _tlh_setup_fail "cannot build the symlinked sandbox under $_tlh_base"
@@ -167,7 +185,7 @@ mkdir -p "$TLH_BIN" "$TLH_SANDBOX/server-home" "$TLH_SANDBOX/runs" "$TLH_SANDBOX
 # The shims bake their paths in single quotes; the server environment is
 # one variable per line.
 case "$TLH_STATE$TLH_LIB$TLH_PLUGIN_ROOT" in
-  *"'"*) _tlh_setup_fail "a sandbox, checkout, or plugin-root path holds a single quote" ;;
+  *"'"* | *$'\n'*) _tlh_setup_fail "a sandbox, checkout, or plugin-root path holds a single quote or a newline" ;;
 esac
 case $PATH in
   *$'\n'*) _tlh_setup_fail "PATH holds a newline" ;;
@@ -240,11 +258,27 @@ tlh_server_env() {
 }
 
 tlh_knob() {
+  local ok
   case $1 in
-    new-session | server | remain-on-exit | worker-confirm | worker-exit) ;;
+    new-session) ok='ok fail duplicate block' ;;
+    server) ok='up none unreachable' ;;
+    remain-on-exit | worker-confirm) ok='on off' ;;
+    worker-exit) ok='run' ;;
     *)
       fail "tlh_knob: unknown knob '$1'"
       return 1
+      ;;
+  esac
+  case " $ok " in
+    *" ${2:-} "*) ;;
+    *)
+      case $1/${2:-} in
+        worker-exit/[0-9] | worker-exit/[0-9][0-9] | worker-exit/[0-9][0-9][0-9]) ;;
+        *)
+          fail "tlh_knob: '${2:-}' is not a value of knob '$1' ($ok)"
+          return 1
+          ;;
+      esac
       ;;
   esac
   stub_write_file "$TLH_STATE/knobs/$1" "$2"$'\n' || {
@@ -255,7 +289,9 @@ tlh_knob() {
 
 # The watchdog kills the run's tree once the bound elapses; a run that ends
 # first is reaped by `wait` and its watchdog killed, so a short run pays no
-# polling floor and the cut-off falls at the bound, not at a clock tick.
+# polling floor and the cut-off falls at the bound, not at a clock tick. The
+# watchdog's marker alone decides the verdict: a launch that traps TERM and
+# exits 0 when cut off still hung.
 tlh_run_bounded() {
   local bound=$TLH_LAUNCH_BOUND_SECONDS pid dog dir start
   if [ "${1:-}" = --bound ]; then
@@ -272,6 +308,11 @@ tlh_run_bounded() {
     fail "tlh_run_bounded: the bound must be a positive whole number of seconds, got '$bound'"
     return 0
   fi
+  if [ $# -eq 0 ]; then
+    TLH_RC=2
+    fail "tlh_run_bounded: no command to run"
+    return 0
+  fi
   _tlh_runs=$((_tlh_runs + 1))
   dir="$TLH_SANDBOX/runs/$_tlh_runs"
   mkdir -p "$dir"
@@ -279,22 +320,29 @@ tlh_run_bounded() {
   "$@" </dev/null >"$dir/out" 2>"$dir/err" &
   pid=$!
   (
-    sleep "$bound"
+    sleep "$bound" &
+    printf '%s\n' "$!" >"$dir/dog-sleep"
+    wait "$!"
+    kill -0 "$pid" 2>/dev/null || exit 0
     : >"$dir/hung"
     stub_kill_tree TERM "$pid"
     sleep 0.2
-    stub_kill_tree KILL "$pid"
+    # shellcheck disable=SC2086 # one root per word
+    stub_kill_tree KILL $STUB_TREE
   ) </dev/null >/dev/null 2>&1 &
   dog=$!
   TLH_RC=0
   { wait "$pid"; } 2>/dev/null || TLH_RC=$?
-  if [ -e "$dir/hung" ] && [ "$TLH_RC" -gt 128 ]; then
+  if [ -e "$dir/hung" ]; then
     { wait "$dog"; } 2>/dev/null || true
     TLH_RC=124
-    TLH_DIAG="hang: '${1##*/}' did not return within ${bound}s and was killed with its process tree; a launch that waits on its worker blocks the dispatch"
+    TLH_DIAG="blocking launch: '${1##*/}' did not return within ${bound}s and was killed with its process tree; a launch that waits on its worker blocks the dispatch"
   else
-    stub_kill_tree KILL "$dog"
+    # The watchdog itself first, so it cannot wake and signal a pid that
+    # `wait` has already released; then its sleep.
+    kill -KILL "$dog" 2>/dev/null
     { wait "$dog"; } 2>/dev/null || true
+    if [ -r "$dir/dog-sleep" ]; then kill "$(cat "$dir/dog-sleep")" 2>/dev/null || true; fi
   fi
   TLH_ELAPSED=$((SECONDS - start))
   TLH_OUT=$(cat "$dir/out")

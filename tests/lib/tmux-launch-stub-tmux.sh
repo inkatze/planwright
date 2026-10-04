@@ -23,27 +23,39 @@
 #                refusal asserts that no call arrived at all. The name is
 #                rewritten `.`/`:` to `_`; a live session holding it is
 #                refused `duplicate session: <name>`; an unnamed session takes
-#                its session number, as tmux names it. A `-c` that is not a
-#                directory silently starts in the server's HOME. The command
-#                runs in the background with fds 0-9 closed or redirected.
-#                `-P` prints the `-F` format (default `#{session_name}:`)
-#                expanding session_name, session_id, window_id, pane_id,
-#                pane_pid, and pane_current_path, which is the -c value as
-#                given: tmux reports the path before the pane's chdir.
+#                the next session number, as tmux names it. A name holding
+#                `/`, whitespace, or a glob character is refused as not
+#                modelled. A `-c` that is not a directory silently starts in
+#                the server's HOME. One command word runs as `/bin/sh -c
+#                <word>`, several are executed directly, as tmux does. The
+#                command runs in the background with fds 0-9 closed or
+#                redirected. `-P` prints the `-F` format (default
+#                `#{session_name}:`) expanding session_name, session_id,
+#                window_id, pane_id, pane_pid, and pane_current_path, which is
+#                the -c value as given: tmux reports the path before the
+#                pane's chdir.
 #   set-option   `remain-on-exit` is honoured, per session (-t, or the session
 #                this invocation created) or globally (-g); other options are
 #                accepted and ignored.
-#   has-session / kill-session / kill-server / list-sessions / capture-pane
-#                against live sessions. A session whose command has exited is
-#                gone unless remain-on-exit is on for it. A target without `=`
-#                matches exactly, then by unique prefix; a target shaped like
-#                a path never resolves. With no live session left the server
-#                has exited, and every command but new-session answers
-#                `no server running`. Liveness reads the pid alone; only the
-#                harness's reaper, which signals, checks a pid's start time.
+#   has-session / kill-session / kill-server / list-sessions / list-panes /
+#   capture-pane against live sessions. A session whose command has exited is
+#                gone unless remain-on-exit is on for it; the session this
+#                invocation created stays live for the commands chained after
+#                it. A target without `=` matches exactly, then by unique
+#                prefix; a pane target (capture-pane, list-panes -t) given as
+#                a bare `=<session>` is refused, as tmux 3.6 refuses it. Killing
+#                a session sends its command SIGHUP, as closing its pty does.
+#                With no live session left the server has exited, and every
+#                command but new-session and start-server answers `no server
+#                running`. Liveness reads the pid alone; only the harness's
+#                reaper, which signals, checks a pid's start time.
+#   list-panes   one line per pane (-t <session>, -a, or every session),
+#                expanding its -F format (default `#{pane_id}`) as -P does.
+#   display-message -p  prints its message with every `#{...}` expanded to
+#                nothing, as tmux does for a client variable with no client.
 #   new-window   refused as not modelled.
 #   others tmux knows (switch-client, attach-session, send-keys, ...) are
-#                recorded and answered 0; display-message -p prints its words.
+#                recorded and answered 0.
 #
 # Knobs (one-line files under <state>/knobs/, written by tlh_knob):
 #   new-session     ok (default) | fail | duplicate | block — block creates
@@ -69,11 +81,13 @@ shift
 # shellcheck source=tests/lib/tmux-launch-stub-common.sh
 . "${0%/*}/tmux-launch-stub-common.sh"
 
-# The internal command separator: no command word is a lone newline.
+# The internal command separator. A command word that is a lone newline
+# would be read as one, which no launch passes.
 SEP='
 '
 SOCKET="$STUB_STATE/socket"
 CUR_DIR=''
+CUR_NAME=''
 
 record_call() {
   stub_claim_seq call || {
@@ -99,13 +113,15 @@ server_home() {
 }
 
 # A session is a symlink sessions/<name> -> ../sdata/<seq>, the directory that
-# holds its creator, pid, env, remain, and killed files. Creating the link is
-# the exclusive claim on the name.
+# holds its state files. Creating the link is the exclusive claim on the name.
+
+# remain_of <session dir> — set STUB_REMAIN to the session's remain-on-exit.
 remain_of() {
   if [ -r "$1/remain" ]; then
-    IFS= read -r STUB_KNOB <"$1/remain" || true
+    IFS= read -r STUB_REMAIN <"$1/remain" || true
   else
     stub_knob remain-on-exit off
+    STUB_REMAIN=$STUB_KNOB
   fi
 }
 
@@ -120,7 +136,7 @@ dir_live() {
   if [ -n "$dl_p" ]; then
     kill -0 "$dl_p" 2>/dev/null && return 0
     remain_of "$1"
-    [ "$STUB_KNOB" = on ]
+    [ "$STUB_REMAIN" = on ]
     return
   fi
   [ -r "$1/creator" ] || return 1
@@ -129,7 +145,9 @@ dir_live() {
 }
 
 session_live() {
-  [ -L "$STUB_STATE/sessions/$1" ] && dir_live "$STUB_STATE/sessions/$1"
+  [ -L "$STUB_STATE/sessions/$1" ] || return 1
+  [ "$1" = "$CUR_NAME" ] && return 0
+  dir_live "$STUB_STATE/sessions/$1"
 }
 
 live_sessions() {
@@ -151,11 +169,12 @@ any_live_session() {
   return 1
 }
 
-# A name is also a file name here, so the few names that would leave
-# sessions/ or collide with a break claim are refused rather than modelled.
+# A name is also a file name and a word in an unquoted list here, so the names
+# that would leave sessions/, collide with a break claim, or split or glob are
+# refused rather than modelled.
 name_ok() {
   case $1 in
-    '' | . | .. | */* | *'#break#'*) return 1 ;;
+    '' | . | .. | */* | *'#break#'* | *' '* | *"$STUB_TAB"* | *"$SEP"* | *'*'* | *'?'* | *'['*) return 1 ;;
   esac
   return 0
 }
@@ -215,13 +234,14 @@ server_gate() {
       return 1
       ;;
   esac
+  [ -n "$CUR_NAME" ] && return 0
   any_live_session && return 0
   echo "no server running on $SOCKET" >&2
   return 1
 }
 
-# expand_format <fmt> — expands against the session cmd_new_session just made
-# (its ns_* variables).
+# expand_format <fmt> — expands against one session's ns_* variables (the one
+# cmd_new_session just made, or one load_session_vars read).
 expand_format() {
   ef_s=$1
   ef_out=''
@@ -234,14 +254,14 @@ expand_format() {
         ef_rest=${ef_s#*"$ef_open"}
         ef_key=${ef_rest%%"$ef_close"*}
         ef_s=${ef_rest#*"$ef_close"}
+        ef_v=''
         case $ef_key in
           session_name) ef_v=$ns_name ;;
-          session_id) ef_v="\$$ns_num" ;;
-          window_id) ef_v="@$ns_num" ;;
-          pane_id) ef_v="%$ns_num" ;;
+          session_id) [ -n "$ns_num" ] && ef_v="\$$ns_num" ;;
+          window_id) [ -n "$ns_num" ] && ef_v="@$ns_num" ;;
+          pane_id) [ -n "$ns_num" ] && ef_v="%$ns_num" ;;
           pane_pid) ef_v=$ns_pid ;;
           pane_current_path) ef_v=$ns_dir ;;
-          *) ef_v='' ;;
         esac
         ef_out=$ef_out$ef_pre$ef_v
         ;;
@@ -254,16 +274,33 @@ expand_format() {
   printf '%s\n' "$ef_out"
 }
 
-# tmux_name <name> — set TN to the name as tmux stores it.
+# tmux_name <name> — set STORED_NAME to the name as tmux stores it.
 tmux_name() {
-  TN=$1
+  STORED_NAME=$1
   while :; do
-    case $TN in
-      *.*) TN="${TN%%.*}_${TN#*.}" ;;
-      *:*) TN="${TN%%:*}_${TN#*:}" ;;
+    case $STORED_NAME in
+      *.*) STORED_NAME="${STORED_NAME%%.*}_${STORED_NAME#*.}" ;;
+      *:*) STORED_NAME="${STORED_NAME%%:*}_${STORED_NAME#*:}" ;;
       *) return 0 ;;
     esac
   done
+}
+
+# load_session_vars <name> — set the ns_* variables expand_format reads from
+# a live session's state files.
+load_session_vars() {
+  lsv_d="$STUB_STATE/sessions/$1"
+  ns_name=$1 ns_num='' ns_pid='' ns_dir=''
+  [ -r "$lsv_d/num" ] && { IFS= read -r ns_num <"$lsv_d/num" || true; }
+  [ -r "$lsv_d/pid" ] && { IFS= read -r ns_pid <"$lsv_d/pid" || true; }
+  [ -r "$lsv_d/cwd" ] && { IFS= read -r ns_dir <"$lsv_d/cwd" || true; }
+  return 0
+}
+
+# claim_number — set ns_num to the next session number, from 0.
+claim_number() {
+  stub_claim_seq sessnum || return 1
+  ns_num=$((${STUB_SEQ#"${STUB_SEQ%%[!0]*}"} - 1))
 }
 
 need_value() {
@@ -319,7 +356,7 @@ cmd_new_session() {
     return 1
   fi
   tmux_name "$ns_name"
-  ns_name=$TN
+  ns_name=$STORED_NAME
   stub_knob new-session ok
   ns_mode=$STUB_KNOB
   case $ns_mode in
@@ -332,26 +369,36 @@ cmd_new_session() {
       return 1
       ;;
   esac
-  stub_claim_seq session || return 1
-  ns_seq=$STUB_SEQ
-  ns_num=$((${ns_seq#"${ns_seq%%[!0]*}"} - 1))
-  [ -n "$ns_name" ] || ns_name=$ns_num
+  # tmux numbers only the sessions it creates, so a named create takes its
+  # number once the name is won; an unnamed one needs it as its name.
+  ns_num=''
+  if [ -z "$ns_name" ]; then
+    claim_number || return 1
+    ns_name=$ns_num
+  fi
   name_ok "$ns_name" || {
     echo "stub tmux: session name '$ns_name' is not modelled" >&2
     return 1
   }
+  stub_claim_seq session || return 1
+  ns_seq=$STUB_SEQ
   ns_sd="$STUB_STATE/sdata/$ns_seq"
   mkdir -p "$ns_sd" || return 1
   stub_write_file "$ns_sd/creator" "$$$SEP" || return 1
   stub_write_file "$ns_sd/env" "$ns_env" || return 1
+  stub_write_file "$ns_sd/cwd" "$ns_dir$SEP" || return 1
   if ! claim_name "$ns_name" "$ns_seq"; then
     echo "duplicate session: $ns_name" >&2
     return 1
   fi
+  if [ -z "$ns_num" ]; then claim_number || return 1; fi
+  stub_write_file "$ns_sd/num" "$ns_num$SEP" || return 1
   CUR_DIR=$ns_sd
+  CUR_NAME=$ns_name
   ns_start=${ns_dir:-$(pwd)}
   [ -d "$ns_start" ] || ns_start=$(server_home)
   [ $# -gt 0 ] || set -- sleep 600
+  [ $# -eq 1 ] && set -- /bin/sh -c "$1"
   # The session command records itself before it runs, so a stub killed
   # after the fork still leaves its child reapable, and a child that cannot
   # record itself (its sandbox already gone) never runs.
@@ -391,19 +438,35 @@ cmd_new_session() {
   return 0
 }
 
+# target_arg <args...> — set TARGET to the -t value, empty when none.
 target_arg() {
-  TA=''
+  TARGET=''
   while [ $# -gt 0 ]; do
     case $1 in
       -t)
         need_value "$#" -t || return 1
-        TA=$2
+        TARGET=$2
         shift 2
         ;;
       *) shift ;;
     esac
   done
   return 0
+}
+
+# pane_target <target> — resolve a pane target; tmux 3.6 refuses a bare
+# `=<session>` there and needs `=<session>:`.
+pane_target() {
+  case $1 in
+    =*:*) ;;
+    =*)
+      echo "can't find pane: ${1#=}" >&2
+      return 1
+      ;;
+  esac
+  resolve_target "$1" && return 0
+  echo "can't find pane: ${1#=}" >&2
+  return 1
 }
 
 # kill_dir <session dir> — mark the session killed and end its command,
@@ -419,7 +482,7 @@ kill_dir() {
   if [ -r "$1/pid" ]; then
     IFS= read -r kd_p <"$1/pid" || true
   fi
-  [ -n "$kd_p" ] && kill -0 "$kd_p" 2>/dev/null && stub_kill_tree TERM "$kd_p"
+  [ -n "$kd_p" ] && kill -0 "$kd_p" 2>/dev/null && stub_kill_tree HUP "$kd_p"
   return 0
 }
 
@@ -481,7 +544,7 @@ run_one() {
   ro_cmd=$1
   shift
   case $ro_cmd in
-    new-session | new) ;;
+    new-session | new | start-server | start) ;;
     *) server_gate || return 1 ;;
   esac
   case $ro_cmd in
@@ -492,14 +555,14 @@ run_one() {
       ;;
     has-session | has)
       target_arg "$@" || return 1
-      resolve_target "$TA" && return 0
-      echo "can't find session: ${TA#=}" >&2
+      resolve_target "$TARGET" && return 0
+      echo "can't find session: ${TARGET#=}" >&2
       return 1
       ;;
     kill-session)
       target_arg "$@" || return 1
-      resolve_target "$TA" || {
-        echo "can't find session: ${TA#=}" >&2
+      resolve_target "$TARGET" || {
+        echo "can't find session: ${TARGET#=}" >&2
         return 1
       }
       kill_dir "$STUB_STATE/sessions/$RT_NAME"
@@ -509,12 +572,39 @@ run_one() {
       return 0
       ;;
     list-sessions | ls) live_sessions ;;
+    list-panes)
+      ro_fmt='#{pane_id}' ro_t='' ro_all=0
+      while [ $# -gt 0 ]; do
+        case $1 in
+          -a)
+            ro_all=1
+            shift
+            ;;
+          -t | -F | -f)
+            need_value "$#" "$1" || return 1
+            [ "$1" = -t ] && ro_t=$2
+            [ "$1" = -F ] && ro_fmt=$2
+            shift 2
+            ;;
+          *) shift ;;
+        esac
+      done
+      if [ -n "$ro_t" ] && [ "$ro_all" = 0 ]; then
+        pane_target "$ro_t" || return 1
+        ro_names=$RT_NAME
+      else
+        ro_names=$(live_sessions)
+      fi
+      for ro_n in $ro_names; do
+        load_session_vars "$ro_n"
+        expand_format "$ro_fmt"
+      done
+      return 0
+      ;;
     capture-pane | capturep)
       target_arg "$@" || return 1
-      [ -z "$TA" ] && return 0
-      resolve_target "$TA" && return 0
-      echo "can't find pane: ${TA#=}" >&2
-      return 1
+      [ -z "$TARGET" ] && return 0
+      pane_target "$TARGET"
       ;;
     set-option | set | set-window-option | setw) cmd_set_option "$@" ;;
     display-message | display)
@@ -532,7 +622,10 @@ run_one() {
           *) break ;;
         esac
       done
-      [ "$ro_p" = 1 ] && printf '%s\n' "$*"
+      if [ "$ro_p" = 1 ]; then
+        ns_name='' ns_num='' ns_pid='' ns_dir=''
+        expand_format "$*"
+      fi
       return 0
       ;;
     *) return 0 ;;
