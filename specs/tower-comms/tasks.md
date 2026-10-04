@@ -487,6 +487,13 @@ baseline exists, so the experiment has an honest before.
   line names no identity), so either the launcher passes
   `claude --session-id <uuid>` and exports it, or the hook grows a
   pid-composite gate; Task 8's identity wiring is where the first lands.
+- **Task 9** — operator-run: the experiment is the operator's own, real
+  fleet sessions on a tower carrying the queue plus the four observations
+  only a human can make (REQ-C1.3, REQ-C1.8, REQ-D1.2, REQ-E1.6), so no
+  tower or orchestrator selects it. Operator: once Task 8 has landed on a
+  tower, run the sessions, record the comparison and the four observations
+  in the kickoff brief's risk register per the task's Done-when, then
+  remove this bullet.
 
 ## Deferred
 
