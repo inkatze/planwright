@@ -33,7 +33,7 @@
 #                `#{session_name}:`) expanding session_name, session_id,
 #                window_id, pane_id, pane_pid, and pane_current_path, which is
 #                the -c value as given: tmux reports the path before the
-#                pane's chdir.
+#                pane's chdir. Any other `#{...}` key expands to nothing.
 #   set-option   `remain-on-exit` is honoured, per session (-t, or the session
 #                this invocation created) or globally (-g); other options are
 #                accepted and ignored.
@@ -41,18 +41,21 @@
 #   capture-pane against live sessions. A session whose command has exited is
 #                gone unless remain-on-exit is on for it; the session this
 #                invocation created stays live for the commands chained after
-#                it. A target without `=` matches exactly, then by unique
-#                prefix; a pane target (capture-pane, list-panes -t) given as
-#                a bare `=<session>` is refused, as tmux 3.6 refuses it. Killing
-#                a session sends its command SIGHUP, as closing its pty does.
-#                With no live session left the server has exited, and every
-#                command but new-session and start-server answers `no server
+#                it until one kills it. A target without `=` matches exactly,
+#                then by unique prefix; capture-pane refuses a bare
+#                `=<session>` pane target, as tmux 3.6 does. Killing a session
+#                sends its command SIGHUP, as closing its pty does. With no
+#                live session left the server has exited, and every command
+#                but new-session and start-server answers `no server
 #                running`. Liveness reads the pid alone; only the harness's
 #                reaper, which signals, checks a pid's start time.
 #   list-panes   one line per pane (-t <session>, -a, or every session),
-#                expanding its -F format (default `#{pane_id}`) as -P does.
-#   display-message -p  prints its message with every `#{...}` expanded to
-#                nothing, as tmux does for a client variable with no client.
+#                expanding its -F format (default `#{pane_id}`) with the keys
+#                -P knows, pane_current_path being the physical directory the
+#                pane started in.
+#   display-message -p  prints its message expanded against the -t session
+#                or, with none, the newest session; client variables, having
+#                no client, expand to nothing.
 #   new-window   refused as not modelled.
 #   others tmux knows (switch-client, attach-session, send-keys, ...) are
 #                recorded and answered 0.
@@ -144,9 +147,15 @@ dir_live() {
   kill -0 "$dl_c" 2>/dev/null
 }
 
+# cur_session_live — 0 while this invocation's own new session stands: it is
+# live for the commands chained after it until one of them kills it.
+cur_session_live() {
+  [ -n "$CUR_NAME" ] && [ ! -e "$CUR_DIR/killed" ]
+}
+
 session_live() {
   [ -L "$STUB_STATE/sessions/$1" ] || return 1
-  [ "$1" = "$CUR_NAME" ] && return 0
+  cur_session_live && [ "$1" = "$CUR_NAME" ] && return 0
   dir_live "$STUB_STATE/sessions/$1"
 }
 
@@ -234,7 +243,7 @@ server_gate() {
       return 1
       ;;
   esac
-  [ -n "$CUR_NAME" ] && return 0
+  cur_session_live && return 0
   any_live_session && return 0
   echo "no server running on $SOCKET" >&2
   return 1
@@ -293,8 +302,24 @@ load_session_vars() {
   ns_name=$1 ns_num='' ns_pid='' ns_dir=''
   [ -r "$lsv_d/num" ] && { IFS= read -r ns_num <"$lsv_d/num" || true; }
   [ -r "$lsv_d/pid" ] && { IFS= read -r ns_pid <"$lsv_d/pid" || true; }
-  [ -r "$lsv_d/cwd" ] && { IFS= read -r ns_dir <"$lsv_d/cwd" || true; }
+  [ -r "$lsv_d/pcwd" ] && { IFS= read -r ns_dir <"$lsv_d/pcwd" || true; }
   return 0
+}
+
+# latest_session — set RT_NAME to the most recently created live session, the
+# one tmux falls back to with no client and no target.
+latest_session() {
+  RT_NAME=''
+  ls_best=-1
+  for ls_n in $(live_sessions); do
+    ls_num=-1
+    [ -r "$STUB_STATE/sessions/$ls_n/num" ] && { IFS= read -r ls_num <"$STUB_STATE/sessions/$ls_n/num" || true; }
+    if [ "${ls_num:--1}" -gt "$ls_best" ]; then
+      ls_best=$ls_num
+      RT_NAME=$ls_n
+    fi
+  done
+  [ -n "$RT_NAME" ]
 }
 
 # claim_number — set ns_num to the next session number, from 0.
@@ -369,14 +394,7 @@ cmd_new_session() {
       return 1
       ;;
   esac
-  # tmux numbers only the sessions it creates, so a named create takes its
-  # number once the name is won; an unnamed one needs it as its name.
-  ns_num=''
-  if [ -z "$ns_name" ]; then
-    claim_number || return 1
-    ns_name=$ns_num
-  fi
-  name_ok "$ns_name" || {
+  name_ok "${ns_name:-0}" || {
     echo "stub tmux: session name '$ns_name' is not modelled" >&2
     return 1
   }
@@ -386,17 +404,35 @@ cmd_new_session() {
   mkdir -p "$ns_sd" || return 1
   stub_write_file "$ns_sd/creator" "$$$SEP" || return 1
   stub_write_file "$ns_sd/env" "$ns_env" || return 1
-  stub_write_file "$ns_sd/cwd" "$ns_dir$SEP" || return 1
-  if ! claim_name "$ns_name" "$ns_seq"; then
-    echo "duplicate session: $ns_name" >&2
-    return 1
+  ns_start=${ns_dir:-$(pwd)}
+  [ -d "$ns_start" ] || ns_start=$(server_home)
+  stub_write_file "$ns_sd/pcwd" "$(cd "$ns_start" && pwd -P)$SEP" || return 1
+  # tmux numbers only the sessions it creates, so a named create takes its
+  # number once the name is won; an unnamed one takes numbers as its name
+  # until one is free, as tmux skips a number a named session holds.
+  ns_num=''
+  if [ -z "$ns_name" ]; then
+    ns_try=0
+    while :; do
+      claim_number || return 1
+      claim_name "$ns_num" "$ns_seq" && break
+      ns_try=$((ns_try + 1))
+      [ "$ns_try" -lt 100 ] || {
+        echo "stub tmux: no free session number" >&2
+        return 1
+      }
+    done
+    ns_name=$ns_num
+  else
+    if ! claim_name "$ns_name" "$ns_seq"; then
+      echo "duplicate session: $ns_name" >&2
+      return 1
+    fi
+    claim_number || return 1
   fi
-  if [ -z "$ns_num" ]; then claim_number || return 1; fi
   stub_write_file "$ns_sd/num" "$ns_num$SEP" || return 1
   CUR_DIR=$ns_sd
   CUR_NAME=$ns_name
-  ns_start=${ns_dir:-$(pwd)}
-  [ -d "$ns_start" ] || ns_start=$(server_home)
   [ $# -gt 0 ] || set -- sleep 600
   [ $# -eq 1 ] && set -- /bin/sh -c "$1"
   # The session command records itself before it runs, so a stub killed
@@ -590,7 +626,10 @@ run_one() {
         esac
       done
       if [ -n "$ro_t" ] && [ "$ro_all" = 0 ]; then
-        pane_target "$ro_t" || return 1
+        resolve_target "$ro_t" || {
+          echo "can't find window: ${ro_t#=}" >&2
+          return 1
+        }
         ro_names=$RT_NAME
       else
         ro_names=$(live_sessions)
@@ -608,7 +647,7 @@ run_one() {
       ;;
     set-option | set | set-window-option | setw) cmd_set_option "$@" ;;
     display-message | display)
-      ro_p=0
+      ro_p=0 ro_t=''
       while [ $# -gt 0 ]; do
         case $1 in
           -p)
@@ -617,16 +656,24 @@ run_one() {
             ;;
           -t | -c | -F)
             need_value "$#" "$1" || return 1
+            [ "$1" = -t ] && ro_t=$2
             shift 2
             ;;
           *) break ;;
         esac
       done
-      if [ "$ro_p" = 1 ]; then
-        ns_name='' ns_num='' ns_pid='' ns_dir=''
-        expand_format "$*"
+      [ "$ro_p" = 1 ] || return 0
+      ns_name='' ns_num='' ns_pid='' ns_dir=''
+      if [ -n "$ro_t" ]; then
+        resolve_target "$ro_t" || {
+          echo "can't find pane: ${ro_t#=}" >&2
+          return 1
+        }
+        load_session_vars "$RT_NAME"
+      elif latest_session; then
+        load_session_vars "$RT_NAME"
       fi
-      return 0
+      expand_format "$*"
       ;;
     *) return 0 ;;
   esac

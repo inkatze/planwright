@@ -87,27 +87,40 @@ stub_pid_ours() {
 # process appears, so no parent can fork past the walk or have a child
 # reparented out of it; then every member gets <signal> and is continued.
 # STUB_TREE is set to the members, so a follow-up KILL can reach one whose
-# parent has since exited and taken it out of the tree.
+# parent has since exited and taken it out of the tree. The calling process
+# and its ancestors (a session's command killing its own session) are never
+# frozen, or the call would stop itself; its ancestors are still signalled.
 stub_kill_tree() {
   skt_sig=$1
   shift
   skt_all=''
   skt_round=0
   while [ "$skt_round" -lt 5 ]; do
-    skt_new=$(ps -A -o pid= -o ppid= 2>/dev/null | awk -v roots="$*" -v seen="$skt_all" '
-      { kids[$2] = kids[$2] " " $1 }
+    skt_out=$(ps -A -o pid= -o ppid= 2>/dev/null | awk -v roots="$*" -v seen="$skt_all" -v self="$$" '
+      { kids[$2] = kids[$2] " " $1; parent[$1] = $2 }
       function walk(p,   m, j, a) {
-        if (!(p in old)) print p
+        if (p != self && !(p in old)) print ((p in anc) ? "a " : "m ") p
         m = split(kids[p], a, " ")
         for (j = 1; j <= m; j++) walk(a[j])
       }
       END {
+        for (p = self; p in parent && p > 1; p = parent[p]) anc[parent[p]] = 1
         n = split(seen, s, " "); for (i = 1; i <= n; i++) old[s[i]] = 1
         n = split(roots, r, " "); for (i = 1; i <= n; i++) walk(r[i])
       }')
-    [ -n "$skt_new" ] || break
+    [ -n "$skt_out" ] || break
+    skt_new=''
+    skt_anc=''
+    while read -r skt_kind skt_p; do
+      case $skt_kind in
+        m) skt_new="$skt_new $skt_p" ;;
+        a) skt_anc="$skt_anc $skt_p" ;;
+      esac
+    done <<EOF
+$skt_out
+EOF
     for skt_p in $skt_new; do kill -STOP "$skt_p" 2>/dev/null; done
-    skt_all="$skt_all $skt_new"
+    skt_all="$skt_all $skt_new $skt_anc"
     skt_round=$((skt_round + 1))
   done
   for skt_p in $skt_all; do kill "-$skt_sig" "$skt_p" 2>/dev/null; done

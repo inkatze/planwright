@@ -258,7 +258,7 @@ tlh_server_env() {
 }
 
 tlh_knob() {
-  local ok
+  local ok ok_hit
   case $1 in
     new-session) ok='ok fail duplicate block' ;;
     server) ok='up none unreachable' ;;
@@ -270,17 +270,18 @@ tlh_knob() {
       ;;
   esac
   case " $ok " in
-    *" ${2:-} "*) ;;
-    *)
-      case $1/${2:-} in
-        worker-exit/[0-9] | worker-exit/[0-9][0-9] | worker-exit/[0-9][0-9][0-9]) ;;
-        *)
-          fail "tlh_knob: '${2:-}' is not a value of knob '$1' ($ok)"
-          return 1
-          ;;
-      esac
-      ;;
+    *" ${2:-} "*) case ${2:-} in '' | *' '*) ok_hit=0 ;; *) ok_hit=1 ;; esac ;;
+    *) ok_hit=0 ;;
   esac
+  if [ "$ok_hit" = 0 ]; then
+    case $1/${2:-} in
+      worker-exit/[0-9] | worker-exit/[1-9][0-9] | worker-exit/1[0-9][0-9] | worker-exit/2[0-4][0-9] | worker-exit/25[0-5]) ;;
+      *)
+        fail "tlh_knob: '${2:-}' is not a value of knob '$1' (one of: $ok$([ "$1" = worker-exit ] && printf ' 0-255'))"
+        return 1
+        ;;
+    esac
+  fi
   stub_write_file "$TLH_STATE/knobs/$1" "$2"$'\n' || {
     fail "tlh_knob: cannot write knob '$1'"
     return 1
@@ -293,7 +294,7 @@ tlh_knob() {
 # watchdog's marker alone decides the verdict: a launch that traps TERM and
 # exits 0 when cut off still hung.
 tlh_run_bounded() {
-  local bound=$TLH_LAUNCH_BOUND_SECONDS pid dog dir start
+  local bound=$TLH_LAUNCH_BOUND_SECONDS pid dog timer dir start
   if [ "${1:-}" = --bound ]; then
     bound=${2:-}
     shift
@@ -319,10 +320,12 @@ tlh_run_bounded() {
   start=$SECONDS
   "$@" </dev/null >"$dir/out" 2>"$dir/err" &
   pid=$!
+  # The timer is this shell's own child, so it is always reapable here; the
+  # watchdog only watches it.
+  sleep "$bound" &
+  timer=$!
   (
-    sleep "$bound" &
-    printf '%s\n' "$!" >"$dir/dog-sleep"
-    wait "$!"
+    while kill -0 "$timer" 2>/dev/null; do sleep 0.1; done
     kill -0 "$pid" 2>/dev/null || exit 0
     : >"$dir/hung"
     stub_kill_tree TERM "$pid"
@@ -338,12 +341,13 @@ tlh_run_bounded() {
     TLH_RC=124
     TLH_DIAG="blocking launch: '${1##*/}' did not return within ${bound}s and was killed with its process tree; a launch that waits on its worker blocks the dispatch"
   else
-    # The watchdog itself first, so it cannot wake and signal a pid that
-    # `wait` has already released; then its sleep.
-    kill -KILL "$dog" 2>/dev/null
+    # The watchdog first, so it cannot see the timer end and signal a pid
+    # `wait` has already released; then the timer.
+    kill -KILL "$dog" 2>/dev/null || true
     { wait "$dog"; } 2>/dev/null || true
-    if [ -r "$dir/dog-sleep" ]; then kill "$(cat "$dir/dog-sleep")" 2>/dev/null || true; fi
   fi
+  kill "$timer" 2>/dev/null || true
+  { wait "$timer"; } 2>/dev/null || true
   TLH_ELAPSED=$((SECONDS - start))
   TLH_OUT=$(cat "$dir/out")
   TLH_ERR=$(cat "$dir/err")

@@ -105,7 +105,7 @@ h1() {
   tlh_run_bounded --bound 1 bash -c "trap 'exit 0' TERM
 sh -c 'echo \$\$ >\"$TLH_SANDBOX/grandchild\"; trap \"\" TERM; exec sleep 300' &
 while :; do sleep 0.05; done"
-  [ "$TLH_RC" -eq 124 ] || fail "h1: a launch that exits 0 on TERM was still cut off at its bound, got rc $TLH_RC"
+  [ "$TLH_RC" -eq 124 ] || fail "h1: a launch that exits 0 on TERM must still be reported as cut off (rc 124), got rc $TLH_RC"
   [ -n "$TLH_DIAG" ] || fail "h1: a launch that exits 0 on TERM must still be diagnosed"
   pid=$(cat "$TLH_SANDBOX/grandchild" 2>/dev/null)
   [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && {
@@ -121,6 +121,12 @@ while :; do sleep 0.05; done"
   done
   expect_one_fail "h1: a fractional bound" tlh_run_bounded --bound 1.5 true
   expect_one_fail "h1: a bound with no command" tlh_run_bounded --bound 2
+
+  # A fast run leaves no watchdog sleep behind.
+  for i in 1 2 3 4 5 6 7 8 9 10; do tlh_run_bounded --bound 47 true; done
+  sleep 0.2
+  [ "$(pgrep -cx -f 'sleep 47')" -eq 0 ] \
+    || fail "h1: a run that returned must not leave its watchdog's sleep running"
 
   tlh_run_bounded tmux new-session -d -s quick -P -F "#{session_name}${TAB}#{window_id}" -c "$wt" -- sleep 30
   tlh_expect_returned "h1: a returning launch"
@@ -481,12 +487,40 @@ h7() {
   tmux has-session -t =single || fail "h7: a one-word command must run through a shell, as tmux runs it"
   [ "$(tmux list-panes -t '=single:' -F '#{pane_pid}')" = "$(tlh_session_pid single)" ] \
     || fail "h7: list-panes must report the session's pane pid"
+  [ "$(tmux list-panes -t =single -F '#{pane_pid}')" = "$(tlh_session_pid single)" ] \
+    || fail "h7: list-panes must take a bare '=<session>' target, as tmux 3.6 does"
+  [ "$(tmux list-panes -t =single -F '#{pane_current_path}')" = "$(tlh_canon "$wt")" ] \
+    || fail "h7: list-panes must report the physical directory the pane started in"
+  [ "$(tmux display-message -p -t =single: '#{session_name} #{pane_pid}')" = "single $(tlh_session_pid single)" ] \
+    || fail "h7: display-message -p -t must expand the target's session and pane variables"
   tmux kill-session -t =single
+
+  # A session's command that kills its own session does not freeze.
+  rm -f "$TLH_SANDBOX/selfkill.done"
+  tmux new-session -d -s selfkill -c "$wt" -- sh -c "trap '' HUP; tmux kill-session -t =selfkill; echo returned >'$TLH_SANDBOX/selfkill.done'"
+  i=0
+  while [ ! -s "$TLH_SANDBOX/selfkill.done" ] && [ "$i" -lt 50 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ -s "$TLH_SANDBOX/selfkill.done" ] || fail "h7: a session killing itself must not freeze its own tmux call"
+
+  # An unnamed session skips a number a named session already holds as its
+  # name. The named session takes number n+1 itself, so the next unnamed
+  # create reaches n+2, the held name.
+  n=$(tmux new-session -d -P -F '#{session_name}' -c "$wt" -- sleep 30)
+  tmux new-session -d -s "$((n + 2))" -c "$wt" -- sleep 30
+  rec=$(tmux new-session -d -P -F '#{session_name}' -c "$wt" -- sleep 30) \
+    || fail "h7: an unnamed session must skip a number a named session holds"
+  [ "$rec" = "$((n + 3))" ] || fail "h7: an unnamed session must take the next free number, $((n + 3)), got: $rec"
+  for k in "$n" "$((n + 2))" "$rec"; do tmux kill-session -t "=$k" 2>/dev/null; done
   tmux new-session -d -s 'has space' -c "$wt" -- sleep 30 2>/dev/null \
     && fail "h7: a name the stub cannot model must be refused, not mangled"
   tmux new-session -d -s fast -c "$wt" -- true ';' set-option -t =fast remain-on-exit off \
     || fail "h7: a command chained after new-session must see the session it created"
   expect_one_fail "h7: an unknown knob value" tlh_knob server unreachble
+  expect_one_fail "h7: two knob values at once" tlh_knob new-session "ok fail"
+  expect_one_fail "h7: an exit status no process can return" tlh_knob worker-exit 256
 
   # The last session gone, the server has exited, as tmux's does.
   tmux kill-session -t =live_one
