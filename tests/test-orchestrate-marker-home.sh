@@ -249,6 +249,28 @@ sep_gitdir=$(cd "$G/gitdir" && pwd -P)
   || fail "helper: a separate-git-dir repository lost its shared home"
 echo "ok: a separate-git-dir repository shares its home, with no stand-in for its primary"
 
+# A repository path carrying a newline cannot be split safely: no shared home.
+N="$tmp/nl"
+mkdir -p "$N/a" "$N/a
+b/specs/demo"
+git -C "$N/a
+b" -c init.defaultBranch=main init -q
+printf '# t\n' >"$N/a
+b/specs/demo/tasks.md"
+gitc "$N/a
+b" add -A
+gitc "$N/a
+b" commit -q -m base
+gitc "$N/a
+b" worktree add -q -b side "$N/wt"
+nl_list=$("$HOME_HELPER" write "$N/wt/specs/demo")
+case "$nl_list" in
+  *"$N/a/planwright"*) fail "helper: a newline in the common dir sent the shared home outside the repository" ;;
+esac
+[ "$nl_list" = "$N/wt/specs/demo/.orchestrate/markers" ] \
+  || fail "helper: a newline in the common dir: $nl_list"
+echo "ok: a common dir carrying a newline drops the shared home, never splits it"
+
 # ---------------------------------------------------------------------------
 # 4. The writer: a shared home it cannot use never costs the marker, nothing is
 #    written or cleared through a symlinked dir, and a refusal leaves no strays.

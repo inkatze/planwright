@@ -466,18 +466,16 @@ is_live() {
   [ -n "$_mdirs" ] || return 0
   while IFS= read -r _mdir; do
     [ -n "$_mdir" ] || continue
-    _mfile="$_mdir/$_id"
-    [ -e "$_mfile" ] || [ -L "$_mfile" ] || continue
-    # A shared home reached through a symlink, or a symlink at the marker path,
-    # is not a marker the writer leaves, but an entry is there: cannot tell,
-    # so live. Checkout-local dirs keep their old symlink tolerance.
+    # A shared home reached through a symlink is never where the writer put a
+    # marker, so it holds nothing here, as in the state engine; checkout-local
+    # dirs keep the symlink tolerance they always had.
     if [ -z "${PLANWRIGHT_ORCH_STATE_DIR:-}" ]; then
       case "$_mdir" in
         */.orchestrate/markers) ;;
-        *) [ "$(cd -P -- "$_mdir" 2>/dev/null && pwd -P)" = "$_mdir" ] || return 0 ;;
+        *) [ "$(cd -P -- "$_mdir" 2>/dev/null && pwd -P)" = "$_mdir" ] || continue ;;
       esac
     fi
-    [ ! -L "$_mfile" ] || return 0
+    _mfile="$_mdir/$_id"
     [ -f "$_mfile" ] || continue
     _written=$(cat "$_mfile" 2>/dev/null || echo '')
     case $_written in
@@ -1119,9 +1117,14 @@ do_dispatch() {
   if [ -x "$MARKER" ] && [ -n "$_spec_dir" ] && [ -d "$_spec_dir" ]; then
     # The writer's warnings (a skipped shared home) and its failure reach the
     # operator: a dispatch with no marker reads as not live to a later reconcile.
-    _merr=$("$MARKER" write "$_spec_dir" "$_id" 2>&1 >/dev/null </dev/null) \
-      || warn "the dispatch marker was not written; this unit may read as not in flight"
-    [ -z "$_merr" ] || warn "$_merr"
+    _mrc=0
+    _merr=$("$MARKER" write "$_spec_dir" "$_id" 2>&1 >/dev/null </dev/null) || _mrc=$?
+    while IFS= read -r _mline; do
+      [ -z "$_mline" ] || warn "$_mline"
+    done <<MERR
+$_merr
+MERR
+    [ "$_mrc" -eq 0 ] || warn "the dispatch marker was not written; this unit may read as not in flight"
   fi
 
   # Register the dispatch (fleet-lifecycle-closure Task 3; REQ-E1.1). BEFORE
