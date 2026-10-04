@@ -1,0 +1,1 @@
+- 2026-10-03 [planwright] A meta-tower's subordinate writes its dispatch marker in the checkout it runs in (the primary), so a meta-tower running from a different worktree does not see it in its live in-flight count (dotfiles fleet tower, 2026-10-03). Related: obs:f1d1efcc (stale marker vs live worker).
