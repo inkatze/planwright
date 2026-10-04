@@ -1261,6 +1261,13 @@ mkdir -p "$wl/.claude/steps/000008/.done-post-pr"
 verdict "a completion marker with no record still claims its point" "a second completion landed"
 [ "$("$SR" --worktree "$wl" new-run)" = 000009 ]
 verdict "new-run numbers past a pre-existing cache" "new-run reused or skipped an id"
+# No writer ever left a .done- marker that is not a directory, so a stray file
+# completes nothing.
+: >"$wl/.claude/steps/000009/.done-pre-ci"
+"$SR" --worktree "$wl" write --run 000009 --point pre-ci --step stray --kind command --target t \
+  --hosting isolated --backend runner --head "$HEAD_SHA" --start 2026-09-28T09:00:06Z \
+  --end 2026-09-28T09:00:07Z --outcome passed >/dev/null 2>"$tmp/errl"
+verdict "a stray .done- file does not close its point" "a step was refused after a stray .done- file"
 
 # A sequence counter used up by records alone is exhausted too.
 mkdir -p "$wl/.claude/steps/000010"

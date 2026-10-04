@@ -456,7 +456,7 @@ unlock_cache() { pw_lock_release .lock || :; }
 # point_done <run> <point>: true once the run completed the point, by its
 # record or by a directory-shaped marker an older writer left.
 point_done() {
-  [ -e "$cache/$1/.done-$2" ] || [ -L "$cache/$1/.done-$2" ] \
+  [ -d "$cache/$1/.done-$2" ] \
     || [ -n "$(glob_names "$cache/$1" "[0-9][0-9][0-9]-done-$2.rec")" ]
 }
 
