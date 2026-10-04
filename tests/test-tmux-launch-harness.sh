@@ -122,11 +122,12 @@ while :; do sleep 0.05; done"
   expect_one_fail "h1: a fractional bound" tlh_run_bounded --bound 1.5 true
   expect_one_fail "h1: a bound with no command" tlh_run_bounded --bound 2
 
-  # A fast run leaves no watchdog sleep behind.
-  for i in 1 2 3 4 5 6 7 8 9 10; do tlh_run_bounded --bound 47 true; done
-  sleep 0.2
-  [ "$(pgrep -cx -f 'sleep 47')" -eq 0 ] \
-    || fail "h1: a run that returned must not leave its watchdog's sleep running"
+  # A fast run leaves no timer behind. The bound is odd enough that no other
+  # suite's timer shares it.
+  b=$((100 + $$ % 800))
+  for i in 1 2 3 4 5 6 7 8 9 10; do tlh_run_bounded --bound "$b" true; done
+  [ "$(pgrep -x -f "sleep $b" | wc -l | tr -d ' ')" -eq 0 ] \
+    || fail "h1: a run that returned must not leave its timer running"
 
   tlh_run_bounded tmux new-session -d -s quick -P -F "#{session_name}${TAB}#{window_id}" -c "$wt" -- sleep 30
   tlh_expect_returned "h1: a returning launch"
@@ -493,6 +494,9 @@ h7() {
     || fail "h7: list-panes must report the physical directory the pane started in"
   [ "$(tmux display-message -p -t =single: '#{session_name} #{pane_pid}')" = "single $(tlh_session_pid single)" ] \
     || fail "h7: display-message -p -t must expand the target's session and pane variables"
+  k=$(tmux list-panes -t =single -F '#{pane_id}')
+  [ "$(tmux display-message -p -t "$k" '#{session_name}')" = single ] \
+    || fail "h7: a pane id from the stub ($k) must resolve as a target, as TMUX_PANE does under tmux"
   tmux kill-session -t =single
 
   # A session's command that kills its own session does not freeze.
@@ -504,6 +508,13 @@ h7() {
     i=$((i + 1))
   done
   [ -s "$TLH_SANDBOX/selfkill.done" ] || fail "h7: a session killing itself must not freeze its own tmux call"
+  # ...nor take down a session it created in the same call, which the
+  # server, not the caller, owns.
+  tmux new-session -d -s selfkill2 -c "$wt" -- sh -c "tmux new-session -d -s spawned -c '$wt' -- sleep 30 ';' kill-session -t =selfkill2"
+  wait_gone selfkill2
+  sleep 0.3
+  tmux has-session -t =spawned || fail "h7: a session created in a self-killing call must survive it"
+  tmux kill-session -t =spawned 2>/dev/null
 
   # An unnamed session skips a number a named session already holds as its
   # name. The named session takes number n+1 itself, so the next unnamed

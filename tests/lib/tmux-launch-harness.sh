@@ -288,11 +288,10 @@ tlh_knob() {
   }
 }
 
-# The watchdog kills the run's tree once the bound elapses; a run that ends
-# first is reaped by `wait` and its watchdog killed, so a short run pays no
-# polling floor and the cut-off falls at the bound, not at a clock tick. The
-# watchdog's marker alone decides the verdict: a launch that traps TERM and
-# exits 0 when cut off still hung.
+# The watchdog kills the run's tree within a tenth of a second of the bound;
+# a run that ends first is reaped by `wait` and its watchdog killed, so a
+# short run pays no polling floor. The watchdog's marker alone decides the
+# verdict: a launch that traps TERM and exits 0 when cut off still hung.
 tlh_run_bounded() {
   local bound=$TLH_LAUNCH_BOUND_SECONDS pid dog timer dir start
   if [ "${1:-}" = --bound ]; then
@@ -345,8 +344,8 @@ tlh_run_bounded() {
     # `wait` has already released; then the timer.
     kill -KILL "$dog" 2>/dev/null || true
     { wait "$dog"; } 2>/dev/null || true
+    kill "$timer" 2>/dev/null || true
   fi
-  kill "$timer" 2>/dev/null || true
   { wait "$timer"; } 2>/dev/null || true
   TLH_ELAPSED=$((SECONDS - start))
   TLH_OUT=$(cat "$dir/out")

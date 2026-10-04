@@ -87,9 +87,10 @@ stub_pid_ours() {
 # process appears, so no parent can fork past the walk or have a child
 # reparented out of it; then every member gets <signal> and is continued.
 # STUB_TREE is set to the members, so a follow-up KILL can reach one whose
-# parent has since exited and taken it out of the tree. The calling process
-# and its ancestors (a session's command killing its own session) are never
-# frozen, or the call would stop itself; its ancestors are still signalled.
+# parent has since exited and taken it out of the tree. The calling process,
+# with everything it started, is left out, and its ancestors (a session's
+# command killing its own session) are signalled but never frozen, or the
+# call would stop itself.
 stub_kill_tree() {
   skt_sig=$1
   shift
@@ -99,7 +100,8 @@ stub_kill_tree() {
     skt_out=$(ps -A -o pid= -o ppid= 2>/dev/null | awk -v roots="$*" -v seen="$skt_all" -v self="$$" '
       { kids[$2] = kids[$2] " " $1; parent[$1] = $2 }
       function walk(p,   m, j, a) {
-        if (p != self && !(p in old)) print ((p in anc) ? "a " : "m ") p
+        if (p == self) return
+        if (!(p in old)) print ((p in anc) ? "a " : "m ") p
         m = split(kids[p], a, " ")
         for (j = 1; j <= m; j++) walk(a[j])
       }

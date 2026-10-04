@@ -210,6 +210,22 @@ claim_name() {
 # resolve_target <target> — set RT_NAME to the live session it names, or fail.
 resolve_target() {
   rt_t=$1
+  # A pane (%N) or window (@N) id names the session holding number N.
+  case $rt_t in
+    %[0-9]* | @[0-9]*)
+      rt_t=${rt_t#?}
+      rt_t=${rt_t%%[!0-9]*}
+      for rt_n in $(live_sessions); do
+        rt_num=''
+        [ -r "$STUB_STATE/sessions/$rt_n/num" ] && { IFS= read -r rt_num <"$STUB_STATE/sessions/$rt_n/num" || true; }
+        if [ "$rt_num" = "$rt_t" ]; then
+          RT_NAME=$rt_n
+          return 0
+        fi
+      done
+      return 1
+      ;;
+  esac
   rt_exact=0
   case $rt_t in =*) rt_exact=1 rt_t=${rt_t#=} ;; esac
   rt_t=${rt_t%%:*}
