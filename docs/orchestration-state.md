@@ -92,8 +92,14 @@ its remote counterpart (work pushed from another checkout or machine).
 
 The remote-tracking arm reads only refs the dispatch fetch already mapped, and
 that fetch passes no `--prune`. Unless `fetch.prune` is set, a remote task branch
-deleted on `origin` keeps holding its task until the stale ref goes: `git fetch
---prune origin` releases it.
+deleted on `origin` keeps holding its task until the stale ref goes. Prune with
+the dispatch fetch's own refspec, since a plain `git fetch --prune origin` only
+prunes what `remote.origin.fetch` covers and misses the task refs when that
+setting is narrowed:
+
+```sh
+git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+```
 
 Because git ground truth is checked first, a closed-unmerged PR whose work is
 nonetheless reachable in the base derives as **Completed** (reality wins over PR
