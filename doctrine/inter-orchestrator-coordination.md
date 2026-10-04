@@ -77,11 +77,12 @@ the message body left in its file (see data discipline below). It emits no
 `send-keys` path by construction, and a source audit (its test) proves the code
 contains none.
 
-**A paste stages; the CLI submits.** On Claude Code 2.1.270 a multi-line paste
+**A paste stages; one Enter submits.** On Claude Code 2.1.270 a multi-line paste
 becomes an unsubmittable `[Pasted text]` placeholder that blocks every later
-paste, and a one-line paste submits only sometimes. So the tmux paste is **one
-pointer line** (`… read <absolute message file>`), never the body, and delivery
-is confirmed by observe-command, never assumed. `relay-command stream-json`
+paste. So the tmux paste is **one unterminated pointer line** (`… read
+<absolute message file>`), never the body, and delivery is confirmed by
+observe-command, never assumed. The handle is explicit (operator-named, or a
+live presence peer's), never the active pane. `relay-command stream-json`
 instead emits `fleet-streamjson.sh steer`: a user turn on the worker's own
 stdin, a real submit with a receipt row — the unattended path.
 

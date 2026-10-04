@@ -30,14 +30,18 @@
 #       message body itself is never pasted. Measured on Claude Code 2.1.270:
 #       a multi-line paste lands in the input box as a "[Pasted text #N +M
 #       lines]" placeholder that nothing submits, and once the box holds
-#       multi-line text every later paste is stuck behind it; a short single
-#       line is what the CLI can submit on its own trailing newline. Even that
-#       submission is timing-dependent (the same one-line paste submitted in
-#       some runs and sat in the box in others), so a paste STAGES a relay and
-#       the tower confirms delivery through observe-command — it never assumes
-#       it. The message is DATA in both forms: the emitted command names the
-#       message FILE, never inlines its content, so message text is never
-#       spliced into the command as code (REQ-B1.7: worker/tower output is
+#       multi-line text every later paste is stuck behind it. The pointer line
+#       is loaded with NO trailing newline, so a paste always STAGES the relay
+#       and one Enter from the receiving human submits it (measured on 2.1.289;
+#       a trailing newline either submitted a short line on its own or, for a
+#       long one, left a hidden newline that swallowed the first Enter). The
+#       tower confirms delivery through observe-command, never assumes it.
+#       <handle> is an explicit handle: one the operator names, or a live
+#       peer's published tmux-window from fleet-presence.sh, never "the active
+#       pane" of some window, which can be a closing session. The message is
+#       DATA in both forms: the emitted command names the message FILE, never
+#       inlines its content, so message text is never spliced into the
+#       command as code (REQ-B1.7: worker/tower output is
 #       data, no eval/expansion path). stream-json: the sanctioned unattended
 #       path — prints the `fleet-streamjson.sh steer` invocation, which writes
 #       the attributed message as a user turn on the worker's own stdin (a
@@ -96,6 +100,7 @@ nl='
 
 usage() {
   echo "$me: usage: $me <validate-handle|relay-command|observe-command> <backend> <handle> [<message-file>]" >&2
+  echo "$me: <handle> is explicit (operator-named, or a live peer's handle from fleet-presence.sh), never the active pane" >&2
 }
 
 # Per-backend handle grammar. Input is DATA: a case-glob whitelist, evaluated by
@@ -217,7 +222,10 @@ case "$sub" in
         # Attributed buffer-paste delivery. The header is a fixed literal (tower
         # origin + target); the pointer names the message FILE, so its content
         # is DATA and never enters the command as code. NEVER send-keys.
-        printf '%s\n' "printf '%s\\n' '[planwright tower relay -> $handle] read $msg_abs' | tmux load-buffer -b $buf -"
+        # Loaded with no trailing newline: paste-buffer sends a trailing LF as
+        # a CR, which Claude Code takes into a long paste as a hidden newline,
+        # so the receiver's first Enter is spent on it and a second submits.
+        printf '%s\n' "printf '%s' '[planwright tower relay -> $handle] read $msg_abs' | tmux load-buffer -b $buf -"
         printf '%s\n' "tmux paste-buffer -b $buf -t '$handle' -d"
         exit 0
         ;;
