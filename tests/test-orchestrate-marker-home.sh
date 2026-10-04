@@ -10,7 +10,9 @@
 #     sees a marker written from another worktree, in either direction;
 #   - markers at the old location are still read: the reader's own legacy dir,
 #     and the primary checkout's, where an older writer running there left it;
-#   - `clear` removes every copy;
+#   - `clear` removes every copy it can list: the shared home, its own
+#     checkout-local dir, and the primary checkout's (a copy in another linked
+#     worktree ages out at the staleness threshold);
 #   - PLANWRIGHT_ORCH_STATE_DIR stays the only dir when set, and a spec id
 #     outside the identifier grammar falls back to the legacy dir alone.
 #

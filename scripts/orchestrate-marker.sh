@@ -13,12 +13,13 @@
 # dispatch commit and a worker worktree cut from it inherits nothing foreign —
 # contamination is impossible by construction (REQ-A1.2), not merely mitigated.
 #
-# Path contract: the writer MUST resolve the SAME marker dirs the readers do,
-# so a marker dropped here is the marker the derivation engine reads from any
-# worktree of the repository. Both ask orchestrate-marker-home.sh, which places
-# the shared home under the common git dir and keeps the checkout-local
-# <spec-dir>/.orchestrate/markers beside it; PLANWRIGHT_ORCH_STATE_DIR, a
-# trusted operator/test knob, replaces both.
+# Path contract: the writer's dirs MUST be a subset of the readers' dirs, so a
+# marker dropped here is the marker the derivation engine reads from any
+# worktree of the repository. Both lists come from orchestrate-marker-home.sh:
+# the shared home under the common git dir and the checkout-local
+# <spec-dir>/.orchestrate/markers, which readers extend with the primary
+# checkout's copy; PLANWRIGHT_ORCH_STATE_DIR, a trusted operator/test knob,
+# replaces both lists with one dir.
 # The marker is one regular file per task id; its content is one integer (the
 # epoch seconds at write). A cohesion bundle dispatches >1 task id, so `write`
 # takes one or more ids and drops a marker per task.

@@ -24,9 +24,9 @@
 # state (D-11): orchestration-concurrency ships its advisory lock spec-dir-local
 # (`<spec-dir>/.orchestrate.lock`) and its dispatch markers per spec in the
 # repository (orchestrate-marker-home.sh), and the per-spec effective-backend
-# failover record sits spec-locally with that marker — NOT here. The spec-local
-# lock home is the sibling's decision (confirmed against orchestrate-lock.sh /
-# orchestrate-marker.sh), not re-decided here; no fleet path ever writes into a
+# failover record sits spec-locally beside the checkout-local marker copy — NOT
+# here. The spec-local lock home is the sibling's decision (confirmed against
+# orchestrate-lock.sh / orchestrate-marker-home.sh), not re-decided here; no fleet path ever writes into a
 # spec's `.orchestrate/` dir. The two homes differ because their state has
 # different scope (cross-spec vs per-spec).
 #
