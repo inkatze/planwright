@@ -588,13 +588,19 @@ fixture
 set_policy unit-owner
 echo failing >"$GHS/ci"
 chmod 444 "$F/wt/$TASKS"
-before=$(gitf rev-parse HEAD)
-run_helper flip --spec specs/demo --task 1
-chmod 644 "$F/wt/$TASKS"
-check "an unwritable tasks.md exits 5" [ "$CODE" = 5 ]
-check "an unwritable tasks.md makes no commit" [ "$(gitf rev-parse HEAD)" = "$before" ]
-check "an unwritable tasks.md is named" grep -q 'could not be written' <<<"$OUT"
-check "an unwritable tasks.md keeps its content" grep -q '### Task 1' "$F/wt/$TASKS"
+if [ -w "$F/wt/$TASKS" ]; then
+  # Root, or any process with DAC override, still writes a mode-444 file.
+  chmod 644 "$F/wt/$TASKS"
+  echo "skip: this user can write a mode-444 file, so an unwritable tasks.md cannot be staged"
+else
+  before=$(gitf rev-parse HEAD)
+  run_helper flip --spec specs/demo --task 1
+  chmod 644 "$F/wt/$TASKS"
+  check "an unwritable tasks.md exits 5" [ "$CODE" = 5 ]
+  check "an unwritable tasks.md makes no commit" [ "$(gitf rev-parse HEAD)" = "$before" ]
+  check "an unwritable tasks.md is named" grep -q 'could not be written' <<<"$OUT"
+  check "an unwritable tasks.md keeps its content" grep -q '### Task 1' "$F/wt/$TASKS"
+fi
 
 echo "# argument and branch refusals"
 fixture
