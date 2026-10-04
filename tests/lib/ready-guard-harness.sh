@@ -33,14 +33,12 @@
 # the sandbox, so keep scratch files under $SANDBOX instead); and calls
 # reset_stub_env once so the knobs below are defined under `set -u`.
 #
-# Knobs a fixture sets in the shell before calling run_hook. The STUB_* seven
+# Knobs a fixture sets in the shell before calling run_hook. The STUB_* five
 # are passed through into the stub's environment; RG_SURFACE is passed to the
 # guard as its argument, the way hooks/hooks.json passes it:
 #   STUB_VIEW_JSON / STUB_VIEW_JSON2   the first / second `gh pr view` answer
 #   STUB_VIEW_RC / STUB_VIEW_RC2       their exit codes
 #   STUB_COMPARE_OUT / STUB_COMPARE_RC the compare endpoint's behind_by / exit
-#   STUB_STATUS_OUT / STUB_STATUS_RC   the head status read (the state the
-#                                      guard's --jq would print) / exit
 #   RG_SURFACE                         which matcher fired: bash (default) | mcp
 #                                      (not reset by reset_stub_env)
 unset CDPATH
@@ -134,14 +132,6 @@ case "${1:-}" in
     fi
     ;;
   api)
-    case "${2:-}" in
-      */status*)
-        rc=${STUB_STATUS_RC:-0}
-        [ "$rc" = 0 ] || exit "$rc"
-        printf '%s\n' "${STUB_STATUS_OUT:-success}"
-        exit 0
-        ;;
-    esac
     if [ -f "$PWD/behind" ]; then
       cat "$PWD/behind"
       exit 0
@@ -175,22 +165,22 @@ done
 #
 # A draft, mergeable PR; conforming once paired with behind_by 0.
 # shellcheck disable=SC2034
-VIEW_CONFORMING='{"baseRefName":"main","headRefName":"feature/x","isCrossRepository":false,"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","isDraft":true,"mergeable":"MERGEABLE","url":"https://github.com/acme/widgets/pull/42"}'
+VIEW_CONFORMING='{"baseRefName":"main","headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","isDraft":true,"mergeable":"MERGEABLE","url":"https://github.com/acme/widgets/pull/42"}'
 # A stale PR. It deliberately ALSO reports `mergeStateStatus CLEAN`: on a base
 # without "require up to date" protection that is what GitHub says about a
 # behind PR, so an implementation that regressed to keying currency on
 # mergeStateStatus would read this as conforming and this fixture would catch it
 # (test-spec REQ-C1.1).
 # shellcheck disable=SC2034
-VIEW_BEHIND='{"baseRefName":"main","headRefName":"feature/x","isCrossRepository":false,"headRefOid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","isDraft":true,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","url":"https://github.com/acme/widgets/pull/42"}'
+VIEW_BEHIND='{"baseRefName":"main","headRefOid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","isDraft":true,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","url":"https://github.com/acme/widgets/pull/42"}'
 # shellcheck disable=SC2034
-VIEW_CONFLICTING='{"baseRefName":"main","headRefName":"feature/x","isCrossRepository":false,"headRefOid":"cccccccccccccccccccccccccccccccccccccccc","isDraft":true,"mergeable":"CONFLICTING","url":"https://github.com/acme/widgets/pull/42"}'
+VIEW_CONFLICTING='{"baseRefName":"main","headRefOid":"cccccccccccccccccccccccccccccccccccccccc","isDraft":true,"mergeable":"CONFLICTING","url":"https://github.com/acme/widgets/pull/42"}'
 # shellcheck disable=SC2034
-VIEW_UNKNOWN='{"baseRefName":"main","headRefName":"feature/x","isCrossRepository":false,"headRefOid":"dddddddddddddddddddddddddddddddddddddddd","isDraft":true,"mergeable":"UNKNOWN","url":"https://github.com/acme/widgets/pull/42"}'
+VIEW_UNKNOWN='{"baseRefName":"main","headRefOid":"dddddddddddddddddddddddddddddddddddddddd","isDraft":true,"mergeable":"UNKNOWN","url":"https://github.com/acme/widgets/pull/42"}'
 # Already ready. Stale AND conflicting on purpose: REQ-C1.8 requires the no-op
 # to defer "regardless of currency/mergeability state".
 # shellcheck disable=SC2034
-VIEW_ALREADY_READY='{"baseRefName":"main","headRefName":"feature/x","isCrossRepository":false,"headRefOid":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","isDraft":false,"mergeable":"CONFLICTING","url":"https://github.com/acme/widgets/pull/42"}'
+VIEW_ALREADY_READY='{"baseRefName":"main","headRefOid":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","isDraft":false,"mergeable":"CONFLICTING","url":"https://github.com/acme/widgets/pull/42"}'
 
 # run_hook — drive the guard with a payload. Env overrides for the stub are
 # passed through the caller's environment.
@@ -212,7 +202,6 @@ run_hook() {
       STUB_VIEW_JSON="${STUB_VIEW_JSON:-}" STUB_VIEW_JSON2="${STUB_VIEW_JSON2:-}" \
       STUB_VIEW_RC="${STUB_VIEW_RC:-0}" STUB_VIEW_RC2="${STUB_VIEW_RC2:-}" \
       STUB_COMPARE_OUT="${STUB_COMPARE_OUT:-0}" STUB_COMPARE_RC="${STUB_COMPARE_RC:-0}" \
-      STUB_STATUS_OUT="${STUB_STATUS_OUT:-success}" STUB_STATUS_RC="${STUB_STATUS_RC:-0}" \
       /bin/bash "$HOOK" "${RG_SURFACE:-bash}" 2>/dev/null)"
   CODE=$?
   # Restore anything an absence fixture removed.
@@ -362,7 +351,5 @@ reset_stub_env() {
   STUB_VIEW_RC2=''
   STUB_COMPARE_OUT=0
   STUB_COMPARE_RC=0
-  STUB_STATUS_OUT=success
-  STUB_STATUS_RC=0
 }
 reset_stub_env

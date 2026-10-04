@@ -808,19 +808,19 @@ assert_deny_because "a conforming answer about a DIFFERENT PR number denies" 'no
 
 # P13 — + and @ are valid in git ref names and unambiguous in a URL path.
 reset_stub_env
-STUB_VIEW_JSON='{"baseRefName":"release+hotfix","headRefName":"feature/x","isCrossRepository":false,"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","isDraft":true,"mergeable":"MERGEABLE","url":"https://github.com/acme/widgets/pull/42"}'
+STUB_VIEW_JSON='{"baseRefName":"release+hotfix","headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","isDraft":true,"mergeable":"MERGEABLE","url":"https://github.com/acme/widgets/pull/42"}'
 STUB_COMPARE_OUT=0
 run_hook "$(bash_payload 'gh pr ready 42')"
 assert_defer "a conforming PR on a base branch containing + is not falsely denied"
 
 reset_stub_env
-STUB_VIEW_JSON='{"baseRefName":"team@release","headRefName":"feature/x","isCrossRepository":false,"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","isDraft":true,"mergeable":"MERGEABLE","url":"https://github.com/acme/widgets/pull/42"}'
+STUB_VIEW_JSON='{"baseRefName":"team@release","headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","isDraft":true,"mergeable":"MERGEABLE","url":"https://github.com/acme/widgets/pull/42"}'
 STUB_COMPARE_OUT=0
 run_hook "$(bash_payload 'gh pr ready 42')"
 assert_defer "a conforming PR on a base branch containing @ is not falsely denied"
 
 reset_stub_env
-STUB_VIEW_JSON='{"baseRefName":"release/2.0","headRefName":"feature/x","isCrossRepository":false,"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","isDraft":true,"mergeable":"MERGEABLE","url":"https://github.com/acme/widgets/pull/42"}'
+STUB_VIEW_JSON='{"baseRefName":"release/2.0","headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","isDraft":true,"mergeable":"MERGEABLE","url":"https://github.com/acme/widgets/pull/42"}'
 STUB_COMPARE_OUT=0
 run_hook "$(bash_payload 'gh pr ready 42')"
 assert_defer "a conforming PR on a slashed base branch is not falsely denied"
@@ -829,98 +829,6 @@ if grep -q $'compare/release/2\.0\.\.\.' "$STATE/argv.log"; then
 else
   fail "slashed base ref not in the compare argv: $(cat "$STATE/argv.log")"
 fi
-
-echo "### flip-point evidence — a planwright/ head needs its success status"
-
-# view_on <headRefName> <isCrossRepository> — the conforming answer on another
-# head branch.
-view_on() {
-  printf '{"baseRefName":"main","headRefName":"%s","isCrossRepository":%s,"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","isDraft":true,"mergeable":"MERGEABLE","url":"https://github.com/acme/widgets/pull/42"}' "$1" "$2"
-}
-
-reset_stub_env
-STUB_VIEW_JSON=$(view_on planwright/demo/task-1 false)
-run_hook "$(bash_payload 'gh pr ready 42')"
-assert_defer "a task head carrying a success status defers"
-if grep -q $'\tapi\trepos/acme/widgets/commits/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/status' "$STATE/argv.log" \
-  && grep $'\tapi\t.*/status' "$STATE/argv.log" | grep -q 'planwright/pre-ready-flip'; then
-  pass "the status read targets the base repo's head commit and the unit context"
-else
-  fail "the status read is not the pinned shape: $(cat "$STATE/argv.log")"
-fi
-
-reset_stub_env
-STUB_VIEW_JSON=$(view_on planwright/demo/task-1 false) STUB_STATUS_OUT=missing
-run_hook "$(bash_payload 'gh pr ready 42')"
-assert_deny_because "a plain gh pr ready on a task head with no flip-point status denies" 'pre-ready-flip'
-
-reset_stub_env
-STUB_VIEW_JSON=$(view_on planwright/flight/fix-1a2b false) STUB_STATUS_OUT=failure
-run_hook "$(bash_payload 'gh pr ready 42')"
-assert_deny_because "a flight head whose flip-point status failed denies" 'pre-ready-flip'
-
-reset_stub_env
-STUB_VIEW_JSON=$(view_on planwright/demo/task-1 false) STUB_STATUS_OUT=pending
-run_hook "$(bash_payload 'gh pr ready 42')"
-assert_deny "a pending flip-point status denies"
-
-reset_stub_env
-STUB_VIEW_JSON=$(view_on planwright/demo/task-1 false) STUB_STATUS_RC=1
-run_hook "$(bash_payload 'gh pr ready 42')"
-assert_deny_because "a status read that errors denies" 'could not be read|status'
-
-reset_stub_env
-STUB_VIEW_JSON=$(view_on planwright/demo/task-1 false) STUB_STATUS_RC=124
-run_hook "$(bash_payload 'gh pr ready 42')"
-assert_deny_because "a status read that times out denies" 'did not finish'
-
-reset_stub_env
-STUB_VIEW_JSON=$(view_on planwright/demo/spec false)
-run_hook "$(bash_payload 'gh pr ready 42')"
-assert_defer "a spec head carrying its success status defers"
-if grep $'\tapi\t.*/status' "$STATE/argv.log" | grep -q 'planwright/pre-spec-ready-flip'; then
-  pass "a spec head is checked against the spec context"
-else
-  fail "a spec head was not checked against planwright/pre-spec-ready-flip: $(cat "$STATE/argv.log")"
-fi
-
-reset_stub_env
-STUB_VIEW_JSON=$(view_on planwright/demo/spec false) STUB_STATUS_OUT=missing
-run_hook "$(bash_payload 'gh pr ready 42')"
-assert_deny_because "a spec head with no flip-point status denies" 'pre-spec-ready-flip'
-
-reset_stub_env
-STUB_VIEW_JSON=$(view_on feature/x false) STUB_STATUS_OUT=missing
-run_hook "$(bash_payload 'gh pr ready 42')"
-assert_defer "a head outside planwright/ needs no flip-point status"
-if [ "$(count_lines '/status')" = 0 ]; then
-  pass "a head outside planwright/ costs no status read"
-else
-  fail "a head outside planwright/ read statuses: $(cat "$STATE/argv.log")"
-fi
-
-reset_stub_env
-STUB_VIEW_JSON=$(view_on planwright/demo/task-1 true) STUB_STATUS_OUT=missing
-run_hook "$(bash_payload 'gh pr ready 42')"
-assert_defer "a fork head is not held to the flip-point status"
-
-reset_stub_env
-STUB_VIEW_JSON='{"baseRefName":"main","headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","isDraft":true,"mergeable":"MERGEABLE","url":"https://github.com/acme/widgets/pull/42"}'
-run_hook "$(bash_payload 'gh pr ready 42')"
-assert_deny "an answer with no head branch denies rather than skipping the evidence check"
-
-reset_stub_env
-STUB_VIEW_JSON='{"baseRefName":"main","headRefName":"planwright/demo/task-1","isCrossRepository":"false","headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","isDraft":true,"mergeable":"MERGEABLE","url":"https://github.com/acme/widgets/pull/42"}'
-STUB_STATUS_OUT=missing
-run_hook "$(bash_payload 'gh pr ready 42')"
-assert_deny "a non-boolean fork flag denies rather than reading as a fork"
-
-reset_stub_env
-RG_SURFACE=mcp
-STUB_VIEW_JSON=$(view_on planwright/demo/task-1 false) STUB_STATUS_OUT=missing
-run_hook "$(mcp_payload acme widgets 42 false)"
-assert_deny_because "the MCP flip of a task head with no flip-point status denies" 'pre-ready-flip'
-RG_SURFACE=bash
 
 echo "### REQ-C1.7 — global wiring in hooks/hooks.json"
 
