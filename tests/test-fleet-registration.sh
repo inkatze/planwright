@@ -392,16 +392,16 @@ grep -qE 'register_dispatch .* print' "$REPO_ROOT/scripts/offload-dispatch.sh" \
 # current four is a tautology — it re-derives the manifest and can never catch
 # the new seam the manifest exists to catch. So: a line that launches the
 # worker CLI in a non-interactive mode (`-p`/`--print` with an `--output-format`,
-# in either order and with flags in between), or opens a tmux window, or attaches
-# a classic tmux session, or names a native `claude --worktree` launch (run or
-# printed for a human to run). Same shape as the sibling guard in
+# in either order and with flags in between), or opens a tmux window or
+# session, or names a native `claude --worktree` launch (run or printed for a
+# human to run). Same shape as the sibling guard in
 # tests/test-dispatch-launch-pin.sh. Comment lines are stripped first: a guard
 # that quotes a launch shape in its prose is documenting one, not spawning one.
 discovered=$(for f in "$REPO_ROOT"/scripts/*.sh; do
   body=$(grep -v '^[[:space:]]*#' "$f")
   if printf '%s\n' "$body" | grep -qE -- '(^|[[:space:]])(-p|--print)([[:space:]].*)?[[:space:]]--output-format' \
     || printf '%s\n' "$body" | grep -qE -- '--output-format([[:space:]].*)?[[:space:]](-p|--print)([[:space:]]|$)' \
-    || printf '%s\n' "$body" | grep -qE -- '--tmux=classic|tmux new-window|claude --worktree'; then
+    || printf '%s\n' "$body" | grep -qE -- '--tmux=classic|tmux new-(window|session)|claude --worktree'; then
     basename "$f"
   fi
 done | sort -u)
@@ -414,10 +414,16 @@ for seam in $manifest; do
   printf '%s\n' "$discovered" | grep -qx "$seam" \
     || fail "c1: discovery no longer finds $seam — the scan has drifted and can pass vacuously"
 done
-# No exemption arm: nothing this scan discovers today is a non-dispatch site.
-# One is added when the scan first finds one, so an exemption can never sit
-# here unreached, reading as coverage it does not provide.
+# The one exemption: fleet-tower-watchdog.sh opens a tmux session to relaunch a
+# tower, not a worker, so it has no registry record to write. It must still be
+# discovered, so the exemption cannot sit here unreached.
+exempt="fleet-tower-watchdog.sh"
+for e in $exempt; do
+  printf '%s\n' "$discovered" | grep -qx "$e" \
+    || fail "c1: the exemption for $e is unreached; drop it"
+done
 for d in $discovered; do
+  printf '%s\n' "$exempt" | grep -qx "$d" && continue
   printf '%s\n' "$manifest" | grep -qx "$d" \
     || fail "c1: $d spawns a worker but is not in the seam-coverage manifest"
 done

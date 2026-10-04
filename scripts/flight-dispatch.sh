@@ -9,8 +9,8 @@
 #   - the worktree and branch come from scripts/fleet-dispatch-worktree.sh's
 #     `--flight` arm, the sanctioned creation path (its fleet-hardening D-7
 #     exception), which
-#     registers the worktree and, on the tmux rung, starts the worker through
-#     Claude Code's native `claude --worktree` launch;
+#     registers the worktree and, on the tmux rung, starts the worker in a
+#     detached tmux session and returns without waiting on it;
 #   - the rung is an INPUT. /offload's placement axioms choose it; this script
 #     never reads the host's backend set, so no second placement logic exists
 #     (REQ-C1.2);
@@ -62,8 +62,9 @@
 #       the bound nothing is placed: the decline and its re-ask path are
 #       reported and the exit is 3; there is no queue. `0` pauses flights, as
 #       it pauses a spec.
-#         tmux   create and attach: the worker starts in its worktree with the
-#                one prompt `Read <brief> and follow it exactly.`
+#         tmux   create and launch: the worker starts in its worktree, in a
+#                detached tmux session, with the one prompt
+#                `Read <brief> and follow it exactly.`
 #         print  create only, and report the exact launch for the human to
 #                run, through the dispatch environment pin; no process exists
 #                until they do.
@@ -879,8 +880,8 @@ placement_failed() {
   esac
 }
 
-# tmux_session — the classic session `claude --worktree <suffix>` names for
-# this flight, by either spelling the worktree primitive treats as live.
+# tmux_session — the worker's session for this flight, by either spelling the
+# worktree primitive treats as live.
 tmux_session() {
   command -v tmux >/dev/null 2>&1 || return 0
   tmux list-sessions -F '#{session_name}' 2>/dev/null \
@@ -1209,7 +1210,7 @@ cmd_dispatch() {
     else
       _sess=$(tmux_session)
       if [ -n "$_sess" ]; then
-        printf 'observe\ttmux capture-pane -p -t %s\n' "$(sh_quote "=$_sess")"
+        printf 'observe\ttmux capture-pane -p -t %s\n' "$(sh_quote "=$_sess:")"
         printf 'attach\ttmux attach -t %s\n' "$(sh_quote "=$_sess")"
       else
         printf 'observe\t%s\n' "none: the worker's tmux session was not found; act on the landing reference"

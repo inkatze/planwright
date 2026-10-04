@@ -25,9 +25,10 @@
 #       commits, no session) is rolled back and recreated; the dispatch proceeds.
 #   c9  (REQ-B1.4): the create exit-code GATES the attach — a non-zero create
 #       (live collision / unresolvable base) prints NO attach plan.
-#   c10 (REQ-B1.4): the client-switch mitigation is present in the constructed
-#       attach (capture-and-restore), and `--tmux=classic` is used (not plain
-#       `--tmux`), composed through the ghost-text pin wrapper.
+#   c10 (REQ-B1.4): the worker session is created detached (the client-switch
+#       mitigation: the operator's client never moves), named for the suffix,
+#       a classic tmux session running the worker in its worktree through the
+#       ghost-text pin wrapper.
 #   c11 (REQ-C1.2): the tower deny floor denies the dangerous `git worktree`
 #       forms (default-branch / detach / `--force`).
 #   c12 (REQ-B1.4 exception scope): the dispatch primitive is the ONLY
@@ -44,9 +45,9 @@
 # inner git call is never a classifier-exposed Bash string (c12 + c14 together).
 #
 # NOT covered here (the Done-when's `[manual]` arm): confirming on a REAL
-# dispatch that `--tmux=classic` opens relay-targetable panes and the
-# client-switch restore holds — that needs a live tmux + `claude` and is a
-# manual confirmation, recorded in the PR body.
+# dispatch that the worker's session is relay-targetable and the operator's
+# client stays put — that needs a live tmux + `claude` and is a manual
+# confirmation, recorded in the PR body.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-fleet-dispatch-worktree.sh
@@ -411,8 +412,9 @@ c9() {
 }
 
 # ---------------------------------------------------------------------------
-# c10 — client-switch mitigation present (capture-and-restore) and --tmux=classic
-# used (not plain --tmux), composed through the ghost-text pin wrapper.
+# c10 — the worker session is created detached, a classic tmux session named
+# for the suffix, running the pinned worker in its worktree; the operator's
+# client is never switched, and the launch waits on nothing.
 # ---------------------------------------------------------------------------
 c10() {
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c10.XXXXXX")
@@ -426,26 +428,27 @@ c10() {
     return
   }
   plan=$(printf '%s\n' "$OUT" | grep '^attach-plan')
-  # Capture the prior client session before the launch.
-  if ! { printf '%s\n' "$plan" | grep -q 'capture' \
-    && printf '%s\n' "$plan" | grep -q 'client_session'; }; then
-    fail "c10: no client-session CAPTURE step in the attach plan"
-  fi
-  # Restore the client to the prior session after the launch.
-  if ! { printf '%s\n' "$plan" | grep -q 'restore' \
-    && printf '%s\n' "$plan" | grep -q 'switch-client'; }; then
-    fail "c10: no client RESTORE (switch-client) step in the attach plan"
-  fi
-  # --tmux=classic is mandatory; plain `--tmux` (space-terminated) is a bug.
-  launch=$(printf '%s\n' "$plan" | grep 'launch')
-  printf '%s\n' "$launch" | grep -q -- '--tmux=classic' \
-    || fail "c10: launch does not use --tmux=classic"
-  printf '%s\n' "$launch" | grep -Eq -- '--tmux($|[^=])' \
-    && fail "c10: launch uses plain --tmux (non-classic — non-relay-targetable)"
-  # The pin wrapper (fleet-dispatch-env.sh) is the launch verb, so the ghost-text
-  # pin is applied structurally.
-  printf '%s\n' "$launch" | grep -q 'fleet-dispatch-env.sh' \
-    || fail "c10: launch not routed through the fleet-dispatch-env.sh pin wrapper"
+  printf '%s\n' "$plan" | grep -q 'switch-client' \
+    && fail "c10: the attach plan moves the operator's tmux client"
+  [ "$(printf '%s\n' "$plan" | awk -F"$TAB" '$2=="session" {print $3}')" = demo-task-10 ] \
+    || fail "c10: the worker session is not named for the suffix"
+  launch=$(printf '%s\n' "$plan" | grep "^attach-plan${TAB}launch")
+  case $launch in
+    "attach-plan${TAB}launch${TAB}tmux${TAB}new-session${TAB}-d${TAB}-s${TAB}demo-task-10${TAB}-c${TAB}$tmp/primary/.claude/worktrees/demo-task-10${TAB}--${TAB}"*) ;;
+    *) fail "c10: the launch is not a detached session in the worktree: $launch" ;;
+  esac
+  # The worker runs in its worktree already: no --worktree, and no --tmux,
+  # whose in-tmux launcher never exits.
+  printf '%s\n' "$launch" | grep -Eq -- "${TAB}--(worktree|tmux)" \
+    && fail "c10: the worker launch carries --worktree or --tmux: $launch"
+  # The pin wrapper runs inside the session, so the pin reaches the worker.
+  printf '%s\n' "$launch" | grep -q "${TAB}--${TAB}[^$TAB]*/fleet-dispatch-env.sh${TAB}[^$TAB]*claude" \
+    || fail "c10: the worker is not launched through the fleet-dispatch-env.sh pin wrapper"
+
+  # A dotted task id's session is spelled as tmux would rename it.
+  run_prim dispatch demo 2.1 --repo-root "$tmp/primary" --attach-dry-run
+  [ "$(printf '%s\n' "$OUT" | awk -F"$TAB" '$1=="attach-plan" && $2=="session" {print $3}')" = demo-task-2_1 ] \
+    || fail "c10: a dotted task id's session must read demo-task-2_1 (out: $OUT)"
 }
 
 # ---------------------------------------------------------------------------
@@ -1168,7 +1171,7 @@ c29() {
   run_prim dispatch --flight demo-0123abcd --brief "$tmp/alias/brief.md" --repo-root "$tmp/primary" --attach-dry-run
   [ "$RC" -eq 0 ] || fail "c29: the flight's own brief must be accepted, got exit $RC"
   case $OUT in
-    *"--tmux=classic${TAB}--${TAB}Read $_own/brief.md and follow it exactly."*) ;;
+    *"claude${TAB}--${TAB}Read $_own/brief.md and follow it exactly.") ;;
     *) fail "c29: the attach plan must hand the worker its own brief, got: $OUT" ;;
   esac
 
@@ -1191,7 +1194,7 @@ c29() {
   run_prim attach flight-demo-0123abcd --brief "$_own/brief.md" --dry-run
   [ "$RC" -eq 0 ] || fail "c29: a standalone flight attach must take its brief, got exit $RC"
   case $OUT in
-    *"--tmux=classic${TAB}--${TAB}Read $_own/brief.md and follow it exactly."*) ;;
+    *"claude${TAB}--${TAB}Read $_own/brief.md and follow it exactly.") ;;
     *) fail "c29: a standalone flight attach must hand the worker its brief, got: $OUT" ;;
   esac
   run_prim attach flight-demo-0123abcd --brief "$tmp/brief.md" --dry-run

@@ -25,15 +25,16 @@
 #      BEFORE interpolation and passed to git as ARGV (never spliced into a shell
 #      string), so no shell metacharacter or `..` path-traversal can reach the
 #      command.
-#   2. ATTACH with `claude --worktree <suffix> --tmux=classic` (the `attach`
-#      subcommand), which discovers the already-placed worktree and folds the
-#      classic tmux session + launch. The attach runs ONLY if step 1 exited zero
-#      (a non-zero create aborts the dispatch and never attaches to a missing or
-#      wrong worktree). The launch is constructed THROUGH scripts/fleet-dispatch-
-#      env.sh so the ghost-text pin (Task 5, D-5) is applied structurally, and it
-#      is wrapped with the CLIENT-SWITCH MITIGATION (capture-and-restore the
-#      prior tmux client attachment) so a tower watching another session is not
-#      disrupted (D-7 carried caveat).
+#   2. ATTACH (the `attach` subcommand): create a DETACHED classic tmux session
+#      named for the suffix, running `claude` in the already-placed worktree,
+#      and return once the session exists, never waiting on the worker. The
+#      attach runs ONLY if step 1 exited zero (a non-zero create aborts the
+#      dispatch and never attaches to a missing or wrong worktree). The worker
+#      runs THROUGH scripts/fleet-dispatch-env.sh inside the session, so the
+#      ghost-text pin (Task 5, D-5) reaches it structurally. Detached is the
+#      client-switch mitigation D-7's carried caveat names: the operator's tmux
+#      client never moves, so a tower watching another session is not
+#      disrupted.
 #
 # Splitting create-then-attach makes the exact D-36 branch name a guaranteed
 # OUTPUT rather than a rename an operator must remember: the mangled
@@ -123,9 +124,9 @@
 #                        `--brief` is refused, and so are `--continue` and
 #                        `--resume` beside it.
 #   fleet-dispatch-worktree.sh attach <suffix> [--brief <abs-file>] [--dry-run] [-- <extra>...]
-#       The attach step alone: capture the prior tmux client session, launch
-#       `claude --worktree <suffix> --tmux=classic` (pinned via fleet-dispatch-
-#       env.sh), restore the client. --dry-run prints the plan (no exec).
+#       The attach step alone: create the worker's detached tmux session in
+#       `<repo>/.claude/worktrees/<suffix>`, the worker pinned via
+#       fleet-dispatch-env.sh. --dry-run prints the plan (no exec).
 #       --brief hands a flight's worker its brief, as the dispatch arm does and
 #       under the same confinement; the suffix must be `flight-<flight-id>`.
 #
@@ -205,6 +206,16 @@ REGISTER="$script_dir/fleet-register.sh"
 # The one prompt a flight dispatch hands its worker (dispatch --flight --brief);
 # empty for every other launch.
 ATTACH_PROMPT=''
+# The worktree the dispatch arm just placed, for its attach; empty for a
+# standalone attach, which finds its own.
+ATTACH_WORKTREE=''
+
+# worker_session <suffix> — the tmux session a worker for <suffix> runs in: the
+# suffix, with a dotted task id's `.` spelled `_`, as tmux would rename it (a
+# `.` in a target names a pane).
+worker_session() {
+  printf '%s' "$1" | tr . _
+}
 
 # register_dispatch <handle> <scope> <worktree> <death-handle> — write the
 # dispatch record through the one registration seam (fleet-lifecycle-closure
@@ -233,8 +244,7 @@ register_dispatch() {
 # `tmux-window <session> <window>` handle for the worker session this dispatch
 # just created, or nothing.
 #
-# `claude --worktree <suffix> --tmux=classic` names the session itself, so the
-# name is not derivable here and has to be discovered. Two gates, because a
+# The window id is tmux's to assign, so it has to be discovered. Two gates, because a
 # WRONG death handle is a reaper aimed at someone else's window, which is worse
 # than none at all:
 #
@@ -427,10 +437,8 @@ valid_suffix() {
 # already-in-flight abort the operator retries. This matches the unparseable-
 # marker arm and dispatch-fetch.sh's clock-failure discipline.
 #
-# The tmux probe accepts either the bare `<suffix>` or the `worktree-<suffix>`
-# session name: `claude --worktree <suffix> --tmux=classic` names the classic
-# session from the suffix, and the exact spelling is confirmed only by the
-# Done-when's [manual] arm, so both plausible names are treated as live.
+# The tmux probe accepts the session the attach creates (worker_session) and
+# the `worktree-<suffix>` spelling, so both are treated as live.
 LIVENESS_SKIP_TMUX="${PLANWRIGHT_DISPATCH_LIVENESS_SKIP_TMUX:-0}"
 
 is_live() {
@@ -444,12 +452,12 @@ is_live() {
   _alt=${4:-}
 
   if [ "$LIVENESS_SKIP_TMUX" != 1 ] && command -v tmux >/dev/null 2>&1; then
-    if tmux has-session -t "=$_suffix" 2>/dev/null \
+    if tmux has-session -t "=$(worker_session "$_suffix")" 2>/dev/null \
       || tmux has-session -t "=worktree-$_suffix" 2>/dev/null; then
       return 0
     fi
     if [ -n "$_alt" ] && [ "$_alt" != "$_suffix" ]; then
-      if tmux has-session -t "=$_alt" 2>/dev/null \
+      if tmux has-session -t "=$(worker_session "$_alt")" 2>/dev/null \
         || tmux has-session -t "=worktree-$_alt" 2>/dev/null; then
         return 0
       fi
@@ -611,7 +619,7 @@ validate_launch_extra() {
   done
 }
 
-# --- attach: capture-and-restore the tmux client around the pinned launch ----
+# --- attach: the worker's detached tmux session -------------------------------
 
 do_attach() {
   # <suffix> [--brief <abs-file>] [--dry-run] [-- <extra launch args>...].
@@ -668,56 +676,58 @@ do_attach() {
   validate_launch_extra "$@"
   [ -z "$ATTACH_PROMPT" ] || refuse_resume_beside_brief "$@"
 
-  # The pinned launch argv: fleet-dispatch-env.sh applies the ghost-text pin
-  # (CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false) structurally, then exec's the
-  # `claude --worktree <suffix> --tmux=classic` launch. `--tmux=classic` is
-  # MANDATORY (plain `--tmux` opens non-relay-targetable iTerm2 panes, D-7).
-  set -- "$ENVWRAP" claude --worktree "$_suffix" --tmux=classic "$@"
+  # The worker's worktree: the dispatch arm passes the one it just placed; a
+  # standalone attach finds it where the dispatch arm would have placed it.
+  _awt=$ATTACH_WORKTREE
+  if [ -z "$_awt" ]; then
+    _aroot=$(/bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null || true)
+    [ -n "$_aroot" ] && _aroot=$(cd "$_aroot" 2>/dev/null && pwd -P) || _aroot=''
+    [ -n "$_aroot" ] || {
+      warn "cannot resolve the repo root for the attach"
+      exit 2
+    }
+    _awt="$_aroot/.claude/worktrees/$_suffix"
+    if [ "$_dry" -eq 0 ] && { [ -L "$_awt" ] || [ ! -d "$_awt" ]; }; then
+      warn "no worktree to attach at $_awt"
+      exit 2
+    fi
+  fi
+
+  # The worker session is created DETACHED, running the worker in its
+  # worktree. Not `claude --worktree <suffix> --tmux=classic`: inside tmux
+  # that launcher creates the session, switches the operator's client to it,
+  # and then never exits, so a dispatch waiting on it never returns. This is
+  # the session that launcher creates (the worktree as cwd, `--worktree` and
+  # `--tmux` dropped), minus the client switch and the wait. The command is
+  # argv after `--`, which tmux (2.0 onward) runs directly, without `sh -c`,
+  # when it is more than one word, as it always is here.
+  # fleet-dispatch-env.sh runs inside the session, so its pin reaches the
+  # worker itself rather than the tmux client.
+  _session=$(worker_session "$_suffix")
+  _claude=$(command -v claude 2>/dev/null) || _claude=claude
+  set -- tmux new-session -d -s "$_session" -c "$_awt" -- "$ENVWRAP" "$_claude" "$@"
   if [ -n "$ATTACH_PROMPT" ]; then
     set -- "$@" -- "$ATTACH_PROMPT"
   fi
 
   if [ "$_dry" -eq 1 ]; then
-    # The attach PLAN — the designed client-switch mitigation, printed for the
-    # fixture (no `claude` exec, no model/API call). Capture the prior client
-    # session, run the pinned launch, restore the client to the prior session.
-    # Launch tokens are sanitized: a validated `--model` VALUE can still carry
-    # control bytes, and this plan prints to the operator's terminal.
+    # The attach PLAN, printed for the fixture (no tmux call, no `claude` exec,
+    # no model/API call). Launch tokens are sanitized: a validated `--model`
+    # VALUE can still carry control bytes, and this plan prints to the
+    # operator's terminal.
     printf 'attach-plan\tsuffix\t%s\n' "$(sanitize_printable "$_suffix")"
-    printf 'attach-plan\tcapture\ttmux display-message -p #{client_session}\n'
+    printf 'attach-plan\tsession\t%s\n' "$(sanitize_printable "$_session")"
     printf 'attach-plan\tlaunch'
     for _a in "$@"; do printf '\t%s' "$(sanitize_printable "$_a")"; done
     printf '\n'
-    printf 'attach-plan\trestore\ttmux switch-client -t <prior-session>\n'
     return 0
   fi
 
-  # Live attach. Capture the tower's current tmux client session so we can
-  # restore it after the launch switches the client to the new worker session.
-  _prior=''
-  if command -v tmux >/dev/null 2>&1; then
-    _prior=$(tmux display-message -p '#{client_session}' 2>/dev/null || true)
-  fi
-
-  # Restore via a trap so the client is returned to its prior session on ANY
-  # exit path — a normal launch return AND a SIGINT/SIGTERM that kills the
-  # launch — never stranding a watching tower on the worker session (D-7). The
-  # trap is idempotent (guarded on a non-empty prior + tmux present).
-  _restore_client() {
-    if [ -n "$_prior" ] && command -v tmux >/dev/null 2>&1; then
-      tmux switch-client -t "$_prior" 2>/dev/null || true
-    fi
+  command -v tmux >/dev/null 2>&1 || {
+    warn "tmux is not installed; the tmux rung cannot launch a worker"
+    return 127
   }
-  trap '_restore_client' EXIT INT TERM
-
-  # Run the pinned launch. It creates the classic tmux worker session and folds
-  # the launch; the session persists after the client is restored.
-  "$@"
-  _rc=$?
-
-  _restore_client
-  trap - EXIT INT TERM
-  return "$_rc"
+  "$@" </dev/null
 }
 
 # --- dispatch: create-then-attach --------------------------------------------
@@ -1149,6 +1159,7 @@ do_dispatch() {
     printf 'dispatch\tbase\t%s\n' "$(sanitize_printable "$_base")"
     return 0
   fi
+  ATTACH_WORKTREE=$_worktree
   if [ "$_attach_dry" -eq 1 ]; then
     # Sanitize the header fields too (consistent with the attach-plan tokens): a
     # repo checkout path carrying control bytes would otherwise inject terminal
