@@ -70,7 +70,7 @@ derived state:
 | Derived state | Target section |
 | --- | --- |
 | `completed` (merged PR, merge-reachable branch, or a `Planwright-Task` trailer) | `## Completed` |
-| `in-progress` (open PR, unmerged branch with commits, or a fresh dispatch marker) | `## In progress` |
+| `in-progress` (open PR, unmerged branch with commits locally or on its `origin` remote-tracking ref, or a fresh dispatch marker) | `## In progress` |
 | `ready` / `blocked` (by dependency state) | `## Forward plan` |
 
 The human-owned sections (`## Awaiting input`, `## Deferred`, `## Out of scope`)
