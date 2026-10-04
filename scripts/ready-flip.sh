@@ -80,9 +80,10 @@
 # A park that cannot be committed restores the file and is named instead; one
 # committed but not pushed is named as such, and the next run pushes it
 # before it pins a head. Reconciling also re-reads the fetched base and drops
-# a segment the base once carried and has since cleared (one a park composed
-# in); a segment the unit wrote itself stays. A bullet with neither is never
-# rewritten.
+# a segment the base once carried for that task and has since cleared (one a
+# park composed in); a segment the unit wrote itself stays unless the base
+# once carried the same text for the same task. A bullet with neither is
+# never rewritten.
 #
 # The precondition record (evaluate's output, flip's --preconditions input):
 #   head<TAB><sha>
@@ -333,9 +334,9 @@ edit_tasks() {
 
 # stale_base_segments <base ref> <out> — write `<line>\t<segment>` for each
 # live segment of a unit bullet in the checkout that the base once carried
-# (a park composed it in) and its current tip no longer does: someone cleared
-# it there. A segment the unit wrote itself never appears in the base's
-# history and stays. Nothing is written when the base cannot be read.
+# for the same task (a park composed it in) and its current tip no longer
+# does: someone cleared it there. A segment the base never carried for this
+# task stays. Nothing is written when the base cannot be read.
 stale_base_segments() {
   local ref=$1 out=$2 id line live seg
   : >"$out"
