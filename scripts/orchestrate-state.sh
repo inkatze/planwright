@@ -398,11 +398,15 @@ branch_exists() { git -C "$repo_root" show-ref --verify --quiet "refs/heads/$1";
 # named directly) and adds no network call; an unfetched remote branch stays
 # invisible until the next fetch. The count excludes scan_refs, not base alone:
 # the fetch never advances local main, so measuring against a lagging base would
-# count origin/main's newer commits as the task's own work.
+# count origin/main's newer commits as the task's own work. A count that errors
+# once the ref exists holds the task: reading it as nothing ahead would free the
+# task for the duplicate dispatch this arm exists to prevent.
 remote_branch_ahead() {
   git -C "$repo_root" show-ref --verify --quiet "refs/remotes/origin/$1" || return 1
   # shellcheck disable=SC2086
-  [ "$(git -C "$repo_root" rev-list --count "refs/remotes/origin/$1" --not $scan_refs 2>/dev/null || echo 0)" -gt 0 ]
+  rb_count=$(git -C "$repo_root" rev-list --count "refs/remotes/origin/$1" --not $scan_refs 2>/dev/null) || return 0
+  case "$rb_count" in '' | *[!0-9]*) return 0 ;; esac
+  [ "$rb_count" -gt 0 ]
 }
 
 # Membership test: is commit $1 on base's first-parent mainline? Used by the

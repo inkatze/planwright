@@ -1026,6 +1026,8 @@ cat >"$rspec/tasks.md" <<'EOF'
 - **Dependencies:** none
 ### Task 4 — depends on the remote-only task
 - **Dependencies:** 1
+### Task 5 — remote ref the count cannot read
+- **Dependencies:** none
 EOF
 gitc "$rrepo" add -A
 gitc "$rrepo" commit -q -m "base"
@@ -1040,6 +1042,14 @@ for t in 1 2; do
 done
 gitc "$rrepo" branch -q planwright/demo/task-2 "$rbase"
 gitc "$rrepo" update-ref refs/remotes/origin/planwright/demo/task-3 "$rbase"
+# Task 5's ref resolves but its history cannot be walked (a parent object is
+# missing): the count's error must hold the task, never read as nothing ahead.
+rbroken=$(printf 'tree %s\nparent %s\nauthor t <t@example.invalid> 0 +0000\ncommitter t <t@example.invalid> 0 +0000\n\nbroken\n' \
+  "$(gitc "$rrepo" rev-parse "$rbase^{tree}")" 1111111111111111111111111111111111111111 \
+  | gitc "$rrepo" hash-object -t commit -w --stdin --literally)
+gitc "$rrepo" update-ref refs/remotes/origin/planwright/demo/task-5 "$rbroken"
+gitc "$rrepo" rev-list --count refs/remotes/origin/planwright/demo/task-5 >/dev/null 2>&1 \
+  && fail "remote-only: fixture invalid — task 5's history walks cleanly"
 gitc "$rrepo" show-ref --verify --quiet refs/heads/planwright/demo/task-1 \
   && fail "remote-only: fixture invalid — task 1 has a local branch"
 rstub="$tmp/binremoteonly"
@@ -1051,6 +1061,7 @@ assert_state "$rout" 2 in-progress "remote-only: a zero-commit local branch does
 assert_evidence "$rout" 2 remote-branch-commits "remote-only: task 2 is held by the remote-tracking branch"
 assert_state "$rout" 3 ready "remote-only: a remote branch with nothing beyond base holds nothing"
 assert_state "$rout" 4 blocked "remote-only: a dependent of the held task stays blocked"
+assert_state "$rout" 5 in-progress "remote-only: a remote ref the count cannot read holds the task (fail safe)"
 echo "ok: a remote-only task branch with unmerged commits derives in-progress, not ready"
 
 # 6v. The dispatch fetch advances origin/main but never local main, so a local
