@@ -167,13 +167,15 @@ server_gate() {
 expand_format() {
   ef_s=$1
   ef_out=''
+  ef_open='#{'
+  ef_close='}'
   while :; do
     case $ef_s in
-      *'#{'*)
-        ef_pre=${ef_s%%'#{'*}
-        ef_rest=${ef_s#*'#{'}
-        ef_key=${ef_rest%%'}'*}
-        ef_s=${ef_rest#*'}'}
+      *"$ef_open"*)
+        ef_pre=${ef_s%%"$ef_open"*}
+        ef_rest=${ef_s#*"$ef_open"}
+        ef_key=${ef_rest%%"$ef_close"*}
+        ef_s=${ef_rest#*"$ef_close"}
         case $ef_key in
           session_name) ef_v=$ns_name ;;
           session_id) ef_v="\$$ns_num" ;;
