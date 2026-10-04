@@ -755,7 +755,7 @@ pred_ci() {
         esac
         oid=$(printf '%s' "$raw" | jq -r '.headRefOid // empty' 2>/dev/null) || oid=''
       fi
-      if [ -z "$raw" ]; then
+      if [ -z "$oid" ]; then
         verdict=''
       elif [ "$oid" != "$HEAD_SHA" ]; then
         verdict=moved
@@ -777,6 +777,8 @@ pred_ci() {
         none) last='no check has reported a success' ;;
         *) last='the check rollup could not be read' ;;
       esac
+    else
+      last='the check rollup could not be read'
     fi
     [ "$i" -lt "$ATTEMPTS" ] || break
     if [ "$POLL" = 0 ]; then

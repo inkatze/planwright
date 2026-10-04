@@ -64,6 +64,10 @@ case "$1 $2" in
           echo 'HTTP 502: Bad Gateway' >&2
           exit 1
         fi
+        if [ -f "$GHS/rollup_garbage_at" ] && [ "$n" = "$(cat "$GHS/rollup_garbage_at")" ]; then
+          echo 'not json'
+          exit 0
+        fi
         [ ! -f "$GHS/head_override" ] || head=$(cat "$GHS/head_override")
         # head_lag_until reports a stale head for the first n reads.
         [ ! -f "$GHS/head_lag_until" ] || [ "$n" -gt "$(cat "$GHS/head_lag_until")" ] \
@@ -853,6 +857,19 @@ echo 2 >"$GHS/rollup_fail_at"
 run_polled 0 1 evaluate --spec specs/demo --task 1
 check "an empty re-read fails ci-rollup as unreadable" grep -q 'ci-rollup	fail	the check rollup could not be read' <<<"$OUT"
 check "an empty re-read is not reported as an unsettled head" not grep -q 'did not settle' <<<"$OUT"
+fixture
+set_policy unit-owner
+echo 1 >"$GHS/head_lag_until"
+echo 2 >"$GHS/rollup_garbage_at"
+run_polled 0 1 evaluate --spec specs/demo --task 1
+check "an unparseable re-read fails ci-rollup as unreadable" grep -q 'ci-rollup	fail	the check rollup could not be read' <<<"$OUT"
+check "an unparseable re-read is not reported as an unsettled head" not grep -q 'did not settle' <<<"$OUT"
+fixture
+set_policy unit-owner
+echo 9 >"$GHS/head_lag_until"
+echo 3 >"$GHS/rollup_fail_at"
+run_polled 0 2 evaluate --spec specs/demo --task 1
+check "a failed last read after an unsettled head ends as unreadable" grep -q 'ci-rollup	fail	the check rollup could not be read' <<<"$OUT"
 
 echo "# no tracking ref: reconcile fetches one before deciding what to push"
 fixture
