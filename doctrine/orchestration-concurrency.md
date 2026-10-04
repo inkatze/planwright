@@ -59,7 +59,7 @@ supersedes it — and a stale orphan marker (marker without a surviving branch)
 reverts the task to Ready. A bundle writes one marker per component task id,
 never a single `<id>-<id>` marker. The writer (`orchestrate-marker.sh`)
 grammar-validates each id and containment-checks the marker path before the
-write, dropping a discardable, gitignored local artifact: no `tasks.md`
+write, dropping a discardable, untracked local artifact: no `tasks.md`
 write, no commit. From branch + marker, `orchestrate-state.sh` derives the
 task In progress.
 

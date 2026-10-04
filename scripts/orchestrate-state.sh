@@ -63,8 +63,8 @@
 #   PLANWRIGHT_BASE_REF        the integration ref reachability is measured
 #                              against (default: main → origin/main → HEAD).
 #   PLANWRIGHT_ORCH_STATE_DIR  the only dir holding per-task runtime markers;
-#                              unset, the dirs orchestrate-marker-home.sh
-#                              resolves for the writer and every reader alike.
+#                              unset, the read dirs orchestrate-marker-home.sh
+#                              resolves (a superset of the writer's).
 #
 # Usage: orchestrate-state.sh <spec-dir>
 # Exit: 0 records emitted; 2 the spec dir / tasks.md is missing, unreadable, or
@@ -234,9 +234,9 @@ case "$tv" in
 esac
 threshold_sec=$((threshold_min * 60))
 
-# Runtime-marker dirs, the same list the writer resolves (one per line): the
-# shared home every worktree of the repository reads, then the checkout-local
-# dirs an older writer may have used. A marker in any of them counts. The
+# Runtime-marker dirs, the helper's read list (one per line, a superset of the
+# writer's): the shared home every worktree of the repository reads, then the
+# checkout-local dirs an older writer may have used. A marker in any of them counts. The
 # hardening is at the read, not here: each per-task marker (built from a
 # grammar-validated id) is containment-checked below to sit directly under its
 # dir, and a symlink at the marker path is refused — so a crafted task id or a

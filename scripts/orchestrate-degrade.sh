@@ -44,9 +44,10 @@
 #
 #   record <spec-dir> <backend>
 #       Write the effective backend spec-locally to the effective-backend record
-#       beside the sibling's `markers/` dir in its dispatch-state root — the
-#       `<spec-dir>/.orchestrate/` default, or wherever PLANWRIGHT_ORCH_STATE_DIR
-#       relocates the markers dir's parent (REQ-B1.6). NEVER writes
+#       in the checkout's dispatch-state root — the `<spec-dir>/.orchestrate/`
+#       default, or PLANWRIGHT_ORCH_STATE_DIR's parent (REQ-B1.6). The record
+#       stays per checkout; the dispatch markers alone are shared across
+#       worktrees (orchestrate-marker-home.sh). NEVER writes
 #       tasks.md — dispatch-adjacent state stays out of the committed ledger
 #       (REQ-A1.1, the sibling contract). Atomic write-temp-then-rename; a
 #       symlink or non-regular file at the path is refused, not written through
@@ -401,7 +402,7 @@ EOF
 }
 
 # Resolve the spec-local effective-backend record path. It sits alongside the
-# sibling's runtime dispatch marker (REQ-B1.6): the marker dir is
+# sibling's checkout-local runtime dispatch marker dir (REQ-B1.6),
 # ${PLANWRIGHT_ORCH_STATE_DIR:-<spec-dir>/.orchestrate/markers}; the record is a
 # sibling of that dir (its parent, the `.orchestrate` root), so the same trusted
 # operator/test knob relocates both consistently (R8: confirmed aligned with the

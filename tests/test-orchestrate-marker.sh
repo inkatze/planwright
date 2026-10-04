@@ -11,7 +11,7 @@
 #     NO git-tracked change (it is gitignored), so main carries no dispatch
 #     commit and a worker worktree cut from it inherits nothing foreign
 #     (REQ-A1.2 contamination isolation by construction).
-#   - the writer resolves the SAME marker dirs the reader does
+#   - the writer's dirs are a subset of the reader's
 #     (orchestrate-marker-home.sh, whose checkout-local
 #     <spec-dir>/.orchestrate/markers/<id> copy these cases assert on; the
 #     cross-worktree home has its own test), so a marker the writer drops is
