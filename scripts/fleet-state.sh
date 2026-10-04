@@ -21,9 +21,9 @@
 #                                    before it reaches a path. <claude-dir> is
 #                                    $CLAUDE_DIR else $HOME/.claude.
 # This is DELIBERATELY DISTINCT from the sibling's PER-spec orchestration runtime
-# state (D-11): orchestration-concurrency ships its advisory lock and dispatch
-# marker spec-dir-local (`<spec-dir>/.orchestrate.lock`,
-# `<spec-dir>/.orchestrate/markers/`), and the per-spec effective-backend
+# state (D-11): orchestration-concurrency ships its advisory lock spec-dir-local
+# (`<spec-dir>/.orchestrate.lock`) and its dispatch markers per spec in the
+# repository (orchestrate-marker-home.sh), and the per-spec effective-backend
 # failover record sits spec-locally with that marker — NOT here. The spec-local
 # lock home is the sibling's decision (confirmed against orchestrate-lock.sh /
 # orchestrate-marker.sh), not re-decided here; no fleet path ever writes into a

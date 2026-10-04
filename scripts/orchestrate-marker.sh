@@ -13,10 +13,12 @@
 # dispatch commit and a worker worktree cut from it inherits nothing foreign —
 # contamination is impossible by construction (REQ-A1.2), not merely mitigated.
 #
-# Path contract: the writer MUST resolve the SAME marker path the reader does,
-# so a marker dropped here is the marker the derivation engine reads. Both use
-#   ${PLANWRIGHT_ORCH_STATE_DIR:-<spec-dir>/.orchestrate/markers}/<id>
-# (the env override is a trusted operator/test knob, exactly as in the reader).
+# Path contract: the writer MUST resolve the SAME marker dirs the readers do,
+# so a marker dropped here is the marker the derivation engine reads from any
+# worktree of the repository. Both ask orchestrate-marker-home.sh, which places
+# the shared home under the common git dir and keeps the checkout-local
+# <spec-dir>/.orchestrate/markers beside it; PLANWRIGHT_ORCH_STATE_DIR, a
+# trusted operator/test knob, replaces both.
 # The marker is one regular file per task id; its content is one integer (the
 # epoch seconds at write). A cohesion bundle dispatches >1 task id, so `write`
 # takes one or more ids and drops a marker per task.
@@ -41,9 +43,11 @@
 # rename) never deletes an already-placed marker to undo a partial batch.
 #
 # Usage: orchestrate-marker.sh write|clear <spec-dir> <id> [<id>...]
-#   write   drop a fresh timestamped marker per id (mkdir -p the base dir).
-#   clear   remove the marker per id (idempotent: a missing marker is fine; a
-#           real removal failure is surfaced fail-closed, not swallowed).
+#   write   drop a fresh timestamped marker per id in every write dir (mkdir -p
+#           each).
+#   clear   remove the marker per id from every read dir (idempotent: a missing
+#           marker is fine; a real removal failure is surfaced fail-closed,
+#           not swallowed).
 # Exit: 0 success; 2 usage error, a missing spec dir, a refused (malformed/
 #   hostile) id, a symlink/containment refusal, or a write/removal failure (fail
 #   closed).
@@ -100,38 +104,53 @@ for id in "$@"; do
   fi
 done
 
-# Runtime-marker base dir — the SAME resolution the reader uses. The env
-# override is a trusted operator/test knob; the per-id hardening (symlink
-# refusal + containment) is at the path, not here.
-marker_dir="${PLANWRIGHT_ORCH_STATE_DIR:-$spec_dir/.orchestrate/markers}"
+# The marker dirs come from orchestrate-marker-home.sh, which every reader asks
+# too: `write` places a marker in each write dir, `clear` removes it from each
+# read dir, so a marker an older writer left in the primary checkout is cleared
+# along with this one. The per-id hardening (symlink refusal + containment) is
+# at the path, below.
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+home_cmd="write"
+[ "$cmd" = clear ] && home_cmd="read"
+marker_dirs=$(/bin/sh "$script_dir/orchestrate-marker-home.sh" "$home_cmd" "$spec_dir") || {
+  echo "orchestrate-marker: cannot resolve the marker dirs for $spec_dir" >&2
+  exit 2
+}
+[ -n "$marker_dirs" ] || {
+  echo "orchestrate-marker: no marker dir resolved for $spec_dir" >&2
+  exit 2
+}
+nl='
+'
+IFS=$nl
 
 if [ "$cmd" = clear ]; then
   # Idempotent removal. rm -f on a missing path is a no-op (exit 0); on a symlink
   # it removes the link itself, never follows it. A real removal failure (e.g. an
   # unwritable marker dir) is surfaced fail-closed (exit 2) rather than swallowed,
   # so a clean exit always means the marker is gone — matching the script's
-  # fail-closed contract everywhere else. Every id is attempted before exiting, so
-  # one stuck marker never strands the rest of a bundle's cleanup.
+  # fail-closed contract everywhere else. Every id is attempted in every dir
+  # before exiting, so one stuck marker never strands the rest of the cleanup.
   rc=0
-  for id in "$@"; do
-    if ! rm -f "$marker_dir/$id" 2>/dev/null; then
-      echo "orchestrate-marker: cannot remove marker for task $id" >&2
-      rc=2
-    fi
+  for marker_dir in $marker_dirs; do
+    for id in "$@"; do
+      if ! rm -f "$marker_dir/$id" 2>/dev/null; then
+        echo "orchestrate-marker: cannot remove marker for task $id in $marker_dir" >&2
+        rc=2
+      fi
+    done
   done
   exit "$rc"
 fi
 
-# write: create the base dir only now that every id has passed validation, so a
+# write: create the base dirs only now that every id has passed validation, so a
 # refused write leaves no marker state behind.
-if ! mkdir -p "$marker_dir" 2>/dev/null; then
-  echo "orchestrate-marker: cannot create marker dir $marker_dir" >&2
-  exit 2
-fi
-base_real=$(cd "$marker_dir" 2>/dev/null && pwd -P) || {
-  echo "orchestrate-marker: cannot resolve marker dir $marker_dir" >&2
-  exit 2
-}
+for marker_dir in $marker_dirs; do
+  if ! mkdir -p "$marker_dir" 2>/dev/null; then
+    echo "orchestrate-marker: cannot create marker dir $marker_dir" >&2
+    exit 2
+  fi
+done
 
 now=$(date +%s)
 case "$now" in
@@ -141,83 +160,93 @@ case "$now" in
     ;;
 esac
 
-# Two-phase write so a multi-id (bundle) dispatch is all-or-nothing through the
-# fragile part: phase 1 validates each marker path and stages a complete temp
-# marker per id (nothing placed yet); phase 2 renames the staged temps into
-# place. Any failure while staging rolls back every staged temp and exits 2 with
-# no marker placed. Same-dir renames after staging do not fail under normal
-# conditions; POSIX has no multi-file atomic rename, so the residual (a rename
-# failing after a sibling already landed) is documented, not eliminated — and we
-# never delete an already-placed (possibly pre-existing) marker to "undo" a
-# partial batch, which would revert a legitimately in-progress task.
+# Two-phase write so a multi-id (bundle) or multi-dir dispatch is all-or-nothing
+# through the fragile part: phase 1 validates each marker path and stages a
+# complete temp marker per id and dir (nothing placed yet); phase 2 renames the
+# staged temps into place. Any failure while staging rolls back every staged
+# temp and exits 2 with no marker placed. Same-dir renames after staging do not
+# fail under normal conditions; POSIX has no multi-file atomic rename, so the
+# residual (a rename failing after a sibling already landed) is documented, not
+# eliminated — and we never delete an already-placed (possibly pre-existing)
+# marker to "undo" a partial batch, which would revert a legitimately
+# in-progress task.
 tab=$(printf '\t')
-manifest=$(mktemp "$marker_dir/.manifest.XXXXXX") || {
-  echo "orchestrate-marker: cannot create a staging manifest in $marker_dir" >&2
+manifest_dir=${marker_dirs%%"$nl"*}
+manifest=$(mktemp "$manifest_dir/.manifest.XXXXXX") || {
+  echo "orchestrate-marker: cannot create a staging manifest in $manifest_dir" >&2
   exit 2
 }
 # Remove every still-staged temp recorded in the manifest, then the manifest
 # itself. A temp already renamed into place no longer exists at its staged path,
-# so its rm is a harmless no-op — rollback never touches a placed marker.
+# so its rm is a harmless no-op — rollback never touches a placed marker. The
+# helper drops any dir carrying a control byte, so a tab cannot split a line.
 roll_back_staged() {
-  while IFS="$tab" read -r _rb_id _rb_tmp; do
-    [ -n "$_rb_tmp" ] && rm -f "$marker_dir/$_rb_tmp"
+  while IFS="$tab" read -r _rb_dir _rb_id _rb_tmp; do
+    [ -n "$_rb_tmp" ] && rm -f "$_rb_dir/$_rb_tmp"
   done <"$manifest"
   rm -f "$manifest"
 }
 
-# Phase 1 — validate every marker path and stage a temp marker per id. The temp
-# lives in the marker dir, so the phase-2 rename is same-filesystem.
-for id in "$@"; do
-  mfile="$marker_dir/$id"
-  # A symlink at the marker path is never a legitimate marker (the writer emits
-  # a regular file); refuse it rather than write through it (REQ-F1.1).
-  if [ -L "$mfile" ]; then
-    echo "orchestrate-marker: refusing symlink at marker path $mfile (REQ-F1.1)" >&2
-    roll_back_staged
-    exit 2
-  fi
-  # Likewise refuse any other non-regular file already at the path (e.g. a
-  # directory): `mv -f` onto a directory moves the temp *inside* it and reports
-  # success, leaving no marker. Only a regular file (re-dispatch) is overwritten.
-  if [ -e "$mfile" ] && [ ! -f "$mfile" ]; then
-    echo "orchestrate-marker: refusing non-regular file at marker path $mfile (REQ-F1.1)" >&2
-    roll_back_staged
-    exit 2
-  fi
-  # Containment: the marker must sit directly under its base dir after
-  # canonicalization (defense in depth — the grammar already excludes slashes).
-  file_dir=$(cd "$(dirname "$mfile")" 2>/dev/null && pwd -P) || file_dir=""
-  if [ -z "$file_dir" ] || [ "$file_dir" != "$base_real" ]; then
-    echo "orchestrate-marker: refusing out-of-base marker path $mfile (REQ-F1.1)" >&2
-    roll_back_staged
-    exit 2
-  fi
-  tmpf=$(mktemp "$marker_dir/.marker.XXXXXX") || {
-    echo "orchestrate-marker: cannot create a temp marker in $marker_dir" >&2
+# Phase 1 — validate every marker path and stage a temp marker per id and dir.
+# The temp lives in its marker dir, so the phase-2 rename is same-filesystem.
+for marker_dir in $marker_dirs; do
+  base_real=$(cd "$marker_dir" 2>/dev/null && pwd -P) || {
+    echo "orchestrate-marker: cannot resolve marker dir $marker_dir" >&2
     roll_back_staged
     exit 2
   }
-  printf '%s\n' "$now" >"$tmpf" || {
-    rm -f "$tmpf"
-    echo "orchestrate-marker: cannot write marker for task $id" >&2
-    roll_back_staged
-    exit 2
-  }
-  printf '%s%s%s\n' "$id" "$tab" "${tmpf##*/}" >>"$manifest" || {
-    rm -f "$tmpf"
-    echo "orchestrate-marker: cannot record staged marker for task $id" >&2
-    roll_back_staged
-    exit 2
-  }
+  for id in "$@"; do
+    mfile="$marker_dir/$id"
+    # A symlink at the marker path is never a legitimate marker (the writer emits
+    # a regular file); refuse it rather than write through it (REQ-F1.1).
+    if [ -L "$mfile" ]; then
+      echo "orchestrate-marker: refusing symlink at marker path $mfile (REQ-F1.1)" >&2
+      roll_back_staged
+      exit 2
+    fi
+    # Likewise refuse any other non-regular file already at the path (e.g. a
+    # directory): `mv -f` onto a directory moves the temp *inside* it and reports
+    # success, leaving no marker. Only a regular file (re-dispatch) is overwritten.
+    if [ -e "$mfile" ] && [ ! -f "$mfile" ]; then
+      echo "orchestrate-marker: refusing non-regular file at marker path $mfile (REQ-F1.1)" >&2
+      roll_back_staged
+      exit 2
+    fi
+    # Containment: the marker must sit directly under its base dir after
+    # canonicalization (defense in depth — the grammar already excludes slashes).
+    file_dir=$(cd "$(dirname "$mfile")" 2>/dev/null && pwd -P) || file_dir=""
+    if [ -z "$file_dir" ] || [ "$file_dir" != "$base_real" ]; then
+      echo "orchestrate-marker: refusing out-of-base marker path $mfile (REQ-F1.1)" >&2
+      roll_back_staged
+      exit 2
+    fi
+    tmpf=$(mktemp "$marker_dir/.marker.XXXXXX") || {
+      echo "orchestrate-marker: cannot create a temp marker in $marker_dir" >&2
+      roll_back_staged
+      exit 2
+    }
+    printf '%s\n' "$now" >"$tmpf" || {
+      rm -f "$tmpf"
+      echo "orchestrate-marker: cannot write marker for task $id" >&2
+      roll_back_staged
+      exit 2
+    }
+    printf '%s%s%s%s%s\n' "$marker_dir" "$tab" "$id" "$tab" "${tmpf##*/}" >>"$manifest" || {
+      rm -f "$tmpf"
+      echo "orchestrate-marker: cannot record staged marker for task $id" >&2
+      roll_back_staged
+      exit 2
+    }
+  done
 done
 
 # Phase 2 — place every staged temp via an atomic same-dir rename, so a
 # concurrent reader never sees a torn marker. Read the manifest by redirection
 # (not a pipe) so this loop runs in the current shell and a failure can exit.
-while IFS="$tab" read -r id tmp; do
+while IFS="$tab" read -r marker_dir id tmp; do
   [ -n "$tmp" ] || continue
   if ! mv -f "$marker_dir/$tmp" "$marker_dir/$id"; then
-    echo "orchestrate-marker: cannot place marker for task $id" >&2
+    echo "orchestrate-marker: cannot place marker for task $id in $marker_dir" >&2
     roll_back_staged
     exit 2
   fi
