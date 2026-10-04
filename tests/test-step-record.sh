@@ -1221,7 +1221,10 @@ verdict "concurrent writers keep unique sequence numbers under a multi-winner mk
 rm7=$(srm new-run)
 i=1
 while [ "$i" -le 4 ]; do
-  { srm write --completion --run "$rm7" --point pre-ci --head "$HEAD_SHA" >/dev/null 2>&1; echo $? >>"$tmp/rc7"; } &
+  {
+    srm write --completion --run "$rm7" --point pre-ci --head "$HEAD_SHA" >/dev/null 2>&1
+    echo $? >>"$tmp/rc7"
+  } &
   i=$((i + 1))
 done
 wait
