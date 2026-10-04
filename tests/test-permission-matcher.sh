@@ -343,6 +343,9 @@ fi
 # Class/expectation consistency is asserted below, so a row cannot be quietly
 # relabelled to make a regression look intentional.
 # ---------------------------------------------------------------------------
+# Rows come from a function rather than a heredoc inside $( ... ): bash 3.2
+# reads quotes in that heredoc body as live, so one apostrophe in a row
+# stops the whole file from parsing.
 fixture_rows() {
   cat <<'ROWS'
 deny|load-bearing|git push --force origin HEAD|force flag in the leading position
@@ -625,6 +628,7 @@ ok "every deny rule is exercised by at least one fixture row (pass D)"
 # per removed rule, without the re-parse: removing rule i flips row r iff
 # r's matching set is exactly {i}.
 # ---------------------------------------------------------------------------
+# A function for the same bash 3.2 reason as fixture_rows.
 redundant_by_design_rows() {
   cat <<'ROWS'
 Bash(git push --force:*)|subsumed by Bash(git push --force*); kept as the explicit spelling of the plain force flag
