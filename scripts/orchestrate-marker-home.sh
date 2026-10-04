@@ -17,8 +17,9 @@
 # checkout still counts it, and a reader also consults the primary checkout's
 # copy of the bundle, where an older writer running there left its marker. An
 # older writer in another linked worktree stays invisible from here, as does
-# the primary checkout of a repository made with --separate-git-dir, which git
-# itself cannot name from a linked worktree.
+# a primary checkout whose .git is not its git dir (made with
+# --separate-git-dir, or a .git symlinked elsewhere), which git itself cannot
+# name from a linked worktree.
 #
 # Usage: orchestrate-marker-home.sh write|read <spec-dir>
 #   write  the dirs a dispatch drops its marker in: the shared home, then the
@@ -122,9 +123,10 @@ if rp=$(git -C "$spec_real" rev-parse --git-common-dir --show-toplevel 2>/dev/nu
   common=${rp%%"$nl"*}
   top=${rp#*"$nl"}
   [ "$top" != "$rp" ] || top=''
-  # More than two lines means a path carried a newline: no safe split.
+  # Anything but exactly two lines means a path carried a newline (or git
+  # printed no worktree): no safe split.
   case "$top" in
-    *"$nl"*) common='' top='' ;;
+    '' | *"$nl"*) common='' top='' ;;
   esac
   if [ -n "$common" ]; then
     common=$(cd -P -- "$spec_real" 2>/dev/null && cd -P -- "$common" 2>/dev/null && pwd -P) || common=''
@@ -163,7 +165,7 @@ primary=$(cd -P -- "$primary" 2>/dev/null && pwd -P) || exit 0
 # worktree, which lists the git dir in its place: only a checkout whose own
 # .git resolves to the common dir is taken for the primary. (A git dir itself
 # named .git makes git treat its parent as the main worktree, and so does this.)
-[ "$primary" != "$top" ] || exit 0
+[ -n "$common" ] && [ "$primary" != "$top" ] || exit 0
 [ "$(cd -P -- "$primary/.git" 2>/dev/null && pwd -P)" = "$common" ] || exit 0
 case "$spec_real" in
   "$top"/*) emit "$primary/${spec_real#"$top"/}/.orchestrate/markers" ;;

@@ -466,16 +466,20 @@ is_live() {
   [ -n "$_mdirs" ] || return 0
   while IFS= read -r _mdir; do
     [ -n "$_mdir" ] || continue
-    # A shared home reached through a symlink is never where the writer put a
-    # marker, so it holds nothing here, as in the state engine; checkout-local
-    # dirs keep the symlink tolerance they always had.
+    # A shared home reached through a symlink, or a symlink at a marker path in
+    # it, is never what the writer put there, so it holds nothing here, as in
+    # the state engine; checkout-local dirs keep the symlink tolerance they
+    # always had.
+    _mfile="$_mdir/$_id"
     if [ -z "${PLANWRIGHT_ORCH_STATE_DIR:-}" ]; then
       case "$_mdir" in
         */.orchestrate/markers) ;;
-        *) [ "$(cd -P -- "$_mdir" 2>/dev/null && pwd -P)" = "$_mdir" ] || continue ;;
+        *)
+          [ "$(cd -P -- "$_mdir" 2>/dev/null && pwd -P)" = "$_mdir" ] || continue
+          [ ! -L "$_mfile" ] || continue
+          ;;
       esac
     fi
-    _mfile="$_mdir/$_id"
     [ -f "$_mfile" ] || continue
     _written=$(cat "$_mfile" 2>/dev/null || echo '')
     case $_written in
