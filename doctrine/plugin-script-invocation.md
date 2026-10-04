@@ -4,7 +4,7 @@
 dispatching skills — `/execute-task`, `/orchestrate`, `/spec-kickoff` — invoke
 plugin scripts (`scripts/<name>.sh`) many times per run. This doc fixes the one
 invocation shape they use, so a dispatched worker does not flood on a permission
-prompt for every such call. Its second half, *One plain command per Bash call*,
+prompt for every such call. Its section *One plain command per Bash call*
 covers every command any skill issues inside a dispatched worker or a
 subordinate tower, `/polish` and `/self-review` included.
 
@@ -77,6 +77,11 @@ command per Bash call** instead:
   produce alone, such as the commit-trailer composition, is the one kept form.
 - **Exit status from the result.** The tool result already reports the exit
   code; never append `echo rc=$?` or a similar probe.
+
+A declared command step's `--line` rendering is not an exception to strip: it
+runs exactly as the resolver prints it, its quoted `PLANWRIGHT_STEP_*`
+assignment prefix included, since that prefix carries the step's context and
+is the form the guard approves ([custom-steps](custom-steps.md)).
 
 ## The adopter allow entry
 

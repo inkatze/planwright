@@ -84,7 +84,8 @@ else
     'No variable assignments' \
     'No chains' \
     'No display pipes' \
-    'Exit status from the result'; do
+    'Exit status from the result' \
+    'exactly as the resolver prints it'; do
     if printf '%s' "$flat" | grep -qF "$phrase"; then
       ok "doctrine doc states: $phrase"
     else
