@@ -233,6 +233,19 @@ bare_common=$(cd "$B/repo.git" && pwd -P)
   || fail "helper: a bare repository has no primary checkout to read"
 echo "ok: the linked worktrees of a bare repository share one home"
 
+# A bundle that is itself the repository root still reads the primary's copy.
+R="$tmp/rootbundle"
+mkdir -p "$R/demo"
+git -C "$R/demo" -c init.defaultBranch=main init -q
+printf '# t\n' >"$R/demo/tasks.md"
+gitc "$R/demo" add -A
+gitc "$R/demo" commit -q -m base
+gitc "$R/demo" worktree add -q -b side "$R/side"
+root_primary=$(cd "$R/demo" && pwd -P)
+"$HOME_HELPER" read "$R/side" | grep -Fxq "$root_primary/.orchestrate/markers" \
+  || fail "helper: a bundle at the repository root lost the primary checkout's copy"
+echo "ok: a bundle at the repository root reads the primary checkout's copy"
+
 # A primary checkout made with --separate-git-dir is unknown to git from a
 # linked worktree; the read list names no stand-in for it.
 G="$tmp/sepgit"
