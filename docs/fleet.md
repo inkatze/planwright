@@ -1187,7 +1187,9 @@ the `tmux-window` handle its presence record publishes. `discover` prints the
 peer's tower id but not that handle: read it from the record, the file named
 by the tower id in the directory `scripts/fleet-presence.sh surface --checkout
 <repo-root>` prints, whose ninth tab-separated field
-`tmux-window <session> <window>` is the target `<session>:<window>`. Never
+`tmux-window <session> <window>` is the target `<session>:<window>`. A record
+whose handle is `process <pid>` (a tower not under tmux) names no window to
+relay to: its target has to be one you name. Never
 derive it from tmux's `pane_active` flag or "the active pane of the planwright
 window": a tower that is closing keeps its pane, and its input line, until the process
 exits, so the active pane can be a stale session rather than the live one.
@@ -1202,8 +1204,8 @@ to name the target.
 
 **A paste stages; one Enter submits it.** The tmux relay loads its pointer
 line with no trailing newline, so the paste never submits itself and a single
-Enter from the receiving session's human (or a tower acting on your explicit
-delegation) submits it. Keep it unterminated: `paste-buffer` sends a trailing
+Enter in the receiving session submits it. The relay never sends that
+keystroke: pressing it stays a human's act. Keep it unterminated: `paste-buffer` sends a trailing
 newline as a carriage return, which Claude Code takes into a long paste as a
 hidden newline in the input box, so the first Enter is spent on it and only a
 second one submits.
