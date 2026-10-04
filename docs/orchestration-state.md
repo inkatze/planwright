@@ -85,10 +85,10 @@ the engine applies them, are:
 3. **PR / merge state** via `gh` (only when a remote is configured).
 
 If none of those marks the task done, the in-progress signals are, in order: a
-**branch carrying commits**, the task branch's **`origin` remote-tracking ref
-carrying commits** beyond the base and its remote counterpart (work pushed from
-another checkout or machine), an **open PR** (via `gh`), and finally a **fresh
-runtime dispatch marker** (covering the pre-first-commit window).
+**branch carrying commits**, an **open PR** (via `gh`), a **fresh runtime
+dispatch marker** (covering the pre-first-commit window), and finally the task
+branch's **`origin` remote-tracking ref carrying commits** beyond the base and
+its remote counterpart (work pushed from another checkout or machine).
 
 The remote-tracking arm reads only refs the dispatch fetch already mapped, and
 that fetch passes no `--prune`. Unless `fetch.prune` is set, a remote task branch

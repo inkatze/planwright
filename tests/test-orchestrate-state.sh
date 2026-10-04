@@ -1115,12 +1115,16 @@ cat >"$precspec/tasks.md" <<'EOF'
 - **Dependencies:** none
 ### Task 4 — work only on a non-origin remote
 - **Dependencies:** none
+### Task 5 — open PR, head branch ahead on origin
+- **Dependencies:** none
+### Task 6 — fresh dispatch marker, branch ahead on origin
+- **Dependencies:** none
 EOF
 gitc "$precrepo" add -A
 gitc "$precrepo" commit -q -m "base"
 gitc "$precrepo" remote add origin https://example.invalid/demo.git
 precbase=$(gitc "$precrepo" rev-parse HEAD)
-for t in 1 2 3 4; do
+for t in 1 2 3 4 5 6; do
   gitc "$precrepo" checkout -q -b "scratch-$t"
   gitc "$precrepo" commit -q --allow-empty -m "task $t work"
   precref=refs/remotes/origin/planwright/demo/task-$t
@@ -1135,7 +1139,10 @@ gitc "$precrepo" checkout -q planwright/demo/task-3
 gitc "$precrepo" commit -q --allow-empty -m "task 3 local work"
 gitc "$precrepo" checkout -q main
 precstub="$tmp/binremoteprec"
-make_gh_stub "$precstub" "planwright/demo/task-2${TAB}MERGED${TAB}7${TAB}2026-10-01T00:00:00Z"
+mkdir -p "$precspec/.orchestrate/markers"
+date +%s >"$precspec/.orchestrate/markers/6"
+make_gh_stub "$precstub" "planwright/demo/task-2${TAB}MERGED${TAB}7${TAB}2026-10-01T00:00:00Z" \
+  "planwright/demo/task-5${TAB}OPEN${TAB}8${TAB}"
 precout=$(PATH="$precstub:$PATH" "$STATE" "$precspec") || fail "remote-prec: engine exited non-zero"
 has_record "$precout" degraded gh && fail "remote-prec: the gh stub degraded"
 assert_state "$precout" 1 completed "remote-prec: a reachable trailer completes a task whose head branch is kept"
@@ -1144,6 +1151,8 @@ assert_state "$precout" 2 completed "remote-prec: a merged PR completes a task w
 assert_evidence "$precout" 2 pr-merged "remote-prec: task 2 completes on the merged PR"
 assert_evidence "$precout" 3 branch-commits "remote-prec: local commits are the evidence when both exist"
 assert_state "$precout" 4 ready "remote-prec: a non-origin remote's tracking ref holds nothing"
+assert_evidence "$precout" 5 pr-open "remote-prec: an open PR holds the task before the remote branch is walked"
+assert_evidence "$precout" 6 marker-fresh "remote-prec: a fresh marker holds the task before the remote branch is walked"
 echo "ok: completion and local evidence outrank a remote task branch; only origin counts"
 
 # ---------------------------------------------------------------------------

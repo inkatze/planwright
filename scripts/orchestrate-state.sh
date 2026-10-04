@@ -20,11 +20,11 @@
 #               trailer is the durable anchor that survives branch deletion and
 #               covers solo direct-to-base commits and squash merges (R2).
 #   in-progress the branch exists with commits beyond base (not yet merged), OR
+#               gh reports its PR OPEN, OR a FRESH runtime dispatch marker (D-3)
+#               holds it across the branch-create → first-commit window, OR
 #               its origin remote-tracking ref carries commits beyond both
 #               base and base's remote counterpart (work pushed from another
-#               checkout), OR gh reports its PR OPEN, OR a FRESH runtime dispatch
-#               marker (D-3) holds it across the branch-create → first-commit
-#               window.
+#               checkout).
 #   ready       no in-progress/completed evidence and every dependency is
 #               completed. A STALE marker (older than the staleness threshold,
 #               branch carrying no commits) no longer holds the task: a crashed
@@ -508,16 +508,6 @@ while IFS="$TAB" read -r id deps; do
   [ "$gh_state" = MERGED ] && pr_merged=1
   [ "$gh_state" = OPEN ] && pr_open=1
 
-  # Only consulted when the local branch shows no work of its own, so a
-  # zero-commit local dispatch branch cannot mask commits pushed elsewhere, and
-  # skipped once completion is attested: a kept squash-merged head branch stays
-  # ahead of base for good, and walking it would change nothing.
-  rbr_commits=0
-  if [ "$br_commits" -eq 0 ] && [ "$br_merged" -eq 0 ] && [ "$trailer_done" -eq 0 ] \
-    && [ "$pr_merged" -eq 0 ] && remote_branch_ahead "$branch"; then
-    rbr_commits=1
-  fi
-
   # Fresh runtime marker: only consulted as in-progress evidence, and only
   # meaningful while the branch carries no commits (branch evidence supersedes
   # it). A stale or malformed marker holds nothing — the task reverts to ready.
@@ -549,6 +539,18 @@ while IFS="$TAB" read -r id deps; do
     fi
   fi
 
+  # The last in-progress arm, probed only when no other evidence decides the
+  # task: every arm above outranks it, and a kept squash-merged head branch
+  # stays ahead of base for good, so walking it otherwise would change nothing.
+  # Checking only the local branch's absence of work keeps a zero-commit local
+  # dispatch branch from masking commits pushed elsewhere.
+  rbr_commits=0
+  if [ "$br_commits" -eq 0 ] && [ "$br_merged" -eq 0 ] && [ "$trailer_done" -eq 0 ] \
+    && [ "$pr_merged" -eq 0 ] && [ "$pr_open" -eq 0 ] && [ "$marker_fresh" -eq 0 ] \
+    && remote_branch_ahead "$branch"; then
+    rbr_commits=1
+  fi
+
   evstate=unresolved
   # Non-empty placeholder: tab is an IFS-whitespace char, so an empty interior
   # field would collapse on read and shift the columns. Pass 2 overwrites this
@@ -567,15 +569,15 @@ while IFS="$TAB" read -r id deps; do
   elif [ "$br_commits" -eq 1 ]; then
     evstate=in-progress
     evidence="branch-commits"
-  elif [ "$rbr_commits" -eq 1 ]; then
-    evstate=in-progress
-    evidence="remote-branch-commits"
   elif [ "$pr_open" -eq 1 ]; then
     evstate=in-progress
     evidence="pr-open"
   elif [ "$marker_fresh" -eq 1 ]; then
     evstate=in-progress
     evidence="marker-fresh"
+  elif [ "$rbr_commits" -eq 1 ]; then
+    evstate=in-progress
+    evidence="remote-branch-commits"
   fi
 
   # Contradiction: git ground truth says completed (a merged branch or a
