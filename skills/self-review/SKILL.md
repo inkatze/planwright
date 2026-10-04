@@ -22,7 +22,8 @@ This skill is procedure, not doctrine. Resolve the rule docs in the manifest
 below via the rule-doc resolution convention
 (`scripts/resolve-rule-doc.sh <doc-name>` under the resolved planwright root,
 or the documented `PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain); their
-definitions govern wherever this skill names a concept.
+definitions govern wherever this skill names a concept. Issue one plain command
+per Bash call (`doctrine/plugin-script-invocation.md`).
 
 If a rule doc does not resolve, halt with a clear message naming the missing
 doc and the resolution chain consulted.

@@ -30,8 +30,8 @@ their definitions govern the concepts this skill names. Per
 `point-of-use` entries at the named step or branch.
 
 **Invoking plugin scripts (REQ-D1.1, D-7).** Call `scripts/<name>.sh` by the
-**resolved literal absolute path**, never `$VAR/scripts/<name>.sh` —
-`doctrine/plugin-script-invocation.md`.
+**resolved literal absolute path** (never `$VAR/scripts/<name>.sh`), one plain
+command per Bash call — `doctrine/plugin-script-invocation.md`.
 
 If a manifest doc does not resolve — at run start or its point of use — halt
 naming the missing doc and the chain consulted (REQ-K1.7). `decision-domains`
@@ -228,12 +228,10 @@ remain this skill's single terminal step (see Invariants).
 
 Every commit this skill authors for the unit carries the
 `Planwright-Task` trailer `spec-format` defines under *Branch, worktree, and
-task-id grammar*, stamped through the shared helper:
+task-id grammar*, stamped by the helper:
 
 ```sh
-printf '%s\n' "$message" \
-  | scripts/planwright-commit-trailers.sh <spec>/<id> [<spec>/<id> ...] \
-  | git commit -F -
+scripts/planwright-commit-trailers.sh <spec>/<id> [<spec>/<id> ...] < <message-file> | git commit -F -
 ```
 
 ### Test-first development (REQ-E1.1, `validation-rigor`)

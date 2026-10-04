@@ -32,8 +32,8 @@ their definitions govern wherever this skill names a concept. The manifest below
 marks which load at run start and which at the named step/branch:
 
 **Invoking plugin scripts (REQ-D1.1, D-7).** Call `scripts/<name>.sh` by the
-**resolved literal absolute path**, never `$VAR/scripts/<name>.sh` —
-`doctrine/plugin-script-invocation.md`.
+**resolved literal absolute path** (never `$VAR/scripts/<name>.sh`), one plain
+command per Bash call — `doctrine/plugin-script-invocation.md`.
 
 Doctrine: run-start proportionality
 Doctrine: point-of-use selection-contract (candidacy semantics + the selector exit contract)
@@ -275,16 +275,20 @@ it when relaying to or cleaning up after a worker.
 
 ## --watch
 
-Loop the full step (pre-flight → reconcile → select → dispatch record →
+**Tower marker (fleet-autonomy D-4).** At watch-loop start record the marker,
+`scripts/fleet-tower-marker.sh record <spec> --mode unattended|interactive
+--pid <pid> --checkout <primary>` (`unattended` under `--unattended`; see
+`docs/fleet.md`), clearing on graceful exit.
+
+**Presence (coordination D-2).** Next, before any step can launch a subordinate
+(one launched first registers with an unknown owner), and again each iteration:
+`scripts/fleet-presence.sh publish --checkout <primary> --pid <pid>` plus the
+death handle (`--tmux-session <s> --tmux-window <w>` under tmux; bare `--pid`
+otherwise), then `discover` with the same identity flags. Never assume
+solitude; failure postures (exits 2–5) per `docs/fleet.md`.
+
+Then loop the full step (pre-flight → reconcile → select → dispatch record →
 dispatch), surfacing the reason the loop ends.
-
-**Tower marker (fleet-autonomy D-4).** At watch-loop start record the marker
-(`scripts/fleet-tower-marker.sh record`: `unattended` under `--unattended`, else
-`interactive`; see `docs/fleet.md`), clearing on graceful exit.
-
-**Presence (coordination D-2).** At loop start and each iteration
-`scripts/fleet-presence.sh publish` then `discover`: never assume solitude;
-failure postures (exits 2–5) per `docs/fleet.md`.
 
 **Operator comms (tower-comms D-6, D-19).** Nothing reaches the operator as
 loose prose. Resolve identity once with `publish`'s flag,
@@ -300,8 +304,9 @@ first turn after silence, and capture an operator's ask as an item in the same
 turn (`scripts/tower-queue.sh capture`), its echo the reply; `tower-comms` owns
 what each of those turns says. A non-zero step
 is a failure to say, never to retry: its `push` markers are already cleared.
-Log the pass: `scripts/tower-loop-log.sh tick`, and pipe every delivered turn
-to `scripts/tower-loop-log.sh delivered [--asks <n>] [--item <id>]`, naming the
+Log the pass: `scripts/tower-loop-log.sh tick`, and feed every delivered turn,
+written to a file, to `scripts/tower-loop-log.sh delivered [--asks <n>]
+[--item <id>] < <file>`, naming the
 item the turn carried; neither blocks the step.
 The prompt-submit hook writes the attention marker the hand-over reads; it
 needs a `--session-id` presence record.
