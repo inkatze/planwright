@@ -474,11 +474,11 @@ cmd_new_run() {
   id=$(printf '%06d' "$next")
   { [ ! -e "$cache/$id" ] && [ ! -L "$cache/$id" ]; } || die 1 "cannot create a run directory"
   mkdir -p "$cache/$id" || die 1 "cannot create a run directory"
-  unlock_cache
   printf '%s\n' "$id" || {
     rmdir "$cache/$id"
     die 1 "cannot print the run id"
   }
+  unlock_cache
 }
 
 # --- write ------------------------------------------------------------------------
