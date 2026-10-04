@@ -60,6 +60,10 @@ case "$1 $2" in
           echo 'HTTP 502: Bad Gateway' >&2
           exit 1
         fi
+        if [ -f "$GHS/rollup_fail_at" ] && [ "$n" = "$(cat "$GHS/rollup_fail_at")" ]; then
+          echo 'HTTP 502: Bad Gateway' >&2
+          exit 1
+        fi
         [ ! -f "$GHS/head_override" ] || head=$(cat "$GHS/head_override")
         # head_lag_until reports a stale head for the first n reads.
         [ ! -f "$GHS/head_lag_until" ] || [ "$n" -gt "$(cat "$GHS/head_lag_until")" ] \
@@ -821,6 +825,15 @@ run_polled 00 2 flip --spec specs/demo --task 1
 check "a poll interval of 00 behaves as 0 (exit 0)" [ "$CODE" = 0 ]
 check "a poll interval of 00 makes the max-polls reads" [ "$(rollups)" = 2 ]
 check "a poll interval of 00 raises no arithmetic error" not grep -qi 'division\|syntax error\|value too great' <<<"$OUT"
+
+echo "# an unreadable re-read is not a moved head"
+fixture
+set_policy unit-owner
+echo 1 >"$GHS/head_lag_until"
+echo 2 >"$GHS/rollup_fail_at"
+run_polled 0 1 evaluate --spec specs/demo --task 1
+check "an empty re-read fails ci-rollup as unreadable" grep -q 'ci-rollup	fail	the check rollup could not be read' <<<"$OUT"
+check "an empty re-read is not reported as an unsettled head" not grep -q 'did not settle' <<<"$OUT"
 
 echo "# no tracking ref: reconcile fetches one before deciding what to push"
 fixture

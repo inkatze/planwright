@@ -751,7 +751,9 @@ pred_ci() {
         esac
         oid=$(printf '%s' "$raw" | jq -r '.headRefOid // empty' 2>/dev/null) || oid=''
       fi
-      if [ "$oid" != "$HEAD_SHA" ]; then
+      if [ -z "$raw" ]; then
+        verdict=''
+      elif [ "$oid" != "$HEAD_SHA" ]; then
         verdict=moved
         last="the PR head did not settle on the pinned head ${HEAD_SHA:0:12}"
       else
