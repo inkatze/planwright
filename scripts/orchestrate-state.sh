@@ -495,13 +495,6 @@ while IFS="$TAB" read -r id deps; do
     fi
   fi
 
-  # Only consulted when the local branch shows no work of its own, so a
-  # zero-commit local dispatch branch cannot mask commits pushed elsewhere.
-  rbr_commits=0
-  if [ "$br_commits" -eq 0 ] && [ "$br_merged" -eq 0 ] && remote_branch_ahead "$branch"; then
-    rbr_commits=1
-  fi
-
   trailer_done=0
   case "$reachable_ours" in
     *" $id "*) trailer_done=1 ;;
@@ -512,6 +505,16 @@ while IFS="$TAB" read -r id deps; do
   pr_open=0
   [ "$gh_state" = MERGED ] && pr_merged=1
   [ "$gh_state" = OPEN ] && pr_open=1
+
+  # Only consulted when the local branch shows no work of its own, so a
+  # zero-commit local dispatch branch cannot mask commits pushed elsewhere, and
+  # skipped once completion is attested: a kept squash-merged head branch stays
+  # ahead of base for good, and walking it would change nothing.
+  rbr_commits=0
+  if [ "$br_commits" -eq 0 ] && [ "$br_merged" -eq 0 ] && [ "$trailer_done" -eq 0 ] \
+    && [ "$pr_merged" -eq 0 ] && remote_branch_ahead "$branch"; then
+    rbr_commits=1
+  fi
 
   # Fresh runtime marker: only consulted as in-progress evidence, and only
   # meaningful while the branch carries no commits (branch evidence supersedes
