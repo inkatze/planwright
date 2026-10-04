@@ -924,6 +924,12 @@ echo 2 >"$GHS/lookup_fail_until"
 run_helper flip --spec specs/demo --task 1
 check "a transient lookup failure is retried, then flips" [ "$CODE" = 0 ]
 fixture
+mkdir -p "$F/wt/.claude"
+printf 'ready_flip_policy: unit-owner\nready_flip_ci_wait: 2s\n' >"$F/wt/.claude/planwright.local.yml"
+echo 1 >"$GHS/lookup_fail_until"
+run_polled 3 1 flip --spec specs/demo --task 1
+check "a wait shorter than one poll interval gives the lookup no retry nap" [ "$(cat "$GHS/lookup_n")" = 1 ]
+fixture
 set_policy unit-owner
 : >"$GHS/fork"
 run_helper flip --spec specs/demo --task 1

@@ -501,6 +501,7 @@ POLL=${PLANWRIGHT_READY_FLIP_POLL_SECONDS:-15}
 # Base 10 explicitly: bash arithmetic reads a leading zero as octal.
 POLL=$((10#$POLL))
 ATTEMPTS=1
+LOOKUP_CAP=1
 WAIT_TEXT=''
 WAIT_SECS=0
 read_wait() {
@@ -512,9 +513,13 @@ read_wait() {
   if [ "$POLL" = 0 ]; then
     ATTEMPTS=${PLANWRIGHT_READY_FLIP_MAX_POLLS:-1}
     [[ $ATTEMPTS =~ ^[1-9][0-9]{0,3}$ ]] || ATTEMPTS=1
+    LOOKUP_CAP=$ATTEMPTS
   else
     # A read at 0s, one per interval, and a last one at the deadline.
     ATTEMPTS=$(((s + POLL - 1) / POLL + 1))
+    # Each lookup retry naps a full interval, so the lookup gets one try per
+    # interval the wait spans and its naps stay inside the wait.
+    LOOKUP_CAP=$(((s + POLL - 1) / POLL))
   fi
 }
 
@@ -529,7 +534,7 @@ readonly LOOKUP_ATTEMPTS=3
 # 1 a host read that kept failing.
 lookup_pr() {
   local i=0 raw err rc tries=$LOOKUP_ATTEMPTS
-  [ "$ATTEMPTS" -ge "$tries" ] || tries=$ATTEMPTS
+  [ "$LOOKUP_CAP" -ge "$tries" ] || tries=$LOOKUP_CAP
   while [ "$i" -lt "$tries" ]; do
     i=$((i + 1))
     raw=$(gh pr view "${PR:-$BRANCH}" --json number,isDraft,state,baseRefName,headRefName,isCrossRepository 2>"$SCRATCH/err")
