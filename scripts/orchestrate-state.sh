@@ -20,7 +20,8 @@
 #               trailer is the durable anchor that survives branch deletion and
 #               covers solo direct-to-base commits and squash merges (R2).
 #   in-progress the branch exists with commits beyond base (not yet merged), OR
-#               its origin remote-tracking ref does (work pushed from another
+#               its origin remote-tracking ref carries commits beyond both
+#               base and base's remote counterpart (work pushed from another
 #               checkout), OR gh reports its PR OPEN, OR a FRESH runtime dispatch
 #               marker (D-3) holds it across the branch-create → first-commit
 #               window.
