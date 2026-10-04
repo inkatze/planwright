@@ -1097,6 +1097,55 @@ assert_state "$lagout" 3 in-progress "remote-lag: real work beyond origin/main s
 assert_evidence "$lagout" 3 remote-branch-commits "remote-lag: task 3 is held by its remote-tracking branch"
 echo "ok: a remote task branch is measured against the remote view of base, not a lagging local main"
 
+# 6w. Completion evidence outranks a remote task branch still ahead of base (a
+#     squash merge leaves the head branch's commits off main forever), local
+#     work outranks it, and only origin's tracking refs count.
+precrepo="$tmp/remoteprec"
+precspec="$precrepo/specs/demo"
+mkdir -p "$precspec"
+gitc_init "$precrepo"
+cat >"$precspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — squash-merged with a trailer, head branch kept
+- **Dependencies:** none
+### Task 2 — PR merged per gh, head branch kept
+- **Dependencies:** none
+### Task 3 — local branch with its own commits
+- **Dependencies:** none
+### Task 4 — work only on a non-origin remote
+- **Dependencies:** none
+EOF
+gitc "$precrepo" add -A
+gitc "$precrepo" commit -q -m "base"
+gitc "$precrepo" remote add origin https://example.invalid/demo.git
+precbase=$(gitc "$precrepo" rev-parse HEAD)
+for t in 1 2 3 4; do
+  gitc "$precrepo" checkout -q -b "scratch-$t"
+  gitc "$precrepo" commit -q --allow-empty -m "task $t work"
+  precref=refs/remotes/origin/planwright/demo/task-$t
+  [ "$t" = 4 ] && precref=refs/remotes/upstream/planwright/demo/task-4
+  gitc "$precrepo" update-ref "$precref" "$(gitc "$precrepo" rev-parse HEAD)"
+  gitc "$precrepo" checkout -q main
+  gitc "$precrepo" branch -q -D "scratch-$t"
+done
+gitc "$precrepo" commit -q --allow-empty -m "task 1 (squashed)" -m "Planwright-Task: demo/1"
+gitc "$precrepo" branch -q planwright/demo/task-3 "$precbase"
+gitc "$precrepo" checkout -q planwright/demo/task-3
+gitc "$precrepo" commit -q --allow-empty -m "task 3 local work"
+gitc "$precrepo" checkout -q main
+precstub="$tmp/binremoteprec"
+make_gh_stub "$precstub" "planwright/demo/task-2${TAB}MERGED${TAB}7${TAB}2026-10-01T00:00:00Z"
+precout=$(PATH="$precstub:$PATH" "$STATE" "$precspec") || fail "remote-prec: engine exited non-zero"
+has_record "$precout" degraded gh && fail "remote-prec: the gh stub degraded"
+assert_state "$precout" 1 completed "remote-prec: a reachable trailer completes a task whose head branch is kept"
+assert_evidence "$precout" 1 trailer "remote-prec: task 1 completes on the trailer"
+assert_state "$precout" 2 completed "remote-prec: a merged PR completes a task whose head branch is kept"
+assert_evidence "$precout" 2 pr-merged "remote-prec: task 2 completes on the merged PR"
+assert_evidence "$precout" 3 branch-commits "remote-prec: local commits are the evidence when both exist"
+assert_state "$precout" 4 ready "remote-prec: a non-origin remote's tracking ref holds nothing"
+echo "ok: completion and local evidence outrank a remote task branch; only origin counts"
+
 # ---------------------------------------------------------------------------
 # 7. fail-closed on a missing / taskless bundle (matches the sibling scripts).
 # ---------------------------------------------------------------------------
