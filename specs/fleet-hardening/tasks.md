@@ -1,6 +1,6 @@
 # Fleet Hardening — Tasks
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-10-04
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -251,102 +251,163 @@ the same launch function, so it waits for Task 12 rather than running beside it.
 
 ### Task 11 — Launch fixture harness for the tmux rung
 
-- **Deliverables:** A shared fixture harness for tmux-rung launch tests: a runner that bounds
-  every launch with a timeout and fails (never hangs) on a blocking launch; a stub tmux whose
-  "server" environment is built separately from the dispatcher's, so the stubbed session's command
-  runs with the server's environment and not the caller's; path assertions in canonicalized
-  (`pwd -P`) form; stubs that write their logs and pid files atomically, per invocation, and reap
-  every process they start. Existing launch cases that the parked flight's review found racy (the
-  stub that races its log and pid files and can leak `sleep` processes) or uncanonicalized (the
-  `c10` path compare) move onto the harness.
+- **Deliverables:** A shared fixture harness for the tmux-rung launch tests this extension adds: a
+  runner that bounds every launch with a timeout and fails (never hangs) on a blocking launch; a
+  stub tmux whose "server" environment is built separately from the dispatcher's, so the stubbed
+  session's command runs with the server's environment and not the caller's; a stub worker that
+  pushes the startup confirmation row (with the launch token) by default, which a fixture can turn
+  off; path assertions in canonicalized (`pwd -P`) form; stubs that write their logs and pid files
+  atomically, per invocation, and reap every process they start. The bound exceeds the confirm
+  step's shortened cap. Scope is the new launch fixtures and the existing cases Task 12 rewrites;
+  the macOS canonicalization of the existing cases in `tests/test-fleet-dispatch-worktree.sh` stays
+  with `test-throughput`.
 - **Done when:** a self-test of the harness shows a deliberately blocking launch stub failing
   within the bound with a non-hang diagnosis; a stub session's command observes a variable set
   only in the stub server's environment and does not observe one set only in the dispatcher's; a
-  fixture run under a symlinked temporary directory passes its path assertions; after the suite,
-  no process the stubs started is still running (asserted, not assumed); the migrated cases pass;
+  fixture run under a symlinked temporary directory passes its path assertions; concurrent stub
+  calls leave intact, non-interleaved logs; a deliberately leaked stub process makes the reaper
+  self-test fail, and after the suite no process the stubs started is still running; each touched
+  test file stays within its `config/test-time-budget.yml` ceiling with no budget change;
   tests/CI pass.
 - **Dependencies:** 1
-- **Citations:** D-10, D-11 · REQ-H1.1, REQ-H1.2, REQ-H1.4
-- **Estimated effort:** 1 day
+- **Citations:** D-10, D-11, D-15 · REQ-H1.1, REQ-H1.2, REQ-H1.4
+- **Estimated effort:** 1–1.5 days
 
 ### Task 12 — Detached tmux launch with its safety arms
 
 - **Deliverables:** Builds on the parked flight's candidate commit. The dispatch arm launches the
   worker with `tmux new-session -d -s <session> -c <physical worktree> -P -F … -- <wrapper>
-  <identity> <absolute claude> <args>` after the create succeeds (D-10), never switching a client
-  and never waiting on the worker. `fleet-dispatch-env.sh` gains the validated identity option
-  (D-11), and the launch passes the registry record's handle and scope. The death handle comes from
-  the `-P -F` output. The observe hint targets `'=<session>:'`. The safety arms ship in the same
-  change, so the detached launch never exists unhardened: the charset allowlist on the physical
-  worktree path and the session name, a missing-start-directory refusal (D-12), and the live
-  standalone attach refused with its dry-run plan kept (D-13). It also carries the
-  `<base>-<hash6>_<suffix'>` session name, the live-name pre-check before any durable side effect,
-  the lost-race rollback with a superseding terminal registry record, and liveness probes for the
-  new name and the prior launcher's spelling, with the bare `worktree-<suffix>` probe removed
-  (D-14). Plus the refusal of a worker CLI that does not resolve to an absolute executable, before
-  any side effect (D-15's first half).
-- **Done when:** on the Task 11 harness, a launch fixture returns within its bound while the stub
-  worker keeps running, and no client-switch or attach call reaches the stub tmux. The worker's
-  process environment (asserted against the stub server, not the dispatcher) carries the ghost-text
-  pin, the planwright root, and a handle and scope equal to the registry record's, for both a task
-  and a flight dispatch. The wrapper refuses a malformed or half-supplied identity with exit 2 and
-  launches nothing. The session's start directory is the physical placed worktree, and no
-  `--worktree` or `--tmux` reaches the worker argv. The registered death handle equals the
-  `-P -F` output. Each refusal arm has a fixture that fails when the arm is removed: a worktree
-  path or session name outside the charset (including a `#`-bearing path, refused before any tmux
-  call), a missing start directory, a live standalone attach, a live session already holding the
-  name (refused before the worktree, marker, or registry record exists), a lost race (rolled back,
-  with the terminal registry record written), and a non-absolute or non-executable worker CLI.
-  Liveness fixtures treat both the new name and the prior launcher's spelling as live, and no probe
-  for the bare `worktree-<suffix>` remains. A negative assertion confirms no model or API call in
-  the launch path (REQ-E1.3). `[manual]`: on a real dispatch from inside a tmux client, the dispatch
-  prints its report and exits, the operator's client stays on its session, the worker runs in the
-  placed worktree, and its process environment shows the pin and the identity. That confirmation
-  replaces REQ-B1.4's former `--tmux=classic` check. tests/CI pass.
+  <wrapper options> <absolute claude> <launch args> [-- <prompt>]` after the create succeeds,
+  turning `remain-on-exit` off in the same invocation (D-10), never switching a client and never
+  waiting on the worker. The live launch is two steps: launch (returns once the session exists)
+  and confirm, which until Task 13 reports started-unconfirmed; `flight-dispatch.sh` runs the
+  launch under its flight lock, releases the lock, then runs the confirm step. `fleet-dispatch-env.sh`
+  gains `--identity`, `--launch-token`, `--root`, `--fleet-home`, and the check-only `--check` mode
+  the dispatch runs before `new-session` (D-11). The registry record is written once, after
+  `new-session` succeeds, with the `-P -F` death handle. `flight-dispatch.sh` takes the session
+  name for its report and hints from the launch's report line and drops its own session-name
+  search. Every shipped caller treats started-unconfirmed as placed. The observe hint targets
+  `'=<session>:'`. The safety arms ship in the same change, so the detached launch never exists
+  unhardened: the path and session-name charsets (first byte, 128-byte cap) and the start-directory
+  checks (D-12); the live standalone attach refused, its dry-run plan printing the detached plan
+  (D-13); the `<base>-<hash6>_<suffix'>` session name, the live-name pre-check before any durable
+  side effect, the lost-race abort that touches nothing, the undo of only this run's creations on
+  any other post-create failure, and liveness probes for the new name and the prior launcher's
+  spelling (basename mapped as tmux maps it) with the bare `<suffix>` and `worktree-<suffix>`
+  probes removed and a charset-refused probe read as live (D-14); the refusal of a worker CLI that
+  does not resolve to an absolute executable, or a `tmux` that does not resolve, before any side
+  effect (D-15's first half). Seam discovery in `tests/test-fleet-registration.sh` learns the
+  `tmux new-session` launch shape, with a scoped exemption for `fleet-tower-watchdog.sh`'s tower
+  relaunch, so its non-vacuity floor holds once the old launch line is gone. The existing fixtures
+  that assert the old launch shape (`tests/test-fleet-dispatch-worktree.sh` c10's dry-run plan and
+  the `claude --worktree flight-<id> --tmux=classic` assertion in `tests/test-flight-dispatch.sh`)
+  assert the detached plan.
+- **Done when:** on the Task 11 harness:
+  - A launch fixture returns within its bound while the stub worker keeps running, with its report
+    printed and its exit status the launch outcome; a second flight dispatch from the same checkout,
+    run with `PLANWRIGHT_FLIGHT_LOCK_WAIT=0` while the first's stub worker is still running,
+    proceeds. The bounded case from the candidate commit is kept as the regression.
+  - The session is created with `-d`; the stub worker's argv carries no `--worktree` and no
+    `--tmux`; no client-moving call reaches the stub tmux. The session's start directory is the
+    physical placed worktree.
+  - With the stub server's environment holding a decoy `PLANWRIGHT_ROOT` and none of the pinned
+    values, the worker's process environment carries the ghost-text pin, the dispatcher's root and
+    fleet home, the launch token, and a handle and scope equal to the registry record's, for both
+    a task and a flight dispatch, and a liveness hook run with that environment records a transition
+    for the handle.
+  - The wrapper's `--check` refuses a malformed or half-supplied option with exit 2, and the
+    dispatch then reports the refusal with no `new-session` call.
+  - The registered death handle equals the `-P -F` output, a decoy pane whose working directory is
+    the worktree does not change it, and a source assertion scoped to the launch function finds no
+    pane-working-directory lookup. The flight report names the session from the launch's report
+    line.
+  - Each refusal and failure arm has a fixture that fails when the arm is removed: a worktree path
+    outside the charset (including a `#`-bearing path, refused before any tmux call); a session
+    name outside the charset or over 128 bytes, driven through the name-check function (the
+    dispatch only builds conforming names); a start directory removed between create and launch,
+    through a test seam; a start directory that is not the placed worktree; a live standalone
+    attach; a live session already holding the name (refused before the worktree, branch, marker,
+    or registry record exists); a lost race (nothing removed, cleared, or written; the winner's
+    worktree and marker intact); a non-race post-create failure (this run's worktree and branch
+    removed and marker cleared, an adopted branch kept); a failing undo step reported by name; a
+    non-absolute or non-executable worker CLI; and a `tmux` that does not resolve.
+  - Liveness fixtures treat the new name and the prior launcher's spelling (including for a dotted
+    repository basename) as live, a probe name the charset refuses reads as live with no
+    `has-session` call, and no probe for the bare `<suffix>` or `worktree-<suffix>` remains.
+  - Seam discovery finds `fleet-dispatch-worktree.sh` through the new launch shape, the tower
+    relaunch stays exempt, and the discovery floor passes. c10 and the flight-dispatch assertion
+    check the detached plan.
+  - Until Task 13 adds the startup confirmation, a launch whose session was created reports
+    started-unconfirmed (never started), and each shipped caller treats it as placed.
+  - A runtime recorder, or a source check scoped to the launch function (not the file-wide no-LLM
+    exemption), confirms no model or API call in the launch path (REQ-E1.3).
+  - `[manual]`: on a real dispatch from inside a tmux client, the dispatch prints its report and
+    exits, the operator's client stays on its session, the worker runs in the placed worktree on its
+    `bootstrap` D-36 branch with no second worktree created, and its process environment shows the
+    pin and the identity. That confirmation replaces REQ-B1.4's former `--tmux=classic` check.
+  - tests/CI pass.
 - **Dependencies:** 11
 - **Citations:** D-10, D-11, D-12, D-13, D-14, D-15 · REQ-F1.1, REQ-F1.2, REQ-F1.3, REQ-F1.4,
-  REQ-F1.5, REQ-G1.1, REQ-G1.2, REQ-G1.3, REQ-G1.4, REQ-G1.6, REQ-G1.7, REQ-H1.3, REQ-B1.4,
-  REQ-E1.3
-- **Estimated effort:** 3 days
+  REQ-F1.5, REQ-G1.1, REQ-G1.2, REQ-G1.3, REQ-G1.4, REQ-G1.5, REQ-G1.6, REQ-G1.7, REQ-H1.3,
+  REQ-H1.6, REQ-B1.4, REQ-E1.3
+- **Estimated effort:** 4 days
 
 ### Task 13 — Startup confirmation through the worker's SessionStart hook
 
-- **Deliverables:** A `SessionStart` arm in `fleet-liveness.sh`, wired in `hooks/hooks.json`,
-  identity-gated like every other arm, that pushes `working` for the worker's handle. The launch's
-  bounded wait for that row, stamped no earlier than the dispatch start, with the cap defined in
-  the launch script and a test seam that shortens it. The three outcomes (started,
-  failed-at-startup, started-unconfirmed), each with its own exit status, all documented in the
-  primitive's usage header along with 127 and the pass-through statuses. Every shipped caller of
-  the primitive (`flight-dispatch.sh` and the `/orchestrate` tmux dispatch path) reports
-  started-unconfirmed as placed and failed-at-startup as a failure that names the cause.
-- **Done when:** the hook arm writes `working` for a valid identity, no-ops with no identity, and
-  refuses a half-set identity without writing. A launch fixture whose stub worker pushes the row
-  reports started (exit 0); one whose stub session exits before confirming reports
-  failed-at-startup with its exit status; one whose session stays up without confirming reports
-  started-unconfirmed with its exit status and the handles, and each shipped caller treats it as
-  placed (no re-dispatch path taken). Each outcome fixture fails when its arm is removed. A row
-  stamped before the dispatch start does not count as confirmation. The usage header lists every
-  exit status the launch returns. `[manual]`: on a real dispatch, the SessionStart arm fires for
-  the launched worker and the dispatch reports started. tests/CI pass.
+- **Deliverables:** A `SessionStart` arm in `fleet-liveness.sh`, wired in `hooks/hooks.json` under
+  the `startup` and `resume` matchers, identity-gated like every other arm, that pushes `working`
+  for the worker's handle and records the launch token in the row. The confirm step's bounded
+  wait: the dispatch start captured immediately before `new-session` and handed to the confirm
+  step (an unknown start never confirms); a poll at a fixed interval up to a fixed cap, both defined
+  in the launch script with a test seam that shortens them; on each poll the store read first (a
+  row for the handle carrying this launch's token, stamped no earlier than the start, confirms),
+  then the session probe (a definite "no such session" from a reachable server is
+  failed-at-startup; an unreachable server or unreadable store keeps waiting); cap expiry is
+  started-unconfirmed. Failed-at-startup clears the marker the dispatch set, and for a flight the
+  report names the hand removal step for its worktree. The three outcomes (started,
+  failed-at-startup, started-unconfirmed) and every refusal carry distinct exit statuses, all
+  documented in the primitive's usage header. Every shipped caller of the primitive
+  (`flight-dispatch.sh` and the `/orchestrate` tmux dispatch path) reports started-unconfirmed as
+  placed and failed-at-startup as a failure that names the cause.
+- **Done when:** the hook arm writes `working` with the token for a valid identity, no-ops with no
+  identity, and refuses a half-set identity without writing; an assertion over `hooks/hooks.json`
+  finds the arm under both matchers. A launch fixture whose stub worker confirms reports started
+  (exit 0); one whose stub session exits before confirming reports failed-at-startup with its
+  status and leaves the marker cleared; one whose session stays up without confirming reports
+  started-unconfirmed with its status and the handles, and each shipped caller treats it as placed
+  (no re-dispatch path taken); one whose stub server is unreachable reports started-unconfirmed,
+  never failed. A row stamped before the dispatch start, a row for the handle without this launch's
+  token, and an unknown start time each fail to confirm. Each outcome fixture fails when its arm is
+  removed. The usage header lists every exit status the launch returns. A source check scoped to
+  the confirm step finds no model or API call (REQ-E1.3). `[manual]`: on a real dispatch, the
+  SessionStart arm fires for the launched worker and the dispatch reports started. tests/CI pass.
 - **Dependencies:** 12
-- **Citations:** D-15 · REQ-G1.5, REQ-H1.3, REQ-E1.2, REQ-E1.3
-- **Estimated effort:** 1–2 days
+- **Citations:** D-10, D-15 · REQ-F1.1, REQ-G1.5, REQ-H1.3, REQ-E1.2, REQ-E1.3
+- **Estimated effort:** 1.5–2 days
 
 ### Task 14 — Launch docs, the launch-shape check, and the narrowed seam exemption
 
-- **Deliverables:** Every shipped doc, skill, and script comment that describes the tmux rung's
-  launch describes the detached launch: at least `tower-command-guard.sh`'s launch-shape comments,
-  `skills/orchestrate/SKILL.md`, `doctrine/backend-capability-contract.md`, `docs/fleet.md`, and
-  `docs/conventions.md`, plus any other site the check finds. The tower guard's `claude --worktree`
-  allow is labeled as an operator's hand-launch. The `attach` naming in the primitive's prose says
-  what it now does. A mechanical check under `mise run check` fails on prose that presents
-  `claude --worktree … --tmux=classic` as the rung's launch. The seam-discovery exemption for
-  `fleet-tower-watchdog.sh` is narrowed to the tower-relaunch launch itself.
-- **Done when:** the check fails on a fixture doc presenting the old shape as the rung's launch and
-  passes on the hand-launch label. It passes on the repository with the doc set updated. A fixture
-  adds a worker launch elsewhere in `fleet-tower-watchdog.sh`'s shape and the seam discovery
-  reports it as unmanifested, while the tower relaunch stays exempt. The exemption stays reachable
-  (its own unreached-exemption guard passes). tests/CI pass.
+- **Deliverables:** Every shipped doc, skill, config, and script comment that describes the tmux
+  rung's launch describes the detached launch: at least `scripts/fleet-dispatch-worktree.sh` (its
+  header and the attach and client-switch prose), `scripts/flight-dispatch.sh` (its header and
+  session comments), `scripts/tower-command-guard.sh`'s launch-shape comments,
+  `scripts/fleet-dispatch-headless.sh`'s `--no-attach` prose, `skills/orchestrate/SKILL.md`,
+  `doctrine/backend-capability-contract.md`, `doctrine/spec-format.md`'s attachable-worktree line,
+  `docs/fleet.md`, `docs/conventions.md`, and `config/tower-settings.json`'s `_about`, plus any
+  other site the check finds. The tower guard's `claude --worktree` allow is labeled as an
+  operator's hand-launch, and `--no-attach` is described as creating the worktree without
+  launching a worker. A mechanical check under `mise run check` scans `docs/`, `doctrine/`,
+  `skills/`, `scripts/`, `config/`, and the README files (excluding `specs/`, the changelog, and
+  `tests/`, whose fixtures quote the old shape as negative cases) and fails on prose that presents
+  `claude --worktree`, with or without `--tmux=classic`, as the rung's worker launch. The
+  seam-discovery exemption Task 12 adds for `fleet-tower-watchdog.sh` is narrowed to the
+  tower-relaunch launch itself.
+- **Done when:** the check fails on a fixture doc presenting either form of the old shape as the
+  rung's launch and passes on the hand-launch label. It passes on the repository with the doc set
+  updated. A fixture copy of `fleet-tower-watchdog.sh` (fed to the discovery through a directory
+  argument or seam) adds a worker launch in the same file, and the seam discovery reports it as
+  unmanifested while the tower relaunch stays exempt. The exemption stays reachable (its own
+  unreached-exemption guard passes on the real file). tests/CI pass.
 - **Dependencies:** 12
 - **Citations:** D-10, D-13 · REQ-H1.5, REQ-H1.6
 - **Estimated effort:** 1 day
@@ -360,7 +421,7 @@ the same launch function, so it waits for Task 12 rather than running beside it.
 - **Retire the prior launcher's liveness probe.** D-14 keeps a liveness probe for the prior
   launcher's `<repo-basename>_worktree-<suffix'>` session spelling so workers started before the
   detached launch still read as live. Once no such worker can be running, the probe matches
-  nothing and should go, as the bare `worktree-<suffix>` probe did. Confidence: high.
+  nothing and should go, as the bare `<suffix>` and `worktree-<suffix>` probes did. Confidence: high.
   **Gate:** a release containing Task 12 has shipped and the operator confirms no tmux worker
   started before it is still running.
   Citations: D-14 · REQ-G1.7.

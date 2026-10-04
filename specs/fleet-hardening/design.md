@@ -1,6 +1,6 @@
 # Fleet Hardening — Design
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-10-04
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -271,18 +271,21 @@ Bash string exposed to the stochastic `auto`-mode classifier. For defense-in-dep
 floor (REQ-C1.2) still names the dangerous `git worktree` forms (a `git worktree add` targeting or
 detaching the default branch, `--force`) so no loose allow can pass them.
 
-**Superseded-by: D-10** (2026-10-04) — step 2's attach through
+**Superseded-by: D-10** (2026-10-04, attach step only) — step 2's attach through
 `claude --worktree <suffix> --tmux=classic` never returns inside tmux, moves the operator's
 client, and leaves its worker on the tmux server's environment; D-10 replaces the attach step and
 its carried caveats with a detached launch the dispatch creates itself. Step 1, the
-collision/orphan handling, the exception scope, and the tower-guard interaction carry into D-10
-unchanged.
+collision/orphan handling, the exception scope, and the tower-guard interaction carry into D-10;
+D-14 extends the collision handling with a name pre-check and its failure arms, and the "attached
+tmux session" liveness signal above now means a live tmux session for the worker.
 
 ### D-8: Tower command-guard — a distinct tower safe set fronting the stochastic classifier (N)
 
 **Decision:** A tower runs under a tower-settings profile that wires a deterministic PreToolUse
 command-guard over the tower's own orchestration command set (tmux relay/observe, `claude --worktree`
-worker launches, planwright scripts by resolved literal path), reusing the
+worker launches *(amended at extension kickoff 2026-10-04: an operator's hand-launch; the tmux
+rung's worker launch is D-10's detached session)*, planwright scripts by resolved literal path),
+reusing the
 `worker-permission-ergonomics` guard *pattern* but with a **distinct, tower-oriented safe set** — not
 a verbatim reuse of the worker set. The guard is allow-only; because it has no default-deny,
 deny-block *completeness* is the security floor (anything unmatched falls to the stochastic
@@ -370,18 +373,33 @@ concurrent bookkeeping runs.
 `git worktree add -b planwright/<spec>/task-<id> .claude/worktrees/<suffix> <base>` on the
 freshly-fetched `origin/main`, tokens validated before interpolation, the create's exit status
 gating everything after it, the atomic-exit collision detection and live-versus-stale orphan
-reconcile, the scoped never-shell-`git worktree` exception, and the tower-guard interaction. The
-attach step is replaced. After the create succeeds, the dispatch primitive creates the worker's
-session itself:
+reconcile, the scoped never-shell-`git worktree` exception, and the tower-guard interaction. D-14
+adds a name pre-check and the failure arms around it. The attach step is replaced. After the
+create succeeds, the dispatch primitive creates the worker's session itself, in one tmux
+invocation that also turns `remain-on-exit` off for the new window (so a worker that exits takes
+its session with it, whatever the operator's global tmux options say):
 
-`tmux new-session -d -s <session> -c <physical worktree> -P -F '<session-name>\t<window-id>' -- <fleet-dispatch-env.sh> <identity> <absolute claude> <launch args> [-- <prompt>]`
+`tmux new-session -d -s <session> -c <physical worktree> -P -F '#{session_name}<TAB>#{window_id}' -- <fleet-dispatch-env.sh> <wrapper options> <absolute claude> <launch args> [-- <prompt>]`
 
-with stdin from `/dev/null`, no `--worktree`, and no `--tmux`. The command after `--` is always
-several argv words, never one shell string. The session is never attached and no client is
-switched. The name and window id that `-P -F` prints are the registry death handle (REQ-G1.6). The
-primitive returns once the worker confirms it started (D-15). The observe hint targets
-`'=<session>:'`, because tmux 3.6 refuses a bare `=<session>` as a pane target. The session name is
-D-14's, the env carriage D-11's, the path checks D-12's and D-13's.
+with stdin from `/dev/null`, no `--worktree`, and no `--tmux`. `<wrapper options>` are D-11's;
+`<launch args>` are the forwarded flags the primitive already admits, plus any launch flags a
+sibling spec adds to this rung (`fleet-messaging`'s `--name` and `--settings <profile>`, its
+REQ-B1.1 and Task 4, when they land). The command after `--` is always several argv words, never
+one shell string. The session is never attached and no client is switched. The name and window id
+that `-P -F` prints are the registry death handle (REQ-G1.6): the registry record is written once,
+after `new-session` succeeds, carrying that handle; output that does not parse to one name and one
+window id inside the registry's token grammar registers no death handle and warns, without failing
+the launch. The observe hint targets `'=<session>:'`, because tmux 3.6 refuses a bare `=<session>`
+as a pane target. The flight dispatch takes the session name for its report and hints from the
+launch's report line, never by searching session names.
+
+The primitive's live launch has two steps. **Launch** returns once the session exists, printing
+its report. **Confirm** then waits for the worker's startup confirmation (D-15). The flight caller
+runs the launch under the checkout's flight lock, releases the lock, and only then runs the
+confirm step, because the lock guards counting free slots and placing the worktree as one act,
+and both are finished once the session exists. A caller with no lock (the `/orchestrate` tmux
+dispatch) runs the two back to back. The session name is D-14's, the env carriage D-11's, the path
+checks D-12's and D-13's.
 
 **Alternatives considered:**
 - Keep `claude --worktree <suffix> --tmux=classic` and background it. Rejected because: the
@@ -398,26 +416,41 @@ D-14's, the env carriage D-11's, the path checks D-12's and D-13's.
 - Keep the blocking launcher and kill it after a timeout, then restore the client. Rejected
   because: it is timing-based. It reports a live worker as killed, which is the false "did not
   start" this extension removes, and the environment defect stays.
+- One launch step that waits for confirmation inside the flight lock, with its cap held well below
+  the lock wait. Rejected because: the lock then guards nothing for the length of the wait, and
+  concurrent flights from one checkout queue behind each other's startup check, a smaller form of
+  obs:fa759dcb (operator decision, 2026-10-04).
 
 **Chosen because:** this is the session the native launcher already creates (the worktree as cwd,
 the worker in a classic tmux pane), minus the client switch, the wait, and the `--worktree`
 resolution. It is the only shape that meets REQ-F1.1 through REQ-F1.4 together. The pane stays a
 classic tmux pane, so D-7's reason for `--tmux=classic` (a `capture-pane` / `load-buffer`
-relay-targetable worker) still holds without the flag. Cross-spec: `fleet-messaging`'s open
+relay-targetable worker) still holds without the flag. Writing the registry only after the session
+exists means no failure arm ever has a record to retract. Cross-spec: `fleet-messaging`'s open
 question about `--name` beside `--worktree --tmux=classic` no longer bears on this rung once no
 tmux-rung worker launches with that shape.
 
-### D-11: The dispatch env wrapper carries the worker identity, inside the session (N, extension 2026-10-04)
+### D-11: The dispatch env wrapper carries the worker identity and the dispatcher's roots, inside the session (N, extension 2026-10-04)
 
-**Decision:** `fleet-dispatch-env.sh` is the session's command, so the environment it builds (the
-ghost-text pin and the resolved planwright root) is the worker's own, whatever the tmux server's
-environment holds. The wrapper also gains a leading identity option that takes the handle and
-scope. It validates both against the identity-gate grammar the liveness hooks enforce and exports
-`PLANWRIGHT_WORKER_HANDLE` and `PLANWRIGHT_WORKER_SCOPE` before it `exec`s the worker. A malformed
-or half-supplied identity is a usage refusal (exit 2) and launches nothing. The tmux rung passes
-the handle and scope of the registry record it writes (`tmux-<spec>-task-<id>` and `<spec>:<id>`
-for a task, `tmux-flight-<flight-id>` and `flight:<flight-id>` for a flight), so the two agree by
-construction.
+**Decision:** `fleet-dispatch-env.sh` is the session's command, so the environment it builds is
+the worker's own, whatever the tmux server's environment holds. The wrapper gains leading options:
+
+- `--identity <handle> <scope>`: validated against the identity-gate grammar the liveness hooks
+  enforce, then exported as `PLANWRIGHT_WORKER_HANDLE` and `PLANWRIGHT_WORKER_SCOPE`.
+- `--launch-token <token>`: a per-launch random token the dispatch mints (lowercase hex), exported
+  as `PLANWRIGHT_WORKER_LAUNCH_TOKEN` for D-15's confirmation.
+- `--root <dir>` and `--fleet-home <dir>`: the dispatcher's resolved planwright root and fleet
+  home, which the wrapper exports in place of any inherited value, so the worker's command guard
+  and its hook writes resolve to the same root and store the dispatcher uses.
+
+A malformed or half-supplied option is a usage refusal (exit 2). The dispatch runs the wrapper in
+a check-only mode (`--check`, which validates every option and exits without `exec`) before
+`new-session`, so a refusal is reported by the dispatch and launches nothing; the in-session
+validation stays as defense in depth. The tmux rung passes the handle and scope of the registry
+record it writes (`tmux-<spec>-task-<id>` and `<spec>:<id>` for a task, `tmux-flight-<flight-id>`
+and `flight:<flight-id>` for a flight), so the two agree by construction. This bundle owns the tmux
+rung's identity export; `fleet-messaging` REQ-B1.1 and its Task 4 require the same export across
+every session-grade rung, and its tmux part is satisfied here (operator decision, 2026-10-04).
 
 **Alternatives considered:**
 - `tmux new-session -e KEY=VALUE`. Rejected because: it needs tmux 3.2 or later where planwright
@@ -428,23 +461,35 @@ construction.
   nowhere to validate the identity grammar.
 - `tmux set-environment -g`. Rejected because: it writes the server's global environment and leaks
   into every session the server starts.
+- Leave the identity export to `fleet-messaging`. Rejected because: D-15's confirmation needs the
+  identity now, and that bundle has not started executing.
 
 **Chosen because:** one seam applies every dispatch-time variable and validates it where it is set
 (the `existing-seam-reuse` decision domain), with no tmux version floor. Running the wrapper inside
 the session is what closes obs:da5e6757: the defect was a correct wrapper running in the wrong
-process.
+process. Under the detached launch "inherited" means the tmux server's environment, so the
+wrapper's keep-an-inherited-root rule would let a stale server value win; passing the dispatcher's
+values explicitly closes that.
 
-### D-12: One charset allowlist for every value tmux format-expands; the physical path, which must exist (N, extension 2026-10-04)
+### D-12: Declared charsets for every tmux-format-expanded value; a physical start directory that must exist (N, extension 2026-10-04)
 
-**Decision:** Before any tmux call, including the liveness probes' `has-session` targets, the
-launch checks two values against declared charsets: the physical (`pwd -P`) worktree path
-against the brief path charset `[A-Za-z0-9._/@+-]`, and the session name against
-`[A-Za-z0-9_@+-]`, which drops `/` and `.` and admits `_`, the byte tmux itself substitutes for a
-`.` or `:` in a name. A value outside its charset is refused with a message naming the charset and
-the value class (worktree path or session name), and nothing is launched. The start directory must exist and be a directory. tmux would
-otherwise start the pane in its fallback directory without a word. A checkout whose physical path
-falls outside the charset (one holding a space, for example) therefore cannot use the tmux rung.
-The refusal says so, and the other rungs are unaffected.
+**Decision:** tmux 3.6 format-expands `new-session`'s `-s` and `-c` and every `-t` target, and does
+not expand the command words after `--` (the probes in Sources). Before any tmux call, including the
+liveness probes' `has-session` targets, the launch checks the two expanded value classes against
+declared charsets:
+
+- the physical (`pwd -P`) worktree path against the brief path charset `[A-Za-z0-9._/@+-]`;
+- the session name against `[A-Za-z0-9_@-]`, first byte alphanumeric, at most 128 bytes. That is
+  the registry's tmux-token grammar narrowed to drop `.` (which tmux rewrites to `_`, as it does
+  `:`), so every name the launch creates is also a valid death handle.
+
+A value outside its charset is refused with a message naming the charset and the value class
+(worktree path or session name), and nothing is launched. The start directory must exist, be a
+directory, and equal `<physical worktree root>/<suffix>`, rechecked immediately before
+`new-session`; tmux would otherwise start the pane in its fallback directory without a word. A
+checkout whose physical path falls outside the charset (one holding a space, for example) therefore
+cannot use the tmux rung. The refusal says so, and the other rungs are unaffected. A liveness probe
+whose name fails the charset is not sent and reads as live (the probes' fail-safe direction, D-7).
 
 **Alternatives considered:**
 - Refuse only `#`. Rejected because: a denylist is only as complete as one's knowledge of what
@@ -452,22 +497,26 @@ The refusal says so, and the other rungs are unaffected.
   2026-10-04).
 - Escape `#` as `##`. Rejected because: it relies on per-argument tmux escape semantics that
   differ across versions, and the unescaped path still reaches other surfaces verbatim.
-- Omit `-c` and have the wrapper change into the worktree. Rejected because: whether tmux
-  format-expands the argv after `--` is unverified, and the session name still needs screening, so
-  it adds a mechanism without removing the check.
+- Omit `-c` and have the wrapper change into the worktree. Rejected because: the session name
+  still needs screening, so it adds a mechanism without removing the check.
+- Apply a charset to the command words too. Rejected because: the probe shows tmux passes them
+  through unexpanded, and the prompt and forwarded flags would lose bytes for no protection.
 
-**Chosen because:** it is the charset the attach already holds the brief path to, so one rule now
-covers every path the attach hands out. It was verified against the live expansion behavior (the
-tmux 3.6 probe in Sources). The cost, no tmux rung for a checkout path outside the charset, is
-recorded here and in Out of scope.
+**Chosen because:** the path charset is the one the dispatch arm already holds the brief path to,
+so one rule covers every path the launch hands tmux, and the session-name charset is the narrowest
+one the registry and death evidence already accept. Both were verified against the live expansion
+behavior (the tmux 3.6 probes in Sources). The cost, no tmux rung for a checkout path outside the
+charset, is recorded here and in Out of scope.
 
 ### D-13: `attach` keeps its plan and refuses a live launch (N, extension 2026-10-04)
 
 **Decision:** `fleet-dispatch-worktree.sh attach <suffix>` keeps its argument validation and its
-`--dry-run` plan output, which the existing fixtures exercise. A live standalone attach is refused
-with a usage error pointing at `dispatch`. The only live launch is the dispatch arm, after its
-path-escape guard (no symlinked `.claude`, `.claude/worktrees`, or leaf, and physical containment
-under the primary checkout's worktree root), which satisfies REQ-G1.3 by construction.
+`--dry-run` plan output, which now prints the detached launch plan (D-10). A live standalone attach
+is refused with a usage error pointing at `dispatch`. The only live launch is the dispatch arm,
+after its path-escape guard (no symlinked `.claude`, `.claude/worktrees`, or leaf, and physical
+containment under the primary checkout's worktree root), which satisfies REQ-G1.3 by construction.
+The `--no-attach` flag keeps its name; its prose says it creates the worktree without launching a
+worker.
 
 **Alternatives considered:**
 - Keep the live standalone attach and share the guard with it. Rejected because: no shipped caller
@@ -475,34 +524,53 @@ under the primary checkout's worktree root), which satisfies REQ-G1.3 by constru
   user.
 - Remove the `attach` subcommand. Rejected because: its argument-validation fixtures would move to
   `dispatch --attach-dry-run`, a larger test rewrite for no extra safety.
+- Rename `--no-attach`. Rejected because: shipped callers and docs use it, and the rename buys
+  only vocabulary.
 
 **Chosen because:** removing the unguarded live arm is the smallest change that makes every live
 launch pass one guard, and the plan output keeps its fixtures (operator decision, 2026-10-04).
 
-### D-14: Session names carry the checkout; collisions are found before side effects (N, extension 2026-10-04)
+### D-14: Session names carry the checkout; collisions are found before side effects; a lost race touches nothing (N, extension 2026-10-04)
 
 **Decision:** The session name is `<base>-<hash6>_<suffix'>`:
 
-- `<base>` is the primary checkout's physical basename with every byte outside `[A-Za-z0-9@+-]`
-  mapped to `-`, truncated to 32 bytes.
-- `<hash6>` is the first six digits of the `cksum` CRC of the primary checkout's physical path,
-  rendered in lowercase hex. This
-  is disambiguation, not security: two checkouts that collide on it fail closed as a live-name
-  refusal and never cross-wire.
+- `<base>` is the primary checkout's physical basename with every byte outside `[A-Za-z0-9@-]`
+  mapped to `-`, leading non-alphanumeric bytes dropped (`repo` if nothing remains), truncated to
+  32 bytes.
+- `<hash6>` is the first six of the eight zero-padded lowercase hex digits `printf '%08x'` renders
+  for the `cksum` CRC of the primary checkout's physical path. This is disambiguation, not
+  security: two checkouts that collide on it fail closed as a live-name refusal and never
+  cross-wire.
 - `<suffix'>` is the worktree suffix with `.` written `_`, the rewrite tmux itself applies, so the
   name the dispatch computes is the name tmux stores and `=<name>` targets match exactly.
 
+A name over 128 bytes is refused under D-12 before any side effect.
+
 Before any durable side effect (worktree, branch, dispatch marker, registry record), the dispatch
-checks whether a session already holds that exact name. If one does, it reconciles under the
-live-versus-stale rule carried from D-7: a live session is an in-flight dispatch and aborts as
-already-in-flight. If session creation still loses a race, the dispatch rolls back what it wrote:
-the worktree and branch it just created, and the marker it set. Because the registry is
-append-only with no retraction, it gets a superseding terminal record.
+checks whether a session already holds that exact name. A live one is an in-flight dispatch and
+aborts as already-in-flight under the live-versus-stale rule carried from D-7. This is a fast path
+for the common case; the create's atomic exit (D-7) and the lost-race arm below remain the race
+guard.
+
+- **Lost race** (`new-session` refuses a duplicate name): everything the task's dispatch owns (the
+  worktree path, branch, marker, and registry handle) is the winner's too, so the dispatch aborts
+  as already-in-flight and removes, clears, and writes nothing.
+- **Any other failure after the create** (`new-session` failing for another reason, a start
+  directory refused under D-12, tmux gone): the dispatch undoes only what this run created. It
+  removes the worktree and deletes the branch only if this run created them with `-b` and no live
+  session runs in the worktree (an adopted branch is never deleted), and it clears the marker it
+  set. A failed undo step is reported by name with the residual path or branch, and the dispatch
+  still exits with the original failure's status.
+
+Neither arm writes a registry record: D-10 writes it only after `new-session` succeeds, and closing
+a record stays the reconcile's, on positive death evidence (`fleet-lifecycle-closure` REQ-E1.5).
 
 Liveness probes check this name and, while workers from before the upgrade may still be running,
-the prior launcher's `<repo-basename>_worktree-<suffix'>` spelling. The bare `worktree-<suffix>`
-probe, which matches nothing any launch creates, is removed. Retiring the prior-launcher probe is a
-gated deferral in `tasks.md`.
+the prior launcher's `<repo-basename'>_worktree-<suffix'>` spelling, where `<repo-basename'>` is
+the primary checkout's basename with `.` and `:` written `_` (tmux's rewrite), for the dispatch
+suffix and for the alternate name of a worktree that already holds the branch alike. The bare
+`<suffix>` and `worktree-<suffix>` probes (and their alternate-name forms), which match nothing any
+launch creates, are removed. Retiring the prior-launcher probe is a gated deferral in `tasks.md`.
 
 **Alternatives considered:**
 - Hash only (`pw-<hash8>_<suffix'>`). Rejected because: the repo cannot be recognized in
@@ -510,36 +578,50 @@ gated deferral in `tasks.md`.
 - Basename only (`<base>_<suffix'>`). Rejected because: two clones with the same directory name
   would share session names, which fails REQ-G1.4.
 - Rely on `new-session`'s own duplicate refusal, with no pre-check. Rejected because: that refusal
-  comes after the worktree, marker, and registry record exist, which is the orphan the parked
-  flight's review found. The pre-check moves the common case ahead of every side effect, and the
-  rollback covers the race that remains.
+  comes after the worktree and marker exist, which is the orphan the parked flight's review found.
+- Roll back the worktree, branch, and marker on a lost race and write a terminal registry record.
+  Rejected because: they belong to the winner, so the loser would remove a running worker's
+  checkout and close its record, and only the reconcile closes records (operator decision,
+  2026-10-04).
 
 **Chosen because:** it is unique per checkout and still readable, and every byte is inside D-12's
-session-name charset by construction. The pre-check matches D-7's own preference for detection before any
-durable act, and the race arm keeps a lost race from wedging the task.
+session-name charset by construction. The pre-check catches the common collision before any write,
+D-7's atomic create stays the race guard, and the failure arms never touch what a winner owns.
 
-### D-15: A launch counts as started when the worker's own SessionStart hook says so (N, extension 2026-10-04)
+### D-15: A launch counts as started when this launch's worker confirms it from its SessionStart hook (N, extension 2026-10-04)
 
 **Decision:** Before any durable side effect, the launch resolves the worker CLI (`command -v
-claude`) and requires an absolute path to an executable regular file, refusing otherwise with exit
-127. After the session exists, it waits, up to a fixed cap defined in the launch script (with a
-test seam that shortens it), for the worker's startup confirmation. That confirmation is a new
-identity-gated `SessionStart` arm in `fleet-liveness.sh` that pushes `working` for the worker's
-handle, extending the hook set the way D-2's `Notification` arm did and redefining nothing
-(REQ-E1.2). The launch reads the attention store for a row for its handle stamped no earlier than
-the dispatch start. While waiting, a session that has disappeared ends the wait. The outcomes, each
-with its own documented exit status:
+claude`) and `tmux`, requiring an absolute path to an executable regular file for `claude` and a
+resolvable `tmux`, and refuses otherwise with documented statuses. The confirmation is a new
+identity-gated `SessionStart` arm in `fleet-liveness.sh`, wired under the `startup` and `resume`
+matchers (task dispatches may forward `--continue` / `--resume`), that pushes `working` for the
+worker's handle and records the launch token from the worker's environment (D-11), extending the
+hook set the way D-2's `Notification` arm did and redefining nothing (REQ-E1.2).
+
+The confirm step (D-10) records the dispatch start immediately before `new-session`; an unknown
+start time never confirms. It then polls, at a fixed interval and up to a fixed cap both defined in
+the launch script (a test seam shortens both), and on each poll:
+
+1. reads the attention store first: a row for its handle carrying this launch's token and stamped
+   no earlier than the dispatch start is the confirmation;
+2. otherwise probes the session: a definite "no such session" from a reachable server ends the
+   wait as failed-at-startup; an unreachable server or an unreadable store keeps waiting.
+
+The signal is the worker's own event; only its read is polled, and the poll is bounded.
+
+The outcomes, each with its own exit status:
 
 - **started:** confirmed, report printed, exit 0.
-- **failed:** the session is gone. The report says the worker died at startup, and the leftover
-  worktree is a stale orphan for the carried reconcile to adopt.
-- **started-unconfirmed:** the cap expired with the session still present. The report carries the
-  handles and says confirmation never arrived. Every shipped caller of the primitive (the flight
-  dispatch and the `/orchestrate` tmux dispatch alike) treats it as placed, never as a failure that
-  invites a re-dispatch.
+- **failed-at-startup:** the session is gone. The report says the worker died at startup. The
+  dispatch clears the marker it set, so a retry is not read as in-flight; for a flight, whose
+  registered worktree the reconcile never force-removes, the report names the hand removal step.
+- **started-unconfirmed:** the cap expired with the session still present, or the server or store
+  stayed unreadable. The report carries the handles and says confirmation never arrived. Every
+  shipped caller of the primitive (the flight dispatch and the `/orchestrate` tmux dispatch alike)
+  treats it as placed, never as a failure that invites a re-dispatch.
 
-Every exit status the launch can return, including 127 and the worker's pass-through statuses, is
-documented in the primitive's usage header.
+Every exit status the launch returns (the outcomes and each refusal) is distinct and documented in
+the primitive's usage header. The launch never sees the worker's own exit status.
 
 **Alternatives considered:**
 - Set `remain-on-exit` and check `#{pane_dead}` after a fixed settle. Rejected because: it is
@@ -548,9 +630,11 @@ documented in the primitive's usage header.
 - Both, with a dead pane ending the marker wait early. Rejected because: the session-gone check
   already ends the wait for a worker that dies, so a second mechanism doubles the test surface for
   little extra precision (operator decision, 2026-10-04).
+- Accept any `working` row for the handle, with no token. Rejected because: any process that sets
+  the handle could mark a dead launch started (operator decision, 2026-10-04).
 
 **Chosen because:** it is the worker's own deterministic event, in the store the tower already
 watches, which is the bundle's principle (D-1). It exists only because REQ-F1.5 now gives tmux
 workers an identity. The three outcomes keep the one failure #546 made costly, reporting a running
-worker as failed, from returning: a missing confirmation with a live session is never read as
-death.
+worker as failed, from returning: a missing confirmation with a live session, or an unreadable
+server, is never read as death.

@@ -1,6 +1,6 @@
 # Fleet Hardening — Requirements
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-10-04
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -41,12 +41,15 @@ worker's session, moves the operator's client to it, and keeps running, so a dis
 holds the checkout's flight lock for the worker's whole life, prints no report, and reads as a
 failed launch once something kills it. Its worker also takes the tmux server's environment, so the
 dispatch pin never reaches it. The extension replaces that attach with a launch that creates the
-worker's session itself, detached, and returns once the worker has started (D-10, superseding D-7's
-attach step). Because the launch is subprocess and path construction, its security properties are
-requirements rather than review notes: no input-derived value reaches an argument tmux
-format-expands, every launch arm passes the same containment guard, and a launch is reported
-started only once the worker has confirmed it (REQ-F, REQ-G, REQ-H). The altitude is unchanged:
-mechanism-primary under D-1.
+worker's session itself, detached, and returns once the launch outcome is known (D-10, superseding
+D-7's attach step), behavior REQ-F states. Because the launch is subprocess and path construction,
+its security and failure properties are requirements rather than review notes (REQ-G): no
+input-derived value reaches an argument tmux format-expands, every launch arm passes the same
+containment guard, session names are unique per checkout and checked before anything durable is
+written, a lost race touches nothing the winner owns, the worker CLI resolves fail-closed, the
+death handle comes from session creation, and a launch is reported started only once its own
+worker has confirmed it. REQ-H holds the fixtures and docs that keep both honest. The altitude is
+unchanged: mechanism-primary under D-1.
 
 ## Scope
 
@@ -88,15 +91,20 @@ mechanism-primary under D-1.
 - One carried doctrine statement elevating deterministic / event-driven over heuristic / polling /
   stochastic for the fleet control plane.
 - *(Extension 2026-10-04.)* A tmux-rung launch that creates the worker's session detached in the
-  placed worktree and returns once the worker confirms it started, never moving a tmux client, with
-  the dispatch pin and the worker identity in the worker's own environment.
+  placed worktree and returns once the launch outcome is known (the worker's own startup
+  confirmation, a startup death, or an unconfirmed live session), releasing the flight lock before
+  that wait, never moving a tmux client, with the dispatch pin and the worker identity in the
+  worker's own environment.
 - *(Extension 2026-10-04.)* Launch safety: a charset allowlist on every value tmux format-expands,
   the physical worktree path, one containment guard for every launch arm, repo-qualified session
-  names with collision detection before any durable side effect, a fail-closed startup check, and a
-  death handle taken from the session-creation call itself.
+  names with collision detection before any durable side effect and failure arms that never touch
+  a winner's state, a fail-closed startup check bound to the launch, a death handle taken from the
+  session-creation call itself, and liveness probes that span the upgrade window with the
+  never-created names removed.
 - *(Extension 2026-10-04.)* Launch verification and docs: bounded, server-environment-faithful
   launch fixtures, a fixture per refusal arm, the docs and comments that still describe the old
-  launch, and a narrowed seam-discovery exemption.
+  launch, and seam discovery that sees the new launch with a scoped exemption for the tower
+  relaunch.
 
 ### Out of scope
 
@@ -198,6 +206,8 @@ mechanism-primary under D-1.
   stochastic `auto`-mode classifier with a tested allow layer so routine orchestration commands are
   never non-deterministically blocked.
   *(Cites: obs:8eacaa65 · `fleet-autonomy` D-19.)*
+  *(Amended at extension kickoff 2026-10-04: the `claude --worktree` launch in this set is an
+  operator's hand-launch; the tmux rung's worker launch is D-10's detached session.)*
 - **REQ-C1.2** The tower safe set SHALL be a distinct, tower-oriented allow set — not a verbatim
   reuse of the worker safe set — and the tower guard SHALL be allow-only (never emitting deny or
   ask). Because the guard has no default-deny, deny-block coverage is the security floor: anything
@@ -282,11 +292,12 @@ mechanism-primary under D-1.
 
 ## REQ-F — tmux launch behavior
 
-- **REQ-F1.1** The tmux-rung launch SHALL return once the worker has started in its session, never
-  waiting on the worker or on any launcher process for the worker's lifetime: the dispatch report,
-  the release of the checkout's flight lock, and the exit status follow the launch, not the
-  worker's exit.
-  *(Cites: D-10 · obs:fa759dcb · issue #546 (Sources).)*
+- **REQ-F1.1** The tmux-rung launch SHALL return once the launch outcome is known (started,
+  failed-at-startup, or started-unconfirmed, per REQ-G1.5), never waiting on the worker or on any
+  launcher process for the worker's lifetime: the dispatch report and the exit status follow the
+  launch, not the worker's exit, and a flight dispatch SHALL release the checkout's flight lock once
+  the worker's session exists, before waiting for its startup confirmation.
+  *(Cites: D-10 · obs:fa759dcb · issue #546 (Sources) · kickoff decision (2026-10-04).)*
 - **REQ-F1.2** The tmux-rung launch SHALL NOT switch, attach, or otherwise move any tmux client: the
   worker's session is created detached.
   *(Cites: D-10.)*
@@ -294,28 +305,32 @@ mechanism-primary under D-1.
   resolution of its own, so a launch can never create a second worktree or a `worktree-<suffix>`
   branch.
   *(Cites: D-10 · obs:62f3016e.)*
-- **REQ-F1.4** The dispatch environment pin (the ghost-text pin and the resolved planwright root that
-  `fleet-dispatch-env.sh` applies) SHALL apply to the worker process itself, and SHALL hold when the
-  tmux server's environment lacks every pinned value.
+- **REQ-F1.4** The dispatch environment pin (the ghost-text pin, and the dispatcher's resolved
+  planwright root and fleet home, that `fleet-dispatch-env.sh` applies) SHALL apply to the worker
+  process itself, and SHALL hold when the tmux server's environment lacks every pinned value or
+  holds different ones.
   *(Cites: D-10, D-11 · obs:da5e6757 · REQ-B1.1.)*
 - **REQ-F1.5** A tmux-rung worker SHALL carry `PLANWRIGHT_WORKER_HANDLE` and
   `PLANWRIGHT_WORKER_SCOPE` in its own environment, equal to the handle and scope of its registry
   record and valid under the identity-gate grammar, so its hook transitions are recorded and its
-  status row is distinguishable from a unit that was never launched.
-  *(Cites: D-11 · obs:fbb701bc.)*
+  status row is distinguishable from a unit that was never launched. This bundle delivers the tmux
+  rung's part of `fleet-messaging` REQ-B1.1's identity export.
+  *(Cites: D-11 · obs:fbb701bc · `fleet-messaging` REQ-B1.1 · kickoff decision (2026-10-04).)*
 
 ## REQ-G — tmux launch safety
 
-- **REQ-G1.1** Every input-derived value passed to a tmux argument that tmux format-expands — at
-  least the session name (`-s`), the start directory (`-c`), and every target — SHALL match a
-  declared charset, checked before any tmux call: the worktree path the brief path charset
-  `[A-Za-z0-9._/@+-]`, and a session name `[A-Za-z0-9_@+-]` (no `/`, and `_` where tmux would
-  rewrite a `.` or `:`). A value outside its charset SHALL be refused with a message naming it.
-  *(Cites: D-12 · research: tmux 3.6 format-expansion probe (Sources) · the parked flight's zone
-  finding (Sources).)*
-- **REQ-G1.2** The launch SHALL pass tmux the physical (symlink-resolved) worktree path and SHALL
-  refuse a start directory that does not exist, so the worker can never silently start in the tmux
-  server's fallback directory.
+- **REQ-G1.1** Every input-derived value passed to a tmux argument that tmux format-expands — the
+  session name (`-s`), the start directory (`-c`), and every target — SHALL match a declared
+  charset, checked before any tmux call: the worktree path the brief path charset
+  `[A-Za-z0-9._/@+-]`, and a session name `[A-Za-z0-9_@-]` with an alphanumeric first byte and at
+  most 128 bytes. A value outside its charset SHALL be refused with a message naming it; a liveness
+  probe whose name fails the charset SHALL NOT be sent and SHALL read as live.
+  *(Cites: D-12 · research: tmux 3.6 format-expansion probe (Sources) · research: tmux 3.6
+  command-word probe (Sources) · the parked flight's zone finding (Sources).)*
+- **REQ-G1.2** The launch SHALL pass tmux the physical (symlink-resolved) worktree path, and SHALL
+  refuse a start directory that does not exist or does not equal the physical worktree root joined
+  with the suffix, rechecked immediately before session creation, so the worker can never silently
+  start in the tmux server's fallback directory or outside the placed worktree.
   *(Cites: D-12 · research: tmux 3.6 format-expansion probe (Sources).)*
 - **REQ-G1.3** No launch arm SHALL start a worker in a directory that has not passed the dispatch
   arm's path-escape guard (no symlinked `.claude`, `.claude/worktrees`, or worktree leaf, and
@@ -323,18 +338,23 @@ mechanism-primary under D-1.
   *(Cites: D-13 · the parked flight's zone finding (Sources).)*
 - **REQ-G1.4** A worker's tmux session name SHALL be qualified by its repository checkout as well as
   by the worker, so two checkouts never share a name; a live session already holding the name SHALL
-  be detected before any durable side effect (worktree, dispatch marker, registry record) and
-  reconciled per the live-versus-stale rule D-10 carries, and a session creation that still loses a race SHALL
-  roll back what the dispatch wrote.
-  *(Cites: D-14 · the parked flight's review findings (Sources).)*
-- **REQ-G1.5** The launch SHALL refuse when the worker CLI does not resolve to an absolute,
-  executable path, and SHALL report a launch as started only on the worker's own startup
-  confirmation; a session already gone at that point SHALL be a failed launch, and a session still
-  present but unconfirmed when the bound expires SHALL be reported as its own outcome, never as a
-  failure that invites a re-dispatch.
-  *(Cites: D-15 · the parked flight's review findings (Sources).)*
+  be detected before any durable side effect (worktree, branch, dispatch marker, registry record)
+  and abort the dispatch as already-in-flight. A session creation that loses a race SHALL abort as
+  already-in-flight without removing, clearing, or writing anything. Any other failure after the
+  worktree is created SHALL undo only what this run created (never an adopted branch, never a
+  worktree a live session runs in) and SHALL report any undo step that fails, by name.
+  *(Cites: D-14 · the parked flight's review findings (Sources) · `fleet-lifecycle-closure`
+  REQ-E1.5 · kickoff decision (2026-10-04).)*
+- **REQ-G1.5** The launch SHALL refuse, before any durable side effect, when the worker CLI does not
+  resolve to an absolute executable path or `tmux` does not resolve, and SHALL report a launch as
+  started only on the startup confirmation of the worker this launch created (bound by a per-launch
+  token); a session definitely gone SHALL be a failed launch, and a session still present but
+  unconfirmed when the bound expires, or a server or store that stays unreadable, SHALL be reported
+  as its own outcome, never as a failure that invites a re-dispatch.
+  *(Cites: D-15 · the parked flight's review findings (Sources) · kickoff decision (2026-10-04).)*
 - **REQ-G1.6** The registry death handle SHALL be taken from the session-creation call's own
-  output, never discovered by matching pane working directories.
+  output, never discovered by matching pane working directories, and the registry record SHALL be
+  written only after the session exists.
   *(Cites: D-10 · research: tmux 3.6 format-expansion probe (Sources).)*
 - **REQ-G1.7** Liveness probes SHALL recognize a session created by this launch and one created
   under the prior launcher's naming while workers from before the upgrade can still be running, and
@@ -356,17 +376,29 @@ mechanism-primary under D-1.
 - **REQ-H1.4** Launch fixtures SHALL compare paths in canonicalized form, and their stubs SHALL
   neither race on shared log or pid files nor leave a process running after the test.
   *(Cites: drafting-session decision (2026-10-04) · the parked flight's review findings (Sources).)*
-- **REQ-H1.5** No shipped doc, skill, or script comment SHALL describe
-  `claude --worktree <suffix> --tmux=classic` as the tmux rung's worker launch; where that shape
-  stays allowed as an operator's hand-launch, the prose SHALL say so, and a mechanical check SHALL
-  enforce the rule.
+- **REQ-H1.5** No shipped doc, skill, config, or script comment SHALL describe
+  `claude --worktree` (with or without `--tmux=classic`) as the tmux rung's worker launch; where
+  that shape stays allowed as an operator's hand-launch, the prose SHALL say so, and a mechanical
+  check SHALL enforce the rule.
   *(Cites: D-10 · the parked flight's review findings (Sources).)*
-- **REQ-H1.6** The seam-discovery exemption for a non-worker tmux launch SHALL cover only that
-  identified launch, so any other launch in the same file is still discovered and must appear in
-  the seam-coverage manifest.
-  *(Cites: drafting-session decision (2026-10-04) · the parked flight's review findings (Sources).)*
+- **REQ-H1.6** Seam discovery SHALL find the detached launch shape, and its exemption for the
+  non-worker tower relaunch SHALL cover only that identified launch, so any other launch in the
+  same file is still discovered and must appear in the seam-coverage manifest.
+  *(Cites: drafting-session decision (2026-10-04) · the parked flight's review findings (Sources) ·
+  `fleet-lifecycle-closure` REQ-E1.1.)*
 
 ## Changelog
+
+- 2026-10-04 — Extension kickoff (`/spec-kickoff`, delta walk and lens review; the bundle is Draft,
+  edits in place). A lost race now aborts touching nothing, and the registry is written only after
+  the session exists; the flight lock is released before the startup wait (launch and confirm are
+  two steps); the startup confirmation is bound to a per-launch token and also fires on resume;
+  this bundle owns the tmux rung's identity export (`fleet-messaging` REQ-B1.1). Session names fit
+  the registry's token grammar; `tmux` resolves before side effects; the wrapper's root and fleet
+  home win over the server's environment; the startup wait's failure modes, exit statuses, and the
+  flight report's session lookup are pinned; Tasks 11–14 and their test-spec entries are hardened
+  against vacuous checks and paired both ways. REQ-C1.1 and D-8 carry a hand-launch annotation.
+  The brief's 2026-10-04 amendment-log entry holds the full disposition list.
 
 - 2026-10-04 — Extension (`/spec-draft`, meaning-class; reopens the derived-Done bundle to Draft on
   all four headers). Adds REQ-F (tmux launch behavior), REQ-G (tmux launch safety), and REQ-H
@@ -378,7 +410,9 @@ mechanism-primary under D-1.
   block is left as its historical definition). Expression-only within the same edit: the bare
   `fleet-autonomy` D-10 / D-19 mentions in Out of scope and Sources are namespace-qualified, since
   this extension mints a local D-10. Driven by issue #546 and the parked visual flight that could
-  not amend a signed bundle.
+  not amend a signed bundle. The same edit adds D-7's `Superseded-by: D-10` note, the gated
+  deferral retiring the prior-launcher probe, the test-spec intro's new `[manual]` scope, and drops
+  the task count from the `tasks.md` intro.
 
 - 2026-09-03 — Expression-only: the bare `D-36` citations (the branch-naming grammar, owned by
   bootstrap) in REQ-B1.4, the `## Sources` tmux note, the `tasks.md` intro and Task 10 deliverables,
@@ -492,8 +526,12 @@ mechanism-primary under D-1.
   parked flight's candidate commit**), and parked at its zone screen on two security findings —
   tmux format-expands `new-session -c`, so a `#(cmd)` in the worktree path runs in the tmux server,
   and the standalone attach skipped the dispatch arm's containment checks (**the parked flight's
-  zone finding**). Its first review pass validated the rest of REQ-G and REQ-H's findings (**the
-  parked flight's review findings**). It parked rather than ship because the fix replaces D-7's
+  zone finding**). Its first review pass validated the rest (**the parked flight's review
+  findings**): a duplicate session name found only after the worktree, marker, and registry record
+  exist; an unresolved or non-executable worker CLI; a launch reported dead while its worker ran;
+  liveness probes for names no launch creates; launch stubs racing on shared log and pid files and
+  leaking processes; an uncanonicalized path compare; docs still describing the old launch; and a
+  seam-discovery exemption broader than the launch it excuses. It parked rather than ship because the fix replaces D-7's
   attach step, and a signed bundle cannot be amended on visual flight; this extension is the
   amendment it routed to.
 - **research: tmux 3.6 format-expansion probe** (extension, 2026-10-04) — a private-socket tmux
@@ -502,6 +540,11 @@ mechanism-primary under D-1.
   home directory; `.` and `:` in a session name are rewritten to `_`; and `-P -F
   '#{pane_current_path}'` reports the path before the pane's chdir, so matching a new worker by pane
   working directory races. Grounds REQ-G1.1, REQ-G1.2, REQ-G1.6, and D-14's name mapping.
+- **research: tmux 3.6 command-word probe** (kickoff, 2026-10-04) — a private-socket tmux 3.6
+  server: the command words after `new-session --` reach the process verbatim (`#{pid}`, `##`, and
+  `#(touch <file>)` unexpanded, the file never created), and so does a single-string command; a
+  pane target `-t '=<session>'` is refused ("can't find pane") while `-t '=<session>:'` resolves.
+  Grounds D-12's no-charset-on-command-words decision and D-10's observe-hint form.
 - **obs:fa759dcb** — flight dispatch holds the checkout lock: the tmux rung waits on the launcher,
   so the dispatch never reports and caps flights at one per checkout. Consumed; grounds REQ-F1.1.
 - **obs:da5e6757** — tmux pane loses the env pin: the worker in the pane inherits the tmux
@@ -519,7 +562,10 @@ mechanism-primary under D-1.
   the altitude stays mechanism-primary under D-1, so no new altitude record is minted.
 - **`fleet-messaging`** (Ready; extension cross-reference, 2026-10-04) — its platform-experiment list
   asks whether `--name` applies beside `--worktree --tmux=classic`; once D-10 lands no tmux-rung
-  worker launches with that shape, so the question no longer bears on this rung.
+  worker launches with that shape, so the question no longer bears on this rung. Its REQ-B1.1 and
+  Task 4 also export the worker identity on every session-grade rung, `tmux` included; this bundle
+  owns the `tmux` part (REQ-F1.5, D-11; kickoff decision 2026-10-04), and an observation fragment
+  routes the overlap to that bundle's next kickoff.
 - **`test-throughput`** (Ready; extension cross-reference, 2026-10-04) — owns the macOS path
   canonicalization of `tests/test-fleet-dispatch-worktree.sh` (its REQ-E1.4), left out of this
   extension's scope.
