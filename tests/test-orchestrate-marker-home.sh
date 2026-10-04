@@ -175,11 +175,56 @@ echo "ok: the helper lists the shared home first, adds the primary's legacy dir 
 # A bundle whose basename is outside the identifier grammar has no shared home.
 mkdir -p "$P/specs/Bad_Id"
 blist=$(cd "$P" && "$HOME_HELPER" write specs/Bad_Id)
-[ "$blist" = "specs/Bad_Id/.orchestrate/markers" ] || fail "helper: a bad spec id kept a shared home: $blist"
+[ "$blist" = "$P/specs/Bad_Id/.orchestrate/markers" ] || fail "helper: a bad spec id kept a shared home: $blist"
 # A bundle in no repository keeps the legacy dir alone.
 mkdir -p "$tmp/norepo/demo"
 nlist=$(cd "$tmp/norepo" && "$HOME_HELPER" write demo)
-[ "$nlist" = "demo/.orchestrate/markers" ] || fail "helper: a bundle in no repository: $nlist"
+[ "$nlist" = "$tmp/norepo/demo/.orchestrate/markers" ] || fail "helper: a bundle in no repository: $nlist"
+# The flight segment and an over-long id are outside the grammar too.
+mkdir -p "$P/specs/flight" "$P/specs/$(printf 'a%.0s' $(seq 1 65))"
+[ "$(cd "$P" && "$HOME_HELPER" write specs/flight | wc -l | tr -d ' ')" = 1 ] \
+  || fail "helper: the reserved id 'flight' kept a shared home"
+[ "$(cd "$P" && "$HOME_HELPER" write "specs/$(printf 'a%.0s' $(seq 1 65))" | wc -l | tr -d ' ')" = 1 ] \
+  || fail "helper: a 65-character id kept a shared home"
+# The shared home does not depend on the caller's working directory.
+here_list=$(cd "$W" && "$HOME_HELPER" write specs/demo | sed -n 1p)
+away_list=$(cd "$tmp" && "$HOME_HELPER" write "$W/specs/demo" | sed -n 1p)
+[ "$here_list" = "$away_list" ] || fail "helper: the shared home moved with the cwd: $here_list vs $away_list"
+# A symlinked bundle keys by the name it is addressed by, as its branches do.
+ln -s "$P/specs/demo" "$P/specs/alias"
+[ "$(cd "$P" && "$HOME_HELPER" write specs/alias | sed -n 1p)" = "$common/planwright/orchestrate/alias/markers" ] \
+  || fail "helper: a symlinked bundle keyed by its target's name"
+# A bundle dir named `-` is that dir, never OLDPWD.
+mkdir -p "$P/specs/-"
+dlist=$(cd "$P/specs" && OLDPWD=/ "$HOME_HELPER" write -)
+[ "$(printf '%s\n' "$dlist" | tail -n 1)" = "$P/specs/-/.orchestrate/markers" ] \
+  || fail "helper: a dir named '-' resolved elsewhere: $dlist"
+# An override carrying a newline cannot be one line of the list.
+rc=0
+(cd "$P" && PLANWRIGHT_ORCH_STATE_DIR="$tmp/a
+b" "$HOME_HELPER" read specs/demo >/dev/null 2>&1) || rc=$?
+[ "$rc" = 2 ] || fail "helper: an override with a newline returned $rc, expected 2"
+echo "ok: the helper keys by the addressed name, ignores the cwd, and refuses an unlistable override"
+
+# A bare repository's linked worktrees share one home too.
+B="$tmp/bare"
+mkdir -p "$B/seed/specs/demo"
+git -C "$B/seed" -c init.defaultBranch=main init -q
+printf '# t\n' >"$B/seed/specs/demo/tasks.md"
+gitc "$B/seed" add -A
+gitc "$B/seed" commit -q -m base
+git clone -q --bare "$B/seed" "$B/repo.git"
+gitc "$B/repo.git" worktree add -q "$B/w1" main
+gitc "$B/repo.git" worktree add -q -b other "$B/w2" main
+b1=$("$HOME_HELPER" write "$B/w1/specs/demo" | sed -n 1p)
+b2=$("$HOME_HELPER" write "$B/w2/specs/demo" | sed -n 1p)
+bare_common=$(cd "$B/repo.git" && pwd -P)
+[ "$b1" = "$bare_common/planwright/orchestrate/demo/markers" ] && [ "$b1" = "$b2" ] \
+  || fail "helper: a bare repository's worktrees do not share a home: $b1 vs $b2"
+[ "$("$HOME_HELPER" read "$B/w1/specs/demo" | wc -l | tr -d ' ')" = 2 ] \
+  || fail "helper: a bare repository has no primary checkout to read"
+echo "ok: the linked worktrees of a bare repository share one home"
+
 rc=0
 "$HOME_HELPER" write "$tmp/missing" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "helper: a missing spec dir returned $rc, expected 2"
