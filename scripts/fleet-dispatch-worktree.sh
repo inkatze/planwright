@@ -459,9 +459,13 @@ is_live() {
   # A flight has no spec dir and no marker; the reconcile treats its
   # registered worktree as live on its own.
   [ -n "$_sd" ] || return 1
+  # A bundle that is gone holds no marker, as before the shared home existed;
+  # failing live there would wedge the checkout with nothing to age it out.
+  [ -d "$_sd" ] || return 1
   # Every dir the writer may have used, the shared home included, so a marker
   # dropped from another worktree of the repository keeps its worker live. A
-  # list the helper cannot give is "cannot tell", which fails safe to live.
+  # list the helper cannot give for an existing bundle is "cannot tell", which
+  # fails safe to live.
   _mdirs=$(/bin/sh "$script_dir/orchestrate-marker-home.sh" read "$_sd" 2>/dev/null) || return 0
   [ -n "$_mdirs" ] || return 0
   while IFS= read -r _mdir; do
