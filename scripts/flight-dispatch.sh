@@ -45,8 +45,10 @@
 #       and briefs younger than the lock's stale threshold, stay; so does
 #       everything when the worktree list or the flights directory cannot be
 #       read, the fleet home or the flights directory is not private to the
-#       user, or an entry's name carries a newline (exit 4). A removal that
-#       fails is named on stderr and exits 4. No fleet home yet is a clean
+#       user, or an entry's name carries a newline (exit 4). Each retired
+#       flight's attention rows are cleared with its brief. A removal or a row
+#       clear that fails is named on stderr and exits 4 (a failed clear after
+#       its brief was removed still prints the `retired` line). No fleet home yet is a clean
 #       exit 0 with no output, and so is a checkout no brief names, answered
 #       without taking its lock. A lock another holds past
 #       PLANWRIGHT_FLIGHT_LOCK_WAIT seconds (default 60) exits 4 with nothing
@@ -602,7 +604,8 @@ stale_min() {
 # let this sweep run beside a dispatch that has just written its brief. An
 # unreadable worktree list or flights directory, one that is not private to
 # the user, or an entry whose name carries a newline removes nothing. Runs
-# under the checkout's lock. Returns 1 when a removal failed, each one named.
+# under the checkout's lock. Clears each retired flight's attention rows.
+# Returns 1 when a removal or a row clear failed, each one named.
 sweep_briefs() {
   _sb_flights="$fleet_home/flights"
   [ -e "$_sb_flights" ] || [ -L "$_sb_flights" ] || return 0
