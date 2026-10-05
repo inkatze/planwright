@@ -1477,6 +1477,17 @@ for args in "--point convergence --head $H_A --repo acme/widgets" \
   "--point pre-ready-flip --head $H_A --repo widgets" \
   "--point pre-ready-flip --head $H_A --repo acme/../widgets" \
   "--point pre-ready-flip --head $H_A --repo -acme/widgets" \
+  "--point pre-ready-flip --head $H_A --repo acme/-widgets" \
+  "--point pre-ready-flip --head $H_A --repo acme/" \
+  "--point pre-ready-flip --head $H_A --repo /widgets" \
+  "--point pre-ready-flip --head $H_A --repo acme/." \
+  "--point pre-ready-flip --head $H_A --repo acme/.." \
+  "--point pre-ready-flip --head $H_A --repo ac_me/widgets" \
+  "--point pre-ready-flip --head $H_A --repo acme/wid@gets" \
+  "--point pre-ready-flip --head $H_A --repo $(printf 'o%.0s' $(seq 1 40))/widgets" \
+  "--point pre-ready-flip --head $H_A --repo acme/$(printf 'n%.0s' $(seq 1 101))" \
+  "--point pre-ready-flip --head $H_A --repo" \
+  "--point pre-ready-flip --head $H_A --repo acme/widgets --bogus x" \
   "--point pre-ready-flip --head $H_A"; do
   rm -f "$GH_STUB_LOG"
   # shellcheck disable=SC2086 # split into flags by design
@@ -1485,6 +1496,13 @@ for args in "--point convergence --head $H_A --repo acme/widgets" \
   [ "$rc" -eq 2 ] && [ ! -f "$GH_STUB_LOG" ]
   verdict "status refuses '$args' as a usage error" "rc=$rc for '$args'"
 done
+o39=$(printf 'o%.0s' $(seq 1 39))
+n100=$(printf 'n%.0s' $(seq 1 100))
+rm -f "$GH_STUB_LOG"
+sr2 status --point pre-ready-flip --head "$H_A" --repo "$o39/$n100" >/dev/null 2>"$tmp/st.err"
+rc=$?
+[ "$rc" -eq 0 ] && gh_arg "repos/$o39/$n100/statuses/$H_A"
+verdict "status accepts a 39-byte owner and a 100-byte name" "rc=$rc: $(cat "$tmp/st.err")"
 
 # --- the cache path is ignored ------------------------------------------------------
 git -C "$repo_root" check-ignore -q ".claude/steps/000001/x.rec"
