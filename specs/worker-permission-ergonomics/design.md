@@ -1,6 +1,6 @@
 # Worker Permission Ergonomics — Design
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-10-05
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -39,6 +39,8 @@ serves named as fleet-autonomy D-18, and the one capability-vs-style sub-call
 isolated in D-8) is the honest altitude and keeps each piece where a reader can
 find it. Cites `doctrine/autopilot-reflex.md` (the six steps and the altitude
 triggers) rather than restating it.
+*(Amended at the 2026-10-05 extension: D-8 is superseded by D-12, and the
+extension's own altitude call is D-9.)*
 
 ### D-2: A deterministic PreToolUse auto-approve hook, not a fatter allowlist or `auto` mode (N)
 
@@ -93,6 +95,10 @@ is the posture with zero false-allows: the validated prototype demonstrated it
 across ~30 adversarial cases and a live run, and the one false-allow found
 (`echo ok; rm -rf x`) was a splitter bug the every-segment rule is designed to
 catch once fixed.
+*(Amended at the 2026-10-05 extension: allow-only and every-segment-safe
+stand; command substitution is admitted under D-11's narrow rule, segments
+are read in run order (D-19), and write-redirects and writers inside an
+enabled policy arm's roots are approvable (D-12, D-14).)*
 
 ### D-4: `jq` for JSON field extraction, with graceful degradation; analysis in pure shell (N)
 
@@ -206,7 +212,7 @@ recurring drain-loop observations earn the graduation. The deferral is recorded
 in `tasks.md` with a drain-evidence gate. Cites `doctrine/customization-boundary.md`.
 
 **Superseded-by: D-12** (2026-10-05) — the drain evidence this decision
-waited for arrived (four observations from live fleets and the operator's
+waited for arrived (the live-fleet observations D-12 cites and the operator's
 direct delegation), so the configurability graduates as the self-approval
 policy; a free-form per-verb allowlist extension still does not.
 
@@ -272,8 +278,11 @@ admitted only when its inner text independently passes the read-only
 analysis, it has no nesting, no backtick and no parenthesis inside a quote,
 and its output (directly or through a variable assigned from it) reaches only
 argument-independent positions: operands of verbs whose approval ignores
-operand values (the trusted repo and plugin scripts, `echo`, `printf`,
-`test`, `[`). Under that condition the unknown text is equivalent to some
+operand values (the trusted repo and plugin scripts, `echo`, `printf` after a
+literal format, and `test`/`[` without `-v`). The `-v` forms and a `printf`
+format are excluded because bash evaluates a `-v` operand as an arithmetic
+subscript, which runs any `$(…)` inside it, and `printf -v` assigns a
+variable. Under that condition the unknown text is equivalent to some
 literal the guard would already approve, so the substitution cannot smuggle
 anything an argument screen exists to stop. The same reasoning closes the
 live hole: any unresolved or opaque `$` reaching a screened operand defers,
@@ -300,12 +309,16 @@ obs:3ed95276 (lesson), the live-run prompt replay (Sources).
 
 ### D-12: One configurable self-approval policy, read-only by default (supersedes D-8) (N)
 
-**Decision:** The worker's self-approval surface is one config knob resolved
-through the overlay layers, its value a set of arms: `read-only` (what the
-guard approves today), `own-branch` (writes confined to the worker's unit
-branch and worktree), and `scratch` (writes under the worker's scratch root).
-Core ships `read-only` alone. An operator enables the other arms in an
-overlay. Any value the guard cannot read resolves to `read-only` alone. The
+**Decision:** The worker's self-approval surface is one config knob,
+`worker_self_approval`, resolved through the overlay layers last-value-wins,
+its value a space-separated list of additional arms: `own-branch` (writes
+confined to the worker's unit branch and worktree) and `scratch` (writes under
+the worker's scratch root). The `read-only` arm (every pre-extension approval
+category plus the REQ-E shapes) is always in force. Core ships the empty list.
+An operator enables the other arms in an overlay. A value with any unknown
+member, or one that cannot be read, resolves to the empty list. Last-value-wins
+rather than a union lets a machine-local overlay narrow a repo-tracked value.
+The launcher resolves the value once into the session record (D-23); the
 guard is the only evaluator.
 
 **Alternatives considered:**
@@ -322,22 +335,24 @@ guard is the only evaluator.
   with a single fail-closed fallback.
 
 **Chosen because:** the general capability (self-approval by arm) lands in
-core, the operator's value lands in an overlay, and the default reproduces
-today. Cites `doctrine/customization-boundary.md`, obs:1f1141ec,
+core, the operator's value lands in an overlay, and the default keeps
+today's write posture (no new write approvals). Cites `doctrine/customization-boundary.md`, obs:1f1141ec,
 obs:82bab6e3, the operator's live-run delegation (Sources).
 
 ### D-13: The floor is checked first and composes with the existing guards (N)
 
 **Decision:** Before any arm is evaluated, the guard refuses to approve the
 floor: PR merge, the ready flip and its undo, force-push, amend, rebase,
-squash, branch reset, a push to any ref but the session's own unit branch, a
-write outside the worktree and scratch root, every `gh` write, and anything
-the deny block or the policy guard refuses. The `own-branch` arm's base merge
-additionally requires human-gates' `worker_base_merge` to allow it; the
-policy guard keeps running beside the command guard and stays the
-deny-emitting layer. The `own-branch` arm deliberately does not grant
-human-gates' `unpushed_rewrite`: an amend or rebase still reaches the operator
-even where that policy permits it.
+squash, branch reset, any `git push`, a write-classified segment whose target
+falls outside the worktree, the scratch root, and `/dev/null`, a write to a
+D-22 excluded path, every `gh` write, and anything a `Bash(…)` deny rule
+matches. The `own-branch` arm's base merge additionally requires human-gates'
+`worker_base_merge` to allow it; `policy-guard.sh` keeps running beside the
+command guard and stays the deny-emitting layer, judging its own inputs. The
+`own-branch` arm deliberately does not grant human-gates' `unpushed_rewrite`:
+the guard never approves an amend or rebase. A rebase still reaches the
+operator; a permitted amend runs under the profile's static `git commit`
+rule, as it did before this extension.
 
 **Alternatives considered:**
 - Let the arm grant whatever the human-gates policy permits. Rejected because:
@@ -357,9 +372,11 @@ live-run delegation (Sources), human-gates Task 10 (Sources).
 ### D-14: A launcher-created scratch root, writes only (N)
 
 **Decision:** The worker launcher creates one scratch directory per worker,
-owned by the worker, exports it as `TMPDIR`, and records it where the guard
-resolves the session's scratch root. The `scratch` arm approves writes whose
-targets canonicalize inside it, never executing or sourcing anything there.
+owned by the worker, exports it as `TMPDIR`, and records it in the session
+record (D-23); a literal `$TMPDIR` resolves to that recorded root. The
+`scratch` arm approves writes whose targets canonicalize inside it, never
+executing or sourcing anything there. The root survives `recover` and
+relaunch and is removed by the worker's final stop or reap.
 
 **Alternatives considered:**
 - Trust any path under `/tmp` or the system temp root. Rejected because: other
@@ -379,11 +396,19 @@ alone and needs no state. Cites obs:1f1141ec, obs:65c35236.
 ### D-15: The profile ships the static read-only allow set and the `-u` push spelling (N)
 
 **Decision:** `config/worker-settings.json` gains static allow rules for the
-read-only verbs the operator's user-scope stopgap carried (read-only `git`
-subcommands, `grep`, `sed -n`, `cat`, `head`, `tail`, `wc`, `ls`, `jq`, `cut`,
-`sort`, `uniq`, `diff`, `stat`), excluding `awk`, `find`, `xargs` and bare
-`sed`, plus `git push -u origin`. Each rule passes the permission-matcher
-fixture table.
+read-only verbs the operator's user-scope stopgap carried (`grep`, `cat`,
+`head`, `tail`, `wc`, `ls`, `jq`, `cut`, `diff`, `stat`, and the read-only
+`git` subcommands Task 12 enumerates), plus `git push -u origin`. A static
+rule skips the guard's argument screens, so the set admits no verb with a
+file-writing or program-running form: `find`, every `sed` (its `w`/`e`
+commands work under `-n`), `sort` (`-o`, `--compress-program`), `uniq`
+(output-file operand), and the diff-family `git` subcommands (`--output`),
+`git grep` (`-O`), and `git cat-file` (`--textconv`) stay with the guard,
+which approves their safe forms; `awk` and `xargs` defer everywhere. Each
+rule passes the permission-matcher fixture table. The profile's `deny` block
+grows only by the `Write`/`Edit` path rules D-22 and D-23 add.
+*(Amended at kickoff 2026-10-05: `sed -n`, `sort`, and `uniq` dropped from
+the stopgap's set.)*
 
 **Alternatives considered:**
 - Leave the static layer alone; the hook covers these. Rejected because: the
@@ -400,15 +425,19 @@ the dotfiles stopgap (Sources), obs:33812f90.
 ### D-16: Profile changes reach a worker only by relaunch; the supervisor offers one (N)
 
 **Decision:** The fleet guide states that permissions and the policy's
-launch-time inputs load at session start. The stream-json supervisor gains a
-relaunch that resumes the worker's persisted session under the currently
-installed profile, passing that profile explicitly: the Claude Code sessions
-documentation states a resumed session does not restore `--settings`, so an
-implicit resume would come back with no worker profile at all.
+launch-time inputs load at session start. The stream-json supervisor's
+`recover` already resumes a stopped worker's persisted session with the
+installed profile passed explicitly (the Claude Code sessions documentation
+states a resumed session does not restore `--settings`). It gains a
+`relaunch` verb for a live worker: a graceful `stop` then `recover`, refused
+while the worker holds a lock the stop would release, re-resolving the
+session record (D-23) from current config and keeping the scratch root.
 
 **Alternatives considered:**
-- Document only. Rejected because: a fleet mid-run has no way to apply a
-  shipped permission fix short of killing workers and losing their context.
+- Document only (`stop` then `recover` by hand). Rejected because: the two
+  steps leave a window where the lock and pending asks are unaccounted for,
+  and the session record must be re-resolved, which `recover` alone does not
+  do.
 - Hot-reload settings. Rejected because: the harness offers no such mechanism.
 
 **Chosen because:** it turns "the fix never reaches running workers" into one
@@ -418,9 +447,19 @@ supervisor command. Cites the live-run report (Sources).
 
 **Decision:** Under `--meta`/`--fleet`, the meta-tower performs the chosen
 spec's single-spec step (per-spec lock, freshness gate, dispatch record,
-worker launch) in its own session under its own tower profile. The
+worker launch) in its own session under its own tower profile, by calling a
+plugin script that carries the step's mechanical part (so CI tests it). The
 subordinate tower session is removed. The orchestration-modes doctrine's meta
 step is amended to match.
+
+**Cross-bundle reconciliation:** this reverses orchestration-fleet D-6's
+subordinate-tower clause (and its REQ-D1.1), which rejected "one tower that
+interleaves units from several specs itself" for state- and
+contention-coupling reasons. Those reasons are answered rather than ignored:
+the meta-tower still runs one spec's step at a time under that spec's lock and
+holds no per-spec state between steps, so the step stays disposable and
+rebuildable from disk. orchestration-fleet is Done and is not edited; this
+note and the Sources entry are the lineage a reader of D-6 follows.
 
 **Alternatives considered:**
 - Keep the subordinate session and pin the tower profile when the launch role
@@ -459,11 +498,16 @@ owns. Recorded as a gated deferral.
 ### D-19: Segments are analysed in run order; `cd`, plain assignments, and timing verbs are modelled (N)
 
 **Decision:** The analyzer walks the segments in order, carrying the state a
-segment establishes. A leading `cd` to a plain literal inside the session's
-own worktree sets the working directory for what follows; any other `cd`
-defers. A `NAME=<plain literal>` assignment makes later `$NAME` that literal,
-for any value. `time` and `timeout <duration>` are transparent prefixes. The
-read-only set gains the wait and inspection verbs the replay surfaced.
+segment establishes, but only across `&&` from a segment that runs
+unconditionally in the current shell: after `;` a failed `cd` leaves the old
+directory in force, and `|`, `&`, and `||` run in another shell or
+conditionally. A `cd` to a plain literal naming an existing directory inside
+the session's own worktree sets the working directory for what follows; any
+other `cd` defers. A `NAME=<plain literal>` assignment makes later `$NAME`
+that literal, for any value, under the shipped name screen; any other
+variable-writing form (`read`, `printf -v`, `mapfile`, …) makes the variable
+opaque. `time` and flagless `timeout <duration>` are transparent prefixes.
+The read-only set gains the wait and inspection verbs the replay surfaced.
 
 **Alternatives considered:**
 - Approve `cd` anywhere. Rejected because: later segments' containment checks
@@ -487,26 +531,6 @@ launch text say to issue `git` without a `cd`. The same holds for Claude
 Code's sensitive-path prompt on reads under the harness's own plugin
 directories. Cites research: Claude Code permissions doc (Sources).
 
-### D-21: A minimal hashed audit log of allow decisions (N)
-
-**Decision:** Each `allow` the hook emits appends one line to a worker-local,
-append-only log under the fleet state home: time, session, the arm or
-category that approved it, and a hash of the command. The command text is
-never written. A log write that fails leaves the decision unchanged, and the
-log has a retention bound. This lifts the bundle's deferred runtime audit log.
-
-**Alternatives considered:**
-- Log the full command text. Rejected because: commands carry what workers
-  type, tokens included, and the log would need the attention store's
-  redaction rules; a hash lets a reviewer confirm a suspected command against
-  the transcript without the log becoming a second secret store.
-- Keep the log deferred. Rejected because: the deferral's own gate fired (a
-  real false-allow, obs:9255e1d1), and this delta starts approving writes.
-
-**Chosen because:** an approval now leaves a trace naming which arm granted
-it, at the smallest data-hygiene cost. Cites obs:9255e1d1,
-`doctrine/decision-domains.md` (observability).
-
 ### D-20: A sanitized corpus of real prompts is the acceptance test (N)
 
 **Decision:** A sanitized corpus drawn from real worker prompts joins the
@@ -524,19 +548,94 @@ names.
 serve, and floor rows make every policy value prove it cannot approve the
 reserved acts. Cites the live-run prompt replay (Sources).
 
+### D-21: A minimal hashed audit log of allow decisions (N)
+
+**Decision:** Each `allow` the hook emits appends one line, with a single
+append write, to a per-session, append-only log in the audit-log home the
+session record names (under the fleet state home): time, session, the arm or
+category that approved it, and a hash of the command. The command text is
+never written. A log write that fails leaves the decision unchanged. The hook
+never truncates: the launcher or the worker's final stop prunes logs past the
+retention bound the options reference states, so parallel hook calls only
+ever append. When the record names no usable log home, the write arms are
+off for the session, so a write approval never goes untraced. This lifts the
+bundle's deferred runtime audit log.
+
+**Alternatives considered:**
+- Log the full command text. Rejected because: commands carry what workers
+  type, tokens included, and the log would need the attention store's
+  redaction rules; a hash lets a reviewer confirm a suspected command against
+  the transcript without the log becoming a second secret store.
+- Keep the log deferred. Rejected because: the deferral's own gate fired (a
+  real false-allow, obs:9255e1d1), and this delta starts approving writes.
+
+**Chosen because:** an approval now leaves a trace naming which arm granted
+it, at the smallest data-hygiene cost. Cites obs:9255e1d1,
+`doctrine/decision-domains.md` (observability).
+
+### D-22: Execution-bearing paths are closed in both layers (N)
+
+**Decision:** The `own-branch` arm excludes, and the floor refuses, writes to
+in-worktree paths something runs or trusts without a further prompt: the
+worktree's `.git` entry, the configured git hooks directory, `.claude/`, and
+command-executing tool config (mise and lefthook files). The worker profile
+adds `Write`/`Edit` deny rules for the same paths. Editing and then running
+repo `scripts/` and `tests/` stays approvable.
+
+**Alternatives considered:**
+- Guard-only exclusion. Rejected because: the profile's static `Write` and
+  `Edit` allows never pass through the guard, so a worker could write the
+  same hook with the `Write` tool and `git commit` (statically allowed) would
+  run it; the exclusion would look safe without being safe.
+- Also refuse running edited repo scripts. Rejected because: editing and
+  testing scripts is the work itself, and the trusted-checkout residual (R1)
+  already accepts it; the refusal would bring back a prompt on nearly every
+  task.
+- Accept the whole path as known risk. Rejected because: the config paths
+  hijack git or the permission layer itself and workers rarely need to touch
+  them, so closing them costs little.
+
+**Chosen because:** both layers refuse the same paths, so neither tool route
+reaches them, and the residual left open is the one already accepted.
+Operator decision at the 2026-10-05 kickoff.
+
+### D-23: The guard's trust inputs come from a launcher-written session record (N)
+
+**Decision:** The launcher resolves the policy, the unit branch, the worktree
+root, the PR base, the scratch root, the audit-log home, and the
+`worker_base_merge` value once at launch and writes them to a session record
+outside the worktree and scratch root. The guard reads them only from that
+record. The profile adds `Write`/`Edit` deny rules for the record's location
+and the overlay config files the policy resolves through.
+
+**Alternatives considered:**
+- Live reads from config and git on every call. Rejected because: the
+  `Write` tool could add arms to an overlay, and the statically allowed
+  `git switch` would make "on its own unit branch" pass on any branch.
+- A launcher record without the deny rules. Rejected because: a worker could
+  rewrite the record or the overlay; even if only a later relaunch read an
+  overlay edit, the record itself is read live.
+
+**Chosen because:** inputs fixed at launch and unreachable by the worker's
+own tools are the only ones an allow-only guard can trust; the cost (a policy
+change needs a relaunch) is already true of the profile (D-16). Operator
+decision at the 2026-10-05 kickoff.
+
 ## Cross-cutting concerns
 
 - **Security boundary.** This is a permissions mechanism (security-posture:
   subprocess/shell construction, authorization, untrusted-input triggers). The
   hook parses Claude Code's hook payload and decides a trust upgrade, so its
   correctness bar is "zero false-allows", enforced by the adversarial suite
-  (REQ-B1.6) and validated against the deny-precedence guarantee (REQ-A1.3).
+  (REQ-B1.6) and validated by the deny-outcome assertion (REQ-A1.11).
 - **Write approvals are new territory (2026-10-05).** Until this extension the
   hook approved read-only and trusted-repo shapes only. The `own-branch` and
   `scratch` arms approve writes, so the write-time security triggers (path
   handling, authorization, untrusted input) all fire for the delta's tasks:
   every write target is canonicalized and containment-checked before any
-  arm approves it, and the floor is evaluated first.
+  arm approves it, and the floor is evaluated first. The guard's trust
+  inputs (D-23) and the execution-bearing paths (D-22) are closed against
+  the worker's own `Write`/`Edit` tools, not only against its Bash commands.
 - **Never-worse-than-status-quo.** Every degradation path (jq absent, malformed
   input, unknown shape, internal error) defers, which reproduces today's
   behavior (a normal permission prompt) — never a new approval the operator did
