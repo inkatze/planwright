@@ -96,9 +96,9 @@
 #     roll it back (delete the just-made branch) when it is a bare partial
 #     create; then proceed, so a crash does not wedge a task as
 #     already-in-flight once tmux can answer (a probe it cannot answer holds
-#     the task until it can, which is the safe direction). A leftover EMPTY `.claude/worktrees/<suffix>` dir (which
-#     `git worktree add` would otherwise SILENTLY create into) is cleaned, not
-#     silently reused.
+#     the task until it can, which is the safe direction). A leftover EMPTY
+#     `.claude/worktrees/<suffix>` dir (which `git worktree add` would
+#     otherwise SILENTLY create into) is cleaned, not silently reused.
 #   - Branch CHECKED OUT ELSEWHERE (under a registered worktree at some other
 #     path: the pre-`<spec>-task-<id>` flat `task-<id>` layout, or a checkout
 #     made by hand) -> stop with exit 6 naming that path. It is neither a
@@ -219,9 +219,9 @@
 #      confirmation arrived. The worker is placed; never re-dispatch over it.
 #
 # Every tmux call (the liveness probes and new-session) is ended after
-# PLANWRIGHT_DISPATCH_TMUX_TIMEOUT seconds (default 10, at most 999), so a
-# wedged tmux server cannot hold the dispatch or a caller's lock for more than
-# about two bounds. A probe reads as not live only on tmux's own answer that
+# PLANWRIGHT_DISPATCH_TMUX_TIMEOUT seconds (default 10, 1-999, no leading
+# zero), so a wedged tmux server cannot hold the dispatch or a caller's lock
+# for more than about three bounds. A probe reads as not live only on tmux's own answer that
 # the session is absent ("can't find session", "no server running", or no
 # socket to connect to); a timeout, any other error, or a PATH-relative tmux
 # reads as live.
@@ -350,16 +350,18 @@ prior_session() {
 # The most any one tmux call on the dispatch path may take, in whole seconds:
 # a healthy call takes a fraction of one, and a wedged server must not hold
 # the flight lock (or the dispatch) with it. A wedged server can cost a
-# dispatch about two bounds: the call itself, then the undo's probe.
+# dispatch about three bounds: new-session, the probe of its session, then
+# the undo's probe of the prior launcher's spelling.
 # Overridable for tests, within a sane range.
 TMUX_CALL_BOUND="${PLANWRIGHT_DISPATCH_TMUX_TIMEOUT:-10}"
 case $TMUX_CALL_BOUND in
-  '' | *[!0-9]* | 0 | ????*) TMUX_CALL_BOUND=10 ;;
+  '' | *[!0-9]* | 0* | ????*) TMUX_CALL_BOUND=10 ;;
 esac
 
 # SCRATCH — this run's private scratch directory, made on first use and
-# removed on exit. A signal skips the removal rather than delay its effect
-# behind a running command.
+# removed on exit. No signal trap is set, which would delay a signal behind
+# the running command, so whether a signal runs the removal is the shell's
+# call (bash does, dash does not).
 SCRATCH=''
 scratch_dir() {
   [ -n "$SCRATCH" ] && return 0
@@ -405,9 +407,10 @@ tmux_bounded() {
   { wait "$tb_pid"; } 2>/dev/null || TB_RC=$?
   kill "$tb_dog" 2>/dev/null
   { wait "$tb_dog"; } 2>/dev/null
-  # Only a call the bound actually killed counts as timed out: one that
-  # finished as the bound came up keeps its own status.
-  if [ -e "$tb_flag" ] && [ "$TB_RC" -gt 128 ]; then
+  # A call that succeeded as the bound came up keeps its success; any other
+  # status after the bound fired is the bound's (a tmux client handles TERM
+  # itself and exits 1 rather than by the signal).
+  if [ -e "$tb_flag" ] && [ "$TB_RC" -ne 0 ]; then
     TB_RC=124
   fi
   rm -f "$tb_flag"
@@ -1000,8 +1003,9 @@ print_plan() {
 #   <token> <claude> [<launch args>...] — the one place the launch is built.
 # plan prints its words, tab-led, without a newline; check exits 2 itself on a
 # word ending in `;`, then runs the env wrapper's --check over the same
-# options and command and returns its status; run executes it under the tmux call bound (status 124 when the bound ended it), the
-# -P -F line to LAUNCH_OUT and stderr to LAUNCH_ERR. The command after `--` is
+# options and command and returns its status; run executes it under the tmux
+# call bound (status 124 when the bound ended it), the -P -F line to
+# LAUNCH_OUT and stderr to LAUNCH_ERR. The command after `--` is
 # always several argv words, which tmux runs directly rather than through a
 # shell, and which it passes through unexpanded.
 tmux_launch() {
@@ -1588,6 +1592,13 @@ do_dispatch() {
     fi
     case $_ns_state in
       0) warn "new-session $_ns_why, but the worker session $_session exists; it is placed" ;;
+      2)
+        # Asked once: a second probe could answer differently and leave a
+        # running worker undone yet unregistered.
+        warn "new-session $_ns_why"
+        undo_launch unanswered
+        exit 13
+        ;;
       *)
         warn "new-session $_ns_why"
         undo_launch
@@ -1623,17 +1634,19 @@ start_dir_ok() {
   [ "$sdo_phys" = "$2" ]
 }
 
-# undo_launch — after a post-create failure, remove only what this run
-# created: its worktree and its branch (never a branch it adopted), then the
-# marker it set, and none of them while a session may run in the worktree (a
-# live probe, or one tmux could not answer). A step that fails is named with
-# what it left; the caller keeps its own exit status.
+# undo_launch [unanswered] — after a post-create failure, remove only what
+# this run created: its worktree and its branch (never a branch it adopted),
+# then the marker it set, and none of them while a session may run in the
+# worktree (a live probe, or one tmux could not answer). `unanswered` says the
+# caller's own probe of the session name already could not be answered. A
+# step that fails is named with what it left; the caller keeps its own exit
+# status.
 undo_launch() {
   ul_wt_left=0
   ul_maybe_live=0
-  if suffix_session_live "$_suffix"; then
+  if [ "${1:-}" = unanswered ] || suffix_session_live "$_suffix"; then
     ul_maybe_live=1
-    if valid_session_name "$(prior_session "$_suffix")"; then
+    if [ "${1:-}" = unanswered ] || valid_session_name "$(prior_session "$_suffix")"; then
       warn "undo skipped: a tmux session may run in $_worktree (live, or tmux could not say); its worktree, branch, and dispatch marker stay"
     else
       warn "undo skipped: the prior launcher's session name for this checkout cannot be probed (outside the session charset), so a session may run in $_worktree; its worktree, branch, and dispatch marker stay"

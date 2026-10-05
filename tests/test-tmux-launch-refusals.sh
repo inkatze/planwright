@@ -479,6 +479,14 @@ r15() {
   [ ! -e "$P/.claude/worktrees/demo-task-9" ] || fail "r15: the worktree this run placed was not undone"
   [ ! -e "$C/markers/9" ] || fail "r15: the marker this run set was not cleared"
   [ ! -s "$C/fleet/registry" ] || fail "r15: a failed launch wrote a registry record"
+  # A client that exits 1 on the bound's TERM, as tmux does, is still a hang.
+  new_case
+  work_branch 12
+  tmux_shim "$C/hang" hang-new-term1
+  PATH="$C/hang:$PATH" PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 \
+    tlh_run_bounded --bound 20 "$PRIM" dispatch demo 12 --repo-root "$P"
+  [ "$TLH_RC" -eq 13 ] || fail "r15: a TERM-handling hung client must fail the launch (exit 13), got $TLH_RC"
+  case $TLH_ERR in *'did not return'*) ;; *) fail "r15: a TERM-handling hung client is not reported as a hang: $TLH_ERR" ;; esac
   # tmux cannot then say whether a session exists: nothing is removed.
   new_case
   work_branch 10

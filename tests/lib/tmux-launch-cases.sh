@@ -99,6 +99,8 @@ calls_matching() {
 # hands everything else to the stub:
 #   hang-probe   has-session never returns
 #   hang-new     new-session never returns, creating nothing
+#   hang-new-term1  the same, but it handles TERM and exits 1, as a real
+#                tmux client does
 #   hang-new-unsure  new-session never returns, and has-session then fails
 #                with an error that is not an answer
 #   no-socket    has-session answers as tmux does when no socket exists
@@ -108,6 +110,10 @@ tmux_shim() {
   case $2 in
     hang-probe) printf '[ "$1" = has-session ] && exec sleep 600\n' ;;
     hang-new) printf '[ "$1" = new-session ] && exec sleep 600\n' ;;
+    hang-new-term1)
+      printf 'if [ "$1" = new-session ]; then\n'
+      printf '  sleep 600 &\n  s=$!\n  trap '\''kill "$s"; exit 1'\'' TERM\n  wait "$s"\n  exit 1\nfi\n'
+      ;;
     hang-new-unsure)
       printf '[ "$1" = new-session ] && { : >"${0%%/*}/launched"; exec sleep 600; }\n'
       printf '[ "$1" = has-session ] && [ -e "${0%%/*}/launched" ] && { echo "error connecting to /tmp/x (Permission denied)" >&2; exit 1; }\n'
