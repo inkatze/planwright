@@ -64,7 +64,9 @@
 #                                     VAR was not in its environment
 #   tlh_session_pid <name>        the pid of a stub session's command
 #   tlh_canon <path>              the physical (`pwd -P`) form of a path whose
-#                                 parent directory exists; status 1 otherwise
+#                                 parent directory exists, a symlinked file
+#                                 followed to its target; status 1 otherwise
+#                                 (or on a link loop)
 #   tlh_assert_path_eq <label> <expected> <actual>   compare canonical forms,
 #                                 falling back to the raw path for one that
 #                                 cannot be canonicalized
