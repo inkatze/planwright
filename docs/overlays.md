@@ -336,7 +336,11 @@ present (the rule doc's missing-step matrix): a list from your own adopter
 or machine-local layer asks you when attended and skips the step with a
 warning when unattended; a repo-tracked list asks when attended and parks
 the unit when unattended; a core list always parks. A shared list never
-silently runs less.
+silently runs less. A skill step whose target has no file, an unreadable
+one, or one whose frontmatter sets `disable-model-invocation: true` is
+refused instead: it is
+never skipped, so even your own list parks it unattended, unless its entry
+declares `on-failure: continue`.
 A malformed list or entry follows the steps by-layer policy, not §4's: core
 is a broken install, repo-tracked hard-fails, and at adopter or machine-local
 a malformed list degrades to the core default while a malformed entry is

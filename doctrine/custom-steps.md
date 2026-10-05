@@ -220,9 +220,9 @@ REQ-C1.2, REQ-C1.6, D-5, D-10).
 resolved list or nothing (REQ-D1.9). Every id must resolve to a catalog entry
 and every target on the host under the lookup rules REQ-C1.3 and D-19 fix,
 with every `requires` executable on the path (REQ-D1.8). An id naming no
-entry, a target the host lacks, a `requires` executable off the path, or an
-ambiguous or unreadable registry lookup is a step that does not resolve,
-never an error.
+entry, a target the host lacks, an unrunnable skill (`refuse`: unskippable
+save `on-failure: continue`), an off-path `requires` executable, or an
+ambiguous or unreadable registry lookup does not resolve, never an error.
 
 **The matrix (REQ-C1.4, D-6).** The resolver prints one decision token per
 step, keyed on the layer that supplied the **winning list** and on

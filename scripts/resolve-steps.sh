@@ -22,7 +22,7 @@
 #
 # Usage:
 #   resolve-steps.sh <point> [--explain] [--check] --attended|--unattended
-#   resolve-steps.sh <point> <point>... --explain --attended|--unattended
+#   resolve-steps.sh <point> <point>... --explain [--check] --attended|--unattended
 #   resolve-steps.sh <point> --preamble
 #   resolve-steps.sh <point> --prefix
 #   resolve-steps.sh <point> --line <location> [<arg>...]
@@ -43,10 +43,11 @@
 #                 resolves to `run`, or to a `skip` from the adopter or
 #                 machine-local layer (which passes with its warning).
 #                 Refuses --attended (check mode never waits on a human).
-#                 Non-zero on any park, on a non-empty list at an unwired
-#                 point, and on any malformation at any layer, a degraded
-#                 adopter or machine-local one included, whether this script
-#                 or a sibling reader degraded it.
+#                 Non-zero on any park (a refused step always parks or asks),
+#                 on a non-empty list at an unwired point, and on any
+#                 malformation at any layer, a degraded adopter or
+#                 machine-local one included, whether this script or a
+#                 sibling reader degraded it.
 #   --preamble    render the fixed context block (below); resolves nothing.
 #   --prefix      render the fixed context as shell assignments (below);
 #                 resolves nothing.
@@ -54,10 +55,11 @@
 #                 args the point's resolution printed (below); resolves
 #                 nothing. Every word after it is an operand.
 #   <point>...    several distinct wired points in one run, --explain only
-#                 (the rows name their point): the config, catalog, and
-#                 host reads are made once and shared, and each point then
-#                 resolves on its own, printing exactly the rows and the
-#                 per-point warnings (shadow, list degrade, skip, park, ask)
+#                 (the rows name their point), --check allowed: the config,
+#                 catalog, and host reads are made once and shared, and each
+#                 point then resolves on its own, printing exactly the rows
+#                 and the per-point warnings (shadow, list degrade, skip,
+#                 park, ask, refuse)
 #                 its single-point run prints, in operand order; the shared
 #                 reads' warnings print once for the run. A shared read that
 #                 fails fails every point (no rows); a point's own list
@@ -69,9 +71,17 @@
 #   <decision>\t<id>
 # and with --explain:
 #   <decision>\t<id>\t<point>\t<list-layer>\t<entry-layer>\t<target>\t<hosting>\t<kind>\t<args>\t<on-failure>\t<timeout>\t<requires>\t<location>
-# <decision> is one of run | ask | park | skip (the matrix's tokens). A park
-# or ask is point-wide: the point runs nothing, so every step prints that
-# token, the stderr diagnostic naming the steps that did not resolve and why.
+# <decision> is one of run | ask | park | skip (the matrix's tokens) or
+# refuse. A park or ask is point-wide: the point runs nothing, so every step
+# prints that token, the stderr diagnostic naming the steps that did not
+# resolve and why. `refuse` marks a skill step no worker can run: its target
+# resolves to no file after every lookup root was searched (the diagnostic
+# naming the roots looked under), to an unreadable file, or to one whose
+# frontmatter sets disable-model-invocation: true (naming the flag and the
+# file, which <location> carries). It does not resolve and is never
+# skipped: the point parks where the matrix would skip, and asks or parks as
+# the matrix says otherwise, the row keeping `refuse` either way. An entry
+# declaring on-failure: continue is an ordinary non-resolving step instead.
 # <hosting> is the EFFECTIVE hosting (the dispatch_isolation default applied,
 # a continue step's attachment to an in-session predecessor applied).
 # <target> and <args> are the declared values as the constrained reader
@@ -153,7 +163,7 @@
 #   2  usage: an unknown, empty, or blank-carrying point, an attendance flag
 #      missing or doubled, --check with --attended, an unknown or conflicting
 #      flag; several points with an unwired or repeated point, without
-#      --explain, or with --check or a render mode; --line
+#      --explain, or with a render mode; --line
 #      without an absolute location, with a control byte in it, or with an
 #      arg outside the charset
 #   4  a malformed repo-tracked list or entry, or a structurally malformed
@@ -220,7 +230,7 @@ OWN_NAMESPACE=planwright
 
 usage() {
   echo "usage: resolve-steps.sh <point> [--explain] [--check] --attended|--unattended" >&2
-  echo "       resolve-steps.sh <point> <point>... --explain --attended|--unattended" >&2
+  echo "       resolve-steps.sh <point> <point>... --explain [--check] --attended|--unattended" >&2
   echo "       resolve-steps.sh <point> --preamble | --prefix" >&2
   echo "       resolve-steps.sh <point> --line <location> [<arg>...]" >&2
   exit 2
@@ -293,8 +303,9 @@ for point in $points; do
   fi
 done
 # Several points resolve in one run only as --explain rows, which name their
-# point, and only for distinct wired points: an unwired point's early exit
-# and check mode's verdict are single-point.
+# point, and only for distinct wired points: an unwired point's early exit is
+# single-point. Check mode judges each point and exits with the largest
+# status.
 if [ "$n_points" -gt 1 ]; then
   seen=" "
   for p in $points; do
@@ -313,8 +324,8 @@ if [ "$n_points" -gt 1 ]; then
     esac
     seen="$seen$p "
   done
-  if [ "$explain" -eq 0 ] || [ "$check" -eq 1 ] || [ $((preamble + prefix + line_mode)) -gt 0 ]; then
-    echo "resolve-steps: several points take --explain and an attendance flag only" >&2
+  if [ "$explain" -eq 0 ] || [ $((preamble + prefix + line_mode)) -gt 0 ]; then
+    echo "resolve-steps: several points take --explain, an attendance flag, and --check only" >&2
     usage
   fi
   # The shared reads' diagnostics name every point of the run.
@@ -1275,7 +1286,11 @@ fi
 REASON=""
 LOC=""
 # registry_lookup <plugin> <name>: D-19, the installed-plugin registry only.
+# RL_ABSENT is set when the registry was read and the skill has no file: the
+# namespace names no installed plugin, or every install path was searched and
+# none holds the skill (a path the screen passes over was not searched).
 registry_lookup() {
+  RL_ABSENT=0
   reg="$claude_dir/plugins/installed_plugins.json"
   if [ -z "$claude_dir" ] || [ ! -r "$reg" ]; then
     REASON="the installed-plugin registry is absent or unreadable"
@@ -1298,6 +1313,7 @@ $keys
 EOF
   if [ "$nkeys" -eq 0 ]; then
     REASON="namespace '$1' matches no installed-plugin registry key"
+    RL_ABSENT=1
     return 1
   fi
   if [ "$nkeys" -gt 1 ]; then
@@ -1309,10 +1325,21 @@ EOF
     REASON="the installed-plugin registry is unreadable"
     return 1
   }
+  searched=0
+  screened=0
   while IFS= read -r p; do
     [ -n "$p" ] || continue
-    case "$p" in /*) ;; *) continue ;; esac
-    case "$p" in *[[:cntrl:]]*) continue ;; esac
+    case "$p" in /*) ;; *)
+      screened=1
+      continue
+      ;;
+    esac
+    case "$p" in *[[:cntrl:]]*)
+      screened=1
+      continue
+      ;;
+    esac
+    searched=1
     if [ -f "$p/skills/$2/SKILL.md" ]; then
       LOC="$p/skills/$2/SKILL.md"
       return 0
@@ -1325,14 +1352,43 @@ EOF
 $paths
 EOF
   REASON="skill '$2' not found under plugin '$1' (skills/ and commands/ of its install path)"
+  [ "$searched" -eq 0 ] || [ "$screened" -eq 1 ] || RL_ABSENT=1
   return 1
 }
 
+# model_invocation_disabled <file>: 0 when the file opens (after any UTF-8
+# BOM) with a frontmatter block, closed by a `---` line, whose last top-level
+# disable-model-invocation key is true (bare or quoted, any case); 2 when the
+# file cannot be read; 1 otherwise. The file is read as data.
+model_invocation_disabled() {
+  [ -r "$1" ] || return 2
+  [ -n "$(awk '
+    { sub(/\r$/, "") }
+    NR == 1 { sub(/^\357\273\277/, "") }
+    /^---[ \t]*$/ { if (NR == 1) next; if (on) print "y"; exit }
+    NR == 1 { exit }
+    /^disable-model-invocation:/ {
+      v = $0
+      sub(/^disable-model-invocation:[ \t]*/, "", v)
+      sub(/[ \t]+#.*$/, "", v)
+      sub(/[ \t]+$/, "", v)
+      v = tolower(v)
+      on = (v == "true" || v == "\"true\"" || v == "\047true\047")
+    }
+  ' "$1" 2>/dev/null)" ]
+}
+
 # resolve_target <n>: sets LOC on success; REASON on failure (return 1).
+# REFUSE is set when a skill step cannot run from any worker: its target
+# resolves to no file, or to one whose frontmatter disables model invocation
+# (the Skill tool refuses such a skill). LOC then keeps the refused file. A
+# registry the host cannot read, cannot parse, or reads ambiguously says
+# nothing about the file, so it stays an ordinary non-resolving step.
 resolve_target() {
   rn="$1"
   LOC=""
   REASON=""
+  REFUSE=0
   rkind=${E_KIND[rn]}
   rtarget=${E_TARGET[rn]}
   case "$rkind" in
@@ -1370,32 +1426,55 @@ resolve_target() {
       ;;
     skill)
       split_skill_target "$rtarget"
+      REFUSE=1
       if [ -z "$SPLUGIN" ]; then
+        looked=""
+        screened=0
         for cand in "${skills_root:+$skills_root/$SNAME/SKILL.md}" \
           "${claude_dir:+$claude_dir/commands/$SNAME.md}" \
           "${claude_dir:+$claude_dir/skills/$SNAME/SKILL.md}" \
           "${repo_claude:+$repo_claude/commands/$SNAME.md}" \
           "${repo_claude:+$repo_claude/skills/$SNAME/SKILL.md}"; do
-          case "$cand" in "" | *[[:cntrl:]]* | [!/]*) continue ;; esac
+          case "$cand" in
+            "" | [!/]*) continue ;;
+            *[[:cntrl:]]*)
+              screened=1
+              continue
+              ;;
+          esac
+          croot=${cand%/"$SNAME"*}
+          looked="${looked:+$looked, }$croot"
           if [ -f "$cand" ]; then
             LOC="$cand"
             break
           fi
         done
         [ -n "$LOC" ] || {
-          REASON="skill '$SNAME' not found under the plugin skills root or the user and project command and skill directories"
+          REASON="skill target '$SNAME' resolves to no file (looked under: ${looked:-no lookup root is set}); install the skill or drop the step"
+          if [ "$screened" -eq 1 ]; then
+            REFUSE=0
+            REASON="skill '$SNAME' not found, and a lookup root carrying a control byte was passed over"
+          fi
           return 1
         }
       elif [ "$SPLUGIN" = "$OWN_NAMESPACE" ]; then
         if [ "${skills_root#/}" != "$skills_root" ] && [ -f "$skills_root/$SNAME/SKILL.md" ]; then
           LOC="$skills_root/$SNAME/SKILL.md"
         else
-          REASON="skill '$OWN_NAMESPACE:$SNAME' not found under the plugin skills root"
+          sroot="no absolute plugin skills root"
+          case "$skills_root" in /*) sroot=$skills_root ;; esac
+          REASON="skill target '$OWN_NAMESPACE:$SNAME' resolves to no file (looked under: $sroot); install the skill or drop the step"
           return 1
         fi
       else
-        registry_lookup "$SPLUGIN" "$SNAME" || return 1
+        registry_lookup "$SPLUGIN" "$SNAME" || {
+          REFUSE=$RL_ABSENT
+          [ "$REFUSE" -eq 0 ] \
+            || REASON="skill target '$SPLUGIN:$SNAME' resolves to no file: $REASON (looked in $claude_dir/plugins/installed_plugins.json); install the skill or drop the step"
+          return 1
+        }
       fi
+      REFUSE=0
       ;;
   esac
   case "$LOC" in
@@ -1405,6 +1484,18 @@ resolve_target() {
       return 1
       ;;
   esac
+  if [ "$rkind" = skill ]; then
+    mrc=0
+    model_invocation_disabled "$LOC" || mrc=$?
+    case $mrc in
+      0) REASON="its skill target sets disable-model-invocation: true in $LOC, so the Skill tool refuses it from any worker; drop the flag, or use a kind: prompt step that reads the skill file" ;;
+      2) REASON="its skill file $LOC cannot be read, so no worker can load it" ;;
+    esac
+    if [ "$mrc" -ne 1 ]; then
+      REFUSE=1
+      return 1
+    fi
+  fi
   rreq=${E_REQ[rn]}
   for r in $rreq; do
     case "$r" in
@@ -1436,6 +1527,7 @@ S_HOST=()
 S_KIND=()
 S_LOC=()
 S_REASON=()
+S_REFUSE=()
 n_steps=0
 
 # build_steps <ids>: fills S_*; sets LIST_ERR when the list must degrade.
@@ -1544,13 +1636,21 @@ point_steps() {
     [ -z "$LIST_ERR" ] || die 5 "the core default $key is malformed ($LIST_ERR) (broken install)"
   fi
 
+  # A refused skill step prints `refuse` and is never skipped: where the
+  # matrix would skip, the point parks. Only its entry's own
+  # on-failure: continue makes it an ordinary step that does not resolve.
   i=1
   while [ "$i" -le "$n_steps" ]; do
+    S_REFUSE[i]=0
     if [ -n "${S_N[i]}" ]; then
       if resolve_target "${S_N[i]}"; then
         S_LOC[i]="$LOC"
       else
         S_REASON[i]="$REASON"
+        if [ "$REFUSE" -eq 1 ] && [ "${E_FAIL[${S_N[i]}]}" != continue ]; then
+          S_REFUSE[i]=1
+          [ -z "$LOC" ] || S_LOC[i]="$LOC"
+        fi
       fi
     fi
     i=$((i + 1))
@@ -1569,6 +1669,7 @@ point_steps() {
   i=1
   while [ "$i" -le "$n_steps" ]; do
     [ -z "${S_REASON[i]}" ] || any_missing=1
+    [ "${S_REFUSE[i]}" -eq 0 ] || [ "$missing_token" != skip ] || missing_token=park
     i=$((i + 1))
   done
 
@@ -1587,7 +1688,9 @@ point_steps() {
     esac
     i=1
     while [ "$i" -le "$n_steps" ]; do
-      if [ -n "${S_REASON[i]}" ]; then
+      if [ "${S_REFUSE[i]}" -eq 1 ]; then
+        warn "refuse: step '${S_ID[i]}' cannot run: ${S_REASON[i]}; the point $verb (the $list_layer layer's list, $attendance)"
+      elif [ -n "${S_REASON[i]}" ]; then
         warn "${missing_token}: step '${S_ID[i]}' does not resolve on this host: ${S_REASON[i]}; the point $verb (the $list_layer layer's list, $attendance)"
       fi
       i=$((i + 1))
@@ -1597,7 +1700,9 @@ point_steps() {
   out=""
   i=1
   while [ "$i" -le "$n_steps" ]; do
-    if [ -z "${S_REASON[i]}" ]; then
+    if [ "${S_REFUSE[i]}" -eq 1 ]; then
+      dec=refuse
+    elif [ -z "${S_REASON[i]}" ]; then
       dec=run
       [ "$any_missing" -eq 1 ] && [ "$missing_token" != skip ] && dec="$missing_token"
     else

@@ -675,8 +675,9 @@ sweep_briefs() {
 # resolve_convergence — set `sequence` to the resolver's --explain lines for
 # the steps the convergence point runs on a flight, one per line. A skipped
 # step is dropped (the resolver's warning on stderr names it), and
-# `all_skipped` is set when every step was; a park, a malformation, a broken
-# install, or a step that is not a skill places nothing. The core list, the core catalog, and the skills all resolve under
+# `all_skipped` is set when every step was; a park (a refused skill step
+# included, which never skips), a malformation, a broken install, or a step
+# that is not a skill places nothing. The core list, the core catalog, and the skills all resolve under
 # this script's own root, so a planwright skill is told apart from a user or
 # project one by its location alone and no environment root can swap the
 # list those skills are judged against. The --explain fields read here, by
