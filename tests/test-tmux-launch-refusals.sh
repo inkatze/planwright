@@ -36,6 +36,8 @@
 #       removed, or cleared
 #   r15 a new-session that never returns is ended at the tmux call bound and
 #       fails the launch, and the undo keeps what a session may be using
+#   r16 with no marker-dir override, a failed launch leaves its marker in none
+#       of the directories the writer may use, the shared home included
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-tmux-launch-refusals.sh
@@ -517,6 +519,31 @@ r15() {
   tmux kill-session -t "=$s"
 }
 
+# --- r16: the undo clears the marker wherever the writer put it --------------
+# With no marker-dir override, the writer uses the repository's shared home as
+# well as the spec dir; a failed launch must leave no marker in any of them.
+r16() {
+  local saved d dirs
+  new_case
+  saved=$PLANWRIGHT_ORCH_STATE_DIR
+  unset PLANWRIGHT_ORCH_STATE_DIR
+  dirs=$(/bin/sh "$ROOT/scripts/orchestrate-marker-home.sh" read "$P/specs/demo")
+  [ "$(printf '%s\n' "$dirs" | grep -c .)" -gt 1 ] \
+    || fail "r16: expected a shared home beside the spec-local marker dir, got: $dirs"
+  tlh_knob new-session fail
+  tlh_run_bounded "$PRIM" dispatch demo 16 --repo-root "$P"
+  tlh_knob new-session ok
+  PLANWRIGHT_ORCH_STATE_DIR=$saved
+  export PLANWRIGHT_ORCH_STATE_DIR
+  [ "$TLH_RC" -eq 13 ] || fail "r16: a failed new-session must exit 13, got $TLH_RC ($TLH_ERR)"
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    [ ! -e "$d/16" ] || fail "r16: the failed launch left its marker in $d"
+  done <<EOF
+$dirs
+EOF
+}
+
 r1
 r2
 r3
@@ -532,6 +559,7 @@ r12
 r13
 r14
 r15
+r16
 
 [ "$fails" -eq 0 ] || {
   echo "test-tmux-launch-refusals: $fails failure(s)" >&2

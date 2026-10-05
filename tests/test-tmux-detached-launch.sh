@@ -208,6 +208,10 @@ l2_flight() {
     return
   }
   check_worker l2 "$rec" "$wt" "tmux-flight-$fid" "flight:$fid"
+  # The worker's commit landed, so the base check above ran against a moved
+  # HEAD whenever the worker won the race to it (it usually does; the check
+  # cannot force the order).
+  [ "$(gitc "$wt" log -1 --format=%s)" = worker ] || fail "l2: the worker's own commit did not land"
   grep -q "^argv.*$TAB--${TAB}Read [^$TAB]*/brief.md and follow it exactly.\$" "$rec" \
     || fail "l2: the flight worker was not handed its brief: $(grep '^argv' "$rec")"
   # The lock went with the launch: a second flight from the same checkout,
