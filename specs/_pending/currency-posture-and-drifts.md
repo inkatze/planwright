@@ -17,7 +17,10 @@ Suggested invocation, from a fresh session in the planwright repo:
 The items do not share one owner. Run fold-detection before assuming a new
 bundle: items 1 and 2 belong to `merge-currency-guard` (which already has a
 pending amendment, `merge-currency-guard-amendment.md`, touching the same
-hook), items 4 to 6 are skill-text drifts in `/spec-kickoff` and
+hook), item 3 is a script fix to `scripts/dispatch-fetch.sh` for whichever
+bundle fold-detection finds owns fetch-before-gate, item 7 is a wording fix
+to the `spec-format` and `orchestration-concurrency` doctrine, items 4 to 6
+are skill-text drifts in `/spec-kickoff` and
 `/execute-task` and probably go to their owning bundles as expression-only
 amendments, and item 8 looks closed. Splitting this note by owner is a fine
 outcome.
