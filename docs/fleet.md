@@ -1414,7 +1414,11 @@ twin where the ledger's feedback loop is covered below.
 
 A visual flight's three lifecycle events reach the attention store by push from
 the process that caused them, never by a tower polling for them, so they land
-with no tower session running (`scripts/flight-lifecycle.sh push`):
+with no tower session running (`scripts/flight-lifecycle.sh push`). The
+guarantee is bounded or surfaced: a push that misses the store says so on the
+pusher's stderr, and the flight sweep still derives the flight's state from its
+branch, worktree, and landing, so a missed push leaves the flight readable on
+demand rather than lost:
 
 | Event | Pushed by | Row written |
 | --- | --- | --- |
@@ -1678,7 +1682,10 @@ supervise` is the last pass. A visual flight's worker is a crash only when the
 shared flight sweep reads it `dead`: positive death evidence and no landing.
 Each death is counted once and relaunched at most once (both claimed
 atomically, keyed by the registry's death handle, so two sweeps racing on one
-death start one worker) through
+death start one worker, and none relaunches it before its count is recorded;
+a count that wrote nothing or a relaunch that did not start is retried the next
+cycle, and a death held waiting on a pass that died mid-claim is warned every
+cycle) through
 `crash-record` under the same `fleet_crash_backoff_base_seconds` and
 `fleet_crash_disable_threshold` knobs as any worker; once `crash-check`
 authorizes it, the worker relaunches into the flight's own worktree and branch
@@ -1687,9 +1694,11 @@ new worker), and at the disable threshold nothing relaunches and the disable is
 a decision-queue entry. Each relaunch and disable is audited. The guarantee is
 bounded or surfaced: a worker whose death cannot be proven (a print-rung
 flight, an unreachable tmux server, a relaunch whose window could not be
-matched) is never relaunched and reads `unknown` in the sweep's render. The reap hands every worker
-whose session has ended to `fleet-cleanup.sh process`, so it refuses what that
-refuses and kills only through the rungs' `stop`.
+matched) is never relaunched and reads `unknown` in the sweep's render.
+
+The reap hands every worker whose session has ended to `fleet-cleanup.sh
+process`, so it refuses what that refuses and kills only through the rungs'
+`stop`.
 
 **It observes until you promote it.** At the default the reap writes the
 `would-cleanup` record for each worker it would have closed and kills nothing,

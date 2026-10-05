@@ -1,8 +1,8 @@
 #!/bin/sh
 # fleet-sweep.sh — the periodic fleet sweep: the worktree disk-scan reconcile,
 # the dirty-tree sweep, the tasks.md reconcile backstop for missed pushes, the
-# reap of leaked worker processes, and the flight residues, as one cycle on a
-# schedule
+# reap of leaked worker processes, the flight residues, and the flight crash
+# policy, as one cycle on a schedule
 # (fleet-autonomy D-8, D-1; fleet-lifecycle-closure D-5, D-14).
 #
 # ON A SCHEDULE, NEVER ON A THRESHOLD (D-5). A cycle has no precondition: it
@@ -12,7 +12,7 @@
 # tower, which the reap needs (see --tower-id below). The dirty-tree grace (`fleet_dirty_tree_threshold`) defers one
 # escalation and never gates a cycle.
 #
-# SIX PASSES, ONE CYCLE, in this order.
+# SEVEN PASSES, ONE CYCLE, in this order.
 #
 # 1. WORKTREE SCAN. The disk-scan reconcile (fleet-worktree-track.sh scan) over
 #    the tower's checkout, so a worktree no dispatch seam recorded is tracked
@@ -97,8 +97,9 @@
 #
 # KILL-SWITCH + AUDIT. The cycle gates through fleet-daemon-gate.sh at entry
 # (a set fleet_daemon_pause pauses the whole cycle; the reap actuator also
-# gates on its own). Escalations, reconciles that corrected drift, reaps, and
-# flight residue removals are audited through fleet-audit.sh; a no-op is not.
+# gates on its own). Escalations, reconciles that corrected drift, reaps,
+# flight residue removals, and flight relaunches and disables are audited
+# through fleet-audit.sh; a no-op is not.
 #
 # SIGNALS. A watch loop is normally stopped by a signal, so the dirty-since
 # temp this script creates beside its marker is removed by the INT/TERM/HUP

@@ -333,8 +333,8 @@ handed back — never silently.
 Every guarantee about work outliving the tower is stated bounded-or-surfaced,
 never absolutely (REQ-F1.3, REQ-F1.6): a killed tower leaves every residue
 bounded and swept, or durably surfaced to the operator — never silently lost.
-Dead flight workers inherit the fleet crash-loop policy (REQ-F1.5) through
-the fleet sweep: a provably dead worker relaunches into its own worktree after
+Dead flight workers inherit the fleet crash-loop policy (REQ-F1.5) while a
+fleet sweep runs: a provably dead worker relaunches into its own worktree after
 its backoff, and at the disable threshold it is surfaced in the decision queue
 instead; one whose death cannot be proven is not relaunched and reads unknown. What only
 the conversation held (an unanswered case, an unconfirmed capture, a declined

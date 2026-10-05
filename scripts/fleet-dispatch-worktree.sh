@@ -128,6 +128,9 @@
 #       env.sh), restore the client. --dry-run prints the plan (no exec).
 #       --brief hands a flight's worker its brief, as the dispatch arm does and
 #       under the same confinement; the suffix must be `flight-<flight-id>`.
+#       A launched --brief attach also registers the new worker under the
+#       flight's handle (`tmux-flight-<flight-id>`, scope `flight:<flight-id>`)
+#       so the crash policy covers it, and warns when it cannot.
 #
 # Exit codes:
 #   0  success (created + attached / attach-plan printed).
