@@ -352,8 +352,8 @@ or whose resolution failed, posts nothing.
 | none `halted` or `failed` (an empty attempt included; `skipped` and the classified outcomes count as the record says) | `success` |
 | any `halted` or `failed` | `failure` |
 
-The status carries the description and target the helper's header pins,
-never an excerpt or a local path; a later post on the same head and context
+The status carries the description the helper's header pins and no target
+URL, excerpt, or local path; a later post on the same head and context
 replaces the earlier one. A failed post, a missing permission included, ends
 the flip attempt without a flip, surfaced like a failed step whether or not a
 flip was to follow and naming the missing permission. The runner's login
