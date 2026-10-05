@@ -5,7 +5,7 @@ Captured 2026-10-04 from the operator's dotfiles `specs/review-skills` bundle
 the operator's own review skills: shared tooling evidence, concurrent
 read-only passes with one writer, and one generic hosted-bot drain. It builds
 local stand-ins shaped to planwright's signed-off contracts rather than
-waiting for them (its D-1). Six of its decisions are capabilities other
+waiting for them (its D-1). Several of its decisions are capabilities other
 adopters would plausibly want, so it seeds them here instead of overlaying
 them (its D-17, carrying `claude-instructions` D-9's rule). Each item below
 names the dotfiles decision it came from.

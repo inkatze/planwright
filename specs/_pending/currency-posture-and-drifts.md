@@ -36,7 +36,7 @@ first, so forcing the sync buys a CI re-run and changes nothing.
   ready condition to "no conflicts with the base" (`mergeable: MERGEABLE`),
   and REQ-A1.4 sends the stricter planwright mechanisms here. The inventory
   found the guard is plugin-global `PreToolUse` wiring with no config knob
-  (only timeout environment variables), so it also denies the operator's own
+  (only a `gh` timeout and a retry-delay environment variable), so it also denies the operator's own
   `gh pr ready` in every repository where the plugin is enabled.
 - **Now (0.51.0):** `scripts/ready-guard.sh` still denies whenever
   `behind_by != 0`; `merge-currency-guard` REQ-A1.1 is the single home of
@@ -96,8 +96,11 @@ reference bullets there, and a spec PR has no task id.
   arm fired for real on a kickoff when CI was not green, and the entry had
   to be written as a plain bullet. `spec-validate.sh` accepted it at Ready,
   so the constraint is documented but not enforced.
-- **Now (0.51.0):** both of `/spec-kickoff`'s degrade arms (the push/PR
-  failure and the flip failure) still direct a note into Awaiting input, and
+- **Now (0.51.0):** the arm the observation hit, `kickoff-verification`'s
+  terminal ready-flip CI gate refusing on CI that is not green, still
+  records the pending flip under Awaiting input. So do both of
+  `/spec-kickoff`'s own degrade arms (the push/PR failure and the flip
+  failure). And
   `spec-format` still says that section "holds reference bullets only". The
   newer `pending ready-flip:` payload segment rides inside a task's
   reference bullet, so it does not cover the bundle-level case.
@@ -182,8 +185,9 @@ keeps only the failure shape. Private repository names stay out, per
 
 - dotfiles `specs/claude-instructions`: REQ-A1.1, REQ-A1.4, REQ-I1.1,
   REQ-I1.2, D-3, D-9, Task 6.
-- dotfiles observations `4570a2c5`, `6e1b5fcc`, `9eeec28e`, `5d46a147`
-  (archived there as consumed by that bundle).
+- dotfiles observations `4570a2c5`, `6e1b5fcc`, `9eeec28e` (archived there
+  as consumed by that bundle) and `5d46a147` (cited by it, still live in
+  that repository's observations).
 - `specs/merge-currency-guard/` REQ-A1.1, REQ-B1.1;
   `specs/_pending/merge-currency-guard-amendment.md`.
 - `scripts/ready-guard.sh`, `scripts/converge-sync-main.sh`,
