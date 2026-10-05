@@ -31,6 +31,11 @@
 #       is refused before anything is placed
 #   r13 an env wrapper without its exec bit is refused before anything is
 #       placed: tmux execs it directly, where --check runs it through sh
+#   r14 a liveness probe reads not live only on tmux's own "no such session"
+#       answer; a server it cannot reach reads live, and nothing is placed,
+#       removed, or cleared
+#   r15 a new-session that never returns is ended at the tmux call bound and
+#       fails the launch, and the undo keeps what a session may be using
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-tmux-launch-refusals.sh
@@ -380,6 +385,81 @@ r13() {
   nothing_placed r13 1
 }
 
+# work_branch <id> — a branch carrying a commit and no worktree: the create
+# collides with it and the dispatch must decide whether a worker holds it.
+work_branch() {
+  gitc "$P" branch "planwright/demo/task-$1" main
+  gitc "$P" checkout -q "planwright/demo/task-$1"
+  printf 'w\n' >"$P/work-$1"
+  gitc "$P" add -A
+  gitc "$P" commit -q -m "work $1"
+  gitc "$P" checkout -q main
+}
+
+branch_has_work() {
+  [ "$(gitc "$P" log -1 --format=%s "planwright/demo/task-$1" 2>/dev/null)" = "work $1" ]
+}
+
+# --- r14: what a liveness probe's answer means -------------------------------
+r14() {
+  local s
+  # A reachable server that says the session is not there: not live, so the
+  # stale branch is adopted and launched.
+  new_case
+  tmux new-session -d -s r14-unrelated
+  work_branch 4
+  s=$(expect_session "$PP" demo-task-4)
+  tlh_run_bounded "$PRIM" dispatch demo 4 --repo-root "$P"
+  [ "$TLH_RC" -eq 14 ] || fail "r14: a session absent from a reachable server must read not live (launch, exit 14), got $TLH_RC ($TLH_ERR)"
+  calls_matching has-session | grep -q "$TAB=$s\$" || fail "r14: the new name was never probed"
+  tmux kill-session -t =r14-unrelated
+  tmux kill-session -t "=$s"
+  # A server that cannot be reached: the answer is unknown, so it reads live
+  # and nothing is placed, removed, or cleared.
+  new_case
+  work_branch 5
+  tlh_knob server unreachable
+  tlh_run_bounded "$PRIM" dispatch demo 5 --repo-root "$P"
+  tlh_knob server up
+  [ "$TLH_RC" -eq 3 ] || fail "r14: a probe tmux cannot answer must read live (exit 3), got $TLH_RC ($TLH_ERR)"
+  branch_has_work 5 || fail "r14: the branch's work was touched on an uncertain answer"
+  [ ! -e "$P/.claude/worktrees/demo-task-5" ] || fail "r14: a worktree was placed on an uncertain answer"
+  [ ! -e "$C/markers/5" ] || fail "r14: a marker was written on an uncertain answer"
+  # A probe that never answers is ended at the call bound and reads live.
+  new_case
+  work_branch 7
+  mkdir -p "$C/hangbin"
+  # shellcheck disable=SC2016 # $1 and $@ expand in the written script
+  printf '#!/bin/sh\n[ "$1" = has-session ] && exec sleep 600\nexec %s "$@"\n' "'$TLH_BIN/tmux'" >"$C/hangbin/tmux"
+  chmod +x "$C/hangbin/tmux"
+  PATH="$C/hangbin:$PATH" PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 \
+    tlh_run_bounded --bound 20 "$PRIM" dispatch demo 7 --repo-root "$P"
+  tlh_expect_returned "r14: a hung probe must be ended" || return
+  [ "$TLH_RC" -eq 3 ] || fail "r14: a probe that never answers must read live (exit 3), got $TLH_RC ($TLH_ERR)"
+  branch_has_work 7 || fail "r14: the branch's work was touched on an unanswered probe"
+  [ ! -e "$P/.claude/worktrees/demo-task-7" ] || fail "r14: a worktree was placed on an unanswered probe"
+}
+
+# --- r15: a tmux that never returns -------------------------------------------
+r15() {
+  local s
+  new_case
+  work_branch 6
+  s=$(expect_session "$PP" demo-task-6)
+  tlh_knob new-session block
+  PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 tlh_run_bounded --bound 20 "$PRIM" dispatch demo 6 --repo-root "$P"
+  tlh_knob new-session ok
+  tlh_expect_returned "r15: the dispatch must end a hung new-session itself" || return
+  [ "$TLH_RC" -eq 13 ] || fail "r15: a hung new-session must fail the launch (exit 13), got $TLH_RC ($TLH_ERR)"
+  case $TLH_ERR in *'did not return'*) ;; *) fail "r15: the report does not name the hang: $TLH_ERR" ;; esac
+  branch_has_work 6 || fail "r15: the adopted branch was touched"
+  # The hung call had made its session, so the undo leaves what may be in use.
+  [ -d "$P/.claude/worktrees/demo-task-6" ] || fail "r15: the worktree a session may run in was removed"
+  [ -e "$C/markers/6" ] || fail "r15: the marker beside a possibly running session was cleared"
+  [ ! -s "$C/fleet/registry" ] || fail "r15: a failed launch wrote a registry record"
+  tmux kill-session -t "=$s"
+}
+
 r1
 r2
 r3
@@ -393,6 +473,8 @@ r10
 r11
 r12
 r13
+r14
+r15
 
 [ "$fails" -eq 0 ] || {
   echo "test-tmux-launch-refusals: $fails failure(s)" >&2

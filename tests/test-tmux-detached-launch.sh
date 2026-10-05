@@ -29,6 +29,8 @@
 #       function's source (REQ-E1.3)
 #   l6  every launch in this file and its refusal sibling goes through the
 #       bounded runner (REQ-H1.1)
+#   l7  a flight dispatch whose tmux hangs returns at the tmux call bound,
+#       reports the failure, and leaves the flight lock free
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-tmux-detached-launch.sh
@@ -344,12 +346,41 @@ l6() {
   return 0
 }
 
+# --- l7: a hung tmux under the flight lock -------------------------------------
+l7() {
+  new_case
+  mkdir -p "$C/adopter" "$C/claude"
+  export CLAUDE_DIR="$C/claude" PLANWRIGHT_ADOPTER_OVERLAY="$C/adopter" PLANWRIGHT_FLIGHT_LOCK_WAIT=0 \
+    PLANWRIGHT_REPO_ROOT="$P"
+  l7_flight
+  tlh_knob new-session ok
+  unset CLAUDE_DIR PLANWRIGHT_ADOPTER_OVERLAY PLANWRIGHT_FLIGHT_LOCK_WAIT PLANWRIGHT_REPO_ROOT
+}
+
+l7_flight() {
+  printf 'Fix the typo in the README heading.\n' >"$C/ask.txt"
+  printf 'visual flight: a one-line wording change\n' >"$C/grounds.txt"
+  tlh_knob new-session block
+  PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 tlh_run_bounded --bound 25 "$FLIGHT" dispatch readme-typo --backend tmux \
+    --ask-file "$C/ask.txt" --grounds-file "$C/grounds.txt" --home file --repo-root "$P"
+  tlh_knob new-session ok
+  tlh_expect_returned "l7: a flight dispatch must end a hung tmux itself" || return
+  [ "$TLH_RC" -eq 5 ] || fail "l7: a hung launch must fail the placement (exit 5), got $TLH_RC ($TLH_ERR)"
+  case $TLH_ERR in *'did not return'*) ;; *) fail "l7: the hang is not reported: $TLH_ERR" ;; esac
+  # Its lock went with it: a dispatch that will not wait for the lock is placed.
+  tlh_run_bounded "$FLIGHT" dispatch readme-typo --backend tmux --ask-file "$C/ask.txt" \
+    --grounds-file "$C/grounds.txt" --home file --repo-root "$P"
+  [ "$TLH_RC" -eq 0 ] || fail "l7: the flight lock is still held after the hung dispatch returned ($TLH_RC: $TLH_ERR)"
+  return 0
+}
+
 l1
 l2
 l3
 l4
 l5
 l6
+l7
 
 [ "$fails" -eq 0 ] || {
   echo "test-tmux-detached-launch: $fails failure(s)" >&2
