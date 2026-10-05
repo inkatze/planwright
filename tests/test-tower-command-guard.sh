@@ -97,7 +97,7 @@ run_hook() {
   local payload
   payload="$(jq -n --arg c "$cmd" --arg t "$tool" --arg w "$cwd" \
     '{tool_name:$t, tool_input:{command:$c}, cwd:$w}')"
-  OUT="$(printf '%s' "$payload" | CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" /bin/bash "$HOOK" 2>/dev/null)"
+  OUT="$(printf '%s' "$payload" | CLAUDE_PLUGIN_ROOT="${RUN_PLUGIN_ROOT:-$PLUGIN_ROOT}" /bin/bash "$HOOK" 2>/dev/null)"
   CODE=$?
 }
 
@@ -435,6 +435,42 @@ assert_defer "symlinked plugin script escapes" "bash $PLUGIN_ROOT/scripts/evilli
 assert_defer "arbitrary absolute script outside repo/plugin" "/tmp/evil/scripts/x.sh"
 assert_defer "plugin tests dir is not a script dir" "bash $PLUGIN_ROOT/tests/x.sh"
 
+# Each bypass row was approved before the fix; regression-only rows already
+# deferred and pin that they still do.
+echo "### REQ-E1.1 — an unresolved \$ in a screened position defers"
+assert_defer "bypass: a loop head word smuggles find flags" \
+  "for d in \"-maxdepth 0 -exec id ;\"; do find . \$d; done"
+assert_defer "bypass: \$_ carries the previous command's last word into find" \
+  "printf '%s' '-maxdepth 0 -exec id ;' >/dev/null; find . \$_"
+assert_defer "bypass: a non-literal loop head reaching cat" "for d in \$X; do cat \$d; done"
+assert_defer "bypass: a non-literal loop head reaching sed" "for d in \$X; do sed \$d f; done"
+assert_defer "bypass: a non-literal loop head reaching awk" "for p in \$X; do awk \$p f; done"
+assert_defer "bypass: a glob in a bash script path" "bash scripts/o*.sh"
+assert_defer "bypass: a glob in a plugin script path" "$PLUGIN_ROOT/scripts/orchestrate-*.sh"
+assert_defer "bypass: brace expansion assembles a find action" "find . -maxdepth 0 {-exec,id} ';'"
+assert_defer "bypass: a loop variable named PATH re-points later verbs" "for PATH in /tmp; do git status; done"
+assert_defer "regression-only: a loop variable reaching bash" "for d in a; do bash \$d; done"
+assert_defer "a loop head past the bound defers whole" \
+  "for f in w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 w15 w16 w17; do echo \$f; done"
+assert_allow "a plain-literal loop head behaves as its substituted form" \
+  "for f in a b; do grep -n x \$f; done"
+assert_allow "a resolved loop variable passes a screened verb" \
+  "for f in a.sh b.sh; do find . -name \$f; done"
+assert_defer "a resolved loop variable still meets the screen" \
+  "for f in -name -delete; do find . \$f; done"
+assert_allow "an opaque operand of an argument-independent verb" "cat \$X; echo \"\$Y\""
+ln -s "$PLUGIN_ROOT" "$SANDBOX/linked-plugin-root"
+RUN_PLUGIN_ROOT="$SANDBOX/linked-plugin-root" assert_defer "bypass: a symlinked CLAUDE_PLUGIN_ROOT" \
+  "$PLUGIN_ROOT/scripts/orchestrate-select.sh specs/x" Bash "$LOOKALIKE"
+
+echo "### REQ-A1.13 — the -v forms defer in every spelling"
+assert_defer "bypass: test -v runs a subscript" "test -v 'a[\$(id)]'"
+assert_defer "bypass: [ -v runs a subscript" "[ -v 'a[\$(id)]' ]"
+assert_defer "bypass: printf -v runs a subscript" "printf -v 'a[\$(id)]' x"
+assert_defer "bypass: printf -v assigns PATH" "printf -v PATH /x"
+assert_defer "bypass: an opaque test operand can become -v" "test \$X 'a[\$(id)]'"
+assert_allow "test without -v still allows" "[ -f file ] && test -n x"
+
 echo "### REQ-C1.2 — the tower set DIFFERS from the worker set (both directions)"
 # A tower-only command: ALLOWED by the tower guard, DEFERRED by the worker guard.
 run_hook "tmux paste-buffer -t fleet:0"
@@ -480,7 +516,9 @@ echo "### Shared-engine parity — STRUCTURAL: the shared functions are byte-ide
 SHARED_FNS="awk_program_safe awk_assignment_ok guard_awk sed_script_safe \
 sed_bracket_end sed_delim_ok sed_scan_literal sed_scan_regex guard_sed \
 short_flag_hit guard_sort guard_uniq guard_find guard_file guard_date \
-classify_redirect is_reserved repo_root_of emit_allow"
+classify_redirect is_reserved repo_root_of emit_allow dollar_expands \
+word_unresolved arg_independent_verb guard_test guard_printf loop_header \
+assign_name_ok expand_word plugin_root_unlinked"
 
 # fn_body <file> <name>: the function's text, from its `name() {` line to the
 # first `}` at column 0, with full-line comments dropped.

@@ -41,17 +41,25 @@ elif [ -n "${HOME:-}" ]; then
 fi
 [ -n "$claude_dir" ] || exit 0
 
+# A root that is a symlink, or a cache entry reached through one, is never
+# printed: callers canonicalize, so it would make the link's target trusted.
 f="$claude_dir/plugins/installed_plugins.json"
 if [ -r "$f" ] && command -v jq >/dev/null 2>&1; then
   jq -r '(.plugins // {}) | to_entries[]
     | select((.key | type) == "string" and (.key | startswith("planwright@")))
     | (.value | if type == "array" then .[] else . end)
     | (.installPath? // empty)
-    | select(type == "string" and startswith("/"))' "$f" 2>/dev/null || :
+    | select(type == "string" and startswith("/"))' "$f" 2>/dev/null \
+    | while IFS= read -r p; do
+      [ -L "${p%/}" ] || printf '%s\n' "$p"
+    done
 fi
 
 for d in "$claude_dir"/plugins/cache/*/planwright/*/; do
   [ -d "$d" ] || continue
-  printf '%s\n' "${d%/}"
+  v=${d%/}
+  pw=${v%/*}
+  mkt=${pw%/*}
+  [ -L "$v" ] || [ -L "$pw" ] || [ -L "$mkt" ] || printf '%s\n' "$v"
 done
 exit 0
