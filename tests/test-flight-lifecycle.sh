@@ -178,6 +178,16 @@ chmod 700 "$tmp/fleet/attention"
 [ "$(cat "$tmp/fleet/flights/$O/landing" 2>/dev/null)" = "record:specs/_flights/$O.md" ] \
   || fail "a completion the store refused still keeps its landing reference"
 
+# A fleet home others can write keeps nothing beside the brief: whoever can
+# write the home can swap its flights directory for one of their own.
+W=home-aaaaaab7
+brief_dir "$W"
+chmod 770 "$tmp/fleet"
+"$SCRIPT" push completion "$W" --handle "tmux-flight-$W" --landing "record:specs/_flights/$W.md" 2>"$tmp/err"
+chmod 700 "$tmp/fleet"
+[ ! -e "$tmp/fleet/flights/$W/landing" ] || fail "a fleet home others can write must not get a landing reference written under it"
+grep -q 'no private flight directory' "$tmp/err" || fail "a fleet home others can write is named on stderr (got: $(cat "$tmp/err"))"
+
 # The completion push goes through the notification seam with its landing.
 mkdir -p "$tmp/cfg"
 printf 'notification_channel: push\n' >"$tmp/cfg/local.yml"

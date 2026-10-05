@@ -122,11 +122,13 @@ valid_id() {
 
 # flight_dir <id> — set FDIR to the flight's private directory under the fleet
 # home, or fail: a flight this home never dispatched has nowhere to keep its
-# landing or its crash mark.
+# landing or its crash mark. The home itself must be private too, as for the
+# brief: anyone who can write it can swap `flights` for a directory of theirs.
 flight_dir() {
   _home=$(/bin/sh "$STATE" root 2>/dev/null </dev/null) || return 1
+  [ -n "$_home" ] && _home=$(cd "$_home" 2>/dev/null && pwd -P) || return 1
   FDIR="$_home/flights/$1"
-  private_dir "$_home/flights" && private_dir "$FDIR"
+  private_dir "$_home" && private_dir "$_home/flights" && private_dir "$FDIR"
 }
 
 valid_landing() {
