@@ -263,8 +263,7 @@ claim() {
 }
 
 crash_count() {
-  _cc=$(/bin/sh "$STATE" root 2>/dev/null </dev/null) || _cc=''
-  _cc=$(cut -d' ' -f1 "$_cc/liveness/crash/$1" 2>/dev/null) || _cc=''
+  _cc=$(/bin/sh "$LIVENESS" crash-count "$1" 2>/dev/null </dev/null) || _cc=''
   case $_cc in
     '' | *[!0-9]*) printf '?\n' ;;
     *) printf '%s\n' "$_cc" ;;

@@ -252,6 +252,7 @@ die_as 1
 out=$(supervise "$t") || fail "supervise exited non-zero: $(cat "$tmp/err")"
 [ "$(field "$(line "$out")" 1)" = backoff ] \
   || fail "the first crash is counted and the relaunch waits out the backoff (got: $out)"
+[ "$(field "$(line "$out")" 3)" = 1 ] || fail "the backoff line reports the crash count (got: $out)"
 [ "$(launches)" = 0 ] || fail "nothing relaunches inside the backoff window"
 
 out=$(supervise "$((t + 10))")

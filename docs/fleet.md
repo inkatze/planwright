@@ -1391,7 +1391,8 @@ masked. `crash-check` consults the operator kill-switch
 (`fleet_daemon_pause`) before authorizing any relaunch; bookkeeping and
 escalation are deliberately not gated (pausing the record of what happened
 would hide problems). Backoff and disable actions log through the audit
-trail; a human clears the streak with `crash-reset`. A disable is also a unit's
+trail; a human clears the streak with `crash-reset`, and `crash-count` reads
+it without changing it. A disable is also a unit's
 terminal state, so `crash-record` reports it to the escalation feedback loop
 when given the identity to report — `--alloc-unit`, `--alloc-key`,
 `--obs-scope` and `--obs-dir`, all-or-none. `/orchestrate`'s reconcile is what
