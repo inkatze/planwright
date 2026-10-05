@@ -394,3 +394,299 @@ the change this entry re-anchors against.
 Class: expression-only
 Anchor: `e0f619c7444445ad8023c3756f9c80bcb869a866` — computed as
 `scripts/spec-anchor.sh specs/worker-permission-ergonomics`
+
+### Amendment 2 — 2026-10-05 (reopen: unattended self-approval extension, delta kickoff)
+
+#### 2.1 Header
+
+- **Mode:** reopened-bundle delta kickoff (Status Draft with a complete signed
+  brief, the reopen cycle). The sign-off flips Draft→Ready again.
+- **Delta:** the 2026-10-05 `/spec-draft --extend` commit (REQ groups E–H,
+  superseded REQs, the new D-IDs with D-2 and D-8 superseded, Tasks 4 onward);
+  the bundle's `## Changelog` 2026-10-05 entry is the authoritative list.
+- **Spec commit at walkthrough start:** `63cf7e7`
+- **Walkthrough date:** 2026-10-05
+- **Validator outcome (pre-flight):** clean, 0 errors, 0 warnings
+  (`scripts/spec-validate.sh`)
+- **Config:** `commit_on_kickoff: true`, `mark_spec_pr_ready_on_kickoff: true`,
+  `kickoff_ready_ci_wait: 10m` (defaults; no local override)
+- **Working location:** spec worktree on `planwright/worker-permission-ergonomics/spec`,
+  clean tree, one commit ahead of `origin/main`.
+- **Decision/transcript log:** no harness-provided log in this session; the
+  mirror is skipped.
+
+#### 2.2 Goal & glossary (delta)
+
+**Restatement.** The shipped hook left an unattended fleet asking the operator
+about nearly every routine step: it never modelled a leading `cd`, command
+substitution, or temp writes, and by design never approved work on the
+worker's own branch. The extension makes in-scope work self-approving, worker
+side and deterministically, through one configurable policy whose arms are
+read-only, own-branch, and scratch. Core ships read-only only; an overlay
+turns on the rest. Out-of-policy prompts still reach the operator, parked, and
+no tower answers them. It also closes a live false-allow (an unexpanded
+operand reaching a screened verb), corrects the false premise that the hook
+sees an expanded command, and removes the meta-tower's subordinate session.
+
+**Rules out:** tower-side answering of prompts, executing self-written
+scripts, an arbitrary per-verb allowlist knob, Claude Code's own safety gates
+(`cd`-before-`git`, sensitive paths), and skill-prose changes (another flight).
+
+**Assumes:** the hook receives the raw command (verified, D-10); `deny` rules
+hold against a hook `allow` (asserted as an outcome, REQ-A1.11); permissions
+load only at session start (D-16).
+
+**Implicit terms resolved:**
+
+- **Policy / arm:** the one set-valued knob and its members (`read-only`,
+  `own-branch`, `scratch`).
+- **Floor:** what the *guard* never approves at any policy value. It does not
+  bound the profile's static allow rules, which already admit the PR-create
+  and ready-flip commands; those and the ready-guard hook govern the ready
+  flip as before (operator decision 2026-10-05; spec edit E1).
+- **Unit identity:** the session's worktree root and unit branch.
+- **Argument-independent position:** an operand of a verb whose approval does
+  not depend on operand values (REQ-E1.3's enumerated set).
+- **Corpus pending/shipped:** a corpus row's class is pending until the task
+  delivering it lands, then enforced.
+
+**Spec edits (consolidated list, this section):**
+
+- **E1.** Requirements intro and REQ-F1.5: the floor is scoped to the guard's
+  approvals; the profile's static rules and deny block govern independently.
+  Expression-level clarification.
+
+Signed off: 2026-10-05
+
+#### 2.3 Requirements walkthrough (delta)
+
+Per-group outcomes (the group intents are the bundle's own REQ-E to REQ-H
+headings and the four superseding REQs; restated here only where the walk
+changed or pinned something):
+
+- **REQ-A (superseded four).** A1.11 asserts the deny outcome rather than the
+  platform's order; A1.12 adds run-order analysis and the narrow substitution
+  rule; A1.13 makes `time`/`timeout` transparent; B1.8 widens the hook's
+  inputs. Gap found: B1.8's sole-input clause named only the policy and the
+  unit identity, while REQ-F1.3 and REQ-F1.4 need the scratch root, the PR
+  base, and the `worker_base_merge` value. Resolved by gap-fill (edit E2).
+- **REQ-E (expansion and compound shapes).** Confirmed. The substitution rule
+  is sound by construction: output reaching only argument-independent
+  positions is equivalent to a literal the guard already approves; a resolved
+  plain literal (`X=-exec; find . $X`) still meets the verb's screen.
+- **REQ-F (the policy).** Confirmed with the floor scoped to the guard (E1).
+  The own-branch arm's push comes from the profile's existing static
+  `git push origin` rule, not the guard; the floor's "push to any other ref"
+  is the guard's refusal, the deny block is the static side's.
+- **REQ-G (profiles and delivery).** Operator decision: the static allow set
+  drops `sed -n`, `sort`, and `uniq`, because a static rule skips the guard's
+  argument screens and each has a write or execution form (edit E3). The rule
+  is stated generally: no new static rule names a verb or subcommand with such
+  a form.
+- **REQ-H (source fixes and premises).** Confirmed; corpus pending/shipped
+  wording clarified (E4).
+
+**Spec edits (consolidated list, this section):**
+
+- **E2.** REQ-B1.8 input list adds the scratch root and, for the base merge,
+  the PR base and `worker_base_merge` value; paired test-spec REQ-B1.8 entry
+  adds the matching unresolvable-input fixtures. Expression-level gap-fill.
+- **E3.** REQ-G1.1, D-15, Task 12, test-spec REQ-G1.1, and the stopgap Sources
+  line: `sed -n`, `sort`, `uniq` out of the static set, with the general
+  no-write-or-exec-form rule. Meaning-class (operator decision).
+- **E4.** Task 5 and test-spec REQ-H1.3: a pending class becomes enforced once
+  marked shipped. Expression-level.
+
+**Observation recorded:** the pre-existing static `git diff`/`log`/`show`
+(`--output=FILE`) and `git branch` (`-D`/`-f`) rules have the same bypass;
+outside this delta (`worker-profile-static-git-write-forms`).
+
+Signed off: 2026-10-05
+
+#### 2.4 Design walkthrough (delta)
+
+Ledger for the delta (the earlier D-IDs stand as §4 and Amendment 1 recorded
+them):
+
+- **D-2** superseded by **D-10** (premise corrected: the hook sees the raw
+  command; the hook choice stands). **D-8** superseded by **D-12** (the
+  drain evidence arrived; the configurable policy is the graduated knob).
+- **D-9 to D-14, D-16 to D-21:** confirmed, rationale intact.
+- **D-15:** amended at this kickoff (E3): the static set drops `sed -n`,
+  `sort`, and `uniq` and states the no-write-or-exec-form rule.
+- **D-20/D-21:** block order swapped so the D-IDs read in order (E5,
+  presentation only).
+
+No design decision contradicts a walked requirement.
+
+Signed off: 2026-10-05
+
+#### 2.5 Verification approach (delta)
+
+- **Coverage mix:** the delta keeps `[test]` as primary evidence, adds the
+  sanitized real-prompt corpus (REQ-H1.3) with floor rows enforced from its
+  first landing, `[design-level]` for the doctrine and documentation REQs, and
+  `[manual]` end-to-end confirmations for the relaunch (REQ-G1.3) and the
+  meta-tower dispatch (REQ-G1.5). Tag tallies: derive from `test-spec.md`.
+- **Ownership:** CI runs every `[test]` entry through `mise run test` /
+  `mise run check`; the `[manual]` entries are swept by the operator on the
+  first live `--fleet --unattended` run after Tasks 13 and 15 land (the
+  `/drain` inventory surfaces them).
+- **Dead paths:** none found. Each new or superseding REQ has an entry that
+  names a runnable check; the two kickoff extensions (B1.8, G1.1) carry their
+  paired test-spec edits.
+
+Signed off: 2026-10-05
+
+#### 2.6 Task graph (delta)
+
+Reconstructed from the `Dependencies:` lines (authoritative; render with
+`scripts/spec-graph.sh specs/worker-permission-ergonomics`).
+
+- **Shape after this kickoff:** Task 4 (the live false-allow) → Task 5 (the
+  corpus) → one serialized guard chain 6 → 7 → 9 → 10 → 11, with Task 12
+  after 9 and 10, Task 14 after 9, and Task 13 after 10 (the sign-off lens
+  pass gave relaunch the session record and scratch root to carry). Tasks 8
+  and 15 have no dependencies and run alongside the chain.
+- **Operator decision (E6):** the tasks that edit the worker guard script are
+  serialized so no two change it at once; shell-shape analysis (6, 7) runs
+  before the policy (9). Order grounded in the spec: the run-order and
+  substitution classes help every adopter at the default policy,
+  while the own-branch and scratch arms help only where an overlay enables
+  them. Edges added: Task 9 depends on 7; Task 11 depends on 10.
+- **Critical path:** the guard chain; the renderer's `GRAPHCRIT` line is the
+  authoritative statement.
+- **Deliberate non-edges (do not "fix"):** Task 8 (scripts self-resolve
+  `--head`) has no edge to Task 7, though Task 7's fixture uses
+  `step-record.sh --head $(…)`: the fixture exercises the guard on that shape
+  whatever the script does. Task 12 (profile) has no edge to Task 11: it edits
+  the profile, not the guard. Tasks 13 and 15 touch neither the guard nor the
+  profile, so neither joins the guard chain. Task 14 waits only on Task 9,
+  whose policy it describes.
+
+Signed off: 2026-10-05
+
+#### 2.7 Risk register (delta)
+
+**Decision-domains gap check:** the merged catalog
+(`scripts/resolve-catalog.sh decision-domains`, no overlay additions) walked
+against the delta. Touched and decided: data-storage and observability (the
+hashed audit log, D-21), auth (the policy arms and floor, D-12, D-13),
+secrets-config (hashed log, sanitized corpus, overlay-held policy value),
+concurrency (per-spec lock in D-17; guard-task serialization E6),
+deploy-migration (relaunch, D-16; behaviour-preserving default, D-12),
+queues-async (out-of-policy prompts park, REQ-G1.4), existing-seam-reuse
+(overlay layers, `worker_base_merge`), human-comprehension (the doctrine
+statement, D-9). No touched domain is undecided. *(The sign-off lens pass
+found this check incomplete; its decision-domain row in §2.8 records the
+gaps it closed: knob syntax and merge rule, where the policy is read,
+the audit-log home and retention, and relaunch versus `recover`.)*
+
+Rows appended to §7 (R1 to R7 stand; R5 is now addressed by D-21 and Task 11):
+
+| # | Risk | Mitigation / early signal |
+|---|---|---|
+| R8 | **Write approvals are new.** A canonicalization or containment bug in the own-branch or scratch arm is a false-allow that writes. | Floor evaluated before any arm; floor rows defer under every policy value in the corpus; adversarial fixtures (symlink escape, `..`, outside-root targets); core default stays `read-only`; the audit log names the approving arm. |
+| R9 | **Edited repo scripts still run.** A worker can edit a tracked `scripts/`/`tests/` file (by Bash under own-branch or the `Write` tool) and run it without a prompt. | Extends R1's accepted trusted-checkout residual. The execution-bearing config paths (git hooks, `.git`, `.claude/`, tool config) are closed in both the guard and the profile (D-22); human-gated PRs bound the rest. Accepted (operator decision 2026-10-05). |
+| R10 | **Parser surface growth.** Run-order state and the substitution rule enlarge an allow-only parser, the shape that produced the awk lexer's false-allows. | D-11's argued-sound rule; each adversarial fixture first shown allowing against a deliberately over-broad variant; the real-prompt corpus. |
+| R11 | **Serialized guard chain lengthens delivery.** The guard-editing tasks run one at a time (§2.6 names them). | Accepted for conflict-free merges (E6); the independent tasks fill the other worker slots. Early signal: a guard task stalled in review blocks the rest of the chain. |
+| R12 | **Claude Code's own gates remain.** The `cd`-before-`git` gate and the sensitive-path prompt still prompt whatever the hook says. | Fleet guide and launch text tell workers to issue `git` without a `cd`; the corpus replay after landing measures the residual. |
+| R13 | **Pre-existing static git rules bypass the guard.** `git diff`/`log`/`show --output=FILE` and `git branch -D`/`-f` are statically allowed today. | Outside this delta; recorded as an observation for `/spec-draft`. |
+| R14 | **Relaunch rests on documented CLI behaviour.** `--resume` not restoring `--settings` is from the sessions documentation, not measured here. | The existing `recover` already passes `--settings` explicitly; REQ-G1.3's `[manual]` live relaunch confirms the rest; the test pins the argv. |
+| R15 | **Path deny rules may overlap Claude Code's own protections or fail to match.** The `Write`/`Edit` deny rules D-22 and D-23 add depend on the matcher's path semantics under a `--settings` fragment. | Task 12 checks which paths Claude Code already protects and pins each rule with a permission-matcher fixture row. |
+
+**Open questions:** none outstanding.
+
+**Data hygiene:** no secrets, credentials, internal hostnames, or raw worker
+commands recorded; the replay table stays machine-local.
+
+Signed off: 2026-10-05
+
+#### 2.8 Sign-off lens review and record
+
+**Scope and path.** Delta-scoped Discovery-Rigor review of the extension (the
+2026-10-05 extension commit plus this kickoff's walk edits), spec lens set per
+`artifact-lenses`, fanned out to one read-only reviewer per lens. Two scopings,
+declared: dead verification paths and testability ran as one reviewer (they
+probe the same surface), and a code-class **security** lens was added
+explicitly, since the spec defines an allow-only permission mechanism and a
+rule that permits a false-allow is a spec bug. Rendered-content safety: `n/a`
+(the bundle is not rendered into an executing or markup context).
+
+**Validation.** Findings were deduplicated across lenses (the same defect from
+several reviewers counts once). Findings resting on runtime behaviour were
+reproduced: the `test -v` / `[ -v` / `printf -v` subscript execution in bash,
+and both shipped guards' `allow` on those shapes, by direct probe; the guard
+`read`/`printf -v` opacity claim was probed and found already deferred for
+`read` (kept for `printf -v`, which allows). Findings citing code or config
+were checked against it (`recover`'s `--settings`, the profile's
+amend-under-`git commit` text, the absence of an `xargs` guard, the existing
+corpus fixture). Contract findings were checked by reading each pair of
+clauses; findings several independent lenses reached (the `$TMPDIR` fixture,
+the `xargs` clause, the D-6 reversal) needed no further pass.
+
+**Lens-coverage table (spec set, plus the declared security lens):**
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 10 | Default "reproduces pre-extension" falsified by REQ-E; floor caught `/dev/null` and git's own writes; floor named the policy guard the guard cannot evaluate; deny-outcome vs guard inputs; `$TMPDIR` fixture vs REQ-E1.1; state carried across any operator; plugin roots vs REQ-A1.10; `xargs` "safe forms"; git static set self-contradiction; `cd` with unresolved identity. |
+| Security (declared, code-class) | 8 | **Live false-allow** in both shipped guards (`test -v`/`[ -v`/`printf -v` subscript execution); assignment names; `cd` after failure or non-`&&`; hard links, `cp -l/-s`, `mv` sources; execution-bearing in-worktree paths; `sed -i` `e`; `git fetch`/`ls-remote` `--upload-pack` and URL operands; unpinned static git set and trust-input sources. |
+| Ambiguity and interpretation forks | 14 | Variable-writing forms, name rule, `printf` in the argument-independent set, `$TMPDIR` source, per-arm fallback, unit/PR-base identity, arm-set semantics, push ownership, deny fixture generation, loop bound and `timeout` flags, fetch refspec, leading vs mid-chain `cd`, self-written-script scope, log unit and enforcer. |
+| Citation and coverage integrity | 5 | D-17 cites orchestration-fleet D-6 as support while reversing it; dangling `tasks.md` Deferred pointer; cross-cutting cites superseded REQ-A1.3; untraceable "drafting-session decision" tokens; Sources entries now cited for their opposite. Validator clean. |
+| Dead verification paths and testability | 9 | Bypass fixtures that already defer cannot be "shown failing first"; the recorded `cat` bypass becomes an allow under the mandated mechanism; `$TMPDIR` fixture; kept REQ-A1.4 fixtures under an arm; MCP deny rules have no Bash fixture; meta-tower `[test]` unrunnable (prose step); undefined over-broad variant; allow-rule coverage not enforced; a second corpus beside the existing one. |
+| Decision-domain gaps | 5 | Knob syntax and layer-merge rule (api-surface); where the guard reads the policy (secrets-config/auth); audit-log home when the state home is unresolved (observability); retention value and enforcer (concurrency); relaunch vs existing `recover` and the scratch root across it (deploy-migration). |
+| Cross-file consistency | 9 | D-13's amend claim vs the profile's static `git commit`; deny-outcome vs declared-step exception; B1.8 omits the declared steps; `$TMPDIR` fixture; E1.2 drops the name screen; relaunch duplicates `recover`; `xargs`; G1.4 vs the doctrine's standing-decision clause; kept fixtures under an arm. |
+| Documentation and glossary drift | 14 | "Already-expanded" premise in A1.10, its test entry, and Sources (stale prose); goal's precedence claim (stale); D-3 and D-1 unmarked (stale); cross-cutting A1.3 (stale); "read-only" meaning three things (fork); "policy guard" unnamed (fork); `xargs` (stale); orchestration-fleet reversal (missing); doctrine index row for Task 15 (missing); stale knob deferral text and changelog omission (stale); copied tallies in the brief and D-8 (spec-format rule); "task" vs "unit" branch (fork). |
+| Rendered-content safety | n/a | Not rendered into an executing or markup context. |
+
+**Kickoff-specific checks.**
+
+- **Altitude (triggered bundle).** The pinned altitude seed claims are in
+  `requirements.md` Sources; D-9 exists and the goal cites it; the
+  decomposition matches (a doctrine task, the policy-knob capability, and
+  mechanism tasks). No finding.
+- **Ship-gate.** The "skills emit one plain command per Bash call" flight the
+  bundle names as out-of-band had no tracked record: one finding, dispositioned
+  by an observation fragment (`skills-emit-plain-bash-commands`). The
+  standing-decision deferral is gated in `tasks.md` Deferred; the
+  pre-existing static git rules have their observation
+  (`worker-profile-static-git-write-forms`).
+
+**Dispositions (every finding dispositioned with the operator):**
+
+- **Live false-allow** (`-v` forms in both shipped guards) — *applied*:
+  folded into Task 4 with fixtures in both guards; the argument-independent
+  set excludes the `-v` forms and a `printf` format (operator decision).
+- **Execution-bearing paths** — *applied*: closed in both the guard and the
+  profile (REQ-F1.6, D-22); edited repo scripts stay runnable, accepted as R9
+  (operator decision).
+- **Trust-input source** — *applied*: launcher-written session record with
+  profile deny rules (REQ-G1.8, D-23) (operator decision).
+- **Meta-tower verification** — *applied*: the meta step becomes a tested
+  script, with the orchestration-fleet reversal recorded in D-17 (operator
+  decision).
+- **All remaining findings** — *applied* as one grounded batch (operator
+  decision): the shell-edge tightenings (REQ-A1.12, A1.13, E1.1–E1.5,
+  F1.3, F1.4), the contradictions (REQ-A1.11, B1.8, F1.1, F1.5, G1.1, D-13,
+  `xargs`, `$TMPDIR`), the knob and log details (REQ-F1.1, H1.4, D-12, D-21),
+  relaunch over `recover` (REQ-G1.3, D-16), the stale text and citations
+  (goal, Sources, Changelog, D-1, D-3, D-8, cross-cutting, REQ-A1.14
+  superseding A1.10, "unit branch"), and the test plumbing (Tasks 4, 5, 7, 9,
+  12, 15 and their test-spec entries, the REQ-C1.1 baseline note). Each
+  requirement change carries its paired test-spec edit.
+- **Declined:** none.
+
+**Post-lens stale-reference sweep.** Swept the bundle and this entry for the
+minted (REQ-A1.14, F1.6, G1.8, D-22, D-23) and re-scoped IDs and for the
+default-policy and "byte-identical" wording: fixed the brief's §2.6 shape
+(Task 13 now follows Task 10), §2.7 gap-check sentence, R9 and R14, two
+copied tallies, and the REQ-C1.1 baseline note. Remaining references to
+REQ-A1.10 sit in completed Tasks 1–3, superseded entries, and dated
+changelog lines, which record history.
+
+Draft→Ready flipped on all four files at this sign-off (reopen cycle); validator clean at Ready.
+
+Class: meaning
+Lens-pass: §9 Amendment 2, 2.8 (delta-scoped fan-out, one reviewer per lens plus the declared security lens; canonical lens-coverage table above; all findings dispositioned — applied)
+Anchor: `fe407f11a05100bbfee2657922428ae9f673e5db` — computed as
+`scripts/spec-anchor.sh specs/worker-permission-ergonomics`
