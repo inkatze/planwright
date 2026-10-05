@@ -106,6 +106,9 @@ registry_col() {
 #                     (SEAM_WT) before writing the marker
 #   swap-worktree     the marker write replaces SEAM_WT with a symlink to a
 #                     directory beside it
+#   swap-root         the marker write moves SEAM_WT's parent aside and leaves
+#                     a symlink to it in its place, so the leaf is a real
+#                     directory whose physical path is elsewhere
 #   decoy-pane        the marker write opens a decoy session whose pane sits in
 #                     SEAM_WT
 #   fail-clear        the marker clear fails
@@ -131,6 +134,10 @@ case "\${SEAM_MODE:-}/\$1" in
     mkdir -p "\$SEAM_WT.elsewhere"
     rm -rf "\$SEAM_WT"
     ln -sn "\$SEAM_WT.elsewhere" "\$SEAM_WT"
+    ;;
+  swap-root/write)
+    mv "\${SEAM_WT%/*}" "\${SEAM_WT%/*}.moved"
+    ln -sn "\${SEAM_WT%/*}.moved" "\${SEAM_WT%/*}"
     ;;
   decoy-pane/write) tmux new-session -d -s decoy-pane -c "\$SEAM_WT" >/dev/null 2>&1 ;;
   fail-clear/clear) exit 1 ;;

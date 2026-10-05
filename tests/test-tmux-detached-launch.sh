@@ -101,8 +101,13 @@ check_session_call() {
     *"$TAB;${TAB}set-window-option$TAB-t$TAB=$sess:${TAB}remain-on-exit${TAB}off$TAB"*) ;;
     *) fail "$label: remain-on-exit is not turned off in the same invocation: $ns" ;;
   esac
-  [ -z "$(calls_matching switch-client)$(calls_matching switchc)$(calls_matching attach-session)$(calls_matching attach)$(calls_matching a)" ] \
-    || fail "$label: a client-moving call reached tmux: $(tlh_tmux_calls)"
+  # Every command of every call, chained ones included.
+  tlh_tmux_calls | awk -F"$TAB" '{
+      print $1
+      for (i = 1; i < NF; i++) if ($i ~ /;$/) print $(i + 1)
+    }' | grep -Exq 'switch-client|switchc|attach-session|attach|a' \
+    && fail "$label: a client-moving call reached tmux: $(tlh_tmux_calls)"
+  return 0
 }
 
 # --- l1: a task dispatch ------------------------------------------------------
@@ -135,15 +140,34 @@ l1() {
     || fail "l1: a liveness hook run with the worker's environment recorded no transition for its handle"
 }
 
+# record_for <handle> — the worker record whose environment carries <handle>.
+record_for() {
+  local r
+  for r in $(tlh_worker_records); do
+    [ "$(tlh_worker_env "$r" PLANWRIGHT_WORKER_HANDLE 2>/dev/null)" = "$1" ] && {
+      printf '%s\n' "$r"
+      return 0
+    }
+  done
+  return 1
+}
+
 # --- l2: a flight dispatch ----------------------------------------------------
+# The flight dispatch reads these from the environment; exported for l2 only.
 l2() {
-  local fid fid2 sess wt rec
   new_case
   mkdir -p "$C/adopter" "$C/claude"
-  printf 'Fix the typo in the README heading.\n' >"$C/ask.txt"
-  printf 'visual flight: a one-line wording change\n' >"$C/grounds.txt"
   export CLAUDE_DIR="$C/claude" PLANWRIGHT_ADOPTER_OVERLAY="$C/adopter" PLANWRIGHT_FLIGHT_LOCK_WAIT=0 \
     PLANWRIGHT_REPO_ROOT="$P"
+  l2_flight
+  unset CLAUDE_DIR PLANWRIGHT_ADOPTER_OVERLAY PLANWRIGHT_FLIGHT_LOCK_WAIT PLANWRIGHT_REPO_ROOT
+}
+
+l2_flight() {
+  local fid fid2 sess wt rec n0
+  printf 'Fix the typo in the README heading.\n' >"$C/ask.txt"
+  printf 'visual flight: a one-line wording change\n' >"$C/grounds.txt"
+  n0=$(tlh_worker_count)
   # The regression the detached launch fixed: the worker CLI behaves as the
   # native launcher does inside tmux, handing off and never returning when it
   # is given --tmux, so a dispatch that still launched it that way would hang
@@ -169,8 +193,11 @@ l2() {
   [ "$(report_field attach)" = "tmux attach -t '=$sess'" ] \
     || fail "l2: the attach hint does not name the session: $(report_field attach)"
   check_session_call l2 "$sess" "$wt"
-  tlh_wait_workers 1 10 || return
-  rec=$(tlh_last_worker_record)
+  tlh_wait_workers "$((n0 + 1))" 10 || return
+  rec=$(record_for "tmux-flight-$fid") || {
+    fail "l2: no worker record carries the flight's handle tmux-flight-$fid"
+    return
+  }
   check_worker l2 "$rec" "$wt" "tmux-flight-$fid" "flight:$fid"
   grep -q "^argv.*$TAB--${TAB}Read [^$TAB]*/brief.md and follow it exactly.\$" "$rec" \
     || fail "l2: the flight worker was not handed its brief: $(grep '^argv' "$rec")"
@@ -183,7 +210,15 @@ l2() {
   fid2=$(report_field flight)
   [ -n "$fid2" ] && [ "$fid2" != "$fid" ] || fail "l2: the second dispatch did not place its own flight"
   kill -0 "$(tlh_record_field "$rec" pid)" 2>/dev/null || fail "l2: the first worker stopped"
-  unset CLAUDE_DIR PLANWRIGHT_ADOPTER_OVERLAY PLANWRIGHT_FLIGHT_LOCK_WAIT PLANWRIGHT_REPO_ROOT
+  # The confirm step runs once the lock is released, never under it: the
+  # startup wait the confirm step grows into would otherwise queue every
+  # other flight from this checkout.
+  awk '/^cmd_dispatch\(\) \{/,/^}/' "$FLIGHT" | awk '
+      /^[[:space:]]*release_lock$/ && !rel { rel = NR }
+      /"\$WORKTREE" confirm/ && !conf { conf = NR }
+      END { exit !(rel && conf && rel < conf) }' \
+    || fail "l2: the flight dispatch does not release its lock before the confirm step"
+  return 0
 }
 
 # --- l3: session names --------------------------------------------------------
@@ -208,7 +243,7 @@ l3() {
   new_case "two/primary"
   tlh_run_bounded "$PRIM" dispatch demo 4 --repo-root "$P" --attach-dry-run
   b=$(printf '%s\n' "$TLH_OUT" | awk -F"$TAB" '$1 == "attach-plan" && $2 == "session" { print $3 }')
-  [ -n "$a" ] && [ "$a" != "$b" ] || fail "l3: two checkouts named primary share session '$a'"
+  [ -n "$a" ] && [ -n "$b" ] && [ "$a" != "$b" ] || fail "l3: two checkouts named primary must get two session names ('$a', '$b')"
   # The dry-run plan is the detached launch.
   case $(printf '%s\n' "$TLH_OUT" | grep "^attach-plan${TAB}launch") in
     *"${TAB}new-session$TAB-d$TAB-s$TAB$b$TAB-c$TAB$PP/.claude/worktrees/demo-task-4$TAB"*) ;;
@@ -236,7 +271,16 @@ l4() {
   tmux new-session -d -s "my_repo_worktree-demo-task-5"
   tlh_run_bounded "$PRIM" dispatch demo 5 --repo-root "$P"
   [ "$TLH_RC" -eq 3 ] || fail "l4: a session under the prior launcher's spelling must read live (exit 3), got $TLH_RC"
+  # Live because the mapped name was asked about, not because an unmapped
+  # name fell outside the charset and read as live unasked.
+  calls_matching has-session | grep -q "$TAB=my_repo_worktree-demo-task-5\$" \
+    || fail "l4: the prior launcher's spelling was not probed with the basename mapped as tmux maps it"
   tmux kill-session -t "=my_repo_worktree-demo-task-5"
+  # The create-only arm probes the same names, so with no session a stale
+  # branch is adopted rather than read as in flight.
+  stale_branch 9
+  tlh_run_bounded "$PRIM" dispatch demo 9 --repo-root "$P" --no-attach
+  [ "$TLH_RC" -eq 0 ] || fail "l4: a --no-attach dispatch over a stale branch must adopt it (exit 0), got $TLH_RC ($TLH_ERR)"
   # The new name for a worktree holding the branch elsewhere (the alternate
   # name): live, so the dispatch aborts in flight rather than naming the move.
   new_case
@@ -294,7 +338,7 @@ l5() {
 l6() {
   local f
   for f in "$here/test-tmux-detached-launch.sh" "$here/test-tmux-launch-refusals.sh"; do
-    grep -nE '"\$(PRIM|FLIGHT)" (dispatch|attach)' "$f" | grep -v 'tlh_run_bounded' \
+    grep -nE '"\$(PRIM|FLIGHT|seam/fleet-dispatch-worktree\.sh)" (dispatch|attach)' "$f" | grep -v 'tlh_run_bounded' \
       | grep -v '^[0-9]*:[[:space:]]*#' && fail "l6: a launch in ${f##*/} is not bounded"
   done
   return 0

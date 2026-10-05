@@ -29,6 +29,8 @@
 #       (REQ-G1.6)
 #   r12 a launch word ending in `;`, which tmux reads as a command separator,
 #       is refused before anything is placed
+#   r13 an env wrapper without its exec bit is refused before anything is
+#       placed: tmux execs it directly, where --check runs it through sh
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-tmux-launch-refusals.sh
@@ -109,7 +111,9 @@ r2() {
 r3() {
   local seam mode before
   seam=$(seam_root)
-  for mode in remove-worktree swap-worktree; do
+  # swap-root keeps the leaf a real directory, so only the physical-path
+  # comparison can refuse it.
+  for mode in remove-worktree swap-worktree swap-root; do
     new_case
     before=$(calls_now)
     SEAM_MODE=$mode SEAM_WT="$PP/.claude/worktrees/demo-task-2" \
@@ -119,6 +123,13 @@ r3() {
       || fail "r3 [$mode]: new-session was called"
     [ ! -s "$C/fleet/registry" ] || fail "r3 [$mode]: a registry record was written"
   done
+  # The refusal undoes what the run created (the remove-worktree case, where
+  # nothing else is in the way).
+  new_case
+  SEAM_MODE=remove-worktree SEAM_WT="$PP/.claude/worktrees/demo-task-3" \
+    tlh_run_bounded "$seam/fleet-dispatch-worktree.sh" dispatch demo 3 --repo-root "$P"
+  [ "$TLH_RC" -eq 11 ] || fail "r3: expected exit 11, got $TLH_RC"
+  nothing_placed "r3 undo" 3
 }
 
 # --- r4: live standalone attach, and the path-escape guard -------------------
@@ -196,6 +207,7 @@ r7() {
   gitc "$P" show-ref --verify --quiet refs/heads/planwright/demo/task-8 || fail "r7: the adopted branch was deleted"
   [ ! -e "$P/.claude/worktrees/demo-task-8" ] || fail "r7: the worktree placed on the adopted branch stayed"
   [ ! -e "$C/markers/8" ] || fail "r7: the marker stayed"
+  [ ! -s "$C/fleet/registry" ] || fail "r7: a failed launch wrote a registry record"
 }
 
 # --- r8: a failing undo step is named -----------------------------------------
@@ -246,6 +258,14 @@ r9() {
     esac
     before=$(calls_now)
     if [ "$label" = relative ]; then
+      # Only a /bin/sh whose `command -v` reports a relative PATH entry as
+      # relative (dash does; bash absolutizes it) can produce this case.
+      case $(cd "$C" && PATH="cli:$PATH" /bin/sh -c 'command -v claude') in
+        /*)
+          echo "skip r9 [relative claude]: this /bin/sh absolutizes a relative PATH match"
+          continue
+          ;;
+      esac
       rc=0
       (cd "$C" && PATH="cli:$PATH" tlh_run_bounded "$PRIM" dispatch demo 1 --repo-root "$P" && exit "$TLH_RC") || rc=$?
     else
@@ -266,6 +286,20 @@ r9() {
   (PATH="$C/conly:$(path_without_tmux)" tlh_run_bounded "$PRIM" dispatch demo 1 --repo-root "$P" && exit "$TLH_RC") || rc=$?
   [ "$rc" -eq 8 ] || fail "r9 [tmux]: an unresolvable tmux must exit 8, got $rc"
   nothing_placed "r9 [tmux]" 1
+  # A tmux found through a relative PATH entry is a file in whatever directory
+  # the dispatch runs from, so it is refused like a relative worker CLI.
+  new_case
+  mkdir -p "$C/tcli"
+  cp "$TLH_BIN/tmux" "$C/tcli/tmux"
+  case $(cd "$C" && PATH="tcli:$PATH" /bin/sh -c 'command -v tmux') in
+    /*) echo "skip r9 [relative tmux]: this /bin/sh absolutizes a relative PATH match" ;;
+    *)
+      rc=0
+      (cd "$C" && PATH="tcli:$PATH" tlh_run_bounded "$PRIM" dispatch demo 1 --repo-root "$P" && exit "$TLH_RC") || rc=$?
+      [ "$rc" -eq 8 ] || fail "r9 [relative tmux]: expected exit 8, got $rc"
+      nothing_placed "r9 [relative tmux]" 1
+      ;;
+  esac
 }
 
 # path_without_claude — PATH minus the harness's shims and any real claude.
@@ -322,8 +356,28 @@ r12() {
   before=$(calls_now)
   tlh_run_bounded "$PRIM" dispatch demo 1 --repo-root "$P" -- --model 'opus;'
   [ "$TLH_RC" -eq 2 ] || fail "r12: a launch word ending in ';' must be refused (exit 2), got $TLH_RC ($TLH_ERR)"
+  case $TLH_ERR in
+    *'command separator'*) ;;
+    *) fail "r12: the refusal is not the separator arm's: $TLH_ERR" ;;
+  esac
   [ -z "$(tmux_calls_since "$before" | awk -F"$TAB" '$1 == "new-session"')" ] || fail "r12: new-session was called"
   nothing_placed r12 1
+}
+
+# --- r13: an env wrapper tmux cannot exec -------------------------------------
+# --check runs the wrapper through sh, while the session's command execs it, so
+# a wrapper without its exec bit would pass the check and die in the pane.
+r13() {
+  local seam before
+  seam=$(seam_root)
+  new_case
+  chmod a-x "$seam/fleet-dispatch-env.sh"
+  before=$(calls_now)
+  tlh_run_bounded "$seam/fleet-dispatch-worktree.sh" dispatch demo 1 --repo-root "$P"
+  chmod a+x "$seam/fleet-dispatch-env.sh"
+  [ "$TLH_RC" -eq 12 ] || fail "r13: a non-executable env wrapper must be refused (exit 12), got $TLH_RC ($TLH_ERR)"
+  [ -z "$(tmux_calls_since "$before" | awk -F"$TAB" '$1 == "new-session"')" ] || fail "r13: new-session was called"
+  nothing_placed r13 1
 }
 
 r1
@@ -338,6 +392,7 @@ r9
 r10
 r11
 r12
+r13
 
 [ "$fails" -eq 0 ] || {
   echo "test-tmux-launch-refusals: $fails failure(s)" >&2
