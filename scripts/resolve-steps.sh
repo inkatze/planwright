@@ -75,9 +75,10 @@
 # refuse. A park or ask is point-wide: the point runs nothing, so every step
 # prints that token, the stderr diagnostic naming the steps that did not
 # resolve and why. `refuse` marks a skill step no worker can run: its target
-# resolves to no file (the diagnostic naming the roots looked under), or to one
-# whose frontmatter sets disable-model-invocation: true (naming the flag and
-# the file, which <location> carries). It does not resolve and is never
+# resolves to no file after every lookup root was searched (the diagnostic
+# naming the roots looked under), to an unreadable file, or to one whose
+# frontmatter sets disable-model-invocation: true (naming the flag and the
+# file, which <location> carries). It does not resolve and is never
 # skipped: the point parks where the matrix would skip, and asks or parks as
 # the matrix says otherwise, the row keeping `refuse` either way. An entry
 # declaring on-failure: continue is an ordinary non-resolving step instead.
