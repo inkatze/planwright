@@ -72,8 +72,7 @@ wait instead.
    `Ready` or `Active`; (d) ask, listing the available bundles
    (underscore-prefixed reserved directories are not bundles). Verify the directory
    holds `requirements.md`, `design.md`, `tasks.md`, and `test-spec.md`.
-3. **Resolve the run-start doctrine docs** (above); halt on a resolution
-   failure. Point-of-use docs resolve at their named steps.
+3. **Resolve the run-start doctrine docs** (above).
 4. **Verify the spec is Ready or Active** (REQ-C1.1, superseding the bootstrap
    non-Active refusal REQ-J1.2, D-33; kickoff-lifecycle D-2, D-3). Read the
    `**Status:**` line in `requirements.md`. `Ready` (signed off, no work
@@ -154,7 +153,10 @@ wait instead.
     `commit_on_state_move` is true (read `config/defaults.yml` overridden by
     `<repo>/.claude/planwright.local.yml`, local wins; absent/malformed falls
     back to the default with a one-line warning).
-12. **Run the `pre-implementation` point** (see *Points*).
+12. **Check every point, then run `pre-implementation`**:
+    `scripts/resolve-steps.sh pre-implementation pre-ci convergence pre-pr
+    post-pr --explain --check --unattended` (`pre-ready-flip` under
+    `unit-owner`); a `refuse` row halts, relaying its warning.
 
 ## Points (`custom-steps`, D-3)
 
@@ -181,7 +183,8 @@ PR number whenever one exists):
    `failed`; an `in-session` command's goes to the shell tool.
 3. **Record** each outcome (a command's exit code; a session step classified
    from its handoff) through `step-record.sh write`, the printed path being
-   the next step's `PREV_RECORD`; a `skip` line records `skipped`.
+   the next step's `PREV_RECORD`; a `skip` line records `skipped`, a `refuse`
+   one `failed`.
 4. **Posture:** a `halted` or `failed` step under `on-failure: halt` ends the
    point and the unit through the pause protocol, the entry naming only the
    point, step id, outcome, and worktree-relative record path; `continue`
@@ -427,8 +430,7 @@ Apply artifact data-hygiene to everything surfaced.
 
 Halt and hand back when any of these fires, recording the unit to `tasks.md`
 Awaiting input with the reason (the pre-flight halt protocol above); each is
-described at its point of use: pre-flight steps 4–8 and 10 (spec status,
-validator, kickoff brief, freshness gate, dependencies, `dispatch_isolation`);
+described at its point of use: every pre-flight halt;
 a test that cannot fail for the right reason; a CI logic failure, or transient
 retries exhausted; research revealing a risk the brief did not anticipate;
 contract drift (route to `/spec-kickoff`); `Done when:` or `Deliverables:`
