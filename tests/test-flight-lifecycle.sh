@@ -351,6 +351,9 @@ out=$(supervise "$((t + 400000))")
 [ "$(lineof "$out" "$V")" = waiting ] || fail "a count another pass has not recorded yet holds the relaunch (got: $out)"
 grep -q "flight-$V" "$CLAUDE_STUB_LOG" && fail "no relaunch before the death is recorded"
 
+"$SCRIPT" supervise --repo-root "$repo" --now 1234567890123456 >/dev/null 2>&1
+[ $? -eq 2 ] || fail "an epoch the crash policy cannot take is refused up front"
+
 # --- 6. The fleet sweep runs the crash policy every cycle ---------------------
 S=swept-aaaaaab1
 gitc "$repo" worktree add -q -b "planwright/flight/$S" "$repo/.claude/worktrees/flight-$S" HEAD

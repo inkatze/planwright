@@ -348,7 +348,7 @@ cmd_supervise() {
       --now)
         [ $# -ge 2 ] || usage
         case $2 in
-          '' | *[!0-9]* | 0?*) die 2 "--now needs a non-negative epoch" ;;
+          '' | *[!0-9]* | 0?* | ????????????????*) die 2 "--now needs a non-negative epoch of at most 15 digits" ;;
         esac
         now=$2
         shift 2
