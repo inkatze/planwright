@@ -94,7 +94,9 @@ mise run check      # the full local equivalent of the CI gate
   CI-eval exclusion over the workflows and the task graph, and the
   glob-allow-rule discipline check;
 - the house-pattern checks: `unset CDPATH` before a `cd` in command
-  substitution, and printf over echo for sanitized output;
+  substitution, printf over echo for sanitized output, and every
+  `scripts/*.sh` committed at the mode its first line declares (100755 with a
+  shebang, 100644 for a shebang-less sourced library), read from the git index;
 - the two registration guards that keep the gate complete: every check script
   must be run by a task the aggregate reaches, a workflow, or an allowlisted
   runner (`check:guard-wiring`), and every `check:`/`lint:`/`scan:` task must

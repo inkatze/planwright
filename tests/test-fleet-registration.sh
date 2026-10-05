@@ -392,16 +392,18 @@ grep -qE 'register_dispatch .* print' "$REPO_ROOT/scripts/offload-dispatch.sh" \
 # current four is a tautology — it re-derives the manifest and can never catch
 # the new seam the manifest exists to catch. So: a line that launches the
 # worker CLI in a non-interactive mode (`-p`/`--print` with an `--output-format`,
-# in either order and with flags in between), or opens a tmux window, or attaches
-# a classic tmux session, or names a native `claude --worktree` launch (run or
-# printed for a human to run). Same shape as the sibling guard in
+# in either order and with flags in between), or opens a tmux window, or
+# creates a detached tmux session in a start directory (`new-session -d -s
+# <name> -c`, however the tmux binary is spelled: the detached launch runs a
+# resolved path, not the bare word), or names a native `claude --worktree`
+# launch (run or printed for a human to run). Same shape as the sibling guard in
 # tests/test-dispatch-launch-pin.sh. Comment lines are stripped first: a guard
 # that quotes a launch shape in its prose is documenting one, not spawning one.
 discovered=$(for f in "$REPO_ROOT"/scripts/*.sh; do
   body=$(grep -v '^[[:space:]]*#' "$f")
   if printf '%s\n' "$body" | grep -qE -- '(^|[[:space:]])(-p|--print)([[:space:]].*)?[[:space:]]--output-format' \
     || printf '%s\n' "$body" | grep -qE -- '--output-format([[:space:]].*)?[[:space:]](-p|--print)([[:space:]]|$)' \
-    || printf '%s\n' "$body" | grep -qE -- '--tmux=classic|tmux new-window|claude --worktree'; then
+    || printf '%s\n' "$body" | grep -qE -- '--tmux=classic|tmux new-window|new-session -d -s [^ ]+ -c|claude --worktree'; then
     basename "$f"
   fi
 done | sort -u)
@@ -414,10 +416,16 @@ for seam in $manifest; do
   printf '%s\n' "$discovered" | grep -qx "$seam" \
     || fail "c1: discovery no longer finds $seam — the scan has drifted and can pass vacuously"
 done
-# No exemption arm: nothing this scan discovers today is a non-dispatch site.
-# One is added when the scan first finds one, so an exemption can never sit
-# here unreached, reading as coverage it does not provide.
+# The one exemption: fleet-tower-watchdog.sh opens a tmux session to relaunch a
+# tower, not a worker, so it has no registry record to write. It must still be
+# discovered, so the exemption cannot sit here unreached.
+exempt="fleet-tower-watchdog.sh"
+for e in $exempt; do
+  printf '%s\n' "$discovered" | grep -qx "$e" \
+    || fail "c1: the exemption for $e is unreached; drop it"
+done
 for d in $discovered; do
+  printf '%s\n' "$exempt" | grep -qx "$d" && continue
   printf '%s\n' "$manifest" | grep -qx "$d" \
     || fail "c1: $d spawns a worker but is not in the seam-coverage manifest"
 done
@@ -567,13 +575,13 @@ grep -qi 'regist' "$errfile" \
 ok c4 "the print rung registers, and a registry-write failure never fails the dispatch"
 
 # ---------------------------------------------------------------------------
-# c5 — the worktree seam: the real attach path registers and then supersedes
-#      its own record with the death handle; the create-only and dry-run arms
-#      register nothing.
+# c5 — the worktree seam: the real launch path registers once, after the
+#      session exists, with the death handle new-session printed; the
+#      create-only and dry-run arms register nothing.
 #
-# The attach is driven with a PATH-stubbed `claude` and a PATH-stubbed `tmux`,
-# so the two-phase write and the death-handle discovery are exercised without a
-# live session — the path that ships, not just the one a fixture can reach.
+# The launch is driven with a PATH-stubbed `claude` and a PATH-stubbed `tmux`,
+# so the registration is exercised without a live session — the path that
+# ships, not just the one a fixture can reach.
 # ---------------------------------------------------------------------------
 if command -v git >/dev/null 2>&1; then
   mkrepo() {
@@ -590,27 +598,26 @@ if command -v git >/dev/null 2>&1; then
   repo="$tmp/repo-c5"
   mkrepo "$repo"
 
-  # The stub bin dir: a no-op `claude`, and a `tmux` that answers list-panes
-  # with a fixture. The fixture's FIRST row is a decoy whose path carries a
-  # literal tab and would, under naive positional parsing, present an
-  # attacker-chosen session and window as the match. The second row is a
-  # pre-existing session (created long before this dispatch) sitting in the
-  # very worktree the dispatch targets — the operator's own shell. Only the
-  # third, created during this dispatch, may be selected.
+  # The stub bin dir: a no-op `claude`, and a `tmux` whose new-session prints
+  # its -P -F line for the name it was given, and whose list-panes offers a
+  # decoy pane sitting in the worktree: the death handle must come from the
+  # creation output, never from a pane-path match.
   stub="$tmp/bin-c5"
   mkdir -p "$stub"
   printf '#!/bin/sh\nexit 0\n' >"$stub/claude"
   chmod +x "$stub/claude"
-  wt5="$repo/.claude/worktrees/spec-c5-task-1"
+  wt5="$(cd "$repo" && pwd -P)/.claude/worktrees/spec-c5-task-1"
   cat >"$stub/tmux" <<EOF
 #!/bin/sh
 case "\$1" in
-  list-panes)
-    printf '1\tevil-session\t@99\t%s\tdecoy-session\t@98\n' "$wt5"
-    printf '1\tstale-session\t@7\t%s\n' "$wt5"
-    printf '%s\tworker-session\t@42\t%s\n' "\$(date +%s)" "$wt5"
+  new-session)
+    while [ \$# -gt 0 ]; do
+      [ "\$1" = -s ] && { printf '%s\t@42\n' "\$2"; exit 0; }
+      shift
+    done
     ;;
-  *) : ;;
+  list-panes) printf '%s\tdecoy-session\t@98\t%s\n' "\$(date +%s)" "$wt5" ;;
+  has-session) exit 1 ;;
 esac
 exit 0
 EOF
@@ -622,27 +629,24 @@ EOF
     PLANWRIGHT_DISPATCH_LIVENESS_SKIP_TMUX=1 \
     /bin/sh "$FDW" dispatch spec-c5 1 --repo-root "$repo" 2>&1)
   st=$?
-  if [ "$st" = 0 ] && [ -f "$h/registry" ]; then
-    [ "$(col "$h" 2 | tail -n 1)" = "tmux-spec-c5-task-1" ] \
+  sess5=$(printf '%s\n' "$out" | awk -F'\t' '$1 == "launch" && $2 == "session" { print $3 }')
+  if [ "$st" = 14 ] && [ -f "$h/registry" ]; then
+    [ "$(col "$h" 2)" = "tmux-spec-c5-task-1" ] \
       || fail "c5: the registered handle is not the D-36 task identity"
-    [ "$(col "$h" 3 | tail -n 1)" = "spec-c5:1" ] || fail "c5: the registered scope is wrong"
-    [ "$(col "$h" 4 | tail -n 1)" = p3.t3.c3 ] || fail "c5: the owner token was not recorded"
-    [ "$(col "$h" 5 | tail -n 1)" = tmux ] || fail "c5: the backend is not tmux"
-    [ "$(col "$h" 6 | tail -n 1)" = "$wt5" ] || fail "c5: the worktree was not recorded as the state dir"
-    # Two records: the pre-attach one, then the superseding complete one.
+    [ "$(col "$h" 3)" = "spec-c5:1" ] || fail "c5: the registered scope is wrong"
+    [ "$(col "$h" 4)" = p3.t3.c3 ] || fail "c5: the owner token was not recorded"
+    [ "$(col "$h" 5)" = tmux ] || fail "c5: the backend is not tmux"
+    [ "$(col "$h" 6)" = "$wt5" ] || fail "c5: the worktree was not recorded as the state dir"
+    # One record, written once the session exists.
     n5=$(wc -l <"$h/registry" | tr -d ' ')
-    [ "$n5" = 2 ] || fail "c5: expected a dispatch record superseded by a complete one, got $n5"
-    [ "$(col "$h" 7 | head -n 1)" = "-" ] \
-      || fail "c5: the pre-attach record claims a death handle it cannot know yet"
-    [ "$(col "$h" 7 | tail -n 1)" = "tmux-window worker-session @42" ] \
-      || fail "c5: the death handle is not the session created by this dispatch, got '$(col "$h" 7 | tail -n 1)'"
-    grep -q 'evil-session\|decoy-session' "$h/registry" \
-      && fail "c5: a tab in the pane path shifted the fields an attacker controls into the record"
-    grep -q 'stale-session' "$h/registry" \
-      && fail "c5: a session predating the dispatch was adopted as the worker's"
-    ok c5 "the worktree seam registers, then supersedes with a positively-matched death handle"
+    [ "$n5" = 1 ] || fail "c5: expected one record written after the session exists, got $n5"
+    [ -n "$sess5" ] && [ "$(col "$h" 7)" = "tmux-window $sess5 @42" ] \
+      || fail "c5: the death handle is not the creation output, got '$(col "$h" 7)'"
+    grep -q 'decoy-session' "$h/registry" \
+      && fail "c5: a pane sitting in the worktree was taken for the worker's"
+    ok c5 "the worktree seam registers once, with the death handle new-session printed"
   else
-    skip c5 "worktree dispatch unavailable here: $out"
+    fail "c5: the stubbed launch must report started-unconfirmed (exit 14) and register, got $st: $out"
   fi
 
   # The arms that launch nothing must record nothing: an append-only store has

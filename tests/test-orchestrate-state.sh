@@ -177,7 +177,7 @@ gitc "$repo" checkout -q -b planwright/demo/task-4
 gitc "$repo" commit -q --allow-empty -m "task 4 wip"
 gitc "$repo" checkout -q main
 
-# Tasks 5 & 6: markers in the default runtime-marker dir.
+# Tasks 5 & 6: markers in the checkout-local marker dir.
 mdir="$spec/.orchestrate/markers"
 mkdir -p "$mdir"
 date +%s >"$mdir/5" # fresh
@@ -475,7 +475,7 @@ echo "ok: stale_marker_threshold override widens the window; malformed warns and
 
 # ---------------------------------------------------------------------------
 # 6f. PLANWRIGHT_ORCH_STATE_DIR override — markers are read from the overridden
-#     base dir, not the default <spec-dir>/.orchestrate/markers.
+#     base dir, not the checkout-local <spec-dir>/.orchestrate/markers.
 # ---------------------------------------------------------------------------
 orepo="$tmp/statedir"
 ospec="$orepo/specs/demo"

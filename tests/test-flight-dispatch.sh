@@ -34,8 +34,10 @@
 #      closed; no concurrency key but `max_parallel_units` is read (the
 #      home reads `flight_pr_hosts`, the sweep `stale_lock_threshold`).
 #   6. Two flights from one slug never collide (REQ-C1.1).
-#   7. The tmux rung hands the worker its brief through the native
-#      `claude --worktree` attach.
+#   7. The tmux rung's plan hands the worker its brief in a detached tmux
+#      session in its worktree, with its identity. The live launch (the report
+#      and the lock returned while the worker runs) is
+#      tests/test-tmux-detached-launch.sh's l2, on the launch fixture harness.
 #   8. A read-only offload mints no flight identity (REQ-C1.6): the offload
 #      primitive places nothing a flight would, and leaves no brief.
 #   9. Hostile or malformed input is refused before anything is placed; a
@@ -888,7 +890,7 @@ b2=$(field "$OUT" flight)
 [ -d "$c/primary/.claude/worktrees/flight-$a" ] && [ -d "$c/primary/.claude/worktrees/flight-$b2" ] \
   || fail "two flights did not get two worktrees"
 
-# --- 7. tmux rung: the brief rides the native attach -------------------------
+# --- 7. tmux rung: the brief rides the detached launch -----------------------
 new_case
 run dispatch readme-typo --backend tmux --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" \
   --repo-root "$c/primary" --attach-dry-run
@@ -901,8 +903,8 @@ grep -q "tmux-flight-$fid" "$brief" || fail "the brief must carry the tmux worke
   || fail "a dry run launches nothing, so it pushes no dispatch event"
 plan=$(printf '%s\n' "$OUT" | awk -F"$TAB" '$1=="attach-plan" && $2=="launch"')
 case $plan in
-  *"claude${TAB}--worktree${TAB}flight-$fid${TAB}--tmux=classic${TAB}--${TAB}Read $brief and follow it exactly."*) ;;
-  *) fail "tmux attach must launch claude --worktree flight-<id> with the brief prompt, got: $plan" ;;
+  *"${TAB}tmux${TAB}new-session${TAB}-d${TAB}-s${TAB}primary-"*"_flight-$fid${TAB}-c${TAB}$(field "$OUT" worktree)${TAB}-P${TAB}"*"${TAB}--${TAB}"*"/fleet-dispatch-env.sh${TAB}--identity${TAB}tmux-flight-$fid${TAB}flight:$fid${TAB}"*"claude${TAB}--${TAB}Read $brief and follow it exactly.${TAB};${TAB}set-window-option${TAB}"*) ;;
+  *) fail "the tmux plan must launch claude detached in flight-<id>'s worktree with its identity and the brief prompt, got: $plan" ;;
 esac
 
 # A fleet home reached through a symlink hands the primitive the canonical
