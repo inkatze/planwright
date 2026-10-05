@@ -644,7 +644,10 @@ sweep_briefs() {
       # left to report, and its row would otherwise sit in the status render.
       for _sb_h in "tmux-flight-$_sb_id" "print-flight-$_sb_id"; do
         /bin/sh "$ATTN" clear "$_sb_h" >/dev/null 2>&1 </dev/null \
-          || echo "$prog: could not clear the attention row of retired flight $_sb_id" >&2
+          || {
+            echo "$prog: could not clear the attention row of retired flight $_sb_id" >&2
+            _sb_failed=1
+          }
       done
     else
       echo "$prog: could not remove the brief directory of retired flight $_sb_id ($_sb_dir)" >&2
