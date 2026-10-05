@@ -79,6 +79,7 @@ cat >"$tmp/bin/claude" <<'EOF'
 #!/bin/sh
 if [ -e "$CLAUDE_STUB_FAIL" ]; then
   rm -f "$CLAUDE_STUB_FAIL"
+  echo "claude-stub: the launch was refused" >&2
   exit 1
 fi
 { printf 'cwd=%s\n' "$(pwd -P)"; printf 'argv=%s\n' "$*"; } >>"$CLAUDE_STUB_LOG"
@@ -362,6 +363,10 @@ supervise "$((t + 200000))" >/dev/null
 : >"$CLAUDE_STUB_FAIL"
 out=$(supervise "$((t + 200100))")
 [ "$(lineof "$out" "$X")" = failed ] || fail "a relaunch that does not start reads failed (got: $out)"
+case $(printf '%s\n' "$out" | awk -F "$TAB" -v id="$X" '$2 == id { print $3 }') in
+  *"(claude-stub: the launch was refused)"*) ;;
+  *) fail "a relaunch that does not start names why (got: $out)" ;;
+esac
 before=$(launches)
 out=$(supervise "$((t + 200101))")
 [ "$(lineof "$out" "$X")" = backoff ] || fail "a relaunch that did not start counts as another failure and backs off (got: $out)"

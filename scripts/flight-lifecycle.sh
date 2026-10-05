@@ -271,9 +271,15 @@ crash_count() {
 }
 
 # relaunch <id> <handle> — start a fresh worker in the flight's own worktree
-# with its own brief, from the checkout that holds it.
+# with its own brief, from the checkout that holds it. On failure RELAUNCH_WHY
+# holds attach's last diagnostic, one printable line, so the operator sees why.
 relaunch() {
-  (cd "$repo_root" && /bin/sh "$WORKTREE" attach "flight-$1" --brief "$FDIR/brief.md" </dev/null >/dev/null 2>&1)
+  RELAUNCH_WHY=''
+  _rl_err=$( (cd "$repo_root" && /bin/sh "$WORKTREE" attach "flight-$1" --brief "$FDIR/brief.md" </dev/null 2>&1 >/dev/null)) \
+    && return 0
+  _rl_err=$(printf '%s\n' "$_rl_err" | awk 'NF { l = $0 } END { print l }')
+  RELAUNCH_WHY=$(sanitize_printable "$_rl_err" | cut -c1-200)
+  return 1
 }
 
 supervise_one() {
@@ -344,7 +350,7 @@ supervise_one() {
             # relaunch that keeps failing backs off and reaches the disable.
             rmdir "$CLAIM" 2>/dev/null
             rm -f "$counted/recorded" && rmdir "$counted" 2>/dev/null
-            printf 'failed\t%s\t%s\n' "$id" "the relaunch did not start; it counts as another crash"
+            printf 'failed\t%s\t%s\n' "$id" "the relaunch did not start${RELAUNCH_WHY:+ ($RELAUNCH_WHY)}; it counts as another crash"
           fi
           ;;
         1) printf 'waiting\t%s\t%s\n' "$id" "$count" ;;
