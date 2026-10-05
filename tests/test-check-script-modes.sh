@@ -174,7 +174,21 @@ assert_contains "the first offender is named" "$out" "scripts/a.sh"
 assert_contains "the second offender is named" "$out" "scripts/b.sh"
 
 # ---------------------------------------------------------------------------
-# 9. Fail closed: nothing to scan, or no repository, is exit 2, never clean.
+# 9. BSD mktemp supplies no default template, so a bare `mktemp` fails on the
+#    macOS half of the support bar. A stub refusing a template-less call
+#    stands in for it; the guard must still run clean.
+# ---------------------------------------------------------------------------
+mkdir -p "$tmp/bsdbin" || exit 1
+real_mktemp="$(command -v mktemp)" || exit 1
+printf '#!/bin/sh\n[ $# -gt 0 ] || { echo "usage: mktemp [-d] template" >&2; exit 1; }\nexec %s "$@"\n' \
+  "$real_mktemp" >"$tmp/bsdbin/mktemp" || exit 1
+chmod 755 "$tmp/bsdbin/mktemp" || exit 1
+out="$(PATH="$tmp/bsdbin:$PATH" /bin/bash "$CHECKER" --repo-root "$tmp/good" 2>&1)"
+assert "the guard runs where mktemp has no default template" 0 $?
+assert_contains "it still reports the scan" "$out" "clean (2 scripts)"
+
+# ---------------------------------------------------------------------------
+# 10. Fail closed: nothing to scan, or no repository, is exit 2, never clean.
 # ---------------------------------------------------------------------------
 make_repo "$tmp/empty"
 out="$(/bin/bash "$CHECKER" --repo-root "$tmp/empty" 2>&1)"

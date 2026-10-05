@@ -109,7 +109,10 @@ top="$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)" \
 
 # The index listing goes through a temp file rather than a pipe so a failing
 # `git ls-files` is seen: a pipe would hand the loop a short list and exit 0.
-listing="$(mktemp)" || fail_closed "cannot create a temporary file"
+# Explicit template (the house pattern, see scripts/check-hook-contracts.sh):
+# BSD mktemp supplies no default one.
+listing="$(mktemp "${TMPDIR:-/tmp}/check-script-modes.XXXXXX")" \
+  || fail_closed "cannot create a temporary file"
 trap 'rm -f "$listing"' EXIT
 git -C "$top" ls-files -s -z -- ':(glob)scripts/*.sh' >"$listing" \
   || fail_closed "cannot read the git index"
