@@ -1429,7 +1429,8 @@ demand rather than lost:
 Each row is the flight worker's own (`tmux-flight-<id>` or `print-flight-<id>`,
 scope `flight:<id>`), so the tower reads flights through the same `render` and
 `queue` as every other worker. Neither status push overwrites a queued
-decision. A retired flight's row is cleared with its brief.
+decision. A retired flight's row is cleared before its brief is removed; a
+clear that fails keeps the brief, so the next sweep retries it.
 
 ### What planwright registers, and the event it deliberately does not
 

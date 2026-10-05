@@ -1297,10 +1297,17 @@ age "$c/fleet/flights/$fb"
 chmod 500 "$c/fleet/attention"
 run retire --repo-root "$c/primary"
 chmod 700 "$c/fleet/attention"
-printf '%s\n' "$OUT" | grep -q "^retired${TAB}$fb$" || fail "retire must retire a prunable flight (out: $OUT)"
 if [ "$RC" -eq 0 ] || ! printf '%s\n' "$ERR" | grep -q "could not clear the attention row"; then
   fail "a lifecycle row retire could not clear must fail the retire, not pass silently (rc $RC: $ERR)"
 fi
+# The brief stays until its row is cleared, so the next retire retries it.
+[ -f "$c/fleet/flights/$fb/brief.md" ] || fail "a retire whose row clear failed must keep the brief for the next retire"
+printf '%s\n' "$OUT" | grep -q "^retired${TAB}$fb$" && fail "a retire whose row clear failed must not report the flight retired (out: $OUT)"
+run retire --repo-root "$c/primary"
+[ "$RC" -eq 0 ] || fail "the retry retire exited $RC: $ERR"
+printf '%s\n' "$OUT" | grep -q "^retired${TAB}$fb$" || fail "retire must retire a prunable flight (out: $OUT)"
+[ -z "$(awk -F "$TAB" -v w="print-flight-$fb" '$1 == w' "$c/fleet/attention/state" 2>/dev/null)" ] \
+  || fail "the retry retire must clear the row the failed one left"
 gitc "$c/primary" worktree prune
 dispatch_print
 fb=$(field "$OUT" flight)

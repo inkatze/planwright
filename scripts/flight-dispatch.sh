@@ -46,9 +46,9 @@
 #       everything when the worktree list or the flights directory cannot be
 #       read, the fleet home or the flights directory is not private to the
 #       user, or an entry's name carries a newline (exit 4). Each retired
-#       flight's attention rows are cleared with its brief. A removal or a row
-#       clear that fails is named on stderr and exits 4 (a failed clear after
-#       its brief was removed still prints the `retired` line). No fleet home yet is a clean
+#       flight's attention rows are cleared before its brief is removed. A
+#       removal or a row clear that fails is named on stderr and exits 4; a
+#       failed clear keeps the brief, so the next retire retries it. No fleet home yet is a clean
 #       exit 0 with no output, and so is a checkout no brief names, answered
 #       without taking its lock. A lock another holds past
 #       PLANWRIGHT_FLIGHT_LOCK_WAIT seconds (default 60) exits 4 with nothing
@@ -604,8 +604,9 @@ stale_min() {
 # let this sweep run beside a dispatch that has just written its brief. An
 # unreadable worktree list or flights directory, one that is not private to
 # the user, or an entry whose name carries a newline removes nothing. Runs
-# under the checkout's lock. Clears each retired flight's attention rows.
-# Returns 1 when a removal or a row clear failed, each one named.
+# under the checkout's lock. Clears each retired flight's attention rows
+# first, keeping the brief of one whose clear failed. Returns 1 when a removal
+# or a row clear failed, each one named.
 sweep_briefs() {
   _sb_flights="$fleet_home/flights"
   [ -e "$_sb_flights" ] || [ -L "$_sb_flights" ] || return 0
@@ -641,17 +642,21 @@ sweep_briefs() {
     # A failed age check keeps the brief: "cannot tell" is never "old".
     _sb_young=$(find "$_sb_dir" -maxdepth 0 -mmin "-$STALE_MIN" 2>/dev/null </dev/null) || continue
     [ -z "$_sb_young" ] || continue
-    if rm -rf "$_sb_dir" 2>/dev/null && [ ! -e "$_sb_dir" ]; then
+    # The flight's lifecycle rows go first: a retired flight has nothing left
+    # to report, and the brief is what the next retire finds it by, so a row
+    # that could not be cleared keeps its brief for that retry.
+    _sb_cleared=1
+    for _sb_h in "tmux-flight-$_sb_id" "print-flight-$_sb_id"; do
+      /bin/sh "$ATTN" clear "$_sb_h" >/dev/null 2>&1 </dev/null \
+        || {
+          echo "$prog: could not clear the attention row of retired flight $_sb_id; its brief stays for the next retire" >&2
+          _sb_cleared=0
+        }
+    done
+    if [ "$_sb_cleared" -eq 0 ]; then
+      _sb_failed=1
+    elif rm -rf "$_sb_dir" 2>/dev/null && [ ! -e "$_sb_dir" ]; then
       printf 'retired\t%s\n' "$_sb_id"
-      # The flight's lifecycle row goes with it: a retired flight has nothing
-      # left to report, and its row would otherwise sit in the status render.
-      for _sb_h in "tmux-flight-$_sb_id" "print-flight-$_sb_id"; do
-        /bin/sh "$ATTN" clear "$_sb_h" >/dev/null 2>&1 </dev/null \
-          || {
-            echo "$prog: could not clear the attention row of retired flight $_sb_id" >&2
-            _sb_failed=1
-          }
-      done
     else
       echo "$prog: could not remove the brief directory of retired flight $_sb_id ($_sb_dir)" >&2
       _sb_failed=1
