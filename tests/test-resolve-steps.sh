@@ -813,6 +813,13 @@ OUT=$(cd "$tmp" && run post-pr --unattended 2>"$tmp/err")
 RC=$?
 [ "$RC" = 1 ] && [ "$OUT" = "park${TAB}s-rel" ] \
   || fail "REQ-C1.3: a relative registry install path must not resolve: rc=$RC out='$OUT' err='$(cat "$tmp/err")'"
+# A relative path beside a searched absolute one still leaves a root
+# unsearched, so the skill is not known absent.
+printf '{"version": 2, "plugins": {"rel@market": [{"installPath": "%s"}, {"installPath": "plugins/rel"}]}}\n' "$tmp/plugins/nowhere" >"$registry"
+OUT=$(cd "$tmp" && run post-pr --unattended 2>"$tmp/err")
+RC=$?
+[ "$RC" = 1 ] && [ "$OUT" = "park${TAB}s-rel" ] \
+  || fail "REQ-C1.3: a relative path beside a searched one must not make the skill known absent: rc=$RC out='$OUT' err='$(cat "$tmp/err")'"
 write_registry
 printf '#!/bin/sh\nexit 0\n' >"$bin/fixture-tool"
 chmod +x "$bin/fixture-tool"

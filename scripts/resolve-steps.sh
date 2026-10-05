@@ -1329,7 +1329,11 @@ EOF
   screened=0
   while IFS= read -r p; do
     [ -n "$p" ] || continue
-    case "$p" in /*) ;; *) continue ;; esac
+    case "$p" in /*) ;; *)
+      screened=1
+      continue
+      ;;
+    esac
     case "$p" in *[[:cntrl:]]*)
       screened=1
       continue
