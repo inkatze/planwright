@@ -1817,6 +1817,18 @@ capture pre-pr --check --unattended
 [ "$RC" = 0 ]
 verdict "--check passes a declared-continue skip as it passes any machine-local skip" "--check continue skip: rc=$RC err='$ERR'"
 rm -f "$mlocal_cat" "$mlocal_cfg"
+# The flag is read only from a location that passed the control-byte screen,
+# so a refused row never prints a C0 byte: a planwright skills root carrying
+# a tab leaves the flagged skill an ordinary non-resolving step.
+skroot="$tmp/sk$(printf '\t')root"
+gate_skill "$skroot/gated/SKILL.md" 'disable-model-invocation: true'
+cat_entry "$tracked_cat" s-pw-ctl "kind: skill" "target: planwright:gated"
+printf 'steps_pre_pr: [s-pw-ctl]\n' >"$tracked_cfg"
+capture PLANWRIGHT_SKILLS_ROOT="$skroot" pre-pr --explain --unattended
+[ "$RC" = 1 ] && printf '%s\n' "$OUT" | grep -q "^park${TAB}s-pw-ctl${TAB}" \
+  && [ "$(printf '%s\n' "$OUT" | awk -F"$TAB" '{ print NF }')" = 13 ]
+verdict "a flagged skill under a control-byte root never prints that root in a refused row" "control-byte refusal: rc=$RC out='$OUT' err='$ERR'"
+rm -f "$tracked_cfg"
 # Several points check in one run, the pre-flight's form: a refusal at any
 # point fails the run, even from a machine-local list, and a clean set passes.
 rm -f "$tracked_cfg"

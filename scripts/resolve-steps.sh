@@ -1432,10 +1432,6 @@ resolve_target() {
           return 1
         }
       fi
-      if model_invocation_disabled "$LOC"; then
-        REASON="its skill target sets disable-model-invocation: true in $LOC, so the Skill tool refuses it from any worker; drop the flag, or use a kind: prompt step that reads the skill file"
-        return 1
-      fi
       REFUSE=0
       ;;
   esac
@@ -1446,6 +1442,11 @@ resolve_target() {
       return 1
       ;;
   esac
+  if [ "$rkind" = skill ] && model_invocation_disabled "$LOC"; then
+    REFUSE=1
+    REASON="its skill target sets disable-model-invocation: true in $LOC, so the Skill tool refuses it from any worker; drop the flag, or use a kind: prompt step that reads the skill file"
+    return 1
+  fi
   rreq=${E_REQ[rn]}
   for r in $rreq; do
     case "$r" in
