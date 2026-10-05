@@ -130,9 +130,11 @@ writes a validator error after the content is already committed.
 ### 6. `/spec-kickoff` pre-flight order
 
 **Why:** working-location resolution runs after the bundle check and the
-validator, so from the main checkout a bundle that lives only on its spec
-branch reads as a structural defect, and the pre-flight work is spent and
-then re-run after the switch.
+validator, which causes two separate problems. From the main checkout, a
+bundle that lives only on its spec branch is reported at step 2 as a
+structural defect pointing at `/spec-draft`, a false halt. When the bundle
+is visible, steps 1 to 4 run, step 5 then switches to the spec worktree,
+and that work is repeated there.
 
 - **Evidence:** dotfiles observation `5d46a147` (2026-08-05), seen on a
   four-file Draft bundle that sat unmerged on its spec branch.
