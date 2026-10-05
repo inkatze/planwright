@@ -410,8 +410,8 @@ RL_CI_FLIP_POINT_CONTEXTS='["planwright/pre-ready-flip","planwright/pre-spec-rea
 # CheckRun is PENDING until COMPLETED; SUCCESS is the only positive confirmation;
 # NEUTRAL/SKIPPED neither confirm nor fail. Legacy StatusContexts map
 # SUCCESS/PENDING/EXPECTED/other the same way (commit statuses carry no
-# NEUTRAL/SKIPPED and no workflow, so a StatusContext is never the excluded lock,
-# only ever a flip-point status).
+# NEUTRAL/SKIPPED and no workflow, so a StatusContext is never the excluded lock;
+# the only StatusContexts excluded are the flip-point statuses).
 # Any jq error (malformed response, missing field) fails closed via `|| return 2`,
 # as does an abnormal exit-0 gh success with an empty body (guarded before jq, so
 # an empty body is the query-failure status, never an empty rc-0 verdict).
