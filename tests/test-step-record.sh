@@ -1441,6 +1441,18 @@ post_state pre-spec-ready-flip "$H_F"
 [ "$ST_RC" -eq 0 ] && gh_arg context=planwright/pre-spec-ready-flip && gh_arg state=failure
 verdict "the spec-PR flip point posts the pre-spec-ready-flip context" "rc=$ST_RC"
 
+# Only the queried point's records count: another point's failure in the same
+# run leaves this point's status green.
+H_X=3333333333333333333333333333333333333333
+r=$(sr2 new-run)
+step_rec "$r" pre-ready-flip failed "$H_X"
+done_rec "$r" pre-ready-flip "$H_X"
+step_rec "$r" pre-spec-ready-flip passed "$H_X"
+done_rec "$r" pre-spec-ready-flip "$H_X"
+post_state pre-spec-ready-flip "$H_X"
+[ "$ST_RC" -eq 0 ] && gh_arg state=success
+verdict "another point's failed record does not fail this point's status" "rc=$ST_RC"
+
 # A head with no completion record is refused, with no post.
 r=$(sr2 new-run)
 step_rec "$r" pre-ready-flip passed 2222222222222222222222222222222222222222
