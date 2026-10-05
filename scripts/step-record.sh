@@ -20,6 +20,8 @@
 #   step-record.sh [--worktree <dir>] render [--run <id>] [--point <point>]...
 #   step-record.sh [--worktree <dir>] regenerate --base <rev> --head <rev>
 #       [--run <id>] [--checklist-only]
+#   step-record.sh [--worktree <dir>] status --point <flip-point>
+#       --head <sha> --repo <owner>/<name>
 #
 #   --worktree    the unit's worktree; default the enclosing git top level.
 #                 The cache is <worktree>/.claude/steps/, created mode 0700;
@@ -62,6 +64,23 @@
 #                 the PR base branch's current tip, so commits a merge from
 #                 the base brought in are reachable from it and never enter
 #                 the range.
+#   status        post a flip point's commit status on --head in --repo, the
+#                 base repository the PR targets, and print
+#                 `posted<TAB><context><TAB><state><TAB><head>`. The point is
+#                 pre-ready-flip or pre-spec-ready-flip, the context
+#                 `planwright/<point>`. The latest attempt is the highest run
+#                 holding a completion record of that point naming --head; a
+#                 head with none is refused (exit 1) with no post. The state
+#                 is `failure` when any of that run's step records at the
+#                 point is halted or failed, whatever head it started on,
+#                 else `success` (an empty list included). The description
+#                 is `<point>: no step halted or failed (run <id>)`, or `a
+#                 step halted or failed` in its place; the status carries no
+#                 target URL, excerpt, or path. The post is
+#                 `gh api --method POST repos/<repo>/statuses/<head>`; a
+#                 later post on the same head and context replaces the
+#                 earlier one. A failed post exits 1 naming the repository
+#                 and the permission the login needs.
 #
 # Field grammar (write refuses a violation with exit 2, naming the field and
 # never echoing its value; no value is ever interpolated before it passes):
@@ -174,9 +193,15 @@
 # An empty checklist renders `- none`. A <base> or <head> that does not
 # resolve, or a range git cannot read, fails by name.
 #
+# status's --repo is <owner>/<name>: the owner [A-Za-z0-9-], at most 39 bytes,
+# not opening with `-`; the name [A-Za-z0-9._-], at most 100 bytes, neither
+# `.` nor `..` nor opening with `-`. Its --point and --head follow the grammar
+# above, the point one of the two flip points.
+#
 # Exit: 0 success · 1 a runtime failure (an unresolvable or unreadable range,
 # a cache that cannot be read or written, an exhausted counter, a cache lock
-# another writer held past the wait) · 2 a usage or field-validation error.
+# another writer held past the wait, a status with no attempt to post or a
+# post that failed) · 2 a usage or field-validation error.
 #
 # Portable POSIX sh + awk + iconv; bash 3.2 / BSD tooling floor.
 set -u
@@ -980,6 +1005,70 @@ cmd_regenerate() {
   fi
 }
 
+# --- status --------------------------------------------------------------------------
+is_repo() {
+  case $1 in */*/* | -* | */-* | */ | /*) return 1 ;; */*) ;; *) return 1 ;; esac
+  _owner=${1%%/*} _name=${1#*/}
+  case $_owner in *[!A-Za-z0-9-]*) return 1 ;; esac
+  case $_name in . | .. | *[!A-Za-z0-9._-]*) return 1 ;; esac
+  [ "${#_owner}" -le 39 ] && [ "${#_name}" -le 100 ]
+}
+
+cmd_status() {
+  point='' head='' repo=''
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --point | --head | --repo) [ $# -ge 2 ] || usage ;;
+      *) usage ;;
+    esac
+    case $1 in
+      --point) point=$2 ;;
+      --head) head=$2 ;;
+      --repo) repo=$2 ;;
+    esac
+    shift 2
+  done
+  case $point in pre-ready-flip | pre-spec-ready-flip) ;; *) bad --point "not a flip point" ;; esac
+  is_head "$head" || bad --head "not a full commit id"
+  is_repo "$repo" || bad --repo "not an <owner>/<name> repository"
+
+  attempt=''
+  for r in $(run_ids | sort -r); do
+    check_run "$r"
+    for f in $(glob_names "$cache/$r" "[0-9][0-9][0-9]-done-$point.rec"); do
+      if grep -Fxq "head$TAB$head" "$cache/$r/$f"; then
+        attempt=$r
+        break 2
+      fi
+    done
+  done
+  [ -n "$attempt" ] || die 1 "no completion record of $point names $head; refusing to post a status"
+
+  state=success
+  for f in $(record_files "$attempt"); do
+    grep -Fxq "type${TAB}step" "$f" && grep -Fxq "point$TAB$point" "$f" || continue
+    if grep -Fxq "outcome${TAB}halted" "$f" || grep -Fxq "outcome${TAB}failed" "$f"; then
+      state=failure
+    fi
+  done
+  context="planwright/$point"
+  if [ "$state" = success ]; then
+    description="$point: no step halted or failed (run $attempt)"
+  else
+    description="$point: a step halted or failed (run $attempt)"
+  fi
+
+  command -v gh >/dev/null 2>&1 || die 1 "gh is not on PATH; cannot post the $context status"
+  scratch
+  if ! gh api --method POST "repos/$repo/statuses/$head" -f "state=$state" \
+    -f "context=$context" -f "description=$description" >/dev/null 2>"$work/gh.err"; then
+    why=$(head -n 1 "$work/gh.err")
+    why=$(sanitize_printable "$why" 'no error text')
+    die 1 "cannot post the $context status on $head in $repo ($why); the login needs commit-status write access: repo:status on a classic token, or Commit statuses write on a fine-grained token or app"
+  fi
+  printf 'posted\t%s\t%s\t%s\n' "$context" "$state" "$head" || die 1 "cannot print the posted status"
+}
+
 command -v iconv >/dev/null 2>&1 || die 1 "iconv is not on PATH"
 check_dir "$worktree/.claude"
 check_dir "$cache"
@@ -989,6 +1078,7 @@ if command -v git >/dev/null 2>&1 && [ -d "$cache" ]; then
 fi
 
 case $verb in
+  status) cmd_status "$@" ;;
   new-run) cmd_new_run "$@" ;;
   write) cmd_write "$@" ;;
   list) cmd_list "$@" ;;

@@ -1344,10 +1344,12 @@ H_G=1111111111111111111111111111111111111111
 step_rec() {
   if [ "$3" = skipped ]; then
     set -- "$@" --skip-reason "not applicable"
+  else
+    set -- "$@" --session fixture
   fi
   sr2 write --run "$1" --point "$2" --step "s-$3" --kind command --target "true" \
     --hosting in-session --backend terminal --head "$4" \
-    --start 2026-10-01T10:00:00Z --end 2026-10-01T10:00:01Z --outcome "$3" "${5:-}" "${6:-}" >/dev/null \
+    --start 2026-10-01T10:00:00Z --end 2026-10-01T10:00:01Z --outcome "$3" "$5" "$6" >/dev/null \
     || fail "fixture: cannot write a $3 step record"
 }
 done_rec() {
