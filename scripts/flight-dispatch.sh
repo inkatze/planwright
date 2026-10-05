@@ -197,7 +197,8 @@ EOF
 }
 
 for _h in "$FLIGHT_ID" "$WORKTREE" "$STATE" "$CONFIG" "$STEPS" "$ROOTS" \
-  "$ALLOC" "$LADDER" "$FETCH" "$REGISTER" "$ENVWRAP" "$MANIFEST_SKILL" "$TEXT" "$COMMON"; do
+  "$ALLOC" "$LADDER" "$FETCH" "$REGISTER" "$LIFECYCLE" "$ATTN" "$ENVWRAP" "$MANIFEST_SKILL" \
+  "$TEXT" "$COMMON"; do
   [ -r "$_h" ] || die 2 "required helper missing: $_h"
 done
 # shellcheck source=scripts/flight-text.sh
