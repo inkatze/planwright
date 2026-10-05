@@ -232,6 +232,17 @@ grep -q "^cwd=$repo\$" "$CLAUDE_STUB_LOG" || fail "the relaunch runs from the fl
 /bin/sh "$STATE" registry 2>/dev/null | awk -F "$TAB" -v h="$HC" '$2 == h' | tail -n 1 | grep -q "flight:$C" \
   || fail "the relaunched worker's record carries the flight's scope"
 
+# The same death read again after its relaunch (a second sweep that raced the
+# first, or a registry the relaunch could not update) is neither counted nor
+# relaunched a second time.
+same=$(/bin/sh "$STATE" registry 2>/dev/null | awk -F "$TAB" -v h="$HC" '$2 == h && $7 != "" && $7 != "-" { d = $7 } END { print d }')
+/bin/sh "$STATE" register "$HC" "flight:$C" --backend tmux --death-handle "$same" >/dev/null
+out=$(supervise "$((t + 35))")
+[ -n "$same" ] || fail "fixture: the first death's handle was not found in the registry"
+[ "$(field "$(line "$out")" 1)" = waiting ] || fail "an already-relaunched death reads waiting (got: $out)"
+[ "$(launches)" = 1 ] || fail "one death is relaunched once, however many sweeps observe it (got: $out)"
+[ "$(cut -d' ' -f1 "$tmp/fleet/liveness/crash/$HC")" = 1 ] || fail "a relaunched death is not counted again"
+
 die_as 2
 out=$(supervise "$((t + 40))")
 [ "$(field "$(line "$out")" 1)" = backoff ] || fail "a second death backs off again (got: $out)"
