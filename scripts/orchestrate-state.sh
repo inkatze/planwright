@@ -21,7 +21,10 @@
 #               covers solo direct-to-base commits and squash merges (R2).
 #   in-progress the branch exists with commits beyond base (not yet merged), OR
 #               gh reports its PR OPEN, OR a FRESH runtime dispatch marker (D-3)
-#               holds it across the branch-create → first-commit window.
+#               holds it across the branch-create → first-commit window, OR
+#               its origin remote-tracking ref carries commits beyond both
+#               base and base's remote counterpart (work pushed from another
+#               checkout).
 #   ready       no in-progress/completed evidence and every dependency is
 #               completed. A STALE marker (older than the staleness threshold,
 #               branch carrying no commits) no longer holds the task: a crashed
@@ -173,9 +176,10 @@ fi
 # remote-tracking counterpart so completion survives a stale local base. This
 # adds no network I/O (it reads whatever git already fetched) and never regresses
 # a local-only repo: with no upstream and no origin/<base>, the union is just
-# base. Only the TRAILER scan widens — the branch/merge-reachability arms below
-# stay base-local by design, because they reason about LOCAL task branches,
-# whereas a merged PR's completion anchor (the trailer) is what can lag the base.
+# base. The merge-reachability arms below stay base-local by design, because
+# they reason about LOCAL task branches, whereas a merged PR's completion anchor
+# (the trailer) is what can lag the base. The remote-tracking in-progress arm
+# reads this union too, for the opposite reason: its branch lives on the remote.
 scan_refs="$base"
 # Prefer the configured upstream (correct when tracking is set); fall back to a
 # conventional origin/<base> when base is a local branch with no tracking config
@@ -388,6 +392,23 @@ fi
 # Branch-reachability helper.
 branch_exists() { git -C "$repo_root" show-ref --verify --quiet "refs/heads/$1"; }
 
+# Work pushed from another checkout or machine exists here only as a
+# remote-tracking ref. This reads what the dispatch fetch already mapped under
+# refs/remotes/origin/* (task branches carry no upstream config, so origin is
+# named directly) and adds no network call; an unfetched remote branch stays
+# invisible until the next fetch. The count excludes scan_refs, not base alone:
+# the fetch never advances local main, so measuring against a lagging base would
+# count origin/main's newer commits as the task's own work. A count that errors
+# once the ref exists holds the task: reading it as nothing ahead would free the
+# task for the duplicate dispatch this arm exists to prevent.
+remote_branch_ahead() {
+  git -C "$repo_root" show-ref --verify --quiet "refs/remotes/origin/$1" || return 1
+  # shellcheck disable=SC2086
+  rb_count=$(git -C "$repo_root" rev-list --count "refs/remotes/origin/$1" --not $scan_refs 2>/dev/null) || return 0
+  case "$rb_count" in '' | *[!0-9]*) return 0 ;; esac
+  [ "$rb_count" -gt 0 ]
+}
+
 # Membership test: is commit $1 on base's first-parent mainline? Used by the
 # branch-merged check below to tell a stale zero-commit fork (tip ON the line)
 # from genuinely merged work (tip OFF it). base is loop-invariant, so the
@@ -522,6 +543,18 @@ while IFS="$TAB" read -r id deps; do
     fi
   fi
 
+  # The last in-progress arm, probed only when no other evidence decides the
+  # task: every arm above outranks it, and a kept squash-merged head branch
+  # stays ahead of base for good, so walking it otherwise would change nothing.
+  # Checking only the local branch's absence of work keeps a zero-commit local
+  # dispatch branch from masking commits pushed elsewhere.
+  rbr_commits=0
+  if [ "$br_commits" -eq 0 ] && [ "$br_merged" -eq 0 ] && [ "$trailer_done" -eq 0 ] \
+    && [ "$pr_merged" -eq 0 ] && [ "$pr_open" -eq 0 ] && [ "$marker_fresh" -eq 0 ] \
+    && remote_branch_ahead "$branch"; then
+    rbr_commits=1
+  fi
+
   evstate=unresolved
   # Non-empty placeholder: tab is an IFS-whitespace char, so an empty interior
   # field would collapse on read and shift the columns. Pass 2 overwrites this
@@ -546,6 +579,9 @@ while IFS="$TAB" read -r id deps; do
   elif [ "$marker_fresh" -eq 1 ]; then
     evstate=in-progress
     evidence="marker-fresh"
+  elif [ "$rbr_commits" -eq 1 ]; then
+    evstate=in-progress
+    evidence="remote-branch-commits"
   fi
 
   # Contradiction: git ground truth says completed (a merged branch or a

@@ -39,13 +39,12 @@
 #                 atomically, and a step or completion record for a point the
 #                 run already completed is refused. A repeated write is a
 #                 second record; retrying is the caller's call. A write that
-#                 fails before its record exists releases its claims, short
-#                 of an uncatchable kill, which can leave the point claimed
-#                 with no record (a new run recovers); an exit 1 after the
-#                 record exists (a failed print) leaves the record, and for a
-#                 completion the claim, in place. A reader running while
-#                 writers are still in flight can see a later record before
-#                 an earlier one lands.
+#                 fails before its record exists leaves nothing claimed,
+#                 short of an uncatchable kill, which leaves the cache lock
+#                 for the next writer to break once the killed process is
+#                 gone; an exit 1 after the record exists (a failed print)
+#                 leaves the record in place. A reader running while writers
+#                 are in flight may miss a record that lands during its read.
 #                 --excerpt-file resolves against the caller's directory.
 #   list          print every record of the run (every run when --run is
 #                 absent), oldest first, optionally one point's only: a
@@ -91,8 +90,12 @@
 # Storage: <cache>/<run>/<seq>-step-<point>.rec and
 # <cache>/<run>/<seq>-done-<point>.rec (a name never carries a step id, which
 # the screen may withhold), <seq> three digits unique within the run and
-# increasing in write order (each claimed atomically), at most 999 records a
-# run. A record is `<key><TAB><value>` lines: type, run, seq, then
+# increasing in write order, at most 999 records a run. Issuing a run id and
+# writing a record each happen under <cache>/.lock, taken through
+# scripts/lock-lib.sh, so a record's own file is its sequence claim and its
+# point's completion. A cache from before that lock also holds `.seq-<seq>`
+# and `.done-<point>` directories; they still count as a claimed number and a
+# completed point. A record is `<key><TAB><value>` lines: type, run, seq, then
 # the fields above under their flag names (`excerpt` for --excerpt-file), an
 # empty optional field stored empty; `excerpt` and `warning` lines repeat.
 # Records are mode 0600. Its form is unstable to anything but this helper.
@@ -172,8 +175,8 @@
 # resolve, or a range git cannot read, fails by name.
 #
 # Exit: 0 success · 1 a runtime failure (an unresolvable or unreadable range,
-# a cache that cannot be read or written, an exhausted counter) · 2 a usage
-# or field-validation error.
+# a cache that cannot be read or written, an exhausted counter, a cache lock
+# another writer held past the wait) · 2 a usage or field-validation error.
 #
 # Portable POSIX sh + awk + iconv; bash 3.2 / BSD tooling floor.
 set -u
@@ -185,6 +188,8 @@ umask 077
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 1
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
+# shellcheck source=scripts/lock-lib.sh
+. "$script_dir/lock-lib.sh"
 
 prog='step-record.sh'
 TAB=$(printf '\t')
@@ -205,18 +210,9 @@ set -f
 
 work=''
 pending=''
-seq_claim=''
-done_claim=''
 cleanup() {
+  pw_lock_release_all
   [ -z "$pending" ] || rm -f "$pending"
-  [ -z "$seq_claim" ] || rmdir "$seq_claim" 2>/dev/null
-  # A completion record already linked keeps its claim, whatever the signal
-  # interrupted.
-  if [ -n "$done_claim" ]; then
-    _run_dir=${done_claim%/*}
-    _point=${done_claim##*/.done-}
-    [ -n "$(glob_names "$_run_dir" "[0-9][0-9][0-9]-done-$_point.rec")" ] || rmdir "$done_claim" 2>/dev/null
-  fi
   [ -z "$work" ] || rm -rf "$work"
 }
 trap cleanup EXIT
@@ -238,6 +234,8 @@ bad() { die 2 "$1: $2"; }
 scratch() {
   [ -n "$work" ] && return 0
   work=$(mktemp -d "${TMPDIR:-/tmp}/step-record.XXXXXX") || die 1 "cannot create a temporary directory"
+  # Absolute, because a claim reads it after lock_cache has changed directory.
+  case $work in /*) ;; *) work="$(pwd -P)/$work" ;; esac
 }
 
 # has_ctl <value>: true when the value carries a C0 control byte or DEL.
@@ -440,6 +438,28 @@ valid_run() {
   check_run "$1"
 }
 
+# lock_cache / unlock_cache: hold <cache>/.lock around a claim. The lock is
+# named from inside the cache because lock-lib refuses a path carrying `#`,
+# which a worktree path may; every path a claim reads is absolute by then.
+lock_cache() {
+  cd "$cache" || die 1 "cannot enter the record cache"
+  pw_lock_acquire .lock
+  case $? in
+    0) ;;
+    1) die 1 "the record cache stayed locked by another writer" ;;
+    *) die 1 "cannot lock the record cache" ;;
+  esac
+}
+# A release that fails stays recorded, and the exit handler retries it.
+unlock_cache() { pw_lock_release .lock || :; }
+
+# point_done <run> <point>: true once the run completed the point, by its
+# record or by a directory-shaped marker an older writer left.
+point_done() {
+  [ -d "$cache/$1/.done-$2" ] \
+    || [ -n "$(glob_names "$cache/$1" "[0-9][0-9][0-9]-done-$2.rec")" ]
+}
+
 # latest_run: sets LATEST to the highest run id, if any.
 latest_run() {
   LATEST=$(run_ids | tail -n 1)
@@ -450,21 +470,18 @@ latest_run() {
 cmd_new_run() {
   [ $# -eq 0 ] || usage
   mkdir -p "$cache" || die 1 "cannot create the record cache"
+  lock_cache
   last=$(run_ids | tail -n 1)
   next=$((1${last:-000000} - 1000000 + 1))
-  while :; do
-    [ "$next" -le 999999 ] || die 1 "the run-id counter is exhausted"
-    id=$(printf '%06d' "$next")
-    if mkdir "$cache/$id" 2>/dev/null; then
-      printf '%s\n' "$id" || {
-        rmdir "$cache/$id"
-        die 1 "cannot print the run id"
-      }
-      return 0
-    fi
-    [ -d "$cache/$id" ] || die 1 "cannot create a run directory"
-    next=$((next + 1))
-  done
+  [ "$next" -le 999999 ] || die 1 "the run-id counter is exhausted"
+  id=$(printf '%06d' "$next")
+  { [ ! -e "$cache/$id" ] && [ ! -L "$cache/$id" ]; } || die 1 "cannot create a run directory"
+  mkdir -p "$cache/$id" || die 1 "cannot create a run directory"
+  unlock_cache
+  printf '%s\n' "$id" || {
+    rmdir "$cache/$id"
+    die 1 "cannot print the run id"
+  }
 }
 
 # --- write ------------------------------------------------------------------------
@@ -474,40 +491,28 @@ put() {
   printf '%s\t%s\n' "$1" "$2" || die 1 "cannot write a temporary file"
 }
 
-# claim <run> <stem> <type> <body-file> [<point>]: write the record under
-# the run's next sequence number, claimed atomically, and print its absolute
-# path. Given a point, refuse once the point's completion is claimed: a
-# completion claims its marker before its sequence number, so a step whose
-# number came first still sorts before the completion.
+# claim <run> <stem> <type> <body-file> <point>: under the cache lock, refuse
+# once the point is completed, then write the record under the run's next
+# sequence number and print its absolute path.
 claim() {
   dir="$cache/$1"
-  last=$(glob_names "$dir" '.seq-[0-9][0-9][0-9]' | tail -n 1)
-  last=${last#.seq-}
+  lock_cache
+  point_done "$1" "$5" && bad --point "already completed in this run"
+  last=$({
+    glob_names "$dir" '.seq-[0-9][0-9][0-9]' | sed 's/^\.seq-//'
+    glob_names "$dir" '[0-9][0-9][0-9]-*.rec' | cut -c1-3
+  } | sort | tail -n 1)
   next=$((1${last:-000} - 1000 + 1))
-  while :; do
-    [ "$next" -le 999 ] || die 1 "the run's record counter is exhausted"
-    seq=$(printf '%03d' "$next")
-    if mkdir "$dir/.seq-$seq" 2>/dev/null; then
-      seq_claim="$dir/.seq-$seq"
-      break
-    fi
-    [ -d "$dir/.seq-$seq" ] || die 1 "cannot write to the record cache"
-    next=$((next + 1))
-  done
-  if [ -n "${5:-}" ] && [ -d "$dir/.done-$5" ]; then
-    bad --point "already completed in this run"
-  fi
-  pending="$dir/.rec-$seq"
-  set -C
+  [ "$next" -le 999 ] || die 1 "the run's record counter is exhausted"
+  seq=$(printf '%03d' "$next")
+  pending=$(mktemp "$dir/.rec-XXXXXX") || die 1 "cannot write to the record cache"
   { printf 'type\t%s\nrun\t%s\nseq\t%s\n' "$3" "$1" "$seq" && cat "$4"; } >"$pending" \
     || die 1 "cannot write to the record cache"
-  set +C
   path="$dir/$seq-$2.rec"
   ln "$pending" "$path" || die 1 "cannot write to the record cache"
-  seq_claim=''
-  done_claim=''
   rm -f "$pending"
   pending=''
+  unlock_cache
   printf '%s\n' "$path" || die 1 "cannot print the record path"
 }
 
@@ -557,7 +562,7 @@ cmd_write() {
   valid_run "$run"
   is_point "$point" || bad --point "not a point of the vocabulary"
   is_head "$head" || bad --head "not a full commit id"
-  [ ! -d "$cache/$run/.done-$point" ] || bad --point "already completed in this run"
+  ! point_done "$run" "$point" || bad --point "already completed in this run"
 
   if [ "$completion" -eq 1 ]; then
     for f in "$step" "$kind" "$target" "$hosting" "$backend" "$session" \
@@ -580,13 +585,7 @@ cmd_write() {
         put warning "$w"
       done <"$work/screened"
     } >"$work/body" || die 1 "cannot write a temporary file"
-    if mkdir "$cache/$run/.done-$point" 2>/dev/null; then
-      done_claim="$cache/$run/.done-$point"
-    else
-      [ ! -d "$cache/$run/.done-$point" ] || bad --point "already completed in this run"
-      die 1 "cannot write to the record cache"
-    fi
-    claim "$run" "done-$point" completion "$work/body"
+    claim "$run" "done-$point" completion "$work/body" "$point"
     return
   fi
   [ -z "$warnings" ] || bad --warning "belongs to write --completion"
