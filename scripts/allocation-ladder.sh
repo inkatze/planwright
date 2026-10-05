@@ -1,4 +1,4 @@
-#!/bin/sh
+# shellcheck shell=sh
 # allocation-ladder.sh — the tier ladder's math, as a SOURCED library
 # (model-allocation Task 2; D-6, D-8; REQ-C1.1, REQ-C1.2).
 #
