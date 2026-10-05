@@ -263,7 +263,7 @@ deferred until every flipper posts.
 
 ## Awaiting input
 
-(none yet)
+- **Task 9** — convergence: step `panel-review` halted; record `.claude/steps/000001/004-step-convergence.rec`
 
 ## Deferred
 
