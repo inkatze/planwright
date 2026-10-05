@@ -1044,8 +1044,8 @@ capture convergence --unattended --explain
 [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q "^run${TAB}polish${TAB}convergence${TAB}core${TAB}" \
   && printf '%s' "$ERR" | grep -q 'adopter'
 verdict "REQ-C1.5: a malformed adopter list warns and resolves the core default, the winner then core" "malformed adopter list: rc=$RC out='$OUT' err='$ERR'"
-# ... and the matrix then keys on core: with the core step unresolvable the
-# degraded resolution parks at both attendances.
+# ... and the matrix then keys on core: with the core step's file gone the
+# degraded resolution parks (exit 1), the step's row a refusal.
 mv "$core/skills/polish" "$tmp/polish.bak"
 capture convergence --unattended
 [ "$RC" = 1 ] && [ "$OUT" = "refuse${TAB}polish" ]
@@ -1198,11 +1198,12 @@ out=$(run_inst pre-ci --unattended 2>"$tmp/err") || rc=$?
 err=$(<"$tmp/err")
 [ "$rc" = 4 ] && grep -q 'pipeline-entry' "$tmp/err"
 verdict "REQ-C1.8: the list is read from the script's sibling doctrine dir; overlay and env-arm copies are ignored" "sibling doctrine read: rc=$rc out='$out' err='$err'"
-# Through the real script dir the same entry is merely unresolvable (park),
+# Through the real script dir the same entry is merely unresolvable (its
+# file is absent, so a refusal that parks the point),
 # which is what proves the fixture line, not the shipped one, was read above.
 capture pre-ci --unattended
 [ "$RC" = 1 ] && [ "$OUT" = "refuse${TAB}fx" ] \
-  || fail "sibling doctrine control: rc=$RC out='$OUT' (want park through the shipped list)"
+  || fail "sibling doctrine control: rc=$RC out='$OUT' (want a refusal through the shipped list)"
 printf '# a rule doc with no pipeline-entry line\n' >"$inst/doctrine/custom-steps.md"
 rc=0
 run_inst convergence --unattended >/dev/null 2>"$tmp/err" || rc=$?

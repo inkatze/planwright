@@ -46,17 +46,18 @@ case "$cmd" in
     ;;
   *) fail "the pre-flight check command is not one --check --unattended run over the in-run points: '$cmd'" ;;
 esac
+# shellcheck disable=SC2016 # literal backticks of the skill's markdown, never expanded
 case "$step12" in
-  *"pre-ready-flip"*"unit-owner"*) ok "the flip point joins the check when the unit flips its own PR" ;;
+  *'plus `pre-ready-flip` when `ready_flip_policy` is `unit-owner`'*) ok "the flip point joins the check when the unit flips its own PR" ;;
   *) fail "the pre-flight check must add pre-ready-flip under ready_flip_policy unit-owner" ;;
 esac
 
-# It halts on a refuse row before any implementation, relaying the resolver's
-# warning, which names the cause and the fix (asserted in the functional half).
-# shellcheck disable=SC2016 # literal backticks of the skill's markdown, never expanded
+# Any non-zero check halts before implementation, a refusal included; the
+# resolver's warning names the cause and the fix (the functional half), while
+# the halt entry names only step ids, never a target or a local path.
 case "$step12" in
-  *'a `refuse` row halts, relaying its warning'*) ok "a refuse row halts, relaying its warning" ;;
-  *) fail "step 12 must halt on a refuse row, relaying its warning" ;;
+  *"a non-zero exit halts, naming only step ids"*) ok "a non-zero check halts, naming only step ids" ;;
+  *) fail "step 12 must halt on a non-zero check, naming only step ids" ;;
 esac
 
 # Step 12 is the last pre-flight step, so the check runs before the

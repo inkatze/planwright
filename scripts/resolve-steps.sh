@@ -43,10 +43,11 @@
 #                 resolves to `run`, or to a `skip` from the adopter or
 #                 machine-local layer (which passes with its warning).
 #                 Refuses --attended (check mode never waits on a human).
-#                 Non-zero on any park, on any refuse whatever the layer, on
-#                 a non-empty list at an unwired point, and on any malformation at any layer, a degraded
-#                 adopter or machine-local one included, whether this script
-#                 or a sibling reader degraded it.
+#                 Non-zero on any park (a refused step always parks or asks),
+#                 on a non-empty list at an unwired point, and on any
+#                 malformation at any layer, a degraded adopter or
+#                 machine-local one included, whether this script or a
+#                 sibling reader degraded it.
 #   --preamble    render the fixed context block (below); resolves nothing.
 #   --prefix      render the fixed context as shell assignments (below);
 #                 resolves nothing.
@@ -54,10 +55,11 @@
 #                 args the point's resolution printed (below); resolves
 #                 nothing. Every word after it is an operand.
 #   <point>...    several distinct wired points in one run, --explain only
-#                 (the rows name their point), --check allowed: the config, catalog, and
-#                 host reads are made once and shared, and each point then
-#                 resolves on its own, printing exactly the rows and the
-#                 per-point warnings (shadow, list degrade, skip, park, ask)
+#                 (the rows name their point), --check allowed: the config,
+#                 catalog, and host reads are made once and shared, and each
+#                 point then resolves on its own, printing exactly the rows
+#                 and the per-point warnings (shadow, list degrade, skip,
+#                 park, ask, refuse)
 #                 its single-point run prints, in operand order; the shared
 #                 reads' warnings print once for the run. A shared read that
 #                 fails fails every point (no rows); a point's own list
@@ -160,7 +162,7 @@
 #   2  usage: an unknown, empty, or blank-carrying point, an attendance flag
 #      missing or doubled, --check with --attended, an unknown or conflicting
 #      flag; several points with an unwired or repeated point, without
-#      --explain, or with --check or a render mode; --line
+#      --explain, or with a render mode; --line
 #      without an absolute location, with a control byte in it, or with an
 #      arg outside the charset
 #   4  a malformed repo-tracked list or entry, or a structurally malformed
@@ -300,8 +302,9 @@ for point in $points; do
   fi
 done
 # Several points resolve in one run only as --explain rows, which name their
-# point, and only for distinct wired points: an unwired point's early exit
-# and check mode's verdict are single-point.
+# point, and only for distinct wired points: an unwired point's early exit is
+# single-point. Check mode judges each point and exits with the largest
+# status.
 if [ "$n_points" -gt 1 ]; then
   seen=" "
   for p in $points; do

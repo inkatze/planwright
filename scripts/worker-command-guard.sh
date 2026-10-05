@@ -2197,7 +2197,8 @@ resolve_declared() {
   DECL_PGID=''
   [ "$killed" = 0 ] || return 0
   # Only `run` rows count, so the exit status needs no reading: a point that
-  # parks or asks prints those tokens, one that fails prints nothing, and
+  # parks or asks prints those tokens (a refused step its own `refuse`), one
+  # that fails prints nothing, and
   # either leaves the other points' rows as their own runs print them.
   # The --explain columns resolve-steps.sh documents; it prints `-` for an
   # empty field, which a tab IFS would otherwise collapse.

@@ -155,8 +155,9 @@ wait instead.
     back to the default with a one-line warning).
 12. **Check every point, then run `pre-implementation`**:
     `scripts/resolve-steps.sh pre-implementation pre-ci convergence pre-pr
-    post-pr --explain --check --unattended` (`pre-ready-flip` under
-    `unit-owner`); a `refuse` row halts, relaying its warning.
+    post-pr --explain --check --unattended` (plus `pre-ready-flip` when
+    `ready_flip_policy` is `unit-owner`); a non-zero exit halts, naming only
+    step ids.
 
 ## Points (`custom-steps`, D-3)
 
