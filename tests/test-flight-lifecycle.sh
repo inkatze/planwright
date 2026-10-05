@@ -292,6 +292,22 @@ out=$(supervise "$((t + 99999))")
 [ "$(launches)" = 2 ] || fail "a disabled flight worker is never relaunched"
 "$ATTN" queue 2>/dev/null | grep -q "$HC" || fail "the disable surfaces in the decision queue"
 
+# A disabled flight waits on the operator, not on a relaunch, so a pass over it
+# pays for no forge read.
+gitc "$repo" remote add origin https://github.com/acme/widgets.git
+cat >"$tmp/bin/gh" <<'EOF'
+#!/bin/sh
+printf 'gh %s\n' "$*" >>"$GH_STUB_LOG"
+exit 0
+EOF
+chmod +x "$tmp/bin/gh"
+export GH_STUB_LOG="$tmp/gh.log"
+: >"$GH_STUB_LOG"
+supervise "$((t + 99999))" >/dev/null || fail "supervise over a disabled flight exited non-zero: $(cat "$tmp/err")"
+[ ! -s "$GH_STUB_LOG" ] || fail "a flight waiting on the operator triggers no forge read (got: $(cat "$GH_STUB_LOG"))"
+rm -f "$tmp/bin/gh"
+gitc "$repo" remote remove origin
+
 # --- 5. No proof of death, no crash ------------------------------------------
 A=alive-aaaaaaa6
 gitc "$repo" worktree add -q -b "planwright/flight/$A" "$repo/.claude/worktrees/flight-$A" HEAD

@@ -387,10 +387,12 @@ cmd_supervise() {
   repo_root=$(cd "$repo_root" 2>/dev/null && pwd -P) || die 2 "--repo-root is not a directory"
   # The local read first: only a worker with positive death evidence can be a
   # crash, so the forge's PR reads, which a landing needs, are paid only when
-  # one exists.
+  # one exists. Without the forge an unlanded flight with an origin reads
+  # unknown, so unknown stays a candidate; one already waiting on the operator
+  # never is.
   render=$(/bin/sh "$SWEEP" sweep --repo-root "$repo_root" --no-forge --no-write 2>/dev/null </dev/null) \
     || die 4 "the flight sweep could not be read; nothing was supervised"
-  printf '%s\n' "$render" | awk -F "$TAB" '$1 == "flight" && $5 == "dead" && $3 != "landed" { f = 1 } END { exit !f }' \
+  printf '%s\n' "$render" | awk -F "$TAB" '$1 == "flight" && $5 == "dead" && ($3 == "dead" || $3 == "unknown") { f = 1 } END { exit !f }' \
     || return 0
   render=$(/bin/sh "$SWEEP" sweep --repo-root "$repo_root" --no-write 2>/dev/null </dev/null) \
     || die 4 "the flight sweep could not be read; nothing was supervised"
