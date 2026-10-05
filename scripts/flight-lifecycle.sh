@@ -39,7 +39,9 @@
 # with its own brief (fleet-dispatch-worktree.sh attach), which registers the
 # new worker; that relaunch is claimed once per death too, so two sweeps
 # racing on one death start one worker. crash-check consults the operator
-# kill-switch; counting is never paused. The death is claimed BEFORE
+# kill-switch and crash-record does not, but the fleet sweep skips its whole
+# cycle while the switch is set, so under the sweep a paused death is counted
+# once the switch is cleared. The death is claimed BEFORE
 # crash-record runs, because crash-record is not idempotent, and no pass
 # relaunches a death until its count is recorded beside the claim. A
 # crash-record that counted nothing releases its claim for the next pass; a
