@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.52.0](https://github.com/inkatze/planwright/compare/v0.51.0...v0.52.0) (2026-10-05)
+
+
+### Features
+
+* **dispatch:** launch the tmux worker detached, with its safety arms ([#581](https://github.com/inkatze/planwright/issues/581)) ([7fd70ee](https://github.com/inkatze/planwright/commit/7fd70ee448783d3f8a95a4e5fab222fdca123960))
+* **spec:** worker-permission-ergonomics extension kickoff sign-off ([#582](https://github.com/inkatze/planwright/issues/582)) ([81fe6eb](https://github.com/inkatze/planwright/commit/81fe6eb423eb4ea43a5ecf9f093845b4b2e09b80))
+
+
+### Bug Fixes
+
+* **orchestrate:** count dispatch markers across worktrees of a repository ([#576](https://github.com/inkatze/planwright/issues/576)) ([db3fff7](https://github.com/inkatze/planwright/commit/db3fff78e4ca701bdb170b5aa6b1454ef150a752))
+* **relay:** stage the tmux relay paste unterminated so one Enter submits it ([#571](https://github.com/inkatze/planwright/issues/571)) ([e933587](https://github.com/inkatze/planwright/commit/e9335871f2c4596538264e6b9b7e771282c3604a))
+* **scripts:** restore the executable bit on ready-flip.sh and guard script modes ([#577](https://github.com/inkatze/planwright/issues/577)) ([2a3c028](https://github.com/inkatze/planwright/commit/2a3c028032b2f5175db1b2b8613edbccc4f68c46))
+
 ## [0.51.0](https://github.com/inkatze/planwright/compare/v0.50.0...v0.51.0) (2026-10-04)
 
 
