@@ -352,11 +352,11 @@ or whose resolution failed, posts nothing.
 | none `halted` or `failed` (an empty attempt included; `skipped` and the classified outcomes count as the record says) | `success` |
 | any `halted` or `failed` | `failure` |
 
-The status carries the description and target the helper's header pins,
-never an excerpt or a local path; a later post on the same head and context
-replaces the earlier one. A failed post, a missing permission included, ends
-the flip attempt without a flip, surfaced like a failed step whether or not a
-flip was to follow and naming the missing permission. The runner's login
+The status carries the helper's pinned description and no target URL,
+excerpt, or path; a later post on that head and context replaces it. A
+failed post, a missing permission included, ends the flip attempt without
+a flip, surfaced like a failed step whether or not a flip was to follow and
+naming the missing permission. The runner's login
 needs commit-status write access: `repo:status` on a classic token, or
 **Commit statuses** write on a fine-grained token or app.
 
@@ -364,7 +364,9 @@ needs commit-status write access: `repo:status` on a classic token, or
 no record of the latest attempt halted or failed; not what the steps did,
 which the records hold. Written by the actor the hook binds, it guards a
 flipper that forgets, not one that forges. The two contexts are **excluded
-by name from every CI rollup judgement planwright makes**.
+by name from every CI rollup judgement planwright makes**; an adopter's own
+status-consuming tooling (branch protection, another CI aggregator) still
+sees them.
 
 **The evidence hook**, gated under custom-steps' Deferred until an in-repo
 unit-PR flipper runs the point, will refuse on the ready-guard's flip
