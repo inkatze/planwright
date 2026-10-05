@@ -69,17 +69,18 @@ else
   fail "the check must sit in Pre-flight, ahead of ## Implementation"
 fi
 
-# A refused step is a stop condition, and a refuse line reaching a point fails.
+# A refused step is a stop condition.
 stops=$(awk '/^## Stop conditions/ { on = 1; next } /^## / { on = 0 } on' "$skill" | tr '\n' ' ')
 case "$stops" in
   *"every pre-flight halt"*) ok "every pre-flight halt, the refusal included, is a stop condition" ;;
   *) fail "the stop conditions must cover every pre-flight halt" ;;
 esac
-# shellcheck disable=SC2016 # literal backticks of the skill's markdown, never expanded
-if tr '\n' ' ' <"$skill" | tr -s ' ' | grep -q 'a `refuse` one `failed`'; then
-  ok "a refuse line at a point records failed"
+# A point that runs nothing exits 1 whether its rows say park, ask, or only
+# refuse, so the runner keys on the exit and attendance, never on a token.
+if tr '\n' ' ' <"$skill" | tr -s ' ' | grep -q 'Exit 1: park the unit (attended, present and wait for a repair and re-resolve)'; then
+  ok "exit 1 parks, or presents attended, whatever the rows' tokens"
 else
-  fail "the Points record step must record a refuse line as failed"
+  fail "the Points resolve step must park on exit 1 (attended, present and wait) without reading tokens"
 fi
 
 # Functional half: the named command against fixtures. A flagged skill and a

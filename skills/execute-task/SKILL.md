@@ -167,8 +167,8 @@ PR number whenever one exists):
 
 1. **Resolve** it whole first: `scripts/resolve-steps.sh <point> --explain`,
    `--unattended` exactly when the backend seam's launch record says headless,
-   else `--attended`. Exit 1: `park` parks the unit; `ask` presents and waits
-   for a repair and re-resolve. Exit 2, 4, or 5: a stop condition.
+   else `--attended`. Exit 1: park the unit (attended, present and wait for
+   a repair and re-resolve). Exit 2, 4, or 5: a stop condition.
 2. **Host** each step in order by its printed hosting, per the doc's
    *Hosting* table, a skill or prompt step receiving the `--preamble` block:
    `isolated` sessions launch through the backend seam (`offload-dispatch`)
@@ -183,8 +183,7 @@ PR number whenever one exists):
    `failed`; an `in-session` command's goes to the shell tool.
 3. **Record** each outcome (a command's exit code; a session step classified
    from its handoff) through `step-record.sh write`, the printed path being
-   the next step's `PREV_RECORD`; a `skip` line records `skipped`, a `refuse`
-   one `failed`.
+   the next step's `PREV_RECORD`; a `skip` line records `skipped`.
 4. **Posture:** a `halted` or `failed` step under `on-failure: halt` ends the
    point and the unit through the pause protocol, the entry naming only the
    point, step id, outcome, and worktree-relative record path; `continue`

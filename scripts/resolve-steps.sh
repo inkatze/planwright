@@ -75,10 +75,10 @@
 # resolve and why. `refuse` marks a skill step no worker can run: its target
 # resolves to no file (the diagnostic naming the paths looked at), or to one
 # whose frontmatter sets disable-model-invocation: true (naming the flag and
-# the file, which <location> carries). It does not resolve, so the point takes
-# the matrix as above, but the row keeps `refuse` and check mode fails on it,
-# unless the entry declares on-failure: continue, which makes it an ordinary
-# non-resolving step.
+# the file, which <location> carries). It does not resolve and is never
+# skipped: the point parks where the matrix would skip, and asks or parks as
+# the matrix says otherwise, the row keeping `refuse` either way. An entry
+# declaring on-failure: continue is an ordinary non-resolving step instead.
 # <hosting> is the EFFECTIVE hosting (the dispatch_isolation default applied,
 # a continue step's attachment to an in-session predecessor applied).
 # <target> and <args> are the declared values as the constrained reader
@@ -1586,9 +1586,9 @@ point_steps() {
     [ -z "$LIST_ERR" ] || die 5 "the core default $key is malformed ($LIST_ERR) (broken install)"
   fi
 
-  # A refused skill step prints `refuse` and fails check mode whatever the
-  # layer; only its entry's own on-failure: continue lets it take the
-  # matrix's token like any other step that does not resolve.
+  # A refused skill step prints `refuse` and is never skipped: where the
+  # matrix would skip, the point parks. Only its entry's own
+  # on-failure: continue makes it an ordinary step that does not resolve.
   i=1
   while [ "$i" -le "$n_steps" ]; do
     S_REFUSE[i]=0
@@ -1619,6 +1619,7 @@ point_steps() {
   i=1
   while [ "$i" -le "$n_steps" ]; do
     [ -z "${S_REASON[i]}" ] || any_missing=1
+    [ "${S_REFUSE[i]}" -eq 0 ] || [ "$missing_token" != skip ] || missing_token=park
     i=$((i + 1))
   done
 
@@ -1688,14 +1689,6 @@ point_steps() {
     warn "check mode: a malformation was degraded above; failing the check"
     exit_code=1
   fi
-  i=1
-  while [ "$check" -eq 1 ] && [ "$exit_code" -eq 0 ] && [ "$i" -le "$n_steps" ]; do
-    if [ "${S_REFUSE[i]}" -eq 1 ]; then
-      warn "check mode: step '${S_ID[i]}' is refused above; failing the check"
-      exit_code=1
-    fi
-    i=$((i + 1))
-  done
 }
 
 if [ "$n_points" -eq 1 ]; then

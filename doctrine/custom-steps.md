@@ -220,9 +220,9 @@ REQ-C1.2, REQ-C1.6, D-5, D-10).
 resolved list or nothing (REQ-D1.9). Every id must resolve to a catalog entry
 and every target on the host under the lookup rules REQ-C1.3 and D-19 fix,
 with every `requires` executable on the path (REQ-D1.8). An id naming no
-entry, a target the host lacks, a skill no worker runs (`refuse`), a
-`requires` executable off the path, or an
-ambiguous or unreadable registry lookup is a step that does not resolve,
+entry, a target the host lacks, an unrunnable skill (`refuse`, never
+skipped, unless `on-failure: continue`), a `requires` executable off the
+path, or an ambiguous or unreadable registry lookup is a non-resolving step,
 never an error.
 
 **The matrix (REQ-C1.4, D-6).** The resolver prints one decision token per
@@ -249,8 +249,8 @@ placement-only fault (a `timeout` landing in-session) drops an adopter or
 machine-local entry for that list alone; a misplaced `continue` degrades
 such a list first and fails only when list and entry are both repo-tracked
 or core. Check mode (`--check --unattended`; `--attended` is a usage error)
-exits non-zero on any `park` or `refuse`, any malformation, or an unwired
-non-empty list, and warns but passes on an adopter or machine-local `skip` (REQ-H1.3,
+exits non-zero on any `park`, any malformation, or an unwired non-empty
+list, and warns but passes on an adopter or machine-local `skip` (REQ-H1.3,
 REQ-A1.3); `check:steps` runs it over every point of this repository
 (REQ-H1.4).
 
