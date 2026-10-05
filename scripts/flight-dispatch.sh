@@ -874,7 +874,7 @@ placement_failed() {
   elif [ -n "$_left" ]; then
     printf 'worktree\t%s\n' "$_left"
     printf 'brief\t%s\n' "$brief"
-    printf 'reask\t%s\n' "The worktree was placed but the worker did not start; it holds a slot until it is removed (git worktree remove) or relaunched."
+    printf 'reask\t%s\n' "The worktree was placed but no worker was launched for it; it holds a slot until it is removed (git worktree remove), after which the ask can be dispatched again."
   else
     rm -rf "$brief_dir"
   fi
@@ -1126,8 +1126,8 @@ cmd_dispatch() {
     [ "$TIER_MODEL" = inherit ] || set -- "$@" --model "$TIER_MODEL"
     [ "$TIER_EFFORT" = inherit ] || set -- "$@" --effort "$TIER_EFFORT"
   fi
-  # The primitive's output goes to a file, not a pipe: the live tmux attach
-  # may leave a descendant holding its stdout open.
+  # The primitive's output goes to a file, not a pipe: a launched process that
+  # inherited its stdout would hold a pipe open past the primitive's exit.
   _out="$brief_dir/dispatch.out"
   if [ "$backend" = tmux ]; then
     if [ "$dry" -eq 1 ]; then
@@ -1177,19 +1177,21 @@ cmd_dispatch() {
   if [ "$backend" = tmux ] && [ "$dry" -eq 0 ]; then
     session=$(printf '%s\n' "$out" | awk -F"$TAB" '$1 == "launch" && $2 == "session" { print $3; exit }')
     _since=$(printf '%s\n' "$out" | awk -F"$TAB" '$1 == "launch" && $2 == "since" { print $3; exit }')
-    _crc=0
-    /bin/sh "$WORKTREE" confirm --session "$session" --handle "$brief_handle" \
-      --since "${_since:-unknown}" </dev/null >/dev/null 2>"$work/confirm.err" || _crc=$?
     # A created session is placed whether or not its startup confirmation
     # arrived: re-dispatching over it would start a second worker.
-    case $_crc in
-      0) outcome=started ;;
-      14) outcome=started-unconfirmed ;;
-      *)
-        outcome=started-unconfirmed
-        tr -d '\000-\010\013-\037\177' <"$work/confirm.err" >&2
-        ;;
-    esac
+    outcome=started-unconfirmed
+    if [ -z "$session" ]; then
+      echo "$prog: the launch reported no session name, so its startup cannot be confirmed; the flight is placed" >&2
+    else
+      _confirm_rc=0
+      /bin/sh "$WORKTREE" confirm --session "$session" --handle "$brief_handle" \
+        --since "${_since:-unknown}" </dev/null >/dev/null 2>"$work/confirm.err" || _confirm_rc=$?
+      case $_confirm_rc in
+        0) outcome=started ;;
+        14) ;;
+        *) tr -d '\000-\010\013-\037\177' <"$work/confirm.err" >&2 ;;
+      esac
+    fi
   fi
 
   printf 'flight\t%s\n' "$flight_id"

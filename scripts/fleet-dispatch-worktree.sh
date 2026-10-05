@@ -65,7 +65,7 @@
 # A new-session that loses a race for the name touches nothing the winner
 # owns; any other failure after the create undoes only what this run created.
 #
-# Splitting create-then-attach makes the exact D-36 branch name a guaranteed
+# Splitting create-then-launch makes the exact D-36 branch name a guaranteed
 # OUTPUT rather than a rename an operator must remember: the mangled
 # `worktree-<suffix>` name that native `claude --worktree <suffix>` would produce
 # is never this primitive's output, so the tasks-PR-sync hook can always map the
@@ -88,7 +88,7 @@
 #     worktree list that cannot be read counts as registered, so no removal
 #     below acts on a worktree it could not see.
 #   - STALE / orphaned branch or worktree with no live session (a prior create
-#     that died before attach, or a finished task whose branch outlived its
+#     that died before its launch, or a finished task whose branch outlived its
 #     worktree) -> GC-adopt: remove the leftover worktree checkout; adopt the
 #     existing branch when it carries work (place a fresh worktree on it), or
 #     roll it back (delete the just-made branch) when it is a bare partial
@@ -169,7 +169,7 @@
 #       launch is the dispatch arm's, after its path-escape guard. --brief
 #       takes a flight's brief, as the dispatch arm does and under the same
 #       confinement; the suffix must be `flight-<flight-id>`.
-#   fleet-dispatch-worktree.sh confirm --session <name> --handle <handle> [--since <epoch>]
+#   fleet-dispatch-worktree.sh confirm --session <name> --handle <handle> [--since <epoch|unknown>]
 #       The confirm step a --launch-only caller runs once it has released its
 #       lock. Until the worker's startup confirmation is wired it reports
 #       started-unconfirmed (exit 14), which a caller treats as placed.
@@ -195,16 +195,19 @@
 #      no live session holds it: nothing was changed; the message names the
 #      path and the `git worktree move` that resolves it.
 #   7  `claude` does not resolve to an absolute path of an executable file.
-#   8  `tmux` does not resolve.
+#   8  `tmux` does not resolve to an absolute path of an executable file.
 #   9  the physical worktree path is outside the path charset; this checkout
 #      cannot use the tmux rung (the other rungs are unaffected).
-#   10 the session name is outside the session-name charset or over 128 bytes.
+#   10 the session name is outside the session-name charset or over 128 bytes,
+#      or cannot be computed for this checkout.
 #   11 the start directory is missing or is not the placed worktree; this
 #      run's creations are undone.
-#   12 the env wrapper's --check refused the launch options, or the
-#      dispatcher's planwright root or fleet home could not be resolved.
-#   13 new-session failed for a reason other than a lost race; this run's
-#      creations are undone, and an undo step that fails is named.
+#   12 the env wrapper is not executable or its --check refused the launch
+#      options, a launch token could not be minted, or the dispatcher's
+#      planwright root or fleet home could not be resolved.
+#   13 new-session failed for a reason other than a lost race and no session
+#      holds the name (or the launch could not get a scratch directory); this
+#      run's creations are undone, and an undo step that fails is named.
 #   14 started-unconfirmed: the session was created and no startup
 #      confirmation arrived. The worker is placed; never re-dispatch over it.
 #
@@ -260,7 +263,7 @@ usage() {
 usage: fleet-dispatch-worktree.sh dispatch <spec> <id> [--repo-root <dir>] [--launch-only | --attach-dry-run | --no-attach] [-- <extra launch args>...]
        fleet-dispatch-worktree.sh dispatch --flight <flight-id> [--brief <abs-file>] [--repo-root <dir>] [--launch-only | --attach-dry-run | --no-attach] [-- <extra launch args>...]
        fleet-dispatch-worktree.sh attach <suffix> --dry-run [--brief <abs-file>] [-- <extra launch args>...]
-       fleet-dispatch-worktree.sh confirm --session <name> --handle <handle> [--since <epoch>]
+       fleet-dispatch-worktree.sh confirm --session <name> --handle <handle> [--since <epoch|unknown>]
        fleet-dispatch-worktree.sh check-session-name <name>
 EOF
   exit 2
@@ -289,7 +292,7 @@ valid_session_name() {
   [ "${#1}" -le 128 ]
 }
 
-# valid_launch_path <path> — the path charset every path handed to tmux must
+# valid_launch_path <path> — the path charset the start directory handed to tmux must
 # hold to, since tmux format-expands a start directory.
 valid_launch_path() {
   case $1 in
@@ -345,7 +348,7 @@ suffix_session_live() {
   session_probe_live "$(prior_session "$1")"
 }
 
-# register_dispatch <handle> <scope> <worktree> <death-handle> — write the
+# register_dispatch <handle> <scope> <worktree> <checkout> [<death-handle>] — write the
 # dispatch record through the one registration seam (fleet-lifecycle-closure
 # Task 3; REQ-E1.1, REQ-E1.2). Best-effort BY CONTRACT (REQ-E1.4): the exit is
 # discarded, because a worktree and a worker that exist are facts, and failing
@@ -498,7 +501,7 @@ refuse_resume_beside_brief() {
 # one. A collision makes the second dispatch fail on an existing directory, so
 # the unit cannot be dispatched at all while the first holds it.
 #
-# The BARE form is still accepted so `attach` keeps working against worktrees
+# The BARE form is still accepted so `attach --dry-run` keeps working against worktrees
 # placed before the spec segment existed; only construction changed.
 valid_suffix() {
   reject_dotdot "$1" || return 1
@@ -718,10 +721,10 @@ validate_launch_extra() {
   done
 }
 
-# --- attach: the worker's detached tmux session -------------------------------
+# --- attach: the launch plan alone ----------------------------------------------
 
 do_attach() {
-  # <suffix> [--brief <abs-file>] [--dry-run] [-- <extra launch args>...].
+  # <suffix> --dry-run [--brief <abs-file>] [-- <extra launch args>...].
   # Guard the positional so a bare `attach` fails with the clean usage/exit-2
   # path, not a set -u abort.
   [ "$#" -ge 1 ] || usage
@@ -753,7 +756,7 @@ do_attach() {
     warn "invalid worktree suffix: $_suffix"
     exit 2
   }
-  # A standalone attach of a flight can hand the worker its brief, under the
+  # A standalone attach of a flight plans the brief hand-off, under the
   # dispatch arm's confinement.
   if [ "$_abrief_set" -eq 1 ] && [ -z "$_abrief" ]; then
     warn "--brief is empty: name the flight's own brief.md, or drop --brief"
@@ -820,9 +823,10 @@ identity_for_suffix() {
   esac
 }
 
-# resolve_launch_tools — set WORKER_CLI and TMUX_BIN, or refuse: the worker
-# CLI must resolve to an absolute path of an executable file (exit 7), and
-# tmux must resolve (exit 8).
+# resolve_launch_tools — set WORKER_CLI and TMUX_BIN, or refuse: each must
+# resolve to an absolute path of an executable file (exit 7 for the worker
+# CLI, 8 for tmux), never a PATH-relative file in whatever directory the
+# dispatch runs from.
 WORKER_CLI=''
 TMUX_BIN=''
 resolve_launch_tools() {
@@ -836,10 +840,14 @@ resolve_launch_tools() {
     exit 7
   fi
   TMUX_BIN=$(command -v tmux 2>/dev/null) || TMUX_BIN=''
-  [ -n "$TMUX_BIN" ] || {
-    warn "refusing the tmux rung: tmux does not resolve"
+  case $TMUX_BIN in
+    /*) ;;
+    *) TMUX_BIN='' ;;
+  esac
+  if [ -z "$TMUX_BIN" ] || [ ! -f "$TMUX_BIN" ] || [ ! -x "$TMUX_BIN" ]; then
+    warn "refusing the tmux rung: tmux does not resolve to an absolute path of an executable file"
     exit 8
-  }
+  fi
 }
 
 # launch_roots — set LAUNCH_ROOT and LAUNCH_HOME to the dispatcher's resolved
@@ -872,8 +880,9 @@ print_plan() {
 
 # tmux_launch <plan|check|run> <tmux> <session> <worktree> <handle> <scope>
 #   <token> <claude> [<launch args>...] — the one place the launch is built.
-# plan prints its words, tab-led, without a newline; check runs the env
-# wrapper's --check over the same options and command; run executes it, the
+# plan prints its words, tab-led, without a newline; check exits 2 itself on a
+# word ending in `;`, then runs the env wrapper's --check over the same
+# options and command and returns its status; run executes it, the
 # -P -F line to LAUNCH_OUT and stderr to LAUNCH_ERR. The command after `--` is
 # always several argv words, which tmux runs directly rather than through a
 # shell, and which it passes through unexpanded.
@@ -924,7 +933,7 @@ tmux_launch() {
   esac
 }
 
-# --- dispatch: create-then-attach --------------------------------------------
+# --- dispatch: create-then-launch --------------------------------------------
 
 do_dispatch() {
   _spec=''
@@ -995,8 +1004,8 @@ do_dispatch() {
   # Remaining "$@" (only meaningful when _have_extra=1) are the extra launch args.
   [ "$_have_extra" -eq 1 ] || set --
 
-  # --attach-dry-run and --no-attach are documented as alternatives
-  # (`[--attach-dry-run | --no-attach]`), and the arms below are checked in a
+  # --launch-only, --attach-dry-run, and --no-attach are documented alternatives
+  # (`[--launch-only | --attach-dry-run | --no-attach]`), and the arms below are checked in a
   # fixed order, so passing both silently discards one of them — the caller
   # cannot even pick which by reordering argv. Refuse the combination, same
   # refuse-rather-than-silently-drop discipline as the passthrough-args check
@@ -1073,7 +1082,7 @@ do_dispatch() {
 
   # Validate the extra launch args (the escalation-pin allowlist) NOW — before
   # any side effect — so a refused flag exits 2 without ever creating a worktree,
-  # marker, or registry entry. (do_attach re-validates as defense-in-depth for a
+  # marker, or registry entry. (do_attach validates them as defense-in-depth for a
   # direct `attach` invocation.)
   validate_launch_extra "$@"
   [ -z "$ATTACH_PROMPT" ] || refuse_resume_beside_brief "$@"
@@ -1162,11 +1171,13 @@ do_dispatch() {
   _token=''
   LAUNCH_ROOT=''
   LAUNCH_HOME=''
+  # Every arm needs the names: the collision reconcile probes them for the
+  # create-only arm too, and an empty prefix would read as a live session.
+  init_session_names "$_repo_root" || {
+    warn "cannot compute the session name for $_repo_root"
+    exit 10
+  }
   if [ "$_tmux_rung" -eq 1 ]; then
-    init_session_names "$_repo_root" || {
-      warn "cannot compute the session name for $_repo_root"
-      exit 10
-    }
     _session=$(worker_session "$_suffix")
     valid_session_name "$_session" || {
       warn "refusing the tmux rung: the session name $_session is outside the session-name charset [A-Za-z0-9_@-] (alphanumeric first, at most 128 bytes)"
@@ -1183,6 +1194,12 @@ do_dispatch() {
     launch_roots
     if [ -z "$LAUNCH_ROOT" ] || [ -z "$LAUNCH_HOME" ]; then
       warn "refusing the tmux rung: cannot resolve the planwright root and fleet home to pin the worker to"
+      exit 12
+    fi
+    # tmux execs the wrapper directly, where --check below runs it through sh,
+    # so its exec bit is checked here; without it the pane would die unseen.
+    if [ ! -f "$ENVWRAP" ] || [ ! -x "$ENVWRAP" ]; then
+      warn "refusing the tmux rung: $ENVWRAP is not an executable file"
       exit 12
     fi
     _token=$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n') || _token=''
@@ -1420,8 +1437,8 @@ do_dispatch() {
   tmux_launch run "$TMUX_BIN" "$_session" "$_worktree" "$_handle" "$_scope" \
     "$_token" "$WORKER_CLI" "$@"
   _ns_rc=$?
-  _parsed=0
-  parse_created "$LAUNCH_OUT" "$_session" || _parsed=1
+  _handle_ok=1
+  parse_created "$LAUNCH_OUT" "$_session" || _handle_ok=0
   _ns_err=$(head -c 2048 "$LAUNCH_ERR" 2>/dev/null)
   rm -rf "$_launch_dir"
   if [ "$_ns_rc" -ne 0 ]; then
@@ -1433,20 +1450,23 @@ do_dispatch() {
         exit 3
         ;;
     esac
-    if [ "$_parsed" -ne 0 ]; then
-      warn "new-session failed (exit $_ns_rc): $_ns_err"
+    # The session can exist even when the invocation failed (a step after
+    # new-session, or output that did not parse): a live worker is placed,
+    # never undone and reported as a failure that invites a re-dispatch.
+    if [ "$_handle_ok" -eq 1 ] || { [ "$LIVENESS_SKIP_TMUX" != 1 ] && session_probe_live "$_session"; }; then
+      warn "the worker session $_session was created, but the rest of the launch invocation failed (exit $_ns_rc): ${_ns_err:-no message}"
+    else
+      warn "new-session failed (exit $_ns_rc): ${_ns_err:-no message}"
       undo_launch
       exit 13
     fi
-    # The session exists; only the remain-on-exit step after it failed.
-    warn "the worker session $_session was created, but turning remain-on-exit off failed: $_ns_err"
   fi
 
   # Registered once, after the session exists, so no failure arm ever has a
   # record to retract. The handle is the task identity the worker's own
   # environment carries, so a record and a heartbeat agree by construction.
   _death=''
-  if [ "$_parsed" -eq 0 ]; then
+  if [ "$_handle_ok" -eq 1 ]; then
     _death="tmux-window $_session $CREATED_WINDOW"
   else
     warn "new-session did not print $_session and one window id; registering no death handle"
@@ -1476,7 +1496,11 @@ start_dir_ok() {
 undo_launch() {
   ul_wt_left=0
   if suffix_session_live "$_suffix"; then
-    warn "undo skipped: a live tmux session runs in $_worktree; its worktree and branch stay"
+    if valid_session_name "$(prior_session "$_suffix")"; then
+      warn "undo skipped: a live tmux session runs in $_worktree; its worktree and branch stay"
+    else
+      warn "undo skipped: the prior launcher's session name for this checkout cannot be probed (outside the session charset), so a session may run in $_worktree; its worktree and branch stay"
+    fi
     ul_wt_left=1
   elif [ "$_made_worktree" -eq 1 ]; then
     if [ -L "$_worktree" ]; then

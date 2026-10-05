@@ -3,7 +3,8 @@
 #
 # PUSH-FIRST, RECONCILE-BACKED (the D-1 pattern applied to worktrees). A live
 # registry of tracked working trees is PUSHED the instant a worktree is created
-# or removed: removal via the `WorktreeRemove` hook, creation via a
+# or removed: removal via the `WorktreeRemove` hook (and a `record-remove` call
+# when the dispatch seam undoes a worktree it just created), creation via a
 # `record-create` call at the dispatch seam (fleet-dispatch-worktree.sh). Neither
 # waits on a poll. Creation is NOT hook-driven — see the corrected
 # `WorktreeCreate` contract below — so a worktree created outside a dispatch
