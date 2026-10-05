@@ -356,6 +356,24 @@ assert_ci_state "statusctx: an EXPECTED commit-status is pending" \
 assert_ci_state "statusctx: a legacy window-lock-named commit-status is judged (failing)" \
   "$(rollup false "$(cr_check green)" "$(sc_check FAILURE window-lock)")" "failing"
 
+# custom-steps REQ-E1.5 — the flip-point commit statuses are excluded by context
+# name: a flip point's own status never counts as a completed check, so a rollup
+# holding only one is not green, and a red or pending one never blocks.
+assert_ci_state "flip-point: a rollup holding only a pre-ready-flip status is not green" \
+  "$(rollup false "$(sc_check SUCCESS planwright/pre-ready-flip)")" "none"
+assert_ci_state "flip-point: a rollup holding only a pre-spec-ready-flip status is not green" \
+  "$(rollup false "$(sc_check SUCCESS planwright/pre-spec-ready-flip)")" "none"
+assert_ci_state "flip-point: a failing flip-point status does not fail green CI" \
+  "$(rollup false "$(cr_check green)" "$(sc_check FAILURE planwright/pre-ready-flip)")" "green"
+assert_ci_state "flip-point: a pending flip-point status does not hold green CI" \
+  "$(rollup false "$(cr_check green)" "$(sc_check PENDING planwright/pre-spec-ready-flip)")" "green"
+# The exclusion is by exact context name: a namesake under another prefix is judged.
+assert_ci_state "flip-point: a near-namesake commit-status is judged (failing)" \
+  "$(rollup false "$(cr_check green)" "$(sc_check FAILURE planwright/pre-ready-flip-extra)")" "failing"
+# A CheckRun named like a flip-point context is judged: only commit statuses post them.
+assert_ci_state "flip-point: a check run named like a flip-point context is judged (failing)" \
+  "$(rollup false "$(cr_check green)" '{"__typename":"CheckRun","name":"planwright/pre-ready-flip","status":"COMPLETED","conclusion":"FAILURE","checkSuite":{"workflowRun":null}}')" "failing"
+
 # REQ-C1.1 — a malformed / non-JSON rollup fails CLOSED: jq errors, so rl_ci_state
 # returns status 2 with empty stdout, NEVER an empty or garbage verdict at rc 0.
 # (Drives the `| jq ... || return 2` branch that CI_QUERY_FAIL cannot reach — gh
