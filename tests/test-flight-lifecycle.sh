@@ -185,8 +185,8 @@ PLANWRIGHT_LOCAL_CONFIG="$tmp/cfg/local.yml" "$SCRIPT" push completion "$R" --ha
   --landing "record:specs/_flights/$R.md" 2>/dev/null
 relayed=$("$ATTN" relay 2>/dev/null)
 case $relayed in
-  *"$R"*"specs/_flights/$R.md"*) ;;
-  *) fail "the completion push notifies with its landing reference (relayed: $relayed)" ;;
+  *"$R"*"specs/_flights/$R.md"*"planwright/flight/$R"*) ;;
+  *) fail "a record landing notifies with the record path and its branch (relayed: $relayed)" ;;
 esac
 
 # --- 3. Screening -------------------------------------------------------------

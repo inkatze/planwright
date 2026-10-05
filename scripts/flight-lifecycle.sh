@@ -19,7 +19,8 @@
 #   completion          pr-ready (a PR landing) or done (a record landing),
 #                       never over a queued decision; the landing reference is
 #                       kept beside the flight's brief as `landing` and sent
-#                       through the notification seam
+#                       through the notification seam (a record landing with
+#                       its branch)
 # The queue suppresses the two status events, so the operator is pushed only
 # what needs them: the decision, and the landing on whatever channel the
 # operator chose (`notification_channel`).
@@ -219,7 +220,13 @@ cmd_push() {
       else
         printf '%s: no private flight directory under the fleet home; the landing reference is kept by the sweep only\n' "$prog" >&2
       fi
-      /bin/sh "$ATTN" notify "flight $id landed: ${landing#*:}" --key "flight-landed-$id" </dev/null \
+      # A record landing has no link to follow, so its reference is the record
+      # path and the branch that carries it.
+      _ref=${landing#*:}
+      case $landing in
+        record:*) _ref="$_ref on planwright/flight/$id" ;;
+      esac
+      /bin/sh "$ATTN" notify "flight $id landed: $_ref" --key "flight-landed-$id" </dev/null \
         || printf '%s: the landing notification was not sent; the store row and the sweep carry it\n' "$prog" >&2
       [ "$_stored" -eq 1 ] || die 4 "the completion push did not reach the attention store"
       ;;
