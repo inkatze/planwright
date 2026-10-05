@@ -751,11 +751,13 @@ row=$(printf '%s\n' "$OUT" | grep "${TAB}s-pw${TAB}")
 printf '%s\n' "$OUT" | grep -q "^run${TAB}s-pw${TAB}.*${TAB}skill${TAB}--nested${TAB}"
 verdict "REQ-B1.6/REQ-C1.3: a skill's --nested argument is passed through unexamined" "skill args verbatim: $row"
 
-# Each one absent does not resolve (matrix path: unattended repo-tracked -> park).
+# Each one absent does not resolve (matrix path: unattended repo-tracked ->
+# park, exit 1); a skill step's own row is a refusal (an `s-` id here).
 absent_case() {
   printf 'steps_post_pr: [%s]\n' "$1" >"$tracked_cfg"
   capture post-pr --unattended
-  [ "$RC" = 1 ] && [ "$OUT" = "park${TAB}$1" ] \
+  case $1 in s-*) want_tok=refuse ;; *) want_tok=park ;; esac
+  [ "$RC" = 1 ] && [ "$OUT" = "$want_tok${TAB}$1" ] \
     || fail "REQ-C1.3: '$1' ($2) should not resolve: rc=$RC out='$OUT' err='$ERR'"
 }
 rm -f "$claude/commands/user-cmd.md"
@@ -807,7 +809,7 @@ cat_entry "$tracked_cat" s-rel "kind: skill" "target: rel:rel-skill"
 printf 'steps_post_pr: [s-rel]\n' >"$tracked_cfg"
 OUT=$(cd "$tmp" && run post-pr --unattended 2>"$tmp/err")
 RC=$?
-[ "$RC" = 1 ] && [ "$OUT" = "park${TAB}s-rel" ] \
+[ "$RC" = 1 ] && [ "$OUT" = "refuse${TAB}s-rel" ] \
   || fail "REQ-C1.3: a relative registry install path must not resolve: rc=$RC out='$OUT' err='$(cat "$tmp/err")'"
 write_registry
 printf '#!/bin/sh\nexit 0\n' >"$bin/fixture-tool"
@@ -824,7 +826,7 @@ absent_case s-plug-skill "an unreadable registry"
 write_registry
 OUT=$(run PLANWRIGHT_JQ="$tmp/no-jq" post-pr --unattended 2>"$tmp/err")
 RC=$?
-[ "$RC" = 1 ] && [ "$OUT" = "park${TAB}s-plug-skill" ] \
+[ "$RC" = 1 ] && [ "$OUT" = "refuse${TAB}s-plug-skill" ] \
   || fail "REQ-C1.3: a missing JSON reader should be non-resolving: rc=$RC out='$OUT'"
 printf 'steps_post_pr: [s-plug-skill]\n' >"$tracked_cfg"
 capture post-pr --unattended
@@ -964,13 +966,14 @@ printf 'steps_pre_pr: [polish, ghost]\n' >"$mlocal_cfg"
 capture pre-pr --unattended
 printf '%s' "$ERR" | grep -q 'ghost' && printf '%s' "$ERR" | grep -qi 'skip'
 verdict "REQ-C1.4: unattended adopter/machine-local prints skip with a warning naming the step (exit 0)" "skip warning: err='$ERR'"
-# A core-default step made unresolvable prints park at both attendances.
+# A core-default step made unresolvable parks at both attendances (exit 1),
+# the skill step's own row a refusal.
 reset_layers
 mv "$core/skills/polish" "$tmp/polish.bak"
 capture convergence --attended
-[ "$RC" = 1 ] && [ "$OUT" = "park${TAB}polish" ] || fail "core unresolvable attended: rc=$RC out='$OUT'"
+[ "$RC" = 1 ] && [ "$OUT" = "refuse${TAB}polish" ] || fail "core unresolvable attended: rc=$RC out='$OUT'"
 capture convergence --unattended
-[ "$RC" = 1 ] && [ "$OUT" = "park${TAB}polish" ] || fail "core unresolvable unattended: rc=$RC out='$OUT'"
+[ "$RC" = 1 ] && [ "$OUT" = "refuse${TAB}polish" ] || fail "core unresolvable unattended: rc=$RC out='$OUT'"
 capture convergence --check --unattended
 [ "$RC" = 1 ] || fail "check mode must fail (exit 1) on a core park: rc=$RC"
 mv "$tmp/polish.bak" "$core/skills/polish"
@@ -1032,7 +1035,7 @@ verdict "REQ-C1.5: a malformed adopter list warns and resolves the core default,
 # degraded resolution parks at both attendances.
 mv "$core/skills/polish" "$tmp/polish.bak"
 capture convergence --unattended
-[ "$RC" = 1 ] && [ "$OUT" = "park${TAB}polish" ]
+[ "$RC" = 1 ] && [ "$OUT" = "refuse${TAB}polish" ]
 verdict "REQ-C1.5/D-6: after an adopter list degrades, the matrix keys on the core layer" "degraded winner matrix: rc=$RC out='$OUT'"
 mv "$tmp/polish.bak" "$core/skills/polish"
 capture convergence --check --unattended
@@ -1185,7 +1188,7 @@ verdict "REQ-C1.8: the list is read from the script's sibling doctrine dir; over
 # Through the real script dir the same entry is merely unresolvable (park),
 # which is what proves the fixture line, not the shipped one, was read above.
 capture pre-ci --unattended
-[ "$RC" = 1 ] && [ "$OUT" = "park${TAB}fx" ] \
+[ "$RC" = 1 ] && [ "$OUT" = "refuse${TAB}fx" ] \
   || fail "sibling doctrine control: rc=$RC out='$OUT' (want park through the shipped list)"
 printf '# a rule doc with no pipeline-entry line\n' >"$inst/doctrine/custom-steps.md"
 rc=0
@@ -1511,7 +1514,7 @@ printf 'steps_pre_pr: [rel-sk]\n' >"$tracked_cfg"
 OUT=$(cd "$tmp/cwd" && run PLANWRIGHT_SKILLS_ROOT=relskills pre-pr --attended 2>"$tmp/err")
 RC=$?
 ERR=$(<"$tmp/err")
-[ "$RC" = 1 ] && [ "$OUT" = "ask${TAB}rel-sk" ]
+[ "$RC" = 1 ] && [ "$OUT" = "refuse${TAB}rel-sk" ]
 verdict "a skill found only under a relative skills root does not resolve" "relative skills root: rc=$RC out='$OUT' err='$ERR'"
 
 # The --explain read failing on its own: its cause reaches stderr even after
@@ -1618,13 +1621,14 @@ case $ERR in
   *) fail "multi-point run lost the skip warning: err='$ERR'" ;;
 esac
 for bad in "pre-ci post-merge --explain --unattended" "pre-ci pre-ci --explain --unattended" \
-  "pre-ci post-pr --unattended" "pre-ci post-pr --explain --check --unattended" \
+  "pre-ci post-pr --unattended" "pre-ci post-pr --check --unattended" \
+  "pre-ci post-pr --explain --check --attended" \
   "pre-ci post-pr --prefix" "pre-ci post-pr --preamble"; do
   # shellcheck disable=SC2086 # the argument list is meant to word-split
   capture $bad
   [ "$RC" = 2 ] && [ -z "$OUT" ] || fail "multi-point usage '$bad': rc=$RC out='$OUT'"
 done
-ok "several points refuse an unwired or repeated point, a run without --explain, --check, and the render modes"
+ok "several points refuse an unwired or repeated point, a run without --explain, an attended check, and the render modes"
 # Each point's own diagnostics in a multi-point run are those its single run
 # prints, under its own name. The fixture keeps the shared reads silent, so
 # every line a single run prints under its point's name is that point's own.
@@ -1694,6 +1698,131 @@ capture pre-ci post-pr --explain --unattended
 RS=$RS_SAVED
 [ "$RC" = 5 ] && [ -z "$OUT" ] && case $ERR in *"config-get exited 7 reading review_sequence steps_pre_ci steps_post_pr "*) true ;; *) false ;; esac
 verdict "a failed shared config read exits 5 naming every key read" "shared config failure: rc=$RC out='$OUT' err='$ERR'"
+
+# A skill whose frontmatter sets disable-model-invocation cannot run from any
+# worker (the Skill tool refuses it), so its step is refused: the row's token
+# is `refuse`, its location the file, the diagnostic naming the flag and the
+# file; the point then takes the missing-step matrix, and check mode fails on
+# it whatever layer supplied the list.
+reset_layers
+gate_skill() {
+  # gate_skill <file> <frontmatter line>...
+  mkdir -p "$(dirname "$1")"
+  f=$1
+  shift
+  {
+    printf -- '---\nname: gated\n'
+    for l in "$@"; do printf '%s\n' "$l"; done
+    printf -- '---\n\n# Gated\n'
+  } >"$f"
+}
+gated="$claude/skills/gated/SKILL.md"
+gate_skill "$gated" 'disable-model-invocation: true'
+cat_entry "$tracked_cat" s-gated "kind: skill" "target: gated"
+printf 'steps_pre_pr: [s-gated, polish]\n' >"$tracked_cfg"
+capture pre-pr --explain --unattended
+[ "$RC" = 1 ] && printf '%s\n' "$OUT" | grep -q "^refuse${TAB}s-gated${TAB}pre-pr${TAB}repo-tracked${TAB}repo-tracked${TAB}gated${TAB}.*${TAB}$gated\$" \
+  && printf '%s\n' "$OUT" | grep -q "^park${TAB}polish${TAB}"
+verdict "a skill step whose target sets disable-model-invocation prints a refuse row carrying the file, the point parking" "refused skill row: rc=$RC out='$OUT' err='$ERR'"
+case $ERR in
+  *"refuse: step 's-gated'"*"disable-model-invocation: true"*"$gated"*"parks"*) ok "the refusal diagnostic names the flag and the file" ;;
+  *) fail "the refusal diagnostic must name the flag and the file: err='$ERR'" ;;
+esac
+capture pre-pr --check --unattended
+[ "$RC" != 0 ] && [ "$RC" != 2 ]
+verdict "--check fails on a refused skill step" "--check on a refused step: rc=$RC err='$ERR'"
+capture pre-pr --explain --attended
+[ "$RC" = 1 ] && printf '%s\n' "$OUT" | grep -q "^refuse${TAB}s-gated${TAB}" && printf '%s\n' "$OUT" | grep -q "^ask${TAB}polish${TAB}"
+verdict "attended, a refused step asks like any step that does not resolve" "attended refusal: rc=$RC out='$OUT'"
+# An adopter list skips a step that does not resolve unattended; a refused one
+# is skipped too, but check mode still fails: the flag is a declaration
+# defect, not a host that lacks the step.
+printf 'steps_pre_pr: [s-gated, polish]\n' >"$adopter_cfg"
+rm -f "$tracked_cfg"
+capture pre-pr --explain --unattended
+[ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q "^refuse${TAB}s-gated${TAB}pre-pr${TAB}adopter${TAB}" \
+  && printf '%s\n' "$OUT" | grep -q "^run${TAB}polish${TAB}"
+verdict "an adopter list runs the rest around a refused step" "adopter refusal: rc=$RC out='$OUT' err='$ERR'"
+capture pre-pr --check --unattended
+[ "$RC" = 1 ]
+verdict "--check fails on a refused step even where an adopter skip would pass" "--check adopter refusal: rc=$RC err='$ERR'"
+rm -f "$adopter_cfg"
+printf 'steps_pre_pr: [s-gated]\n' >"$tracked_cfg"
+# Only a true value in the frontmatter refuses.
+for fm in 'disable-model-invocation: True' 'disable-model-invocation: "true"' "disable-model-invocation: 'true'" \
+  'disable-model-invocation:   true   # gated'; do
+  gate_skill "$gated" "$fm"
+  capture pre-pr --unattended
+  [ "$RC" = 1 ] && [ "$OUT" = "refuse${TAB}s-gated" ] || fail "frontmatter '$fm' should refuse: rc=$RC out='$OUT'"
+done
+printf -- '---\r\nname: gated\r\ndisable-model-invocation: true\r\n---\r\n' >"$gated"
+capture pre-pr --unattended
+[ "$RC" = 1 ] && [ "$OUT" = "refuse${TAB}s-gated" ] || fail "a CRLF frontmatter should refuse: rc=$RC out='$OUT'"
+for fm in 'disable-model-invocation: false' 'user-invocable: false' '  disable-model-invocation: true' 'disable-model-invocation: trueish'; do
+  gate_skill "$gated" "$fm"
+  capture pre-pr --unattended
+  [ "$RC" = 0 ] && [ "$OUT" = "run${TAB}s-gated" ] || fail "frontmatter '$fm' should run: rc=$RC out='$OUT' err='$ERR'"
+done
+printf '# Gated\n\ndisable-model-invocation: true\n' >"$gated"
+capture pre-pr --unattended
+[ "$RC" = 0 ] && [ "$OUT" = "run${TAB}s-gated" ] || fail "the flag outside a frontmatter block should run: rc=$RC out='$OUT'"
+printf -- '---\nname: gated\n---\ndisable-model-invocation: true\n' >"$gated"
+capture pre-pr --unattended
+[ "$RC" = 0 ] && [ "$OUT" = "run${TAB}s-gated" ] || fail "the flag after the frontmatter closes should run: rc=$RC out='$OUT'"
+ok "only a true disable-model-invocation inside the frontmatter refuses"
+# Every skill lookup rule is judged: a command file and a planwright-namespaced
+# skill carrying the flag are refused the same way.
+rm -rf "$claude/skills/gated"
+gate_skill "$claude/commands/gated.md" 'disable-model-invocation: true'
+capture pre-pr --unattended
+[ "$RC" = 1 ] && [ "$OUT" = "refuse${TAB}s-gated" ] || fail "a command file carrying the flag should refuse: rc=$RC out='$OUT'"
+cp "$core/skills/self-review/SKILL.md" "$tmp/self-review.keep"
+gate_skill "$core/skills/self-review/SKILL.md" 'disable-model-invocation: true'
+cat_entry "$tracked_cat" s-pw-gated "kind: skill" "target: planwright:self-review"
+printf 'steps_pre_pr: [s-pw-gated]\n' >"$tracked_cfg"
+capture pre-pr --unattended
+cp "$tmp/self-review.keep" "$core/skills/self-review/SKILL.md"
+[ "$RC" = 1 ] && [ "$OUT" = "refuse${TAB}s-pw-gated" ] || fail "a planwright-namespaced skill carrying the flag should refuse: rc=$RC out='$OUT'"
+ok "a command file and a namespaced skill carrying the flag are refused"
+# A skill step whose target resolves to no file is refused the same way, so an
+# unattended run never drops it silently: a machine-local list's skip covers
+# it only when its entry declares on-failure: continue.
+rm -f "$claude/commands/gated.md"
+cat_entry "$mlocal_cat" s-gone "kind: skill" "target: panel-review"
+printf 'steps_pre_pr: [s-gone, polish]\n' >"$mlocal_cfg"
+rm -f "$tracked_cfg"
+capture pre-pr --explain --unattended
+[ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q "^refuse${TAB}s-gone${TAB}pre-pr${TAB}machine-local${TAB}machine-local${TAB}panel-review${TAB}.*${TAB}-\$" \
+  && printf '%s\n' "$OUT" | grep -q "^run${TAB}polish${TAB}"
+verdict "a skill step whose target resolves to no file prints a refuse row" "missing skill target: rc=$RC out='$OUT' err='$ERR'"
+case $ERR in
+  *"refuse: step 's-gone'"*"'panel-review' resolves to no file (looked at: "*"$claude/commands/panel-review.md"*"$claude/skills/panel-review/SKILL.md"*) ok "the refusal names the missing target and where it looked" ;;
+  *) fail "the missing-target refusal must name the target and the paths looked at: err='$ERR'" ;;
+esac
+capture pre-pr --check --unattended
+[ "$RC" = 1 ]
+verdict "--check fails on a missing skill target where a machine-local skip would pass" "--check missing target: rc=$RC err='$ERR'"
+rm -f "$mlocal_cat"
+cat_entry "$mlocal_cat" s-gone "kind: skill" "target: panel-review" "on-failure: continue"
+capture pre-pr --unattended
+[ "$RC" = 0 ] && [ "$OUT" = "$(printf 'skip\ts-gone\nrun\tpolish')" ]
+verdict "a missing skill target whose entry declares on-failure: continue takes the matrix's skip" "on-failure continue: rc=$RC out='$OUT' err='$ERR'"
+capture pre-pr --check --unattended
+[ "$RC" = 0 ]
+verdict "--check passes a declared-continue skip as it passes any machine-local skip" "--check continue skip: rc=$RC err='$ERR'"
+rm -f "$mlocal_cat" "$mlocal_cfg"
+# Several points check in one run, the pre-flight's form: a refusal at any
+# point fails the run, and a clean set passes.
+printf 'steps_pre_pr: [s-gated]\n' >"$tracked_cfg"
+capture pre-implementation pre-ci convergence pre-pr post-pr --explain --check --unattended
+[ "$RC" = 1 ] && printf '%s\n' "$OUT" | grep -q "^refuse${TAB}s-gated${TAB}pre-pr${TAB}" \
+  && printf '%s\n' "$OUT" | grep -q "^run${TAB}polish${TAB}convergence${TAB}"
+verdict "a several-point check fails on a refusal at any point" "several-point check: rc=$RC out='$OUT' err='$ERR'"
+rm -f "$tracked_cfg"
+capture pre-implementation pre-ci convergence pre-pr post-pr --explain --check --unattended
+[ "$RC" = 0 ]
+verdict "a several-point check passes when every point resolves" "several-point clean check: rc=$RC out='$OUT' err='$ERR'"
+reset_layers
 
 if [ "$failures" -ne 0 ]; then
   echo "FAIL: resolve-steps ($failures failure(s))" >&2

@@ -22,7 +22,7 @@
 #
 # Usage:
 #   resolve-steps.sh <point> [--explain] [--check] --attended|--unattended
-#   resolve-steps.sh <point> <point>... --explain --attended|--unattended
+#   resolve-steps.sh <point> <point>... --explain [--check] --attended|--unattended
 #   resolve-steps.sh <point> --preamble
 #   resolve-steps.sh <point> --prefix
 #   resolve-steps.sh <point> --line <location> [<arg>...]
@@ -43,8 +43,8 @@
 #                 resolves to `run`, or to a `skip` from the adopter or
 #                 machine-local layer (which passes with its warning).
 #                 Refuses --attended (check mode never waits on a human).
-#                 Non-zero on any park, on a non-empty list at an unwired
-#                 point, and on any malformation at any layer, a degraded
+#                 Non-zero on any park, on any refuse whatever the layer, on
+#                 a non-empty list at an unwired point, and on any malformation at any layer, a degraded
 #                 adopter or machine-local one included, whether this script
 #                 or a sibling reader degraded it.
 #   --preamble    render the fixed context block (below); resolves nothing.
@@ -54,7 +54,7 @@
 #                 args the point's resolution printed (below); resolves
 #                 nothing. Every word after it is an operand.
 #   <point>...    several distinct wired points in one run, --explain only
-#                 (the rows name their point): the config, catalog, and
+#                 (the rows name their point), --check allowed: the config, catalog, and
 #                 host reads are made once and shared, and each point then
 #                 resolves on its own, printing exactly the rows and the
 #                 per-point warnings (shadow, list degrade, skip, park, ask)
@@ -69,9 +69,16 @@
 #   <decision>\t<id>
 # and with --explain:
 #   <decision>\t<id>\t<point>\t<list-layer>\t<entry-layer>\t<target>\t<hosting>\t<kind>\t<args>\t<on-failure>\t<timeout>\t<requires>\t<location>
-# <decision> is one of run | ask | park | skip (the matrix's tokens). A park
-# or ask is point-wide: the point runs nothing, so every step prints that
-# token, the stderr diagnostic naming the steps that did not resolve and why.
+# <decision> is one of run | ask | park | skip (the matrix's tokens) or
+# refuse. A park or ask is point-wide: the point runs nothing, so every step
+# prints that token, the stderr diagnostic naming the steps that did not
+# resolve and why. `refuse` marks a skill step no worker can run: its target
+# resolves to no file (the diagnostic naming the paths looked at), or to one
+# whose frontmatter sets disable-model-invocation: true (naming the flag and
+# the file, which <location> carries). It does not resolve, so the point takes
+# the matrix as above, but the row keeps `refuse` and check mode fails on it,
+# unless the entry declares on-failure: continue, which makes it an ordinary
+# non-resolving step.
 # <hosting> is the EFFECTIVE hosting (the dispatch_isolation default applied,
 # a continue step's attachment to an in-session predecessor applied).
 # <target> and <args> are the declared values as the constrained reader
@@ -220,7 +227,7 @@ OWN_NAMESPACE=planwright
 
 usage() {
   echo "usage: resolve-steps.sh <point> [--explain] [--check] --attended|--unattended" >&2
-  echo "       resolve-steps.sh <point> <point>... --explain --attended|--unattended" >&2
+  echo "       resolve-steps.sh <point> <point>... --explain [--check] --attended|--unattended" >&2
   echo "       resolve-steps.sh <point> --preamble | --prefix" >&2
   echo "       resolve-steps.sh <point> --line <location> [<arg>...]" >&2
   exit 2
@@ -313,8 +320,8 @@ if [ "$n_points" -gt 1 ]; then
     esac
     seen="$seen$p "
   done
-  if [ "$explain" -eq 0 ] || [ "$check" -eq 1 ] || [ $((preamble + prefix + line_mode)) -gt 0 ]; then
-    echo "resolve-steps: several points take --explain and an attendance flag only" >&2
+  if [ "$explain" -eq 0 ] || [ $((preamble + prefix + line_mode)) -gt 0 ]; then
+    echo "resolve-steps: several points take --explain, an attendance flag, and --check only" >&2
     usage
   fi
   # The shared reads' diagnostics name every point of the run.
@@ -1328,11 +1335,34 @@ EOF
   return 1
 }
 
+# model_invocation_disabled <file>: 0 when the file opens with a frontmatter
+# block, closed by a `---` line, whose last top-level disable-model-invocation
+# key is true (bare or quoted, any case). The file is read as data.
+model_invocation_disabled() {
+  [ -n "$(awk '
+    { sub(/\r$/, "") }
+    NR == 1 { if ($0 != "---") exit; next }
+    $0 == "---" { if (on) print "y"; exit }
+    /^disable-model-invocation:/ {
+      v = $0
+      sub(/^disable-model-invocation:[ \t]*/, "", v)
+      sub(/[ \t]+#.*$/, "", v)
+      sub(/[ \t]+$/, "", v)
+      v = tolower(v)
+      on = (v == "true" || v == "\"true\"" || v == "\047true\047")
+    }
+  ' "$1" 2>/dev/null)" ]
+}
+
 # resolve_target <n>: sets LOC on success; REASON on failure (return 1).
+# REFUSE is set when a skill step cannot run from any worker: its target
+# resolves to no file, or to one whose frontmatter disables model invocation
+# (the Skill tool refuses such a skill). LOC then keeps the refused file.
 resolve_target() {
   rn="$1"
   LOC=""
   REASON=""
+  REFUSE=0
   rkind=${E_KIND[rn]}
   rtarget=${E_TARGET[rn]}
   case "$rkind" in
@@ -1370,32 +1400,43 @@ resolve_target() {
       ;;
     skill)
       split_skill_target "$rtarget"
+      REFUSE=1
       if [ -z "$SPLUGIN" ]; then
+        looked=""
         for cand in "${skills_root:+$skills_root/$SNAME/SKILL.md}" \
           "${claude_dir:+$claude_dir/commands/$SNAME.md}" \
           "${claude_dir:+$claude_dir/skills/$SNAME/SKILL.md}" \
           "${repo_claude:+$repo_claude/commands/$SNAME.md}" \
           "${repo_claude:+$repo_claude/skills/$SNAME/SKILL.md}"; do
           case "$cand" in "" | *[[:cntrl:]]* | [!/]*) continue ;; esac
+          looked="${looked:+$looked, }$cand"
           if [ -f "$cand" ]; then
             LOC="$cand"
             break
           fi
         done
         [ -n "$LOC" ] || {
-          REASON="skill '$SNAME' not found under the plugin skills root or the user and project command and skill directories"
+          REASON="skill target '$SNAME' resolves to no file (looked at: ${looked:-no lookup root is set}); install the skill or drop the step"
           return 1
         }
       elif [ "$SPLUGIN" = "$OWN_NAMESPACE" ]; then
         if [ "${skills_root#/}" != "$skills_root" ] && [ -f "$skills_root/$SNAME/SKILL.md" ]; then
           LOC="$skills_root/$SNAME/SKILL.md"
         else
-          REASON="skill '$OWN_NAMESPACE:$SNAME' not found under the plugin skills root"
+          REASON="skill target '$OWN_NAMESPACE:$SNAME' resolves to no file (looked at: ${skills_root:-no plugin skills root}/$SNAME/SKILL.md); install the skill or drop the step"
           return 1
         fi
       else
-        registry_lookup "$SPLUGIN" "$SNAME" || return 1
+        registry_lookup "$SPLUGIN" "$SNAME" || {
+          REASON="skill target '$SPLUGIN:$SNAME' resolves to no file: $REASON (looked in ${claude_dir:-no Claude dir}/plugins/installed_plugins.json); install the skill or drop the step"
+          return 1
+        }
       fi
+      if model_invocation_disabled "$LOC"; then
+        REASON="its skill target sets disable-model-invocation: true in $LOC, so the Skill tool refuses it from any worker; drop the flag, or use a kind: prompt step that reads the skill file"
+        return 1
+      fi
+      REFUSE=0
       ;;
   esac
   case "$LOC" in
@@ -1436,6 +1477,7 @@ S_HOST=()
 S_KIND=()
 S_LOC=()
 S_REASON=()
+S_REFUSE=()
 n_steps=0
 
 # build_steps <ids>: fills S_*; sets LIST_ERR when the list must degrade.
@@ -1544,13 +1586,21 @@ point_steps() {
     [ -z "$LIST_ERR" ] || die 5 "the core default $key is malformed ($LIST_ERR) (broken install)"
   fi
 
+  # A refused skill step prints `refuse` and fails check mode whatever the
+  # layer; only its entry's own on-failure: continue lets it take the
+  # matrix's token like any other step that does not resolve.
   i=1
   while [ "$i" -le "$n_steps" ]; do
+    S_REFUSE[i]=0
     if [ -n "${S_N[i]}" ]; then
       if resolve_target "${S_N[i]}"; then
         S_LOC[i]="$LOC"
       else
         S_REASON[i]="$REASON"
+        if [ "$REFUSE" -eq 1 ] && [ "${E_FAIL[${S_N[i]}]}" != continue ]; then
+          S_REFUSE[i]=1
+          [ -z "$LOC" ] || S_LOC[i]="$LOC"
+        fi
       fi
     fi
     i=$((i + 1))
@@ -1587,7 +1637,9 @@ point_steps() {
     esac
     i=1
     while [ "$i" -le "$n_steps" ]; do
-      if [ -n "${S_REASON[i]}" ]; then
+      if [ "${S_REFUSE[i]}" -eq 1 ]; then
+        warn "refuse: step '${S_ID[i]}' cannot run: ${S_REASON[i]}; the point $verb (the $list_layer layer's list, $attendance)"
+      elif [ -n "${S_REASON[i]}" ]; then
         warn "${missing_token}: step '${S_ID[i]}' does not resolve on this host: ${S_REASON[i]}; the point $verb (the $list_layer layer's list, $attendance)"
       fi
       i=$((i + 1))
@@ -1597,7 +1649,9 @@ point_steps() {
   out=""
   i=1
   while [ "$i" -le "$n_steps" ]; do
-    if [ -z "${S_REASON[i]}" ]; then
+    if [ "${S_REFUSE[i]}" -eq 1 ]; then
+      dec=refuse
+    elif [ -z "${S_REASON[i]}" ]; then
       dec=run
       [ "$any_missing" -eq 1 ] && [ "$missing_token" != skip ] && dec="$missing_token"
     else
@@ -1634,6 +1688,14 @@ point_steps() {
     warn "check mode: a malformation was degraded above; failing the check"
     exit_code=1
   fi
+  i=1
+  while [ "$check" -eq 1 ] && [ "$exit_code" -eq 0 ] && [ "$i" -le "$n_steps" ]; do
+    if [ "${S_REFUSE[i]}" -eq 1 ]; then
+      warn "check mode: step '${S_ID[i]}' is refused above; failing the check"
+      exit_code=1
+    fi
+    i=$((i + 1))
+  done
 }
 
 if [ "$n_points" -eq 1 ]; then
