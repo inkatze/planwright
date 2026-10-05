@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Test Spec
 
-**Status:** Ready
-**Last reviewed:** 2026-07-18
+**Status:** Draft
+**Last reviewed:** 2026-10-05
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -11,6 +11,12 @@ Coverage mix: the hook's behavior is verified almost entirely by `[test]`
 quality guards and `[manual]` for the end-to-end dispatch confirmation that no
 prompt-flood occurs under the wired profile. The security-critical target is
 ZERO false-allows; the suite is the primary evidence.
+
+The 2026-10-05 extension keeps that mix and adds two evidence sources: the
+sanitized real-prompt corpus (REQ-H1.3), which every guard task enforces for
+its own classes, and floor rows that must defer under every policy value. Its
+doctrine and documentation REQs are `[design-level]`; the meta-tower and
+relaunch changes add `[manual]` end-to-end confirmations alongside their tests.
 
 ## REQ-A — The auto-approve hook
 
@@ -38,6 +44,14 @@ derived from the real `deny` block so a future overlapping deny entry is caught.
 a hook `allow` cannot un-block a denied command; the wiring test (REQ-C1.1)
 asserts the `deny` block is byte-for-byte unchanged.
 
+### REQ-A1.11 — Never allow a deny-matched command, asserted as an outcome [test]
+
+Supersedes REQ-A1.3's entry. Fixtures derived from the actual `deny` block of
+`config/worker-settings.json`: for every deny rule, a command matching it (and,
+where one exists, the known-safe set too) never receives `allow`, under every
+self-approval policy value. The assertion reads the deny block at test time,
+so a future deny entry is covered without editing the fixture list.
+
 ### REQ-A1.4 — Every-segment-safe compound analysis [test]
 
 Fixtures cover compound commands split on `;`, `&&`, `||`, `|`, `&`, and
@@ -49,6 +63,15 @@ non-`/dev/null` write-redirect, an unknown verb — all defer. Redirect fixtures
 **positive** fd-dup fixtures (`cat x >/dev/null 2>&1`, `cmd >&2`, `cmd 2>&-`) must
 still ALLOW (the fd-dup carve-out does not over-defer the `>/dev/null 2>&1`
 idiom — regression guard).
+
+### REQ-A1.12 — Run-order every-segment analysis with the narrow substitution rule [test]
+
+Supersedes REQ-A1.4's entry, which it keeps in full (every compound, ambiguity,
+redirect, and fd-dup fixture still applies) and extends: state carried across
+segments (`cd <own worktree>; grep -n x f` allows; `cd /tmp; ls` defers);
+a write-redirect into an enabled arm's root allows only under that arm;
+backtick and process substitution defer everywhere; a `$(…)` defers unless
+REQ-E1.3 admits it.
 
 ### REQ-A1.5 — The enumerated known-safe set [test]
 
@@ -77,6 +100,14 @@ arbitrary sub-command (`env rm …`, `xargs rm`, `timeout 5 rm …`, `nohup`,
 `nice`, `setsid`, `stdbuf`, `chroot`), writer coreutils (`tee`, `dd`, `cp`, `mv`,
 `install`, `truncate`, `ln`, `touch`), and text-tool write-escapes (`sed 'w
 file'`, `awk 'print > "file"'`, and the severest, `awk 'system("rm -rf x")'`).
+
+### REQ-A1.13 — Defer set, with transparent `time`/`timeout` [test]
+
+Supersedes REQ-A1.6's entry, which it keeps (every listed defer fixture still
+defers, now under every policy value where the verb falls outside the arms)
+and extends: `python3`/`perl`/`node` with a program defer; every `gh` write
+defers; `time git status` and `timeout 30 git status` allow;
+`timeout 30 rm -rf x` and `time bash -c x` defer.
 
 ### REQ-A1.7 — Bash-only [test]
 
@@ -173,6 +204,15 @@ an emitted decision). `[test]` where a failure can be induced under the suite;
 the no-hang / bounded-runtime guarantee is exercised with a large/pathological
 input asserting prompt termination.
 
+### REQ-B1.8 — Fail-closed emission with policy and identity inputs [test + design-level]
+
+Supersedes REQ-B1.7's entry, which it keeps (empty stdout plus exit 0 on
+defer, never exit 2, never a partial allow, bounded runtime, empty command
+defers). Adds: an unreadable, malformed, or unknown-arm policy behaves as
+`read-only`; an unresolvable worktree root or unit branch yields no
+`own-branch` approval; `[design-level]`: the hook reads no target script's
+contents (reviewable in the script).
+
 ## REQ-C — Wiring and delivery
 
 ### REQ-C1.1 — Wired into worker-settings via ${CLAUDE_PLUGIN_ROOT} [test + manual]
@@ -209,3 +249,154 @@ and no `"$VAR/scripts/x.sh"` invocation shape remains at those sites.
 `[manual]`: a dispatched worker confirms such invocations are now
 statically analyzable (offered a persistent-allow, or matched by a literal-path
 allow entry) even with the hook disabled.
+
+## REQ-E — Expansion and compound-shape coverage
+
+### REQ-E1.1 — Unresolved or opaque `$` in a screened position defers [test]
+
+In both the worker and tower guard suites: `for d in "<flags>"; do find . $d;
+done`, the `$_` form, a loop variable reaching a containment-checked path, a
+glob in a verb path, and a symlinked cache root all defer, each fixture first
+shown allowing against the pre-change guard; `for f in a b; do grep -n x $f;
+done` still allows.
+
+### REQ-E1.2 — Plain-literal assignments resolve [test]
+
+`f=README.md; grep -n x $f` allows; `f="a b"; cat $f` is analysed as two
+operands; an assignment whose value carries a glob, an expansion, or an
+unmodelled quote leaves the variable opaque and its use in a screened position
+defers.
+
+### REQ-E1.3 — Argument-independent command substitution [test]
+
+`<plugin-root>/scripts/step-record.sh write --head $(git rev-parse HEAD)` and
+`until [ -z "$(git status --porcelain)" ]; do sleep 5; done` allow;
+`find . $(echo -maxdepth 0 -exec id \;)`, `cat $(git ls-files)` (`cat` is
+outside the enumerated argument-independent set), a nested substitution, a backtick, a
+substitution in the verb position, and `x=$(git log -1); find . $x` defer.
+Each adversarial fixture is first shown allowing against a deliberately
+over-broad variant.
+
+### REQ-E1.4 — `cd` into the own worktree only [test + design-level]
+
+`cd <own worktree>; ls` allows; `cd /tmp; ls`, `cd $X; ls`, and `cd ..; ls`
+from the worktree root defer. `[design-level]`: the fleet guide and worker
+launch text state that a worker issues `git` without a `cd`, since Claude
+Code's own `cd`-before-`git` gate is outside the hook's reach.
+
+### REQ-E1.5 — Timing and inspection verbs [test]
+
+`sleep 5`, `ps -ef`, `uptime`, `which git`, `command -v jq`,
+`git check-ignore x`, `git ls-remote origin`, `jq --version` allow; `sleep $X`
+and `ps` with an unrecognized flag defer.
+
+## REQ-F — The self-approval policy
+
+### REQ-F1.1 — One knob, read-only by default, fail-closed fallback [test]
+
+With no overlay, the resolved policy is `read-only` and the corpus's
+own-branch and scratch rows defer; an unknown arm, a malformed value, and an
+unreadable config each resolve to `read-only`; an overlay setting
+`own-branch` is honoured through the layer chain.
+
+### REQ-F1.2 — The guard is the only evaluator [test + design-level]
+
+`[test]`: the policy is applied per segment (`git add x && rm -rf /` defers
+under `own-branch`). `[design-level]`: no tower, supervisor, or relay script
+reads the policy to answer a prompt (a grep over the fleet scripts for the
+knob name finds only the guard and the config readers).
+
+### REQ-F1.3 — The own-branch arm [test]
+
+Under `own-branch`, on the session's unit branch: `sed -i s/a/b/ f`,
+`rm -r build`, `git add -A`, `git commit -m x`, `git fetch origin`, and
+`git merge origin/main` (with `worker_base_merge: allow`) allow; the same merge
+under `deny`, from a non-unit branch, or from a source other than the PR base
+defers; a write whose target canonicalizes outside the worktree defers; a
+session with no resolvable unit branch gets no own-branch approval.
+
+### REQ-F1.4 — The scratch arm [test]
+
+Under `scratch`: `mkdir -p $TMPDIR/x`, `cmd > <scratch>/out.log 2>&1`, and
+`rm -r <scratch>/x` allow; a write to `/tmp/other`, a symlink in the scratch
+root pointing outside it, and `bash <scratch>/x.sh` / `. <scratch>/x.sh`
+defer.
+
+### REQ-F1.5 — The floor holds under every policy value [test]
+
+For every policy value including all three arms: `gh pr merge`, `gh pr ready`,
+`git push --force`, `git commit --amend`, `git rebase`, `git reset --hard`,
+`git push origin HEAD:main`, `git push origin <other branch>`, a write outside
+worktree and scratch, and `gh pr comment` all defer. A fixture shows the floor
+check runs before the arm (a floor command that an arm would otherwise match).
+
+## REQ-G — Profiles, delivery, and the unattended contract
+
+### REQ-G1.1 — Static read-only allow set [test]
+
+The permission-matcher fixture table carries a row for every new allow rule;
+assertions that no rule names `awk`, `find`, `xargs`, or `sed` without `-n`;
+the `deny` block is byte-identical to its pre-change content.
+
+### REQ-G1.2 — Launcher-created scratch root [test]
+
+A launched worker's environment carries `TMPDIR` set to a directory the
+launcher created for it, owned by the worker user, recorded where the guard
+resolves it; the guard treats no other directory as scratch.
+
+### REQ-G1.3 — Relaunch under the current profile [test + manual]
+
+`[test]`: the relaunch verb's argv carries `--resume <persisted id>` and the
+installed profile path passed explicitly; it refuses a worker with no
+persisted session. `[manual]`: a live worker relaunched after a profile change
+approves a command the new profile admits.
+
+### REQ-G1.4 — Unattended defined in doctrine [design-level]
+
+The inter-orchestrator-coordination doctrine's permission-prompt section
+carries the statement; the doctrine index row and budget checks pass.
+
+### REQ-G1.5 — Meta-tower direct dispatch [test + manual]
+
+`[test]`: a meta step performs the single-spec step itself, taking and
+releasing the per-spec lock, and launches no subordinate tower session; a
+concurrent single-spec tower is excluded by the lock. `[manual]`: a live
+`--fleet --unattended` run starts a worker with no subordinate-tower prompt.
+
+### REQ-G1.6 — `git push -u origin` allowed [test]
+
+A permission-matcher fixture row shows `git push -u origin <task branch>`
+allowed and `git push -u origin main` and `git push -u origin --force x`
+denied.
+
+### REQ-G1.7 — `_about` describes every category [design-level]
+
+The profile's `_about` names the read-only, trusted-repo-task, and
+declared-step categories, each policy arm, and the floor.
+
+## REQ-H — Source fixes and verified premises
+
+### REQ-H1.1 — Scripts self-resolve substitution-fed values [test]
+
+`step-record.sh write` without `--head` records the current `HEAD`; the
+explicit form is unchanged; each swept script has a test for its default.
+
+### REQ-H1.2 — Matcher model pinned to the documented nested behaviour [test + design-level]
+
+`[test]`: matcher fixture rows show a deny rule firing on the command nested
+in `$(…)`, a subshell, and a `for` body. `[design-level]`: the model doc and
+`_about` cite the permissions documentation and drop the boundary that
+assumed otherwise.
+
+### REQ-H1.3 — Real-prompt regression corpus [test]
+
+The corpus harness runs under `mise run test`: in-policy rows approve under
+their arm, floor rows defer under every value, uncovered rows defer, pending
+rows fail once their class is marked shipped; the secret scan and
+purged-identifier guard pass over the corpus file.
+
+### REQ-H1.4 — Hashed audit log of allow decisions [test]
+
+An approved fixture writes exactly one log line with time, session, arm, and
+command hash and no command text; an unwritable log leaves the `allow`
+well-formed; the retention bound is enforced.

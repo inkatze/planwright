@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Requirements
 
-**Status:** Ready
-**Last reviewed:** 2026-07-18
+**Status:** Draft
+**Last reviewed:** 2026-10-05
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -32,6 +32,28 @@ so the most common worker command shape is statically approvable even when the
 hook degrades. The deliverable is a **mechanism** instantiating fleet-autonomy's
 existing D-18 doctrine floor, not a new doctrine gap (D-1).
 
+**The 2026-10-05 extension.** The hook shipped, and an unattended fleet still
+reached the operator on nearly every routine step: a replay of the Bash prompts
+19 workers raised between 2026-10-02 and 2026-10-05 found the shipped guard
+approving almost none of them, the hook active throughout. The residual comes
+from shapes the guard never modelled (a leading `cd` into the worker's own
+worktree, command substitution, writes into the worker's own temp scratch)
+and from ordinary work on the worker's own task branch that the guard, by
+design, never approved. This extension makes an unattended fleet unattended for
+in-scope work. A worker self-approves, deterministically and worker-side, every
+command inside **one configurable self-approval policy** (read-only work, work
+confined to its own task branch and worktree, writes into its own scratch
+root). Everything outside the policy reaches the operator as before, and the
+reserved floor (PR merge, the ready flip, force-push, amend, rebase, pushes to
+any other branch, writes outside the worktree and scratch) stays out of reach
+at every policy value. Core ships the read-only arm only; an operator turns on
+the others in an overlay. The delta also closes a live false-allow the replay
+work re-confirmed (an unexpanded operand smuggling `find -exec` past the
+argument screens), corrects the bundle's false premise that the hook sees an
+expanded command, and removes the meta-tower's subordinate session layer whose
+own bookkeeping prompted under the worker profile. Its altitude is policy plus
+mechanism with one doctrine clarification of what "unattended" means (D-9).
+
 ## Scope
 
 ### In scope
@@ -50,6 +72,19 @@ existing D-18 doctrine floor, not a new doctrine gap (D-1).
 - An adversarial test suite asserting zero false-allows and that the `deny`
   precedence holds.
 
+- **The 2026-10-05 extension:** closing the unexpanded-operand false-allow;
+  modelling a leading `cd` into the worker's own worktree, plain-literal
+  variable assignments, timing verbs, and command substitution under the
+  narrow argument-independent rule; the configurable self-approval policy
+  (read-only, own-branch-and-worktree, scratch arms) and the floor it can never
+  reach; a per-worker scratch root the launcher creates; a static read-only
+  allow set shipped in the worker profile; a relaunch path that picks up a
+  changed profile; the doctrine statement of what unattended means; the
+  meta-tower running the single-spec step itself; plugin scripts resolving the
+  values workers fetched by substitution; and the bundle's carried corrections
+  (the deny-outcome assertion, the matcher's command-substitution behaviour
+  pinned, the `git push -u` spelling, the profile's `_about` categories).
+
 ### Out of scope
 
 - Claude Code's `auto` / `bypassPermissions` permission modes (rejected by
@@ -63,6 +98,26 @@ existing D-18 doctrine floor, not a new doctrine gap (D-1).
   other tool defers).
 - An operator-configurable allowlist config knob (deferred pending drain-loop
   evidence; see `tasks.md` Deferred — the customization-boundary call in D-8).
+  *(Amended at the 2026-10-05 extension: the drain evidence arrived and the
+  self-approval policy (REQ-F) is that knob's graduated form, D-12; an
+  arbitrary per-verb allowlist extension stays out.)*
+- Skills emitting one plain command per Bash call: a separate visual flight
+  owns that skill-prose change; this bundle covers the guard, the profile, and
+  the plugin scripts' own interfaces.
+- Any tower-side answering of a worker's permission prompt on the tower's own
+  judgment: doctrine forbids it, and a tower-side filter was refused by the
+  harness's own classifier as a bypass.
+- Standing-decision matching over split segments, deny-polarity standing
+  decisions, and settle-route delivery: tower-comms owns the matcher; segment
+  matching is deferred until a settle actually unblocks a worker (D-18).
+- The shared command-guard library extraction, the awk relational lexer, and
+  the guards' per-call process-spawn cost.
+- `git -C <path>` and inline environment-assignment prefixes, which keep
+  deferring (REQ-A1.8, REQ-A1.9).
+- Claude Code's sensitive-path prompt on reads under the harness's own plugin
+  directories, which a hook `allow` cannot override.
+- Approving a script the worker wrote itself, wherever it lives: executing
+  self-written code is arbitrary execution and always reaches the operator.
 
 ## REQ-A — The auto-approve hook
 
@@ -80,6 +135,15 @@ existing D-18 doctrine floor, not a new doctrine gap (D-1).
   hard invariants) SHALL remain enforced verbatim, since Claude Code evaluates
   `deny`→`ask`→`allow` regardless of hook output.
   *(Cites: D-3; fleet-autonomy REQ-E1.4/D-19 (Sources); the grounded permission facts (Sources).)*
+  **Superseded-by: REQ-A1.11** (2026-10-05) — it leaned on a
+  platform precedence the hooks documentation does not confirm; the
+  replacement asserts the outcome instead.
+- **REQ-A1.11** (supersedes REQ-A1.3) The hook SHALL NEVER emit `allow` for a
+  command that any rule of the worker profile's `deny` block matches, at any
+  self-approval policy value; the suite SHALL assert this outcome against the
+  actual `deny` block rather than relying on Claude Code's evaluation order,
+  and the `deny` block SHALL remain enforced verbatim.
+  *(Cites: D-10, D-13; obs:4dda9fe1; the 2026-08-18 amendment note (Sources).)*
 - **REQ-A1.4** A command SHALL be auto-approved only if EVERY segment of a
   compound command (quote-aware split on `;`, `&&`, `||`, `|`, `&`, and
   newlines) is independently known-safe. Any ambiguity SHALL defer: unbalanced
@@ -93,6 +157,25 @@ existing D-18 doctrine floor, not a new doctrine gap (D-1).
   unrecognized verb. File-descriptor duplication or closing whose operand is a
   digit or `-` (`2>&1`, `>&2`, `2>&-`) is not a file write and does not defer.
   *(Cites: D-3; kickoff §7 (2026-07-18).)*
+  **Superseded-by: REQ-A1.12** (2026-10-05) — the extension admits
+  command substitution under a narrow rule and reads the segments in their
+  run order, so a leading `cd` and plain assignments can be modelled.
+- **REQ-A1.12** (supersedes REQ-A1.4) A command SHALL be auto-approved only if
+  EVERY segment of a compound command (quote-aware split on `;`, `&&`, `||`,
+  `|`, `&`, and newlines) is independently approvable, the segments analysed
+  in run order so state a segment establishes (the working directory, a
+  variable's value) is applied to the segments after it. Any ambiguity SHALL
+  defer: unbalanced quotes; process substitution (`<(…)`, `>(…)`); backtick
+  substitution; a `$(…)` substitution outside the narrow form of REQ-E1.3; an
+  input here-document or here-string (`<<`, `<<-`, `<<<`); a write-redirect,
+  in any of the forms `>`, `>>`, `>|`, `&>`, `&>>`, and `>&`/`<&` with a
+  filename operand, appearing anywhere in the segment including a leading
+  redirect, to a target other than `/dev/null` or a target an enabled policy
+  arm admits (REQ-F1.3, REQ-F1.4); subshell or brace grouping; or an
+  unrecognized verb. File-descriptor duplication or closing whose operand is a
+  digit or `-` is not a file write and does not defer.
+  *(Cites: D-3, D-11, D-19; obs:885bc3c9, obs:01629047; the live-run prompt
+  replay (Sources).)*
 - **REQ-A1.5** The known-safe set SHALL be an explicit enumerated allowlist of
   verbs and invocation shapes — never a category match — comprising: plugin/repo
   `scripts/*.sh` and `tests/*.sh` executed directly or via `bash`/`sh <path>`
@@ -135,6 +218,23 @@ existing D-18 doctrine floor, not a new doctrine gap (D-1).
   here is belt-and-suspenders documenting why, not an implication that `awk` is
   otherwise approvable.)
   *(Cites: D-3; brief Amendment 1 (2026-07-18).)*
+  **Superseded-by: REQ-A1.13** (2026-10-05) — `timeout` and `time`
+  wrap a command the hook can inspect, so they join the analysable set.
+- **REQ-A1.13** (supersedes REQ-A1.6) Everything no enabled policy arm
+  approves SHALL defer, explicitly including `rm`, `curl … | sh`, `sudo`,
+  `bash -c`/`sh -c`, interpreters given a program (`python3`, `perl`, `node`,
+  `awk -f`), command substitution outside REQ-E1.3, process kills
+  (`kill`/`pkill`), command-runner verbs that execute an arbitrary
+  sub-command (`env`, `xargs`, `nohup`, `nice`, `setsid`, `stdbuf`, `chroot`),
+  writer coreutils and in-place edits whose target falls outside every enabled
+  arm, mutating `git`/`gh` subcommands outside the own-branch arm, every `gh`
+  write (they are outward-facing), and text-tool write-escapes (`sed`
+  `w`/`W`/`s///w`, `awk` `print >`/`system()`). The `time` keyword and
+  `timeout <duration>` SHALL be analysed as transparent prefixes: the command
+  they wrap is verified exactly as if it stood alone, and approval follows
+  its verdict.
+  *(Cites: D-3, D-19; brief Amendment 1 (2026-07-18); the live-run prompt
+  replay (Sources).)*
 - **REQ-A1.7** The hook SHALL consider only the Bash tool; for every other tool
   it SHALL defer.
   *(Cites: D-2.)*
@@ -232,6 +332,24 @@ existing D-18 doctrine floor, not a new doctrine gap (D-1).
   flow — rather than being a decision the hook emits.
   *(Cites: D-3, D-4; kickoff §7 (2026-07-18); brief Amendment 1 (2026-07-18).)*
 
+  **Superseded-by: REQ-B1.8** (2026-10-05) — the hook now also
+  reads the resolved self-approval policy and the session's unit identity,
+  which the original sole-input clause did not admit.
+- **REQ-B1.8** (supersedes REQ-B1.7) The hook SHALL fail closed at the
+  emission boundary: it SHALL write its `allow` decision as a single final
+  action only after every check has passed, and on the defer path and on any
+  error, signal, or unexpected state it SHALL produce empty stdout and exit 0;
+  it SHALL NEVER exit with status 2 or emit Claude Code's block signal. It
+  SHALL bound its own runtime and read stdin defensively, and a
+  present-but-empty or non-string `tool_input.command` SHALL defer. The hook
+  SHALL decide solely from the command string, path metadata, the resolved
+  self-approval policy (REQ-F1.1), and the session's unit identity (its
+  worktree root and unit branch); it SHALL NOT read or parse the contents of
+  any target script. A policy or identity it cannot resolve SHALL leave only
+  the read-only arm in force. Failure of the hook script itself to start fails
+  safe structurally.
+  *(Cites: D-3, D-4, D-12; kickoff §7 (2026-07-18).)*
+
 ## REQ-C — Wiring and delivery
 
 - **REQ-C1.1** The hook SHALL be wired into `config/worker-settings.json` as a
@@ -264,7 +382,179 @@ existing D-18 doctrine floor, not a new doctrine gap (D-1).
   the hook.
   *(Cites: D-7; obs:344dd129.)*
 
+## REQ-E — Expansion and compound-shape coverage
+
+- **REQ-E1.1** A word carrying an unresolved or opaque `$` expansion (a
+  variable the same command did not assign a plain literal, a special
+  parameter such as `$_` or `$?` used as an operand, or a variable assigned
+  from a substitution) SHALL defer wherever the verb's approval depends on that
+  word's value: an operand of a verb with flag or argument screens, a verb
+  position, or a path the hook containment-checks. A `for` loop variable SHALL
+  be modelled by verifying the loop body once per plain-literal head word with
+  that word substituted, under a bounded count, deferring when any head word is
+  not a plain literal. The worker guard and the tower command guard, which
+  shares the operand screens, SHALL both carry this rule.
+  *(Cites: D-11; obs:9255e1d1; drafting-session decision (2026-10-05).)*
+- **REQ-E1.2** A plain assignment `NAME=<plain literal>` segment SHALL be
+  approvable, and a later `$NAME` or `${NAME}` in the same command SHALL be
+  analysed as that literal (quoted or unquoted, with unquoted word splitting
+  reproduced), for any literal value and not only a trusted-root path; an
+  assignment whose value carries a quote the analyzer does not model, a glob,
+  or an expansion SHALL leave the variable opaque.
+  *(Cites: D-19; obs:885bc3c9, obs:23a619c0.)*
+- **REQ-E1.3** A `$(…)` substitution SHALL be approvable only when all of these
+  hold: its inner text is a single simple command or pipeline that
+  independently passes the read-only analysis; it contains no nested
+  substitution, no backtick, and no parenthesis inside a quoted string; and
+  every position its output reaches (directly, or through a variable assigned
+  from it) is argument-independent: an operand of a verb whose approval does
+  not depend on its operand values (an enumerated set comprising the trusted
+  repo and plugin scripts, counting only the operands after the script path,
+  `echo`, `printf`, `test`, and `[`), or the value of such an assignment.
+  Output reaching any other position, a script path included, SHALL defer.
+  *(Cites: D-11; obs:9255e1d1; the live-run prompt replay (Sources).)*
+- **REQ-E1.4** A leading `cd <dir>` segment SHALL be approvable only when
+  `<dir>` is a plain literal that canonicalizes inside the session's own
+  worktree; the segments after it SHALL be analysed with that directory as the
+  working directory. A `cd` to any other target, or a `cd` whose operand is
+  not a plain literal, SHALL defer the whole command. Claude Code's own gate on
+  a `cd` that changes directory before a `git` call is outside any hook's
+  reach, so the fleet guide and worker launch text SHALL state that a worker
+  already runs in its own worktree and issues `git` without a `cd`.
+  *(Cites: D-19; obs:885bc3c9, obs:01629047; research: Claude Code
+  permissions doc (Sources).)*
+- **REQ-E1.5** The read-only set SHALL include the timing and inspection verbs
+  workers use for waits and diagnostics, each under the REQ-A1.8
+  safe-invocation rule: `sleep` with a numeric operand, `ps`, `uptime`,
+  `which`, `command -v`, `git check-ignore`, `git ls-remote`, and the
+  `--version` form of an allowlisted tool; the exhaustive membership is
+  carried by the implementation and pinned by the suite.
+  *(Cites: D-19; the live-run prompt replay (Sources).)*
+
+## REQ-F — The self-approval policy
+
+- **REQ-F1.1** The worker's self-approval surface SHALL be one configurable
+  policy, a config knob resolved through the overlay layers, whose value is a
+  set of arms drawn from `read-only`, `own-branch`, and `scratch`; the core
+  default SHALL be `read-only` alone, reproducing the pre-extension behaviour.
+  An unknown arm, a malformed value, or a read failure SHALL resolve to
+  `read-only` alone.
+  *(Cites: D-12; customization-boundary (Sources).)*
+- **REQ-F1.2** The policy SHALL be evaluated by the worker guard against its own
+  per-segment command classification, never by literal-prefix matching, and
+  the guard SHALL remain the only self-approval mechanism: no tower,
+  supervisor, or relay SHALL answer a worker's permission prompt on the
+  strength of the policy.
+  *(Cites: D-12, D-13; inter-orchestrator-coordination doctrine (Sources).)*
+- **REQ-F1.3** The `own-branch` arm SHALL approve, beyond the read-only set,
+  writes confined to the session's own unit branch and worktree: file writers
+  and in-place edits (`sed -i`, `rm`, `mkdir`, `cp`, `mv`, `touch`, `tee`, and
+  a write-redirect) whose every target canonicalizes inside the worktree;
+  `git add`, `git rm`, `git mv`, `git restore`, `git checkout -- <paths>`, and
+  `git commit` without a history-rewriting flag; `git fetch` without a
+  refspec that writes a local branch; and a `git merge` whose source is the
+  unit's PR base, only while the session is on its own unit branch and the
+  human-gates `worker_base_merge` policy allows it. A session whose unit
+  branch or worktree root it cannot resolve SHALL get no `own-branch`
+  approvals.
+  *(Cites: D-12, D-13; obs:82bab6e3; human-gates Task 10 (Sources).)*
+- **REQ-F1.4** The `scratch` arm SHALL approve writes (`mkdir`, `mktemp`, `rm`,
+  `cp`, `mv`, `touch`, `tee`, and a write-redirect) whose every target
+  canonicalizes inside the session's own scratch root (REQ-G1.2); it SHALL
+  NOT approve executing or sourcing anything located there.
+  *(Cites: D-14; obs:1f1141ec, obs:65c35236.)*
+- **REQ-F1.5** The floor SHALL be outside every policy value: the guard SHALL
+  NOT approve a PR merge, a ready flip or its undo, a force-push, `--amend`,
+  rebase, squash, reset of a branch, a push to any ref other than the session's
+  own unit branch, a write or delete outside the worktree and scratch root, a
+  `gh` write, or anything the profile's `deny` block or the policy guard
+  refuses. Evaluating the floor SHALL precede evaluating the policy.
+  *(Cites: D-13; the operator's live-run delegation (Sources).)*
+
+## REQ-G — Profiles, delivery, and the unattended contract
+
+- **REQ-G1.1** `config/worker-settings.json` SHALL ship a static read-only
+  allow set scoped to the worker profile, covering read-only `git`
+  subcommands, `grep`, `sed -n`, `cat`, `head`, `tail`, `wc`, `ls`, `jq`,
+  `cut`, `sort`, `uniq`, `diff`, and `stat`, so an adopter needs no user-scope
+  allow rule; it SHALL NOT include `awk`, `find`, `xargs`, or `sed` without
+  `-n`, each of which can write files or run commands, and every rule SHALL
+  pass the permission-matcher fixture table.
+  *(Cites: D-15; the dotfiles stopgap (Sources); obs:65c35236.)*
+- **REQ-G1.2** The worker launcher SHALL create a per-worker scratch root
+  owned by the worker, export it as the worker's `TMPDIR`, and record it where
+  the guard resolves the session's scratch root; the guard SHALL treat no
+  other directory as scratch.
+  *(Cites: D-14; obs:1f1141ec.)*
+- **REQ-G1.3** The fleet guide SHALL state that a worker reads its permission
+  profile and the policy's launch-time inputs at session start, so a change
+  reaches a running worker only by relaunch; the stream-json supervisor SHALL
+  offer a relaunch that resumes the worker's persisted session under the
+  currently installed profile, passing that profile explicitly, since a
+  resumed session does not restore `--settings`.
+  *(Cites: D-16; the live-run report (Sources); research: Claude Code
+  sessions doc (Sources).)*
+- **REQ-G1.4** The doctrine SHALL state what unattended mode means for
+  permission prompts: a prompt outside the self-approval policy is parked as a
+  decision-queue item for the operator, never answered by a tower's or
+  supervisor's judgment, and the configured policy is the only self-approval
+  surface.
+  *(Cites: D-9, D-12; inter-orchestrator-coordination doctrine (Sources).)*
+- **REQ-G1.5** The meta-tower SHALL run the selected spec's single-spec step
+  (its per-spec lock, freshness gate, dispatch record, and worker launch)
+  itself, under its own tower profile, rather than launching a subordinate
+  tower session through the worker backend.
+  *(Cites: D-17; work-placement doctrine (Sources).)*
+- **REQ-G1.6** The worker profile SHALL allow the first-push spelling
+  `git push -u origin <branch>` under the same `deny` floor as
+  `git push origin`.
+  *(Cites: D-15; obs:33812f90.)*
+- **REQ-G1.7** The profile's `_about` text SHALL describe every approval
+  category the worker guard applies (read-only shapes, trusted-repo-task
+  shapes, declared command-step lines, and each policy arm) and the floor.
+  *(Cites: D-12; obs:62411beb.)*
+
+## REQ-H — Source fixes and verified premises
+
+- **REQ-H1.1** A plugin script that takes a value a worker would otherwise
+  fetch by command substitution SHALL resolve that value itself when the
+  argument is omitted; `step-record.sh`'s `--head` is the observed instance.
+  *(Cites: D-11; the live-run report (Sources).)*
+- **REQ-H1.2** The permission-matcher model doc, its re-implementation, and the
+  worker profile's `_about` SHALL state the documented behaviour that `deny`
+  and `ask` rules apply to a command nested in a command substitution, a
+  subshell, or a control-flow body, closing the model boundary that assumed
+  otherwise, with a fixture row per nesting form.
+  *(Cites: D-10; obs:aed9ca33; research: Claude Code permissions doc
+  (Sources).)*
+- **REQ-H1.3** The adversarial suite SHALL include a sanitized regression
+  corpus drawn from real worker prompts, asserting that every row in an
+  in-policy class approves under the arm it belongs to, that every floor row
+  defers under every policy value, and that every row the policy does not
+  cover defers.
+  *(Cites: D-20; the live-run prompt replay (Sources).)*
+- **REQ-H1.4** Every `allow` the hook emits SHALL append one line to a
+  worker-local, append-only audit log under the fleet state home: the time,
+  the session, the arm or approval category that approved it, and a hash of
+  the command, never the command text. A failure to write the line SHALL NOT
+  turn an approval into a block or a partial decision, and the log SHALL have
+  a stated retention bound.
+  *(Cites: D-21; obs:9255e1d1; drafting-session decision (2026-10-05).)*
+
 ## Changelog
+
+- 2026-10-05 — Bundle extended via `/spec-draft` (reopen cycle: stored
+  Ready→Draft on all four headers; the scoped kickoff of the delta flips it
+  back). Adds REQ groups E (expansion and compound-shape coverage), F (the
+  self-approval policy), G (profiles, delivery, the unattended contract), and H
+  (source fixes and verified premises); supersedes REQ-A1.3 (by REQ-A1.11),
+  REQ-A1.4 (by REQ-A1.12), REQ-A1.6 (by REQ-A1.13), and REQ-B1.7 (by REQ-B1.8);
+  supersedes D-2 (by D-10) and D-8 (by D-12); scope amended in place to match.
+  Drafting-session decisions: fold the whole amendment here rather than split
+  it by owning bundle; core ships the read-only arm only; standing-decision
+  segment matching deferred behind the settle-delivery fix; the meta-tower
+  dispatches directly; the live unexpanded-operand false-allow travels as this
+  delta's first task rather than an urgent flight.
 
 - 2026-07-18 — Delta re-walkthrough (panel-review pass, gemini backend);
   pre-merge meaning-class amendment on the Ready spec PR. REQ-A1.4 and REQ-A1.9
@@ -343,3 +633,88 @@ existing D-18 doctrine floor, not a new doctrine gap (D-1).
 - **`fleet-state-home-unresolved`** (observation, uid b085ac53) — considered as
   a seed and scoped out as orthogonal fleet-governance robustness; left
   **unconsumed** so it stays live for a future fleet-autonomy fix.
+- **The 2026-10-05 extension seed** — the `/spec-draft` invocation: the
+  compound-shape gaps, the branch-scoped standing decision, the subordinate
+  tower's profile, and the three live-run reports from an
+  `/orchestrate --fleet --unattended` run (2026-10-03/04), including the
+  stream-json worker that stalled about 80 minutes on a `step-record.sh` call
+  carrying a command substitution.
+- **Pinned altitude seed claims (2026-10-05)** — two explicit statements about
+  the deliverable's nature, reconciled by D-9: the operator's "Wasn't this
+  supposed to be unattended?", and the request to "state plainly what
+  unattended mode means today, then define the self-approval surface as one
+  configurable standing policy instead of a live delegation to the tower".
+- **The operator's live-run delegation (2026-10-03)** — "if I have to approve
+  execution writes for spec tasks this is pointless": every worker action
+  confined to its own task branch and worktree delegated live, keeping the
+  floor (PR merge, the ready flip, force-push, amend, rebase, pushes to main or
+  any other branch, writes outside the worktree). The shape REQ-F encodes.
+- **The live-run report** — the operator's account of the same run: two
+  parallel workers each running a nine-reviewer polish produced a stream of
+  mostly read-only prompts; a tower-side filter auto-answering them was
+  refused by the harness classifier as a bypass; settings load at session
+  start, so a fix never reached the running workers; a local edit of the
+  installed worker profile was refused too.
+- **The dotfiles stopgap** — the operator's interim user-scope allow rules
+  for read-only verbs (read-only `git` subcommands, `grep`, `sed -n`, `cat`,
+  `head`, `tail`, `wc`, `ls`, `jq`, `cut`, `sort`, `uniq`, `diff`, `stat`,
+  `cd`), deliberately excluding `awk`, `find`, `xargs`, and bare `sed`; it
+  widened the operator's interactive sessions too, which REQ-G1.1 undoes.
+- **The live-run prompt replay (2026-10-05)** — a read-only replay, during
+  drafting, of every Bash permission request journaled by the stream-json
+  supervisor between 2026-10-02 and 2026-10-05 through the then-current guard.
+  The guard would have approved almost none, with the hook active throughout;
+  the largest classes were a leading `cd`, command substitution, writes into
+  temp scratch, own-branch write verbs, unknown verbs, and self-written temp
+  scripts. The classified table stays machine-local (it holds raw commands);
+  the bundle records only its shape.
+- **The 2026-08-18 amendment note** — `specs/_pending/worker-permission-ergonomics-amendment.md`,
+  captured during fleet-lifecycle-closure drafting. Its screen-narrowing and
+  self-resolved plugin roots have since shipped through flights; its still-open
+  items (the `-u` push spelling, the deny-outcome reword, the matcher's
+  command-substitution behaviour) are carried by REQ-G1.6, REQ-A1.11, and
+  REQ-H1.2.
+- **research: Claude Code permissions doc** (code.claude.com, consulted
+  2026-10-05) — `deny` and `ask` rules apply regardless of a PreToolUse hook's
+  `allow`, and to commands nested in a substitution, subshell, or control-flow
+  body; a `cd` that changes directory before a `git` call prompts as a
+  separate safety gate.
+- **research: Claude Code sessions doc** (code.claude.com, consulted
+  2026-10-05) — a resumed session does not restore `--settings`; it must be
+  passed again.
+- **inter-orchestrator-coordination doctrine** — "never answer a worker's
+  permission prompt on the tower's judgment"; the shipped worker profile is
+  the sanctioned way to remove routine prompts. REQ-G1.4 adds the unattended
+  statement there.
+- **work-placement doctrine** — the smallest-sufficient-rung and
+  tower-frugality axioms D-17 applies.
+- **orchestration-fleet D-6** — the meta-tower as one disposable layer over
+  unchanged single-spec machinery, which D-17 keeps by the per-spec lock
+  rather than a session boundary.
+- **human-gates Task 10** — the worker base merge and the
+  `worker_base_merge` knob the `own-branch` arm composes with.
+- **tower-comms REQ-E1.5** — the literal-prefix standing-decision matcher D-18
+  leaves unchanged.
+- **obs:885bc3c9** — skills compose compound Bash a standing decision cannot
+  match (consumed by this bundle).
+- **obs:01629047** — worker-command-guard compound forms (consumed).
+- **obs:23a619c0** — the stream-json allowlist gap on the opening doctrine
+  resolution (consumed).
+- **obs:9255e1d1** — the unexpanded-operand false-allow, still live at
+  drafting (consumed; closed by Task 4).
+- **obs:9c1cf997** — the raw-command premise behind D-10 (consumed).
+- **obs:62411beb** — `_about` misses the declared-step category (consumed).
+- **obs:4dda9fe1** — hook allow versus deny precedence undocumented
+  (consumed).
+- **obs:aed9ca33** — the matcher's command-substitution behaviour unknown
+  (consumed).
+- **obs:33812f90** — the `-u` push spelling misses the allow rule (consumed).
+- **obs:1f1141ec** — operator decision: self-created temp-dir writes as a
+  knob (consumed).
+- **obs:82bab6e3** — forward-merging main into its own task branch is worker
+  work (consumed).
+- **obs:65c35236** — residual escalations carry output redirects (consumed).
+- **obs:3ed95276** — the awk lexer's false-allows, cited for its lesson
+  (left unconsumed).
+- **obs:fd1824a4** — the standing-decision settle does not deliver, gating
+  D-18's deferral (left unconsumed).
