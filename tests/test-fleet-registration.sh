@@ -39,6 +39,8 @@
 #   c1 (REQ-E1.1): the seam-coverage manifest — every dispatch seam registers,
 #      and discovery over scripts/ finds no seam missing from the manifest, so
 #      the requirement does not silently decay as seams are added.
+#   c1b (fleet-hardening REQ-H1.6): the watchdog's exemption covers its tower
+#      relaunch line only; a worker launch added beside it is discovered.
 #   c2 (REQ-E1.1, REQ-E1.2): the headless rung registers a complete record.
 #   c3 (REQ-E1.1, REQ-E1.2): the stream-json rung registers a complete record.
 #   c4 (REQ-E1.1, REQ-D1.8): the offload print rung registers its deferred
@@ -399,14 +401,42 @@ grep -qE 'register_dispatch .* print' "$REPO_ROOT/scripts/offload-dispatch.sh" \
 # launch (run or printed for a human to run). Same shape as the sibling guard in
 # tests/test-dispatch-launch-pin.sh. Comment lines are stripped first: a guard
 # that quotes a launch shape in its prose is documenting one, not spawning one.
-discovered=$(for f in "$REPO_ROOT"/scripts/*.sh; do
-  body=$(grep -v '^[[:space:]]*#' "$f")
-  if printf '%s\n' "$body" | grep -qE -- '(^|[[:space:]])(-p|--print)([[:space:]].*)?[[:space:]]--output-format' \
-    || printf '%s\n' "$body" | grep -qE -- '--output-format([[:space:]].*)?[[:space:]](-p|--print)([[:space:]]|$)' \
-    || printf '%s\n' "$body" | grep -qE -- '--tmux=classic|tmux new-window|new-session -d -s [^ ]+ -c|claude --worktree'; then
-    basename "$f"
-  fi
-done | sort -u)
+# The one exemption is a single line, not a file: fleet-tower-watchdog.sh opens
+# a tmux session to relaunch a tower, not a worker, so that launch has no
+# registry record to write. Any other launch in the same file is still
+# discovered. The line is matched whole (leading indent aside), so rewording
+# the relaunch surfaces it here rather than widening the exemption silently.
+exempt_file="fleet-tower-watchdog.sh"
+# shellcheck disable=SC1003,SC2016 # the relaunch line as written in the watchdog
+exempt_line='tmux new-session -d -s "$session_name" -c "$checkout" \'
+drop_exempt_line() {
+  EXEMPT_LINE=$exempt_line awk '{ t = $0; sub(/^[ \t]+/, "", t); if (t != ENVIRON["EXEMPT_LINE"]) print }'
+}
+# discover_seams <dir> — the basename of every script in <dir> that spawns a
+# worker, one per line, sorted.
+discover_seams() {
+  local f body
+  for f in "$1"/*.sh; do
+    [ -f "$f" ] || continue
+    body=$(grep -v '^[[:space:]]*#' "$f")
+    [ "$(basename "$f")" != "$exempt_file" ] \
+      || body=$(printf '%s\n' "$body" | drop_exempt_line)
+    if printf '%s\n' "$body" | grep -qE -- '(^|[[:space:]])(-p|--print)([[:space:]].*)?[[:space:]]--output-format' \
+      || printf '%s\n' "$body" | grep -qE -- '--output-format([[:space:]].*)?[[:space:]](-p|--print)([[:space:]]|$)' \
+      || printf '%s\n' "$body" | grep -qE -- '--tmux=classic|tmux new-window|new-session -d -s [^ ]+ -c|claude --worktree'; then
+      basename "$f"
+    fi
+  done | sort -u
+}
+# unmanifested <dir> — the seams discover_seams finds in <dir> that the
+# manifest does not name.
+unmanifested() {
+  local d
+  for d in $(discover_seams "$1"); do
+    printf '%s\n' "$manifest" | grep -qx "$d" || printf '%s\n' "$d"
+  done
+}
+discovered=$(discover_seams "$REPO_ROOT/scripts")
 [ -n "$discovered" ] || fail "c1: seam discovery found nothing (the scan has drifted)"
 # Non-vacuity floor, the sibling guard's p1: the scan must still find every
 # seam the manifest names. A scan that has drifted into finding nothing (or
@@ -416,20 +446,46 @@ for seam in $manifest; do
   printf '%s\n' "$discovered" | grep -qx "$seam" \
     || fail "c1: discovery no longer finds $seam — the scan has drifted and can pass vacuously"
 done
-# The one exemption: fleet-tower-watchdog.sh opens a tmux session to relaunch a
-# tower, not a worker, so it has no registry record to write. It must still be
-# discovered, so the exemption cannot sit here unreached.
-exempt="fleet-tower-watchdog.sh"
-for e in $exempt; do
-  printf '%s\n' "$discovered" | grep -qx "$e" \
-    || fail "c1: the exemption for $e is unreached; drop it"
-done
-for d in $discovered; do
-  printf '%s\n' "$exempt" | grep -qx "$d" && continue
-  printf '%s\n' "$manifest" | grep -qx "$d" \
-    || fail "c1: $d spawns a worker but is not in the seam-coverage manifest"
+# The exemption must stay reachable: the real watchdog holds the line exactly
+# once, and the line on its own is one discovery would flag.
+exempt_hits=$(EXEMPT_LINE=$exempt_line awk '{ t = $0; sub(/^[ \t]+/, "", t); if (t == ENVIRON["EXEMPT_LINE"]) n++ } END { print n + 0 }' \
+  "$REPO_ROOT/scripts/$exempt_file")
+[ "$exempt_hits" = 1 ] \
+  || fail "c1: the exemption's relaunch line occurs $exempt_hits time(s) in $exempt_file, not once; it is unreached"
+printf '%s\n' "$exempt_line" | grep -qE -- 'new-session -d -s [^ ]+ -c' \
+  || fail "c1: the exemption's line is not a launch discovery would flag; drop it"
+for d in $(unmanifested "$REPO_ROOT/scripts"); do
+  fail "c1: $d spawns a worker but is not in the seam-coverage manifest"
 done
 ok c1 "every dispatch seam registers, and discovery finds none missing"
+
+# ---------------------------------------------------------------------------
+# c1b — the exemption covers the tower relaunch line, not its file (REQ-H1.6).
+#
+# A fixture copy of the watchdog gains a worker launch beside its tower
+# relaunch: discovery must report the copy as an unmanifested seam. A copy
+# whose relaunch line is reworded is discovered too, so the exemption cannot
+# match more than the one line it names.
+# ---------------------------------------------------------------------------
+c1b_dir="$tmp/c1b-scripts"
+mkdir -p "$c1b_dir/clean" "$c1b_dir/added" "$c1b_dir/reworded"
+cp "$REPO_ROOT/scripts/$exempt_file" "$c1b_dir/clean/"
+cp "$REPO_ROOT/scripts/$exempt_file" "$c1b_dir/added/"
+# shellcheck disable=SC2016 # literal shell text for the fixture to carry
+printf '%s\n' '  tmux new-session -d -s "$worker" -c "$worktree" -- claude' \
+  >>"$c1b_dir/added/$exempt_file"
+# shellcheck disable=SC2016 # a sed program, not a shell expansion
+sed 's/new-session -d -s "\$session_name"/new-session -d -s "$tower_session"/' \
+  "$REPO_ROOT/scripts/$exempt_file" >"$c1b_dir/reworded/$exempt_file"
+cmp -s "$c1b_dir/reworded/$exempt_file" "$REPO_ROOT/scripts/$exempt_file" \
+  && fail "c1b: fixture construction failed (the relaunch line was not reworded)"
+[ -z "$(unmanifested "$c1b_dir/clean")" ] \
+  || fail "c1b: an unmodified watchdog copy is reported as an unmanifested seam"
+unmanifested "$c1b_dir/added" | grep -qx "$exempt_file" \
+  || fail "c1b: a worker launch added beside the tower relaunch is not discovered"
+unmanifested "$c1b_dir/reworded" | grep -qx "$exempt_file" \
+  || fail "c1b: the exemption matched a relaunch line other than the one it names"
+ok c1b "the watchdog exemption covers only its tower relaunch line"
 
 # ---------------------------------------------------------------------------
 # c2 — the headless rung registers a complete record.
