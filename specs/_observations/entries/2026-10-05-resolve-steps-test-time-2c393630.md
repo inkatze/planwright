@@ -1,0 +1,1 @@
+- 2026-10-05 [planwright] tests/test-resolve-steps.sh runs about 110s serially on a loaded dev host against the 120s per-file budget (98s on main before the refusal cases landed); the next resolver feature will likely trip check:test-time, so splitting the file needs a shared fixture harness under tests/lib first.
