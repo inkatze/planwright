@@ -122,6 +122,9 @@ flight_dir() {
 }
 
 valid_landing() {
+  # grep -x anchors each line, not the whole value, so a multi-line landing
+  # would pass on any one matching line.
+  has_ctl "$1" && return 1
   case $1 in
     pr:*)
       printf '%s\n' "${1#pr:}" \

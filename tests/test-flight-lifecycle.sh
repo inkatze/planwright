@@ -180,6 +180,15 @@ esac
   && fail "a malformed PR landing must be refused"
 "$SCRIPT" push completion "$G" --handle "$HG" --landing "record:../../etc/passwd" 2>/dev/null \
   && fail "a record landing outside the flight record directory must be refused"
+"$SCRIPT" push completion "$G" --handle "$HG" \
+  --landing "pr:https://github.com/acme/widgets/pull/7
+visit https://example.invalid/login" 2>/dev/null \
+  && fail "a landing that matches only on one of its lines must be refused"
+"$SCRIPT" push completion "$G" --handle "$HG" \
+  --landing "record:x
+/etc/passwd
+specs/_flights/$G.md" 2>/dev/null \
+  && fail "a multi-line record landing must be refused"
 "$SCRIPT" push awaiting-decision "$G" --handle "$HG" --reason "$(printf 'a\033[2Jb')" 2>/dev/null \
   && fail "a reason carrying a control byte must be refused"
 "$SCRIPT" push awaiting-decision "$G" --handle "$HG" --reason "" 2>/dev/null \
