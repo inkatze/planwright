@@ -1305,7 +1305,7 @@ want "resume/malformed-config: the verification ref is cleaned up on the fail-cl
 # 12. require_ci knob (REQ-G1.3, release-hardening Task 6): a core `require_ci`
 #     knob (default `true`) that, when `false`, relaxes ONLY the NONE / "no
 #     positive CI confirmation" verdict — across all three NONE sub-cases (null
-#     rollup, empty-after-window-lock-exclusion, all-NEUTRAL/SKIPPED) — while a
+#     rollup, empty-after-exclusion, all-NEUTRAL/SKIPPED) — while a
 #     FAILING, PENDING, TOO_MANY, or query-failure verdict stays fail-closed.
 #     The relaxed NONE publish emits a stderr diagnostic naming `require_ci=false`
 #     (present on the relaxed path, absent otherwise). The value is validated as

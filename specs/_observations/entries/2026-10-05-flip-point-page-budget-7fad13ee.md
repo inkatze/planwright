@@ -1,0 +1,1 @@
+- 2026-10-05 [planwright] rl_ci_state checks hasNextPage on contexts(first:100) before excluding nodes, so a flip-point status on a commit already carrying 100 real checks turns a green verdict into too-many (fail-closed). The excluded nodes still spend the page budget; only reachable when a flip-point status lands on a SHA the release gate judges.

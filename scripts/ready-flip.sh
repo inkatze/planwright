@@ -722,7 +722,7 @@ pred_review() {
 # shellcheck disable=SC2016
 ROLLUP_JQ='
   [ (.statusCheckRollup // [])[]
-    | select(((.context // .name // "") as $n | any($ex[]; . == $n)) | not)
+    | select((.__typename == "StatusContext" and ((.context // "") as $n | any($ex[]; . == $n))) | not)
     | if .__typename == "StatusContext" then
         (if .state == "SUCCESS" then "green" elif (.state == "PENDING" or .state == "EXPECTED") then "pending" else "failing" end)
       else
