@@ -67,8 +67,9 @@
 #
 # Splitting create-then-launch makes the exact D-36 branch name a guaranteed
 # OUTPUT rather than a rename an operator must remember: the mangled
-# `worktree-<suffix>` name that native `claude --worktree <suffix>` would produce
-# is never this primitive's output, so the tasks-PR-sync hook can always map the
+# `worktree-<suffix>` name an operator's hand-launch of the native launcher
+# (`claude --worktree <suffix>`) would produce is never this primitive's
+# output, so the tasks-PR-sync hook can always map the
 # branch back to its task (a merged task never reads as unmerged).
 #
 # Collision / orphan reconcile (D-7). `<suffix>` and the branch are deterministic
@@ -79,7 +80,7 @@
 # blindly aborting, distinguishing in-flight from stale via this bundle's
 # liveness signals (the dispatch marker scripts/orchestrate-marker.sh writes, and
 # a live tmux session under the launch's session name or, while workers started
-# by the prior `claude --worktree` launcher may still run, under that launcher's
+# by the prior launcher (`claude --worktree`) may still run, under that launcher's
 # `<repo-basename'>_worktree-<suffix'>` spelling — not a new source of truth; a
 # probe that tmux does not answer with a definite "no such session" (a server
 # error, a timeout, or a name outside the session charset, never sent) reads
@@ -341,7 +342,7 @@ worker_session() {
   printf '%s_%s' "$SESSION_PREFIX" "$(printf '%s' "$1" | tr . _)"
 }
 
-# prior_session <suffix> — the session the prior `claude --worktree` launcher
+# prior_session <suffix> — the session the prior launcher (`claude --worktree`)
 # created for <suffix>, as tmux stored it.
 prior_session() {
   printf '%s_worktree-%s' "$PRIOR_BASE" "$(printf '%s' "$1" | tr '.:' '__')"
@@ -563,7 +564,7 @@ valid_flight() {
 # BRIEF_PATH — the canonical path valid_brief accepted.
 BRIEF_PATH=''
 
-# valid_brief <path> <flight-id> — the brief the attach hands a flight worker
+# valid_brief <path> <flight-id> — the brief the launch hands a flight worker
 # is that flight's own `brief.md` under the fleet home, after canonicalization,
 # on a conservative charset: its path rides the prompt argv, so no other file
 # can be handed to a worker as its instructions.
@@ -1171,7 +1172,7 @@ do_dispatch() {
   fi
 
   # --no-attach launches no worker, so it cannot honor passthrough launch args;
-  # accepting them silently would drop them (the attach/dry-run arms forward
+  # accepting them silently would drop them (the launch and dry-run arms forward
   # them, this arm cannot). Refuse rather than silently discard.
   if [ "$_no_attach" -eq 1 ] && [ "$_have_extra" -eq 1 ] && [ "$#" -gt 0 ]; then
     warn "--no-attach launches no worker; it takes no post-\`--\` launch args"

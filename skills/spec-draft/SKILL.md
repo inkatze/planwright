@@ -102,16 +102,16 @@ Doctrine: point-of-use decision-domains (the design-phase catalog walk)
    `tasks-pr-sync` hook no-ops on); the spec worktree is
    `<repo>/.claude/worktrees/<spec>-spec` (D-37 placement; the directory name
    disambiguates the literal branch suffix `spec`, which would collide across
-   specs, while staying attachable via `claude --worktree <spec>-spec`).
+   specs, while staying open to hand-launch `claude --worktree <spec>-spec`).
    - **Already in the spec's own worktree:** proceed. Dirty or diverged
      state: surface it and ask before touching anything — never auto-stash,
      auto-commit, or clean.
    - **In the main checkout or an unrelated worktree:** if the spec worktree
-     exists, do not work here — print the re-open command
+     exists, do not work here — print the re-open hand-launch
      (`claude --worktree <spec>-spec`) and stop. If the branch exists but the
      worktree was pruned, recreate the worktree from the branch (native
      mechanics below). If neither exists, create them: worktree via Claude
-     Code's native mechanism (`claude --worktree` / EnterWorktree — never raw
+     Code's native mechanism (EnterWorktree — never raw
      `git worktree`, D-37), then `git switch -c planwright/<spec>/spec`
      inside it, branched from the current main view.
    - Worktree/branch resolution happens after the name is final — which for

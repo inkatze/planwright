@@ -2,8 +2,8 @@
 
 The operational conventions every planwright skill and hook agrees on
 (REQ-K1.4; D-36, D-37, D-44). The `tasks-pr-sync` hook parses these; the
-dispatch layer creates worktrees by them; `claude --worktree` discovers the
-result.
+dispatch layer creates worktrees by them; an operator's hand-launch,
+`claude --worktree <name>`, finds the result.
 
 ## Branch naming (D-36)
 
@@ -133,13 +133,17 @@ one directory, and the second dispatch would fail on the first one's.
 Branch names are unaffected — a task branch stays
 `planwright/<spec>/task-<id>`, which is how a merged branch maps back to its
 task. The placement convention is the contract; the launch mechanism is
-incidental — any worktree placed there is attachable with
-`claude --worktree <name>` regardless of which backend created it.
+incidental — an operator can open any worktree placed there by hand-launch,
+`claude --worktree <name>`, whichever backend created it.
 
-Creation goes through Claude Code's native mechanisms (`claude --worktree`,
-`EnterWorktree`, the Agent tool's worktree isolation); planwright never
-shells out to `git worktree`. `.claude/worktrees/` is gitignored (working
-copies, not source).
+A dispatched task or flight worktree is created by
+`scripts/fleet-dispatch-worktree.sh`, the one sanctioned `git worktree add`
+(fleet-hardening D-7); on the tmux rung that script then starts the worker in
+a detached tmux session of its own, never attaching or switching a client
+(fleet-hardening D-10). Other worktrees go through Claude Code's native
+mechanisms (`EnterWorktree`, the Agent tool's worktree isolation, or the
+hand-launch above). `.claude/worktrees/` is gitignored (working copies, not
+source).
 
 ## Commit trailer (D-2, REQ-C1.4)
 

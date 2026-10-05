@@ -5,8 +5,8 @@
 # Claude Code PreToolUse payload on stdin and prints a
 # `permissionDecision: allow` decision for an ENUMERATED, TOWER-ORIENTED set of
 # known-safe command shapes — the tower's own orchestration surface (tmux
-# relay/observe, `claude --worktree` worker launches, planwright scripts by
-# resolved literal path) plus the read-only state-observation shapes a tower
+# relay/observe, an operator's hand-launch of `claude --worktree`, planwright
+# scripts by resolved literal path) plus the read-only state-observation shapes a tower
 # reads — and DEFERS everything else to Claude Code's normal permission flow,
 # fronting the stochastic `auto`-mode classifier with a tested allow layer so
 # routine orchestration commands are never non-deterministically blocked.
@@ -14,8 +14,8 @@
 # It reuses the worker-command-guard PATTERN (worker-permission-ergonomics,
 # #236/#237) — same tokenizer, same allow-only / fail-closed / no-LLM security
 # contract — but fronts a DISTINCT safe set (D-8, REQ-C1.2): it ADDS the
-# tower-only shapes (tmux relay/observe, `claude --worktree` launches) the
-# worker guard defers, and it OMITS the worker-only shapes (`bats`, `tests/`
+# tower-only shapes (tmux relay/observe, the `claude --worktree` hand-launch)
+# the worker guard defers, and it OMITS the worker-only shapes (`bats`, `tests/`
 # scripts, `fish -c` recursion) the tower does not run. The two guards are
 # separate files by design: worker-command-guard.sh is a shipped, consumed
 # mechanism this task must not perturb, and a self-contained security script is
@@ -31,7 +31,7 @@
 #     tower-safe shapes with zero overlap with the tower deny block, and the
 #     adversarial suite pins that OUTCOME (REQ-C1.3, obs:4dda9fe1) rather than
 #     leaning on Claude Code's undocumented allow-vs-deny precedence.
-#   * Escalation pins (REQ-C1.2): a `claude --worktree` launch is auto-approved
+#   * Escalation pins (REQ-C1.2): a `claude --worktree` hand-launch is approved
 #     only when every arg is on a curated safe-flag ALLOWLIST (see guard_claude);
 #     any unrecognized flag DEFERS, so the tower can never auto-approve launching
 #     a worker with its permission layer disabled — this fails closed on the full
@@ -1033,8 +1033,10 @@ guard_tmux() {
   esac
 }
 
-# guard_claude: the tower's worker-launch safe set — a `claude --worktree`
-# dispatch. It requires the --worktree flag (the launch shape) and is an
+# guard_claude: the tower's hand-launch safe set — an operator's
+# `claude --worktree` launch typed at the tower. The tmux rung does not launch
+# this way: its worker starts in a detached session fleet-dispatch-worktree.sh
+# creates, which the tower runs as a planwright script by literal path. It requires the --worktree flag (the launch shape) and is an
 # ALLOWLIST of known-safe launch flags: every arg must be --worktree or one of a
 # curated set of benign flags, and ANY unrecognized flag or positional DEFERS
 # (fail closed). REQ-C1.2 frames the pin as excluding --dangerously-skip-permissions
@@ -1044,10 +1046,10 @@ guard_tmux() {
 # --setting-sources (override the worker's settings), --mcp-config / --agents /
 # --plugin-dir (inject servers/agents/plugins), --add-dir (widen filesystem) — so
 # an allowlist is the only robust pin: it fails closed on every one of those AND
-# on any future flag, where a denylist leaks. The dispatch primitive's own launch
-# shape (`claude --worktree <suffix> [--tmux=classic] [--model <m>] [--effort
-# <e>]`) is on the allowlist, so the fail-closed posture never floods a routine
-# launch; a non-standard launch simply falls to the normal permission flow.
+# on any future flag, where a denylist leaks. The usual hand-launch shape
+# (`claude --worktree <suffix> [--tmux=classic] [--model <m>] [--effort <e>]`)
+# is on the allowlist, so the fail-closed posture never floods a routine
+# hand-launch; a non-standard launch simply falls to the normal permission flow.
 # `--effort` sits beside `--model` for the same reason: both select capability
 # and cost and neither touches the permission or trust layer this pin exists to
 # hold. Governed launches now carry it (model-allocation D-10), so leaving it

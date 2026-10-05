@@ -172,7 +172,7 @@ Superseded are terminal: refuse — no skill-driven transition leaves them.
    - **Already in the spec worktree:** proceed; on dirty/diverged state, surface
      it and ask first — never auto-stash, auto-commit, or clean.
    - **In the main checkout or an unrelated worktree:** if the spec worktree
-     exists, print the re-open command (`claude --worktree <spec>-spec`) and stop;
+     exists, print the re-open hand-launch (`claude --worktree <spec>-spec`) and stop;
      if only the branch exists (worktree pruned), recreate it via Claude Code's
      native mechanism (never raw `git worktree`, D-37); if neither, create
      both, then `git switch -c planwright/<spec>/spec` inside it, off the
