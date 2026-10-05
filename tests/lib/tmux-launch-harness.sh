@@ -436,9 +436,18 @@ tlh_session_pid() {
 }
 
 tlh_canon() {
-  local parent base dir
+  local parent base dir target
   if [ -d "$1" ]; then
     (cd "$1" && pwd -P)
+    return
+  fi
+  if [ -L "$1" ]; then
+    # A file symlink names its target; depth-bounded against a link loop.
+    [ "${_tlh_canon_depth:-0}" -lt 40 ] || return 1
+    target=$(readlink "$1") || return 1
+    case $target in /*) ;; *) target="${1%/*}/$target" ;; esac
+    case $1 in */*) ;; *) target=$(readlink "$1") ;; esac
+    _tlh_canon_depth=$((${_tlh_canon_depth:-0} + 1)) tlh_canon "$target"
     return
   fi
   case $1 in

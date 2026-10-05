@@ -70,6 +70,14 @@ child_suite() {
   printf '%s\n' "$f"
 }
 
+# running <pid> — 0 while the process runs; a killed orphan can sit as a
+# zombie until its new parent reaps it, which kill -0 still counts.
+running() {
+  kill -0 "$1" 2>/dev/null || return 1
+  case $(ps -o stat= -p "$1" 2>/dev/null) in Z* | '') return 1 ;; esac
+  return 0
+}
+
 wait_gone() {
   local t=0
   while tmux has-session -t "=$1" 2>/dev/null && [ "$t" -lt 300 ]; do
@@ -98,7 +106,7 @@ h1() {
   esac
   pid=$(tlh_session_pid blocker)
   [ -n "$pid" ] || fail "h1: the blocking stub must have created its session before blocking"
-  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && fail "h1: a hang must kill the launch's whole process tree, the session's command included"
+  [ -n "$pid" ] && running "$pid" && fail "h1: a hang must kill the launch's whole process tree, the session's command included"
   expect_one_fail "h1: tlh_expect_returned on a hung run" tlh_expect_returned "h1 probe"
 
   # A launch that traps TERM and exits 0 when cut off still hung, and a
@@ -109,7 +117,7 @@ while :; do sleep 0.05; done"
   [ "$TLH_RC" -eq 124 ] || fail "h1: a launch that exits 0 on TERM must still be reported as cut off (rc 124), got rc $TLH_RC"
   [ -n "$TLH_DIAG" ] || fail "h1: a launch that exits 0 on TERM must still be diagnosed"
   pid=$(cat "$TLH_SANDBOX/grandchild" 2>/dev/null)
-  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && {
+  [ -n "$pid" ] && running "$pid" && {
     fail "h1: a cut-off launch's TERM-ignoring descendant must be killed"
     kill -9 "$pid"
   }
@@ -198,6 +206,9 @@ h3() {
   expect_one_fail "h3: different existing paths" tlh_assert_path_eq "h3 probe" "$wt" "$TLH_SANDBOX"
   expect_one_fail "h3: different missing paths sharing a basename" \
     tlh_assert_path_eq "h3 probe" /nonexistent-a/m/x /nonexistent-b/m/x
+  : >"$wt/target-file"
+  ln -s target-file "$wt/leaf-link"
+  tlh_assert_path_eq "h3: a symlinked file and its target" "$wt/target-file" "$wt/leaf-link"
   grep -qx argv "$rec" && [ -z "$(tlh_record_field "$rec" argv)" ] \
     || fail "h3: a worker given no arguments must record an empty argv line"
   tmux kill-session -t =pathprobe
@@ -287,7 +298,7 @@ EOF
 
 # --- h5 ---------------------------------------------------------------------
 h5() {
-  local child err rc leaked p sb
+  local child err rc leaked p sb out
   child=$(child_suite leak "mkdir -p \"\$TLH_SANDBOX/w\"
 tmux new-session -d -s leak -c \"\$TLH_SANDBOX/w\" -- sleep 60
 tmux new-session -d -s stubborn -c \"\$TLH_SANDBOX/w\" -- sh -c \"trap '' TERM; exec sleep 60\"
@@ -313,6 +324,16 @@ tlh_stub_pids_alive >'$TLH_SANDBOX/child.pids'")
       kill -9 "$p" 2>/dev/null
     }
   done <"$TLH_SANDBOX/child.pids"
+
+  # A worker stamped under the server's environment is still recognized by a
+  # suite whose timezone differs.
+  out=$(TZ=Pacific/Kiritimati /bin/bash "$(child_suite tz 'mkdir -p "$TLH_SANDBOX/w"
+tlh_knob worker-confirm off
+tmux new-session -d -s tzw -c "$TLH_SANDBOX/w" -- "$TLH_BIN/claude"
+tlh_wait_workers 1 30
+p=$(tlh_record_field "$(tlh_last_worker_record)" pid)
+tlh_stub_pids_alive | grep -qx "$p" && echo "worker: recognized" || echo "worker: missed"')" 2>&1)
+  case $out in *"worker: recognized"*) ;; *) fail "h5: a worker must be recognized whatever the suite's timezone, got: $out" ;; esac
 
   # A pid file whose process has been replaced is not a stub's.
   printf '%s\n' 'Thu Jan  1 00:00:00 1970' >"$TLH_STATE/pids/$$"
