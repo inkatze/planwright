@@ -65,11 +65,9 @@
 # Environment overrides (tests, worktree callers):
 #   PLANWRIGHT_BASE_REF        the integration ref reachability is measured
 #                              against (default: main → origin/main → HEAD).
-#   PLANWRIGHT_ORCH_STATE_DIR  the dir holding per-task runtime markers
-#                              (default: <spec-dir>/.orchestrate/markers). The
-#                              dispatch writer (T3) and the unified lock (T6)
-#                              MUST resolve the same path; D-3's plugin-data home
-#                              is reconciled when T6 unifies the lock primitive.
+#   PLANWRIGHT_ORCH_STATE_DIR  the only dir holding per-task runtime markers;
+#                              unset, the read dirs orchestrate-marker-home.sh
+#                              resolves (a superset of the writer's).
 #
 # Usage: orchestrate-state.sh <spec-dir>
 # Exit: 0 records emitted; 2 the spec dir / tasks.md is missing, unreadable, or
@@ -240,13 +238,35 @@ case "$tv" in
 esac
 threshold_sec=$((threshold_min * 60))
 
-# Runtime-marker base dir. PLANWRIGHT_ORCH_STATE_DIR is a trusted operator/test
-# override and sets this tree freely; the hardening is at the read, not here.
-# Each per-task marker (built from a grammar-validated id) is containment-checked
-# below to sit directly under marker_dir, and a symlink at the marker path is
-# refused — so a crafted task id or a symlink swap cannot redirect the read
-# outside marker_dir (defense in depth).
-marker_dir="${PLANWRIGHT_ORCH_STATE_DIR:-$spec_dir/.orchestrate/markers}"
+# Runtime-marker dirs, the helper's read list (one per line, a superset of the
+# writer's): the shared home every worktree of the repository reads, then the
+# checkout-local dirs an older writer may have used. A marker in any of them counts. The
+# hardening is at the read, not here: each per-task marker (built from a
+# grammar-validated id) is containment-checked below to sit directly under its
+# dir, and a symlink at the marker path is refused — so a crafted task id or a
+# symlink swap cannot redirect the read outside the dir (defense in depth).
+marker_dirs=$(/bin/sh "$script_dir/orchestrate-marker-home.sh" read "$spec_dir") || {
+  echo "orchestrate-state: cannot resolve the marker dirs for $spec_dir" >&2
+  exit 2
+}
+# The shared home under the git common dir must be the canonical path the
+# helper printed; one reached through a symlink holds nothing. Checkout-local
+# dirs keep the symlink tolerance they always had, and the override is a
+# trusted knob. Checked once, before the task loop.
+if [ -z "${PLANWRIGHT_ORCH_STATE_DIR:-}" ]; then
+  usable_dirs=''
+  while IFS= read -r marker_dir; do
+    case "$marker_dir" in
+      */.orchestrate/markers) ;;
+      *) [ "$(cd -P -- "$marker_dir" 2>/dev/null && pwd -P)" = "$marker_dir" ] || continue ;;
+    esac
+    usable_dirs="$usable_dirs$marker_dir
+"
+  done <<EOF
+$marker_dirs
+EOF
+  marker_dirs=$usable_dirs
+fi
 
 now=$(date +%s)
 
@@ -516,32 +536,34 @@ while IFS="$TAB" read -r id deps; do
   # meaningful while the branch carries no commits (branch evidence supersedes
   # it). A stale or malformed marker holds nothing — the task reverts to ready.
   marker_fresh=0
-  marker_file="$marker_dir/$id"
-  # A symlink at the marker path is never a legitimate marker (the writer emits
-  # a regular file); refuse it rather than follow it outside the tree (REQ-F1.1
-  # path containment, closing the read-time symlink swap).
-  if [ -f "$marker_file" ] && [ ! -L "$marker_file" ]; then
+  while IFS= read -r marker_dir; do
+    [ -n "$marker_dir" ] || continue
+    marker_file="$marker_dir/$id"
+    # A symlink at the marker path is never a legitimate marker (the writer emits
+    # a regular file); refuse it rather than follow it outside the tree (REQ-F1.1
+    # path containment, closing the read-time symlink swap).
+    [ -f "$marker_file" ] && [ ! -L "$marker_file" ] || continue
     # Containment: the resolved marker must sit under its base dir.
     base_real=$(cd "$marker_dir" 2>/dev/null && pwd -P) || base_real=""
     file_real=$(cd "$(dirname "$marker_file")" 2>/dev/null && pwd -P) || file_real=""
-    if [ -n "$base_real" ] && [ "$file_real" = "$base_real" ]; then
-      mts=$(cat "$marker_file" 2>/dev/null)
-      case "$mts" in
-        '' | *[!0-9]*) mts="" ;; # malformed timestamp → no hold (fail safe)
-      esac
-      if [ -n "$mts" ]; then
-        # Fresh iff the marker time is within ±threshold of now. A small forward
-        # clock skew (marker slightly in the future) still reads fresh; a marker
-        # far in the future is anomalous and, like a far-past one, holds nothing
-        # — the fail-safe bias (the task reverts to Ready, re-dispatchable; the
-        # lock + live-truth selection guard double-dispatch separately).
-        delta=$((now - mts))
-        if [ "${delta#-}" -le "$threshold_sec" ]; then
-          marker_fresh=1
-        fi
-      fi
+    [ -n "$base_real" ] && [ "$file_real" = "$base_real" ] || continue
+    mts=$(cat "$marker_file" 2>/dev/null)
+    case "$mts" in
+      '' | *[!0-9]*) continue ;; # malformed timestamp → no hold (fail safe)
+    esac
+    # Fresh iff the marker time is within ±threshold of now. A small forward
+    # clock skew (marker slightly in the future) still reads fresh; a marker
+    # far in the future is anomalous and, like a far-past one, holds nothing
+    # — the fail-safe bias (the task reverts to Ready, re-dispatchable; the
+    # lock + live-truth selection guard double-dispatch separately).
+    delta=$((now - mts))
+    if [ "${delta#-}" -le "$threshold_sec" ]; then
+      marker_fresh=1
+      break
     fi
-  fi
+  done <<EOF
+$marker_dirs
+EOF
 
   # The last in-progress arm, probed only when no other evidence decides the
   # task: every arm above outranks it, and a kept squash-merged head branch
