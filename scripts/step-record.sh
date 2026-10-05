@@ -1046,7 +1046,7 @@ cmd_status() {
 
   state=success
   for f in $(record_files "$attempt"); do
-    grep -Fxq "type${TAB}step" "$f" && grep -Fxq "point$TAB$point" "$f" || continue
+    { grep -Fxq "type${TAB}step" "$f" && grep -Fxq "point$TAB$point" "$f"; } || continue
     if grep -Fxq "outcome${TAB}halted" "$f" || grep -Fxq "outcome${TAB}failed" "$f"; then
       state=failure
     fi
