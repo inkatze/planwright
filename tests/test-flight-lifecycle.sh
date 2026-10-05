@@ -363,6 +363,18 @@ brief_dir "$S"
 [ "$(cut -d' ' -f1 "$tmp/fleet/liveness/crash/tmux-flight-$S" 2>/dev/null)" = 1 ] \
   || fail "a fleet sweep cycle counts a dead flight worker under the crash policy"
 
+# The crash knobs resolve from the flight's checkout, wherever supervise runs.
+U=knobs-aaaaaab5
+gitc "$repo" worktree add -q -b "planwright/flight/$U" "$repo/.claude/worktrees/flight-$U" HEAD
+brief_dir "$U"
+/bin/sh "$STATE" register "tmux-flight-$U" "flight:$U" --backend tmux --death-handle "process $(dead_pid 21)" >/dev/null
+printf 'fleet_crash_backoff_base_seconds: 1000\n' >"$repo/.claude/planwright.yml"
+(cd "$tmp" && "$SCRIPT" supervise --repo-root "$repo" --now "$((t + 500000))" >/dev/null 2>&1)
+out=$(cd "$tmp" && "$SCRIPT" supervise --repo-root "$repo" --now "$((t + 500031))" 2>/dev/null)
+rm -f "$repo/.claude/planwright.yml"
+[ "$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$U" '$2 == id { print $1 }')" = backoff ] \
+  || fail "the checkout's own backoff knob governs its flights from any working directory (got: $out)"
+
 if [ "$fails" -gt 0 ]; then
   echo "test-flight-lifecycle: $fails failure(s)" >&2
   exit 1

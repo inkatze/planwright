@@ -280,7 +280,7 @@ supervise_one() {
       [ -z "$now" ] || set -- "$@" --now "$now"
       # crash-record's counter is durable once it prints its line, so the line,
       # not the exit, says whether this death was counted.
-      if [ -z "$(/bin/sh "$LIVENESS" crash-record "$@" 2>/dev/null </dev/null)" ]; then
+      if [ -z "$(cd "$repo_root" && /bin/sh "$LIVENESS" crash-record "$@" 2>/dev/null </dev/null)" ]; then
         rmdir "$CLAIM" 2>/dev/null
         printf 'failed\t%s\t%s\n' "$id" "the crash could not be counted; a later pass counts it"
         return 0
@@ -302,7 +302,9 @@ supervise_one() {
   esac
   set -- "$handle"
   [ -z "$now" ] || set -- "$@" --now "$now"
-  /bin/sh "$LIVENESS" crash-check "$@" >/dev/null 2>&1 </dev/null
+  # The knobs and the kill-switch resolve from the flight's checkout, as the
+  # gate re-check below does, not from wherever the pass was started.
+  (cd "$repo_root" && /bin/sh "$LIVENESS" crash-check "$@" >/dev/null 2>&1 </dev/null)
   _cr=$?
   count=$(crash_count "$handle")
   case $_cr in
