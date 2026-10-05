@@ -455,7 +455,8 @@ cmd_new_session() {
   # after the fork still leaves its child reapable, and a child that cannot
   # record itself (its sandbox already gone) never runs.
   (
-    STUB_WRITER=$(sh -c 'echo "$PPID"')
+    # exec, so the substitution adds no process and PPID is this subshell.
+    STUB_WRITER=$(exec sh -c 'echo "$PPID"')
     stub_record_pid "$STUB_WRITER" || exit 1
     stub_write_file "$ns_sd/pid" "$STUB_WRITER$SEP" || exit 1
     [ -e "$ns_sd/killed" ] && exit 0
