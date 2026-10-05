@@ -80,7 +80,8 @@
 #                 `gh api --method POST repos/<repo>/statuses/<head>`; a
 #                 later post on the same head and context replaces the
 #                 earlier one. A failed post exits 1 naming the repository
-#                 and the permission the login needs.
+#                 and the permission the login needs; an exit 1 after the
+#                 post (a failed print) leaves the status in place.
 #
 # Field grammar (write refuses a violation with exit 2, naming the field and
 # never echoing its value; no value is ever interpolated before it passes):

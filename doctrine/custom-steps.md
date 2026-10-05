@@ -364,7 +364,9 @@ needs commit-status write access: `repo:status` on a classic token, or
 no record of the latest attempt halted or failed; not what the steps did,
 which the records hold. Written by the actor the hook binds, it guards a
 flipper that forgets, not one that forges. The two contexts are **excluded
-by name from every CI rollup judgement planwright makes**.
+by name from every CI rollup judgement planwright makes**; an adopter's own
+status-consuming tooling (branch protection, another CI aggregator) still
+sees them.
 
 **The evidence hook**, gated under custom-steps' Deferred until an in-repo
 unit-PR flipper runs the point, will refuse on the ready-guard's flip
