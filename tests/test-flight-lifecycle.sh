@@ -68,7 +68,12 @@ mkdir -p "$tmp"
 tmp=$(cd "$tmp" && pwd -P)
 live_pid=''
 # The harness owns the one EXIT trap; this suite's own cleanup runs first.
-trap 'st=$?; [ -z "$live_pid" ] || kill "$live_pid" 2>/dev/null; tlh_teardown "$st"' EXIT
+on_exit() {
+  on_exit_status=$?
+  [ -z "$live_pid" ] || kill "$live_pid" 2>/dev/null
+  tlh_teardown "$on_exit_status"
+}
+trap on_exit EXIT
 
 export CLAUDE_DIR="$tmp/claude"
 # A bin for the forge stub one case installs; empty otherwise, so the checkout
@@ -356,6 +361,7 @@ brief_dir "$X"
 mkdir -p "$tmp/refuse"
 {
   printf '#!/bin/sh\n'
+  # shellcheck disable=SC2016 # the written stub expands its own $1
   printf 'if [ "$1" = new-session ] && [ -e %s ]; then\n' "'$tmp/refuse.flag'"
   printf '  rm -f %s\n' "'$tmp/refuse.flag'"
   printf '  echo "stub: the launch was refused" >&2\n  exit 1\nfi\n'

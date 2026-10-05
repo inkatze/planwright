@@ -64,7 +64,7 @@ kill_worker() {
 }
 
 relaunch() {
-  tlh_run_bounded "$PRIM" dispatch --flight "$FID" --brief "$BRIEF" --relaunch --launch-only --repo-root "$P" "$@"
+  tlh_run_bounded "$PRIM" dispatch --flight "$FID" --brief "$BRIEF" --relaunch --launch-only --repo-root "$P"
 }
 
 r1() {
