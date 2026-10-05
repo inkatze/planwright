@@ -205,6 +205,10 @@ run = "/bin/bash scripts/check-cdpath.sh"
 description = "printf-not-echo guard over sanitized output: fail on a shell file under scripts/, tests/, or githooks/ that passes `sanitize_printable` output through `echo`, directly or through a variable, into the printf FORMAT operand, or to a printf `%b` (dash re-expands the backslash escape TEXT the sanitizer legitimately preserves, handing the terminal to whoever authored the input); enumerates by shebang or .sh suffix, keys on the sanitizer family rather than one function name, exempts bash-shebang files only (zsh and ksh expand escapes too) and a shrinking allowlist of paths open in other PRs, and fails closed on anything that would narrow the scan or on a stale allowlist entry"
 run = "/bin/bash scripts/check-echo-safety.sh"
 
+[tasks."check:script-modes"]
+description = "executable-bit guard: every scripts/*.sh in the git index carries the mode its first line declares, a shebang file 100755 (called by path it otherwise fails with Permission denied) and a shebang-less sourced library 100644; reads modes and first lines from the index, not the working tree, and fails closed on no repository, an unreadable index or blob, or zero scripts"
+run = "/bin/bash scripts/check-script-modes.sh"
+
 [tasks."check:spec-literals"]
 description = "flag the spec home composed as a literal path instead of resolved through scripts/resolve-root.sh (custom-spec-location REQ-G1.1)"
 run = "/bin/sh scripts/check-spec-literals.sh"
@@ -268,6 +272,7 @@ depends = [
   "check:doctrine-manifest",
   "check:cdpath",
   "check:echo-safety",
+  "check:script-modes",
   "check:spec-literals",
   "check:task-registration",
   "check:guard-wiring",
