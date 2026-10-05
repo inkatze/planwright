@@ -589,7 +589,7 @@ printf '%s\n' "$b" | grep -Fq "flight-record.sh' land --flight-id $fid" \
 printf '%s\n' "$b" | grep "flight-record.sh' land " | grep -Fq -- "--record-path 'specs/_flights/$fid.md'" \
   || fail "a file-home brief must pass the record path it computed to flight-record.sh"
 printf '%s\n' "$b" | grep -q 'render --home pr' && fail "a file-home brief must not render a PR body"
-printf '%s\n' "$b" | grep -Fq "flight-lifecycle.sh' push completion $fid --handle print-flight-$fid --landing record:specs/_flights/$fid.md" \
+printf '%s\n' "$b" | grep -Fq "flight-lifecycle.sh' push completion $fid --handle print-flight-$fid --landing 'record:specs/_flights/$fid.md'" \
   || fail "a file-home brief must push the completion with the record path"
 # The land line the brief prints lands the record when run as written.
 rd="$(dirname "$(field "$OUT" brief)")/record"

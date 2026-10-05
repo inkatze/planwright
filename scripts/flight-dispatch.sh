@@ -757,7 +757,7 @@ file on this branch:
 \`$_recorder land $_inputs --record-path $(sh_quote "$record")\`
 Add $_optional only when you wrote them. Do not push and open no PR. The
 committed record is the landing reference; push the completion with it:
-\`$_push completion $_pushid --landing record:$record\`"
+\`$_push completion $_pushid --landing $(sh_quote "record:$record")\`"
   fi
 
   {
