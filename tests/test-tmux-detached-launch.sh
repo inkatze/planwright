@@ -353,20 +353,21 @@ l7() {
   export CLAUDE_DIR="$C/claude" PLANWRIGHT_ADOPTER_OVERLAY="$C/adopter" PLANWRIGHT_FLIGHT_LOCK_WAIT=0 \
     PLANWRIGHT_REPO_ROOT="$P"
   l7_flight
-  tlh_knob new-session ok
   unset CLAUDE_DIR PLANWRIGHT_ADOPTER_OVERLAY PLANWRIGHT_FLIGHT_LOCK_WAIT PLANWRIGHT_REPO_ROOT
 }
 
 l7_flight() {
   printf 'Fix the typo in the README heading.\n' >"$C/ask.txt"
   printf 'visual flight: a one-line wording change\n' >"$C/grounds.txt"
-  tlh_knob new-session block
-  PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 tlh_run_bounded --bound 25 "$FLIGHT" dispatch readme-typo --backend tmux \
-    --ask-file "$C/ask.txt" --grounds-file "$C/grounds.txt" --home file --repo-root "$P"
-  tlh_knob new-session ok
+  tmux_shim "$C/hang" hang-new
+  PATH="$C/hang:$PATH" PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 tlh_run_bounded --bound 25 "$FLIGHT" dispatch \
+    readme-typo --backend tmux --ask-file "$C/ask.txt" --grounds-file "$C/grounds.txt" --home file --repo-root "$P"
   tlh_expect_returned "l7: a flight dispatch must end a hung tmux itself" || return
   [ "$TLH_RC" -eq 5 ] || fail "l7: a hung launch must fail the placement (exit 5), got $TLH_RC ($TLH_ERR)"
   case $TLH_ERR in *'did not return'*) ;; *) fail "l7: the hang is not reported: $TLH_ERR" ;; esac
+  [ "$(report_field failed)" != '' ] || fail "l7: the report carries no failed line: $TLH_OUT"
+  # Nothing was launched and the primitive undid its worktree, so no slot is held.
+  [ "$(report_field worktree)" = '' ] || fail "l7: the hung launch left a worktree: $(report_field worktree)"
   # Its lock went with it: a dispatch that will not wait for the lock is placed.
   tlh_run_bounded "$FLIGHT" dispatch readme-typo --backend tmux --ask-file "$C/ask.txt" \
     --grounds-file "$C/grounds.txt" --home file --repo-root "$P"

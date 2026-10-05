@@ -401,6 +401,16 @@ branch_has_work() {
 }
 
 # --- r14: what a liveness probe's answer means -------------------------------
+# orphan_worktree <id> — a registered worktree carrying work, with no session
+# and no marker: the stale-orphan reconcile removes it only on a definite
+# "no session" answer.
+orphan_worktree() {
+  gitc "$P" worktree add -q -b "planwright/demo/task-$1" "$P/.claude/worktrees/demo-task-$1" main
+  printf 'w\n' >"$P/.claude/worktrees/demo-task-$1/work-$1"
+  gitc "$P/.claude/worktrees/demo-task-$1" add -A
+  gitc "$P/.claude/worktrees/demo-task-$1" commit -q -m "work $1"
+}
+
 r14() {
   local s
   # A reachable server that says the session is not there: not live, so the
@@ -414,49 +424,83 @@ r14() {
   calls_matching has-session | grep -q "$TAB=$s\$" || fail "r14: the new name was never probed"
   tmux kill-session -t =r14-unrelated
   tmux kill-session -t "=$s"
-  # A server that cannot be reached: the answer is unknown, so it reads live
-  # and nothing is placed, removed, or cleared.
+  # No socket to reach a server at is a definite "none" too.
   new_case
-  work_branch 5
+  work_branch 8
+  tmux_shim "$C/nosock" no-socket
+  PATH="$C/nosock:$PATH" tlh_run_bounded "$PRIM" dispatch demo 8 --repo-root "$P" --no-attach
+  [ "$TLH_RC" -eq 0 ] || fail "r14: a probe with no socket to connect to must read not live (adopt, exit 0), got $TLH_RC ($TLH_ERR)"
+  # The collision reconcile (the create-only arm skips the launch's pre-check)
+  # on a server it cannot reach: the answer is unknown, so the orphan reads
+  # live and its worktree, branch, and work stay.
+  new_case
+  orphan_worktree 5
   tlh_knob server unreachable
-  tlh_run_bounded "$PRIM" dispatch demo 5 --repo-root "$P"
+  tlh_run_bounded "$PRIM" dispatch demo 5 --repo-root "$P" --no-attach
   tlh_knob server up
   [ "$TLH_RC" -eq 3 ] || fail "r14: a probe tmux cannot answer must read live (exit 3), got $TLH_RC ($TLH_ERR)"
+  [ -f "$P/.claude/worktrees/demo-task-5/work-5" ] || fail "r14: the worktree was removed on an uncertain answer"
   branch_has_work 5 || fail "r14: the branch's work was touched on an uncertain answer"
-  [ ! -e "$P/.claude/worktrees/demo-task-5" ] || fail "r14: a worktree was placed on an uncertain answer"
-  [ ! -e "$C/markers/5" ] || fail "r14: a marker was written on an uncertain answer"
-  # A probe that never answers is ended at the call bound and reads live.
+  # The same through the launch's own pre-check: nothing is placed.
   new_case
-  work_branch 7
-  mkdir -p "$C/hangbin"
-  # shellcheck disable=SC2016 # $1 and $@ expand in the written script
-  printf '#!/bin/sh\n[ "$1" = has-session ] && exec sleep 600\nexec %s "$@"\n' "'$TLH_BIN/tmux'" >"$C/hangbin/tmux"
-  chmod +x "$C/hangbin/tmux"
-  PATH="$C/hangbin:$PATH" PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 \
-    tlh_run_bounded --bound 20 "$PRIM" dispatch demo 7 --repo-root "$P"
+  work_branch 6
+  tlh_knob server unreachable
+  tlh_run_bounded "$PRIM" dispatch demo 6 --repo-root "$P"
+  tlh_knob server up
+  [ "$TLH_RC" -eq 3 ] || fail "r14: the launch pre-check must read an unanswered probe as live (exit 3), got $TLH_RC"
+  [ ! -e "$P/.claude/worktrees/demo-task-6" ] || fail "r14: a worktree was placed on an uncertain answer"
+  [ ! -e "$C/markers/6" ] || fail "r14: a marker was written on an uncertain answer"
+  # A probe that never answers is ended at the call bound and reads live, on
+  # the reconcile path.
+  new_case
+  orphan_worktree 7
+  tmux_shim "$C/hang" hang-probe
+  PATH="$C/hang:$PATH" PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 \
+    tlh_run_bounded --bound 20 "$PRIM" dispatch demo 7 --repo-root "$P" --no-attach
   tlh_expect_returned "r14: a hung probe must be ended" || return
   [ "$TLH_RC" -eq 3 ] || fail "r14: a probe that never answers must read live (exit 3), got $TLH_RC ($TLH_ERR)"
-  branch_has_work 7 || fail "r14: the branch's work was touched on an unanswered probe"
-  [ ! -e "$P/.claude/worktrees/demo-task-7" ] || fail "r14: a worktree was placed on an unanswered probe"
+  [ -f "$P/.claude/worktrees/demo-task-7/work-7" ] || fail "r14: the worktree was removed on an unanswered probe"
 }
 
 # --- r15: a tmux that never returns -------------------------------------------
 r15() {
   local s
+  # No session came of it: the launch fails and undoes what it created,
+  # keeping the branch it adopted.
   new_case
-  work_branch 6
-  s=$(expect_session "$PP" demo-task-6)
-  tlh_knob new-session block
-  PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 tlh_run_bounded --bound 20 "$PRIM" dispatch demo 6 --repo-root "$P"
-  tlh_knob new-session ok
+  work_branch 9
+  tmux_shim "$C/hang" hang-new
+  PATH="$C/hang:$PATH" PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 \
+    tlh_run_bounded --bound 20 "$PRIM" dispatch demo 9 --repo-root "$P"
   tlh_expect_returned "r15: the dispatch must end a hung new-session itself" || return
-  [ "$TLH_RC" -eq 13 ] || fail "r15: a hung new-session must fail the launch (exit 13), got $TLH_RC ($TLH_ERR)"
+  [ "$TLH_RC" -eq 13 ] || fail "r15: a hung new-session with no session must fail the launch (exit 13), got $TLH_RC ($TLH_ERR)"
   case $TLH_ERR in *'did not return'*) ;; *) fail "r15: the report does not name the hang: $TLH_ERR" ;; esac
-  branch_has_work 6 || fail "r15: the adopted branch was touched"
-  # The hung call had made its session, so the undo leaves what may be in use.
-  [ -d "$P/.claude/worktrees/demo-task-6" ] || fail "r15: the worktree a session may run in was removed"
-  [ -e "$C/markers/6" ] || fail "r15: the marker beside a possibly running session was cleared"
+  branch_has_work 9 || fail "r15: the adopted branch was touched"
+  [ ! -e "$P/.claude/worktrees/demo-task-9" ] || fail "r15: the worktree this run placed was not undone"
+  [ ! -e "$C/markers/9" ] || fail "r15: the marker this run set was not cleared"
   [ ! -s "$C/fleet/registry" ] || fail "r15: a failed launch wrote a registry record"
+  # tmux cannot then say whether a session exists: nothing is removed.
+  new_case
+  work_branch 10
+  tmux_shim "$C/hang" hang-new-unsure
+  PATH="$C/hang:$PATH" PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 \
+    tlh_run_bounded --bound 30 "$PRIM" dispatch demo 10 --repo-root "$P"
+  tlh_expect_returned "r15: an unsure undo must still return" || return
+  [ "$TLH_RC" -eq 13 ] || fail "r15: a hung, unconfirmable launch must exit 13, got $TLH_RC ($TLH_ERR)"
+  [ -d "$P/.claude/worktrees/demo-task-10" ] || fail "r15: a worktree a session may run in was removed"
+  [ -e "$C/markers/10" ] || fail "r15: the marker beside a possibly running session was cleared"
+  [ ! -s "$C/fleet/registry" ] || fail "r15: an unconfirmed session was registered"
+  # The hung call did make its session: it is placed and registered.
+  new_case
+  work_branch 11
+  s=$(expect_session "$PP" demo-task-11)
+  tlh_knob new-session block
+  PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 tlh_run_bounded --bound 20 "$PRIM" dispatch demo 11 --repo-root "$P"
+  tlh_knob new-session ok
+  tlh_expect_returned "r15: the dispatch must end a hung new-session that made its session" || return
+  [ "$TLH_RC" -eq 14 ] || fail "r15: a hung new-session whose session exists is placed (exit 14), got $TLH_RC ($TLH_ERR)"
+  case $TLH_ERR in *'did not return'*'exists'*) ;; *) fail "r15: the placed launch does not name the hang: $TLH_ERR" ;; esac
+  [ "$(registry_col 2)" = tmux-demo-task-11 ] || fail "r15: the placed worker was not registered"
   tmux kill-session -t "=$s"
 }
 

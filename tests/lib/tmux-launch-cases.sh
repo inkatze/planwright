@@ -95,6 +95,33 @@ calls_matching() {
   tlh_tmux_calls | awk -F"$TAB" -v w="$1" '$1 == w'
 }
 
+# tmux_shim <dir> <mode> — a `tmux` in <dir> that misbehaves on one command and
+# hands everything else to the stub:
+#   hang-probe   has-session never returns
+#   hang-new     new-session never returns, creating nothing
+#   hang-new-unsure  new-session never returns, and has-session then fails
+#                with an error that is not an answer
+#   no-socket    has-session answers as tmux does when no socket exists
+# shellcheck disable=SC2016 # the printed lines expand in the written shim
+tmux_shim() {
+  mkdir -p "$1"
+  case $2 in
+    hang-probe) printf '[ "$1" = has-session ] && exec sleep 600\n' ;;
+    hang-new) printf '[ "$1" = new-session ] && exec sleep 600\n' ;;
+    hang-new-unsure)
+      printf '[ "$1" = new-session ] && { : >"${0%%/*}/launched"; exec sleep 600; }\n'
+      printf '[ "$1" = has-session ] && [ -e "${0%%/*}/launched" ] && { echo "error connecting to /tmp/x (Permission denied)" >&2; exit 1; }\n'
+      ;;
+    no-socket) printf '[ "$1" = has-session ] && { echo "error connecting to /nonexistent/tmux-0/default (No such file or directory)" >&2; exit 1; }\n' ;;
+  esac >"$1/tmux.body"
+  {
+    printf '#!/bin/sh\n'
+    cat "$1/tmux.body"
+    printf 'exec %s "$@"\n' "'$TLH_BIN/tmux'"
+  } >"$1/tmux"
+  chmod +x "$1/tmux"
+}
+
 registry_col() {
   [ -f "$C/fleet/registry" ] || return 0
   cut -f"$1" "$C/fleet/registry"
