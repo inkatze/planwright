@@ -101,8 +101,9 @@
 # pass through unmangled and there is no injection surface; the wrapper only
 # adds fixed assignments (with launch options, the validated values they name)
 # and hands control to the operator-supplied command. `--emit-launch` is pure
-# string construction (no exec, no model/API call — REQ-E1.3): it prints the launch line for a backend to run, the wrapper
-# prefix applying the pin only when that emitted line is later exec'd. Its tokens
+# string construction (no exec, no model/API call — REQ-E1.3): it prints the
+# launch line for a backend to run, the wrapper prefix applying the pin only
+# when that emitted line is later exec'd. Its tokens
 # are single-quote-wrapped, so a repo path or dispatch token carrying a space or
 # shell metacharacter survives re-splitting and adds no injection surface — the
 # same argument-boundary safety the exec path gets from `exec "$@"` — while

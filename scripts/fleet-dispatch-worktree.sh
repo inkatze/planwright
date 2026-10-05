@@ -221,8 +221,8 @@
 # Every tmux call (the liveness probes and new-session) is ended after
 # PLANWRIGHT_DISPATCH_TMUX_TIMEOUT seconds (default 10, 1-999, no leading
 # zero), so a wedged tmux server cannot hold the dispatch or a caller's lock
-# for more than about three bounds. A probe reads as not live only on tmux's own answer that
-# the session is absent ("can't find session", "no server running", or no
+# for more than about three bounds. A probe reads as not live only on tmux's
+# own answer that the session is absent ("can't find session", "no server running", or no
 # socket to connect to); a timeout, any other error, or a PATH-relative tmux
 # reads as live.
 #
