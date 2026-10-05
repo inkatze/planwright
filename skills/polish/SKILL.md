@@ -24,11 +24,11 @@ checklist to the draft PR.
 ## Doctrine
 
 Resolve and read the same rule docs as `/self-review`, listed in the manifest
-below, via the rule-doc resolution convention
-(`scripts/resolve-rule-doc.sh <doc-name>` or the documented
-`PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain). Their definitions govern
-wherever this skill names a concept. If a rule doc does not resolve, halt with
-a clear message naming the missing doc and the chain consulted.
+below, via `scripts/resolve-rule-doc.sh <doc-name>` through the core root
+chain. Their definitions govern wherever this skill names a concept.
+Issue one plain command per Bash call (`doctrine/plugin-script-invocation.md`).
+If a rule doc does not resolve, halt with a clear message naming the missing
+doc and the chain consulted.
 
 Doctrine manifest (per `doctrine/instruction-hygiene.md`; `run-start` docs
 load before work begins, `point-of-use` at the named step):

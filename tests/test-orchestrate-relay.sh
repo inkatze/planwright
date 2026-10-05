@@ -346,11 +346,11 @@ case "$load" in
   *) : ;;
 esac
 case "$load" in
-  "printf '%s\\n' '[planwright tower relay -> @3] read $multi' | tmux load-buffer -b "*) : ;;
+  "printf '%s' '[planwright tower relay -> @3] read $multi' | tmux load-buffer -b "*) : ;;
   *) fail "relay-command must load exactly one pointer line (header + read <file>), got: $load" ;;
 esac
 # The payload the emitted command loads is what tmux pastes: run the load half
-# with tmux replaced by a recorder and count the lines it receives.
+# with tmux replaced by a recorder and compare the bytes it receives.
 mkdir -p "$tmp/fakebin"
 cat >"$tmp/fakebin/tmux" <<'EOF'
 #!/bin/sh
@@ -359,18 +359,18 @@ EOF
 chmod +x "$tmp/fakebin/tmux"
 FAKE_TMUX_OUT="$tmp/pasted.txt" PATH="$tmp/fakebin:$PATH" sh -c "$load" \
   || fail "the emitted load-buffer line did not run"
-[ "$(wc -l <"$tmp/pasted.txt" | tr -d ' ')" = 1 ] \
-  || fail "the pasted payload must be exactly one newline-terminated line, got $(wc -l <"$tmp/pasted.txt") lines"
-case "$(cat "$tmp/pasted.txt")" in
-  "[planwright tower relay -> @3] read $multi") : ;;
-  *) fail "the pasted line must be the attributed pointer, got: $(cat "$tmp/pasted.txt")" ;;
-esac
+# Byte-exact: no trailing newline. paste-buffer turns a trailing LF into a CR,
+# which Claude Code ingests as a hidden newline inside the input box, so the
+# receiving human's first Enter is spent on it and only a second one submits.
+printf '%s' "[planwright tower relay -> @3] read $multi" >"$tmp/expected-paste.txt"
+cmp -s "$tmp/pasted.txt" "$tmp/expected-paste.txt" \
+  || fail "the pasted payload must be exactly the attributed pointer with no trailing newline, got: $(od -c "$tmp/pasted.txt" | tail -3)"
 # A relative message path is emitted absolute: the worker's cwd is not the tower's.
 (cd "$tmp" && "$RELAY" relay-command tmux "@3" "multi-line.txt") >"$tmp/rel.out" \
   || fail "relay-command tmux exited non-zero on a relative message path"
 grep -q "read $multi'" "$tmp/rel.out" \
   || fail "relay-command must emit the message path absolute, got: $(cat "$tmp/rel.out")"
-echo "ok: tmux relay pastes exactly one pointer line and never the message body"
+echo "ok: tmux relay pastes exactly one unterminated pointer line and never the message body"
 
 # ---------------------------------------------------------------------------
 # 15. stream-json: the sanctioned unattended steer path. relay-command emits the
