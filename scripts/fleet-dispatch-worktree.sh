@@ -209,8 +209,8 @@ REGISTER="$script_dir/fleet-register.sh"
 # empty for every other launch.
 ATTACH_PROMPT=''
 
-# register_dispatch <handle> <scope> <worktree> <death-handle> — write the
-# dispatch record through the one registration seam (fleet-lifecycle-closure
+# register_dispatch <handle> <scope> <worktree> <checkout> [<death-handle>] —
+# write the dispatch record through the one registration seam (fleet-lifecycle-closure
 # Task 3; REQ-E1.1, REQ-E1.2). Best-effort BY CONTRACT (REQ-E1.4): the exit is
 # discarded, because a worktree and a worker that exist are facts, and failing
 # a dispatch over its bookkeeping would trade the thing for the record of it.
