@@ -359,7 +359,9 @@ S=swept-aaaaaab1
 gitc "$repo" worktree add -q -b "planwright/flight/$S" "$repo/.claude/worktrees/flight-$S" HEAD
 brief_dir "$S"
 /bin/sh "$STATE" register "tmux-flight-$S" "flight:$S" --backend tmux --death-handle "process $(dead_pid 13)" >/dev/null
-"$ROOT/scripts/fleet-sweep.sh" --repo "$repo" >/dev/null 2>&1
+"$ROOT/scripts/fleet-sweep.sh" --repo "$repo" >/dev/null 2>"$tmp/sweep.err"
+grep -q "flight $V crash policy: waiting" "$tmp/sweep.err" \
+  || fail "the fleet sweep warns of a death held waiting, never drops it (stderr: $(cat "$tmp/sweep.err"))"
 [ "$(cut -d' ' -f1 "$tmp/fleet/liveness/crash/tmux-flight-$S" 2>/dev/null)" = 1 ] \
   || fail "a fleet sweep cycle counts a dead flight worker under the crash policy"
 

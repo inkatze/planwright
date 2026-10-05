@@ -865,6 +865,7 @@ flight_crash_pass() {
       relaunched) audit flight-relaunch flight-crash "relaunched the dead worker of flight $fc_id into its own worktree (consecutive crash $fc_what)" ;;
       disabled) audit flight-disable flight-crash "flight $fc_id reached the crash disable threshold after $fc_what crashes; queued for the operator" ;;
       failed) warn "flight $fc_id crash policy: $(sanitize_printable "$fc_what") — left for the next sweep" ;;
+      waiting) warn "flight $fc_id crash policy: waiting on another pass's count or relaunch of its dead worker — left for the next sweep; a wait that persists is a pass that died mid-claim" ;;
     esac
   done
 }
