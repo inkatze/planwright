@@ -77,6 +77,10 @@ gitc() {
 mkdir -p "$tmp/bin"
 cat >"$tmp/bin/claude" <<'EOF'
 #!/bin/sh
+if [ -e "$CLAUDE_STUB_FAIL" ]; then
+  rm -f "$CLAUDE_STUB_FAIL"
+  exit 1
+fi
 { printf 'cwd=%s\n' "$(pwd -P)"; printf 'argv=%s\n' "$*"; } >>"$CLAUDE_STUB_LOG"
 exit 0
 EOF
@@ -87,6 +91,7 @@ EOF
 chmod +x "$tmp/bin/claude" "$tmp/bin/tmux"
 export PATH="$tmp/bin:$PATH"
 export CLAUDE_STUB_LOG="$tmp/claude.log"
+export CLAUDE_STUB_FAIL="$tmp/claude.fail"
 : >"$CLAUDE_STUB_LOG"
 export CLAUDE_DIR="$tmp/claude"
 
@@ -285,8 +290,8 @@ brief_dir "$L"
 /bin/sh "$STATE" register "tmux-flight-$L" "flight:$L" --backend tmux --death-handle "process $(dead_pid 9)" >/dev/null
 out=$(supervise "$((t + 99999))")
 for id in "$A" "$Q" "$L"; do
-  printf '%s\n' "$out" | awk -F "$TAB" -v id="$id" '$2 == id' | grep -qv '^skipped' \
-    && fail "flight $id is not a provable crash and must be left alone (got: $out)"
+  [ -z "$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$id" '$2 == id')" ] \
+    || fail "flight $id is not a provable crash and must be left alone (got: $out)"
   [ ! -e "$tmp/fleet/liveness/crash/tmux-flight-$id" ] || fail "flight $id must not be counted as a crash"
 done
 
@@ -298,8 +303,53 @@ printf 'fleet_daemon_pause: true\n' >"$tmp/cfg/paused.yml"
 before=$(launches)
 out=$(cd "$repo" && PLANWRIGHT_LOCAL_CONFIG="$tmp/cfg/paused.yml" "$SCRIPT" supervise --repo-root "$repo" --now "$((t + 99999))" 2>/dev/null)
 [ "$(launches)" = "$before" ] || fail "the kill-switch holds every relaunch"
+[ "$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$K" '$2 == id { print $1 }')" = held ] \
+  || fail "a paused daemon layer reads held, not backoff (got: $out)"
 [ "$(cut -d' ' -f1 "$tmp/fleet/liveness/crash/tmux-flight-$K" 2>/dev/null)" = 1 ] \
   || fail "a paused daemon layer still counts the crash (bookkeeping is never paused)"
+
+# A relaunch that fails releases its claim, so the next pass retries it.
+X=retry-aaaaaab2
+HX="tmux-flight-$X"
+gitc "$repo" worktree add -q -b "planwright/flight/$X" "$repo/.claude/worktrees/flight-$X" HEAD
+brief_dir "$X"
+/bin/sh "$STATE" register "$HX" "flight:$X" --backend tmux --death-handle "process $(dead_pid 15)" >/dev/null
+lineof() { printf '%s\n' "$1" | awk -F "$TAB" -v id="$2" '$2 == id { print $1 }'; }
+supervise "$((t + 200000))" >/dev/null
+: >"$CLAUDE_STUB_FAIL"
+out=$(supervise "$((t + 200100))")
+[ "$(lineof "$out" "$X")" = failed ] || fail "a relaunch that does not start reads failed (got: $out)"
+before=$(launches)
+out=$(supervise "$((t + 200101))")
+[ "$(lineof "$out" "$X")" = relaunched ] || fail "a failed relaunch is retried on the next pass (got: $out)"
+[ "$(launches)" = "$((before + 1))" ] || fail "the retried relaunch starts one worker"
+
+# A crash-record that counts nothing releases its claim and relaunches nothing.
+W=uncnt-aaaaaab3
+HW="tmux-flight-$W"
+gitc "$repo" worktree add -q -b "planwright/flight/$W" "$repo/.claude/worktrees/flight-$W" HEAD
+brief_dir "$W"
+/bin/sh "$STATE" register "$HW" "flight:$W" --backend tmux --death-handle "process $(dead_pid 17)" >/dev/null
+before=$(launches)
+chmod 500 "$tmp/fleet/liveness/crash"
+out=$(supervise "$((t + 300000))")
+chmod 700 "$tmp/fleet/liveness/crash"
+[ "$(lineof "$out" "$W")" = failed ] || fail "a crash that could not be counted reads failed (got: $out)"
+[ "$(launches)" = "$before" ] || fail "an uncounted death is never relaunched"
+out=$(supervise "$((t + 300001))")
+[ "$(lineof "$out" "$W")" = backoff ] || fail "the uncounted death is counted on the next pass (got: $out)"
+
+# Another pass's count that is not yet recorded holds the relaunch.
+V=race-aaaaaab4
+HV="tmux-flight-$V"
+gitc "$repo" worktree add -q -b "planwright/flight/$V" "$repo/.claude/worktrees/flight-$V" HEAD
+brief_dir "$V"
+vd="process $(dead_pid 19)"
+/bin/sh "$STATE" register "$HV" "flight:$V" --backend tmux --death-handle "$vd" >/dev/null
+(umask 077 && mkdir "$tmp/fleet/flights/$V/counted.$(printf '%s' "$vd" | cksum | awk '{ print $1 "." $2 }')")
+out=$(supervise "$((t + 400000))")
+[ "$(lineof "$out" "$V")" = waiting ] || fail "a count another pass has not recorded yet holds the relaunch (got: $out)"
+grep -q "flight-$V" "$CLAUDE_STUB_LOG" && fail "no relaunch before the death is recorded"
 
 # --- 6. The fleet sweep runs the crash policy every cycle ---------------------
 S=swept-aaaaaab1

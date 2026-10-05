@@ -29,7 +29,8 @@
 # flight sweep, so a worker is a crash only on positive evidence of death with
 # no landing: an unknown liveness, a print-rung flight, and a landed or queued
 # one are never crashes. For each dead flight it counts the death once, keyed
-# by the registry's death handle and claimed atomically beside the brief, through scripts/fleet-liveness.sh crash-record under the fleet knobs
+# by the registry's death handle and claimed atomically beside the brief,
+# through scripts/fleet-liveness.sh crash-record under the fleet knobs
 # (fleet_crash_backoff_base_seconds, fleet_crash_disable_threshold); then
 # crash-check decides: inside the backoff it waits, at the disable threshold
 # the disable is already a decision-queue entry and nothing relaunches, and
@@ -38,9 +39,12 @@
 # new worker; that relaunch is claimed once per death too, so two sweeps
 # racing on one death start one worker. crash-check consults the operator
 # kill-switch; counting is never paused. The death is claimed BEFORE
-# crash-record runs, because crash-record is not idempotent: a pass that dies
-# between the two leaves one crash uncounted rather than a later pass counting
-# it twice.
+# crash-record runs, because crash-record is not idempotent, and no pass
+# relaunches a death until its count is recorded beside the claim. A
+# crash-record that counted nothing, or a relaunch that did not start,
+# releases its claim for the next pass; a pass that dies between claiming and
+# recording leaves that death `waiting`, which the fleet sweep warns of every
+# cycle rather than relaunching it uncounted.
 #
 # What this guarantees is bounded or surfaced, never absolute: a dead worker is
 # relaunched at most up to the disable threshold and then surfaced as a
@@ -59,9 +63,10 @@
 # supervise prints one TAB-separated line per dead flight:
 #   backoff<TAB><id><TAB><count>      counted; waiting out the backoff
 #   relaunched<TAB><id><TAB><count>   relaunched into its own worktree
-#   waiting<TAB><id><TAB><count>      this death was already relaunched; the
-#                                     new worker has not registered a death
-#                                     handle of its own yet
+#   waiting<TAB><id><TAB><count>      another pass holds this death's count
+#                                     or relaunch, or the relaunched worker
+#                                     has not registered a death handle of
+#                                     its own yet
 #   held<TAB><id><TAB><count>         counted; the daemon layer is paused
 #   disabled<TAB><id><TAB><count>     at the disable threshold; queued
 #   failed<TAB><id><TAB><reason>      a step failed; left for the next pass
@@ -227,10 +232,14 @@ registry_death() {
 
 # claim <kind> <death> — take the one-time claim of <kind> for this death,
 # atomically: mkdir succeeds for exactly one caller, so two sweeps racing on
-# one death cannot both count it or both relaunch it.
+# one death cannot both count it or both relaunch it. Sets CLAIM to its path;
+# returns 1 when another pass holds it, 2 when it could not be taken at all.
 claim() {
   _ck=$(printf '%s' "$2" | cksum | awk '{ print $1 "." $2 }')
-  (umask 077 && mkdir "$FDIR/$1.$_ck") 2>/dev/null
+  CLAIM="$FDIR/$1.$_ck"
+  (umask 077 && mkdir "$CLAIM") 2>/dev/null && return 0
+  [ -d "$CLAIM" ] && [ ! -L "$CLAIM" ] && return 1
+  return 2
 }
 
 crash_count() {
@@ -264,12 +273,33 @@ supervise_one() {
     printf 'failed\t%s\t%s\n' "$id" "the registry holds no death handle to count the crash by"
     return 0
   fi
-  if claim counted "$death"; then
-    set -- "$handle" "flight:$id"
-    [ -z "$now" ] || set -- "$@" --now "$now"
-    /bin/sh "$LIVENESS" crash-record "$@" >/dev/null 2>&1 </dev/null \
-      || printf '%s: crash-record for flight %s exited non-zero; its count stands as written\n' "$prog" "$id" >&2
-  fi
+  claim counted "$death"
+  case $? in
+    0)
+      set -- "$handle" "flight:$id"
+      [ -z "$now" ] || set -- "$@" --now "$now"
+      # crash-record's counter is durable once it prints its line, so the line,
+      # not the exit, says whether this death was counted.
+      if [ -z "$(/bin/sh "$LIVENESS" crash-record "$@" 2>/dev/null </dev/null)" ]; then
+        rmdir "$CLAIM" 2>/dev/null
+        printf 'failed\t%s\t%s\n' "$id" "the crash could not be counted; a later pass counts it"
+        return 0
+      fi
+      (umask 077 && : >"$CLAIM/recorded") 2>/dev/null
+      ;;
+    1)
+      # Until the pass holding the count has recorded it, crash-check would
+      # read the previous streak and authorize a relaunch early.
+      if [ ! -e "$CLAIM/recorded" ]; then
+        printf 'waiting\t%s\t%s\n' "$id" "$(crash_count "$handle")"
+        return 0
+      fi
+      ;;
+    *)
+      printf 'failed\t%s\t%s\n' "$id" "the crash claim could not be taken under the flight directory"
+      return 0
+      ;;
+  esac
   set -- "$handle"
   [ -z "$now" ] || set -- "$@" --now "$now"
   /bin/sh "$LIVENESS" crash-check "$@" >/dev/null 2>&1 </dev/null
@@ -277,13 +307,19 @@ supervise_one() {
   count=$(crash_count "$handle")
   case $_cr in
     0)
-      if ! claim relaunched "$death"; then
-        printf 'waiting\t%s\t%s\n' "$id" "$count"
-      elif relaunch "$id" "$handle"; then
-        printf 'relaunched\t%s\t%s\n' "$id" "$count"
-      else
-        printf 'failed\t%s\t%s\n' "$id" "the relaunch did not start"
-      fi
+      claim relaunched "$death"
+      case $? in
+        0)
+          if relaunch "$id" "$handle"; then
+            printf 'relaunched\t%s\t%s\n' "$id" "$count"
+          else
+            rmdir "$CLAIM" 2>/dev/null
+            printf 'failed\t%s\t%s\n' "$id" "the relaunch did not start"
+          fi
+          ;;
+        1) printf 'waiting\t%s\t%s\n' "$id" "$count" ;;
+        *) printf 'failed\t%s\t%s\n' "$id" "the relaunch claim could not be taken under the flight directory" ;;
+      esac
       ;;
     1)
       # crash-check answers 1 for the backoff window and for a paused daemon
