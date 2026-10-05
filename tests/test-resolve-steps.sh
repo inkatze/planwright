@@ -1815,7 +1815,7 @@ capture pre-pr --explain --unattended
   && printf '%s\n' "$OUT" | grep -q "^park${TAB}polish${TAB}"
 verdict "a skill step whose target resolves to no file prints a refuse row" "missing skill target: rc=$RC out='$OUT' err='$ERR'"
 case $ERR in
-  *"refuse: step 's-gone'"*"'panel-review' resolves to no file (looked at: "*"$claude/commands/panel-review.md"*"$claude/skills/panel-review/SKILL.md"*) ok "the refusal names the missing target and where it looked" ;;
+  *"refuse: step 's-gone'"*"'panel-review' resolves to no file (looked under: "*"$claude/commands, $claude/skills"*) ok "the refusal names the missing target and where it looked" ;;
   *) fail "the missing-target refusal must name the target and the paths looked at: err='$ERR'" ;;
 esac
 capture pre-pr --check --unattended
@@ -1841,6 +1841,18 @@ capture PLANWRIGHT_SKILLS_ROOT="$skroot" pre-pr --explain --unattended
 [ "$RC" = 1 ] && printf '%s\n' "$OUT" | grep -q "^park${TAB}s-pw-ctl${TAB}" \
   && [ "$(printf '%s\n' "$OUT" | awk -F"$TAB" '{ print NF }')" = 13 ]
 verdict "a flagged skill under a control-byte root never prints that root in a refused row" "control-byte refusal: rc=$RC out='$OUT' err='$ERR'"
+rm -f "$tracked_cfg"
+# The diagnostic names the lookup roots, not one path per root, so a
+# longest-legal skill name keeps the warning inside step-record's warning
+# bound (TEXT_MAX), which a completion record must accept.
+long=$(printf 'a%.0s' $(seq 1 64))
+cat_entry "$tracked_cat" s-long "kind: skill" "target: $long"
+printf 'steps_pre_pr: [s-long]\n' >"$tracked_cfg"
+capture pre-pr --unattended
+wmax=$(sed -n 's/^TEXT_MAX=\([0-9]*\).*/\1/p' "$repo_root/scripts/step-record.sh")
+wlen=$(printf '%s\n' "$ERR" | grep "refuse: step 's-long'" | awk '{ print length($0) }')
+[ "$RC" = 1 ] && [ -n "$wmax" ] && [ -n "$wlen" ] && [ "$wlen" -lt $((wmax / 2)) ]
+verdict "a longest-name missing-target warning stays well inside step-record's bound" "long-name warning: len=$wlen max=$wmax err='$ERR'"
 rm -f "$tracked_cfg"
 # Several points check in one run, the pre-flight's form: a refusal at any
 # point fails the run, even from a machine-local list, and a clean set passes.

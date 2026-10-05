@@ -73,7 +73,7 @@
 # refuse. A park or ask is point-wide: the point runs nothing, so every step
 # prints that token, the stderr diagnostic naming the steps that did not
 # resolve and why. `refuse` marks a skill step no worker can run: its target
-# resolves to no file (the diagnostic naming the paths looked at), or to one
+# resolves to no file (the diagnostic naming the roots looked under), or to one
 # whose frontmatter sets disable-model-invocation: true (naming the flag and
 # the file, which <location> carries). It does not resolve and is never
 # skipped: the point parks where the matrix would skip, and asks or parks as
@@ -1416,21 +1416,24 @@ resolve_target() {
           "${repo_claude:+$repo_claude/commands/$SNAME.md}" \
           "${repo_claude:+$repo_claude/skills/$SNAME/SKILL.md}"; do
           case "$cand" in "" | *[[:cntrl:]]* | [!/]*) continue ;; esac
-          looked="${looked:+$looked, }$cand"
+          croot=${cand%/"$SNAME"*}
+          looked="${looked:+$looked, }$croot"
           if [ -f "$cand" ]; then
             LOC="$cand"
             break
           fi
         done
         [ -n "$LOC" ] || {
-          REASON="skill target '$SNAME' resolves to no file (looked at: ${looked:-no lookup root is set}); install the skill or drop the step"
+          REASON="skill target '$SNAME' resolves to no file (looked under: ${looked:-no lookup root is set}); install the skill or drop the step"
           return 1
         }
       elif [ "$SPLUGIN" = "$OWN_NAMESPACE" ]; then
         if [ "${skills_root#/}" != "$skills_root" ] && [ -f "$skills_root/$SNAME/SKILL.md" ]; then
           LOC="$skills_root/$SNAME/SKILL.md"
         else
-          REASON="skill target '$OWN_NAMESPACE:$SNAME' resolves to no file (looked at: ${skills_root:-no plugin skills root}/$SNAME/SKILL.md); install the skill or drop the step"
+          sroot="no absolute plugin skills root"
+          case "$skills_root" in /*) sroot=$skills_root ;; esac
+          REASON="skill target '$OWN_NAMESPACE:$SNAME' resolves to no file (looked under: $sroot); install the skill or drop the step"
           return 1
         fi
       else

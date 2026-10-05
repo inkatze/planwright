@@ -120,8 +120,8 @@ for target in gated panel-review; do
       want2="drop the flag, or use a kind: prompt step that reads the skill file"
       ;;
     *)
-      want1="'panel-review' resolves to no file (looked at: "
-      want2="$tmp/claude/skills/panel-review/SKILL.md); install the skill or drop the step"
+      want1="'panel-review' resolves to no file (looked under: "
+      want2="$tmp/claude/skills); install the skill or drop the step"
       ;;
   esac
   if [ "$rc" = 1 ] && printf '%s\n' "$out" | grep -q "^refuse${TAB}s-$target${TAB}pre-pr${TAB}" \
