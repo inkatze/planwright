@@ -1286,7 +1286,8 @@ REASON=""
 LOC=""
 # registry_lookup <plugin> <name>: D-19, the installed-plugin registry only.
 # RL_ABSENT is set when the registry was read and the skill has no file: the
-# namespace names no installed plugin, or no install path holds the skill.
+# namespace names no installed plugin, or every install path was searched and
+# none holds the skill (a path the screen passes over was not searched).
 registry_lookup() {
   RL_ABSENT=0
   reg="$claude_dir/plugins/installed_plugins.json"
@@ -1323,10 +1324,17 @@ EOF
     REASON="the installed-plugin registry is unreadable"
     return 1
   }
+  searched=0
+  screened=0
   while IFS= read -r p; do
     [ -n "$p" ] || continue
     case "$p" in /*) ;; *) continue ;; esac
-    case "$p" in *[[:cntrl:]]*) continue ;; esac
+    case "$p" in *[[:cntrl:]]*)
+      screened=1
+      continue
+      ;;
+    esac
+    searched=1
     if [ -f "$p/skills/$2/SKILL.md" ]; then
       LOC="$p/skills/$2/SKILL.md"
       return 0
@@ -1339,7 +1347,7 @@ EOF
 $paths
 EOF
   REASON="skill '$2' not found under plugin '$1' (skills/ and commands/ of its install path)"
-  RL_ABSENT=1
+  [ "$searched" -eq 0 ] || [ "$screened" -eq 1 ] || RL_ABSENT=1
   return 1
 }
 
@@ -1416,12 +1424,19 @@ resolve_target() {
       REFUSE=1
       if [ -z "$SPLUGIN" ]; then
         looked=""
+        screened=0
         for cand in "${skills_root:+$skills_root/$SNAME/SKILL.md}" \
           "${claude_dir:+$claude_dir/commands/$SNAME.md}" \
           "${claude_dir:+$claude_dir/skills/$SNAME/SKILL.md}" \
           "${repo_claude:+$repo_claude/commands/$SNAME.md}" \
           "${repo_claude:+$repo_claude/skills/$SNAME/SKILL.md}"; do
-          case "$cand" in "" | *[[:cntrl:]]* | [!/]*) continue ;; esac
+          case "$cand" in
+            "" | [!/]*) continue ;;
+            *[[:cntrl:]]*)
+              screened=1
+              continue
+              ;;
+          esac
           croot=${cand%/"$SNAME"*}
           looked="${looked:+$looked, }$croot"
           if [ -f "$cand" ]; then
@@ -1431,6 +1446,10 @@ resolve_target() {
         done
         [ -n "$LOC" ] || {
           REASON="skill target '$SNAME' resolves to no file (looked under: ${looked:-no lookup root is set}); install the skill or drop the step"
+          if [ "$screened" -eq 1 ]; then
+            REFUSE=0
+            REASON="skill '$SNAME' not found, and a lookup root carrying a control byte was passed over"
+          fi
           return 1
         }
       elif [ "$SPLUGIN" = "$OWN_NAMESPACE" ]; then

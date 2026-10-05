@@ -803,7 +803,7 @@ claude="$claude_saved"
   || fail "a lookup root with a control byte should be skipped, not end the lookup: rc=$RC out='$OUT' err='$(cat "$tmp/err")'"
 mv "$tmp/v2-skill.bak" "$plug2/skills/v2-skill"
 # A relative install path would resolve against the worktree, which the
-# worker can write: never probed.
+# worker can write: never probed, so the skill is not known absent either.
 mkdir -p "$tmp/plugins/rel/skills/rel-skill"
 printf 'rel\n' >"$tmp/plugins/rel/skills/rel-skill/SKILL.md"
 printf '{"version": 2, "plugins": {"rel@market": [{"installPath": "plugins/rel"}]}}\n' >"$registry"
@@ -811,7 +811,7 @@ cat_entry "$tracked_cat" s-rel "kind: skill" "target: rel:rel-skill"
 printf 'steps_post_pr: [s-rel]\n' >"$tracked_cfg"
 OUT=$(cd "$tmp" && run post-pr --unattended 2>"$tmp/err")
 RC=$?
-[ "$RC" = 1 ] && [ "$OUT" = "refuse${TAB}s-rel" ] \
+[ "$RC" = 1 ] && [ "$OUT" = "park${TAB}s-rel" ] \
   || fail "REQ-C1.3: a relative registry install path must not resolve: rc=$RC out='$OUT' err='$(cat "$tmp/err")'"
 write_registry
 printf '#!/bin/sh\nexit 0\n' >"$bin/fixture-tool"
@@ -1858,6 +1858,17 @@ capture PLANWRIGHT_SKILLS_ROOT="$skroot" pre-pr --explain --unattended
   && [ "$(printf '%s\n' "$OUT" | awk -F"$TAB" '{ print NF }')" = 13 ]
 verdict "a flagged skill under a control-byte root never prints that root in a refused row" "control-byte refusal: rc=$RC out='$OUT' err='$ERR'"
 rm -f "$tracked_cfg"
+# A lookup root the screen passes over is a root the host could not search,
+# so a bare skill found under no other root is ordinary non-resolution, never
+# a refusal claiming the file is absent.
+mkdir -p "$skroot/hidden"
+printf 'x\n' >"$skroot/hidden/SKILL.md"
+cat_entry "$mlocal_cat" s-hidden "kind: skill" "target: hidden"
+printf 'steps_pre_pr: [s-hidden]\n' >"$mlocal_cfg"
+capture PLANWRIGHT_SKILLS_ROOT="$skroot" pre-pr --unattended
+[ "$RC" = 0 ] && [ "$OUT" = "skip${TAB}s-hidden" ]
+verdict "a bare skill only under a screened-out root skips, never refuses" "screened root: rc=$RC out='$OUT' err='$ERR'"
+rm -f "$mlocal_cat" "$mlocal_cfg"
 # The diagnostic names the lookup roots, not one path per root, so a
 # longest-legal skill name keeps the warning inside step-record's warning
 # bound (TEXT_MAX), which a completion record must accept.
