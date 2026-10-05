@@ -539,6 +539,8 @@ printf '%s\n' "$b" | grep -q "steps_convergence" || fail "brief does not name th
 [ "$(printf '%s\n' "$b" | tail -n 1 | cut -c1-15)" = '`FLIGHT-RESULT:' ] || fail "brief does not end on the result line"
 printf '%s\n' "$b" | grep -Fq "flight-lifecycle.sh' push awaiting-decision $fid --handle print-flight-$fid --reason" \
   || fail "a hard pause must push the awaiting-decision lifecycle event"
+printf '%s\n' "$b" | grep -q "carries no single quote" \
+  || fail "the pause push line must keep the reason free of single quotes"
 printf '%s\n' "$b" | grep -Fq "flight-lifecycle.sh' push completion $fid --handle print-flight-$fid --landing \"pr:" \
   || fail "a pr-home brief must push the completion with the PR link"
 printf '%s\n' "$b" | grep -q "a crashed" || fail "the brief must tell a relaunched worker to carry on from its commits"
