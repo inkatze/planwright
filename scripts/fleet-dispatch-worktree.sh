@@ -81,7 +81,9 @@
 # a live tmux session under the launch's session name or, while workers started
 # by the prior `claude --worktree` launcher may still run, under that launcher's
 # `<repo-basename'>_worktree-<suffix'>` spelling — not a new source of truth; a
-# probe name outside the session charset is never sent and reads as live):
+# probe that tmux does not answer with a definite "no such session" (a server
+# error, a timeout, or a name outside the session charset, never sent) reads
+# as live):
 #   - LIVE dispatch in flight  -> abort as already-in-flight (exit 3). On the
 #     flight arm a registered flight worktree is in flight whatever its
 #     session says, so it aborts the same way and is never GC'd below. A
@@ -92,8 +94,9 @@
 #     worktree) -> GC-adopt: remove the leftover worktree checkout; adopt the
 #     existing branch when it carries work (place a fresh worktree on it), or
 #     roll it back (delete the just-made branch) when it is a bare partial
-#     create; then proceed, so a crash can never wedge a task as permanently
-#     already-in-flight. A leftover EMPTY `.claude/worktrees/<suffix>` dir (which
+#     create; then proceed, so a crash does not wedge a task as
+#     already-in-flight once tmux can answer (a probe it cannot answer holds
+#     the task until it can, which is the safe direction). A leftover EMPTY `.claude/worktrees/<suffix>` dir (which
 #     `git worktree add` would otherwise SILENTLY create into) is cleaned, not
 #     silently reused.
 #   - Branch CHECKED OUT ELSEWHERE (under a registered worktree at some other
@@ -183,9 +186,10 @@
 #      never interpolated), a launch word ending in `;`, or a live standalone
 #      attach.
 #   3  already-in-flight: a LIVE concurrent/repeat dispatch, a live session
-#      already holding the session name, a new-session that lost the race for
-#      it (nothing touched), a registered flight worktree, or on the flight arm
-#      a worktree list that cannot be read (the intended collision guard).
+#      already holding the session name (or a probe tmux could not answer), a
+#      new-session that lost the race for it (nothing touched), a registered
+#      flight worktree, or on the flight arm a worktree list that cannot be
+#      read (the intended collision guard).
 #   4  cannot resolve a fresh `<base>`: the remote is present but the fetch
 #      failed after retries (stale ref) — the dispatch must not proceed on a
 #      stale base.
@@ -205,19 +209,22 @@
 #   12 the env wrapper is not executable or its --check refused the launch
 #      options, a launch token could not be minted, or the dispatcher's
 #      planwright root or fleet home could not be resolved.
-#   13 new-session failed for a reason other than a lost race and no session
-#      holds the name, did not return within the tmux call bound, or the
-#      launch could not get a scratch directory; this run's creations are
-#      undone unless a session may run in the worktree, and an undo step that
-#      fails is named.
+#   13 new-session failed for a reason other than a lost race, or did not
+#      return within the tmux call bound, and no session can be confirmed to
+#      hold the name; or the launch could not get a scratch directory. This
+#      run's creations are undone unless a session may run in the worktree,
+#      and an undo step that fails is named. (A failed or hung new-session
+#      whose session does exist is placed: reported, registered, exit 14.)
 #   14 started-unconfirmed: the session was created and no startup
 #      confirmation arrived. The worker is placed; never re-dispatch over it.
 #
 # Every tmux call (the liveness probes and new-session) is ended after
-# PLANWRIGHT_DISPATCH_TMUX_TIMEOUT seconds (default 10), so a wedged tmux
-# server cannot hold the dispatch or a caller's lock. A probe that times out,
-# or that tmux answers with anything but "no such session" or "no server
-# running", reads as live.
+# PLANWRIGHT_DISPATCH_TMUX_TIMEOUT seconds (default 10, at most 999), so a
+# wedged tmux server cannot hold the dispatch or a caller's lock for more than
+# about two bounds. A probe reads as not live only on tmux's own answer that
+# the session is absent ("can't find session", "no server running", or no
+# socket to connect to); a timeout, any other error, or a PATH-relative tmux
+# reads as live.
 #
 # Portable POSIX sh (bash 3.2 / BSD compatible): no eval, no bashisms, input
 # treated as data only.
@@ -342,14 +349,17 @@ prior_session() {
 
 # The most any one tmux call on the dispatch path may take, in whole seconds:
 # a healthy call takes a fraction of one, and a wedged server must not hold
-# the flight lock (or the dispatch) with it. Overridable for tests.
+# the flight lock (or the dispatch) with it. A wedged server can cost a
+# dispatch about two bounds: the call itself, then the undo's probe.
+# Overridable for tests, within a sane range.
 TMUX_CALL_BOUND="${PLANWRIGHT_DISPATCH_TMUX_TIMEOUT:-10}"
 case $TMUX_CALL_BOUND in
-  '' | *[!0-9]* | 0) TMUX_CALL_BOUND=10 ;;
+  '' | *[!0-9]* | 0 | ????*) TMUX_CALL_BOUND=10 ;;
 esac
 
 # SCRATCH — this run's private scratch directory, made on first use and
-# removed on exit.
+# removed on exit. A signal skips the removal rather than delay its effect
+# behind a running command.
 SCRATCH=''
 scratch_dir() {
   [ -n "$SCRATCH" ] && return 0
@@ -362,12 +372,10 @@ cleanup_scratch() {
   [ -z "$SCRATCH" ] || rm -rf "$SCRATCH"
 }
 trap cleanup_scratch EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
 
 # tmux_bounded <out> <err> <tmux> <args...> — one tmux call, stdout to <out>
 # and stderr to <err>, ended once it outlives TMUX_CALL_BOUND. Sets TB_RC to
-# its exit status, or 124 when it was ended.
+# its exit status, or 124 when the bound ended it.
 TB_RC=0
 tmux_bounded() {
   tb_out=$1
@@ -377,6 +385,8 @@ tmux_bounded() {
   rm -f "$tb_flag"
   "$@" </dev/null >"$tb_out" 2>"$tb_err" &
   tb_pid=$!
+  # The flag is written with `true`, not `:`: a failed redirection on a
+  # special builtin would end this subshell before its kills.
   (
     tb_i=0
     while [ "$tb_i" -lt "$TMUX_CALL_BOUND" ]; do
@@ -384,7 +394,7 @@ tmux_bounded() {
       kill -0 "$tb_pid" 2>/dev/null || exit 0
       tb_i=$((tb_i + 1))
     done
-    : >"$tb_flag"
+    true >"$tb_flag"
     kill -TERM "$tb_pid" 2>/dev/null
     sleep 1
     kill -KILL "$tb_pid" 2>/dev/null
@@ -395,38 +405,63 @@ tmux_bounded() {
   { wait "$tb_pid"; } 2>/dev/null || TB_RC=$?
   kill "$tb_dog" 2>/dev/null
   { wait "$tb_dog"; } 2>/dev/null
-  if [ -e "$tb_flag" ]; then
+  # Only a call the bound actually killed counts as timed out: one that
+  # finished as the bound came up keeps its own status.
+  if [ -e "$tb_flag" ] && [ "$TB_RC" -gt 128 ]; then
     TB_RC=124
-    rm -f "$tb_flag"
   fi
+  rm -f "$tb_flag"
   return 0
 }
 
-# session_probe_live <name> — a live session holds <name>, or the answer is
-# uncertain. Only tmux's own "no such session" answers read as not live: the
-# session missing on a reachable server, or no server running at all. A
-# server error, a timed-out call, or a name outside the charset (never sent)
-# reads as live, because a wrong "not live" lets a reconcile or an undo
-# remove a worktree a worker runs in.
-session_probe_live() {
-  valid_session_name "$1" || return 0
-  scratch_dir || return 0
-  tmux_bounded "$SCRATCH/probe.out" "$SCRATCH/probe.err" "${TMUX_BIN:-tmux}" has-session -t "=$1"
+# probe_tmux — the tmux the probes run: the launch's resolved one, else an
+# absolute PATH match. Empty when tmux is not installed; a PATH-relative
+# match is never run and reads as an unanswered probe.
+probe_tmux() {
+  if [ -n "$TMUX_BIN" ]; then
+    printf '%s' "$TMUX_BIN"
+    return 0
+  fi
+  command -v tmux 2>/dev/null
+}
+
+# session_probe <name> — 0 when a session holds <name>, 1 when tmux answered
+# that none does (the session missing on a reachable server, no server
+# running, or no socket to reach one at), 2 when the answer is unknown (a
+# server error, a timed-out call, a PATH-relative tmux, or a name outside the
+# charset, which is never sent).
+session_probe() {
+  valid_session_name "$1" || return 2
+  sp_tmux=$(probe_tmux) || sp_tmux=''
+  case $sp_tmux in
+    '') return 1 ;;
+    /*) ;;
+    *) return 2 ;;
+  esac
+  scratch_dir || return 2
+  tmux_bounded "$SCRATCH/probe.out" "$SCRATCH/probe.err" "$sp_tmux" has-session -t "=$1"
   [ "$TB_RC" -ne 0 ] || return 0
-  [ "$TB_RC" -ne 124 ] || return 0
-  spl_err=$(head -c 1024 "$SCRATCH/probe.err" 2>/dev/null)
-  case $spl_err in
+  sp_err=$(head -c 1024 "$SCRATCH/probe.err" 2>/dev/null)
+  case $sp_err in
     *"can't find session"* | *"session not found"*) return 1 ;;
     *"no server running"*) return 1 ;;
     *"error connecting to "*"(No such file or directory)"*) return 1 ;;
   esac
-  return 0
+  return 2
 }
 
-# suffix_session_live <suffix> — a live session under either spelling.
+# session_probe_live <name> — a session holds <name>, or tmux could not say:
+# a wrong "not live" lets a reconcile or an undo remove a worktree a worker
+# runs in, so only a definite "none" reads as not live.
+session_probe_live() {
+  session_probe "$1"
+  [ "$?" -ne 1 ]
+}
+
+# suffix_session_live <suffix> — a session under either spelling, or tmux
+# could not say.
 suffix_session_live() {
   [ "$LIVENESS_SKIP_TMUX" != 1 ] || return 1
-  command -v tmux >/dev/null 2>&1 || return 1
   session_probe_live "$(worker_session "$1")" && return 0
   session_probe_live "$(prior_session "$1")"
 }
@@ -965,7 +1000,7 @@ print_plan() {
 #   <token> <claude> [<launch args>...] — the one place the launch is built.
 # plan prints its words, tab-led, without a newline; check exits 2 itself on a
 # word ending in `;`, then runs the env wrapper's --check over the same
-# options and command and returns its status; run executes it, the
+# options and command and returns its status; run executes it under the tmux call bound (status 124 when the bound ended it), the
 # -P -F line to LAUNCH_OUT and stderr to LAUNCH_ERR. The command after `--` is
 # always several argv words, which tmux runs directly rather than through a
 # shell, and which it passes through unexpanded.
@@ -1273,7 +1308,7 @@ do_dispatch() {
   [ "$_tmux_rung" -eq 0 ] || [ "$_attach_dry" -eq 1 ] || resolve_launch_tools
   if [ "$_tmux_rung" -eq 1 ] && [ "$LIVENESS_SKIP_TMUX" != 1 ] \
     && command -v tmux >/dev/null 2>&1 && session_probe_live "$_session"; then
-    warn "already-in-flight: a live tmux session already holds $_session (aborting before anything is placed)"
+    warn "already-in-flight: a tmux session holds $_session, or tmux could not say whether one does (aborting before anything is placed)"
     exit 3
   fi
   if [ "$_tmux_rung" -eq 1 ] && [ "$_attach_dry" -eq 0 ]; then
@@ -1381,7 +1416,7 @@ do_dispatch() {
     _held_name=''
     [ -z "$_held_at" ] || _held_name=$(basename "$_held_at")
     if is_live "$_spec_dir" "$_id" "$_suffix" "$_held_name"; then
-      warn "already-in-flight: a live dispatch holds $_branch (aborting)"
+      warn "already-in-flight: a live dispatch holds $_branch, or tmux could not say whether its session runs (aborting)"
       exit 3
     fi
     # A flight has no marker, and a print-rung worker has no tmux session, so a
@@ -1507,13 +1542,13 @@ do_dispatch() {
     undo_launch
     exit 11
   fi
-  _launch_dir=$(mktemp -d "${TMPDIR:-/tmp}/fleet-launch.XXXXXX") || {
+  scratch_dir || {
     warn "cannot create a scratch directory for the launch"
     undo_launch
     exit 13
   }
-  LAUNCH_OUT="$_launch_dir/out"
-  LAUNCH_ERR="$_launch_dir/err"
+  LAUNCH_OUT="$SCRATCH/launch.out"
+  LAUNCH_ERR="$SCRATCH/launch.err"
   # The dispatch start the startup confirmation is measured from, taken
   # immediately before the session exists.
   _since=$(date +%s 2>/dev/null) || _since=''
@@ -1523,43 +1558,49 @@ do_dispatch() {
   tmux_launch run "$TMUX_BIN" "$_session" "$_worktree" "$_handle" "$_scope" \
     "$_token" "$WORKER_CLI" "$@"
   _ns_rc=$?
-  _handle_ok=1
-  parse_created "$LAUNCH_OUT" "$_session" || _handle_ok=0
+  _death_parsed=1
+  parse_created "$LAUNCH_OUT" "$_session" || _death_parsed=0
   _ns_err=$(head -c 2048 "$LAUNCH_ERR" 2>/dev/null)
-  rm -rf "$_launch_dir"
-  if [ "$_ns_rc" -eq 124 ]; then
-    # Whether a session came of it is unknown, so the undo below removes only
-    # what no session can be running in.
-    warn "new-session did not return within ${TMUX_CALL_BOUND}s and was ended; treating the launch as failed"
-    undo_launch
-    exit 13
-  fi
   if [ "$_ns_rc" -ne 0 ]; then
-    case $_ns_err in
-      *'duplicate session'*)
-        # Everything this dispatch would own is the winner's: remove, clear,
-        # and write nothing.
-        warn "already-in-flight: another dispatch created $_session first; its worktree, branch, and marker are left as they are"
-        exit 3
+    if [ "$_ns_rc" -eq 124 ]; then
+      _ns_why="did not return within ${TMUX_CALL_BOUND}s and was ended"
+    else
+      _ns_why="failed (exit $_ns_rc): ${_ns_err:-no message}"
+      case $_ns_err in
+        *'duplicate session'*)
+          # Everything this dispatch would own is the winner's: remove,
+          # clear, and write nothing.
+          warn "already-in-flight: another dispatch created $_session first; its worktree, branch, and marker are left as they are"
+          exit 3
+          ;;
+      esac
+    fi
+    # The session can exist although the call failed or hung: a worker that
+    # exists is placed and registered, never undone and reported as a
+    # failure that invites a re-dispatch over it. A session tmux cannot
+    # confirm either way is neither registered nor undone.
+    _ns_state=1
+    if [ "$_death_parsed" -eq 1 ]; then
+      _ns_state=0
+    elif [ "$LIVENESS_SKIP_TMUX" != 1 ]; then
+      session_probe "$_session"
+      _ns_state=$?
+    fi
+    case $_ns_state in
+      0) warn "new-session $_ns_why, but the worker session $_session exists; it is placed" ;;
+      *)
+        warn "new-session $_ns_why"
+        undo_launch
+        exit 13
         ;;
     esac
-    # The session can exist even when the invocation failed (a step after
-    # new-session, or output that did not parse): a live worker is placed,
-    # never undone and reported as a failure that invites a re-dispatch.
-    if [ "$_handle_ok" -eq 1 ] || { [ "$LIVENESS_SKIP_TMUX" != 1 ] && session_probe_live "$_session"; }; then
-      warn "the worker session $_session was created, but the rest of the launch invocation failed (exit $_ns_rc): ${_ns_err:-no message}"
-    else
-      warn "new-session failed (exit $_ns_rc): ${_ns_err:-no message}"
-      undo_launch
-      exit 13
-    fi
   fi
 
   # Registered once, after the session exists, so no failure arm ever has a
   # record to retract. The handle is the task identity the worker's own
   # environment carries, so a record and a heartbeat agree by construction.
   _death=''
-  if [ "$_handle_ok" -eq 1 ]; then
+  if [ "$_death_parsed" -eq 1 ]; then
     _death="tmux-window $_session $CREATED_WINDOW"
   else
     warn "new-session did not print $_session and one window id; registering no death handle"
@@ -1589,9 +1630,9 @@ start_dir_ok() {
 # what it left; the caller keeps its own exit status.
 undo_launch() {
   ul_wt_left=0
-  ul_live=0
+  ul_maybe_live=0
   if suffix_session_live "$_suffix"; then
-    ul_live=1
+    ul_maybe_live=1
     if valid_session_name "$(prior_session "$_suffix")"; then
       warn "undo skipped: a tmux session may run in $_worktree (live, or tmux could not say); its worktree, branch, and dispatch marker stay"
     else
@@ -1611,7 +1652,7 @@ undo_launch() {
       [ ! -x "$TRACK" ] || "$TRACK" record-remove "$_worktree" >/dev/null 2>&1 </dev/null || true
     fi
   fi
-  if [ "$_made_branch" -eq 1 ] && [ "$ul_live" -eq 0 ]; then
+  if [ "$_made_branch" -eq 1 ] && [ "$ul_maybe_live" -eq 0 ]; then
     if [ "$ul_wt_left" -eq 1 ]; then
       warn "undo failed: the branch this dispatch created stays with its worktree: $_branch"
     elif ! git -C "$_repo_root" branch -D "$_branch" >/dev/null 2>&1 </dev/null; then
@@ -1620,7 +1661,7 @@ undo_launch() {
   fi
   # A marker kept beside a session that may be running keeps a retry from
   # starting a second worker over it until the marker ages out.
-  if [ "$_made_marker" -eq 1 ] && [ "$ul_live" -eq 0 ]; then
+  if [ "$_made_marker" -eq 1 ] && [ "$ul_maybe_live" -eq 0 ]; then
     "$MARKER" clear "$_spec_dir" "$_id" >/dev/null 2>&1 </dev/null \
       || warn "undo failed: could not clear the dispatch marker for task $_id under $_spec_dir"
   fi

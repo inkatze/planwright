@@ -874,7 +874,7 @@ placement_failed() {
   elif [ -n "$_left" ]; then
     printf 'worktree\t%s\n' "$_left"
     printf 'brief\t%s\n' "$brief"
-    printf 'reask\t%s\n' "The worktree was placed but no worker was launched for it; it holds a slot until it is removed (git worktree remove), after which the ask can be dispatched again."
+    printf 'reask\t%s\n' "The worktree was placed but its launch did not complete, and it holds a slot until it is removed. If the stderr above says a session may run in it, check tmux ls first; otherwise remove it (git worktree remove) and dispatch the ask again."
   else
     rm -rf "$brief_dir"
   fi
