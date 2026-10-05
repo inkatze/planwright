@@ -145,12 +145,14 @@ l1() {
 # record_for <handle> — the worker record whose environment carries <handle>.
 record_for() {
   local r
-  for r in $(tlh_worker_records); do
+  while IFS= read -r r; do
     [ "$(tlh_worker_env "$r" PLANWRIGHT_WORKER_HANDLE 2>/dev/null)" = "$1" ] && {
       printf '%s\n' "$r"
       return 0
     }
-  done
+  done <<EOF
+$(tlh_worker_records)
+EOF
   return 1
 }
 
@@ -329,10 +331,15 @@ l5() {
     && fail "l5: the launch function runs the worker CLI in print mode"
   printf '%s\n' "$body" | grep -Eq 'pane_current_path|list-panes' \
     && fail "l5: the launch function looks a pane's working directory up"
-  # At runtime: every worker CLI invocation is the worker itself.
-  for rec in $(tlh_worker_records); do
+  # At runtime: every worker CLI invocation is the worker itself, over the
+  # records the launches above left (none would make this check vacuous).
+  [ "$(tlh_worker_count)" -gt 0 ] || fail "l5: no worker record to check; the runtime half is vacuous"
+  while IFS= read -r rec; do
+    [ -n "$rec" ] || continue
     grep -Eq "^argv.*$TAB(-p|--print)($TAB|\$)" "$rec" && fail "l5: a print-mode worker CLI call was made: $rec"
-  done
+  done <<EOF
+$(tlh_worker_records)
+EOF
   return 0
 }
 
