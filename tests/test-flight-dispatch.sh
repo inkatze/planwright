@@ -34,9 +34,10 @@
 #      closed; no concurrency key but `max_parallel_units` is read (the
 #      home reads `flight_pr_hosts`, the sweep `stale_lock_threshold`).
 #   6. Two flights from one slug never collide (REQ-C1.1).
-#   7. The tmux rung hands the worker its brief in a detached tmux session in
-#      its worktree, and returns its report and its lock while the worker
-#      runs, the observe hint naming a pane target that resolves.
+#   7. The tmux rung's plan hands the worker its brief in a detached tmux
+#      session in its worktree, with its identity. The live launch (the report
+#      and the lock returned while the worker runs) is
+#      tests/test-tmux-detached-launch.sh's l2, on the launch fixture harness.
 #   8. A read-only offload mints no flight identity (REQ-C1.6): the offload
 #      primitive places nothing a flight would, and leaves no brief.
 #   9. Hostile or malformed input is refused before anything is placed; a
@@ -888,8 +889,8 @@ brief=$(field "$OUT" brief)
 grep -q "tmux-flight-$fid" "$brief" || fail "the brief must carry the tmux worker handle"
 plan=$(printf '%s\n' "$OUT" | awk -F"$TAB" '$1=="attach-plan" && $2=="launch"')
 case $plan in
-  *"${TAB}tmux${TAB}new-session${TAB}-d${TAB}-s${TAB}flight-$fid${TAB}-c${TAB}$(field "$OUT" worktree)${TAB}--${TAB}"*"/fleet-dispatch-env.sh${TAB}"*"claude${TAB}--${TAB}Read $brief and follow it exactly.") ;;
-  *) fail "tmux attach must launch claude detached in flight-<id>'s worktree with the brief prompt, got: $plan" ;;
+  *"${TAB}tmux${TAB}new-session${TAB}-d${TAB}-s${TAB}primary-"*"_flight-$fid${TAB}-c${TAB}$(field "$OUT" worktree)${TAB}-P${TAB}"*"${TAB}--${TAB}"*"/fleet-dispatch-env.sh${TAB}--identity${TAB}tmux-flight-$fid${TAB}flight:$fid${TAB}"*"claude${TAB}--${TAB}Read $brief and follow it exactly.${TAB};${TAB}set-window-option${TAB}"*) ;;
+  *) fail "the tmux plan must launch claude detached in flight-<id>'s worktree with its identity and the brief prompt, got: $plan" ;;
 esac
 
 # A fleet home reached through a symlink hands the primitive the canonical
@@ -908,131 +909,6 @@ case $OUT in
   *"Read $c/fleet-real/flights/"*"/brief.md and follow it exactly."*) ;;
   *) fail "the attach plan must carry the canonical brief path (out: $OUT)" ;;
 esac
-
-# --- 7b. a live tmux dispatch returns while its worker runs ------------------
-# The stub `claude` behaves as the real one does inside tmux: a launch carrying
-# `--tmux` hands off and then never exits. The stub `tmux` runs a new session's
-# command in the background, as the server would, and logs every call. A
-# dispatch that waits on the launch never returns, so each run is bounded.
-mkdir -p "$tmp/livebin"
-cat >"$tmp/livebin/tmux" <<'EOF'
-#!/bin/sh
-printf '%s\n' "$*" >>"$TMUX_STUB_LOG"
-case $1 in
-  new-session)
-    shift
-    name=''
-    dir=.
-    while [ $# -gt 0 ]; do
-      case $1 in
-        -s) name=$2; shift 2 ;;
-        -c) dir=$2; shift 2 ;;
-        -d) shift ;;
-        --) shift; break ;;
-        *) break ;;
-      esac
-    done
-    printf '%s\n' "$name" >>"$TMUX_STUB_LOG.sessions"
-    (cd "$dir" && exec "$@") </dev/null >/dev/null 2>&1 &
-    ;;
-  list-sessions) cat "$TMUX_STUB_LOG.sessions" 2>/dev/null ;;
-  display-message) printf 'operator\n' ;;
-esac
-exit 0
-EOF
-cat >"$tmp/livebin/claude" <<'EOF'
-#!/bin/sh
-for a in "$@"; do
-  case $a in --tmux | --tmux=*) exec sleep 300 ;; esac
-done
-{
-  printf 'cwd\t%s\n' "$(pwd -P)"
-  printf 'pin\t%s\n' "${CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION:-unset}"
-  printf 'argv'
-  for a in "$@"; do printf '\t%s' "$a"; done
-  printf '\n'
-} >"$CLAUDE_STUB_LOG.$$"
-printf '%s\n' "$$" >>"$CLAUDE_STUB_LOG.pids"
-exec sleep 60
-EOF
-chmod +x "$tmp/livebin/tmux" "$tmp/livebin/claude"
-
-kill_tree() {
-  for _k in $(pgrep -P "$1" 2>/dev/null); do kill_tree "$_k"; done
-  kill "$1" 2>/dev/null
-}
-
-# run_bounded <seconds> <args...> — `run`, killed past the bound with RC 124.
-run_bounded() {
-  _lim=$1
-  shift
-  "$SCRIPT" "$@" </dev/null >"$tmp/bout" 2>"$tmp/berr" &
-  _bp=$!
-  _w=0
-  while kill -0 "$_bp" 2>/dev/null && [ "$_w" -lt "$_lim" ]; do
-    sleep 1
-    _w=$((_w + 1))
-  done
-  if kill -0 "$_bp" 2>/dev/null; then
-    kill_tree "$_bp"
-    wait "$_bp" 2>/dev/null
-    RC=124
-  else
-    wait "$_bp"
-    RC=$?
-  fi
-  OUT=$(cat "$tmp/bout")
-  ERR=$(cat "$tmp/berr")
-}
-
-new_case
-export TMUX_STUB_LOG="$c/tmux.log" CLAUDE_STUB_LOG="$c/claude"
-_saved_path=$PATH
-PATH="$tmp/livebin:$PATH"
-PLANWRIGHT_FLIGHT_LOCK_WAIT=2
-export PLANWRIGHT_FLIGHT_LOCK_WAIT
-run_bounded 60 dispatch readme-typo --backend tmux --ask-file "$c/ask.txt" \
-  --grounds-file "$c/grounds.txt" --repo-root "$c/primary"
-[ "$RC" -eq 0 ] || fail "a live tmux dispatch must return its report while the worker runs (rc $RC: $ERR)"
-fid=$(field "$OUT" flight)
-brief=$(field "$OUT" brief)
-wt=$(field "$OUT" worktree)
-[ "$(field "$OUT" handle)" = "tmux-flight-$fid" ] || fail "the live tmux report must carry the handle (out: $OUT)"
-[ "$(field "$OUT" observe)" = "tmux capture-pane -p -t '=flight-$fid:'" ] \
-  || fail "the observe hint must name a pane target that resolves ('=<session>:'), got: $(field "$OUT" observe)"
-[ "$(field "$OUT" attach)" = "tmux attach -t '=flight-$fid'" ] \
-  || fail "the attach hint must name the worker's session, got: $(field "$OUT" attach)"
-_w=0
-while [ -z "$(cat "$c"/claude.[0-9]* 2>/dev/null)" ] && [ "$_w" -lt 20 ]; do
-  sleep 1
-  _w=$((_w + 1))
-done
-wlog=$(cat "$c"/claude.[0-9]* 2>/dev/null)
-wpid=$(head -n 1 "$c/claude.pids" 2>/dev/null)
-if [ -z "$wpid" ] || ! kill -0 "$wpid" 2>/dev/null; then
-  fail "the worker must still be running when the dispatch has returned"
-fi
-[ "$(field "$wlog" cwd)" = "$wt" ] || fail "the worker must start in its worktree (log: $wlog)"
-[ "$(field "$wlog" pin)" = false ] \
-  || fail "the dispatch environment pin must reach the worker itself (log: $wlog)"
-case $wlog in
-  *"argv"*"${TAB}--${TAB}Read $brief and follow it exactly."*) ;;
-  *) fail "the worker must be handed its brief (log: $wlog)" ;;
-esac
-case $wlog in
-  *"${TAB}--worktree"* | *"${TAB}--tmux"*) fail "the worker runs in its worktree already; it takes no --worktree or --tmux (log: $wlog)" ;;
-esac
-grep -q '^new-session -d ' "$TMUX_STUB_LOG" || fail "the worker session must be created detached (log: $(cat "$TMUX_STUB_LOG"))"
-grep -q 'switch-client' "$TMUX_STUB_LOG" && fail "the dispatch must never move the operator's tmux client"
-run_bounded 60 dispatch readme-typo --backend tmux --ask-file "$c/ask.txt" \
-  --grounds-file "$c/grounds.txt" --repo-root "$c/primary"
-[ "$RC" -eq 0 ] \
-  || fail "a second dispatch from the same checkout must not be refused while the first worker runs (rc $RC: $ERR)"
-[ "$(field "$OUT" flight)" != "$fid" ] || fail "the second live dispatch must place its own flight"
-[ ! -f "$c/claude.pids" ] || while read -r _p; do kill "$_p" 2>/dev/null; done <"$c/claude.pids"
-PATH=$_saved_path
-unset PLANWRIGHT_FLIGHT_LOCK_WAIT TMUX_STUB_LOG CLAUDE_STUB_LOG
-echo "ok: a live tmux dispatch returns its report and its lock while the worker runs"
 
 # --- 8. a read-only offload mints no flight identity -------------------------
 new_case

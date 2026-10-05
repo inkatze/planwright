@@ -64,7 +64,10 @@
 #       it pauses a spec.
 #         tmux   create and launch: the worker starts in its worktree, in a
 #                detached tmux session, with the one prompt
-#                `Read <brief> and follow it exactly.`
+#                `Read <brief> and follow it exactly.` The launch runs under
+#                the lock; the lock is released once the session exists, and
+#                only then does the launch's confirm step run. Its outcome is
+#                reported; a started-unconfirmed flight is placed (exit 0).
 #         print  create only, and report the exact launch for the human to
 #                run, through the dispatch environment pin; no process exists
 #                until they do.
@@ -108,8 +111,9 @@
 # base, home, origin, record, steps_convergence (the step ids the brief runs,
 # space-separated, empty for an empty list), model, effort, brief, `sanitized`
 # (ask or grounds, one line each, only when invisible or bidi-control
-# characters were stripped from that text), backend, handle,
-# observe, attach, launch (print), the primitive's `attach-plan` lines
+# characters were stripped from that text), backend, handle, outcome (tmux:
+# started or started-unconfirmed), observe and attach (the session the
+# launch's report line named), launch (print), the primitive's `attach-plan` lines
 # (--attach-dry-run), `root<TAB>tower|worker<TAB><path><TAB><version>` and
 # root-skew (yes|no|unknown): the resolved plugin-root pair, so a tower and its
 # worker running different planwright versions is visible at dispatch. A
@@ -880,14 +884,6 @@ placement_failed() {
   esac
 }
 
-# tmux_session — the worker's session for this flight, by either spelling the
-# worktree primitive treats as live.
-tmux_session() {
-  command -v tmux >/dev/null 2>&1 || return 0
-  tmux list-sessions -F '#{session_name}' 2>/dev/null \
-    | grep -Fx -e "$suffix" -e "worktree-$suffix" | head -n 1
-}
-
 cmd_home() {
   while [ $# -gt 0 ]; do
     case $1 in
@@ -1139,7 +1135,7 @@ cmd_dispatch() {
         --repo-root "$primary_root" --attach-dry-run "$@" </dev/null >"$_out" 2>"$brief_dir/dispatch.err"
     else
       /bin/sh "$WORKTREE" dispatch --flight "$flight_id" --brief "$brief" \
-        --repo-root "$primary_root" "$@" </dev/null >"$_out" 2>"$brief_dir/dispatch.err"
+        --repo-root "$primary_root" --launch-only "$@" </dev/null >"$_out" 2>"$brief_dir/dispatch.err"
     fi
   else
     /bin/sh "$WORKTREE" dispatch --flight "$flight_id" --no-attach \
@@ -1171,6 +1167,30 @@ cmd_dispatch() {
       --death-handle none >/dev/null </dev/null || :
   fi
   base=$(git -C "$worktree" rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null) || base=unknown
+
+  # The lock guards counting free slots and placing the worktree as one act,
+  # and both are done once the session exists; a startup wait under it would
+  # queue every other flight from this checkout behind this one.
+  release_lock
+  session=''
+  outcome=''
+  if [ "$backend" = tmux ] && [ "$dry" -eq 0 ]; then
+    session=$(printf '%s\n' "$out" | awk -F"$TAB" '$1 == "launch" && $2 == "session" { print $3; exit }')
+    _since=$(printf '%s\n' "$out" | awk -F"$TAB" '$1 == "launch" && $2 == "since" { print $3; exit }')
+    _crc=0
+    /bin/sh "$WORKTREE" confirm --session "$session" --handle "$brief_handle" \
+      --since "${_since:-unknown}" </dev/null >/dev/null 2>"$work/confirm.err" || _crc=$?
+    # A created session is placed whether or not its startup confirmation
+    # arrived: re-dispatching over it would start a second worker.
+    case $_crc in
+      0) outcome=started ;;
+      14) outcome=started-unconfirmed ;;
+      *)
+        outcome=started-unconfirmed
+        tr -d '\000-\010\013-\037\177' <"$work/confirm.err" >&2
+        ;;
+    esac
+  fi
 
   printf 'flight\t%s\n' "$flight_id"
   printf 'branch\t%s\n' "$branch"
@@ -1208,13 +1228,13 @@ cmd_dispatch() {
       printf 'attach\t%s\n' "none: dry run, no worker was launched"
       printf '%s\n' "$out" | grep "^attach-plan$TAB" || :
     else
-      _sess=$(tmux_session)
-      if [ -n "$_sess" ]; then
-        printf 'observe\ttmux capture-pane -p -t %s\n' "$(sh_quote "=$_sess:")"
-        printf 'attach\ttmux attach -t %s\n' "$(sh_quote "=$_sess")"
+      printf 'outcome\t%s\n' "$outcome"
+      if [ -n "$session" ]; then
+        printf 'observe\ttmux capture-pane -p -t %s\n' "$(sh_quote "=$session:")"
+        printf 'attach\ttmux attach -t %s\n' "$(sh_quote "=$session")"
       else
-        printf 'observe\t%s\n' "none: the worker's tmux session was not found; act on the landing reference"
-        printf 'attach\t%s\n' "none: the worker's tmux session was not found"
+        printf 'observe\t%s\n' "none: the launch did not report the worker's tmux session; act on the landing reference"
+        printf 'attach\t%s\n' "none: the launch did not report the worker's tmux session"
       fi
     fi
   fi

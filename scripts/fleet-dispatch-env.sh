@@ -164,8 +164,9 @@ while [ "$#" -gt 0 ]; do
       ;;
     --identity)
       [ -z "$opt_handle" ] || refuse_option "--identity given twice"
-      [ "$#" -ge 3 ] && valid_identity_field "$2" && valid_identity_field "$3" \
-        || refuse_option "--identity needs a handle and a scope on the identity-gate grammar [A-Za-z0-9._=@:-] (at most 128 bytes each)"
+      if [ "$#" -lt 3 ] || ! valid_identity_field "$2" || ! valid_identity_field "$3"; then
+        refuse_option "--identity needs a handle and a scope on the identity-gate grammar [A-Za-z0-9._=@:-] (at most 128 bytes each)"
+      fi
       opt_handle=$2
       opt_scope=$3
       shift 3
@@ -183,15 +184,17 @@ while [ "$#" -gt 0 ]; do
       ;;
     --root)
       [ -z "$opt_root" ] || refuse_option "--root given twice"
-      [ "$#" -ge 2 ] && valid_abs_path "$2" && [ -d "$2" ] \
-        || refuse_option "--root must name an existing directory by its absolute path"
+      if [ "$#" -lt 2 ] || ! valid_abs_path "$2" || [ ! -d "$2" ]; then
+        refuse_option "--root must name an existing directory by its absolute path"
+      fi
       opt_root=$2
       shift 2
       ;;
     --fleet-home)
       [ -z "$opt_home" ] || refuse_option "--fleet-home given twice"
-      [ "$#" -ge 2 ] && valid_abs_path "$2" \
-        || refuse_option "--fleet-home must be an absolute path"
+      if [ "$#" -lt 2 ] || ! valid_abs_path "$2"; then
+        refuse_option "--fleet-home must be an absolute path"
+      fi
       opt_home=$2
       shift 2
       ;;

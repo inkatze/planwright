@@ -26,9 +26,10 @@
 #   c9  (REQ-B1.4): the create exit-code GATES the attach — a non-zero create
 #       (live collision / unresolvable base) prints NO attach plan.
 #   c10 (REQ-B1.4): the worker session is created detached (the client-switch
-#       mitigation: the operator's client never moves), named for the suffix,
-#       a classic tmux session running the worker in its worktree through the
-#       ghost-text pin wrapper.
+#       mitigation: the operator's client never moves), named
+#       `<base>-<hash6>_<suffix'>`, a classic tmux session running the worker
+#       in its physical worktree through the ghost-text pin wrapper with its
+#       identity, remain-on-exit turned off in the same invocation.
 #   c11 (REQ-C1.2): the tower deny floor denies the dangerous `git worktree`
 #       forms (default-branch / detach / `--force`).
 #   c12 (REQ-B1.4 exception scope): the dispatch primitive is the ONLY
@@ -413,7 +414,7 @@ c9() {
 
 # ---------------------------------------------------------------------------
 # c10 — the worker session is created detached, a classic tmux session named
-# for the suffix, running the pinned worker in its worktree; the operator's
+# for the checkout and the suffix, running the pinned worker in its worktree; the operator's
 # client is never switched, and the launch waits on nothing.
 # ---------------------------------------------------------------------------
 c10() {
@@ -428,27 +429,38 @@ c10() {
     return
   }
   plan=$(printf '%s\n' "$OUT" | grep '^attach-plan')
-  printf '%s\n' "$plan" | grep -q 'switch-client' \
+  printf '%s\n' "$plan" | grep -Eq 'switch-client|attach-session' \
     && fail "c10: the attach plan moves the operator's tmux client"
-  [ "$(printf '%s\n' "$plan" | awk -F"$TAB" '$2=="session" {print $3}')" = demo-task-10 ] \
-    || fail "c10: the worker session is not named for the suffix"
+  sess=$(printf '%s\n' "$plan" | awk -F"$TAB" '$2=="session" {print $3}')
+  case $sess in
+    primary-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]_demo-task-10) ;;
+    *) fail "c10: the worker session is not <base>-<hash6>_<suffix>: $sess" ;;
+  esac
+  wt=$(cd "$tmp/primary" && pwd -P)/.claude/worktrees/demo-task-10
   launch=$(printf '%s\n' "$plan" | grep "^attach-plan${TAB}launch")
   case $launch in
-    "attach-plan${TAB}launch${TAB}tmux${TAB}new-session${TAB}-d${TAB}-s${TAB}demo-task-10${TAB}-c${TAB}$tmp/primary/.claude/worktrees/demo-task-10${TAB}--${TAB}"*) ;;
+    "attach-plan${TAB}launch${TAB}tmux${TAB}new-session${TAB}-d${TAB}-s${TAB}$sess${TAB}-c${TAB}$wt${TAB}-P${TAB}-F${TAB}"*) ;;
     *) fail "c10: the launch is not a detached session in the worktree: $launch" ;;
   esac
   # The worker runs in its worktree already: no --worktree, and no --tmux,
   # whose in-tmux launcher never exits.
   printf '%s\n' "$launch" | grep -Eq -- "${TAB}--(worktree|tmux)" \
     && fail "c10: the worker launch carries --worktree or --tmux: $launch"
-  # The pin wrapper runs inside the session, so the pin reaches the worker.
-  printf '%s\n' "$launch" | grep -q "${TAB}--${TAB}[^$TAB]*/fleet-dispatch-env.sh${TAB}[^$TAB]*claude" \
-    || fail "c10: the worker is not launched through the fleet-dispatch-env.sh pin wrapper"
+  # The pin wrapper runs inside the session, so the pin reaches the worker, with
+  # the identity the registry record carries.
+  printf '%s\n' "$launch" | grep -q "${TAB}--${TAB}[^$TAB]*/fleet-dispatch-env.sh${TAB}--identity${TAB}tmux-demo-task-10${TAB}demo:10${TAB}" \
+    || fail "c10: the worker is not launched through the fleet-dispatch-env.sh pin wrapper with its identity"
+  case $launch in
+    *"${TAB};${TAB}set-window-option${TAB}-t${TAB}=$sess:${TAB}remain-on-exit${TAB}off") ;;
+    *) fail "c10: the plan does not turn remain-on-exit off in the same invocation: $launch" ;;
+  esac
 
   # A dotted task id's session is spelled as tmux would rename it.
   run_prim dispatch demo 2.1 --repo-root "$tmp/primary" --attach-dry-run
-  [ "$(printf '%s\n' "$OUT" | awk -F"$TAB" '$1=="attach-plan" && $2=="session" {print $3}')" = demo-task-2_1 ] \
-    || fail "c10: a dotted task id's session must read demo-task-2_1 (out: $OUT)"
+  case $(printf '%s\n' "$OUT" | awk -F"$TAB" '$1=="attach-plan" && $2=="session" {print $3}') in
+    primary-*_demo-task-2_1) ;;
+    *) fail "c10: a dotted task id's session must end _demo-task-2_1 (out: $OUT)" ;;
+  esac
 }
 
 # ---------------------------------------------------------------------------
@@ -539,14 +551,15 @@ c13() {
   grep -Eqi 'anthropic|api\.anthropic|curl .*(anthropic|api)|/v1/messages' \
     "$SCRIPTS_DIR/fleet-dispatch-worktree.sh" \
     && fail "c13: an API/model call appears in the primitive"
-  # And `claude` appears only as the launched worker verb inside do_attach, never
-  # in the create / reconcile / naming logic. Strip comments AND the do_attach
-  # body, then assert no `claude` token remains in the naming/create path.
-  naming=$(sed '/^do_attach()/,/^}/d' "$SCRIPTS_DIR/fleet-dispatch-worktree.sh" \
-    | grep -v '^[[:space:]]*#')
+  # And `claude` appears only in the launch functions, never in the create /
+  # reconcile / naming logic. Strip comments AND the launch functions' bodies,
+  # then assert no `claude` token remains in the naming/create path.
+  naming=$(sed -e '/^do_attach()/,/^}/d' -e '/^print_plan()/,/^}/d' \
+    -e '/^tmux_launch()/,/^}/d' -e '/^resolve_launch_tools()/,/^}/d' \
+    "$SCRIPTS_DIR/fleet-dispatch-worktree.sh" | grep -v '^[[:space:]]*#')
   # `.claude/worktrees` (a path) is not the `claude` binary — exclude it.
   if printf '%s\n' "$naming" | grep 'claude' | grep -qv '\.claude'; then
-    fail "c13: a 'claude' invocation appears in the naming/create path (outside do_attach)"
+    fail "c13: a 'claude' invocation appears in the naming/create path (outside the launch functions)"
   fi
   return 0
 }
@@ -1171,7 +1184,7 @@ c29() {
   run_prim dispatch --flight demo-0123abcd --brief "$tmp/alias/brief.md" --repo-root "$tmp/primary" --attach-dry-run
   [ "$RC" -eq 0 ] || fail "c29: the flight's own brief must be accepted, got exit $RC"
   case $OUT in
-    *"claude${TAB}--${TAB}Read $_own/brief.md and follow it exactly.") ;;
+    *"claude${TAB}--${TAB}Read $_own/brief.md and follow it exactly.${TAB};${TAB}set-window-option${TAB}"*) ;;
     *) fail "c29: the attach plan must hand the worker its own brief, got: $OUT" ;;
   esac
 
@@ -1194,7 +1207,7 @@ c29() {
   run_prim attach flight-demo-0123abcd --brief "$_own/brief.md" --dry-run
   [ "$RC" -eq 0 ] || fail "c29: a standalone flight attach must take its brief, got exit $RC"
   case $OUT in
-    *"claude${TAB}--${TAB}Read $_own/brief.md and follow it exactly.") ;;
+    *"claude${TAB}--${TAB}Read $_own/brief.md and follow it exactly.${TAB};${TAB}set-window-option${TAB}"*) ;;
     *) fail "c29: a standalone flight attach must hand the worker its brief, got: $OUT" ;;
   esac
   run_prim attach flight-demo-0123abcd --brief "$tmp/brief.md" --dry-run
