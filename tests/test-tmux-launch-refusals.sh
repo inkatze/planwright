@@ -147,7 +147,12 @@ r4() {
   rc=$?
   [ "$rc" -eq 2 ] || fail "r4: a live standalone attach must be refused (exit 2), got $rc"
   [ -z "$(tmux_calls_since "$before")" ] || fail "r4: the refused attach called tmux"
-  (cd "$P" && tlh_run_bounded "$PRIM" attach demo-task-3 --dry-run && printf '%s\n' "$TLH_OUT" >"$C/plan")
+  before=$(calls_now)
+  rc=0
+  (cd "$P" && tlh_run_bounded "$PRIM" attach demo-task-3 --dry-run && printf '%s\n' "$TLH_OUT" >"$C/plan" \
+    && exit "$TLH_RC") || rc=$?
+  [ "$rc" -eq 0 ] || fail "r4: the dry-run attach must exit 0, got $rc"
+  [ -z "$(tmux_calls_since "$before")" ] || fail "r4: the dry-run attach called tmux: $(tmux_calls_since "$before")"
   grep -q "^attach-plan${TAB}launch${TAB}tmux${TAB}new-session${TAB}-d${TAB}" "$C/plan" \
     || fail "r4: the dry-run attach does not print the detached plan: $(cat "$C/plan")"
   for lnk in .claude .claude/worktrees .claude/worktrees/demo-task-4; do

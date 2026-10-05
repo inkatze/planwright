@@ -1166,7 +1166,12 @@ cmd_dispatch() {
     /bin/sh "$REGISTER" "$@" --checkout "$repo_root" \
       --death-handle none >/dev/null </dev/null || :
   fi
-  base=$(git -C "$worktree" rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null) || base=unknown
+  # The base the primitive placed the worktree on: a worker already running in
+  # it may have moved its HEAD by now.
+  base=$(printf '%s\n' "$out" | awk -F"$TAB" '$1 == "dispatch" && $2 == "base" { print $3; exit }')
+  case $base in
+    '' | *[!0-9a-f]*) base=$(git -C "$worktree" rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null) || base=unknown ;;
+  esac
 
   # The lock guards counting free slots and placing the worktree as one act,
   # and both are done once the session exists; a startup wait under it would

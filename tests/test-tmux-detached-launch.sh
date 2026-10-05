@@ -176,8 +176,11 @@ l2_flight() {
   # native launcher does inside tmux, handing off and never returning when it
   # is given --tmux, so a dispatch that still launched it that way would hang
   # here and be cut off by the bound.
+  # It also commits at once, as a fast worker might, so a report that read the
+  # worktree's HEAD after the launch would name the worker's commit as the base.
   mkdir -p "$C/regbin"
-  printf '#!/bin/sh\nfor a; do case $a in --tmux | --tmux=*) exec sleep 600 ;; esac; done\nexec %s "$@"\n' \
+  printf '#!/bin/sh\nfor a; do case $a in --tmux | --tmux=*) exec sleep 600 ;; esac; done\n%s\nexec %s "$@"\n' \
+    'git -c user.name=w -c user.email=w@example.invalid -c commit.gpgsign=false commit -q --allow-empty -m worker >/dev/null 2>&1' \
     "'$TLH_BIN/claude'" >"$C/regbin/claude"
   chmod +x "$C/regbin/claude"
   PATH="$C/regbin:$PATH" tlh_run_bounded "$FLIGHT" dispatch readme-typo --backend tmux --ask-file "$C/ask.txt" \
@@ -189,6 +192,8 @@ l2_flight() {
   }
   [ "$(report_field outcome)" = started-unconfirmed ] \
     || fail "l2: the flight report does not say started-unconfirmed: $TLH_OUT"
+  [ "$(report_field base)" = "$(gitc "$P" rev-parse origin/main)" ] \
+    || fail "l2: the report's base is not the placement base origin/main: $(report_field base)"
   fid=$(report_field flight)
   sess=$(expect_session "$PP" "flight-$fid")
   wt="$PP/.claude/worktrees/flight-$fid"
