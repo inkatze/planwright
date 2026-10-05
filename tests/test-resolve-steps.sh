@@ -1788,7 +1788,22 @@ capture pre-pr --unattended
 printf -- '---\nname: gated\n---\ndisable-model-invocation: true\n' >"$gated"
 capture pre-pr --unattended
 [ "$RC" = 0 ] && [ "$OUT" = "run${TAB}s-gated" ] || fail "the flag after the frontmatter closes should run: rc=$RC out='$OUT'"
+printf '\357\273\277---\nname: gated\ndisable-model-invocation: true\n---   \n' >"$gated"
+capture pre-pr --unattended
+[ "$RC" = 1 ] && [ "$OUT" = "refuse${TAB}s-gated" ] || fail "a BOM and trailing blanks on the delimiters should still refuse: rc=$RC out='$OUT'"
 ok "only a true disable-model-invocation inside the frontmatter refuses"
+# A skill file no worker can read cannot run either, so it is refused, never
+# read as unflagged.
+gate_skill "$gated" 'disable-model-invocation: true'
+chmod 000 "$gated"
+if [ -r "$gated" ]; then
+  ok "skipped: an unreadable-file case needs a non-root user"
+else
+  capture pre-pr --unattended
+  [ "$RC" = 1 ] && [ "$OUT" = "refuse${TAB}s-gated" ] && case $ERR in *"cannot be read"*) true ;; *) false ;; esac
+  verdict "an unreadable skill file is refused" "unreadable skill file: rc=$RC out='$OUT' err='$ERR'"
+fi
+chmod 644 "$gated"
 # Every skill lookup rule is judged: a command file and a planwright-namespaced
 # skill carrying the flag are refused the same way.
 rm -rf "$claude/skills/gated"

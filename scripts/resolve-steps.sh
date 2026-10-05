@@ -1340,14 +1340,17 @@ EOF
   return 1
 }
 
-# model_invocation_disabled <file>: 0 when the file opens with a frontmatter
-# block, closed by a `---` line, whose last top-level disable-model-invocation
-# key is true (bare or quoted, any case). The file is read as data.
+# model_invocation_disabled <file>: 0 when the file opens (after any UTF-8
+# BOM) with a frontmatter block, closed by a `---` line, whose last top-level
+# disable-model-invocation key is true (bare or quoted, any case); 2 when the
+# file cannot be read; 1 otherwise. The file is read as data.
 model_invocation_disabled() {
+  [ -r "$1" ] || return 2
   [ -n "$(awk '
     { sub(/\r$/, "") }
-    NR == 1 { if ($0 != "---") exit; next }
-    $0 == "---" { if (on) print "y"; exit }
+    NR == 1 { sub(/^\357\273\277/, "") }
+    /^---[ \t]*$/ { if (NR == 1) next; if (on) print "y"; exit }
+    NR == 1 { exit }
     /^disable-model-invocation:/ {
       v = $0
       sub(/^disable-model-invocation:[ \t]*/, "", v)
@@ -1454,10 +1457,17 @@ resolve_target() {
       return 1
       ;;
   esac
-  if [ "$rkind" = skill ] && model_invocation_disabled "$LOC"; then
-    REFUSE=1
-    REASON="its skill target sets disable-model-invocation: true in $LOC, so the Skill tool refuses it from any worker; drop the flag, or use a kind: prompt step that reads the skill file"
-    return 1
+  if [ "$rkind" = skill ]; then
+    mrc=0
+    model_invocation_disabled "$LOC" || mrc=$?
+    case $mrc in
+      0) REASON="its skill target sets disable-model-invocation: true in $LOC, so the Skill tool refuses it from any worker; drop the flag, or use a kind: prompt step that reads the skill file" ;;
+      2) REASON="its skill file $LOC cannot be read, so no worker can load it" ;;
+    esac
+    if [ "$mrc" -ne 1 ]; then
+      REFUSE=1
+      return 1
+    fi
   fi
   rreq=${E_REQ[rn]}
   for r in $rreq; do
