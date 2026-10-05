@@ -42,10 +42,12 @@
 # kill-switch; counting is never paused. The death is claimed BEFORE
 # crash-record runs, because crash-record is not idempotent, and no pass
 # relaunches a death until its count is recorded beside the claim. A
-# crash-record that counted nothing, or a relaunch that did not start,
-# releases its claim for the next pass; a pass that dies between claiming and
-# recording leaves that death `waiting`, which the fleet sweep warns of every
-# cycle rather than relaunching it uncounted.
+# crash-record that counted nothing releases its claim for the next pass; a
+# relaunch that did not start releases both, so the next pass counts it as
+# another crash under the same backoff and disable threshold. A pass that dies
+# between claiming and recording, or a relaunched worker the registry never
+# learned, leaves that death `waiting`, which the fleet sweep warns of every
+# cycle rather than relaunching it.
 #
 # What this guarantees is bounded or surfaced, never absolute: a dead worker is
 # relaunched at most up to the disable threshold and then surfaced as a
@@ -284,7 +286,9 @@ supervise_one() {
     return 0
   fi
   claim counted "$death"
-  case $? in
+  _cl=$?
+  counted=$CLAIM
+  case $_cl in
     0)
       set -- "$handle" "flight:$id"
       [ -z "$now" ] || set -- "$@" --now "$now"
@@ -295,7 +299,10 @@ supervise_one() {
         printf 'failed\t%s\t%s\n' "$id" "the crash could not be counted; a later pass counts it"
         return 0
       fi
-      (umask 077 && : >"$CLAIM/recorded") 2>/dev/null
+      if ! (umask 077 && : >"$CLAIM/recorded") 2>/dev/null; then
+        printf 'failed\t%s\t%s\n' "$id" "the crash was counted but its record mark could not be written; later passes wait on it"
+        return 0
+      fi
       ;;
     1)
       # Until the pass holding the count has recorded it, crash-check would
@@ -325,8 +332,12 @@ supervise_one() {
           if relaunch "$id" "$handle"; then
             printf 'relaunched\t%s\t%s\n' "$id" "$count"
           else
+            # A relaunch that did not start is another failure of this worker:
+            # releasing the count too makes the next pass count it, so a
+            # relaunch that keeps failing backs off and reaches the disable.
             rmdir "$CLAIM" 2>/dev/null
-            printf 'failed\t%s\t%s\n' "$id" "the relaunch did not start"
+            rm -f "$counted/recorded" && rmdir "$counted" 2>/dev/null
+            printf 'failed\t%s\t%s\n' "$id" "the relaunch did not start; it counts as another crash"
           fi
           ;;
         1) printf 'waiting\t%s\t%s\n' "$id" "$count" ;;

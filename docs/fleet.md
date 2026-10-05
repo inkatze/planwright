@@ -1683,8 +1683,8 @@ shared flight sweep reads it `dead`: positive death evidence and no landing.
 Each death is counted once and relaunched at most once (both claimed
 atomically, keyed by the registry's death handle, so two sweeps racing on one
 death start one worker, and none relaunches it before its count is recorded;
-a count that wrote nothing or a relaunch that did not start is retried the next
-cycle, and a death held waiting on a pass that died mid-claim is warned every
+a count that wrote nothing is retried the next cycle, a relaunch that did not
+start counts as another crash, and a death held waiting is warned every
 cycle) through
 `crash-record` under the same `fleet_crash_backoff_base_seconds` and
 `fleet_crash_disable_threshold` knobs as any worker; once `crash-check`

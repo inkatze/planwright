@@ -319,7 +319,7 @@ out=$(cd "$repo" && PLANWRIGHT_LOCAL_CONFIG="$tmp/cfg/paused.yml" "$SCRIPT" supe
 [ "$(cut -d' ' -f1 "$tmp/fleet/liveness/crash/tmux-flight-$K" 2>/dev/null)" = 1 ] \
   || fail "a paused daemon layer still counts the crash (bookkeeping is never paused)"
 
-# A relaunch that fails releases its claim, so the next pass retries it.
+# A relaunch that fails counts as another crash: it backs off, then retries.
 X=retry-aaaaaab2
 HX="tmux-flight-$X"
 gitc "$repo" worktree add -q -b "planwright/flight/$X" "$repo/.claude/worktrees/flight-$X" HEAD
@@ -332,7 +332,10 @@ out=$(supervise "$((t + 200100))")
 [ "$(lineof "$out" "$X")" = failed ] || fail "a relaunch that does not start reads failed (got: $out)"
 before=$(launches)
 out=$(supervise "$((t + 200101))")
-[ "$(lineof "$out" "$X")" = relaunched ] || fail "a failed relaunch is retried on the next pass (got: $out)"
+[ "$(lineof "$out" "$X")" = backoff ] || fail "a relaunch that did not start counts as another failure and backs off (got: $out)"
+[ "$(cut -d' ' -f1 "$tmp/fleet/liveness/crash/$HX")" = 2 ] || fail "a failed relaunch is counted toward the disable threshold"
+out=$(supervise "$((t + 200200))")
+[ "$(lineof "$out" "$X")" = relaunched ] || fail "a failed relaunch is retried once its backoff passes (got: $out)"
 [ "$(launches)" = "$((before + 1))" ] || fail "the retried relaunch starts one worker"
 
 # A crash-record that counts nothing releases its claim and relaunches nothing.
