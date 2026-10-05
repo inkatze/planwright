@@ -219,6 +219,11 @@ specs/_flights/$G.md" 2>/dev/null \
   && fail "a reason carrying a control byte must be refused"
 "$SCRIPT" push awaiting-decision "$G" --handle "$HG" --reason "" 2>/dev/null \
   && fail "an empty reason must be refused"
+# The store refuses text outside the printable range (a UTF-8 dash among it),
+# so the push refuses it first, as a refused input rather than a store outage.
+"$SCRIPT" push awaiting-decision "$G" --handle "$HG" --reason "$(printf 'scope grew \342\200\224 auth')" 2>/dev/null
+rc=$?
+[ "$rc" -eq 2 ] || fail "a reason the store would refuse is a refused input, exit 2 (got $rc)"
 "$SCRIPT" push lunch "$G" --handle "$HG" 2>/dev/null && fail "an unknown event must be refused"
 
 # --- 4. Crash policy ------------------------------------------------------------

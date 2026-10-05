@@ -203,6 +203,10 @@ cmd_push() {
       [ -z "$landing" ] || usage
       [ -n "$reason" ] || die 2 "the awaiting-decision push needs a non-empty --reason"
       has_ctl "$reason" && die 2 "refusing a reason carrying a control byte"
+      # The store refuses the C1 byte range too, which UTF-8 punctuation such
+      # as a dash falls in; refusing it here keeps a refused reason exit 2.
+      [ "$(sanitize_printable "$reason")" = "$reason" ] \
+        || die 2 "refusing a reason the attention store would refuse; keep it to plain ASCII"
       [ "${#reason}" -le 480 ] || die 2 "refusing a reason over 480 bytes"
       /bin/sh "$ATTN" park "$handle" "$scope" "flight-parked: $reason" </dev/null \
         || die 4 "the awaiting-decision push did not reach the attention store"

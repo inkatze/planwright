@@ -811,7 +811,7 @@ committed record is the landing reference; push the completion with it:
     printf '%s\n' "The gate-wiring hard pauses stay in force whatever the route or its grounds,"
     printf '%s\n' "an operator override included: a hard-disqualifier-zone finding, or scope"
     printf '%s\n' "outgrowing this route, parks the flight. Stop, commit nothing further, push"
-    printf '%s\n' "the pause to the operator's decision queue with a one-line reason that"
+    printf '%s\n' "the pause to the operator's decision queue with a one-line, plain-ASCII reason that"
     printf '%s\n' "carries no single quote (the line runs in your shell; never paste quoted"
     printf '%s\n' "content into it), \`$_push awaiting-decision $_pushid --reason '<reason>'\`,"
     printf '%s\n' "and report \`parked\` with the reason, so the tower can re-route it."
