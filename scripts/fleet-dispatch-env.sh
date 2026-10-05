@@ -46,7 +46,8 @@
 #                                               exported as PLANWRIGHT_WORKER_HANDLE
 #                                               and PLANWRIGHT_WORKER_SCOPE; both
 #                                               on the identity-gate grammar
-#                                               fleet-liveness.sh enforces
+#                                               fleet-liveness.sh enforces, and
+#                                               neither starting with `-`
 #                                             --launch-token <hex>
 #                                               16-64 lowercase hex digits, exported
 #                                               as PLANWRIGHT_WORKER_LAUNCH_TOKEN
@@ -60,6 +61,18 @@
 #                                               PLANWRIGHT_FLEET_STATE_DIR
 #                                           A malformed or half-supplied option is
 #                                           refused (exit 2) before anything runs.
+#                                           Any launch option also drops the
+#                                           tower identity and repository pins
+#                                           (PLANWRIGHT_TOWER_ID,
+#                                           PLANWRIGHT_TOWER_SESSION_ID,
+#                                           PLANWRIGHT_TOWER_PID,
+#                                           PLANWRIGHT_TOWER_CHECKOUT,
+#                                           PLANWRIGHT_REPO_ROOT,
+#                                           PLANWRIGHT_ORCH_STATE_DIR) the tmux
+#                                           server's environment may carry from
+#                                           whichever session started it: a
+#                                           worker is not a tower, and resolves
+#                                           its repository from its worktree.
 #                                           --check validates the options and the
 #                                           presence of <cmd>, then exits 0
 #                                           without exec, so the dispatch reports
@@ -86,8 +99,8 @@
 #
 # The command is exec'd directly (exec "$@") — no shell, no eval — so arguments
 # pass through unmangled and there is no injection surface; the wrapper only
-# adds one fixed literal assignment and hands control to the operator-supplied
-# command. `--emit-launch` is pure string construction (no exec, no model/API
+# adds fixed assignments (with launch options, the validated values they name)
+# and hands control to the operator-supplied command. `--emit-launch` is pure string construction (no exec, no model/API
 # call — REQ-E1.3): it prints the launch line for a backend to run, the wrapper
 # prefix applying the pin only when that emitted line is later exec'd. Its tokens
 # are single-quote-wrapped, so a repo path or dispatch token carrying a space or
@@ -101,7 +114,7 @@
 # Exit: execs <cmd> (adopting its exit status); a failed exec follows the
 # shell's not-found/not-executable convention (typically 127/126, but
 # shell-dependent — a bash acting as /bin/sh reports 126 for a missing file);
-# --print and --emit-launch exit 0; a no-command or otherwise malformed
+# --print, --emit-launch, and an accepted --check exit 0; a no-command or otherwise malformed
 # invocation is a usage error, exit 2.
 set -u
 
@@ -263,7 +276,8 @@ planwright_root() {
 #
 # Unlike the ghost-text pin, these do NOT override an inherited value: both are
 # documented operator overrides (tests, adopters pointing at a checkout), and the
-# wrapper must not silently outrank a root the operator chose.
+# wrapper must not silently outrank a root the operator chose. --root is that
+# choice made explicit by the dispatcher, so it is set before this runs.
 # warn_unresolved_root — say so, once, when neither an operator value nor
 # self-location produced a root. Not fatal: the launch's own mode source is the
 # settings fragment, not this. But never silent, because the only symptom is a
@@ -376,6 +390,10 @@ fi
 # command. `export` makes the value visible to the launched session and every
 # descendant it spawns; the unconditional set overrides any inherited value.
 export "$GHOST_TEXT_KEY=$GHOST_TEXT_VALUE"
+if [ "$opt_any" -eq 1 ]; then
+  unset PLANWRIGHT_TOWER_ID PLANWRIGHT_TOWER_SESSION_ID PLANWRIGHT_TOWER_PID \
+    PLANWRIGHT_TOWER_CHECKOUT PLANWRIGHT_REPO_ROOT PLANWRIGHT_ORCH_STATE_DIR
+fi
 if [ -n "$opt_handle" ]; then
   PLANWRIGHT_WORKER_HANDLE=$opt_handle
   PLANWRIGHT_WORKER_SCOPE=$opt_scope

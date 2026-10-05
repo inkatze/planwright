@@ -163,7 +163,9 @@ id_session="$tmp/id-session.sh"
 cat >"$id_session" <<'EOF'
 #!/bin/sh
 for v in PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_WORKER_LAUNCH_TOKEN \
-  PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT PLANWRIGHT_FLEET_STATE_DIR CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION; do
+  PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT PLANWRIGHT_FLEET_STATE_DIR CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION \
+  PLANWRIGHT_TOWER_ID PLANWRIGHT_TOWER_SESSION_ID PLANWRIGHT_TOWER_PID PLANWRIGHT_TOWER_CHECKOUT \
+  PLANWRIGHT_REPO_ROOT PLANWRIGHT_ORCH_STATE_DIR; do
   printf '%s=%s\n' "$v" "$(printenv "$v" || echo '<unset>')"
 done
 printf 'args=%s\n' "$*"
@@ -172,12 +174,16 @@ chmod +x "$id_session"
 mkdir -p "$tmp/root" "$tmp/fleet"
 tok=0123456789abcdef0123456789abcdef
 id_out=$(PLANWRIGHT_ROOT=/decoy CLAUDE_PLUGIN_ROOT=/decoy PLANWRIGHT_FLEET_STATE_DIR=/decoy \
+  PLANWRIGHT_TOWER_ID=p9.t9.c9 PLANWRIGHT_TOWER_SESSION_ID=decoy PLANWRIGHT_TOWER_PID=1 \
+  PLANWRIGHT_TOWER_CHECKOUT=/decoy PLANWRIGHT_REPO_ROOT=/decoy PLANWRIGHT_ORCH_STATE_DIR=/decoy \
   PLANWRIGHT_WORKER_HANDLE=stale "$FDE" --identity tmux-demo-task-3 demo:3 --launch-token "$tok" \
   --root "$tmp/root" --fleet-home "$tmp/fleet" "$id_session" a b) \
   || fail "a launch with every option failed (exit $?)"
 for want in "PLANWRIGHT_WORKER_HANDLE=tmux-demo-task-3" "PLANWRIGHT_WORKER_SCOPE=demo:3" \
   "PLANWRIGHT_WORKER_LAUNCH_TOKEN=$tok" "PLANWRIGHT_ROOT=$tmp/root" "CLAUDE_PLUGIN_ROOT=$tmp/root" \
-  "PLANWRIGHT_FLEET_STATE_DIR=$tmp/fleet" "$VAR=false" "args=a b"; do
+  "PLANWRIGHT_FLEET_STATE_DIR=$tmp/fleet" "$VAR=false" "args=a b" \
+  "PLANWRIGHT_TOWER_ID=<unset>" "PLANWRIGHT_TOWER_SESSION_ID=<unset>" "PLANWRIGHT_TOWER_PID=<unset>" \
+  "PLANWRIGHT_TOWER_CHECKOUT=<unset>" "PLANWRIGHT_REPO_ROOT=<unset>" "PLANWRIGHT_ORCH_STATE_DIR=<unset>"; do
   printf '%s\n' "$id_out" | grep -qxF "$want" \
     || fail "the launch options must reach the launched process as '$want', got: $id_out"
 done
