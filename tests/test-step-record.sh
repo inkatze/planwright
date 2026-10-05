@@ -40,6 +40,17 @@ verdict() {
     fail "$2"
   fi
 }
+# verdict_of <status> <ok-message> <fail-message>: the same, judged on a status
+# passed in, for a fail message that runs a command substitution. Expanding the
+# substitution resets $? under bash before verdict could read it; $? as the
+# first word expands before the substitution runs.
+verdict_of() {
+  if [ "$1" -eq 0 ]; then
+    ok "$2"
+  else
+    fail "$3"
+  fi
+}
 
 [ -x "$SR" ] || {
   echo "FAIL: scripts/step-record.sh missing or not executable" >&2
@@ -672,7 +683,7 @@ r8=$(sr2 new-run)
 env PATH="$shim:$PATH" "$SR" --worktree "$w2" write --completion --run "$r8" --point pre-ci \
   --head "$HEAD_SHA" >/dev/null 2>"$tmp/err8"
 [ $? -eq 1 ] && grep -q "cannot write to the record cache" "$tmp/err8"
-verdict "a completion whose link fails exits 1" "failed link not reported: $(cat "$tmp/err8")"
+verdict_of $? "a completion whose link fails exits 1" "failed link not reported: $(cat "$tmp/err8")"
 [ -z "$(find "$w2/.claude/steps/$r8" -mindepth 1)" ] && [ ! -L "$w2/.claude/steps/.lock" ]
 verdict "a failed completion leaves no temp file and no lock" "leftovers after a failed completion"
 sr2 write --completion --run "$r8" --point pre-ci --head "$HEAD_SHA" >/dev/null
@@ -1293,7 +1304,7 @@ wh="$tmp/w#hash"
 fresh "$wh"
 rh=$("$SR" --worktree "$wh" new-run 2>"$tmp/errh") \
   && "$SR" --worktree "$wh" write --completion --run "$rh" --point pre-ci --head "$HEAD_SHA" >/dev/null 2>>"$tmp/errh"
-verdict "a worktree path carrying # still writes records" "$(cat "$tmp/errh")"
+verdict_of $? "a worktree path carrying # still writes records" "$(cat "$tmp/errh")"
 
 # A relative TMPDIR still writes: the scratch is resolved before the cache lock
 # moves the writer into the cache.
@@ -1305,8 +1316,9 @@ rr=$("$SR" --worktree "$wr" new-run)
   --target t --hosting isolated --backend runner --head "$HEAD_SHA" --start 2026-09-28T17:00:00Z \
   --end 2026-09-28T17:00:01Z --outcome passed >/dev/null 2>"$tmp/errrel")
 rc=$?
-[ "$rc" -eq 0 ] && [ -z "$(find "$wr/reltmp" -mindepth 1)" ]
-verdict "a relative TMPDIR writes its record and leaves no scratch behind" "rc=$rc: $(cat "$tmp/errrel")"
+st=1
+if [ "$rc" -eq 0 ] && [ -z "$(find "$wr/reltmp" -mindepth 1)" ]; then st=0; fi
+verdict_of "$st" "a relative TMPDIR writes its record and leaves no scratch behind" "rc=$rc: $(cat "$tmp/errrel")"
 
 # --- status: the flip-point evidence (custom-steps REQ-E1.5) -------------------------
 # A fresh worktree so earlier sections' runs cannot hold a completion for these
@@ -1370,15 +1382,15 @@ r=$(sr2 new-run)
 done_rec "$r" pre-ready-flip "$H_A"
 post_state pre-ready-flip "$H_A"
 [ "$ST_RC" -eq 0 ] && gh_arg state=success && gh_arg context=planwright/pre-ready-flip
-verdict "status derives success over an empty attempt" "rc=$ST_RC: $(cat "$tmp/st.err")"
+verdict_of $? "status derives success over an empty attempt" "rc=$ST_RC: $(cat "$tmp/st.err")"
 gh_arg "repos/acme/widgets/statuses/$H_A" && gh_arg POST
-verdict "the posting call names the base repository and the exact head" "gh args: $(tr '\n' ' ' <"$GH_STUB_LOG" 2>/dev/null)"
+verdict_of $? "the posting call names the base repository and the exact head" "gh args: $(tr '\n' ' ' <"$GH_STUB_LOG" 2>/dev/null)"
 printf '%s\n' "$ST_OUT" | grep -Fxq "posted${TAB}planwright/pre-ready-flip${TAB}success${TAB}$H_A"
 verdict "status prints the posted context, state, and head" "printed '$ST_OUT'"
 ! grep -Fq "$wt2" "$GH_STUB_LOG" && ! grep -q '^target_url=' "$GH_STUB_LOG"
 verdict "the status carries no local path and no target" "gh args carry a path or target"
 grep -Fxq "description=pre-ready-flip: no step halted or failed (run $r)" "$GH_STUB_LOG"
-verdict "the status carries the pinned description" "description: $(grep '^description=' "$GH_STUB_LOG")"
+verdict_of $? "the status carries the pinned description" "description: $(grep '^description=' "$GH_STUB_LOG")"
 
 # Passed, applied, and skipped records all derive success.
 r=$(sr2 new-run)
@@ -1401,7 +1413,7 @@ for o in halted failed; do
   post_state pre-ready-flip "$h"
   [ "$ST_RC" -eq 0 ] && gh_arg state=failure \
     && grep -Fxq "description=pre-ready-flip: a step halted or failed (run $r)" "$GH_STUB_LOG"
-  verdict "status derives failure over a $o record" "rc=$ST_RC: $(cat "$tmp/st.err")"
+  verdict_of $? "status derives failure over a $o record" "rc=$ST_RC: $(cat "$tmp/st.err")"
 done
 
 # A step that moved the head still belongs to the attempt the completion names.
@@ -1458,18 +1470,19 @@ r=$(sr2 new-run)
 step_rec "$r" pre-ready-flip passed 2222222222222222222222222222222222222222
 post_state pre-ready-flip 2222222222222222222222222222222222222222
 [ "$ST_RC" -eq 1 ] && [ ! -f "$GH_STUB_LOG" ] && grep -Fq 'no completion record' "$tmp/st.err"
-verdict "status refuses a head with no completion record, posting nothing" "rc=$ST_RC: $(cat "$tmp/st.err")"
+verdict_of $? "status refuses a head with no completion record, posting nothing" "rc=$ST_RC: $(cat "$tmp/st.err")"
 post_state pre-spec-ready-flip "$H_A"
 [ "$ST_RC" -eq 1 ] && [ ! -f "$GH_STUB_LOG" ]
 verdict "another flip point's completion does not stand in for this one's" "rc=$ST_RC"
 
-# A failed post fails the verb and names the permission the login needs.
+# A failed post fails the verb and names the permission the login needs, as
+# one possible cause: an outage or an unknown repository fails the same way.
 GH_STUB_FAIL=1
 post_state pre-ready-flip "$H_A"
 GH_STUB_FAIL=0
 [ "$ST_RC" -eq 1 ] && grep -Fq 'repo:status' "$tmp/st.err" && grep -Fq 'Commit statuses' "$tmp/st.err" \
-  && grep -Fq 'acme/widgets' "$tmp/st.err"
-verdict "a failed post exits 1 naming the permission and the repository" "rc=$ST_RC: $(cat "$tmp/st.err")"
+  && grep -Fq 'acme/widgets' "$tmp/st.err" && grep -Fq 'if the cause is a missing permission' "$tmp/st.err"
+verdict_of $? "a failed post exits 1 naming the permission as a possible cause and the repository" "rc=$ST_RC: $(cat "$tmp/st.err")"
 
 # Field validation: only the two flip points, a full head, an owner/name repo.
 for args in "--point convergence --head $H_A --repo acme/widgets" \
@@ -1502,7 +1515,7 @@ rm -f "$GH_STUB_LOG"
 sr2 status --point pre-ready-flip --head "$H_A" --repo "$o39/$n100" >/dev/null 2>"$tmp/st.err"
 rc=$?
 [ "$rc" -eq 0 ] && gh_arg "repos/$o39/$n100/statuses/$H_A"
-verdict "status accepts a 39-byte owner and a 100-byte name" "rc=$rc: $(cat "$tmp/st.err")"
+verdict_of $? "status accepts a 39-byte owner and a 100-byte name" "rc=$rc: $(cat "$tmp/st.err")"
 
 # --- the cache path is ignored ------------------------------------------------------
 git -C "$repo_root" check-ignore -q ".claude/steps/000001/x.rec"

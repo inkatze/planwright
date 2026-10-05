@@ -240,8 +240,8 @@ wl_check() {
   printf '{"__typename":"CheckRun","name":"window-lock","status":"COMPLETED","conclusion":"%s","checkSuite":{"workflowRun":%s}}' "${2:-FAILURE}" "$1"
 }
 #   sc_check <state> [context] — a legacy commit-status (StatusContext). It carries
-#   no workflow, so it can NEVER be the excluded lock (the exclusion is
-#   CheckRun-only). state → SUCCESS(green) | PENDING/EXPECTED(pending) | other(failing).
+#   no workflow, so it can NEVER be the excluded lock (that exclusion is
+#   CheckRun-only); it is excluded only as a flip-point status, by context name. state → SUCCESS(green) | PENDING/EXPECTED(pending) | other(failing).
 sc_check() {
   printf '{"__typename":"StatusContext","context":"%s","state":"%s"}' "${2:-legacy-ci}" "$1"
 }
@@ -373,6 +373,15 @@ assert_ci_state "flip-point: a near-namesake commit-status is judged (failing)" 
 # A CheckRun named like a flip-point context is judged: only commit statuses post them.
 assert_ci_state "flip-point: a check run named like a flip-point context is judged (failing)" \
   "$(rollup false "$(cr_check green)" '{"__typename":"CheckRun","name":"planwright/pre-ready-flip","status":"COMPLETED","conclusion":"FAILURE","checkSuite":{"workflowRun":null}}')" "failing"
+# The release gate and the unit ready gate exclude the same flip-point contexts:
+# ready-flip.sh holds its own copy of the list, so the two copies are pinned equal.
+RF_EXCLUDED=$(sed -n "s/^readonly EXCLUDED_CONTEXTS='\\(.*\\)'$/\\1/p" "$here/../scripts/ready-flip.sh")
+if [ -n "$RF_EXCLUDED" ] && [ "$RF_EXCLUDED" = "$RL_CI_FLIP_POINT_CONTEXTS" ]; then
+  echo "ok: ready-flip.sh and release-lib.sh exclude the same flip-point contexts"
+else
+  echo "FAIL: the flip-point context lists differ (ready-flip.sh '$RF_EXCLUDED', release-lib.sh '$RL_CI_FLIP_POINT_CONTEXTS')" >&2
+  failures=$((failures + 1))
+fi
 
 # REQ-C1.1 — a malformed / non-JSON rollup fails CLOSED: jq errors, so rl_ci_state
 # returns status 2 with empty stdout, NEVER an empty or garbage verdict at rc 0.

@@ -1065,7 +1065,7 @@ cmd_status() {
     -f "context=$context" -f "description=$description" >/dev/null 2>"$work/gh.err"; then
     why=$(head -n 1 "$work/gh.err")
     why=$(sanitize_printable "$why" 'no error text')
-    die 1 "cannot post the $context status on $head in $repo ($why); the login needs commit-status write access: repo:status on a classic token, or Commit statuses write on a fine-grained token or app"
+    die 1 "cannot post the $context status on $head in $repo ($why); if the cause is a missing permission, the login needs commit-status write access: repo:status on a classic token, or Commit statuses write on a fine-grained token or app"
   fi
   printf 'posted\t%s\t%s\t%s\n' "$context" "$state" "$head" || die 1 "cannot print the posted status"
 }
