@@ -1282,7 +1282,10 @@ fi
 REASON=""
 LOC=""
 # registry_lookup <plugin> <name>: D-19, the installed-plugin registry only.
+# RL_ABSENT is set when the registry was read and the skill has no file: the
+# namespace names no installed plugin, or no install path holds the skill.
 registry_lookup() {
+  RL_ABSENT=0
   reg="$claude_dir/plugins/installed_plugins.json"
   if [ -z "$claude_dir" ] || [ ! -r "$reg" ]; then
     REASON="the installed-plugin registry is absent or unreadable"
@@ -1305,6 +1308,7 @@ $keys
 EOF
   if [ "$nkeys" -eq 0 ]; then
     REASON="namespace '$1' matches no installed-plugin registry key"
+    RL_ABSENT=1
     return 1
   fi
   if [ "$nkeys" -gt 1 ]; then
@@ -1332,6 +1336,7 @@ EOF
 $paths
 EOF
   REASON="skill '$2' not found under plugin '$1' (skills/ and commands/ of its install path)"
+  RL_ABSENT=1
   return 1
 }
 
@@ -1357,7 +1362,9 @@ model_invocation_disabled() {
 # resolve_target <n>: sets LOC on success; REASON on failure (return 1).
 # REFUSE is set when a skill step cannot run from any worker: its target
 # resolves to no file, or to one whose frontmatter disables model invocation
-# (the Skill tool refuses such a skill). LOC then keeps the refused file.
+# (the Skill tool refuses such a skill). LOC then keeps the refused file. A
+# registry the host cannot read, cannot parse, or reads ambiguously says
+# nothing about the file, so it stays an ordinary non-resolving step.
 resolve_target() {
   rn="$1"
   LOC=""
@@ -1428,7 +1435,9 @@ resolve_target() {
         fi
       else
         registry_lookup "$SPLUGIN" "$SNAME" || {
-          REASON="skill target '$SPLUGIN:$SNAME' resolves to no file: $REASON (looked in ${claude_dir:-no Claude dir}/plugins/installed_plugins.json); install the skill or drop the step"
+          REFUSE=$RL_ABSENT
+          [ "$REFUSE" -eq 0 ] \
+            || REASON="skill target '$SPLUGIN:$SNAME' resolves to no file: $REASON (looked in $claude_dir/plugins/installed_plugins.json); install the skill or drop the step"
           return 1
         }
       fi

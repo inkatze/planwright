@@ -752,11 +752,13 @@ printf '%s\n' "$OUT" | grep -q "^run${TAB}s-pw${TAB}.*${TAB}skill${TAB}--nested$
 verdict "REQ-B1.6/REQ-C1.3: a skill's --nested argument is passed through unexamined" "skill args verbatim: $row"
 
 # Each one absent does not resolve (matrix path: unattended repo-tracked ->
-# park, exit 1); a skill step's own row is a refusal (an `s-` id here).
+# park, exit 1); a skill step whose file is definitely absent prints a
+# refusal (an `s-` id here, unless the third argument names the token).
 absent_case() {
   printf 'steps_post_pr: [%s]\n' "$1" >"$tracked_cfg"
   capture post-pr --unattended
   case $1 in s-*) want_tok=refuse ;; *) want_tok=park ;; esac
+  want_tok=${3:-$want_tok}
   [ "$RC" = 1 ] && [ "$OUT" = "$want_tok${TAB}$1" ] \
     || fail "REQ-C1.3: '$1' ($2) should not resolve: rc=$RC out='$OUT' err='$ERR'"
 }
@@ -818,21 +820,32 @@ ok "REQ-C1.3: each absent target is non-resolving under the matrix"
 
 cat_entry "$tracked_cat" s-dup "kind: skill" "target: dup:their-skill"
 cat_entry "$tracked_cat" s-none "kind: skill" "target: nosuch:their-skill"
-absent_case s-dup "a namespace matching two registry keys"
+absent_case s-dup "a namespace matching two registry keys" park
 printf '%s' "$ERR" | grep -q 'ambiguous' || fail "the ambiguous namespace should be named as such: $ERR"
 absent_case s-none "a namespace absent from the registry"
 printf 'not json' >"$registry"
-absent_case s-plug-skill "an unreadable registry"
+absent_case s-plug-skill "an unreadable registry" park
 write_registry
 OUT=$(run PLANWRIGHT_JQ="$tmp/no-jq" post-pr --unattended 2>"$tmp/err")
 RC=$?
-[ "$RC" = 1 ] && [ "$OUT" = "refuse${TAB}s-plug-skill" ] \
+[ "$RC" = 1 ] && [ "$OUT" = "park${TAB}s-plug-skill" ] \
   || fail "REQ-C1.3: a missing JSON reader should be non-resolving: rc=$RC out='$OUT'"
 printf 'steps_post_pr: [s-plug-skill]\n' >"$tracked_cfg"
 capture post-pr --unattended
 [ "$RC" = 0 ] && [ "$OUT" = "run${TAB}s-plug-skill" ] \
   || fail "REQ-C1.3: the registry lookup should resolve again once the registry is back"
 ok "REQ-C1.3/D-19: an ambiguous namespace, an absent one, an unreadable registry, and a missing JSON reader are non-resolving, never an error"
+# A host that cannot read the registry cannot tell whether the file exists, so
+# it is the matrix's ordinary non-resolution, never a refusal: a machine-local
+# list still skips it unattended and check mode passes it with a warning.
+rm -f "$registry"
+cat_entry "$mlocal_cat" s-hostless "kind: skill" "target: other:their-skill"
+printf 'steps_post_pr: [s-hostless]\n' >"$mlocal_cfg"
+capture post-pr --check --unattended
+[ "$RC" = 0 ] && [ "$OUT" = "skip${TAB}s-hostless" ]
+verdict "a registry the host cannot read skips a machine-local skill step, never refusing it" "registry-less skip: rc=$RC out='$OUT' err='$ERR'"
+rm -f "$mlocal_cat" "$mlocal_cfg"
+write_registry
 
 # An id naming no catalog entry takes the matrix path.
 printf 'steps_post_pr: [ghost]\n' >"$tracked_cfg"
