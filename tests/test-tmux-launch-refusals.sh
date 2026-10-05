@@ -27,6 +27,8 @@
 #       with no new-session call (REQ-F1.5)
 #   r11 a decoy pane sitting in the worktree does not change the death handle
 #       (REQ-G1.6)
+#   r12 a launch word ending in `;`, which tmux reads as a command separator,
+#       is refused before anything is placed
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-tmux-launch-refusals.sh
@@ -312,6 +314,18 @@ r11() {
   tmux kill-session -t =decoy-pane
 }
 
+# --- r12: a launch word ending in `;` -----------------------------------------
+# tmux would end the launch command at it, so the worker would lose its argv.
+r12() {
+  local before
+  new_case
+  before=$(calls_now)
+  tlh_run_bounded "$PRIM" dispatch demo 1 --repo-root "$P" -- --model 'opus;'
+  [ "$TLH_RC" -eq 2 ] || fail "r12: a launch word ending in ';' must be refused (exit 2), got $TLH_RC ($TLH_ERR)"
+  [ -z "$(tmux_calls_since "$before" | awk -F"$TAB" '$1 == "new-session"')" ] || fail "r12: new-session was called"
+  nothing_placed r12 1
+}
+
 r1
 r2
 r3
@@ -323,6 +337,7 @@ r8
 r9
 r10
 r11
+r12
 
 [ "$fails" -eq 0 ] || {
   echo "test-tmux-launch-refusals: $fails failure(s)" >&2
