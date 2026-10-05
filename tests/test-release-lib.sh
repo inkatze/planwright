@@ -382,6 +382,16 @@ else
   echo "FAIL: the flip-point context lists differ (ready-flip.sh '$RF_EXCLUDED', release-lib.sh '$RL_CI_FLIP_POINT_CONTEXTS')" >&2
   failures=$((failures + 1))
 fi
+# And both match the points the step-record status verb posts, as planwright/<point>.
+# shellcheck disable=SC2016 # the pattern matches a literal $point in the source
+SR_POSTED=$(sed -n 's/^ *case \$point in \(.*\)) ;; \*) bad --point "not a flip point".*/\1/p' "$here/../scripts/step-record.sh" \
+  | tr '|' '\n' | sed 's/^ *//; s/ *$//' | jq -R 'select(length > 0) | "planwright/" + .' | jq -cs .)
+if [ "$SR_POSTED" != "[]" ] && [ "$SR_POSTED" = "$RL_CI_FLIP_POINT_CONTEXTS" ]; then
+  echo "ok: the excluded flip-point contexts are exactly the ones the status verb posts"
+else
+  echo "FAIL: the status verb posts '$SR_POSTED', release-lib.sh excludes '$RL_CI_FLIP_POINT_CONTEXTS'" >&2
+  failures=$((failures + 1))
+fi
 
 # REQ-C1.1 — a malformed / non-JSON rollup fails CLOSED: jq errors, so rl_ci_state
 # returns status 2 with empty stdout, NEVER an empty or garbage verdict at rc 0.
