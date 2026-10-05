@@ -1693,9 +1693,9 @@ cycle) through
 authorizes it, the worker relaunches into the flight's own worktree and branch
 with its own brief (`fleet-dispatch-worktree.sh dispatch --flight <id>
 --relaunch`, the same guarded launch every dispatch passes, which creates
-nothing and registers the new worker), and at the disable threshold nothing relaunches and the disable is
-a decision-queue entry. Each relaunch and disable is audited. The guarantee is
-bounded or surfaced: a worker whose death cannot be proven (a print-rung
+nothing and registers the new worker), and at the disable threshold nothing
+relaunches and the disable is a decision-queue entry. Each relaunch and
+disable is audited. The guarantee is bounded or surfaced: a worker whose death cannot be proven (a print-rung
 flight, an unreachable tmux server, a relaunch whose window could not be
 matched) is never relaunched and reads `unknown` in the sweep's render.
 
