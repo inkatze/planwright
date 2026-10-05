@@ -86,17 +86,21 @@ fi
 # Functional half: the named command against fixtures. A flagged skill and a
 # missing one, both in an adopter list (whose unattended skip would otherwise
 # pass), fail the check with a refuse row; the shipped defaults pass it.
-command -v jq >/dev/null 2>&1 || {
-  echo "FAIL: jq is required by the resolver's registry lookup" >&2
-  exit 1
-}
 tmp="$(cd "$(mktemp -d)" && pwd -P)" || exit 1
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/adopter/catalogs" "$tmp/claude/skills/gated" "$tmp/home"
 printf -- '---\nname: gated\ndisable-model-invocation: true\n---\n' >"$tmp/claude/skills/gated/SKILL.md"
 read -ra words <<<"${cmd#scripts/resolve-steps.sh }"
+# The host's own planwright and step variables are cleared, as
+# tests/test-resolve-steps.sh clears them, so a worker shell's exports never
+# reach the fixture run.
 run_check() {
-  env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT -u PLANWRIGHT_STEP_POINT \
+  env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT -u PLANWRIGHT_JQ \
+    -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS -u PLANWRIGHT_REPO_ROOT_CHECKED \
+    -u PLANWRIGHT_STEP_SPEC -u PLANWRIGHT_STEP_TASK_IDS -u PLANWRIGHT_STEP_UNIT_KIND \
+    -u PLANWRIGHT_STEP_BRANCH -u PLANWRIGHT_STEP_BASE_BRANCH -u PLANWRIGHT_STEP_WORKTREE \
+    -u PLANWRIGHT_STEP_PR_NUMBER -u PLANWRIGHT_STEP_POINT -u PLANWRIGHT_STEP_ID \
+    -u PLANWRIGHT_STEP_PREV_RECORD \
     PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_CONFIG_DEFAULTS="$REPO_ROOT/config/defaults.yml" \
     PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter" PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="" CLAUDE_DIR="$tmp/claude" HOME="$tmp/home" \
