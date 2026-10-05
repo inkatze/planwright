@@ -18,7 +18,8 @@
 # It then writes one record, <state>/workers/<seq>, atomically (temp name,
 # then rename): tab-separated `pid`, `cwd` (physical), `argv` (one field per
 # word), `confirm` (`off`, or the hook's exit status and the launch token it
-# saw), and one `env` line per variable of its environment. Finally it keeps
+# saw), and one `env` line per line of its environment as `env` prints it (a
+# value holding a newline spans several). Finally it keeps
 # running like a worker, or exits with the status in
 # `<state>/knobs/worker-exit` when that holds a number. Its pid is recorded
 # under <state>/pids/ for the harness's reaper.
