@@ -1,0 +1,1 @@
+- 2026-10-05 [planwright] tests/test-flight-lifecycle.sh section 6 (a fleet sweep cycle counts a dead flight worker) failed once in about ten local runs and did not reproduce; suspect the dead-pid fixture racing pid reuse or a sweep pass timing out, worth a look if it recurs
