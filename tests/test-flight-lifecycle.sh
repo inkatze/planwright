@@ -39,11 +39,6 @@ unset CLAUDE_PLUGIN_DATA CLAUDE_PLUGIN_ROOT PLANWRIGHT_ROOT PLANWRIGHT_ADOPTER_O
   PLANWRIGHT_REPO_ROOT
 
 here=$(cd "$(dirname "$0")" && pwd)
-ROOT=$(cd "$here/.." && pwd -P)
-SCRIPT="$ROOT/scripts/flight-lifecycle.sh"
-STATE="$ROOT/scripts/fleet-state.sh"
-ATTN="$ROOT/scripts/fleet-attention.sh"
-TAB=$(printf '\t')
 
 fails=0
 fail() {
@@ -51,50 +46,35 @@ fail() {
   fails=$((fails + 1))
 }
 
+# The relaunch runs the tmux rung's real launch, so it runs on the launch
+# fixture harness: a stub tmux whose sessions run the stub worker, which
+# records the directory and argv it started with.
+# shellcheck source=tests/lib/tmux-launch-harness.sh
+. "$here/lib/tmux-launch-harness.sh"
+# shellcheck source=tests/lib/tmux-launch-cases.sh
+. "$here/lib/tmux-launch-cases.sh"
+
+SCRIPT="$ROOT/scripts/flight-lifecycle.sh"
+STATE="$ROOT/scripts/fleet-state.sh"
+ATTN="$ROOT/scripts/fleet-attention.sh"
+
 [ -x "$SCRIPT" ] || {
   echo "FAIL: scripts/flight-lifecycle.sh missing or not executable" >&2
   exit 1
 }
 
-tmp=$(mktemp -d)
-live_pid=''
-cleanup() {
-  [ -z "$live_pid" ] || kill "$live_pid" 2>/dev/null
-  rm -rf "$tmp"
-}
-trap cleanup EXIT
+tmp="$TLH_SANDBOX/lifecycle"
+mkdir -p "$tmp"
 tmp=$(cd "$tmp" && pwd -P)
+live_pid=''
+# The harness owns the one EXIT trap; this suite's own cleanup runs first.
+trap 'st=$?; [ -z "$live_pid" ] || kill "$live_pid" 2>/dev/null; tlh_teardown "$st"' EXIT
 
-gitc() {
-  _r=$1
-  shift
-  git -C "$_r" -c user.name=test -c user.email=test@example.invalid \
-    -c commit.gpgsign=false -c init.defaultBranch=main "$@"
-}
-
-# Stubs: a `claude` that logs its argv and cwd (the relaunch), a tmux that
-# cannot reach a server, and no `gh`, so the checkout reads as having no forge.
-mkdir -p "$tmp/bin"
-cat >"$tmp/bin/claude" <<'EOF'
-#!/bin/sh
-if [ -e "$CLAUDE_STUB_FAIL" ]; then
-  rm -f "$CLAUDE_STUB_FAIL"
-  echo "claude-stub: the launch was refused" >&2
-  exit 1
-fi
-{ printf 'cwd=%s\n' "$(pwd -P)"; printf 'argv=%s\n' "$*"; } >>"$CLAUDE_STUB_LOG"
-exit 0
-EOF
-cat >"$tmp/bin/tmux" <<'EOF'
-#!/bin/sh
-exit 1
-EOF
-chmod +x "$tmp/bin/claude" "$tmp/bin/tmux"
-export PATH="$tmp/bin:$PATH"
-export CLAUDE_STUB_LOG="$tmp/claude.log"
-export CLAUDE_STUB_FAIL="$tmp/claude.fail"
-: >"$CLAUDE_STUB_LOG"
 export CLAUDE_DIR="$tmp/claude"
+# A bin for the forge stub one case installs; empty otherwise, so the checkout
+# reads as having no forge.
+mkdir -p "$tmp/bin"
+export PATH="$tmp/bin:$PATH"
 
 repo="$tmp/primary"
 mkdir -p "$repo"
@@ -107,6 +87,12 @@ export PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet"
 
 row() { awk -F "$TAB" -v w="$1" '$1 == w' "$tmp/fleet/attention/state" 2>/dev/null; }
 field() { printf '%s\n' "$1" | cut -f"$2"; }
+
+# end_session <flight-id> — end the flight worker's stub session, as its death
+# does; the relaunch refuses a name a live session holds.
+end_session() {
+  "$TLH_BIN/tmux" kill-session -t "=$(expect_session "$repo" "flight-$1")" >/dev/null 2>&1 || :
+}
 
 # A flight's fleet-home directory, as dispatch leaves it.
 brief_dir() {
@@ -241,12 +227,15 @@ dead_pid() {
   printf '%s\n' "$_p"
 }
 die_as() {
+  end_session "$C"
   /bin/sh "$STATE" register "$HC" "flight:$C" --backend tmux --state-dir "$repo/.claude/worktrees/flight-$C" \
     --death-handle "process $(dead_pid "$1")" >/dev/null || fail "fixture: could not register a dead worker"
 }
 supervise() { (cd "$repo" && "$SCRIPT" supervise --repo-root "$repo" --now "$1" 2>"$tmp/err"); }
 line() { printf '%s\n' "$1" | awk -F "$TAB" -v id="$C" '$2 == id'; }
-launches() { grep -c '^argv=' "$CLAUDE_STUB_LOG" | tr -d ' '; }
+# launches — the relaunches so far: new-session calls, which the launch makes
+# before it returns, so the count needs no wait.
+launches() { calls_matching new-session | grep -c . | tr -d ' '; }
 
 t=1000000
 die_as 1
@@ -261,14 +250,18 @@ out=$(supervise "$((t + 10))")
 [ "$(cut -d' ' -f1 "$tmp/fleet/liveness/crash/$HC")" = 1 ] \
   || fail "one death is counted once however many sweeps observe it"
 
+first_death=$(/bin/sh "$STATE" registry 2>/dev/null | awk -F "$TAB" -v h="$HC" '$2 == h { d = $7 } END { print d }')
 regs() { /bin/sh "$STATE" registry 2>/dev/null | awk -F "$TAB" -v h="$HC" '$2 == h' | wc -l | tr -d ' '; }
 regs_before=$(regs)
 out=$(supervise "$((t + 31))")
 [ "$(field "$(line "$out")" 1)" = relaunched ] || fail "past the backoff the worker relaunches (got: $out; $(cat "$tmp/err"))"
 [ "$(launches)" = 1 ] || fail "the relaunch launched exactly one worker"
-grep -q "^argv=--worktree flight-$C --tmux=classic -- Read $tmp/fleet/flights/$C/brief.md and follow it exactly.\$" "$CLAUDE_STUB_LOG" \
-  || fail "the relaunch resumes the flight's own worktree with its own brief: $(cat "$CLAUDE_STUB_LOG")"
-grep -q "^cwd=$repo\$" "$CLAUDE_STUB_LOG" || fail "the relaunch runs from the flight's checkout"
+tlh_wait_workers 1 10 || fail "the relaunched worker did not start"
+rec=$(tlh_last_worker_record)
+tlh_assert_path_eq "the relaunch resumes the flight's own worktree" "$repo/.claude/worktrees/flight-$C" \
+  "$(tlh_record_field "$rec" cwd)"
+grep '^argv' "$rec" | grep -Fq "Read $tmp/fleet/flights/$C/brief.md and follow it exactly." \
+  || fail "the relaunch hands the worker the flight's own brief: $(grep '^argv' "$rec")"
 [ "$(regs)" -gt "$regs_before" ] \
   || fail "the relaunched worker is registered under the flight's handle"
 /bin/sh "$STATE" registry 2>/dev/null | awk -F "$TAB" -v h="$HC" '$2 == h' | tail -n 1 | grep -q "flight:$C" \
@@ -277,7 +270,8 @@ grep -q "^cwd=$repo\$" "$CLAUDE_STUB_LOG" || fail "the relaunch runs from the fl
 # The same death read again after its relaunch (a second sweep that raced the
 # first, or a registry the relaunch could not update) is neither counted nor
 # relaunched a second time.
-same=$(/bin/sh "$STATE" registry 2>/dev/null | awk -F "$TAB" -v h="$HC" '$2 == h && $7 != "" && $7 != "-" { d = $7 } END { print d }')
+same=$first_death
+end_session "$C"
 /bin/sh "$STATE" register "$HC" "flight:$C" --backend tmux --death-handle "$same" >/dev/null
 out=$(supervise "$((t + 35))")
 [ -n "$same" ] || fail "fixture: the first death's handle was not found in the registry"
@@ -358,13 +352,23 @@ HX="tmux-flight-$X"
 gitc "$repo" worktree add -q -b "planwright/flight/$X" "$repo/.claude/worktrees/flight-$X" HEAD
 brief_dir "$X"
 /bin/sh "$STATE" register "$HX" "flight:$X" --backend tmux --death-handle "process $(dead_pid 15)" >/dev/null
+# A tmux whose next new-session is refused, as a launch that cannot start is.
+mkdir -p "$tmp/refuse"
+{
+  printf '#!/bin/sh\n'
+  printf 'if [ "$1" = new-session ] && [ -e %s ]; then\n' "'$tmp/refuse.flag'"
+  printf '  rm -f %s\n' "'$tmp/refuse.flag'"
+  printf '  echo "stub: the launch was refused" >&2\n  exit 1\nfi\n'
+  printf 'exec %s "$@"\n' "'$TLH_BIN/tmux'"
+} >"$tmp/refuse/tmux"
+chmod +x "$tmp/refuse/tmux"
 lineof() { printf '%s\n' "$1" | awk -F "$TAB" -v id="$2" '$2 == id { print $1 }'; }
 supervise "$((t + 200000))" >/dev/null
-: >"$CLAUDE_STUB_FAIL"
-out=$(supervise "$((t + 200100))")
+: >"$tmp/refuse.flag"
+out=$(PATH="$tmp/refuse:$PATH" supervise "$((t + 200100))")
 [ "$(lineof "$out" "$X")" = failed ] || fail "a relaunch that does not start reads failed (got: $out)"
 case $(printf '%s\n' "$out" | awk -F "$TAB" -v id="$X" '$2 == id { print $3 }') in
-  *"(claude-stub: the launch was refused)"*) ;;
+  *"stub: the launch was refused"*) ;;
   *) fail "a relaunch that does not start names why (got: $out)" ;;
 esac
 before=$(launches)
@@ -400,7 +404,7 @@ vd="process $(dead_pid 19)"
 (umask 077 && mkdir "$tmp/fleet/flights/$V/counted.$(printf '%s' "$vd" | cksum | awk '{ print $1 "." $2 }')")
 out=$(supervise "$((t + 400000))")
 [ "$(lineof "$out" "$V")" = waiting ] || fail "a count another pass has not recorded yet holds the relaunch (got: $out)"
-grep -q "flight-$V" "$CLAUDE_STUB_LOG" && fail "no relaunch before the death is recorded"
+calls_matching new-session | grep -q "flight-$V" && fail "no relaunch before the death is recorded"
 
 "$SCRIPT" supervise --repo-root "$repo" --now 1234567890123456 >/dev/null 2>&1
 [ $? -eq 2 ] || fail "an epoch the crash policy cannot take is refused up front"

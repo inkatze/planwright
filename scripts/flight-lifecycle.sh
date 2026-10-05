@@ -36,8 +36,8 @@
 # crash-check decides: inside the backoff it waits, at the disable threshold
 # the disable is already a decision-queue entry and nothing relaunches, and
 # otherwise the worker relaunches into the flight's own worktree and branch
-# with its own brief (fleet-dispatch-worktree.sh attach), which registers the
-# new worker; that relaunch is claimed once per death too, so two sweeps
+# with its own brief (fleet-dispatch-worktree.sh dispatch --relaunch, the
+# guarded launch, creating nothing), which registers the new worker; that relaunch is claimed once per death too, so two sweeps
 # racing on one death start one worker. crash-check consults the operator
 # kill-switch and crash-record does not, but the fleet sweep skips its whole
 # cycle while the switch is set, so under the sweep a paused death is counted
@@ -271,11 +271,14 @@ crash_count() {
 }
 
 # relaunch <id> <handle> — start a fresh worker in the flight's own worktree
-# with its own brief, from the checkout that holds it. On failure RELAUNCH_WHY
-# holds attach's last diagnostic, one printable line, so the operator sees why.
+# with its own brief, through the dispatch primitive's relaunch arm, the one
+# guarded launch, which also registers the new worker. Startup is not waited
+# for: a sweep pass must not hold on one flight. On failure RELAUNCH_WHY holds
+# the primitive's last diagnostic, one printable line, so the operator sees why.
 relaunch() {
   RELAUNCH_WHY=''
-  _rl_err=$( (cd "$repo_root" && /bin/sh "$WORKTREE" attach "flight-$1" --brief "$FDIR/brief.md" </dev/null 2>&1 >/dev/null)) \
+  _rl_err=$( (cd "$repo_root" && /bin/sh "$WORKTREE" dispatch --flight "$1" --brief "$FDIR/brief.md" \
+    --relaunch --launch-only --repo-root "$repo_root" </dev/null 2>&1 >/dev/null)) \
     && return 0
   _rl_err=$(printf '%s\n' "$_rl_err" | awk 'NF { l = $0 } END { print l }')
   RELAUNCH_WHY=$(sanitize_printable "$_rl_err" | cut -c1-200)
