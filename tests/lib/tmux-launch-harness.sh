@@ -148,6 +148,11 @@ tlh_teardown() {
   local rc=${1:-$?} left
   set +e
   trap - EXIT
+  # bash runs the EXIT trap in a background child signalled before it
+  # reaches exec, which inherits it; only the suite's own process tears
+  # down. `exec sh` makes the reported parent this process on bash 3.2,
+  # which has no BASHPID.
+  [ "$(exec sh -c 'echo "$PPID"')" = "$_tlh_owner" ] || exit "$rc"
   [ "${TLH_REAP:-1}" = 1 ] && tlh_reap
   left=$(tlh_stub_pids_alive)
   if [ -n "$left" ]; then
@@ -163,6 +168,7 @@ _tlh_setup_fail() {
   exit 1
 }
 
+_tlh_owner=$(exec sh -c 'echo "$PPID"')
 trap tlh_teardown EXIT
 _tlh_base=$(mktemp -d "${TMPDIR:-/tmp}/tlh.XXXXXX") || _tlh_setup_fail "cannot create the sandbox"
 _tlh_base=$(cd "$_tlh_base" && pwd) || _tlh_setup_fail "cannot resolve the sandbox"
@@ -344,7 +350,8 @@ tlh_run_bounded() {
     # `wait` has already released; then the timer.
     kill -KILL "$dog" 2>/dev/null || true
     { wait "$dog"; } 2>/dev/null || true
-    kill "$timer" 2>/dev/null || true
+    # KILL, not TERM: a timer not yet at exec would run the EXIT trap.
+    kill -KILL "$timer" 2>/dev/null || true
   fi
   { wait "$timer"; } 2>/dev/null || true
   TLH_ELAPSED=$((SECONDS - start))

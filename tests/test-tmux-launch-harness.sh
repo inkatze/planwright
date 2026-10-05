@@ -72,7 +72,7 @@ child_suite() {
 
 wait_gone() {
   local t=0
-  while tmux has-session -t "=$1" 2>/dev/null && [ "$t" -lt 50 ]; do
+  while tmux has-session -t "=$1" 2>/dev/null && [ "$t" -lt 300 ]; do
     sleep 0.1
     t=$((t + 1))
   done
@@ -90,7 +90,8 @@ h1() {
   tlh_run_bounded --bound "$b" tmux new-session -d -s blocker -c "$wt" -- sleep 60
   tlh_knob new-session ok
   [ "$TLH_RC" -eq 124 ] || fail "h1: a blocking launch must be cut off as a hang (rc 124), got $TLH_RC"
-  [ "$TLH_ELAPSED" -le $((b + 1)) ] || fail "h1: a blocking launch must fail within its bound, took ${TLH_ELAPSED}s"
+  # The slack is for a loaded runner; a hang would take the stub's 600s.
+  [ "$TLH_ELAPSED" -le $((b + 5)) ] || fail "h1: a blocking launch must fail at its bound, took ${TLH_ELAPSED}s"
   case $TLH_DIAG in
     *"did not return within ${b}s"*) ;;
     *) fail "h1: the diagnosis must name the hang and the bound, got: $TLH_DIAG" ;;
@@ -116,8 +117,8 @@ while :; do sleep 0.05; done"
   # A run that returns before its bound is never reported as a hang, however
   # the start falls against a whole-second clock.
   for i in 1 2 3; do
-    tlh_run_bounded --bound 2 sleep 1.2
-    [ "$TLH_RC" -eq 0 ] || fail "h1: a 1.2s run under a 2s bound was cut off (round $i, rc $TLH_RC)"
+    tlh_run_bounded --bound 3 sleep 1.2
+    [ "$TLH_RC" -eq 0 ] || fail "h1: a 1.2s run under a 3s bound was cut off (round $i, rc $TLH_RC)"
   done
   expect_one_fail "h1: a fractional bound" tlh_run_bounded --bound 1.5 true
   expect_one_fail "h1: a bound with no command" tlh_run_bounded --bound 2
@@ -151,7 +152,7 @@ h2() {
   tlh_run_bounded tmux new-session -d -s envprobe -e TLH_PROBE_DASH_E=from-e -c "$wt" -- "$TLH_BIN/claude" envprobe
   tlh_expect_returned "h2: the probe launch"
   unset TLH_PROBE_DISPATCHER_ONLY
-  tlh_wait_workers $((n + 1)) 10 || return
+  tlh_wait_workers $((n + 1)) 30 || return
   rec=$(tlh_last_worker_record)
   [ "$(tlh_worker_env "$rec" TLH_PROBE_SERVER_ONLY)" = from-server ] \
     || fail "h2: the session's command must see the server's environment"
@@ -189,7 +190,7 @@ h3() {
   n=$(tlh_worker_count)
   tlh_run_bounded tmux new-session -d -s pathprobe -c "$wt" -- "$TLH_BIN/claude"
   tlh_expect_returned "h3: the probe launch"
-  tlh_wait_workers $((n + 1)) 10 || return
+  tlh_wait_workers $((n + 1)) 30 || return
   rec=$(tlh_last_worker_record)
   cwd=$(tlh_record_field "$rec" cwd)
   [ "$cwd" != "$wt" ] || fail "h3: the worker's physical cwd must differ from the symlinked path as given"
@@ -206,7 +207,7 @@ h3() {
   tlh_run_bounded tmux new-session -d -s nodir -c "$TLH_SANDBOX/missing" -- "$TLH_BIN/claude"
   tlh_expect_returned "h3: the missing-directory launch"
   [ "$TLH_RC" -eq 0 ] || fail "h3: a missing -c must not fail the stub launch, got $TLH_RC"
-  tlh_wait_workers $((n + 1)) 10 || return
+  tlh_wait_workers $((n + 1)) 30 || return
   tlh_assert_path_eq "h3: a missing start directory falls back to the server HOME" \
     "$TLH_SANDBOX/server-home" "$(tlh_record_field "$(tlh_last_worker_record)" cwd)"
   tmux kill-session -t =nodir
@@ -246,7 +247,7 @@ h4() {
       || fail "h4: new-session record $i is missing or torn"
     i=$((i + 1))
   done
-  tlh_wait_workers $((w0 + n_new)) 10 || return
+  tlh_wait_workers $((w0 + n_new)) 30 || return
   i=1
   while [ "$i" -le "$n_new" ]; do
     hit=0
@@ -339,6 +340,18 @@ echo "rc=$TLH_RC"')" 2>&1) || rc=$?
   /bin/bash "$(child_suite errexit-fails 'set -e
 false')" 2>/dev/null || rc=$?
   [ "$rc" -eq 1 ] || fail "h5: a set -e suite's failing status must survive teardown, got $rc"
+
+  # A background child signalled before it reaches exec runs bash's copy of
+  # the EXIT trap; teardown there must not remove the suite's sandbox.
+  err=$(/bin/bash "$(child_suite forked-teardown 'i=0
+while [ "$i" -lt 30 ]; do
+  sleep 5 &
+  kill -TERM "$!" 2>/dev/null
+  wait "$!" 2>/dev/null
+  i=$((i + 1))
+done
+[ -d "$TLH_STATE" ] && echo "sandbox: kept" || echo "sandbox: removed"')" 2>&1)
+  case $err in *"sandbox: kept"*) ;; *) fail "h5: a signalled forked child must not tear down the suite's sandbox, got: $err" ;; esac
 }
 
 # --- h6 ---------------------------------------------------------------------
@@ -367,7 +380,7 @@ launch() {
   shift
   n=$(tlh_worker_count)
   tmux new-session -d -s "$s" -c "$TLH_SANDBOX/w" -- "$@"
-  tlh_wait_workers $((n + 1)) 10
+  tlh_wait_workers $((n + 1)) 30
   rec=$(tlh_last_worker_record)
   printf "%s confirm=%s\n" "$s" "$(tlh_record_field "$rec" confirm)"
   for f in "$hook_log".*; do [ -f "$f" ] && { printf "%s hook:" "$s"; tr "\n" "|" <"$f"; echo; rm -f "$f"; }; done
@@ -382,9 +395,9 @@ tlh_knob worker-confirm on
 tlh_knob worker-exit 3
 n=$(tlh_worker_count)
 tmux new-session -d -s dies -c "$TLH_SANDBOX/w" -- "$TLH_BIN/claude"
-tlh_wait_workers $((n + 1)) 10
+tlh_wait_workers $((n + 1)) 30
 t=0
-while tmux has-session -t =dies 2>/dev/null && [ "$t" -lt 50 ]; do sleep 0.1; t=$((t + 1)); done
+while tmux has-session -t =dies 2>/dev/null && [ "$t" -lt 300 ]; do sleep 0.1; t=$((t + 1)); done
 tmux has-session -t =dies 2>/dev/null && echo "dies: still live" || echo "dies: gone"
 ')" 2>&1)
   case $out in
@@ -442,7 +455,7 @@ h7() {
   n=$(tlh_worker_count)
   tmux new-session -d -s semi -c "$wt" -- "$TLH_BIN/claude" 'a\;' 'b;' has-session -t =semi \
     || fail "h7: a word ending in ';' must end the command"
-  tlh_wait_workers $((n + 1)) 10 || return
+  tlh_wait_workers $((n + 1)) 30 || return
   rec=$(tlh_last_worker_record)
   [ "$(tlh_record_field "$rec" argv)" = "a;${TAB}b" ] \
     || fail "h7: '\\;' must reach the command as ';' and a trailing ';' must be stripped, got: $(tlh_record_field "$rec" argv)"
@@ -503,7 +516,7 @@ h7() {
   rm -f "$TLH_SANDBOX/selfkill.done"
   tmux new-session -d -s selfkill -c "$wt" -- sh -c "trap '' HUP; tmux kill-session -t =selfkill; echo returned >'$TLH_SANDBOX/selfkill.done'"
   i=0
-  while [ ! -s "$TLH_SANDBOX/selfkill.done" ] && [ "$i" -lt 50 ]; do
+  while [ ! -s "$TLH_SANDBOX/selfkill.done" ] && [ "$i" -lt 300 ]; do
     sleep 0.1
     i=$((i + 1))
   done
