@@ -326,8 +326,9 @@ tlh_stub_pids_alive >'$TLH_SANDBOX/child.pids'")
   done <"$TLH_SANDBOX/child.pids"
 
   # A worker stamped under the server's environment is still recognized by a
-  # suite whose timezone differs.
-  out=$(TZ=Pacific/Kiritimati /bin/bash "$(child_suite tz 'mkdir -p "$TLH_SANDBOX/w"
+  # suite whose timezone differs. A POSIX zone string needs no tzdata, so the
+  # offset applies on every host (an unknown zone name would fall back to UTC).
+  out=$(TZ=XXX-14 /bin/bash "$(child_suite tz 'mkdir -p "$TLH_SANDBOX/w"
 tlh_knob worker-confirm off
 tmux new-session -d -s tzw -c "$TLH_SANDBOX/w" -- "$TLH_BIN/claude"
 tlh_wait_workers 1 30
