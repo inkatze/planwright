@@ -1298,8 +1298,9 @@ chmod 500 "$c/fleet/attention"
 run retire --repo-root "$c/primary"
 chmod 700 "$c/fleet/attention"
 printf '%s\n' "$OUT" | grep -q "^retired${TAB}$fb$" || fail "retire must retire a prunable flight (out: $OUT)"
-[ "$RC" -ne 0 ] && printf '%s\n' "$ERR" | grep -q "could not clear the attention row" \
-  || fail "a lifecycle row retire could not clear must fail the retire, not pass silently (rc $RC: $ERR)"
+if [ "$RC" -eq 0 ] || ! printf '%s\n' "$ERR" | grep -q "could not clear the attention row"; then
+  fail "a lifecycle row retire could not clear must fail the retire, not pass silently (rc $RC: $ERR)"
+fi
 gitc "$c/primary" worktree prune
 dispatch_print
 fb=$(field "$OUT" flight)
