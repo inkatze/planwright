@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.53.0](https://github.com/inkatze/planwright/compare/v0.52.0...v0.53.0) (2026-10-05)
+
+
+### Features
+
+* **tower:** flight lifecycle pushes and the crash policy for flight workers ([#579](https://github.com/inkatze/planwright/issues/579)) ([36e1daa](https://github.com/inkatze/planwright/commit/36e1daa320032b93898c94a45568dc18a310ff0f))
+
 ## [0.52.0](https://github.com/inkatze/planwright/compare/v0.51.0...v0.52.0) (2026-10-05)
 
 
