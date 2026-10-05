@@ -1480,7 +1480,7 @@ for args in "--point convergence --head $H_A --repo acme/widgets" \
   "--point pre-ready-flip --head $H_A"; do
   rm -f "$GH_STUB_LOG"
   # shellcheck disable=SC2086 # split into flags by design
-  IFS=' ' sr2 status $args >/dev/null 2>&1
+  sr2 status $args >/dev/null 2>&1
   rc=$?
   [ "$rc" -eq 2 ] && [ ! -f "$GH_STUB_LOG" ]
   verdict "status refuses '$args' as a usage error" "rc=$rc for '$args'"
