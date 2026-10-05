@@ -199,7 +199,7 @@ cmd_push() {
       valid_landing "$landing" "$id" || die 2 "refusing a landing that is neither pr:<https PR URL> nor record:<path to _flights/<id>.md>"
       case $landing in
         pr:*) state=pr-ready ;;
-        *) state=done ;;
+        *) state="done" ;;
       esac
       /bin/sh "$ATTN" heartbeat "$handle" "$scope" "$state" --unless-awaiting </dev/null \
         || die 4 "the completion push did not reach the attention store"
