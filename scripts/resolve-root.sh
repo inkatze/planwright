@@ -260,11 +260,17 @@ no_primary() {
   exit 3
 }
 
+# sh_quote <text>: <text> as one single-quoted shell word, for a command
+# printed to be pasted.
+sh_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
 # bare_flagged <common>: core.bare=true in the shared config of a repository
 # that has a working tree. Reported, never repaired: a deliberately bare
 # repository named .git looks the same from here.
 bare_flagged() {
-  say "no repository root: core.bare is true in '$1' (the common git directory's config), so git treats a repository that has a working tree as bare; if nothing intended that, clear it with: git --git-dir='$1' config core.bare false"
+  say "no repository root: core.bare is true in '$1' (the common git directory's config), so git treats a repository that has a working tree as bare; if nothing intended that, clear it with: git --git-dir=$(sh_quote "$1") config core.bare false"
   exit 3
 }
 

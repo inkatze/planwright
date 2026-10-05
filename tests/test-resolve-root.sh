@@ -386,6 +386,24 @@ gitq --git-dir="$tmp/flipped/.git" config core.bare false
 run in_dir "$tmp/flipped-wt" base "$SH" "$RESOLVER" repo --primary
 assert_eq "bare-flipped: the printed repair restores the primary" "$tmp/flipped" "$out"
 
+# The repair is printed to be pasted, so a common git directory path carrying
+# a quote, a space, $ and ; must paste as one argument and run nothing else.
+hostile="$tmp/it's \$HOME;touch pwned;'"
+mkdir -p "$hostile" "$tmp/paste"
+gitq -C "$hostile" init -q
+gitq -C "$hostile" -c user.name=t -c user.email=t@example.invalid \
+  commit -q --allow-empty -m init
+gitq --git-dir="$hostile/.git" config core.bare true
+run in_dir "$hostile" base "$SH" "$RESOLVER" repo --primary
+assert_eq "bare-flipped: a hostile path exits 3" 3 "$rc"
+paste=${err##*clear it with: }
+run in_dir "$tmp/paste" base "$SH" -c "$paste"
+assert_eq "bare-flipped: the pasted repair for a hostile path succeeds" 0 "$rc"
+assert_eq "bare-flipped: the pasted repair for a hostile path runs nothing else" \
+  "" "$(ls -A "$tmp/paste")"
+assert_eq "bare-flipped: the pasted repair clears core.bare on that repository" false \
+  "$(base git --git-dir="$hostile/.git" config --bool core.bare)"
+
 # ---------------------------------------------------------------------------
 # repo kind: --explain
 # ---------------------------------------------------------------------------
