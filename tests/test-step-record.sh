@@ -661,23 +661,27 @@ sr2 write --run "$r" --point pre-ci --step edge-k --kind command --target t --ho
   --outcome passed --excerpt-file "$tmp/invalid.txt" >/dev/null
 verdict "an all-invalid excerpt still writes its record" "all-invalid excerpt refused"
 
-# A completion that fails before its record exists releases its claim.
+# A completion that fails before its record exists leaves nothing claimed.
 shim="$tmp/shim"
 mkdir -p "$shim"
-printf '#!/bin/sh\nexit 1\n' >"$shim/ln"
+# Only the record's hard link fails; the cache lock's symlink still goes through.
+# shellcheck disable=SC2016 # the shim's own $1 and $@, expanded when it runs
+printf '#!/bin/sh\n[ "$1" = -s ] && exec "%s" "$@"\nexit 1\n' "$(command -v ln)" >"$shim/ln"
 chmod +x "$shim/ln"
 r8=$(sr2 new-run)
 env PATH="$shim:$PATH" "$SR" --worktree "$w2" write --completion --run "$r8" --point pre-ci \
-  --head "$HEAD_SHA" >/dev/null 2>&1
-[ $? -eq 1 ]
-verdict "a completion whose link fails exits 1" "failed link not reported"
+  --head "$HEAD_SHA" >/dev/null 2>"$tmp/err8"
+[ $? -eq 1 ] && grep -q "cannot write to the record cache" "$tmp/err8"
+verdict "a completion whose link fails exits 1" "failed link not reported: $(cat "$tmp/err8")"
+[ -z "$(find "$w2/.claude/steps/$r8" -mindepth 1)" ] && [ ! -L "$w2/.claude/steps/.lock" ]
+verdict "a failed completion leaves no temp file and no lock" "leftovers after a failed completion"
 sr2 write --completion --run "$r8" --point pre-ci --head "$HEAD_SHA" >/dev/null
-verdict "a retried completion after a failed one succeeds" "the failed completion kept its claim"
+verdict "a retried completion after a failed one succeeds" "the failed completion left its point completed"
 
 # A missing secret screen withholds, never passes.
 lone="$tmp/lone"
 mkdir -p "$lone"
-cp "$SR" "$repo_root/scripts/echo-safety.sh" "$lone/"
+cp "$SR" "$repo_root/scripts/echo-safety.sh" "$repo_root/scripts/lock-lib.sh" "$lone/"
 w6="$tmp/w6"
 fresh "$w6"
 r6=$("$lone/step-record.sh" --worktree "$w6" new-run)
@@ -738,11 +742,11 @@ has 'Reject with: a later commit carrying `Planwright-Sign-Off-Rejected: PS-12`'
 verdict "a merge commit's entry names the rejection trailer" "merge recipe missing"
 
 # --- third-round edges ---------------------------------------------------------------
-# A step refused after claiming its sequence number releases the claim; a
-# completion with no warning runs no screen.
+# A step refused because its point completed while it was screening leaves
+# nothing behind; a completion with no warning runs no screen.
 slow="$tmp/slow"
 mkdir -p "$slow"
-cp "$SR" "$repo_root/scripts/echo-safety.sh" "$slow/"
+cp "$SR" "$repo_root/scripts/echo-safety.sh" "$repo_root/scripts/lock-lib.sh" "$slow/"
 cat >"$slow/inception-secret-screen.sh" <<'STUB'
 #!/bin/sh
 if grep -q slowstep "$2"; then
@@ -758,23 +762,27 @@ fresh "$w9"
 r9=$("$slow/step-record.sh" --worktree "$w9" new-run)
 "$slow/step-record.sh" --worktree "$w9" write --run "$r9" --point pre-ci --step s --kind command \
   --target slowstep --hosting isolated --backend runner --head "$HEAD_SHA" \
-  --start 2026-09-28T15:00:00Z --end 2026-09-28T15:00:01Z --outcome passed >/dev/null 2>&1 &
+  --start 2026-09-28T15:00:00Z --end 2026-09-28T15:00:01Z --outcome passed >/dev/null 2>"$tmp/err9" &
+slowpid=$!
 i=0
 while [ ! -e "$slow/slow-started" ] && [ "$i" -lt 60 ]; do
   sleep 1
   i=$((i + 1))
 done
+[ -e "$slow/slow-started" ]
+verdict "the slow step reached its screen before the completion" "the slow step never screened"
 "$slow/step-record.sh" --worktree "$w9" write --completion --run "$r9" --point pre-ci \
   --head "$HEAD_SHA" >/dev/null
 [ ! -s "$slow/calls" ]
 verdict "a completion with no warning runs no screen" "the screen ran for a warning-free completion"
-wait
-nseq=$(find "$w9/.claude/steps/$r9" -name '.seq-*' | wc -l | tr -d ' ')
-nrec=$(find "$w9/.claude/steps/$r9" -name '[0-9]*.rec' | wc -l | tr -d ' ')
-[ "$nseq" -eq "$nrec" ]
-verdict "a step refused after its claim releases it" "$nseq claims for $nrec records"
+wait "$slowpid"
+rc=$?
+left=$(find "$w9/.claude/steps/$r9" -mindepth 1 -exec basename {} \; | sort | tr '\n' ' ')
+[ "$rc" -eq 2 ] && grep -q "already completed" "$tmp/err9" && [ "$left" = "001-done-pre-ci.rec " ] \
+  && [ ! -L "$w9/.claude/steps/.lock" ]
+verdict "a step refused after its point completed leaves nothing behind" "rc=$rc, run holds: $left"
 
-# A done marker that cannot be made is a runtime failure, not a completed point.
+# A completion that cannot be written is a runtime failure, not a completed point.
 r10=$(sr2 new-run)
 chmod 500 "$w2/.claude/steps/$r10"
 sr2 write --completion --run "$r10" --point pre-ci --head "$HEAD_SHA" >/dev/null 2>"$tmp/err10"
@@ -1172,6 +1180,133 @@ sr new-run >/dev/null
 verdict "render defaults to the latest run, even an empty one" "render showed an older run"
 ! sr regenerate --base "$BASE" --head "$HEAD2" | grep -q '^## Steps at'
 verdict "regenerate defaults to the latest run, even an empty one" "regenerate showed an older run"
+
+# --- a mkdir that tells every racer it won ---------------------------------------------
+# Some coreutils reimplementations report success to several concurrent
+# creators of one directory. The shim makes that the rule rather than the race,
+# so a writer that still takes its claims by mkdir status shows it every run.
+multi="$tmp/multi-mkdir"
+mkdir -p "$multi"
+real_mkdir=$(command -v mkdir)
+printf '#!/bin/sh\n"%s" -p "$@" 2>/dev/null\nexit 0\n' "$real_mkdir" >"$multi/mkdir"
+chmod +x "$multi/mkdir"
+wm="$tmp/wm"
+fresh "$wm"
+srm() { env PATH="$multi:$PATH" "$SR" --worktree "$wm" "$@"; }
+i=1
+while [ "$i" -le 4 ]; do
+  srm new-run >>"$tmp/multi-runs" 2>/dev/null &
+  i=$((i + 1))
+done
+wait
+nruns=$(grep -c . "$tmp/multi-runs")
+druns=$(sort "$tmp/multi-runs" | uniq -d | grep -c .)
+[ "$nruns" -eq 4 ] && [ "$druns" -eq 0 ]
+verdict "concurrent new-runs issue distinct ids under a multi-winner mkdir" \
+  "$nruns ids issued, $druns duplicated"
+rm6=$(srm new-run)
+i=1
+while [ "$i" -le 8 ]; do
+  srm write --run "$rm6" --point pre-implementation --step "m$i" --kind command --target t \
+    --hosting isolated --backend runner --head "$HEAD_SHA" \
+    --start 2026-09-28T16:00:00Z --end 2026-09-28T16:00:01Z --outcome passed >/dev/null 2>&1 &
+  i=$((i + 1))
+done
+wait
+dups=$(srm list --run "$rm6" | sed -n "s/^seq${TAB}//p" | sort | uniq -d | wc -l | tr -d ' ')
+count=$(srm list --run "$rm6" | grep -c "^seq${TAB}")
+[ "$dups" -eq 0 ] && [ "$count" -eq 8 ]
+verdict "concurrent writers keep unique sequence numbers under a multi-winner mkdir" \
+  "$count records, $dups duplicate seqs"
+rm7=$(srm new-run)
+i=1
+while [ "$i" -le 4 ]; do
+  {
+    srm write --completion --run "$rm7" --point pre-ci --head "$HEAD_SHA" >/dev/null 2>&1
+    echo $? >>"$tmp/rc7"
+  } &
+  i=$((i + 1))
+done
+wait
+ndone=$(find "$wm/.claude/steps/$rm7" -name '[0-9]*-done-pre-ci.rec' | wc -l | tr -d ' ')
+rcs=$(sort "$tmp/rc7" | tr '\n' ' ')
+[ "$ndone" -eq 1 ] && [ "$rcs" = "0 2 2 2 " ] && [ ! -L "$wm/.claude/steps/.lock" ] \
+  && [ -z "$(find "$wm/.claude/steps" -name '.rec-*')" ]
+verdict "one completion wins under a multi-winner mkdir" "$ndone completion records, exits $rcs"
+
+# --- caches holding directory-shaped markers ------------------------------------------
+# A .seq- directory counts as a used sequence number and a .done- directory as a
+# completed point, with or without the record they were claimed for.
+wl="$tmp/wl"
+fresh "$wl"
+rl="$wl/.claude/steps/000007"
+mkdir -p "$rl/.seq-001" "$rl/.seq-002" "$rl/.seq-003" "$rl/.done-pre-ci"
+printf 'type\tstep\nrun\t000007\nseq\t001\npoint\tpre-ci\nstep\told\nkind\tcommand\ntarget\tt\nhosting\tisolated\nbackend\trunner\nsession\t\nhead\t%s\nstart\t2026-09-28T09:00:00Z\nend\t2026-09-28T09:00:01Z\noutcome\tpassed\noutput\t\nskip-reason\t\n' \
+  "$HEAD_SHA" >"$rl/001-step-pre-ci.rec"
+"$SR" --worktree "$wl" render --run 000007 | grep -q '^| 1 | old |'
+verdict "a pre-existing run's records still render" "legacy run did not render"
+"$SR" --worktree "$wl" write --run 000007 --point pre-ci --step late --kind command --target t \
+  --hosting isolated --backend runner --head "$HEAD_SHA" --start 2026-09-28T09:00:02Z \
+  --end 2026-09-28T09:00:03Z --outcome passed >/dev/null 2>"$tmp/errl"
+[ $? -eq 2 ] && grep -q "already completed" "$tmp/errl"
+verdict "a directory-shaped completion marker still closes its point" "a step landed after a legacy completion"
+recl=$("$SR" --worktree "$wl" write --run 000007 --point pre-pr --step next --kind command --target t \
+  --hosting isolated --backend runner --head "$HEAD_SHA" --start 2026-09-28T09:00:04Z \
+  --end 2026-09-28T09:00:05Z --outcome passed)
+[ "${recl##*/}" = "004-step-pre-pr.rec" ]
+verdict "a new record numbers past directory-shaped sequence markers" "new record at '${recl##*/}'"
+mkdir -p "$wl/.claude/steps/000008/.done-post-pr"
+"$SR" --worktree "$wl" write --completion --run 000008 --point post-pr --head "$HEAD_SHA" >/dev/null 2>"$tmp/errl"
+[ $? -eq 2 ] && grep -q "already completed" "$tmp/errl"
+verdict "a completion marker with no record still claims its point" "a second completion landed"
+[ "$("$SR" --worktree "$wl" new-run)" = 000009 ]
+verdict "new-run numbers past a pre-existing cache" "new-run reused or skipped an id"
+# No writer ever left a .done- marker that is not a directory, so a stray file
+# completes nothing.
+: >"$wl/.claude/steps/000009/.done-pre-ci"
+"$SR" --worktree "$wl" write --run 000009 --point pre-ci --step stray --kind command --target t \
+  --hosting isolated --backend runner --head "$HEAD_SHA" --start 2026-09-28T09:00:06Z \
+  --end 2026-09-28T09:00:07Z --outcome passed >/dev/null 2>"$tmp/errl"
+verdict "a stray .done- file does not close its point" "a step was refused after a stray .done- file"
+
+# A sequence counter used up by records alone is exhausted too.
+mkdir -p "$wl/.claude/steps/000010"
+cp "$rl/001-step-pre-ci.rec" "$wl/.claude/steps/000010/999-step-pre-ci.rec"
+"$SR" --worktree "$wl" write --completion --run 000010 --point pre-pr --head "$HEAD_SHA" >/dev/null 2>"$tmp/errl"
+[ $? -eq 1 ] && grep -q "exhausted" "$tmp/errl"
+verdict "an exhausted record counter counts records as well as markers" "record written past seq 999"
+
+# --- the cache lock ---------------------------------------------------------------------
+# A lock left by a writer that died is broken, not waited out.
+wk="$tmp/wk"
+fresh "$wk"
+mkdir -p "$wk/.claude/steps"
+sh -c 'exit 0' &
+deadpid=$!
+wait "$deadpid"
+ln -s "$deadpid-1700000000-1" "$wk/.claude/steps/.lock"
+rk=$("$SR" --worktree "$wk" new-run 2>/dev/null)
+[ "$rk" = 000001 ] && [ ! -L "$wk/.claude/steps/.lock" ]
+verdict "a dead writer's cache lock is broken" "new-run printed '$rk' past a dead writer's lock"
+# The lock lives inside the cache so a worktree path carrying `#` still writes.
+wh="$tmp/w#hash"
+fresh "$wh"
+rh=$("$SR" --worktree "$wh" new-run 2>"$tmp/errh") \
+  && "$SR" --worktree "$wh" write --completion --run "$rh" --point pre-ci --head "$HEAD_SHA" >/dev/null 2>>"$tmp/errh"
+verdict "a worktree path carrying # still writes records" "$(cat "$tmp/errh")"
+
+# A relative TMPDIR still writes: the scratch is resolved before the cache lock
+# moves the writer into the cache.
+wr="$tmp/wr"
+fresh "$wr"
+mkdir -p "$wr/reltmp"
+rr=$("$SR" --worktree "$wr" new-run)
+(cd "$wr" && TMPDIR=reltmp "$SR" write --run "$rr" --point pre-ci --step rel --kind command \
+  --target t --hosting isolated --backend runner --head "$HEAD_SHA" --start 2026-09-28T17:00:00Z \
+  --end 2026-09-28T17:00:01Z --outcome passed >/dev/null 2>"$tmp/errrel")
+rc=$?
+[ "$rc" -eq 0 ] && [ -z "$(find "$wr/reltmp" -mindepth 1)" ]
+verdict "a relative TMPDIR writes its record and leaves no scratch behind" "rc=$rc: $(cat "$tmp/errrel")"
 
 # --- status: the flip-point evidence (custom-steps REQ-E1.5) -------------------------
 # A fresh worktree so earlier sections' runs cannot hold a completion for these

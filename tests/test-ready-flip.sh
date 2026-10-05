@@ -56,15 +56,23 @@ case "$1 $2" in
         [ ! -f "$GHS/rollup_n" ] || n=$(cat "$GHS/rollup_n")
         n=$((n + 1))
         echo "$n" >"$GHS/rollup_n"
-        if [ -f "$GHS/rollup_fail_until" ] && [ "$n" -le "$(cat "$GHS/rollup_fail_until")" ]; then
+        if { [ -f "$GHS/rollup_fail_until" ] && [ "$n" -le "$(cat "$GHS/rollup_fail_until")" ]; } \
+          || { [ -f "$GHS/rollup_fail_at" ] && [ "$n" = "$(cat "$GHS/rollup_fail_at")" ]; }; then
           echo 'HTTP 502: Bad Gateway' >&2
           exit 1
+        fi
+        if [ -f "$GHS/rollup_garbage_at" ] && [ "$n" = "$(cat "$GHS/rollup_garbage_at")" ]; then
+          echo 'not json'
+          exit 0
         fi
         [ ! -f "$GHS/head_override" ] || head=$(cat "$GHS/head_override")
         # head_lag_until reports a stale head for the first n reads.
         [ ! -f "$GHS/head_lag_until" ] || [ "$n" -gt "$(cat "$GHS/head_lag_until")" ] \
           || head=0123456789012345678901234567890123456789
-        case $(cat "$GHS/ci") in
+        ci=$(cat "$GHS/ci")
+        # ci_green_from turns the rollup green from the nth read on.
+        [ ! -f "$GHS/ci_green_from" ] || [ "$n" -lt "$(cat "$GHS/ci_green_from")" ] || ci=green
+        case $ci in
           green) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"StatusContext","context":"lint","state":"SUCCESS"}]' ;;
           failing) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
           pending) roll='[{"__typename":"CheckRun","name":"test","status":"IN_PROGRESS","conclusion":""}]' ;;
@@ -214,15 +222,20 @@ set_policy() { # <value>
   printf 'ready_flip_policy: %s\nready_flip_ci_wait: 30s\n' "$1" >"$F/wt/.claude/planwright.local.yml"
 }
 
-# run_helper <args...> — the helper from the unit clone, stub first on PATH.
-run_helper() {
+# run_polled <poll seconds> <max polls> <args...> — the helper from the unit
+# clone, stub first on PATH. The helper reads <max polls> only at a poll of 0;
+# pass an empty one otherwise.
+run_polled() {
+  local poll=$1 max=$2
+  shift 2
   OUT=$(cd "$F/wt" && env PATH="$STUBBIN:$PATH" GHS="$GHS" GHS_ORIGIN="$F/origin.git" \
     GHS_BRANCH="$BRANCH" PLANWRIGHT_REPO_ROOT="$F/wt" PLANWRIGHT_LOCAL_CONFIG= \
-    PLANWRIGHT_ADOPTER_OVERLAY="$SANDBOX/noadopter" PLANWRIGHT_READY_FLIP_POLL_SECONDS=0 \
-    PLANWRIGHT_READY_FLIP_MAX_POLLS=3 PLANWRIGHT_READY_GUARD_RETRY_DELAY=0 \
+    PLANWRIGHT_ADOPTER_OVERLAY="$SANDBOX/noadopter" PLANWRIGHT_READY_FLIP_POLL_SECONDS="$poll" \
+    PLANWRIGHT_READY_FLIP_MAX_POLLS="$max" PLANWRIGHT_READY_GUARD_RETRY_DELAY=0 \
     /bin/bash "$HELPER" "$@" 2>&1)
   CODE=$?
 }
+run_helper() { run_polled 0 3 "$@"; }
 
 calls() { grep -c "^CALL $1" "$GHS/log" 2>/dev/null || true; }
 rollups() { grep -c 'statusCheckRollup' "$GHS/log" 2>/dev/null || true; }
@@ -360,21 +373,27 @@ check "the composition leaves one bullet for the task" [ "$(origin_tasks | grep 
 
 echo "# a segment copied from the base stops blocking once the base clears it"
 # clear_base — a person clears every Awaiting-input bullet on main.
-clear_base() {
-  git clone -q "$F/origin.git" "$F/main2" 2>/dev/null
-  git -C "$F/main2" config user.name 'Fixture'
-  git -C "$F/main2" config user.email 'fixture@example.invalid'
-  git -C "$F/main2" config commit.gpgsign false
-  git -C "$F/main2" config core.hooksPath "$SANDBOX/nohooks"
-  local wt_saved=$F
+# base_commit <message> [<awaiting-input lines>...] — commit tasks.md with
+# those lines on the base and push it.
+base_commit() {
+  local msg=$1 wt_saved=$F
+  shift
+  [ -d "$F/main2" ] || {
+    git clone -q "$F/origin.git" "$F/main2" 2>/dev/null
+    git -C "$F/main2" config user.name 'Fixture'
+    git -C "$F/main2" config user.email 'fixture@example.invalid'
+    git -C "$F/main2" config commit.gpgsign false
+    git -C "$F/main2" config core.hooksPath "$SANDBOX/nohooks"
+    mkdir -p "$F/main2-shim"
+    ln -s "$F/main2" "$F/main2-shim/wt"
+  }
   F="$F/main2-shim"
-  mkdir -p "$F"
-  ln -s "$wt_saved/main2" "$F/wt"
-  write_tasks
+  write_tasks "$@"
   F=$wt_saved
-  git -C "$F/main2" commit -q -am 'chore: the question is answered'
+  git -C "$F/main2" commit -q -am "$msg"
   git -C "$F/main2" push -q origin main 2>/dev/null
 }
+clear_base() { base_commit 'chore: the question is answered'; }
 fixture '- **Task 1** — halt: blocked on a design question'
 set_policy unit-owner
 run_helper flip --spec specs/demo --task 1
@@ -395,6 +414,38 @@ run_helper flip --spec specs/demo --task 1
 check "a segment the unit wrote itself still blocks (exit 4)" [ "$CODE" = 4 ]
 check "the unit's own segment survives" grep -q 'halt: a question the unit raised' <<<"$(bullet)"
 check "the cleared base segment is dropped beside it" not grep -q 'blocked on a design question' <<<"$(bullet)"
+fixture '- **Task 2** — halt: blocked on a design question'
+set_policy unit-owner
+write_tasks '- **Task 1** — halt: blocked on a design question'
+gitf commit -q -am 'chore: the unit asks the same question'
+gitf push -q origin "$BRANCH" 2>/dev/null
+record_review
+clear_base
+run_helper flip --spec specs/demo --task 1
+check "a unit segment whose text the base once carried for another task still blocks (exit 4)" [ "$CODE" = 4 ]
+check "that segment survives" grep -q '^- \*\*Task 1\*\* — halt: blocked on a design question' <<<"$(bullet)"
+
+echo "# a copied segment holding a backslash is matched literally"
+fixture '- **Task 1** — halt: wait on C:\new\dir'
+set_policy unit-owner
+run_helper flip --spec specs/demo --task 1
+check "a backslash segment still on the base blocks (exit 4)" [ "$CODE" = 4 ]
+check "a backslash segment still on the base is kept" grep -qF 'halt: wait on C:\new\dir' <<<"$(bullet)"
+clear_base
+run_helper flip --spec specs/demo --task 1
+check "once the base clears a backslash segment, it no longer blocks (exit 0)" [ "$CODE" = 0 ]
+
+echo "# a segment the base moved between tasks is found through the move"
+fixture '- **Task 2** — halt: blocked on a design question'
+set_policy unit-owner
+base_commit 'chore: the question belongs to Task 1' '- **Task 1** — halt: blocked on a design question'
+write_tasks '- **Task 1** — halt: blocked on a design question'
+gitf commit -q -am 'chore: copy the base park'
+gitf push -q origin "$BRANCH" 2>/dev/null
+record_review
+clear_base
+run_helper flip --spec specs/demo --task 1
+check "a copied segment the base carried for this task only after a move is dropped (exit 0)" [ "$CODE" = 0 ]
 
 echo "# another task's bullet does not block this unit"
 fixture '- **Task 2** — halt: unrelated'
@@ -565,13 +616,19 @@ fixture
 set_policy unit-owner
 echo failing >"$GHS/ci"
 chmod 444 "$F/wt/$TASKS"
-before=$(gitf rev-parse HEAD)
-run_helper flip --spec specs/demo --task 1
-chmod 644 "$F/wt/$TASKS"
-check "an unwritable tasks.md exits 5" [ "$CODE" = 5 ]
-check "an unwritable tasks.md makes no commit" [ "$(gitf rev-parse HEAD)" = "$before" ]
-check "an unwritable tasks.md is named" grep -q 'could not be written' <<<"$OUT"
-check "an unwritable tasks.md keeps its content" grep -q '### Task 1' "$F/wt/$TASKS"
+if [ -w "$F/wt/$TASKS" ]; then
+  # Root, or any process with DAC override, still writes a mode-444 file.
+  chmod 644 "$F/wt/$TASKS"
+  echo "skip: this user can write a mode-444 file, so an unwritable tasks.md cannot be staged"
+else
+  before=$(gitf rev-parse HEAD)
+  run_helper flip --spec specs/demo --task 1
+  chmod 644 "$F/wt/$TASKS"
+  check "an unwritable tasks.md exits 5" [ "$CODE" = 5 ]
+  check "an unwritable tasks.md makes no commit" [ "$(gitf rev-parse HEAD)" = "$before" ]
+  check "an unwritable tasks.md is named" grep -q 'could not be written' <<<"$OUT"
+  check "an unwritable tasks.md keeps its content" grep -q '### Task 1' "$F/wt/$TASKS"
+fi
 
 echo "# argument and branch refusals"
 fixture
@@ -770,6 +827,62 @@ OUT=$(cd "$F/wt" && env PATH="$STUBBIN:$PATH" GHS="$GHS" GHS_ORIGIN="$F/origin.g
   PLANWRIGHT_READY_GUARD_RETRY_DELAY=0 /bin/bash "$HELPER" flip --spec specs/demo --task 1 2>&1)
 check "head re-reads inside an attempt do not stretch the wait past its bound" [ "$(rollups)" = 1 ]
 
+echo "# the CI wait reads the rollup at its deadline too"
+fixture
+mkdir -p "$F/wt/.claude"
+printf 'ready_flip_policy: unit-owner\nready_flip_ci_wait: 6s\n' >"$F/wt/.claude/planwright.local.yml"
+echo pending >"$GHS/ci"
+echo 3 >"$GHS/ci_green_from"
+run_polled 3 '' flip --spec specs/demo --task 1
+check "checks going green by the deadline flip (exit 0)" [ "$CODE" = 0 ]
+check "a 6s wait polled every 3s reads at 0s, 3s and 6s" [ "$(rollups)" = 3 ]
+
+echo "# a wait that is not a multiple of the poll interval still reads at its deadline"
+fixture
+mkdir -p "$F/wt/.claude"
+printf 'ready_flip_policy: unit-owner\nready_flip_ci_wait: 5s\n' >"$F/wt/.claude/planwright.local.yml"
+echo pending >"$GHS/ci"
+echo 3 >"$GHS/ci_green_from"
+run_polled 3 '' flip --spec specs/demo --task 1
+check "checks going green between the last interval and the deadline flip (exit 0)" [ "$CODE" = 0 ]
+
+echo "# a poll interval with leading zeros is decimal"
+fixture
+set_policy unit-owner
+echo pending >"$GHS/ci"
+echo 2 >"$GHS/ci_green_from"
+run_polled 00 2 flip --spec specs/demo --task 1
+check "a poll interval of 00 behaves as 0 (exit 0)" [ "$CODE" = 0 ]
+check "a poll interval of 00 makes the max-polls reads" [ "$(rollups)" = 2 ]
+check "a poll interval of 00 raises no arithmetic error" not grep -qi 'division\|syntax error\|value too great' <<<"$OUT"
+fixture
+set_policy unit-owner
+run_polled 08 '' flip --spec specs/demo --task 1
+check "a poll interval of 08 is decimal, not an octal error" not grep -qi 'value too great\|syntax error' <<<"$OUT"
+check "a poll interval of 08 flips on green checks (exit 0)" [ "$CODE" = 0 ]
+
+echo "# an unreadable re-read is not a moved head"
+fixture
+set_policy unit-owner
+echo 1 >"$GHS/head_lag_until"
+echo 2 >"$GHS/rollup_fail_at"
+run_polled 0 1 evaluate --spec specs/demo --task 1
+check "an empty re-read fails ci-rollup as unreadable" grep -q 'ci-rollup	fail	the check rollup could not be read' <<<"$OUT"
+check "an empty re-read is not reported as an unsettled head" not grep -q 'did not settle' <<<"$OUT"
+fixture
+set_policy unit-owner
+echo 1 >"$GHS/head_lag_until"
+echo 2 >"$GHS/rollup_garbage_at"
+run_polled 0 1 evaluate --spec specs/demo --task 1
+check "an unparseable re-read fails ci-rollup as unreadable" grep -q 'ci-rollup	fail	the check rollup could not be read' <<<"$OUT"
+check "an unparseable re-read is not reported as an unsettled head" not grep -q 'did not settle' <<<"$OUT"
+fixture
+set_policy unit-owner
+echo 9 >"$GHS/head_lag_until"
+echo 3 >"$GHS/rollup_fail_at"
+run_polled 0 2 evaluate --spec specs/demo --task 1
+check "a failed last read after an unsettled head ends as unreadable" grep -q 'ci-rollup	fail	the check rollup could not be read' <<<"$OUT"
+
 echo "# no tracking ref: reconcile fetches one before deciding what to push"
 fixture
 set_policy unit-owner
@@ -811,6 +924,12 @@ set_policy unit-owner
 echo 2 >"$GHS/lookup_fail_until"
 run_helper flip --spec specs/demo --task 1
 check "a transient lookup failure is retried, then flips" [ "$CODE" = 0 ]
+fixture
+mkdir -p "$F/wt/.claude"
+printf 'ready_flip_policy: unit-owner\nready_flip_ci_wait: 2s\n' >"$F/wt/.claude/planwright.local.yml"
+echo 1 >"$GHS/lookup_fail_until"
+run_polled 3 '' flip --spec specs/demo --task 1
+check "a wait shorter than one poll interval gives the lookup no retry nap" [ "$(cat "$GHS/lookup_n")" = 1 ]
 fixture
 set_policy unit-owner
 : >"$GHS/fork"

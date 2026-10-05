@@ -423,6 +423,264 @@ Class: expression-only
 Anchor: `6d5cec7e4c143f8e9bfc0a767d1e0f325910210c` — computed as
 `scripts/spec-anchor.sh specs/fleet-hardening`
 
+### 2026-10-04 — Extension delta kickoff (`/spec-kickoff`, reopened bundle): detached tmux launch
+
+**Header.**
+
+- **Spec path:** `specs/fleet-hardening`
+- **Spec commit at walkthrough start:** `7c9e5fe` (the `/spec-draft --extend` commit that reopened
+  the bundle to Draft on all four headers)
+- **Walkthrough date:** 2026-10-04
+- **Mode:** reopened-bundle delta kickoff (Status Draft with a complete signed brief). Delta: the
+  2026-10-04 extension as recorded in `requirements.md`'s `## Changelog`; everything outside it
+  stands as signed above.
+- **Validator outcome (pre-flight):** `spec-validate specs/fleet-hardening` → 0 errors, 0 warnings
+- **Config:** `commit_on_kickoff: true`, `mark_spec_pr_ready_on_kickoff: true`,
+  `kickoff_ready_ci_wait: 10m` (defaults; no local override)
+- **Working location:** spec worktree `.claude/worktrees/fleet-hardening-spec`, branch
+  `planwright/fleet-hardening/spec`, clean.
+- **Decision/transcript log:** no harness-provided log in this session; the turn mirror is skipped.
+
+**Goal & glossary (delta).**
+
+*Restatement.* Today a tmux-rung dispatch hands off to Claude Code's own launcher, which inside
+tmux never comes back: it builds the worker's session, pulls the operator's tmux client onto it, and
+keeps running for the worker's whole life. The dispatch therefore holds the checkout's flight lock
+until the worker exits, never prints its report, and reads as a failed launch if anything kills it,
+which invites a duplicate dispatch. The worker it starts inherits the tmux server's environment, so
+neither the ghost-text pin nor a worker identity reaches it, and its launcher can resolve a second
+worktree of its own. The extension has the dispatch create the worker's tmux session itself,
+detached, in the worktree it already placed, with the environment built inside that session, and
+return as soon as the worker proves it started. Because that is shell and path construction fed by
+repository-derived values, its safety properties are requirements: values tmux would expand are
+allowlisted, every live launch passes one containment guard, session names are unique per checkout
+and checked before anything durable is written, the worker CLI is resolved fail-closed, and the
+death handle comes from the session-creation call. Fixtures that cannot hang and can actually fail,
+plus doc and seam-discovery cleanup, close it out. The altitude stays mechanism-primary.
+
+*Rules out.* Removing the operator's hand-typed `claude --worktree` launch (it stays allowed, only
+relabelled); splitting `tests/test-flight-dispatch.sh`; the macOS canonicalization that
+`test-throughput` owns; a tmux rung for checkouts whose physical path falls outside the charset
+(refused there, other rungs unaffected); any second multiplexer.
+
+*Assumes.* The tmux 3.6 expansion behavior probed in Sources holds on the versions adopters run (no
+tmux floor is declared); Claude Code fires `SessionStart` for a worker launched this way; the
+identity-gate grammar the liveness hooks already enforce is the grammar the wrapper validates.
+
+*Implicit terms surfaced.*
+
+- **Started / failed / started-unconfirmed:** the three launch outcomes; only the worker's own
+  startup confirmation counts as started.
+- **Physical path:** the `pwd -P` form, symlinks resolved.
+- **Death handle:** the session name and window id the registry records so death evidence can probe
+  the right session.
+- **Prior launcher's spelling:** `<repo-basename>_worktree-<suffix'>`, the session name the native
+  launcher actually creates (per the tmux probe), kept live-probed through the upgrade window.
+- **The parked flight:** the visual flight for issue #546 whose candidate commit, zone finding, and
+  review findings seed this extension.
+- **`<hash6>`:** see resolutions.
+
+*Resolutions.*
+
+- **`<hash6>` rendering.** "First six digits of the `cksum` CRC rendered in lowercase hex" read two
+  ways (unpadded hex can be shorter than six digits). Resolved mechanically for determinism: render
+  the CRC as eight zero-padded lowercase hex digits (`printf '%08x'`) and take the first six. Spec
+  edit queued (consolidated list).
+- **What "started" means before the confirmation task lands** (operator decision). The detached
+  launch ships one task ahead of the startup confirmation. In that window a created session is
+  reported started-unconfirmed, never started, and every shipped caller treats it as placed; the
+  confirmation task later adds the started and failed-at-startup outcomes. Chosen over merging the
+  two tasks and over leaving the gap as a risk, because the bundle defines "started" as the
+  worker's own confirmation.
+
+Signed off: 2026-10-04
+
+**Requirements walkthrough (delta).**
+
+- *Launch behavior group.* The dispatch returns once the launch outcome is known, never moves a tmux
+  client, starts the worker in the placed worktree with no launcher-side worktree resolution, and
+  puts the pin and the worker identity in the worker's own environment. What the operator will
+  notice: the dispatch report comes back, the tmux view stays put, and tmux workers start raising
+  the same attention signals (fork-park pushes, status rows) headless workers already do, since
+  they now carry an identity. Outcome: confirmed.
+- *Launch safety group.* Charset allowlist on everything tmux expands, physical start directory
+  that must exist, one containment guard for every live launch, repo-qualified names checked
+  before any durable write with failure arms that never touch a winner's state, fail-closed CLI resolution, startup
+  confirmation, death handle from session creation, and liveness probes across the upgrade window.
+  Outcome: confirmed with two gap-fills (edits 2 and 3 below).
+- *Verification and docs group.* Bounded fixtures, a stub server environment distinct from the
+  dispatcher's, a fixture per refusal arm that fails with the arm removed, canonical path compares
+  with race-free self-reaping stubs, a mechanical check against the old launch shape in prose, and
+  a seam-discovery exemption narrowed to the tower relaunch. Outcome: confirmed.
+
+*Consolidated spec-edit list (all applied in place; the bundle is Draft):*
+
+1. `design.md` D-14: `<hash6>` rendered as eight zero-padded hex digits, first six taken.
+2. `requirements.md` REQ-G1.4: the side-effect list gains "branch", matching D-14 and the test-spec
+   entry.
+3. `design.md` D-14, `tasks.md` Task 12 (deliverables and done-when) and the gated deferral,
+   `test-spec.md` REQ-G1.7: the removed probes are the bare `<suffix>` and `worktree-<suffix>` forms
+   and their alternate-name forms, not only `worktree-<suffix>`. The current probe in
+   `scripts/fleet-dispatch-worktree.sh` checks both bare forms, and neither is a name any launch
+   creates, so REQ-G1.7's own rule removes both; the new-name and prior-spelling probes cover the
+   alternate name too.
+4. `tasks.md` Task 12: the interim started-unconfirmed reporting (operator decision above), and
+   REQ-G1.5 added to its citations, since it ships that requirement's CLI-resolution half.
+5. `design.md` D-15, `tasks.md` Task 13: the `SessionStart` arm is wired under the `startup`
+   matcher, as the plugin's other `SessionStart` hooks in `hooks/hooks.json` are; the
+   confirmation is for a fresh launch, and a resumed or cleared session is not a launch.
+   *(Reconciled after the lens pass: wired under `startup` and `resume`, because task dispatches
+   may forward `--continue` / `--resume`, which would otherwise never confirm.)*
+
+Edits 1–5 are gap-fills consistent with the decisions already recorded (expression-class in
+isolation); no agent-authored meaning-class edit was applied mid-walk, so no mid-walk lens pass
+ran. The whole extension is meaning-class and takes the terminal lens pass.
+
+Signed off: 2026-10-04
+
+**Design walkthrough (delta).** D-7's attach step is superseded by D-10 (its create step, collision
+and orphan handling, exception scope, and tower-guard interaction carry forward unchanged, as the
+`Superseded-by:` note on D-7 records). D-10 through D-15 are minted: D-10 confirmed; D-11 confirmed;
+D-12 confirmed; D-13 confirmed; D-14 amended (edits 1 and 3); D-15 amended (edit 5). D-1 through
+D-6, D-8, and D-9 are untouched by the delta and stand as signed. No design decision contradicts a
+walked requirement. *(Reconciled after the lens pass: D-10 through D-15 are all amended per the
+lens dispositions below, and D-8 carries a hand-launch annotation.)*
+
+Signed off: 2026-10-04
+
+**Verification approach (delta).** The new entries are predominantly `[test]`, run by the
+repository CI under `mise run check`; `[manual]` is confined to the real-dispatch confirmations
+(launch returns, client stays, worker environment, `SessionStart` fires), swept by the operator on
+Task 12's and Task 13's first real dispatch; the one `[design-level]` arm (each refusal fixture was
+run once with its arm removed) is confirmed at PR review from the PR description. The REQ-B1.4
+`[manual]` arm moved from the `--tmux=classic` check to the detached launch; REQ-B1.4 itself is
+unchanged. Dead-path check: every new entry names a fixture that can run on the Task 11 harness or
+the repository itself; none depends on an unavailable platform.
+
+Signed off: 2026-10-04
+
+**Task graph (delta).** From the `Dependencies:` lines in `tasks.md`: Task 11 depends on Task 1
+(done); Task 12 on Task 11; Tasks 13 and 14 each on Task 12. Critical path: 11 → 12 → 13 (see the
+tasks' effort lines). Task 14 runs beside Task 13. Deliberate non-edges: Task 14 does not wait on
+Task 13 (the launch-shape check concerns the old launch's prose, not the confirmation outcomes,
+which Task 13 documents in the primitive's own usage header); Task 13 does not run beside Task 12,
+because both rewrite the same launch function.
+
+Signed off: 2026-10-04
+
+**Risk register (delta).** Rows continue the numbering of §7 as appended rows; earlier rows are
+untouched.
+
+- **E1. Interim window between Tasks 12 and 13.** A release between them reports every created
+  session as started-unconfirmed. Mitigation: callers treat it as placed (Task 12 done-when);
+  early signal: an unconfirmed report on every tmux dispatch until Task 13 merges, which is
+  expected and not a failure.
+- **E2. tmux expansion behavior varies by version** and no tmux floor is declared. Mitigation: an
+  allowlist (not a denylist), checked before any tmux call; early signal: a charset refusal on a
+  path that looks ordinary.
+- **E3. `SessionStart` not firing for a launched worker** on some Claude Code version. Mitigation:
+  the started-unconfirmed outcome keeps a live worker from being read as dead; early signal:
+  unconfirmed reports while the worker's own status row shows activity.
+- **E4. Moving or renaming the primary checkout changes `<hash6>`** while workers run, so their
+  sessions stop matching the computed name. Mitigation: liveness fails safe toward live via the
+  dispatch marker; early signal: a reconcile reporting an orphan right after a checkout move.
+- **E5. tmux workers start producing attention signals** (fork-park pushes, status rows) once they
+  carry an identity. Intended, but an operator used to silent tmux workers may read it as new
+  noise. Mitigation: the docs task names the change.
+
+*Decision-domains gap check* (catalog via `scripts/resolve-catalog.sh decision-domains`, seed plus
+overlay domains): concurrency (the lost-race abort, the flight lock released before the startup wait), observability (three
+outcomes, orphan reconcile), deploy and migration (upgrade-window probe plus its gated deferral),
+API surface (documented exit statuses, the refused live `attach`), dependency adoption (no tmux
+floor, rows E2), authentication (identity-gate grammar validation), existing-seam reuse (the env
+wrapper) are all touched and decided. No catalogued domain is touched but undecided; no gap row.
+
+Signed off: 2026-10-04
+
+**Lens review (delta-scoped, parallel fan-out).** Nine read-only sub-agents, one per canonical
+lens, over the extension delta (`git diff origin/main` of the four spec files, the code it names,
+and the sibling specs it touches). Each finding carried file:line evidence; the coordinator
+re-checked the load-bearing ones against the code (the resume flags task dispatches forward, the
+registry's tmux-token grammar, the seam-discovery pattern and its missing exemption arm, the flight
+lock's stated purpose, the flight dispatch's session lookup, `fleet-messaging`'s identity export,
+`fleet-lifecycle-closure`'s retire rule) and ran two live tmux 3.6 probes (recorded in Sources).
+Raw findings overlapped heavily across lenses and were merged before disposition.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness, logic, edge cases | 11 | resume never confirming; names outside the death-handle grammar; unmapped prior-launcher basename; failed outcome not adoptable; seam floor breaking between tasks |
+| Security | 6 | command words after `--` (disproved by probe); server env overriding the root; forgeable confirmation; refused probe direction; name charset vs handle grammar; containment recheck |
+| Error handling and failure modes | 8 | post-create failures with no undo; in-session wrapper refusal unobservable; undo failure unreported; exit-code contract; unreachable server read as death; fleet home split |
+| Performance | 4 | startup wait under the flight lock; unstated poll mechanism; every fixture paying the cap; bound vs cap vs test-time budget |
+| Concurrency / state | 8 | lost-race rollback destroying the winner's state; registry written before the session; start-time pinning; lock held through the wait |
+| Naming, readability, structure | 9 | outcome name drift; multi-obligation REQs; "attach" double meaning; D-12 title; partial supersede marker; bare D-36; placeholder drift |
+| Documentation | 9 | missing doc sites; check scope undefined; `--no-attach` wording; changelog and Sources gaps; overview parenthetical |
+| Tests / verification | 11 | existing fixtures asserting the old shape; six vacuous checks; pairing gaps both ways; untestable injection points |
+| Cross-file consistency | 10 | D-14 misreading D-7; record-closing reserved to the reconcile; identity export duplicated with `fleet-messaging`; seam guard owned by `fleet-lifecycle-closure`; overlap with `test-throughput` |
+
+*Check items.* Qualified cross-spec citations: every qualified citation resolves; the missing ones
+(`fleet-lifecycle-closure` REQ-E1.1 and REQ-E1.5, `fleet-messaging` REQ-B1.1) are now cited, and
+the bare D-36 is qualified. Requirement/test-spec pairing: every re-scoped REQ carries its paired
+test-spec edit in the same disposition. Altitude (REQ-H1.3): the pinned seed claim in Sources is
+reconciled as mechanism-primary under D-1, Tasks 11–14 are mechanism tasks; not applicable. Ship
+gate (REQ-L1.4): the prior-launcher probe has its gated deferral; the `fleet-messaging` overlap
+carries observation `2026-10-04-fleet-messaging-tmux-identity-owner-2fa9088c`; the `test-throughput`
+overlap is removed by scoping Task 11 rather than handed off.
+
+*Dispositions.* Operator decisions (four forks):
+
+1. Lost race: abort as already-in-flight touching nothing; the registry is written only after the
+   session exists; other post-create failures undo only this run's creations (D-14, D-10, REQ-G1.4,
+   REQ-G1.6, Task 12, test-spec).
+2. Startup wait vs the flight lock: release the lock once the session exists; launch and confirm
+   become two steps (D-10, REQ-F1.1, Tasks 12 and 13, test-spec).
+3. Confirmation bound to a per-launch token (D-11, D-15, REQ-G1.5, Task 13, test-spec).
+4. This bundle owns the tmux rung's identity export; `fleet-messaging` cited, observation recorded
+   (D-11, REQ-F1.5, Sources).
+
+Applied as one grouped disposition (operator: apply all): session names inside the registry's
+token grammar with the prior-launcher basename mapped and a refused probe read as live; the
+`SessionStart` arm under `startup` and `resume`; `tmux` resolved before side effects;
+`remain-on-exit` off on the worker's window; the containment recheck before `new-session`; the
+wrapper's `--check` mode and its explicit root and fleet home; the startup wait's ordering,
+failure modes, start-time pinning, poll interval, and test seam; distinct documented exit statuses
+with no pass-through; the failed outcome clearing its marker and naming the flight's hand removal;
+the flight report's session name from the launch line; caller handling of started-unconfirmed in
+Task 12; seam discovery taught the new shape with a scoped exemption in Task 12; the old-shape
+fixtures rewritten; Task 11 scoped off `test-throughput`'s turf with confirming stubs by default and
+budget-bounded timings; the vacuous checks given teeth and Done-when / test-spec paired both ways;
+Task 14's doc set, scan scope, and `--no-attach` wording; and the wording fixes (outcome names,
+D-12 title and "attach" wording, the partial supersede marker, D-14's reading of D-7, placeholders
+and named wrapper options, bare D-36, REQ-F1.1's wording, the overview and in-scope lists, the
+changelog, the Sources enumeration, and the hand-launch annotations on REQ-C1.1 and D-8).
+
+Declined, with rationale:
+
+- Splitting REQ-G1.4, REQ-G1.5, and REQ-H1.5 into narrower requirements: their test-spec entries
+  already enumerate each obligation, and task citations name which task delivers which half.
+- A charset on the command words after `--`: the tmux 3.6 command-word probe shows tmux passes them
+  through unexpanded, so the check would cost the prompt and forwarded flags bytes for no
+  protection; the probe is recorded in Sources and D-12.
+
+*Post-lens stale-reference sweep.* The lens re-scoped REQ-F1.1, F1.4, F1.5, G1.1, G1.2, G1.4, G1.5,
+G1.6, H1.5, and H1.6 (no REQ minted). Grepped the bundle and this entry for the superseded wording
+(rollback and terminal-record language, pass-through statuses, exit 127, the `failed` outcome name,
+the `startup`-only matcher, the old session charset, "returns once the worker has started"); the
+in-scope line, the requirements walk, edit 5, the design ledger, and the gap check were reconciled
+in place. `spec-validate` afterwards: 0 errors, 1 warning (REQ-C1.1 changed without a test-spec
+change; the change is a hand-launch annotation, so its verification path correctly stands).
+`mise run lint:md`: 0 errors.
+
+**Sign-off.** Approved by the operator 2026-10-04 after the shared-understanding summary; Status
+flipped Draft→Ready on all four spec files, `Last reviewed:` 2026-10-04. Validator at Ready: 0
+errors, the one warning above.
+
+Class: meaning
+Lens-pass: this entry's lens review (delta-scoped, nine-lens fan-out; four forks decided by the
+operator, the grouped fixes applied, two findings declined with rationale)
+Anchor: `05f21e5a2c213c3c9a97c8fba6ca7cad7f35c74c` — computed as
+`scripts/spec-anchor.sh specs/fleet-hardening`
+
 ## 10. Execution research log
 
 <!-- Research-rigor recordings appended during execution (findings, tradeoffs,

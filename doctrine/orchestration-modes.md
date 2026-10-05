@@ -117,9 +117,9 @@ at the fleet tier:
    double-dispatch race.
 3. **Optionally reserve a same-instant slot.** For a backend whose dispatch
    marker becomes visible to the live count only after a lag, the atomic
-   counter — `scripts/fleet-state.sh bound-incr
-   "$(scripts/config-get.sh fleet_max_parallel_units)"` paired with
-   `scripts/fleet-state.sh bound-decr` — can reserve the launch slot for the
+   counter — `scripts/fleet-state.sh bound-incr <max>`, `<max>` being what
+   `scripts/config-get.sh fleet_max_parallel_units` printed in its own call,
+   paired with `scripts/fleet-state.sh bound-decr` — can reserve the launch slot for the
    window between the subordinate's launch and its marker appearing. It is a
    reservation *over* the live count, never a substitute: a hard kill can
    leak a reserved slot and a disposable tower keeps no cross-step memory to
