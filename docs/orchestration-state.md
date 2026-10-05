@@ -127,11 +127,29 @@ A branch with zero commits is not yet evidence of work in flight (the derivation
 counts a branch *with commits*). The runtime marker covers exactly that gap: the
 window between branch-create and the branch acquiring its first commit.
 
-It is a durable, timestamped marker file, one per task, in the spec's runtime
-orchestration-state directory (`<spec-dir>/.orchestrate/markers/<id>` by default,
-overridable with the `PLANWRIGHT_ORCH_STATE_DIR` environment variable). The
-per-spec advisory lock lives beside it at `<spec-dir>/.orchestrate.lock`, not
-under the markers directory.
+It is a durable, timestamped marker file, one per task, under the common git
+directory of the repository holding the bundle
+(`<git-common-dir>/planwright/orchestrate/<spec>/markers/<id>`; a bundle in no
+repository uses its work repository's), so every worktree of the repository
+counts it: a meta-tower running from one worktree sees the marker a subordinate
+dropped from another. Another clone has its own git directory and sees none of
+them. The writer also drops a copy in the checkout-local
+`<spec-dir>/.orchestrate/markers/<id>`, and readers consult that location too
+(and, from a linked worktree, the primary checkout's), so a marker an older
+planwright version wrote at the old location still counts from the same
+checkout and, when it ran in the primary checkout, from every worktree. One it
+wrote in another linked worktree is seen only there, and so is one in a primary
+checkout whose `.git` is not its git dir (made with `--separate-git-dir`, or a
+`.git` symlinked elsewhere), which git cannot name from a linked worktree.
+`scripts/orchestrate-marker-home.sh` resolves both lists, the readers' a
+superset of the writer's; the `PLANWRIGHT_ORCH_STATE_DIR` environment variable
+replaces them with one directory, which is trusted as given (no symlink rule
+and no checkout-local fallback apply to it). Otherwise, a shared home reached
+through a symlink, or a symlink at a marker path in it, is neither written nor
+read (checkout-local dirs keep their old symlink tolerance). The writer skips such a shared home,
+and one it cannot create or write, with a warning rather than letting it cost
+the checkout-local marker. The per-spec advisory lock lives at
+`<spec-dir>/.orchestrate.lock`, not under the markers directory.
 
 Branch-first ordering is also fail-safe: a dispatch that crashes after acquiring
 the lock but before creating the branch leaves **neither** branch nor marker, so

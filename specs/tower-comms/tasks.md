@@ -487,6 +487,16 @@ baseline exists, so the experiment has an honest before.
   line names no identity), so either the launcher passes
   `claude --session-id <uuid>` and exports it, or the hook grows a
   pid-composite gate; Task 8's identity wiring is where the first lands.
+- **Task 9** — operator-run: the experiment is the operator's own, real
+  fleet sessions on a tower carrying the queue plus the four observations
+  only a human can make (REQ-C1.3, REQ-C1.8, REQ-D1.2, REQ-E1.6), so no
+  tower or orchestrator selects it. Operator: on a tower running a release
+  that carries Task 8's queue wiring, with Task 2's baseline recorded, run
+  the sessions and record the comparison and the four observations in the
+  kickoff brief's risk register per the task's Done-when. Remove this
+  bullet in that same commit, stamped `Planwright-Task: tower-comms/9`
+  through `scripts/planwright-commit-trailers.sh`, so the task derives
+  completed instead of turning selectable.
 
 ## Deferred
 

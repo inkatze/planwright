@@ -690,9 +690,37 @@ is_live() {
   # A flight has no spec dir and no marker; the reconcile treats its
   # registered worktree as live on its own.
   [ -n "$_sd" ] || return 1
-  _mdir="${PLANWRIGHT_ORCH_STATE_DIR:-$_sd/.orchestrate/markers}"
-  _mfile="$_mdir/$_id"
-  if [ -f "$_mfile" ]; then
+  # A bundle that is gone holds no marker, as before the shared home existed;
+  # failing live there would wedge the checkout with nothing to age it out.
+  [ -d "$_sd" ] || return 1
+  # Every dir the writer may have used, the shared home included, so a marker
+  # dropped from another worktree of the repository keeps its worker live. A
+  # list the helper cannot give for an existing bundle is "cannot tell", which
+  # fails safe to live.
+  _mdirs=$(/bin/sh "$script_dir/orchestrate-marker-home.sh" read "$_sd" 2>/dev/null) || return 0
+  [ -n "$_mdirs" ] || return 0
+  while IFS= read -r _mdir; do
+    [ -n "$_mdir" ] || continue
+    # A shared home reached through a symlink, or a symlink at a marker path in
+    # it, is never what the writer put there, so it holds nothing here, as in
+    # the state engine; checkout-local dirs keep the symlink tolerance they
+    # always had. A shared home that exists but cannot be entered is "cannot
+    # tell", which is live.
+    _mfile="$_mdir/$_id"
+    if [ -z "${PLANWRIGHT_ORCH_STATE_DIR:-}" ]; then
+      case "$_mdir" in
+        */.orchestrate/markers) ;;
+        *)
+          if ! _mreal=$(cd -P -- "$_mdir" 2>/dev/null && pwd -P); then
+            [ ! -d "$_mdir" ] || [ -L "$_mdir" ] || return 0
+            continue
+          fi
+          [ "$_mreal" = "$_mdir" ] || continue
+          [ ! -L "$_mfile" ] || continue
+          ;;
+      esac
+    fi
+    [ -f "$_mfile" ] || continue
     _written=$(cat "$_mfile" 2>/dev/null || echo '')
     case $_written in
       '' | *[!0-9]*) return 0 ;; # unparseable marker: fail safe, treat as live
@@ -709,7 +737,9 @@ is_live() {
     if [ "$_age" -lt 0 ] || [ "$_age" -lt "$LIVENESS_TTL" ]; then
       return 0
     fi
-  fi
+  done <<EOF
+$_mdirs
+EOF
   return 1
 }
 
@@ -1517,7 +1547,20 @@ do_dispatch() {
   # in-flight.
   [ -x "$TRACK" ] && "$TRACK" record-create "$_worktree" >/dev/null 2>&1 </dev/null || true
   if [ -x "$MARKER" ] && [ -n "$_spec_dir" ] && [ -d "$_spec_dir" ]; then
-    "$MARKER" write "$_spec_dir" "$_id" >/dev/null 2>&1 </dev/null && _made_marker=1
+    # The writer's warnings (a skipped shared home) and its failure reach the
+    # operator: a dispatch with no marker reads as not live to a later reconcile.
+    _mrc=0
+    _merr=$("$MARKER" write "$_spec_dir" "$_id" 2>&1 >/dev/null </dev/null) || _mrc=$?
+    while IFS= read -r _mline; do
+      [ -z "$_mline" ] || warn "$_mline"
+    done <<MERR
+$_merr
+MERR
+    if [ "$_mrc" -eq 0 ]; then
+      _made_marker=1
+    else
+      warn "the dispatch marker was not written; this unit may read as not in flight"
+    fi
   fi
 
   # Sanitized like the plan tokens: a checkout path carrying control bytes would

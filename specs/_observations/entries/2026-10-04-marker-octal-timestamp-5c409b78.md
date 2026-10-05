@@ -1,0 +1,1 @@
+- 2026-10-04 [planwright] orchestrate-state.sh and fleet-dispatch-worktree.sh is_live do shell arithmetic on the marker's raw contents; a hand-edited or corrupted marker with a leading zero (08) is read as octal and aborts the derivation or the liveness probe. The writer never produces one. Candidate: reject 0[0-9]* as malformed (flight marker-cross-worktree-ecd24adb review).
