@@ -25,6 +25,7 @@
 #                                   orchestrate-marker.sh and
 #                                   fleet-dispatch-env.sh obey SEAM_MODE (see
 #                                   below); prints its scripts directory
+unset CDPATH
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
 PRIM="$ROOT/scripts/fleet-dispatch-worktree.sh"
 FLIGHT="$ROOT/scripts/flight-dispatch.sh"
