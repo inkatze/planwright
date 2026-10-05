@@ -91,7 +91,7 @@ never named in a PR body.
     delta mode after fixes. No time-based staleness applies to the record.
   - **Sharing.** The record is shared across skills and iterations on the
     same tree. The bundle serves one pass of one loop.
-  - **Sources.** The record also accepts CI check runs as evidence (item 6).
+  - **Sources.** The record also accepts CI check runs as evidence (item 7).
     The bundle's tooling output is local.
   - **Fields.** The record fixes per-command fields and a version key. The
     bundle contract names "the tooling output" without fixing fields, so
@@ -181,6 +181,16 @@ head's tree hash, and the review loop uses it per iteration. Skipped and
 neutral runs are ignored, as planwright's CI judge ignores them. A run not
 yet concluded, or one cancelled or timed out, is no evidence yet. A head
 with no check run, or only ignored ones, is no evidence.
+
+**A gap for the amendment to close:** the dotfiles rule says nothing about a
+head read before every expected check has registered. One early success with
+the rest not yet listed would pass. Planwright's `scripts/await-pr-ci.sh`
+design (test-throughput D-5) holds a head with no checks as pending for a
+grace window after the push. After that, its judge (`rl_ci_state` in
+`scripts/release-lib.sh`) reads the checks registered at that moment, where
+a status context GitHub lists as expected counts as pending. A late check
+that is not required can still be missed, so neither side fully covers the
+case.
 
 **Planwright's bar:** test-throughput D-5 accepts a green PR CI run as
 full-suite evidence only for the branch's final pushed head under

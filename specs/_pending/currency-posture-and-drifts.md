@@ -29,8 +29,9 @@ Each item: what to change, one line of why, then the evidence.
 ### 1. A ready guard that accepts a mergeable branch that is behind, or a knob to opt out
 
 **Why:** where CI runs on the PR's merge ref, a branch that is mergeable but
-behind its base produces the same merge commit whether or not it is synced
-first, so forcing the sync buys a CI re-run and changes nothing.
+behind its base produces the same merged tree whether or not it is synced
+first (only the merge commit's parents differ), so forcing the sync buys a
+CI re-run and changes nothing tested.
 
 - **Evidence:** the audit's D-3 and REQ-A1.1 changed the operator's own
   ready condition to "no conflicts with the base" (`mergeable: MERGEABLE`),
