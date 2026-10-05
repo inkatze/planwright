@@ -153,10 +153,10 @@ wait instead.
     `commit_on_state_move` is true (read `config/defaults.yml` overridden by
     `<repo>/.claude/planwright.local.yml`, local wins; absent/malformed falls
     back to the default with a one-line warning).
-12. **Check every point, then run `pre-implementation`**:
+12. **Check every point, run `pre-implementation`**:
     `scripts/resolve-steps.sh pre-implementation pre-ci convergence pre-pr
-    post-pr --explain --check --unattended` (plus `pre-ready-flip` when
-    `ready_flip_policy` is `unit-owner`); a non-zero exit halts, naming only
+    post-pr --explain --check --unattended` (plus `pre-ready-flip` under
+    `ready_flip_policy: unit-owner`); a non-zero exit halts, naming only
     step ids.
 
 ## Points (`custom-steps`, D-3)
@@ -168,8 +168,8 @@ PR number whenever one exists):
 
 1. **Resolve** it whole first: `scripts/resolve-steps.sh <point> --explain`,
    `--unattended` exactly when the backend seam's launch record says headless,
-   else `--attended`. Exit 1: park the unit (attended, present and wait for
-   a repair and re-resolve). Exit 2, 4, or 5: a stop condition.
+   else `--attended`. Exit 1: `ask`, or attended all-`refuse` rows, presents
+   and waits for a repair and re-resolve; otherwise park. Exit 2, 4, or 5: a stop condition.
 2. **Host** each step in order by its printed hosting, per the doc's
    *Hosting* table, a skill or prompt step receiving the `--preamble` block:
    `isolated` sessions launch through the backend seam (`offload-dispatch`)
