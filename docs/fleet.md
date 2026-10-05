@@ -1180,6 +1180,36 @@ tower records there is yours: a standing decision you wrote that the prompt
 falls strictly inside (see
 [what the fleet decides without you](#what-the-fleet-decides-without-you-and-what-it-never-does)).
 
+**Pick the relay target explicitly, never by the active pane.** The handle
+`orchestrate-relay.sh relay-command` takes must be one you name, or a peer
+tower that `scripts/fleet-presence.sh discover` reports `live`, addressed by
+the `tmux-window` handle its presence record publishes. `discover` prints the
+peer's tower id but not that handle: read it from the record, the file named
+by the tower id in the directory `scripts/fleet-presence.sh surface --checkout
+<repo-root>` prints, whose ninth tab-separated field
+`tmux-window <session> <window>` is the target `<session>:<window>`. A record
+whose handle is `process <pid>` (a tower not under tmux) names no window to
+relay to: its target has to be one you name. Never
+derive it from tmux's `pane_active` flag or "the active pane of the planwright
+window": a tower that is closing keeps its pane, and its input line, until the process
+exits, so the active pane can be a stale session rather than the live one.
+A window-level target resolves to that window's active pane, so where a window
+holds more than one pane, address the pane by its `%` id. Read the target with
+`observe-command` before anyone submits the paste. `live` means only that the
+published tmux window still exists, not that the session in it will read the
+paste: a tower partway through closing still passes, and a pane capture
+carries no colour, so it cannot tell a dimmed prompt suggestion from typed
+input. When there is any doubt which session is the live one, ask the operator
+to name the target.
+
+**A paste stages; one Enter submits it.** The tmux relay loads its pointer
+line with no trailing newline, so the paste never submits itself and a single
+Enter in the receiving session submits it. The relay never sends that
+keystroke: pressing it stays a human's act. Keep it unterminated: `paste-buffer` sends a trailing
+newline as a carriage return, which Claude Code takes into a long paste as a
+hidden newline in the input box, so the first Enter is spent on it and only a
+second one submits.
+
 ## Ghost-text prevention: keeping pane captures unambiguous
 
 Fleet supervision reads a worker's (or an observed tower's) input line by pane
