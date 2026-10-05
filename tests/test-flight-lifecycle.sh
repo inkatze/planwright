@@ -167,6 +167,17 @@ brief_dir "$R"
   || fail "the record-arm completion push failed: $(cat "$tmp/err")"
 [ "$(field "$(row "$HR")" 3)" = "done" ] || fail "a record landing reads done in the store"
 
+# A store that refuses the row still gets the landing kept beside the brief.
+O=keep-aaaaaab6
+brief_dir "$O"
+chmod 500 "$tmp/fleet/attention"
+"$SCRIPT" push completion "$O" --handle "tmux-flight-$O" --landing "record:specs/_flights/$O.md" 2>/dev/null
+rc=$?
+chmod 700 "$tmp/fleet/attention"
+[ "$rc" -eq 4 ] || fail "a completion the store refused exits 4 (got $rc)"
+[ "$(cat "$tmp/fleet/flights/$O/landing" 2>/dev/null)" = "record:specs/_flights/$O.md" ] \
+  || fail "a completion the store refused still keeps its landing reference"
+
 # The completion push goes through the notification seam with its landing.
 mkdir -p "$tmp/cfg"
 printf 'notification_channel: push\n' >"$tmp/cfg/local.yml"

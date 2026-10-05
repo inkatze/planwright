@@ -209,8 +209,10 @@ cmd_push() {
         pr:*) state=pr-ready ;;
         *) state="done" ;;
       esac
-      /bin/sh "$ATTN" heartbeat "$handle" "$scope" "$state" --unless-awaiting </dev/null \
-        || die 4 "the completion push did not reach the attention store"
+      # The landing and its notification do not depend on the row, so a store
+      # that refuses the row still gets them before this exits.
+      _stored=1
+      /bin/sh "$ATTN" heartbeat "$handle" "$scope" "$state" --unless-awaiting </dev/null || _stored=0
       if flight_dir "$id"; then
         (umask 077 && printf '%s\n' "$landing" >"$FDIR/landing.tmp" && mv -f "$FDIR/landing.tmp" "$FDIR/landing") \
           || printf '%s: could not keep the landing reference beside the brief; the sweep still derives it\n' "$prog" >&2
@@ -219,6 +221,7 @@ cmd_push() {
       fi
       /bin/sh "$ATTN" notify "flight $id landed: ${landing#*:}" --key "flight-landed-$id" </dev/null \
         || printf '%s: the landing notification was not sent; the store row and the sweep carry it\n' "$prog" >&2
+      [ "$_stored" -eq 1 ] || die 4 "the completion push did not reach the attention store"
       ;;
   esac
 }
