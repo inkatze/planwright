@@ -21,8 +21,8 @@
 # is something a script can see.
 #
 # SCOPE. docs/, doctrine/, skills/, scripts/ and config/ in full, plus every
-# README outside specs/, tests/ and dot-directories. Out of scope: specs/
-# (decision records quote the old shape), tests/ (fixtures quote it as negative
+# README outside the spec home, tests/ and dot-directories. Out of scope: the
+# spec home, wherever it is relocated (decision records quote the old shape), tests/ (fixtures quote it as negative
 # cases), and any CHANGELOG.md (release history). The default run reads the
 # tracked files there; a --root run reads the filesystem.
 #
@@ -131,12 +131,24 @@ END { flush(); printf "SCANNED\t%d\n", scanned }
 # survive the substitution. The repository's own run reads the tracked tree, so
 # a local scratch file can neither fail nor pass the gate; a --root tree (the
 # test fixtures) is read from the filesystem.
+#
+# The spec home comes from its resolver, since it can be relocated. When it
+# does not resolve, or lies outside the scanned tree, nothing is excluded for
+# it: that only widens the scan, so it can fail the gate but never pass it.
+here=$(pwd -P) || exit 2
+spec_rel=""
+if spec_abs=$("$script_dir/resolve-root.sh" spec 2>/dev/null); then
+  case "$spec_abs" in
+    "$here"/?*) spec_rel=${spec_abs#"$here"/} ;;
+  esac
+fi
 if [ "$root_given" -eq 0 ]; then
   list=$(mktemp) || exit 2
   trap 'rm -f "$list"' EXIT
-  git ls-files -z -- docs doctrine skills scripts config ':(glob)**/README*' \
-    ':(exclude)specs' ':(exclude)tests' ':(exclude,glob)**/.*/**' \
-    ':(exclude,glob)**/CHANGELOG.md' >"$list" || {
+  set -- docs doctrine skills scripts config ':(glob)**/README*' \
+    ':(exclude)tests' ':(exclude,glob)**/.*/**' ':(exclude,glob)**/CHANGELOG.md'
+  [ -z "$spec_rel" ] || set -- "$@" ":(exclude)$spec_rel"
+  git ls-files -z -- "$@" >"$list" || {
     echo "check-launch-shape: cannot list the tracked tree; failing closed" >&2
     exit 2
   }
@@ -157,7 +169,8 @@ else
       find -H "$d" -name '.?*' -prune -o -type f ! -name CHANGELOG.md \
         -exec awk -v window="$WINDOW" "$scan_program" {} + || printf 'FAILED\n'
     done
-    find . \( -path ./specs -o -path ./tests -o -path ./docs -o -path ./doctrine \
+    # With no spec home to exclude, `.//` is a path find never produces.
+    find . \( -path "./${spec_rel:-/}" -o -path ./tests -o -path ./docs -o -path ./doctrine \
       -o -path ./skills -o -path ./scripts -o -path ./config -o -name '.?*' \) -prune \
       -o -type f -name 'README*' ! -name CHANGELOG.md \
       -exec awk -v window="$WINDOW" "$scan_program" {} + || printf 'FAILED\n'

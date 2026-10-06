@@ -330,6 +330,7 @@ git -C "$g" init -q || {
 write_file "$g/docs/a.md" 'Clean prose.'
 write_file "$g/docs/scratch.md" 'Workers start via `claude --worktree x`.'
 write_file "$g/specs/s/design.md" 'Workers start via `claude --worktree x`.'
+write_file "$g/specs/s/README.md" 'Workers start via `claude --worktree x`.'
 write_file "$g/tests/t.sh" '# claude --worktree x'
 write_file "$g/CHANGELOG.md" '- `claude --worktree x`'
 write_file "$g/templates/.hidden/README.md" 'Run `claude --worktree x`.'
