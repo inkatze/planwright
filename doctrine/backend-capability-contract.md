@@ -202,8 +202,8 @@ that hosts a separate worker satisfies them; the backends that do not (`print`
 and `in-session`) are the manual/synchronous escape hatch called out in their
 rows below.
 
-- **`tmux`.** The richest backend: an interactive worker in its own detached
-  tmux session. `capture-pane` provides observe-in-flight; attributed
+- **`tmux`.** The richest backend: an interactive worker in a detached tmux
+  session or window. `capture-pane` provides observe-in-flight; attributed
   `load-buffer`/`paste-buffer` provides steer-in-flight (never `send-keys`
   impersonation); a window id is the stable handle; the session is session-grade
   and survives the tower. Its cost is tmux fluency and installation — an

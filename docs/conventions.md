@@ -136,13 +136,13 @@ task. The placement convention is the contract; the launch mechanism is
 incidental — an operator can open any worktree placed there by hand-launch,
 `claude --worktree <name>`, whichever backend created it.
 
-A dispatched task or flight worktree is created by
-`scripts/fleet-dispatch-worktree.sh`, the one sanctioned `git worktree add`
+On the tmux and headless rungs and for a visual flight, the worktree is created
+by `scripts/fleet-dispatch-worktree.sh`, the one sanctioned `git worktree add`
 (fleet-hardening D-7); on the tmux rung that script then starts the worker in
 a detached tmux session of its own, never attaching or switching a client
-(fleet-hardening D-10). Other worktrees go through Claude Code's native
-mechanisms (`EnterWorktree`, the Agent tool's worktree isolation, or the
-hand-launch above). `.claude/worktrees/` is gitignored (working copies, not
+(fleet-hardening D-10). Other worktrees, a subagent unit's included, go
+through Claude Code's native mechanisms (`EnterWorktree`, the Agent tool's
+worktree isolation, or the hand-launch above). `.claude/worktrees/` is gitignored (working copies, not
 source).
 
 ## Commit trailer (D-2, REQ-C1.4)

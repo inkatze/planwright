@@ -191,10 +191,11 @@ command.
 
 **The multiplexer as detached background plumbing (REQ-E1.1).** When the
 selected backend is an interactive multiplexer and the operator did not ask
-to attach, the tower drives it **detached**: start the server headlessly (for
-the shipped tmux backend, `tmux new-session -d -s <fleet-session>` — the
-session name is the operator's style, overlay-owned per D-10) and address
-every window by target id. Dispatch, capture-pane observation, and
+to attach, the tower drives it **detached**: each worker gets a detached
+session of its own (for the shipped tmux backend,
+`scripts/fleet-dispatch-worktree.sh` runs `tmux new-session -d`, naming it from
+the checkout and unit) and every window is addressed by target id.
+Dispatch, capture-pane observation, and
 `load-buffer`/`paste-buffer` relay work identically against a detached server
 — nobody ever attaches, and the human sees only the attention surface below.
 Attaching stays available at any time for a multiplexer-fluent operator (the

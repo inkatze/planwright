@@ -1216,8 +1216,8 @@ cmd_dispatch() {
   printf 'backend\t%s\n' "$backend"
   if [ "$backend" = print ]; then
     # The printed launch runs through the dispatch environment pin, as every
-    # fleet launch does, and the wrapper quotes each word; the print rung hands
-    # it to the operator as a hand-launch.
+    # fleet launch does, and the wrapper quotes each word. It is an operator's
+    # hand-launch (the label scripts/check-launch-shape.sh looks for here).
     set -- claude --worktree "$suffix"
     [ "$TIER_MODEL" = inherit ] || set -- "$@" --model "$TIER_MODEL"
     [ "$TIER_EFFORT" = inherit ] || set -- "$@" --effort "$TIER_EFFORT"

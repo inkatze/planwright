@@ -301,12 +301,13 @@ aimed at the wrong window, which is worse than none.
 The registry is an append log and the **last record for a worker wins**, so a
 seam that only learns a column after the launch supersedes its own earlier
 record instead of updating one in place. The tmux worktree rung writes once:
-it creates the worker's detached session itself, and registers only after
-`tmux new-session` succeeds, carrying the session name and window id that call
-printed as the death handle. No failure arm ever has a record to retract, and
-the handle names the session this dispatch created, never one it went looking
-for, so an operator's own shell sitting in the worktree can never be adopted as
-the worker's.
+it creates the worker's detached session itself, and registers only once that
+session exists (even when the `tmux new-session` call itself failed or hung),
+carrying as the death handle the session name and window id that call printed,
+or no handle when it printed none. No failure arm ever has a record to retract,
+and the handle is only ever what this dispatch's own `new-session` reported,
+never a session found by looking, so an operator's own shell sitting in the
+worktree can never be adopted as the worker's.
 
 **Read the death handle as a hint, not an instruction.** The store authenticates
 no caller — anything running as the operator can append — a bare pid carries no
@@ -471,18 +472,20 @@ security over display fidelity for exotic multibyte names.
 
 If a multiplexer (tmux) is the selected execution backend, it does **not**
 become your problem: the tower can drive it as a **detached background
-server** nobody attaches to. Each tmux worker runs in a detached session of its
-own, which the dispatch creates with `tmux new-session -d` and never attaches
-or switches your client to; workers are observed and steered there while you
-keep watching the decision queue. Attaching remains possible at any time
-(`tmux attach -t '=<session>'`, the hint a flight's dispatch report prints) — it is an
-option for multiplexer-fluent operators, never a requirement.
+server** nobody attaches to. A task or flight worker on the tmux rung runs in a
+detached session of its own, which `scripts/fleet-dispatch-worktree.sh` creates
+with `tmux new-session -d` and never attaches or switches your client to
+(`/offload`'s tmux rung opens a detached window instead); workers are observed
+and steered there while you keep watching the decision queue. Attaching
+remains possible at any time (`tmux attach -t '=<session>'`, the hint a
+flight's dispatch report prints) — it is an option for multiplexer-fluent
+operators, never a requirement.
 
-Because the dispatch starts the worker inside that session through its env
-wrapper, a tmux worker carries its fleet identity like the headless rungs do.
+Because that dispatch starts the worker inside its session through the env
+wrapper, such a worker carries its fleet identity like the headless rungs do.
 It therefore raises the same attention signals (a fork-park push, a status
-row) that tmux workers launched the old way never did; that is the identity
-working, not new noise.
+row) that tmux workers started without the wrapper never did; that is the
+identity working, not new noise.
 
 ## Personas: pick your combination of the two seams
 
@@ -2059,8 +2062,9 @@ session's effective mode. A refusal is a dispatch stop condition, surfaced,
 never bypassed.
 
 **The tower runs under its own tested allow layer.** A tower's own
-orchestration commands — tmux relay/observe, an operator's hand-launch of
-`claude --worktree`, planwright scripts by resolved literal path — were being blocked
+orchestration commands — tmux relay/observe, a `claude --worktree` hand-launch
+the tower runs at the operator's request, planwright scripts by resolved
+literal path — were being blocked
 non-deterministically by the same `auto`-mode classifier, so the tower runs
 under `config/tower-settings.json`, which wires `scripts/tower-command-guard.sh`
 as a PreToolUse hook (D-8). It reuses the worker guard's pattern — allow-only,
@@ -2092,8 +2096,10 @@ deny does not block it. The guard's hand-launch allow (`claude --worktree`)
 also **pins** against launching a worker with its permission layer weakened:
 any `--dangerously-*` or `--permission-*` flag, in any position, defers. The
 tmux rung itself never launches through that shape: its worker starts in a
-detached session the dispatch script creates (a planwright script by literal
-path, which the guard allows as such).
+detached session `scripts/fleet-dispatch-worktree.sh` creates, a planwright
+script the guard allows wholesale by literal path, so that script holds the
+same pin itself, refusing any launch flag after its `--` that is off its own
+allowlist.
 
 ## What the fleet decides without you (and what it never does)
 

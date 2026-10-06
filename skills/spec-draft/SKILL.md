@@ -111,9 +111,9 @@ Doctrine: point-of-use decision-domains (the design-phase catalog walk)
      (`claude --worktree <spec>-spec`) and stop. If the branch exists but the
      worktree was pruned, recreate the worktree from the branch (native
      mechanics below). If neither exists, create them: worktree via Claude
-     Code's native mechanism (EnterWorktree — never raw
-     `git worktree`, D-37), then `git switch -c planwright/<spec>/spec`
-     inside it, branched from the current main view.
+     Code's native mechanism (EnterWorktree — never raw `git worktree`,
+     D-37), then `git switch -c planwright/<spec>/spec` inside it, branched
+     from the current main view.
    - Worktree/branch resolution happens after the name is final — which for
      a fresh idea may be after seed gathering and fold-detection have run
      (both are read-only against the existing checkout).
