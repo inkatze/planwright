@@ -91,8 +91,10 @@ mise run check      # the full local equivalent of the CI gate
   tree that commits no presence record or fence-ref line), and the
   hook-contracts guard over every hook registration surface;
 - the launch-shape prose guard: shipped prose that names the native
-  `claude --worktree` launcher must label it an operator's hand-launch, since
-  the tmux rung launches its worker in a detached session of its own;
+  `claude --worktree` launcher must label it an operator's hand-launch (or,
+  where it describes sessions that launcher created before the change, the
+  prior launcher), since the tmux rung launches its worker in a detached
+  session of its own;
 - the CI posture guards: the fork-PR workflow-posture check, the transitive
   CI-eval exclusion over the workflows and the task graph, and the
   glob-allow-rule discipline check;

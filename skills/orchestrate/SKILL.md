@@ -196,10 +196,9 @@ law is `orchestration-concurrency` (read here). Ordered steps:
 
 ### Worktree create / reuse (REQ-F1.8, D-37, D-44)
 
-Step 3 creates the branch through the unit's worktree:
-`scripts/fleet-dispatch-worktree.sh` (the sanctioned `git worktree add`) or
-Claude Code's **native** mechanism (`EnterWorktree` / the Agent tool's worktree
-isolation). Placement is the one `spec-format` fixes. Reuse the current
+Step 3 creates the branch through the unit's worktree via Claude Code's
+**native** mechanism (`EnterWorktree` / the Agent tool's worktree isolation).
+Placement is the one `spec-format` fixes. Reuse the current
 worktree when clean, after a one-line confirm (**attended only**; unattended
 creates fresh); print the re-open command.
 
