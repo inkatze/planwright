@@ -62,7 +62,7 @@ fixture_scratch() {
   # A relative TMPDIR gives a relative path, which no needle may be.
   case $d in
     /*) ;;
-    *) d=$(cd "$d" && pwd) || return 1 ;;
+    *) d=$PWD/$d ;;
   esac
   printf '%s\n' "$d"
 }
