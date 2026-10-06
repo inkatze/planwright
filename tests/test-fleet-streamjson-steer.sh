@@ -22,6 +22,7 @@
 #       from a message ever reaches its output.
 #   s6 (REQ-G1.2): an allow whose spliced tool input carries a raw DEL, or
 #       nests deep, still makes a frame the check accepts, with the input intact.
+#   s7: no supervisor, tick, or shim from this run outlives the suite.
 #
 # Hermetic: the fleet home and the CLI seam are case-local, the CLI is a shim
 # that records its stdin. Runs standalone under /bin/bash (bash 3.2).
@@ -34,6 +35,8 @@ unset CDPATH
 here=$(cd "$(dirname "$0")" && pwd)
 SJ="$here/../scripts/fleet-streamjson.sh"
 RELAY="$here/../scripts/orchestrate-relay.sh"
+# shellcheck source=tests/lib/fixture-procs.sh
+. "$here/lib/fixture-procs.sh"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -43,16 +46,24 @@ fail() {
 [ -x "$SJ" ] || fail "scripts/fleet-streamjson.sh missing or not executable"
 command -v jq >/dev/null 2>&1 || fail "jq is required: the launch preflight runs the auto-approve hook"
 
-tmp=$(mktemp -d)
+tmp=$(fixture_scratch) || fail "no scratch directory to run in"
 tab=$(printf '\t')
 live_pids=''
+# A failed or interrupted case leaves its worker up; the shim's watchdog only
+# bounds how long. Reap by this run's scratch path so nothing outlives the suite.
 cleanup() {
+  trap '' INT TERM
+  trap - EXIT
+  fixture_is_owner || return 0
   for cl_p in $live_pids; do
     kill "$cl_p" 2>/dev/null || :
   done
+  fixture_reap "$tmp/"
   rm -rf "$tmp"
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # The shim worker: records every stdin line, emits the event file once, then
 # keeps reading until stdin closes or the watchdog fires.
@@ -382,4 +393,9 @@ echo "ok: s6 --allow over a worker input carrying a raw DEL, or nested 100 deep,
 for sp in "$tmp/h1:sjs1" "$tmp/h3:sjs3" "$tmp/h6:sjs6" "$tmp/h7:sjs7"; do
   senv "${sp%%:*}" "$tmp/r1" -- stop "${sp##*:}" --grace 1 >/dev/null 2>&1 || :
 done
+# The suite leaves nothing running: a close above that missed a worker shows
+# here as a survivor carrying this run's scratch path, not as a silent leak.
+wait_until 50 fixture_none "$tmp/" \
+  || fail "s7: fixture process(es) still running after every case: $(fixture_report "$tmp/")"
+echo "ok: s7 no supervisor, tick, or shim from this run outlives the suite"
 echo "all fleet-streamjson-steer tests passed"

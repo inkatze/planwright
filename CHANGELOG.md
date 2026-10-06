@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.54.0](https://github.com/inkatze/planwright/compare/v0.53.0...v0.54.0) (2026-10-06)
+
+
+### Features
+
+* **check:** describe the detached tmux launch and guard against the old shape ([#589](https://github.com/inkatze/planwright/issues/589)) ([2120b87](https://github.com/inkatze/planwright/commit/2120b87d941034dd825a8bfa85d4532ca81091e7))
+* **dispatch:** confirm a tmux worker's startup from its SessionStart hook ([#590](https://github.com/inkatze/planwright/issues/590)) ([5afd9ab](https://github.com/inkatze/planwright/commit/5afd9ab800388404f3ee9afc8c01c55ca5d71530))
+* **spec:** quota-handling kickoff sign-off ([#587](https://github.com/inkatze/planwright/issues/587)) ([4001194](https://github.com/inkatze/planwright/commit/40011943fececb61b20a62dd25c4345157fee4de))
+
+
+### Bug Fixes
+
+* **guard:** defer unexpanded operands and -v forms in both command guards ([#592](https://github.com/inkatze/planwright/issues/592)) ([13b5de0](https://github.com/inkatze/planwright/commit/13b5de0a33acade0a1a452ec84ec3b957036116e))
+* **resolve-root:** name core.bare and its repair when a working tree is marked bare ([#586](https://github.com/inkatze/planwright/issues/586)) ([441cdb7](https://github.com/inkatze/planwright/commit/441cdb711c0da1a7efbe7e50e951c10334091fd6))
+
 ## [0.53.0](https://github.com/inkatze/planwright/compare/v0.52.0...v0.53.0) (2026-10-05)
 
 
