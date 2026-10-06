@@ -100,6 +100,7 @@ start "$tmp/s3" startup PLANWRIGHT_WORKER_HANDLE=tmux-demo-task-3 PLANWRIGHT_WOR
 [ ! -e "$tmp/s3/attention/state" ] || fail "s3: a half-set identity wrote the store"
 case $ERR in *refusing*) ;; *) fail "s3: a half-set identity is not refused by name: $ERR" ;; esac
 start "$tmp/s3b" startup PLANWRIGHT_WORKER_HANDLE='../x' PLANWRIGHT_WORKER_SCOPE=demo:3
+[ "$RC" -eq 0 ] || fail "s3: a malformed handle must still exit 0, got $RC"
 [ ! -e "$tmp/s3b/attention/state" ] || fail "s3: a malformed handle wrote the store"
 
 # --- s4 -------------------------------------------------------------------------

@@ -348,7 +348,7 @@ resolve_home() {
 # The record is assembled HERE, with the heartbeat timestamp stamped UNDER the
 # lock (below), so this is the single authority for the record layout: the 8
 # shipped fields plus the additive ladder above them — the park reason or a
-# marker at 9, a fork instance id at 10, a claimed label at 11, and a permission
+# marker (a heartbeat's `launch:<hex>` included) at 9, a fork instance id at 10, a claimed label at 11, and a permission
 # prompt's own command at 12.
 # The optional <guard> `unless-awaiting` makes the upsert a clean no-op when
 # the worker's CURRENT row is awaiting-input, with the check made inside this
@@ -366,8 +366,9 @@ upsert_row() {
   ur_opts=$7
   ur_guard=${8:-}
   # ur_reason (field 9) is the fleet-hardening Task 2 additive extension (D-2):
-  # the fork-park notification reason. It is APPENDED only when non-empty, so a
-  # heartbeat / decide row stays byte-identical to the shipped 8-field layout —
+  # the fork-park notification reason, or a heartbeat's `launch:<hex>` startup
+  # token. It is APPENDED only when non-empty, so a decide row and a heartbeat
+  # without a token stay byte-identical to the shipped 8-field layout —
   # an older 8-field reader ignores the trailing field, a newer reader reads it
   # (REQ-E1.2, additive-with-older-reader-ignores).
   ur_reason=${9:-}
@@ -748,12 +749,19 @@ case $cmd in
           shift
           ;;
         --launch-token)
-          [ "$#" -ge 2 ] || {
+          [ "$#" -ge 2 ] && [ -z "$launch_token" ] || {
             echo "$hb_usage" >&2
             exit 2
           }
+          case $2 in
+            '' | *[!0-9a-f]*) hb_bad=1 ;;
+            *) [ "${#2}" -ge 16 ] && [ "${#2}" -le 64 ] && hb_bad=0 || hb_bad=1 ;;
+          esac
+          if [ "$hb_bad" -eq 1 ]; then
+            echo "fleet-attention: refusing a launch token that is not 16 to 64 lowercase hex digits" >&2
+            exit 2
+          fi
           launch_token=$2
-          hb_token_set=1
           shift 2
           ;;
         *)
@@ -762,19 +770,6 @@ case $cmd in
           ;;
       esac
     done
-    case ${hb_token_set:-0}$launch_token in
-      0) ;;
-      1 | 1*[!0-9a-f]*)
-        echo "fleet-attention: refusing a launch token that is not 16 to 64 lowercase hex digits" >&2
-        exit 2
-        ;;
-      *)
-        if [ "${#launch_token}" -lt 16 ] || [ "${#launch_token}" -gt 64 ]; then
-          echo "fleet-attention: refusing a launch token that is not 16 to 64 lowercase hex digits" >&2
-          exit 2
-        fi
-        ;;
-    esac
     if ! valid_field "$worker"; then
       echo "fleet-attention: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
       exit 2

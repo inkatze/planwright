@@ -1273,10 +1273,12 @@ case "$cmd" in
         set -- --unless-awaiting
         launch_token=${PLANWRIGHT_WORKER_LAUNCH_TOKEN:-}
         if [ -n "$launch_token" ]; then
+          token_ok=0
           case $launch_token in
-            *[!0-9a-f]*) launch_token=bad ;;
+            *[!0-9a-f]*) ;;
+            *) [ "${#launch_token}" -lt 16 ] || [ "${#launch_token}" -gt 64 ] || token_ok=1 ;;
           esac
-          if [ "$launch_token" = bad ] || [ "${#launch_token}" -lt 16 ] || [ "${#launch_token}" -gt 64 ]; then
+          if [ "$token_ok" -eq 0 ]; then
             echo "fleet-liveness: refusing a malformed PLANWRIGHT_WORKER_LAUNCH_TOKEN; no state written" >&2
             exit 0
           fi
