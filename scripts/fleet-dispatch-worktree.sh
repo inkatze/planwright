@@ -41,10 +41,11 @@
 #      written once, after the session exists (even when new-session itself
 #      failed or hung), its death handle the session name and window id
 #      new-session printed, or none when that output does not parse; never a
-#      pane-path match. Then
-#      CONFIRM: until the worker's startup confirmation is wired, a created
-#      session reports started-unconfirmed, which every caller treats as
-#      placed.
+#      pane-path match. Then CONFIRM: wait, bounded, for the worker's own
+#      SessionStart hook to record this launch's token in the attention store
+#      (started), or for tmux to say the session is gone (failed-at-startup);
+#      a wait that ends on neither is started-unconfirmed, which every caller
+#      treats as placed.
 #
 # Launch safety, all checked before any durable side effect (worktree, branch,
 # dispatch marker, registry record) unless named otherwise:
@@ -133,8 +134,10 @@
 #       [-- <extra launch args>...]
 #       Validate, fetch `<base>`, reconcile, `git worktree add -b`, launch, then
 #       confirm. The report is `dispatch<TAB><key><TAB><value>` lines (branch,
-#       worktree, base), `launch` lines (session, window, handle, since), and
-#       `confirm` lines (outcome, session, handle, reason).
+#       worktree, base), `launch` lines (session, window, handle, since,
+#       token), and `confirm` lines (outcome, session, handle, reason).
+#       Its exit status is the launch outcome (0, 14, or 16 below), never
+#       the worker's own.
 #       --repo-root      the primary checkout (default: resolve-root.sh repo --primary).
 #       --launch-only    launch and report, without the confirm step, for a
 #                        caller that releases a lock before confirming (the
@@ -185,16 +188,21 @@
 #       launch is the dispatch arm's, after its path-escape guard. --brief
 #       takes a flight's brief, as the dispatch arm does and under the same
 #       confinement; the suffix must be `flight-<flight-id>`.
-#   fleet-dispatch-worktree.sh confirm --session <name> --handle <handle> [--since <epoch|unknown>]
+#   fleet-dispatch-worktree.sh confirm --session <name> --handle <handle> \
+#       [--since <epoch|unknown>] [--token <hex>]
 #       The confirm step a --launch-only caller runs once it has released its
-#       lock. Until the worker's startup confirmation is wired it reports
-#       started-unconfirmed (exit 14), which a caller treats as placed.
+#       lock, given the launch's report values. It polls every
+#       CONFIRM_INTERVAL seconds for up to CONFIRM_CAP (defined below); a
+#       missing token or an unknown start time can never confirm. It clears
+#       no marker (a flight has none); the caller names its own cleanup on
+#       failed-at-startup.
 #   fleet-dispatch-worktree.sh check-session-name <name>
 #       Exit 0 when <name> is on the session-name charset, 10 otherwise.
 #
 # Exit codes:
-#   0  success: the plan printed, the create-only record printed, or (with
-#      --launch-only) the session created.
+#   0  success: the plan printed, the create-only record printed, (with
+#      --launch-only) the session created, or started: the worker confirmed
+#      its startup.
 #   2  usage / invalid input (fail closed — a malformed or hostile token is
 #      never interpolated), a launch word ending in `;`, or a live standalone
 #      attach.
@@ -227,16 +235,22 @@
 #      hold the name; or the launch could not get a scratch directory. This
 #      run's creations are undone unless a session may run in the worktree,
 #      and an undo step that fails is named. (A failed or hung new-session
-#      whose session does exist is placed: reported, registered, exit 14.)
+#      whose session does exist is placed: reported, registered, and
+#      confirmed like any launch.)
 #   14 started-unconfirmed: the session was created and no startup
-#      confirmation arrived. The worker is placed; never re-dispatch over it.
+#      confirmation arrived within the wait, or tmux or the attention store
+#      could not be read. The worker is placed; never re-dispatch over it.
 #   15 --relaunch found no worktree of the flight's branch at its placed path;
 #      nothing was created.
+#   16 failed-at-startup: tmux answered that the worker's session is gone
+#      and no confirmation had arrived. The dispatch clears the marker it
+#      set; the worktree and branch stay for a retry to adopt.
 #
 # Every tmux call (the liveness probes and new-session) is ended after
 # PLANWRIGHT_DISPATCH_TMUX_TIMEOUT seconds (default 10, 1-999, no leading
-# zero), so a wedged tmux server cannot hold the dispatch or a caller's lock
-# for more than about three bounds. A probe reads as not live only on tmux's
+# zero), so a wedged tmux server cannot hold the launch or a caller's lock
+# for more than about three bounds, nor the confirm step for more than one
+# bound past its cap. A probe reads as not live only on tmux's
 # own answer that the session is absent ("can't find session", "no server running", or no
 # socket to connect to); a timeout, any other error, or a PATH-relative tmux
 # reads as live.
@@ -293,7 +307,7 @@ usage() {
 usage: fleet-dispatch-worktree.sh dispatch <spec> <id> [--repo-root <dir>] [--launch-only | --attach-dry-run | --no-attach] [-- <extra launch args>...]
        fleet-dispatch-worktree.sh dispatch --flight <flight-id> [--brief <abs-file>] [--relaunch] [--repo-root <dir>] [--launch-only | --attach-dry-run | --no-attach] [-- <extra launch args>...]
        fleet-dispatch-worktree.sh attach <suffix> --dry-run [--brief <abs-file>] [-- <extra launch args>...]
-       fleet-dispatch-worktree.sh confirm --session <name> --handle <handle> [--since <epoch|unknown>]
+       fleet-dispatch-worktree.sh confirm --session <name> --handle <handle> [--since <epoch|unknown>] [--token <hex>]
        fleet-dispatch-worktree.sh check-session-name <name>
 EOF
   exit 2
@@ -1005,15 +1019,21 @@ resolve_launch_tools() {
     warn "refusing the tmux rung: claude does not resolve to an absolute path of an executable file (resolved: $(command -v claude 2>/dev/null || echo none))"
     exit 7
   fi
-  TMUX_BIN=$(command -v tmux 2>/dev/null) || TMUX_BIN=''
-  case $TMUX_BIN in
-    /*) ;;
-    *) TMUX_BIN='' ;;
-  esac
-  if [ -z "$TMUX_BIN" ] || [ ! -f "$TMUX_BIN" ] || [ ! -x "$TMUX_BIN" ]; then
+  resolve_tmux_bin || {
     warn "refusing the tmux rung: tmux does not resolve to an absolute path of an executable file"
     exit 8
-  fi
+  }
+}
+
+# resolve_tmux_bin — set TMUX_BIN to tmux's absolute executable path, or
+# empty and fail.
+resolve_tmux_bin() {
+  TMUX_BIN=$(command -v tmux 2>/dev/null) || TMUX_BIN=''
+  case $TMUX_BIN in
+    /*) [ -f "$TMUX_BIN" ] && [ -x "$TMUX_BIN" ] && return 0 ;;
+  esac
+  TMUX_BIN=''
+  return 1
 }
 
 # launch_roots — set LAUNCH_ROOT and LAUNCH_HOME to the dispatcher's resolved
@@ -1716,8 +1736,17 @@ MERR
   [ -z "$CREATED_WINDOW" ] || printf 'launch\twindow\t%s\n' "$CREATED_WINDOW"
   printf 'launch\thandle\t%s\n' "$_handle"
   printf 'launch\tsince\t%s\n' "$_since"
+  printf 'launch\ttoken\t%s\n' "$_token"
   [ "$_launch_only" -eq 0 ] || return 0
-  do_confirm --session "$_session" --handle "$_handle" --since "$_since"
+  confirm_wait "$_session" "$_handle" "$_token" "$_since" "$LAUNCH_HOME"
+  # A worker that died at startup is not in flight: the marker this run set
+  # would make a retry read as one until it aged out.
+  if [ "$CONFIRM_OUTCOME" = failed-at-startup ] && [ "$_made_marker" -eq 1 ]; then
+    "$MARKER" clear "$_spec_dir" "$_id" >/dev/null 2>&1 </dev/null \
+      || warn "could not clear the dispatch marker for task $_id under $_spec_dir; a retry may read as in flight until it ages out"
+  fi
+  confirm_report "$_session" "$_handle"
+  confirm_exit
 }
 
 # start_dir_ok <dir> <expected-physical> — the start directory exists, is a
@@ -1777,18 +1806,149 @@ undo_launch() {
 
 # --- confirm: the launch's outcome --------------------------------------------
 
+# The startup wait: a poll every CONFIRM_INTERVAL seconds, for at most
+# CONFIRM_CAP seconds. A real worker reaches SessionStart within a few seconds;
+# the cap leaves room for a slow plugin load without holding an /orchestrate
+# dispatch for long. The seams only shorten them, for the launch fixtures.
+CONFIRM_INTERVAL=1
+case ${PLANWRIGHT_DISPATCH_CONFIRM_INTERVAL:-} in
+  0.[1-9]) CONFIRM_INTERVAL=$PLANWRIGHT_DISPATCH_CONFIRM_INTERVAL ;;
+esac
+CONFIRM_CAP=30
+case ${PLANWRIGHT_DISPATCH_CONFIRM_CAP:-} in
+  [1-9] | [12][0-9]) CONFIRM_CAP=$PLANWRIGHT_DISPATCH_CONFIRM_CAP ;;
+esac
+
+# store_confirms <fleet-home> <handle> <token> <since> — 0 when the attention
+# store holds a row for <handle> carrying `launch:<token>`, stamped no earlier
+# than <since>; 1 when it does not (a missing store is an empty one); 2 when
+# the store cannot be read.
+store_confirms() {
+  [ -n "$1" ] || return 2
+  sc_store="$1/attention/state"
+  [ -e "$sc_store" ] || return 1
+  [ -f "$sc_store" ] && [ -r "$sc_store" ] || return 2
+  sc_hit=$(awk -F "$TAB" -v w="$2" -v r="launch:$3" -v s="$4" '
+    ($1 "") == (w "") && ($9 "") == r && $4 ~ /^[0-9]+$/ && ($4 + 0) >= (s + 0) { f = 1 }
+    END { print (f ? "y" : "") }' "$sc_store" 2>/dev/null) || return 2
+  [ "$sc_hit" = y ]
+}
+
+# confirm_wait <session> <handle> <token> <since> <fleet-home> — wait for the
+# worker's startup confirmation (D-15); sets CONFIRM_OUTCOME to started,
+# failed-at-startup, or started-unconfirmed, and CONFIRM_WHY. Each poll reads
+# the store first, then asks tmux about the session. Only tmux's definite
+# answer that no session holds the name ends the wait as failed; no server
+# left running counts, since the server that just created the session has
+# exited with it. A silent server or an unreadable store is never taken for
+# death, and once a tmux call outlives its bound tmux is not asked again, so
+# a wedged server costs the wait one bound, not one per poll.
+# An empty token or an unknown <since> can never confirm. A worker that
+# confirms and exits between two polls has already replaced its token row
+# with a later state, so it reads as failed; the poll keeps that window short.
+confirm_wait() {
+  cw_session=$1
+  cw_handle=$2
+  cw_token=$3
+  cw_since=$4
+  cw_home=$5
+  cw_can=1
+  [ -n "$cw_token" ] && [ "$cw_since" != unknown ] || cw_can=0
+  cw_deadline=''
+  cw_now=$(now_seconds)
+  [ -z "$cw_now" ] || cw_deadline=$((cw_now + CONFIRM_CAP))
+  cw_polls=$(awk -v c="$CONFIRM_CAP" -v i="$CONFIRM_INTERVAL" 'BEGIN { print int(c / i) + 1 }')
+  cw_tmux_hung=0
+  while :; do
+    cw_unsure=''
+    cw_store=1
+    if [ "$cw_can" -eq 1 ]; then
+      store_confirms "$cw_home" "$cw_handle" "$cw_token" "$cw_since"
+      cw_store=$?
+    fi
+    if [ "$cw_store" -eq 0 ]; then
+      CONFIRM_OUTCOME=started
+      CONFIRM_WHY="the worker confirmed its startup"
+      return 0
+    fi
+    if [ "$cw_store" -eq 2 ]; then
+      cw_unsure="the attention store could not be read"
+    elif [ -z "$TMUX_BIN" ] || [ "$LIVENESS_SKIP_TMUX" = 1 ] || [ "$cw_tmux_hung" -eq 1 ]; then
+      cw_unsure="tmux could not be asked about the session"
+    else
+      session_probe "$cw_session"
+      case $? in
+        1)
+          CONFIRM_OUTCOME=failed-at-startup
+          CONFIRM_WHY="the worker's session ended before the worker confirmed its startup"
+          return 0
+          ;;
+        2)
+          cw_unsure="tmux could not say whether the session runs"
+          [ "$TB_RC" -ne 124 ] || cw_tmux_hung=1
+          ;;
+      esac
+    fi
+    cw_polls=$((cw_polls - 1))
+    [ "$cw_polls" -gt 0 ] || break
+    if [ -n "$cw_deadline" ]; then
+      cw_now=$(now_seconds)
+      [ -z "$cw_now" ] || [ "$cw_now" -lt "$cw_deadline" ] || break
+    fi
+    sleep "$CONFIRM_INTERVAL"
+  done
+  CONFIRM_OUTCOME=started-unconfirmed
+  if [ -n "$cw_unsure" ]; then
+    CONFIRM_WHY="no startup confirmation arrived within ${CONFIRM_CAP}s and $cw_unsure"
+  elif [ "$cw_can" -eq 0 ]; then
+    CONFIRM_WHY="the launch token or start time is unknown, so the startup cannot be confirmed"
+  else
+    CONFIRM_WHY="the session is up but no startup confirmation arrived within ${CONFIRM_CAP}s"
+  fi
+  CONFIRM_WHY="$CONFIRM_WHY; the worker is placed and must not be re-dispatched"
+}
+
+# now_seconds — the epoch in whole seconds, or empty when the clock cannot be
+# read.
+now_seconds() {
+  ns_t=$(date +%s 2>/dev/null) || ns_t=''
+  case $ns_t in
+    '' | *[!0-9]*) ns_t='' ;;
+  esac
+  printf '%s' "$ns_t"
+}
+
+# confirm_report — print the confirm lines for the last confirm_wait.
+confirm_report() {
+  printf 'confirm\toutcome\t%s\n' "$CONFIRM_OUTCOME"
+  printf 'confirm\tsession\t%s\n' "$1"
+  printf 'confirm\thandle\t%s\n' "$2"
+  printf 'confirm\treason\t%s\n' "$CONFIRM_WHY"
+}
+
+# confirm_exit — the exit status of the last confirm_wait's outcome.
+confirm_exit() {
+  case $CONFIRM_OUTCOME in
+    started) exit 0 ;;
+    failed-at-startup) exit 16 ;;
+    *) exit 14 ;;
+  esac
+}
+
 do_confirm() {
   dc_session=''
   dc_handle=''
   dc_since=''
+  dc_token=''
   while [ "$#" -gt 0 ]; do
     case $1 in
-      --session | --handle | --since)
+      --session | --handle | --since | --token)
         [ "$#" -ge 2 ] || usage
         case $1 in
           --session) dc_session=$2 ;;
           --handle) dc_handle=$2 ;;
           --since) dc_since=$2 ;;
+          --token) dc_token=$2 ;;
         esac
         shift 2
         ;;
@@ -1806,17 +1966,33 @@ do_confirm() {
       ;;
   esac
   case $dc_since in
-    '' | unknown) ;;
+    '') dc_since=unknown ;;
+    unknown) ;;
     *[!0-9]*)
       warn "confirm: --since must be epoch seconds"
       exit 2
       ;;
   esac
-  printf 'confirm\toutcome\tstarted-unconfirmed\n'
-  printf 'confirm\tsession\t%s\n' "$dc_session"
-  printf 'confirm\thandle\t%s\n' "$dc_handle"
-  printf 'confirm\treason\t%s\n' "the worker's session was created; its startup confirmation is not wired yet, so the worker is placed and must not be re-dispatched"
-  exit 14
+  case $dc_token in
+    '') ;;
+    *[!0-9a-f]*)
+      warn "confirm: --token must be 16 to 64 lowercase hex digits"
+      exit 2
+      ;;
+    *)
+      [ "${#dc_token}" -ge 16 ] && [ "${#dc_token}" -le 64 ] || {
+        warn "confirm: --token must be 16 to 64 lowercase hex digits"
+        exit 2
+      }
+      ;;
+  esac
+  # tmux as the launch resolved it; one that does not resolve is never asked,
+  # so its silence cannot read as a dead session.
+  resolve_tmux_bin || :
+  dc_home=$(/bin/sh "$FLEET_STATE" root 2>/dev/null </dev/null) || dc_home=''
+  confirm_wait "$dc_session" "$dc_handle" "$dc_token" "$dc_since" "$dc_home"
+  confirm_report "$dc_session" "$dc_handle"
+  confirm_exit
 }
 
 # --- Entry -------------------------------------------------------------------

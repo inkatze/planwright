@@ -56,6 +56,8 @@ set -u
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# Live launches here have no confirming worker; shorten the startup wait.
+export PLANWRIGHT_DISPATCH_CONFIRM_CAP=1 PLANWRIGHT_DISPATCH_CONFIRM_INTERVAL=0.2
 
 # Deterministic, signing-free git identity; never touch the machine's real git
 # config or fleet state.

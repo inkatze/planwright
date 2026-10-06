@@ -57,6 +57,7 @@
 #
 # Usage:
 #   fleet-attention.sh heartbeat <worker> <scope> <state> [--unless-awaiting]
+#       [--launch-token <hex>] [--unless-since <epoch>]
 #       Upsert the worker's current state (one row per worker, last wins).
 #       <state> ∈ working | idle | hung | ended | pr-ready | merged | done
 #       (idle/hung/ended are the hook-pushed liveness states, fleet-autonomy
@@ -65,6 +66,14 @@
 #       awaiting-input, checked atomically inside the store's critical
 #       section — the escalation-preserve primitive (REQ-A1.3): a downgrade
 #       push must never overwrite a queued human decision.
+#       --launch-token: 16 to 64 lowercase hex digits, recorded in field 9 as
+#       `launch:<hex>` (fleet-hardening D-15): the worker's SessionStart
+#       confirmation of the tmux launch that minted it, which the dispatch's
+#       confirm step matches. The next heartbeat for the worker drops it.
+#       --unless-since: a clean no-op when the worker's row is stamped at or
+#       after <epoch>, checked atomically like --unless-awaiting, so a push
+#       made on a worker's behalf never overwrites what the worker itself
+#       reported since then.
 #   fleet-attention.sh decide <worker> <scope> <question> <default> <options> [priority]
 #       Upsert the worker as awaiting-input WITH a structured decision.
 #       [priority] ∈ high | normal | low (default normal).
@@ -301,6 +310,9 @@ release_lock() {
 # sits beside the store in a directory nothing else sweeps.
 np_tmp=""
 st_tmp=""
+# The heartbeat's --unless-since epoch, read by upsert_row; set here so an
+# inherited variable of the same name never guards a write.
+UR_UNLESS_SINCE=""
 trap 'release_lock; [ -z "$np_tmp" ] || rm -f "$np_tmp"; [ -z "$st_tmp" ] || rm -f "$st_tmp"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -343,8 +355,8 @@ resolve_home() {
 # The record is assembled HERE, with the heartbeat timestamp stamped UNDER the
 # lock (below), so this is the single authority for the record layout: the 8
 # shipped fields plus the additive ladder above them — the park reason or a
-# marker at 9, a fork instance id at 10, a claimed label at 11, and a permission
-# prompt's own command at 12.
+# marker (a heartbeat's `launch:<hex>` included) at 9, a fork instance id at
+# 10, a claimed label at 11, and a permission prompt's own command at 12.
 # The optional <guard> `unless-awaiting` makes the upsert a clean no-op when
 # the worker's CURRENT row is awaiting-input, with the check made inside this
 # same critical section — the atomic escalation-preserve primitive the
@@ -361,8 +373,9 @@ upsert_row() {
   ur_opts=$7
   ur_guard=${8:-}
   # ur_reason (field 9) is the fleet-hardening Task 2 additive extension (D-2):
-  # the fork-park notification reason. It is APPENDED only when non-empty, so a
-  # heartbeat / decide row stays byte-identical to the shipped 8-field layout —
+  # the fork-park notification reason, or a heartbeat's `launch:<hex>` startup
+  # token. It is APPENDED only when non-empty, so a decide row and a heartbeat
+  # without a token stay byte-identical to the shipped 8-field layout —
   # an older 8-field reader ignores the trailing field, a newer reader reads it
   # (REQ-E1.2, additive-with-older-reader-ignores).
   ur_reason=${9:-}
@@ -423,6 +436,24 @@ upsert_row() {
       return 2
     fi
     if [ -n "$ur_awaiting" ]; then
+      release_lock
+      return 0
+    fi
+  fi
+  if [ -n "$UR_UNLESS_SINCE" ] && [ -f "$store" ]; then
+    # A no-op when the worker's row was stamped at or after the given epoch:
+    # the worker has spoken since then, and its own state outranks a push
+    # made on its behalf. Same fail-closed read as the guards around it.
+    ur_since_rc=0
+    ur_newer=$(awk -F "$TAB" -v w="$ur_worker" -v s="$UR_UNLESS_SINCE" \
+      '($1 "") == (w "") && $4 ~ /^[0-9]+$/ && ($4 + 0) >= (s + 0) { f = 1 } END { print (f ? "y" : "") }' "$store") \
+      || ur_since_rc=$?
+    if [ "$ur_since_rc" != 0 ]; then
+      release_lock
+      echo "fleet-attention: could not read the store to evaluate --unless-since; refusing to risk overwriting the worker's own state" >&2
+      return 2
+    fi
+    if [ -n "$ur_newer" ]; then
       release_lock
       return 0
     fi
@@ -728,18 +759,57 @@ case $cmd in
     worker="${1:-}"
     scope="${2:-}"
     state="${3:-}"
-    guard="${4:-}"
+    guard=""
+    launch_token=""
+    hb_usage="usage: fleet-attention.sh heartbeat <worker> <scope> <state> [--unless-awaiting] [--launch-token <hex>] [--unless-since <epoch>]"
     if [ -z "$worker" ] || [ -z "$scope" ] || [ -z "$state" ]; then
-      echo "usage: fleet-attention.sh heartbeat <worker> <scope> <state> [--unless-awaiting]" >&2
+      echo "$hb_usage" >&2
       exit 2
     fi
-    case $guard in
-      "" | --unless-awaiting) ;;
-      *)
-        echo "usage: fleet-attention.sh heartbeat <worker> <scope> <state> [--unless-awaiting]" >&2
-        exit 2
-        ;;
-    esac
+    shift 3
+    while [ "$#" -gt 0 ]; do
+      case $1 in
+        --unless-awaiting)
+          guard=--unless-awaiting
+          shift
+          ;;
+        --launch-token)
+          [ "$#" -ge 2 ] && [ -z "$launch_token" ] || {
+            echo "$hb_usage" >&2
+            exit 2
+          }
+          case $2 in
+            '' | *[!0-9a-f]*) hb_bad=1 ;;
+            *) [ "${#2}" -ge 16 ] && [ "${#2}" -le 64 ] && hb_bad=0 || hb_bad=1 ;;
+          esac
+          if [ "$hb_bad" -eq 1 ]; then
+            echo "fleet-attention: refusing a launch token that is not 16 to 64 lowercase hex digits" >&2
+            exit 2
+          fi
+          launch_token=$2
+          shift 2
+          ;;
+        --unless-since)
+          [ "$#" -ge 2 ] && [ -z "$UR_UNLESS_SINCE" ] || {
+            echo "$hb_usage" >&2
+            exit 2
+          }
+          # Digits, no leading zero, at most 15 (the store's epoch grammar).
+          case $2 in
+            '' | 0?* | *[!0-9]* | ????????????????*)
+              echo "fleet-attention: refusing an --unless-since that is not epoch seconds" >&2
+              exit 2
+              ;;
+          esac
+          UR_UNLESS_SINCE=$2
+          shift 2
+          ;;
+        *)
+          echo "$hb_usage" >&2
+          exit 2
+          ;;
+      esac
+    done
     if ! valid_field "$worker"; then
       echo "fleet-attention: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
       exit 2
@@ -759,10 +829,14 @@ case $cmd in
     # empty; upsert_row stamps the commit-time timestamp under the lock. The
     # optional --unless-awaiting guard is evaluated inside the lock (see
     # upsert_row): a no-op success when the current row is awaiting-input.
+    # A launch token rides field 9 as `launch:<hex>`, which the tmux dispatch's
+    # confirm step matches; the next heartbeat for the worker drops it.
+    hb_reason=""
+    [ -z "$launch_token" ] || hb_reason="launch:$launch_token"
     if [ "$guard" = --unless-awaiting ]; then
-      upsert_row "$worker" "$scope" "$state" "" "" "" "" unless-awaiting || exit 2
+      upsert_row "$worker" "$scope" "$state" "" "" "" "" unless-awaiting "$hb_reason" || exit 2
     else
-      upsert_row "$worker" "$scope" "$state" "" "" "" "" || exit 2
+      upsert_row "$worker" "$scope" "$state" "" "" "" "" "" "$hb_reason" || exit 2
     fi
     exit 0
     ;;

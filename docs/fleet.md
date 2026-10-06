@@ -1261,7 +1261,7 @@ code path depends on it.
 ## Push-based worker liveness: events, the five states, crash backoff
 
 Worker liveness is **pushed, not polled** (D-1, REQ-A1.1): the plugin registers
-six hook events, and a dispatched worker's own session writes its state
+the hook events below, and a dispatched worker's own session writes its state
 transitions to the attention store the instant they happen, through
 `scripts/fleet-liveness.sh`:
 
@@ -1273,6 +1273,7 @@ transitions to the attention store the instant they happen, through
 | `SessionEnd` | → `ended` (session termination) |
 | `StopFailure` | → `hung` (a turn ended on an API error resembles a stopped-responding worker — the decided kickoff risk-row-27 mapping) |
 | `Notification` | working → `awaiting-input` + a fork-park marker, for a genuine fork / input-wait `notification_type` only (fleet-hardening Task 2, D-2). The instant a worker parks at an `AskUserQuestion` fork it fires `Notification`; the arm gates on the payload reason (a permission-park, an auth / completion notification, or an unknown type push nothing) and pushes an `awaiting-human` record with the reason — no pane capture |
+| `SessionStart` (`startup`, `resume`) | → `working`, carrying the worker's `PLANWRIGHT_WORKER_LAUNCH_TOKEN` in field 9 as `launch:<hex>` when the launch set one. This is the tmux launch's startup confirmation: the dispatch waits, bounded, for the row carrying its own token and reports `started`, `failed-at-startup` (tmux says the session is gone), or `started-unconfirmed` (fleet-hardening D-15). A queued decision is never overwritten |
 
 **The identity gate.** These hooks fire in *every* session the plugin is
 enabled in; only a dispatched worker may write. The gate is a
@@ -1287,7 +1288,9 @@ dispatch-side wiring is in place for the `headless-oneshot` backend**
 (`fleet-dispatch-headless.sh` exports
 `PLANWRIGHT_WORKER_HANDLE=headless-<spec>-task-<id>` and
 `PLANWRIGHT_WORKER_SCOPE=<spec>:<id>` into the detached worker, so its
-session's hooks push); the remaining backends' dispatch adaptation is a
+session's hooks push) **and for the tmux worktree rung** (its launch runs the
+worker through `fleet-dispatch-env.sh --identity`, with the launch token the
+`SessionStart` row carries); the remaining backends' dispatch adaptation is a
 later task, so their sessions still no-op this handler and stay on the
 existing observation path (a graceful REQ-A1.1 degradation, no breakage).
 The hook payload is drained, never parsed,
@@ -1436,7 +1439,7 @@ demand rather than lost:
 
 | Event | Pushed by | Row written |
 | --- | --- | --- |
-| `dispatch` | `flight-dispatch.sh`, once the flight is placed | `working` (tmux rung), `idle` (print rung, no process until the operator launches it) |
+| `dispatch` | `flight-dispatch.sh`, once the flight is placed | `working` (tmux rung, when the worker's startup went unconfirmed and it has written nothing since its launch; a worker that confirmed or reported its own state keeps its row, and one that died at startup gets none), `idle` (print rung, no process until the operator launches it) |
 | `awaiting-decision` | the worker, at a hard pause, as its brief directs | `awaiting-input` with the reason, the one event the decision queue shows |
 | `completion` | the worker, right after it lands, as its brief directs | `pr-ready` (PR landing) or `done` (record landing); the landing reference is kept beside the brief and sent through `notification_channel`, a record landing with its branch |
 
