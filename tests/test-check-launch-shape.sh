@@ -106,6 +106,42 @@ write_file "$r/scripts/s.sh" '# the worker launches via claude' '#   --worktree 
 run --root "$r"
 assert "a mention wrapped across comment lines is still caught" 1 "$code"
 
+r=$(fixture_root wrapped-continuation)
+# shellcheck disable=SC1003 # a literal trailing backslash, not an escape
+write_file "$r/scripts/s.sh" 'exec claude \' '  --worktree "$x"'
+run --root "$r"
+assert "a mention split by a shell continuation is still caught" 1 "$code"
+
+r=$(fixture_root wrapped-quote)
+write_file "$r/docs/q.md" '> the rung runs `claude' '> --worktree x`'
+run --root "$r"
+assert "a mention wrapped inside a block quote is still caught" 1 "$code"
+
+r=$(fixture_root flags-between)
+write_file "$r/docs/f.md" 'Workers start via `claude --model opus --effort high --worktree x`.'
+run --root "$r"
+assert "flags between the launcher and --worktree do not hide the mention" 1 "$code"
+
+r=$(fixture_root tmux-spaced)
+write_file "$r/docs/t.md" 'The pane is opened with --tmux classic.'
+run --root "$r"
+assert "--tmux classic with a space is caught" 1 "$code"
+
+r=$(fixture_root tmux-quoted)
+write_file "$r/docs/t.md" 'The pane is opened with --tmux="classic".'
+run --root "$r"
+assert "a quoted classic value is caught" 1 "$code"
+
+r=$(fixture_root crlf)
+printf 'Workers start via claude\r\n--worktree x.\r\n' >"$r/docs/c.md"
+run --root "$r"
+assert "a CRLF file's wrapped mention is still caught" 1 "$code"
+
+r=$(fixture_root crlf-blank)
+printf 'This is a hand-launch.\r\n\r\nWorkers start via `claude --worktree x`.\r\n' >"$r/docs/c.md"
+run --root "$r"
+assert "a CRLF blank line still ends the label's reach" 1 "$code"
+
 # --- the hand-launch label passes --------------------------------------------
 r=$(fixture_root labeled)
 write_file "$r/docs/conventions.md" \
@@ -140,6 +176,43 @@ write_file "$r/docs/a.md" 'This is a hand-launch.' 'one' 'two' 'three' 'four' \
 run --root "$r"
 assert "a label several lines away does not cover the mention" 1 "$code"
 
+r=$(fixture_root window-edge)
+write_file "$r/docs/a.md" 'This is a hand-launch.' 'one' 'Workers start via `claude --worktree x`.'
+write_file "$r/config/s.json" '{"_about": "A hand-launch exists. One. The rung runs claude --worktree x."}'
+run --root "$r"
+assert "a label two lines or two sentences away covers the mention" 0 "$code"
+
+r=$(fixture_root window-past-edge)
+write_file "$r/docs/a.md" 'This is a hand-launch.' 'one' 'two' 'Workers start via `claude --worktree x`.'
+run --root "$r"
+assert "a label three lines away does not cover the mention" 1 "$code"
+
+r=$(fixture_root window-past-edge-sentence)
+write_file "$r/config/s.json" '{"_about": "A hand-launch exists. One. Two. The rung runs claude --worktree x."}'
+run --root "$r"
+assert "a label three sentences away does not cover the mention" 1 "$code"
+
+r=$(fixture_root label-forms)
+write_file "$r/docs/a.md" 'Hand-launch: `claude --worktree x`.' '' 'A hand launch: `claude --worktree y`.'
+run --root "$r"
+assert "a capitalized label and the spaced spelling both count" 0 "$code"
+
+r=$(fixture_root label-substring)
+write_file "$r/docs/a.md" 'Set up beforehand launch the rung with `claude --worktree x`.'
+run --root "$r"
+assert "a label must be its own word, not the tail of another" 1 "$code"
+
+r=$(fixture_root comment-break)
+write_file "$r/scripts/s.sh" '# This is a hand-launch.' '#' '# The rung runs claude --worktree x.'
+run --root "$r"
+assert "a bare comment leader ends the label's paragraph" 1 "$code"
+
+r=$(fixture_root file-boundary)
+write_file "$r/docs/a.md" 'This is a hand-launch.'
+write_file "$r/docs/b.md" 'Workers start via `claude --worktree x`.'
+run --root "$r"
+assert "a label in one file never covers a mention in the next" 1 "$code"
+
 r=$(fixture_root far-sentence)
 write_file "$r/config/s.json" \
   '{"_about": "A hand-launch exists. One. Two. Three. Four. The rung runs claude --worktree x."}'
@@ -157,8 +230,9 @@ write_file "$r/specs/s/design.md" 'The rung ran `claude --worktree x --tmux=clas
 write_file "$r/tests/test-x.sh" '# negative case: claude --worktree x --tmux=classic'
 write_file "$r/CHANGELOG.md" '- launches via `claude --worktree x`'
 write_file "$r/docs/CHANGELOG.md" '- launches via `claude --worktree x`'
+write_file "$r/templates/t/notes.md" 'Run `claude --worktree x` to dispatch.'
 run --root "$r"
-assert "specs/, tests/ and changelog mentions are out of scope" 0 "$code"
+assert "specs/, tests/, changelogs and non-README files elsewhere are out of scope" 0 "$code"
 
 # --- fail closed ---------------------------------------------------------------
 mkdir -p "$tmp/empty"
@@ -168,12 +242,54 @@ assert "a root with nothing to scan fails closed" 2 "$code"
 run --root
 assert "a --root with no value is a usage error" 2 "$code"
 
+run --root ''
+assert "an empty --root is a usage error, not the default root" 2 "$code"
+
+run --root "$tmp/empty" --root "$tmp/empty"
+assert "a repeated --root is a usage error" 2 "$code"
+
+run --root "$tmp/no-such-dir"
+assert "a root that cannot be entered fails closed" 2 "$code"
+
 run --bogus
 assert "an unknown option is a usage error" 2 "$code"
 
+out=$(cd "$tmp/empty" && /bin/sh "$CHECKER" 2>&1)
+code=$?
+assert "outside a git work tree with no --root fails closed" 2 "$code"
+
+# A file the scan cannot read fails the scan, even beside one with a mention
+# that would otherwise be reported. Skipped as root, which reads it anyway.
+if [ "$(id -u)" -ne 0 ]; then
+  r=$(fixture_root unreadable)
+  write_file "$r/docs/a.md" 'Workers start via `claude --worktree x`.'
+  write_file "$r/docs/z.md" 'clean'
+  chmod 000 "$r/docs/z.md"
+  run --root "$r"
+  chmod 600 "$r/docs/z.md"
+  assert "an unreadable file in scope fails closed" 2 "$code"
+fi
+
+r=$(fixture_root c1-path)
+write_file "$r/docs/a$(printf '\302\233')31m.md" 'Workers start via `claude --worktree x`.'
+run --root "$r"
+assert "a mention in a file with a C1 control byte in its name is reported" 1 "$code"
+case "$out" in
+  *"$(printf '\302\233')"*)
+    echo "FAIL: the reported path carries a raw C1 control byte" >&2
+    failures=$((failures + 1))
+    ;;
+  *) echo "ok: the reported path has its C1 control byte stripped" ;;
+esac
+
 # --- the repository itself passes --------------------------------------------
+out=$(cd "$REPO_ROOT" && /bin/sh "$CHECKER" 2>&1)
+code=$?
+assert "the repository's tracked shipped prose passes" 0 "$code"
+[ "$code" -eq 0 ] || printf '%s\n' "$out" >&2
+
 run --root "$REPO_ROOT"
-assert "the repository's shipped prose passes" 0 "$code"
+assert "the repository read as a --root tree passes" 0 "$code"
 [ "$code" -eq 0 ] || printf '%s\n' "$out" >&2
 
 if [ "$failures" -ne 0 ]; then
