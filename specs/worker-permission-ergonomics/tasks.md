@@ -335,11 +335,7 @@ below; `scripts/spec-graph.sh` renders it on demand.
 
 ## Awaiting input
 
-- **Task 8** — pre-flight step check failed: convergence step `panel-gemini`
-  is refused (its skill target `panel-review` resolves to no installed file),
-  so the convergence point parks under an unattended run. Install the skill or
-  drop the step from the machine-local `steps_convergence` list, then
-  re-dispatch. No implementation work was started.
+(none yet)
 
 ## Deferred
 
