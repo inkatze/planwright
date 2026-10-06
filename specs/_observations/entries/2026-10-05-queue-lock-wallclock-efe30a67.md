@@ -1,0 +1,1 @@
+- 2026-10-05 [planwright] Recurrence of obs:3e81c4d7: tests/test-tower-queue-store-lock.sh failed a full gate at load average about 25 on its 2s wall-clock bound around the 200ms lock wait ("waited 3s"). This time its exit-code and store checks passed and three isolated reruns passed, so the failure was timing only; one more data point that the bound measures host load.
