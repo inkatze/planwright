@@ -7,8 +7,8 @@
 # known-safe command shapes — the tower's own orchestration surface (tmux
 # relay/observe, a `claude --worktree` hand-launch the tower runs at the
 # operator's request, planwright scripts by resolved literal path) plus the
-# read-only state-observation shapes a tower reads — and DEFERS everything else to Claude Code's normal permission flow,
-# fronting the stochastic `auto`-mode classifier with a tested allow layer so
+# read-only state-observation shapes a tower reads — and DEFERS everything else
+# to Claude Code's normal permission flow, fronting the stochastic `auto`-mode classifier with a tested allow layer so
 # routine orchestration commands are never non-deterministically blocked.
 #
 # It reuses the worker-command-guard PATTERN (worker-permission-ergonomics,

@@ -38,8 +38,10 @@
 #      session, so the ghost-text pin, the dispatcher's root and fleet home,
 #      the worker identity, and a per-launch token reach the worker itself
 #      whatever the tmux server's environment holds. The registry record is
-#      written once, after new-session succeeds, its death handle the session
-#      name and window id new-session printed, never a pane-path match. Then
+#      written once, after the session exists (even when new-session itself
+#      failed or hung), its death handle the session name and window id
+#      new-session printed, or none when that output does not parse; never a
+#      pane-path match. Then
 #      CONFIRM: until the worker's startup confirmation is wired, a created
 #      session reports started-unconfirmed, which every caller treats as
 #      placed.

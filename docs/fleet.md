@@ -304,10 +304,11 @@ record instead of updating one in place. The tmux worktree rung writes once:
 it creates the worker's detached session itself, and registers only once that
 session exists (even when the `tmux new-session` call itself failed or hung),
 carrying as the death handle the session name and window id that call printed,
-or no handle when it printed none. No failure arm ever has a record to retract,
-and the handle is only ever what this dispatch's own `new-session` reported,
-never a session found by looking, so an operator's own shell sitting in the
-worktree can never be adopted as the worker's.
+or no handle when its output does not name that session and one window id. No
+failure arm ever has a record to retract, and the handle is only ever what
+this dispatch's own `new-session` reported, never a session found by looking,
+so an operator's own shell sitting in the worktree can never be adopted as the
+worker's.
 
 **Read the death handle as a hint, not an instruction.** The store authenticates
 no caller — anything running as the operator can append — a bare pid carries no

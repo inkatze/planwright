@@ -142,8 +142,8 @@ by `scripts/fleet-dispatch-worktree.sh`, the one sanctioned `git worktree add`
 a detached tmux session of its own, never attaching or switching a client
 (fleet-hardening D-10). Other worktrees, a subagent unit's included, go
 through Claude Code's native mechanisms (`EnterWorktree`, the Agent tool's
-worktree isolation, or the hand-launch above). `.claude/worktrees/` is gitignored (working copies, not
-source).
+worktree isolation, or the hand-launch above). `.claude/worktrees/` is
+gitignored (working copies, not source).
 
 ## Commit trailer (D-2, REQ-C1.4)
 
