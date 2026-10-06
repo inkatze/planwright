@@ -1242,8 +1242,10 @@ cmd_dispatch() {
 
   # The dispatch lifecycle push, best-effort like the registration above; a dry
   # run launched nothing, so it pushes nothing. It runs after the lock is
-  # released, which it does not need.
-  if [ "$dry" -eq 0 ]; then
+  # released, which it does not need. A worker that confirmed has written its
+  # own row, and one that died at startup must not read as working, so
+  # neither gets it.
+  if [ "$dry" -eq 0 ] && [ "$outcome" != started ] && [ "$outcome" != failed-at-startup ]; then
     /bin/sh "$LIFECYCLE" push dispatch "$flight_id" --handle "$brief_handle" </dev/null >/dev/null \
       || printf '%s: the dispatch push did not reach the attention store; the sweep still finds the flight\n' "$prog" >&2
   fi
@@ -1285,7 +1287,10 @@ cmd_dispatch() {
       printf '%s\n' "$out" | grep "^attach-plan$TAB" || :
     else
       printf 'outcome\t%s\n' "$outcome"
-      if [ -n "$session" ]; then
+      if [ "$outcome" = failed-at-startup ]; then
+        printf 'observe\t%s\n' "none: the worker died at startup"
+        printf 'attach\t%s\n' "none: the worker died at startup"
+      elif [ -n "$session" ]; then
         printf 'observe\ttmux capture-pane -p -t %s\n' "$(sh_quote "=$session:")"
         printf 'attach\ttmux attach -t %s\n' "$(sh_quote "=$session")"
       else
@@ -1296,10 +1301,12 @@ cmd_dispatch() {
   fi
   print_root_pair "$root_dir" "$_wr"
   if [ "$outcome" = failed-at-startup ]; then
-    # The reconcile never force-removes a registered flight worktree, so the
-    # slot it holds is freed by hand.
+    # The flight stays registered, so the crash policy owns it; dispatching
+    # the ask again would start a second flight beside its relaunch. The
+    # reconcile never force-removes a registered flight worktree, so
+    # abandoning it is a hand removal.
     printf 'failed\t%s\n' "the worker died at startup: ${startup_why:-its session ended before it confirmed}"
-    printf 'reask\t%s\n' "The flight's worktree holds a slot until it is removed: git -C $(sh_quote "$primary_root") worktree remove $(sh_quote "$worktree"), then dispatch the ask again."
+    printf 'reask\t%s\n' "The crash policy relaunches this flight into its worktree once its backoff allows, until its disable threshold queues a decision. To abandon it instead, remove its worktree: git -C $(sh_quote "$primary_root") worktree remove $(sh_quote "$worktree")"
     die 5 "the flight's worker died at startup; its worktree is left at $worktree"
   fi
 }

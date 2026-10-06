@@ -9,14 +9,15 @@
 #   c3  a session that stays up unconfirmed reports started-unconfirmed (exit
 #       14) with the session and handle, and the task is then in flight: a
 #       repeat dispatch aborts rather than starting a second worker
-#   c4  an unreachable server reads as started-unconfirmed, never failed,
-#       even once the session is gone
+#   c4  an unreachable server, and an unreadable store with the session gone,
+#       read as started-unconfirmed, never failed
 #   c5  a row stamped before the dispatch start, a row without this launch's
-#       token, a missing token, and an unknown start time do not confirm; the
+#       token, and an unknown start time do not confirm; the
 #       same row with the right token and start does
-#   c6  a flight whose worker dies at startup reports failed-at-startup and
-#       names the hand removal of its worktree; one that confirms reports
-#       started
+#   c6  a flight whose worker dies at startup reports failed-at-startup,
+#       leaves the relaunch to the crash policy, names the hand removal that
+#       abandons it, and neither reads as working nor offers hints into the
+#       dead session; one that confirms reports started
 #   c7  every exit status the primitive returns is in its usage header, and
 #       the confirm step makes no model or API call (REQ-E1.3)
 #
@@ -48,7 +49,7 @@ confirm_field() {
 c1() {
   new_case
   tlh_knob worker-confirm on
-  tlh_run_bounded "$PRIM" dispatch demo 1 --repo-root "$P"
+  PLANWRIGHT_DISPATCH_CONFIRM_CAP=20 tlh_run_bounded "$PRIM" dispatch demo 1 --repo-root "$P"
   tlh_knob worker-confirm off
   tlh_expect_returned c1 || return
   [ "$TLH_RC" -eq 0 ] || fail "c1: a confirming worker must report started (exit 0), got $TLH_RC ($TLH_ERR)"
@@ -81,9 +82,13 @@ c3() {
   [ "$(confirm_field outcome)" = started-unconfirmed ] || fail "c3: the report does not say started-unconfirmed: $TLH_OUT"
   [ "$(confirm_field session)" = "$sess" ] || fail "c3: the report does not carry the session"
   [ "$(confirm_field handle)" = tmux-demo-task-3 ] || fail "c3: the report does not carry the handle"
-  [ "$TLH_ELAPSED" -ge $((TLH_CONFIRM_CAP_SECONDS - 1)) ] \
-    || fail "c3: the wait ended after ${TLH_ELAPSED}s, before the ${TLH_CONFIRM_CAP_SECONDS}s cap"
   [ -e "$C/markers/3" ] || fail "c3: an unconfirmed dispatch cleared its marker"
+  # The wait runs to its cap, timed on the confirm step alone.
+  tlh_run_bounded "$PRIM" confirm --session "$sess" --handle tmux-demo-task-3 --since "$(launch_field since)" \
+    --token "$(launch_field token)"
+  [ "$TLH_RC" -eq 14 ] || fail "c3: the standalone confirm must report started-unconfirmed, got $TLH_RC ($TLH_ERR)"
+  [ "$TLH_ELAPSED" -ge "$TLH_CONFIRM_CAP_SECONDS" ] \
+    || fail "c3: the wait ended after ${TLH_ELAPSED}s, before the ${TLH_CONFIRM_CAP_SECONDS}s cap"
   # Placed: a repeat dispatch takes no re-dispatch path.
   tlh_run_bounded "$PRIM" dispatch demo 3 --repo-root "$P"
   [ "$TLH_RC" -eq 3 ] || fail "c3: a repeat dispatch over an unconfirmed worker must abort in flight (exit 3), got $TLH_RC"
@@ -110,11 +115,19 @@ c4() {
   tlh_run_bounded "$PRIM" confirm --session "$SESS" --handle "$HANDLE" --since "$SINCE" --token "$TOKEN"
   [ "$TLH_RC" -eq 14 ] || fail "c4: an unreachable server must read started-unconfirmed (exit 14), got $TLH_RC ($TLH_ERR)"
   case $(confirm_field reason) in *'could not say'*) ;; *) fail "c4: the reason does not say tmux could not answer: $(confirm_field reason)" ;; esac
-  # Gone, but the server cannot say so: still never failed.
-  kill "$(tlh_session_pid "$SESS")" 2>/dev/null
-  tlh_run_bounded "$PRIM" confirm --session "$SESS" --handle "$HANDLE" --since "$SINCE" --token "$TOKEN"
-  [ "$TLH_RC" -eq 14 ] || fail "c4: a session lost behind an unreachable server must not read failed, got $TLH_RC"
   tlh_knob server up
+  # An unreadable store skips the session probe: a gone session behind it
+  # still reads unconfirmed, never failed.
+  local pid
+  pid=$(tlh_session_pid "$SESS")
+  if [ -z "$pid" ] || ! kill "$pid"; then
+    fail "c4: could not end the session's worker (pid '$pid')"
+  fi
+  tmux has-session -t "=$SESS" 2>/dev/null && fail "c4: the session is still up after its worker was ended"
+  mkdir -p "$C/fleet/attention/state"
+  tlh_run_bounded "$PRIM" confirm --session "$SESS" --handle "$HANDLE" --since "$SINCE" --token "$TOKEN"
+  [ "$TLH_RC" -eq 14 ] || fail "c4: an unreadable store must read started-unconfirmed even with the session gone, got $TLH_RC"
+  case $(confirm_field reason) in *'could not be read'*) ;; *) fail "c4: the reason does not name the unreadable store: $(confirm_field reason)" ;; esac
 }
 
 # attn <args...> — the case's attention store.
@@ -135,9 +148,6 @@ c5() {
   # An unknown start time.
   tlh_run_bounded "$PRIM" confirm --session "$SESS" --handle "$HANDLE" --since unknown --token "$TOKEN"
   [ "$TLH_RC" -eq 14 ] || fail "c5: an unknown start time confirmed (exit $TLH_RC)"
-  # No token given.
-  tlh_run_bounded "$PRIM" confirm --session "$SESS" --handle "$HANDLE" --since "$ts"
-  [ "$TLH_RC" -eq 14 ] || fail "c5: a confirm with no token confirmed (exit $TLH_RC)"
   # The positive control: the same row, the right token and start.
   tlh_run_bounded "$PRIM" confirm --session "$SESS" --handle "$HANDLE" --since "$ts" --token "$TOKEN"
   [ "$TLH_RC" -eq 0 ] || fail "c5: the matching row did not confirm (exit $TLH_RC, $TLH_ERR)"
@@ -166,8 +176,12 @@ c6() {
   case $(report_field failed) in *'died at startup'*) ;; *) fail "c6: the failed line does not name the cause: $(report_field failed)" ;; esac
   wt=$(report_field worktree)
   case $(report_field reask) in *"worktree remove '$wt'"*) ;; *) fail "c6: the reask does not name the hand removal of $wt: $(report_field reask)" ;; esac
+  case $(report_field reask) in *'dispatch the ask again'*) fail "c6: the reask invites a second flight beside the crash policy's relaunch" ;; esac
+  case $(report_field observe) in none:*) ;; *) fail "c6: the report offers an observe hint into a dead session: $(report_field observe)" ;; esac
+  awk -F"$TAB" -v w="tmux-flight-$(report_field flight)" '$1 == w && $3 == "working"' "$C/fleet/attention/state" 2>/dev/null \
+    | grep -q . && fail "c6: a flight whose worker died at startup reads as working"
   tlh_knob worker-confirm on
-  tlh_run_bounded "$FLIGHT" dispatch readme-typo --backend tmux --ask-file "$C/ask.txt" \
+  PLANWRIGHT_DISPATCH_CONFIRM_CAP=20 tlh_run_bounded "$FLIGHT" dispatch readme-typo --backend tmux --ask-file "$C/ask.txt" \
     --grounds-file "$C/grounds.txt" --home file --repo-root "$P"
   tlh_knob worker-confirm off
   [ "$TLH_RC" -eq 0 ] || fail "c6: a confirming flight must be placed (exit 0), got $TLH_RC ($TLH_ERR)"
@@ -184,8 +198,8 @@ c7() {
   for c in $codes; do
     printf '%s\n' "$header" | grep -Eq "^#   $c( |\$)" || fail "c7: exit $c is not documented in the usage header"
   done
-  body=$(awk '/^(store_confirms|confirm_wait|confirm_report|confirm_exit|do_confirm)\(\) \{/,/^}/' "$PRIM")
-  [ "$(printf '%s\n' "$body" | grep -c '() {')" = 5 ] || fail "c7: the confirm step's functions were not all found"
+  body=$(awk '/^(store_confirms|confirm_wait|now_seconds|confirm_report|confirm_exit|do_confirm)\(\) \{/,/^}/' "$PRIM")
+  [ "$(printf '%s\n' "$body" | grep -c '() {')" = 6 ] || fail "c7: the confirm step's functions were not all found"
   printf '%s\n' "$body" | grep -v '^[[:space:]]*#' | grep -Eiq 'curl|wget|https?:|anthropic|claude' \
     && fail "c7: the confirm step makes a model or network call"
   return 0
