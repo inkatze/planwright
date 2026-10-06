@@ -64,22 +64,30 @@ fail() {
 command -v jq >/dev/null 2>&1 || fail "jq is required: the launch preflight runs the auto-approve hook"
 [ -x "$FA" ] || fail "scripts/fleet-attention.sh missing or not executable"
 
-tmp=$(mktemp -d)
+tmp=$(mktemp -d) || fail "mktemp -d failed: no scratch directory to run in"
 # Teardown on every exit, a failed case's and an interrupt's included: close
-# each worker whose supervisor is still up through the script's own stop path,
-# then reap anything left that carries this run's scratch path, so no case's
-# supervisor, tick, or shim survives the suite whichever way it ends.
+# each worker whose supervisor is still running through the script's own stop
+# path, then reap anything left that carries this run's scratch path, so no
+# case's supervisor, tick, or shim survives the suite whichever way it ends.
+# A second interrupt is ignored until the reap is done. Several cases leave
+# fabricated or stale pid files behind, and `stop` seeds its walk from them
+# unchecked, so it runs only where the recorded pid is this run's supervisor.
 cleanup() {
-  trap - EXIT INT TERM
-  fixture_owner || return 0
+  trap '' INT TERM
+  trap - EXIT
+  fixture_is_owner || return 0
+  mkdir -p "$tmp/reap"
   for cl_dir in "$tmp"/h*/streamjson/*/; do
-    [ -s "$cl_dir/supervisor.pid" ] || continue
     cl_dir=${cl_dir%/}
-    cl_home=${cl_dir%/streamjson/*}
-    mkdir -p "$tmp/reap"
-    senv "$cl_home" "$tmp/reap" -- stop "${cl_dir##*/}" --grace 2 >/dev/null 2>&1
+    cl_pid=$(cat "$cl_dir/supervisor.pid" 2>/dev/null) || continue
+    case $cl_pid in '' | *[!0-9]*) continue ;; esac
+    case $(ps -p "$cl_pid" -o args= 2>/dev/null) in
+      *"_supervise ${cl_dir##*/} $cl_dir "*) ;;
+      *) continue ;;
+    esac
+    senv "${cl_dir%/streamjson/*}" "$tmp/reap" -- stop "${cl_dir##*/}" --grace 2 >/dev/null 2>&1
   done
-  fixture_reap "$tmp/" || echo "cleanup: fixture process(es) survived SIGKILL: $(fixture_procs "$tmp/" | tr '\n' ';')" >&2
+  fixture_reap "$tmp/"
   rm -rf "$tmp"
 }
 trap cleanup EXIT
@@ -1607,12 +1615,13 @@ else
     *) fail "c31: the failure never named the pid file it could not publish: $out" ;;
   esac
   #   And no worker is left running behind that failure.
-  leaked=0
-  for c31p in $(pgrep -f "fleet-streamjson.sh _supervise sjw31" 2>/dev/null); do
-    leaked=$((leaked + 1))
-    kill "$c31p" 2>/dev/null
-  done
-  [ "$leaked" = 0 ] || fail "c31: $leaked supervisor(s) survived a failed pid publish"
+  #   Matched on this run's state directory, so a concurrent run's sjw31 is
+  #   neither counted nor killed.
+  fixture_none "$wdir31/" || {
+    c31left=$(fixture_procs "$wdir31/")
+    fixture_reap "$wdir31/"
+    fail "c31: supervisor(s) survived a failed pid publish: $c31left"
+  }
   echo "ok: c31 a worker that cannot be recorded is closed, not left running (REQ-E1.5)"
 fi
 
@@ -1842,16 +1851,13 @@ grep -q "pids must be positive integers" "$tmp/tk36b.err" \
 echo "ok: c36 the tick refuses a malformed argv or a foreign directory, and says so"
 
 # ---------------------------------------------------------------------------
-# c37: the suite leaves nothing running. Every process a case starts carries
-#     this run's scratch directory in its argv, so whatever still does once the
-#     cases are done is a supervisor, tick, or shim some case launched and never
-#     closed. A tick exits within a second of its supervisor, so the set gets a
-#     short window to drain before it counts as leaked.
+# c37: the suite leaves nothing running. Every supervisor, tick, and shim a
+#     case starts carries this run's scratch directory in its argv, so one still
+#     running once the cases are done, or a descendant of one, is something a
+#     case launched and never closed. A tick notices its supervisor is gone only at its next step, so
+#     the set gets a short window to drain before it counts as leaked.
 # ---------------------------------------------------------------------------
-no_fixture_procs() {
-  [ -z "$(fixture_procs "$tmp/")" ]
-}
-wait_until 50 no_fixture_procs \
+wait_until 50 fixture_none "$tmp/" \
   || fail "c37: fixture process(es) still running after every case: $(fixture_procs "$tmp/" | tr '\n' ';')"
 echo "ok: c37 no supervisor, tick, or shim from this run outlives the suite"
 
