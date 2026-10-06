@@ -251,6 +251,7 @@ write_file "$r/tests/test-x.sh" '# negative case: claude --worktree x --tmux=cla
 write_file "$r/CHANGELOG.md" '- launches via `claude --worktree x`'
 write_file "$r/docs/CHANGELOG.md" '- launches via `claude --worktree x`'
 write_file "$r/templates/t/notes.md" 'Run `claude --worktree x` to dispatch.'
+write_file "$r/docs/.vuepress/notes.md" 'Run `claude --worktree x` to dispatch.'
 run --root "$r"
 assert "specs/, tests/, changelogs and non-README files elsewhere are out of scope" 0 "$code"
 

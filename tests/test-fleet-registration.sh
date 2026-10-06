@@ -451,7 +451,7 @@ not_in_manifest() {
   local d
   while IFS= read -r d; do
     [ -n "$d" ] || continue
-    printf '%s\n' "$manifest" | grep -qx "$d" || printf '%s\n' "$d"
+    printf '%s\n' "$manifest" | grep -Fqx "$d" || printf '%s\n' "$d"
   done
 }
 # unmanifested <dir> — the seams discovered in <dir> the manifest does not name.
@@ -469,7 +469,7 @@ discovered=$(discover_seams "$REPO_ROOT/scripts")
 # only some) would pass the loop below trivially, which is the failure mode
 # that lets an unregistered seam through.
 for seam in $manifest; do
-  printf '%s\n' "$discovered" | grep -qx "$seam" \
+  printf '%s\n' "$discovered" | grep -Fqx "$seam" \
     || fail "c1: discovery no longer finds $seam — the scan has drifted and can pass vacuously"
 done
 # The exemption must stay reachable: the real watchdog holds the command
@@ -517,14 +517,18 @@ awk '{ print } /^  tmux new-session -d -s "\$session_name"/ { dup = 3 } dup > 0 
   "$c1b_src" >"$c1b_dir/twice/$exempt_file"
 [ -z "$(unmanifested "$c1b_dir/clean")" ] \
   || fail "c1b: an unmodified watchdog copy is reported as an unmanifested seam"
-unmanifested "$c1b_dir/added" | grep -qx "$exempt_file" \
+unmanifested "$c1b_dir/added" | grep -Fqx "$exempt_file" \
   || fail "c1b: a worker launch added beside the tower relaunch is not discovered"
 for c in session startdir runs; do
-  unmanifested "$c1b_dir/$c" | grep -qx "$exempt_file" \
+  unmanifested "$c1b_dir/$c" | grep -Fqx "$exempt_file" \
     || fail "c1b: the exemption matched a relaunch reworded in its $c"
 done
 exempt_reached "$c1b_dir/clean/$exempt_file" \
   || fail "c1b: the unreached-exemption guard refuses an unmodified copy"
+# The duplicate must really hold the command twice, or the refusal below would
+# be the guard rejecting a broken fixture rather than a duplicate.
+[ "$(script_commands "$c1b_dir/twice/$exempt_file" | exempt_filter count)" = 2 ] \
+  || fail "c1b: fixture construction failed (twice: the relaunch is not duplicated)"
 exempt_reached "$c1b_dir/twice/$exempt_file" \
   && fail "c1b: the unreached-exemption guard accepts a copy holding the relaunch twice"
 ok c1b "the watchdog exemption covers only its tower relaunch command"

@@ -154,7 +154,7 @@ else
   out=$(
     for d in docs doctrine skills scripts config; do
       [ -d "$d" ] || continue
-      find -H "$d" -type f ! -name CHANGELOG.md \
+      find -H "$d" -name '.?*' -prune -o -type f ! -name CHANGELOG.md \
         -exec awk -v window="$WINDOW" "$scan_program" {} + || printf 'FAILED\n'
     done
     find . \( -path ./specs -o -path ./tests -o -path ./docs -o -path ./doctrine \
