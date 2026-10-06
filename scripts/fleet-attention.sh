@@ -57,6 +57,7 @@
 #
 # Usage:
 #   fleet-attention.sh heartbeat <worker> <scope> <state> [--unless-awaiting]
+#       [--launch-token <hex>]
 #       Upsert the worker's current state (one row per worker, last wins).
 #       <state> ∈ working | idle | hung | ended | pr-ready | merged | done
 #       (idle/hung/ended are the hook-pushed liveness states, fleet-autonomy
@@ -65,6 +66,10 @@
 #       awaiting-input, checked atomically inside the store's critical
 #       section — the escalation-preserve primitive (REQ-A1.3): a downgrade
 #       push must never overwrite a queued human decision.
+#       --launch-token: 16 to 64 lowercase hex digits, recorded in field 9 as
+#       `launch:<hex>` (fleet-hardening D-15): the worker's SessionStart
+#       confirmation of the tmux launch that minted it, which the dispatch's
+#       confirm step matches. The next heartbeat for the worker drops it.
 #   fleet-attention.sh decide <worker> <scope> <question> <default> <options> [priority]
 #       Upsert the worker as awaiting-input WITH a structured decision.
 #       [priority] ∈ high | normal | low (default normal).
@@ -728,16 +733,46 @@ case $cmd in
     worker="${1:-}"
     scope="${2:-}"
     state="${3:-}"
-    guard="${4:-}"
+    guard=""
+    launch_token=""
+    hb_usage="usage: fleet-attention.sh heartbeat <worker> <scope> <state> [--unless-awaiting] [--launch-token <hex>]"
     if [ -z "$worker" ] || [ -z "$scope" ] || [ -z "$state" ]; then
-      echo "usage: fleet-attention.sh heartbeat <worker> <scope> <state> [--unless-awaiting]" >&2
+      echo "$hb_usage" >&2
       exit 2
     fi
-    case $guard in
-      "" | --unless-awaiting) ;;
-      *)
-        echo "usage: fleet-attention.sh heartbeat <worker> <scope> <state> [--unless-awaiting]" >&2
+    shift 3
+    while [ "$#" -gt 0 ]; do
+      case $1 in
+        --unless-awaiting)
+          guard=--unless-awaiting
+          shift
+          ;;
+        --launch-token)
+          [ "$#" -ge 2 ] || {
+            echo "$hb_usage" >&2
+            exit 2
+          }
+          launch_token=$2
+          hb_token_set=1
+          shift 2
+          ;;
+        *)
+          echo "$hb_usage" >&2
+          exit 2
+          ;;
+      esac
+    done
+    case ${hb_token_set:-0}$launch_token in
+      0) ;;
+      1 | 1*[!0-9a-f]*)
+        echo "fleet-attention: refusing a launch token that is not 16 to 64 lowercase hex digits" >&2
         exit 2
+        ;;
+      *)
+        if [ "${#launch_token}" -lt 16 ] || [ "${#launch_token}" -gt 64 ]; then
+          echo "fleet-attention: refusing a launch token that is not 16 to 64 lowercase hex digits" >&2
+          exit 2
+        fi
         ;;
     esac
     if ! valid_field "$worker"; then
@@ -759,10 +794,14 @@ case $cmd in
     # empty; upsert_row stamps the commit-time timestamp under the lock. The
     # optional --unless-awaiting guard is evaluated inside the lock (see
     # upsert_row): a no-op success when the current row is awaiting-input.
+    # A launch token rides field 9 as `launch:<hex>`: no reader gives field 9
+    # meaning outside an awaiting-input row, and the next heartbeat drops it.
+    hb_reason=""
+    [ -z "$launch_token" ] || hb_reason="launch:$launch_token"
     if [ "$guard" = --unless-awaiting ]; then
-      upsert_row "$worker" "$scope" "$state" "" "" "" "" unless-awaiting || exit 2
+      upsert_row "$worker" "$scope" "$state" "" "" "" "" unless-awaiting "$hb_reason" || exit 2
     else
-      upsert_row "$worker" "$scope" "$state" "" "" "" "" || exit 2
+      upsert_row "$worker" "$scope" "$state" "" "" "" "" "" "$hb_reason" || exit 2
     fi
     exit 0
     ;;

@@ -43,6 +43,11 @@
 #                          notification_type ONLY (fleet-hardening Task 2, D-2 /
 #                          REQ-A1.1). permission-park / non-park / unknown types
 #                          push NOTHING (payload-reason gating).
+#      session-start       SessionStart (startup / resume) -> working, carrying
+#                          PLANWRIGHT_WORKER_LAUNCH_TOKEN as `launch:<hex>` when
+#                          set: the tmux launch's startup confirmation
+#                          (fleet-hardening D-15). --unless-awaiting; a malformed
+#                          token writes nothing.
 #    THE ESCALATION-PRESERVE GUARD (REQ-A1.3): a downgrade push (stop /
 #    session-end / stop-failure) never overwrites an awaiting-input row that
 #    has NO decision marker (permission or fork-park) — that row is a queued
@@ -182,7 +187,7 @@
 #    consumes.
 #
 # Usage:
-#   fleet-liveness.sh hook <stop|permission-request|post-tool-use|session-end|stop-failure|notification>
+#   fleet-liveness.sh hook <stop|permission-request|post-tool-use|session-end|stop-failure|notification|session-start>
 #       The registered hook handler (identity from the env contract; the
 #       payload is drained on the worker path, never parsed — except the
 #       notification arm, which reads + strictly validates notification_type,
@@ -1201,12 +1206,12 @@ case "$cmd" in
     # so exiting 0 on a signal abandons nothing.
     trap 'exit 0' INT TERM
     if [ "$#" -ne 1 ]; then
-      echo "usage: fleet-liveness.sh hook <stop|permission-request|post-tool-use|session-end|stop-failure|notification>" >&2
+      echo "usage: fleet-liveness.sh hook <stop|permission-request|post-tool-use|session-end|stop-failure|notification|session-start>" >&2
       exit 2
     fi
     event=$1
     case "$event" in
-      stop | permission-request | post-tool-use | session-end | stop-failure | notification) ;;
+      stop | permission-request | post-tool-use | session-end | stop-failure | notification | session-start) ;;
       *)
         # A malformed invocation (unknown event, wrong arg count above) is a
         # hooks.json wiring bug, not a runtime state: the hook-path exit 2.
@@ -1254,6 +1259,29 @@ case "$cmd" in
     marker="$root/liveness/pending/$handle"
     await_marker="$root/liveness/awaiting/$handle"
     case "$event" in
+      session-start)
+        # The worker's own startup confirmation (fleet-hardening D-15): the
+        # tmux dispatch's confirm step reads this row's launch token, so only
+        # the launch that minted the token can be confirmed by it. Nothing on
+        # stdout: SessionStart hands a hook's stdout to the model.
+        # --unless-awaiting, because a resumed session must not auto-resolve a
+        # queued decision; the launch then reads as unconfirmed, never failed.
+        set -- --unless-awaiting
+        launch_token=${PLANWRIGHT_WORKER_LAUNCH_TOKEN:-}
+        if [ -n "$launch_token" ]; then
+          case $launch_token in
+            *[!0-9a-f]*) launch_token=bad ;;
+          esac
+          if [ "$launch_token" = bad ] || [ "${#launch_token}" -lt 16 ] || [ "${#launch_token}" -gt 64 ]; then
+            echo "fleet-liveness: refusing a malformed PLANWRIGHT_WORKER_LAUNCH_TOKEN; no state written" >&2
+            exit 0
+          fi
+          set -- "$@" --launch-token "$launch_token"
+        fi
+        "$FA" heartbeat "$handle" "$scope" working "$@" >/dev/null 2>&1 \
+          || echo "fleet-liveness: state push (working) failed; reconcile self-heals (D-1)" >&2
+        exit 0
+        ;;
       notification)
         # Fork-park attention (D-2/REQ-A1.1): a native Notification hook fires
         # the instant a worker parks for human input. Gate on the payload

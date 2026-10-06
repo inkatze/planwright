@@ -65,6 +65,24 @@
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/flight-sweep.sh hook session-start"
           }
         ]
+      },
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/fleet-liveness.sh hook session-start"
+          }
+        ]
+      },
+      {
+        "matcher": "resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/fleet-liveness.sh hook session-start"
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
