@@ -29,9 +29,9 @@ allowlist='fleet-dispatch-env.sh	publishes the operator'"'"'s own values into a 
 install.sh	it writes the writer-delivery copy, so it names that directory as a destination, not as an arm
 inception-scaffold.sh	the venture hook it emits runs outside planwright and must locate a copy before it can ask that copy'"'"'s resolver'
 
-# <script> TAB <the exact read, trimmed> TAB <why>: a single read a script may
-# make, every other read in it still failing. Each row must match a read
-# that exists, or it fails as stale.
+# <script> TAB <the exact read, trimmed> TAB <why>: the single read a script
+# may make, every other read in it still failing. The row fails unless the
+# script makes that read exactly once.
 # shellcheck disable=SC2016 # the reads are literal shell text
 line_allowlist='worker-command-guard.sh	local r=${CLAUDE_PLUGIN_ROOT:-}	trust policy: it withholds a symlinked plugin-delivery arm from the resolver, which would canonicalize it into trusting the link target; the resolver still picks the roots
 tower-command-guard.sh	local r=${CLAUDE_PLUGIN_ROOT:-}	trust policy: it withholds a symlinked plugin-delivery arm from the resolver, which would canonicalize it into trusting the link target; the resolver still picks the root'
@@ -61,6 +61,22 @@ unallowed_reads() {
   done
 }
 
+# allowed_read_count <file> <read>: how many chain reads in <file> are exactly
+# <read> once trimmed. A row grants one read, so anything but 1 fails it.
+allowed_read_count() {
+  local hit text n=0
+  while IFS= read -r hit; do
+    [ -n "$hit" ] || continue
+    text=${hit#*:}
+    text=${text#"${text%%[![:space:]]*}"}
+    text=${text%"${text##*[![:space:]]}"}
+    [ "$text" = "$2" ] && n=$((n + 1))
+  done <<EOF
+$(chain_reads "$1")
+EOF
+  printf '%s\n' "$n"
+}
+
 for f in "$REPO_ROOT"/scripts/*.sh; do
   name=${f##*/}
   [ "$name" = resolve-root.sh ] && continue
@@ -88,10 +104,11 @@ EOF
 
 while IFS="$(printf '\t')" read -r name line why; do
   [ -n "$name" ] || continue
-  if chain_reads "$REPO_ROOT/scripts/$name" | grep -qF -- "$line"; then
+  count=$(allowed_read_count "$REPO_ROOT/scripts/$name" "$line")
+  if [ "$count" = 1 ]; then
     ok "allowlisted read: scripts/$name ($why)"
   else
-    fail "stale line allowlist row: scripts/$name no longer makes the read '$line'"
+    fail "line allowlist row: scripts/$name makes the read '$line' $count times, not once"
   fi
 done <<EOF
 $line_allowlist
@@ -117,6 +134,14 @@ if [ "$(printf '%s\n' "$left" | grep -c .)" = 1 ] && printf '%s' "$left" | grep 
   ok "a guard's allowed read passes and an added inline chain read still fails"
 else
   fail "the line allowance let through more than the one read: '$left'"
+fi
+# shellcheck disable=SC2016
+printf '  local r=${CLAUDE_PLUGIN_ROOT:-}\nf() {\n\tlocal r=${CLAUDE_PLUGIN_ROOT:-}  \n}\n' >"$tmp/twice.sh"
+# shellcheck disable=SC2016
+if [ "$(allowed_read_count "$tmp/twice.sh" 'local r=${CLAUDE_PLUGIN_ROOT:-}')" = 2 ]; then
+  ok "a second copy of the allowed read is counted, so its row fails"
+else
+  fail "a duplicated allowed read was not counted"
 fi
 
 for g in "$WORKER" "$TOWER"; do

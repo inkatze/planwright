@@ -58,6 +58,14 @@ unlinked() {
       *) break ;;
     esac
   done
+  # A doubled slash is one separator to the kernel but would hide the
+  # `/plugins/cache/` match below.
+  while :; do
+    case $ul_p in
+      *//*) ul_p=${ul_p%%//*}/${ul_p#*//} ;;
+      *) break ;;
+    esac
+  done
   [ -n "$ul_p" ] || return 1
   # `[ -L ]` follows a link named before a `.` or `..` component, so a path
   # carrying one would hide the symlink it walks through.
