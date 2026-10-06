@@ -39,6 +39,9 @@
 #   c1 (REQ-E1.1): the seam-coverage manifest — every dispatch seam registers,
 #      and discovery over scripts/ finds no seam missing from the manifest, so
 #      the requirement does not silently decay as seams are added.
+#   c1b (fleet-hardening REQ-H1.6): the watchdog's exemption covers its tower
+#      relaunch command only; a worker launch added beside it, or a reworded
+#      relaunch, is discovered.
 #   c2 (REQ-E1.1, REQ-E1.2): the headless rung registers a complete record.
 #   c3 (REQ-E1.1, REQ-E1.2): the stream-json rung registers a complete record.
 #   c4 (REQ-E1.1, REQ-D1.8): the offload print rung registers its deferred
@@ -401,37 +404,136 @@ grep -qE 'register_dispatch .* print' "$REPO_ROOT/scripts/offload-dispatch.sh" \
 # launch (run or printed for a human to run). Same shape as the sibling guard in
 # tests/test-dispatch-launch-pin.sh. Comment lines are stripped first: a guard
 # that quotes a launch shape in its prose is documenting one, not spawning one.
-discovered=$(for f in "$REPO_ROOT"/scripts/*.sh; do
-  body=$(grep -v '^[[:space:]]*#' "$f")
-  if printf '%s\n' "$body" | grep -qE -- '(^|[[:space:]])(-p|--print)([[:space:]].*)?[[:space:]]--output-format' \
-    || printf '%s\n' "$body" | grep -qE -- '--output-format([[:space:]].*)?[[:space:]](-p|--print)([[:space:]]|$)' \
-    || printf '%s\n' "$body" | grep -qE -- '--tmux=classic|tmux new-window|new-session -d -s [^ ]+ -c|claude --worktree'; then
-    basename "$f"
-  fi
-done | sort -u)
+# The one exemption is a single command, not a file: fleet-tower-watchdog.sh
+# opens a tmux session to relaunch a tower, not a worker, so that launch has no
+# registry record to write. Any other launch in the same file is still
+# discovered. The command is matched whole, continuation lines joined, so
+# rewording any part of the relaunch (what it runs included) surfaces it here
+# rather than widening the exemption silently.
+exempt_file="fleet-tower-watchdog.sh"
+# shellcheck disable=SC2016 # the relaunch command as written in the watchdog
+exempt_cmd='tmux new-session -d -s "$session_name" -c "$checkout" "$script_dir/fleet-dispatch-env.sh" claude "/orchestrate --watch --unattended specs/$spec" 2>/dev/null || {'
+# script_commands <file> — the file without its comment lines, each command on
+# one line however it is wrapped, whitespace runs collapsed.
+script_commands() {
+  grep -v '^[[:space:]]*#' "$1" | awk '
+    { sub(/[ \t]+$/, "") }
+    /\\$/ { acc = acc substr($0, 1, length($0) - 1) " "; next }
+    { $0 = acc $0; acc = ""; gsub(/[ \t]+/, " "); sub(/^ /, ""); print }
+    END { if (acc != "") print acc }'
+}
+# exempt_filter drop|count — drop the relaunch command from script_commands
+# output, or count how often it occurs there.
+exempt_filter() {
+  EXEMPT_CMD=$exempt_cmd awk -v mode="$1" '
+    $0 == ENVIRON["EXEMPT_CMD"] { n++; next }
+    mode == "drop" { print }
+    END { if (mode == "count") print n + 0 }'
+}
+# discover_seams <dir> — the basename of every script in <dir> that spawns a
+# worker, one per line, sorted.
+discover_seams() {
+  local f body
+  for f in "$1"/*.sh; do
+    [ -f "$f" ] || continue
+    if [ "${f##*/}" = "$exempt_file" ]; then
+      body=$(script_commands "$f" | exempt_filter drop)
+    else
+      body=$(grep -v '^[[:space:]]*#' "$f")
+    fi
+    if printf '%s\n' "$body" | grep -qE -- '(^|[[:space:]])(-p|--print)([[:space:]].*)?[[:space:]]--output-format' \
+      || printf '%s\n' "$body" | grep -qE -- '--output-format([[:space:]].*)?[[:space:]](-p|--print)([[:space:]]|$)' \
+      || printf '%s\n' "$body" | grep -qE -- '--tmux=classic|tmux new-window|new-session -d -s [^ ]+ -c|claude --worktree'; then
+      printf '%s\n' "${f##*/}"
+    fi
+  done | sort -u
+}
+# not_in_manifest — the names on stdin the manifest does not list.
+not_in_manifest() {
+  local d
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    printf '%s\n' "$manifest" | grep -Fqx "$d" || printf '%s\n' "$d"
+  done
+}
+# unmanifested <dir> — the seams discovered in <dir> the manifest does not name.
+unmanifested() {
+  discover_seams "$1" | not_in_manifest
+}
+# exempt_reached <file> — the relaunch command occurs in <file> exactly once.
+exempt_reached() {
+  [ "$(script_commands "$1" | exempt_filter count)" = 1 ]
+}
+discovered=$(discover_seams "$REPO_ROOT/scripts")
 [ -n "$discovered" ] || fail "c1: seam discovery found nothing (the scan has drifted)"
 # Non-vacuity floor, the sibling guard's p1: the scan must still find every
 # seam the manifest names. A scan that has drifted into finding nothing (or
 # only some) would pass the loop below trivially, which is the failure mode
 # that lets an unregistered seam through.
 for seam in $manifest; do
-  printf '%s\n' "$discovered" | grep -qx "$seam" \
+  printf '%s\n' "$discovered" | grep -Fqx "$seam" \
     || fail "c1: discovery no longer finds $seam — the scan has drifted and can pass vacuously"
 done
-# The one exemption: fleet-tower-watchdog.sh opens a tmux session to relaunch a
-# tower, not a worker, so it has no registry record to write. It must still be
-# discovered, so the exemption cannot sit here unreached.
-exempt="fleet-tower-watchdog.sh"
-for e in $exempt; do
-  printf '%s\n' "$discovered" | grep -qx "$e" \
-    || fail "c1: the exemption for $e is unreached; drop it"
-done
-for d in $discovered; do
-  printf '%s\n' "$exempt" | grep -qx "$d" && continue
-  printf '%s\n' "$manifest" | grep -qx "$d" \
-    || fail "c1: $d spawns a worker but is not in the seam-coverage manifest"
+# The exemption must stay reachable: the real watchdog holds the command
+# exactly once, and the command on its own is one discovery would flag.
+exempt_reached "$REPO_ROOT/scripts/$exempt_file" \
+  || fail "c1: the exemption's relaunch command does not occur exactly once in $exempt_file; it is unreached"
+printf '%s\n' "$exempt_cmd" | grep -qE -- 'new-session -d -s [^ ]+ -c' \
+  || fail "c1: the exemption's command is not a launch discovery would flag; drop it"
+for d in $(printf '%s\n' "$discovered" | not_in_manifest); do
+  fail "c1: $d spawns a worker but is not in the seam-coverage manifest"
 done
 ok c1 "every dispatch seam registers, and discovery finds none missing"
+
+# ---------------------------------------------------------------------------
+# c1b — the exemption covers the tower relaunch, not its file (REQ-H1.6).
+#
+# A fixture copy of the watchdog gains a worker launch beside its tower
+# relaunch: discovery must report the copy as an unmanifested seam. A copy
+# whose relaunch is reworded anywhere (its session, its start directory, or
+# what it runs) is discovered too, so the exemption cannot match more than the
+# one command it names; and a copy holding the relaunch twice fails the
+# unreached-exemption guard, which is what stops a duplicate hiding there.
+# ---------------------------------------------------------------------------
+c1b_dir="$tmp/c1b-scripts"
+c1b_src="$REPO_ROOT/scripts/$exempt_file"
+mkdir -p "$c1b_dir/clean" "$c1b_dir/added" "$c1b_dir/session" "$c1b_dir/startdir" \
+  "$c1b_dir/runs" "$c1b_dir/twice"
+cp "$c1b_src" "$c1b_dir/clean/"
+cp "$c1b_src" "$c1b_dir/added/"
+# shellcheck disable=SC2016 # literal shell text for the fixture to carry
+printf '%s\n' '  tmux new-session -d -s "$worker" -c "$worktree" -- claude' \
+  >>"$c1b_dir/added/$exempt_file"
+# c1b_reword <case> <sed program> — a copy with the relaunch reworded.
+c1b_reword() {
+  sed "$2" "$c1b_src" >"$c1b_dir/$1/$exempt_file"
+  cmp -s "$c1b_dir/$1/$exempt_file" "$c1b_src" \
+    && fail "c1b: fixture construction failed ($1: the relaunch was not reworded)"
+}
+# shellcheck disable=SC2016 # sed programs, not shell expansions
+c1b_reword session 's/new-session -d -s "\$session_name"/new-session -d -s "$tower_session"/'
+# shellcheck disable=SC2016
+c1b_reword startdir 's/-c "\$checkout" \\$/-c "$worktree" \\/'
+c1b_reword runs 's|"/orchestrate --watch --unattended specs/|"/execute-task specs/|'
+awk '{ print } /^  tmux new-session -d -s "\$session_name"/ { dup = 3 } dup > 0 { buf = buf $0 "\n"; if (--dup == 0) printf "%s", buf }' \
+  "$c1b_src" >"$c1b_dir/twice/$exempt_file"
+[ -z "$(unmanifested "$c1b_dir/clean")" ] \
+  || fail "c1b: an unmodified watchdog copy is reported as an unmanifested seam"
+unmanifested "$c1b_dir/added" | grep -Fqx "$exempt_file" \
+  || fail "c1b: a worker launch added beside the tower relaunch is not discovered"
+for c in session startdir runs; do
+  unmanifested "$c1b_dir/$c" | grep -Fqx "$exempt_file" \
+    || fail "c1b: the exemption matched a relaunch reworded in its $c"
+done
+exempt_reached "$c1b_dir/clean/$exempt_file" \
+  || fail "c1b: the unreached-exemption guard refuses an unmodified copy"
+# The duplicate must really hold the command twice, or the refusal below would
+# be the guard rejecting a broken fixture rather than a duplicate.
+[ "$(script_commands "$c1b_dir/twice/$exempt_file" | exempt_filter count)" = 2 ] \
+  || fail "c1b: fixture construction failed (twice: the relaunch is not duplicated)"
+exempt_reached "$c1b_dir/twice/$exempt_file" \
+  && fail "c1b: the unreached-exemption guard accepts a copy holding the relaunch twice"
+ok c1b "the watchdog exemption covers only its tower relaunch command"
 
 # ---------------------------------------------------------------------------
 # c2 — the headless rung registers a complete record.

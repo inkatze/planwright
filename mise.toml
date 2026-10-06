@@ -169,6 +169,10 @@ run = "/bin/sh scripts/check-githooks.sh"
 description = "purged-identifier guard: fail if an identifier deliberately purged from this history reappears in the tracked tree, matched as SHA-256 over normalized candidates so no plaintext is committed; fails closed on a missing, malformed, or below-floor seed file (guard-coverage Task 3, REQ-B1.1, REQ-B1.2, REQ-H1.3, D-5)"
 run = "/bin/sh scripts/check-purged-identifiers.sh"
 
+[tasks."check:launch-shape"]
+description = "launch-shape prose guard: fail on shipped prose (docs/, doctrine/, skills/, scripts/, config/, READMEs; not specs/, tests/, or a changelog) that names the native worktree launcher, with or without its classic-tmux flag, without labeling it an operator's hand-launch; the tmux rung launches its worker in a detached session it creates itself. Fails closed when nothing is in scope (fleet-hardening Task 14, REQ-H1.5, D-10)"
+run = "/bin/sh scripts/check-launch-shape.sh"
+
 [tasks."check:coordination-hygiene"]
 description = "conditional coordination-artifact hygiene guard: when a coordination record (a presence record, a fence-ref line) has actually landed in the tracked tree, screen it for a peer tower's checkout path, its death handle, internal hostnames, and credentials; a tree that commits none is a clean no-op (concurrent-orchestrator-coordination Task 5, REQ-D1.4, D-9)"
 run = "/bin/sh scripts/check-coordination-hygiene.sh"
@@ -266,6 +270,7 @@ depends = [
   "check:workflow-posture",
   "check:githooks",
   "check:purged-identifiers",
+  "check:launch-shape",
   "check:coordination-hygiene",
   "check:hook-contracts",
   "check:doctrine-index",
