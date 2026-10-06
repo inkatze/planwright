@@ -674,6 +674,8 @@ assert_allow "a real cache root beside a symlinked one still allows" "$INST_CACH
 ln -s "$LINKED_TARGET" "$SANDBOX/install/linked-plugin-root"
 HOOK_ENV=("CLAUDE_PLUGIN_ROOT=$SANDBOX/install/linked-plugin-root")
 assert_defer "bypass: a symlinked CLAUDE_PLUGIN_ROOT" "$LINKED_TARGET/scripts/plug.sh" Bash "$PLUGIN_CWD"
+HOOK_ENV=("CLAUDE_PLUGIN_ROOT=$SANDBOX/install/linked-plugin-root/.")
+assert_defer "bypass: a symlinked CLAUDE_PLUGIN_ROOT behind a trailing /." "$LINKED_TARGET/scripts/plug.sh" Bash "$PLUGIN_CWD"
 HOOK_ENV=()
 
 # --- Same-command variable tracking (the raw-command premise) ---------------

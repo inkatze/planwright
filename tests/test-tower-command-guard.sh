@@ -462,6 +462,8 @@ assert_allow "an opaque operand of an argument-independent verb" "cat \$X; echo 
 ln -s "$PLUGIN_ROOT" "$SANDBOX/linked-plugin-root"
 RUN_PLUGIN_ROOT="$SANDBOX/linked-plugin-root" assert_defer "bypass: a symlinked CLAUDE_PLUGIN_ROOT" \
   "$PLUGIN_ROOT/scripts/orchestrate-select.sh specs/x" Bash "$LOOKALIKE"
+RUN_PLUGIN_ROOT="$SANDBOX/linked-plugin-root/." assert_defer "bypass: a symlinked CLAUDE_PLUGIN_ROOT behind a trailing /." \
+  "$PLUGIN_ROOT/scripts/orchestrate-select.sh specs/x" Bash "$LOOKALIKE"
 
 assert_defer "bypass: select is not modelled" "select d in a b; do echo \$d; done"
 assert_defer "bypass: for with no in-list iterates the positionals" "for d; do find . \$d; done"

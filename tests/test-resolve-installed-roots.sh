@@ -138,6 +138,25 @@ assert_eq "--unlinked refuses a root under a symlinked marketplace dir" 1 "$?"
 assert_eq "--unlinked refuses a symlinked leaf behind trailing slashes" 1 "$?"
 /bin/sh "$RESOLVER" --unlinked 2>/dev/null
 assert_eq "--unlinked without a path is a usage error" 2 "$?"
+# A `.` or `..` component hides a symlink from `[ -L ]`, which follows the
+# link when the path ends in `/.`, so any such component is refused.
+mkdir -p "$SANDBOX/real-root/x"
+for shape in "link-root/." "link-root/./" "link-root/x/.." "real-root/../link-root"; do
+  /bin/sh "$RESOLVER" --unlinked "$SANDBOX/$shape"
+  assert_eq "--unlinked refuses $shape" 1 "$?"
+done
+dots="$SANDBOX/dots"
+mkdir -p "$dots/plugins"
+jq -n --arg a "$SANDBOX/link-root/." --arg b "$SANDBOX/link-root/./" --arg c "$SANDBOX/link-root/x/.." \
+  '{plugins: {"planwright@planwright": [{installPath: $a}, {installPath: $b}, {installPath: $c}]}}' \
+  >"$dots/plugins/installed_plugins.json"
+run "CLAUDE_DIR=$dots"
+assert_eq "a symlinked root behind a dot component is never listed" "" "$OUT"
+OUT=$(env -u HOME CLAUDE_DIR="$dots" /bin/sh "$RESOLVER" --refused 2>/dev/null)
+assert_eq "--refused lists every dot-component shape" \
+  "$SANDBOX/link-root/.
+$SANDBOX/link-root/./
+$SANDBOX/link-root/x/.." "$OUT"
 
 if [ "$failures" -gt 0 ]; then
   echo "resolve-installed-roots suite: $failures failure(s)" >&2
