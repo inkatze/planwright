@@ -64,7 +64,7 @@ fail() {
 command -v jq >/dev/null 2>&1 || fail "jq is required: the launch preflight runs the auto-approve hook"
 [ -x "$FA" ] || fail "scripts/fleet-attention.sh missing or not executable"
 
-tmp=$(mktemp -d) || fail "mktemp -d failed: no scratch directory to run in"
+tmp=$(fixture_scratch) || fail "no scratch directory to run in"
 # Teardown on every exit, a failed case's and an interrupt's included: close
 # each worker whose supervisor is still running through the script's own stop
 # path, then reap anything left that carries this run's scratch path, so no
@@ -1572,12 +1572,16 @@ else
   printf '%s\n' "$dead30" >"$wdir30/worker.pid"
   printf '%s\n' "$dead30" >"$wdir30/supervisor.pid"
   out=$(senv "$home" "$tmp/r30" -- recover sjw30 2>&1)
+  rc30=$?
   case $out in
     *"still alive"*) fail "c30 control: a dead pid was reported still alive: $out" ;;
   esac
   #   That control really resumes: a detached supervisor, its tick, and a shim
   #   blocked reading a stdin nothing will write. Close it here, or it outlives
-  #   the suite and anything holding the runner's inherited fds.
+  #   the suite and anything holding the runner's inherited fds. Only after a
+  #   resume that succeeded: a failed one leaves the pid files naming the dead
+  #   pid, which `stop` would signal unchecked once the host reuses it.
+  [ "$rc30" = 0 ] || fail "c30 control: recover over a dead worker failed ($rc30): $out"
   senv "$home" "$tmp/r30" -- stop sjw30 --grace 2 >/dev/null 2>&1 \
     || fail "c30: closing the resumed control worker failed"
   echo "ok: c30 a live worker this user cannot signal is not treated as orphaned (REQ-E1.5)"
@@ -1619,14 +1623,15 @@ else
     *) fail "c31: the failure never named the pid file it could not publish: $out" ;;
   esac
   #   And nothing is left running behind that failure. The foreground launch
-  #   supervises in-process and spawns no tick before this failure, so what it
-  #   starts is the launch itself, whose argv names this case's prompt
-  #   directory, and the worker, whose argv names the shim's directory from the
-  #   moment it is spawned. No earlier case leaves a worker running, so any
-  #   match here is this one.
+  #   supervises in-process and spawns no tick before this failure. Its worker
+  #   blocks opening the stdin fifo until the supervisor opens the writing end,
+  #   which this failure never reaches, so the worker still carries the
+  #   launch's argv, naming this case's prompt directory. The shim's directory
+  #   covers a worker that does get as far as exec; no earlier case leaves one
+  #   running, so any match there is this one.
   for c31d in "$tmp/c31/" "$tmp/bin/"; do
     wait_until 20 fixture_none "$c31d" || {
-      c31left=$(fixture_procs "$c31d")
+      c31left=$(fixture_report "$c31d")
       fixture_reap "$c31d"
       fail "c31: a process survived a failed pid publish: $c31left"
     }
@@ -1868,7 +1873,7 @@ echo "ok: c36 the tick refuses a malformed argv or a foreign directory, and says
 #     counts as leaked.
 # ---------------------------------------------------------------------------
 wait_until 50 fixture_none "$tmp/" \
-  || fail "c37: fixture process(es) still running after every case: $(fixture_procs "$tmp/" | tr '\n' ';')"
+  || fail "c37: fixture process(es) still running after every case: $(fixture_report "$tmp/")"
 echo "ok: c37 no supervisor, tick, or shim from this run outlives the suite"
 
 echo "all fleet-streamjson tests passed"

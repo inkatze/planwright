@@ -9,24 +9,32 @@
 # directory, such as an operator tailing a capture while the suite runs, and
 # with it that process's descendants.
 #
+#   fixture_scratch          make the suite's scratch directory and print its
+#                            path; only a directory inside one is a needle
 #   fixture_procs <dir/>     one `<pid> <args>` row per matched process, the
 #                            suite's own shell excluded; exit 2 when the
 #                            process table cannot be read, so a guard never
 #                            passes on a snapshot it did not get
 #   fixture_none <dir/>      succeeds only on a readable table with no match
 #   fixture_reap <dir/>      SIGTERM the matches, SIGKILL whatever is left
-#                            after a short grace; names survivors on stderr and
-#                            returns 1 if any outlive the KILL, or, signalling
-#                            nothing, when fixture_procs refuses (exit 2)
+#                            after about two seconds; names survivors on
+#                            stderr and returns 1 if any outlive the KILL, or
+#                            when a snapshot is refused, before any signal for
+#                            a bad needle and possibly after the TERM pass for
+#                            a table that stops reading
+#   fixture_report <dir/>    the matched rows on one line, or the refusal, for
+#                            a failure message
 #   fixture_is_owner         succeeds only in the suite's own process: bash
 #                            runs the EXIT trap in a backgrounded child
 #                            signalled before it reaches exec, and that child
 #                            must not tear the suite down under itself
 #
-# <dir/> must be an existing directory strictly inside the temporary directory
-# `mktemp -d` uses, written with its trailing slash: an empty `mktemp -d`
-# result would otherwise make the needle `/`, and a broad one such as `$HOME/`
-# matches the processes the suite runs under and all their descendants.
+# <dir/> must be an existing directory at or under one fixture_scratch made,
+# written with its trailing slash. The marker it leaves is the proof: an empty
+# `mktemp -d` result would otherwise make the needle `/`, and a broad one such
+# as `$HOME/` matches the processes the suite runs under and all their
+# descendants. Reading the marker rather than comparing against $TMPDIR keeps
+# the rule independent of where mktemp chose to put the directory.
 # Only `ps -ww` is read: a narrower table can cut the path out of an argv, and a
 # guard reading it would pass on processes it never saw.
 # Matched in-shell over a captured `ps` snapshot: a `grep` or `pgrep` for the
@@ -42,13 +50,25 @@ fixture_is_owner() {
   [ -z "$me" ] || [ -z "$_fp_owner" ] || [ "$me" = "$_fp_owner" ]
 }
 
+fixture_scratch() {
+  local d
+  d=$(mktemp -d "${TMPDIR:-/tmp}/fixture.XXXXXX") || return 1
+  : >"$d/.fixture-procs" || return 1
+  printf '%s\n' "$d"
+}
+
 _fp_needle_ok() {
-  local base=${TMPDIR:-/tmp}
-  base=${base%/}
+  local d
   case $1 in
-    "$base"/?*/) [ -d "$1" ] ;;
+    /?*/) [ -d "$1" ] || return 1 ;;
     *) return 1 ;;
   esac
+  d=${1%/}
+  while [ -n "$d" ]; do
+    [ -f "$d/.fixture-procs" ] && return 0
+    d=${d%/*}
+  done
+  return 1
 }
 
 # Every row leads with a numeric pid and ppid, or this is not a process table.
@@ -59,7 +79,7 @@ _fp_table_ok() {
 fixture_procs() {
   local needle=$1 snap
   _fp_needle_ok "$needle" || {
-    echo "fixture_procs: refusing needle '$needle': not an existing directory inside ${TMPDIR:-/tmp}" >&2
+    echo "fixture_procs: refusing needle '$needle': not an existing directory under a fixture_scratch directory" >&2
     return 2
   }
   snap=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || snap=''
@@ -91,8 +111,12 @@ fixture_none() {
   [ -z "$rows" ]
 }
 
+fixture_report() {
+  fixture_procs "$1" 2>&1 | tr '\n' ';'
+}
+
 fixture_reap() {
-  local needle=$1 sig rows p t
+  local needle=$1 sig rows p end
   for sig in TERM KILL; do
     rows=$(fixture_procs "$needle") || return 1
     [ -n "$rows" ] || return 0
@@ -101,10 +125,11 @@ fixture_reap() {
     done <<EOF
 $rows
 EOF
-    t=0
-    while [ "$t" -lt 20 ] && ! fixture_none "$needle"; do
+    # Bounded by the clock, not a poll count: each poll takes a full `ps`
+    # snapshot, which on a loaded host costs more than the sleep between them.
+    end=$((SECONDS + 3))
+    while [ "$SECONDS" -lt "$end" ] && ! fixture_none "$needle"; do
       sleep 0.1
-      t=$((t + 1))
     done
   done
   rows=$(fixture_procs "$needle") || return 1

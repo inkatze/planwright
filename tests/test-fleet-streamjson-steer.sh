@@ -46,7 +46,7 @@ fail() {
 [ -x "$SJ" ] || fail "scripts/fleet-streamjson.sh missing or not executable"
 command -v jq >/dev/null 2>&1 || fail "jq is required: the launch preflight runs the auto-approve hook"
 
-tmp=$(mktemp -d) || fail "mktemp -d failed: no scratch directory to run in"
+tmp=$(fixture_scratch) || fail "no scratch directory to run in"
 tab=$(printf '\t')
 live_pids=''
 # A failed or interrupted case leaves its worker up; the shim's watchdog only
@@ -396,6 +396,6 @@ done
 # The suite leaves nothing running: a close above that missed a worker shows
 # here as a survivor carrying this run's scratch path, not as a silent leak.
 wait_until 50 fixture_none "$tmp/" \
-  || fail "s7: fixture process(es) still running after every case: $(fixture_procs "$tmp/" | tr '\n' ';')"
+  || fail "s7: fixture process(es) still running after every case: $(fixture_report "$tmp/")"
 echo "ok: s7 no supervisor, tick, or shim from this run outlives the suite"
 echo "all fleet-streamjson-steer tests passed"
