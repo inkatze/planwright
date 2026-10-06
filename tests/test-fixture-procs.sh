@@ -3,7 +3,8 @@
 # stream-json suites tear down with. A guard that cannot fail proves nothing,
 # so each property is shown failing or refusing on purpose:
 #   f1: a needle with no fixture_scratch marker at or above it is refused, the
-#       temporary directory and the home directory included, and the reap
+#       temporary directory and the home directory included, as is a marker
+#       planted in a directory fixture_scratch did not make, and the reap
 #       signals nothing on a refusal.
 #   f2: a process naming the directory is matched with its descendants, which
 #       name no path; a process under another scratch directory is not.
@@ -56,10 +57,11 @@ wait_until() {
 # spawn <path> <script> — start `sh -c <script>` with <path> as its $0, outside
 # this shell's job table (no kill report in the log), and wait until it has
 # written its own pid to <path>.pid, which every script below does once its
-# traps are in place.
+# traps are in place. Called in a substitution, so the caller fails on its
+# status: a `fail` here would only leave the subshell.
 spawn() {
   (sh -c "$2" "$1" >/dev/null 2>&1 &)
-  wait_until 100 test -s "$1.pid" || fail "spawn: $1 never started"
+  wait_until 100 test -s "$1.pid" || return 1
   cat "$1.pid"
 }
 
@@ -76,13 +78,19 @@ for bad in / "${TMPDIR:-/tmp}/" "$HOME/" "$tmp" "$tmp/missing/" "${tmp%/*}/" '';
   fixture_none "$bad" 2>/dev/null && fail "f1: fixture_none passed on the refused needle '$bad'"
 done
 fixture_procs "$tmp/sub/" >/dev/null || fail "f1: a directory under the scratch directory was refused"
-bystander=$(spawn "$other/bystander" 'echo $$ >"$0.pid"; sleep 30')
+planted=$(mktemp -d) || fail "no directory to plant a marker in"
+: >"$planted/.fixture-procs"
+fixture_procs "$planted/" >/dev/null 2>&1
+planted_rc=$?
+rm -rf "$planted"
+[ "$planted_rc" = 2 ] || fail "f1: a marker planted outside a fixture_scratch directory was trusted"
+bystander=$(spawn "$other/bystander" 'echo $$ >"$0.pid"; sleep 30') || fail "f1: the bystander never started"
 fixture_reap / 2>/dev/null && fail "f1: fixture_reap reported success on a refused needle"
 kill -0 "$bystander" 2>/dev/null || fail "f1: a refused reap still signalled a process"
 echo "ok: f1 a needle outside a scratch directory is refused and nothing is signalled"
 
 # f2
-holder=$(spawn "$tmp/holder" 'echo $$ >"$0.pid"; sleep 30; :')
+holder=$(spawn "$tmp/holder" 'echo $$ >"$0.pid"; sleep 30; :') || fail "f2: the holder never started"
 wait_until 100 sh -c 'pgrep -P "$1" sleep' _ "$holder" || fail "f2: the holder never forked its child"
 child=$(pgrep -P "$holder" sleep)
 matched "$tmp/" "$holder" || fail "f2: the process naming the directory was not matched: $(fixture_report "$tmp/")"
@@ -96,7 +104,7 @@ kill -0 "$bystander" 2>/dev/null || fail "f2: the reap reached a process under a
 echo "ok: f2 a match brings its descendants and nothing else"
 
 # f3
-stubborn=$(spawn "$tmp/stubborn" 'trap "" TERM; echo $$ >"$0.pid"; while :; do sleep 0.1; done')
+stubborn=$(spawn "$tmp/stubborn" 'trap "" TERM; echo $$ >"$0.pid"; while :; do sleep 0.1; done') || fail "f3: the stubborn process never started"
 matched "$tmp/" "$stubborn" || fail "f3: the TERM-ignoring process was not matched"
 fixture_reap "$tmp/" || fail "f3: the reap left survivors"
 kill -0 "$stubborn" 2>/dev/null && fail "f3: a TERM-ignoring process outlived the reap"
