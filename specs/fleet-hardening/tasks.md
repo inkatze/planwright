@@ -414,7 +414,7 @@ the same launch function, so it waits for Task 12 rather than running beside it.
 
 ## Awaiting input
 
-(none yet)
+- **Task 14** — pending ready-flip: ready-guard failed on 8b6da0e08762
 
 ## Deferred
 
