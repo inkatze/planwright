@@ -40,6 +40,17 @@ verdict() {
     fail "$2"
   fi
 }
+# verdict_of <status> <ok-message> <fail-message>: the same, judged on a status
+# passed in, for a fail message that runs a command substitution. Expanding the
+# substitution resets $? under bash before verdict could read it; $? as the
+# first word expands before the substitution runs.
+verdict_of() {
+  if [ "$1" -eq 0 ]; then
+    ok "$2"
+  else
+    fail "$3"
+  fi
+}
 
 [ -x "$SR" ] || {
   echo "FAIL: scripts/step-record.sh missing or not executable" >&2
@@ -672,7 +683,7 @@ r8=$(sr2 new-run)
 env PATH="$shim:$PATH" "$SR" --worktree "$w2" write --completion --run "$r8" --point pre-ci \
   --head "$HEAD_SHA" >/dev/null 2>"$tmp/err8"
 [ $? -eq 1 ] && grep -q "cannot write to the record cache" "$tmp/err8"
-verdict "a completion whose link fails exits 1" "failed link not reported: $(cat "$tmp/err8")"
+verdict_of $? "a completion whose link fails exits 1" "failed link not reported: $(cat "$tmp/err8")"
 [ -z "$(find "$w2/.claude/steps/$r8" -mindepth 1)" ] && [ ! -L "$w2/.claude/steps/.lock" ]
 verdict "a failed completion leaves no temp file and no lock" "leftovers after a failed completion"
 sr2 write --completion --run "$r8" --point pre-ci --head "$HEAD_SHA" >/dev/null
@@ -1293,7 +1304,7 @@ wh="$tmp/w#hash"
 fresh "$wh"
 rh=$("$SR" --worktree "$wh" new-run 2>"$tmp/errh") \
   && "$SR" --worktree "$wh" write --completion --run "$rh" --point pre-ci --head "$HEAD_SHA" >/dev/null 2>>"$tmp/errh"
-verdict "a worktree path carrying # still writes records" "$(cat "$tmp/errh")"
+verdict_of $? "a worktree path carrying # still writes records" "$(cat "$tmp/errh")"
 
 # A relative TMPDIR still writes: the scratch is resolved before the cache lock
 # moves the writer into the cache.
@@ -1305,8 +1316,206 @@ rr=$("$SR" --worktree "$wr" new-run)
   --target t --hosting isolated --backend runner --head "$HEAD_SHA" --start 2026-09-28T17:00:00Z \
   --end 2026-09-28T17:00:01Z --outcome passed >/dev/null 2>"$tmp/errrel")
 rc=$?
-[ "$rc" -eq 0 ] && [ -z "$(find "$wr/reltmp" -mindepth 1)" ]
-verdict "a relative TMPDIR writes its record and leaves no scratch behind" "rc=$rc: $(cat "$tmp/errrel")"
+st=1
+if [ "$rc" -eq 0 ] && [ -z "$(find "$wr/reltmp" -mindepth 1)" ]; then st=0; fi
+verdict_of "$st" "a relative TMPDIR writes its record and leaves no scratch behind" "rc=$rc: $(cat "$tmp/errrel")"
+
+# --- status: the flip-point evidence (custom-steps REQ-E1.5) -------------------------
+# A fresh worktree so earlier sections' runs cannot hold a completion for these
+# heads, and a gh stub that logs each argument on its own line and fails on demand.
+wt2="$tmp/wt2"
+mkdir -p "$wt2"
+git -C "$wt2" init -q -b main
+stub="$tmp/ghstub"
+mkdir -p "$stub"
+cat >"$stub/gh" <<'STUB'
+#!/bin/sh
+: >"$GH_STUB_LOG"
+for a in "$@"; do printf '%s\n' "$a" >>"$GH_STUB_LOG"; done
+if [ "${GH_STUB_FAIL:-0}" -ne 0 ]; then
+  echo 'HTTP 403: Resource not accessible by integration' >&2
+  exit 1
+fi
+printf '{"state":"posted"}\n'
+STUB
+chmod +x "$stub/gh"
+GH_STUB_LOG="$tmp/gh.args"
+GH_STUB_FAIL=0
+export GH_STUB_LOG GH_STUB_FAIL
+
+sr2() { PATH="$stub:$PATH" "$SR" --worktree "$wt2" "$@"; }
+H_A=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+H_B=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+H_C=cccccccccccccccccccccccccccccccccccccccc
+H_D=dddddddddddddddddddddddddddddddddddddddd
+H_E=eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+H_F=ffffffffffffffffffffffffffffffffffffffff
+H_G=1111111111111111111111111111111111111111
+
+# step_rec <run> <point> <outcome> <head>: one step record at the point.
+step_rec() {
+  if [ "$3" = skipped ]; then
+    set -- "$@" --skip-reason "not applicable"
+  else
+    set -- "$@" --session fixture
+  fi
+  sr2 write --run "$1" --point "$2" --step "s-$3" --kind command --target "true" \
+    --hosting in-session --backend terminal --head "$4" \
+    --start 2026-10-01T10:00:00Z --end 2026-10-01T10:00:01Z --outcome "$3" "$5" "$6" >/dev/null \
+    || fail "fixture: cannot write a $3 step record"
+}
+done_rec() {
+  sr2 write --completion --run "$1" --point "$2" --head "$3" >/dev/null \
+    || fail "fixture: cannot write a $2 completion record"
+}
+# post_state <point> <head>: run the verb against the fixture base repository;
+# sets ST_RC and ST_OUT, and leaves the gh call in $GH_STUB_LOG.
+post_state() {
+  rm -f "$GH_STUB_LOG"
+  ST_OUT=$(sr2 status --point "$1" --head "$2" --repo acme/widgets 2>"$tmp/st.err")
+  ST_RC=$?
+}
+gh_arg() { [ -f "$GH_STUB_LOG" ] && grep -Fxq -- "$1" "$GH_STUB_LOG"; }
+
+# An empty attempt: the point completed with no step record.
+r=$(sr2 new-run)
+done_rec "$r" pre-ready-flip "$H_A"
+post_state pre-ready-flip "$H_A"
+[ "$ST_RC" -eq 0 ] && gh_arg state=success && gh_arg context=planwright/pre-ready-flip
+verdict_of $? "status derives success over an empty attempt" "rc=$ST_RC: $(cat "$tmp/st.err")"
+gh_arg "repos/acme/widgets/statuses/$H_A" && gh_arg POST
+verdict_of $? "the posting call names the base repository and the exact head" "gh args: $(tr '\n' ' ' <"$GH_STUB_LOG" 2>/dev/null)"
+printf '%s\n' "$ST_OUT" | grep -Fxq "posted${TAB}planwright/pre-ready-flip${TAB}success${TAB}$H_A"
+verdict "status prints the posted context, state, and head" "printed '$ST_OUT'"
+! grep -Fq "$wt2" "$GH_STUB_LOG" && ! grep -q '^target_url=' "$GH_STUB_LOG"
+verdict "the status carries no local path and no target" "gh args carry a path or target"
+grep -Fxq "description=pre-ready-flip: no step halted or failed (run $r)" "$GH_STUB_LOG"
+verdict_of $? "the status carries the pinned description" "description: $(grep '^description=' "$GH_STUB_LOG")"
+
+# Passed, applied, and skipped records all derive success.
+r=$(sr2 new-run)
+step_rec "$r" pre-ready-flip passed "$H_B"
+step_rec "$r" pre-ready-flip applied "$H_B"
+step_rec "$r" pre-ready-flip skipped "$H_B"
+done_rec "$r" pre-ready-flip "$H_B"
+post_state pre-ready-flip "$H_B"
+[ "$ST_RC" -eq 0 ] && gh_arg state=success
+verdict "status derives success over passed, applied, and skipped records" "rc=$ST_RC"
+
+# A halted or a failed record derives failure, the description saying so.
+for o in halted failed; do
+  r=$(sr2 new-run)
+  h=$H_C
+  [ "$o" = failed ] && h=$H_D
+  step_rec "$r" pre-ready-flip passed "$h"
+  step_rec "$r" pre-ready-flip "$o" "$h"
+  done_rec "$r" pre-ready-flip "$h"
+  post_state pre-ready-flip "$h"
+  [ "$ST_RC" -eq 0 ] && gh_arg state=failure \
+    && grep -Fxq "description=pre-ready-flip: a step halted or failed (run $r)" "$GH_STUB_LOG"
+  verdict_of $? "status derives failure over a $o record" "rc=$ST_RC: $(cat "$tmp/st.err")"
+done
+
+# A step that moved the head still belongs to the attempt the completion names.
+r=$(sr2 new-run)
+step_rec "$r" pre-ready-flip failed "$H_A"
+done_rec "$r" pre-ready-flip "$H_E"
+post_state pre-ready-flip "$H_E"
+[ "$ST_RC" -eq 0 ] && gh_arg state=failure
+verdict "a step recorded on the starting head counts for the head the list ended on" "rc=$ST_RC"
+
+# The latest attempt for the head wins, either way round; a later run that
+# completed on another head, or another point, does not displace it.
+r=$(sr2 new-run)
+step_rec "$r" pre-ready-flip failed "$H_F"
+done_rec "$r" pre-ready-flip "$H_F"
+r=$(sr2 new-run)
+step_rec "$r" pre-ready-flip passed "$H_F"
+done_rec "$r" pre-ready-flip "$H_F"
+r=$(sr2 new-run)
+step_rec "$r" pre-ready-flip failed "$H_G"
+done_rec "$r" pre-ready-flip "$H_G"
+step_rec "$r" pre-spec-ready-flip failed "$H_F"
+done_rec "$r" pre-spec-ready-flip "$H_F"
+sr2 new-run >/dev/null
+post_state pre-ready-flip "$H_F"
+[ "$ST_RC" -eq 0 ] && gh_arg state=success
+verdict "status ignores an earlier attempt's failure for the same head" "rc=$ST_RC"
+r=$(sr2 new-run)
+step_rec "$r" pre-ready-flip halted "$H_F"
+done_rec "$r" pre-ready-flip "$H_F"
+post_state pre-ready-flip "$H_F"
+[ "$ST_RC" -eq 0 ] && gh_arg state=failure
+verdict "a later attempt's failure replaces an earlier success" "rc=$ST_RC"
+
+# The spec-PR flip point posts its own context.
+post_state pre-spec-ready-flip "$H_F"
+[ "$ST_RC" -eq 0 ] && gh_arg context=planwright/pre-spec-ready-flip && gh_arg state=failure
+verdict "the spec-PR flip point posts the pre-spec-ready-flip context" "rc=$ST_RC"
+
+# Only the queried point's records count: another point's failure in the same
+# run leaves this point's status green.
+H_X=3333333333333333333333333333333333333333
+r=$(sr2 new-run)
+step_rec "$r" pre-ready-flip failed "$H_X"
+done_rec "$r" pre-ready-flip "$H_X"
+step_rec "$r" pre-spec-ready-flip passed "$H_X"
+done_rec "$r" pre-spec-ready-flip "$H_X"
+post_state pre-spec-ready-flip "$H_X"
+[ "$ST_RC" -eq 0 ] && gh_arg state=success
+verdict "another point's failed record does not fail this point's status" "rc=$ST_RC"
+
+# A head with no completion record is refused, with no post.
+r=$(sr2 new-run)
+step_rec "$r" pre-ready-flip passed 2222222222222222222222222222222222222222
+post_state pre-ready-flip 2222222222222222222222222222222222222222
+[ "$ST_RC" -eq 1 ] && [ ! -f "$GH_STUB_LOG" ] && grep -Fq 'no completion record' "$tmp/st.err"
+verdict_of $? "status refuses a head with no completion record, posting nothing" "rc=$ST_RC: $(cat "$tmp/st.err")"
+post_state pre-spec-ready-flip "$H_A"
+[ "$ST_RC" -eq 1 ] && [ ! -f "$GH_STUB_LOG" ]
+verdict "another flip point's completion does not stand in for this one's" "rc=$ST_RC"
+
+# A failed post fails the verb and names the permission the login needs, as
+# one possible cause: an outage or an unknown repository fails the same way.
+GH_STUB_FAIL=1
+post_state pre-ready-flip "$H_A"
+GH_STUB_FAIL=0
+[ "$ST_RC" -eq 1 ] && grep -Fq 'repo:status' "$tmp/st.err" && grep -Fq 'Commit statuses' "$tmp/st.err" \
+  && grep -Fq 'acme/widgets' "$tmp/st.err" && grep -Fq 'if the cause is a missing permission' "$tmp/st.err"
+verdict_of $? "a failed post exits 1 naming the permission as a possible cause and the repository" "rc=$ST_RC: $(cat "$tmp/st.err")"
+
+# Field validation: only the two flip points, a full head, an owner/name repo.
+for args in "--point convergence --head $H_A --repo acme/widgets" \
+  "--point pre-ready-flip --head abc --repo acme/widgets" \
+  "--point pre-ready-flip --head $H_A --repo widgets" \
+  "--point pre-ready-flip --head $H_A --repo acme/../widgets" \
+  "--point pre-ready-flip --head $H_A --repo -acme/widgets" \
+  "--point pre-ready-flip --head $H_A --repo acme/-widgets" \
+  "--point pre-ready-flip --head $H_A --repo acme/" \
+  "--point pre-ready-flip --head $H_A --repo /widgets" \
+  "--point pre-ready-flip --head $H_A --repo acme/." \
+  "--point pre-ready-flip --head $H_A --repo acme/.." \
+  "--point pre-ready-flip --head $H_A --repo ac_me/widgets" \
+  "--point pre-ready-flip --head $H_A --repo acme/wid@gets" \
+  "--point pre-ready-flip --head $H_A --repo $(printf 'o%.0s' $(seq 1 40))/widgets" \
+  "--point pre-ready-flip --head $H_A --repo acme/$(printf 'n%.0s' $(seq 1 101))" \
+  "--point pre-ready-flip --head $H_A --repo" \
+  "--point pre-ready-flip --head $H_A --repo acme/widgets --bogus x" \
+  "--point pre-ready-flip --head $H_A"; do
+  rm -f "$GH_STUB_LOG"
+  # shellcheck disable=SC2086 # split into flags by design
+  sr2 status $args >/dev/null 2>&1
+  rc=$?
+  [ "$rc" -eq 2 ] && [ ! -f "$GH_STUB_LOG" ]
+  verdict "status refuses '$args' as a usage error" "rc=$rc for '$args'"
+done
+o39=$(printf 'o%.0s' $(seq 1 39))
+n100=$(printf 'n%.0s' $(seq 1 100))
+rm -f "$GH_STUB_LOG"
+sr2 status --point pre-ready-flip --head "$H_A" --repo "$o39/$n100" >/dev/null 2>"$tmp/st.err"
+rc=$?
+[ "$rc" -eq 0 ] && gh_arg "repos/$o39/$n100/statuses/$H_A"
+verdict_of $? "status accepts a 39-byte owner and a 100-byte name" "rc=$rc: $(cat "$tmp/st.err")"
 
 # --- the cache path is ignored ------------------------------------------------------
 git -C "$repo_root" check-ignore -q ".claude/steps/000001/x.rec"

@@ -79,6 +79,7 @@ case "$1 $2" in
           none) roll='[]' ;;
           own-status-red) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"StatusContext","context":"planwright/pre-ready-flip","state":"FAILURE"},{"__typename":"StatusContext","context":"planwright/pre-spec-ready-flip","state":"PENDING"}]' ;;
           own-status-only) roll='[{"__typename":"StatusContext","context":"planwright/pre-ready-flip","state":"SUCCESS"}]' ;;
+          own-name-checkrun-red) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"planwright/pre-ready-flip","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
         esac
         printf '{"headRefOid":"%s","statusCheckRollup":%s}\n' "$head" "$roll"
         ;;
@@ -519,6 +520,11 @@ set_policy unit-owner
 echo own-status-only >"$GHS/ci"
 run_helper flip --spec specs/demo --task 1
 check "a point status alone is no positive green" [ "$CODE" = 4 ]
+fixture
+set_policy unit-owner
+echo own-name-checkrun-red >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a check run named like a point status is judged, not excluded" [ "$CODE" = 4 ]
 fixture
 set_policy unit-owner
 echo 0123456789012345678901234567890123456789 >"$GHS/head_override"

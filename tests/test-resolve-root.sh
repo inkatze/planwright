@@ -349,6 +349,60 @@ run in_dir "$tmp/bare-wt" base "$SH" "$RESOLVER" repo --primary
 assert_eq "repo --primary: a worktree of a bare repository has no primary (exit)" 3 "$rc"
 assert_contains "repo --primary: the bare-worktree message names the case" \
   "no primary working tree" "$err"
+assert_contains "repo --primary: the bare-worktree message names core.bare" \
+  "core.bare is true in '$tmp/bare.git'" "$err"
+case $err in
+  *"config core.bare false"*)
+    echo "FAIL: repo --primary: a bare repository's own layout is not told to clear core.bare ($err)" >&2
+    failures=$((failures + 1))
+    ;;
+  *) echo "ok: repo --primary: a bare repository's own layout is not told to clear core.bare" ;;
+esac
+
+# A repository with a working tree whose shared config was flipped to
+# core.bare=true (a hook-run fixture inheriting GIT_DIR can do it) names the
+# key, the common git directory, and the repair, from every place it fails.
+mkdir -p "$tmp/flipped/sub"
+gitq -C "$tmp/flipped" init -q
+gitq -C "$tmp/flipped" -c user.name=t -c user.email=t@example.invalid \
+  commit -q --allow-empty -m init
+gitq -C "$tmp/flipped" worktree add -q -b fw "$tmp/flipped-wt"
+gitq --git-dir="$tmp/flipped/.git" config core.bare true
+flip_fix="git --git-dir='$tmp/flipped/.git' config core.bare false"
+for where in "flipped:--primary" "flipped:--checkout" "flipped/sub:--primary" \
+  "flipped-wt:--primary"; do
+  dir=${where%%:*} view=${where#*:}
+  run in_dir "$tmp/$dir" base "$SH" "$RESOLVER" repo "$view"
+  assert_eq "bare-flipped: repo $view from $dir exits 3" 3 "$rc"
+  assert_empty "bare-flipped: repo $view from $dir prints no path" "$out"
+  assert_contains "bare-flipped: repo $view from $dir names the key and common dir" \
+    "core.bare is true in '$tmp/flipped/.git'" "$err"
+  assert_contains "bare-flipped: repo $view from $dir gives the repair" "$flip_fix" "$err"
+done
+run in_dir "$tmp/flipped-wt" base "$SH" "$RESOLVER" spec
+assert_eq "bare-flipped: spec from the linked worktree exits 3" 3 "$rc"
+assert_contains "bare-flipped: spec from the linked worktree gives the repair" "$flip_fix" "$err"
+gitq --git-dir="$tmp/flipped/.git" config core.bare false
+run in_dir "$tmp/flipped-wt" base "$SH" "$RESOLVER" repo --primary
+assert_eq "bare-flipped: the printed repair restores the primary" "$tmp/flipped" "$out"
+
+# The repair is printed to be pasted, so a common git directory path carrying
+# a quote, a space, $ and ; must paste as one argument and run nothing else.
+hostile="$tmp/it's \$HOME;touch pwned;'"
+mkdir -p "$hostile" "$tmp/paste"
+gitq -C "$hostile" init -q
+gitq -C "$hostile" -c user.name=t -c user.email=t@example.invalid \
+  commit -q --allow-empty -m init
+gitq --git-dir="$hostile/.git" config core.bare true
+run in_dir "$hostile" base "$SH" "$RESOLVER" repo --primary
+assert_eq "bare-flipped: a hostile path exits 3" 3 "$rc"
+paste=${err##*clear it with: }
+run in_dir "$tmp/paste" base "$SH" -c "$paste"
+assert_eq "bare-flipped: the pasted repair for a hostile path succeeds" 0 "$rc"
+assert_eq "bare-flipped: the pasted repair for a hostile path runs nothing else" \
+  "" "$(ls -A "$tmp/paste")"
+assert_eq "bare-flipped: the pasted repair clears core.bare on that repository" false \
+  "$(base git --git-dir="$hostile/.git" config --bool core.bare)"
 
 # ---------------------------------------------------------------------------
 # repo kind: --explain

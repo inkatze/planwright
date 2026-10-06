@@ -692,12 +692,13 @@ require_signed_tags: auto
 # Whether publish requires positive GitHub CI confirmation on the release commit
 # (release-hardening D-7, REQ-G1.3). `true` (default) preserves the strict gate:
 # only a `green` verdict publishes, and a `none` verdict — no positive CI
-# confirmation (no checks, only the excluded release-window lock, or all
-# non-excluded checks NEUTRAL/SKIPPED) — refuses like every other non-green
-# verdict. `false` relaxes ONLY that `none` verdict to allow publish (all three
-# none sub-cases), emitting a stderr diagnostic naming require_ci=false so the
-# deliberate relaxation leaves an audit signal; a failing, pending, unread-
-# overflow (too-many), or CI-query-failure verdict stays fail-closed regardless.
+# confirmation (no checks, only excluded checks (the release-window lock, the
+# flip-point commit statuses), or all non-excluded checks NEUTRAL/SKIPPED) —
+# refuses like every other non-green verdict. `false` relaxes ONLY that `none`
+# verdict to allow publish (all three none sub-cases), emitting a stderr
+# diagnostic naming require_ci=false so the deliberate relaxation leaves an
+# audit signal; a failing, pending, unread-overflow (too-many), or
+# CI-query-failure verdict stays fail-closed regardless.
 # The value is validated as a boolean when the knob is read (unconditional of
 # code path, symmetric with require_signed_tags); a non-boolean value is a clean
 # fail-closed configuration error. Core opt-in with the default unchanged — the

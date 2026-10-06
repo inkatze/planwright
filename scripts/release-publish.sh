@@ -287,8 +287,9 @@ if [ "$resume" -eq 0 ] && [ "$release_present" -eq 0 ]; then
   # the shared rl_ci_state primitive (release-lib.sh; D-4, REQ-C1.1, REQ-C1.2), so
   # publish and release-arm.sh never drift on what counts as release-gating CI.
   # rl_ci_state judges the statusCheckRollup per-check with the release-window lock
-  # excluded workflow-scoped (never the aggregate `state`, which is red by design
-  # during the untagged window and would deadlock publish — REQ-C1.3, REQ-C1.4),
+  # excluded workflow-scoped and the flip-point statuses by context name (never
+  # the aggregate `state`, which is red by design during the untagged window and
+  # would deadlock publish — REQ-C1.3, REQ-C1.4),
   # and returns a distinct status (2, empty stdout) on a gh/query failure so an
   # infra outage is not misreported as red CI. `green` is the only pass; every
   # other verdict (failing/pending/none/too-many) fails the gate closed — a
@@ -304,7 +305,7 @@ if [ "$resume" -eq 0 ] && [ "$release_present" -eq 0 ]; then
     die "ci gate: could not verify GitHub CI on $release_sha (gh query failed); resolve connectivity/auth and re-run"
   elif [ "$ci_verdict" = "none" ] && [ "$require_ci" = "false" ]; then
     # require_ci=false relaxes ONLY the NONE verdict (all three sub-cases it folds:
-    # a null rollup, an empty-after-window-lock-exclusion rollup, and an
+    # a null rollup, an empty-after-exclusion rollup, and an
     # all-NEUTRAL/SKIPPED rollup — none of them positive CI confirmation). Every
     # other verdict (failing/pending/too-many, and the query failure above) stays
     # fail-closed. Leave an audit signal so the deliberate relaxation is honest.
