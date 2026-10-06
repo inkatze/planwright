@@ -17,9 +17,9 @@
 #
 # The symlink rule: callers canonicalize a root, so a root reached through a
 # symlink would make wherever the link points trusted. A root that is itself
-# a symlink is dropped, and so is one with a `.` or `..` component (which
-# hides a symlink from the test) or one under a `plugins/cache/` tree with a
-# symlink anywhere from `plugins` down. `--unlinked <path>` applies the same
+# a symlink is dropped, and so is a relative one, one with a `.` or `..`
+# component (which hides a symlink from the test), or one under a
+# `plugins/cache/` tree with a symlink anywhere from `plugins` down. `--unlinked <path>` applies the same
 # rule to one path, for the command guards' plugin-root arm; `--refused`
 # prints the candidates the rule dropped instead, for the launch preflight,
 # which must prove those too (the guard will not trust them).
@@ -66,7 +66,12 @@ unlinked() {
       *) break ;;
     esac
   done
-  [ -n "$ul_p" ] || return 1
+  # A relative path resolves against whatever directory a caller runs in, and
+  # the cache walk below can only anchor an absolute one.
+  case $ul_p in
+    /?*) ;;
+    *) return 1 ;;
+  esac
   # `[ -L ]` follows a link named before a `.` or `..` component, so a path
   # carrying one would hide the symlink it walks through.
   case /$ul_p/ in

@@ -136,6 +136,8 @@ assert_eq "--unlinked passes a real cache root" 0 "$?"
 assert_eq "--unlinked refuses a root under a symlinked marketplace dir" 1 "$?"
 /bin/sh "$RESOLVER" --unlinked "$ldir/plugins//cache/mkt2/planwright/2.0.0"
 assert_eq "--unlinked refuses the same root written with plugins//cache" 1 "$?"
+(cd "$ldir" && /bin/sh "$RESOLVER" --unlinked plugins/cache/mkt2/planwright/2.0.0)
+assert_eq "--unlinked refuses a relative path, which the cache walk cannot anchor" 1 "$?"
 /bin/sh "$RESOLVER" --unlinked "$ldir//plugins/cache/mkt/planwright/1.0.0"
 assert_eq "--unlinked still passes a real root written with a doubled slash" 0 "$?"
 /bin/sh "$RESOLVER" --unlinked "$SANDBOX/link-root//"
