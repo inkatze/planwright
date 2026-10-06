@@ -30,9 +30,9 @@
 #                            must not tear the suite down under itself
 #
 # <dir/> must be an existing directory at or under one fixture_scratch made,
-# written with its trailing slash. The proof is a `fixture.*` directory holding
-# the marker it leaves, owned by this user, so a stray marker someone else
-# planted in a shared directory cannot widen what a needle reaches. An empty
+# written with its trailing slash. The proof is a `fixture.*` directory, not a
+# symlink and owned by this user, holding the marker it leaves, so a marker
+# someone else planted, or a link pointing at one of ours, is not trusted. An empty
 # `mktemp -d` result would otherwise make the needle `/`, and a broad one such
 # as `$HOME/` matches the processes the suite runs under and all their
 # descendants. Reading the marker rather than comparing against $TMPDIR keeps
@@ -71,7 +71,7 @@ _fp_needle_ok() {
   d=${1%/}
   while [ -n "$d" ]; do
     case ${d##*/} in
-      fixture.?*) [ -f "$d/.fixture-procs" ] && [ -O "$d/.fixture-procs" ] && return 0 ;;
+      fixture.?*) [ ! -L "$d" ] && [ -O "$d" ] && [ -f "$d/.fixture-procs" ] && return 0 ;;
     esac
     d=${d%/*}
   done

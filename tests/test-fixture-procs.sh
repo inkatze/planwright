@@ -80,10 +80,14 @@ done
 fixture_procs "$tmp/sub/" >/dev/null || fail "f1: a directory under the scratch directory was refused"
 planted=$(mktemp -d) || fail "no directory to plant a marker in"
 : >"$planted/.fixture-procs"
+ln -s "$tmp" "$planted/fixture.link"
 fixture_procs "$planted/" >/dev/null 2>&1
 planted_rc=$?
+fixture_procs "$planted/fixture.link/" >/dev/null 2>&1
+link_rc=$?
 rm -rf "$planted"
 [ "$planted_rc" = 2 ] || fail "f1: a marker planted outside a fixture_scratch directory was trusted"
+[ "$link_rc" = 2 ] || fail "f1: a symlink named like a scratch directory was trusted"
 bystander=$(spawn "$other/bystander" 'echo $$ >"$0.pid"; sleep 30') || fail "f1: the bystander never started"
 fixture_reap / 2>/dev/null && fail "f1: fixture_reap reported success on a refused needle"
 kill -0 "$bystander" 2>/dev/null || fail "f1: a refused reap still signalled a process"
