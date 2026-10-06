@@ -20,6 +20,8 @@
 #       dead session; one that confirms reports started
 #   c7  every exit status the primitive returns is in its usage header, and
 #       the confirm step makes no model or API call (REQ-E1.3)
+#   c8  a flight worker that reports its own state during the wait without
+#       confirming keeps that row; the dispatch push does not overwrite it
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-tmux-launch-confirm.sh
@@ -189,6 +191,32 @@ c6() {
   unset CLAUDE_DIR PLANWRIGHT_ADOPTER_OVERLAY PLANWRIGHT_FLIGHT_LOCK_WAIT PLANWRIGHT_REPO_ROOT
 }
 
+# --- c8: the dispatch push keeps the worker's own state -----------------------------
+# A worker that never confirms but reports its own state during the wait (here
+# a Stop hook's idle) keeps that row: the dispatch push after the wait does not
+# overwrite it with working.
+c8() {
+  local fid state
+  new_case
+  mkdir -p "$C/adopter" "$C/claude" "$C/stopbin"
+  export CLAUDE_DIR="$C/claude" PLANWRIGHT_ADOPTER_OVERLAY="$C/adopter" PLANWRIGHT_FLIGHT_LOCK_WAIT=0 \
+    PLANWRIGHT_REPO_ROOT="$P"
+  printf 'Fix the typo in the README heading.\n' >"$C/ask.txt"
+  printf 'visual flight: a one-line wording change\n' >"$C/grounds.txt"
+  printf '#!/bin/sh\nprintf "{}" | /bin/sh %s hook stop >/dev/null 2>&1\nexec %s "$@"\n' \
+    "'$ROOT/scripts/fleet-liveness.sh'" "'$TLH_BIN/claude'" >"$C/stopbin/claude"
+  chmod +x "$C/stopbin/claude"
+  PATH="$C/stopbin:$PATH" tlh_run_bounded "$FLIGHT" dispatch readme-typo --backend tmux --ask-file "$C/ask.txt" \
+    --grounds-file "$C/grounds.txt" --home file --repo-root "$P"
+  unset CLAUDE_DIR PLANWRIGHT_ADOPTER_OVERLAY PLANWRIGHT_FLIGHT_LOCK_WAIT PLANWRIGHT_REPO_ROOT
+  tlh_expect_returned c8 || return
+  [ "$TLH_RC" -eq 0 ] || fail "c8: an unconfirmed flight is placed (exit 0), got $TLH_RC ($TLH_ERR)"
+  [ "$(report_field outcome)" = started-unconfirmed ] || fail "c8: expected started-unconfirmed: $TLH_OUT"
+  fid=$(report_field flight)
+  state=$(awk -F"$TAB" -v w="tmux-flight-$fid" '$1 == w { print $3 }' "$C/fleet/attention/state" 2>/dev/null)
+  [ "$state" = idle ] || fail "c8: the worker's own idle row was overwritten by the dispatch push (state '$state')"
+}
+
 # --- c7: the header and the source ------------------------------------------------
 c7() {
   local codes c header body
@@ -212,6 +240,7 @@ c4
 c5
 c6
 c7
+c8
 
 [ "$fails" -eq 0 ] || {
   echo "test-tmux-launch-confirm: $fails failure(s)" >&2

@@ -1244,9 +1244,15 @@ cmd_dispatch() {
   # run launched nothing, so it pushes nothing. It runs after the lock is
   # released, which it does not need. A worker that confirmed has written its
   # own row, and one that died at startup must not read as working, so
-  # neither gets it.
+  # neither gets it. It lands after the confirm wait, so a tmux worker's row
+  # stamped since its launch (an idle or hung it reported meanwhile) is kept.
   if [ "$dry" -eq 0 ] && [ "$outcome" != started ] && [ "$outcome" != failed-at-startup ]; then
-    /bin/sh "$LIFECYCLE" push dispatch "$flight_id" --handle "$brief_handle" </dev/null >/dev/null \
+    set -- push dispatch "$flight_id" --handle "$brief_handle"
+    case ${_since:-} in
+      '' | *[!0-9]*) ;;
+      *) set -- "$@" --since "$_since" ;;
+    esac
+    /bin/sh "$LIFECYCLE" "$@" </dev/null >/dev/null \
       || printf '%s: the dispatch push did not reach the attention store; the sweep still finds the flight\n' "$prog" >&2
   fi
 

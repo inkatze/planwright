@@ -11,6 +11,8 @@
 #   s7  hooks/hooks.json wires the arm under both the startup and resume
 #       matchers
 #   s8  the store's heartbeat refuses a malformed --launch-token
+#   s9  the store's --unless-since keeps a row stamped at or after its epoch,
+#       replaces an older one, and refuses a malformed epoch
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-fleet-liveness-session-start.sh
@@ -139,6 +141,21 @@ attn "$tmp/s8" heartbeat w1 demo:1 working --launch-token NOTHEX >/dev/null 2>&1
 attn "$tmp/s8" heartbeat w1 demo:1 working --unless-awaiting --launch-token "$TOK" >/dev/null 2>&1 \
   || fail "s8: heartbeat refused a valid launch token"
 [ "$(row_field "$tmp/s8" w1 9)" = "launch:$TOK" ] || fail "s8: heartbeat did not record the token"
+
+# --- s9 -------------------------------------------------------------------------
+attn "$tmp/s9" heartbeat w2 demo:2 idle >/dev/null 2>&1 || fail "s9: setup heartbeat failed"
+s9ts=$(row_field "$tmp/s9" w2 4)
+attn "$tmp/s9" heartbeat w2 demo:2 working --unless-since "$s9ts" >/dev/null 2>&1 \
+  || fail "s9: --unless-since must be a clean no-op over a newer row"
+[ "$(row_field "$tmp/s9" w2 3)" = idle ] || fail "s9: --unless-since overwrote a row stamped at its epoch"
+attn "$tmp/s9" heartbeat w2 demo:2 working --unless-since "$((s9ts + 1))" >/dev/null 2>&1 \
+  || fail "s9: --unless-since refused a write over an older row"
+[ "$(row_field "$tmp/s9" w2 3)" = working ] || fail "s9: --unless-since kept a row stamped before its epoch"
+for bad in 0123 -1 12a "" 1234567890123456; do
+  attn "$tmp/s9" heartbeat w2 demo:2 idle --unless-since "$bad" >/dev/null 2>&1 \
+    && fail "s9: --unless-since accepted '$bad'"
+done
+[ "$(row_field "$tmp/s9" w2 3)" = working ] || fail "s9: a refused --unless-since wrote the store"
 
 [ "$fails" -eq 0 ] || {
   echo "test-fleet-liveness-session-start: $fails failure(s)" >&2

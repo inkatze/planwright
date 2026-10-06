@@ -57,7 +57,7 @@
 #
 # Usage:
 #   fleet-attention.sh heartbeat <worker> <scope> <state> [--unless-awaiting]
-#       [--launch-token <hex>]
+#       [--launch-token <hex>] [--unless-since <epoch>]
 #       Upsert the worker's current state (one row per worker, last wins).
 #       <state> ∈ working | idle | hung | ended | pr-ready | merged | done
 #       (idle/hung/ended are the hook-pushed liveness states, fleet-autonomy
@@ -70,6 +70,10 @@
 #       `launch:<hex>` (fleet-hardening D-15): the worker's SessionStart
 #       confirmation of the tmux launch that minted it, which the dispatch's
 #       confirm step matches. The next heartbeat for the worker drops it.
+#       --unless-since: a clean no-op when the worker's row is stamped at or
+#       after <epoch>, checked atomically like --unless-awaiting, so a push
+#       made on a worker's behalf never overwrites what the worker itself
+#       reported since then.
 #   fleet-attention.sh decide <worker> <scope> <question> <default> <options> [priority]
 #       Upsert the worker as awaiting-input WITH a structured decision.
 #       [priority] ∈ high | normal | low (default normal).
@@ -306,6 +310,9 @@ release_lock() {
 # sits beside the store in a directory nothing else sweeps.
 np_tmp=""
 st_tmp=""
+# The heartbeat's --unless-since epoch, read by upsert_row; set here so an
+# inherited variable of the same name never guards a write.
+UR_UNLESS_SINCE=""
 trap 'release_lock; [ -z "$np_tmp" ] || rm -f "$np_tmp"; [ -z "$st_tmp" ] || rm -f "$st_tmp"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -429,6 +436,24 @@ upsert_row() {
       return 2
     fi
     if [ -n "$ur_awaiting" ]; then
+      release_lock
+      return 0
+    fi
+  fi
+  if [ -n "$UR_UNLESS_SINCE" ] && [ -f "$store" ]; then
+    # A no-op when the worker's row was stamped at or after the given epoch:
+    # the worker has spoken since then, and its own state outranks a push
+    # made on its behalf. Same fail-closed read as the guards around it.
+    ur_since_rc=0
+    ur_newer=$(awk -F "$TAB" -v w="$ur_worker" -v s="$UR_UNLESS_SINCE" \
+      '($1 "") == (w "") && $4 ~ /^[0-9]+$/ && ($4 + 0) >= (s + 0) { f = 1 } END { print (f ? "y" : "") }' "$store") \
+      || ur_since_rc=$?
+    if [ "$ur_since_rc" != 0 ]; then
+      release_lock
+      echo "fleet-attention: could not read the store to evaluate --unless-since; refusing to risk overwriting the worker's own state" >&2
+      return 2
+    fi
+    if [ -n "$ur_newer" ]; then
       release_lock
       return 0
     fi
@@ -736,7 +761,7 @@ case $cmd in
     state="${3:-}"
     guard=""
     launch_token=""
-    hb_usage="usage: fleet-attention.sh heartbeat <worker> <scope> <state> [--unless-awaiting] [--launch-token <hex>]"
+    hb_usage="usage: fleet-attention.sh heartbeat <worker> <scope> <state> [--unless-awaiting] [--launch-token <hex>] [--unless-since <epoch>]"
     if [ -z "$worker" ] || [ -z "$scope" ] || [ -z "$state" ]; then
       echo "$hb_usage" >&2
       exit 2
@@ -762,6 +787,21 @@ case $cmd in
             exit 2
           fi
           launch_token=$2
+          shift 2
+          ;;
+        --unless-since)
+          [ "$#" -ge 2 ] && [ -z "$UR_UNLESS_SINCE" ] || {
+            echo "$hb_usage" >&2
+            exit 2
+          }
+          # Digits, no leading zero, at most 15 (the store's epoch grammar).
+          case $2 in
+            '' | 0?* | *[!0-9]* | ????????????????*)
+              echo "fleet-attention: refusing an --unless-since that is not epoch seconds" >&2
+              exit 2
+              ;;
+          esac
+          UR_UNLESS_SINCE=$2
           shift 2
           ;;
         *)

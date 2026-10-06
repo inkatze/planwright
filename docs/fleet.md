@@ -1426,7 +1426,7 @@ demand rather than lost:
 
 | Event | Pushed by | Row written |
 | --- | --- | --- |
-| `dispatch` | `flight-dispatch.sh`, once the flight is placed | `working` (tmux rung, when the worker's startup went unconfirmed; a worker that confirmed has written its own row, and one that died at startup gets none), `idle` (print rung, no process until the operator launches it) |
+| `dispatch` | `flight-dispatch.sh`, once the flight is placed | `working` (tmux rung, when the worker's startup went unconfirmed and it has written nothing since its launch; a worker that confirmed or reported its own state keeps its row, and one that died at startup gets none), `idle` (print rung, no process until the operator launches it) |
 | `awaiting-decision` | the worker, at a hard pause, as its brief directs | `awaiting-input` with the reason, the one event the decision queue shows |
 | `completion` | the worker, right after it lands, as its brief directs | `pr-ready` (PR landing) or `done` (record landing); the landing reference is kept beside the brief and sent through `notification_channel`, a record landing with its branch |
 
