@@ -27,9 +27,14 @@ fail() {
 # fails as stale, so a site that moves onto the resolver deletes its row.
 allowlist='fleet-dispatch-env.sh	publishes the operator'"'"'s own values into a worker'"'"'s environment; it picks no root
 install.sh	it writes the writer-delivery copy, so it names that directory as a destination, not as an arm
-inception-scaffold.sh	the venture hook it emits runs outside planwright and must locate a copy before it can ask that copy'"'"'s resolver
-worker-command-guard.sh	trust policy: it withholds a symlinked plugin-delivery arm from the resolver, which would canonicalize it into trusting the link target; the resolver still picks the roots
-tower-command-guard.sh	trust policy: it withholds a symlinked plugin-delivery arm from the resolver, which would canonicalize it into trusting the link target; the resolver still picks the root'
+inception-scaffold.sh	the venture hook it emits runs outside planwright and must locate a copy before it can ask that copy'"'"'s resolver'
+
+# <script> TAB <the exact read, trimmed> TAB <why>: a single read a script may
+# make, every other read in it still failing. Each row must match a read
+# that exists, or it fails as stale.
+# shellcheck disable=SC2016 # the reads are literal shell text
+line_allowlist='worker-command-guard.sh	local r=${CLAUDE_PLUGIN_ROOT:-}	trust policy: it withholds a symlinked plugin-delivery arm from the resolver, which would canonicalize it into trusting the link target; the resolver still picks the roots
+tower-command-guard.sh	local r=${CLAUDE_PLUGIN_ROOT:-}	trust policy: it withholds a symlinked plugin-delivery arm from the resolver, which would canonicalize it into trusting the link target; the resolver still picks the root'
 
 # chain_reads <file>: the non-comment lines expanding either variable, or
 # naming the writer-delivery directory itself (`<claude-dir>/planwright` with
@@ -40,6 +45,22 @@ chain_reads() {
     | grep -vE '^[0-9]+:[[:space:]]*#'
 }
 
+# unallowed_reads <file> <name>: chain_reads minus the reads line_allowlist
+# grants <name>, matched on the whole trimmed line.
+unallowed_reads() {
+  local hit text allowed
+  allowed=$(printf '%s\n' "$line_allowlist" | awk -F '\t' -v n="$2" '$1 == n { print $2 }')
+  chain_reads "$1" | while IFS= read -r hit; do
+    text=${hit#*:}
+    text=${text#"${text%%[![:space:]]*}"}
+    text=${text%"${text##*[![:space:]]}"}
+    if [ -n "$allowed" ] && printf '%s\n' "$allowed" | grep -qxF -- "$text"; then
+      continue
+    fi
+    printf '%s\n' "$hit"
+  done
+}
+
 for f in "$REPO_ROOT"/scripts/*.sh; do
   name=${f##*/}
   [ "$name" = resolve-root.sh ] && continue
@@ -47,6 +68,8 @@ for f in "$REPO_ROOT"/scripts/*.sh; do
   if printf '%s\n' "$allowlist" | cut -f1 | grep -qxF "$name"; then
     continue
   fi
+  hits=$(unallowed_reads "$f" "$name")
+  [ -n "$hits" ] || continue
   fail "scripts/$name reads the core root chain inline:
 $hits"
 done
@@ -63,6 +86,17 @@ done <<EOF
 $allowlist
 EOF
 
+while IFS="$(printf '\t')" read -r name line why; do
+  [ -n "$name" ] || continue
+  if chain_reads "$REPO_ROOT/scripts/$name" | grep -qF -- "$line"; then
+    ok "allowlisted read: scripts/$name ($why)"
+  else
+    fail "stale line allowlist row: scripts/$name no longer makes the read '$line'"
+  fi
+done <<EOF
+$line_allowlist
+EOF
+
 # The grep itself, on planted lines.
 tmp="$(cd "$(mktemp -d)" && pwd -P)" || exit 1
 trap 'rm -rf "$tmp"' EXIT
@@ -75,6 +109,15 @@ printf '# $PLANWRIGHT_ROOT in a comment\ns=${s//\\$CLAUDE_PLUGIN_ROOT/x}\nPLANWR
 if chain_reads "$tmp/inline.sh" >/dev/null; then ok "the grep flags an inline chain"; else fail "the grep missed an inline chain"; fi
 if chain_reads "$tmp/writer.sh" >/dev/null; then ok "the grep flags a hand-rolled writer-delivery arm"; else fail "the grep missed a writer-delivery arm"; fi
 if chain_reads "$tmp/clean.sh" >/dev/null; then fail "the grep flagged a comment, escaped text, or an assignment"; else ok "the grep passes comments, escaped text, and assignments"; fi
+# A guard's line allowance covers its one read, never a second one.
+# shellcheck disable=SC2016
+printf '  local r=${CLAUDE_PLUGIN_ROOT:-}\nfor r in "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}"; do :; done\n' >"$tmp/guard.sh"
+left=$(unallowed_reads "$tmp/guard.sh" worker-command-guard.sh)
+if [ "$(printf '%s\n' "$left" | grep -c .)" = 1 ] && printf '%s' "$left" | grep -q '^2:'; then
+  ok "a guard's allowed read passes and an added inline chain read still fails"
+else
+  fail "the line allowance let through more than the one read: '$left'"
+fi
 
 for g in "$WORKER" "$TOWER"; do
   if grep -vE '^[[:space:]]*#' "$g" | grep -q 'resolve-root\.sh" install'; then
