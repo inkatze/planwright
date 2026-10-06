@@ -335,15 +335,7 @@ below; `scripts/spec-graph.sh` renders it on demand.
 
 ## Awaiting input
 
-- **Task 15** — parked at the `convergence` point, which runs nothing: step
-  `panel-gemini` is refused because its skill target `panel-review` resolves
-  to no file on this host (the machine-local `steps_convergence` list). The
-  implementation is committed on `planwright/worker-permission-ergonomics/task-15`,
-  unpushed, with no PR. Remedy: install the `panel-review` skill, or drop the
-  step from the machine-local list, then resume convergence and PR creation.
-  Gate: every task passed except `test`, where `test-step-record.sh` and
-  `test-run-tests-pool.sh` fail only when run from this worktree; both pass
-  from a fresh clone of the branch head and of `origin/main`.
+(none yet)
 
 ## Deferred
 
