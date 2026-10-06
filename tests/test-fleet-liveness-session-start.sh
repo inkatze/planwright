@@ -34,7 +34,10 @@ fail() {
   fails=$((fails + 1))
 }
 
-tmp=$(mktemp -d "${TMPDIR:-/tmp}/t-liveness-ss.XXXXXX")
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/t-liveness-ss.XXXXXX") || {
+  echo "test-fleet-liveness-session-start: cannot create a temporary directory" >&2
+  exit 1
+}
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/adopter"
 printf 'stale_lock_threshold: 15m\n' >"$tmp/core.yml"

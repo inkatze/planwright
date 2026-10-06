@@ -89,7 +89,8 @@ c3() {
   tlh_run_bounded "$PRIM" confirm --session "$sess" --handle tmux-demo-task-3 --since "$(launch_field since)" \
     --token "$(launch_field token)"
   [ "$TLH_RC" -eq 14 ] || fail "c3: the standalone confirm must report started-unconfirmed, got $TLH_RC ($TLH_ERR)"
-  [ "$TLH_ELAPSED" -ge "$TLH_CONFIRM_CAP_SECONDS" ] \
+  # One second of slack: the deadline is read in whole epoch seconds.
+  [ "$TLH_ELAPSED" -ge "$((TLH_CONFIRM_CAP_SECONDS - 1))" ] \
     || fail "c3: the wait ended after ${TLH_ELAPSED}s, before the ${TLH_CONFIRM_CAP_SECONDS}s cap"
   # Placed: a repeat dispatch takes no re-dispatch path.
   tlh_run_bounded "$PRIM" dispatch demo 3 --repo-root "$P"
@@ -215,6 +216,11 @@ c8() {
   fid=$(report_field flight)
   state=$(awk -F"$TAB" -v w="tmux-flight-$fid" '$1 == w { print $3 }' "$C/fleet/attention/state" 2>/dev/null)
   [ "$state" = idle ] || fail "c8: the worker's own idle row was overwritten by the dispatch push (state '$state')"
+  # A malformed --since is the caller's input error, not a store failure.
+  local rc=0
+  /bin/sh "$ROOT/scripts/flight-lifecycle.sh" push dispatch "$fid" --handle "tmux-flight-$fid" --since 0123 \
+    </dev/null >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 2 ] || fail "c8: a malformed --since must be refused with exit 2, got $rc"
 }
 
 # --- c7: the header and the source ------------------------------------------------

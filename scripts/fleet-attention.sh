@@ -829,8 +829,8 @@ case $cmd in
     # empty; upsert_row stamps the commit-time timestamp under the lock. The
     # optional --unless-awaiting guard is evaluated inside the lock (see
     # upsert_row): a no-op success when the current row is awaiting-input.
-    # A launch token rides field 9 as `launch:<hex>`: no reader gives field 9
-    # meaning outside an awaiting-input row, and the next heartbeat drops it.
+    # A launch token rides field 9 as `launch:<hex>`, which the tmux dispatch's
+    # confirm step matches; the next heartbeat for the worker drops it.
     hb_reason=""
     [ -z "$launch_token" ] || hb_reason="launch:$launch_token"
     if [ "$guard" = --unless-awaiting ]; then

@@ -177,6 +177,9 @@ cmd_push() {
         ;;
       --since)
         [ $# -ge 2 ] || usage
+        case $2 in
+          '' | 0?* | *[!0-9]* | ????????????????*) die 2 "--since needs epoch seconds (digits, no leading zero, at most 15)" ;;
+        esac
         since=$2
         shift 2
         ;;
