@@ -348,8 +348,8 @@ resolve_home() {
 # The record is assembled HERE, with the heartbeat timestamp stamped UNDER the
 # lock (below), so this is the single authority for the record layout: the 8
 # shipped fields plus the additive ladder above them — the park reason or a
-# marker (a heartbeat's `launch:<hex>` included) at 9, a fork instance id at 10, a claimed label at 11, and a permission
-# prompt's own command at 12.
+# marker (a heartbeat's `launch:<hex>` included) at 9, a fork instance id at
+# 10, a claimed label at 11, and a permission prompt's own command at 12.
 # The optional <guard> `unless-awaiting` makes the upsert a clean no-op when
 # the worker's CURRENT row is awaiting-input, with the check made inside this
 # same critical section — the atomic escalation-preserve primitive the

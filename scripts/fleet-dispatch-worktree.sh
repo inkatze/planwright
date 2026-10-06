@@ -190,8 +190,9 @@
 #       The confirm step a --launch-only caller runs once it has released its
 #       lock, given the launch's report values. It polls every
 #       CONFIRM_INTERVAL seconds for up to CONFIRM_CAP (defined below); a
-#       missing token or an unknown start time can never confirm. It clears no marker (a flight has none); the caller
-#       names its own cleanup on failed-at-startup.
+#       missing token or an unknown start time can never confirm. It clears
+#       no marker (a flight has none); the caller names its own cleanup on
+#       failed-at-startup.
 #   fleet-dispatch-worktree.sh check-session-name <name>
 #       Exit 0 when <name> is on the session-name charset, 10 otherwise.
 #
