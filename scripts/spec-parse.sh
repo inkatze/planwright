@@ -20,6 +20,10 @@
 #                               the header-block `**Status:**` line locator the
 #                               content anchor's exclusion is computed from
 #                               (anchor-integrity Task 2; REQ-A1.1, REQ-A1.2)
+#   spec_parse_latest_anchor_entry
+#                               the kickoff brief's most recent anchor entry,
+#                               shared by the standing freshness guard and the
+#                               meta step's dispatch gate
 #   spec_parse_printable        the stderr path sanitizer the lib's own
 #                               diagnostics use, exported so a caller adding
 #                               context to a refusal reuses this byte range
@@ -699,6 +703,102 @@ spec_parse_parked_map() {
   spec_parse__readable "$1" || return 1
   spec_parse__nul_screen "$1" || return 1
   LC_ALL=C awk "$spec_parse_awk_fence$spec_parse__parked_awk" <"$1"
+}
+
+# --- The brief's most recent anchor entry -------------------------------------
+#
+# spec_parse_latest_anchor_entry <brief> [--record] — print `<hash><TAB><command>`
+# for the brief's most recent (last-appended) anchor entry. Both recorded
+# layouts are read: the canonical two-line form, and the single-line
+# parenthesized variant. With --record the line carries two more fields, the
+# entry's own `Class:` value and its `Lens-pass:` text (each empty when the
+# entry has none; tabs folded to spaces), read from the lines between the
+# previous entry's anchor line and this one, so an older entry's class never
+# answers for a newer one. Exit status:
+#   0  the entry on stdout
+#   1  the brief carries no parseable anchor entry at all
+#   2  the most recent entry does not parse — fail closed rather than answer
+#      with the older entry it supersedes
+#
+# An `Anchor:` line is held PENDING and resolved when the following record
+# arrives, rather than pulled in with `getline`. The distinction matters where
+# the two layouts meet: a `getline` consumes the next line unconditionally, so
+# a single-line entry immediately followed by another `Anchor:` line swallows
+# that neighbour and the walk reads every other entry — silently anchoring on
+# an older hash. Holding the line instead lets an adjacent `Anchor:` both close
+# the pending entry and open its own.
+spec_parse_latest_anchor_entry() {
+  spec_parse__rec=0
+  if [ "$#" -eq 2 ] && [ "$2" = --record ]; then
+    spec_parse__rec=1
+  elif [ "$#" -ne 1 ]; then
+    printf '%s\n' "spec-parse: usage: spec_parse_latest_anchor_entry <brief> [--record]" >&2
+    return 2
+  fi
+  spec_parse__readable "$1" || return 1
+  LC_ALL=C awk -v rec="$spec_parse__rec" '
+    # resolve <line> <nextline> — record the entry if both halves parsed. The
+    # trailing parameters are awk local scratch, not arguments.
+    function resolve(line, nextline,   hash, scratch, n, tok, i, cmd) {
+      # Blank out every non-hex byte and take the one 40-char run: an interval
+      # expression would say this in one pattern, but old BSD awks do not read
+      # them, and a bare /[0-9a-f]+/ matches the "c" in "Anchor" first.
+      hash = ""
+      scratch = line
+      gsub(/[^0-9a-f]/, " ", scratch)
+      n = split(scratch, tok, " ")
+      for (i = 1; i <= n; i++) {
+        if (length(tok[i]) == 40) { hash = tok[i]; break }
+      }
+      # The canonical layout backticks the hash on this line and carries the
+      # command alone on the next; the parenthesized variant carries it here.
+      cmd = ""
+      if (match(line, /\(`[^`]+`\)/)) {
+        cmd = substr(line, RSTART + 2, RLENGTH - 4)
+      } else if (match(nextline, /^`[^`]+`$/)) {
+        cmd = substr(nextline, 2, length(nextline) - 2)
+      }
+      # last_ok tracks THIS entry, not the best one seen: an entry that fails
+      # to parse has to be able to clear it. Keeping only the last parseable
+      # entry would answer a malformed newest record with an older hash, which
+      # is the superseded-anchor read this walk exists to refuse.
+      if (hash != "" && cmd != "") {
+        best_hash = hash
+        best_cmd = cmd
+        best_class = pend_class
+        best_lens = pend_lens
+        last_ok = 1
+      } else {
+        last_ok = 0
+      }
+    }
+    function field(s) {
+      sub(/^[A-Za-z-]+:[ \t]*/, "", s)
+      sub(/[ \t\r]+$/, "", s)
+      gsub(/\t/, " ", s)
+      return s
+    }
+    # Order is load-bearing: a pending entry closes against this record BEFORE
+    # the record is itself considered as a new entry, so an adjacent pair does
+    # both in one pass.
+    pending != "" { resolve(pending, $0); pending = ""; cur_class = ""; cur_lens = "" }
+    /^Class:/ { cur_class = field($0) }
+    /^Lens-pass:/ { cur_lens = field($0) }
+    /^Anchor:/ { pending = $0; pend_class = cur_class; pend_lens = cur_lens }
+    END {
+      # A brief ending on its anchor line has no following record; the
+      # parenthesized layout still carries the command, the canonical one does
+      # not and stays unparsed.
+      if (pending != "") { resolve(pending, "") }
+      if (best_hash == "") { exit 1 }
+      # An entry the walk could not resolve is the most recent one on record.
+      # Distinct status: the caller tells "no entry at all" from "the newest
+      # one is half-written", which are different repairs.
+      if (!last_ok) { exit 2 }
+      if (rec) printf "%s\t%s\t%s\t%s\n", best_hash, best_cmd, best_class, best_lens
+      else printf "%s\t%s\n", best_hash, best_cmd
+    }
+  ' "$1"
 }
 
 # --- The line-80 grammar (Task 8; REQ-B1.5 · D-4) ----------------------------

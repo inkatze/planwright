@@ -47,9 +47,9 @@ command does three things, and asks before the one choice that is yours:
    degrade safely — see the
    [options reference](options-reference.md)).
 2. **Starts the orchestrator(s)**: a meta-orchestrator supervising every
-   Ready/Active spec, launching a subordinate orchestrator per spec, each
-   dispatching workers into
-   isolated worktrees, all under the fleet concurrency bound.
+   Ready/Active spec, running each chosen spec's dispatch step itself and
+   dispatching workers into isolated worktrees, all under the fleet
+   concurrency bound.
 3. **Renders the attention surface**: the decision queue plus a per-worker
    heartbeat view, re-rendered as the fleet advances.
 
@@ -1172,9 +1172,10 @@ strand against a unit whose merged PR it simply could not see.
 
 ## Scaling out: the meta-tower
 
-`/orchestrate --fleet` supervises **all** Ready/Active specs by launching a
-subordinate tower per spec — a tower of towers (the `--meta` mode, which
-`--fleet` wraps with the watch loop and the default attention surface).
+`/orchestrate --fleet` supervises **all** Ready/Active specs from one
+meta-tower session that runs each chosen spec's single-spec step itself,
+under that spec's lock (the `--meta` mode, which `--fleet` wraps with the
+watch loop and the default attention surface).
 Fleet-wide load is capped by
 `fleet_max_parallel_units` (in-flight units summed across every spec), enforced
 against the live cross-spec derivation so the bound survives any crash;
