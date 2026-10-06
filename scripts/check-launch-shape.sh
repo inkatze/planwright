@@ -163,13 +163,15 @@ if [ "$root_given" -eq 0 ]; then
       || printf 'FAILED\n'
   )
 else
+  # A spec home relocated inside a scanned directory is pruned there too. With
+  # no spec home to exclude, `/` and `.//` are paths these finds never produce.
   out=$(
     for d in docs doctrine skills scripts config; do
       [ -d "$d" ] || continue
-      find -H "$d" -name '.?*' -prune -o -type f ! -name CHANGELOG.md \
+      find -H "$d" \( -name '.?*' -o -path "${spec_rel:-/}" \) -prune \
+        -o -type f ! -name CHANGELOG.md \
         -exec awk -v window="$WINDOW" "$scan_program" {} + || printf 'FAILED\n'
     done
-    # With no spec home to exclude, `.//` is a path find never produces.
     find . \( -path "./${spec_rel:-/}" -o -path ./tests -o -path ./docs -o -path ./doctrine \
       -o -path ./skills -o -path ./scripts -o -path ./config -o -name '.?*' \) -prune \
       -o -type f -name 'README*' ! -name CHANGELOG.md \

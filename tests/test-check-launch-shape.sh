@@ -281,16 +281,19 @@ code=$?
 assert "outside a git work tree with no --root fails closed" 2 "$code"
 
 # A file the scan cannot read fails the scan, even beside one with a mention
-# that would otherwise be reported. Skipped as root, which reads it anyway.
-if [ "$(id -u)" -ne 0 ]; then
-  fixture_root unreadable
-  write_file "$r/docs/a.md" 'Workers start via `claude --worktree x`.'
-  write_file "$r/docs/z.md" 'clean'
-  chmod 000 "$r/docs/z.md"
+# that would otherwise be reported. Skipped where mode 000 still reads (root,
+# or a process holding a read-override capability).
+fixture_root unreadable
+write_file "$r/docs/a.md" 'Workers start via `claude --worktree x`.'
+write_file "$r/docs/z.md" 'clean'
+chmod 000 "$r/docs/z.md"
+if [ -r "$r/docs/z.md" ]; then
+  echo "skip: mode 000 is still readable here; the unreadable-file case cannot run"
+else
   run --root "$r"
-  chmod 600 "$r/docs/z.md"
   assert "an unreadable file in scope fails closed" 2 "$code"
 fi
+chmod 600 "$r/docs/z.md"
 
 fixture_root c1-path
 write_file "$r/docs/a$(printf '\302\233')31m.md" 'Workers start via `claude --worktree x`.'
@@ -354,6 +357,34 @@ out=$(cd "$g" && /bin/sh "$CHECKER" 2>&1)
 code=$?
 assert "the default run reports a tracked mention" 1 "$code"
 assert_contains "the default run names the tracked file" "$out" "README.md:1"
+
+# A spec home relocated inside a scanned directory stays out of scope in both
+# modes: the check asks the resolver rather than assuming its default place.
+s="$tmp/relocated"
+mkdir -p "$s"
+git -C "$s" init -q || {
+  echo "FAIL: cannot create the relocated-spec repository" >&2
+  exit 1
+}
+write_file "$s/.claude/planwright.local.yml" 'spec_root: docs/specs'
+write_file "$s/docs/specs/planwright-spec-root.yml" 'project: relocated' 'layout: 1'
+write_file "$s/docs/specs/s/design.md" 'Workers start via `claude --worktree x`.'
+write_file "$s/docs/a.md" 'Clean prose.'
+git -C "$s" add docs || {
+  echo "FAIL: cannot stage the relocated-spec repository's files" >&2
+  exit 1
+}
+if (cd "$s" && /bin/sh "$REPO_ROOT/scripts/resolve-root.sh" spec) | grep -q '/docs/specs$'; then
+  out=$(cd "$s" && /bin/sh "$CHECKER" 2>&1)
+  code=$?
+  assert "a relocated spec home is out of scope in the default run" 0 "$code"
+  out=$(cd "$s" && /bin/sh "$CHECKER" --root . 2>&1)
+  code=$?
+  assert "a relocated spec home is out of scope in a --root run" 0 "$code"
+else
+  echo "FAIL: the relocated-spec fixture did not resolve its spec home" >&2
+  failures=$((failures + 1))
+fi
 
 # --- the repository itself passes --------------------------------------------
 out=$(cd "$REPO_ROOT" && /bin/sh "$CHECKER" 2>&1)
