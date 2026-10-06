@@ -1,0 +1,1 @@
+- 2026-10-05 [planwright] tests/test-tower-queue-store-lock.sh asserts a whole `run add` invocation finishes within 2s of wall clock around a 200ms lock bound; on a full gate at load average about 25 it took 3s and failed, while the exit code and store checks passed and three isolated reruns passed. The bound measures host load as much as the lock wait.
