@@ -29,6 +29,13 @@ allowlist='fleet-dispatch-env.sh	publishes the operator'"'"'s own values into a 
 install.sh	it writes the writer-delivery copy, so it names that directory as a destination, not as an arm
 inception-scaffold.sh	the venture hook it emits runs outside planwright and must locate a copy before it can ask that copy'"'"'s resolver'
 
+# <script> TAB <the exact read, trimmed> TAB <why>: the single read a script
+# may make, every other read in it still failing. The row fails unless the
+# script makes that read exactly once.
+# shellcheck disable=SC2016 # the reads are literal shell text
+line_allowlist='worker-command-guard.sh	local r=${CLAUDE_PLUGIN_ROOT:-}	trust policy: it withholds a symlinked plugin-delivery arm from the resolver, which would canonicalize it into trusting the link target; the resolver still picks the roots
+tower-command-guard.sh	local r=${CLAUDE_PLUGIN_ROOT:-}	trust policy: it withholds a symlinked plugin-delivery arm from the resolver, which would canonicalize it into trusting the link target; the resolver still picks the root'
+
 # chain_reads <file>: the non-comment lines expanding either variable, or
 # naming the writer-delivery directory itself (`<claude-dir>/planwright` with
 # nothing below it). An escaped `\$NAME` is hook text being substituted, not
@@ -38,6 +45,38 @@ chain_reads() {
     | grep -vE '^[0-9]+:[[:space:]]*#'
 }
 
+# unallowed_reads <file> <name>: chain_reads minus the reads line_allowlist
+# grants <name>, matched on the whole trimmed line.
+unallowed_reads() {
+  local hit text allowed
+  allowed=$(printf '%s\n' "$line_allowlist" | awk -F '\t' -v n="$2" '$1 == n { print $2 }')
+  chain_reads "$1" | while IFS= read -r hit; do
+    text=${hit#*:}
+    text=${text#"${text%%[![:space:]]*}"}
+    text=${text%"${text##*[![:space:]]}"}
+    if [ -n "$allowed" ] && printf '%s\n' "$allowed" | grep -qxF -- "$text"; then
+      continue
+    fi
+    printf '%s\n' "$hit"
+  done
+}
+
+# allowed_read_count <file> <read>: how many chain reads in <file> are exactly
+# <read> once trimmed. A row grants one read, so anything but 1 fails it.
+allowed_read_count() {
+  local hit text n=0
+  while IFS= read -r hit; do
+    [ -n "$hit" ] || continue
+    text=${hit#*:}
+    text=${text#"${text%%[![:space:]]*}"}
+    text=${text%"${text##*[![:space:]]}"}
+    [ "$text" = "$2" ] && n=$((n + 1))
+  done <<EOF
+$(chain_reads "$1")
+EOF
+  printf '%s\n' "$n"
+}
+
 for f in "$REPO_ROOT"/scripts/*.sh; do
   name=${f##*/}
   [ "$name" = resolve-root.sh ] && continue
@@ -45,6 +84,8 @@ for f in "$REPO_ROOT"/scripts/*.sh; do
   if printf '%s\n' "$allowlist" | cut -f1 | grep -qxF "$name"; then
     continue
   fi
+  hits=$(unallowed_reads "$f" "$name")
+  [ -n "$hits" ] || continue
   fail "scripts/$name reads the core root chain inline:
 $hits"
 done
@@ -61,6 +102,18 @@ done <<EOF
 $allowlist
 EOF
 
+while IFS="$(printf '\t')" read -r name line why; do
+  [ -n "$name" ] || continue
+  count=$(allowed_read_count "$REPO_ROOT/scripts/$name" "$line")
+  if [ "$count" = 1 ]; then
+    ok "allowlisted read: scripts/$name ($why)"
+  else
+    fail "line allowlist row: scripts/$name makes the read '$line' $count times, not once"
+  fi
+done <<EOF
+$line_allowlist
+EOF
+
 # The grep itself, on planted lines.
 tmp="$(cd "$(mktemp -d)" && pwd -P)" || exit 1
 trap 'rm -rf "$tmp"' EXIT
@@ -73,6 +126,23 @@ printf '# $PLANWRIGHT_ROOT in a comment\ns=${s//\\$CLAUDE_PLUGIN_ROOT/x}\nPLANWR
 if chain_reads "$tmp/inline.sh" >/dev/null; then ok "the grep flags an inline chain"; else fail "the grep missed an inline chain"; fi
 if chain_reads "$tmp/writer.sh" >/dev/null; then ok "the grep flags a hand-rolled writer-delivery arm"; else fail "the grep missed a writer-delivery arm"; fi
 if chain_reads "$tmp/clean.sh" >/dev/null; then fail "the grep flagged a comment, escaped text, or an assignment"; else ok "the grep passes comments, escaped text, and assignments"; fi
+# A guard's line allowance covers its one read, never a second one.
+# shellcheck disable=SC2016
+printf '  local r=${CLAUDE_PLUGIN_ROOT:-}\nfor r in "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}"; do :; done\n' >"$tmp/guard.sh"
+left=$(unallowed_reads "$tmp/guard.sh" worker-command-guard.sh)
+if [ "$(printf '%s\n' "$left" | grep -c .)" = 1 ] && printf '%s' "$left" | grep -q '^2:'; then
+  ok "a guard's allowed read passes and an added inline chain read still fails"
+else
+  fail "the line allowance let through more than the one read: '$left'"
+fi
+# shellcheck disable=SC2016
+printf '  local r=${CLAUDE_PLUGIN_ROOT:-}\nf() {\n\tlocal r=${CLAUDE_PLUGIN_ROOT:-}  \n}\n' >"$tmp/twice.sh"
+# shellcheck disable=SC2016
+if [ "$(allowed_read_count "$tmp/twice.sh" 'local r=${CLAUDE_PLUGIN_ROOT:-}')" = 2 ]; then
+  ok "a second copy of the allowed read is counted, so its row fails"
+else
+  fail "a duplicated allowed read was not counted"
+fi
 
 for g in "$WORKER" "$TOWER"; do
   if grep -vE '^[[:space:]]*#' "$g" | grep -q 'resolve-root\.sh" install'; then

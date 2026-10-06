@@ -658,6 +658,24 @@ assert_defer "arm 5 — a malformed record trusts nothing from it" "$INST_JSON_R
 assert_allow "arm 5 — the cache walk survives a malformed record" "$INST_CACHE_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
 HOOK_ENV=("CLAUDE_DIR=$SANDBOX/no-such-dir" "HOME=$SANDBOX/nohome")
 assert_defer "arm 5 — no claude dir, nothing trusted" "$INST_CACHE_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
+# A cache root that is a symlink canonicalizes to wherever it points, which
+# would make that target trusted; at either level it defers (REQ-E1.1).
+LINKED_TARGET="$SANDBOX/install/linked-target"
+mkdir -p "$LINKED_TARGET/scripts" "$CDIR/plugins/cache/linkmkt"
+: >"$LINKED_TARGET/scripts/plug.sh"
+ln -s "$LINKED_TARGET" "$CDIR/plugins/cache/mkt/planwright/9.9.9"
+ln -s "$SANDBOX/install/linked-mkt" "$CDIR/plugins/cache/evilmkt"
+mkdir -p "$SANDBOX/install/linked-mkt/planwright/1.0.0/scripts"
+: >"$SANDBOX/install/linked-mkt/planwright/1.0.0/scripts/plug.sh"
+HOOK_ENV=("CLAUDE_DIR=$CDIR" "HOME=$SANDBOX/nohome")
+assert_defer "bypass: a symlinked cache version root" "$CDIR/plugins/cache/mkt/planwright/9.9.9/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "bypass: a symlinked cache marketplace dir" "$CDIR/plugins/cache/evilmkt/planwright/1.0.0/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_allow "a real cache root beside a symlinked one still allows" "$INST_CACHE_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
+ln -s "$LINKED_TARGET" "$SANDBOX/install/linked-plugin-root"
+HOOK_ENV=("CLAUDE_PLUGIN_ROOT=$SANDBOX/install/linked-plugin-root")
+assert_defer "bypass: a symlinked CLAUDE_PLUGIN_ROOT" "$LINKED_TARGET/scripts/plug.sh" Bash "$PLUGIN_CWD"
+HOOK_ENV=("CLAUDE_PLUGIN_ROOT=$SANDBOX/install/linked-plugin-root/.")
+assert_defer "bypass: a symlinked CLAUDE_PLUGIN_ROOT behind a trailing /." "$LINKED_TARGET/scripts/plug.sh" Bash "$PLUGIN_CWD"
 HOOK_ENV=()
 
 # --- Same-command variable tracking (the raw-command premise) ---------------
@@ -734,6 +752,91 @@ assert_defer "untracked: PLANWRIGHT_ROOT, exported by the dispatch wrapper" "PLA
 HOOK_ENV=("CLAUDE_PLUGIN_ROOT=$PLUGIN_ROOT")
 assert_defer "untracked: CLAUDE_PLUGIN_ROOT, exported by the dispatch wrapper" "CLAUDE_PLUGIN_ROOT=$PLUGIN_ROOT && \$CLAUDE_PLUGIN_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
 HOOK_ENV=()
+
+# The hook sees the command unexpanded, so a word whose value it cannot see
+# must never satisfy a screen that reads that value. Each bypass below was
+# approved by the guard before the fix; the regression-only rows already
+# deferred and pin that they keep doing so.
+echo "### REQ-E1.1 — an unresolved \$ in a screened position defers"
+assert_defer "bypass: a loop head word smuggles find flags" \
+  "for d in \"-maxdepth 0 -exec id ;\"; do find . \$d; done"
+assert_defer "bypass: \$_ carries the previous command's last word into find" \
+  "printf '%s' '-maxdepth 0 -exec id ;' >/dev/null; find . \$_"
+assert_defer "bypass: a non-literal loop head reaching cat" "for d in \$X; do cat \$d; done"
+assert_defer "bypass: a non-literal loop head reaching sed" "for d in \$X; do sed \$d f; done"
+assert_defer "bypass: a non-literal loop head reaching awk" "for p in \$X; do awk \$p f; done"
+assert_defer "bypass: a positional parameter as a find operand" "find . \$1"
+assert_defer "bypass: \"\$@\" as a git operand" "git log \"\$@\""
+assert_defer "bypass: a glob in a direct verb path" "scripts/o*.sh"
+assert_defer "bypass: a glob in a bash script path" "bash scripts/o*.sh"
+assert_defer "bypass: brace expansion assembles a find action" "find . -maxdepth 0 {-exec,id} ';'"
+assert_defer "bypass: a loop variable named PATH re-points later verbs" "for PATH in /tmp; do git status; done"
+assert_defer "bypass: read overwrites a loop variable before a screened use" \
+  "for d in -name; do read d; find . \$d; done"
+HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
+assert_defer "bypass: read overwrites a tracked variable" \
+  "P=$PLUGIN_ROOT && read P && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+HOOK_ENV=()
+assert_defer "regression-only: a loop variable reaching bash" "for d in a; do bash \$d; done"
+assert_defer "bypass: an unexpanded operand passes bats containment as a literal name" "bats \$X"
+assert_defer "bypass: a loop variable reaching bats containment" "for d in /tmp/evil.bats; do bats \$d; done"
+assert_defer "a loop variable outlives its loop as opaque" "for d in -name; do true; done; find . \$d x"
+assert_defer "select is not modelled" "select d in a b; do echo \$d; done"
+assert_defer "for with no in-list iterates the positionals" "for d; do echo \$d; done"
+assert_defer "an arithmetic for header" "for ((i=0;i<3;i++)); do echo \$i; done"
+LOOP17='w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 w15 w16 w17'
+LOOP16='w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 w15 w16'
+assert_defer "a loop head past the bound defers whole" "for f in $LOOP17; do echo \$f; done"
+assert_allow "a loop head at the bound is verified" "for f in $LOOP16; do grep -n x \$f; done"
+assert_allow "a plain-literal loop head behaves as its substituted form" \
+  "for f in a b; do grep -n x \$f; done"
+assert_allow "a resolved loop variable passes a screened verb" \
+  "for f in a.sh b.sh; do find . -name \$f; done"
+assert_defer "a resolved loop variable still meets the screen" \
+  "for f in -name -delete; do find . \$f; done"
+assert_allow "nested loops resolve both variables" \
+  "for a in x y; do for b in p q; do find . -name \$a\$b; done; done"
+assert_allow "an opaque operand of an argument-independent verb" "cat \$X; echo \"\$Y\"; printf '%s\\n' \"\$Z\""
+assert_allow "a quoted glob is a literal" "find . -name '*.sh' -type f"
+
+LOOP9='a b c d e f g h i'
+assert_defer "nested loops past the pass bound defer" \
+  "for x in $LOOP9; do for y in $LOOP9; do echo \$x\$y; done; done"
+MANY=''
+for _ in $(seq 520); do MANY="${MANY}true; "; done
+assert_defer "a command past the simple-command bound defers" "$MANY"
+assert_defer "REQ-A1.14: an unassigned variable in a script path" "bash \$X/scripts/x.sh"
+assert_defer "REQ-A1.14: a relative assigned path is not tracked" "X=../../../tmp/evil; bash \$X/scripts/x.sh"
+# Expansions that evaluate a value as arithmetic (a subscript, an offset,
+# `$[…]`) or indirectly run a `$(…)` the hook never sees, whatever the verb.
+assert_defer "bypass: a read value as an array subscript" "read -r b < f; echo \${a[b]}"
+assert_defer "bypass: a read value as a substring offset" "read -r b < f; echo \${x:b}"
+assert_defer "bypass: a read value in \$[ ] arithmetic" "read -r b < f; echo \$[b]"
+assert_defer "bypass: a read value through indirection" "read -r b < f; echo \${!b}"
+assert_defer "an environment value as a subscript" "echo \"\${a[X]}\""
+assert_allow "a braced bare name stays an opaque operand" "echo \"\${HOME}/x\""
+
+echo "### REQ-A1.13 — the -v forms defer in every spelling"
+assert_defer "bypass: test -v runs a subscript" "test -v 'a[\$(id)]'"
+assert_defer "bypass: [ -v runs a subscript" "[ -v 'a[\$(id)]' ]"
+assert_defer "bypass: printf -v runs a subscript" "printf -v 'a[\$(id)]' x"
+assert_defer "bypass: printf -v assigns PATH" "printf -v PATH /x"
+assert_defer "bypass: bundled printf -vNAME" "printf -vPATH /x"
+assert_defer "bypass: an opaque test operand can become -v" "test \$X 'a[\$(id)]'"
+assert_defer "an opaque printf format" "printf \"\$F\" x"
+assert_defer "an opaque printf format after --" "printf -- \"\$F\" x"
+assert_allow "printf -- ends the options" "printf -- '%s\\n' a \"\$X\""
+assert_allow "test without -v still allows" "[ -f file ] && test -n x"
+# A double-quoted opaque operand is one word in a position bash cannot read
+# as an operator; anywhere else it could become `-v`.
+assert_allow "a quoted opaque operand of a unary test" "[ -n \"\$HOME\" ] && test -d \"\$HOME/.claude\""
+assert_allow "quoted opaque operands around a binary test" "[ \"\$a\" = \"\$b\" ]"
+assert_allow "a lone quoted opaque test operand" "test \"\$a\""
+assert_defer "an unquoted opaque test operand" "[ -n \$X ]"
+assert_defer "two adjacent opaque test operands" "[ \"\$a\" \"\$b\" ]"
+assert_defer "a quoted \"\$@\" still splits into test operands" "[ -n \"\$@\" ]"
+assert_defer "an opaque test operator position" "[ \"\$a\" \"\$op\" b ]"
+assert_defer "a four-word test with an opaque operand" "[ \"\$a\" = b -o c ]"
 
 echo "### REQ-A1.9 — grammar-conservative deferral"
 assert_defer "env-assignment prefix BASH_ENV" "BASH_ENV=/tmp/x bash scripts/ok.sh"

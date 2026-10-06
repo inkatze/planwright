@@ -264,7 +264,9 @@
 # environment the worker gets) against a synthetic PreToolUse payload for
 # `<root>/scripts/resolve-rule-doc.sh spec-format`, once per root the worker
 # could run scripts from: this launcher's own root, that plugin root, and every
-# root the scripts/resolve-installed-roots.sh beside the hook names. A root the
+# root the scripts/resolve-installed-roots.sh beside the hook names, the ones
+# its symlink rule refuses included (the hook will not trust those, so a
+# worker loading its skills from one would stall). A root the
 # hook does not approve refuses the launch with exit 9, naming the root and the
 # command, because the worker would otherwise stall on exactly that call; a
 # hook that is missing or not executable, or a proof that could not run at
@@ -1244,6 +1246,7 @@ guard_preflight() {
   {
     printf '%s\n' "$gp_launcher" "$gp_hook_root"
     /bin/sh "$gp_hook_root/scripts/resolve-installed-roots.sh" 2>/dev/null || :
+    /bin/sh "$gp_hook_root/scripts/resolve-installed-roots.sh" --refused 2>/dev/null || :
   } | while IFS= read -r gp_root; do
     [ -n "$gp_root" ] || continue
     gp_root=$(cd -- "$gp_root" 2>/dev/null && pwd -P) || continue

@@ -735,7 +735,8 @@ environment) will approve the worker's opening move — the
 task work — once per root the worker could run scripts from: the launcher's
 own root, that plugin root, and every root `scripts/resolve-installed-roots.sh`
 names (Claude Code's `installed_plugins.json` record and its marketplace
-cache). A root the hook does not approve refuses the launch with exit 9,
+cache), including any it refuses to trust because the root is reached through
+a symlink. A root the hook does not approve refuses the launch with exit 9,
 naming the root and the command, because the worker would otherwise pend on
 exactly that call with nothing to say so; a hook that is missing or not
 executable, or a proof that could not run at all, refuses the same way. So
