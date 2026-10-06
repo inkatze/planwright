@@ -112,7 +112,7 @@
 # space-separated, empty for an empty list), model, effort, brief, `sanitized`
 # (ask or grounds, one line each, only when invisible or bidi-control
 # characters were stripped from that text), backend, handle, outcome (tmux:
-# started or started-unconfirmed), observe and attach (the session the
+# started, started-unconfirmed, or failed-at-startup), observe and attach (the session the
 # launch's report line named), launch (print), the primitive's `attach-plan` lines
 # (--attach-dry-run), `root<TAB>tower|worker<TAB><path><TAB><version>` and
 # root-skew (yes|no|unknown): the resolved plugin-root pair, so a tower and its
@@ -143,7 +143,9 @@
 # names what was left behind), or, on the print rung, the pinned launch could
 # not be built after the flight was placed (the report stops after `backend`
 # with a `failed` and a `reask` line, and the stderr line names the placed
-# worktree, which holds a slot).
+# worktree, which holds a slot), or the tmux worker died at startup (the full
+# report, outcome failed-at-startup, then a `failed` line with the cause and a
+# `reask` line naming the `git worktree remove` that frees its slot).
 #
 # Portable POSIX sh (the bash 3.2 floor); no eval; pathname expansion off.
 set -uf
@@ -1179,9 +1181,11 @@ cmd_dispatch() {
   release_lock
   session=''
   outcome=''
+  startup_why=''
   if [ "$backend" = tmux ] && [ "$dry" -eq 0 ]; then
     session=$(printf '%s\n' "$out" | awk -F"$TAB" '$1 == "launch" && $2 == "session" { print $3; exit }')
     _since=$(printf '%s\n' "$out" | awk -F"$TAB" '$1 == "launch" && $2 == "since" { print $3; exit }')
+    _token=$(printf '%s\n' "$out" | awk -F"$TAB" '$1 == "launch" && $2 == "token" { print $3; exit }')
     # A created session is placed whether or not its startup confirmation
     # arrived: re-dispatching over it would start a second worker.
     outcome=started-unconfirmed
@@ -1190,10 +1194,16 @@ cmd_dispatch() {
     else
       _confirm_rc=0
       /bin/sh "$WORKTREE" confirm --session "$session" --handle "$brief_handle" \
-        --since "${_since:-unknown}" </dev/null >/dev/null 2>"$work/confirm.err" || _confirm_rc=$?
+        --since "${_since:-unknown}" --token "$_token" </dev/null >"$work/confirm.out" 2>"$work/confirm.err" \
+        || _confirm_rc=$?
       case $_confirm_rc in
         0) outcome=started ;;
         14) ;;
+        15)
+          outcome=failed-at-startup
+          startup_why=$(awk -F"$TAB" '$1 == "confirm" && $2 == "reason" { print $3; exit }' "$work/confirm.out" \
+            | tr -d '\000-\010\013-\037\177')
+          ;;
         *) tr -d '\000-\010\013-\037\177' <"$work/confirm.err" >&2 ;;
       esac
     fi
@@ -1246,6 +1256,13 @@ cmd_dispatch() {
     fi
   fi
   print_root_pair "$root_dir" "$_wr"
+  if [ "$outcome" = failed-at-startup ]; then
+    # The reconcile never force-removes a registered flight worktree, so the
+    # slot it holds is freed by hand.
+    printf 'failed\t%s\n' "the worker died at startup: ${startup_why:-its session ended before it confirmed}"
+    printf 'reask\t%s\n' "The flight's worktree holds a slot until it is removed: git -C $(sh_quote "$primary_root") worktree remove $(sh_quote "$worktree"), then dispatch the ask again."
+    die 5 "the flight's worker died at startup; its worktree is left at $worktree"
+  fi
 }
 
 [ $# -ge 1 ] || usage
