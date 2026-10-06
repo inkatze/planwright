@@ -832,6 +832,7 @@ assert_allow "quoted opaque operands around a binary test" "[ \"\$a\" = \"\$b\" 
 assert_allow "a lone quoted opaque test operand" "test \"\$a\""
 assert_defer "an unquoted opaque test operand" "[ -n \$X ]"
 assert_defer "two adjacent opaque test operands" "[ \"\$a\" \"\$b\" ]"
+assert_defer "a quoted \"\$@\" still splits into test operands" "[ -n \"\$@\" ]"
 assert_defer "an opaque test operator position" "[ \"\$a\" \"\$op\" b ]"
 assert_defer "a four-word test with an opaque operand" "[ \"\$a\" = b -o c ]"
 

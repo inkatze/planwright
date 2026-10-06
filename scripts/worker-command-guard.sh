@@ -258,6 +258,7 @@ tokenize() {
             [ "$dn" = "'" ] && return 1 # $' ANSI-C quoting
             dollar_form_ok "$s" "$j" || return 1
             [ "$dn" != '"' ] && dollar_expands "$dn" && { [ "$curd" = 2 ] || curd=1; }
+            [ "$dn" = '@' ] && curd=2 # "$@" splits into words even quoted
           fi
           [ "$dc" = '`' ] && return 1 # backtick substitution
           k="$k$dc"
