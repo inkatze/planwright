@@ -202,8 +202,8 @@ that hosts a separate worker satisfies them; the backends that do not (`print`
 and `in-session`) are the manual/synchronous escape hatch called out in their
 rows below.
 
-- **`tmux`.** The richest backend: an interactive `claude --worktree` worker in a
-  named window. `capture-pane` provides observe-in-flight; attributed
+- **`tmux`.** The richest backend: an interactive worker in a detached tmux
+  session or window. `capture-pane` provides observe-in-flight; attributed
   `load-buffer`/`paste-buffer` provides steer-in-flight (never `send-keys`
   impersonation); a window id is the stable handle; the session is session-grade
   and survives the tower. Its cost is tmux fluency and installation — an
@@ -255,7 +255,7 @@ rows below.
   zero-dependency manual dispatch. The tower spawns no process, so observe,
   steer, and liveness are all absent (`print`-backend units are exempt from the
   orphan/liveness predicate for exactly this reason); session-grade is
-  *deferred* to the human, who runs the printed `claude --worktree` command.
+  *deferred* to the human, who runs the printed hand-launch command.
 - **`in-session`.** Runs `/execute-task` in the tower's own session, with no
   separate worker. Observe and steer are `n/a` — there is nothing separate to
   observe or steer — and it is single-stream (no parallelism) and not a spawn at

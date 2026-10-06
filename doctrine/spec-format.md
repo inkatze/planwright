@@ -876,8 +876,8 @@ anchor).
 - **Reserved spec namespace (D-44):** `planwright/<spec>/spec` is the spec
   bundle's own branch; the `tasks-pr-sync` hook no-ops on it.
 - **Worktree placement (D-37):** `<repo>/.claude/worktrees/<branch-suffix>`,
-  attachable via `claude --worktree` regardless of which backend launched the
-  work.
+  open to an operator's hand-launch, `claude --worktree`, whichever backend
+  placed it.
 - **Flight branch (tower-front-door D-11):** a visual flight — a specless
   unit — branches as `planwright/flight/<flight-id>`, with its worktree at
   `<repo>/.claude/worktrees/flight-<flight-id>`: the flattened single-segment

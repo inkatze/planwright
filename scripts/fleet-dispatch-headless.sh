@@ -70,7 +70,8 @@
 # WORKTREES. This primitive NEVER creates a worktree (the D-7 `git worktree`
 # exception stays scoped to fleet-dispatch-worktree.sh): the tower creates the
 # unit's worktree first — `fleet-dispatch-worktree.sh dispatch <spec> <id>
-# --no-attach` — and passes it via --worktree.
+# --no-attach`, which creates the worktree without launching a worker — and
+# passes it via --worktree.
 #
 # STATE. One dir per unit:
 #   ${PLANWRIGHT_HEADLESS_STATE_DIR:-<spec-root>/<spec>/.orchestrate/headless}/<id>/

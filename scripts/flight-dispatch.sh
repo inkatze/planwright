@@ -71,8 +71,9 @@
 #                only then does the launch's confirm step run. Its outcome is
 #                reported; a started-unconfirmed flight is placed (exit 0).
 #         print  create only, and report the exact launch for the human to
-#                run, through the dispatch environment pin; no process exists
-#                until they do.
+#                run (an operator's hand-launch of the native worktree
+#                launcher), through the dispatch environment pin; no process
+#                exists until they do.
 #       The session-bound rungs (subagent, in-session) cannot carry a flight,
 #       which must outlive the session that dispatched it (REQ-F1.3); the
 #       stream-json-persistent and headless-oneshot rungs are not wired for
@@ -1254,7 +1255,8 @@ cmd_dispatch() {
   printf 'backend\t%s\n' "$backend"
   if [ "$backend" = print ]; then
     # The printed launch runs through the dispatch environment pin, as every
-    # fleet launch does; the wrapper quotes each word.
+    # fleet launch does, and the wrapper quotes each word. It is an operator's
+    # hand-launch (the label scripts/check-launch-shape.sh looks for here).
     set -- claude --worktree "$suffix"
     [ "$TIER_MODEL" = inherit ] || set -- "$@" --model "$TIER_MODEL"
     [ "$TIER_EFFORT" = inherit ] || set -- "$@" --effort "$TIER_EFFORT"
