@@ -81,7 +81,7 @@ cleanup() {
     cl_dir=${cl_dir%/}
     cl_pid=$(cat "$cl_dir/supervisor.pid" 2>/dev/null) || continue
     case $cl_pid in '' | *[!0-9]*) continue ;; esac
-    case $(ps -p "$cl_pid" -o args= 2>/dev/null) in
+    case $(ps -ww -p "$cl_pid" -o args= 2>/dev/null) in
       *"_supervise ${cl_dir##*/} $cl_dir "*) ;;
       *) continue ;;
     esac
@@ -1599,14 +1599,18 @@ else
   mkdir -p "$wdir31" "$tmp/r31"
   ev="$tmp/ev31"
   printf '%s\n%s\n' "$line_init" "$line_result" >"$ev"
-  printf 'p\n' >"$tmp/prompt31"
+  mkdir -p "$tmp/c31"
+  printf 'p\n' >"$tmp/c31/prompt"
   #   Block only the worker.pid publish: a directory the publish cannot rename
   #   into. supervisor.pid is written before this and still succeeds, so the
   #   case exercises the second write and not a broken state directory.
   mkdir -m 500 "$wdir31/worker.pid"
-  out=$(senv "$home" "$tmp/r31" SHIM_EVENTS="$ev" -- \
-    launch sjw31 execution-backends:4 --prompt-file "$tmp/prompt31" --foreground 2>&1)
+  #   Into a file, not a capture: a worker the failure left running would hold
+  #   a capture pipe open and hang the case before the check below could name it.
+  senv "$home" "$tmp/r31" SHIM_EVENTS="$ev" -- \
+    launch sjw31 execution-backends:4 --prompt-file "$tmp/c31/prompt" --foreground >"$tmp/out31" 2>&1
   rc31=$?
+  out=$(cat "$tmp/out31")
   chmod 700 "$wdir31/worker.pid" 2>/dev/null
   [ "$rc31" != 0 ] \
     || fail "c31: a launch that could not publish worker.pid reported success: $out"
@@ -1614,14 +1618,19 @@ else
     *worker.pid*) ;;
     *) fail "c31: the failure never named the pid file it could not publish: $out" ;;
   esac
-  #   And no worker is left running behind that failure.
-  #   Matched on this run's state directory, so a concurrent run's sjw31 is
-  #   neither counted nor killed.
-  fixture_none "$wdir31/" || {
-    c31left=$(fixture_procs "$wdir31/")
-    fixture_reap "$wdir31/"
-    fail "c31: supervisor(s) survived a failed pid publish: $c31left"
-  }
+  #   And nothing is left running behind that failure. The foreground launch
+  #   supervises in-process and spawns no tick before this failure, so what it
+  #   starts is the launch itself, whose argv names this case's prompt
+  #   directory, and the worker, whose argv names the shim's directory from the
+  #   moment it is spawned. No earlier case leaves a worker running, so any
+  #   match here is this one.
+  for c31d in "$tmp/c31/" "$tmp/bin/"; do
+    wait_until 20 fixture_none "$c31d" || {
+      c31left=$(fixture_procs "$c31d")
+      fixture_reap "$c31d"
+      fail "c31: a process survived a failed pid publish: $c31left"
+    }
+  done
   echo "ok: c31 a worker that cannot be recorded is closed, not left running (REQ-E1.5)"
 fi
 
@@ -1854,8 +1863,9 @@ echo "ok: c36 the tick refuses a malformed argv or a foreign directory, and says
 # c37: the suite leaves nothing running. Every supervisor, tick, and shim a
 #     case starts carries this run's scratch directory in its argv, so one still
 #     running once the cases are done, or a descendant of one, is something a
-#     case launched and never closed. A tick notices its supervisor is gone only at its next step, so
-#     the set gets a short window to drain before it counts as leaked.
+#     case launched and never closed. A tick notices its supervisor is gone
+#     only at its next step, so the set gets a short window to drain before it
+#     counts as leaked.
 # ---------------------------------------------------------------------------
 wait_until 50 fixture_none "$tmp/" \
   || fail "c37: fixture process(es) still running after every case: $(fixture_procs "$tmp/" | tr '\n' ';')"

@@ -6,7 +6,8 @@
 # descendants join it: a shim's bare `sleep` names no path but dies with the
 # reap. No pid file is trusted to name a process a failed case never recorded.
 # What the path match cannot tell apart is a process that merely names the
-# directory, such as an operator tailing a capture while the suite runs.
+# directory, such as an operator tailing a capture while the suite runs, and
+# with it that process's descendants.
 #
 #   fixture_procs <dir/>     one `<pid> <args>` row per matched process, the
 #                            suite's own shell excluded; exit 2 when the
@@ -15,15 +16,19 @@
 #   fixture_none <dir/>      succeeds only on a readable table with no match
 #   fixture_reap <dir/>      SIGTERM the matches, SIGKILL whatever is left
 #                            after a short grace; names survivors on stderr and
-#                            returns 1 if any outlive the KILL
+#                            returns 1 if any outlive the KILL, or, signalling
+#                            nothing, when fixture_procs refuses (exit 2)
 #   fixture_is_owner         succeeds only in the suite's own process: bash
 #                            runs the EXIT trap in a backgrounded child
 #                            signalled before it reaches exec, and that child
 #                            must not tear the suite down under itself
 #
-# <dir/> must be an existing absolute directory below the root, written with
-# its trailing slash: an empty `mktemp -d` result would otherwise make the
-# needle `/`, which matches nearly every process the user owns.
+# <dir/> must be an existing directory strictly inside the temporary directory
+# `mktemp -d` uses, written with its trailing slash: an empty `mktemp -d`
+# result would otherwise make the needle `/`, and a broad one such as `$HOME/`
+# matches the processes the suite runs under and all their descendants.
+# Only `ps -ww` is read: a narrower table can cut the path out of an argv, and a
+# guard reading it would pass on processes it never saw.
 # Matched in-shell over a captured `ps` snapshot: a `grep` or `pgrep` for the
 # path would find its own argv.
 
@@ -38,31 +43,30 @@ fixture_is_owner() {
 }
 
 _fp_needle_ok() {
+  local base=${TMPDIR:-/tmp}
+  base=${base%/}
   case $1 in
-    /?*/*/) [ -d "$1" ] ;;
+    "$base"/?*/) [ -d "$1" ] ;;
     *) return 1 ;;
   esac
+}
+
+# Every row leads with a numeric pid and ppid, or this is not a process table.
+_fp_table_ok() {
+  printf '%s\n' "$1" | awk 'NF { n++; if ($1 !~ /^[0-9]+$/ || $2 !~ /^[0-9]+$/) bad = 1 } END { exit (n && !bad) ? 0 : 1 }'
 }
 
 fixture_procs() {
   local needle=$1 snap
   _fp_needle_ok "$needle" || {
-    echo "fixture_procs: refusing needle '$needle': not an existing directory below the root" >&2
+    echo "fixture_procs: refusing needle '$needle': not an existing directory inside ${TMPDIR:-/tmp}" >&2
     return 2
   }
   snap=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || snap=''
-  case ${snap%%"
-"*} in
-    *[0-9]*) ;;
-    *) snap=$(ps -A -o pid=,ppid=,args= 2>/dev/null) || snap='' ;;
-  esac
-  # The first field of every row is a pid, or this is not a process table.
-  case $(printf '%s\n' "$snap" | awk 'NF && $1 !~ /^[0-9]+$/ { print "bad"; exit } NF { n++ } END { if (!n) print "bad" }') in
-    bad)
-      echo "fixture_procs: no usable process table on this host" >&2
-      return 2
-      ;;
-  esac
+  _fp_table_ok "$snap" || {
+    echo "fixture_procs: no usable process table on this host" >&2
+    return 2
+  }
   printf '%s\n' "$snap" | FP_NEEDLE=$needle FP_SELF=$_fp_owner awk '
     NF {
       pid[NR] = $1; ppid[NR] = $2
