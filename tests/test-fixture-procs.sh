@@ -8,7 +8,8 @@
 #       signals nothing on a refusal.
 #   f2: a process naming the directory is matched with its descendants, which
 #       name no path; a process under another scratch directory is not.
-#   f3: the reap escalates to SIGKILL for a process that ignores SIGTERM.
+#   f3: the reap escalates to SIGKILL for a process that ignores SIGTERM, a
+#       pathless descendant included once its parent's death reparents it.
 #   f4: an unusable process table fails the guard instead of passing it.
 #   f5: only the sourcing shell counts as the owner, not a subshell of it.
 # shellcheck disable=SC2016 # the fixtures' scripts are literal sh source, expanded by the child
@@ -70,9 +71,14 @@ matched() {
   fixture_procs "$1" | awk -v p="$2" '$1 == p { f = 1 } END { exit !f }'
 }
 
-# f1
+# f1. The temporary, home, and parent directories come from the environment, so
+# each is tried only when no `fixture.*` component makes it a legitimate needle.
 mkdir -p "$tmp/sub"
 for bad in / "${TMPDIR:-/tmp}/" "$HOME/" "$tmp" "$tmp/missing/" "${tmp%/*}/" ''; do
+  case $bad in
+    "$tmp" | "$tmp"/*) ;;
+    */fixture.*) continue ;;
+  esac
   fixture_procs "$bad" >/dev/null 2>&1
   [ $? = 2 ] || fail "f1: fixture_procs accepted the needle '$bad'"
   fixture_none "$bad" 2>/dev/null && fail "f1: fixture_none passed on the refused needle '$bad'"
@@ -112,7 +118,16 @@ stubborn=$(spawn "$tmp/stubborn" 'trap "" TERM; echo $$ >"$0.pid"; while :; do s
 matched "$tmp/" "$stubborn" || fail "f3: the TERM-ignoring process was not matched"
 fixture_reap "$tmp/" || fail "f3: the reap left survivors"
 kill -0 "$stubborn" 2>/dev/null && fail "f3: a TERM-ignoring process outlived the reap"
-echo "ok: f3 a process ignoring SIGTERM is killed"
+printf '%s\n' 'trap "" TERM; echo $$ >"$KID"; while :; do sleep 0.1; done' >"$other/kid.sh"
+parent=$(spawn "$tmp/parent" "echo \$\$ >\"\$0.pid\"; KID=\"\$0.kid\" sh '$other/kid.sh'; :") \
+  || fail "f3: the parent never started"
+wait_until 100 test -s "$tmp/parent.kid" || fail "f3: the pathless child never started"
+kid=$(cat "$tmp/parent.kid")
+matched "$tmp/" "$kid" || fail "f3: the pathless child was not matched through its parent"
+fixture_reap "$tmp/" || fail "f3: the reap left survivors"
+kill -0 "$kid" 2>/dev/null && fail "f3: a TERM-ignoring child outlived the reap once its parent died"
+kill -0 "$parent" 2>/dev/null && fail "f3: the parent outlived the reap"
+echo "ok: f3 a process ignoring SIGTERM is killed, a reparented descendant included"
 
 # f4
 mkdir -p "$tmp/bin"

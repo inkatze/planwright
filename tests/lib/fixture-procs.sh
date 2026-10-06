@@ -59,6 +59,11 @@ fixture_scratch() {
     rmdir "$d"
     return 1
   }
+  # A relative TMPDIR gives a relative path, which no needle may be.
+  case $d in
+    /*) ;;
+    *) d=$(cd "$d" && pwd) || return 1 ;;
+  esac
   printf '%s\n' "$d"
 }
 
@@ -122,25 +127,41 @@ fixture_report() {
   fixture_procs "$1" 2>&1 | tr '\n' ';'
 }
 
+# _fp_alive <pid...> — the given pids that are still running, zombies excluded.
+_fp_alive() {
+  local p st
+  for p in "$@"; do
+    st=$(ps -p "$p" -o stat= 2>/dev/null) || continue
+    case $st in '' | Z*) ;; *) printf '%s\n' "$p" ;; esac
+  done
+}
+
 fixture_reap() {
-  local needle=$1 sig rows p end
+  local needle=$1 sig rows p end seen='' left
   for sig in TERM KILL; do
     rows=$(fixture_procs "$needle") || return 1
-    [ -n "$rows" ] || return 0
-    while read -r p _; do
+    # A descendant matched only through its parent leaves the match once that
+    # parent dies and it is reparented, so every pid seen stays a target until
+    # it is gone. The window in which one could be reused is this grace.
+    seen="$seen $(printf '%s\n' "$rows" | awk 'NF { print $1 }')"
+    # shellcheck disable=SC2086 # one pid per word
+    left=$(_fp_alive $seen)
+    [ -n "$left" ] || return 0
+    for p in $left; do
       kill -s "$sig" "$p" 2>/dev/null
-    done <<EOF
-$rows
-EOF
+    done
     # Bounded by the clock, not a poll count: each poll takes a full `ps`
     # snapshot, which on a loaded host costs more than the sleep between them.
     end=$((SECONDS + 3))
-    while [ "$SECONDS" -lt "$end" ] && ! fixture_none "$needle"; do
+    # shellcheck disable=SC2086
+    while [ "$SECONDS" -lt "$end" ] && { ! fixture_none "$needle" || [ -n "$(_fp_alive $seen)" ]; }; do
       sleep 0.1
     done
   done
   rows=$(fixture_procs "$needle") || return 1
-  [ -z "$rows" ] && return 0
-  echo "fixture_reap: process(es) survived SIGKILL: $(printf '%s\n' "$rows" | tr '\n' ';')" >&2
+  # shellcheck disable=SC2086
+  left=$(_fp_alive $seen)
+  [ -z "$rows" ] && [ -z "$left" ] && return 0
+  echo "fixture_reap: process(es) survived SIGKILL: $(printf '%s\n' "$rows" "$left" | tr '\n' ';')" >&2
   return 1
 }
