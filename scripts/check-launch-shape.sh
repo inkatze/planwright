@@ -46,7 +46,11 @@ if [ -r "$script_dir/echo-safety.sh" ]; then
   . "$script_dir/echo-safety.sh"
 else
   sanitize_printable() {
-    printf '%s' "$1" | tr -d '\000-\037\177\200-\237'
+    _sp=$(printf '%s' "$1" | tr -d '\000-\037\177\200-\237')
+    if [ -z "$_sp" ] && [ $# -ge 2 ]; then
+      _sp=$2
+    fi
+    printf '%s' "$_sp"
   }
 fi
 
@@ -75,23 +79,29 @@ if [ "$root_given" -eq 0 ]; then
     exit 2
   fi
 fi
-cd "$root" 2>/dev/null || {
+# A leading dash would reach cd as an option (`-` is even a directory change).
+case $root in
+  -*) root=./$root ;;
+esac
+cd "$root" >/dev/null 2>&1 || {
   echo "check-launch-shape: cannot enter the root to scan" >&2
   exit 2
 }
 
 # The patterns are spelled so this file's own code never matches them. A
-# mention may carry flags between the launcher and its worktree flag, and a
-# quoted or spaced classic-tmux value; one wrapped across a line break (behind
-# a comment, quote, or list leader, or a shell continuation) counts at its
-# first line.
+# mention may use the worktree flag's short form, carry flags between the
+# launcher and that flag, and quote or space the classic-tmux value; one
+# wrapped across a single line break (behind a comment, quote, list, or code
+# leader, or a shell continuation) counts at its first line. Known misses: a
+# wrap spanning several lines, a positional argument before the flag, and an
+# upper-cased launcher name.
 # shellcheck disable=SC2016 # the $-fields below are awk's, not the shell's
 scan_program='
 function flush(   i, j, ok, wrapped) {
   for (i = 1; i <= n; i++) {
-    wrapped = i < n && line[i + 1] == line[i] + 1 && seg[i] ~ /claude[ \t]*(\\[ \t]*)?$/ \
-      && seg[i + 1] ~ /^[ \t]*([#>*\/-]+[ \t]*)*--worktree/
-    if (!wrapped && seg[i] !~ /claude([ \t]+--?[A-Za-z][A-Za-z-]*([= \t]+[^- \t][^ \t]*)?)*[ \t]+--worktree/ \
+    wrapped = i < n && line[i + 1] == line[i] + 1 && seg[i] ~ /claude`?[ \t]*(\\[ \t]*)?$/ \
+      && seg[i + 1] ~ /^[ \t]*([#>*\/`-]+[ \t]*)*(--?[A-Za-z][A-Za-z-]*([= \t]+[^- \t][^ \t]*)?[ \t]+)*(--worktree|-w([= \t`"\047]|$))/
+    if (!wrapped && seg[i] !~ /claude([ \t]+--?[A-Za-z][A-Za-z-]*([= \t]+[^- \t][^ \t]*)?)*[ \t]+(--worktree|-w([= \t`"\047]|$))/ \
       && seg[i] !~ /--tmux[= \t]+["\047]?classic/) continue
     ok = 0
     for (j = i - window; j <= i + window; j++) {
@@ -125,14 +135,20 @@ if [ "$root_given" -eq 0 ]; then
   list=$(mktemp) || exit 2
   trap 'rm -f "$list"' EXIT
   git ls-files -z -- docs doctrine skills scripts config ':(glob)**/README*' \
-    ':(exclude)specs' ':(exclude)tests' ':(exclude,glob).*/**' \
+    ':(exclude)specs' ':(exclude)tests' ':(exclude,glob)**/.*/**' \
     ':(exclude,glob)**/CHANGELOG.md' >"$list" || {
     echo "check-launch-shape: cannot list the tracked tree; failing closed" >&2
     exit 2
   }
+  # A tracked path the checkout lacks (a deletion not yet committed) is
+  # skipped: there is no prose there to ship.
+  export SCAN_PROGRAM="$scan_program"
+  # shellcheck disable=SC2016 # the inner shell expands these, not this one
   out=$(
     [ ! -s "$list" ] \
-      || xargs -0 awk -v window="$WINDOW" "$scan_program" <"$list" || printf 'FAILED\n'
+      || xargs -0 sh -c 'for f do shift; [ ! -e "$f" ] || set -- "$@" "$f"; done
+        [ "$#" -eq 0 ] || exec awk -v window="$0" "$SCAN_PROGRAM" "$@"' "$WINDOW" <"$list" \
+      || printf 'FAILED\n'
   )
 else
   out=$(
@@ -162,7 +178,7 @@ case "$scanned" in
     ;;
 esac
 
-hits=$(printf '%s\n' "$out" | awk -F '\t' '$1 == "HIT" { sub(/^\.\//, "", $2); print $2 }') || {
+hits=$(printf '%s\n' "$out" | awk '/^HIT\t/ { h = substr($0, 5); sub(/^\.\//, "", h); print h }') || {
   echo "check-launch-shape: cannot read the scan's findings; failing closed" >&2
   exit 2
 }

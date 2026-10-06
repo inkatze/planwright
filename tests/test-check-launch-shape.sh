@@ -122,6 +122,26 @@ write_file "$r/docs/f.md" 'Workers start via `claude --model opus --effort high 
 run --root "$r"
 assert "flags between the launcher and --worktree do not hide the mention" 1 "$code"
 
+r=$(fixture_root short-flag)
+write_file "$r/docs/f.md" 'Workers start via `claude -w x`.'
+run --root "$r"
+assert "the worktree flag's short form is caught" 1 "$code"
+
+r=$(fixture_root wrapped-backtick)
+write_file "$r/docs/w.md" 'Workers start via `claude`' '`--worktree x`.'
+run --root "$r"
+assert "a mention wrapped between two code spans is still caught" 1 "$code"
+
+r=$(fixture_root wrapped-flags)
+write_file "$r/docs/w.md" 'Workers start via claude' '--model opus --worktree x.'
+run --root "$r"
+assert "a wrap whose next line leads with other flags is still caught" 1 "$code"
+
+r=$(fixture_root tmux-single-quoted)
+write_file "$r/docs/t.md" "The pane is opened with --tmux='classic'."
+run --root "$r"
+assert "a single-quoted classic value is caught" 1 "$code"
+
 r=$(fixture_root tmux-spaced)
 write_file "$r/docs/t.md" 'The pane is opened with --tmux classic.'
 run --root "$r"
@@ -281,6 +301,46 @@ case "$out" in
     ;;
   *) echo "ok: the reported path has its C1 control byte stripped" ;;
 esac
+
+r=$(fixture_root tab-path)
+write_file "$r/docs/a	b.md" 'Workers start via `claude --worktree x`.'
+run --root "$r"
+assert "a mention in a file with a tab in its name is reported" 1 "$code"
+assert_contains "the reported location keeps the whole path and line" "$out" "b.md:1"
+
+r=$(fixture_root dash-root)
+mkdir -p "$tmp/dash-parent"
+mv "$r" "$tmp/dash-parent/-r"
+out=$(cd "$tmp/dash-parent" && /bin/sh "$CHECKER" --root -r 2>&1)
+code=$?
+assert "a --root beginning with a dash is a directory, not a cd option" 0 "$code"
+
+# --- the default run reads the tracked tree ----------------------------------
+# A throwaway repository: only what git tracks is in scope, so an untracked
+# scratch file cannot fail the gate, and a tracked deletion is not a failure.
+g="$tmp/git-mode"
+mkdir -p "$g"
+git -C "$g" init -q
+write_file "$g/docs/a.md" 'Clean prose.'
+write_file "$g/docs/scratch.md" 'Workers start via `claude --worktree x`.'
+write_file "$g/specs/s/design.md" 'Workers start via `claude --worktree x`.'
+write_file "$g/tests/t.sh" '# claude --worktree x'
+write_file "$g/CHANGELOG.md" '- `claude --worktree x`'
+write_file "$g/templates/.hidden/README.md" 'Run `claude --worktree x`.'
+write_file "$g/docs/gone.md" 'Clean prose.'
+git -C "$g" add docs/a.md docs/gone.md specs tests CHANGELOG.md templates
+rm "$g/docs/gone.md"
+out=$(cd "$g" && /bin/sh "$CHECKER" 2>&1)
+code=$?
+assert "the default run ignores untracked files, excluded paths, and tracked deletions" 0 "$code"
+[ "$code" -eq 0 ] || printf '%s\n' "$out" >&2
+
+write_file "$g/README.md" 'Run `claude --worktree x` to dispatch.'
+git -C "$g" add README.md
+out=$(cd "$g" && /bin/sh "$CHECKER" 2>&1)
+code=$?
+assert "the default run reports a tracked mention" 1 "$code"
+assert_contains "the default run names the tracked file" "$out" "README.md:1"
 
 # --- the repository itself passes --------------------------------------------
 out=$(cd "$REPO_ROOT" && /bin/sh "$CHECKER" 2>&1)
