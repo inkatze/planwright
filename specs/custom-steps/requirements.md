@@ -1,7 +1,7 @@
 # Custom steps — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-22
+**Last reviewed:** 2026-09-28
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -331,8 +331,11 @@ obs:ff5ca260, obs:b1414bbd, obs:680c2761.)*
   implementation and review steps to every step at every point. A command
   step under `isolated` runs as a runner subprocess with its output
   captured to the cache; under the other two modes the named session
-  executes it through its shell tool as the declared line prefixed by the
-  `PLANWRIGHT_STEP_*` assignments. A `continue` step whose predecessor ran
+  executes it through its shell tool as the target's resolved absolute
+  location followed by its `args`, prefixed by the `PLANWRIGHT_STEP_*`
+  assignments; every hosting runs that resolved location, never the bare
+  target, since a session shell would run a same-named builtin. A
+  `continue` step whose predecessor ran
   `in-session` attaches to the unit's session, which is `in-session` by
   another name. An `isolated` step on a backend that cannot spawn a fresh
   session degrades to `in-session` and records the degradation, keeping
@@ -492,8 +495,9 @@ obs:ff5ca260, obs:b1414bbd, obs:680c2761.)*
 ## REQ-G — Security and permissions
 
 - **REQ-G1.1** Context values SHALL reach a command step only through its
-  environment; a declared command line is executed as the operator wrote
-  it, as argv by the runner subprocess and as the same simple command by a
+  environment; a declared command line is executed as its target's
+  resolved absolute location followed by its `args` as the operator wrote
+  them, as argv by the runner subprocess and as the same simple command by a
   session, never through shell interpretation of anything beyond word
   splitting, and no context value is ever interpolated into it.
   *(Cites: D-14, REQ-B1.6, security-posture (Sources).)*
@@ -509,8 +513,9 @@ obs:ff5ca260, obs:b1414bbd, obs:680c2761.)*
 - **REQ-G1.3** The worker command guard SHALL auto-approve a command
   segment whose word sequence, after the guard's own tokenization and
   after stripping leading `PLANWRIGHT_STEP_*` assignments, equals a
-  declared command step's target followed by its `args` as written, once
-  the target has passed the guard's charset check and, for a path target,
+  declared command step's resolved absolute location, as the resolver
+  prints it on the guard's host, followed by its `args` as written, once
+  that location has passed the guard's charset check and, for a path target,
   its canonicalization and traversal rejection, as an allow-only decision;
   a segment sharing only the first word is not approved. This extends
   worker-permission-ergonomics REQ-A1.5's enumerated known-safe set by one
@@ -590,6 +595,13 @@ obs:ff5ca260, obs:b1414bbd, obs:680c2761.)*
   the `pre-ready-flip` point defined rather than wired (REQ-A1.1), and the
   citation repairs (fleet-autonomy, model-allocation, obs:03653377,
   obs:c97cda97, obs:fbb56815, issue 383's pinned quote).
+- 2026-09-28 — Amendment (meaning-class, Active): a command step runs its
+  target's resolved absolute location, never the bare target, under every
+  hosting, and the worker command guard matches that location (REQ-D1.3,
+  REQ-G1.1, REQ-G1.3; D-7, D-11; Task 7), bringing the text in line with
+  the operator's Task 2 decision after a builtin-named bare target ran the
+  builtin rather than the printed file. The guard's fixture rows gain a
+  bare-target spelling deferred.
 
 ## Sources
 

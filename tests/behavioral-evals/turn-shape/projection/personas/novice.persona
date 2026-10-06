@@ -1,0 +1,3 @@
+# novice.persona — answers for the projection fixture, one per prompt.
+expertise=novice
+answer.1=retry only the failed step

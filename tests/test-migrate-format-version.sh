@@ -688,10 +688,31 @@ cur3=$("$ANCHOR" "$repo2/specs/partial")
 [ "$rec3" = "$cur3" ] || fail "completed re-anchor $rec3 != recomputed $cur3"
 echo "ok: a re-run completes a missing re-anchor instead of no-oping past a v2 file (REQ-D1.2)"
 
+# --- The reserved identifier (tower-front-door D-11). ---------------------
+
+# A bundle directory named `flight` is refused like a grammar failure and left
+# untouched: the name is the flight branch segment, never a spec.
+repo4=$tmp/corpus4
+mkdir -p "$repo4/specs"
+git -C "$repo4" init -q -b main
+seeded_bundle "$repo4/specs/flight" Draft
+if (cd "$repo4" && "$MIGRATE" specs >/dev/null 2>"$tmp/flight.err"); then
+  fail "reserved identifier: a bundle named flight was not refused"
+fi
+# The refusal must be the migrator's own screen, not the per-spec lock's
+# (which also refuses the name, but only after the migrator has decided to
+# process the bundle).
+grep -q 'reserved.*not migrated' "$tmp/flight.err" \
+  || fail "reserved identifier: the refusal is not the migrator's own: $(cat "$tmp/flight.err")"
+grep -q '^\*\*Format-version:\*\* 1$' "$repo4/specs/flight/requirements.md" \
+  || fail "reserved identifier: the refused bundle was migrated anyway"
+echo "ok: a bundle named by the reserved identifier is refused untouched"
+
 # --- Fail-closed version keying (REQ-C1.8). -------------------------------
 
 repo3=$tmp/corpus3
 mkdir -p "$repo3/specs"
+git -C "$repo3" init -q -b main
 seeded_bundle "$repo3/specs/unparseable" Ready
 sed 's/^\*\*Format-version:\*\* 1$/**Format-version:** wat/' \
   "$repo3/specs/unparseable/requirements.md" >"$tmp/ur" \
@@ -737,6 +758,7 @@ echo "ok: a numeric unsupported Format-version is refused fail-closed with no wr
 # refuse (not no-op past it, not crash, not write anything).
 mnb=$tmp/marker-no-brief
 mkdir -p "$mnb/specs"
+git -C "$mnb" init -q -b main
 cp -R "$repo/specs/seeded" "$mnb/specs/poisoned"
 rm "$mnb/specs/poisoned/kickoff-brief.md"
 mnb_snap=$tmp/mnb.snap
@@ -754,6 +776,7 @@ echo "ok: a v2 bundle with the migration marker but no brief is refused (REQ-D1.
 # exit code reports the refusal (the script header's isolation contract).
 mix=$tmp/mixed-corpus
 mkdir -p "$mix/specs"
+git -C "$mix" init -q -b main
 seeded_bundle "$mix/specs/bad" Draft
 printf '%s\n' '' '## Backlog' '' '(nothing)' >>"$mix/specs/bad/tasks.md"
 seeded_bundle "$mix/specs/good" Draft
@@ -775,6 +798,7 @@ echo "ok: a refusal never aborts the sweep — the valid sibling migrates and th
 # refusal fires with sanitized output (REQ-C1.9).
 esv=$tmp/escape-value
 mkdir -p "$esv/specs"
+git -C "$esv" init -q -b main
 seeded_bundle "$esv/specs/poisoned" Ready
 esc=$(printf '\033')
 awk -v esc="$esc" '
@@ -809,6 +833,7 @@ refusal_case() { # <slug> <label>
 
 mkrefusal() { # <slug> — fresh Draft seeded bundle at $tmp/refuse-<slug>/specs/poisoned
   mkdir -p "$tmp/refuse-$1/specs"
+  git -C "$tmp/refuse-$1" init -q -b main
   seeded_bundle "$tmp/refuse-$1/specs/poisoned" Draft
 }
 
@@ -929,7 +954,7 @@ rmdir "$tmp/refuse-lock-order/specs/poisoned/.orchestrate.lock"
 
 # A lock ERROR is not lock contention: orchestrate-lock exits 2 (with a
 # diagnostic) for environment/containment faults — e.g. a bundle dir not
-# under a specs/ parent — and exits 1 only for a live holder. Masking an
+# under a resolved spec root — and exits 1 only for a live holder. Masking an
 # error as "busy, re-run when quiet" tells the operator to wait out a
 # permanent refusal, the exact trap orchestrate-lock's own fail-closed
 # comment warns against; the migration must surface the lock's diagnostic.
@@ -941,7 +966,7 @@ if (cd "$lockerr" && "$MIGRATE" bundles/poisoned >/dev/null 2>"$tmp/lockerr.err"
 fi
 grep -q 're-run when quiet' "$tmp/lockerr.err" \
   && fail "lock error/busy conflation: a permanent lock refusal was reported as transient contention: $(cat "$tmp/lockerr.err")"
-grep -q 'specs/ parent' "$tmp/lockerr.err" \
+grep -q 'not contained under a resolved spec root' "$tmp/lockerr.err" \
   || fail "lock error refusal does not surface the lock's own diagnostic: $(cat "$tmp/lockerr.err")"
 echo "ok: a lock environment error surfaces the lock's diagnostic instead of 're-run when quiet'"
 
@@ -969,6 +994,7 @@ refusal_case pre-h2-task "a task block before the first H2 section (head-relocat
 # directory path (no sweep, no containment root) works end-to-end.
 solo=$tmp/solo-corpus
 mkdir -p "$solo/specs"
+git -C "$solo" init -q -b main
 seeded_bundle "$solo/specs/solo" Draft
 (cd "$solo" && "$MIGRATE" specs/solo >/dev/null 2>&1) \
   || fail "single-bundle invocation of a clean Draft bundle failed"
@@ -982,6 +1008,7 @@ echo "ok: single-bundle invocation migrates one bundle end-to-end (REQ-D1.2)"
 # canonical spaced form.
 ns=$tmp/nospace-corpus
 mkdir -p "$ns/specs"
+git -C "$ns" init -q -b main
 seeded_bundle "$ns/specs/nospace" Active
 signed_brief "$ns/specs/nospace" specs/nospace
 for nf in requirements.md tasks.md; do
@@ -1027,6 +1054,7 @@ echo "ok: a re-run over a torn (part-v2) bundle completes it without duplicating
 
 repo4=$tmp/corpus4
 mkdir -p "$repo4/specs"
+git -C "$repo4" init -q -b main
 seeded_bundle "$repo4/specs/UPPER_case" Ready
 if (cd "$repo4" && "$MIGRATE" specs >/dev/null 2>"$tmp/host.err"); then
   fail "REQ-C1.9: a hostile spec identifier was not refused"
@@ -1050,6 +1078,7 @@ echo "ok: an escape-byte identifier is refused with sanitized output (REQ-C1.9)"
 # specs root is refused, and the outside target is never written.
 repo5=$tmp/corpus5
 mkdir -p "$repo5/specs"
+git -C "$repo5" init -q -b main
 outside=$tmp/outside-bundle
 seeded_bundle "$outside" Ready
 ln -s "$outside" "$repo5/specs/linked"
@@ -1094,5 +1123,20 @@ for rq in "$here"/../specs/*/requirements.md; do
   esac
 done
 echo "ok: every live bundle in this repo declares format-version 2 (REQ-D1.3)"
+
+# An empty argument is the no-argument default, so a wrapper passing an unset
+# variable sweeps the resolved spec root rather than the working directory.
+ea=$tmp/empty-arg
+mkdir -p "$ea/junk" "$ea/specs"
+git -C "$ea" init -q -b main
+ea_rc=0
+ea_none=$(cd "$ea" && "$MIGRATE" 2>&1) || ea_rc=$?
+ea_none="$ea_rc:$ea_none"
+ea_rc=0
+ea_empty=$(cd "$ea" && "$MIGRATE" "" 2>&1) || ea_rc=$?
+ea_empty="$ea_rc:$ea_empty"
+case $ea_none in 0:*) ;; *) fail "the default sweep of an empty spec root failed: $ea_none" ;; esac
+[ "$ea_empty" = "$ea_none" ] || fail "an empty argument did not act as the default (default '$ea_none', empty '$ea_empty')"
+echo "ok: an empty argument is the no-argument default"
 
 echo "PASS: all migrate-format-version tests passed"

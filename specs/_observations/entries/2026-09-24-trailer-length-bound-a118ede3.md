@@ -1,0 +1,1 @@
+- 2026-09-24 [planwright] orchestrate-state.sh screens a Planwright-Task trailer spec segment by charset and the reserved word only, with no 64-character bound, while planwright-commit-trailers.sh enforces the bound; pre-existing, surfaced during the flight grammar review.

@@ -301,6 +301,16 @@ h5() {
   code=0
   printf 'p' | run_fdh launch "../evil" "$ID" --worktree "$wt" >/dev/null 2>&1 || code=$?
   [ "$code" -eq 2 ] || fail "h5: a hostile spec token should exit 2, got $code"
+  # `flight` is the reserved flight branch segment (tower-front-door D-11):
+  # refused at the grammar like a hostile token, with nothing launched.
+  code=0
+  _err=$(printf 'p' | run_fdh launch flight "$ID" --worktree "$wt" 2>&1 >/dev/null) || code=$?
+  [ "$code" -eq 2 ] || fail "h5: the reserved spec 'flight' should exit 2, got $code"
+  case $_err in
+    *"reserved spec id 'flight'"*) ;;
+    *) fail "h5: the refusal should name the reservation, got: $_err" ;;
+  esac
+  [ -e "$STATE/$ID/pid" ] && fail "h5: a refused reserved-spec launch must launch nothing"
   code=0
   printf 'p' | run_fdh launch "$SPEC" "3;rm" --worktree "$wt" >/dev/null 2>&1 || code=$?
   [ "$code" -eq 2 ] || fail "h5: a hostile id token should exit 2, got $code"
@@ -383,6 +393,13 @@ h8() {
   code=0
   run_fdh status "bad spec" 7 >/dev/null 2>&1 || code=$?
   [ "$code" -eq 2 ] || fail "h8: a hostile status spec token should exit 2, got $code"
+  code=0
+  _err=$(run_fdh status flight 7 2>&1 >/dev/null) || code=$?
+  [ "$code" -eq 2 ] || fail "h8: the reserved status spec 'flight' should exit 2, got $code"
+  case $_err in
+    *"reserved spec id 'flight'"*) ;;
+    *) fail "h8: the status refusal should name the reservation, got: $_err" ;;
+  esac
   pass "h8: absent and garbled records answer absent/unknown — never guessed death"
 }
 
@@ -650,6 +667,7 @@ h17() {
   # (a) `.orchestrate` redirects the base outside the repo.
   root="$tmp/repo-h17a"
   mkdir -p "$root/specs/$SPEC"
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$root"
   victim="$tmp/victim-h17a"
   mkdir -p "$victim/headless/$ID"
   printf 'precious\n' >"$victim/headless/$ID/keep.txt"
@@ -669,6 +687,7 @@ h17() {
   # (b) the same escape one level up: `specs/<spec>` itself is the symlink.
   root="$tmp/repo-h17b"
   mkdir -p "$root/specs"
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$root"
   victim="$tmp/victim-h17b"
   mkdir -p "$victim/.orchestrate/headless/$ID"
   printf 'precious\n' >"$victim/.orchestrate/headless/$ID/keep.txt"
@@ -697,6 +716,7 @@ h18() {
   make_fake "$tmp/rec-h18"
   root="$tmp/repo-h18"
   mkdir -p "$root/specs/$SPEC"
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$root"
   ln -s "$root" "$tmp/repolink-h18"
   code=0
   printf 'p' | env -u PLANWRIGHT_HEADLESS_STATE_DIR PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" \

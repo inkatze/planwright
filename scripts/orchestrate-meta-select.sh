@@ -57,8 +57,9 @@
 # (nothing ready anywhere, the fleet / every candidate spec is at its bound,
 # or every ready spec is held on a transient evidence failure — the hold is
 # surfaced on stderr per spec, REQ-B1.5);
-# 2 a supervised spec dir is missing / taskless / not a git work tree, a spec
-# basename fails the identifier grammar, a required helper is unavailable, or
+# 2 a supervised spec dir is missing / taskless / has no work repository, the
+# spec dirs' work repositories differ, a spec basename fails the identifier
+# grammar, a required helper is unavailable, or
 # the per-spec selector could not answer — an exit outside its documented
 # 0/1/2/3 set, or exit 0 with output that is not a task id (REQ-E1.5) — fail
 # closed, so absent live truth never silently reports "nothing".
@@ -113,10 +114,10 @@ fi
 # the basename becomes the spec id used downstream in branch names and trailers,
 # so it must satisfy the anchored identifier grammar (REQ-A1.8) — a hostile id is
 # rejected before it reaches any path or git op. A fleet supervises specs in ONE
-# checkout: the config overlay (below) is read once from the shared repo root and
-# the bounds are only meaningful against a single derivation base, so every spec
-# must be inside a git work tree AND share the first spec's toplevel. A spec in no
-# git work tree, or in a different checkout, is a caller error and fails closed
+# work repository: the config overlay (below) is read once from it and the bounds
+# are only meaningful against a single derivation base, so every spec must have a
+# work repository (scripts/resolve-work-repo.sh) AND share the first spec's. A
+# spec with none, or with a different one, is a caller error and fails closed
 # (exit 2) rather than silently resolving bounds from one repo while deriving
 # state against another.
 repo_root=""
@@ -125,6 +126,10 @@ for spec_dir in "$@"; do
   case "$spec_id" in
     *[!a-z0-9-]* | -* | "")
       printf '%s\n' "orchestrate-meta-select: invalid spec id '$(sanitize_printable "$spec_id" "(unprintable id)")' (must match ^[a-z0-9][a-z0-9-]*\$)" >&2
+      exit 2
+      ;;
+    flight)
+      printf '%s\n' "orchestrate-meta-select: refusing the reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)" >&2
       exit 2
       ;;
   esac
@@ -136,15 +141,25 @@ for spec_dir in "$@"; do
     printf '%s\n' "orchestrate-meta-select: missing or unreadable $(sanitize_printable "$spec_dir" "(unprintable path)")/tasks.md" >&2
     exit 2
   fi
-  spec_top=$(cd "$spec_dir" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || spec_top=""
+  wr_rc=0
+  spec_top=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir" 2>/dev/null) || wr_rc=$?
+  if [ "$wr_rc" -ne 0 ]; then
+    # A refused override says why itself; "no work repository" alone would
+    # send the operator looking at the bundle instead.
+    if [ "$wr_rc" -ne 3 ]; then
+      /bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir" >/dev/null
+      exit 2
+    fi
+    spec_top=""
+  fi
   if [ -z "$spec_top" ]; then
-    printf '%s\n' "orchestrate-meta-select: spec '$(sanitize_printable "$spec_dir" "(unprintable path)")' is not inside a git work tree" >&2
+    printf '%s\n' "orchestrate-meta-select: spec '$(sanitize_printable "$spec_dir" "(unprintable path)")' has no work repository (it is not inside a git work tree, and no repository here names its spec root)" >&2
     exit 2
   fi
   if [ -z "$repo_root" ]; then
     repo_root="$spec_top"
   elif [ "$spec_top" != "$repo_root" ]; then
-    printf '%s\n' "orchestrate-meta-select: spec '$(sanitize_printable "$spec_dir" "(unprintable path)")' is in a different checkout ('$(sanitize_printable "$spec_top" "(unprintable path)")') than the fleet root ('$(sanitize_printable "$repo_root" "(unprintable path)")'); a fleet supervises specs in one checkout" >&2
+    printf '%s\n' "orchestrate-meta-select: spec '$(sanitize_printable "$spec_dir" "(unprintable path)")' has a different work repository ('$(sanitize_printable "$spec_top" "(unprintable path)")') than the fleet's ('$(sanitize_printable "$repo_root" "(unprintable path)")'); a fleet supervises the specs of one work repository" >&2
     exit 2
   fi
 done
@@ -162,19 +177,18 @@ done
 # the fallback. We still fall back to the safe default on that exit so one broken
 # shared config never wedges the fleet, matching the sibling threshold reads.
 #
-# PLANWRIGHT_REPO_ROOT is pinned to the validated fleet root so config resolution
-# is independent of the caller's CWD (matching scripts/fleet-state.sh, which pins
-# it for the same cross-spec reason). Without the pin, config-get resolves the
-# repo-tracked and adopter overlay layers from the CWD's git toplevel
-# (resolve-overlay-root.sh), so invoking this selector from a different repo — or
-# outside any repo — would read the wrong repo-tracked overlay and could apply an
-# incorrect bound for the fleet the specs actually live in. PLANWRIGHT_LOCAL_CONFIG
+# PLANWRIGHT_REPO_ROOT is pinned to the specs' work repository so config
+# resolution is independent of the caller's CWD. Without the pin, config-get
+# resolves the repo-side overlay layers from the CWD's repository
+# (resolve-overlay-root.sh), so invoking this selector from a different repo —
+# or outside any repo — would read the wrong repo-tracked overlay and could
+# apply an incorrect bound for the fleet the specs actually belong to. PLANWRIGHT_LOCAL_CONFIG
 # pins the machine-local layer to the same root (it already did); the two together
 # tie every overlay layer to repo_root.
 read_bound() {
   rb_key=$1
   rb_fallback=$2
-  rb_v=$(PLANWRIGHT_REPO_ROOT="$repo_root" \
+  rb_v=$(PLANWRIGHT_REPO_ROOT="$repo_root" PLANWRIGHT_REPO_ROOT_CHECKED="$repo_root" \
     PLANWRIGHT_LOCAL_CONFIG="$repo_root/.claude/planwright.local.yml" \
     "$config_get" "$rb_key") || rb_v=""
   case "$rb_v" in

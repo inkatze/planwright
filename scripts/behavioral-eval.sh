@@ -62,6 +62,8 @@
 #   --grader-id <id>        the grader backend identifier; MUST differ from the
 #                           driver id (else the run is self-grading — refused)
 #   --record <dir>          write a scrubbed <id>.<persona>.json result per run
+#                           (<id>.<persona>.r<n>.json when the fixture sets
+#                           runs=, which repeats every persona n times)
 #   --suite <root>          run every immediate subdir of <root> as a fixture
 #   -h, --help              this help
 #
@@ -86,6 +88,7 @@ unset CDPATH
 
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 PANE_DETECT="$SELF_DIR/fleet-pane-detect.sh"
+TURN_GRADE="$SELF_DIR/turn-shape-grade.sh"
 
 # The canonical echo-discipline sanitizer (security-posture): every untrusted
 # value — a persona answer before send-keys, an artifact value before the
@@ -243,6 +246,7 @@ WORKBASE_PHYS="$(cd "$WORKBASE" && pwd -P)" || {
 machine_local_re='/(Users|home|root|opt)/|/private/var/|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 
 seq=0
+run_suffix=""
 overall_rc=0
 note_fail() { [ "$overall_rc" -eq 0 ] && overall_rc=1; }
 
@@ -450,6 +454,25 @@ grade_run() {
       fi
     fi
   fi
+  # Turn-shape invariants, for a fixture that names them: graded from the turn
+  # records the run mirrored into its decision log, never the pane. A failed
+  # invariant is a structural fail like a false grade.jq; a broken grade is
+  # fail-closed. Graded even after a false grade.jq, so its diagnostics survive.
+  if [ -n "$(read_conf "$fx_dir" turn_invariants)" ]; then
+    _gr_turns="$(/bin/sh "$TURN_GRADE" --conf "$fx_dir/fixture.conf" "$_gr_art" 2>&1)"
+    _gr_trc=$?
+    printf '%s\n' "$_gr_turns" | while IFS= read -r _gr_line; do
+      [ -n "$_gr_line" ] && warn "[$fx_id/$_gr_persona$run_suffix] turn-shape: $_gr_line"
+    done
+    case "$_gr_trc" in
+      0) : ;;
+      1) _gr_struct="false" ;;
+      *)
+        warn "[$fx_id/$_gr_persona$run_suffix] grade: turn-shape grading error (exit $_gr_trc)"
+        return 4
+        ;;
+    esac
+  fi
   # The structural verdict (`$_gr_struct`) is emitted alongside every outcome
   # token, so the recorded result reflects the MECHANICAL grade — not the
   # experiential one. A grader `fail` on a structurally-sound run must not read as
@@ -525,7 +548,7 @@ record_result() {
     warn "[$2] fail-closed — artifact contains a machine-local substring"
     return 1
   fi
-  printf '%s\n' "$_rr_art" >"$record_dir/$1.$2.json" || {
+  printf '%s\n' "$_rr_art" >"$record_dir/$1.$2$run_suffix.json" || {
     warn "[$2] cannot write artifact to '$record_dir'"
     return 1
   }
@@ -533,7 +556,7 @@ record_result() {
   # operator's --record argument, so sanitize it before the terminal (echo
   # discipline) even though printf %s already blocks backslash re-expansion — a
   # raw control byte would otherwise pass straight through.
-  printf '%s\n' "behavioral-eval: [$1/$2] recorded scrubbed result -> $(sanitize_printable "$record_dir")/$1.$2.json"
+  printf '%s\n' "behavioral-eval: [$1/$2] recorded scrubbed result -> $(sanitize_printable "$record_dir")/$1.$2$run_suffix.json"
   return 0
 }
 
@@ -722,7 +745,7 @@ run_persona() {
 
   # Surface a one-line, echo-safe summary of the graded subject.
   _rp_subject="$(sanitize_printable "$(jq -r '.sign_off.subject // ""' "$_rp_merged" 2>/dev/null)" "(none)")"
-  printf '%s\n' "behavioral-eval: [$fx_id/$_rp_persona] outcome=$_rp_outcome subject=$_rp_subject"
+  printf '%s\n' "behavioral-eval: [$fx_id/$_rp_persona$run_suffix] outcome=$_rp_outcome subject=$_rp_subject"
 
   if [ -n "$record_dir" ]; then
     record_result "$fx_id" "$_rp_persona" "$_rp_outcome" "$_rp_struct" "0.000000" || {
@@ -804,6 +827,18 @@ run_fixture() {
     return 2
   }
 
+  # The fixture's pass threshold is personas x runs: every persona runs this
+  # many times and any failing run fails the fixture, so a flake is a failure.
+  _rf_runs="$(read_conf "$fx_dir" runs)"
+  [ -n "$_rf_runs" ] || _rf_runs=1
+  case "$_rf_runs" in
+    [1-9] | [1-9][0-9]) ;;
+    *)
+      warn "[$fx_id] runs must be a whole number from 1 to 99, got '$_rf_runs'"
+      return 2
+      ;;
+  esac
+
   for _rf_p in $_rf_personas; do
     case "$_rf_p" in
       '' | *[!a-zA-Z0-9._-]*)
@@ -811,12 +846,18 @@ run_fixture() {
         return 2
         ;;
     esac
-    run_persona "$_rf_p"
-    _rf_rc=$?
-    case "$_rf_rc" in
-      0) : ;;
-      *) return "$_rf_rc" ;;
-    esac
+    _rf_n=1
+    while [ "$_rf_n" -le "$_rf_runs" ]; do
+      run_suffix=""
+      [ "$_rf_runs" -gt 1 ] && run_suffix=".r$_rf_n"
+      run_persona "$_rf_p"
+      _rf_rc=$?
+      case "$_rf_rc" in
+        0) : ;;
+        *) return "$_rf_rc" ;;
+      esac
+      _rf_n=$((_rf_n + 1))
+    done
   done
   return 0
 }

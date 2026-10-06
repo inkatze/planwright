@@ -21,9 +21,10 @@ data-only handling) live in the `accumulator-taxonomy` doctrine doc — read
 it via the rule-doc resolution path before interpreting the report.
 
 Doctrine manifest (machine-parseable, per `doctrine/instruction-hygiene.md`;
-`run-start` loads before work begins):
+`run-start` loads before work begins, `point-of-use` at the named step):
 
 Doctrine: run-start accumulator-taxonomy
+Doctrine: point-of-use interaction-style (Steps 3 and 4, the attended turns)
 
 ## Procedure
 
@@ -55,8 +56,20 @@ a failed sweep, not a result.
 
 ### 3. Present the report
 
-Relay the report grouped by what the human should do with each lane, in
-this order:
+The evaluator's report is the record; the turn is its projection
+(`interaction-style`, the arbitration). Lead with **one count per lane**, the
+actionable lanes (1–4 below) first, then ask which lane to open, or go
+straight to Step 4 on the first actionable item when only one lane has any.
+A lane's rows reach the turn when the operator asks for that lane, never by
+default; re-running the evaluator regenerates the whole report, so nothing
+withheld is lost. Every lane follows the shape PENDING / DORMANT always had:
+counts first, detail on request. Mirror each turn into the structured
+decision/transcript log as one `turn` record, sanitized like the log's other
+records (D-19); where the harness provides no such log, say the mirror was
+skipped, never improvising one into the repository.
+
+The lanes, in the order the counts and any opened detail follow, grouped by
+what the human should do with each:
 
 1. **MALFORMED** — drain-report-level errors. For each, show the file:line,
    the reason, and the offending gate text, and propose the corrected entry
@@ -71,8 +84,7 @@ this order:
    proof; a human judges whether the world caught up with the date).
 4. **FREE-TEXT** — gates the machine never evaluates; list them so the
    human can judge each condition.
-5. **PENDING / DORMANT** — not yet actionable; summarize counts, with
-   detail on request.
+5. **PENDING / DORMANT** — not yet actionable.
 6. **Manual verification** — the `== manual verification ==` section: each
    live bundle (Draft, Ready, Active) with its `[manual]` test-spec entries,
    `[test + manual]` included. This is inventory, not state (D-15): nothing
@@ -93,14 +105,17 @@ by the `[confidence]` tag so low still comes first.
 ### 4. Disposition (human-reserved)
 
 The sweep never auto-resolves and never auto-drops (REQ-H1.4) — and neither
-does this skill. For each re-surfaced or malformed item, ask the human what
-to do (un-defer the work, record the decision, re-gate with a new condition,
-fix the malformed entry, or leave it) and apply only what they choose. Edits
+does this skill. For each re-surfaced or malformed item, one item per turn,
+ask the human what to do (un-defer the work, record the decision, re-gate
+with a new condition, fix the malformed entry, or leave it), each option
+stating its action and consequence, and apply only what they choose. Edits
 to `tasks.md` follow the normal state-move commit discipline
 (`commit_on_state_move`) on v1 bundles; on a format-version 2 bundle the
 edit is a human-payload write (a Deferred entry or reference bullet — the
 task block never moves) and `commit_on_state_move` does not apply
-(invariant-tasks D-2, D-7).
+(invariant-tasks D-2, D-7). A follow-up the operator names beyond the item at
+hand is captured per `interaction-style`'s *Capture at birth*: this skill
+proposes the tracked form, and writes only what the operator confirms.
 
 ## Maintenance
 

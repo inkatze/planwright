@@ -58,6 +58,7 @@ core_cfg="$tmp/core-defaults.yml"
 repo="$tmp/repo"
 adopter_root="$tmp/adopter"
 mkdir -p "$repo/.claude" "$adopter_root"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$repo"
 mlocal_cfg="$repo/.claude/planwright.local.yml"
 
 # The shipped core defaults this engine reads, kept in lockstep with
@@ -491,7 +492,7 @@ grep -qE '^allocation_adaptation: "?off"?$' "$real_cfg" \
 
 # --- 15. per-step selection keys (Task 5; D-8, D-12, REQ-C1.3) -------------
 #
-# A step-type tier is STATIC configuration keyed by step class, not adaptation:
+# A step-type tier is STATIC configuration keyed by step id, not adaptation:
 # it never moves the unit's own ladder position. Its application is strictly
 # ONE-DIRECTIONAL — a cheaper configured tier applies for that step's launch
 # only and is scope-marked in the ledger; an equal or more expensive one is
@@ -535,20 +536,20 @@ out=$(run resolve stepdef:unit --key execution --step-type implementation) \
   || fail "15a: an unconfigured step type must report an inherit step scope"
 echo "ok: with defaults a step resolves to the unit's tier"
 
-# Every shipped review-sequence step class behaves the same way by default.
+# Every step the core catalog seeds behaves the same way by default.
 for st in polish self-review; do
   reset_state
   out=$(run resolve "stepdef:$st" --key execution --step-type "$st") \
     || fail "15a: resolve --step-type $st failed"
   [ "$(printf '%s\n' "$out" | field model)/$(printf '%s\n' "$out" | field effort)" = opus/high ] \
-    || fail "15a: review step class '$st' must default to the unit's tier"
+    || fail "15a: step '$st' must default to the unit's tier"
   [ "$(printf '%s\n' "$out" | field step_scope)" = inherit ] \
-    || fail "15a: review step class '$st' must report inherit, not a skipped resolution"
+    || fail "15a: step '$st' must report inherit, not a skipped resolution"
   # REQ-F1.1's inheritance case: recorded, not merely reported.
   [ "$(step_rows "stepdef:$st" | awk -F "$TAB" '{ print $14 }')" = inherit ] \
     || fail "15a: the inheritance must land as a ledger row for '$st'"
 done
-echo "ok: every shipped review-sequence step class defaults to the unit's tier"
+echo "ok: every seeded step defaults to the unit's tier"
 
 # --- 15b. a cheaper configured step tier applies, scope-marked -------------
 
@@ -683,6 +684,42 @@ out=$(run resolve partup:unit --key bookkeeping --step-type polish) \
   || fail "15f: an effort-only RAISE must be ignored"
 [ "$(printf '%s\n' "$out" | field step_scope)" = ignored ] || fail "15f: it should have been ignored"
 echo "ok: a partially configured step tier is one-directional too"
+
+# --- 15f2. a hyphenated step id resolves through its underscore-spelled knob
+#
+# A custom step's id is the knob key with hyphens written as underscores
+# (custom-steps REQ-C1.7): `panel-review` reads allocation_*_step_panel_review,
+# under the same one-directional rule, with no row shipped for it.
+
+reset_state
+step_knobs panel_review haiku low
+out=$(run resolve hyph:unit --key execution --step-type panel-review) \
+  || fail "15f2: resolve with a hyphenated step id failed"
+[ "$(printf '%s\n' "$out" | field model)/$(printf '%s\n' "$out" | field effort)" = haiku/low ] \
+  || fail "15f2: a cheaper tier on a hyphenated id's underscore knob must apply"
+[ "$(printf '%s\n' "$out" | field step_scope)" = applied ] || fail "15f2: it should have applied"
+[ "$(step_rows hyph:unit | awk -F "$TAB" '{ print $14 }')" = applied ] \
+  || fail "15f2: the applied step tier must leave its ledger row"
+echo "ok: a hyphenated step id applies a cheaper tier through its underscore-spelled knob"
+
+reset_state
+step_knobs panel_review opus high
+out=$(run resolve hyphup:unit --key bookkeeping --step-type panel-review) \
+  || fail "15f2: resolve with a costlier hyphenated step tier failed"
+[ "$(printf '%s\n' "$out" | field model)/$(printf '%s\n' "$out" | field effort)" = sonnet/medium ] \
+  || fail "15f2: a costlier tier on a hyphenated id must be ignored"
+[ "$(printf '%s\n' "$out" | field step_scope)" = ignored ] || fail "15f2: it should have been ignored"
+[ "$(step_rows hyphup:unit | awk -F "$TAB" '{ print $14 }')" = ignored ] \
+  || fail "15f2: the ignored step tier must leave its ledger row"
+reset_state
+step_knobs panel_review opus high
+out=$(run resolve hypheq:unit --key execution --step-type panel-review) \
+  || fail "15f2: resolve with an equal hyphenated step tier failed"
+[ "$(printf '%s\n' "$out" | field step_scope)" = ignored ] \
+  || fail "15f2: an equal tier on a hyphenated id must be ignored, not applied"
+[ "$(step_rows hypheq:unit | awk -F "$TAB" '{ print $14 }')" = ignored ] \
+  || fail "15f2: the equal step tier must leave its ledger row"
+echo "ok: a hyphenated step id's equal or costlier tier is ignored with a ledger row"
 
 # --- 15g. no step type at all is the unchanged path ------------------------
 

@@ -1,0 +1,1 @@
+- 2026-09-24 [planwright] fleet-dispatch-worktree.sh warns "invalid worktree suffix: <value>" without sanitize_printable, so a refused suffix reaches stderr raw; the sibling "invalid spec id" warn has the same shape. Pre-existing, surfaced while adding the flight suffix form; a one-line sanitize at each warn closes it.

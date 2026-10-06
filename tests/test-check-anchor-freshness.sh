@@ -350,11 +350,11 @@ assert_has "the interim whole-file form is accepted" "interim"
 
 # A sanctioned form that resolves to nothing is the fail-closed
 # absent-anchor-class error, never a silent match. The fixture is a tree that
-# carries the guard and its grammar lib but no spec-anchor.sh, so the checked
-# tree, the three env arms, and the self-location arm all miss.
+# carries the guard, its grammar lib, and the root helper but no spec-anchor.sh,
+# so the checked tree and every arm of the core root chain miss.
 f5b="$tmp/f5b"
 mkdir -p "$f5b/scripts" "$f5b/specs"
-cp "$GUARD" "$f5b/scripts/"
+cp "$GUARD" "$repo/scripts/resolve-root.sh" "$f5b/scripts/"
 cp "$repo/scripts/spec-parse.sh" "$f5b/scripts/"
 make_bundle "$f5b/specs" unresolvable Ready 'A requirement body.'
 write_entry "$f5b/specs" unresolvable "$("$ANCHOR" "$f5b/specs/unresolvable")" \
@@ -364,6 +364,19 @@ OUT=$(PLANWRIGHT_ROOT="$tmp/nowhere" CLAUDE_PLUGIN_ROOT="$tmp/nowhere" CLAUDE_DI
   "$f5b/scripts/check-anchor-freshness.sh" "$f5b/specs" 2>&1) || RC=$?
 assert_rc "an unresolvable sanctioned form fails closed" 1
 assert_has "the unresolvable record names the absent-anchor class" "absent-anchor"
+
+# A copy that lost the root helper says so and still searches its own tree.
+f5c="$tmp/f5c"
+mkdir -p "$f5c/scripts" "$f5c/specs"
+cp "$GUARD" "$repo/scripts/spec-parse.sh" "$f5c/scripts/"
+make_bundle "$f5c/specs" unresolvable Ready 'A requirement body.'
+write_entry "$f5c/specs" unresolvable "$("$ANCHOR" "$f5c/specs/unresolvable")" \
+  "spec-anchor.sh specs/unresolvable"
+RC=0
+OUT=$(PLANWRIGHT_ROOT="$tmp/nowhere" CLAUDE_PLUGIN_ROOT="$tmp/nowhere" CLAUDE_DIR="$tmp/nowhere" \
+  "$f5c/scripts/check-anchor-freshness.sh" "$f5c/specs" 2>&1) || RC=$?
+assert_rc "without the root helper the form still fails closed" 1
+assert_has "without the root helper the run names the broken install" "root helper"
 
 # A bundle missing one of the four files cannot be recomputed by ANY sanctioned
 # form, so the record must name that — not blame the anchor. The script forms
@@ -595,6 +608,18 @@ assert_rc "an off-grammar bundle directory fails closed" 1
 assert_has "the off-grammar error names the identifier rule, not the brief" "not a valid spec identifier"
 assert_has "the quoted rule is the real one, not a two-character pattern" '^[a-z0-9][a-z0-9-]*$'
 assert_lacks "it does not misreport as a non-sanctioned form" "non-sanctioned command form"
+
+# `flight` is reserved (tower-front-door D-11): a bundle directory so named
+# fails closed the same way, naming the reservation.
+f7d="$tmp/f7d/specs"
+mkdir -p "$f7d"
+make_bundle "$f7d" 'flight' Ready 'A requirement body.'
+# A stale anchor, so a bundle that was checked anyway would add a mismatch.
+write_entry "$f7d" 'flight' 0000000000000000000000000000000000000000 "scripts/spec-anchor.sh specs/flight"
+run_guard "$f7d"
+assert_rc "a bundle named by the reserved identifier fails closed" 1
+assert_has "the error names the reservation" "reserved"
+assert_lacks "the reserved bundle is skipped, not checked" "anchor mismatch"
 
 ########################################################################
 # 11. Diagnostics are sanitized

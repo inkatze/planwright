@@ -943,6 +943,7 @@ walkthrough="$here/../scripts/spec-walkthrough.sh"
 if [ -x "$walkthrough" ]; then
   wkroot="$tmp/wk"
   make_bundle "$wkroot/specs" demo
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$wkroot"
   artifact="$wkroot/.claude/walkthroughs/demo/demo.html"
   (cd "$wkroot" && SPEC_WALKTHROUGH_COMMIT="$COMMIT" "$walkthrough" --scope decisions "specs/demo" >/dev/null 2>&1)
   [ -f "$artifact" ] || fail "scaffold did not write the scoped artifact at $artifact"

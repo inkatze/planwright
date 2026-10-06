@@ -1,0 +1,1 @@
+- 2026-09-28 [planwright] fleet-streamjson.sh launch never delivers the initial prompt when awk is busybox awk (reproduced on origin/main f8f0ee4 with a PATH shim; the stream-json tests fail at the first launch). The scripts claim a POSIX awk floor, but no test runs a second awk implementation.

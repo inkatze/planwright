@@ -450,15 +450,22 @@ fi
 
 # 15. Skipped-directory notes are visible: a non-conforming name and an
 #     over-length name each leave a note rather than vanishing.
-mkdir -p "$tmp/specs5/ok" "$tmp/specs5/Bad_Name" \
+mkdir -p "$tmp/specs5/ok" "$tmp/specs5/Bad_Name" "$tmp/specs5/flight" \
   "$tmp/specs5/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 printf '%s\n' '# Ok — Tasks' '' '**Format-version:** 1' >"$tmp/specs5/ok/tasks.md"
+printf '%s\n' '# Flight — Tasks' '' '**Format-version:** 1' >"$tmp/specs5/flight/tasks.md"
 out5=$("$drain" --today 2026-06-12 "$tmp/specs5") \
   || fail "skipped-directory fixtures broke the sweep"
 printf '%s\n' "$out5" | grep -F 'non-conforming spec identifier' >/dev/null \
   || fail "non-conforming directory skip not noted"
 printf '%s\n' "$out5" | grep -F 'over-length spec identifier' >/dev/null \
   || fail "over-length directory skip not noted"
+# `flight` is the reserved flight branch segment (tower-front-door D-11): the
+# walk notes and skips a directory so named rather than sweeping it as a spec.
+printf '%s\n' "$out5" | grep -F "reserved spec identifier 'flight'" >/dev/null \
+  || fail "reserved directory skip not noted"
+printf '%s\n' "$out5" | grep -vF 'reserved spec identifier' | grep -q flight \
+  && fail "the reserved directory was swept as a spec: $out5"
 
 # 16. A hostile Status field cannot forge another spec's status: awk -v
 #     processes C escapes, so a literal backslash-t in requirements.md

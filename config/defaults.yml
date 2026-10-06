@@ -16,11 +16,11 @@ commit_on_state_move: true
 
 # Whether /spec-kickoff marks the spec PR ready as the terminal step of a clean
 # kickoff completion (D-6, D-7; REQ-D1.2, REQ-D1.3) — the narrow exception to
-# bootstrap D-26's all-drafts rule (only the spec PR; task PRs stay drafts; merge
-# stays human, never auto-merge). false leaves the spec PR draft for the human to
-# un-draft by hand. The flip never fires when sign-off parked on a fork or the
-# configured review_sequence verification did not converge, regardless of this
-# value.
+# bootstrap D-26's all-drafts rule (only the spec PR here; task PRs follow
+# ready_flip_policy; merge stays human, never auto-merge). false leaves the spec
+# PR draft for the human to un-draft by hand. The flip never fires when sign-off
+# parked on a fork or the pre-flip verification did not converge, regardless of
+# this value.
 mark_spec_pr_ready_on_kickoff: true
 
 # The bounded wait /spec-kickoff's terminal ready-flip holds for the spec PR's
@@ -98,7 +98,7 @@ max_parallel_units: 3
 fleet_max_parallel_units: 3
 
 # How /execute-task sequences a unit's steps (D-5, REQ-C1.3). `per-step` runs
-# implementation and each configured review_sequence skill in its own fresh
+# implementation and each step the convergence point runs in its own fresh
 # /resume-seeded session, so context stays bounded and each review's perspective
 # is uncontaminated by prior steps; backends that cannot spawn a fresh session
 # approximate it (the synchronous terminal rung via context clears between
@@ -164,23 +164,59 @@ dispatch_fetch_ttl: 2m
 # `push` is session-relayed (tower-comms D-19) — the seam writes a pending-push
 # marker under the fleet home and the tower session relays it to the operator's
 # desktop and phone, since only a session can call the tool that reaches one;
-# the relay is not built yet, so until the tower loop lands the markers
-# accumulate unread and `push` reaches nobody (docs/fleet.md says the same).
+# the relay is the tower loop's comms step, so outside a tower loop the markers
+# wait unread (docs/fleet.md says the same).
 # Resolved through scripts/resolve-notification-channel.sh, which validates the
 # enum and applies the REQ-E1.4 by-layer malformed policy (degrade+warn for
 # adopter/machine-local, hard-fail for repo-tracked); the channel adapters live
 # in scripts/fleet-attention.sh (`notify`).
 notification_channel: none
 
-# The ordered review sequence /execute-task's convergence phase runs (D-6,
-# REQ-D1.3). An inline list of nestable review-skill names (a nestable review
-# skill is one invocable with --nested). The default reproduces today's
-# convergence behavior — a single /polish --nested pass — so out-of-the-box
-# behavior is unchanged; an overlay can reorder or extend it (e.g.
-# [self-review, polish]) once the named skills exist. Resolved through
-# scripts/resolve-review-sequence.sh, which validates each name and applies the
-# REQ-E1.4 malformed-by-layer policy to an unknown or non-nestable name.
-review_sequence: [polish]
+# The push destinations a visual flight may land a draft PR on
+# (scripts/flight-dispatch.sh `home`). An inline list of entries, each a host
+# (`github.com`) or one owner on a host (`github.com/acme`), matched against
+# every push URL of origin as `git remote get-url --push --all` reports them,
+# rewrite rules applied as git applies them on push. Empty by default: an
+# adopter opts in to their own hosts or owners in the adopter or machine-local
+# layer. The repo-tracked layer is ignored for this key, so a repository cannot
+# approve its own push destination. A destination no entry covers gets the
+# committed-record home instead, and the report names the destination and why.
+# A malformed entry is ignored with a warning, approving nothing.
+flight_pr_hosts: []
+
+# Custom steps: one flat key per named attachment point (custom-steps D-4,
+# REQ-B1.3), each an inline flow list of step ids in run order. A step id
+# names an entry in the `steps` catalog (config/steps.yaml merged with the
+# overlay catalogs); the list is resolved by scripts/resolve-steps.sh with
+# last-layer-wins per key and a warning naming every shadowed lower overlay
+# layer. `[]` runs nothing and is not malformed. doctrine/custom-steps.md
+# fixes when each point fires and what a step may do. Only the visual-flight
+# dispatch (scripts/flight-dispatch.sh) reads steps_convergence until
+# /execute-task is wired to the resolver; core then ships
+# behavior-identical, steps_convergence running the single /polish --nested
+# pass the retired convergence knob ran.
+#
+# The in-run points of /execute-task, in firing order:
+steps_pre_implementation: []
+steps_pre_ci: []
+steps_convergence: [polish]
+steps_pre_pr: []
+steps_post_pr: []
+# The flip points: pre-ready-flip is run by /execute-task's unit-PR flip
+# (scripts/ready-flip.sh); pre-spec-ready-flip is run by /spec-kickoff.
+steps_pre_ready_flip: []
+steps_pre_spec_ready_flip: []
+# Named, not wired (gated under custom-steps' Deferred): a non-empty list here
+# resolves no steps and is reported as unwired by the resolver (and by
+# check:steps once that guard is wired).
+steps_spec_drafted: []
+steps_kickoff_signed_off: []
+steps_unit_selected: []
+steps_pre_dispatch: []
+steps_post_dispatch: []
+steps_unit_halted: []
+steps_post_merge: []
+steps_orchestrator_idle: []
 
 # The operator kill-switch for the autonomous daemon layer (fleet-autonomy
 # D-15, REQ-F1.3). `true` pauses every autonomous daemon action the fleet
@@ -211,6 +247,30 @@ fleet_daemon_pause: false
 # scope (every tracked worker worktree plus the tower's own checkout) and its
 # reconcile-backstop pass (REQ-A1.8) are not tunable here — only the grace is.
 fleet_dirty_tree_threshold: 15m
+
+# How often `scripts/fleet-sweep.sh --watch` runs a sweep cycle: the worktree
+# scan, the dirty-tree pass, the reconcile backstop, and the process reap
+# (fleet-lifecycle-closure D-5, REQ-F1.1). The schedule is the sweep's only
+# trigger; nothing waits for a count to look alarming. A duration (`90s`,
+# `10m`, `1h`) resolved through the shared knob resolver on every cycle, so an
+# overlay edit applies without restarting the loop; a malformed value follows
+# the by-layer policy, and one under a second waits a second.
+fleet_sweep_interval: 10m
+
+# Whether the sweep's process reap terminates leaked workers or only records
+# what it would have closed (fleet-lifecycle-closure D-14, REQ-F1.6).
+# `observe` writes a `would-cleanup` audit record per worker a close would take
+# and kills nothing; `terminate` closes them through fleet-cleanup.sh process.
+# `terminate` is honored only from the machine-local layer: set in the core,
+# adopter, or repo-tracked layer, or in a machine-local file the repository
+# itself tracks, it is refused with a warning and the sweep observes, so
+# promoting the reaper is a per-machine decision. Setting it back
+# to `observe` (or removing it) takes effect on the next cycle.
+# For now `terminate` is refused even there, with a warning, and the sweep
+# observes: the stream-json close trusts the pid a crashed worker left behind,
+# which the host may have reissued to an unrelated process. It is honored again
+# once the close checks that pid is still the worker's.
+fleet_sweep_reap: observe
 
 # Push-based worker liveness: the five-state classifier and crash-loop
 # backoff (fleet-autonomy D-1, D-2, D-3; REQ-A1.2, REQ-A1.4). All four
@@ -303,9 +363,10 @@ fleet_model_drain: sonnet
 # selection policy is operator-configurable without a code change, shipped
 # defaults preserving today's table (opt-in, default-preserving). Effort is one
 # of (low medium high); command is one of the dispatch-entry set
-# (execute-task orchestrate drain) — that enum is exactly the non-nestable set,
-# so review-sequence disjointness (REQ-E1.2) holds by construction at every
-# overlay layer, not just for these defaults.
+# (execute-task orchestrate drain) — no member of that enum is a pipeline
+# entry a step may name, nor a step a dispatch may launch, so the two sets
+# stay disjoint (REQ-E1.2) by construction at every overlay layer, not just
+# for these defaults.
 #
 # Deprecated fallback on the same terms as the model block above: the general
 # allocation_effort_* / allocation_command_* knobs win when set, these apply
@@ -367,9 +428,9 @@ allocation_effort_offload: inherit
 
 # PER-STEP selection keys (model-allocation D-8, D-12; REQ-C1.3, REQ-E1.1).
 # The selection keys above price a whole UNIT. These price one STEP of it: the
-# implementation step, and each review-sequence step class (one knob pair per
-# nestable review skill). Today every review pass inherits the unit's tier, so
-# nothing ever starts cheap; these are the knobs that let it.
+# implementation step, and each step by its step id (one knob pair per step
+# id, `-` written as `_`). Today every review pass inherits the unit's tier,
+# so nothing ever starts cheap; these are the knobs that let it.
 #
 # ALL SHIP `inherit`, so every step resolves to the unit's own tier and the
 # golden baseline is reproduced exactly. Landing the mechanism changes runtime
@@ -392,12 +453,12 @@ allocation_effort_offload: inherit
 # a ledger row. Give the surface a tier first, or the step knob stays inert.
 #
 # There is NO command column here, deliberately. The command enum carries the
-# review-sequence-disjointness invariant (REQ-A1.4) and must never name a
-# nestable review skill; step types are named after exactly those skills, so
-# the axes stay separate and the enum is untouched by construction.
+# dispatch-entry disjointness invariant (REQ-A1.4) and must never name a step;
+# step knobs are keyed by step id, so the axes stay separate and the enum is
+# untouched by construction.
 #
-# The key space is OPEN: a review skill added later needs no row here, because
-# its knob is absent from every layer and resolves to `inherit`.
+# The key space is OPEN: a step added later needs no row here, because its
+# knob is absent from every layer and resolves to `inherit`.
 #
 # The model column takes the starting-tier enum (ladder top excluded, see the
 # fleet_model_* block above). A step tier only ever applies when it is CHEAPER
@@ -416,7 +477,7 @@ allocation_effort_step_self_review: inherit
 # resolves exactly what fleet dispatch resolves today, and a trigger event is
 # inert. Turn it `on` and the engine derives the unit's current tier from its own
 # allocation ledger and moves it one ladder step per triggering incident —
-# a step failure or retry, a flailing classification, review-sequence
+# a step failure or retry, a flailing classification, convergence-point
 # non-convergence, or a worker petition. Infrastructure failures are never
 # triggers. Adaptation rows are recorded either way: they are additive telemetry,
 # exempt from the behavior-preservation claim.
@@ -631,12 +692,13 @@ require_signed_tags: auto
 # Whether publish requires positive GitHub CI confirmation on the release commit
 # (release-hardening D-7, REQ-G1.3). `true` (default) preserves the strict gate:
 # only a `green` verdict publishes, and a `none` verdict — no positive CI
-# confirmation (no checks, only the excluded release-window lock, or all
-# non-excluded checks NEUTRAL/SKIPPED) — refuses like every other non-green
-# verdict. `false` relaxes ONLY that `none` verdict to allow publish (all three
-# none sub-cases), emitting a stderr diagnostic naming require_ci=false so the
-# deliberate relaxation leaves an audit signal; a failing, pending, unread-
-# overflow (too-many), or CI-query-failure verdict stays fail-closed regardless.
+# confirmation (no checks, only excluded checks (the release-window lock, the
+# flip-point commit statuses), or all non-excluded checks NEUTRAL/SKIPPED) —
+# refuses like every other non-green verdict. `false` relaxes ONLY that `none`
+# verdict to allow publish (all three none sub-cases), emitting a stderr
+# diagnostic naming require_ci=false so the deliberate relaxation leaves an
+# audit signal; a failing, pending, unread-overflow (too-many), or
+# CI-query-failure verdict stays fail-closed regardless.
 # The value is validated as a boolean when the knob is read (unconditional of
 # code path, symmetric with require_signed_tags); a non-boolean value is a clean
 # fail-closed configuration error. Core opt-in with the default unchanged — the
@@ -755,3 +817,50 @@ tower_lease_interval: 15m
 tower_catchup_limit: 20
 tower_shelve_return: 1h
 tower_reknock_age: 30m
+
+# Human-gate policies (doctrine/human-gates.md). Each resolves through
+# scripts/resolve-policy-knob.sh, which names the strict value a malformed
+# adopter or machine-local setting degrades to (a malformed flip-wait value, a
+# bound, degrades to its core default instead); a malformed repo-tracked value
+# fails the read and the reader refuses the act.
+#
+# ready_flip_policy             who marks a task PR ready: human, or
+#                               unit-owner (the skill that executed the unit,
+#                               once the flip preconditions hold, through
+#                               scripts/ready-flip.sh).
+# ready_flip_ci_wait            the bounded wait for the head's checks before
+#                               that flip, as a duration (a bare number is
+#                               seconds, unlike kickoff_ready_ci_wait's
+#                               minutes).
+# merge_policy                  human, on-approval (a person enables
+#                               auto-merge), or policy-class (a PR inside the
+#                               declared class merges without a per-PR act).
+# merge_class_max_lines         the class's changed-line bound; 0 admits
+#                               nothing, so the class stays closed until set.
+# merge_class_exclude_paths     globs (whole path, `*` spans `/`) the class
+#                               never admits, added to the core zone; every
+#                               layer's list joins, none replaces another's.
+# merge_class_strategy          the class's merge method: sole-allowed (the one
+#                               method the host allows), squash, merge, rebase.
+# worker_base_merge             whether a worker may merge its PR base into its
+#                               own unit branch: allow or deny.
+# worker_merge_conflict_policy  a conflicting base merge: halt (abort and park)
+#                               or resolve (commit the resolution for sign-off).
+# unpushed_rewrite              whether a worker may amend, squash, or rebase
+#                               commits no remote holds, on its own unit
+#                               branch: allow or deny.
+# protected_branches            branch names or globs added to the protected
+#                               floor (main, master, planwright/*/spec), space
+#                               separated on one line; every layer's list
+#                               joins, and a malformed value refuses every act
+#                               that reads it.
+ready_flip_policy: unit-owner
+ready_flip_ci_wait: 10m
+merge_policy: human
+merge_class_max_lines: 0
+merge_class_exclude_paths:
+merge_class_strategy: sole-allowed
+worker_base_merge: allow
+worker_merge_conflict_policy: halt
+unpushed_rewrite: allow
+protected_branches:

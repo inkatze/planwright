@@ -3,17 +3,15 @@
 #
 # PUSH-FIRST, RECONCILE-BACKED (the D-1 pattern applied to worktrees). A live
 # registry of tracked working trees is PUSHED the instant a worktree is created
-# or removed: removal via the `WorktreeRemove` hook, creation via a
+# or removed: removal via the `WorktreeRemove` hook (and a `record-remove` call
+# when the dispatch seam undoes a worktree it just created), creation via a
 # `record-create` call at the dispatch seam (fleet-dispatch-worktree.sh). Neither
 # waits on a poll. Creation is NOT hook-driven — see the corrected
 # `WorktreeCreate` contract below — so a worktree created outside a dispatch
 # seam is picked up by the `git worktree list` DISK SCAN (`scan`) instead, the
 # same graceful-degradation fallback D-7 requires for a backend that cannot
-# register hooks at all. NOTE: in this task
-# `scan` ships as a MANUAL CLI; it is not yet wired to run periodically (the
-# housekeeping sweep reads the registry via `list`, not `scan`), so the
-# self-healing floor is only as current as the last `scan` invocation until that
-# wiring lands (a tracked follow-up).
+# register hooks at all. The periodic sweep (fleet-sweep.sh) runs `scan` at the
+# start of every cycle, so the registry heals without anyone invoking it.
 #
 # THE CORRECTED `WorktreeCreate` CONTRACT, AND WHY NOTHING HERE REGISTERS IT.
 # The contract this script once carried was wrong, and the error was expensive:
@@ -69,7 +67,8 @@
 #   fleet-worktree-track.sh hook-remove            WorktreeRemove handler (stdin)
 #
 # Exit codes: 0 success; 2 usage / refused malformed path; 2 also a lock/
-#   filesystem error on the direct CLI (fail closed). The hook handlers always
+#   filesystem error on the direct CLI (fail closed), and a `scan` whose git
+#   could not list the worktrees. The hook handlers always
 #   exit 0 (they must never break a lifecycle operation).
 #
 # POSIX sh on the macOS + Linux support bar. All input is data; no eval (REQ-K1.5).
@@ -155,9 +154,24 @@ resolve_home() {
 LOCK_MAX_TRIES=1000
 
 HOLD_LOCK=0
-trap 'release_lock' EXIT
+# The temps are created beside the registry, so one a signal strands would sit
+# in the fleet home for good; the traps remove whichever are in flight. The
+# signals re-`exit` so the EXIT cleanup runs under every shell.
+sc_git=""
+sc_new=""
+sc_uniq=""
+rl_tmp=""
+dr_new=""
+# shellcheck disable=SC2329 # invoked from the EXIT trap
+remove_temps() {
+  for rt_f in "$sc_git" "$sc_new" "$sc_uniq" "$rl_tmp" "$dr_new"; do
+    [ -z "$rt_f" ] || rm -f "$rt_f" 2>/dev/null
+  done
+}
+trap 'release_lock; remove_temps' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+trap 'exit 129' HUP
 acquire_lock() {
   al_tries=0
   while [ "$al_tries" -lt "$LOCK_MAX_TRIES" ]; do
@@ -207,6 +221,7 @@ rewrite_locked() {
     mv -f "$rl_tmp" "$REG" || rl_rc=2
   fi
   [ "$rl_rc" = 0 ] || rm -f "$rl_tmp" 2>/dev/null
+  rl_tmp=""
   return "$rl_rc"
 }
 
@@ -375,9 +390,14 @@ case "$cmd" in
       exit 2
     }
     # Gather git's worktree set OUTSIDE the lock (a read-only query), so the
-    # locked critical section stays short.
+    # locked critical section stays short. Captured before it is filtered, so
+    # a git that could not list reads as a failed scan, not an empty one.
+    sc_list=$(git -C "$scan_root" worktree list --porcelain 2>/dev/null) || {
+      warn "git could not list the worktrees of '$(sanitize_printable "$scan_root")' — leaving the registry unchanged"
+      exit 2
+    }
     sc_git=$(mktemp "$REG_DIR/.reg-git.XXXXXX") || exit 2
-    git -C "$scan_root" worktree list --porcelain 2>/dev/null \
+    printf '%s\n' "$sc_list" \
       | while IFS= read -r ln; do
         case $ln in
           "worktree "*)

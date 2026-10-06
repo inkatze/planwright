@@ -1,0 +1,7 @@
+# expert.persona — answers for the kickoff-multiphase fixture, one per prompt.
+expertise=expert
+answer.1=failed step only
+answer.2=README links the retired walkthrough; fix out of band
+answer.3=yes, record it
+answer.4=fixed limit
+answer.5=approve

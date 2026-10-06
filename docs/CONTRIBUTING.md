@@ -46,7 +46,7 @@ the comprehension pass usually pays for itself.
 | Skills | `skills/<name>/SKILL.md` | The pipeline skills. Procedure, not doctrine — skills cite doctrine, they do not restate it. |
 | Scripts | [`scripts/`](../scripts/) | Portable bash entry points (validator, resolver, hooks, checks). Bash 3.2 + BSD tooling, **no fish/mise/tmux/Ansible** (REQ-K1.5). |
 | Config | [`config/defaults.yml`](../config/defaults.yml) | Tracked defaults. Every option must have an [options-reference](options-reference.md) entry or CI fails. |
-| Tests | `tests/*.sh` | Shell test suites, run under `/bin/bash`; a script may have more than one. Sourced fixture libraries live under `tests/lib/` and are linted, never run as suites. |
+| Tests | `tests/*.sh` | Shell test suites, run under `/bin/bash`; a script may have more than one. Fixture libraries live under `tests/lib/`, sourced by a suite or run by the stub shims a fixture harness writes, and are linted, never run as suites. |
 | Specs | `specs/<feature>/` | The four-file bundles, including planwright's own. |
 
 **Do not encode project- or team-specific style into core `doctrine/`.** That
@@ -67,21 +67,77 @@ mise run check      # the full local equivalent of the CI gate
 
 - the shell test suites (bash 3.2 floor), then the test-time budget gate over
   the timing report that run leaves behind (see below);
-- shellcheck, shfmt, markdownlint, yamllint, and the plugin-manifest validation;
+- shellcheck, shfmt, markdownlint (templates included), yamllint, and the
+  plugin-manifest, hook-registration and settings-fragment validation;
 - conventional-commit lint and a secret scan;
-- the doctrine link-check and the doctrine-index bijection check;
+- the doctrine link-check, the doctrine-index bijection check, the
+  doctrine-manifest citation check, and the backend-capability drift check
+  over the contract prose, `caps_for()`, and `docs/fleet.md`;
 - the options-reference drift check, which also tethers `docs/fleet.md`'s knob
   defaults to `config/defaults.yml`;
 - the ledger structural-corruption + duplicate-Status guard over `tasks.md`
-  snapshots;
-- the spec validator over `specs/`, the anchor-freshness guard over every
-  signed bundle, the hook-backstop wiring check, the purged-identifier
-  guard (see below), and the coordination-artifact hygiene guard, a clean
-  no-op on a tree that commits no presence record or fence-ref line.
+  snapshots, and the machine-local memory-link guard over spec files;
+- the spec validator over the resolved spec root (`specs/` by default), the
+  anchor-freshness guard over every signed bundle, and the observation-store guard;
+- the literal spec-home guard (`check:spec-literals`): a `specs/` path composed
+  in a script, a hook, a `mise.toml` task body, `lefthook.yml`, `.gitignore`,
+  or a workflow fails unless `config/spec-literal-allowlist.tsv` exempts it or
+  `config/spec-literal-pending.tsv` lists it for a later migration task; resolve
+  the root with `scripts/resolve-root.sh spec` instead. The pending list only
+  shrinks (a row the base branch's copy lacks fails), and the allowlist admits
+  only its three classes (`resolver`, `namespace`, `static-glob`);
+- the hook-backstop wiring check (see below), the purged-identifier guard
+  (see below), the coordination-artifact hygiene guard (a clean no-op on a
+  tree that commits no presence record or fence-ref line), and the
+  hook-contracts guard over every hook registration surface;
+- the CI posture guards: the fork-PR workflow-posture check, the transitive
+  CI-eval exclusion over the workflows and the task graph, and the
+  glob-allow-rule discipline check;
+- the house-pattern checks: `unset CDPATH` before a `cd` in command
+  substitution, printf over echo for sanitized output, and every
+  `scripts/*.sh` committed at the mode its first line declares (100755 with a
+  shebang, 100644 for a shebang-less sourced library), read from the git index;
+- the two registration guards that keep the gate complete: every check script
+  must be run by a task the aggregate reaches, a workflow, or an allowlisted
+  runner (`check:guard-wiring`), and every `check:`/`lint:`/`scan:` task must
+  be reachable from the aggregate (`check:task-registration`), so a guard task
+  can never exist only in CI logs;
+- the instruction-budget guard over skills and doctrine, and the advisory
+  emit-sidedness report.
 
-GitHub Actions runs the same gate on every pull request. This is dev tooling
+The `check` task's `depends` list in `mise.toml` is the authoritative
+inventory; the two registration guards are what keep it complete. GitHub
+Actions runs the same gate on every pull request. This is dev tooling
 only — planwright's **runtime** scripts stay plain portable bash with no mise
 dependency.
+
+### Opt-in suites, outside the gate
+
+Some checks need a live Claude session and spend model tokens, so nothing in
+`check` or CI runs them. Run them when a change touches what they cover:
+
+- `mise run eval:skill`, `mise run eval:behavioral`, `mise run eval:turn-shape`
+  — the prompt and behavioral evals (`check:no-ci-evals` keeps the `eval:`
+  namespace out of CI);
+- `mise run smoke:dispatch`, plus its `--live` form, after updating the
+  installed plugin (see [release-checklist.md](release-checklist.md));
+- `mise run rehearsal:lifecycle` — the deliberate-wedge lifecycle rehearsal
+  (`tests/rehearsal-lifecycle.sh --live`). On each session-grade rung it
+  dispatches one real worker against a throwaway spec bundle, wedges it, and
+  asserts both sweep modes leave it alone, `stop` closes it, and nothing it
+  held is left behind. On the stream-json rung it also asserts the detector
+  reads the wedged worker waiting on a human. The headless rung has no pend
+  path, so there the worker is held mid-command instead and must read as live
+  and unfinished, and the waiting-on-a-human check reports N/A with the
+  reason. While the sweep
+  refuses `terminate` everywhere, the terminate cycle observes and the check
+  requires the sweep to say so. Everything planwright writes lands under one
+  temp directory (the CLI keeps its own session state under your real home),
+  one worker at a time. Run it after changing a
+  close, the detector, the sweep, or a rung's launch. Exit 3 is a skip (no
+  live session could be established) and is never a pass. Without `--live` the
+  same file runs against a scripted CLI inside `check`, which covers the
+  harness but not the floor.
 
 ### Purged identifiers
 
@@ -125,7 +181,10 @@ new head.
 gitignored) and `check:test-time` reads it against the committed budgets in
 [`config/test-time-budget.yml`](../config/test-time-budget.yml): one per-file
 ceiling for every test file, and one for the suite's wall-clock. A measured time
-at or over its budget trips. On GitHub Actions, the reference runner the budgets
+at or over its budget trips. Each file's row records its execution time and,
+separately, how long it waited for a test-pool ticket (below); the per-file
+budget reads the execution time only, while the suite wall-clock includes the
+waiting. On GitHub Actions, the reference runner the budgets
 are measured on, that fails `mise run check`; on a dev box it only warns, loudly,
 because local timings measure your machine's contention rather than the file.
 
@@ -133,6 +192,19 @@ A budget is raised only as a conscious, reviewed edit in the PR that needs it,
 with the new measured baseline recorded in the file's comment. Split or slim
 the offending file first, and measure on the reference runner (the gate's own
 CI log prints the full ranked table), never on a shared dev box.
+
+### The machine-wide test pool
+
+Every `mise run test` on a machine shares one per-user pool of tickets under
+`${XDG_STATE_HOME:-$HOME/.local/state}/planwright/test-slots`, and a test file
+runs only while it holds one, so several worktrees testing at once share the
+cores instead of each saturating them. The capacity defaults to the core count;
+set `PLANWRIGHT_TEST_SLOTS` in your gitignored `mise.local.toml` to change it.
+Runs that disagree on the capacity are bounded by the largest value in use.
+`PLANWRIGHT_TEST_JOBS` still caps one run's own parallelism. A ticket left by a
+killed run is reclaimed automatically. If the pool cannot be used (a symbolic
+link or another user's directory at that path, or an unwritable one), the run
+prints one warning naming the cause and runs unpooled rather than failing.
 
 ### The git hook backstop
 
@@ -151,7 +223,8 @@ or half-wired clone but never wires anything itself; CI wires explicitly and
 then verifies. The hooks bind humans too, not just agent sessions, and are
 accident-catchers with an honestly stated boundary, not tamper-proofing:
 `--amend` combined with `-m`/`-F` carries no client-hook signal and is
-covered by the worker deny globs instead. The deliberate, human-only
+refused by the tower profile's deny globs and, for a worker, decided by the
+policy guard's `unpushed_rewrite` check instead. The deliberate, human-only
 bypasses, per `githooks(5)`: `--no-verify` skips the `pre-push` and
 `commit-msg` hooks but does not suppress `prepare-commit-msg` (a deliberate
 amend — rare, and never on planwright branches — means `--amend -m`/`-F` or

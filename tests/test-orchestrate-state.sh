@@ -177,7 +177,7 @@ gitc "$repo" checkout -q -b planwright/demo/task-4
 gitc "$repo" commit -q --allow-empty -m "task 4 wip"
 gitc "$repo" checkout -q main
 
-# Tasks 5 & 6: markers in the default runtime-marker dir.
+# Tasks 5 & 6: markers in the checkout-local marker dir.
 mdir="$spec/.orchestrate/markers"
 mkdir -p "$mdir"
 date +%s >"$mdir/5" # fresh
@@ -331,6 +331,37 @@ printf '%s\n' "$hout" | grep -q "^refused${TAB}Planwright-Task" \
   || fail "F1.1: the hostile trailer was not refused/flagged"
 echo "ok: REQ-F1.1 hostile trailer value refused and never used"
 
+# A trailer under the reserved segment `flight` (tower-front-door D-11) is
+# malformed by the same grammar the trailer helper enforces: refused, never
+# read as another spec's well-formed trailer.
+gitc "$hrepo" commit -q --allow-empty -m "reserved" -m "Planwright-Task: flight/1"
+fout=$("$STATE" "$hspec") || fail "reserved trailer: engine exited non-zero"
+printf '%s\n' "$fout" | grep -q "^refused${TAB}Planwright-Task.*flight/1" \
+  || fail "reserved trailer: flight/1 was not refused (got: $fout)"
+echo "ok: a Planwright-Task trailer under the reserved segment is refused"
+
+# A bundle directory named `flight` is refused like an off-grammar name.
+frepo="$tmp/reservedspec"
+fspec="$frepo/specs/flight"
+mkdir -p "$fspec"
+gitc_init "$frepo"
+cat >"$fspec/tasks.md" <<'EOF'
+# Flight — Tasks
+## Forward plan
+### Task 1 — never reached
+- **Dependencies:** none
+EOF
+gitc "$frepo" add -A
+gitc "$frepo" commit -q -m "base"
+rc=0
+ferr=$("$STATE" "$fspec" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "reserved spec id: exit $rc, expected 2"
+case $ferr in
+  *reserved*) ;;
+  *) fail "reserved spec id: diagnostic does not name the reservation (got: $ferr)" ;;
+esac
+echo "ok: the reserved spec id flight is refused (fail closed)"
+
 # ---------------------------------------------------------------------------
 # 6b. REQ-A1.1 / D-3 — a zero-commit dispatch branch is NOT completion evidence.
 #     The branch is created as the first durable act of dispatch; until it
@@ -444,7 +475,7 @@ echo "ok: stale_marker_threshold override widens the window; malformed warns and
 
 # ---------------------------------------------------------------------------
 # 6f. PLANWRIGHT_ORCH_STATE_DIR override — markers are read from the overridden
-#     base dir, not the default <spec-dir>/.orchestrate/markers.
+#     base dir, not the checkout-local <spec-dir>/.orchestrate/markers.
 # ---------------------------------------------------------------------------
 orepo="$tmp/statedir"
 ospec="$orepo/specs/demo"
@@ -969,6 +1000,171 @@ has_record "$pout" malformed-deps 15 \
   && fail "dep-period: a bare id with a trailing period was wrongly flagged malformed"
 assert_state "$pout" 19 blocked "dep-period: dotted id '1.2.' keeps id 1.2 (period stripped, digit preserved) → blocked on unmet 1.2"
 echo "ok: a trailing period on a single-dependency line no longer fails open (id recognized)"
+
+# ---------------------------------------------------------------------------
+# 6u. REMOTE-ONLY TASK BRANCH — work pushed from another checkout or machine
+#     reaches this one only as a remote-tracking ref (the dispatch fetch maps
+#     origin's heads under refs/remotes/origin/*). A task whose
+#     origin/planwright/<spec>/task-<id> carries unmerged commits, with no local
+#     branch and no PR, must derive in-progress, never ready: a fresh dispatch
+#     would duplicate or clobber the pushed work. A local branch sitting at base
+#     (a zero-commit dispatch branch) must not mask the remote's commits either,
+#     and a remote-tracking ref already reachable from base adds nothing.
+# ---------------------------------------------------------------------------
+rrepo="$tmp/remoteonly"
+rspec="$rrepo/specs/demo"
+mkdir -p "$rspec"
+gitc_init "$rrepo"
+cat >"$rspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — remote-only branch with unmerged commits
+- **Dependencies:** none
+### Task 2 — local zero-commit branch, remote carries commits
+- **Dependencies:** none
+### Task 3 — remote branch already reachable from base
+- **Dependencies:** none
+### Task 4 — depends on the remote-only task
+- **Dependencies:** 1
+### Task 5 — remote ref the count cannot read
+- **Dependencies:** none
+EOF
+gitc "$rrepo" add -A
+gitc "$rrepo" commit -q -m "base"
+gitc "$rrepo" remote add origin https://example.invalid/demo.git
+rbase=$(gitc "$rrepo" rev-parse HEAD)
+for t in 1 2; do
+  gitc "$rrepo" checkout -q -b "scratch-$t"
+  gitc "$rrepo" commit -q --allow-empty -m "task $t wip on another machine"
+  gitc "$rrepo" update-ref "refs/remotes/origin/planwright/demo/task-$t" "$(gitc "$rrepo" rev-parse HEAD)"
+  gitc "$rrepo" checkout -q main
+  gitc "$rrepo" branch -q -D "scratch-$t"
+done
+gitc "$rrepo" branch -q planwright/demo/task-2 "$rbase"
+gitc "$rrepo" update-ref refs/remotes/origin/planwright/demo/task-3 "$rbase"
+# Task 5's ref resolves but its history cannot be walked (a parent object is
+# missing): the count's error must hold the task, never read as nothing ahead.
+rbroken=$(printf 'tree %s\nparent %s\nauthor t <t@example.invalid> 0 +0000\ncommitter t <t@example.invalid> 0 +0000\n\nbroken\n' \
+  "$(gitc "$rrepo" rev-parse "$rbase^{tree}")" 1111111111111111111111111111111111111111 \
+  | gitc "$rrepo" hash-object -t commit -w --stdin --literally)
+gitc "$rrepo" update-ref refs/remotes/origin/planwright/demo/task-5 "$rbroken"
+gitc "$rrepo" rev-list --count refs/remotes/origin/planwright/demo/task-5 >/dev/null 2>&1 \
+  && fail "remote-only: fixture invalid — task 5's history walks cleanly"
+gitc "$rrepo" show-ref --verify --quiet refs/heads/planwright/demo/task-1 \
+  && fail "remote-only: fixture invalid — task 1 has a local branch"
+rstub="$tmp/binremoteonly"
+make_gh_stub "$rstub"
+rout=$(PATH="$rstub:$PATH" "$STATE" "$rspec") || fail "remote-only: engine exited non-zero"
+assert_state "$rout" 1 in-progress "remote-only: unmerged commits on origin's task branch hold the task"
+assert_evidence "$rout" 1 remote-branch-commits "remote-only: the hold rests on the remote-tracking branch"
+assert_state "$rout" 2 in-progress "remote-only: a zero-commit local branch does not mask the remote's commits"
+assert_evidence "$rout" 2 remote-branch-commits "remote-only: task 2 is held by the remote-tracking branch"
+assert_state "$rout" 3 ready "remote-only: a remote branch with nothing beyond base holds nothing"
+assert_state "$rout" 4 blocked "remote-only: a dependent of the held task stays blocked"
+assert_state "$rout" 5 in-progress "remote-only: a remote ref the count cannot read holds the task (fail safe)"
+echo "ok: a remote-only task branch with unmerged commits derives in-progress, not ready"
+
+# 6v. The dispatch fetch advances origin/main but never local main, so a local
+#     base routinely lags. A remote task branch cut from the newer origin/main
+#     with no commits of its own, or one already merged into origin/main, carries
+#     nothing beyond the remote view of base and must hold nothing.
+lagrepo="$tmp/remotelag"
+lagspec="$lagrepo/specs/demo"
+mkdir -p "$lagspec"
+gitc_init "$lagrepo"
+cat >"$lagspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — remote branch cut from a newer origin/main, no commits of its own
+- **Dependencies:** none
+### Task 2 — remote branch merged into origin/main, no trailer
+- **Dependencies:** none
+### Task 3 — remote branch with real work beyond origin/main
+- **Dependencies:** none
+EOF
+gitc "$lagrepo" add -A
+gitc "$lagrepo" commit -q -m "base"
+gitc "$lagrepo" remote add origin https://example.invalid/demo.git
+lagbase=$(gitc "$lagrepo" rev-parse HEAD)
+gitc "$lagrepo" commit -q --allow-empty -m "task 2 work"
+lagt2=$(gitc "$lagrepo" rev-parse HEAD)
+gitc "$lagrepo" commit -q --allow-empty -m "unrelated work merged upstream"
+lagorigin=$(gitc "$lagrepo" rev-parse HEAD)
+gitc "$lagrepo" update-ref refs/remotes/origin/main "$lagorigin"
+gitc "$lagrepo" branch --set-upstream-to=origin/main main >/dev/null 2>&1
+gitc "$lagrepo" update-ref refs/remotes/origin/planwright/demo/task-1 "$lagorigin"
+gitc "$lagrepo" update-ref refs/remotes/origin/planwright/demo/task-2 "$lagt2"
+gitc "$lagrepo" commit -q --allow-empty -m "task 3 wip on another machine"
+gitc "$lagrepo" update-ref refs/remotes/origin/planwright/demo/task-3 "$(gitc "$lagrepo" rev-parse HEAD)"
+gitc "$lagrepo" reset -q --hard "$lagbase"
+[ "$(gitc "$lagrepo" rev-list --count main..origin/main)" = 2 ] \
+  || fail "remote-lag: fixture invalid — local main does not lag origin/main"
+lagstub="$tmp/binremotelag"
+make_gh_stub "$lagstub"
+lagout=$(PATH="$lagstub:$PATH" "$STATE" "$lagspec") || fail "remote-lag: engine exited non-zero"
+assert_state "$lagout" 1 ready "remote-lag: a zero-commit remote branch from a newer origin/main holds nothing"
+assert_state "$lagout" 2 ready "remote-lag: a remote branch already in origin/main holds nothing"
+assert_state "$lagout" 3 in-progress "remote-lag: real work beyond origin/main still holds the task"
+assert_evidence "$lagout" 3 remote-branch-commits "remote-lag: task 3 is held by its remote-tracking branch"
+echo "ok: a remote task branch is measured against the remote view of base, not a lagging local main"
+
+# 6w. Completion evidence outranks a remote task branch still ahead of base (a
+#     squash merge leaves the head branch's commits off main forever), local
+#     work outranks it, and only origin's tracking refs count.
+precrepo="$tmp/remoteprec"
+precspec="$precrepo/specs/demo"
+mkdir -p "$precspec"
+gitc_init "$precrepo"
+cat >"$precspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — squash-merged with a trailer, head branch kept
+- **Dependencies:** none
+### Task 2 — PR merged per gh, head branch kept
+- **Dependencies:** none
+### Task 3 — local branch with its own commits
+- **Dependencies:** none
+### Task 4 — work only on a non-origin remote
+- **Dependencies:** none
+### Task 5 — open PR, head branch ahead on origin
+- **Dependencies:** none
+### Task 6 — fresh dispatch marker, branch ahead on origin
+- **Dependencies:** none
+EOF
+gitc "$precrepo" add -A
+gitc "$precrepo" commit -q -m "base"
+gitc "$precrepo" remote add origin https://example.invalid/demo.git
+precbase=$(gitc "$precrepo" rev-parse HEAD)
+for t in 1 2 3 4 5 6; do
+  gitc "$precrepo" checkout -q -b "scratch-$t"
+  gitc "$precrepo" commit -q --allow-empty -m "task $t work"
+  precref=refs/remotes/origin/planwright/demo/task-$t
+  [ "$t" = 4 ] && precref=refs/remotes/upstream/planwright/demo/task-4
+  gitc "$precrepo" update-ref "$precref" "$(gitc "$precrepo" rev-parse HEAD)"
+  gitc "$precrepo" checkout -q main
+  gitc "$precrepo" branch -q -D "scratch-$t"
+done
+gitc "$precrepo" commit -q --allow-empty -m "task 1 (squashed)" -m "Planwright-Task: demo/1"
+gitc "$precrepo" branch -q planwright/demo/task-3 "$precbase"
+gitc "$precrepo" checkout -q planwright/demo/task-3
+gitc "$precrepo" commit -q --allow-empty -m "task 3 local work"
+gitc "$precrepo" checkout -q main
+precstub="$tmp/binremoteprec"
+mkdir -p "$precspec/.orchestrate/markers"
+date +%s >"$precspec/.orchestrate/markers/6"
+make_gh_stub "$precstub" "planwright/demo/task-2${TAB}MERGED${TAB}7${TAB}2026-10-01T00:00:00Z" \
+  "planwright/demo/task-5${TAB}OPEN${TAB}8${TAB}"
+precout=$(PATH="$precstub:$PATH" "$STATE" "$precspec") || fail "remote-prec: engine exited non-zero"
+has_record "$precout" degraded gh && fail "remote-prec: the gh stub degraded"
+assert_state "$precout" 1 completed "remote-prec: a reachable trailer completes a task whose head branch is kept"
+assert_evidence "$precout" 1 trailer "remote-prec: task 1 completes on the trailer"
+assert_state "$precout" 2 completed "remote-prec: a merged PR completes a task whose head branch is kept"
+assert_evidence "$precout" 2 pr-merged "remote-prec: task 2 completes on the merged PR"
+assert_evidence "$precout" 3 branch-commits "remote-prec: local commits are the evidence when both exist"
+assert_state "$precout" 4 ready "remote-prec: a non-origin remote's tracking ref holds nothing"
+assert_evidence "$precout" 5 pr-open "remote-prec: an open PR holds the task before the remote branch is walked"
+assert_evidence "$precout" 6 marker-fresh "remote-prec: a fresh marker holds the task before the remote branch is walked"
+echo "ok: completion and local evidence outrank a remote task branch; only origin counts"
 
 # ---------------------------------------------------------------------------
 # 7. fail-closed on a missing / taskless bundle (matches the sibling scripts).

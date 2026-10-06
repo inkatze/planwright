@@ -302,6 +302,19 @@ d7stripped=$(printf '%s' "$d7err" | tr -d '\000-\037\177')
 [ "$d7stripped" = "$d7err" ] \
   || fail "case 7d: raw control/escape bytes leaked to stderr (terminal injection)"
 echo "ok: missing / mixed-bad / hostile-identifier spec dirs fail closed with exit 2 (diagnostics sanitized)"
+# 7d'. `flight` is reserved (tower-front-door D-11): a spec dir so named is
+#      refused before any id use, even with a tasks.md present.
+mkdir -p "$repoB/specs/flight"
+two_task_body >"$repoB/specs/flight/tasks.md"
+rc=0
+d7ferr=$("$MSEL" "$repoB/specs/flight" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "case 7d': reserved spec basename must fail closed (exit $rc, expected 2)"
+case $d7ferr in
+  *reserved*) ;;
+  *) fail "case 7d': the refusal does not name the reservation (got: $d7ferr)" ;;
+esac
+rm -rf "$repoB/specs/flight"
+echo "ok: the reserved identifier flight fails closed with exit 2"
 # 7e. Echo discipline for the missing-tasks.md diagnostic: only the spec-dir
 #     BASENAME is grammar-checked, so the parent path can carry arbitrary bytes.
 #     A spec dir with a valid basename but ESC/OSC bytes in its PARENT and no
@@ -726,5 +739,16 @@ p19dstripped=$(tr -d '\000-\037\177' <"$tmp/p19d.err")
 [ "$p19dstripped" = "$(cat "$tmp/p19d.err")" ] \
   || fail "case 19d: raw control/escape bytes leaked to stderr from the unparseable-output refusal (terminal injection)"
 echo "ok: an unexpected selector exit or unparseable output fails closed (REQ-E1.5)"
+
+# A refused PLANWRIGHT_REPO_ROOT fails closed with its own reason, not the
+# "no work repository" explanation that would point at the bundle.
+rc=0
+PLANWRIGHT_REPO_ROOT=relative/root "$MSEL" "$ialpha" >/dev/null 2>"$tmp/refused.err" || rc=$?
+[ "$rc" = 2 ] || fail "refused override: exit $rc, expected 2"
+grep -q 'refusing PLANWRIGHT_REPO_ROOT' "$tmp/refused.err" \
+  || fail "refused override: the refusal did not reach stderr ($(cat "$tmp/refused.err"))"
+! grep -q 'has no work repository' "$tmp/refused.err" \
+  || fail "refused override: the misleading no-work-repository message was printed"
+echo "ok: a refused PLANWRIGHT_REPO_ROOT fails closed with its own reason"
 
 echo "PASS: orchestrate-meta-select"

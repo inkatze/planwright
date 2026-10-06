@@ -117,7 +117,8 @@
 # |exit=<rc>|session-ended|absent), journal-pending, worktree, tree (clean|dirty|
 # unverifiable|-), unpushed (<n>|unverifiable|-), commits (<n>|unverifiable),
 # pane (permission-prompt|busy|idle-prompt|indeterminate|absent),
-# stage-source (events|absent). Anomaly words: registry-malformed,
+# stage-source (events|absent), state-dir (the directory the verdict was read
+# from, or -). Anomaly words: registry-malformed,
 # attention-malformed, result-record-malformed, result-unreadable,
 # exit-unreadable, journal-unreadable, pane-unreadable,
 # death-predicate-missing, handle-malformed, registry-unreadable,
@@ -693,8 +694,9 @@ note_anomaly() {
 
 # read_registry <worker> — sets reg_status, reg_scope, reg_owner, reg_backend,
 # reg_state_dir, reg_handle from the snapshot. Seven columns is the current
-# shape; three is the pre-owner shape, still parseable; anything else is a
-# torn or hand-edited line.
+# shape, eight a retired record (`closed`), read the same way so a close can
+# still act on it; three is the pre-owner shape, still parseable; anything
+# else is a torn or hand-edited line.
 read_registry() {
   reg_status=$registry_status
   reg_scope=""
@@ -709,6 +711,13 @@ read_registry() {
     return 0
   fi
   rr_nf=${rr_fields%%"$NL"*}
+  if [ "$rr_nf" = 8 ]; then
+    if [ "${rr_fields##*"$NL"}" = closed ]; then
+      rr_nf=7
+    else
+      rr_nf=torn
+    fi
+  fi
   case $rr_nf in
     7)
       {
@@ -1244,6 +1253,7 @@ classify_one() {
   ev commits "$commits"
   ev pane "$pane_state"
   ev stage-source "$stage_source"
+  ev state-dir "$(sanitize_printable "${eff_state_dir:--}" "-")"
   printf '%s' "$anomalies" | while IFS= read -r an; do
     [ -n "$an" ] && printf 'anomaly\t%s\t%s\n' "$cur_worker" "$an"
   done
@@ -1260,8 +1270,12 @@ fi
 # grammar is a torn line, reported once and skipped.
 [ "$registry_status" = unreadable ] && printf 'anomaly\t-\tregistry-unreadable\n'
 [ "$store_status" = unreadable ] && printf 'anomaly\t-\tstore-unreadable\n'
+# A worker whose last registry row is a retirement is out of the live
+# inventory; an attention row still names it if anything is left to close.
 handles=$(
-  printf '%s\n' "$registry_data" | awk -F'\t' 'NF >= 2 { print $2 }'
+  printf '%s\n' "$registry_data" | awk -F'\t' '
+    NF >= 2 { last[$2] = (NF == 8 && $8 == "closed") ? "closed" : "live" }
+    END { for (h in last) if (last[h] == "live") print h }'
   printf '%s\n' "$store_data" | awk -F'\t' 'NF >= 1 { print $1 }'
 )
 handles=$(printf '%s\n' "$handles" | awk 'NF { print }' | sort -u)

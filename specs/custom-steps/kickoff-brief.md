@@ -433,7 +433,14 @@ such, on which an explicit `isolated` step degrades and records it; row 8
 holds in one direction only (a newer config breaks an older install, row
 16). Rows 12 to 16 came from the sign-off pass.
 
-The operator's cold review added no row. No open question remains.
+The operator's cold review added no row. No open question remained at
+sign-off.
+
+*Appended at Task 1 execution (2026-09-24):*
+
+| # | Risk | Mitigation / early signal |
+| --- | --- | --- |
+| 17 | The rule doc, complete against every rule the spec assigns it, measures past the execute-task closure headroom design.md's cross-cutting Instruction budget note assumed (the doc's word count against the guard's reported closure margin, both read from `check:instructions --audit` on the Task 1 branch), so Task 5 cannot load it point-of-use at the current budget with its own additions funded only by the convergence-section trim design.md names. | Queued as a fork on the Task 1 PR: a closure raise sized to the doc (tower-comms D-13's precedent), a deeper Task 5 body diet, or trimming the doc's delegable detail into the script usage headers. Early signal: `check:instructions` failing the execute-task closure on the Task 5 branch. Recorded as obs:d6406add. |
 
 Signed off: 2026-09-22
 
@@ -615,4 +622,73 @@ Lens-pass: the full-bundle lens review recorded in this section (nine-lens
 spec-set fan-out, dispositions above), preceded by the mid-walk delta lens
 pass recorded in section 3
 Anchor: `8770ba2186ad97829f322355cf5017b479ca24e4` — computed as
+`scripts/spec-anchor.sh specs/custom-steps`
+
+## 9. Amendment log
+
+### Amendment 1 — resolved location for command steps (2026-09-28)
+
+**Trigger.** Human-declared amendment on the Active bundle. The recorded
+anchor still matched; the operator brought a change already decided during
+Task 2 and merged with it: a bare command target naming a shell builtin
+resolved to a file while a session-hosted step ran the builtin, so the
+location the resolver printed was not what ran. The operator chose that
+every hosting runs the resolved absolute location, and the rule doc
+(`doctrine/custom-steps.md`, *Hosting*) already states it.
+
+**Scope (delta).** Only the statements of the old rule, where the bare
+target was what ran and what the worker command guard matched:
+
+- REQ-D1.3 and D-7: a session-hosted command step runs the target's
+  resolved absolute location followed by its `args`, never the bare
+  target; D-7 records the bare-target alternative as rejected and why.
+- REQ-G1.1: the declared line executes as the resolved location followed
+  by its `args` as written, as argv and as the same simple command.
+- REQ-G1.3, D-11, and Task 7: the guard matches the resolved location as
+  the resolver prints it on the guard's host, followed by the `args`,
+  after that location's charset and path checks.
+- `test-spec.md` REQ-D1.3 and REQ-G1.1 describe the resolved location, the
+  REQ-D1.3 scenario pinning the builtin-named case the resolver test
+  already covers.
+- The `requirements.md` Changelog carries the dated entry.
+
+Section 3's REQ-G note ("target plus `args` as written") is superseded by
+this entry; sections above the log are append-only. The long-term
+invariant that what prints is what runs is a pointer only, to the
+observation `what-prints-is-what-runs`, and adds no scope here.
+
+**Lens review pass (delta-scoped, inline).** The delta is small and narrow,
+so the lenses were walked inline rather than fanned out.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness, logic, edge cases | none | Matches the rule doc's hosting table and the resolver's builtin-named test |
+| Security | none | Narrows the allow surface; the guard stays allow-only, and an absolute location fails closed on a host mismatch |
+| Error handling and failure modes | none | `--line` already refuses a location that is not absolute |
+| Performance | n/a | Spec-text delta |
+| Concurrency / state | n/a | Spec-text delta |
+| Naming, readability, structure | none | "Resolved absolute location" matches the rule doc's printed location |
+| Documentation | none | The rule doc already states the rule; the overlays allow-entry section is unaffected |
+| Tests / verification | 1 | F1 |
+| Cross-file consistency | none | Stale-reference sweep over the four files, the rule doc, the overlays doc, and the skills found no remaining old wording |
+
+- **F1 — applied.** The guard's fixture rows did not pin that the
+  bare-target spelling of a declared line is deferred, so a guard approving
+  either spelling would pass every listed row. `test-spec.md` REQ-G1.3 and
+  Task 7's Deliverables gain that row.
+
+Altitude check: not applicable, the delta touches neither the goal nor the
+task shape. Ship-gate check: none, the behavior change landed in-band with
+Task 2.
+
+**Pre-flip verification.** No status flip (the bundle is Active). The
+validator reports 0 errors, 0 warnings after the `Last reviewed:` bump on
+all four spec files; the edited surfaces are linted before commit.
+
+Signed off 2026-09-28 by the operator after the approval summary.
+
+Class: meaning
+Lens-pass: the delta-scoped inline lens review recorded in this entry, one
+finding applied
+Anchor: `1dab86fe0c1e60fecba8a75a7fc5dda2cc360856` — computed as
 `scripts/spec-anchor.sh specs/custom-steps`

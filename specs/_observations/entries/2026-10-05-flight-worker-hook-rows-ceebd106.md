@@ -1,0 +1,1 @@
+- 2026-10-05 [planwright] tmux flight workers launch without PLANWRIGHT_WORKER_HANDLE/PLANWRIGHT_WORKER_SCOPE, so the liveness hooks never update their attention row: the dispatch push leaves it working through a death, backoff, and relaunch until completion, retire, or a disable decision; flight liveness is read from the flight sweep instead

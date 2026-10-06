@@ -72,6 +72,8 @@
 #                task passes it because its retrofit is complete.
 #   --root <dir> base dir holding skills/, doctrine/, hooks/, config/ (default:
 #                the repo root, the script's parent directory). Used by tests.
+#                Its .claude/ config layers are read only when it is a git
+#                toplevel; any other directory reads the core defaults.
 #
 # Exit codes: 0 clean (warnings do not fail), 1 a budget error / malformed
 #   input / unresolvable reference, 2 usage error.
@@ -686,7 +688,7 @@ core_baseline() {
   grep -q "^$1:" "$config_defaults" 2>/dev/null || return 1
   _cbv="$(sed -n "s/^$1:[[:space:]]*//p" "$config_defaults" \
     | head -n 1 \
-    | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' \
+    | sed -e 's/^#.*$//' -e 's/[[:space:]]#.*$//' -e 's/[[:space:]]*$//' \
       -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/")"
   case "$_cbv" in
     '' | *[!0-9]*) return 1 ;;

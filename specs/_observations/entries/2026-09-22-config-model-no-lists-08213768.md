@@ -1,0 +1,1 @@
+- 2026-09-22 [planwright] The flat key: value config model has no list encoding (a YAML list is malformed and a repo-tracked one hard-fails config-get). Set-valued knobs (protected_branches, merge_class_exclude_paths) have to be space-separated single-line values; worth a sentence in the options-reference conventions so the next knob does not rediscover it.

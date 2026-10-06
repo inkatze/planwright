@@ -3,8 +3,10 @@
 # (guard-coverage Task 1; REQ-A1.1, REQ-A1.2, REQ-H1.3; D-4).
 #
 # WHAT THIS PINS. config/worker-settings.json's deny block is planwright's
-# best-effort glob layer against a worker force-pushing, pushing to main,
-# amending/squashing/fixing up a commit, or bypassing the githooks/ backstop.
+# best-effort glob layer against a worker force-pushing, pushing to main, or
+# bypassing the githooks/ backstop. A base merge and a never-pushed rewrite
+# are policy acts the policy guard decides, so their rows expect the glob
+# layer to leave them alone.
 # Glob rules are easy to write and easy to silently break: a rule whose `:*`
 # lands mid-pattern never fires, a rule anchored at end-of-string is evaded by
 # one trailing flag, and a rule can be deleted with a green suite if nothing
@@ -341,7 +343,10 @@ fi
 # Class/expectation consistency is asserted below, so a row cannot be quietly
 # relabelled to make a regression look intentional.
 # ---------------------------------------------------------------------------
-FIXTURES=$(
+# Rows come from a function rather than a heredoc inside $( ... ): bash 3.2
+# reads quotes in that heredoc body as live, so one apostrophe in a row
+# stops the whole file from parsing.
+fixture_rows() {
   cat <<'ROWS'
 deny|load-bearing|git push --force origin HEAD|force flag in the leading position
 deny|load-bearing|git push -f origin HEAD|short force flag, leading position
@@ -365,24 +370,39 @@ deny|load-bearing|git push origin HEAD:main --dry-run|BENIGN flag after a short 
 deny|load-bearing|git push origin main --quiet|BENIGN flag after a bare main destination
 deny|load-bearing|git push origin HEAD:refs/heads/main --dry-run|flag after a qualified main refspec
 deny|load-bearing|git push origin heads/main --atomic|flag after an abbreviated main refspec
+deny|load-bearing|git push origin master|bare master destination
+deny|load-bearing|git push origin HEAD:master|short refspec to master
+deny|load-bearing|git push origin refs/heads/master|fully-qualified bare master destination
+deny|load-bearing|git push origin master --quiet|BENIGN flag after a bare master destination
+deny|load-bearing|git push origin HEAD:master --dry-run|BENIGN flag after a short master refspec
+deny|load-bearing|git push origin heads/master --atomic|flag after an abbreviated master refspec
+deny|load-bearing|git push origin planwright/human-gates/spec|bare spec-branch destination
+deny|load-bearing|git push origin HEAD:planwright/human-gates/spec|short refspec to a spec branch
+deny|load-bearing|git push origin HEAD:refs/heads/planwright/human-gates/spec|fully-qualified refspec to a spec branch
+deny|load-bearing|git push -u origin planwright/human-gates/spec --quiet|BENIGN flag after a bare spec-branch destination
+deny|load-bearing|git push origin HEAD:planwright/human-gates/spec --dry-run|BENIGN flag after a short spec-branch refspec
+deny|load-bearing|git push origin refs/heads/planwright/human-gates/spec --atomic|flag after a qualified spec-branch refspec
+prompt|residual|git pull|a pull is a base merge, which worker_base_merge can grant a worker, so the policy guard refuses it where the value forbids it, never this glob layer
+prompt|residual|git pull --rebase origin main|a pull that rebases is a rewrite, which unpushed_rewrite can grant a worker; the policy guard decides it
+prompt|residual|git -C . pull origin main|a base merge behind a global option; the policy guard reads -C itself
 deny|load-bearing|git push --mirror origin|bulk-ref escape hatch
 deny|load-bearing|git push origin --mirror|bulk-ref escape hatch after the remote
 deny|load-bearing|git push --all origin|bulk-ref escape hatch
 deny|load-bearing|git push origin --all|bulk-ref escape hatch after the remote
-deny|load-bearing|git commit --amend|bare amend
-deny|load-bearing|git commit --amend -m "reworded"|--amend -m family
-deny|load-bearing|git commit --amend -F /tmp/msg|--amend -F family
-deny|load-bearing|git commit --amend --no-edit|amend with a trailing flag
-deny|load-bearing|git commit -m "wip" --amend|flag-after-arg amend
-deny|load-bearing|git commit -a -m "wip" --amend --no-edit|flag-after-arg amend, mid-command
-deny|load-bearing|git commit --squash HEAD~1|squash, space-separated argument
-deny|load-bearing|git commit --squash=HEAD~1|squash, =-suffixed argument
-deny|load-bearing|git commit -m "wip" --squash HEAD~1|flag-after-arg squash
-deny|load-bearing|git commit --fixup HEAD~1|fixup, space-separated argument
-deny|load-bearing|git commit --fixup=HEAD~1|fixup, =-suffixed argument
-deny|load-bearing|git commit --fixup=amend:HEAD~1|--fixup=amend: produces an amend! subject
-deny|load-bearing|git commit --fixup=reword:HEAD~1|--fixup=reword: produces an amend! subject
-deny|load-bearing|git commit -m "wip" --fixup=amend:HEAD~1|flag-after-arg =-suffixed fixup
+allow|residual|git commit --amend|an amend is a never-pushed rewrite, which unpushed_rewrite can grant a worker, so the git commit allow admits it here and the policy guard refuses it where the value or the never-pushed check forbids it
+allow|residual|git commit --amend -m "reworded"|--amend -m family; the policy guard decides
+allow|residual|git commit --amend -F /tmp/msg|--amend -F family; the policy guard decides
+allow|residual|git commit --amend --no-edit|amend with a trailing flag; the policy guard decides
+allow|residual|git commit -m "wip" --amend|flag-after-arg amend; the policy guard decides
+allow|residual|git commit -a -m "wip" --amend --no-edit|flag-after-arg amend, mid-command; the policy guard decides
+allow|residual|git commit --squash HEAD~1|squash, space-separated argument; the policy guard decides
+allow|residual|git commit --squash=HEAD~1|squash, =-suffixed argument; the policy guard decides
+allow|residual|git commit -m "wip" --squash HEAD~1|flag-after-arg squash; the policy guard decides
+allow|residual|git commit --fixup HEAD~1|fixup, space-separated argument; the policy guard decides
+allow|residual|git commit --fixup=HEAD~1|fixup, =-suffixed argument; the policy guard decides
+allow|residual|git commit --fixup=amend:HEAD~1|--fixup=amend: produces an amend! subject; the policy guard decides
+allow|residual|git commit --fixup=reword:HEAD~1|--fixup=reword: produces an amend! subject; the policy guard decides
+allow|residual|git commit -m "wip" --fixup=amend:HEAD~1|flag-after-arg =-suffixed fixup; the policy guard decides
 deny|load-bearing|git commit --no-verify -m "wip"|hook bypass, leading position
 deny|load-bearing|git commit -m "wip" --no-verify|hook bypass after the message
 deny|load-bearing|git push --no-verify origin HEAD|pre-push bypass, leading position
@@ -405,8 +425,8 @@ deny|load-bearing|git commit --hooks-path=/dev/null -m "wip"|categorical --hooks
 deny|load-bearing|git -C . push --force origin feature/topic|GLOBAL-OPTION PREFIX: -C is a real git global option, so the anchored git-push rules never see this force push
 deny|load-bearing|git -C . commit --amend --no-edit|global-option prefix in front of an amend
 deny|load-bearing|git --git-dir=.git reset --hard origin/main|--git-dir prefix in front of a destructive reset
-deny|load-bearing|git -c a=b merge origin/main|-c prefix in front of a merge
-deny|load-bearing|git -c a=b rebase -i HEAD~2|-c prefix in front of a rebase
+prompt|residual|git -c a=b merge origin/main|-c prefix in front of a base merge; the policy guard reads -c itself and refuses an alias, include, or autocorrect key
+prompt|residual|git -c a=b rebase -i HEAD~2|-c prefix in front of a rebase; the policy guard decides
 deny|load-bearing|git -C . filter-branch --tree-filter true HEAD|global-option prefix in front of a history rewrite
 deny|load-bearing|git -C . filter-repo --path x|global-option prefix in front of a history rewrite
 deny|load-bearing|git -c core.hooksPath=/dev/null status|hooksPath injection in front of a read-only subcommand: the -c rules must catch it on their own
@@ -415,9 +435,9 @@ deny|load-bearing|git -c a=b -c core.hooksPath=/dev/null status|hooksPath behind
 deny|load-bearing|git -c a=b -c core.hookspath=/dev/null status|lowercase hooksPath behind another -c, read-only subcommand
 deny|load-bearing|git --config-env=core.hooksPath=HP status|--config-env injection, read-only subcommand
 deny|load-bearing|git -c a=b --config-env=core.hooksPath=HP status|--config-env behind another global option, read-only subcommand
-deny|load-bearing|git rebase --autosquash origin/main|rebase is a hard invariant
-deny|load-bearing|git rebase -i HEAD~3|interactive rebase
-deny|load-bearing|git merge main|merge is a reserved human action
+prompt|residual|git rebase --autosquash origin/main|a rebase is a never-pushed rewrite unpushed_rewrite can grant a worker; the policy guard decides
+prompt|residual|git rebase -i HEAD~3|interactive rebase; the policy guard decides
+prompt|residual|git merge main|a base merge worker_base_merge can grant a worker; the policy guard decides
 deny|load-bearing|git reset --hard origin/main|destructive reset
 deny|load-bearing|git filter-branch --tree-filter true HEAD|history rewrite
 deny|load-bearing|git filter-repo --path x|history rewrite
@@ -432,6 +452,8 @@ prompt|residual|git push -u origin planwright/guard-coverage/task-1|the first pu
 allow|legit|git push origin HEAD:refs/heads/planwright/guard-coverage/task-1|explicit refspec to a task branch
 allow|legit|git push origin main-fix|a branch whose name merely starts with main stays pushable
 allow|legit|git push origin HEAD:main-fix|refspec to a branch whose name starts with main
+allow|legit|git push origin master-fix|a branch whose name merely starts with master stays pushable
+allow|legit|git push origin planwright/human-gates/spec-notes|a branch whose name merely extends a spec branch stays pushable
 allow|legit|git commit -m "feat(guard): add the matcher fixture table"|the ordinary commit
 allow|legit|git commit -a -m "chore: tidy"|commit with -a
 allow|legit|git commit -F /tmp/msg|commit from a message file
@@ -443,6 +465,9 @@ allow|legit|git status|read-only status
 allow|legit|git log --oneline -5|read-only log
 allow|legit|mise run check|the full CI gate
 allow|residual|git push origin "main"|quoted destination; the glob layer is literal so it misses this — githooks/pre-push rejects the refspec
+allow|residual|git push origin "master"|quoted master destination; the glob layer misses it the same way, and githooks/pre-push refuses only main, so no layer backs this one up
+allow|residual|git push origin 'planwright/human-gates/spec'|quoted spec-branch destination; missed like the quoted master push, with no githooks backstop either
+deny|overblock|git push origin planwright/a/b/spec|the spec-branch globs' * spans /, so a nested name that is not a spec branch is denied too; fail-safe, and the tower queue admits it
 prompt|residual|git push|no destination in the text at all; on a branch whose upstream is main this pushes main — githooks/pre-push is the enforcement layer
 allow|residual|git push origin HEAD|destination depends on the checked-out branch, which the glob layer cannot see — githooks/pre-push covers it
 deny|load-bearing|git -c Core.HooksPath=/dev/null commit -m "wip"|mixed-case config key (git config keys are case-insensitive) evades the case-sensitive hooksPath globs, but the global-option-prefix rule catches it regardless of casing
@@ -450,12 +475,30 @@ prompt|residual|git config Core.HooksPath /dev/null|the mixed-case residual that
 prompt|residual|GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null git commit -m "wip"|config injection through environment variables rather than argv; deny rules match past leading assignments so the hooksPath text is never in the matched string — accepted residual
 allow|residual|git status "$(git push origin main)"|COMMAND SUBSTITUTION: the model splits only on the documented shell operators, so the nested push is invisible to it and the outer read-only command is allowed. Whether the real matcher extracts $() is undocumented and unverified (model doc MB-7) — githooks/pre-push is the layer that actually stops this one
 allow|legit|git push origin feature/c++|a branch name containing + stays pushable: the +refspec deny requires a space before the plus (narrowed 2026-07-29 on operator decision). git check-ref-format confirms the ref is valid
-allow|residual|git commit -a --amen|a mistyped flag git itself rejects; recorded so the amend coverage is not read as prefix-based
+allow|residual|git commit -a --amen|git takes any unique prefix of a long option, so --amen is --amend; the policy guard reads the prefixes and decides
+allow|residual|git commit --am --no-edit|--am is the shortest prefix git reads as --amend; the policy guard decides
+allow|residual|git commit --sq=HEAD~1|--sq is the shortest prefix git reads as --squash; the policy guard decides
+allow|residual|git commit -m "wip" --squas HEAD~1|abbreviated squash after the message; the policy guard decides
+allow|residual|git commit --fix=HEAD~1|--fix is the shortest prefix git reads as --fixup; the policy guard decides
+allow|residual|git commit -m "wip" --fixu HEAD~1|abbreviated fixup after the message; the policy guard decides
+deny|load-bearing|git push --mirr origin|abbreviated --mirror, a force-push of every ref
+deny|load-bearing|git push origin --mi|shortest --mirror prefix after the remote
+deny|load-bearing|git push --al origin|abbreviated --all pushes main with every other branch
+deny|load-bearing|git push origin --al|abbreviated --all after the remote
+deny|load-bearing|git push origin --branches|--branches is git's alias of --all
+deny|load-bearing|git push --b origin|shortest --branches prefix
+deny|load-bearing|git push origin :|the matching refspec pushes every branch the remote shares, main included
+deny|load-bearing|git push origin : --dry-run|matching refspec with a trailing flag
+deny|load-bearing|git push origin "main" --no-veri|abbreviated --no-verify skips the pre-push hook that catches the quoted main destination
+deny|load-bearing|git commit --no-veri -m "wip"|abbreviated --no-verify on commit
+allow|legit|git push origin :planwright/guard-coverage/task-1|deleting a task branch is not the matching refspec
 deny|overblock|git commit -m "docs: describe the -n flag in the guide"|a commit message containing " -n " is denied; fail-safe, rephrase the message
 deny|overblock|git commit -m "fix: handle --no-verify in the wrapper"|a commit message naming --no-verify is denied; fail-safe
-deny|overblock|git commit -m "docs: use --amend carefully"|a commit message naming --amend is denied; fail-safe
+allow|legit|git commit -m "docs: use --amend carefully"|a commit message naming --amend is a plain commit again now that no amend glob is in the profile
+allow|legit|git commit -m "docs: --fix typo"|a message word starting with an abbreviated rewrite flag is a plain commit again
 ROWS
-)
+}
+FIXTURES=$(fixture_rows)
 
 # Row-level assertions, and (in the same pass) the per-row set of matching deny
 # rule indices that passes D and E consume.
@@ -537,8 +580,8 @@ EOF
 # tripping pass D. So the floor is `>=` the exact current count: adding rows is
 # always fine, deleting any row fails and has to be argued for. Raise these two
 # numbers in the same commit that adds rows (REQ-H1.3).
-ROW_FLOOR=111
-DENY_ROW_FLOOR=88
+ROW_FLOOR=148
+DENY_ROW_FLOOR=91
 if [ "$row_total" -ge "$ROW_FLOOR" ] && [ "$row_deny_total" -ge "$DENY_ROW_FLOOR" ]; then
   ok "the fixture table is non-vacuous: $row_total rows, $row_deny_total load-bearing (REQ-H1.3)"
 else
@@ -585,7 +628,8 @@ ok "every deny rule is exercised by at least one fixture row (pass D)"
 # per removed rule, without the re-parse: removing rule i flips row r iff
 # r's matching set is exactly {i}.
 # ---------------------------------------------------------------------------
-REDUNDANT_BY_DESIGN=$(
+# A function for the same bash 3.2 reason as fixture_rows.
+redundant_by_design_rows() {
   cat <<'ROWS'
 Bash(git push --force:*)|subsumed by Bash(git push --force*); kept as the explicit spelling of the plain force flag
 Bash(git push --force-with-lease:*)|subsumed by Bash(git push --force*); kept as the explicit spelling of the lease form
@@ -594,10 +638,20 @@ Bash(git push * main)|subsumed by Bash(git push * main *); same M4 hedge
 Bash(git push *heads/main)|subsumed by Bash(git push *heads/main *); same M4 hedge
 Bash(git push *refs/heads/main)|subsumed by the broader Bash(git push *heads/main) pair; kept as the explicit fully-qualified spelling
 Bash(git push *refs/heads/main *)|subsumed by the broader Bash(git push *heads/main *); kept as the explicit fully-qualified spelling
-Bash(git commit --squash:*)|subsumed by Bash(git commit --squash*); kept as the explicit space-separated spelling
-Bash(git commit --fixup:*)|subsumed by Bash(git commit --fixup*); kept as the explicit space-separated spelling
+Bash(git push *:master)|subsumed by Bash(git push *:master *); the main family's M4 hedge
+Bash(git push * master)|subsumed by Bash(git push * master *); same M4 hedge
+Bash(git push *heads/master)|subsumed by Bash(git push *heads/master *); same M4 hedge
+Bash(git push *:planwright/*/spec)|subsumed by Bash(git push *:planwright/*/spec *); same M4 hedge
+Bash(git push * planwright/*/spec)|subsumed by Bash(git push * planwright/*/spec *); same M4 hedge
+Bash(git push *heads/planwright/*/spec)|subsumed by Bash(git push *heads/planwright/*/spec *); same M4 hedge
+Bash(git push --mirror:*)|subsumed by Bash(git push --mi*), the shortest prefix git reads as --mirror; kept as the explicit spelling
+Bash(git push * --mirror*)|subsumed by Bash(git push * --mi*); kept as the explicit spelling
+Bash(git push --all:*)|subsumed by Bash(git push --al*), the shortest prefix git reads as --all; kept as the explicit spelling
+Bash(git push * --all*)|subsumed by Bash(git push * --al*); kept as the explicit spelling
+Bash(git * --no-verify*)|subsumed by Bash(git * --no-veri*), the shortest prefix git reads as --no-verify; kept as the explicit spelling
 ROWS
-)
+}
+REDUNDANT_BY_DESIGN=$(redundant_by_design_rows)
 is_declared_redundant() {
   local rule="$1" line
   while IFS='|' read -r line _; do

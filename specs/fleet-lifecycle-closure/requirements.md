@@ -1,7 +1,7 @@
 # Fleet lifecycle closure — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-03
+**Last reviewed:** 2026-10-02
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -173,6 +173,25 @@ ending and what evidence that authorization required.
   rehearsal SHALL be opt-in rather than gating ordinary CI, since it consumes
   a live session.
   *(Cites: D-13; the Goal's path-dependence argument; obs:b63a8778.)*
+  **Superseded-by: REQ-A1.7** (2026-10-02) — the rehearsal's detection is
+  pinned per rung, since `headless-oneshot` cannot pend on a permission
+  prompt.
+- **REQ-A1.7** (supersedes REQ-A1.6) The floor's instantiation SHALL be
+  proven end-to-end by a repeatable **deliberate-wedge rehearsal**: a real
+  worker dispatched against a throwaway spec bundle on each session-grade
+  rung, wedged on purpose, then detected, closed, and confirmed to have
+  released every resource class. On a rung that can pend on a permission
+  prompt, the worker SHALL be wedged at one and SHALL be detected as
+  `waiting-on-a-human`. On a rung with no pend path (`headless-oneshot`,
+  where an unapproved ask fails under `--print`), the worker SHALL be held
+  mid-command and SHALL be detected as `working` or as `unclassified` with
+  reason `no-signal`, never as `dead`, `finished-but-unreaped`, or
+  `waiting-on-a-human`. On every rung, `stop` SHALL close the worker and
+  release every class. Fixture coverage alone SHALL NOT be treated as
+  discharging the floor, because the leak this bundle exists to close is
+  invisible on the path a passing fixture exercises. The rehearsal SHALL be
+  opt-in rather than gating ordinary CI, since it consumes a live session.
+  *(Cites: D-16; the Goal's path-dependence argument; obs:b63a8778.)*
 
 ## REQ-B — Deterministic close
 
@@ -314,6 +333,13 @@ ending and what evidence that authorization required.
 - **REQ-E1.4** Registration SHALL degrade gracefully: a failed registry write
   SHALL NOT fail a dispatch, and SHALL self-heal on the next scan.
   *(Cites: obs:a6f5511b.)*
+- **REQ-E1.5** The reconcile SHALL retire the registry record of a closed
+  worker, marking it closed rather than deleting it, and only on positive
+  death evidence for the worker. For a `print` unit, which has no death
+  handle, its worktree's removal SHALL count as that evidence. Unknown or
+  errored evidence SHALL leave the record live. An inventory that only grows becomes noise every sweep
+  re-evaluates.
+  *(Cites: D-15; D-2.)*
 
 ## REQ-F — Periodic sweep
 
@@ -342,10 +368,12 @@ ending and what evidence that authorization required.
   distinguishable from a record of an actual termination, so the audit trail
   can never be read as evidence of a kill that did not happen.
   *(Cites: D-14; decision-domains `deploy-migration` (Sources).)*
-- **REQ-F1.7** Both sweep modes SHALL be exercised by the REQ-A1.6 rehearsal,
+- **REQ-F1.7** Both sweep modes SHALL be exercised by the REQ-A1.7 rehearsal,
   so the observing-only path cannot rot unexercised while the fleet waits for
   promotion.
-  *(Cites: D-14; REQ-A1.6.)*
+  *(Cites: D-14; REQ-A1.7.)*
+  *(Amended at kickoff re-walkthrough 2026-10-02: rehearsal citation
+  re-pointed from the superseded REQ-A1.6.)*
 
 ## REQ-G — Steer
 
@@ -491,6 +519,47 @@ ending and what evidence that authorization required.
   the format-grammar validator's citation-range rule (format-grammar REQ-D1.3)
   on its all-bundle rollout (format-grammar D-9); no requirement or decision
   changes meaning.
+
+- 2026-10-01 — Kickoff amendment (meaning-class, `kickoff-brief.md`
+  amendment log). REQ-E1.4's self-heal had no owning task: Task 3 shipped the
+  never-fail half and Task 8's scan reconciles worktrees, not dispatch
+  records. Folded the dispatch-record reconcile into Task 11, added D-15 (the
+  registry is a rebuildable index of on-disk dispatch markers written by every
+  seam) and REQ-E1.5 (retire a closed worker's record on positive death
+  evidence, marked closed, never deleted and kept indefinitely). The lens
+  pass tightened Task 11: heal through the register seam's validation,
+  idempotent per handle, audited in both sweep modes, the marker declared as
+  a resource class, and pre-marker records left unchanged.
+
+- 2026-10-02 — Amendment (meaning-class, operator decision on the Task 12
+  PR). The rehearsal's waiting-on-a-human assertion is narrowed to rungs that
+  can pend on a permission prompt: `headless-oneshot` has no pend path, so on
+  that rung the rehearsal asserts the held worker reads as live and
+  unfinished, and that `stop` closes it and releases every class. REQ-A1.6,
+  D-13, Task 12 and the REQ-A1.6 test-spec entry carry the narrowed wording.
+  The kickoff brief and its anchor are re-recorded by a `/spec-kickoff` delta
+  re-walkthrough, not by this change.
+  *(Amended at kickoff re-walkthrough 2026-10-02: recorded as a
+  supersession instead, per the entry below.)*
+
+- 2026-10-02 — Amendment (meaning-class, operator decision on the Task 12
+  PR). REQ-F1.7's "both sweep modes" is discharged for terminate mode by
+  verifying the refusal while the sweep refuses `terminate` everywhere: the
+  terminate cycle must read the knob and say it refused. Once terminate is
+  re-enabled the rehearsal exercises it as honoured. Noted on the REQ-F1.7
+  test-spec entry; the same `/spec-kickoff` delta re-walkthrough re-records
+  the anchor.
+
+- 2026-10-02 — Kickoff delta re-walkthrough of the two amendments above
+  (meaning-class). The headless narrowing changed the meaning of a merged
+  requirement and decision, so it is recorded as a supersession rather than
+  an in-place edit: REQ-A1.6 superseded by REQ-A1.7 and D-13 superseded by
+  D-16, with both old bodies restored to their signed wording. REQ-A1.7
+  names the readings a held headless worker may take (`working`, or
+  `unclassified` with reason `no-signal`) in place of "live and
+  unfinished". REQ-F1.7, D-14, Task 12, and the test-spec entries re-point
+  to the new IDs. A gated Deferred bullet in `tasks.md` now tracks the
+  follow-up that lifts the sweep's `terminate` refusal.
 
 ## Sources
 

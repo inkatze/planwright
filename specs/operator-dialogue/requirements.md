@@ -627,6 +627,26 @@ object is content delivered to the operator or to an artifact.
   requested-detail precedence over REQ-J1.5, capture-not-a-bypass,
   REQ-M1.2/M1.3 wording). Meaning-class; anchor re-recorded in the brief's
   delta re-walkthrough entry.
+- 2026-09-23: Acceptance join (Task 13). The extension's `test-spec.md`
+  entries (the REQ-I intro and REQ-I1.2 through REQ-M1.4) flipped from
+  planned voice to their now-runnable paths: each names the invariant or
+  check that verifies it and, where a planted wall exists, the fixture that
+  fails it (`mise run eval:turn-shape`, `tests/test-turn-shape-eval.sh`,
+  `tests/test-fleet-attention-render-change.sh`, `mise run check:sidedness`,
+  `tests/test-check-sidedness.sh`, `mise run check:no-ci-evals`). REQ-K1.1
+  stays unflipped: its check covers two of the four execution-side surfaces
+  until reopened Task 11 lands. The intro names the fixtures as scripted
+  models of the surfaces, not recordings. No requirement, decision, or
+  verification tag changed. Expression-only; anchor re-recorded in the
+  brief's amendment log (reworded once on the same branch after review, with
+  a second re-anchor entry).
+- 2026-09-23: Acceptance join (Task 13), gauntlet correction. The flip above
+  dropped REQ-I1.2's "or is produced on a follow-up request" from its
+  verification entry, narrowing it to the pointer form the grader accepts;
+  the clause is restored and the entry now says no invariant grades that form
+  yet (reopened Task 12). This returns the entry to its signed meaning; no
+  requirement, decision, or verification tag changed. Expression-only; anchor
+  re-recorded in the brief's amendment log.
 
 ## Sources
 

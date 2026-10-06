@@ -504,3 +504,21 @@ or decision changes meaning. `Last reviewed:` moves on the edited files.
 Class: expression-only
 Anchor: `825a9dc98ef6aacf966ae1629f57cafacf03cbae` — computed as
 `scripts/spec-anchor.sh specs/guard-coverage`
+
+### 2026-09-24 — REQ-E1.3 delivery recorded (Task 8 execution)
+
+Marked self-re-anchor for the expression-only edit Task 8's execution
+made to the bundle: the `## Changelog` entry recording the Performance-lens
+amendment to `doctrine/discovery-rigor.md` as the REQ-E1.3 delivery, which
+the task's Done-when requires. The doctrine text names test/CI ergonomics
+(suite wall-clock, CI latency) a whole-system lens target with the
+test-time budget gate as the mechanical catch, exactly what REQ-E1.3 and
+D-1 already decided; no requirement or decision changes meaning.
+`Last reviewed:` moves on the edited file.
+
+**Cites the changelog line:** the 2026-09-24 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `e7e32e6836839051e95ace746a4b01e5914ea9bc` — computed as
+`scripts/spec-anchor.sh specs/guard-coverage`

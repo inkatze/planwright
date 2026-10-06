@@ -73,7 +73,7 @@
 # --no-attach` — and passes it via --worktree.
 #
 # STATE. One dir per unit:
-#   ${PLANWRIGHT_HEADLESS_STATE_DIR:-<repo-root>/specs/<spec>/.orchestrate/headless}/<id>/
+#   ${PLANWRIGHT_HEADLESS_STATE_DIR:-<spec-root>/<spec>/.orchestrate/headless}/<id>/
 #     launched     launch epoch seconds (written BEFORE the runner backgrounds,
 #                  so a torn launch is still ageable by the collision guard)
 #     prompt       the worker's stdin (written from launch stdin)
@@ -85,7 +85,7 @@
 #     finish-error (only on a failed exit write) — marks a completed-but-
 #                  unrecordable worker so status reports `unknown`, not `died`
 # All files are owner-only (umask 077). The default base sits under
-# specs/<spec>/.orchestrate/ (gitignored runtime state, like the dispatch
+# <spec-root>/<spec>/.orchestrate/ (gitignored runtime state, like the dispatch
 # markers), so nothing here is ever committed.
 #
 # Usage:
@@ -111,6 +111,26 @@
 #       4  unknown          lost observability or a garbled record; the
 #                           caller must refuse to treat this as death
 #       5  absent           no dispatch record for this unit
+#   fleet-dispatch-headless.sh stop <worker> [--repo-root <dir>] [--grace <secs>]
+#       [--expect-dir <dir>] [--observe]
+#     Close the worker named by its handle (`headless-<spec>-task-<id>`, the
+#     handle `launch` prints): terminate the runner and everything under it,
+#     SIGTERM then SIGKILL after the grace, and release its scratch temp and
+#     attention record. The handle names a unit in whichever checkout the repo
+#     root resolves to, so a caller holding evidence about one run passes its
+#     unit directory as --expect-dir, and a handle resolving anywhere else is
+#     refused (exit 2) before anything is signalled. The same verb, output, and exit codes as
+#     `fleet-streamjson.sh stop`, through the close both rungs share
+#     (scripts/fleet-stop-lib.sh): `stop <worker> stopped released=<classes>`,
+#     `stop <worker> already-closed`, or
+#     `stop <worker> partial released=<classes> held=<classes>`. A unit this
+#     close terminated reads `completed 143` in `status`, the record the runner
+#     writes when it is terminated gracefully; a unit whose run had already
+#     ended keeps its own record, a `died` verdict included. The runner's pid
+#     file seeds a close only on a host whose `ps` truncates argv, and never
+#     once the unit carries a record. --observe is the same verb's
+#     release-nothing form, as on the stream-json rung:
+#     `stop <worker> would-release=<classes>` or `stop <worker> already-closed`.
 #   (run-worker is the internal detached-runner entry point, not an API.)
 #
 # Exit codes: launch 0 dispatched; 2 usage / refused input (hostile token, an
@@ -119,7 +139,11 @@
 # worktree) — nothing launched; 3 already-in-flight (a live runner, an unknown
 # liveness, or a recent torn-launch window — refuse to double-dispatch); 4 the
 # runner failed to start (it exited before signalling readiness) — the state
-# dir is cleaned. status: per the verdict table above.
+# dir is cleaned. status: per the verdict table above. stop: 0 stopped,
+# already-closed, or (--observe) would-release; 2 an invalid or unknown handle, a bad grace, a symlinked
+# state path, a unit other than --expect-dir, or a process table the close could not read; 3 a close asked for
+# from inside the worker's own process tree, refused rather than attempted; 6 a
+# partial close, some class still held.
 #
 # Portable POSIX sh + coreutils (bash 3.2 / BSD compatible): no eval, no jq
 # (REQ-K1.5); every input treated as data. Pathname expansion is disabled
@@ -130,12 +154,15 @@ LC_ALL=C
 export LC_ALL
 unset CDPATH
 
+me=fleet-dispatch-headless
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 SELF="$script_dir/fleet-dispatch-headless.sh"
 # The launch wrapper is overridable for tests (the fault-injection seam that
 # exercises the launch-time executability pre-check); default is the sibling.
 ENVWRAP="${PLANWRIGHT_HEADLESS_ENVWRAP:-$script_dir/fleet-dispatch-env.sh}"
 EVIDENCE="$script_dir/fleet-death-evidence.sh"
+FS="$script_dir/fleet-state.sh"
+FA="$script_dir/fleet-attention.sh"
 
 if [ -r "$script_dir/echo-safety.sh" ]; then
   # shellcheck source=scripts/echo-safety.sh
@@ -154,6 +181,7 @@ usage() {
   cat >&2 <<'EOF'
 usage: fleet-dispatch-headless.sh launch <spec> <id> --worktree <dir> [--repo-root <dir>] [-- <extra claude args>...]
        fleet-dispatch-headless.sh status <spec> <id> [--repo-root <dir>]
+       fleet-dispatch-headless.sh stop <worker> [--repo-root <dir>] [--grace <secs>] [--expect-dir <dir>] [--observe]
 (prompt text on stdin for launch)
 EOF
   exit 2
@@ -172,6 +200,7 @@ valid_spec() {
   reject_dotdot "$1" || return 1
   case $1 in
     '' | *[!a-z0-9-]* | [!a-z0-9]*) return 1 ;;
+    flight) return 1 ;; # the reserved flight branch segment (tower-front-door D-11)
   esac
   [ "${#1}" -le 64 ] || return 1
   return 0
@@ -187,12 +216,13 @@ valid_id() {
 }
 
 # --- State-dir resolution ----------------------------------------------------
-# $1 spec, $2 id, $3 repo-root (may be empty: resolved from the cwd's git
-# toplevel unless the env override names the base directly). Sets unit_dir,
-# unit_base, and the containment anchors the guard below checks against:
-# unit_root (the PHYSICAL repo root) and unit_spec_dir. Both are empty under the
-# env override — an operator-declared base is its own anchor, with no repo to
-# contain it within.
+# $1 spec, $2 id, $3 repo-root (may be empty: the cwd's checkout, from
+# resolve-root.sh repo --checkout, unless the env override names the base
+# directly). Sets unit_dir, unit_base, and the containment anchors the guard
+# below checks against: unit_root (the PHYSICAL spec root the repo resolves,
+# which need not lie inside the repo) and unit_spec_dir. Both are empty under
+# the env override — an operator-declared base is its own anchor, with no root
+# to contain it within.
 resolve_unit_dir() {
   if [ -n "${PLANWRIGHT_HEADLESS_STATE_DIR:-}" ]; then
     rud_base=$PLANWRIGHT_HEADLESS_STATE_DIR
@@ -201,7 +231,7 @@ resolve_unit_dir() {
   else
     rud_root=$3
     if [ -z "$rud_root" ]; then
-      rud_root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+      rud_root=$(/bin/sh "$script_dir/resolve-root.sh" repo --checkout 2>/dev/null || true)
     fi
     if [ -z "$rud_root" ] || [ ! -d "$rud_root" ]; then
       warn "cannot resolve repo root (pass --repo-root)"
@@ -216,12 +246,19 @@ resolve_unit_dir() {
       warn "repo root does not resolve: $rud_root"
       exit 2
     }
-    rud_root=$rud_phys
-    if [ ! -d "$rud_root/specs/$1" ]; then
-      warn "spec bundle not found: $rud_root/specs/$1"
+    rud_specs=$(cd "$rud_phys" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec) || {
+      warn "cannot resolve the spec root for $rud_phys"
+      exit 2
+    }
+    if [ ! -d "$rud_specs/$1" ]; then
+      warn "spec bundle not found: $rud_specs/$1"
       exit 2
     fi
-    rud_spec_dir="$rud_root/specs/$1"
+    rud_root=$(cd "$rud_specs" && pwd -P) || {
+      warn "spec root does not resolve: $rud_specs"
+      exit 2
+    }
+    rud_spec_dir="$rud_specs/$1"
     rud_base="$rud_spec_dir/.orchestrate/headless"
   fi
   unit_base=$rud_base
@@ -316,13 +353,13 @@ validate_launch_extra() {
 
 # --- Destructive-path containment guard (REQ-A1.9, mirrors the sibling) -------
 # `rm -rf`/`mkdir -p` on the unit dir FOLLOW a symlinked path component, so a
-# compromised checkout carrying a symlinked `specs/<spec>`, `.orchestrate`, or
-# `headless` (or a hostile PLANWRIGHT_HEADLESS_STATE_DIR) could make the reclaim
-# delete or create OUTSIDE the intended base. Refuse a symlinked component or
-# leaf, materialize the base as a REAL directory, and confirm the base
-# physically resolves UNDER the repo root — fail closed. $1 = base dir,
-# $2 = unit dir, $3 = physical repo root (empty under the env override, which
-# has no repo anchor), $4 = spec dir (same). Runs before any rm/mkdir.
+# compromised checkout carrying a symlinked `<spec-root>/<spec>`, `.orchestrate`,
+# or `headless` (or a hostile PLANWRIGHT_HEADLESS_STATE_DIR) could make the
+# reclaim delete or create OUTSIDE the intended base. Refuse a symlinked
+# component or leaf, materialize the base as a REAL directory, and confirm the
+# base physically resolves UNDER the spec root — fail closed. $1 = base dir,
+# $2 = unit dir, $3 = physical spec root (empty under the env override, which
+# has no anchor), $4 = spec dir (same). Runs before any rm/mkdir.
 guard_unit_containment() {
   guc_base=$1
   guc_unit=$2
@@ -372,13 +409,13 @@ guard_unit_containment() {
   esac
   # The containment check itself, on PHYSICAL paths (both sides normalized with
   # `pwd -P`): this is what catches a symlink anywhere in the path redirecting
-  # the base out of the repo. Skipped under the env override, where the operator
-  # names the base directly and no repo root bounds it.
+  # the base out of the spec root. Skipped under the env override, where the
+  # operator names the base directly and no root bounds it.
   if [ -n "$guc_root" ]; then
     case "$guc_base_phys/" in
-      "$guc_root"/*) ;; # contained under the physical repo root
+      "$guc_root"/*) ;; # contained under the physical spec root
       *)
-        warn "refusing: state base $guc_base_phys does not resolve under the repo root $guc_root (path-escape guard)"
+        warn "refusing: state base $guc_base_phys does not resolve under the spec root $guc_root (path-escape guard)"
         exit 2
         ;;
     esac
@@ -431,7 +468,11 @@ do_launch() {
 
   [ -n "$l_spec" ] && [ -n "$l_id" ] && [ -n "$l_worktree" ] || usage
   valid_spec "$l_spec" || {
-    warn "invalid spec id (D-36 grammar)"
+    if [ "$l_spec" = flight ]; then
+      warn "reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)"
+    else
+      warn "invalid spec id (D-36 grammar)"
+    fi
     exit 2
   }
   valid_id "$l_id" || {
@@ -727,13 +768,20 @@ do_run_worker() {
   # the same limit fleet-death-evidence.sh already accepts, and /orchestrate's
   # dispatch serialization plus the C1 torn-launch guard keep a retry from
   # double-dispatching into the live worktree.
+  #
+  # The trap goes in before the fork: installed after it, a TERM landing in
+  # between kills the runner by default action and orphans a worker that no
+  # longer carries anything a close can match it by.
+  r_worker=''
+  trap '[ -z "$r_worker" ] || { kill "$r_worker" 2>/dev/null; wait "$r_worker" 2>/dev/null; }; finish 143; exit 0' TERM INT
   "$ENVWRAP" "$@" <"$r_unit/prompt" >"$r_unit/result.json" 2>"$r_unit/stderr.log" &
   r_worker=$!
-  trap 'kill "$r_worker" 2>/dev/null; wait "$r_worker" 2>/dev/null; finish 143; exit 0' TERM INT
   r_rc=0
   wait "$r_worker" || r_rc=$?
-  # Clear the trap so a signal during the final write cannot double-invoke it.
-  trap - TERM INT
+  # Ignore, not reset, for the final write: the worker's own exit code is
+  # already in hand, and a TERM that interrupted the write (the default action)
+  # or re-entered the trap would record 143 over it, or nothing at all.
+  trap '' TERM INT
   finish "$r_rc"
   exit 0
 }
@@ -770,7 +818,11 @@ do_status() {
   done
   [ -n "$s_spec" ] && [ -n "$s_id" ] || usage
   valid_spec "$s_spec" || {
-    warn "invalid spec id (D-36 grammar)"
+    if [ "$s_spec" = flight ]; then
+      warn "reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)"
+    else
+      warn "invalid spec id (D-36 grammar)"
+    fi
     exit 2
   }
   valid_id "$s_id" || {
@@ -847,6 +899,223 @@ do_status() {
   esac
 }
 
+# --- stop (the close) ----------------------------------------------------------
+# The release set is the runtime this rung acquires: the runner's process tree,
+# its scratch temp, and the worker's attention record. Two classes of the floor
+# are declared absent rather than left silently out: this rung opens no tmux
+# window, and it takes no lock of its own (the store locks its worker's scripts
+# take are the store's, closed by their holder or broken at their bound). The
+# prompt, the captured result, stderr.log, and the launch and readiness markers
+# are the durable record of the run and are kept, as are the worktree, the
+# branch, and the unit's fence.
+
+release_classes='process scratch attention'
+
+# stop_seedfiles <unit-dir> — the pid files that seed the process match: the
+# runner's, and only where the host's `ps` truncates argv and the unit has no
+# completion record.
+#
+# The runner never removes its pid file, and nothing else on this rung does, so
+# once the runner is gone that pid names nothing of ours for as long as the unit
+# directory exists, and the host is free to reissue it to anything, an
+# operator's own session included. A completion record cannot be the whole test:
+# a runner that died leaves none. Where argv is readable the seed adds nothing,
+# since the runner carries `run-worker <unit-dir>` in its argv for as long as it
+# lives. Where it is truncated the seed is the only way to find the runner at
+# all, and the close accepts the reissued-pid exposure there rather than report
+# a live runner closed. Which of the two the host is decides per snapshot, in
+# the library (`stop_seed_narrow_only`); this only answers the record half.
+# shellcheck disable=SC2034 # read by the library's stop_candidates
+stop_seed_narrow_only=1
+stop_seedfiles() {
+  if [ -e "$1/exit" ] || [ -e "$1/finish-error" ]; then
+    return 0
+  fi
+  printf 'pid'
+}
+
+# The completion write's staging temp, and the close's own.
+scratch_patterns='exit.tmp .exit.*'
+
+# stop_match <unit-dir> — the argv the runner is re-exec'd with. The trailing
+# space is what keeps unit `5` from matching unit `5.1`, whose directory this
+# one prefixes; nothing but the runner carries the verb and the directory.
+stop_match() {
+  printf 'run-worker %s ' "$1"
+}
+
+# stop_marker <unit-dir> — the launch marker, read only from a regular file:
+# the worker can replace it with a fifo, and a blocking read would stall the
+# close.
+stop_marker() {
+  [ -f "$1/launched" ] || return 0
+  cat "$1/launched" 2>/dev/null || :
+}
+
+# stop_process_closed <unit-dir> — once a tree this close terminated is gone,
+# record the termination the runner could not.
+#
+# A runner stopped gracefully writes `exit 143` itself; one the escalation had
+# to SIGKILL writes nothing, and `status` would read that as `died`. Writing the
+# same 143 makes every unit this close terminated read `completed 143`, however
+# far the escalation went. Nothing else is written: a record already there, a
+# `finish-error` from a runner that finished but could not record it, and a
+# death that happened before this close are the run's own account, and a close
+# that signalled nothing has no termination of its own to record. The pid file
+# stays too: `status` and the launch collision guard read it, and once the unit
+# carries a record it no longer seeds a close (`stop_seedfiles`).
+#
+# A unit relaunched while this close ran is a different run, so its launch
+# marker is checked against the one the close started with. `do_stop` sets
+# that marker (`t_launched`) and the failed-write flag `stop_held` reads
+# (`t_record_unwritten`) before the walk calls either hook.
+stop_process_closed() {
+  [ "$stop_signalled" = 1 ] || return 0
+  [ "$(stop_marker "$1")" = "$t_launched" ] || return 0
+  [ ! -e "$1/exit" ] && [ ! -e "$1/finish-error" ] || return 0
+  if spc_tmp=$(mktemp "$1/.exit.XXXXXX") \
+    && printf '143 %s\n' "$(date +%s)" >"$spc_tmp" \
+    && mv -f "$spc_tmp" "$1/exit"; then
+    return 0
+  fi
+  [ -z "${spc_tmp:-}" ] || rm -f "$spc_tmp" 2>/dev/null
+  # Held rather than released: the tree is gone, but a unit left with no record
+  # reads `died` and would be re-dispatched over as if it had crashed.
+  t_record_unwritten=1
+  printf '%s\n' "$me: cannot record the termination in $1/exit; the process class is left held" >&2
+  return 1
+}
+
+# stop_held / stop_release <class> <dir> <worker> <attention-store> <grace>.
+# The unknown-class arms are not defensive filler: a class added to
+# `release_classes` without both arms would otherwise report itself
+# permanently held, or silently released, with nothing on stderr.
+stop_held() {
+  case $1 in
+    # No residue argument: the pid file is the run's record (see stop_seedfiles).
+    process)
+      held_process "$2" "$(stop_match "$2")" "$(stop_seedfiles "$2")" '' \
+        || [ "$t_record_unwritten" = 1 ]
+      ;;
+    scratch) stop_scratch_walk "$2" probe "$scratch_patterns" ;;
+    attention) held_attention "$4" "$3" ;;
+    *)
+      printf '%s\n' "$me: no held-probe for release class '$1'" >&2
+      return 0
+      ;;
+  esac
+}
+
+stop_release() {
+  case $1 in
+    process) release_processes "$2" "$(stop_match "$2")" "$(stop_seedfiles "$2")" "$5" ;;
+    scratch) stop_scratch_release "$2" "$scratch_patterns" ;;
+    # No receipt journal to settle first: a one-shot has no pend path, so
+    # nothing on this rung re-queues a decision from a closed worker.
+    attention) /bin/sh "$FA" clear "$3" >/dev/null ;;
+    *)
+      printf '%s\n' "$me: no release for class '$1'" >&2
+      return 1
+      ;;
+  esac
+}
+
+do_stop() {
+  [ "$#" -ge 1 ] || usage
+  # The close this rung shares with the stream-json one, loaded here rather than
+  # at the top so a missing library costs `stop` and never `launch` or `status`,
+  # whose exit codes are a verdict channel. Required rather than degraded:
+  # without it the close has no process match at all.
+  if [ ! -r "$script_dir/fleet-stop-lib.sh" ]; then
+    warn "required helper $script_dir/fleet-stop-lib.sh missing or not readable"
+    exit 2
+  fi
+  # shellcheck source=scripts/fleet-stop-lib.sh
+  . "$script_dir/fleet-stop-lib.sh"
+  t_worker=$1
+  shift
+  t_repo_root=''
+  t_expect=''
+  t_grace=$grace_default
+  t_observe=0
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --observe)
+        t_observe=1
+        shift
+        ;;
+      --repo-root)
+        [ "$#" -ge 2 ] || usage
+        t_repo_root=$2
+        shift 2
+        ;;
+      --expect-dir)
+        [ "$#" -ge 2 ] || usage
+        case $2 in
+          /*) ;;
+          *)
+            warn "--expect-dir must be an absolute directory"
+            exit 2
+            ;;
+        esac
+        t_expect=$2
+        shift 2
+        ;;
+      --grace)
+        [ "$#" -ge 2 ] || usage
+        t_grace=$2
+        shift 2
+        ;;
+      *) usage ;;
+    esac
+  done
+  stop_grace_ok "$t_grace" || {
+    stop_grace_refusal
+    exit 2
+  }
+  # The worker is the handle `launch` prints and the worker's hooks push under,
+  # `headless-<spec>-task-<id>`. The id grammar admits no hyphen, so the last
+  # `-task-` is the separator even when the spec name contains one; the
+  # round-trip comparison refuses anything the split would have reshaped.
+  t_rest=${t_worker#headless-}
+  t_spec=${t_rest%-task-*}
+  t_id=${t_rest##*-task-}
+  if ! valid_spec "$t_spec" || ! valid_id "$t_id" \
+    || [ "headless-$t_spec-task-$t_id" != "$t_worker" ]; then
+    warn "invalid worker handle (expected headless-<spec>-task-<id>)"
+    exit 2
+  fi
+  resolve_unit_dir "$t_spec" "$t_id" "$t_repo_root"
+  # A close never removes the state directory, so its absence means this handle
+  # names no worker — reported as such rather than as `already-closed`, which
+  # would read a typo as a successful close.
+  [ -d "$unit_dir" ] || {
+    warn "unknown worker $t_worker"
+    exit 2
+  }
+  if [ -n "$t_expect" ]; then
+    t_have=$(cd "$unit_dir" 2>/dev/null && pwd -P) || t_have=''
+    t_want=$(cd "$t_expect" 2>/dev/null && pwd -P) || t_want=''
+    if [ -z "$t_have" ] || [ "$t_have" != "$t_want" ]; then
+      warn "refusing to close $t_worker: it resolves to $(sanitize_printable "$unit_dir"), not the expected $(sanitize_printable "$t_expect")"
+      exit 2
+    fi
+  fi
+  # This verb deletes inside the directory it resolves, so it takes the same
+  # path-escape guard the launch's reclaim does.
+  guard_unit_containment "$unit_base" "$unit_dir" "$unit_root" "$unit_spec_dir"
+  stop_refuse_self_hosted "$unit_dir" "$(stop_match "$unit_dir")" \
+    "$(stop_seedfiles "$unit_dir")" "$t_worker"
+  t_launched=$(stop_marker "$unit_dir")
+  t_record_unwritten=0
+  t_root=$(/bin/sh "$FS" root) || exit 2
+  if [ "$t_observe" = 1 ]; then
+    stop_observe "$unit_dir" "$t_worker" "$t_root/attention/state"
+    return
+  fi
+  stop_walk "$unit_dir" "$t_worker" "$t_root/attention/state" "$t_grace"
+}
+
 # --- Entry -------------------------------------------------------------------
 
 [ "$#" -ge 1 ] || usage
@@ -856,6 +1125,7 @@ case $sub in
   launch) do_launch "$@" ;;
   run-worker) do_run_worker "$@" ;;
   status) do_status "$@" ;;
+  stop) do_stop "$@" ;;
   *)
     warn "unknown subcommand: $sub"
     usage

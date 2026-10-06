@@ -1,6 +1,9 @@
-# planwright development toolchain. Dev-only: pins the quality tools and
-# provides the local check tasks. planwright's runtime (scripts/, hooks, the
-# validator) stays plain portable bash with no mise dependency (REQ-K1.5);
+# planwright development toolchain. Dev-only: pins the quality tools,
+# provides the local check tasks, and defaults PLANWRIGHT_ROOT to this
+# checkout ([env] below), so a mise-run task, the test suite included,
+# resolves this tree unless the environment already names another.
+# planwright's runtime (scripts/, hooks, the validator) stays plain portable
+# shell with no mise dependency (REQ-K1.5);
 # this file exists so contributors and CI run identical tool versions
 # (Task 2 wires the same tasks into GitHub Actions).
 
@@ -16,6 +19,16 @@ gitleaks = "8.30.0"
 # still commits, and CI still runs the normative check task.
 lefthook = "2.1.11"
 
+[env]
+# Self-hosting: this checkout, and each worktree of it through its own tracked
+# copy of this file, resolves itself rather than the installed plugin.
+# get_env keeps a PLANWRIGHT_ROOT already in the environment winning, which a
+# bare "{{ config_root }}" would silently override; an empty one counts as
+# unset, as it does for the resolver, rather than handing the chain onward.
+# Written as an if rather than `| default(..., boolean=true)`: CI's pinned
+# mise renders that filter form empty.
+PLANWRIGHT_ROOT = "{% set env_root = get_env(name='PLANWRIGHT_ROOT', default='') %}{% if env_root %}{{ env_root }}{% else %}{{ config_root }}{% endif %}"
+
 [tasks.release]
 description = "Sign and publish the pending release tag on this repo (autopilot-reflex REQ-F1.3, D-8). Repo-local ergonomics only: a thin wrapper over scripts/release-publish.sh, which has no mise dependency and is invokable directly anywhere (REQ-D1.9)."
 run = "scripts/release-publish.sh"
@@ -28,8 +41,12 @@ run = "scripts/release-arm.sh"
 description = "Prove a dispatched worker will not stall at the permission gate, against the INSTALLED plugin (what a worker actually loads) rather than this checkout. Run after updating the plugin: a guard fix merged to main reaches no worker until a release carrying it is installed, so this is the only check that answers 'did the fix actually land?'. Add --live to also launch one real worker and assert zero permission requests; that costs tokens and wall clock, so it is deliberately not wired into check or CI."
 run = "/bin/bash tests/smoke-worker-dispatch.sh --installed"
 
+[tasks."rehearsal:lifecycle"]
+description = "The deliberate-wedge lifecycle rehearsal against the real claude CLI: on each session-grade rung, dispatch one worker against a throwaway spec bundle, wedge it, and assert both sweep modes leave it alone, `stop` closes it, and nothing it held is left behind; on the stream-json rung, also that the detector reads the wedged worker waiting on a human (the headless rung has no pend path, so there the worker is held mid-command and must read as live and unfinished, and that check reports N/A). Everything planwright writes lands under one mktemp root (the CLI keeps its own session state under the real home), one worker at a time; while the sweep refuses terminate everywhere, the terminate cycle observes and the check requires the sweep to say so. Spends model tokens and a few minutes, so it is opt-in and never wired into check or CI; a run that cannot establish a live session exits 3 as a skip, never 0. Without --live the same file runs against a scripted CLI inside `check`."
+run = "/bin/bash tests/rehearsal-lifecycle.sh --live"
+
 [tasks.test]
-description = "Run the shell test suites under /bin/bash (the bash 3.2 floor), N files at a time via scripts/run-tests.sh (N = core count; PLANWRIGHT_TEST_JOBS overrides)"
+description = "Run the shell test suites under /bin/bash (the bash 3.2 floor), up to N files at a time via scripts/run-tests.sh (N = core count; PLANWRIGHT_TEST_JOBS overrides), bounded machine-wide by a shared ticket pool (PLANWRIGHT_TEST_SLOTS, default core count)"
 run = '/bin/bash scripts/run-tests.sh'
 
 [tasks.status]
@@ -49,8 +66,12 @@ description = "shfmt diff check on scripts, tests, sourced test libraries under 
 run = "shfmt -d scripts/*.sh tests/*.sh tests/lib/*.sh githooks/*"
 
 [tasks."lint:md"]
-description = "markdownlint on prose (specs get the scoped specs/.markdownlint.jsonc relaxation; the _observations accumulator is data, excluded)"
-run = "markdownlint-cli2 README.md 'doctrine/*.md' 'docs/*.md' 'skills/**/*.md' 'specs/**/*.md' 'templates/**/*.md' '!specs/_observations/**'"
+description = "markdownlint on prose (the spec root, from scripts/resolve-root.sh, gets the scoped relaxation from a .markdownlint.jsonc it carries, specs/.markdownlint.jsonc by default; the _observations accumulator is data, excluded)"
+run = '''
+root=$(/bin/sh scripts/resolve-root.sh spec) || exit 1
+case $root in "$(pwd -P)"/*) root=${root#"$(pwd -P)"/} ;; esac
+markdownlint-cli2 README.md 'doctrine/*.md' 'docs/*.md' 'skills/**/*.md' "$root/**/*.md" 'templates/**/*.md' "!$root/_observations/**"
+'''
 
 [tasks."lint:yaml"]
 description = "yamllint on tracked config, workflows, and the pre-commit mirror config"
@@ -77,13 +98,15 @@ description = "flag machine-local [[name]] memory links in committed spec files 
 run = "/bin/bash scripts/check-memory-links.sh"
 
 [tasks."check:specs"]
-description = "planwright spec validator over specs/ (enforced; REQ-A2.1)"
+description = "planwright spec validator over the spec root scripts/resolve-root.sh resolves (enforced; REQ-A2.1)"
 run = '''
 if [ ! -x scripts/spec-validate.sh ]; then
   echo "check:specs: scripts/spec-validate.sh missing or not executable" >&2
   exit 1
 fi
-/bin/bash scripts/spec-validate.sh specs/
+root=$(/bin/sh scripts/resolve-root.sh spec) || exit 1
+case $root in "$(pwd -P)"/*) root=${root#"$(pwd -P)"/} ;; esac
+/bin/bash scripts/spec-validate.sh "$root/"
 '''
 
 [tasks."lint:json"]
@@ -159,8 +182,12 @@ description = "doctrine/*.md ↔ doctrine/README.md index bijection (guard-cover
 run = "/bin/bash scripts/check-doctrine-index.sh"
 
 [tasks."check:doctrine-manifest"]
-description = "REQ-A1.3 manifest-citation guard: each attended surface this spec has instantiated (spec-kickoff, spec-draft) must cite interaction-style on a Doctrine: manifest line, not merely in prose (operator-dialogue Task 6, REQ-A1.3, REQ-H1.2, D-11)"
+description = "REQ-A1.3 manifest-citation guard: each attended surface instantiated so far (the list is DEFAULT_SURFACES in the script) must cite interaction-style on a Doctrine: manifest line, not merely in prose (operator-dialogue Task 6, REQ-A1.3, REQ-H1.2, D-11)"
 run = "/bin/bash scripts/check-doctrine-manifest.sh"
+
+[tasks."check:sidedness"]
+description = "advisory sidedness check: report emit mandates in skill and doctrine prose that declare no destination side (turn or artifact). Reporting-only, always exits zero: prose heuristics have false positives, and a wrong gate teaches gate-dodging (operator-dialogue REQ-M1.3, D-19)"
+run = "/bin/sh scripts/check-sidedness.sh"
 
 [tasks."check:guard-wiring"]
 description = "guard-reachability check: every scripts/check-*.sh must be named in the run body of a mise task reachable from the `check` aggregate, in a workflow, or in scripts/guard-wiring-allow.txt with who runs it instead. A guard nothing invokes cannot fail, which is indistinguishable from one that always passes. Fails closed on anything that would narrow the scan to nothing"
@@ -177,6 +204,19 @@ run = "/bin/bash scripts/check-cdpath.sh"
 [tasks."check:echo-safety"]
 description = "printf-not-echo guard over sanitized output: fail on a shell file under scripts/, tests/, or githooks/ that passes `sanitize_printable` output through `echo`, directly or through a variable, into the printf FORMAT operand, or to a printf `%b` (dash re-expands the backslash escape TEXT the sanitizer legitimately preserves, handing the terminal to whoever authored the input); enumerates by shebang or .sh suffix, keys on the sanitizer family rather than one function name, exempts bash-shebang files only (zsh and ksh expand escapes too) and a shrinking allowlist of paths open in other PRs, and fails closed on anything that would narrow the scan or on a stale allowlist entry"
 run = "/bin/bash scripts/check-echo-safety.sh"
+
+[tasks."check:script-modes"]
+description = "executable-bit guard: every scripts/*.sh in the git index carries the mode its first line declares, a shebang file 100755 (called by path it otherwise fails with Permission denied) and a shebang-less sourced library 100644; reads modes and first lines from the index, not the working tree, and fails closed on no repository, an unreadable index or blob, or zero scripts"
+run = "/bin/bash scripts/check-script-modes.sh"
+
+[tasks."check:spec-literals"]
+description = "flag the spec home composed as a literal path instead of resolved through scripts/resolve-root.sh (custom-spec-location REQ-G1.1)"
+run = "/bin/sh scripts/check-spec-literals.sh"
+
+[tasks."check:task-registration"]
+description = "task-registration check: every check:/lint:/scan: task in this mise.toml must be reachable from the `check` aggregate through depends/depends_post (wildcards expanded; wait_for only orders a task already scheduled, so it is not an edge), so no guard task is discoverable only by reading CI logs. The complement of check:guard-wiring one level up: that one asks whether each check-*.sh script is run by something, this one whether each guard task is part of the gate. Parse boundary: mise.toml only, read as text; a name in a description, comment, or run body is not an edge. Fails closed on a missing or unreadable file, a zero-task parse, no `check` task, zero namespaced tasks, or a tasks header outside the parsed form (a bare [tasks] table, an array of tables) (guard-coverage Task 11, REQ-H1.2, REQ-H1.3, D-13)"
+run = "/bin/sh scripts/check-task-registration.sh"
+
 [tasks."check:test-time"]
 description = "test wall-clock budget gate: reads the per-file timing report scripts/run-tests.sh persisted (never re-runs the suite; the depends edge orders it after `test`) and compares it against config/test-time-budget.yml; measured >= budget trips, hard-failing on GitHub Actions and warning loudly elsewhere; fails closed on a missing, empty, malformed, or stale report, or a discovered test file with no entry (guard-coverage Task 7, REQ-E1.1, REQ-H1.3, D-8)"
 depends = ["test"]
@@ -189,6 +229,10 @@ run = "/bin/sh scripts/prompt-eval.sh --suite tests/prompt-evals/fixtures"
 [tasks."eval:behavioral"]
 description = "on-demand behavioral eval harness (never in CI or `check`): drives a skill through a real interactive tmux TTY session, answered by simulated-operator personas, grading the durable artifacts a run writes; needs tmux + jq (operator-dialogue Task 5, REQ-G, D-8)"
 run = "/bin/sh scripts/behavioral-eval.sh --suite tests/behavioral-evals/fixtures"
+
+[tasks."eval:turn-shape"]
+description = "on-demand turn-shape eval (never in CI or `check`): the behavioral harness over the turn-shape fixtures, grading each run's turn records against the invariants its fixture names (tests/behavioral-evals/README.md lists them); needs tmux + jq (operator-dialogue REQ-M1.1, REQ-M1.4, D-19)"
+run = "/bin/sh scripts/behavioral-eval.sh --suite tests/behavioral-evals/turn-shape"
 
 [tasks."obs:log"]
 description = "render the observations chronological view on demand (derived, never committed; --archived to include consumed history; REQ-C1.4, D-4)"
@@ -228,7 +272,11 @@ depends = [
   "check:doctrine-manifest",
   "check:cdpath",
   "check:echo-safety",
+  "check:script-modes",
+  "check:spec-literals",
+  "check:task-registration",
   "check:guard-wiring",
+  "check:sidedness",
   "check:backend-capability-drift",
   "check:specs",
   "scan:secrets",

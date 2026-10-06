@@ -20,7 +20,8 @@ route the whole request takes (D-1).
 Citations: tower-front-door REQ-A1.2, REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4,
 REQ-B1.5, REQ-B1.6, REQ-C1.6, REQ-E1.1, REQ-E1.2, REQ-E1.4, REQ-E1.5, REQ-F1.3,
 REQ-F1.5, REQ-F1.6, REQ-G1.1, REQ-G1.2, REQ-G1.3, REQ-G1.4, REQ-H1.4 ·
-tower-front-door D-1, D-2, D-3, D-4, D-5, D-6, D-7, D-10.
+tower-front-door D-1, D-2, D-3, D-4, D-5, D-6, D-7, D-10 · custom-steps
+REQ-F1.5 · human-gates REQ-C1.1, REQ-F1.1, REQ-F1.2.
 
 ## The routing rule (D-4)
 
@@ -70,10 +71,11 @@ When an override crosses an automatic escalation trigger, the tower **states its
 reservation and the trigger's grounds, then complies** (REQ-B1.4). The stated
 reservation is the whole ceremony; there is no second confirmation.
 
-No override crosses a hard invariant (D-5): merge stays the human's (REQ-G1.1),
-the specless path invents no shadow sign-off (REQ-G1.2), commits are new commits
-only (REQ-G1.3), and PRs open as drafts for the human to flip (REQ-G1.4). Those
-hold on both rules, overridden or not.
+No override crosses a hard invariant (D-5): merge authorization stays the
+human's (REQ-G1.1), the specless path invents no shadow sign-off (REQ-G1.2), and
+pushed history, draft PRs, and the draft→ready flip follow
+[Human Gates](human-gates.md) (human-gates REQ-C1.1, REQ-F1.1, REQ-F1.2).
+Those hold on both rules, overridden or not.
 
 ### Decomposition (REQ-C1.6)
 
@@ -109,6 +111,38 @@ dispatching session, applied to the front door.
   [gate-wiring](gate-wiring.md) hard pauses stay in force inside every worker
   whatever the route, and a pause is exactly where an outgrown route surfaces.
 
+## Eval-only runs (D-13)
+
+Under the behavioral-eval harness (`PLANWRIGHT_EVAL_ONLY=1`, publishing
+disabled), the tower routes exactly as above and also writes two run-local
+artifacts into the directory the harness hands the session (or, in the
+operator-run fallback, the directory the operator names); the grade reads
+those, never a scraped pane:
+
+- **The decision log**, `decision-log.jsonl`: JSON Lines in
+  [kickoff-dialogue](kickoff-dialogue.md)'s record form (`v`, `seq`, `phase`,
+  `kind`), plus one kind of the tower's, `event`, for durable evidence it read
+  (a landing, a finished draft, a sign-off, a spec PR merge, a restart). Each
+  operator turn is an `answer` record with `source: operator`; each thing said,
+  a `present` record; each route, dispatch, refusal, offer, hold, and
+  reconstruction, a `decision` record naming its `action`; a question answered
+  in the turn is a route too (`route: answer`, `trigger: question`), minting no
+  flight. A route carries the `ask_seq` it answers, `route`, `trigger`,
+  `grounds`, `override`, `crossed`, `reservation`, and the `statement` as said;
+  a dispatch its `target` and the `on_seq` of the operator turn that authorized
+  it (for a flight flown on a reply to its one-page case, that reply).
+- **The run record**, `sign-off.json` (the harness's completion marker names
+  the file): eval-only, non-authoritative, unpublished, and a sign-off of
+  nothing (REQ-G1.2) — the routes, dispatches, and refusals, and that no
+  reserved control was performed. It is written once, last, when the operator
+  ends the session (`that's all`, not logged as a turn), since its appearance
+  is what ends the run.
+
+Values are written as data, escape-safe. Nothing is pushed, opened, or
+flipped, and neither artifact carries a verdict on the work. The full field
+set the grade reads, the fixture, and the grade live beside the harness, in
+`tests/behavioral-evals/`.
+
 ## The audit record (D-6)
 
 On the specless path the record, not a spec, is what carries trust. The flight
@@ -119,20 +153,37 @@ worker authors and lands it, and it carries (REQ-E1.1):
   surface;
 - the **routing decision and its grounds**, as stated in the conversation;
 - the **convergence audit tables** the review skills produce: lens coverage, the
-  four buckets, the declined log, and the pending-sign-off checklist;
-- **any rigor scoping actually applied** inside the configured `review_sequence`.
-  Visual flight runs the same sequence instrument flight runs; proportionality may
-  scope rigor inside a pass, but a scoping that is not declared did not happen
-  (D-7);
+  four buckets, the declined log, and the pending-sign-off checklist, plus the
+  convergence point's step table ([custom-steps](custom-steps.md)), a `none`
+  row when its list was empty;
+- **any rigor scoping actually applied** inside the convergence point's list
+  (`steps_convergence`, run with unit kind `flight`;
+  [custom-steps](custom-steps.md)). Visual flight runs the same convergence
+  list instrument flight runs, its skill steps only (a command or prompt step
+  refuses the flight); proportionality may scope rigor inside a pass, but a
+  scoping that is not declared did not happen (D-7);
 - the **worker handle**; and
 - the **revert path**.
 
 The record's home is adaptive and **declared at routing time** (D-6, REQ-E1.2):
-the draft PR body where a remote and `gh` are available, a committed per-flight
-record file riding the flight's own branch otherwise. Both homes render
+the draft PR body where every push destination of `origin` is covered by a
+`flight_pr_hosts` entry (empty by default, opted into outside the repo-tracked
+config) and `gh` is authenticated to the first destination's host, a committed
+per-flight record file riding the flight's own branch otherwise. A worker
+re-checks the destination before its push and parks on a mismatch. Both homes render
 human-first (REQ-E1.5) — a lead a human PR author would write (what changed, why,
 how it was verified; no restated prompt, no filler) with the full contract
-collapsed below it.
+collapsed below it. One renderer, `scripts/flight-record.sh`, lays out both
+homes and lands the file home as exactly one commit on the flight's branch, at
+the record path its caller passes (`scripts/flight-dispatch.sh` computes it; the
+renderer composes no spec-home path of its own). It quotes the ask inside a
+fence the ask cannot close, indented off column zero, so no markup the ask
+carries renders or reads as the record's structure, and it
+refuses a lead that restates the ask (D-6, REQ-E1.5). The record opens with
+`<!-- planwright:flight-record id=<flight-id> home=<pr|file> -->` and ends with
+`<!-- planwright:flight-record-end -->`, each alone on a column-zero line, and
+no input the ask or the worker supplies can put either marker there, so a
+reader that finds the record by its markers finds only the renderer's.
 
 The record is an audit artifact, not an accumulator (D-6): it collects no deferred
 decisions, so it owes no named reader and no drain ritual

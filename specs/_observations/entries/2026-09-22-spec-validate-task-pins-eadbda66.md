@@ -1,0 +1,1 @@
+- 2026-09-22 [planwright] spec-validate checks REQ<->test-spec coverage only; a test-spec entry pinned to a task whose Citations line omits that REQ passes silently (found five such mismatches at the human-gates kickoff). A task-pin cross-check (every Task the entry names cites the REQ) would catch it mechanically.

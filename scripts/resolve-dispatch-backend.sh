@@ -45,7 +45,7 @@
 #       the spec-local ask-state (atomic write; a symlink or non-regular file
 #       at the path is refused, never written through).
 #
-# Ask-state: ${PLANWRIGHT_ORCH_STATE_DIR:-<spec-dir>/.orchestrate/markers}'s
+# Ask-state, per checkout: ${PLANWRIGHT_ORCH_STATE_DIR:-<spec-dir>/.orchestrate/markers}'s
 # parent /tmux-ask — one line, `<asked|yes|no> <token>`, gitignored alongside
 # the sibling runtime records (the orchestration-fleet REQ-B1.6 precedent).
 # The write is best-effort on the resolve path (a failed record warns and the
@@ -100,6 +100,7 @@ valid_spec() {
     '') return 1 ;;
     [!a-z0-9]*) return 1 ;;
     *[!a-z0-9-]*) return 1 ;;
+    flight) return 1 ;; # the reserved flight branch segment (tower-front-door D-11)
   esac
   [ "${#1}" -le 64 ]
 }
@@ -126,7 +127,7 @@ valid_value() {
   [ "${#1}" -le 64 ]
 }
 
-# The ask-state path: sibling of the runtime marker dir, so the same trusted
+# The ask-state path: sibling of the checkout-local runtime marker dir, so the same trusted
 # operator/test knob relocates every spec-local runtime record consistently
 # (the orchestrate-degrade.sh record_path convention). The filename is a
 # constant literal — no token is interpolated into the path.
@@ -253,7 +254,7 @@ core_value() {
   cv_rc=0
   cv_val=$(
     PLANWRIGHT_ADOPTER_OVERLAY="$cv_scratch/no-adopter" \
-      PLANWRIGHT_REPO_ROOT="$cv_scratch" \
+      PLANWRIGHT_REPO_ROOT=none \
       PLANWRIGHT_LOCAL_CONFIG="" \
       "$config_get" "$1"
   ) || cv_rc=$?

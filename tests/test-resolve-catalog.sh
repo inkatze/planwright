@@ -75,6 +75,9 @@ base() {
 rc() {
   sb="$1"
   shift
+  # The core root chain skips a root holding neither doctrine/ nor scripts/.
+  mkdir -p "$sb/core/scripts" "$sb/repo"
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$sb/repo"
   base PLANWRIGHT_ROOT="$sb/core" PLANWRIGHT_ADOPTER_OVERLAY="$sb/adopter" \
     PLANWRIGHT_REPO_ROOT="$sb/repo" /bin/bash "$RESOLVER" "$@"
 }
@@ -339,9 +342,7 @@ assert "trailing bare -- after the name is valid" 0 $?
 #     transcribed, so growing the catalog stays a data-only change (the
 #     2026-07-12 stale-count observation).
 # ---------------------------------------------------------------------------
-sb="$tmp/realdd"
-mkdir -p "$sb/repo"
-out="$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_REPO_ROOT="$sb/repo" \
+out="$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_REPO_ROOT=none \
   /bin/bash "$RESOLVER" decision-domains 2>/dev/null)"
 assert "real decision-domains: exit 0" 0 $?
 for id in data-storage caching queues-async api-surface auth secrets-config \
@@ -357,7 +358,7 @@ if [ "${seed_count:-0}" -lt 1 ]; then
   echo "FAIL: real decision-domains: the seed-count pattern matched nothing" >&2
   failures=$((failures + 1))
 fi
-exp="$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_REPO_ROOT="$sb/repo" \
+exp="$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_REPO_ROOT=none \
   /bin/bash "$RESOLVER" decision-domains --explain 2>/dev/null | grep -c '	core$')"
 assert_eq "real decision-domains: every seed entry attributed to core via --explain" \
   "$seed_count" "$exp"
@@ -367,9 +368,7 @@ assert_eq "real decision-domains: every seed entry attributed to core via --expl
 #      (prompt-hygiene REQ-C1.5, Task 8): the builder can recommend the
 #      instruction-hygiene guard + kept-eval convention to adopters.
 # ---------------------------------------------------------------------------
-sb="$tmp/realgc"
-mkdir -p "$sb/repo"
-out="$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_REPO_ROOT="$sb/repo" \
+out="$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_REPO_ROOT=none \
   /bin/bash "$RESOLVER" guard-catalog 2>/dev/null)"
 assert "real guard-catalog: exit 0" 0 $?
 assert_contains "real guard-catalog: instruction-hygiene entry present" \
@@ -499,6 +498,40 @@ ln -s "real.yaml" "$(adopter_cat "$sb" testcat)"
 out="$(rc "$sb" testcat 2>/dev/null)"
 assert "within-root symlink: exit 0" 0 $?
 assert_contains "within-root symlink: target read" "adopter-g" "$out"
+
+# ---------------------------------------------------------------------------
+# Lines outside the constrained shape are warned about and skipped, naming the
+# layer; a blank or whitespace-only line inside an entry stays silent; an id
+# that would not re-parse identically unquoted is re-emitted quoted.
+# ---------------------------------------------------------------------------
+sb="$tmp/shape"
+write_cat "$(core_seed "$sb" testcat)" alpha "core-a"
+mkdir -p "$(dirname "$(adopter_cat "$sb" testcat)")"
+printf 'entries:\n  - id: gamma\n    note: "g"\n     misindented: x\n  - id: delta\n    note: "d"\n   \n\n    kind: k\n' >"$(adopter_cat "$sb" testcat)"
+out="$(rc "$sb" testcat 2>"$tmp/shape.err")"
+assert "shape: exit 0" 0 $?
+err="$(cat "$tmp/shape.err")"
+assert_contains "shape: an indented non-field line is warned, naming layer and entry" 'adopter entry "gamma" carries an indented line that is not a field' "$err"
+assert_absent "shape: the skipped line is not emitted" "misindented" "$out"
+assert_absent "shape: a whitespace-only line inside an entry stays silent" '"delta"' "$err"
+assert_contains "shape: the entry after the blank lines keeps its fields" "kind: k" "$out"
+printf 'entries:\n  - note: "first key is not id"\n    id: ghost\n  - id: real\n    note: "r"\n' >"$(adopter_cat "$sb" testcat)"
+out="$(rc "$sb" testcat 2>"$tmp/shape.err")"
+assert "pre-entry line: exit 0 (adopter degrades)" 0 $?
+assert_contains "pre-entry line: warned, naming layer and section" 'adopter section "entries" carries an indented line outside any entry' "$(cat "$tmp/shape.err")"
+assert_contains "pre-entry line: the following entry survives" "id: real" "$out"
+printf 'entries:\n  - id: "\ttabbed"\n    note: "t"\n  - id: " spaced"\n    note: "s"\n  - id: ""quoted""\n    note: "q"\n  - id: lopsided"\n    note: "l"\n  - id: "plain"\n    note: "p"\n' >"$(adopter_cat "$sb" testcat)"
+out="$(rc "$sb" testcat 2>"$tmp/shape.err")"
+err="$(cat "$tmp/shape.err")"
+assert_contains "malformed id: an edge blank is skipped with a warning" 'adopter entry " spaced" has a malformed id' "$err"
+assert_contains "malformed id: an edge tab is skipped with a warning" "$(printf 'adopter entry "\ttabbed" has a malformed id')" "$err"
+assert_contains "malformed id: an edge quote left after the pair strip is skipped" 'adopter entry ""quoted"" has a malformed id' "$err"
+assert_contains "malformed id: a one-sided quote is skipped, never stripped alone" 'adopter entry "lopsided"" has a malformed id' "$err"
+assert_contains "a quoted plain id loses its quote pair" '  - id: plain' "$out"
+assert_absent "malformed ids are not emitted" "spaced" "$out"
+printf 'entries:\n  - id: gamma\n    note: "g"\n  - id: gamma\n      nested: x\n' >"$(adopter_cat "$sb" testcat)"
+rc "$sb" testcat >/dev/null 2>"$tmp/shape.err"
+assert_absent "a lost line on a skipped duplicate is not reported against its namesake" "not a field" "$(cat "$tmp/shape.err")"
 
 # ---------------------------------------------------------------------------
 echo

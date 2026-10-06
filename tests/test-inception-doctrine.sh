@@ -86,7 +86,7 @@ existing-seam-reuse"
 # ---------------------------------------------------------------------------
 sb="$tmp/core"
 mkdir -p "$sb/repo"
-out="$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_REPO_ROOT="$sb/repo" \
+out="$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_REPO_ROOT=none \
   /bin/bash "$CATALOG" decision-domains 2>/dev/null)"
 assert "core seed: exit 0" 0 $?
 for id in $INCEPTION_DOMAINS; do
@@ -129,7 +129,7 @@ domains:
     disposition: "Always escalated to the clinical safety owner; never auto-defaulted"
 YAML
 out="$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_ADOPTER_OVERLAY="$sb/adopter" \
-  PLANWRIGHT_REPO_ROOT="$sb/repo" /bin/bash "$CATALOG" decision-domains 2>/dev/null)"
+  PLANWRIGHT_REPO_ROOT=none /bin/bash "$CATALOG" decision-domains 2>/dev/null)"
 assert "overlay merge: exit 0" 0 $?
 assert_contains "overlay merge: company discipline domain added" \
   "id: clinical-safety-review" "$out"
@@ -138,7 +138,7 @@ assert_contains "overlay merge: inception domain survives" \
 assert_contains "overlay merge: seed domain survives" "id: auth" "$out"
 
 exp="$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_ADOPTER_OVERLAY="$sb/adopter" \
-  PLANWRIGHT_REPO_ROOT="$sb/repo" /bin/bash "$CATALOG" decision-domains --explain \
+  PLANWRIGHT_REPO_ROOT=none /bin/bash "$CATALOG" decision-domains --explain \
   2>/dev/null)"
 assert_contains "overlay merge: --explain attributes the company domain" \
   "clinical-safety-review	adopter" "$exp"

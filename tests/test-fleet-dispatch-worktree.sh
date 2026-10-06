@@ -25,9 +25,11 @@
 #       commits, no session) is rolled back and recreated; the dispatch proceeds.
 #   c9  (REQ-B1.4): the create exit-code GATES the attach — a non-zero create
 #       (live collision / unresolvable base) prints NO attach plan.
-#   c10 (REQ-B1.4): the client-switch mitigation is present in the constructed
-#       attach (capture-and-restore), and `--tmux=classic` is used (not plain
-#       `--tmux`), composed through the ghost-text pin wrapper.
+#   c10 (REQ-B1.4): the worker session is created detached (the client-switch
+#       mitigation: the operator's client never moves), named
+#       `<base>-<hash6>_<suffix'>`, a classic tmux session running the worker
+#       in its physical worktree through the ghost-text pin wrapper with its
+#       identity, remain-on-exit turned off in the same invocation.
 #   c11 (REQ-C1.2): the tower deny floor denies the dangerous `git worktree`
 #       forms (default-branch / detach / `--force`).
 #   c12 (REQ-B1.4 exception scope): the dispatch primitive is the ONLY
@@ -44,9 +46,9 @@
 # inner git call is never a classifier-exposed Bash string (c12 + c14 together).
 #
 # NOT covered here (the Done-when's `[manual]` arm): confirming on a REAL
-# dispatch that `--tmux=classic` opens relay-targetable panes and the
-# client-switch restore holds — that needs a live tmux + `claude` and is a
-# manual confirmation, recorded in the PR body.
+# dispatch that the worker's session is relay-targetable and the operator's
+# client stays put — that needs a live tmux + `claude` and is a manual
+# confirmation, recorded in the PR body.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-fleet-dispatch-worktree.sh
@@ -411,8 +413,9 @@ c9() {
 }
 
 # ---------------------------------------------------------------------------
-# c10 — client-switch mitigation present (capture-and-restore) and --tmux=classic
-# used (not plain --tmux), composed through the ghost-text pin wrapper.
+# c10 — the worker session is created detached, a classic tmux session named
+# for the checkout and the suffix, running the pinned worker in its worktree; the operator's
+# client is never switched, and the launch waits on nothing.
 # ---------------------------------------------------------------------------
 c10() {
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c10.XXXXXX")
@@ -426,26 +429,38 @@ c10() {
     return
   }
   plan=$(printf '%s\n' "$OUT" | grep '^attach-plan')
-  # Capture the prior client session before the launch.
-  if ! { printf '%s\n' "$plan" | grep -q 'capture' \
-    && printf '%s\n' "$plan" | grep -q 'client_session'; }; then
-    fail "c10: no client-session CAPTURE step in the attach plan"
-  fi
-  # Restore the client to the prior session after the launch.
-  if ! { printf '%s\n' "$plan" | grep -q 'restore' \
-    && printf '%s\n' "$plan" | grep -q 'switch-client'; }; then
-    fail "c10: no client RESTORE (switch-client) step in the attach plan"
-  fi
-  # --tmux=classic is mandatory; plain `--tmux` (space-terminated) is a bug.
-  launch=$(printf '%s\n' "$plan" | grep 'launch')
-  printf '%s\n' "$launch" | grep -q -- '--tmux=classic' \
-    || fail "c10: launch does not use --tmux=classic"
-  printf '%s\n' "$launch" | grep -Eq -- '--tmux($|[^=])' \
-    && fail "c10: launch uses plain --tmux (non-classic — non-relay-targetable)"
-  # The pin wrapper (fleet-dispatch-env.sh) is the launch verb, so the ghost-text
-  # pin is applied structurally.
-  printf '%s\n' "$launch" | grep -q 'fleet-dispatch-env.sh' \
-    || fail "c10: launch not routed through the fleet-dispatch-env.sh pin wrapper"
+  printf '%s\n' "$plan" | grep -Eq 'switch-client|attach-session' \
+    && fail "c10: the attach plan moves the operator's tmux client"
+  sess=$(printf '%s\n' "$plan" | awk -F"$TAB" '$2=="session" {print $3}')
+  case $sess in
+    primary-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]_demo-task-10) ;;
+    *) fail "c10: the worker session is not <base>-<hash6>_<suffix>: $sess" ;;
+  esac
+  wt=$(cd "$tmp/primary" && pwd -P)/.claude/worktrees/demo-task-10
+  launch=$(printf '%s\n' "$plan" | grep "^attach-plan${TAB}launch")
+  case $launch in
+    "attach-plan${TAB}launch${TAB}tmux${TAB}new-session${TAB}-d${TAB}-s${TAB}$sess${TAB}-c${TAB}$wt${TAB}-P${TAB}-F${TAB}"*) ;;
+    *) fail "c10: the launch is not a detached session in the worktree: $launch" ;;
+  esac
+  # The worker runs in its worktree already: no --worktree, and no --tmux,
+  # whose in-tmux launcher never exits.
+  printf '%s\n' "$launch" | grep -Eq -- "${TAB}--(worktree|tmux)" \
+    && fail "c10: the worker launch carries --worktree or --tmux: $launch"
+  # The pin wrapper runs inside the session, so the pin reaches the worker, with
+  # the identity the registry record carries.
+  printf '%s\n' "$launch" | grep -q "${TAB}--${TAB}[^$TAB]*/fleet-dispatch-env.sh${TAB}--identity${TAB}tmux-demo-task-10${TAB}demo:10${TAB}" \
+    || fail "c10: the worker is not launched through the fleet-dispatch-env.sh pin wrapper with its identity"
+  case $launch in
+    *"${TAB};${TAB}set-window-option${TAB}-t${TAB}=$sess:${TAB}remain-on-exit${TAB}off") ;;
+    *) fail "c10: the plan does not turn remain-on-exit off in the same invocation: $launch" ;;
+  esac
+
+  # A dotted task id's session is spelled as tmux would rename it.
+  run_prim dispatch demo 2.1 --repo-root "$tmp/primary" --attach-dry-run
+  case $(printf '%s\n' "$OUT" | awk -F"$TAB" '$1=="attach-plan" && $2=="session" {print $3}') in
+    primary-*_demo-task-2_1) ;;
+    *) fail "c10: a dotted task id's session must end _demo-task-2_1 (out: $OUT)" ;;
+  esac
 }
 
 # ---------------------------------------------------------------------------
@@ -536,14 +551,15 @@ c13() {
   grep -Eqi 'anthropic|api\.anthropic|curl .*(anthropic|api)|/v1/messages' \
     "$SCRIPTS_DIR/fleet-dispatch-worktree.sh" \
     && fail "c13: an API/model call appears in the primitive"
-  # And `claude` appears only as the launched worker verb inside do_attach, never
-  # in the create / reconcile / naming logic. Strip comments AND the do_attach
-  # body, then assert no `claude` token remains in the naming/create path.
-  naming=$(sed '/^do_attach()/,/^}/d' "$SCRIPTS_DIR/fleet-dispatch-worktree.sh" \
-    | grep -v '^[[:space:]]*#')
+  # And `claude` appears only in the launch functions, never in the create /
+  # reconcile / naming logic. Strip comments AND the launch functions' bodies,
+  # then assert no `claude` token remains in the naming/create path.
+  naming=$(sed -e '/^do_attach()/,/^}/d' -e '/^print_plan()/,/^}/d' \
+    -e '/^tmux_launch()/,/^}/d' -e '/^resolve_launch_tools()/,/^}/d' \
+    "$SCRIPTS_DIR/fleet-dispatch-worktree.sh" | grep -v '^[[:space:]]*#')
   # `.claude/worktrees` (a path) is not the `claude` binary — exclude it.
   if printf '%s\n' "$naming" | grep 'claude' | grep -qv '\.claude'; then
-    fail "c13: a 'claude' invocation appears in the naming/create path (outside do_attach)"
+    fail "c13: a 'claude' invocation appears in the naming/create path (outside the launch functions)"
   fi
   return 0
 }
@@ -969,7 +985,438 @@ c25() {
   [ "$RC" -eq 3 ] || fail "c25: a live old-path checkout must read as in-flight (exit 3), got $RC"
 }
 
-for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25; do
+# c26 — the flight grammar (tower-front-door D-11): `flight` is a reserved
+# segment no dispatch may claim as a spec, and the `flight-<flight-id>`
+# worktree suffix is attachable by the same grammar path as a task suffix.
+c26() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c26.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+  # A `specs/flight` directory exists so the spec-dir gate is not what refuses:
+  # the reservation is the only cause left.
+  mkdir -p "$tmp/primary/specs/flight"
+  printf 'v1\n' >"$tmp/primary/specs/flight/requirements.md"
+  # Stderr is checked too: the suffix screen would also refuse `flight-task-1`
+  # with the same exit, so only the message shows the spec screen fired.
+  _err=$("$PRIM" dispatch flight 1 --repo-root "$tmp/primary" --attach-dry-run \
+    </dev/null 2>&1 >/dev/null)
+  RC=$?
+  [ "$RC" -eq 2 ] || fail "c26: dispatch with the reserved spec 'flight' must exit 2, got $RC"
+  case $_err in
+    *"reserved spec id 'flight'"*) ;;
+    *) fail "c26: the spec screen did not name the reservation: $_err" ;;
+  esac
+  gitc "$tmp/primary" show-ref --verify --quiet refs/heads/planwright/flight/task-1 \
+    && fail "c26: a branch was created under the reserved segment"
+  [ ! -e "$tmp/primary/.claude/worktrees/flight-task-1" ] \
+    || fail "c26: a worktree was created for the reserved spec"
+
+  run_prim attach flight-demo-0123abcd --dry-run
+  [ "$RC" -eq 0 ] || fail "c26: attach must accept a flight worktree suffix, got exit $RC"
+  got=$(printf '%s\n' "$OUT" | awk -F"$TAB" '$1=="attach-plan" && $2=="suffix" {print $3; exit}')
+  [ "$got" = flight-demo-0123abcd ] \
+    || fail "c26: attach plan suffix '$got' != flight-demo-0123abcd"
+
+  # A flight suffix without its uid is not a flight id, and no task grammar
+  # rescues it.
+  run_prim attach flight-demo --dry-run
+  [ "$RC" -eq 2 ] || fail "c26: a uid-less flight suffix must be refused (exit 2), got $RC"
+  run_prim attach flight-Demo-0123abcd --dry-run
+  [ "$RC" -eq 2 ] || fail "c26: an off-charset flight suffix must be refused (exit 2), got $RC"
+  # The ids flight-id.sh refuses are refused here too.
+  for _bad in -0123abcd -x-0123abcd demo-0123abcg demo-0123abcd9 demo-0123abc; do
+    run_prim attach "flight-$_bad" --dry-run
+    [ "$RC" -eq 2 ] || fail "c26: flight suffix for the refused id '$_bad' must exit 2, got $RC"
+  done
+
+  # The task form under the reserved spec is refused, as dispatch refuses it;
+  # a legal spec whose name merely starts with `flight-task-` is not.
+  run_prim attach flight-task-1 --dry-run
+  [ "$RC" -eq 2 ] || fail "c26: the task suffix of the reserved spec must be refused (exit 2), got $RC"
+  run_prim attach flight-task-3.1 --dry-run
+  [ "$RC" -eq 2 ] || fail "c26: the dotted task suffix of the reserved spec must be refused (exit 2), got $RC"
+  run_prim attach flight-task-foo-task-3 --dry-run
+  [ "$RC" -eq 0 ] || fail "c26: spec flight-task-foo's task suffix must be attachable, got exit $RC"
+
+  # The flight id is bounded at 64 characters here as flight-id.sh bounds it.
+  slug55=$(printf 'a%.0s' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 \
+    21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 \
+    46 47 48 49 50 51 52 53 54 55)
+  run_prim attach "flight-$slug55-0123abcd" --dry-run
+  [ "$RC" -eq 0 ] || fail "c26: a max-length flight id must be attachable, got exit $RC"
+  run_prim attach "flight-${slug55}a-0123abcd" --dry-run
+  [ "$RC" -eq 2 ] || fail "c26: an over-long flight id must be refused (exit 2), got $RC"
+  # Past the flight bound a suffix can still be a legal task suffix: spec
+  # `flight-<long>` with an eight-digit task id is not refused as a flight.
+  run_prim attach "flight-${slug55}-task-12345678" --dry-run
+  [ "$RC" -eq 0 ] || fail "c26: a long flight-prefixed spec's task suffix must be attachable, got exit $RC"
+}
+
+# ---------------------------------------------------------------------------
+# c27 — the flight arm refuses malformed input before any side effect.
+# ---------------------------------------------------------------------------
+c27() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c27.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+  printf 'brief\n' >"$tmp/brief.md"
+
+  # Each passes the suffix charset; only the flight grammar refuses them.
+  for _bad in Bad-0123abcd demo-task-1 demo-0123abc demo; do
+    run_prim dispatch --flight "$_bad" --repo-root "$tmp/primary" --attach-dry-run
+    [ "$RC" -eq 2 ] || fail "c27: off-grammar flight id '$_bad' must be refused (exit 2), got $RC"
+  done
+  run_prim dispatch --flight demo-0123abcd demo 1 --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 2 ] || fail "c27: --flight with <spec> <id> must be refused (exit 2), got $RC"
+  run_prim dispatch demo 1 --brief "$tmp/brief.md" --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 2 ] || fail "c27: --brief on a task dispatch must be refused (exit 2), got $RC"
+  run_prim dispatch --flight demo-0123abcd --brief brief.md --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 2 ] || fail "c27: a relative --brief must be refused (exit 2), got $RC"
+  run_prim dispatch --flight demo-0123abcd --brief "$tmp/nope.md" --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 2 ] || fail "c27: a missing --brief must be refused (exit 2), got $RC"
+  run_prim dispatch --flight demo-0123abcd --brief "$tmp/brief.md" --no-attach --repo-root "$tmp/primary"
+  [ "$RC" -eq 2 ] || fail "c27: --brief with --no-attach must be refused (exit 2), got $RC"
+  if gitc "$tmp/primary" for-each-ref --format='%(refname)' refs/heads/planwright/ | grep -q .; then
+    fail "c27: a refused flight dispatch created a branch"
+  fi
+
+  # The accepted form places the flight and writes no dispatch marker.
+  run_prim dispatch --flight demo-0123abcd --no-attach --repo-root "$tmp/primary"
+  [ "$RC" -eq 0 ] || fail "c27: a flight create-only dispatch exited $RC"
+  [ "$(dfield "$OUT" branch)" = planwright/flight/demo-0123abcd ] \
+    || fail "c27: flight branch '$(dfield "$OUT" branch)' != planwright/flight/demo-0123abcd"
+  [ -d "$tmp/primary/.claude/worktrees/flight-demo-0123abcd" ] \
+    || fail "c27: the flight worktree was not placed"
+  [ -z "$(ls -A "$tmp/markers" 2>/dev/null)" ] || fail "c27: a flight dispatch wrote a task marker"
+}
+
+# ---------------------------------------------------------------------------
+# c28 — a registered flight worktree with no tmux session is in flight, never
+# a reconcile target: a print-rung worker has no session to read as live.
+# ---------------------------------------------------------------------------
+c28() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c28.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+
+  run_prim dispatch --flight demo-0123abcd --no-attach --repo-root "$tmp/primary"
+  [ "$RC" -eq 0 ] || {
+    fail "c28: the first flight dispatch exited $RC"
+    return
+  }
+  _wt="$tmp/primary/.claude/worktrees/flight-demo-0123abcd"
+  printf 'uncommitted worker edit\n' >"$_wt/work.txt"
+
+  _err=$("$PRIM" dispatch --flight demo-0123abcd --no-attach --repo-root "$tmp/primary" </dev/null 2>&1 >/dev/null)
+  RC=$?
+  [ "$RC" -eq 3 ] || fail "c28: a registered flight worktree must abort as already-in-flight (exit 3), got $RC"
+  case $_err in
+    *"flight worktree"*"is registered"*) ;;
+    *) fail "c28: the abort must come from the registered-flight guard, got: $_err" ;;
+  esac
+  [ -f "$_wt/work.txt" ] || fail "c28: the reconcile force-removed a registered flight worktree"
+}
+
+# ---------------------------------------------------------------------------
+# c29 — `--brief` is confined to the flight's own brief under the fleet home,
+# on a conservative path charset; a flight id carrying a newline is refused;
+# and a brief never rides beside `--continue` or `--resume`.
+# ---------------------------------------------------------------------------
+c29() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c29.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  tmp=$(cd "$tmp" && pwd -P)
+  iso_env "$tmp"
+  seed_repo "$tmp"
+  _own="$tmp/fleet/flights/demo-0123abcd"
+  mkdir -p "$_own" "$tmp/fleet/flights/other-0123abcd"
+  printf 'brief\n' >"$_own/brief.md"
+  printf 'brief\n' >"$tmp/fleet/flights/other-0123abcd/brief.md"
+  printf 'brief\n' >"$tmp/brief.md"
+  ln -s "$_own/brief.md" "$tmp/link.md"
+
+  # The flight-id screen itself refuses it, not a later suffix check.
+  _err=$("$PRIM" dispatch --flight "$(printf 'demo-0123abcd\nx')" --repo-root "$tmp/primary" \
+    --attach-dry-run </dev/null 2>&1 >/dev/null)
+  RC=$?
+  [ "$RC" -eq 2 ] || fail "c29: a flight id with an embedded newline must be refused (exit 2), got $RC"
+  case $_err in
+    *"invalid flight id"*) ;;
+    *) fail "c29: the flight-id screen must refuse an embedded newline, got: $_err" ;;
+  esac
+  for _b in "$tmp/brief.md" "$tmp/fleet/flights/other-0123abcd/brief.md" "$tmp/link.md" \
+    "$_own/../demo-0123abcd/brief.md"; do
+    run_prim dispatch --flight demo-0123abcd --brief "$_b" --repo-root "$tmp/primary" --attach-dry-run
+    [ "$RC" -eq 2 ] || fail "c29: a brief other than the flight's own ($_b) must be refused (exit 2), got $RC"
+  done
+  for _x in --continue -c --resume -r --resume=abc -r=abc; do
+    run_prim dispatch --flight demo-0123abcd --brief "$_own/brief.md" --repo-root "$tmp/primary" \
+      --attach-dry-run -- "$_x"
+    [ "$RC" -eq 2 ] || fail "c29: $_x beside a brief must be refused (exit 2), got $RC"
+  done
+  if gitc "$tmp/primary" for-each-ref --format='%(refname)' refs/heads/planwright/ | grep -q .; then
+    fail "c29: a refused flight dispatch created a branch"
+  fi
+
+  # Stderr names the confinement, not some earlier refusal.
+  _err=$("$PRIM" dispatch --flight demo-0123abcd --brief "$tmp/brief.md" --repo-root "$tmp/primary" \
+    --attach-dry-run </dev/null 2>&1 >/dev/null)
+  case $_err in
+    *"the flight's own brief.md"*) ;;
+    *) fail "c29: a stray brief must be refused by the confinement, got: $_err" ;;
+  esac
+  # A symlink named brief.md in the flight's own directory is refused.
+  mv "$_own/brief.md" "$_own/real.md"
+  ln -s "$_own/real.md" "$_own/brief.md"
+  run_prim dispatch --flight demo-0123abcd --brief "$_own/brief.md" --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 2 ] || fail "c29: a symlinked brief.md must be refused (exit 2), got $RC"
+  rm "$_own/brief.md"
+  mv "$_own/real.md" "$_own/brief.md"
+  # --continue without a brief is still a sanctioned launch arg.
+  run_prim dispatch --flight other-0123abcd --repo-root "$tmp/primary" --attach-dry-run -- --continue
+  [ "$RC" -eq 0 ] || fail "c29: --continue without a brief must still be accepted, got $RC"
+
+  # A brief reached through a symlinked directory is handed over canonical.
+  ln -s "$_own" "$tmp/alias"
+  run_prim dispatch --flight demo-0123abcd --brief "$tmp/alias/brief.md" --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 0 ] || fail "c29: the flight's own brief must be accepted, got exit $RC"
+  case $OUT in
+    *"claude${TAB}--${TAB}Read $_own/brief.md and follow it exactly.${TAB};${TAB}set-window-option${TAB}"*) ;;
+    *) fail "c29: the attach plan must hand the worker its own brief, got: $OUT" ;;
+  esac
+
+  # A fleet home off the conservative charset is refused, not quoted around.
+  export PLANWRIGHT_FLEET_STATE_DIR="$tmp/fl eet"
+  mkdir -p "$tmp/fl eet/flights/demo-4567abcd"
+  printf 'brief\n' >"$tmp/fl eet/flights/demo-4567abcd/brief.md"
+  run_prim dispatch --flight demo-4567abcd --brief "$tmp/fl eet/flights/demo-4567abcd/brief.md" \
+    --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 2 ] || fail "c29: a brief path off the conservative charset must be refused (exit 2), got $RC"
+  # The canonical directory is screened too, not only the path as given.
+  ln -s "$tmp/fl eet" "$tmp/fleetalias"
+  run_prim dispatch --flight demo-4567abcd --brief "$tmp/fleetalias/flights/demo-4567abcd/brief.md" \
+    --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 2 ] || fail "c29: a canonical brief directory off the charset must be refused (exit 2), got $RC"
+  export PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet"
+
+  # A standalone attach of a flight hands the worker its brief, under the
+  # same confinement; a task suffix takes no brief.
+  run_prim attach flight-demo-0123abcd --brief "$_own/brief.md" --dry-run
+  [ "$RC" -eq 0 ] || fail "c29: a standalone flight attach must take its brief, got exit $RC"
+  case $OUT in
+    *"claude${TAB}--${TAB}Read $_own/brief.md and follow it exactly.${TAB};${TAB}set-window-option${TAB}"*) ;;
+    *) fail "c29: a standalone flight attach must hand the worker its brief, got: $OUT" ;;
+  esac
+  run_prim attach flight-demo-0123abcd --brief "$tmp/brief.md" --dry-run
+  [ "$RC" -eq 2 ] || fail "c29: a standalone attach must refuse another flight's or a stray brief, got $RC"
+  run_prim attach flight-demo-0123abcd --brief "$_own/brief.md" --dry-run -- --continue
+  [ "$RC" -eq 2 ] || fail "c29: a standalone attach must refuse --continue beside a brief, got $RC"
+  _err=$("$PRIM" attach demo-task-1 --brief "$_own/brief.md" --dry-run </dev/null 2>&1 >/dev/null)
+  RC=$?
+  [ "$RC" -eq 2 ] || fail "c29: a task-suffix attach must refuse --brief, got $RC"
+  case $_err in
+    *"--brief is a flight option"*) ;;
+    *) fail "c29: a task-suffix --brief must be refused as a flight option, got: $_err" ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# c30 — a worktree list that cannot be read is never "not registered": the
+# reconcile's remnant arm must not rm -rf a flight worktree it cannot see.
+# ---------------------------------------------------------------------------
+c30() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c30.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+  run_prim dispatch --flight demo-0123abcd --no-attach --repo-root "$tmp/primary"
+  [ "$RC" -eq 0 ] || {
+    fail "c30: the first flight dispatch exited $RC"
+    return
+  }
+  _wt=$(cd "$tmp/primary/.claude/worktrees/flight-demo-0123abcd" && pwd -P)
+  printf 'uncommitted worker edit\n' >"$_wt/work.txt"
+  _real_git=$(command -v git)
+  mkdir -p "$tmp/bin"
+  cat >"$tmp/bin/git" <<EOF
+#!/bin/sh
+prev=''
+for a in "\$@"; do
+  if [ "\$prev \$a" = "worktree list" ]; then
+    echo refused >>"$tmp/wl.log"
+    exit 128
+  fi
+  prev=\$a
+done
+exec '$_real_git' "\$@"
+EOF
+  chmod +x "$tmp/bin/git"
+  _err=$(PATH="$tmp/bin:$PATH" "$PRIM" dispatch --flight demo-0123abcd --no-attach --repo-root "$tmp/primary" \
+    </dev/null 2>&1 >/dev/null)
+  RC=$?
+  [ -s "$tmp/wl.log" ] || fail "c30: fixture: the failing worktree list was never reached"
+  [ "$RC" -eq 3 ] || fail "c30: an unreadable worktree list must abort as already-in-flight (exit 3), got $RC: $_err"
+  case $_err in
+    *"could not be read"*) ;;
+    *) fail "c30: the abort must come from the registered-or-unreadable guard, got: $_err" ;;
+  esac
+  [ -f "$_wt/work.txt" ] || fail "c30: the reconcile removed a flight worktree it could not see listed"
+}
+
+# ---------------------------------------------------------------------------
+# c31 — the brief handed over, by the dispatch arm or a standalone attach, is
+# non-empty and sits in directories private to the user; an empty --brief is
+# refused, never silently dropped.
+# ---------------------------------------------------------------------------
+c31() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c31.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+  _own="$tmp/fleet/flights/demo-0123abcd"
+  mkdir -p "$_own"
+  chmod 700 "$tmp/fleet" "$tmp/fleet/flights" "$_own"
+  printf 'brief\n' >"$_own/brief.md"
+  run_prim attach flight-demo-0123abcd --brief "$_own/brief.md" --dry-run
+  [ "$RC" -eq 0 ] || fail "c31: fixture: a private brief must be accepted, got $RC"
+  run_prim attach flight-demo-0123abcd --brief '' --dry-run
+  [ "$RC" -eq 2 ] || fail "c31: attach --brief '' must be refused (exit 2), got $RC"
+  _err=$("$PRIM" dispatch --flight demo-0123abcd --brief '' --repo-root "$tmp/primary" --attach-dry-run \
+    </dev/null 2>&1 >/dev/null)
+  RC=$?
+  [ "$RC" -eq 2 ] || fail "c31: dispatch --brief '' must be refused (exit 2), got $RC"
+  case $_err in *"--brief is empty"*) ;; *) fail "c31: the empty --brief refusal must say so, got: $_err" ;; esac
+  : >"$_own/brief.md"
+  run_prim attach flight-demo-0123abcd --brief "$_own/brief.md" --dry-run
+  [ "$RC" -eq 2 ] || fail "c31: attach with an empty brief file must be refused (exit 2), got $RC"
+  run_prim dispatch --flight demo-0123abcd --brief "$_own/brief.md" --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 2 ] || fail "c31: dispatch with an empty brief file must be refused (exit 2), got $RC"
+  printf 'brief\n' >"$_own/brief.md"
+  for _d in "$_own" "$tmp/fleet/flights" "$tmp/fleet"; do
+    for _m in 720 702; do
+      chmod "$_m" "$_d"
+      _err=$("$PRIM" attach flight-demo-0123abcd --brief "$_own/brief.md" --dry-run </dev/null 2>&1 >/dev/null)
+      RC=$?
+      [ "$RC" -eq 2 ] || fail "c31: attach with $_d at mode $_m must be refused (exit 2), got $RC"
+      case $_err in *"only you can write"*) ;; *) fail "c31: the mode $_m refusal must name the confinement, got: $_err" ;; esac
+      run_prim dispatch --flight demo-0123abcd --brief "$_own/brief.md" --repo-root "$tmp/primary" --attach-dry-run
+      [ "$RC" -eq 2 ] || fail "c31: dispatch with $_d at mode $_m must be refused (exit 2), got $RC"
+    done
+    chmod 700 "$_d"
+  done
+  run_prim attach flight-demo-0123abcd --brief "$_own/brief.md" --dry-run
+  [ "$RC" -eq 0 ] || fail "c31: a restored private brief must be accepted again, got $RC"
+  if gitc "$tmp/primary" for-each-ref --format='%(refname)' refs/heads/planwright/ | grep -q .; then
+    fail "c31: a refused flight dispatch created a branch"
+  fi
+}
+
+# c32 — a dispatch marker written from another worktree of the repository (a
+# tower running there) keeps the checkout in flight, so the primary's dispatch
+# reads it as live (exit 3) rather than a stale orphan to reconcile.
+c32() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c32.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+  base=$(gitc "$tmp/primary" rev-parse main)
+  gitc "$tmp/primary" worktree add -q -b tower "$tmp/primary/.claude/worktrees/tower" "$base"
+  gitc "$tmp/primary" worktree add -q -b planwright/demo/task-10 \
+    "$tmp/primary/.claude/worktrees/task-10" "$base"
+  # Restored at the end, so the cleared override never reaches a later case.
+  _saved_state_dir=$PLANWRIGHT_ORCH_STATE_DIR
+  unset PLANWRIGHT_ORCH_STATE_DIR
+  (cd "$tmp/primary/.claude/worktrees/tower" && "$here/../scripts/orchestrate-marker.sh" write specs/demo 10) \
+    || fail "c32: the marker write from the tower worktree failed"
+  [ ! -e "$tmp/primary/specs/demo/.orchestrate/markers/10" ] \
+    || fail "c32: setup invalid — the marker landed in the primary's own dir"
+  run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 3 ] || fail "c32: a marker written from another worktree must read as in-flight (exit 3), got $RC"
+  # The same marker gone stale no longer holds the checkout.
+  _shared=$(cd "$tmp/primary" && cd "$(git rev-parse --git-common-dir)" && pwd -P)/planwright/orchestrate/demo/markers
+  echo 100 >"$_shared/10"
+  echo 100 >"$tmp/primary/.claude/worktrees/tower/specs/demo/.orchestrate/markers/10"
+  run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 6 ] || fail "c32: a stale shared marker must not read as in-flight (want the exit-6 refusal), got $RC"
+  # A shared home reached through a symlink holds nothing, as in the state
+  # engine, so a fresh entry there cannot wedge the unit as in flight.
+  _common=${_shared%/planwright/orchestrate/demo/markers}
+  mv "$_common/planwright" "$tmp/moved"
+  ln -s "$tmp/moved" "$_common/planwright"
+  date +%s >"$tmp/moved/orchestrate/demo/markers/10"
+  run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 6 ] || fail "c32: a symlinked shared home must not hold the unit in flight (want exit 6), got $RC"
+  rm -f "$_common/planwright"
+  rm -rf "$tmp/moved"
+  # A symlink at a marker path in the shared home holds nothing either.
+  mkdir -p "$_shared"
+  date +%s >"$tmp/fresh"
+  ln -s "$tmp/fresh" "$_shared/10"
+  run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 6 ] || fail "c32: a symlink at a shared marker path must not hold the unit (want exit 6), got $RC"
+  rm -f "$_shared/10"
+  # A shared home that exists but cannot be entered is "cannot tell": live.
+  # Only meaningful where the mode change really blocks entry (not as root,
+  # nor under a namespace that can still traverse it).
+  chmod 000 "$_shared"
+  if (cd "$_shared") 2>/dev/null; then
+    chmod 755 "$_shared"
+    echo "skip: c32 unreadable-shared-home case (this user can still enter a mode-000 dir)"
+  else
+    run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
+    chmod 755 "$_shared"
+    [ "$RC" -eq 3 ] || fail "c32: an unreadable shared home must read as in-flight (exit 3), got $RC"
+  fi
+  # The dispatching checkout's own markers keep their old symlink tolerance:
+  # a dangling one holds nothing, one to a fresh marker holds the unit.
+  _local="$tmp/primary/specs/demo/.orchestrate/markers"
+  mkdir -p "$_local"
+  ln -s "$tmp/nowhere" "$_local/10"
+  run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 6 ] || fail "c32: a dangling checkout-local marker symlink must not hold the unit (want exit 6), got $RC"
+  ln -sf "$tmp/fresh" "$_local/10"
+  run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 3 ] || fail "c32: a checkout-local marker symlink to a fresh marker must hold the unit (exit 3), got $RC"
+  export PLANWRIGHT_ORCH_STATE_DIR="$_saved_state_dir"
+}
+
+# c33 — a dispatch whose shared marker home is unusable says so on stderr
+# instead of discarding the writer's warning, and still dispatches.
+c33() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c33.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+  _saved_state_dir=$PLANWRIGHT_ORCH_STATE_DIR
+  unset PLANWRIGHT_ORCH_STATE_DIR
+  : >"$tmp/primary/.git/planwright"
+  _err=$("$PRIM" dispatch demo 11 --repo-root "$tmp/primary" --no-attach </dev/null 2>&1 >/dev/null)
+  RC=$?
+  export PLANWRIGHT_ORCH_STATE_DIR="$_saved_state_dir"
+  [ "$RC" -eq 0 ] || fail "c33: a dispatch beside an unusable shared home must still succeed, got $RC"
+  printf '%s\n' "$_err" | grep -q '^fleet-dispatch-worktree: orchestrate-marker: skipping the shared marker dir' \
+    || fail "c33: the writer's warning did not reach the operator on a line of its own: $_err"
+  [ -f "$tmp/primary/specs/demo/.orchestrate/markers/11" ] \
+    || fail "c33: no checkout-local marker beside an unusable shared home"
+  # With the checkout-local dir unusable too, no marker lands: the writer's
+  # reason and the summary both reach the operator, and the dispatch goes on.
+  rm -rf "$tmp/primary/specs/demo/.orchestrate"
+  : >"$tmp/primary/specs/demo/.orchestrate"
+  unset PLANWRIGHT_ORCH_STATE_DIR
+  _err=$("$PRIM" dispatch demo 12 --repo-root "$tmp/primary" --no-attach </dev/null 2>&1 >/dev/null)
+  RC=$?
+  export PLANWRIGHT_ORCH_STATE_DIR="$_saved_state_dir"
+  [ "$RC" -eq 0 ] || fail "c33: a dispatch whose marker could not be written must still succeed, got $RC"
+  printf '%s\n' "$_err" | grep -q '^fleet-dispatch-worktree: orchestrate-marker: cannot use marker dir' \
+    || fail "c33: the writer's failure reason did not reach the operator: $_err"
+  printf '%s\n' "$_err" | tail -n 1 | grep -q 'the dispatch marker was not written' \
+    || fail "c33: the missing-marker summary is not the last line: $_err"
+}
+
+for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26 c27 c28 c29 c30 c31 c32 c33; do
   _before=$fails
   "$c"
   [ "$fails" -eq "$_before" ] && echo "ok $c" || true

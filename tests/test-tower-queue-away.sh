@@ -48,6 +48,7 @@ core_cfg="$tmp/core-defaults.yml"
 local_cfg="$tmp/local.yml"
 repo="$tmp/repo"
 mkdir -p "$repo/.claude"
+git init -q "$repo"
 tracked_cfg="$repo/.claude/planwright.yml"
 
 surface="$home/tower-comms"

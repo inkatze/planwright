@@ -386,9 +386,10 @@
 # regex — a pattern is refused rather than silently compared byte-for-byte) or
 # free text (`--covers`). A standing decision's coverage, or its rule text,
 # that reaches a reserved human control is REFUSED here, and refused again at
-# match time whatever a rule claims: a merge, a ready-flip, a force-push, an
-# amend, a squash, a rebase, and a push to the default branch stay the
-# operator's (REQ-H1.1). A push is judged by its refspec's DESTINATION, not by
+# match time whatever a rule claims: a merge or pull, a ready-flip, a
+# force-push, an amend, a squash, a fixup, a rebase, a git or gh alias, a gh
+# api call that can write, and a push to
+# main, master, or a spec branch stay the operator's (REQ-H1.1). A push is judged by its refspec's DESTINATION, not by
 # the punctuation around it, so `+main`, `refs/heads/main` and a force flag
 # bundled into a short-option run are the same refusal as `origin main`. A
 # request or an approval is the operator asking for something and settles
@@ -580,6 +581,7 @@ RESERVED="v seq ts kind tower until"
 usage() {
   cat >&2 <<'EOF'
 usage: tower-queue.sh log <kind> [--tower <id>] [--now <epoch>] [<key>=<value> ...]
+       tower-queue.sh redact [-]   (a block on stdin; redacted and ASCII-rendered, line by line)
        tower-queue.sh report [--log <path>] [--now <epoch>] [--window <duration>] [--tick-gap-max <duration>]
        tower-queue.sh add --kind <kind> --origin <who> --closes <text> [--urgency high|normal|low] [--now <epoch>]
                       (--worker <handle> [--root <dir> --park <rel>] | --root <dir> --pointer <rel> [--park <rel>])
@@ -1999,9 +2001,25 @@ is_prefix() {
 }
 
 # The branch names a push may not reach mechanically: the default branch under
-# either of its two conventional spellings. Stated here because this is where
-# the refusal is enforced.
+# either of its two conventional spellings, and a spec branch (is_protected_branch
+# below). Stated here because this is where the refusal is enforced.
 Q_PROTECTED_BRANCHES="main master"
+
+# is_protected_branch <lowercased branch> — 0 for a name in Q_PROTECTED_BRANCHES
+# or a spec branch, `planwright/<spec>/spec` with <spec> one path segment.
+is_protected_branch() {
+  is_one_of "$1" "$Q_PROTECTED_BRANCHES" && return 0
+  case "$1" in
+    planwright/?*/spec)
+      _ib=${1#planwright/}
+      case "${_ib%/spec}" in
+        */*) return 1 ;;
+      esac
+      return 0
+      ;;
+  esac
+  return 1
+}
 
 # push_reaches_protected <lowercased command> — 0 when a `push` command's
 # DESTINATION is a protected branch, or when it forces. The destination is
@@ -2011,9 +2029,10 @@ Q_PROTECTED_BRANCHES="main master"
 # actions in one command) and `git push origin refs/heads/main`. Each word is
 # reduced the way git reads a refspec — every quote removed, then a leading `+`
 # (which IS the force), then the text after the LAST `:` (the destination
-# half), then a leading `refs/heads/` — and the result compared to the
-# protected names. The quotes go FIRST and ALL of them go: the allowlist admits
-# a quoted interior anywhere in a word, and the shell reads `"refs/heads/main"`,
+# half), then a leading `refs/heads/` or `heads/`, which git resolves to the
+# same branch — and the result compared to the protected names. The quotes go
+# FIRST and ALL of them go: the allowlist admits a quoted interior anywhere in
+# a word, and the shell reads `"refs/heads/main"`,
 # `"+main"`, `''main` and `ma""in` as the bare spellings, so a strip that ran
 # after the prefix test, or took only one matched pair, left each of those a
 # way past it. Removing a quote the shell would have kept (`"ma'in"`) can only
@@ -2046,7 +2065,8 @@ push_reaches_protected() {
       esac
       _pd=${_pw##*:}
       _pd=${_pd#refs/heads/}
-      is_one_of "$_pd" "$Q_PROTECTED_BRANCHES" && exit 0
+      _pd=${_pd#heads/}
+      is_protected_branch "$_pd" && exit 0
     done
     exit 1
   )
@@ -2077,6 +2097,23 @@ push_word_present() {
   )
 }
 
+# command_words_reserved <lowercased command> — 0 when a word of the command,
+# its quotes removed, IS a pull. The `git pull` substring in reserved_control
+# misses `git -C dir pull` and a doubled space, both of which git runs as a
+# pull; a command naming the word for any other reason reaches the operator.
+command_words_reserved() {
+  (
+    set -f
+    for _pw in $1; do
+      unquote "$_pw"
+      case "$UQ" in
+        pull | git-pull | */git-pull) exit 0 ;;
+      esac
+    done
+    exit 1
+  )
+}
+
 # The options a push may carry and still be answered by a rule. Everything
 # else that starts with a dash reaches the operator: not only the force family
 # and `--all` / `--mirror` / `--delete`, which change what is pushed, but
@@ -2100,8 +2137,9 @@ Q_PUSH_SAFE_OPTIONS="-u --set-upstream -v --verbose -q --quiet -n --dry-run --po
 # wrapper), the remote is a plain name (never a URL: the protected names mean
 # nothing in another repository), every refspec carries a non-empty
 # destination that is a branch name (`src:dst` with both halves, or a bare
-# name that is not `HEAD` or `@`, with `refs/heads/` stripped and any other
-# `refs/` kind refused), and no destination is protected. Quotes are removed
+# name that is not `HEAD` or `@`, with `refs/heads/` or `heads/` stripped and
+# any other `refs/` kind refused), and no destination is protected
+# (is_protected_branch, which includes a spec branch). Quotes are removed
 # first, as in push_reaches_protected, and for the same reason.
 push_parses_safe() {
   (
@@ -2150,10 +2188,11 @@ push_parses_safe() {
           ;;
       esac
       _pd=${_pd#refs/heads/}
+      _pd=${_pd#heads/}
       case "$_pd" in
         "" | head | @ | refs/* | -* | *[!a-z0-9._/@-]*) exit 1 ;;
       esac
-      is_one_of "$_pd" "$Q_PROTECTED_BRANCHES" && exit 1
+      is_protected_branch "$_pd" && exit 1
     done
     [ -n "$_pr" ] && [ "$_pn" -gt 0 ]
   )
@@ -2172,10 +2211,23 @@ push_parses_safe() {
 # spelling of the same push is not a new hole. A COMMAND is held to more than
 # this: see reserved_command.
 reserved_control() {
-  _rl=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  # Quotes go first, as in push_reaches_protected: the shell runs `me""rge`
+  # and `--am'end'` as the bare words, which a substring test on the quoted
+  # text never sees.
+  _rl=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d '\042\047')
   case "$_rl" in
-    *merge* | *merging* | *rebas* | *amend* | *squash* | *force-push* | *force-with-lease*) return 0 ;;
+    *merge* | *merging* | *rebas* | *amend* | *squash* | *fixup* | *force-push* | *force-with-lease*) return 0 ;;
+    *'git pull'* | *git-pull*) return 0 ;;
+    # Configuration that makes git run a different verb than the one written:
+    # an alias, an included config file that can define one, and autocorrect.
+    *alias.* | *include.path* | *includeif.* | *autocorrect*) return 0 ;;
     *' ready'* | *'--ready'* | ready | ready' '*) return 0 ;;
+  esac
+  case "$_rl" in
+    *commit*) commit_rewrite_word "$_rl" && return 0 ;;
+  esac
+  case "$_rl" in
+    *gh*) gh_write_word "$_rl" && return 0 ;;
   esac
   case "$_rl" in
     *push*) push_reaches_protected "$_rl" && return 0 ;;
@@ -2183,13 +2235,72 @@ reserved_control() {
   return 1
 }
 
+# commit_rewrite_word <lowercased, unquoted text> — 0 when a word abbreviates
+# --amend, --squash or --fixup. git takes any unique prefix of a long option,
+# so `git commit --am` amends, and the substring screen above never sees it.
+commit_rewrite_word() {
+  (
+    set -f
+    for _cw in $1; do
+      case "$_cw" in
+        --am* | --sq* | --fix*) exit 0 ;;
+      esac
+    done
+    exit 1
+  )
+}
+
+# gh_write_word <lowercased, unquoted text> — 0 for a `gh api` call that can
+# write, or a `gh alias` definition. The ready flip and its undo are GraphQL
+# mutations, and a query read from a file (`-F query=@q.graphql`) is not in the
+# text at all, so any GraphQL call, any field or input (which makes the call a
+# POST), and any method but GET reaches the operator. An alias can expand to
+# any gh verb, as a git alias can to any git verb.
+gh_write_word() {
+  (
+    set -f
+    _gp=""
+    _gs=""
+    for _gw in $1; do
+      case "$_gs" in
+        api)
+          case "$_gw" in
+            graphql | -f* | --field* | --raw-field* | --input*) exit 0 ;;
+            -x | --method) _gs=method ;;
+            -xget | -x=get | --method=get) ;;
+            -x* | --method*) exit 0 ;;
+          esac
+          ;;
+        method)
+          [ "$_gw" = get ] || exit 0
+          _gs=api
+          ;;
+        alias)
+          case "$_gw" in
+            set | import) exit 0 ;;
+          esac
+          _gs=""
+          ;;
+      esac
+      case "$_gp:$_gw" in
+        gh:api | */gh:api) _gs=api ;;
+        gh:alias | */gh:alias) _gs="alias" ;;
+      esac
+      _gp=$_gw
+    done
+    exit 1
+  )
+}
+
 # reserved_command <command> — 0 when a rule may not answer the command: it
 # reaches a reserved control, or it is a push that does not positively parse
-# as safe. This is what the match runs; `capture` runs reserved_control, since
+# as safe. This is what the match runs; `capture` runs reserved_control, plus
+# the pull word screen on a command coverage, but never the push parse, since
 # a rule's coverage is a prefix and a prefix is not a command.
 reserved_command() {
   reserved_control "$1" && return 0
   _rq=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  command_words_reserved "$_rq" && return 0
   push_word_present "$_rq" || return 1
   push_parses_safe "$_rq" && return 1
   return 0
@@ -5091,8 +5202,9 @@ cmd_capture() {
             # (REQ-E1.9, REQ-H1.1). It fires again at match time, so a rule
             # recorded before this check existed is still refused where it
             # would act.
-            if reserved_control "$2"; then
-              refuse "refusing a standing decision whose coverage reaches a reserved human control (a merge, a ready-flip, a force-push, an amend, a squash, a rebase, or a push to the default branch); those stay the operator's"
+            if reserved_control "$2" \
+              || command_words_reserved "$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"; then
+              refuse "refusing a standing decision whose coverage reaches a reserved human control (a merge or pull, a ready-flip, a force-push, an amend, a squash, a fixup, a rebase, a git or gh alias, a gh api call that can write, or a push to main, master, or a spec branch); those stay the operator's"
             fi
             # Redacted like every other operator-supplied field (REQ-G1.8):
             # this one is persisted and, with a ledger helper installed, ships
@@ -5123,7 +5235,7 @@ cmd_capture() {
     is_text "$covers" 512 || refuse "refusing the coverage text: at most 512 bytes with secrets redacted, no control byte or leading whitespace, not shaped like a JSON value"
     [ "$covers" != - ] || refuse "refusing the coverage '-': that is the placeholder for no coverage, and a rule must not read as covering nothing"
     if reserved_control "$covers"; then
-      refuse "refusing a standing decision whose coverage reaches a reserved human control (a merge, a ready-flip, a force-push, an amend, a squash, a rebase, or a push to the default branch); those stay the operator's"
+      refuse "refusing a standing decision whose coverage reaches a reserved human control (a merge or pull, a ready-flip, a force-push, an amend, a squash, a fixup, a rebase, a git or gh alias, a gh api call that can write, or a push to main, master, or a spec branch); those stay the operator's"
     fi
     covers="$covers$TAB"
   fi
@@ -5133,7 +5245,7 @@ cmd_capture() {
   # 471 once it is green" is an ordinary ask and must stay recordable
   # (REQ-E1.1) rather than being refused by a guard aimed at rules.
   if [ "$kind" = standing ] && reserved_control "$text"; then
-    refuse "refusing a standing decision whose rule reaches a reserved human control (a merge, a ready-flip, a force-push, an amend, a squash, a rebase, or a push to the default branch); those stay the operator's"
+    refuse "refusing a standing decision whose rule reaches a reserved human control (a merge or pull, a ready-flip, a force-push, an amend, a squash, a fixup, a rebase, a git or gh alias, a gh api call that can write, or a push to main, master, or a spec branch); those stay the operator's"
   fi
   # What closes a captured item, when the operator did not say. A request
   # closes on the evidence that the work landed and an approval on the answer
@@ -5489,8 +5601,10 @@ tower_presence() {
         # A record is a published tower identity. The dot-prefixed names are
         # fleet-presence.sh's own publish temporaries, and one orphaned by a
         # killed publish would otherwise hold this gate open for a fleet with
-        # nothing running.
-        case "$_pf" in .*) continue ;; esac
+        # nothing running. Not a `case`: inside `$( )`, bash 3.2 (macOS
+        # /bin/sh) reads a bare pattern `)` as the end of the substitution,
+        # and shfmt rewrites the `(.*)` form that would parse back to it.
+        [ "${_pf#.}" = "$_pf" ] || continue
         is_tower "$_pf" || continue
         [ -f "$_pd/$_pp/$_pf" ] && [ ! -L "$_pd/$_pp/$_pf" ] || continue
         printf 'x'
@@ -5634,11 +5748,49 @@ cmd_catchup() {
     || err "the remainder is a floor, not a count ($why): the event log no longer covers the whole window"
 }
 
+# ---------------------------------------------------------------------------
+# redact — the one helper, offered to the other surfaces that render an item
+# ---------------------------------------------------------------------------
+
+# REQ-H1.3 names ONE redaction helper and says it is what enforces the rule, so
+# a surface that renders item content has to be able to reach it. The hook and
+# `capture` reach it by calling `log`; a renderer has nothing to log, so it
+# calls this. Line-oriented on purpose: `ascii_render` folds its input into one
+# value (it renders a field), and an item's content is a block whose line
+# breaks are part of what the operator reads.
+#
+# Per line: the secret-shaped redaction, then the same ASCII rendering the
+# `command` line gets — every byte outside printable ASCII shown as `\xNN`, so
+# nothing approves text that renders as something else (REQ-E1.9). A line that
+# needed escaping is counted, and the count goes to stderr as the warning that
+# accompanies it there; stdout stays exactly the rendered block.
+cmd_redact() {
+  case "${1:-}" in
+    "" | -) ;;
+    *) usage ;;
+  esac
+  [ "$#" -le 1 ] || usage
+  _rd_escaped=0
+  _rd_lines=0
+  while IFS= read -r _rd_line || [ -n "$_rd_line" ]; do
+    _rd_lines=$((_rd_lines + 1))
+    _rd_out=$(ascii_render "$(redact "$_rd_line")")
+    case "$_rd_out" in
+      1*) _rd_escaped=$((_rd_escaped + 1)) ;;
+    esac
+    printf '%s\n' "${_rd_out#*	}"
+  done
+  [ "$_rd_escaped" = 0 ] \
+    || err "$_rd_escaped of $_rd_lines rendered line(s) carried bytes outside printable ASCII; they are shown as \\xNN escapes"
+  return 0
+}
+
 cmd=${1:-}
 [ -n "$cmd" ] || usage
 shift
 case "$cmd" in
   log) cmd_log "$@" ;;
+  redact) cmd_redact "$@" ;;
   report) cmd_report "$@" ;;
   add) cmd_add "$@" ;;
   capture) cmd_capture "$@" ;;
@@ -5652,7 +5804,7 @@ case "$cmd" in
   list) cmd_list "$@" ;;
   counts) cmd_counts "$@" ;;
   *)
-    err "unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (log | report | add | capture | match | knock | next | ack | shelve | settle | catchup | list | counts)"
+    err "unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (log | redact | report | add | capture | match | knock | next | ack | shelve | settle | catchup | list | counts)"
     exit 2
     ;;
 esac

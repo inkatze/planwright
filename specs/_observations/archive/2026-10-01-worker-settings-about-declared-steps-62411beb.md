@@ -1,0 +1,2 @@
+- 2026-10-01 [planwright] config/worker-settings.json _about still lists two approval categories for the worker command guard; declared command-step lines (custom-steps) are a third, and the _about text needs a follow-up once a task may touch that file.
+Consumed-by: specs/worker-permission-ergonomics (2026-10-05)

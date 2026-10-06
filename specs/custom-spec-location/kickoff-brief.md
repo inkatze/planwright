@@ -379,6 +379,63 @@ this table; appended rows never overwrite existing ones.
 
 Signed off: 2026-09-22
 
+### Execution findings: Task 1 (2026-09-24)
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| T1-F1 | Research (mise `[env]`, informs risk 8): a plain `PLANWRIGHT_ROOT = "{{ config_root }}"` *overrides* a value already in the environment, contradicting D-10's premise that an operator's environment value is left alone. Verified locally with `mise exec` on a fixture (mise 2026.9.12); CI's pinned mise is exercised by the pin cases of `tests/test-resolve-root.sh`, which fail rather than skip when mise is absent in CI. | The pin is written `{% set env_root = get_env(name='PLANWRIGHT_ROOT', default='') %}{% if env_root %}{{ env_root }}{% else %}{{ config_root }}{% endif %}`: still a config-root expansion, and an environment value wins, which is what D-10 intends. The `if` makes a set-but-empty value fall back to the checkout too (the terser `\| default(value=config_root, boolean=true)` filter does the same on mise 2026.9.12 but renders empty on CI's pinned 2026.6.1, which the pin cases caught); a plain `get_env` default keeps the empty value, which the resolver reads as unset, handing the chain on to the installed plugin. The test asserts the pin set, the pin not evaluated, an environment override, and an empty environment value. No spec edit: this implements the accepted decision rather than changing it. |
+| T1-F2 | Research (mise shell activation, informs risk 8): with a nested worktree carrying its own tracked `mise.toml`, mise's shell hook recomputes the environment from what it was before mise activated, so `get_env` does not pick up the parent checkout's pinned value and the worktree resolves itself. Verified by activating mise in a shell and changing directory into a nested fixture. | Relied on by the pin; no action. |
+| T1-F3 | The fleet dispatcher exports `PLANWRIGHT_ROOT` into a worker's environment (`scripts/fleet-dispatch-env.sh`), so under the `get_env` form a dispatched worker in a task worktree resolves the dispatcher's root, not its own worktree's (informs risk 4). That is the environment-wins rule working as designed. | Out of Task 1's scope; whether the dispatcher should keep exporting it is a question for Task 3 (chain convergence) or Task 8 (dispatch). |
+| T1-F4 | Security (path handling, untrusted environment and git output). Review found and this task fixed: diagnostics echoed raw values, and dash's `echo` expands backslash escapes, so a value could inject terminal control sequences; `cd` without `--` let `PLANWRIGHT_REPO_ROOT=-P` resolve to `$HOME`; an inherited `GIT_DIR` let an arbitrary directory pass the override check. Now diagnostics strip control bytes and use `printf`, the override must be absolute and is validated with inherited git variables stripped, and `cd --` is used throughout. | Fixed, with a test per case. A primary path containing a newline (git allows creating one) is printed literally and so spans lines, except that a trailing newline is lost to command substitution; the resolver does not parse the worktree list, and no caller is expected to meet such a path. Accepted. |
+| T1-F5 | The pin now exports `PLANWRIGHT_ROOT` to every `mise run` task, the test suite included. Its value is the checkout, the same tree self-location resolves for tests run from it; a before/after comparison of the full suite found no new failures. Pass/fail is not the whole effect: a test that leaves the variable inherited stops exercising self-location, which silently weakened the worker guard's self-location case and the dispatch wrapper's root derivation. | Those two tests now clear the inherited roots, and each fails when self-location is disabled. A test that exercises the chain must strip the variable itself, as `tests/test-resolve-root.sh` does. Other suites read the variable without stripping it (`test-config-get`, `test-check-anchor-freshness`, `test-prompt-eval-fixtures`, `test-resolve-review-sequence`, `test-builder-guards`); their outcomes are unchanged, and whether their self-location branches need the same treatment is for Task 3, which converges the chain. |
+| T1-F6 | Clauses Task 1 cites but cannot close: REQ-B1.1's grep (no script but the resolver calls `--show-toplevel` to find the repository) needs the callers migrated, and no later task names it (Task 5 migrates the callers but does not cite REQ-B1.1); REQ-C1.1's guard derivation belongs to Task 3; REQ-B1.4's caller half (callers degrade rather than compose a path from an empty root) needs the callers migrated, and no task cites REQ-B1.4 for it. | Recorded here so they are not taken as verified by Task 1. The REQ-B1.1 grep and the REQ-B1.4 caller half are ownership gaps for whoever runs Task 5 to pick up. |
+| T1-F7 | `mise run smoke:dispatch --live` now hands its probe worker the checkout's pinned `PLANWRIGHT_ROOT`, so the installed guard it exercises also trusts this checkout's paths; a probe command naming a checkout path can pass on that trust rather than on the installed plugin's own. The same inheritance as T1-F3. | Out of Task 1's scope; decided with T1-F3 (Task 3 or Task 8). |
+| T1-F8 | The existing chains differ from the resolver in more than the named corrections: `scripts/resolve-rule-doc.sh` falls through to the next arm when a root lacks the requested doc, where the resolver commits to the first content-bearing arm. | Not in Task 3's expected-change set today; Task 3 either keeps the per-doc fall-through or names the change. |
+| T1-F9 | No task documents the self-hosting pin for contributors (that a `mise run` or mise-activated shell in this checkout resolves the checkout, not the installed plugin). Task 10 covers the spec-home docs and Task 3 the chain prose. | Documentation gap without an owner; `docs/CONTRIBUTING.md`'s mise section is the natural home. |
+| T1-F10 | A separate git dir that is itself named `.git` answers `--primary` with the directory holding it, from a linked worktree as well as from inside it, even when the primary is elsewhere: git records no path back to such a primary, so it is indistinguishable from an ordinary checkout. | Documented in the resolver's header and inline comment. Accepted: the layout needs a deliberate `--separate-git-dir` into a directory that is itself named `.git`. |
+
+### Execution findings: Task 4 (2026-09-28)
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| T4-F1 | Task 4's Done-when puts the guard under `mise run check` passing, while the sites it flags today (50 lines across the scripts, `mise.toml`, and the flight scripts) are migrated only by Tasks 5, 6, and 9. The three-class allowlist REQ-G1.1 defines cannot hold them without stretching its classes. | A second list, `config/spec-literal-pending.tsv`, holds each unmigrated site tagged with the task that migrates it. It is shrink-only, enforced against the base branch's copy, and a row matching nothing fails as stale, so a migration deletes its rows. Task 5's "the literal-path guard passes" means no row tagged 5 remains in the pending list, which the guard alone does not check; Tasks 6 and 9 have no such Done-when clause, but their rows turn stale as their sites move, so the guard fails their PRs until the rows are deleted. The allowlist keeps exactly the three classes. No spec edit: this is how the accepted guard reaches CI before the migration, not a change to what it flags. |
+| T4-F2 | D-19 names one static glob, the lefthook pre-commit glob. The `.gitignore` rules for the default root's local-only entries (`specs/*/.orchestrate.lock` and the rest) are static patterns too, and cannot be resolved; a relocated root gets its own from `resolve-root.sh spec --init` (D-4). | Allowlisted as `static-glob` with that reason stated in the allowlist header. Pending sign-off at PR review: the alternative is an expression-only D-19 gap-fill naming them. |
+| T4-F3 | Several checks default, with no argument, to the specs of the install tree they run from (`check-ledger.sh`, `check-memory-links.sh`, `check-anchor-freshness.sh`, `migrate-status-lifecycle.sh`, and `migrate-format-version.sh`). In a planwright checkout that is the same tree; the fixture repository is not, so the no-argument form is outside its reach, and the migrate scripts' default would rewrite this repository's own bundles if probed. The `mise.toml` spec-check task bodies are build configuration, not scripts, and are not probed either. | The probes pass the fixture's paths explicitly. Task 5, which migrates those defaults and task bodies, owns naming their change; the fixture does not see it. |
+| T4-F4 | REQ-G1.1 says the literal `specs/`; `$root/specs` and `*/specs)` compose the same root without the trailing slash, and are a common form in the scripts. | The guard flags both. |
+| T4-F5 | "Failing on any named correction absent from every set" cannot hold before the owning tasks run: with only Task 4's empty set declared, every correction is absent. | Checked per declared set instead: once a task's set exists, every correction the registry (`tests/fixtures/spec-location-golden/corrections.tsv`) assigns to it must appear there, a correction may appear in no other set, and the one correction that landed before the baseline (the self-hosting pin) may appear in none. The repo-root narrowing is Task 3's: the overlay resolver still takes `PLANWRIGHT_REPO_ROOT` as given until the chain converges, which a probe records. Tasks 3 and 5 name their sets in their Done-when, though Task 3's lists only the worktree config correction and the chain's two gains; its set must also carry the narrowing, which D-8 (cited) names as a correction but its Done-when does not, nor do its Citations name REQ-B1.1. |
+| T4-F6 | The bundle half recomputes every bundle's anchor from the baseline commit's content, so a shallow clone that lacks the commit cannot run it. | It fails rather than skipping; CI checks out full history. |
+| T4-F7 | `check-anchor-freshness.sh` parses the recorded anchor command `scripts/spec-anchor.sh specs/<id>`, a grammar existing briefs carry and REQ-H1.2 keeps valid, so that line may be a namespace literal rather than a migration site. | Listed as pending under Task 5, which migrates the check and can reclassify it. |
+
+### Execution findings: Task 3 (2026-09-28)
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| T3-F1 | The repo-root narrowing breaks an established idiom: production call sites (the fleet state and allocation-ledger locks, the flight lock and `flight_pr_hosts` read, the knob resolvers' core-default re-reads, `resolve-dispatch-backend.sh`, `check-instructions.sh`'s fixture mode) pin `PLANWRIGHT_REPO_ROOT` to a directory outside any repository, or to `/dev/null`, precisely to read no repo-side layer. Refusing such a value turns each into a refusal warning (or, fail-closed, a failure), and many test suites use the same idiom for their fixtures. Not anticipated by the risk register or T4-F5. | Not delivered here. The overlay resolver still takes the override as given; without it, the repo-side layers now come from `resolve-root.sh repo --primary`, which delivers REQ-B1.2. The golden registry reassigns `repo-root-narrowing` to Task 5, which migrates these callers, and the choice of a replacement for the idiom is queued for the operator (Q1 in the PR). |
+| T3-F2 | Task 3 names the review-sequence resolver as a chain consumer, but the custom-steps work retired it (and the `review_sequence` knob) before this task ran; the golden fixture still probed the deleted script and failed on main. Its successor, `resolve-steps.sh`, ran a shorter chain to find `skills/`. | The golden probe and its baseline records were removed with a note in the baseline's commentary; `resolve-steps.sh` migrated in its place. |
+| T3-F3 | Guards trust a set of roots, not the winner, so "obtain the chain from the helper" needs every arm. | `resolve-root.sh install --all` prints every surviving arm in order (`--explain` names each). The worker guard trusts that list plus its own root and the installed roots; the tower guard takes only the `CLAUDE_PLUGIN_ROOT` arm from it. Both ask for it only when a script path is checked, since the hooks run on every tool call. |
+| T3-F4 | T1-F8's per-doc fall-through. | Kept: the rule-doc resolver, config-get's defaults lookup, the anchor-tool lookup, and the skills-root lookup each walk `--all` and take the first arm holding their file. Among these lookups, only the overlay resolver's core layer takes the install root itself (the venture hook, T3-F6, is not a lookup). |
+| T3-F5 | The helper prints canonical paths, so core paths from the rule-doc resolver and the defaults file path change form (a `scripts/..` segment or a `/var` → `/private/var` symlink resolved). | Declared in the golden set under the chain convergence; unit tests that compared against a non-canonical temp path now canonicalize it. |
+| T3-F6 | The inception scaffold's emitted venture hook runs outside planwright and cannot self-locate the helper. | It keeps its locator loop to find a copy, then asks that copy's `resolve-root.sh install` when it ships one; the grep test allowlists it with that reason. |
+| T3-F7 | T1-F3 and T1-F7 (the dispatcher exporting its own `PLANWRIGHT_ROOT` into workers). | Unchanged; `fleet-dispatch-env.sh` is allowlisted in the grep test as publishing the operator's values rather than picking a root. Still open for Task 8. |
+| T3-F9 | REQ-B1.2 holds for a caller that leaves the repo root unpinned. The orchestrate state, lock, and meta-select scripts and the flight dispatcher still pin `PLANWRIGHT_REPO_ROOT` or `PLANWRIGHT_LOCAL_CONFIG` to the checkout they run from, so run from a worktree they read that worktree's layers. | Left to Task 5, which migrates those callers off the checkout toplevel. |
+| T3-F8 | T1-F9 (no contributor doc for the self-hosting pin). | Still open: the chain prose now lives in `spec-format`, but `docs/CONTRIBUTING.md` does not yet say that a `mise run` in this checkout resolves the checkout. |
+
+### Execution findings: Task 5 (2026-09-29)
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| T5-F1 | T3-F1's queued question (what replaces the "no repo-side layer" idiom) was not answered before this task ran, and the golden registry assigns the narrowing here. | Took the recommended option: `PLANWRIGHT_REPO_ROOT=none` is the "no repository" exit (3) of `resolve-root.sh repo --primary`, so the overlay resolver reads no repo-side layer, quietly. Any other value that is not a git toplevel is refused on stderr and the layers are absent, never read from where it pointed. Every production caller of the old idiom and the test fixtures using it moved to `none` or to a real repository. The rule-doc and steps resolvers resolve the root once, validated, and pass the result (or `none`) to their children. Pending sign-off at PR review; the alternatives were a separate variable, a scratch `git init`, or dropping the narrowing through a D-8 delta. |
+| T5-F2 | The execution-state scripts took the work repository from the bundle directory's own toplevel, which REQ-E1.4 forbids once the bundle can sit in a holder or in no repository. Deriving it from the working directory alone would break every caller that addresses a bundle from elsewhere (the fleet, the tests). | `scripts/resolve-work-repo.sh <spec-dir>`: the current repository's primary checkout when the bundle sits in it or its resolved spec root (either view) is the bundle's parent, else the bundle's own repository's primary. The orchestrate state, lock, and meta-select scripts, the watchdog, and (through them) the status render use it; state and the lock read config as the work repository sees it (closes T3-F9). Side effect: meta-select no longer refuses a worktree's copy beside the primary's as "a different checkout", since both have the same work repository. |
+| T5-F3 | T4-F3's no-argument defaults (`check-ledger.sh`, `check-memory-links.sh`, `check-anchor-freshness.sh`, both migrate scripts) now resolve the root from the working directory rather than the install tree. From inside a planwright checkout the two are the same tree; run from another repository they differ, which is the fix. The golden fixture probes these scripts with explicit paths, so the change is outside its reach and no set can declare it. | Named here and in the PR rather than in the registry, whose rows must each appear in a set (queued as a question in the PR). |
+| T5-F4 | Every migrated caller needs a repository to resolve the root. `spec-walkthrough.sh` used to read `./specs` from any directory; outside a repository it now refuses, saying the root did not resolve. Same class as T5-F3. | Accepted: a bundle outside any repository is only reachable through a work repository's `spec_root`, which is the posture model. Its tests run their workspaces as repositories. |
+| T5-F5 | T4-F7. | Reclassified: the anchor-freshness parse of the recorded `scripts/spec-anchor.sh specs/<id>` form compares text and never builds a path from it (the recompute reads the bundle the root resolves), so it is allowlisted as a namespace literal. A relocated bundle whose brief records another sanctioned argument is the gate-per-posture work of Task 8. |
+| T5-F6 | A flight record is committed on the flight's branch, so it can only live under a spec root inside the checkout. | `flight-dispatch.sh` refuses a repository-home record when the root lies outside the checkout, naming `--home pr`; `flight-id.sh` checks the working-tree record there and skips the branch scan. The record path otherwise follows the root. |
+| T5-F7 | T1-F6's REQ-B1.1 grep (no script but the resolver calls `--show-toplevel` to find the repository). This task migrated every such call in the scripts it touches; the rest sit in the githooks, the inception, release, and purged-identifier tooling, and fleet scripts outside this task's list. | Still an ownership gap: not in Task 5's Done-when or Citations. Queued in the PR with the remaining sites. |
+| T5-F8 | The lock's `specs` parent assertion (REQ-A1.7) guarded REQ-F1.1 containment. | Replaced, not dropped: the spec dir's canonical parent must be a resolved spec root, as the working directory sees it (either view) or as the bundle's own repository does, so a directory under no root is still refused. The headless dispatcher contains its state base under the resolved spec root instead of the repository root, since a relocated root need not lie inside the repository. |
+| T5-F9 | Task 5's deliverables name the fetch script and the tower watchdog, but the pending registry assigns `scripts/dispatch-fetch.sh`'s `specs/<name>` argument grammar and the watchdog's `/orchestrate ... specs/$spec` launch line to Task 6, which owns spec addressing. | Left to Task 6: both are the bundle-addressing form, not a path composed from the root. The watchdog's root and checkout derivation migrated here; a bundle in a linked worktree relaunches its tower in that worktree. |
+| T5-F10 | T5-F1 said every production caller of the old idiom moved. `check-instructions.sh` still pins `PLANWRIGHT_REPO_ROOT` to its `--root`, so a `--root` that is not a git toplevel now reads the core defaults only. | Accepted and documented in its usage text: the shipped root and every fixture are git toplevels. |
+| T5-F11 | Validating `PLANWRIGHT_REPO_ROOT` on every repo-side lookup put the CI suite over its wall-clock budget: each child `config-get` re-validated a root its parent had just validated. | A resolver that pins a root it validated also sets `PLANWRIGHT_REPO_ROOT_CHECKED` to the same value, and the overlay resolver takes exactly that value as given; any other value is validated as before. `none` is answered with no lookup at all. Internal handshake, not an operator knob; the override was trusted operator input before this task, so the narrowing loses nothing. |
+
 ## 8. Sign-off
 
 ### Lens review pass (first activation, full bundle)
@@ -649,4 +706,64 @@ Anchor: `e491833aa36c507d74bb2568b15375425c3c300d` — computed as
 
 ## 9. Amendment log
 
-(none yet)
+### Amendment — empty `spec_root` cancels lower layers, Task 2 execution (2026-09-28)
+
+Operator-declared amendment on the Active bundle (Task 1 merged, Task 2 in
+progress), walked as a delta-only kickoff; freshness matched the prior anchor
+before the edit, and the validator reported no findings before and after.
+
+**The change.** An empty `spec_root` value now cancels every lower layer's
+value and yields the default root. REQ-A1.3, D-3's Decision, the REQ-A1.3
+test-spec pin, and Task 2's deliverables and Done-when all said an empty
+value fell through to the next lower layer, which under last-layer-wins
+would reach the very repo-tracked value a machine-local file means to take
+back. Cancelling is what D-3's rationale for not refusing an empty value
+assumes, what K1's declined alternative ("no way to cancel a repo-tracked
+value locally") assumes, what Task 2's Done-when asserts, and what
+`config-get` does today: an empty value in the highest layer setting the key
+is returned as that layer's value. This entry supersedes the "falls through"
+wording in §8's K1 disposition. The rule applies in every layer alike
+(operator decision); malformed text keeps its by-layer fall-through, which is
+a separate rule and unchanged. Amended in place with an `*(Amended at …)*`
+annotation on REQ-A1.3 and D-3 and a dated `## Changelog` entry.
+
+**Lens review pass (delta-scoped, inline).** Walked inline: the delta is
+one rule stated at four sites.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness, logic, edge cases | 3 | A1: whitespace-only trims to empty (REQ-A1.2) and cancels. A2: malformed-text fall-through is a distinct rule, left as is. A3: `config-get` returns an empty machine-local value as the winner (reproduced on a fixture). |
+| Security | n/a | Wording change to a resolution rule; no new input, path, or trust surface. |
+| Error handling and failure modes | none | Refusal and no-fallback rules untouched. |
+| Performance | n/a | Spec text only. |
+| Concurrency / state | n/a | Spec text only. |
+| Naming, readability, structure | none | The four sites now state one rule. |
+| Documentation | 1 | A4: a changelog entry is required for every amendment. |
+| Tests / verification | none | Requirement/test-spec pairing holds: the pin changed in the same delta. |
+| Cross-file consistency | 2 | A5: after merge, `spec-format` names supersede-with-new-ID, while the in-flight precedent amends in place. A6: §8's K1 disposition still reads "falls through". The options-reference row on Task 2's branch already states cancel; no qualified cross-spec citation added. |
+
+Altitude check: not applicable (the delta fires no altitude trigger).
+Ship-gate check: the delta names no out-of-band fix.
+
+Dispositions:
+
+- A1, A2, A3 — accepted readings, no edit.
+- A4 — applied: `## Changelog` entry dated 2026-09-28.
+- A5 — operator fork: amend in place with annotations (precedent:
+  concurrent-orchestrator-coordination's Task 4 amendments). Declined:
+  minting a successor REQ and re-pointing Task 2's and the test-spec's
+  citations.
+- A6 — applied by this entry (sections above are append-only).
+
+Post-edit verification: `scripts/spec-validate.sh` 0 errors, 0 warnings;
+markdownlint over the five bundle files 0 errors; no "falls through" wording
+for an empty value remains in the four spec files.
+
+Signed off 2026-09-28 by the operator after the before/after text and the
+lens dispositions; `Last reviewed:` bumped to 2026-09-28 on all four spec
+files; no status flip.
+
+Class: meaning
+Lens-pass: the *Lens review pass (delta-scoped, inline)* above in this entry
+Anchor: `18a3a6a08c7e16e0a32f64397a1e69e9eeb372fa` — computed as
+`scripts/spec-anchor.sh specs/custom-spec-location`

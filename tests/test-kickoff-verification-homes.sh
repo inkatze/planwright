@@ -228,14 +228,14 @@ echo "ok: a rewritten hash and a non-sanctioned form are both refused"
 ########################################################################
 # 5. Catalog-absent degradation, script half
 ########################################################################
-# The core and adopter roots pointed at empty directories and the repo root
-# at a directory holding no .claude: no decision-domains catalog is
-# resolvable anywhere.
+# The core and adopter roots pointed at empty directories and the repo-side
+# layer switched off: no decision-domains catalog is resolvable anywhere.
 absent="$tmp/absent"
-mkdir -p "$absent/core" "$absent/adopter" "$absent/repo"
+# scripts/ keeps the core root chain from skipping the fixture root.
+mkdir -p "$absent/core/scripts" "$absent/adopter"
 resolver_rc=0
 base PLANWRIGHT_ROOT="$absent/core" PLANWRIGHT_ADOPTER_OVERLAY="$absent/adopter" \
-  PLANWRIGHT_REPO_ROOT="$absent/repo" \
+  PLANWRIGHT_REPO_ROOT=none \
   /bin/bash "$RESOLVER" decision-domains >"$absent/out" 2>"$absent/err" || resolver_rc=$?
 [ "$resolver_rc" -eq 0 ] || fail "absent decision-domains catalog: expected exit 0, got $resolver_rc. stderr:
 $(cat "$absent/err")"
@@ -248,9 +248,9 @@ echo "ok: absent decision-domains catalog resolves to a clean empty result"
 # Contrast: with the shipped seed present the same read is non-empty, so the
 # empty result above is the absent verdict, not a resolver that prints nothing.
 present="$tmp/present"
-mkdir -p "$present/repo"
+mkdir -p "$present"
 resolver_rc=0
-base PLANWRIGHT_ROOT="$repo" PLANWRIGHT_REPO_ROOT="$present/repo" \
+base PLANWRIGHT_ROOT="$repo" PLANWRIGHT_REPO_ROOT=none \
   /bin/bash "$RESOLVER" decision-domains >"$present/out" 2>"$present/err" || resolver_rc=$?
 [ "$resolver_rc" -eq 0 ] || fail "present decision-domains catalog: expected exit 0, got $resolver_rc. stderr:
 $(cat "$present/err")"

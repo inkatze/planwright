@@ -314,7 +314,29 @@ Tasks 11–12 on 7+8, and Task 13 (acceptance) is that lane's join over 9–12.
 
 ## Awaiting input
 
-(none yet)
+- **Task 9** — reopened by the Task 13 acceptance join: `/polish`,
+  `/self-review`, and `/execute-task` mirror no turn records and cite no
+  `interaction-style`; `/execute-task`'s CI-failure excerpt-plus-pointer and
+  handoff projection were never landed. Finding 2 in the kickoff brief's §10.
+  Operator: dispatch the rework as a new follow-up task (a meaning-class
+  addition via `/spec-kickoff`), or fold it into another task's scope?
+- **Task 11** — reopened by the Task 13 acceptance join: `/orchestrate`'s
+  `interaction-style` citation and the manifest check's widening to it were
+  left out for budget, so the Done-when is unmet. Finding 3 in the kickoff
+  brief's §10. Operator: make budget room in `/orchestrate`'s closure for
+  the citation, or amend the Done-when to accept the skill-local rules?
+- **Task 12** — reopened by the Task 13 acceptance join: the turn-record
+  schema lives only in the eval README with no emit path for a live surface,
+  the grader rejects the regeneration form doctrine permits, and the fixture
+  set drifts from and under-covers the shipped surfaces. Findings 1, 4, 5,
+  7–9 in the kickoff brief's §10. Operator: dispatch the rework as a new
+  follow-up task (a meaning-class addition via `/spec-kickoff`), or fold it
+  into another task's scope?
+- **Task 13** — the experiential rubric record in the kickoff brief's §10
+  awaits the operator as final rater, and the live-surface reading of the
+  eval waits on Tasks 9, 11, and 12. Finding 10 also needs an operator call:
+  do operator-named follow-ups fall under `/spec-kickoff`'s Observations
+  step, or under capture-at-birth's confirm-then-write?
 
 ## Deferred
 

@@ -1,0 +1,1 @@
+- 2026-09-28 [planwright] fleet-streamjson.sh frame_check parses the launch frame with one awk gsub over the whole line; under mawk peak memory is about 124x the frame (1.1 MB prompt 142 MB, 22 MB prompt 2.7 GB). Launch prompts have no size cap, so a cap or a cheaper launch-frame check is a candidate follow-up.

@@ -301,10 +301,18 @@ read_registry() {
   # A read FAILURE (nonzero exit) is distinct from an empty registry: mark it
   # unavailable rather than conflating "cannot read" with "no records" (the
   # degrade taxonomy).
-  if ! /bin/sh "$FS" registry >"$WS/reg.raw" 2>/dev/null; then
+  if ! /bin/sh "$FS" registry >"$WS/reg.all" 2>/dev/null; then
     printf 'source\tregistry\tunavailable\tread-failed\n' >>"$WS/sources"
     return 0
   fi
+  # A worker whose last row is a retirement (an eighth `closed` column) is no
+  # longer in the inventory; its rows stay in the store, unrendered.
+  awk -F'\t' '
+    NR == FNR { last[$2] = (NF == 8 && $8 == "closed"); next }
+    !last[$2]' "$WS/reg.all" "$WS/reg.all" >"$WS/reg.raw" || {
+    printf 'source\tregistry\tunavailable\tread-failed\n' >>"$WS/sources"
+    return 0
+  }
   while IFS="$TAB" read -r _ rr_w rr_scope rr_owner _ || [ -n "$rr_w" ]; do
     [ -n "$rr_w" ] || continue
     # A record written before the owner column existed has no fourth field, and

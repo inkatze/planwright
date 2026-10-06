@@ -3,7 +3,7 @@
 # resolver (Task 4: D-5, REQ-C1.3, REQ-C1.4).
 #
 # dispatch_isolation controls how /execute-task sequences a unit's steps:
-# `per-step` runs implementation and each configured review_sequence skill in
+# `per-step` runs implementation and each step the convergence point runs in
 # its own fresh /resume-seeded session (the assigned-decision default);
 # `per-unit` keeps today's single-session behavior. It is *config*, so it is
 # resolved THROUGH config-get (the Task 3 four-layer overlay reader — no layer
@@ -48,12 +48,13 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 # --- Config layer fixtures, wired through config-get's env overrides exactly as
-#     test-config-get.sh / test-resolve-review-sequence.sh do (hermetic: no
-#     $HOME, no git toplevel).
+#     test-config-get.sh does (hermetic: no
+#     $HOME, only a throwaway git toplevel).
 core_cfg="$tmp/core-defaults.yml"
 adopter_root="$tmp/adopter"
 repo="$tmp/repo"
 mkdir -p "$adopter_root" "$repo/.claude"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$repo"
 adopter_cfg="$adopter_root/planwright.yml"
 tracked_cfg="$repo/.claude/planwright.yml"
 mlocal_cfg="$repo/.claude/planwright.local.yml"
@@ -192,9 +193,8 @@ echo "ok: a malformed adopter config file degrades to the core default"
 # 7b. Malformed overlay value AND the core omits the key: the degrade re-resolve
 #     finds no core default (config-get exit 3), so it falls back to the safe
 #     default `per-step` with a second warning, exit 0. Covers the partial-install
-#     branch this resolver adds over resolve-review-sequence.sh (which treats a
-#     non-zero re-resolve as a broken install); without it /execute-task would
-#     halt on a corner that is recoverable.
+#     branch; without it /execute-task would halt on a corner that is
+#     recoverable.
 reset_layers
 core_omit="$tmp/core-omit.yml"
 printf 'max_parallel_units: 3\n' >"$core_omit"            # a core file that omits dispatch_isolation

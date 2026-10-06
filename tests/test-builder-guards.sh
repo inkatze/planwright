@@ -87,6 +87,23 @@ if printf '%s\n' "$core_out" | ids_of | grep -qx "release-tagging"; then
 else
   pass "release-tagging omitted from --core (advisory, not a mechanical guard)"
 fi
+# The breadth entries that carry a concrete category (`core: false` under
+# breadth:) follow the same contract: surfaced by a full run under that
+# category, never promoted into --core.
+for spec in "pinned-action-freshness security" "test-time-budget budget" "cdpath-house-pattern house-pattern"; do
+  bid=${spec% *}
+  bcat=${spec#* }
+  if printf '%s\n' "$full_out" | awk -F'\t' -v id="$bid" '$1==id{print $2}' | grep -qx "$bcat"; then
+    pass "full run surfaces $bid as $bcat"
+  else
+    fail "full run missing $bid as $bcat (breadth entry with core: false)"
+  fi
+  if printf '%s\n' "$core_out" | ids_of | grep -qx "$bid"; then
+    fail "$bid (breadth, core: false) wrongly appeared in the --core set"
+  else
+    pass "$bid omitted from --core"
+  fi
+done
 
 # ---------------------------------------------------------------------------
 # 2. Reproduction is grounded in Task 2's actual artifacts, not a constant:
@@ -225,6 +242,7 @@ fi
 # ---------------------------------------------------------------------------
 tmp_ovl="$(mktemp -d)"
 mkdir -p "$tmp_ovl/.claude/catalogs"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$tmp_ovl"
 cat >"$tmp_ovl/.claude/catalogs/guard-catalog.yaml" <<'YAML'
 guards:
   - id: overlay-extra
@@ -265,7 +283,7 @@ cp "$REPO_ROOT/scripts/builder-guards.sh" "$REPO_ROOT/scripts/resolve-catalog.sh
 # install. Pin every overlay layer to an absent location so the merge has no
 # layer at all and resolve-catalog returns its empty/exit-0 result.
 seed_err="$(PLANWRIGHT_ADOPTER_OVERLAY="$tmp_seed/no-adopter" \
-  PLANWRIGHT_REPO_ROOT="$tmp_seed/no-repo" \
+  PLANWRIGHT_REPO_ROOT=none \
   /bin/bash "$tmp_seed/scripts/builder-guards.sh" --core "$tmp_seed" 2>&1 >/dev/null)"
 seed_rc=$?
 assert_exit "missing shipped seed hard-fails (broken install, not silent zero guards)" 1 "$seed_rc"

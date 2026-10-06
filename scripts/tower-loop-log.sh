@@ -20,14 +20,24 @@
 #       so a steady fleet costs one line per count change and the scorecard's
 #       fleet hours come from these spans. Prints `tick<TAB>live=<n>` on
 #       success.
-#   delivered [--tower <id>] [--asks <n>] [--now <epoch>]   (text on stdin)
+#   delivered [--tower <id>] [--asks <n>] [--item <id>] [--now <epoch>]
+#             (text on stdin)
 #       A turn the tower delivered to the operator: the text is flattened to
 #       one line of printable bytes, bounded to the log's value cap, and
-#       appended as a `delivered` line with no item, which the scorecard
-#       counts as a prose delivery; `asks` is the number of asks the turn
+#       appended as a `delivered` line; `asks` is the number of asks the turn
 #       carried, for the multi-ask measure. A turn shaped like a JSON object
 #       or array (which the log verb refuses as nesting) lands without its
 #       text, marked `text_omitted`. Prints nothing on success.
+#
+#       `--item` names the queue item the turn carried, and it is what keeps
+#       the scorecard honest about a queue-backed turn: the `next` that handed
+#       the item over already logged its own `delivered` line with that item,
+#       and the report counts a line with no item as a PROSE delivery. Logging
+#       the turn without the id therefore counts one delivery twice — once as
+#       an item, once as prose — and inflates both the prose measure and the
+#       headline. With the id, both lines key the same item and the report
+#       dedupes them. Repeat the flag's absence only for a turn that genuinely
+#       carried no queue item, which is what the prose measure exists to find.
 #
 # The tower identity is `--tower`, else PLANWRIGHT_TOWER_ID, else
 # PLANWRIGHT_TOWER_SESSION_ID (the presence surface's UUID form) — the order
@@ -35,7 +45,8 @@
 # resolvable is a refusal, because a tick or a delivery with no writing tower
 # is a line the scorecard cannot attribute (REQ-G1.6). `--now` is the fixture
 # and test seam; the loop leaves it unset. A flag given with an empty value
-# is passed through and refused by the log verb, never silently dropped.
+# is refused, never silently dropped: by the log verb, or here for --item,
+# whose empty value the verb would store.
 #
 # Exit: 0 written (a coalesced tick included); 2 usage or refused input (no
 #   identity, a malformed one, a non-numeric ask count, an empty turn, a turn
@@ -68,7 +79,7 @@ VALUE_CAP=4096
 usage() {
   cat >&2 <<'EOF'
 usage: tower-loop-log.sh tick [--tower <id>] [--now <epoch>]
-       tower-loop-log.sh delivered [--tower <id>] [--asks <n>] [--now <epoch>]   (text on stdin)
+       tower-loop-log.sh delivered [--tower <id>] [--asks <n>] [--item <id>] [--now <epoch>]   (text on stdin)
 EOF
   exit 2
 }
@@ -199,6 +210,8 @@ now=""
 now_set=0
 asks=""
 asks_set=0
+item=""
+item_set=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --tower)
@@ -220,6 +233,13 @@ while [ "$#" -gt 0 ]; do
       asks_set=1
       shift 2
       ;;
+    --item)
+      [ "$cmd" = delivered ] || usage
+      [ "$#" -ge 2 ] || usage
+      item=$2
+      item_set=1
+      shift 2
+      ;;
     *) usage ;;
   esac
 done
@@ -238,6 +258,12 @@ case "$cmd" in
   delivered)
     if [ "$asks_set" = 1 ] && ! is_count "$asks"; then
       err "refusing --asks '$(sanitize_printable "$asks" "(unprintable count)")': not a non-negative integer"
+      exit 2
+    fi
+    # The log verb takes an empty value as a string, so this one is refused
+    # here: an empty item keys every such turn to one blank item.
+    if [ "$item_set" = 1 ] && [ -z "$item" ]; then
+      err "--item was given an empty value"
       exit 2
     fi
     if [ -t 0 ]; then
@@ -276,6 +302,7 @@ case "$cmd" in
       *) set -- "$@" "text=$text" ;;
     esac
     [ "$asks_set" = 0 ] || set -- "$@" "asks=$asks"
+    [ "$item_set" = 0 ] || set -- "$@" "item=$item"
     "$TQ" "$@" || exit $?
     ;;
 esac

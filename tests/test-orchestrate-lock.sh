@@ -30,10 +30,18 @@ fail() {
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
+# git_repo <dir>: spec dirs must sit under a resolved spec root, which resolves
+# from a git repository.
+git_repo() {
+  mkdir -p "$1"
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$1"
+}
+
 # Fixture: a <repo>/specs/<spec> layout so the local-config lookup resolves
 # to <repo>/.claude/planwright.local.yml the way it will in a real checkout.
 repo="$tmp/repo"
 spec="$repo/specs/demo"
+git_repo "$repo"
 mkdir -p "$spec" "$repo/.claude"
 lockdir="$spec/.orchestrate.lock"
 
@@ -92,6 +100,7 @@ echo "ok: a malformed threshold warns and falls back to the default"
 #    no-op (exit 1) — otherwise /orchestrate silently skips the spec forever.
 rorepo="$tmp/ro"
 rospec="$rorepo/specs/demo"
+git_repo "$rorepo"
 mkdir -p "$rospec"
 chmod u-w "$rospec"
 rc=0
@@ -115,6 +124,7 @@ fi
 #    clean refusal (exit 2, diagnostic, no lock created) — hostile/malformed
 #    input is never used to build an on-disk lock path.
 badspec="$tmp/badid/specs/Bad_Spec"
+git_repo "$tmp/badid"
 mkdir -p "$badspec"
 rc=0
 err=$(/bin/bash "$LOCK" acquire "$badspec" 2>&1 >/dev/null) || rc=$?
@@ -126,22 +136,43 @@ case $err in
 esac
 echo "ok: a spec id failing the grammar is refused (REQ-F1.1)"
 
-# 9. REQ-F1.1 containment: a spec dir not located under a specs/ parent is
+# 8b. `flight` is reserved (tower-front-door D-11): a spec dir so named is
+#     refused like a grammar failure, so no lock path is ever built for it.
+flightspec="$tmp/reserved/specs/flight"
+git_repo "$tmp/reserved"
+mkdir -p "$flightspec"
+rc=0
+err=$(/bin/bash "$LOCK" acquire "$flightspec" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "reserved spec id: exit $rc, expected 2 (clean refusal)"
+[ ! -d "$flightspec/.orchestrate.lock" ] || fail "reserved spec id: a lock was created"
+case $err in
+  *reserved*) ;;
+  *) fail "reserved spec id: missing refusal diagnostic (got: $err)" ;;
+esac
+echo "ok: the reserved identifier flight is refused"
+
+# 9. REQ-F1.1 containment: a spec dir not contained under the resolved spec root is
 #    refused — the derived lock path must stay inside the spec tree.
 loosespec="$tmp/loose/notspecs/demo"
+git_repo "$tmp/loose"
 mkdir -p "$loosespec"
 rc=0
-/bin/bash "$LOCK" acquire "$loosespec" >/dev/null 2>&1 || rc=$?
-[ "$rc" = 2 ] || fail "non-specs parent: exit $rc, expected 2"
-[ ! -d "$loosespec/.orchestrate.lock" ] || fail "non-specs parent: a lock was created"
-echo "ok: a spec dir outside a specs/ parent is refused (REQ-F1.1)"
+err=$(/bin/bash "$LOCK" acquire "$loosespec" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "uncontained spec dir: exit $rc, expected 2"
+case $err in
+  *"not contained under a resolved spec root"*) ;;
+  *) fail "uncontained spec dir: refused for another reason: $err" ;;
+esac
+[ ! -d "$loosespec/.orchestrate.lock" ] || fail "uncontained spec dir: a lock was created"
+echo "ok: a spec dir under no resolved spec root is refused (REQ-F1.1)"
 
 # 10. REQ-F1.1 containment *after canonicalization*: a spec dir that is a
-#     symlink resolving outside any specs/ parent is refused — the physical
+#     symlink resolving outside the spec root is refused — the physical
 #     path, not the link path, decides containment, so an escaping symlink
 #     cannot smuggle the lock out of the tree.
 realout="$tmp/realout/demo" # canonical parent is realout, not specs
 mkdir -p "$realout"
+git_repo "$tmp/linked"
 mkdir -p "$tmp/linked/specs"
 ln -s "$realout" "$tmp/linked/specs/demo" # specs/demo -> .../realout/demo
 rc=0
@@ -157,6 +188,7 @@ echo "ok: a spec dir symlinked outside a specs/ parent is refused (REQ-F1.1)"
 #     lock created) — the length branch is exercised in isolation here.
 longid=$(printf 'a%.0s' {1..65}) # 65 valid chars: trips only the >64 cap
 longspec="$tmp/longid/specs/$longid"
+git_repo "$tmp/longid"
 mkdir -p "$longspec"
 rc=0
 err=$(/bin/bash "$LOCK" acquire "$longspec" 2>&1 >/dev/null) || rc=$?
@@ -167,5 +199,19 @@ case $err in
   *) fail "over-length spec id: diagnostic does not name the 64-char bound (got: $err)" ;;
 esac
 echo "ok: a spec id exceeding 64 chars is refused (REQ-F1.1)"
+
+# A refused PLANWRIGHT_REPO_ROOT is said, not silently traded for the
+# no-repository threshold: the bundle's own repository still contains it, so
+# the lock is taken, and the refusal reaches the operator.
+/bin/bash "$LOCK" release "$spec" || fail "refused override: pre-release failed"
+rc=0
+err=$(cd "$tmp" && PLANWRIGHT_REPO_ROOT=relative/root /bin/bash "$LOCK" acquire "$spec" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "refused override: acquire exited $rc: $err"
+case $err in
+  *"refusing PLANWRIGHT_REPO_ROOT"*) ;;
+  *) fail "refused override: the refusal was swallowed (stderr: '$err')" ;;
+esac
+/bin/bash "$LOCK" release "$spec" || fail "refused override: release failed"
+echo "ok: a refused PLANWRIGHT_REPO_ROOT is reported, not swallowed"
 
 echo "PASS: orchestrate-lock"

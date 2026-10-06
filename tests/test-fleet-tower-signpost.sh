@@ -153,6 +153,19 @@ echo "ok: the signpost persists until the human acts"
 
 # --- risk row 22: a non-UUID session id is never surfaced ---------------------
 
+# A stored row naming the reserved spec `flight` (tower-front-door D-11) is
+# skipped as data on the way out, like any other off-grammar spec field; the
+# helper itself refuses to record one, so the row is hand-written.
+row=$(PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/bash "$FTM" read my-spec)
+printf '%s\n' "$row" | awk -F'\t' -v OFS='\t' '{$1="flight"; print}' \
+  >"$home/towers/flight"
+out=$(run "$checkout" 2>/dev/null) || fail "reserved spec row: exit non-zero"
+case "$out" in
+  *flight*) fail "a row naming the reserved spec flight must never be surfaced" ;;
+esac
+rm -f "$home/towers/flight"
+echo "ok: a stored row naming the reserved spec flight is skipped"
+
 # Hand-corrupt the stored session-id field (the helper would refuse it).
 row=$(PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/bash "$FTM" read my-spec)
 printf '%s\n' "$row" | awk -F'\t' -v OFS='\t' '{$4="$(rm -rf ~)"; print}' \

@@ -56,7 +56,8 @@
 #   supervisor.pid / worker.pid / recover.lock/ / journal.lock/ / launch.lock/
 #   scope            the dispatch scope, when the launch supplied one
 #   supervisor.log   the detached supervisor's own stderr
-#   .init.* / .journal.* / .session.* / .pid.*  mktemp-beside-target staging
+#   .init.* / .frame.* / .journal.* / .session.* / .pid.*  mktemp-beside-target
+#                    staging
 #   *.broken.*       a lock directory a stale-break renamed out of the way
 # Which of these a close releases is not a property of their order here: the
 # release set is `release_classes` and the globs each class names, and the
@@ -88,7 +89,8 @@
 # longer be delivered — dead supervisor/worker channel, unknown or already-
 # settled request — marks the journal row undeliverable and writes a visible
 # attention item naming it: never a silent drop, never a silent re-apply to
-# a different request.
+# a different request. An answer whose frame fails frame_check writes nothing
+# and leaves the request pending (exit 2), so a corrected answer can land.
 #
 # THE CLOSE (`stop`). The release set is the runtime a worker acquires:
 # its process tree, the locks it holds, its scratch temp, and its attention
@@ -96,12 +98,12 @@
 # per the floor's declare-every-class rule: it is not acquired by this rung at
 # all — a stream-json worker is a detached supervisor/worker pair with no
 # window. The dispatch registry record is written at launch and is NOT released
-# here: it is fleet-wide inventory rather than this worker's runtime. Nothing
-# reconciles it yet (`scripts/fleet-register.sh` says so where it writes the
-# record), so a stopped worker keeps its inventory row until the reconcile this
-# bundle plans lands. The worktree, the branch, and the unit's fence are
-# never touched: the release set is exactly the reproducible resources, and the
-# worktree is the one holding work that cannot be recovered. No audit record is
+# here: it is fleet-wide inventory rather than this worker's runtime. The
+# periodic sweep's registry reconcile retires it, marked closed, once the
+# worker has positive death evidence (`scripts/fleet-registry-reconcile.sh`).
+# The worktree, the branch, and the unit's fence are never touched: the
+# release set is exactly the reproducible resources, and the worktree is the
+# one holding work that cannot be recovered. No audit record is
 # written either — the reap path that needs one owns it, so that an autonomous
 # close writes exactly one record rather than two.
 #
@@ -155,7 +157,9 @@
 #       Deliver the recorded answer for a pending request. --allow composes
 #       behavior=allow with updatedInput sliced from the stored envelope;
 #       --deny composes behavior=deny (optional message); --response-file
-#       supplies the full response body (AskUserQuestion answers use this).
+#       supplies the full response body (AskUserQuestion answers use this):
+#       one JSON object on one line with no raw control byte (TAB and DEL
+#       included, so escape them), 64 KiB at most.
 #   fleet-streamjson.sh steer <worker> --message-file <file>
 #       Deliver a tower-originated message to a LIVE worker as a user turn on
 #       its own stdin: the file's text, under the fixed attribution header
@@ -170,6 +174,9 @@
 #       settle a pending permission request (the tower may not answer those).
 #       The file is data (64 KiB cap, refused whole when over, non-empty); a
 #       dead channel is exit 3, never a hang. Prints `steered <worker> <bytes>`.
+#       Like every frame written to the fifo (see frame_check), the composed
+#       frame is checked before the write; a refused one is exit 2 with
+#       nothing written.
 #   fleet-streamjson.sh recover <worker> [--foreground] [-- <extra args>...]
 #       Single-initiator crash recovery: refuse when a recovery is already
 #       in flight (exit 3) or the worker/supervisor is still alive (exit 3),
@@ -184,7 +191,7 @@
 #       attention item + notify push. The outcome is operator escalation on
 #       the attention surface — never an auto-answer, never a worker kill.
 #       Prints `alarm <worker> <id> <age>` per firing.
-#   fleet-streamjson.sh stop <worker> [--grace <secs>]
+#   fleet-streamjson.sh stop <worker> [--grace <secs>] [--observe]
 #       Close the worker: terminate its process tree and release the locks,
 #       scratch temp, and attention record it holds. Prints one of
 #       `stop <worker> stopped released=<classes>`,
@@ -193,12 +200,17 @@
 #       released field reads `-` when nothing was released (the other two
 #       forms cannot reach that case). <secs> is the SIGTERM-to-SIGKILL grace,
 #       a whole number of seconds bounded by `grace_max` and defaulting to
-#       `grace_default`; passing an out-of-range value prints both. There is no
+#       `grace_default` (scripts/fleet-stop-lib.sh, the close this rung shares
+#       with the headless one); passing an out-of-range value prints both. There is no
 #       zero-grace form, since SIGTERM always goes first, and a fixed settling
 #       wait follows the SIGKILL.
 #       An unknown handle is exit 2, not `already-closed`, so a typo never
 #       reads as a successful close, and a close asked for from inside the
 #       worker's own process tree is refused with exit 3 rather than attempted.
+#       --observe runs the same checks and probes and releases nothing, printing
+#       `stop <worker> would-release=<classes>` for what a close would take now,
+#       or `stop <worker> already-closed`; the periodic sweep's observing mode
+#       records its would-have close from this.
 #   fleet-streamjson.sh status <worker>
 #       Print `status <worker> <running|awaiting-input|completed|ended|dead|
 #       unknown> <detail>` from the recorded pids, the receipt journal and the
@@ -207,6 +219,25 @@
 #       supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending row
 #       has a readable epoch), so a worker that cannot proceed never reads as
 #       a healthy `running`.
+#   fleet-streamjson.sh pending [<worker>...]
+#       Read-only view of the requests `status` counts: for every request the
+#       journal still reads `pending` (no args: every worker), oldest first,
+#       print `== <worker> <request-id> <tool>` (the tool name suffixed
+#       `:sanitized` when it had to be altered to fit the header), then the
+#       tool input behind a `| ` prefix on every line. A Bash request shows
+#       its command decoded, preceded by one `+ {...}` line carrying every
+#       other input field but the description when there are any; any other
+#       tool shows its input JSON. Input cut at `pending_show_max` bytes gets
+#       a `-- truncated ...` line; an envelope that ends early (cut at
+#       `pending_read_max` or still being written) gets a
+#       `-- request envelope ends early ...` line; every such notice comes
+#       before the content, so a piped `head` cannot drop it; a
+#       missing, symlinked or malformed envelope prints
+#       `-- request envelope unreadable` in place of the input. Request
+#       content is untrusted: control bytes are stripped and the prefixes
+#       keep it from forging a header. A named worker with no runtime dir, or
+#       a journal or worker dir that cannot be read, is exit 2. Never writes,
+#       answers, locks, or re-queues anything.
 #
 # Exit codes: 0 success; 2 usage error, refused hostile input, or a
 #   filesystem/lock error (fail closed); 3 a semantic refusal (recovery
@@ -274,8 +305,6 @@ TAB=$(printf '\t')
 NL=$(printf '\nx')
 NL=${NL%x}
 me=fleet-streamjson
-LF='
-'
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # Absolute path to this script, so the detached-supervisor re-exec survives a
@@ -349,8 +378,9 @@ usage() {
     echo "       fleet-streamjson.sh steer <worker> --message-file <file>"
     echo "       fleet-streamjson.sh recover <worker> [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh alarm-scan [--now <epoch>] [--threshold <secs>]"
-    echo "       fleet-streamjson.sh stop <worker> [--grace <secs>]"
+    echo "       fleet-streamjson.sh stop <worker> [--grace <secs>] [--observe]"
     echo "       fleet-streamjson.sh status <worker>"
+    echo "       fleet-streamjson.sh pending [<worker>...]"
   } >&2
   exit 2
 }
@@ -571,6 +601,18 @@ journal_oldest_pending() {
     | sort -n | awk -F'\t' 'NR == 1 { print $2, $3 }'
 }
 
+# journal_pending_ids <dir> — print the id of every pending row, oldest first.
+# Non-zero when the journal exists but cannot be read whole, so a caller can
+# tell "nothing pending" from "could not tell".
+journal_pending_ids() {
+  [ -e "$1/journal" ] || [ -L "$1/journal" ] || return 0
+  [ -f "$1/journal" ] || return 2
+  jp_rows=$(awk -F'\t' '$4 == "pending" { print $3 "\t" NR "\t" $1 }' "$1/journal") || return 2
+  [ -n "$jp_rows" ] || return 0
+  jp_rows=$(printf '%s\n' "$jp_rows" | sort -t "$TAB" -k1,1n -k2,2n) || return 2
+  printf '%s\n' "$jp_rows" | awk -F'\t' '{ print $3 }'
+}
+
 # --- JSON helpers (awk, no jq per REQ-K1.5) ---------------------------------
 
 # json_escape — print stdin as a JSON string body (no surrounding quotes):
@@ -579,17 +621,13 @@ journal_oldest_pending() {
 # control byte is dropped, never smuggled, and never emitted raw, which would
 # make the frame invalid JSON the worker's parser rejects).
 # Bytes >= 0x80 are kept, so raw UTF-8 (accents, em-dash, CJK, emoji) reaches
-# the worker intact — JSON strings carry UTF-8 verbatim; the class below is
-# chosen over `[^[:print:]]`, which would delete UTF-8 lead/continuation
-# bytes. NOTE the strip is GNU-only in practice: BSD awk (macOS) does not
-# honour `[\000-\037\177]` as a byte range and strips nothing, so on the
-# bash-3.2 floor C0/DEL survive this escaper (tests/test-fleet-streamjson.sh
-# c17 documents the same asymmetry). TAB and CR use explicit gsub above and
-# are portable everywhere.
+# the worker intact — JSON strings carry UTF-8 verbatim. The strip is `tr`, not
+# an awk class: BSD awk (macOS) does not honour `[\000-\037\177]` as a byte
+# range and strips nothing, which left raw C0 bytes in the frame there.
 # Every string body the supervisor emits goes through this one escaper, so the
 # prompt path and the deny-message path cannot drift apart.
 json_escape() {
-  awk '
+  tr -d '\000-\010\013\014\016-\037\177' | awk '
     NR > 1 { printf "\\n" }
     {
       s = $0
@@ -597,7 +635,6 @@ json_escape() {
       gsub(/"/, "\\\"", s)
       gsub(/\t/, "\\t", s)
       gsub(/\r/, "\\r", s)
-      gsub(/[\000-\037\177]/, "", s)
       printf "%s", s
     }
   '
@@ -634,9 +671,12 @@ json_field() {
 
 # json_input_object <envelope-file> — print the balanced {...} object after
 # the first `"input":` in the stored control_request envelope (string-aware:
-# braces inside JSON strings do not count). Empty when absent.
+# braces inside JSON strings do not count). Empty when absent. A raw DEL,
+# which JSON allows in a string and the CLI emits unescaped, comes out as
+# \u007f: the same character, in the form frame_check accepts.
 json_input_object() {
   awk '
+    BEGIN { del = sprintf("%c", 127) }
     NR == 1 {
       i = index($0, "\"input\":")
       if (i == 0) exit
@@ -647,6 +687,7 @@ json_input_object() {
       depth = 0; instr = 0; out = ""
       for (; j <= length(rest); j++) {
         c = substr(rest, j, 1)
+        if (c == del) { out = out "\\u007f"; continue }
         out = out c
         if (instr) {
           if (c == "\\") { j++; out = out substr(rest, j, 1); continue }
@@ -658,6 +699,97 @@ json_input_object() {
         if (c == "}") { depth--; if (depth == 0) { print out; exit } }
       }
     }' "$1"
+}
+
+# --- the fifo write discipline ----------------------------------------------
+
+# frame_check <file> — succeed when the file holds exactly one newline-
+# terminated line that parses as a JSON object; otherwise print the reason and
+# fail. The worker reads its stdin one line at a time, so a frame missing its
+# newline runs into whatever the supervisor writes next and the worker dies on
+# the merged line; an invalid frame kills it the same way.
+#
+# Stricter than JSON in one respect: no raw control byte besides the
+# terminator, TAB and DEL included. Every string this script composes goes
+# through json_escape, which never emits one, and json_input_object escapes
+# the DEL a worker's own tool input may carry, so only a caller-supplied body
+# (an `--response-file`) can hold one; the byte-range test stays in `tr`, the
+# one tool that honours it portably.
+#
+# The parse is a reduction rather than a character walk, so its cost stays
+# linear in the frame instead of in the frame times its string count: each
+# string, number, and literal becomes one placeholder byte, which a leftover
+# quote or backslash proves was not a well-formed string, then innermost
+# arrays and objects collapse to a single value until the top object is one.
+# The collapse stops after 512 passes, each taking one array and one object
+# level, so nesting past that is refused rather than walked. The cap sits well
+# above any tool input an `--allow` splices, since a refusal there leaves the
+# worker unable to proceed, and it bounds a pathological 64 KiB body to a few
+# seconds (without it, about 24s under mawk).
+frame_check() {
+  if [ ! -f "$1" ] || [ ! -r "$1" ]; then
+    echo "missing or unreadable"
+    return 1
+  fi
+  if [ "$(tail -c 1 <"$1" | wc -l | tr -d ' ')" != 1 ]; then
+    echo "unterminated (no trailing newline)"
+    return 1
+  fi
+  if [ "$(wc -l <"$1" | tr -d ' ')" != 1 ]; then
+    echo "multi-line (one frame per write)"
+    return 1
+  fi
+  if [ "$(tr -d '\000-\011\013-\037\177' <"$1" | wc -c | tr -d ' ')" != "$(wc -c <"$1" | tr -d ' ')" ]; then
+    echo "raw control byte"
+    return 1
+  fi
+  if ! awk '
+    BEGIN {
+      S = sprintf("%c", 1); N = sprintf("%c", 2); K = sprintf("%c", 3); C = sprintf("%c", 4)
+      V = "[" S N K C "]"
+      arr = "\\[(" V "(," V ")*)?\\]"
+      obj = "\\{(" S ":" V "(," S ":" V ")*)?\\}"
+    }
+    { s = $0 }
+    END {
+      if (NR != 1) exit 1
+      gsub(/"([^"\\]|\\["\\\/bfnrt]|\\u[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f])*"/, S, s)
+      if (s ~ /["\\]/) exit 1
+      gsub(/-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?/, N, s)
+      gsub(/true|false|null/, K, s)
+      gsub(/ /, "", s)
+      if (substr(s, 1, 1) != "{") exit 1
+      for (d = 0; d < 512 && s != C; d++)
+        if (gsub(arr, C, s) + gsub(obj, C, s) == 0) break
+      exit (s == C) ? 0 : 1
+    }' <"$1"; then
+    echo "invalid JSON"
+    return 1
+  fi
+}
+
+# frame_send <dir> <frame-file> — the one writer into a live worker's stdin,
+# for every frame composed after launch (build_initial_msg checks the launch
+# frame). The caller holds the journal lock, so two writers never interleave.
+# Exit 0 written; 2 the frame is refused, its reason on stdout; 3 the channel
+# is dead; 1 the write itself failed. Only 0 and 1 can have written anything.
+#
+# The frame is judged first so the liveness probe sits next to the open it
+# guards: a fifo with no reader blocks its opener forever, so a dead
+# supervisor or worker must become a verdict, never a hang. A residual TOCTOU
+# is ACCEPTED: a worker that dies between the probe and the blocking open can
+# still wedge the open. The window is not closable in portable POSIX sh (a
+# non-blocking or timed open needs a helper process), and it is far narrower
+# than the already-dead case the probe catches. The `-p` test is also what
+# keeps `>>` from creating a regular file where a close just removed the fifo.
+frame_send() {
+  frame_check "$2" || return 2
+  fs_sup=$(cat "$1/supervisor.pid" 2>/dev/null) || fs_sup=''
+  fs_wrk=$(cat "$1/worker.pid" 2>/dev/null) || fs_wrk=''
+  valid_posnum "$fs_sup" && pid_live "$fs_sup" || return 3
+  valid_posnum "$fs_wrk" && pid_live "$fs_wrk" || return 3
+  [ -p "$1/in.fifo" ] || return 3
+  cat "$2" >>"$1/in.fifo" 2>/dev/null || return 1
 }
 
 # --- attention coupling (D-5: the store IS the decision queue) --------------
@@ -962,10 +1094,17 @@ supervise() {
 
 # build_initial_msg <prompt-file> <out-file> — the REQ-A1.9 data path: the
 # prompt text is JSON-encoded from the file into the initial user message.
+# The frame is checked here, before any worker exists, rather than in
+# supervise: a refusal there would come after the dispatch was registered, and
+# the detached launch's startup window would have to cover a second parse.
 build_initial_msg() {
   bi_body=$(json_escape_file "$1") || return 2
   printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"%s"}]}}\n' \
-    "$bi_body" >"$2"
+    "$bi_body" >"$2" || return 2
+  bi_why=$(frame_check "$2") || {
+    echo "$me: launch frame refused: $bi_why" >&2
+    return 2
+  }
 }
 
 # refuse_bare <arg...> — the D-12 pin is structural: a caller-supplied
@@ -1080,6 +1219,14 @@ guard_preflight() {
   # cannot run would otherwise read as "does not approve" every root below.
   if [ ! -x "$gp_guard" ]; then
     echo "$me: launch preflight: the auto-approve hook $gp_guard is missing or not executable; the worker would prompt on every routine command" >&2
+    [ "$gp_mode" = warn ] && return 0
+    return 9
+  fi
+  # The worker profile leaves the base merge and the never-pushed rewrites to
+  # the policy guard, so a hook root without it would leave them unrefused (a
+  # hook that fails to run blocks nothing).
+  if [ ! -x "$gp_hook_root/scripts/policy-guard.sh" ]; then
+    echo "$me: launch preflight: the policy guard $gp_hook_root/scripts/policy-guard.sh is missing or not executable; the worker's merges and history rewrites would go unchecked" >&2
     [ "$gp_mode" = warn ] && return 0
     return 9
   fi
@@ -1207,358 +1354,26 @@ release_classes='process locks scratch attention'
 # The locks this rung's worker dir can hold.
 lock_classes='journal.lock recover.lock launch.lock'
 
-# scratch_walk <dir> <probe|release> — visit every scratch path present under
-# <dir>; zero when at least one was there. Scratch is the stdio fifos the
-# supervisor owns, the staging files this script's writers create beside their
-# targets, and the residue of a broken lock. Everything else in the state
-# directory is the durable record a close keeps: the capture, the journal, the
-# session, the stored envelopes, and the result.
-#
-# The probe and the release share one function because they must share one glob
-# list, and because the paths never become text. Handing a caller a
-# newline-delimited list would split a filename containing a newline into a
-# second, relative path, which the release would then delete from whatever
-# directory the operator happened to run the close in; the worker can create
-# such a name, and its state directory is a path it knows.
-scratch_walk() {
-  case $- in
-    *f*) sw_restore='set -f' ;;
-    *) sw_restore='set +f' ;;
-  esac
-  set +f
-  sw_found=1
-  for sw_p in "$1/in.fifo" "$1/out.fifo" \
-    "$1"/.init.* "$1"/.journal.* "$1"/.session.* "$1"/.pid.* "$1"/*.broken.*; do
-    [ -e "$sw_p" ] || continue
-    sw_found=0
-    [ "$2" = release ] || break
-    # `rm -rf`, not `rm -f`: a lock a stale-break renamed out of the way is a
-    # directory, and `rm -f` cannot remove one. The class would then read held
-    # on every later close, with no re-invocation able to make progress.
-    rm -rf "$sw_p" 2>/dev/null || :
-  done
-  $sw_restore
-  return "$sw_found"
+# The pid files a worker dir records, which seed the process match alongside
+# the supervisor's argv.
+stop_pidfiles='supervisor.pid worker.pid'
+
+# Scratch is the stdio fifos the supervisor owns, the staging files this
+# script's writers create beside their targets, and the residue of a broken
+# lock. Everything else in the state directory is the durable record a close
+# keeps: the capture, the journal, the session, the stored envelopes, and the
+# result.
+scratch_patterns='in.fifo out.fifo .init.* .frame.* .journal.* .session.* .pid.* *.broken.*'
+
+# stop_match <worker> <dir> — the argv the supervisor re-execs itself with.
+# The handle and the directory together are what keep a sibling whose handle
+# this one prefixes (`api` against `api2`) out of the match: the directory alone
+# is a prefix of the sibling's, and the triple is not.
+stop_match() {
+  printf '_supervise %s %s' "$1" "$2"
 }
 
-# ps_rows — one `<pid> <ppid> <args>` row per process on the host.
-#
-# `-ww` is what keeps the supervisor's long argv, which carries the
-# state-directory path the match keys on, from being truncated to terminal
-# width by BSD ps; a ps that rejects the flag degrades to the narrow form
-# rather than to nothing. Each candidate is shape-checked rather than trusted
-# by exit status, the discipline stat_mtime applies to its own two flavors.
-ps_rows() {
-  pr_out=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || pr_out=''
-  if ! ps_rows_shaped "$pr_out"; then
-    pr_out=$(ps -A -o pid=,ppid=,args= 2>/dev/null) || pr_out=''
-    ps_rows_shaped "$pr_out" || return 1
-  fi
-  printf '%s\n' "$pr_out"
-}
-
-ps_rows_shaped() {
-  [ -n "$1" ] || return 1
-  prs_first=${1%%"$LF"*}
-  while [ "${prs_first# }" != "$prs_first" ]; do
-    prs_first=${prs_first# }
-  done
-  case ${prs_first%% *} in
-    '' | *[!0-9]*) return 1 ;;
-  esac
-}
-
-# stop_candidates <dir> <worker> — every live pid belonging to the worker whose
-# runtime state lives at <dir>, one per line. Non-zero when the host's process
-# table cannot be read, so a caller reports the class held rather than assuming
-# it is free.
-#
-# Two seeds. The supervisor is matched on the exact `_supervise <worker> <dir>`
-# triple this script re-execs itself with. Searching argv for the bare
-# directory would over-match twice over: one handle prefixes another (`api`
-# against `api2`'s state directory), and any process that merely *names* the
-# directory — an operator tailing the event capture — would be swept in with
-# its whole subtree. The worker, and a supervisor whose argv cannot be read,
-# come from the pids the state directory records. Neither seed is a process
-# name or a command pattern.
-#
-# The worker's own children, and the supervisor's escalation tick, carry
-# neither the argv nor a pid file, so they are reached by walking the parent
-# map down from the seeds. pid 1 is never a root:
-# an expansion that reached it would enumerate every orphan on the host.
-#
-# The caller's own process and its ancestors are excluded: a close invoked from
-# inside the tree it is closing must not kill the closer mid-release. That
-# exclusion is also why such a close cannot be allowed to proceed at all: the
-# supervisor and the worker fall inside it while their other children do not, so
-# the walk would signal part of the tree and then report the whole release set
-# free. `stop_self_hosted` refuses that case before this runs.
-#
-# The match text goes through the environment rather than `awk -v`, which
-# rewrites backslash escapes in the value it assigns: the fleet home is taken
-# verbatim from the operator's configuration, and a `\t` in it would otherwise
-# make the comparison silently target a path nobody asked for. It is scoped to
-# the awk invocation rather than exported, so the worker's state-directory path
-# does not end up in the environment of every later child of the close.
-stop_candidates() {
-  sc_dir=$1
-  sc_snap=$(ps_rows) || return 1
-  sc_seed=''
-  for sc_f in supervisor.pid worker.pid; do
-    sc_p=$(cat "$sc_dir/$sc_f" 2>/dev/null) || sc_p=''
-    if valid_posnum "${sc_p:-}"; then
-      sc_seed="$sc_seed $sc_p"
-    fi
-  done
-  printf '%s\n' "$sc_snap" | SC_MATCH="_supervise $2 $sc_dir" awk -v seeds="$sc_seed" -v self_pid="$$" '
-    BEGIN {
-      sup = ENVIRON["SC_MATCH"]
-      # `index(s, "")` is 1, so an empty match string would mark every process
-      # on the host. It cannot be empty as written — the value has a literal
-      # prefix — but this verb sends signals, so the one input whose emptiness
-      # inverts "matches nothing" into "matches everything" is checked rather
-      # than reasoned about. Exiting non-zero reports the class held.
-      if (sup == "") exit 2
-    }
-    $1 ~ /^[0-9]+$/ {
-      ppid[$1] = $2
-      order[++n] = $1
-      if (index($0, sup)) want[$1] = 1
-    }
-    END {
-      m = split(seeds, s, " ")
-      for (i = 1; i <= m; i++) if (s[i] != "") want[s[i]] = 1
-      delete want["0"]
-      delete want["1"]
-      for (pass = 1; pass <= n; pass++) {
-        grew = 0
-        for (i = 1; i <= n; i++) {
-          p = order[i]
-          if (!(p in want) && (p in ppid) && (ppid[p] in want)) {
-            want[p] = 1
-            grew = 1
-          }
-        }
-        if (!grew) break
-      }
-      # The closer, everything it descends from, and everything under it. The
-      # descendants matter as much as the ancestors: this function runs in a
-      # forked subshell, so a close invoked from inside the tree it closes
-      # would otherwise enumerate its own scanner on every poll and never see
-      # the candidate set empty. pid 0 and pid 1 are filtered from the result
-      # rather than seeded here: seeding them would claim every orphan on the
-      # host, including the orphaned worker a close most needs to find.
-      #
-      # Only the closer itself roots the descendant walk. Rooting it at the
-      # ancestors as well would claim their other children — and since that
-      # chain ends at pid 1, whose descendants are every process on the host,
-      # the exclusion set would swallow the very tree the close is looking for
-      # and every stop would report the process class released over a live
-      # worker.
-      p = self_pid
-      for (i = 0; i <= n; i++) {
-        mine[p] = 1
-        if (!(p in ppid) || ppid[p] == "" || ppid[p] == "0") break
-        p = ppid[p]
-      }
-      kin[self_pid] = 1
-      for (pass = 1; pass <= n; pass++) {
-        grew = 0
-        for (i = 1; i <= n; i++) {
-          p = order[i]
-          if (!(p in kin) && (ppid[p] in kin)) {
-            kin[p] = 1
-            mine[p] = 1
-            grew = 1
-          }
-        }
-        if (!grew) break
-      }
-      # `p in ppid` is presence in the process table. The recorded pids are
-      # seeded without a liveness check of their own, so a worker closed while
-      # its pid files survive would otherwise report its process class held
-      # forever, on two pids that no longer exist.
-      for (p in want) {
-        if (!(p in ppid) || (p in mine)) continue
-        if (p == "0" || p == "1") continue
-        print p
-      }
-    }'
-}
-
-# stop_self_hosted <dir> <worker> — zero when this process is running inside the
-# very tree it has been asked to close.
-#
-# Such a close cannot work, and it fails in the worst direction. The candidate
-# walk excludes the closer and everything it descends from, so the supervisor
-# and the worker are invisible to it while their *other* children are not: it
-# would SIGTERM and then SIGKILL part of the tree, find nothing left that it can
-# see, clear the pid files as though the tree were gone, and report `stopped` —
-# leaving the worker alive, half its children dead, its stdio fifos deleted, and
-# nothing recorded for `launch` to refuse a second supervisor on.
-#
-# The ancestry is tested against the supervisor's argv first, and against the
-# recorded pids only when argv cannot be trusted. The two seeds fail in opposite
-# directions and neither is safe alone. A pid file outlives the process it
-# names, and a recycled pid is very often an ancestor of every shell on the
-# host: a leftover state directory whose `supervisor.pid` now names the session
-# manager would make every close for that handle look self-hosted and be
-# refused, forever — and this verb is the only one that clears those files, so
-# `launch` and `recover` would refuse the handle too. The argv match cannot be
-# forged that way, and the worker is spawned as a child of the process carrying
-# it, so everything genuinely inside the tree is reachable through it. But argv
-# is exactly what a narrow `ps` truncates, and there the missing match is not
-# evidence of absence; refusing to fall back would let a real self-close proceed
-# and kill part of its own tree.
-#
-# So the fallback is conditioned on which of those two worlds this host is in.
-# When argv is readable, a missing match means no live supervisor, and an
-# ancestor named by a pid file is a recycled pid to be ignored. When argv is
-# truncated, the recorded pids are all there is, and the close fails closed.
-stop_self_hosted() {
-  # The snapshot and the verdict about its argv fidelity come from one probe.
-  # Taken separately they can disagree — a transient fork failure degrades the
-  # snapshot to the narrow form while an independent retry of `-ww` succeeds —
-  # and the disagreement resolves toward proceeding, which is the direction that
-  # kills.
-  ssh_wide=1
-  ssh_snap=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || ssh_snap=''
-  if ! ps_rows_shaped "$ssh_snap"; then
-    ssh_wide=0
-    ssh_snap=$(ps -A -o pid=,ppid=,args= 2>/dev/null) || ssh_snap=''
-    ps_rows_shaped "$ssh_snap" || return 2
-  fi
-  ssh_seed=''
-  if [ "$ssh_wide" = 0 ]; then
-    for ssh_f in supervisor.pid worker.pid; do
-      ssh_p=$(cat "$1/$ssh_f" 2>/dev/null) || ssh_p=''
-      if valid_posnum "${ssh_p:-}"; then
-        ssh_seed="$ssh_seed $ssh_p"
-      fi
-    done
-  fi
-  printf '%s\n' "$ssh_snap" | SC_MATCH="_supervise $2 $1" awk -v seeds="$ssh_seed" -v self_pid="$$" '
-    BEGIN {
-      sup = ENVIRON["SC_MATCH"]
-      # `index(s, "")` is 1, so an empty match string would mark every process
-      # on the host. It cannot be empty as written — the value has a literal
-      # prefix — but this verb sends signals, so the one input whose emptiness
-      # inverts "matches nothing" into "matches everything" is checked rather
-      # than reasoned about. Exit 2 is the cannot-determine answer, which the
-      # caller refuses on.
-      if (sup == "") exit 2
-    }
-    $1 ~ /^[0-9]+$/ {
-      ppid[$1] = $2
-      n++
-      if (index($0, sup)) owner[$1] = 1
-    }
-    END {
-      # The 0/1 filter applies to the seeds only. An argv match at pid 1 is a
-      # real supervisor running as container init, and discarding it here would
-      # let a self-close from inside that tree proceed.
-      m = split(seeds, s, " ")
-      for (i = 1; i <= m; i++) {
-        if (s[i] != "" && s[i] != "0" && s[i] != "1") owner[s[i]] = 1
-      }
-      p = self_pid
-      for (i = 0; i <= n; i++) {
-        if (p in owner) exit 0
-        if (!(p in ppid) || ppid[p] == "" || ppid[p] == "0" || p == "1") break
-        p = ppid[p]
-      }
-      exit 1
-    }'
-}
-
-# stop_live <space-separated pids> — the deduplicated subset still signallable,
-# space-separated on stdout.
-stop_live() {
-  sl_out=''
-  for sl_p in $1; do
-    valid_posnum "$sl_p" || continue
-    [ "$sl_p" = 1 ] && continue
-    case " $sl_out " in
-      *" $sl_p "*) continue ;;
-    esac
-    # pid_live, not `kill -0`: dropping a live-but-unsignallable pid here
-    # would empty the process class and report the tree stopped over a worker
-    # still running.
-    pid_live "$sl_p" || continue
-    sl_out="$sl_out $sl_p"
-  done
-  printf '%s' "${sl_out# }"
-}
-
-# The settling wait after SIGKILL, in seconds. Not operator-tunable: SIGKILL is
-# not refusable, so this bounds how long the kernel takes to reap, not how long
-# a process is given to cooperate.
-kill_settle=5
-
-# The largest grace a caller may ask for.
-grace_max=300
-
-# The SIGTERM-to-SIGKILL grace a caller gets without asking.
-grace_default=5
-
-# release_processes <dir> <worker> <grace> — SIGTERM the worker's process tree,
-# then SIGKILL whatever is still there after <grace> seconds. Children do not
-# reliably die with a parent SIGTERM, so the escalation is not optional.
-#
-# The target set accumulates in `stop_tracked` rather than being recomputed
-# from scratch each round. A child that ignores SIGTERM is reparented to pid 1
-# when its parent dies, which drops it out of the descendant walk entirely — a
-# set rebuilt from the walk alone would then find nothing and report the class
-# released while that child ran on, which is the exact leak this verb exists to
-# close. Candidates discovered during the wait are folded in, so a process the
-# worker forks mid-close is signalled too.
-#
-# The wait is bounded by wall clock rather than by a tick count: a poll costs a
-# full process-table scan, so on a busy host a tick is far longer than the
-# sleep and a counted grace would silently be several times the seconds the
-# operator asked for.
-release_processes() {
-  rp_dir=$1
-  rp_worker=$2
-  rp_grace=$3
-  rp_found=$(stop_candidates "$rp_dir" "$rp_worker") || {
-    echo "$me: cannot read the process table; the process class is left held" >&2
-    return 1
-  }
-  stop_tracked=$(stop_live "$stop_tracked $rp_found")
-  if [ -z "$stop_tracked" ]; then
-    clear_pidfiles "$rp_dir"
-    return 0
-  fi
-  for rp_sig in TERM KILL; do
-    for rp_p in $stop_tracked; do
-      kill "-$rp_sig" "$rp_p" 2>/dev/null || :
-    done
-    case $rp_sig in
-      TERM) rp_wait=$rp_grace ;;
-      *) rp_wait=$kill_settle ;;
-    esac
-    rp_now=$(now_epoch) || return 1
-    rp_until=$((rp_now + rp_wait))
-    while :; do
-      rp_found=$(stop_candidates "$rp_dir" "$rp_worker") || return 1
-      stop_tracked=$(stop_live "$stop_tracked $rp_found")
-      if [ -z "$stop_tracked" ]; then
-        clear_pidfiles "$rp_dir"
-        return 0
-      fi
-      rp_now=$(now_epoch) || return 1
-      # `-le`, so the deadline is a floor: `date +%s` truncates, so a TERM sent
-      # at x.999 would otherwise reach a `-lt` deadline a millisecond later and
-      # escalate having given the worker no grace at all.
-      [ "$rp_now" -le "$rp_until" ] || break
-      sleep 0.1
-    done
-  done
-  return 1
-}
-
-# clear_pidfiles <dir> — drop pid files that now record nothing live.
+# stop_process_closed <dir> — drop pid files that now record nothing live.
 #
 # `rm -rf`, for the reason `release_locks` uses it: the held-probe gates on mere
 # existence, so anything at those paths that `rm -f` cannot remove — a directory
@@ -1566,19 +1381,10 @@ release_processes() {
 # able to make progress. `${1:?}` guards the recursive removal against an empty
 # directory argument, and does so by ending the shell rather than the function,
 # which is why the trailing `|| :` on that line does not make it non-fatal.
-clear_pidfiles() {
-  rm -rf "${1:?}/supervisor.pid" "${1:?}/worker.pid" 2>/dev/null || :
-}
-
-held_process() {
-  hp_found=$(stop_candidates "$1" "$2") || return 0
-  [ -n "$(stop_live "$stop_tracked $hp_found")" ] && return 0
-  # A pid file recording nothing live is still this class's residue, and the
-  # close has to reach it: a supervisor killed before its own cleanup leaves the
-  # file behind, and once the host reuses that pid `launch` refuses the handle
-  # as already running with nothing able to clear it. A worker that ended
-  # cleanly removed its own files, so this does not disturb `already-closed`.
-  [ -e "$1/supervisor.pid" ] || [ -e "$1/worker.pid" ]
+stop_process_closed() {
+  for spc_f in $stop_pidfiles; do
+    rm -rf "${1:?}/$spc_f" 2>/dev/null || :
+  done
 }
 
 # `-e` rather than `-d`: a lock path that exists as a regular file blocks the
@@ -1605,38 +1411,11 @@ release_locks() {
 }
 
 held_scratch() {
-  scratch_walk "$1" probe
+  stop_scratch_walk "$1" probe "$scratch_patterns"
 }
 
 release_scratch() {
-  scratch_walk "$1" release
-  ! scratch_walk "$1" probe
-}
-
-# The attention store's layout is read directly, as the sibling fleet scripts
-# already read it: fleet-attention.sh exposes `clear` but no query, and the
-# row's presence is what "held" means here. The string coercion is that
-# script's own comparison discipline — a bare `$1 == w` equates all-numeric
-# handles (`1`, `01`, `1.0`) and would report the wrong worker's row.
-#
-# A store that exists but cannot be read counts as held: the same fail-closed
-# posture the process probe takes, so an unreadable store cannot make a class
-# that is still occupied report as released.
-held_attention() {
-  [ -f "$1" ] || return 1
-  [ -r "$1" ] || return 0
-  awk -F'\t' -v w="$2" '($1 "") == (w "") { found = 1 } END { exit found ? 0 : 1 }' "$1" 2>/dev/null
-  ha_rc=$?
-  # Three outcomes from two exit codes plus everything else. The caller reads
-  # any non-zero as "not held" and skips the class, so an awk that failed
-  # outright — a broken tool, an I/O error mid-read — would silently take the
-  # attention class out of the release set and let the close report success it
-  # never earned. Only a clean exit 1 means not held; anything the tool could
-  # not answer counts as held, and the close reports partial instead.
-  case $ha_rc in
-    1) return 1 ;;
-    *) return 0 ;;
-  esac
+  stop_scratch_release "$1" "$scratch_patterns"
 }
 
 # Clearing the row is half the release. The other half is the journal: a
@@ -1696,7 +1475,7 @@ journal_close() {
 # permanently held, or silently released, with nothing on stderr.
 stop_held() {
   case $1 in
-    process) held_process "$2" "$3" ;;
+    process) held_process "$2" "$(stop_match "$3" "$2")" "$stop_pidfiles" ;;
     locks) held_locks "$2" ;;
     scratch) held_scratch "$2" ;;
     attention) held_attention "$4" "$3" ;;
@@ -1709,7 +1488,7 @@ stop_held() {
 
 stop_release() {
   case $1 in
-    process) release_processes "$2" "$3" "$5" ;;
+    process) release_processes "$2" "$(stop_match "$3" "$2")" "$stop_pidfiles" "$5" ;;
     locks) release_locks "$2" ;;
     scratch) release_scratch "$2" ;;
     attention) release_attention "$3" "$2" ;;
@@ -1968,7 +1747,7 @@ cmd_answer() {
     # never silently truncated into a partial (invalid) JSON frame. (The
     # command substitution strips a trailing newline, so a cap-sized payload
     # plus its final newline still fits.)
-    body=$(head -c 65537 "$resp_file")
+    body=$(head -c 65537 <"$resp_file")
     if [ "$(printf '%s' "$body" | wc -c | tr -d ' ')" -gt 65536 ]; then
       echo "$me: --response-file exceeds the 64 KiB cap (refused, not truncated)" >&2
       exit 2
@@ -1994,6 +1773,24 @@ cmd_answer() {
     echo "$me: unknown worker $worker" >&2
     exit 2
   }
+  if [ "$mode" = 'file' ]; then
+    # The body must be one object on its own, not merely yield a valid frame
+    # once spliced in: `{...},"k":{...}` would close the response early and
+    # add a key of its own to the envelope. Staged in the worker directory, as
+    # scratch a close clears, since the body can carry tool input.
+    resp_probe=$(mktemp "$dir/.frame.XXXXXX") || exit 2
+    if ! printf '%s\n' "$body" >"$resp_probe"; then
+      rm -f "$resp_probe"
+      exit 2
+    fi
+    resp_why=$(frame_check "$resp_probe")
+    resp_ok=$?
+    rm -f "$resp_probe"
+    if [ "$resp_ok" != 0 ]; then
+      echo "$me: --response-file refused: $resp_why" >&2
+      exit 2
+    fi
+  fi
 
   journal_lock "$dir" || exit 2
   state=$(journal_state "$dir" "$req")
@@ -2020,29 +1817,6 @@ cmd_answer() {
       ;;
   esac
 
-  # Channel liveness BEFORE the fifo open: a fifo with no reader blocks its
-  # opener forever, so a dead supervisor/worker must become an undeliverable
-  # verdict, never a hang (REQ-E1.4's dead-channel arm). A residual TOCTOU is
-  # ACCEPTED here: a worker that dies in the few-syscall window between this
-  # kill -0 check and the blocking open below can still wedge the open (no
-  # reader). The window is not closable in portable POSIX sh — a non-blocking /
-  # timed open is not expressible without a helper process — and it is far
-  # narrower than the already-dead case this check catches, so the common
-  # dead-channel arm is guarded and the race is left documented, not fixed.
-  sup_pid=$(cat "$dir/supervisor.pid" 2>/dev/null) || sup_pid=''
-  wrk_pid=$(cat "$dir/worker.pid" 2>/dev/null) || wrk_pid=''
-  channel_ok=1
-  valid_posnum "${sup_pid:-}" && pid_live "$sup_pid" || channel_ok=0
-  valid_posnum "${wrk_pid:-}" && pid_live "$wrk_pid" || channel_ok=0
-  [ -p "$dir/in.fifo" ] || channel_ok=0
-  if [ "$channel_ok" = 0 ]; then
-    journal_set_state "$dir" "$req" undeliverable "$now"
-    journal_unlock "$dir"
-    attention_failure "$worker" "$dir" \
-      "undeliverable answer: channel for worker $worker is dead (request $short) - recover the worker and re-ask"
-    exit 3
-  fi
-
   case $mode in
     file)
       # $body was read and single-line-validated before the lock was taken.
@@ -2061,12 +1835,38 @@ cmd_answer() {
       ;;
   esac
 
-  # Deliver: one line into the worker's stdin fifo, under the journal lock
-  # (one writer at a time). A racing worker death turns the write into a
-  # visible undeliverable verdict via write-failure, never a silent drop.
+  # A frame the check refuses writes nothing and leaves the request pending,
+  # so a corrected answer can still land. A dead channel or a failed write is
+  # a visible undeliverable verdict, never a silent drop.
+  frame=$(mktemp "$dir/.frame.XXXXXX") || {
+    journal_unlock "$dir"
+    exit 2
+  }
+  if ! printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":%s}}\n' \
+    "$req" "$body" >"$frame"; then
+    rm -f "$frame"
+    journal_unlock "$dir"
+    exit 2
+  fi
   trap '' PIPE
-  if printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":%s}}\n' \
-    "$req" "$body" >>"$dir/in.fifo" 2>/dev/null; then
+  why=$(frame_send "$dir" "$frame")
+  sent=$?
+  rm -f "$frame"
+  case $sent in
+    2)
+      journal_unlock "$dir"
+      echo "$me: answer refused, nothing written to worker $worker: $why (request $short stays pending)" >&2
+      exit 2
+      ;;
+    3)
+      journal_set_state "$dir" "$req" undeliverable "$now"
+      journal_unlock "$dir"
+      attention_failure "$worker" "$dir" \
+        "undeliverable answer: channel for worker $worker is dead (request $short) - recover the worker and re-ask"
+      exit 3
+      ;;
+  esac
+  if [ "$sent" = 0 ]; then
     # The answer reached the worker's stdin. If the state flip fails (disk
     # full, journal replaced), the row stays `pending` — which would let
     # alarm-scan fire a spurious escalation and a second `answer` re-deliver a
@@ -2089,10 +1889,9 @@ cmd_answer() {
   fi
 }
 
-# steer <worker> --message-file <file> — see the header. The delivery shape
-# mirrors `answer` (channel liveness before the fifo open, one line written
-# under the journal lock so two writers never interleave frames) but the frame
-# is a USER turn, and the only state it writes is its own receipt row.
+# steer <worker> --message-file <file> — see the header. Delivered through
+# frame_send under the journal lock, as `answer` is, but the frame is a USER
+# turn, and the only state it writes is its own receipt row.
 cmd_steer() {
   [ $# -ge 1 ] || usage
   worker=$1
@@ -2119,7 +1918,7 @@ cmd_steer() {
   fi
   # One byte past the cap, so an oversize message is refused whole rather
   # than truncated into a message the worker reads as complete.
-  st_bytes=$(head -c 65537 "$st_file" | wc -c | tr -d ' ')
+  st_bytes=$(head -c 65537 <"$st_file" | wc -c | tr -d ' ')
   if [ "$st_bytes" -gt 65536 ]; then
     echo "$me: --message-file exceeds the 64 KiB cap (refused, not truncated)" >&2
     exit 2
@@ -2144,26 +1943,39 @@ cmd_steer() {
 
   journal_lock "$dir" || exit 2
   now=$(now_epoch) || now=0
-  # Channel liveness BEFORE the fifo open, for the reason `answer` gives: a
-  # fifo with no reader blocks its opener forever. Same accepted TOCTOU.
-  sup_pid=$(cat "$dir/supervisor.pid" 2>/dev/null) || sup_pid=''
-  wrk_pid=$(cat "$dir/worker.pid" 2>/dev/null) || wrk_pid=''
-  channel_ok=1
-  valid_posnum "${sup_pid:-}" && pid_live "$sup_pid" || channel_ok=0
-  valid_posnum "${wrk_pid:-}" && pid_live "$wrk_pid" || channel_ok=0
-  [ -p "$dir/in.fifo" ] || channel_ok=0
-  if [ "$channel_ok" = 0 ]; then
-    journal_unlock "$dir"
-    echo "$me: steer not delivered: channel for worker $worker is dead (recover the worker first)" >&2
-    exit 3
-  fi
   st_body=$(json_escape_file "$st_file") || {
     journal_unlock "$dir"
     exit 2
   }
+  st_frame=$(mktemp "$dir/.frame.XXXXXX") || {
+    journal_unlock "$dir"
+    exit 2
+  }
+  # The header is the buffer-paste relay's (scripts/orchestrate-relay.sh), so a
+  # worker reads a tower message the same way on every rung.
+  if ! printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[planwright tower relay -> %s]\\n%s"}]}}\n' \
+    "$worker" "$st_body" >"$st_frame"; then
+    rm -f "$st_frame"
+    journal_unlock "$dir"
+    exit 2
+  fi
   trap '' PIPE
-  if printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[planwright tower relay -> %s]\\n%s"}]}}\n' \
-    "$worker" "$st_body" >>"$dir/in.fifo" 2>/dev/null; then
+  st_why=$(frame_send "$dir" "$st_frame")
+  st_sent=$?
+  rm -f "$st_frame"
+  case $st_sent in
+    2)
+      journal_unlock "$dir"
+      echo "$me: steer refused, nothing written to worker $worker: $st_why" >&2
+      exit 2
+      ;;
+    3)
+      journal_unlock "$dir"
+      echo "$me: steer not delivered: channel for worker $worker is dead (recover the worker first)" >&2
+      exit 3
+      ;;
+  esac
+  if [ "$st_sent" = 0 ]; then
     printf '%s\t%s\t%s\n' "$now" "$st_bytes" "$st_file" >>"$dir/steers" || :
     journal_unlock "$dir"
     printf 'steered %s %s\n' "$worker" "$st_bytes"
@@ -2171,6 +1983,19 @@ cmd_steer() {
     journal_unlock "$dir"
     echo "$me: steer not delivered: write to worker $worker stdin failed (recover the worker first)" >&2
     exit 3
+  fi
+}
+
+# _frame-check <file> — internal: the fifo write discipline's verdict on a
+# frame file, printed as `frame ok` or `frame refused: <reason>`, for fixtures
+# that need the check without a live channel.
+cmd__frame_check() {
+  [ $# -eq 1 ] || usage
+  if fc_why=$(frame_check "$1"); then
+    echo "frame ok"
+  else
+    echo "frame refused: $fc_why"
+    exit 2
   fi
 }
 
@@ -2263,6 +2088,15 @@ cmd_recover() {
 
 cmd_stop() {
   [ $# -ge 1 ] || usage
+  # The close this rung shares with the headless one, loaded here so a missing
+  # library costs `stop` and no other verb. Required rather than degraded:
+  # without it the close has no process match at all.
+  if [ ! -r "$script_dir/fleet-stop-lib.sh" ]; then
+    echo "$me: required helper $script_dir/fleet-stop-lib.sh missing or not readable" >&2
+    exit 2
+  fi
+  # shellcheck source=scripts/fleet-stop-lib.sh
+  . "$script_dir/fleet-stop-lib.sh"
   worker=$1
   shift
   valid_field "$worker" || {
@@ -2270,6 +2104,7 @@ cmd_stop() {
     exit 2
   }
   grace=$grace_default
+  observe=0
   while [ $# -gt 0 ]; do
     case $1 in
       --grace)
@@ -2277,18 +2112,19 @@ cmd_stop() {
         grace=$2
         shift 2
         ;;
+      --observe)
+        observe=1
+        shift
+        ;;
       *)
         usage
         ;;
     esac
   done
-  # The grace is bounded as well as shaped: `valid_posnum` admits fifteen
-  # digits, and a close that waits for a century is indistinguishable from one
-  # that has hung.
-  if ! valid_posnum "$grace" || [ "$grace" -gt "$grace_max" ]; then
-    echo "$me: --grace must be a whole number of seconds, 1 to $grace_max (default $grace_default)" >&2
+  stop_grace_ok "$grace" || {
+    stop_grace_refusal
     exit 2
-  fi
+  }
   dir=$(worker_dir "$worker") || exit 2
   # A close never removes the state directory, so its absence means this handle
   # names no worker — reported as such rather than as `already-closed`, which
@@ -2303,55 +2139,14 @@ cmd_stop() {
     echo "$me: refusing to close $worker: its state directory is a symlink" >&2
     exit 2
   }
-  # Three answers, not two. "Cannot determine" is refused rather than treated as
-  # "not inside": the whole file's posture on the process class is fail-closed,
-  # and proceeding on an unreadable table is the direction that signals.
-  stop_self_hosted "$dir" "$worker"
-  case $? in
-    0)
-      echo "$me: refusing to close $worker from inside its own process tree" >&2
-      exit 3
-      ;;
-    1) ;;
-    *)
-      echo "$me: cannot read the process table; refusing to close $worker" >&2
-      exit 2
-      ;;
-  esac
+  stop_refuse_self_hosted "$dir" "$(stop_match "$worker" "$dir")" \
+    "$stop_pidfiles" "$worker"
   st_root=$(/bin/sh "$FS" root) || exit 2
-  st_store="$st_root/attention/state"
-
-  stop_tracked=''
-  st_released=''
-  st_held=''
-  for st_class in $release_classes; do
-    stop_held "$st_class" "$dir" "$worker" "$st_store" || continue
-    stop_release "$st_class" "$dir" "$worker" "$st_store" "$grace" || :
-    if stop_held "$st_class" "$dir" "$worker" "$st_store"; then
-      st_held="$st_held,$st_class"
-      # A worker whose tree could not be closed is still running. Releasing the
-      # rest of its runtime from under it would take away the channel an
-      # operator answers it on and the lock that protects its journal, so the
-      # walk stops here and reports what is still held.
-      [ "$st_class" = process ] && break
-    else
-      st_released="$st_released,$st_class"
-    fi
-  done
-  st_released=${st_released#,}
-  st_held=${st_held#,}
-
-  if [ -n "$st_held" ]; then
-    printf 'stop %s partial released=%s held=%s\n' \
-      "$worker" "${st_released:--}" "$st_held"
-    return 6
+  if [ "$observe" = 1 ]; then
+    stop_observe "$dir" "$worker" "$st_root/attention/state"
+    return
   fi
-  if [ -z "$st_released" ]; then
-    printf 'stop %s already-closed\n' "$worker"
-    return 0
-  fi
-  printf 'stop %s stopped released=%s\n' "$worker" "$st_released"
-  return 0
+  stop_walk "$dir" "$worker" "$st_root/attention/state" "$grace"
 }
 
 # cmd__tick <worker> <dir> <supervisor-pid> <worker-pid> — the escalation
@@ -2439,7 +2234,7 @@ cmd_alarm_scan() {
   }
   as_root=$(/bin/sh "$FS" root) || exit 2
   [ -d "$as_root/streamjson" ] || return 0
-  # The one intentional glob in this script: enumerate worker dirs (pathname
+  # An intentional glob, like cmd_pending's: enumerate worker dirs (pathname
   # expansion is otherwise disabled by set -f).
   set +f
   for as_dir in "$as_root/streamjson"/*; do
@@ -2654,6 +2449,298 @@ cmd_status() {
   fi
 }
 
+# The display bound for one request's tool input, and the most of an envelope
+# the renderer reads at all. A Write's content can be megabytes; the tower needs
+# enough to recognise the request, not the whole payload. The read bound is also
+# a time bound: busybox awk's substr costs grow with the offset, so a walk over
+# 300 KiB there takes seconds where 64 KiB takes a fraction of one. An envelope
+# cut by it still shows the start of its input, marked as ending early.
+pending_show_max=4096
+pending_read_max=65536
+
+# pending_render — read a stored control_request envelope on stdin and print
+# four things, one per line but the last: a header-safe tool-name token, a
+# flag (`bad` for an envelope with no readable input or malformed JSON;
+# otherwise 0 or 1 for a display-bound cut, led by `a` when `answer --allow`
+# would splice another input and `e` when the envelope ends early), the Bash request's other input fields as one line of raw
+# JSON members (empty otherwise), then the content. The content is the decoded
+# top-level `command` of a request whose tool is named exactly Bash, otherwise
+# the input object's JSON text. The walk follows the JSON structure rather than
+# searching for a key name, so a string that merely contains `"input":` or
+# `"command":` cannot pass for the real field, and a repeated key resolves to
+# its last occurrence, the one the CLI itself acts on. Unicode escapes for
+# printable ASCII, TAB and LF are decoded so the command reads as it will run;
+# every other escape stays as visible escape text. Raw control bytes are the
+# caller's to strip.
+pending_render() {
+  awk -v cap="$pending_show_max" '
+    # A walk that runs off the end met an envelope cut short (the read bound,
+    # or a read racing the write), which is shown marked as such; any other
+    # failure is malformed JSON, which is not shown at all.
+    function fail() {
+      err = 1
+      if (pos > n) eof = 1
+    }
+    function ws() {
+      while (pos <= n && index(" \t\r\n", substr(s, pos, 1)) > 0) pos++
+    }
+    function pstr(   st, c) {
+      st = ++pos
+      while (pos <= n) {
+        c = substr(s, pos, 1)
+        if (c == "\\") { pos += 2; continue }
+        if (c == "\"") { pos++; return substr(s, st, pos - 1 - st) }
+        pos++
+      }
+      fail()
+      return substr(s, st)
+    }
+    function hexv(h,   i, v, d) {
+      v = 0
+      for (i = 1; i <= 4; i++) {
+        d = index("0123456789abcdef", tolower(substr(h, i, 1))) - 1
+        if (d < 0) return -1
+        v = v * 16 + d
+      }
+      return v
+    }
+    function dec(raw, lim,   out, i, m, c, e, v) {
+      out = ""
+      m = length(raw)
+      for (i = 1; i <= m; i++) {
+        if (lim && length(out) > lim) { trunc = 1; return substr(out, 1, lim) }
+        c = substr(raw, i, 1)
+        if (c != "\\") { out = out c; continue }
+        e = substr(raw, ++i, 1)
+        if (e == "n") out = out "\n"
+        else if (e == "t") out = out "\t"
+        else if (e == "\"" || e == "\\" || e == "/") out = out e
+        else if (e == "u") {
+          v = hexv(substr(raw, i + 1, 4))
+          if (v == 9) out = out "\t"
+          else if (v == 10) out = out "\n"
+          else if (v >= 32 && v <= 126) out = out sprintf("%c", v)
+          else out = out "\\u" substr(raw, i + 1, 4)
+          i += 4
+        } else out = out "\\" e
+      }
+      if (lim && length(out) > lim) { trunc = 1; return substr(out, 1, lim) }
+      return out
+    }
+    function val(path, d,   c, k, str, kst) {
+      if (d > 64) { fail(); return }
+      ws()
+      if (pos > n) { fail(); return }
+      if (path == "/request") { tool = ""; ins = 0; ine = 0; hc = 0 }
+      if (path == "/request/input") { ins = pos; ine = 0; hc = 0; extra = ""; xcut = 0 }
+      if (path == "/request/input/command") hc = 0
+      c = substr(s, pos, 1)
+      if (c == "{" || c == "[") {
+        pos++
+        ws()
+        if (substr(s, pos, 1) == (c == "{" ? "}" : "]")) pos++
+        else while (1) {
+          if (c == "{") {
+            ws()
+            if (substr(s, pos, 1) != "\"") { fail(); return }
+            kst = pos
+            # Bounded: decoding appends a byte at a time, quadratic in the key,
+            # and no key the walk matches is anywhere near this long.
+            k = dec(pstr(), 16)
+            if (err) return
+            ws()
+            if (substr(s, pos, 1) != ":") { fail(); return }
+            pos++
+            # The path joins keys with a slash, so a slash inside one key would
+            # let `"input/command"` spell a nested path it is not.
+            gsub(/\//, "\001", k)
+            val(path "/" k, d + 1)
+            # What the command view would otherwise hide: every input field
+            # but the command itself and the model-written description.
+            if (!err && path == "/request/input" && k != "command" && k != "description" && !xcut) {
+              extra = extra (extra == "" ? "" : ",") substr(s, kst, pos - kst)
+              if (length(extra) > cap) { extra = substr(extra, 1, cap); xcut = 1 }
+            }
+          } else val(path "/[]", d + 1)
+          if (err) return
+          ws()
+          if (pos > n) { fail(); return }
+          k = substr(s, pos, 1)
+          pos++
+          if (k == ",") continue
+          if (k == (c == "{" ? "}" : "]")) break
+          fail()
+          return
+        }
+      } else if (c == "\"") {
+        str = pstr()
+        if (path == "/request/tool_name") tool = str
+        if (path == "/request/input/command") { cmd = str; hc = 1 }
+        if (err) return
+      } else {
+        k = pos
+        while (pos <= n && index(",]} \t\r\n", substr(s, pos, 1)) == 0) pos++
+        if (pos == k || pos > n) { fail(); return }
+        if (substr(s, k, pos - k) !~ /^(true|false|null|-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?)$/) { fail(); return }
+      }
+      if (path == "/request/input") ine = pos
+    }
+    NR == 1 {
+      s = $0
+      n = length(s)
+      pos = 1
+      val("", 0)
+      if (!err) {
+        ws()
+        if (pos <= n) fail()
+      }
+    }
+    END {
+      trunc = 0
+      name = dec(tool, 64)
+      t = name
+      gsub(/[^A-Za-z0-9_.:-]/, "", t)
+      if (t == "") t = "unknown"
+      else if (t != name || trunc) t = t ":sanitized"
+      trunc = 0
+      if (ins == 0 || (err && !eof)) { print t; print "bad"; exit }
+      if (name == "Bash" && hc) {
+        out = dec(cmd, cap)
+        if (extra != "") extra = xcut extra
+      } else {
+        extra = ""
+        out = ine ? substr(s, ins, ine - ins) : substr(s, ins)
+        if (length(out) > cap) { out = substr(out, 1, cap); trunc = 1 }
+      }
+      # `answer --allow` splices the object json_input_object finds, the one
+      # after the first literal `"input":`. Unless that is the object shown
+      # here, the tower would approve something other than what it read.
+      j = index(s, "\"input\":")
+      if (j) { j += 8; while (substr(s, j, 1) == " ") j++ }
+      print t
+      print (j == ins ? "" : "a") (eof ? "e" : "") trunc
+      print extra
+      print out
+    }'
+}
+
+# pending_show <worker> <dir> <id> — print one request: the header, then its
+# `-- ` notices (unreadable, ambiguous, ends early, fields cut, content cut)
+# and a Bash request's other fields on one `+ ` line, then every content line
+# behind a `| ` prefix.
+# Every notice precedes the content so a piped `head` cannot drop one. The prefix is what keeps the framing unforgeable: no content line
+# can begin with `== `, `+ ` or `-- `, whatever the request carries, and the
+# fields line is one line because the envelope it is sliced from is.
+pending_show() {
+  ps_env="$2/req-$3.json"
+  if [ -L "$ps_env" ] || [ ! -f "$ps_env" ]; then
+    ps_env=/dev/null
+  fi
+  ps_out=$(
+    head -c "$pending_read_max" "$ps_env" 2>/dev/null | pending_render
+    printf x
+  )
+  ps_out=${ps_out%x}
+  ps_tool=${ps_out%%"$NL"*}
+  ps_out=${ps_out#*"$NL"}
+  ps_flag=${ps_out%%"$NL"*}
+  ps_out=${ps_out#*"$NL"}
+  ps_extra=${ps_out%%"$NL"*}
+  ps_out=${ps_out#*"$NL"}
+  printf '== %s %s %s\n' "$1" "$3" "${ps_tool:-unknown}"
+  if [ "$ps_flag" = bad ] || [ -z "$ps_flag" ]; then
+    echo '-- request envelope unreadable'
+    return 0
+  fi
+  case $ps_flag in
+    a*)
+      echo '-- request envelope ambiguous: an answer --allow would not apply the input shown'
+      ps_flag=${ps_flag#a}
+      ;;
+  esac
+  # `answer --allow` splices from the whole file, so a field past the cut (a
+  # later command, a sandbox bypass) would still apply.
+  case $ps_flag in
+    e*)
+      printf -- '-- request envelope ends early (read bound %s bytes, or still being written): fields after the cut are not shown and an answer --allow may apply them\n' "$pending_read_max"
+      ps_flag=${ps_flag#e}
+      ;;
+  esac
+  # The fields line leads with its own cut flag, so a cut is marked on the line
+  # it hides fields from rather than on the command's trailer.
+  case $ps_extra in
+    0*) printf '+ {%s}\n' "${ps_extra#0}" | tr -d '\000-\010\013-\037\177\200-\237' ;;
+    1*)
+      printf '+ {%s\n' "${ps_extra#1}" | tr -d '\000-\010\013-\037\177\200-\237'
+      printf -- '-- fields truncated at %s bytes\n' "$pending_show_max"
+      ;;
+  esac
+  if [ "$ps_flag" = 1 ]; then
+    printf -- '-- truncated at %s bytes: the content below is cut short\n' "$pending_show_max"
+  fi
+  printf '%s' "${ps_out%"$NL"}" | tr -d '\000-\010\013-\037\177\200-\237' | awk '{ print "| " $0 } END { if (NR == 0) print "| " }'
+}
+
+# pending_worker <worker> <dir> — every request of one worker the journal still
+# reads pending, driven by the journal rather than the envelope files, so a row
+# whose envelope never landed is still listed. Read-only: no lock is taken,
+# since the journal is replaced by rename and an unlocked read sees one whole
+# generation of it.
+pending_worker() {
+  if [ ! -r "$2" ] || [ ! -x "$2" ] || { [ -e "$2/journal" ] && [ ! -r "$2/journal" ]; }; then
+    echo "$me: cannot read the receipt journal of worker $1" >&2
+    return 2
+  fi
+  pw_ids=$(journal_pending_ids "$2") || {
+    echo "$me: cannot read the receipt journal of worker $1" >&2
+    return 2
+  }
+  [ -n "$pw_ids" ] || return 0
+  printf '%s\n' "$pw_ids" | while IFS= read -r pw_id; do
+    valid_reqid "$pw_id" || continue
+    pending_show "$1" "$2" "$pw_id"
+  done
+}
+
+cmd_pending() {
+  for pd_w in "$@"; do
+    valid_field "$pd_w" || {
+      echo "$me: invalid worker handle" >&2
+      exit 2
+    }
+  done
+  pd_root=$(/bin/sh "$FS" root) || exit 2
+  # An unreadable worker fails the call, but only after the others are listed:
+  # one broken dir must not hide every other worker's pending decisions.
+  pd_rc=0
+  if [ $# -eq 0 ]; then
+    [ -d "$pd_root/streamjson" ] || return 0
+    [ -r "$pd_root/streamjson" ] && [ -x "$pd_root/streamjson" ] || {
+      echo "$me: cannot list the stream-json workers under $pd_root" >&2
+      exit 2
+    }
+    set +f
+    for pd_dir in "$pd_root/streamjson"/*; do
+      [ -d "$pd_dir" ] || continue
+      pd_w=${pd_dir##*/}
+      valid_field "$pd_w" || continue
+      pending_worker "$pd_w" "$pd_dir" || pd_rc=2
+    done
+    set -f
+    exit "$pd_rc"
+  fi
+  for pd_w in "$@"; do
+    [ -d "$pd_root/streamjson/$pd_w" ] || {
+      echo "$me: no stream-json worker $pd_w" >&2
+      exit 2
+    }
+  done
+  for pd_w in "$@"; do
+    pending_worker "$pd_w" "$pd_root/streamjson/$pd_w" || pd_rc=2
+  done
+  exit "$pd_rc"
+}
+
 # --- dispatch ---------------------------------------------------------------
 
 [ $# -ge 1 ] || usage
@@ -2668,6 +2755,8 @@ case $cmd in
   _tick) cmd__tick "$@" ;;
   stop) cmd_stop "$@" ;;
   status) cmd_status "$@" ;;
+  pending) cmd_pending "$@" ;;
   _supervise) supervise "$@" ;;
+  _frame-check) cmd__frame_check "$@" ;;
   *) usage ;;
 esac

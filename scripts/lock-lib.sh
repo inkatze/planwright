@@ -34,7 +34,11 @@
 # THE LOCK-HOLDER LIST. Every script that implements an ADVISORY LOCK sources
 # this file and takes its locks through it:
 #
-#   (none yet: the adopter migrations are their own task)
+#   scripts/run-tests.sh   the test runner's machine-wide ticket pool
+#   scripts/fleet-reap-lock.sh   the per-worker reap lock the reap actuator
+#                          takes, so concurrent sweeps close a worker once
+#   scripts/step-record.sh   the record-cache lock that run ids and records
+#                          are issued under
 #
 # Everything else that takes an advisory lock does so by calling a script on
 # that list, so adopting a listed script adopts the tree under it. The list is

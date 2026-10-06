@@ -69,7 +69,7 @@ run() {
   : >"$errf"
   PLANWRIGHT_FLEET_STATE_DIR="$home" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
-    PLANWRIGHT_REPO_ROOT="$tmp" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
     /bin/sh "$TQ" "$@" 2>"$errf"
 }
@@ -188,13 +188,68 @@ for res in 'git push origin +main' 'git push origin refs/heads/main' \
   'git push origin +refs/heads/main' 'git push origin HEAD:refs/heads/main' \
   'git push --force origin main' 'git push origin +master' \
   'git push origin main' 'git push origin HEAD:main' 'git push origin main:main' \
-  'git push -qf origin feature' 'git push origin "main"'; do
+  'git push -qf origin feature' 'git push origin "main"' \
+  'git push origin planwright/human-gates/spec' 'git push origin HEAD:planwright/human-gates/spec' \
+  'git push origin HEAD:refs/heads/planwright/human-gates/spec' 'git push -u origin planwright/x/spec' \
+  'git push origin HEAD:heads/main' 'git push origin HEAD:heads/master' 'git push origin heads/planwright/x/spec'; do
   rc=0
   run match --decision "$push_rule" --command "$res" >"$tmp/o" || rc=$?
   [ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = reserved ] \
     || fail "'$res' was not refused as a reserved control (exit $rc, '$(cat "$tmp/o")')"
 done
-echo "ok: every spelling of a force-push or a push to the default branch is refused"
+echo "ok: every spelling of a force-push or a push to the default branch or a spec branch is refused"
+
+# A pull is a merge and a fixup is a rewrite, whatever the rule covers.
+git_rule=$(captured --kind standing --text 'always let the workers run git' \
+  --covers-command 'git ' --now 1005) || fail "capture of the git rule failed"
+for res in 'git pull' 'git pull origin main' 'git pull --ff-only origin main' \
+  'git -C . pull origin main' 'git  pull' 'git "pull" origin' 'git pu""ll origin main' \
+  'git me""rge origin/main' "git re''base origin/main" 'git commit --am""end' \
+  'git commit --squ""ash=HEAD~1' "git commit --fix'up'=HEAD~1" \
+  'git -c alias.x=pull x origin main' 'git -c alias.p=push p' \
+  'git -c include.path=/tmp/x.cfg up origin main' 'git -c includeIf.onbranch:x.path=/tmp/x.cfg up' \
+  'git -c help.autocorrect=immediate pulll origin main' \
+  'git commit --fixup HEAD~1' 'git commit --fixup=HEAD~1' \
+  'git commit --am' 'git commit -a --amen --no-edit' 'git commit --sq=HEAD~1' \
+  'git commit -m wip --squas HEAD~1' 'git commit --fix=HEAD~1' 'git -C . commit --fixu HEAD~1'; do
+  rc=0
+  run match --decision "$git_rule" --command "$res" >"$tmp/o" || rc=$?
+  [ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = reserved ] \
+    || fail "'$res' was not refused as a reserved control (exit $rc, '$(cat "$tmp/o")')"
+done
+echo "ok: a pull, a fixup, an alias, an abbreviated rewrite flag, and a quote-split reserved verb are refused as reserved controls"
+
+# The same rule still answers an ordinary commit.
+for okc in 'git commit -m "fix: tidy"' 'git commit -a -m wip' 'git commit -F msg.txt' 'git commit --file=msg.txt'; do
+  run match --decision "$git_rule" --command "$okc" >"$tmp/o" \
+    || fail "an ordinary commit ('$okc') did not match (exit $?, '$(cat "$tmp/o")')"
+  [ "$(cat "$tmp/o")" = match ] || fail "an ordinary commit ('$okc') printed '$(cat "$tmp/o")'"
+done
+echo "ok: an ordinary commit still matches the git rule"
+
+# A gh api call that can write, and a gh alias definition, can reach any
+# reserved control without naming it: the ready flip and its undo are GraphQL
+# mutations, and a query read from a file is not in the text at all.
+gh_rule=$(captured --kind standing --text 'always let the workers run gh' \
+  --covers-command 'gh ' --now 1005) || fail "capture of the gh rule failed"
+for res in "gh api graphql -f query='mutation{markPullRequestReadyForReview(input:{pullRequestId:\"PR_x\"}){clientMutationId}}'" \
+  "gh api graphql -f query='mutation{convertPullRequestToDraft(input:{pullRequestId:\"PR_x\"}){clientMutationId}}'" \
+  'gh api graphql -F query=@undo.graphql' 'gh api repos/o/r/pulls/1 -X PATCH' 'gh api --method=POST repos/o/r/x' \
+  'gh api repos/o/r/pulls/1 -f state=closed' 'gh api repos/o/r/x --input body.json' 'gh api repos/o/r/x --raw-field a=b' \
+  "gh alias set rd 'pr view'" 'gh alias import aliases.yml'; do
+  rc=0
+  run match --decision "$gh_rule" --command "$res" >"$tmp/o" || rc=$?
+  [ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = reserved ] \
+    || fail "'$res' was not refused as a reserved control (exit $rc, '$(cat "$tmp/o")')"
+done
+echo "ok: a gh api call that can write, and a gh alias definition, are refused as reserved controls"
+
+for okg in 'gh pr view 529' 'gh pr checks 529' 'gh api repos/o/r/pulls/1' 'gh api -X GET repos/o/r/pulls' 'gh alias list'; do
+  run match --decision "$gh_rule" --command "$okg" >"$tmp/o" \
+    || fail "an ordinary gh call ('$okg') did not match (exit $?, '$(cat "$tmp/o")')"
+  [ "$(cat "$tmp/o")" = match ] || fail "an ordinary gh call ('$okg') printed '$(cat "$tmp/o")'"
+done
+echo "ok: a read-only gh call still matches the gh rule"
 
 # The quoted spellings. The allowlist admits a quoted interior anywhere in a
 # word, and the shell reads each of these as the bare spelling above; the
@@ -238,7 +293,9 @@ echo "ok: a push whose destination cannot be positively named reaches the operat
 # The rule the operator actually wanted still works, in every admitted shape.
 for okp in 'git push origin feature/thing' 'git push origin "feature/thing"' 'git push -u origin feature' \
   'git push origin feature -v' 'git push origin main:feature' 'git push origin refs/heads/feature' \
-  'git push origin head:feature' 'git push origin feature:refs/heads/feature' 'git push upstream fix-1'; do
+  'git push origin head:feature' 'git push origin feature:refs/heads/feature' 'git push upstream fix-1' \
+  'git push origin planwright/human-gates/task-5' 'git push origin planwright/human-gates/spec-notes' \
+  'git push origin planwright/a/b/spec'; do
   run match --decision "$push_rule" --command "$okp" >"$tmp/o" \
     || fail "an ordinary branch push ('$okp') did not match (exit $?, '$(cat "$tmp/o")')"
   [ "$(cat "$tmp/o")" = match ] || fail "an ordinary branch push ('$okp') printed '$(cat "$tmp/o")'"

@@ -4,9 +4,11 @@
 dispatching skills — `/execute-task`, `/orchestrate`, `/spec-kickoff` — invoke
 plugin scripts (`scripts/<name>.sh`) many times per run. This doc fixes the one
 invocation shape they use, so a dispatched worker does not flood on a permission
-prompt for every such call.
+prompt for every such call. Its section *One plain command per Bash call*
+covers every command any skill issues inside a dispatched worker or a
+subordinate tower, `/polish` and `/self-review` included.
 
-Citations: REQ-D1.1, D-7; obs:344dd129.
+Citations: REQ-D1.1, D-7; obs:344dd129, obs:885bc3c9.
 
 ## The convention
 
@@ -15,21 +17,15 @@ absolute path**, then invoke every `scripts/<name>.sh` the skill names by that
 resolved literal absolute path. Never invoke through an unexpanded
 `$VAR/scripts/<name>.sh` shape.
 
-Resolve the root, in order (a simplified view of the core chain
-`scripts/resolve-rule-doc.sh` uses; its writer-delivery arm,
-`$CLAUDE_DIR` or `~/.claude/planwright`, is elided here):
-
-1. `$PLANWRIGHT_ROOT` — explicit override (tests, adopters);
-2. else `$CLAUDE_PLUGIN_ROOT` — plugin delivery, set by Claude Code;
-3. else the skill's own install directory (self-location).
+Resolve the root through the core root chain, defined in `spec-format`
+(*The core root chain*): `scripts/resolve-root.sh install`, invoked by its path
+in the copy the skill was loaded from, prints it.
 
 Take the resolved value once, then substitute it literally at each call site:
 
 ```sh
-# Resolve once. This one-liner shows steps 1-2 only: when neither var is set it
-# expands to empty, and you fall back to step 3 (the skill's own install dir),
-# which is not a clean one-liner and is elided here:
-root="${PLANWRIGHT_ROOT:-$CLAUDE_PLUGIN_ROOT}"     # e.g. /abs/planwright
+# Resolve once:
+/abs/copy/scripts/resolve-root.sh install    # prints the root, e.g. /abs/planwright
 # Then call by the literal absolute path (what a worker's command actually is):
 /abs/planwright/scripts/spec-validate.sh specs/<spec>
 ```
@@ -52,6 +48,40 @@ path (when `jq` is absent it defers everything) only the literal invocation shap
 stays approvable. The two
 are complementary — the hook is the primary path, literal-path invocation is
 defense-in-depth independent of it.
+
+## One plain command per Bash call
+
+A literal path is not enough when the line around it is compound. The hook
+approves a compound line only when it can clear every segment and defers most
+compound forms, and a standing decision the operator records matches only a
+literal command prefix followed by plain arguments. So a line such as
+`P=<root>; cd <worktree>; $P/scripts/x.sh; echo rc=$?` reaches the operator
+as a prompt even when every command in it is routine. Issue **one plain
+command per Bash call** instead:
+
+- **No `cd`.** Pass the directory as an argument (`git -C <dir>`, a script's
+  `--checkout <dir>`), or rely on the session's working directory, which for a
+  dispatched worker is its own worktree.
+- **No variable assignments.** Substitute every resolved value literally, the
+  way the root is substituted above. A value one command prints (a config
+  value, a SHA) is read from that call's result and written literally into the
+  next call, never captured with `$(...)`.
+- **No chains.** No `;`, `&&`, or `||` between commands: each command is its
+  own call, issued after the previous call's result has been read.
+- **No display pipes.** Never pipe into `sed`, `awk`, `head`, `tail`, `grep`,
+  or `cut` to trim output for reading. Read the output whole, narrow it with
+  the command's own flags (`git show <rev>:<path>`, `git log -n <k>`,
+  `--format`), or use the file-reading tool. Text a command reads on stdin
+  comes from a file written with the file-writing tool (`< <file>`), never
+  from an `echo` or `printf` pipe. A pipe that carries data one command cannot
+  produce alone, such as the commit-trailer composition, is the one kept form.
+- **Exit status from the result.** The tool result already reports the exit
+  code; never append `echo rc=$?` or a similar probe.
+
+A declared command step's `--line` rendering is not an exception to strip: it
+runs exactly as the resolver prints it, its quoted `PLANWRIGHT_STEP_*`
+assignment prefix included, since that prefix carries the step's context and
+is the form the guard approves ([custom-steps](custom-steps.md)).
 
 ## The adopter allow entry
 

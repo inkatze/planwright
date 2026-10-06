@@ -40,9 +40,9 @@
 # silently checked under either version's rules).
 #
 # Usage: check-ledger.sh [<tasks.md> ...]
-#   With no arguments, scans every spec bundle's tasks.md under the repo's
-#   specs/ directory (skipping `_`-prefixed accumulator dirs, which are not task
-#   bundles). The no-arg form is the CI / local-check entry point (REQ-E1.3).
+#   With no arguments, scans every spec bundle's tasks.md under the spec root
+#   the working directory resolves (skipping `_`-prefixed accumulator dirs,
+#   which are not task bundles). The no-arg form is the CI / local-check entry point (REQ-E1.3).
 #
 # Exit codes: 0 clean, 1 corruption found, 2 usage error or a broken install
 # (a missing or unreadable scripts/spec-parse.sh, the shared grammar lib the
@@ -58,10 +58,9 @@ LC_ALL=C
 export LC_ALL
 
 # A user CDPATH would make cd echo into the command substitution below and
-# corrupt the repo-root derivation.
+# corrupt the script-dir derivation.
 unset CDPATH
 
-repo_root="$(cd "$(dirname "$0")/.." && pwd -P)"
 script_dir="$(cd "$(dirname "$0")" && pwd -P)"
 
 # The shared spec-parse grammar lib (format-grammar D-3, D-4; REQ-B1.3): the
@@ -77,12 +76,17 @@ fi
 . "$spec_parse_sh" || exit 2
 
 # Resolve the file list. Explicit arguments win; otherwise default to every
-# bundle's tasks.md (the CI / local-check entry point).
+# bundle's tasks.md under the spec root the working directory resolves (the
+# CI / local-check entry point).
 files=()
 if [ "$#" -gt 0 ]; then
   files=("$@")
 else
-  for d in "$repo_root"/specs/*/; do
+  specs_root=$(/bin/sh "$script_dir/resolve-root.sh" spec) || {
+    echo "check-ledger: no files given and the spec root did not resolve" >&2
+    exit 2
+  }
+  for d in "$specs_root"/*/; do
     base="$(basename "$d")"
     case "$base" in
       _*) continue ;; # accumulator dirs (e.g. _observations, _pending)
@@ -90,7 +94,7 @@ else
     [ -f "$d/tasks.md" ] && files+=("$d/tasks.md")
   done
   if [ "${#files[@]}" -eq 0 ]; then
-    echo "check-ledger: no spec bundles found under $repo_root/specs" >&2
+    echo "check-ledger: no spec bundles found under $specs_root" >&2
     exit 2
   fi
 fi

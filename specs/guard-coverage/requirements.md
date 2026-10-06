@@ -1,7 +1,7 @@
 # Guard Coverage — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-03
+**Last reviewed:** 2026-09-24
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -325,6 +325,13 @@ are doctrine, capability, mechanism, and local value — is recorded in D-1
   bare `REQ-J1.5`. Surfaced by the format-grammar validator's
   citation-range rule (format-grammar REQ-D1.3) on its all-bundle rollout
   (format-grammar D-9); no requirement or decision changes meaning.
+- 2026-09-24 — REQ-E1.3 delivered (Task 8): `doctrine/discovery-rigor.md`'s
+  Performance lens names test/CI ergonomics (suite wall-clock, CI
+  latency) a whole-system, not diff-scoped, lens target, with the
+  test-time budget gate (REQ-E1.1) as the mechanical catch, cited back
+  to this bundle. The addition is funded under the instruction-budget
+  guard by two same-doc restatement trims rather than a raise entry.
+  No requirement or decision changes meaning.
 
 ## Sources
 

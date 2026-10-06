@@ -1,0 +1,1 @@
+- 2026-10-05 [planwright] tests/test-resolve-steps.sh ran about 110s serially on a loaded dev host (98s on main before the refusal cases landed), against a 120s per-file budget judged on the reference runner, which local timings do not predict; read its CI per-file time before deciding whether to split it, which would first need a shared fixture harness under tests/lib.

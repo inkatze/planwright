@@ -22,7 +22,7 @@
 #     fleet task-type keys whose downstream contract has no ambient value;
 #   - enum validation across all three columns and the by-layer malformed
 #     policy (REQ-A1.4), including the command enum's closed set carrying
-#     review-sequence disjointness by construction;
+#     step-target disjointness by construction;
 #   - determinism, zero outbound client invocations, all-or-nothing `list`,
 #     broken-install exit 5, sanitized refusals, and repo-drift against the
 #     shipped config/defaults.yml.
@@ -61,6 +61,7 @@ core_cfg="$tmp/core-defaults.yml"
 adopter_root="$tmp/adopter"
 repo="$tmp/repo"
 mkdir -p "$adopter_root" "$repo/.claude"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$repo"
 adopter_cfg="$adopter_root/planwright.yml"
 tracked_cfg="$repo/.claude/planwright.yml"
 mlocal_cfg="$repo/.claude/planwright.local.yml"
@@ -411,25 +412,43 @@ for kv in "allocation_model_execution: gpt-5" \
 done
 echo "ok: every column's enum is validated under the by-layer policy"
 
-# 7b. The command enum's closed set carries review-sequence disjointness by
-#     CONSTRUCTION (REQ-A1.4): every command the generalized table can emit
-#     fails the nestable-review-skill predicate, and the predicate is proven
-#     non-vacuous against the shipped `polish` skill.
+# 7b. The command enum's closed set carries step-target disjointness by
+#     CONSTRUCTION (REQ-A1.4): every command the generalized table can emit is
+#     on the pipeline-entry list doctrine/custom-steps.md owns, which the step
+#     resolver (scripts/resolve-steps.sh) refuses as a step target
+#     (custom-steps REQ-C1.8), so no dispatch entry can be declared as a step.
 reset_layers
-skills_root="$here/../skills"
-[ -d "$skills_root" ] || fail "skills root not found at $skills_root"
-grep -Eq '^argument-hint:.*--nested' "$skills_root/polish/SKILL.md" \
-  || fail "cross-check sanity: the shipped polish skill no longer declares --nested (predicate drifted?)"
+pipeline=$(sed -n 's/^pipeline-entry: //p' "$here/../doctrine/custom-steps.md")
+[ -n "$pipeline" ] || fail "cross-check sanity: doctrine/custom-steps.md carries no pipeline-entry line"
 listing=$(run list) || fail "list exited nonzero"
 commands=$(printf '%s\n' "$listing" | cut -f4 | grep -v '^-$' | sort -u)
 [ -n "$commands" ] || fail "list emitted no command values to cross-check"
 for c in $commands; do
-  skill_md="$skills_root/$c/SKILL.md"
-  if [ -f "$skill_md" ] && grep -Eq '^argument-hint:.*--nested' "$skill_md"; then
-    fail "REQ-A1.4 violation: selectable command '$c' is a nestable review skill"
-  fi
+  case " $pipeline " in
+    *" $c "*) ;;
+    *) fail "REQ-A1.4 violation: selectable command '$c' is not a refused pipeline entry, so a step could target it" ;;
+  esac
 done
-echo "ok: the selectable command set stays disjoint from the nestable-review set"
+# The refusal is exercised, not assumed: a repo-tracked step targeting a
+# selectable command is malformed (exit 4) naming the rule.
+sb="$tmp/pipeline-entry"
+mkdir -p "$sb/core/config" "$sb/repo/.claude/catalogs" "$sb/adopter" "$sb/home" "$sb/claude"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$sb/repo"
+cp "$here/../config/steps.yaml" "$sb/core/config/steps.yaml"
+printf 'dispatch_isolation: per-step\nsteps_pre_ci: [entry]\n' >"$sb/core/config/defaults.yml"
+first=$(printf '%s\n' "$commands" | head -1)
+printf 'steps:\n  - id: entry\n    kind: skill\n    target: %s\n' "$first" >"$sb/repo/.claude/catalogs/steps.yaml"
+rc=0
+err=$(env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT -u PLANWRIGHT_JQ \
+  HOME="$sb/home" CLAUDE_DIR="$sb/claude" PLANWRIGHT_ROOT="$sb/core" PLANWRIGHT_CONFIG_DEFAULTS="$sb/core/config/defaults.yml" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$sb/adopter" PLANWRIGHT_REPO_ROOT="$sb/repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$here/../scripts/resolve-steps.sh" pre-ci --unattended 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 4 ] || fail "the step resolver should refuse '$first' as a step target (exit 4), got $rc: $err"
+case "$err" in
+  *pipeline-entry*) ;;
+  *) fail "the refusal should name the pipeline-entry rule: $err" ;;
+esac
+echo "ok: the selectable command set stays disjoint from the step-target set"
 
 # 8. By-layer malformed policy (REQ-A1.4): an adopter-layer malformed value
 #    degrades to the core default with a warning. Core ships `unset`, so the
@@ -656,13 +675,13 @@ echo "ok: step tiers follow the by-layer malformed policy"
 
 # 14f. THE DISJOINTNESS GUARD (REQ-E1.2/REQ-A1.4).
 #
-#      Step types are named after nestable review skills. The command enum is
-#      what carries review-sequence disjointness and must never name one. The
+#      Step types are step ids. The command enum is what carries
+#      dispatch-entry disjointness and must never name one. The
 #      two axes are therefore kept apart, and this is the assertion that they
 #      stayed apart: no step type carries a command column, a step type is not
 #      a selection key, and a selection key is not a step type. If a future
-#      change merged the namespaces, one of these goes red before a review
-#      skill name can reach the command column.
+#      change merged the namespaces, one of these goes red before a step id
+#      can reach the command column.
 reset_layers
 for st in implementation polish self-review; do
   got=$(run step-tier "$st") || fail "step-tier $st exited nonzero"
@@ -682,7 +701,7 @@ for k in execution bookkeeping drain orchestrate_dispatch execute_step offload; 
     && fail "selection key '$k' leaked into the step-type table"
 done
 # And the command enum itself is still exactly the dispatch-entry set: no
-# nestable review skill has been admitted to it at any layer.
+# step target has been admitted to it at any layer.
 commands=$(run list | awk -F '\t' '$4 != "-" { print $4 }' | sort -u)
 [ "$(printf '%s\n' "$commands" | tr '\n' ' ')" = "drain execute-task orchestrate " ] \
   || fail "the command enum drifted from the dispatch-entry set: $commands"
@@ -691,7 +710,7 @@ for skill in polish self-review panel-review copilot-review; do
   printf 'allocation_command_execution: %s\n' "$skill" >"$mlocal_cfg"
   got=$(run resolve execution command 2>/dev/null) || rc=$?
   [ "$rc" = 0 ] && [ "$got" != "$skill" ] \
-    || fail "a nestable review skill ('$skill') was admitted to the command column"
+    || fail "a step target ('$skill') was admitted to the command column"
 done
 reset_layers
 echo "ok: the step-type axis never touches the command column (disjointness holds)"

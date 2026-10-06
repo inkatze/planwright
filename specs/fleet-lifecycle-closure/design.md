@@ -1,7 +1,7 @@
 # Fleet lifecycle closure — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-09-03
+**Last reviewed:** 2026-10-02
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -391,12 +391,19 @@ actually stuck and was actually closed. Making the rehearsal repeatable turns
 a one-time demonstration into a regression gate, and making it opt-in keeps
 its cost off every unrelated change.
 
+**Superseded-by: D-16** (2026-10-02) — `headless-oneshot` has no pend path,
+so the permission-prompt wedge and its `waiting-on-a-human` assertion apply
+only to a rung that can pend; D-16 pins the headless rung's wedge and
+readings.
+
 ### D-14: The sweep ships observing-only, promoted by an explicit knob  (B, kickoff 2026-08-18)
 
 **Decision:** The periodic sweep ships in an observing-only mode: it selects
 candidates and writes the full audit record it would have written, and kills
 nothing. Autonomous termination is enabled per machine by an explicit,
-reversible knob. Both modes are exercised by the D-13 rehearsal.
+reversible knob. Both modes are exercised by the D-16 rehearsal.
+*(Amended at kickoff re-walkthrough 2026-10-02: rehearsal citation
+re-pointed from the superseded D-13.)*
 
 The kickoff gap check against `decision-domains` surfaced this: the bundle
 touches the `deploy-migration` domain — a scheduled autonomous process-killer
@@ -422,3 +429,66 @@ promotion decision needs, and it is collected on real fleets rather than
 fixtures. The cost — a second path that could rot unexercised — is answered by
 REQ-F1.7 rather than accepted, so the mode that ships is the mode that is
 tested.
+
+### D-15: The registry is a rebuildable index of on-disk dispatch markers  (B, kickoff amendment 2026-10-01)
+
+**Decision:** Every dispatch seam writes an on-disk dispatch marker carrying
+the fields of its registry record, independently of the registry write. The
+periodic sweep reconciles the registry against those markers in both
+directions: it rebuilds a record whose write failed, and it retires, marked
+closed and never deleted, the record of a worker with positive death evidence.
+
+**Alternatives considered:**
+- Heal only the rungs that already leave a state directory, and declare tmux
+  unhealable. Rejected because: it hard-codes a permanent blind spot on one
+  rung, and a reconcile whose coverage depends on which rung happened to
+  persist something is the uneven floor REQ-A1.5 exists to make explicit.
+- Rebuild tmux records from window listings. Rejected because: window naming
+  is a weaker identity than a state directory, and the bundle already refuses
+  to match workers by name or command shape.
+- Heal missing records only and leave stale ones. Rejected because: an
+  inventory that only grows is re-evaluated by every sweep and the
+  stuck-detector, and the dead rows bury the live ones.
+
+**Chosen because:** the bundle's other reconciles already work this way. The
+worktree scan rebuilds from `git worktree list` and the tasks.md backstop
+rebuilds from git, so the registry follows the same level-triggered,
+ground-truth pattern instead of being the one store a lost write can corrupt
+permanently. Retirement reuses D-2's positive-evidence rule applied to the
+worker alone, since retiring a record kills nothing, so no new safety argument
+is needed. Closed records are kept indefinitely: the rows are small, the store
+is append-only, and live reads filter them out.
+
+### D-16: The deliberate-wedge rehearsal wedges each rung the way it can stall  (B, kickoff re-walkthrough 2026-10-02, supersedes D-13)
+
+**Decision:** The bundle keeps D-13's repeatable, opt-in end-to-end rehearsal:
+a real worker dispatched against a throwaway spec bundle on each
+session-grade rung, deliberately wedged, then asserted to close on `stop` and
+to leave every resource class empty afterwards. The wedge and the detection
+assertion follow the rung. On a rung that can pend
+(`stream-json-persistent`), the worker is wedged at a permission prompt and
+must classify `waiting-on-a-human`. On `headless-oneshot`, which has no pend
+path, the worker is held mid-command and must classify `working` or
+`unclassified` with reason `no-signal`; any other reading fails.
+
+**Alternatives considered:**
+- Keep D-13 as written. Rejected because: an unapproved ask fails under
+  `--print` instead of waiting, so the headless rung cannot be wedged at a
+  permission prompt and the rehearsal could never pass on a correct
+  codebase.
+- Give `headless-oneshot` a pend path so it can be wedged like the
+  stream-json rung. Rejected because: it changes the rung's execution model
+  to satisfy a test, and the rung's one-shot contract is what makes it the
+  cheaper rung.
+- Drop the headless rung from the rehearsal. Rejected because: `stop` and
+  the release set on that rung would go unexercised end to end, which is the
+  path-dependence gap D-13 exists to close.
+- Assert only "live and unfinished" on the headless rung. Rejected because:
+  it is not a detector state, so the spec and the harness could drift apart
+  silently; naming the two accepted readings pins what the harness enforces.
+
+**Chosen because:** what the rehearsal must prove (D-13's chosen-because) is
+unchanged: a worker that was actually stuck was actually detected and
+closed. Each rung is wedged in the one way it can really stall, and the held
+headless worker is still shown not to read as dead or finished, which is the
+misreading that would let the leak hide.

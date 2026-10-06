@@ -69,6 +69,7 @@ mkdir -p "$home"
 repo="$tmp/repo"
 spec_dir="$repo/specs/my-spec"
 mkdir -p "$spec_dir"
+git -C "$repo" -c init.defaultBranch=main init -q
 bin="$tmp/bin"
 mkdir -p "$bin"
 
@@ -83,6 +84,7 @@ tower_relaunch_disable_threshold: 3
 EOF
 fake_root="$tmp/fake-repo-root"
 mkdir -p "$fake_root"
+git -C "$fake_root" -c init.defaultBranch=main init -q
 
 # A dead pid: spawn a short-lived child and wait for it.
 /bin/sh -c 'exit 0' &
@@ -180,6 +182,19 @@ run "$tmp/not-under-specs" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "dir outside specs/: exit $rc, expected 2"
 echo "ok: a spec dir outside specs/ is refused"
 
+# `flight` is the reserved flight branch segment (tower-front-door D-11): a
+# spec dir so named is refused before it reaches a lock, marker, or session name.
+mkdir -p "$repo/specs/flight"
+rc=0
+err=$(run "$repo/specs/flight" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "reserved spec id flight: exit $rc, expected 2"
+case $err in
+  *reserved*) ;;
+  *) fail "reserved spec id flight: diagnostic does not name the reservation (got: $err)" ;;
+esac
+rm -rf "$repo/specs/flight"
+echo "ok: the reserved spec id flight is refused"
+
 # --- kill-switch gate (D-15 composition) --------------------------------------
 
 paused_defaults="$tmp/defaults-paused.yml"
@@ -199,6 +214,7 @@ echo "ok: fleet_daemon_pause short-circuits the tick"
 
 # A malformed repo-tracked overlay is a hard-fail the watchdog propagates.
 mkdir -p "$fake_root-bad/.claude"
+git -C "$fake_root-bad" -c init.defaultBranch=main init -q
 printf 'fleet_daemon_pause: banana\n' >"$fake_root-bad/.claude/planwright.yml"
 rc=0
 PLANWRIGHT_FLEET_STATE_DIR="$home" \
@@ -624,9 +640,8 @@ echo "ok: the marker is re-read under the lock and a swapped-in live tower is le
 
 # --- ready-work call-through, real selector happy paths -----------------------
 
-# Turn the fixture into a real spec repo: the DEFAULT ready check (no seam)
-# must drive a relaunch off orchestrate-select's live derivation.
-git -C "$repo" -c init.defaultBranch=main init -q
+# Give the fixture a real bundle: the DEFAULT ready check (no seam) must drive
+# a relaunch off orchestrate-select's live derivation.
 cat >"$spec_dir/tasks.md" <<'EOF'
 # tasks
 
@@ -685,5 +700,23 @@ out=$(PLANWRIGHT_FLEET_STATE_DIR="$home" \
 [ "$out" = no-ready-work ] || fail "real-selector done outcome '$out'"
 [ "$(launch_calls)" = "$calls_before" ] || fail "a fully-completed spec must not relaunch"
 echo "ok: the live selector's no-ready verdict suppresses the relaunch (no seam)"
+
+# A bundle inside a linked worktree of the work repository relaunches its
+# tower in that worktree, the copy this watchdog locks and judged ready, not
+# in the primary checkout.
+wt="$repo/.claude/worktrees/wt"
+git -C "$repo" worktree add -q --detach "$wt" 2>/dev/null || fail "could not add the worktree fixture"
+mkdir -p "$wt/specs/my-spec"
+wt_canon=$(cd "$wt" && pwd -P)
+record_marker unattended "$dead_pid"
+rm -f "$backoff_file"
+out=$(run "$wt/specs/my-spec" 2>/dev/null) || fail "worktree relaunch tick exited non-zero"
+[ "$out" = relaunched ] || fail "worktree relaunch outcome '$out'"
+row=$(fleet_env "$FTM" read my-spec) || fail "marker missing after the worktree relaunch"
+IFS=$(printf '\t') read -r _ _ _ _ _ m_checkout _ <<EOF
+$row
+EOF
+[ "$m_checkout" = "$wt_canon" ] || fail "a worktree bundle's tower was relaunched in '$m_checkout', not the worktree '$wt_canon'"
+echo "ok: a bundle in a linked worktree relaunches its tower in that worktree"
 
 echo "ALL PASS: fleet-tower-watchdog"

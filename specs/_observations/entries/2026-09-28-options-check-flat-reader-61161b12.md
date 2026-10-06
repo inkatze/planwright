@@ -1,0 +1,1 @@
+- 2026-09-28 [planwright] scripts/check-options-reference.sh parses defaults.yml with its own awk reader, which now differs from config-get on a comment-only value (key: # c reads as "# c") and on unmatched quotes; it claims no parity, but it is the last in-repo flat reader off the whitespace-led # rule.

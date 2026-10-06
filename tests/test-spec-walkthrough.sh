@@ -88,6 +88,13 @@ lacks() {
   esac
 }
 
+# new_ws <dir> — a workspace is a git repository, since the spec root resolves
+# from the checkout the scaffold runs in.
+new_ws() {
+  mkdir -p "$1"
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$1"
+}
+
 # make_bundle <specs-root> <spec> <status> — a minimal four-file bundle with
 # two requirement groups (A, B), two decisions (D-1, D-2), and two tasks.
 make_bundle() {
@@ -170,7 +177,7 @@ EOF
 # 1. A valid full bundle loads and reports its shape.
 # ---------------------------------------------------------------------------
 ws="$tmp/ws1"
-mkdir -p "$ws"
+new_ws "$ws"
 make_bundle "$ws/specs" demo Active
 
 run_w 0 "$ws" demo
@@ -191,7 +198,7 @@ has "demo"
 # ---------------------------------------------------------------------------
 for st in Draft Ready Active Done Retired Superseded; do
   wsx="$tmp/status-$st"
-  mkdir -p "$wsx"
+  new_ws "$wsx"
   make_bundle "$wsx/specs" demo "$st"
   run_w 0 "$wsx" demo
   has "$st"
@@ -200,6 +207,7 @@ done
 # When requirements.md is absent, the status falls back to a sibling mirror
 # that declares one.
 fbws="$tmp/fallback"
+new_ws "$fbws"
 mkdir -p "$fbws/specs/demo"
 make_bundle "$fbws/specs" demo Done
 rm "$fbws/specs/demo/requirements.md"
@@ -210,6 +218,7 @@ has "missing"
 # requirements.md present but its Status value is empty: reported as undeclared,
 # not masked by a sibling mirror (requirements.md is authoritative).
 emws="$tmp/emptystatus"
+new_ws "$emws"
 mkdir -p "$emws/specs/demo"
 make_bundle "$emws/specs" demo Active
 # Blank out only the requirements.md Status value; design.md still says Active.
@@ -303,6 +312,7 @@ lacks "Traceback"
 # A partial bundle (two of four files) still loads what is present and names
 # what is missing.
 pws="$tmp/partial"
+new_ws "$pws"
 mkdir -p "$pws/specs/half"
 cat >"$pws/specs/half/requirements.md" <<'EOF'
 # Half — Requirements
@@ -339,6 +349,7 @@ has "files missing: tasks.md, test-spec.md"
 # An empty bundle directory (present, but none of the four files) degrades with
 # a clear message rather than rendering nothing.
 ews="$tmp/empty"
+new_ws "$ews"
 mkdir -p "$ews/specs/hollow"
 run_w 1 "$ews" hollow
 has "hollow"
@@ -388,10 +399,20 @@ run_w 2 "$ws" specs/-leadingdash
 lacks "leadingdash"
 big=$(printf 'a%.0s' $(seq 1 65))
 run_w 2 "$ws" "$big"
+# `flight` is the reserved flight branch segment (tower-front-door D-11), not
+# a spec: refused before any read, in both argument forms, even when a bundle
+# of that name exists (so the absent-bundle exit is not what refuses it).
+make_bundle "$ws/specs" flight Active
+run_w 2 "$ws" flight
+has "reserved"
+run_w 2 "$ws" specs/flight
+has "reserved"
+rm -rf "$ws/specs/flight"
 
 # A symlinked bundle whose target escapes specs/ fails the containment check.
 if command -v ln >/dev/null 2>&1; then
   sws="$tmp/symws"
+  new_ws "$sws"
   mkdir -p "$sws/specs"
   make_bundle "$tmp/outside" escapee Active
   ln -s "$tmp/outside/escapee" "$sws/specs/escapee"
@@ -439,6 +460,7 @@ esac
 # ---------------------------------------------------------------------------
 if [ "$(id -u)" -ne 0 ]; then
   uws="$tmp/unresolvable"
+  new_ws "$uws"
   mkdir -p "$uws/specs"
   # Real files inside, so a fall-through past the gate would actually read them.
   make_bundle "$uws/specs" locked Active
@@ -459,6 +481,7 @@ fi
 # ---------------------------------------------------------------------------
 # reqs:<group> with requirements.md absent names the missing file.
 nrws="$tmp/noreqs"
+new_ws "$nrws"
 mkdir -p "$nrws/specs"
 make_bundle "$nrws/specs" demo Active
 rm "$nrws/specs/demo/requirements.md"
@@ -467,6 +490,7 @@ has "requirements.md"
 
 # decision:<id> with design.md absent names the missing file.
 ndws="$tmp/nodesign"
+new_ws "$ndws"
 mkdir -p "$ndws/specs"
 make_bundle "$ndws/specs" demo Active
 rm "$ndws/specs/demo/design.md"
@@ -483,6 +507,7 @@ has "design.md"
 # ---------------------------------------------------------------------------
 # A malformed `### D-<n>` (no colon) is not listed among available decisions.
 mdws="$tmp/malformed-decisions"
+new_ws "$mdws"
 mkdir -p "$mdws/specs"
 make_bundle "$mdws/specs" demo Active
 cat >>"$mdws/specs/demo/design.md" <<'EOF'
@@ -498,6 +523,7 @@ lacks "D-9"
 # A design.md whose only decision headings are malformed yields no decision
 # set, degrading rather than reporting a bogus "decision set" scope.
 omws="$tmp/only-malformed"
+new_ws "$omws"
 mkdir -p "$omws/specs/demo"
 cat >"$omws/specs/demo/design.md" <<'EOF'
 # Fixture — Design
@@ -521,6 +547,7 @@ has "no decisions"
 # ---------------------------------------------------------------------------
 if [ "$(id -u)" -ne 0 ]; then
   grws="$tmp/grep-noise"
+  new_ws "$grws"
   mkdir -p "$grws/specs"
   make_bundle "$grws/specs" demo Active
   chmod 000 "$grws/specs/demo/design.md"
@@ -542,10 +569,14 @@ fi
 # guard protects even a partially-writing assembler, the stronger property.
 # ---------------------------------------------------------------------------
 asws="$tmp/atomic"
+new_ws "$asws"
 mkdir -p "$asws/scripts"
 cp "$script" "$asws/scripts/spec-walkthrough.sh"
-# The scaffold sources scripts/echo-safety.sh as a sibling; stage it too.
-cp "$here/../scripts/echo-safety.sh" "$asws/scripts/echo-safety.sh"
+# The scaffold sources scripts/echo-safety.sh and resolves the spec root through
+# its sibling resolver chain; stage them too.
+for sib in echo-safety resolve-root resolve-config-knob config-get resolve-overlay-root; do
+  cp "$here/../scripts/$sib.sh" "$asws/scripts/$sib.sh"
+done
 cat >"$asws/scripts/spec-assemble.sh" <<'EOF'
 #!/bin/sh
 # Stub assembler: emit a specific diagnostic on stderr and partial output on

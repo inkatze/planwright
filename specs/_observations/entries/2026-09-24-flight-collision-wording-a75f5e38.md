@@ -1,0 +1,1 @@
+- 2026-09-24 [planwright] tower-front-door design D-11 calls flight ids collision-free by construction, while spec-format and conventions now credit the random uid plus the create-or-fail branch claim; worth reconciling at the next delta walkthrough of that bundle.

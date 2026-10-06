@@ -94,6 +94,172 @@ exactly one spec/unit in its own worktree with isolated context, and the
 attention render names each worker's scope and state — the same clear-scopes
 model a tmux power user gets from named windows, with no attaching.
 
+`queue --except <worker>` leaves that worker's row out of the render, and says
+on stderr how many it left out. The tower loop passes the worker whose question
+it has just handed you, so the same question is not also sitting on the list as
+though nobody had asked it. It names only what the caller itself just said: the
+filter is per call, so nothing can go on hiding a row after the conversation
+holding it died, and a plain `queue` renders everything. A filter that fails
+keeps every row and says so, since a repeated question costs less than a hidden
+one. The count `--count`
+prints is never filtered — that one tracks the `## Awaiting input` entries,
+which a hand-over does not close.
+
+The watch loop renders both views with `scripts/fleet-attention.sh render
+--on-change <tower>` and `queue --on-change <tower>` (not to be confused with
+`fleet-attention-watch.sh`'s `--on-change <cmd>` callback). `render` shows each
+worker's age as a coarse bucket (`<10m`, `10m+`, `30m+`, `1h+`, and so on up to
+`1d+`) and reprints only when its text would differ from what it last printed:
+a worker's state or scope moving, a worker arriving or leaving, or a stalled
+worker's age crossing into the next bucket. On a quiet iteration it prints
+nothing, or, every ten minutes by default (`--liveness <seconds>`), one line
+saying nothing has changed, so a silent loop and a dead one still look
+different. `queue --on-change` never holds back a pending decision: while one
+waits it renders every iteration, because a decision raised again in the same
+words would look exactly like the one before it. Only an empty queue stays
+silent once the loop has seen it empty. Because silence means "unchanged" here,
+a change that empties a view (the last decision answered, the last worker
+cleared) prints one line saying so; a hand-over that narrows the queue to
+nothing is not that change. `<tower>` is the loop's presence identity
+(`scripts/fleet-presence.sh identity`), which pins the process start time, so a
+new tower session starts with a full render rather than inheriting what an
+earlier one showed, even on a reused pid. A bare `p<pid>` is refused; when no
+identity resolves, drop `--on-change` and render in full. The plain commands
+above always render in full.
+
+## The operator queue: what the tower brings you
+
+The decision queue above is the workers' list. A tower session keeps a second
+one for you: the **operator queue** (`scripts/tower-queue.sh`), which holds
+everything the tower means to put in front of you — a blocked worker's
+question, something waiting for your go-ahead, a request you made, and news —
+and hands it over one item at a time. Nothing reaches you as loose prose; if
+the tower is telling you something it needs from you, it came off this queue.
+
+### What you see
+
+- **A knock first.** When something is waiting and you have not spoken to the
+  tower for a while, it says one line naming what kind of thing is waiting,
+  how urgent it is, and how many items there are. Nothing more arrives until
+  you reply. The knock is not repeated on a timer; it comes again only after a
+  hand-over has gone unanswered for `tower_quiet_interval`, or when the item it
+  named is no longer at the top of the queue.
+- **One item per reply.** Your reply opens the conversation, and each reply
+  after it brings the next item. The one exception is a pair: two waiting
+  items of the same kind about the same worker, PR, branch, or request arrive together
+  as one hand-over, and you answer both. Blocked workers come first, then things
+  waiting for your go-ahead, then your own requests, then news; within a kind,
+  the more urgent and then the older first. Each item is written so you can
+  answer it from that message alone. Ask for more and you get one more layer,
+  then the tower waits.
+- **Where things stand, after a quiet stretch.** The first turn after a long
+  silence tells you the current state in plain words, not a list of what the
+  tower did. What settled on its own while you were away, and why, is there
+  when you ask for it.
+- **An echo for everything you ask for.** A request you make in passing
+  becomes an item in the same turn, and the tower echoes it back in one line.
+  There is no confirmation step; correct the echo only if it is wrong. A
+  question the tower can answer on the spot is answered there, not queued.
+- **Plain words.** The tower assumes you know what a tower, worker, spec,
+  task, PR, branch, and worktree are, and nothing below that. The test for any
+  other word is yours: if asking "what is that?" would send you into a file to
+  find out, the tower should not have said it. When you ask what a name
+  means, that name was the mistake, and the tower drops it rather than
+  explaining it.
+
+Worker content inside an item is shown fenced, as quoted data. If a worker's
+text contains what reads like an instruction to the tower, the tower does not
+act on it, and neither should you without reading it as a quote.
+
+### Replies the tower understands
+
+There is no command syntax; say it the way you would to a colleague.
+
+| You say | What happens |
+| --- | --- |
+| an answer to the item | the item is acknowledged and closed; that same reply brings the next one |
+| "later", "not now" | the item is shelved and comes back on its own after `tower_shelve_return`; shelving never drops it |
+| "always", "from now on" | a **standing decision** is recorded in your words (see [what the fleet decides without you](#what-the-fleet-decides-without-you-and-what-it-never-does)) |
+| a question | answered inside the turn; only work it needs is captured as a request |
+| "what did I miss?" | the catch-up list: what settled while you were away, and why |
+| "tell me more" | one more layer of context, then the tower waits |
+| "drop the rule about …" | the tower closes that standing decision, recording that you revoked it |
+
+Items also close without you when the evidence says they are done: a PR
+opened or merged, commits landed on the branch, a request's ledger item
+closed, a worker's question answered another way, a worker's permission
+prompt one of your command rules covers, or the thing the item pointed at
+disappearing (the reason is recorded). A worker's own claim to have finished
+never closes anything.
+
+### Several towers, one queue
+
+A single-spec tower, the meta-tower, and the fleet loop can all run on one
+machine over the same queue. Whichever tower hands you an item holds it, so
+the same question never arrives in two terminals at once, and while you are
+replying in the terminal holding it, no other tower takes it. If you walk away
+from that terminal, the item is not lost: once it has had no reply from you
+for `tower_quiet_interval`, whichever tower you are talking to knocks about
+the item and takes it over on your reply. From your side, that looks like a
+question you left unanswered in one terminal being knocked about in another.
+If no tower takes it, the hold lapses on its own after `tower_lease_interval`
+(never shorter than the quiet interval) and the item can be delivered again.
+Towers on separate machines do not share a queue.
+
+When you have gone quiet in every tower conversation and a worker is
+blocked, the tower pushes once through your
+[notification channel](#choosing-what-gets-pushed-at-you), and again only if
+things get worse: another worker blocks, or an item first pushed while still
+younger than `tower_reknock_age` passes that age. Urgent news never pushes;
+it waits for you to come back and knocks then.
+
+### The status-line indicator
+
+With the `statusline` channel selected, the `waiting` field shows what the
+tower has for you without your asking: the top item's kind and a total, or
+`waiting none`. See [the statusline channel](#the-statusline-channel) for
+what `waiting ?` means and how the field is gated.
+
+### What gets logged, and the scorecard
+
+A tower session logs your replies. The prompt-submit hook planwright
+registers is a no-op everywhere except a session running a tower loop; there
+it stamps the time of your reply, which is the only thing that tells the
+tower you are paying attention, and appends the reply (flattened to one line,
+bounded, secret-shaped values redacted) to an event log beside every
+knock, hand-over, acknowledgement, shelve, settle, and push. The log is
+machine-local, under the fleet home, never committed; it rotates after
+`tower_log_rotate_age`. The hook only recognises a tower that published its
+presence by session id: a tower published by process id gets no attention
+stamp, and its knocks go unanswered however much you reply.
+
+The scorecard is computed from that log alone, plus the count of lines it
+dropped:
+
+```sh
+scripts/tower-queue.sh report    # the scorecard over tower_report_window
+```
+
+Its headline is your load: items that reached you per hour of fleet work,
+against items settled without you. Beside it: how long blocked workers
+waited, turns that asked you more than one thing, items delivered in prose
+with no queue record, friction moments, jargon counted in what the tower
+said to you, and items lost across restarts. It also counts log lines any
+writer dropped on a busy lock and lines that would not parse, the only signs a
+write was lost or torn. Stretches between a tower's
+ticks longer than `tower_tick_gap_max` are left out of the fleet hours and
+reported as gaps. It runs on demand, never in CI.
+
+### The knobs
+
+These settings tune the queue: `tower_quiet_interval`, `tower_lease_interval`,
+`tower_reknock_age`, `tower_shelve_return`, `tower_catchup_limit`,
+`tower_tick_gap_max`, `tower_log_rotate_age`, `tower_report_window`, and
+`tower_hook_lock_wait`. Each has its row, with what it controls and its
+default, in [the knobs table](#the-knobs-capability-in-core-value-in-overlay)
+at the end of this guide. Every interval accepts the `ms`/`s`/`m`/`h`/`d`
+suffixes; full rules are in the [options reference](options-reference.md).
+
 ## The backend-agnostic status view
 
 `fleet-attention.sh render` shows what workers have *pushed*. The wider view —
@@ -151,10 +317,53 @@ whatever it reads here.
 Registration is best-effort by design: a registry that cannot be written
 **warns and never fails the dispatch**, since a running worker is a fact and its
 bookkeeping is only a record of one. A single malformed optional column is
-dropped rather than costing the whole record. Note that a failed write is not
-yet self-healing: this registry has one writer, and the periodic reconcile that
-would notice a missing record arrives with the scheduled sweep, so until then
-the warning is the only trace.
+dropped rather than costing the whole record.
+
+A failed write heals on the next sweep. Before its store write, every
+registration leaves a **dispatch marker**, `<fleet-home>/dispatch-markers/<handle>`,
+carrying the same fields, so the registry is a rebuildable index of what is on
+disk. The sweep's registry reconcile (`scripts/fleet-registry-reconcile.sh`)
+works in both directions:
+
+- **Heal.** A marker whose worker has no record, or whose last record is a
+  retirement of other fields (a re-dispatch whose write failed), is rebuilt
+  through `fleet-register.sh --from-marker`, under the same field grammar a
+  dispatch meets. The store writes conditionally under its lock, so concurrent
+  sweeps, and a sweep racing the dispatch's own write, leave exactly one
+  record.
+- **Retire.** A record whose worker has positive death evidence
+  (`fleet-death-evidence.sh` on its death handle, or for a `print` unit its
+  worktree's removal) is marked closed: an eighth `closed` column appended,
+  never a deletion, so the record stays readable per handle while
+  `fleet-status.sh` and the stuck-detector's scan stop listing it. Its marker
+  goes with it. Alive, unknown or errored evidence keeps the record live. Per
+  rung: the two session-grade rungs retire on the `process` verdict, the tmux
+  rungs on the `tmux-window` verdict, and a visual flight's `print` record on
+  its worktree's removal; a record with no death evidence at all (a
+  `subagent` record, an `/offload` `print` record, a tmux record whose window
+  was never matched) never retires and is counted `unjudged` in the summary (a
+  declared gap in the lifecycle-closure floor, not an oversight). A
+  retirement closes exactly the record that was judged, so a re-dispatch under
+  the same handle in between is never closed by it. A record its marker no
+  longer describes, because a superseding write failed, is judged on its own
+  fields and reported `marker-diverged` while it is positively alive (an
+  unknown or unjudged one is reported as such); once it retires, the
+  marker heals into a record.
+- **Refuse.** A marker failing the grammar, naming another handle, or reached
+  through a link is refused, audited, and moved aside under
+  `dispatch-markers/.refused/`; it is never stored. Refused markers stay
+  there for you to inspect and delete; nothing collects them.
+- **Adopt.** A retirement renames a marker aside before comparing it and links
+  it back when it no longer matches. Where that link cannot be made, the aside
+  (`dispatch-markers/.retiring.<pid>.<handle>`) is kept, and the next pass
+  links it back to its name once that process is gone, or drops it when a
+  newer marker already holds the name. It is never renamed back, which could
+  overwrite a marker a dispatch published in between.
+
+A record with no marker, one written before markers existed, is never altered
+or retired for that reason. The reconcile terminates nothing, so it runs in
+both sweep modes; the kill-switch pauses it, and every heal, retirement and
+refusal is an audit record under the `registry-reconcile` mechanism.
 
 The owner token comes from the presence surface's tower identity. A tower that
 already knows its own identity exports it as `PLANWRIGHT_TOWER_ID`; a seam can
@@ -280,7 +489,12 @@ attention surface), not as a separate system:
 Two audit notes behind that table:
 
 - **All durable fleet state is files** — the worker registry, the attention
-  store, and the toasts under the cross-spec fleet home; the per-spec dispatch
+  store, and the toasts under the cross-spec fleet home; beside them, under
+  its `tower-comms/` directory, the operator queue's store, its event log,
+  the per-tower attention markers the reply hook writes, and the pre-ship
+  fallback that holds your captured requests, approvals, and standing
+  decisions until the action-item ledger ships (machine-local, owner-only,
+  never committed); the per-spec dispatch
   markers and locks next to each spec; and, for a format-version 1 bundle, the
   `tasks.md` snapshot in git (a format-version 2 bundle keeps no committed
   snapshot and reads status through the on-demand render — see
@@ -305,10 +519,20 @@ Control connected, your phone, and which declines to interrupt you while you
 are actively working. Nothing in planwright's scripts can call that tool, only
 a session can, which is why this channel is relayed rather than pushed.
 
-**The relay is not built yet.** Choosing this channel today leaves the markers
-accumulating under the fleet home unread; the tower-side relay lands with the
-tower loop. Until then, `push` is a channel you can configure and not one that
-reaches you.
+The relay runs inside the tower loop's own comms step
+(`scripts/tower-loop-comms.sh step`), which takes each pending marker under the
+fleet lock and prints it as a `push` line for the session to hand to the tool.
+Taking and printing is one step, so two towers stepping at once cannot wake you
+twice about the same thing. The cost is the inverse: a session that dies
+between the take and the tool call drops that line for good. Nothing re-derives
+it — the away push is budgeted at two per departure, and a marker written by
+something other than the operator queue has no item behind it at all — so treat
+a dropped line as a lost notification, not a delayed one. The blocked worker
+itself is still in the queue and still waiting; what was lost is the tap on the
+shoulder. Anything the relay declines to take (a name that is not a marker key,
+a marker somebody else can write, an empty one) is named on stderr and makes
+the step non-zero rather than disappearing. Run outside a tower loop, nothing
+relays and the markers wait.
 
 ### The statusline channel
 
@@ -316,7 +540,8 @@ reaches you.
 last-cleanup time, the watchdog-trip count, and the throttle-engaged state —
 natively at the bottom of your own Claude Code terminal via its
 [statusLine](https://code.claude.com/docs/en/statusline) feature, alongside the
-decision-queue depth. The stats are **derived on demand** from what the daemon
+decision-queue depth (`queue`) and, while a tower is running, what the
+operator queue has for you (`waiting`). The stats are **derived on demand** from what the daemon
 mechanisms already record (the shared audit trail and the live throttle state);
 nothing is written to a new file for them.
 
@@ -433,7 +658,7 @@ non-`--bare`, never attaches a permission prompt tool (an unauthorized ask
 fails visibly in the captured result — there is no pend path), and leaves a
 consumable completion signal; `fleet-dispatch-headless.sh status <spec> <id>`
 answers `completed <rc>` / `running` / `died` (positive evidence only) /
-`unknown` / `absent`. `stream-json-persistent` is driven by the
+`unknown` / `absent`, and `stop <worker>` closes it (below). `stream-json-persistent` is driven by the
 `scripts/fleet-streamjson.sh` supervisor (below). (The presence env overrides
 remain a deliberate test/early-adopter escape hatch that bypasses these
 defaults.)
@@ -460,6 +685,35 @@ live worker with a pending receipt reports `awaiting-input pending=<n>
 oldest=<age>s supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending
 row carries a readable epoch), never a healthy-looking `running`.
 
+`pending [<worker>...]` shows what those pending receipts are asking, so a
+tower can bring the operator the actual decision rather than a count. For each
+request the journal still reads `pending` (every worker when none is named,
+oldest request first) it prints `== <worker> <request-id> <tool>`, then the
+request with every line prefixed by `|` and a space. A Bash request shows its
+command decoded, with any escape it does not decode left visible as escape
+text, and a `+ {...}` line before it carrying every other input field but the
+description, so a sandbox bypass or a background run is never hidden behind
+the command. Any other tool shows its input JSON. Input past the script's
+display bound gets a `-- truncated` line. An envelope that ends early (past the
+script's read bound, or still being written) gets a
+`-- request envelope ends early` line: fields past the cut, a later command or
+a sandbox bypass included, are not shown, yet an `answer --allow` would apply
+them. Every `--` notice prints before the request's content, so reading the
+view through `head` never drops one. A missing, symlinked, or malformed envelope
+prints `-- request envelope unreadable` instead. The request text is the worker's, so
+it is treated as untrusted: control bytes are stripped (C1 bytes too, which
+mangles some non-ASCII punctuation, the same trade the script's echo
+sanitizer makes), a tool name that had to be altered carries a `:sanitized`
+suffix, and because every content line carries the prefix, a command
+containing a line that starts with `==` cannot pass for another request. The
+verb only reads. It never answers, locks, or re-queues anything; a named
+worker with no runtime directory, or a journal it cannot read, is exit 2
+rather than an empty list. The shipped tower profile approves it through
+the tower command guard like any planwright script, provided the tower calls it
+by the resolved literal path (`<root>/scripts/fleet-streamjson.sh pending`, per
+[plugin-script invocation](../doctrine/plugin-script-invocation.md)); a `~` path
+or an unexpanded `$CLAUDE_PLUGIN_ROOT` falls to the permission prompt instead.
+
 Before spawning anything, `launch` proves the auto-approve hook the worker
 will run (`scripts/worker-command-guard.sh` under the plugin root the
 dispatch-env wrapper exports, run through that wrapper so it sees the worker's
@@ -471,7 +725,11 @@ names (Claude Code's `installed_plugins.json` record and its marketplace
 cache). A root the hook does not approve refuses the launch with exit 9,
 naming the root and the command, because the worker would otherwise pend on
 exactly that call with nothing to say so; a hook that is missing or not
-executable, or a proof that could not run at all, refuses the same way.
+executable, or a proof that could not run at all, refuses the same way. So
+does a hook root (the plugin root the wrapper exports) without an executable
+`scripts/policy-guard.sh`: the worker
+profile leaves merges and history rewrites to that guard, and a hook that
+cannot run refuses nothing.
 `PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT` is `refuse` by default; `warn`
 downgrades every refusal to a warning and launches, `off` skips the proof, and
 any other value is a usage error. The installed roots the proof covers are
@@ -511,9 +769,14 @@ deterministically and will never succeed from that process.
 A repeat stop takes exactly what is still held, so
 `already-closed` means every class is free and nothing was signalled; a repeat
 after a partial close retries only the remainder. A stop does not remove the
-worker's dispatch registry record, and nothing reconciles that record yet, so
-`fleet-status.sh` keeps listing a stopped worker until the periodic reconcile
-this bundle plans lands.
+worker's dispatch registry record: the periodic sweep retires it, marked
+closed, once the worker's death evidence is positive, and until then
+`fleet-status.sh` keeps listing the stopped worker.
+
+`stop <worker> --observe` runs the same checks and releases nothing: it prints
+`stop <worker> would-release=<classes>` for what a close would take now, or
+`already-closed`, and exits `0`. The periodic sweep's observing mode records
+its would-have closes from it.
 
 Two adjacent refusals ship with the verb. `recover` breaks a `recover.lock`
 whose holder is gone, so one hard kill mid-recovery no longer disables recovery
@@ -522,6 +785,53 @@ a worker that already has one in flight is refused with exit 3 rather than
 orphaning the first supervisor. The same refusal covers a worker whose state
 still records a live process, which includes a live worker under a dead
 supervisor — that case wants `recover`, not a second `launch`.
+
+The headless rung closes the same way: `fleet-dispatch-headless.sh stop
+<worker> [--repo-root <dir>] [--grace <secs>] [--expect-dir <dir>] [--observe]` takes the handle `launch`
+printed (`headless-<spec>-task-<id>`) and gives the same results, the same exit
+codes, and the same refusals, because both verbs run one shared close
+(`scripts/fleet-stop-lib.sh`) and one fixture table pins it on both rungs
+(`tests/lib/fleet-stop-table.sh`). What differs is only what each rung
+acquires. The headless runner takes no lock of its own, so its release set is
+the process tree, the completion write's staging temp, and the attention
+record; the prompt, the captured result, and `stderr.log` are the run's record
+and are kept. A unit the close terminated reads `completed 143` in `status`,
+the record the runner writes when it is terminated gracefully, so a
+re-dispatch reclaims it like any finished unit. A unit whose run had already
+ended keeps its own record, a `died` verdict included. Unlike the stream-json
+close, this one never clears the runner's pid file, which `status` and the
+launch guard still read; instead the file seeds a close only on a host whose
+`ps` truncates argv, and never once the unit carries a record. On a host whose
+`ps` shows full argv a pid the host has since reissued is therefore never
+signalled; on one that truncates it, the file is the only way to find a live
+runner, and a dead runner's reissued pid can still be reached.
+
+The two session-grade rungs, verb by verb:
+
+| Lifecycle operation | `stream-json-persistent` (`fleet-streamjson.sh`) | `headless-oneshot` (`fleet-dispatch-headless.sh`) |
+| --- | --- | --- |
+| Open | `launch <worker> <scope> --prompt-file <file>` | `launch <spec> <id> --worktree <dir>` |
+| Liveness and completion | `status <worker>` | `status <spec> <id>` |
+| Close | `stop <worker> [--grace <secs>] [--observe]` | `stop <worker> [--repo-root <dir>] [--grace <secs>] [--expect-dir <dir>] [--observe]` |
+| Resume a crashed worker | `recover <worker>` | none: a one-shot is re-dispatched, not resumed |
+| Read a pending prompt | `pending [<worker>...]` | none: a one-shot has no pend path |
+| Answer a pending prompt | `answer <worker> <request-id>` | none: a one-shot has no pend path |
+| Steer in flight | `steer <worker>` | none: the rung advertises no steer |
+
+The first three rows are the lifecycle, and both rungs expose all three. The
+rest follow from what each rung advertises in the capability contract, not from
+a missing close.
+
+`steer` is the primary steer on the stream-json rung: a tower message becomes a
+user turn on the worker's own stdin, under the same `[planwright tower relay ->
+<worker>]` header the tmux relay pastes, read from a file so its text is never
+part of a command. Never write a frame into a worker's `in.fifo` by hand. The
+worker reads one JSON line at a time, so a frame missing its newline runs into
+the next one and kills it. Every frame the supervisor writes, `steer`'s,
+`answer`'s, and the launch prompt, is checked before any byte is written: one
+newline-terminated line, no raw control byte, a valid JSON object nested at
+most 512 levels deep. A frame that fails is refused with exit 2 and nothing is
+written.
 
 **Where the capture lives, and the secret-scan surface.** Each worker's
 event-stream capture (`events.jsonl`, plus its stderr log, session id,
@@ -629,8 +939,8 @@ protocol lives in
 Long fleet runs manage their own context instead of quietly degrading:
 
 - **Per-step isolation** (`dispatch_isolation: per-step`, the default): a
-  unit's implementation and each configured review skill run in their own
-  fresh session seeded by `/resume`, so context stays bounded and each
+  unit's implementation and each step the convergence point runs take their
+  own fresh session seeded by `/resume`, so context stays bounded and each
   review's perspective is uncontaminated by the step before it. Backends that
   cannot spawn fresh sessions approximate it with context clears. `per-unit`
   keeps the whole unit in one session for constrained hosts.
@@ -864,8 +1174,41 @@ its own branch — its conflict resolution, its post-merge sync. No tower ever
 edits another tower's or worker's branch state. Messages *into* a live worker
 go through the attributed relay: clearly marked as tower-origin, delivered by
 a paste mechanism that cannot be mistaken for the worker typing, and **never**
-answering a worker's harness permission prompt — a worker's authorization
-gate belongs to the human at every tier.
+answering a worker's harness permission prompt on the tower's own judgment —
+a worker's authorization gate belongs to you at every tier. The one answer a
+tower records there is yours: a standing decision you wrote that the prompt
+falls strictly inside (see
+[what the fleet decides without you](#what-the-fleet-decides-without-you-and-what-it-never-does)).
+
+**Pick the relay target explicitly, never by the active pane.** The handle
+`orchestrate-relay.sh relay-command` takes must be one you name, or a peer
+tower that `scripts/fleet-presence.sh discover` reports `live`, addressed by
+the `tmux-window` handle its presence record publishes. `discover` prints the
+peer's tower id but not that handle: read it from the record, the file named
+by the tower id in the directory `scripts/fleet-presence.sh surface --checkout
+<repo-root>` prints, whose ninth tab-separated field
+`tmux-window <session> <window>` is the target `<session>:<window>`. A record
+whose handle is `process <pid>` (a tower not under tmux) names no window to
+relay to: its target has to be one you name. Never
+derive it from tmux's `pane_active` flag or "the active pane of the planwright
+window": a tower that is closing keeps its pane, and its input line, until the process
+exits, so the active pane can be a stale session rather than the live one.
+A window-level target resolves to that window's active pane, so where a window
+holds more than one pane, address the pane by its `%` id. Read the target with
+`observe-command` before anyone submits the paste. `live` means only that the
+published tmux window still exists, not that the session in it will read the
+paste: a tower partway through closing still passes, and a pane capture
+carries no colour, so it cannot tell a dimmed prompt suggestion from typed
+input. When there is any doubt which session is the live one, ask the operator
+to name the target.
+
+**A paste stages; one Enter submits it.** The tmux relay loads its pointer
+line with no trailing newline, so the paste never submits itself and a single
+Enter in the receiving session submits it. The relay never sends that
+keystroke: pressing it stays a human's act. Keep it unterminated: `paste-buffer` sends a trailing
+newline as a carriage return, which Claude Code takes into a long paste as a
+hidden newline in the input box, so the first Enter is spent on it and only a
+second one submits.
 
 ## Ghost-text prevention: keeping pane captures unambiguous
 
@@ -1048,7 +1391,8 @@ masked. `crash-check` consults the operator kill-switch
 (`fleet_daemon_pause`) before authorizing any relaunch; bookkeeping and
 escalation are deliberately not gated (pausing the record of what happened
 would hide problems). Backoff and disable actions log through the audit
-trail; a human clears the streak with `crash-reset`. A disable is also a unit's
+trail; a human clears the streak with `crash-reset`, and `crash-count` reads
+it without changing it. A disable is also a unit's
 terminal state, so `crash-record` reports it to the escalation feedback loop
 when given the identity to report — `--alloc-unit`, `--alloc-key`,
 `--obs-scope` and `--obs-dir`, all-or-none. `/orchestrate`'s reconcile is what
@@ -1067,21 +1411,51 @@ handle dies `fleet_crash_disable_threshold` times, which today takes a human
 re-dispatching it under that same handle. The `completed` half needs no such help. Described with its
 twin where the ledger's feedback loop is covered below.
 
+### Flight lifecycle pushes
+
+A visual flight's three lifecycle events reach the attention store by push from
+the process that caused them, never by a tower polling for them, so they land
+with no tower session running (`scripts/flight-lifecycle.sh push`). The
+guarantee is bounded or surfaced: a push that misses the store says so on the
+pusher's stderr, and the flight sweep still derives the flight's state from its
+branch, worktree, and landing, so a missed push leaves the flight readable on
+demand rather than lost:
+
+| Event | Pushed by | Row written |
+| --- | --- | --- |
+| `dispatch` | `flight-dispatch.sh`, once the flight is placed | `working` (tmux rung), `idle` (print rung, no process until the operator launches it) |
+| `awaiting-decision` | the worker, at a hard pause, as its brief directs | `awaiting-input` with the reason, the one event the decision queue shows |
+| `completion` | the worker, right after it lands, as its brief directs | `pr-ready` (PR landing) or `done` (record landing); the landing reference is kept beside the brief and sent through `notification_channel`, a record landing with its branch |
+
+Each row is the flight worker's own (`tmux-flight-<id>` or `print-flight-<id>`,
+scope `flight:<id>`), so the tower reads flights through the same `render` and
+`queue` as every other worker. Neither status push overwrites a queued
+decision. A retired flight's row is cleared before its brief is removed; a
+clear that fails keeps the brief, so the next sweep retries it.
+
 ### What planwright registers, and the event it deliberately does not
 
 The liveness hooks above are observers: they watch a session and write to the
-attention store, and a session behaves identically whether they fire or not.
+attention store (the flight sweep below, to the derived flight index), and a
+session behaves identically whether they fire or not.
 That is true of every event planwright registers — `PreToolUse`, `PostToolUse`,
 `SessionStart`, `SessionEnd`, `Stop`, `StopFailure`, `Notification`,
 `PermissionRequest`, `UserPromptSubmit`, `WorktreeRemove`. Some of them *can*
 block, but only if a handler explicitly says so; a quiet handler changes
-nothing. The `UserPromptSubmit` handler is the one whose effects a tower can
+nothing. The `UserPromptSubmit` handler is one of two whose cost a session can
 see: in a tower session it stamps the attention marker, appends a `reply` line,
 and waits up to `tower_hook_lock_wait` for the fleet lock before dropping that
 line; that wait is paid on the prompt, on top of the hook's own parsing,
 presence lookup and marker write, so the knob bounds the lock wait rather than
 the whole cost. It still exits 0 on every path, so the prompt goes through
-whatever it did.
+whatever it did. The `SessionStart` flight sweep (`scripts/flight-sweep.sh hook
+session-start`) is the other one with a visible cost: on a fresh start in a
+checkout that has flight branches, outside a worker's session, it reads each
+flight's PR from the forge to refresh the derived flight index, the reads
+together held to about fifteen seconds, so a session start can wait that long
+plus the sweep's local reads (git, and the worker liveness probes). On a host
+with neither `timeout` nor `gtimeout` to bound the PR reads it does nothing. It
+too exits 0 on every path.
 
 `WorktreeCreate` is the exception, and planwright does not register it.
 Registering a hook there **replaces** native git worktree creation: the hook
@@ -1208,6 +1582,178 @@ re-checked by REQ-C1.2's manual half and the REQ-A1.6 deliberate-wedge
 rehearsal, because a silent divergence would degrade the detector to exactly
 the blind spot it exists to close (kickoff risk row 2).
 
+### Reaping a leaked worker: `fleet-cleanup.sh process`
+
+The detector's verdict is what the reap acts on. `scripts/fleet-cleanup.sh
+process <worker> <trigger> <reasoning>` closes a worker whose owning tower is
+gone, whose session died or finished cleanly, and whose process tree has not,
+and refuses
+everything else:
+
+- a `print`-backend unit, which spawned no process (exit `8`);
+- a worker owned by a live peer tower, under any evidence (exit `7`);
+- a worker on a backend with no process close, such as tmux, whose window
+  `window` reclaims (exit `5`);
+- a headless worker whose dispatch record names no state directory (exit
+  `5`). The headless close is bound to that directory, so a handle that
+  resolves to a same-named unit in another checkout is refused, not closed on
+  this one's evidence;
+- anything short of positive evidence on both axes (exit `5`): the owning
+  tower is positively dead, and the session positively ended, by death
+  evidence or a clean completion. Unknown means alive;
+- this tower's own worker (exit `5`), which the tower closes with the rung's
+  `stop` directly;
+- a dead owner's session that ended without finishing cleanly, a failed
+  completion or one with unlanded work (exit `9`). The detector leaves those
+  unclassified for you, and the reap does too.
+
+It passes the paused kill-switch (exit `4`) and malformed input (exit `2`)
+through exactly as the `window` and `worktree` classes do. The close itself
+is the rung's own `stop`, so there is one kill path in the fleet, and a close
+asked for from inside the worker's own tree is the self-target block (exit
+`3`). A reap releases the process only: the fence, the branch, and the
+worktree are untouched, and a strand already surfaced to you stays surfaced,
+because reaping is not reclaiming. Each reap writes one `process-cleanup`
+audit record naming the worker, its owner, the evidence class, and what was
+released. A partial close is exit `5` with a `cleanup-partial` record naming
+what it released and what is still held, written even when nothing came free,
+since the rung may have signalled the tree before finding a class still held;
+a rung that died on a signal mid-close is recorded the same way, its extent
+unreported, as is a partial result line the reap cannot parse. A signal sent
+to the reap itself once the close is under way is held until the close is
+recorded, and the reap then exits `5`. A close that could not be recorded is
+exit `6`.
+
+A reap runs under its worker's **reap lock** (`scripts/fleet-reap-lock.sh`,
+`<fleet-home>/reap-locks/<worker>`), so towers sweeping one fleet close a
+worker once and record one termination. A reap that finds another holding the
+lock stands down with exit `5`, nothing signalled; the holder is closing that
+worker, and a later sweep finds it already closed. The hold belongs to the
+reaping process, so a reaper killed mid-reap leaves a lock the next one breaks
+on its holder's absence. A reap that cannot take the lock at all refuses the
+same way rather than assuming it is alone. Once it holds the lock, the reap
+reads the worker's verdict again and stands down if it changed while it
+waited, so a worker another reaper closed and a tower re-dispatched under the
+same handle is never closed on the old verdict.
+
+`--observe` makes the same decision, refusals and exit codes included, then
+asks the rung's `stop --observe` what a close would take now instead of
+closing. A worker with something to take gets a `would-cleanup` record naming
+`released=none` and the `would-release=` set; one with nothing left is a clean
+no-op. Nothing is signalled either way.
+
+### The periodic sweep: `fleet-sweep.sh`
+
+The tower closes its own workers when their units finish. The sweep is the
+other end: it runs on a schedule, whether or not anything looks wrong, and
+catches what no tower closed, the case that leaks because the tower that
+should have closed it is gone. Nothing waits for a count to look alarming.
+
+```sh
+scripts/fleet-sweep.sh --watch --repo /path/to/repo --tower-id <tower-id>   # every fleet_sweep_interval
+scripts/fleet-sweep.sh --repo /path/to/repo --tower-id <tower-id>           # one cycle
+```
+
+**The sweep runs only from inside a tower.** A tower starts it with its own
+identity, which the reap needs to tell a live peer from a dead owner. Started
+with no tower identity (no `--tower-id`, `PLANWRIGHT_TOWER_ID`,
+`PLANWRIGHT_TOWER_SESSION_ID` or `PLANWRIGHT_TOWER_PID`), the other passes
+still run, but the reap asks nothing of any worker and declines every
+candidate in one line that names why:
+
+```text
+reap     -  declined  no tower identity: all 2 candidate(s) declined; the sweep runs only from inside a tower (...)
+```
+
+The knobs are read from the `--repo` checkout's overlay layers wherever the
+sweep is started. The wait between cycles is never under one second.
+
+Each cycle runs seven passes: the worktree disk scan, so a worktree nothing
+recorded is tracked; the dirty-tree pass; the `tasks.md` reconcile backstop;
+the process reap; the registry reconcile, which heals and retires dispatch
+records from their markers (see *The dispatch record*) and, terminating
+nothing, runs in both modes; the flight residues, which retire a gone
+flight's brief (clearing its attention row) and prune the flight index of a
+checkout that no longer exists; and the flight crash policy, below.
+The registry reconcile follows the reap so a worker closed this cycle is
+retired in the same one, and the flight passes follow the reconcile so the
+dispatch records they read are already settled.
+
+**Flight workers under the crash policy.** `scripts/flight-lifecycle.sh
+supervise` is the last pass. A visual flight's worker is a crash only when the
+shared flight sweep reads it `dead`: positive death evidence and no landing.
+Each death is counted once and relaunched at most once (both claimed
+atomically, keyed by the registry's death handle, so two sweeps racing on one
+death start one worker, and none relaunches it before its count is recorded;
+a count that wrote nothing is retried the next cycle, a relaunch that did not
+start counts as another crash, and a death left `waiting` is warned every
+cycle) through
+`crash-record` under the same `fleet_crash_backoff_base_seconds` and
+`fleet_crash_disable_threshold` knobs as any worker; once `crash-check`
+authorizes it, the worker relaunches into the flight's own worktree and branch
+with its own brief (`fleet-dispatch-worktree.sh dispatch --flight <id>
+--relaunch`, the same guarded launch every dispatch passes, which creates
+nothing and registers the new worker), and at the disable threshold nothing
+relaunches and the disable is a decision-queue entry. Each relaunch and
+disable is audited. The guarantee is bounded or surfaced: a worker whose death cannot be proven (a print-rung
+flight, an unreachable tmux server, a relaunch whose window could not be
+matched) is never relaunched and reads `unknown` in the sweep's render.
+
+The reap hands every worker whose session has ended to `fleet-cleanup.sh
+process`, so it refuses what that refuses and kills only through the rungs'
+`stop`.
+
+**It observes until you promote it.** At the default the reap writes the
+`would-cleanup` record for each worker it would have closed and kills nothing,
+once per worker until that worker's evidence changes or it stops being a
+candidate and comes back, rather than every cycle,
+so the trail shows what promotion would do before it does it. Set
+`fleet_sweep_reap: terminate` in this machine's local overlay to let it close
+them; the value is refused from any shared layer, and from a local file the
+repository itself tracks, reaches through a symlink, or ships inside a nested
+`.claude` repository (the full rule is in the options reference). Set it back,
+or delete it, and the next cycle observes again.
+
+**For now, terminate is refused everywhere.** A stream-json close kills the
+processes named in the pid files the worker left behind. After a crash, the
+host can hand one of those pids to an unrelated process, and a close would kill
+that process and everything under it. Until the close checks that a recorded
+pid still belongs to the worker, a `terminate` set in this machine's local
+overlay is read but not acted on: the sweep observes, writes the same
+`would-cleanup` records, and warns once per cycle that terminate is refused and
+why.
+
+Every cycle the kill-switch lets through prints what it did, one line per
+candidate and a summary (tab-separated; spaced here for reading). A paused
+cycle prints only its warning.
+
+```text
+scan     ok
+reap     <worker>  observed  would-release=process,locks,scratch,attention
+reap     <worker>  declined  refusing '<worker>': it is owned by live peer tower <id>, ...
+summary  mode=observe  workers=4  candidates=2  reaped=0  observed=1  declined=1  already-closed=0  status=ok
+registry heal     <worker>  headless-oneshot
+registry retire   <worker>  process-dead
+registry keep     <worker>  evidence-unknown
+registry refuse   <marker>  refusing marker '<marker>': it names another handle
+registry summary  markers=7  healed=1  retired=1  kept=1  unjudged=1  live=2  refused=1  status=ok
+```
+
+The registry summary's `live` counts alive records their marker still
+matches, the steady state. Its buckets need not add up to `markers`: a
+retired record's leftover marker being finished, and a marker whose step
+failed (which turns `status` to `degraded`), land in none of them.
+
+A declined candidate carries the refusal the reap gave, so a sweep that turned
+everything down never reads like one that found nothing. A close that acted
+counts as reaped whatever came of it: `partial` when something is still held,
+`unrecorded` when the audit write failed, which also turns the summary's
+`status` to `degraded`. A kill-switch set mid-pass reports the remaining
+candidates `paused`. The tower's own workers are declined too: it closes
+them with the rung's `stop`.
+`fleet_daemon_pause` pauses the whole cycle. A sweep stopped by a signal,
+one cycle or a watch loop, leaves no temp file behind in the fleet home.
+
 ## Resource governance: models, throttling, and the auto-mode line
 
 Three deterministic mechanisms govern what a dispatched unit costs and what it
@@ -1226,11 +1772,11 @@ haiku`), the effort column (`fleet_effort_*` — `low | medium | high`), and the
 command column (`fleet_command_*` — the dispatch-entry set `execute-task |
 orchestrate | drain`). The shipped defaults preserve today's table, so an
 operator who configures nothing gets today's mapping. The selectable command
-set is disjoint from `review_sequence`'s nestable-review-skill set by
-construction — the `fleet_command_*` enum is exactly the non-nestable
-dispatch-entry set, so an out-of-enum command is refused at every overlay layer
-(REQ-E1.2), and the dispatch table and the convergence knob can never both claim
-the same skill.
+set is disjoint from the steps a point may run by construction — the
+`fleet_command_*` enum is exactly the dispatch-entry set, each member a
+pipeline entry the step resolver refuses as a step target, so an out-of-enum
+command is refused at every overlay layer (REQ-E1.2), and the dispatch table
+and the convergence point can never both claim the same skill.
 
 The table itself now lives in `scripts/allocation-select.sh`, generalized so
 any launch point can resolve through one resolver rather than fleet dispatch
@@ -1385,7 +1931,7 @@ byte-identical to `fleet-allocate.sh`'s — pinned field by field in the tests
 across every rung and with the signal both present and absent.
 
 Turn it on and a tier moves only on **work-shaped** events, passed as `--event`:
-a step failure or retry, a flailing classification, review-sequence
+a step failure or retry, a flailing classification, convergence-point
 non-convergence, or a worker petition. The list is a closed allowlist —
 infrastructure trouble (an audit write error, a config hard-fail, a backend
 launch error) is *refused* rather than counted, because no model tier fixes it
@@ -1594,7 +2140,8 @@ nothing added:
   no observable change), Agent-resolvable findings (backed by a
   failing-then-passing regression test plus green CI), Needs-sign-off
   applications (the fix lands on the branch per the gate's commit discipline,
-  its own commit for a behavior fix or the loop iteration's batched prose
+  its own commit for a behavior fix (or one green commit shared with findings it
+  cannot be isolated from) or the loop iteration's batched prose
   commit for a prose-only one; your approval happens at PR review, where you
   leave the commit or reject with what its pending-sign-off checklist entry
   names), and pre-approved operational hygiene (reclaiming merged workers,
@@ -1606,6 +2153,44 @@ nothing added:
   items, not as silent defaults.
 - **Never, on any rung, at any tier:** auto-merge. The draft-to-ready flip and
   the merge are yours, permanently.
+
+### Standing decisions
+
+Tell a tower "always" or "from now on" and it records a **standing
+decision**: your rule in your own words, what it covers, and when you said it.
+It lives with your other captured requests (machine-local until the
+action-item ledger ships), is never delivered to you as an item, and stays in
+force until you tell the tower to drop it.
+
+**What one may cover.** Two shapes, and they behave differently:
+
+- **Worker commands**, given as literal command prefixes (`mise run check`,
+  `git status`). This is the only shape that settles anything by itself: when
+  a worker stops at a harness permission prompt, the tower records your rule as
+  the answer, through the same channel your own answers use, only if the
+  prompt's command starts with one of your prefixes exactly (compared as
+  text, never as a pattern), is followed by a space or the end of the command
+  (end your prefix with a space to allow any continuation), and continues with
+  nothing but plain arguments — letters, digits, `._/@:=+-`, spaces, and
+  quoted strings. A pipe, a redirect, a `;`, a substitution, or anything else
+  outside that set sends the prompt to you instead. The answer names your rule,
+  and the item closes only once that channel has accepted it.
+- **Anything else**, in free text ("don't bother me about lint-only PRs").
+  These never settle anything on their own. The tower brings the rule up
+  beside an open item on the same subject and says which rule it is applying.
+
+**What one may not cover.** A merge or pull, a ready-flip, a force-push, an
+amend, a squash, a fixup, a rebase, a git or gh alias, a `gh api` call that
+can write (GraphQL, a field or input, or any method but GET), or a push to
+`main`, `master`, or a spec branch. Those stay yours on every
+occasion: the tower refuses to record a rule that reaches one, and refuses
+again at match time whatever a rule's wording claims.
+
+A permission prompt outside every rule you wrote reaches you. The tower never
+answers one on its own judgment, and mentioning a prompt in passing is not
+you deciding it. Command text shown to you for approval is plain ASCII; any
+other byte is shown as an escape with a warning, so you never approve text
+that renders as something else.
 
 ## The knobs: capability in core, value in overlay
 
@@ -1625,7 +2210,18 @@ are in the [options reference](options-reference.md).
 | `notification_channel` | The notification seam (the decision queue itself is always on; this knob only selects what is pushed) | Which channel pushes at you (`none` / `tmux-popup` / `os-notify` / `editor-toast` / `statusline` / `push`) | `none` — pull-only, dependency-free, nothing fires until you opt in |
 | `fleet_model_execution` / `fleet_model_bookkeeping` / `fleet_model_drain` | The task-type-keyed model/effort/command rule table (deprecated fallback behind the `allocation_model_*` family) | Which model each dispatch tier runs | `opus` / `sonnet` / `sonnet` — judgment-heavy work on the strong tier, mechanical work cheaper |
 | `allocation_model_*` / `allocation_effort_*` / `allocation_command_*` | The general, surface-agnostic selection resolver | Which model, effort, and command each selection key resolves to; keyed for every launch point, and every launch point planwright ships now reads it (fleet dispatch by task type; single-spec dispatch, per-step sessions, and offload by surface), applying each dimension only as far as the launching backend's advertised `tier_control` allows and recording any inheritance | `unset` at the fleet task types (the `fleet_*` fallback stays in charge) and `inherit` at the three non-fleet surfaces — configure nothing, observe no change |
+| `fleet_sweep_interval` | The periodic sweep's schedule: scan, dirty-tree pass, reconcile backstop, process reap | How often the watch loop runs a cycle | `10m` — often enough that a leak is caught within minutes, cheap enough to run all day |
+| `fleet_sweep_reap` | The sweep's process reap, with an observing mode that records what it would close | Whether this machine's sweep terminates leaked workers | `observe` — kills nothing and records what it would have closed; only this machine's local overlay can switch it to `terminate` |
 | `fleet_throttle_default_hold` | Reactive rate-limit throttling with a bounded degrade | The fallback hold when a reset time cannot be parsed | `300` — bounded and short; a real signal re-fires and re-engages if the limit still holds |
+| `tower_quiet_interval` | Away detection per tower conversation: a knock or hand-over unanswered this long marks you away there, and the next delivery knocks again | How long you may leave a hand-over before a tower treats you as away | `10m` — a knock is never repeated on a schedule, so this only decides when the next one may come |
+| `tower_lease_interval` | The delivery lease's backstop: it voids a hand-over nobody acknowledged so the item can be delivered again; release is otherwise by event (your answer, "later", settling), and an attended tower takes over sooner, once the holder has been quiet for `tower_quiet_interval` | How long an unacknowledged hand-over stands | `15m` — above the quiet interval, which it may never go below, so an attended conversation never loses the item it holds |
+| `tower_reknock_age` | The away push's second and last reminder for a blocked item | How long a blocked worker waits before you are reminded once more | `30m` — one reminder per departure, never a schedule |
+| `tower_shelve_return` | How long "later" parks an item | Your snooze length | `1h` — a shelved item always comes back; shelving never drops one |
+| `tower_catchup_limit` | Retention: the closed items the queue keeps, and the settled ones the catch-up shows before a remainder count | How much history the catch-up carries | `20` — bounded (capped at 500); older history stays in the event log |
+| `tower_tick_gap_max` | The scorecard's fleet-hours denominator: a gap between a tower's ticks longer than this is left out and reported | What counts as a tower being down rather than idle | `10m` — a stopped tower's silence is reported as a gap, never counted as fleet time |
+| `tower_log_rotate_age` | Event-log rotation, floored at the report window | How long the log keeps its lines | `30d` — well past the report window, so the scorecard never reads a rotated-out stretch |
+| `tower_report_window` | The window the scorecard reads | How far back the scorecard looks | `7d` — a week of sessions |
+| `tower_hook_lock_wait` | The fleet-lock wait for every queue write and the reply hook's log line (the reads take no lock); at expiry the hook drops its log line rather than delay your prompt | How much a busy lock may cost your prompt | `2s` — bounded; the attention stamp is written without the lock, so a dropped log line never loses the attention stamp |
 
 Style values never gate capability: every knob's default keeps the full
 pipeline functional, and raising richness (a richer backend, a push channel,

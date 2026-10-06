@@ -81,6 +81,25 @@ else
   fail "the wired hook script $HOOK_REL does not exist (REQ-C1.1)"
 fi
 
+# --- human-gates REQ-G1.5: the policy guard, wired with the tower tier ------
+# The deny-emitting policy guard learns its tier from this argument, so the
+# tier word is part of the wiring: under the Bash matcher and under the MCP
+# flip tool, in the same spelling as the command guard.
+for pg_wire in 'Bash|tower bash' 'mcp__github__update_pull_request|tower mcp'; do
+  pg_matcher=${pg_wire%%|*}
+  pg_args=${pg_wire#*|}
+  if jq -e --arg m "$pg_matcher" --arg a "$pg_args" '
+    (.hooks.PreToolUse // [])
+    | map(select(.matcher == $m))
+    | map(.hooks[]? | select(.type == "command") | .command)
+    | any(. == ("\"${CLAUDE_PLUGIN_ROOT}\"/scripts/policy-guard.sh " + $a))
+  ' "$tower_settings" >/dev/null 2>&1; then
+    ok "tower-settings wires the policy guard on $pg_matcher as '$pg_args' (human-gates REQ-G1.5)"
+  else
+    fail "tower-settings does not wire \"\${CLAUDE_PLUGIN_ROOT}\"/scripts/policy-guard.sh $pg_args on $pg_matcher (human-gates REQ-G1.5)"
+  fi
+done
+
 # --- REQ-C1.1: defaultMode stays `default` (never auto) ----------------------
 mode="$(jq -r '.permissions.defaultMode // empty' "$tower_settings")"
 if [ "$mode" = "default" ]; then
@@ -149,7 +168,7 @@ require_deny "deny MCP delete_file default-branch write (REQ-C1.2d)" "mcp__githu
 # object-key order but preserves array order, so a reorder or accidental
 # perturbation fails here. A legitimate future change updates this pinned list in
 # the same commit.
-expected_deny='["Bash(gh pr merge:*)","Bash(gh pr ready:*)","Bash(git merge:*)","Bash(git rebase:*)","Bash(git commit --amend:*)","Bash(git commit --squash:*)","Bash(git commit --fixup:*)","Bash(git reset --hard:*)","Bash(git filter-branch:*)","Bash(git filter-repo:*)","Bash(git branch -f:*)","Bash(git branch --force:*)","Bash(git update-ref:*)","Bash(git worktree add --force:*)","Bash(git worktree add -f:*)","Bash(git worktree add * --force*)","Bash(git worktree add * -f*)","Bash(git worktree add --detach:*)","Bash(git worktree add * --detach*)","Bash(git worktree add -b main:*)","Bash(git worktree add * -b main)","Bash(git worktree add * -b main *)","Bash(git worktree add -B main:*)","Bash(git worktree add * -B main)","Bash(git worktree add * -B main *)","Bash(git worktree add * main)","Bash(git worktree add * main *)","Bash(git worktree add *refs/heads/main)","Bash(git worktree add *refs/heads/main *)","Bash(git worktree add *heads/main)","Bash(git worktree add *heads/main *)","Bash(git worktree add *origin/main)","Bash(git worktree add *origin/main *)","Bash(git worktree remove --force:*)","Bash(git worktree remove -f:*)","Bash(git worktree remove * --force*)","Bash(git worktree remove * -f*)","Bash(git worktree move * --force*)","Bash(git worktree move --force:*)","Bash(git worktree move * -f*)","Bash(git worktree move -f:*)","Bash(git push --force:*)","Bash(git push --force-with-lease:*)","Bash(git push --force-with-lease=*)","Bash(git push -f:*)","Bash(git push * --force*)","Bash(git push * -f*)","Bash(git push *+*)","Bash(git push *:main)","Bash(git push *:main *)","Bash(git push * main)","Bash(git push * main *)","Bash(git push *refs/heads/main)","Bash(git push *heads/main)","Bash(git push *heads/main *)","Bash(git push --mirror:*)","Bash(git push * --mirror*)","Bash(git push --all:*)","Bash(git push * --all*)","Bash(git -c * push:*)","mcp__github__merge_pull_request","mcp__github__update_pull_request","mcp__github__push_files","mcp__github__create_or_update_file","mcp__github__delete_file"]'
+expected_deny='["Bash(gh pr merge:*)","Bash(gh pr ready:*)","Bash(git merge:*)","Bash(git pull:*)","Bash(git rebase:*)","Bash(git commit --amend:*)","Bash(git commit * --amend*)","Bash(git commit --squash:*)","Bash(git commit --squash*)","Bash(git commit * --squash*)","Bash(git commit --fixup:*)","Bash(git commit --fixup*)","Bash(git commit * --fixup*)","Bash(git commit --am*)","Bash(git commit * --am*)","Bash(git commit --sq*)","Bash(git commit * --sq*)","Bash(git commit --fix*)","Bash(git commit * --fix*)","Bash(git reset --hard:*)","Bash(git filter-branch:*)","Bash(git filter-repo:*)","Bash(git branch -f:*)","Bash(git branch --force:*)","Bash(git update-ref:*)","Bash(git worktree add --force:*)","Bash(git worktree add -f:*)","Bash(git worktree add * --force*)","Bash(git worktree add * -f*)","Bash(git worktree add --detach:*)","Bash(git worktree add * --detach*)","Bash(git worktree add -b main:*)","Bash(git worktree add * -b main)","Bash(git worktree add * -b main *)","Bash(git worktree add -B main:*)","Bash(git worktree add * -B main)","Bash(git worktree add * -B main *)","Bash(git worktree add * main)","Bash(git worktree add * main *)","Bash(git worktree add *refs/heads/main)","Bash(git worktree add *refs/heads/main *)","Bash(git worktree add *heads/main)","Bash(git worktree add *heads/main *)","Bash(git worktree add *origin/main)","Bash(git worktree add *origin/main *)","Bash(git worktree remove --force:*)","Bash(git worktree remove -f:*)","Bash(git worktree remove * --force*)","Bash(git worktree remove * -f*)","Bash(git worktree move * --force*)","Bash(git worktree move --force:*)","Bash(git worktree move * -f*)","Bash(git worktree move -f:*)","Bash(git push --force:*)","Bash(git push --force-with-lease:*)","Bash(git push --force-with-lease=*)","Bash(git push -f:*)","Bash(git push * --force*)","Bash(git push * -f*)","Bash(git push *+*)","Bash(git push *:main)","Bash(git push *:main *)","Bash(git push * main)","Bash(git push * main *)","Bash(git push *refs/heads/main)","Bash(git push *heads/main)","Bash(git push *heads/main *)","Bash(git push *:master)","Bash(git push *:master *)","Bash(git push * master)","Bash(git push * master *)","Bash(git push *heads/master)","Bash(git push *heads/master *)","Bash(git push *:planwright/*/spec)","Bash(git push *:planwright/*/spec *)","Bash(git push * planwright/*/spec)","Bash(git push * planwright/*/spec *)","Bash(git push *heads/planwright/*/spec)","Bash(git push *heads/planwright/*/spec *)","Bash(git push --mirror:*)","Bash(git push * --mirror*)","Bash(git push --all:*)","Bash(git push * --all*)","Bash(git push --mi*)","Bash(git push * --mi*)","Bash(git push --al*)","Bash(git push * --al*)","Bash(git push --b*)","Bash(git push * --b*)","Bash(git push * : *)","Bash(git -c * push:*)","mcp__github__merge_pull_request","mcp__github__update_pull_request","mcp__github__push_files","mcp__github__create_or_update_file","mcp__github__delete_file"]'
 actual_deny="$(jq -cS '.permissions.deny' "$tower_settings")"
 if [ "$actual_deny" = "$(printf '%s' "$expected_deny" | jq -cS .)" ]; then
   ok "the deny block matches the pinned tower baseline (REQ-C1.2, REQ-E1.4)"

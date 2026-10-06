@@ -17,26 +17,51 @@ supervisory control) that agent tooling generally ignores.
 
 ## The four parts
 
-The capability is four cooperating pieces, all implemented by
+The capability is four cooperating pieces (the seam counting as one with its
+session-side relay), all implemented by
 [`scripts/fleet-attention.sh`](../scripts/fleet-attention.sh):
 
 - **Heartbeat / awareness state.** A per-worker current-state store, keyed by
   worker handle: the worker's scope (spec + unit), its state, a commit-time
   heartbeat timestamp, and — when it is blocked — the structured decision it waits
-  on. It is a *state store*, not a log: one row per worker, last write wins
-  (`heartbeat`, `decide`, `clear`).
+  on. It is a *state store*, not a log: one row per worker, last write wins.
+  Its writers: `heartbeat` (a plain state), `decide` (a structured decision),
+  `fork` (an answerable decision with a labeled option set and an instance
+  id), `park` (a fork-park carrying only its reason), `permission` (a harness
+  permission prompt, marked in field 9 with its command in field 12, written
+  by the `PermissionRequest` hook), `claim` (stamps the answer that closes a
+  fork, first answer wins, or with `--standing` a permission record), and
+  `clear` (removes the row at teardown).
 - **The portable status renderer** (`render`). Lists each worker's scope and
   state. It is substrate-agnostic: it reads the store, so it renders identically
   from a plain terminal, a detached-multiplexer popup, or an editor panel.
+  `--on-change <key>` is the watch loop's form: it shows ages as coarse buckets
+  and renders in full only when the text it would print differs from what that
+  key last printed in full, so a stalled worker resurfaces as its age crosses a
+  bucket; otherwise it prints nothing or a periodic liveness line.
 - **The decision queue** (`queue`). One ordered queue of the **actionable** items
   across all active specs — the workers in the `awaiting-input` state — each
   rendered as a structured choice (scope, question, recommended default, options).
   Non-actionable signal (working / idle / hung / ended / pr-ready / merged /
   done) is suppressed. Its
-  length tracks the `## Awaiting input` count, not the worker count.
-- **The notification seam** (`notify`). Pushes a one-line summary through the
-  resolved channel. The seam is core; the specific channel is the overlay value
-  (below).
+  length tracks the `## Awaiting input` count, not the worker count. One
+  narrowing, caller-named and never stored: `--except <worker>` leaves a row out
+  of that render for one call, so a turn that has just handed the operator a
+  question does not also list it (tower-comms REQ-A1.1). The count the queue
+  reports is not narrowed — a hand-over does not close an entry — and nothing
+  derived from a store may narrow the render either, because a stored
+  suppression outlives the conversation that earned it. The one stored record
+  allowed is `--on-change`'s, and only because its key is the calling loop's
+  presence identity, which pins the process start time: it never withholds a
+  pending decision, since one re-raised in the same words renders identically,
+  and withholds only an empty queue from the loop that already saw it empty.
+- **The notification seam** (`notify`), and its session-side other half
+  (`relay`). The seam pushes a one-line summary through the resolved channel.
+  Where the channel has no transport a script can call — the `push` channel,
+  whose tool only a session can reach — the seam writes a marker and `relay`
+  hands the pending set to a session under the fleet lock, taking each marker as
+  it prints it so two sessions cannot raise the same alarm twice. The seam is
+  core; the specific channel is the overlay value (below).
 
 ### The worker states
 
@@ -53,16 +78,34 @@ A worker's scope pairs with exactly one **store state**:
   verdict that lands here as an `awaiting-input` escalation, never a stored
   state.
 - **`awaiting-input`** — blocked on a human decision. This is the one state that
-  carries a structured decision, so it is set only by `decide`, never by a bare
-  `heartbeat`. Each `awaiting-input` record is one decision-queue item and mirrors
-  one `## Awaiting input` entry in the owning spec's `tasks.md`.
-- **`pr-ready`** — a draft PR is up; the human's reserved review/merge is pending,
-  but planwright surfaces it as status, not as a queue decision (merge is never a
-  planwright action).
+  carries a decision, so it is set only by `decide`, `fork`, `park`, or
+  `permission`, never by a bare `heartbeat`. Each `awaiting-input` record is one
+  decision-queue item and mirrors one `## Awaiting input` entry in the owning
+  spec's `tasks.md`.
+- **`pr-ready`** — a PR is up and its merge is pending,
+  but planwright surfaces it as status, not as a queue decision (a merge happens
+  only under the merge policy [Human Gates](human-gates.md) states).
 - **`merged` / `done`** — terminal; surfaced as status, then cleared on teardown.
 
 Only `awaiting-input` is actionable, which is what makes the queue length track
 the `## Awaiting input` count rather than the worker count.
+
+### Readers
+
+Besides this script's own `render` and `queue`, the store's readers include the
+fleet-autonomy classifier (above), the backend-agnostic status view
+(`scripts/fleet-status.sh`), the awaiting-input watcher
+(`scripts/fleet-attention-watch.sh`), the tower loop's comms step, which
+renders a handed-over question from its row, and the **sibling operator queue**
+([`scripts/tower-queue.sh`](../scripts/tower-queue.sh), tower-comms D-2), which
+sits above this store and consumes it as one of its inputs. A worker's question
+and a piece of news keep their content here; the operator queue holds only an
+index record pointing at the row, checks that row at every pass (re-forked,
+answered, or gone), and matches a written standing decision against a
+permission record's field-12 command only. It writes no row itself: a permission
+prompt it settles by rule is recorded through `claim --standing`, the one
+sanctioned answer channel. The store keeps its one-row-per-worker shape and its
+writers above; the operator-facing layer is separate.
 
 ## Alarm rationalization
 
@@ -109,7 +152,14 @@ the specific *channel* is overlay-owned, resolved through the four config layers
 - **`statusline`** — the derived fleet stats rendered natively in the operator's
   own Claude Code terminal via its `statusLine` feature (fleet-autonomy D-14).
   Pull-shaped: Claude Code invokes the renderer on its own schedule, so the
-  `notify` push seam is a no-op for it.
+  `notify` push seam is a no-op for it. The same line carries the operator
+  queue's `waiting` field while a tower has published its presence
+  (tower-comms D-17).
+- **`push`** — session-relayed (tower-comms D-19): `notify` writes a
+  pending-push marker under the fleet home, deduped per key under the lock, and
+  the tower loop's `relay` hands it to the session, which calls Claude Code's
+  push-notification tool (desktop, and phone under Remote Control). Outside a
+  tower loop nothing relays and the markers wait.
 
 Each persona resolves as a combination of the two seams — an execution backend
 times an attention surface, never a separate system; the full persona mapping

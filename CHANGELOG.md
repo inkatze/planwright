@@ -1,5 +1,160 @@
 # Changelog
 
+## [0.53.0](https://github.com/inkatze/planwright/compare/v0.52.0...v0.53.0) (2026-10-05)
+
+
+### Features
+
+* **tower:** flight lifecycle pushes and the crash policy for flight workers ([#579](https://github.com/inkatze/planwright/issues/579)) ([36e1daa](https://github.com/inkatze/planwright/commit/36e1daa320032b93898c94a45568dc18a310ff0f))
+
+## [0.52.0](https://github.com/inkatze/planwright/compare/v0.51.0...v0.52.0) (2026-10-05)
+
+
+### Features
+
+* **dispatch:** launch the tmux worker detached, with its safety arms ([#581](https://github.com/inkatze/planwright/issues/581)) ([7fd70ee](https://github.com/inkatze/planwright/commit/7fd70ee448783d3f8a95a4e5fab222fdca123960))
+* **spec:** worker-permission-ergonomics extension kickoff sign-off ([#582](https://github.com/inkatze/planwright/issues/582)) ([81fe6eb](https://github.com/inkatze/planwright/commit/81fe6eb423eb4ea43a5ecf9f093845b4b2e09b80))
+
+
+### Bug Fixes
+
+* **orchestrate:** count dispatch markers across worktrees of a repository ([#576](https://github.com/inkatze/planwright/issues/576)) ([db3fff7](https://github.com/inkatze/planwright/commit/db3fff78e4ca701bdb170b5aa6b1454ef150a752))
+* **relay:** stage the tmux relay paste unterminated so one Enter submits it ([#571](https://github.com/inkatze/planwright/issues/571)) ([e933587](https://github.com/inkatze/planwright/commit/e9335871f2c4596538264e6b9b7e771282c3604a))
+* **scripts:** restore the executable bit on ready-flip.sh and guard script modes ([#577](https://github.com/inkatze/planwright/issues/577)) ([2a3c028](https://github.com/inkatze/planwright/commit/2a3c028032b2f5175db1b2b8613edbccc4f68c46))
+
+## [0.51.0](https://github.com/inkatze/planwright/compare/v0.50.0...v0.51.0) (2026-10-04)
+
+
+### Features
+
+* **human-gates:** add the ready-flip helper and its wiring ([#557](https://github.com/inkatze/planwright/issues/557)) ([732a63a](https://github.com/inkatze/planwright/commit/732a63a7cfa122337440db2d5b49fd7bc109a19b))
+
+
+### Bug Fixes
+
+* **custom-steps:** resolve every point in one pass so the guard fits its deadline ([#561](https://github.com/inkatze/planwright/issues/561)) ([783c2ac](https://github.com/inkatze/planwright/commit/783c2ac6b24448ea53d40d970bd23a4562e59ae8))
+* **orchestrate-state:** hold a task whose remote branch carries unmerged work ([#569](https://github.com/inkatze/planwright/issues/569)) ([a29b4f1](https://github.com/inkatze/planwright/commit/a29b4f1ca710392dcb91f68edd26aa65b3502929))
+* **ready-flip:** address the cubic findings on the ready-flip helper ([#565](https://github.com/inkatze/planwright/issues/565)) ([c49d28d](https://github.com/inkatze/planwright/commit/c49d28d6a1403414e888bd7615c186191369e552))
+* **skills:** issue one plain command per Bash call in dispatched runs ([#568](https://github.com/inkatze/planwright/issues/568)) ([df191ae](https://github.com/inkatze/planwright/commit/df191ae839cf7d6da7fedd80006910a161b7d55b))
+* **step-record:** take run ids and records under lock-lib ([#563](https://github.com/inkatze/planwright/issues/563)) ([52326ef](https://github.com/inkatze/planwright/commit/52326ef14de49dd39205478664109c98bdf4c32a))
+* **tests:** make the permission-matcher test parse under bash 3.2 ([#567](https://github.com/inkatze/planwright/issues/567)) ([8b38f4a](https://github.com/inkatze/planwright/commit/8b38f4a7e6e2b00b5681cc381c534699f9804562))
+
+## [0.50.0](https://github.com/inkatze/planwright/compare/v0.49.0...v0.50.0) (2026-10-02)
+
+
+### Features
+
+* **fleet:** deliberate-wedge lifecycle rehearsal ([#553](https://github.com/inkatze/planwright/issues/553)) ([6edf026](https://github.com/inkatze/planwright/commit/6edf0260bb749377d10f291d1ddaaa41feeeffc9))
+* **fleet:** dispatch-record reconcile and multi-tower adversarial suite ([#550](https://github.com/inkatze/planwright/issues/550)) ([a885467](https://github.com/inkatze/planwright/commit/a88546746a2279d8fa1328d74dfcbc789d72a341))
+* **guards:** add the policy guard and the profile floor ([#549](https://github.com/inkatze/planwright/issues/549)) ([af2690c](https://github.com/inkatze/planwright/commit/af2690c9044dd271c3e814d3deb8a78c68aac5d6))
+* **skills:** sign-off prose in the gate-wired skills ([#552](https://github.com/inkatze/planwright/issues/552)) ([fffadbe](https://github.com/inkatze/planwright/commit/fffadbe15627ce0be526474e6a85c198f0a8e66f))
+* **spec-location:** migrate the script callers onto the resolved spec root ([#548](https://github.com/inkatze/planwright/issues/548)) ([dee2dea](https://github.com/inkatze/planwright/commit/dee2dea6add7603d1436323c4e40553efec5bba1))
+* **tower:** shared flight sweep and its derived index (tower-front-door task 7) ([#539](https://github.com/inkatze/planwright/issues/539)) ([cb58e33](https://github.com/inkatze/planwright/commit/cb58e3392d49284ed3bdcc6d09aa6ff6fc8c3e3c))
+* **worker-guard:** approve declared command step lines ([#551](https://github.com/inkatze/planwright/issues/551)) ([be85b5e](https://github.com/inkatze/planwright/commit/be85b5e281300cf4695e1f2463af1d530385da9e))
+
+
+### Bug Fixes
+
+* **scripts:** make check-no-ci-evals and tower-queue parse under bash 3.2 ([#556](https://github.com/inkatze/planwright/issues/556)) ([90e3b4b](https://github.com/inkatze/planwright/commit/90e3b4bed821e1456d5d1c41bcbdbbf4c203d0f9))
+
+## [0.49.0](https://github.com/inkatze/planwright/compare/v0.48.0...v0.49.0) (2026-09-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* **config:** ready_flip_policy ships as unit-owner, so task PRs will be marked ready by the executing skill instead of waiting for a person once the ready-flip helper lands; set ready_flip_policy: human to keep the old behaviour.
+* **custom-steps:** the review_sequence config key is removed; rename it to steps_convergence in every layer that sets it.
+
+### Features
+
+* **config:** declare the human-gate policy knobs ([#525](https://github.com/inkatze/planwright/issues/525)) ([a5d5a96](https://github.com/inkatze/planwright/commit/a5d5a965636d51da77e425b6c5ecf1a2e40c68c4))
+* **custom-steps:** add step records and the PR-body fold ([#531](https://github.com/inkatze/planwright/issues/531)) ([f9808e5](https://github.com/inkatze/planwright/commit/f9808e527ce1d6bf29a0b3116080253cc94b109b))
+* **execute-task:** wire the unit points into /execute-task ([#535](https://github.com/inkatze/planwright/issues/535)) ([ad501ac](https://github.com/inkatze/planwright/commit/ad501ac733ed965a89f76b84e46394312f5bec53))
+* **fleet-streamjson:** add a read-only pending verb so a tower can see what a worker is asking ([#538](https://github.com/inkatze/planwright/issues/538)) ([72d10d8](https://github.com/inkatze/planwright/commit/72d10d8fb50311f9e164e34e6f8137ee4a63e7c3))
+* **fleet:** check every frame before it reaches a worker's stdin ([#516](https://github.com/inkatze/planwright/issues/516)) ([0700751](https://github.com/inkatze/planwright/commit/07007515d7d170be00a33fce888c8194abbcaa83))
+* **fleet:** reap a leaked worker process with fleet-cleanup.sh process ([#523](https://github.com/inkatze/planwright/issues/523)) ([c9c3787](https://github.com/inkatze/planwright/commit/c9c37871e6888ed80f1116f3459e5b03aeb66fb7))
+* **fleet:** run the periodic sweep on a schedule with an observing reap ([#536](https://github.com/inkatze/planwright/issues/536)) ([56a353e](https://github.com/inkatze/planwright/commit/56a353ed69bebbb2419b8d362c4572bda3e860ea))
+* **resolve-root:** add the spec kind with a configurable spec root ([#521](https://github.com/inkatze/planwright/issues/521)) ([821fb2f](https://github.com/inkatze/planwright/commit/821fb2f8d063646e5b26d123da91fb576918b954))
+* **sign-off:** record sign-offs in trailers and rebuild the checklist from them ([#530](https://github.com/inkatze/planwright/issues/530)) ([dca8ae4](https://github.com/inkatze/planwright/commit/dca8ae44f3a84d1131a6f0ff7fdcfc0c930fbda0))
+* **spec-location:** converge the root chain and overlay layers on the resolver ([#533](https://github.com/inkatze/planwright/issues/533)) ([47667c9](https://github.com/inkatze/planwright/commit/47667c946a071965e27b61087620be1ee75548e5))
+* **spec-location:** golden fixture and literal-path guard ([#528](https://github.com/inkatze/planwright/issues/528)) ([a2c0046](https://github.com/inkatze/planwright/commit/a2c004616657f064a734af9be0335f22f578918d))
+* **spec:** test-throughput kickoff sign-off ([#522](https://github.com/inkatze/planwright/issues/522)) ([a9b1be5](https://github.com/inkatze/planwright/commit/a9b1be577c6a1a3bae9eb51556b2b2459f091203))
+* **test-runner:** share one machine-wide ticket pool across test runs ([#537](https://github.com/inkatze/planwright/issues/537)) ([75c941a](https://github.com/inkatze/planwright/commit/75c941a03a3a4046bdd43bca0acc99bf7c983714))
+* **tower:** render and land the visual-flight audit record ([#527](https://github.com/inkatze/planwright/issues/527)) ([2d71e5b](https://github.com/inkatze/planwright/commit/2d71e5b7f62fc457516b2dae2147f26e3a0d0df1))
+* **tower:** routing behavioral eval fixtures and the eval-only seam ([#534](https://github.com/inkatze/planwright/issues/534)) ([4e07441](https://github.com/inkatze/planwright/commit/4e07441d83c0615850f12453e8b14d340636002e))
+
+
+### Bug Fixes
+
+* **guard-wiring:** ignore comment mentions and resolve every mise edge form ([#514](https://github.com/inkatze/planwright/issues/514)) ([12bcc88](https://github.com/inkatze/planwright/commit/12bcc8825d717f1c92a50d20df165fe41658c469))
+* **secrets:** allowlist the fleet-cleanup strand-key test fixture ([#526](https://github.com/inkatze/planwright/issues/526)) ([b9a217f](https://github.com/inkatze/planwright/commit/b9a217fb643247f1b975e7edeb59f7858c450a51))
+* **spec-location:** rebase the golden fixture on the retired review-sequence knob ([#532](https://github.com/inkatze/planwright/issues/532)) ([4745163](https://github.com/inkatze/planwright/commit/47451636e3e65f4c19efdeb44296ff782263affb))
+
+
+### Code Refactoring
+
+* **custom-steps:** retire the review-sequence knob; flights run skill steps only ([#524](https://github.com/inkatze/planwright/issues/524)) ([c4a9a83](https://github.com/inkatze/planwright/commit/c4a9a839ac2f6d9e97fb9fa811b3e6b18b0528c5))
+
+## [0.48.0](https://github.com/inkatze/planwright/compare/v0.47.0...v0.48.0) (2026-09-28)
+
+
+### Features
+
+* **resolve-root:** add an install and repo root resolver ([#510](https://github.com/inkatze/planwright/issues/510)) ([5b83fd4](https://github.com/inkatze/planwright/commit/5b83fd43781f6918c8f8eb6c3cd6948ea359fea6))
+* **tower:** dispatch visual flights through /offload to their own worktree ([#511](https://github.com/inkatze/planwright/issues/511)) ([ac21250](https://github.com/inkatze/planwright/commit/ac21250cabb809f77ab70fec6ad288ea8cf79c2b))
+
+## [0.47.0](https://github.com/inkatze/planwright/compare/v0.46.0...v0.47.0) (2026-09-28)
+
+
+### Features
+
+* **custom-steps:** the steps catalog, the point keys, and the resolver ([#509](https://github.com/inkatze/planwright/issues/509)) ([c63a548](https://github.com/inkatze/planwright/commit/c63a548a4dd2c551de265e4f0c9553a22651e239))
+
+
+### Bug Fixes
+
+* **scripts:** pass multi-line awk values through ENVIRON ([#508](https://github.com/inkatze/planwright/issues/508)) ([8e4197c](https://github.com/inkatze/planwright/commit/8e4197c8271161c0de13b0ea680fc1868da98cdd))
+* **tower:** close the core's security-zone findings ([#512](https://github.com/inkatze/planwright/issues/512)) ([94163a7](https://github.com/inkatze/planwright/commit/94163a76324bcd3843995fac7074423691c1942b))
+
+## [0.46.0](https://github.com/inkatze/planwright/compare/v0.45.0...v0.46.0) (2026-09-25)
+
+
+### Features
+
+* **guard-coverage:** guard-catalog entries and the registration sweep ([#499](https://github.com/inkatze/planwright/issues/499)) ([db08364](https://github.com/inkatze/planwright/commit/db083647d57eab965ac60fb9fa9c7c2486d2f93a))
+* **spec-format:** flight branch and worktree grammar ([#503](https://github.com/inkatze/planwright/issues/503)) ([840bb1c](https://github.com/inkatze/planwright/commit/840bb1ceb1a14a028472dfedf789662e1560595b))
+* **spec:** review-effectiveness kickoff sign-off ([#507](https://github.com/inkatze/planwright/issues/507)) ([9fa766f](https://github.com/inkatze/planwright/commit/9fa766fba2e20faa02872c815289e3cfa83af7f9))
+* **tower:** the /tower skill core ([#502](https://github.com/inkatze/planwright/issues/502)) ([4a93f21](https://github.com/inkatze/planwright/commit/4a93f21bf62e694ef7cf9464e95a0d1d5ea095af))
+
+
+### Bug Fixes
+
+* **execute-task:** keep the repo's core.sshCommand in the convergence sync fetch ([#498](https://github.com/inkatze/planwright/issues/498)) ([1016c13](https://github.com/inkatze/planwright/commit/1016c135cab23bc664ba624ae237a1f0ea514ce3))
+* **guard-wiring:** stop counting wait_for as a reachability edge ([#504](https://github.com/inkatze/planwright/issues/504)) ([7d031c0](https://github.com/inkatze/planwright/commit/7d031c0185d33a2822c3a97c0dfa8a92b81d26ca))
+
+## [0.45.0](https://github.com/inkatze/planwright/compare/v0.44.0...v0.45.0) (2026-09-24)
+
+
+### Features
+
+* **operator-dialogue:** instantiate the disciplines at /orchestrate, /resume and /drain ([#492](https://github.com/inkatze/planwright/issues/492)) ([59c8ee4](https://github.com/inkatze/planwright/commit/59c8ee4422a4bbbbf8330f9f0640c86a34b58696))
+* **operator-dialogue:** turn-shape eval invariants and sidedness check ([#489](https://github.com/inkatze/planwright/issues/489)) ([297cdc4](https://github.com/inkatze/planwright/commit/297cdc4640cf77cca9c8b7521afa1990eb3dfd99))
+
+## [0.44.0](https://github.com/inkatze/planwright/compare/v0.43.0...v0.44.0) (2026-09-23)
+
+
+### Features
+
+* **spec:** custom-spec-location kickoff sign-off ([#487](https://github.com/inkatze/planwright/issues/487)) ([3242426](https://github.com/inkatze/planwright/commit/32424263307c518ebb03e878c4027b29348f09f1))
+* **spec:** custom-steps kickoff sign-off ([#488](https://github.com/inkatze/planwright/issues/488)) ([8c2c90a](https://github.com/inkatze/planwright/commit/8c2c90a33c42fa4a3e8c4e0b1a0597861292cdf5))
+* **spec:** human-gates kickoff sign-off ([#490](https://github.com/inkatze/planwright/issues/490)) ([d1fba9f](https://github.com/inkatze/planwright/commit/d1fba9f4cdc6b7f8e3b616f7d3938ed4bb3f56a3))
+* **tower-comms:** route the tower loop's turns through the operator queue ([#486](https://github.com/inkatze/planwright/issues/486)) ([ada82fd](https://github.com/inkatze/planwright/commit/ada82fd20dee2bb7e6a5717643bd92b4a1b2352a))
+
+
+### Bug Fixes
+
+* **tower-reply-hook:** verify the fleet home, and claim only what the marker stamp guarantees ([#477](https://github.com/inkatze/planwright/issues/477)) ([f41dc06](https://github.com/inkatze/planwright/commit/f41dc0625f2e941cdd93841b851802b1ac7a0002))
+
 ## [0.43.0](https://github.com/inkatze/planwright/compare/v0.42.1...v0.43.0) (2026-09-19)
 
 

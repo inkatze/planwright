@@ -1,7 +1,7 @@
 # Fleet lifecycle closure — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-08-19
+**Last reviewed:** 2026-10-02
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -83,7 +83,9 @@ outstanding at kickoff (kickoff brief, Finding 3.2).
   surface's tower identity; the record fields a close verb needs without its
   dispatcher (handle, owner token, state directory, backend, death handle);
   graceful degradation so a failed registry write warns and never fails a
-  dispatch, self-healing on the next scan.
+  dispatch. *(Amended at kickoff amendment 2026-10-01: the next-scan
+  self-heal of a failed registry write moved to Task 11, since Task 8's scan
+  reconciles worktrees, not dispatch records.)*
 - **Done when:** a dispatch on each seam produces a registry record carrying
   all five fields plus the owner token; `fleet-status.sh` renders the registry
   as present rather than absent; a simulated registry-write failure leaves the
@@ -283,51 +285,99 @@ outstanding at kickoff (kickoff brief, Finding 3.2).
   concurrent sweeps produce no double-reap and no lost sweep; no reap path
   modifies a fence, branch, or worktree on any branch of the matrix; presence
   stays off the correctness path; negative assertions confirming no model or
-  API call in any decision path this bundle ships.
+  API call in any decision path this bundle ships. The dispatch-record
+  reconcile (D-15): an on-disk dispatch marker written by every dispatch seam
+  independently of the registry write, including the tmux seam, which today
+  leaves only a window, and declared as a resource class in the floor record
+  with its marker deleted when its record retires; a reconcile pass in the
+  periodic sweep that rebuilds a missing registry record from its marker
+  through `fleet-register.sh`'s per-field validation, never writing the store
+  directly and refusing a marker outside its expected root, idempotent per
+  handle; retirement of a record whose worker is closed, marked closed rather
+  than deleted and only on positive death evidence (for a `print` unit, its
+  worktree's removal), with a record that lacks
+  a marker never altered or retired for that reason alone; the pass running
+  in both sweep modes, since it terminates nothing, under the existing
+  kill-switch, with an audit record per heal and per retirement; removal of
+  the "no reconcile exists yet" wording from the seams that carry it.
 - **Done when:** the suite is green in project CI; every matrix cell is
   asserted across both rungs and the cleanup class, and its completeness is
   mechanically enforced by an expected-cell manifest; the fence-and-worktree
   untouched assertion holds on every path including refusals; the no-LLM
-  negative assertions pass; `mise run check` passes.
+  negative assertions pass; a registry write suppressed on each dispatch seam
+  is restored by the next sweep with the same fields the dispatch would have
+  written, asserted per seam against the seam-coverage manifest; a closed
+  worker's record is retired on the next sweep, and a worker whose death
+  evidence is unknown or errored keeps its record live; a retired record stays
+  readable and its marker is gone; N concurrent reconciles, and a reconcile
+  racing an in-flight dispatch's own write, neither duplicate nor lose a
+  record; a marker with a field failing the store's grammar or a path outside
+  its root is refused and audited, never stored; a pre-marker record survives
+  a sweep unchanged; every heal and retirement has an audit record in both
+  sweep modes; `mise run check` passes.
 - **Dependencies:** 4, 5, 6, 8
 - **Citations:** REQ-D1.1 · REQ-D1.2 · REQ-D1.3 · REQ-D1.4 · REQ-D1.6 ·
-  REQ-D1.7 · REQ-D1.8 · REQ-D1.9 · REQ-J1.4 · REQ-K1.5 · D-2 · obs:5f0e1976 ·
-  obs:ce589542 · obs:ef2cfd5a
-- **Estimated effort:** 2.5 days
+  REQ-D1.7 · REQ-D1.8 · REQ-D1.9 · REQ-E1.4 · REQ-E1.5 · REQ-J1.4 ·
+  REQ-K1.5 · D-2 · D-15 · obs:5f0e1976 · obs:ce589542 · obs:ef2cfd5a ·
+  obs:a6f5511b
+- **Estimated effort:** 4 days
+- *(Amended at kickoff amendment 2026-10-01: dispatch-record reconcile folded
+  in, owning REQ-E1.4's self-heal and the new REQ-E1.5.)*
 
 ### Task 12 — The deliberate-wedge lifecycle rehearsal
 
 - **Deliverables:** a throwaway spec bundle used solely as rehearsal input,
   carrying no real work; a rehearsal harness that dispatches a real worker
-  against it on each session-grade rung, deliberately wedges the worker at a
-  permission prompt, and drives the full lifecycle from there; assertions that
-  the detector classifies the wedged worker `waiting-on-a-human` rather than
-  `working`, that `stop` closes it, and that every resource class in the
-  release set is empty afterwards; coverage of **both sweep modes**, so the observing-only
+  against it on each session-grade rung, deliberately wedges the worker (at a
+  permission prompt on a rung that can pend; held mid-command on
+  `headless-oneshot`, which has no pend path), and drives the full lifecycle
+  from there; assertions that the detector classifies the worker wedged at a
+  permission prompt `waiting-on-a-human` rather than `working`, and the held
+  headless worker as `working` or `unclassified` with reason `no-signal`
+  (any other reading fails), and, on every rung, that `stop`
+  closes the worker and every resource class in the release set is empty
+  afterwards; coverage of **both sweep modes**, so the observing-only
   path that ships by default is exercised rather than left to rot until
   promotion; an opt-in entry point outside ordinary CI,
   documented alongside the other opt-in suites, so no unrelated change pays
   for a live session; a visible skip, never a silent pass, where the live
   session cannot be established.
 - **Done when:** the rehearsal runs on both session-grade rungs and passes;
-  the wedged worker classifies `waiting-on-a-human`, asserted against the
-  running CLI rather than a captured fixture; a post-close sweep of the
+  on a rung that can pend, the worker wedged at a permission prompt
+  classifies `waiting-on-a-human`, and on `headless-oneshot` the held worker
+  classifies `working` or `unclassified` with reason `no-signal`, both
+  asserted against the running CLI rather
+  than a captured fixture; a post-close sweep of the
   release set finds nothing held; the rehearsal is absent from the default
   `mise run check` path and present as its own opt-in task; an environment
   without a live session reports a skip with its reason rather than a pass;
   the throwaway bundle is inert with respect to the pipeline (never dispatched
   by `/orchestrate`, never counted in a status render).
 - **Dependencies:** 4, 5, 7, 8
-- **Citations:** REQ-A1.6 · REQ-F1.7 · REQ-B1.1 · REQ-B1.4 · REQ-C1.2 ·
+- **Citations:** REQ-A1.7 · REQ-F1.7 · REQ-B1.1 · REQ-B1.4 · REQ-C1.2 ·
   REQ-C1.8 ·
-  REQ-K1.7 · D-13 · obs:b63a8778 · obs:4c25e743
+  REQ-K1.7 · D-16 · obs:b63a8778 · obs:4c25e743
 - **Estimated effort:** 2.5 days
+  *(Amended at kickoff re-walkthrough 2026-10-02: headless readings named,
+  citations re-pointed to REQ-A1.7 and D-16.)*
 
 ## Awaiting input
 
 (none yet)
 
 ## Deferred
+
+- **Re-enable `terminate` in the periodic sweep.** The sweep refuses
+  `terminate` everywhere, even from the machine-local layer, because the
+  stream-json close trusts the pid a crashed worker left behind, and the
+  host may have reissued that pid to an unrelated process. The refusal lifts
+  once a rung's stop is bound to the recorded worker pid or launch marker,
+  so a close checks the pid is still the worker's. The rehearsal needs no
+  change when it lifts: its terminate cycle accepts either outcome.
+  Confidence: high.
+  **Gate:** the pid-binding follow-up to the stream-json close lands, or a
+  machine needs the reaper promoted before it does.
+  Citations: D-14 · REQ-F1.6 · REQ-F1.7 · obs:2d943e9f.
 
 - **General stream-json supervisor concurrency hardening.** The recorded
   defects that do not wedge a lifecycle verb: the `journal_lock` rmdir spin,
