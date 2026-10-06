@@ -463,6 +463,20 @@ ln -s "$PLUGIN_ROOT" "$SANDBOX/linked-plugin-root"
 RUN_PLUGIN_ROOT="$SANDBOX/linked-plugin-root" assert_defer "bypass: a symlinked CLAUDE_PLUGIN_ROOT" \
   "$PLUGIN_ROOT/scripts/orchestrate-select.sh specs/x" Bash "$LOOKALIKE"
 
+assert_defer "bypass: select is not modelled" "select d in a b; do echo \$d; done"
+assert_defer "bypass: for with no in-list iterates the positionals" "for d; do find . \$d; done"
+assert_defer "bypass: an arithmetic for header" "for ((i=0;i<3;i++)); do echo \$i; done"
+assert_defer "bypass: a loop variable outlives its loop as opaque" "for d in -name; do true; done; find . \$d x"
+assert_allow "a loop head at the bound is verified" \
+  "for f in w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 w15 w16; do grep -n x \$f; done"
+assert_defer "an unclosed loop" "for x in a; do echo x"
+assert_defer "nested loops past the pass bound defer" \
+  "for x in a b c d e f g h i; do for y in a b c d e f g h i; do echo \$x\$y; done; done"
+assert_defer "REQ-A1.14: an unassigned variable in a script path" "bash \$X/scripts/x.sh"
+assert_defer "REQ-A1.14: an assignment is not tracked on the tower" "X=../../../tmp/evil; bash \$X/scripts/x.sh"
+assert_defer "bypass: an environment value as an array subscript" "echo \${a[X]}"
+assert_defer "bypass: indirection" "echo \${!X}"
+
 echo "### REQ-A1.13 — the -v forms defer in every spelling"
 assert_defer "bypass: test -v runs a subscript" "test -v 'a[\$(id)]'"
 assert_defer "bypass: [ -v runs a subscript" "[ -v 'a[\$(id)]' ]"
@@ -470,6 +484,10 @@ assert_defer "bypass: printf -v runs a subscript" "printf -v 'a[\$(id)]' x"
 assert_defer "bypass: printf -v assigns PATH" "printf -v PATH /x"
 assert_defer "bypass: an opaque test operand can become -v" "test \$X 'a[\$(id)]'"
 assert_allow "test without -v still allows" "[ -f file ] && test -n x"
+assert_defer "an opaque printf format" "printf \"\$F\" x"
+assert_allow "an opaque printf argument past the format" "printf '%s\\n' \"\$Z\""
+assert_allow "a quoted opaque operand of a unary test" "[ -n \"\$HOME\" ]"
+assert_defer "two adjacent opaque test operands" "[ \"\$a\" \"\$b\" ]"
 
 echo "### REQ-C1.2 — the tower set DIFFERS from the worker set (both directions)"
 # A tower-only command: ALLOWED by the tower guard, DEFERRED by the worker guard.
@@ -518,7 +536,8 @@ sed_bracket_end sed_delim_ok sed_scan_literal sed_scan_regex guard_sed \
 short_flag_hit guard_sort guard_uniq guard_find guard_file guard_date \
 classify_redirect is_reserved repo_root_of emit_allow dollar_expands \
 word_unresolved arg_independent_verb guard_test guard_printf loop_header \
-assign_name_ok expand_word plugin_root_unlinked"
+assign_name_ok expand_word plugin_root_unlinked dollar_form_ok loop_enter \
+loop_next opaque_words_ok test_opaque_ok"
 
 # fn_body <file> <name>: the function's text, from its `name() {` line to the
 # first `}` at column 0, with full-line comments dropped.

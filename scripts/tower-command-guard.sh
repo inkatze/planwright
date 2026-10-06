@@ -90,6 +90,10 @@ readonly MAX_DEPTH=3
 # the loop defers, past MAX_LOOP_PASSES body walks the command defers.
 readonly MAX_LOOP_WORDS=16
 readonly MAX_LOOP_PASSES=64
+# Simple commands verified in one hook call, loop passes and `fish -c` inner
+# strings included: each may canonicalize a path, so this bounds the runtime
+# the loop modelling multiplies. Past it the command defers.
+readonly MAX_SIMPLE_CMDS=512
 
 # The fixed reason string. It is NEVER a reflection of the analyzed command:
 # untrusted command content is never echoed to a terminal-driving stream.
@@ -111,15 +115,17 @@ emit_allow() {
 # command/process substitution, backtick substitution, ANSI-C `$'…'`, a
 # backslash line-continuation or escaped operator/quote. It never executes or
 # expands anything it scans. A W token also records whether it carries a
-# LITERAL `$` (single quotes or a backslash), an EXPANDING `$`, and an unquoted
-# glob, brace expansion, or leading tilde (see word_unresolved).
+# LITERAL `$` (single quotes or a backslash), an EXPANDING `$` (1 inside double
+# quotes, 2 unquoted), and an unquoted glob, brace expansion, or leading tilde
+# (see word_unresolved). The fifth argument is the worker guard's quote-start
+# offset, unused here and kept so the two signatures match.
 tok_push() {
   TOK_TYPE[TOK_N]=$1
   TOK_VAL[TOK_N]=$2
   TOK_QUOTED[TOK_N]=${3:-0}
   TOK_NOEXP[TOK_N]=${4:-0}
-  TOK_DYN[TOK_N]=${5:-0}
-  TOK_GLOB[TOK_N]=${6:-0}
+  TOK_DYN[TOK_N]=${6:-0}
+  TOK_GLOB[TOK_N]=${7:-0}
   TOK_N=$((TOK_N + 1))
 }
 
@@ -132,6 +138,31 @@ dollar_expands() {
   return 1
 }
 
+# dollar_form_ok <string> <index>: the `$` at <index> opens a form whose value
+# the analyzer can reason about: not `$[…]` arithmetic, and a `${…}` only
+# around a bare NAME. Any other brace form (`${a[i]}`, `${x:off}`, `${!n}`,
+# `${#x}`, a modifier) evaluates text the hook never sees, an array subscript
+# or offset arithmetically, so a value read at run time can run a command.
+dollar_form_ok() {
+  local s=$1 i=$2 j body
+  case ${s:i+1:1} in
+    '[') return 1 ;;
+    '{')
+      j=$((i + 2))
+      body=''
+      while [ "$j" -lt "${#s}" ] && [ "${s:j:1}" != '}' ]; do
+        body="$body${s:j:1}"
+        j=$((j + 1))
+      done
+      [ "$j" -lt "${#s}" ] || return 1
+      case $body in
+        '' | [!A-Za-z_]* | *[!A-Za-z0-9_]*) return 1 ;;
+      esac
+      ;;
+  esac
+  return 0
+}
+
 tokenize() {
   local s=$1
   local n=${#s}
@@ -141,7 +172,7 @@ tokenize() {
 
   _flush() {
     if [ "$have" = 1 ]; then
-      tok_push W "$cur" "$curq" "$curx" "$curd" "$curg"
+      tok_push W "$cur" "$curq" "$curx" -1 "$curd" "$curg"
       cur=''
       have=0
       curq=0
@@ -201,7 +232,8 @@ tokenize() {
             dn=${s:j+1:1}
             [ "$dn" = '(' ] && return 1 # $( command substitution
             [ "$dn" = "'" ] && return 1 # $' ANSI-C quoting
-            [ "$dn" != '"' ] && dollar_expands "$dn" && curd=1
+            dollar_form_ok "$s" "$j" || return 1
+            [ "$dn" != '"' ] && dollar_expands "$dn" && { [ "$curd" = 2 ] || curd=1; }
           fi
           [ "$dc" = '`' ] && return 1 # backtick substitution
           k="$k$dc"
@@ -218,7 +250,8 @@ tokenize() {
         nc=${s:i+1:1}
         [ "$nc" = '(' ] && return 1 # $( command substitution
         [ "$nc" = "'" ] && return 1 # $' ANSI-C quoting
-        dollar_expands "$nc" && curd=1
+        dollar_form_ok "$s" "$i" || return 1
+        dollar_expands "$nc" && curd=2
         cur="$cur$c"
         have=1
         i=$((i + 1))
@@ -281,8 +314,8 @@ tokenize() {
         fdpfx=''
         if [ "$have" = 1 ]; then
           case $cur in
-            '' | *[!0-9]*) tok_push W "$cur" "$curq" "$curx" "$curd" "$curg" ;;
-            *) [ "$curq" = 1 ] && tok_push W "$cur" "$curq" "$curx" "$curd" "$curg" || fdpfx=$cur ;;
+            '' | *[!0-9]*) tok_push W "$cur" "$curq" "$curx" -1 "$curd" "$curg" ;;
+            *) [ "$curq" = 1 ] && tok_push W "$cur" "$curq" "$curx" -1 "$curd" "$curg" || fdpfx=$cur ;;
           esac
           cur=''
           have=0
@@ -484,7 +517,9 @@ is_planwright_script() {
     fi
   fi
   # (b) under the installed plugin's scripts/ dir (resolved literal path).
-  if proot=$(hook_plugin_root) && [ -n "$proot" ]; then
+  cache_plugin_root
+  proot=$PLUGIN_ROOT_CACHED
+  if [ -n "$proot" ]; then
     if full=$(canon_under "$p" "$cwd" "$proot"); then
       rel=${full#"$proot"/}
       case $rel in
@@ -1358,7 +1393,8 @@ assign_name_ok() {
 }
 
 # expand_word <word>: substitute every `$NAME` / `${NAME}` the table holds;
-# any other `$` is left in place so the word still reads as unresolved.
+# any other `$` is left in place so the word still reads as unresolved. The
+# result is left in EXPANDED.
 expand_word() {
   local w=$1
   local out='' i=0 n=${#w} c name j k found v
@@ -1413,12 +1449,12 @@ expand_word() {
       i=$((i + 1))
     fi
   done
-  printf '%s' "$out"
+  EXPANDED=$out
 }
 
 word_unresolved() {
   [ "$3" = 1 ] && return 0
-  [ "$2" = 1 ] || return 1
+  [ "$2" = 0 ] && return 1
   [ "$4" = 1 ] && return 0
   case $1 in
     *'$'*) return 0 ;;
@@ -1445,10 +1481,66 @@ guard_test() {
 }
 
 guard_printf() {
+  [ "${cw[1]-}" = -- ] && return 0
   case ${cw[1]-} in
     -*) return 1 ;;
   esac
   return 0
+}
+
+# opaque_words_ok: the current simple command (`cw` and its flag arrays, by
+# dynamic scope) places every unresolved word where its value cannot change
+# the verdict: never the verb, and otherwise only an operand of an
+# argument-independent verb, printf past its format, or a test shape
+# test_opaque_ok admits.
+opaque_words_ok() {
+  local i verb=${cw[0]} fmt=1
+  word_unresolved "$verb" "${cdyn[0]}" "${cglob[0]}" "${cx[0]}" && return 1
+  case $verb in
+    test | '[')
+      test_opaque_ok
+      return
+      ;;
+  esac
+  [ "${cw[1]-}" = -- ] && fmt=2
+  for ((i = 1; i < cwn; i++)); do
+    word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" || continue
+    [ "$verb" = printf ] && [ "$i" -gt "$fmt" ] && continue
+    arg_independent_verb "$verb" || return 1
+  done
+  return 0
+}
+
+# test_opaque_ok: `test`/`[` read their operands as operators by position,
+# and a `-v` operand runs a subscript, so an opaque word is admitted only
+# where bash cannot read it as an operator: it must expand inside double
+# quotes alone (one word, never split or globbed), and the expression must
+# be one operand, a literal unary operator and its operand, or two operands
+# around a literal binary operator. guard_test still refuses a literal `-v`.
+test_opaque_ok() {
+  local i n=$cwn opaque=0
+  [ "${cw[0]}" = '[' ] && [ "${cw[cwn - 1]}" = ']' ] && n=$((cwn - 1))
+  for ((i = 1; i < cwn; i++)); do
+    word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" || continue
+    [ "$i" -lt "$n" ] && [ "${cdyn[i]}" = 1 ] && [ "${cglob[i]}" = 0 ] || return 1
+    opaque=1
+  done
+  [ "$opaque" = 1 ] || return 0
+  case $((n - 1)) in
+    1) return 0 ;;
+    2)
+      word_unresolved "${cw[1]}" "${cdyn[1]}" "${cglob[1]}" "${cx[1]}" && return 1
+      return 0
+      ;;
+    3)
+      word_unresolved "${cw[2]}" "${cdyn[2]}" "${cglob[2]}" "${cx[2]}" && return 1
+      case ${cw[2]} in
+        = | == | != | '<' | '>' | -eq | -ne | -lt | -le | -gt | -ge | -nt | -ot | -ef | -a | -o) return 0 ;;
+      esac
+      return 1
+      ;;
+  esac
+  return 1
 }
 
 loop_header() {
@@ -1482,6 +1574,55 @@ loop_header() {
   LH_NEXT=$((j + 1))
   LH_COUNT=$cnt
   return 0
+}
+
+# loop_enter / loop_next: the `for` modelling inside verify_tokens, reading and
+# writing its walk state (idx, ctl_depth, case_depth, the LF_* frames) by
+# dynamic scope. loop_enter opens a loop at the `for` token: its variable takes
+# the first head word and the walk moves to the body. loop_next runs at a
+# `done`, after the depth drop: 0 sends the walk back to the body with the
+# next head word, 1 lets it go on past the `done` (the loop is closed, its
+# variable dropped from the table, so a later use is opaque), 2 defers.
+loop_enter() {
+  loop_header "$idx" || return 1
+  LOOP_PASSES=$((LOOP_PASSES + 1))
+  [ "$LOOP_PASSES" -le "$MAX_LOOP_PASSES" ] || return 1
+  ctl_depth=$((ctl_depth + 1))
+  LF_VAR[lf_n]=$VAR_C
+  LF_START[lf_n]=$LH_START
+  LF_COUNT[lf_n]=$LH_COUNT
+  LF_POS[lf_n]=0
+  LF_BODY[lf_n]=$LH_NEXT
+  LF_DEPTH[lf_n]=$ctl_depth
+  LF_CASE[lf_n]=$case_depth
+  lf_n=$((lf_n + 1))
+  VAR_N[VAR_C]=$LH_NAME
+  VAR_V[VAR_C]=${LW[LH_START]}
+  VAR_L[VAR_C]=1
+  VAR_C=$((VAR_C + 1))
+  idx=$LH_NEXT
+  return 0
+}
+
+loop_next() {
+  local t p
+  [ "$lf_n" -gt 0 ] && [ "$ctl_depth" -eq $((LF_DEPTH[lf_n - 1] - 1)) ] || return 1
+  t=$((lf_n - 1))
+  [ "$case_depth" -eq "${LF_CASE[t]}" ] || return 2
+  p=$((LF_POS[t] + 1))
+  if [ "$p" -lt "${LF_COUNT[t]}" ]; then
+    LOOP_PASSES=$((LOOP_PASSES + 1))
+    [ "$LOOP_PASSES" -le "$MAX_LOOP_PASSES" ] || return 2
+    LF_POS[t]=$p
+    VAR_V[LF_VAR[t]]=${LW[LF_START[t] + p]}
+    ctl_depth=$((ctl_depth + 1))
+    idx=${LF_BODY[t]}
+    return 0
+  fi
+  VAR_C=${LF_VAR[t]}
+  LW_N=${LF_START[t]}
+  lf_n=$t
+  return 1
 }
 
 # classify_verb: the tower's enumerated allowlist. A bare verb (no slash) is
@@ -1535,6 +1676,8 @@ classify_verb() {
 # the caller via dynamic scope. Returns 0 (safe) or non-zero (DEFER).
 verify_simple() {
   local i verb
+  SIMPLE_N=$((SIMPLE_N + 1))
+  [ "$SIMPLE_N" -le "$MAX_SIMPLE_CMDS" ] || return 1
   for ((i = 0; i < rn; i++)); do
     classify_redirect "${ro[i]}" "${rt[i]}" || return 1
   done
@@ -1544,17 +1687,12 @@ verify_simple() {
   if [ "$VAR_C" -gt 0 ]; then
     for ((i = 0; i < cwn; i++)); do
       case ${cw[i]} in
-        *'$'*) [ "${cx[i]}" = 0 ] && cw[i]=$(expand_word "${cw[i]}") ;;
+        *'$'*) [ "${cx[i]}" = 0 ] && expand_word "${cw[i]}" && cw[i]=$EXPANDED ;;
       esac
     done
   fi
   verb=${cw[0]}
-  for ((i = 0; i < cwn; i++)); do
-    word_unresolved "${cw[i]}" "${cd[i]}" "${cg[i]}" "${cx[i]}" || continue
-    [ "$i" -gt 0 ] || return 1
-    [ "$verb" = printf ] && [ "$i" -ge 2 ] && continue
-    arg_independent_verb "$verb" || return 1
-  done
+  opaque_words_ok || return 1
   # Inline environment-assignment prefix: VAR=value [cmd].
   case $verb in
     [A-Za-z_]*=*)
@@ -1583,7 +1721,9 @@ verify_simple() {
 # verify_tokens <depth>: walk the token stream (in the caller's TOK_* locals),
 # splitting into simple commands on control operators and recognizing the
 # for/while/until/if/case control structures so their COMMAND regions are each
-# verified while their header/pattern regions are skipped. Any construct it
+# verified while their case pattern regions are skipped. A `for` header is
+# modelled (loop_enter); `select`, `for` with no in-list, and an arithmetic
+# `for ((…))` defer. Any construct it
 # cannot confidently place defers. Returns 0 (every simple command safe) or
 # non-zero (DEFER).
 verify_tokens() {
@@ -1591,18 +1731,18 @@ verify_tokens() {
   local idx=0 typ val
   local mode=normal # normal | casehead | casepat | casebody
   local case_depth=0 ctl_depth=0
-  local -a cw=() cx=() cd=() cg=() ro=() rt=()
+  local -a cw=() cx=() cdyn=() cglob=() ro=() rt=()
   local cwn=0 rn=0
   # The open `for` loops, innermost last (see the worker guard's walker).
   local -a LF_VAR=() LF_START=() LF_COUNT=() LF_POS=() LF_BODY=() LF_DEPTH=() LF_CASE=()
-  local lf_n=0 t p
+  local lf_n=0
 
   fin() {
     verify_simple || return 1
     cw=()
     cx=()
-    cd=()
-    cg=()
+    cdyn=()
+    cglob=()
     ro=()
     rt=()
     cwn=0
@@ -1679,22 +1819,7 @@ verify_tokens() {
       case $val in
         for)
           fin || return 1
-          loop_header "$idx" || return 1
-          LOOP_PASSES=$((LOOP_PASSES + 1))
-          [ "$LOOP_PASSES" -le "$MAX_LOOP_PASSES" ] || return 1
-          ctl_depth=$((ctl_depth + 1))
-          LF_VAR[lf_n]=$VAR_C
-          LF_START[lf_n]=$LH_START
-          LF_COUNT[lf_n]=$LH_COUNT
-          LF_POS[lf_n]=0
-          LF_BODY[lf_n]=$LH_NEXT
-          LF_DEPTH[lf_n]=$ctl_depth
-          LF_CASE[lf_n]=$case_depth
-          lf_n=$((lf_n + 1))
-          VAR_N[VAR_C]=$LH_NAME
-          VAR_V[VAR_C]=${LW[LH_START]}
-          VAR_C=$((VAR_C + 1))
-          idx=$LH_NEXT
+          loop_enter || return 1
           continue
           ;;
         select)
@@ -1715,24 +1840,12 @@ verify_tokens() {
         done)
           fin || return 1
           ctl_depth=$((ctl_depth - 1))
-          [ "$ctl_depth" -ge 0 ] || return 1
-          if [ "$lf_n" -gt 0 ] && [ "$ctl_depth" -eq $((LF_DEPTH[lf_n - 1] - 1)) ]; then
-            t=$((lf_n - 1))
-            [ "$case_depth" -eq "${LF_CASE[t]}" ] || return 1
-            p=$((LF_POS[t] + 1))
-            if [ "$p" -lt "${LF_COUNT[t]}" ]; then
-              LOOP_PASSES=$((LOOP_PASSES + 1))
-              [ "$LOOP_PASSES" -le "$MAX_LOOP_PASSES" ] || return 1
-              LF_POS[t]=$p
-              VAR_V[LF_VAR[t]]=${LW[LF_START[t] + p]}
-              ctl_depth=$((ctl_depth + 1))
-              idx=${LF_BODY[t]}
-              continue
-            fi
-            VAR_C=${LF_VAR[t]}
-            LW_N=${LF_START[t]}
-            lf_n=$t
-          fi
+          [ "$ctl_depth" -ge 0 ] || return 1 # a closer with no opener: defer
+          loop_next
+          case $? in
+            0) continue ;;
+            2) return 1 ;;
+          esac
           ;;
         'case')
           fin || return 1
@@ -1758,8 +1871,8 @@ verify_tokens() {
 
     cw[cwn]=$val
     cx[cwn]=${TOK_NOEXP[idx]}
-    cd[cwn]=${TOK_DYN[idx]}
-    cg[cwn]=${TOK_GLOB[idx]}
+    cdyn[cwn]=${TOK_DYN[idx]}
+    cglob[cwn]=${TOK_GLOB[idx]}
     cwn=$((cwn + 1))
     idx=$((idx + 1))
   done
@@ -1782,7 +1895,9 @@ analyze_command() {
   local -a TOK_TYPE=() TOK_VAL=() TOK_QUOTED=() TOK_NOEXP=() TOK_DYN=() TOK_GLOB=()
   local TOK_N=0
   # The loop-variable table expand_word reads and the head words it draws from.
-  local -a VAR_N=() VAR_V=() LW=()
+  # VAR_L is written by the shared loop_enter; only the worker guard reads it.
+  # shellcheck disable=SC2034
+  local -a VAR_N=() VAR_V=() VAR_L=() LW=()
   local VAR_C=0 LW_N=0
   local LH_NAME='' LH_START=0 LH_COUNT=0 LH_NEXT=0
   tokenize "$cmd" || return 1
@@ -1824,6 +1939,7 @@ main() {
   esac
   local HOOK_CWD=$cwd
   LOOP_PASSES=0
+  SIMPLE_N=0
 
   analyze_command "$cmd" 0 || return 0
   emit_allow
@@ -1839,18 +1955,14 @@ TAB=$'\t'
 # derived from the analyzed command.
 HOOK_ENV_NAMES=$NL$(compgen -e)$NL
 
-# plugin_root_unlinked: $CLAUDE_PLUGIN_ROOT, or nothing when it names a
-# symlink. The chain canonicalizes an arm, so a symlinked plugin cache root
+# plugin_root_unlinked <scripts-dir>: $CLAUDE_PLUGIN_ROOT, or nothing when
+# resolve-installed-roots.sh's symlink rule refuses it (or cannot be run). The
+# chain canonicalizes an arm, so a plugin cache root reached through a symlink
 # would make wherever it points trusted.
 plugin_root_unlinked() {
   local r=${CLAUDE_PLUGIN_ROOT:-}
-  while :; do
-    case $r in
-      */) r=${r%/} ;;
-      *) break ;;
-    esac
-  done
-  [ -n "$r" ] && [ ! -L "$r" ] && printf '%s' "$r"
+  [ -n "$r" ] && [ -r "$1/resolve-installed-roots.sh" ] || return 0
+  /bin/sh "$1/resolve-installed-roots.sh" --unlinked "$r" 2>/dev/null && printf '%s' "$r"
   return 0
 }
 
@@ -1860,8 +1972,18 @@ plugin_root_unlinked() {
 HOOK_SCRIPTS=$(cd "$(dirname "$0")" 2>/dev/null && pwd -P) || HOOK_SCRIPTS=''
 hook_plugin_root() {
   [ -n "$HOOK_SCRIPTS" ] && [ -r "$HOOK_SCRIPTS/resolve-root.sh" ] || return 0
-  CLAUDE_PLUGIN_ROOT=$(plugin_root_unlinked) /bin/sh "$HOOK_SCRIPTS/resolve-root.sh" install --all --explain 2>/dev/null \
+  CLAUDE_PLUGIN_ROOT=$(plugin_root_unlinked "$HOOK_SCRIPTS") /bin/sh "$HOOK_SCRIPTS/resolve-root.sh" install --all --explain 2>/dev/null \
     | sed -n "s/^CLAUDE_PLUGIN_ROOT$TAB//p" | head -n 1
+}
+
+# cache_plugin_root: hook_plugin_root once per hook call, into
+# PLUGIN_ROOT_CACHED; a loop body re-checks its script paths on every pass.
+PLUGIN_ROOT_CACHED=''
+PLUGIN_ROOT_DONE=0
+cache_plugin_root() {
+  [ "$PLUGIN_ROOT_DONE" = 1 ] && return 0
+  PLUGIN_ROOT_CACHED=$(hook_plugin_root) || PLUGIN_ROOT_CACHED=''
+  PLUGIN_ROOT_DONE=1
 }
 
 # Fail safe on any unexpected signal: empty stdout, exit 0. The hook never

@@ -797,6 +797,23 @@ assert_allow "nested loops resolve both variables" \
 assert_allow "an opaque operand of an argument-independent verb" "cat \$X; echo \"\$Y\"; printf '%s\\n' \"\$Z\""
 assert_allow "a quoted glob is a literal" "find . -name '*.sh' -type f"
 
+LOOP9='a b c d e f g h i'
+assert_defer "nested loops past the pass bound defer" \
+  "for x in $LOOP9; do for y in $LOOP9; do echo \$x\$y; done; done"
+MANY=''
+for _ in $(seq 520); do MANY="${MANY}true; "; done
+assert_defer "a command past the simple-command bound defers" "$MANY"
+assert_defer "REQ-A1.14: an unassigned variable in a script path" "bash \$X/scripts/x.sh"
+assert_defer "REQ-A1.14: a relative assigned path is not tracked" "X=../../../tmp/evil; bash \$X/scripts/x.sh"
+# Expansions that evaluate a value as arithmetic (a subscript, an offset,
+# `$[…]`) or indirectly run a `$(…)` the hook never sees, whatever the verb.
+assert_defer "bypass: a read value as an array subscript" "read -r b < f; echo \${a[b]}"
+assert_defer "bypass: a read value as a substring offset" "read -r b < f; echo \${x:b}"
+assert_defer "bypass: a read value in \$[ ] arithmetic" "read -r b < f; echo \$[b]"
+assert_defer "bypass: a read value through indirection" "read -r b < f; echo \${!b}"
+assert_defer "an environment value as a subscript" "echo \"\${a[X]}\""
+assert_allow "a braced bare name stays an opaque operand" "echo \"\${HOME}/x\""
+
 echo "### REQ-A1.13 — the -v forms defer in every spelling"
 assert_defer "bypass: test -v runs a subscript" "test -v 'a[\$(id)]'"
 assert_defer "bypass: [ -v runs a subscript" "[ -v 'a[\$(id)]' ]"
@@ -805,7 +822,18 @@ assert_defer "bypass: printf -v assigns PATH" "printf -v PATH /x"
 assert_defer "bypass: bundled printf -vNAME" "printf -vPATH /x"
 assert_defer "bypass: an opaque test operand can become -v" "test \$X 'a[\$(id)]'"
 assert_defer "an opaque printf format" "printf \"\$F\" x"
+assert_defer "an opaque printf format after --" "printf -- \"\$F\" x"
+assert_allow "printf -- ends the options" "printf -- '%s\\n' a \"\$X\""
 assert_allow "test without -v still allows" "[ -f file ] && test -n x"
+# A double-quoted opaque operand is one word in a position bash cannot read
+# as an operator; anywhere else it could become `-v`.
+assert_allow "a quoted opaque operand of a unary test" "[ -n \"\$HOME\" ] && test -d \"\$HOME/.claude\""
+assert_allow "quoted opaque operands around a binary test" "[ \"\$a\" = \"\$b\" ]"
+assert_allow "a lone quoted opaque test operand" "test \"\$a\""
+assert_defer "an unquoted opaque test operand" "[ -n \$X ]"
+assert_defer "two adjacent opaque test operands" "[ \"\$a\" \"\$b\" ]"
+assert_defer "an opaque test operator position" "[ \"\$a\" \"\$op\" b ]"
+assert_defer "a four-word test with an opaque operand" "[ \"\$a\" = b -o c ]"
 
 echo "### REQ-A1.9 — grammar-conservative deferral"
 assert_defer "env-assignment prefix BASH_ENV" "BASH_ENV=/tmp/x bash scripts/ok.sh"

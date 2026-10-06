@@ -104,6 +104,41 @@ assert_eq "without jq the record contributes nothing; the cache walk needs no jq
 $cdir/plugins/cache/mkt/planwright/0.5.0" "$OUT"
 assert_eq "without jq the resolver still exits 0" 0 "$CODE"
 
+# --- a root reached through a symlink is never printed -------------------------
+# Callers canonicalize, so a printed symlinked root would trust its target.
+ldir="$SANDBOX/linked"
+mkdir -p "$ldir/plugins/cache/mkt/planwright/1.0.0" "$SANDBOX/elsewhere/v" \
+  "$SANDBOX/elsewhere/mkt2/planwright/2.0.0" "$SANDBOX/elsewhere/pw/3.0.0"
+ln -s "$SANDBOX/elsewhere/v" "$ldir/plugins/cache/mkt/planwright/9.9.9"
+ln -s "$SANDBOX/elsewhere/mkt2" "$ldir/plugins/cache/mkt2"
+mkdir -p "$ldir/plugins/cache/mkt3"
+ln -s "$SANDBOX/elsewhere/pw" "$ldir/plugins/cache/mkt3/planwright"
+mkdir -p "$SANDBOX/real-root"
+ln -s "$SANDBOX/real-root" "$SANDBOX/link-root"
+jq -n --arg a "$SANDBOX/link-root//" --arg b "$ldir/plugins/cache/mkt2/planwright/2.0.0" \
+  --arg c "$SANDBOX/real-root" \
+  '{plugins: {"planwright@planwright": [{installPath: $a}, {installPath: $b}, {installPath: $c}]}}' \
+  >"$ldir/plugins/installed_plugins.json"
+run "CLAUDE_DIR=$ldir"
+assert_eq "symlinked leaves, marketplace and plugin dirs are dropped from both arms" \
+  "$SANDBOX/real-root
+$ldir/plugins/cache/mkt/planwright/1.0.0" "$OUT"
+OUT=$(env -u HOME CLAUDE_DIR="$ldir" /bin/sh "$RESOLVER" --refused 2>/dev/null)
+assert_eq "--refused lists exactly the dropped candidates, for the launch preflight" \
+  "$SANDBOX/link-root//
+$ldir/plugins/cache/mkt2/planwright/2.0.0
+$ldir/plugins/cache/mkt/planwright/9.9.9
+$ldir/plugins/cache/mkt2/planwright/2.0.0
+$ldir/plugins/cache/mkt3/planwright/3.0.0" "$OUT"
+/bin/sh "$RESOLVER" --unlinked "$ldir/plugins/cache/mkt/planwright/1.0.0/"
+assert_eq "--unlinked passes a real cache root" 0 "$?"
+/bin/sh "$RESOLVER" --unlinked "$ldir/plugins/cache/mkt2/planwright/2.0.0"
+assert_eq "--unlinked refuses a root under a symlinked marketplace dir" 1 "$?"
+/bin/sh "$RESOLVER" --unlinked "$SANDBOX/link-root//"
+assert_eq "--unlinked refuses a symlinked leaf behind trailing slashes" 1 "$?"
+/bin/sh "$RESOLVER" --unlinked 2>/dev/null
+assert_eq "--unlinked without a path is a usage error" 2 "$?"
+
 if [ "$failures" -gt 0 ]; then
   echo "resolve-installed-roots suite: $failures failure(s)" >&2
   exit 1
