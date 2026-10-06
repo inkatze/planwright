@@ -1,7 +1,7 @@
 # Custom steps — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-28
+**Last reviewed:** 2026-10-06
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -40,6 +40,26 @@ the goal.
 issue 393 (Sources), obs:87570535, obs:9eca198f, obs:4883a86b,
 obs:ff5ca260, obs:b1414bbd, obs:680c2761.)*
 
+The 2026-10-06 extension adds **expensive checks**. Adopters run suites of
+a quarter of an hour that should run once before the first push, wait for
+one another across every worker on the host, and run again only when a
+later fix round changed what they cover. Planwright's own gate does that
+today by a hand convention (a shared host lock taken around the full
+suite), which has already deadlocked a host when a leaked test process
+inherited the lock. A command step may now name a machine-wide **pool** it
+holds a slot of while it runs, and the **paths** it covers. A passing
+record over the same committed content of those paths is reused instead
+of re-run, and a step declaring **re-fire** runs again on the final head
+when a post-pr fix round moved it. `/execute-task`'s own full local suite
+can join a pool too. The extension also carries quota-handling's
+amendment: the `limited` outcome, that bundle's step fields, the
+previous and new head in the step context, and the resume rule. The
+altitude stays D-1's, restated for this extension in D-21: the
+capability lands in core behind defaults that keep today's behavior, and
+pool names, paths, and which suite to run stay in overlays.
+*(Cites: D-21, D-28, D-29, obs:6c3342a8, obs:96cdeb96, obs:7fe26f10,
+obs:5aa3d7ee, quota-handling D-3 (Sources).)*
+
 ## Scope
 
 ### In scope
@@ -74,6 +94,19 @@ obs:ff5ca260, obs:b1414bbd, obs:680c2761.)*
   own that denies an in-session flip lacking it (the hook gated under
   Deferred until an in-repo unit-PR flipper exists to produce the
   evidence).
+- Expensive checks (2026-10-06): machine-wide step pools on the shared
+  lock primitive, with `/execute-task`'s own full local suite able to
+  join one; the `paths` fingerprint and reuse of a passing record; the
+  declared re-fire of a `pre-ci` or `pre-pr` command step after the
+  post-pr point moved the head; their knobs, records, validation, and
+  documentation; this repository's move off the hand-held host lock.
+- quota-handling's amendment (2026-10-06): the `limited` outcome, the
+  entry format admitting that bundle's step fields, the previous and new
+  head in the step context, records carrying their end head and skip
+  reason, resume continuation, a `continue` step standing on a skipped
+  predecessor's evidence, and `limited` refusing the flip and failing the
+  flip-point status. quota-handling owns those fields' semantics and
+  implements them.
 
 ### Out of scope
 
@@ -94,7 +127,19 @@ obs:ff5ca260, obs:b1414bbd, obs:680c2761.)*
 - Re-running earlier points when a later step moves the branch head. The
   ready-guard's currency check and merge-currency-guard's sync rule cover
   the head; obs:36916a48 records the operator's wider wish about unit
-  sizing and sync frugality for a bundle that owns those rules.
+  sizing and sync frugality for a bundle that owns those rules. The one
+  exception, since 2026-10-06, is a command step declaring re-fire
+  (REQ-I1.9); a whole point, a skill or prompt step, and convergence are
+  never re-run.
+- Verification policy and test-file pooling (2026-10-06): where a
+  worker's full-suite evidence comes from and the per-file ticket pool
+  inside `scripts/run-tests.sh` stay test-throughput's; a step pool
+  bounds whole checks, never test files.
+- quota-handling's mechanics (2026-10-06): the vendor adapters, the limit
+  classifier, holds and resumes, the review-request command, and the
+  per-vendor ledger stay in that bundle.
+- Pools spanning hosts (CI runners), and the test-suite process leaks that
+  have held the hand lock (obs:44b2795b), which belong to the suite.
 - Editing the operator's own review commands, or any step's internal loop
   and convergence criteria.
 - Steps editing signed spec content outside the amendment ritual the
@@ -144,6 +189,25 @@ obs:ff5ca260, obs:b1414bbd, obs:680c2761.)*
   launch prompt or invocation. The runner neither scrubs the inherited
   environment nor adds any other planwright internal state.
   *(Cites: D-14, D-13, obs:00dccd4e.)*
+  **Superseded-by: REQ-A1.6** (2026-10-06) — the context set gains the
+  previous and new head of a head move at the current point.
+- **REQ-A1.6** (supersedes REQ-A1.4) Every step SHALL receive exactly the
+  fixed context set: spec identifier, unit task ids (empty for a spec-kind
+  unit), unit kind (`task`, `spec`, or `flight`), branch, base branch,
+  worktree path, PR number (empty when none exists, so on a re-execution
+  against an open PR it is set at every point), point name, step id, the
+  path of the preceding step's record (empty for the first), and the
+  previous and new head of the latest head move by an earlier step at the
+  same point in the same run (both empty when no earlier step there moved
+  the head). It reaches a command step as the `PLANWRIGHT_STEP_*`
+  environment variables the rule doc names, added to the inherited host
+  environment, an absent value set to the empty string, never unset; it
+  reaches a skill or prompt step as a preamble, a rendered block the
+  resolver prints and the runner prepends to the step's launch prompt or
+  invocation. The runner neither scrubs the inherited environment nor adds
+  any other planwright internal state.
+  *(Cites: D-14, D-13, D-29, obs:00dccd4e, quota-handling REQ-D1.1
+  (Sources).)*
 - **REQ-A1.5** The point vocabulary, the moment each point fires, and the
   step contract SHALL have one normative home, a rule doc resolved through
   the rule-doc chain and loaded point-of-use by `/execute-task`; skills
@@ -175,6 +239,30 @@ obs:ff5ca260, obs:b1414bbd, obs:680c2761.)*
   is the whole prompt).
   *(Cites: D-4, D-15, customization-overlay REQ-E1.2 (Sources),
   customization-overlay REQ-E1.4 (Sources).)*
+  **Superseded-by: REQ-B1.7** (2026-10-06) — the entry format admits the
+  expensive-check fields and quota-handling's step fields.
+- **REQ-B1.7** (supersedes REQ-B1.2) A step entry SHALL carry: `id` (the
+  skill-name charset `^[a-z][a-z0-9-]*$`, at most 64 bytes, validated
+  before any key or path use; `implementation` is reserved for the unit's
+  own implementation phase and never a step id), `kind` (one of `skill`,
+  `command`, `prompt`), `target`, and optionally `args`, `hosting` (one of
+  `isolated`, `continue`, `in-session`), `on-failure` (one of `halt`,
+  `continue`; default `halt`), `timeout` (a positive integer of seconds;
+  unset means no limit), `requires` (space-separated executable names),
+  the expensive-check fields `pool`, `paths`, and `refire` (REQ-I1.1,
+  REQ-I1.7, REQ-I1.9), and quota-handling's fields `vendor`, `control`,
+  `on-limit`, `moves-head`, `final-head`, and `drains`, whose grammar and
+  meaning that bundle defines. Every value is a single-line scalar of the
+  constrained catalog reader. An entry with an unknown field, an unknown
+  enum value, an id outside the charset, or a missing required field is
+  malformed for its layer under REQ-C1.5. So is an entry whose fields
+  cannot be honored together: `timeout` on a skill or prompt step hosted
+  `in-session` (the unit session cannot end itself), `args` on a `prompt`
+  step (the target is the whole prompt), and the combinations REQ-I1.11
+  refuses.
+  *(Cites: D-4, D-15, D-29, customization-overlay REQ-E1.2 (Sources),
+  customization-overlay REQ-E1.4 (Sources), quota-handling D-3
+  (Sources).)*
 - **REQ-B1.3** Every named point SHALL have one flat config key holding its
   ordered list of step ids, named `steps_<point>` with hyphens written as
   underscores (`steps_pre_implementation`, `steps_pre_ci`,
@@ -310,6 +398,28 @@ obs:ff5ca260, obs:b1414bbd, obs:680c2761.)*
   only by the missing-step matrix (REQ-C1.4). The runner writes every
   record, whatever the hosting.
   *(Cites: D-8, obs:03653377.)*
+  **Superseded-by: REQ-D1.10** (2026-10-06) — the outcome set gains
+  `limited`, and `skipped` gains producers beyond the missing-step matrix.
+- **REQ-D1.10** (supersedes REQ-D1.1) The runner (the session hosting the
+  unit, or the flipper at a flip point, with the scripts it calls) SHALL
+  execute a point's steps in order and end each with an outcome from
+  exactly the set `passed`, `applied`, `halted`, `failed`, `skipped`,
+  `limited`. A command step maps exit zero to `passed` and any other exit,
+  or a timeout, to `failed`. A skill or prompt step's outcome is
+  classified by the runner from the handoff the step's session returns:
+  `applied` when the handoff reports a change to the branch (a commit, an
+  applied finding), `passed` when it reports none, `halted` when it
+  reports a stop the step could not resolve, `failed` when the session
+  ended abnormally or reported a safety stop; the record carries the
+  excerpt the classification rests on. `limited` is produced only by
+  quota-handling's limit classifier and replaces the outcome above when it
+  matches. `skipped` is produced only by the missing-step matrix
+  (REQ-C1.4), reuse (REQ-I1.8), resume continuation (REQ-J1.1), and
+  quota-handling's same-head review-request skip, each record naming its
+  reason (REQ-D1.12). The runner writes every record, whatever the
+  hosting.
+  *(Cites: D-8, D-29, D-31, obs:03653377, quota-handling REQ-A1.1
+  (Sources), quota-handling REQ-D1.3 (Sources).)*
 - **REQ-D1.2** A `halted` or `failed` step whose posture is `halt` SHALL
   end the point: at an in-run point it ends the unit through the
   gate-wiring pause protocol's two destinations (an unattended run parks
@@ -348,6 +458,19 @@ obs:ff5ca260, obs:b1414bbd, obs:680c2761.)*
   backend, the hosting, and the missing predecessor, so its posture
   applies.
   *(Cites: D-7.)*
+  **Superseded-by: REQ-D1.11** (2026-10-06) — a predecessor skipped by
+  reuse or resume stands on the session of the record that justified the
+  skip.
+- **REQ-D1.11** (supersedes REQ-D1.4) A step declaring `continue` whose
+  predecessor was skipped by reuse (REQ-I1.8) or resume continuation
+  (REQ-J1.1) SHALL attach to the session id recorded on the record whose
+  evidence justified that skip. A step declaring `continue` SHALL not run,
+  and SHALL take outcome `failed` naming the backend, the hosting, and the
+  missing predecessor so its posture applies, when the backend cannot
+  resume the session it would attach to, when that session's record holds
+  no session id (a predecessor hosted `in-session` excepted, per
+  REQ-D1.3), or when the predecessor was skipped for any other reason.
+  *(Cites: D-7, D-30.)*
 - **REQ-D1.5** Every step SHALL leave a record carrying the head SHA at
   its start, the run id (one per unit run or flip attempt), the point,
   step id, kind, target, hosting, backend, session id where one exists,
@@ -390,6 +513,13 @@ obs:ff5ca260, obs:b1414bbd, obs:680c2761.)*
 - **REQ-D1.9** Resolution SHALL complete for a whole point before its first
   step runs; a point either runs its resolved list or runs nothing.
   *(Cites: D-6.)*
+- **REQ-D1.12** Every step record SHALL also carry the head SHA at the
+  step's end, and a `skipped` record SHALL carry exactly one skip reason
+  from `missing` (the missing-step matrix), `reuse`, `resume`, and
+  `answered` (quota-handling's same-head review-request skip), plus, for
+  `reuse` and `resume`, the run id and step id of the record that
+  justified the skip.
+  *(Cites: D-31, D-27, quota-handling D-8 (Sources).)*
 
 ## REQ-E — The review points
 
@@ -453,6 +583,40 @@ obs:ff5ca260, obs:b1414bbd, obs:680c2761.)*
   forges. The PR-body table stays the human record; the status is what the
   hook trusts.
   *(Cites: D-20, D-16, obs:4883a86b, merge-currency-guard D-5,
+  merge-currency-guard REQ-A1.2, merge-currency-guard REQ-C1.1,
+  merge-currency-guard REQ-C1.10 (Sources).)*
+  **Superseded-by: REQ-E1.6** (2026-10-06) — a `limited` record makes the
+  flip-point status `failure`.
+- **REQ-E1.6** (supersedes REQ-E1.5) The flipper SHALL leave server-side
+  evidence of the flip point's outcome: after the point's list completes
+  (an empty list included), it posts a commit status on the exact head the list ended on,
+  in the base repository the PR targets, context
+  `planwright/pre-ready-flip` for a unit PR and
+  `planwright/pre-spec-ready-flip` for the spec PR, state `success` when no
+  record of the latest attempt for that head is `halted`, `failed`, or
+  `limited` (`skipped` and the other classified outcomes count as the
+  record says) and
+  `failure` otherwise; a later post on the same head and context replaces
+  the earlier one; a post that fails, a missing status-write permission
+  included, ends the flip attempt without a flip, surfaced like a failed
+  step, the documentation naming the permission the flipper's login needs.
+  Those contexts SHALL be excluded, by context name, from every CI rollup
+  judgement planwright makes, so a flip point's own status never counts as
+  a completed check; adopters' own status-consuming tooling sees them, and
+  the documentation says so. A separate evidence hook of this bundle's
+  own, on the two flip surfaces the ready-guard covers (the shell ready
+  command and the GitHub MCP update tool), SHALL refuse an in-session
+  draft-to-ready flip of a PR whose head branch is under `planwright/`
+  unless the head carries the `success` status matching the branch (the
+  spec-branch form requires the spec context, every other `planwright/`
+  head the unit context), SHALL deny on a status read that errors, and
+  SHALL defer on every other PR and on a PR whose head repository differs
+  from its base; the out-of-session flip is the recovery path. That hook
+  lands only once an in-repo unit-PR flipper exists to run the point
+  (gated under Deferred), and it binds a flipper that forgets, not one that
+  forges. The PR-body table stays the human record; the status is what the
+  hook trusts.
+  *(Cites: D-20, D-16, D-32, obs:4883a86b, merge-currency-guard D-5,
   merge-currency-guard REQ-A1.2, merge-currency-guard REQ-C1.1,
   merge-currency-guard REQ-C1.10 (Sources).)*
 
@@ -567,6 +731,138 @@ obs:ff5ca260, obs:b1414bbd, obs:680c2761.)*
   verified by the instruction-budget guard's manifest pass.
   *(Cites: D-9.)*
 
+## REQ-I — Expensive checks
+
+- **REQ-I1.1** A command step MAY declare `pool: <name>`, the name in the
+  step-id charset and length of REQ-B1.7. Before such a step runs, the
+  runner SHALL hold one slot of the named pool, which every checkout,
+  worktree, and unit of the same user on the host shares; it SHALL hold
+  the slot for the step's run only and release it on every exit path, a
+  timeout included.
+  *(Cites: D-22, obs:6c3342a8, obs:7fe26f10.)*
+- **REQ-I1.2** Pools SHALL be built on the shared advisory-lock primitive,
+  one lock per slot under a pool directory in the user's home state
+  directory. A slot whose holder process is no longer running SHALL be
+  reclaimed by the next caller. A hold SHALL be owned by a process whose
+  lifetime bounds the check's run and SHALL NOT be an open file
+  descriptor or any other handle a child process inherits, so a process a
+  check leaks never keeps a slot. A pool directory that is a symbolic link
+  or not owned by the user, or a lock-library error, SHALL run the step
+  unpooled with one warning naming the cause, recorded in its step record,
+  never block it or fail it.
+  *(Cites: D-22, obs:96cdeb96, test-throughput REQ-A1.4 (Sources),
+  test-throughput REQ-A1.7 (Sources).)*
+- **REQ-I1.3** A pool's capacity SHALL be the config value
+  `step_pool_capacity_<pool>` (hyphens written as underscores) when set,
+  and `step_pool_capacity` otherwise, a positive integer whose core default
+  is 1; a malformed value SHALL fall back to the next value in that order
+  with one warning naming the layer.
+  *(Cites: D-24, model-allocation REQ-E1.1 (Sources).)*
+- **REQ-I1.4** While no slot is free, the runner SHALL wait, reporting at
+  the start of the wait each live holder (its process id, its step id or
+  the full-suite run, and its worktree); the wait SHALL be bounded by the
+  config value `step_pool_wait` (the duration form `pr_ci_wait` uses, core
+  default `60m`, a malformed value falling back to the default with one
+  warning) and SHALL NOT count against the step's `timeout`. A step whose
+  wait passes the bound SHALL take outcome `failed`, naming the holders,
+  so its posture applies.
+  *(Cites: D-24, obs:96cdeb96.)*
+- **REQ-I1.5** When the config value `full_suite_pool` names a pool,
+  every full local suite run `/execute-task` makes SHALL hold a slot of
+  that pool for the run's duration under REQ-I1.2 and REQ-I1.4, sharing
+  the pool with every step that names it; its core default is empty, under
+  which the run is unpooled as before. The pool helper SHALL document one
+  recipe by which an operator's own full-suite run by hand takes the same
+  slot.
+  *(Cites: D-25, obs:7fe26f10, obs:6c3342a8.)*
+- **REQ-I1.6** The pool helper SHALL take, hold, report, and release slots
+  and SHALL NOT execute any command; a check runs in the runner or the
+  session that would run it unpooled, and the hold is taken on behalf of
+  the process REQ-I1.2 names.
+  *(Cites: D-23, REQ-G1.1, worker-permission-ergonomics REQ-A1.5
+  (Sources).)*
+- **REQ-I1.7** A command step MAY declare `paths`: space-separated
+  repository-relative path words, each made only of letters, digits, `.`,
+  `_`, `-`, and `/`, none starting with `/` or `-` and none containing a
+  `..` segment, `.` standing for the whole tree. The step's fingerprint
+  SHALL be derived from the git object id of each declared path at the
+  head, in declaration order, a path absent at the head contributing an
+  absent marker; when any tracked or untracked file under a declared path
+  differs from the head, the step has no fingerprint.
+  *(Cites: D-26, security-posture (Sources).)*
+- **REQ-I1.8** Before running a step that declares `paths` and has a
+  fingerprint, the runner SHALL skip it, recording `skipped` with reason
+  `reuse`, when the worktree's record cache holds a `passed` record of the
+  same step id with the same target and `args` whose fingerprint equals
+  the current one, from any run of the unit in that worktree and any point
+  the step is listed at. A step with no `paths`, or with no fingerprint,
+  is never reused.
+  *(Cites: D-27, obs:6c3342a8.)*
+- **REQ-I1.9** A command step listed at `pre-ci` or `pre-pr` MAY declare
+  `refire: post-pr`. When a step at the `post-pr` point moved the head in
+  the run, the runner SHALL, after the post-pr list completes and before
+  the REQ-E1.2 regeneration, run every such step once more on the final
+  head, in the order of its declaring lists (`pre-ci` first), subject to
+  reuse (REQ-I1.8), recording each under the `post-pr` point with a
+  re-fire marker naming its declaring point. A re-fired step keeps its
+  declaring point's no-push rule (REQ-D1.6). A re-fired `halted` or
+  `failed` step whose posture is `halt` SHALL park the unit to Awaiting
+  input naming the step and the head, the PR left a draft; one with
+  posture `continue` is recorded and the run proceeds. Re-fire happens at
+  most once per run.
+  *(Cites: D-28, obs:6c3342a8.)*
+- **REQ-I1.10** A pooled step's record SHALL also carry the pool, the
+  seconds spent waiting, the holders reported at the wait's start, and
+  whether it ran unpooled; a step declaring `paths` SHALL also record its
+  fingerprint, or that it had none.
+  *(Cites: D-31, REQ-D1.5.)*
+- **REQ-I1.11** Resolution SHALL refuse, as malformed for its layer under
+  REQ-C1.5: a pool name outside its charset; a `paths` word outside its
+  grammar; a `refire` value other than `post-pr`; `refire` without
+  `paths`; `pool`, `paths`, or `refire` on a skill or prompt step; and a
+  point list other than `steps_pre_ci` or `steps_pre_pr` naming a step that
+  declares `refire`. The `--explain` provenance SHALL print a step's pool,
+  paths, and re-fire declaration.
+  *(Cites: D-22, D-26, D-28, REQ-C1.2.)*
+- **REQ-I1.12** Every new config key SHALL have a row in the options
+  reference; the custom-steps rule doc SHALL state the pool, reuse, and
+  re-fire contract; the overlay documentation SHALL show an adopter-layer
+  catalog entry declaring a long suite with a pool, paths, and re-fire,
+  used by a repo-tracked `steps_pre_pr` list; the `check:steps` guard
+  SHALL resolve the new fields on this repository's configuration.
+  *(Cites: D-9, D-21, REQ-H1.1, REQ-H1.2, REQ-H1.4.)*
+- **REQ-I1.13** This repository's repo-tracked configuration SHALL set
+  `full_suite_pool`, so its own units' full suites serialize through the
+  native pool, and its contributor documentation SHALL name the REQ-I1.5
+  recipe as the way to run the full gate by hand, the setting carrying a
+  comment naming the release that ships the pool helper (the installed
+  plugin is what this repository's own units run, as under REQ-F1.2).
+  *(Cites: D-25, obs:96cdeb96, REQ-F1.2.)*
+
+## REQ-J — Limits and head ordering
+
+- **REQ-J1.1** When a run resumes a unit that a quota-handling hold
+  interrupted, the runner SHALL skip each step of the interrupted point
+  recorded `passed` or `applied` in the interrupted run whose end head
+  equals the current head, recording it `skipped` with reason `resume`,
+  and SHALL begin real work at the first step not so recorded; when the
+  head moved during the hold, no record matches and nothing is skipped.
+  *(Cites: D-29, D-31, quota-handling D-8 (Sources), quota-handling
+  REQ-B1.6 (Sources).)*
+- **REQ-J1.2** A `limited` record from any point of the run, on the head
+  about to be flipped, SHALL refuse the flip at either flip point, as a
+  `halted` or `failed` step does (REQ-E1.3). What a `limited` step does to
+  the rest of its point is governed by its `on-limit` posture, never by
+  `on-failure`.
+  *(Cites: D-32, quota-handling REQ-B1.1 (Sources), quota-handling
+  REQ-B1.2 (Sources).)*
+- **REQ-J1.3** The custom-steps rule doc SHALL list the `limited` outcome,
+  the skip reasons, and quota-handling's step fields, naming quota-handling
+  as the owner of those fields' meaning, and this bundle's resolver SHALL
+  accept those fields as known fields of the entry format; their
+  validation and behavior are delivered by quota-handling's own tasks.
+  *(Cites: D-29, quota-handling D-3 (Sources).)*
+
 ## Changelog
 
 - 2026-09-22 — Draft. Elicited from the review-gauntlet seed brief, issues
@@ -602,6 +898,17 @@ obs:ff5ca260, obs:b1414bbd, obs:680c2761.)*
   the operator's Task 2 decision after a builtin-named bare target ran the
   builtin rather than the printed file. The guard's fixture rows gain a
   bare-target spelling deferred.
+- 2026-10-06 — Extension (Draft content inside the Active bundle, pending
+  a delta kickoff): expensive checks (REQ-I; D-21 to D-28) and
+  quota-handling's amendment (REQ-J; D-29 to D-32). REQ-A1.4, REQ-B1.2,
+  REQ-D1.1, REQ-D1.4, and REQ-E1.5 are superseded by REQ-A1.6, REQ-B1.7,
+  REQ-D1.10, REQ-D1.11, and REQ-E1.6; REQ-D1.12 adds end heads and skip
+  reasons to records; D-12 is superseded by D-28. The Scope gains both
+  deliveries and the re-fire exception to the no-re-run exclusion. Tasks
+  10 to 16 are added; Tasks 6 and 8 are unchanged. Seeds: obs:6c3342a8,
+  obs:96cdeb96, and obs:7fe26f10 consumed; obs:5aa3d7ee cited, already
+  consumed by quota-handling. Fold-detection confirmed the extension; the
+  scan is recorded in Sources.
 
 ## Sources
 
@@ -679,3 +986,33 @@ obs:ff5ca260, obs:b1414bbd, obs:680c2761.)*
 - **The fold-detection scan** — every bundle under `specs/` on 2026-09-21;
   overlap with the three fold-detection candidates, spin-new triggers fired
   on the new external interface and the orthogonal decisions.
+- **obs:6c3342a8** — the 2026-10-05 ask for a native expensive-check step:
+  once before the first push, intermediate commits skipped, a machine-wide
+  serialization pool, path gating, and re-firing after post-pr fix
+  rounds, from the operator's dotfiles fleet run and this host's gate
+  contention. Pinned altitude claim, from the invocation: "the hand
+  convention becomes native".
+- **obs:96cdeb96** — the hand-held host gate lock leaks its file
+  descriptor into every child, so a leaked test process held it and
+  deadlocked every later gate on the host.
+- **obs:7fe26f10** — the 2026-09-02 record that the unit-parallelism cap
+  bounds dispatch, not what the dispatched units run, so concurrent full
+  suites contend; asks for a fleet-level lock around the full-suite run.
+- **obs:5aa3d7ee** — metered review bots are inexpressible as steps;
+  consumed by quota-handling, cited here for the head-moved signal and
+  the shared acceptance scenario.
+- **obs:44b2795b** — the streamjson test supervisor leak that held the
+  hand lock, left live for the test suite to fix.
+- **quota-handling** — `specs/quota-handling/`, signed 2026-10-05: its
+  D-3 names this amendment and its contents, D-8 the resume rule, D-12
+  the head-moved signal and head ordering, and its REQ-A1.1, REQ-B1.1,
+  REQ-B1.2, REQ-B1.6, REQ-D1.1, and REQ-D1.3 the behavior the amendment
+  carries.
+- **test-throughput** — `specs/test-throughput/`, the per-file ticket pool
+  (REQ-A1.4's unpooled fallback, REQ-A1.7's pool-directory screening) and
+  the worker verification policy this extension leaves in place.
+- **The 2026-10-06 fold-detection scan** — every bundle under `specs/` on
+  the drafting date; custom-steps owns the interface and the no-re-run
+  decision this extension changes, quota-handling routes the re-fire ask
+  here, and test-throughput owns test-file pooling only, so the idea
+  extended custom-steps.

@@ -1,7 +1,7 @@
 # Custom steps — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-09-28
+**Last reviewed:** 2026-10-06
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -261,9 +261,150 @@ deferred until every flipper posts.
 - **Citations:** D-20, D-16 · REQ-E1.5
 - **Estimated effort:** half day
 
+### Task 10 — The extension's contract in the rule doc and the docs
+
+- **Deliverables:** `doctrine/custom-steps.md` states the expensive-check
+  contract (the `pool`, `paths`, and `refire` fields, pools, the
+  fingerprint, reuse, and re-fire), the outcome set with `limited`, the
+  skip reasons, the end head, the previous and new head context fields,
+  resume continuation, the `continue` rule over a skipped predecessor, and
+  a quota-handling field list naming that bundle as the owner of their
+  meaning; `docs/overlays.md` gains the pool, paths, and re-fire example
+  (an adopter-layer catalog entry used by a repo-tracked `steps_pre_pr`
+  list) and the hand-run full-suite recipe; `docs/options-reference.md`
+  gains rows
+  for `step_pool_capacity`, `step_pool_capacity_<pool>`,
+  `step_pool_wait`, and `full_suite_pool`; the doctrine index row for the
+  rule doc is refreshed.
+- **Done when:** the options check, the doc-links check, the doctrine
+  index check, and `check:instructions` pass with every closure that loads
+  the rule doc at or above its declared margin; each REQ this task cites
+  has its rule stated in the rule doc or the overlay documentation.
+- **Dependencies:** none
+- **Citations:** D-21, D-24, D-25, D-29, D-30, D-31 · REQ-A1.6, REQ-B1.7,
+  REQ-D1.10, REQ-D1.11, REQ-D1.12, REQ-I1.5, REQ-I1.12, REQ-J1.3
+- **Estimated effort:** 1 day
+
+### Task 11 — The step pool helper and its knobs
+
+- **Deliverables:** `scripts/step-pool.sh` with take, report, and release
+  verbs over per-user pools built on `scripts/lock-lib.sh` (one slot lock
+  per capacity unit, held on behalf of a named owning process, dead
+  holders reclaimed, the pool directory screened for a symbolic link and
+  for ownership, unusable pools reported for an unpooled run) and the
+  bounded wait reporting live holders; the four config keys in
+  `config/defaults.yml` with their core defaults; `scripts/lock-lib.sh`'s
+  lock-holder list naming the helper; `tests/test-step-pool.sh`.
+- **Done when:** fixture rows show capacity one serializing two callers, a
+  per-pool capacity override admitting two, a dead holder's slot
+  reclaimed, a child process that outlives the owning process not keeping
+  the slot, the wait bound expiring with the holder named, a symbolic-link
+  pool directory reported as unpooled, a malformed capacity and wait each
+  falling back with a warning, and no verb executing a command it is
+  given; `scripts/check-lock-primitive.sh` passes.
+- **Dependencies:** none
+- **Citations:** D-22, D-23, D-24, D-25 · REQ-I1.1, REQ-I1.2, REQ-I1.3,
+  REQ-I1.4, REQ-I1.6
+- **Estimated effort:** 1 day
+
+### Task 12 — The resolver admits and validates the new fields
+
+- **Deliverables:** `scripts/resolve-steps.sh` accepting `pool`, `paths`,
+  `refire`, and quota-handling's six fields as known entry fields,
+  refusing the malformations REQ-I1.11 names, and printing pool, paths,
+  and re-fire in `--explain`; rows in `tests/test-resolve-steps.sh`.
+- **Done when:** fixture rows show each REQ-I1.11 malformation refused for
+  its layer with the right exit, each quota-handling field accepted as a
+  known field without being validated beyond the single-line scalar rule,
+  a `refire` step accepted in `steps_pre_ci` and `steps_pre_pr` and
+  refused in `steps_convergence`, and `--explain` printing the new
+  provenance; the existing resolver rows pass unchanged.
+- **Dependencies:** none
+- **Citations:** D-22, D-26, D-28, D-29 · REQ-B1.7, REQ-I1.7, REQ-I1.11,
+  REQ-J1.3
+- **Estimated effort:** 1 day
+
+### Task 13 — Records, fingerprints, reuse lookup, and `limited` in the status
+
+- **Deliverables:** `scripts/step-record.sh` writing the end head, the
+  skip reason with the record it stands on, the pool, wait, holders, and
+  unpooled fields, and the fingerprint; a fingerprint verb computing it
+  from a worktree and a path list; a lookup verb returning the record a
+  reuse or a resume continuation would stand on; the `status` verb
+  deriving `failure` over a `limited` record; the PR-body table rendering
+  the new fields table-safe; rows in `tests/test-step-record.sh`.
+- **Done when:** fixture rows show a fingerprint stable across two commits
+  that leave the paths unchanged, changed by a commit touching one, absent
+  under an uncommitted or untracked change in a declared path, and
+  marking an absent path; reuse lookup matching only a `passed` record of
+  the same id, target, args, and fingerprint, across runs; resume lookup
+  matching only `passed` or `applied` records of the interrupted run whose
+  end head equals the given head; the `status` verb deriving `failure`
+  over a `limited` record; the existing rows pass unchanged.
+- **Dependencies:** none
+- **Citations:** D-26, D-27, D-31, D-32 · REQ-D1.10, REQ-D1.12, REQ-E1.6,
+  REQ-I1.7, REQ-I1.8, REQ-I1.10, REQ-J1.1, REQ-J1.2
+- **Estimated effort:** 1 day
+
+### Task 14 — Wire pools, reuse, re-fire, and resume into /execute-task
+
+- **Deliverables:** `skills/execute-task/SKILL.md` taking a pool slot
+  around a pooled command step and around every full local suite run when
+  `full_suite_pool` is set, checking reuse before a step that declares
+  `paths`, running the re-fire pass after the post-pr list and before the
+  regeneration, attaching a `continue` step to the session behind a
+  skipped predecessor, skipping per resume continuation on a resumed run,
+  and exposing the previous and new head in the context; the mechanics
+  live in the scripts and the rule doc, the skill carrying one-line calls
+  with a compensating trim in the same change.
+- **Done when:** with the shipped defaults a unit runs exactly as before;
+  with a fixture overlay in the adopter layer declaring a pooled
+  path-declaring re-fire command step at `pre-pr` and a post-pr command
+  step that pushes a change to a declared path, the records show the slot
+  taken and released, the check re-fired on the final head, and a second
+  run of the unit reusing the passing record; a push touching no declared
+  path re-fires as a `reuse` skip; a failing re-fire parks the unit with
+  the PR a draft; two fixture units sharing `full_suite_pool` never run
+  their suites at once; `check:instructions` passes with `/execute-task`'s
+  margins at or above their declared figures.
+- **Dependencies:** 10, 11, 12, 13
+- **Citations:** D-25, D-27, D-28, D-30 · REQ-A1.6, REQ-D1.11, REQ-I1.1,
+  REQ-I1.4, REQ-I1.5, REQ-I1.8, REQ-I1.9, REQ-J1.1
+- **Estimated effort:** 2 days
+
+### Task 15 — check:steps covers the new fields
+
+- **Deliverables:** the `check:steps` guard resolving the new fields on
+  this repository's configuration, and rows in `tests/test-check-steps.sh`
+  for a malformed pool name, a misplaced re-fire step, and a step naming
+  `refire` without `paths`.
+- **Done when:** `mise run check` runs the guard green on this
+  repository's configuration and each new failing fixture exits non-zero
+  naming the step and the field.
+- **Dependencies:** 8, 12
+- **Citations:** D-9 · REQ-I1.11, REQ-I1.12
+- **Estimated effort:** half day
+
+### Task 16 — This repository joins the native pool
+
+- **Deliverables:** `.claude/planwright.yml` setting `full_suite_pool`
+  with a comment naming the release that carries the helper;
+  `docs/CONTRIBUTING.md`'s full-gate instructions naming the pool
+  helper's hand-run recipe as the way to run the gate by hand.
+- **Done when:** the options check and `check:steps` pass on the new
+  configuration; a full gate run through the documented recipe takes and
+  releases a slot of the configured pool, recorded in the PR body.
+- **Dependencies:** 11, 14
+- **Citations:** D-25 · REQ-I1.13
+- **Estimated effort:** half day
+
 ## Awaiting input
 
-(none yet)
+- **Task 10** anchor re-review pending: the 2026-10-06 extension is
+  meaning-class Draft content inside this signed bundle, so its recorded
+  anchor no longer recomputes; Task 10 and its dependents wait on the
+  delta kickoff, whose sign-off re-records the anchor and removes this
+  bullet.
 
 ## Deferred
 
@@ -334,6 +475,16 @@ deferred until every flipper posts.
   free-text condition, evaluated at drain).
   Citations: D-10, D-13 · REQ-F1.5, REQ-G1.1.
 
+- **Pooled, path-declaring, and re-firing skill or prompt steps.** The
+  2026-10-06 extension gives `pool`, `paths`, and `refire` to command
+  steps only: a session step's cost is not a function of the tree, and
+  holding a slot across a session needs its own owning-process rule.
+  Confidence: medium.
+  **Gate:** a recorded observation naming a skill or prompt step an
+  operator needed pooled or re-fired (surfaced free-text condition,
+  evaluated at drain).
+  Citations: D-27, D-28 · REQ-I1.11.
+
 ## Out of scope
 
 - The ready-flip authorization policy (issue 379) and merge; this bundle
@@ -345,7 +496,10 @@ deferred until every flipper posts.
   customization-overlay.
 - Re-running earlier points after a post-pr step moves the head; unit
   sizing and sync frugality are recorded in obs:36916a48 for a bundle that
-  owns those rules.
+  owns those rules. The one exception is a command step declaring
+  re-fire (REQ-I1.9).
+- Test-file pooling and the worker verification policy (test-throughput),
+  and quota-handling's mechanics; see requirements.md's Scope.
 - Editing the operator's own review commands, or any step's internal loop
   and convergence criteria.
 - Steps editing signed spec content outside the amendment ritual; a
