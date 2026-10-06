@@ -27,7 +27,9 @@ fail() {
 # fails as stale, so a site that moves onto the resolver deletes its row.
 allowlist='fleet-dispatch-env.sh	publishes the operator'"'"'s own values into a worker'"'"'s environment; it picks no root
 install.sh	it writes the writer-delivery copy, so it names that directory as a destination, not as an arm
-inception-scaffold.sh	the venture hook it emits runs outside planwright and must locate a copy before it can ask that copy'"'"'s resolver'
+inception-scaffold.sh	the venture hook it emits runs outside planwright and must locate a copy before it can ask that copy'"'"'s resolver
+worker-command-guard.sh	trust policy: it withholds a symlinked plugin-delivery arm from the resolver, which would canonicalize it into trusting the link target; the resolver still picks the roots
+tower-command-guard.sh	trust policy: it withholds a symlinked plugin-delivery arm from the resolver, which would canonicalize it into trusting the link target; the resolver still picks the root'
 
 # chain_reads <file>: the non-comment lines expanding either variable, or
 # naming the writer-delivery directory itself (`<claude-dir>/planwright` with
