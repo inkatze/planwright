@@ -372,6 +372,14 @@ rl_latest_release_tag() {
 RL_CI_WINDOW_LOCK_NAME="window-lock"
 RL_CI_WINDOW_LOCK_WORKFLOW="release-window"
 
+# The flip-point commit statuses, EXCLUDED from the verdict by context name
+# (doctrine/custom-steps.md, *The flip points and their evidence*). A flipper
+# posts one on the head it flips as evidence it ran the point there; it is not
+# CI, so it must neither confirm a verdict green nor hold or fail one. The
+# exclusion is StatusContext-scoped: only a commit status by exactly one of
+# these names is dropped, and a CheckRun of the same name is judged.
+RL_CI_FLIP_POINT_CONTEXTS='["planwright/pre-ready-flip","planwright/pre-spec-ready-flip"]'
+
 # rl_ci_state <sha> — print the release-gating CI verdict for commit <sha> to
 # stdout and return 0; on a gh/query failure print nothing and return 2, so a
 # caller distinguishes an infra outage from a red verdict (an outage is never
@@ -385,7 +393,7 @@ RL_CI_WINDOW_LOCK_WORKFLOW="release-window"
 #             pending (NEUTRAL/SKIPPED checks neither confirm nor block)
 #   failing   a non-excluded check failed — it will not self-heal
 #   pending   a non-excluded check is still running
-#   none      no positive confirmation — no checks, only the excluded lock, or
+#   none      no positive confirmation — no checks, only excluded checks, or
 #             only NEUTRAL/SKIPPED remain. A release gate requires a positive
 #             SUCCESS, so "no CI" folds to none (fail-closed by design; an adopter
 #             without CI adds it, or opts out via the require_ci knob at the
@@ -397,11 +405,13 @@ RL_CI_WINDOW_LOCK_WORKFLOW="release-window"
 # statuses) is judged individually, NOT the single aggregated rollup `state`: the
 # aggregate folds in the release-window lock, which is red BY DESIGN during the
 # untagged window, so a gate on the aggregate would deadlock (REQ-C1.4). The
-# window lock is excluded workflow-scoped (RL_CI_WINDOW_LOCK_* above). A CheckRun
-# is PENDING until COMPLETED; SUCCESS is the only positive confirmation;
+# window lock is excluded workflow-scoped (RL_CI_WINDOW_LOCK_* above), and the
+# flip-point statuses by context name (RL_CI_FLIP_POINT_CONTEXTS above). A
+# CheckRun is PENDING until COMPLETED; SUCCESS is the only positive confirmation;
 # NEUTRAL/SKIPPED neither confirm nor fail. Legacy StatusContexts map
 # SUCCESS/PENDING/EXPECTED/other the same way (commit statuses carry no
-# NEUTRAL/SKIPPED and no workflow, so a StatusContext is never the excluded lock).
+# NEUTRAL/SKIPPED and no workflow, so a StatusContext is never the excluded lock;
+# the only StatusContexts excluded are the flip-point statuses).
 # Any jq error (malformed response, missing field) fails closed via `|| return 2`,
 # as does an abnormal exit-0 gh success with an empty body (guarded before jq, so
 # an empty body is the query-failure status, never an empty rc-0 verdict).
@@ -426,7 +436,8 @@ rl_ci_state() {
   # not a verdict (REQ-C1.1's rc-0⟺non-empty-verdict contract).
   [ -n "$raw" ] || return 2
   printf '%s' "$raw" | jq -r \
-    --arg nm "$RL_CI_WINDOW_LOCK_NAME" --arg wf "$RL_CI_WINDOW_LOCK_WORKFLOW" '
+    --arg nm "$RL_CI_WINDOW_LOCK_NAME" --arg wf "$RL_CI_WINDOW_LOCK_WORKFLOW" \
+    --argjson fp "$RL_CI_FLIP_POINT_CONTEXTS" '
     .data.repository.object.statusCheckRollup as $roll
     | if $roll == null then "none"
       elif ($roll.contexts.pageInfo.hasNextPage // false) then "too-many"
@@ -440,7 +451,7 @@ rl_ci_state() {
                      elif (.conclusion == "NEUTRAL" or .conclusion == "SKIPPED") then "neutral"
                      else "failing" end ) }
             else
-              { excl: false,
+              { excl: ( (.context // "") as $c | any($fp[]; . == $c) ),
                 v: ( if .state == "SUCCESS" then "green"
                      elif (.state == "PENDING" or .state == "EXPECTED") then "pending"
                      else "failing" end ) }

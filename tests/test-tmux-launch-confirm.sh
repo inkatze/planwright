@@ -5,7 +5,7 @@
 # D-15). Every launch runs under the harness's bounded runner.
 #   c1  a worker that confirms reports started (exit 0)
 #   c2  a session that exits before confirming reports failed-at-startup
-#       (exit 15) and leaves the dispatch marker cleared
+#       (exit 16) and leaves the dispatch marker cleared
 #   c3  a session that stays up unconfirmed reports started-unconfirmed (exit
 #       14) with the session and handle, and the task is then in flight: a
 #       repeat dispatch aborts rather than starting a second worker
@@ -63,7 +63,7 @@ c2() {
   tlh_run_bounded "$PRIM" dispatch demo 2 --repo-root "$P"
   tlh_knob worker-exit run
   tlh_expect_returned c2 || return
-  [ "$TLH_RC" -eq 15 ] || fail "c2: a session that exits unconfirmed must report failed-at-startup (exit 15), got $TLH_RC ($TLH_ERR)"
+  [ "$TLH_RC" -eq 16 ] || fail "c2: a session that exits unconfirmed must report failed-at-startup (exit 16), got $TLH_RC ($TLH_ERR)"
   [ "$(confirm_field outcome)" = failed-at-startup ] || fail "c2: the report does not say failed-at-startup: $TLH_OUT"
   case $(confirm_field reason) in *'session ended'*) ;; *) fail "c2: the report does not name the cause: $(confirm_field reason)" ;; esac
   [ ! -e "$C/markers/2" ] || fail "c2: the dispatch marker was not cleared"

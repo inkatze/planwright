@@ -133,7 +133,7 @@
 #       confirm. The report is `dispatch<TAB><key><TAB><value>` lines (branch,
 #       worktree, base), `launch` lines (session, window, handle, since,
 #       token), and `confirm` lines (outcome, session, handle, reason).
-#       Its exit status is the launch outcome (0, 14, or 15 below), never
+#       Its exit status is the launch outcome (0, 14, or 16 below), never
 #       the worker's own.
 #       --repo-root      the primary checkout (default: resolve-root.sh repo --primary).
 #       --launch-only    launch and report, without the confirm step, for a
@@ -169,6 +169,16 @@
 #                        own directory private to the user; an empty
 #                        `--brief` is refused, and so are `--continue` and
 #                        `--resume` beside it.
+#       --relaunch       start a new worker in the flight's worktree as it
+#                        already stands, for the crash policy's relaunch of a
+#                        dead worker: no fetch, no create, no reconcile, and
+#                        nothing a failed launch could undo. It needs --brief
+#                        and a launch (refused beside --no-attach or
+#                        --attach-dry-run), and the flight's branch checked out
+#                        at its placed worktree (exit 15 otherwise); a session
+#                        still holding the worker's name refuses it as
+#                        already-in-flight (exit 3), as any launch is. The new
+#                        worker is registered like a dispatched one.
 #   fleet-dispatch-worktree.sh attach <suffix> --dry-run [--brief <abs-file>] [-- <extra>...]
 #       Print the launch plan for `<repo>/.claude/worktrees/<suffix>` (no
 #       exec). A live standalone attach is refused (exit 2): the only live
@@ -225,7 +235,9 @@
 #   14 started-unconfirmed: the session was created and no startup
 #      confirmation arrived within the wait, or tmux or the attention store
 #      could not be read. The worker is placed; never re-dispatch over it.
-#   15 failed-at-startup: tmux answered that the worker's session is gone
+#   15 --relaunch found no worktree of the flight's branch at its placed path;
+#      nothing was created.
+#   16 failed-at-startup: tmux answered that the worker's session is gone
 #      and no confirmation had arrived. The dispatch clears the marker it
 #      set; the worktree and branch stay for a retry to adopt.
 #
@@ -287,7 +299,7 @@ warn() {
 usage() {
   cat >&2 <<'EOF'
 usage: fleet-dispatch-worktree.sh dispatch <spec> <id> [--repo-root <dir>] [--launch-only | --attach-dry-run | --no-attach] [-- <extra launch args>...]
-       fleet-dispatch-worktree.sh dispatch --flight <flight-id> [--brief <abs-file>] [--repo-root <dir>] [--launch-only | --attach-dry-run | --no-attach] [-- <extra launch args>...]
+       fleet-dispatch-worktree.sh dispatch --flight <flight-id> [--brief <abs-file>] [--relaunch] [--repo-root <dir>] [--launch-only | --attach-dry-run | --no-attach] [-- <extra launch args>...]
        fleet-dispatch-worktree.sh attach <suffix> --dry-run [--brief <abs-file>] [-- <extra launch args>...]
        fleet-dispatch-worktree.sh confirm --session <name> --handle <handle> [--since <epoch|unknown>] [--token <hex>]
        fleet-dispatch-worktree.sh check-session-name <name>
@@ -1111,6 +1123,7 @@ do_dispatch() {
   _attach_dry=0
   _no_attach=0
   _launch_only=0
+  _relaunch=0
   # Collect extra launch args (after `--`) verbatim.
   _have_extra=0
 
@@ -1137,6 +1150,10 @@ do_dispatch() {
         ;;
       --launch-only)
         _launch_only=1
+        shift
+        ;;
+      --relaunch)
+        _relaunch=1
         shift
         ;;
       --flight)
@@ -1208,6 +1225,20 @@ do_dispatch() {
   if [ -n "$_brief" ] && [ "$_no_attach" -eq 1 ]; then
     warn "--no-attach launches no worker; it takes no --brief"
     usage
+  fi
+  if [ "$_relaunch" -eq 1 ]; then
+    [ -n "$_flight" ] || {
+      warn "--relaunch is a flight option (--flight <flight-id>)"
+      usage
+    }
+    [ -n "$_brief" ] || {
+      warn "--relaunch hands the new worker the flight's brief: pass --brief"
+      usage
+    }
+    [ "$_no_attach" -eq 0 ] && [ "$_attach_dry" -eq 0 ] || {
+      warn "--relaunch launches a worker; it takes neither --no-attach nor --attach-dry-run"
+      usage
+    }
   fi
 
   # Validate every token BEFORE it appears in any path or command (D-36).
@@ -1382,163 +1413,178 @@ do_dispatch() {
     fi
   fi
 
-  # --- Resolve <base>: the freshly-fetched origin/main (D-9) ---------------
-  # dispatch-fetch.sh updates refs/remotes/origin/main without advancing local
-  # main; we then read the fetched SHA. exit 0 fetched/fresh-within-ttl (use
-  # origin/main); exit 3 no-remote (degrade to local main with a NOTE); exit 4
-  # stale-transient (must NOT proceed on a stale ref); exit 2 usage/internal
-  # (fail closed); other -> fail closed.
-  # Redirect stdin from /dev/null: a dispatch primitive must never block on an
-  # inherited open stdin (an interactive tty or a still-open pipe), which a
-  # config/overlay read down the fetch path can otherwise wait on forever.
-  "$FETCH" "$_repo_root" >/dev/null 2>&1 </dev/null
-  _frc=$?
-  case $_frc in
-    0)
-      # `rev-parse --verify <ref>^{commit}` errors cleanly when the ref does not
-      # resolve, instead of the bare `rev-parse <ref>` that ECHOES the literal
-      # argument (`origin/main`) on failure — which would defeat the emptiness
-      # guard below and hand git a bogus non-SHA base.
-      _base=$(git -C "$_repo_root" rev-parse --verify --quiet "origin/main^{commit}" 2>/dev/null </dev/null || true)
-      if [ -z "$_base" ]; then
-        warn "origin/main unresolved after a successful fetch; cannot base the worktree"
-        exit 4
-      fi
-      ;;
-    3)
-      _base=$(git -C "$_repo_root" rev-parse --verify --quiet "main^{commit}" 2>/dev/null </dev/null || true)
-      [ -n "$_base" ] || {
-        warn "no remote and no local main to base on"
-        exit 4
-      }
-      warn "NOTE: no remote reachable; basing on local main (degraded, D-9)"
-      ;;
-    2)
-      warn "dispatch-fetch reported a usage/internal error (exit 2); refusing to dispatch"
-      exit 5
-      ;;
-    *)
-      warn "cannot resolve a fresh base (dispatch-fetch exit $_frc); refusing to base on a stale ref"
-      exit 4
-      ;;
-  esac
-
-  # --- Filesystem-orphan hygiene: a leftover EMPTY <suffix> dir --------------
-  # `git worktree add` would silently create into an empty dir (verified), so a
-  # stale empty leftover must be removed first, not silently reused. This is fs
-  # hygiene, not a branch-collision pre-check (that stays git's atomic exit).
-  if [ -d "$_worktree" ] \
-    && ! is_registered_worktree "$_repo_root" "$_worktree" \
-    && [ -z "$(ls -A "$_worktree" 2>/dev/null)" ]; then
-    rmdir "$_worktree" 2>/dev/null || true
-  fi
-
-  # --- Create: the SINGLE scoped `git worktree add -b` call (argv, no shell) --
-  # Its atomic non-zero exit IS the collision detector (no TOCTOU pre-check).
-  # `</dev/null` on every git worktree call: `add` runs a checkout that may fire
-  # a repo `post-checkout` hook, which can read stdin and would otherwise block
-  # on an inherited tty/pipe (the same hazard the FETCH redirect guards).
-  # What this run creates is recorded, so a failed launch undoes only that.
   _made_branch=0
   _made_worktree=0
   _made_marker=0
-  if git -C "$_repo_root" worktree add -b "$_branch" "$_worktree" "$_base" \
-    >/dev/null 2>&1 </dev/null; then
-    _created=1
-    _made_branch=1
-    _made_worktree=1
+  if [ "$_relaunch" -eq 1 ]; then
+    # A relaunch starts a worker in the worktree as it stands, so it creates
+    # nothing, and a failed launch's undo finds nothing of this run's to remove.
+    if ! is_listed_worktree "$_repo_root" "$_worktree" \
+      || [ "$(branch_checkout_path "$_repo_root" "$_branch")" != "$_worktree" ]; then
+      warn "refusing to relaunch: $_branch is not checked out at its placed worktree $_worktree; nothing was created"
+      exit 15
+    fi
+    _base=$(git -C "$_worktree" rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null </dev/null || true)
+    [ -n "$_base" ] || {
+      warn "refusing to relaunch: cannot read the head of $_worktree"
+      exit 5
+    }
   else
-    _created=0
-  fi
+    # --- Resolve <base>: the freshly-fetched origin/main (D-9) ---------------
+    # dispatch-fetch.sh updates refs/remotes/origin/main without advancing local
+    # main; we then read the fetched SHA. exit 0 fetched/fresh-within-ttl (use
+    # origin/main); exit 3 no-remote (degrade to local main with a NOTE); exit 4
+    # stale-transient (must NOT proceed on a stale ref); exit 2 usage/internal
+    # (fail closed); other -> fail closed.
+    # Redirect stdin from /dev/null: a dispatch primitive must never block on an
+    # inherited open stdin (an interactive tty or a still-open pipe), which a
+    # config/overlay read down the fetch path can otherwise wait on forever.
+    "$FETCH" "$_repo_root" >/dev/null 2>&1 </dev/null
+    _frc=$?
+    case $_frc in
+      0)
+        # `rev-parse --verify <ref>^{commit}` errors cleanly when the ref does not
+        # resolve, instead of the bare `rev-parse <ref>` that ECHOES the literal
+        # argument (`origin/main`) on failure — which would defeat the emptiness
+        # guard below and hand git a bogus non-SHA base.
+        _base=$(git -C "$_repo_root" rev-parse --verify --quiet "origin/main^{commit}" 2>/dev/null </dev/null || true)
+        if [ -z "$_base" ]; then
+          warn "origin/main unresolved after a successful fetch; cannot base the worktree"
+          exit 4
+        fi
+        ;;
+      3)
+        _base=$(git -C "$_repo_root" rev-parse --verify --quiet "main^{commit}" 2>/dev/null </dev/null || true)
+        [ -n "$_base" ] || {
+          warn "no remote and no local main to base on"
+          exit 4
+        }
+        warn "NOTE: no remote reachable; basing on local main (degraded, D-9)"
+        ;;
+      2)
+        warn "dispatch-fetch reported a usage/internal error (exit 2); refusing to dispatch"
+        exit 5
+        ;;
+      *)
+        warn "cannot resolve a fresh base (dispatch-fetch exit $_frc); refusing to base on a stale ref"
+        exit 4
+        ;;
+    esac
 
-  if [ "$_created" -eq 0 ]; then
-    # Reconcile: distinguish LIVE (abort) from STALE (GC-adopt / roll back).
-    # A checkout of the branch at some OTHER registered path counts toward
-    # liveness under that path's own session name (the old flat layout named
-    # its sessions after `task-<id>`).
-    _held_at=$(branch_checkout_path "$_repo_root" "$_branch")
-    [ "$_held_at" != "$_worktree" ] || _held_at=''
-    _held_name=''
-    [ -z "$_held_at" ] || _held_name=$(basename "$_held_at")
-    if is_live "$_spec_dir" "$_id" "$_suffix" "$_held_name"; then
-      warn "already-in-flight: a live dispatch holds $_branch, or tmux could not say whether its session runs (aborting)"
-      exit 3
-    fi
-    # A flight has no marker, and a print-rung worker has no tmux session, so a
-    # missing session proves nothing: its registered worktree is in flight.
-    if [ -n "$_flight" ] && is_registered_worktree "$_repo_root" "$_worktree"; then
-      warn "already-in-flight: flight worktree $_worktree is registered (or the worktree list could not be read), and a flight worktree is never force-removed (remove it with git worktree remove, then dispatch again)"
-      exit 3
-    fi
-
-    # Checked out elsewhere and not live: the GC arms below cannot act on it
-    # (git refuses a second checkout of a branch and refuses to delete a
-    # checked-out one), so stop here with the state named, before anything is
-    # removed or rolled back.
-    if [ -n "$_held_at" ]; then
-      warn "branch $_branch is already checked out at $_held_at, not at $_worktree; nothing was changed. Bring the checkout to the expected path: git worktree move '$_held_at' '$_worktree' (or remove it: git worktree remove '$_held_at'), then dispatch again"
-      exit 6
-    fi
-
-    # Stale orphan. Remove any leftover worktree checkout (disposable).
-    if is_listed_worktree "$_repo_root" "$_worktree"; then
-      git -C "$_repo_root" worktree remove --force "$_worktree" >/dev/null 2>&1 </dev/null || true
-    fi
-    if [ -d "$_worktree" ] && [ -z "$(ls -A "$_worktree" 2>/dev/null)" ]; then
-      rmdir "$_worktree" 2>/dev/null || true
-    fi
-    # A NON-EMPTY, unregistered leftover that is a dead git-worktree remnant (a
-    # crashed `add` that populated files + a `.git` gitlink but never registered)
-    # is cleaned so it cannot permanently wedge the path; a non-empty dir that is
-    # NOT a worktree remnant is foreign data and is refused, never destroyed.
+    # --- Filesystem-orphan hygiene: a leftover EMPTY <suffix> dir --------------
+    # `git worktree add` would silently create into an empty dir (verified), so a
+    # stale empty leftover must be removed first, not silently reused. This is fs
+    # hygiene, not a branch-collision pre-check (that stays git's atomic exit).
     if [ -d "$_worktree" ] \
       && ! is_registered_worktree "$_repo_root" "$_worktree" \
-      && [ -n "$(ls -A "$_worktree" 2>/dev/null)" ]; then
-      # A git worktree's `.git` is a gitlink FILE (`gitdir: …`), not a directory;
-      # require `-f` so a standalone git repo (whose `.git` is a DIRECTORY) that
-      # happens to sit under the path is treated as foreign data and refused,
-      # never rm -rf'd.
-      if [ -f "$_worktree/.git" ]; then
-        rm -rf "$_worktree" 2>/dev/null || true
-      else
-        warn "refusing to reuse a non-empty non-worktree dir at $_worktree (clear it manually)"
-        exit 5
-      fi
+      && [ -z "$(ls -A "$_worktree" 2>/dev/null)" ]; then
+      rmdir "$_worktree" 2>/dev/null || true
     fi
-    git -C "$_repo_root" worktree prune >/dev/null 2>&1 </dev/null || true
 
-    if branch_exists "$_repo_root" "$_branch"; then
-      if branch_has_work "$_repo_root" "$_branch" "$_base"; then
-        # ADOPT the existing branch's work: place a fresh worktree on it (no
-        # -b, no base re-apply, no data loss). Unwedges without discarding work.
-        if ! git -C "$_repo_root" worktree add "$_worktree" "$_branch" \
-          >/dev/null 2>&1 </dev/null; then
-          warn "failed to adopt stale branch $_branch onto a worktree"
+    # --- Create: the SINGLE scoped `git worktree add -b` call (argv, no shell) --
+    # Its atomic non-zero exit IS the collision detector (no TOCTOU pre-check).
+    # `</dev/null` on every git worktree call: `add` runs a checkout that may fire
+    # a repo `post-checkout` hook, which can read stdin and would otherwise block
+    # on an inherited tty/pipe (the same hazard the FETCH redirect guards).
+    # What this run creates is recorded (above), so a failed launch undoes only that.
+    if git -C "$_repo_root" worktree add -b "$_branch" "$_worktree" "$_base" \
+      >/dev/null 2>&1 </dev/null; then
+      _created=1
+      _made_branch=1
+      _made_worktree=1
+    else
+      _created=0
+    fi
+
+    if [ "$_created" -eq 0 ]; then
+      # Reconcile: distinguish LIVE (abort) from STALE (GC-adopt / roll back).
+      # A checkout of the branch at some OTHER registered path counts toward
+      # liveness under that path's own session name (the old flat layout named
+      # its sessions after `task-<id>`).
+      _held_at=$(branch_checkout_path "$_repo_root" "$_branch")
+      [ "$_held_at" != "$_worktree" ] || _held_at=''
+      _held_name=''
+      [ -z "$_held_at" ] || _held_name=$(basename "$_held_at")
+      if is_live "$_spec_dir" "$_id" "$_suffix" "$_held_name"; then
+        warn "already-in-flight: a live dispatch holds $_branch, or tmux could not say whether its session runs (aborting)"
+        exit 3
+      fi
+      # A flight has no marker, and a print-rung worker has no tmux session, so a
+      # missing session proves nothing: its registered worktree is in flight.
+      if [ -n "$_flight" ] && is_registered_worktree "$_repo_root" "$_worktree"; then
+        warn "already-in-flight: flight worktree $_worktree is registered (or the worktree list could not be read), and a flight worktree is never force-removed (remove it with git worktree remove, then dispatch again)"
+        exit 3
+      fi
+
+      # Checked out elsewhere and not live: the GC arms below cannot act on it
+      # (git refuses a second checkout of a branch and refuses to delete a
+      # checked-out one), so stop here with the state named, before anything is
+      # removed or rolled back.
+      if [ -n "$_held_at" ]; then
+        warn "branch $_branch is already checked out at $_held_at, not at $_worktree; nothing was changed. Bring the checkout to the expected path: git worktree move '$_held_at' '$_worktree' (or remove it: git worktree remove '$_held_at'), then dispatch again"
+        exit 6
+      fi
+
+      # Stale orphan. Remove any leftover worktree checkout (disposable).
+      if is_listed_worktree "$_repo_root" "$_worktree"; then
+        git -C "$_repo_root" worktree remove --force "$_worktree" >/dev/null 2>&1 </dev/null || true
+      fi
+      if [ -d "$_worktree" ] && [ -z "$(ls -A "$_worktree" 2>/dev/null)" ]; then
+        rmdir "$_worktree" 2>/dev/null || true
+      fi
+      # A NON-EMPTY, unregistered leftover that is a dead git-worktree remnant (a
+      # crashed `add` that populated files + a `.git` gitlink but never registered)
+      # is cleaned so it cannot permanently wedge the path; a non-empty dir that is
+      # NOT a worktree remnant is foreign data and is refused, never destroyed.
+      if [ -d "$_worktree" ] \
+        && ! is_registered_worktree "$_repo_root" "$_worktree" \
+        && [ -n "$(ls -A "$_worktree" 2>/dev/null)" ]; then
+        # A git worktree's `.git` is a gitlink FILE (`gitdir: …`), not a directory;
+        # require `-f` so a standalone git repo (whose `.git` is a DIRECTORY) that
+        # happens to sit under the path is treated as foreign data and refused,
+        # never rm -rf'd.
+        if [ -f "$_worktree/.git" ]; then
+          rm -rf "$_worktree" 2>/dev/null || true
+        else
+          warn "refusing to reuse a non-empty non-worktree dir at $_worktree (clear it manually)"
           exit 5
         fi
-        _made_worktree=1
+      fi
+      git -C "$_repo_root" worktree prune >/dev/null 2>&1 </dev/null || true
+
+      if branch_exists "$_repo_root" "$_branch"; then
+        if branch_has_work "$_repo_root" "$_branch" "$_base"; then
+          # ADOPT the existing branch's work: place a fresh worktree on it (no
+          # -b, no base re-apply, no data loss). Unwedges without discarding work.
+          if ! git -C "$_repo_root" worktree add "$_worktree" "$_branch" \
+            >/dev/null 2>&1 </dev/null; then
+            warn "failed to adopt stale branch $_branch onto a worktree"
+            exit 5
+          fi
+          _made_worktree=1
+        else
+          # Bare partial create (branch made, no commits): roll it back and
+          # recreate on the fresh base.
+          git -C "$_repo_root" branch -D "$_branch" >/dev/null 2>&1 </dev/null || true
+          if ! git -C "$_repo_root" worktree add -b "$_branch" "$_worktree" "$_base" \
+            >/dev/null 2>&1 </dev/null; then
+            warn "failed to recreate $_branch after rolling back a partial create"
+            exit 5
+          fi
+          _made_branch=1
+          _made_worktree=1
+        fi
       else
-        # Bare partial create (branch made, no commits): roll it back and
-        # recreate on the fresh base.
-        git -C "$_repo_root" branch -D "$_branch" >/dev/null 2>&1 </dev/null || true
+        # No branch, but the create still failed (e.g. a leftover path we just
+        # cleaned). Retry once now that hygiene has run.
         if ! git -C "$_repo_root" worktree add -b "$_branch" "$_worktree" "$_base" \
           >/dev/null 2>&1 </dev/null; then
-          warn "failed to recreate $_branch after rolling back a partial create"
+          warn "worktree create failed for $_branch (non-reconcilable)"
           exit 5
         fi
         _made_branch=1
         _made_worktree=1
       fi
-    else
-      # No branch, but the create still failed (e.g. a leftover path we just
-      # cleaned). Retry once now that hygiene has run.
-      if ! git -C "$_repo_root" worktree add -b "$_branch" "$_worktree" "$_base" \
-        >/dev/null 2>&1 </dev/null; then
-        warn "worktree create failed for $_branch (non-reconcilable)"
-        exit 5
-      fi
-      _made_branch=1
-      _made_worktree=1
     fi
   fi
 
@@ -1556,7 +1602,9 @@ do_dispatch() {
   # family (see scripts/fleet-state.sh's stale-break note), not resolved here. A
   # failed launch clears the marker this run set, so a retry is not read as
   # in-flight.
-  [ -x "$TRACK" ] && "$TRACK" record-create "$_worktree" >/dev/null 2>&1 </dev/null || true
+  if [ "$_relaunch" -eq 0 ] && [ -x "$TRACK" ]; then
+    "$TRACK" record-create "$_worktree" >/dev/null 2>&1 </dev/null || true
+  fi
   if [ -x "$MARKER" ] && [ -n "$_spec_dir" ] && [ -d "$_spec_dir" ]; then
     # The writer's warnings (a skipped shared home) and its failure reach the
     # operator: a dispatch with no marker reads as not live to a later reconcile.
@@ -1861,7 +1909,7 @@ confirm_report() {
 confirm_exit() {
   case $CONFIRM_OUTCOME in
     started) exit 0 ;;
-    failed-at-startup) exit 15 ;;
+    failed-at-startup) exit 16 ;;
     *) exit 14 ;;
   esac
 }

@@ -228,6 +228,17 @@ toplevel_of() {
 
 no_repo() {
   if [ "$(git rev-parse --is-bare-repository 2>/dev/null)" = true ]; then
+    # Outside the git directory, a bare answer means git found a .git above
+    # the working directory whose config claims there is no working tree.
+    if [ "$(git rev-parse --is-inside-git-dir 2>/dev/null)" = false ]; then
+      nr_common=$(git rev-parse --git-common-dir 2>/dev/null) || nr_common=""
+      case $nr_common in
+        "" | /*) ;;
+        *) nr_common=$(pwd -P)/$nr_common ;;
+      esac
+      nr_common=$(canon "$nr_common") || nr_common=""
+      [ -z "$nr_common" ] || bare_flagged "$nr_common"
+    fi
     say "no repository root: inside a bare repository, which has no working tree"
   elif [ "$(git rev-parse --is-inside-git-dir 2>/dev/null)" = true ]; then
     say "no repository root: inside a git directory, which has no working tree ($(pwd))"
@@ -246,6 +257,20 @@ repo_config() {
 
 no_primary() {
   say "no repository root: this repository has no primary working tree${1:+ ($1)}"
+  exit 3
+}
+
+# sh_quote <text>: <text> as one single-quoted shell word, for a command
+# printed to be pasted.
+sh_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+# bare_flagged <common>: core.bare=true in the shared config of a repository
+# that has a working tree. Reported, never repaired: a deliberately bare
+# repository named .git looks the same from here.
+bare_flagged() {
+  say "no repository root: core.bare is true in '$1' (the common git directory's config), so git treats a repository that has a working tree as bare; if nothing intended that, clear it with: git --git-dir=$(sh_quote "$1") config core.bare false"
   exit 3
 }
 
@@ -291,7 +316,12 @@ resolve_primary() {
       ;;
   esac
   rp_common=$(canon "$rp_common") || no_primary "'$rp_common' is not reachable"
-  [ "$(repo_config --bool core.bare 2>/dev/null)" != true ] || no_primary
+  if [ "$(repo_config --bool core.bare 2>/dev/null)" = true ]; then
+    case $rp_common in
+      */.git) bare_flagged "$rp_common" ;;
+      *) no_primary "core.bare is true in '$rp_common', a bare repository's own layout" ;;
+    esac
+  fi
 
   # The primary, in order: the configured core.worktree; the tree we are in,
   # when our own git directory is the common one (the only way to name the

@@ -133,10 +133,10 @@
 #    tower / reconcile sweep); a raced append self-heals on the next
 #    observation (D-1).
 #
-# 3. CRASH-LOOP BACKOFF (`crash-record` / `crash-check` / `crash-reset`,
-#    D-3/REQ-A1.4). A relaunch-supervisor calls crash-record after each
-#    worker crash and crash-check before any relaunch. The delay doubles
-#    from fleet_crash_backoff_base_seconds and caps at 3600s; at
+# 3. CRASH-LOOP BACKOFF (`crash-record` / `crash-check` / `crash-reset` /
+#    `crash-count`, D-3/REQ-A1.4). A relaunch-supervisor calls crash-record
+#    after each worker crash and crash-check before any relaunch. The delay
+#    doubles from fleet_crash_backoff_base_seconds and caps at 3600s; at
 #    fleet_crash_disable_threshold consecutive failures the worker is
 #    DISABLED — no further relaunch is ever authorized — and the disable is
 #    escalated as a decision-queue entry (the human decides: investigate,
@@ -261,6 +261,10 @@
 #   fleet-liveness.sh crash-reset <worker>
 #       Clear the consecutive-failure streak (a healthy run). Exit 2 when
 #       the record could not be removed (the streak did NOT clear).
+#   fleet-liveness.sh crash-count <worker>
+#       Print the consecutive-failure count (0 when none), read without the
+#       lock and without changing it, so a supervisor reports the streak
+#       without parsing the record itself.
 #
 # Exit codes: per subcommand above; 2 usage error, refused hostile input, or
 #   a filesystem/lock error (fail closed) on the non-hook subcommands.
@@ -1191,7 +1195,7 @@ oracle_probe() {
 }
 
 if [ "$#" -lt 1 ]; then
-  echo "usage: fleet-liveness.sh hook|push-capable|oracle|classify|crash-record|crash-check|crash-reset [args]" >&2
+  echo "usage: fleet-liveness.sh hook|push-capable|oracle|classify|crash-record|crash-check|crash-reset|crash-count [args]" >&2
   exit 2
 fi
 cmd=$1
@@ -2330,8 +2334,24 @@ case "$cmd" in
     exit "$reset_rc"
     ;;
 
+  crash-count)
+    if [ "$#" -ne 1 ]; then
+      echo "usage: fleet-liveness.sh crash-count <worker>" >&2
+      exit 2
+    fi
+    worker=$1
+    if ! valid_field "$worker"; then
+      echo "fleet-liveness: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
+      exit 2
+    fi
+    root=$("$FS" root) || exit 2
+    cc_rec=$(crash_read "$root" "$worker")
+    printf '%s\n' "${cc_rec%% *}"
+    exit 0
+    ;;
+
   *)
-    echo "fleet-liveness: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (hook|push-capable|oracle|classify|crash-record|crash-check|crash-reset)" >&2
+    echo "fleet-liveness: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (hook|push-capable|oracle|classify|crash-record|crash-check|crash-reset|crash-count)" >&2
     exit 2
     ;;
 esac

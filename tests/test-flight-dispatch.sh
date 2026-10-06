@@ -541,6 +541,16 @@ done
 printf '%s\n' "$b" | grep -q "an operator override included" || fail "brief does not keep the gate-wiring hard pauses"
 printf '%s\n' "$b" | grep -q "steps_convergence" || fail "brief does not name the flight convergence point"
 [ "$(printf '%s\n' "$b" | tail -n 1 | cut -c1-15)" = '`FLIGHT-RESULT:' ] || fail "brief does not end on the result line"
+printf '%s\n' "$b" | grep -Fq "flight-lifecycle.sh' push awaiting-decision $fid --handle print-flight-$fid --reason" \
+  || fail "a hard pause must push the awaiting-decision lifecycle event"
+printf '%s\n' "$b" | grep -q "carries no single quote" \
+  || fail "the pause push line must keep the reason free of single quotes"
+printf '%s\n' "$b" | grep -Fq "flight-lifecycle.sh' push completion $fid --handle print-flight-$fid --landing \"pr:" \
+  || fail "a pr-home brief must push the completion with the PR link"
+printf '%s\n' "$b" | grep -q "a crashed" || fail "the brief must tell a relaunched worker to carry on from its commits"
+r=$(awk -F "$TAB" -v w="print-flight-$fid" '$1 == w' "$c/fleet/attention/state" 2>/dev/null)
+[ "$(printf '%s\n' "$r" | cut -f2)" = "flight:$fid" ] && [ "$(printf '%s\n' "$r" | cut -f3)" = idle ] \
+  || fail "the dispatch must push its lifecycle event into the attention store (got: $r)"
 for f in "$ROOT/scripts/flight-dispatch.sh" "$ROOT/skills/tower/SKILL.md" "$ROOT/skills/offload/SKILL.md"; do
   if grep -v '^[[:space:]]*#' "$f" | grep -Eq 'gh pr (ready|merge)'; then
     fail "$(basename "$f") must never flip or merge a PR"
@@ -585,6 +595,8 @@ printf '%s\n' "$b" | grep -Fq "flight-record.sh' land --flight-id $fid" \
 printf '%s\n' "$b" | grep "flight-record.sh' land " | grep -Fq -- "--record-path 'specs/_flights/$fid.md'" \
   || fail "a file-home brief must pass the record path it computed to flight-record.sh"
 printf '%s\n' "$b" | grep -q 'render --home pr' && fail "a file-home brief must not render a PR body"
+printf '%s\n' "$b" | grep -Fq "flight-lifecycle.sh' push completion $fid --handle print-flight-$fid --landing 'record:specs/_flights/$fid.md'" \
+  || fail "a file-home brief must push the completion with the record path"
 # The land line the brief prints lands the record when run as written.
 rd="$(dirname "$(field "$OUT" brief)")/record"
 printf 'Fixed the heading.\n' >"$rd/summary.md"
@@ -889,6 +901,8 @@ fid=$(field "$OUT" flight)
 brief=$(field "$OUT" brief)
 [ "$(field "$OUT" handle)" = "tmux-flight-$fid" ] || fail "the tmux rung's handle must be tmux-flight-<id>"
 grep -q "tmux-flight-$fid" "$brief" || fail "the brief must carry the tmux worker handle"
+[ -z "$(awk -F "$TAB" -v w="tmux-flight-$fid" '$1 == w' "$c/fleet/attention/state" 2>/dev/null)" ] \
+  || fail "a dry run launches nothing, so it pushes no dispatch event"
 plan=$(printf '%s\n' "$OUT" | awk -F"$TAB" '$1=="attach-plan" && $2=="launch"')
 case $plan in
   *"${TAB}tmux${TAB}new-session${TAB}-d${TAB}-s${TAB}primary-"*"_flight-$fid${TAB}-c${TAB}$(field "$OUT" worktree)${TAB}-P${TAB}"*"${TAB}--${TAB}"*"/fleet-dispatch-env.sh${TAB}--identity${TAB}tmux-flight-$fid${TAB}flight:$fid${TAB}"*"claude${TAB}--${TAB}Read $brief and follow it exactly.${TAB};${TAB}set-window-option${TAB}"*) ;;
@@ -1249,6 +1263,8 @@ dispatch_print
 fa=$(field "$OUT" flight)
 dispatch_print
 fb=$(field "$OUT" flight)
+[ -n "$(awk -F "$TAB" -v w="print-flight-$fa" '$1 == w' "$c/fleet/attention/state" 2>/dev/null)" ] \
+  || fail "fixture: the dispatch must leave the flight's lifecycle row for retire to clear"
 mkdir -p "$c/fleet/flights/other-0123abcd"
 printf '%s\n' "$c/elsewhere" >"$c/fleet/flights/other-0123abcd/checkout"
 gitc "$c/primary" worktree remove --force "$c/primary/.claude/worktrees/flight-$fa"
@@ -1265,6 +1281,8 @@ run retire --repo-root "$c/primary"
 [ "$RC" -eq 0 ] || fail "retire exited $RC: $ERR"
 [ ! -e "$c/fleet/flights/$fa" ] || fail "retire must remove a retired flight's brief directory"
 printf '%s\n' "$OUT" | grep -q "^retired${TAB}$fa$" || fail "retire must report what it removed (out: $OUT)"
+[ -z "$(awk -F "$TAB" -v w="print-flight-$fa" '$1 == w' "$c/fleet/attention/state" 2>/dev/null)" ] \
+  || fail "retire must clear a retired flight's lifecycle row from the attention store"
 [ -f "$c/fleet/flights/$fb/brief.md" ] || fail "retire must keep a live flight's brief"
 [ -d "$c/fleet/flights/other-0123abcd" ] || fail "retire must keep another checkout's brief directory"
 # No checkout record, a symlinked one, or an off-grammar name: never swept.
@@ -1280,8 +1298,20 @@ done
 # A worktree deleted by hand (prunable) is retired too.
 rm -rf "$c/primary/.claude/worktrees/flight-$fb"
 age "$c/fleet/flights/$fb"
+chmod 500 "$c/fleet/attention"
 run retire --repo-root "$c/primary"
+chmod 700 "$c/fleet/attention"
+if [ "$RC" -eq 0 ] || ! printf '%s\n' "$ERR" | grep -q "could not clear the attention row"; then
+  fail "a lifecycle row retire could not clear must fail the retire, not pass silently (rc $RC: $ERR)"
+fi
+# The brief stays until its row is cleared, so the next retire retries it.
+[ -f "$c/fleet/flights/$fb/brief.md" ] || fail "a retire whose row clear failed must keep the brief for the next retire"
+printf '%s\n' "$OUT" | grep -q "^retired${TAB}$fb$" && fail "a retire whose row clear failed must not report the flight retired (out: $OUT)"
+run retire --repo-root "$c/primary"
+[ "$RC" -eq 0 ] || fail "the retry retire exited $RC: $ERR"
 printf '%s\n' "$OUT" | grep -q "^retired${TAB}$fb$" || fail "retire must retire a prunable flight (out: $OUT)"
+[ -z "$(awk -F "$TAB" -v w="print-flight-$fb" '$1 == w' "$c/fleet/attention/state" 2>/dev/null)" ] \
+  || fail "the retry retire must clear the row the failed one left"
 gitc "$c/primary" worktree prune
 dispatch_print
 fb=$(field "$OUT" flight)

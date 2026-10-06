@@ -220,9 +220,9 @@ REQ-C1.2, REQ-C1.6, D-5, D-10).
 resolved list or nothing (REQ-D1.9). Every id must resolve to a catalog entry
 and every target on the host under the lookup rules REQ-C1.3 and D-19 fix,
 with every `requires` executable on the path (REQ-D1.8). An id naming no
-entry, a target the host lacks, a `requires` executable off the path, or an
-ambiguous or unreadable registry lookup is a step that does not resolve,
-never an error.
+entry, a target the host lacks, an unrunnable skill (`refuse`: unskippable
+save `on-failure: continue`), an off-path `requires` executable, or an
+ambiguous or unreadable registry lookup does not resolve, never an error.
 
 **The matrix (REQ-C1.4, D-6).** The resolver prints one decision token per
 step, keyed on the layer that supplied the **winning list** and on
@@ -352,11 +352,11 @@ or whose resolution failed, posts nothing.
 | none `halted` or `failed` (an empty attempt included; `skipped` and the classified outcomes count as the record says) | `success` |
 | any `halted` or `failed` | `failure` |
 
-The status carries the description and target the helper's header pins,
-never an excerpt or a local path; a later post on the same head and context
-replaces the earlier one. A failed post, a missing permission included, ends
-the flip attempt without a flip, surfaced like a failed step whether or not a
-flip was to follow and naming the missing permission. The runner's login
+The status carries the helper's pinned description and no target URL,
+excerpt, or path; a later post on that head and context replaces it. A
+failed post, a missing permission included, ends the flip attempt without
+a flip, surfaced like a failed step whether or not a flip was to follow and
+naming the missing permission. The runner's login
 needs commit-status write access: `repo:status` on a classic token, or
 **Commit statuses** write on a fine-grained token or app.
 
@@ -364,7 +364,9 @@ needs commit-status write access: `repo:status` on a classic token, or
 no record of the latest attempt halted or failed; not what the steps did,
 which the records hold. Written by the actor the hook binds, it guards a
 flipper that forgets, not one that forges. The two contexts are **excluded
-by name from every CI rollup judgement planwright makes**.
+by name from every CI rollup judgement planwright makes**; an adopter's own
+status-consuming tooling (branch protection, another CI aggregator) still
+sees them.
 
 **The evidence hook**, gated under custom-steps' Deferred until an in-repo
 unit-PR flipper runs the point, will refuse on the ready-guard's flip
