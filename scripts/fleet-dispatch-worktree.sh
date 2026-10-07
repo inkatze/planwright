@@ -205,8 +205,8 @@
 #      --launch-only) the session created, or started: the worker confirmed
 #      its startup.
 #   2  usage / invalid input (fail closed — a malformed or hostile token is
-#      never interpolated), a launch word ending in `;`, or a live standalone
-#      attach.
+#      never interpolated), a launch word ending in `;`, a live standalone
+#      attach, or (any subcommand) a broken install missing spec-id-lib.sh.
 #   3  already-in-flight: a LIVE concurrent/repeat dispatch, a live session
 #      already holding the session name (or a probe tmux could not answer), a
 #      new-session that lost the race for it (nothing touched), a registered

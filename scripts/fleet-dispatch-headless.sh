@@ -145,7 +145,8 @@
 # already-closed, or (--observe) would-release; 2 an invalid or unknown handle, a bad grace, a symlinked
 # state path, a unit other than --expect-dir, or a process table the close could not read; 3 a close asked for
 # from inside the worker's own process tree, refused rather than attempted; 6 a
-# partial close, some class still held.
+# partial close, some class still held. Every subcommand exits 2 on a broken
+# install missing spec-id-lib.sh.
 #
 # Portable POSIX sh + coreutils (bash 3.2 / BSD compatible): no eval, no jq
 # (REQ-K1.5); every input treated as data. Pathname expansion is disabled

@@ -60,7 +60,7 @@ wait instead.
 1. **Parse `$ARGUMENTS`.** Extract one or more task IDs (`5`, `3.5`, or `5 6`
    for a bundle) and an optional bare `<spec>` (alias `specs/<spec>`, one
    trailing slash allowed). Validate each
-   `<id>` against `^[0-9]+(\.[0-9]+)?$`, and the extracted `<spec>` against the
+   `<id>` against `^[0-9]+(\.[0-9]+)?$`, and the mapped identifier against the
    anchored identifier pattern `^[a-z0-9][a-z0-9-]*$` (≤64 chars, REQ-A1.8),
    refusing the reserved word `flight`, **before** it appears in any path
    or command; a failing token is never interpolated. No task ID: halt and

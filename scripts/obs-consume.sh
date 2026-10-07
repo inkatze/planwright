@@ -46,7 +46,8 @@
 #   --legacy   consume a frozen-log line instead of a fragment (legacy arm)
 #   --line     the exact frozen-log line content to annotate (legacy arm)
 #   --spec     the consuming spec identifier ([a-z0-9][a-z0-9-]*, ≤64 chars;
-#              its `specs/<spec>` alias accepted); written into the
+#              its `specs/<spec>` alias accepted, either form with or without
+#              one trailing slash); written into the
 #              `Consumed-by: specs/<spec> (<date>)` annotation
 #   --today    pin the consume date (tests); defaults to the system date
 #   --obs-dir  the observations dir holding entries/ + archive/ + the frozen

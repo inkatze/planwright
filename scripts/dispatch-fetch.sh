@@ -30,7 +30,7 @@
 #   --spec <spec>          also compute and print the content anchor over the
 #                          resolved ref's version of that spec bundle, found
 #                          under the spec root <repo-root> resolves, which
-#                          that repository must hold. The identifier is bare;
+#                          must lie in that repository. The identifier is bare;
 #                          `specs/<spec>` is accepted as an alias, with or
 #                          without one trailing slash.
 #   --best-effort          single fetch attempt (no retries) for the reconcile
@@ -64,8 +64,10 @@
 #      that carries no anchor, so the --spec guarantee "an anchor record OR a
 #      nonzero park code" holds uniformly online and offline.
 #   2  usage / invalid input / internal failure (fail closed), including a
-#      --spec whose spec root does not resolve or is not held by <repo-root>'s
-#      repository.
+#      --spec whose spec root does not resolve or lies outside <repo-root>'s
+#      repository (outside the checkout, or in a separate repository nested in
+#      it). A root inside the repository that no ref holds (gitignored or never
+#      committed) is read at the ref like any other and parks with 5.
 #
 # Environment overrides (tests, worktree callers):
 #   PLANWRIGHT_DISPATCH_FETCH_STATE_DIR  dir holding the last-fetch TTL stamp

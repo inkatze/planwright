@@ -5,9 +5,11 @@
 #   * the alias mapper (scripts/spec-id-lib.sh) on every accepted and refused
 #     form;
 #   * each script seam that names a spec (dispatch fetch, the two dispatchers,
-#     the fence, the tower marker, the trailer helper, consume) answers the
-#     bare identifier, its trailing-slash form, and the specs/<id> alias with
-#     and without its slash identically, and refuses a bundle-file path;
+#     the fence, the tower marker, consume, the walkthrough) answers the bare
+#     identifier, its trailing-slash form, and the specs/<id> alias with and
+#     without its slash identically, and refuses a bundle-file path and
+#     demo//; the unit-ref seams (the trailer helper, the presence queries)
+#     answer specs/<spec>/<id> as <spec>/<id>;
 #   * the dispatch scope keeps its field grammar: a scope naming the spec as
 #     specs/<id> is refused, and the refusal names the expected shape (the
 #     scope-grammar observation's reproduction);
@@ -96,8 +98,8 @@ next_n() {
 # seam_forms <name> <fn> [<rc>] — <fn> <form> prints one invocation's
 # outcome. The bare identifier must reach exit <rc> (default 0, the answer a
 # well-formed request gets from the fixture), every accepted form must answer
-# exactly as it does, and the bundle-file path must be refused (an exit
-# other than 0 and <rc>).
+# exactly as it does, and the bundle-file path and demo// must be refused
+# (an exit other than 0 and <rc>).
 seam_forms() {
   sf_name=$1 sf_fn=$2 sf_rc=${3:-0}
   sf_want=$("$sf_fn" demo)
@@ -347,11 +349,11 @@ case $(consume_form demo) in
   *) fail "obs-consume: unexpected Consumed-by line: $(consume_form demo)" ;;
 esac
 
-# A seam copied without the mapper beside it is a broken install, refused
-# with exit 2 like the dispatchers' other missing helpers. A bare `.` of a
-# missing file would end the shell with a status of the shell's choosing
-# instead (1 under bash's sh, which the fetch's contract does not have and
-# which headless status reads as "running").
+# The fetch and both dispatchers, copied without the mapper beside them, refuse
+# the broken install with exit 2. A bare `.` of a missing file would end the
+# shell with a status of the shell's choosing instead (1 under bash's sh,
+# which the fetch's contract does not have and which headless status reads
+# as "running").
 mkdir -p "$tmp/broken"
 for b in dispatch-fetch fleet-dispatch-worktree fleet-dispatch-headless; do
   cp "$S/$b.sh" "$S/echo-safety.sh" "$tmp/broken/" || fail "could not stage $b without the mapper"

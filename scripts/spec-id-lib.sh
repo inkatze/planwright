@@ -2,25 +2,28 @@
 # spec-id-lib.sh — the spec-addressing alias mapper for the identity seams
 # (sourced, never executed).
 #
-# A seam that names a spec (a dispatch, fetch, fence, marker, trailer,
-# consume, or walkthrough argument) takes the bare identifier as its canonical
-# form and
+# A seam that names a spec (a dispatch, fetch, fence, marker, consume, or
+# walkthrough argument) takes the bare identifier as its canonical form and
 # `specs/<id>` as an alias for it, either one carrying at most one trailing
-# slash, as shell completion leaves it. In the alias, `specs/` is a namespace,
+# slash, as shell completion leaves it. A seam that takes a `<spec>/<id>` unit
+# ref (the trailer helper, the presence queries) takes `specs/<spec>/<id>` as
+# its alias, with no trailing slash. In the alias, `specs/` is a namespace,
 # not a directory: the mapper reads no filesystem and never depends on where
 # the spec root lies. A script that operates on a bundle directory takes the
 # directory instead and does not source this.
 #
 # Each seam keeps its own identifier grammar and message: the mappers only
 # reshape, and anything outside the accepted forms is left for that grammar to
-# refuse (a bundle-file path, a deeper path, a second trailing slash). The result is assigned rather than printed: a command
-# substitution would strip a trailing newline and hand the grammar a value
-# it should have refused.
+# refuse (a bundle-file path, a deeper path, a second trailing slash). The
+# result is assigned rather than printed: a command substitution would strip a
+# trailing newline and hand the grammar a value it should have refused.
 
 # spec_id_canon <value> — set SPEC_ID to the identifier <value> names when it
-# is <id>, <id>/, specs/<id>, or specs/<id>/, else to <value> unchanged. A
-# bare `specs/` is the alias with its identifier missing, never the
-# identifier `specs`.
+# is <id>, <id>/, specs/<id>, or specs/<id>/, else to <value> unchanged.
+# Here <id> is any non-empty segment without a slash, which the seam's grammar
+# then judges, so `specs/UPPER` maps to `UPPER` and is refused there. A bare
+# `specs/` is the alias with its identifier missing, never the identifier
+# `specs`.
 # shellcheck disable=SC2034 # SPEC_ID is the result the sourcing script reads
 spec_id_canon() {
   SPEC_ID=$1
@@ -38,7 +41,7 @@ spec_id_canon() {
 }
 
 # spec_ref_canon <value> — set SPEC_REF to <value> with a leading `specs/`
-# dropped when at least two segments follow it, so the alias of a
+# dropped when another slash follows it, so the alias of a
 # `<spec>/<id>` task ref (`specs/<spec>/<id>`) becomes the ref; else to
 # <value> unchanged. The ref grammar refuses whatever does not then fit.
 # shellcheck disable=SC2034 # SPEC_REF is the result the sourcing script reads
