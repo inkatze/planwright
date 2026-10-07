@@ -18,6 +18,9 @@
 #   e1: unknown death evidence keeps the row even when its unit derived
 #       completed; e2: so does a live worker; e3: an unreadable registry keeps
 #       every row it might hold evidence for, and degrades the pass.
+#   m1: a row whose state no writer produces is kept as malformed; m2: a
+#       handle with two rows is kept and degrades the pass; m3: a clear that
+#       fails keeps the row under its own reason and degrades the pass.
 #   r1: a row its worker rewrote between the verdict and the clear survives.
 #   u2: a row with no registry record and an unfinished unit is kept.
 #   a1: an awaiting-input row is kept whatever its unit or worker evidence.
@@ -280,6 +283,29 @@ has_row @145 || fail "e3: an unreadable registry let a row be judged without its
 says e3 keep @145 evidence-unknown
 printf '%s\n' "$out" | grep -q "status=degraded$" || fail "e3: an unreadable registry did not degrade the pass: $out"
 echo "ok: e1 e2 e3 a worker that may still run keeps its row"
+
+# --- m1, m2, m3: rows the pass cannot act on ------------------------------
+fresh
+seed wz demo:task-1 bogus
+reconcile m1
+clean m1
+says m1 keep wz malformed
+fresh
+seed w8 demo:task-1 working 1700000000
+seed w8 demo:task-1 working 1700000005
+reconcile m2
+has_row w8 || fail "m2: a duplicated handle lost its rows"
+says m2 keep w8 duplicate
+printf '%s\n' "$out" | grep -q "status=degraded$" || fail "m2: a duplicated handle did not degrade the pass: $out"
+fresh
+seed @145 demo:task-1 working
+chmod 555 "$home/attention"
+reconcile m3
+chmod 755 "$home/attention"
+has_row @145 || fail "m3: a failed clear removed the row"
+says m3 keep @145 clear-failed
+printf '%s\n' "$out" | grep -q "status=degraded$" || fail "m3: a failed clear did not degrade the pass: $out"
+echo "ok: m1 m2 m3 rows the pass cannot act on"
 
 # --- r1: a worker writing between the verdict and the clear -----------------
 # The fake tmux runs $tmp/race on its session probe: the worker's heartbeat

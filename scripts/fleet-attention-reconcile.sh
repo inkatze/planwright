@@ -45,10 +45,11 @@
 #   clear   <worker> unit-completed | process-dead | tmux-window-dead
 #   keep    <worker> awaiting-input | alive | evidence-unknown |
 #                    evidence-errored | no-evidence | in-flight | changed |
-#                    malformed
+#                    malformed | duplicate | clear-failed
 #   summary rows=<n> cleared=<n> kept=<n> status=<ok|degraded>
 #   degraded when the store, the registry, or a derivation could not be read,
-#   or a clear or its audit record failed; every such row is kept.
+#   a handle holds more than one row, or a clear or its audit record failed;
+#   every such row is kept.
 #
 # Exit codes: 0 the pass ran (degraded included); 2 usage, or no fleet home;
 #   4 the kill-switch is set, or could not be resolved.
@@ -144,6 +145,14 @@ snapshot=$(cat "$store" 2>/dev/null) || {
   summary
   exit 0
 }
+
+# The handles holding more than one row: corruption the store's one-row-per-
+# worker invariant rules out, kept rather than judged on either row.
+dups=$(printf '%s\n' "$snapshot" | awk -F'\t' 'NF { n[$1 ""]++ } END { for (w in n) if (n[w] > 1) print w }')
+if [ -n "$dups" ]; then
+  status=degraded
+  warn "the attention store holds more than one row for: $(sanitize_printable "$(printf '%s' "$dups" | tr '\n' ' ')" "(unprintable handle)")"
+fi
 
 # The last registry record per handle, read once: <handle>TAB<record>. An
 # unreadable registry leaves the death rule without evidence (every row it
@@ -295,18 +304,26 @@ keep() {
 while IFS="$TAB" read -r w scope state stamp _; do
   [ -n "$w$scope$state" ] || continue
   rows=$((rows + 1))
+  row_ok=1
   case $w in
-    "" | . | .. | *[!A-Za-z0-9._=@:-]*) w_ok=0 ;;
-    *) w_ok=1 ;;
+    "" | . | .. | *[!A-Za-z0-9._=@:-]*) row_ok=0 ;;
   esac
   case $scope in
-    "" | . | .. | *[!A-Za-z0-9._=@:-]*) w_ok=0 ;;
+    "" | . | .. | *[!A-Za-z0-9._=@:-]*) row_ok=0 ;;
   esac
   case $stamp in
-    "" | *[!0-9]*) w_ok=0 ;;
+    "" | *[!0-9]*) row_ok=0 ;;
   esac
-  if [ "$w_ok" = 0 ] || [ "${#w}" -gt 128 ]; then
+  case $state in
+    working | idle | hung | ended | pr-ready | merged | done | awaiting-input) ;;
+    *) row_ok=0 ;;
+  esac
+  if [ "$row_ok" = 0 ] || [ "${#w}" -gt 128 ]; then
     keep "$w" malformed
+    continue
+  fi
+  if printf '%s\n' "$dups" | grep -Fqx -- "$w"; then
+    keep "$w" duplicate
     continue
   fi
   if [ "$state" = awaiting-input ]; then
@@ -359,9 +376,9 @@ while IFS="$TAB" read -r w scope state stamp _; do
       ;;
     3) keep "$w" changed ;;
     *)
-      warn "could not clear the row of '$w'; the next pass retries"
+      warn "could not clear the row of '$w' ($why); the next pass retries"
       status=degraded
-      keep "$w" "$why"
+      keep "$w" clear-failed
       ;;
   esac
 done <<EOF
