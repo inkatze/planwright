@@ -402,7 +402,9 @@ c6() {
 # ---------------------------------------------------------------------------
 c7() {
   # The whole decision path = dispatch-fetch.sh (the mechanism this bundle
-  # introduces) AND the two helpers it invokes (spec-anchor.sh, config-get.sh),
+  # introduces) AND the helpers it invokes or sources (spec-anchor.sh,
+  # config-get.sh, resolve-root.sh, spec-id-lib.sh) and the config readers
+  # those run (resolve-config-knob.sh, resolve-overlay-root.sh),
   # so the "no model/API call anywhere in the decision path" claim covers what
   # actually runs. Patterns are command/endpoint-anchored: a `claude` CLI call is
   # lowercase followed by whitespace (so the `CLAUDE_PLUGIN_ROOT` path env var and
@@ -412,7 +414,9 @@ c7() {
   # indented, or one at end of line is caught alike (a plain `[^a-z]…[^a-z]`
   # bracket would miss a curl with no character on one side).
   for src in "$here/../scripts/dispatch-fetch.sh" \
-    "$here/../scripts/spec-anchor.sh" "$here/../scripts/config-get.sh"; do
+    "$here/../scripts/spec-anchor.sh" "$here/../scripts/config-get.sh" \
+    "$here/../scripts/resolve-root.sh" "$here/../scripts/spec-id-lib.sh" \
+    "$here/../scripts/resolve-config-knob.sh" "$here/../scripts/resolve-overlay-root.sh"; do
     [ -f "$src" ] || fail "c7: expected decision-path script missing: $src"
     # Strip comments so a word appearing only in prose never trips the guard.
     code=$(grep -vE '^[[:space:]]*#' "$src" || true)
