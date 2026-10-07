@@ -347,7 +347,8 @@ them, and only this runner skips. The run starts at that point, never
 re-running an earlier one, skipping (`resume`) the leading prefix of steps
 recorded `passed` or `applied` in the interrupted run whose end head equals
 the current head, read once at the start; each skip copies its record's
-start and end heads, and a moved head matches nothing. A `resume` skip
+start and end heads, and a head that moved after the interrupted run
+stopped matches no record, so nothing is skipped. A `resume` skip
 stands for its record in a later resume, so chained resumes skip the same
 prefix and carry its head move forward. A run held in its re-fire pass
 resumes inside it.
