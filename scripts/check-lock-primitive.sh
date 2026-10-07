@@ -413,6 +413,12 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
         if (c == SQ) { sq = 1; w = w c; i++; continue }
         if (c == "\"") { dq = 1; w = w c; i++; continue }
         if (c == "$" && nc == "{") { pe++; w = w c nc; i += 2; continue }
+        # A command substitution inside the expansion runs; its context is
+        # pushed like any other, and closing it restores the expansion.
+        if (c == "$" && nc == "(") {
+          if (w != "") { addtok(w, "w"); w = "" }
+          addtok("$(", "op"); push_ctx(); i += 2; continue
+        }
         if (c == "}") pe--
         w = w c; i++; continue
       }
