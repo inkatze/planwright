@@ -500,7 +500,7 @@ mpw() {
     PATH="$GHBIN:$PATH" /bin/sh "$@"
 }
 uuid_meta="33333333-3333-3333-3333-333333333333"
-uuid_sub="44444444-4444-4444-4444-444444444444"
+uuid_single="44444444-4444-4444-4444-444444444444"
 
 # Clean slate: the earlier cases left live fences behind on purpose.
 for r in $(origin_refs); do
@@ -510,13 +510,13 @@ done
 printf 'alive\n' >"$tmp/evidence-verdict"
 mpw "$FP" publish --checkout "$co" --session-id "$uuid_meta" --pid 4242 \
   --specs demo --meta >/dev/null || fail "meta-tower publish failed"
-mpw "$FP" publish --checkout "$co" --session-id "$uuid_sub" --pid 4243 \
-  --specs demo >/dev/null || fail "subordinate tower publish failed"
+mpw "$FP" publish --checkout "$co" --session-id "$uuid_single" --pid 4243 \
+  --specs demo >/dev/null || fail "single-spec tower publish failed"
 
 # The meta-tower is distinguished by the presence record's OWN validated meta
 # marker — not by fleet-tower-marker.sh, whose field is the orthogonal
 # unattended/interactive recovery mode.
-peers=$(mpw "$FP" discover --checkout "$co" --session-id "$uuid_sub" --min-interval 0)
+peers=$(mpw "$FP" discover --checkout "$co" --session-id "$uuid_single" --min-interval 0)
 printf '%s\n' "$peers" | grep -q "^peer	$uuid_meta	live	.*	true$" \
   || fail "the meta-tower is not distinguishable by its own meta marker: $peers"
 printf '%s\n' "$peers" | grep -q "^peer	$uuid_meta	live	.*	false$" \

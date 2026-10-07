@@ -1589,6 +1589,27 @@ rc=0
 spec_parse_latest_anchor_entry "$tmp/b-dup.md" >/dev/null 2>&1 || rc=$?
 eq "plain mode does not read labels at all" 0 "$rc"
 
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Class: meaning\nLens-pass: a\nLens-pass: b\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$h1" >"$tmp/b-duplens.md"
+rc=0
+spec_parse_latest_anchor_entry "$tmp/b-duplens.md" --record >/dev/null 2>&1 || rc=$?
+eq "record mode refuses two Lens-pass lines in one entry" 2 "$rc"
+
+# shellcheck disable=SC2016 # literal backticks: the record format
+{
+  printf 'Class: meaning\nClass: meaning\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n\n' "$h1"
+  printf 'Class: expression-only\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$h2"
+} >"$tmp/b-olddup.md"
+eq "an older entry's duplicate never taints a clean newest entry" \
+  "$h2	scripts/spec-anchor.sh specs/x	expression-only	" \
+  "$(spec_parse_latest_anchor_entry "$tmp/b-olddup.md" --record)"
+
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Class: meaning\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n\n```\nunclosed\n' "$h1" >"$tmp/b-open.md"
+rc=0
+spec_parse_latest_anchor_entry "$tmp/b-open.md" --record >/dev/null 2>&1 || rc=$?
+eq "record mode refuses a brief ending inside an open fence" 2 "$rc"
+
 printf 'No anchor here.\n' >"$tmp/b-none.md"
 rc=0
 spec_parse_latest_anchor_entry "$tmp/b-none.md" >/dev/null 2>&1 || rc=$?

@@ -30,7 +30,8 @@ export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_SYSTEM=/dev/null
 
 here=$(cd "$(dirname "$0")" && pwd)
-SCRIPTS="$(cd "$here/.." && pwd)/scripts"
+SCRIPTS=$(cd "$here/../scripts" && pwd -P)
+CONFIG=$(cd "$here/../config" && pwd -P)
 STEP="$SCRIPTS/orchestrate-meta-step.sh"
 TAB=$(printf '\t')
 
@@ -82,23 +83,38 @@ STALE=0123456789abcdef0123456789abcdef01234567
 # Ready bundle `specs/demo` whose kickoff brief carries one sign-off record.
 # Entry modes and the halt each should produce are listed beside m4. Sets C
 # (case dir), P (primary) and FAKE (the worker CLI).
+# The bundle and its repositories are built once; each case copies them and
+# repoints the clone at its own origin, so only the brief commit is per case.
+TEMPLATE=$tmp/.template
+build_template() {
+  git -c init.defaultBranch=main init -q --bare "$TEMPLATE/origin.git"
+  git clone -q "$TEMPLATE/origin.git" "$TEMPLATE/primary" 2>/dev/null
+  mkdir -p "$TEMPLATE/primary/specs/demo"
+  for f in requirements design test-spec; do
+    printf '# Demo %s\n\n**Status:** Ready\n\nBody of %s.\n' "$f" "$f" >"$TEMPLATE/primary/specs/demo/$f.md"
+  done
+  printf '# Demo tasks\n\n**Status:** Ready\n\n## Tasks\n\n### Task 1 — Do the thing\n\n- **Deliverables:** a thing\n- **Done when:** it exists\n- **Dependencies:** none\n- **Citations:** D-1\n- **Estimated effort:** 1 day\n' \
+    >"$TEMPLATE/primary/specs/demo/tasks.md"
+  gitc "$TEMPLATE/primary" add -A
+  gitc "$TEMPLATE/primary" commit -q -m "bundle"
+  gitc "$TEMPLATE/primary" branch -M main
+  gitc "$TEMPLATE/primary" push -q origin main
+  anchor=$(cd "$TEMPLATE/primary" && "$SCRIPTS/spec-anchor.sh" specs/demo) || {
+    echo "FAIL: spec-anchor.sh failed on the fixture" >&2
+    exit 1
+  }
+}
+build_template
+
 seed() {
   C=$tmp/$1
   seed_mode=${2:-good}
   mkdir -p "$C/rec" "$C/hstate"
-  git -c init.defaultBranch=main init -q --bare "$C/origin.git"
-  git clone -q "$C/origin.git" "$C/primary" 2>/dev/null
+  cp -R "$TEMPLATE/origin.git" "$C/origin.git"
+  cp -R "$TEMPLATE/primary" "$C/primary"
   P=$C/primary
-  mkdir -p "$P/specs/demo"
-  for f in requirements design test-spec; do
-    printf '# Demo %s\n\n**Status:** Ready\n\nBody of %s.\n' "$f" "$f" >"$P/specs/demo/$f.md"
-  done
-  printf '# Demo tasks\n\n**Status:** Ready\n\n## Tasks\n\n### Task 1 — Do the thing\n\n- **Deliverables:** a thing\n- **Done when:** it exists\n- **Dependencies:** none\n- **Citations:** D-1\n- **Estimated effort:** 1 day\n' \
-    >"$P/specs/demo/tasks.md"
-  anchor=$(cd "$P" && "$SCRIPTS/spec-anchor.sh" specs/demo) || {
-    fail "seed: spec-anchor.sh failed on the fixture"
-    return 1
-  }
+  gitc "$P" remote set-url origin "$C/origin.git"
+  gitc "$P" fetch -q origin
   {
     printf '# Kickoff brief\n'
     case $seed_mode in
@@ -132,10 +148,13 @@ seed() {
         ;;
     esac
   } >"$P/specs/demo/kickoff-brief.md"
-  gitc "$P" add -A
-  gitc "$P" commit -q -m "spec"
-  gitc "$P" branch -M main
-  gitc "$P" push -q origin main
+  if [ "$seed_mode" != nobrief ]; then
+    gitc "$P" add -A
+    gitc "$P" commit -q -m "brief"
+    gitc "$P" push -q origin main
+  else
+    rm -f "$P/specs/demo/kickoff-brief.md"
+  fi
   printf '/planwright:execute-task specs/demo 1\n\nRun notes for the worker.\n' >"$C/prompt"
   FAKE=$C/fake-claude
   cat >"$FAKE" <<EOF
@@ -152,12 +171,33 @@ EOF
 }
 
 # copy_root — a copy of the scripts and config trees under $C/root, so a case
-# can replace one sibling primitive with a stub. Sets STEP_COPY.
+# can replace one sibling primitive with a stub. The trees are copied by
+# content into fresh directories: copying a symlinked tree as a link would
+# let the stubs overwrite the real scripts. Sets STEP_COPY.
 copy_root() {
-  mkdir -p "$C/root"
-  cp -R "$SCRIPTS" "$C/root/scripts"
-  cp -R "$SCRIPTS/../config" "$C/root/config"
+  mkdir -p "$C/root/scripts" "$C/root/config"
+  cp -R "$SCRIPTS/." "$C/root/scripts/"
+  cp -R "$CONFIG/." "$C/root/config/"
+  if [ -L "$C/root/scripts" ] || [ -L "$C/root/config" ]; then
+    echo "FAIL: copy_root produced a symlinked tree; refusing to stub through it" >&2
+    exit 1
+  fi
   STEP_COPY=$C/root/scripts/orchestrate-meta-step.sh
+}
+
+# stub <name> <body> — replace one sibling in the copied tree with a shell
+# script whose body is <body>.
+stub() {
+  printf '#!/bin/sh\n%s\n' "$2" >"$C/root/scripts/$1"
+  chmod +x "$C/root/scripts/$1"
+}
+
+# wrap_record <before> — run <before> inside the record primitive's process,
+# then the real primitive.
+wrap_record() {
+  mv "$C/root/scripts/fleet-dispatch-worktree.sh" "$C/root/scripts/fleet-dispatch-worktree.real.sh"
+  stub fleet-dispatch-worktree.sh "$1
+exec \"$C/root/scripts/fleet-dispatch-worktree.real.sh\" \"\$@\""
 }
 
 # run_step <args...> — run the step ($RUN_STEP, default the real script) from
@@ -275,17 +315,10 @@ m3() {
   begin
   seed m3 || return
   copy_root
-  root=$C/root
-  mv "$root/scripts/fleet-dispatch-worktree.sh" "$root/scripts/fleet-dispatch-worktree.real.sh"
-  cat >"$root/scripts/fleet-dispatch-worktree.sh" <<EOF
-#!/bin/sh
-rc=0
-(cd "$P" && "$root/scripts/orchestrate-lock.sh" acquire specs/demo) >/dev/null 2>&1 || rc=\$?
-echo "\$rc" >"$C/rec/tower-during-record"
-[ "\$rc" -ne 0 ] || (cd "$P" && "$root/scripts/orchestrate-lock.sh" release specs/demo)
-exec "$root/scripts/fleet-dispatch-worktree.real.sh" "\$@"
-EOF
-  chmod +x "$root/scripts/fleet-dispatch-worktree.sh"
+  wrap_record "rc=0
+(cd \"$P\" && \"$C/root/scripts/orchestrate-lock.sh\" acquire specs/demo) >/dev/null 2>&1 || rc=\$?
+echo \"\$rc\" >\"$C/rec/tower-during-record\"
+[ \"\$rc\" -ne 0 ] || (cd \"$P\" && \"$C/root/scripts/orchestrate-lock.sh\" release specs/demo)"
   RUN_STEP=$STEP_COPY dispatch
   [ "$RC" -eq 0 ] || fail "m3: dispatch exited $RC: $ERR"
   [ "$(cat "$C/rec/tower-during-record" 2>/dev/null)" = 1 ] \
@@ -300,7 +333,7 @@ m4() {
   for pair in stale:gate/mismatch none:gate/no-entry unparseable:gate/unparseable-entry \
     nolens:gate/no-lens-pass badcmd:gate/non-sanctioned-command \
     wholefile:gate/pre-change-entry bare:gate/non-sanctioned-writer \
-    dup:gate/unparseable-entry fenced:gate/no-lens-pass; do
+    dup:gate/unparseable-entry fenced:gate/no-lens-pass nobrief:gate/no-brief; do
     mode=${pair%%:*}
     want=${pair#*:}
     seed "m4-$mode" "$mode" || continue
@@ -341,6 +374,13 @@ m5() {
   done
   run_step dispatch specs/demo "$nl_id" --backend headless-oneshot --prompt-file "$C/prompt"
   [ "$RC" -eq 2 ] || fail "m5: a task id carrying a newline should be refused (exit 2), got $RC"
+  # A linked worktree's copy of the bundle is a valid spec dir for the lock
+  # primitive, so only the primary-bundle check refuses it.
+  gitc "$P" worktree add -q --detach "$C/wt2" main
+  run_step dispatch "$C/wt2/specs/demo" 1 --backend headless-oneshot --prompt-file "$C/prompt"
+  [ "$RC" -eq 2 ] || fail "m5: a linked worktree's bundle should be refused (exit 2), got $RC"
+  printf '%s\n' "$ERR" | grep -q "not the primary checkout's bundle" \
+    || fail "m5: the linked-worktree refusal names another reason: $ERR"
   for rung in tmux subagent print; do
     dispatch "$rung"
     [ "$RC" -eq 2 ] || fail "m5: rung '$rung' should be refused (exit 2), got $RC"
@@ -380,11 +420,121 @@ m8() {
   begin
   seed m8 || return
   copy_root
-  printf '#!/bin/sh\ncat >/dev/null\necho "already in flight" >&2\nexit 3\n' >"$C/root/scripts/fleet-dispatch-headless.sh"
+  stub fleet-dispatch-headless.sh 'cat >/dev/null
+printf "already in flight \033[31mX\n" >&2
+exit 3'
   RUN_STEP=$STEP_COPY dispatch
   [ "$RC" -eq 6 ] || fail "m8: a rung exit 3 should exit 6, got $RC: $ERR"
   [ -e "$C/markers/1" ] || fail "m8: the marker of a live worker was cleared"
-  pass "m8: a rung that reports a live worker keeps its marker"
+  halt_reason | grep -q "marker is kept" || fail "m8: halt '$(halt_reason)' does not say the marker is kept"
+  [ -d "$P/.claude/worktrees/demo-task-1" ] || fail "m8: the placed worktree was removed"
+  printf '%s\n' "$ERR" | grep -q "already in flight" || fail "m8: the rung's message was not relayed"
+  esc=$(printf '\033')
+  case $ERR in *"$esc"*) fail "m8: a control byte from the rung reached stderr" ;; esac
+  pass "m8: a rung that reports a live worker keeps its marker; its message is relayed clean"
+}
+
+# --- m12: a written record whose report lacks the worktree exits 5 --------
+m12() {
+  begin
+  seed m12 || return
+  copy_root
+  mv "$C/root/scripts/fleet-dispatch-worktree.sh" "$C/root/scripts/fleet-dispatch-worktree.real.sh"
+  stub fleet-dispatch-worktree.sh "\"$C/root/scripts/fleet-dispatch-worktree.real.sh\" \"\$@\" | grep -v '^dispatch${TAB}worktree'
+exit 0"
+  RUN_STEP=$STEP_COPY dispatch
+  [ "$RC" -eq 5 ] || fail "m12: a record with no worktree line should exit 5, got $RC"
+  [ "$(halt_reason)" = "record/no worktree reported" ] || fail "m12: halt '$(halt_reason)'"
+  [ ! -e "$C/markers/1" ] || fail "m12: the marker the record stamped survived"
+  [ ! -e "$C/hstate/1" ] || fail "m12: a worker launch began"
+  lock_released m12
+  pass "m12: an incomplete record report exits 5 and clears its marker"
+}
+
+# --- m13: a signal after the record stamps its marker clears it -----------
+m13() {
+  begin
+  seed m13 || return
+  copy_root
+  mv "$C/root/scripts/fleet-dispatch-worktree.sh" "$C/root/scripts/fleet-dispatch-worktree.real.sh"
+  stub fleet-dispatch-worktree.sh "\"$C/root/scripts/fleet-dispatch-worktree.real.sh\" \"\$@\"
+rc=\$?
+kill -TERM \$PPID
+exit \$rc"
+  RUN_STEP=$STEP_COPY dispatch
+  [ "$RC" -eq 143 ] || fail "m13: a TERM during the record should exit 143, got $RC"
+  [ ! -e "$C/markers/1" ] || fail "m13: the marker survived a TERM with no launch behind it"
+  [ ! -e "$C/hstate/1" ] || fail "m13: a worker launch began"
+  lock_released m13
+  pass "m13: a TERM landing after the record clears the marker and the lock"
+}
+
+# --- m14: the launch reads the screened copy, not the caller's file -------
+m14() {
+  begin
+  seed m14 || return
+  copy_root
+  wrap_record "printf '/orchestrate specs/demo\n' >\"$C/prompt\""
+  RUN_STEP=$STEP_COPY dispatch
+  [ "$RC" -eq 0 ] || fail "m14: dispatch exited $RC: $ERR"
+  wait_launch
+  head -n 1 "$C/rec/stdin" 2>/dev/null | grep -q '^/planwright:execute-task specs/demo 1$' \
+    || fail "m14: a prompt swapped after the screen reached the worker"
+  pass "m14: a prompt swapped after the screen never reaches the worker"
+}
+
+# --- m15: lock and fetch refusals --------------------------------------------
+m15() {
+  begin
+  seed m15 || return
+  copy_root
+  stub dispatch-fetch.sh 'echo "refused" >&2; exit 2'
+  RUN_STEP=$STEP_COPY dispatch
+  [ "$RC" -eq 2 ] || fail "m15: a fetch refusal should exit 2, got $RC"
+  [ -z "$(halt_reason)" ] || fail "m15: a fetch refusal parked as '$(halt_reason)'"
+  lock_released m15/fetch2
+  stub dispatch-fetch.sh 'exit 5'
+  RUN_STEP=$STEP_COPY dispatch
+  [ "$RC" -eq 4 ] || fail "m15: an unresolved anchor should park, got $RC"
+  [ "$(halt_reason)" = fetch/anchor-unresolved ] || fail "m15: halt '$(halt_reason)'"
+  # shellcheck disable=SC2016 # the stub body expands in the stub, not here
+  stub orchestrate-lock.sh '[ "$1" = acquire ] && exit 2; exit 0'
+  RUN_STEP=$STEP_COPY dispatch
+  [ "$RC" -eq 2 ] || fail "m15: a lock refusal should exit 2, got $RC"
+  nothing_created m15
+  pass "m15: a lock or fetch refusal exits 2; an unresolved anchor parks"
+}
+
+# --- m16: a headless launch that reports no handle still names one --------
+m16() {
+  begin
+  seed m16 || return
+  copy_root
+  stub fleet-dispatch-headless.sh 'cat >/dev/null; exit 0'
+  RUN_STEP=$STEP_COPY dispatch
+  [ "$RC" -eq 0 ] || fail "m16: dispatch exited $RC: $ERR"
+  [ "$(field handle)" = headless-demo-task-1 ] || fail "m16: handle '$(field handle)'"
+  pass "m16: a silent headless launch reports the rung's handle form"
+}
+
+# --- m17: stream-json failures clear or keep the marker by meaning --------
+m17() {
+  begin
+  for pair in 1:clear 2:keep 3:keep; do
+    code=${pair%%:*}
+    want=${pair#*:}
+    seed "m17-$code" || continue
+    copy_root
+    stub fleet-streamjson.sh "exit $code"
+    RUN_STEP=$STEP_COPY dispatch stream-json-persistent
+    [ "$RC" -eq 6 ] || fail "m17/$code: expected exit 6, got $RC"
+    if [ "$want" = clear ]; then
+      [ ! -e "$C/markers/1" ] || fail "m17/$code: the marker survived a launch that started nothing"
+    else
+      [ -e "$C/markers/1" ] || fail "m17/$code: the marker of a possibly live worker was cleared"
+    fi
+  done
+  pass "m17: stream-json exit 1 clears the marker; exits 2 and 3 keep it"
 }
 
 # --- m9: a unit already in flight is a clean no-op ------------------------
@@ -457,6 +607,12 @@ m8
 m9
 m10
 m11
+m12
+m13
+m14
+m15
+m16
+m17
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

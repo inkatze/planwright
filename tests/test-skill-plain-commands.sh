@@ -25,7 +25,7 @@
 #     filter;
 #   - /orchestrate names the arguments the tower-marker `record` and the
 #     presence `publish` usage lines require, and publishes presence before
-#     the loop's first step can launch a subordinate.
+#     the loop's first step can launch a worker.
 #
 # Runs standalone: ./tests/test-skill-plain-commands.sh
 set -u
