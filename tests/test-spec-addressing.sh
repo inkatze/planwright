@@ -108,7 +108,9 @@ seam_forms() {
       return
       ;;
   esac
+  # The bare identifier already answered as sf_want; only the other forms run.
   for sf_form in $FORMS; do
+    [ "$sf_form" = demo ] && continue
     sf_got=$("$sf_fn" "$sf_form")
     if [ "$sf_got" = "$sf_want" ]; then
       ok "$sf_name: '$sf_form' answers as the bare identifier"
@@ -210,6 +212,12 @@ root_fetch() {
   )
 }
 want=$(fetch_form demo)
+# The comparisons below mean something only if the default answers with its
+# anchor; a refusal on both sides would compare equal.
+case $want in
+  *"anchor	"*"rc=3") ;;
+  *) fail "dispatch-fetch: the default spec root did not answer with an anchor: $want" ;;
+esac
 root_repo "$tmp/root-top" . . || fail "dispatch-fetch: could not build the repository-root fixture"
 same "dispatch-fetch: a spec root at the repository root answers as the default" \
   "$(root_fetch "$tmp/root-top")" "$want"
@@ -238,6 +246,13 @@ marker_form() {
     sh "$S/fleet-tower-marker.sh" "$1" "$tmp/repo" | sed 's/	[0-9]*$/	<EPOCH>/'
 }
 seam_forms fleet-tower-marker marker_form
+# A marker recorded under the alias is the bare identifier's marker.
+# shellcheck disable=SC2016
+case $(outcome sh -c '"$1" record specs/demo/ --mode unattended --pid 4242 --checkout "$2" >/dev/null &&
+  "$1" read demo; r=$?; "$1" clear demo >/dev/null; exit $r' sh "$S/fleet-tower-marker.sh" "$tmp/repo") in
+  *"rc=0") ok "fleet-tower-marker: a marker recorded as specs/demo/ reads back as demo" ;;
+  *) fail "fleet-tower-marker: a marker recorded as specs/demo/ is not demo's marker" ;;
+esac
 
 headless_form() { outcome "$S/fleet-dispatch-headless.sh" status "$1" 1 --repo-root "$tmp/repo"; }
 # A unit never launched is absent, exit 5.
@@ -253,7 +268,7 @@ for f in $FORMS; do
   same "fleet-dispatch-headless launch: '$f' answers as the bare identifier" "$(launch_form "$f")" "$want"
 done
 case $(launch_form "$BUNDLE_FILE") in
-  "$want") fail "fleet-dispatch-headless launch: a bundle-file path answered as the bare identifier" ;;
+  "$want" | *"worktree not found"*) fail "fleet-dispatch-headless launch: a bundle-file path got past the spec id check" ;;
   *"rc=2") ok "fleet-dispatch-headless launch: a bundle-file path is refused" ;;
   *) fail "fleet-dispatch-headless launch: a bundle-file path was not refused: $(launch_form "$BUNDLE_FILE")" ;;
 esac
@@ -287,6 +302,15 @@ case $(trailer_form specs/demo/requirements.md) in
   *"rc=0") fail "planwright-commit-trailers: a bundle-file path was accepted" ;;
   *) ok "planwright-commit-trailers: a bundle-file path is refused" ;;
 esac
+# Re-stamping a message that already carries the trailer, through the alias,
+# adds nothing.
+# shellcheck disable=SC2016
+got=$(outcome sh -c 'printf "feat: x\n\nPlanwright-Task: demo/1\n" | "$1" specs/demo/1' sh "$S/planwright-commit-trailers.sh")
+if [ "$(printf '%s\n' "$got" | grep -c '^Planwright-Task: demo/1$')" -eq 1 ]; then
+  ok "planwright-commit-trailers: re-stamping through the alias adds no duplicate"
+else
+  fail "planwright-commit-trailers: re-stamping through the alias duplicated the trailer: $got"
+fi
 
 # The presence owner and attribute queries take a unit ref the way the
 # trailer helper does: specs/<spec>/<id> answers as <spec>/<id>.
@@ -354,7 +378,9 @@ case $(outcome "$S/fleet-attention.sh" heartbeat w1 demo:task-1 working) in
   *"rc=0") ok "fleet-attention: the bare scope is accepted" ;;
   *) fail "fleet-attention: the bare scope was refused" ;;
 esac
-got=$(outcome "$S/fleet-streamjson.sh" launch w1 specs/demo --prompt-file /dev/null)
+# A failing CLI stands in for claude, so a grammar regression cannot launch a
+# real session here.
+got=$(outcome env PLANWRIGHT_STREAMJSON_CLI=false "$S/fleet-streamjson.sh" launch w1 specs/demo --prompt-file /dev/null)
 case $got in
   *"<spec>:<id>"*"rc=2") ok "fleet-streamjson: a specs/ scope is refused naming the expected shape" ;;
   *) fail "fleet-streamjson: the refusal does not name the expected shape: $got" ;;
