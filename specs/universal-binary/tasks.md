@@ -536,8 +536,7 @@
 
 ## Awaiting input
 
-- **Task 1.1** — convergence point, step `panel-gemini`, outcome `halted`
-  (record `.claude/steps/000002/002-step-convergence.rec`).
+(none yet)
 
 ## Deferred
 
