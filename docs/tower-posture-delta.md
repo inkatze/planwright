@@ -24,7 +24,6 @@ stall the extension removes.
 | Shape | Where the skill runs it | Before | After |
 | --- | --- | --- | --- |
 | `jq '<filter>' <settings file>` | bring-up's posture check, one projection per settings layer | defer | allow |
-| `jq -er '<filter>' installed_plugins.json` | locating the planwright install root | defer | allow |
 | `mktemp` | a flight petition's ask and grounds temp files | defer | allow |
 | `rm [-f] [--] <TMPDIR or /tmp>/tmp.<suffix> …` | removing those files once the dispatch returns | defer | allow |
 | `<planwright root>/scripts/<name>.sh …` | the flight sweep, dispatch, attention queue, catch-up, spec status, rule-doc resolution | allow | allow (unchanged) |
@@ -43,9 +42,11 @@ static `allow` entry is added.
   (`env`, `$ENV`), a filter from a file (`-f`), a module search path (`-L`),
   any unrecognized flag, an output redirect, and a filter the guard cannot
   read literally (an unexpanded variable).
-- **Bare `mktemp`.** It creates one fresh, empty file under `TMPDIR`. A
-  template, `-p`, `-t`, `-d`, and `-u` all defer.
-- **`rm` of the tower's own temp files.** Every operand must be an absolute
+- **Bare `mktemp`.** It creates one fresh, empty file in the system temp
+  directory: `TMPDIR` for GNU mktemp, and on macOS the per-user temp
+  directory, which `TMPDIR` normally names. A template, `-p`, `-t`, `-d`, and
+  `-u` all defer.
+- **`rm` of mktemp-named temp files.** Every operand must be an absolute
   path whose name has mktemp's default shape (`tmp.` and at least six letters
   or digits), whose directory canonicalizes to exactly `TMPDIR` or `/tmp`
   (never a directory below them), and that is not a symlink, a directory, or
@@ -63,9 +64,10 @@ and in order:
   `mcp__*__push_files`, `mcp__*__create_or_update_file`, and
   `mcp__*__delete_file`: the GitHub write tools the floor already denied by
   their `mcp__github__` names, now denied on every MCP server. Claude Code
-  matches a deny rule's tool-name glob against the full tool name, so a second
-  GitHub server (a claude.ai connector, an enterprise server) can no longer
-  reopen the merge, ready-flip, or default-branch-write floor.
+  matches a deny rule's tool-name glob against the full tool name (deny and
+  ask rules accept a wildcard anywhere in it, as of Claude Code 2.1.293), so a
+  second GitHub server (a claude.ai connector, an enterprise server) can no
+  longer reopen the merge, ready-flip, or default-branch-write floor.
 - `mcp__*__update_pull_request_branch`: the host-side PR branch update, which
   merges the base into the PR branch. The floor denies `git merge` to the
   tower; this denies the same act through an MCP tool, on every server.
@@ -78,24 +80,39 @@ The `gh api` spellings of the merge and the ready flip are the policy guard's
 - **Same-named tools elsewhere.** A glob also denies a tool that shares one of
   these names on a server that is not GitHub (a drive's `delete_file`, for
   one). The tower needs none of them; the worker profile is not changed.
-- **The worker profile** still names only the `mcp__github__` tools. Widening
-  it the same way is a worker-posture change, outside this delta.
+- **The worker profile** still denies the merge and the three write tools by
+  their `mcp__github__` names only. Its ready flip and base merge are not in
+  its deny block at all: a policy knob can grant either act to a worker, and
+  a profile deny would refuse what the policy permits. Widening the worker
+  profile is a worker-posture change, outside this delta, and covers only the
+  tools no knob governs.
 - **An older Claude Code** that does not support tool-name globs in deny rules
   matches nothing with them; the literal `mcp__github__` entries still hold.
 - **A `TMPDIR` the hook does not share.** The guard reads `TMPDIR` from its own
-  environment. Where the session's shell sees another one, the removal defers
-  to the permission prompt; it is never allowed by mistake.
+  environment. Where the session's shell sees another one, or where mktemp
+  writes elsewhere (macOS prefers its per-user temp directory to `TMPDIR`),
+  the removal defers to the permission prompt; it is never allowed by
+  mistake.
+- **Whose temp file it is.** The guard cannot tell a file the tower created
+  from another same-user process's: any mktemp-named regular file directly in
+  `TMPDIR` or `/tmp` is removable without a prompt, another session's live
+  temp file included. The sticky bit on `/tmp` still protects other users'
+  files.
+- **Settings merged before this delta.** A tower whose settings merged an
+  earlier copy of the profile lacks the appended deny entries, so bring-up's
+  posture check finds them missing and holds back repo-mutating routes and
+  relays until the operator merges them.
 
 ## How it is verified
 
 - `tests/test-tower-command-guard.sh` asserts every new allow shape above and
   its deferring neighbours, the zero-false-allow bar, the deny-precedence
-  outcome for the floor's spellings, and byte-identity of the shared `jq`
-  screen with the worker guard's.
+  outcome for the floor's spellings, and that the shared `jq` screen's code
+  matches the worker guard's (full-line comments aside).
 - `tests/test-tower-settings-hook-wiring.sh` pins the pre-extension floor as
   the deny block's exact prefix, pins the extension as the exact remainder,
   and checks the globs against other servers' tool names, read-only tools
-  included.
+  included, using a shell glob as the stand-in for Claude Code's matcher.
 - `tests/test-reserved-control-spellings.sh` keeps the history-rewrite denies
   (force-push, amend, squash, fixup, rebase) and the merge and ready-flip
   denies holding under the tower guard and the tower profile.

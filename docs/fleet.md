@@ -2121,7 +2121,8 @@ under `config/tower-settings.json`, which wires `scripts/tower-command-guard.sh`
 as a PreToolUse hook (D-8). It reuses the worker guard's pattern — allow-only,
 fail-closed, no LLM in the decision path — but fronts a **distinct, tower-
 oriented safe set**: it adds the tower-only shapes (tmux relay/observe, the
-hand-launch) the worker guard defers, and omits the worker-only shapes (`bats`,
+hand-launch, the front door's bare `mktemp` and temp-file `rm`) the worker
+guard defers, and omits the worker-only shapes (`bats`,
 `tests/` scripts, `fish -c` recursion) a tower never runs. Coverage is at the
 tmux-subcommand granularity: the guard pre-approves the individual relay/observe
 verbs (`load-buffer`, `paste-buffer`, `capture-pane`), but not yet
@@ -2157,6 +2158,9 @@ The `/tower` front door runs under the same profile. The shapes its sessions
 run routinely (the posture check's `jq` projections, and a flight petition's
 `mktemp` files and their removal) and the deny entries added with them are
 listed, with their limits, in [the front-door delta](tower-posture-delta.md).
+A tower whose settings merged an earlier copy of the profile must merge those
+appended deny entries too: until it does, bring-up's posture check finds them
+missing and holds back repo-mutating routes and relays.
 
 ## What the fleet decides without you (and what it never does)
 
