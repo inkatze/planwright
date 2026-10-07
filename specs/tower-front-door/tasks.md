@@ -307,6 +307,20 @@ router has not demonstrated (REQ-B1.6).
   this branch, and `main`'s own CI fails the same way. Decide how to clear
   it (fix that fixture on its branch, or record the hit in a gitleaks ignore
   on `main`); then re-run this PR's CI, which has not yet reached its tests.
+- **Task 10** — the post-PR review of draft PR #601 (tower posture extension)
+  found a reproduced false-allow in the security-sensitive command guards.
+  Inside double quotes the guards' command reader drops every backslash,
+  while the shell keeps one before an ordinary character, so the temp-file
+  removal can check one path while `rm` receives another and removes a file
+  outside the temp directories. Choose a fix:
+  (a) read double-quoted backslashes as the shell does, in both guards (the
+  correct model, but other verdicts can move either way);
+  (b) send any double-quoted backslash before an ordinary character to the
+  permission prompt, in both guards (only prompts more, but routine reads
+  such as `grep "a\|b"` start prompting);
+  (c) send any quoted `rm` operand to the prompt, in the tower guard only
+  (only prompts more, narrow; recommended by the review).
+  The two later post-PR review steps have not run.
 
 ## Deferred
 
