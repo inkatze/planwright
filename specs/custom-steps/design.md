@@ -1,13 +1,14 @@
 # Custom steps — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-09-28
+**Last reviewed:** 2026-10-06
 **Format-version:** 2
 **Execution:** derived — see the status render
 
 Origin tags: `N` = new decision, minted in this bundle's drafting session
 (2026-09-21 and 2026-09-22); `K` = new decision, minted at the kickoff
-walkthrough (2026-09-22). Foreign IDs are namespace-qualified.
+walkthrough (2026-09-22); `E` = new decision, minted in the 2026-10-06
+extension's drafting session. Foreign IDs are namespace-qualified.
 
 ## Decision log
 
@@ -50,7 +51,7 @@ overlay where style belongs.
 **Decision:** This bundle wires `pre-implementation`, `pre-ci`,
 `convergence`, `pre-pr`, and `post-pr` in `/execute-task` and
 `pre-spec-ready-flip` in `/spec-kickoff`; it defines `pre-ready-flip` in
-the rule doc and binds it through REQ-E1.3 and REQ-E1.5, the first
+the rule doc and binds it through REQ-E1.3 and REQ-E1.6, the first
 in-repo unit-PR flipper wiring it, since `/execute-task` never flips. The
 orchestrator-side and pipeline-side points from issue 383 are named in the
 rule doc and parked under Deferred with a gate. The vocabulary is
@@ -215,6 +216,10 @@ model-allocation rules.
 id, the open step-type key space), so the modes are a declaration on top
 of it rather than new machinery.
 
+**Superseded-by: D-30** (2026-10-06), in part — a `continue` step whose
+predecessor was skipped by reuse or resume attaches to the session behind
+the skip instead of failing.
+
 ### D-8: Outcomes are runner-classified from the handoff  (N)
 
 **Decision:** Five outcomes: `passed`, `applied`, `halted`, `failed`, and
@@ -245,6 +250,10 @@ excerpt in the PR body as the review trail.
 
 **Chosen because:** it is what `/execute-task` does today for the review
 sequence, made explicit, enumerated, and recorded.
+
+**Superseded-by: D-31 and D-32** (2026-10-06), in part — the outcome
+set gains `limited`, and `skipped` gains producers beyond the matrix
+(REQ-D1.10).
 
 ### D-9: Mechanics in scripts and one point-of-use rule doc  (N)
 
@@ -368,6 +377,10 @@ parking the unit if it is not. Earlier points are not re-run.
 regeneration is cheap, and the operator's stated wish is fewer re-runs and
 re-syncs, not more.
 
+**Superseded-by: D-28** (2026-10-06) — a command step declaring re-fire
+runs again on the final head after the post-pr point moved it; everything
+else here stands.
+
 ### D-13: A separate spec-PR flip point, plus a unit-kind field  (N)
 
 **Decision:** `pre-spec-ready-flip` is its own list key, run by
@@ -406,6 +419,9 @@ or invocation. No context value is interpolated into a command line.
 **Chosen because:** a stable, documented, testable surface that decouples
 operator steps from planwright internals, and a channel a dispatched worker
 can read (a shell variable did not reach one, obs:00dccd4e).
+
+**Superseded-by: D-29** (2026-10-06), in part — the context set gains
+the previous and new head of a head move.
 
 ### D-15: Timeout and requires; no env or cwd fields  (N)
 
@@ -564,6 +580,371 @@ verb is a plugin script the worker guard approves), so the hook guards a
 flipper that forgets, not one that forges; the stronger property would
 need evidence written by CI, which no seed asks for.
 
+**Superseded-by: D-32** (2026-10-06), in part — a `limited` record also
+makes the status `failure` and refuses the flip.
+
+### D-21: Altitude of the expensive-check extension — capability in core, values in overlays  (E)
+
+**Decision:** The extension lands at D-1's altitude. The capability
+(pools, the `paths` fingerprint, reuse, re-fire, and the built-in run's
+pool key) lands in core as step fields and config keys whose defaults
+reproduce today's behavior: no step declares a pool, `full_suite_pool` is
+empty, and nothing is reused or re-fired. The contract lands in the
+custom-steps rule doc, the mechanics in scripts, and the values (which
+suite, which pool, which paths) in overlays; this repository's own
+values sit in its repo-tracked layer. The seed's claim that "the hand
+convention becomes native" is the trigger this decision answers.
+
+**Alternatives considered:**
+- A documented pattern only: a recipe for wrapping a suite in a lock,
+  with no step fields. Rejected because: it leaves the convention a
+  ritual an operator must remember, the shape the autopilot reflex calls a
+  doctrine gap, and it cannot express reuse or re-fire at all.
+- Bake planwright's own gate into core as a default pooled pre-pr step.
+  Rejected because: which suite is expensive, and what it covers, is one
+  project's value, and a default-on pool changes every adopter's timing.
+
+**Chosen because:** seeds from separate contexts point toward the same
+mechanism: obs:6c3342a8 (adopters' quarter-hour suites and this
+repository's hand-serialized gate) asks for it, and the 2026-09-02
+parallel-units record (obs:7fe26f10) proposes a fleet-level suite lock as
+one candidate. That is the evidence customization-boundary requires for
+a core knob, and the knob-plus-overlay split keeps core general.
+
+### D-22: Pools are pid-owned slot locks on the shared lock primitive  (E)
+
+**Decision:** A pool of capacity N is N slot locks taken through
+`scripts/lock-lib.sh` under a per-user pool directory in the home state
+directory. A caller takes the first free slot; a slot whose holder
+process is dead is reclaimed through the primitive's liveness check. The
+hold is owned by a process whose lifetime bounds the check (the
+primitive's on-behalf-of acquire), never by an open descriptor, so
+nothing a check spawns inherits it. The owner is the process hosting the
+runner, whose pid is known before any line is rendered: the unit
+session's process for `in-session` and `continue` hosting, the runner
+subprocess for a runner-owned (`isolated`) command step, and the hand
+recipe's own shell. The wait and the take run before the timed run on
+the owner's behalf, as a background job waited on inside the turn or as
+bounded repeated shell calls whose seconds are summed, and are not
+charged to `timeout`; a lost race returns to the wait, and the bound
+covers the whole wait. The owner releases the slot after the check ends;
+a slot left unreleased is reclaimed when the owner exits, so a check
+that dies without a release keeps its slot until its host process ends.
+A timeout never releases a slot: the runner releases it after it stops
+waiting on a timed-out step only when the check process is gone, and
+otherwise the owner's exit reclaims it. A take records the holder's step
+id (or the full-suite marker) and worktree beside its process id, which
+is what a waiter reports. A pool that cannot be used runs the step
+unpooled with a recorded warning, as the test runner's ticket pool does.
+A holder passes its check a hold mark (pool and owning process), the one
+`PLANWRIGHT_STEP_*` variable the rule doc names, which the resolver
+renders as one optional trailing assignment
+`PLANWRIGHT_STEP_POOL_HOLD=<pool>:<pid>` carrying the owner's literal
+pid, for a pooled step only; a take under a mark naming the same pool
+and a live owner runs inside that hold, as the test runner's pooled-file
+mark does, so a check reaching its own pool again (a suite that calls
+the hand recipe, say) never waits on itself, and that caller's release
+is a successful no-op. The mark grants nothing once its owner dies, so
+it reintroduces none of the descriptor leak. A take by an owner that
+already holds a slot of the pool but carries no mark (a timed-out check
+still running when the same unit's suite starts, say) waits like any
+caller: the one-at-a-time guarantee is the pool's purpose, and the wait
+bound ends it (operator decision at the delta kickoff).
+
+**Alternatives considered:**
+- `flock` on one lock file, the hand convention. Rejected because: the
+  descriptor is inherited by every child, so a leaked process holds the
+  lock after the check exits (obs:96cdeb96), and `flock` is not on every
+  supported host.
+- `flock -o` (close before exec) on the same file. Rejected because: it
+  fixes inheritance only where `flock` exists and still offers no holder
+  identity for a waiter to report.
+- Reuse `scripts/run-tests.sh`'s ticket pool. Rejected because: it bounds
+  test files inside one run, at core-count capacity, where a step pool
+  bounds whole checks at a capacity near one; sharing one pool would let
+  a single suite starve every other check of tickets.
+- Fail the step when the pool is unusable. Rejected because: an
+  unwritable state directory would then park every unit on the host,
+  while an unpooled run only reintroduces contention it reports.
+
+**Chosen because:** the primitive already provides pid ownership, dead-
+holder reclaim, and holder identity, and it is the one lock primitive
+the script layer is required to use.
+
+### D-23: The pool helper holds slots and never runs commands  (E)
+
+**Decision:** `scripts/step-pool.sh` offers take, report, and release
+verbs keyed on a pool name and an owning process id, a take also
+recording the holder's step id (or the full-suite marker) and worktree
+for the report. It executes nothing:
+the runner subprocess, the session, or the detached full-suite recipe
+runs the check exactly as it would unpooled, taking the slot first and
+releasing it after.
+
+**Alternatives considered:**
+- A wrapper that takes a command line and runs it under the slot.
+  Rejected because: the worker command guard trusts a plugin script with
+  any arguments, so a command-running wrapper would approve every command
+  passed through it, and a declared line spelled through the wrapper
+  would no longer match REQ-G1.3's exact declared-line form.
+- A wrapper keyed on a step id that resolves and runs the declared line.
+  Rejected because: `/execute-task`'s full-suite command is derived by the
+  session at pre-flight, not declared, so the built-in run would still
+  need a command-running form.
+
+**Chosen because:** a helper that cannot execute anything adds no guard
+surface, and the existing execution paths (and their guard approvals)
+stay exactly as they are.
+
+### D-24: Capacity per pool with a shared default, and a bounded wait  (E)
+
+**Decision:** Capacity is `step_pool_capacity_<pool>` when set, else
+`step_pool_capacity`, core default 1. Waiting is bounded by
+`step_pool_wait`, core default `60m` in the config resolver's `duration`
+type (`scripts/resolve-config-knob.sh`); waiting is recorded apart from
+run time and not charged to `timeout`; past the bound the step fails
+naming the holders, so its posture applies. Admission is unordered: the
+primitive spins, so a freed slot goes to whichever waiter takes it first.
+Callers that disagree on a pool's capacity each try only their own slot
+count, so the larger setting governs: an over-admission in the safe
+direction, never a deadlock.
+
+**Alternatives considered:**
+- An unbounded wait while the holder lives. Rejected by the operator at
+  drafting: a hung live holder would stall every waiter, the deadlock
+  shape obs:96cdeb96 recorded.
+- A `30m` default matching `pr_ci_wait`. Rejected by the operator at
+  drafting: with three parallel units and a nineteen-minute suite, a
+  waiter behind the other two would fail spuriously.
+- A capacity map in one key. Rejected because: the config reader resolves
+  flat scalar keys, and model-allocation's per-step-id keys are the
+  precedent for an open key space.
+
+**Chosen because:** at the default parallelism a waiter shares the pool
+with at most two other units, and sixty minutes covers two full suites
+running before it; admission being unordered, a waiter that keeps losing
+the race can still pass the bound, which fails visibly naming the
+holders rather than hanging. A per-pool override keeps a cheap pool from
+inheriting an expensive pool's capacity of one.
+
+### D-25: The built-in full suite joins a pool through an opt-in key  (E)
+
+**Decision:** `full_suite_pool` names the pool every full local suite run
+`/execute-task` makes holds a slot of; empty by default (unpooled, as
+today). A declared step naming the same pool serializes with it. This
+repository sets it in its repo-tracked layer, and the overlay
+documentation documents the recipe an operator's own gate by hand uses,
+replacing the hand-held host lock. An expired wait on a full-suite run
+parks the unit naming the holders, never counted as a CI failure or
+retried, and the run's pool fields land as a full-suite row of the
+step-record audit fold.
+
+**Alternatives considered:**
+- Pool only declared steps. Rejected by the operator at drafting: the
+  built-in run is what contends today (obs:7fe26f10), so a steps-only
+  pool leaves the measured load in place.
+- Pool the built-in run by default. Rejected because: customization-
+  boundary requires a core capability to land behind a default that
+  preserves behavior.
+
+**Chosen because:** one pool name joining the built-in run and declared
+checks is the native form of "one full gate at a time on this host".
+
+### D-26: The fingerprint is the committed content of the declared paths  (E)
+
+**Decision:** A command step's fingerprint is derived from each declared
+path word paired with its git object id at the head, or with an absent
+marker, in declaration order, so two path sets over the same content
+never share a fingerprint. Any uncommitted change, tracked or untracked,
+under a declared path leaves the step with no fingerprint, so it runs;
+files git ignores never count, or `.` could never fingerprint in a tree
+holding build output.
+Path words are plain repository-relative paths (no globs, no `..`, no
+leading `/` or `-`), `.` meaning the whole tree.
+
+**Alternatives considered:**
+- A diff from the last passing head (`git diff --name-only`). Rejected
+  because: it needs the old head to stay reachable and reads a merge from
+  `main` as one change, where content identity is stateless.
+- Glob or pathspec patterns. Rejected because: overlay values used as
+  patterns is what the framework-script rules forbid, and directory
+  prefixes cover the observed cases.
+- Fold in the resolved paths of the target and `requires` executables, or
+  a maximum record age. Rejected by the operator at drafting: neither
+  catches an in-place toolchain upgrade reliably, and the PR's CI on the
+  final head covers what lies outside the paths; an adopter widens
+  `paths` (a toolchain manifest, for instance) to bring it in.
+- Let ignored files void the fingerprint too. Rejected by the operator at
+  the delta kickoff: `.` and any directory holding build output would
+  never be reused; the accepted cost is that a check reading an ignored
+  local input can be reused over a change to it.
+
+**Chosen because:** object ids are exact, cheap, and identical however
+the head was reached, so the same content never pays for the same check
+twice.
+
+### D-27: Reuse a passing record over the same fingerprint  (E)
+
+**Decision:** Before running a command step that declares `paths`, the
+runner looks for a `passed` record of the same step id, target, and
+`args` digest (the SHA-256 of the `args` string as written) with an
+equal fingerprint, anywhere in the worktree's record cache: any run in
+the cache, the current run included, at any point, re-fire records
+included. On a match the step is `skipped` with reason `reuse`, naming
+the record. Only `passed` qualifies; a step
+with no `paths` is never reused.
+
+**Alternatives considered:**
+- Reuse for every step by head equality. Rejected because: a review
+  step's value is not a function of the tree, and resume continuation
+  (REQ-J1.1) already covers the one case where same-head reuse is wanted
+  for every step.
+- Reuse across worktrees through a host-wide cache. Rejected because:
+  records are an untracked worktree cache (D-16), and a pruned worktree
+  re-running its checks is the safe failure.
+
+**Chosen because:** it turns "run once, skip intermediate commits" into a
+rule a re-dispatched or resumed unit also obeys, without the step having
+to know how many runs came before.
+
+### D-28: Re-fire declared command steps after post-pr; otherwise regenerate  (E)
+
+**Decision:** Supersedes D-12. When a post-pr step moves the head (its
+record's end head differs from its start head, REQ-D1.12), the runner
+first runs once more, on the final head, each distinct command step id
+declaring `refire: post-pr` from the run's resolved `pre-ci` and `pre-pr`
+lists, once at its first declaring list (subject to reuse; a step
+skipped `missing` there is not re-fired), recording each under `post-pr`
+with a `refire-of` field and writing the post-pr completion record after
+the pass. It then regenerates the pending-sign-off checklist and the
+step tables, re-emits the review handoff, and verifies the PR is still a
+draft, parking the unit if it is not. A re-fired failure with posture
+`halt` ends the unit through the two pause destinations with the PR a
+draft, after the regeneration and draft check have run. Re-fire happens
+once per run, and no point, skill or prompt step, or convergence is
+re-run. A step declaring `refire` cannot declare `hosting: continue`:
+the re-fire pass has no predecessor session to attach to.
+
+**Alternatives considered:**
+- Keep D-12 unchanged and leave the check to the PR's CI. Rejected
+  because: obs:6c3342a8 asks for the expensive check to re-run when a
+  later fix round touched given paths, which D-12's never-re-run rule
+  forbids.
+- Re-run the whole `pre-pr` point. Rejected because: it re-runs steps
+  that declared nothing about what they cover, the cost D-12 rejected.
+- Re-fire skill steps and convergence too. Rejected because: D-12's
+  unbounded-cost argument holds for them, and no seed asks for it.
+
+**Chosen because:** only a step that declared its coverage can be judged
+stale, the fingerprint judges it exactly, and one pass with no loop keeps
+D-12's bound.
+
+### D-29: This bundle carries quota-handling's amendment; that bundle implements it  (E)
+
+**Decision:** Supersedes D-14 in part. The amendment quota-handling D-3
+names is signed here, in the same extension as expensive checks: the
+`limited` outcome, the entry format admitting `vendor`, `control`,
+`on-limit`, `moves-head`, `final-head`, and `drains`, the previous and
+new head in the context, `skipped` from more producers, and resume
+continuation. This bundle supersedes its own records and states the
+contract in its rule doc; quota-handling's tasks implement the fields'
+validation and behavior. This bundle's tasks deliver only what both
+bundles lean on: the record fields, the resolver accepting the fields as
+known, the previous and new head context fields
+(`PLANWRIGHT_STEP_PREV_HEAD` and `PLANWRIGHT_STEP_NEW_HEAD`, whose
+values this bundle's runner computes from record end heads and sets,
+quota-handling's Task 8 consuming them), `limited` in the flip-point
+status, and the runner rules for reuse, resume, and `continue`. Resume
+skipping is this bundle's alone: the runner resumes when its invocation
+names the interrupted run and point, which quota-handling's resume
+supplies, so this bundle verifies the skipping from seeded records
+without a real hold, and quota-handling's resume calls it rather than
+implementing it again (confirmed by the operator at the delta kickoff).
+
+**Alternatives considered:**
+- Two sequential extensions, one per bundle. Rejected by the operator at
+  drafting: both supersede the same records on one branch and ID space,
+  each would need its own delta kickoff, and re-fire depends on the head
+  movement quota-handling signals.
+- This bundle implements quota-handling's semantics too. Rejected
+  because: quota-handling's tasks already own them, and moving them would
+  amend that signed bundle.
+
+**Chosen because:** every signed contract stays signed by its owner, and
+the shared surfaces are walked once.
+
+### D-30: A `continue` step stands on the evidence behind a skipped predecessor  (E)
+
+**Decision:** Supersedes D-7 in part. A `continue` step whose
+predecessor was skipped by reuse or resume attaches to the session
+recorded on the record that justified the skip, and fails as REQ-D1.4
+did when the backend cannot resume it or no session id was recorded. Any
+other skip still fails it.
+
+**Alternatives considered:**
+- Fail as before. Rejected by the operator at drafting: once reuse and
+  resume skip routinely, every chain after a resumed step would fail.
+- Run it isolated instead. Rejected because: it drops the context a
+  `continue` step exists to keep.
+
+**Chosen because:** the reused record's session is the session whose
+work the skip stands for.
+
+### D-31: Records carry their end head and a skip reason  (E)
+
+**Decision:** Supersedes D-8 in part. Every step record also carries the
+head at the step's end, and a step moved the head when its end head
+differs from its start head (the worktree's local HEAD, pushed or not);
+quota-handling's wording of a move of the PR head maps to this
+definition. A `skipped` record carries one reason code (`missing`,
+`reuse`, `resume`, `answered`) in a new field beside the existing
+free-text skip detail, which becomes optional, and, for reuse and
+resume, the run id, point, and record sequence of the record it stands
+on. Pooled and path-declaring steps record their pool, wait, holders,
+unpooled fallback, fingerprint, and `args` digest (the SHA-256 of the
+`args` string as written); a re-fired step records a `refire-of` field
+naming its declaring point (`pre-ci` or `pre-pr`). Records written
+before the extension (no end head, no reason code) match no reuse or
+resume lookup and never count toward the `limited` scan, and their
+free-text reasons render as written.
+
+**Alternatives considered:**
+- Derive the end head from the next record's start head. Rejected
+  because: the last step of a point has no next record, and a post-pr
+  step's push is exactly the movement resume and re-fire must see.
+
+**Chosen because:** resume (quota-handling D-8) is defined on the end
+head, and an auditor reading a `skipped` row needs to know what it stood
+on.
+
+### D-32: `limited` fails the flip-point status and refuses the flip  (E)
+
+**Decision:** Supersedes D-8 and D-20 in part. The flip-point status is
+`failure` when the latest attempt holds a `halted`, `failed`, or
+`limited` record, or when any run in the flipping worktree's record
+cache, earlier flip attempts included, holds a `limited` record whose
+end head is the head being flipped; such a record also refuses the flip.
+Each flip attempt is its own run, so "the run" alone would see only the
+flip point and miss a review limited at `post-pr`. A `limited` record is
+retired once a later run in the cache holds a `passed`, `applied`, or
+`skipped` (reason `resume`) record of the same step id ending on that
+head, so a resume that completes the held step on the same head can
+flip. A `limited` step's effect on its own point follows its `on-limit`
+posture.
+
+**Alternatives considered:**
+- Treat `limited` like `skipped` for the status. Rejected because: a
+  review that never ran would then read as passing evidence at the flip.
+- Scope the refusal to the flip attempt's own records. Rejected by the
+  operator at the delta kickoff: it lets the commonest case, a review
+  limited at `post-pr` of the unit's run, flip on the same head.
+
+**Chosen because:** quota-handling REQ-B1.2 refuses the flip on a
+`limited` record, and the status is what the evidence hook trusts; the
+retirement rule keeps that refusal from outliving a resume that
+completed the held step, since quota-handling's resume completes the
+order through the flip.
+
 ## Cross-cutting concerns
 
 - **Instruction budget.** Every skill edit this bundle makes lands with its
@@ -583,3 +964,7 @@ need evidence written by CI, which no seed asks for.
   entry format's unknown-field rule means a config written for a newer
   planwright hard-fails an older install in the repo-tracked layer, so a
   team upgrades the plugin before its config.
+- **Host load (2026-10-06).** A step pool bounds whole checks per user and
+  host; it does not see another user's checks, CI runners, or unrelated
+  load, and the per-file ticket pool keeps bounding test files inside each
+  check.

@@ -240,6 +240,22 @@ by `scripts/run-tests.sh`.
 - **Task 8** waits on the same custom-steps amendment adding the
   `moves-head`, `final-head`, and `drains` step fields and the previous
   and new head context fields landing on main (D-3).
+- **Task 4** waits on a quota-handling delta kickoff folding in the
+  custom-steps amendment as signed on 2026-10-06: Task 4 resumes a unit
+  by naming the interrupted run id and point in the invocation and leaves
+  the same-head skipping to custom-steps (its REQ-J1.1), never
+  re-implementing it; custom-steps Task 14 computes head moves from
+  record end heads and sets the previous and new head context values,
+  which Task 8 consumes rather than records; the signal by which the
+  review-request command reports an `answered` skip, and the runner's
+  mapping of that signal, are this bundle's to define and deliver (owner:
+  Task 9, the review-request task), custom-steps REQ-D1.10 naming only
+  the skip; the Task 2 and Task 8 bullets above clear when custom-steps
+  Tasks 10, 12, 13, and 14 have merged, not when its spec PR merges;
+  REQ-B1.2's "from any point of the run" reads as custom-steps REQ-J1.2
+  now states it (any run in the flipping worktree's record cache, retired
+  by a later same-head pass); and REQ-B1.6's skip rule reads as
+  custom-steps REQ-J1.1's leading prefix of same-head steps.
 
 ## Deferred
 
