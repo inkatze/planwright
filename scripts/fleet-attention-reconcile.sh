@@ -42,7 +42,7 @@
 #
 # Usage: fleet-attention-reconcile.sh [--repo <checkout>]
 #   <checkout> defaults to the caller's own git toplevel (else $PWD); its spec
-#   root holds the bundles the unit rule derives.
+#   root holds the bundles the unit rule derives, so it must be a repository.
 #
 # Output (stdout, tab-separated):
 #   clear   <worker> unit-completed | process-dead | tmux-window-dead
@@ -192,7 +192,11 @@ specs_root=""
 sr_rc=0
 specs_root=$(cd "$repo" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec 2>/dev/null) || sr_rc=$?
 case $sr_rc in
-  0 | 3) ;;
+  0) ;;
+  3)
+    warn "--repo names no repository: its spec units cannot be derived"
+    exit 2
+    ;;
   *)
     specs_root=""
     warn "the spec root did not resolve (resolve-root.sh exit $sr_rc) — no row is cleared on unit completion this pass"

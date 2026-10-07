@@ -24,7 +24,8 @@
 #       handle with two rows is kept and degrades the pass; m3: a clear that
 #       fails keeps the row under its own reason and degrades the pass.
 #   w1: the unit rule derives from --repo even when the caller sits elsewhere
-#       and PLANWRIGHT_REPO_ROOT names another directory.
+#       and PLANWRIGHT_REPO_ROOT names another directory, and a --repo that
+#       is no repository is refused.
 #   r1: a row its worker rewrote between the verdict and the clear survives.
 #   u2: a row with no registry record and an unfinished unit is kept.
 #   a1: an awaiting-input row is kept whatever its unit or worker evidence.
@@ -329,6 +330,9 @@ out=$(cd / && fenv env PLANWRIGHT_REPO_ROOT="$other" /bin/sh "$REC" --repo "$rep
   || fail "w1: reconcile exited non-zero: $(cat "$tmp/err")"
 clean w1
 says w1 clear @145 unit-completed
+n_rc=0
+(cd / && fenv /bin/sh "$REC" --repo "$other" >/dev/null 2>&1) || n_rc=$?
+[ "$n_rc" = 2 ] || fail "w1: a --repo outside any repository exited $n_rc, expected 2"
 echo "ok: w1 the derivation reads the named checkout"
 
 # --- r1: a worker writing between the verdict and the clear -----------------
