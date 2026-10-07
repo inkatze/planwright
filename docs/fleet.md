@@ -501,8 +501,8 @@ attention surface), not as a separate system:
 
 Under `--fleet` the meta step dispatches only through the stream-json and
 headless rungs; a unit whose resolved rung is tmux or the subagent backend
-parks to its spec's `## Awaiting input`, so personas a and b get those
-backends from single-spec towers for now.
+parks to its spec's `## Awaiting input`, so every persona above gets the
+tmux and subagent backends from single-spec towers for now.
 
 Two audit notes behind that table:
 

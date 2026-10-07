@@ -14,8 +14,13 @@
 #     no-op (exit 1): nothing created, nothing launched;
 #   - a freshness-gate halt parks (exit 4) with its own reason, nothing
 #     created and the lock released;
-#   - a failed launch clears the marker (exit 6), except where the rung
-#     reports a live worker for the unit, which keeps it.
+#   - a failed launch clears the marker (exit 6), except where the rung may
+#     hold a worker for the unit, which keeps it;
+#   - an incomplete record report (exit 5) and a signal landing after the
+#     record clear the marker the record stamped;
+#   - only the screened copy of the prompt reaches the worker;
+#   - a lock or fetch refusal, a relocated spec root, or a --repo-root other
+#     than the primary checkout is refused (exit 2) before anything is placed.
 #
 # The worker CLI is a recording fake (PLANWRIGHT_HEADLESS_CLAUDE) on the
 # headless-oneshot rung, and the stream-json rung is a recording stub, so no
@@ -115,9 +120,28 @@ seed() {
   P=$C/primary
   gitc "$P" remote set-url origin "$C/origin.git"
   gitc "$P" fetch -q origin
+  brief "$seed_mode"
+  printf '/planwright:execute-task specs/demo 1\n\nRun notes for the worker.\n' >"$C/prompt"
+  FAKE=$C/fake-claude
+  cat >"$FAKE" <<EOF
+#!/bin/sh
+rec="$C/rec"
+printf '%s\n' "\$PWD" >>"\$rec/cwd"
+printf '%s\n' "\$\$" >"\$rec/claude-pid"
+if [ -d "$P/specs/demo/.orchestrate.lock" ]; then echo held >>"\$rec/lock-at-launch"; else echo free >>"\$rec/lock-at-launch"; fi
+cat >>"\$rec/stdin"
+echo launched >>"\$rec/launches"
+exit 0
+EOF
+  chmod +x "$FAKE"
+}
+
+# brief <entry-mode> — write, commit and push the case's kickoff brief for one
+# entry mode (nobrief removes it), replacing whatever brief the case had.
+brief() {
   {
     printf '# Kickoff brief\n'
-    case $seed_mode in
+    case $1 in
       good) brief_entry meaning '§8 (all findings dispositioned)' "$anchor" 'scripts/spec-anchor.sh specs/demo' ;;
       bareform) brief_entry meaning '§8' "$anchor" 'spec-anchor.sh specs/demo' ;;
       expronly) brief_entry expression-only '' "$anchor" 'scripts/spec-anchor.sh specs/demo' ;;
@@ -148,26 +172,10 @@ seed() {
         ;;
     esac
   } >"$P/specs/demo/kickoff-brief.md"
-  if [ "$seed_mode" != nobrief ]; then
-    gitc "$P" add -A
-    gitc "$P" commit -q -m "brief"
-    gitc "$P" push -q origin main
-  else
-    rm -f "$P/specs/demo/kickoff-brief.md"
-  fi
-  printf '/planwright:execute-task specs/demo 1\n\nRun notes for the worker.\n' >"$C/prompt"
-  FAKE=$C/fake-claude
-  cat >"$FAKE" <<EOF
-#!/bin/sh
-rec="$C/rec"
-printf '%s\n' "\$PWD" >>"\$rec/cwd"
-printf '%s\n' "\$\$" >"\$rec/claude-pid"
-if [ -d "$P/specs/demo/.orchestrate.lock" ]; then echo held >>"\$rec/lock-at-launch"; else echo free >>"\$rec/lock-at-launch"; fi
-cat >>"\$rec/stdin"
-echo launched >>"\$rec/launches"
-exit 0
-EOF
-  chmod +x "$FAKE"
+  [ "$1" != nobrief ] || rm -f "$P/specs/demo/kickoff-brief.md"
+  gitc "$P" add -A
+  gitc "$P" commit -q --allow-empty -m "brief $1"
+  gitc "$P" push -q origin main
 }
 
 # copy_root — a copy of the scripts and config trees under $C/root, so a case
@@ -330,13 +338,16 @@ echo \"\$rc\" >\"$C/rec/tower-during-record\"
 # --- m4: freshness-gate halts park with their own reason ------------------
 m4() {
   begin
+  # Every gate halt creates nothing, so one case serves every mode: each
+  # iteration only re-briefs it.
+  seed m4 || return
   for pair in stale:gate/mismatch none:gate/no-entry unparseable:gate/unparseable-entry \
     nolens:gate/no-lens-pass badcmd:gate/non-sanctioned-command \
     wholefile:gate/pre-change-entry bare:gate/non-sanctioned-writer \
     dup:gate/unparseable-entry fenced:gate/no-lens-pass nobrief:gate/no-brief; do
     mode=${pair%%:*}
     want=${pair#*:}
-    seed "m4-$mode" "$mode" || continue
+    brief "$mode"
     dispatch
     [ "$RC" -eq 4 ] || fail "m4/$mode: expected exit 4 (park), got $RC: $ERR"
     [ "$(halt_reason)" = "$want" ] || fail "m4/$mode: halt '$(halt_reason)', expected '$want'"
@@ -345,7 +356,7 @@ m4() {
     lock_released "m4/$mode"
   done
   # An edit to anchored content, committed and pushed after sign-off.
-  seed m4-edit || return
+  brief good
   printf 'A new requirement.\n' >>"$P/specs/demo/requirements.md"
   gitc "$P" commit -q -am "edit"
   gitc "$P" push -q origin main
@@ -520,12 +531,17 @@ m16() {
 # --- m17: stream-json failures clear or keep the marker by meaning --------
 m17() {
   begin
-  for pair in 1:clear 2:keep 3:keep; do
+  # Exit 2 keeps the marker only with the startup-timeout message; a refusal
+  # before any spawn exits 2 too and launched nothing.
+  for pair in 1:clear:x 2:clear:refused 2:keep:did-not-start 3:keep:x; do
     code=${pair%%:*}
-    want=${pair#*:}
-    seed "m17-$code" || continue
+    rest=${pair#*:}
+    want=${rest%%:*}
+    msg=${rest#*:}
+    [ "$msg" != did-not-start ] || msg='detached supervisor did not start within 5s'
+    seed "m17-$code-$want" || continue
     copy_root
-    stub fleet-streamjson.sh "exit $code"
+    stub fleet-streamjson.sh "echo '$msg' >&2; exit $code"
     RUN_STEP=$STEP_COPY dispatch stream-json-persistent
     [ "$RC" -eq 6 ] || fail "m17/$code: expected exit 6, got $RC"
     if [ "$want" = clear ]; then
@@ -534,7 +550,31 @@ m17() {
       [ -e "$C/markers/1" ] || fail "m17/$code: the marker of a possibly live worker was cleared"
     fi
   done
-  pass "m17: stream-json exit 1 clears the marker; exits 2 and 3 keep it"
+  pass "m17: stream-json keeps the marker only on exit 3 or its startup timeout"
+}
+
+# --- m18: the primary checkout and the default spec root are required -----
+m18() {
+  begin
+  seed m18 || return
+  PLANWRIGHT_REPO_ROOT=$tmp run_step dispatch specs/demo 1 --backend headless-oneshot \
+    --prompt-file "$C/prompt" --repo-root "$P"
+  [ "$RC" -eq 0 ] || fail "m18: an inherited PLANWRIGHT_REPO_ROOT should not override --repo-root, got $RC: $ERR"
+  seed m18-linked || return
+  gitc "$P" worktree add -q --detach "$C/wt2" main
+  run_step dispatch specs/demo 1 --backend headless-oneshot --prompt-file "$C/prompt" --repo-root "$C/wt2"
+  [ "$RC" -eq 2 ] || fail "m18: a linked worktree as --repo-root should be refused, got $RC"
+  printf '%s\n' "$ERR" | grep -q "not the primary checkout" || fail "m18: wrong refusal: $ERR"
+  seed m18-relocated || return
+  mkdir -p "$P/.claude" "$P/docs/specs"
+  printf 'spec_root: docs/specs\n' >"$P/.claude/planwright.local.yml"
+  printf 'project: relocated\nlayout: 1\n' >"$P/docs/specs/planwright-spec-root.yml"
+  cp -R "$P/specs/demo" "$P/docs/specs/demo"
+  run_step dispatch docs/specs/demo 1 --backend headless-oneshot --prompt-file "$C/prompt"
+  [ "$RC" -eq 2 ] || fail "m18: a relocated spec root should be refused, got $RC"
+  printf '%s\n' "$ERR" | grep -q "spec root is relocated" || fail "m18: wrong refusal: $ERR"
+  [ ! -d "$C/fstate" ] || fail "m18: the relocated-root refusal ran the fetch"
+  pass "m18: the step needs the primary checkout and the default root, whatever the environment says"
 }
 
 # --- m9: a unit already in flight is a clean no-op ------------------------
@@ -613,6 +653,7 @@ m14
 m15
 m16
 m17
+m18
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
