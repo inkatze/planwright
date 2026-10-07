@@ -729,6 +729,15 @@ assert_eq "args/zero: exit 2 usage" "$RC" "2"
 run_arm_raw "$r" 01
 assert_eq "args/leading-zero: exit 2 usage" "$RC" "2"
 
+# A missing sanitizer is a broken install, an operational failure (exit 1),
+# never the usage error exit 2 reports.
+mkdir -p "$tmp/no-sanitizer"
+cp "$ARM" "$tmp/no-sanitizer/"
+RC=0
+ERR=$(/bin/bash "$tmp/no-sanitizer/release-arm.sh" 1 2>&1 >/dev/null) || RC=$?
+assert_eq "broken-install: a missing sanitizer exits 1, not usage" "$RC" "1"
+assert_contains "broken-install: the refusal names the missing helper" "$ERR" "echo-safety.sh is missing"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
