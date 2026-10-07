@@ -2273,6 +2273,19 @@ if [ "$(id -u)" -ne 0 ]; then
   probe_from_permission_path "1-0-1"
   assert_exit "and a process this shell may not signal still reads alive" 0 $?
 fi
+# Where the process table hides other users' processes, the error text is the
+# only witness left. Staged by shadowing `ps` and `kill` with functions over a
+# pid absent from /proc: an EPERM still reads alive, and a message whose path
+# names permission but whose tail says no such process still reads dead.
+hidden_table_probe() {
+  run_sh x "ps() { return 1; }
+    kill() { printf '%s\n' \"$perm_dir/probe.sh: 2: kill: $1\" >&2; return 1; }
+    pw_lock_owner_alive \"$gone-0-1\"" >/dev/null 2>&1
+}
+hidden_table_probe "Operation not permitted"
+assert_exit "a hidden process answering EPERM reads alive" 0 $?
+hidden_table_probe "No such process"
+assert_exit "and a hidden table's absent process reads dead whatever its path" 1 $?
 
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."
