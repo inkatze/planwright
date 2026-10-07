@@ -307,23 +307,6 @@ router has not demonstrated (REQ-B1.6).
   this branch, and `main`'s own CI fails the same way. Decide how to clear
   it (fix that fixture on its branch, or record the hit in a gitleaks ignore
   on `main`); then re-run this PR's CI, which has not yet reached its tests.
-- **Task 10** — the second convergence review of the tower posture extension
-  (local branch `planwright/tower-front-door/task-10`, not yet pushed) closed
-  every false-allow it found, but left three items in the security-sensitive
-  command guards and tower profile that need direction.
-  1. Problem: the temp-file removal rebuilds its temp-directory list, with a
-     `getconf` call, for every removal in a command; verdicts are unaffected.
-     Recommended fix: build the list once per hook call.
-  2. Problem: the shared jq screen runs about four times slower than before,
-     in both guards; verdicts are unaffected. Recommended fix: return early
-     when the filter names none of the screened words, and try the words only
-     at a matching first letter.
-  3. Choose how far the tower's MCP deny entries reach: creating a PR that is
-     not a draft, and repository-level writes, are denied on no MCP server
-     today (a gap that predates this task). Options: record it as a residual
-     only; also deny `mcp__*__create_pull_request`, since the tower opens no
-     PR itself; or that plus the repository deletion, ruleset, and workflow
-     trigger tools.
 
 ## Deferred
 
