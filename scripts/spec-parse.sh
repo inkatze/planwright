@@ -714,11 +714,13 @@ spec_parse_parked_map() {
 # entry's own `Class:` value and its `Lens-pass:` text (each empty when the
 # entry has none; tabs folded to spaces), read from the lines between the
 # previous entry's anchor line and this one, so an older entry's class never
-# answers for a newer one. Exit status:
+# answers for a newer one; label lines inside a column-0 fence are examples,
+# not labels. Exit status:
 #   0  the entry on stdout
 #   1  the brief carries no parseable anchor entry at all
 #   2  the most recent entry does not parse — fail closed rather than answer
-#      with the older entry it supersedes
+#      with the older entry it supersedes; with --record, also an entry
+#      carrying two `Class:` or two `Lens-pass:` lines
 #
 # An `Anchor:` line is held PENDING and resolved when the following record
 # arrives, rather than pulled in with `getline`. The distinction matters where
@@ -767,6 +769,7 @@ spec_parse_latest_anchor_entry() {
         best_cmd = cmd
         best_class = pend_class
         best_lens = pend_lens
+        best_dup = pend_dup
         last_ok = 1
       } else {
         last_ok = 0
@@ -781,10 +784,14 @@ spec_parse_latest_anchor_entry() {
     # Order is load-bearing: a pending entry closes against this record BEFORE
     # the record is itself considered as a new entry, so an adjacent pair does
     # both in one pass.
-    pending != "" { resolve(pending, $0); pending = ""; cur_class = ""; cur_lens = "" }
-    /^Class:/ { cur_class = field($0) }
-    /^Lens-pass:/ { cur_lens = field($0) }
-    /^Anchor:/ { pending = $0; pend_class = cur_class; pend_lens = cur_lens }
+    pending != "" { resolve(pending, $0); pending = ""; cur_class = ""; cur_lens = ""; cur_dup = 0 }
+    # Fences hide record labels only, not anchor lines: the anchor walk keeps
+    # the shape the standing freshness guard has always read, while a fenced
+    # format example can no longer stand in for the class of a real entry.
+    /^```/ { in_fence = !in_fence }
+    !in_fence && /^Class:/ { if (cur_class != "") cur_dup = 1; cur_class = field($0) }
+    !in_fence && /^Lens-pass:/ { if (cur_lens != "") cur_dup = 1; cur_lens = field($0) }
+    /^Anchor:/ { pending = $0; pend_class = cur_class; pend_lens = cur_lens; pend_dup = cur_dup }
     END {
       # A brief ending on its anchor line has no following record; the
       # parenthesized layout still carries the command, the canonical one does
@@ -795,6 +802,8 @@ spec_parse_latest_anchor_entry() {
       # Distinct status: the caller tells "no entry at all" from "the newest
       # one is half-written", which are different repairs.
       if (!last_ok) { exit 2 }
+      # Two Class or Lens-pass lines in one entry leave its class undecidable.
+      if (rec && best_dup) { exit 2 }
       if (rec) printf "%s\t%s\t%s\t%s\n", best_hash, best_cmd, best_class, best_lens
       else printf "%s\t%s\n", best_hash, best_cmd
     }
