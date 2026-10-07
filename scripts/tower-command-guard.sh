@@ -1408,7 +1408,11 @@ guard_rm() {
     if [ -e "$a" ]; then
       [ -f "$a" ] || return 1
     fi
-    d=$(cd -P -- "${a%/*}/" 2>/dev/null && pwd -P) || return 1
+    # The sentinel keeps a trailing newline in the directory's name, which a
+    # bare command substitution would strip into a match.
+    d=$(cd -P -- "${a%/*}/" 2>/dev/null && pwd -P && printf x) || return 1
+    d=${d%x}
+    d=${d%"$NL"}
     case $d in
       *"$NL"*) return 1 ;;
     esac

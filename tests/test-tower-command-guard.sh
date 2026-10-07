@@ -419,6 +419,19 @@ $NEXT_TMP"
 }
 assert_defer "an operand whose directory spans the directory list's lines" "rm -f '$SPANNING_DIR/tmp.Ab3dE6gH9j'"
 assert_defer "a symlink to a directory whose canonical path spans the list's lines" "rm -f $SANDBOX/span-link/tmp.Ab3dE6gH9j"
+# A command substitution strips trailing newlines, so a directory named TMPDIR
+# plus a newline would otherwise resolve to exactly TMPDIR.
+TRAILING_NL_DIR="$TOWER_TMP
+"
+{
+  mkdir -p "$TRAILING_NL_DIR" && : >"$TRAILING_NL_DIR/tmp.Ab3dE6gH9j" \
+    && ln -s "$TRAILING_NL_DIR" "$TOWER_TMP/tmp.Tnl0123456" \
+    && [ -f "$TOWER_TMP/tmp.Tnl0123456/tmp.Ab3dE6gH9j" ]
+} || {
+  echo "FAIL: could not build the trailing-newline fixture" >&2
+  exit 1
+}
+assert_defer "a symlink to TMPDIR's name plus a trailing newline" "rm -f $TOWER_TMP/tmp.Tnl0123456/tmp.Ab3dE6gH9j"
 # macOS mktemp writes to the per-user temp directory whatever TMPDIR says, so
 # the file it prints must stay removable when the two differ.
 REAL_TMP_FILE="$(TMPDIR="$TOWER_TMP/" mktemp)" || exit 1
