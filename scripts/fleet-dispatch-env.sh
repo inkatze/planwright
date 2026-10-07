@@ -139,7 +139,7 @@ usage() {
 }
 
 refuse_option() {
-  echo "fleet-dispatch-env.sh: $1; nothing was launched" >&2
+  printf '%s\n' "fleet-dispatch-env.sh: $1; nothing was launched" >&2
   exit 2
 }
 
@@ -287,7 +287,7 @@ planwright_root() {
 warn_unresolved_root() {
   [ "${root_warned:-0}" = 1 ] && return 0
   root_warned=1
-  echo "fleet-dispatch-env.sh: cannot derive the planwright root from $0; the worker's auto-approve hook will not resolve and it will prompt on every command" >&2
+  printf '%s\n' "fleet-dispatch-env.sh: cannot derive the planwright root from $0; the worker's auto-approve hook will not resolve and it will prompt on every command" >&2
 }
 
 # An operator value stands on its own: it must survive even when self-location

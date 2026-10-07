@@ -91,6 +91,10 @@ anchor_sh="$here/spec-anchor.sh"
 lock_sh="$here/orchestrate-lock.sh"
 
 # Canonical echo-discipline sanitizer (doctrine/security-posture.md).
+if [ ! -r "$here/echo-safety.sh" ]; then
+  printf '%s\n' "migrate-format-version.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$here/echo-safety.sh"
 
@@ -116,11 +120,11 @@ fi
 . "$spec_parse_sh" || exit 2
 
 if [ ! -x "$anchor_sh" ]; then
-  echo "migrate-format-version: spec-anchor.sh missing or not executable: $anchor_sh" >&2
+  printf '%s\n' "migrate-format-version: spec-anchor.sh missing or not executable: $anchor_sh" >&2
   exit 2
 fi
 if [ ! -x "$lock_sh" ]; then
-  echo "migrate-format-version: orchestrate-lock.sh missing or not executable: $lock_sh" >&2
+  printf '%s\n' "migrate-format-version: orchestrate-lock.sh missing or not executable: $lock_sh" >&2
   exit 2
 fi
 # The extraction self-check and the anchor both hash via git; failing here
@@ -145,7 +149,7 @@ else
 fi
 while [ "$target" != "${target%/}" ]; do target=${target%/}; done
 if [ ! -d "$target" ]; then
-  echo "migrate-format-version: not a directory: $target" >&2
+  printf '%s\n' "migrate-format-version: not a directory: $target" >&2
   exit 2
 fi
 
@@ -552,17 +556,17 @@ process_bundle_locked() {
         return 0
       fi
       if grep -qF "$entry_marker" "$brief"; then
-        echo "unchanged (already format-version 2): $bname"
+        printf '%s\n' "unchanged (already format-version 2): $bname"
         unchanged=$((unchanged + 1))
       elif append_reanchor "$bdir"; then
-        echo "repaired: $bname (missing re-anchor entry appended)"
+        printf '%s\n' "repaired: $bname (missing re-anchor entry appended)"
         repaired=$((repaired + 1))
       else
         refuse "$bname" "re-anchor completion failed"
         return 0
       fi
     else
-      echo "unchanged (already format-version 2): $bname"
+      printf '%s\n' "unchanged (already format-version 2): $bname"
       unchanged=$((unchanged + 1))
     fi
     return 0
@@ -572,7 +576,7 @@ process_bundle_locked() {
   # rewritten (D-10).
   case $status in
     Done | Retired | Superseded)
-      echo "unchanged (not live): $bname ($status)"
+      printf '%s\n' "unchanged (not live): $bname ($status)"
       unchanged=$((unchanged + 1))
       return 0
       ;;
@@ -784,7 +788,7 @@ EOF
     fi
   fi
 
-  echo "migrated: $bname"
+  printf '%s\n' "migrated: $bname"
   migrated=$((migrated + 1))
   return 0
 }
@@ -935,5 +939,5 @@ else
   done
 fi
 
-echo "migrate-format-version: $migrated migrated, $repaired repaired, $unchanged unchanged, $refused refused"
+printf '%s\n' "migrate-format-version: $migrated migrated, $repaired repaired, $unchanged unchanged, $refused refused"
 [ "$refused" -eq 0 ]

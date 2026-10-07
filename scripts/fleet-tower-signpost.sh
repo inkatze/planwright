@@ -54,8 +54,9 @@ unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 0
 
+[ -r "$script_dir/echo-safety.sh" ] || exit 0
 # shellcheck source=scripts/echo-safety.sh
-. "$script_dir/echo-safety.sh" 2>/dev/null || exit 0
+. "$script_dir/echo-safety.sh"
 
 # Defensive source check: the hooks.json matcher already filters to
 # "startup", but a provided stdin payload naming another source wins. The

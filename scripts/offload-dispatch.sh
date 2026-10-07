@@ -82,12 +82,12 @@ me=offload-dispatch
 # Resolve this script's directory so the sibling echo-safety helper is found
 # regardless of the caller's working directory.
 script_dir=$(cd "$(dirname "$0")" && pwd) || {
-  echo "$me: cannot resolve the script's own directory" >&2
+  printf '%s\n' "$me: cannot resolve the script's own directory" >&2
   exit 2
 }
 echo_safety="$script_dir/echo-safety.sh"
 if [ ! -r "$echo_safety" ]; then
-  echo "$me: required helper $echo_safety missing or not readable" >&2
+  printf '%s\n' "$me: required helper $echo_safety missing or not readable" >&2
   exit 2
 fi
 # shellcheck source=scripts/echo-safety.sh
@@ -99,7 +99,7 @@ fi
 # a healthy install.
 ladder="$script_dir/allocation-ladder.sh"
 if [ ! -r "$ladder" ]; then
-  echo "$me: required helper $ladder missing or not readable" >&2
+  printf '%s\n' "$me: required helper $ladder missing or not readable" >&2
   exit 2
 fi
 # shellcheck source=scripts/allocation-ladder.sh
@@ -134,7 +134,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 usage() {
-  echo "$me: usage: $me <dispatch <backend> <prompt-file> [--unit <id>] | report <backend> <handle>>" >&2
+  printf '%s\n' "$me: usage: $me <dispatch <backend> <prompt-file> [--unit <id>] | report <backend> <handle>>" >&2
 }
 
 # --------------------------------------------------------------------------
@@ -154,7 +154,7 @@ TIER_EFFORT=inherit
 resolve_tier() {
   # $1 backend, $2 unit
   if [ ! -r "$apply_helper" ]; then
-    echo "$me: required helper $apply_helper missing or not readable" >&2
+    printf '%s\n' "$me: required helper $apply_helper missing or not readable" >&2
     exit 2
   fi
   rt_plan=$(/bin/sh "$apply_helper" plan --key offload --backend "$1" --unit "$2")
@@ -173,12 +173,12 @@ resolve_tier() {
     # prevent — while blaming a store that was never touched.
     if [ "$rt_rc" -ne 6 ]; then
       case "$rt_rc" in
-        3) echo "$me: dispatch: the unit is withheld by the admission gate; not dispatching" >&2 ;;
-        *) echo "$me: dispatch: could not resolve a launch tier (allocation-apply exit $rt_rc)" >&2 ;;
+        3) printf '%s\n' "$me: dispatch: the unit is withheld by the admission gate; not dispatching" >&2 ;;
+        *) printf '%s\n' "$me: dispatch: could not resolve a launch tier (allocation-apply exit $rt_rc)" >&2 ;;
       esac
       exit "$rt_rc"
     fi
-    echo "$me: dispatch: the allocation store is unreachable; launching at the ambient model and effort with the tier unrecorded (degraded)" >&2
+    printf '%s\n' "$me: dispatch: the allocation store is unreachable; launching at the ambient model and effort with the tier unrecorded (degraded)" >&2
     TIER_MODEL=inherit
     TIER_EFFORT=inherit
     return 0
@@ -189,7 +189,7 @@ resolve_tier() {
   # version, not a bad argument. Named before the enum check so the diagnostic
   # says the row is absent rather than calling an empty value out-of-enum.
   if [ -z "$TIER_MODEL" ] || [ -z "$TIER_EFFORT" ]; then
-    echo "$me: dispatch: the resolver's plan is missing a model or effort row — broken or outdated install" >&2
+    printf '%s\n' "$me: dispatch: the resolver's plan is missing a model or effort row — broken or outdated install" >&2
     exit 5
   fi
   # Emission-boundary enum check, the same posture as the prompt-file charset
@@ -198,11 +198,11 @@ resolve_tier() {
   # broken install upstream, and it stops here rather than being emitted — on
   # the install exit code, not the usage one this used to borrow.
   if ! od_in_roster "$TIER_MODEL" "$ALLOC_MODELS"; then
-    echo "$me: dispatch: the resolver returned an out-of-enum model — broken or outdated install" >&2
+    printf '%s\n' "$me: dispatch: the resolver returned an out-of-enum model — broken or outdated install" >&2
     exit 5
   fi
   if ! od_in_roster "$TIER_EFFORT" "$ALLOC_EFFORTS"; then
-    echo "$me: dispatch: the resolver returned an out-of-enum effort — broken or outdated install" >&2
+    printf '%s\n' "$me: dispatch: the resolver returned an out-of-enum effort — broken or outdated install" >&2
     exit 5
   fi
 }
@@ -266,7 +266,7 @@ valid_promptfile() {
 }
 
 reject_handle() {
-  echo "$me: refusing invalid $1 handle (validated before use, never interpolated)" >&2
+  printf '%s\n' "$me: refusing invalid $1 handle (validated before use, never interpolated)" >&2
   exit 2
 }
 
@@ -324,7 +324,7 @@ emit_hints() {
       # Defensive: both callers whitelist first, so this arm is unreachable
       # today — it exists so a future backend addition fails loudly rather
       # than silently emitting a report missing its observe/attach lines.
-      echo "$me: internal error: no hint arm for backend '$1'" >&2
+      printf '%s\n' "$me: internal error: no hint arm for backend '$1'" >&2
       exit 2
       ;;
   esac
@@ -336,7 +336,7 @@ cmd_report() {
   case "$backend" in
     tmux | subagent) ;;
     *)
-      echo "$me: report: unknown backend '$(sanitize_printable "$backend" "(unprintable)")'" >&2
+      printf '%s\n' "$me: report: unknown backend '$(sanitize_printable "$backend" "(unprintable)")'" >&2
       exit 2
       ;;
   esac
@@ -369,19 +369,19 @@ cmd_dispatch() {
   case "$backend" in
     tmux | print) ;;
     subagent)
-      echo "$me: dispatch: subagent is harness-native — dispatch via the harness Agent tool, then run: $me report subagent <handle>" >&2
+      printf '%s\n' "$me: dispatch: subagent is harness-native — dispatch via the harness Agent tool, then run: $me report subagent <handle>" >&2
       exit 2
       ;;
     in-session)
-      echo "$me: dispatch: in-session is inline work in the caller's own session — nothing to dispatch" >&2
+      printf '%s\n' "$me: dispatch: in-session is inline work in the caller's own session — nothing to dispatch" >&2
       exit 2
       ;;
     stream-json-persistent | headless-oneshot)
-      echo "$me: dispatch: '$backend' is a session-grade rung /offload does not drive (it dispatches the tmux and print rungs); the session-grade backends are dispatched through /orchestrate's own primitives" >&2
+      printf '%s\n' "$me: dispatch: '$backend' is a session-grade rung /offload does not drive (it dispatches the tmux and print rungs); the session-grade backends are dispatched through /orchestrate's own primitives" >&2
       exit 2
       ;;
     *)
-      echo "$me: dispatch: unknown backend '$(sanitize_printable "$backend" "(unprintable)")'" >&2
+      printf '%s\n' "$me: dispatch: unknown backend '$(sanitize_printable "$backend" "(unprintable)")'" >&2
       exit 2
       ;;
   esac
@@ -393,14 +393,14 @@ cmd_dispatch() {
     /*) : ;;
     *)
       pf_dir=$(cd -- "$(dirname -- "$promptfile")" 2>/dev/null && pwd) || {
-        echo "$me: dispatch: cannot resolve the prompt file's directory: '$(sanitize_printable "$promptfile" "(unprintable)")'" >&2
+        printf '%s\n' "$me: dispatch: cannot resolve the prompt file's directory: '$(sanitize_printable "$promptfile" "(unprintable)")'" >&2
         exit 2
       }
       promptfile="$pf_dir/$(basename -- "$promptfile")"
       ;;
   esac
   if ! valid_promptfile "$promptfile"; then
-    echo "$me: dispatch: prompt file missing, empty, unreadable, or unsafe: '$(sanitize_printable "$promptfile" "(unprintable)")'" >&2
+    printf '%s\n' "$me: dispatch: prompt file missing, empty, unreadable, or unsafe: '$(sanitize_printable "$promptfile" "(unprintable)")'" >&2
     exit 2
   fi
 
@@ -442,11 +442,11 @@ cmd_dispatch() {
   # successful spawn with stderr chatter into a false failure report over a
   # live, unreported worker.
   cwd=$(pwd) || {
-    echo "$me: dispatch: cannot resolve the current directory" >&2
+    printf '%s\n' "$me: dispatch: cannot resolve the current directory" >&2
     exit 2
   }
   tmux_err=$(mktemp "${TMPDIR:-/tmp}/offload-dispatch-err.XXXXXX") || {
-    echo "$me: dispatch: cannot create the stderr capture file" >&2
+    printf '%s\n' "$me: dispatch: cannot create the stderr capture file" >&2
     exit 2
   }
   # A resolved tier reaches the worker as DISCRETE argv elements appended after
@@ -471,14 +471,14 @@ cmd_dispatch() {
     printf 'status\tfailed\n'
     printf 'backend\ttmux\n'
     printf 'reason\ttmux new-window exited %s: %s\n' "$rc" "$(sanitize_printable "$err_text" "(unprintable)")"
-    echo "$me: dispatch failed: tmux new-window exited $rc" >&2
+    printf '%s\n' "$me: dispatch failed: tmux new-window exited $rc" >&2
     exit 1
   fi
   if ! valid_handle tmux "$handle"; then
     printf 'status\tfailed\n'
     printf 'backend\ttmux\n'
     printf 'reason\ttmux returned an unusable window id\n'
-    echo "$me: dispatch failed: tmux returned an unusable window id: '$(sanitize_printable "$handle" "(unprintable)")'" >&2
+    printf '%s\n' "$me: dispatch failed: tmux returned an unusable window id: '$(sanitize_printable "$handle" "(unprintable)")'" >&2
     exit 1
   fi
   # The death handle needs the window's SESSION as well as its id, asked of the
@@ -549,12 +549,12 @@ case "$sub" in
     if [ -n "$d_unit" ]; then
       case $d_unit in
         *[!A-Za-z0-9._=@:-]*)
-          echo "$me: dispatch: refusing malformed --unit '$(sanitize_printable "$d_unit" "(unprintable)")'" >&2
+          printf '%s\n' "$me: dispatch: refusing malformed --unit '$(sanitize_printable "$d_unit" "(unprintable)")'" >&2
           exit 2
           ;;
       esac
       if [ "${#d_unit}" -gt 128 ]; then
-        echo "$me: dispatch: --unit exceeds 128 bytes" >&2
+        printf '%s\n' "$me: dispatch: --unit exceeds 128 bytes" >&2
         exit 2
       fi
     fi

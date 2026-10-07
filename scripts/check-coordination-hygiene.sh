@@ -66,6 +66,10 @@ unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
+if [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "check-coordination-hygiene.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
@@ -300,7 +304,7 @@ if [ "$npaths" -gt 0 ]; then
 else
   [ "$repo_set" -eq 1 ] || repo=.
   if ! git -C "$repo" rev-parse --show-toplevel >/dev/null 2>&1; then
-    echo "check-coordination-hygiene: $repo is not a git work tree" >&2
+    printf '%s\n' "check-coordination-hygiene: $repo is not a git work tree" >&2
     exit 2
   fi
   # Prefilter on the two literal tags before the per-file shape check, so the
@@ -326,7 +330,7 @@ else
   candidates=$(git -C "$repo" grep -I -l -F \
     -e 'pw-presence-v1' -e 'refs/planwright-fence/' -- 2>"$cand_err") || cand_rc=$?
   if [ "$cand_rc" -gt 1 ]; then
-    echo "check-coordination-hygiene: could not scan the tracked tree of $repo" >&2
+    printf '%s\n' "check-coordination-hygiene: could not scan the tracked tree of $repo" >&2
     exit 2
   fi
   if [ -s "$cand_err" ]; then

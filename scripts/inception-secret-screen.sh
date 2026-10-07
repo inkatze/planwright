@@ -52,6 +52,10 @@ self="$script_dir/$(basename "$0")"
 # sequence would otherwise drive the terminal of whoever ran the commit, which
 # is a poor trade for a guard whose whole point is that hostile content in a
 # repo does not get to act on the person reading the output.
+if [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "inception-secret-screen.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 

@@ -97,7 +97,7 @@ case "$TLH_CONFIRM_CAP_SECONDS$TLH_LAUNCH_BOUND_SECONDS" in
     ;;
 esac
 if [ "$TLH_LAUNCH_BOUND_SECONDS" -le "$TLH_CONFIRM_CAP_SECONDS" ]; then
-  echo "FAIL: tmux-launch-harness: the launch bound (${TLH_LAUNCH_BOUND_SECONDS}s) must exceed the confirm cap (${TLH_CONFIRM_CAP_SECONDS}s)" >&2
+  printf '%s\n' "FAIL: tmux-launch-harness: the launch bound (${TLH_LAUNCH_BOUND_SECONDS}s) must exceed the confirm cap (${TLH_CONFIRM_CAP_SECONDS}s)" >&2
   exit 1
 fi
 
@@ -142,7 +142,7 @@ tlh_reap() {
     left=$(tlh_stub_pids_alive)
   done
   [ -z "$left" ] && return 0
-  echo "tlh_reap: stub-started process(es) still running: $(printf '%s\n' "$left" | tr '\n' ' ')" >&2
+  printf '%s\n' "tlh_reap: stub-started process(es) still running: $(printf '%s\n' "$left" | tr '\n' ' ')" >&2
   return 1
 }
 
@@ -158,7 +158,7 @@ tlh_teardown() {
   [ "${TLH_REAP:-1}" = 1 ] && tlh_reap
   left=$(tlh_stub_pids_alive)
   if [ -n "$left" ]; then
-    echo "FAIL: leaked stub process(es) still running after the suite: $(printf '%s\n' "$left" | tr '\n' ' ')" >&2
+    printf '%s\n' "FAIL: leaked stub process(es) still running after the suite: $(printf '%s\n' "$left" | tr '\n' ' ')" >&2
     rc=1
   fi
   [ -n "$_tlh_base" ] && rm -rf "$_tlh_base"
@@ -166,7 +166,7 @@ tlh_teardown() {
 }
 
 _tlh_setup_fail() {
-  echo "FAIL: tmux-launch-harness: $1" >&2
+  printf '%s\n' "FAIL: tmux-launch-harness: $1" >&2
   exit 1
 }
 

@@ -109,6 +109,10 @@ LC_ALL=C
 export LC_ALL
 
 SCRIPTS=$(cd "$(dirname "$0")" && pwd) || exit 2
+if [ ! -r "$SCRIPTS/echo-safety.sh" ]; then
+  printf '%s\n' "ready-flip.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$SCRIPTS/echo-safety.sh"
 # shellcheck source=scripts/spec-parse.sh

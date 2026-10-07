@@ -148,7 +148,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
 for dep in echo-safety.sh allocation-ladder.sh; do
   if [ ! -r "$script_dir/$dep" ]; then
-    echo "allocation-feedback: sibling helper '$script_dir/$dep' is missing or not readable — broken install" >&2
+    printf '%s\n' "allocation-feedback: sibling helper '$script_dir/$dep' is missing or not readable — broken install" >&2
     exit 5
   fi
 done
@@ -175,7 +175,7 @@ usage() {
 
 require_exec() {
   if [ ! -x "$1" ]; then
-    echo "allocation-feedback: $2 '$1' is missing or not executable — broken install" >&2
+    printf '%s\n' "allocation-feedback: $2 '$1' is missing or not executable — broken install" >&2
     exit 5
   fi
 }

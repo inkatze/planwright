@@ -285,7 +285,13 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
 # The canonical echo-discipline sanitizer (doctrine/security-posture.md),
 # sourced as the sibling fleet scripts do; a missing helper is a broken
-# install.
+# install. In hook mode it still exits 0: a Stop hook exiting 2 would block the
+# worker's own stop (the hook exit discipline above).
+if [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "fleet-liveness.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  [ "${1:-}" = hook ] && exit 0
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
@@ -361,7 +367,7 @@ now_epoch() {
 # the fleet-daemon-gate discipline), never a raw shell 126/127.
 knob() {
   if [ ! -x "$RCK" ]; then
-    echo "fleet-liveness: knob resolver '$RCK' is missing or not executable (broken install)" >&2
+    printf '%s\n' "fleet-liveness: knob resolver '$RCK' is missing or not executable (broken install)" >&2
     return 5
   fi
   k_v=$("$RCK" --key "$1" --type posint --fallback "$2") || return $?
@@ -395,7 +401,7 @@ acquire_lock() {
         ;;
       1) ;; # a live holder has it — retry
       *)
-        echo "fleet-liveness: cannot acquire the fleet lock (fleet-state exit $al_rc)" >&2
+        printf '%s\n' "fleet-liveness: cannot acquire the fleet lock (fleet-state exit $al_rc)" >&2
         return 2
         ;;
     esac
@@ -1167,7 +1173,7 @@ oracle_probe() {
   if ! oracle_fetch "$op_out"; then
     op_diag=$(tail -n 1 "$op_out.err" 2>/dev/null) || op_diag=""
     [ -z "$op_diag" ] \
-      || echo "fleet-liveness: oracle probe diagnostic: $(sanitize_printable "$op_diag" "(unprintable diagnostic)")" >&2
+      || printf '%s\n' "fleet-liveness: oracle probe diagnostic: $(sanitize_printable "$op_diag" "(unprintable diagnostic)")" >&2
     oracle_cleanup
     return 1
   fi
@@ -1179,7 +1185,7 @@ oracle_probe() {
   op_best=$(head -c 262144 "$op_out" | oracle_scan) || {
     op_diag=$(tail -n 1 "$op_out.err" 2>/dev/null) || op_diag=""
     [ -z "$op_diag" ] \
-      || echo "fleet-liveness: oracle probe diagnostic: $(sanitize_printable "$op_diag" "(unprintable diagnostic)")" >&2
+      || printf '%s\n' "fleet-liveness: oracle probe diagnostic: $(sanitize_printable "$op_diag" "(unprintable diagnostic)")" >&2
     oracle_cleanup
     return 1
   }
@@ -1219,7 +1225,7 @@ case "$cmd" in
       *)
         # A malformed invocation (unknown event, wrong arg count above) is a
         # hooks.json wiring bug, not a runtime state: the hook-path exit 2.
-        echo "fleet-liveness: unknown hook event '$(sanitize_printable "$event" "(unprintable event)")'" >&2
+        printf '%s\n' "fleet-liveness: unknown hook event '$(sanitize_printable "$event" "(unprintable event)")'" >&2
         exit 2
         ;;
     esac
@@ -1437,7 +1443,7 @@ case "$cmd" in
         if marker_live_permission "$root" "$handle"; then
           rm -f "$marker" "$await_marker" 2>/dev/null || true
           "$FA" heartbeat "$handle" "$scope" "$target" >/dev/null 2>&1 \
-            || echo "fleet-liveness: state push ($target) failed; reconcile self-heals (D-1)" >&2
+            || printf '%s\n' "fleet-liveness: state push ($target) failed; reconcile self-heals (D-1)" >&2
         elif marker_live_awaiting "$root" "$handle"; then
           # A LIVE fork-park meeting a terminal push (fleet-hardening Task 2,
           # D-2 / NS-4). The event decides whether the parked worker is gone or
@@ -1463,7 +1469,7 @@ case "$cmd" in
               # await_marker.
               [ -e "$marker" ] && rm -f "$marker" 2>/dev/null
               "$FA" heartbeat "$handle" "$scope" "$target" --unless-awaiting >/dev/null 2>&1 \
-                || echo "fleet-liveness: state push ($target) failed; reconcile self-heals (D-1)" >&2
+                || printf '%s\n' "fleet-liveness: state push ($target) failed; reconcile self-heals (D-1)" >&2
               ;;
             *)
               # session-end (the session terminated) / stop-failure (the turn
@@ -1474,14 +1480,14 @@ case "$cmd" in
               # live permission marker does.
               rm -f "$marker" "$await_marker" 2>/dev/null || true
               "$FA" heartbeat "$handle" "$scope" "$target" >/dev/null 2>&1 \
-                || echo "fleet-liveness: state push ($target) failed; reconcile self-heals (D-1)" >&2
+                || printf '%s\n' "fleet-liveness: state push ($target) failed; reconcile self-heals (D-1)" >&2
               ;;
           esac
         else
           [ -e "$marker" ] && rm -f "$marker" 2>/dev/null
           [ -e "$await_marker" ] && rm -f "$await_marker" 2>/dev/null
           "$FA" heartbeat "$handle" "$scope" "$target" --unless-awaiting >/dev/null 2>&1 \
-            || echo "fleet-liveness: state push ($target) failed; reconcile self-heals (D-1)" >&2
+            || printf '%s\n' "fleet-liveness: state push ($target) failed; reconcile self-heals (D-1)" >&2
         fi
         exit 0
         ;;
@@ -1523,7 +1529,7 @@ case "$cmd" in
       # lost its exec bit — a broken install, self-identified so a packaging
       # error is not misread as a bad backend name. Fail-closed exit 2 (the
       # callers' unknown-mechanism arm; pane-detect maps it to a hard stop).
-      echo "fleet-liveness: broken install — capability accessor missing or not executable: $caps_helper" >&2
+      printf '%s\n' "fleet-liveness: broken install — capability accessor missing or not executable: $caps_helper" >&2
       exit 2
     fi
     # The accessor's stderr flows through: a malformed adapter's advertise
@@ -1539,7 +1545,7 @@ case "$cmd" in
       if [ "$#" -ne 9 ]; then
         # A caps answer with the wrong arity means a version-skewed accessor
         # (e.g. a stale pre-extension sibling), not an unknown backend.
-        echo "fleet-liveness: capability accessor answered $# field(s), expected 9 — version-skewed install at $caps_helper" >&2
+        printf '%s\n' "fleet-liveness: capability accessor answered $# field(s), expected 9 — version-skewed install at $caps_helper" >&2
         exit 2
       fi
       hook_reg=${8-}
@@ -1565,16 +1571,16 @@ case "$cmd" in
         # version-skew arms above self-identify the same way).
         case "$caps_rc" in
           1 | 2)
-            echo "fleet-liveness: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (not resolvable via the capability contract; accessor exit $caps_rc)" >&2
+            printf '%s\n' "fleet-liveness: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (not resolvable via the capability contract; accessor exit $caps_rc)" >&2
             ;;
           0)
             # Unreachable through a grammar-validated caps answer (field 8 is
             # true/false at the source); kept distinct so a future validation
             # gap self-identifies instead of reading as a crash.
-            echo "fleet-liveness: capability accessor answered an invalid hook_registration value for backend '$(sanitize_printable "$backend" "(unprintable backend)")' — version-skewed or corrupted install at $caps_helper" >&2
+            printf '%s\n' "fleet-liveness: capability accessor answered an invalid hook_registration value for backend '$(sanitize_printable "$backend" "(unprintable backend)")' — version-skewed or corrupted install at $caps_helper" >&2
             ;;
           *)
-            echo "fleet-liveness: capability accessor failed (exit $caps_rc) resolving backend '$(sanitize_printable "$backend" "(unprintable backend)")' — broken install at $caps_helper, not a backend-name problem" >&2
+            printf '%s\n' "fleet-liveness: capability accessor failed (exit $caps_rc) resolving backend '$(sanitize_printable "$backend" "(unprintable backend)")' — broken install at $caps_helper, not a backend-name problem" >&2
             ;;
         esac
         exit 2
@@ -1627,7 +1633,7 @@ case "$cmd" in
           shift
           ;;
         *)
-          echo "fleet-liveness: unknown oracle option '$(sanitize_printable "$1" "(unprintable option)")'" >&2
+          printf '%s\n' "fleet-liveness: unknown oracle option '$(sanitize_printable "$1" "(unprintable option)")'" >&2
           exit 2
           ;;
       esac
@@ -1671,11 +1677,11 @@ case "$cmd" in
     scope=$2
     shift 2
     if ! valid_field "$worker"; then
-      echo "fleet-liveness: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
+      printf '%s\n' "fleet-liveness: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
       exit 2
     fi
     if ! valid_field "$scope"; then
-      echo "fleet-liveness: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
+      printf '%s\n' "fleet-liveness: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
       exit 2
     fi
     now=""
@@ -1768,13 +1774,13 @@ case "$cmd" in
               shift 4
               ;;
             *)
-              echo "fleet-liveness: unknown evidence class '$(sanitize_printable "$ev_class" "(unprintable class)")' (process|tmux-window)" >&2
+              printf '%s\n' "fleet-liveness: unknown evidence class '$(sanitize_printable "$ev_class" "(unprintable class)")' (process|tmux-window)" >&2
               exit 2
               ;;
           esac
           ;;
         *)
-          echo "fleet-liveness: unknown classify option '$(sanitize_printable "$1" "(unprintable option)")'" >&2
+          printf '%s\n' "fleet-liveness: unknown classify option '$(sanitize_printable "$1" "(unprintable option)")'" >&2
           exit 2
           ;;
       esac
@@ -1873,7 +1879,7 @@ case "$cmd" in
     obs_dir="$root/liveness/observations"
     obs="$obs_dir/$worker.tsv"
     if ! mkdir -p "$obs_dir" 2>/dev/null; then
-      echo "fleet-liveness: cannot create the observations dir $obs_dir" >&2
+      printf '%s\n' "fleet-liveness: cannot create the observations dir $obs_dir" >&2
       exit 2
     fi
     obs_last=""
@@ -1883,7 +1889,7 @@ case "$cmd" in
     obs_row=$(printf '%s\t%s\t%s' "$now" "$progress" "$obs_state")
     if [ "$obs_last" != "$obs_row" ]; then
       obs_tmp=$(mktemp "$obs_dir/.obs.XXXXXX") || {
-        echo "fleet-liveness: cannot create a temp file under $obs_dir" >&2
+        printf '%s\n' "fleet-liveness: cannot create a temp file under $obs_dir" >&2
         exit 2
       }
       # The history window must hold at least fleet_flailing_threshold rows or
@@ -1971,7 +1977,7 @@ case "$cmd" in
               cls=working
               ;;
             *)
-              echo "fleet-liveness: the death-evidence predicate refused the evidence handle (exit $ev_rc)" >&2
+              printf '%s\n' "fleet-liveness: the death-evidence predicate refused the evidence handle (exit $ev_rc)" >&2
               exit 2
               ;;
           esac
@@ -2041,11 +2047,11 @@ case "$cmd" in
     scope=$2
     shift 2
     if ! valid_field "$worker"; then
-      echo "fleet-liveness: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
+      printf '%s\n' "fleet-liveness: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
       exit 2
     fi
     if ! valid_field "$scope"; then
-      echo "fleet-liveness: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
+      printf '%s\n' "fleet-liveness: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
       exit 2
     fi
     now=""
@@ -2061,7 +2067,7 @@ case "$cmd" in
           ;;
         --alloc-unit | --alloc-key | --obs-scope | --obs-dir)
           if [ "$#" -lt 2 ] || [ -z "$2" ]; then
-            echo "fleet-liveness: $1 needs a non-empty value" >&2
+            printf '%s\n' "fleet-liveness: $1 needs a non-empty value" >&2
             exit 2
           fi
           case "$1" in
@@ -2073,7 +2079,7 @@ case "$cmd" in
           shift 2
           ;;
         *)
-          echo "fleet-liveness: unknown crash-record option '$(sanitize_printable "$1" "(unprintable option)")'" >&2
+          printf '%s\n' "fleet-liveness: unknown crash-record option '$(sanitize_printable "$1" "(unprintable option)")'" >&2
           exit 2
           ;;
       esac
@@ -2144,7 +2150,7 @@ case "$cmd" in
     root=$("$FS" root) || exit 2
     crash_dir="$root/liveness/crash"
     if ! mkdir -p "$crash_dir" 2>/dev/null; then
-      echo "fleet-liveness: cannot create the crash dir $crash_dir" >&2
+      printf '%s\n' "fleet-liveness: cannot create the crash dir $crash_dir" >&2
       exit 2
     fi
     # The read-modify-write runs under the fleet lock (risk rows 6/8): two
@@ -2225,7 +2231,7 @@ case "$cmd" in
     worker=$1
     shift
     if ! valid_field "$worker"; then
-      echo "fleet-liveness: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
+      printf '%s\n' "fleet-liveness: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
       exit 2
     fi
     now=""
@@ -2240,7 +2246,7 @@ case "$cmd" in
           shift 2
           ;;
         *)
-          echo "fleet-liveness: unknown crash-check option '$(sanitize_printable "$1" "(unprintable option)")'" >&2
+          printf '%s\n' "fleet-liveness: unknown crash-check option '$(sanitize_printable "$1" "(unprintable option)")'" >&2
           exit 2
           ;;
       esac
@@ -2286,7 +2292,7 @@ case "$cmd" in
     # A missing/non-executable gate is the broken-install case (exit 5, the
     # knob-resolver discipline), never a raw shell 126/127.
     if [ ! -x "$FDG" ]; then
-      echo "fleet-liveness: daemon gate '$FDG' is missing or not executable (broken install)" >&2
+      printf '%s\n' "fleet-liveness: daemon gate '$FDG' is missing or not executable (broken install)" >&2
       exit 5
     fi
     gate_rc=0
@@ -2316,7 +2322,7 @@ case "$cmd" in
     fi
     worker=$1
     if ! valid_field "$worker"; then
-      echo "fleet-liveness: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
+      printf '%s\n' "fleet-liveness: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
       exit 2
     fi
     root=$("$FS" root) || exit 2
@@ -2343,7 +2349,7 @@ case "$cmd" in
     fi
     worker=$1
     if ! valid_field "$worker"; then
-      echo "fleet-liveness: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
+      printf '%s\n' "fleet-liveness: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
       exit 2
     fi
     root=$("$FS" root) || exit 2
@@ -2353,7 +2359,7 @@ case "$cmd" in
     ;;
 
   *)
-    echo "fleet-liveness: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (hook|push-capable|oracle|classify|crash-record|crash-check|crash-reset|crash-count)" >&2
+    printf '%s\n' "fleet-liveness: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (hook|push-capable|oracle|classify|crash-record|crash-check|crash-reset|crash-count)" >&2
     exit 2
     ;;
 esac

@@ -54,13 +54,11 @@ stricter bar than the code they help review:
 - **Echo discipline.** Untrusted content (spec-file values, branch names,
   parsed identifiers) is stripped of non-printable bytes and printed with
   `printf`, never `echo`: the sanitizer keeps backslashes, and dash's `echo`
-  expands those back into a live ESC. `check:echo-safety` catches most, not
-  all. The canonical sanitizer is `scripts/echo-safety.sh`
-  (`sanitize_printable`), sourced by the migrated
-  command-tier callers (`spec-validate.sh`, `spec-walkthrough.sh`);
-  `spec-assemble.sh` (deliberately self-contained) and `spec-scope.sh` (a
-  tracked follow-up) keep inline copies. The awk `gsub(/[^[:print:]]/, "")`
-  header parsers are its in-awk form.
+  expands those back into a live ESC. `check:echo-discipline` refuses any
+  `echo` expansion lacking a `# trusted:` reason. The canonical sanitizer is
+  `scripts/echo-safety.sh` (`sanitize_printable`), sourced behind a
+  readability test; libraries that cannot locate it copy its byte range. The
+  awk `gsub(/[^[:print:]]/, "")` header parsers are its in-awk form.
 - **Stay auditable.** Scripts are plain portable shell, small enough to
   read before trusting, and gated by planwright's self-hosting quality
   guards (shell lint and secret scan, per the dogfooding decision D-32).

@@ -193,7 +193,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
 for dep in echo-safety.sh allocation-ladder.sh; do
   if [ ! -r "$script_dir/$dep" ]; then
-    echo "allocation-adapt: sibling helper '$script_dir/$dep' is missing or not readable — broken install" >&2
+    printf '%s\n' "allocation-adapt: sibling helper '$script_dir/$dep' is missing or not readable — broken install" >&2
     exit 5
   fi
 done
@@ -220,7 +220,7 @@ usage() {
 
 require_exec() {
   if [ ! -x "$1" ]; then
-    echo "allocation-adapt: $2 '$1' is missing or not executable — broken install" >&2
+    printf '%s\n' "allocation-adapt: $2 '$1' is missing or not executable — broken install" >&2
     exit 5
   fi
 }
@@ -288,7 +288,7 @@ resolve_caps() {
   CAP_HAIKU=$(resolve_posint fleet_cap_haiku 100) || exit $?
   for rc_v in "$CAP_FABLE" "$CAP_OPUS" "$CAP_SONNET" "$CAP_HAIKU"; do
     if [ "$rc_v" -lt 1 ] || [ "$rc_v" -gt 100 ]; then
-      echo "allocation-adapt: a per-tier cap ($rc_v) is outside 1-100 — refusing an out-of-range cap" >&2
+      printf '%s\n' "allocation-adapt: a per-tier cap ($rc_v) is outside 1-100 — refusing an out-of-range cap" >&2
       exit 4
     fi
   done
@@ -416,7 +416,7 @@ flush_mirror() {
     # per-unit ledger row, already committed. Losing a dashboard row must not
     # turn a resolved launch into a failed one.
     "$AUDIT" record "$MECHANISM" "$fm_action" "unit-$UNIT" "$fm_why" >/dev/null 2>&1 \
-      || echo "allocation-adapt: could not mirror the '$fm_action' governance row into the shared trail" >&2
+      || printf '%s\n' "allocation-adapt: could not mirror the '$fm_action' governance row into the shared trail" >&2
     IFS='
 '
   done
@@ -888,7 +888,7 @@ cmd_resolve() {
     STEP_EFFORT=${st_row#*"$TAB"}
     alloc_valid_tier "$STEP_MODEL" "$STEP_EFFORT" 2>/dev/null \
       || [ "$STEP_MODEL" = inherit ] || [ "$STEP_EFFORT" = inherit ] || {
-      echo "allocation-adapt: selection resolver returned an unusable step tier for step type '$(sanitize_printable "$STEP_TYPE" "(unprintable step type)")'" >&2
+      printf '%s\n' "allocation-adapt: selection resolver returned an unusable step tier for step type '$(sanitize_printable "$STEP_TYPE" "(unprintable step type)")'" >&2
       exit 5
     }
   fi

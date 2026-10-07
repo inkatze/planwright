@@ -101,6 +101,10 @@ unset CDPATH
 # bytes before it reaches a diagnostic, so an embedded escape sequence cannot
 # drive the operator's terminal (doctrine/security-posture.md, "Echo
 # discipline"). Sourced like the other framework callers (spec-validate.sh).
+if [ ! -r "$(dirname "$0")/echo-safety.sh" ]; then
+  printf '%s\n' "orchestrate-backends.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$(dirname "$0")/echo-safety.sh"
 
@@ -303,7 +307,7 @@ EOF
         ;;
     esac
   fi
-  echo "$f_i $f_o $f_s $f_a $f_p $f_g $f_ov $f_hr $f_tc"
+  printf '%s\n' "$f_i $f_o $f_s $f_a $f_p $f_g $f_ov $f_hr $f_tc"
 }
 
 # Echo the advertised set of a backend IF it is present, else return 1. Handles
@@ -364,7 +368,7 @@ cmd_detect() {
     esac
     seen="$seen$p "
     if ! caps=$(adapter_caps "$p"); then
-      echo "orchestrate-backends: no usable adapter (absent, crashed, or malformed) for pluggable backend: $p" >&2
+      printf '%s\n' "orchestrate-backends: no usable adapter (absent, crashed, or malformed) for pluggable backend: $p" >&2
       continue
     fi
     emit_row "$p" "$caps"
@@ -419,7 +423,7 @@ cmd_select_unattended() {
     done
     for rung in subagent in-session; do
       if is_present "$rung"; then
-        echo "NOTE: 'full-session' found no eligible session-grade rung (its candidates are the pinned shipped ladder; tmux only when the tmux-context ask admits it, pluggables only as an explicit literal); degraded to '$rung' (capability, never safety)." >&2
+        printf '%s\n' "NOTE: 'full-session' found no eligible session-grade rung (its candidates are the pinned shipped ladder; tmux only when the tmux-context ask admits it, pluggables only as an explicit literal); degraded to '$rung' (capability, never safety)." >&2
         printf '%s\n' "$rung"
         return 0
       fi
@@ -610,7 +614,7 @@ cmd_caps() {
     return 2
   fi
   if ! cp_caps=$(adapter_caps "$cp_b"); then
-    echo "orchestrate-backends: no usable adapter (absent, crashed, or malformed) for pluggable backend: $cp_b" >&2
+    printf '%s\n' "orchestrate-backends: no usable adapter (absent, crashed, or malformed) for pluggable backend: $cp_b" >&2
     return 1
   fi
   printf '%s\n' "$cp_caps"

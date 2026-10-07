@@ -85,6 +85,10 @@ unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
+if [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "fleet-credit-continuation.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
@@ -165,7 +169,7 @@ case "$cmd" in
     # gate helper is a broken install (exit 5), matching the sibling scripts'
     # posture rather than an undocumented 127.
     if [ ! -x "$GATE" ]; then
-      echo "fleet-credit-continuation: daemon gate '$GATE' is missing or not executable — broken install" >&2
+      printf '%s\n' "fleet-credit-continuation: daemon gate '$GATE' is missing or not executable — broken install" >&2
       exit 5
     fi
     "$GATE" "$MECHANISM"
@@ -180,14 +184,14 @@ case "$cmd" in
     # (exit 4), a broken install exit 5 — both propagate (never spend under
     # unknown configuration).
     if [ ! -x "$RESOLVER" ]; then
-      echo "fleet-credit-continuation: knob resolver '$RESOLVER' is missing or not executable — broken install" >&2
+      printf '%s\n' "fleet-credit-continuation: knob resolver '$RESOLVER' is missing or not executable — broken install" >&2
       exit 5
     fi
     spend=""
     rc=0
     spend=$("$RESOLVER" --key fleet_credit_continuation_spend --type enum --values 'true false' --fallback false) || rc=$?
     if [ "$rc" -ne 0 ]; then
-      echo "fleet-credit-continuation: could not resolve fleet_credit_continuation_spend (exit $rc) — declining to spend under unknown configuration (fail closed)" >&2
+      printf '%s\n' "fleet-credit-continuation: could not resolve fleet_credit_continuation_spend (exit $rc) — declining to spend under unknown configuration (fail closed)" >&2
       exit "$rc"
     fi
 
@@ -203,11 +207,11 @@ case "$cmd" in
     # never swallowed — an unrecorded spend/decline decision is exactly what
     # the trail exists to prevent.
     if [ ! -x "$AUDIT" ]; then
-      echo "fleet-credit-continuation: audit helper '$AUDIT' is missing or not executable — broken install" >&2
+      printf '%s\n' "fleet-credit-continuation: audit helper '$AUDIT' is missing or not executable — broken install" >&2
       exit 5
     fi
     "$AUDIT" record "$MECHANISM" "$action" "$excerpt" "$reasoning" || {
-      echo "fleet-credit-continuation: the audit trail refused the $action record — surfacing, not swallowing" >&2
+      printf '%s\n' "fleet-credit-continuation: the audit trail refused the $action record — surfacing, not swallowing" >&2
       exit 2
     }
 

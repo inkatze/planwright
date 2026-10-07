@@ -92,11 +92,12 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || {
   exit 5
 }
 
-# shellcheck source=scripts/echo-safety.sh
-. "$script_dir/echo-safety.sh" || {
+if [ ! -r "$script_dir/echo-safety.sh" ]; then
   printf '%s\n' "$me: missing sibling helper: echo-safety.sh" >&2
   exit 5
-}
+fi
+# shellcheck source=scripts/echo-safety.sh
+. "$script_dir/echo-safety.sh"
 
 ADAPT="$script_dir/allocation-adapt.sh"
 LEDGER="$script_dir/allocation-ledger.sh"

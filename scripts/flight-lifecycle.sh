@@ -92,6 +92,10 @@ TAB=$(printf '\t')
 
 script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 
+if [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "flight-lifecycle.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 # shellcheck source=scripts/flight-common.sh

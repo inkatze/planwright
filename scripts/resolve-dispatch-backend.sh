@@ -86,6 +86,10 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
 # Echo discipline (doctrine/security-posture.md): refused tokens and config
 # values are stripped of control bytes before any diagnostic.
+if [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "resolve-dispatch-backend.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 5
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
@@ -368,7 +372,7 @@ malformed_by_layer() {
 
 for helper in "$config_get" "$backends"; do
   if [ ! -x "$helper" ]; then
-    echo "resolve-dispatch-backend: helper '$helper' is missing or not executable — broken install" >&2
+    printf '%s\n' "resolve-dispatch-backend: helper '$helper' is missing or not executable — broken install" >&2
     exit 5
   fi
 done
@@ -499,7 +503,7 @@ case "$rc" in
           # global value governs. Any other non-zero is a broken install and
           # must surface, exactly as the global-knob degrade path does below
           # (never silently swallowed).
-          echo "resolve-dispatch-backend: the core default for 'dispatch_backend_per_spec' is unresolvable (exit $crc) — broken install" >&2
+          printf '%s\n' "resolve-dispatch-backend: the core default for 'dispatch_backend_per_spec' is unresolvable (exit $crc) — broken install" >&2
           exit 5
         fi
         ;;
@@ -508,7 +512,7 @@ case "$rc" in
   3) ;; # key absent in every layer: no per-spec override exists
   4) exit 4 ;;
   *)
-    echo "resolve-dispatch-backend: unexpected config-get exit $rc resolving 'dispatch_backend_per_spec'" >&2
+    printf '%s\n' "resolve-dispatch-backend: unexpected config-get exit $rc resolving 'dispatch_backend_per_spec'" >&2
     exit 5
     ;;
 esac
@@ -531,7 +535,7 @@ if [ -z "$configured" ]; then
           configured=full-session
           source=global
         elif [ "$crc" -ne 0 ]; then
-          echo "resolve-dispatch-backend: the core default for 'dispatch_backend' is unresolvable (exit $crc) — broken install" >&2
+          printf '%s\n' "resolve-dispatch-backend: the core default for 'dispatch_backend' is unresolvable (exit $crc) — broken install" >&2
           exit 5
         elif valid_value "$cval"; then
           configured=$cval
@@ -549,7 +553,7 @@ if [ -z "$configured" ]; then
       ;;
     4) exit 4 ;;
     *)
-      echo "resolve-dispatch-backend: unexpected config-get exit $rc resolving 'dispatch_backend'" >&2
+      printf '%s\n' "resolve-dispatch-backend: unexpected config-get exit $rc resolving 'dispatch_backend'" >&2
       exit 5
       ;;
   esac

@@ -100,6 +100,10 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # The canonical echo-discipline sanitizer (doctrine/security-posture.md): a
 # hostile task-type token is stripped of control bytes before it reaches a
 # diagnostic, so it cannot drive the operator's terminal.
+if [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "fleet-resource-select.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 5
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
@@ -118,7 +122,7 @@ usage() {
 
 require_delegate() {
   if [ ! -x "$DELEGATE" ]; then
-    echo "fleet-resource-select: selection resolver '$DELEGATE' is missing or not executable — broken install" >&2
+    printf '%s\n' "fleet-resource-select: selection resolver '$DELEGATE' is missing or not executable — broken install" >&2
     exit 5
   fi
 }

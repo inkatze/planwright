@@ -210,6 +210,10 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
 # The canonical echo-discipline sanitizer (doctrine/security-posture.md), sourced
 # as the sibling command scripts do; a missing helper is a broken install.
+if [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "fleet-attention.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
@@ -330,7 +334,7 @@ acquire_lock() {
         ;;
       1) ;; # a live holder has it — retry
       *)
-        echo "fleet-attention: cannot acquire the fleet lock (fleet-state exit $al_rc)" >&2
+        printf '%s\n' "fleet-attention: cannot acquire the fleet lock (fleet-state exit $al_rc)" >&2
         return 2
         ;;
     esac
@@ -503,7 +507,7 @@ upsert_row() {
   fi
   ur_rc=0
   if ! mkdir -p "$attn_dir" 2>/dev/null; then
-    echo "fleet-attention: cannot create the attention dir $attn_dir" >&2
+    printf '%s\n' "fleet-attention: cannot create the attention dir $attn_dir" >&2
     release_lock
     return 2
   fi
@@ -588,12 +592,12 @@ on_change_opts() {
     --on-change)
       case $3 in
         -*)
-          echo "fleet-attention: $1: --on-change takes a key, not a flag" >&2
+          printf '%s\n' "fleet-attention: $1: --on-change takes a key, not a flag" >&2
           exit 2
           ;;
       esac
       valid_field "$3" || {
-        echo "fleet-attention: $1: --on-change takes a key in the handle grammar" >&2
+        printf '%s\n' "fleet-attention: $1: --on-change takes a key in the handle grammar" >&2
         exit 2
       }
       case $3 in
@@ -601,7 +605,7 @@ on_change_opts() {
           case ${3#p} in
             *[!0-9]*) ;;
             *)
-              echo "fleet-attention: $1: --on-change takes the loop's presence identity (scripts/fleet-presence.sh identity), not a bare pid: a later process reusing the pid would inherit this loop's record" >&2
+              printf '%s\n' "fleet-attention: $1: --on-change takes the loop's presence identity (scripts/fleet-presence.sh identity), not a bare pid: a later process reusing the pid would inherit this loop's record" >&2
               exit 2
               ;;
           esac
@@ -613,7 +617,7 @@ on_change_opts() {
       # Bounded to nine digits so `test -ge` never meets a number it rejects.
       case $3 in
         "" | *[!0-9]* | 0?* | ??????????*)
-          echo "fleet-attention: $1: --liveness takes a whole number of seconds (at most nine digits)" >&2
+          printf '%s\n' "fleet-attention: $1: --liveness takes a whole number of seconds (at most nine digits)" >&2
           exit 2
           ;;
       esac
@@ -750,7 +754,7 @@ fi
 shift || true
 
 [ -x "$FS" ] || {
-  echo "fleet-attention: Task 9 dependency '$FS' is missing or not executable" >&2
+  printf '%s\n' "fleet-attention: Task 9 dependency '$FS' is missing or not executable" >&2
   exit 2
 }
 
@@ -763,7 +767,7 @@ case $cmd in
     launch_token=""
     hb_usage="usage: fleet-attention.sh heartbeat <worker> <scope> <state> [--unless-awaiting] [--launch-token <hex>] [--unless-since <epoch>]"
     if [ -z "$worker" ] || [ -z "$scope" ] || [ -z "$state" ]; then
-      echo "$hb_usage" >&2
+      printf '%s\n' "$hb_usage" >&2
       exit 2
     fi
     shift 3
@@ -775,7 +779,7 @@ case $cmd in
           ;;
         --launch-token)
           [ "$#" -ge 2 ] && [ -z "$launch_token" ] || {
-            echo "$hb_usage" >&2
+            printf '%s\n' "$hb_usage" >&2
             exit 2
           }
           case $2 in
@@ -791,7 +795,7 @@ case $cmd in
           ;;
         --unless-since)
           [ "$#" -ge 2 ] && [ -z "$UR_UNLESS_SINCE" ] || {
-            echo "$hb_usage" >&2
+            printf '%s\n' "$hb_usage" >&2
             exit 2
           }
           # Digits, no leading zero, at most 15 (the store's epoch grammar).
@@ -805,21 +809,21 @@ case $cmd in
           shift 2
           ;;
         *)
-          echo "$hb_usage" >&2
+          printf '%s\n' "$hb_usage" >&2
           exit 2
           ;;
       esac
     done
     if ! valid_field "$worker"; then
-      echo "fleet-attention: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
+      printf '%s\n' "fleet-attention: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
       exit 2
     fi
     if ! valid_field "$scope"; then
-      echo "fleet-attention: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
+      printf '%s\n' "fleet-attention: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
       exit 2
     fi
     if ! valid_heartbeat_state "$state"; then
-      echo "fleet-attention: refusing state '$(sanitize_printable "$state" "(unprintable state)")' (heartbeat states: working|idle|hung|ended|pr-ready|merged|done; awaiting-input needs 'decide')" >&2
+      printf '%s\n' "fleet-attention: refusing state '$(sanitize_printable "$state" "(unprintable state)")' (heartbeat states: working|idle|hung|ended|pr-ready|merged|done; awaiting-input needs 'decide')" >&2
       exit 2
     fi
     root=$(resolve_home) || exit 2
@@ -853,15 +857,15 @@ case $cmd in
       exit 2
     fi
     if ! valid_field "$worker"; then
-      echo "fleet-attention: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
+      printf '%s\n' "fleet-attention: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
       exit 2
     fi
     if ! valid_field "$scope"; then
-      echo "fleet-attention: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
+      printf '%s\n' "fleet-attention: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
       exit 2
     fi
     if ! valid_priority "$priority"; then
-      echo "fleet-attention: refusing priority '$(sanitize_printable "$priority" "(unprintable priority)")' (high|normal|low)" >&2
+      printf '%s\n' "fleet-attention: refusing priority '$(sanitize_printable "$priority" "(unprintable priority)")' (high|normal|low)" >&2
       exit 2
     fi
     for _f in "$question" "$default" "$options"; do
@@ -904,11 +908,11 @@ case $cmd in
       exit 2
     fi
     if ! valid_field "$worker"; then
-      echo "fleet-attention: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
+      printf '%s\n' "fleet-attention: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
       exit 2
     fi
     if ! valid_field "$scope"; then
-      echo "fleet-attention: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
+      printf '%s\n' "fleet-attention: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
       exit 2
     fi
     if ! valid_text "$reason"; then
@@ -956,11 +960,11 @@ case $cmd in
       IFS= read -r command_text || :
     fi
     if ! valid_field "$worker"; then
-      echo "fleet-attention: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
+      printf '%s\n' "fleet-attention: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
       exit 2
     fi
     if ! valid_field "$scope"; then
-      echo "fleet-attention: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
+      printf '%s\n' "fleet-attention: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
       exit 2
     fi
     # A command that will not pass the field grammar is dropped rather than
@@ -1009,22 +1013,22 @@ case $cmd in
       exit 2
     fi
     if ! valid_field "$worker"; then
-      echo "fleet-attention: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
+      printf '%s\n' "fleet-attention: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
       exit 2
     fi
     if ! valid_field "$scope"; then
-      echo "fleet-attention: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
+      printf '%s\n' "fleet-attention: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
       exit 2
     fi
     # The instance id shares the worker/scope handle grammar (no path separator,
     # whitespace, control byte, or tab/newline) so it can neither tear the record
     # nor be mistaken for a multi-field value on read-back.
     if ! valid_field "$instance"; then
-      echo "fleet-attention: refusing malformed instance id '$(sanitize_printable "$instance" "(unprintable instance)")'" >&2
+      printf '%s\n' "fleet-attention: refusing malformed instance id '$(sanitize_printable "$instance" "(unprintable instance)")'" >&2
       exit 2
     fi
     if ! valid_priority "$priority"; then
-      echo "fleet-attention: refusing priority '$(sanitize_printable "$priority" "(unprintable priority)")' (high|normal|low)" >&2
+      printf '%s\n' "fleet-attention: refusing priority '$(sanitize_printable "$priority" "(unprintable priority)")' (high|normal|low)" >&2
       exit 2
     fi
     for _f in "$question" "$recommend" "$options"; do
@@ -1079,7 +1083,7 @@ case $cmd in
         exit 2
         ;;
       norec)
-        echo "fleet-attention: refusing a fork whose recommendation '$(sanitize_printable "$recommend" "(unprintable)")' is not one of the option labels" >&2
+        printf '%s\n' "fleet-attention: refusing a fork whose recommendation '$(sanitize_printable "$recommend" "(unprintable)")' is not one of the option labels" >&2
         exit 2
         ;;
       *)
@@ -1146,15 +1150,15 @@ case $cmd in
       exit 2
     fi
     if [ -n "$standing" ] && ! valid_field "$standing"; then
-      echo "fleet-attention: refusing malformed standing-decision id '$(sanitize_printable "$standing" "(unprintable id)")'" >&2
+      printf '%s\n' "fleet-attention: refusing malformed standing-decision id '$(sanitize_printable "$standing" "(unprintable id)")'" >&2
       exit 2
     fi
     if ! valid_field "$worker"; then
-      echo "fleet-attention: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
+      printf '%s\n' "fleet-attention: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
       exit 2
     fi
     if ! valid_field "$instance"; then
-      echo "fleet-attention: refusing malformed instance id '$(sanitize_printable "$instance" "(unprintable instance)")'" >&2
+      printf '%s\n' "fleet-attention: refusing malformed instance id '$(sanitize_printable "$instance" "(unprintable instance)")'" >&2
       exit 2
     fi
     if ! valid_text "$label"; then
@@ -1167,7 +1171,7 @@ case $cmd in
     acquire_lock || exit 2
     if [ ! -f "$store" ]; then
       release_lock
-      echo "fleet-attention: no answerable fork for worker '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
+      printf '%s\n' "fleet-attention: no answerable fork for worker '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
       exit 3
     fi
     # Validation pass: locate the worker's row and decide the outcome. `matched`
@@ -1304,7 +1308,7 @@ case $cmd in
         if [ "$_mrc" = 1 ]; then
           echo "fleet-attention: the named standing decision does not admit the parked command; refusing the answer" >&2
         else
-          echo "fleet-attention: could not resolve the named standing decision (tower-queue match exit $_mrc); refusing the answer" >&2
+          printf '%s\n' "fleet-attention: could not resolve the named standing decision (tower-queue match exit $_mrc); refusing the answer" >&2
         fi
         exit 3
       fi
@@ -1353,7 +1357,7 @@ case $cmd in
       exit 2
     fi
     if ! valid_field "$worker"; then
-      echo "fleet-attention: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
+      printf '%s\n' "fleet-attention: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
       exit 2
     fi
     root=$(resolve_home) || exit 2
@@ -1402,7 +1406,7 @@ case $cmd in
           shift 2
           ;;
         *)
-          echo "fleet-attention: render: unknown flag '$(sanitize_printable "$1" "(unprintable flag)")'" >&2
+          printf '%s\n' "fleet-attention: render: unknown flag '$(sanitize_printable "$1" "(unprintable flag)")'" >&2
           exit 2
           ;;
       esac
@@ -1843,7 +1847,7 @@ case $cmd in
           shift 2
           ;;
         --*)
-          echo "fleet-attention: notify: unknown flag '$(sanitize_printable "$1" "(unprintable flag)")'" >&2
+          printf '%s\n' "fleet-attention: notify: unknown flag '$(sanitize_printable "$1" "(unprintable flag)")'" >&2
           exit 2
           ;;
         *)
@@ -1851,7 +1855,7 @@ case $cmd in
           # accepted as readily as `"text" --key K`; binding it to $1 before
           # the flag loop makes the first form blame the wrong token.
           [ -z "$summary" ] || {
-            echo "fleet-attention: notify: takes one summary; got a second ('$(sanitize_printable "$1" "(unprintable argument)")')" >&2
+            printf '%s\n' "fleet-attention: notify: takes one summary; got a second ('$(sanitize_printable "$1" "(unprintable argument)")')" >&2
             exit 2
           }
           summary=$1
@@ -1881,7 +1885,7 @@ case $cmd in
       }
     fi
     [ -x "$RNC" ] || {
-      echo "fleet-attention: notify: channel resolver '$RNC' is missing or not executable" >&2
+      printf '%s\n' "fleet-attention: notify: channel resolver '$RNC' is missing or not executable" >&2
       exit 2
     }
     channel=$("$RNC")
@@ -1889,7 +1893,7 @@ case $cmd in
     if [ "$nrc" -ne 0 ]; then
       # A broken/hard-failed channel config: fail closed rather than guess a
       # channel. The resolver already diagnosed on stderr.
-      echo "fleet-attention: notify: could not resolve the notification channel (resolver exit $nrc)" >&2
+      printf '%s\n' "fleet-attention: notify: could not resolve the notification channel (resolver exit $nrc)" >&2
       exit "$nrc"
     fi
     # Sanitize the summary to a single control-free line before it reaches any
@@ -1948,7 +1952,7 @@ case $cmd in
         for np_p in "$attn_dir" "$push_dir"; do
           if [ -L "$np_p" ]; then
             release_lock
-            echo "fleet-attention: notify: $(sanitize_printable "$np_p" "(unprintable path)") is a symlink — refusing to write the pending-push marker through a redirect" >&2
+            printf '%s\n' "fleet-attention: notify: $(sanitize_printable "$np_p" "(unprintable path)") is a symlink — refusing to write the pending-push marker through a redirect" >&2
             exit 2
           fi
         done
@@ -1961,7 +1965,7 @@ case $cmd in
         # that item would report success while reaching nobody.
         if [ "$np_rc" = 0 ] && { [ -L "$push_dir/$notify_key" ] || { [ -e "$push_dir/$notify_key" ] && [ ! -f "$push_dir/$notify_key" ]; }; }; then
           release_lock
-          echo "fleet-attention: notify: $(sanitize_printable "$push_dir/$notify_key" "(unprintable path)") is not a plain pending-push marker; refusing it rather than deduping against it" >&2
+          printf '%s\n' "fleet-attention: notify: $(sanitize_printable "$push_dir/$notify_key" "(unprintable path)") is not a plain pending-push marker; refusing it rather than deduping against it" >&2
           exit 2
         fi
         if [ "$np_rc" = 0 ] && [ ! -e "$push_dir/$notify_key" ]; then
@@ -2031,7 +2035,7 @@ case $cmd in
       *)
         # resolve-notification-channel.sh only ever prints a validated enum, so
         # this is unreachable in practice; fail closed rather than silently drop.
-        echo "fleet-attention: notify: resolver returned an unrecognized channel '$(sanitize_printable "$channel" "(unprintable channel)")'" >&2
+        printf '%s\n' "fleet-attention: notify: resolver returned an unrecognized channel '$(sanitize_printable "$channel" "(unprintable channel)")'" >&2
         exit 2
         ;;
     esac

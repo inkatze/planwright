@@ -79,7 +79,7 @@ LF='
 '
 
 usage() {
-  echo "usage: $prog [<spec>/<id> ...] [--base <base> --sign-off ...] [--reject <id> ...] < message" >&2
+  printf '%s\n' "usage: $prog [<spec>/<id> ...] [--base <base> --sign-off ...] [--reject <id> ...] < message" >&2
 }
 
 # valid_ref <ref> — true when <ref> is `<spec>/<id>` with a grammar-valid spec
@@ -134,7 +134,7 @@ for arg in "$@"; do
       ;;
     reject)
       if ! valid_rejected_id "$arg"; then
-        echo "$prog: refusing a malformed rejected id (expected PS-<n> or PS-legacy-<sha7>)" >&2
+        printf '%s\n' "$prog: refusing a malformed rejected id (expected PS-<n> or PS-legacy-<sha7>)" >&2
         exit 2
       fi
       # Validated ids carry no whitespace or glob characters, so the list
@@ -156,8 +156,8 @@ for arg in "$@"; do
         # refuse the same spec-id grammar without echoing the candidate, and this
         # helper's own contract (REQ-F1.1) is "hostile input is refused, never
         # interpolated". The grammar hint below is enough to act on the refusal.
-        echo "$prog: refusing a malformed task ref (does not match the expected grammar)" >&2
-        echo "$prog: expected <spec>/<id>, spec ^[a-z0-9][a-z0-9-]*$ (≤64, not flight) id ^[0-9]+(\\.[0-9]+)?$" >&2
+        printf '%s\n' "$prog: refusing a malformed task ref (does not match the expected grammar)" >&2
+        printf '%s\n' "$prog: expected <spec>/<id>, spec ^[a-z0-9][a-z0-9-]*$ (≤64, not flight) id ^[0-9]+(\\.[0-9]+)?$" >&2
         exit 2
       fi
       nrefs=$((nrefs + 1))
@@ -181,7 +181,7 @@ next=0
 if [ "$signoffs" -gt 0 ]; then
   parsed=$(printf '%s\n' "$msg" | git interpret-trailers --parse) || exit 2
   if printf '%s\n' "$parsed" | grep -qi '^Planwright-Sign-Off:'; then
-    echo "$prog: the message already carries a sign-off id; an id is written once" >&2
+    printf '%s\n' "$prog: the message already carries a sign-off id; an id is written once" >&2
     exit 2
   fi
   script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
@@ -189,12 +189,12 @@ if [ "$signoffs" -gt 0 ]; then
   # (3 for an unresolvable range) passes through and nothing is emitted.
   alloc=$("$script_dir/sign-off-checklist.sh" next "$base") || exit $?
   if ! printf '%s' "$alloc" | grep -qE '^PS-[1-9][0-9]{0,8}$'; then
-    echo "$prog: the allocator returned no usable id; nothing stamped" >&2
+    printf '%s\n' "$prog: the allocator returned no usable id; nothing stamped" >&2
     exit 2
   fi
   next=${alloc#PS-}
   if [ $((next + signoffs - 1)) -gt 999999999 ]; then
-    echo "$prog: the allocation would pass PS-999999999; nothing stamped" >&2
+    printf '%s\n' "$prog: the allocation would pass PS-999999999; nothing stamped" >&2
     exit 2
   fi
 fi

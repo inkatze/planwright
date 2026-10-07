@@ -82,7 +82,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # required readable and fail-closed when absent.
 echo_safety="$script_dir/echo-safety.sh"
 if [ ! -r "$echo_safety" ]; then
-  echo "$me: missing $echo_safety (echo-discipline sanitizer)" >&2
+  printf '%s\n' "$me: missing $echo_safety (echo-discipline sanitizer)" >&2
   exit 2
 fi
 # shellcheck source=scripts/echo-safety.sh

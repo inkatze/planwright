@@ -98,7 +98,7 @@ EOF
 # but never echoes raw untrusted input, so no attacker-controlled byte reaches
 # the terminal (the echo-discipline posture, satisfied by omission).
 refuse() {
-  echo "$prog: $2" >&2
+  printf '%s\n' "$prog: $2" >&2
   exit "$1"
 }
 

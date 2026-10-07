@@ -95,6 +95,10 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
 # The canonical echo-discipline sanitizer (doctrine/security-posture.md), sourced
 # as the sibling fleet scripts do; a missing helper is a broken install.
+if [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "fleet-stats.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
@@ -133,7 +137,7 @@ WATCHDOG_TRIPS=""
 GATE_RUNG=""
 derive_from_audit() {
   if [ ! -x "$AUDIT" ]; then
-    echo "fleet-stats: audit helper '$AUDIT' is missing or not executable" >&2
+    printf '%s\n' "fleet-stats: audit helper '$AUDIT' is missing or not executable" >&2
     LAST_CLEANUP="unknown"
     WATCHDOG_TRIPS="unknown"
     GATE_RUNG=""
@@ -142,7 +146,7 @@ derive_from_audit() {
   da_rc=0
   da_all=$("$AUDIT" query 2>/dev/null) || da_rc=$?
   if [ "$da_rc" != 0 ]; then
-    echo "fleet-stats: could not read the audit trail (fleet-audit query exit $da_rc); cleanup/watchdog stats degraded to unknown" >&2
+    printf '%s\n' "fleet-stats: could not read the audit trail (fleet-audit query exit $da_rc); cleanup/watchdog stats degraded to unknown" >&2
     LAST_CLEANUP="unknown"
     WATCHDOG_TRIPS="unknown"
     GATE_RUNG=""
@@ -187,7 +191,7 @@ derive_from_audit() {
 THROTTLE_STATE=""
 derive_throttle() {
   if [ ! -x "$THROTTLE" ]; then
-    echo "fleet-stats: throttle helper '$THROTTLE' is missing or not executable" >&2
+    printf '%s\n' "fleet-stats: throttle helper '$THROTTLE' is missing or not executable" >&2
     THROTTLE_STATE="unknown"
     return 0
   fi
@@ -210,7 +214,7 @@ derive_throttle() {
       esac
       ;;
     *)
-      echo "fleet-stats: could not read the throttle state (fleet-throttle check exit $dt_rc); throttle stat degraded to unknown" >&2
+      printf '%s\n' "fleet-stats: could not read the throttle state (fleet-throttle check exit $dt_rc); throttle stat degraded to unknown" >&2
       THROTTLE_STATE="unknown"
       ;;
   esac
@@ -238,7 +242,7 @@ derive_allocation() {
   da_rc=0
   da_out=$("$LEDGER" stats 2>/dev/null) || da_rc=$?
   if [ "$da_rc" != 0 ]; then
-    echo "fleet-stats: could not read the allocation ledger stats (allocation-ledger exit $da_rc); allocation stat degraded to unknown" >&2
+    printf '%s\n' "fleet-stats: could not read the allocation ledger stats (allocation-ledger exit $da_rc); allocation stat degraded to unknown" >&2
     ALLOC_STAT="unknown"
     return 0
   fi
@@ -463,7 +467,7 @@ case $cmd in
 
   audit)
     if [ ! -x "$AUDIT" ]; then
-      echo "fleet-stats: audit helper '$AUDIT' is missing or not executable" >&2
+      printf '%s\n' "fleet-stats: audit helper '$AUDIT' is missing or not executable" >&2
       exit 2
     fi
     # Pass every flag straight through to fleet-audit.sh query — it owns the

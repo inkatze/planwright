@@ -64,7 +64,7 @@ unset CDPATH
 prog=check-obs
 
 usage() {
-  echo "usage: $prog [--obs-dir <dir>]" >&2
+  printf '%s\n' "usage: $prog [--obs-dir <dir>]" >&2
 }
 
 # --- argument parsing ----------------------------------------------------
@@ -104,7 +104,7 @@ done
 # root check and exit 0, silently bypassing all validation. An explicit empty
 # path is a caller error, not "no observations root".
 [ -n "$obsdir" ] || {
-  echo "$prog: observations directory must not be empty" >&2
+  printf '%s\n' "$prog: observations directory must not be empty" >&2
   exit 2
 }
 
@@ -113,7 +113,7 @@ done
 # obs-record.sh guard).
 case "$obsdir" in
   -*) {
-    echo "$prog: observations directory must not begin with a hyphen" >&2
+    printf '%s\n' "$prog: observations directory must not begin with a hyphen" >&2
     exit 2
   } ;;
 esac

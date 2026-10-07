@@ -83,11 +83,16 @@ usage() {
 # placeholder when nothing printable remains. spec-assemble.sh is callable
 # directly, bypassing the scaffold's charset gate, so the selector is sanitized
 # here too (matching the sibling spec-walkthrough.sh). Display only; the
-# classification logic below still matches on the raw $scope.
+# classification logic below still matches on the raw $scope. Wraps the
+# canonical scripts/echo-safety.sh sanitizer with this command's placeholder.
+if [ ! -r "$(dirname "$0")/echo-safety.sh" ]; then
+  printf '%s\n' "spec-assemble.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
+# shellcheck source=scripts/echo-safety.sh
+. "$(dirname "$0")/echo-safety.sh"
 sanitize_echo() {
-  se=$(printf '%s' "$1" | tr -d '\000-\037\177')
-  [ -n "$se" ] || se="(unprintable)"
-  printf '%s' "$se"
+  sanitize_printable "$1" "(unprintable)"
 }
 
 # Parse the optional --scope selector (Task 9; REQ-B1.1, REQ-B1.2) and the
@@ -226,7 +231,7 @@ translate_sh="$here/spec-translate.sh"
 for s in "$onepager_sh" "$decisionmap_sh" "$teachback_sh" "$graph_sh" \
   "$model_sh" "$scope_sh" "$translate_sh"; do
   if [ ! -x "$s" ]; then
-    echo "spec-assemble: cannot find an executable $(basename "$s") at $s" >&2
+    printf '%s\n' "spec-assemble: cannot find an executable $(basename "$s") at $s" >&2
     exit 2
   fi
 done

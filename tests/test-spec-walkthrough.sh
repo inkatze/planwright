@@ -46,7 +46,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 script="$here/../scripts/spec-walkthrough.sh"
 
 fail() {
-  echo "FAIL: $1" >&2
+  printf '%s\n' "FAIL: $1" >&2
   exit 1
 }
 

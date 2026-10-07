@@ -175,6 +175,10 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # before it reaches a diagnostic, so an embedded escape sequence can't drive the
 # terminal or corrupt a log. Sourced as the sibling command scripts do
 # (spec-validate.sh, spec-walkthrough.sh); a missing helper is a broken install.
+if [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "fleet-state.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 

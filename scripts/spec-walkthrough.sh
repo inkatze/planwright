@@ -71,6 +71,10 @@ unset CDPATH
 
 # Canonical echo-discipline sanitizer (doctrine/security-posture.md): strip
 # non-printables off untrusted content before it reaches the terminal.
+if [ ! -r "$(dirname "$0")/echo-safety.sh" ]; then
+  printf '%s\n' "spec-walkthrough.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$(dirname "$0")/echo-safety.sh"
 
@@ -203,7 +207,7 @@ if [ -d "$bundle_dir" ]; then
   case "$bundle_real/" in
     "$specs_real/"*) ;;
     *)
-      echo "spec-walkthrough: resolved bundle path escapes the $specs_disp/ tree; refused before any read" >&2
+      printf '%s\n' "spec-walkthrough: resolved bundle path escapes the $specs_disp/ tree; refused before any read" >&2
       exit 2
       ;;
   esac
@@ -212,7 +216,7 @@ fi
 # Missing bundle: a clear, non-opaque degradation naming the expected location
 # and the four files it would hold (REQ-A1.5).
 if [ ! -d "$bundle_dir" ]; then
-  echo "spec-walkthrough: no bundle at $bundle_disp — the directory is absent (expected requirements.md, design.md, tasks.md, test-spec.md)" >&2
+  printf '%s\n' "spec-walkthrough: no bundle at $bundle_disp — the directory is absent (expected requirements.md, design.md, tasks.md, test-spec.md)" >&2
   exit 1
 fi
 
@@ -230,7 +234,7 @@ done
 # An empty bundle (directory present, none of the four files): degrade rather
 # than render an empty artifact (REQ-A1.5).
 if [ -z "$present" ]; then
-  echo "spec-walkthrough: bundle at $bundle_disp holds none of the four spec files (expected requirements.md, design.md, tasks.md, test-spec.md)" >&2
+  printf '%s\n' "spec-walkthrough: bundle at $bundle_disp holds none of the four spec files (expected requirements.md, design.md, tasks.md, test-spec.md)" >&2
   exit 1
 fi
 
@@ -322,7 +326,7 @@ case ${scope:-whole} in
     if [ -f "$bundle_dir/design.md" ] && grep -qE '^### D-[0-9]+:' "$bundle_dir/design.md" 2>/dev/null; then
       scope_label="decision set"
     else
-      echo "spec-walkthrough: scope 'decisions' resolves to no decision set in $bundle_disp; design.md is absent or holds no decisions" >&2
+      printf '%s\n' "spec-walkthrough: scope 'decisions' resolves to no decision set in $bundle_disp; design.md is absent or holds no decisions" >&2
       exit 1
     fi
     ;;
@@ -330,7 +334,7 @@ case ${scope:-whole} in
     if [ -f "$bundle_dir/tasks.md" ]; then
       scope_label="task graph"
     else
-      echo "spec-walkthrough: scope 'tasks' resolves to no task graph in $bundle_disp; tasks.md is absent" >&2
+      printf '%s\n' "spec-walkthrough: scope 'tasks' resolves to no task graph in $bundle_disp; tasks.md is absent" >&2
       exit 1
     fi
     ;;

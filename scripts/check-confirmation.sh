@@ -62,6 +62,10 @@ unset CDPATH
 
 # The canonical echo-discipline sanitizer, so a filename argument carrying
 # control bytes cannot drive the terminal when echoed in the not-found path.
+if [ ! -r "$(dirname "$0")/echo-safety.sh" ]; then
+  printf '%s\n' "check-confirmation.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$(dirname "$0")/echo-safety.sh"
 

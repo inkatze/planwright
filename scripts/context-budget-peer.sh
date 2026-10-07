@@ -103,6 +103,10 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || {
 
 # The canonical echo-discipline sanitizer: captured UI text headed for a
 # diagnostic is stripped of control bytes first.
+if [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "context-budget-peer.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
@@ -321,7 +325,7 @@ parse_context_used() {
 }
 
 if used=$(parse_context_used "$context_render"); then
-  echo "corroborated $used"
+  printf '%s\n' "corroborated $used"
   exit 0
 fi
 

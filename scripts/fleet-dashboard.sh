@@ -87,7 +87,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # used on the diagnostics this script writes to the operator's terminal.
 echo_safety="$script_dir/echo-safety.sh"
 if [ ! -r "$echo_safety" ]; then
-  echo "$me: missing $echo_safety (echo-discipline sanitizer)" >&2
+  printf '%s\n' "$me: missing $echo_safety (echo-discipline sanitizer)" >&2
   exit 2
 fi
 # shellcheck source=scripts/echo-safety.sh
@@ -106,7 +106,7 @@ EOF
 }
 
 die() {
-  echo "$me: $1" >&2
+  printf '%s\n' "$me: $1" >&2
   exit 2
 }
 
@@ -374,7 +374,7 @@ emit_body() {
 # failed merge is exit 2 with no output, never a half-rendered page.
 render() {
   if [ ! -r "$ST" ]; then
-    echo "$me: missing $ST (the status merge layer)" >&2
+    printf '%s\n' "$me: missing $ST (the status merge layer)" >&2
     return 2
   fi
   rn_stamp=$(date -u '+%Y-%m-%dT%H:%M:%SZ') || return 2
@@ -383,7 +383,7 @@ render() {
     *) return 2 ;;
   esac
   /bin/sh "$ST" merge >"$WS/merge" 2>"$WS/merge.err" || {
-    echo "$me: '$ST merge' failed" >&2
+    printf '%s\n' "$me: '$ST merge' failed" >&2
     cat "$WS/merge.err" >&2
     return 2
   }

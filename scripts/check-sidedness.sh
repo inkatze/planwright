@@ -51,6 +51,10 @@ export LC_ALL
 unset CDPATH
 
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ ! -r "$SELF_DIR/echo-safety.sh" ]; then
+  printf '%s\n' "check-sidedness.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$SELF_DIR/echo-safety.sh"
 

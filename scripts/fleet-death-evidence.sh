@@ -73,7 +73,7 @@ class="${1:-}"
 case "$class" in
   process | tmux-window) ;;
   timeout | silence | stale | staleness | heartbeat | heartbeat-age | idle-time)
-    echo "fleet-death-evidence: '$class' is not positive evidence of death (REQ-A1.7): a timeout or silent heartbeat proves lost observability, not death — refusing" >&2
+    printf '%s\n' "fleet-death-evidence: '$class' is not positive evidence of death (REQ-A1.7): a timeout or silent heartbeat proves lost observability, not death — refusing" >&2
     exit 2
     ;;
   *)
@@ -118,7 +118,7 @@ case "$class" in
       0) verdict alive ;;
       1) verdict dead ;;
       *)
-        echo "fleet-death-evidence: ps -p exited $ps_rc — lost observability, refusing to report death" >&2
+        printf '%s\n' "fleet-death-evidence: ps -p exited $ps_rc — lost observability, refusing to report death" >&2
         verdict unknown
         ;;
     esac

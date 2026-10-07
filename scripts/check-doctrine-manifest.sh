@@ -53,6 +53,10 @@ unset CDPATH
 
 # The canonical echo-discipline sanitizer, so an argument-supplied path carrying
 # control bytes cannot drive the terminal when echoed on an error path.
+if [ ! -r "$(dirname "$0")/echo-safety.sh" ]; then
+  printf '%s\n' "check-doctrine-manifest.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$(dirname "$0")/echo-safety.sh"
 

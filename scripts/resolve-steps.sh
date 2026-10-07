@@ -209,11 +209,12 @@ export LC_ALL
 unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
-# shellcheck source=scripts/echo-safety.sh
-. "$script_dir/echo-safety.sh" || {
-  echo "resolve-steps: sanitizer '$script_dir/echo-safety.sh' is missing or unreadable (broken install)" >&2
+if [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "resolve-steps: sanitizer '$script_dir/echo-safety.sh' is missing or unreadable (broken install)" >&2
   exit 5
-}
+fi
+# shellcheck source=scripts/echo-safety.sh
+. "$script_dir/echo-safety.sh"
 
 TAB=$(printf '\t')
 # scripts/step-record.sh's is_point holds the same vocabulary, and

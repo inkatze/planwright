@@ -161,7 +161,7 @@ unset CDPATH
 me='fleet-stuck-detector'
 
 err() {
-  echo "$me: $1" >&2
+  printf '%s\n' "$me: $1" >&2
 }
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2

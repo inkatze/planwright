@@ -88,7 +88,7 @@ echo_safety="$script_dir/echo-safety.sh"
 # reaches operator-facing stderr (echo discipline, doctrine/security-posture.md —
 # the same posture every sibling in-scope script applies at each such site).
 if [ ! -r "$echo_safety" ]; then
-  echo "$me: required helper $echo_safety missing or not readable" >&2
+  printf '%s\n' "$me: required helper $echo_safety missing or not readable" >&2
   exit 2
 fi
 # shellcheck source=scripts/echo-safety.sh
@@ -99,8 +99,8 @@ nl='
 '
 
 usage() {
-  echo "$me: usage: $me <validate-handle|relay-command|observe-command> <backend> <handle> [<message-file>]" >&2
-  echo "$me: <handle> is explicit (operator-named, or a live peer's handle from fleet-presence.sh), never the active pane" >&2
+  printf '%s\n' "$me: usage: $me <validate-handle|relay-command|observe-command> <backend> <handle> [<message-file>]" >&2
+  printf '%s\n' "$me: <handle> is explicit (operator-named, or a live peer's handle from fleet-presence.sh), never the active pane" >&2
 }
 
 # Per-backend handle grammar. Input is DATA: a case-glob whitelist, evaluated by
@@ -163,7 +163,7 @@ valid_msgfile() {
 }
 
 reject_handle() {
-  echo "$me: refusing invalid $1 handle (REQ-B1.7: validated before use)" >&2
+  printf '%s\n' "$me: refusing invalid $1 handle (REQ-B1.7: validated before use)" >&2
   exit 2
 }
 
@@ -244,7 +244,7 @@ case "$sub" in
         # the same refusal on a quote or newline.
         case "$script_dir" in
           *"'"* | *"$nl"*)
-            echo "$me: install path unsafe to emit inside a single-quoted command" >&2
+            printf '%s\n' "$me: install path unsafe to emit inside a single-quoted command" >&2
             exit 2
             ;;
         esac
@@ -253,7 +253,7 @@ case "$sub" in
         ;;
       subagent)
         valid_handle subagent "$handle" || reject_handle subagent
-        echo "$me: subagent is harness-native; relay via the tower's prompt queue, no shell command" >&2
+        printf '%s\n' "$me: subagent is harness-native; relay via the tower's prompt queue, no shell command" >&2
         exit 0
         ;;
       *)
@@ -282,7 +282,7 @@ case "$sub" in
         valid_handle stream-json "$handle" || reject_handle stream-json
         case "$script_dir" in
           *"'"* | *"$nl"*)
-            echo "$me: install path unsafe to emit inside a single-quoted command" >&2
+            printf '%s\n' "$me: install path unsafe to emit inside a single-quoted command" >&2
             exit 2
             ;;
         esac
@@ -291,7 +291,7 @@ case "$sub" in
         ;;
       subagent)
         valid_handle subagent "$handle" || reject_handle subagent
-        echo "$me: subagent is harness-native; observe via completion/notification, no shell command" >&2
+        printf '%s\n' "$me: subagent is harness-native; observe via completion/notification, no shell command" >&2
         exit 0
         ;;
       *)
