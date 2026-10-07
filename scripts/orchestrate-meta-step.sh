@@ -1,11 +1,10 @@
 #!/bin/sh
 # orchestrate-meta-step.sh — the meta-tower's single-spec step, run in the
-# meta-tower's own session rather than in a subordinate tower session.
+# meta-tower's own session.
 #
 # After orchestrate-meta-select.sh picks `<spec-dir> <id>`, the meta-tower
-# calls this script instead of launching a subordinate /orchestrate session.
-# It carries the step's mechanical part, in the single-spec tower's order
-# (skills/orchestrate/SKILL.md, *The dispatch record*):
+# calls this script. It carries the step's mechanical part, in the single-spec
+# tower's order (skills/orchestrate/SKILL.md, *The dispatch record*):
 #
 #   1. take the per-spec lock (scripts/orchestrate-lock.sh); another holder is
 #      a clean no-op, so a single-spec tower on the same spec excludes this
@@ -18,10 +17,10 @@
 #      the task branch (the first durable act) and its worktree, then stamps
 #      the runtime marker;
 #   4. release the lock;
-#   5. launch the one worker through the rung's own primitive. On the tmux
-#      rung the primitive creates and launches in one call, so that launch
-#      runs under the lock (it returns once the session exists, the
-#      flight-dispatch precedent) and only its confirm runs after release.
+#   5. launch the one worker through the rung's own primitive.
+#
+# The resource-governance and allocation checks the skill runs before a
+# dispatch stay with the caller; this script runs neither.
 #
 # The gate checks what a script can: the entry parses, its command is a
 # sanctioned form naming this bundle, its `Class:` is `meaning` or
@@ -29,40 +28,48 @@
 # record names no writer beyond its class marking, so writer identity is read
 # through that marking.
 #
-# The worker is /execute-task and nothing else: a prompt whose first
-# non-blank line does not invoke it is refused before the lock, so this path
-# cannot start a subordinate tower.
+# The worker is /execute-task and nothing else: the prompt is copied into a
+# private file before it is screened, its first non-blank line must invoke
+# /execute-task, and only the screened copy reaches the launch, so this path
+# cannot start a tower.
 #
 # Usage:
 #   orchestrate-meta-step.sh dispatch <spec-dir> <id> --backend <rung>
 #       --prompt-file <file> [--repo-root <dir>] [-- <extra launch args>...]
-#     <spec-dir>   the spec bundle as orchestrate-meta-select.sh printed it.
+#     <spec-dir>   the spec bundle as orchestrate-meta-select.sh printed it,
+#                  `specs/<spec>` inside the primary checkout.
 #     <id>         one task id; the meta step dispatches single units.
-#     --backend    stream-json-persistent | headless-oneshot | tmux. Other
-#                  rungs are refused (exit 2): the harness-native ones belong
-#                  to the session itself, and print hands the launch to a
-#                  human.
+#     --backend    stream-json-persistent | headless-oneshot. Other rungs are
+#                  refused (exit 2): the harness-native ones belong to the
+#                  session itself, print hands the launch to a human, and the
+#                  tmux primitive takes no prompt through its launch-arg
+#                  allowlist.
 #     --prompt-file  the worker's prompt; its first non-blank line invokes
 #                  /execute-task (or /planwright:execute-task).
 #     --repo-root  the primary checkout (default: resolve-root.sh repo
-#                  --primary).
+#                  --primary); <spec-dir> must sit at its `specs/<spec>`.
 #     Everything after `--` reaches the rung's launch (the resolved tier).
 #
-# Report: `meta-step<TAB><key><TAB><value>` lines (lock, gate, anchor, ref,
-# branch, worktree, backend, handle), or on a park `halt<TAB><stage><TAB>
-# <reason>` plus `remedy<TAB><text>`.
+# Report: `meta-step<TAB><key><TAB><value>` lines (lock, record, gate, anchor,
+# ref, branch, worktree, backend, handle), or on a halt `halt<TAB><stage><TAB>
+# <reason>`, plus `remedy<TAB><text>` on a park.
 #
 # Exit codes:
 #   0  dispatched: the record written and the worker launched
-#   1  the per-spec lock is held by another tower: nothing done
-#   2  usage, a refused input or rung, or a lock refusal; nothing done
+#   1  a clean no-op: the per-spec lock is held by another tower, or the unit
+#      is already in flight
+#   2  usage, a refused input or rung, or a lock or fetch refusal; nothing
+#      created
 #   4  the freshness gate parked the unit (route to `## Awaiting input`);
 #      nothing created, lock released
-#   5  the dispatch record could not be written (the worktree primitive
-#      failed or found the unit already in flight); lock released
-#   6  the worker launch failed after the record; the marker is cleared so
-#      the unit derives Ready again, and the placed worktree is left for the
-#      next dispatch's reconcile
+#   5  the dispatch record could not be written; lock released, and a marker
+#      the primitive stamped is cleared
+#   6  the worker launch failed after the record. The marker is cleared so the
+#      unit derives Ready again, unless the rung reported a live worker for
+#      the unit, which keeps it. The placed worktree is left for the next
+#      dispatch's reconcile.
+#   129, 130, 141, 143  ended by a signal; the lock is released, and a marker
+#      with no launch behind it is cleared
 #
 # Portable POSIX sh (bash 3.2 / BSD tooling); no eval, every token
 # grammar-checked before it reaches a path or a command.
@@ -89,8 +96,16 @@ die() {
   exit "${2:-2}"
 }
 
+# relay <file> — a child's stderr, stripped of control bytes other than TAB
+# and newline, so a hostile byte in a child's message cannot drive the
+# operator's terminal.
+relay() {
+  [ -s "$1" ] || return 0
+  tr -d '\000-\010\013-\037\177' <"$1" >&2
+}
+
 usage() {
-  die "usage: orchestrate-meta-step.sh dispatch <spec-dir> <id> --backend <stream-json-persistent|headless-oneshot|tmux> --prompt-file <file> [--repo-root <dir>] [-- <extra launch args>...]"
+  die "usage: orchestrate-meta-step.sh dispatch <spec-dir> <id> --backend <stream-json-persistent|headless-oneshot> --prompt-file <file> [--repo-root <dir>] [-- <extra launch args>...]"
 }
 
 [ "$#" -ge 1 ] || usage
@@ -135,10 +150,15 @@ done
 # --- input screening (before any side effect) ---------------------------
 
 case $backend in
-  stream-json-persistent | headless-oneshot | tmux) ;;
-  *) die "rung '$(spec_parse_printable "$backend")' is not carried by the meta step (stream-json-persistent, headless-oneshot, tmux)" ;;
+  stream-json-persistent | headless-oneshot) ;;
+  *) die "rung '$(spec_parse_printable "$backend")' is not carried by the meta step (stream-json-persistent, headless-oneshot)" ;;
 esac
 
+# The byte screen comes first: grep matches line by line, so an id carrying a
+# newline would otherwise pass on its first line alone.
+case $task_id in
+  '' | *[!0-9.]*) die "task id is not a single id (^[0-9]+(\\.[0-9]+)?\$)" ;;
+esac
 printf '%s' "$task_id" | grep -Eq '^[0-9]+(\.[0-9]+)?$' \
   || die "task id is not a single id (^[0-9]+(\\.[0-9]+)?\$)"
 
@@ -150,90 +170,133 @@ esac
 [ "${#spec_name}" -le 64 ] || die "spec name longer than 64"
 [ -d "$spec_dir" ] || die "not a spec directory: $(spec_parse_printable "$spec_dir")"
 
-[ -f "$prompt_file" ] && [ -r "$prompt_file" ] || die "prompt file missing or unreadable"
-first_line=$(awk 'NF { print; exit }' "$prompt_file")
-printf '%s\n' "$first_line" | grep -Eq '^/(planwright:)?execute-task( |$)' \
-  || die "the prompt's first line does not invoke /execute-task; the meta step launches workers only"
-
 if [ -z "$repo_root" ]; then
   repo_root=$(/bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) \
     || die "the primary checkout did not resolve; pass --repo-root"
 fi
 [ -d "$repo_root" ] || die "repo root is not a directory"
 
-spec_rel=$(git -C "$spec_dir" rev-parse --show-prefix 2>/dev/null) \
-  || die "the spec directory is not inside a git work tree"
-while [ "$spec_rel" != "${spec_rel%/}" ]; do spec_rel=${spec_rel%/}; done
-case $spec_rel in
-  */"$spec_name" | "$spec_name") ;;
-  *) die "the spec directory does not resolve to a repo-relative bundle path" ;;
-esac
+# The lock lives in the spec directory, while the gate and the record address
+# the primary checkout's `specs/<spec>`. They must be one directory, or a
+# single-spec tower locking the primary's copy would not exclude this step.
+spec_rel=specs/$spec_name
+spec_phys=$(cd "$spec_dir" && pwd -P) || die "the spec directory cannot be entered"
+primary_spec=$(cd "$repo_root" 2>/dev/null && cd "$spec_rel" 2>/dev/null && pwd -P) \
+  || die "the primary checkout holds no $spec_rel"
+[ "$spec_phys" = "$primary_spec" ] \
+  || die "the spec directory is not the primary checkout's $spec_rel; run from the primary checkout"
 
 wtmp=$(mktemp -d) || exit 2
 lock_held=0
+record_written=0
+launch_started=0
+
+clear_marker() {
+  "$script_dir/orchestrate-marker.sh" clear "$spec_dir" "$task_id" >/dev/null 2>"$wtmp/marker.err" </dev/null && return 0
+  relay "$wtmp/marker.err"
+  printf '%s\n' "$me: the dispatch marker could not be cleared; the unit reads in flight until it ages out" >&2
+}
 release_lock() {
   if [ "$lock_held" -eq 1 ]; then
     "$script_dir/orchestrate-lock.sh" release "$spec_dir" >/dev/null 2>&1 </dev/null || true
     lock_held=0
   fi
 }
-trap 'release_lock; rm -rf "$wtmp"' EXIT
+on_exit() {
+  release_lock
+  if [ "$record_written" -eq 1 ] && [ "$launch_started" -eq 0 ]; then
+    clear_marker
+  fi
+  rm -rf "$wtmp"
+}
+trap on_exit EXIT
+trap 'exit 129' HUP
 trap 'exit 130' INT
+trap 'exit 141' PIPE
 trap 'exit 143' TERM
+
+# The launch reads only this copy, so the file the caller named cannot be
+# swapped between the screen and the launch.
+prompt=$wtmp/prompt
+cp "$prompt_file" "$prompt" 2>/dev/null || die "prompt file missing or unreadable"
+[ -s "$prompt" ] || die "prompt file is empty"
+first_line=$(awk 'NF { print; exit }' "$prompt")
+printf '%s\n' "$first_line" | grep -Eq '^/(planwright:)?execute-task( |$)' \
+  || die "the prompt's first line does not invoke /execute-task; the meta step launches workers only"
 
 say() { printf 'meta-step\t%s\t%s\n' "$1" "$2"; }
 
-park() {
+halt() {
   printf 'halt\t%s\t%s\n' "$1" "$2"
+}
+
+park() {
+  halt "$1" "$2"
   printf 'remedy\t%s\n' "$3"
   exit 4
 }
 
+# field <file> <tag> <key> — the value of a `<tag><TAB><key><TAB><value>` line.
+field() {
+  awk -F"$TAB" -v t="$2" -v k="$3" '$1 == t && $2 == k { print $3; exit }' "$1"
+}
+
 # --- 1. the per-spec lock -----------------------------------------------
 
-lrc=0
-"$script_dir/orchestrate-lock.sh" acquire "$spec_dir" >/dev/null 2>"$wtmp/lock.err" </dev/null || lrc=$?
-case $lrc in
+lock_rc=0
+"$script_dir/orchestrate-lock.sh" acquire "$spec_dir" >/dev/null 2>"$wtmp/lock.err" </dev/null || lock_rc=$?
+relay "$wtmp/lock.err"
+case $lock_rc in
   0) lock_held=1 ;;
   1)
     say lock busy
     exit 1
     ;;
-  *)
-    cat "$wtmp/lock.err" >&2
-    die "the per-spec lock refused this spec directory (exit $lrc)"
-    ;;
+  *) die "the per-spec lock refused this spec directory (exit $lock_rc)" ;;
 esac
 say lock held
 
 # --- 2. the execution freshness gate ------------------------------------
 
-frc=0
-"$script_dir/dispatch-fetch.sh" --spec "$spec_rel" "$repo_root" >"$wtmp/fetch.out" 2>"$wtmp/fetch.err" </dev/null || frc=$?
-case $frc in
+fetch_rc=0
+"$script_dir/dispatch-fetch.sh" --spec "$spec_rel" "$repo_root" >"$wtmp/fetch.out" 2>"$wtmp/fetch.err" </dev/null || fetch_rc=$?
+[ "$fetch_rc" -eq 0 ] || relay "$wtmp/fetch.err"
+case $fetch_rc in
   0 | 3) ;;
+  2) die "dispatch-fetch refused the request (exit 2)" ;;
   4) park fetch stale-transient "retry once the remote answers; never gate against a stale main" ;;
   5) park fetch anchor-unresolved "the bundle could not be anchored at the fetched ref; check it exists on main" ;;
-  *) park fetch "dispatch-fetch exit $frc" "inspect the fetch failure before dispatching" ;;
+  *) park fetch "dispatch-fetch exit $fetch_rc" "inspect the fetch failure before dispatching" ;;
 esac
-anchor_line=$(awk -F"$TAB" '$1 == "anchor" { print; exit }' "$wtmp/fetch.out")
-fetched=$(printf '%s' "$anchor_line" | cut -f2)
-ref=$(printf '%s' "$anchor_line" | cut -f3)
-printf '%s' "$fetched" | grep -Eq '^[0-9a-f]{40}$' \
+fetched_anchor=$(awk -F"$TAB" '$1 == "anchor" { print $2; exit }' "$wtmp/fetch.out")
+ref=$(awk -F"$TAB" '$1 == "anchor" { print $3; exit }' "$wtmp/fetch.out")
+printf '%s' "$fetched_anchor" | grep -Eq '^[0-9a-f]{40}$' \
   || park fetch "no anchor reported" "inspect dispatch-fetch.sh output"
 case $ref in
   '' | -* | *[!A-Za-z0-9._/-]*) park fetch "no usable ref reported" "inspect dispatch-fetch.sh output" ;;
 esac
 
-git -C "$repo_root" show "$ref:$spec_rel/kickoff-brief.md" >"$wtmp/brief" 2>/dev/null \
-  || park gate no-brief "run /spec-kickoff; the bundle has no kickoff brief at $ref"
+if ! git -C "$repo_root" cat-file -e "$ref:$spec_rel/kickoff-brief.md" 2>/dev/null; then
+  park gate no-brief "run /spec-kickoff; the bundle has no kickoff brief at $ref"
+fi
+git -C "$repo_root" show "$ref:$spec_rel/kickoff-brief.md" >"$wtmp/brief" 2>"$wtmp/show.err" || {
+  relay "$wtmp/show.err"
+  park gate brief-unreadable "the kickoff brief at $ref could not be read; inspect the repository"
+}
 
-erc=0
-entry=$(spec_parse_latest_anchor_entry "$wtmp/brief" --record 2>/dev/null) || erc=$?
-case $erc in
+entry_rc=0
+entry=$(spec_parse_latest_anchor_entry "$wtmp/brief" --record 2>"$wtmp/entry.err") || entry_rc=$?
+case $entry_rc in
   0) ;;
-  2) park gate unparseable-entry "complete the brief's most recent anchor entry (an older entry is never read in its place)" ;;
-  *) park gate no-entry "repair the sign-off record per the meta-spec's execution-validity rules" ;;
+  1) park gate no-entry "repair the sign-off record per the meta-spec's execution-validity rules" ;;
+  2)
+    relay "$wtmp/entry.err"
+    park gate unparseable-entry "complete the brief's most recent anchor entry, one Class and one Lens-pass line at most (an older entry is never read in its place)"
+    ;;
+  *)
+    relay "$wtmp/entry.err"
+    park gate "entry parse exit $entry_rc" "inspect the brief parse failure"
+    ;;
 esac
 recorded=$(printf '%s\n' "$entry" | cut -f1)
 cmd=$(printf '%s\n' "$entry" | cut -f2)
@@ -242,7 +305,9 @@ lens=$(printf '%s\n' "$entry" | cut -f4)
 
 case $cmd in
   "scripts/spec-anchor.sh specs/$spec_name" | "spec-anchor.sh specs/$spec_name") ;;
-  "git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin") ;;
+  "git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin")
+    park gate pre-change-entry "the entry uses the interim whole-file form; classify the delta since it, then take the one-time self-re-anchor the meta-spec describes"
+    ;;
   *) park gate non-sanctioned-command "repair the sign-off record: its command must be a sanctioned form naming this bundle" ;;
 esac
 case $class in
@@ -252,41 +317,37 @@ case $class in
   expression-only) ;;
   *) park gate non-sanctioned-writer "the entry carries no sanctioned Class: marking; repair the sign-off record" ;;
 esac
-if [ "$recorded" != "$fetched" ]; then
-  park gate mismatch "anchored content changed since sign-off (recorded $recorded, $ref has $fetched); run a /spec-kickoff delta re-walkthrough"
+if [ "$recorded" != "$fetched_anchor" ]; then
+  park gate mismatch "anchored content changed since sign-off (recorded $recorded, $ref has $fetched_anchor); run a /spec-kickoff delta re-walkthrough"
 fi
 say gate match
-say anchor "$fetched"
+say anchor "$fetched_anchor"
 say ref "$ref"
 
 # --- 3. the dispatch record ---------------------------------------------
 
-if [ "$backend" = tmux ]; then
-  prompt_text=$(cat "$prompt_file")
-  drc=0
-  "$script_dir/fleet-dispatch-worktree.sh" dispatch "$spec_name" "$task_id" \
-    --repo-root "$repo_root" --launch-only -- "$@" "$prompt_text" \
-    >"$wtmp/record.out" 2>"$wtmp/record.err" </dev/null || drc=$?
-else
-  drc=0
-  "$script_dir/fleet-dispatch-worktree.sh" dispatch "$spec_name" "$task_id" \
-    --repo-root "$repo_root" --no-attach \
-    >"$wtmp/record.out" 2>"$wtmp/record.err" </dev/null || drc=$?
-fi
-if [ "$drc" -ne 0 ]; then
-  cat "$wtmp/record.err" >&2
-  printf 'halt\trecord\tfleet-dispatch-worktree exit %s\n' "$drc"
+record_rc=0
+"$script_dir/fleet-dispatch-worktree.sh" dispatch "$spec_name" "$task_id" \
+  --repo-root "$repo_root" --no-attach \
+  >"$wtmp/record.out" 2>"$wtmp/record.err" </dev/null || record_rc=$?
+relay "$wtmp/record.err"
+case $record_rc in
+  0) record_written=1 ;;
+  3)
+    say record in-flight
+    exit 1
+    ;;
+  *)
+    halt record "fleet-dispatch-worktree exit $record_rc"
+    exit 5
+    ;;
+esac
+branch=$(field "$wtmp/record.out" dispatch branch)
+worktree=$(field "$wtmp/record.out" dispatch worktree)
+if [ -z "$worktree" ] || [ ! -d "$worktree" ]; then
+  halt record "no worktree reported"
   exit 5
 fi
-rec_field() {
-  awk -F"$TAB" -v t="$1" -v k="$2" '$1 == t && $2 == k { print $3; exit }' "$wtmp/record.out"
-}
-branch=$(rec_field dispatch branch)
-worktree=$(rec_field dispatch worktree)
-[ -n "$worktree" ] && [ -d "$worktree" ] || {
-  printf 'halt\trecord\tno worktree reported\n'
-  exit 5
-}
 say branch "$branch"
 say worktree "$worktree"
 
@@ -295,47 +356,41 @@ say worktree "$worktree"
 release_lock
 say backend "$backend"
 
+# launch_failed <rc> <reason> — exit 3 from either rung means a live worker
+# already holds the unit, whose marker must survive; every other failure
+# launched nothing.
 launch_failed() {
-  cat "$wtmp/launch.err" >&2 2>/dev/null
-  "$script_dir/orchestrate-marker.sh" clear "$spec_dir" "$task_id" >/dev/null 2>&1 </dev/null \
-    || printf '%s\n' "$me: the dispatch marker could not be cleared; the unit reads in flight until it ages out" >&2
-  printf 'halt\tlaunch\t%s\n' "$1"
+  relay "$wtmp/launch.err"
+  if [ "$1" -eq 3 ]; then
+    halt launch "$2 (a live worker holds the unit; its marker is kept)"
+  else
+    clear_marker
+    halt launch "$2"
+  fi
   exit 6
 }
 
-: >"$wtmp/launch.err"
+[ "$#" -eq 0 ] || set -- -- "$@"
+launch_rc=0
 case $backend in
-  tmux)
-    handle=$(rec_field launch handle)
-    session=$(rec_field launch session)
-    since=$(rec_field launch since)
-    [ -n "$handle" ] && [ -n "$session" ] || launch_failed "the tmux launch reported no session"
-    crc=0
-    "$script_dir/fleet-dispatch-worktree.sh" confirm --session "$session" --handle "$handle" \
-      --since "${since:-unknown}" >/dev/null 2>"$wtmp/launch.err" </dev/null || crc=$?
-    case $crc in
-      0 | 14) ;;
-      *) launch_failed "tmux confirm exit $crc" ;;
-    esac
-    ;;
   headless-oneshot)
-    [ "$#" -eq 0 ] || set -- -- "$@"
-    hrc=0
+    launch_started=1
     "$script_dir/fleet-dispatch-headless.sh" launch "$spec_name" "$task_id" \
       --worktree "$worktree" --repo-root "$repo_root" "$@" \
-      <"$prompt_file" >"$wtmp/launch.out" 2>"$wtmp/launch.err" || hrc=$?
-    [ "$hrc" -eq 0 ] || launch_failed "fleet-dispatch-headless exit $hrc"
-    handle=$(awk -F"$TAB" '$1 == "headless" && $2 == "handle" { print $3; exit }' "$wtmp/launch.out")
+      <"$prompt" >"$wtmp/launch.out" 2>"$wtmp/launch.err" || launch_rc=$?
+    [ "$launch_rc" -eq 0 ] || launch_failed "$launch_rc" "fleet-dispatch-headless exit $launch_rc"
+    handle=$(field "$wtmp/launch.out" headless handle)
+    [ -n "$handle" ] || handle="headless-$spec_name-task-$task_id"
     ;;
   stream-json-persistent)
     handle="$spec_name-task-$task_id"
-    [ "$#" -eq 0 ] || set -- -- "$@"
-    src=0
+    launch_started=1
     "$script_dir/fleet-streamjson.sh" launch "$handle" "$spec_name:task-$task_id" \
-      --prompt-file "$prompt_file" --cwd "$worktree" "$@" \
-      </dev/null >"$wtmp/launch.out" 2>"$wtmp/launch.err" || src=$?
-    [ "$src" -eq 0 ] || launch_failed "fleet-streamjson exit $src"
+      --prompt-file "$prompt" --cwd "$worktree" "$@" \
+      </dev/null >"$wtmp/launch.out" 2>"$wtmp/launch.err" || launch_rc=$?
+    [ "$launch_rc" -eq 0 ] || launch_failed "$launch_rc" "fleet-streamjson exit $launch_rc"
     ;;
 esac
+relay "$wtmp/launch.err"
 say handle "$handle"
 exit 0
