@@ -128,10 +128,11 @@ usage() {
 }
 
 # What a refused scope is told it should look like: the grammar has no slash,
-# so a scope names its spec by the identifier, never by a path. Byte-identical
+# so a scope that names a spec names it by the identifier, never by a path
+# (other scopes, such as a flight's, name no spec). Byte-identical
 # in fleet-attention.sh, fleet-liveness.sh, fleet-streamjson.sh, and
 # fleet-pane-detect.sh.
-SCOPE_SHAPE='a field token naming the spec by its bare identifier, such as <spec>:<id> or <spec>:task-<ids>'
+SCOPE_SHAPE='a field token with no slash, such as <spec>:<id> or <spec>:task-<ids> naming the spec by its bare identifier'
 
 # valid_field <value> — the fleet field grammar (fleet-liveness.sh valid_field):
 # non-empty, not `.`/`..`, only [A-Za-z0-9._=@:-], at most 128 chars. A worker /

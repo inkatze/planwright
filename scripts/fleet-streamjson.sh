@@ -338,10 +338,11 @@ cli=${PLANWRIGHT_STREAMJSON_CLI:-claude}
 # --- grammars ---------------------------------------------------------------
 
 # What a refused scope is told it should look like: the grammar has no slash,
-# so a scope names its spec by the identifier, never by a path. Byte-identical
+# so a scope that names a spec names it by the identifier, never by a path
+# (other scopes, such as a flight's, name no spec). Byte-identical
 # in fleet-attention.sh, fleet-liveness.sh, fleet-streamjson.sh, and
 # fleet-pane-detect.sh.
-SCOPE_SHAPE='a field token naming the spec by its bare identifier, such as <spec>:<id> or <spec>:task-<ids>'
+SCOPE_SHAPE='a field token with no slash, such as <spec>:<id> or <spec>:task-<ids> naming the spec by its bare identifier'
 
 # Worker/scope handle grammar, byte-identical to the Task 9 field grammar
 # fleet-attention.sh enforces (REQ-A1.6): no path separators, whitespace,
