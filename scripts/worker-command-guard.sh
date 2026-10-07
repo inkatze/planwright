@@ -1148,12 +1148,20 @@ guard_awk() {
 # defers; that costs the filter shapes nothing.
 jq_program_safe() {
   local s=$1
-  local n=${#s} i=0 p a w
+  local n=${#s} i=0 p a w words
   case $s in
     *\$ENV*) return 1 ;;
+    *env* | *ENV* | *include* | *import*) ;;
+    *) return 0 ;; # names none of the screened words
   esac
   while [ "$i" -lt "$n" ]; do
-    for w in env ENV include import; do
+    case ${s:i:1} in
+      e) words='env' ;;
+      E) words='ENV' ;;
+      i) words='include import' ;;
+      *) words='' ;;
+    esac
+    for w in $words; do
       [ "${s:i:${#w}}" = "$w" ] || continue
       a=${s:i+${#w}:1}
       case $a in

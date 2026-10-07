@@ -1071,6 +1071,12 @@ ENV'"
 assert_defer "jq bare ENV word" "jq -n 'ENV'"
 assert_allow "jq .ENV is a field access" "jq '.ENV' file.json"
 assert_allow "jq ENVIRONMENT is a longer name" "jq '.a | .ENVIRONMENT' file.json"
+# The screen skips a filter naming none of its words and tries the words only
+# at their first letters; these pin the word at each edge of the filter.
+assert_defer "jq env as the whole filter" "jq -n env"
+assert_defer "jq import as the last word" "jq -n '. | import'"
+assert_defer "jq ENV right after an opening bracket" "jq -n '[ENV]'"
+assert_allow "jq a filter dense in e and i but naming no screened word" "jq '.items[] | select(.line == \"eine\") | .id' file.json"
 assert_allow "jq a user function named with env as a prefix" "jq 'def envx: .; envx' file.json"
 assert_allow "jq a user function named with env as a suffix" "jq 'def myenv: .; myenv' file.json"
 assert_allow "jq a user function named with ENV as a suffix" "jq 'def myENV: .; myENV' file.json"

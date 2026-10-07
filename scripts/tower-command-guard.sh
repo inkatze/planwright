@@ -1238,12 +1238,20 @@ guard_gh() {
 # defers; that costs the filter shapes nothing.
 jq_program_safe() {
   local s=$1
-  local n=${#s} i=0 p a w
+  local n=${#s} i=0 p a w words
   case $s in
     *\$ENV*) return 1 ;;
+    *env* | *ENV* | *include* | *import*) ;;
+    *) return 0 ;; # names none of the screened words
   esac
   while [ "$i" -lt "$n" ]; do
-    for w in env ENV include import; do
+    case ${s:i:1} in
+      e) words='env' ;;
+      E) words='ENV' ;;
+      i) words='include import' ;;
+      *) words='' ;;
+    esac
+    for w in $words; do
       [ "${s:i:${#w}}" = "$w" ] || continue
       a=${s:i+${#w}:1}
       case $a in
@@ -1440,7 +1448,8 @@ guard_rm() {
     case $d in
       *"$NL"*) return 1 ;;
     esac
-    [ -n "${dirs-}" ] || dirs=$(temp_dirs)
+    cache_temp_dirs
+    dirs=$TEMP_DIRS_CACHED
     [ -n "$dirs" ] || return 1
     case $NL$dirs$NL in
       *"$NL$d$NL"*) ;;
@@ -2235,6 +2244,16 @@ cache_plugin_root() {
   [ "$PLUGIN_ROOT_DONE" = 1 ] && return 0
   PLUGIN_ROOT_CACHED=$(hook_plugin_root) || PLUGIN_ROOT_CACHED=''
   PLUGIN_ROOT_DONE=1
+}
+
+# cache_temp_dirs: temp_dirs costs a getconf exec, so guard_rm builds the list
+# once per hook call however many removals the command chains.
+TEMP_DIRS_CACHED=''
+TEMP_DIRS_DONE=0
+cache_temp_dirs() {
+  [ "$TEMP_DIRS_DONE" = 1 ] && return 0
+  TEMP_DIRS_CACHED=$(temp_dirs) || TEMP_DIRS_CACHED=''
+  TEMP_DIRS_DONE=1
 }
 
 # Fail safe on any unexpected signal: empty stdout, exit 0. The hook never

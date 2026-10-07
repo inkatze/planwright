@@ -297,6 +297,12 @@ ENV'"
 assert_defer "jq bare ENV word" "jq -n 'ENV'"
 assert_allow "jq .ENV is a field access" "jq '.ENV' file.json"
 assert_allow "jq ENVIRONMENT is a longer name" "jq '.a | .ENVIRONMENT' file.json"
+# The screen skips a filter naming none of its words and tries the words only
+# at their first letters; these pin the word at each edge of the filter.
+assert_defer "jq env as the whole filter" "jq -n env"
+assert_defer "jq import as the last word" "jq -n '. | import'"
+assert_defer "jq ENV right after an opening bracket" "jq -n '[ENV]'"
+assert_allow "jq a filter dense in e and i but naming no screened word" "jq '.items[] | select(.line == \"eine\") | .id' file.json"
 assert_allow "jq a user function named with env as a prefix" "jq 'def envx: .; envx' file.json"
 assert_allow "jq a user function named with env as a suffix" "jq 'def myenv: .; myenv' file.json"
 assert_allow "jq a user function named with ENV as a suffix" "jq 'def myENV: .; myENV' file.json"
@@ -453,6 +459,24 @@ assert_defer "a symlink to TMPDIR's name plus a trailing newline" "rm -f $TOWER_
 REAL_TMP_FILE="$(TMPDIR="$TOWER_TMP/" mktemp)" || exit 1
 assert_allow "removal of a file real mktemp created" "rm -f $REAL_TMP_FILE"
 rm -f "$REAL_TMP_FILE"
+# The temp-directory list costs a getconf exec, so it is built once per hook
+# call however many removals the command chains.
+GETCONF_STUB="$SANDBOX/getconf-stub"
+mkdir -p "$GETCONF_STUB" || exit 1
+cat >"$GETCONF_STUB/getconf" <<EOF
+#!/bin/sh
+echo getconf >>"$GETCONF_STUB/invocations"
+printf '%s\n' "$TOWER_TMP/"
+EOF
+chmod +x "$GETCONF_STUB/getconf"
+payload="$(jq -n --arg c "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j; rm -f $TOWER_TMP/tmp.Zz9yX8wV7u; rm -f $TOWER_TMP/tmp.Gone012345" --arg w "$SANDBOX" '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}')"
+OUT="$(printf '%s' "$payload" | PATH="$GETCONF_STUB:$PATH" TMPDIR="$SANDBOX/" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" /bin/bash "$HOOK" 2>/dev/null)"
+getconf_calls=$(wc -l <"$GETCONF_STUB/invocations" 2>/dev/null | tr -d ' ')
+if is_allow && [ "${getconf_calls:-0}" = 1 ]; then
+  pass "three chained removals build the temp-directory list once"
+else
+  fail "three chained removals: verdict $(is_allow && echo allow || echo defer), getconf ran ${getconf_calls:-0} time(s), want allow and 1"
+fi
 assert_defer "a suffix too short for mktemp" "rm -f $TOWER_TMP/tmp.abc"
 RUN_TMPDIR="$SANDBOX" assert_defer "a mktemp file in a directory TMPDIR does not name" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
 unset RUN_TMPDIR
