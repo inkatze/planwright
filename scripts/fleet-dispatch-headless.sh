@@ -170,7 +170,7 @@ if [ -r "$script_dir/echo-safety.sh" ]; then
   . "$script_dir/echo-safety.sh"
 else
   sanitize_printable() {
-    printf '%s' "$1" | tr -d '\000-\037\177'
+    printf '%s' "$1" | tr -d '\000-\037\177\200-\237'
   }
 fi
 
