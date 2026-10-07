@@ -131,7 +131,7 @@
 #       Remove the worker's row (idempotent) — cleanup on merged/done teardown.
 #       --if-row: remove it only while the row still carries exactly that
 #       scope, state and heartbeat stamp, checked inside the store's critical
-#       section; any
+#       section, and only while it is the worker's one row; any
 #       other row (the worker wrote since it was judged, or no row) is left
 #       alone with exit 3. The judge-then-clear primitive for a caller whose
 #       verdict was reached outside the lock (fleet-attention-reconcile.sh).
@@ -1405,12 +1405,12 @@ case $cmd in
     fi
     acquire_lock || exit 2
     if [ "$clr_if" = 1 ]; then
-      # Every row for the worker must be the judged one, so a duplicate left
-      # by external corruption cannot let a newer row ride out on an older
-      # verdict; no row at all is a refusal too.
+      # The worker must hold exactly the judged row: a duplicate left by
+      # external corruption, even an identical one, is never cleared on a
+      # verdict about one row, and no row at all is a refusal too.
       clr_match=$(awk -F "$TAB" -v w="$worker" -v sc="$clr_scope" -v st="$clr_state" -v ts="$clr_stamp" '
         ($1 "") == (w "") { n++; if (($2 "") != (sc "") || ($3 "") != (st "") || ($4 "") != (ts "")) bad = 1 }
-        END { print (n > 0 && !bad) ? "y" : "n" }' "$store") || {
+        END { print (n == 1 && !bad) ? "y" : "n" }' "$store") || {
         release_lock
         echo "fleet-attention: could not read the store to evaluate --if-row" >&2
         exit 2

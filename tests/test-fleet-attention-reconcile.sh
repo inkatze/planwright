@@ -5,8 +5,8 @@
 #
 # Coverage:
 #   g1: a guarded clear removes the row only while it carries the judged
-#       scope, state and stamp; a changed or missing row is refused with
-#       exit 3.
+#       scope, state and stamp, and is its only row; a changed, missing or
+#       duplicated row is refused with exit 3.
 #   c1: a row whose spec unit derives completed is cleared, in both scope
 #       spellings (`<spec>:task-<id>` and `<spec>:<id>`), with no registry
 #       record behind it (a dead earlier tower's window-id handle).
@@ -213,6 +213,12 @@ has_row w1 && fail "g1: the judged row survived"
 g_rc=0
 fenv /bin/sh "$FA" clear w1 --if-row demo:task-2 working "$stamp" || g_rc=$?
 [ "$g_rc" = 3 ] || fail "g1: a missing row exited $g_rc, expected 3"
+seed w2 demo:task-2 working 1700000000
+seed w2 demo:task-2 working 1700000000
+g_rc=0
+fenv /bin/sh "$FA" clear w2 --if-row demo:task-2 working 1700000000 || g_rc=$?
+[ "$g_rc" = 3 ] || fail "g1: two identical rows exited $g_rc, expected 3"
+[ "$(grep -c '^w2' "$home/attention/state")" = 2 ] || fail "g1: two identical rows were cleared"
 g_rc=0
 fenv /bin/sh "$FA" clear w1 --if-row demo:task-2 bogus 1 2>/dev/null || g_rc=$?
 [ "$g_rc" = 2 ] || fail "g1: a malformed state exited $g_rc, expected 2"
