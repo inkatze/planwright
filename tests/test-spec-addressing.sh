@@ -288,6 +288,21 @@ case $(trailer_form specs/demo/requirements.md) in
   *) ok "planwright-commit-trailers: a bundle-file path is refused" ;;
 esac
 
+# The presence owner and attribute queries take a unit ref the way the
+# trailer helper does: specs/<spec>/<id> answers as <spec>/<id>.
+for pc in owner attribute; do
+  want=$(outcome "$S/fleet-presence.sh" "$pc" --checkout "$tmp/repo" --pid 4242 demo/1)
+  case $want in
+    *"rc=2") fail "fleet-presence $pc: the bare unit ref was refused: $want" ;;
+    *) same "fleet-presence $pc: specs/demo/1 answers as demo/1" \
+      "$(outcome "$S/fleet-presence.sh" "$pc" --checkout "$tmp/repo" --pid 4242 specs/demo/1)" "$want" ;;
+  esac
+  case $(outcome "$S/fleet-presence.sh" "$pc" --checkout "$tmp/repo" --pid 4242 specs/demo/tasks.md) in
+    *"malformed unit ref"*"rc=2") ok "fleet-presence $pc: a bundle-file path is refused" ;;
+    *) fail "fleet-presence $pc: a bundle-file path was not refused" ;;
+  esac
+done
+
 # Consume: each form consumes its own fragment and writes the same line.
 consume_form() {
   cf_uid=$(printf '%08x' "$(next_n)")
