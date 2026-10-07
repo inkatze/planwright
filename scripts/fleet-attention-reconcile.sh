@@ -176,6 +176,10 @@ if [ -n "$dups" ]; then
   warn "the attention store holds more than one row for: $(sanitize_printable "$(printf '%s' "$dups" | tr '\n' ' ')" "(unprintable handle)")"
 fi
 
+# The handles with a row short of the shipped record layout, which every
+# writer fills: a row torn or truncated by hand is never acted on.
+shorts=$(printf '%s\n' "$snapshot" | awk -F'\t' 'NF && NF < 8 { print $1 }')
+
 # The last registry record per handle, read once: <handle>TAB<record>. An
 # unreadable registry leaves the death rule without evidence (every row it
 # would judge is kept), and the pass says so.
@@ -265,6 +269,9 @@ unit_completed() {
   esac
   [ "${#uc_spec}" -le 64 ] || return 1
   printf '%s' "$uc_unit" | grep -Eq '^[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$' || return 1
+  # The range compare is numeric in awk; past nine digits a part may no
+  # longer compare exactly, so such a unit is left undecided.
+  case $uc_unit in *[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*) return 1 ;; esac
   [ -n "$specs_root" ] && [ -f "$specs_root/$uc_spec/tasks.md" ] || return 1
   derive "$uc_spec" || return 1
   uc_lo=${uc_unit%-*}
@@ -334,6 +341,9 @@ while IFS="$TAB" read -r w scope state stamp _; do
     working | idle | hung | ended | pr-ready | merged | done | awaiting-input) ;;
     *) row_ok=0 ;;
   esac
+  if [ -n "$shorts" ] && printf '%s\n' "$shorts" | grep -Fqx -- "$w"; then
+    row_ok=0
+  fi
   if [ "$row_ok" = 0 ] || [ "${#w}" -gt 128 ] || [ "${#scope}" -gt 128 ]; then
     keep "$w" malformed
     continue

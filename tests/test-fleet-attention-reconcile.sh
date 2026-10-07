@@ -19,8 +19,10 @@
 #   e1: unknown death evidence keeps the row even when its unit derived
 #       completed; e2: so does a live worker; e3: an unreadable registry keeps
 #       every row it might hold evidence for, and degrades the pass.
-#   m1: a row whose state no writer produces, or whose scope is longer than
-#       the store's field grammar allows, is kept as malformed; m2: a
+#   m1: a row whose state no writer produces, whose scope is longer than
+#       the store's field grammar allows, or that is short of the store's
+#       fields, is kept as malformed, and a task id too long to compare
+#       exactly derives nothing; m2: a
 #       handle with two rows is kept and degrades the pass; m3: a clear that
 #       fails keeps the row under its own reason and degrades the pass.
 #   w1: the unit rule derives from --repo even when the caller sits elsewhere
@@ -99,12 +101,15 @@ cat >"$repo/specs/demo/tasks.md" <<'EOF'
 - **Dependencies:** none
 ### Task 6 — done
 - **Dependencies:** none
+### Task 9007199254740992 — done, an id past exact float comparison
+- **Dependencies:** none
 EOF
 gitc "$repo" add -A
 gitc "$repo" commit -q -m "base" -m "Planwright-Task: demo/1"
 gitc "$repo" commit -q --allow-empty -m "three" -m "Planwright-Task: demo/3"
 gitc "$repo" commit -q --allow-empty -m "five" -m "Planwright-Task: demo/5"
 gitc "$repo" commit -q --allow-empty -m "six" -m "Planwright-Task: demo/6"
+gitc "$repo" commit -q --allow-empty -m "huge" -m "Planwright-Task: demo/9007199254740992"
 # A side branch carrying task 2's trailer, which main never reaches.
 gitc "$repo" checkout -q -b side
 gitc "$repo" commit -q --allow-empty -m "two, unmerged" -m "Planwright-Task: demo/2"
@@ -309,9 +314,13 @@ seed wz demo:task-1 bogus
 long=$(printf 'x%.0s' $(seq 1 130))
 reg wlong "demo:$long" headless "$repo/specs/demo/.orchestrate/headless/9" "process $dead_pid"
 seed wlong "demo:$long" working
+printf 'wshort\tdemo:task-1\tworking\t1700000000\n' >>"$home/attention/state"
+seed whuge demo:task-6-9007199254740993 merged
 reconcile m1
 clean m1
 says m1 keep wz malformed
+says m1 keep wshort malformed
+says m1 keep whuge in-flight
 says m1 keep wlong malformed
 fresh
 seed w8 demo:task-1 working 1700000000
