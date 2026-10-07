@@ -515,6 +515,8 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
       # `2>&1` and `&>log` are redirections, not the background operator.
       pc = (i > 1) ? substr(line, i - 1, 1) : ""
       if (c == "&" && (pc == ">" || pc == "<" || nc == ">")) { w = w c; i++; continue }
+      # `>|` is the clobbering redirection, not a pipe.
+      if (c == "|" && pc == ">") { w = w c; i++; continue }
       if (c == ";" || c == "&" || c == "|") {
         if (w != "") { addtok(w, "w"); w = "" }
         addtok(c, "op"); i++; continue
@@ -642,7 +644,11 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
         # A redirection on the group changes where its output goes, not whose
         # status the operator after it reads. Spelled with a space, its target
         # is the next word.
-        if (k > j && tokt[k] == "w" && tok[k] ~ /^[0-9]*[<>]+&?$/) { k += 2; continue }
+        if (k > j && tokt[k] == "w" && tok[k] ~ /^([0-9]*[<>]+[|&-]?|&>>?)$/) {
+          k++
+          if (k <= ntok && tokt[k] == "w") k++
+          continue
+        }
         if (k > j && tokt[k] == "w" && tok[k] ~ /^[0-9]*[<>]/) { k++; continue }
         if (tokt[k] == "op" && tok[k] == ";" \
           && k + 1 <= ntok && tok[k + 1] == "}") { k++; continue }

@@ -583,10 +583,16 @@ write_script "$tmp/newline/scripts/dqinpe.sh" \
   'mkdir "$lock" && exit 0'
 write_script "$tmp/newline/scripts/spacedredir.sh" '{ mkdir "$lock"; } > /dev/null && exit 0'
 write_script "$tmp/newline/scripts/eofcont.sh" 'mkdir "$lock" && \'
+write_script "$tmp/newline/scripts/clobberredir.sh" '{ mkdir "$lock"; } >| /dev/null && exit 0'
+write_script "$tmp/newline/scripts/ampredir.sh" '{ mkdir "$lock"; } &> /dev/null && exit 0'
+write_script "$tmp/newline/scripts/hdredir.sh" '{ mkdir "$lock"; } <<- EOF && exit 0' '	EOF'
 out11bb="$(/bin/bash "$CHECKER" "$tmp/newline" 2>&1)"
 assert_contains "a dollar-quote inside an expansion does not open a string" "$out11bb" "scripts/dqinpe.sh:4:"
 assert_contains "a spaced redirection on a group does not hide the operator" "$out11bb" "scripts/spacedredir.sh:3:"
 assert_contains "a continuation left open at end of file is still read" "$out11bb" "scripts/eofcont.sh:3:"
+assert_contains "a clobber redirection on a group does not hide the operator" "$out11bb" "scripts/clobberredir.sh:3:"
+assert_contains "nor does an &> redirection" "$out11bb" "scripts/ampredir.sh:3:"
+assert_contains "nor does a heredoc on the group" "$out11bb" "scripts/hdredir.sh:3:"
 # A case pattern spelled like a keyword opens no condition, alternation included.
 make_root "$tmp/casekw"
 write_script "$tmp/casekw/scripts/alt.sh" \
