@@ -342,6 +342,11 @@ says w1 keep @166 no-evidence
 n_rc=0
 (cd / && fenv /bin/sh "$REC" --repo "$other" >/dev/null 2>&1) || n_rc=$?
 [ "$n_rc" = 2 ] || fail "w1: a --repo outside any repository exited $n_rc, expected 2"
+fresh
+rm -f "$home/attention/state"
+n_rc=0
+(cd / && fenv /bin/sh "$REC" --repo "$other" >/dev/null 2>&1) || n_rc=$?
+[ "$n_rc" = 2 ] || fail "w1: a --repo outside any repository with no store exited $n_rc, expected 2"
 echo "ok: w1 the derivation reads the named checkout"
 
 # --- r1: a worker writing between the verdict and the clear -----------------

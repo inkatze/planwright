@@ -119,6 +119,22 @@ repo=$(cd "$repo" 2>/dev/null && pwd -P) || {
   exit 2
 }
 
+# This checkout's spec root, resolved before anything else is read: a
+# checkout with none is a usage error, store or no store.
+specs_root=""
+sr_rc=0
+specs_root=$(cd "$repo" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec 2>/dev/null) || sr_rc=$?
+case $sr_rc in
+  0) ;;
+  3)
+    warn "the checkout has no repository working tree, so its spec units cannot be derived"
+    exit 2
+    ;;
+  *)
+    specs_root=""
+    warn "the spec root did not resolve (resolve-root.sh exit $sr_rc) — no row is cleared on unit completion this pass"
+    ;;
+esac
 if ! (cd "$repo" && "$GATE" attention-reconcile 2>/dev/null); then
   warn "daemon layer paused or kill-switch unresolvable — skipping the attention reconcile (unset fleet_daemon_pause to resume)"
   exit 4
@@ -135,6 +151,7 @@ rows=0
 cleared=0
 kept=0
 status=ok
+[ "$sr_rc" = 0 ] || status=degraded
 
 summary() {
   printf 'summary\trows=%s\tcleared=%s\tkept=%s\tstatus=%s\n' "$rows" "$cleared" "$kept" "$status"
@@ -185,24 +202,8 @@ latest() {
   printf '%s\n' "$lastmap" | LW=$1 awk -F'\t' '($1 "") == ENVIRON["LW"] { sub(/^[^\t]*\t/, ""); print; exit }'
 }
 
-# This checkout's spec root, and the roots a worker of this checkout records
-# its state under: the checkout itself and the primary checkout its worktrees
-# hang off.
-specs_root=""
-sr_rc=0
-specs_root=$(cd "$repo" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec 2>/dev/null) || sr_rc=$?
-case $sr_rc in
-  0) ;;
-  3)
-    warn "--repo names no repository: its spec units cannot be derived"
-    exit 2
-    ;;
-  *)
-    specs_root=""
-    warn "the spec root did not resolve (resolve-root.sh exit $sr_rc) — no row is cleared on unit completion this pass"
-    status=degraded
-    ;;
-esac
+# The roots a worker of this checkout records its state under: the checkout
+# itself and the primary checkout its worktrees hang off.
 primary=$(cd "$repo" && common=$(git rev-parse --git-common-dir 2>/dev/null) && cd "$common" 2>/dev/null && pwd -P) || primary=""
 case $primary in
   */.git) primary=${primary%/.git} ;;
