@@ -262,6 +262,8 @@ says d1 clear tmux-demo-task-2 tmux-window-dead
 says d1 keep tmux-demo-task-4 alive
 says d2 clear proc-demo-task-2b process-dead
 says p1 keep pr-demo-task-4 in-flight
+says x1 keep far-demo-task-1 foreign
+says x1 keep dot-demo-task-1 foreign
 echo "ok: d1 d2 p1 x1 worker evidence"
 
 # --- u1: lost observability ------------------------------------------------

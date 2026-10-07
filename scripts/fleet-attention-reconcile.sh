@@ -48,7 +48,7 @@
 #   clear   <worker> unit-completed | process-dead | tmux-window-dead
 #   keep    <worker> awaiting-input | alive | evidence-unknown |
 #                    evidence-errored | no-evidence | in-flight | changed |
-#                    malformed | duplicate | clear-failed
+#                    malformed | duplicate | clear-failed | foreign
 #   paused  -        the kill-switch was set mid-pass; the rest waits
 #   summary rows=<n> cleared=<n> kept=<n> status=<ok|degraded|paused>
 #   degraded when the store, the registry, or a derivation could not be read,
@@ -375,7 +375,10 @@ REC
     *) ev=in-flight ;;
   esac
   if [ -z "$why" ]; then
-    if ours "$r_sd" && unit_completed "$scope"; then
+    if ! ours "$r_sd"; then
+      keep "$w" foreign
+      continue
+    elif unit_completed "$scope"; then
       why=unit-completed
     else
       keep "$w" "$ev"
