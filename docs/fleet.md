@@ -1783,12 +1783,15 @@ evidence:
 scripts/fleet-attention-reconcile.sh --repo /path/to/primary-checkout
 ```
 
-A row is cleared when its spec unit derives completed
-(`scripts/orchestrate-state.sh`; every task of a bundle range), or when it
-claims a live worker (`working`, `idle`, `hung`, `ended`) and the worker's
-registry death handle is positively dead (`scripts/fleet-death-evidence.sh`).
-An awaiting-input row is always kept, as is a row whose evidence is unknown
-or absent and a status row whose unit is still in flight. A worker whose
+A row that claims a live worker (`working`, `idle`, `hung`, `ended`) is
+cleared when the worker's registry death handle is positively dead
+(`scripts/fleet-death-evidence.sh`). A row nothing on record can still be
+running for (no death handle on record, or a status row such as `pr-ready`)
+is cleared when its spec unit derives completed
+(`scripts/orchestrate-state.sh`; every task of a bundle range). An
+awaiting-input row is always kept, as is a worker that is alive or whose
+death verdict is unknown, even on a completed unit, every row while the
+registry cannot be read, and a row whose unit is still in flight. A worker whose
 registry record lives in another checkout is not judged on this checkout's
 specs. Each clear goes through `fleet-attention.sh clear --if-row`, so a
 worker that wrote since it was judged keeps its new row, and is audited under

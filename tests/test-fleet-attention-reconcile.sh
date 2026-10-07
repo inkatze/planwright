@@ -15,6 +15,9 @@
 #       cleared; a listed window keeps it.
 #   d2: a working row whose death handle is an exited process is cleared.
 #   u1: an unreachable tmux server (lost observability) keeps the row.
+#   e1: unknown death evidence keeps the row even when its unit derived
+#       completed; e2: so does a live worker; e3: an unreadable registry keeps
+#       every row it might hold evidence for, and degrades the pass.
 #   r1: a row its worker rewrote between the verdict and the clear survives.
 #   u2: a row with no registry record and an unfinished unit is kept.
 #   a1: an awaiting-input row is kept whatever its unit or worker evidence.
@@ -251,6 +254,32 @@ printf 'up\n' >"$tmp/tmux-mode"
 has_row tmux-demo-task-2 || fail "u1: an unreachable tmux server cleared the row"
 says u1 keep tmux-demo-task-2 evidence-unknown
 echo "ok: u1 unknown evidence keeps the row"
+
+# --- e1, e2, e3: a worker that may still run keeps its row ------------------
+# Even on a completed unit: only positive death, or no worker on record at
+# all, lets the unit decide.
+fresh
+printf 'sess-a @1\n' >"$tmp/tmux-windows"
+reg tmux-demo-task-1 demo:task-1 tmux "$repo/.claude/worktrees/demo-1" "tmux-window sess-a @1"
+seed tmux-demo-task-1 demo:task-1 working
+reconcile e2
+clean e2
+says e2 keep tmux-demo-task-1 alive
+printf 'down\n' >"$tmp/tmux-mode"
+reconcile e1
+printf 'up\n' >"$tmp/tmux-mode"
+has_row tmux-demo-task-1 || fail "e1: unknown evidence on a completed unit cleared the row"
+says e1 keep tmux-demo-task-1 evidence-unknown
+fresh
+seed @145 demo:task-1 working
+reg tmux-demo-task-1 demo:task-1 tmux "$other/wt" "tmux-window sess-a @1"
+chmod 000 "$home/registry"
+reconcile e3
+chmod 600 "$home/registry"
+has_row @145 || fail "e3: an unreadable registry let a row be judged without its worker evidence"
+says e3 keep @145 evidence-unknown
+printf '%s\n' "$out" | grep -q "status=degraded$" || fail "e3: an unreadable registry did not degrade the pass: $out"
+echo "ok: e1 e2 e3 a worker that may still run keeps its row"
 
 # --- r1: a worker writing between the verdict and the clear -----------------
 # The fake tmux runs $tmp/race on its session probe: the worker's heartbeat

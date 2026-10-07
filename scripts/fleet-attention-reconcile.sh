@@ -9,16 +9,20 @@
 # stalled-looking workers survive every restart. This pass judges every row in
 # the store on durable evidence alone, the same on any tower:
 #
-#   CLEAR when the row's spec unit derives completed through
-#   scripts/orchestrate-state.sh (every task of a bundle range), or when the
-#   row claims a live worker (working, idle, hung, ended) and the worker's
-#   registry death handle is positively dead through
-#   scripts/fleet-death-evidence.sh (its tmux window or process is gone).
+#   CLEAR when the row claims a live worker (working, idle, hung, ended) and
+#   the worker's registry death handle is positively dead through
+#   scripts/fleet-death-evidence.sh (its tmux window or process is gone), or
+#   when nothing on record can still be running for it (no death handle on
+#   record, or a status row: pr-ready, merged, done) and its spec unit
+#   derives completed through scripts/orchestrate-state.sh (every task of a
+#   bundle range).
 #
 #   KEEP everything else: an awaiting-input row (a queued decision is the
-#   human's, whatever its unit or worker show), an unknown or errored death
-#   verdict, a row with no evidence either way, and a status row (pr-ready,
-#   merged, done) whose unit is still in flight. Silence is never evidence.
+#   human's, whatever its unit or worker show), a worker that is alive or
+#   whose death verdict is unknown or errored (even on a completed unit: it
+#   may still run, and its own tower clears it), every row while the
+#   registry cannot be read, and a row whose unit is still in flight.
+#   Silence is never evidence.
 #
 # The unit rule reads this checkout's spec root, and the fleet home is shared
 # by every checkout on the machine: a row whose worker record names a state
@@ -156,7 +160,7 @@ if [ "$reg_ok" = 1 ]; then
     END { for (i = 1; i <= n; i++) print order[i] "\t" last[order[i]] }') || reg_ok=0
 fi
 if [ "$reg_ok" = 0 ]; then
-  warn "could not read the registry; no row is cleared on worker evidence this pass"
+  warn "could not read the registry; no row is cleared this pass, since any of them may have a live worker on record"
   status=degraded
   lastmap=""
 fi
@@ -309,12 +313,16 @@ while IFS="$TAB" read -r w scope state stamp _; do
     keep "$w" awaiting-input
     continue
   fi
+  if [ "$reg_ok" = 0 ]; then
+    keep "$w" evidence-unknown
+    continue
+  fi
   record=$(latest "$w")
   r_sd=$(printf '%s\n' "$record" | cut -f6)
   r_dh=$(printf '%s\n' "$record" | cut -f7)
-  # The worker's own evidence first: it is cheap, and settles a row that
-  # claims a live worker either way. Only a row it leaves open pays for a
-  # derivation.
+  # The worker's own evidence first: it is cheap, and any verdict but
+  # no-evidence settles a row that claims a live worker. Only a row it
+  # leaves open pays for a derivation.
   why=""
   case $state in
     working | idle | hung | ended)
@@ -322,12 +330,15 @@ while IFS="$TAB" read -r w scope state stamp _; do
         ev=no-evidence
       elif ev=$(evidence "$r_dh"); then
         why=$ev
+      elif [ "$ev" != no-evidence ]; then
+        keep "$w" "$ev"
+        continue
       fi
       ;;
     *) ev=in-flight ;;
   esac
   if [ -z "$why" ]; then
-    if [ "$ev" != alive ] && ours "$r_sd" && unit_completed "$scope"; then
+    if ours "$r_sd" && unit_completed "$scope"; then
       why=unit-completed
     else
       keep "$w" "$ev"
