@@ -1,11 +1,8 @@
 # The worker guard's real-prompt regression corpus: command shapes dispatched
 # planwright workers actually ran (or were prompted on), each with the verdict
 # the guard must reach under every value of the `worker_self_approval` policy.
-# tests/test-worker-guard-corpus.sh replays every row under each value with a
-# session record injected; tests/smoke-worker-dispatch.sh replays the
-# empty-policy column through the hook as config/worker-settings.json wires it.
-# The row grammar and the sandbox the rows run in live in
-# tests/lib/worker-guard-corpus.sh.
+# tests/lib/worker-guard-corpus.sh documents the grammar, the sandbox the rows
+# run in, and which suite replays which policy columns.
 #
 # Two record kinds, tab-separated:
 #
@@ -13,7 +10,7 @@
 #   row   <class> <none> <own-branch> <scratch> <own-branch scratch> <command>
 #
 # <task> is the task whose landing ships the class; floor and uncovered name
-# the task that began enforcing them, since they are enforced from the start.
+# the task that began enforcing them.
 #
 # The four verdict columns are `allow` or `defer`, one per policy value: the
 # empty list, `own-branch`, `scratch`, and both. A row of a `pending` class
@@ -48,7 +45,7 @@ class	scratch	10	pending	writes confined to the scratch root
 class	floor	5	shipped	reserved acts the guard approves under no policy value
 class	uncovered	5	shipped	shapes no arm covers: interpreters, self-written scripts, runners, escapes
 
-# --- baseline: two workers stalled on their first tool call (2026-09-14) ---
+# --- baseline: first-tool-call shapes that stalled dispatched workers ---
 row	baseline	allow	allow	allow	allow	grep -n '^## \|^### ' specs/demo/test-spec.md | head -40; for r in A1.1 A1.2 A1.3; do echo "=== $r"; awk -v r="REQ-$r" 'index($0,"**"r"**")||index($0,"### "r)||index($0,"- "r" ")||index($0,"**"r)==1{p=1;print;next} p&&/^- \*\*REQ-|^### REQ-|^## /{p=0} p{print}' specs/demo/test-spec.md; done
 row	baseline	allow	allow	allow	allow	env | grep -i 'planwright\|PLUGIN' ; echo ---; R=@@PLUGIN_ROOT@@; diff -rq $R/scripts scripts | head; echo "--- dispatch-fetch"; $R/scripts/dispatch-fetch.sh --spec specs/demo @@WORKTREE@@; echo "exit $?"
 # --- baseline: environment inspection (`env VAR=x cmd` is a runner, not this) ---
@@ -108,8 +105,8 @@ row	baseline	allow	allow	allow	allow	yq '.environment' f.yml
 # a boolean short flag bundled with a read-only one stays a GET
 row	baseline	allow	allow	allow	allow	gh api -qFkey=val repos/o/r
 row	baseline	allow	allow	allow	allow	gh api -i repos/o/r
-# The commonest real prompt shape, the bash 3.2 floor's own spelling: a verb
-# spelled as a path defers by design.
+# The commonest real prompt shape, the bash 3.2 compatibility spelling this
+# repo asks for: a verb spelled as a path defers by design.
 row	baseline	defer	defer	defer	defer	/bin/bash tests/ok.sh 2>&1 | tail -20
 
 # --- awk-lexer: read-only programs the blanket `|` / `>` screens over-deferred ---

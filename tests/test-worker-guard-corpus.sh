@@ -3,11 +3,13 @@
 # (REQ-H1.3, REQ-A1.11): every row of tests/fixtures/worker-guard-corpus.tsv
 # runs through scripts/worker-command-guard.sh under each policy value with a
 # session record injected. A row of a shipped class must reach its expected
-# verdict in every column; a pending class is replayed and reported only.
+# verdict in every column; a pending class's stalls are reported only, and a
+# false-allow fails in every class.
 #
 # The harness checks itself first against small synthetic corpora, because a
 # replay that never fails reads exactly like a green one: a shipped miss must
-# fail, a pending miss must not, and a malformed corpus must refuse to run.
+# fail, a pending stall must not, a false-allow always must, and a malformed
+# corpus must refuse to run.
 set -u
 unset CDPATH
 LC_ALL=C
@@ -53,8 +55,8 @@ fake_guard() {
 
 T=$CORPUS_TAB
 synthetic() {
-  # synthetic <name> <line>...: a corpus declaring the two classes the
-  # self-checks use, plus the given lines.
+  # synthetic <name> <line>...: a corpus declaring the shipped, pending,
+  # floor, and uncovered classes the self-checks use, plus the given lines.
   local f="$SANDBOX/$1.tsv"
   shift
   {
@@ -447,13 +449,13 @@ EOF
 corpus_replay "$CORPUS" run_guard
 rc=$?
 if [ "$rc" -eq 2 ]; then
-  fail "corpus: refused to replay (malformed corpus or sandbox)"
+  fail "corpus: refused to replay (malformed corpus, unusable sandbox, or a failed hook call)"
 elif [ "$CORPUS_ROWS" -lt "$CORPUS_MIN_ROWS" ]; then
-  fail "corpus: replayed $CORPUS_ROWS rows, below the floor of $CORPUS_MIN_ROWS"
+  fail "corpus: replayed $CORPUS_ROWS rows, below the minimum of $CORPUS_MIN_ROWS"
 elif [ "$rc" -eq 0 ]; then
-  pass "corpus: $CORPUS_ROWS rows replayed, every shipped verdict held ($CORPUS_PENDING pending miss(es) reported)"
+  pass "corpus: $CORPUS_ROWS rows replayed, none failed ($CORPUS_PENDING pending stall(s) reported)"
 else
-  fail "corpus: $CORPUS_FAILED shipped verdict(s) missed, $CORPUS_FALSE_ALLOWS of them false-allows"
+  fail "corpus: $CORPUS_FAILED row(s) failed, $CORPUS_FALSE_ALLOWS of them false-allows"
 fi
 
 echo

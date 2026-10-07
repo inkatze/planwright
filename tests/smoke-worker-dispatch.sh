@@ -228,16 +228,16 @@ fi
 echo "smoke: positive control ok (hook reachable and deciding)"
 echo
 
-# An unexpected ALLOW is a security regression; an unexpected DEFER is a
-# worker stall. Both fail, and the replay names which on stderr.
+# An unexpected ALLOW is a security regression and always fails; an
+# unexpected DEFER is a worker stall and fails unless its class is pending.
+# The replay names which on stderr.
 corpus_replay "$CORPUS" smoke_hook 1
 [ $? -eq 2 ] && exit 2
 failures=$CORPUS_FAILED
 
-# A corpus that parsed to nothing is not a pass. Every other guard in this
-# repo fails closed on an empty scan; this one used to report PASS.
+# Too few rows means the file was mangled, not that the guard got better.
 if [ "$CORPUS_ROWS" -lt "$CORPUS_MIN_ROWS" ]; then
-  echo "smoke: corpus yielded $CORPUS_ROWS row(s), below the floor of $CORPUS_MIN_ROWS" >&2
+  echo "smoke: corpus yielded $CORPUS_ROWS row(s), below the minimum of $CORPUS_MIN_ROWS" >&2
   exit 2
 fi
 
