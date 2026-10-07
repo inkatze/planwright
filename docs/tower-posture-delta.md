@@ -42,10 +42,11 @@ static `allow` entry is added.
   (`env`, `$ENV`, and jq 1.6's `$ ENV` with a space or comment between), a
   filter loading module text (`include`, `import`), a filter from a file
   (`-f`), a module search path (`-L`), every run while `~/.jq` exists (a file
-  there is read into every filter, a directory is on the module path), any
-  unrecognized flag, an output redirect, and a filter the guard cannot read
-  literally (an unexpanded variable). The worker guard carries the same
-  screen and takes the same fixes.
+  there is read into every filter, a directory is on the module path), every
+  run while `HOME` is unset, empty, or relative (jq 1.6 then falls back to
+  the password entry's home), any unrecognized flag, an output redirect, and
+  a filter the guard cannot read literally (an unexpanded variable). The
+  worker guard carries the same screen and takes the same fixes.
 - **Bare `mktemp`.** It creates one fresh, empty file in the system temp
   directory: `TMPDIR` for GNU mktemp, and on macOS the per-user temp
   directory, whatever `TMPDIR` says. A template, `-p`, `-t`, `-d`, and

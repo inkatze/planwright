@@ -1178,7 +1178,9 @@ jq_program_safe() {
 # (a filter in a file) and `-L`/`--library-path` (which is where `include` and
 # `import` read module text from) defer, as does any unrecognized flag, and so
 # does every run while `~/.jq` exists: jq reads a `~/.jq` file into every
-# filter, and a `~/.jq` directory is on its module search path.
+# filter, and a `~/.jq` directory is on its module search path. A HOME that is
+# not an absolute path defers too, since the guard cannot then tell where jq
+# looks (jq 1.6 falls back to the password entry's home when HOME is unset).
 #
 # Every value-taking flag is enumerated because the filter is identified BY
 # POSITION — it is the first non-flag operand — and a value sitting in that
@@ -1188,7 +1190,11 @@ jq_program_safe() {
 # `--args`/`--jsonargs`, and jq only ever READS those.
 guard_jq() {
   local i a t c expect=0 prog_taken=0 endflags=0
-  if [ -n "${HOME:-}" ] && { [ -e "$HOME/.jq" ] || [ -L "$HOME/.jq" ]; }; then
+  case ${HOME:-} in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  if [ -e "$HOME/.jq" ] || [ -L "$HOME/.jq" ]; then
     return 1
   fi
   for ((i = 1; i < cwn; i++)); do

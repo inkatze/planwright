@@ -309,6 +309,11 @@ rmdir "$JQ_HOME/.jq" && ln -s "$JQ_HOME/not-yet" "$JQ_HOME/.jq" || exit 1
 RUN_HOME="$JQ_HOME" assert_defer "jq while ~/.jq is a dangling symlink" "jq . file.json"
 rm -f "$JQ_HOME/.jq"
 RUN_HOME="$JQ_HOME" assert_allow "jq once ~/.jq is gone" "jq . file.json"
+# With no usable HOME the guard cannot tell where jq looks for ~/.jq: jq 1.6
+# falls back to the password entry's home, and an empty HOME reads /.jq.
+RUN_NO_HOME=1 assert_defer "jq with HOME unset" "jq . file.json"
+RUN_HOME='' assert_defer "jq with HOME empty" "jq . file.json"
+RUN_HOME='rel-home' assert_defer "jq with a relative HOME" "jq . file.json"
 
 echo "### tower-front-door REQ-A1.3 — the flight petition's temp files: mktemp and their removal ALLOW"
 # A flight petition's ask and grounds go into the tower's own mktemp files,

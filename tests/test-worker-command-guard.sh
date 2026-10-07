@@ -1084,6 +1084,15 @@ rmdir "$JQ_HOME/.jq" && ln -s "$JQ_HOME/not-yet" "$JQ_HOME/.jq" || exit 1
 assert_defer "jq while ~/.jq is a dangling symlink" "jq . file.json"
 rm -f "$JQ_HOME/.jq"
 assert_allow "jq once ~/.jq is gone" "jq . file.json"
+# With no usable HOME the guard cannot tell where jq looks for ~/.jq: jq 1.6
+# falls back to the password entry's home, and an empty HOME reads /.jq. The
+# unset case chains a second env, since run_hook's own one sets HOME first.
+HOOK_ENV=(/usr/bin/env -u HOME)
+assert_defer "jq with HOME unset" "jq . file.json"
+HOOK_ENV=(HOME=)
+assert_defer "jq with HOME empty" "jq . file.json"
+HOOK_ENV=(HOME=rel-home)
+assert_defer "jq with a relative HOME" "jq . file.json"
 HOOK_ENV=()
 # yq EDITS IN PLACE.
 assert_allow "yq read" "yq . file.yml"
