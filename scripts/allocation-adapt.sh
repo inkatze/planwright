@@ -504,12 +504,17 @@ take_unit_lock() {
   # `lock` prints the OWNER TOKEN, and the release presents it back: this hold
   # spans several processes (the engine acquires, `append` writes, the engine
   # releases), so ownership cannot be inferred from a pid — it has to be carried.
-  ALLOC_LOCK_TOKEN=$("$LEDGER" lock "$UNIT") || exit 2
+  # Marked before the take, not after: a signal between the two would otherwise
+  # leave a hold this process owns and will not release. The release needs the
+  # token as well, so a take that never completed releases nothing. The hold
+  # names this process, so one a SIGKILL leaves behind is broken once it is
+  # gone rather than wedging the unit.
   ALLOC_LOCK_TAKEN=yes
+  ALLOC_LOCK_TOKEN=$("$LEDGER" lock "$UNIT" --owner-pid "$$") || exit 2
 }
 
 release_unit_lock() {
-  [ "$ALLOC_LOCK_TAKEN" = yes ] || return 0
+  [ "$ALLOC_LOCK_TAKEN" = yes ] && [ -n "$ALLOC_LOCK_TOKEN" ] || return 0
   ALLOC_LOCK_TAKEN=no
   "$LEDGER" unlock "$UNIT" "$ALLOC_LOCK_TOKEN" 2>/dev/null || true
 }

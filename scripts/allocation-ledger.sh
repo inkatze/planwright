@@ -100,14 +100,20 @@
 # Usage:
 #   allocation-ledger.sh home                     print the allocation store dir
 #   allocation-ledger.sh path <unit>              print a unit's ledger path
-#   allocation-ledger.sh lock <unit>              acquire the per-unit lock and
-#                                                 print its OWNER TOKEN
+#   allocation-ledger.sh lock <unit> [--owner-pid <pid>]
+#                                                 acquire the per-unit lock and
+#                                                 print its OWNER TOKEN; with
+#                                                 --owner-pid the hold is that
+#                                                 process's and is broken once
+#                                                 it is gone
 #   allocation-ledger.sh unlock <unit> [<token>]  release it (idempotent). With
 #                                                 the token, only while the lock
 #                                                 is still that token's; without
 #                                                 one, unconditionally — the one
 #                                                 way to clear a detached hold
-#                                                 whose owner died
+#                                                 whose owner died. An empty
+#                                                 token is refused, never read
+#                                                 as no token
 #   allocation-ledger.sh owner <unit>             print the token currently
 #                                                 holding the per-unit lock, or
 #                                                 nothing. A cross-process
@@ -287,13 +293,13 @@ ensure_store() {
 #   * `append` takes an ORDINARY hold: one process acquires, writes, releases.
 #     Its owner is a live pid, so a crash leaves a lock the next waiter can
 #     prove dead and collect immediately.
-#   * `lock`/`unlock` are a DETACHED hold, because that hold spans processes —
-#     the engine acquires in one invocation, `append` writes under it in
-#     another, the engine releases in a third — and no pid survives across
-#     them to be probed. The deliberate consequence: nothing auto-breaks a
-#     detached hold, so a holder killed with SIGKILL wedges its unit until a
-#     token-less `unlock` clears it. That is the trade the liveness rule makes,
-#     and the escape hatch is the reason `unlock` accepts no token at all.
+#   * `lock`/`unlock` span processes — the engine acquires in one invocation,
+#     `append` writes under it in another, the engine releases in a third — so
+#     the `lock` process itself is no owner worth probing. The engine names
+#     itself with `--owner-pid`, and the hold is then broken once the engine is
+#     gone. Without it the hold is DETACHED: nothing auto-breaks it, and a
+#     token-less `unlock` is the only way out, which is why `unlock` also works
+#     without a token.
 
 # ---------------------------------------------------------------------------
 # Health
@@ -399,7 +405,7 @@ now_ms() {
 # ---------------------------------------------------------------------------
 
 usage() {
-  echo "usage: allocation-ledger.sh home | path <unit> | lock <unit> | unlock <unit> [<token>] | owner <unit> | append <unit> <step> <attempt> <event> <pm> <pe> <cm> <ce> <rm> <re> <scope> <outcome> <inputs> | rows <unit> | health <unit> | last-tier <unit> | derive <unit> <start-model> <start-effort> | stats [<unit>]" >&2
+  echo "usage: allocation-ledger.sh home | path <unit> | lock <unit> [--owner-pid <pid>] | unlock <unit> [<token>] | owner <unit> | append <unit> <step> <attempt> <event> <pm> <pe> <cm> <ce> <rm> <re> <scope> <outcome> <inputs> | rows <unit> | health <unit> | last-tier <unit> | derive <unit> <start-model> <start-effort> | stats [<unit>]" >&2
 }
 
 require_unit() {
@@ -437,38 +443,50 @@ case "$cmd" in
     ;;
 
   lock)
-    [ "$#" -eq 1 ] || {
+    [ "$#" -ge 1 ] || {
       usage
       exit 2
     }
-    require_unit "$1"
+    l_unit=$1
+    shift
+    l_owner=""
+    if [ "$#" -gt 0 ]; then
+      if [ "$1" != --owner-pid ] || [ "$#" -ne 2 ]; then
+        usage
+        exit 2
+      fi
+      case $2 in
+        '' | 0 | *[!0-9]*)
+          echo "allocation-ledger: --owner-pid must be a non-zero number" >&2
+          exit 2
+          ;;
+      esac
+      l_owner=$2
+    fi
+    require_unit "$l_unit"
     ensure_store >/dev/null
-    # Detached, not pid-owned: this process exits the moment the token is
-    # printed, so there would be no owner left for a liveness probe to ask
-    # about.
-    l_lock=$(lock_path "$1")
-    # Armed BEFORE the take, and disowned only once the token is in the
-    # caller's hands. A detached hold is never reclaimed by liveness, so one
-    # published by a process that is then signalled — or whose token never
-    # reaches the caller because the pipe closed — is a lock nothing will clear
-    # on its own and no token anywhere can name. Between the publish and the
-    # disown, this trap is what releases it.
-    pw_lock_trap_install
-    pw_lock_acquire_detached "$l_lock"
-    l_rc=$?
+    l_lock=$(lock_path "$l_unit")
+    l_rc=0
+    if [ -n "$l_owner" ]; then
+      pw_lock_acquire_for "$l_lock" "$l_owner" || l_rc=$?
+    else
+      pw_lock_acquire_detached "$l_lock" || l_rc=$?
+    fi
     if [ "$l_rc" -eq 1 ]; then
       echo "allocation-ledger: gave up acquiring $l_lock after contention" >&2
       exit 2
     fi
     [ "$l_rc" -eq 0 ] || exit 2
-    # The token goes back to the caller so its `unlock` can prove ownership.
+    # The library has already handed the hold over to its owner, so no exit
+    # handler here would release it: if the token cannot reach the caller, this
+    # branch is the only thing that can. SIGPIPE is ignored so a closed pipe
+    # fails the write and lands here, rather than ending this process first.
+    trap '' PIPE
     if ! printf '%s\n' "$PW_LOCK_TOKEN"; then
-      echo "allocation-ledger: could not hand back the lock token for $1; releasing rather than leaving a hold nobody can name" >&2
-      pw_lock_release "$l_lock" >/dev/null 2>&1 || :
+      echo "allocation-ledger: could not hand back the lock token for $l_unit; releasing rather than leaving a hold nobody can name" >&2
+      pw_lock_release_token "$l_lock" "$PW_LOCK_TOKEN" >/dev/null 2>&1 || :
       exit 2
     fi
-    # shellcheck disable=SC2034 # lock-lib.sh's release path reads it, not this file
-    PW_LOCK_HELD=''
     ;;
 
   unlock)
@@ -478,7 +496,14 @@ case "$cmd" in
     fi
     require_unit "$1"
     u_lock=$(lock_path "$1")
-    if [ -n "${2:-}" ]; then
+    # The mode is the argument count, never the token's emptiness: a caller
+    # passing a variable that came back empty must not get the unconditional
+    # clear, which would delete whoever holds the lock now.
+    if [ "$#" -eq 2 ] && [ -z "$2" ]; then
+      echo "allocation-ledger: unlock was given an empty token; refusing rather than clearing the lock unconditionally" >&2
+      exit 2
+    fi
+    if [ "$#" -eq 2 ]; then
       # Ownership-verified. A token that no longer owns the lock releases
       # nothing, and that is a success, not an error: the verb is idempotent,
       # and "someone else holds it now" is precisely the case the token exists

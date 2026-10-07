@@ -22,8 +22,9 @@
 #   * /orchestrate acquires at the start of its dispatch window and releases at
 #     the end, several tool invocations later. Nothing of its own runs in
 #     between, so there is no process whose absence could prove the lock dead:
-#     that is a DETACHED hold, never auto-broken, cleared by `release` (which
-#     an operator can run by hand if a crash left one standing).
+#     that is a DETACHED hold, never auto-broken: `release` ends the window,
+#     `sweep` clears one whose recorded session is provably gone, and `break`
+#     is the operator's unconditional clear.
 #   * a script that acquires, works, and releases inside ONE invocation passes
 #     `--owner-pid $$`. Its hold is owned by a live process, so a crash leaves
 #     a lock the next caller breaks on its own — no waiting, no operator.
@@ -68,6 +69,7 @@
 # Usage: orchestrate-lock.sh acquire <spec-dir> [--owner-pid <pid>]
 #        orchestrate-lock.sh release <spec-dir> [--owner-pid <pid>]
 #        orchestrate-lock.sh break <spec-dir>
+#        orchestrate-lock.sh sweep <spec-dir>
 #   acquire  take the lock, breaking one whose owner process is gone. Exit 0
 #            on a held lock, 1 when a holder has it (a clean no-op: the caller
 #            skips this step and --bookkeeping reconciles a dropped move), 2 on
@@ -104,7 +106,7 @@ unset CDPATH
 cmd="${1:-}"
 spec_dir="${2:-}"
 if [ -z "$cmd" ] || [ -z "$spec_dir" ]; then
-  echo "usage: orchestrate-lock.sh acquire|release <spec-dir> [--owner-pid <pid>]" >&2
+  echo "usage: orchestrate-lock.sh acquire|release|break|sweep <spec-dir> [--owner-pid <pid>]" >&2
   exit 2
 fi
 shift 2 2>/dev/null || true
@@ -350,13 +352,11 @@ case "$cmd" in
       echo "orchestrate-lock: cannot clear $lock (it is still present after the removal; check its type and the spec directory's permissions)" >&2
       exit 3
     fi
-    rm -f "$handle_file" 2>/dev/null || :
     printf '%s\n' cleared
     exit 0
     ;;
   break)
-    # The unconditional clear, and the reason `release` no longer is one. It is
-    # the operator's recovery verb: the only thing that takes a hold nothing
+    # The unconditional clear. It is the operator's recovery verb: the only thing that takes a hold nothing
     # can prove abandoned, and the only thing that clears a lock DIRECTORY left
     # by the retired mkdir shape.
     rm -f "$handle_file" 2>/dev/null || :
@@ -367,13 +367,12 @@ case "$cmd" in
     exit 0
     ;;
   release)
-    # WHY THIS IS NOT AN UNCONDITIONAL CLEAR ANY MORE. It was, and that was
-    # sound while nothing cleared a hold whose owner still looked live. `sweep`
-    # changed it: sweep clears A, B acquires, and A's delayed release then
-    # deletes B's lock while B is still inside it. So this refuses whenever it
-    # can SHOW the lock is not the one its caller took, and clears otherwise —
-    # including when the owner is demonstrably gone, because losing that would
-    # bring back the wedge sweep exists to cure.
+    # NOT AN UNCONDITIONAL CLEAR, because `sweep` can hand the lock on: sweep
+    # clears A, B acquires, and an unconditional release from A would delete
+    # B's lock while B is still inside it. So this refuses whenever it can
+    # SHOW the lock is not the one its caller took, and clears otherwise —
+    # including when the owner is demonstrably gone, because refusing that
+    # would bring back the wedge sweep exists to cure.
     #
     # What cannot be shown is a detached hold with nothing recorded against it:
     # the caller holds no token, the lock names no process, and one window's
@@ -418,7 +417,7 @@ case "$cmd" in
           # only when it is the owner it speaks for, or when that owner is gone.
           resolve_owner_pid
           if [ -n "$owner_pid" ]; then
-            if [ "$rel_owner" != "$owner_pid" ]; then
+            if [ "$rel_owner" != "$owner_pid" ] && pw_lock_owner_alive "$rel_token"; then
               echo "orchestrate-lock: $lock is held by pid $rel_owner, not the pid $owner_pid this release speaks for; refusing (use 'break' to clear it anyway)" >&2
               exit 1
             fi
@@ -445,11 +444,9 @@ case "$cmd" in
     pw_lock_release_token "$lock" "$rel_token" || rel_rc=$?
     case $rel_rc in
       0)
-        # The record names the token just released; a successor's acquire
-        # rewrites it, so removing it only when it is still ours is enough.
-        case $(head -n 1 "$handle_file" 2>/dev/null) in
-          "$rel_token	"*) rm -f "$handle_file" 2>/dev/null || : ;;
-        esac
+        # The attribution record is left where it is: it names the token just
+        # released, so every reader already takes it as absent, and removing
+        # it here could remove a successor's record written in the meantime.
         exit 0
         ;;
       1)
@@ -475,10 +472,6 @@ case "$cmd" in
     ;;
 esac
 
-# One attempt, not a spin: the caller owns the failure policy off the exit code
-# (REQ-D1.2), and a busy lock is a clean skip for both callers rather than
-# something to wait out. The stale break inside the attempt is what turns a
-# dead owner's lock into a held one, in the same call.
 # Attribution, before the take. A holder this call can name is a holder the
 # primitive can probe, which makes the hold an ordinary one that needs no sweep
 # at all; a holder it can only name by tmux window is recorded beside the lock
@@ -490,30 +483,43 @@ if [ -z "$owner_pid" ]; then
   sweep_handle=$derived
 fi
 
-# Armed BEFORE the take, and only disowned once the hold is fully handed over.
-# A detached hold is never reclaimed by liveness, so one published by a process
-# that was then signalled — before it could record what makes the hold
-# attributable — is a lock nothing will ever clear on its own. Between the
-# publish and the disown below, this trap is what releases it.
-pw_lock_trap_install
-
+# One attempt, not a spin: the caller owns the failure policy off the exit code
+# (REQ-D1.2), and a busy lock is a clean skip for both callers rather than
+# something to wait out. The break inside the attempt is what turns a dead
+# owner's lock into a held one, in the same call.
 rc=0
 if [ -n "$owner_pid" ]; then
   pw_lock_acquire_for "$lock" "$owner_pid" 1 || rc=$?
 else
   pw_lock_try_detached "$lock" || rc=$?
 fi
-if [ "$rc" -eq 0 ]; then
+if [ "$rc" -eq 0 ] && [ -n "$sweep_handle" ]; then
+  # The library has already handed the hold to the window this call opened,
+  # so nothing releases it on its own. Until the record that makes it
+  # attributable lands, a signal or a failed write gives it back by token:
+  # a detached hold with no record is one `sweep` can never clear.
+  trap 'pw_lock_release_token "$lock" "$PW_LOCK_TOKEN" >/dev/null 2>&1' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
   # Bound to the token, so a record that outlives its lock is read as absent
-  # rather than as evidence about a holder it never described.
-  rm -f "$handle_file" 2>/dev/null || :
-  if [ -n "$sweep_handle" ]; then
-    printf '%s\t%s\n' "$PW_LOCK_TOKEN" "$sweep_handle" >"$handle_file" 2>/dev/null || :
+  # rather than as evidence about a holder it never described. Staged and
+  # renamed, because a redirect would follow a link planted at the path.
+  if [ -d "$handle_file" ] && [ ! -L "$handle_file" ]; then
+    echo "orchestrate-lock: $handle_file is a directory; cannot record who holds $lock" >&2
+    exit 2
   fi
-  # The hold belongs to the window this call opened, not to this process, so
-  # the EXIT trap must not take it now that the handover is complete.
-  # shellcheck disable=SC2034 # lock-lib.sh's release path reads it, not this file
-  PW_LOCK_HELD=''
+  hf_tmp=$(mktemp "$handle_file.XXXXXX" 2>/dev/null) || {
+    echo "orchestrate-lock: cannot record who holds $lock; released it" >&2
+    exit 2
+  }
+  if ! printf '%s\t%s\n' "$PW_LOCK_TOKEN" "$sweep_handle" >"$hf_tmp" \
+    || ! rm -f "$handle_file" || ! mv -f "$hf_tmp" "$handle_file"; then
+    rm -f "$hf_tmp" 2>/dev/null
+    echo "orchestrate-lock: cannot record who holds $lock; released it" >&2
+    exit 2
+  fi
+  trap - EXIT INT TERM HUP
 fi
 case $rc in
   0) exit 0 ;;

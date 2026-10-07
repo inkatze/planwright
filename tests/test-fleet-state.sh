@@ -463,6 +463,12 @@ rc=0
 lenv lock --frobnicate >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "lock with an unknown option: exit $rc, expected 2"
 [ ! -L "$(lenv root)/.fleet.lock" ] || fail "a refused lock invocation left a hold behind"
+op_tok=$(lenv lock) || fail "unlock '': fixture lock failed"
+rc=0
+lenv unlock "" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "unlock with an empty token: exit $rc, expected 2"
+[ "$(readlink "$(lenv root)/.fleet.lock")" = "$op_tok" ] || fail "unlock with an empty token cleared the lock"
+lenv unlock "$op_tok" || fail "unlock '': cleanup failed"
 echo "ok: lock --owner-pid holds are broken once their owner is gone, and only then"
 
 # ---------------------------------------------------------------------------

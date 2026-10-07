@@ -87,7 +87,7 @@ echo "ok: release clears the lock and is idempotent"
 
 # 5. An --owner-pid hold whose owner is still running is busy, however old the
 #    lock is.
-sleep 45 &
+sleep 45 >/dev/null 2>&1 &
 live_pid=$!
 /bin/bash "$LOCK" acquire "$spec" --owner-pid "$live_pid" || fail "owned acquire: non-zero exit"
 case "$(readlink "$lock")" in
@@ -304,7 +304,7 @@ sweep
 
 # A PROCESS-OWNED hold is not the sweep's business: the primitive breaks it
 # itself the moment its owner is gone.
-sleep 120 &
+sleep 120 >/dev/null 2>&1 &
 live_pid=$!
 /bin/bash "$LOCK" acquire "$sweepspec" --owner-pid "$live_pid" || fail "sweep fixture: owned acquire failed"
 sweep
@@ -363,8 +363,13 @@ sweep
 if [ -L "$sweepspec/.orchestrate.lock" ] || [ -e "$sweepspec/.orchestrate.lock" ]; then
   fail "sweep reported cleared but the lock is still there"
 fi
-[ ! -e "$sweepspec/.orchestrate.lock#owner#" ] || fail "sweep left the attribution record behind"
-/bin/bash "$LOCK" acquire "$sweepspec" || fail "the spec is still undispatchable after the sweep"
+# The record is left where it is, since removing it after the clear could
+# remove a successor's; it names the token just cleared, so the next hold is
+# never attributed to it.
+env -u PLANWRIGHT_TOWER_PID -u TMUX -u TMUX_PANE \
+  /bin/bash "$LOCK" acquire "$sweepspec" || fail "the spec is still undispatchable after the sweep"
+sweep
+[ "$out" = unattributed ] || fail "a new hold was attributed to the record its predecessor left ('$out')"
 /bin/bash "$LOCK" release "$sweepspec"
 # A handle is split into the words the predicate takes, and a tmux window can
 # legally be named `*`. Splitting with globbing live would expand it against
@@ -418,7 +423,7 @@ echo "ok: the sweep clears a detached hold whose holder is gone, and only then"
 # 15. An attributed tower hold needs no sweep at all: naming a live process as
 #     the owner makes it an ordinary hold, which the primitive breaks by itself
 #     once that process is gone.
-sleep 120 &
+sleep 120 >/dev/null 2>&1 &
 tower_pid=$!
 PLANWRIGHT_TOWER_PID="$tower_pid" /bin/bash "$LOCK" acquire "$sweepspec" \
   || fail "attributed acquire failed"
@@ -453,7 +458,7 @@ relspec="$repo/specs/demo"
 [ ! -L "$relspec/.orchestrate.lock" ] || fail "release of its own hold left the lock"
 
 # Somebody else's live hold: refused, and left exactly as found.
-sleep 120 &
+sleep 120 >/dev/null 2>&1 &
 other_pid=$!
 /bin/bash "$LOCK" acquire "$relspec" --owner-pid "$other_pid" || fail "release fixture: foreign acquire failed"
 foreign_token=$(readlink "$relspec/.orchestrate.lock")
@@ -509,7 +514,7 @@ env -u PLANWRIGHT_TOWER_PID -u TMUX -u TMUX_PANE \
 # window the same way. Acquire and release resolve the owner identically, or
 # the ordinary attributed path refuses its own release.
 /bin/bash "$LOCK" break "$relspec" >/dev/null 2>&1
-sleep 120 &
+sleep 120 >/dev/null 2>&1 &
 env_pid=$!
 PLANWRIGHT_TOWER_PID="$env_pid" /bin/bash "$LOCK" acquire "$relspec" \
   || fail "implicit acquire failed"
@@ -553,7 +558,7 @@ case \$* in
 esac
 SHIM
 chmod +x "$shimdir/readlink"
-sleep 120 &
+sleep 120 >/dev/null 2>&1 &
 succ_pid=$!
 succ_token="$succ_pid-0-0-$succ_pid-1"
 env -u PLANWRIGHT_TOWER_PID -u TMUX -u TMUX_PANE \
@@ -569,5 +574,36 @@ kill "$succ_pid" 2>/dev/null || true
 wait "$succ_pid" 2>/dev/null || true
 /bin/bash "$LOCK" break "$relspec" >/dev/null 2>&1
 echo "ok: release clears only the token it read, never a successor's lock"
+
+# 18. `sweep` clears only the token its verdict was about. The evidence call
+#     sits between reading the holder and clearing it, and the holder can
+#     release and a successor acquire in that time; the stub hands the path to
+#     a successor and then answers "dead" for the holder it was asked about.
+swapevid="$tmp/swap-evidence.sh"
+cat >"$swapevid" <<EVID
+#!/bin/sh
+rm -f "$relspec/.orchestrate.lock"
+ln -s "\$SUCCESSOR_TOKEN" "$relspec/.orchestrate.lock"
+exit 0
+EVID
+chmod +x "$swapevid"
+/bin/bash "$LOCK" break "$relspec" >/dev/null 2>&1
+sleep 120 >/dev/null 2>&1 &
+succ2_pid=$!
+succ2_token="$succ2_pid-0-0-$succ2_pid-1"
+gone_token="detached-0-0-0-1"
+ln -s "$gone_token" "$relspec/.orchestrate.lock"
+printf '%s\ttmux-window planwright %%9\n' "$gone_token" >"$relspec/.orchestrate.lock#owner#"
+rc=0
+out=$(PLANWRIGHT_TOWER_EVIDENCE_CMD="$swapevid" SUCCESSOR_TOKEN="$succ2_token" \
+  /bin/bash "$LOCK" sweep "$relspec" 2>/dev/null) || rc=$?
+[ "$rc" = 1 ] && [ "$out" = alive ] \
+  || fail "sweep after its lock changed hands: expected 'alive' exit 1, got '$out' exit $rc"
+[ "$(readlink "$relspec/.orchestrate.lock")" = "$succ2_token" ] \
+  || fail "sweep cleared the successor's lock that took the path during the verdict"
+kill "$succ2_pid" 2>/dev/null || true
+wait "$succ2_pid" 2>/dev/null || true
+/bin/bash "$LOCK" break "$relspec" >/dev/null 2>&1
+echo "ok: sweep clears only the token its verdict was about"
 
 echo "PASS: orchestrate-lock"

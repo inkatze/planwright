@@ -391,15 +391,18 @@ take_unit_lock() {
   trap 'exit 129' HUP
   trap 'exit 130' INT
   trap 'exit 143' TERM
-  ALLOC_LOCK_TOKEN=$("$LEDGER" lock "$UNIT") || {
+  # Marked before the take, not after: a signal between the two would otherwise
+  # leave a hold this process owns and will not release. The release needs the
+  # token as well, so a take that never completed releases nothing.
+  ALLOC_LOCK_TAKEN=yes
+  ALLOC_LOCK_TOKEN=$("$LEDGER" lock "$UNIT" --owner-pid "$$") || {
     printf '%s\n' "allocation-feedback: could not take the per-unit allocation lock for '$(sanitize_printable "$UNIT" "(unprintable unit)")'" >&2
     exit 2
   }
-  ALLOC_LOCK_TAKEN=yes
 }
 
 release_unit_lock() {
-  [ "$ALLOC_LOCK_TAKEN" = yes ] || return 0
+  [ "$ALLOC_LOCK_TAKEN" = yes ] && [ -n "$ALLOC_LOCK_TOKEN" ] || return 0
   ALLOC_LOCK_TAKEN=no
   "$LEDGER" unlock "$UNIT" "$ALLOC_LOCK_TOKEN" 2>/dev/null || true
 }

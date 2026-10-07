@@ -328,6 +328,27 @@ lock_file="$("$LEDGER" home)/.lock.lockowner:unit"
 [ -L "$lock_file" ] && fail "8f: the owner's unlock did not release the lock"
 tok3=$("$LEDGER" lock lockowner:unit) || fail "8g: the lock could not be re-acquired after release"
 "$LEDGER" unlock lockowner:unit "$tok3"
+# An empty token is refused, never read as the token-less unconditional clear:
+# a caller whose token variable came back empty must not delete a live hold.
+tok4=$("$LEDGER" lock lockowner:unit) || fail "8i: lock failed"
+rc=0
+"$LEDGER" unlock lockowner:unit "" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "8i: unlock with an empty token exited $rc, expected 2"
+[ "$(readlink "$lock_file")" = "$tok4" ] || fail "8i: unlock with an empty token cleared the lock"
+"$LEDGER" unlock lockowner:unit "$tok4"
+# --owner-pid names the engine as the owner, so a hold its engine left behind
+# is broken once the engine is gone.
+sleep 60 >/dev/null 2>&1 &
+eng=$!
+tok5=$("$LEDGER" lock lockowner:unit --owner-pid "$eng") || fail "8j: lock --owner-pid failed"
+case $tok5 in "$eng"-*) ;; *) fail "8j: the token does not name the owner ($tok5)" ;; esac
+kill "$eng" 2>/dev/null || :
+wait "$eng" 2>/dev/null || :
+tok6=$("$LEDGER" lock lockowner:unit --owner-pid $$) || fail "8j: a hold whose owner is gone was not broken"
+"$LEDGER" unlock lockowner:unit "$tok6"
+rc=0
+"$LEDGER" lock lockowner:unit --owner-pid 0 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "8j: a zero owner pid was accepted (exit $rc)"
 
 # A failure that is NOT contention must fail closed at once. The ~100s spin
 # budget buys patience for a deep same-unit queue; spending it on a condition

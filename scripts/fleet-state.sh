@@ -33,7 +33,7 @@
 # THE NAMED PRIMITIVE. Because the cross-spec store is read by the attention
 # surface (Task 12) while the meta-tower's fleet-bound accounting (Task 6)
 # writes it, this script exposes a named cross-spec advisory lock at
-# `<root>/.fleet.lock`. The MECHANISM is no longer this script's: every take and
+# `<root>/.fleet.lock`. The MECHANISM is not this script's: every take and
 # every release goes through scripts/lock-lib.sh, the one lock primitive in the
 # tree, whose header carries the design and the measurements behind it. What
 # stays here is the NAME and the guarantee — concurrent registry writes are
@@ -55,11 +55,10 @@
 # in-place upgrade path for a lock left as a DIRECTORY by the retired `mkdir`
 # shape.
 #
-# STALENESS IS OWNER-PROCESS ABSENCE, NEVER AGE. The age threshold this lock
-# used to consult (`stale_lock_threshold`) is gone from it, in both directions
-# it was wrong: it broke LIVE locks held longer than the threshold, and it left
-# DEAD ones standing for that threshold's whole span. A detached hold has no
-# owning process to probe and so is never auto-broken — which is the other
+# STALENESS IS OWNER-PROCESS ABSENCE, NEVER AGE. An age is wrong in both
+# directions: it breaks a LIVE lock held longer than the threshold, and it
+# leaves a DEAD one standing for the threshold's whole span. A detached hold has
+# no owning process to probe and so is never auto-broken — which is the other
 # reason the tokenless `unlock` exists.
 #
 # RESERVATION vs SOURCE OF TRUTH. `bound-incr`/`bound-decr` are a same-instant
@@ -209,7 +208,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
-# The one advisory-lock primitive for the script layer (D-11). Sourced the same
+# The one advisory-lock primitive for the script layer. Sourced the same
 # way, and a missing one is the same broken install.
 # shellcheck source=scripts/lock-lib.sh
 . "$script_dir/lock-lib.sh"
@@ -600,22 +599,17 @@ case $cmd in
       pw_lock_acquire_detached "$lock" 1 || ta_rc=$?
     fi
     if [ "$ta_rc" = 0 ]; then
-      # HAND THE TOKEN OVER FIRST, THEN DISOWN. The lock belongs to the
-      # CALLER's later `unlock`, not to this process's EXIT handler, so it must
-      # be disowned before this process exits — but only once the caller
-      # actually has the token. Disowning first and then failing to write it
-      # (a reader that exited, a closed pipe) would leave a detached hold
-      # nothing can prove dead and no token anywhere to release it with, which
-      # wedges every fleet writer until an operator intervenes. This order
-      # trades that for its opposite: a signal in the gap releases a lock the
-      # caller believes it holds, and its later `unlock` is then a clean no-op.
+      # The library has already handed the hold to its owner, so no exit
+      # handler here would release it: if the token cannot reach the caller,
+      # this branch is the only thing that can, and a hold nobody can name is
+      # what it prevents. SIGPIPE is ignored so a closed pipe fails the write
+      # and lands here rather than ending this process first.
+      trap '' PIPE
       if ! printf '%s\n' "$PW_LOCK_TOKEN"; then
         printf '%s\n' "fleet-state: could not hand back the lock token; releasing rather than leaving a hold nobody can name" >&2
         pw_lock_release_token "$lock" "$PW_LOCK_TOKEN" >/dev/null 2>&1 || :
         exit 2
       fi
-      # shellcheck disable=SC2034 # lock-lib.sh's release path reads it, not this file
-      PW_LOCK_HELD=''
     fi
     exit $ta_rc
     ;;
@@ -623,8 +617,19 @@ case $cmd in
   unlock)
     # The external half of the exposed primitive, releasing a lock a PREVIOUS
     # process took via `lock`.
+    # The mode is the argument count, never the token's emptiness: a caller
+    # passing a variable that came back empty must not get the unconditional
+    # clear, which would delete whoever holds the lock now.
+    if [ "$#" -gt 2 ]; then
+      printf '%s\n' "usage: fleet-state.sh unlock [<token>]" >&2
+      exit 2
+    fi
     unlock_token="${2:-}"
-    if [ -n "$unlock_token" ]; then
+    if [ "$#" -eq 2 ] && [ -z "$unlock_token" ]; then
+      printf '%s\n' "fleet-state: unlock was given an empty token; refusing rather than clearing the lock unconditionally" >&2
+      exit 2
+    fi
+    if [ "$#" -eq 2 ]; then
       # Ownership-verified: the unlink happens only while the link is still
       # this token's, so a caller returning after its hold was cleared leaves
       # the CURRENT holder's lock alone instead of deleting it.
