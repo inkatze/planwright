@@ -47,8 +47,9 @@ static `allow` entry is added.
   the password entry's home), any unrecognized flag, an output redirect, and
   a filter the guard cannot read literally (an unexpanded variable). A tilde,
   glob, or variable in any operand defers too, so a settings layer passes
-  only when named by its absolute path. The worker guard carries the
-  same screen and takes the same fixes.
+  only when named by a literal path, absolute or relative (the user layer
+  by its absolute path, never `~`). The worker guard carries the same
+  screen and takes the same fixes.
 - **Bare `mktemp`.** It creates one fresh, empty file in the system temp
   directory: `TMPDIR` for GNU mktemp, and on macOS the per-user temp
   directory, whatever `TMPDIR` says. A template, `-p`, `-t`, `-d`, and
