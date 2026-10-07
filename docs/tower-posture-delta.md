@@ -25,7 +25,7 @@ stall the extension removes.
 | --- | --- | --- | --- |
 | `jq '<filter>' <settings file>` | bring-up's posture check, one projection per settings layer | defer | allow |
 | `mktemp` | a flight petition's ask and grounds temp files | defer | allow |
-| `rm [-f] [--] <TMPDIR or /tmp>/tmp.<suffix> …` | removing those files once the dispatch returns | defer | allow |
+| `rm [-f] [--] <temp directory>/tmp.<suffix> …` | removing those files once the dispatch returns | defer | allow |
 | `<planwright root>/scripts/<name>.sh …` | the flight sweep, dispatch, attention queue, catch-up, spec status, rule-doc resolution | allow | allow (unchanged) |
 | `git branch --list …`, `git cat-file -e …` | bring-up's fallback flight reads | allow | allow (unchanged) |
 | `gh pr list …`, `gh pr view …` | a flight's landing, status | allow | allow (unchanged) |
@@ -39,21 +39,27 @@ static `allow` entry is added.
 - **`jq` with an inline filter.** The screen is the worker guard's, carried
   over byte-identical (the tower guard's suite diffs the two copies). jq has no
   exec or file-write primitive. What defers: a filter reading the environment
-  (`env`, `$ENV`), a filter from a file (`-f`), a module search path (`-L`),
-  any unrecognized flag, an output redirect, and a filter the guard cannot
-  read literally (an unexpanded variable).
+  (`env`, `$ENV`, and jq 1.6's `$ ENV` with a space or comment between), a
+  filter loading module text (`include`, `import`), a filter from a file
+  (`-f`), a module search path (`-L`), every run while `~/.jq` exists (a file
+  there is read into every filter, a directory is on the module path), any
+  unrecognized flag, an output redirect, and a filter the guard cannot read
+  literally (an unexpanded variable). The worker guard carries the same
+  screen and takes the same fixes.
 - **Bare `mktemp`.** It creates one fresh, empty file in the system temp
   directory: `TMPDIR` for GNU mktemp, and on macOS the per-user temp
-  directory, which `TMPDIR` normally names. A template, `-p`, `-t`, `-d`, and
+  directory, whatever `TMPDIR` says. A template, `-p`, `-t`, `-d`, and
   `-u` all defer.
 - **`rm` of mktemp-named temp files.** Every operand must be an absolute
-  path whose name has mktemp's default shape (`tmp.` and at least six letters
-  or digits), whose directory canonicalizes to exactly `TMPDIR` or `/tmp`
+  path with no `.` or `..` component, whose name has mktemp's default shape
+  (`tmp.` and at least six letters or digits), whose directory resolves
+  physically to exactly `TMPDIR`, the macOS per-user temp directory, or `/tmp`
   (never a directory below them), and that is not a symlink, a directory, or
   another non-regular file. `-f` and `--` are the only flags. A recursive or
-  directory removal, `-i` or `-v`, a relative, tilde, glob, or variable
-  operand, and any operand outside those two directories defer, and one bad
-  operand defers the whole command.
+  directory removal, `-i` or `-v`, a relative, tilde, glob, variable, or
+  dot-component operand, a directory whose resolved path holds a line break,
+  and any operand outside those directories defer, and one bad operand defers
+  the whole command.
 
 ## The deny delta
 
@@ -89,14 +95,19 @@ The `gh api` spellings of the merge and the ready flip are the policy guard's
 - **An older Claude Code** that does not support tool-name globs in deny rules
   matches nothing with them; the literal `mcp__github__` entries still hold.
 - **A `TMPDIR` the hook does not share.** The guard reads `TMPDIR` from its own
-  environment. Where the session's shell sees another one, or where mktemp
-  writes elsewhere (macOS prefers its per-user temp directory to `TMPDIR`),
-  the removal defers to the permission prompt; it is never allowed by
+  environment. Where the session's shell sees another one and mktemp writes
+  there, the removal defers to the permission prompt; it is never allowed by
   mistake.
+- **A directory swapped after the check.** The guard checks the operand's
+  directory when the hook runs; a same-user process that replaces it with a
+  symlink before `rm` runs could point the removal elsewhere. Only a
+  mktemp-named regular file can go, never a directory.
 - **Whose temp file it is.** The guard cannot tell a file the tower created
   from another same-user process's: any mktemp-named regular file directly in
-  `TMPDIR` or `/tmp` is removable without a prompt, another session's live
-  temp file included. The sticky bit on `/tmp` still protects other users'
+  `TMPDIR`, the macOS per-user temp directory, or `/tmp` is removable without
+  a prompt, another session's live temp file included. The tower took this
+  as a residual rather than requiring a tower-owned name prefix or a
+  per-session directory. The sticky bit on `/tmp` still protects other users'
   files.
 - **Settings merged before this delta.** A tower whose settings merged an
   earlier copy of the profile lacks the appended deny entries, so bring-up's
