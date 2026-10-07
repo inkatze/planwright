@@ -183,6 +183,10 @@ fi
 # dispatch-fetch.sh takes only the default root's repo-relative form, so a
 # relocated root is refused here, before the lock, rather than by the fetch.
 repo_phys=$(cd "$repo_root" && pwd -P) || die "the repo root cannot be entered"
+primary_phys=$(cd "$repo_phys" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) \
+  || die "the primary checkout did not resolve from --repo-root"
+primary_phys=$(cd "$primary_phys" && pwd -P) || die "the primary checkout cannot be entered"
+[ "$repo_phys" = "$primary_phys" ] || die "--repo-root is not the primary checkout; pass the primary checkout"
 spec_root=$(cd "$repo_phys" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec --primary 2>/dev/null) \
   || die "the primary checkout's spec root did not resolve"
 spec_root_parent=$(cd "${spec_root%/*}" 2>/dev/null && pwd -P) || spec_root_parent=
@@ -215,8 +219,9 @@ release_lock() {
 # shellcheck disable=SC2329 # invoked through the EXIT trap
 # A signal can land after the record primitive stamped the marker but before
 # its exit status is read; the worktree line it prints only after stamping is
-# the evidence then. The clear runs before the release, so it can never
-# remove a marker the next lock holder wrote.
+# the evidence then. Here the clear runs before the release; a clear after
+# the release (a failed launch) is safe because the marker it removes is
+# younger than the liveness window, so no other dispatcher wrote one.
 on_exit() {
   if [ "$launch_started" -eq 0 ]; then
     if [ "$record_written" -eq 1 ] \
@@ -376,8 +381,8 @@ say backend "$backend"
 
 # launch_failed <rc> <reason> [keep] — keep the marker when the rung may have
 # a worker for the unit: exit 3 from either rung reports one in flight, and
-# fleet-streamjson.sh exits 2 also after spawning a supervisor that missed
-# its startup window. Every other failure launched nothing.
+# fleet-streamjson.sh's startup-timeout exit 2 follows a supervisor it already
+# spawned. Every other failure launched nothing.
 launch_failed() {
   relay "$wtmp/launch.err"
   if [ "$1" -eq 3 ] || [ "${3:-}" = keep ]; then
@@ -407,7 +412,7 @@ case $backend in
     "$script_dir/fleet-streamjson.sh" launch "$handle" "$spec_name:task-$task_id" \
       --prompt-file "$prompt" --cwd "$worktree" "$@" \
       </dev/null >"$wtmp/launch.out" 2>"$wtmp/launch.err" || launch_rc=$?
-    if [ "$launch_rc" -eq 2 ]; then
+    if [ "$launch_rc" -eq 2 ] && grep -q 'did not start within' "$wtmp/launch.err" 2>/dev/null; then
       launch_failed 2 "fleet-streamjson exit 2" keep
     fi
     [ "$launch_rc" -eq 0 ] || launch_failed "$launch_rc" "fleet-streamjson exit $launch_rc"
