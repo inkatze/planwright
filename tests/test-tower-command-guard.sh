@@ -97,7 +97,7 @@ run_hook() {
   local payload
   payload="$(jq -n --arg c "$cmd" --arg t "$tool" --arg w "$cwd" \
     '{tool_name:$t, tool_input:{command:$c}, cwd:$w}')"
-  OUT="$(printf '%s' "$payload" | CLAUDE_PLUGIN_ROOT="${RUN_PLUGIN_ROOT:-$PLUGIN_ROOT}" /bin/bash "$HOOK" 2>/dev/null)"
+  OUT="$(printf '%s' "$payload" | TMPDIR="${RUN_TMPDIR:-${TMPDIR:-}}" CLAUDE_PLUGIN_ROOT="${RUN_PLUGIN_ROOT:-$PLUGIN_ROOT}" /bin/bash "$HOOK" 2>/dev/null)"
   CODE=$?
 }
 
@@ -234,6 +234,85 @@ assert_allow "ls" "ls -la"
 assert_allow "sed read-only" "sed -n '1,5p' file"
 assert_allow "safe compound && (relay then observe)" "tmux load-buffer /tmp/b && tmux paste-buffer -t fleet:0"
 assert_allow "safe pipe observe" "tmux capture-pane -p -t fleet:0 | grep -c esc"
+
+echo "### tower-front-door REQ-A1.3 — the front door's posture check: jq projections ALLOW"
+# The front door reads each settings layer by jq projection and locates the
+# plugin root from installed_plugins.json. jq has no exec or file-write
+# primitive; the screen is the worker guard's, kept byte-identical (see the
+# structural parity block), so only the environment reads and the
+# unscreenable-filter forms defer.
+assert_allow "posture check: deny projection of a settings layer" "jq '.permissions.deny' /home/u/.claude/settings.json"
+assert_allow "posture check: hooks projection, raw output" "jq -r '.hooks' .claude/settings.local.json"
+assert_allow "posture check: deny projection of the managed layer (quoted path)" "jq '.permissions.deny // []' '/Library/Application Support/ClaudeCode/managed-settings.json'"
+assert_allow "plugin root location" "jq -er '.plugins[\"planwright@planwright\"] // [] | map(select(.scope == \"user\")) | last | .installPath // empty' /home/u/.claude/plugins/installed_plugins.json"
+assert_allow "jq in a pipeline" "gh pr view 5 --json title | jq -r .title"
+assert_allow "jq --arg takes two values" "jq --arg x 1 '.a' file.json"
+assert_defer "jq env builtin decants the environment" "jq -n env"
+assert_defer "jq \$ENV decants the environment" "jq -n '\$ENV'"
+assert_defer "jq env behind --indent's value" "jq --indent 4 '\$ENV'"
+assert_defer "jq -f program file is unscreenable" "jq -f prog.jq file.json"
+assert_defer "jq -f bundled into a short cluster" "jq -nf prog.jq"
+assert_defer "jq -L loads module text the guard never sees" "jq -L /tmp/mods 'include \"m\"; .' file.json"
+assert_defer "jq unknown long flag" "jq --frobnicate '.a' file.json"
+assert_defer "jq with no filter at all" "jq"
+assert_defer "jq writing through a redirect" "jq . a.json > out.json"
+assert_defer "jq filter from an unexpanded variable" "jq \"\$F\" file.json"
+
+echo "### tower-front-door REQ-A1.3 — the flight petition's temp files: mktemp and their removal ALLOW"
+# A flight petition's ask and grounds go into the tower's own mktemp files,
+# written with the file tool and removed once the dispatch returns. Only the
+# bare mktemp form (a fresh file in TMPDIR) and a plain removal of a
+# mktemp-named regular file directly inside TMPDIR or /tmp are approved.
+TOWER_TMP="$(mktemp -d)" || exit 1
+TOWER_TMP="$(cd "$TOWER_TMP" && pwd -P)"
+SLASH_TMP_FILE="$(mktemp /tmp/tmp.XXXXXXXXXX)" || exit 1
+mkdir -p "$TOWER_TMP/tmp.dir0123456" "$TOWER_TMP/sub"
+: >"$TOWER_TMP/tmp.Ab3dE6gH9j"
+: >"$TOWER_TMP/tmp.Zz9yX8wV7u"
+: >"$TOWER_TMP/sub/tmp.Qq1wE2rT3y"
+: >"$TOWER_TMP/notes.txt"
+ln -s /etc/hosts "$TOWER_TMP/tmp.LnK0123456"
+export RUN_TMPDIR="$TOWER_TMP/"
+assert_allow "bare mktemp" "mktemp"
+assert_allow "removal of both petition files" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j $TOWER_TMP/tmp.Zz9yX8wV7u"
+assert_allow "removal without -f" "rm $TOWER_TMP/tmp.Ab3dE6gH9j"
+assert_allow "removal after --" "rm -f -- $TOWER_TMP/tmp.Ab3dE6gH9j"
+assert_allow "removal of a petition file already gone" "rm -f $TOWER_TMP/tmp.Gone012345"
+assert_allow "removal of a mktemp file directly in /tmp" "rm -f $SLASH_TMP_FILE"
+assert_allow "mktemp then removal in one command" "mktemp && rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
+assert_defer "mktemp -d makes a directory" "mktemp -d"
+assert_defer "mktemp with a template picks the path" "mktemp /home/u/x.XXXXXX"
+assert_defer "mktemp -p picks the directory" "mktemp -p /home/u"
+assert_defer "mktemp -t picks the prefix" "mktemp -t x"
+assert_defer "mktemp -u only names a path" "mktemp -u"
+assert_defer "mktemp writing through a redirect" "mktemp > out.txt"
+assert_defer "recursive removal" "rm -rf $TOWER_TMP/tmp.dir0123456"
+assert_defer "recursive removal, split flags" "rm -r -f $TOWER_TMP/tmp.dir0123456"
+assert_defer "directory removal" "rm -d $TOWER_TMP/tmp.dir0123456"
+assert_defer "a mktemp-named directory, no flags" "rm $TOWER_TMP/tmp.dir0123456"
+assert_defer "a symlink named like a mktemp file" "rm -f $TOWER_TMP/tmp.LnK0123456"
+assert_defer "a file not named like a mktemp file" "rm -f $TOWER_TMP/notes.txt"
+assert_defer "a mktemp-named file below TMPDIR, not in it" "rm -f $TOWER_TMP/sub/tmp.Qq1wE2rT3y"
+assert_defer "a mktemp-named path outside TMPDIR and /tmp" "rm -f $SANDBOX/tmp.Ab3dE6gH9j"
+assert_defer "a relative path" "rm -f tmp.Ab3dE6gH9j"
+assert_defer "a dot-dot path out of TMPDIR" "rm -f $TOWER_TMP/../etc/tmp.Ab3dE6gH9j"
+assert_defer "a glob" "rm -f $TOWER_TMP/tmp.*"
+assert_defer "an unexpanded variable" "rm -f \$TMPDIR/tmp.Ab3dE6gH9j"
+assert_defer "a tilde path" "rm -f ~/tmp.Ab3dE6gH9j"
+assert_defer "one safe operand and one unsafe" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j /etc/hosts"
+assert_defer "an interactive or verbose flag" "rm -i $TOWER_TMP/tmp.Ab3dE6gH9j"
+assert_defer "a flag-shaped operand after --" "rm -f -- -rf"
+assert_defer "bare rm" "rm"
+# A directory named so that its canonical path, split on the newline, reads as
+# TMPDIR followed by /tmp: the two lines of the guard's directory list.
+SPANNING_DIR="$TOWER_TMP
+$(cd /tmp && pwd -P)"
+mkdir -p "$SPANNING_DIR" && : >"$SPANNING_DIR/tmp.Ab3dE6gH9j"
+assert_defer "an operand whose directory spans the directory list's lines" "rm -f '$SPANNING_DIR/tmp.Ab3dE6gH9j'"
+assert_defer "a suffix too short for mktemp" "rm -f $TOWER_TMP/tmp.abc"
+RUN_TMPDIR="$SANDBOX" assert_defer "a mktemp file in a directory TMPDIR does not name" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
+unset RUN_TMPDIR
+rm -rf "$TOWER_TMP" "$TOWER_TMP"$'\n' "$SLASH_TMP_FILE"
 
 echo "### Narrowed screen — sed bracket expressions are read-only (paired positives/negatives)"
 # The engine's sed screen is on what makes a sed script DANGEROUS (the w/W write,
@@ -539,7 +618,7 @@ short_flag_hit guard_sort guard_uniq guard_find guard_file guard_date \
 classify_redirect is_reserved repo_root_of emit_allow dollar_expands \
 word_unresolved arg_independent_verb guard_test guard_printf loop_header \
 assign_name_ok expand_word plugin_root_unlinked dollar_form_ok loop_enter \
-loop_next opaque_words_ok test_opaque_ok"
+loop_next opaque_words_ok test_opaque_ok jq_program_safe guard_jq"
 
 # fn_body <file> <name>: the function's text, from its `name() {` line to the
 # first `}` at column 0, with full-line comments dropped.
