@@ -531,6 +531,24 @@ chmod +x "$GETCONF_FAIL/getconf"
 RUN_PATH="$GETCONF_FAIL:$PATH" RUN_TMPDIR='' assert_defer "a directory a failing getconf printed" "rm -f $GETCONF_DIR/tmp.Ab3dE6gH9j"
 assert_defer "a suffix too short for mktemp" "rm -f $TOWER_TMP/tmp.abc"
 RUN_TMPDIR="$SANDBOX" assert_defer "a mktemp file in a directory TMPDIR does not name" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
+# Inside double quotes the shell keeps a backslash before an ordinary
+# character, while the guard's reader drops it, so a quoted operand can name
+# one path to the guard and another to rm. Every quoted rm operand defers,
+# a loop head word that was quoted included; nothing else changes verdict.
+if ! { ln -s "$TOWER_TMP" "$SANDBOX/qx" && ln -s "$SANDBOX/elsewhere" "$SANDBOX/qx\\"; }; then
+  echo "FAIL: could not build the backslash-quoting fixture" >&2
+  exit 1
+fi
+assert_defer "a double-quoted operand whose backslash names another directory" "rm -f \"$SANDBOX/qx\\/tmp.Ab3dE6gH9j\""
+assert_defer "the same path through a quoted for-loop head word" "for f in \"$SANDBOX/qx\\/tmp.Ab3dE6gH9j\"; do rm -f \$f; done"
+assert_defer "a double-quoted temp-file operand" "rm -f \"$TOWER_TMP/tmp.Ab3dE6gH9j\""
+assert_defer "a single-quoted temp-file operand" "rm -f '$TOWER_TMP/tmp.Ab3dE6gH9j'"
+assert_defer "a partly quoted temp-file operand" "rm -f $TOWER_TMP/\"tmp.Ab3dE6gH9j\""
+assert_defer "a backslash-escaped temp-file operand" "rm -f $TOWER_TMP/tmp\\.Ab3dE6gH9j"
+assert_defer "one quoted operand among unquoted ones" "rm -f $TOWER_TMP/tmp.Zz9yX8wV7u \"$TOWER_TMP/tmp.Ab3dE6gH9j\""
+assert_allow "an unquoted for-loop head over temp files" "for f in $TOWER_TMP/tmp.Ab3dE6gH9j $TOWER_TMP/tmp.Zz9yX8wV7u; do rm -f \$f; done"
+assert_defer "a quoted variable, even over unquoted head words" "for f in $TOWER_TMP/tmp.Ab3dE6gH9j; do rm -f \"\$f\"; done"
+
 unset RUN_TMPDIR
 
 echo "### Narrowed screen — sed bracket expressions are read-only (paired positives/negatives)"
@@ -937,6 +955,14 @@ parity "parity: awk REQ-section filter allows" \
 parity "parity: sort -to is a separator, not an output file" "sort -to file"
 parity "parity: sort -o output defers" "sort -o out file"
 parity "parity: sort -- ends the flags" "sort -- -o"
+# The quoted-operand flag is read by the temp-file removal alone: quoted and
+# backslashed words keep their verdicts for every other verb, in both guards.
+parity "parity: a double-quoted grep alternation still allows" "grep \"a\\|b\" file"
+parity "parity: a double-quoted cat operand with a backslash still allows" "cat \"a\\b\""
+parity "parity: a quoted jq filter and file still allow" "jq '.a' \"f.json\""
+parity "parity: a quoted sed script still allows" "sed -n \"1,5p\" file"
+parity "parity: a quoted git log format still allows" "git log --format=\"%h %s\" -3"
+parity "parity: a quoted for-loop head over cat still allows" "for f in \"a.txt\" b.txt; do cat \$f; done"
 
 echo "### REQ-C1.3 — deny-precedence OUTCOME (derived from tower-settings deny block)"
 # Every command drawn from config/tower-settings.json's deny block MUST defer:

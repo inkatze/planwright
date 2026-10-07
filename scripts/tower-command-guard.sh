@@ -1415,6 +1415,17 @@ temp_dirs() {
   canon_temp_dir /tmp
 }
 
+# loop_head_quoted: 0 when an open `for` loop (verify_tokens' LF_QH, by
+# dynamic scope) has a quoted head word, whose value the reader may have
+# dequoted differently from the shell.
+loop_head_quoted() {
+  local t
+  for ((t = 0; t < lf_n; t++)); do
+    [ "${LF_QH[t]-0}" = 1 ] && return 0
+  done
+  return 1
+}
+
 # guard_rm: removing mktemp-named temp files, so a flight petition's ask and
 # grounds files can be cleaned up once the dispatch returns. Each operand must
 # be an absolute path with no `.` or `..` component, whose name has mktemp's
@@ -1426,15 +1437,20 @@ temp_dirs() {
 # `-f` and `--` are the only flags, and only before the first operand: BSD rm
 # reads a later one as a file name. -r/-R/-d (directories), -i/-I/-v and every
 # other flag defer, and so does any removal once a while or until loop has
-# opened or with an input redirect, as guard_mktemp does. The guard cannot
-# tell whose file it is: any same-user file of that name in those directories
-# qualifies.
+# opened or with an input redirect, as guard_mktemp does. A quoted or
+# backslash-escaped operand defers too, as does one taking its value from a
+# quoted `for` head word. The guard cannot tell whose file it is: any
+# same-user file of that name in those directories qualifies.
 guard_rm() {
   local i a d b s dirs endflags=0 operands=0
   [ "${in_unbounded_loop:-0}" = 0 ] || return 1
   no_input_redirect || return 1
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
+    # The reader drops quoting the shell keeps (a double-quoted backslash
+    # before an ordinary character), so a quoted word, or a loop value taken
+    # from a quoted head word, may name another path to rm.
+    [ "${cq[i]-0}" = 1 ] && return 1
     if [ "$endflags" = 0 ]; then
       case $a in
         --)
@@ -1973,7 +1989,12 @@ verify_simple() {
   if [ "$VAR_C" -gt 0 ]; then
     for ((i = 0; i < cwn; i++)); do
       case ${cw[i]} in
-        *'$'*) [ "${cx[i]}" = 0 ] && expand_word "${cw[i]}" && cw[i]=$EXPANDED ;;
+        *'$'*)
+          if [ "${cx[i]}" = 0 ] && expand_word "${cw[i]}"; then
+            [ "$EXPANDED" != "${cw[i]}" ] && loop_head_quoted && cq[i]=1
+            cw[i]=$EXPANDED
+          fi
+          ;;
       esac
     done
   fi
@@ -2014,13 +2035,13 @@ verify_simple() {
 # non-zero (DEFER).
 verify_tokens() {
   local depth=$1
-  local idx=0 typ val
+  local idx=0 typ val fidx k
   local mode=normal # normal | casehead | casepat | casebody
   local case_depth=0 ctl_depth=0 in_unbounded_loop=0
-  local -a cw=() cx=() cdyn=() cglob=() ro=() rt=()
+  local -a cw=() cx=() cdyn=() cglob=() cq=() ro=() rt=()
   local cwn=0 rn=0
   # The open `for` loops, innermost last (see the worker guard's walker).
-  local -a LF_VAR=() LF_START=() LF_COUNT=() LF_POS=() LF_BODY=() LF_DEPTH=() LF_CASE=()
+  local -a LF_VAR=() LF_START=() LF_COUNT=() LF_POS=() LF_BODY=() LF_DEPTH=() LF_CASE=() LF_QH=()
   local lf_n=0
 
   fin() {
@@ -2029,6 +2050,7 @@ verify_tokens() {
     cx=()
     cdyn=()
     cglob=()
+    cq=()
     ro=()
     rt=()
     cwn=0
@@ -2105,7 +2127,14 @@ verify_tokens() {
       case $val in
         for)
           fin || return 1
+          fidx=$idx
           loop_enter || return 1
+          # Whether any head word was quoted: guard_rm refuses an operand that
+          # takes such a word's value (the reader drops quoting the shell keeps).
+          LF_QH[lf_n - 1]=0
+          for ((k = fidx + 3; k < fidx + 3 + LH_COUNT; k++)); do
+            [ "${TOK_QUOTED[k]}" = 1 ] && LF_QH[lf_n - 1]=1
+          done
           continue
           ;;
         select)
@@ -2160,6 +2189,7 @@ verify_tokens() {
     cx[cwn]=${TOK_NOEXP[idx]}
     cdyn[cwn]=${TOK_DYN[idx]}
     cglob[cwn]=${TOK_GLOB[idx]}
+    cq[cwn]=${TOK_QUOTED[idx]}
     cwn=$((cwn + 1))
     idx=$((idx + 1))
   done
