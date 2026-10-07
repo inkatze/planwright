@@ -163,6 +163,15 @@ else
   fail "self-check: a caller-exported variable changed the guard's verdict"
 fi
 
+# A placeholder binds to the path verbatim: bash 5.2 expands `&` in a
+# pattern-substitution replacement to the matched text.
+bound=$(CORPUS_PLUGIN_ROOT='/opt/a&b\c' corpus_bind 'R=@@PLUGIN_ROOT@@; ls @@PLUGIN_ROOT@@')
+if [ "$bound" = 'R=/opt/a&b\c; ls /opt/a&b\c' ]; then
+  pass "self-check: a placeholder binds a path carrying & and \\ verbatim"
+else
+  fail "self-check: placeholder binding mangled the path: $bound"
+fi
+
 # Each malformed corpus must refuse (exit 2) before replaying anything, and
 # for its own reason, so one malformation cannot stand in for another.
 refuses() {

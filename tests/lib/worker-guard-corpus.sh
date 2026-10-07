@@ -164,12 +164,30 @@ corpus_parse() {
 
 # corpus_bind <command>: the command with the placeholders bound to the
 # sandbox and the plugin root under test.
+# Spliced by prefix and suffix rather than ${c//pat/rep}: bash 5.2 expands
+# `&` in that replacement to the matched text.
 corpus_bind() {
-  local c=$1
-  c=${c//@@WORKTREE@@/$CORPUS_WORKTREE}
-  c=${c//@@SCRATCH@@/$CORPUS_SCRATCH}
-  c=${c//@@OUTSIDE@@/$CORPUS_OUTSIDE}
-  c=${c//@@PLUGIN_ROOT@@/$CORPUS_PLUGIN_ROOT}
+  local c=$1 name value out mark
+  for name in WORKTREE SCRATCH OUTSIDE PLUGIN_ROOT; do
+    case $name in
+      WORKTREE) value=$CORPUS_WORKTREE ;;
+      SCRATCH) value=$CORPUS_SCRATCH ;;
+      OUTSIDE) value=$CORPUS_OUTSIDE ;;
+      PLUGIN_ROOT) value=$CORPUS_PLUGIN_ROOT ;;
+    esac
+    mark="@@$name@@"
+    out=
+    while :; do
+      case $c in
+        *"$mark"*)
+          out=$out${c%%"$mark"*}$value
+          c=${c#*"$mark"}
+          ;;
+        *) break ;;
+      esac
+    done
+    c=$out$c
+  done
   printf '%s' "$c"
 }
 
