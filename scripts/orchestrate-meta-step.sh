@@ -186,7 +186,8 @@ repo_phys=$(cd "$repo_root" && pwd -P) || die "the repo root cannot be entered"
 primary_phys=$(cd "$repo_phys" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) \
   || die "the primary checkout did not resolve from --repo-root"
 primary_phys=$(cd "$primary_phys" && pwd -P) || die "the primary checkout cannot be entered"
-[ "$repo_phys" = "$primary_phys" ] || die "--repo-root is not the primary checkout; pass the primary checkout"
+[ "$repo_phys" = "$primary_phys" ] \
+  || die "the repo root (--repo-root, else PLANWRIGHT_REPO_ROOT) is not the primary checkout; pass the primary checkout"
 spec_root=$(cd "$repo_phys" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec --primary 2>/dev/null) \
   || die "the primary checkout's spec root did not resolve"
 spec_root_parent=$(cd "${spec_root%/*}" 2>/dev/null && pwd -P) || spec_root_parent=

@@ -18,7 +18,13 @@
 #     hold a worker for the unit, which keeps it;
 #   - an incomplete record report (exit 5) and a signal landing after the
 #     record clear the marker the record stamped;
-#   - only the screened copy of the prompt reaches the worker;
+#   - only the screened copy of the prompt reaches the worker, and a rung's
+#     message reaches stderr with control bytes stripped;
+#   - expression-only and bare-form entries dispatch; with no remote the gate
+#     reads local main, while an unreachable remote or an unresolved anchor
+#     parks;
+#   - a silent headless launch still reports the rung's handle form;
+#   - a bad task id or spec name and an unwired rung are refused;
 #   - a lock or fetch refusal, a relocated spec root, or a --repo-root other
 #     than the primary checkout is refused (exit 2) before anything is placed.
 #
