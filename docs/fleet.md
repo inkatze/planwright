@@ -1771,6 +1771,29 @@ them with the rung's `stop`.
 `fleet_daemon_pause` pauses the whole cycle. A sweep stopped by a signal,
 one cycle or a watch loop, leaves no temp file behind in the fleet home.
 
+### Stale attention rows: `fleet-attention-reconcile.sh`
+
+A tower clears the attention rows it wrote when their units finish. A tower
+that died first leaves its rows `working`, and no later tower clears a row it
+did not write. The `/orchestrate` reconcile sweep, which runs at start and on
+every `--watch` iteration, ends by judging every row in the store on durable
+evidence:
+
+```sh
+scripts/fleet-attention-reconcile.sh --repo /path/to/primary-checkout
+```
+
+A row is cleared when its spec unit derives completed
+(`scripts/orchestrate-state.sh`; every task of a bundle range), or when it
+claims a live worker (`working`, `idle`, `hung`, `ended`) and the worker's
+registry death handle is positively dead (`scripts/fleet-death-evidence.sh`).
+An awaiting-input row is always kept, as is a row whose evidence is unknown
+or absent and a status row whose unit is still in flight. A worker whose
+registry record lives in another checkout is not judged on this checkout's
+specs. Each clear goes through `fleet-attention.sh clear --if-row`, so a
+worker that wrote since it was judged keeps its new row, and is audited under
+the `attention-reconcile` mechanism. `fleet_daemon_pause` pauses the pass.
+
 ## Resource governance: models, throttling, and the auto-mode line
 
 Three deterministic mechanisms govern what a dispatched unit costs and what it

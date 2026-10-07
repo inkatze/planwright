@@ -127,8 +127,13 @@
 #       additive 9th field) — no option set (that is `decide`'s answerable
 #       channel). Atomic --unless-awaiting: a no-op that preserves a queued
 #       decision. The classifier resolves the row to awaiting-human directly.
-#   fleet-attention.sh clear <worker>
+#   fleet-attention.sh clear <worker> [--if-row <state> <stamp>]
 #       Remove the worker's row (idempotent) — cleanup on merged/done teardown.
+#       --if-row: remove it only while the row still carries exactly that state
+#       and heartbeat stamp, checked inside the store's critical section; any
+#       other row (the worker wrote since it was judged, or no row) is left
+#       alone with exit 3. The judge-then-clear primitive for a caller whose
+#       verdict was reached outside the lock (fleet-attention-reconcile.sh).
 #   fleet-attention.sh render [--surface-provided] [--on-change <key> [--liveness <seconds>]]
 #       Status renderer: each worker's scope + state.
 #       --on-change renders on a transition only (the watch loop's form; <key>
@@ -189,7 +194,8 @@
 #   input, or a filesystem/lock error (fail closed); 3 a SEMANTIC refusal on the
 #   Task 4 decision channel — `claim` refusing an answer (stale / bad label /
 #   already-claimed / permission-park / no such fork) and `fork` refusing to
-#   clobber a queued human decision (the unless-decide guard) — distinct from the
+#   clobber a queued human decision (the unless-decide guard), and a guarded
+#   `clear --if-row` finding the row changed since it was judged — distinct from the
 #   operational 2 so a caller can tell "the request does not apply" from "the
 #   store I/O broke"; other non-zero from a propagated resolver hard-fail
 #   (notify).
@@ -1348,9 +1354,34 @@ case $cmd in
 
   clear)
     worker="${1:-}"
+    clr_if=0
+    clr_state=""
+    clr_stamp=""
+    case $# in
+      1) ;;
+      4)
+        [ "$2" = --if-row ] || worker=""
+        clr_if=1
+        clr_state=$3
+        clr_stamp=$4
+        ;;
+      *) worker="" ;;
+    esac
     if [ -z "$worker" ]; then
-      echo "usage: fleet-attention.sh clear <worker>" >&2
+      echo "usage: fleet-attention.sh clear <worker> [--if-row <state> <stamp>]" >&2
       exit 2
+    fi
+    if [ "$clr_if" = 1 ]; then
+      case $clr_stamp in
+        "" | *[!0-9]*)
+          echo "fleet-attention: refusing a malformed --if-row stamp" >&2
+          exit 2
+          ;;
+      esac
+      if [ "$clr_state" != awaiting-input ] && ! valid_heartbeat_state "$clr_state"; then
+        echo "fleet-attention: refusing a malformed --if-row state" >&2
+        exit 2
+      fi
     fi
     if ! valid_field "$worker"; then
       echo "fleet-attention: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
@@ -1360,8 +1391,28 @@ case $cmd in
     attn_dir="$root/attention"
     store="$attn_dir/state"
     # Absent store → nothing to clear (idempotent), no lock, no home creation.
-    [ -f "$store" ] || exit 0
+    # A guarded clear has no row to match there, which is its refusal.
+    if [ ! -f "$store" ]; then
+      [ "$clr_if" = 1 ] && exit 3
+      exit 0
+    fi
     acquire_lock || exit 2
+    if [ "$clr_if" = 1 ]; then
+      # Every row for the worker must be the judged one, so a duplicate left
+      # by external corruption cannot let a newer row ride out on an older
+      # verdict; no row at all is a refusal too.
+      clr_match=$(awk -F "$TAB" -v w="$worker" -v st="$clr_state" -v ts="$clr_stamp" '
+        ($1 "") == (w "") { n++; if (($3 "") != (st "") || ($4 "") != (ts "")) bad = 1 }
+        END { print (n > 0 && !bad) ? "y" : "n" }' "$store") || {
+        release_lock
+        echo "fleet-attention: could not read the store to evaluate --if-row" >&2
+        exit 2
+      }
+      if [ "$clr_match" != y ]; then
+        release_lock
+        exit 3
+      fi
+    fi
     clr_rc=0
     st_tmp=$(mktemp "$attn_dir/.state.XXXXXX") || {
       release_lock
