@@ -2238,6 +2238,42 @@ for v in pw_lock_release pw_lock_release_all pw_lock_release_token; do
   assert_eq "$v does not forget a hold by hand" "0" "$forgets"
 done
 
+# ---------------------------------------------------------------------------
+# 60. The caller's own path never decides whether an owner is alive
+# ---------------------------------------------------------------------------
+#
+# A failed `kill -0` prints an error the shell prefixes with the running
+# script's path, so a verdict read from that text inherits whatever words the
+# path happens to contain. Every worktree of a branch named for permissions
+# read every dead holder as alive, and its stale locks never cleared. Run from
+# such a path, a dead owner must still read dead, and a live one, or one this
+# shell may not signal, alive.
+
+perm_dir="$tmp/worker-permission-ergonomics-not-permitted"
+mkdir -p "$perm_dir"
+cat >"$perm_dir/probe.sh" <<'EOF'
+. "$1"
+pw_lock_owner_alive "$2"
+EOF
+probe_from_permission_path() {
+  $SH "$perm_dir/probe.sh" "$LIB" "$1" >/dev/null 2>&1
+}
+sh -c 'exit 0' &
+gone=$!
+wait "$gone" 2>/dev/null
+probe_from_permission_path "$gone-0-1"
+assert_exit "a dead owner reads dead from a path naming permission" 1 $?
+sleep 120 &
+perm_live=$!
+probe_from_permission_path "$perm_live-0-1"
+assert_exit "a live owner reads alive from that path" 0 $?
+kill "$perm_live" 2>/dev/null
+wait "$perm_live" 2>/dev/null
+if [ "$(id -u)" -ne 0 ]; then
+  probe_from_permission_path "1-0-1"
+  assert_exit "and a process this shell may not signal still reads alive" 0 $?
+fi
+
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."
 else
