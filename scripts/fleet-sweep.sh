@@ -567,7 +567,7 @@ reconcile_pass() {
       # verb clears one only on positive evidence of the holder's death and
       # refuses on anything less, so its own refusals are not reportable
       # events; only an actual clear is.
-      if [ -x "$LOCK" ] && { [ -L "$repo/$rel/.orchestrate.lock" ] || [ -e "$repo/$rel/.orchestrate.lock" ]; }; then
+      if [ -x "$LOCK" ] && { [ -L "${d}.orchestrate.lock" ] || [ -e "${d}.orchestrate.lock" ]; }; then
         lk_rc=0
         lk_out=$(cd "$repo" && "$LOCK" sweep "$rel" 2>/dev/null) || lk_rc=$?
         if [ "$lk_rc" = 0 ] && [ "$lk_out" = cleared ]; then
