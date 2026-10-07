@@ -127,10 +127,11 @@
 #       additive 9th field) — no option set (that is `decide`'s answerable
 #       channel). Atomic --unless-awaiting: a no-op that preserves a queued
 #       decision. The classifier resolves the row to awaiting-human directly.
-#   fleet-attention.sh clear <worker> [--if-row <state> <stamp>]
+#   fleet-attention.sh clear <worker> [--if-row <scope> <state> <stamp>]
 #       Remove the worker's row (idempotent) — cleanup on merged/done teardown.
-#       --if-row: remove it only while the row still carries exactly that state
-#       and heartbeat stamp, checked inside the store's critical section; any
+#       --if-row: remove it only while the row still carries exactly that
+#       scope, state and heartbeat stamp, checked inside the store's critical
+#       section; any
 #       other row (the worker wrote since it was judged, or no row) is left
 #       alone with exit 3. The judge-then-clear primitive for a caller whose
 #       verdict was reached outside the lock (fleet-attention-reconcile.sh).
@@ -1355,20 +1356,22 @@ case $cmd in
   clear)
     worker="${1:-}"
     clr_if=0
+    clr_scope=""
     clr_state=""
     clr_stamp=""
     case $# in
       1) ;;
-      4)
+      5)
         [ "$2" = --if-row ] || worker=""
         clr_if=1
-        clr_state=$3
-        clr_stamp=$4
+        clr_scope=$3
+        clr_state=$4
+        clr_stamp=$5
         ;;
       *) worker="" ;;
     esac
     if [ -z "$worker" ]; then
-      echo "usage: fleet-attention.sh clear <worker> [--if-row <state> <stamp>]" >&2
+      echo "usage: fleet-attention.sh clear <worker> [--if-row <scope> <state> <stamp>]" >&2
       exit 2
     fi
     if [ "$clr_if" = 1 ]; then
@@ -1378,6 +1381,10 @@ case $cmd in
           exit 2
           ;;
       esac
+      if ! valid_field "$clr_scope"; then
+        echo "fleet-attention: refusing a malformed --if-row scope" >&2
+        exit 2
+      fi
       if [ "$clr_state" != awaiting-input ] && ! valid_heartbeat_state "$clr_state"; then
         echo "fleet-attention: refusing a malformed --if-row state" >&2
         exit 2
@@ -1401,8 +1408,8 @@ case $cmd in
       # Every row for the worker must be the judged one, so a duplicate left
       # by external corruption cannot let a newer row ride out on an older
       # verdict; no row at all is a refusal too.
-      clr_match=$(awk -F "$TAB" -v w="$worker" -v st="$clr_state" -v ts="$clr_stamp" '
-        ($1 "") == (w "") { n++; if (($3 "") != (st "") || ($4 "") != (ts "")) bad = 1 }
+      clr_match=$(awk -F "$TAB" -v w="$worker" -v sc="$clr_scope" -v st="$clr_state" -v ts="$clr_stamp" '
+        ($1 "") == (w "") { n++; if (($2 "") != (sc "") || ($3 "") != (st "") || ($4 "") != (ts "")) bad = 1 }
         END { print (n > 0 && !bad) ? "y" : "n" }' "$store") || {
         release_lock
         echo "fleet-attention: could not read the store to evaluate --if-row" >&2

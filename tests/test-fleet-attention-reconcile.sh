@@ -4,8 +4,9 @@
 # `fleet-attention.sh clear --if-row` it clears through.
 #
 # Coverage:
-#   g1: a guarded clear removes the row only while it is exactly the judged
-#       one; a changed or missing row is refused with exit 3.
+#   g1: a guarded clear removes the row only while it carries the judged
+#       scope, state and stamp; a changed or missing row is refused with
+#       exit 3.
 #   c1: a row whose spec unit derives completed is cleared, in both scope
 #       spellings (`<spec>:task-<id>` and `<spec>:<id>`), with no registry
 #       record behind it (a dead earlier tower's window-id handle).
@@ -180,21 +181,24 @@ fresh
 fenv /bin/sh "$FA" heartbeat w1 demo:task-2 working
 stamp=$(awk -F "$TAB" '$1 == "w1" { print $4 }' "$home/attention/state")
 g_rc=0
-fenv /bin/sh "$FA" clear w1 --if-row working "$((stamp + 1))" || g_rc=$?
+fenv /bin/sh "$FA" clear w1 --if-row demo:task-2 working "$((stamp + 1))" || g_rc=$?
 [ "$g_rc" = 3 ] || fail "g1: a stale stamp exited $g_rc, expected 3"
 has_row w1 || fail "g1: a stale stamp removed the row"
 g_rc=0
-fenv /bin/sh "$FA" clear w1 --if-row idle "$stamp" || g_rc=$?
+fenv /bin/sh "$FA" clear w1 --if-row demo:task-2 idle "$stamp" || g_rc=$?
 [ "$g_rc" = 3 ] || fail "g1: a changed state exited $g_rc, expected 3"
 g_rc=0
-fenv /bin/sh "$FA" clear w1 --if-row working "$stamp" || g_rc=$?
+fenv /bin/sh "$FA" clear w1 --if-row demo:task-4 working "$stamp" || g_rc=$?
+[ "$g_rc" = 3 ] || fail "g1: a changed scope exited $g_rc, expected 3"
+g_rc=0
+fenv /bin/sh "$FA" clear w1 --if-row demo:task-2 working "$stamp" || g_rc=$?
 [ "$g_rc" = 0 ] || fail "g1: the judged row exited $g_rc, expected 0"
 has_row w1 && fail "g1: the judged row survived"
 g_rc=0
-fenv /bin/sh "$FA" clear w1 --if-row working "$stamp" || g_rc=$?
+fenv /bin/sh "$FA" clear w1 --if-row demo:task-2 working "$stamp" || g_rc=$?
 [ "$g_rc" = 3 ] || fail "g1: a missing row exited $g_rc, expected 3"
 g_rc=0
-fenv /bin/sh "$FA" clear w1 --if-row bogus 1 2>/dev/null || g_rc=$?
+fenv /bin/sh "$FA" clear w1 --if-row demo:task-2 bogus 1 2>/dev/null || g_rc=$?
 [ "$g_rc" = 2 ] || fail "g1: a malformed state exited $g_rc, expected 2"
 echo "ok: g1 guarded clear"
 

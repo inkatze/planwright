@@ -32,8 +32,8 @@
 #
 # The verdict is reached outside the store lock (a derivation can take
 # seconds), so each clear goes through `fleet-attention.sh clear --if-row`,
-# which removes the row only while it still carries the judged state and
-# stamp: a worker that wrote since keeps its new row. The operator kill-switch
+# which removes the row only while it still carries the judged scope, state
+# and stamp: a worker that wrote since keeps its new row. The operator kill-switch
 # (fleet-daemon-gate.sh) is checked at entry, and every clear is a fleet-audit
 # record under the `attention-reconcile` mechanism.
 #
@@ -363,7 +363,7 @@ while IFS="$TAB" read -r w scope state stamp _; do
     fi
   fi
   c_rc=0
-  /bin/sh "$FA" clear "$w" --if-row "$state" "$stamp" >/dev/null 2>&1 </dev/null || c_rc=$?
+  /bin/sh "$FA" clear "$w" --if-row "$scope" "$state" "$stamp" >/dev/null 2>&1 </dev/null || c_rc=$?
   case $c_rc in
     0)
       cleared=$((cleared + 1))
