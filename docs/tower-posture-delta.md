@@ -66,7 +66,8 @@ static `allow` entry is added.
   directory removal, `-i` or `-v`, a relative, tilde, glob, variable, or
   dot-component operand, a directory whose resolved path holds a line break,
   and any operand outside those directories defer, and one bad operand defers
-  the whole command.
+  the whole command. Like mktemp, removal defers once a `while` or `until`
+  loop has opened.
 
 ## The deny delta
 

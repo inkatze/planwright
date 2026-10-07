@@ -367,6 +367,13 @@ assert_defer "mktemp in an until loop" "until false; do mktemp; done"
 assert_defer "mktemp backgrounded in a while loop" "while true; do mktemp & done"
 assert_defer "mktemp as a while loop's condition" "while mktemp; do true; done"
 assert_allow "mktemp before a while loop" "mktemp && while false; do true; done"
+# Removal is the other half of the bounded temp-file exception, so it takes
+# the same loop check.
+assert_defer "removal in a while loop" "while true; do rm -f $TOWER_TMP/tmp.Ab3dE6gH9j; done"
+assert_defer "removal in an until loop" "until false; do rm -f $TOWER_TMP/tmp.Ab3dE6gH9j; done"
+assert_defer "removal as a while loop's condition" "while rm -f $TOWER_TMP/tmp.Ab3dE6gH9j; do true; done"
+assert_allow "removal in a for loop" "for i in 1 2; do rm -f $TOWER_TMP/tmp.Ab3dE6gH9j; done"
+assert_allow "removal before a while loop" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j && while false; do true; done"
 assert_defer "recursive removal" "rm -rf $TOWER_TMP/tmp.dir0123456"
 assert_defer "recursive removal, split flags" "rm -r -f $TOWER_TMP/tmp.dir0123456"
 assert_defer "directory removal" "rm -d $TOWER_TMP/tmp.dir0123456"

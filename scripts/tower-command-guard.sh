@@ -1402,10 +1402,12 @@ temp_dirs() {
 # appears later, and a symlink that appears later is unlinked, never followed.
 # `-f` and `--` are the only flags, and only before the first operand: BSD rm
 # reads a later one as a file name. -r/-R/-d (directories), -i/-I/-v and every
-# other flag defer. The guard cannot tell whose file it is: any same-user file
-# of that name in those directories qualifies.
+# other flag defer, and so does any removal once a while or until loop has
+# opened, as guard_mktemp does. The guard cannot tell whose file it is: any
+# same-user file of that name in those directories qualifies.
 guard_rm() {
   local i a d b s dirs endflags=0 operands=0
+  [ "${in_unbounded_loop:-0}" = 0 ] || return 1
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$endflags" = 0 ]; then
