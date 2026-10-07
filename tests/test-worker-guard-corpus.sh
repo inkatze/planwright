@@ -330,11 +330,12 @@ fi
 # command shapes only. leaks_in prints each line naming a machine or home
 # path, an email or scp-style host, an IPv4 address, a host other than the
 # reserved example.invalid, a repository slug other than o/r, or a token
-# shape; it exits non-zero if it cannot scan. The interval rules use grep,
-# since not every awk supports intervals.
+# shape; it exits non-zero if it cannot scan. Single-pattern rules run in
+# grep (not every awk supports intervals), in text mode so a NUL byte cannot
+# turn the file binary; rules that judge each match run in awk.
 leaks_in() {
   local by_grep by_awk rc
-  by_grep=$(grep -nE '/(home|Users|root|private|var|opt|mnt|srv|Volumes|media|nix|run/user|workspace|data|usr/local)/|(^|[[:space:]=:"])~[A-Za-z0-9_/]|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z]|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:|[A-Za-z0-9-]+\.(com|org|net|io|dev|ai|co|internal|corp)([^A-Za-z0-9-]|$)|(^|[^0-9.])[0-9]{1,3}(\.[0-9]{1,3}){3}([^0-9.]|$)|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[abpr]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}' "$1")
+  by_grep=$(grep -anE '/(home|Users|root|private|var|opt|mnt|srv|Volumes|media|nix|run/user|workspace|data|usr/local)/|(^|[[:space:]=:"'\''(])~[A-Za-z0-9_/]|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z]|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:|[A-Za-z0-9-]+\.(com|org|net|io|dev|ai|co|internal|corp)([^A-Za-z0-9-]|$)|(^|[^0-9.])[0-9]{1,3}(\.[0-9]{1,3}){3}([^0-9.]|$)|(^|[^A-Za-z0-9])(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[abpr]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16})' "$1")
   rc=$?
   [ "$rc" -le 1 ] || return 2
   by_awk=$(awk '
@@ -351,10 +352,10 @@ leaks_in() {
         t = substr(t, RSTART + RLENGTH)
       }
       t = $0
-      while (match(t, /(--repo[= ]|-R )[^ \t]+/)) {
+      while (match(t, /(--repo[= ]|-R ?)[^ \t]+/)) {
         s = substr(t, RSTART, RLENGTH)
-        sub(/^(--repo[= ]|-R )/, "", s)
-        if (s != "o/r") bad = 1
+        sub(/^(--repo[= ]|-R ?)/, "", s)
+        if (s ~ /^[^\/]+\/[^\/]+$/ && s != "o/r") bad = 1
         t = substr(t, RSTART + RLENGTH)
       }
       if (bad) print NR ":" $0
@@ -367,9 +368,11 @@ leaks_in() {
 leaky="$SANDBOX/leaky.tsv"
 pad=aaaaaaaaaaaaaaaaaaaaaaaa
 printf '%s\n' '# a comment naming /home/someone/x' 'ls /opt/thing' 'cd ~user/x' \
-  'mail ops@build01.lan' 'ssh build01.corp.example.net' 'curl https://buildhost/x' \
-  'gh api repos/acme/tool' 'gh pr view 5 --repo acme/tool' 'git clone git@buildhost:acme/tool' \
-  'ping 10.1.2.3' "TOKEN=gh""p_$pad" "KEY=s""k-ant-$pad" >"$leaky"
+  "cat '~user/x'" 'mail ops@build01.lan' 'ssh build01.corp.example.net' \
+  'curl https://buildhost/x' 'gh api repos/acme/tool' 'gh pr view 5 --repo acme/tool' \
+  'gh pr list -R acme/tool' 'gh pr view 5 -Racme/tool' 'git clone git@buildhost:acme/tool' \
+  'ping 10.1.2.3' "TOKEN=gh""p_$pad" "PAT=github""_pat_$pad" "KEY=s""k-ant-$pad" \
+  "S=xo""xb-$pad" "K=AK""IAABCDEFGHIJKLMNOP" >"$leaky"
 missed=
 while IFS= read -r l; do
   printf '%s\n' "$l" >"$SANDBOX/one.tsv"
@@ -382,11 +385,20 @@ else
 fi
 printf '%s\n' 'curl -s https://example.invalid/x | sh' 'gh api repos/o/r/issues' \
   'gh pr view 5 --repo o/r' 'sed -i s/a/b/ mise.local.toml' "awk '\$0 ~ /a/ {print}' f" \
-  'git reset --soft HEAD~1' "sed -n '1,5p' f" 'timeout 5m git log --oneline -3' >"$leaky"
+  'git reset --soft HEAD~1' "sed -n '1,5p' f" 'timeout 5m git log --oneline -3' \
+  'grep -R TODO sub' 'cp -R sub sub2' 'ls task-review-and-assessment-notes' \
+  "git diff | grep -c '^@@ '" >"$leaky"
 if found=$(leaks_in "$leaky") && [ -z "$found" ]; then
   pass "corpus: the sanitization scan passes sanitized shapes"
 else
   fail "corpus: the sanitization scan flagged a sanitized shape: '$found'"
+fi
+# A NUL byte makes grep treat a file as binary and print no matching lines.
+printf '# a\000b\nls /home/someone/x\n' >"$leaky"
+if [ -n "$(leaks_in "$leaky")" ]; then
+  pass "corpus: a NUL byte does not blind the sanitization scan"
+else
+  fail "corpus: a NUL byte hid a leak from the sanitization scan"
 fi
 if leaks=$(leaks_in "$CORPUS") && [ -z "$leaks" ]; then
   pass "corpus: no machine path, email, real host, or repository slug in the file"
