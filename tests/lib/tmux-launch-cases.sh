@@ -43,6 +43,11 @@ export PLANWRIGHT_TOWER_ID
 tlh_server_env PLANWRIGHT_ROOT=/decoy-root CLAUDE_PLUGIN_ROOT=/decoy-root \
   PLANWRIGHT_FLEET_STATE_DIR=/decoy-fleet
 tlh_knob worker-confirm off
+# The launch's confirm seams, so an unconfirmed launch waits the harness's
+# short cap rather than the real one.
+PLANWRIGHT_DISPATCH_CONFIRM_CAP=$TLH_CONFIRM_CAP_SECONDS
+PLANWRIGHT_DISPATCH_CONFIRM_INTERVAL=0.2
+export PLANWRIGHT_DISPATCH_CONFIRM_CAP PLANWRIGHT_DISPATCH_CONFIRM_INTERVAL
 
 gitc() {
   local r=$1

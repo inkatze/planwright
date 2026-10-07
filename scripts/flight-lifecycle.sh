@@ -12,7 +12,8 @@
 # (`tmux-flight-<id>` or `print-flight-<id>`) with scope `flight:<id>`:
 #   dispatch            working (tmux) or idle (print: no process exists until
 #                       the operator runs the launch); never over a queued
-#                       decision
+#                       decision, and with --since never over a row the
+#                       worker itself wrote at or after that epoch
 #   awaiting-decision   awaiting-input carrying the reason, through the
 #                       fork-park channel: the one actionable event, so the
 #                       one the decision queue shows
@@ -60,7 +61,7 @@
 # rather than dead.
 #
 # Usage:
-#   flight-lifecycle.sh push dispatch <flight-id> --handle <handle>
+#   flight-lifecycle.sh push dispatch <flight-id> --handle <handle> [--since <epoch>]
 #   flight-lifecycle.sh push awaiting-decision <flight-id> --handle <handle> --reason <text>
 #   flight-lifecycle.sh push completion <flight-id> --handle <handle> --landing <pr:<url>|record:<path>>
 #   flight-lifecycle.sh supervise [--repo-root <dir>] [--now <epoch>]
@@ -110,7 +111,7 @@ die() {
 
 usage() {
   cat >&2 <<'EOF'
-usage: flight-lifecycle.sh push dispatch <flight-id> --handle <handle>
+usage: flight-lifecycle.sh push dispatch <flight-id> --handle <handle> [--since <epoch>]
        flight-lifecycle.sh push awaiting-decision <flight-id> --handle <handle> --reason <text>
        flight-lifecycle.sh push completion <flight-id> --handle <handle> --landing <pr:<url>|record:<path>>
        flight-lifecycle.sh supervise [--repo-root <dir>] [--now <epoch>]
@@ -166,11 +167,20 @@ cmd_push() {
   reason=''
   reason_set=0
   landing=''
+  since=''
   while [ $# -gt 0 ]; do
     case $1 in
       --handle)
         [ $# -ge 2 ] || usage
         handle=$2
+        shift 2
+        ;;
+      --since)
+        [ $# -ge 2 ] || usage
+        case $2 in
+          '' | 0?* | *[!0-9]* | ????????????????*) die 2 "--since needs epoch seconds (digits, no leading zero, at most 15)" ;;
+        esac
+        since=$2
         shift 2
         ;;
       --reason)
@@ -193,12 +203,16 @@ cmd_push() {
     *) die 2 "the handle must be the flight's own (tmux-flight-<id> or print-flight-<id>)" ;;
   esac
   scope="flight:$id"
+  [ -z "$since" ] || [ "$event" = dispatch ] || usage
   case $event in
     dispatch)
       [ $reason_set -eq 0 ] && [ -z "$landing" ] || usage
       state=working
       [ "${handle%%-*}" != print ] || state=idle
-      /bin/sh "$ATTN" heartbeat "$handle" "$scope" "$state" --unless-awaiting </dev/null \
+      set -- --unless-awaiting
+      # The worker's own row, stamped since its launch, outranks this push.
+      [ -z "$since" ] || set -- "$@" --unless-since "$since"
+      /bin/sh "$ATTN" heartbeat "$handle" "$scope" "$state" "$@" </dev/null \
         || die 4 "the dispatch push did not reach the attention store"
       ;;
     awaiting-decision)

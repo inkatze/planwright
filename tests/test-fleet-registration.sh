@@ -60,6 +60,8 @@ set -u
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# Live launches here have no confirming worker; shorten the startup wait.
+export PLANWRIGHT_DISPATCH_CONFIRM_CAP=1 PLANWRIGHT_DISPATCH_CONFIRM_INTERVAL=0.2
 
 here=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$here/.." && pwd)
