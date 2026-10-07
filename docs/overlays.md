@@ -432,7 +432,7 @@ shell whatever the suite's exit. The helper's usage header
 
 ```bash
 pool=heavy-suite
-scripts/step-pool.sh take "$pool" "$$"     # waits up to step_pool_wait, naming the holders
+scripts/step-pool.sh take "$pool" "$$" || exit   # waits up to step_pool_wait, naming the holders; no slot, no suite
 PLANWRIGHT_STEP_POOL_HOLD="$pool:$$" mise run check
 status=$?
 scripts/step-pool.sh release "$pool" "$$"

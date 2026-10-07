@@ -211,11 +211,12 @@ an unattended run parks the unit to `tasks.md` Awaiting input; an attended
 session presents it and waits. At a **flip point** it refuses the flip and
 surfaces the step (kickoff recording the pending flip to Awaiting input). An
 Awaiting-input entry this doc causes names only the point, the validated
-step ids, the outcome, token, or cause, and the worktree-relative record
-path where one exists, never a target's text or an excerpt. A posture of
-`continue` records the outcome and proceeds; posture governs the list only,
-and the fork's PR-creation stop, the flip refusal, and the evidence below
-read the records whatever the posture.
+step ids, the outcome, token, or cause (a pool wait's holders, a re-fire's
+head), and the worktree-relative record path where one exists, never a
+target's text or an excerpt. A posture of `continue` records the outcome
+and proceeds; posture governs the list only, and the fork's PR-creation
+stop, the flip refusal, and the evidence below read the records whatever
+the posture.
 
 **Timeout (REQ-D1.7, D-15).** Where the runner owns the process, it ends the
 step at `timeout`; where an `isolated` or `continue` session owns it, the
@@ -308,10 +309,10 @@ without a mark waits like any caller.
 **The full suite.** When `full_suite_pool` names a pool, each full local
 suite attempt `/execute-task` makes, retries included, holds a slot of it;
 an expired wait parks the unit naming the holders, never a CI failure or
-retried. A full-suite record carries the pool fields, a full-suite row of
-the audit fold on a run with a PR, the park entry naming the holders before
-one exists (D-25). The overlay documentation's hand recipe takes the same
-slot.
+retried. A full-suite record carries the pool fields, rendered as a
+full-suite row of the audit fold on a run with a PR; before a PR exists,
+the park entry names the holders (D-25). The overlay documentation's hand
+recipe takes the same slot.
 
 **Fingerprint and reuse.** A `paths` step's fingerprint pairs each word with
 its git object id at the head (or an absent marker), in order; an
@@ -411,11 +412,11 @@ screen and stripped of non-printable bytes), the full captured output's
 cache path where one exists (unscreened), and a skipped step's reason and
 detail, a `reuse` or `resume` skip also naming the run id, point, and record
 sequence it stands on. A pooled step adds its pool, wait seconds, holders,
-and unpooled flag, starting at the take (else the wait's start); a `paths`
+and unpooled flag, its start time the take (else the wait's start); a `paths`
 step its fingerprint or none and its `args` digest (SHA-256 of `args` as
-written); a re-fire its `refire-of`. A record lacking an end head or reason
-code matches no reuse or resume lookup, never counts toward a `limited`
-scan, and renders its free-text reason as written. The runner also writes
+written); a re-fire its `refire-of`. A legacy record (no end head, or a skip
+without a reason code) matches no reuse or resume lookup, never counts
+toward a `limited` scan, and renders its free-text reason as written. The runner also writes
 one **point-completion record** per point whose list ran, to completion or
 to a halt, an empty list included, carrying the point, run id, the head SHA
 the list ended on, and the resolver's warnings; a point the matrix parked or
