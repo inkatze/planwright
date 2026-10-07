@@ -356,9 +356,9 @@ case "$cmd" in
     exit 0
     ;;
   break)
-    # The unconditional clear. It is the operator's recovery verb: the only thing that takes a hold nothing
-    # can prove abandoned, and the only thing that clears a lock DIRECTORY left
-    # by the retired mkdir shape.
+    # The unconditional clear. It is the operator's recovery verb: the only
+    # thing that takes a hold nothing can prove abandoned, and the only thing
+    # that clears a lock DIRECTORY left by the retired mkdir shape.
     rm -f "$handle_file" 2>/dev/null || :
     pw_lock_break_force "$lock" || {
       echo "orchestrate-lock: cannot clear $lock (it is still present after the removal; check its type and the spec directory's permissions)" >&2
@@ -487,6 +487,19 @@ fi
 # (REQ-D1.2), and a busy lock is a clean skip for both callers rather than
 # something to wait out. The break inside the attempt is what turns a dead
 # owner's lock into a held one, in the same call.
+#
+# The library hands the hold to its owner inside the take, so nothing releases
+# it on its own from then on. Until the hold is fully handed over — the record
+# that makes a detached hold attributable has landed — a signal or a failed
+# write gives it back by token: a detached hold with no record is one `sweep`
+# can never clear. PW_LOCK_TOKEN is set only once the lock is this call's, so
+# the release is a no-op before then.
+handed=0
+hf_tmp=''
+trap '[ "$handed" = 1 ] || [ -z "$PW_LOCK_TOKEN" ] || pw_lock_release_token "$lock" "$PW_LOCK_TOKEN" >/dev/null 2>&1; pw_lock_release_all; [ -z "$hf_tmp" ] || rm -f "$hf_tmp"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 rc=0
 if [ -n "$owner_pid" ]; then
   pw_lock_acquire_for "$lock" "$owner_pid" 1 || rc=$?
@@ -494,33 +507,26 @@ else
   pw_lock_try_detached "$lock" || rc=$?
 fi
 if [ "$rc" -eq 0 ] && [ -n "$sweep_handle" ]; then
-  # The library has already handed the hold to the window this call opened,
-  # so nothing releases it on its own. Until the record that makes it
-  # attributable lands, a signal or a failed write gives it back by token:
-  # a detached hold with no record is one `sweep` can never clear.
-  trap 'pw_lock_release_token "$lock" "$PW_LOCK_TOKEN" >/dev/null 2>&1' EXIT
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
-  trap 'exit 129' HUP
   # Bound to the token, so a record that outlives its lock is read as absent
   # rather than as evidence about a holder it never described. Staged and
   # renamed, because a redirect would follow a link planted at the path.
   if [ -d "$handle_file" ] && [ ! -L "$handle_file" ]; then
-    echo "orchestrate-lock: $handle_file is a directory; cannot record who holds $lock" >&2
+    echo "orchestrate-lock: $handle_file is a directory; cannot record who holds $lock; released it" >&2
     exit 2
   fi
   hf_tmp=$(mktemp "$handle_file.XXXXXX" 2>/dev/null) || {
+    hf_tmp=''
     echo "orchestrate-lock: cannot record who holds $lock; released it" >&2
     exit 2
   }
   if ! printf '%s\t%s\n' "$PW_LOCK_TOKEN" "$sweep_handle" >"$hf_tmp" \
     || ! rm -f "$handle_file" || ! mv -f "$hf_tmp" "$handle_file"; then
-    rm -f "$hf_tmp" 2>/dev/null
     echo "orchestrate-lock: cannot record who holds $lock; released it" >&2
     exit 2
   fi
-  trap - EXIT INT TERM HUP
+  hf_tmp=''
 fi
+handed=1
 case $rc in
   0) exit 0 ;;
   1)

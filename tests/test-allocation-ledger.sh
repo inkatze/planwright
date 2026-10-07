@@ -346,6 +346,17 @@ kill "$eng" 2>/dev/null || :
 wait "$eng" 2>/dev/null || :
 tok6=$("$LEDGER" lock lockowner:unit --owner-pid $$) || fail "8j: a hold whose owner is gone was not broken"
 "$LEDGER" unlock lockowner:unit "$tok6"
+# A token that cannot reach its caller is given back, not left as a hold
+# nobody can name.
+# /dev/full fails every write, which a closed descriptor does not reliably do.
+if [ -w /dev/full ]; then
+  rc=0
+  "$LEDGER" lock lockowner:unit >/dev/full 2>/dev/null || rc=$?
+  [ "$rc" = 2 ] || fail "8k: lock with an unwritable stdout exited $rc, expected 2"
+  [ -L "$lock_file" ] && fail "8k: a token that never reached the caller left its hold standing"
+else
+  echo "skip: 8k (no /dev/full on this host)"
+fi
 rc=0
 "$LEDGER" lock lockowner:unit --owner-pid 0 >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "8j: a zero owner pid was accepted (exit $rc)"

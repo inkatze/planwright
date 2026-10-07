@@ -606,4 +606,42 @@ wait "$succ2_pid" 2>/dev/null || true
 /bin/bash "$LOCK" break "$relspec" >/dev/null 2>&1
 echo "ok: sweep clears only the token its verdict was about"
 
+# 19. A release that names an owner refuses a different owner only while that
+#     owner runs: one that is gone is cleared, as a release naming nobody would.
+sh -c 'exit 0' &
+gone2=$!
+wait "$gone2" 2>/dev/null || true
+ln -s "$gone2-0-0-$gone2-1" "$relspec/.orchestrate.lock"
+/bin/bash "$LOCK" release "$relspec" --owner-pid "$$" \
+  || fail "release naming an owner refused a different owner that is gone"
+[ ! -L "$relspec/.orchestrate.lock" ] || fail "release over a gone mismatched owner left the lock"
+echo "ok: a release naming an owner clears a different owner that is gone"
+
+# 20. A detached hold whose attribution record cannot be written is given back,
+#     not left standing unattributed where `sweep` could never clear it. A
+#     tmux shim gives the call a window to attribute the hold to, and a
+#     directory squats the record's path.
+tmuxshim="$tmp/tmuxshim"
+mkdir -p "$tmuxshim"
+printf '#!/bin/sh\nprintf "%%s\\n" "planwright @7"\n' >"$tmuxshim/tmux"
+chmod +x "$tmuxshim/tmux"
+mkdir -p "$relspec/.orchestrate.lock#owner#"
+rc=0
+err=$(env -u PLANWRIGHT_TOWER_PID PATH="$tmuxshim:$PATH" TMUX=/tmp/fake,1,0 TMUX_PANE=%1 \
+  /bin/bash "$LOCK" acquire "$relspec" 2>&1 </dev/null >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "acquire with an unwritable attribution record: exit $rc, expected 2"
+case $err in *"released it"*) ;; *) fail "the refusal does not say the hold was released (got: $err)" ;; esac
+if [ -L "$relspec/.orchestrate.lock" ] || [ -e "$relspec/.orchestrate.lock" ]; then
+  fail "an unattributable detached hold was left standing"
+fi
+rmdir "$relspec/.orchestrate.lock#owner#"
+# Control: with the path free, the same call records the window.
+env -u PLANWRIGHT_TOWER_PID PATH="$tmuxshim:$PATH" TMUX=/tmp/fake,1,0 TMUX_PANE=%1 \
+  /bin/bash "$LOCK" acquire "$relspec" </dev/null >/dev/null 2>&1 \
+  || fail "the attributed acquire failed with the record path free"
+grep -q "	tmux-window planwright @7$" "$relspec/.orchestrate.lock#owner#" \
+  || fail "the attributed acquire did not record its window"
+/bin/bash "$LOCK" break "$relspec" >/dev/null 2>&1
+echo "ok: a hold whose attribution cannot be recorded is given back"
+
 echo "PASS: orchestrate-lock"

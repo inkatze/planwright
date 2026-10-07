@@ -463,6 +463,15 @@ rc=0
 lenv lock --frobnicate >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "lock with an unknown option: exit $rc, expected 2"
 [ ! -L "$(lenv root)/.fleet.lock" ] || fail "a refused lock invocation left a hold behind"
+# /dev/full fails every write, which a closed descriptor does not reliably do.
+if [ -w /dev/full ]; then
+  rc=0
+  lenv lock >/dev/full 2>/dev/null || rc=$?
+  [ "$rc" = 2 ] || fail "lock with an unwritable stdout: exit $rc, expected 2"
+  [ ! -L "$(lenv root)/.fleet.lock" ] || fail "a token that never reached the caller left its hold standing"
+else
+  echo "skip: lock handover failure (no /dev/full on this host)"
+fi
 op_tok=$(lenv lock) || fail "unlock '': fixture lock failed"
 rc=0
 lenv unlock "" >/dev/null 2>&1 || rc=$?

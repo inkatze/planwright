@@ -466,6 +466,15 @@ case "$cmd" in
     require_unit "$l_unit"
     ensure_store >/dev/null
     l_lock=$(lock_path "$l_unit")
+    # The library hands the hold to its owner inside the take, so from then on
+    # nothing here releases it on its own. Until the token has reached the
+    # caller, a signal gives it back by token; PW_LOCK_TOKEN is set only once
+    # the lock is this call's.
+    l_handed=0
+    trap '[ "$l_handed" = 1 ] || [ -z "$PW_LOCK_TOKEN" ] || pw_lock_release_token "$l_lock" "$PW_LOCK_TOKEN" >/dev/null 2>&1; pw_lock_release_all' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    trap 'exit 129' HUP
     l_rc=0
     if [ -n "$l_owner" ]; then
       pw_lock_acquire_for "$l_lock" "$l_owner" || l_rc=$?
@@ -487,6 +496,7 @@ case "$cmd" in
       pw_lock_release_token "$l_lock" "$PW_LOCK_TOKEN" >/dev/null 2>&1 || :
       exit 2
     fi
+    l_handed=1
     ;;
 
   unlock)

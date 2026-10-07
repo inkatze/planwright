@@ -159,6 +159,8 @@
 #                                             unconditional and also takes a
 #                                             legacy `mkdir` lock DIRECTORY
 #                                             (0 the path is clear, 2 it is not).
+#                                             An empty token is refused (2),
+#                                             never read as no token.
 #   fleet-state.sh register <worker> <scope> [--if-changed | --heal]
 #       [--owner <token>] [--backend <name>] [--state-dir <abs-dir>]
 #       [--death-handle <handle>]             append a dispatch record.
@@ -592,6 +594,12 @@ case $cmd in
       esac
       lk_owner=$3
     fi
+    # Until the token has reached the caller, the exit handler gives the hold
+    # back by token as well: the library hands it to its owner inside the
+    # take, so the registry release alone no longer covers it. PW_LOCK_TOKEN is
+    # set only once the lock is this call's.
+    lk_handed=0
+    trap '[ "$lk_handed" = 1 ] || [ -z "$PW_LOCK_TOKEN" ] || pw_lock_release_token "$lock" "$PW_LOCK_TOKEN" >/dev/null 2>&1; pw_lock_release_all' EXIT
     ta_rc=0
     if [ -n "$lk_owner" ]; then
       pw_lock_acquire_for "$lock" "$lk_owner" 1 || ta_rc=$?
@@ -610,6 +618,7 @@ case $cmd in
         pw_lock_release_token "$lock" "$PW_LOCK_TOKEN" >/dev/null 2>&1 || :
         exit 2
       fi
+      lk_handed=1
     fi
     exit $ta_rc
     ;;
