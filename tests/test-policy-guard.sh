@@ -369,6 +369,13 @@ for spec in 'ready_flip_policy|gh pr ready 42' 'worker_base_merge|git merge orig
   expect deny "[worker] an unresolvable $knob denies ${spec#*|}"
   reason_has 'could not be' "the read-failure deny says the knob could not be read"
 done
+# A broken install beside the guard (the sanitizer missing) makes the
+# protected-set reader exit 5, and the push is still refused as a read failure.
+mv "$S/echo-safety.sh" "$S/echo-safety.sh.away"
+pg worker 'git push origin feature'
+expect deny "[worker] a missing echo-safety.sh beside the reader denies the push"
+reason_has 'could not be read \(exit 5\)' "the broken-install deny names the read failure, not a bad branch name"
+mv "$S/echo-safety.sh.away" "$S/echo-safety.sh"
 set_knobs 'ready_flip_policy: agent'
 pg worker 'gh pr ready 42'
 expect deny "[worker] a malformed machine-local ready_flip_policy degrades to human and denies"
