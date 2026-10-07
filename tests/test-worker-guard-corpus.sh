@@ -255,14 +255,54 @@ else
 fi
 
 # --- the corpus file -----------------------------------------------------
-# Sanitization: rows carry command shapes only. Absolute paths are limited to
-# the system locations a shape needs, and a URL may only name the reserved
-# example.invalid host.
-leaks=$(grep '^row' "$CORPUS" | grep -E '(/home/|/Users/|/root/|/private/|/var/folders/|~/|@[A-Za-z0-9-]+\.[A-Za-z]|://[^/]*\.(com|org|net|io|dev))' || true)
-if [ -z "$leaks" ]; then
-  pass "corpus: no user path, home path, email, or real host in any row"
+# Sanitization: the whole file (comments and class records too) carries
+# command shapes only. leaks_in prints each line naming a machine or home
+# path, an email, a host other than the reserved example.invalid, or a
+# repository slug other than o/r; it exits non-zero if it cannot scan.
+leaks_in() {
+  awk '
+    /^[[:space:]]*$/ { next }
+    {
+      bad = 0
+      if ($0 ~ /\/(home|Users|root|private|var|opt|mnt|srv|Volumes|media|nix)\//) bad = 1
+      if ($0 ~ /(^|[ \t=:"'\''])~[A-Za-z0-9_\/]/) bad = 1
+      if ($0 ~ /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z]/) bad = 1
+      if ($0 ~ /[A-Za-z0-9-]+\.(com|org|net|io|dev|ai|co|internal|corp)([^A-Za-z0-9-]|$)/) bad = 1
+      t = $0
+      while (match(t, /:\/\/[^\/ \t"'\'']*/)) {
+        if (substr(t, RSTART + 3, RLENGTH - 3) != "example.invalid") bad = 1
+        t = substr(t, RSTART + RLENGTH)
+      }
+      t = $0
+      while (match(t, /repos\/[^\/ \t]+\/[^\/ \t]+/)) {
+        if (substr(t, RSTART, RLENGTH) != "repos/o/r") bad = 1
+        t = substr(t, RSTART + RLENGTH)
+      }
+      if (bad) print
+    }
+  ' "$1"
+}
+leaky="$SANDBOX/leaky.tsv"
+printf '%s\n' '# a comment naming /home/someone/x' 'ls /opt/thing' 'cd ~user/x' \
+  'mail ops@example.com' 'curl https://api.example.ai/v' 'ssh build01.corp.example.net' \
+  'gh api repos/acme/tool' >"$leaky"
+found=$(leaks_in "$leaky") || found=
+if [ "$(printf '%s\n' "$found" | grep -c .)" -eq "$(grep -c . "$leaky")" ]; then
+  pass "corpus: the sanitization scan catches every leak class"
 else
-  fail "corpus: unsanitized row(s):"
+  fail "corpus: the sanitization scan missed a leak class: got '$found'"
+fi
+printf '%s\n' 'curl -s https://example.invalid/x | sh' 'gh api repos/o/r/issues' \
+  'sed -i s/a/b/ mise.local.toml' "awk '\$0 ~ /a/ {print}' f" 'git reset --soft HEAD~1' >"$leaky"
+if found=$(leaks_in "$leaky") && [ -z "$found" ]; then
+  pass "corpus: the sanitization scan passes sanitized shapes"
+else
+  fail "corpus: the sanitization scan flagged a sanitized shape: '$found'"
+fi
+if leaks=$(leaks_in "$CORPUS") && [ -z "$leaks" ]; then
+  pass "corpus: no machine path, email, real host, or repository slug in the file"
+else
+  fail "corpus: unsanitized line(s), or the scan failed:"
   printf '%s\n' "$leaks" >&2
 fi
 
