@@ -11,17 +11,17 @@
 #   step-record.sh [--worktree <dir>] new-run
 #   step-record.sh [--worktree <dir>] write --run <id> --point <point>
 #       --step <id> --kind <kind> --target <target> --hosting <hosting>
-#       --backend <name> --head <sha> --start <ts> --end <ts>
+#       --backend <name> [--head <sha>] --start <ts> [--end <ts>]
 #       --outcome <outcome> [--session <id>] [--excerpt-file <file>]
 #       [--output <path>] [--skip-reason <text>]
 #   step-record.sh [--worktree <dir>] write --completion --run <id>
-#       --point <point> --head <sha> [--warning <text>]...
+#       --point <point> [--head <sha>] [--warning <text>]...
 #   step-record.sh [--worktree <dir>] list [--run <id>] [--point <point>]
 #   step-record.sh [--worktree <dir>] render [--run <id>] [--point <point>]...
 #   step-record.sh [--worktree <dir>] regenerate --base <rev> --head <rev>
 #       [--run <id>] [--checklist-only]
 #   step-record.sh [--worktree <dir>] status --point <flip-point>
-#       --head <sha> --repo <owner>/<name>
+#       [--head <sha>] --repo <owner>/<name>
 #
 #   --worktree    the unit's worktree; default the enclosing git top level.
 #                 The cache is <worktree>/.claude/steps/, created mode 0700;
@@ -94,8 +94,12 @@
 #   --backend      ^[a-z0-9][a-z0-9-]*$, at most 64 bytes (the backend
 #                  identifier charset)
 #   --session      [A-Za-z0-9._:-], 1 to 128 bytes; optional
-#   --head         a full commit id: 40 or 64 lowercase hex digits
-#   --start/--end  YYYY-MM-DDTHH:MM:SSZ
+#   --head         a full commit id: 40 or 64 lowercase hex digits; omitted
+#                  (write and status), the worktree's HEAD commit when the
+#                  verb runs, refused when it has none. Given, even empty, it
+#                  is never defaulted.
+#   --start/--end  YYYY-MM-DDTHH:MM:SSZ; an omitted write --end is the UTC
+#                  time the record is written
 #   --outcome      passed | applied | halted | failed | skipped; skipped
 #                  requires --skip-reason, and --skip-reason requires skipped
 #   --target, --skip-reason, --warning
@@ -310,6 +314,15 @@ is_ts() {
     [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) return 0 ;;
   esac
   return 1
+}
+
+# default_head: the worktree's current HEAD commit, for an omitted --head. An
+# explicit --head, even an empty one, is never defaulted: an empty value is
+# more likely a failed substitution than a request for HEAD.
+default_head() {
+  command -v git >/dev/null 2>&1 || die 1 "git is not on PATH"
+  head=$(git -C "$worktree" rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null) \
+    || bad --head "not given and the worktree has no commit to default to"
 }
 
 is_run_id() {
@@ -545,7 +558,7 @@ claim() {
 cmd_write() {
   completion=0 run='' point='' step='' kind='' target='' hosting='' backend=''
   session='' head='' start='' end='' outcome='' excerpt_file='' output=''
-  skip_reason='' warnings=''
+  skip_reason='' warnings='' head_given=0 end_given=0
   while [ $# -gt 0 ]; do
     case $1 in
       --completion)
@@ -569,9 +582,15 @@ cmd_write() {
       --hosting) hosting=$2 ;;
       --backend) backend=$2 ;;
       --session) session=$2 ;;
-      --head) head=$2 ;;
+      --head)
+        head=$2
+        head_given=1
+        ;;
       --start) start=$2 ;;
-      --end) end=$2 ;;
+      --end)
+        end=$2
+        end_given=1
+        ;;
       --outcome) outcome=$2 ;;
       --excerpt-file) excerpt_file=$2 ;;
       --output) output=$2 ;;
@@ -587,6 +606,7 @@ cmd_write() {
   [ -n "$run" ] || bad --run "required"
   valid_run "$run"
   is_point "$point" || bad --point "not a point of the vocabulary"
+  [ "$head_given" -eq 1 ] || default_head
   is_head "$head" || bad --head "not a full commit id"
   ! point_done "$run" "$point" || bad --point "already completed in this run"
 
@@ -624,6 +644,7 @@ cmd_write() {
   is_backend "$backend" || bad --backend "not a backend name"
   [ -z "$session" ] || is_session "$session" || bad --session "not a session id"
   is_ts "$start" || bad --start "not YYYY-MM-DDTHH:MM:SSZ"
+  [ "$end_given" -eq 1 ] || end=$(date -u +%Y-%m-%dT%H:%M:%SZ) || die 1 "cannot read the clock"
   is_ts "$end" || bad --end "not YYYY-MM-DDTHH:MM:SSZ"
   case $outcome in passed | applied | halted | failed | skipped) ;; *) bad --outcome "not passed, applied, halted, failed, or skipped" ;; esac
   if [ "$outcome" = skipped ]; then
@@ -1016,7 +1037,7 @@ is_repo() {
 }
 
 cmd_status() {
-  point='' head='' repo=''
+  point='' head='' repo='' head_given=0
   while [ $# -gt 0 ]; do
     case $1 in
       --point | --head | --repo) [ $# -ge 2 ] || usage ;;
@@ -1024,12 +1045,16 @@ cmd_status() {
     esac
     case $1 in
       --point) point=$2 ;;
-      --head) head=$2 ;;
+      --head)
+        head=$2
+        head_given=1
+        ;;
       --repo) repo=$2 ;;
     esac
     shift 2
   done
   case $point in pre-ready-flip | pre-spec-ready-flip) ;; *) bad --point "not a flip point" ;; esac
+  [ "$head_given" -eq 1 ] || default_head
   is_head "$head" || bad --head "not a full commit id"
   is_repo "$repo" || bad --repo "not an <owner>/<name> repository"
 

@@ -1517,6 +1517,98 @@ rc=$?
 [ "$rc" -eq 0 ] && gh_arg "repos/$o39/$n100/statuses/$H_A"
 verdict_of $? "status accepts a 39-byte owner and a 100-byte name" "rc=$rc: $(cat "$tmp/st.err")"
 
+# --- self-resolved defaults (worker-permission-ergonomics REQ-H1.1) -----------------
+# An omitted --head is the worktree's current HEAD, read when the verb runs, and
+# an omitted write --end is the time the record is written, so a caller never
+# needs a command substitution to fill either.
+wd="$tmp/wd"
+mkdir -p "$wd"
+git -C "$wd" init -q -b main
+git -C "$wd" config user.name "Fixture"
+git -C "$wd" config user.email "fixture@example.invalid"
+git -C "$wd" config commit.gpgsign false
+git -C "$wd" commit -q --allow-empty -m "chore: first"
+git -C "$wd" commit -q --allow-empty -m "chore: second"
+WD_HEAD=$(git -C "$wd" rev-parse HEAD)
+srd() { PATH="$stub:$PATH" "$SR" --worktree "$wd" "$@"; }
+rd=$(srd new-run)
+
+recd=$(srd write --run "$rd" --point pre-ci --step nohead --kind command --target true \
+  --hosting in-session --backend terminal --start 2026-10-06T10:00:00Z \
+  --end 2026-10-06T10:00:01Z --outcome passed 2>"$tmp/wd.err")
+verdict_of $? "write accepts an omitted --head" "rc!=0: $(cat "$tmp/wd.err")"
+grep -Fxq "head${TAB}$WD_HEAD" "$recd" 2>/dev/null
+verdict "an omitted --head records the worktree's current HEAD" "record head: $(grep "^head${TAB}" "$recd" 2>/dev/null)"
+
+srd write --completion --run "$rd" --point pre-ci >/dev/null 2>"$tmp/wd.err"
+verdict_of $? "write --completion accepts an omitted --head" "rc!=0: $(cat "$tmp/wd.err")"
+cat "$wd/.claude/steps/$rd/"*-done-pre-ci.rec 2>/dev/null | grep -Fxq "head${TAB}$WD_HEAD"
+verdict "an omitted completion --head records the current HEAD" "completion head not $WD_HEAD"
+
+# The default is read per call, not fixed by an earlier one: it follows a new commit.
+git -C "$wd" commit -q --allow-empty -m "chore: third"
+WD_HEAD2=$(git -C "$wd" rev-parse HEAD)
+recd2=$(srd write --run "$rd" --point pre-pr --step later --kind command --target true \
+  --hosting in-session --backend terminal --start 2026-10-06T10:01:00Z \
+  --end 2026-10-06T10:01:01Z --outcome passed 2>"$tmp/wd.err")
+grep -Fxq "head${TAB}$WD_HEAD2" "$recd2" 2>/dev/null
+verdict "the --head default follows the HEAD at write time" "record head: $(grep "^head${TAB}" "$recd2" 2>/dev/null)"
+
+# An explicit --head still wins over the default.
+recd3=$(srd write --run "$rd" --point pre-pr --step pinned --kind command --target true \
+  --hosting in-session --backend terminal --head "$WD_HEAD" --start 2026-10-06T10:02:00Z \
+  --end 2026-10-06T10:02:01Z --outcome passed 2>"$tmp/wd.err")
+grep -Fxq "head${TAB}$WD_HEAD" "$recd3" 2>/dev/null
+verdict "an explicit --head is recorded as given" "record head: $(grep "^head${TAB}" "$recd3" 2>/dev/null)"
+
+# An explicit empty --head (a substitution that printed nothing) is refused, not
+# defaulted.
+srd write --completion --run "$rd" --point pre-pr --head "" >/dev/null 2>"$tmp/wd.err"
+rc=$?
+[ "$rc" -eq 2 ] && grep -Fq -- "step-record.sh: --head:" "$tmp/wd.err"
+verdict_of $? "an explicit empty --head is refused, never defaulted" "rc=$rc: $(cat "$tmp/wd.err")"
+
+before=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+recd4=$(srd write --run "$rd" --point convergence --step noend --kind command --target true \
+  --hosting in-session --backend terminal --start "$before" --outcome passed 2>"$tmp/wd.err")
+verdict_of $? "write accepts an omitted --end" "rc!=0: $(cat "$tmp/wd.err")"
+after=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+endv=$(sed -n "s/^end${TAB}//p" "$recd4" 2>/dev/null)
+case $endv in
+  [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z)
+    digits() { printf '%s' "$1" | tr -d -- '-:TZ'; }
+    if [ "$(digits "$endv")" -lt "$(digits "$before")" ] || [ "$(digits "$endv")" -gt "$(digits "$after")" ]; then
+      fail "an omitted --end recorded '$endv', outside $before..$after"
+    else
+      ok "an omitted --end records the write time in UTC"
+    fi
+    ;;
+  *) fail "an omitted --end recorded '$endv'" ;;
+esac
+
+# A worktree with no commit has no HEAD to default to: refused as a usage error
+# naming the field, never recorded with an empty head.
+wu="$tmp/wu"
+mkdir -p "$wu"
+git -C "$wu" init -q -b main
+ru=$("$SR" --worktree "$wu" new-run)
+err=$("$SR" --worktree "$wu" write --run "$ru" --point pre-ci --step x --kind command \
+  --target true --hosting in-session --backend terminal --start 2026-10-06T10:00:00Z \
+  --end 2026-10-06T10:00:01Z --outcome passed 2>&1 >/dev/null)
+rc=$?
+[ "$rc" -eq 2 ] && printf '%s' "$err" | grep -Fq -- "step-record.sh: --head:" \
+  && [ -z "$(ls -A "$wu/.claude/steps/$ru")" ]
+verdict_of $? "an omitted --head with no commit is refused and writes nothing" "rc=$rc: $err"
+
+# status: an omitted --head is the current HEAD, the completion naming it found.
+rs=$(srd new-run)
+srd write --completion --run "$rs" --point pre-ready-flip >/dev/null
+rm -f "$GH_STUB_LOG"
+srd status --point pre-ready-flip --repo acme/widgets >/dev/null 2>"$tmp/st.err"
+rc=$?
+[ "$rc" -eq 0 ] && gh_arg "repos/acme/widgets/statuses/$WD_HEAD2" && gh_arg state=success
+verdict_of $? "status posts on the current HEAD when --head is omitted" "rc=$rc: $(cat "$tmp/st.err")"
+
 # --- the cache path is ignored ------------------------------------------------------
 git -C "$repo_root" check-ignore -q ".claude/steps/000001/x.rec"
 verdict "this repository ignores the record cache" ".claude/steps/ is not ignored"
