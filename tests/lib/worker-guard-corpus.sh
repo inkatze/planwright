@@ -87,19 +87,27 @@ corpus_sandbox() {
     "$box/state" || return 1
 
   # A worker's worktree is a linked one, so its .git is a file, and its unit
-  # branch sits on a base that resolves as origin/main.
+  # branch sits on a base that resolves as origin/main. The other branch and
+  # the sibling repository exist so rows naming them are judged on a real
+  # target rather than a missing one.
   {
     corpus_git_env init -q --bare "$box/origin.git" \
       && corpus_git_env init -q "$main" \
+      && corpus_git_env init -q "$box/other" \
       && corpus_git_env -C "$main" symbolic-ref HEAD refs/heads/main \
       && corpus_git_env -C "$main" -c user.name=corpus -c user.email=corpus@example.invalid \
         -c commit.gpgsign=false commit -q --allow-empty -m init \
+      && corpus_git_env -C "$main" branch other \
       && corpus_git_env -C "$main" remote add origin "$box/origin.git" \
-      && corpus_git_env -C "$main" push -q origin main 2>/dev/null \
+      && corpus_git_env -C "$main" push -q origin main other \
       && corpus_git_env -C "$main" fetch -q origin \
       && corpus_git_env -C "$main" config core.hooksPath githooks \
-      && corpus_git_env -C "$main" worktree add -q -b "$CORPUS_UNIT_BRANCH" "$wt" main 2>/dev/null
-  } || return 1
+      && corpus_git_env -C "$main" worktree add -q -b "$CORPUS_UNIT_BRANCH" "$wt" main
+  } 2>"$box/build.log" || {
+    echo "corpus: sandbox git setup failed:" >&2
+    cat "$box/build.log" >&2
+    return 1
+  }
 
   {
     mkdir -p "$wt/scripts" "$wt/tests" "$wt/sub" "$wt/build" "$wt/specs/demo" \

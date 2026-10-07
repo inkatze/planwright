@@ -61,6 +61,7 @@ synthetic() {
     printf 'class%slive%s1%sshipped%sshipped class\n' "$T" "$T" "$T" "$T"
     printf 'class%slater%s9%spending%spending class\n' "$T" "$T" "$T" "$T"
     printf 'class%sfloor%s5%sshipped%sfloor\n' "$T" "$T" "$T" "$T"
+    printf 'class%suncovered%s5%sshipped%suncovered\n' "$T" "$T" "$T" "$T"
     printf '%s\n' "$@"
   } >"$f"
   printf '%s\n' "$f"
@@ -99,11 +100,21 @@ if grep -qx "scratch_root=$CORPUS_SCRATCH" "$CORPUS_BOX/state/record.3" \
 else
   fail "sandbox: the hook's TMPDIR is the recorded scratch root"
 fi
-if ! corpus_sandbox "$SANDBOX/box" "$REPO_ROOT" 2>/dev/null; then
-  pass "sandbox: a box already in use is refused"
+if corpus_git rev-parse -q --verify refs/heads/other >/dev/null 2>&1 \
+  && corpus_git rev-parse -q --verify origin/other >/dev/null 2>&1 \
+  && [ -d "$CORPUS_BOX/other/.git" ]; then
+  pass "sandbox: the other branch, origin/other, and the sibling repository the rows name exist"
 else
-  fail "sandbox: a box already in use was rebuilt over"
+  fail "sandbox: a ref or repository the rows name is missing"
 fi
+mkdir -p "$SANDBOX/used-box"
+: >"$SANDBOX/used-box/stray"
+err=$( (corpus_sandbox "$SANDBOX/used-box" "$REPO_ROOT") 2>&1 >/dev/null)
+rc=$?
+case $rc:$err in
+  1:*"not empty"*) pass "sandbox: a box already in use is refused" ;;
+  *) fail "sandbox: a box in use was not refused as such (rc=$rc: $err)" ;;
+esac
 
 # --- self-checks ---------------------------------------------------------
 f=$(synthetic ok "$(row live allow allow allow allow true)" "$(row live defer defer defer defer false)")
@@ -276,6 +287,12 @@ refuses "a row with a missing column" "seven tab-separated fields" \
 refuses "an untabbed row" "unknown record kind" "row live allow allow allow allow true"
 refuses "a floor row that allows under some value" "defers under every policy value" \
   "$(row floor defer defer allow allow true)"
+refuses "an uncovered row that allows under some value" "defers under every policy value" \
+  "$(row uncovered defer allow defer allow true)"
+refuses "a row with an empty command" "a row carries a command" \
+  "row${T}live${T}allow${T}allow${T}allow${T}allow${T}"
+refuses "a malformed class name" "malformed class name" "class${T}Bad_Name${T}1${T}shipped${T}x"
+refuses "a class with no task number" "names the task" "class${T}notask${T}x${T}shipped${T}x"
 refuses "an arm that narrows the empty policy" "allowed under the empty policy" \
   "$(row live allow defer allow allow true)"
 refuses "both arms narrowing one arm" "allowed under one arm" \
