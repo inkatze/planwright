@@ -118,6 +118,21 @@ case $rc:$err in
   *) fail "sandbox: a box in use was not refused as such (rc=$rc: $err)" ;;
 esac
 
+# Git configuration the caller passes through the environment (as a hook
+# run under `git -c ...` does) must not reach the sandbox's own git calls.
+mkdir -p "$SANDBOX/host-hooks"
+printf '#!/bin/sh\n: >"%s"\n' "$SANDBOX/host-hook-ran" >"$SANDBOX/host-hooks/pre-commit"
+chmod +x "$SANDBOX/host-hooks/pre-commit"
+(
+  export GIT_CONFIG_PARAMETERS="'core.hookspath'='$SANDBOX/host-hooks'"
+  corpus_sandbox "$SANDBOX/env-box" "$REPO_ROOT" >/dev/null 2>&1
+)
+if [ ! -e "$SANDBOX/host-hook-ran" ]; then
+  pass "sandbox: git configuration in the caller's environment does not reach its git"
+else
+  fail "sandbox: a host hook ran while the sandbox was built"
+fi
+
 # --- self-checks ---------------------------------------------------------
 f=$(synthetic ok "$(row live allow allow allow allow true)" "$(row live defer defer defer defer false)")
 if corpus_replay "$f" fake_guard >/dev/null 2>&1 && [ "$CORPUS_FAILED" -eq 0 ] && [ "$CORPUS_ROWS" -eq 2 ]; then

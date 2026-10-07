@@ -65,11 +65,17 @@ corpus_policy() {
 }
 
 # corpus_git_env <git-args>: git, isolated from the host's configuration and
-# from any repository the caller's environment points at.
-corpus_git_env() {
-  env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR \
-    GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git "$@"
-}
+# from every GIT_* variable the caller exports (a repository it points at,
+# configuration passed as GIT_CONFIG_PARAMETERS or GIT_CONFIG_COUNT, an
+# object directory).
+corpus_git_env() (
+  for v in $(compgen -e); do
+    case $v in
+      GIT_*) export -n "${v?}" 2>/dev/null ;;
+    esac
+  done
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git "$@"
+)
 
 corpus_git() { corpus_git_env -C "$CORPUS_WORKTREE" "$@"; }
 
