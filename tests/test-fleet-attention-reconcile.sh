@@ -15,6 +15,7 @@
 #       cleared; a listed window keeps it.
 #   d2: a working row whose death handle is an exited process is cleared.
 #   u1: an unreachable tmux server (lost observability) keeps the row.
+#   r1: a row its worker rewrote between the verdict and the clear survives.
 #   u2: a row with no registry record and an unfinished unit is kept.
 #   a1: an awaiting-input row is kept whatever its unit or worker evidence.
 #   p1: a pr-ready row with a dead worker and an unfinished unit is kept.
@@ -105,7 +106,9 @@ mode=\$(cat "$tmp/tmux-mode" 2>/dev/null)
 [ "\$mode" = down ] && exit 1
 case \$1 in
   ls) exit 0 ;;
-  has-session) awk -v s="\${3#=}" '\$1 == s { f = 1 } END { exit !f }' "$tmp/tmux-windows" ;;
+  has-session)
+    [ -f "$tmp/race" ] && /bin/sh "$tmp/race"
+    awk -v s="\${3#=}" '\$1 == s { f = 1 } END { exit !f }' "$tmp/tmux-windows" ;;
   list-windows) awk -v s="\${3#=}" '\$1 == s { printf "%s\tname\n", \$2 }' "$tmp/tmux-windows" ;;
 esac
 EOF
@@ -119,17 +122,46 @@ dead_pid=$!
 wait "$dead_pid" 2>/dev/null
 
 n=0
-# fresh — a new fleet home for one case, exported for the helpers below.
+# fresh — a new fleet home for one case.
 fresh() {
   n=$((n + 1))
   home="$tmp/home$n"
-  mkdir -p "$home"
+  mkdir -p "$home/attention"
+  : >"$home/attention/state"
+  rm -f "$tmp/race"
 }
 fenv() {
   PATH="$fakebin:$PATH" PLANWRIGHT_FLEET_STATE_DIR="$home" "$@"
 }
+# Rows are seeded in the store's own layouts rather than through the writers,
+# which cost a lock round trip each; g1 exercises the real writer.
+# seed <worker> <scope> <state> [<stamp>]
+seed() {
+  printf '%s\t%s\t%s\t%s\t\t\t\t\n' "$1" "$2" "$3" "${4:-1700000000}" >>"$home/attention/state"
+}
+# seed_decision <worker> <scope>
+seed_decision() {
+  printf '%s\t%s\tawaiting-input\t1700000000\tnormal\tmerge or hold?\tmerge\tmerge|hold\n' \
+    "$1" "$2" >>"$home/attention/state"
+}
+# reg <worker> <scope> <backend> <state-dir> <death-handle>
+reg() {
+  printf '1700000000\t%s\t%s\t-\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" >>"$home/registry"
+}
+# reconcile <case> — one pass; its output in $out, its stderr in $tmp/err.
 reconcile() {
-  (cd "$repo" && fenv /bin/sh "$REC" --repo "$repo" 2>"$tmp/err")
+  out=$(cd "$repo" && fenv /bin/sh "$REC" --repo "$repo" 2>"$tmp/err") \
+    || fail "$1: reconcile exited non-zero: $(cat "$tmp/err")"
+}
+# clean <case> — the pass ran undegraded and warned nothing.
+clean() {
+  printf '%s\n' "$out" | grep -q "^summary${TAB}.*${TAB}status=ok$" \
+    || fail "$1: the pass was degraded: $out"
+  [ ! -s "$tmp/err" ] || fail "$1: the pass warned: $(cat "$tmp/err")"
+}
+# says <case> <verb> <worker> <reason> — the pass printed that line.
+says() {
+  printf '%s\n' "$out" | grep -q "^$2${TAB}$3${TAB}$4$" || fail "$1: no '$2 $3 $4' line: $out"
 }
 row_of() {
   awk -F "$TAB" -v w="$1" '$1 == w { print $3; exit }' "$home/attention/state" 2>/dev/null
@@ -163,14 +195,15 @@ echo "ok: g1 guarded clear"
 
 # --- c1, c2, u2, a1: unit derivation ---------------------------------------
 fresh
-fenv /bin/sh "$FA" heartbeat @145 demo:task-1 working
-fenv /bin/sh "$FA" heartbeat @159 demo:3 idle
-fenv /bin/sh "$FA" heartbeat @160 demo:task-5-6 merged
-fenv /bin/sh "$FA" heartbeat @162 demo:task-1-3 merged
-fenv /bin/sh "$FA" heartbeat @161 demo:task-3-4 working
-fenv /bin/sh "$FA" heartbeat @166 demo:task-2 working
-fenv /bin/sh "$FA" decide @170 demo:task-1 "merge or hold?" merge "merge|hold"
-out=$(reconcile) || fail "c1: reconcile exited non-zero: $(cat "$tmp/err")"
+seed @145 demo:task-1 working
+seed @159 demo:3 idle
+seed @160 demo:task-5-6 merged
+seed @162 demo:task-1-3 merged
+seed @161 demo:task-3-4 working
+seed @166 demo:task-2 working
+seed_decision @170 demo:task-1
+reconcile c1
+clean c1
 has_row @145 && fail "c1: a completed task-<id> scope was kept"
 has_row @159 && fail "c1: a completed bare-id scope was kept"
 has_row @160 && fail "c2: a fully completed range was kept"
@@ -178,67 +211,80 @@ has_row @161 || fail "c2: a range with an unfinished end was cleared"
 has_row @162 || fail "c2: a range with an unfinished interior task was cleared"
 has_row @166 || fail "u2: an unfinished unit with no record was cleared"
 [ "$(row_of @170)" = awaiting-input ] || fail "a1: a queued decision was cleared"
-printf '%s\n' "$out" | grep -q "^clear${TAB}@145${TAB}unit-completed$" \
-  || fail "c1: no clear line for @145: $out"
-printf '%s\n' "$out" | grep -q "^keep${TAB}@170${TAB}awaiting-input$" \
-  || fail "a1: no keep line for @170: $out"
+says c1 clear @145 unit-completed
+says a1 keep @170 awaiting-input
 echo "ok: c1 c2 u2 a1 unit derivation"
 
-# --- d1, d2, u1, p1, x1: worker evidence -----------------------------------
+# --- d1, d2, p1, x1: worker evidence ---------------------------------------
 fresh
 printf 'sess-a @1\n' >"$tmp/tmux-windows"
-reg() {
-  fenv /bin/sh "$FS" register "$1" "$2" --backend "$3" --state-dir "$4" --death-handle "$5" >/dev/null \
-    || fail "setup: register $1"
-}
 reg tmux-demo-task-2 demo:task-2 tmux "$repo/.claude/worktrees/demo-2" "tmux-window sess-a @9"
 reg tmux-demo-task-4 demo:task-4 tmux "$repo/.claude/worktrees/demo-4" "tmux-window sess-a @1"
 reg proc-demo-task-2b demo:task-2 headless "$repo/specs/demo/.orchestrate/headless/2" "process $dead_pid"
 reg pr-demo-task-4 demo:task-4 tmux "$repo/.claude/worktrees/demo-4b" "tmux-window sess-gone @3"
 reg far-demo-task-1 demo:task-1 tmux "$other/wt" "tmux-window sess-a @1"
-fenv /bin/sh "$FA" heartbeat tmux-demo-task-2 demo:task-2 working
-fenv /bin/sh "$FA" heartbeat tmux-demo-task-4 demo:task-4 working
-fenv /bin/sh "$FA" heartbeat proc-demo-task-2b demo:task-2 hung
-fenv /bin/sh "$FA" heartbeat pr-demo-task-4 demo:task-4 pr-ready
-fenv /bin/sh "$FA" heartbeat far-demo-task-1 demo:task-1 pr-ready
-out=$(reconcile) || fail "d1: reconcile exited non-zero: $(cat "$tmp/err")"
+seed tmux-demo-task-2 demo:task-2 working
+seed tmux-demo-task-4 demo:task-4 working
+seed proc-demo-task-2b demo:task-2 hung
+seed pr-demo-task-4 demo:task-4 pr-ready
+seed far-demo-task-1 demo:task-1 pr-ready
+reconcile d1
+clean d1
 has_row tmux-demo-task-2 && fail "d1: a gone tmux window kept its row"
 has_row tmux-demo-task-4 || fail "d1: a listed tmux window lost its row"
 has_row proc-demo-task-2b && fail "d2: an exited process kept its row"
 has_row pr-demo-task-4 || fail "p1: a pr-ready row with an unfinished unit was cleared"
 has_row far-demo-task-1 || fail "x1: another checkout's worker was cleared on this derivation"
-printf '%s\n' "$out" | grep -q "^clear${TAB}tmux-demo-task-2${TAB}tmux-window-dead$" \
-  || fail "d1: no clear line naming the evidence: $out"
-printf '%s\n' "$out" | grep -q "^clear${TAB}proc-demo-task-2b${TAB}process-dead$" \
-  || fail "d2: no clear line naming the evidence: $out"
+says d1 clear tmux-demo-task-2 tmux-window-dead
+says d1 keep tmux-demo-task-4 alive
+says d2 clear proc-demo-task-2b process-dead
+says p1 keep pr-demo-task-4 in-flight
 echo "ok: d1 d2 p1 x1 worker evidence"
 
+# --- u1: lost observability ------------------------------------------------
 fresh
 reg tmux-demo-task-2 demo:task-2 tmux "$repo/.claude/worktrees/demo-2" "tmux-window sess-a @9"
-fenv /bin/sh "$FA" heartbeat tmux-demo-task-2 demo:task-2 working
+seed tmux-demo-task-2 demo:task-2 working
 printf 'down\n' >"$tmp/tmux-mode"
-out=$(reconcile) || fail "u1: reconcile exited non-zero: $(cat "$tmp/err")"
+reconcile u1
 printf 'up\n' >"$tmp/tmux-mode"
 has_row tmux-demo-task-2 || fail "u1: an unreachable tmux server cleared the row"
-printf '%s\n' "$out" | grep -q "^keep${TAB}tmux-demo-task-2${TAB}evidence-unknown$" \
-  || fail "u1: no evidence-unknown keep line: $out"
+says u1 keep tmux-demo-task-2 evidence-unknown
 echo "ok: u1 unknown evidence keeps the row"
+
+# --- r1: a worker writing between the verdict and the clear -----------------
+# The fake tmux runs $tmp/race on its session probe: the worker's heartbeat
+# lands after the snapshot the verdict was reached on.
+fresh
+printf 'sess-a @1\n' >"$tmp/tmux-windows"
+reg tmux-demo-task-2 demo:task-2 tmux "$repo/.claude/worktrees/demo-2" "tmux-window sess-a @9"
+seed tmux-demo-task-2 demo:task-2 working 1700000000
+printf '%s\n' \
+  "awk -F '\\t' 'BEGIN { OFS = \"\\t\" } \$1 == \"tmux-demo-task-2\" { \$4 = 1700000009 } { print }' \"$home/attention/state\" >\"$home/attention/state.new\"" \
+  "mv -f \"$home/attention/state.new\" \"$home/attention/state\"" >"$tmp/race"
+reconcile r1
+clean r1
+rm -f "$tmp/race"
+has_row tmux-demo-task-2 || fail "r1: a row rewritten after its verdict was cleared"
+says r1 keep tmux-demo-task-2 changed
+echo "ok: r1 a row rewritten since its verdict survives"
 
 # --- i1: audit and idempotence ---------------------------------------------
 fresh
-fenv /bin/sh "$FA" heartbeat @145 demo:task-1 working
-reconcile >/dev/null || fail "i1: first pass exited non-zero"
-fenv /bin/sh "$S/fleet-audit.sh" query --mechanism attention-reconcile 2>/dev/null | grep -q '@145' \
+seed @145 demo:task-1 working
+reconcile i1
+fenv /bin/sh "$S/fleet-audit.sh" query --mechanism attention-reconcile 2>/dev/null \
+  | grep "${TAB}clear-row${TAB}" | grep -q 'worker=@145 scope=demo:task-1 state=working evidence=unit-completed' \
   || fail "i1: the clear was not audited"
-out=$(reconcile) || fail "i1: second pass exited non-zero"
+reconcile i1
+clean i1
 printf '%s\n' "$out" | grep -q "^clear" && fail "i1: a second pass cleared again: $out"
-printf '%s\n' "$out" | grep -q "^summary${TAB}rows=0${TAB}cleared=0${TAB}kept=0${TAB}status=ok$" \
-  || fail "i1: unexpected summary: $out"
+says i1 summary rows=0 "cleared=0${TAB}kept=0${TAB}status=ok"
 echo "ok: i1 audited and idempotent"
 
 # --- k1: kill-switch -------------------------------------------------------
 fresh
-fenv /bin/sh "$FA" heartbeat @145 demo:task-1 working
+seed @145 demo:task-1 working
 printf 'fleet_daemon_pause: true\n' >"$tmp/pause.yml"
 k_rc=0
 (cd "$repo" && fenv env PLANWRIGHT_LOCAL_CONFIG="$tmp/pause.yml" /bin/sh "$REC" --repo "$repo" >/dev/null 2>&1) || k_rc=$?
