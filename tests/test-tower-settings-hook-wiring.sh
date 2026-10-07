@@ -164,19 +164,71 @@ require_deny "deny MCP push_files default-branch write (REQ-C1.2d)" "mcp__github
 require_deny "deny MCP create_or_update_file default-branch write (REQ-C1.2d)" "mcp__github__create_or_update_file"
 require_deny "deny MCP delete_file default-branch write (REQ-C1.2d)" "mcp__github__delete_file"
 
-# Pin the whole deny block order-sensitively: `jq -cS` normalizes whitespace and
-# object-key order but preserves array order, so a reorder or accidental
-# perturbation fails here. A legitimate future change updates this pinned list in
-# the same commit.
+# The deny floor as it stood before the front-door extension, pinned
+# order-sensitively: `jq -cS` normalizes whitespace and object-key order but
+# preserves array order. The shipped block must START with exactly this list, so
+# the floor stays byte-identical and an extension can only append to it.
 expected_deny='["Bash(gh pr merge:*)","Bash(gh pr ready:*)","Bash(git merge:*)","Bash(git pull:*)","Bash(git rebase:*)","Bash(git commit --amend:*)","Bash(git commit * --amend*)","Bash(git commit --squash:*)","Bash(git commit --squash*)","Bash(git commit * --squash*)","Bash(git commit --fixup:*)","Bash(git commit --fixup*)","Bash(git commit * --fixup*)","Bash(git commit --am*)","Bash(git commit * --am*)","Bash(git commit --sq*)","Bash(git commit * --sq*)","Bash(git commit --fix*)","Bash(git commit * --fix*)","Bash(git reset --hard:*)","Bash(git filter-branch:*)","Bash(git filter-repo:*)","Bash(git branch -f:*)","Bash(git branch --force:*)","Bash(git update-ref:*)","Bash(git worktree add --force:*)","Bash(git worktree add -f:*)","Bash(git worktree add * --force*)","Bash(git worktree add * -f*)","Bash(git worktree add --detach:*)","Bash(git worktree add * --detach*)","Bash(git worktree add -b main:*)","Bash(git worktree add * -b main)","Bash(git worktree add * -b main *)","Bash(git worktree add -B main:*)","Bash(git worktree add * -B main)","Bash(git worktree add * -B main *)","Bash(git worktree add * main)","Bash(git worktree add * main *)","Bash(git worktree add *refs/heads/main)","Bash(git worktree add *refs/heads/main *)","Bash(git worktree add *heads/main)","Bash(git worktree add *heads/main *)","Bash(git worktree add *origin/main)","Bash(git worktree add *origin/main *)","Bash(git worktree remove --force:*)","Bash(git worktree remove -f:*)","Bash(git worktree remove * --force*)","Bash(git worktree remove * -f*)","Bash(git worktree move * --force*)","Bash(git worktree move --force:*)","Bash(git worktree move * -f*)","Bash(git worktree move -f:*)","Bash(git push --force:*)","Bash(git push --force-with-lease:*)","Bash(git push --force-with-lease=*)","Bash(git push -f:*)","Bash(git push * --force*)","Bash(git push * -f*)","Bash(git push *+*)","Bash(git push *:main)","Bash(git push *:main *)","Bash(git push * main)","Bash(git push * main *)","Bash(git push *refs/heads/main)","Bash(git push *heads/main)","Bash(git push *heads/main *)","Bash(git push *:master)","Bash(git push *:master *)","Bash(git push * master)","Bash(git push * master *)","Bash(git push *heads/master)","Bash(git push *heads/master *)","Bash(git push *:planwright/*/spec)","Bash(git push *:planwright/*/spec *)","Bash(git push * planwright/*/spec)","Bash(git push * planwright/*/spec *)","Bash(git push *heads/planwright/*/spec)","Bash(git push *heads/planwright/*/spec *)","Bash(git push --mirror:*)","Bash(git push * --mirror*)","Bash(git push --all:*)","Bash(git push * --all*)","Bash(git push --mi*)","Bash(git push * --mi*)","Bash(git push --al*)","Bash(git push * --al*)","Bash(git push --b*)","Bash(git push * --b*)","Bash(git push * : *)","Bash(git -c * push:*)","mcp__github__merge_pull_request","mcp__github__update_pull_request","mcp__github__push_files","mcp__github__create_or_update_file","mcp__github__delete_file"]'
-actual_deny="$(jq -cS '.permissions.deny' "$tower_settings")"
-if [ "$actual_deny" = "$(printf '%s' "$expected_deny" | jq -cS .)" ]; then
-  ok "the deny block matches the pinned tower baseline (REQ-C1.2, REQ-E1.4)"
+baseline_len="$(printf '%s' "$expected_deny" | jq 'length')"
+actual_prefix="$(jq -cS --argjson n "$baseline_len" '.permissions.deny[:$n]' "$tower_settings")"
+if [ "$actual_prefix" = "$(printf '%s' "$expected_deny" | jq -cS .)" ]; then
+  ok "the deny block starts with the pinned tower floor, byte-identical (REQ-C1.2, REQ-E1.4; tower-front-door REQ-A1.3)"
 else
-  fail "the deny block drifted from the pinned baseline (REQ-C1.2, REQ-E1.4)"
+  fail "the deny block no longer starts with the pinned tower floor (REQ-C1.2, REQ-E1.4; tower-front-door REQ-A1.3)"
   echo "  expected: $(printf '%s' "$expected_deny" | jq -cS .)" >&2
-  echo "  actual:   $actual_deny" >&2
+  echo "  actual:   $actual_prefix" >&2
 fi
+
+# The front-door extension appends only these entries to the floor: the same
+# five GitHub write acts as the literal mcp__github__ names above, matched on
+# every MCP server by a tool-name glob, plus the PR branch update, which merges
+# the base into the PR branch on the host. A change to the extension updates
+# this list in the same commit.
+expected_extension='["mcp__*__merge_pull_request","mcp__*__update_pull_request","mcp__*__push_files","mcp__*__create_or_update_file","mcp__*__delete_file","mcp__*__update_pull_request_branch"]'
+actual_extension="$(jq -cS --argjson n "$baseline_len" '.permissions.deny[$n:]' "$tower_settings")"
+if [ "$actual_extension" = "$(printf '%s' "$expected_extension" | jq -cS .)" ]; then
+  ok "the deny block past the floor is exactly the front-door extension (tower-front-door REQ-A1.3)"
+else
+  fail "the deny block past the floor differs from the front-door extension (tower-front-door REQ-A1.3)"
+  echo "  expected: $(printf '%s' "$expected_extension" | jq -cS .)" >&2
+  echo "  actual:   $actual_extension" >&2
+fi
+
+# Claude Code matches a deny rule's tool-name glob against the full tool name,
+# `*` standing for any run of characters. deny_glob_hits <tool> succeeds when
+# some MCP glob entry in the shipped block matches it under that rule.
+deny_glob_hits() {
+  local entry
+  while IFS= read -r entry; do
+    # shellcheck disable=SC2053 # the unquoted right side is the glob under test
+    [[ $1 == $entry ]] && return 0
+  done < <(jq -r '.permissions.deny[] | select(startswith("mcp__") and contains("*"))' "$tower_settings")
+  return 1
+}
+for tool in \
+  mcp__claude_ai_Github-Example__merge_pull_request \
+  mcp__github_enterprise__update_pull_request \
+  mcp__gh__push_files \
+  mcp__claude_ai_Github-Example__create_or_update_file \
+  mcp__forge__delete_file \
+  mcp__claude_ai_Github-Example__update_pull_request_branch \
+  mcp__github__update_pull_request_branch; do
+  if deny_glob_hits "$tool"; then
+    ok "another MCP server's GitHub write tool is denied: $tool (tower-front-door REQ-G1.1, REQ-G1.4)"
+  else
+    fail "another MCP server's GitHub write tool is not denied: $tool (tower-front-door REQ-G1.1, REQ-G1.4)"
+  fi
+done
+for tool in \
+  mcp__claude_ai_Github-Example__pull_request_read \
+  mcp__github__get_file_contents \
+  mcp__claude_ai_Github-Example__list_pull_requests; do
+  if deny_glob_hits "$tool"; then
+    fail "a read-only MCP tool is caught by the extension's globs: $tool"
+  else
+    ok "a read-only MCP tool stays outside the extension's globs: $tool"
+  fi
+done
 
 # --- REQ-C1.2: no static Bash allow bypasses the guard's escalation pins ------
 # The guard is the SOLE Bash allow mechanism (D-8 rejected brittle static rules).
@@ -261,6 +313,10 @@ else
   # The MCP-deny wholesale floor rationale.
   require_phrase "_about documents the wholesale MCP-deny floor rationale (REQ-C1.2d)" \
     "cannot discriminate"
+  require_phrase "_about documents the front-door extension and its delta document (tower-front-door REQ-A1.3)" \
+    "docs/tower-posture-delta.md"
+  require_phrase "_about documents the every-server MCP deny globs (tower-front-door REQ-A1.3)" \
+    "mcp__*__"
   # The tower-scoped mis-merge warning.
   require_phrase "_about warns against mis-merging the hook into a non-tower settings file (REQ-C1.2)" \
     "tower-scoping is enforced only by where"
