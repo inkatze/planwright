@@ -8,7 +8,7 @@ description: >
   draft PR referencing the brief, tasks, REQs, and tests. The execution
   workhorse of the planwright pipeline. Assumes the worktree already exists;
   never creates worktrees, never merges, readies its PR only per ready_flip_policy.
-argument-hint: "<task-id> [<task-id> …] [<spec-path>]"
+argument-hint: "<task-id> [<task-id> …] [<spec>]"
 ---
 
 # /execute-task
@@ -58,15 +58,15 @@ step (the `gate-wiring` pause protocol's dispatched arm); attended, present and
 wait instead.
 
 1. **Parse `$ARGUMENTS`.** Extract one or more task IDs (`5`, `3.5`, or `5 6`
-   for a bundle) and an optional spec path, given as either `specs/<spec>` or
-   the bare `<spec>`. Validate each
+   for a bundle) and an optional bare `<spec>` (alias `specs/<spec>`, one
+   trailing slash allowed). Validate each
    `<id>` against `^[0-9]+(\.[0-9]+)?$`, and the extracted `<spec>` against the
    anchored identifier pattern `^[a-z0-9][a-z0-9-]*$` (≤64 chars, REQ-A1.8),
    refusing the reserved word `flight`, **before** it appears in any path
    or command; a failing token is never interpolated. No task ID: halt and
    ask which task to execute.
-2. **Resolve the spec path**, in order: (a) an explicit spec-path argument
-   (`specs/<spec>` or bare `<spec>`, validated in step 1); (b) the branch name
+2. **Resolve the spec path**, in order: (a) an explicit spec argument
+   (validated in step 1); (b) the branch name
    parsed against `planwright/<spec>/task-<ids>` (D-36); (c) the current
    checkout when it holds exactly one `specs/*/` bundle whose `Status:` is
    `Ready` or `Active`; (d) ask, listing the available bundles
@@ -96,7 +96,7 @@ wait instead.
    `spec-format` anchor rules; fleet-hardening D-9). It stops execution against
    content changed since sign-off and against a **stale local `main`**:
    - **Fetch-before-gate** (D-9, REQ-D1.1). Run `scripts/dispatch-fetch.sh
-     --spec specs/<spec> <primary-checkout>`: it fetches `origin` (bounded, **no
+     --spec <spec> <primary-checkout>`: it fetches `origin` (bounded, **no
      local-`main` advance**) and prints the fetched **`origin/main`** anchor
      (re-pointing `spec-anchor.sh`). Exit **0** → gate vs `origin/main`; **3**
      (`no-remote`, offline) → gate vs local `main`; **4** (`stale-transient`) or

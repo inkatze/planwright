@@ -5,12 +5,6 @@
 # clears one occurrence of its line.
 #
 # task<TAB>path<TAB>line
-6	scripts/dispatch-fetch.sh	printf '%s\n' "usage: dispatch-fetch.sh [--spec <specs/<name>>] [--best-effort] <repo-root>" >&2
-6	scripts/dispatch-fetch.sh	printf '%s\n' "dispatch-fetch: --spec requires a non-empty 'specs/<name>' value" >&2
-6	scripts/dispatch-fetch.sh	specs/*) : ;;
-6	scripts/dispatch-fetch.sh	printf '%s\n' "dispatch-fetch: --spec must be 'specs/<name>' (got '$(sanitize_printable "$spec_rel")')" >&2
-6	scripts/dispatch-fetch.sh	spec_name="${spec_rel#specs/}"
-6	scripts/fleet-tower-watchdog.sh	"/orchestrate --watch --unattended specs/$spec" 2>/dev/null || {
 9	scripts/check-obs.sh	obsdir="specs/_observations"
 9	scripts/obs-consume.sh	obsdir="specs/_observations"
 9	scripts/obs-record.sh	obsdir="specs/_observations"

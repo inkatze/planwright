@@ -24,11 +24,14 @@
 # scripts/orchestrate-state.sh — this primitive only makes `origin/main` current
 # so that engine's existing union scan reads a fresh ref.
 #
-# Usage: dispatch-fetch.sh [--spec <repo-rel-spec-dir>] [--best-effort] <repo-root>
+# Usage: dispatch-fetch.sh [--spec <spec>] [--best-effort] <repo-root>
 #   <repo-root>            the primary checkout to fetch in (fetch runs there;
 #                          local `main` is never advanced).
-#   --spec <specs/<name>>  also compute and print the content anchor over the
-#                          resolved ref's version of that spec bundle.
+#   --spec <spec>          also compute and print the content anchor over the
+#                          resolved ref's version of that spec bundle, found
+#                          under the spec root <repo-root> resolves. The
+#                          identifier is bare; `specs/<spec>` is accepted as
+#                          an alias, either with one trailing slash.
 #   --best-effort          single fetch attempt (no retries) for the reconcile
 #                          sweep, so a down remote does not stall each idle cycle.
 #
@@ -101,11 +104,15 @@ else
   sanitize_printable() { printf '%s' "$1" | tr -d '\000-\037\177\200-\237'; }
 fi
 
+# shellcheck source=scripts/spec-id-lib.sh
+. "$script_dir/spec-id-lib.sh"
+
 usage() {
-  printf '%s\n' "usage: dispatch-fetch.sh [--spec <specs/<name>>] [--best-effort] <repo-root>" >&2
+  printf '%s\n' "usage: dispatch-fetch.sh [--spec <spec>] [--best-effort] <repo-root>" >&2
   exit 2
 }
 
+spec_arg=""
 spec_rel=""
 spec_given=0
 repo_root=""
@@ -114,12 +121,12 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --spec)
       [ $# -ge 2 ] || usage
-      spec_rel="$2"
+      spec_arg="$2"
       spec_given=1
       shift 2
       ;;
     --spec=*)
-      spec_rel="${1#--spec=}"
+      spec_arg="${1#--spec=}"
       spec_given=1
       shift
       ;;
@@ -161,29 +168,21 @@ fi
 # A supplied-but-empty --spec is invalid input, not "no --spec". Treating an
 # empty value as omitted would silently waive the --spec anchor guarantee (a
 # success exit is contracted to carry an origin/main anchor), so fail closed
-# here rather than downgrade to currency-only. (A realistic `--spec specs/<name>`
-# with an empty name is already caught by the grammar below; this closes the
-# literally-empty flag.)
-if [ "$spec_given" -eq 1 ] && [ -z "$spec_rel" ]; then
-  printf '%s\n' "dispatch-fetch: --spec requires a non-empty 'specs/<name>' value" >&2
+# here rather than downgrade to currency-only.
+if [ "$spec_given" -eq 1 ] && [ -z "$spec_arg" ]; then
+  printf '%s\n' "dispatch-fetch: --spec requires a non-empty spec identifier" >&2
   exit 2
 fi
 
-# Validate the spec path against traversal / injection before it reaches
-# `git show <ref>:<path>`. It must be a plain `specs/<identifier>` under the
-# repo (the identifier grammar: REQ-A1.8). Anything else fails closed.
-if [ -n "$spec_rel" ]; then
-  case "$spec_rel" in
-    specs/*) : ;;
-    *)
-      printf '%s\n' "dispatch-fetch: --spec must be 'specs/<name>' (got '$(sanitize_printable "$spec_rel")')" >&2
-      exit 2
-      ;;
-  esac
-  spec_name="${spec_rel#specs/}"
+# Validate the identifier against traversal / injection before it reaches a
+# path or `git show <ref>:<path>` (the identifier grammar: REQ-A1.8). Anything
+# else, a bundle-file path included, fails closed.
+if [ "$spec_given" -eq 1 ]; then
+  spec_id_canon "$spec_arg"
+  spec_name=$SPEC_ID
   case "$spec_name" in
     '' | */* | *[!a-z0-9-]* | [!a-z0-9]*)
-      printf '%s\n' "dispatch-fetch: invalid spec name in '$(sanitize_printable "$spec_rel")'" >&2
+      printf '%s\n' "dispatch-fetch: --spec must be a spec identifier, not a path (got '$(sanitize_printable "$spec_arg")')" >&2
       exit 2
       ;;
     flight)
@@ -191,6 +190,10 @@ if [ -n "$spec_rel" ]; then
       exit 2
       ;;
   esac
+  if [ "${#spec_name}" -gt 64 ]; then
+    printf '%s\n' "dispatch-fetch: --spec identifier is longer than 64 characters" >&2
+    exit 2
+  fi
 fi
 
 # Repo-root must be inside a git work tree; resolve its top so refs/paths are
@@ -201,6 +204,23 @@ if [ -z "$repo_top" ]; then
   exit 2
 fi
 repo_root=$repo_top
+
+# The bundle's path inside the repository, from the spec root <repo-root>
+# resolves. The anchor is read from a ref of this repository, so a root
+# outside it has no committed view here to read.
+if [ "$spec_given" -eq 1 ]; then
+  spec_root=$(cd -- "$repo_root" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec) || {
+    printf '%s\n' "dispatch-fetch: the spec root for '$(sanitize_printable "$repo_root")' did not resolve" >&2
+    exit 2
+  }
+  case $spec_root in
+    "$repo_root"/*) spec_rel="${spec_root#"$repo_root"/}/$spec_name" ;;
+    *)
+      printf '%s\n' "dispatch-fetch: the spec root '$(sanitize_printable "$spec_root")' lies outside '$(sanitize_printable "$repo_root")', so no ref of it holds the bundle" >&2
+      exit 2
+      ;;
+  esac
+fi
 
 anchor_script="$script_dir/spec-anchor.sh"
 config_get="$script_dir/config-get.sh"

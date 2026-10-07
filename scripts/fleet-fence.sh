@@ -146,6 +146,8 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
+# shellcheck source=scripts/spec-id-lib.sh
+. "$script_dir/spec-id-lib.sh"
 
 TAB=$(printf '\t')
 NS_ROOT=refs/planwright-fence
@@ -401,12 +403,14 @@ for f in "$alloc_key" "$obs_scope"; do
   fi
 done
 
+spec_id_canon "$spec"
+spec=$SPEC_ID
 if [ "$cmd" != list ] || [ -n "$spec" ]; then
   if ! is_spec_id "$spec"; then
     if [ "$spec" = flight ]; then
       err "refusing the reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)"
     else
-      err "refusing malformed spec id (the ^[a-z0-9][a-z0-9-]*\$ identifier grammar, <=64)"
+      err "refusing malformed spec id (a spec identifier, not a path: the ^[a-z0-9][a-z0-9-]*\$ grammar, <=64)"
     fi
     exit 2
   fi

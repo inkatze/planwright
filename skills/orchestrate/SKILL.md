@@ -9,7 +9,7 @@ description: >
   merges,
   marks a PR ready, or auto-chains into /spec-kickoff. --bookkeeping runs the drain
   + PR reconcile; --watch loops the step.
-argument-hint: "[<spec-path>] [--fleet] [--meta [<spec-path>...]] [--watch] [--bookkeeping] [--backend <b>] [--unattended]"
+argument-hint: "[<spec>] [--fleet] [--meta [<spec>...]] [--watch] [--bookkeeping] [--backend <b>] [--unattended]"
 ---
 
 # /orchestrate
@@ -77,12 +77,12 @@ Run in order. Any halt records the unit (when one is selected) and ends the step
 per **Halt → Awaiting input** below; simultaneous ones batch into the step
 report (D-45).
 
-1. **Parse `$ARGUMENTS`.** Extract the mode flags above and an optional spec
-   path (`specs/<spec>` or bare `<spec>`). Validate the `<spec>` segment against
+1. **Parse `$ARGUMENTS`.** Extract the mode flags above and an optional bare
+   `<spec>` (alias `specs/<spec>`, one trailing slash allowed). Validate it against
    the anchored identifier pattern `^[a-z0-9][a-z0-9-]*$` (≤64 chars, REQ-A1.8)
    **before** it appears in any path or command; a failing token is never
    interpolated.
-2. **Resolve the spec path**, in order: (a) an explicit spec-path argument;
+2. **Resolve the spec path**, in order: (a) an explicit spec argument;
    (b) the current branch parsed against `planwright/<spec>/task-<ids>` (D-36),
    giving `specs/<spec>/`; (c) the checkout when it holds exactly one `specs/*/`
    bundle whose `Status:` is `Ready` or `Active` (underscore-prefixed
@@ -162,7 +162,7 @@ law is `orchestration-concurrency` (read here). Ordered steps:
    dispatch against spec content changed since sign-off and against a **stale local
    `main`**:
    - **Fetch-before-gate** (D-9, REQ-D1.1). `scripts/dispatch-fetch.sh --spec
-     specs/<spec> <primary-checkout>` fetches `origin` (bounded by
+     <spec> <primary-checkout>` fetches `origin` (bounded by
      `dispatch_fetch_ttl`, coalesced with the reconcile-sweep fetch, **no
      local-`main` advance**) and prints the fetched **`origin/main`** anchor
      (re-pointing `spec-anchor.sh`). Exit **0** → gate vs `origin/main`; **3**

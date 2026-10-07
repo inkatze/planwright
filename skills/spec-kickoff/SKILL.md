@@ -8,7 +8,7 @@ description: >
   clean completion marks the spec PR ready (mark_spec_pr_ready_on_kickoff
   opt-out). Also runs delta re-walkthroughs and amendments; halts on genuine
   spec inconsistency rather than papering over it.
-argument-hint: "<spec-path>"
+argument-hint: "<spec>"
 ---
 
 # /spec-kickoff
@@ -117,8 +117,8 @@ Superseded are terminal: refuse — no skill-driven transition leaves them.
 
 ## Pre-flight
 
-1. **Parse `$ARGUMENTS`.** Expect a spec path (`specs/<spec>` or the bare
-   `<spec>`). Validate the `<spec>` segment against the anchored, full-string
+1. **Parse `$ARGUMENTS`.** Expect a bare `<spec>` (alias `specs/<spec>`, one
+   trailing slash allowed). Validate it against the anchored, full-string
    pattern `^[a-z0-9][a-z0-9-]*$`, maximum length 64 (REQ-A1.8), **before** it
    appears in any path, branch name, or command; a failing identifier is never
    interpolated. No argument: list the bundles under `specs/`

@@ -174,6 +174,9 @@ else
   }
 fi
 
+# shellcheck source=scripts/spec-id-lib.sh
+. "$script_dir/spec-id-lib.sh"
+
 warn() {
   printf '%s\n' "fleet-dispatch-headless: $(sanitize_printable "$1")" >&2
 }
@@ -468,6 +471,8 @@ do_launch() {
   [ "$l_have_extra" -eq 1 ] || set --
 
   [ -n "$l_spec" ] && [ -n "$l_id" ] && [ -n "$l_worktree" ] || usage
+  spec_id_canon "$l_spec"
+  l_spec=$SPEC_ID
   valid_spec "$l_spec" || {
     if [ "$l_spec" = flight ]; then
       warn "reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)"
@@ -818,6 +823,8 @@ do_status() {
     esac
   done
   [ -n "$s_spec" ] && [ -n "$s_id" ] || usage
+  spec_id_canon "$s_spec"
+  s_spec=$SPEC_ID
   valid_spec "$s_spec" || {
     if [ "$s_spec" = flight ]; then
       warn "reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)"

@@ -15,10 +15,10 @@
 # one sanctioned write (REQ-A1.3); the load report stays read-only.
 #
 # Usage:
-#   spec-walkthrough.sh [--scope <selector>] [--reveal] <spec-path>
+#   spec-walkthrough.sh [--scope <selector>] [--reveal] <spec>
 #
-# <spec-path> is `specs/<spec>` or the bare `<spec>` (the two sanctioned forms,
-# the same pair the sibling skills accept), resolved under the spec root the
+# <spec> is the bare identifier or its `specs/<spec>` alias, either with one
+# trailing slash (scripts/spec-id-lib.sh), resolved under the spec root the
 # working directory's repository resolves (scripts/resolve-root.sh spec); with
 # no root resolved it is refused. <selector> names which part to render (REQ-B1.2):
 #   whole                 the whole bundle (default)
@@ -73,9 +73,11 @@ unset CDPATH
 # non-printables off untrusted content before it reaches the terminal.
 # shellcheck source=scripts/echo-safety.sh
 . "$(dirname "$0")/echo-safety.sh"
+# shellcheck source=scripts/spec-id-lib.sh
+. "$(dirname "$0")/spec-id-lib.sh"
 
 usage() {
-  echo "usage: spec-walkthrough.sh [--scope <selector>] [--reveal] <spec-path>" >&2
+  echo "usage: spec-walkthrough.sh [--scope <selector>] [--reveal] <spec>" >&2
   exit 2
 }
 
@@ -153,15 +155,11 @@ done
 
 [ -n "$specpath" ] || usage
 
-# Derive the spec identifier from the path before it is ever used as a path
-# (REQ-A1.6). Strip a trailing slash and an optional single leading `specs/`;
-# what remains must be a bare identifier. A charset failure here is a clean
-# refusal that never names the candidate back.
-spec=$specpath
-while [ "$spec" != "${spec%/}" ]; do spec=${spec%/}; done
-case $spec in
-  specs/*) spec=${spec#specs/} ;;
-esac
+# Map the alias to the identifier before it is ever used as a path
+# (REQ-A1.6); what remains must be a bare identifier. A charset failure here
+# is a clean refusal that never names the candidate back.
+spec_id_canon "$specpath"
+spec=$SPEC_ID
 if ! check_spec_id "$spec"; then
   if [ "$spec" = flight ]; then
     echo "spec-walkthrough: reserved spec identifier: 'flight' is the flight branch segment (tower-front-door D-11); refused before any read" >&2

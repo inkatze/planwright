@@ -704,6 +704,17 @@ check items, the self-critique and adversarial re-validation passes.
 Anchor: `e491833aa36c507d74bb2568b15375425c3c300d` — computed as
 `scripts/spec-anchor.sh specs/custom-spec-location`
 
+### Execution findings: Task 6 (2026-10-07)
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| T6-F1 | REQ-D1.1 lists the scope among the seams that take the alias, while REQ-D1.3 and D-11 keep the scope's field grammar, which has no slash. A scope is `<spec>:task-<ids>` (or a flight's own form), not a bare spec. | The scope keeps its grammar exactly: `specs/<id>` in a scope is still refused, and every scope refusal and the stream-json launch usage now name the expected shape (the scope-grammar observation's second remedy). Mapping the alias inside a scope would be its first remedy, widening the grammar, which REQ-D1.3 declines. Pending sign-off at PR review. |
+| T6-F2 | The task names its seams illustratively. | Decided rule: a script argument a caller names a spec by, which builds a keyed form or reads the bundle, takes the alias. That is the fetch, both dispatchers, the fence, the tower marker, the trailer helper (as `specs/<spec>/<id>`), consume, and the walkthrough script, through one sourced mapper, `scripts/spec-id-lib.sh`. Not changed: the presence record's `--specs`/`--fenced` and allocation-feedback's `--spec`, which carry ids scripts derive rather than ids anyone types; `/drain` and `/resume`, which take no spec argument; and every directory-taking script (D-11). |
+| T6-F3 | The fetch built the bundle's path at the ref as the literal `specs/<name>`. | It now takes the path from the spec root the repository resolves. A root outside the repository has no committed view in that repository, so the fetch refuses it (exit 2, which the gate parks on); reading a holder's or plain store's bundle is Task 8's gate-per-posture work. |
+| T6-F4 | Security (path handling, untrusted arguments). The mapper first printed its result, and a command substitution strips a trailing newline, so `demo/1` followed by a newline passed the trailer grammar it used to fail (the existing trailer test caught it). | The mappers assign their result instead, so every seam's grammar sees the value byte for byte; a test pins it. The mapper only reshapes and reads no filesystem; each seam's own grammar and refusal are unchanged, and refusals name the canonical form rather than the alias, so the literal guard's namespace allowlist grows by the mapper's own lines only (risk 7). |
+| T6-F5 | `spec-walkthrough.sh` stripped any number of trailing slashes. | It now takes one, as REQ-D1.1 states; `demo//` is refused like every other seam. |
+| T6-F6 | The README and getting-started still show `<spec-path>`, and the tower's relayed commands still write `specs/<spec>`. | Both keep working through the alias. The docs are Task 10's; the tower skill is outside this task's list and its relayed text is pinned by its own tests and behavioral fixtures. |
+
 ## 9. Amendment log
 
 ### Amendment — empty `spec_root` cancels lower layers, Task 2 execution (2026-09-28)

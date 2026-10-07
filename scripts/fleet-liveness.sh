@@ -307,6 +307,10 @@ FDG="$script_dir/fleet-daemon-gate.sh"
 RCK="$script_dir/resolve-config-knob.sh"
 TAB=$(printf '\t')
 
+# What a refused scope is told it should look like: the grammar has no slash,
+# so a scope names its spec by the identifier, never by a path.
+SCOPE_SHAPE='a field token such as <spec>:task-<ids>, naming the spec by its bare identifier'
+
 # The fleet field grammar, byte-identical to fleet-state.sh /
 # fleet-attention.sh valid_field: excludes path separators, whitespace, and any
 # control or shell metacharacter, and rejects the bare `.`/`..` dot-runs
@@ -1675,7 +1679,7 @@ case "$cmd" in
       exit 2
     fi
     if ! valid_field "$scope"; then
-      echo "fleet-liveness: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
+      echo "fleet-liveness: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")': $SCOPE_SHAPE" >&2
       exit 2
     fi
     now=""
@@ -2045,7 +2049,7 @@ case "$cmd" in
       exit 2
     fi
     if ! valid_field "$scope"; then
-      echo "fleet-liveness: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
+      echo "fleet-liveness: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")': $SCOPE_SHAPE" >&2
       exit 2
     fi
     now=""

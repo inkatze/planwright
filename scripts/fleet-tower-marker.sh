@@ -63,6 +63,8 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # install.
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
+# shellcheck source=scripts/spec-id-lib.sh
+. "$script_dir/spec-id-lib.sh"
 
 FS="$script_dir/fleet-state.sh"
 
@@ -175,7 +177,8 @@ if [ "$#" -lt 2 ]; then
   exit 2
 fi
 cmd=$1
-spec=$2
+spec_id_canon "$2"
+spec=$SPEC_ID
 shift 2
 
 if [ "$spec" = flight ]; then

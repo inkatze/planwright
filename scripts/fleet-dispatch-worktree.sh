@@ -280,6 +280,9 @@ else
   }
 fi
 
+# shellcheck source=scripts/spec-id-lib.sh
+. "$script_dir/spec-id-lib.sh"
+
 FETCH="$script_dir/dispatch-fetch.sh"
 ENVWRAP="$script_dir/fleet-dispatch-env.sh"
 MARKER="$script_dir/orchestrate-marker.sh"
@@ -1269,6 +1272,8 @@ do_dispatch() {
     _suffix="flight-$_flight"
     _branch="planwright/flight/$_flight"
   else
+    spec_id_canon "$_spec"
+    _spec=$SPEC_ID
     valid_spec "$_spec" || {
       if [ "$_spec" = flight ]; then
         warn "reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)"
