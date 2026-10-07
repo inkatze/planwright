@@ -3,8 +3,7 @@
 # hardening wrapper (fleet-autonomy Task 6; D-10, REQ-D1.1).
 #
 # Every fleet-launched Claude Code session another session reads via pane
-# capture — a dispatched worker, and any subordinate tower a meta-tower
-# observes — is launched THROUGH this wrapper so it inherits
+# capture (a dispatched worker) is launched THROUGH this wrapper so it inherits
 # CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false, disabling input-line ghost-text
 # (prompt suggestions) at the source (D-10). Prevention at the launch
 # environment, never a runtime detection heuristic (REQ-D1.1; the backspace

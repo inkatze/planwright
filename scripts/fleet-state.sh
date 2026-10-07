@@ -50,7 +50,7 @@
 # authoritative count is the live git derivation the meta-tower selector
 # (orchestrate-meta-select.sh) sums per step — level-triggered and self-healing,
 # so it never leaks across a tower crash; that selector reads only the git truth,
-# never this counter. This counter's role is to close the sub-second window
+# never this counter. This counter's role is to close the window
 # between a meta step deciding and that step materializing its
 # branch/marker. It is NOT self-healing: a holder that crashes between
 # `bound-incr` and `bound-decr` leaks its slot. The LOCK now carries the owner

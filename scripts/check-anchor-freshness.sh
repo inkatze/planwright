@@ -74,10 +74,10 @@ unset CDPATH 2>/dev/null || true
 
 script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 
-# The shared spec-parse grammar lib: the header-block Status parse and the
-# stderr sanitizer come from it, so this guard's notion of "the header block"
-# cannot diverge from spec-anchor.sh's. Sourced, never executed; fail closed
-# when it is missing or unreadable.
+# The shared spec-parse grammar lib: the header-block Status parse, the brief's
+# anchor-entry parse and the stderr sanitizer come from it, so this guard's
+# notion of "the header block" cannot diverge from spec-anchor.sh's. Sourced,
+# never executed; fail closed when it is missing or unreadable.
 spec_parse_sh="$script_dir/spec-parse.sh"
 if [ ! -f "$spec_parse_sh" ] || [ ! -r "$spec_parse_sh" ]; then
   lib_disp=$(printf '%s' "$spec_parse_sh" | tr -d '\000-\037\177\200-\237')

@@ -132,19 +132,21 @@ at the fleet tier:
    observation.)
 4. **Release the fleet lock** before launching
    (`scripts/fleet-state.sh unlock`).
-5. **Run the single-spec step** for the chosen unit:
+5. **Run the single-spec step** for the chosen unit. First run the skill's
+   resource-governance and launch-tier lines for it (a pause, withhold, or
+   refusal skips the step); the script runs neither. Then
    `scripts/orchestrate-meta-step.sh dispatch <spec-dir> <id> --backend <b>
-   --prompt-file <file>`, `<b>` from the skill's backend-selection law and
-   the file holding the unit's `/execute-task` prompt (the resolved launch
-   tier after `--`). It takes the spec's per-spec lock, runs the freshness
-   gate, writes the dispatch record, releases the lock, and launches the one
+   --prompt-file <file> [-- <tier args>]`, `<b>` from the skill's
+   backend-selection law and the file holding the unit's `/execute-task`
+   prompt. It takes the spec's per-spec lock, runs the freshness gate,
+   writes the dispatch record, releases the lock, and launches the one
    worker; it launches nothing but `/execute-task`. Exit 1 (a single-spec
-   tower holds that lock) is a clean no-op; exit 4 parks the unit to its
-   spec's `## Awaiting input` with the printed `halt` and `remedy`; any other
-   nonzero exit is a dispatch failure to report. The script runs only the
-   stream-json, headless, and tmux rungs; on any other, park naming the rung. The
-   meta-tower **never** edits another tower's or a worker's branch state
-   (REQ-D1.2 division of labor).
+   tower holds that lock, or the unit is already in flight) is a clean
+   no-op; exit 4 parks the unit to its spec's `## Awaiting input` with the
+   printed `halt` and `remedy`; any other nonzero exit is a dispatch failure
+   to report. The script runs only the stream-json and headless rungs; on
+   any other, park naming the rung. The meta-tower **never** edits another
+   tower's or a worker's branch state (REQ-D1.2 division of labor).
 
 **Autonomy and the tower-tier rules hold unchanged at the meta tier.**
 Unattended, the meta-tower honors the autonomous-safe-decision policy exactly

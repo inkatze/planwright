@@ -3,9 +3,8 @@
 # (fleet-autonomy Task 6; D-10, REQ-D1.1).
 #
 # Every fleet-launched Claude Code session that another session reads via pane
-# capture — a dispatched worker — is launched THROUGH this wrapper. The
-# wrapper pins
-# CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false into the launched process's
+# capture (a dispatched worker) is launched THROUGH this wrapper. The wrapper
+# pins CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false into the launched process's
 # environment, disabling input-line ghost-text (prompt suggestions) at the
 # source so a pane capture is never ambiguous between real input and a rendered
 # suggestion (D-10). This is prevention at the launch environment — the tower
