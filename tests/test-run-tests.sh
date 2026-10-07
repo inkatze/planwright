@@ -370,6 +370,62 @@ assert "an unwritable report path exits 2" 2 $?
 assert_contains "the unwritable-report failure names the path" \
   "no-such-dir/report.tsv" "$out"
 
+# 20. Fleet-home isolation: a file that writes fleet state into the home it
+#     inherited fails the run by name, and the caller's real home (here a
+#     stand-in) is never reached, through either the override or the
+#     plugin-data arm. A file that pins a home of its own passes. The
+#     stand-ins are exported for the whole block so a regressed runner writes
+#     them, never the home this suite itself inherited.
+export PLANWRIGHT_FLEET_STATE_DIR="$tmp/operator-fleet"
+export CLAUDE_PLUGIN_DATA="$tmp/operator-data"
+mkdir -p "$tmp/leak-override" "$tmp/leak-plugin" "$tmp/leak-marker" "$tmp/pinned"
+cat >"$tmp/leak-override/test-leaky.sh" <<'EOF'
+#!/bin/bash
+mkdir -p "$PLANWRIGHT_FLEET_STATE_DIR"
+printf 'leaked\n' >>"$PLANWRIGHT_FLEET_STATE_DIR/registry"
+EOF
+cat >"$tmp/leak-plugin/test-leaky.sh" <<'EOF'
+#!/bin/bash
+mkdir -p "$CLAUDE_PLUGIN_DATA/fleet"
+printf 'leaked\n' >>"$CLAUDE_PLUGIN_DATA/fleet/registry"
+EOF
+cat >"$tmp/leak-marker/test-leaky.sh" <<'EOF'
+#!/bin/bash
+mkdir -p "$PLANWRIGHT_FLEET_STATE_DIR/dispatch-markers"
+printf 'm\n' >"$PLANWRIGHT_FLEET_STATE_DIR/dispatch-markers/w"
+EOF
+cat >"$tmp/pinned/test-pinned.sh" <<'EOF'
+#!/bin/bash
+own=$(mktemp -d) || exit 1
+trap 'rm -rf "$own"' EXIT
+PLANWRIGHT_FLEET_STATE_DIR="$own/fleet"
+mkdir -p "$PLANWRIGHT_FLEET_STATE_DIR"
+printf 'mine\n' >>"$PLANWRIGHT_FLEET_STATE_DIR/registry"
+EOF
+out="$(/bin/bash "$RUNNER" "$tmp/leak-override" 2>&1)"
+assert "a registry write to the inherited fleet home fails the run" 1 $?
+assert_contains "the leaking file is named" "test-leaky.sh" "$out"
+assert_contains "the failure says what leaked" "fleet home" "$out"
+if [ -e "$tmp/operator-fleet" ]; then
+  echo "FAIL: the inherited fleet home was written through the override" >&2
+  failures=$((failures + 1))
+else
+  echo "ok: the inherited fleet home is untouched (override arm)"
+fi
+out="$(env -u PLANWRIGHT_FLEET_STATE_DIR /bin/bash "$RUNNER" "$tmp/leak-plugin" 2>&1)"
+assert "a registry write through the plugin-data arm fails the run" 1 $?
+if [ -e "$tmp/operator-data" ]; then
+  echo "FAIL: the inherited plugin data was written through the plugin-data arm" >&2
+  failures=$((failures + 1))
+else
+  echo "ok: the inherited fleet home is untouched (plugin-data arm)"
+fi
+out="$(/bin/bash "$RUNNER" "$tmp/leak-marker" 2>&1)"
+assert "a dispatch-marker write to the inherited fleet home fails the run" 1 $?
+out="$(/bin/bash "$RUNNER" "$tmp/pinned" 2>&1)"
+assert "a file that pins its own fleet home passes" 0 $?
+unset PLANWRIGHT_FLEET_STATE_DIR CLAUDE_PLUGIN_DATA
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

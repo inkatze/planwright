@@ -37,6 +37,9 @@
 #      is refused (exit 3) and does not disturb the first.
 #   h8: status edges — `absent` for a never-dispatched unit; a garbled pid
 #      record is `unknown` (refuse to guess), never death.
+#   Every case runs against its own fleet home (tests/lib/fleet-home.sh): a
+#   launch registers its worker, and an unpinned home is the operator's real
+#   registry. The suite fails if the inherited registry names its temp root.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-fleet-dispatch-headless.sh
@@ -75,6 +78,9 @@ cleanup() {
   rm -rf "$tmp"
 }
 trap cleanup EXIT
+
+# shellcheck source=tests/lib/fleet-home.sh
+. "$here/lib/fleet-home.sh"
 
 # run_fdh <args...>: invoke the primitive via /bin/sh (never a temp-script
 # direct exec) with a hermetic env.
@@ -177,6 +183,8 @@ line two'
   grep -qx -- '--bare' "$rec/argv" && fail "h1: argv carries --bare (launch pin violated)"
   grep -qx -- '--permission-prompt-tool' "$rec/argv" \
     && fail "h1: argv carries --permission-prompt-tool (one-shot posture violated)"
+  grep -q "	headless-$SPEC-task-$ID	" "$PLANWRIGHT_FLEET_STATE_DIR/registry" 2>/dev/null \
+    || fail "h1: the launch did not register its worker in the case's own fleet home"
   pass "h1: detached launch delivers the prompt as data with pinned flags and identity env (REQ-A1.9, REQ-A1.5)"
 }
 
@@ -745,24 +753,16 @@ h16() {
   pass "h16: a swallowed completion write surfaces as unknown, never a false death (C7)"
 }
 
-h1
-h2
-h3
-h4
-h5
-h6
-h7
-h8
-h9
-h10
-h11
-h12
-h13
-h14
-h15
-h16
-h17
-h18
+for c in h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 h12 h13 h14 h15 h16 h17 h18; do
+  fleet_home_pin "$tmp/home-$c"
+  "$c"
+done
+
+if fleet_home_leaked "$tmp"; then
+  fail "a case registered into the inherited fleet registry $(fleet_home_inherited) instead of its own fixture home"
+else
+  pass "no case wrote the inherited fleet registry"
+fi
 
 if [ "$failures" -ne 0 ]; then
   echo "test-fleet-dispatch-headless: $failures failure(s)" >&2
