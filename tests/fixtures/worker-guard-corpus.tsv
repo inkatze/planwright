@@ -143,6 +143,8 @@ row	expansion	defer	defer	defer	defer	test -v 'a[$(id)]'
 row	expansion	defer	defer	defer	defer	[ -v 'a[$(id)]' ]
 row	expansion	defer	defer	defer	defer	printf -v 'a[$(id)]' x
 row	expansion	defer	defer	defer	defer	printf -v PATH x
+# these two straddle the guard's loop-head bound; move both if it changes
+row	expansion	allow	allow	allow	allow	for f in a b c d e f g h i j k l m n o p; do grep -n x $f; done
 row	expansion	defer	defer	defer	defer	for f in a b c d e f g h i j k l m n o p q; do grep -n x $f; done
 
 # --- run-order: cd into the worktree, then the rest analysed from there ---
@@ -157,6 +159,8 @@ row	run-order	defer	defer	defer	defer	cd sub || ls
 row	run-order	defer	defer	defer	defer	cd sub & ls
 row	run-order	defer	defer	defer	defer	cd .. && ls
 row	run-order	defer	defer	defer	defer	cd sub/../.. && ls
+row	run-order	defer	defer	defer	defer	cd outlink && ls
+row	run-order	defer	defer	defer	defer	cd missing && ls
 row	run-order	defer	defer	defer	defer	cd && ls
 row	run-order	defer	defer	defer	defer	timeout 5 cd sub && ls
 # plain assignments carry across && as their literal value
@@ -171,6 +175,7 @@ row	run-order	defer	defer	defer	defer	IFS=-; ls
 row	run-order	defer	defer	defer	defer	CDPATH=/ && cd sub
 row	run-order	defer	defer	defer	defer	HOME=@@OUTSIDE@@ && ls
 row	run-order	defer	defer	defer	defer	BASH_ENV=x && ls
+row	run-order	defer	defer	defer	defer	CLAUDE_PLUGIN_ROOT=@@OUTSIDE@@ && bash scripts/ok.sh
 row	run-order	defer	defer	defer	defer	PATH=@@OUTSIDE@@ && ls
 row	run-order	defer	defer	defer	defer	f=*.md && find . $f
 row	run-order	defer	defer	defer	defer	f=$HOME && find $f
@@ -187,6 +192,8 @@ row	run-order	allow	allow	allow	allow	timeout 30 grep -n x f
 row	run-order	allow	allow	allow	allow	timeout 5m git log --oneline -3
 row	run-order	defer	defer	defer	defer	timeout -k 5 30 grep x f
 row	run-order	defer	defer	defer	defer	timeout 30 bash -c 'ls'
+row	run-order	defer	defer	defer	defer	timeout 5x ls
+row	run-order	defer	defer	defer	defer	time -v ls
 row	run-order	defer	defer	defer	defer	time rm -rf /
 # wait and inspection verbs
 row	run-order	allow	allow	allow	allow	sleep 20
@@ -254,7 +261,8 @@ row	own-branch	defer	defer	defer	defer	cp -a f g
 row	own-branch	defer	defer	defer	defer	cp -P f g
 row	own-branch	defer	defer	defer	defer	ln -s f g && rm g
 row	own-branch	defer	defer	defer	defer	mv @@OUTSIDE@@/x f
-row	own-branch	defer	defer	defer	defer	rm hardlinked
+row	own-branch	defer	defer	defer	defer	echo x >> hardlinked
+row	own-branch	defer	defer	defer	defer	touch hardlinked
 row	own-branch	defer	defer	defer	defer	sed -i '1e id' f
 row	own-branch	defer	defer	defer	defer	sed -i 's/a/b/w out' f
 row	own-branch	defer	defer	defer	defer	git fetch origin main:main
