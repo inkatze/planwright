@@ -57,7 +57,10 @@ static `allow` entry is added.
   directory: `TMPDIR` for GNU mktemp, and on macOS the per-user temp
   directory, whatever `TMPDIR` says. A template, `-p`, `-t`, `-d`, and
   `-u` all defer, and so does mktemp once a `while` or `until` loop has
-  opened in the command, since those loops have no pass cap.
+  opened in the command, since those loops have no pass cap. Any input
+  redirect defers too: zsh, the shell the Bash tool runs on macOS, reads
+  `<->` or `<1-99>` as a numeric glob over digit-named files, where the
+  guard would see two redirects.
 - **`rm` of mktemp-named temp files.** Every operand, which may name a file
   that does not exist yet, must be an absolute path with no `.` or `..`
   component, whose name has mktemp's default shape (`tmp.` and at least six
@@ -70,7 +73,7 @@ static `allow` entry is added.
   dot-component operand, a directory whose resolved path holds a line break,
   and any operand outside those directories defer, and one bad operand defers
   the whole command. Like mktemp, removal defers once a `while` or `until`
-  loop has opened.
+  loop has opened, and with any input redirect.
 
 ## The deny delta
 

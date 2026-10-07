@@ -1350,15 +1350,38 @@ guard_jq() {
   return 0
 }
 
+# no_input_redirect: 0 when the simple command (verify_simple's ro/rn) carries
+# no input redirect. zsh, the shell the Bash tool runs on macOS, reads `<->`
+# and `<1-99>` as a numeric glob that expands to digit-named files, where the
+# tokenizer sees two redirects; for a writer that turns into operands the
+# guard never checked. mktemp and rm read no stdin, so any `<` form defers.
+no_input_redirect() {
+  local i r
+  for ((i = 0; i < rn; i++)); do
+    r=${ro[i]}
+    while [ -n "$r" ]; do
+      case $r in
+        [0-9]*) r=${r#?} ;;
+        *) break ;;
+      esac
+    done
+    case $r in
+      '<'*) return 1 ;;
+    esac
+  done
+  return 0
+}
+
 # guard_mktemp: the bare form only, which creates one fresh, empty file in the
 # system temp directory (TMPDIR, or on macOS the per-user temp directory) and
 # prints its name. A template, -p/--tmpdir or -t chooses where the file goes;
 # -d makes a directory guard_rm will not remove; -u only names a path, which is
 # the race mktemp exists to avoid. Once a while or until loop has opened in the
 # command (verify_tokens' in_unbounded_loop) it defers: those loops have no
-# pass cap, so mktemp there would create files without bound.
+# pass cap, so mktemp there would create files without bound. An input
+# redirect defers too (no_input_redirect).
 guard_mktemp() {
-  [ "$cwn" -eq 1 ] && [ "${in_unbounded_loop:-0}" = 0 ]
+  [ "$cwn" -eq 1 ] && [ "${in_unbounded_loop:-0}" = 0 ] && no_input_redirect
 }
 
 # canon_temp_dir <dir>: the physical path of an absolute <dir> on one line, or
@@ -1403,11 +1426,13 @@ temp_dirs() {
 # `-f` and `--` are the only flags, and only before the first operand: BSD rm
 # reads a later one as a file name. -r/-R/-d (directories), -i/-I/-v and every
 # other flag defer, and so does any removal once a while or until loop has
-# opened, as guard_mktemp does. The guard cannot tell whose file it is: any
-# same-user file of that name in those directories qualifies.
+# opened or with an input redirect, as guard_mktemp does. The guard cannot
+# tell whose file it is: any same-user file of that name in those directories
+# qualifies.
 guard_rm() {
   local i a d b s dirs endflags=0 operands=0
   [ "${in_unbounded_loop:-0}" = 0 ] || return 1
+  no_input_redirect || return 1
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$endflags" = 0 ]; then

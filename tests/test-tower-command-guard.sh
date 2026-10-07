@@ -432,6 +432,19 @@ assert_defer "an -f after an operand" "rm $TOWER_TMP/tmp.Ab3dE6gH9j -f"
 assert_defer "a -- after an operand" "rm $TOWER_TMP/tmp.Ab3dE6gH9j --"
 assert_defer "a -- between two operands" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j -- $TOWER_TMP/tmp.Zz9yX8wV7u"
 assert_defer "bare rm" "rm"
+# zsh, the shell the Bash tool runs on macOS, reads `<->` and `<1-99>` as a
+# numeric glob, not as two redirects: the matching digit-named files in the
+# working directory become extra operands. Neither tool reads stdin, so any
+# input redirect defers; output to /dev/null still passes.
+assert_defer "removal beside a zsh numeric glob" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j <-> /dev/null"
+assert_defer "removal with a zsh numeric glob attached" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j<->/dev/null"
+assert_defer "removal beside a bounded zsh numeric glob" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j <1-99999> /dev/null"
+assert_defer "removal reading stdin from a file" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j </dev/null"
+assert_defer "removal duplicating an input fd" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j 0<&0"
+assert_defer "mktemp beside a zsh numeric glob" "mktemp <->>/dev/null"
+assert_defer "mktemp reading stdin from a file" "mktemp </dev/null"
+assert_allow "removal with its output sent to /dev/null" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j >/dev/null 2>&1"
+assert_allow "mktemp with its errors sent to /dev/null" "mktemp 2>/dev/null"
 # A directory named so that its canonical path, split on the newline, reads as
 # TMPDIR followed by the entry after it in the guard's directory list: the
 # macOS per-user temp directory where getconf names one, /tmp elsewhere.
