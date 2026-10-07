@@ -218,7 +218,9 @@
 #       control_request: the detail carries `pending=<n> oldest=<age>s
 #       supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending row
 #       has a readable epoch), so a worker that cannot proceed never reads as
-#       a healthy `running`.
+#       a healthy `running`. It outranks a recorded `result`, which a
+#       persistent worker writes at the end of every turn and outlives, so an
+#       earlier turn's `completed` never hides a later request.
 #   fleet-streamjson.sh pending [<worker>...]
 #       Read-only view of the requests `status` counts: for every request the
 #       journal still reads `pending` (no args: every worker), oldest first,
@@ -2332,6 +2334,37 @@ alarm_scan_worker() {
   done
 }
 
+# status_awaiting <worker> <dir> <sup-pid> <wrk-pid> — print the awaiting-input
+# verdict and return 0 when the journal holds a pending receipt; return 1, with
+# nothing printed, when it holds none.
+status_awaiting() {
+  # A live worker with a pending receipt is not making progress: it is
+  # waiting on an answer nobody may be about to give. Say so, with the
+  # count and the oldest age, rather than a `running` that reads as healthy.
+  # One read of the journal for both figures, so the count and the age come
+  # from the same generation of a file that is replaced by rename; a pending
+  # row whose epoch is unreadable still counts, with the age reported as
+  # unknown rather than the row dropped back to `running`.
+  sa_pend=0
+  sa_oldest=''
+  if [ -f "$2/journal" ]; then
+    sa_row=$(awk -F'\t' '$4 == "pending" { n++; if ($3 ~ /^[0-9]+$/ && (o == "" || $3 + 0 < o + 0)) o = $3 } END { print n + 0 "\t" o }' \
+      "$2/journal" 2>/dev/null) || sa_row=''
+    sa_pend=${sa_row%%"$TAB"*}
+    sa_oldest=${sa_row#*"$TAB"}
+    [ "$sa_oldest" != "$sa_row" ] || sa_oldest=''
+  fi
+  valid_posnum "${sa_pend:-}" || return 1
+  sa_age=unknown
+  if valid_posnum "${sa_oldest:-}" && sa_now=$(now_epoch); then
+    sa_age=$((sa_now - sa_oldest))
+    [ "$sa_age" -ge 0 ] || sa_age=0
+    sa_age="${sa_age}s"
+  fi
+  printf 'status %s awaiting-input pending=%s oldest=%s supervisor=%s worker=%s\n' \
+    "$1" "$sa_pend" "$sa_age" "$3" "$4"
+}
+
 cmd_status() {
   [ $# -eq 1 ] || usage
   worker=$1
@@ -2343,6 +2376,13 @@ cmd_status() {
   if [ ! -d "$dir" ]; then
     printf 'status %s unknown no-runtime-dir\n' "$worker"
     return 0
+  fi
+  sup_pid=$(cat "$dir/supervisor.pid" 2>/dev/null) || sup_pid=''
+  wrk_pid=$(cat "$dir/worker.pid" 2>/dev/null) || wrk_pid=''
+  st_live=0
+  if valid_posnum "${sup_pid:-}" && pid_live "$sup_pid" \
+    && valid_posnum "${wrk_pid:-}" && pid_live "$wrk_pid"; then
+    st_live=1
   fi
   # ONE read, with every field parsed from that single snapshot. The writer
   # truncates and rewrites this file in place, so separate reads can straddle
@@ -2376,6 +2416,13 @@ cmd_status() {
   esac
   st_line=${st_raw%%"$NL"*}
   if [ "$st_seen" = 1 ]; then
+    # A persistent worker writes `result` at the end of every turn and stays
+    # up for the next one, so the record says only that some turn ended. A
+    # live worker with a pending request is waiting on a human whatever an
+    # earlier turn recorded: a watcher keyed on this verdict must see it.
+    if [ "$st_live" = 1 ]; then
+      status_awaiting "$worker" "$dir" "$sup_pid" "$wrk_pid" && return 0
+    fi
     st_kind=$(printf '%s\n' "$st_line" | awk -F'\t' 'NR == 1 { print $1 }')
     detail=$(printf '%s\n' "$st_line" | awk -F'\t' 'NR == 1 { print $1 "=" $2 }')
     # A `result` event is a completion unless the frame flagged is_error — the
@@ -2399,37 +2446,8 @@ cmd_status() {
     fi
     return 0
   fi
-  sup_pid=$(cat "$dir/supervisor.pid" 2>/dev/null) || sup_pid=''
-  wrk_pid=$(cat "$dir/worker.pid" 2>/dev/null) || wrk_pid=''
-  if valid_posnum "${sup_pid:-}" && pid_live "$sup_pid" \
-    && valid_posnum "${wrk_pid:-}" && pid_live "$wrk_pid"; then
-    # A live worker with a pending receipt is not making progress: it is
-    # waiting on an answer nobody may be about to give. Say so, with the
-    # count and the oldest age, rather than a `running` that reads as healthy.
-    # One read of the journal for both figures, so the count and the age come
-    # from the same generation of a file that is replaced by rename; a pending
-    # row whose epoch is unreadable still counts, with the age reported as
-    # unknown rather than the row dropped back to `running`.
-    st_pend=0
-    st_oldest=''
-    if [ -f "$dir/journal" ]; then
-      st_row=$(awk -F'\t' '$4 == "pending" { n++; if ($3 ~ /^[0-9]+$/ && (o == "" || $3 + 0 < o + 0)) o = $3 } END { print n + 0 "\t" o }' \
-        "$dir/journal" 2>/dev/null) || st_row=''
-      st_pend=${st_row%%"$TAB"*}
-      st_oldest=${st_row#*"$TAB"}
-      [ "$st_oldest" != "$st_row" ] || st_oldest=''
-    fi
-    if valid_posnum "${st_pend:-}"; then
-      st_age=unknown
-      if valid_posnum "${st_oldest:-}" && st_now=$(now_epoch); then
-        st_age=$((st_now - st_oldest))
-        [ "$st_age" -ge 0 ] || st_age=0
-        st_age="${st_age}s"
-      fi
-      printf 'status %s awaiting-input pending=%s oldest=%s supervisor=%s worker=%s\n' \
-        "$worker" "$st_pend" "$st_age" "$sup_pid" "$wrk_pid"
-      return 0
-    fi
+  if [ "$st_live" = 1 ]; then
+    status_awaiting "$worker" "$dir" "$sup_pid" "$wrk_pid" && return 0
     printf 'status %s running supervisor=%s worker=%s\n' "$worker" "$sup_pid" "$wrk_pid"
     return 0
   fi
