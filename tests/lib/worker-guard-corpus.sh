@@ -276,7 +276,7 @@ corpus_decide() {
 
 corpus_replay() {
   local file=$1 runner=$2 columns=${3:-1 2 3 4} parsed
-  local kind line class state v1 v2 v3 v4 cmd col want got missed allowed verdicts pids broken=0
+  local kind line class state v1 v2 v3 v4 cmd col want got missed allowed verdicts pids seen broken=0
   CORPUS_ROWS=0
   CORPUS_FAILED=0
   CORPUS_FALSE_ALLOWS=0
@@ -285,10 +285,7 @@ corpus_replay() {
     echo "corpus: no sandbox; call corpus_sandbox first" >&2
     return 2
   }
-  [ -n "$columns" ] || {
-    echo "corpus: no policy column to replay" >&2
-    return 2
-  }
+  seen=" "
   for col in $columns; do
     case $col in
       1 | 2 | 3 | 4) ;;
@@ -297,7 +294,18 @@ corpus_replay() {
         return 2
         ;;
     esac
+    case $seen in
+      *" $col "*)
+        echo "corpus: policy column listed twice: $col" >&2
+        return 2
+        ;;
+    esac
+    seen="$seen$col "
   done
+  [ "$seen" != " " ] || {
+    echo "corpus: no policy column to replay" >&2
+    return 2
+  }
   parsed=$(corpus_parse "$file") || return 2
   verdicts=$(mktemp -d "$CORPUS_BOX/verdicts.XXXXXX") || return 2
   while IFS="$CORPUS_TAB" read -r kind line class state v1 v2 v3 v4 cmd; do

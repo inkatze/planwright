@@ -164,26 +164,51 @@ else
   fail "self-check: a dying hook call did not refuse the replay"
 fi
 
-f=$(synthetic bad-column "$(row live allow allow allow allow true)")
-corpus_replay "$f" fake_guard "1 5" >/dev/null 2>&1
-if [ $? -eq 2 ]; then
-  pass "self-check: an unknown policy column refuses the replay"
+# Each column is compared against its own verdict: a stand-in that approves
+# only under the policy carrying both arms must miss in column 4 alone.
+both_arms_guard() {
+  cat >/dev/null
+  if grep -qx 'policy=own-branch scratch' "$PLANWRIGHT_WORKER_SESSION_RECORD"; then
+    printf '%s\n' '{"hookSpecificOutput":{"permissionDecision":"allow"}}'
+  fi
+}
+f=$(synthetic last-column "$(row live defer defer defer defer true)")
+if ! corpus_replay "$f" both_arms_guard >/dev/null 2>&1 && [ "$CORPUS_FALSE_ALLOWS" -eq 1 ]; then
+  pass "self-check: a false-allow in the last policy column alone fails"
 else
-  fail "self-check: an unknown policy column was skipped"
+  fail "self-check: a false-allow in the last column went unnoticed"
+fi
+f=$(synthetic last-column-held "$(row live defer defer defer allow true)")
+if corpus_replay "$f" both_arms_guard >/dev/null 2>&1; then
+  pass "self-check: each column reads its own session record"
+else
+  fail "self-check: a column did not read its own session record"
 fi
 
+f=$(synthetic bad-column "$(row live allow allow allow allow true)")
+for cols in "1 5" " " "1 1"; do
+  corpus_replay "$f" fake_guard "$cols" >/dev/null 2>&1
+  if [ $? -eq 2 ]; then
+    pass "self-check: the column list '$cols' refuses the replay"
+  else
+    fail "self-check: the column list '$cols' was replayed"
+  fi
+done
+
 # The replay waits for its own hook calls only, never the caller's jobs.
+f=$(synthetic bg-wait "$(row live allow allow allow allow true)")
 sleep 30 &
 bg=$!
 start=$SECONDS
 corpus_replay "$f" fake_guard 1 >/dev/null 2>&1
+rc=$?
 took=$((SECONDS - start))
 kill "$bg" 2>/dev/null
 wait "$bg" 2>/dev/null
-if [ "$took" -lt 15 ]; then
+if [ "$rc" -eq 0 ] && [ "$CORPUS_ROWS" -eq 1 ] && [ "$took" -lt 15 ]; then
   pass "self-check: the replay does not wait on the caller's background jobs"
 else
-  fail "self-check: the replay waited ${took}s on a caller's background job"
+  fail "self-check: the background-job replay took ${took}s (rc=$rc, rows=$CORPUS_ROWS)"
 fi
 
 # The guard refuses to approve an assignment to a name exported in its own
