@@ -69,7 +69,7 @@ static `allow` entry is added.
 
 ## The deny delta
 
-Six entries are appended after the existing floor, which stays byte-identical
+Seven entries are appended after the existing floor, which stays byte-identical
 and in order:
 
 - `mcp__*__merge_pull_request`, `mcp__*__update_pull_request`,
@@ -83,6 +83,10 @@ and in order:
 - `mcp__*__update_pull_request_branch`: the host-side PR branch update, which
   merges the base into the PR branch. The floor denies `git merge` to the
   tower; this denies the same act through an MCP tool, on every server.
+- `mcp__*__create_pull_request`: PR creation, which can open a PR that is not
+  a draft, the same end state as the ready flip the floor denies. The tower
+  opens no PR itself (a flight's worker does, under its own profile), so the
+  tool is denied wholesale on every server.
 
 The `gh api` spellings of the merge and the ready flip are the policy guard's
 (`scripts/policy-guard.sh`, wired with the `tower` tier), not this profile's.
@@ -98,6 +102,12 @@ The `gh api` spellings of the merge and the ready flip are the policy guard's
   a profile deny would refuse what the policy permits. Widening the worker
   profile is a worker-posture change, outside this delta, and covers only the
   tools no knob governs.
+- **Repository-level writes.** The tower profile does not deny the
+  repository-level MCP write tools, such as repository deletion
+  (`delete_repository`), ruleset creation (`create_repository_ruleset`), and
+  workflow dispatch (`actions_run_trigger`), on any server. They sit outside
+  the floor's merge, ready-flip, and default-branch-write acts; the tower
+  recorded them as a residual rather than widening the deny block further.
 - **An older Claude Code** that does not support tool-name globs in deny rules
   matches nothing with them; the literal `mcp__github__` entries still hold.
 - **A `TMPDIR` the hook does not share.** The guard reads `TMPDIR` from its own

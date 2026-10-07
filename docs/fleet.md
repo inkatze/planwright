@@ -2141,7 +2141,7 @@ output: it denies the shell guardrails (merge, every force-push spelling, amend
 GitHub MCP tools (`merge_pull_request`, `update_pull_request`, `push_files` /
 `create_or_update_file` / `delete_file` — denied wholesale by name because a
 Bash-string guard cannot intercept an MCP call, and on every MCP server by a
-tool-name glob, alongside the PR branch update), and `gh pr ready`: a tower
+tool-name glob, alongside the PR branch update and PR creation), and `gh pr ready`: a tower
 **never** performs the draft→ready flip. The one sanctioned ready-flip
 (kickoff-lifecycle D-6: `/spec-kickoff` marks the spec PR ready) runs in a
 kickoff session under different settings, not under this tower profile, so the
