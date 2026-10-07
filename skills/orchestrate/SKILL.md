@@ -335,8 +335,8 @@ write (D-7). The sweep:
 
 1. **Refresh the remote view (best-effort).** `scripts/dispatch-fetch.sh
    --best-effort <primary-checkout>` — the same bounded fetch the gate uses (D-9),
-   coalesced with it onto one TTL-stamped fetch. `--best-effort` is one attempt (no retries); a reconcile tolerates
-   staleness. Remote-tracking refs only; **no local-`main` advance**. Any nonzero
+   coalesced with it onto one TTL-stamped fetch. `--best-effort` is one attempt
+   (no retries); a reconcile tolerates staleness. Remote-tracking refs only; **no local-`main` advance**. Any nonzero
    exit (`3` no-remote, `4` stale-transient, `2` internal) → continue on
    last-known refs (the gate, in contrast, blocks on `4`).
 2. **Rebuild** from `tasks.md`, `gh`, and the process/window list; for each
