@@ -48,6 +48,9 @@ CORPUS_MIN_ROWS=100
 CORPUS_SESSION_ID=corpus-session
 CORPUS_UNIT_BRANCH=planwright/demo/task-1
 CORPUS_TAB=$(printf '\t')
+# Hook calls in flight at once. A test file holds one ticket of the suite's
+# pool, so this stays small.
+CORPUS_JOBS=4
 
 # corpus_policy <column>: the policy value a verdict column stands for.
 corpus_policy() {
@@ -281,7 +284,7 @@ corpus_decide() {
 
 corpus_replay() {
   local file=$1 runner=$2 columns=${3:-1 2 3 4} parsed
-  local kind line class state v1 v2 v3 v4 cmd col want got missed allowed verdicts pids seen broken=0
+  local kind line class state v1 v2 v3 v4 cmd col want got missed allowed verdicts pids seen n inflight broken=0
   CORPUS_ROWS=0
   CORPUS_FAILED=0
   CORPUS_FALSE_ALLOWS=0
@@ -313,21 +316,39 @@ corpus_replay() {
   }
   parsed=$(corpus_parse "$file") || return 2
   verdicts=$(mktemp -d "$CORPUS_BOX/verdicts.XXXXXX") || return 2
+  # Every (row, column) call is independent, so they run CORPUS_JOBS at a
+  # time; the verdicts are read back in row order afterwards.
+  n=0
+  inflight=0
+  pids=
   while IFS="$CORPUS_TAB" read -r kind line class state v1 v2 v3 v4 cmd; do
     [ "$kind" = row ] || continue
+    n=$((n + 1))
+    cmd=$(corpus_bind "$cmd")
+    for col in $columns; do
+      corpus_decide "$runner" "$col" "$cmd" >"$verdicts/$n.$col" &
+      pids="$pids $!"
+      inflight=$((inflight + 1))
+      if [ "$inflight" -ge "$CORPUS_JOBS" ]; then
+        # shellcheck disable=SC2086  # a list of pids
+        wait $pids
+        pids=
+        inflight=0
+      fi
+    done
+  done <<EOF
+$parsed
+EOF
+  # shellcheck disable=SC2086  # a list of pids
+  [ -z "$pids" ] || wait $pids
+  n=0
+  while IFS="$CORPUS_TAB" read -r kind line class state v1 v2 v3 v4 cmd; do
+    [ "$kind" = row ] || continue
+    n=$((n + 1))
     CORPUS_ROWS=$((CORPUS_ROWS + 1))
     cmd=$(corpus_bind "$cmd")
     missed=0
     allowed=0
-    # The columns are independent hook calls, so they run side by side.
-    pids=
-    for col in $columns; do
-      : >"$verdicts/$col"
-      corpus_decide "$runner" "$col" "$cmd" >"$verdicts/$col" &
-      pids="$pids $!"
-    done
-    # shellcheck disable=SC2086  # a list of pids
-    wait $pids
     for col in $columns; do
       case $col in
         1) want=$v1 ;;
@@ -336,7 +357,7 @@ corpus_replay() {
         4) want=$v4 ;;
       esac
       got=
-      read -r got <"$verdicts/$col" || :
+      read -r got <"$verdicts/$n.$col" || :
       case $got in
         allow | defer) ;;
         *)
