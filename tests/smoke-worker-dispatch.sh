@@ -341,6 +341,9 @@ if [ "$LIVE" = 1 ]; then
       esac
     fi
   else
+    # A refused launch (a probe already running or launching under this
+    # handle) started nothing here, so cleanup must not stop that one.
+    launched=0
     failures=$((failures + 1))
     echo "smoke: LIVE FAIL — could not launch the probe worker" >&2
   fi
