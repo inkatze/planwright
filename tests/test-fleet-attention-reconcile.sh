@@ -24,7 +24,8 @@
 #       handle with two rows is kept and degrades the pass; m3: a clear that
 #       fails keeps the row under its own reason and degrades the pass.
 #   w1: the unit rule derives from --repo even when the caller sits elsewhere
-#       and PLANWRIGHT_REPO_ROOT names another directory, and a --repo that
+#       and PLANWRIGHT_REPO_ROOT or PLANWRIGHT_BASE_REF point elsewhere (a
+#       side branch's trailer does not complete a unit), and a --repo that
 #       is no repository is refused.
 #   r1: a row its worker rewrote between the verdict and the clear survives.
 #   u2: a row with no registry record and an unfinished unit is kept.
@@ -104,6 +105,10 @@ gitc "$repo" commit -q -m "base" -m "Planwright-Task: demo/1"
 gitc "$repo" commit -q --allow-empty -m "three" -m "Planwright-Task: demo/3"
 gitc "$repo" commit -q --allow-empty -m "five" -m "Planwright-Task: demo/5"
 gitc "$repo" commit -q --allow-empty -m "six" -m "Planwright-Task: demo/6"
+# A side branch carrying task 2's trailer, which main never reaches.
+gitc "$repo" checkout -q -b side
+gitc "$repo" commit -q --allow-empty -m "two, unmerged" -m "Planwright-Task: demo/2"
+gitc "$repo" checkout -q main
 repo=$(cd "$repo" && pwd -P)
 other="$tmp/elsewhere"
 mkdir -p "$other"
@@ -326,10 +331,12 @@ echo "ok: m1 m2 m3 rows the pass cannot act on"
 # --- w1: the derivation reads --repo, whatever the caller's directory ------
 fresh
 seed @145 demo:task-1 working
-out=$(cd / && fenv env PLANWRIGHT_REPO_ROOT="$other" /bin/sh "$REC" --repo "$repo" 2>"$tmp/err") \
+seed @166 demo:task-2 working
+out=$(cd / && fenv env PLANWRIGHT_REPO_ROOT="$other" PLANWRIGHT_BASE_REF=side /bin/sh "$REC" --repo "$repo" 2>"$tmp/err") \
   || fail "w1: reconcile exited non-zero: $(cat "$tmp/err")"
 clean w1
 says w1 clear @145 unit-completed
+says w1 keep @166 no-evidence
 n_rc=0
 (cd / && fenv /bin/sh "$REC" --repo "$other" >/dev/null 2>&1) || n_rc=$?
 [ "$n_rc" = 2 ] || fail "w1: a --repo outside any repository exited $n_rc, expected 2"
