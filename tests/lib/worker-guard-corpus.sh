@@ -22,7 +22,9 @@
 #                        any malformed record, and on a corpus with no rows
 #   corpus_replay <file> <runner> [<columns>]
 #                        replay every row under each listed policy column
-#                        (default all four), <runner> being a command or
+#                        (all four when the argument is omitted; an empty,
+#                        repeated, or unknown column refuses), <runner> being
+#                        a command or
 #                        function that reads a hook payload on stdin and
 #                        prints the hook's stdout. Sets CORPUS_ROWS,
 #                        CORPUS_FAILED (rows that failed: any false-allow,
@@ -189,7 +191,7 @@ corpus_parse() {
       if ($7 == "") bad("a row carries a command")
       known = $7
       gsub(/@@(WORKTREE|SCRATCH|OUTSIDE|PLUGIN_ROOT)@@/, "", known)
-      if (known ~ /@@/) bad("unknown placeholder")
+      if (known ~ /@@[A-Za-z_]+@?/ || known ~ /@?@[A-Za-z_]+@@/) bad("unknown placeholder")
       if (($2 == "floor" || $2 == "uncovered") && ($3 $4 $5 $6) != "deferdeferdeferdefer")
         bad("a " $2 " row defers under every policy value")
       if ($3 == "allow" && ($4 != "allow" || $5 != "allow" || $6 != "allow"))
@@ -300,7 +302,7 @@ corpus_decide() {
 }
 
 corpus_replay() {
-  local file=$1 runner=$2 columns=${3:-1 2 3 4} parsed
+  local file=$1 runner=$2 columns=${3-1 2 3 4} parsed
   local kind line class state v1 v2 v3 v4 cmd col want got missed allowed verdicts pids seen n inflight broken=0
   CORPUS_ROWS=0
   CORPUS_FAILED=0

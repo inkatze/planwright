@@ -199,7 +199,7 @@ else
 fi
 
 f=$(synthetic bad-column "$(row live allow allow allow allow true)")
-for cols in "1 5" " " "1 1"; do
+for cols in "1 5" "" " " "1 1"; do
   corpus_replay "$f" fake_guard "$cols" >/dev/null 2>&1
   if [ $? -eq 2 ]; then
     pass "self-check: the column list '$cols' refuses the replay"
@@ -311,6 +311,12 @@ refuses "a lowercase placeholder" "unknown placeholder" \
   "$(row live defer defer defer defer 'touch @@Outside@@/x')"
 refuses "a malformed placeholder" "unknown placeholder" \
   "$(row live defer defer defer defer 'touch @@OUTSIDE@/x')"
+f=$(synthetic literal-at "$(row live allow allow allow allow "git diff | grep -c '^@@ '")")
+if corpus_parse "$f" >/dev/null 2>&1; then
+  pass "self-check: a literal @@ that is no placeholder still parses"
+else
+  fail "self-check: a literal @@ was refused as a placeholder"
+fi
 
 # The legacy PreToolUse spelling `decision: approve` still approves, so it
 # reads as an allow.
