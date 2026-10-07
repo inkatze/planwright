@@ -75,7 +75,11 @@ static `allow` entry is added.
   dot-component operand, a directory whose resolved path holds a line break,
   and any operand outside those directories defer, and one bad operand defers
   the whole command. Like mktemp, removal defers once a `while` or `until`
-  loop has opened, and with any input redirect.
+  loop has opened, and with any input redirect. A quoted or
+  backslash-escaped operand defers too, as does one taking its value from a
+  quoted `for` head word: the guard reads double-quoted backslashes
+  differently from the shell, so such an operand could name another path to
+  `rm`.
 
 ## The deny delta
 
