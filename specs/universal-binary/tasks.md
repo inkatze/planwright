@@ -536,7 +536,7 @@
 
 ## Awaiting input
 
-- **Task 1.3** — the `panel-gemini` convergence step halted before any upload: no egress consent for inkatze/planwright is recorded, so the branch is converged by `/polish` but not panel-reviewed, and no PR is open. Grant the consent (or drop the step for this run), then resume to run the panel, the full gate, and open the draft PR.
+(none yet)
 
 ## Deferred
 
