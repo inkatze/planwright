@@ -280,8 +280,16 @@ else
   }
 fi
 
-# shellcheck source=scripts/spec-id-lib.sh
-. "$script_dir/spec-id-lib.sh"
+# Unlike echo-safety.sh the mapper has no fallback, so a missing copy is a
+# broken install, refused with exit 2: a failed `.` would end the shell with
+# exit 1, which this script's exit codes give another meaning or none.
+if [ -r "$script_dir/spec-id-lib.sh" ]; then
+  # shellcheck source=scripts/spec-id-lib.sh
+  . "$script_dir/spec-id-lib.sh"
+else
+  printf '%s\n' "fleet-dispatch-worktree: broken install: $(sanitize_printable "$script_dir")/spec-id-lib.sh is missing or not readable" >&2
+  exit 2
+fi
 
 FETCH="$script_dir/dispatch-fetch.sh"
 ENVWRAP="$script_dir/fleet-dispatch-env.sh"

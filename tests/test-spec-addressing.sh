@@ -282,6 +282,23 @@ case $(consume_form demo) in
   *) fail "obs-consume: unexpected Consumed-by line: $(consume_form demo)" ;;
 esac
 
+# A seam copied without the mapper beside it is a broken install, refused
+# with exit 2 like the dispatchers' other missing helpers. A bare `.` of a
+# missing file would end the shell with exit 1 instead, which the fetch's
+# contract does not have and which headless status reads as "running".
+mkdir -p "$tmp/broken"
+for b in dispatch-fetch fleet-dispatch-worktree fleet-dispatch-headless; do
+  cp "$S/$b.sh" "$S/echo-safety.sh" "$tmp/broken/" || fail "could not stage $b without the mapper"
+done
+for b in "dispatch-fetch.sh --best-effort ." "fleet-dispatch-worktree.sh dispatch demo 1 --no-attach" \
+  "fleet-dispatch-headless.sh status demo 1 --repo-root $tmp/repo"; do
+  # shellcheck disable=SC2086 # the script name and its arguments, one per word
+  case $(outcome "$tmp/broken/"$b) in
+    *"spec-id-lib.sh"*"rc=2") ok "${b%%.sh*}: a missing mapper is a broken install (exit 2)" ;;
+    *) fail "${b%%.sh*}: a missing mapper was not refused as a broken install: $(outcome "$tmp/broken/"$b)" ;;
+  esac
+done
+
 # --- The scope grammar -------------------------------------------------------
 
 # A scope naming the spec as a path is refused, and the refusal names the

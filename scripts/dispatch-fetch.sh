@@ -107,8 +107,16 @@ else
   sanitize_printable() { printf '%s' "$1" | tr -d '\000-\037\177\200-\237'; }
 fi
 
-# shellcheck source=scripts/spec-id-lib.sh
-. "$script_dir/spec-id-lib.sh"
+# Unlike echo-safety.sh the mapper has no fallback, so a missing copy is a
+# broken install, refused with exit 2: a failed `.` would end the shell with
+# exit 1, which this script's exit codes give another meaning or none.
+if [ -r "$script_dir/spec-id-lib.sh" ]; then
+  # shellcheck source=scripts/spec-id-lib.sh
+  . "$script_dir/spec-id-lib.sh"
+else
+  printf '%s\n' "dispatch-fetch: broken install: $(sanitize_printable "$script_dir")/spec-id-lib.sh is missing or not readable" >&2
+  exit 2
+fi
 
 usage() {
   printf '%s\n' "usage: dispatch-fetch.sh [--spec <spec>] [--best-effort] <repo-root>" >&2
