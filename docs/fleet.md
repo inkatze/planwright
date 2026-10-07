@@ -1794,7 +1794,7 @@ death verdict is unknown, even on a completed unit, every row while the
 registry cannot be read, and a row whose unit is still in flight. A worker whose
 registry record lives in another checkout is not judged on this checkout's
 specs. Each clear goes through `fleet-attention.sh clear --if-row`, so a
-worker that wrote since it was judged keeps its new row, and is audited under
+worker that wrote since it was judged keeps its new row; each clear is audited under
 the `attention-reconcile` mechanism. `fleet_daemon_pause` pauses the pass.
 
 ## Resource governance: models, throttling, and the auto-mode line

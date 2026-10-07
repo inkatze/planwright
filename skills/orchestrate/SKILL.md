@@ -354,7 +354,8 @@ write (D-7). The sweep:
    worker's branch, and only if no live bullet already names the task. Never left
    In progress silently, and **never auto-re-dispatched**.
 5. **Clear stale attention rows**: `scripts/fleet-attention-reconcile.sh --repo
-   <absolute-primary-checkout>`; a failure is surfaced, never a halt.
+   <absolute-primary-checkout>`; surface failures and degraded summaries;
+   never halt.
 
 **Report each terminal state** to the escalation feedback loop (model-allocation
 REQ-F1.2; `docs/fleet.md`). Neither report may cost its transition:

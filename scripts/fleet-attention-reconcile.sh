@@ -1,8 +1,10 @@
 #!/bin/sh
 # fleet-attention-reconcile.sh — the level-triggered clear of attention rows
-# nobody alive will clear: the rows a dead or finished earlier tower wrote
-# (doctrine/orchestration-modes.md, the attention surface: `clear` any row
-# whose unit is no longer in flight or awaiting input).
+# nobody alive will clear: the rows a dead or finished earlier tower wrote.
+# It covers the part of the attention mirror's `clear` rule
+# (doctrine/orchestration-modes.md, the attention surface) that durable
+# evidence can decide for a row no live tower owns: a completed unit or a
+# positively dead worker. Rows on units parked or abandoned stay.
 #
 # A tower clears the rows it wrote at teardown. A tower that died first leaves
 # them `working` forever, and no later tower clears a row it did not write, so
@@ -53,7 +55,8 @@
 #   a handle holds more than one row, or a clear or its audit record failed;
 #   every such row is kept.
 #
-# Exit codes: 0 the pass ran (degraded included); 2 usage, or no fleet home;
+# Exit codes: 0 the pass ran (degraded or paused included); 2 usage, a
+#   checkout that cannot be resolved, or no fleet home;
 #   4 the kill-switch is set, or could not be resolved.
 #
 # POSIX sh on the macOS + Linux support bar. All input is data; no eval, no
