@@ -47,7 +47,6 @@ here=$(cd "$(dirname "$0")" && pwd)
 S="$here/../scripts"
 REC="$S/fleet-attention-reconcile.sh"
 FA="$S/fleet-attention.sh"
-FS="$S/fleet-state.sh"
 TAB=$(printf '\t')
 
 rc=0
