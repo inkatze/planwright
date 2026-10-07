@@ -175,7 +175,8 @@
 #       The file is data (64 KiB cap, refused whole when over, non-empty); a
 #       dead channel is exit 3, never a hang. Prints `steered <worker> <bytes>`.
 #       A delivered steer retires the previous turn's `result`, so the worker
-#       reads running again until the new turn records its own.
+#       reads running again until the new turn records its own; one delivered
+#       mid-turn cannot, since that turn's `result` lands after it.
 #       Like every frame written to the fifo (see frame_check), the composed
 #       frame is checked before the write; a refused one is exit 2 with
 #       nothing written.
