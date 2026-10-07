@@ -106,7 +106,7 @@ readonly MAX_SIMPLE_CMDS=512
 
 # The fixed reason string. It is NEVER a reflection of the analyzed command:
 # untrusted command content is never echoed to a terminal-driving stream.
-readonly ALLOW_REASON='planwright tower-command-guard: enumerated known-safe tower orchestration / read-only command shape (deterministic, no LLM)'
+readonly ALLOW_REASON='planwright tower-command-guard: enumerated known-safe tower orchestration / read-only / bounded temp-file command shape (deterministic, no LLM)'
 
 # emit_allow: write the single allow decision (the only thing this hook ever
 # prints). Written as one final action after every check has passed, so there
