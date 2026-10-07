@@ -55,9 +55,9 @@ attempt (REQ-A1.1, REQ-E1.3, D-2).
 **Named, not wired** (gated under custom-steps' Deferred): `spec-drafted`,
 `kickoff-signed-off`, `unit-selected`, `pre-dispatch`, `post-dispatch`,
 `unit-halted`, `post-merge`, and `orchestrator-idle` (issue 383's
-`tower-idle`, in tower-front-door REQ-H1.1's sense). A non-empty list at one
-of these resolves no steps; the resolver and `check:steps` report it as
-unwired, never silently.
+`tower-idle`, in tower-front-door REQ-H1.1's orchestrator sense). A non-empty
+list at one of these resolves no steps; the resolver and `check:steps` report
+it as unwired, never silently.
 
 **Flights.** A flight converges through `steps_convergence` with unit kind
 `flight`, skill steps only (REQ-F1.5; [flight-rules](flight-rules.md)).
@@ -125,9 +125,10 @@ Every step receives exactly these twelve fields:
 | `PLANWRIGHT_STEP_PREV_HEAD` | the start head of the latest head move by an earlier step at the same point in the run, a `resume` skip carrying its record's move; empty when none |
 | `PLANWRIGHT_STEP_NEW_HEAD` | that move's end head; empty when none |
 
-A pooled step alone also carries the **hold mark**
-`PLANWRIGHT_STEP_POOL_HOLD=<pool>:<pid>`, the slot owner's literal process
-id as `<pid>`, rendered as one optional trailing assignment after the twelve.
+Among steps, a pooled step alone also carries the **hold mark**
+`PLANWRIGHT_STEP_POOL_HOLD=<pool>:<pid>`, the slot owner's literal process id
+as `<pid>`, rendered as one optional trailing assignment after the twelve; a
+pooled full suite gets it too (*Expensive checks*).
 
 Two channels deliver the context. A **command step** gets the twelve
 variables, and a pooled step its hold mark, in its environment,
@@ -162,11 +163,11 @@ included, and, when its predecessor was skipped by reuse or resume, to the
 session of the record behind the skip (the unit's when that record's hosting
 is `in-session`; REQ-D1.11, D-30). It does not run, outcome `failed` naming
 the backend, the hosting, and the missing predecessor, its posture applying,
-never degraded, when the backend cannot resume that session, the session's
-record holds no session id (an `in-session` predecessor excepted), or the
-predecessor was skipped for any other reason. An `isolated` skill or prompt
-step on a backend that cannot spawn a fresh session degrades to
-`in-session` and records it; a `timeout` on a skill or prompt step that
+never degraded, when the backend cannot resume the session it would attach to,
+that session's record holds no session id (an `in-session` predecessor
+excepted), or the predecessor was skipped for any other reason. An `isolated`
+skill or prompt step on a backend that cannot spawn a fresh session degrades
+to `in-session` and records it; a `timeout` on a skill or prompt step that
 becomes `in-session` at run time is unapplied and recorded. Model and effort
 come from the per-step allocation knobs keyed on the step id (hyphens as
 underscores), one-directional per model-allocation; an `in-session` step
@@ -197,13 +198,14 @@ head (the worktree's local HEAD, pushed or not), the one head move this doc
 means (REQ-D1.12).
 
 **The runner classifies** a skill or prompt step's outcome from the handoff
-its session returns, the record carrying the excerpt the classification
-rests on; a command step's outcome is its exit code alone, a timeout, or an
-expired pool wait. The runner writes every record, whatever the hosting. At
-`convergence` the review skills' dispositions map onto this set: a normal
-exit is `passed` or `applied`; a normal exit carrying a queued meaning-class
-spec fork is `halted`, stopping PR creation; a safety stop is `failed`; an
-unresolved hard-disqualifier finding is `halted` (REQ-E1.1).
+its session returns, the record carrying the excerpt the classification rests
+on; a command step's outcome is its exit code, a timeout, or an expired pool
+wait, unless a skip or `limited` above replaces it. The runner writes every
+record, whatever the hosting. At `convergence` the review skills' dispositions
+map onto this set: a normal exit is `passed` or `applied`; a normal exit
+carrying a queued meaning-class spec fork is `halted`, stopping PR creation; a
+safety stop is `failed`; an unresolved hard-disqualifier finding is `halted`
+(REQ-E1.1).
 
 **Posture (REQ-D1.2).** A `halted` or `failed` step whose `on-failure` is
 `halt` ends the point. At an **in-run point** it ends the unit through the
@@ -276,42 +278,43 @@ passes on an adopter or machine-local `skip` (REQ-H1.3, REQ-A1.3);
 ## Expensive checks (REQ-I1.1–I1.11, D-21–D-28)
 
 Core declares no pool, path, or re-fire; which suite, pool, and paths are
-overlay values (D-21). `pool` names a pool in the `id` charset; `paths` is
+overlay values (D-21). `pool` names a pool in the `id` grammar; `paths` is
 space-separated repository-relative words of letters, digits, `.`, `_`, `-`,
 and `/`, none starting with `/` or `-` or holding a `..` segment, `.` the
 whole tree; `refire` is `post-pr`, requires `paths`, never pairs with
 `hosting: continue`, and is listed only in `steps_pre_ci` or `steps_pre_pr`.
 
-**Pools.** A pooled step holds one slot of its pool, shared by every
-checkout, worktree, and unit of the user on the host, for its run only, the
-slot owned by a process id, never by a descriptor a child inherits. The
-**slot owner** is the process hosting the runner: the unit session's for
-`in-session` and `continue` hosting, the runner subprocess for an `isolated`
-command, the hand recipe's shell. The wait and take run first, on the
-owner's behalf and outside `timeout` (a background job waited on inside the
-turn, or bounded repeated calls whose seconds are summed); the owner
-releases after the check ends, whatever its exit. An unreleased slot is
-reclaimed once its owner exits, and a timeout never releases one while the
-check process lives. Capacity is `step_pool_capacity_<pool>` (hyphens as
-underscores), else `step_pool_capacity`; the wait, bounded by
-`step_pool_wait`, reports each live holder (pid, step id or full-suite
-marker, worktree) and admits unordered, and past the bound the step is
-`failed` naming the holders. A pool directory that is a symbolic link or not
-the user's, or a lock-library error, runs the step unpooled with one
-recorded warning. `scripts/step-pool.sh` holds slots and executes nothing;
-its header pins the slot mechanics (D-22–D-24).
+**Pools.** A pooled step holds one slot of its pool, shared by every checkout,
+worktree, and unit of the user on the host, for its run only, the slot owned
+by a process id, never by a descriptor a child inherits. The **slot owner** is
+the process hosting the runner: the unit session's for `in-session` and
+`continue` hosting, the runner subprocess for an `isolated` command, the hand
+recipe's shell. The wait and take run first, on the owner's behalf and outside
+`timeout` (a background job waited on inside the turn, or bounded repeated
+calls whose seconds are summed); the owner releases after the check ends,
+whatever its exit. An unreleased slot is reclaimed once its owner exits, and a
+timeout never releases one while the check process lives. Capacity is
+`step_pool_capacity_<pool>` (hyphens as underscores), else
+`step_pool_capacity`; the wait, bounded by `step_pool_wait`, reports at its
+start each live holder (pid, step id or full-suite marker, worktree) and
+admits unordered, and past the bound the step is `failed` naming the holders.
+A pool directory that is a symbolic link or not the user's, or a lock-library
+error, runs the step unpooled with one recorded warning naming the cause.
+`scripts/step-pool.sh` holds slots and executes nothing; its header pins the
+slot mechanics (D-22–D-24).
 
-**The hold mark.** A take under a mark naming the same pool and a live
-owner holding a slot of it runs inside that hold, taking no slot, its
-release a successful no-op; a mark naming another pool or a dead owner, or
-failing the pool charset or a decimal pid, is ignored, and a same-owner take
-without a mark waits like any caller.
+**The hold mark.** A take under a mark naming the same pool and a live owner
+holding a slot of it runs inside that hold, taking no slot and printing no
+warning, its release a successful no-op; a mark naming another pool or a dead
+owner, or failing the pool charset or a decimal pid, is ignored, and a
+same-owner take without a mark waits like any caller.
 
-**The full suite.** When `full_suite_pool` names a pool, each full local
-suite attempt `/execute-task` makes, retries included, holds a slot of it;
-an expired wait parks the unit naming the holders, never a CI failure or
-retried. A full-suite record carries the pool fields, rendered as a
-full-suite row of the audit fold on a run with a PR; before a PR exists,
+**The full suite.** When `full_suite_pool` names a pool, each full local suite
+attempt `/execute-task` makes, retries included, holds a slot of it, its owner
+passing the suite the hold mark as a pooled step's check gets it; an expired
+wait ends the unit through the pause destinations naming the holders, never a
+CI failure or retried. A full-suite record carries the pool fields, rendered
+as a full-suite row of the audit fold on a run with a PR; before a PR exists,
 the park entry names the holders (D-25). The overlay documentation's hand
 recipe takes the same slot.
 

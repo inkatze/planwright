@@ -364,10 +364,12 @@ record path, and the previous and new head of the latest head move an
 earlier step made at the same point (both empty when none did). A pooled
 step also gets a hold mark naming its pool and the slot owner's process id,
 which its check passes along so a nested take of the same pool runs inside
-the hold instead of waiting on itself. A command step reads them as `PLANWRIGHT_STEP_*` environment
-variables added to the environment it inherits (an absent value is set
-empty, never unset); a skill or prompt step gets them as a data block
-prepended to its invocation (`scripts/resolve-steps.sh <point> --preamble`).
+the hold instead of waiting on itself. A command step reads them as
+`PLANWRIGHT_STEP_*` environment variables added to the environment it
+inherits (an absent fixed field is set empty, never unset; a step without a
+pool gets no hold mark at all); a skill or prompt step gets them as a data
+block prepended to its invocation
+(`scripts/resolve-steps.sh <point> --preamble`).
 The rule doc's context table names every variable.
 
 **Credentials.** A step entry has no environment field, so a declaration
@@ -434,12 +436,12 @@ shell whatever the suite's exit. The helper's usage header
 pool=heavy-suite
 scripts/step-pool.sh take "$pool" "$$" || exit   # waits up to step_pool_wait, naming the holders; an expired wait runs no suite
 PLANWRIGHT_STEP_POOL_HOLD="$pool:$$" mise run check
-status=$?
+rc=$?
 scripts/step-pool.sh release "$pool" "$$"
-exit "$status"
+exit "$rc"
 ```
 
-Run it as one script, so `$$` is the process that owns the slot for the
+Run it as one bash script, so `$$` is the process that owns the slot for the
 whole run. If the script dies without releasing, the slot frees once that
 shell exits; a check it leaked in the background never keeps it. A pool the
 helper cannot use (its directory a symbolic link or not yours, or a lock
