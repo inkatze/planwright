@@ -288,7 +288,7 @@ esac
 # expected shape; the bare form is accepted.
 got=$(outcome "$S/fleet-attention.sh" heartbeat w1 specs/demo:task-1 working)
 case $got in
-  *"<spec>:task-<ids>"*"rc=2") ok "fleet-attention: a specs/ scope is refused naming the expected shape" ;;
+  *"<spec>:<id>"*"rc=2") ok "fleet-attention: a specs/ scope is refused naming the expected shape" ;;
   *) fail "fleet-attention: the refusal does not name the expected shape: $got" ;;
 esac
 case $(outcome "$S/fleet-attention.sh" heartbeat w1 demo:task-1 working) in
@@ -297,19 +297,35 @@ case $(outcome "$S/fleet-attention.sh" heartbeat w1 demo:task-1 working) in
 esac
 got=$(outcome "$S/fleet-streamjson.sh" launch w1 specs/demo --prompt-file /dev/null)
 case $got in
-  *"<spec>:task-<ids>"*"rc=2") ok "fleet-streamjson: a specs/ scope is refused naming the expected shape" ;;
+  *"<spec>:<id>"*"rc=2") ok "fleet-streamjson: a specs/ scope is refused naming the expected shape" ;;
   *) fail "fleet-streamjson: the refusal does not name the expected shape: $got" ;;
 esac
 got=$(outcome "$S/fleet-streamjson.sh" --bogus)
 case $got in
-  *"<spec>:task-<ids>"*) ok "fleet-streamjson: usage names the scope shape" ;;
+  *"<spec>:<id>"*) ok "fleet-streamjson: usage names the scope shape" ;;
   *) fail "fleet-streamjson: usage does not name the scope shape: $got" ;;
 esac
 got=$(outcome "$S/fleet-liveness.sh" classify w1 specs/demo:task-1)
 case $got in
-  *"<spec>:task-<ids>"*"rc=2") ok "fleet-liveness: a specs/ scope is refused naming the expected shape" ;;
+  *"<spec>:<id>"*"rc=2") ok "fleet-liveness: a specs/ scope is refused naming the expected shape" ;;
   *) fail "fleet-liveness: the refusal does not name the expected shape: $got" ;;
 esac
+printf 'pane\n' >"$tmp/pane.txt"
+got=$(outcome "$S/fleet-pane-detect.sh" classify --pane "$tmp/pane.txt" --backend tmux --worker w1 --scope specs/demo:1)
+case $got in
+  *"<spec>:<id>"*"rc=2") ok "fleet-pane-detect: a specs/ scope is refused naming the expected shape" ;;
+  *) fail "fleet-pane-detect: the refusal does not name the expected shape: $got" ;;
+esac
+# The shape is one sentence, copied into each script that refuses a scope.
+shape_defs=$(grep -h '^SCOPE_SHAPE=' "$S/fleet-attention.sh" "$S/fleet-liveness.sh" \
+  "$S/fleet-streamjson.sh" "$S/fleet-pane-detect.sh")
+if [ "$(printf '%s\n' "$shape_defs" | wc -l | tr -d ' ')" -ne 4 ]; then
+  fail "a scope shape definition is missing: $shape_defs"
+elif [ "$(printf '%s\n' "$shape_defs" | sort -u | wc -l | tr -d ' ')" -ne 1 ]; then
+  fail "the scope shape differs between its copies: $shape_defs"
+else
+  ok "the scope shape is byte-identical in every copy"
+fi
 
 # --- Callers and skills ------------------------------------------------------
 

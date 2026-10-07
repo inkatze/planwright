@@ -218,8 +218,10 @@ RNC="$script_dir/resolve-notification-channel.sh"
 TAB=$(printf '\t')
 
 # What a refused scope is told it should look like: the grammar has no slash,
-# so a scope names its spec by the identifier, never by a path.
-SCOPE_SHAPE='a field token such as <spec>:task-<ids>, naming the spec by its bare identifier'
+# so a scope names its spec by the identifier, never by a path. Byte-identical
+# in fleet-attention.sh, fleet-liveness.sh, fleet-streamjson.sh, and
+# fleet-pane-detect.sh.
+SCOPE_SHAPE='a field token naming the spec by its bare identifier, such as <spec>:<id> or <spec>:task-<ids>'
 
 # The Task 9 field grammar for worker/scope handles (REQ-A1.6), byte-identical to
 # fleet-state.sh valid_field: excludes path separators, whitespace, tabs,
