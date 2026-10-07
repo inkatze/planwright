@@ -140,9 +140,9 @@ fail() {
 # UTF-8 byte in 0x80-0x9F renders mangled in the message, but the name being
 # reported is already invalid/unexpected, so display fidelity yields to injection
 # safety. This matches the canonical shared display sanitizer
-# scripts/echo-safety.sh (sanitize_printable), which strips the same C0+DEL+C1 set
-# (its C1 coverage was widened in PR #112); check-obs.sh keeps its own inline
-# copy of the rule rather than sourcing that helper. The
+# scripts/echo-safety.sh (sanitize_printable), which strips the same C0+DEL+C1
+# set; check-obs.sh keeps its own inline copy of the rule rather than sourcing
+# that helper. The
 # write-time storage path in obs-record.sh deliberately preserves C1 as UTF-8.
 safe() {
   printf '%s' "$1" | tr -d '\000-\037\177\200-\237'

@@ -115,10 +115,9 @@ assert_contains "comparator error surfaces a diagnostic on stderr" "$err" "relea
 
 # 5. Comparator absent: the surface degrades with a message (missing prerequisite
 #    on a non-dispatch path), nothing on stdout, exit 0. echo-safety.sh IS copied
-#    so release-pending.sh is the *only* missing prerequisite — the script sources
-#    echo-safety.sh (line ~39) before the comparator check, so omitting it would
-#    add a separate `source` error to stderr and let the test pass for the wrong
-#    reason, masking whether the missing-comparator diagnostic actually fires.
+#    so the run reaches the comparator check; without it the script stops at its
+#    broken-install refusal first (case 5b), and the missing-comparator
+#    diagnostic would never fire.
 work="$tmp/no-comparator/scripts"
 mkdir -p "$work"
 cp "$here/../scripts/release-bookkeeping.sh" "$here/../scripts/echo-safety.sh" "$work/"

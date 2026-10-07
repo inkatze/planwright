@@ -74,7 +74,10 @@
 # quoted or escaped (`\echo`), held in a variable (`$e "$x"`), or aliased. An
 # unquoted heredoc body is not read, so a command substitution inside one goes
 # unseen, and a filename glob or a `~` in an echo is not counted as an
-# expansion. Presence, not position, is checked for the variable form: a use
+# expansion. Sanitizer output is recognised by the `sanitize_` name prefix, so
+# an inline copy named otherwise (`safe`, `_rl_safe`) is not tracked. A loop
+# naming the sanitizer counts only from a `for ... in` list written on the
+# line that opens the loop. Presence, not position, is checked for the variable form: a use
 # written above the assignment still counts.
 #
 # Scope is every shell file under scripts/, tests/, and githooks/, reached
@@ -216,8 +219,9 @@ runs under whichever interpreter sourced it, and dash is one of them.
 
 Also flagged: sanitized text in the printf FORMAT operand, or passed to a
 printf `%b`, directly or through a variable assigned only from a sanitizer.
-Detection keys on the sanitizer family, so an inline copy under another name
-counts. Comments, heredoc bodies and single-quoted strings are prose, not
+Detection keys on the `sanitize_` name prefix, so an inline copy named
+`sanitize_*` counts; a copy named otherwise (`safe`, `_rl_safe`) is not
+tracked. Comments, heredoc bodies and single-quoted strings are prose, not
 calls, and are never flagged.
 
 Exit codes: 0 clean, 1 an offending file, 2 usage or a broken enumeration.

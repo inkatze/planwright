@@ -5,8 +5,8 @@
 # enforces: dash aborts on a missing `.` file while bash runs on without the
 # function. Any inline copy keeps this byte range: sourced libraries that cannot
 # locate their siblings (spec-parse.sh, release-lib.sh) carry one instead, and
-# scripts that must never be unable to sanitize define one as a fallback before
-# sourcing this file.
+# scripts that must never be unable to sanitize define one as a fallback, ahead
+# of the source or in its readability test's else branch.
 #
 # Echo discipline (doctrine/security-posture.md, "Framework-script security"):
 # untrusted content — spec-file values, branch names, parsed identifiers — must
