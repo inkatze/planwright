@@ -6,8 +6,9 @@
 # same allow-only / fail-closed / no-LLM contract — but fronts a DISTINCT,
 # tower-oriented safe set: the tower's own orchestration surface (tmux
 # relay/observe, `claude --worktree` worker launches, planwright scripts by
-# resolved literal path) plus the read-only state-observation shapes a tower
-# reads, and NOT the worker-only shapes (bats, tests/, fish -c recursion).
+# resolved literal path, and the front door's bare mktemp and temp-file rm)
+# plus the read-only state-observation shapes a tower reads, and NOT the
+# worker-only shapes (bats, tests/, fish -c recursion).
 #
 # The security-critical target is ZERO false-allows over the tower safe set
 # (REQ-C1.3). This adversarial suite is the primary evidence: every fixture
@@ -73,7 +74,9 @@ PLUGIN_ROOT="$(mktemp -d)" || exit 1
 # A real directory outside both roots holding a same-named script, so a
 # lookalike defers on containment rather than on a path that does not exist.
 LOOKALIKE="$(mktemp -d)" || exit 1
-trap 'rm -rf "$SANDBOX" "$PLUGIN_ROOT" "$LOOKALIKE"' EXIT
+# A real mktemp-named file in /tmp itself, for the temp-file removal fixtures.
+SLASH_TMP_FILE=''
+trap 'rm -rf "$SANDBOX" "$PLUGIN_ROOT" "$LOOKALIKE" ${SLASH_TMP_FILE:+"$SLASH_TMP_FILE"}' EXIT
 mkdir -p "$LOOKALIKE/scripts"
 : >"$LOOKALIKE/scripts/fleet-streamjson.sh"
 mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests" "$SANDBOX/sub"
@@ -97,7 +100,7 @@ run_hook() {
   local payload
   payload="$(jq -n --arg c "$cmd" --arg t "$tool" --arg w "$cwd" \
     '{tool_name:$t, tool_input:{command:$c}, cwd:$w}')"
-  OUT="$(printf '%s' "$payload" | TMPDIR="${RUN_TMPDIR:-${TMPDIR:-}}" CLAUDE_PLUGIN_ROOT="${RUN_PLUGIN_ROOT:-$PLUGIN_ROOT}" /bin/bash "$HOOK" 2>/dev/null)"
+  OUT="$(printf '%s' "$payload" | TMPDIR="${RUN_TMPDIR-${TMPDIR:-}}" CLAUDE_PLUGIN_ROOT="${RUN_PLUGIN_ROOT:-$PLUGIN_ROOT}" /bin/bash "$HOOK" 2>/dev/null)"
   CODE=$?
 }
 
@@ -236,15 +239,15 @@ assert_allow "safe compound && (relay then observe)" "tmux load-buffer /tmp/b &&
 assert_allow "safe pipe observe" "tmux capture-pane -p -t fleet:0 | grep -c esc"
 
 echo "### tower-front-door REQ-A1.3 — the front door's posture check: jq projections ALLOW"
-# The front door reads each settings layer by jq projection and locates the
-# plugin root from installed_plugins.json. jq has no exec or file-write
-# primitive; the screen is the worker guard's, kept byte-identical (see the
-# structural parity block), so only the environment reads and the
-# unscreenable-filter forms defer.
+# The front door reads each settings layer by jq projection. jq has no exec or
+# file-write primitive; the screen is the worker guard's, kept byte-identical
+# (see the structural parity block), so only the environment reads and the
+# unscreenable-filter forms defer. The tower's tokenizer is not the worker's,
+# so the screen's cases are exercised here through the tower's own pipeline.
 assert_allow "posture check: deny projection of a settings layer" "jq '.permissions.deny' /home/u/.claude/settings.json"
 assert_allow "posture check: hooks projection, raw output" "jq -r '.hooks' .claude/settings.local.json"
 assert_allow "posture check: deny projection of the managed layer (quoted path)" "jq '.permissions.deny // []' '/Library/Application Support/ClaudeCode/managed-settings.json'"
-assert_allow "plugin root location" "jq -er '.plugins[\"planwright@planwright\"] // [] | map(select(.scope == \"user\")) | last | .installPath // empty' /home/u/.claude/plugins/installed_plugins.json"
+assert_allow "jq -er with a quoted key and alternatives" "jq -er '.plugins[\"planwright@planwright\"] // [] | map(select(.scope == \"user\")) | last | .installPath // empty' /home/u/.claude/plugins/installed_plugins.json"
 assert_allow "jq in a pipeline" "gh pr view 5 --json title | jq -r .title"
 assert_allow "jq --arg takes two values" "jq --arg x 1 '.a' file.json"
 assert_defer "jq env builtin decants the environment" "jq -n env"
@@ -257,21 +260,46 @@ assert_defer "jq unknown long flag" "jq --frobnicate '.a' file.json"
 assert_defer "jq with no filter at all" "jq"
 assert_defer "jq writing through a redirect" "jq . a.json > out.json"
 assert_defer "jq filter from an unexpanded variable" "jq \"\$F\" file.json"
+assert_allow "jq .env is a field access, not the builtin" "jq '.env' file.json"
+assert_allow "jq .envelope is a field access" "jq '.a.envelope' file.json"
+assert_allow "jq --exit-status takes no value" "jq --exit-status '.a' file.json"
+assert_allow "jq --args operands after the filter are positional strings" "jq -n --args '\$ARGS' a b"
+assert_defer "jq \$ENV after --" "jq -- '\$ENV'"
+assert_defer "jq \$ENV behind --arg's two values" "jq --arg x 1 '\$ENV'"
+assert_defer "jq \$ENV behind --rawfile's two values" "jq --rawfile a f.txt '\$ENV'"
+assert_defer "jq \$ENV behind --argjson's two values" "jq --argjson a 1 '\$ENV'"
+assert_defer "jq \$ENV behind --slurpfile's two values" "jq --slurpfile a f.json '\$ENV'"
+assert_defer "jq env.PATH reads the environment" "jq -n 'env.PATH'"
+assert_defer "jq \$ENV inside string interpolation" "jq -n '\"\\(\$ENV)\"'"
+assert_defer "jq --from-file program file is unscreenable" "jq --from-file prog.jq file.json"
+assert_defer "jq --library-path loads module text" "jq --library-path /tmp/mods '.' file.json"
+assert_defer "jq unknown short flag" "jq -z '.' file.json"
+assert_defer "jq value flag dangling after the filter" "jq '.a' --arg x"
 
 echo "### tower-front-door REQ-A1.3 — the flight petition's temp files: mktemp and their removal ALLOW"
 # A flight petition's ask and grounds go into the tower's own mktemp files,
 # written with the file tool and removed once the dispatch returns. Only the
 # bare mktemp form (a fresh file in TMPDIR) and a plain removal of a
 # mktemp-named regular file directly inside TMPDIR or /tmp are approved.
-TOWER_TMP="$(mktemp -d)" || exit 1
-TOWER_TMP="$(cd "$TOWER_TMP" && pwd -P)"
+# The stand-in TMPDIR lives in the sandbox, so the EXIT trap removes it and
+# everything below it, the newline-named fixture further down included.
+mkdir -p "$SANDBOX/tower-tmp" || exit 1
+TOWER_TMP="$(cd "$SANDBOX/tower-tmp" && pwd -P)" || exit 1
 SLASH_TMP_FILE="$(mktemp /tmp/tmp.XXXXXXXXXX)" || exit 1
-mkdir -p "$TOWER_TMP/tmp.dir0123456" "$TOWER_TMP/sub"
-: >"$TOWER_TMP/tmp.Ab3dE6gH9j"
-: >"$TOWER_TMP/tmp.Zz9yX8wV7u"
-: >"$TOWER_TMP/sub/tmp.Qq1wE2rT3y"
-: >"$TOWER_TMP/notes.txt"
-ln -s /etc/hosts "$TOWER_TMP/tmp.LnK0123456"
+{
+  mkdir -p "$TOWER_TMP/tmp.dir0123456" "$TOWER_TMP/sub" \
+    && : >"$TOWER_TMP/tmp.Ab3dE6gH9j" \
+    && : >"$TOWER_TMP/tmp.Zz9yX8wV7u" \
+    && : >"$TOWER_TMP/sub/tmp.Qq1wE2rT3y" \
+    && : >"$TOWER_TMP/notes.txt" \
+    && : >"$TOWER_TMP/tmp.abc-def-12" \
+    && mkfifo "$TOWER_TMP/tmp.Fifo012345" \
+    && ln -s /etc/hosts "$TOWER_TMP/tmp.LnK0123456" \
+    && ln -s "$TOWER_TMP" "$SANDBOX/tower-tmp-link"
+} || {
+  echo "FAIL: could not build the temp-file fixtures under $TOWER_TMP" >&2
+  exit 1
+}
 export RUN_TMPDIR="$TOWER_TMP/"
 assert_allow "bare mktemp" "mktemp"
 assert_allow "removal of both petition files" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j $TOWER_TMP/tmp.Zz9yX8wV7u"
@@ -300,7 +328,23 @@ assert_defer "a glob" "rm -f $TOWER_TMP/tmp.*"
 assert_defer "an unexpanded variable" "rm -f \$TMPDIR/tmp.Ab3dE6gH9j"
 assert_defer "a tilde path" "rm -f ~/tmp.Ab3dE6gH9j"
 assert_defer "one safe operand and one unsafe" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j /etc/hosts"
-assert_defer "an interactive or verbose flag" "rm -i $TOWER_TMP/tmp.Ab3dE6gH9j"
+assert_defer "an interactive flag" "rm -i $TOWER_TMP/tmp.Ab3dE6gH9j"
+assert_defer "a verbose flag" "rm -v $TOWER_TMP/tmp.Ab3dE6gH9j"
+assert_allow "a repeated -f" "rm -f -f $TOWER_TMP/tmp.Ab3dE6gH9j"
+assert_defer "a mktemp-shaped name with a non-alphanumeric suffix" "rm -f $TOWER_TMP/tmp.abc-def-12"
+assert_defer "a mktemp-named FIFO" "rm -f $TOWER_TMP/tmp.Fifo012345"
+assert_allow "a dot-dot through a real directory back into TMPDIR" "rm -f $TOWER_TMP/sub/../tmp.Ab3dE6gH9j"
+assert_defer "a dot-dot through a real directory up out of TMPDIR" "rm -f $TOWER_TMP/sub/../../tmp.Ab3dE6gH9j"
+RUN_TMPDIR="$SANDBOX/tower-tmp-link" assert_allow "a TMPDIR spelled through a symlink matches its canonical directory" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
+RUN_TMPDIR='' assert_allow "no TMPDIR: a mktemp file directly in /tmp" "rm -f $SLASH_TMP_FILE"
+RUN_TMPDIR='' assert_defer "no TMPDIR: a mktemp file outside /tmp" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
+RUN_TMPDIR="$SANDBOX/no-such-dir" assert_allow "an unresolvable TMPDIR: a mktemp file directly in /tmp" "rm -f $SLASH_TMP_FILE"
+RUN_TMPDIR="$SANDBOX/no-such-dir" assert_defer "an unresolvable TMPDIR: a mktemp file outside /tmp" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
+# A newly approved verb never carries a history rewrite through with it.
+assert_defer "mktemp then a force-push" "mktemp && git push --force origin x"
+assert_defer "jq then a rebase" "jq . f.json && git rebase main"
+assert_defer "a temp-file removal then an amend" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j; git commit --amend"
+assert_defer "mktemp piped into a squash" "mktemp | git commit --squash HEAD"
 assert_defer "a flag-shaped operand after --" "rm -f -- -rf"
 assert_defer "bare rm" "rm"
 # A directory named so that its canonical path, split on the newline, reads as
@@ -312,7 +356,6 @@ assert_defer "an operand whose directory spans the directory list's lines" "rm -
 assert_defer "a suffix too short for mktemp" "rm -f $TOWER_TMP/tmp.abc"
 RUN_TMPDIR="$SANDBOX" assert_defer "a mktemp file in a directory TMPDIR does not name" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
 unset RUN_TMPDIR
-rm -rf "$TOWER_TMP" "$TOWER_TMP"$'\n' "$SLASH_TMP_FILE"
 
 echo "### Narrowed screen — sed bracket expressions are read-only (paired positives/negatives)"
 # The engine's sed screen is on what makes a sed script DANGEROUS (the w/W write,
@@ -585,6 +628,13 @@ if is_allow && ! worker_is_allow; then
   pass "claude --worktree is tower-allowed and worker-deferred (tower-only)"
 else
   fail "distinctness — claude --worktree: tower=$(is_allow && echo allow || echo defer) worker=$(worker_is_allow && echo allow || echo defer)"
+fi
+run_hook "mktemp"
+run_worker_hook "mktemp"
+if is_allow && ! worker_is_allow; then
+  pass "bare mktemp is tower-allowed and worker-deferred (tower-only)"
+else
+  fail "distinctness — mktemp: tower=$(is_allow && echo allow || echo defer) worker=$(worker_is_allow && echo allow || echo defer)"
 fi
 # A worker-only command: ALLOWED by the worker guard, DEFERRED by the tower guard.
 run_hook "bats tests/ok.bats"
