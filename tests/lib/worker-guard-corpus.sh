@@ -35,6 +35,8 @@
 # base-merge gate). Until the guard reads it, it is inert; the task that
 # teaches the guard to read it binds corpus_decide to the real location.
 
+unset CDPATH
+
 # A parse yielding fewer rows than this means the file was mangled, not that
 # the guard got better; the sourcing suites enforce it.
 # shellcheck disable=SC2034
