@@ -1644,6 +1644,12 @@ GIT_DIR="$wt/.git" "$SR" --worktree "$wd" write --completion --run "$rg" --point
 verdict_of $? "a defaulted write under an inherited GIT_DIR succeeds" "rc!=0: $(cat "$tmp/wd.err")"
 cat "$wd/.claude/steps/$rg/"*-done-pre-ci.rec 2>/dev/null | grep -Fxq "head${TAB}$WD_HEAD2"
 verdict "an inherited GIT_DIR does not redirect the --head default" "completion head is not the worktree's own"
+rw=$(srd new-run)
+GIT_DIR="$wt/.git" GIT_WORK_TREE="$wt" "$SR" --worktree "$wd" write --completion --run "$rw" \
+  --point pre-ci >/dev/null 2>"$tmp/wd.err"
+verdict_of $? "a defaulted write under an inherited GIT_WORK_TREE succeeds" "rc!=0: $(cat "$tmp/wd.err")"
+cat "$wd/.claude/steps/$rw/"*-done-pre-ci.rec 2>/dev/null | grep -Fxq "head${TAB}$WD_HEAD2"
+verdict "an inherited GIT_WORK_TREE does not redirect the --head default" "completion head is not the worktree's own"
 
 # status: an omitted --head is the current HEAD, the completion naming it found.
 rs=$(srd new-run)
