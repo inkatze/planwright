@@ -141,10 +141,8 @@ fail() {
 # reported is already invalid/unexpected, so display fidelity yields to injection
 # safety. This matches the canonical shared display sanitizer
 # scripts/echo-safety.sh (sanitize_printable), which strips the same C0+DEL+C1 set
-# (its C1 coverage was widened in PR #112) and is sourced by spec-validate.sh /
-# spec-walkthrough.sh; check-obs.sh keeps its own inline copy of the rule rather
-# than sourcing that helper, as scripts/spec-scope.sh and scripts/spec-assemble.sh
-# also still do — folding these onto echo-safety.sh is a tracked follow-up. The
+# (its C1 coverage was widened in PR #112); check-obs.sh keeps its own inline
+# copy of the rule rather than sourcing that helper. The
 # write-time storage path in obs-record.sh deliberately preserves C1 as UTF-8.
 safe() {
   printf '%s' "$1" | tr -d '\000-\037\177\200-\237'

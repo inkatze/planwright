@@ -99,7 +99,9 @@ mise run check      # the full local equivalent of the CI gate
   CI-eval exclusion over the workflows and the task graph, and the
   glob-allow-rule discipline check;
 - the house-pattern checks: `unset CDPATH` before a `cd` in command
-  substitution, printf over echo for sanitized output, and every
+  substitution, printf over echo for any expanded value (an `echo` keeps an
+  expansion only on a line ending `# trusted: <reason>`), a readability test
+  before every source of `scripts/echo-safety.sh`, and every
   `scripts/*.sh` committed at the mode its first line declares (100755 with a
   shebang, 100644 for a shebang-less sourced library), read from the git index;
 - the two registration guards that keep the gate complete: every check script

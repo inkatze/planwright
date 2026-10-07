@@ -57,7 +57,7 @@ stricter bar than the code they help review:
   expands those back into a live ESC. `check:echo-discipline` refuses any
   `echo` expansion lacking a `# trusted:` reason. The canonical sanitizer is
   `scripts/echo-safety.sh` (`sanitize_printable`), sourced behind a
-  readability test; libraries that cannot locate it copy its byte range. The
+  readability test; inline copies must keep its byte range. The
   awk `gsub(/[^[:print:]]/, "")` header parsers are its in-awk form.
 - **Stay auditable.** Scripts are plain portable shell, small enough to
   read before trusting, and gated by planwright's self-hosting quality

@@ -34,7 +34,7 @@
 # are only correct under the C locale; a non-C collation would mis-rank
 # prerelease identifiers.
 
-# _rl_safe <value> — strip C0/DEL/C1 control bytes so an error-path echo of an
+# _rl_safe <value> — strip C0/DEL/C1 control bytes so an error-path message of an
 # untrusted (invalid) version/selector value cannot drive the terminal. The
 # doctrine's canonical sanitizer is scripts/echo-safety.sh; this is a copy of
 # its byte range because a sourced lib cannot portably locate its siblings (the

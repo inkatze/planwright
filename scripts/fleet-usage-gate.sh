@@ -135,9 +135,9 @@
 #   pre-checks on the two helpers this script calls a bare success/1/4/5 contract
 #   on — the daemon gate (fleet-daemon-gate.sh) and the shared config resolver
 #   (resolve-config-knob.sh) — or a malformed/unresolvable core default. The
-#   sourced echo-safety.sh is a required sibling: under the /bin/sh target a
-#   failed `.` of a missing special-builtin file aborts the shell immediately
-#   (it never proceeds past the source), matching the whole fleet script family.
+#   sourced echo-safety.sh is a required sibling: a readability test before the
+#   source refuses a missing one with exit 2 and a broken-install message,
+#   rather than leaving the shell to abort on the `.` of a missing file.
 #   Never fails opaquely.
 #
 # POSIX sh on the macOS + Linux support bar (bash 3.2 / BSD tooling): awk,

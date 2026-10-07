@@ -101,7 +101,7 @@ filler() {
 #    nothing" from "scanned almost nothing and found nothing".
 # ---------------------------------------------------------------------------
 out="$(/bin/bash "$CHECKER" 2>&1)"
-assert "the repo's own tree is echo-safety-clean" 0 $?
+assert "the repo's own tree is echo-discipline-clean" 0 $?
 assert_contains "the clean run reports a file count" "$out" "check-echo-discipline: clean ("
 assert_contains "the clean run reports the skipped bash-interpreter files" "$out" "not at risk"
 assert_contains "the clean run says which bash files were read for sourcing" "$out" "naming echo-safety.sh and read for sourcing"
@@ -596,8 +596,8 @@ write_script "$tmp/round2-bad/scripts/nospace.sh" 'foo(){ echo "$(sanitize_print
 # An option to a transparent prefix must not take the command slot.
 write_script "$tmp/round2-bad/scripts/optprefix.sh" 'command -p echo "$(sanitize_printable "$x")"'
 # A sanitizer under another name is the same hazard. spec-scope.sh and
-# spec-assemble.sh carry inline copies called sanitize_echo, and keying on one
-# spelling reported both clean over eight live call sites.
+# spec-assemble.sh once carried inline copies called sanitize_echo, and keying
+# on one spelling reported both clean over eight live call sites.
 write_script "$tmp/round2-bad/scripts/othername.sh" \
   'safe=$(sanitize_echo "$x")' \
   'echo "scope: $safe" >&2'

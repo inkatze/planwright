@@ -3,8 +3,10 @@
 # framework scripts (sourced, never executed). Callers source it behind a
 # readability test (`[ -r ... ]` first), which scripts/check-echo-discipline.sh
 # enforces: dash aborts on a missing `.` file while bash runs on without the
-# function. Sourced libraries that cannot locate their siblings (spec-parse.sh,
-# release-lib.sh) carry a copy of the byte range instead.
+# function. Any inline copy keeps this byte range: sourced libraries that cannot
+# locate their siblings (spec-parse.sh, release-lib.sh) carry one instead, and
+# scripts that must never be unable to sanitize define one as a fallback before
+# sourcing this file.
 #
 # Echo discipline (doctrine/security-posture.md, "Framework-script security"):
 # untrusted content — spec-file values, branch names, parsed identifiers — must

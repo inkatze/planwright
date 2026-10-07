@@ -71,7 +71,10 @@
 # Known limits: the printf FORMAT and `%b` checks follow a sanitized value one
 # hop only (`a=$(sanitize_printable "$x"); b=$a; printf "$b"` is not seen), and
 # nothing reads through `eval` or an `echo` whose command name is itself
-# quoted. Presence, not position, is checked for the variable form: a use
+# quoted or escaped (`\echo`), held in a variable (`$e "$x"`), or aliased. An
+# unquoted heredoc body is not read, so a command substitution inside one goes
+# unseen, and a filename glob or a `~` in an echo is not counted as an
+# expansion. Presence, not position, is checked for the variable form: a use
 # written above the assignment still counts.
 #
 # Scope is every shell file under scripts/, tests/, and githooks/, reached
@@ -195,10 +198,10 @@ yield only digits or flag letters (`$?`, `$#`, `$$`, `$!`, `$-`, `${#x}`,
 `$((...))`) need no annotation.
 
 Sourcing: every `.` or `source` of echo-safety.sh must follow a `-r` (readable)
-test of the same operand, so a missing helper is the script's own refusal rather than
-a dash abort or a bash run with the sanitizer undefined. A loop over the
-dependency names that tests `<dir>/$name` counts. This rule reads bash files
-too.
+test of the same operand, so a missing helper is the script's own refusal
+rather than a dash abort or a bash run with the sanitizer undefined. A loop over
+the dependency names that tests `<dir>/$name` counts. This rule reads bash
+files too.
 
 Scanned: every shell file under scripts/, tests/, and githooks/, reached either
 by shebang or by an .sh suffix, so both the extensionless githooks/ hooks and
@@ -380,7 +383,8 @@ awk -v listfile="$work/list" '
   }
   # Any expansion inside an echo is a finding, except inside an arithmetic
   # expansion nested below that echo, whose result is an integer however its
-  # operands were spelled. bash files are read for the sourcing rule only.
+  # operands were spelled, or in a redirection target, which is never printed.
+  # bash files are read for the sourcing rule only.
   function note_exp(ln, d,   j, e) {
     if (isbash) return
     e = -1
@@ -640,8 +644,9 @@ awk -v listfile="$work/list" '
           }
           rest = substr(s, i + 2)
           name = (j > 0) ? substr(rest, 1, j - 1) : rest
-          # `${#v}` expands to a LENGTH and `${!v}` to a NAME. Neither carries
-          # the sanitized value, so neither is content reaching the command.
+          # `${#v}` expands to a LENGTH, never content, so it is not noted.
+          # `${!v}` is an indirect value and is noted, but neither names the
+          # variable v itself, so neither feeds the sanitized-variable check.
           if (substr(rest, 1, 1) != "#") note_exp(ln, depth)
           if (name ~ /^[#!]/) name = ""
           sub(/[^A-Za-z0-9_].*$/, "", name)
