@@ -12,6 +12,9 @@
 #   class <name> <task> <shipped|pending> <what the class covers>
 #   row   <class> <none> <own-branch> <scratch> <own-branch scratch> <command>
 #
+# <task> is the task whose landing ships the class; floor and uncovered name
+# the task that began enforcing them, since they are enforced from the start.
+#
 # The four verdict columns are `allow` or `defer`, one per policy value: the
 # empty list, `own-branch`, `scratch`, and both. A row of a `pending` class
 # that stalls (expected allow, got defer) is reported but does not fail; once
@@ -20,9 +23,10 @@
 # Floor and uncovered rows are enforced from the start and must defer under
 # every value.
 #
-# Sanitize every row to its command shape: no hostnames, user or machine
-# paths, tokens, or repository names. Paths are relative to the sandbox
-# worktree or one of these placeholders, bound by the harness:
+# Sanitize every line to command shapes: no hostnames, user or machine
+# paths, tokens, or repository names. A path is relative to the sandbox
+# worktree, a fixed system location the shape needs (`/tmp`, `/dev/null`,
+# `/`), or one of these placeholders, bound by the harness:
 #
 #   @@WORKTREE@@     the session's worktree root
 #   @@SCRATCH@@      the session's scratch root (what `$TMPDIR` names)
@@ -30,11 +34,11 @@
 #   @@PLUGIN_ROOT@@  the installed planwright root under test
 #
 # Grow the corpus from live stalls: when a worker blocks on a command that
-# should have been approved, add its sanitized shape here before fixing the
-# guard, so the corpus proves the fix and pins it. Every row of the earlier
-# allow/defer corpus is carried below under the class its shape belongs to.
+# should have been approved, add its sanitized shape here, under a shipped
+# class, before fixing the guard, so the corpus fails until the fix lands and
+# pins it after.
 
-class	baseline	1	shipped	read-only shapes and trusted repo tasks the guard approved before the extension
+class	baseline	1	shipped	read-only shapes and trusted repo tasks, and the near-misses that must keep deferring
 class	awk-lexer	1	shipped	awk programs: read-only ones approve, the lexer bypasses defer
 class	expansion	4	shipped	unresolved or opaque $ operands, for-loop modelling, the -v forms
 class	run-order	6	pending	cd, plain assignments, transparent prefixes, wait and inspection verbs
@@ -101,11 +105,11 @@ row	baseline	allow	allow	allow	allow	jq '.env' f.json
 row	baseline	defer	defer	defer	defer	yq 'env(GH_TOKEN)' f.yml
 row	baseline	defer	defer	defer	defer	yq 'strenv(GH_TOKEN)' f.yml
 row	baseline	allow	allow	allow	allow	yq '.environment' f.yml
-# gh bundles short flags, so a write flag can ride behind a boolean one
+# a boolean short flag bundled with a read-only one stays a GET
 row	baseline	allow	allow	allow	allow	gh api -qFkey=val repos/o/r
 row	baseline	allow	allow	allow	allow	gh api -i repos/o/r
-# The commonest real prompt shape: the bash 3.2 floor's own spelling. A
-# path-prefixed verb defers by design (REQ-A1.9); no task in flight changes it.
+# The commonest real prompt shape, the bash 3.2 floor's own spelling: a verb
+# spelled as a path defers by design.
 row	baseline	defer	defer	defer	defer	/bin/bash tests/ok.sh 2>&1 | tail -20
 
 # --- awk-lexer: read-only programs the blanket `|` / `>` screens over-deferred ---
@@ -319,7 +323,8 @@ row	floor	defer	defer	defer	defer	echo x >> mise.toml
 row	floor	defer	defer	defer	defer	sed -i 's/a/b/' mise.local.toml
 row	floor	defer	defer	defer	defer	mkdir -p .mise/tasks
 row	floor	defer	defer	defer	defer	rm lefthook.yml
-# gh writes are outward-facing
+# gh writes are outward-facing; gh bundles short flags, so a write flag can
+# ride behind a boolean one (-iX POST, -if)
 row	floor	defer	defer	defer	defer	gh pr comment 5 --body 'review this PR'
 row	floor	defer	defer	defer	defer	gh pr create --draft --title x --body y
 row	floor	defer	defer	defer	defer	gh issue create --title x --body y

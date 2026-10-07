@@ -198,8 +198,6 @@ else
 fi
 echo
 
-failures=0
-
 SMOKE_BOX=$(mktemp -d) || exit 2
 trap 'rm -rf "$SMOKE_BOX"' EXIT
 corpus_sandbox "$SMOKE_BOX/box" "$ROOT" || {
@@ -207,8 +205,8 @@ corpus_sandbox "$SMOKE_BOX/box" "$ROOT" || {
   exit 2
 }
 
-# Evaluated, not called by path: the settings spelling is under test. The
-# corpus library exports CLAUDE_PLUGIN_ROOT as the root under test.
+# Evaluated, not called by path: the settings spelling is under test.
+# corpus_decide sets CLAUDE_PLUGIN_ROOT to the root under test for each call.
 # shellcheck disable=SC2329  # the corpus replay invokes it by name
 smoke_hook() { eval "$HOOK_CMD"; }
 

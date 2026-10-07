@@ -35,8 +35,9 @@
 #
 # The session record each column injects is the guard's launch-time input
 # (the policy, the unit identity, the scratch root, the audit-log home, the
-# base-merge gate). Until the guard reads it, it is inert; the task that
-# teaches the guard to read it binds corpus_decide to the real location.
+# base-merge gate). corpus_decide hands the guard its path as
+# PLANWRIGHT_WORKER_SESSION_RECORD; if the guard locates its record any other
+# way, corpus_decide must follow, or every column replays the same input.
 
 unset CDPATH
 

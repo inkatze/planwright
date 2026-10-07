@@ -51,7 +51,7 @@ fake_guard() {
   esac
 }
 
-T=$(printf '\t')
+T=$CORPUS_TAB
 synthetic() {
   # synthetic <name> <line>...: a corpus declaring the two classes the
   # self-checks use, plus the given lines.
