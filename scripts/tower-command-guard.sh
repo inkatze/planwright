@@ -1368,7 +1368,8 @@ temp_dirs() {
 # is not a symlink, a directory, or any other non-regular file. A name that
 # does not exist yet is allowed: without -r rm cannot take a directory that
 # appears later, and a symlink that appears later is unlinked, never followed.
-# `-f` and `--` are the only flags; -r/-R/-d (directories), -i/-I/-v and every
+# `-f` and `--` are the only flags, and only before the first operand: BSD rm
+# reads a later one as a file name. -r/-R/-d (directories), -i/-I/-v and every
 # other flag defer. The guard cannot tell whose file it is: any same-user file
 # of that name in those directories qualifies.
 guard_rm() {
@@ -1385,6 +1386,7 @@ guard_rm() {
         -*) return 1 ;;
       esac
     fi
+    endflags=1
     # A newline would let a crafted directory name span lines of the
     # newline-joined directory list below. A dot component would let a logical
     # path walk back out through a symlink rm itself follows.

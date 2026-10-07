@@ -397,6 +397,11 @@ assert_defer "jq then a rebase" "jq . f.json && git rebase main"
 assert_defer "a temp-file removal then an amend" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j; git commit --amend"
 assert_defer "mktemp piped into a squash" "mktemp | git commit --squash HEAD"
 assert_defer "a flag-shaped operand after --" "rm -f -- -rf"
+# BSD rm (macOS /bin/rm) stops reading options at the first operand, so a
+# later -f or -- is a file in the command's working directory.
+assert_defer "an -f after an operand" "rm $TOWER_TMP/tmp.Ab3dE6gH9j -f"
+assert_defer "a -- after an operand" "rm $TOWER_TMP/tmp.Ab3dE6gH9j --"
+assert_defer "a -- between two operands" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j -- $TOWER_TMP/tmp.Zz9yX8wV7u"
 assert_defer "bare rm" "rm"
 # A directory named so that its canonical path, split on the newline, reads as
 # TMPDIR followed by the entry after it in the guard's directory list: the

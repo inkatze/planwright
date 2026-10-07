@@ -55,7 +55,8 @@ static `allow` entry is added.
   (`tmp.` and at least six letters or digits), whose directory resolves
   physically to exactly `TMPDIR`, the macOS per-user temp directory, or `/tmp`
   (never a directory below them), and that is not a symlink, a directory, or
-  another non-regular file. `-f` and `--` are the only flags. A recursive or
+  another non-regular file. `-f` and `--` are the only flags, and only before
+  the first operand (BSD rm reads a later one as a file name). A recursive or
   directory removal, `-i` or `-v`, a relative, tilde, glob, variable, or
   dot-component operand, a directory whose resolved path holds a line break,
   and any operand outside those directories defer, and one bad operand defers
