@@ -52,8 +52,9 @@
 #   paused  -        the kill-switch was set mid-pass; the rest waits
 #   summary rows=<n> cleared=<n> kept=<n> status=<ok|degraded|paused>
 #   degraded when the store, the registry, or a derivation could not be read,
-#   a handle holds more than one row, or a clear or its audit record failed;
-#   every such row is kept.
+#   a handle holds more than one row, or a clear or its audit record failed.
+#   Every row those touch is kept, except a clear whose audit record alone
+#   failed: the clear stands, and the warning names the worker.
 #
 # Exit codes: 0 the pass ran (degraded or paused included); 2 usage, a
 #   checkout that cannot be resolved, or no fleet home;
