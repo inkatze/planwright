@@ -683,6 +683,7 @@ write_script "$tmp/trusted-bad/scripts/notsan.sh" \
   'echo "$(sanitize_printable "$x")" # trusted: sanitized output is never trusted'
 write_script "$tmp/trusted-bad/scripts/other.sh" 'echo "$n" # untrusted: no'
 write_script "$tmp/trusted-bad/scripts/quoted.sh" 'echo "$n # trusted: inside the string"'
+write_script "$tmp/trusted-bad/scripts/url.sh" 'echo "$x" # see http://h/#trusted: x'
 out="$(/bin/bash "$CHECKER" "$tmp/trusted-bad" 2>&1)"
 assert "a reasonless, misplaced, or overreaching annotation clears nothing" 1 $?
 assert_contains "a bare trusted marker is a finding" "$out" "scripts/noreason.sh:3"
@@ -691,6 +692,7 @@ assert_contains "an annotation on the line above does not cover the echo" "$out"
 assert_contains "sanitized output stays a finding under an annotation" "$out" "scripts/notsan.sh:3"
 assert_contains "a different comment is not an annotation" "$out" "scripts/other.sh:3"
 assert_contains "a marker inside a quoted string is not an annotation" "$out" "scripts/quoted.sh:3"
+assert_contains "a marker inside a comment word is not an annotation" "$out" "scripts/url.sh:3"
 
 # ---------------------------------------------------------------------------
 # 13a. Guarded sourcing of the sanitizer. `.` is a POSIX special built-in, so
@@ -730,6 +732,16 @@ write_script "$tmp/srcbad/scripts/loopneg.sh" \
   'done' \
   'for dep in echo-safety.sh; do :; done' \
   '. "$d/echo-safety.sh"'
+write_script "$tmp/srcbad/scripts/late-prior.sh" \
+  'p=""' \
+  'load() { . "$p"; }' \
+  'p="$d/echo-safety.sh"' \
+  'load'
+write_script "$tmp/srcbad/scripts/late-cleared.sh" \
+  'load() { . "$p"; }' \
+  'p="$d/echo-safety.sh"' \
+  'load' \
+  'p='
 write_script "$tmp/srcbad/scripts/continued.sh" \
   ". \\" \
   '  "$d/echo-safety.sh"'
@@ -746,6 +758,8 @@ assert_contains "a bare source through a loop variable is caught" "$out" "script
 assert_contains "a test of a variable's earlier value guards nothing" "$out" "scripts/reassigned.sh:7"
 assert_contains "a loop over other names lends no test to the sanitizer" "$out" "scripts/loopneg.sh:7"
 assert_contains "a source continued onto the next line is caught" "$out" "scripts/continued.sh:4"
+assert_contains "a function source of a variable later set to the sanitizer is caught" "$out" "scripts/late-prior.sh:4"
+assert_contains "clearing the variable after the call does not hide the source" "$out" "scripts/late-cleared.sh:3"
 assert_contains "the source finding says what guards it" "$out" "readable"
 
 # A read error while selecting the bash files is not "no match": a grep that
@@ -793,6 +807,11 @@ write_script "$tmp/srcok/scripts/var-source.sh" \
   'ES="$d/echo-safety.sh"' \
   '[ -r "$d/echo-safety.sh" ] || exit 2' \
   '. "$ES"'
+write_script "$tmp/srcok/scripts/check-fn.sh" \
+  'check() { [ -r "$p" ] || exit 2; }' \
+  'p="$d/echo-safety.sh"' \
+  'check' \
+  '. "$p"'
 write_script "$tmp/srcok/scripts/continued-r.sh" \
   "if [ -r \\" \
   '  "$d/echo-safety.sh" ]; then . "$d/echo-safety.sh"; fi'

@@ -446,18 +446,27 @@ awk -v listfile="$work/list" '
   }
   # One hash of the operands tested so far keeps the check linear: a source is
   # guarded when the path it resolves to was tested readable before it.
-  function take_cap(w, ln,   p, v) {
+  # A `$v` tested before any assignment to v (a check function defined above
+  # it) is also kept as written, and guards a later source of that spelling.
+  function take_cap(w, ln,   p, isvar) {
     w = normw(w)
     p = resolve(w)
-    if (cap == "r") { tested[p] = 1; return }
-    if (index(p, "echo-safety.sh") > 0) {
-      if (!(p in tested)) srchit[ln] = 1
+    isvar = (w ~ /^\$[A-Za-z_][A-Za-z0-9_]*$/)
+    if (cap == "r") {
+      tested[p] = 1; testedraw[w] = 1
+      if (isvar && p == w) testedunset[w] = 1
       return
     }
-    # A variable with no assignment yet may still name the sanitizer once the
-    # file is read to the end (a function body above the assignment it reads).
-    if (p ~ /^\$[A-Za-z_][A-Za-z0-9_]*$/) {
-      nlate++; latev[nlate] = substr(p, 2); lateln[nlate] = ln; lateok[nlate] = (p in tested)
+    if (index(p, "echo-safety.sh") > 0) {
+      if (!(p in tested) && !(isvar && (w in testedunset))) srchit[ln] = 1
+      return
+    }
+    # A `$v` source that does not name the sanitizer here may still be one: a
+    # function body runs with whatever v holds when it is called, which can be
+    # an assignment further down. Any variable ever assigned the sanitizer path
+    # is judged at end of file, guarded only by a test of the same spelling.
+    if (isvar) {
+      nlate++; latev[nlate] = substr(w, 2); lateln[nlate] = ln; lateok[nlate] = (w in testedraw)
     }
   }
   # An assignment is only over when something terminates it at ITS OWN depth. A
@@ -680,11 +689,12 @@ awk -v listfile="$work/list" '
         # `# trusted: <reason>` clears the plain expansions on this line; a bare
         # marker is recorded so it can be reported rather than honoured. The
         # annotation ends the line, so it may follow another comment
-        # (`# shellcheck disable=... # trusted: ...`).
+        # (`# shellcheck disable=... # trusted: ...`), but only at a word start:
+        # a `#trusted:` inside a URL is not one.
         cm = substr(s, i)
-        if (match(cm, /#[ \t]*trusted:/)) {
+        if (match(cm, /(^|[ \t])#[ \t]*trusted:/)) {
           cm = substr(cm, RSTART)
-          sub(/^#[ \t]*trusted:[ \t]*/, "", cm)
+          sub(/^[ \t]*#[ \t]*trusted:[ \t]*/, "", cm)
           if (cm ~ /[^ \t]/) trusted[ln] = 1; else trustbare[ln] = 1
         }
         break
@@ -746,6 +756,7 @@ awk -v listfile="$work/list" '
           # Only whether the value is the sanitizer path matters, so any other
           # value is held as a marker no operand can equal, unnormalized.
           varval[name] = (index(val, "echo-safety.sh") > 0) ? normw(val) : "\001"
+          if (varval[name] != "\001") everes[name] = 1
         }
         if (atcmd) word_at_cmd(w, ln)
         i = j; prev = "w"; continue
@@ -760,6 +771,7 @@ awk -v listfile="$work/list" '
     split("", hits); split("", exph); split("", trusted); split("", trustbare)
     split("", varval); split("", loopv); split("", tested); split("", srchit)
     split("", latev); split("", lateln); split("", lateok)
+    split("", testedraw); split("", testedunset); split("", everes)
     nlate = 0; cap = ""
     cmd[0] = ""; nref = 0; ncase = 0; split("", casedep); split("", argn); split("", inarg); split("", refkind); split("", fmtb); split("", redirpend); split("", pctesc); split("", inredir)
     toodeep = 0; baddelim = 0; bpend = 0
@@ -828,7 +840,7 @@ awk -v listfile="$work/list" '
     }
     for (k = 1; k <= nlate; k++) {
       v = latev[k]
-      if ((v in varval) && index(varval[v], "echo-safety.sh") > 0 && !lateok[k]) srchit[lateln[k]] = 1
+      if ((v in everes) && !lateok[k]) srchit[lateln[k]] = 1
     }
     for (ln = 1; ln <= maxln; ln++) {
       if (!isbash) {
