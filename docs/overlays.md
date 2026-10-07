@@ -359,8 +359,12 @@ dispatched units belongs in the adopter layer.
 
 **The context a step receives.** Every step gets the same fixed fields: the
 spec, the unit's task ids, the unit kind, the branch and base branch, the
-worktree, the PR number, the point, the step id, and the preceding step's
-record path. A command step reads them as `PLANWRIGHT_STEP_*` environment
+worktree, the PR number, the point, the step id, the preceding step's
+record path, and the previous and new head of the latest head move an
+earlier step made at the same point (both empty when none did). A pooled
+step also gets a hold mark naming its pool and the slot owner's process id,
+which its check passes along so a nested take of the same pool runs inside
+the hold instead of waiting on itself. A command step reads them as `PLANWRIGHT_STEP_*` environment
 variables added to the environment it inherits (an absent value is set
 empty, never unset); a skill or prompt step gets them as a data block
 prepended to its invocation (`scripts/resolve-steps.sh <point> --preamble`).
@@ -382,6 +386,62 @@ planwright as a plugin adds the ignore line itself:
 runner posts a commit status on the head as evidence the point ran. The
 login that runs it needs commit-status write access: `repo:status` on a
 classic token, or **Commit statuses** write on a fine-grained token or app.
+
+**Expensive checks: pools, reuse, and re-fire.** A command step can declare
+three more fields (the rule doc's *Expensive checks* owns them). `pool`
+makes it wait for a slot of a named pool shared by every checkout,
+worktree, and unit of yours on the host, so parallel units stop running the
+same heavy suite at once. `paths` lets a re-run skip it when a passing
+record already covers the same committed content of those paths.
+`refire: post-pr` runs it once more on the final head when a post-pr step (a review
+fix round, say) moved the head. Here a per-user catalog entry declares a
+long integration suite, and this repository's list runs it before the push:
+
+```yaml
+# <adopter-root>/catalogs/steps.yaml   (your per-user catalog, every repo)
+steps:
+  - id: integration
+    kind: command
+    target: make
+    args: integration
+    pool: heavy-suite
+    paths: src tests Makefile
+    refire: post-pr
+```
+
+```yaml
+# <repo>/.claude/planwright.yml   (repo-tracked: this project's list)
+steps_pre_pr: [integration]
+full_suite_pool: heavy-suite
+```
+
+`full_suite_pool` puts `/execute-task`'s own full local suite in the same
+pool, so on this host the integration suite and every unit's full suite run
+one at a time (`step_pool_capacity` and `step_pool_capacity_<pool>` raise
+that). `refire` needs `paths`, and only a `steps_pre_ci` or `steps_pre_pr`
+list may name the step. An uncommitted or untracked file under a declared
+path means the step runs; files git ignores never count, so a check that
+reads an ignored local input can be reused over a change to it.
+
+**Running the full gate by hand in the same pool.** Your own full-suite run
+takes the same slot through the pool helper, which holds slots and never
+runs anything: take a slot on behalf of the shell that runs the suite, run
+the suite in that same shell with the hold mark set, and release from that
+shell whatever the suite's exit. The helper's usage header
+(`scripts/step-pool.sh`) is authoritative for its arguments; the shape is:
+
+```bash
+pool=heavy-suite
+scripts/step-pool.sh take "$pool" "$$"     # waits up to step_pool_wait, naming the holders
+PLANWRIGHT_STEP_POOL_HOLD="$pool:$$" mise run check
+status=$?
+scripts/step-pool.sh release "$pool" "$$"
+exit "$status"
+```
+
+Run it as one script, so `$$` is the process that owns the slot for the
+whole run. If the script dies without releasing, the slot frees once that
+shell exits; a check it leaked in the background never keeps it.
 
 ## 9. The worker literal-path allow entry (adopter-specific)
 
@@ -438,8 +498,10 @@ shapes, it resolves the command steps declared at the wired points (section
 working directory) and approves the segment only when its words, once a
 leading context prefix is set aside, are exactly a step's location as the
 resolver prints it on that host followed by the step's `args`. The prefix is
-optional, and when present it is the ten `PLANWRIGHT_STEP_*` assignments in
-the order `resolve-steps.sh --prefix` renders them, each value one the
+optional, and when present it is the twelve `PLANWRIGHT_STEP_*` assignments
+in the order `resolve-steps.sh --prefix` renders them, followed for a pooled
+step by the one optional `PLANWRIGHT_STEP_POOL_HOLD=<pool>:<pid>`
+assignment, each value one the
 resolver would render (no control byte, and the unit kind, task ids, and PR
 number inside their grammars), naming a wired point, and carrying no `$`. The location must be absolute
 and plain (letters, digits, `/`, `.`, `_`, `-`), and a path target's
