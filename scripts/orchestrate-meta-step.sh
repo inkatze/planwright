@@ -19,8 +19,8 @@
 #   4. release the lock;
 #   5. launch the one worker through the rung's own primitive.
 #
-# The resource-governance and allocation checks the skill runs before a
-# dispatch stay with the caller; this script runs neither.
+# The skill's resource-governance lines and its `orchestrate_dispatch` launch
+# tier stay with the caller; this script runs neither.
 #
 # The gate checks what a script can: the entry parses, its command is a
 # sanctioned form naming this bundle, its `Class:` is `meaning` or
@@ -37,7 +37,8 @@
 #   orchestrate-meta-step.sh dispatch <spec-dir> <id> --backend <rung>
 #       --prompt-file <file> [--repo-root <dir>] [-- <extra launch args>...]
 #     <spec-dir>   the spec bundle as orchestrate-meta-select.sh printed it,
-#                  `specs/<spec>` inside the primary checkout.
+#                  the primary checkout's own bundle under the default spec
+#                  root (a relocated root is refused).
 #     <id>         one task id; the meta step dispatches single units.
 #     --backend    stream-json-persistent | headless-oneshot. Other rungs are
 #                  refused (exit 2): the harness-native ones belong to the
@@ -65,9 +66,9 @@
 #   5  the dispatch record could not be written; lock released, and a marker
 #      the primitive stamped is cleared
 #   6  the worker launch failed after the record. The marker is cleared so the
-#      unit derives Ready again, unless the rung reported a live worker for
-#      the unit, which keeps it. The placed worktree is left for the next
-#      dispatch's reconcile.
+#      unit derives Ready again, unless the rung may hold a worker for the
+#      unit (see launch_failed), which keeps it. The placed worktree is left
+#      for the next dispatch's reconcile.
 #   129, 130, 141, 143  ended by a signal; the lock is released, and a marker
 #      with no launch behind it is cleared
 #
@@ -96,9 +97,9 @@ die() {
   exit "${2:-2}"
 }
 
-# relay <file> — a child's stderr, stripped of control bytes other than TAB
-# and newline, so a hostile byte in a child's message cannot drive the
-# operator's terminal.
+# relay <file> — a child's stderr, stripped of C0 control bytes other than TAB
+# and newline, and of DEL. C1 bytes stay: stripping them would split the UTF-8
+# the children's messages carry.
 relay() {
   [ -s "$1" ] || return 0
   tr -d '\000-\010\013-\037\177' <"$1" >&2
@@ -179,18 +180,21 @@ fi
 # The lock lives in the spec directory, while the gate and the record address
 # the primary checkout's bundle. They must be one directory, or a
 # single-spec tower locking the primary's copy would not exclude this step.
+# dispatch-fetch.sh takes only the default root's repo-relative form, so a
+# relocated root is refused here, before the lock, rather than by the fetch.
 repo_phys=$(cd "$repo_root" && pwd -P) || die "the repo root cannot be entered"
-spec_root=$(cd "$repo_phys" && /bin/sh "$script_dir/resolve-root.sh" spec --primary 2>/dev/null) \
+spec_root=$(cd "$repo_phys" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec --primary 2>/dev/null) \
   || die "the primary checkout's spec root did not resolve"
+spec_root_parent=$(cd "${spec_root%/*}" 2>/dev/null && pwd -P) || spec_root_parent=
+root_base=${spec_root##*/}
+[ "$spec_root_parent" = "$repo_phys" ] && [ "$root_base" = specs ] \
+  || die "the spec root is relocated; the dispatch gate reads only the default root"
+spec_rel=$root_base/$spec_name
 spec_phys=$(cd "$spec_dir" && pwd -P) || die "the spec directory cannot be entered"
 primary_spec=$(cd "$spec_root" 2>/dev/null && cd "$spec_name" 2>/dev/null && pwd -P) \
   || die "the primary checkout holds no bundle named $spec_name"
 [ "$spec_phys" = "$primary_spec" ] \
   || die "the spec directory is not the primary checkout's bundle; run from the primary checkout"
-case $primary_spec in
-  "$repo_phys"/*) spec_rel=${primary_spec#"$repo_phys"/} ;;
-  *) die "the spec root lies outside the primary checkout" ;;
-esac
 
 wtmp=$(mktemp -d) || exit 2
 lock_held=0
@@ -209,11 +213,18 @@ release_lock() {
   fi
 }
 # shellcheck disable=SC2329 # invoked through the EXIT trap
+# A signal can land after the record primitive stamped the marker but before
+# its exit status is read; the worktree line it prints only after stamping is
+# the evidence then. The clear runs before the release, so it can never
+# remove a marker the next lock holder wrote.
 on_exit() {
-  release_lock
-  if [ "$record_written" -eq 1 ] && [ "$launch_started" -eq 0 ]; then
-    clear_marker
+  if [ "$launch_started" -eq 0 ]; then
+    if [ "$record_written" -eq 1 ] \
+      || grep -q "^dispatch${TAB}worktree${TAB}" "$wtmp/record.out" 2>/dev/null; then
+      clear_marker
+    fi
   fi
+  release_lock
   rm -rf "$wtmp"
 }
 trap on_exit EXIT
@@ -363,13 +374,14 @@ say worktree "$worktree"
 release_lock
 say backend "$backend"
 
-# launch_failed <rc> <reason> — exit 3 from either rung means a live worker
-# already holds the unit, whose marker must survive; every other failure
-# launched nothing.
+# launch_failed <rc> <reason> [keep] — keep the marker when the rung may have
+# a worker for the unit: exit 3 from either rung reports one in flight, and
+# fleet-streamjson.sh exits 2 also after spawning a supervisor that missed
+# its startup window. Every other failure launched nothing.
 launch_failed() {
   relay "$wtmp/launch.err"
-  if [ "$1" -eq 3 ]; then
-    halt launch "$2 (a live worker holds the unit; its marker is kept)"
+  if [ "$1" -eq 3 ] || [ "${3:-}" = keep ]; then
+    halt launch "$2 (the rung may hold a worker for the unit; its marker is kept)"
   else
     clear_marker
     halt launch "$2"
@@ -395,6 +407,9 @@ case $backend in
     "$script_dir/fleet-streamjson.sh" launch "$handle" "$spec_name:task-$task_id" \
       --prompt-file "$prompt" --cwd "$worktree" "$@" \
       </dev/null >"$wtmp/launch.out" 2>"$wtmp/launch.err" || launch_rc=$?
+    if [ "$launch_rc" -eq 2 ]; then
+      launch_failed 2 "fleet-streamjson exit 2" keep
+    fi
     [ "$launch_rc" -eq 0 ] || launch_failed "$launch_rc" "fleet-streamjson exit $launch_rc"
     ;;
 esac

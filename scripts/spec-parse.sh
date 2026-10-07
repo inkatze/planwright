@@ -720,7 +720,8 @@ spec_parse_parked_map() {
 #   1  the brief carries no parseable anchor entry at all
 #   2  the most recent entry does not parse — fail closed rather than answer
 #      with the older entry it supersedes; with --record, also an entry
-#      carrying two `Class:` or two `Lens-pass:` lines
+#      carrying two `Class:` or two `Lens-pass:` lines, or a brief ending
+#      inside an open fence
 #
 # An `Anchor:` line is held PENDING and resolved when the following record
 # arrives, rather than pulled in with `getline`. The distinction matters where
@@ -802,8 +803,9 @@ spec_parse_latest_anchor_entry() {
       # Distinct status: the caller tells "no entry at all" from "the newest
       # one is half-written", which are different repairs.
       if (!last_ok) { exit 2 }
-      # Two Class or Lens-pass lines in one entry leave its class undecidable.
-      if (rec && best_dup) { exit 2 }
+      # Two Class or Lens-pass lines in one entry leave its class undecidable,
+      # and so does a fence left open, which flips every later label.
+      if (rec && (best_dup || in_fence)) { exit 2 }
       if (rec) printf "%s\t%s\t%s\t%s\n", best_hash, best_cmd, best_class, best_lens
       else printf "%s\t%s\n", best_hash, best_cmd
     }
