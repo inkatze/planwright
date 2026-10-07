@@ -78,11 +78,13 @@
 # an inline copy named otherwise (`safe`, `_rl_safe`) is not tracked. A loop
 # naming the sanitizer counts only from a `for ... in` list written on the
 # line that opens the loop. A test of `$v` made before v holds the sanitizer
-# path (inside a check function defined above the assignment, say) guards
-# nothing; test the path where it is sourced. A variable reused for another
-# library and later for the sanitizer needs its earlier sources tested too.
-# Presence, not position, is checked for the variable form: a use
-# written above the assignment still counts.
+# path guards no top-level source of it; test the path where it is sourced. A
+# source of `$v` inside a function defined before v is assigned is judged by
+# spelling instead: any earlier `-r "$v"` clears it, whatever v held then,
+# since a lexical scan cannot tell which value the call will see. A variable
+# reused for another library and later for the sanitizer needs its earlier
+# sources tested too. Presence, not position, is checked for the variable
+# form: a use written above the assignment still counts.
 #
 # Scope is every shell file under scripts/, tests/, and githooks/, reached
 # either by shebang or by an .sh suffix. Neither test alone is enough: the
