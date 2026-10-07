@@ -310,8 +310,9 @@ esac
 
 # A seam copied without the mapper beside it is a broken install, refused
 # with exit 2 like the dispatchers' other missing helpers. A bare `.` of a
-# missing file would end the shell with exit 1 instead, which the fetch's
-# contract does not have and which headless status reads as "running".
+# missing file would end the shell with a status of the shell's choosing
+# instead (1 under bash's sh, which the fetch's contract does not have and
+# which headless status reads as "running").
 mkdir -p "$tmp/broken"
 for b in dispatch-fetch fleet-dispatch-worktree fleet-dispatch-headless; do
   cp "$S/$b.sh" "$S/echo-safety.sh" "$tmp/broken/" || fail "could not stage $b without the mapper"
