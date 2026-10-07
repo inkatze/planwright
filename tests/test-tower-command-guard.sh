@@ -353,6 +353,13 @@ assert_defer "mktemp -p picks the directory" "mktemp -p /home/u"
 assert_defer "mktemp -t picks the prefix" "mktemp -t x"
 assert_defer "mktemp -u only names a path" "mktemp -u"
 assert_defer "mktemp writing through a redirect" "mktemp > out.txt"
+# A while or until loop has no pass cap, so mktemp inside one would create
+# files without bound; a for loop's passes are capped.
+assert_defer "mktemp in a while loop" "while true; do mktemp; done"
+assert_defer "mktemp in an until loop" "until false; do mktemp; done"
+assert_defer "mktemp backgrounded in a while loop" "while true; do mktemp & done"
+assert_defer "mktemp as a while loop's condition" "while mktemp; do true; done"
+assert_allow "mktemp before a while loop" "mktemp && while false; do true; done"
 assert_defer "recursive removal" "rm -rf $TOWER_TMP/tmp.dir0123456"
 assert_defer "recursive removal, split flags" "rm -r -f $TOWER_TMP/tmp.dir0123456"
 assert_defer "directory removal" "rm -d $TOWER_TMP/tmp.dir0123456"

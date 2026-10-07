@@ -50,7 +50,8 @@ static `allow` entry is added.
 - **Bare `mktemp`.** It creates one fresh, empty file in the system temp
   directory: `TMPDIR` for GNU mktemp, and on macOS the per-user temp
   directory, whatever `TMPDIR` says. A template, `-p`, `-t`, `-d`, and
-  `-u` all defer.
+  `-u` all defer, and so does mktemp once a `while` or `until` loop has
+  opened in the command, since those loops have no pass cap.
 - **`rm` of mktemp-named temp files.** Every operand must be an absolute path
   with no `.` or `..` component, whose name has mktemp's default shape (`tmp.`
   and at least six letters or digits), whose directory resolves physically to

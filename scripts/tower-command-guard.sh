@@ -1346,9 +1346,11 @@ guard_jq() {
 # system temp directory (TMPDIR, or on macOS the per-user temp directory) and
 # prints its name. A template, -p/--tmpdir or -t chooses where the file goes;
 # -d makes a directory guard_rm will not remove; -u only names a path, which is
-# the race mktemp exists to avoid.
+# the race mktemp exists to avoid. Once a while or until loop has opened in the
+# command (verify_tokens' in_unbounded_loop) it defers: those loops have no
+# pass cap, so mktemp there would create files without bound.
 guard_mktemp() {
-  [ "$cwn" -eq 1 ]
+  [ "$cwn" -eq 1 ] && [ "${in_unbounded_loop:-0}" = 0 ]
 }
 
 # canon_temp_dir <dir>: the physical path of an absolute <dir> on one line, or
@@ -1977,7 +1979,7 @@ verify_tokens() {
   local depth=$1
   local idx=0 typ val
   local mode=normal # normal | casehead | casepat | casebody
-  local case_depth=0 ctl_depth=0
+  local case_depth=0 ctl_depth=0 in_unbounded_loop=0
   local -a cw=() cx=() cdyn=() cglob=() ro=() rt=()
   local cwn=0 rn=0
   # The open `for` loops, innermost last (see the worker guard's walker).
@@ -2075,6 +2077,7 @@ verify_tokens() {
         while | until | if)
           fin || return 1
           ctl_depth=$((ctl_depth + 1))
+          [ "$val" = if ] || in_unbounded_loop=1
           ;;
         then | elif | else | do)
           fin || return 1 # boundary; regions on both sides are commands
