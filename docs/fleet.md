@@ -683,7 +683,9 @@ stream-json worker's stdio: `launch` starts a worker with the pinned
 non-`--bare` stream-json shape and passes the prompt as data on stdin
 (never interpolated into a shell command line); every `can_use_tool` or
 AskUserQuestion control_request becomes a decision-queue item in the
-attention store plus a durable journal receipt, with a scan-based
+attention store plus a durable journal receipt (a receipt that meets a busy
+journal lock is spooled beside the journal and journaled once the lock frees,
+by the next request or the supervisor's next tick), with a scan-based
 pending-age alarm that escalates overdue items — it never auto-answers and
 never kills a worker. The supervisor runs that scan itself for its own
 worker on a cadence (`PLANWRIGHT_STREAMJSON_ALARM_TICK`, default 60s), so a
@@ -696,7 +698,8 @@ crashed worker's session via `--resume`; `status` surfaces completion and
 liveness from the supervisor, the journal and the captured event stream — a
 live worker with a pending receipt reports `awaiting-input pending=<n>
 oldest=<age>s supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending
-row carries a readable epoch), never a healthy-looking `running`.
+row carries a readable epoch; a spooled receipt counts as pending), never a
+healthy-looking `running`.
 
 `pending [<worker>...]` shows what those pending receipts are asking, so a
 tower can bring the operator the actual decision rather than a count. For each
@@ -752,19 +755,20 @@ diverge between the two; the hook's remaining arms (`PLANWRIGHT_ROOT`,
 `CLAUDE_PLUGIN_ROOT`, `<claude-dir>/planwright`, its own location) are trusted
 without a proof of their own.
 
-`stop <worker> [--grace <secs>]` is the close: it terminates the supervisor
-and its children (SIGTERM, then SIGKILL after the grace, since children do not
+`stop <worker> [--grace <secs>]` is the close: it terminates the supervisor and
+its children (SIGTERM, then SIGKILL after the grace, since children do not
 reliably die with a parent SIGTERM) and releases the locks, scratch temp, and
 attention record the worker held. `--grace` takes a whole number of seconds
 within the bounds the script declares; run `stop` with an out-of-range value to
 have it name them. The event capture, the persisted session, and the receipt
 journal survive a stop: they are the durable record, not runtime. The journal
 survives as a file but not untouched — the close marks its still-`pending`
-receipts `undeliverable`, because a close makes them undeliverable by
-definition and a receipt left pending is what `alarm-scan` re-queues a decision
-item from. A stop never touches the worktree, the branch, or the unit's fence:
-the release set is exactly the reproducible resources, and worktree reclamation
-stays with `fleet-cleanup.sh worktree` and its positive-evidence checks.
+receipts `undeliverable` and discards any spooled receipt, because a close
+makes them undeliverable by definition and a receipt left pending is what
+`alarm-scan` re-queues a decision item from. A stop never touches the worktree,
+the branch, or the unit's fence: the release set is exactly the reproducible
+resources, and worktree reclamation stays with `fleet-cleanup.sh worktree` and
+its positive-evidence checks.
 
 Processes are matched on the worker's state directory and on the pids that
 directory records, never on a process name or command pattern — the guarantee
@@ -1686,7 +1690,9 @@ The knobs are read from the `--repo` checkout's overlay layers wherever the
 sweep is started. The wait between cycles is never under one second.
 
 Each cycle runs seven passes: the worktree disk scan, so a worktree nothing
-recorded is tracked; the dirty-tree pass; the `tasks.md` reconcile backstop;
+recorded is tracked; the dirty-tree pass; the `tasks.md` reconcile backstop,
+which first clears a per-spec lock whose recorded holder is provably gone
+(`orchestrate-lock.sh sweep`, audited as `reconcile lock-sweep`);
 the process reap; the registry reconcile, which heals and retires dispatch
 records from their markers (see *The dispatch record*) and, terminating
 nothing, runs in both modes; the flight residues, which retire a gone

@@ -1827,7 +1827,7 @@ senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_READ_FIRST=2 SHIM_WAIT_RESPONSE=1 \
 launch38=$!
 wdir38="$home/streamjson/sjw38"
 wait_until 100 test -s "$wdir38/supervisor.pid" || fail "c38a: the supervisor never came up"
-sleep 120 &
+sleep 120 >/dev/null 2>&1 &
 fl_holder=$!
 ln -s "$fl_holder-$(date +%s)-1" "$home/.fleet.lock" || fail "c38: cannot plant the fleet lock"
 printf 'go on\n' >"$tmp/steer38"
@@ -1852,20 +1852,30 @@ echo "ok: c38 a receipt is journaled with the journal lock free of the attention
 home="$tmp/h38b"
 mkdir -p "$home/streamjson/sjw38b"
 wdir38b="$home/streamjson/sjw38b"
-sleep 120 &
+sleep 120 >/dev/null 2>&1 &
 jl_holder=$!
 plant_lock "$wdir38b/journal.lock" "$jl_holder"
 senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_RESULT_LINE="$line_result" -- \
   launch sjw38b execution-backends:4 --prompt-file "$tmp/prompt38" --foreground &
 launch38b=$!
-# Long enough for the supervisor's own wait on the journal lock to run out.
-sleep 7
+# The supervisor waits out its journal-lock budget, then spools the receipt.
+# Asserting the spool is what makes this leg exercise the deferral at all; the
+# holder is released only after it, so what journals the receipt is the tick's
+# drain, not the supervisor's own wait.
+wait_until 300 test -f "$wdir38b/deferred-$req_perm" \
+  || fail "c38b: a receipt the journal lock refused was not spooled"
 grep -q "^$req_perm$tab" "$wdir38b/journal" 2>/dev/null \
   && fail "c38b: the receipt was journaled through a lock a live process holds"
+out=$(senv "$home" "$rec" -- status sjw38b) || fail "c38b: status exited non-zero"
+case $out in
+  "status sjw38b awaiting-input pending=1 "*) : ;;
+  *) fail "c38b: a spooled receipt must read as awaiting input, got: $out" ;;
+esac
 kill "$jl_holder" 2>/dev/null || :
 wait "$jl_holder" 2>/dev/null || :
 wait_until 150 grep -q "^$req_perm$tab.*${tab}pending" "$wdir38b/journal" \
   || fail "c38b: a receipt the journal lock refused was lost instead of journaled once the lock freed"
+[ ! -e "$wdir38b/deferred-$req_perm" ] || fail "c38b: the spool outlived the journaled receipt"
 senv "$home" "$rec" -- answer sjw38b "$req_perm" --allow >/dev/null \
   || fail "c38b: the deferred receipt is not answerable"
 wait "$launch38b" || fail "c38b: the run did not end cleanly after the answer"
