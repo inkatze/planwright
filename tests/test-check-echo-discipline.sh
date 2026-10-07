@@ -742,6 +742,17 @@ assert_contains "a loop over other names lends no test to the sanitizer" "$out" 
 assert_contains "a source continued onto the next line is caught" "$out" "scripts/continued.sh:4"
 assert_contains "the source finding says what guards it" "$out" "readable"
 
+# A read error while selecting the bash files is not "no match": a grep that
+# fails must stop the scan, never drop the file from it.
+mkdir -p "$tmp/grepfail-bin" || exit 1
+printf '%s\n' '#!/bin/sh' 'exit 2' >"$tmp/grepfail-bin/grep"
+chmod +x "$tmp/grepfail-bin/grep"
+make_root "$tmp/grepfail"
+filler "$tmp/grepfail"
+write_file "$tmp/grepfail/scripts/bash-bare.sh" '#!/bin/bash' 'source "$here/echo-safety.sh"'
+PATH="$tmp/grepfail-bin:$PATH" /bin/bash "$CHECKER" "$tmp/grepfail" >/dev/null 2>&1
+assert "a grep read error while selecting bash files fails closed" 2 $?
+
 make_root "$tmp/srcok"
 filler "$tmp/srcok"
 write_script "$tmp/srcok/scripts/if-r.sh" \

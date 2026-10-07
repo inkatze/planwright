@@ -328,7 +328,14 @@ while IFS= read -r -d '' file; do
       # directly or in the assignment a sourced variable carries, so a bash
       # file that never mentions it is exact to skip, and tokenizing all of
       # them would quadruple the guard's cost for no finding.
-      grep -qF 'echo-safety.sh' "$file" 2>/dev/null || continue
+      # grep's 2 is a read error, not "no match": skipping on it would report
+      # clean over a file the scan never read.
+      grep -qF 'echo-safety.sh' "$file" 2>/dev/null
+      case $? in
+        0) ;;
+        1) continue ;;
+        *) fail_closed "cannot read $(sanitize_printable "$rel" "(unprintable filename)") — the scan would cover less than it claims" ;;
+      esac
       printf 'b%s\n' "$file" >>"$work/list"
       ;;
     *)
