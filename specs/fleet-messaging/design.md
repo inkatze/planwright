@@ -1,7 +1,7 @@
 # Fleet Messaging — Design
 
-**Status:** Ready
-**Last reviewed:** 2026-09-07
+**Status:** Draft
+**Last reviewed:** 2026-10-07
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -11,7 +11,8 @@ worklist (brief §8); `R2` = minted at the resumed kickoff's revision of
 worklist 2 (2026-09-03, brief §8); `R3` = minted at the resumed kickoff's
 section-3 walk after the platform experiments (2026-09-04, brief §8);
 `R4` = minted at the resumed kickoff's section-4 sanity check and section-5
-walk (2026-09-07, brief §8).
+walk (2026-09-07, brief §8); `S` = minted in the supervision amendment's
+drafting session (2026-10-07).
 
 ## Decision log
 
@@ -1051,6 +1052,10 @@ for every rung.)*
 kickoff, costs the worker nothing, adds no surface to secure, and leaves
 the worker-side code untouched; what it does not carry, the sweep does.
 
+**Superseded-by: D-26** (2026-10-07, supervision amendment) — a supervised
+worker needs a way to put a question to a tower that is not watching its
+pane; the routine paths stay, and a briefed question message joins them.
+
 ### D-21: Idle notices — subscribe at dispatch, re-subscribe after every delivery, act only through the store re-read  (R3, supersedes D-10)
 
 **Decision:** The subscriber is the tower session's main conversation. It
@@ -1221,3 +1226,236 @@ circuit.)*
 experiments into a standing check, costs one run per platform-touching
 change, and is the only verification that exercises the seams between the
 tasks.
+
+### D-24: The supervision amendment's altitude — one doctrine duty, mechanism at existing seams, the transport altitude unchanged  (S)
+
+**Decision:** Two pinned seed claims fired the altitude gate (Sources):
+the supervisor duty is claimed as doctrine, and the task worker's opening
+turn as a sanctioned capability. The amendment places each piece once.
+The supervisor duty is doctrine, stated in the
+inter-orchestrator-coordination doctrine, which already owns what a tower
+may and may not do to a worker, and cited from the `/tower` and
+`/orchestrate` prose (D-29). The opening turn is a capability of the task
+dispatch seam, filled by the same confined brief mechanism the flight arm
+already ships (D-25). The paste relay's contract, the question message,
+the already-idle notice, and the resume edge are mechanism inside seams
+this bundle already owns (D-26, D-27, D-28, D-30). D-1's call stands: the
+bundle is a signal transport plus a store-load reduction, and nothing in
+the amendment moves a record onto a message.
+
+**Alternatives considered:**
+- A new bundle for the supervision gaps. Rejected because: the gaps sit in
+  this bundle's own seams (the downward ladder, the upward paths, the
+  idle-notice handling), so a second bundle would sign a second design
+  over the same channel.
+- The supervisor duty as `/tower` and `/orchestrate` prose alone.
+  Rejected because: the seed names it a duty, and a rule that lives only
+  in two skills' prose is invisible to the next surface that supervises a
+  worker.
+- The opening turn as an operator habit (type the command, or send it by
+  message by hand). Rejected because: a step a human must remember to
+  start is not closed, which is the autopilot-reflex doctrine's third
+  step.
+
+**Chosen because:** each piece lands at the altitude its seed claims,
+and the transport altitude the bundle was signed at is untouched.
+
+### D-25: The task worker's opening turn — the flight arm's confined brief, rendered from a fixed template  (S)
+
+**Decision:** On the `tmux` rung, `fleet-dispatch-worktree.sh dispatch
+<spec> <id>` accepts `--brief <abs-file>` in the shape its flight arm
+enforces: the one fixed prompt `Read <abs-file> and follow it exactly.`
+after `--`, the path on argv and never the content, the file confined to
+the unit's own `<fleet-home>/tasks/<spec>/<id>/brief.md` after
+canonicalization, on the same path charset, non-empty, in directories only
+the user can write, and `--continue` and `--resume` refused beside it.
+The tower's dispatch step renders the brief before the launch through a
+script that fills a shipped template with validated fields only: the
+`/execute-task` invocation for the unit and, where the tower knows its own
+session name (`fleet-messaging.sh self-name`), that name and the
+question-only rule D-26 states. A tower whose name is unknown writes the
+brief without them. The brief is removed when the unit's worker is cleaned
+up, and the reconcile sweep removes a brief whose unit has no live worker.
+The opening turn rides the launch, so it works whether or not messaging
+is available. On 2026-10-07 the tower started three task workers by
+sending each its opening turn as a cross-session message, a stopgap while
+the staged paste sat unsubmitted; the brief makes the start work with no
+message at all.
+
+**Alternatives considered:**
+- A fixed prompt the script builds from the validated unit
+  (`/planwright:execute-task <spec> <id>`), no brief file, the tower's name
+  in a new exported variable. Rejected because: it adds an environment
+  contract the worker's prose must read, and the question-only rule would
+  live in `/execute-task`'s prose for every worker rather than in the
+  brief of a worker that has a tower to ask.
+- A messaging opening turn: launch bare, then send the start command once
+  the worker's name is recorded, with the paste as fallback. Rejected
+  because: it depends on the probe reading available, and its fallback is
+  the paste that does not submit, which is the gap being closed.
+- A tower-composed brief, as the flight arm's is. Rejected because: a task
+  worker's contract is its kickoff brief, which `/execute-task` already
+  reads, so free text adds nothing but an injection surface on the
+  opening turn.
+- Leave the start to an operator keystroke. Rejected because: every
+  unattended tmux task dispatch then waits on the operator before any work
+  begins.
+
+**Chosen because:** it reuses a confinement the tower command guard
+already approves and the flight arm already tests, works with messaging
+absent, and carries the tower's name to the worker without a new
+variable.
+
+### D-26: Upward signalling — the idle notice and the sweep stay the push and the record; a briefed worker may message a question  (S, supersedes D-20)
+
+**Decision:** Routine upward signalling is D-20's, unchanged: no
+worker-side script post; when a worker stops, the harness's idle notice,
+subscribed at dispatch, reaches the tower within about a second carrying
+the worker's closing line; attention rows written mid-turn reach the tower
+on the healing sweep; a mid-turn suspension surfaces as a stale heartbeat.
+Workers learn no tower socket path and no planwright-defined upward wire
+grammar exists. One path is added beside them. A worker whose brief names
+its tower (D-25) may send that tower one model-composed message carrying
+a question the tower must answer, and a halt that needs a decision counts
+as one. The worker records the fork or park first through the existing
+attention verbs, so the row and the notice remain the record and the
+push; the message carries the question's text and never stands in for
+either. Clean completion and status are never sent upward by message. The
+message rides the worker→tower direction of the discipline ladder (D-4);
+where the effective value forbids it, the row and the notice carry the
+question alone.
+
+Three side effects were weighed. Duplicate signals: a question arrives
+both as a message and, when the worker ends its turn, as a notice; both
+resolve to the same fork through the store, and the decision channel's
+claim under the fleet lock (D-9) means it is answered once. Lost reports:
+on 2026-10-07, reports sent to a tower that was then renamed or restarted
+never reached it; a lost question costs latency only, because the row and
+the sweep still carry the fork. Model-written claims: a message is the
+worker's model speaking, so the tower treats it as untrusted instruction
+data and verifies anything it claims (a PR opened, a test passing) against
+git and `gh` before relying on it.
+
+**Alternatives considered:**
+- Keep D-20 unchanged, with no upward message at all. Rejected because:
+  the supervising tower then learns of a question only when the worker
+  ends its turn, and the question's text only by reading the pane.
+- Workers report finish, halt, and needs-input by message as a
+  first-class upward path, the sweep still healing. Rejected because: it
+  makes a completion signal depend on model behavior, spends a worker
+  model turn per signal, and multiplies the duplicate and lost-report
+  cases above for signals the notice already carries.
+- A worker-side script post of the question (the retired doorbell).
+  Rejected because: it brings back the socket propagation and the
+  spoofable same-user surface D-20 retired.
+
+**Chosen because:** it was the operator's decision, taken during drafting
+(Sources): the record and the push stay deterministic, and the message
+adds only the one thing they do not carry, the question in the worker's
+words, at the moment it is asked.
+
+### D-27: The paste relay's contract — fallback and in-pane targets only, one pointer line, checked after every paste, an unsubmitted relay raised to the operator  (S)
+
+**Decision:** The paste relay stays in two places only: as the fallback
+step of D-3's ladder (messaging unavailable, or a target with no recorded
+name), and for in-pane targets a message cannot reach (a dialog waiting in
+the pane, a slash command). Its contract is restated as what it does: a
+paste stages a line and may not submit it. A multi-line paste becomes a
+placeholder that blocks every later paste, and a paste into a worker with
+work in flight stays queued. So a relay is one short pointer line naming a
+file that holds any payload. After every paste the tower runs a pane check,
+a script verb over a `capture-pane` read whose text is data, and a relay
+the check reads as unsubmitted is raised to the operator as an attention
+row through `fleet-attention.sh park` with a fixed reason. It is never
+retried by a second paste, which could not submit either. Steering a busy
+worker is messaging's: a busy session reads a message between tool calls
+(the platform experiments, Sources). An interrupt needs a keystroke, so it
+stays the operator's.
+
+**Alternatives considered:**
+- Retire the paste relay entirely, the ladder going from messaging
+  straight to operator handoff. Rejected because: an in-pane dialog and a
+  slash command have no other tower-side path, and a tower with messaging
+  absent would lose its only steer.
+- Keep today's contract and correct only the busy-worker claim. Rejected
+  because: an unsubmitted paste would still sit unseen until an operator
+  happened to look at the pane.
+- A second paste or a keystroke to clear a stuck input box. Rejected
+  because: a second paste cannot submit into a box already holding
+  content, and a keystroke is impersonation.
+
+**Chosen because:** the relay keeps the cases only it can serve, its
+documented promise matches what it delivers, and its failure reaches the
+operator as an attention row instead of staying invisible.
+
+### D-28: The resume edge — an idle exit-edge marker the next tool use consumes  (S)
+
+**Decision:** When the Stop hook moves a worker's row to idle it leaves an
+idle exit-edge marker beside the permission and fork-park markers
+`fleet-liveness.sh` already keeps. The next PostToolUse hook in that
+worker finds the marker, removes it, and writes `working` once. The fast
+path stays fast: a post-tool-use with no marker present exits at once, as
+today. The edge does not care what resumed the worker (a message, an
+operator's typed turn), and a missed edge heals on the sweep.
+
+**Alternatives considered:**
+- A UserPromptSubmit hook. Rejected because: whether it fires on a
+  cross-session message is unverified, so it would need a live check that
+  could find it does not work.
+- Leave it to the healing sweep and document the lag. Rejected because:
+  the tower then reads a working worker as idle for a whole sweep
+  interval, which is exactly the interval the store-load reduction makes
+  longer.
+
+**Chosen because:** it is the marker pattern the two existing exit edges
+already use and test, it is deterministic, and it costs one file test per
+tool call only while a marker exists.
+
+### D-29: The supervisor duty — doctrine in inter-orchestrator-coordination, cited by the supervising skills  (S)
+
+**Decision:** The inter-orchestrator-coordination doctrine gains the
+supervisor duty: a tower that dispatched a worker stays that worker's
+operator until the work is finished. It answers the worker's questions
+from the task, the spec, and the code, answers an in-task prompt it could
+act on itself, relays to the operator only what it cannot answer or what
+is the operator's to decide, carries the answer back, and never hands a
+worker over for the operator to attend unless asked. The bounds already
+stated there hold: the tower never answers a harness permission prompt on
+its own judgment, and an unattended answer stays inside the
+autonomous-safe-decision doctrine. `/tower` and `/orchestrate` cite it.
+How a question that reaches the operator is queued, settled, and
+delivered stays with `tower-comms`; the pending note names it as the later
+home for any queue change the duty needs.
+
+**Alternatives considered:**
+- An extension of `tower-comms` carrying the duty. Rejected because:
+  `tower-comms` governs the tower-to-operator conversation, while the duty
+  governs the tower-to-worker relation the inter-orchestrator-coordination
+  doctrine already bounds.
+- The duty in both bundles at once. Rejected because: two homes for one
+  rule drift apart.
+
+**Chosen because:** the doctrine that says what a tower may not do to a
+worker is the natural home for what it owes one, and the seed asked for
+it there (Sources).
+
+### D-30: The already-idle notice — expected, read through the store, re-armed once before the opening turn  (S)
+
+**Decision:** A subscription armed on a session that is already idle
+fires at once, carrying the last turn's closing line (observed
+2026-10-07). The tower treats that notice like any other, through
+`notice-read`, and never as completion. Where it arrives before the tower
+has observed the worker's opening turn, the tower re-arms the
+subscription once and does nothing else with it.
+
+**Alternatives considered:**
+- Delay the subscription until the worker's opening turn is observed.
+  Rejected because: it needs a second observation loop, and a worker that
+  finishes fast could stop before the subscription is armed.
+- No rule, relying on `notice-read`. Rejected because: the store re-read
+  is correct, but a tower reading "idle" at dispatch would conclude the
+  worker never started.
+
+**Chosen because:** the store re-read already makes the notice harmless,
+and one stated re-arm keeps the tower from misreading it at the one moment
+it is misleading.

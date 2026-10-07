@@ -1,7 +1,7 @@
 # Fleet Messaging — Test Spec
 
-**Status:** Ready
-**Last reviewed:** 2026-09-07
+**Status:** Draft
+**Last reviewed:** 2026-10-07
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -454,6 +454,37 @@ worker's input. That a delivered message cannot approve a permission
 prompt is a platform guarantee (Sources), reviewed design-level, not a
 repo behavior under test.
 
+### REQ-C1.6 — the task worker's launch-time brief [test + manual]
+
+Shell tests in Task 4.5: a `tmux` task dispatch with a valid
+`--brief` hands exactly `Read <abs-file> and follow it exactly.` after
+`--`, asserted on the `--attach-dry-run` launch plan, with the path and
+never the content on argv; each confinement failure (a path outside the
+unit's own `<fleet-home>/tasks/<spec>/<id>/`, a symlinked or
+group-writable directory, an empty file, an off-charset path, another
+unit's brief) and `--continue` or `--resume` beside `--brief` is refused
+with nothing launched; the renderer's output with and without a tower name
+matches its committed fixtures, the named form carrying the tower's name
+and the question-only rule and the unnamed form carrying neither; the
+dispatch path passes `--brief` on every task dispatch. Manual, recorded in
+Task 4.5's PR: one unattended `tmux` task dispatch starts `/execute-task`
+with no message and no keystroke, with the probe reading absent or
+present.
+
+### REQ-C1.7 — the paste relay's restated contract [test + manual + design-level]
+
+Shell tests in Task 5.5 over captured-pane fixtures: a submitted relay
+reads submitted; a staged pointer line and a collapsed paste placeholder
+each read unsubmitted and write a `park` row with the fixed reason; an
+unclassifiable capture reads unknown and writes nothing; a further
+`relay-command tmux` to a worker carrying that reason is refused and
+emits no paste; the source audit finds no `send-keys` path. Design-level,
+recorded in Task 1.5's PR: the inter-orchestrator-coordination doctrine
+states the contract (fallback and in-pane targets only, may not submit,
+one pointer line, the pane check, the operator's interrupt). Manual,
+recorded in Task 5.5's PR: a multi-line relay to an idle `tmux` worker
+reads unsubmitted and appears in the operator's attention view.
+
 ## REQ-D — Upward signals
 
 ### REQ-D1.4 — missed notices healed by the sweep [test]
@@ -470,7 +501,19 @@ REQ-E1.2). `fleet-dashboard.sh` renders a projection and heals nothing, so
 it carries no arm here, and its refresh keeps today's interval as an
 operator-facing cadence (REQ-E1.1).
 
-### REQ-D1.6 — upward push is the idle notice [test + manual]
+### REQ-D1.9 — upward push is the idle notice; a briefed question beside it [test + manual + design-level]
+
+The entry below carries over from REQ-D1.6, which REQ-D1.9 supersedes;
+its audit still holds, the question message being model-composed and
+carried by no file matching `scripts/*.sh`. The question message adds:
+design-level review, recorded in Task 1.5's PR, that the messaging-transport
+doctrine names the message as the one model-composed upward path, recorded
+first as a fork or park and never a completion or status signal; the brief
+template fixtures of REQ-C1.6 carrying the question-only rule; and Task
+8.5's live two-session check (a worker records a fork, messages its
+question, and the tower answers it once through the decision channel), the
+duplicate case covered by REQ-C1.2's claim test (a second answer to a
+claimed fork is refused).
 
 Test: a source audit against Task 6's base commit, which already carries
 Task 2's `render --worker` arity and doctrine header — `fleet-attention.sh`
@@ -618,6 +661,24 @@ coverage is evaluated when the gate resolves. The relaunch subscribe-pass
 arm and Task 6's ungated half (REQ-D1.7's subscribe steps, the sanction,
 the start-of-tower pass) carry no such wait.
 
+### REQ-D1.10 — the already-idle notice [design-level + manual]
+
+Design-level, recorded in Task 8.5's PR: the `/orchestrate` prose reads
+every notice through `notice-read`, never as completion, and re-arms the
+subscription once when the notice arrives before the worker's opening turn
+is observed (fixture grep for the re-arm rule). Manual, folded into Task
+8.5's live two-session check: a subscription armed on an idle worker fires
+at once, and the tower re-arms and takes no other action.
+
+### REQ-D1.11 — the resume edge [test]
+
+Shell tests in Task 6.5: a stop that writes idle leaves the idle
+exit-edge marker; the next post-tool-use writes `working` and removes it,
+and a second writes nothing; a stop preserving a live fork-park leaves no
+idle marker; with no marker present post-tool-use touches nothing; a
+failed marker write warns and exits 0; worker cleanup removes a leftover
+marker.
+
 ## REQ-E — Store-load reduction
 
 ### REQ-E1.1 — cadence demotion where push is live [test]
@@ -728,14 +789,19 @@ naming it the switch value rather than applying a direction or pressure
 offset to it — those offsets are asserted over the three ladder values
 alone (REQ-F1.3, REQ-F1.4).
 
-### REQ-F1.3 — three directions [test]
+### REQ-F1.7 — three directions [test + design-level]
 
+Carried over from REQ-F1.3, which REQ-F1.7 supersedes.
 `effective-mode --direction <worker-to-tower | tower-to-worker |
 tower-to-tower>` tests: `worker-to-tower` resolves at the knob value,
 `tower-to-worker` one value stricter saturating at `script` (`script`
 resolves `script` in every direction), and `tower-to-tower` advisory at
 the knob value, for each of the three knob values; a missing or unknown
-`--direction` is refused with a diagnostic.
+`--direction` is refused with a diagnostic. Design-level, recorded in Task
+8.5's PR: the brief template's question-only rule tells the worker to
+consult `effective-mode --direction worker-to-tower` before sending and to
+send only where the value it returns permits a model-composed message
+under Task 8's composition rule, nothing when it refuses.
 
 ### REQ-F1.4 — send-time pressure demotion [test]
 
@@ -883,6 +949,25 @@ the amended doc. Design-level: review that the amended text no longer pins
 buffer-paste as the mechanism of record and contradicts nothing in this
 bundle.
 
+### REQ-G1.8 — the question row and the relay's doctrine contract [test + design-level]
+
+Literal-token greps in Task 1.5: the messaging-transport doctrine's
+fallback table has a row for the worker→tower question message and states
+that the opening turn is not a messaging path; the
+inter-orchestrator-coordination doctrine carries "may not submit" in its
+relay text and no sentence claiming the paste serves a busy worker.
+Design-level review of both doctrines against REQ-C1.7 and REQ-D1.9,
+recorded in Task 1.5's PR.
+
+### REQ-G1.9 — the supervisor duty [test + design-level]
+
+Literal-token greps: Task 1.5 finds the supervisor-duty heading in the
+inter-orchestrator-coordination doctrine with "permission prompt" and
+"autonomous-safe-decision" inside its section; Task 8.5 finds the duty's
+citation in `skills/tower/SKILL.md` and `skills/orchestrate/SKILL.md`.
+Design-level review, recorded in Task 1.5's PR, that the section states
+each part of the duty REQ-G1.9 names and both bounds.
+
 ## REQ-H — Security & hygiene
 
 ### REQ-H1.4 — inbound content untrusted [test + manual]
@@ -946,3 +1031,13 @@ without `PLANWRIGHT_TEST_SEAM=1` exits non-zero with a diagnostic naming
 the seam and the guard, and the same invocation with it set is honored
 (the supplied version, uid, socket type, or post override is observed in
 the result).
+
+### REQ-H1.6 — the brief rendered from validated fields, private, and removed [test]
+
+Shell tests in Task 4.5: the renderer refuses a spec identifier, task id,
+or tower name failing its grammar and writes nothing; its output matches
+the committed fixtures, so no free text enters the brief; the written
+file is owner-only and lands by rename, never by a truncating redirect
+(a symlink planted at the target is replaced, not followed); worker
+cleanup removes the brief, and the reconcile sweep removes a brief whose
+unit has no live worker and keeps a live unit's brief.
