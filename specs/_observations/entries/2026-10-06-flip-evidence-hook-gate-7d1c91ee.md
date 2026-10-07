@@ -1,0 +1,1 @@
+- 2026-10-06 [planwright] custom-steps Deferred "flip-evidence hook" gates on an in-repo unit-PR flip skill that runs steps_pre_ready_flip and posts the status; scripts/ready-flip.sh (/execute-task unit-owner flip, human-gates #557) may already satisfy it, so the next /drain should evaluate whether the hook is now un-gated (found at the custom-steps delta kickoff, 2026-10-06).
