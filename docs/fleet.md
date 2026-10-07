@@ -697,8 +697,8 @@ liveness from the supervisor, the journal and the captured event stream — a
 live worker with a pending receipt reports `awaiting-input pending=<n>
 oldest=<age>s supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending
 row carries a readable epoch), never a healthy-looking `running`. A worker
-records a `result` at the end of every turn and stays up for the next, so that
-verdict outranks an earlier turn's `completed`, and the stuck detector likewise
+records a `result` at the end of every turn and stays up for the next, so
+`awaiting-input` outranks an earlier turn's `completed`, and the stuck detector likewise
 keeps such a worker `waiting-on-a-human` rather than finished.
 
 `pending [<worker>...]` shows what those pending receipts are asking, so a
