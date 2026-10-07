@@ -471,11 +471,18 @@ run_dir 2 "$specs/does-not-exist"
 isolate="$tmp/isolated"
 mkdir -p "$isolate"
 cp "$script" "$isolate/spec-assemble.sh"
+# The sanitizer comes along so the refusal under test is the missing view, not
+# the missing helper the script checks first.
+cp "$(dirname "$script")/echo-safety.sh" "$isolate/echo-safety.sh"
 chmod +x "$isolate/spec-assemble.sh"
 rc=0
 iout=$("$isolate/spec-assemble.sh" "$specs/demo" 2>&1) || rc=$?
 [ "$rc" -eq 2 ] \
   || fail "missing sibling views: expected exit 2, got $rc — output: $iout"
+case $iout in
+  *"cannot find an executable spec-"*) ;;
+  *) fail "missing sibling views: the refusal does not name the missing view — output: $iout" ;;
+esac
 # Partial bundle: only requirements.md present (the upstream model degrades,
 # marking the absent files and emitting what is present). The assembler must
 # still emit one well-formed HTML document, exit 0.
