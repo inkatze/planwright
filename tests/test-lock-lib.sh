@@ -2278,9 +2278,10 @@ fi
 # pid absent from /proc: an EPERM still reads alive, and a message whose path
 # names permission but whose tail says no such process still reads dead.
 hidden_table_probe() {
-  run_sh x "ps() { return 1; }
-    kill() { printf '%s\n' \"$perm_dir/probe.sh: 2: kill: $1\" >&2; return 1; }
-    pw_lock_owner_alive \"$gone-0-1\"" >/dev/null 2>&1
+  PW_T_MSG="$perm_dir/probe.sh: 2: kill: $1" PW_T_PID="$gone" run_sh x '
+    ps() { return 1; }
+    kill() { printf "%s\n" "$PW_T_MSG" >&2; return 1; }
+    pw_lock_owner_alive "$PW_T_PID-0-1"' >/dev/null 2>&1
 }
 hidden_table_probe "Operation not permitted"
 assert_exit "a hidden process answering EPERM reads alive" 0 $?
