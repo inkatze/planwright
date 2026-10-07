@@ -806,7 +806,9 @@ spec_parse_latest_anchor_entry() {
       # Two Class or Lens-pass lines in one entry leave its class undecidable,
       # and so does a fence left open, which flips every later label.
       if (rec && (best_dup || in_fence)) { exit 2 }
-      if (rec) printf "%s\t%s\t%s\t%s\n", best_hash, best_cmd, best_class, best_lens
+      # A tab inside the recorded command would shift the label fields that
+      # follow it; folded, the command no longer matches a sanctioned form.
+      if (rec) { gsub(/\t/, " ", best_cmd); printf "%s\t%s\t%s\t%s\n", best_hash, best_cmd, best_class, best_lens }
       else printf "%s\t%s\n", best_hash, best_cmd
     }
   ' "$1"

@@ -1575,6 +1575,12 @@ eq "record mode folds a tab in a label value" \
   "$(spec_parse_latest_anchor_entry "$tmp/b-tab.md" --record)"
 
 # shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Class: meaning\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x\texpression-only`\n' "$h1" >"$tmp/b-cmdtab.md"
+eq "record mode folds a tab in the command so it cannot shift the labels" \
+  "$h1	scripts/spec-anchor.sh specs/x expression-only	meaning	" \
+  "$(spec_parse_latest_anchor_entry "$tmp/b-cmdtab.md" --record)"
+
+# shellcheck disable=SC2016 # literal backticks: the record format
 printf 'Class: meaning\n```\nClass: expression-only\nLens-pass: example\n```\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$h1" >"$tmp/b-fence.md"
 eq "record mode ignores labels inside a fence" \
   "$h1	scripts/spec-anchor.sh specs/x	meaning	" \

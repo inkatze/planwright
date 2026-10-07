@@ -16,6 +16,7 @@
 #     created and the lock released;
 #   - a failed launch clears the marker (exit 6), except where the rung may
 #     hold a worker for the unit, which keeps it;
+#   - a signal during the launch keeps the marker;
 #   - an incomplete record report (exit 5) and a signal landing after the
 #     record clear the marker the record stamped;
 #   - only the screened copy of the prompt reaches the worker, and a rung's
@@ -559,6 +560,25 @@ m17() {
   pass "m17: stream-json keeps the marker only on exit 3 or its startup timeout"
 }
 
+# --- m19: a signal during the launch keeps the marker ---------------------
+# Once the launch has begun a worker may exist, so the marker that holds the
+# unit in flight is kept; clearing it could let a later dispatch reclaim a
+# live worker's worktree.
+m19() {
+  begin
+  seed m19 || return
+  copy_root
+  # shellcheck disable=SC2016 # the stub body expands in the stub, not here
+  stub fleet-dispatch-headless.sh 'cat >/dev/null
+kill -TERM $PPID
+exit 0'
+  RUN_STEP=$STEP_COPY dispatch
+  [ "$RC" -eq 143 ] || fail "m19: a TERM during the launch should exit 143, got $RC"
+  [ -e "$C/markers/1" ] || fail "m19: the marker was cleared under a possibly live worker"
+  lock_released m19
+  pass "m19: a TERM during the launch keeps the marker and releases the lock"
+}
+
 # --- m18: the primary checkout and the default spec root are required -----
 m18() {
   begin
@@ -660,6 +680,7 @@ m15
 m16
 m17
 m18
+m19
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
