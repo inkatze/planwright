@@ -276,8 +276,10 @@ if [ "$LIVE" = 1 ]; then
   } >"$probe_prompt"
 
   launched=1
-  if "$ROOT/scripts/fleet-streamjson.sh" launch smoke-probe smoke:probe \
-    --prompt-file "$probe_prompt" --cwd "$CORPUS_WORKTREE" >/dev/null 2>&1; then
+  "$ROOT/scripts/fleet-streamjson.sh" launch smoke-probe smoke:probe \
+    --prompt-file "$probe_prompt" --cwd "$CORPUS_WORKTREE" >/dev/null 2>&1
+  launch_rc=$?
+  if [ "$launch_rc" -eq 0 ]; then
     # fleet-streamjson.sh resolves its state root through fleet-state.sh
     # (PLANWRIGHT_FLEET_STATE_DIR, CLAUDE_PLUGIN_DATA, writer-mode manifest
     # fallback). Rebuilding that path by hand means a host resolving it any
@@ -341,9 +343,11 @@ if [ "$LIVE" = 1 ]; then
       esac
     fi
   else
-    # A refused launch (a probe already running or launching under this
-    # handle) started nothing here, so cleanup must not stop that one.
-    launched=0
+    # Exit 3 is a refusal (a probe already running or launching under this
+    # handle): this run started nothing, so cleanup must not stop that one.
+    # Any other failure may follow a supervisor already spawned, which
+    # cleanup still stops.
+    [ "$launch_rc" -eq 3 ] && launched=0
     failures=$((failures + 1))
     echo "smoke: LIVE FAIL — could not launch the probe worker" >&2
   fi
