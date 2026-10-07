@@ -625,11 +625,14 @@ write_script "$tmp/anyvar/scripts/backticks.sh" 'echo `pwd`'
 write_script "$tmp/anyvar/scripts/defaulted.sh" 'echo "${x:-none}"'
 write_script "$tmp/anyvar/tests/in-subst.sh" 'y=$(echo "$x" | tr a b)'
 write_script "$tmp/anyvar/githooks/hook" 'echo "rejected $ref"'
+# An exempt expansion clears only itself, never the rest of its line.
+write_script "$tmp/anyvar/scripts/mixed-len.sh" 'echo "${#x} $x"'
+write_script "$tmp/anyvar/scripts/mixed-arith.sh" 'echo "$((a)) ${b}"'
 out="$(/bin/bash "$CHECKER" "$tmp/anyvar" 2>&1)"
 assert "an expansion of any kind inside an echo fails" 1 $?
 for f in scripts/plain.sh scripts/braced.sh scripts/positional.sh scripts/all-args.sh \
   scripts/star.sh scripts/cmdsub.sh scripts/backticks.sh scripts/defaulted.sh \
-  tests/in-subst.sh githooks/hook; do
+  scripts/mixed-len.sh scripts/mixed-arith.sh tests/in-subst.sh githooks/hook; do
   assert_contains "$f is caught" "$out" "$f:3"
 done
 assert_contains "the failure names the annotation that clears a line" "$out" "# trusted:"
@@ -679,6 +682,7 @@ write_script "$tmp/trusted-bad/scripts/above.sh" \
 write_script "$tmp/trusted-bad/scripts/notsan.sh" \
   'echo "$(sanitize_printable "$x")" # trusted: sanitized output is never trusted'
 write_script "$tmp/trusted-bad/scripts/other.sh" 'echo "$n" # untrusted: no'
+write_script "$tmp/trusted-bad/scripts/quoted.sh" 'echo "$n # trusted: inside the string"'
 out="$(/bin/bash "$CHECKER" "$tmp/trusted-bad" 2>&1)"
 assert "a reasonless, misplaced, or overreaching annotation clears nothing" 1 $?
 assert_contains "a bare trusted marker is a finding" "$out" "scripts/noreason.sh:3"
@@ -686,6 +690,7 @@ assert_contains "the bare marker's message asks for a reason" "$out" "reason"
 assert_contains "an annotation on the line above does not cover the echo" "$out" "scripts/above.sh:4"
 assert_contains "sanitized output stays a finding under an annotation" "$out" "scripts/notsan.sh:3"
 assert_contains "a different comment is not an annotation" "$out" "scripts/other.sh:3"
+assert_contains "a marker inside a quoted string is not an annotation" "$out" "scripts/quoted.sh:3"
 
 # ---------------------------------------------------------------------------
 # 13a. Guarded sourcing of the sanitizer. `.` is a POSIX special built-in, so
@@ -909,21 +914,18 @@ cp -R "$REPO_ROOT/githooks" "$tmp/work/" || exit 1
 /bin/bash "$CHECKER" "$tmp/work" >/dev/null 2>&1
 assert "the copied real tree is clean" 0 $?
 
+# One scan for every plant: each full-tree scan is the expensive part.
 write_script "$tmp/work/scripts/planted-offender.sh" \
   'echo "planted: $(sanitize_printable "$x")"'
-out="$(/bin/bash "$CHECKER" "$tmp/work" 2>&1)"
-assert "planting the defect in the real tree turns the check red" 1 $?
-assert_contains "the red run names the planted file" "$out" "scripts/planted-offender.sh"
-rm -f "$tmp/work/scripts/planted-offender.sh"
-
-# One scan for both plants: each full-tree scan is the expensive part.
 write_script "$tmp/work/scripts/planted-echo.sh" 'echo "planted: $value"'
 write_script "$tmp/work/scripts/planted-source.sh" '. "$script_dir/echo-safety.sh"'
 out="$(/bin/bash "$CHECKER" "$tmp/work" 2>&1)"
-assert "planting a plain-variable echo and a bare source turns the check red" 1 $?
+assert "planting the defect, a plain-variable echo and a bare source in the real tree turns the check red" 1 $?
+assert_contains "the red run names the planted file" "$out" "scripts/planted-offender.sh"
 assert_contains "the red run names the planted echo" "$out" "scripts/planted-echo.sh:3"
 assert_contains "the red run names the planted source" "$out" "scripts/planted-source.sh:3"
-rm -f "$tmp/work/scripts/planted-echo.sh" "$tmp/work/scripts/planted-source.sh"
+rm -f "$tmp/work/scripts/planted-offender.sh" "$tmp/work/scripts/planted-echo.sh" \
+  "$tmp/work/scripts/planted-source.sh"
 
 # Reverting one converted script to its echo spelling must also go red — this
 # is what stops the converted call sites from silently regressing.
