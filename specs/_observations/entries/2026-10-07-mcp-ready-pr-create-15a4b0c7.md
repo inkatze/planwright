@@ -1,0 +1,1 @@
+- 2026-10-07 [planwright] Neither the tower nor the worker profile denies an MCP create_pull_request, which can open a PR ready for review (draft false) without any ready flip, nor repository-level GitHub MCP writes such as ruleset creation, workflow dispatch or repository deletion; none is allowed either, so each falls to the permission prompt. Pre-dates the front-door delta.

@@ -1,0 +1,1 @@
+- 2026-10-07 [planwright] Both command guards cap for-loop passes but not while or until loops: any approved body runs without bound inside one. Harmless for read-only bodies; the tower guard now defers mktemp once such a loop opens, and any future writer shape added to either guard needs the same check.
