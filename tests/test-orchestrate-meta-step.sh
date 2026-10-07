@@ -399,6 +399,8 @@ m5() {
   [ "$RC" -eq 2 ] || fail "m5: a linked worktree's bundle should be refused (exit 2), got $RC"
   printf '%s\n' "$ERR" | grep -q "not the primary checkout's bundle" \
     || fail "m5: the linked-worktree refusal names another reason: $ERR"
+  run_step dispatch specs/demo 1 --backend headless-oneshot --prompt-file "$C/prompt" --repo-root ""
+  [ "$RC" -eq 2 ] || fail "m5: an empty --repo-root should be refused (exit 2), got $RC"
   for rung in tmux subagent print; do
     dispatch "$rung"
     [ "$RC" -eq 2 ] || fail "m5: rung '$rung' should be refused (exit 2), got $RC"
@@ -498,7 +500,12 @@ m14() {
   wait_launch
   head -n 1 "$C/rec/stdin" 2>/dev/null | grep -q '^/planwright:execute-task specs/demo 1$' \
     || fail "m14: a prompt swapped after the screen reached the worker"
-  pass "m14: a prompt swapped after the screen never reaches the worker"
+  # A prompt path that starts with a dash is a path, not a cp option.
+  seed m14-dash || return
+  cp "$C/prompt" "$P/-prompt"
+  run_step dispatch specs/demo 1 --backend headless-oneshot --prompt-file -prompt
+  [ "$RC" -eq 0 ] || fail "m14: a prompt path starting with a dash was refused ($RC): $ERR"
+  pass "m14: only the screened prompt reaches the worker, whatever its path looks like"
 }
 
 # --- m15: lock and fetch refusals --------------------------------------------

@@ -118,6 +118,7 @@ task_id=
 backend=
 prompt_file=
 repo_root=
+repo_root_given=0
 while [ "$#" -gt 0 ]; do
   case $1 in
     --backend | --prompt-file | --repo-root)
@@ -125,7 +126,10 @@ while [ "$#" -gt 0 ]; do
       case $1 in
         --backend) backend=$2 ;;
         --prompt-file) prompt_file=$2 ;;
-        --repo-root) repo_root=$2 ;;
+        --repo-root)
+          repo_root=$2
+          repo_root_given=1
+          ;;
       esac
       shift 2
       ;;
@@ -171,6 +175,7 @@ esac
 [ "${#spec_name}" -le 64 ] || die "spec name longer than 64"
 [ -d "$spec_dir" ] || die "not a spec directory: $(spec_parse_printable "$spec_dir")"
 
+[ "$repo_root_given" -eq 0 ] || [ -n "$repo_root" ] || die "--repo-root is empty"
 if [ -z "$repo_root" ]; then
   repo_root=$(/bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) \
     || die "the primary checkout did not resolve; pass --repo-root"
@@ -242,7 +247,7 @@ trap 'exit 143' TERM
 # The launch reads only this copy, so the file the caller named cannot be
 # swapped between the screen and the launch.
 prompt=$wtmp/prompt
-cp "$prompt_file" "$prompt" 2>/dev/null || die "prompt file missing or unreadable"
+cp -- "$prompt_file" "$prompt" 2>/dev/null || die "prompt file missing or unreadable"
 [ -s "$prompt" ] || die "prompt file is empty"
 first_line=$(awk 'NF { print; exit }' "$prompt")
 printf '%s\n' "$first_line" | grep -Eq '^/(planwright:)?execute-task( |$)' \
