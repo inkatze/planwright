@@ -78,7 +78,8 @@ per **Halt → Awaiting input** below; simultaneous ones batch into the step
 report (D-45).
 
 1. **Parse `$ARGUMENTS`.** Extract the mode flags above and an optional bare
-   `<spec>` (alias `specs/<spec>`, one trailing slash allowed). Validate it against
+   `<spec>` (alias `specs/<spec>`, one trailing slash allowed; `--meta`
+   operands alike). Validate the mapped identifier against
    the anchored identifier pattern `^[a-z0-9][a-z0-9-]*$` (≤64 chars, REQ-A1.8)
    **before** it appears in any path or command; a failing token is never
    interpolated.

@@ -2,8 +2,9 @@
 # spec-id-lib.sh — the spec-addressing alias mapper for the identity seams
 # (sourced, never executed).
 #
-# A seam that names a spec (a dispatch, fetch, fence, marker, trailer, or
-# consume argument) takes the bare identifier as its canonical form and
+# A seam that names a spec (a dispatch, fetch, fence, marker, trailer,
+# consume, or walkthrough argument) takes the bare identifier as its canonical
+# form and
 # `specs/<id>` as an alias for it, either one carrying at most one trailing
 # slash, as shell completion leaves it. In the alias, `specs/` is a namespace,
 # not a directory: the mapper reads no filesystem and never depends on where
@@ -11,9 +12,8 @@
 # directory instead and does not source this.
 #
 # Each seam keeps its own identifier grammar and message: the mappers only
-# reshape, and anything outside the accepted forms passes through unchanged so
-# that grammar refuses it (a bundle-file path, a deeper path, a second
-# trailing slash). The result is assigned rather than printed: a command
+# reshape, and anything outside the accepted forms is left for that grammar to
+# refuse (a bundle-file path, a deeper path, a second trailing slash). The result is assigned rather than printed: a command
 # substitution would strip a trailing newline and hand the grammar a value
 # it should have refused.
 
@@ -37,9 +37,10 @@ spec_id_canon() {
   esac
 }
 
-# spec_ref_canon <value> — set SPEC_REF to a `<spec>/<id>` task ref whose spec
-# segment may be given as the alias (`specs/<spec>/<id>`), else to <value>
-# unchanged.
+# spec_ref_canon <value> — set SPEC_REF to <value> with a leading `specs/`
+# dropped when at least two segments follow it, so the alias of a
+# `<spec>/<id>` task ref (`specs/<spec>/<id>`) becomes the ref; else to
+# <value> unchanged. The ref grammar refuses whatever does not then fit.
 # shellcheck disable=SC2034 # SPEC_REF is the result the sourcing script reads
 spec_ref_canon() {
   SPEC_REF=$1

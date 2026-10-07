@@ -89,7 +89,8 @@
 # <spec-root>/<spec>/.orchestrate/ (gitignored runtime state, like the dispatch
 # markers), so nothing here is ever committed.
 #
-# Usage:
+# Usage (<spec> is the bare identifier or its `specs/<spec>` alias, with or
+# without one trailing slash; scripts/spec-id-lib.sh):
 #   fleet-dispatch-headless.sh launch <spec> <id> --worktree <dir>
 #       [--repo-root <dir>] [-- <extra claude args...>]
 #     Prompt text on stdin (required, non-empty). Prints the dispatch record:

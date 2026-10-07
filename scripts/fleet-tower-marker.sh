@@ -36,7 +36,8 @@
 # checkout as an existing absolute directory free of control bytes. A
 # refused field is never echoed raw.
 #
-# Usage:
+# Usage (<spec> is the bare identifier or its `specs/<spec>` alias, with or
+# without one trailing slash; scripts/spec-id-lib.sh):
 #   fleet-tower-marker.sh record <spec> --mode unattended|interactive
 #       --pid <pid> --checkout <dir> [--session-id <uuid>]
 #       [--tmux-session <name>]

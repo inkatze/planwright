@@ -118,7 +118,7 @@ Superseded are terminal: refuse — no skill-driven transition leaves them.
 ## Pre-flight
 
 1. **Parse `$ARGUMENTS`.** Expect a bare `<spec>` (alias `specs/<spec>`, one
-   trailing slash allowed). Validate it against the anchored, full-string
+   trailing slash allowed). Validate the mapped identifier against the anchored, full-string
    pattern `^[a-z0-9][a-z0-9-]*$`, maximum length 64 (REQ-A1.8), **before** it
    appears in any path, branch name, or command; a failing identifier is never
    interpolated. No argument: list the bundles under `specs/`

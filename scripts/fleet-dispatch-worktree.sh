@@ -128,7 +128,8 @@
 # No model/API call anywhere in the branch-naming decision path (REQ-E1.3): the
 # whole path is deterministic string logic + git plumbing.
 #
-# Usage:
+# Usage (<spec> is the bare identifier or its `specs/<spec>` alias, with or
+# without one trailing slash; scripts/spec-id-lib.sh):
 #   fleet-dispatch-worktree.sh dispatch <spec> <id> \
 #       [--repo-root <dir>] [--launch-only | --attach-dry-run | --no-attach] \
 #       [-- <extra launch args>...]

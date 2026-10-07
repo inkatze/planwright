@@ -58,8 +58,8 @@ working directory, the same contract as the validator):
 scripts/spec-walkthrough.sh [--scope <selector>] [--reveal] <spec>
 ```
 
-- **`<spec>`** — the bare identifier, or its alias `specs/<spec>`, either with
-  one trailing slash. The identifier is charset-validated against
+- **`<spec>`** — the bare identifier, or its alias `specs/<spec>`, with or
+  without one trailing slash. The identifier is charset-validated against
   `^[a-z0-9][a-z0-9-]*$` (max 64) and the resolved path is containment-checked
   **before any read** (REQ-A1.6). A hostile or malformed identifier or a path
   that escapes `specs/` is a clean refusal that never becomes a path and never

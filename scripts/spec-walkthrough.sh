@@ -17,8 +17,8 @@
 # Usage:
 #   spec-walkthrough.sh [--scope <selector>] [--reveal] <spec>
 #
-# <spec> is the bare identifier or its `specs/<spec>` alias, either with one
-# trailing slash (scripts/spec-id-lib.sh), resolved under the spec root the
+# <spec> is the bare identifier or its `specs/<spec>` alias, with or without
+# one trailing slash (scripts/spec-id-lib.sh), resolved under the spec root the
 # working directory's repository resolves (scripts/resolve-root.sh spec); with
 # no root resolved it is refused. <selector> names which part to render (REQ-B1.2):
 #   whole                 the whole bundle (default)

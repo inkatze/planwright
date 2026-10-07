@@ -85,7 +85,8 @@
 # operation outside the namespace. Untrusted text reaching a terminal passes
 # the echo-discipline sanitizer. All input is data; no eval.
 #
-# Usage:
+# Usage (<spec> is the bare identifier or its `specs/<spec>` alias, with or
+# without one trailing slash; scripts/spec-id-lib.sh):
 #   fleet-fence.sh refname --spec <spec> <unit-id>
 #   fleet-fence.sh check   --checkout <dir> --spec <spec> <unit-id>
 #   fleet-fence.sh fence   --checkout <dir> --spec <spec> <unit-id>...

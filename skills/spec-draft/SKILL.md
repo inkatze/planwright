@@ -69,7 +69,8 @@ Doctrine: point-of-use decision-domains (the design-phase catalog walk)
 
 1. **Parse arguments.** `$ARGUMENTS` carries the proposed feature name —
    free-form idea text by design (the name is a hint, D-22) — and optionally
-   `--extend <spec>` (jump straight to extend mode on an existing bundle).
+   `--extend <spec>` (jump straight to extend mode on an existing bundle;
+   alias `specs/<spec>`, one trailing slash allowed, mapped before validation).
    The feature name is not used directly: the skill derives the **spec
    identifier** (`<spec>`) from it, and that derived identifier is what
    appears in paths, branch names, and commands. Validate the derived
