@@ -237,6 +237,7 @@ row	substitution	allow	allow	allow	allow	echo "$(git log --oneline | head -1)"
 row	own-branch	defer	allow	defer	allow	rm -rf build
 row	own-branch	defer	allow	defer	allow	mkdir -p build/out
 row	own-branch	defer	allow	defer	allow	touch notes.md
+row	own-branch	defer	allow	defer	allow	echo x >> notes.md
 row	own-branch	defer	allow	defer	allow	cp f build/f
 row	own-branch	defer	allow	defer	allow	mv build/a build/b
 row	own-branch	defer	allow	defer	allow	grep -n x f | tee build/out.txt
