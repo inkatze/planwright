@@ -354,6 +354,13 @@ case $got in
   *"<spec>:<id>"*"rc=2") ok "fleet-liveness: a specs/ scope is refused naming the expected shape" ;;
   *) fail "fleet-liveness: the refusal does not name the expected shape: $got" ;;
 esac
+mkdir -p "$tmp/crash-obs"
+got=$(outcome "$S/fleet-liveness.sh" crash-record w1 demo:1 --alloc-unit specs/demo:task-1 \
+  --alloc-key execution --obs-scope fixture --obs-dir "$tmp/crash-obs")
+case $got in
+  *"--alloc-unit"*"<spec>:task-<ids>"*"rc=2") ok "fleet-liveness: a specs/ allocation unit is refused naming the expected shape" ;;
+  *) fail "fleet-liveness: the --alloc-unit refusal does not name the expected shape: $got" ;;
+esac
 printf 'pane\n' >"$tmp/pane.txt"
 got=$(outcome "$S/fleet-pane-detect.sh" classify --pane "$tmp/pane.txt" --backend tmux --worker w1 --scope specs/demo:1)
 case $got in

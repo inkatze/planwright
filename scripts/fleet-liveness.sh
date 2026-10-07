@@ -2111,7 +2111,7 @@ case "$cmd" in
         ;;
       *)
         if ! valid_field "$ALLOC_UNIT"; then
-          printf '%s\n' "fleet-liveness: refusing malformed --alloc-unit '$(sanitize_printable "$ALLOC_UNIT" "(unprintable unit)")'" >&2
+          printf '%s\n' "fleet-liveness: refusing malformed --alloc-unit '$(sanitize_printable "$ALLOC_UNIT" "(unprintable unit)")': $SCOPE_SHAPE" >&2
           exit 2
         fi
         ;;
