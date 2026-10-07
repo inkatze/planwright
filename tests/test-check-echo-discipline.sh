@@ -104,6 +104,7 @@ out="$(/bin/bash "$CHECKER" 2>&1)"
 assert "the repo's own tree is echo-safety-clean" 0 $?
 assert_contains "the clean run reports a file count" "$out" "check-echo-discipline: clean ("
 assert_contains "the clean run reports the skipped bash-interpreter files" "$out" "not at risk"
+assert_contains "the clean run says which bash files were read for sourcing" "$out" "naming echo-safety.sh and read for sourcing"
 real_count="$(printf '%s' "$out" | sed -n 's/.*clean (\([0-9]*\) files.*/\1/p')"
 if [ -n "$real_count" ] && [ "$real_count" -ge 100 ]; then
   echo "ok: the scan reached the whole tree ($real_count files)"

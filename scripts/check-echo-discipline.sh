@@ -272,7 +272,8 @@ done
 # silently dropped file is the failure this guard exists to prevent.
 : >"$work/list"
 count=0
-skipped=0
+bashfiles=0
+bashread=0
 dropped=0
 newline='
 '
@@ -323,7 +324,7 @@ while IFS= read -r -d '' file; do
   shebang_interp "$first"
   case "$interp" in
     bash)
-      skipped=$((skipped + 1))
+      bashfiles=$((bashfiles + 1))
       # The sourcing rule can only fire where the file names echo-safety.sh,
       # directly or in the assignment a sourced variable carries, so a bash
       # file that never mentions it is exact to skip, and tokenizing all of
@@ -336,6 +337,7 @@ while IFS= read -r -d '' file; do
         1) continue ;;
         *) fail_closed "cannot read $(sanitize_printable "$rel" "(unprintable filename)") — the scan would cover less than it claims" ;;
       esac
+      bashread=$((bashread + 1))
       printf 'b%s\n' "$file" >>"$work/list"
       ;;
     *)
@@ -917,7 +919,7 @@ if [ "$status" -ne 0 ]; then
 fi
 
 if [ "$status" -eq 0 ]; then
-  printf 'check-echo-discipline: clean (%s files scanned, plus %s bash-interpreter files not at risk from echo and read for sourcing only; %s not shell)\n' \
-    "$count" "$skipped" "$dropped"
+  printf 'check-echo-discipline: clean (%s files scanned, plus %s bash-interpreter files not at risk from echo, %s of them naming echo-safety.sh and read for sourcing; %s not shell)\n' \
+    "$count" "$bashfiles" "$bashread" "$dropped"
 fi
 exit "$status"
