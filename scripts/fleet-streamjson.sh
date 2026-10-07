@@ -59,8 +59,8 @@
 #   .init.* / .frame.* / .journal.* / .session.* / .pid.*  mktemp-beside-target
 #                    staging
 #   deferred-<id>    a receipt the journal lock refused, until it is journaled
-#   attention.dirty  the queue row may not match the journal; the tick re-syncs
 #   .deferred.*      its staging temp
+#   attention.dirty  the queue row may not match the journal; the tick re-syncs
 #   *.lock#*         a lock break's claim, or an aside, a crashed caller left
 #   *.broken.*       residue of the retired `mkdir` lock's own stale break
 # Which of these a close releases is not a property of their order here: the
@@ -226,7 +226,9 @@
 #       has a readable epoch; a spooled receipt counts as pending), so a worker
 #       that cannot proceed never reads as a healthy `running`.
 #   fleet-streamjson.sh pending [<worker>...]
-#       Read-only view of the requests `status` counts: for every request the
+#       Read-only view of the journaled requests `status` counts (a spooled
+#       receipt is counted there but listed here only once it is journaled,
+#       which is also when `answer` can reach it): for every request the
 #       journal still reads `pending` (no args: every worker), oldest first,
 #       print `== <worker> <request-id> <tool>` (the tool name suffixed
 #       `:sanitized` when it had to be altered to fit the header), then the
@@ -843,10 +845,7 @@ attention_sync() {
     fi
     sy_now=$(journal_oldest_pending "$2")
     journal_unlock "$2"
-    if [ "$sy_now" = "$sy_proj" ]; then
-      rm -f "$2/attention.dirty" 2>/dev/null || :
-      return 0
-    fi
+    [ "$sy_now" != "$sy_proj" ] || return 0
     if [ "$sy_round" -ge 4 ]; then
       attention_mark_dirty "$2"
       return 0
@@ -866,9 +865,17 @@ attention_mark_dirty() {
 # attention_resync <worker> <dir> — the tick's half of attention_mark_dirty:
 # one non-waiting attempt to read the projection and publish it, confirmed as
 # every publish is. A lock still busy leaves the mark for the next beat.
+#
+# The mark is taken before the read and put back if the lock is busy, so a mark
+# another writer raises meanwhile survives this re-sync rather than being
+# cleared by a confirmation that was never about it.
 attention_resync() {
   [ -f "$2/attention.dirty" ] || return 0
-  journal_lock "$2" 1 2>/dev/null || return 0
+  rm -f "$2/attention.dirty" 2>/dev/null || return 0
+  if ! journal_lock "$2" 1 2>/dev/null; then
+    attention_mark_dirty "$2"
+    return 0
+  fi
   rs_proj=$(journal_oldest_pending "$2")
   journal_unlock "$2"
   attention_sync "$1" "$2" "$rs_proj"
@@ -900,10 +907,8 @@ request_kind() {
 # is busy and nothing was written, 2 the journal lock cannot be taken at all.
 #
 # A <spool> is the deferred copy being drained, removed under the same lock
-# hold that records it, so no second drainer can read it after the record.
-# Drained, a receipt already terminal in the journal was journaled and settled
-# before; it is dropped rather than re-opened, which would re-queue a request
-# the operator has answered.
+# hold that records it: a second drainer that read it too finds it gone under
+# the lock and records nothing, so a drained receipt is recorded exactly once.
 receipt_record() {
   rr_worker=$1
   rr_dir=$2
@@ -915,13 +920,14 @@ receipt_record() {
   journal_lock "$rr_dir" "${8:-}" || return $?
   rr_state=$(journal_state "$rr_dir" "$rr_id")
   if [ -n "$rr_spool" ]; then
+    # Gone means another drainer recorded it under this same lock already.
+    # Still here means this is the one recording, whatever the journal says:
+    # a terminal row is the resume re-ask the re-open below exists for.
+    if [ ! -f "$rr_spool" ]; then
+      journal_unlock "$rr_dir"
+      return 0
+    fi
     rm -f "$rr_spool" 2>/dev/null || :
-    case $rr_state in
-      pending | answered | undeliverable)
-        journal_unlock "$rr_dir"
-        return 0
-        ;;
-    esac
   fi
   case $rr_state in
     pending)
@@ -997,7 +1003,8 @@ receipt_defer() {
 # receipt_drain <worker> <dir> [<tries>] — journal every spooled receipt the
 # journal lock now admits, under its original received epoch, so the journal's
 # oldest-first order is the order the requests arrived in. 0 nothing left
-# spooled, non-zero the lock still refuses. The supervisor drains on every
+# spooled, otherwise receipt_record's code for the lock that refused (1 busy,
+# 2 broken). The supervisor drains on every
 # request, waiting out a busy lock; the tick on every beat, with one attempt.
 # Both may race for one spool, and the spool is removed under the lock that
 # records it, so the loser finds it gone or already journaled.
@@ -1013,11 +1020,13 @@ receipt_drain() {
       '' | *[!0-9]*) continue ;;
     esac
     dr_line=$(tail -n +2 "$dr_f" 2>/dev/null) || continue
+    dr_rc=0
     receipt_record "$1" "$2" "$dr_id" "$(request_kind "$dr_line")" "$dr_epoch" "$dr_line" \
-      "$dr_f" "${3:-}" || {
+      "$dr_f" "${3:-}" || dr_rc=$?
+    if [ "$dr_rc" -ne 0 ]; then
       set -f
-      return 1
-    }
+      return "$dr_rc"
+    fi
   done
   set -f
   return 0
@@ -1041,7 +1050,8 @@ handle_line() {
       # Earlier receipts the journal lock refused go first; when it still
       # refuses, this one joins them rather than being dropped.
       hl_rc=0
-      if receipt_drain "$hl_worker" "$hl_dir"; then
+      receipt_drain "$hl_worker" "$hl_dir" || hl_rc=$?
+      if [ "$hl_rc" -eq 0 ]; then
         receipt_record "$hl_worker" "$hl_dir" "$hl_id" "$(request_kind "$hl_line")" "$hl_now" "$hl_line" \
           || hl_rc=$?
         [ "$hl_rc" -ne 0 ] || return 0
@@ -1050,10 +1060,12 @@ handle_line() {
       # (the invariant this script exists for), and it must not be lost
       # either: spooled, it is journaled by the next receipt or the next
       # tick that finds the lock free, with nothing restarted.
-      if receipt_defer "$hl_dir" "$hl_id" "$hl_now" "$hl_line" && [ "$hl_rc" -ne 2 ]; then
+      hl_spooled=0
+      receipt_defer "$hl_dir" "$hl_id" "$hl_now" "$hl_line" && hl_spooled=1
+      if [ "$hl_spooled" = 1 ] && [ "$hl_rc" -ne 2 ]; then
         attention_failure "$hl_worker" "$hl_dir" \
           "receipt for worker $hl_worker request $(printf '%s' "$hl_id" | cut -c1-8) deferred: the journal lock is busy; it is journaled once the lock frees"
-      elif [ "$hl_rc" -eq 2 ]; then
+      elif [ "$hl_spooled" = 1 ]; then
         attention_failure "$hl_worker" "$hl_dir" \
           "receipt for worker $hl_worker request $(printf '%s' "$hl_id" | cut -c1-8) deferred: the journal lock cannot be taken at all - investigate $hl_dir/journal.lock"
       else
@@ -1520,9 +1532,9 @@ held_locks() {
 # and only a directory, in one step, so a peer that wins the path in between
 # keeps its live lock rather than having it deleted by a recovery.
 #
-# A failure to clear is surfaced rather than swallowed: the caller is `recover`,
-# and a recovery that cannot clear the thing blocking it must not go on to
-# report contention for a condition that will not clear.
+# A failure to clear is surfaced rather than swallowed: the callers are
+# `recover` and `launch`, and neither may go on to report contention for a
+# condition that will not clear.
 clear_legacy_lock_dirs() {
   cl_rc=0
   for cl_l in $lock_classes; do
@@ -1579,7 +1591,7 @@ journal_close() {
   # session that never asked. A resumed worker that still wants one asks again.
   set +f
   for jc_f in "$1"/deferred-*; do
-    [ -f "$jc_f" ] && [ ! -L "$jc_f" ] && rm -f "$jc_f" 2>/dev/null
+    if [ -L "$jc_f" ] || [ -f "$jc_f" ]; then rm -f "$jc_f" 2>/dev/null; fi
   done
   set -f
   rm -f "$1/attention.dirty" 2>/dev/null || :
@@ -1631,12 +1643,28 @@ stop_held() {
     process) held_process "$2" "$(stop_match "$3" "$2")" "$stop_pidfiles" ;;
     locks) held_locks "$2" ;;
     scratch) held_scratch "$2" ;;
-    attention) held_attention "$4" "$3" ;;
+    attention) held_attention "$4" "$3" || held_receipts "$2" ;;
     *)
       echo "$me: no held-probe for release class '$1'" >&2
       return 0
       ;;
   esac
+}
+
+# held_receipts <dir> — a spooled receipt or a re-sync mark is part of the
+# attention class: the close settles both, and either one left behind would be
+# replayed into a later session by its tick.
+held_receipts() {
+  [ -e "$1/attention.dirty" ] && return 0
+  set +f
+  for hr_f in "$1"/deferred-*; do
+    if [ -L "$hr_f" ] || [ -f "$hr_f" ]; then
+      set -f
+      return 0
+    fi
+  done
+  set -f
+  return 1
 }
 
 stop_release() {

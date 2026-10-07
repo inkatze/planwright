@@ -703,7 +703,9 @@ healthy-looking `running`.
 
 `pending [<worker>...]` shows what those pending receipts are asking, so a
 tower can bring the operator the actual decision rather than a count. For each
-request the journal still reads `pending` (every worker when none is named,
+request the journal still reads `pending` (a spooled receipt is listed once it
+is journaled, which is also when `answer` can reach it; every worker when none
+is named,
 oldest request first) it prints `== <worker> <request-id> <tool>`, then the
 request with every line prefixed by `|` and a space. A Bash request shows its
 command decoded, with any escape it does not decode left visible as escape

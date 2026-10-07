@@ -1880,6 +1880,47 @@ senv "$home" "$rec" -- answer sjw38b "$req_perm" --allow >/dev/null \
   || fail "c38b: the deferred receipt is not answerable"
 wait "$launch38b" || fail "c38b: the run did not end cleanly after the answer"
 echo "ok: c38 a receipt the journal lock refused is deferred and journaled once it frees (obs:1eb24a7e)"
+# (c) A close settles spooled receipts and the re-sync mark with the rest of
+#     the attention class: left behind, a later session's tick would replay
+#     them into a run that never asked.
+printf '%s\n%s\n' 1000 "$line_q" >"$wdir38b/deferred-$req_q"
+: >"$wdir38b/attention.dirty"
+senv "$home" "$rec" -- stop sjw38b --grace 2 >/dev/null || fail "c38c: stop exited non-zero"
+[ ! -e "$wdir38b/deferred-$req_q" ] || fail "c38c: a close left a spooled receipt behind"
+[ ! -e "$wdir38b/attention.dirty" ] || fail "c38c: a close left the re-sync mark behind"
+echo "ok: c38 a close discards spooled receipts and the re-sync mark"
+# (d) A relaunch clears a journal lock left as a directory by the retired
+#     shape; otherwise every receipt of the new run would be spooled forever.
+home="$tmp/h38d"
+mkdir -p "$home/streamjson/sjw38d/journal.lock"
+wdir38d="$home/streamjson/sjw38d"
+senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_RESULT_LINE="$line_result" -- \
+  launch sjw38d execution-backends:4 --prompt-file "$tmp/prompt38" --foreground &
+launch38d=$!
+wait_until 100 grep -q "^$req_perm$tab" "$wdir38d/journal" \
+  || fail "c38d: a launch over a legacy journal lock directory never journaled its receipt"
+senv "$home" "$rec" -- answer sjw38d "$req_perm" --allow >/dev/null \
+  || fail "c38d: answer exited non-zero"
+wait "$launch38d" || fail "c38d: the run did not end cleanly"
+echo "ok: c38 a launch clears a retired-shape journal lock directory"
+# (e) A spooled receipt for a request the journal already settled is the
+#     resume re-ask, and draining it re-opens the request rather than dropping
+#     it. The worker stays up after its answer so its tick does the drain.
+home="$tmp/h38e"
+wdir38e="$home/streamjson/sjw38e"
+senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_SLEEP=60 -- \
+  launch sjw38e execution-backends:4 --prompt-file "$tmp/prompt38" &
+wait_until 100 grep -q "^$req_perm$tab" "$wdir38e/journal" \
+  || fail "c38e: the receipt was never journaled"
+senv "$home" "$rec" -- answer sjw38e "$req_perm" --allow >/dev/null \
+  || fail "c38e: answer exited non-zero"
+grep -q "^$req_perm$tab.*${tab}answered" "$wdir38e/journal" || fail "c38e: the answer was not recorded"
+printf '%s\n%s\n' "$(date +%s)" "$line_perm" >"$wdir38e/deferred-$req_perm"
+wait_until 100 grep -q "^$req_perm$tab.*${tab}pending" "$wdir38e/journal" \
+  || fail "c38e: a spooled re-ask of a settled request was dropped instead of re-opened"
+[ ! -e "$wdir38e/deferred-$req_perm" ] || fail "c38e: the drained spool was left behind"
+senv "$home" "$rec" -- stop sjw38e --grace 2 >/dev/null || fail "c38e: stop exited non-zero"
+echo "ok: c38 a spooled re-ask of a settled request is re-opened, not dropped"
 
 # ---------------------------------------------------------------------------
 # c37: the suite leaves nothing running. Every supervisor, tick, and shim a
