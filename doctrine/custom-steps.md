@@ -129,9 +129,10 @@ A pooled step alone also carries the **hold mark**
 `PLANWRIGHT_STEP_POOL_HOLD=<pool>:<pid>`, the slot owner's literal process
 id as `<pid>`, rendered as one optional trailing assignment after the twelve.
 
-Two channels deliver it. A **command step** gets the variables in its
-environment, overwriting an inherited value of the same name, an absent
-value empty and **never unset**, the inherited environment otherwise neither
+Two channels deliver the context. A **command step** gets the twelve
+variables, and a pooled step its hold mark, in its environment,
+overwriting an inherited value of the same name, an absent value among the
+twelve empty and **never unset**, the inherited environment otherwise neither
 scrubbed nor given other planwright state. A **skill or prompt step** gets
 the same fields as a **preamble**, a data block
 `resolve-steps.sh --preamble` renders and the runner prepends to the step's launch prompt or
@@ -179,9 +180,9 @@ Every step ends with exactly one outcome (REQ-D1.10, D-8, D-29):
   change to the branch.
 - `applied`: a session step's handoff reports a change to the branch.
 - `halted`: a session step's handoff reports a stop it could not resolve.
-- `failed`: a command exited non-zero or timed out; a session ended
-  abnormally or reported a safety stop; a `continue` step that could not
-  resume; a refused context value.
+- `failed`: a command exited non-zero or timed out; a pooled step's wait
+  passed its bound; a session ended abnormally or reported a safety stop; a
+  `continue` step that could not resume; a refused context value.
 - `skipped`: carrying exactly one **skip reason**, `missing` (the
   missing-step matrix), `reuse` (*Expensive checks*), `resume` (*Resume
   continuation*), or `answered` (quota-handling's same-head review-request
@@ -197,12 +198,12 @@ means (REQ-D1.12).
 
 **The runner classifies** a skill or prompt step's outcome from the handoff
 its session returns, the record carrying the excerpt the classification
-rests on; a command step's outcome is its exit code alone, or a timeout. The
-runner writes every record, whatever the hosting. At `convergence` the
-review skills' dispositions map onto this set: a normal exit is `passed` or
-`applied`; a normal exit carrying a queued meaning-class spec fork is
-`halted`, stopping PR creation; a safety stop is `failed`; an unresolved
-hard-disqualifier finding is `halted` (REQ-E1.1).
+rests on; a command step's outcome is its exit code alone, a timeout, or an
+expired pool wait. The runner writes every record, whatever the hosting. At
+`convergence` the review skills' dispositions map onto this set: a normal
+exit is `passed` or `applied`; a normal exit carrying a queued meaning-class
+spec fork is `halted`, stopping PR creation; a safety stop is `failed`; an
+unresolved hard-disqualifier finding is `halted` (REQ-E1.1).
 
 **Posture (REQ-D1.2).** A `halted` or `failed` step whose `on-failure` is
 `halt` ends the point. At an **in-run point** it ends the unit through the
