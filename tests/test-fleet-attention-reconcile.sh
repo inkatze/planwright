@@ -28,8 +28,9 @@
 #   u2: a row with no registry record and an unfinished unit is kept.
 #   a1: an awaiting-input row is kept whatever its unit or worker evidence.
 #   p1: a pr-ready row with a dead worker and an unfinished unit is kept.
-#   x1: a completed unit whose worker record lives in another checkout is not
-#       cleared on this checkout's derivation.
+#   x1: a completed unit whose worker record lives in another checkout, or
+#       climbs out of this one through `..`, is not cleared on this
+#       checkout's derivation.
 #   i1: every clear is audited, and a second pass clears nothing.
 #   k1: the kill-switch pauses the pass before it clears anything; k2: one
 #       set mid-pass stops every clear after it.
@@ -240,6 +241,8 @@ seed tmux-demo-task-4 demo:task-4 working
 seed proc-demo-task-2b demo:task-2 hung
 seed pr-demo-task-4 demo:task-4 pr-ready
 seed far-demo-task-1 demo:task-1 pr-ready
+reg dot-demo-task-1 demo:task-1 tmux "$repo/../elsewhere/wt" "tmux-window sess-a @1"
+seed dot-demo-task-1 demo:task-1 pr-ready
 reconcile d1
 clean d1
 has_row tmux-demo-task-2 && fail "d1: a gone tmux window kept its row"
@@ -247,6 +250,7 @@ has_row tmux-demo-task-4 || fail "d1: a listed tmux window lost its row"
 has_row proc-demo-task-2b && fail "d2: an exited process kept its row"
 has_row pr-demo-task-4 || fail "p1: a pr-ready row with an unfinished unit was cleared"
 has_row far-demo-task-1 || fail "x1: another checkout's worker was cleared on this derivation"
+has_row dot-demo-task-1 || fail "x1: a state dir climbing out of this checkout counted as this checkout's"
 says d1 clear tmux-demo-task-2 tmux-window-dead
 says d1 keep tmux-demo-task-4 alive
 says d2 clear proc-demo-task-2b process-dead

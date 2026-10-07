@@ -203,10 +203,12 @@ case $primary in
 esac
 
 # ours <state-dir> — true when a worker record's state directory is this
-# checkout's, or the record names none.
+# checkout's, or the record names none. The writer refuses `..` segments; a
+# record carrying one anyway is judged foreign rather than prefix-matched.
 ours() {
   case $1 in
     "" | -) return 0 ;;
+    .. | ../* | */.. | */../*) return 1 ;;
     "$repo" | "$repo"/*) return 0 ;;
   esac
   if [ -n "$primary" ]; then
