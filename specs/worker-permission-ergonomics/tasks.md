@@ -335,7 +335,19 @@ below; `scripts/spec-graph.sh` renders it on demand.
 
 ## Awaiting input
 
-(none yet)
+- **Task 15** — parked at the `convergence` point: step `panel-gemini`
+  halted before any upload because no egress consent is recorded for
+  `inkatze/planwright` with the `gemini` backend, and an unattended run
+  cannot ask. `polish` converged (one pending sign-off, no forks). No
+  single gate run passed end to end: from this worktree's path the
+  run-tests pool hangs on lock-lib's "permission" path match, so the gate
+  was split. Every non-test check passed from the real path; the test
+  suite ran from a symlinked path, where 267 of 271 files passed and four
+  path-sensitive ones failed (test-builder-guards, test-check-guard-wiring,
+  test-inception-doctrine, test-resolve-rule-doc), all four passing when
+  re-run alone from the real path. The branch is committed, unpushed, with
+  no PR. Remedy: record the gemini consent for this repo (or drop the
+  step), then resume the panel step, the push, and the draft PR.
 
 ## Deferred
 
