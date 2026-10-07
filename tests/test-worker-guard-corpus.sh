@@ -318,7 +318,8 @@ done
 # matched as a substring of some floor row's command.
 for shape in 'gh pr merge' 'gh pr ready 5' '--undo' 'push --force' 'push origin' \
   'push -u origin' '--amend' 'git rebase' 'merge --squash' 'git reset' \
-  '@@OUTSIDE@@' '/tmp/' '.git' 'githooks/' '.claude/' 'mise.toml' \
+  '@@OUTSIDE@@' '/tmp/' 'outlink/' '> .git' '.git/config' '.git/hooks/' \
+  'githooks/' '.claude/' 'mise.toml' \
   'mise.local.toml' '.mise/' 'lefthook.yml' 'gh pr comment' 'gh pr create' \
   'gh issue create' 'gh api -X POST' 'commit -n' '--no-verify' 'core.hooksPath'; do
   if corpus_parse "$CORPUS" | awk -F'\t' -v s="$shape" '$1 == "row" && $3 == "floor" && index($9, s) {f=1} END {exit !f}'; then
@@ -331,7 +332,9 @@ done
 # Every `prefix:*` rule of the worker profile's deny block has a floor row it
 # matches, so the deny outcome is asserted against the actual block
 # (REQ-A1.11) rather than assumed from Claude Code's evaluation order. The
-# glob rules are the permission-matcher suite's to cover.
+# glob rules are only sampled by curated floor rows: nothing here generates a
+# matching command per glob rule, and the permission-matcher suite models
+# Claude Code's matcher without running the guard.
 floor_cmds=$(corpus_parse "$CORPUS" | awk -F'\t' '$1 == "row" && $3 == "floor" {print $9}')
 prefixes=$(jq -r '.permissions.deny[] | select(test("^Bash\\(.*:\\*\\)$")) | sub("^Bash\\(";"") | sub(":\\*\\)$";"")' \
   "$REPO_ROOT/config/worker-settings.json")

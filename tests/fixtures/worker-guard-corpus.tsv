@@ -139,6 +139,7 @@ row	expansion	defer	defer	defer	defer	test -v 'a[$(id)]'
 row	expansion	defer	defer	defer	defer	[ -v 'a[$(id)]' ]
 row	expansion	defer	defer	defer	defer	printf -v 'a[$(id)]' x
 row	expansion	defer	defer	defer	defer	printf -v PATH x
+row	expansion	defer	defer	defer	defer	for f in a b c d e f g h i j k l m n o p q; do grep -n x $f; done
 
 # --- run-order: cd into the worktree, then the rest analysed from there ---
 row	run-order	allow	allow	allow	allow	cd sub && git status --short
@@ -149,18 +150,32 @@ row	run-order	defer	defer	defer	defer	cd missing; rm -r ../x
 row	run-order	defer	defer	defer	defer	cd sub | cat
 row	run-order	defer	defer	defer	defer	cd sub; ls
 row	run-order	defer	defer	defer	defer	cd sub || ls
+row	run-order	defer	defer	defer	defer	cd sub & ls
+row	run-order	defer	defer	defer	defer	cd .. && ls
+row	run-order	defer	defer	defer	defer	cd sub/../.. && ls
+row	run-order	defer	defer	defer	defer	cd && ls
+row	run-order	defer	defer	defer	defer	timeout 5 cd sub && ls
 # plain assignments carry across && as their literal value
 row	run-order	allow	allow	allow	allow	f=notes.md && grep -n x $f
 row	run-order	allow	allow	allow	allow	S=specs/demo && grep -n REQ $S/test-spec.md | head
 row	run-order	allow	allow	allow	allow	C=scripts/ok.sh && bash $C --help
 row	run-order	defer	defer	defer	defer	x=-delete | find . $x
 row	run-order	defer	defer	defer	defer	x=-delete; find . $x
+row	run-order	allow	allow	allow	allow	F='a b' && grep -n x $F
+row	run-order	defer	defer	defer	defer	f=a"b"c && find . $f
 row	run-order	defer	defer	defer	defer	IFS=-; ls
+row	run-order	defer	defer	defer	defer	CDPATH=/ && cd sub
+row	run-order	defer	defer	defer	defer	HOME=@@OUTSIDE@@ && ls
+row	run-order	defer	defer	defer	defer	BASH_ENV=x && ls
 row	run-order	defer	defer	defer	defer	PATH=@@OUTSIDE@@ && ls
 row	run-order	defer	defer	defer	defer	f=*.md && find . $f
 row	run-order	defer	defer	defer	defer	f=$HOME && find $f
 row	run-order	defer	defer	defer	defer	read f; find . $f
 row	run-order	defer	defer	defer	defer	mapfile -t a < f; find . ${a[0]}
+row	run-order	defer	defer	defer	defer	printf -v f x && find . $f
+row	run-order	defer	defer	defer	defer	declare f=-delete && find . $f
+row	run-order	defer	defer	defer	defer	export f=-delete && find . $f
+row	run-order	defer	defer	defer	defer	let n=1 && sed -n ${n}p f
 # transparent prefixes: the wrapped command decides
 row	run-order	allow	allow	allow	allow	time grep -n x f
 row	run-order	allow	allow	allow	allow	time -p git status
@@ -185,6 +200,7 @@ row	run-order	allow	allow	allow	allow	git ls-remote origin refs/heads/main
 row	run-order	defer	defer	defer	defer	git ls-remote --upload-pack=x origin
 row	run-order	defer	defer	defer	defer	git ls-remote https://example.invalid/r.git
 row	run-order	defer	defer	defer	defer	git ls-remote ../other
+row	run-order	defer	defer	defer	defer	git ls-remote -u x origin
 row	run-order	allow	allow	allow	allow	jq --version
 row	run-order	allow	allow	allow	allow	shellcheck --version
 
@@ -207,6 +223,7 @@ row	substitution	defer	defer	defer	defer	echo "$(grep ')' f)"
 row	substitution	defer	defer	defer	defer	echo $(rm -rf build)
 row	substitution	defer	defer	defer	defer	n=$(grep -c x f) && sed -n ${n}p f
 row	substitution	defer	defer	defer	defer	d=$(mktemp -d) && ls $d
+row	substitution	allow	allow	allow	allow	echo "$(git log --oneline | head -1)"
 
 # --- own-branch: writes inside the worktree, git on the unit branch ---
 row	own-branch	defer	allow	defer	allow	rm -rf build
@@ -217,7 +234,6 @@ row	own-branch	defer	allow	defer	allow	mv build/a build/b
 row	own-branch	defer	allow	defer	allow	grep -n x f | tee build/out.txt
 row	own-branch	defer	allow	defer	allow	grep -n x f > build/out.txt
 row	own-branch	defer	allow	defer	allow	sed -i 's/a/b/' f
-row	own-branch	defer	allow	defer	allow	cp $TMPDIR/f.orig f
 row	own-branch	defer	allow	defer	allow	git add -A && git commit -q -m 'feat: x'
 row	own-branch	defer	allow	defer	allow	git add f
 row	own-branch	defer	allow	defer	allow	git rm -q g
@@ -243,6 +259,8 @@ row	own-branch	defer	defer	defer	defer	git fetch --upload-pack=x origin
 row	own-branch	defer	defer	defer	defer	git merge origin/other
 row	own-branch	defer	defer	defer	defer	git switch other
 row	own-branch	defer	defer	defer	defer	git checkout other
+row	own-branch	defer	defer	defer	defer	cp -s f g
+row	own-branch	defer	defer	defer	defer	git fetch ../other
 
 # --- scratch: writes inside the scratch root, never executing from it ---
 row	scratch	defer	defer	allow	allow	mkdir -p $TMPDIR/work
@@ -259,6 +277,12 @@ row	scratch	defer	defer	defer	defer	mkdir -p /tmp/work
 row	scratch	defer	defer	defer	defer	bash $TMPDIR/run.sh
 row	scratch	defer	defer	defer	defer	. $TMPDIR/env.sh
 row	scratch	defer	defer	defer	defer	sh @@SCRATCH@@/x.sh
+row	scratch	defer	defer	defer	defer	cp -l f $TMPDIR/x
+row	scratch	defer	defer	defer	defer	ln -s f $TMPDIR/l
+row	scratch	defer	defer	defer	defer	touch $TMPDIR/../outside/x
+row	scratch	defer	defer	defer	defer	TMPDIR=@@OUTSIDE@@ && touch $TMPDIR/x
+# a worktree target reached through `$TMPDIR` needs the scratch arm to resolve it
+row	scratch	defer	defer	defer	allow	cp $TMPDIR/f.orig f
 
 # --- floor: never approved, whatever the policy says ---
 row	floor	defer	defer	defer	defer	gh pr merge 5 --squash
@@ -276,6 +300,7 @@ row	floor	defer	defer	defer	defer	git reset --hard origin/main
 row	floor	defer	defer	defer	defer	git reset --soft HEAD~1
 # writes outside the worktree and the scratch root
 row	floor	defer	defer	defer	defer	touch @@OUTSIDE@@/x
+row	floor	defer	defer	defer	defer	touch outlink/x
 row	floor	defer	defer	defer	defer	echo x > /tmp/out
 row	floor	defer	defer	defer	defer	rm -rf ../x
 row	floor	defer	defer	defer	defer	cp f /tmp/f
@@ -285,6 +310,8 @@ row	floor	defer	defer	defer	defer	env FOO=bar rm -rf /
 row	floor	defer	defer	defer	defer	rm -rf build /
 # writes to paths a tool runs or reads as trust input
 row	floor	defer	defer	defer	defer	echo x > .git
+row	floor	defer	defer	defer	defer	echo x >> .git/config
+row	floor	defer	defer	defer	defer	cp f .git/hooks/pre-commit
 row	floor	defer	defer	defer	defer	touch githooks/pre-commit
 row	floor	defer	defer	defer	defer	mkdir -p .claude && touch .claude/settings.json
 row	floor	defer	defer	defer	defer	cp f .claude/x
@@ -306,6 +333,16 @@ row	floor	defer	defer	defer	defer	git -c core.hooksPath=/dev/null commit -m x
 row	floor	defer	defer	defer	defer	git config core.hooksPath githooks
 row	floor	defer	defer	defer	defer	git filter-branch --all
 row	floor	defer	defer	defer	defer	git filter-repo --force
+row	floor	defer	defer	defer	defer	git -C . push origin planwright/demo/task-1
+row	floor	defer	defer	defer	defer	git -C sub commit -m x
+row	floor	defer	defer	defer	defer	git -c core.hookspath=/dev/null commit -m x
+row	floor	defer	defer	defer	defer	git --config-env=core.hooksPath=HOOKS commit -m x
+row	floor	defer	defer	defer	defer	git commit --hooks-path=x -m y
+row	floor	defer	defer	defer	defer	git push origin +planwright/demo/task-1
+row	floor	defer	defer	defer	defer	git push origin : planwright/demo/task-1
+row	floor	defer	defer	defer	defer	git push --branches origin
+row	floor	defer	defer	defer	defer	git push
+row	floor	defer	defer	defer	defer	git push origin HEAD
 row	floor	defer	defer	defer	defer	gh pr ready --undo 5
 row	floor	defer	defer	defer	defer	git push -f origin planwright/demo/task-1
 row	floor	defer	defer	defer	defer	git push --mirror origin
@@ -342,6 +379,7 @@ row	uncovered	defer	defer	defer	defer	chmod +x scripts/ok.sh
 row	uncovered	defer	defer	defer	defer	find . -name x -delete
 row	uncovered	defer	defer	defer	defer	sort -o out f
 row	uncovered	defer	defer	defer	defer	sed -n 'w out' f
+row	uncovered	defer	defer	defer	defer	sed -n 'W out' f
 row	uncovered	defer	defer	defer	defer	sed 's/a/b/w out' f
 row	uncovered	defer	defer	defer	defer	sed '1e id' f
 row	uncovered	defer	defer	defer	defer	sed 's/a/id/e' f
