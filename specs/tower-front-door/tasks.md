@@ -307,36 +307,6 @@ router has not demonstrated (REQ-B1.6).
   this branch, and `main`'s own CI fails the same way. Decide how to clear
   it (fix that fixture on its branch, or record the hit in a gitleaks ignore
   on `main`); then re-run this PR's CI, which has not yet reached its tests.
-- **Task 10** — the convergence review of the tower posture extension (local
-  branch `planwright/tower-front-door/task-10`, not yet pushed) found that
-  three of the new guard shapes approve commands they should send to the
-  permission prompt. Each fix edits the command guards, which are
-  security-sensitive, so none was applied; each needs a decision.
-  1. Problem: the temp-file removal resolves the file's directory as text
-     before following links, so a path that goes through a symlink and then
-     `..` is approved and removes a file outside the temp directories.
-     Recommended fix: refuse any `.` or `..` path component, resolve the
-     directory physically, and check the file type on the path as written.
-  2. Problem: a symlink to a directory whose name holds a line break can
-     match the temp-directory list across two of its lines. Recommended fix:
-     compare the resolved directory with each temp directory separately, and
-     refuse one holding a line break.
-  3. Problem: the jq screen refuses `-L` but approves module text loaded
-     through `include` or `import` with a search path, or from `~/.jq`, which
-     can read the environment; the worker guard has the same gap on `main`.
-     Recommended fix: refuse a filter naming `include` or `import`, and any
-     jq run while `~/.jq` exists, in both guards.
-  4. Choose who may have temp files removed: accept any same-user file of
-     mktemp's default name in the temp directories (recommended, recorded as
-     a residual), require a tower-owned name prefix, or a per-session
-     directory.
-
-  Smaller recommended fixes in the same files wait on the same go: refuse
-  jq 1.6's `$ ENV` spelling; also accept the macOS per-user temp directory
-  mktemp writes to; drop the per-operand `basename`/`dirname` forks; bring
-  the guard header, the command-list comment, and the profile's description
-  in line with the new shapes. The full record is in the branch's
-  convergence handoff.
 
 ## Deferred
 
