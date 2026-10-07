@@ -1131,49 +1131,54 @@ guard_awk() {
 }
 
 # jq_program_safe <program>: 0 only when a jq filter is provably free of an
-# ENVIRONMENT read. jq's language has no exec and no file-write primitive at
-# all, so nothing else in a filter needs screening; what it does have is `env`
-# and `$ENV`, either of which hands the whole environment to the filter (and
-# from there to the transcript). That is the same call guard_awk makes on
-# `ENVIRON`, and for the same reason: the guard can see the read but not what
-# the program does with the value.
+# ENVIRONMENT read and loads no module text. jq's language has no exec and no
+# file-write primitive at all; what it does have is `env` and `$ENV`, either
+# of which hands the whole environment to the filter (and from there to the
+# transcript), and `include` / `import`, which pull in module text the guard
+# never sees, from a search path the filter itself can name. That is the same
+# call guard_awk makes on `ENVIRON`, and for the same reason: the guard can see
+# the read but not what the program does with the value.
 #
-# `$ENV` rejects wherever it appears. `env` rejects only as a WORD — a `.env`
-# or `.a.env` is a FIELD ACCESS on the input, not the builtin, and a `$env` is
-# someone's own variable, so a preceding `.` or `$` (or an identifier
-# character, as in `envelope`) leaves it alone. A mention the rule cannot place
-# that way, `"env"` inside a string included, defers; that costs the filter
-# shapes nothing.
+# Each of those names rejects only as a WORD: a preceding `.` makes it a FIELD
+# ACCESS on the input (`.env`, `.a.include`), an identifier character after it
+# a longer name (`envelope`, `ENVIRONMENT`), and a preceding `$` someone's own
+# variable (`$env`, `$import`). `ENV` takes no `$` exemption, since jq 1.6 and
+# older read `$ ENV`, with a space or a comment between the two, as `$ENV`. A
+# mention the rule cannot place that way, `"env"` inside a string included,
+# defers; that costs the filter shapes nothing.
 jq_program_safe() {
   local s=$1
-  local n=${#s} i=0 p a
+  local n=${#s} i=0 p a w
   case $s in
     *\$ENV*) return 1 ;;
   esac
   while [ "$i" -lt "$n" ]; do
-    if [ "${s:i:3}" = env ]; then
+    for w in env ENV include import; do
+      [ "${s:i:${#w}}" = "$w" ] || continue
+      a=${s:i+${#w}:1}
+      case $a in
+        [A-Za-z0-9_]) continue ;; # a longer name
+      esac
       p=''
       [ "$i" -gt 0 ] && p=${s:i-1:1}
-      a=${s:i+3:1}
-      case $p in
-        [A-Za-z0-9_.$]) ;; # a field access, a variable, or a longer name
-        *)
-          case $a in
-            [A-Za-z0-9_]) ;; # a longer name: `envelope`, `env_of`
-            *) return 1 ;;   # the builtin
-          esac
-          ;;
+      case $w:$p in
+        ENV:[A-Za-z0-9_.]) ;; # a field access or a longer name
+        ENV:*) return 1 ;;
+        *:[A-Za-z0-9_.$]) ;; # a field access, a variable, or a longer name
+        *) return 1 ;;
       esac
-    fi
+    done
     i=$((i + 1))
   done
   return 0
 }
 
-# guard_jq: strict flag allowlist plus the environment-read check on the
-# filter. Only the inline-filter form is verifiable, so `-f`/`--from-file` (a
-# filter in a file) and `-L`/`--library-path` (which is where `include` and
-# `import` read module text from) defer, as does any unrecognized flag.
+# guard_jq: strict flag allowlist plus the environment-read and module checks
+# on the filter. Only the inline-filter form is verifiable, so `-f`/`--from-file`
+# (a filter in a file) and `-L`/`--library-path` (which is where `include` and
+# `import` read module text from) defer, as does any unrecognized flag, and so
+# does every run while `~/.jq` exists: jq reads a `~/.jq` file into every
+# filter, and a `~/.jq` directory is on its module search path.
 #
 # Every value-taking flag is enumerated because the filter is identified BY
 # POSITION — it is the first non-flag operand — and a value sitting in that
@@ -1183,6 +1188,9 @@ jq_program_safe() {
 # `--args`/`--jsonargs`, and jq only ever READS those.
 guard_jq() {
   local i a t c expect=0 prog_taken=0 endflags=0
+  if [ -n "${HOME:-}" ] && { [ -e "$HOME/.jq" ] || [ -L "$HOME/.jq" ]; }; then
+    return 1
+  fi
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$expect" -gt 0 ]; then # a flag's value, never the filter

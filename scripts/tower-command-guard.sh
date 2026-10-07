@@ -18,9 +18,10 @@
 # It reuses the worker-command-guard PATTERN (worker-permission-ergonomics,
 # #236/#237) — same tokenizer, same allow-only / fail-closed / no-LLM security
 # contract — but fronts a DISTINCT safe set (D-8, REQ-C1.2): it ADDS the
-# tower-only shapes (tmux relay/observe, the `claude --worktree` hand-launch)
-# the worker guard defers, and it OMITS the worker-only shapes (`bats`, `tests/`
-# scripts, `fish -c` recursion) the tower does not run. The two guards are
+# tower-only shapes (tmux relay/observe, the `claude --worktree` hand-launch,
+# bare mktemp, the temp-file rm) the worker guard defers, and it OMITS the
+# worker-only shapes (`bats`, `tests/` scripts, `fish -c` recursion) the tower
+# does not run. The two guards are
 # separate files by design: worker-command-guard.sh is a shipped, consumed
 # mechanism this task must not perturb, and a self-contained security script is
 # auditable without a cross-file dependency that could break at runtime.
@@ -61,7 +62,8 @@
 # `||` `|` `&` and newlines; EVERY segment's simple command must be
 # independently known-safe. A command is known-safe only when its verb is on the
 # tower allowlist, its flags/args designate no output/target file and enable no
-# write or arbitrary execution, and it uses no construct the analyzer cannot
+# write or arbitrary execution (the bounded temp-file create and remove of
+# guard_mktemp and guard_rm excepted), and it uses no construct the analyzer cannot
 # confidently parse (command/process substitution, here-docs, subshell/brace
 # grouping, env-assignment prefixes, path-prefixed verbs, escaped operators,
 # ANSI-C quoting) — all of which defer, as does any other expansion left in a
@@ -1219,49 +1221,54 @@ guard_gh() {
 }
 
 # jq_program_safe <program>: 0 only when a jq filter is provably free of an
-# ENVIRONMENT read. jq's language has no exec and no file-write primitive at
-# all, so nothing else in a filter needs screening; what it does have is `env`
-# and `$ENV`, either of which hands the whole environment to the filter (and
-# from there to the transcript). That is the same call guard_awk makes on
-# `ENVIRON`, and for the same reason: the guard can see the read but not what
-# the program does with the value.
+# ENVIRONMENT read and loads no module text. jq's language has no exec and no
+# file-write primitive at all; what it does have is `env` and `$ENV`, either
+# of which hands the whole environment to the filter (and from there to the
+# transcript), and `include` / `import`, which pull in module text the guard
+# never sees, from a search path the filter itself can name. That is the same
+# call guard_awk makes on `ENVIRON`, and for the same reason: the guard can see
+# the read but not what the program does with the value.
 #
-# `$ENV` rejects wherever it appears. `env` rejects only as a WORD — a `.env`
-# or `.a.env` is a FIELD ACCESS on the input, not the builtin, and a `$env` is
-# someone's own variable, so a preceding `.` or `$` (or an identifier
-# character, as in `envelope`) leaves it alone. A mention the rule cannot place
-# that way, `"env"` inside a string included, defers; that costs the filter
-# shapes nothing.
+# Each of those names rejects only as a WORD: a preceding `.` makes it a FIELD
+# ACCESS on the input (`.env`, `.a.include`), an identifier character after it
+# a longer name (`envelope`, `ENVIRONMENT`), and a preceding `$` someone's own
+# variable (`$env`, `$import`). `ENV` takes no `$` exemption, since jq 1.6 and
+# older read `$ ENV`, with a space or a comment between the two, as `$ENV`. A
+# mention the rule cannot place that way, `"env"` inside a string included,
+# defers; that costs the filter shapes nothing.
 jq_program_safe() {
   local s=$1
-  local n=${#s} i=0 p a
+  local n=${#s} i=0 p a w
   case $s in
     *\$ENV*) return 1 ;;
   esac
   while [ "$i" -lt "$n" ]; do
-    if [ "${s:i:3}" = env ]; then
+    for w in env ENV include import; do
+      [ "${s:i:${#w}}" = "$w" ] || continue
+      a=${s:i+${#w}:1}
+      case $a in
+        [A-Za-z0-9_]) continue ;; # a longer name
+      esac
       p=''
       [ "$i" -gt 0 ] && p=${s:i-1:1}
-      a=${s:i+3:1}
-      case $p in
-        [A-Za-z0-9_.$]) ;; # a field access, a variable, or a longer name
-        *)
-          case $a in
-            [A-Za-z0-9_]) ;; # a longer name: `envelope`, `env_of`
-            *) return 1 ;;   # the builtin
-          esac
-          ;;
+      case $w:$p in
+        ENV:[A-Za-z0-9_.]) ;; # a field access or a longer name
+        ENV:*) return 1 ;;
+        *:[A-Za-z0-9_.$]) ;; # a field access, a variable, or a longer name
+        *) return 1 ;;
       esac
-    fi
+    done
     i=$((i + 1))
   done
   return 0
 }
 
-# guard_jq: strict flag allowlist plus the environment-read check on the
-# filter. Only the inline-filter form is verifiable, so `-f`/`--from-file` (a
-# filter in a file) and `-L`/`--library-path` (which is where `include` and
-# `import` read module text from) defer, as does any unrecognized flag.
+# guard_jq: strict flag allowlist plus the environment-read and module checks
+# on the filter. Only the inline-filter form is verifiable, so `-f`/`--from-file`
+# (a filter in a file) and `-L`/`--library-path` (which is where `include` and
+# `import` read module text from) defer, as does any unrecognized flag, and so
+# does every run while `~/.jq` exists: jq reads a `~/.jq` file into every
+# filter, and a `~/.jq` directory is on its module search path.
 #
 # Every value-taking flag is enumerated because the filter is identified BY
 # POSITION — it is the first non-flag operand — and a value sitting in that
@@ -1271,6 +1278,9 @@ jq_program_safe() {
 # `--args`/`--jsonargs`, and jq only ever READS those.
 guard_jq() {
   local i a t c expect=0 prog_taken=0 endflags=0
+  if [ -n "${HOME:-}" ] && { [ -e "$HOME/.jq" ] || [ -L "$HOME/.jq" ]; }; then
+    return 1
+  fi
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$expect" -gt 0 ]; then # a flag's value, never the filter
@@ -1326,38 +1336,43 @@ guard_jq() {
   return 0
 }
 
-# guard_mktemp: the bare form only, which creates one fresh, empty file under
-# TMPDIR and prints its name. A template, -p/--tmpdir or -t chooses where the
-# file goes; -d makes a directory guard_rm will not remove; -u only names a
-# path, which is the race mktemp exists to avoid.
+# guard_mktemp: the bare form only, which creates one fresh, empty file in the
+# system temp directory (TMPDIR, or on macOS the per-user temp directory) and
+# prints its name. A template, -p/--tmpdir or -t chooses where the file goes;
+# -d makes a directory guard_rm will not remove; -u only names a path, which is
+# the race mktemp exists to avoid.
 guard_mktemp() {
   [ "$cwn" -eq 1 ]
 }
 
-# temp_dirs: the canonical TMPDIR (when set and resolvable) and the canonical
-# /tmp, one per line. Read from the hook's own environment, never from the
-# analyzed command.
+# temp_dirs: the canonical TMPDIR (when set and resolvable), the canonical
+# macOS per-user temp directory (where bare mktemp writes there, whatever
+# TMPDIR says), and the canonical /tmp, one per line. Read from the hook's own
+# environment, never from the analyzed command.
 temp_dirs() {
-  local t=${TMPDIR:-}
+  local t=${TMPDIR:-} u
   if [ -n "$t" ]; then
-    (cd "$t" 2>/dev/null && pwd -P)
+    (cd -P -- "$t" 2>/dev/null && pwd -P)
   fi
-  (cd /tmp 2>/dev/null && pwd -P)
+  if u=$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null) && [ -n "$u" ]; then
+    (cd -P -- "$u" 2>/dev/null && pwd -P)
+  fi
+  (cd -P -- /tmp 2>/dev/null && pwd -P)
 }
 
-# guard_rm: removing the tower's own mktemp files, so a flight petition's ask
-# and grounds files can be cleaned up once the dispatch returns. Each operand
-# must be an absolute path whose name has mktemp's default shape (`tmp.` and
-# at least six letters or digits), whose directory canonicalizes to exactly
-# TMPDIR or /tmp (never below them), and that is not a symlink, a directory,
-# or any other non-regular file. A name that does not exist yet is allowed:
-# without -r rm cannot take a directory that appears later, and a symlink that
-# appears later is unlinked, never followed. `-f` and `--` are the only flags;
-# -r/-R/-d (directories), -i/-I/-v and every other flag defer.
+# guard_rm: removing mktemp-named temp files, so a flight petition's ask and
+# grounds files can be cleaned up once the dispatch returns. Each operand must
+# be an absolute path with no `.` or `..` component, whose name has mktemp's
+# default shape (`tmp.` and at least six letters or digits), whose directory
+# resolves physically to exactly one of temp_dirs (never below them), and that
+# is not a symlink, a directory, or any other non-regular file. A name that
+# does not exist yet is allowed: without -r rm cannot take a directory that
+# appears later, and a symlink that appears later is unlinked, never followed.
+# `-f` and `--` are the only flags; -r/-R/-d (directories), -i/-I/-v and every
+# other flag defer. The guard cannot tell whose file it is: any same-user file
+# of that name in those directories qualifies.
 guard_rm() {
-  local i a d b s full dirs endflags=0 operands=0
-  dirs=$(temp_dirs)
-  [ -n "$dirs" ] || return 1
+  local i a d b s dirs endflags=0 operands=0
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$endflags" = 0 ]; then
@@ -1371,13 +1386,14 @@ guard_rm() {
       esac
     fi
     # A newline would let a crafted directory name span lines of the
-    # newline-joined directory list below.
+    # newline-joined directory list below. A dot component would let a logical
+    # path walk back out through a symlink rm itself follows.
     case $a in
-      *"$NL"*) return 1 ;;
+      *"$NL"* | */./* | */../* | */. | */..) return 1 ;;
       /*) ;;
       *) return 1 ;;
     esac
-    b=$(basename "$a")
+    b=${a##*/}
     case $b in
       tmp.*) s=${b#tmp.} ;;
       *) return 1 ;;
@@ -1386,16 +1402,20 @@ guard_rm() {
     case $s in
       *[!A-Za-z0-9]*) return 1 ;;
     esac
-    d=$(cd "$(dirname "$a")" 2>/dev/null && pwd -P) || return 1
+    [ -L "$a" ] && return 1
+    if [ -e "$a" ]; then
+      [ -f "$a" ] || return 1
+    fi
+    d=$(cd -P -- "${a%/*}/" 2>/dev/null && pwd -P) || return 1
+    case $d in
+      *"$NL"*) return 1 ;;
+    esac
+    [ -n "${dirs-}" ] || dirs=$(temp_dirs)
+    [ -n "$dirs" ] || return 1
     case $NL$dirs$NL in
       *"$NL$d$NL"*) ;;
       *) return 1 ;;
     esac
-    full="$d/$b"
-    [ -L "$full" ] && return 1
-    if [ -e "$full" ]; then
-      [ -f "$full" ] || return 1
-    fi
     operands=$((operands + 1))
   done
   [ "$operands" -ge 1 ]
@@ -1826,7 +1846,8 @@ loop_next() {
 # (tmux, claude) carry their own tight guards; and the worker-only shapes
 # (`fish`, `bats`) are deliberately ABSENT so the tower set is distinct from the
 # worker set (REQ-C1.2). Every writer / command-runner / arbitrary-exec verb is
-# simply absent here and so defers.
+# simply absent here and so defers, with one bounded exception: guard_mktemp and
+# guard_rm create and remove the front door's own temp files and nothing else.
 classify_verb() {
   local verb=$1
   case $verb in
@@ -1846,6 +1867,7 @@ classify_verb() {
     find) guard_find ;;
     sed) guard_sed ;;
     awk) guard_awk ;;
+    jq) guard_jq ;;
     # markdownlint / markdownlint-cli2 are deliberately ABSENT from the tower
     # safe set: their --config/-c and -r/--rules flags load an arbitrary file as
     # an executable module (a code-exec vector a denylist leaks), and the tower
@@ -1856,7 +1878,6 @@ classify_verb() {
     git) guard_git ;;
     gh) guard_gh ;;
     mise) guard_mise ;;
-    jq) guard_jq ;;
     # The front door's flight-petition temp files: create, then clean up.
     mktemp) guard_mktemp ;;
     rm) guard_rm ;;

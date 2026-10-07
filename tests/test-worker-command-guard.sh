@@ -1054,6 +1054,32 @@ assert_defer "jq unknown long flag" "jq --frobnicate '.a' file.json"
 assert_defer "jq unknown short flag" "jq -z '.a' file.json"
 assert_defer "jq dangling value-flag" "jq --indent"
 assert_defer "jq with no filter at all" "jq"
+# Module text is program text the guard never sees: an include or import
+# reads it from a search path the filter itself can name, and a ~/.jq file is
+# read into every run. jq 1.6 and older also read `$ ENV` (a space or a
+# comment between the two) as the environment.
+assert_defer "jq include with a search path in the filter" "jq -n 'include \"m\" {search:\"/tmp/mods\"}; f'"
+assert_defer "jq import with a search path in the filter" "jq -n 'import \"m\" as e {search:\"/tmp/mods\"}; .'"
+assert_defer "jq include with no search path" "jq -n 'include \"m\"; .'"
+assert_defer "jq import of data" "jq -n 'import \"d\" as \$d; \$d'"
+assert_allow "jq .include is a field access" "jq '.include' file.json"
+assert_allow "jq .imports is a field access" "jq '.a.imports' file.json"
+assert_allow "jq \$import is a variable" "jq --arg import 1 '\$import' file.json"
+assert_defer "jq \$ ENV with a space reads the environment on jq 1.6" "jq -n '\$ ENV'"
+assert_defer "jq \$ ENV across a comment reads the environment on jq 1.6" "jq -n '\$#c
+ENV'"
+assert_defer "jq bare ENV word" "jq -n 'ENV'"
+assert_allow "jq .ENV is a field access" "jq '.ENV' file.json"
+assert_allow "jq ENVIRONMENT is a longer name" "jq '.a | .ENVIRONMENT' file.json"
+JQ_HOME="$(mktemp -d)" || exit 1
+: >"$JQ_HOME/.jq"
+HOOK_ENV=(HOME="$JQ_HOME")
+assert_defer "jq while a ~/.jq file is read into every run" "jq . file.json"
+rm -f "$JQ_HOME/.jq"
+mkdir "$JQ_HOME/.jq"
+assert_defer "jq while a ~/.jq module directory exists" "jq . file.json"
+HOOK_ENV=()
+rm -rf "$JQ_HOME"
 # yq EDITS IN PLACE.
 assert_allow "yq read" "yq . file.yml"
 assert_allow "yq -I indent is not -i inplace" "yq -I4 . file.yml"

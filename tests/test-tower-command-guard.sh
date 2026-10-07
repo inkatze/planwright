@@ -275,6 +275,30 @@ assert_defer "jq --from-file program file is unscreenable" "jq --from-file prog.
 assert_defer "jq --library-path loads module text" "jq --library-path /tmp/mods '.' file.json"
 assert_defer "jq unknown short flag" "jq -z '.' file.json"
 assert_defer "jq value flag dangling after the filter" "jq '.a' --arg x"
+# Module text is program text the guard never sees: an include or import
+# reads it from a search path the filter itself can name, and a ~/.jq file is
+# read into every run. jq 1.6 and older also read `$ ENV` (a space or a
+# comment between the two) as the environment.
+assert_defer "jq include with a search path in the filter" "jq -n 'include \"m\" {search:\"/tmp/mods\"}; f'"
+assert_defer "jq import with a search path in the filter" "jq -n 'import \"m\" as e {search:\"/tmp/mods\"}; .'"
+assert_defer "jq include with no search path" "jq -n 'include \"m\"; .'"
+assert_defer "jq import of data" "jq -n 'import \"d\" as \$d; \$d'"
+assert_allow "jq .include is a field access" "jq '.include' file.json"
+assert_allow "jq .imports is a field access" "jq '.a.imports' file.json"
+assert_allow "jq \$import is a variable" "jq --arg import 1 '\$import' file.json"
+assert_defer "jq \$ ENV with a space reads the environment on jq 1.6" "jq -n '\$ ENV'"
+assert_defer "jq \$ ENV across a comment reads the environment on jq 1.6" "jq -n '\$#c
+ENV'"
+assert_defer "jq bare ENV word" "jq -n 'ENV'"
+assert_allow "jq .ENV is a field access" "jq '.ENV' file.json"
+assert_allow "jq ENVIRONMENT is a longer name" "jq '.a | .ENVIRONMENT' file.json"
+JQ_HOME="$(mktemp -d)" || exit 1
+: >"$JQ_HOME/.jq"
+HOME="$JQ_HOME" assert_defer "jq while a ~/.jq file is read into every run" "jq . file.json"
+rm -f "$JQ_HOME/.jq"
+mkdir "$JQ_HOME/.jq"
+HOME="$JQ_HOME" assert_defer "jq while a ~/.jq module directory exists" "jq . file.json"
+rm -rf "$JQ_HOME"
 
 echo "### tower-front-door REQ-A1.3 — the flight petition's temp files: mktemp and their removal ALLOW"
 # A flight petition's ask and grounds go into the tower's own mktemp files,
@@ -333,8 +357,20 @@ assert_defer "a verbose flag" "rm -v $TOWER_TMP/tmp.Ab3dE6gH9j"
 assert_allow "a repeated -f" "rm -f -f $TOWER_TMP/tmp.Ab3dE6gH9j"
 assert_defer "a mktemp-shaped name with a non-alphanumeric suffix" "rm -f $TOWER_TMP/tmp.abc-def-12"
 assert_defer "a mktemp-named FIFO" "rm -f $TOWER_TMP/tmp.Fifo012345"
-assert_allow "a dot-dot through a real directory back into TMPDIR" "rm -f $TOWER_TMP/sub/../tmp.Ab3dE6gH9j"
+assert_defer "a dot-dot through a real directory back into TMPDIR" "rm -f $TOWER_TMP/sub/../tmp.Ab3dE6gH9j"
 assert_defer "a dot-dot through a real directory up out of TMPDIR" "rm -f $TOWER_TMP/sub/../../tmp.Ab3dE6gH9j"
+assert_defer "a dot component" "rm -f $TOWER_TMP/./tmp.Ab3dE6gH9j"
+assert_defer "a trailing dot-dot" "rm -f $TOWER_TMP/sub/.."
+# A logical `cd` drops `<link>/..` as text before following the link, so a
+# symlink inside TMPDIR whose target sits elsewhere would resolve the
+# operand's directory to TMPDIR while rm itself follows the link.
+if ! { mkdir -p "$SANDBOX/elsewhere/sub" && : >"$SANDBOX/elsewhere/tmp.Ab3dE6gH9j" \
+  && ln -s "$SANDBOX/elsewhere/sub" "$TOWER_TMP/tmp.Esc0123456"; }; then
+  echo "FAIL: could not build the symlink-escape fixture" >&2
+  exit 1
+fi
+assert_defer "a symlink then dot-dot out of TMPDIR" "rm -f $TOWER_TMP/tmp.Esc0123456/../tmp.Ab3dE6gH9j"
+assert_defer "a symlinked directory inside TMPDIR" "rm -f $TOWER_TMP/tmp.Esc0123456/tmp.Ab3dE6gH9j"
 RUN_TMPDIR="$SANDBOX/tower-tmp-link" assert_allow "a TMPDIR spelled through a symlink matches its canonical directory" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
 RUN_TMPDIR='' assert_allow "no TMPDIR: a mktemp file directly in /tmp" "rm -f $SLASH_TMP_FILE"
 RUN_TMPDIR='' assert_defer "no TMPDIR: a mktemp file outside /tmp" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
@@ -353,6 +389,13 @@ SPANNING_DIR="$TOWER_TMP
 $(cd /tmp && pwd -P)"
 mkdir -p "$SPANNING_DIR" && : >"$SPANNING_DIR/tmp.Ab3dE6gH9j"
 assert_defer "an operand whose directory spans the directory list's lines" "rm -f '$SPANNING_DIR/tmp.Ab3dE6gH9j'"
+ln -s "$SPANNING_DIR" "$SANDBOX/span-link" || exit 1
+assert_defer "a symlink to a directory whose canonical path spans the list's lines" "rm -f $SANDBOX/span-link/tmp.Ab3dE6gH9j"
+# macOS mktemp writes to the per-user temp directory whatever TMPDIR says, so
+# the file it prints must stay removable when the two differ.
+REAL_TMP_FILE="$(TMPDIR="$TOWER_TMP/" mktemp)" || exit 1
+assert_allow "removal of a file real mktemp created" "rm -f $REAL_TMP_FILE"
+rm -f "$REAL_TMP_FILE"
 assert_defer "a suffix too short for mktemp" "rm -f $TOWER_TMP/tmp.abc"
 RUN_TMPDIR="$SANDBOX" assert_defer "a mktemp file in a directory TMPDIR does not name" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
 unset RUN_TMPDIR
