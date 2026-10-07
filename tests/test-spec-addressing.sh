@@ -116,11 +116,13 @@ seam_forms() {
       fail "$sf_name: '$sf_form' differs from the bare identifier: $sf_got"
     fi
   done
-  sf_bad=$("$sf_fn" "$BUNDLE_FILE")
-  case $sf_bad in
-    *"rc=0" | *"rc=$sf_rc") fail "$sf_name: a bundle-file path was not refused: $sf_bad" ;;
-    *) ok "$sf_name: a bundle-file path is refused" ;;
-  esac
+  for sf_form in "$BUNDLE_FILE" demo//; do
+    sf_bad=$("$sf_fn" "$sf_form")
+    case $sf_bad in
+      *"rc=0" | *"rc=$sf_rc") fail "$sf_name: '$sf_form' was not refused: $sf_bad" ;;
+      *) ok "$sf_name: '$sf_form' is refused" ;;
+    esac
+  done
 }
 
 # --- The mapper --------------------------------------------------------------
@@ -169,6 +171,12 @@ seam_forms dispatch-fetch fetch_form 3
 # The `--spec=` spelling maps the same way.
 same "dispatch-fetch: --spec=specs/demo/ answers as the bare identifier" \
   "$(outcome "$S/dispatch-fetch.sh" --spec=specs/demo/ .)" "$(fetch_form demo)"
+# The identifier's length bound holds after the mapping.
+long=$(printf 'a%.0s' $(seq 65))
+case $(outcome "$S/dispatch-fetch.sh" --spec "specs/$long" .) in
+  *"longer than 64"*"rc=2") ok "dispatch-fetch: an identifier over 64 characters is refused" ;;
+  *) fail "dispatch-fetch: an identifier over 64 characters was not refused" ;;
+esac
 # The usage names the canonical form.
 got=$(outcome "$S/dispatch-fetch.sh" --bogus)
 case $got in
@@ -234,6 +242,24 @@ seam_forms fleet-tower-marker marker_form
 headless_form() { outcome "$S/fleet-dispatch-headless.sh" status "$1" 1 --repo-root "$tmp/repo"; }
 # A unit never launched is absent, exit 5.
 seam_forms fleet-dispatch-headless headless_form 5
+# Launch maps the alias too: every form reaches the missing-worktree refusal,
+# which names the mapped identifier, while a path is refused as a spec id.
+launch_form() {
+  outcome sh -c 'echo prompt | "$@"' sh "$S/fleet-dispatch-headless.sh" launch "$1" 1 \
+    --worktree "$tmp/no-such-worktree" --repo-root "$tmp/repo"
+}
+want=$(launch_form demo)
+for f in $FORMS; do
+  same "fleet-dispatch-headless launch: '$f' answers as the bare identifier" "$(launch_form "$f")" "$want"
+done
+case $(launch_form "$BUNDLE_FILE") in
+  "$want") fail "fleet-dispatch-headless launch: a bundle-file path answered as the bare identifier" ;;
+  *"rc=2") ok "fleet-dispatch-headless launch: a bundle-file path is refused" ;;
+  *) fail "fleet-dispatch-headless launch: a bundle-file path was not refused: $(launch_form "$BUNDLE_FILE")" ;;
+esac
+
+walk_form() { outcome "$S/spec-walkthrough.sh" --scope tasks "$1"; }
+seam_forms spec-walkthrough walk_form
 
 # Each dispatch creates its task worktree, so each form gets its own copy of
 # the fixture, and the copy's path is normalized away.
@@ -365,13 +391,22 @@ for s in orchestrate execute-task spec-kickoff spec-walkthrough; do
     fail "$s: argument-hint names no spec argument"
   fi
 done
+# flat <file> — the file on one line, whitespace runs collapsed, so a command
+# the prose wraps across lines still matches.
+flat() { tr '\n' ' ' <"$1" | tr -s ' \t' ' '; }
 for s in orchestrate execute-task; do
-  if grep -Fq -- '--spec specs/<spec>' "$ROOT/skills/$s/SKILL.md"; then
-    fail "$s: calls dispatch-fetch with the alias"
-  else
-    ok "$s: calls dispatch-fetch with the bare identifier"
-  fi
+  case $(flat "$ROOT/skills/$s/SKILL.md") in
+    *"dispatch-fetch.sh --spec specs/"*) fail "$s: calls dispatch-fetch with the alias" ;;
+    *"dispatch-fetch.sh --spec <spec>"*) ok "$s: calls dispatch-fetch with the bare identifier" ;;
+    *) fail "$s: no dispatch-fetch --spec call found" ;;
+  esac
 done
+# No skill or doctrine names a unit scope by the spec's path.
+if grep -rnE 'specs/<spec>:|specs/[a-z0-9-]+:task-' "$ROOT/skills" "$ROOT/doctrine" >"$tmp/scope-paths"; then
+  fail "a unit scope is named by the spec's path: $(cat "$tmp/scope-paths")"
+else
+  ok "every unit scope in the skills and doctrine names the bare identifier"
+fi
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
