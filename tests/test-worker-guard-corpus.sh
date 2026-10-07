@@ -115,6 +115,42 @@ else
   fail "self-check: a miss in one column went unnoticed (failed=$CORPUS_FAILED)"
 fi
 
+# A hook call that dies yields no verdict, which must refuse the replay
+# rather than read as a defer and pass every defer-expected row.
+dying_guard() {
+  cat >/dev/null
+  kill -9 "$(sh -c 'echo $PPID')"
+}
+f=$(synthetic dying "$(row live defer defer defer defer false)")
+corpus_replay "$f" dying_guard >/dev/null 2>&1
+if [ $? -eq 2 ]; then
+  pass "self-check: a hook call that dies refuses the replay"
+else
+  fail "self-check: a dying hook call did not refuse the replay"
+fi
+
+f=$(synthetic bad-column "$(row live allow allow allow allow true)")
+corpus_replay "$f" fake_guard "1 5" >/dev/null 2>&1
+if [ $? -eq 2 ]; then
+  pass "self-check: an unknown policy column refuses the replay"
+else
+  fail "self-check: an unknown policy column was skipped"
+fi
+
+# The replay waits for its own hook calls only, never the caller's jobs.
+sleep 30 &
+bg=$!
+start=$SECONDS
+corpus_replay "$f" fake_guard 1 >/dev/null 2>&1
+took=$((SECONDS - start))
+kill "$bg" 2>/dev/null
+wait "$bg" 2>/dev/null
+if [ "$took" -lt 15 ]; then
+  pass "self-check: the replay does not wait on the caller's background jobs"
+else
+  fail "self-check: the replay waited ${took}s on a caller's background job"
+fi
+
 # Each malformed corpus must refuse (exit 2) before replaying anything, and
 # for its own reason, so one malformation cannot stand in for another.
 refuses() {

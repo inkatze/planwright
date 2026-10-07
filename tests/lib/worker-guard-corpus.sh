@@ -28,7 +28,8 @@
 #                        (those of them that allowed), and CORPUS_PENDING
 #                        (pending rows that only stalled); prints each miss
 #                        on stderr. Exit 0 when no row failed, 1 when one
-#                        did, 2 when the corpus or the sandbox is unusable
+#                        did, 2 when the corpus, the column list, or the
+#                        sandbox is unusable or a hook call yields no verdict
 #
 # The session record each column injects is the guard's launch-time input
 # (the policy, the unit identity, the scratch root, the audit-log home, the
@@ -172,20 +173,22 @@ corpus_bind() {
   printf '%s' "$c"
 }
 
-# corpus_decide <runner> <column> <command>: prints allow or defer. The
-# decision field is parsed, never substring-matched, so a reason text that
-# happens to say "allow" is not an approval; anything but a parsed `allow`
-# (deny, ask, malformed output, silence) is a defer.
+# corpus_decide <runner> <column> <command>: prints allow, defer, or error.
+# The decision field is parsed, never substring-matched, so a reason text
+# that happens to say "allow" is not an approval; anything but a parsed
+# `allow` (deny, ask, malformed output, silence) is a defer. A hook exits 0
+# on every path, so a non-zero exit, like a payload that cannot be built, is
+# the harness failing and prints error.
 corpus_decide() {
   local runner=$1 col=$2 payload out
   payload=$(jq -cn --arg c "$3" --arg w "$CORPUS_WORKTREE" --arg s "$CORPUS_SESSION_ID" \
     '{hook_event_name:"PreToolUse", session_id:$s, tool_name:"Bash",
       tool_input:{command:$c}, cwd:$w}') || {
-    echo defer
+    echo error
     return
   }
   out=$(
-    cd "$CORPUS_WORKTREE" || exit 0
+    cd "$CORPUS_WORKTREE" || exit 1
     unset CLAUDE_DIR GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR
     # HOME is pinned so the guard never reads the host's installed plugins.
     printf '%s' "$payload" \
@@ -193,7 +196,10 @@ corpus_decide() {
         CLAUDE_PLUGIN_ROOT="$CORPUS_PLUGIN_ROOT" PLANWRIGHT_ROOT="$CORPUS_PLUGIN_ROOT" \
         PLANWRIGHT_WORKER_SESSION_RECORD="$CORPUS_BOX/state/record.$col" \
         "$runner" 2>/dev/null
-  )
+  ) || {
+    echo error
+    return
+  }
   case $(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // .permissionDecision // empty' 2>/dev/null) in
     allow) echo allow ;;
     *) echo defer ;;
@@ -202,7 +208,7 @@ corpus_decide() {
 
 corpus_replay() {
   local file=$1 runner=$2 columns=${3:-1 2 3 4} parsed
-  local kind line class state v1 v2 v3 v4 cmd col want got missed allowed verdicts
+  local kind line class state v1 v2 v3 v4 cmd col want got missed allowed verdicts pids broken=0
   CORPUS_ROWS=0
   CORPUS_FAILED=0
   CORPUS_FALSE_ALLOWS=0
@@ -211,8 +217,21 @@ corpus_replay() {
     echo "corpus: no sandbox; call corpus_sandbox first" >&2
     return 2
   }
+  [ -n "$columns" ] || {
+    echo "corpus: no policy column to replay" >&2
+    return 2
+  }
+  for col in $columns; do
+    case $col in
+      1 | 2 | 3 | 4) ;;
+      *)
+        echo "corpus: unknown policy column: $col" >&2
+        return 2
+        ;;
+    esac
+  done
   parsed=$(corpus_parse "$file") || return 2
-  verdicts=$(mktemp -d) || return 2
+  verdicts=$(mktemp -d "$CORPUS_BOX/verdicts.XXXXXX") || return 2
   while IFS="$CORPUS_TAB" read -r kind line class state v1 v2 v3 v4 cmd; do
     [ "$kind" = row ] || continue
     CORPUS_ROWS=$((CORPUS_ROWS + 1))
@@ -220,21 +239,32 @@ corpus_replay() {
     missed=0
     allowed=0
     # The columns are independent hook calls, so they run side by side.
+    pids=
     for col in $columns; do
-      rm -f "$verdicts/$col"
+      : >"$verdicts/$col"
       corpus_decide "$runner" "$col" "$cmd" >"$verdicts/$col" &
+      pids="$pids $!"
     done
-    wait
+    # shellcheck disable=SC2086  # a list of pids
+    wait $pids
     for col in $columns; do
       case $col in
         1) want=$v1 ;;
         2) want=$v2 ;;
         3) want=$v3 ;;
         4) want=$v4 ;;
-        *) continue ;;
       esac
-      got=$(cat "$verdicts/$col" 2>/dev/null)
-      [ "$got" = allow ] || got=defer
+      got=
+      read -r got <"$verdicts/$col" || :
+      case $got in
+        allow | defer) ;;
+        *)
+          printf 'corpus: no verdict (%s, line %s, policy "%s"): the hook call failed\n' \
+            "$class" "$line" "$(corpus_policy "$col")" >&2
+          broken=1
+          break 2
+          ;;
+      esac
       [ "$got" = "$want" ] && continue
       missed=1
       if [ "$got" = allow ]; then
@@ -263,5 +293,6 @@ corpus_replay() {
 $parsed
 EOF
   rm -rf "$verdicts"
+  [ "$broken" -eq 0 ] || return 2
   [ "$CORPUS_FAILED" -eq 0 ]
 }
