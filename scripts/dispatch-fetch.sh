@@ -29,9 +29,10 @@
 #                          local `main` is never advanced).
 #   --spec <spec>          also compute and print the content anchor over the
 #                          resolved ref's version of that spec bundle, found
-#                          under the spec root <repo-root> resolves. The
-#                          identifier is bare; `specs/<spec>` is accepted as
-#                          an alias, either with one trailing slash.
+#                          under the spec root <repo-root> resolves, which
+#                          that repository must hold. The identifier is bare;
+#                          `specs/<spec>` is accepted as an alias, with or
+#                          without one trailing slash.
 #   --best-effort          single fetch attempt (no retries) for the reconcile
 #                          sweep, so a down remote does not stall each idle cycle.
 #
@@ -62,7 +63,9 @@
 #      — park. Fail closed on EVERY path rather than emit a success/degrade exit
 #      that carries no anchor, so the --spec guarantee "an anchor record OR a
 #      nonzero park code" holds uniformly online and offline.
-#   2  usage / invalid input / internal failure (fail closed).
+#   2  usage / invalid input / internal failure (fail closed), including a
+#      --spec whose spec root does not resolve or is not held by <repo-root>'s
+#      repository.
 #
 # Environment overrides (tests, worktree callers):
 #   PLANWRIGHT_DISPATCH_FETCH_STATE_DIR  dir holding the last-fetch TTL stamp
@@ -182,7 +185,7 @@ if [ "$spec_given" -eq 1 ]; then
   spec_name=$SPEC_ID
   case "$spec_name" in
     '' | */* | *[!a-z0-9-]* | [!a-z0-9]*)
-      printf '%s\n' "dispatch-fetch: --spec must be a spec identifier, not a path (got '$(sanitize_printable "$spec_arg")')" >&2
+      printf '%s\n' "dispatch-fetch: --spec must be a spec identifier matching ^[a-z0-9][a-z0-9-]*\$ (got '$(sanitize_printable "$spec_arg")')" >&2
       exit 2
       ;;
     flight)
@@ -206,17 +209,25 @@ fi
 repo_root=$repo_top
 
 # The bundle's path inside the repository, from the spec root <repo-root>
-# resolves. The anchor is read from a ref of this repository, so a root
-# outside it has no committed view here to read.
+# resolves. The anchor is read from a ref of this repository, so a root this
+# repository does not hold (outside it, or a separate repository nested in the
+# checkout) has no committed view here to read.
 if [ "$spec_given" -eq 1 ]; then
-  spec_root=$(cd -- "$repo_root" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec) || {
+  spec_line=$(cd -- "$repo_root" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec --explain) || {
     printf '%s\n' "dispatch-fetch: the spec root for '$(sanitize_printable "$repo_root")' did not resolve" >&2
     exit 2
   }
-  case $spec_root in
-    "$repo_root"/*) spec_rel="${spec_root#"$repo_root"/}/$spec_name" ;;
+  # <source> TAB <path> TAB <posture> TAB <view>; the resolver refuses a root
+  # whose path carries a tab, so the fields split cleanly.
+  spec_rest=${spec_line#*"$TAB"}
+  spec_root=${spec_rest%%"$TAB"*}
+  spec_rest=${spec_rest#*"$TAB"}
+  spec_posture=${spec_rest%%"$TAB"*}
+  case $spec_posture:$spec_root in
+    "same-repo:$repo_root") spec_rel=$spec_name ;;
+    "same-repo:$repo_root"/*) spec_rel="${spec_root#"$repo_root"/}/$spec_name" ;;
     *)
-      printf '%s\n' "dispatch-fetch: the spec root '$(sanitize_printable "$spec_root")' lies outside '$(sanitize_printable "$repo_root")', so no ref of it holds the bundle" >&2
+      printf '%s\n' "dispatch-fetch: the spec root '$(sanitize_printable "$spec_root")' ($(sanitize_printable "$spec_posture")) is not held by the repository at '$(sanitize_printable "$repo_root")', so no ref of it holds the bundle" >&2
       exit 2
       ;;
   esac

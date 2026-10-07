@@ -55,14 +55,19 @@ hermetic() {
 }
 mkdir -p "$tmp/home" "$tmp/fleet"
 
+# write_bundle <dir> — the demo bundle's four files in <dir>.
+write_bundle() {
+  mkdir -p "$1" || return 1
+  printf '# Demo — Requirements\n\n**Status:** Ready\n**Format-version:** 2\n\nA fixture.\n' >"$1/requirements.md"
+  printf '# Demo — Design\n\nA fixture.\n' >"$1/design.md"
+  printf '# Demo — Test spec\n\nA fixture.\n' >"$1/test-spec.md"
+  printf '# Demo — Tasks\n\n**Status:** Ready\n**Format-version:** 2\n\n## Tasks\n\n### Task 1 — the unit\n\n- **Deliverables:** a thing\n- **Done when:** it exists\n- **Dependencies:** none\n- **Citations:** D-1\n- **Estimated effort:** 1 day\n' >"$1/tasks.md"
+}
+
 # make_repo <dir> — a repository holding the demo bundle on main.
 make_repo() {
   hermetic git -c init.defaultBranch=main init -q "$1" || return 1
-  mkdir -p "$1/specs/demo" || return 1
-  printf '# Demo — Requirements\n\n**Status:** Ready\n**Format-version:** 2\n\nA fixture.\n' >"$1/specs/demo/requirements.md"
-  printf '# Demo — Design\n\nA fixture.\n' >"$1/specs/demo/design.md"
-  printf '# Demo — Test spec\n\nA fixture.\n' >"$1/specs/demo/test-spec.md"
-  printf '# Demo — Tasks\n\n**Status:** Ready\n**Format-version:** 2\n\n## Tasks\n\n### Task 1 — the unit\n\n- **Deliverables:** a thing\n- **Done when:** it exists\n- **Dependencies:** none\n- **Citations:** D-1\n- **Estimated effort:** 1 day\n' >"$1/specs/demo/tasks.md"
+  write_bundle "$1/specs/demo" || return 1
   hermetic git -C "$1" add -A && hermetic git -C "$1" commit -q -m init
 }
 make_repo "$tmp/repo" || {
@@ -170,6 +175,48 @@ case $got in
   *"--spec <spec>"*) ok "dispatch-fetch: usage names the bare identifier" ;;
   *) fail "dispatch-fetch: usage does not name the bare identifier: $got" ;;
 esac
+
+# The bundle's path at the ref follows the spec root the repository resolves:
+# the repository root itself and a relocated root inside it answer as the
+# default does, while a root no ref of this repository holds (a separate
+# repository nested in the checkout, a directory outside it) is refused.
+# root_repo <dir> <bundle-parent> <spec_root value> [nested] — a repository
+# with the demo bundle under <bundle-parent>, marked as the configured root.
+root_repo() {
+  rr_d=$1 rr_p=$1/$2
+  hermetic git -c init.defaultBranch=main init -q "$rr_d" || return 1
+  if [ "${4:-}" = nested ]; then
+    printf '%s/\n' "$2" >"$rr_d/.gitignore"
+    hermetic git -c init.defaultBranch=main init -q "$rr_p" || return 1
+  fi
+  write_bundle "$rr_p/demo" || return 1
+  printf 'project: fixture\nlayout: 1\n' >"$rr_p/planwright-spec-root.yml"
+  mkdir -p "$rr_d/.claude"
+  printf 'spec_root: %s\n' "$3" >"$rr_d/.claude/planwright.local.yml"
+  hermetic git -C "$rr_d" add -A && hermetic git -C "$rr_d" commit -q -m init
+}
+root_fetch() {
+  (
+    cd "$1" && hermetic "$S/dispatch-fetch.sh" --spec demo . 2>&1
+    echo "rc=$?"
+  )
+}
+want=$(fetch_form demo)
+root_repo "$tmp/root-top" . . || fail "dispatch-fetch: could not build the repository-root fixture"
+same "dispatch-fetch: a spec root at the repository root answers as the default" \
+  "$(root_fetch "$tmp/root-top")" "$want"
+root_repo "$tmp/root-moved" docs/specs docs/specs || fail "dispatch-fetch: could not build the relocated-root fixture"
+same "dispatch-fetch: a relocated spec root answers as the default" \
+  "$(root_fetch "$tmp/root-moved")" "$want"
+root_repo "$tmp/root-nested" store store nested || fail "dispatch-fetch: could not build the nested-repository fixture"
+mkdir -p "$tmp/root-far"
+root_repo "$tmp/root-out" ../root-far "$tmp/root-far" || fail "dispatch-fetch: could not build the outside-root fixture"
+for rr in nested out; do
+  case $(root_fetch "$tmp/root-$rr") in
+    *"no ref of it holds the bundle"*"rc=2") ok "dispatch-fetch: a spec root this repository does not hold ($rr) is refused" ;;
+    *) fail "dispatch-fetch: a spec root this repository does not hold ($rr) was not refused: $(root_fetch "$tmp/root-$rr")" ;;
+  esac
+done
 
 fence_form() { outcome "$S/fleet-fence.sh" refname --spec "$1" 1; }
 seam_forms fleet-fence fence_form
