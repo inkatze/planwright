@@ -93,14 +93,19 @@ ln -sf /etc/hosts "$PLUGIN_ROOT/scripts/evillink.sh"
 
 # run_hook <command> [tool_name] [cwd] -> sets OUT and CODE. CLAUDE_PLUGIN_ROOT
 # is exported into the hook environment so plugin-root containment resolves.
+# HOME is pinned away from the developer's machine (a real ~/.jq would defer
+# every jq case); RUN_HOME overrides it, RUN_NO_HOME=1 unsets it, and
+# RUN_HOOK_CWD sets the hook process's own working directory.
 run_hook() {
   local cmd="$1"
   local tool="${2:-Bash}"
   local cwd="${3:-$SANDBOX}"
   local payload
+  local -a home=("HOME=${RUN_HOME-$SANDBOX/no-home}")
+  [ -n "${RUN_NO_HOME:-}" ] && home=(-u HOME)
   payload="$(jq -n --arg c "$cmd" --arg t "$tool" --arg w "$cwd" \
     '{tool_name:$t, tool_input:{command:$c}, cwd:$w}')"
-  OUT="$(printf '%s' "$payload" | TMPDIR="${RUN_TMPDIR-${TMPDIR:-}}" CLAUDE_PLUGIN_ROOT="${RUN_PLUGIN_ROOT:-$PLUGIN_ROOT}" /bin/bash "$HOOK" 2>/dev/null)"
+  OUT="$(cd "${RUN_HOOK_CWD:-.}" && printf '%s' "$payload" | env "${home[@]}" TMPDIR="${RUN_TMPDIR-${TMPDIR:-}}" CLAUDE_PLUGIN_ROOT="${RUN_PLUGIN_ROOT:-$PLUGIN_ROOT}" /bin/bash "$HOOK" 2>/dev/null)"
   CODE=$?
 }
 
@@ -111,7 +116,7 @@ run_worker_hook() {
   local payload
   payload="$(jq -n --arg c "$cmd" --arg w "$SANDBOX" \
     '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}')"
-  WOUT="$(printf '%s' "$payload" | CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" /bin/bash "$WORKER_HOOK" 2>/dev/null)"
+  WOUT="$(printf '%s' "$payload" | HOME="$SANDBOX/no-home" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" /bin/bash "$WORKER_HOOK" 2>/dev/null)"
 }
 
 is_allow() {
@@ -215,7 +220,7 @@ assert_allow "pending read piped to head" "$PLUGIN_ROOT/scripts/fleet-streamjson
 # HOME points at the plugin root, so the tilde path would land inside it if the
 # guard ever expanded it.
 # shellcheck disable=SC2088 # the literal, unexpanded tilde is the case under test
-HOME="$PLUGIN_ROOT" assert_defer "pending read via a tilde path" "~/scripts/fleet-streamjson.sh pending"
+RUN_HOME="$PLUGIN_ROOT" assert_defer "pending read via a tilde path" "~/scripts/fleet-streamjson.sh pending"
 assert_defer "pending read via an unexpanded variable" "\$CLAUDE_PLUGIN_ROOT/scripts/fleet-streamjson.sh pending"
 assert_defer "pending read from a lookalike outside the roots" "$LOOKALIKE/scripts/fleet-streamjson.sh pending"
 
@@ -292,13 +297,18 @@ ENV'"
 assert_defer "jq bare ENV word" "jq -n 'ENV'"
 assert_allow "jq .ENV is a field access" "jq '.ENV' file.json"
 assert_allow "jq ENVIRONMENT is a longer name" "jq '.a | .ENVIRONMENT' file.json"
-JQ_HOME="$(mktemp -d)" || exit 1
-: >"$JQ_HOME/.jq"
-HOME="$JQ_HOME" assert_defer "jq while a ~/.jq file is read into every run" "jq . file.json"
+assert_allow "jq a user function named with env as a prefix" "jq 'def envx: .; envx' file.json"
+assert_allow "jq a user function named with env as a suffix" "jq 'def myenv: .; myenv' file.json"
+assert_allow "jq a user function named with ENV as a suffix" "jq 'def myENV: .; myENV' file.json"
+JQ_HOME="$SANDBOX/jq-home"
+mkdir -p "$JQ_HOME" && : >"$JQ_HOME/.jq" || exit 1
+RUN_HOME="$JQ_HOME" assert_defer "jq while a ~/.jq file is read into every run" "jq . file.json"
+rm -f "$JQ_HOME/.jq" && mkdir "$JQ_HOME/.jq" || exit 1
+RUN_HOME="$JQ_HOME" assert_defer "jq while a ~/.jq module directory exists" "jq . file.json"
+rmdir "$JQ_HOME/.jq" && ln -s "$JQ_HOME/not-yet" "$JQ_HOME/.jq" || exit 1
+RUN_HOME="$JQ_HOME" assert_defer "jq while ~/.jq is a dangling symlink" "jq . file.json"
 rm -f "$JQ_HOME/.jq"
-mkdir "$JQ_HOME/.jq"
-HOME="$JQ_HOME" assert_defer "jq while a ~/.jq module directory exists" "jq . file.json"
-rm -rf "$JQ_HOME"
+RUN_HOME="$JQ_HOME" assert_allow "jq once ~/.jq is gone" "jq . file.json"
 
 echo "### tower-front-door REQ-A1.3 — the flight petition's temp files: mktemp and their removal ALLOW"
 # A flight petition's ask and grounds go into the tower's own mktemp files,
@@ -344,9 +354,14 @@ assert_defer "directory removal" "rm -d $TOWER_TMP/tmp.dir0123456"
 assert_defer "a mktemp-named directory, no flags" "rm $TOWER_TMP/tmp.dir0123456"
 assert_defer "a symlink named like a mktemp file" "rm -f $TOWER_TMP/tmp.LnK0123456"
 assert_defer "a file not named like a mktemp file" "rm -f $TOWER_TMP/notes.txt"
+assert_defer "an alphanumeric name without the tmp. prefix" "rm -f $TOWER_TMP/Ab3dE6gH9j"
+assert_defer "a tmp prefix without its dot" "rm -f $TOWER_TMP/tmpXAb3dE6"
 assert_defer "a mktemp-named file below TMPDIR, not in it" "rm -f $TOWER_TMP/sub/tmp.Qq1wE2rT3y"
 assert_defer "a mktemp-named path outside TMPDIR and /tmp" "rm -f $SANDBOX/tmp.Ab3dE6gH9j"
 assert_defer "a relative path" "rm -f tmp.Ab3dE6gH9j"
+# The guard resolves a relative operand against its own working directory,
+# not the command's, so the case runs the hook from TMPDIR's parent.
+RUN_HOOK_CWD="$SANDBOX" assert_defer "a relative path that resolves into TMPDIR from the hook's directory" "rm -f tower-tmp/tmp.Ab3dE6gH9j"
 assert_defer "a dot-dot path out of TMPDIR" "rm -f $TOWER_TMP/../etc/tmp.Ab3dE6gH9j"
 assert_defer "a glob" "rm -f $TOWER_TMP/tmp.*"
 assert_defer "an unexpanded variable" "rm -f \$TMPDIR/tmp.Ab3dE6gH9j"
@@ -384,12 +399,20 @@ assert_defer "mktemp piped into a squash" "mktemp | git commit --squash HEAD"
 assert_defer "a flag-shaped operand after --" "rm -f -- -rf"
 assert_defer "bare rm" "rm"
 # A directory named so that its canonical path, split on the newline, reads as
-# TMPDIR followed by /tmp: the two lines of the guard's directory list.
+# TMPDIR followed by the entry after it in the guard's directory list: the
+# macOS per-user temp directory where getconf names one, /tmp elsewhere.
+NEXT_TMP="$(cd -P -- "$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null)" 2>/dev/null && pwd -P)" \
+  || NEXT_TMP="$(cd -P /tmp && pwd -P)" || exit 1
 SPANNING_DIR="$TOWER_TMP
-$(cd /tmp && pwd -P)"
-mkdir -p "$SPANNING_DIR" && : >"$SPANNING_DIR/tmp.Ab3dE6gH9j"
+$NEXT_TMP"
+{
+  mkdir -p "$SPANNING_DIR" && : >"$SPANNING_DIR/tmp.Ab3dE6gH9j" \
+    && ln -s "$SPANNING_DIR" "$SANDBOX/span-link" && [ -f "$SANDBOX/span-link/tmp.Ab3dE6gH9j" ]
+} || {
+  echo "FAIL: could not build the newline-spanning fixture" >&2
+  exit 1
+}
 assert_defer "an operand whose directory spans the directory list's lines" "rm -f '$SPANNING_DIR/tmp.Ab3dE6gH9j'"
-ln -s "$SPANNING_DIR" "$SANDBOX/span-link" || exit 1
 assert_defer "a symlink to a directory whose canonical path spans the list's lines" "rm -f $SANDBOX/span-link/tmp.Ab3dE6gH9j"
 # macOS mktemp writes to the per-user temp directory whatever TMPDIR says, so
 # the file it prints must stay removable when the two differ.

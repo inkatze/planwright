@@ -1071,15 +1071,20 @@ ENV'"
 assert_defer "jq bare ENV word" "jq -n 'ENV'"
 assert_allow "jq .ENV is a field access" "jq '.ENV' file.json"
 assert_allow "jq ENVIRONMENT is a longer name" "jq '.a | .ENVIRONMENT' file.json"
-JQ_HOME="$(mktemp -d)" || exit 1
-: >"$JQ_HOME/.jq"
+assert_allow "jq a user function named with env as a prefix" "jq 'def envx: .; envx' file.json"
+assert_allow "jq a user function named with env as a suffix" "jq 'def myenv: .; myenv' file.json"
+assert_allow "jq a user function named with ENV as a suffix" "jq 'def myENV: .; myENV' file.json"
+JQ_HOME="$SANDBOX/jq-home"
+mkdir -p "$JQ_HOME" && : >"$JQ_HOME/.jq" || exit 1
 HOOK_ENV=(HOME="$JQ_HOME")
 assert_defer "jq while a ~/.jq file is read into every run" "jq . file.json"
-rm -f "$JQ_HOME/.jq"
-mkdir "$JQ_HOME/.jq"
+rm -f "$JQ_HOME/.jq" && mkdir "$JQ_HOME/.jq" || exit 1
 assert_defer "jq while a ~/.jq module directory exists" "jq . file.json"
+rmdir "$JQ_HOME/.jq" && ln -s "$JQ_HOME/not-yet" "$JQ_HOME/.jq" || exit 1
+assert_defer "jq while ~/.jq is a dangling symlink" "jq . file.json"
+rm -f "$JQ_HOME/.jq"
+assert_allow "jq once ~/.jq is gone" "jq . file.json"
 HOOK_ENV=()
-rm -rf "$JQ_HOME"
 # yq EDITS IN PLACE.
 assert_allow "yq read" "yq . file.yml"
 assert_allow "yq -I indent is not -i inplace" "yq -I4 . file.yml"

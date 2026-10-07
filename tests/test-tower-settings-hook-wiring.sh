@@ -197,12 +197,16 @@ fi
 # Claude Code matches a deny rule's tool-name glob against the full tool name,
 # `*` standing for any run of characters. deny_glob_hits <tool> succeeds when
 # some MCP glob entry in the shipped block matches it under that rule.
+mcp_deny_globs=()
+while IFS= read -r entry; do
+  mcp_deny_globs+=("$entry")
+done < <(jq -r '.permissions.deny[] | select(startswith("mcp__") and contains("*"))' "$tower_settings")
 deny_glob_hits() {
   local entry
-  while IFS= read -r entry; do
+  for entry in ${mcp_deny_globs[@]+"${mcp_deny_globs[@]}"}; do
     # shellcheck disable=SC2053 # the unquoted right side is the glob under test
     [[ $1 == $entry ]] && return 0
-  done < <(jq -r '.permissions.deny[] | select(startswith("mcp__") and contains("*"))' "$tower_settings")
+  done
   return 1
 }
 for tool in \
@@ -214,9 +218,9 @@ for tool in \
   mcp__claude_ai_Github-Example__update_pull_request_branch \
   mcp__github__update_pull_request_branch; do
   if deny_glob_hits "$tool"; then
-    ok "another MCP server's GitHub write tool is denied: $tool (tower-front-door REQ-G1.1, REQ-G1.4)"
+    ok "a GitHub write tool is denied on every MCP server: $tool (tower-front-door REQ-G1.1, REQ-G1.4)"
   else
-    fail "another MCP server's GitHub write tool is not denied: $tool (tower-front-door REQ-G1.1, REQ-G1.4)"
+    fail "a GitHub write tool is not denied on every MCP server: $tool (tower-front-door REQ-G1.1, REQ-G1.4)"
   fi
 done
 for tool in \
