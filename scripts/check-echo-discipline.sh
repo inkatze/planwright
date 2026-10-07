@@ -77,7 +77,11 @@
 # expansion. Sanitizer output is recognised by the `sanitize_` name prefix, so
 # an inline copy named otherwise (`safe`, `_rl_safe`) is not tracked. A loop
 # naming the sanitizer counts only from a `for ... in` list written on the
-# line that opens the loop. Presence, not position, is checked for the variable form: a use
+# line that opens the loop. A test of `$v` made before v holds the sanitizer
+# path (inside a check function defined above the assignment, say) guards
+# nothing; test the path where it is sourced. A variable reused for another
+# library and later for the sanitizer needs its earlier sources tested too.
+# Presence, not position, is checked for the variable form: a use
 # written above the assignment still counts.
 #
 # Scope is every shell file under scripts/, tests/, and githooks/, reached
@@ -449,20 +453,19 @@ awk -v listfile="$work/list" '
     return w
   }
   # One hash of the operands tested so far keeps the check linear: a source is
-  # guarded when the path it resolves to was tested readable before it.
-  # A `$v` tested before any assignment to v (a check function defined above
-  # it) is also kept as written, and guards a later source of that spelling.
+  # guarded when the path it resolves to was tested readable before it. A `$v`
+  # tested while v had no value tested no path, so it guards no source that
+  # resolves to one: an unrelated early test must not clear the sanitizer.
   function take_cap(w, ln,   p, isvar) {
     w = normw(w)
     p = resolve(w)
     isvar = (w ~ /^\$[A-Za-z_][A-Za-z0-9_]*$/)
     if (cap == "r") {
       tested[p] = 1; testedraw[w] = 1
-      if (isvar && p == w) testedunset[w] = 1
       return
     }
     if (index(p, "echo-safety.sh") > 0) {
-      if (!(p in tested) && !(isvar && (w in testedunset))) srchit[ln] = 1
+      if (!(p in tested)) srchit[ln] = 1
       return
     }
     # A `$v` source that does not name the sanitizer here may still be one: a
@@ -775,7 +778,7 @@ awk -v listfile="$work/list" '
     split("", hits); split("", exph); split("", trusted); split("", trustbare)
     split("", varval); split("", loopv); split("", tested); split("", srchit)
     split("", latev); split("", lateln); split("", lateok)
-    split("", testedraw); split("", testedunset); split("", everes)
+    split("", testedraw); split("", everes)
     nlate = 0; cap = ""
     cmd[0] = ""; nref = 0; ncase = 0; split("", casedep); split("", argn); split("", inarg); split("", refkind); split("", fmtb); split("", redirpend); split("", pctesc); split("", inredir)
     toodeep = 0; baddelim = 0; bpend = 0

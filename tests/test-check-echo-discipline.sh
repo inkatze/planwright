@@ -742,6 +742,10 @@ write_script "$tmp/srcbad/scripts/late-cleared.sh" \
   'p="$d/echo-safety.sh"' \
   'load' \
   'p='
+write_script "$tmp/srcbad/scripts/unrelated-early.sh" \
+  '[ -r "$conf" ] && . "$conf"' \
+  'conf="$d/echo-safety.sh"' \
+  '. "$conf"'
 write_script "$tmp/srcbad/scripts/continued.sh" \
   ". \\" \
   '  "$d/echo-safety.sh"'
@@ -760,6 +764,7 @@ assert_contains "a loop over other names lends no test to the sanitizer" "$out" 
 assert_contains "a source continued onto the next line is caught" "$out" "scripts/continued.sh:4"
 assert_contains "a function source of a variable later set to the sanitizer is caught" "$out" "scripts/late-prior.sh:4"
 assert_contains "clearing the variable after the call does not hide the source" "$out" "scripts/late-cleared.sh:3"
+assert_contains "a test made before the variable held the path guards nothing" "$out" "scripts/unrelated-early.sh:5"
 assert_contains "the source finding says what guards it" "$out" "readable"
 
 # A read error while selecting the bash files is not "no match": a grep that
@@ -807,11 +812,6 @@ write_script "$tmp/srcok/scripts/var-source.sh" \
   'ES="$d/echo-safety.sh"' \
   '[ -r "$d/echo-safety.sh" ] || exit 2' \
   '. "$ES"'
-write_script "$tmp/srcok/scripts/check-fn.sh" \
-  'check() { [ -r "$p" ] || exit 2; }' \
-  'p="$d/echo-safety.sh"' \
-  'check' \
-  '. "$p"'
 write_script "$tmp/srcok/scripts/continued-r.sh" \
   "if [ -r \\" \
   '  "$d/echo-safety.sh" ]; then . "$d/echo-safety.sh"; fi'
