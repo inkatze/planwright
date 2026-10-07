@@ -133,8 +133,9 @@ at the fleet tier:
 4. **Release the fleet lock** before launching
    (`scripts/fleet-state.sh unlock`).
 5. **Run the single-spec step** for the chosen unit. First run the skill's
-   resource-governance and launch-tier lines for it (a pause, withhold, or
-   refusal skips the step); the script runs neither. Then
+   resource-governance lines and its `orchestrate_dispatch` launch tier for
+   it (a pause, withhold, or refusal skips the step); the script runs
+   neither. Then
    `scripts/orchestrate-meta-step.sh dispatch <spec-dir> <id> --backend <b>
    --prompt-file <file> [-- <tier args>]`, `<b>` from the skill's
    backend-selection law and the file holding the unit's `/execute-task`
@@ -210,7 +211,10 @@ Dispatch, capture-pane observation, and
 `load-buffer`/`paste-buffer` relay work identically against a detached server
 — nobody ever attaches, and the human sees only the attention surface below.
 Attaching stays available at any time for a multiplexer-fluent operator (the
-mapping's persona a); it is never required.
+mapping's persona a); it is never required. The meta step itself dispatches
+only through the stream-json and headless rungs and parks a unit whose
+resolved rung is tmux or subagent; until the tmux task arm can carry a
+worker's prompt, this plumbing serves single-spec towers.
 
 **The attention surface (the queue as default, D-13).** The fleet-entry loop
 keeps the attention store current and renders it, through

@@ -499,6 +499,11 @@ attention surface), not as a separate system:
 | b. Non-terminal user | tmux driven as a detached server, or the subagent backend (in-harness background workers) — invisible plumbing either way, nothing to attach to | The decision queue, read from any plain terminal or via the notification channel | Answer queue items; the tower relays to workers |
 | c. Editor-feedback user | The same background plumbing as (b) | The editor renders the queue and diffs (an editor panel tails the same files; `editor-toast` is the matching notification channel) | An editor affordance submits the queue answer; the tower relays |
 
+Under `--fleet` the meta step dispatches only through the stream-json and
+headless rungs; a unit whose resolved rung is tmux or the subagent backend
+parks to its spec's `## Awaiting input`, so personas a and b get those
+backends from single-spec towers for now.
+
 Two audit notes behind that table:
 
 - **All durable fleet state is files** — the worker registry, the attention
