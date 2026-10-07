@@ -288,6 +288,10 @@ refuses "a class declared twice" "declared twice" "class${T}live${T}1${T}shipped
 refuses "a corpus with no rows" "no rows"
 refuses "an unknown placeholder" "unknown placeholder" \
   "$(row live defer defer defer defer 'touch @@OUTSDE@@/x')"
+refuses "a lowercase placeholder" "unknown placeholder" \
+  "$(row live defer defer defer defer 'touch @@Outside@@/x')"
+refuses "a malformed placeholder" "unknown placeholder" \
+  "$(row live defer defer defer defer 'touch @@OUTSIDE@/x')"
 
 # The legacy PreToolUse spelling `decision: approve` still approves, so it
 # reads as an allow.

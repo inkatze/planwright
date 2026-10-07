@@ -181,7 +181,7 @@ corpus_parse() {
       if ($7 == "") bad("a row carries a command")
       known = $7
       gsub(/@@(WORKTREE|SCRATCH|OUTSIDE|PLUGIN_ROOT)@@/, "", known)
-      if (known ~ /@@[A-Z_]+@@/) bad("unknown placeholder")
+      if (known ~ /@@/) bad("unknown placeholder")
       if (($2 == "floor" || $2 == "uncovered") && ($3 $4 $5 $6) != "deferdeferdeferdefer")
         bad("a " $2 " row defers under every policy value")
       if ($3 == "allow" && ($4 != "allow" || $5 != "allow" || $6 != "allow"))
