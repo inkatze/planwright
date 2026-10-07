@@ -160,7 +160,7 @@ after=$(find "$o" | sort)
   || fail "1: expected exactly one fragment under entries/"
 [ "$(frag_count "$o/archive")" -eq 0 ] \
   || fail "1: archive/ must be untouched"
-frag=$(echo "$o"/entries/*.md)  # trusted: a path this test built under its own temp dir
+frag=$(echo "$o"/entries/*.md) # trusted: a path this test built under its own temp dir
 base=$(basename "$frag")
 printf '%s\n' "$base" | grep -Eq "$NAME_RE" \
   || fail "1: fragment name [$base] does not match the composite grammar"
@@ -665,7 +665,7 @@ d1=$(date +%F)
 "$REC" --obs-dir "$od" --slug defdate --scope planwright --text 'x' \
   >/dev/null || fail "11: default-date invocation failed"
 d2=$(date +%F)
-defbase=$(basename "$(echo "$od"/entries/*.md)")  # trusted: a path this test built under its own temp dir
+defbase=$(basename "$(echo "$od"/entries/*.md)") # trusted: a path this test built under its own temp dir
 case "$defbase" in
   "$d1"-defdate-* | "$d2"-defdate-*) : ;;
   *) fail "11: default-date fragment [$defbase] lacks the system date ($d1/$d2)" ;;
