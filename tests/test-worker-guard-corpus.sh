@@ -384,8 +384,9 @@ leaks_in() {
   ' "$1") || return 2
   printf '%s\n%s\n' "$by_grep" "$by_awk" | grep . | sort -t: -k1,1n -u | cut -d: -f2-
 }
-# One sample per rule, each caught by that rule alone, so dropping any rule
-# fails this check. Token shapes are assembled here, never committed whole.
+# At least one sample per rule, each caught by that rule alone, so dropping
+# any rule fails this check. Token shapes are assembled here, never committed
+# whole.
 leaky="$SANDBOX/leaky.tsv"
 pad=aaaaaaaaaaaaaaaaaaaaaaaa
 printf '%s\n' '# a comment naming /home/someone/x' 'ls /opt/thing' 'cd ~user/x' \

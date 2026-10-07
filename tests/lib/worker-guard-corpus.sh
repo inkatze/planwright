@@ -366,6 +366,8 @@ $parsed
 EOF
   # shellcheck disable=SC2086  # a list of pids
   [ -z "$pids" ] || wait $pids
+  # Walks $parsed in the same order and with the same row filter as the
+  # dispatch pass above, so each row finds its own verdict files.
   n=0
   while IFS="$CORPUS_TAB" read -r kind line class state v1 v2 v3 v4 cmd; do
     [ "$kind" = row ] || continue
