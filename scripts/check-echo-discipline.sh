@@ -385,35 +385,67 @@ awk -v listfile="$work/list" '
   # operand and a `-r` operand can be compared as written. A `$(...)` inside
   # the word is followed by paren depth; its own quotes come in pairs and
   # cannot end the word.
-  function rawword(s, p,   n, c, q, d, out) {
-    n = length(s); out = ""; q = ""; d = 0
+  # Returned as one substr of the line: building it a character at a time is
+  # quadratic in the word length, and the word is fork-PR authored.
+  function rawword(s, p,   n, c, q, d, p0) {
+    n = length(s); q = ""; d = 0; p0 = p
     while (p <= n) {
       c = substr(s, p, 1)
-      if (q == "\047") { out = out c; if (c == "\047") q = ""; p++; continue }
-      if (c == "\\") { out = out substr(s, p, 2); p += 2; continue }
-      if (c == "$" && substr(s, p + 1, 1) == "(") { d++; out = out "$("; p += 2; continue }
-      if (d > 0) { if (c == "(") d++; else if (c == ")") d--; out = out c; p++; continue }
-      if (q == "\"") { out = out c; if (c == "\"") q = ""; p++; continue }
-      if (c == "\"" || c == "\047") { q = c; out = out c; p++; continue }
+      if (q == "\047") { if (c == "\047") q = ""; p++; continue }
+      if (c == "\\") { p += 2; continue }
+      if (c == "$" && substr(s, p + 1, 1) == "(") { d++; p += 2; continue }
+      if (d > 0) { if (c == "(") d++; else if (c == ")") d--; p++; continue }
+      if (q == "\"") { if (c == "\"") q = ""; p++; continue }
+      if (c == "\"" || c == "\047") { q = c; p++; continue }
       if (index(" \t;&|<>()", c) > 0) break
-      out = out c; p++
+      p++
     }
-    return out
+    return substr(s, p0, p - p0)
   }
   # Quotes dropped and `${name}` read as `$name`: the two spellings of one path.
-  function normw(w,   pre, nm) {
+  # The brace rewrite is quadratic in the word, so a word longer than any path
+  # keeps its braces; that can only make a test and a source compare unequal,
+  # which reports the source rather than clearing it.
+  function normw(w,   nm) {
     gsub(/["\047]/, "", w)
+    if (length(w) > 512) return w
     while (match(w, /\$\{[A-Za-z_][A-Za-z0-9_]*\}/)) {
       nm = substr(w, RSTART + 2, RLENGTH - 3)
       w = substr(w, 1, RSTART - 1) "$" nm substr(w, RSTART + RLENGTH)
     }
     return w
   }
-  function take_cap(w, ln) {
-    nseq++
+  # The path an operand names at this point in the file: a bare `$v` is read
+  # through the latest assignment to v, and `<dir>/$v` inside a loop whose list names
+  # the sanitizer through v reads as `<dir>/echo-safety.sh`. Resolving when the
+  # operand is captured, not at end of file, is what ties a `-r` test to the
+  # value it tested rather than to a name that may be reassigned later.
+  function resolve(w,   v) {
+    if (w ~ /^\$[A-Za-z_][A-Za-z0-9_]*$/) {
+      v = substr(w, 2)
+      return (v in varval) ? varval[v] : w
+    }
+    if (match(w, /\/\$[A-Za-z_][A-Za-z0-9_]*$/)) {
+      v = substr(w, RSTART + 2)
+      if (loopv[v]) return substr(w, 1, RSTART) "echo-safety.sh"
+    }
+    return w
+  }
+  # One hash of the operands tested so far keeps the check linear: a source is
+  # guarded when the path it resolves to was tested readable before it.
+  function take_cap(w, ln,   p, v) {
     w = normw(w)
-    if (cap == "r") { nr++; rop[nr] = w; rseq[nr] = nseq }
-    else { nsrc++; srcop[nsrc] = w; srcseq[nsrc] = nseq; srcline[nsrc] = ln }
+    p = resolve(w)
+    if (cap == "r") { tested[p] = 1; return }
+    if (index(p, "echo-safety.sh") > 0) {
+      if (!(p in tested)) srchit[ln] = 1
+      return
+    }
+    # A variable with no assignment yet may still name the sanitizer once the
+    # file is read to the end (a function body above the assignment it reads).
+    if (p ~ /^\$[A-Za-z_][A-Za-z0-9_]*$/) {
+      nlate++; latev[nlate] = substr(p, 2); lateln[nlate] = ln; lateok[nlate] = (p in tested)
+    }
   }
   # An assignment is only over when something terminates it at ITS OWN depth. A
   # command word inside its right-hand side — which is exactly where the
@@ -521,8 +553,9 @@ awk -v listfile="$work/list" '
     while (i <= n) {
       c = substr(s, i, 1)
       # The operand of a `.`/`source` or a `-r` test: captured whole at its
-      # first character, then scanned as usual.
-      if (cap != "" && !sq && !dq && !esc && c != " " && c != "\t") {
+      # first character, then scanned as usual. A line-ending backslash is a
+      # continuation, not the operand.
+      if (cap != "" && !sq && !dq && !esc && c != " " && c != "\t" && !(c == "\\" && i == n)) {
         take_cap(rawword(s, i), ln); cap = ""
       }
       # Track which argument of the current command we are inside, so the
@@ -692,8 +725,10 @@ awk -v listfile="$work/list" '
         else if (atcmd && (w == "." || w == "source")) cap = "src"
         else if (atcmd && w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) {
           name = w; sub(/=.*$/, "", name)
-          val = normw(rawword(s, i + length(name) + 1))
-          if (index(val, "echo-safety.sh") > 0) espath[name] = val
+          val = rawword(s, i + length(name) + 1)
+          # Only whether the value is the sanitizer path matters, so any other
+          # value is held as a marker no operand can equal, unnormalized.
+          varval[name] = (index(val, "echo-safety.sh") > 0) ? normw(val) : "\001"
         }
         if (atcmd) word_at_cmd(w, ln)
         i = j; prev = "w"; continue
@@ -706,9 +741,9 @@ awk -v listfile="$work/list" '
     split("", cmd); split("", savedq); split("", savesq); split("", isbt)
     split("", sanvar); split("", othervar); split("", refname); split("", refline)
     split("", hits); split("", exph); split("", trusted); split("", trustbare)
-    split("", espath); split("", loopv); split("", rop); split("", rseq)
-    split("", srcop); split("", srcseq); split("", srcline)
-    nr = 0; nsrc = 0; nseq = 0; cap = ""
+    split("", varval); split("", loopv); split("", tested); split("", srchit)
+    split("", latev); split("", lateln); split("", lateok)
+    nlate = 0; cap = ""
     cmd[0] = ""; nref = 0; ncase = 0; split("", casedep); split("", argn); split("", inarg); split("", refkind); split("", fmtb); split("", redirpend); split("", pctesc); split("", inredir)
     toodeep = 0; baddelim = 0; bpend = 0
     pend_assign = ""; pend_san = 0; pend_depth = 0
@@ -734,12 +769,16 @@ awk -v listfile="$work/list" '
       }
       # `for dep in echo-safety.sh ...` names the sanitizer through a loop
       # variable; a `-r "<dir>/$dep"` test inside it then guards the source.
-      if (match(line, /^[ \t]*for[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+in[ \t]/) && index(line, "echo-safety.sh") > 0) {
+      # Each `for` over the variable replaces the last, so a loop over other
+      # names never lends its tests to a later one that names the sanitizer.
+      if (match(line, /^[ \t]*for[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+in[ \t]/)) {
         lv = line; sub(/^[ \t]*for[ \t]+/, "", lv); sub(/[^A-Za-z0-9_].*$/, "", lv)
-        loopv[lv] = 1
+        loopv[lv] = (index(line, "echo-safety.sh") > 0)
       }
       tokenize(line, maxln)
-      cap = ""
+      # A backslash continuation carries a pending `.` or `-r` operand onto the
+      # next line, where the shell still reads it as the same command.
+      if (!esc) cap = ""
       if (esc) {
         esc = 0
       } else if (sq || dq || bpend > 0) {
@@ -770,20 +809,9 @@ awk -v listfile="$work/list" '
         if (!(refline[k] in hits)) hits[refline[k]] = refkind[k]
       }
     }
-    # A source of the sanitizer is guarded when a `-r` test of the same
-    # operand, or of `<dir>/$v` for a loop variable naming it, comes first.
-    for (k = 1; k <= nsrc; k++) {
-      op = srcop[k]
-      if (index(op, "echo-safety.sh") == 0 && !(op ~ /^\$[A-Za-z_][A-Za-z0-9_]*$/ && (substr(op, 2) in espath))) continue
-      guarded = 0
-      for (m = 1; m <= nr && !guarded; m++) {
-        if (rseq[m] >= srcseq[k]) continue
-        rv = rop[m]
-        if (rv == op) guarded = 1
-        else if (rv ~ /^\$[A-Za-z_][A-Za-z0-9_]*$/ && (substr(rv, 2) in espath) && espath[substr(rv, 2)] == op) guarded = 1
-        else if (match(rv, /\/\$[A-Za-z_][A-Za-z0-9_]*$/) && (substr(rv, RSTART + 2) in loopv) && substr(rv, 1, RSTART) "echo-safety.sh" == op) guarded = 1
-      }
-      if (!guarded) srchit[srcline[k]] = 1
+    for (k = 1; k <= nlate; k++) {
+      v = latev[k]
+      if ((v in varval) && index(varval[v], "echo-safety.sh") > 0 && !lateok[k]) srchit[lateln[k]] = 1
     }
     for (ln = 1; ln <= maxln; ln++) {
       if (!isbash) {

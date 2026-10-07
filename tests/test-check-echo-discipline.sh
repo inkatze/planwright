@@ -707,6 +707,25 @@ write_script "$tmp/srcbad/scripts/after.sh" \
 write_script "$tmp/srcbad/scripts/via-var.sh" \
   'es="$d/echo-safety.sh"' \
   '. "$es"'
+write_script "$tmp/srcbad/scripts/loop-source.sh" \
+  'for lib in echo-safety.sh other.sh; do' \
+  '  . "$d/$lib"' \
+  'done'
+write_script "$tmp/srcbad/scripts/reassigned.sh" \
+  'S="$d/config.sh"' \
+  '[ -r "$S" ] || exit 2' \
+  '. "$S"' \
+  'S="$d/echo-safety.sh"' \
+  '. "$S"'
+write_script "$tmp/srcbad/scripts/loopneg.sh" \
+  'for dep in other.sh; do' \
+  '  [ -r "$d/$dep" ] || exit 5' \
+  'done' \
+  'for dep in echo-safety.sh; do :; done' \
+  '. "$d/echo-safety.sh"'
+write_script "$tmp/srcbad/scripts/continued.sh" \
+  ". \\" \
+  '  "$d/echo-safety.sh"'
 out="$(/bin/bash "$CHECKER" "$tmp/srcbad" 2>&1)"
 assert "an unguarded source of the sanitizer fails" 1 $?
 assert_contains "a bare dot-source is caught" "$out" "scripts/bare.sh:3"
@@ -716,6 +735,10 @@ assert_contains "an or-exit after the source guards nothing under dash" "$out" "
 assert_contains "a readability test of another path guards nothing" "$out" "scripts/wrong-path.sh:4"
 assert_contains "a readability test after the source guards nothing" "$out" "scripts/after.sh:3"
 assert_contains "a bare source through a variable is caught" "$out" "scripts/via-var.sh:4"
+assert_contains "a bare source through a loop variable is caught" "$out" "scripts/loop-source.sh:4"
+assert_contains "a test of a variable's earlier value guards nothing" "$out" "scripts/reassigned.sh:7"
+assert_contains "a loop over other names lends no test to the sanitizer" "$out" "scripts/loopneg.sh:7"
+assert_contains "a source continued onto the next line is caught" "$out" "scripts/continued.sh:4"
 assert_contains "the source finding says what guards it" "$out" "readable"
 
 make_root "$tmp/srcok"
@@ -748,6 +771,13 @@ write_script "$tmp/srcok/scripts/prose.sh" \
   '. "$d/echo-safety.sh"' \
   'DOC'
 write_script "$tmp/srcok/scripts/other-lib.sh" '. "$d/spec-parse.sh"'
+write_script "$tmp/srcok/scripts/var-source.sh" \
+  'ES="$d/echo-safety.sh"' \
+  '[ -r "$d/echo-safety.sh" ] || exit 2' \
+  '. "$ES"'
+write_script "$tmp/srcok/scripts/continued-r.sh" \
+  "if [ -r \\" \
+  '  "$d/echo-safety.sh" ]; then . "$d/echo-safety.sh"; fi'
 out="$(/bin/bash "$CHECKER" "$tmp/srcok" 2>&1)"
 assert "a source behind a readability test is clean" 0 $?
 
