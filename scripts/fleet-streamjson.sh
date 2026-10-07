@@ -921,13 +921,24 @@ receipt_record() {
   rr_state=$(journal_state "$rr_dir" "$rr_id")
   if [ -n "$rr_spool" ]; then
     # Gone means another drainer recorded it under this same lock already.
-    # Still here means this is the one recording, whatever the journal says:
-    # a terminal row is the resume re-ask the re-open below exists for.
     if [ ! -f "$rr_spool" ]; then
       journal_unlock "$rr_dir"
       return 0
     fi
     rm -f "$rr_spool" 2>/dev/null || :
+    # Against a settled row, a spool is a resume re-ask only if it was
+    # received after the settle; one received before it is a duplicate of the
+    # request the operator already answered, spooled while the answer held
+    # the lock, and re-opening it would ask a settled question again.
+    case $rr_state in
+      answered | undeliverable)
+        rr_settled=$(awk -F'\t' -v id="$rr_id" '$1 == id { print $5; exit }' "$rr_dir/journal" 2>/dev/null) || rr_settled=''
+        if valid_posnum "${rr_settled:-}" && [ "$rr_now" -lt "$rr_settled" ]; then
+          journal_unlock "$rr_dir"
+          return 0
+        fi
+        ;;
+    esac
   fi
   case $rr_state in
     pending)

@@ -1915,6 +1915,14 @@ wait_until 100 grep -q "^$req_perm$tab" "$wdir38e/journal" \
 senv "$home" "$rec" -- answer sjw38e "$req_perm" --allow >/dev/null \
   || fail "c38e: answer exited non-zero"
 grep -q "^$req_perm$tab.*${tab}answered" "$wdir38e/journal" || fail "c38e: the answer was not recorded"
+# A duplicate received BEFORE the answer, spooled while the answer held the
+# lock, is not a re-ask: drained, it is dropped and the request stays settled.
+printf '%s\n%s\n' 1000 "$line_perm" >"$wdir38e/deferred-$req_perm"
+wait_until 100 test ! -e "$wdir38e/deferred-$req_perm" \
+  || fail "c38e: the tick never drained the stale spool"
+grep -q "^$req_perm$tab.*${tab}answered" "$wdir38e/journal" \
+  || fail "c38e: a duplicate received before the answer re-opened the settled request"
+sleep 1
 printf '%s\n%s\n' "$(date +%s)" "$line_perm" >"$wdir38e/deferred-$req_perm"
 wait_until 100 grep -q "^$req_perm$tab.*${tab}pending" "$wdir38e/journal" \
   || fail "c38e: a spooled re-ask of a settled request was dropped instead of re-opened"
