@@ -66,8 +66,13 @@ intact; on a first run at `pre-ci` the PR number is set to the empty
 string, and on a re-execution it carries the existing PR. Scenario: given
 a post-pr command step that pushes, followed by one that prints its
 environment, then the second sees the previous and new head of that push;
-with no earlier push at the point both are empty strings. The resolver
-test asserts `--preamble` renders the same fields. Task 14, Task 10.
+with no earlier push at the point both are empty strings. Scenario: given
+a post-pr command step that commits without pushing, followed by one that
+prints its environment, then the second sees that move. The resolver
+test asserts `--preamble` renders the same fields, and that `--prefix`
+and `--line` render `PLANWRIGHT_STEP_POOL_HOLD=<pool>:<pid>` as one
+trailing assignment when given a pool and an owner pid and no mark
+assignment otherwise. Task 14, Task 12, Task 10.
 
 ### REQ-A1.5 — One normative home [design-level + test]
 
@@ -220,8 +225,8 @@ excerpt is a substring of that text; the class itself is judged in the
 `[manual]` sweep. The record helper test asserts the outcome enum is closed
 at the six REQ-D1.10 names, that `limited` is accepted, and that every
 `skipped` record carries one of the REQ-D1.12 reasons. The `limited`
-classification itself is verified by quota-handling's tests. Task 13,
-Task 14.
+classification itself, and the `answered` mapping, are verified by
+quota-handling's tests. Task 13, Task 5.
 
 ### REQ-D1.2 — Posture and the two destinations [Gherkin]
 
@@ -254,18 +259,20 @@ Task 5.
 
 Verification now pins to REQ-D1.11, below.
 
-### REQ-D1.11 — Continue over a skipped predecessor [Gherkin]
+### REQ-D1.11 — Continue over a skipped predecessor [Gherkin + manual]
 
 Scenario: given a `continue` step whose predecessor's session the backend
 cannot resume, then it does not run, its record reads `failed` naming the
 backend and hosting, and its posture applies. Scenario: given a `continue`
 step whose predecessor was skipped under the missing-step matrix, then it
 does not run and its record reads `failed` naming the missing
-predecessor. Scenario: given a `continue` step whose predecessor was
-skipped by reuse, on a backend that can resume the reused record's
-session, then it attaches to that session id, which its record names.
-Scenario: given the same on a backend that cannot resume it, then it
-fails naming the backend. Task 14.
+predecessor. Scenario: given a `continue` step whose reused predecessor
+was hosted `in-session`, then it attaches to the current unit's session.
+Scenario: given a reused predecessor's session on a backend that cannot
+resume it, then it fails naming the backend. Manual, recorded in Task
+14's PR body: on a stream-json worker, a `continue` step whose
+predecessor was skipped by reuse attaches to the reused record's session
+id, which its record names. Task 14.
 
 ### REQ-D1.5 — Records and the PR fold [test]
 
@@ -300,11 +307,22 @@ executable takes the matrix path. Task 2.
 A list with one unresolvable step in unattended repo-tracked mode prints
 `park` for the point and `run` for no step. Task 2.
 
-### REQ-D1.12 — End heads and skip reasons [test]
+### REQ-D1.12 — End heads and skip reasons [test + Gherkin]
 
-The record helper test round-trips the end head on every record, refuses a
-`skipped` record without exactly one REQ-D1.12 reason, and round-trips the
-standing-on run and step ids for a `reuse` and a `resume` skip. Task 13.
+The record helper test round-trips the end head on every record, refuses
+a `skipped` record without exactly one REQ-D1.12 reason code while
+keeping the free-text detail optional, round-trips the standing-on run
+id, point, and record sequence for a `reuse` and a `resume` skip, and
+shows a record written before the extension (no end head, no code)
+matching no lookup, never counting toward the REQ-J1.2 scan, and
+rendering its free-text reason as written. The `/execute-task`
+missing-matrix skip writes code `missing` (Task 13). Scenario: given a
+post-pr command step that commits without pushing, then its record's end
+head differs from its start head and the next step's context carries the
+move (Task 14). Scenario: given a fixture overlay whose
+`pre-spec-ready-flip` list declares a passing command step, when
+`/spec-kickoff` runs the point, then every record there carries its end
+head (Task 6). Task 13, Task 14, Task 6.
 
 ## REQ-E — The review points
 
@@ -366,9 +384,17 @@ Verification now pins to REQ-E1.6, below.
 
 ### REQ-E1.6 — Flip evidence, with `limited` failing it [test + Gherkin]
 
-Every REQ-E1.5 check carries over unchanged, and the record helper test
+Every REQ-E1.5 check carries over unchanged except its closing claim that
+no unit-PR flipper runs the point: `/execute-task`'s unit flip
+(`scripts/ready-flip.sh`) now does, and Task 14's REQ-J1.2 scenario
+exercises its refusal. The record helper test
 adds that an attempt holding a `limited` record derives `failure`, alone
-or beside passed records. Task 13, Task 9, Task 6.
+or beside passed records; that an all-passed attempt derives `failure`
+when an earlier unit run in the same record cache holds an unretired
+`limited` record ending on the same head; and that an earlier flip
+attempt's `limited` record on the same head derives `failure` while an
+earlier attempt's `failed` record is still ignored. Task 13, Task 9,
+Task 6.
 
 ## REQ-F — Replacement of the review-sequence knob
 
@@ -467,19 +493,33 @@ pass is green on the new doc. Task 1, Task 5.
 ### REQ-I1.1 — A pooled step holds a slot for its run only [test + Gherkin]
 
 The pool helper test shows a slot taken and released around a fixture
-check, released after a timeout and after a non-zero exit, and shared by
-callers in two different checkouts. Scenario: given two fixture units on
-the terminal rung each with a pooled `pre-pr` command step naming the same
-pool of capacity one, then their records' run intervals do not overlap.
-Task 11, Task 14.
+check, released by its owner after a non-zero exit, reclaimed after the
+owner process exits, a nested caller's release a successful no-op, and
+the slot shared by callers in two different checkouts. Scenario: given
+two fixture units on the terminal rung each with a pooled `pre-pr`
+command step naming the same pool of capacity one, then each later slot
+start (a record's start being when its slot was taken) is at or after
+the earlier slot end. Scenario: given a fixture wait longer than the
+shell-call cap, then the step is still admitted, its wait seconds summed
+across calls. Task 11, Task 14.
 
-### REQ-I1.2 — Slots on the shared lock primitive [test]
+### REQ-I1.2 — Slots on the shared lock primitive [test + Gherkin]
 
 The pool helper test shows a dead holder's slot reclaimed, a child process
 that outlives the owning process not keeping the slot, a symbolic-link or
 foreign-owned pool directory reported for an unpooled run with its cause,
-and a lock-library error doing the same; `scripts/check-lock-primitive.sh`
-passes with the helper sourcing the primitive. Task 11.
+and a lock-library error doing the same; a take under a hold mark of the
+same pool and a live owner returning at once at capacity one without a
+slot or a warning, and a mark naming a dead owner or another pool, or a
+malformed mark, ignored; a take by an owner that already holds a slot
+of the pool, without a hold mark, waiting like any other caller;
+`scripts/check-lock-primitive.sh` passes with the helper sourcing the
+primitive. The worker command guard's test approves a declared line
+under the twelve-field context prefix with the trailing hold mark and
+without it, and refuses one carrying a malformed mark (Task 12).
+Scenario: given a pooled command step whose check takes its own pool
+again, then the nested take does not wait and the step records
+`passed`. Task 11, Task 12, Task 14.
 
 ### REQ-I1.3 — Capacity knobs [test]
 
@@ -497,12 +537,20 @@ recorded apart from its run, and its posture applies. Task 11, Task 14.
 
 ### REQ-I1.5 — The built-in full suite joins a pool [Gherkin + test]
 
-Scenario: given two fixture units sharing `full_suite_pool`, then their
-full local suite runs never overlap. Scenario: given the default empty
-key, then a unit's full suite runs as before, taking no slot. The options
+Scenario: given two fixture units sharing `full_suite_pool`, each fixture
+suite appending its start and end timestamps to a shared file, then the
+recorded intervals are disjoint. Scenario: given the default empty key,
+then a unit's full suite runs as before, taking no slot. Scenario: given
+a full-suite wait that expires on a run with a PR, then the unit parks
+naming the holders, the suite is not retried, and the PR body's audit
+block carries the full-suite row with its pool, wait seconds, and
+holders. Scenario: given a first run whose full-suite wait expires before
+any PR exists, then the Awaiting-input park entry names the holders and
+the wait. The record helper test round-trips the full-suite record and
+its row (Task 13). The options
 check asserts the key's row, and the overlay documentation's hand-run
-recipe is exercised by Task 16's recorded gate run. Task 14, Task 10,
-Task 16.
+recipe is exercised by Task 16's recorded gate run. Task 14, Task 13,
+Task 10, Task 16.
 
 ### REQ-I1.6 — The helper executes nothing [test]
 
@@ -516,47 +564,62 @@ The resolver test refuses each grammar violation (a leading `/`, a leading
 `-`, a `..` segment, a disallowed character). The record helper test shows
 the fingerprint stable across a commit outside the paths, changed by one
 inside, absent under an uncommitted or untracked change in a declared
-path, and an absent path contributing its marker. Task 12, Task 13.
+path, unchanged by an ignored file under a declared path, an absent path
+contributing its marker, and two different path word sets over the same
+content giving different fingerprints. Task 12, Task 13.
 
 ### REQ-I1.8 — Reuse of a passing record [test + Gherkin]
 
 The record helper test's lookup matches only a `passed` record of the same
-id, target, args, and fingerprint, across runs, and never one with a
-different target or args. Scenario: given a unit run twice with no change
+id, target, `args` digest, and fingerprint, across runs and within the
+current run, re-fire records included, and never one with a different
+target or `args` digest. Scenario: given a unit run twice with no change
 to the declared paths, then the second run's record reads `skipped` with
 reason `reuse` naming the first. Task 13, Task 14.
 
 ### REQ-I1.9 — Re-fire after the post-pr point [Gherkin]
 
-Scenario: given a `refire: post-pr` command step at `pre-pr` and a post-pr
-step that pushes a change under its paths, then the step runs again on the
-final head before the PR body is regenerated, recorded under `post-pr` with
-the re-fire marker. Scenario: given a push touching no declared path, then
-the re-fire records a `reuse` skip. Scenario: given a failing re-fire with
-the default posture, then the unit parks naming the step and the head and
-the PR stays a draft. Scenario: given no post-pr head move, then nothing
-re-fires. Task 14.
+Scenario: given a `refire: post-pr` command step at `pre-pr` and a
+post-pr step that pushes a change under its paths, then the step runs
+again on the final head before the PR body is regenerated, recorded
+under `post-pr` with `refire-of` naming `pre-pr`, before the post-pr
+completion record. Scenario: given a push touching no declared path,
+then the re-fire records a `reuse` skip. Scenario: given a failing
+re-fire with the default posture, then the PR body is regenerated, the
+unit parks naming the step and the head, and the PR stays a draft.
+Scenario: given no post-pr head move, then nothing re-fires. Scenario:
+given one step id declaring re-fire listed at both `pre-ci` and
+`pre-pr`, then it re-fires once, with `refire-of` naming `pre-ci`.
+Scenario: given a re-fire step skipped with reason `missing` at its
+declaring point, then it is not re-fired. Scenario: given a re-fired
+step that prints its context, then it reads point `post-pr`, the
+previous record of the re-fire pass (or, for the first, the last post-pr
+record), and the post-pr head move. Scenario: given a resume, or a chain
+of resumes, of a run interrupted at `post-pr`, then the re-fire pass
+uses the `pre-ci` and `pre-pr` lists resolved in the first run of the
+chain. The record helper test accepts a re-fire record under `post-pr`
+before the completion record (Task 13). Task 14, Task 13.
 
 ### REQ-I1.10 — Record fields for pools and paths [test]
 
 The record helper test round-trips pool, wait seconds, holders, the
-unpooled flag, and the fingerprint or its absence, and renders them
-table-safe in the PR-body fold. Task 13.
+unpooled flag, the fingerprint or its absence, the `args` digest, and the
+`refire-of` field, and renders them table-safe in the PR-body fold.
+Task 13.
 
 ### REQ-I1.11 — Resolution refusals for the new fields [test]
 
 The resolver test refuses each REQ-I1.11 malformation for its layer with
-the by-layer exit, accepts a re-fire step in `steps_pre_ci` and
-`steps_pre_pr` and refuses it in `steps_convergence`, and asserts
-`--explain` prints pool, paths, and re-fire. The `check:steps` fixture
-rows cover the same refusals on this repository's configuration. Task 12,
-Task 15.
+the by-layer exit, `refire` with `hosting: continue` included, accepts a
+re-fire step in `steps_pre_ci` and `steps_pre_pr` and refuses it in every
+other list, and asserts `--explain` prints pool, paths, and re-fire. The
+`check:steps` fixture rows cover the same refusals. Task 12, Task 15.
 
 ### REQ-I1.12 — Documentation and the guard [test + design-level]
 
 The options check passes with the new rows; the doc-links and
-doctrine-index checks pass; `check:steps` resolves the new fields on this
-repository's configuration. The rule doc's contract and the overlay
+doctrine-index checks pass; `tests/test-check-steps.sh` resolves a fixture
+configuration declaring `pool`, `paths`, and `refire` green. The rule doc's contract and the overlay
 documentation's example are verified by their presence. Task 10, Task 15.
 
 ### REQ-I1.13 — This repository uses the native pool [test + manual]
@@ -571,17 +634,40 @@ configured pool. Task 16.
 ### REQ-J1.1 — Resume continuation [test + Gherkin]
 
 The record helper's resume lookup matches only `passed` or `applied`
-records of the interrupted run whose end head equals the given head.
-Scenario: given a fixture run interrupted after two passing steps and
-resumed on the same head, then those steps record `skipped` with reason
-`resume` and real work begins at the third; given the head moved during
-the hold, then nothing is skipped. Task 13, Task 14.
+records of the interrupted run whose end head equals the given head, or
+`resume` skips standing on such records. Scenario: given seeded records
+of a run interrupted after two passing steps, and a run whose invocation
+names that run and point on the same head, then those steps record
+`skipped` with reason `resume` and real work begins at the third, no
+earlier point firing; given the head moved since, then nothing is
+skipped; given an invocation naming a malformed run id, or a point
+outside the in-run points `/execute-task` wires, then it is refused
+before any record is read. Scenario: given a second hold in the resumed
+run and a resume naming that run, then the steps skipped with reason
+`resume` are skipped again. Scenario: given an interrupted post-pr step
+that moved the head and a resume that skips it with reason `resume`,
+then the carried head move still triggers the re-fire pass and the
+REQ-E1.2 regeneration, and the carried move reaches the next step's
+environment. Scenario: given a run held during its re-fire pass and a
+resume naming it, then the held re-fired step resumes in the re-fire
+pass, no earlier point firing. No quota hold is needed; the hold-driven
+trigger is verified by quota-handling's tests. Task 13, Task 14.
 
-### REQ-J1.2 — `limited` refuses the flip [test]
+### REQ-J1.2 — `limited` refuses the flip [test + Gherkin]
 
 The record helper test shows the `status` verb deriving `failure` over a
-`limited` record from an earlier point of the same attempt. The
-`on-limit` postures are verified by quota-handling's tests. Task 13.
+`limited` record of an earlier unit run whose end head is the head being
+flipped, and `success` when that record's end head is a different head;
+given a hold, then a resume whose run passes the held step on the same
+head, it derives `success`; given an earlier flip attempt's `limited`
+record on the same head, it derives `failure`, while an earlier
+attempt's `failed` record is still ignored per the carried-over REQ-E1.5
+rule. Scenario: given a seeded `limited` record ending on the head, when
+`/spec-kickoff` reaches its flip, then the flip is refused and the head
+carries a `failure` status (Task 6). Scenario: given a post-pr step
+recorded `limited`, when the unit-owner flip runs on the same head, then
+`scripts/ready-flip.sh` refuses it (Task 14). The `on-limit` postures are
+verified by quota-handling's tests. Task 13, Task 6, Task 14.
 
 ### REQ-J1.3 — The fields' owner is named, and the fields are known [test + design-level]
 
