@@ -64,7 +64,8 @@
 #                 the PR base branch's current tip, so commits a merge from
 #                 the base brought in are reachable from it and never enter
 #                 the range.
-#   status        post a flip point's commit status on --head in --repo, the
+#   status        post a flip point's commit status on --head (default the
+#                 worktree's HEAD, as under the field grammar) in --repo, the
 #                 base repository the PR targets, and print
 #                 `posted<TAB><context><TAB><state><TAB><head>`. The point is
 #                 pre-ready-flip or pre-spec-ready-flip, the context
@@ -97,9 +98,13 @@
 #   --head         a full commit id: 40 or 64 lowercase hex digits; omitted
 #                  (write and status), the worktree's HEAD commit when the
 #                  verb runs, refused when it has none. Given, even empty, it
-#                  is never defaulted.
+#                  is never defaulted. A step record holds the head its step
+#                  started on, so a step that may commit passes that head;
+#                  the default fits a completion, status, and a step that
+#                  leaves HEAD where it found it.
 #   --start/--end  YYYY-MM-DDTHH:MM:SSZ; an omitted write --end is the UTC
-#                  time the record is written
+#                  time the record is written, refused if earlier than
+#                  --start
 #   --outcome      passed | applied | halted | failed | skipped; skipped
 #                  requires --skip-reason, and --skip-reason requires skipped
 #   --target, --skip-reason, --warning
@@ -316,12 +321,16 @@ is_ts() {
   return 1
 }
 
-# default_head: the worktree's current HEAD commit, for an omitted --head. An
-# explicit --head, even an empty one, is never defaulted: an empty value is
-# more likely a failed substitution than a request for HEAD.
-default_head() {
+# set_head_from_worktree: assigns head the worktree's own HEAD commit. An
+# inherited GIT_DIR or GIT_WORK_TREE would override -C, and a --worktree that is
+# a plain directory inside another repository would resolve that repository, so
+# both are refused rather than recording a commit from elsewhere.
+set_head_from_worktree() {
   command -v git >/dev/null 2>&1 || die 1 "git is not on PATH"
-  head=$(git -C "$worktree" rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null) \
+  _top=$(unset GIT_DIR GIT_WORK_TREE && git -C "$worktree" rev-parse --show-toplevel 2>/dev/null) \
+    && _top=$(cd -P -- "$_top" 2>/dev/null && pwd -P) && [ "$_top" = "$worktree" ] \
+    || bad --head "not given and the worktree is not the top of a git work tree to default from"
+  head=$(unset GIT_DIR GIT_WORK_TREE && git -C "$worktree" rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null) \
     || bad --head "not given and the worktree has no commit to default to"
 }
 
@@ -606,7 +615,9 @@ cmd_write() {
   [ -n "$run" ] || bad --run "required"
   valid_run "$run"
   is_point "$point" || bad --point "not a point of the vocabulary"
-  [ "$head_given" -eq 1 ] || default_head
+  # An explicit --head, even an empty one, is never defaulted: an empty value
+  # is more likely a failed substitution than a request for HEAD.
+  [ "$head_given" -eq 1 ] || set_head_from_worktree
   is_head "$head" || bad --head "not a full commit id"
   ! point_done "$run" "$point" || bad --point "already completed in this run"
 
@@ -644,7 +655,12 @@ cmd_write() {
   is_backend "$backend" || bad --backend "not a backend name"
   [ -z "$session" ] || is_session "$session" || bad --session "not a session id"
   is_ts "$start" || bad --start "not YYYY-MM-DDTHH:MM:SSZ"
-  [ "$end_given" -eq 1 ] || end=$(date -u +%Y-%m-%dT%H:%M:%SZ) || die 1 "cannot read the clock"
+  if [ "$end_given" -eq 0 ]; then
+    end=$(date -u +%Y-%m-%dT%H:%M:%SZ) || die 1 "cannot read the clock"
+    # Same-width UTC stamps: the digits compare as numbers.
+    [ "$(printf '%s' "$end" | tr -d -- '-:TZ')" -ge "$(printf '%s' "$start" | tr -d -- '-:TZ')" ] \
+      || bad --end "not given, and the clock now reads earlier than --start"
+  fi
   is_ts "$end" || bad --end "not YYYY-MM-DDTHH:MM:SSZ"
   case $outcome in passed | applied | halted | failed | skipped) ;; *) bad --outcome "not passed, applied, halted, failed, or skipped" ;; esac
   if [ "$outcome" = skipped ]; then
@@ -1054,7 +1070,7 @@ cmd_status() {
     shift 2
   done
   case $point in pre-ready-flip | pre-spec-ready-flip) ;; *) bad --point "not a flip point" ;; esac
-  [ "$head_given" -eq 1 ] || default_head
+  [ "$head_given" -eq 1 ] || set_head_from_worktree
   is_head "$head" || bad --head "not a full commit id"
   is_repo "$repo" || bad --repo "not an <owner>/<name> repository"
 

@@ -1551,6 +1551,7 @@ WD_HEAD2=$(git -C "$wd" rev-parse HEAD)
 recd2=$(srd write --run "$rd" --point pre-pr --step later --kind command --target true \
   --hosting in-session --backend terminal --start 2026-10-06T10:01:00Z \
   --end 2026-10-06T10:01:01Z --outcome passed 2>"$tmp/wd.err")
+verdict_of $? "a second defaulted write succeeds" "rc!=0: $(cat "$tmp/wd.err")"
 grep -Fxq "head${TAB}$WD_HEAD2" "$recd2" 2>/dev/null
 verdict "the --head default follows the HEAD at write time" "record head: $(grep "^head${TAB}" "$recd2" 2>/dev/null)"
 
@@ -1567,7 +1568,23 @@ srd write --completion --run "$rd" --point pre-pr --head "" >/dev/null 2>"$tmp/w
 rc=$?
 [ "$rc" -eq 2 ] && grep -Fq -- "step-record.sh: --head:" "$tmp/wd.err"
 verdict_of $? "an explicit empty --head is refused, never defaulted" "rc=$rc: $(cat "$tmp/wd.err")"
+srd write --run "$rd" --point convergence --step emptyend --kind command --target true \
+  --hosting in-session --backend terminal --start 2026-10-06T10:00:00Z --end "" \
+  --outcome passed >/dev/null 2>"$tmp/wd.err"
+rc=$?
+[ "$rc" -eq 2 ] && grep -Fq -- "step-record.sh: --end:" "$tmp/wd.err"
+verdict_of $? "an explicit empty --end is refused, never defaulted" "rc=$rc: $(cat "$tmp/wd.err")"
 
+# A defaulted --end earlier than --start (a start from a skewed clock) is
+# refused rather than recording a negative duration.
+srd write --run "$rd" --point convergence --step future --kind command --target true \
+  --hosting in-session --backend terminal --start 2999-01-01T00:00:00Z \
+  --outcome passed >/dev/null 2>"$tmp/wd.err"
+rc=$?
+[ "$rc" -eq 2 ] && grep -Fq -- "step-record.sh: --end:" "$tmp/wd.err"
+verdict_of $? "a defaulted --end earlier than --start is refused" "rc=$rc: $(cat "$tmp/wd.err")"
+
+stamp_digits() { printf '%s' "$1" | tr -d -- '-:TZ'; }
 before=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 recd4=$(srd write --run "$rd" --point convergence --step noend --kind command --target true \
   --hosting in-session --backend terminal --start "$before" --outcome passed 2>"$tmp/wd.err")
@@ -1576,8 +1593,8 @@ after=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 endv=$(sed -n "s/^end${TAB}//p" "$recd4" 2>/dev/null)
 case $endv in
   [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z)
-    digits() { printf '%s' "$1" | tr -d -- '-:TZ'; }
-    if [ "$(digits "$endv")" -lt "$(digits "$before")" ] || [ "$(digits "$endv")" -gt "$(digits "$after")" ]; then
+    if [ "$(stamp_digits "$endv")" -lt "$(stamp_digits "$before")" ] \
+      || [ "$(stamp_digits "$endv")" -gt "$(stamp_digits "$after")" ]; then
       fail "an omitted --end recorded '$endv', outside $before..$after"
     else
       ok "an omitted --end records the write time in UTC"
@@ -1592,6 +1609,8 @@ wu="$tmp/wu"
 mkdir -p "$wu"
 git -C "$wu" init -q -b main
 ru=$("$SR" --worktree "$wu" new-run)
+[ -n "$ru" ] && [ -d "$wu/.claude/steps/$ru" ]
+verdict "the no-commit fixture has a run to write into" "new-run in the no-commit worktree printed '$ru'"
 err=$("$SR" --worktree "$wu" write --run "$ru" --point pre-ci --step x --kind command \
   --target true --hosting in-session --backend terminal --start 2026-10-06T10:00:00Z \
   --end 2026-10-06T10:00:01Z --outcome passed 2>&1 >/dev/null)
@@ -1599,6 +1618,32 @@ rc=$?
 [ "$rc" -eq 2 ] && printf '%s' "$err" | grep -Fq -- "step-record.sh: --head:" \
   && [ -z "$(ls -A "$wu/.claude/steps/$ru")" ]
 verdict_of $? "an omitted --head with no commit is refused and writes nothing" "rc=$rc: $err"
+err=$("$SR" --worktree "$wu" write --completion --run "$ru" --point pre-ci 2>&1 >/dev/null)
+rc=$?
+[ "$rc" -eq 2 ] && printf '%s' "$err" | grep -Fq -- "step-record.sh: --head:" \
+  && [ -z "$(ls -A "$wu/.claude/steps/$ru")" ]
+verdict_of $? "an omitted completion --head with no commit is refused" "rc=$rc: $err"
+rm -f "$GH_STUB_LOG"
+err=$(PATH="$stub:$PATH" "$SR" --worktree "$wu" status --point pre-ready-flip --repo acme/widgets 2>&1 >/dev/null)
+rc=$?
+[ "$rc" -eq 2 ] && printf '%s' "$err" | grep -Fq -- "step-record.sh: --head:" && [ ! -f "$GH_STUB_LOG" ]
+verdict_of $? "an omitted status --head with no commit is refused and posts nothing" "rc=$rc: $err"
+
+# The default names the worktree's own repository: a plain directory inside
+# another repository, or an inherited GIT_DIR naming another one, is refused
+# rather than recording a foreign commit.
+mkdir -p "$wd/plain"
+rp=$("$SR" --worktree "$wd/plain" new-run)
+err=$("$SR" --worktree "$wd/plain" write --completion --run "$rp" --point pre-ci 2>&1 >/dev/null)
+rc=$?
+[ "$rc" -eq 2 ] && printf '%s' "$err" | grep -Fq -- "step-record.sh: --head:"
+verdict_of $? "a --worktree inside another repository never defaults to its HEAD" "rc=$rc: $err"
+rg=$(srd new-run)
+GIT_DIR="$wt/.git" "$SR" --worktree "$wd" write --completion --run "$rg" --point pre-ci \
+  >/dev/null 2>"$tmp/wd.err"
+verdict_of $? "a defaulted write under an inherited GIT_DIR succeeds" "rc!=0: $(cat "$tmp/wd.err")"
+cat "$wd/.claude/steps/$rg/"*-done-pre-ci.rec 2>/dev/null | grep -Fxq "head${TAB}$WD_HEAD2"
+verdict "an inherited GIT_DIR does not redirect the --head default" "completion head is not the worktree's own"
 
 # status: an omitted --head is the current HEAD, the completion naming it found.
 rs=$(srd new-run)
@@ -1608,6 +1653,25 @@ srd status --point pre-ready-flip --repo acme/widgets >/dev/null 2>"$tmp/st.err"
 rc=$?
 [ "$rc" -eq 0 ] && gh_arg "repos/acme/widgets/statuses/$WD_HEAD2" && gh_arg state=success
 verdict_of $? "status posts on the current HEAD when --head is omitted" "rc=$rc: $(cat "$tmp/st.err")"
+# It is re-read per call: after a new commit no completion names the default,
+# so status refuses and posts nothing.
+git -C "$wd" commit -q --allow-empty -m "chore: fourth"
+rm -f "$GH_STUB_LOG"
+srd status --point pre-ready-flip --repo acme/widgets >/dev/null 2>"$tmp/st.err"
+rc=$?
+if [ "$rc" -eq 1 ] && [ ! -f "$GH_STUB_LOG" ]; then
+  ok "status re-reads HEAD for its default"
+else
+  fail "rc=$rc: $(cat "$tmp/st.err")"
+fi
+rm -f "$GH_STUB_LOG"
+srd status --point pre-ready-flip --head "" --repo acme/widgets >/dev/null 2>"$tmp/st.err"
+rc=$?
+if [ "$rc" -eq 2 ] && [ ! -f "$GH_STUB_LOG" ]; then
+  ok "status refuses an explicit empty --head, never defaulting it"
+else
+  fail "rc=$rc: $(cat "$tmp/st.err")"
+fi
 
 # --- the cache path is ignored ------------------------------------------------------
 git -C "$repo_root" check-ignore -q ".claude/steps/000001/x.rec"
