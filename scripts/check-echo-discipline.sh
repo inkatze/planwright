@@ -324,6 +324,11 @@ while IFS= read -r -d '' file; do
   case "$interp" in
     bash)
       skipped=$((skipped + 1))
+      # The sourcing rule can only fire where the file names echo-safety.sh,
+      # directly or in the assignment a sourced variable carries, so a bash
+      # file that never mentions it is exact to skip, and tokenizing all of
+      # them would quadruple the guard's cost for no finding.
+      grep -qF 'echo-safety.sh' "$file" 2>/dev/null || continue
       printf 'b%s\n' "$file" >>"$work/list"
       ;;
     *)

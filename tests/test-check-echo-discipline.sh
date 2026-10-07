@@ -873,17 +873,14 @@ assert "planting the defect in the real tree turns the check red" 1 $?
 assert_contains "the red run names the planted file" "$out" "scripts/planted-offender.sh"
 rm -f "$tmp/work/scripts/planted-offender.sh"
 
+# One scan for both plants: each full-tree scan is the expensive part.
 write_script "$tmp/work/scripts/planted-echo.sh" 'echo "planted: $value"'
-out="$(/bin/bash "$CHECKER" "$tmp/work" 2>&1)"
-assert "planting an echo of a plain variable turns the check red" 1 $?
-assert_contains "the red run names the planted echo" "$out" "scripts/planted-echo.sh"
-rm -f "$tmp/work/scripts/planted-echo.sh"
-
 write_script "$tmp/work/scripts/planted-source.sh" '. "$script_dir/echo-safety.sh"'
 out="$(/bin/bash "$CHECKER" "$tmp/work" 2>&1)"
-assert "planting a bare source of the sanitizer turns the check red" 1 $?
-assert_contains "the red run names the planted source" "$out" "scripts/planted-source.sh"
-rm -f "$tmp/work/scripts/planted-source.sh"
+assert "planting a plain-variable echo and a bare source turns the check red" 1 $?
+assert_contains "the red run names the planted echo" "$out" "scripts/planted-echo.sh:3"
+assert_contains "the red run names the planted source" "$out" "scripts/planted-source.sh:3"
+rm -f "$tmp/work/scripts/planted-echo.sh" "$tmp/work/scripts/planted-source.sh"
 
 # Reverting one converted script to its echo spelling must also go red — this
 # is what stops the converted call sites from silently regressing.
