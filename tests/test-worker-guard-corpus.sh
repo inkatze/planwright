@@ -151,6 +151,18 @@ else
   fail "self-check: the replay waited ${took}s on a caller's background job"
 fi
 
+# The guard refuses to approve an assignment to a name exported in its own
+# environment, so a verdict must not depend on what the caller exports.
+f=$(synthetic host-env "$(row live allow allow allow allow 'read name')")
+if (
+  export name=host
+  corpus_replay "$f" run_guard 1 >/dev/null 2>&1
+); then
+  pass "self-check: a variable the caller exports does not change a verdict"
+else
+  fail "self-check: a caller-exported variable changed the guard's verdict"
+fi
+
 # Each malformed corpus must refuse (exit 2) before replaying anything, and
 # for its own reason, so one malformation cannot stand in for another.
 refuses() {

@@ -189,8 +189,16 @@ corpus_decide() {
   }
   out=$(
     cd "$CORPUS_WORKTREE" || exit 1
-    unset CLAUDE_DIR GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR
+    # The guard reads its environment (it refuses an assignment to any name
+    # exported there, and resolves overlays and fleet state through it), so
+    # the caller's exports are dropped and only what the row needs is set.
     # HOME is pinned so the guard never reads the host's installed plugins.
+    for v in $(compgen -e); do
+      case $v in
+        PATH | LC_ALL) ;;
+        *) unset "$v" 2>/dev/null ;;
+      esac
+    done
     printf '%s' "$payload" \
       | HOME="$CORPUS_BOX/home" TMPDIR="$CORPUS_SCRATCH" \
         CLAUDE_PLUGIN_ROOT="$CORPUS_PLUGIN_ROOT" PLANWRIGHT_ROOT="$CORPUS_PLUGIN_ROOT" \
