@@ -252,36 +252,34 @@ if [ "$LIVE" = 1 ]; then
   echo "smoke: --live probe"
   probe_prompt=$(mktemp) || exit 2
   probe_dir=""
+  launched=0
   # shellcheck disable=SC2329  # invoked by the EXIT trap below
   cleanup() {
     rm -f "$probe_prompt"
+    [ "$launched" = 1 ] && "$ROOT/scripts/fleet-streamjson.sh" stop smoke-probe >/dev/null 2>&1
     rm -rf "$SMOKE_BOX"
-    [ -n "$probe_dir" ] && "$ROOT/scripts/fleet-streamjson.sh" stop smoke-probe >/dev/null 2>&1
   }
   trap cleanup EXIT
 
   # The probe runs the shipped rows the empty policy approves and nothing
   # else. If the hook is wired and correct, the worker completes without ever
-  # reaching the permission gate.
+  # reaching the permission gate. It runs in the corpus sandbox, whose files
+  # the rows name, and skips the rows that print the environment, which would
+  # copy the worker's environment into its transcript.
   {
     echo "Run each of these commands exactly as written, in order, one Bash call each."
     echo "Do not modify them. Do not explain. Report only the count you ran."
     echo
-    # The worker runs in this checkout, so the worktree placeholder binds to
-    # it. Without the binding the probe hands a real worker literal
-    # placeholders, which stall or fail for a reason that has nothing to do
-    # with the guard under test.
-    corpus_parse "$CORPUS" | awk -F'\t' -v pr="$ROOT" -v rr="$REPO_ROOT" \
-      '$1 == "row" && $4 == "shipped" && $5 == "allow" && $9 !~ /@@(SCRATCH|OUTSIDE)@@/ {
-         line = $9
-         gsub(/@@PLUGIN_ROOT@@/, pr, line)
-         gsub(/@@WORKTREE@@/, rr, line)
-         print "  " line
-       }' | head -12
+    corpus_parse "$CORPUS" | while IFS="$CORPUS_TAB" read -r kind _ _ state v1 _ _ _ cmd; do
+      [ "$kind" = row ] && [ "$state" = shipped ] && [ "$v1" = allow ] || continue
+      case $cmd in env | env\ * | printenv*) continue ;; esac
+      printf '  %s\n' "$(corpus_bind "$cmd")"
+    done | head -12
   } >"$probe_prompt"
 
+  launched=1
   if "$ROOT/scripts/fleet-streamjson.sh" launch smoke-probe smoke:probe \
-    --prompt-file "$probe_prompt" --cwd "$REPO_ROOT" >/dev/null 2>&1; then
+    --prompt-file "$probe_prompt" --cwd "$CORPUS_WORKTREE" >/dev/null 2>&1; then
     # fleet-streamjson.sh resolves its state root through fleet-state.sh
     # (PLANWRIGHT_FLEET_STATE_DIR, CLAUDE_PLUGIN_DATA, writer-mode manifest
     # fallback). Rebuilding that path by hand means a host resolving it any
