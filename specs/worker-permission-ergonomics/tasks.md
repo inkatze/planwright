@@ -335,7 +335,11 @@ below; `scripts/spec-graph.sh` renders it on demand.
 
 ## Awaiting input
 
-(none yet)
+- **Task 8** — point `convergence`, step `panel-gemini`, outcome `halted`
+  (record `.claude/steps/000001/005-step-convergence.rec`): the step needs the
+  operator's one-time consent to send this repository's diff to Gemini, which
+  an unattended run cannot ask for, so nothing was sent. Implementation, tests
+  and polish are committed on the branch, unpushed.
 
 ## Deferred
 
