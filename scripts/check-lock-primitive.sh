@@ -24,22 +24,28 @@
 # script is asking the kernel "did I win this path", which is the question
 # `pw_lock_try` now answers. Concretely:
 #
-#   * `if mkdir ...`, `elif`, `if ! mkdir ...`, `while`, `until`
-#   * `mkdir ... && <anything>` or `mkdir ... || <anything>`
+#   * `if mkdir ...`, `elif`, `if ! mkdir ...`, `while`, `until`, including a
+#     condition that starts on the line below its keyword
+#   * `mkdir ... && <anything>` or `mkdir ... || <anything>`, including an
+#     operator on a backslash-continued line
 #   * `mkdir ...; then`
 #   * any of those nested in `(...)`, `{...}`, or reached after `;`, `|`,
 #     `&&`, `||`
-#   * a bare `mkdir ...` whose status is read on the next effective line as
-#     `<var>=$?`
+#   * a bare `mkdir ...` whose status the next command reads: any `$?` in the
+#     command after a `;` on the same line, or in the first command of the
+#     next effective line (`rc=$?`, `export rc=$?`, `[ $? -eq 0 ]`, `case $?`)
+#   * the command word in any quoting (`\mkdir`, `"mkdir"`, the dollar-quote
+#     form with its escapes) or behind `command`, `exec`, `env` or `sudo`
 #
 # WHAT DOES NOT COUNT. A `mkdir -p` (or `--parents`) succeeds on a directory
 # that already exists, so its status cannot signal exclusion and it is never a
 # lock — `if ! mkdir -p "$d"; then` is an ordinary error check, and the tree
 # has dozens. A `mkdir` whose status nobody reads is not asking the question at
-# all. An occurrence inside a comment, a heredoc body, or a single-quoted
-# string is prose, not a call: every file that documents this rule contains
-# one. And `mkdir` is matched only as a COMMAND WORD, so `_mkdir_rc`,
-# `mkdir_failure_kind` and `$mkdir_out` are identifiers, not invocations.
+# all. An occurrence inside a comment, a heredoc body (whatever quoting or
+# escape its delimiter carries), or a single-quoted string is prose, not a
+# call: every file that documents this rule contains one. And `mkdir` is
+# matched only as a COMMAND WORD, so `_mkdir_rc`, `mkdir_failure_kind`,
+# `$mkdir_out` and a word in an array's value list are not invocations.
 #
 # THE ESCAPE HATCH. A site that genuinely consumes mkdir status for something
 # other than lock acquisition — a mode-pinned bootstrap where EEXIST is
@@ -61,12 +67,17 @@
 # of a shebang. A sourced library is exactly where a shared lock helper would
 # live, so leaving those unscanned would leave the likeliest offender unscanned.
 #
+# State that outlives a line is carried across it: an open quote, an open
+# `${...}`, an array value list, an if or while condition waiting for its
+# `then` or `do`, and a backslash continuation, whose lines are read as the one
+# command they are.
+#
 # Known limits, all of them the same shape — the question stops being answerable
 # by reading one command:
-#   * a `mkdir` whose operands continue onto a backslash-continued line is read
-#     line at a time, so a `-p` written below the command word is not seen.
 #   * status consumed through a variable two hops later (`mkdir "$d"; sleep 1;
-#     rc=$?`) is not followed: only the next effective line is examined.
+#     rc=$?`) is not followed: only the next command is examined.
+#   * a wrapper other than `command`, `exec`, `env` and `sudo` (`nice`,
+#     `timeout`, `xargs`) is not looked through.
 #   * `eval "mkdir $d && ..."` is a string, not a command, and is not parsed.
 #   * options carried in a variable (`mkdir $opts "$d"`) are not resolved, so
 #     a `-p` that only exists at runtime is not seen.
@@ -142,8 +153,10 @@ Remedy: take the lock through the library.
 
 Flagged: a `mkdir` WITHOUT -p / --parents whose exit status is consumed — in an
 if/elif/while/until condition (with or without `!`), by `&&` or `||`, by a
-`; then`, or by a `<var>=$?` on the next effective line. Nesting in `(...)`,
-`{...}`, or after `;`, `|`, `&&`, `||` does not hide it.
+`; then`, or by any `$?` in the command after it (after a `;`, or first on the
+next effective line). Nesting in `(...)`, `{...}`, or after `;`, `|`, `&&`,
+`||` does not hide it, nor does quoting the command word or running it through
+`env` or `sudo`.
 
 Not flagged: any `mkdir -p` / `--parents` (it succeeds on an existing directory,
 so its status cannot signal exclusion — `if ! mkdir -p "$d"; then` is an
@@ -284,14 +297,19 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
   function push_ctx() {
     if (depth >= 200) { toodeep = 1; return }
     depth++
-    sdq[depth] = dq; ssq[depth] = sq
-    dq = 0; sq = 0
+    sdq[depth] = dq; ssq[depth] = sq; saq[depth] = aq; spe[depth] = pe; sarr[depth] = arr
+    dq = 0; sq = 0; aq = 0; pe = 0; arr = 0
   }
   function pop_ctx() {
     if (depth <= 0) return
-    dq = sdq[depth]; sq = ssq[depth]
+    dq = sdq[depth]; sq = ssq[depth]; aq = saq[depth]; pe = spe[depth]; arr = sarr[depth]
     depth--
   }
+
+  # hexval(c) / the dollar-quote escapes below: just enough of the ANSI-C
+  # decoding to read a command word, since `$` + quote + `mk\x64ir` + quote
+  # runs mkdir.
+  function hexval(c) { return index("0123456789abcdef", tolower(c)) - 1 }
 
   # unquote(w) — the VALUE of a word, with shell quote removal applied.
   #
@@ -304,14 +322,36 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
   # from being walked past, and it reads a quoted `-p` as something other than
   # `-p`, which reports a site that is not a lock at all.
   # NO APOSTROPHES BELOW: this awk program is a single-quoted shell string.
-  function unquote(w,   i, n, c, nc, out, insq, indq) {
-    n = length(w); out = ""; insq = 0; indq = 0
+  function unquote(w,   i, n, c, nc, out, insq, indq, inaq, v, d, k) {
+    n = length(w); out = ""; insq = 0; indq = 0; inaq = 0
     for (i = 1; i <= n; i++) {
       c = substr(w, i, 1)
       if (insq) {
         if (c == SQ) insq = 0; else out = out c
         continue
       }
+      if (inaq) {
+        if (c == SQ) { inaq = 0; continue }
+        if (c != "\\") { out = out c; continue }
+        nc = substr(w, i + 1, 1); i++
+        if (nc == "x") {
+          v = 0; k = 0
+          while (k < 2 && (d = hexval(substr(w, i + 1, 1))) >= 0) { v = v * 16 + d; i++; k++ }
+          out = out (k ? sprintf("%c", v) : "\\x")
+        } else if (nc ~ /[0-7]/) {
+          v = nc + 0; k = 1
+          while (k < 3 && substr(w, i + 1, 1) ~ /[0-7]/) { v = v * 8 + substr(w, i + 1, 1); i++; k++ }
+          out = out sprintf("%c", v)
+        } else if (nc == "n") out = out "\n"
+        else if (nc == "t") out = out "\t"
+        else if (nc == "\\" || nc == SQ || nc == "\"" || nc == "?") out = out nc
+        else out = out "\\" nc
+        continue
+      }
+      # `$` before a quote is the dollar-quote and locale-quote forms: quoting,
+      # not a parameter, so it contributes nothing to the value.
+      if (!indq && c == "$" && substr(w, i + 1, 1) == SQ) { inaq = 1; i++; continue }
+      if (!indq && c == "$" && substr(w, i + 1, 1) == "\"") { indq = 1; i++; continue }
       if (indq) {
         # Inside double quotes a backslash escapes only these; before anything
         # else it is an ordinary character and stays one.
@@ -329,11 +369,15 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
     return out
   }
 
-  # tokenize(line) — split one line into words and control operators, setting
-  # ntok/tok/tokt, the trailing comment, and whether the line leaves a command
-  # open. Quote and substitution state persist across lines by design.
-  function tokenize(line,   i, n, c, nc, pc, c2, w, k, rest, delim, qc, used, hd_dash) {
-    ntok = 0; comment = ""; hascomment = 0; endsopen = 0; codeline = line
+  # tokenize(line, append) — split one line into words and control operators,
+  # setting ntok/tok/tokt, the trailing comment, and whether the line leaves a
+  # command open. Quote, expansion, array and substitution state persist across
+  # lines by design: none of them ends where a line does. With <append> set the
+  # tokens extend the previous line rather than replacing it, which is how a
+  # backslash-continued command is read as the one command it is.
+  function tokenize(line, append,   i, n, c, nc, pc, c2, w, k, delim, used, hd_dash, j, ch, e, quoted) {
+    if (!append) { ntok = 0; comment = ""; hascomment = 0 }
+    endsopen = 0; bscont = 0
     w = ""
     i = 1; n = length(line)
     while (i <= n) {
@@ -341,6 +385,13 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
       nc = substr(line, i + 1, 1)
       if (sq) {
         if (c == SQ) sq = 0
+        w = w c; i++; continue
+      }
+      if (aq) {
+        # The dollar-quote form: single-quoted, except that a backslash escapes,
+        # so an escaped quote does not end it.
+        if (c == "\\") { w = w c nc; i += 2; continue }
+        if (c == SQ) aq = 0
         w = w c; i++; continue
       }
       if (dq) {
@@ -352,19 +403,42 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
         }
         w = w c; i++; continue
       }
+      if (pe) {
+        # Inside ${...}: word text to its closing brace, but quotes inside it
+        # still quote, and the brace a quote holds closes nothing. Tracked as
+        # state rather than found with index(), because the closing brace may
+        # be lines away and a quote opened in between must not be lost.
+        if (c == "\\") { w = w c nc; i += 2; continue }
+        if (c == SQ) { sq = 1; w = w c; i++; continue }
+        if (c == "\"") { dq = 1; w = w c; i++; continue }
+        if (c == "$" && nc == "{") { pe++; w = w c nc; i += 2; continue }
+        if (c == "}") pe--
+        w = w c; i++; continue
+      }
       if (c == "\\") {
-        # A backslash at end of line continues the command onto the next one.
-        if (i == n) { endsopen = 1; i++; continue }
+        # A backslash at end of line joins the next line onto this command.
+        if (i == n) { bscont = 1; i++; continue }
         w = w c nc; i += 2; continue
       }
+      if (c == "$" && nc == SQ) { aq = 1; w = w c nc; i += 2; continue }
       if (c == SQ) { sq = 1; w = w c; i++; continue }
       if (c == "\"") { dq = 1; w = w c; i++; continue }
       if (c == "#" && w == "") {
         comment = substr(line, i + 1); hascomment = 1
-        codeline = substr(line, 1, i - 1)
         break
       }
-      if (c == " " || c == "\t") { if (w != "") { addtok(w, "w"); w = "" } i++; continue }
+      if (c == " " || c == "\t") { if (w != "") { addtok(w, arr ? "aw" : "w"); w = "" } i++; continue }
+      if (arr && c == ")") {
+        # The end of an array value list. Nothing in it was a command, so it
+        # leaves no operator behind for the walk to read as one.
+        if (w != "") { addtok(w, "aw"); w = "" }
+        arr = 0; i++; continue
+      }
+      if (c == "(" && w ~ /=$/ && !arr) {
+        # `name=(` opens an array value list: its words are data, so a mkdir
+        # named in one is not a command position.
+        addtok(w "(", "w"); w = ""; arr = 1; i++; continue
+      }
       if (c == "$" && nc == "(") {
         if (w != "") { addtok(w, "w"); w = "" }
         addtok("$(", "op"); push_ctx(); i += 2; continue
@@ -372,9 +446,7 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
       if (c == "$" && nc == "{") {
         # ${...} is word text; letting the brace through as an operator would
         # split a parameter expansion into nonsense.
-        k = index(substr(line, i), "}")
-        if (k == 0) { w = w substr(line, i); i = n + 1; continue }
-        w = w substr(line, i, k); i += k; continue
+        pe = 1; w = w c nc; i += 2; continue
       }
       if (c == "`") {
         if (w != "") { addtok(w, "w"); w = "" }
@@ -393,24 +465,43 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
         hd_dash = 0
         if (substr(line, k, 1) == "-") { hd_dash = 1; k++ }
         while (substr(line, k, 1) == " " || substr(line, k, 1) == "\t") k++
-        rest = substr(line, k)
-        used = 0
-        if (substr(rest, 1, 1) == "\\") { rest = substr(rest, 2); used = 1 }
-        qc = ""
-        if (substr(rest, 1, 1) == "\"" || substr(rest, 1, 1) == SQ) {
-          qc = substr(rest, 1, 1); rest = substr(rest, 2); used++
+        # The delimiter is a whole shell WORD and the body ends at a line equal
+        # to that word after quote removal, so `E\OF` ends at `EOF` and a quoted
+        # `\EOF` ends at `\EOF`. Reading only a run of plain characters gets
+        # both wrong: the first never closes and swallows the real code after
+        # it, the second is not recognised and its prose is read as code.
+        j = k; delim = ""; quoted = 0
+        while (j <= n) {
+          ch = substr(line, j, 1)
+          if (ch == " " || ch == "\t" || ch == ";" || ch == "&" || ch == "|" \
+            || ch == "<" || ch == ">" || ch == "(" || ch == ")") break
+          if (ch == "\\") { delim = delim substr(line, j + 1, 1); j += 2; quoted = 1; continue }
+          if (ch == SQ) {
+            e = index(substr(line, j + 1), SQ)
+            if (e == 0) { delim = ""; break }
+            delim = delim substr(line, j + 1, e - 1); j += e + 1; quoted = 1; continue
+          }
+          if (ch == "\"") {
+            quoted = 1; j++
+            while (j <= n && substr(line, j, 1) != "\"") {
+              ch = substr(line, j, 1)
+              if (ch == "\\" && index("$\"\\" BT, substr(line, j + 1, 1)) > 0) { j++; ch = substr(line, j, 1) }
+              delim = delim ch; j++
+            }
+            j++; continue
+          }
+          delim = delim ch; j++
         }
         # `<<2` is an arithmetic shift far more often than a heredoc named 2,
         # and reading it as a heredoc would swallow the file from there on. But
         # a shift operand is a NUMBER: `2EOF` is not one, and refusing it reads
-        # the heredoc BODY as shell, which reports prose as code.
-        delim = match(rest, /^[A-Za-z0-9_.+-]+/) ? substr(rest, 1, RLENGTH) : ""
-        if (delim != "" && (qc != "" || delim !~ /^[0-9]+$/)) {
-          used += RLENGTH
-          if (qc != "" && substr(rest, RLENGTH + 1, 1) == qc) used++
+        # the heredoc BODY as shell, which reports prose as code. An unquoted
+        # word keeps the old plain-character shape, which is what keeps `$x` and
+        # other operands of a shift from being read as a delimiter.
+        if (delim != "" && (quoted || (delim ~ /^[A-Za-z0-9_.+-]+$/ && delim !~ /^[0-9]+$/))) {
           if (heredoc == "") { heredoc = delim; hdash = hd_dash }
           w = w "<<"
-          i = k + used
+          i = j
           continue
         }
         w = w c; i++; continue
@@ -437,7 +528,10 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
       }
       w = w c; i++
     }
-    if (w != "") addtok(w, "w")
+    if (w != "") addtok(w, arr ? "aw" : "w")
+    # A line that ends inside a quote or an expansion has not ended its word,
+    # let alone its command.
+    if (sq || dq || aq || pe) endsopen = 1
     if (ntok > 0 && tokt[ntok] == "op") {
       c = tok[ntok]
       if (c == "&&" || c == "||" || c == "|" || c == "(" || c == "$(") endsopen = 1
@@ -446,30 +540,72 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
 
   # walk(path, lno) — find the mkdir invocations on the tokenized line and
   # decide, per invocation, whether its exit status is being read.
-  function walk(path, lno, exempt,   i, j, k, t, base, opt, lvl, hasp, inopts, term, nxt, kind) {
+  # reads_status(from, lvl) — 1 when the command starting at token <from>
+  # reads `$?`, the status the command before it left. Any reference counts,
+  # not only `rc=$?`: a test, a case, an `export` all read the same answer.
+  function reads_status(from, lvl,   j, t, m, ch, insq, indq) {
+    for (j = from; j <= ntok; j++) {
+      t = tok[j]
+      if (tokt[j] == "op") {
+        if (tokl[j] <= lvl && (t == ";" || t == "&&" || t == "||" || t == "|" || t == "&" || t == ";;")) return 0
+        continue
+      }
+      insq = 0; indq = 0
+      for (m = 1; m <= length(t); m++) {
+        ch = substr(t, m, 1)
+        if (insq) { if (ch == SQ) insq = 0; continue }
+        if (ch == "\\") { m++; continue }
+        if (ch == "\"") { indq = !indq; continue }
+        if (ch == SQ && !indq) { insq = 1; continue }
+        if (ch == "$" && (substr(t, m + 1, 1) == "?" || substr(t, m + 1, 2) == "{?")) return 1
+      }
+    }
+    return 0
+  }
+
+  function walk(path, lno, exempt,   i, j, k, t, base, opt, lvl, hasp, inopts, term, nxt, kind, wrap) {
     i = 1
+    wrap = ""
     while (i <= ntok) {
       if (tokt[i] == "op") {
         # Every control operator and every substitution boundary opens a
         # command position. A `)` does too: it closes a case pattern, and the
         # word after a closed substitution is a command name in the one shape
         # that matters here, `name() { ... }`.
-        atcmd = 1
+        atcmd = 1; wrap = ""
         i++; continue
       }
+      # A word of an array value list is data wherever it sits.
+      if (tokt[i] == "aw") { i++; continue }
       t = tok[i]
       # A brace group opens a command position whatever preceded it, which is
       # how the body of `take() { mkdir ...; }` is reached at all.
       if (t == "{" || t == "}") { atcmd = 1; i++; continue }
       if (!atcmd) { i++; continue }
-      if (t == "if" || t == "elif" || t == "while" || t == "until") { cond = 1; i++; continue }
+      if (wrap != "") {
+        # The options of a command that runs its operand as a command. Past
+        # them, the next word is that command.
+        opt = unquote(t)
+        if (opt == "--") { wrap = ""; i++; continue }
+        if (opt ~ /^-/) {
+          if ((wrap == "sudo" && opt ~ /^-[ughprtCDTUR]$/) \
+            || (wrap == "env" && opt ~ /^-[uCSPa]$/) \
+            || opt == "--user" || opt == "--group" || opt == "--chdir" || opt == "--unset") i++
+          i++; continue
+        }
+        wrap = ""
+      }
+      # A keyword is a keyword only at a command position, and a case pattern
+      # spelled like one (`if)`) is not one.
+      if ((t == "if" || t == "elif" || t == "while" || t == "until") && !(i < ntok && tok[i + 1] == ")")) { cond = 1; i++; continue }
       if (t == "then" || t == "do" || t == "else") { cond = 0; i++; continue }
       # Transparent to the command that follows them: the next word is still a
       # command name, so `command mkdir` and `FOO=1 mkdir` are still mkdir.
       if (t == "!" || t == "time" || t == "command" || t == "builtin" || t == "exec" || t == "nohup") { i++; continue }
-      if (t ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { i++; continue }
+      if (t ~ /^[A-Za-z_][A-Za-z0-9_]*\+?=/) { i++; continue }
       base = unquote(t)
       sub(/^.*\//, "", base)
+      if (base == "env" || base == "sudo") { wrap = base; i++; continue }
       if (base != "mkdir") { atcmd = 0; i++; continue }
 
       hasp = 0; inopts = 1
@@ -507,15 +643,18 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
       term = (k <= ntok) ? tok[k] : "EOL"
       nxt = (k + 1 <= ntok) ? tok[k + 1] : ""
       kind = ""
-      if (cond) kind = "cond"
+      # The `; then` reading is the more specific one, so it names the site
+      # even where the condition was already known to be open.
+      if (term == ";" && (nxt == "then" || nxt == "do")) kind = "then"
+      else if (cond) kind = "cond"
       else if (term == "&&" || term == "||") kind = "chain"
-      else if (term == ";" && (nxt == "then" || nxt == "do")) kind = "then"
+      else if (term == ";" && k < ntok && reads_status(k + 1, lvl)) kind = "rcsame"
 
       if (!hasp && kind != "") {
         if (!exempt) print path "\t" lno "\t" kind
       } else if (!hasp && (term == "EOL" || (term == ";" && k == ntok))) {
         # Nothing on this line reads the status. The next effective line still
-        # can, and `rc=$?` is the spelling that does.
+        # can, by any reference to `$?` in its first command.
         pend = 1; pend_line = lno; pend_exempt = exempt
       }
       atcmd = 0
@@ -523,12 +662,12 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
     }
   }
 
-  function scan(path,   line, r, opened, body, annot_here, exempt, reason) {
+  function scan(path,   line, r, opened, body, annot_here, exempt, reason, cont, lstart, lexempt) {
     heredoc = ""; hdash = 0
     pend = 0; pend_line = 0; pend_exempt = 0
     prev_annot = 0; atcmd = 1; cond = 0
-    dq = 0; sq = 0; depth = 0; bt = 0; toodeep = 0
-    opened = 0
+    dq = 0; sq = 0; aq = 0; pe = 0; arr = 0; depth = 0; bt = 0; toodeep = 0
+    opened = 0; cont = 0
     # getline returns -1 when the file cannot be opened or read, which is not
     # end-of-input. Treating the two alike would silently clear a file the scan
     # never saw, reachable as a TOCTOU race against the readability check the
@@ -536,14 +675,16 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
     while ((r = (getline line < path)) > 0) {
       opened++
       sub(/\r$/, "", line)
-      if (heredoc != "") {
+      # A heredoc body starts after the whole command line, so a continuation
+      # line is still the command even with a heredoc pending.
+      if (heredoc != "" && !cont) {
         body = line
         if (hdash) sub(/^\t+/, "", body)
         if (body == heredoc) heredoc = ""
         prev_annot = 0
         continue
       }
-      tokenize(line)
+      tokenize(line, cont)
       if (toodeep) { close(path); print "!\t" path; return 0 }
 
       annot_here = 0
@@ -553,19 +694,30 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
         if (reason ~ /[^ \t]/) annot_here = 1
         else print path "\t" opened "\tannot"
       }
-      exempt = (annot_here || prev_annot) ? 1 : 0
+      # A backslash-continued command is ONE command: its tokens accumulate and
+      # it is walked once, at its first line, when the last line arrives. Read a
+      # line at a time, its operands and its `&&` land on lines that no longer
+      # know they belong to a mkdir.
+      if (!cont) { lstart = opened; lexempt = (annot_here || prev_annot) ? 1 : 0 }
+      else if (annot_here) lexempt = 1
+      if (bscont) { cont = 1; continue }
+      cont = 0
+      exempt = lexempt
 
       if (pend && ntok > 0) {
-        if (line ~ rcre && !pend_exempt) print path "\t" pend_line "\trc"
+        if (reads_status(1, tokl[1]) && !pend_exempt) print path "\t" pend_line "\trc"
         pend = 0
       }
-      if (ntok > 0) walk(path, opened, exempt)
+      if (ntok > 0) walk(path, lstart, exempt)
 
       # Only a comment LINE carries forward, and only to the line directly
       # below it. An annotation that can float away from its site stops being
       # about that site.
       prev_annot = (ntok == 0 && annot_here) ? 1 : 0
-      if (!endsopen) { atcmd = 1; cond = 0 }
+      # The condition of an if or while does not end with its line: `then` or
+      # `do` ends it, wherever it sits. Command position does reset, except on
+      # a line left open by an operator or an unfinished word.
+      if (!endsopen) atcmd = 1
     }
     close(path)
     if (r < 0) { print "!\t" path; return 0 }
@@ -573,7 +725,6 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
   }
 
   BEGIN {
-    rcre = "^[ \t]*(local[ \t]+)?[A-Za-z_][A-Za-z0-9_]*=[\"" SQ "]?\\$\\?[\"" SQ "]?[ \t]*($|;|&)"
     while ((lr = (getline path < listfile)) > 0) scan(path)
     # An unreadable list is not an empty one; reporting clean over it would be
     # the same vacuous pass the scan-side check refuses.
@@ -592,6 +743,7 @@ while IFS="$tab" read -r file lineno kind; do
     chain) what="mkdir without -p whose exit status is consumed by && or || — a lock-acquisition signal" ;;
     then) what="mkdir without -p whose exit status is tested by a following 'then' — a lock-acquisition signal" ;;
     rc) what="mkdir without -p whose exit status is read on the next line as \$? — a lock-acquisition signal" ;;
+    rcsame) what="mkdir without -p whose exit status is read as \$? by the command after it on the same line — a lock-acquisition signal" ;;
     annot) what="not-a-lock annotation with no reason — it exempts nothing" ;;
     *) fail_closed "the scan produced an unrecognised record kind" ;;
   esac
