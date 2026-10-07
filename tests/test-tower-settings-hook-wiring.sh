@@ -182,9 +182,10 @@ fi
 # The front-door extension appends only these entries to the floor: the same
 # five GitHub write acts as the literal mcp__github__ names above, matched on
 # every MCP server by a tool-name glob, plus the PR branch update, which merges
-# the base into the PR branch on the host. A change to the extension updates
+# the base into the PR branch on the host, and PR creation, which can open a PR
+# that is not a draft. A change to the extension updates
 # this list in the same commit.
-expected_extension='["mcp__*__merge_pull_request","mcp__*__update_pull_request","mcp__*__push_files","mcp__*__create_or_update_file","mcp__*__delete_file","mcp__*__update_pull_request_branch"]'
+expected_extension='["mcp__*__merge_pull_request","mcp__*__update_pull_request","mcp__*__push_files","mcp__*__create_or_update_file","mcp__*__delete_file","mcp__*__update_pull_request_branch","mcp__*__create_pull_request"]'
 actual_extension="$(jq -cS --argjson n "$baseline_len" '.permissions.deny[$n:]' "$tower_settings")"
 if [ "$actual_extension" = "$(printf '%s' "$expected_extension" | jq -cS .)" ]; then
   ok "the deny block past the floor is exactly the front-door extension (tower-front-door REQ-A1.3)"
@@ -216,7 +217,9 @@ for tool in \
   mcp__claude_ai_Github-Example__create_or_update_file \
   mcp__forge__delete_file \
   mcp__claude_ai_Github-Example__update_pull_request_branch \
-  mcp__github__update_pull_request_branch; do
+  mcp__github__update_pull_request_branch \
+  mcp__claude_ai_Github-Example__create_pull_request \
+  mcp__github__create_pull_request; do
   if deny_glob_hits "$tool"; then
     ok "a GitHub write tool is denied on every MCP server: $tool (tower-front-door REQ-G1.1, REQ-G1.4)"
   else
