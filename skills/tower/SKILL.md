@@ -61,7 +61,9 @@ is the one sweep output read.
    block is the floor**; the command guard hook only pre-approves. Read each
    settings layer loaded here (user, project, local, managed, any
    `--settings` file) by `jq` projection only (`.permissions.deny`, `.hooks`),
-   union the deny lists, and compare against the shipped file's. An absent
+   naming each file, the shipped one included, by its literal path (the user
+   layer by its absolute path, never `~` or a variable, which the command
+   guard defers), union the deny lists, and compare against the shipped file's. An absent
    layer counts as empty; only a parse or read error makes a layer unreadable.
    The check fails closed: a shipped deny list absent or unreadable, a shipped
    entry missing from the union, or an unreadable layer — say so once, and

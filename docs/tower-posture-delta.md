@@ -47,9 +47,11 @@ static `allow` entry is added.
   (`-f`), a module search path (`-L`), every run while `~/.jq` exists (a file
   there is read into every filter, a directory is on the module path), every
   run while `HOME` is unset, empty, or relative (jq 1.6 then falls back to
-  the password entry's home), any unrecognized flag, an output redirect, and
-  a filter the guard cannot read literally (an unexpanded variable). A tilde,
-  glob, or variable in any operand defers too, so a settings layer passes
+  the password entry's home), any unrecognized flag, an output redirect to a
+  file (`/dev/null` aside), and a filter the guard cannot read literally (an
+  unexpanded variable). A tilde,
+  glob, or unexpanded variable in any operand defers too (a `for` variable
+  over literal words is checked as its value), so a settings layer passes
   only when named by a literal path, absolute or relative (the user layer
   by its absolute path, never `~`). The worker guard carries the same
   screen and takes the same fixes.
@@ -69,7 +71,7 @@ static `allow` entry is added.
   a relative `TMPDIR` names none), and that is not a symlink, a directory, or
   another non-regular file. `-f` and `--` are the only flags, and only before
   the first operand (BSD rm reads a later one as a file name). A recursive or
-  directory removal, `-i` or `-v`, a relative, tilde, glob, variable, or
+  directory removal, `-i` or `-v`, a relative, tilde, glob, unexpanded-variable, or
   dot-component operand, a directory whose resolved path holds a line break,
   and any operand outside those directories defer, and one bad operand defers
   the whole command. Like mktemp, removal defers once a `while` or `until`
@@ -134,7 +136,9 @@ The `gh api` spellings of the merge and the ready flip are the policy guard's
   a prompt, another session's live temp file included. The tower took this
   as a residual rather than requiring a tower-owned name prefix or a
   per-session directory. The sticky bit on `/tmp` still protects other users'
-  files.
+  files. On a case-insensitive filesystem (the macOS default) the name check
+  reads the operand as typed, so an entry whose name differs from a mktemp
+  name only in letter case, such as `TMP.Readme12`, is removable too.
 - **Settings merged before this delta.** A tower whose settings merged an
   earlier copy of the profile lacks the appended deny entries, so bring-up's
   posture check finds them missing and holds back repo-mutating routes and
