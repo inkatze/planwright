@@ -97,8 +97,11 @@ at the fleet tier:
 
 1. **Acquire the fleet advisory lock** — `scripts/fleet-state.sh lock` (the
    named cross-spec concurrency primitive under `${CLAUDE_PLUGIN_DATA}`),
-   serializing concurrent meta-towers, printing the owner token. Exit 1
-   (it is held) is a **clean no-op**: skip this step. Hold it only across
+   serializing concurrent meta-towers, printing the owner token. The hold
+   spans tool calls, so it is detached and nothing breaks it on its own: a
+   meta-tower that died holding it is cleared with the token-less `unlock`
+   once no meta-tower is live. Exit 1 (it is held) is a **clean no-op**: skip
+   this step. Hold it only across
    the decision below, never across a subordinate's execution (the D-10
    discipline at the fleet tier).
 2. **Select across the fleet**, under the lock:

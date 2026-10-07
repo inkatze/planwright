@@ -285,8 +285,9 @@ now_epoch() {
 #     for a hold we no longer own unlinks whoever holds it now; and the flag is
 #     set after `lock` returns, so a signal in that gap leaves a lock we do hold
 #     unreleased until the next acquirer finds this process gone (the hold
-#     names it with --owner-pid). `lock` now prints the owner token and
-#     `unlock <token>` verifies it; capturing it closes both.
+#     names it with --owner-pid). `lock` prints the owner token and
+#     `unlock <token>` verifies it; this script does not capture it yet, so
+#     both gaps stand until it does.
 HOLD_LOCK=0
 
 release_lock() {

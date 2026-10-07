@@ -32,7 +32,9 @@
 #    retracted.
 #
 # 3. RECONCILE BACKSTOP. The level-triggered tasks.md reconcile
-#    (tasks-pr-sync.sh reconcile) for every spec bundle in the tower's checkout.
+#    (tasks-pr-sync.sh reconcile) for every spec bundle in the tower's checkout,
+#    after `orchestrate-lock.sh sweep` clears a per-spec lock whose recorded
+#    holder is provably gone (audited as `reconcile lock-sweep`).
 #    A dropped `gh pr create`/`merge` PostToolUse hook leaves the snapshot
 #    lagging git ground truth; this corrects it from that same ground truth on
 #    the next cycle. It runs after the dirty-tree pass, so a correction planted
@@ -565,7 +567,7 @@ reconcile_pass() {
       # verb clears one only on positive evidence of the holder's death and
       # refuses on anything less, so its own refusals are not reportable
       # events; only an actual clear is.
-      if [ -x "$LOCK" ]; then
+      if [ -x "$LOCK" ] && { [ -L "$repo/$rel/.orchestrate.lock" ] || [ -e "$repo/$rel/.orchestrate.lock" ]; }; then
         lk_rc=0
         lk_out=$(cd "$repo" && "$LOCK" sweep "$rel" 2>/dev/null) || lk_rc=$?
         if [ "$lk_rc" = 0 ] && [ "$lk_out" = cleared ]; then

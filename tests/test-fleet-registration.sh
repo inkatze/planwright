@@ -930,7 +930,7 @@ ok e7 "diagnostics report untrusted text literally, never as terminal escapes"
 
 # ---------------------------------------------------------------------------
 # e8 — an interrupted registration releases the shared fleet lock, rather than
-#      wedging every other fleet writer until the stale-break threshold.
+#      wedging every other fleet writer until its owner is found gone.
 # ---------------------------------------------------------------------------
 h=$(home e8)
 mkdir -p "$h"
