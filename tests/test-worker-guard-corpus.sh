@@ -1,0 +1,215 @@
+#!/bin/bash
+# The worker guard's real-prompt corpus, replayed
+# (REQ-H1.3, REQ-A1.11): every row of tests/fixtures/worker-guard-corpus.tsv
+# runs through scripts/worker-command-guard.sh under each policy value with a
+# session record injected. A row of a shipped class must reach its expected
+# verdict in every column; a pending class is replayed and reported only.
+#
+# The harness checks itself first against small synthetic corpora, because a
+# replay that never fails reads exactly like a green one: a shipped miss must
+# fail, a pending miss must not, and a malformed corpus must refuse to run.
+set -u
+unset CDPATH
+LC_ALL=C
+export LC_ALL
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+HOOK="$REPO_ROOT/scripts/worker-command-guard.sh"
+CORPUS="$REPO_ROOT/tests/fixtures/worker-guard-corpus.tsv"
+# shellcheck source=tests/lib/worker-guard-corpus.sh
+. "$REPO_ROOT/tests/lib/worker-guard-corpus.sh"
+
+failures=0
+passes=0
+pass() {
+  echo "ok: $1"
+  passes=$((passes + 1))
+}
+fail() {
+  echo "FAIL: $1" >&2
+  failures=$((failures + 1))
+}
+
+command -v jq >/dev/null 2>&1 || {
+  echo "FAIL: jq is required to run this suite" >&2
+  exit 1
+}
+
+SANDBOX="$(mktemp -d)" || exit 1
+trap 'rm -rf "$SANDBOX"' EXIT
+corpus_sandbox "$SANDBOX/box" "$REPO_ROOT" || {
+  echo "FAIL: could not build the corpus sandbox" >&2
+  exit 1
+}
+
+run_guard() { /bin/bash "$HOOK"; }
+
+# A stand-in guard for the self-checks: approves exactly `true`.
+fake_guard() {
+  case $(jq -r '.tool_input.command') in
+    true) printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"t"}}' ;;
+  esac
+}
+
+T=$(printf '\t')
+synthetic() {
+  # synthetic <name> <line>...: a corpus declaring the two classes the
+  # self-checks use, plus the given lines.
+  local f="$SANDBOX/$1.tsv"
+  shift
+  {
+    printf 'class%slive%s1%sshipped%sshipped class\n' "$T" "$T" "$T" "$T"
+    printf 'class%slater%s9%spending%spending class\n' "$T" "$T" "$T" "$T"
+    printf 'class%sfloor%s5%sshipped%sfloor\n' "$T" "$T" "$T" "$T"
+    printf '%s\n' "$@"
+  } >"$f"
+  printf '%s\n' "$f"
+}
+row() {
+  # row <class> <v1> <v2> <v3> <v4> <command>
+  printf 'row%s%s%s%s%s%s%s%s%s%s%s%s' "$T" "$1" "$T" "$2" "$T" "$3" "$T" "$4" "$T" "$5" "$T" "$6"
+}
+
+# --- self-checks ---------------------------------------------------------
+f=$(synthetic ok "$(row live allow allow allow allow true)" "$(row live defer defer defer defer false)")
+if corpus_replay "$f" fake_guard >/dev/null 2>&1 && [ "$CORPUS_FAILED" -eq 0 ] && [ "$CORPUS_ROWS" -eq 2 ]; then
+  pass "self-check: a corpus the guard satisfies replays green"
+else
+  fail "self-check: a satisfied corpus did not replay green (rows=$CORPUS_ROWS failed=$CORPUS_FAILED)"
+fi
+
+f=$(synthetic shipped-miss "$(row live allow allow allow allow false)")
+if ! corpus_replay "$f" fake_guard >/dev/null 2>&1 && [ "$CORPUS_FAILED" -eq 1 ]; then
+  pass "self-check: a shipped row that misses its verdict fails"
+else
+  fail "self-check: a shipped miss did not fail (failed=$CORPUS_FAILED)"
+fi
+
+f=$(synthetic false-allow "$(row live defer defer defer defer true)")
+if ! corpus_replay "$f" fake_guard >/dev/null 2>&1 && [ "$CORPUS_FALSE_ALLOWS" -eq 1 ]; then
+  pass "self-check: an unexpected allow is counted as a false-allow"
+else
+  fail "self-check: false-allow not counted (false_allows=$CORPUS_FALSE_ALLOWS)"
+fi
+
+f=$(synthetic pending-miss "$(row later allow allow allow allow false)" "$(row later defer defer defer defer true)")
+if corpus_replay "$f" fake_guard >/dev/null 2>&1 && [ "$CORPUS_FAILED" -eq 0 ] && [ "$CORPUS_PENDING" -eq 2 ]; then
+  pass "self-check: a pending class's misses are reported, not failed"
+else
+  fail "self-check: pending handling wrong (failed=$CORPUS_FAILED pending=$CORPUS_PENDING)"
+fi
+
+f=$(synthetic one-column "$(row live defer allow allow allow true)")
+if ! corpus_replay "$f" fake_guard >/dev/null 2>&1 && [ "$CORPUS_FAILED" -eq 1 ]; then
+  pass "self-check: a miss in a single policy column fails the row"
+else
+  fail "self-check: a miss in one column went unnoticed (failed=$CORPUS_FAILED)"
+fi
+
+# Each malformed corpus must refuse (exit 2) before replaying anything, and
+# for its own reason, so one malformation cannot stand in for another.
+refuses() {
+  local label=$1 reason=$2 f err rc
+  shift 2
+  f=$(synthetic "refuse-$label" "$@")
+  err=$(corpus_replay "$f" fake_guard 2>&1 >/dev/null)
+  rc=$?
+  case $rc:$err in
+    2:*"$reason"*) pass "self-check: refuses $label" ;;
+    *) fail "self-check: $label: expected exit 2 naming '$reason', got $rc: $err" ;;
+  esac
+}
+refuses "an undeclared class" "undeclared class" "$(row nosuch allow allow allow allow true)"
+refuses "a verdict other than allow or defer" "a verdict is allow or defer" \
+  "$(row live allow maybe allow allow true)"
+refuses "a row with a missing column" "seven tab-separated fields" \
+  "row${T}live${T}allow${T}allow${T}allow${T}true"
+refuses "an untabbed row" "unknown record kind" "row live allow allow allow allow true"
+refuses "a floor row that allows under some value" "defers under every policy value" \
+  "$(row floor defer defer allow allow true)"
+refuses "an arm that narrows the empty policy" "allowed under the empty policy" \
+  "$(row live allow defer allow allow true)"
+refuses "both arms narrowing one arm" "allowed under one arm" \
+  "$(row live defer allow defer defer true)"
+refuses "an unknown record kind" "unknown record kind: rows" \
+  "rows${T}live${T}allow${T}allow${T}allow${T}allow${T}true"
+refuses "a class state other than shipped or pending" "shipped or pending" \
+  "class${T}odd${T}1${T}landed${T}x"
+refuses "a class declared twice" "declared twice" "class${T}live${T}1${T}shipped${T}again"
+refuses "a corpus with no rows" "no rows"
+
+# --- the corpus file -----------------------------------------------------
+# Sanitization: rows carry command shapes only. Absolute paths are limited to
+# the system locations a shape needs, and a URL may only name the reserved
+# example.invalid host.
+leaks=$(grep '^row' "$CORPUS" | grep -E '(/home/|/Users/|/root/|/private/|/var/folders/|~/|@[A-Za-z0-9-]+\.[A-Za-z]|://[^/]*\.(com|org|net|io|dev))' || true)
+if [ -z "$leaks" ]; then
+  pass "corpus: no user path, home path, email, or real host in any row"
+else
+  fail "corpus: unsanitized row(s):"
+  printf '%s\n' "$leaks" >&2
+fi
+
+for c in floor uncovered; do
+  if corpus_parse "$CORPUS" | awk -F'\t' -v c="$c" '$1 == "class" && $2 == c && $3 == "shipped" {f=1} END {exit !f}'; then
+    pass "corpus: the $c class is enforced from the start"
+  else
+    fail "corpus: the $c class is not declared shipped"
+  fi
+done
+
+# The floor carries a row per reserved act REQ-F1.5 names; each shape here is
+# matched as a substring of some floor row's command.
+for shape in 'gh pr merge' 'gh pr ready 5' '--undo' 'push --force' 'push origin' \
+  'push -u origin' '--amend' 'git rebase' 'merge --squash' 'git reset' \
+  '@@OUTSIDE@@' '/tmp/' '.git' 'githooks/' '.claude/' 'mise.toml' \
+  'mise.local.toml' '.mise/' 'lefthook.yml' 'gh pr comment' 'gh pr create' \
+  'gh issue create' 'gh api -X POST' 'commit -n' '--no-verify' 'core.hooksPath'; do
+  if corpus_parse "$CORPUS" | awk -F'\t' -v s="$shape" '$1 == "row" && $3 == "floor" && index($9, s) {f=1} END {exit !f}'; then
+    pass "corpus: a floor row covers '$shape'"
+  else
+    fail "corpus: no floor row covers '$shape'"
+  fi
+done
+
+# Every `prefix:*` rule of the worker profile's deny block has a floor row it
+# matches, so the deny outcome is asserted against the actual block
+# (REQ-A1.11) rather than assumed from Claude Code's evaluation order. The
+# glob rules are the permission-matcher suite's to cover.
+floor_cmds=$(corpus_parse "$CORPUS" | awk -F'\t' '$1 == "row" && $3 == "floor" {print $9}')
+prefixes=$(jq -r '.permissions.deny[] | select(test("^Bash\\(.*:\\*\\)$")) | sub("^Bash\\(";"") | sub(":\\*\\)$";"")' \
+  "$REPO_ROOT/config/worker-settings.json")
+[ -n "$prefixes" ] || fail "corpus: no prefix rule read from the deny block"
+while IFS= read -r prefix; do
+  [ -n "$prefix" ] || continue
+  hit=0
+  while IFS= read -r c; do
+    case $c in "$prefix" | "$prefix "*) hit=1 ;; esac
+  done <<EOF
+$floor_cmds
+EOF
+  if [ "$hit" -eq 1 ]; then
+    pass "corpus: a floor row matches deny rule '$prefix:*'"
+  else
+    fail "corpus: no floor row matches deny rule '$prefix:*'"
+  fi
+done <<EOF
+$prefixes
+EOF
+
+# --- the replay ----------------------------------------------------------
+corpus_replay "$CORPUS" run_guard
+rc=$?
+if [ "$rc" -eq 2 ]; then
+  fail "corpus: refused to replay (malformed corpus or sandbox)"
+elif [ "$CORPUS_ROWS" -lt "$CORPUS_MIN_ROWS" ]; then
+  fail "corpus: replayed $CORPUS_ROWS rows, below the floor of $CORPUS_MIN_ROWS"
+elif [ "$rc" -eq 0 ]; then
+  pass "corpus: $CORPUS_ROWS rows replayed, every shipped verdict held ($CORPUS_PENDING pending miss(es) reported)"
+else
+  fail "corpus: $CORPUS_FAILED shipped verdict(s) missed, $CORPUS_FALSE_ALLOWS of them false-allows"
+fi
+
+echo
+echo "worker-guard-corpus: $passes passed, $failures failed"
+[ "$failures" -eq 0 ]
