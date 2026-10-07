@@ -70,6 +70,41 @@ row() {
   printf 'row%s%s%s%s%s%s%s%s%s%s%s%s' "$T" "$1" "$T" "$2" "$T" "$3" "$T" "$4" "$T" "$5" "$T" "$6"
 }
 
+# --- the sandbox ---------------------------------------------------------
+# The rows run against what a worker really has: a linked worktree on its
+# unit branch, whose base resolves, and records the hook reads its inputs
+# from rather than its own environment.
+if [ -f "$CORPUS_WORKTREE/.git" ]; then
+  pass "sandbox: the worktree is a linked worktree (.git is a file)"
+else
+  fail "sandbox: the worktree's .git is not a file"
+fi
+if [ "$(corpus_git rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$CORPUS_UNIT_BRANCH" ] \
+  && corpus_git rev-parse -q --verify origin/main >/dev/null 2>&1; then
+  pass "sandbox: the unit branch is checked out and origin/main resolves"
+else
+  fail "sandbox: the unit branch or origin/main does not resolve"
+fi
+# Approves only when the hook's TMPDIR is a real directory other than the
+# recorded scratch root.
+tmpdir_probe() {
+  cat >/dev/null
+  if [ -d "$TMPDIR" ] && [ "$TMPDIR" != "$CORPUS_SCRATCH" ]; then
+    printf '%s\n' '{"hookSpecificOutput":{"permissionDecision":"allow"}}'
+  fi
+}
+if grep -qx "scratch_root=$CORPUS_SCRATCH" "$CORPUS_BOX/state/record.3" \
+  && [ "$(corpus_decide tmpdir_probe 3 true)" = allow ]; then
+  pass "sandbox: the scratch root comes from the record, not the hook's TMPDIR"
+else
+  fail "sandbox: the hook's TMPDIR is the recorded scratch root"
+fi
+if ! corpus_sandbox "$SANDBOX/box" "$REPO_ROOT" 2>/dev/null; then
+  pass "sandbox: a box already in use is refused"
+else
+  fail "sandbox: a box already in use was rebuilt over"
+fi
+
 # --- self-checks ---------------------------------------------------------
 f=$(synthetic ok "$(row live allow allow allow allow true)" "$(row live defer defer defer defer false)")
 if corpus_replay "$f" fake_guard >/dev/null 2>&1 && [ "$CORPUS_FAILED" -eq 0 ] && [ "$CORPUS_ROWS" -eq 2 ]; then

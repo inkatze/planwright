@@ -6,13 +6,15 @@
 # through the hook command as the settings fragment spells it.
 #
 #   corpus_sandbox <box> <plugin-root>
-#                        build the sandbox under <box>: a worktree (a git
-#                        repository on the unit branch, with an origin
-#                        remote, a configured hooks directory, and the files
-#                        the rows name), a scratch root holding a symlink
-#                        that escapes it, a directory outside both, and one
-#                        session record per policy column; <plugin-root> is
-#                        the installed planwright root the rows trust
+#                        build the sandbox under <box>, which must be empty:
+#                        a linked worktree on the unit branch (its base
+#                        resolving as origin/main, a configured hooks
+#                        directory, the files the rows name, a symlink that
+#                        escapes it), a scratch root holding the same kind
+#                        of symlink, a directory outside both, and one
+#                        session record and audit home per policy column;
+#                        <plugin-root> is the installed planwright root the
+#                        rows trust. Sets the CORPUS_* paths only on success
 #   corpus_parse <file>  validate the corpus and print one normalized record
 #                        per line: `class <name> <state>` and
 #                        `row <line> <class> <state> <v1> <v2> <v3> <v4>
@@ -56,60 +58,92 @@ corpus_policy() {
   esac
 }
 
-corpus_git() {
+# corpus_git_env <git-args>: git, isolated from the host's configuration and
+# from any repository the caller's environment points at.
+corpus_git_env() {
   env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR \
-    GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "$CORPUS_WORKTREE" "$@"
+    GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git "$@"
 }
 
-corpus_sandbox() {
-  mkdir -p "$1" || return 1
-  CORPUS_BOX=$(cd -P "$1" && pwd -P) || return 1
-  CORPUS_PLUGIN_ROOT=$2
-  CORPUS_WORKTREE=$CORPUS_BOX/worktree
-  CORPUS_SCRATCH=$CORPUS_BOX/scratch
-  CORPUS_OUTSIDE=$CORPUS_BOX/outside
-  local wt=$CORPUS_WORKTREE col
-  mkdir -p "$wt/scripts" "$wt/tests" "$wt/sub" "$wt/build" "$wt/specs/demo" \
-    "$wt/githooks" "$wt/.claude" "$CORPUS_SCRATCH" "$CORPUS_OUTSIDE" \
-    "$CORPUS_BOX/home" "$CORPUS_BOX/state/audit" || return 1
-  env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR \
-    GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$wt" || return 1
-  corpus_git checkout -q -b "$CORPUS_UNIT_BRANCH" || return 1
-  corpus_git config core.hooksPath githooks || return 1
-  corpus_git remote add origin ../origin.git || return 1
+corpus_git() { corpus_git_env -C "$CORPUS_WORKTREE" "$@"; }
 
-  printf 'a x\nb\n' >"$wt/f"
-  printf 'x\n' >"$wt/g"
-  printf 'x\n' >"$wt/sub/g"
-  printf '# notes\nx\n' >"$wt/notes.md"
-  printf '{}\n' >"$wt/f.json"
-  printf 'a: 1\n' >"$wt/f.yml"
-  printf '### REQ-A1.1\n' >"$wt/specs/demo/test-spec.md"
-  printf 'msg\n' >"$wt/build/msg.txt"
-  : >"$wt/build/a"
-  : >"$wt/scripts/ok.sh"
-  : >"$wt/tests/ok.sh"
-  : >"$wt/tests/ok.bats"
-  : >"$wt/mise.toml"
-  : >"$wt/mise.local.toml"
-  : >"$wt/lefthook.yml"
-  : >"$wt/hardlinked"
-  ln "$wt/hardlinked" "$wt/hardlinked.2" || return 1
-  : >"$CORPUS_SCRATCH/f.orig"
-  : >"$CORPUS_SCRATCH/a"
-  ln -s "$CORPUS_OUTSIDE" "$CORPUS_SCRATCH/escape" || return 1
-  : >"$CORPUS_OUTSIDE/x"
+corpus_sandbox() {
+  local box main wt scratch outside col
+  mkdir -p "$1" || return 1
+  [ -z "$(ls -A "$1")" ] || {
+    echo "corpus: sandbox box is not empty: $1" >&2
+    return 1
+  }
+  box=$(cd -P "$1" && pwd -P) || return 1
+  main=$box/main
+  wt=$box/worktree
+  scratch=$box/scratch
+  outside=$box/outside
+  mkdir -p "$main" "$scratch" "$outside" "$box/home" "$box/hook-tmp" \
+    "$box/state" || return 1
+
+  # A worker's worktree is a linked one, so its .git is a file, and its unit
+  # branch sits on a base that resolves as origin/main.
+  {
+    corpus_git_env init -q --bare "$box/origin.git" \
+      && corpus_git_env init -q "$main" \
+      && corpus_git_env -C "$main" symbolic-ref HEAD refs/heads/main \
+      && corpus_git_env -C "$main" -c user.name=corpus -c user.email=corpus@example.invalid \
+        -c commit.gpgsign=false commit -q --allow-empty -m init \
+      && corpus_git_env -C "$main" remote add origin "$box/origin.git" \
+      && corpus_git_env -C "$main" push -q origin main 2>/dev/null \
+      && corpus_git_env -C "$main" fetch -q origin \
+      && corpus_git_env -C "$main" config core.hooksPath githooks \
+      && corpus_git_env -C "$main" worktree add -q -b "$CORPUS_UNIT_BRANCH" "$wt" main 2>/dev/null
+  } || return 1
+
+  {
+    mkdir -p "$wt/scripts" "$wt/tests" "$wt/sub" "$wt/build" "$wt/specs/demo" \
+      "$wt/githooks" "$wt/.claude" \
+      && printf 'a x\nb\n' >"$wt/f" \
+      && printf 'x\n' >"$wt/g" \
+      && printf 'x\n' >"$wt/sub/g" \
+      && printf '# notes\nx\n' >"$wt/notes.md" \
+      && printf '{}\n' >"$wt/f.json" \
+      && printf 'a: 1\n' >"$wt/f.yml" \
+      && printf '### REQ-A1.1\n' >"$wt/specs/demo/test-spec.md" \
+      && printf 'msg\n' >"$wt/build/msg.txt" \
+      && : >"$wt/build/a" \
+      && : >"$wt/scripts/ok.sh" \
+      && : >"$wt/tests/ok.sh" \
+      && : >"$wt/tests/ok.bats" \
+      && : >"$wt/mise.toml" \
+      && : >"$wt/mise.local.toml" \
+      && : >"$wt/lefthook.yml" \
+      && : >"$wt/hardlinked" \
+      && ln "$wt/hardlinked" "$wt/hardlinked.2" \
+      && ln -s "$outside" "$wt/outlink" \
+      && : >"$scratch/f.orig" \
+      && : >"$scratch/a" \
+      && : >"$scratch/run.sh" \
+      && : >"$scratch/env.sh" \
+      && : >"$scratch/x.sh" \
+      && ln -s "$outside" "$scratch/escape" \
+      && : >"$outside/x"
+  } || return 1
 
   for col in 1 2 3 4; do
+    mkdir -p "$box/state/audit.$col" || return 1
     printf '%s\n' \
       "policy=$(corpus_policy "$col")" \
       "unit_branch=$CORPUS_UNIT_BRANCH" \
-      "worktree_root=$CORPUS_WORKTREE" \
+      "worktree_root=$wt" \
       "pr_base=origin/main" \
-      "scratch_root=$CORPUS_SCRATCH" \
-      "audit_log_home=$CORPUS_BOX/state/audit" \
-      "worker_base_merge=allow" >"$CORPUS_BOX/state/record.$col" || return 1
+      "scratch_root=$scratch" \
+      "audit_log_home=$box/state/audit.$col" \
+      "worker_base_merge=allow" >"$box/state/record.$col" || return 1
   done
+
+  CORPUS_BOX=$box
+  CORPUS_PLUGIN_ROOT=$2
+  CORPUS_WORKTREE=$wt
+  CORPUS_SCRATCH=$scratch
+  CORPUS_OUTSIDE=$outside
 }
 
 corpus_parse() {
@@ -199,7 +233,7 @@ corpus_bind() {
 # the harness failing and prints error.
 corpus_decide() {
   local runner=$1 col=$2 payload out
-  payload=$(jq -cn --arg c "$3" --arg w "$CORPUS_WORKTREE" --arg s "$CORPUS_SESSION_ID" \
+  payload=$(jq -cn --arg c "$3" --arg w "$CORPUS_WORKTREE" --arg s "$CORPUS_SESSION_ID-$col" \
     '{hook_event_name:"PreToolUse", session_id:$s, tool_name:"Bash",
       tool_input:{command:$c}, cwd:$w}') || {
     echo error
@@ -210,7 +244,9 @@ corpus_decide() {
     # The guard reads its environment (it refuses an assignment to any name
     # exported there, and resolves overlays and fleet state through it), so
     # the caller's exports are dropped and only what the row needs is set.
-    # HOME is pinned so the guard never reads the host's installed plugins.
+    # HOME is pinned so the guard never reads the host's installed plugins,
+    # and TMPDIR is not the scratch root, so a row resolving `$TMPDIR` proves
+    # the guard took the root from the record.
     for v in $(compgen -e); do
       case $v in
         PATH | LC_ALL) ;;
@@ -218,7 +254,7 @@ corpus_decide() {
       esac
     done
     printf '%s' "$payload" \
-      | HOME="$CORPUS_BOX/home" TMPDIR="$CORPUS_SCRATCH" \
+      | HOME="$CORPUS_BOX/home" TMPDIR="$CORPUS_BOX/hook-tmp" \
         CLAUDE_PLUGIN_ROOT="$CORPUS_PLUGIN_ROOT" PLANWRIGHT_ROOT="$CORPUS_PLUGIN_ROOT" \
         PLANWRIGHT_WORKER_SESSION_RECORD="$CORPUS_BOX/state/record.$col" \
         "$runner" 2>/dev/null
