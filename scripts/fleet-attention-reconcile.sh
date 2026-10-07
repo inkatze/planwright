@@ -223,7 +223,9 @@ failed_specs=" "
 derive() {
   case $derived_specs in *" $1 "*) return 0 ;; esac
   case $failed_specs in *" $1 "*) return 1 ;; esac
-  dv_out=$(/bin/sh "$STATE" "$specs_root/$1" 2>/dev/null </dev/null) || {
+  # From the checkout, as the spec root was resolved: the derivation finds its
+  # work repository from the current one.
+  dv_out=$(cd "$repo" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$STATE" "$specs_root/$1" 2>/dev/null </dev/null) || {
     failed_specs="$failed_specs$1 "
     warn "the derivation of spec $1 failed — its rows are kept this pass"
     status=degraded
@@ -256,7 +258,7 @@ unit_completed() {
   printf '%s\n' "$derived" | awk -F'\t' -v s="$uc_spec" -v lo="$uc_lo" -v hi="$uc_hi" '
     function key(id,  p, n) { n = split(id, p, "."); return sprintf("%012d.%012d", p[1], (n > 1 ? p[2] : 0)) }
     BEGIN { klo = key(lo); khi = key(hi) }
-    $1 == s {
+    ($1 "") == (s "") {
       k = key($2)
       if (k < klo || k > khi) next
       if (k == klo) seen_lo = 1

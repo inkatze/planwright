@@ -22,6 +22,8 @@
 #   m1: a row whose state no writer produces is kept as malformed; m2: a
 #       handle with two rows is kept and degrades the pass; m3: a clear that
 #       fails keeps the row under its own reason and degrades the pass.
+#   w1: the unit rule derives from --repo even when the caller sits elsewhere
+#       and PLANWRIGHT_REPO_ROOT names another directory.
 #   r1: a row its worker rewrote between the verdict and the clear survives.
 #   u2: a row with no registry record and an unfinished unit is kept.
 #   a1: an awaiting-input row is kept whatever its unit or worker evidence.
@@ -309,6 +311,15 @@ has_row @145 || fail "m3: a failed clear removed the row"
 says m3 keep @145 clear-failed
 printf '%s\n' "$out" | grep -q "status=degraded$" || fail "m3: a failed clear did not degrade the pass: $out"
 echo "ok: m1 m2 m3 rows the pass cannot act on"
+
+# --- w1: the derivation reads --repo, whatever the caller's directory ------
+fresh
+seed @145 demo:task-1 working
+out=$(cd / && fenv env PLANWRIGHT_REPO_ROOT="$other" /bin/sh "$REC" --repo "$repo" 2>"$tmp/err") \
+  || fail "w1: reconcile exited non-zero: $(cat "$tmp/err")"
+clean w1
+says w1 clear @145 unit-completed
+echo "ok: w1 the derivation reads the named checkout"
 
 # --- r1: a worker writing between the verdict and the clear -----------------
 # The fake tmux runs $tmp/race on its session probe: the worker's heartbeat
