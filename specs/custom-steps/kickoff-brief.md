@@ -692,3 +692,310 @@ Lens-pass: the delta-scoped inline lens review recorded in this entry, one
 finding applied
 Anchor: `1dab86fe0c1e60fecba8a75a7fc5dda2cc360856` — computed as
 `scripts/spec-anchor.sh specs/custom-steps`
+
+### Amendment 2 — expensive checks and quota-handling's amendment (2026-10-06)
+
+**Trigger.** Delta re-walkthrough. The bundle derives Active; the
+recorded anchor no longer recomputed after the 2026-10-06 extension
+(`/spec-draft --extend`). Spec commit at walk start: `21ea5fd1`. The
+pre-extension tree (`d4ea2e19`) still recomputes the recorded anchor, so
+the extension commit `bbe72ffb` is the whole anchored delta; #524's
+Deferred bullet sits outside the anchor. Validator at pre-flight: 0
+errors, 0 warnings. The operator confirmed the scope as the extension
+only. Classification: meaning-class (new REQ and D-IDs), per
+`spec-format`'s amendment axis.
+
+**Scope (delta).** REQ-I (expensive checks) and REQ-J (limits and head
+ordering) added; REQ-A1.4, REQ-B1.2, REQ-D1.1, REQ-D1.4, and REQ-E1.5
+superseded by REQ-A1.6, REQ-B1.7, REQ-D1.10, REQ-D1.11, and REQ-E1.6;
+REQ-D1.12 added; D-21 to D-32 added, D-28 superseding D-12; Tasks 10 to
+16 added with their test-spec entries; the Scope and Out-of-scope
+amendments the `requirements.md` Changelog's 2026-10-06 entry lists.
+
+#### Goal & glossary (delta)
+
+The extension lets an adopter's expensive check wait its turn across
+every worker on the host (a pool), skip itself when it already passed
+over the same committed content of its declared paths (reuse), and run
+once more on the final head when a post-pr fix round moved what it
+covers (re-fire). `/execute-task`'s own full local suite may join a pool,
+and this repository replaces its hand-held host gate lock with the native
+pool. The second half signs quota-handling's amendment: `limited`, that
+bundle's six step fields as known fields, the head-move context fields,
+resume continuation, and `limited` refusing the flip. Ruled out:
+pooling, reuse, or re-fire of skill and prompt steps (Deferred), pools
+spanning hosts, test-file pooling, quota-handling's own mechanics, and
+re-running whole points. Assumed: the lock primitive's on-behalf-of
+acquire (present), git object ids as content identity, and
+quota-handling signed (it is; its Tasks 2 and 8 wait on this amendment).
+
+Resolutions recorded:
+
+- **One full suite run** is each attempt `/execute-task` makes,
+  adaptive retries included; each takes and releases its own slot
+  (REQ-I1.5, "for the run's duration").
+- **The owning process** of a slot is the shell that runs the check and
+  waits on it, for the hand recipe and inside `/execute-task` alike;
+  take, check, and release happen in that one shell, and a child the
+  check leaks never holds the slot, which belongs to that shell's pid.
+- **Ignored files never void a fingerprint** (operator decision).
+  REQ-I1.7's "untracked" was ambiguous over gitignored files, under which
+  `paths: .` could never fingerprint. Edit applied: REQ-I1.7 and D-26
+  state it, D-26 records the rejected alternative and its accepted cost,
+  the test-spec REQ-I1.7 entry and Task 13's Done-when gain the
+  ignored-file row. Mid-walk delta-scoped lens (inline): no findings; the
+  accepted cost goes to the risk register.
+
+Signed off: 2026-10-06
+
+#### Requirements walkthrough (delta)
+
+- **Supersessions and REQ-D1.12.** Each successor widens its
+  predecessor's set (the context fields, the entry fields, the outcome
+  set, the `continue` rule, the flip evidence) and keeps the rest of its
+  text; the superseded records carry their `Superseded-by` lines and
+  their test-spec entries pin to the successors. No change.
+- **REQ-I.** One gap closed by an operator decision: a check that
+  reaches its own pool again (a pooled full suite calling the hand
+  recipe, say) waited on its own slot until the wait bound failed it.
+  REQ-I1.2 now has a holder pass its check a hold mark (pool and owning
+  process), and a take under a live same-pool mark runs inside the hold,
+  as `scripts/run-tests.sh`'s pooled-file mark does; a mark naming
+  another pool, a dead owner, or failing its grammar is ignored. Mirrored
+  in D-22, the test-spec REQ-I1.2 entry, Task 11 (Deliverables and
+  Done-when), Task 10 (the rule doc's contract), and Task 14 (passing the
+  mark). Mid-walk lens (inline): one finding applied, the mark validated
+  as data before use (the pool-name charset and a decimal process id),
+  with its test row.
+- **REQ-J — inconsistency resolved by spec edit.** REQ-J1.2 refused a
+  flip on a `limited` record "from any point of the run", but REQ-D1.5
+  gives each flip attempt its own run, so a review limited at `post-pr`
+  of the unit's run would not have blocked the flip, and the test-spec
+  row described a fixture no run can produce. Operator's reading: a
+  `limited` record whose end head is the head being flipped, from any run
+  in the flipping worktree's record cache, refuses the flip and makes the
+  flip-point status `failure`. Edited: REQ-J1.2, REQ-E1.6, D-32 (with the
+  rejected attempt-only alternative), the test-spec REQ-E1.6 and REQ-J1.2
+  entries, and Task 13. Mid-walk lens (inline): no bundle finding; a risk
+  row for a flipper outside the unit's worktree, and an observation that
+  quota-handling REQ-B1.2 carries the same wording.
+
+Consolidated spec-edit list (this walk): the ignored-files fingerprint
+rule (section above); the hold mark; the `limited` refusal scope. Each
+landed in place on the unsigned delta, and the `requirements.md`
+Changelog gains one entry for the three at sign-off.
+
+Signed off: 2026-10-06
+
+#### Design walkthrough (delta)
+
+Reconciled ledger of the delta's decisions:
+
+- **Confirmed, rationale intact:** D-21 (the altitude record this
+  extension's pinned seed claim triggers), D-23, D-24, D-25, D-27, D-28
+  (superseding D-12, which carries its `Superseded-by` line), D-30, D-31.
+- **Amended at this walk:** D-22 (the hold mark), D-26 (ignored files,
+  with the rejected alternative), D-32 (the refusal reads every run in
+  the flipping worktree's cache, with the rejected attempt-only
+  alternative), D-29 (below).
+- **D-29, resume ownership (operator decision).** quota-handling's Task 4
+  also delivered the resumed run's skipping, and this bundle's REQ-J1.1
+  scenario needed a quota hold only that bundle can produce. Resolved:
+  the skipping is this bundle's alone, and a run is a resume exactly when
+  its invocation names the interrupted run id and point (validated as
+  data before use), which quota-handling's resume supplies. Edited:
+  REQ-J1.1, D-29, Task 14's Deliverables, the test-spec REQ-J1.1 entry
+  (seeded records, no hold; a malformed run id refused). An observation
+  records that quota-handling's Task 4 should call it rather than
+  re-implement it. Mid-walk lens (inline): no further finding.
+
+Signed off: 2026-10-06
+
+#### Verification approach (delta)
+
+The coverage mix keeps section 5's split. `[test]` covers the pool
+helper, the resolver, and the record helper (`mise run check` and the
+repository CI). `[Gherkin]` covers the runner wiring, through fixture
+overlays in the adopter layer on the terminal rung, recorded in Task 14's
+PR body. `[design-level]` covers the rule-doc and overlay-doc presence
+rows. `[manual]` covers REQ-I1.13's real gate run through the hand
+recipe, recorded in Task 16's PR body by its worker.
+
+Ownership: the record-helper and resolver rows run in CI. The
+`limited` classification and the `on-limit` postures are verified by
+quota-handling's tests, as the test-spec REQ-D1.10 and REQ-J1.2 entries
+say.
+
+Dead paths: one found and closed. The REQ-J1.1 scenario needed a quota
+hold (section above). The validator's coverage pass reports every new
+REQ paired with a test-spec entry.
+
+Signed off: 2026-10-06
+
+#### Task graph (delta)
+
+Reconstructed from the `Dependencies:` lines of Tasks 10 to 16
+(`tasks.md`, authoritative):
+
+- Tasks 10, 11, 12, and 13 have no dependencies. They are the parallel
+  roots, alongside the still-open Tasks 6 and 8.
+- Task 14 joins all four roots. Task 16 follows Tasks 11 and 14.
+- Task 15 follows Task 12 and the original bundle's Task 8.
+- Critical path: a root, then Task 14, then Task 16, effort-weighted from
+  the tasks' `Estimated effort` lines. The three-worker cap bounds how
+  many roots run at once.
+
+Deliberate non-edges:
+
+- Task 13 does not depend on Task 12. The record helper reads no catalog.
+- Task 10 does not depend on Tasks 11 to 13. The rule doc states the
+  contract, not the scripts.
+- Task 16 does not depend on Task 15. The options check and
+  `check:steps` it names already run on main.
+
+The Task 10 Awaiting-input park exists only to hold Task 10's chain until
+this sign-off. It is removed in the sign-off commit.
+
+Signed off: 2026-10-06
+
+#### Risk register (delta)
+
+Inputs: the walk, the mid-walk lens passes, and the decision-domains gap
+check (the core seed catalog through `scripts/resolve-catalog.sh`; no
+overlay layers present). Domains the delta touches and decides:
+concurrency (D-22, D-24, the hold mark), caching (reuse, keyed by
+fingerprint and invalidated by content, D-26 and D-27), secrets and
+configuration (the new keys documented, REQ-I1.12), observability (the
+wait report and the record fields, REQ-I1.4 and REQ-I1.10), and API
+surface (the new entry fields and context fields, signed here; row 16's
+newer-config rule still applies). One domain the delta touches but
+leaves undecided became row 21. Rows continue section 7's numbering;
+the operator accepted every row.
+
+| # | Risk | Mitigation / early signal |
+| --- | --- | --- |
+| 18 | REQ-J1.2 reads the flipping worktree's record cache, so a flip run from another worktree sees only its own attempt and misses a `limited` record of the unit's runs. | Every flip today runs in the unit's worktree, and the in-repo unit-PR flipper is gated under Deferred. Early signal: a flip attempt recorded in a worktree that holds no unit run. |
+| 19 | Ignored files never void a fingerprint, so a check that reads an ignored local input can be reused over a change to it. | Operator-accepted cost (D-26). The PR's CI on the final head covers it. |
+| 20 | A re-fired `pre-pr` command step that commits leaves a commit nobody pushes, because the declaring point's no-push rule holds at re-fire. | Accepted. Expensive checks are read-only by nature. Early signal: the local head ahead of the PR head after a re-fire; the post-pr draft verification and the ready-guard's currency check see the moved head. |
+| 21 | Gap check, deploy and migration: until every worker on the host runs the release carrying the pool helper, a hand gate under the old host lock and pooled unit suites do not exclude each other. | Task 16 switches the setting and the hand recipe in one change, landing after that release is installed (REQ-I1.13's comment). Early signal: two full suites overlapping on the host. |
+| 22 | quota-handling's Tasks 2 and 8 wait on this amendment "landing on main". Cleared when this spec PR merges, they would dispatch before Tasks 10, 12, and 13 deliver the record fields, the known-field resolver, and `limited`. | Tracked by an observation fragment: those parks clear when Tasks 10, 12, and 13 merge. |
+| 23 | A pool wait may last up to `step_pool_wait` (60m by default), but one agent shell call is capped far lower, so a foreground pooled suite is killed while it waits, and the worker may read that as done. | Task 14 runs pooled checks as background jobs and waits on them inside the turn. Early signal: a CI step ending at the tool limit with no suite summary. |
+
+No open question remains.
+
+Signed off: 2026-10-06
+
+#### Sign-off lens review (delta-scoped, fanned out)
+
+Spec artifact class, per `artifact-lenses`: performance, concurrency, and
+error-handling lenses do not apply to prose, and security is reframed as
+data hygiene. Fan-out: one read-only Opus reviewer per lens over the full
+extension delta plus this walk's edits. Then two narrower re-lens rounds
+ran over the edit passes the dispositions produced. The pass converged
+when a round returned only findings with determined fixes.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 16 | Re-fire against the record helper's completion rule; resume semantics; `limited` never retired; the hold mark against REQ-A1.6; the D ledger's unmarked partial supersessions |
+| Ambiguity and interpretation forks | 18 | The reuse scan scope; the re-fire marker, context, and duplicate ids; prefix vs per-step resume; head move (local vs PR head); the fingerprint input |
+| Citation and coverage integrity | 12 | REQ-H1.3's stale preamble; D-21 and D-28 overstating their observations; wrong in-bundle cites; live references to superseded records |
+| Dead verification paths | 9 | Head fields with no resolver or guard work; no flipper refusing on `limited`; Task 16 needing `check:steps` before Task 8; a session-resume scenario the terminal rung cannot run |
+| Decision-domain gaps | 7 | `limited` retirement; record retention across lookups; unordered admission; the cross-bundle resume input; records written before the extension; the open key family |
+| Testability | 14 | Done-when rows missing for cited REQs in Tasks 11, 13, and 14; Task 6 still citing REQ-E1.5; unevaluable interval checks |
+| Cross-file consistency | 16 | The skip-reason code against the existing free-text rows; the recipe's home; take recording the holder's step and worktree; the Changelog's coverage of the walk |
+| Documentation and glossary drift | 10 | The rule doc's flip-state table and re-run line, the options rows, and the overlay field count all left stale; the recipe's home, the reuse scope, and this walk's edit count overlapped other lenses |
+| Rendered-content safety and data hygiene | none | Nothing here is rendered into an executing context; the committed text carries no secrets, hostnames, or private detail |
+
+Counts are raw per-lens findings before dedupe. The coordinator merged
+them into about sixty distinct findings, every one checked against the
+bundle and the scripts it names. Re-lens round 1 returned 33 raw
+findings over the first edit pass; round 2 returned 6. A real finding
+whose fix was already determined was applied without asking.
+
+**Dispositions.** Every finding was applied as a spec edit; none was
+declined or deferred. Operator decisions behind the fixes:
+
+- **`limited` retirement:** a later same-head pass retires the record.
+- **Resume:** starts at the interrupted point; skips the leading prefix,
+  reading the head once; chains through earlier resume skips; carries
+  the head move forward.
+- **Head move:** the local HEAD, pushed or not.
+- **Full-suite expiry:** an expired wait parks the unit and is never
+  retried.
+- **Admission:** unordered, and documented as such.
+- **Pool wait:** runs outside `timeout`.
+- **Slot owner:** the process hosting the runner. The hold mark is
+  rendered as one trailing assignment carrying its literal pid.
+- **Same-owner take without a mark:** waits like any caller.
+- **Head context values:** set by this bundle's Task 14.
+- **The `answered` signal:** handed to quota-handling.
+- **The `missing` code at the attended spec-PR flip point:** dropped.
+- **Moved into Task 13:** the `missing` code on `/execute-task`'s skip
+  call, beside the rule requiring it.
+
+The `requirements.md` Changelog's 2026-10-06 delta-walk entry lists the
+resulting edits record by record.
+
+**Altitude check:** the pinned seed claim triggers it. D-21 is the
+altitude record, the goal cites it, and the task split matches the
+claimed altitude: contract in the rule doc (Task 10), mechanics in
+scripts (Tasks 11 to 14), values in the repo-tracked layer (Task 16). No
+finding.
+
+**Ship-gate check:** two out-of-band items now carry blocking records.
+
+- **quota-handling (operator-confirmed capture):** the fixes that bundle
+  owes are parked as an Awaiting-input bullet on its Task 4. They cover
+  calling this bundle's resume skipping, consuming the head values,
+  clearing its Task 2 and Task 8 parks only after this bundle's Tasks
+  10, 12, 13, and 14 merge, reading its REQ-B1.2 and REQ-B1.6 as this
+  amendment states, and defining the `answered` signal. The observation
+  `quota-handling-amendment-fold` seeds that bundle's delta kickoff.
+- **Task 16:** parked until a release carrying the pool helper is
+  installed here.
+- **Not a ship gate:** an observation (`flip-evidence-hook-gate`) asks the
+  next drain whether `scripts/ready-flip.sh` has met the flip-evidence
+  hook's Deferred gate.
+
+**Corrections to the subsections above, recorded here because they are
+signed:**
+
+- **Spec-edit count (Requirements walkthrough):** the walk made more than
+  three edits. The Changelog entry is authoritative.
+- **Task graph:**
+  - Task 16 now depends on Task 8 (`check:steps` does not yet exist on
+    main), so its listed non-edge is withdrawn.
+  - Task 6 now depends on Task 13, since it refuses on the status Task 13
+    derives. Task 6 therefore waits for Task 13 to land.
+- **Risk row 18:** its mitigation rested on a false premise. The in-repo
+  unit flipper already exists: `/execute-task`'s unit-owner flip
+  (`scripts/ready-flip.sh`) runs in the unit's worktree. Row 18 now reads
+  "Every flip today runs in the unit's worktree. `/execute-task`'s unit
+  flip and `/spec-kickoff`'s spec flip both read that worktree's cache."
+  The early signal is unchanged.
+
+Risk register rows appended at this pass:
+
+| # | Risk | Mitigation / early signal |
+| --- | --- | --- |
+| 24 | Row 9 accepted unbounded record build-up because nothing read by presence; the reuse lookup, the resume lookup, and the `limited` scan now read every run in the cache, so old records change behaviour and lookups slow as the cache grows. | Accepted, no pruning: records are per worktree and die with it, and a `limited` record retires on a later same-head pass. Early signal: a refusal or a reuse traced to a run far older than the PR, or lookup time visible in a step's wait. |
+| 25 | Admission is unordered, so a waiter can keep losing a freed slot to later arrivals and fail at the bound even though few checks ran ahead of it. | Accepted at the three-worker fleet cap. Early signal: a wait-bound failure whose recorded holders changed during the wait. |
+| 26 | A slot is owned by the process hosting the runner, so a check that dies without a release keeps its slot until that host process ends; a long-lived unit session can then hold a pool past its check. | The owner releases after every check end; the wait bound turns a stuck hold into a named-holder failure elsewhere. Early signal: a holder report naming a unit whose check record has already ended. |
+
+No open question remains, and every finding is dispositioned.
+
+**Pre-flip verification.** There is no status flip: the bundle rests at
+Ready and derives Active. `Last reviewed:` already reads 2026-10-06 on all
+four files. The validator reports 0 errors and 0 warnings for both
+custom-steps and quota-handling. markdownlint reports 0 errors over the
+edited files. This subsection's lens-table counts were re-derived from the
+raw lens reports, and one mismatch was corrected (the documentation lens).
+The sign-off removes the Task 10 Awaiting-input park.
+
+Signed off 2026-10-06 by the operator after the approval summary.
+
+Class: meaning
+Lens-pass: the delta-scoped fanned-out lens review and its two re-lens
+rounds recorded in this entry, every finding applied
+Anchor: `15f0e30c6ac455bad170f54fd6693f969ff09d95` — computed as
+`scripts/spec-anchor.sh specs/custom-steps`
