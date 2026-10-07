@@ -396,6 +396,9 @@ RUN_TMPDIR='' assert_allow "no TMPDIR: a mktemp file directly in /tmp" "rm -f $S
 RUN_TMPDIR='' assert_defer "no TMPDIR: a mktemp file outside /tmp" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
 RUN_TMPDIR="$SANDBOX/no-such-dir" assert_allow "an unresolvable TMPDIR: a mktemp file directly in /tmp" "rm -f $SLASH_TMP_FILE"
 RUN_TMPDIR="$SANDBOX/no-such-dir" assert_defer "an unresolvable TMPDIR: a mktemp file outside /tmp" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
+# A relative TMPDIR would resolve against the hook's own directory, which need
+# not be the command's, so it names no temp directory at all.
+RUN_TMPDIR=tower-tmp RUN_HOOK_CWD="$SANDBOX" assert_defer "a relative TMPDIR names no temp directory" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
 # A newly approved verb never carries a history rewrite through with it.
 assert_defer "mktemp then a force-push" "mktemp && git push --force origin x"
 assert_defer "jq then a rebase" "jq . f.json && git rebase main"

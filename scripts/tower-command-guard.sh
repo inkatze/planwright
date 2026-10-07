@@ -1351,19 +1351,35 @@ guard_mktemp() {
   [ "$cwn" -eq 1 ]
 }
 
-# temp_dirs: the canonical TMPDIR (when set and resolvable), the canonical
-# macOS per-user temp directory (where bare mktemp writes there, whatever
-# TMPDIR says), and the canonical /tmp, one per line. Read from the hook's own
-# environment, never from the analyzed command.
+# canon_temp_dir <dir>: the physical path of an absolute <dir> on one line, or
+# nothing when it is relative (it would resolve against the hook's directory,
+# not the command's), unresolvable, or holds a line break the list would split.
+canon_temp_dir() {
+  local c
+  case $1 in
+    /*) ;;
+    *) return 0 ;;
+  esac
+  c=$(cd -P -- "$1" 2>/dev/null && pwd -P && printf x) || return 0
+  c=${c%x}
+  c=${c%"$NL"}
+  case $c in
+    *"$NL"*) return 0 ;;
+  esac
+  printf '%s\n' "$c"
+}
+
+# temp_dirs: the canonical TMPDIR, the canonical macOS per-user temp directory
+# (where bare mktemp writes there, whatever TMPDIR says), and the canonical
+# /tmp, one per line, each only when canon_temp_dir accepts it. Read from the
+# hook's own environment, never from the analyzed command.
 temp_dirs() {
-  local t=${TMPDIR:-} u
-  if [ -n "$t" ]; then
-    (cd -P -- "$t" 2>/dev/null && pwd -P)
+  local u
+  canon_temp_dir "${TMPDIR:-}"
+  if u=$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null); then
+    canon_temp_dir "$u"
   fi
-  if u=$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null) && [ -n "$u" ]; then
-    (cd -P -- "$u" 2>/dev/null && pwd -P)
-  fi
-  (cd -P -- /tmp 2>/dev/null && pwd -P)
+  canon_temp_dir /tmp
 }
 
 # guard_rm: removing mktemp-named temp files, so a flight petition's ask and
