@@ -664,7 +664,8 @@ make_root "$tmp/trusted"
 filler "$tmp/trusted"
 write_script "$tmp/trusted/scripts/ok.sh" \
   'echo "files: $count" # trusted: integer from wc -l' \
-  'echo "$n" >&2  #trusted:loop counter'
+  'echo "$n" >&2  #trusted:loop counter' \
+  'echo $n # shellcheck disable=SC2086 # trusted: integer from wc -l'
 out="$(/bin/bash "$CHECKER" "$tmp/trusted" 2>&1)"
 assert "a trusted annotation with a reason clears its line" 0 $?
 

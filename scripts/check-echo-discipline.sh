@@ -664,9 +664,12 @@ awk -v listfile="$work/list" '
       if (dq) { prev = c; i++; continue }
       if (c == "#" && is_wordstart(prev)) {
         # `# trusted: <reason>` clears the plain expansions on this line; a bare
-        # marker is recorded so it can be reported rather than honoured.
+        # marker is recorded so it can be reported rather than honoured. The
+        # annotation ends the line, so it may follow another comment
+        # (`# shellcheck disable=... # trusted: ...`).
         cm = substr(s, i)
-        if (cm ~ /^#[ \t]*trusted:/) {
+        if (match(cm, /#[ \t]*trusted:/)) {
+          cm = substr(cm, RSTART)
           sub(/^#[ \t]*trusted:[ \t]*/, "", cm)
           if (cm ~ /[^ \t]/) trusted[ln] = 1; else trustbare[ln] = 1
         }
