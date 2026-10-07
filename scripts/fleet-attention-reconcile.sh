@@ -341,8 +341,13 @@ while IFS="$TAB" read -r w scope state stamp _; do
     continue
   fi
   record=$(latest "$w")
-  r_sd=$(printf '%s\n' "$record" | cut -f6)
-  r_dh=$(printf '%s\n' "$record" | cut -f7)
+  r_sd=""
+  r_dh=""
+  if [ -n "$record" ]; then
+    IFS="$TAB" read -r _ _ _ _ _ r_sd r_dh _ <<REC
+$record
+REC
+  fi
   # The worker's own evidence first: it is cheap, and any verdict but
   # no-evidence settles a row that claims a live worker. Only a row it
   # leaves open pays for a derivation.
