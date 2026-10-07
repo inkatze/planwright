@@ -109,6 +109,7 @@ seed() {
       none) printf '\nSigned off, but no anchor line.\n' ;;
       unparseable)
         brief_entry meaning '§8' "$anchor" 'scripts/spec-anchor.sh specs/demo'
+        # shellcheck disable=SC2016 # literal backticks: the record format
         printf '\nClass: meaning\nLens-pass: §9\nAnchor: `%s` — computed as\n' "$anchor"
         ;;
       nolens) brief_entry meaning '' "$anchor" 'scripts/spec-anchor.sh specs/demo' ;;
@@ -124,6 +125,7 @@ seed() {
         brief_entry meaning '§8' "$anchor" 'scripts/spec-anchor.sh specs/demo'
         ;;
       fenced)
+        # shellcheck disable=SC2016 # literal backticks: a fence
         printf '\nClass: meaning\n```\nClass: expression-only\n```\n'
         # shellcheck disable=SC2016 # literal backticks: the record format
         printf 'Anchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/demo`\n' "$anchor"

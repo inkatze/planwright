@@ -177,14 +177,20 @@ fi
 [ -d "$repo_root" ] || die "repo root is not a directory"
 
 # The lock lives in the spec directory, while the gate and the record address
-# the primary checkout's `specs/<spec>`. They must be one directory, or a
+# the primary checkout's bundle. They must be one directory, or a
 # single-spec tower locking the primary's copy would not exclude this step.
-spec_rel=specs/$spec_name
+repo_phys=$(cd "$repo_root" && pwd -P) || die "the repo root cannot be entered"
+spec_root=$(cd "$repo_phys" && /bin/sh "$script_dir/resolve-root.sh" spec --primary 2>/dev/null) \
+  || die "the primary checkout's spec root did not resolve"
 spec_phys=$(cd "$spec_dir" && pwd -P) || die "the spec directory cannot be entered"
-primary_spec=$(cd "$repo_root" 2>/dev/null && cd "$spec_rel" 2>/dev/null && pwd -P) \
-  || die "the primary checkout holds no $spec_rel"
+primary_spec=$(cd "$spec_root" 2>/dev/null && cd "$spec_name" 2>/dev/null && pwd -P) \
+  || die "the primary checkout holds no bundle named $spec_name"
 [ "$spec_phys" = "$primary_spec" ] \
-  || die "the spec directory is not the primary checkout's $spec_rel; run from the primary checkout"
+  || die "the spec directory is not the primary checkout's bundle; run from the primary checkout"
+case $primary_spec in
+  "$repo_phys"/*) spec_rel=${primary_spec#"$repo_phys"/} ;;
+  *) die "the spec root lies outside the primary checkout" ;;
+esac
 
 wtmp=$(mktemp -d) || exit 2
 lock_held=0
@@ -202,6 +208,7 @@ release_lock() {
     lock_held=0
   fi
 }
+# shellcheck disable=SC2329 # invoked through the EXIT trap
 on_exit() {
   release_lock
   if [ "$record_written" -eq 1 ] && [ "$launch_started" -eq 0 ]; then
