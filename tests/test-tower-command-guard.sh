@@ -74,9 +74,11 @@ PLUGIN_ROOT="$(mktemp -d)" || exit 1
 # A real directory outside both roots holding a same-named script, so a
 # lookalike defers on containment rather than on a path that does not exist.
 LOOKALIKE="$(mktemp -d)" || exit 1
-# A real mktemp-named file in /tmp itself, for the temp-file removal fixtures.
+# A real mktemp-named file in /tmp itself, and one real mktemp writes to the
+# macOS per-user temp directory, for the temp-file removal fixtures.
 SLASH_TMP_FILE=''
-trap 'rm -rf "$SANDBOX" "$PLUGIN_ROOT" "$LOOKALIKE" ${SLASH_TMP_FILE:+"$SLASH_TMP_FILE"}' EXIT
+REAL_TMP_FILE=''
+trap 'rm -rf "$SANDBOX" "$PLUGIN_ROOT" "$LOOKALIKE" ${SLASH_TMP_FILE:+"$SLASH_TMP_FILE"} ${REAL_TMP_FILE:+"$REAL_TMP_FILE"}' EXIT
 mkdir -p "$LOOKALIKE/scripts"
 : >"$LOOKALIKE/scripts/fleet-streamjson.sh"
 mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests" "$SANDBOX/sub"
@@ -94,8 +96,9 @@ ln -sf /etc/hosts "$PLUGIN_ROOT/scripts/evillink.sh"
 # run_hook <command> [tool_name] [cwd] -> sets OUT and CODE. CLAUDE_PLUGIN_ROOT
 # is exported into the hook environment so plugin-root containment resolves.
 # HOME is pinned away from the developer's machine (a real ~/.jq would defer
-# every jq case); RUN_HOME overrides it, RUN_NO_HOME=1 unsets it, and
-# RUN_HOOK_CWD sets the hook process's own working directory.
+# every jq case); RUN_HOME overrides it, RUN_NO_HOME=1 unsets it,
+# RUN_HOOK_CWD sets the hook process's own working directory, and RUN_PATH
+# replaces its PATH.
 run_hook() {
   local cmd="$1"
   local tool="${2:-Bash}"
@@ -105,7 +108,7 @@ run_hook() {
   [ -n "${RUN_NO_HOME:-}" ] && home=(-u HOME)
   payload="$(jq -n --arg c "$cmd" --arg t "$tool" --arg w "$cwd" \
     '{tool_name:$t, tool_input:{command:$c}, cwd:$w}')"
-  OUT="$(cd "${RUN_HOOK_CWD:-.}" && printf '%s' "$payload" | env "${home[@]}" TMPDIR="${RUN_TMPDIR-${TMPDIR:-}}" CLAUDE_PLUGIN_ROOT="${RUN_PLUGIN_ROOT:-$PLUGIN_ROOT}" /bin/bash "$HOOK" 2>/dev/null)"
+  OUT="$(cd "${RUN_HOOK_CWD:-.}" && printf '%s' "$payload" | env "${home[@]}" PATH="${RUN_PATH:-$PATH}" TMPDIR="${RUN_TMPDIR-${TMPDIR:-}}" CLAUDE_PLUGIN_ROOT="${RUN_PLUGIN_ROOT:-$PLUGIN_ROOT}" /bin/bash "$HOOK" 2>/dev/null)"
   CODE=$?
 }
 
@@ -246,8 +249,9 @@ assert_allow "safe pipe observe" "tmux capture-pane -p -t fleet:0 | grep -c esc"
 echo "### tower-front-door REQ-A1.3 — the front door's posture check: jq projections ALLOW"
 # The front door reads each settings layer by jq projection. jq has no exec or
 # file-write primitive; the screen is the worker guard's, kept byte-identical
-# (see the structural parity block), so only the environment reads, module
-# loads, a ~/.jq or unusable HOME, and the unscreenable-filter forms defer. The tower's tokenizer is not the worker's,
+# (see the structural parity block), so the environment reads, module
+# loads, a ~/.jq or unusable HOME, unknown flags, file redirects, non-literal
+# operands and the unscreenable-filter forms defer. The tower's tokenizer is not the worker's,
 # so the screen's cases are exercised here through the tower's own pipeline.
 assert_allow "posture check: deny projection of a settings layer" "jq '.permissions.deny' /home/u/.claude/settings.json"
 assert_allow "posture check: hooks projection, raw output" "jq -r '.hooks' .claude/settings.local.json"
@@ -367,12 +371,14 @@ assert_defer "mktemp in an until loop" "until false; do mktemp; done"
 assert_defer "mktemp backgrounded in a while loop" "while true; do mktemp & done"
 assert_defer "mktemp as a while loop's condition" "while mktemp; do true; done"
 assert_allow "mktemp before a while loop" "mktemp && while false; do true; done"
+assert_allow "mktemp inside an if, which is no loop" "if true; then mktemp; fi"
 # Removal is the other half of the bounded temp-file exception, so it takes
 # the same loop check.
 assert_defer "removal in a while loop" "while true; do rm -f $TOWER_TMP/tmp.Ab3dE6gH9j; done"
 assert_defer "removal in an until loop" "until false; do rm -f $TOWER_TMP/tmp.Ab3dE6gH9j; done"
 assert_defer "removal as a while loop's condition" "while rm -f $TOWER_TMP/tmp.Ab3dE6gH9j; do true; done"
 assert_allow "removal in a for loop" "for i in 1 2; do rm -f $TOWER_TMP/tmp.Ab3dE6gH9j; done"
+assert_allow "removal inside an if, which is no loop" "if true; then rm -f $TOWER_TMP/tmp.Ab3dE6gH9j; fi"
 assert_allow "removal before a while loop" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j && while false; do true; done"
 assert_defer "recursive removal" "rm -rf $TOWER_TMP/tmp.dir0123456"
 assert_defer "recursive removal, split flags" "rm -r -f $TOWER_TMP/tmp.dir0123456"
@@ -401,7 +407,7 @@ assert_defer "a mktemp-named FIFO" "rm -f $TOWER_TMP/tmp.Fifo012345"
 assert_defer "a dot-dot through a real directory back into TMPDIR" "rm -f $TOWER_TMP/sub/../tmp.Ab3dE6gH9j"
 assert_defer "a dot-dot through a real directory up out of TMPDIR" "rm -f $TOWER_TMP/sub/../../tmp.Ab3dE6gH9j"
 assert_defer "a dot component" "rm -f $TOWER_TMP/./tmp.Ab3dE6gH9j"
-assert_defer "a trailing dot-dot" "rm -f $TOWER_TMP/sub/.."
+assert_defer "a trailing dot-dot, whose name is no mktemp name" "rm -f $TOWER_TMP/sub/.."
 # A logical `cd` drops `<link>/..` as text before following the link, so a
 # symlink inside TMPDIR whose target sits elsewhere would resolve the
 # operand's directory to TMPDIR while rm itself follows the link.
@@ -474,6 +480,21 @@ TRAILING_NL_DIR="$TOWER_TMP
   exit 1
 }
 assert_defer "a symlink to TMPDIR's name plus a trailing newline" "rm -f $TOWER_TMP/tmp.Tnl0123456/tmp.Ab3dE6gH9j"
+# The same two names as TMPDIR itself: the temp-directory list drops an entry
+# whose canonical path holds a line break, a trailing one included, rather
+# than letting it split into (or strip down to) TMPDIR.
+RUN_TMPDIR="$TRAILING_NL_DIR" assert_defer "a TMPDIR named TMPDIR plus a trailing newline names no temp directory" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
+RUN_TMPDIR="$SPANNING_DIR" assert_defer "a TMPDIR whose name spans two directory lines names neither" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
+# The directory must equal a whole entry of the list, not end one.
+NEST_TMP="$SANDBOX/nest$TOWER_TMP"
+mkdir -p "$NEST_TMP" || exit 1
+RUN_TMPDIR="$NEST_TMP" assert_defer "a directory whose path only ends a temp-directory entry" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
+# An operand holding a line break defers even where its directory resolves
+# back into TMPDIR.
+NL_LINK="$TOWER_TMP/a
+b"
+ln -s "$TOWER_TMP" "$NL_LINK" || exit 1
+assert_defer "an operand through a newline-named link back into TMPDIR" "rm -f '$NL_LINK/tmp.Ab3dE6gH9j'"
 # macOS mktemp writes to the per-user temp directory whatever TMPDIR says, so
 # the file it prints must stay removable when the two differ.
 REAL_TMP_FILE="$(TMPDIR="$TOWER_TMP/" mktemp)" || exit 1
@@ -489,14 +510,25 @@ echo getconf >>"$GETCONF_STUB/invocations"
 printf '%s\n' "$TOWER_TMP/"
 EOF
 chmod +x "$GETCONF_STUB/getconf"
-payload="$(jq -n --arg c "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j; rm -f $TOWER_TMP/tmp.Zz9yX8wV7u; rm -f $TOWER_TMP/tmp.Gone012345" --arg w "$SANDBOX" '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}')"
-OUT="$(printf '%s' "$payload" | PATH="$GETCONF_STUB:$PATH" TMPDIR="$SANDBOX/" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" /bin/bash "$HOOK" 2>/dev/null)"
+RUN_PATH="$GETCONF_STUB:$PATH" RUN_TMPDIR="$SANDBOX/" \
+  run_hook "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j; rm -f $TOWER_TMP/tmp.Zz9yX8wV7u; rm -f $TOWER_TMP/tmp.Gone012345"
 getconf_calls=$(wc -l <"$GETCONF_STUB/invocations" 2>/dev/null | tr -d ' ')
 if is_allow && [ "${getconf_calls:-0}" = 1 ]; then
   pass "three chained removals build the temp-directory list once"
 else
   fail "three chained removals: verdict $(is_allow && echo allow || echo defer), getconf ran ${getconf_calls:-0} time(s), want allow and 1"
 fi
+# A getconf that fails names no temp directory, whatever it printed.
+GETCONF_FAIL="$SANDBOX/getconf-fail"
+GETCONF_DIR="$SANDBOX/getconf-dir"
+mkdir -p "$GETCONF_FAIL" "$GETCONF_DIR" || exit 1
+cat >"$GETCONF_FAIL/getconf" <<EOF
+#!/bin/sh
+printf '%s\n' "$GETCONF_DIR"
+exit 1
+EOF
+chmod +x "$GETCONF_FAIL/getconf"
+RUN_PATH="$GETCONF_FAIL:$PATH" RUN_TMPDIR='' assert_defer "a directory a failing getconf printed" "rm -f $GETCONF_DIR/tmp.Ab3dE6gH9j"
 assert_defer "a suffix too short for mktemp" "rm -f $TOWER_TMP/tmp.abc"
 RUN_TMPDIR="$SANDBOX" assert_defer "a mktemp file in a directory TMPDIR does not name" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
 unset RUN_TMPDIR
