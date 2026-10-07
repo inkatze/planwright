@@ -174,6 +174,8 @@
 #       settle a pending permission request (the tower may not answer those).
 #       The file is data (64 KiB cap, refused whole when over, non-empty); a
 #       dead channel is exit 3, never a hang. Prints `steered <worker> <bytes>`.
+#       A delivered steer retires the previous turn's `result`, so the worker
+#       reads running again until the new turn records its own.
 #       Like every frame written to the fifo (see frame_check), the composed
 #       frame is checked before the write; a refused one is exit 2 with
 #       nothing written.
@@ -1964,10 +1966,25 @@ cmd_steer() {
     journal_unlock "$dir"
     exit 2
   fi
+  # A steer opens a new turn, so the previous turn's result stops speaking for
+  # the worker: left in place, status and the stuck detector read a worker
+  # mid-turn as completed, and a reaper closes it. Set aside BEFORE the send,
+  # since the new turn's own result can land the moment the frame does, and
+  # put back with `ln` on a send that delivered nothing: it fails rather than
+  # overwrite the end record a supervisor exiting meanwhile writes.
+  st_prev=''
+  if [ -f "$dir/result" ]; then
+    st_prev="$dir/.result.steer"
+    mv -f "$dir/result" "$st_prev" 2>/dev/null || st_prev=''
+  fi
   trap '' PIPE
   st_why=$(frame_send "$dir" "$st_frame")
   st_sent=$?
   rm -f "$st_frame"
+  if [ -n "$st_prev" ]; then
+    [ "$st_sent" = 0 ] || ln "$st_prev" "$dir/result" 2>/dev/null || :
+    rm -f "$st_prev"
+  fi
   case $st_sent in
     2)
       journal_unlock "$dir"
