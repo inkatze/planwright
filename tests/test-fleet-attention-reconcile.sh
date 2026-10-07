@@ -31,7 +31,8 @@
 #   x1: a completed unit whose worker record lives in another checkout is not
 #       cleared on this checkout's derivation.
 #   i1: every clear is audited, and a second pass clears nothing.
-#   k1: the kill-switch pauses the pass before it clears anything.
+#   k1: the kill-switch pauses the pass before it clears anything; k2: one
+#       set mid-pass stops every clear after it.
 #
 # Hermetic: every case pins its own fleet home and fake tmux. Runs standalone
 # under /bin/bash (the bash 3.2 floor):
@@ -360,6 +361,21 @@ k_rc=0
 [ "$k_rc" = 4 ] || fail "k1: a paused pass exited $k_rc, expected 4"
 has_row @145 || fail "k1: a paused pass cleared a row"
 echo "ok: k1 kill-switch pauses the pass"
+
+# --- k2: a kill-switch set mid-pass stops the clears that follow -----------
+fresh
+printf 'sess-a @1\n' >"$tmp/tmux-windows"
+reg tmux-demo-task-2 demo:task-2 tmux "$repo/.claude/worktrees/demo-2" "tmux-window sess-a @9"
+seed tmux-demo-task-2 demo:task-2 working
+printf 'fleet_daemon_pause: false\n' >"$tmp/pause.yml"
+printf '%s\n' "printf 'fleet_daemon_pause: true\\n' >\"$tmp/pause.yml\"" >"$tmp/race"
+out=$(cd "$repo" && fenv env PLANWRIGHT_LOCAL_CONFIG="$tmp/pause.yml" /bin/sh "$REC" --repo "$repo" 2>"$tmp/err") \
+  || fail "k2: a pass paused mid-way exited non-zero: $(cat "$tmp/err")"
+rm -f "$tmp/race"
+has_row tmux-demo-task-2 || fail "k2: a clear ran after the kill-switch was set"
+printf '%s\n' "$out" | grep -q "^paused${TAB}-$" || fail "k2: no paused line: $out"
+printf '%s\n' "$out" | grep -q "status=paused$" || fail "k2: no paused status: $out"
+echo "ok: k2 a kill-switch set mid-pass stops the clears"
 
 [ "$rc" = 0 ] || {
   echo "FAIL: $rc case(s) failed" >&2

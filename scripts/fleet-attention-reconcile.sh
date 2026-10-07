@@ -33,9 +33,10 @@
 # The verdict is reached outside the store lock (a derivation can take
 # seconds), so each clear goes through `fleet-attention.sh clear --if-row`,
 # which removes the row only while it still carries the judged scope, state
-# and stamp: a worker that wrote since keeps its new row. The operator kill-switch
-# (fleet-daemon-gate.sh) is checked at entry, and every clear is a fleet-audit
-# record under the `attention-reconcile` mechanism.
+# and stamp: a worker that wrote since keeps its new row. The operator
+# kill-switch (fleet-daemon-gate.sh) is checked at entry and again before
+# each clear, and every clear is a fleet-audit record under the
+# `attention-reconcile` mechanism.
 #
 # Usage: fleet-attention-reconcile.sh [--repo <checkout>]
 #   <checkout> defaults to the caller's own git toplevel (else $PWD); its spec
@@ -46,7 +47,8 @@
 #   keep    <worker> awaiting-input | alive | evidence-unknown |
 #                    evidence-errored | no-evidence | in-flight | changed |
 #                    malformed | duplicate | clear-failed
-#   summary rows=<n> cleared=<n> kept=<n> status=<ok|degraded>
+#   paused  -        the kill-switch was set mid-pass; the rest waits
+#   summary rows=<n> cleared=<n> kept=<n> status=<ok|degraded|paused>
 #   degraded when the store, the registry, or a derivation could not be read,
 #   a handle holds more than one row, or a clear or its audit record failed;
 #   every such row is kept.
@@ -363,6 +365,14 @@ while IFS="$TAB" read -r w scope state stamp _; do
       keep "$w" "$ev"
       continue
     fi
+  fi
+  # Re-checked before each clear, as the gate asks of a multi-resource
+  # mechanism: a verdict can take a derivation's seconds to reach.
+  if ! (cd "$repo" && "$GATE" attention-reconcile 2>/dev/null); then
+    warn "the kill-switch was set mid-pass — stopping before the next clear"
+    printf 'paused\t-\n'
+    status=paused
+    break
   fi
   c_rc=0
   /bin/sh "$FA" clear "$w" --if-row "$scope" "$state" "$stamp" >/dev/null 2>&1 </dev/null || c_rc=$?
