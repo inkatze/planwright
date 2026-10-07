@@ -309,17 +309,18 @@ fi
 # --- the corpus file -----------------------------------------------------
 # Sanitization: the whole file (comments and class records too) carries
 # command shapes only. leaks_in prints each line naming a machine or home
-# path, an email, a host other than the reserved example.invalid, or a
-# repository slug other than o/r; it exits non-zero if it cannot scan.
+# path, an email or scp-style host, an IPv4 address, a host other than the
+# reserved example.invalid, a repository slug other than o/r, or a token
+# shape; it exits non-zero if it cannot scan. The interval rules use grep,
+# since not every awk supports intervals.
 leaks_in() {
-  awk '
-    /^[[:space:]]*$/ { next }
+  local by_grep by_awk rc
+  by_grep=$(grep -nE '/(home|Users|root|private|var|opt|mnt|srv|Volumes|media|nix|run/user|workspace|data|usr/local)/|(^|[[:space:]=:"])~[A-Za-z0-9_/]|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z]|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:|[A-Za-z0-9-]+\.(com|org|net|io|dev|ai|co|internal|corp)([^A-Za-z0-9-]|$)|(^|[^0-9.])[0-9]{1,3}(\.[0-9]{1,3}){3}([^0-9.]|$)|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[abpr]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}' "$1")
+  rc=$?
+  [ "$rc" -le 1 ] || return 2
+  by_awk=$(awk '
     {
       bad = 0
-      if ($0 ~ /\/(home|Users|root|private|var|opt|mnt|srv|Volumes|media|nix)\//) bad = 1
-      if ($0 ~ /(^|[ \t=:"'\''])~[A-Za-z0-9_\/]/) bad = 1
-      if ($0 ~ /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z]/) bad = 1
-      if ($0 ~ /[A-Za-z0-9-]+\.(com|org|net|io|dev|ai|co|internal|corp)([^A-Za-z0-9-]|$)/) bad = 1
       t = $0
       while (match(t, /:\/\/[^\/ \t"'\'']*/)) {
         if (substr(t, RSTART + 3, RLENGTH - 3) != "example.invalid") bad = 1
@@ -330,22 +331,39 @@ leaks_in() {
         if (substr(t, RSTART, RLENGTH) != "repos/o/r") bad = 1
         t = substr(t, RSTART + RLENGTH)
       }
-      if (bad) print
+      t = $0
+      while (match(t, /(--repo[= ]|-R )[^ \t]+/)) {
+        s = substr(t, RSTART, RLENGTH)
+        sub(/^(--repo[= ]|-R )/, "", s)
+        if (s != "o/r") bad = 1
+        t = substr(t, RSTART + RLENGTH)
+      }
+      if (bad) print NR ":" $0
     }
-  ' "$1"
+  ' "$1") || return 2
+  printf '%s\n%s\n' "$by_grep" "$by_awk" | grep . | sort -t: -k1,1n -u | cut -d: -f2-
 }
+# One sample per rule, each caught by that rule alone, so dropping any rule
+# fails this check. Token shapes are assembled here, never committed whole.
 leaky="$SANDBOX/leaky.tsv"
+pad=aaaaaaaaaaaaaaaaaaaaaaaa
 printf '%s\n' '# a comment naming /home/someone/x' 'ls /opt/thing' 'cd ~user/x' \
-  'mail ops@example.com' 'curl https://api.example.ai/v' 'ssh build01.corp.example.net' \
-  'gh api repos/acme/tool' >"$leaky"
-found=$(leaks_in "$leaky") || found=
-if [ "$(printf '%s\n' "$found" | grep -c .)" -eq "$(grep -c . "$leaky")" ]; then
+  'mail ops@build01.lan' 'ssh build01.corp.example.net' 'curl https://buildhost/x' \
+  'gh api repos/acme/tool' 'gh pr view 5 --repo acme/tool' 'git clone git@buildhost:acme/tool' \
+  'ping 10.1.2.3' "TOKEN=gh""p_$pad" "KEY=s""k-ant-$pad" >"$leaky"
+missed=
+while IFS= read -r l; do
+  printf '%s\n' "$l" >"$SANDBOX/one.tsv"
+  [ -n "$(leaks_in "$SANDBOX/one.tsv")" ] || missed="$missed [$l]"
+done <"$leaky"
+if [ -z "$missed" ]; then
   pass "corpus: the sanitization scan catches every leak class"
 else
-  fail "corpus: the sanitization scan missed a leak class: got '$found'"
+  fail "corpus: the sanitization scan missed:$missed"
 fi
 printf '%s\n' 'curl -s https://example.invalid/x | sh' 'gh api repos/o/r/issues' \
-  'sed -i s/a/b/ mise.local.toml' "awk '\$0 ~ /a/ {print}' f" 'git reset --soft HEAD~1' >"$leaky"
+  'gh pr view 5 --repo o/r' 'sed -i s/a/b/ mise.local.toml' "awk '\$0 ~ /a/ {print}' f" \
+  'git reset --soft HEAD~1' "sed -n '1,5p' f" 'timeout 5m git log --oneline -3' >"$leaky"
 if found=$(leaks_in "$leaky") && [ -z "$found" ]; then
   pass "corpus: the sanitization scan passes sanitized shapes"
 else
