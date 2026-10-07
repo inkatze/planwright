@@ -92,11 +92,20 @@ else
   fail "self-check: false-allow not counted (false_allows=$CORPUS_FALSE_ALLOWS)"
 fi
 
-f=$(synthetic pending-miss "$(row later allow allow allow allow false)" "$(row later defer defer defer defer true)")
-if corpus_replay "$f" fake_guard >/dev/null 2>&1 && [ "$CORPUS_FAILED" -eq 0 ] && [ "$CORPUS_PENDING" -eq 2 ]; then
-  pass "self-check: a pending class's misses are reported, not failed"
+f=$(synthetic pending-stall "$(row later allow allow allow allow false)")
+if corpus_replay "$f" fake_guard >/dev/null 2>&1 && [ "$CORPUS_FAILED" -eq 0 ] && [ "$CORPUS_PENDING" -eq 1 ]; then
+  pass "self-check: a pending class's stalls are reported, not failed"
 else
-  fail "self-check: pending handling wrong (failed=$CORPUS_FAILED pending=$CORPUS_PENDING)"
+  fail "self-check: pending stall handling wrong (failed=$CORPUS_FAILED pending=$CORPUS_PENDING)"
+fi
+
+# A false-allow is never pending: the guard approving what a row expects it
+# to defer fails whatever the class state.
+f=$(synthetic pending-false-allow "$(row later defer defer defer defer true)")
+if ! corpus_replay "$f" fake_guard >/dev/null 2>&1 && [ "$CORPUS_FAILED" -eq 1 ] && [ "$CORPUS_FALSE_ALLOWS" -eq 1 ]; then
+  pass "self-check: a pending class's false-allow fails"
+else
+  fail "self-check: a pending false-allow did not fail (failed=$CORPUS_FAILED false_allows=$CORPUS_FALSE_ALLOWS)"
 fi
 
 f=$(synthetic one-column "$(row live defer allow allow allow true)")

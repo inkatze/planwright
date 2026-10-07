@@ -23,12 +23,12 @@
 #                        (default all four), <runner> being a command or
 #                        function that reads a hook payload on stdin and
 #                        prints the hook's stdout. Sets CORPUS_ROWS,
-#                        CORPUS_FAILED and CORPUS_FALSE_ALLOWS (shipped rows
-#                        that missed, and those of them that allowed), and
-#                        CORPUS_PENDING (pending rows that missed); prints
-#                        each miss on stderr. Exit 0 when every shipped row
-#                        held, 1 when one missed, 2 when the corpus or the
-#                        sandbox is unusable
+#                        CORPUS_FAILED (rows that failed: any false-allow,
+#                        and a shipped row's stall), CORPUS_FALSE_ALLOWS
+#                        (those of them that allowed), and CORPUS_PENDING
+#                        (pending rows that only stalled); prints each miss
+#                        on stderr. Exit 0 when no row failed, 1 when one
+#                        did, 2 when the corpus or the sandbox is unusable
 #
 # The session record each column injects is the guard's launch-time input
 # (the policy, the unit identity, the scratch root, the audit-log home, the
@@ -237,12 +237,12 @@ corpus_replay() {
       [ "$got" = allow ] || got=defer
       [ "$got" = "$want" ] && continue
       missed=1
-      [ "$got" = allow ] && allowed=1
-      if [ "$state" = pending ]; then
-        printf 'pending (%s, line %s, policy "%s"): expected %s, got %s: %s\n' \
-          "$class" "$line" "$(corpus_policy "$col")" "$want" "$got" "$cmd" >&2
-      elif [ "$got" = allow ]; then
+      if [ "$got" = allow ]; then
+        allowed=1
         printf 'FALSE-ALLOW (%s, line %s, policy "%s"): %s\n' \
+          "$class" "$line" "$(corpus_policy "$col")" "$cmd" >&2
+      elif [ "$state" = pending ]; then
+        printf 'pending (%s, line %s, policy "%s"): expected allow, got defer: %s\n' \
           "$class" "$line" "$(corpus_policy "$col")" "$cmd" >&2
       else
         printf 'STALL (%s, line %s, policy "%s"): expected allow, got defer: %s\n' \
@@ -250,11 +250,14 @@ corpus_replay() {
       fi
     done
     [ "$missed" -eq 1 ] || continue
-    if [ "$state" = pending ]; then
+    # Pending excuses a stall only: a false-allow fails in every class.
+    if [ "$allowed" -eq 1 ]; then
+      CORPUS_FAILED=$((CORPUS_FAILED + 1))
+      CORPUS_FALSE_ALLOWS=$((CORPUS_FALSE_ALLOWS + 1))
+    elif [ "$state" = pending ]; then
       CORPUS_PENDING=$((CORPUS_PENDING + 1))
     else
       CORPUS_FAILED=$((CORPUS_FAILED + 1))
-      [ "$allowed" -eq 1 ] && CORPUS_FALSE_ALLOWS=$((CORPUS_FALSE_ALLOWS + 1))
     fi
   done <<EOF
 $parsed

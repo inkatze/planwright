@@ -14,10 +14,11 @@
 #
 # The four verdict columns are `allow` or `defer`, one per policy value: the
 # empty list, `own-branch`, `scratch`, and both. A row of a `pending` class
-# is replayed and reported but cannot fail; once the task that delivers the
-# class lands, it flips the class to `shipped` and every row of it is then
-# enforced. Floor and uncovered rows are enforced from the start and must
-# defer under every value.
+# that stalls (expected allow, got defer) is reported but does not fail; once
+# the task that delivers the class lands, it flips the class to `shipped` and
+# every row of it is then enforced. A false-allow fails in every class.
+# Floor and uncovered rows are enforced from the start and must defer under
+# every value.
 #
 # Sanitize every row to its command shape: no hostnames, user or machine
 # paths, tokens, or repository names. Paths are relative to the sandbox
