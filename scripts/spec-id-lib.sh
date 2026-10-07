@@ -21,6 +21,7 @@
 # is <id>, <id>/, specs/<id>, or specs/<id>/, else to <value> unchanged. A
 # bare `specs/` is the alias with its identifier missing, never the
 # identifier `specs`.
+# shellcheck disable=SC2034 # SPEC_ID is the result the sourcing script reads
 spec_id_canon() {
   SPEC_ID=$1
   case $1 in
@@ -39,6 +40,7 @@ spec_id_canon() {
 # spec_ref_canon <value> — set SPEC_REF to a `<spec>/<id>` task ref whose spec
 # segment may be given as the alias (`specs/<spec>/<id>`), else to <value>
 # unchanged.
+# shellcheck disable=SC2034 # SPEC_REF is the result the sourcing script reads
 spec_ref_canon() {
   SPEC_REF=$1
   case $1 in
