@@ -523,9 +523,6 @@ deferred until every flipper posts.
 
 ## Awaiting input
 
-- **Task 10** — convergence point: step `panel-review` halted
-  (record `.claude/steps/000001/004-step-convergence.rec`); the unit's
-  work is committed locally on its branch, unpushed.
 - **Task 16** waits until a planwright release carrying the pool helper
   (`scripts/step-pool.sh`, Task 11) is installed on this repository's
   host, since its own units run the installed plugin (REQ-I1.13); clear
