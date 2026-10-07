@@ -578,6 +578,26 @@ assert_contains "a while condition on its own line is still a condition" "$out11
 assert_contains "an open parameter expansion does not turn the next line into a string" "$out11b" "scripts/openpe.sh:5:"
 assert_contains "a continued command keeps the && on its next line" "$out11b" "scripts/contchain.sh:3:"
 assert_contains "a continued command keeps its operands and their ||" "$out11b" "scripts/contoperand.sh:3:"
+write_script "$tmp/newline/scripts/dqinpe.sh" \
+  "x=\${y:-\$'a\\'b'}" \
+  'mkdir "$lock" && exit 0'
+write_script "$tmp/newline/scripts/spacedredir.sh" '{ mkdir "$lock"; } > /dev/null && exit 0'
+write_script "$tmp/newline/scripts/eofcont.sh" 'mkdir "$lock" && \'
+out11bb="$(/bin/bash "$CHECKER" "$tmp/newline" 2>&1)"
+assert_contains "a dollar-quote inside an expansion does not open a string" "$out11bb" "scripts/dqinpe.sh:4:"
+assert_contains "a spaced redirection on a group does not hide the operator" "$out11bb" "scripts/spacedredir.sh:3:"
+assert_contains "a continuation left open at end of file is still read" "$out11bb" "scripts/eofcont.sh:3:"
+# A case pattern spelled like a keyword opens no condition, alternation included.
+make_root "$tmp/casekw"
+write_script "$tmp/casekw/scripts/alt.sh" \
+  'case $x in' \
+  '  while|until)' \
+  '    mkdir "$d"' \
+  '    ;;' \
+  'esac'
+out11bc="$(/bin/bash "$CHECKER" "$tmp/casekw" 2>&1)"
+assert "a keyword-spelled case alternation opens no condition" 0 $?
+assert_not_contains "the mkdir under it is not read as a condition" "$out11bc" "scripts/alt.sh"
 # Control: the same continuation carrying a -p onto the next line is the error
 # check it looks like, and the open expansion is not a command at all.
 make_root "$tmp/newlineok"
@@ -663,7 +683,8 @@ write_script "$tmp/cmdwordok/scripts/envp.sh" 'env mkdir -p "$d" || exit 1'
 write_script "$tmp/cmdwordok/scripts/sudop.sh" 'sudo -u root mkdir -p "$d" || exit 1'
 out11g="$(/bin/bash "$CHECKER" "$tmp/cmdwordok" 2>&1)"
 assert "a wrapped mkdir -p is still clean" 0 $?
-assert_not_contains "no wrapped -p is reported" "$out11g" "p.sh"
+assert_not_contains "no wrapped -p is reported under env" "$out11g" "scripts/envp.sh"
+assert_not_contains "nor under sudo" "$out11g" "scripts/sudop.sh"
 
 # ---------------------------------------------------------------------------
 # 11e. Two reports that are wrong the other way. An array's value list is
@@ -678,10 +699,7 @@ write_script "$tmp/misreport/scripts/localarray.sh" \
   '}'
 write_script "$tmp/misreport/scripts/multiarray.sh" \
   'deps=(' \
-  '  mkdir' \
-  '  ln' \
-  ')' \
-  'rc=$?'
+  '  mkdir "$d") && printf ok'
 write_script "$tmp/misreport/scripts/hdquoted.sh" \
   'cat <<"\EOF"' \
   'if mkdir "$lock"; then exit 0; fi' \
@@ -689,7 +707,9 @@ write_script "$tmp/misreport/scripts/hdquoted.sh" \
   'printf fine'
 out11h="$(/bin/bash "$CHECKER" "$tmp/misreport" 2>&1)"
 assert "an array word and a heredoc body are not locks" 0 $?
-assert_not_contains "a mkdir named in an array is not reported" "$out11h" "array.sh"
+assert_not_contains "a mkdir named in an array is not reported" "$out11h" "scripts/array.sh"
+assert_not_contains "nor in a local array" "$out11h" "scripts/localarray.sh"
+assert_not_contains "nor in an array opened on the line above" "$out11h" "scripts/multiarray.sh"
 assert_not_contains "a heredoc with an escaped delimiter keeps its body prose" "$out11h" "hdquoted.sh"
 # The escaped delimiter must also END where the shell ends it. Read as a
 # shorter word, the body never closes and swallows the real lock below it.

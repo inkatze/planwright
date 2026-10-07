@@ -375,7 +375,7 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
   # lines by design: none of them ends where a line does. With <append> set the
   # tokens extend the previous line rather than replacing it, which is how a
   # backslash-continued command is read as the one command it is.
-  function tokenize(line, append,   i, n, c, nc, pc, c2, w, k, delim, used, hd_dash, j, ch, e, quoted) {
+  function tokenize(line, append,   i, n, c, nc, pc, c2, w, k, delim, hd_dash, j, ch, e, quoted) {
     if (!append) { ntok = 0; comment = ""; hascomment = 0 }
     endsopen = 0; bscont = 0
     w = ""
@@ -409,6 +409,7 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
         # state rather than found with index(), because the closing brace may
         # be lines away and a quote opened in between must not be lost.
         if (c == "\\") { w = w c nc; i += 2; continue }
+        if (c == "$" && nc == SQ) { aq = 1; w = w c nc; i += 2; continue }
         if (c == SQ) { sq = 1; w = w c; i++; continue }
         if (c == "\"") { dq = 1; w = w c; i++; continue }
         if (c == "$" && nc == "{") { pe++; w = w c nc; i += 2; continue }
@@ -538,8 +539,6 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
     }
   }
 
-  # walk(path, lno) — find the mkdir invocations on the tokenized line and
-  # decide, per invocation, whether its exit status is being read.
   # reads_status(from, lvl) — 1 when the command starting at token <from>
   # reads `$?`, the status the command before it left. Any reference counts,
   # not only `rc=$?`: a test, a case, an `export` all read the same answer.
@@ -563,6 +562,8 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
     return 0
   }
 
+  # walk(path, lno, exempt) — find the mkdir invocations on the tokenized line and
+  # decide, per invocation, whether its exit status is being read.
   function walk(path, lno, exempt,   i, j, k, t, base, opt, lvl, hasp, inopts, term, nxt, kind, wrap) {
     i = 1
     wrap = ""
@@ -573,6 +574,7 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
         # word after a closed substitution is a command name in the one shape
         # that matters here, `name() { ... }`.
         atcmd = 1; wrap = ""
+        if (tok[i] == ";;") cond = 0
         i++; continue
       }
       # A word of an array value list is data wherever it sits.
@@ -597,8 +599,9 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
       }
       # A keyword is a keyword only at a command position, and a case pattern
       # spelled like one (`if)`) is not one.
-      if ((t == "if" || t == "elif" || t == "while" || t == "until") && !(i < ntok && tok[i + 1] == ")")) { cond = 1; i++; continue }
-      if (t == "then" || t == "do" || t == "else") { cond = 0; i++; continue }
+      if ((t == "if" || t == "elif" || t == "while" || t == "until") \
+        && !(i < ntok && (tok[i + 1] == ")" || tok[i + 1] == "|"))) { cond = 1; i++; continue }
+      if (t == "then" || t == "do" || t == "else" || t == "esac") { cond = 0; i++; continue }
       # Transparent to the command that follows them: the next word is still a
       # command name, so `command mkdir` and `FOO=1 mkdir` are still mkdir.
       if (t == "!" || t == "time" || t == "command" || t == "builtin" || t == "exec" || t == "nohup") { i++; continue }
@@ -637,7 +640,9 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
         if (tokt[k] == "op" && tok[k] == ")") { k++; continue }
         if (tok[k] == "}") { k++; continue }
         # A redirection on the group changes where its output goes, not whose
-        # status the operator after it reads.
+        # status the operator after it reads. Spelled with a space, its target
+        # is the next word.
+        if (k > j && tokt[k] == "w" && tok[k] ~ /^[0-9]*[<>]+&?$/) { k += 2; continue }
         if (k > j && tokt[k] == "w" && tok[k] ~ /^[0-9]*[<>]/) { k++; continue }
         if (tokt[k] == "op" && tok[k] == ";" \
           && k + 1 <= ntok && tok[k + 1] == "}") { k++; continue }
@@ -721,6 +726,11 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
       # `do` ends it, wherever it sits. Command position does reset, except on
       # a line left open by an operator or an unfinished word.
       if (!endsopen) atcmd = 1
+    }
+    # A continuation still open at end of file is a command all the same.
+    if (cont && ntok > 0) {
+      if (pend) { if (reads_status(1, tokl[1]) && !pend_exempt) print path "\t" pend_line "\trc"; pend = 0 }
+      walk(path, lstart, lexempt)
     }
     close(path)
     if (r < 0) { print "!\t" path; return 0 }
