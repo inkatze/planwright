@@ -240,6 +240,25 @@ corpus_bind() {
   printf '%s' "$c"
 }
 
+# corpus_unexport <keep>...: in the calling shell, drop the export attribute
+# from every function and from every variable not named. Unexported rather
+# than unset, so the caller's own values still resolve and a readonly export
+# such as SHELLOPTS goes too. Entries bash cannot name as variables are
+# beyond it. Kept out of any $( ): bash 3.2 misreads a case pattern's `)`
+# there as the end of the substitution.
+corpus_unexport() {
+  local v keep=" $* "
+  for v in $(compgen -e); do
+    case $keep in
+      *" $v "*) ;;
+      *) export -n "${v?}" 2>/dev/null ;;
+    esac
+  done
+  for v in $(compgen -A function); do
+    export -fn "${v?}" 2>/dev/null
+  done
+}
+
 # corpus_decide <runner> <column> <command>: prints allow, defer, or error.
 # The decision field is parsed, never substring-matched, so a reason text
 # that happens to say "allow" is not an approval; anything but a parsed
@@ -262,17 +281,7 @@ corpus_decide() {
     # HOME is pinned so the guard never reads the host's installed plugins,
     # and TMPDIR is not the scratch root, so a row resolving `$TMPDIR` proves
     # the guard took the root from the record.
-    # Unexported rather than unset: the harness's own variables must still
-    # resolve, and a readonly export cannot be unset.
-    for v in $(compgen -e); do
-      case $v in
-        PATH | LC_ALL) ;;
-        *) export -n "${v?}" 2>/dev/null ;;
-      esac
-    done
-    for v in $(compgen -A function); do
-      export -fn "${v?}" 2>/dev/null
-    done
+    corpus_unexport PATH LC_ALL
     printf '%s' "$payload" \
       | HOME="$CORPUS_BOX/home" TMPDIR="$CORPUS_BOX/hook-tmp" \
         CLAUDE_PLUGIN_ROOT="$CORPUS_PLUGIN_ROOT" PLANWRIGHT_ROOT="$CORPUS_PLUGIN_ROOT" \
