@@ -45,24 +45,27 @@ static `allow` entry is added.
   there is read into every filter, a directory is on the module path), every
   run while `HOME` is unset, empty, or relative (jq 1.6 then falls back to
   the password entry's home), any unrecognized flag, an output redirect, and
-  a filter the guard cannot read literally (an unexpanded variable). The
-  worker guard carries the same screen and takes the same fixes.
+  a filter the guard cannot read literally (an unexpanded variable). A tilde,
+  glob, or variable in any operand defers too, so a settings layer passes
+  only when named by its absolute path. The worker guard carries the
+  same screen and takes the same fixes.
 - **Bare `mktemp`.** It creates one fresh, empty file in the system temp
   directory: `TMPDIR` for GNU mktemp, and on macOS the per-user temp
   directory, whatever `TMPDIR` says. A template, `-p`, `-t`, `-d`, and
   `-u` all defer, and so does mktemp once a `while` or `until` loop has
   opened in the command, since those loops have no pass cap.
-- **`rm` of mktemp-named temp files.** Every operand must be an absolute path
-  with no `.` or `..` component, whose name has mktemp's default shape (`tmp.`
-  and at least six letters or digits), whose directory resolves physically to
-  exactly `TMPDIR`, the macOS per-user temp directory, or `/tmp` (never a
-  directory below them; a relative `TMPDIR` names none), and that is not a
-  symlink, a directory, or another non-regular file. `-f` and `--` are the
-  only flags, and only before the first operand (BSD rm reads a later one as a
-  file name). A recursive or directory removal, `-i` or `-v`, a relative,
-  tilde, glob, variable, or dot-component operand, a directory whose resolved
-  path holds a line break, and any operand outside those directories defer,
-  and one bad operand defers the whole command.
+- **`rm` of mktemp-named temp files.** Every operand, which may name a file
+  that does not exist yet, must be an absolute path with no `.` or `..`
+  component, whose name has mktemp's default shape (`tmp.` and at least six
+  letters or digits), whose directory resolves physically to exactly `TMPDIR`,
+  the macOS per-user temp directory, or `/tmp` (never a directory below them;
+  a relative `TMPDIR` names none), and that is not a symlink, a directory, or
+  another non-regular file. `-f` and `--` are the only flags, and only before
+  the first operand (BSD rm reads a later one as a file name). A recursive or
+  directory removal, `-i` or `-v`, a relative, tilde, glob, variable, or
+  dot-component operand, a directory whose resolved path holds a line break,
+  and any operand outside those directories defer, and one bad operand defers
+  the whole command.
 
 ## The deny delta
 
@@ -103,8 +106,10 @@ The `gh api` spellings of the merge and the ready flip are the policy guard's
   mistake.
 - **A directory swapped after the check.** The guard checks the operand's
   directory when the hook runs; a same-user process that replaces it with a
-  symlink before `rm` runs could point the removal elsewhere. Only a
-  mktemp-named regular file can go, never a directory.
+  symlink before `rm` runs could point the removal elsewhere, and whatever
+  entry has the name when `rm` runs goes, a name absent at the check
+  included. Only non-directory entries with mktemp-shaped names can be
+  unlinked, never followed and never a directory.
 - **Whose temp file it is.** The guard cannot tell a file the tower created
   from another same-user process's: any mktemp-named regular file directly in
   `TMPDIR`, the macOS per-user temp directory, or `/tmp` is removable without
@@ -115,7 +120,8 @@ The `gh api` spellings of the merge and the ready flip are the policy guard's
 - **Settings merged before this delta.** A tower whose settings merged an
   earlier copy of the profile lacks the appended deny entries, so bring-up's
   posture check finds them missing and holds back repo-mutating routes and
-  relays until the operator merges them.
+  relays until the operator merges them or acknowledges running without
+  them.
 
 ## How it is verified
 

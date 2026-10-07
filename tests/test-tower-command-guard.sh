@@ -246,8 +246,8 @@ assert_allow "safe pipe observe" "tmux capture-pane -p -t fleet:0 | grep -c esc"
 echo "### tower-front-door REQ-A1.3 — the front door's posture check: jq projections ALLOW"
 # The front door reads each settings layer by jq projection. jq has no exec or
 # file-write primitive; the screen is the worker guard's, kept byte-identical
-# (see the structural parity block), so only the environment reads and the
-# unscreenable-filter forms defer. The tower's tokenizer is not the worker's,
+# (see the structural parity block), so only the environment reads, module
+# loads, a ~/.jq or unusable HOME, and the unscreenable-filter forms defer. The tower's tokenizer is not the worker's,
 # so the screen's cases are exercised here through the tower's own pipeline.
 assert_allow "posture check: deny projection of a settings layer" "jq '.permissions.deny' /home/u/.claude/settings.json"
 assert_allow "posture check: hooks projection, raw output" "jq -r '.hooks' .claude/settings.local.json"
@@ -318,8 +318,9 @@ RUN_HOME='rel-home' assert_defer "jq with a relative HOME" "jq . file.json"
 echo "### tower-front-door REQ-A1.3 — the flight petition's temp files: mktemp and their removal ALLOW"
 # A flight petition's ask and grounds go into the tower's own mktemp files,
 # written with the file tool and removed once the dispatch returns. Only the
-# bare mktemp form (a fresh file in TMPDIR) and a plain removal of a
-# mktemp-named regular file directly inside TMPDIR or /tmp are approved.
+# bare mktemp form (a fresh file in the system temp directory) and a plain
+# removal of a mktemp-named regular file directly inside TMPDIR, the macOS
+# per-user temp directory, or /tmp are approved.
 # The stand-in TMPDIR lives in the sandbox, so the EXIT trap removes it and
 # everything below it, the newline-named fixture further down included.
 mkdir -p "$SANDBOX/tower-tmp" || exit 1

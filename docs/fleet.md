@@ -2160,7 +2160,8 @@ run routinely (the posture check's `jq` projections, and a flight petition's
 listed, with their limits, in [the front-door delta](tower-posture-delta.md).
 A tower whose settings merged an earlier copy of the profile must merge those
 appended deny entries too: until it does, bring-up's posture check finds them
-missing and holds back repo-mutating routes and relays.
+missing and holds back repo-mutating routes and relays, unless the operator
+acknowledges running without them.
 
 ## What the fleet decides without you (and what it never does)
 

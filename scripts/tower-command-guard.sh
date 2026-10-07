@@ -13,7 +13,7 @@
 # The /tower front door runs under the same profile, so the set also carries
 # the shapes its sessions run routinely: jq with an inline filter (the worker
 # guard's screen, kept identical), bare mktemp, and removal of mktemp-named
-# files directly inside TMPDIR or /tmp.
+# files directly inside TMPDIR, the macOS per-user temp directory, or /tmp.
 #
 # It reuses the worker-command-guard PATTERN (worker-permission-ergonomics,
 # #236/#237) — same tokenizer, same allow-only / fail-closed / no-LLM security
@@ -1877,7 +1877,8 @@ loop_next() {
 # (`fish`, `bats`) are deliberately ABSENT so the tower set is distinct from the
 # worker set (REQ-C1.2). Every writer / command-runner / arbitrary-exec verb is
 # simply absent here and so defers, with one bounded exception: guard_mktemp and
-# guard_rm create and remove the front door's own temp files and nothing else.
+# guard_rm create and remove mktemp-named temp files and nothing else (whose
+# file it is, the guard cannot tell).
 classify_verb() {
   local verb=$1
   case $verb in
