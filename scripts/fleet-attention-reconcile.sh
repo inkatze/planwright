@@ -368,6 +368,12 @@ while IFS="$TAB" read -r w scope state stamp _; do
     IFS="$TAB" read -r _ _ _ _ _ r_sd r_dh _ <<REC
 $record
 REC
+    # Every writer fills all seven fields; a record short of them is not
+    # one that says no worker is on record.
+    if [ -z "$r_dh" ]; then
+      keep "$w" evidence-unknown
+      continue
+    fi
   fi
   # The worker's own evidence first: it is cheap, and any verdict but
   # no-evidence settles a row that claims a live worker. Only a row it

@@ -18,7 +18,8 @@
 #   u1: an unreachable tmux server (lost observability) keeps the row.
 #   e1: unknown death evidence keeps the row even when its unit derived
 #       completed; e2: so does a live worker; e3: an unreadable registry keeps
-#       every row it might hold evidence for, and degrades the pass.
+#       every row it might hold evidence for, and degrades the pass, and a
+#       record short of its fields keeps its worker's row.
 #   m1: a row whose state no writer produces, whose scope is longer than
 #       the store's field grammar allows, or that is short of the store's
 #       fields, is kept as malformed, and a task id too long to compare
@@ -312,6 +313,12 @@ chmod 600 "$home/registry"
 has_row @145 || fail "e3: an unreadable registry let a row be judged without its worker evidence"
 says e3 keep @145 evidence-unknown
 printf '%s\n' "$out" | grep -q "status=degraded$" || fail "e3: an unreadable registry did not degrade the pass: $out"
+fresh
+seed wtrunc demo:task-1 working
+printf '1700000000\twtrunc\tdemo:task-1\n' >"$home/registry"
+reconcile e3
+has_row wtrunc || fail "e3: a truncated registry record let a completed unit clear the row"
+says e3 keep wtrunc evidence-unknown
 echo "ok: e1 e2 e3 a worker that may still run keeps its row"
 
 # --- m1, m2, m3: rows the pass cannot act on ------------------------------
