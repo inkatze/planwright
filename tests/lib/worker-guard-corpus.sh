@@ -175,6 +175,9 @@ corpus_parse() {
       for (i = 3; i <= 6; i++)
         if ($i != "allow" && $i != "defer") bad("a verdict is allow or defer")
       if ($7 == "") bad("a row carries a command")
+      known = $7
+      gsub(/@@(WORKTREE|SCRATCH|OUTSIDE|PLUGIN_ROOT)@@/, "", known)
+      if (known ~ /@@[A-Z_]+@@/) bad("unknown placeholder")
       if (($2 == "floor" || $2 == "uncovered") && ($3 $4 $5 $6) != "deferdeferdeferdefer")
         bad("a " $2 " row defers under every policy value")
       if ($3 == "allow" && ($4 != "allow" || $5 != "allow" || $6 != "allow"))
@@ -262,7 +265,9 @@ corpus_decide() {
     echo error
     return
   }
-  case $(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // .permissionDecision // empty' 2>/dev/null) in
+  # The deprecated top-level `decision: approve` still approves.
+  case $(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // .permissionDecision
+      // (if .decision == "approve" then "allow" else empty end)' 2>/dev/null) in
     allow) echo allow ;;
     *) echo defer ;;
   esac

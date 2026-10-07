@@ -238,6 +238,21 @@ refuses "a class state other than shipped or pending" "shipped or pending" \
   "class${T}odd${T}1${T}landed${T}x"
 refuses "a class declared twice" "declared twice" "class${T}live${T}1${T}shipped${T}again"
 refuses "a corpus with no rows" "no rows"
+refuses "an unknown placeholder" "unknown placeholder" \
+  "$(row live defer defer defer defer 'touch @@OUTSDE@@/x')"
+
+# The legacy PreToolUse spelling `decision: approve` still approves, so it
+# reads as an allow.
+legacy_guard() {
+  cat >/dev/null
+  printf '%s\n' '{"decision":"approve","reason":"t"}'
+}
+f=$(synthetic legacy "$(row live defer defer defer defer true)")
+if ! corpus_replay "$f" legacy_guard 1 >/dev/null 2>&1 && [ "$CORPUS_FALSE_ALLOWS" -eq 1 ]; then
+  pass "self-check: the legacy decision: approve spelling reads as an allow"
+else
+  fail "self-check: decision: approve was read as a defer"
+fi
 
 # --- the corpus file -----------------------------------------------------
 # Sanitization: rows carry command shapes only. Absolute paths are limited to
