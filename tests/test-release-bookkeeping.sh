@@ -132,6 +132,18 @@ assert_eq "a missing comparator prints nothing on stdout" "$out" ""
 err=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null scripts/release-bookkeeping.sh 2>&1 >/dev/null) || true
 assert_contains "a missing comparator surfaces a diagnostic on stderr" "$err" "comparator scripts/release-pending.sh is missing"
 
+# 5b. A missing sanitizer is a broken install, but this surface never blocks:
+#     the refusal is a diagnostic and exit 0, like every other degraded path.
+work="$tmp/no-sanitizer/scripts"
+mkdir -p "$work"
+cp "$here/../scripts/release-bookkeeping.sh" "$work/"
+r="$tmp/no-sanitizer"
+make_repo "$r" 0.2.0
+rc=0
+err=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null scripts/release-bookkeeping.sh 2>&1 >/dev/null) || rc=$?
+assert_eq "a missing sanitizer degrades (exit 0)" "$rc" "0"
+assert_contains "a missing sanitizer surfaces a diagnostic on stderr" "$err" "echo-safety.sh is missing or unreadable"
+
 # 6. CDPATH regression (REQ-D1.9): a hostile CDPATH with a decoy `scripts/` must
 #    not corrupt the script's `cd "$(dirname "$0")"` (it calls `unset CDPATH`).
 #    House pattern: the full script set is copied under `scripts/` in the cwd and
