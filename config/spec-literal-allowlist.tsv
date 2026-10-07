@@ -20,6 +20,7 @@ resolver	scripts/resolve-root.sh	sr_specs=$(canon "$rp_path/specs") || sr_specs=
 namespace	scripts/spec-walkthrough.sh	specs/*) spec=${spec#specs/} ;;
 static-glob	lefthook.yml	glob: "specs/**"
 static-glob	.gitignore	specs/*/.orchestrate.lock
+static-glob	.gitignore	specs/*/.orchestrate.lock#*
 static-glob	.gitignore	specs/*/.tasks-pr-sync.*
 static-glob	.gitignore	specs/*/.orchestrate/
 static-glob	.gitignore	specs/_pending/notes.md

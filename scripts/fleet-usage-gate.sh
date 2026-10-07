@@ -224,9 +224,9 @@ HOLD_LOCK=0
 CUR_TMP=""
 # Release the lock AND reap any in-flight cache write temp on ANY exit, signals
 # included (the fleet-throttle.sh trap discipline): a SIGINT/SIGTERM
-# mid-critical-section must not leave the shared cross-spec lock held until the
-# stale-break threshold, nor litter the signal dir with a `.signal.XXXXXX`
-# orphan. INT/TERM route through EXIT via explicit exits with the conventional
+# mid-critical-section must not leave the shared cross-spec lock held until a
+# later acquirer notices this process is gone (the hold names it with
+# --owner-pid), nor litter the signal dir with a `.signal.XXXXXX` orphan. INT/TERM route through EXIT via explicit exits with the conventional
 # codes. Inlined (not a named cleanup function) so the trap reference is visible
 # to static analysis.
 trap 'release_lock; [ -n "$CUR_TMP" ] && rm -f "$CUR_TMP"' EXIT
@@ -235,7 +235,7 @@ trap 'exit 143' TERM
 acquire_lock() {
   al_tries=0
   while [ "$al_tries" -lt 1000 ]; do
-    "$FS" lock >/dev/null 2>&1
+    "$FS" lock --owner-pid "$$" >/dev/null 2>&1
     al_rc=$?
     case $al_rc in
       0)

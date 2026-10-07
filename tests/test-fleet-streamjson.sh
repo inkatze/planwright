@@ -215,6 +215,24 @@ ps_rows() {
   printf '%s\n' "$pr_out"
 }
 
+# plant_lock <lock-path> <owner-pid> — plant a held lock in the shape the
+# primitive creates (scripts/lock-lib.sh): a symlink whose target is the owner's
+# `<pid>-<epoch>-<seq>` token. Staleness is that owner's absence, so the pid
+# handed in is the whole of what a case is saying about the lock. The token is
+# published in `planted_token` for cases that assert the lock was left alone.
+plant_lock() {
+  planted_token="$2-$(date +%s)-1"
+  rm -rf "$1"
+  ln -s "$planted_token" "$1" || fail "cannot plant a lock at $1"
+}
+
+# A pid that is deterministically dead: spawned and reaped here rather than a
+# number assumed free. A host where an assumed pid happened to be live would
+# quietly stop exercising the break the cases below name.
+: >"$tmp/deadpid.probe" &
+dead_pid=$!
+wait "$dead_pid" 2>/dev/null
+
 # wait_until <timeout-tenths> <cmd...> — poll a condition.
 wait_until() {
   wu_n=$1
@@ -303,14 +321,13 @@ grep -q "^$req_perm$tab.*${tab}pending" "$wdir/journal" \
 # the request for the next pass rather than writing a row it cannot vouch for.
 cp "$wdir/journal" "$tmp/j2.orig" || fail "c2: cannot snapshot the journal"
 aenv "$home" clear sjw1 >/dev/null 2>&1 || :
-mkdir -p "$wdir/journal.lock" || fail "c2: cannot plant the journal lock"
-printf '%s\n' "$$" >"$wdir/journal.lock/holder" || fail "c2: cannot stamp the lock"
+plant_lock "$wdir/journal.lock" $$
 out=$(senv "$home" "$rec" -- alarm-scan --now $((received + 1000)) --threshold 900) \
   || fail "c2: alarm-scan over a held journal exited non-zero"
 [ -z "$out" ] || fail "c2: a held journal must yield no alarm line, got: $out"
 [ "$(aenv "$home" queue --count)" = 0 ] \
   || fail "c2: an alarm scan must not publish a queue row while the journal is held"
-rm -rf "$wdir/journal.lock"
+rm -f "$wdir/journal.lock"
 # Put the fixture back: later cases share this worker's journal and queue row,
 # and a case that leaves borrowed state changed breaks them from a distance,
 # which is a worse failure to read than the one it was testing.
@@ -524,10 +541,10 @@ case $out in
   *) fail "c7: status should report positive-evidence death, got: $out" ;;
 esac
 # Single initiator: a recovery already in flight is refused.
-mkdir "$wdir7/recover.lock"
+plant_lock "$wdir7/recover.lock" $$
 senv "$home" "$rec" -- recover sjw7 --foreground >/dev/null 2>&1
 [ $? -eq 3 ] || fail "c7: a concurrent recovery must be refused (exit 3)"
-rmdir "$wdir7/recover.lock"
+rm -f "$wdir7/recover.lock"
 # Orphan liveness: a still-alive worker pid refuses recovery.
 sleep 60 &
 alive_pid=$!
@@ -1045,151 +1062,68 @@ fi
 echo "ok: c17 a deny message with control characters delivers well-formed JSON (REQ-E1.4)"
 
 # ---------------------------------------------------------------------------
-# c18 (REQ-E1.5): the mtime probe behind the journal-lock stale-break must
-#     yield a real epoch under BOTH stat flavors. On GNU/busybox stat `-f`
-#     means --file-system, so a BSD-first `stat -f %m … || stat -c %Y …` chain
-#     has its format string consumed as a FILE operand: the call dumps
-#     filesystem info on STDOUT and exits non-zero, and the chain CONCATENATES
-#     that dump with the fallback's epoch. The result is not merely a wrong
-#     mtime — `$((now - mtime))` over it is a fatal arithmetic error that kills
-#     the shell (confirmed on Debian/dash and Alpine/busybox).
+# c18 (REQ-E1.5): the journal lock's break is decided by the holder's PROCESS
+#     and never by the lock's age. Both directions are asserted, because only
+#     the pair pins the rule: an implementation that broke every lock passes the
+#     absent-holder legs alone, and one that broke none passes the live ones.
 #
 #     The lock is driven through `answer`, whose only pre-lock work is the
-#     worker-dir check: a stale-broken lock lets it reach the not-journaled
-#     refusal (exit 3), a lock judged fresh reports busy (exit 2). Those two
-#     outcomes are what the probe's value decides between, so each flavor is
-#     asserted in BOTH directions — a probe returning a constant would pass
-#     the stale legs alone.
+#     worker-dir check: a broken lock lets it reach the not-journaled refusal
+#     (exit 3), a lock it must not break reports busy (exit 2). Those two
+#     outcomes are what the liveness probe decides between.
 # ---------------------------------------------------------------------------
-# Flavor shims. Each answers only its own flavor's form and reproduces the
-# other flavor's real failure mode, so the probe cannot pass by accident of
-# ordering: whichever form the script tries first, the value must still be a
-# plain epoch. The mtime they report is canned (STAT_SHIM_MTIME) — the legs
-# below with no shim on PATH cover the host's real stat against a real file.
-mkdir -p "$tmp/statgnu" "$tmp/statbsd"
-cat >"$tmp/statgnu/stat" <<'GNUSTAT'
-#!/bin/sh
-# GNU/busybox stat: -c <fmt> formats; -f is --file-system (fmt becomes a file
-# operand), which dumps to stdout and exits non-zero.
-case ${1:-} in
-  -c)
-    [ "${2:-}" = '%Y' ] || exit 1
-    printf '%s\n' "$STAT_SHIM_MTIME"
-    exit 0
-    ;;
-  -f)
-    echo "stat: cannot read file system information for '${2:-}': No such file or directory" >&2
-    printf '  File: "%s"\n    ID: 94674a6d81261f15 Namelen: 255 Type: overlayfs\nBlock size: 4096\n' "${3:-}"
-    exit 1
-    ;;
-esac
-exit 1
-GNUSTAT
-cat >"$tmp/statbsd/stat" <<'BSDSTAT'
-#!/bin/sh
-# BSD stat: -f <fmt> formats; -c is not an option at all.
-case ${1:-} in
-  -f)
-    [ "${2:-}" = '%m' ] || exit 1
-    printf '%s\n' "$STAT_SHIM_MTIME"
-    exit 0
-    ;;
-  -c)
-    echo "stat: illegal option -- c" >&2
-    echo "usage: stat [-FLnq] [-f format | -l | -r | -s | -x] [-t timefmt] [file ...]" >&2
-    exit 1
-    ;;
-esac
-exit 1
-BSDSTAT
-chmod +x "$tmp/statgnu/stat" "$tmp/statbsd/stat"
-
 home="$tmp/h18"
 rec="$tmp/r18"
 mkdir -p "$rec"
 unknown_req='cccc2222-dddd-eeee-ffff-000011112222'
 
-# lock_leg <name> <path-override|-> <shim-age-secs|-> <touch-stamp|-> <want-rc>
-#          [owner-stamp|-]
-# Plants a worker dir holding a locked journal, runs one `answer` against it,
-# and asserts the outcome the stale-break decision produces. The shim's mtime
-# is derived from the clock AT CALL TIME (age 0 = fresh, 3600 = well past the
-# 60s threshold): each leg spends ~5s in the lock spin, so a timestamp stamped
-# once at case start would drift across the threshold on a loaded machine and
-# flip the fresh legs. The optional owner stamp plants the file a real held
-# lock carries, so a leg can exercise the break against the shape it will
-# actually meet rather than against an empty directory.
+# lock_leg <name> <owner-pid> <back-date|-> <want-rc> — plant a worker dir
+# holding a locked journal, run one `answer` against it, and assert the outcome
+# the break decision produces.
 lock_leg() {
   ll_name=$1
-  ll_path=$2
-  ll_age=$3
-  ll_stamp=$4
-  ll_want=$5
-  ll_owner=${6:--}
+  ll_owner=$2
+  ll_stamp=$3
+  ll_want=$4
   ll_dir="$home/streamjson/$ll_name"
-  mkdir -p "$ll_dir/journal.lock" || fail "c18/$ll_name: cannot plant the lock"
-  # A real held lock records its holder inside, so a planted lock has to be
-  # able to as well. The stamp is a dead pid on purpose: a LIVE holder is never
-  # broken on age (that is the point of recording it), so a leg meaning to
-  # exercise the age fallback has to name a process that is gone.
-  [ "$ll_owner" = '-' ] || printf '%s\n' "$ll_owner" >"$ll_dir/journal.lock/holder" \
-    || fail "c18/$ll_name: cannot stamp the planted lock"
-  [ "$ll_stamp" = '-' ] || touch -t "$ll_stamp" "$ll_dir/journal.lock" \
-    || fail "c18/$ll_name: cannot age the lock"
-  ll_pre=()
-  [ "$ll_path" = '-' ] || ll_pre+=("PATH=$ll_path:$PATH")
-  [ "$ll_age" = '-' ] || ll_pre+=("STAT_SHIM_MTIME=$(($(date +%s) - ll_age))")
-  senv "$home" "$rec" ${ll_pre[@]+"${ll_pre[@]}"} -- \
-    answer "$ll_name" "$unknown_req" --allow >/dev/null 2>&1
+  mkdir -p "$ll_dir" || fail "c18/$ll_name: cannot plant the worker dir"
+  plant_lock "$ll_dir/journal.lock" "$ll_owner"
+  # `-h`: the stamp belongs on the LINK. Without it `touch` follows the link to
+  # a target that is a token rather than a file, and the leg silently ages
+  # nothing.
+  [ "$ll_stamp" = '-' ] || touch -h -t "$ll_stamp" "$ll_dir/journal.lock" \
+    || fail "c18/$ll_name: cannot back-date the lock"
+  senv "$home" "$rec" -- answer "$ll_name" "$unknown_req" --allow >/dev/null 2>&1
   ll_rc=$?
   [ "$ll_rc" = "$ll_want" ] \
-    || fail "c18/$ll_name: expected rc=$ll_want from the stale-break decision, got rc=$ll_rc"
+    || fail "c18/$ll_name: expected rc=$ll_want from the break decision, got rc=$ll_rc"
 }
 
-# (a) GNU flavor, lock aged well past the 60s threshold -> broken, `answer`
-#     reaches the not-journaled refusal. THIS is the regression leg: pre-fix
-#     the BSD-first chain concatenates the filesystem dump here.
-lock_leg sjw18a "$tmp/statgnu" 3600 - 3
-# (b) GNU flavor, lock mtime fresh -> NOT broken, reported busy. Proves the
-#     probe's value is actually consumed (a constant would fail this).
-lock_leg sjw18b "$tmp/statgnu" 0 - 2
-# (c) BSD flavor, aged -> broken. The macOS path must not regress when the
-#     probe order flips.
-lock_leg sjw18c "$tmp/statbsd" 3600 - 3
-# (d) BSD flavor, fresh -> busy.
-lock_leg sjw18d "$tmp/statbsd" 0 - 2
-# (e)+(f) NO shim: the host's real stat against a real directory mtime, so
-#     whichever flavor this platform ships is exercised end to end (GNU on the
-#     Linux CI runner, BSD on the macOS floor).
-lock_leg sjw18e - - 202001010000.00 3
-lock_leg sjw18f - - - 2
-# The stamped legs need a pid that is deterministically dead, not one assumed
-# to be: a host where the assumed pid happens to be live would either fail the
-# leg or, worse, quietly stop exercising the path it names. Spawn one and reap
-# it, the way c7 does.
-: >"$tmp/deadpid.probe" &
-dead_pid=$!
-wait "$dead_pid" 2>/dev/null
-# (g) A FRESH lock whose recorded holder is gone: broken on the evidence, not
-#     on the clock. This is what recording the holder buys over an age-only
-#     break -- a crashed holder is reclaimed at once instead of stranding the
-#     journal for the whole threshold. It also proves the break copes with a
-#     non-empty directory, which an rmdir-only break would not.
-lock_leg sjw18g - - - 3 "$dead_pid"
-# (h) An AGED lock whose holder is this test, a process demonstrably alive:
-#     still refused. Aged is the load-bearing half. A fresh one would prove
-#     nothing, because an implementation that broke every lock past the
-#     threshold would pass it too; only an aged lock that is NOT broken shows
-#     the liveness check outranking the clock, which is the contract this
-#     delegation rests on.
-lock_leg sjw18h - - 202001010000.00 2 $$
-echo "ok: c18 the mtime probe yields a real epoch under both stat flavors, in both directions (REQ-E1.5)"
-echo "ok: c18 a recorded holder decides the break by liveness, not by age (REQ-E1.5)"
+# (a) a lock whose holder's process is gone: broken at once, and `answer`
+#     reaches the not-journaled refusal. Nothing waits for a threshold.
+lock_leg sjw18a "$dead_pid" - 3
+# (b) the same lock held by a live process: refused, the lock untouched.
+lock_leg sjw18b $$ - 2
+# (c) an ANCIENT lock whose holder is still running, still refused. This is the
+#     load-bearing leg: under the age rule this replaces, a lock this old was
+#     broken on sight and its live holder found itself sharing the critical
+#     section with the breaker.
+lock_leg sjw18c $$ 200001010000 2
+# Asserted here rather than after the last leg, because `planted_token` names
+# the most recent plant. Refusing is not the same as refusing and then meddling.
+[ "$(readlink "$home/streamjson/sjw18c/journal.lock")" = "$planted_token" ] \
+  || fail "c18/sjw18c: a refused break must leave the holder's own lock in place"
+# (d) an ancient lock whose holder is gone is broken like any other, so age has
+#     not come back as a quiet second condition on the break.
+lock_leg sjw18d "$dead_pid" 200001010000 3
+echo "ok: c18 the journal lock breaks on the holder's absence, never on age (REQ-E1.5)"
 
 # ---------------------------------------------------------------------------
 # c24 (obs:81ba2dce): a `recover.lock` left behind by a killed recovery is
-#    broken past the documented stale age, so one SIGKILL cannot wedge the
-#    verb permanently; a lock younger than that still refuses.
+#    broken on its holder's absence, so one SIGKILL cannot wedge the verb
+#    permanently; a lock whose holder is still running refuses however old it
+#    is, and a lock left as a DIRECTORY by the retired `mkdir` shape is cleared
+#    in place rather than wedging the verb for good.
 # ---------------------------------------------------------------------------
 home="$tmp/h24"
 rec="$tmp/r24"
@@ -1202,22 +1136,43 @@ senv "$home" "$rec" SHIM_EVENTS="$ev24" -- \
   || fail "c24: foreground launch exited non-zero"
 wdir24="$home/streamjson/sjw24"
 [ "$(cat "$wdir24/session")" = "$sid" ] || fail "c24: session_id not persisted"
-# (a) a fresh lock is still a live recovery: refused, never broken.
-mkdir "$wdir24/recover.lock" || fail "c24: cannot plant the lock"
+# (a) a lock whose holder is live is a recovery in flight: refused, never
+#     broken, and back-dated to the century mark to say so. The age rule this
+#     replaces broke a lock like this one on sight, taking the critical section
+#     out from under a recovery that was running perfectly well.
+plant_lock "$wdir24/recover.lock" $$
+touch -h -t 200001010000 "$wdir24/recover.lock" || fail "c24: cannot back-date the lock"
+live_token=$planted_token
 senv "$home" "$rec" SHIM_EVENTS="$ev24" SHIM_READ_FIRST=0 -- \
   recover sjw24 --foreground >/dev/null 2>&1
-[ $? -eq 3 ] || fail "c24a: a fresh recover.lock must still refuse (exit 3)"
-[ -d "$wdir24/recover.lock" ] || fail "c24a: a fresh lock must not be broken"
-# (b) the same lock aged past the threshold is broken and recovery proceeds.
-touch -t 202001010000.00 "$wdir24/recover.lock" || fail "c24: cannot age the lock"
+[ $? -eq 3 ] || fail "c24a: a recovery whose initiator is live must refuse (exit 3)"
+[ -L "$wdir24/recover.lock" ] \
+  || fail "c24a: an ancient lock whose holder still runs must not be broken"
+[ "$(readlink "$wdir24/recover.lock")" = "$live_token" ] \
+  || fail "c24a: the live holder's lock must not have been replaced"
+# (b) the same lock with its holder's process gone is broken and recovery
+#     proceeds, with no threshold to wait out first.
+plant_lock "$wdir24/recover.lock" "$dead_pid"
 : >"$rec/argv"
 senv "$home" "$rec" SHIM_EVENTS="$ev24" SHIM_READ_FIRST=0 -- \
   recover sjw24 --foreground >/dev/null 2>&1 \
-  || fail "c24b: a stale recover.lock must be broken and recovery must succeed"
+  || fail "c24b: a lock whose holder is gone must be broken and recovery succeed"
 grep -q -- "--resume $sid" "$rec/argv" \
-  || fail "c24b: the relaunch after the stale break must resume the persisted session"
-[ ! -d "$wdir24/recover.lock" ] || fail "c24b: the lock must be released after recovery"
-echo "ok: c24 a stale recover.lock is broken, a fresh one still refuses (obs:81ba2dce)"
+  || fail "c24b: the relaunch after the break must resume the persisted session"
+{ [ ! -L "$wdir24/recover.lock" ] && [ ! -e "$wdir24/recover.lock" ]; } \
+  || fail "c24b: the lock must be released after recovery"
+# (c) a lock left as a DIRECTORY by the retired `mkdir` shape. No acquire goes
+#     over one, so without an in-place clear a fleet home carrying it could
+#     never recover this worker again. `recover` is where that clear lives.
+mkdir -p "$wdir24/recover.lock" || fail "c24: cannot plant the legacy lock directory"
+printf '%s\n' 999999999 >"$wdir24/recover.lock/holder"
+: >"$rec/argv"
+senv "$home" "$rec" SHIM_EVENTS="$ev24" SHIM_READ_FIRST=0 -- \
+  recover sjw24 --foreground >/dev/null 2>&1 \
+  || fail "c24c: a lock left as a directory must be cleared, not wedge the verb"
+grep -q -- "--resume $sid" "$rec/argv" \
+  || fail "c24c: the relaunch after the in-place clear must resume the session"
+echo "ok: c24 a recover.lock breaks on its holder's absence, and a legacy lock directory is cleared in place (obs:81ba2dce)"
 
 # ---------------------------------------------------------------------------
 # c25 (obs:917e384e): `launch` elects a single initiator, so two concurrent
@@ -1247,81 +1202,64 @@ n25=$(printf '%s\n' "$snap25" | grep -Fc -- "_supervise sjw25 $wdir25")
 [ "$n25" = 1 ] || fail "c25a: exactly one supervisor expected for the worker, found $n25"
 senv "$home" "$rec" -- stop sjw25 --grace 2 >/dev/null || fail "c25: stop exited non-zero"
 # (b) the election itself, under genuine contention: several launches start at
-#     once with no supervisor up, so the atomic mkdir is what decides. Exactly
-#     one may win, and the losers must refuse rather than race into `supervise`.
+#     once with no supervisor up, so the primitive's atomic create is what
+#     decides. Exactly one may win, and the losers must refuse rather than race
+#     into `supervise`.
 #
-# Only meaningful on a host whose `mkdir` is actually atomic, which is not
-# universal: uutils coreutils 0.8.0, the /usr/bin/mkdir on some images, returns
-# success to several concurrent creators of one path (its sequential EEXIST is
-# correct, so only contention exposes it). That loses the election underneath
-# the script rather than inside it, and the case would report a defect the code
-# does not have. Probed rather than assumed, and skipped out loud: a silent
-# pass here would read as evidence the election holds.
-atomic=1
-mkdir -p "$tmp/mkatom"
-for probe in $(seq 1 25); do
-  : >"$tmp/mkatom/w"
-  for n in 1 2 3 4 5 6 7 8; do
-    (mkdir "$tmp/mkatom/l.$probe" 2>/dev/null && printf 'x\n' >>"$tmp/mkatom/w") &
-  done
-  wait
-  [ "$(wc -l <"$tmp/mkatom/w" | tr -d ' ')" = 1 ] || atomic=0
-done
+# Asserted unconditionally. This case used to probe the host's `mkdir` first
+# and skip itself where several concurrent creators of one path all came back
+# happy (uutils coreutils 0.8.0, the /usr/bin/mkdir on some images) — which
+# left the election untested on exactly the hosts most likely to break it. The
+# lock is one `ln -s` now, and a create-or-fail symlink has no such flavor, so
+# there is nothing left to excuse the case from running.
 c25b_ran=1
-if [ "$atomic" = 0 ]; then
-  # On stdout, in the suite's own skip form: a run whose only trace of this is
-  # a stderr line reads, in a captured CI log, exactly like one that tested the
-  # election and passed.
-  c25b_ran=0
-  echo "skip: c25b concurrent-election race ($(command -v mkdir) admits several concurrent mkdir winners)"
-else
-  for n in 1 2 3; do
-    senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
-      launch sjw25 execution-backends:4 --prompt-file "$tmp/prompt25" \
-      >"$tmp/o25b.$n" 2>&1 &
-  done
-  wait
-  won=0
-  lost=0
-  for n in 1 2 3; do
-    if grep -q "^launched sjw25 " "$tmp/o25b.$n"; then
-      won=$((won + 1))
-    elif grep -qE "already in flight|already running" "$tmp/o25b.$n"; then
-      # How a loser lost is the point: a crash and a single-initiator refusal
-      # both leave one winner, and only one of them is the election working.
-      lost=$((lost + 1))
-    fi
-  done
-  if [ "$won" != 1 ] || [ "$lost" != 2 ]; then
-    for n in 1 2 3; do
-      printf 'c25b launch %s said: %s\n' "$n" "$(cat "$tmp/o25b.$n")" >&2
-    done
-    fail "c25b: expected one winner and two refusals, got $won and $lost"
+for n in 1 2 3; do
+  senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
+    launch sjw25 execution-backends:4 --prompt-file "$tmp/prompt25" \
+    >"$tmp/o25b.$n" 2>&1 &
+done
+wait
+won=0
+lost=0
+for n in 1 2 3; do
+  if grep -q "^launched sjw25 " "$tmp/o25b.$n"; then
+    won=$((won + 1))
+  elif grep -qE "already in flight|already running" "$tmp/o25b.$n"; then
+    # How a loser lost is the point: a crash and a single-initiator refusal
+    # both leave one winner, and only one of them is the election working.
+    lost=$((lost + 1))
   fi
-  snap25=$(ps_rows)
-  n25=$(printf '%s\n' "$snap25" | grep -Fc -- "_supervise sjw25 $wdir25")
-  [ "$n25" = 1 ] || fail "c25b: exactly one supervisor expected after the race, found $n25"
-  # "one supervisor AND one pid file": the criterion is not met if a loser
-  # overwrote the winner's pid file on its way out.
-  sup25b=$(cat "$wdir25/supervisor.pid" 2>/dev/null) || sup25b=''
-  [ -n "$sup25b" ] || fail "c25b: no supervisor pid file survived the race"
-  printf '%s\n' "$snap25" \
-    | awk -v p="$sup25b" -v m="_supervise sjw25 $wdir25" \
-      '$1 == p && index($0, m) { f = 1 } END { exit f ? 0 : 1 }' \
-    || fail "c25b: supervisor.pid ($sup25b) does not name the surviving supervisor"
-  senv "$home" "$rec" -- stop sjw25 --grace 2 >/dev/null || fail "c25b: stop exited non-zero"
+done
+if [ "$won" != 1 ] || [ "$lost" != 2 ]; then
+  for n in 1 2 3; do
+    printf 'c25b launch %s said: %s\n' "$n" "$(cat "$tmp/o25b.$n")" >&2
+  done
+  fail "c25b: expected one winner and two refusals, got $won and $lost"
 fi
-# (c) a lock whose holder is gone is broken, so one hard kill cannot wedge
-#     `launch` the way it used to wedge `recover`; a lock whose holder is this
-#     very shell is not.
-# Bare `mkdir`, not `-p`: if the preceding launch leaked its lock, `-p` would
-# silently adopt the leak and the case would test nothing.
-mkdir "$wdir25/launch.lock" || fail "c25c: a launch leaked its lock, or it cannot be planted"
-printf '%s\n' "$$" >"$wdir25/launch.lock/holder"
+snap25=$(ps_rows)
+n25=$(printf '%s\n' "$snap25" | grep -Fc -- "_supervise sjw25 $wdir25")
+[ "$n25" = 1 ] || fail "c25b: exactly one supervisor expected after the race, found $n25"
+# "one supervisor AND one pid file": the criterion is not met if a loser
+# overwrote the winner's pid file on its way out.
+sup25b=$(cat "$wdir25/supervisor.pid" 2>/dev/null) || sup25b=''
+[ -n "$sup25b" ] || fail "c25b: no supervisor pid file survived the race"
+printf '%s\n' "$snap25" \
+  | awk -v p="$sup25b" -v m="_supervise sjw25 $wdir25" \
+    '$1 == p && index($0, m) { f = 1 } END { exit f ? 0 : 1 }' \
+  || fail "c25b: supervisor.pid ($sup25b) does not name the surviving supervisor"
+senv "$home" "$rec" -- stop sjw25 --grace 2 >/dev/null || fail "c25b: stop exited non-zero"
+# (c) a lock whose holder's process is gone is broken, so one hard kill cannot
+#     wedge `launch` the way it used to wedge `recover`; a lock whose holder is
+#     this very shell is not.
+# The path is asserted clear before planting: a lock the preceding launch
+# leaked would otherwise be adopted silently and the leg would test nothing.
+{ [ ! -L "$wdir25/launch.lock" ] && [ ! -e "$wdir25/launch.lock" ]; } \
+  || fail "c25c: the preceding launch leaked its lock"
+plant_lock "$wdir25/launch.lock" $$
 senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
   launch sjw25 execution-backends:4 --prompt-file "$tmp/prompt25" >/dev/null 2>&1
 [ $? -eq 3 ] || fail "c25c: a launch whose holder is alive must refuse the second caller (exit 3)"
-printf '%s\n' 999999999 >"$wdir25/launch.lock/holder"
+plant_lock "$wdir25/launch.lock" "$dead_pid"
 senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
   launch sjw25 execution-backends:4 --prompt-file "$tmp/prompt25" >/dev/null \
   || fail "c25c: a lock whose holder is gone must be broken and the launch proceed"
@@ -1863,6 +1801,75 @@ senv "$home" "$tmp/r36" -- _tick sjw36 "$w36" nope "$$" >/dev/null 2>"$tmp/tk36b
 grep -q "pids must be positive integers" "$tmp/tk36b.err" \
   || fail "c36: the pid refusal must be named, got: $(cat "$tmp/tk36b.err")"
 echo "ok: c36 the tick refuses a malformed argv or a foreign directory, and says so"
+
+# ---------------------------------------------------------------------------
+# c38 (obs:1eb24a7e): one stuck lock cannot cascade into the other. A receipt
+#    is journaled without the journal lock held across the attention store, so
+#    a fleet lock nobody releases cannot turn into a journal outage; and a
+#    receipt the journal lock refuses is deferred and journaled once the lock
+#    frees, rather than lost until a stop and recover re-send it.
+# ---------------------------------------------------------------------------
+home="$tmp/h38"
+rec="$tmp/r38"
+mkdir -p "$rec" "$home"
+ev="$tmp/ev38"
+printf '%s\n%s\n' "$line_init" "$line_perm" >"$ev"
+printf 'cascade\n' >"$tmp/prompt38"
+# (a) The fleet lock held by a live process for the whole leg, so every
+#     attention write spins on it. The receipt must land, and the journal lock
+#     must be free again while that spin is still going.
+#     The launch registers through that same lock, so it is planted only once
+#     the supervisor is up, and the worker is held on a second stdin line
+#     (a steer) so its request arrives after that.
+senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_READ_FIRST=2 SHIM_WAIT_RESPONSE=1 \
+  SHIM_RESULT_LINE="$line_result" -- \
+  launch sjw38 execution-backends:4 --prompt-file "$tmp/prompt38" --foreground &
+launch38=$!
+wdir38="$home/streamjson/sjw38"
+wait_until 100 test -s "$wdir38/supervisor.pid" || fail "c38a: the supervisor never came up"
+sleep 120 &
+fl_holder=$!
+ln -s "$fl_holder-$(date +%s)-1" "$home/.fleet.lock" || fail "c38: cannot plant the fleet lock"
+printf 'go on\n' >"$tmp/steer38"
+senv "$home" "$rec" -- steer sjw38 --message-file "$tmp/steer38" >/dev/null \
+  || fail "c38a: the steer that releases the request failed"
+wait_until 100 grep -q "^$req_perm$tab" "$wdir38/journal" \
+  || fail "c38a: the receipt was not journaled while the fleet lock was held"
+journal_free38() { [ ! -L "$wdir38/journal.lock" ] && [ ! -e "$wdir38/journal.lock" ]; }
+wait_until 30 journal_free38 \
+  || fail "c38a: the journal lock is held across the attention call (it stays taken while the fleet lock is busy)"
+[ -L "$home/.fleet.lock" ] || fail "c38a: the fleet lock was released early, so the leg proved nothing"
+kill "$fl_holder" 2>/dev/null || :
+wait "$fl_holder" 2>/dev/null || :
+rm -f "$home/.fleet.lock"
+senv "$home" "$rec" -- answer sjw38 "$req_perm" --allow >/dev/null \
+  || fail "c38a: answer exited non-zero"
+wait "$launch38" || fail "c38a: the run did not end cleanly after the answer"
+echo "ok: c38 a receipt is journaled with the journal lock free of the attention call (obs:1eb24a7e)"
+# (b) The journal lock held by a live process when the request arrives. The
+#     receipt cannot be journaled then; it must be once the holder is gone,
+#     with nothing restarted.
+home="$tmp/h38b"
+mkdir -p "$home/streamjson/sjw38b"
+wdir38b="$home/streamjson/sjw38b"
+sleep 120 &
+jl_holder=$!
+plant_lock "$wdir38b/journal.lock" "$jl_holder"
+senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_RESULT_LINE="$line_result" -- \
+  launch sjw38b execution-backends:4 --prompt-file "$tmp/prompt38" --foreground &
+launch38b=$!
+# Long enough for the supervisor's own wait on the journal lock to run out.
+sleep 7
+grep -q "^$req_perm$tab" "$wdir38b/journal" 2>/dev/null \
+  && fail "c38b: the receipt was journaled through a lock a live process holds"
+kill "$jl_holder" 2>/dev/null || :
+wait "$jl_holder" 2>/dev/null || :
+wait_until 150 grep -q "^$req_perm$tab.*${tab}pending" "$wdir38b/journal" \
+  || fail "c38b: a receipt the journal lock refused was lost instead of journaled once the lock freed"
+senv "$home" "$rec" -- answer sjw38b "$req_perm" --allow >/dev/null \
+  || fail "c38b: the deferred receipt is not answerable"
+wait "$launch38b" || fail "c38b: the run did not end cleanly after the answer"
+echo "ok: c38 a receipt the journal lock refused is deferred and journaled once it frees (obs:1eb24a7e)"
 
 # ---------------------------------------------------------------------------
 # c37: the suite leaves nothing running. Every supervisor, tick, and shim a

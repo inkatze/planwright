@@ -355,34 +355,47 @@ emit() {
 }
 
 # The unit lock, released through a trap as well as on the happy path, so a
-# fail-closed exit cannot leave it held until the stale break. Same shape as
-# allocation-adapt.sh's hold, for the same reason: the fatal-signal traps
-# re-`exit` rather than returning into the unfinished critical section.
+# fail-closed exit cannot leave it held. Same shape as allocation-adapt.sh's
+# hold, for the same reasons: the traps are armed BEFORE the acquire (the
+# ledger's hold is detached, so nothing reclaims one leaked by a signal), and
+# the fatal-signal traps re-`exit` rather than returning into the unfinished
+# critical section.
 #
-# A caller that ALREADY holds this unit's lock says so the way the ledger
-# documents, by exporting PLANWRIGHT_ALLOC_LOCK_HELD, and this script honors it
-# the way `append` does. Acquiring unconditionally would deadlock against a
-# terminal-state owner that is itself a ledger writer: the primitive is not
-# reentrant, so the nested acquire would spin out its whole budget and refuse,
-# naming contention that was never there.
+# AN INHERITED HOLD IS BELIEVED ONLY ON EVIDENCE. A caller that already holds
+# this unit's lock — a terminal-state owner that is itself a ledger writer —
+# announces it the way the ledger documents: the unit in
+# PLANWRIGHT_ALLOC_LOCK_HELD and the hold's owner token in
+# PLANWRIGHT_ALLOC_LOCK_TOKEN. Both are required, and the token has to still own
+# the lock, which is what `owner` answers. The bare unit name alone used to be
+# enough, and that was a fail-OPEN: an announcement left in the environment by
+# an ancestor that no longer holds anything skipped the acquire, and then the
+# whole health / mark-check / derive / record sequence ran unlocked, which is
+# the only way two concurrent terminal reports of one unit can both record.
+# Honoring a hold that is real is still necessary — re-acquiring under it would
+# spin the budget out against its own owner and refuse, naming contention that
+# was never there.
 ALLOC_LOCK_TAKEN=no
 ALLOC_LOCK_TOKEN=""
 take_unit_lock() {
   # An inherited hold needs no bookkeeping of its own: ALLOC_LOCK_TAKEN stays
   # `no`, so release_unit_lock is already the right no-op, and the ancestor
-  # keeps ownership of a lock it never handed over.
-  if [ "${PLANWRIGHT_ALLOC_LOCK_HELD:-}" = "$UNIT" ]; then
+  # keeps ownership of a lock it never handed over. The token is kept, because
+  # every append this script makes has to present it.
+  if [ "${PLANWRIGHT_ALLOC_LOCK_HELD:-}" = "$UNIT" ] \
+    && [ -n "${PLANWRIGHT_ALLOC_LOCK_TOKEN:-}" ] \
+    && [ "$("$LEDGER" owner "$UNIT" 2>/dev/null)" = "$PLANWRIGHT_ALLOC_LOCK_TOKEN" ]; then
+    ALLOC_LOCK_TOKEN=$PLANWRIGHT_ALLOC_LOCK_TOKEN
     return 0
   fi
+  trap release_unit_lock EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   ALLOC_LOCK_TOKEN=$("$LEDGER" lock "$UNIT") || {
     printf '%s\n' "allocation-feedback: could not take the per-unit allocation lock for '$(sanitize_printable "$UNIT" "(unprintable unit)")'" >&2
     exit 2
   }
   ALLOC_LOCK_TAKEN=yes
-  trap release_unit_lock EXIT
-  trap 'exit 129' HUP
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
 }
 
 release_unit_lock() {
@@ -392,11 +405,13 @@ release_unit_lock() {
 }
 
 # ledger_append: the mark write, routed through whichever lock this script is
-# operating under. The env var is what tells the ledger its caller already holds
-# the lock, and it is set for an inherited hold too, since the ancestor's hold
-# is just as real as our own.
+# operating under. The pair of env vars is what tells the ledger its caller
+# already holds the lock, and both are set for an inherited hold too, since the
+# ancestor's hold is just as real as our own — the token is simply the
+# ancestor's rather than one this script minted.
 ledger_append() {
-  PLANWRIGHT_ALLOC_LOCK_HELD="$UNIT" "$LEDGER" append "$@"
+  PLANWRIGHT_ALLOC_LOCK_HELD="$UNIT" PLANWRIGHT_ALLOC_LOCK_TOKEN="$ALLOC_LOCK_TOKEN" \
+    "$LEDGER" append "$@"
 }
 
 # surface_degradation <detail>: the stderr line is unconditional (that is what
@@ -619,7 +634,7 @@ cmd_evaluate() {
     >/dev/null; then
     # Release BEFORE the diagnostic: a stderr write that dies on SIGPIPE (a
     # consumer piping this through `head`) would otherwise skip the release and
-    # leave the unit's lock held until the stale break.
+    # leave the unit's detached lock held with nothing left to reclaim it.
     release_unit_lock
     printf '%s\n' "allocation-feedback: recorded a fragment for unit '$(sanitize_printable "$UNIT" "(unprintable unit)")' but could not mark the ledger; a later evaluation will record a duplicate" >&2
     em_frag=-

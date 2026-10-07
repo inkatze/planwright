@@ -175,7 +175,7 @@ trap 'exit 129' HUP
 acquire_lock() {
   al_tries=0
   while [ "$al_tries" -lt "$LOCK_MAX_TRIES" ]; do
-    "$FS" lock >/dev/null 2>&1
+    "$FS" lock --owner-pid "$$" >/dev/null 2>&1
     al_rc=$?
     case $al_rc in
       0)

@@ -39,6 +39,12 @@
 #                          takes, so concurrent sweeps close a worker once
 #   scripts/step-record.sh   the record-cache lock that run ids and records
 #                          are issued under
+#   scripts/orchestrate-lock.sh   the per-spec orchestration lock
+#   scripts/fleet-state.sh        the fleet state registry and its counters
+#   scripts/allocation-ledger.sh  the per-unit allocation ledgers
+#   scripts/fleet-streamjson.sh   the supervisor's journal/launch/recover locks
+#   scripts/observation-carry.sh  the observation carry's push+PR section
+#   scripts/flight-lifecycle.sh   the one-time crash and relaunch claims
 #
 # Everything else that takes an advisory lock does so by calling a script on
 # that list, so adopting a listed script adopts the tree under it. The list is

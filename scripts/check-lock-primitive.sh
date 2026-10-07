@@ -636,6 +636,9 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
       while (k <= ntok) {
         if (tokt[k] == "op" && tok[k] == ")") { k++; continue }
         if (tok[k] == "}") { k++; continue }
+        # A redirection on the group changes where its output goes, not whose
+        # status the operator after it reads.
+        if (k > j && tokt[k] == "w" && tok[k] ~ /^[0-9]*[<>]/) { k++; continue }
         if (tokt[k] == "op" && tok[k] == ";" \
           && k + 1 <= ntok && tok[k + 1] == "}") { k++; continue }
         break

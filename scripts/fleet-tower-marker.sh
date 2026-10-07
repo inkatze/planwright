@@ -136,7 +136,8 @@ resolve_home() {
 HOLD_LOCK=0
 # Release on ANY exit, signals included (the fleet-attention.sh trap
 # discipline): a SIGINT/SIGTERM mid-critical-section must not leave the
-# shared cross-spec lock held until the stale-break threshold.
+# shared cross-spec lock held until a later acquirer notices this process is
+# gone (the hold names it with --owner-pid).
 PENDING_TMP=""
 trap 'release_lock; [ -z "$PENDING_TMP" ] || rm -f "$PENDING_TMP"' EXIT
 trap 'exit 130' INT
@@ -144,7 +145,7 @@ trap 'exit 143' TERM
 acquire_lock() {
   al_tries=0
   while [ "$al_tries" -lt 1000 ]; do
-    "$FS" lock >/dev/null 2>&1
+    "$FS" lock --owner-pid "$$" >/dev/null 2>&1
     al_rc=$?
     case $al_rc in
       0)

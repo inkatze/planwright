@@ -308,7 +308,7 @@ exec 3>"$sv_dir/in.fifo"
 cat "$sv_init" >&3 2>/dev/null &
 [ -p "$1/in.fifo" ] || return 3
 cat "$2" >>"$1/in.fifo" 2>/dev/null || return 1
-scratch_patterns='in.fifo out.fifo .init.* .frame.* .journal.* .session.* .pid.* *.broken.*'
+scratch_patterns='in.fifo out.fifo .init.* .frame.* .journal.* .session.* .pid.* .deferred.* *.lock#* *.broken.*'
 LINES
 )
 [ "$(printf '%s\n' "$fifo_lines" | sort)" = "$(printf '%s\n' "$want_lines" | sort)" ] || fail "s4: an unlisted line names the worker's stdin fifo: $fifo_lines"

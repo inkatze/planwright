@@ -198,12 +198,14 @@ write_script "$tmp/groups/scripts/subsh.sh" '(mkdir "$d") && exit 0'
 write_script "$tmp/groups/scripts/brace.sh" '{ mkdir "$d"; } && exit 0'
 write_script "$tmp/groups/scripts/subshor.sh" '(mkdir "$d") || return 1'
 write_script "$tmp/groups/scripts/nested.sh" '( { mkdir "$d"; } ) && exit 0'
+write_script "$tmp/groups/scripts/redir.sh" '(umask 077 && mkdir "$d") 2>/dev/null || exit 1'
 out5="$(/bin/bash "$CHECKER" "$tmp/groups" 2>&1)"
 assert "a mkdir at the end of a group is still read" 1 $?
 assert_contains "a subshell does not hide it" "$out5" "scripts/subsh.sh:3:"
 assert_contains "a brace group does not hide it" "$out5" "scripts/brace.sh:3:"
 assert_contains "nor does the || form" "$out5" "scripts/subshor.sh:3:"
 assert_contains "nor a group inside a group" "$out5" "scripts/nested.sh:3:"
+assert_contains "nor a redirection on the group" "$out5" "scripts/redir.sh:3:"
 # Control: the same groups with -p stay clean, so the look-through did not turn
 # every grouped mkdir into a finding.
 make_root "$tmp/groupsok"
@@ -704,22 +706,17 @@ assert_not_contains "the heredoc body is not" "$out11i" "scripts/hdesc.sh:4:"
 
 # ---------------------------------------------------------------------------
 # 12. Done-when, on the real corpus. Synthetic fixtures cannot show that the
-#     scan survives 300-odd real files: the tree is mid-migration, so the
-#     verdict is deliberately not asserted, but a fail-closed exit 2 would mean
-#     the enumeration itself broke, and a planted offender must still surface.
+#     scan survives the real files: every lock holder takes its locks through
+#     the library now, so the tree is clean, and a planted offender must still
+#     surface.
 # ---------------------------------------------------------------------------
 mkdir -p "$tmp/work"
 cp -R "$REPO_ROOT/scripts" "$tmp/work/" || exit 1
 cp -R "$REPO_ROOT/tests" "$tmp/work/" || exit 1
 cp -R "$REPO_ROOT/githooks" "$tmp/work/" || exit 1
-/bin/bash "$CHECKER" "$tmp/work" >/dev/null 2>&1
-real_rc=$?
-if [ "$real_rc" -eq 0 ] || [ "$real_rc" -eq 1 ]; then
-  echo "ok: the real corpus scans to a verdict rather than failing closed"
-else
-  echo "FAIL: the real corpus did not scan (exit $real_rc)" >&2
-  failures=$((failures + 1))
-fi
+out="$(/bin/bash "$CHECKER" "$tmp/work" 2>&1)"
+assert "the real corpus is clean" 0 $?
+assert_contains "and it says so" "$out" "check-lock-primitive: clean ("
 
 write_script "$tmp/work/scripts/planted-lock.sh" \
   'if mkdir "$spec_dir/.orchestrate.lock" 2>/dev/null; then' \

@@ -32,7 +32,7 @@
 #      worktree removed, or its directory gone and prunable) admits the
 #      re-ask; `0` pauses flights; a busy lock or an unreadable config fails
 #      closed; no concurrency key but `max_parallel_units` is read (the
-#      home reads `flight_pr_hosts`, the sweep `stale_lock_threshold`).
+#      home reads `flight_pr_hosts`).
 #   6. Two flights from one slug never collide (REQ-C1.1).
 #   7. The tmux rung's plan hands the worker its brief in a detached tmux
 #      session in its worktree, with its identity. The live launch (the report
@@ -179,7 +179,7 @@ briefs() {
   find "$c/fleet/flights" -mindepth 1 -maxdepth 1 2>/dev/null | grep -c . || true
 }
 
-# age <path...> — backdate past the stale-lock threshold, so the sweep's
+# age <path...> — backdate past the sweep's grace, so its
 # young-brief guard does not hold a brief the case retires on purpose.
 age() {
   touch -t 202001010000 "$@"
@@ -861,8 +861,8 @@ printf '%s\n' "$OUT" | grep -q "^declined${TAB}3${TAB}3$" \
 case $ERR in *"out of range; using the shipped default 3"*) ;; *) fail "an out-of-range bound must warn: $ERR" ;; esac
 # shellcheck disable=SC2016 # a literal `"$CONFIG" <key>` call is the pattern
 if grep -v '^[[:space:]]*#' "$ROOT/scripts/flight-dispatch.sh" | grep -Eo '"\$CONFIG" [A-Za-z_]+' \
-  | grep -Ev ' (max_parallel_units|flight_pr_hosts|stale_lock_threshold)$' | grep -q .; then
-  fail "flight-dispatch.sh reads a config key other than max_parallel_units, flight_pr_hosts, and stale_lock_threshold"
+  | grep -Ev ' (max_parallel_units|flight_pr_hosts)$' | grep -q .; then
+  fail "flight-dispatch.sh reads a config key other than max_parallel_units and flight_pr_hosts"
 fi
 # shellcheck disable=SC2016
 grep -Eo '"\$CONFIG" [A-Za-z_]+' "$ROOT/scripts/flight-dispatch.sh" | grep -q ' max_parallel_units$' \
@@ -1337,30 +1337,24 @@ dispatch_print
 [ ! -e "$c/fleet/flights/$fb" ] || fail "a dispatch must clean a retired flight's brief directory"
 printf '%s\n' "$OUT" | grep -q "^retired${TAB}$fb$" || fail "a dispatch must report the brief it swept (out: $OUT)"
 
-# A retired flight's brief younger than the stale-lock threshold stays: a
-# broken stale lock could otherwise let a sweep take a concurrent dispatch's
-# just-written brief.
+# A retired flight's brief younger than the sweep's grace stays: a lock an
+# operator cleared by hand could otherwise let a sweep take a concurrent
+# dispatch's just-written brief.
 new_case
 dispatch_print
 fy=$(field "$OUT" flight)
 gitc "$c/primary" worktree remove --force "$c/primary/.claude/worktrees/flight-$fy"
 run retire --repo-root "$c/primary"
 [ "$RC" -eq 0 ] || fail "retire with a young retired brief exited $RC: $ERR"
-[ -d "$c/fleet/flights/$fy" ] || fail "retire must keep a retired brief younger than the stale-lock threshold"
+[ -d "$c/fleet/flights/$fy" ] || fail "retire must keep a retired brief younger than the grace"
 age "$c/fleet/flights/$fy"
 run retire --repo-root "$c/primary"
-[ ! -e "$c/fleet/flights/$fy" ] || fail "retire must remove the same brief once it is past the threshold"
+[ ! -e "$c/fleet/flights/$fy" ] || fail "retire must remove the same brief once it is past the grace"
 
-# A stale threshold find cannot compare falls back to the default, never to
-# "old enough to delete".
-printf 'flight_pr_hosts: [github.com]\nstale_lock_threshold: 99999999999999999999m\n' >"$c/adopter/planwright.yml"
+# An age check that fails keeps the brief.
 dispatch_print
 fy=$(field "$OUT" flight)
 gitc "$c/primary" worktree remove --force "$c/primary/.claude/worktrees/flight-$fy"
-run retire --repo-root "$c/primary"
-[ "$RC" -eq 0 ] || fail "retire under an out-of-range stale threshold exited $RC: $ERR"
-[ -d "$c/fleet/flights/$fy" ] || fail "an out-of-range stale threshold must not make a young brief sweepable"
-# An age check that fails keeps the brief.
 real_find=$(command -v find)
 mkdir -p "$tmp/findbin"
 cat >"$tmp/findbin/find" <<EOF

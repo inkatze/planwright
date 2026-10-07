@@ -280,12 +280,13 @@ now_epoch() {
 #     an attention write is never dropped under contention, matching fleet-state
 #     spin_acquire's bounded 20ms backoff. On a fatal signal the trap releases
 #     AND exits (below) rather than resuming the critical section unlocked.
-#     HOLD_LOCK gates WHETHER we release, and that is all it does — two things
-#     it is not: `unlock` is unconditional and takes no token, so a release
-#     after our own lock was broken as stale unlinks whoever holds it now; and
-#     the flag is set after `lock` returns, so a signal in that gap leaves a
-#     lock we do hold unreleased until the stale break. Both need the owner
-#     token to cross the process boundary, which the primitive does not yet do.
+#     HOLD_LOCK gates WHETHER we release, and that is all it does. Two things
+#     it is not: the token-less `unlock` we call is unconditional, so running it
+#     for a hold we no longer own unlinks whoever holds it now; and the flag is
+#     set after `lock` returns, so a signal in that gap leaves a lock we do hold
+#     unreleased until the next acquirer finds this process gone (the hold
+#     names it with --owner-pid). `lock` now prints the owner token and
+#     `unlock <token>` verifies it; capturing it closes both.
 HOLD_LOCK=0
 
 release_lock() {
@@ -300,8 +301,9 @@ release_lock() {
 # unfinished copy-filter-append-rename, unlocked — letting a concurrent writer
 # acquire and clobber `state`, the exact lost update the lock prevents). The
 # explicit `exit` re-enters the EXIT trap so release still runs, mirroring the
-# sibling lock-holder scripts/tasks-pr-sync.sh. SIGKILL stays unrecoverable and
-# falls to the stale-lock break.
+# sibling lock-holder scripts/tasks-pr-sync.sh. SIGKILL cannot be trapped, but
+# the hold names this process with --owner-pid, so the next acquirer breaks it
+# once this process is gone.
 # np_tmp is collected here too. The pending-push directory is an ENUMERATED
 # set — the dedupe check, and the tower session that relays the markers, both
 # walk it — so a temp orphaned between mktemp and rename would be counted as a
@@ -321,7 +323,7 @@ trap 'exit 129' HUP
 acquire_lock() {
   al_tries=0
   while [ "$al_tries" -lt 1000 ]; do
-    "$FS" lock >/dev/null 2>&1
+    "$FS" lock --owner-pid "$$" >/dev/null 2>&1
     al_rc=$?
     case $al_rc in
       0)
