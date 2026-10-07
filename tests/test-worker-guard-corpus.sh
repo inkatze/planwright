@@ -232,6 +232,29 @@ else
   fail "self-check: placeholder binding mangled the path: $bound"
 fi
 
+# Nor may an exported function, a readonly export such as SHELLOPTS, or an
+# exported caller variable the harness itself reads reach the hook: a
+# stand-in approves only when its environment carries none of them and the
+# harness's own variables still resolve.
+env_probe() {
+  cat >/dev/null
+  if ! env | grep -qE '^(BASH_FUNC_|SHELLOPTS=|probe_var=|CORPUS_BOX=)' && [ -n "$CORPUS_BOX" ]; then
+    printf '%s\n' '{"hookSpecificOutput":{"permissionDecision":"allow"}}'
+  fi
+}
+verdict=$(
+  # shellcheck disable=SC2329  # exported, never called
+  probe_fn() { :; }
+  export -f probe_fn
+  export SHELLOPTS probe_var=1 CORPUS_BOX
+  corpus_decide env_probe 1 true
+)
+if [ "$verdict" = allow ]; then
+  pass "self-check: exported functions and readonly exports do not reach the hook"
+else
+  fail "self-check: the hook saw the caller's exports (verdict: $verdict)"
+fi
+
 # Each malformed corpus must refuse (exit 2) before replaying anything, and
 # for its own reason, so one malformation cannot stand in for another.
 refuses() {

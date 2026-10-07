@@ -251,11 +251,16 @@ corpus_decide() {
     # HOME is pinned so the guard never reads the host's installed plugins,
     # and TMPDIR is not the scratch root, so a row resolving `$TMPDIR` proves
     # the guard took the root from the record.
+    # Unexported rather than unset: the harness's own variables must still
+    # resolve, and a readonly export cannot be unset.
     for v in $(compgen -e); do
       case $v in
         PATH | LC_ALL) ;;
-        *) unset "$v" 2>/dev/null ;;
+        *) export -n "${v?}" 2>/dev/null ;;
       esac
+    done
+    for v in $(compgen -A function); do
+      export -fn "${v?}" 2>/dev/null
     done
     printf '%s' "$payload" \
       | HOME="$CORPUS_BOX/home" TMPDIR="$CORPUS_BOX/hook-tmp" \
