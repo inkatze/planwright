@@ -327,7 +327,7 @@ while IFS="$TAB" read -r w scope state stamp _; do
     working | idle | hung | ended | pr-ready | merged | done | awaiting-input) ;;
     *) row_ok=0 ;;
   esac
-  if [ "$row_ok" = 0 ] || [ "${#w}" -gt 128 ]; then
+  if [ "$row_ok" = 0 ] || [ "${#w}" -gt 128 ] || [ "${#scope}" -gt 128 ]; then
     keep "$w" malformed
     continue
   fi

@@ -19,7 +19,8 @@
 #   e1: unknown death evidence keeps the row even when its unit derived
 #       completed; e2: so does a live worker; e3: an unreadable registry keeps
 #       every row it might hold evidence for, and degrades the pass.
-#   m1: a row whose state no writer produces is kept as malformed; m2: a
+#   m1: a row whose state no writer produces, or whose scope is longer than
+#       the store's field grammar allows, is kept as malformed; m2: a
 #       handle with two rows is kept and degrades the pass; m3: a clear that
 #       fails keeps the row under its own reason and degrades the pass.
 #   w1: the unit rule derives from --repo even when the caller sits elsewhere
@@ -297,9 +298,13 @@ echo "ok: e1 e2 e3 a worker that may still run keeps its row"
 # --- m1, m2, m3: rows the pass cannot act on ------------------------------
 fresh
 seed wz demo:task-1 bogus
+long=$(printf 'x%.0s' $(seq 1 130))
+reg wlong "demo:$long" headless "$repo/specs/demo/.orchestrate/headless/9" "process $dead_pid"
+seed wlong "demo:$long" working
 reconcile m1
 clean m1
 says m1 keep wz malformed
+says m1 keep wlong malformed
 fresh
 seed w8 demo:task-1 working 1700000000
 seed w8 demo:task-1 working 1700000005
