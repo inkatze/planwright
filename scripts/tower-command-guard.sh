@@ -66,11 +66,12 @@
 # guard_mktemp and guard_rm excepted), and it uses no construct the analyzer cannot
 # confidently parse (command/process substitution, here-docs, subshell/brace
 # grouping, env-assignment prefixes, path-prefixed verbs, escaped operators,
-# ANSI-C quoting) — all of which defer, as does any other expansion left in a
-# verb or in an operand a screen reads (a `for` variable over plain-literal
-# head words is resolved; see loop_header). planwright `scripts/*.sh` are trusted
-# repo/plugin code but only after their path canonicalizes INSIDE the repo
-# checkout's or the installed plugin's `scripts/` directory.
+# ANSI-C quoting, shell comments) — all of which defer, as does any other
+# expansion left in a verb or in an operand a screen reads (a `for` variable
+# over plain-literal head words is resolved; see loop_header). planwright
+# `scripts/*.sh` are trusted repo/plugin code but only after their path
+# canonicalizes INSIDE the repo checkout's or the installed plugin's
+# `scripts/` directory.
 #
 # Portable bash (3.2 floor / BSD compatible), no dependency on python, fish,
 # mise, tmux, or Ansible; the security-critical analysis is pure shell. jq is
@@ -122,12 +123,13 @@ emit_allow() {
 # operator, possibly with an fd-number prefix). Returns non-zero (DEFER) the
 # instant it meets a construct it will not analyze: unbalanced quotes,
 # command/process substitution, backtick substitution, ANSI-C `$'…'`, a
-# backslash line-continuation or escaped operator/quote. It never executes or
-# expands anything it scans. A W token also records whether it carries a
-# LITERAL `$` (single quotes or a backslash), an EXPANDING `$` (1 inside double
-# quotes, 2 unquoted), and an unquoted glob, brace expansion, or leading tilde
-# (see word_unresolved). The fifth argument is the worker guard's quote-start
-# offset, unused here and kept so the two signatures match.
+# backslash line-continuation or escaped operator/quote, or a shell comment.
+# It never executes or expands anything it scans. A W token also records
+# whether it carries a LITERAL `$` (single quotes or a backslash), an
+# EXPANDING `$` (1 inside double quotes, 2 unquoted), and an unquoted glob,
+# brace expansion, or leading tilde (see word_unresolved). The fifth argument
+# is the worker guard's quote-start offset, unused here and kept so the two
+# signatures match.
 tok_push() {
   TOK_TYPE[TOK_N]=$1
   TOK_VAL[TOK_N]=$2
@@ -393,6 +395,8 @@ tokenize() {
       *)
         # Unquoted pattern characters: a glob (`*`, `?`, a closed `[…]`), a
         # brace expansion (`{` then `,` or `..` then `}`), or a leading `~`.
+        # A word-initial `#` opens a shell comment, which this scan does not
+        # model, so the command defers.
         case $c in
           '*' | '?') curg=1 ;;
           '[') brk=1 ;;
@@ -402,6 +406,7 @@ tokenize() {
           '.') [ "$brc" = 1 ] && [ "${s:i+1:1}" = . ] && brs=1 ;;
           '}') [ "$brs" = 1 ] && curg=1 ;;
           '~') [ "$have" = 0 ] && curg=1 ;;
+          '#') [ "$have" = 0 ] && return 1 ;;
         esac
         cur="$cur$c"
         have=1

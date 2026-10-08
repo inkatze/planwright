@@ -769,6 +769,19 @@ assert_defer "env-assignment prefix" "BASH_ENV=/tmp/x tmux list-sessions"
 assert_defer "subshell grouping" "(tmux kill-server)"
 assert_defer "path-prefixed verb dot-slash" "./tmux send-keys x"
 
+assert_defer "shell comment defers: trailing comment" "cat README.md #note"
+assert_defer "shell comment defers: comment after an operator" "cat README.md;#note"
+assert_defer "shell comment defers: comment-only command" "# note"
+assert_defer "shell comment defers: comment after a redirect" "cat README.md 2>#note"
+assert_defer "shell comment defers: multi-line command" "cat README.md # '
+rm -rf x # '"
+assert_defer "shell comment defers: multi-line command after a pipe" "cat README.md |# '
+rm -rf x # '"
+assert_allow "mid-word # is not a comment" "cat a#b"
+assert_allow "single-quoted # is not a comment" "grep -n '#' README.md"
+assert_allow "double-quoted # is not a comment" "grep -n \"#x\" README.md"
+assert_allow "escaped # is not a comment" "grep -n \\#x README.md"
+
 echo "### REQ-C1.2/C1.3 — planwright script containment (REQ-A1.10 pattern)"
 assert_defer "script escapes repo" "bash ../../../tmp/evil/scripts/x.sh"
 assert_defer "symlinked repo script escapes" "bash scripts/evillink.sh"
@@ -1004,6 +1017,12 @@ parity "parity: a quoted jq filter and file still allow" "jq '.a' \"f.json\""
 parity "parity: a quoted sed script still allows" "sed -n \"1,5p\" file"
 parity "parity: a quoted git log format still allows" "git log --format=\"%h %s\" -3"
 parity "parity: a quoted for-loop head over cat still allows" "for f in \"a.txt\" b.txt; do cat \$f; done"
+parity "parity: shell comment defers" "cat README.md # '
+rm -rf x # '"
+parity "parity: trailing shell comment defers" "cat README.md #note"
+parity "parity: mid-word # allows" "cat a#b"
+parity "parity: quoted # allows" "grep -n '#' README.md"
+parity "parity: escaped # allows" "grep -n \\#x README.md"
 
 echo "### REQ-C1.3 — deny-precedence OUTCOME (derived from tower-settings deny block)"
 # Every command drawn from config/tower-settings.json's deny block MUST defer:
