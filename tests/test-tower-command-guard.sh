@@ -313,7 +313,7 @@ assert_allow "jq a user function named with ENV as a suffix" "jq 'def myENV: .; 
 JQ_HOME="$SANDBOX/jq-home"
 mkdir -p "$JQ_HOME" && : >"$JQ_HOME/.jq" || exit 1
 RUN_HOME="$JQ_HOME" assert_defer "jq while a ~/.jq file is read into every run" "jq . file.json"
-rm -f "$JQ_HOME/.jq" && mkdir "$JQ_HOME/.jq" || exit 1
+rm -f "$JQ_HOME/.jq" && mkdir "$JQ_HOME/.jq" || exit 1 # not-a-lock: test fixture directory
 RUN_HOME="$JQ_HOME" assert_defer "jq while a ~/.jq module directory exists" "jq . file.json"
 rmdir "$JQ_HOME/.jq" && ln -s "$JQ_HOME/not-yet" "$JQ_HOME/.jq" || exit 1
 RUN_HOME="$JQ_HOME" assert_defer "jq while ~/.jq is a dangling symlink" "jq . file.json"

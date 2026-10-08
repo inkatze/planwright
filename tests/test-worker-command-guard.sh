@@ -1088,7 +1088,7 @@ JQ_HOME="$SANDBOX/jq-home"
 mkdir -p "$JQ_HOME" && : >"$JQ_HOME/.jq" || exit 1
 HOOK_ENV=(HOME="$JQ_HOME")
 assert_defer "jq while a ~/.jq file is read into every run" "jq . file.json"
-rm -f "$JQ_HOME/.jq" && mkdir "$JQ_HOME/.jq" || exit 1
+rm -f "$JQ_HOME/.jq" && mkdir "$JQ_HOME/.jq" || exit 1 # not-a-lock: test fixture directory
 assert_defer "jq while a ~/.jq module directory exists" "jq . file.json"
 rmdir "$JQ_HOME/.jq" && ln -s "$JQ_HOME/not-yet" "$JQ_HOME/.jq" || exit 1
 assert_defer "jq while ~/.jq is a dangling symlink" "jq . file.json"
