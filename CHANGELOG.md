@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.56.0](https://github.com/inkatze/planwright/compare/v0.55.0...v0.56.0) (2026-10-08)
+
+
+### Features
+
+* **spec:** tower-placement kickoff sign-off ([#619](https://github.com/inkatze/planwright/issues/619)) ([c813704](https://github.com/inkatze/planwright/commit/c81370400c99506abc718af8fee36b5e1f90e6bb))
+
+
+### Bug Fixes
+
+* **fleet:** clear stale attention rows a dead earlier tower left behind ([#615](https://github.com/inkatze/planwright/issues/615)) ([b465813](https://github.com/inkatze/planwright/commit/b465813b2dea7288935f84615abfc3319bb6629c))
+* **guards:** defer more shell expansion and quoting forms ([#618](https://github.com/inkatze/planwright/issues/618)) ([2a51986](https://github.com/inkatze/planwright/commit/2a519861d29b8960ae41a7f424e33a4366395911))
+
 ## [0.55.0](https://github.com/inkatze/planwright/compare/v0.54.0...v0.55.0) (2026-10-08)
 
 
