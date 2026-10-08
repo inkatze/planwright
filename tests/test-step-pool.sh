@@ -88,7 +88,7 @@ sp() {
       PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
       PLANWRIGHT_REPO_ROOT="$repo" \
       PLANWRIGHT_LOCAL_CONFIG="" \
-      PLANWRIGHT_STEP_POOL_ROOT="$pools" \
+      PLANWRIGHT_POOL_DIR="$pools" \
       "$SP" "$@"
   )
 }
@@ -99,13 +99,13 @@ sp() {
 pool_in() {
   (
     cd "$1" || exit 99
-    unset PLANWRIGHT_STEP_POOL_HOLD PLANWRIGHT_STEP_POOL_ROOT PLANWRIGHT_CONFIG_STRICT_OVERLAYS PLANWRIGHT_ROOT \
+    unset PLANWRIGHT_STEP_POOL_HOLD PLANWRIGHT_POOL_DIR PLANWRIGHT_CONFIG_STRICT_OVERLAYS PLANWRIGHT_ROOT \
       PLANWRIGHT_REPO_ROOT_CHECKED
     _pi_repo=$1
     _pi_root=$2
     shift 2
     if [ -n "$_pi_root" ]; then
-      set -- env "PLANWRIGHT_STEP_POOL_ROOT=$_pi_root" "$SP" "$@"
+      set -- env "PLANWRIGHT_POOL_DIR=$_pi_root" "$SP" "$@"
     else
       set -- "$SP" "$@"
     fi
@@ -125,7 +125,7 @@ as_owner() {
     cd "$repo" || exit 99
     unset PLANWRIGHT_STEP_POOL_HOLD PLANWRIGHT_CONFIG_STRICT_OVERLAYS PLANWRIGHT_ROOT PLANWRIGHT_REPO_ROOT_CHECKED
     export PLANWRIGHT_CONFIG_DEFAULTS="$DEFAULTS" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
-      PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" PLANWRIGHT_STEP_POOL_ROOT="$pools"
+      PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" PLANWRIGHT_POOL_DIR="$pools"
     sh -c "$@"
   )
 }
@@ -438,7 +438,7 @@ sp -- take sig "$a" >/dev/null
   cd "$repo" || exit 99
   unset PLANWRIGHT_STEP_POOL_HOLD
   TMPDIR="$tmp/scratch" PLANWRIGHT_CONFIG_DEFAULTS="$DEFAULTS" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
-    PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" PLANWRIGHT_STEP_POOL_ROOT="$pools" \
+    PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" PLANWRIGHT_POOL_DIR="$pools" \
     exec "$SP" take sig "$w" >/dev/null 2>"$tmp/err"
 ) &
 waiter=$!
@@ -618,6 +618,25 @@ sp -- take p "$dead" >/dev/null 2>&1
 check $(($? == 2 ? 0 : 1)) "a take for an owner that is not running is refused" "a dead owner was given a slot"
 [ ! -e "$marker" ]
 verdict "no fixture command ran" "the marker exists"
+
+# --- the pools root override sits outside the step-context prefix --------------
+# The worker command guard strips PLANWRIGHT_STEP_* assignments from a declared
+# line, so the only one of those the helper reads is the hold mark.
+reset
+a=$(owner)
+names=$(grep -o 'PLANWRIGHT_STEP_[A-Z][A-Z_]*' "$SP" | sort -u | tr '\n' ' ')
+[ "$names" = "PLANWRIGHT_STEP_POOL_HOLD " ]
+verdict "the hold mark is the only PLANWRIGHT_STEP_* variable the helper reads" "names read: $names"
+(
+  cd "$repo" || exit 99
+  unset PLANWRIGHT_POOL_DIR PLANWRIGHT_STEP_POOL_HOLD
+  PLANWRIGHT_STEP_POOL_ROOT="$tmp/oldroot" XDG_STATE_HOME="$tmp/xdg7" \
+    PLANWRIGHT_CONFIG_DEFAULTS="$DEFAULTS" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
+    PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+    "$SP" take renamed "$a" >/dev/null 2>&1
+)
+[ -L "$tmp/xdg7/planwright/step-pools/renamed/slot-1" ] && [ ! -e "$tmp/oldroot" ]
+verdict "a PLANWRIGHT_STEP_-prefixed root is not honoured" "the take used the old override name"
 
 # --- REQ-I1.2: the helper sits on the shared primitive --------------------------
 grep -qF '. "$script_dir/lock-lib.sh"' "$SP"

@@ -20,10 +20,11 @@
 #                once that process is gone the next caller reclaims the slot.
 #
 # SLOTS. A pool of capacity N is the lock-lib locks slot-1 .. slot-N under
-# <root>/<pool>/, <root> being $PLANWRIGHT_STEP_POOL_ROOT, else
-# $XDG_STATE_HOME/planwright/step-pools, else
+# <root>/<pool>/, <root> being $XDG_STATE_HOME/planwright/step-pools, else
 # $HOME/.local/state/planwright/step-pools: one per user on the host, shared by
-# every checkout and worktree. Beside each slot, holder-<n> records the
+# every checkout and worktree. $PLANWRIGHT_POOL_DIR overrides <root> for
+# tests; it stays outside the PLANWRIGHT_STEP_* prefix, which the worker
+# command guard strips from a declared line. Beside each slot, holder-<n> records the
 # holder's token, step id, and worktree; it is believed only while its token
 # is the slot's current one, so a stale or half-written file reads as an
 # unknown holder rather than a wrong one.
@@ -275,8 +276,8 @@ screen() {
 locate() {
   pool_dir=''
   pool_cause=''
-  if [ -n "${PLANWRIGHT_STEP_POOL_ROOT:-}" ]; then
-    _lc_root=$PLANWRIGHT_STEP_POOL_ROOT
+  if [ -n "${PLANWRIGHT_POOL_DIR:-}" ]; then
+    _lc_root=$PLANWRIGHT_POOL_DIR
   elif [ -n "${XDG_STATE_HOME:-}" ]; then
     _lc_root=$XDG_STATE_HOME/planwright/step-pools
   elif [ -n "${HOME:-}" ]; then
