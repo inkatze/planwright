@@ -8,7 +8,8 @@ prompt for every such call. Its section *One plain command per Bash call*
 covers every command any skill issues inside a dispatched worker or a tower
 session, `/polish` and `/self-review` included.
 
-Citations: REQ-D1.1, D-7; obs:344dd129, obs:885bc3c9.
+Citations: REQ-D1.1, D-7; obs:344dd129, obs:885bc3c9 · custom-spec-location
+REQ-G1.4.
 
 ## The convention
 
@@ -26,8 +27,10 @@ Take the resolved value once, then substitute it literally at each call site:
 ```sh
 # Resolve once:
 /abs/copy/scripts/resolve-root.sh install    # prints the root, e.g. /abs/planwright
-# Then call by the literal absolute path (what a worker's command actually is):
-/abs/planwright/scripts/spec-validate.sh specs/<spec>
+# Then call by the literal absolute path (what a worker's command actually is),
+# a bundle argument being its directory under the spec root, <root> below
+# (resolve-root.sh spec; specs/<spec> under the default), not the install root:
+/abs/planwright/scripts/spec-validate.sh <root>/<spec>
 ```
 
 ## Why the literal shape matters
@@ -55,7 +58,7 @@ A literal path is not enough when the line around it is compound. The hook
 approves a compound line only when it can clear every segment and defers most
 compound forms, and a standing decision the operator records matches only a
 literal command prefix followed by plain arguments. So a line such as
-`P=<root>; cd <worktree>; $P/scripts/x.sh; echo rc=$?` reaches the operator
+`P=/abs/planwright; cd <worktree>; $P/scripts/x.sh; echo rc=$?` reaches the operator
 as a prompt even when every command in it is routine. Issue **one plain
 command per Bash call** instead:
 
