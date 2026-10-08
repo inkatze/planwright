@@ -627,7 +627,7 @@ mkdir -p "$pools/squat/slot-1"
 out=$(sp -- take squat "$a" 2>"$tmp/err")
 rc=$?
 [ "$rc" -eq 0 ] && [ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -q 'lock' "$tmp/err" \
-  && grep -q 'not a lock symlink' "$tmp/err"
+  && grep -q 'not a lock symlink' "$tmp/err" && [ "$(grep -c . "$tmp/err")" -eq 1 ]
 verdict "a lock-library error runs unpooled naming the cause" "squat: rc=$rc out='$out'" "$tmp/err"
 
 # --- REQ-I1.2: no scratch file still runs unpooled, and release needs none -------
