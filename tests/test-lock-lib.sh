@@ -556,6 +556,11 @@ run_sh x 'pw_lock_try "$1/dir#hash/ok.lock" && pw_lock_release "$1/dir#hash/ok.l
 assert_exit "a lock under a directory carrying '#' is taken and released" 0 $?
 run_sh x 'pw_lock_try "$1/bad#name.lock"' >/dev/null 2>&1
 assert_exit "a lock name carrying '#' is refused" 2 $?
+# A '#' above the lock does not excuse the path from the other refusals.
+run_sh x '_pw_lock_path_ok t "-x#y/lock"' >/dev/null 2>&1
+assert_exit "a dash-led path is refused even with a '#' in a directory" 1 $?
+run_sh x '_pw_lock_path_ok t "dir#y/"' >/dev/null 2>&1
+assert_exit "a trailing slash is refused even with a '#' in a directory" 1 $?
 
 # ---------------------------------------------------------------------------
 # 15. The lock-holder list in the library's header is the truth

@@ -374,8 +374,8 @@ if [ "${PLANWRIGHT_TEST_IN_POOLED_FILE:-}" != 1 ]; then
       pool_warn "directory path must not end in '.' or '..': $shown"
       cand=""
       ;;
-    *'#'* | *"$nl"*)
-      pool_warn "directory path contains '#' or a newline, which lock paths refuse: $shown"
+    *"$nl"*)
+      pool_warn "directory path contains a newline, which lock paths refuse: $shown"
       cand=""
       ;;
   esac

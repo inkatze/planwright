@@ -200,26 +200,25 @@ _pw_lock_path_ok() {
     _pw_lock_usage "$1"
     return 1
   fi
+  # The break claim, its aside and the legacy aside all hang off the lock path
+  # with a `#`. A caller that could name a lock whose NAME contains one could
+  # name another lock's working path, which is exactly the collision the
+  # separator was chosen to prevent — so this is enforced here rather than
+  # asked of every caller that builds a path out of anything. Only the last
+  # component can collide: every working path is a sibling of its lock, so a
+  # `#` in a directory above it (a checkout path that happens to carry one)
+  # names nothing this library derives. Checked on its own, ahead of the case
+  # below, so a path that passes it still meets every other refusal.
+  case ${2##*/} in
+    *'#'*)
+      printf '%s\n' "lock-lib: $1 refuses a lock name containing '#', the character this library derives its working paths with" >&2
+      return 1
+      ;;
+  esac
   case $2 in
     *"$PW_LOCK_NL"*)
       printf '%s\n' "lock-lib: $1 refuses a lock path containing a newline" >&2
       return 1
-      ;;
-    *'#'*)
-      # The break claim, its aside and the legacy aside all hang off the lock
-      # path with a `#`. A caller that could name a lock whose NAME contains
-      # one could name another lock's working path, which is exactly the
-      # collision the separator was chosen to prevent — so this is enforced
-      # here rather than asked of every caller that builds a path out of
-      # anything. Only the last component can collide: every working path is a
-      # sibling of its lock, so a `#` in a directory above it (a checkout path
-      # that happens to carry one) names nothing this library derives.
-      case ${2##*/} in
-        *'#'*)
-          printf '%s\n' "lock-lib: $1 refuses a lock name containing '#', the character this library derives its working paths with" >&2
-          return 1
-          ;;
-      esac
       ;;
     */)
       # A PATH WITH NO LAST COMPONENT. Every working path is this one plus a
