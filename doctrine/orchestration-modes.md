@@ -145,8 +145,10 @@ at the fleet tier:
    tower holds that lock, or the unit is already in flight) is a clean
    no-op; exit 4 parks the unit to its spec's `## Awaiting input` with the
    printed `halt` and `remedy`; any other nonzero exit is a dispatch failure
-   to report. The script runs only the stream-json and headless rungs; on
-   any other, park naming the rung. The meta-tower **never** edits another
+   to report. The script carries only the stream-json and headless rungs,
+   so check the resolved rung before calling it: on any other, park the
+   unit naming the rung and do not call the script. The meta-tower
+   **never** edits another
    tower's or a worker's branch state (REQ-D1.2 division of labor).
 
 **Autonomy and the tower-tier rules hold unchanged at the meta tier.**
