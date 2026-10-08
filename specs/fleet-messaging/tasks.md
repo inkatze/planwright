@@ -1,7 +1,7 @@
 # Fleet Messaging — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-09-07
+**Last reviewed:** 2026-10-08
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -62,8 +62,8 @@
   makes the probe read absent so every consumer takes the messaging-absent
   path (REQ-F1.2, D-4), and the `messaging_cross_machine` row states it is
   the documented cue to relax `isolatePeerMachines` (REQ-F1.6). An
-  `/orchestrate` diet restoring headroom for the growth Tasks 1, 5, 6, and 8
-  plan, with a per-task word allotment recorded in the PR. The
+  `/orchestrate` diet restoring headroom for the growth Tasks 1, 4.5, 5, 5.5, 6, 8,
+  and 8.5 plan, with a per-task word allotment recorded in the PR. The
   doctrine index updated.
 - **Done when:** the doctrine doc resolves through the rule-doc chain and
   `mise run check:doctrine-index` and `mise run check:links` pass with it
@@ -100,10 +100,55 @@
   margin is 253 against a floor of 250), and the diet restores enough of
   both margins to cover the per-task allotment this task records.
 - **Dependencies:** none
-- **Citations:** D-3, D-4, D-5, D-13, D-16, D-17, D-20 · REQ-A1.6,
-  REQ-E1.1, REQ-E1.2, REQ-F1.2, REQ-F1.3, REQ-F1.6, REQ-G1.1, REQ-G1.2,
+- **Citations:** D-3, D-4, D-5, D-13, D-16, D-17, D-26 · REQ-A1.6,
+  REQ-E1.1, REQ-E1.2, REQ-F1.2, REQ-F1.6, REQ-F1.7, REQ-G1.1, REQ-G1.2,
   REQ-G1.3, REQ-G1.5, REQ-G1.6, REQ-G1.7, REQ-H1.2 · obs:4c25e743
 - **Estimated effort:** 2 days
+
+### Task 1.5 — Supervision doctrine: the supervisor duty, the paste relay's contract, the question row
+
+- **Deliverables:** the inter-orchestrator-coordination doctrine gaining
+  a supervisor-duty section carrying REQ-G1.9's rule, its supervising-session
+  definition, and its two bounds (no harness permission prompt answered on
+  the tower's judgment; an unattended answer stays inside the
+  autonomous-safe-decision doctrine, which the section links); its opening
+  claim that the relay works against a live, busy worker moved to
+  messaging, and its paste-relay text restated as REQ-C1.7's contract
+  (fallback, including the redelivery paste, and in-pane targets only,
+  never a permission prompt; one short pointer line that the paste stages
+  and never submits unattended, a human Enter submitting it; the
+  pending-relay record cleared only by a later submit stamp; the check
+  after every paste reading hook evidence and never the pane; a pending
+  relay raised as its own attention item and never re-pasted; an interrupt
+  the operator's). The messaging-transport doctrine's fallback table
+  gaining the worker→tower question row, whose fallback is the fork's own
+  row and idle notice, and the sentence that the task worker's opening
+  turn rides the launch and is not a messaging path (REQ-G1.8); its
+  signal-vs-record rule gaining the question message as the one
+  model-composed upward path, one per recorded fork, recorded first as an
+  answerable fork (a park sends none) and never a completion or status
+  signal (REQ-D1.9).
+- **Done when:** `mise run check:doctrine-index`, `mise run check:links`,
+  and `mise run check:instructions` exit 0, the last with no pending-diet
+  allowance; literal-token greps find, in the inter-orchestrator-coordination
+  doctrine, a heading containing "supervisor duty", the phrases
+  "supervising session", "permission prompt", and
+  "autonomous-safe-decision" inside that section, and the phrases "never
+  submits it unattended" and "pending relay" in the relay text, and every
+  line matching "live, busy worker" also contains "messag"; the
+  messaging-transport doctrine's fallback table has a row containing
+  "question" and the doctrine contains the phrase "not a messaging path";
+  a design-level review recorded in the task PR finds, one by one, each
+  part of REQ-G1.9's duty (answers from the task, spec, and code; answers
+  an in-task prompt it can act on; relays only what it cannot answer or is
+  the operator's; carries the answer back; never hands a worker over
+  unasked) and both bounds, each part of the relay contract listed in the
+  deliverable above, and the question path's fork-first, one-per-fork, and
+  never-completion-or-status rules.
+- **Dependencies:** 1
+- **Citations:** D-24, D-26, D-27, D-29 · REQ-C1.7, REQ-D1.9, REQ-G1.8,
+  REQ-G1.9 · obs:fc7fe636, obs:f11077ce
+- **Estimated effort:** half day
 
 ### Task 2 — The enforcement point: `fleet-messaging.sh`
 
@@ -330,9 +375,9 @@
   in its PR and raises the last-verified pin, never lowers it (a running
   CLI below the pin halts the task).
 - **Dependencies:** 1
-- **Citations:** D-4, D-8, D-11, D-12, D-17, D-20, D-21 · REQ-A1.1, REQ-A1.4,
-  REQ-A1.5, REQ-A1.6, REQ-C1.5, REQ-D1.6, REQ-D1.7, REQ-F1.2, REQ-F1.3,
-  REQ-F1.4, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5
+- **Citations:** D-4, D-8, D-11, D-12, D-17, D-21, D-26 · REQ-A1.1, REQ-A1.4,
+  REQ-A1.5, REQ-A1.6, REQ-C1.5, REQ-D1.7, REQ-D1.9, REQ-F1.2, REQ-F1.4,
+  REQ-F1.7, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5
 - **Estimated effort:** 3 days
 
 ### Task 3 — Settings profiles and their documentation
@@ -534,9 +579,72 @@
   raises the last-verified pin, never lowers it (a running CLI below the
   pin halts the task).
 - **Dependencies:** 2
-- **Citations:** D-8, D-11, D-12, D-14, D-17, D-19, D-20 · REQ-A1.4,
+- **Citations:** D-8, D-11, D-12, D-14, D-17, D-19, D-26 · REQ-A1.4,
   REQ-A1.5, REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-F1.1 · obs:d4d66281,
   obs:fbb701bc, obs:eea622de, obs:58aa232e
+- **Estimated effort:** 2 days
+
+### Task 4.5 — The task worker's opening turn: a confined launch-time brief
+
+- **Deliverables:** `fleet-dispatch-worktree.sh dispatch <spec> <id>`
+  accepting `--brief <abs-file>` under the flight arm's confinement, with
+  the unit's own `<fleet-home>/tasks/<spec>/<id>/brief.md` the only path
+  accepted (after canonicalization, on the flight arm's path charset,
+  non-empty, every directory on the path private to the user), the fixed
+  prompt `Read <abs-file> and follow it exactly.` handed after `--`, and
+  `--continue` and `--resume` refused beside it (REQ-C1.6, D-25). A task
+  brief renderer script filling a shipped fixed template with validated
+  fields only (the template a file the renderer reads, never text inside a
+  `scripts/*.sh` file, so REQ-D1.9's audit finding no `SendMessage` there
+  still holds) — the spec identifier and task id against their grammars, an
+  optional tower session name against the renderer's own screen (printable
+  ASCII, no path separator, at most 128 bytes) — writing the task brief
+  owner-only through temp-and-rename, carrying the `/execute-task`
+  invocation for the unit and, when a name is given, that name and the
+  full question rule of REQ-D1.9 and REQ-F1.7: record the question first
+  through the `fork` verb; send one message per recorded fork, never
+  resent; consult `effective-mode --direction worker-to-tower` before
+  sending and send only at `tiered` or `open`, nothing at `script`, at
+  `off`, or on a refusal; never message a park, completion, or status
+  (REQ-H1.6). The `/orchestrate` `tmux` dispatch step rendering the task
+  brief and passing `--brief` on every task dispatch, the tower's name
+  supplied where `fleet-messaging.sh self-name` (Task 2's verb) yields one
+  and omitted otherwise, including while that verb has not landed. A
+  task-brief retire in `fleet-sweep.sh`'s residue pass, beside the flight
+  brief's, removing a task brief once its unit's worktree is gone.
+  `docs/fleet.md` rows for the new flag, the task brief's path, and its
+  retirement.
+- **Done when:** shell tests pass under `mise run test` covering: a task
+  dispatch with a valid task brief hands exactly the fixed prompt after `--`
+  (asserted on the `--attach-dry-run` launch plan) and the path, never the
+  content, appears on argv; a task brief outside
+  `<fleet-home>/tasks/<spec>/<id>/`, a symlinked or group-writable
+  directory on the path, an empty file, a path off the charset, another
+  unit's task brief, and `--continue` or `--resume` beside `--brief` are each
+  refused with a non-zero exit and nothing launched; the renderer refuses
+  an identifier or name failing its grammar and writes nothing, writes a
+  file whose mode is owner-only, lands it by rename (a symlink planted at
+  the target is replaced, not followed), and its output with and without a
+  tower name matches two committed fixtures byte for byte, the named
+  fixture containing the name, "fork", and "effective-mode" and the
+  unnamed fixture containing none of the three; the residue pass retires a
+  task brief whose worktree is gone and keeps one whose worktree exists;
+  fixture greps find, in `skills/orchestrate/SKILL.md`'s `tmux` dispatch
+  step, the renderer call and `--brief`, and in `docs/fleet.md` the
+  `--brief` task row and the task-brief path; the tower command guard
+  approves the new dispatch shape (its adversarial suite passes with a
+  case for it); `mise run check:instructions` exits 0 with no pending-diet
+  allowance; the task's write-time security pass (path handling, untrusted
+  input) is recorded in the PR; `[manual]` one unattended `tmux` task
+  dispatch in a live tower session (environment: a tower and the one
+  dispatched worker on one machine; observable: the worker's first turn is
+  the fixed prompt and the tower sends it nothing before the worker's
+  first heartbeat row; pass: the worker reaches `/execute-task` with no
+  message and no keystroke), recorded in the PR with the observed CLI
+  version and the probe's reading, or its absence from the tree.
+- **Dependencies:** none
+- **Citations:** D-25, D-26 · REQ-C1.6, REQ-D1.9, REQ-F1.7, REQ-H1.6,
+  REQ-B1.3 · obs:f6658362, obs:37b86229
 - **Estimated effort:** 2 days
 
 ### Task 5 — Downward delivery: steer and decision answers
@@ -677,6 +785,63 @@
   obs:efe0b752, obs:b7618838
 - **Estimated effort:** 2 days
 
+### Task 5.5 — The paste relay's pending-relay record and its attention item
+
+- **Deliverables:** `relay-command tmux` writing a pending-relay record
+  for the worker, stamped with its emit time in epoch seconds, through the
+  atomic temp-and-rename discipline the liveness markers use, and refusing
+  a further paste to a worker whose record is pending. A
+  `user-prompt-submit` arm of `fleet-liveness.sh`, wired to
+  `UserPromptSubmit` in `hooks/hooks.json` beside the existing entry,
+  clearing a pending record whose emit time is strictly earlier than the
+  submission, exiting 0 on every valid event; the session-end and
+  stop-failure arms dropping the record with the worker's other liveness
+  records. An `orchestrate-relay.sh` check verb taking the worker and a
+  `--window <seconds>` argument (default a constant the script defines)
+  that waits that long, reads only the pending record, and reports
+  `submitted` or `unsubmitted`, never reading the pane, and on
+  `unsubmitted` marks the record raised. The attention view's `render` and
+  `queue` showing a raised record as its own item with the fixed label
+  `relay:unsubmitted`,
+  whatever the worker's row reads; no write verb of `fleet-attention.sh`
+  gains a post (REQ-D1.9). The relay's usage text and the `/orchestrate`
+  prose restating its use: the fallback step of the ladder (including the
+  redelivery paste) and in-pane targets only, never a permission prompt,
+  one pointer line staged and never submitted unattended, the check after
+  every paste. `docs/fleet.md` rows for the record, the hook arm, the
+  check verb, and the attention item (REQ-C1.7, D-27).
+- **Done when:** shell tests pass under `mise run test` covering: a relay
+  writes a pending record carrying its emit time, by rename (a symlink
+  planted at the target is replaced, not followed); a submission event
+  stamped strictly after the emit time clears it, and one stamped in the
+  same second or earlier leaves it; with `--window 0` the check reads
+  `unsubmitted` on a pending record, marking it raised, and `submitted` on
+  a cleared one; a raised record renders as a `relay:unsubmitted` item, and
+  a pending record not yet raised renders nothing, both over a
+  `working` row and over an awaiting-input row (an idle-prompt park, a
+  fork), and a later submission clears the item; a post-tool-use and a
+  stop each leave the record; a session-end drops it; a second
+  `relay-command tmux` while a record is pending is refused with a
+  non-zero exit and emits no paste command; with Task 6.5's idle marker
+  present, a submission clears the record and leaves the idle marker to
+  its own edge; the submit arm's failed write warns on stderr and still
+  exits 0; the check verb runs no `capture-pane` (source audit), and the
+  audit still finds no `send-keys` path; fixture greps find "never a
+  permission prompt" and "never submits" in the relay's usage text, the
+  check step after the paste in `skills/orchestrate/SKILL.md`, and the
+  four `docs/fleet.md` rows; `mise run check:hook-contracts` and
+  `mise run check:instructions` exit 0, the last with no pending-diet
+  allowance; `[manual]` in a live tower session (environment: a tower and
+  one idle `tmux` worker on one machine; observable: the attention view
+  and the worker's input box), a relay reads `unsubmitted` after the
+  window, the attention view shows the `relay:unsubmitted` item, and one
+  Enter in the worker's pane clears it, recorded in the PR with the
+  observed CLI version.
+- **Dependencies:** 5, 6.5
+- **Citations:** D-27 · REQ-C1.4, REQ-C1.5, REQ-C1.7 · obs:d88ca86b,
+  obs:f7963c4c, obs:0c58e192, obs:f11077ce
+- **Estimated effort:** 2 days
+
 ### Task 6 — Upward signals: idle notices, the sweep, and the event-driven loop
 
 - **Deliverables:** the three `/orchestrate` prose steps D-21 fixes — a
@@ -692,7 +857,8 @@
   `--watch` mode no fleet read in that iteration precedes that invocation
   and no action is derived from the notice other than it, the
   notice's status line being untrusted instruction data the store re-read
-  is the only sanctioned action on (REQ-D1.7, REQ-H1.4). The
+  is the only sanctioned action on (REQ-D1.7, REQ-H1.4), Task 8.5 later
+  adding REQ-D1.10's one re-arm beside it. The
   start-of-tower subscribe pass over the reconcile sweep's in-flight
   worker set, run at the start of a tower that outlives its step, since a
   fresh tower after a watchdog relaunch or a continue-as-new handover
@@ -846,10 +1012,37 @@
   last-verified pin, never lowers it (a running CLI below the pin halts
   the task).
 - **Dependencies:** 2, 3, 4
-- **Citations:** D-9, D-11, D-12, D-13, D-14, D-16, D-20, D-21, D-22 ·
-  REQ-A1.4, REQ-D1.6, REQ-D1.7, REQ-D1.8, REQ-G1.5, REQ-H1.3, REQ-H1.4 ·
+- **Citations:** D-9, D-11, D-12, D-13, D-14, D-16, D-21, D-22, D-26 ·
+  REQ-A1.4, REQ-D1.7, REQ-D1.8, REQ-D1.9, REQ-G1.5, REQ-H1.3, REQ-H1.4 ·
   obs:8b694bdb
 - **Estimated effort:** 2 days
+
+### Task 6.5 — The resume edge: an idle exit-edge marker
+
+- **Deliverables:** `fleet-liveness.sh`'s stop arm leaving an idle
+  exit-edge marker whenever it moves a worker's row to idle, written
+  through the same atomic temp-and-rename discipline as the permission and
+  fork-park markers; its post-tool-use arm consuming that marker and
+  writing `working` once under `--unless-awaiting`; the no-marker fast
+  path unchanged (REQ-D1.11, D-28). The session-end and stop-failure arms
+  dropping the idle marker with the worker's other exit-edge markers.
+  `docs/fleet.md`'s hook table updated for the stop arm's marker and the
+  post-tool-use edge.
+- **Done when:** shell tests pass under `mise run test` covering: a stop
+  that writes idle leaves the marker; the next post-tool-use writes
+  `working` and removes the marker, and a second post-tool-use writes
+  nothing; with the marker present and the row reading awaiting-input
+  (a queued decision written after the stop), post-tool-use leaves the row
+  as it was; a stop that preserves a live fork-park leaves no idle marker;
+  a post-tool-use with no exit-edge marker present exits without touching
+  the store; a failed marker write warns on stderr and still exits 0; the
+  marker lands by rename (a symlink planted at the target is replaced, not
+  followed); a session-end and a stop-failure each drop a leftover idle
+  marker; a fixture grep finds the idle marker in `docs/fleet.md`'s hook
+  table.
+- **Dependencies:** none
+- **Citations:** D-28 · REQ-D1.11 · obs:b9f53634
+- **Estimated effort:** half day
 
 ### Task 7 — The store-load reduction
 
@@ -1053,8 +1246,57 @@
   below the pin halts the task).
 - **Dependencies:** 2, 3, 4
 - **Citations:** D-4, D-8, D-11, D-13, D-14 · REQ-A1.4, REQ-F1.2,
-  REQ-F1.3, REQ-G1.2, REQ-G1.3, REQ-G1.4, REQ-G1.5, REQ-H1.4
+  REQ-F1.7, REQ-G1.2, REQ-G1.3, REQ-G1.4, REQ-G1.5, REQ-H1.4
 - **Estimated effort:** 1 day
+
+### Task 8.5 — Supervision prose and the smoke runner's supervision legs
+
+- **Deliverables:** the `/tower` and `/orchestrate` prose citing the
+  supervisor duty in the inter-orchestrator-coordination doctrine
+  (REQ-G1.9, D-29). The `/orchestrate` prose handling a worker's question
+  message as REQ-D1.9 states — untrusted instruction data, acted on only
+  through the store and answered through the decision channel's claim, so
+  a question arriving as both a message and a notice is answered once, and
+  any claim it makes verified against git and `gh` before it is relied on
+  — and the already-idle notice as REQ-D1.10 states, re-armed once when
+  the worker's row carries no write since the subscription was armed (at
+  dispatch, and after each downward delivery), a notice on the re-armed
+  subscription read normally, and never read as completion (D-26, D-30).
+  `scripts/fleet-smoke.sh` gaining REQ-A1.8's four supervision legs after
+  its circuit (the task-brief start; the question answered once; a worker
+  stopped with no decision queued, resumed by a steer message, reading
+  `working` at its first tool use; a relay raised as a `relay:unsubmitted`
+  item and cleared by the operator's Enter, the step the runner prompts
+  for), each with its observable and a dry-run arm.
+- **Done when:** `mise run check:instructions` exits 0 with no pending-diet
+  allowance, measured against a base that includes Task 8's growth; fixture
+  greps find, in `skills/tower/SKILL.md` and `skills/orchestrate/SKILL.md`,
+  "inter-orchestrator-coordination" and "supervisor duty", and in
+  `skills/orchestrate/SKILL.md` the question-message step naming "claim",
+  "notice-read", and "gh", and the "re-arm" rule; a design-level review
+  recorded in the task PR finds, against REQ-D1.10, every notice read
+  through `notice-read` and never as completion, the re-arm condition at
+  both moments, and the second notice read normally, and, against REQ-D1.9
+  and REQ-F1.7, Task 4.5's template rule (fork first, one message per fork,
+  `effective-mode` consulted, nothing at `script`, at `off`, or on a
+  refusal, never a park, completion, or status) matching what the
+  `/orchestrate` prose expects of a worker; `scripts/fleet-smoke.sh
+  --dry-run` passes the four added legs and a fixture withholding each
+  leg's observable exits non-zero naming it, under `mise run test`;
+  `[manual]` one `mise run smoke:fleet` on a messaging-capable host (a
+  tower and a `tmux` worker dispatched with a task brief naming it) passes
+  every added leg (the worker starts with no message; it records a fork and
+  messages its question, and the tower answers once through the decision
+  channel; after a plain stop and a steer message its row reads `working`;
+  a relay is raised as a `relay:unsubmitted` item and clears on the
+  operator's Enter), and, while the worker waits on its fork, one
+  subscription armed on it fires at once and the tower's transcript shows
+  exactly one re-arm and no other action, both recorded in the PR with the
+  observed CLI version.
+- **Dependencies:** 1.5, 4.5, 5.5, 6, 6.5, 7, 8
+- **Citations:** D-23, D-26, D-29, D-30 · REQ-A1.8, REQ-D1.9, REQ-D1.10,
+  REQ-F1.7, REQ-G1.9 · obs:24faf207, obs:b9f53634, obs:fc7fe636
+- **Estimated effort:** 2 days
 
 ## Awaiting input
 
@@ -1084,6 +1326,16 @@
   **Gate:** bootstrap's D-38 amendment (the `--watch` loop event-driven
   under tmux) is signed off.
   Citations: D-22 · REQ-D1.7, REQ-D1.8, REQ-E1.1.
+- **Consume the supervision amendment's live seeds.** Five of the
+  amendment's seed observations (obs:f6658362, obs:37b86229, obs:24faf207,
+  obs:b9f53634, obs:fc7fe636) ride the observations PR #600 and were left
+  unconsumed when the extension was drafted, so the bundle cites them by
+  UID before they resolve on main; once they land, move their fragments to
+  the archive in a chore commit citing this bundle. obs:6be13a0c rides the
+  same PR and stays live for the `fleet-hardening` extension its pending
+  note routes it to. Confidence: high.
+  **Gate:** the observations PR #600 is merged to main.
+  Citations: D-24 · kickoff 2026-10-07 §7.
 
 ## Out of scope
 

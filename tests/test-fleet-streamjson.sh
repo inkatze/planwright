@@ -1865,6 +1865,45 @@ grep -q "pids must be positive integers" "$tmp/tk36b.err" \
 echo "ok: c36 the tick refuses a malformed argv or a foreign directory, and says so"
 
 # ---------------------------------------------------------------------------
+# c38: a turn result does not hide a later request. A persistent worker writes
+#     `result` at the end of every turn and stays up; steered into a new turn
+#     that raises a permission request, it is waiting on a human, so status
+#     reads awaiting-input with the oldest request's age, not the earlier
+#     turn's `completed`. Once the session is gone the result stands again.
+# ---------------------------------------------------------------------------
+home="$tmp/h38"
+w38="$home/streamjson/sjw38"
+mkdir -p "$w38"
+printf '%s\n' "$$" >"$w38/supervisor.pid"
+printf '%s\n' "$$" >"$w38/worker.pid"
+now38=$(date +%s)
+printf 'result\tsuccess\t%s\tfalse\n' "$((now38 - 600))" >"$w38/result"
+out=$(senv "$home" "$tmp/r38" -- status sjw38) || fail "c38: status exited non-zero"
+case $out in
+  "status sjw38 completed result=success") : ;;
+  *) fail "c38: a live worker idle after its turn with nothing pending reads completed, got: $out" ;;
+esac
+printf 'req-a\tpermission\t%s\tpending\t\n' "$((now38 - 120))" >"$w38/journal"
+out=$(senv "$home" "$tmp/r38" -- status sjw38) || fail "c38: status exited non-zero"
+case $out in
+  "status sjw38 awaiting-input pending=1 oldest="*"s supervisor=$$ worker=$$") : ;;
+  *) fail "c38: a request raised after the earlier turn's result must read awaiting-input, got: $out" ;;
+esac
+age38=${out#*oldest=}
+age38=${age38%%s *}
+[ "$age38" -ge 120 ] || fail "c38: oldest must be the request's age, got: $out"
+sh -c ':' &
+dead38=$!
+wait "$dead38"
+printf '%s\n' "$dead38" >"$w38/supervisor.pid"
+out=$(senv "$home" "$tmp/r38" -- status sjw38) || fail "c38: status exited non-zero"
+case $out in
+  "status sjw38 completed result=success") : ;;
+  *) fail "c38: with the supervisor gone the recorded result stands, got: $out" ;;
+esac
+echo "ok: c38 a pending request outranks an earlier turn's result while the worker lives"
+
+# ---------------------------------------------------------------------------
 # c37: the suite leaves nothing running. Every supervisor, tick, and shim a
 #     case starts carries this run's scratch directory in its argv, so one still
 #     running once the cases are done, or a descendant of one, is something a
