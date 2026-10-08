@@ -246,11 +246,6 @@ if [ "$rc" -eq 2 ]; then
 else
   fail "holder: a malformed spec identifier (rc=$rc): $out"
 fi
-if [ -z "$(find "$z" -name '.tasks.md.halt*')" ]; then
-  ok "holder: no refusal leaves a temp file or lock behind"
-else
-  fail "holder: left behind: $(find "$z" -name '.tasks.md.halt*' | tr '\n' ' ')"
-fi
 
 # A version 1 bundle and a symlinked tasks.md are refused.
 mkdir -p "$z/old" "$z/linked"
@@ -282,6 +277,12 @@ if [ "$(id -u)" -ne 0 ]; then
   esac
 fi
 
+if [ -z "$(find "$z" -name '.tasks.md.halt*')" ]; then
+  ok "holder: no refusal leaves a temp file or lock behind"
+else
+  fail "holder: left behind: $(find "$z" -name '.tasks.md.halt*' | tr '\n' ' ')"
+fi
+
 # plain: the same write, no repository anywhere near the store.
 pw=$tmp/plainwork
 gitq -c init.defaultBranch=main init -q "$pw"
@@ -302,6 +303,45 @@ if [ "$rc" -eq 0 ] && [ "$out" = "$p/demo/tasks.md" ] \
   ok "plain: the note lands in the store and its file is named"
 else
   fail "plain: (rc=$rc): $out"
+fi
+
+# A signal mid-rewrite removes the temp file and releases the lock, leaving
+# tasks.md as it was. A stub awk holds the rewrite open long enough to land
+# the signal inside it; dash where present, since it runs no EXIT trap on a
+# signal of its own accord.
+sig_sh=/bin/sh
+[ -x /bin/dash ] && sig_sh=/bin/dash
+mkdir -p "$tmp/slowbin"
+real_awk=$(command -v awk)
+cat >"$tmp/slowbin/awk" <<EOF
+#!/bin/sh
+[ -z "\${HALT_NOTE_TEXT:-}" ] || sleep 3
+exec "$real_awk" "\$@"
+EOF
+chmod +x "$tmp/slowbin/awk"
+tasks_v2 "$p/demo/tasks.md"
+cp "$p/demo/tasks.md" "$tmp/before-signal.md"
+(
+  cd "$pw" || exit 1
+  # shellcheck disable=SC2086 # one `-u NAME` pair per word
+  exec env $inherited_unsets -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR \
+    HOME="$tmp/home" GIT_CEILING_DIRECTORIES="$tmp" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    PLANWRIGHT_ROOT="$REPO_ROOT" PATH="$tmp/slowbin:$PATH" "$sig_sh" "$S/halt-note.sh" demo 1 "interrupted"
+) >/dev/null 2>&1 &
+sig_pid=$!
+n=0
+while [ -z "$(find "$p/demo" -name '.tasks.md.halt.??????')" ] && [ "$n" -lt 100 ]; do
+  sleep 0.1
+  n=$((n + 1))
+done
+kill -TERM "$sig_pid" 2>/dev/null
+wait "$sig_pid"
+sig_rc=$?
+if [ "$sig_rc" -eq 143 ] && [ -z "$(find "$p/demo" -name '.tasks.md.halt*')" ] \
+  && cmp -s "$p/demo/tasks.md" "$tmp/before-signal.md"; then
+  ok "plain: a TERM mid-rewrite leaves tasks.md, and no temp file or lock"
+else
+  fail "plain: a TERM mid-rewrite (rc=$sig_rc): $(find "$p/demo" -name '.tasks.md.halt*' | tr '\n' ' ')"
 fi
 
 # Concurrent halts on one bundle (a re-anchor fails every in-flight worker's
