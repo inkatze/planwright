@@ -141,7 +141,7 @@ seed() {
 rec="$C/rec"
 printf '%s\n' "\$PWD" >>"\$rec/cwd"
 printf '%s\n' "\$\$" >"\$rec/claude-pid"
-if [ -d "$P/specs/demo/.orchestrate.lock" ]; then echo held >>"\$rec/lock-at-launch"; else echo free >>"\$rec/lock-at-launch"; fi
+if [ -L "$P/specs/demo/.orchestrate.lock" ]; then echo held >>"\$rec/lock-at-launch"; else echo free >>"\$rec/lock-at-launch"; fi
 cat >>"\$rec/stdin"
 echo launched >>"\$rec/launches"
 exit 0
@@ -272,7 +272,7 @@ nothing_created() {
 }
 
 lock_released() {
-  [ ! -d "$P/specs/demo/.orchestrate.lock" ] || fail "$1: the per-spec lock was not released"
+  { [ ! -L "$P/specs/demo/.orchestrate.lock" ] && [ ! -e "$P/specs/demo/.orchestrate.lock" ]; } || fail "$1: the per-spec lock was not released"
 }
 
 # --- m1: the step launches one /execute-task worker, no tower session ------
@@ -319,7 +319,7 @@ m2() {
   [ "$RC" -eq 1 ] || fail "m2: expected exit 1 (lock busy), got $RC: $ERR"
   [ "$(field lock)" = busy ] || fail "m2: lock line '$(field lock)'"
   nothing_created m2
-  [ -d "$P/specs/demo/.orchestrate.lock" ] || fail "m2: the other tower's lock was released"
+  [ -L "$P/specs/demo/.orchestrate.lock" ] || fail "m2: the other tower's lock was released"
   (cd "$P" && "$SCRIPTS/orchestrate-lock.sh" release specs/demo)
   dispatch
   [ "$RC" -eq 0 ] || fail "m2: after the holder released, dispatch exited $RC: $ERR"

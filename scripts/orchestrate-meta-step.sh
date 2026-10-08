@@ -234,7 +234,7 @@ clear_marker() {
 }
 release_lock() {
   if [ "$lock_held" -eq 1 ]; then
-    "$script_dir/orchestrate-lock.sh" release "$spec_dir" >/dev/null 2>&1 </dev/null || true
+    "$script_dir/orchestrate-lock.sh" release "$spec_dir" --owner-pid "$$" >/dev/null 2>&1 </dev/null || true
     lock_held=0
   fi
 }
@@ -289,7 +289,7 @@ field() {
 # --- 1. the per-spec lock -----------------------------------------------
 
 lock_rc=0
-"$script_dir/orchestrate-lock.sh" acquire "$spec_dir" >/dev/null 2>"$wtmp/lock.err" </dev/null || lock_rc=$?
+"$script_dir/orchestrate-lock.sh" acquire "$spec_dir" --owner-pid "$$" >/dev/null 2>"$wtmp/lock.err" </dev/null || lock_rc=$?
 relay "$wtmp/lock.err"
 case $lock_rc in
   0) lock_held=1 ;;
