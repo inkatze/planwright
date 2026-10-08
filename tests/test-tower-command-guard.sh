@@ -76,6 +76,7 @@ LOOKALIKE="$(mktemp -d)" || exit 1
 trap 'rm -rf "$SANDBOX" "$PLUGIN_ROOT" "$LOOKALIKE"' EXIT
 mkdir -p "$LOOKALIKE/scripts"
 : >"$LOOKALIKE/scripts/fleet-streamjson.sh"
+: >"$LOOKALIKE/scripts/orchestrate-relay.sh"
 mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests" "$SANDBOX/sub"
 : >"$SANDBOX/.git" # worktree-style .git file marker
 : >"$SANDBOX/scripts/ok.sh"
@@ -86,6 +87,7 @@ ln -sf /etc/hosts "$SANDBOX/scripts/evillink.sh"
 mkdir -p "$PLUGIN_ROOT/scripts"
 : >"$PLUGIN_ROOT/scripts/orchestrate-select.sh"
 : >"$PLUGIN_ROOT/scripts/fleet-streamjson.sh"
+: >"$PLUGIN_ROOT/scripts/orchestrate-relay.sh"
 ln -sf /etc/hosts "$PLUGIN_ROOT/scripts/evillink.sh"
 
 # run_hook <command> [tool_name] [cwd] -> sets OUT and CODE. CLAUDE_PLUGIN_ROOT
@@ -215,6 +217,12 @@ assert_allow "pending read piped to head" "$PLUGIN_ROOT/scripts/fleet-streamjson
 HOME="$PLUGIN_ROOT" assert_defer "pending read via a tilde path" "~/scripts/fleet-streamjson.sh pending"
 assert_defer "pending read via an unexpanded variable" "\$CLAUDE_PLUGIN_ROOT/scripts/fleet-streamjson.sh pending"
 assert_defer "pending read from a lookalike outside the roots" "$LOOKALIKE/scripts/fleet-streamjson.sh pending"
+
+# The tmux relay's emitted line, exactly as orchestrate-relay.sh relay-command
+# prints it: the script's own deliver step by its quoted literal path.
+echo "### the tmux relay's deliver line, by quoted literal path"
+assert_allow "relay deliver, quoted literal path" "'$PLUGIN_ROOT/scripts/orchestrate-relay.sh' deliver tmux '@3' '/tmp/relay-msg.txt'"
+assert_defer "relay deliver from a lookalike outside the roots" "'$LOOKALIKE/scripts/orchestrate-relay.sh' deliver tmux '@3' '/tmp/relay-msg.txt'"
 
 echo "### REQ-C1.1 — read-only state observation ALLOWS (shared with worker)"
 assert_allow "git status" "git status"
