@@ -92,7 +92,7 @@ identifiers proposed by accumulator contents (seeds) are re-validated at
 consumption before any interpolation.
 
 **Addressing a spec.** A skill argument or identity seam that names a spec
-takes the bare identifier, the canonical form, or `specs/<spec>` as an alias
+takes the bare identifier (the canonical form) or `specs/<spec>`, an alias
 mapped to the same identifier, either with or without one trailing slash, and
 no other form; the alias is a namespace form, read the same whatever the root.
 A script that operates on a bundle directory keeps taking that directory, as
