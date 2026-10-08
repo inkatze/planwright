@@ -247,6 +247,10 @@ owner_or_refuse() {
   return "$_oor"
 }
 
+# Read once: the owner check and the pool screen must agree on it, since an
+# empty uid skips the owner check and relies on the screen running unpooled.
+me=$(id -u 2>/dev/null) || me=''
+
 # --- arguments -------------------------------------------------------------------
 verb=${1:-}
 case $verb in
@@ -315,7 +319,6 @@ if [ "$verb" = take ]; then
   # running uid is left to the pool screen, which then runs unpooled, and a
   # host where ps cannot name the owner's user is a pool problem, not the
   # step's, so it runs unpooled too.
-  me=$(id -u 2>/dev/null) || me=''
   owner_or_refuse entry
   [ "$?" -ne 3 ] || owner_unread=yes
   [ -n "$step" ] || step=$FULL_SUITE
@@ -353,18 +356,17 @@ screen() {
     # shellcheck disable=SC2012
     ls -lde "$1" 2>/dev/null | awk 'NR > 1 && /^ *[0-9]+: / { found = 1 } END { exit !found }' && _sc_acl=+
   fi
-  _sc_me=$(id -u 2>/dev/null)
   if [ -L "$1" ]; then
     screen_cause="$(shown "$1") is a symbolic link"
   elif [ -e "$1" ] && [ ! -d "$1" ]; then
     screen_cause="$(shown "$1") exists and is not a directory"
   elif [ ! -d "$1" ]; then
     screen_cause="$(shown "$1") could not be created"
-  elif [ -z "$_sc_me" ]; then
+  elif [ -z "$me" ]; then
     screen_cause="the running user id could not be read to check $(shown "$1")"
   elif [ -z "$_sc_owner" ]; then
     screen_cause="$(shown "$1"): its owner and mode could not be read"
-  elif [ "$_sc_owner" != "$_sc_me" ]; then
+  elif [ "$_sc_owner" != "$me" ]; then
     screen_cause="$(shown "$1") is not owned by the running user"
   elif [ "$_sc_mode" != -- ]; then
     screen_cause="$(shown "$1") is writable by group or other users"

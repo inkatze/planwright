@@ -329,8 +329,10 @@ grep -q 'passed its 3960s bound' "$tmp/err"
 verdict "a whole-second wait is not rounded up a second by float error" "1.1h bound:" "$tmp/err"
 
 # --- REQ-I1.1: bounded repeated calls sum their seconds -------------------------
+# The bound sits well past what config reads cost a loaded host, so only the
+# summed --waited row reaches it.
 reset
-printf 'step_pool_wait: 3s\n' >"$mlocal"
+printf 'step_pool_wait: 30s\n' >"$mlocal"
 a=$(owner)
 b=$(owner)
 sp -- take sum "$a" >/dev/null
@@ -343,7 +345,7 @@ out=$(sp -- take sum "$b" --waited "$w1" --for 1 2>"$tmp/err2")
 rc=$?
 [ "$rc" -eq 4 ] && printf '%s\n' "$out" | grep -q "^waiting${TAB}-${TAB}" && ! grep -q 'waiting up to' "$tmp/err2"
 verdict "a continuing call does not repeat the start-of-wait report" "continuation: rc=$rc out='$out'" "$tmp/err2"
-out=$(sp -- take sum "$b" --waited 3 --for 1 2>/dev/null)
+out=$(sp -- take sum "$b" --waited 30 --for 1 2>/dev/null)
 rc=$?
 [ "$rc" -eq 3 ]
 verdict "the bound covers the summed wait across calls" "summed bound: rc=$rc out='$out'"
@@ -1050,6 +1052,27 @@ out=$(sp "PATH=$stub15:$PATH" -- take quiet "$b" 2>"$tmp/err")
 [ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -q "owner $b's user could not be read; running unpooled" "$tmp/err"
 verdict "without a mark the unreadable owner still runs unpooled" "unmarked unreadable: '$out'" "$tmp/err"
 sp -- release quiet "$a" >/dev/null
+
+# --- REQ-I1.1: the running user id is read once per take ------------------------
+# A first read that fails while a later one succeeds must not skip the owner
+# check: the take runs unpooled instead of holding a slot for any pid.
+reset
+printf 'step_pool_wait: 1s\n' >"$mlocal"
+stub19="$tmp/stub19"
+mkdir -p "$stub19"
+real_id19=$(command -v id)
+printf '#!/bin/sh\nif [ "$1" = -u ] && [ ! -e "%s/seen" ]; then : >"%s/seen"; exit 1; fi\nexec %s "$@"\n' \
+  "$stub19" "$stub19" "$real_id19" >"$stub19/id"
+chmod +x "$stub19/id"
+if [ "$(id -u)" = 0 ]; then
+  ok "skipped: a foreign owner cannot be fixtured as root"
+else
+  out=$(sp "PATH=$stub19:$PATH" -- take idonce 1 2>"$tmp/err")
+  rc=$?
+  [ "$rc" -eq 0 ] && [ "$out" = "unpooled${TAB}-${TAB}0" ] && [ ! -L "$pools/idonce/slot-1" ] \
+    && grep -q 'running user id could not be read' "$tmp/err"
+  verdict "a uid read that fails once runs the take unpooled, never holding for pid 1" "uid once: rc=$rc out='$out'" "$tmp/err"
+fi
 
 # --- REQ-I1.2: the helper sits on the shared primitive --------------------------
 grep -qF '. "$script_dir/lock-lib.sh"' "$SP"
