@@ -671,6 +671,41 @@ out=$(sp -- take shared "$a")
 verdict "an owner-only pool is used again once the bits are cleared" "after chmod: '$out'"
 sp -- release shared "$a" >/dev/null
 
+# --- REQ-I1.2: each unusable-pool cause is named for what it is ----------------
+reset
+printf 'step_pool_wait: 1s\n' >"$mlocal"
+a=$(owner)
+mkdir -p "$pools"
+: >"$pools/plainfile"
+out=$(sp -- take plainfile "$a" 2>"$tmp/err")
+[ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -qF "$pools/plainfile exists and is not a directory" "$tmp/err"
+verdict "an existing non-directory is named as one" "non-directory: '$out'" "$tmp/err"
+mkdir -p "$tmp/ro"
+chmod 500 "$tmp/ro"
+out=$(pool_in "$repo" "$tmp/ro/pools" take nocreate "$a" 2>"$tmp/err")
+chmod 700 "$tmp/ro"
+[ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -qF "$tmp/ro/pools could not be created" "$tmp/err"
+verdict "a directory that cannot be created is named as such" "no create: '$out'" "$tmp/err"
+stub8="$tmp/stub8"
+mkdir -p "$stub8"
+printf '#!/bin/sh\nexit 1\n' >"$stub8/id"
+chmod +x "$stub8/id"
+out=$(sp "PATH=$stub8:$PATH" -- take nouid "$a" 2>"$tmp/err")
+[ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -q 'the running user id could not be read' "$tmp/err" \
+  && ! grep -q 'not owned' "$tmp/err"
+verdict "an unreadable user id is not reported as foreign ownership" "no uid: '$out'" "$tmp/err"
+sp -- take noowner "$a" >/dev/null 2>&1
+sp -- release noowner "$a" >/dev/null 2>&1
+stub8b="$tmp/stub8b"
+mkdir -p "$stub8b"
+real_ls8=$(command -v ls)
+printf '#!/bin/sh\nif [ "$*" = "-ldn %s" ]; then exit 1; fi\nexec %s "$@"\n' "$pools/noowner" "$real_ls8" >"$stub8b/ls"
+chmod +x "$stub8b/ls"
+out=$(sp "PATH=$stub8b:$PATH" -- take noowner "$a" 2>"$tmp/err")
+[ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -qF "$pools/noowner: its owner and mode could not be read" "$tmp/err" \
+  && ! grep -q 'not owned' "$tmp/err"
+verdict "an unreadable owner is not reported as foreign ownership" "no owner: '$out'" "$tmp/err"
+
 # --- REQ-I1.2: the helper sits on the shared primitive --------------------------
 grep -qF '. "$script_dir/lock-lib.sh"' "$SP"
 verdict "the helper sources the lock library" "scripts/step-pool.sh does not source lock-lib.sh"
