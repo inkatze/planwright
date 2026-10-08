@@ -49,9 +49,8 @@
 #       attribution header naming the tower origin and target, then `read
 #       <absolute message-file>`. The message body itself is never pasted.
 #       Measured on Claude Code 2.1.270: a multi-line paste lands in the input
-#       box as a
-#       "[Pasted text #N +M lines]" placeholder that nothing submits, and once
-#       the box holds one every later paste is stuck behind it. The line is
+#       box as a "[Pasted text #N +M lines]" placeholder that nothing submits,
+#       and once the box holds one every later paste is stuck behind it. The line is
 #       loaded with NO trailing newline, so a paste always STAGES the relay and
 #       one Enter from the receiving human submits it (measured on 2.1.289; a
 #       trailing newline either submitted a short line on its own or, for a
