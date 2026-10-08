@@ -133,6 +133,17 @@ else
   fail "sandbox: a host hook ran while the sandbox was built"
 fi
 
+# Nor may a git function the caller defines stand in for the executable.
+if (
+  # shellcheck disable=SC2329  # shadows git for the sandbox build below
+  git() { return 1; }
+  corpus_sandbox "$SANDBOX/fn-box" "$REPO_ROOT" >/dev/null 2>&1
+); then
+  pass "sandbox: a caller's git function does not replace the git executable"
+else
+  fail "sandbox: a caller's git function broke the sandbox build"
+fi
+
 # --- self-checks ---------------------------------------------------------
 f=$(synthetic ok "$(row live allow allow allow allow true)" "$(row live defer defer defer defer false)")
 if corpus_replay "$f" fake_guard >/dev/null 2>&1 && [ "$CORPUS_FAILED" -eq 0 ] && [ "$CORPUS_ROWS" -eq 2 ]; then
