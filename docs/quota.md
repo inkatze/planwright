@@ -9,8 +9,9 @@ tell the limit has cleared, and the controls the vendor offers.
 
 This page is the reference for the adapter contract. Core ships one adapter,
 for Claude; every other vendor is described in your own overlay. The
-examples below use invented placeholder vendors (`sample-reviewer`,
-`sample-cli`); write your real vendors' strings in your overlay.
+third-party examples below use invented placeholder vendors
+(`sample-reviewer`, `sample-cli`); write your real vendors' strings in your
+overlay.
 
 ## Where adapters live
 
@@ -27,8 +28,8 @@ catalog ([Overlays](overlays.md), *Data catalogs*):
 `scripts/resolve-vendors.sh` merges them (append, or `supersede: true` to
 replace an entry by id), validates every entry, and prints the result grouped
 by vendor; `--explain` names the layer each part came from, and `--vendor
-<id>` limits the output to one vendor. Its header pins the output shape and
-the exit codes.
+<id>` limits the output to one vendor. Its header pins the output shape, the
+exit codes, and every field's full grammar, bounds included.
 
 A malformed entry follows the catalog by-layer policy: in core it is a broken
 install, in a repo-tracked overlay it fails the resolution (a shared team
@@ -75,9 +76,11 @@ Adding an evidence kind is a core change.
 output (a step's output, a bot's reply, a worker's event stream) and checks it
 against the vendor's recognizers. A match prints the outcome `limited`, the
 vendor, the matching recognizer's id, an excerpt screened and bounded as a
-step-record excerpt is, and the stated reset time when one is accepted: epoch
-seconds or an ISO-8601 UTC timestamp, after now and within the throttle's
-hold ceiling. No match exits 1 and prints nothing, so an unrecognized
+step-record excerpt is, and the stated reset time, in epoch seconds, when one
+is accepted: the vendor stated it as epoch seconds or as an ISO-8601 UTC
+timestamp in the `Z` form (`2026-01-31T09:30:00Z`, a fractional second
+allowed; a numeric offset such as `+00:00` is not accepted), after now and
+within the throttle's hold ceiling. No match exits 1 and prints nothing, so an unrecognized
 failure keeps its ordinary outcome. The script's header pins the output
 lines, the reset-time rules, and the exit codes.
 

@@ -24,7 +24,7 @@
 #       --head <sha> --repo <owner>/<name>
 #   step-record.sh excerpt <file>
 #
-#   --worktree   the unit's worktree; default the enclosing git top level.
+#   --worktree    the unit's worktree; default the enclosing git top level.
 #                 The cache is <worktree>/.claude/steps/, created mode 0700;
 #                 a cache, run directory, or record that is a symlink is
 #                 refused, as is one that cannot be read, and a cache git

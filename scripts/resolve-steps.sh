@@ -352,7 +352,8 @@ replay() {
 
 # command_word_ok <word>: one word of a command step's args (the args
 # charset), shared by entry validation and --line. scripts/worker-command-guard.sh's
-# step_arg_ok holds the same charset; they change together.
+# step_arg_ok and scripts/resolve-vendors.sh's args_fault hold the same
+# charset; they change together.
 command_word_ok() {
   case "$1" in
     "" | *[!A-Za-z0-9._/:=@%,+-]*) return 1 ;;

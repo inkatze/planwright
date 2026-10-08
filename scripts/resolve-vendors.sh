@@ -191,7 +191,9 @@ awk -v mode="$mode" -v want="$want" '
     drop[n] = 1
   }
 
-  # args_fault <args>: "" when every word passes, else the reason.
+  # args_fault <args>: "" when every word passes, else the reason. The word
+  # charset is the one resolve-steps.sh command_word_ok checks; they change
+  # together.
   function args_fault(a,   w, m, i, v) {
     m = split(a, w, /[ ]+/)
     for (i = 1; i <= m; i++) {
