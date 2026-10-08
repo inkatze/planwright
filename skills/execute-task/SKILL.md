@@ -51,12 +51,12 @@ Doctrine: point-of-use custom-steps
 ## Pre-flight
 
 Run once per invocation, in order. Any halt records the unit to the spec's
-`tasks.md` `## Awaiting input` section with the reason — on a format-version 2
-bundle as a committed reference bullet, `**Task <id>** — <reason>`, the block
-staying in `## Tasks` (D-3); in a holder or plain store, `scripts/halt-note.sh`
-writes it uncommitted, named in the handoff (custom-spec-location REQ-E1.9) —
-and ends the step (the `gate-wiring` pause protocol's dispatched arm); attended,
-present and wait instead.
+`tasks.md` `## Awaiting input` section with the reason — on a v2 bundle as a
+committed reference bullet on the task branch, `**Task <id>** — <reason>`, the
+block staying in `## Tasks` (D-3); in a holder or plain store,
+`scripts/halt-note.sh` writes it uncommitted, named in the handoff
+(custom-spec-location REQ-E1.9) — and ends the step (the `gate-wiring` pause
+protocol's dispatched arm); attended, present and wait.
 
 1. **Parse `$ARGUMENTS`.** Extract one or more task IDs (`5`, `3.5`, or `5 6`
    for a bundle) and an optional bare `<spec>` (alias `specs/<spec>`, one
@@ -359,7 +359,7 @@ meta-spec's writer prose (`spec-format`, *Sign-off records and content
 anchors*) governs what this skill owes. **Pre-flight first:** before the first
 edit, recompute the anchor with the brief's most recent recorded command; a
 mismatch, an absent or unparseable entry, and a failed recompute each block the
-edit alike — surface the condition instead of editing on top of it. A blocked
+edit — surface the condition instead of editing on top of it. A blocked
 edit takes its disposition from its route: a convergence finding queues as an
 irreducible fork routed to the anchor repair, folded into the PR body; an edit
 this task's own implementation work revealed is a **stop condition** — record

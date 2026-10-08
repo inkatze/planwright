@@ -36,8 +36,9 @@
 #      never moving a tmux client. The launch runs ONLY if step 1 exited zero.
 #      The worker runs THROUGH scripts/fleet-dispatch-env.sh inside the
 #      session, so the ghost-text pin, the dispatcher's root and fleet home,
-#      the worker identity, and a per-launch token reach the worker itself
-#      whatever the tmux server's environment holds. The registry record is
+#      the worker identity, a per-launch token, and the spec root outside the
+#      work repository its guard admits as a write zone (worker-spec-root.sh)
+#      reach the worker itself whatever the tmux server's environment holds. The registry record is
 #      written once, after the session exists (even when new-session itself
 #      failed or hung), its death handle the session name and window id
 #      new-session printed, or none when that output does not parse; never a

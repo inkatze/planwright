@@ -32,7 +32,9 @@
 #      (PLANWRIGHT_WORKER_HANDLE=headless-<spec>-task-<id>,
 #      PLANWRIGHT_WORKER_SCOPE=<spec>:<id>) so the worker's own session fires
 #      hook-push liveness (hook_registration=true — fleet-liveness.sh
-#      push-capable reads it from the contract), wraps the launch in
+#      push-capable reads it from the contract), exports the spec root outside
+#      the work repository its guard admits as a write zone
+#      (worker-spec-root.sh; an inherited value is dropped), wraps the launch in
 #      fleet-dispatch-env.sh (the ghost-text pin), feeds the prompt file on
 #      stdin, and captures stdout/stderr.
 #   4. The runner SUPERVISES the worker as a background child (not exec): it
