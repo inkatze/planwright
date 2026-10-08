@@ -60,11 +60,12 @@
 # write or arbitrary execution, and it uses no construct the analyzer cannot
 # confidently parse (command/process substitution, here-docs, subshell/brace
 # grouping, env-assignment prefixes, path-prefixed verbs, escaped operators,
-# ANSI-C quoting) — all of which defer, as does any other expansion left in a
-# verb or in an operand a screen reads (a `for` variable over plain-literal
-# head words is resolved; see loop_header). planwright `scripts/*.sh` are trusted
-# repo/plugin code but only after their path canonicalizes INSIDE the repo
-# checkout's or the installed plugin's `scripts/` directory.
+# ANSI-C quoting, shell comments, named-fd redirects) — all of which defer, as
+# does any other expansion left in a verb or in an operand a screen reads (a
+# `for` variable over plain-literal head words is resolved; see loop_header).
+# planwright `scripts/*.sh` are trusted repo/plugin code but only after their
+# path canonicalizes INSIDE the repo checkout's or the installed plugin's
+# `scripts/` directory.
 #
 # Portable bash (3.2 floor / BSD compatible), no dependency on python, fish,
 # mise, tmux, or Ansible; the security-critical analysis is pure shell. jq is
@@ -116,12 +117,14 @@ emit_allow() {
 # operator, possibly with an fd-number prefix). Returns non-zero (DEFER) the
 # instant it meets a construct it will not analyze: unbalanced quotes,
 # command/process substitution, backtick substitution, ANSI-C `$'…'`, a
-# backslash line-continuation or escaped operator/quote. It never executes or
-# expands anything it scans. A W token also records whether it carries a
-# LITERAL `$` (single quotes or a backslash), an EXPANDING `$` (1 inside double
-# quotes, 2 unquoted), and an unquoted glob, brace expansion, or leading tilde
-# (see word_unresolved). The fifth argument is the worker guard's quote-start
-# offset, unused here and kept so the two signatures match.
+# backslash line-continuation or escaped operator/quote, a shell comment, or a
+# named-fd redirect.
+# It never executes or expands anything it scans. A W token also records
+# whether it carries a LITERAL `$` (single quotes or a backslash), an
+# EXPANDING `$` (1 inside double quotes, 2 unquoted), and an unquoted glob,
+# brace expansion, or leading tilde (see word_unresolved). The fifth argument
+# is the worker guard's quote-start offset, unused here and kept so the two
+# signatures match.
 tok_push() {
   TOK_TYPE[TOK_N]=$1
   TOK_VAL[TOK_N]=$2
@@ -134,9 +137,11 @@ tok_push() {
 
 # dollar_expands <next-char>: 0 when a `$` followed by <next-char> starts an
 # expansion. A `$` before anything else (end of word, `/`, a space) is literal.
+# zsh, the Bash tool's shell on macOS, also expands `$~NAME`, `$=NAME`,
+# `$^NAME` and `$+NAME`, which bash leaves as text.
 dollar_expands() {
   case $1 in
-    [A-Za-z0-9_@*#?!-] | '{' | '$' | '[' | '"') return 0 ;;
+    [A-Za-z0-9_@*#?!~=^+-] | '{' | '$' | '[' | '"') return 0 ;;
   esac
   return 1
 }
@@ -186,6 +191,17 @@ tokenize() {
       brc=0
       brs=0
     fi
+  }
+
+  # named_fd_word: 0 when the word built up to a redirect is a `{name}`
+  # brace word, which bash and zsh read as a named-fd redirect that assigns
+  # that shell variable, not as an operand.
+  named_fd_word() {
+    [ "$have" = 1 ] || return 1
+    case $cur in
+      '{'*'}') return 0 ;;
+    esac
+    return 1
   }
 
   while [ "$i" -lt "$n" ]; do
@@ -280,8 +296,9 @@ tokenize() {
         fi
         ;;
       '&')
-        _flush
         nc=${s:i+1:1}
+        [ "$nc" = '>' ] && named_fd_word && return 1
+        _flush
         if [ "$nc" = '&' ]; then
           tok_push O '&&'
           i=$((i + 2))
@@ -316,6 +333,7 @@ tokenize() {
         # A pure-digit run built up to here with no intervening space is the
         # fd number of this redirect (e.g. the 2 in 2>&1), not a word.
         fdpfx=''
+        named_fd_word && return 1
         if [ "$have" = 1 ]; then
           case $cur in
             '' | *[!0-9]*) tok_push W "$cur" "$curq" "$curx" -1 "$curd" "$curg" ;;
@@ -385,6 +403,8 @@ tokenize() {
       *)
         # Unquoted pattern characters: a glob (`*`, `?`, a closed `[…]`), a
         # brace expansion (`{` then `,` or `..` then `}`), or a leading `~`.
+        # A word-initial `#` opens a shell comment, which this scan does not
+        # model, so the command defers.
         case $c in
           '*' | '?') curg=1 ;;
           '[') brk=1 ;;
@@ -394,6 +414,7 @@ tokenize() {
           '.') [ "$brc" = 1 ] && [ "${s:i+1:1}" = . ] && brs=1 ;;
           '}') [ "$brs" = 1 ] && curg=1 ;;
           '~') [ "$have" = 0 ] && curg=1 ;;
+          '#') [ "$have" = 0 ] && return 1 ;;
         esac
         cur="$cur$c"
         have=1
@@ -1393,6 +1414,12 @@ assign_name_ok() {
       OPTIND | OPTARG | OPTERR | LANG | LANGUAGE | _ | \
       BASH* | COMP_* | READLINE_* | HIST* | LC_* | MAIL* | PS[0-9]*) return 1 ;;
   esac
+  # zsh, the Bash tool's shell on macOS, gives these names a special meaning
+  # as variables, as bash gives PATH and CDPATH.
+  case $name in
+    path | cdpath | NULLCMD | READNULLCMD | module_path | MODULE_PATH | \
+      fpath | FPATH | manpath | MANPATH) return 1 ;;
+  esac
   case $HOOK_ENV_NAMES in
     *"$NL$name$NL"*) return 1 ;;
   esac
@@ -1435,6 +1462,12 @@ expand_word() {
         j=$((j + 1))
       done
       k=$j
+      # zsh, the Bash tool's shell on macOS, applies a subscript or a modifier
+      # to an unbraced name directly followed by `[` or `:`, quoted or not, so
+      # the value is not the name's: leave it unresolved.
+      case ${w:k:1} in
+        '[' | ':') name='' ;;
+      esac
     fi
     found=''
     case $name in
@@ -1926,8 +1959,10 @@ main() {
   tool=$(printf '%s' "$input" | jq -r '.tool_name // empty' 2>/dev/null) || return 0
   [ "$tool" = Bash ] || return 0 # every non-Bash tool defers
 
+  # A NUL byte defers too: the command substitution drops it, so the guard
+  # would screen other text than the shell runs.
   cmd=$(printf '%s' "$input" \
-    | jq -r 'if (.tool_input.command | type) == "string" then .tool_input.command else empty end' \
+    | jq -r 'if (.tool_input.command | type) == "string" and (.tool_input.command | explode | any(. == 0) | not) then .tool_input.command else empty end' \
       2>/dev/null) || return 0
   [ -n "$cmd" ] || return 0
 
@@ -1936,7 +1971,8 @@ main() {
   # (object, array, number, boolean) means the payload does not match the
   # documented PreToolUse contract, so the whole analysis defers rather than
   # containment-checking against whatever `jq -r` renders such a value as.
-  case $(printf '%s' "$input" | jq -r 'if has("cwd") and .cwd != null then (.cwd | type) else "absent" end' 2>/dev/null) in
+  # A NUL byte in cwd defers, as in the command.
+  case $(printf '%s' "$input" | jq -r 'if has("cwd") and .cwd != null then (if (.cwd | type) == "string" and (.cwd | explode | any(. == 0)) then "nul" else (.cwd | type) end) else "absent" end' 2>/dev/null) in
     absent) cwd=$PWD ;;
     string)
       cwd=$(printf '%s' "$input" | jq -r '.cwd' 2>/dev/null) || return 0

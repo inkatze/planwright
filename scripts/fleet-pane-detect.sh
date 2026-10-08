@@ -119,6 +119,10 @@ RCK="$here/resolve-config-knob.sh"
 # does: caller-controlled values (pane path, backend, handles) are wrapped in
 # sanitize_printable before reaching stderr, so a crafted argument cannot inject
 # terminal escapes into an operator's display (doctrine/security-posture.md).
+if [ ! -f "$here/echo-safety.sh" ] || [ ! -r "$here/echo-safety.sh" ]; then
+  printf '%s\n' "fleet-pane-detect.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$here/echo-safety.sh"
 
@@ -126,6 +130,13 @@ usage() {
   echo "usage: fleet-pane-detect.sh classify --pane <file> --backend <b> --worker <w> [--scope <s>] [--root <dir>] [--reconcile-ttl <sec>] [--now <epoch>] [--state-dir <dir>] [--footer-lines <n>] [--cwd <abs-path>]" >&2
   exit 2
 }
+
+# What a refused scope is told it should look like: the grammar has no slash,
+# so a scope that names a spec names it by the identifier, never by a path
+# (other scopes, such as a flight's, name no spec). Byte-identical
+# in fleet-attention.sh, fleet-liveness.sh, fleet-streamjson.sh, and
+# fleet-pane-detect.sh.
+SCOPE_SHAPE='a field token with no slash, such as <spec>:<id> or <spec>:task-<ids> naming the spec by its bare identifier'
 
 # valid_field <value> — the fleet field grammar (fleet-liveness.sh valid_field):
 # non-empty, not `.`/`..`, only [A-Za-z0-9._=@:-], at most 128 chars. A worker /
@@ -162,7 +173,7 @@ valid_oracle_cwd() {
 # shared with the stuck-detector so the two can never disagree about what a
 # busy or an at-prompt footer looks like.
 if [ ! -r "$here/fleet-pane-vocabulary.sh" ]; then
-  echo "fleet-pane-detect: required helper $here/fleet-pane-vocabulary.sh missing or not readable" >&2
+  printf '%s\n' "fleet-pane-detect: required helper $here/fleet-pane-vocabulary.sh missing or not readable" >&2
   exit 2
 fi
 # shellcheck source=scripts/fleet-pane-vocabulary.sh
@@ -306,7 +317,7 @@ valid_field "$worker" || {
   exit 2
 }
 valid_field "$scope" || {
-  printf '%s\n' "fleet-pane-detect: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
+  printf '%s\n' "fleet-pane-detect: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")': $SCOPE_SHAPE" >&2
   exit 2
 }
 # The oracle join key, validated whenever the flag was SEEN. A rejected value
@@ -533,7 +544,7 @@ if [ -n "$oracle_cwd" ] && [ -x "$FL" ]; then
       exit 2
       ;;
     *)
-      echo "fleet-pane-detect: unexpected oracle helper exit $o_rc; falling back to the pane heuristics" >&2
+      printf '%s\n' "fleet-pane-detect: unexpected oracle helper exit $o_rc; falling back to the pane heuristics" >&2
       ;;
   esac
 fi

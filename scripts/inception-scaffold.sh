@@ -85,7 +85,7 @@ done
 while [ "$target" != "${target%/}" ]; do target=${target%/}; done
 [ -n "$target" ] || target=/
 [ -d "$target" ] || {
-  echo "inception-scaffold: not a directory: $target" >&2
+  printf '%s\n' "inception-scaffold: not a directory: $target" >&2
   exit 2
 }
 

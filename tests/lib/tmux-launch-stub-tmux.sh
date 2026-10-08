@@ -94,7 +94,7 @@ CUR_NAME=''
 
 record_call() {
   stub_claim_seq call || {
-    echo "stub tmux: cannot claim a call sequence number under $STUB_STATE" >&2
+    printf '%s\n' "stub tmux: cannot claim a call sequence number under $STUB_STATE" >&2
     exit 70
   }
   rcall_line=''
@@ -251,17 +251,17 @@ server_gate() {
   stub_knob server up
   case $STUB_KNOB in
     none)
-      echo "no server running on $SOCKET" >&2
+      printf '%s\n' "no server running on $SOCKET" >&2
       return 1
       ;;
     unreachable)
-      echo "error connecting to $SOCKET (Permission denied)" >&2
+      printf '%s\n' "error connecting to $SOCKET (Permission denied)" >&2
       return 1
       ;;
   esac
   cur_session_live && return 0
   any_live_session && return 0
-  echo "no server running on $SOCKET" >&2
+  printf '%s\n' "no server running on $SOCKET" >&2
   return 1
 }
 
@@ -346,7 +346,7 @@ claim_number() {
 
 need_value() {
   [ "$1" -ge 2 ] && return 0
-  echo "stub tmux: $2 needs a value" >&2
+  printf '%s\n' "stub tmux: $2 needs a value" >&2
   return 1
 }
 
@@ -375,7 +375,7 @@ cmd_new_session() {
             case $2 in *"$SEP"*) ns_key='' ;; esac
             case $ns_key in
               '' | [0-9]* | *[!A-Za-z0-9_]*)
-                echo "invalid environment: $2" >&2
+                printf '%s\n' "invalid environment: $2" >&2
                 return 1
                 ;;
             esac
@@ -385,7 +385,7 @@ cmd_new_session() {
         shift 2
         ;;
       -*)
-        echo "unknown flag $1" >&2
+        printf '%s\n' "unknown flag $1" >&2
         return 1
         ;;
       *) break ;;
@@ -406,12 +406,12 @@ cmd_new_session() {
       return 1
       ;;
     duplicate)
-      echo "duplicate session: $ns_name" >&2
+      printf '%s\n' "duplicate session: $ns_name" >&2
       return 1
       ;;
   esac
   name_ok "${ns_name:-0}" || {
-    echo "stub tmux: session name '$ns_name' is not modelled" >&2
+    printf '%s\n' "stub tmux: session name '$ns_name' is not modelled" >&2
     return 1
   }
   stub_claim_seq session || return 1
@@ -441,7 +441,7 @@ cmd_new_session() {
     ns_name=$ns_num
   else
     if ! claim_name "$ns_name" "$ns_seq"; then
-      echo "duplicate session: $ns_name" >&2
+      printf '%s\n' "duplicate session: $ns_name" >&2
       return 1
     fi
     claim_number || return 1
@@ -513,12 +513,12 @@ pane_target() {
   case $1 in
     =*:*) ;;
     =*)
-      echo "can't find pane: ${1#=}" >&2
+      printf '%s\n' "can't find pane: ${1#=}" >&2
       return 1
       ;;
   esac
   resolve_target "$1" && return 0
-  echo "can't find pane: ${1#=}" >&2
+  printf '%s\n' "can't find pane: ${1#=}" >&2
   return 1
 }
 
@@ -564,7 +564,7 @@ cmd_set_option() {
   fi
   if [ -n "$so_t" ]; then
     resolve_target "$so_t" || {
-      echo "can't find session: ${so_t#=}" >&2
+      printf '%s\n' "can't find session: ${so_t#=}" >&2
       return 1
     }
     so_dir="$STUB_STATE/sessions/$RT_NAME"
@@ -609,13 +609,13 @@ run_one() {
     has-session | has)
       target_arg "$@" || return 1
       resolve_target "$TARGET" && return 0
-      echo "can't find session: ${TARGET#=}" >&2
+      printf '%s\n' "can't find session: ${TARGET#=}" >&2
       return 1
       ;;
     kill-session)
       target_arg "$@" || return 1
       resolve_target "$TARGET" || {
-        echo "can't find session: ${TARGET#=}" >&2
+        printf '%s\n' "can't find session: ${TARGET#=}" >&2
         return 1
       }
       kill_dir "$STUB_STATE/sessions/$RT_NAME"
@@ -644,7 +644,7 @@ run_one() {
       done
       if [ -n "$ro_t" ] && [ "$ro_all" = 0 ]; then
         resolve_target "$ro_t" || {
-          echo "can't find window: ${ro_t#=}" >&2
+          printf '%s\n' "can't find window: ${ro_t#=}" >&2
           return 1
         }
         ro_names=$RT_NAME
@@ -683,7 +683,7 @@ run_one() {
       ns_name='' ns_num='' ns_pid='' ns_dir=''
       if [ -n "$ro_t" ]; then
         resolve_target "$ro_t" || {
-          echo "can't find pane: ${ro_t#=}" >&2
+          printf '%s\n' "can't find pane: ${ro_t#=}" >&2
           return 1
         }
         load_session_vars "$RT_NAME"
@@ -732,7 +732,7 @@ for w; do
   fi
   if [ "$at_start" = 1 ]; then
     known_command "$w" || {
-      echo "unknown command: $w" >&2
+      printf '%s\n' "unknown command: $w" >&2
       exit 1
     }
     at_start=0

@@ -32,6 +32,8 @@
 #   - `--if-exists addIfDifferent` makes a task-ref or `--reject` re-stamp
 #     idempotent: piping an already-trailered message through again does not
 #     duplicate it. A `--sign-off` re-stamp is refused (below).
+#   - A ref's spec may be named by its `specs/<spec>` alias, stamped as the
+#     bare identifier.
 #   - Each ref is grammar-validated before use (REQ-F1.1 discipline): spec
 #     `^[a-z0-9][a-z0-9-]*$` (≤64 chars, the D-36 spec-id grammar), id
 #     `^[0-9]+(\.[0-9]+)?$`. The id is the *single-task subset* of D-36's
@@ -73,13 +75,16 @@ export LC_ALL
 unset CDPATH
 
 prog=${0##*/}
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+# shellcheck source=scripts/spec-id-lib.sh
+. "$script_dir/spec-id-lib.sh"
 
 # A literal newline, for the embedded-newline guard in valid_ref.
 LF='
 '
 
 usage() {
-  echo "usage: $prog [<spec>/<id> ...] [--base <base> --sign-off ...] [--reject <id> ...] < message" >&2
+  printf '%s\n' "usage: $prog [<spec>/<id> ...] [--base <base> --sign-off ...] [--reject <id> ...] < message" >&2
 }
 
 # valid_ref <ref> — true when <ref> is `<spec>/<id>` with a grammar-valid spec
@@ -134,7 +139,7 @@ for arg in "$@"; do
       ;;
     reject)
       if ! valid_rejected_id "$arg"; then
-        echo "$prog: refusing a malformed rejected id (expected PS-<n> or PS-legacy-<sha7>)" >&2
+        printf '%s\n' "$prog: refusing a malformed rejected id (expected PS-<n> or PS-legacy-<sha7>)" >&2
         exit 2
       fi
       # Validated ids carry no whitespace or glob characters, so the list
@@ -149,15 +154,16 @@ for arg in "$@"; do
     --reject) want=reject ;;
     --sign-off) signoffs=$((signoffs + 1)) ;;
     *)
-      if ! valid_ref "$arg"; then
+      spec_ref_canon "$arg"
+      if ! valid_ref "$SPEC_REF"; then
         # Never echo the candidate back: a malformed ref can carry terminal escapes
         # or a newline-injected forged log line, so echoing it verbatim is terminal/
         # log injection. The sibling validators (spec-validate.sh, spec-walkthrough.sh)
         # refuse the same spec-id grammar without echoing the candidate, and this
         # helper's own contract (REQ-F1.1) is "hostile input is refused, never
         # interpolated". The grammar hint below is enough to act on the refusal.
-        echo "$prog: refusing a malformed task ref (does not match the expected grammar)" >&2
-        echo "$prog: expected <spec>/<id>, spec ^[a-z0-9][a-z0-9-]*$ (≤64, not flight) id ^[0-9]+(\\.[0-9]+)?$" >&2
+        printf '%s\n' "$prog: refusing a malformed task ref (does not match the expected grammar)" >&2
+        printf '%s\n' "$prog: expected <spec>/<id>, spec ^[a-z0-9][a-z0-9-]*$ (≤64, not flight) id ^[0-9]+(\\.[0-9]+)?$" >&2
         exit 2
       fi
       nrefs=$((nrefs + 1))
@@ -181,20 +187,19 @@ next=0
 if [ "$signoffs" -gt 0 ]; then
   parsed=$(printf '%s\n' "$msg" | git interpret-trailers --parse) || exit 2
   if printf '%s\n' "$parsed" | grep -qi '^Planwright-Sign-Off:'; then
-    echo "$prog: the message already carries a sign-off id; an id is written once" >&2
+    printf '%s\n' "$prog: the message already carries a sign-off id; an id is written once" >&2
     exit 2
   fi
-  script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
   # A failed allocation has already named its error on stderr; its exit code
   # (3 for an unresolvable range) passes through and nothing is emitted.
   alloc=$("$script_dir/sign-off-checklist.sh" next "$base") || exit $?
   if ! printf '%s' "$alloc" | grep -qE '^PS-[1-9][0-9]{0,8}$'; then
-    echo "$prog: the allocator returned no usable id; nothing stamped" >&2
+    printf '%s\n' "$prog: the allocator returned no usable id; nothing stamped" >&2
     exit 2
   fi
   next=${alloc#PS-}
   if [ $((next + signoffs - 1)) -gt 999999999 ]; then
-    echo "$prog: the allocation would pass PS-999999999; nothing stamped" >&2
+    printf '%s\n' "$prog: the allocation would pass PS-999999999; nothing stamped" >&2
     exit 2
   fi
 fi
@@ -216,7 +221,10 @@ while [ "$i" -lt "$n" ]; do
       i=$((i + 1))
       ;;
     --sign-off) ;;
-    *) set -- "$@" --trailer "Planwright-Task: $arg" ;;
+    *)
+      spec_ref_canon "$arg"
+      set -- "$@" --trailer "Planwright-Task: $SPEC_REF"
+      ;;
   esac
 done
 i=0

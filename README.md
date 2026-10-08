@@ -110,9 +110,9 @@ line.
 ```
 
 That one command autodetects the execution backends on your host, starts a
-meta-tower that supervises every Ready or Active spec (one subordinate tower
-per spec, one isolated worker per task, all under a fleet-wide concurrency
-bound), and renders a single attention surface: a decision queue plus
+meta-tower that supervises every Ready or Active spec (running each spec's
+dispatch step itself, one isolated worker per task, all under a fleet-wide
+concurrency bound), and renders a single attention surface: a decision queue plus
 per-worker heartbeats. You answer only the questions that are yours. The same
 two controls hold at fleet scale: every unit executes from a spec you signed,
 and every PR lands as a draft for you to merge. See

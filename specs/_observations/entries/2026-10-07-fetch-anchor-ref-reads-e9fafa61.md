@@ -1,0 +1,1 @@
+- 2026-10-07 [planwright] dispatch-fetch.sh resolves the anchor ref once and then reads each bundle file with its own git show <ref>:<path>, so a concurrent fetch against the same primary checkout can move origin/main between reads and yield an anchor over files from two commits (a spurious mismatch halt). Reading every file at one resolved commit SHA would close the window.

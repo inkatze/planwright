@@ -188,7 +188,7 @@ if [ -n "$spec_dir" ] && [ "$spec_dir" != "-" ]; then
   here=$(cd "$(dirname "$0")" && pwd)
   model="$here/spec-model.sh"
   if [ ! -x "$model" ]; then
-    echo "spec-translate: cannot find an executable spec-model.sh at $model" >&2
+    printf '%s\n' "spec-translate: cannot find an executable spec-model.sh at $model" >&2
     exit 2
   fi
   # Capture the model first so its exit code propagates (fail closed on an

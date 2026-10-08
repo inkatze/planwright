@@ -118,6 +118,10 @@ unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "fleet-tower-watchdog.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
@@ -344,7 +348,7 @@ read_backoff_or_die() {
   case $rbd_rc in
     0) ;;
     1)
-      echo "fleet-tower-watchdog: backoff record for '$spec' is corrupt — refusing to act; repair or remove it" >&2
+      printf '%s\n' "fleet-tower-watchdog: backoff record for '$spec' is corrupt — refusing to act; repair or remove it" >&2
       printf 'backoff-corrupt\n'
       exit 2
       ;;
@@ -385,7 +389,7 @@ acquire_lock_or_busy() {
       ;;
     1) outcome lock-busy ;;
     *)
-      echo "fleet-tower-watchdog: cannot acquire the per-spec lock (exit $al_rc)" >&2
+      printf '%s\n' "fleet-tower-watchdog: cannot acquire the per-spec lock (exit $al_rc)" >&2
       exit 2
       ;;
   esac
@@ -438,7 +442,7 @@ case $ready_rc in
   0) ;;
   1) outcome no-ready-work ;;
   *)
-    echo "fleet-tower-watchdog: ready-task selection failed (exit $ready_rc) — refusing to relaunch" >&2
+    printf '%s\n' "fleet-tower-watchdog: ready-task selection failed (exit $ready_rc) — refusing to relaunch" >&2
     outcome ready-check-error
     ;;
 esac
@@ -541,12 +545,12 @@ launch_default() {
     return 1
   fi
   if tmux has-session -t "=$session_name" 2>/dev/null; then
-    echo "fleet-tower-watchdog: tmux session '$session_name' already exists — refusing to reuse it" >&2
+    printf '%s\n' "fleet-tower-watchdog: tmux session '$session_name' already exists — refusing to reuse it" >&2
     return 1
   fi
   tmux new-session -d -s "$session_name" -c "$checkout" \
     "$script_dir/fleet-dispatch-env.sh" claude \
-    "/orchestrate --watch --unattended specs/$spec" 2>/dev/null || {
+    "/orchestrate --watch --unattended $spec" 2>/dev/null || {
     echo "fleet-tower-watchdog: tmux new-session failed" >&2
     return 1
   }

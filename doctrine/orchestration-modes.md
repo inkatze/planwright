@@ -9,7 +9,8 @@ Every invariant in the skill's always-loaded core, and every tower-tier rule
 
 Citations: orchestration-fleet REQ-B1.5, REQ-B1.6, REQ-D1.1, REQ-D1.2,
 REQ-D1.5, REQ-E1.1, REQ-E1.2, REQ-E1.5 · orchestration-fleet D-3, D-6, D-9,
-D-12, D-13 · human-gates REQ-D1.6.
+D-12, D-13 · human-gates REQ-D1.6 · worker-permission-ergonomics REQ-G1.5,
+D-17 · custom-spec-location REQ-G1.4 · custom-spec-location D-11.
 
 ## Degradation ladder & runtime failover (REQ-B1.5, REQ-B1.6, D-3)
 
@@ -71,26 +72,30 @@ descending; a record-write failure likewise aborts (exit 3) rather than
 proceeding unrecorded. Surface the escalation and stop; never merge and never
 drop a guard to keep a run alive.
 
-## Meta-tower — tower of towers (REQ-D1.1, REQ-D1.5, D-6)
+## Meta-tower (REQ-D1.1, REQ-D1.5, D-6; worker-permission-ergonomics D-17)
 
 `--meta` supervises **several Ready/Active specs at once**, advancing one
-unit across the whole fleet per step by launching **subordinate single-spec
-towers**. It adds exactly one layer — *which spec advances next, under a
-fleet-wide bound* — over the unchanged single-spec machinery: each
-subordinate is an ordinary disposable step machine (the same skill without
-`--meta`), owning exactly one spec, one lock, one dispatch record. The
+unit across the whole fleet per step by **running the chosen spec's
+single-spec step itself**, in its own session under its own tower profile.
+It adds exactly one layer — *which spec advances next, under a fleet-wide
+bound* — over the unchanged single-spec machinery: each step owns exactly one
+spec, that spec's lock, and one dispatch record, and no subordinate tower
+session exists (D-17 reverses D-6's subordinate-tower clause: a whole session
+per dispatch is not the smallest rung for one deterministic step). The
 meta-tower holds **no cross-spec state beyond the current step** (D-6): every
 step recomputes the whole picture from the live cross-spec derivation, so it
 is disposable and crash-safe exactly like a single tower.
 
-**Resolve the supervised set.** Take the explicit `specs/<spec>` paths after
-`--meta` when given; otherwise discover every `specs/*/` bundle whose
-`Status:` is `Ready` or `Active` (underscore-prefixed accumulators are never
-bundles). Run each supervised spec through pre-flight (Ready/Active,
-validator, kickoff brief); a spec that fails is **dropped from supervision
-with a one-line note** (and, when the failure is dispatch-blocking, an entry
-in that spec's `## Awaiting input`) rather than halting the fleet — one
-unsigned or erroring spec must not stall the others.
+**Resolve the supervised set.** Take the spec identifiers after `--meta` when
+given (the bare `<spec>` or its `specs/<spec>` alias, as
+[spec-format](spec-format.md) defines addressing); otherwise discover every
+bundle under the spec root (`<root>/*/`) whose `Status:` is `Ready` or `Active`
+(underscore-prefixed reserved directories are never bundles). Run each
+supervised spec through pre-flight (Ready/Active, validator, kickoff brief); a
+spec that fails is **dropped from supervision with a one-line note** (and, when
+the failure is dispatch-blocking, an entry in that spec's `## Awaiting input`)
+rather than halting the fleet — one unsigned or erroring spec must not stall the
+others.
 
 **The meta step.** One atomic step, mirroring the single-spec locked window
 at the fleet tier:
@@ -100,9 +105,10 @@ at the fleet tier:
    serializing concurrent meta-towers: the cross-spec analogue of the
    per-spec lock. Exit 1 (another live meta-tower holds it) is a **clean
    no-op**: skip this step. Hold it only across the decision below, never
-   across a subordinate's execution (the D-10 discipline at the fleet tier).
+   across the dispatch (the D-10 discipline at the fleet tier).
 2. **Select across the fleet**, under the lock:
-   `scripts/orchestrate-meta-select.sh specs/<a> specs/<b> …`. It reads each
+   `scripts/orchestrate-meta-select.sh <root>/<a> <root>/<b> …`, each argument
+   a bundle directory under the resolved spec root. It reads each
    spec's **live derivation** (`orchestrate-state.sh` /
    `orchestrate-select.sh`, never the committed snapshot), sums fleet-wide
    in-flight units, and returns `<spec-dir>\t<id>` for the fewest-in-flight
@@ -120,7 +126,7 @@ at the fleet tier:
    counter — `scripts/fleet-state.sh bound-incr <max>`, `<max>` being what
    `scripts/config-get.sh fleet_max_parallel_units` printed in its own call,
    paired with `scripts/fleet-state.sh bound-decr` — can reserve the launch slot for the
-   window between the subordinate's launch and its marker appearing. It is a
+   window between the decision and the step's marker appearing. It is a
    reservation *over* the live count, never a substitute: a hard kill can
    leak a reserved slot and a disposable tower keeps no cross-step memory to
    pair a `bound-decr` to, so the leak-free live count — not the counter —
@@ -129,13 +135,24 @@ at the fleet tier:
    observation.)
 4. **Release the fleet lock** before launching
    (`scripts/fleet-state.sh unlock`).
-5. **Launch the subordinate tower** for the chosen spec: dispatch
-   `/orchestrate <spec>` (one step) via the selected backend (the skill's
-   backend-selection law applies unchanged). The subordinate runs its own
-   pre-flight and freshness gate, takes its **own** per-spec lock, writes its
-   **own** dispatch record, and dispatches its worker. The meta-tower passes
-   it no in-memory state and **never** edits another tower's or a worker's
-   branch state (REQ-D1.2 division of labor).
+5. **Run the single-spec step** for the chosen unit. First run the skill's
+   resource-governance lines and its `orchestrate_dispatch` launch tier for
+   it (a pause, withhold, or refusal skips the step); the script runs
+   neither. Then
+   `scripts/orchestrate-meta-step.sh dispatch <spec-dir> <id> --backend <b>
+   --prompt-file <file> [-- <tier args>]`, `<b>` from the skill's
+   backend-selection law and the file holding the unit's `/execute-task`
+   prompt. It takes the spec's per-spec lock, runs the freshness gate,
+   writes the dispatch record, releases the lock, and launches the one
+   worker; it launches nothing but `/execute-task`. Exit 1 (a single-spec
+   tower holds that lock, or the unit is already in flight) is a clean
+   no-op; exit 4 parks the unit to its spec's `## Awaiting input` with the
+   printed `halt` and `remedy`; any other nonzero exit is a dispatch failure
+   to report. The script carries only the stream-json and headless rungs,
+   so check the resolved rung before calling it: on any other, park the
+   unit naming the rung and do not call the script. The meta-tower
+   **never** edits another
+   tower's or a worker's branch state (REQ-D1.2 division of labor).
 
 **Autonomy and the tower-tier rules hold unchanged at the meta tier.**
 Unattended, the meta-tower honors the autonomous-safe-decision policy exactly
@@ -199,13 +216,16 @@ Dispatch, capture-pane observation, and
 `load-buffer`/`paste-buffer` relay work identically against a detached server
 — nobody ever attaches, and the human sees only the attention surface below.
 Attaching stays available at any time for a multiplexer-fluent operator (the
-mapping's persona a); it is never required.
+mapping's persona a); it is never required. The meta step itself dispatches
+only through the stream-json and headless rungs and parks a unit whose
+resolved rung is tmux or subagent; until the tmux task arm can carry a
+worker's prompt, this plumbing serves single-spec towers.
 
 **The attention surface (the queue as default, D-13).** The fleet-entry loop
 keeps the attention store current and renders it, through
 `scripts/fleet-attention.sh` (on the cross-spec home):
 
-- **At dispatch** (subordinate launch or worker dispatch):
+- **At dispatch** (each worker dispatch):
   `scripts/fleet-attention.sh heartbeat <worker> <spec>:task-<ids> working` —
   `<worker>` is the backend's **stable unit handle** from the capability
   contract's named-addressable-units guarantee (the tmux window id, the
@@ -226,7 +246,11 @@ keeps the attention store current and renders it, through
   `decide` for a still-open `## Awaiting input` entry, and `clear` any row
   whose unit is no longer in flight or awaiting input — so a crash between an
   edge and its mirror, a lost write, or a late heartbeat self-heals within
-  one iteration and stale workers do not linger on the surface.
+  one iteration and stale workers do not linger on the surface. A row an
+  earlier tower wrote, which no live tower mirrors, is cleared by
+  `scripts/fleet-attention-reconcile.sh` in the reconcile sweep once durable
+  evidence settles it: its unit derives completed, or its worker is
+  positively dead.
 - **Each watch iteration ends by rendering the surface on a transition**:
   `scripts/fleet-attention.sh render --on-change <tower>`, then
   `queue --on-change <tower>` (`<tower>`: `scripts/fleet-presence.sh identity`,

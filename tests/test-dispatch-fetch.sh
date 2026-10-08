@@ -402,7 +402,9 @@ c6() {
 # ---------------------------------------------------------------------------
 c7() {
   # The whole decision path = dispatch-fetch.sh (the mechanism this bundle
-  # introduces) AND the two helpers it invokes (spec-anchor.sh, config-get.sh),
+  # introduces) AND the helpers it invokes or sources (spec-anchor.sh,
+  # config-get.sh, resolve-root.sh, spec-id-lib.sh) and the config readers
+  # those run (resolve-config-knob.sh, resolve-overlay-root.sh),
   # so the "no model/API call anywhere in the decision path" claim covers what
   # actually runs. Patterns are command/endpoint-anchored: a `claude` CLI call is
   # lowercase followed by whitespace (so the `CLAUDE_PLUGIN_ROOT` path env var and
@@ -412,7 +414,9 @@ c7() {
   # indented, or one at end of line is caught alike (a plain `[^a-z]…[^a-z]`
   # bracket would miss a curl with no character on one side).
   for src in "$here/../scripts/dispatch-fetch.sh" \
-    "$here/../scripts/spec-anchor.sh" "$here/../scripts/config-get.sh"; do
+    "$here/../scripts/spec-anchor.sh" "$here/../scripts/config-get.sh" \
+    "$here/../scripts/resolve-root.sh" "$here/../scripts/spec-id-lib.sh" \
+    "$here/../scripts/resolve-config-knob.sh" "$here/../scripts/resolve-overlay-root.sh"; do
     [ -f "$src" ] || fail "c7: expected decision-path script missing: $src"
     # Strip comments so a word appearing only in prose never trips the guard.
     code=$(grep -vE '^[[:space:]]*#' "$src" || true)
@@ -839,5 +843,32 @@ c14
 c15
 c16
 c17
+
+# c18 — a directory at the echo-safety.sh path is not the helper: dash sources
+# it silently, so a bare readability test let the script run on with
+# sanitize_printable undefined instead of using its inline fallback.
+c18() {
+  sh_dash=$(command -v dash) || {
+    echo "skip: c18 needs dash"
+    return 0
+  }
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-fetch.c18.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  cp -R "$here/../scripts" "$tmp/scripts"
+  rm -f "$tmp/scripts/echo-safety.sh"
+  mkdir "$tmp/scripts/echo-safety.sh"
+  set +e
+  err=$("$sh_dash" "$tmp/scripts/dispatch-fetch.sh" --bogus-opt 2>&1 >/dev/null)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "c18: an unknown option exited 0"
+  case $err in
+    *"not found"*) fail "c18: the sanitizer was undefined: $err" ;;
+    *"unknown option '--bogus-opt'"*) ;;
+    *) fail "c18: the unknown option was not named: $err" ;;
+  esac
+  echo "ok: c18 — an echo-safety.sh directory falls back to the inline sanitizer"
+}
+c18
 
 echo "PASS: test-dispatch-fetch.sh"

@@ -159,8 +159,8 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # half-installed tree the documented exit 5 on either shell, the same answer
 # require_resolver gives for the other half of the install.
 echo_safety="$script_dir/echo-safety.sh"
-if [ ! -r "$echo_safety" ]; then
-  echo "allocation-select: echo-discipline sanitizer '$echo_safety' is missing or not readable — broken install" >&2
+if [ ! -f "$echo_safety" ] || [ ! -r "$echo_safety" ]; then
+  printf '%s\n' "allocation-select: echo-discipline sanitizer echo-safety.sh is missing or not readable — broken install" >&2
   exit 5
 fi
 # shellcheck source=scripts/echo-safety.sh
@@ -172,7 +172,7 @@ fi
 # sanitizer above, for the same reason.
 ladder="$script_dir/allocation-ladder.sh"
 if [ ! -r "$ladder" ]; then
-  echo "allocation-select: tier ladder '$ladder' is missing or not readable — broken install" >&2
+  printf '%s\n' "allocation-select: tier ladder '$ladder' is missing or not readable — broken install" >&2
   exit 5
 fi
 # shellcheck source=scripts/allocation-ladder.sh
@@ -227,9 +227,9 @@ STEP_KEYS="implementation polish self-review"
 
 usage() {
   echo "usage: allocation-select.sh resolve <key> <column> | select <key> | list | step-tier <step-type> | list-steps" >&2
-  echo "  keys:       $KEYS" >&2
+  printf '%s\n' "  keys:       $KEYS" >&2
   echo "  columns:    model | effort | command (command: fleet task types only)" >&2
-  echo "  step types: $STEP_KEYS (open set; any unconfigured one resolves to inherit)" >&2
+  printf '%s\n' "  step types: $STEP_KEYS (open set; any unconfigured one resolves to inherit)" >&2
 }
 
 # key_row <key>: 0 with the row parameters set, 1 for an unknown key. The
@@ -301,7 +301,7 @@ col_spec() {
 
 require_resolver() {
   if [ ! -x "$RESOLVER" ]; then
-    echo "allocation-select: shared knob resolver '$RESOLVER' is missing or not executable — broken install" >&2
+    printf '%s\n' "allocation-select: shared knob resolver '$RESOLVER' is missing or not executable — broken install" >&2
     exit 5
   fi
 }
@@ -423,16 +423,16 @@ case "$cmd" in
       exit 2
     fi
     if ! key_row "$1"; then
-      echo "allocation-select: unknown selection key '$(sanitize_printable "$1" "(unprintable key)")' ($KEYS)" >&2
+      printf '%s\n' "allocation-select: unknown selection key '$(sanitize_printable "$1" "(unprintable key)")' ($KEYS)" >&2
       exit 2
     fi
     cs_rc=0
     col_spec "$2" || cs_rc=$?
     if [ "$cs_rc" -eq 2 ]; then
-      echo "allocation-select: unknown column '$(sanitize_printable "$2" "(unprintable column)")' (model | effort | command)" >&2
+      printf '%s\n' "allocation-select: unknown column '$(sanitize_printable "$2" "(unprintable column)")' (model | effort | command)" >&2
       exit 2
     elif [ "$cs_rc" -ne 0 ]; then
-      echo "allocation-select: key '$(sanitize_printable "$1" "(unprintable key)")' does not carry column '$(sanitize_printable "$2" "(unprintable column)")' (command is fleet-only)" >&2
+      printf '%s\n' "allocation-select: key '$(sanitize_printable "$1" "(unprintable key)")' does not carry column '$(sanitize_printable "$2" "(unprintable column)")' (command is fleet-only)" >&2
       exit 2
     fi
     resolve_col "$1" "$2" || exit $?
@@ -444,7 +444,7 @@ case "$cmd" in
       exit 2
     fi
     if ! key_row "$1"; then
-      echo "allocation-select: unknown selection key '$(sanitize_printable "$1" "(unprintable key)")' ($KEYS)" >&2
+      printf '%s\n' "allocation-select: unknown selection key '$(sanitize_printable "$1" "(unprintable key)")' ($KEYS)" >&2
       exit 2
     fi
     emit_row "$1"
