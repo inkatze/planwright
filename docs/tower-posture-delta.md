@@ -66,9 +66,11 @@ static `allow` entry is added.
 - **`rm` of mktemp-named temp files.** Every operand, which may name a file
   that does not exist yet, must be an absolute path with no `.` or `..`
   component, whose name has mktemp's default shape (`tmp.` and at least six
-  letters or digits), whose directory resolves physically to exactly `TMPDIR`,
-  the macOS per-user temp directory, or `/tmp` (never a directory below them;
-  a relative `TMPDIR` names none), and that is not a symlink, a directory, or
+  letters or digits), whose directory is exactly `TMPDIR`, the macOS per-user
+  temp directory, or `/tmp` both as written (in the spelling the hook's
+  environment gives, or its resolved form) and as resolved physically (never
+  a directory below them, never reached through another symlink; a relative
+  `TMPDIR` names none), and that is not a symlink, a directory, or
   another non-regular file. `-f` and `--` are the only flags, and only before
   the first operand (BSD rm reads a later one as a file name). A recursive or
   directory removal, `-i` or `-v`, a relative, tilde, glob, unexpanded-variable, or
@@ -129,8 +131,10 @@ The `gh api` spellings of the merge and the ready flip are the policy guard's
   there, the removal defers to the permission prompt; it is never allowed by
   mistake.
 - **A directory swapped after the check.** The guard checks the operand's
-  directory when the hook runs; a same-user process that replaces it with a
-  symlink before `rm` runs could point the removal elsewhere, and whatever
+  directory when the hook runs, and refuses a written path through a symlink
+  the temp-directory list does not name, so another local account's symlink
+  in `/tmp` is no route; a same-user process that replaces a temp directory
+  with a symlink before `rm` runs could still point the removal elsewhere, and whatever
   entry has the name when `rm` runs goes, a name absent at the check
   included. Only non-directory entries with mktemp-shaped names can be
   unlinked, never followed and never a directory.
