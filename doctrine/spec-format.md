@@ -1338,8 +1338,11 @@ bundle would have to migrate to:
   validity*); and the glossary gains **Spec root** and points the observations
   log at the root (*Glossary*). Sibling specs owning passages this entry
   touches: `tower-front-door` owns `_flights/` and the flight grammar (D-6,
-  D-11), whose meaning is unchanged; `format-grammar`'s amendment of this
-  document landed as the 2026-07-29 entry, and none of its passages moves here.
+  D-11), whose meaning is unchanged; `anchor-integrity` owns the version-1
+  reference frame (D-4, REQ-B1.1), whose tolerance is unchanged in the git
+  postures; `observation-recording` (Done) defined the observations log, whose
+  store now follows the root; `format-grammar`'s amendment of this document
+  landed as the 2026-07-29 entry, and none of its passages moves here.
   **No version bump:** with `spec_root` unset the root is `specs/` and every
   rule reads as before, so every bundle stays conformant. The gate's
   per-posture read and the posture-aware skills land as their own tasks; as
