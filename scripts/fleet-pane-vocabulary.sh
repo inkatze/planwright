@@ -2,9 +2,10 @@
 # fleet-pane-vocabulary.sh — the codified Claude Code TUI marker vocabulary
 # and the footer classifier over it (sourced, never executed) by every pane consumer
 # (fleet-pane-detect.sh, fleet-stuck-detector.sh, orchestrate-relay.sh). This is
-# the SINGLE point a tower updates if the TUI footer or dialog text changes — the whole value of
-# codifying the pane discipline once (fleet-hardening D-3) instead of every
-# consumer re-deriving a fragile heuristic; the platform-rendered surface it
+# the SINGLE point a tower updates if the TUI footer or dialog text changes —
+# the whole value of codifying the pane discipline once (fleet-hardening D-3)
+# instead of every consumer re-deriving a fragile heuristic; the
+# platform-rendered surface it
 # pins is a known fragility (fleet-lifecycle-closure kickoff risk row 2), so
 # the live-CLI rehearsal is what catches a silent divergence, not a fixture.
 #
