@@ -377,9 +377,11 @@ printf 'line one\nline two\nline three\n' >"$multi"
 fake_deliver idle "$idle_pane" "@3" "$multi"
 rc_is idle 0 "deliver to an idle pane"
 grep -q '^staged @3 (#' "$tmp/idle/out" || fail "deliver must report the staged tag, got: $(cat "$tmp/idle/out")"
-tag=$(sed -n 's/^staged @3 (\(#[0-9-]*\)).*/\1/p' "$tmp/idle/out")
-[ -n "$tag" ] || fail "could not read the tag from: $(cat "$tmp/idle/out")"
-printf '%s' "[planwright tower relay -> @3] ($tag) read $multi" >"$tmp/expected-paste.txt"
+tag=$(sed -n 's/^staged @3 (\(#[a-j-]*\)).*/\1/p' "$tmp/idle/out")
+[ -n "$tag" ] || fail "could not read a letters-only tag from: $(cat "$tmp/idle/out")"
+# The tag leads, so it sits at the start of the input box's first row however
+# narrow the pane wraps, and the paste opens with no digit a dialog could take.
+printf '%s' "($tag) [planwright tower relay -> @3] read $multi" >"$tmp/expected-paste.txt"
 cmp -s "$tmp/idle/pasted" "$tmp/expected-paste.txt" \
   || fail "the pasted payload must be exactly the attributed pointer with its tag and no trailing newline, got: $(od -c "$tmp/idle/pasted" | tail -3)"
 grep -q 'line two' "$tmp/idle/pasted" && fail "deliver must never paste the message body"
@@ -445,6 +447,18 @@ pasted_nothing unreadable "deliver over an unreadable pane"
 fake_deliver blank "" "@3" "$msg"
 rc_is blank 0 "deliver to a blank but readable pane"
 echo "ok: deliver refuses a staged placeholder and an unreadable pane, not a blank one"
+
+# 13d2. Refuse while an earlier relay sits unsubmitted in the input box: the
+#       paste has no trailing newline, so a second one would join it on one
+#       line and one Enter would submit both as a garbled path.
+for form in "(#bc-de) [planwright tower relay -> @3] read /tmp/a.txt" \
+  "[planwright tower relay -> @3] (#1-1) read /tmp/a.txt"; do
+  fake_deliver staged-relay "$(printf '%s\n' '────' "❯ $form" '────' '  ⏵⏵ auto mode on')" "@3" "$msg"
+  rc_is staged-relay 3 "deliver over an unsubmitted relay ($form)"
+  pasted_nothing staged-relay "deliver over an unsubmitted relay"
+  grep -q 'unsubmitted relay' "$tmp/staged-relay/err" || fail "the refusal must name the unsubmitted relay: $(cat "$tmp/staged-relay/err")"
+done
+echo "ok: deliver refuses to join an unsubmitted relay in the input box"
 
 # 13e. Delivery is confirmed, never assumed: a paste that never shows its tag
 #      is exit 4, and an earlier relay of the same file still on screen does

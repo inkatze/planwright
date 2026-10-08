@@ -45,9 +45,9 @@
 #       Run the tmux buffer-paste (`load-buffer`/`paste-buffer`) — NEVER a
 #       `send-keys` path (REQ-D1.3: no impersonation of the worker's input) —
 #       refusing first and confirming after, never assuming. The pasted payload
-#       is EXACTLY ONE LINE, a pointer: the attribution header naming the tower
-#       origin and target, a per-delivery `(#<id>)` tag, then `read <absolute
-#       message-file>`. The message body itself is never pasted. Measured on
+#       is EXACTLY ONE LINE, a pointer: a per-delivery `(#<id>)` tag, the
+#       attribution header naming the tower origin and target, then `read
+#       <absolute message-file>`. The message body itself is never pasted. Measured on
 #       Claude Code 2.1.270: a multi-line paste lands in the input box as a
 #       "[Pasted text #N +M lines]" placeholder that nothing submits, and once
 #       the box holds one every later paste is stuck behind it. The line is
@@ -56,12 +56,14 @@
 #       trailing newline either submitted a short line on its own or, for a
 #       long one, left a hidden newline that swallowed the first Enter).
 #       Before pasting it reads the pane and refuses while a selection prompt
-#       is open (a paste would answer that dialog) or a paste placeholder is
-#       staged, using the TUI vocabulary in fleet-pane-vocabulary.sh. After
+#       is open (a paste would answer that dialog), a paste placeholder is
+#       staged, or an earlier relay sits unsubmitted in the input box (this
+#       one would join it on one line), using the TUI vocabulary in
+#       fleet-pane-vocabulary.sh. After
 #       pasting it re-reads the pane until the `(#<id>)` tag shows. Exit 0:
 #       staged and seen. Exit 2: usage, an invalid handle, an unsafe message
-#       file. Exit 3: refused, nothing pasted (dialog open, placeholder staged,
-#       pane unreadable, buffer load failed). Exit 4: the paste ran but the tag
+#       file. Exit 3: refused, nothing pasted (dialog open, placeholder or
+#       relay staged, pane unreadable, buffer load failed). Exit 4: the paste ran but the tag
 #       never showed; observe the pane before any re-send, which would stage a
 #       duplicate. PLANWRIGHT_RELAY_CONFIRM_TRIES (default 5, at most 30) and
 #       PLANWRIGHT_RELAY_CONFIRM_SLEEP (seconds, default 1, at most 5) bound
@@ -212,6 +214,13 @@ pane_tail() {
   printf '%s\n' "$pt_text" | tail -n 24
 }
 
+# staged_relay_present <window-text> — 0 iff an earlier relay sits unsubmitted
+# on the input box's prompt row. Submitted messages leave that row, so a
+# relay header still beside the prompt glyph is one nobody has sent yet.
+staged_relay_present() {
+  printf '%s\n' "$1" | grep -q '❯.*\[planwright tower relay -> '
+}
+
 reject_handle() {
   echo "$me: refusing invalid $1 handle (REQ-B1.7: validated before use)" >&2
   exit 2
@@ -335,15 +344,22 @@ case "$sub" in
       echo "$me: refused, nothing pasted: $handle holds a staged paste placeholder that would block this one" >&2
       exit 3
     fi
+    if staged_relay_present "$before"; then
+      echo "$me: refused, nothing pasted: $handle holds an unsubmitted relay this paste would join onto one line" >&2
+      exit 3
+    fi
     # tmux named buffers are server-global, so a fixed buffer name lets two
     # relays on one server interleave (A load, B load, A paste) and paste the
     # wrong payload to the wrong target. The PID uniquifies it per invocation.
     buf="planwright-relay-$$"
-    # The tag is what the confirmation looks for: short enough to sit on the
-    # input box's first row, and fresh, so an earlier relay of the same file
-    # still on screen cannot pass for this one.
-    tag="#$$-$(date +%s)"
-    if ! printf '%s' "[planwright tower relay -> $handle] ($tag) read $msg_abs" | tmux load-buffer -b "$buf" - 2>/dev/null; then
+    # The tag is what the confirmation looks for. It leads the line so it sits
+    # whole at the start of the input box's first row however narrowly the box
+    # wraps, and it is fresh, so an earlier relay of the same file still on
+    # screen cannot pass for this one. Its digits map to letters: a dialog
+    # that opens between the check above and the paste takes the paste's
+    # first keys, and a digit there would pick a numbered option.
+    tag="#$(printf '%s-%s' "$$" "$(date +%s)" | tr '0-9' 'a-j')"
+    if ! printf '%s' "($tag) [planwright tower relay -> $handle] read $msg_abs" | tmux load-buffer -b "$buf" - 2>/dev/null; then
       echo "$me: refused, nothing pasted: tmux load-buffer failed" >&2
       exit 3
     fi
