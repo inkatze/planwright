@@ -29,12 +29,21 @@ refusal to merge, escalation, walk-away/resume) and per routing case set
 overrides, the kickoff offered and never started, orchestration on an explicit
 go only). See "Tower routing" below.
 
+The **`holder-halt` fixture** is the on-demand scenario for an execution skill
+halting with its spec root outside the work repository (custom-spec-location
+REQ-E1.9): one persona per store posture, a holder repository with its own
+remote and a plain directory. The stand-in halts through `scripts/halt-note.sh`
+as `/execute-task` does there, and the grade asserts the note is an uncommitted
+file in the store, the holder gained no commit, branch, or push, and the
+handoff names the file. `tests/test-behavioral-eval-holder-halt.sh` drives it
+hermetically.
+
 ## Layout
 
 ```text
 tests/behavioral-evals/
   README.md                 this file
-  fixtures/<id>/            one directory per fixture (greeter, kickoff, tower)
+  fixtures/<id>/            one directory per fixture
     fixture.conf            id, skill, personas, turns, anchor, footer_lines
                             (KEY=VALUE, data only)
     skill.sh                the interactive program the harness drives
