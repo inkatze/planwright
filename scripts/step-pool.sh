@@ -20,9 +20,11 @@
 #                the check spawns inherits it, and once that process is gone
 #                the next caller reclaims the slot. A take trusts the pid for
 #                its whole wait: an owner that exits and has its pid taken by
-#                another process of the same user before the acquire passes
-#                every check, and the slot then stays held until that process
-#                exits. Release trusts the pid the same way.
+#                another process of the same user before the acquire, or
+#                within the few seconds after it the lock library's
+#                start-time check allows, passes every check, and the slot
+#                then stays held until that process exits. Release trusts the
+#                pid the same way.
 #
 # SLOTS. A pool of capacity N is the lock-lib locks slot-1 .. slot-N under
 # <root>/<pool>/, <root> being $XDG_STATE_HOME/planwright/step-pools, else
