@@ -99,6 +99,10 @@ before defer, in code the two guards share:
   them where bash leaves text.
 - **A NUL byte in the command.** The hook's command substitution drops it, so
   the guard would screen other text than the shell runs.
+- **A named-fd redirect.** A `{name}` brace word written directly before a
+  redirect operator is not an operand: bash and zsh open a descriptor and
+  assign its number to that shell variable, so what runs after it sees a value
+  the guard never checked.
 
 ## The deny delta
 

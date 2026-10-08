@@ -66,11 +66,11 @@
 # guard_mktemp and guard_rm excepted), and it uses no construct the analyzer cannot
 # confidently parse (command/process substitution, here-docs, subshell/brace
 # grouping, env-assignment prefixes, path-prefixed verbs, escaped operators,
-# ANSI-C quoting, shell comments) — all of which defer, as does any other
-# expansion left in a verb or in an operand a screen reads (a `for` variable
-# over plain-literal head words is resolved; see loop_header). planwright
-# `scripts/*.sh` are trusted repo/plugin code but only after their path
-# canonicalizes INSIDE the repo checkout's or the installed plugin's
+# ANSI-C quoting, shell comments, named-fd redirects) — all of which defer, as
+# does any other expansion left in a verb or in an operand a screen reads (a
+# `for` variable over plain-literal head words is resolved; see loop_header).
+# planwright `scripts/*.sh` are trusted repo/plugin code but only after their
+# path canonicalizes INSIDE the repo checkout's or the installed plugin's
 # `scripts/` directory.
 #
 # Portable bash (3.2 floor / BSD compatible), no dependency on python, fish,
@@ -123,7 +123,8 @@ emit_allow() {
 # operator, possibly with an fd-number prefix). Returns non-zero (DEFER) the
 # instant it meets a construct it will not analyze: unbalanced quotes,
 # command/process substitution, backtick substitution, ANSI-C `$'…'`, a
-# backslash line-continuation or escaped operator/quote, or a shell comment.
+# backslash line-continuation or escaped operator/quote, a shell comment, or a
+# named-fd redirect.
 # It never executes or expands anything it scans. A W token also records
 # whether it carries a LITERAL `$` (single quotes or a backslash), an
 # EXPANDING `$` (1 inside double quotes, 2 unquoted), and an unquoted glob,
@@ -196,6 +197,17 @@ tokenize() {
       brc=0
       brs=0
     fi
+  }
+
+  # named_fd_word: 0 when the word built up to a redirect is a `{name}`
+  # brace word, which bash and zsh read as a named-fd redirect that assigns
+  # that shell variable, not as an operand.
+  named_fd_word() {
+    [ "$have" = 1 ] || return 1
+    case $cur in
+      '{'*'}') return 0 ;;
+    esac
+    return 1
   }
 
   while [ "$i" -lt "$n" ]; do
@@ -290,8 +302,9 @@ tokenize() {
         fi
         ;;
       '&')
-        _flush
         nc=${s:i+1:1}
+        [ "$nc" = '>' ] && named_fd_word && return 1
+        _flush
         if [ "$nc" = '&' ]; then
           tok_push O '&&'
           i=$((i + 2))
@@ -326,6 +339,7 @@ tokenize() {
         # A pure-digit run built up to here with no intervening space is the
         # fd number of this redirect (e.g. the 2 in 2>&1), not a word.
         fdpfx=''
+        named_fd_word && return 1
         if [ "$have" = 1 ]; then
           case $cur in
             '' | *[!0-9]*) tok_push W "$cur" "$curq" "$curx" -1 "$curd" "$curg" ;;

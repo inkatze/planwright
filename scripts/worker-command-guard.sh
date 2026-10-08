@@ -42,7 +42,8 @@
 # or arbitrary execution (REQ-A1.8), and (c) it uses no construct the analyzer
 # cannot confidently parse — command/process substitution, here-docs, subshell
 # or brace grouping, env-assignment prefixes, path-prefixed verbs, escaped
-# operators, ANSI-C quoting, shell comments — all of which defer (REQ-A1.9).
+# operators, ANSI-C quoting, shell comments, named-fd redirects — all of which
+# defer (REQ-A1.9).
 # The expansions the analyzer resolves itself are a variable the same command
 # assigned a literal, trusted-root path to (`P=/root && $P/scripts/x.sh`; see
 # track_assignment and expand_word) and a `for` variable over plain-literal
@@ -116,8 +117,8 @@ emit_allow() {
 # fd-number prefix). Returns non-zero (DEFER) the instant it meets a construct
 # it will not analyze: unbalanced quotes, command/process substitution, backtick
 # substitution, ANSI-C `$'…'`, a backslash line-continuation or escaped
-# operator/quote, or a shell comment. It never executes or expands anything it
-# scans.
+# operator/quote, a shell comment, or a named-fd redirect. It never executes or
+# expands anything it scans.
 # tok_push <type> <value> [quoted]: the optional third arg records whether a W
 # token was built from any quoting or backslash-escaping (1) or is a bare,
 # unquoted literal (0, the default for operators and plain words). classify of a
@@ -212,6 +213,17 @@ tokenize() {
     curq=1
   }
 
+  # named_fd_word: 0 when the word built up to a redirect is a `{name}`
+  # brace word, which bash and zsh read as a named-fd redirect that assigns
+  # that shell variable, not as an operand.
+  named_fd_word() {
+    [ "$have" = 1 ] || return 1
+    case $cur in
+      '{'*'}') return 0 ;;
+    esac
+    return 1
+  }
+
   while [ "$i" -lt "$n" ]; do
     c=${s:i:1}
     case $c in
@@ -304,8 +316,9 @@ tokenize() {
         fi
         ;;
       '&')
-        _flush
         nc=${s:i+1:1}
+        [ "$nc" = '>' ] && named_fd_word && return 1
+        _flush
         if [ "$nc" = '&' ]; then
           tok_push O '&&'
           i=$((i + 2))
@@ -340,6 +353,7 @@ tokenize() {
         # A pure-digit run built up to here with no intervening space is the
         # fd number of this redirect (e.g. the 2 in 2>&1), not a word.
         fdpfx=''
+        named_fd_word && return 1
         if [ "$have" = 1 ]; then
           # A quoted digit run is a word (bash only reads an UNQUOTED digit run
           # as this redirect's fd number), so an fd prefix is bare digits only.
