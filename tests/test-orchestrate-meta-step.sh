@@ -69,7 +69,7 @@ cleanup() {
     case $p in *[!0-9]* | '') continue ;; esac
     # A pid file can outlive its process, and the pid be reused: signal only
     # a process whose command line names this run's directory.
-    case $(ps -o args= -p "$p" 2>/dev/null) in
+    case $(ps -ww -o args= -p "$p" 2>/dev/null) in
       *"$tmp"*) kill -9 "$p" 2>/dev/null ;;
     esac
   done
