@@ -1185,9 +1185,12 @@ Concurrent towers and workers stay safe by a strict
 [division of labor](../doctrine/inter-orchestrator-coordination.md): a tower
 owns the ledger reconcile, dispatch, and merged-worker cleanup; a worker owns
 its own branch — its conflict resolution, its post-merge sync. No tower ever
-edits another tower's or worker's branch state. Messages *into* a live worker
-go through the attributed relay: clearly marked as tower-origin, delivered by
-a paste mechanism that cannot be mistaken for the worker typing, and **never**
+edits another tower's or worker's branch state. A tower messages a Claude Code
+session its `ListAgents` tool lists with `SendMessage`, which queues the
+message while that session is mid-turn and never touches its input box. Any
+other live worker gets the attributed relay: clearly marked as tower-origin,
+delivered by a paste mechanism that cannot be mistaken for the worker typing,
+and **never**
 answering a worker's harness permission prompt on the tower's own judgment —
 a worker's authorization gate belongs to you at every tier. The one answer a
 tower records there is yours: a standing decision you wrote that the prompt
@@ -1215,6 +1218,14 @@ paste: a tower partway through closing still passes, and a pane capture
 carries no colour, so it cannot tell a dimmed prompt suggestion from typed
 input. When there is any doubt which session is the live one, ask the operator
 to name the target.
+
+**The relay refuses an open dialog and confirms what it pasted.** The command
+`relay-command` emits runs the script's own `deliver` step. It reads the
+target pane first and pastes nothing (exit 3) while a selection prompt is
+open, because a paste would answer it, or while a `[Pasted text]` placeholder
+sits staged. After pasting it waits for the paste's fresh `(#<id>)` tag to
+show in the pane and exits 4 if it never does: observe the pane before any
+re-send, which would stage a duplicate.
 
 **A paste stages; one Enter submits it.** The tmux relay loads its pointer
 line with no trailing newline, so the paste never submits itself and a single

@@ -289,6 +289,13 @@ tower declines the relay and hands the operator the command to run in an
 attached session; it never falls back to a subagent. It reports the worker's
 handle and observe hint; after that it only answers status, below.
 
+**Messaging another session.** To reach a Claude Code session on this machine
+(an orchestrator, a drafting session, a worker), the tower sends it
+`SendMessage` when `ListAgents` lists it; only an unlisted target takes the
+pane relay, `scripts/orchestrate-relay.sh relay-command`
+(`inter-orchestrator-coordination`). It never types or pastes into a pane by
+hand.
+
 ## Status on demand (REQ-A1.5)
 
 The tower answers status on all planwright work, spec-mode included, from
