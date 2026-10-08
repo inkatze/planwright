@@ -1,0 +1,17 @@
+# planwright repo-tracked steps catalog (team-shared, committed): the steps
+# this repository's .claude/planwright.yml point lists name, merged over the
+# core seed (config/steps.yaml) by scripts/resolve-catalog.sh. Same
+# constrained reader as the seed: list items at two-space and fields at
+# four-space indentation, single-line scalars, no single quotes, no inline
+# comments. doctrine/custom-steps.md owns the entry contract.
+#
+# A machine-local catalog defining the same id keeps the definition here; the
+# two are meant to agree.
+
+steps:
+  # Holds post-PR fix rounds to targeted checks. Hosted in-session so the rule
+  # reaches the session that runs the review fix rounds.
+  - id: fix-round-cadence
+    kind: prompt
+    target: "For every fix round after the PR exists, run only the targeted tests and lint for what changed; CI on the PR head is the gate of record; do not run the full local gate."
+    hosting: in-session

@@ -47,3 +47,18 @@ dispatch_isolation: per-step
 # custom-steps point (custom-steps kickoff brief risk 17); the same `raise|`
 # line records why.
 instruction_budget_closure_error: 23967
+
+# Every full local suite /execute-task runs on a host takes the one slot of the
+# shared `gate` pool, so parallel units and worktrees run the suite one at a
+# time instead of contending for the machine. A queued suite waits up to
+# step_pool_wait (config/defaults.yml) before its run starts, so queue time
+# never eats the run's own timeout. An operator's hand-run gate joins the same
+# pool through the recipe in docs/overlays.md.
+full_suite_pool: gate
+step_pool_capacity_gate: 1
+
+# After the draft PR exists, review fix rounds run targeted tests and lint
+# only; CI on the PR head is the gate of record. The step lives in
+# .claude/catalogs/steps.yaml. No convergence-point prompt step: a prompt step
+# there refuses every flight dispatch (flights run skill steps only).
+steps_post_pr: [fix-round-cadence]
