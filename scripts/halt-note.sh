@@ -141,8 +141,9 @@ tmp=$(mktemp "$root/$spec/.tasks.md.halt.XXXXXX" 2>/dev/null) || {
 trap 'rm -f "$tmp"' EXIT
 
 # The rewrite: fence-aware, CRLF-tolerant matching, every line kept verbatim
-# except the target section's placeholder or the task's own bullet.
-awk -v id="$id" -v heading="$heading" -v text="$text" -v append="$section" '
+# except the target section's placeholder or the task's own bullet. The text
+# rides the environment: `awk -v` would turn a backslash in it into an escape.
+HALT_NOTE_TEXT=$text awk -v id="$id" -v heading="$heading" -v section="$section" '
   function norm(s) { sub(/\r$/, "", s); return s }
   function payload(s) { return s == "Awaiting input" || s == "Deferred" || s == "Out of scope" }
   # Blank lines inside the target section are held back, so a new bullet
@@ -150,7 +151,7 @@ awk -v id="$id" -v heading="$heading" -v text="$text" -v append="$section" '
   # next heading.
   function flush() { for (i = 1; i <= nblank; i++) print blank[i]; nblank = 0 }
   function emit_new() { print "- **Task " id "** — " text; done = 1 }
-  BEGIN { lead = "- **Task " id "**" }
+  BEGIN { lead = "- **Task " id "**"; text = ENVIRON["HALT_NOTE_TEXT"] }
   {
     raw = $0
     l = norm(raw)
@@ -176,7 +177,7 @@ awk -v id="$id" -v heading="$heading" -v text="$text" -v append="$section" '
     if (tasks && l ~ /^### Task / && $3 == id) hasblock = 1
     if (payload(sec) && index(l, lead) == 1) {
       if (!insec) { other = 1 }
-      else if (append == "awaiting" && !done) { print l "; " text; done = 1; next }
+      else if (section == "awaiting" && !done) { print l "; " text; done = 1; next }
       else { dup = 1 }
     }
     if (insec && !done && l ~ /^\(none yet\)[ \t]*$/) { emit_new(); next }

@@ -177,6 +177,15 @@ if [ "$rc" -eq 2 ]; then
 else
   fail "holder: a multi-line text (rc=$rc): $out"
 fi
+# A backslash is text, never an escape: `\n` must not split the bullet.
+gitq -C "$h" checkout -q -- specs/demo/tasks.md
+note "$w" demo 1 'see C:\new\table and \\ here'
+if [ "$rc" -eq 0 ] && grep -qxF -- '- **Task 1** — see C:\new\table and \\ here' "$z/demo/tasks.md"; then
+  ok "holder: a backslash in the text lands verbatim on one line"
+else
+  fail "holder: a backslash in the text (rc=$rc): $(section "$z/demo/tasks.md" "Awaiting input" Deferred)"
+fi
+gitq -C "$h" checkout -q -- specs/demo/tasks.md
 
 # Deferred, on a fresh bundle.
 gitq -C "$h" checkout -q -- specs/demo/tasks.md
