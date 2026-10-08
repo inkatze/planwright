@@ -393,7 +393,16 @@ leaks_in() {
       # The operands of a network command are hosts whatever their suffix:
       # strip a scheme, a user, and a path or port, then judge the name.
       # Separators stay tokens: each command segment starts with the flag off.
+      # One inside a quoted argument separates nothing, so it is blanked first.
       t = $0
+      u = ""
+      while (match(t, /'\''[^'\'']*'\''|"[^"]*"/)) {
+        q = substr(t, RSTART, RLENGTH)
+        gsub(/[;|&]/, " ", q)
+        u = u substr(t, 1, RSTART - 1) q
+        t = substr(t, RSTART + RLENGTH)
+      }
+      t = u t
       gsub(/[;|&]+/, " ; ", t)
       n = split(t, w, /[ \t]+/)
       net = 0
@@ -430,7 +439,8 @@ printf '%s\n' '# a comment naming /home/someone/x' 'ls /opt/thing' 'cd ~user/x' 
   'curl https://buildhost/x' 'gh api repos/acme/tool' 'gh pr view 5 --repo acme/tool' \
   'gh pr list -R acme/tool' 'gh pr view 5 -Racme/tool' 'git clone git@buildhost:acme/tool' \
   'ping 10.1.2.3' "TOKEN=gh""p_$pad" "PAT=github""_pat_$pad" "KEY=s""k-ant-$pad" \
-  "S=xo""xb-$pad" "K=AK""IAABCDEFGHIJKLMNOP" 'ssh -p 2222 worker.example.edu' >"$leaky"
+  "S=xo""xb-$pad" "K=AK""IAABCDEFGHIJKLMNOP" 'ssh -p 2222 worker.example.edu' \
+  "curl -H 'X: a|b' worker.example.edu" >"$leaky"
 missed=
 while IFS= read -r l; do
   printf '%s\n' "$l" >"$SANDBOX/one.tsv"
