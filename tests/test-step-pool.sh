@@ -78,7 +78,7 @@ tracked="$repo/.claude/planwright.yml"
 sp() {
   (
     cd "$repo" || exit 99
-    unset PLANWRIGHT_STEP_POOL_HOLD
+    unset PLANWRIGHT_STEP_POOL_HOLD PLANWRIGHT_CONFIG_STRICT_OVERLAYS PLANWRIGHT_ROOT PLANWRIGHT_REPO_ROOT_CHECKED
     while [ "$#" -gt 0 ] && [ "$1" != -- ]; do
       export "${1?}"
       shift
@@ -90,6 +90,43 @@ sp() {
       PLANWRIGHT_LOCAL_CONFIG="" \
       PLANWRIGHT_STEP_POOL_ROOT="$pools" \
       "$SP" "$@"
+  )
+}
+
+# pool_in <checkout> <pools root or ''> <verb> <args>... — run the helper from
+# <checkout> as its repository, the pools root left to the default chain under
+# a fixture XDG_STATE_HOME when none is given.
+pool_in() {
+  (
+    cd "$1" || exit 99
+    unset PLANWRIGHT_STEP_POOL_HOLD PLANWRIGHT_STEP_POOL_ROOT PLANWRIGHT_CONFIG_STRICT_OVERLAYS PLANWRIGHT_ROOT \
+      PLANWRIGHT_REPO_ROOT_CHECKED
+    _pi_repo=$1
+    _pi_root=$2
+    shift 2
+    if [ -n "$_pi_root" ]; then
+      set -- env "PLANWRIGHT_STEP_POOL_ROOT=$_pi_root" "$SP" "$@"
+    else
+      set -- "$SP" "$@"
+    fi
+    XDG_STATE_HOME="$tmp/xdg" \
+      PLANWRIGHT_CONFIG_DEFAULTS="$DEFAULTS" \
+      PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
+      PLANWRIGHT_REPO_ROOT="$_pi_repo" \
+      PLANWRIGHT_LOCAL_CONFIG="" \
+      "$@"
+  )
+}
+
+# as_owner <script> [<arg>...] — run <script> under `sh -c` with the fixture
+# layers exported, so the script's own shell can take a slot for itself.
+as_owner() {
+  (
+    cd "$repo" || exit 99
+    unset PLANWRIGHT_STEP_POOL_HOLD PLANWRIGHT_CONFIG_STRICT_OVERLAYS PLANWRIGHT_ROOT PLANWRIGHT_REPO_ROOT_CHECKED
+    export PLANWRIGHT_CONFIG_DEFAULTS="$DEFAULTS" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
+      PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" PLANWRIGHT_STEP_POOL_ROOT="$pools"
+    sh -c "$@"
   )
 }
 
@@ -142,22 +179,16 @@ rc=$?
 verdict "at capacity one the second caller's wait expires" "second take: rc=$rc out='$out'"
 
 # --- REQ-I1.4: the waiter names the live holder, at the start and at expiry -----
-grep -q "waiting.*pid $a.*step build.*worktree $repo" "$tmp/err"
+grep -F "waiting up to" "$tmp/err" | grep -qF "pid $a (step build, worktree $repo)"
 verdict "the wait reports the holder's pid, step, and worktree at its start" \
   "start-of-wait report:" "$tmp/err"
 grep -q "passed its 1s bound.*pid $a" "$tmp/err"
 verdict "the expired wait names the holder" "expiry report:" "$tmp/err"
-printf '%s\n' "$out" | grep -qx "holder${TAB}1${TAB}$a${TAB}build${TAB}$repo"
+printf '%s\n' "$out" | grep -qxF "holder${TAB}1${TAB}$a${TAB}build${TAB}$repo"
 verdict "the expired take lists the holder on stdout" "expired stdout: '$out'"
 out=$(sp -- report serial)
 [ "$out" = "holder${TAB}1${TAB}$a${TAB}build${TAB}$repo" ]
 verdict "report lists the live holder" "report: '$out'"
-
-# --- REQ-I1.1: a slot shared by callers in two different checkouts ---------------
-# The second caller ran from another checkout (its own --worktree) against the
-# same per-user pool and waited on the first one's slot.
-grep -q "worktree $repo" "$tmp/err"
-verdict "a caller in another checkout waits on the same slot" "other checkout:" "$tmp/err"
 
 # --- release: only the owner's release frees the slot ---------------------------
 out=$(sp -- release serial "$b")
@@ -171,6 +202,25 @@ out=$(sp -- take serial "$b" --step lint)
 verdict "the waiter then takes the freed slot" "take after release: '$out'"
 sp -- release serial "$b" >/dev/null
 
+# --- REQ-I1.1: a slot shared by callers in two different checkouts ---------------
+# Both callers use the default per-user root, each from its own checkout, and
+# each records its git top level as its worktree.
+reset
+rm -rf "$tmp/xdg"
+printf 'step_pool_wait: 1s\n' >"$mlocal"
+printf 'step_pool_wait: 1s\n' >"$other/.claude/planwright.local.yml"
+a=$(owner)
+b=$(owner)
+o1=$(pool_in "$repo" '' take shared "$a" --step build)
+o2=$(pool_in "$other" '' take shared "$b" 2>"$tmp/err")
+rc=$?
+held=$(pool_in "$other" '' report shared)
+[ "$o1" = "taken${TAB}1${TAB}0" ] && [ "$rc" -eq 3 ] && [ -L "$tmp/xdg/planwright/step-pools/shared/slot-1" ] \
+  && [ "$held" = "holder${TAB}1${TAB}$a${TAB}build${TAB}$repo" ]
+verdict "a caller in another checkout waits on the same per-user slot" \
+  "other checkout: '$o1' rc=$rc report='$held'" "$tmp/err"
+rm -f "$other/.claude/planwright.local.yml"
+
 # --- REQ-I1.3: a per-pool override admits two; hyphens become underscores ------
 reset
 printf 'step_pool_wait: 1s\nstep_pool_capacity_wide_pool: 2\n' >"$mlocal"
@@ -183,8 +233,11 @@ o2=$(sp -- take wide-pool "$b")
 verdict "a per-pool capacity of two admits two callers" "wide: '$o1' '$o2'"
 sp -- take wide-pool "$c" --waited 1 >/dev/null 2>&1
 check $(($? == 3 ? 0 : 1)) "the third caller waits past the override" "a third caller was admitted"
-sp -- take serial "$c" >/dev/null 2>&1
-verdict "another pool keeps the shared capacity" "pool 'serial' did not admit its first caller"
+o1=$(sp -- take serial "$c" 2>/dev/null)
+sp -- take serial "$a" --waited 1 >/dev/null 2>&1
+rc=$?
+[ "$o1" = "taken${TAB}1${TAB}0" ] && [ "$rc" -eq 3 ]
+verdict "another pool keeps the shared capacity of one" "pool 'serial': '$o1' then rc=$rc"
 out=$(sp -- report wide-pool | sort)
 printf '%s\n' "$out" | grep -q "${TAB}(full-suite)${TAB}"
 verdict "a take naming no step records the full-suite marker" "report: '$out'"
@@ -246,9 +299,9 @@ printf 'step_pool_wait: soon\n' >"$mlocal"
 a=$(owner)
 b=$(owner)
 sp -- take w "$a" >/dev/null 2>&1
-out=$(sp -- take w "$b" --for 1 2>"$tmp/err")
+out=$(sp -- take w "$b" --waited 3600 2>"$tmp/err")
 rc=$?
-[ "$rc" -eq 4 ] && grep -q 'step_pool_wait' "$tmp/err" && grep -q 'up to 3600s' "$tmp/err"
+[ "$rc" -eq 3 ] && grep -q 'step_pool_wait' "$tmp/err" && grep -q 'passed its 3600s bound' "$tmp/err"
 verdict "a malformed wait falls back to 60m with a warning" "malformed wait: rc=$rc /" "$tmp/err"
 [ "$(grep -c 'step_pool_wait' "$tmp/err")" -eq 1 ]
 verdict "the wait fallback costs one warning" "warnings:" "$tmp/err"
@@ -257,9 +310,9 @@ printf 'step_pool_wait: soon\n' >"$tracked"
 a=$(owner)
 b=$(owner)
 sp -- take w "$a" >/dev/null 2>&1
-sp -- take w "$b" --for 1 >/dev/null 2>"$tmp/err"
+sp -- take w "$b" --waited 3600 >/dev/null 2>"$tmp/err"
 rc=$?
-[ "$rc" -eq 4 ] && grep -q 'repo-tracked layer sets step_pool_wait' "$tmp/err" && grep -q 'up to 3600s' "$tmp/err" \
+[ "$rc" -eq 3 ] && grep -q 'repo-tracked layer sets step_pool_wait' "$tmp/err" && grep -q 'passed its 3600s bound' "$tmp/err" \
   && [ "$(grep -c 'step_pool_wait' "$tmp/err")" -eq 1 ]
 verdict "a malformed repo-tracked wait falls back too, with one warning" "tracked wait: rc=$rc /" "$tmp/err"
 
@@ -283,9 +336,10 @@ rc=$?
 [ "$rc" -eq 4 ] && printf '%s\n' "$out" | grep -q "^waiting${TAB}-${TAB}[1-9]"
 verdict "a call capped by --for returns waiting with its seconds" "capped call: rc=$rc out='$out'"
 w1=$(printf '%s\n' "$out" | cut -f 3)
-sp -- take sum "$b" --waited "$w1" --for 1 >/dev/null 2>"$tmp/err2"
-! grep -q 'waiting up to' "$tmp/err2"
-verdict "a continuing call does not repeat the start-of-wait report" "continuation:" "$tmp/err2"
+out=$(sp -- take sum "$b" --waited "$w1" --for 1 2>"$tmp/err2")
+rc=$?
+[ "$rc" -eq 4 ] && printf '%s\n' "$out" | grep -q "^waiting${TAB}-${TAB}" && ! grep -q 'waiting up to' "$tmp/err2"
+verdict "a continuing call does not repeat the start-of-wait report" "continuation: rc=$rc out='$out'" "$tmp/err2"
 out=$(sp -- take sum "$b" --waited 3 --for 1 2>/dev/null)
 rc=$?
 [ "$rc" -eq 3 ]
@@ -330,27 +384,23 @@ verdict "a waiter reclaims a holder that dies during its wait" "mid-wait reclaim
 # --- REQ-I1.1: a slot is reclaimed after its owner exits normally ---------------
 reset
 printf 'step_pool_wait: 1s\n' >"$mlocal"
-sleep 1 &
-short=$!
 b=$(owner)
-sp -- take exit "$short" >/dev/null
-wait "$short"
+as_owner '"$1" take exit "$$" >"$2"' sh "$SP" "$tmp/took"
+took=$(cat "$tmp/took")
 out=$(sp -- take exit "$b")
-[ "$out" = "taken${TAB}1${TAB}0" ]
-verdict "a slot is reclaimed after its owner process exits" "after exit: '$out'"
+[ "$took" = "taken${TAB}1${TAB}0" ] && [ "$out" = "taken${TAB}1${TAB}0" ]
+verdict "a slot is reclaimed after its owner process exits" "after exit: took='$took' out='$out'"
 
 # --- REQ-I1.2: a child that outlives its owner does not keep the slot -----------
 reset
 printf 'step_pool_wait: 1s\n' >"$mlocal"
-sh -c 'sleep 120 >/dev/null 2>&1 & echo $! >"$1"; sleep 1' sh "$tmp/child" &
-parent=$!
 b=$(owner)
-sp -- take leak "$parent" >/dev/null
-wait "$parent"
+as_owner '"$1" take leak "$$" >"$2"; sleep 120 >/dev/null 2>&1 & echo $! >"$3"' sh "$SP" "$tmp/took" "$tmp/child"
+took=$(cat "$tmp/took")
 child=$(cat "$tmp/child")
 printf '%s\n' "$child" >>"$owners"
-kill -0 "$child" 2>/dev/null
-verdict "the fixture child outlives its owner" "the child exited with its owner"
+[ "$took" = "taken${TAB}1${TAB}0" ] && kill -0 "$child" 2>/dev/null
+verdict "the fixture owner took the slot and its child outlives it" "took='$took', or the child exited with its owner"
 out=$(sp -- take leak "$b")
 [ "$out" = "taken${TAB}1${TAB}0" ]
 verdict "a leaked child does not keep its owner's slot" "leaked child: '$out'"
@@ -408,16 +458,12 @@ verdict "a take stopped by TERM exits 143 and removes its scratch file" "TERM: r
 reset
 printf 'step_pool_wait: 1s\n' >"$mlocal"
 b=$(owner)
-(
-  cd "$repo" || exit 99
-  PLANWRIGHT_CONFIG_DEFAULTS="$DEFAULTS" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
-    PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" PLANWRIGHT_STEP_POOL_ROOT="$pools" \
-    sh -c '"$1" take nz "$$" >/dev/null || exit 9
-      PLANWRIGHT_STEP_POOL_HOLD="nz:$$" sh -c "exit 7"
-      rc=$?
-      "$1" release nz "$$" >/dev/null
-      exit "$rc"' sh "$SP"
-)
+as_owner '"$1" take nz "$$" >/dev/null || exit 9
+  PLANWRIGHT_STEP_POOL_HOLD="nz:$$" sh -c "exit 7"
+  rc=$?
+  [ "$("$1" release nz "$$")" = "$(printf "released\t1")" ] || exit 8
+  [ -z "$("$1" report nz)" ] || exit 8
+  exit "$rc"' sh "$SP"
 rc=$?
 out=$(sp -- take nz "$b")
 [ "$rc" -eq 7 ] && [ "$out" = "taken${TAB}1${TAB}0" ]
@@ -455,6 +501,14 @@ for m in "mark:$dead" "other:$a" "mark:abc" "Mark:$a" "mark:0$a" "mark" "mark:$a
   check $(($? == 3 ? 0 : 1)) "a mark '$m' is ignored and the caller waits" "mark '$m' admitted the caller"
 done
 
+d=$(owner)
+e=$(owner)
+sp -- take heldmark "$d" >/dev/null
+kill_owner "$d"
+out=$(sp "PLANWRIGHT_STEP_POOL_HOLD=heldmark:$d" -- take heldmark "$e")
+[ "$out" = "taken${TAB}1${TAB}0" ]
+verdict "a mark naming a holder that has since died is ignored" "dead holder's mark: '$out'"
+
 # --- REQ-I1.2: an unusable pool runs unpooled, naming the cause -----------------
 reset
 printf 'step_pool_wait: 1s\n' >"$mlocal"
@@ -481,14 +535,15 @@ rm -f "$pools"
 
 stub="$tmp/stub"
 mkdir -p "$stub"
-real_id=$(command -v id)
-printf '#!/bin/sh\nif [ "$1" = -u ]; then echo 4242424; exit 0; fi\nexec %s "$@"\n' "$real_id" >"$stub/id"
-chmod +x "$stub/id"
+real_ls=$(command -v ls)
+printf '#!/bin/sh\nif [ "$*" = "-ldn %s" ]; then echo "drwx------ 2 4242424 0 64 Jan 1 00:00 %s"; exit 0; fi\nexec %s "$@"\n' \
+  "$pools/foreign" "$pools/foreign" "$real_ls" >"$stub/ls"
+chmod +x "$stub/ls"
 sp -- take foreign "$a" >/dev/null 2>&1
 sp -- release foreign "$a" >/dev/null 2>&1
 out=$(sp "PATH=$stub:$PATH" -- take foreign "$a" 2>"$tmp/err")
 rc=$?
-[ "$rc" -eq 0 ] && [ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -q 'not owned' "$tmp/err"
+[ "$rc" -eq 0 ] && [ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -qF "$pools/foreign is not owned" "$tmp/err"
 verdict "a pool directory another user owns runs unpooled" "foreign: rc=$rc out='$out'" "$tmp/err"
 
 mkdir -p "$pools/squat/slot-1"
@@ -512,6 +567,34 @@ rc=$?
   && [ "$(grep -c . "$tmp/err")" -eq 1 ]
 verdict "a take that cannot create its scratch file runs unpooled with one warning" \
   "take without TMPDIR: rc=$rc out='$out'" "$tmp/err"
+
+# --- release and report: --slot, several slots, stale holder files, no pool -----
+reset
+printf 'step_pool_wait: 1s\nstep_pool_capacity_multi: 2\n' >"$mlocal"
+a=$(owner)
+o1=$(sp -- take multi "$a")
+o2=$(sp -- take multi "$a")
+[ "$o1" = "taken${TAB}1${TAB}0" ] && [ "$o2" = "taken${TAB}2${TAB}0" ]
+verdict "an owner may hold two slots of a pool of two" "multi: '$o1' '$o2'"
+sp -- release multi "$a" >/dev/null 2>&1
+check $(($? == 2 ? 0 : 1)) "a release by an owner of several slots names none and is refused" \
+  "a release freed one of several slots unnamed"
+printf 'stale-token\tother\t/elsewhere\n' >"$pools/multi/holder-1"
+out=$(sp -- report multi)
+printf '%s\n' "$out" | grep -qxF "holder${TAB}1${TAB}$a${TAB}?${TAB}?"
+verdict "a holder file whose token is not the slot's reads as unknown" "report: '$out'"
+out=$(sp -- release multi "$a" --slot 2)
+[ "$out" = "released${TAB}2" ] && [ "$(sp -- report multi | cut -f 2)" = 1 ]
+verdict "release --slot frees only the named slot" "release --slot: '$out'"
+out=$(sp -- report never)
+rc=$?
+o2=$(sp -- release never "$a")
+[ "$rc" -eq 0 ] && [ -z "$out" ] && [ "$o2" = none ] && [ ! -e "$pools/never" ]
+verdict "report and release on an absent pool print nothing and none, creating nothing" \
+  "absent pool: rc=$rc report='$out' release='$o2'"
+out=$(pool_in "$repo" relative/root take rel "$a" 2>"$tmp/err")
+[ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -q 'must be an absolute path' "$tmp/err"
+verdict "a relative pools root runs unpooled naming the cause" "relative root: '$out'" "$tmp/err"
 
 # --- REQ-I1.6: no verb executes a command it is given ---------------------------
 reset
@@ -537,7 +620,7 @@ check $(($? == 2 ? 0 : 1)) "a take for an owner that is not running is refused" 
 verdict "no fixture command ran" "the marker exists"
 
 # --- REQ-I1.2: the helper sits on the shared primitive --------------------------
-grep -q '^[[:space:]]*# shellcheck source=scripts/lock-lib\.sh$' "$SP"
+grep -qF '. "$script_dir/lock-lib.sh"' "$SP"
 verdict "the helper sources the lock library" "scripts/step-pool.sh does not source lock-lib.sh"
 grep -q '^#   scripts/step-pool.sh' "$repo_root/scripts/lock-lib.sh"
 verdict "the lock-holder list names the helper" "lock-lib.sh's holder list omits scripts/step-pool.sh"
