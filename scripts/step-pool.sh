@@ -116,8 +116,9 @@
 #
 # Exit 2 is a usage error (an unknown verb or option, an extra argument, a
 # malformed pool, pid, step, worktree, or count, an owner that is not running
-# or is another user's process, or, from take, an owner that stops running
-# during the wait) or, from take, a taken line that could not be written (the
+# or is another user's process, or, from take, an owner found gone or
+# another user's in a wait round or after the acquire, a slot then given
+# back) or, from take, a taken line that could not be written (the
 # slot is then given back) or, from release, an owner holding several slots
 # without --slot or a slot that could not be freed.
 set -u
@@ -196,6 +197,32 @@ pid_running() {
   esac
   ps -p "$1" >/dev/null 2>&1
 }
+# owner_check — 0 the owner runs as the running user; 1 it is gone; 2 it is
+# another user's process; 3 its user cannot be read. Asked again during the
+# wait and after the acquire, because an owner that exits can have its pid
+# reused by another user's process, which pid_running alone still reads as the
+# owner and which never exits on this user's behalf.
+owner_check() {
+  pid_running "$owner" || return 1
+  _oc_uid=$(ps -o uid= -p "$owner" 2>/dev/null | tr -d ' ') || _oc_uid=''
+  if [ -z "$_oc_uid" ]; then
+    pid_running "$owner" || return 1
+    return 3
+  fi
+  [ -z "$me" ] || [ "$_oc_uid" = "$me" ] || return 2
+  return 0
+}
+# owner_or_refuse — refuse an owner that is gone or another user's; return
+# owner_check's status otherwise.
+owner_or_refuse() {
+  owner_check
+  _oor=$?
+  case $_oor in
+    1) refuse "owner $owner is not running" ;;
+    2) refuse "owner $owner is not a process of the running user" ;;
+  esac
+  return "$_oor"
+}
 
 # --- arguments -------------------------------------------------------------------
 verb=${1:-}
@@ -260,20 +287,14 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 if [ "$verb" = take ]; then
-  pid_running "$owner" || refuse "owner $owner is not running"
   # Another user's process (pid 1 included) never exits on this user's
   # behalf, so a slot held for it would never free by itself. An unreadable
-  # running uid is left to the pool screen, which then runs unpooled.
-  # A host where ps cannot name the owner's user is a pool problem, not the
-  # step's, so it runs unpooled once the owner is known to be running still.
-  owner_uid=$(ps -o uid= -p "$owner" 2>/dev/null | tr -d ' ') || owner_uid=''
-  if [ -z "$owner_uid" ]; then
-    pid_running "$owner" || refuse "owner $owner is not running"
-    owner_unread=yes
-  fi
+  # running uid is left to the pool screen, which then runs unpooled, and a
+  # host where ps cannot name the owner's user is a pool problem, not the
+  # step's, so it runs unpooled too.
   me=$(id -u 2>/dev/null) || me=''
-  [ -n "$owner_unread" ] || [ -z "$me" ] || [ "$owner_uid" = "$me" ] \
-    || refuse "owner $owner is not a process of the running user"
+  owner_or_refuse
+  [ "$?" -ne 3 ] || owner_unread=yes
   [ -n "$step" ] || step=$FULL_SUITE
   if [ -z "$worktree" ]; then
     worktree=$(git rev-parse --show-toplevel 2>/dev/null) || worktree=''
@@ -636,7 +657,7 @@ attempt() {
   case $? in
     0)
       tok=$PW_LOCK_TOKEN
-      pid_running "$owner" || refuse "owner $owner is not running"
+      owner_or_refuse
       part="$pool_dir/.holder-$1.$$"
       held="$pool_dir/holder-$1"
       # mv onto a directory, or onto a link to one, files the part inside that
@@ -681,7 +702,7 @@ rechecked=''
 probe_all=yes
 next=1
 while :; do
-  [ "$round" -eq 0 ] || pid_running "$owner" || refuse "owner $owner is not running"
+  [ "$round" -eq 0 ] || owner_or_refuse
   # Probing a held slot's owner forks several times, so after the first round
   # only a slot with no lock on it is tried, plus one held slot per stride,
   # rotating, which still reclaims a dead holder's slot within a few strides.

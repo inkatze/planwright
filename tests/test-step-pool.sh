@@ -846,6 +846,36 @@ for bad in "$tmp/tab$TAB/x" "$tmp/del$(printf '\177')/x" "$tmp/esc$(printf '\033
   check $(($? == 2 ? 0 : 1)) "a --worktree carrying a C0 or DEL byte is refused" "a control byte in --worktree was accepted"
 done
 
+# --- REQ-I1.1: an owner whose pid passes to another user mid-take is refused ----
+# The stub answers the owner's user truthfully for the first lookups, then as
+# another user's, the shape of the owner exiting and its pid being reused.
+reset
+printf 'step_pool_wait: 3s\n' >"$mlocal"
+stub11="$tmp/stub11"
+mkdir -p "$stub11"
+real_ps11=$(command -v ps)
+printf '#!/bin/sh\ncase "$*" in *uid=*)\n  n=$(cat "%s/count" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" >"%s/count"\n  if [ "$n" -gt "$(cat "%s/truthful")" ]; then echo 4242424; exit 0; fi ;;\nesac\nexec %s "$@"\n' \
+  "$stub11" "$stub11" "$stub11" "$real_ps11" >"$stub11/ps"
+chmod +x "$stub11/ps"
+a=$(owner)
+b=$(owner)
+sp -- take reuse "$a" >/dev/null
+echo 1 >"$stub11/truthful"
+rm -f "$stub11/count"
+sp "PATH=$stub11:$PATH" -- take reuse "$b" >/dev/null 2>"$tmp/err"
+rc=$?
+[ "$rc" -eq 2 ] && grep -q "owner $b is not a process of the running user" "$tmp/err"
+verdict "a wait round refuses an owner now another user's" "mid-wait reuse: rc=$rc" "$tmp/err"
+sp -- release reuse "$a" >/dev/null
+echo 1 >"$stub11/truthful"
+rm -f "$stub11/count"
+out=$(sp "PATH=$stub11:$PATH" -- take reuse "$b" 2>"$tmp/err")
+rc=$?
+[ "$rc" -eq 2 ] && [ -z "$out" ] && grep -q "owner $b is not a process of the running user" "$tmp/err" \
+  && [ ! -L "$pools/reuse/slot-1" ]
+verdict "an owner found another user's after the acquire is refused and its slot given back" \
+  "post-acquire reuse: rc=$rc out='$out'" "$tmp/err"
+
 # --- REQ-I1.2: the helper sits on the shared primitive --------------------------
 grep -qF '. "$script_dir/lock-lib.sh"' "$SP"
 verdict "the helper sources the lock library" "scripts/step-pool.sh does not source lock-lib.sh"
