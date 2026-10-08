@@ -26,9 +26,10 @@
 # every checkout and worktree. $PLANWRIGHT_POOL_DIR overrides <root> for
 # tests; it stays outside the PLANWRIGHT_STEP_* prefix, which the worker
 # command guard strips from a declared line. Only <root> and <root>/<pool>
-# are screened, never their parents, so an override must sit under a parent
-# only its owner can write: another user able to rename entries in that
-# parent could swap the root between the screen and its use. Beside each
+# are screened, never the directories above them, so every directory above
+# <root>, for the override and for $XDG_STATE_HOME alike, must be writable
+# only by its owner or be sticky: another user able to rename entries in any
+# of them could swap the root between the screen and its use. Beside each
 # slot, holder-<n> records the holder's token, step id, and worktree; it is
 # believed only while its token is the slot's current one, so a stale or
 # half-written file reads as an unknown holder rather than a wrong one.
