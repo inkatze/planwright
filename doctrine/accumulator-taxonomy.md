@@ -11,7 +11,7 @@ drain rituals, defines the `GATE(when:)` convention and its closed grammar
 pass that `/drain` and `/orchestrate --bookkeeping` share.
 
 Citations: REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5 · D-17, D-18,
-D-31.
+D-31 · custom-spec-location REQ-G1.4 · custom-spec-location D-5, D-17, D-18.
 
 ## The three classes
 
@@ -41,8 +41,8 @@ aspirational.
    until a canonical reader consumes it or a gate re-surfaces it; nothing
    drains them as a side effect, which is exactly why each one must name its
    reader and its re-surfacing ritual. Examples: the observations
-   accumulator (the fragment store under `specs/_observations/`; canonical
-   reader `/spec-draft`, REQ-H1.6, with the drain pass surfacing its unmined
+   accumulator (the fragment store under the spec root's `_observations/`;
+   canonical reader `/spec-draft`, REQ-H1.6, with the drain pass surfacing its unmined
    count and age — its canonical definition is the next section);
    `_pending/notes.md` (local-only, gitignored; owner: the human who wrote
    it); `tasks.md` Deferred entries (re-surfaced by their `GATE(when:)`
@@ -66,9 +66,13 @@ accumulator's classification four-tuple:
 
 - **Class** — 3 (manually-drained seed accumulator).
 - **Durable home** — per-entry fragment files, one observation per file,
-  under `specs/_observations/entries/` (live) and
-  `specs/_observations/archive/` (consumed), plus the frozen legacy
-  `opportunities.md` while its remaining unconsumed lines drain. The
+  under `<root>/_observations/entries/` (live) and
+  `<root>/_observations/archive/` (consumed), `<root>` being the resolved spec
+  root (`specs/` by default; [spec-format](spec-format.md), *Overview*), plus
+  the frozen legacy `opportunities.md` while its remaining unconsumed lines
+  drain. Each spec root carries its own accumulator, a holder's per-project
+  roots included, and fragment identity and the duplicate-UID refusal hold per
+  accumulator (custom-spec-location D-5, D-17). The
   fragment directories are created on demand by the helpers, never committed
   empty, and there is no committed compiled view: the chronological view is
   a derived render, produced on demand (`scripts/obs-render.sh`, the
@@ -80,7 +84,8 @@ accumulator's classification four-tuple:
   unmined count and oldest-entry age across both surfaces, stuck consumes,
   and skipped invalid fragments), and consumption archives:
   `scripts/obs-consume.sh` writes a `Consumed-by: specs/<spec> (<date>)`
-  line inside the fragment (annotate first), then moves the file to
+  line inside the fragment (annotate first; the annotation keeps that
+  namespace form whatever the root), then moves the file to
   `archive/` with its filename preserved (move second; idempotent on
   re-run, keyed on the UID). A frozen-log line is consumed by in-place
   annotation instead (`--legacy` — legacy lines carry no UID).
@@ -95,7 +100,10 @@ classification rule remains the four-tuple above.
 through the shared helper `scripts/obs-record.sh` — never composing a
 fragment path by hand and never writing a shared committed file — and
 surfaces a non-zero helper exit rather than silently dropping the
-observation.
+observation. A fragment about another project on the same machine goes to
+that project's accumulator through a named observation target, which the
+helper validates and screens for machine paths and hostnames before writing
+(custom-spec-location D-18); it is never relocated by hand.
 
 **Citation form.** A spec bundle cites an observation as `obs:<uid>`, the
 fragment filename's 8-lowercase-hex UID: the entry's durable identity, which
@@ -224,7 +232,7 @@ neither may bypass the evaluator with its own parsing.
 
 The pass:
 
-- **Sweeps every spec bundle** under the specs root, whatever its status —
+- **Sweeps every spec bundle** under the spec root, whatever its status —
   gates outlive Done (a Done bundle's Deferred entries still re-surface).
   Underscore-prefixed accumulator directories are not bundles and are not
   swept for gates.

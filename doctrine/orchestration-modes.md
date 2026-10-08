@@ -9,7 +9,8 @@ Every invariant in the skill's always-loaded core, and every tower-tier rule
 
 Citations: orchestration-fleet REQ-B1.5, REQ-B1.6, REQ-D1.1, REQ-D1.2,
 REQ-D1.5, REQ-E1.1, REQ-E1.2, REQ-E1.5 · orchestration-fleet D-3, D-6, D-9,
-D-12, D-13 · human-gates REQ-D1.6.
+D-12, D-13 · human-gates REQ-D1.6 · custom-spec-location REQ-G1.4 ·
+custom-spec-location D-11.
 
 ## Degradation ladder & runtime failover (REQ-B1.5, REQ-B1.6, D-3)
 
@@ -83,14 +84,16 @@ meta-tower holds **no cross-spec state beyond the current step** (D-6): every
 step recomputes the whole picture from the live cross-spec derivation, so it
 is disposable and crash-safe exactly like a single tower.
 
-**Resolve the supervised set.** Take the explicit `specs/<spec>` paths after
-`--meta` when given; otherwise discover every `specs/*/` bundle whose
-`Status:` is `Ready` or `Active` (underscore-prefixed accumulators are never
-bundles). Run each supervised spec through pre-flight (Ready/Active,
-validator, kickoff brief); a spec that fails is **dropped from supervision
-with a one-line note** (and, when the failure is dispatch-blocking, an entry
-in that spec's `## Awaiting input`) rather than halting the fleet — one
-unsigned or erroring spec must not stall the others.
+**Resolve the supervised set.** Take the spec identifiers after `--meta` when
+given (the bare `<spec>` or its `specs/<spec>` alias, as
+[spec-format](spec-format.md) defines addressing); otherwise discover every
+bundle under the spec root (`<root>/*/`) whose `Status:` is `Ready` or `Active`
+(underscore-prefixed reserved directories are never bundles). Run each
+supervised spec through pre-flight (Ready/Active, validator, kickoff brief); a
+spec that fails is **dropped from supervision with a one-line note** (and, when
+the failure is dispatch-blocking, an entry in that spec's `## Awaiting input`)
+rather than halting the fleet — one unsigned or erroring spec must not stall the
+others.
 
 **The meta step.** One atomic step, mirroring the single-spec locked window
 at the fleet tier:
@@ -102,7 +105,8 @@ at the fleet tier:
    no-op**: skip this step. Hold it only across the decision below, never
    across a subordinate's execution (the D-10 discipline at the fleet tier).
 2. **Select across the fleet**, under the lock:
-   `scripts/orchestrate-meta-select.sh specs/<a> specs/<b> …`. It reads each
+   `scripts/orchestrate-meta-select.sh <root>/<a> <root>/<b> …`, each argument
+   a bundle directory under the resolved spec root. It reads each
    spec's **live derivation** (`orchestrate-state.sh` /
    `orchestrate-select.sh`, never the committed snapshot), sums fleet-wide
    in-flight units, and returns `<spec-dir>\t<id>` for the fewest-in-flight
