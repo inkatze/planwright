@@ -67,10 +67,11 @@
 #                 unpooled  the pool cannot be used (for example its
 #                           directory or root a symbolic link, not the
 #                           user's, writable by group or other users, not a
-#                           directory, or not writable; the
-#                           root relative, unset, or unusable as a lock path;
-#                           the lock library missing or failing; no scratch
-#                           file): one warning names the cause and the caller
+#                           directory, or not writable; the root relative,
+#                           unset, or unusable as a lock path; the lock
+#                           library missing or failing; no scratch file; the
+#                           owner's user unreadable by ps while the owner
+#                           runs): one warning names the cause and the caller
 #                           runs its check unpooled                        exit 0
 #                 expired   the bound passed with no slot free; stderr names
 #                           the holders and stdout follows with one holder
@@ -219,6 +220,7 @@ worktree=''
 waited=0
 for_secs=''
 want_slot=''
+owner_unread=''
 while [ "$#" -gt 0 ]; do
   case "$verb:$1" in
     take:--step | take:--worktree | take:--waited | take:--for | release:--slot)
@@ -262,10 +264,16 @@ if [ "$verb" = take ]; then
   # Another user's process (pid 1 included) never exits on this user's
   # behalf, so a slot held for it would never free by itself. An unreadable
   # running uid is left to the pool screen, which then runs unpooled.
+  # A host where ps cannot name the owner's user is a pool problem, not the
+  # step's, so it runs unpooled once the owner is known to be running still.
   owner_uid=$(ps -o uid= -p "$owner" 2>/dev/null | tr -d ' ') || owner_uid=''
-  [ -n "$owner_uid" ] || refuse "owner $owner's user could not be read"
+  if [ -z "$owner_uid" ]; then
+    pid_running "$owner" || refuse "owner $owner is not running"
+    owner_unread=yes
+  fi
   me=$(id -u 2>/dev/null) || me=''
-  [ -z "$me" ] || [ "$owner_uid" = "$me" ] || refuse "owner $owner is not a process of the running user"
+  [ -n "$owner_unread" ] || [ -z "$me" ] || [ "$owner_uid" = "$me" ] \
+    || refuse "owner $owner is not a process of the running user"
   [ -n "$step" ] || step=$FULL_SUITE
   if [ -z "$worktree" ]; then
     worktree=$(git rev-parse --show-toplevel 2>/dev/null) || worktree=''
@@ -601,6 +609,11 @@ fi
 # The clock starts before the config reads, which can take seconds on a busy
 # host, so --for and the summed wait cover the whole call.
 start=$(date +%s)
+if [ -n "$owner_unread" ]; then
+  warn "pool $pool: owner $owner's user could not be read; running unpooled"
+  printf 'unpooled\t-\t%s\n' "$waited"
+  exit 0
+fi
 if ! locate yes; then
   warn "pool $pool $pool_cause; running unpooled"
   printf 'unpooled\t-\t%s\n' "$waited"

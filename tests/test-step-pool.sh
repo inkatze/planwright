@@ -805,10 +805,18 @@ real_ps4=$(command -v ps)
 printf '#!/bin/sh\ncase "$*" in *uid=*) exit 1 ;; esac\nexec %s "$@"\n' "$real_ps4" >"$stub4/ps"
 chmod +x "$stub4/ps"
 a=$(owner)
-sp "PATH=$stub4:$PATH" -- take nouser "$a" >/dev/null 2>"$tmp/err"
+out=$(sp "PATH=$stub4:$PATH" -- take nouser "$a" 2>"$tmp/err")
 rc=$?
-[ "$rc" -eq 2 ] && grep -q "owner $a's user could not be read" "$tmp/err"
-verdict "an owner whose user cannot be read is refused" "unreadable owner user: rc=$rc" "$tmp/err"
+[ "$rc" -eq 0 ] && [ "$out" = "unpooled${TAB}-${TAB}0" ] \
+  && grep -q "owner $a's user could not be read; running unpooled" "$tmp/err" \
+  && [ "$(grep -c . "$tmp/err")" -eq 1 ] && [ ! -L "$pools/nouser/slot-1" ]
+verdict "an owner whose user cannot be read runs unpooled with one warning" "unreadable owner user: rc=$rc out='$out'" "$tmp/err"
+gone=$(owner)
+kill_owner "$gone"
+sp "PATH=$stub4:$PATH" -- take nouser "$gone" >/dev/null 2>"$tmp/err"
+rc=$?
+[ "$rc" -eq 2 ] && grep -q "owner $gone is not running" "$tmp/err"
+verdict "an owner that is gone is still refused when no user can be read" "gone owner: rc=$rc" "$tmp/err"
 out=$(sp -- take nouser "$a")
 [ "$out" = "taken${TAB}1${TAB}0" ]
 verdict "an owner of the running user is accepted" "own owner: '$out'"
