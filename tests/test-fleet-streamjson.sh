@@ -1884,10 +1884,10 @@ echo "ok: c38 a receipt the journal lock refused is deferred and journaled once 
 #     the attention class: left behind, a later session's tick would replay
 #     them into a run that never asked.
 printf '%s\n%s\n' 1000 "$line_q" >"$wdir38b/deferred-$req_q"
-: >"$wdir38b/attention.dirty"
+: >"$wdir38b/attention.dirty.999999999"
 senv "$home" "$rec" -- stop sjw38b --grace 2 >/dev/null || fail "c38c: stop exited non-zero"
 [ ! -e "$wdir38b/deferred-$req_q" ] || fail "c38c: a close left a spooled receipt behind"
-[ ! -e "$wdir38b/attention.dirty" ] || fail "c38c: a close left the re-sync mark behind"
+[ ! -e "$wdir38b/attention.dirty.999999999" ] || fail "c38c: a close left the re-sync mark behind"
 echo "ok: c38 a close discards spooled receipts and the re-sync mark"
 # (d) A relaunch clears a journal lock left as a directory by the retired
 #     shape; otherwise every receipt of the new run would be spooled forever.

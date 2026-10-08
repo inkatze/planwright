@@ -60,7 +60,8 @@
 #                    staging
 #   deferred-<id>    a receipt the journal lock refused, until it is journaled
 #   .deferred.*      its staging temp
-#   attention.dirty  the queue row may not match the journal; the tick re-syncs
+#   attention.dirty.<pid>  the queue row may not match the journal; the tick
+#                    re-syncs
 #   *.lock#*         a lock break's claim, or an aside, a crashed caller left
 #   *.broken.*       residue of the retired `mkdir` lock's own stale break
 # Which of these a close releases is not a property of their order here: the
@@ -833,23 +834,27 @@ attention_publish() {
 # confirmed, the last one included. A confirmation that cannot happen (the lock
 # held past its budget, or a journal still moving after the bounded rounds)
 # marks the row for the tick to re-sync rather than trusting it.
+#
+# The mark is raised BEFORE the first publish and cleared only by this call's
+# own confirmation, so a process killed between a stale publish and its
+# confirmation still leaves the row marked. Each process marks under its own
+# name, so one writer's confirmation never clears another's mark.
 attention_sync() {
   sy_proj=$3
   sy_round=0
+  sy_mark="$2/attention.dirty.$$"
+  : >"$sy_mark" 2>/dev/null || :
   while :; do
     attention_publish "$1" "$2" "$sy_proj"
     sy_round=$((sy_round + 1))
-    if ! journal_lock "$2" 2>/dev/null; then
-      attention_mark_dirty "$2"
-      return 0
-    fi
+    journal_lock "$2" 2>/dev/null || return 0
     sy_now=$(journal_oldest_pending "$2")
     journal_unlock "$2"
-    [ "$sy_now" != "$sy_proj" ] || return 0
-    if [ "$sy_round" -ge 4 ]; then
-      attention_mark_dirty "$2"
+    if [ "$sy_now" = "$sy_proj" ]; then
+      rm -f "$sy_mark" 2>/dev/null || :
       return 0
     fi
+    [ "$sy_round" -lt 4 ] || return 0
     sy_proj=$sy_now
   done
 }
@@ -859,25 +864,51 @@ attention_sync() {
 # could not be confirmed: its lock was held past the budget, or the journal
 # kept moving for every round.
 attention_mark_dirty() {
-  : >"$1/attention.dirty" 2>/dev/null || :
+  : >"$1/attention.dirty.$$" 2>/dev/null || :
+}
+
+# attention_dirty <dir> — whether a re-sync mark is the tick's to act on: one
+# left by a process that is gone, or by this process. A live writer's mark is
+# still its own to clear by confirming.
+attention_dirty() {
+  set +f
+  for ad_f in "$1"/attention.dirty.*; do
+    [ -f "$ad_f" ] && [ ! -L "$ad_f" ] || continue
+    ad_pid=${ad_f##*.}
+    if [ "$ad_pid" = "$$" ] || ! valid_posnum "$ad_pid" || ! pid_live "$ad_pid"; then
+      set -f
+      return 0
+    fi
+  done
+  set -f
+  return 1
+}
+
+# attention_clear_marks <dir> [all] — remove the marks attention_dirty would
+# act on, or every mark when the worker is being closed.
+attention_clear_marks() {
+  set +f
+  for ac_f in "$1"/attention.dirty.*; do
+    [ -L "$ac_f" ] || [ -f "$ac_f" ] || continue
+    ac_pid=${ac_f##*.}
+    if [ "${2:-}" = all ] || [ "$ac_pid" = "$$" ] || ! valid_posnum "$ac_pid" || ! pid_live "$ac_pid"; then
+      rm -f "$ac_f" 2>/dev/null
+    fi
+  done
+  set -f
 }
 
 # attention_resync <worker> <dir> — the tick's half of attention_mark_dirty:
 # one non-waiting attempt to read the projection and publish it, confirmed as
-# every publish is. A lock still busy leaves the mark for the next beat.
-#
-# The mark is taken before the read and put back if the lock is busy, so a mark
-# another writer raises meanwhile survives this re-sync rather than being
-# cleared by a confirmation that was never about it.
+# every publish is. A lock still busy leaves the marks for the next beat; once
+# the projection is read, the marks it answers are cleared and the publish
+# raises its own.
 attention_resync() {
-  [ -f "$2/attention.dirty" ] || return 0
-  rm -f "$2/attention.dirty" 2>/dev/null || return 0
-  if ! journal_lock "$2" 1 2>/dev/null; then
-    attention_mark_dirty "$2"
-    return 0
-  fi
+  attention_dirty "$2" || return 0
+  journal_lock "$2" 1 2>/dev/null || return 0
   rs_proj=$(journal_oldest_pending "$2")
   journal_unlock "$2"
+  attention_clear_marks "$2"
   attention_sync "$1" "$2" "$rs_proj"
 }
 
@@ -907,8 +938,9 @@ request_kind() {
 # is busy and nothing was written, 2 the journal lock cannot be taken at all.
 #
 # A <spool> is the deferred copy being drained, removed under the same lock
-# hold that records it: a second drainer that read it too finds it gone under
-# the lock and records nothing, so a drained receipt is recorded exactly once.
+# hold that records it and only once the journal holds the receipt: a second
+# drainer that read it too finds it gone under the lock and records nothing,
+# so a drained receipt is recorded exactly once and never lost.
 receipt_record() {
   rr_worker=$1
   rr_dir=$2
@@ -925,7 +957,10 @@ receipt_record() {
       journal_unlock "$rr_dir"
       return 0
     fi
-    rm -f "$rr_spool" 2>/dev/null || :
+    # The spool is the only durable copy until the journal holds the receipt,
+    # so it is removed only once the journal write below has landed, or here
+    # when the journal already accounts for it. A kill in between leaves a
+    # spool the next drain finds already pending, and drops.
     # Against a settled row, a spool is a resume re-ask only if it was
     # received after the settle; one received before it is a duplicate of the
     # request the operator already answered, spooled while the answer held
@@ -934,9 +969,13 @@ receipt_record() {
       answered | undeliverable)
         rr_settled=$(awk -F'\t' -v id="$rr_id" '$1 == id { print $5; exit }' "$rr_dir/journal" 2>/dev/null) || rr_settled=''
         if valid_posnum "${rr_settled:-}" && [ "$rr_now" -lt "$rr_settled" ]; then
+          rm -f "$rr_spool" 2>/dev/null || :
           journal_unlock "$rr_dir"
           return 0
         fi
+        ;;
+      pending)
+        rm -f "$rr_spool" 2>/dev/null || :
         ;;
     esac
   fi
@@ -983,6 +1022,7 @@ receipt_record() {
       fi
       ;;
   esac
+  [ -z "$rr_spool" ] || rm -f "$rr_spool" 2>/dev/null || :
   printf '%s\n' "$rr_line" >"$rr_dir/req-$rr_id.json"
   # The projection is the OLDEST still-pending request, which the one just
   # recorded is not when an earlier one is still open. Read under the lock and
@@ -1605,7 +1645,7 @@ journal_close() {
     if [ -L "$jc_f" ] || [ -f "$jc_f" ]; then rm -f "$jc_f" 2>/dev/null; fi
   done
   set -f
-  rm -f "$1/attention.dirty" 2>/dev/null || :
+  attention_clear_marks "$1" all
   [ -f "$1/journal" ] || return 0
   # Readable, not merely present. The exit-code reading below leans on awk
   # separating "no pending rows" (1) from "could not read" (something else),
@@ -1666,7 +1706,7 @@ stop_held() {
 # attention class: the close settles both, and either one left behind would be
 # replayed into a later session by its tick.
 held_receipts() {
-  [ -e "$1/attention.dirty" ] && return 0
+  attention_dirty "$1" && return 0
   set +f
   for hr_f in "$1"/deferred-*; do
     if [ -L "$hr_f" ] || [ -f "$hr_f" ]; then
@@ -2556,10 +2596,17 @@ alarm_scan_worker() {
     [ "$aw_fired" = 1 ] || continue
     attention_upsert "$aw_worker" "$aw_dir" "$a_id" "$aw_now_kind" high
     if journal_lock "$aw_dir" 2>/dev/null; then
-      aw_still=$(journal_state "$aw_dir" "$a_id")
+      # The whole row again, as the decision read it: a request answered and
+      # then re-opened meanwhile is pending once more, but under a new
+      # received epoch, so it is not the overdue request this escalated.
+      aw_still=$(awk -F'\t' -v id="$a_id" '$1 == id { print $3 "\t" $4; exit }' \
+        "$aw_dir/journal" 2>/dev/null) || aw_still=''
       aw_proj=$(journal_oldest_pending "$aw_dir")
       journal_unlock "$aw_dir"
-      [ "$aw_still" = pending ] || attention_sync "$aw_worker" "$aw_dir" "$aw_proj"
+      if [ "$aw_still" != "$aw_recv${TAB}pending" ]; then
+        attention_sync "$aw_worker" "$aw_dir" "$aw_proj"
+        continue
+      fi
     fi
     if [ -z "$aw_tick" ] || [ "$aw_age" -le $((aw_thr + aw_tick)) ]; then
       /bin/sh "$FA" notify \
