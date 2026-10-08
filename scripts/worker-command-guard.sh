@@ -1368,7 +1368,7 @@ flag_name_in() {
 # of the value this guard cannot see — so the third member of that family is
 # screened the same way rather than left as the one open door.
 yq_expression_safe() {
-  local s=$1 n i p a
+  local s=$1 n i p a w
   case $s in
     *strenv* | *envsubst*) return 1 ;;
   esac
@@ -1378,13 +1378,19 @@ yq_expression_safe() {
   # both read the environment. Walk it as a token so a longer identifier
   # (`.environment`, `envelope`) still passes, mirroring jq_program_safe.
   # Raised by the Copilot pass, 2026-09-15.
+  # The second word runs text this screen never sees, so it rejects the same
+  # way, except as the whole operand, where it names a subcommand.
+  case $s in
+    eval | eval-all) return 0 ;;
+  esac
   n=${#s}
   i=0
   while [ "$i" -lt "$n" ]; do
-    if [ "${s:i:3}" = env ]; then
+    for w in env eval; do
+      [ "${s:i:${#w}}" = "$w" ] || continue
       p=''
       [ "$i" -gt 0 ] && p=${s:i-1:1}
-      a=${s:i+3:1}
+      a=${s:i+${#w}:1}
       case $p in
         [A-Za-z0-9_.\$]) ;; # a field access, a variable, or a longer name
         *)
@@ -1394,7 +1400,7 @@ yq_expression_safe() {
           esac
           ;;
       esac
-    fi
+    done
     i=$((i + 1))
   done
   return 0

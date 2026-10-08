@@ -1215,6 +1215,12 @@ assert_defer "defer form: a yq operand form (3)" "yq -n -- 'env(HOME)'"
 assert_allow "parity: yq several file operands" "yq '.a' f.yml g.yml"
 assert_allow "parity: yq a short subcommand before the expression" "yq e '.a' f.yml"
 assert_allow "parity: yq an expression after the end of flags" "yq -- '.a' f.yml"
+assert_defer "defer form: a yq expression form (1)" "yq -n 'eval(\"e\" + \"nv(HOME)\")'"
+assert_defer "defer form: a yq expression form (2)" "yq -n 'eval (.a)'"
+assert_allow "parity: yq a longer name sharing an expression form's prefix" "yq '.evaluation' f.yml"
+assert_allow "parity: yq a field named like an expression form" "yq '.a.eval' f.yml"
+assert_allow "parity: yq the long subcommand before the expression" "yq eval '.a' f.yml"
+assert_allow "parity: yq the all-documents subcommand before the expression" "yq eval-all '.a' f.yml"
 YQ_HOME="$SANDBOX/yq-home"
 mkdir -p "$YQ_HOME" && : >"$YQ_HOME/.jq" || exit 1
 HOOK_ENV=(HOME="$YQ_HOME")
