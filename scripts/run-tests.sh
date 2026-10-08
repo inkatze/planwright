@@ -64,8 +64,7 @@
 #                                  (default: <suite-dir>/.timing-report.tsv)
 #   PLANWRIGHT_FLEET_STATE_DIR     replaced per file by a sentinel fleet home
 #   CLAUDE_PLUGIN_DATA             (the latter only when set); a file that
-#                                  writes a registry record or dispatch marker
-#                                  there fails
+#                                  creates anything in that home fails
 #   SPEC_WALKTHROUGH_DOT_TIMEOUT   exported to every test (default 60 here:
 #                                  suite load headroom; caller value wins)
 #   PLANWRIGHT_TEST_IN_POOLED_FILE internal: the mark a pooled worker gives
@@ -244,10 +243,11 @@ if [ "${1:-}" = "--run-one" ]; then
   fi
   [ -z "$slot_path" ] || export PLANWRIGHT_TEST_IN_POOLED_FILE=1
   # A run started from a fleet worker inherits the operator's real fleet home,
-  # so each file gets a home of its own that nothing should ever write: a file
-  # that writes it registered fleet state without pinning a fixture home, and
-  # fails for it. The plugin-data arm is redirected only when it was set, so
-  # a file sees the same set/unset shape it would have seen without the runner.
+  # so each file gets a home of its own that nothing should ever touch: a file
+  # that creates anything there wrote fleet state (a registry record, a
+  # dispatch marker, a ledger row) without pinning a fixture home, and fails
+  # for it. The plugin-data arm is redirected only when it was set, so a file
+  # sees the same set/unset shape it would have seen without the runner.
   fleet_sentinel="$PLANWRIGHT_TEST_LOG_DIR/$name.fleet"
   export PLANWRIGHT_FLEET_STATE_DIR="$fleet_sentinel/fleet"
   [ -z "${CLAUDE_PLUGIN_DATA+set}" ] || export CLAUDE_PLUGIN_DATA="$fleet_sentinel/plugin-data"
@@ -258,9 +258,9 @@ if [ "${1:-}" = "--run-one" ]; then
     verdict="fail"
   fi
   for fh in "$fleet_sentinel/fleet" "$fleet_sentinel/plugin-data/fleet"; do
-    if [ -s "$fh/registry" ] || [ -n "$(ls -A "$fh/dispatch-markers" 2>/dev/null)" ]; then
+    if [ -e "$fh" ]; then
       verdict="fail"
-      printf '%s\n' "run-tests: $name wrote fleet state into the fleet home it inherited, which outside this runner is the operator's real one; pin a fixture home per case (tests/lib/fleet-home.sh)" \
+      printf '%s\n' "run-tests: $name wrote fleet state into the fleet home it inherited (under a fleet worker, the operator's real one); pin a fixture home per case (tests/lib/fleet-home.sh)" \
         >>"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
       break
     fi
