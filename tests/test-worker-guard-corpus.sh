@@ -379,6 +379,24 @@ leaks_in() {
         if (s ~ /^[^\/]+\/[^\/]+$/ && s != "o/r") bad = 1
         t = substr(t, RSTART + RLENGTH)
       }
+      # The operands of a network command are hosts whatever their suffix:
+      # strip a scheme, a user, and a path or port, then judge the name.
+      n = split($0, w, /[ \t;|&]+/)
+      net = 0
+      for (i = 1; i <= n; i++) {
+        if (w[i] ~ /^(ssh|scp|sftp|rsync|curl|wget|nc|ping|telnet|dig|host|nslookup)$/) {
+          net = 1
+          continue
+        }
+        if (!net || w[i] ~ /^-/) continue
+        h = w[i]
+        gsub(/["'\'']/, "", h)
+        sub(/^[A-Za-z+]+:\/\//, "", h)
+        sub(/^[^@\/]*@/, "", h)
+        sub(/[\/:].*$/, "", h)
+        if (h ~ /^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z][A-Za-z]+$/ && h != "example.invalid" \
+          && h !~ /\.(json|md|sh|txt|toml|yml|yaml|tsv|bats|py|js|log|orig)$/) bad = 1
+      }
       if (bad) print NR ":" $0
     }
   ' "$1") || return 2
@@ -394,7 +412,7 @@ printf '%s\n' '# a comment naming /home/someone/x' 'ls /opt/thing' 'cd ~user/x' 
   'curl https://buildhost/x' 'gh api repos/acme/tool' 'gh pr view 5 --repo acme/tool' \
   'gh pr list -R acme/tool' 'gh pr view 5 -Racme/tool' 'git clone git@buildhost:acme/tool' \
   'ping 10.1.2.3' "TOKEN=gh""p_$pad" "PAT=github""_pat_$pad" "KEY=s""k-ant-$pad" \
-  "S=xo""xb-$pad" "K=AK""IAABCDEFGHIJKLMNOP" >"$leaky"
+  "S=xo""xb-$pad" "K=AK""IAABCDEFGHIJKLMNOP" 'ssh -p 2222 worker.example.edu' >"$leaky"
 missed=
 while IFS= read -r l; do
   printf '%s\n' "$l" >"$SANDBOX/one.tsv"
