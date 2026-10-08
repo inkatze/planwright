@@ -658,18 +658,27 @@ out=$(sp -- take shared "$a" 2>"$tmp/err")
 [ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -qF "$pools/shared is writable by group or other users" "$tmp/err"
 verdict "an other-writable pool directory runs unpooled" "other-writable: '$out'" "$tmp/err"
 chmod 700 "$pools/shared"
+b=$(owner)
+sp -- take shared "$b" >/dev/null 2>&1
 chmod 1777 "$pools"
 out=$(sp -- take shared "$a" 2>"$tmp/err")
 [ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -qF "$pools is writable by group or other users" "$tmp/err"
 verdict "a world-writable pools root runs unpooled, sticky bit or not" "root: '$out'" "$tmp/err"
 out=$(sp -- report shared 2>"$tmp/err")
 [ -z "$out" ] && grep -q 'writable by group or other users' "$tmp/err"
-verdict "report on a world-writable root warns and lists nothing" "report: '$out'" "$tmp/err"
+verdict "report on a world-writable root warns and lists none of its holders" "report: '$out'" "$tmp/err"
 chmod 700 "$pools"
+sp -- release shared "$b" >/dev/null
 out=$(sp -- take shared "$a")
 [ "$out" = "taken${TAB}1${TAB}0" ]
 verdict "an owner-only pool is used again once the bits are cleared" "after chmod: '$out'"
 sp -- release shared "$a" >/dev/null
+reset
+out=$(umask 002 && sp -- take loose "$a" 2>"$tmp/err")
+[ "$out" = "taken${TAB}1${TAB}0" ] && [ -d "$pools/loose" ] \
+  && [ -z "$(find "$pools" "$pools/loose" -prune \( -perm -020 -o -perm -002 \))" ]
+verdict "a pool created under a permissive umask is owner-only and usable" "umask 002: '$out'" "$tmp/err"
+sp -- release loose "$a" >/dev/null
 
 # --- REQ-I1.2: each unusable-pool cause is named for what it is ----------------
 reset
@@ -680,12 +689,16 @@ mkdir -p "$pools"
 out=$(sp -- take plainfile "$a" 2>"$tmp/err")
 [ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -qF "$pools/plainfile exists and is not a directory" "$tmp/err"
 verdict "an existing non-directory is named as one" "non-directory: '$out'" "$tmp/err"
-mkdir -p "$tmp/ro"
-chmod 500 "$tmp/ro"
-out=$(pool_in "$repo" "$tmp/ro/pools" take nocreate "$a" 2>"$tmp/err")
-chmod 700 "$tmp/ro"
-[ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -qF "$tmp/ro/pools could not be created" "$tmp/err"
-verdict "a directory that cannot be created is named as such" "no create: '$out'" "$tmp/err"
+if [ "$(id -u)" = 0 ]; then
+  ok "skipped: a directory root cannot create needs a non-root user"
+else
+  mkdir -p "$tmp/ro"
+  chmod 500 "$tmp/ro"
+  out=$(pool_in "$repo" "$tmp/ro/pools" take nocreate "$a" 2>"$tmp/err")
+  chmod 700 "$tmp/ro"
+  [ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -qF "$tmp/ro/pools could not be created" "$tmp/err"
+  verdict "a directory that cannot be created is named as such" "no create: '$out'" "$tmp/err"
+fi
 stub8="$tmp/stub8"
 mkdir -p "$stub8"
 printf '#!/bin/sh\nexit 1\n' >"$stub8/id"
@@ -731,8 +744,11 @@ sp -- release hdir "$a" >/dev/null
 # --- REQ-I1.1: a slot's owner is a process of the running user ------------------
 reset
 printf 'step_pool_wait: 1s\n' >"$mlocal"
-if [ "$(id -u)" = 0 ]; then
-  ok "skipped: an owner of another user cannot be fixtured as root"
+# pid 1 is the other user's process here, unless it runs as this user (as root,
+# or as a container's entrypoint) or its user cannot be read.
+pid1_uid=$(ps -o uid= -p 1 2>/dev/null | tr -d ' ')
+if [ -z "$pid1_uid" ] || [ "$pid1_uid" = "$(id -u)" ]; then
+  ok "skipped: pid 1 is not a readable process of another user"
 else
   sp -- take foreignowner 1 >/dev/null 2>"$tmp/err"
   rc=$?
@@ -769,8 +785,9 @@ verdict "a UTF-8 --worktree is accepted and recorded as given" "utf-8 worktree: 
 sp -- release utf "$a" >/dev/null
 mkdir -p "$wt6"
 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$wt6"
-pool_in "$wt6" "$pools" take utf "$a" >/dev/null 2>"$tmp/err"
-[ "$(cut -f 3 "$pools/utf/holder-1")" = "$wt6" ]
+rm -f "$pools/utf/holder-1"
+out=$(pool_in "$wt6" "$pools" take utf "$a" 2>"$tmp/err")
+[ "$out" = "taken${TAB}1${TAB}0" ] && [ "$(cut -f 3 "$pools/utf/holder-1")" = "$wt6" ]
 verdict "a UTF-8 default worktree is recorded, not read as unprintable" "default worktree not recorded" "$tmp/err"
 sp -- release utf "$a" >/dev/null
 for bad in "$tmp/tab$TAB/x" "$tmp/del$(printf '\177')/x" "$tmp/esc$(printf '\033')/x"; do
