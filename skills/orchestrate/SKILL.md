@@ -167,7 +167,7 @@ law is `orchestration-concurrency` (read here). Ordered steps:
      <spec> <primary-checkout>` fetches `origin` (bounded by
      `dispatch_fetch_ttl`, coalesced with the reconcile-sweep fetch, **no
      local-`main` advance**) and prints the anchor of the bundle's primary view
-     on its default branch (`spec-format` *Read surface per posture*). Exit **0**,
+     (`spec-format` *Read surface per posture*). Exit **0**,
      or **3** (`no-remote`, offline) → gate against it; any other nonzero → park
      to Awaiting input. On the exit-0 paths, the fetched `origin/main` backs merge
      detection (`orchestrate-state.sh`'s union scan, REQ-D1.2), so a

@@ -16,9 +16,11 @@
 #   <spec>     the bare identifier (`specs/<spec>` accepted as an alias, one
 #              trailing slash allowed)
 #   <task-id>  ^[0-9]+(\.[0-9]+)?$, naming a `### Task` block in the bundle
-#   <text>     the payload, one line with no control byte. An Awaiting-input
-#              bullet the task already has gains it as a further `; `
-#              segment; a Deferred bullet the task already has is refused.
+#   <text>     the payload, one line with no C0 control byte or DEL (the C1
+#              range is left alone, since those bytes continue UTF-8
+#              characters). An Awaiting-input bullet the task already has
+#              gains it as a further `; ` segment; a Deferred bullet the task
+#              already has is refused.
 #
 # The bullet is `- **Task <id>** — <text>`, placed under the section heading
 # (replacing a `(none yet)` placeholder); a bullet for the task under another
@@ -28,7 +30,8 @@
 # same directory, never written through a symlink, under a lock beside it
 # (scripts/lock-lib.sh), so concurrent halts on one bundle each land.
 #
-# Exit: 0 written, the file's path on stdout · 2 usage or a bad argument ·
+# Exit: 0 written, the file's path on stdout · 2 usage, a bad argument, or a
+#   broken install (a sibling library missing or not a readable file) ·
 #   3 the store is same-repo · 4 the bundle cannot take the bullet (missing,
 #   unreadable, not format-version 2, no such task or section, a fence left
 #   open, already parked) · 5 the spec root did not resolve · 6 the write or
