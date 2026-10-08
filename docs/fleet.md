@@ -1790,12 +1790,17 @@ running for (no death handle on record, or a status row such as `pr-ready`)
 is cleared when its spec unit derives completed
 (`scripts/orchestrate-state.sh`; every task of a bundle range). An
 awaiting-input row is always kept, as is a worker that is alive or whose
-death verdict is unknown, even on a completed unit, every row while the
-registry cannot be read, and a row whose unit is still in flight. A worker whose
-registry record lives in another checkout is not judged on this checkout's
-specs. Each clear goes through `fleet-attention.sh clear --if-row`, so a
-worker that wrote since it was judged keeps its new row; each clear is audited under
-the `attention-reconcile` mechanism. `fleet_daemon_pause` pauses the pass.
+death verdict is unknown, even on a completed unit, a worker whose registry
+record carries no death-handle field (torn, or written before the registry
+recorded handles), every row while the registry cannot be read, and a row
+whose unit is still in flight. A worker whose registry record lives in another
+checkout is not judged on this checkout's specs. Each clear goes through
+`fleet-attention.sh clear --if-row`, so a worker that wrote since it was judged
+keeps its new row; each clear is audited under the `attention-reconcile`
+mechanism. `fleet_daemon_pause` pauses the pass.
+The pass clears display rows only: a dead headless worker's pending
+stream-json receipts stay for the rung's `stop` to settle, and until then
+`alarm-scan` can still re-queue a decision from them.
 
 ## Resource governance: models, throttling, and the auto-mode line
 

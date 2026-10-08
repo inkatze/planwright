@@ -22,8 +22,10 @@
 #   KEEP everything else: an awaiting-input row (a queued decision is the
 #   human's, whatever its unit or worker show), a worker that is alive or
 #   whose death verdict is unknown or errored (even on a completed unit: it
-#   may still run, and its own tower clears it), every row while the
-#   registry cannot be read, and a row whose unit is still in flight.
+#   may still run, and its own tower clears it), a worker whose registry
+#   record carries no death-handle field (a torn record, or one from before
+#   the registry recorded handles), every row while the registry cannot be
+#   read, and a row whose unit is still in flight.
 #   Silence is never evidence.
 #
 # The unit rule reads this checkout's spec root, and the fleet home is shared
@@ -51,8 +53,9 @@
 #                    malformed | duplicate | clear-failed | foreign
 #   paused  -        the kill-switch was set mid-pass; the rest waits
 #   summary rows=<n> cleared=<n> kept=<n> status=<ok|degraded|paused>
-#   degraded when the store, the registry, or a derivation could not be read,
-#   a handle holds more than one row, or a clear or its audit record failed.
+#   degraded when the spec root did not resolve, the store, the registry, or
+#   a derivation could not be read, a handle holds more than one row, or a
+#   clear or its audit record failed.
 #   Every row those touch is kept, except a clear whose audit record alone
 #   failed: the clear stands, and the warning names the worker.
 #
@@ -369,8 +372,8 @@ while IFS="$TAB" read -r w scope state stamp _; do
     IFS="$TAB" read -r _ _ _ _ _ r_sd r_dh _ <<REC
 $record
 REC
-    # Every writer fills all seven fields; a record short of them is not
-    # one that says no worker is on record.
+    # A record short of the death-handle field, torn or from before the
+    # registry recorded handles, does not say no worker is on record.
     if [ -z "$r_dh" ]; then
       keep "$w" evidence-unknown
       continue
