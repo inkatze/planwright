@@ -845,6 +845,20 @@ sp "PATH=$stub4:$PATH" -- take nouser "$gone" >/dev/null 2>"$tmp/err"
 rc=$?
 [ "$rc" -eq 2 ] && grep -q "owner $gone is not running" "$tmp/err"
 verdict "an owner that is gone is still refused when no user can be read" "gone owner: rc=$rc" "$tmp/err"
+# The owner ends inside the user lookup, after the first running check passed,
+# so only the re-check behind an unreadable user can tell it is gone. It is
+# started detached, so no shell of this test keeps it as a zombie kill -0 sees.
+late=$(sh -c 'sleep 120 >/dev/null 2>&1 & echo $!')
+printf '%s\n' "$late" >>"$owners"
+stublate="$tmp/stublate"
+mkdir -p "$stublate"
+printf '#!/bin/sh\ncase "$*" in *uid=*)\n  kill %s 2>/dev/null; k=0\n  while kill -0 %s 2>/dev/null && [ "$k" -lt 50 ]; do sleep 0.1; k=$((k + 1)); done\n  exit 1 ;;\nesac\nexec %s "$@"\n' \
+  "$late" "$late" "$real_ps4" >"$stublate/ps"
+chmod +x "$stublate/ps"
+sp "PATH=$stublate:$PATH" -- take nouser "$late" >/dev/null 2>"$tmp/err"
+rc=$?
+[ "$rc" -eq 2 ] && grep -q "owner $late is not running" "$tmp/err" && ! grep -q 'running unpooled' "$tmp/err"
+verdict "an owner that ends during its user lookup is refused, not run unpooled" "late-gone owner: rc=$rc" "$tmp/err"
 out=$(sp -- take nouser "$a")
 [ "$out" = "taken${TAB}1${TAB}0" ]
 verdict "an owner of the running user is accepted" "own owner: '$out'"
@@ -892,15 +906,17 @@ echo 1 >"$stub11/truthful"
 rm -f "$stub11/count"
 sp "PATH=$stub11:$PATH" -- take reuse "$b" >/dev/null 2>"$tmp/err"
 rc=$?
-[ "$rc" -eq 2 ] && grep -q "owner $b is not a process of the running user" "$tmp/err"
-verdict "a wait round refuses an owner now another user's" "mid-wait reuse: rc=$rc" "$tmp/err"
+[ "$rc" -eq 2 ] && grep -q "owner $b is not a process of the running user" "$tmp/err" \
+  && grep -q "pool reuse is full" "$tmp/err" && [ "$(cat "$stub11/count")" -eq 2 ] \
+  && [ "$(sp -- report reuse | cut -f 3)" = "$a" ]
+verdict "a wait round refuses an owner now another user's, leaving the holder's slot" "mid-wait reuse: rc=$rc" "$tmp/err"
 sp -- release reuse "$a" >/dev/null
 echo 1 >"$stub11/truthful"
 rm -f "$stub11/count"
 out=$(sp "PATH=$stub11:$PATH" -- take reuse "$b" 2>"$tmp/err")
 rc=$?
 [ "$rc" -eq 2 ] && [ -z "$out" ] && grep -q "owner $b is not a process of the running user" "$tmp/err" \
-  && [ ! -L "$pools/reuse/slot-1" ]
+  && [ ! -L "$pools/reuse/slot-1" ] && [ "$(cat "$stub11/count")" -eq 2 ] && ! grep -q 'is full' "$tmp/err"
 verdict "an owner found another user's after the acquire is refused and its slot given back" \
   "post-acquire reuse: rc=$rc out='$out'" "$tmp/err"
 
@@ -932,7 +948,9 @@ sp -- release acl "$a" >/dev/null
 mkdir -p "$pools/realacl"
 if chmod +a "everyone allow add_file,add_subdirectory,delete_child" "$pools/realacl" 2>/dev/null; then
   out=$(sp -- take realacl "$a" 2>"$tmp/err")
-  [ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -q 'carries an access control list' "$tmp/err"
+  rc=$?
+  [ "$rc" -eq 0 ] && [ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -q 'carries an access control list' "$tmp/err" \
+    && [ ! -L "$pools/realacl/slot-1" ]
   verdict "a real ACL granting other users write runs unpooled" "real acl: '$out'" "$tmp/err"
 else
   ok "skipped: this host's chmod sets no ACL"
