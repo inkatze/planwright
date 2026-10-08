@@ -91,7 +91,7 @@ anchor_sh="$here/spec-anchor.sh"
 lock_sh="$here/orchestrate-lock.sh"
 
 # Canonical echo-discipline sanitizer (doctrine/security-posture.md).
-if [ ! -r "$here/echo-safety.sh" ]; then
+if [ ! -f "$here/echo-safety.sh" ] || [ ! -r "$here/echo-safety.sh" ]; then
   printf '%s\n' "migrate-format-version.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
   exit 2
 fi
@@ -120,11 +120,11 @@ fi
 . "$spec_parse_sh" || exit 2
 
 if [ ! -x "$anchor_sh" ]; then
-  printf '%s\n' "migrate-format-version: spec-anchor.sh missing or not executable: $anchor_sh" >&2
+  printf '%s\n' "migrate-format-version: spec-anchor.sh missing or not executable: $(sanitize_printable "$anchor_sh" "(unprintable path)")" >&2
   exit 2
 fi
 if [ ! -x "$lock_sh" ]; then
-  printf '%s\n' "migrate-format-version: orchestrate-lock.sh missing or not executable: $lock_sh" >&2
+  printf '%s\n' "migrate-format-version: orchestrate-lock.sh missing or not executable: $(sanitize_printable "$lock_sh" "(unprintable path)")" >&2
   exit 2
 fi
 # The extraction self-check and the anchor both hash via git; failing here
@@ -149,7 +149,7 @@ else
 fi
 while [ "$target" != "${target%/}" ]; do target=${target%/}; done
 if [ ! -d "$target" ]; then
-  printf '%s\n' "migrate-format-version: not a directory: $target" >&2
+  printf '%s\n' "migrate-format-version: not a directory: $(sanitize_printable "$target" "(unprintable path)")" >&2
   exit 2
 fi
 
