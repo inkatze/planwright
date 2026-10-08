@@ -64,7 +64,7 @@ unset CDPATH
 prog=check-obs
 
 usage() {
-  echo "usage: $prog [--obs-dir <dir>]" >&2
+  printf '%s\n' "usage: $prog [--obs-dir <dir>]" >&2
 }
 
 # --- argument parsing ----------------------------------------------------
@@ -104,7 +104,7 @@ done
 # root check and exit 0, silently bypassing all validation. An explicit empty
 # path is a caller error, not "no observations root".
 [ -n "$obsdir" ] || {
-  echo "$prog: observations directory must not be empty" >&2
+  printf '%s\n' "$prog: observations directory must not be empty" >&2
   exit 2
 }
 
@@ -113,7 +113,7 @@ done
 # obs-record.sh guard).
 case "$obsdir" in
   -*) {
-    echo "$prog: observations directory must not begin with a hyphen" >&2
+    printf '%s\n' "$prog: observations directory must not begin with a hyphen" >&2
     exit 2
   } ;;
 esac
@@ -140,11 +140,9 @@ fail() {
 # UTF-8 byte in 0x80-0x9F renders mangled in the message, but the name being
 # reported is already invalid/unexpected, so display fidelity yields to injection
 # safety. This matches the canonical shared display sanitizer
-# scripts/echo-safety.sh (sanitize_printable), which strips the same C0+DEL+C1 set
-# (its C1 coverage was widened in PR #112) and is sourced by spec-validate.sh /
-# spec-walkthrough.sh; check-obs.sh keeps its own inline copy of the rule rather
-# than sourcing that helper, as scripts/spec-scope.sh and scripts/spec-assemble.sh
-# also still do — folding these onto echo-safety.sh is a tracked follow-up. The
+# scripts/echo-safety.sh (sanitize_printable), which strips the same C0+DEL+C1
+# set; check-obs.sh keeps its own inline copy of the rule rather than sourcing
+# that helper. The
 # write-time storage path in obs-record.sh deliberately preserves C1 as UTF-8.
 safe() {
   printf '%s' "$1" | tr -d '\000-\037\177\200-\237'

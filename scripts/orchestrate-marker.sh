@@ -72,17 +72,17 @@ fi
 case "$cmd" in
   write | clear) ;;
   *)
-    echo "orchestrate-marker: unknown command '$cmd' (write|clear)" >&2
+    printf '%s\n' "orchestrate-marker: unknown command '$cmd' (write|clear)" >&2
     exit 2
     ;;
 esac
 if [ ! -d "$spec_dir" ]; then
-  echo "orchestrate-marker: no such spec dir: $spec_dir" >&2
+  printf '%s\n' "orchestrate-marker: no such spec dir: $spec_dir" >&2
   exit 2
 fi
 shift 2
 if [ "$#" -eq 0 ]; then
-  echo "orchestrate-marker: $cmd needs at least one task id" >&2
+  printf '%s\n' "orchestrate-marker: $cmd needs at least one task id" >&2
   exit 2
 fi
 
@@ -95,12 +95,12 @@ fi
 for id in "$@"; do
   case "$id" in
     '' | *[!0-9.]*)
-      echo "orchestrate-marker: refusing malformed task id '$id' (REQ-F1.1: must match ^[0-9]+(\.[0-9]+)?\$)" >&2
+      printf '%s\n' "orchestrate-marker: refusing malformed task id '$id' (REQ-F1.1: must match ^[0-9]+(\.[0-9]+)?\$)" >&2
       exit 2
       ;;
   esac
   if ! printf '%s' "$id" | grep -Eq '^[0-9]+(\.[0-9]+)?$'; then
-    echo "orchestrate-marker: refusing malformed task id '$id' (REQ-F1.1: must match ^[0-9]+(\.[0-9]+)?\$)" >&2
+    printf '%s\n' "orchestrate-marker: refusing malformed task id '$id' (REQ-F1.1: must match ^[0-9]+(\.[0-9]+)?\$)" >&2
     exit 2
   fi
 done

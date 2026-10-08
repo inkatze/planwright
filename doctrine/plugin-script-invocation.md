@@ -5,8 +5,8 @@ dispatching skills — `/execute-task`, `/orchestrate`, `/spec-kickoff` — invo
 plugin scripts (`scripts/<name>.sh`) many times per run. This doc fixes the one
 invocation shape they use, so a dispatched worker does not flood on a permission
 prompt for every such call. Its section *One plain command per Bash call*
-covers every command any skill issues inside a dispatched worker or a
-subordinate tower, `/polish` and `/self-review` included.
+covers every command any skill issues inside a dispatched worker or a tower
+session, `/polish` and `/self-review` included.
 
 Citations: REQ-D1.1, D-7; obs:344dd129, obs:885bc3c9 · custom-spec-location
 REQ-G1.4.

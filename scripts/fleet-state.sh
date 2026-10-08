@@ -50,8 +50,8 @@
 # authoritative count is the live git derivation the meta-tower selector
 # (orchestrate-meta-select.sh) sums per step — level-triggered and self-healing,
 # so it never leaks across a tower crash; that selector reads only the git truth,
-# never this counter. This counter's role is to close the sub-second window
-# between a meta step deciding and a subordinate tower materializing its
+# never this counter. This counter's role is to close the window
+# between a meta step deciding and that step materializing its
 # branch/marker. It is NOT self-healing: a holder that crashes between
 # `bound-incr` and `bound-decr` leaks its slot. The LOCK now carries the owner
 # token that redesign called for (see the lock's own note below, including what
@@ -175,6 +175,10 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # before it reaches a diagnostic, so an embedded escape sequence can't drive the
 # terminal or corrupt a log. Sourced as the sibling command scripts do
 # (spec-validate.sh, spec-walkthrough.sh); a missing helper is a broken install.
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "fleet-state.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 

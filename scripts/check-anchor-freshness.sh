@@ -74,10 +74,10 @@ unset CDPATH 2>/dev/null || true
 
 script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 
-# The shared spec-parse grammar lib: the header-block Status parse and the
-# stderr sanitizer come from it, so this guard's notion of "the header block"
-# cannot diverge from spec-anchor.sh's. Sourced, never executed; fail closed
-# when it is missing or unreadable.
+# The shared spec-parse grammar lib: the header-block Status parse, the brief's
+# anchor-entry parse and the stderr sanitizer come from it, so this guard's
+# notion of "the header block" cannot diverge from spec-anchor.sh's. Sourced,
+# never executed; fail closed when it is missing or unreadable.
 spec_parse_sh="$script_dir/spec-parse.sh"
 if [ ! -f "$spec_parse_sh" ] || [ ! -r "$spec_parse_sh" ]; then
   lib_disp=$(printf '%s' "$spec_parse_sh" | tr -d '\000-\037\177\200-\237')
@@ -276,79 +276,6 @@ parked_marker() {
     /^## / { in_sec = ($0 ~ /^## Awaiting input/) ; next }
     in_sec && /^- / && /anchor re-review pending/ { found = 1 }
     END { exit(found ? 0 : 1) }
-  ' "$1"
-}
-
-# --- the brief's most recent anchor entry -------------------------------
-#
-# latest_anchor_entry <brief> — print `<hash><TAB><command>` for the brief's
-# most recent (last-appended) anchor entry. Both recorded layouts are read: the
-# canonical two-line form, and the single-line parenthesized variant. Exit
-# status:
-#   0  the entry on stdout
-#   1  the brief carries no parseable anchor entry at all
-#   2  the most recent entry does not parse — fail closed rather than answer
-#      with the older entry it supersedes
-#
-# An `Anchor:` line is held PENDING and resolved when the following record
-# arrives, rather than pulled in with `getline`. The distinction matters where
-# the two layouts meet: a `getline` consumes the next line unconditionally, so
-# a single-line entry immediately followed by another `Anchor:` line swallows
-# that neighbour and the walk reads every other entry — silently anchoring on
-# an older hash. Holding the line instead lets an adjacent `Anchor:` both close
-# the pending entry and open its own.
-latest_anchor_entry() {
-  awk '
-    # resolve <line> <nextline> — record the entry if both halves parsed. The
-    # trailing parameters are awk local scratch, not arguments.
-    function resolve(line, nextline,   hash, scratch, n, tok, i, cmd) {
-      # Blank out every non-hex byte and take the one 40-char run: an interval
-      # expression would say this in one pattern, but old BSD awks do not read
-      # them, and a bare /[0-9a-f]+/ matches the "c" in "Anchor" first.
-      hash = ""
-      scratch = line
-      gsub(/[^0-9a-f]/, " ", scratch)
-      n = split(scratch, tok, " ")
-      for (i = 1; i <= n; i++) {
-        if (length(tok[i]) == 40) { hash = tok[i]; break }
-      }
-      # The canonical layout backticks the hash on this line and carries the
-      # command alone on the next; the parenthesized variant carries it here.
-      cmd = ""
-      if (match(line, /\(`[^`]+`\)/)) {
-        cmd = substr(line, RSTART + 2, RLENGTH - 4)
-      } else if (match(nextline, /^`[^`]+`$/)) {
-        cmd = substr(nextline, 2, length(nextline) - 2)
-      }
-      # last_ok tracks THIS entry, not the best one seen: an entry that fails
-      # to parse has to be able to clear it. Keeping only the last parseable
-      # entry would answer a malformed newest record with an older hash, which
-      # is the superseded-anchor read this walk exists to refuse.
-      if (hash != "" && cmd != "") {
-        best_hash = hash
-        best_cmd = cmd
-        last_ok = 1
-      } else {
-        last_ok = 0
-      }
-    }
-    # Order is load-bearing: a pending entry closes against this record BEFORE
-    # the record is itself considered as a new entry, so an adjacent pair does
-    # both in one pass.
-    pending != "" { resolve(pending, $0); pending = "" }
-    /^Anchor:/ { pending = $0 }
-    END {
-      # A brief ending on its anchor line has no following record; the
-      # parenthesized layout still carries the command, the canonical one does
-      # not and stays unparsed.
-      if (pending != "") { resolve(pending, "") }
-      if (best_hash == "") { exit 1 }
-      # An entry the walk could not resolve is the most recent one on record.
-      # Distinct status: the caller tells "no entry at all" from "the newest
-      # one is half-written", which are different repairs.
-      if (!last_ok) { exit 2 }
-      printf "%s\t%s\n", best_hash, best_cmd
-    }
   ' "$1"
 }
 
@@ -558,7 +485,7 @@ for dir in "$specs_root"/*/; do
   parked_marker "$dir/tasks.md" && parked=yes
 
   entry_rc=0
-  entry=$(latest_anchor_entry "$brief" 2>/dev/null) || entry_rc=$?
+  entry=$(spec_parse_latest_anchor_entry "$brief" 2>/dev/null) || entry_rc=$?
   if [ "$entry_rc" -eq 2 ]; then
     report_recompute "$name" "$parked" \
       "the brief's most recent anchor entry does not parse — remedy: complete that entry's recorded command line (an older entry is never read in its place)"

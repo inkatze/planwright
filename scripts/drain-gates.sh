@@ -238,12 +238,12 @@ case $today in
       print (m >= 1 && m <= 12 && dd >= 1 && dd <= dim) ? 1 : 0
     }')
     if [ "$ok" != 1 ]; then
-      echo "drain-gates: invalid --today date: $today" >&2
+      printf '%s\n' "drain-gates: invalid --today date: $today" >&2
       exit 2
     fi
     ;;
   *)
-    echo "drain-gates: invalid --today date: $today" >&2
+    printf '%s\n' "drain-gates: invalid --today date: $today" >&2
     exit 2
     ;;
 esac
@@ -252,7 +252,7 @@ case $root in
   ?*/) root=${root%/} ;;
 esac
 if [ ! -d "$root" ] || [ ! -r "$root" ] || [ ! -x "$root" ]; then
-  echo "drain-gates: specs root missing, unreadable, or non-searchable: $1" >&2
+  printf '%s\n' "drain-gates: specs root missing, unreadable, or non-searchable: $1" >&2
   exit 1
 fi
 

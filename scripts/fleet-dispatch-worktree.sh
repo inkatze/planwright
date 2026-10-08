@@ -272,12 +272,12 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # Guarded source with an inline fallback, matching dispatch-fetch.sh: a missing
 # echo-safety.sh must not turn every sanitize_printable on an error path into a
 # "command not found" (set -e is unset, so the source would not otherwise abort).
-if [ -r "$script_dir/echo-safety.sh" ]; then
+if [ -f "$script_dir/echo-safety.sh" ] && [ -r "$script_dir/echo-safety.sh" ]; then
   # shellcheck source=scripts/echo-safety.sh
   . "$script_dir/echo-safety.sh"
 else
   sanitize_printable() {
-    printf '%s' "$1" | tr -d '\000-\037\177'
+    printf '%s' "$1" | tr -d '\000-\037\177\200-\237'
   }
 fi
 

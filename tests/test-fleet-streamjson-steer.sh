@@ -390,7 +390,43 @@ got=$(grep control_response "$tmp/r7/stdin" | jq -c '.response.response.updatedI
 [ "$got" = "$deep_in" ] || fail "s6: the deep input must arrive intact, got: $got"
 echo "ok: s6 --allow over a worker input carrying a raw DEL, or nested 100 deep, delivers it intact as a valid frame (REQ-G1.2)"
 
-for sp in "$tmp/h1:sjs1" "$tmp/h3:sjs3" "$tmp/h6:sjs6" "$tmp/h7:sjs7"; do
+# ---------------------------------------------------------------------------
+# s8: a steer starts a new turn, so the previous turn's result stops speaking
+#     for the worker: a live steered worker reads running, never the earlier
+#     turn's completed that a reaper would act on. A steer that delivers
+#     nothing leaves the recorded result as it was.
+# ---------------------------------------------------------------------------
+home="$tmp/h8"
+rec="$tmp/r8"
+line_result='{"type":"result","subtype":"success","is_error":false,"session_id":"'$sid'"}'
+printf '%s\n%s\n' "$line_init" "$line_result" >"$tmp/ev-result"
+start_worker "$home" "$rec" sjs8 SHIM_EVENTS="$tmp/ev-result"
+wdir="$home/streamjson/sjs8"
+wait_until 100 test -f "$wdir/result" || fail "s8: the turn's result was never recorded"
+out=$(senv "$home" "$rec" -- status sjs8)
+case $out in
+  "status sjs8 completed result=success") : ;;
+  *) fail "s8: a live worker idle after its turn reads completed, got: $out" ;;
+esac
+printf 'next turn\n' >"$tmp/steer8"
+senv "$home" "$rec" -- steer sjs8 --message-file "$tmp/steer8" >/dev/null \
+  || fail "s8: steer exited non-zero"
+out=$(senv "$home" "$rec" -- status sjs8)
+case $out in
+  "status sjs8 running "*) : ;;
+  *) fail "s8: a steered worker is in a new turn, not completed, got: $out" ;;
+esac
+[ -z "$(find "$wdir" -name '.result*' 2>/dev/null)" ] || fail "s8: a delivered steer must leave no set-aside result behind"
+senv "$home" "$rec" -- stop sjs8 --grace 1 >/dev/null 2>&1 || :
+printf 'result\tsuccess\t1700000000\tfalse\n' >"$wdir/result"
+cp "$wdir/result" "$tmp/s8-result"
+senv "$home" "$rec" -- steer sjs8 --message-file "$tmp/steer8" >/dev/null 2>&1 \
+  && fail "s8: a steer to a closed worker must not report delivery"
+cmp -s "$wdir/result" "$tmp/s8-result" || fail "s8: an undelivered steer must keep the recorded result"
+[ -z "$(find "$wdir" -name '.result*' 2>/dev/null)" ] || fail "s8: an undelivered steer must leave no set-aside result behind"
+echo "ok: s8 a delivered steer retires the previous turn's result; an undelivered one keeps it"
+
+for sp in "$tmp/h1:sjs1" "$tmp/h3:sjs3" "$tmp/h6:sjs6" "$tmp/h7:sjs7" "$tmp/h8:sjs8"; do
   senv "${sp%%:*}" "$tmp/r1" -- stop "${sp##*:}" --grace 1 >/dev/null 2>&1 || :
 done
 # The suite leaves nothing running: a close above that missed a worker shows

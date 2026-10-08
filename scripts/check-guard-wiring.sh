@@ -85,7 +85,7 @@ while [ "$#" -gt 0 ]; do
   case $1 in
     --repo-root)
       [ "$#" -ge 2 ] || {
-        echo "$me: --repo-root needs a directory" >&2
+        printf '%s\n' "$me: --repo-root needs a directory" >&2
         exit 2
       }
       repo_root=$2
@@ -96,14 +96,14 @@ while [ "$#" -gt 0 ]; do
       exit 0
       ;;
     *)
-      echo "$me: unknown argument" >&2
+      printf '%s\n' "$me: unknown argument" >&2
       exit 2
       ;;
   esac
 done
 
 repo_root=$(cd "$repo_root" 2>/dev/null && pwd) || {
-  echo "$me: repo root is not a readable directory" >&2
+  printf '%s\n' "$me: repo root is not a readable directory" >&2
   exit 5
 }
 
@@ -112,17 +112,17 @@ workflow_dir="$repo_root/.github/workflows"
 allowfile="$repo_root/scripts/guard-wiring-allow.txt"
 
 [ -r "$misefile" ] || {
-  echo "$me: $misefile is missing or unreadable — the closure would prove nothing" >&2
+  printf '%s\n' "$me: $misefile is missing or unreadable — the closure would prove nothing" >&2
   exit 5
 }
 [ -d "$workflow_dir" ] && [ -r "$workflow_dir" ] || {
-  echo "$me: $workflow_dir is missing or unreadable — half the wiring surface would go unread" >&2
+  printf '%s\n' "$me: $workflow_dir is missing or unreadable — half the wiring surface would go unread" >&2
   exit 5
 }
 
 for tool in jq mise; do
   command -v "$tool" >/dev/null 2>&1 || {
-    echo "$me: '$tool' is not on PATH — cannot read the task graph, refusing to guess" >&2
+    printf '%s\n' "$me: '$tool' is not on PATH — cannot read the task graph, refusing to guess" >&2
     exit 5
   }
 done
@@ -132,7 +132,7 @@ done
 # only ever LISTS tasks, never runs one.
 graph=$(cd "$repo_root" && MISE_TRUSTED_CONFIG_PATHS="$repo_root" mise tasks --json --hidden 2>/dev/null) || graph=''
 [ -n "$graph" ] || {
-  echo "$me: 'mise tasks --json --hidden' produced nothing in $repo_root — failing closed rather than reporting a clean scan" >&2
+  printf '%s\n' "$me: 'mise tasks --json --hidden' produced nothing in $repo_root — failing closed rather than reporting a clean scan" >&2
   exit 5
 }
 
@@ -340,7 +340,7 @@ prog='
 '
 cd_dirs=$(printf '%s' "$graph" | jq -r --arg phase dirs --arg src "$misefile" --arg root "$repo_root" \
   --arg overlays "$overlay_envs" --arg safe '' "$prog") || {
-  echo "$me: could not read the task graph — failing closed" >&2
+  printf '%s\n' "$me: could not read the task graph — failing closed" >&2
   exit 5
 }
 safe_dirs=$(printf '%s\n' "$cd_dirs" | while IFS= read -r d; do
@@ -348,13 +348,13 @@ safe_dirs=$(printf '%s\n' "$cd_dirs" | while IFS= read -r d; do
 done)
 report=$(printf '%s' "$graph" | jq -r --arg phase walk --arg src "$misefile" --arg root "$repo_root" \
   --arg overlays "$overlay_envs" --arg safe "$safe_dirs" "$prog") || {
-  echo "$me: could not read the task graph — failing closed" >&2
+  printf '%s\n' "$me: could not read the task graph — failing closed" >&2
   exit 5
 }
 
 case $report in
   PARSE*)
-    echo "$me: ${report#PARSE?} — failing closed rather than reporting a clean scan" >&2
+    printf '%s\n' "$me: ${report#PARSE?} — failing closed rather than reporting a clean scan" >&2
     exit 5
     ;;
 esac
@@ -368,7 +368,7 @@ bodies=$(printf '%s\n' "$report" | awk 'f { print } /^BODIES$/ { f = 1 }')
 reached_count=$(printf '%s\n' "$meta" | awk -F'\t' '$1 == "COUNT" { print $2; exit }')
 case ${reached_count:-0} in
   '' | *[!0-9]* | 0)
-    echo "$me: the task-graph walk reported no reached tasks — failing closed" >&2
+    printf '%s\n' "$me: the task-graph walk reported no reached tasks — failing closed" >&2
     exit 5
     ;;
 esac
@@ -381,13 +381,13 @@ haystack=$(
   find "$workflow_dir" -type f \( -name '*.yml' -o -name '*.yaml' \) -exec cat {} + 2>/dev/null
 )
 [ -n "$haystack" ] || {
-  echo "$me: the wiring text came back empty — failing closed" >&2
+  printf '%s\n' "$me: the wiring text came back empty — failing closed" >&2
   exit 5
 }
 
 guards=$(find "$repo_root/scripts" -maxdepth 1 -type f -name 'check-*.sh' 2>/dev/null | sort)
 [ -n "$guards" ] || {
-  echo "$me: found no scripts/check-*.sh at all — the scan would prove nothing" >&2
+  printf '%s\n' "$me: found no scripts/check-*.sh at all — the scan would prove nothing" >&2
   exit 5
 }
 
@@ -419,7 +419,7 @@ while IFS= read -r g; do
   b=${g##*/}
   if printf '%s\n' "$haystack" | grep -qF -- "$b"; then
     if is_allowed "$b"; then
-      echo "$me: $b is in the allowlist but IS wired — remove the stale entry" >&2
+      printf '%s\n' "$me: $b is in the allowlist but IS wired — remove the stale entry" >&2
       rc=1
     fi
     continue
@@ -434,7 +434,7 @@ EOF
 while IFS= read -r a; do
   [ -n "$a" ] || continue
   [ -f "$repo_root/scripts/$a" ] || {
-    echo "$me: the allowlist names '$a', which does not exist — remove the stale entry" >&2
+    printf '%s\n' "$me: the allowlist names '$a', which does not exist — remove the stale entry" >&2
     rc=1
   }
 done <<EOF
@@ -443,9 +443,9 @@ EOF
 
 if [ -n "$unwired" ]; then
   for b in $unwired; do
-    echo "$me: scripts/$b is run by no task in the \`check\` closure and by no workflow" >&2
+    printf '%s\n' "$me: scripts/$b is run by no task in the \`check\` closure and by no workflow" >&2
   done
-  echo "$me: a guard nothing runs cannot fail. Wire it into \`check\`, or add it to scripts/guard-wiring-allow.txt naming who runs it instead." >&2
+  printf '%s\n' "$me: a guard nothing runs cannot fail. Wire it into \`check\`, or add it to scripts/guard-wiring-allow.txt naming who runs it instead." >&2
 fi
 
 printf '%s\n' "$meta" | awk -F'\t' -v me="$me" '
@@ -453,6 +453,6 @@ printf '%s\n' "$meta" | awk -F'\t' -v me="$me" '
 '
 
 if [ "$rc" = 0 ]; then
-  echo "$me: ok, every scripts/check-*.sh is run ($reached_count tasks in the check closure)"
+  printf '%s\n' "$me: ok, every scripts/check-*.sh is run ($reached_count tasks in the check closure)"
 fi
 exit $rc

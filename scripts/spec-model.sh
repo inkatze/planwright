@@ -85,7 +85,7 @@ unset CDPATH
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 spec_parse_sh="$script_dir/spec-parse.sh"
 if [ ! -f "$spec_parse_sh" ] || [ ! -r "$spec_parse_sh" ]; then
-  echo "spec-model: required helper $spec_parse_sh missing or not readable" >&2
+  printf '%s\n' "spec-model: required helper $spec_parse_sh missing or not readable" >&2
   exit 2
 fi
 # shellcheck source=scripts/spec-parse.sh
@@ -98,7 +98,7 @@ if [ -z "$spec_dir" ]; then
 fi
 while [ "$spec_dir" != "${spec_dir%/}" ]; do spec_dir=${spec_dir%/}; done
 if [ ! -d "$spec_dir" ] || [ ! -r "$spec_dir" ]; then
-  echo "spec-model: spec directory absent or unreadable: $spec_dir" >&2
+  printf '%s\n' "spec-model: spec directory absent or unreadable: $spec_dir" >&2
   exit 2
 fi
 

@@ -94,7 +94,7 @@ suite_budget=""
 expect_commit=""
 
 die_usage() {
-  echo "prompt-eval: $1" >&2
+  printf '%s\n' "prompt-eval: $1" >&2
   echo "run 'prompt-eval.sh --help' for usage" >&2
   exit 2
 }
@@ -184,7 +184,7 @@ command -v jq >/dev/null 2>&1 || {
 }
 
 [ -f "$plugin_dir/.claude-plugin/plugin.json" ] || {
-  echo "prompt-eval: --plugin-dir '$plugin_dir' is not a plugin (no .claude-plugin/plugin.json)" >&2
+  printf '%s\n' "prompt-eval: --plugin-dir '$plugin_dir' is not a plugin (no .claude-plugin/plugin.json)" >&2
   exit 2
 }
 plugin_dir="$(cd "$plugin_dir" && pwd)"
@@ -195,7 +195,7 @@ export PROMPT_EVAL_PLUGIN_DIR="$plugin_dir"
 if [ -n "$expect_commit" ]; then
   head_sha="$(git -C "$plugin_dir" rev-parse HEAD 2>/dev/null || true)"
   if [ "$head_sha" != "$expect_commit" ]; then
-    echo "prompt-eval: plugin dir HEAD '$head_sha' != expected '$expect_commit'" >&2
+    printf '%s\n' "prompt-eval: plugin dir HEAD '$head_sha' != expected '$expect_commit'" >&2
     echo "the baseline must be captured against the pre-diet commit (R8)" >&2
     exit 4
   fi
@@ -203,13 +203,13 @@ fi
 
 if [ -n "$record_dir" ]; then
   mkdir -p "$record_dir" || {
-    echo "prompt-eval: cannot create record dir '$record_dir'" >&2
+    printf '%s\n' "prompt-eval: cannot create record dir '$record_dir'" >&2
     exit 5
   }
 fi
 
 mkdir -p "$WORKBASE" || {
-  echo "prompt-eval: cannot create work base '$WORKBASE'" >&2
+  printf '%s\n' "prompt-eval: cannot create work base '$WORKBASE'" >&2
   exit 5
 }
 
@@ -241,11 +241,11 @@ preserve_run() {
     if mv "$kept/transcript.jsonl" "$raw" 2>/dev/null; then
       rm -rf "$kept" 2>/dev/null
     else
-      echo "prompt-eval: [$fx_id run $run] preservation unwind failed — transcript left at $kept/transcript.jsonl" >&2
+      printf '%s\n' "prompt-eval: [$fx_id run $run] preservation unwind failed — transcript left at $kept/transcript.jsonl" >&2
     fi
     return 1
   fi
-  echo "prompt-eval: [$fx_id run $run] failing run preserved at $kept (PROMPT_EVAL_KEEP_FAILED=1)" >&2
+  printf '%s\n' "prompt-eval: [$fx_id run $run] failing run preserved at $kept (PROMPT_EVAL_KEEP_FAILED=1)" >&2
   current_work=""
   return 0
 }
@@ -324,7 +324,7 @@ trap 'cleanup; exit 143' TERM
 run_fixture() {
   fx_dir="$1"
   [ -d "$fx_dir" ] || {
-    echo "prompt-eval: fixture dir not found: $fx_dir" >&2
+    printf '%s\n' "prompt-eval: fixture dir not found: $fx_dir" >&2
     return 2
   }
 
@@ -332,7 +332,7 @@ run_fixture() {
   [ -n "$fx_id" ] || fx_id="$(basename "$fx_dir")"
   case "$fx_id" in
     '' | *[!a-zA-Z0-9._-]*)
-      echo "prompt-eval: fixture id '$fx_id' has unsafe characters" >&2
+      printf '%s\n' "prompt-eval: fixture id '$fx_id' has unsafe characters" >&2
       return 2
       ;;
   esac
@@ -343,7 +343,7 @@ run_fixture() {
   # unsafe-character case (a fixture-authoring error, not a graded fail).
   case "$fx_id" in
     kept | kept.*)
-      echo "prompt-eval: fixture id '$fx_id' collides with the reserved kept.* preservation namespace" >&2
+      printf '%s\n' "prompt-eval: fixture id '$fx_id' collides with the reserved kept.* preservation namespace" >&2
       return 2
       ;;
   esac
@@ -352,11 +352,11 @@ run_fixture() {
   # grade the empty run as a skill failure — a fixture-authoring defect, not a
   # skill result. Require it non-empty (usage error, not a graded fail).
   [ -s "$fx_dir/prompt.txt" ] || {
-    echo "prompt-eval: fixture '$fx_id' has a missing or empty prompt.txt" >&2
+    printf '%s\n' "prompt-eval: fixture '$fx_id' has a missing or empty prompt.txt" >&2
     return 2
   }
   [ -f "$fx_dir/assert.jq" ] || {
-    echo "prompt-eval: fixture '$fx_id' has no assert.jq" >&2
+    printf '%s\n' "prompt-eval: fixture '$fx_id' has no assert.jq" >&2
     return 2
   }
 
@@ -387,19 +387,19 @@ run_fixture() {
     case "$fx_skill" in
       [a-z0-9]*) ;;
       *)
-        echo "prompt-eval: [$fx_id] fail-closed — invalid skill name in fixture.conf: '$fx_skill'" >&2
+        printf '%s\n' "prompt-eval: [$fx_id] fail-closed — invalid skill name in fixture.conf: '$fx_skill'" >&2
         return 4
         ;;
     esac
     case "$fx_skill" in
       *[!a-z0-9-]*)
-        echo "prompt-eval: [$fx_id] fail-closed — invalid skill name in fixture.conf: '$fx_skill'" >&2
+        printf '%s\n' "prompt-eval: [$fx_id] fail-closed — invalid skill name in fixture.conf: '$fx_skill'" >&2
         return 4
         ;;
     esac
     sk_md="$plugin_dir/skills/$fx_skill/SKILL.md"
     if [ ! -f "$sk_md" ]; then
-      echo "prompt-eval: [$fx_id] fail-closed — fixture names skill '$fx_skill' but $sk_md is missing" >&2
+      printf '%s\n' "prompt-eval: [$fx_id] fail-closed — fixture names skill '$fx_skill' but $sk_md is missing" >&2
       return 4
     fi
     # The sentinel is the FULL H1 line, `# ` prefix included: the bare skill
@@ -407,7 +407,7 @@ run_fixture() {
     # heading line proves the SKILL.md body entered the transcript.
     skill_sentinel="$(grep -m1 '^# ' "$sk_md")"
     if [ -z "$skill_sentinel" ]; then
-      echo "prompt-eval: [$fx_id] fail-closed — skills/$fx_skill/SKILL.md has no H1 line to use as the injection sentinel" >&2
+      printf '%s\n' "prompt-eval: [$fx_id] fail-closed — skills/$fx_skill/SKILL.md has no H1 line to use as the injection sentinel" >&2
       return 4
     fi
   fi
@@ -416,7 +416,7 @@ run_fixture() {
   for stale in "$WORKBASE/$fx_id".*; do
     [ -e "$stale" ] || continue
     rm -rf "$stale" 2>/dev/null || {
-      echo "prompt-eval: cannot prune stale tree '$stale'" >&2
+      printf '%s\n' "prompt-eval: cannot prune stale tree '$stale'" >&2
       return 5
     }
   done
@@ -430,7 +430,7 @@ run_fixture() {
     raw="$WORKBASE/$fx_id.$$.$run.jsonl"
     rm -rf "$work"
     mkdir -p "$work" || {
-      echo "prompt-eval: cannot create work tree '$work'" >&2
+      printf '%s\n' "prompt-eval: cannot create work tree '$work'" >&2
       return 5
     }
     current_work="$work" # armed for the interrupt-safe cleanup trap
@@ -442,9 +442,9 @@ run_fixture() {
       # (mirrors the probe.sh handling below). stdout stays discarded as noise.
       setup_err="$work.setup-err"
       if ! (cd "$work" && sh "$fx_dir/setup.sh" "$work") >/dev/null 2>"$setup_err"; then
-        echo "prompt-eval: [$fx_id run $run] setup.sh failed" >&2
+        printf '%s\n' "prompt-eval: [$fx_id run $run] setup.sh failed" >&2
         if [ -s "$setup_err" ]; then
-          echo "prompt-eval: [$fx_id run $run] setup.sh stderr:" >&2
+          printf '%s\n' "prompt-eval: [$fx_id run $run] setup.sh stderr:" >&2
           sed 's/^/  /' "$setup_err" >&2
         fi
         rm -rf "$work" "$raw" "$setup_err"
@@ -488,7 +488,7 @@ run_fixture() {
     loaded="false"
     [ -n "$init" ] && loaded="$(printf '%s' "$init" | jq -r 'any(.plugins[]?; .name=="planwright") // false' 2>/dev/null)"
     if [ "$loaded" != "true" ]; then
-      echo "prompt-eval: [$fx_id run $run] INVALID — planwright plugin not loaded from system/init" >&2
+      printf '%s\n' "prompt-eval: [$fx_id run $run] INVALID — planwright plugin not loaded from system/init" >&2
       preserve_run || rm -rf "$work" "$raw"
       return 3
     fi
@@ -498,7 +498,7 @@ run_fixture() {
     # unless the skill's H1 sentinel appears in the transcript — a prose
     # prompt grades a bare model, not the skill under eval.
     if [ -n "$skill_sentinel" ] && ! grep -Fq "$skill_sentinel" "$raw"; then
-      echo "prompt-eval: [$fx_id run $run] INVALID — skill '$fx_skill' never entered context (H1 sentinel '$skill_sentinel' absent from the transcript); prompt.txt must be the literal slash-command invocation" >&2
+      printf '%s\n' "prompt-eval: [$fx_id run $run] INVALID — skill '$fx_skill' never entered context (H1 sentinel '$skill_sentinel' absent from the transcript); prompt.txt must be the literal slash-command invocation" >&2
       preserve_run || rm -rf "$work" "$raw"
       return 3
     fi
@@ -506,13 +506,13 @@ run_fixture() {
     # Result line + cost. Missing result or non-numeric cost is fail-closed.
     result="$(jq -c 'select(.type=="result")' "$raw" 2>/dev/null | tail -n1)"
     if [ -z "$result" ]; then
-      echo "prompt-eval: [$fx_id run $run] fail-closed — no result event in transcript" >&2
+      printf '%s\n' "prompt-eval: [$fx_id run $run] fail-closed — no result event in transcript" >&2
       rm -rf "$work" "$raw"
       return 4
     fi
     cost="$(printf '%s' "$result" | jq -r '.total_cost_usd // empty' 2>/dev/null)"
     if ! is_number "$cost"; then
-      echo "prompt-eval: [$fx_id run $run] fail-closed — missing/unparseable total_cost_usd" >&2
+      printf '%s\n' "prompt-eval: [$fx_id run $run] fail-closed — missing/unparseable total_cost_usd" >&2
       rm -rf "$work" "$raw"
       return 4
     fi
@@ -525,7 +525,7 @@ run_fixture() {
 
     # Suite ceiling (R11): abort fail-closed once cumulative cost crosses it.
     if [ -n "$budget_micros" ] && [ "$suite_micros" -gt "$budget_micros" ]; then
-      echo "prompt-eval: [$fx_id run $run] suite budget ceiling \$$suite_budget exceeded" >&2
+      printf '%s\n' "prompt-eval: [$fx_id run $run] suite budget ceiling \$$suite_budget exceeded" >&2
       rm -rf "$work" "$raw"
       return 6
     fi
@@ -535,7 +535,7 @@ run_fixture() {
     run_pass=0
     if [ "$subtype" = "error_max_budget_usd" ]; then
       # Budget-cap-hit (R12): the run could not complete → a failing run.
-      echo "prompt-eval: [$fx_id run $run] budget cap hit (\$$max_budget) — counts as a fail" >&2
+      printf '%s\n' "prompt-eval: [$fx_id run $run] budget cap hit (\$$max_budget) — counts as a fail" >&2
       run_pass=1
     else
       # Filesystem/side-effect probe (optional), merged into the outcome jq sees.
@@ -555,9 +555,9 @@ run_fixture() {
           probe="$probe_out"
           rm -f "$probe_err"
         else
-          echo "prompt-eval: [$fx_id run $run] fail-closed — probe.sh failed or emitted invalid JSON" >&2
+          printf '%s\n' "prompt-eval: [$fx_id run $run] fail-closed — probe.sh failed or emitted invalid JSON" >&2
           if [ -s "$probe_err" ]; then
-            echo "prompt-eval: [$fx_id run $run] probe.sh stderr:" >&2
+            printf '%s\n' "prompt-eval: [$fx_id run $run] probe.sh stderr:" >&2
             sed 's/^/  /' "$probe_err" >&2
           fi
           rm -rf "$work" "$raw" "$probe_err"
@@ -568,7 +568,7 @@ run_fixture() {
       base="$(printf '%s' "$result" | jq -c '{is_error, subtype, result, num_turns, plugin_loaded: true, cost_usd: .total_cost_usd}' 2>/dev/null)"
       outcome="$(jq -cn --argjson b "$base" --argjson p "$probe" '$b + $p' 2>/dev/null)"
       if [ -z "$outcome" ]; then
-        echo "prompt-eval: [$fx_id run $run] fail-closed — could not build the outcome to grade" >&2
+        printf '%s\n' "prompt-eval: [$fx_id run $run] fail-closed — could not build the outcome to grade" >&2
         rm -rf "$work" "$raw"
         current_work=""
         return 4
@@ -586,7 +586,7 @@ run_fixture() {
         0) run_pass=0 ;;
         1) run_pass=1 ;;
         *)
-          echo "prompt-eval: [$fx_id run $run] fail-closed — assert.jq error (jq exit $grade_rc)" >&2
+          printf '%s\n' "prompt-eval: [$fx_id run $run] fail-closed — assert.jq error (jq exit $grade_rc)" >&2
           rm -rf "$work" "$raw"
           current_work=""
           return 4
@@ -601,28 +601,28 @@ run_fixture() {
     if [ "$run_pass" -ne 0 ] && preserve_run; then
       : # preserved in place of teardown; preserve_run disarmed current_work
     elif ! rm -rf "$work" "$raw"; then
-      echo "prompt-eval: [$fx_id run $run] fail-closed — teardown failed for '$work'" >&2
+      printf '%s\n' "prompt-eval: [$fx_id run $run] fail-closed — teardown failed for '$work'" >&2
       return 5
     fi
     current_work="" # disarmed: the tree is gone (or preserved out of the way)
 
     if [ "$run_pass" -ne 0 ]; then
       fx_pass=0
-      echo "prompt-eval: [$fx_id] run $run/$k FAILED — pass^$k not met, early-exit" >&2
+      printf '%s\n' "prompt-eval: [$fx_id] run $run/$k FAILED — pass^$k not met, early-exit" >&2
       break
     fi
-    echo "prompt-eval: [$fx_id] run $run/$k passed (cost \$$cost)"
+    printf '%s\n' "prompt-eval: [$fx_id] run $run/$k passed (cost \$$cost)"
     run=$((run + 1))
   done
 
   fx_cost="$(printf '%s' "$fx_micros" | awk '{printf "%.6f", $1 / 1000000}')"
   if [ "$fx_pass" -eq 1 ]; then
     outcome_label="pass"
-    echo "prompt-eval: [$fx_id] PASS (pass^$k) — total cost \$$fx_cost"
+    printf '%s\n' "prompt-eval: [$fx_id] PASS (pass^$k) — total cost \$$fx_cost"
   else
     outcome_label="fail"
     note_fail
-    echo "prompt-eval: [$fx_id] FAIL — total cost \$$fx_cost"
+    printf '%s\n' "prompt-eval: [$fx_id] FAIL — total cost \$$fx_cost"
   fi
 
   if [ -n "$record_dir" ]; then
@@ -647,7 +647,7 @@ record_result() {
   if [ -n "$r_runs" ]; then
     runs_json="$(printf '%s' "$r_runs" | jq -R 'select(length>0) | tonumber' 2>/dev/null | jq -sc . 2>/dev/null)"
     if [ -z "$runs_json" ]; then
-      echo "prompt-eval: [$r_id] fail-closed — could not encode captured per-run costs" >&2
+      printf '%s\n' "prompt-eval: [$r_id] fail-closed — could not encode captured per-run costs" >&2
       return 1
     fi
   else
@@ -660,24 +660,24 @@ record_result() {
     --argjson runs "$runs_json" \
     '{fixture: $fx, outcome: $oc, cost_usd: $cost, per_run_cost_usd: $runs}' 2>/dev/null)"
   if [ -z "$artifact" ]; then
-    echo "prompt-eval: [$r_id] fail-closed — could not build result artifact" >&2
+    printf '%s\n' "prompt-eval: [$r_id] fail-closed — could not build result artifact" >&2
     return 1
   fi
   # Hygiene re-verification: only the allowed keys, and no machine-local leak.
   extra_keys="$(printf '%s' "$artifact" | jq -r 'keys - ["fixture","outcome","cost_usd","per_run_cost_usd"] | .[]' 2>/dev/null)"
   if [ -n "$extra_keys" ]; then
-    echo "prompt-eval: [$r_id] fail-closed — artifact carries disallowed keys: $extra_keys" >&2
+    printf '%s\n' "prompt-eval: [$r_id] fail-closed — artifact carries disallowed keys: $extra_keys" >&2
     return 1
   fi
   if printf '%s' "$artifact" | grep -Eqi "$machine_local_re"; then
-    echo "prompt-eval: [$r_id] fail-closed — artifact contains a machine-local substring" >&2
+    printf '%s\n' "prompt-eval: [$r_id] fail-closed — artifact contains a machine-local substring" >&2
     return 1
   fi
   printf '%s\n' "$artifact" >"$record_dir/$r_id.json" || {
-    echo "prompt-eval: [$r_id] cannot write artifact to '$record_dir'" >&2
+    printf '%s\n' "prompt-eval: [$r_id] cannot write artifact to '$record_dir'" >&2
     return 1
   }
-  echo "prompt-eval: [$r_id] recorded scrubbed result -> $record_dir/$r_id.json"
+  printf '%s\n' "prompt-eval: [$r_id] recorded scrubbed result -> $record_dir/$r_id.json"
   return 0
 }
 
