@@ -31,17 +31,17 @@ reconcile alone (D-3), never at dispatch.
 
 The dispatch record is the **task branch** (the first durable act) plus the
 **timestamped runtime marker** — never a `tasks.md` write. The **per-spec
-advisory lock** is not part of the record; it is the mechanism that
-serializes the freshness-gate-plus-branch-create-plus-marker-write window so
-that window is atomic against a concurrent tower or the `tasks-pr-sync` hook.
-The lock path and protocol are shared with `tasks-pr-sync.sh` so the
-two exclude each other: one primitive, `scripts/lock-lib.sh`, broken only
-on owner absence. A hold spanning tool calls has no owner to
-probe; `orchestrate-lock.sh sweep` clears one on the positive-evidence bar
-below, never on less. `release` ends the caller's own window and refuses a hold
-it can show belongs to another; `break` is the unconditional clear. An
-`acquire` exit 1 (a holder has it) is a **clean no-op**: skip the step —
-another tower or the hook holds it, and
+advisory lock** is not part of the record; it is the mechanism that serializes
+the freshness-gate-plus-branch-create-plus-marker-write window so that window
+is atomic against a concurrent tower or the `tasks-pr-sync` hook. The lock path
+and protocol are shared with `tasks-pr-sync.sh` so the two exclude each other:
+one primitive, `scripts/lock-lib.sh`, broken only on owner absence. A detached
+hold (one spanning tool calls with no owner pid recorded,
+`PLANWRIGHT_TOWER_PID` unset) has no owner to probe; `orchestrate-lock.sh
+sweep` clears one on the positive-evidence bar below, never on less. `release`
+ends the caller's own window and refuses a hold it can show belongs to another;
+`break` is the unconditional clear. An `acquire` exit 1 (a holder has it) is a
+**clean no-op**: skip the step — another tower or the hook holds it, and
 `--bookkeeping` reconciles anything dropped. The lock is released the moment
 the write window closes, before dispatch, and is never held across execution:
 it must never serialize the workers.

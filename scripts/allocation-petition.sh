@@ -134,8 +134,9 @@ PET_NAME=allocation-petition
 # WROTE the petition — normally one boundary earlier — not the time it was
 # claimed. An mtime-based guard therefore treats every ordinary petition as
 # pre-expired and sweeps live consumers, which is the whole defect this guard
-# exists to prevent. The lock family reads no timestamp at all: staleness
-# there is the owner process being absent, so there is no idiom to borrow.
+# exists to prevent. The lock family has no age threshold either: staleness
+# there is the owner process being absent (a token's mint time is read only
+# to tell a recycled pid from its owner), so there is no idiom to borrow.
 PET_CLAIM_ORPHAN_SEC=900
 # One claim namespace is 16 slots (see take_claim), so a legitimate sweep never
 # exceeds that. Each reconciled claim costs the caller a ledger row, so the
