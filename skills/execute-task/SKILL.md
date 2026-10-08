@@ -391,9 +391,9 @@ classify the edit on the amendment axis:
    (`scripts/check-commit-msgs.sh`): `feat(<scope>): <task title>` or the fitting
    type. Assemble the body per the **PR-body assembly** section of the
    `gate-wiring` doctrine (D-2). This skill supplies the summary inputs: the
-   kickoff brief path relative to its repository, the task IDs, the REQs satisfied (from the
-   task `Citations:`), the test additions and what they verify, and
-   implementation notes (key decisions). The audit record is the convergence
+   kickoff brief path relative to its repository or plain root, the task IDs,
+   the REQs satisfied (from the task `Citations:`), the test additions and what
+   they verify, and implementation notes (key decisions). The audit record is the convergence
    steps' folded output plus every in-run point's table (`step-record.sh
    render --run <id>`, `none` rows included). The approval act, never the
    ready flip, signs off pending-sign-off items; reject one before it by its
