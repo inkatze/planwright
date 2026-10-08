@@ -128,6 +128,10 @@ if [ -L "$file" ] || [ ! -f "$file" ]; then
   say "no regular tasks.md for '$spec' under the spec root"
   exit 4
 fi
+[ -r "$file" ] || {
+  say "cannot read $file"
+  exit 4
+}
 fv=$(spec_parse_header_value "$file" Format-version) || fv=''
 [ "$fv" = 2 ] || {
   say "$spec is not a format-version 2 bundle; a version 1 park moves the task block by hand"

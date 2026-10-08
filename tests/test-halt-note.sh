@@ -223,6 +223,18 @@ else
   fail "holder: a symlink (rc=$rc): $out"
 fi
 
+if [ "$(id -u)" -ne 0 ]; then
+  mkdir -p "$z/locked"
+  tasks_v2 "$z/locked/tasks.md"
+  chmod 000 "$z/locked/tasks.md"
+  note "$w" locked 1 text
+  chmod 644 "$z/locked/tasks.md"
+  case $rc:$out in
+    4:*"cannot read"*) ok "holder: an unreadable tasks.md is refused as unreadable" ;;
+    *) fail "holder: an unreadable tasks.md (rc=$rc): $out" ;;
+  esac
+fi
+
 # plain: the same write, no repository anywhere near the store.
 pw=$tmp/plainwork
 gitq -c init.defaultBranch=main init -q "$pw"
