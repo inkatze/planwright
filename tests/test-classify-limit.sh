@@ -242,6 +242,10 @@ cl --now "$NOW"
 assert_rc "a missing --vendor is a usage error" 2 "$RC"
 cl --vendor sample-cli --now soon
 assert_rc "a non-numeric --now is a usage error" 2 "$RC"
+cl --vendor sample-cli --now ""
+assert_rc "an empty --now is a usage error" 2 "$RC"
+cl --vendor sample-cli --now "$NOW" --input ""
+assert_rc "an empty --input is a usage error" 2 "$RC"
 
 # ---------------------------------------------------------------------------
 # The shipped claude adapter: a rate-limit death is recognized, a routine

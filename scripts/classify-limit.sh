@@ -56,7 +56,9 @@ die() {
 vendor=""
 vendor_set=0
 input=""
+input_set=0
 now=""
+now_set=0
 while [ $# -gt 0 ]; do
   case $1 in
     --vendor | --input | --now)
@@ -66,8 +68,14 @@ while [ $# -gt 0 ]; do
           vendor=$2
           vendor_set=1
           ;;
-        --input) input=$2 ;;
-        --now) now=$2 ;;
+        --input)
+          input=$2
+          input_set=1
+          ;;
+        --now)
+          now=$2
+          now_set=1
+          ;;
       esac
       shift 2
       ;;
@@ -79,8 +87,11 @@ case $vendor in
   "" | [!a-z]* | *[!a-z0-9-]*) die 2 "--vendor is outside the step-id grammar" ;;
 esac
 [ "${#vendor}" -le 64 ] || die 2 "--vendor is outside the step-id grammar"
-if [ -n "$now" ]; then
-  case $now in *[!0-9]*) die 2 "--now is not epoch seconds" ;; esac
+if [ "$input_set" -eq 1 ] && [ -z "$input" ]; then
+  die 2 "--input is empty"
+fi
+if [ "$now_set" -eq 1 ]; then
+  case $now in "" | *[!0-9]*) die 2 "--now is not epoch seconds" ;; esac
   [ "${#now}" -le 15 ] || die 2 "--now is not epoch seconds"
 else
   now=$(date +%s)
