@@ -380,8 +380,6 @@ anchor_at_ref() {
 # primary is detached. Returns non-zero when a remote exists and neither
 # names a branch.
 default_ref() {
-  _dr_prim=$(cd -- "$1" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) || _dr_prim=$1
-  _dr_head=$(git -C "$_dr_prim" symbolic-ref --quiet --short HEAD 2>/dev/null) || _dr_head=""
   if git -C "$1" remote get-url origin >/dev/null 2>&1; then
     _dr_b=$(git -C "$1" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) || _dr_b=""
     case $_dr_b in
@@ -390,11 +388,21 @@ default_ref() {
         return 0
         ;;
     esac
+    _dr_head=$(primary_branch "$1")
     [ -n "$_dr_head" ] || return 1
     printf 'origin/%s' "$_dr_head"
     return 0
   fi
+  _dr_head=$(primary_branch "$1")
   printf '%s' "${_dr_head:-HEAD}"
+}
+
+# primary_branch <repo>: the branch <repo>'s primary checkout has checked out,
+# or nothing when it is detached. Run only when the remote names no HEAD, since
+# finding the primary costs a resolver run.
+primary_branch() {
+  _pb_prim=$(cd -- "$1" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) || _pb_prim=$1
+  git -C "$_pb_prim" symbolic-ref --quiet --short HEAD 2>/dev/null || :
 }
 
 # fetch_origin <repo> <attempts>: the bounded fetch. `--refmap=''` disables
@@ -499,7 +507,11 @@ if ! git -C "$repo_root" remote get-url origin >/dev/null 2>&1; then
   # baseline, so we park (exit 5, or 4 on a failed holder fetch) rather than
   # exit 3 with no anchor — keeping the --spec guarantee (anchor record OR
   # nonzero park) intact offline.
-  emit_anchor "$(default_ref "$repo_root")" HEAD || exit $?
+  if [ "$spec_posture" = same-repo ]; then
+    emit_anchor "$(default_ref "$repo_root")" HEAD || exit $?
+  else
+    emit_anchor || exit $?
+  fi
   exit 3
 fi
 
