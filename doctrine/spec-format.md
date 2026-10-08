@@ -120,15 +120,17 @@ follow the root under its checkout-local view, so a fragment recorded from a
 task worktree rides that worktree's branch, and in a holder each project's
 root carries its own (custom-spec-location D-5). A flight record is committed
 on the flight's branch, so only a root inside the checkout can hold one; with
-the root elsewhere the flight keeps its record in its PR.
+the root elsewhere a flight needs the PR home for its record, and a dispatch
+that would take the file home is refused.
 
 ## Path-placeholder convention
 
 Documentation and skill prose write path and identifier placeholders in
 angle brackets: `<spec>`, `<id>`, `<branch-suffix>`, `<date>`. A placeholder
 stands for exactly one segment; literal text outside the brackets is literal.
-The one exception is `<root>`, the resolved spec root, which stands for a whole
-path (`specs` under the default).
+The exceptions are the placeholders naming a directory, which stand for a
+whole path: `<root>`, the resolved spec root (`specs` under the default), as
+well as `<repo>`, `<worktree>`, and `<claude-dir>`.
 
 ## Fenced illustration
 
@@ -1076,10 +1078,11 @@ the declared format-version:
   doctrine carries the canonical class-3 definition and drain ritual.
 - **Spec root** — the directory holding the bundles and the reserved
   children, `specs/` by default (*Overview*). Two views of it: the
-  checkout-local view, the current checkout's own copy, which writers use;
-  and the primary view, the primary checkout's copy (the holder's in
-  `separate-repo`, the directory itself in `plain`), which the freshness gate
-  and the derivation read. Its posture is defined in `storage-classes`.
+  checkout-local view, which writers use, the current checkout's own copy in
+  `same-repo` and the same directory as the primary view in the other two
+  postures; and the primary view, the primary checkout's copy (the holder's
+  in `separate-repo`, the directory itself in `plain`), which the freshness
+  gate and the derivation read. Its posture is defined in `storage-classes`.
 - **Dispatch step** — one atomic `/orchestrate` step: select a ready unit,
   take the lock, move state, dispatch, release, exit.
 - **Content anchor** — the manifest-style hash over the four spec files
@@ -1319,14 +1322,15 @@ bundle would have to migrate to:
   `<root>/<spec>/`, the spec root being `specs/` by default or the directory
   the `spec_root` option names, resolved by `scripts/resolve-root.sh spec`,
   with a marker on any other root and the posture ladder defined in
-  `storage-classes` (*Overview*); `<root>` is the one placeholder standing for
-  a whole path (*Path-placeholder convention*); the `Superseded-by:` pointer
-  keeps the `specs/<spec>/` namespace form (*Overview*); a skill argument or
-  identity seam takes the bare identifier or its `specs/<spec>` alias, and the
-  forms keyed on the identifier are unchanged (*Spec identifiers*, addressing);
-  the reserved children, `_flights/` included, are children of the spec root
-  under its checkout-local view, and a flight record needs a root inside the
-  checkout (*Spec identifiers*, reserved directories; *Branch, worktree, and
+  `storage-classes` (*Overview*); `<root>` joins the directory placeholders
+  standing for a whole path (*Path-placeholder convention*); the
+  `Superseded-by:` pointer keeps the `specs/<spec>/` namespace form
+  (*Overview*); a skill argument or identity seam takes the bare identifier or
+  its `specs/<spec>` alias, and the forms keyed on the identifier are
+  unchanged (*Spec identifiers*, addressing); the reserved children,
+  `_flights/` included, are children of the spec root under its checkout-local
+  view, and a flight record needs a root inside the checkout, the PR home
+  otherwise (*Spec identifiers*, reserved directories; *Branch, worktree, and
   task-id grammar*, the flight-id evidence); the kickoff brief's path follows
   the bundle (*The kickoff brief*); the freshness gate's read surface is stated
   per posture, on the default branch rather than one assumed to be `main`, and
