@@ -61,11 +61,16 @@ usage() {
 # placeholder when nothing printable remains. spec-scope.sh is callable directly,
 # not always behind the scaffold's charset gate, so the selector is sanitized
 # here too (matching the sibling spec-walkthrough.sh / spec-assemble.sh). Display
-# only; the classification below still matches on the raw $scope.
+# only; the classification below still matches on the raw $scope. Wraps the
+# canonical scripts/echo-safety.sh sanitizer with this command's placeholder.
+if [ ! -f "$(dirname "$0")/echo-safety.sh" ] || [ ! -r "$(dirname "$0")/echo-safety.sh" ]; then
+  printf '%s\n' "spec-scope.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
+# shellcheck source=scripts/echo-safety.sh
+. "$(dirname "$0")/echo-safety.sh"
 sanitize_echo() {
-  se=$(printf '%s' "$1" | tr -d '\000-\037\177')
-  [ -n "$se" ] || se="(unprintable)"
-  printf '%s' "$se"
+  sanitize_printable "$1" "(unprintable)"
 }
 
 scope=
@@ -222,7 +227,7 @@ if [ -n "$spec_dir" ]; then
   here=$(cd "$(dirname "$0")" && pwd)
   model_sh="$here/spec-model.sh"
   if [ ! -x "$model_sh" ]; then
-    echo "spec-scope: cannot find an executable spec-model.sh at $model_sh" >&2
+    printf '%s\n' "spec-scope: cannot find an executable spec-model.sh at $model_sh" >&2
     exit 2
   fi
   # Capture the model first so its exit status propagates (a pipe would yield

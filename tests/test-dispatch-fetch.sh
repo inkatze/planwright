@@ -844,4 +844,31 @@ c15
 c16
 c17
 
+# c18 — a directory at the echo-safety.sh path is not the helper: dash sources
+# it silently, so a bare readability test let the script run on with
+# sanitize_printable undefined instead of using its inline fallback.
+c18() {
+  sh_dash=$(command -v dash) || {
+    echo "skip: c18 needs dash"
+    return 0
+  }
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-fetch.c18.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  cp -R "$here/../scripts" "$tmp/scripts"
+  rm -f "$tmp/scripts/echo-safety.sh"
+  mkdir "$tmp/scripts/echo-safety.sh"
+  set +e
+  err=$("$sh_dash" "$tmp/scripts/dispatch-fetch.sh" --bogus-opt 2>&1 >/dev/null)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "c18: an unknown option exited 0"
+  case $err in
+    *"not found"*) fail "c18: the sanitizer was undefined: $err" ;;
+    *"unknown option '--bogus-opt'"*) ;;
+    *) fail "c18: the unknown option was not named: $err" ;;
+  esac
+  echo "ok: c18 — an echo-safety.sh directory falls back to the inline sanitizer"
+}
+c18
+
 echo "PASS: test-dispatch-fetch.sh"

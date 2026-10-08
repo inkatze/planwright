@@ -95,7 +95,7 @@ TURN_GRADE="$SELF_DIR/turn-shape-grade.sh"
 # terminal — is stripped of control bytes first. Guarded source with an inline
 # fallback so a missing helper never turns sanitize_printable into a
 # command-not-found on an error path.
-if [ -r "$SELF_DIR/echo-safety.sh" ]; then
+if [ -f "$SELF_DIR/echo-safety.sh" ] && [ -r "$SELF_DIR/echo-safety.sh" ]; then
   # shellcheck source=scripts/echo-safety.sh
   . "$SELF_DIR/echo-safety.sh"
 else
