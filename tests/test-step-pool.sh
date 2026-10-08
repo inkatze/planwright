@@ -728,6 +728,33 @@ sp -- report hdir | grep -q "${TAB}?${TAB}?$"
 verdict "a holder that could not be recorded reads as unknown" "the report named a holder it could not have recorded"
 sp -- release hdir "$a" >/dev/null
 
+# --- REQ-I1.1: a slot's owner is a process of the running user ------------------
+reset
+printf 'step_pool_wait: 1s\n' >"$mlocal"
+if [ "$(id -u)" = 0 ]; then
+  ok "skipped: an owner of another user cannot be fixtured as root"
+else
+  sp -- take foreignowner 1 >/dev/null 2>"$tmp/err"
+  rc=$?
+  [ "$rc" -eq 2 ] && grep -q 'owner 1 is not a process of the running user' "$tmp/err" \
+    && [ ! -L "$pools/foreignowner/slot-1" ]
+  verdict "a take for another user's process is refused" "foreign owner: rc=$rc" "$tmp/err"
+fi
+stub4="$tmp/stub4"
+mkdir -p "$stub4"
+real_ps4=$(command -v ps)
+printf '#!/bin/sh\ncase "$*" in *uid=*) exit 1 ;; esac\nexec %s "$@"\n' "$real_ps4" >"$stub4/ps"
+chmod +x "$stub4/ps"
+a=$(owner)
+sp "PATH=$stub4:$PATH" -- take nouser "$a" >/dev/null 2>"$tmp/err"
+rc=$?
+[ "$rc" -eq 2 ] && grep -q "owner $a's user could not be read" "$tmp/err"
+verdict "an owner whose user cannot be read is refused" "unreadable owner user: rc=$rc" "$tmp/err"
+out=$(sp -- take nouser "$a")
+[ "$out" = "taken${TAB}1${TAB}0" ]
+verdict "an owner of the running user is accepted" "own owner: '$out'"
+sp -- release nouser "$a" >/dev/null
+
 # --- REQ-I1.2: the helper sits on the shared primitive --------------------------
 grep -qF '. "$script_dir/lock-lib.sh"' "$SP"
 verdict "the helper sources the lock library" "scripts/step-pool.sh does not source lock-lib.sh"

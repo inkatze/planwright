@@ -14,10 +14,11 @@
 #
 #   <pool>       ^[a-z][a-z0-9-]*$, at most 64 bytes (the step-id charset).
 #   <owner-pid>  the process the slot belongs to, a decimal pid with no
-#                leading zero. A take requires it running. The slot is held
-#                ON ITS BEHALF (lock-lib's pw_lock_acquire_for), never by an
-#                open descriptor, so nothing the check spawns inherits it, and
-#                once that process is gone the next caller reclaims the slot.
+#                leading zero. A take requires it running as the running
+#                user. The slot is held ON ITS BEHALF (lock-lib's
+#                pw_lock_acquire_for), never by an open descriptor, so nothing
+#                the check spawns inherits it, and once that process is gone
+#                the next caller reclaims the slot.
 #
 # SLOTS. A pool of capacity N is the lock-lib locks slot-1 .. slot-N under
 # <root>/<pool>/, <root> being $XDG_STATE_HOME/planwright/step-pools, else
@@ -99,7 +100,8 @@
 #
 # Exit 2 is a usage error (an unknown verb or option, an extra argument, a
 # malformed pool, pid, step, worktree, or count, an owner that is not running
-# or, from take, stops running during the wait) or, from release, an owner
+# or is another user's process, or, from take, an owner that stops running
+# during the wait) or, from release, an owner
 # holding several slots without --slot or a slot that could not be freed.
 set -u
 LC_ALL=C
@@ -236,6 +238,13 @@ while [ "$#" -gt 0 ]; do
 done
 if [ "$verb" = take ]; then
   pid_running "$owner" || refuse "owner $owner is not running"
+  # Another user's process (pid 1 included) never exits on this user's
+  # behalf, so a slot held for it would never free by itself. An unreadable
+  # running uid is left to the pool screen, which then runs unpooled.
+  owner_uid=$(ps -o uid= -p "$owner" 2>/dev/null | tr -d ' ') || owner_uid=''
+  [ -n "$owner_uid" ] || refuse "owner $owner's user could not be read"
+  me=$(id -u 2>/dev/null) || me=''
+  [ -z "$me" ] || [ "$owner_uid" = "$me" ] || refuse "owner $owner is not a process of the running user"
   [ -n "$step" ] || step=$FULL_SUITE
   if [ -z "$worktree" ]; then
     worktree=$(git rev-parse --show-toplevel 2>/dev/null) || worktree=''
