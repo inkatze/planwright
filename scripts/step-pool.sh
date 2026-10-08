@@ -498,6 +498,9 @@ if [ "$verb" = release ]; then
 fi
 
 # take
+# The clock starts before the config reads, which can take seconds on a busy
+# host, so --for and the summed wait cover the whole call.
+start=$(date +%s)
 if ! locate yes; then
   warn "pool $pool $pool_cause; running unpooled"
   printf 'unpooled\t-\t%s\n' "$waited"
@@ -509,7 +512,6 @@ if mark_holds; then
 fi
 cap=$(capacity)
 bound=$(wait_bound)
-start=$(date +%s)
 nap=0.1
 round=0
 while :; do
