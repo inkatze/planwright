@@ -378,7 +378,7 @@ assert_contains "the unwritable-report failure names the path" \
 #     them, never the home this suite itself inherited.
 export PLANWRIGHT_FLEET_STATE_DIR="$tmp/operator-fleet"
 export CLAUDE_PLUGIN_DATA="$tmp/operator-data"
-mkdir -p "$tmp/leak-override" "$tmp/leak-plugin" "$tmp/leak-marker" "$tmp/leak-ledger" "$tmp/leak-link" "$tmp/pinned"
+mkdir -p "$tmp/leak-override" "$tmp/leak-plugin" "$tmp/leak-marker" "$tmp/leak-ledger" "$tmp/leak-link" "$tmp/leak-writer" "$tmp/pinned"
 cat >"$tmp/leak-override/test-leaky.sh" <<'EOF'
 #!/bin/bash
 mkdir -p "$PLANWRIGHT_FLEET_STATE_DIR"
@@ -403,6 +403,11 @@ cat >"$tmp/leak-link/test-leaky.sh" <<'EOF'
 #!/bin/bash
 mkdir -p "${PLANWRIGHT_FLEET_STATE_DIR%/*}"
 ln -s /nonexistent-fleet-home "$PLANWRIGHT_FLEET_STATE_DIR"
+EOF
+cat >"$tmp/leak-writer/test-leaky.sh" <<'EOF'
+#!/bin/bash
+mkdir -p "$CLAUDE_DIR/planwright/planwright/fleet"
+printf 'leaked\n' >>"$CLAUDE_DIR/planwright/planwright/fleet/registry"
 EOF
 cat >"$tmp/pinned/test-pinned.sh" <<'EOF'
 #!/bin/bash
@@ -429,6 +434,15 @@ if [ -e "$tmp/operator-data" ]; then
   failures=$((failures + 1))
 else
   echo "ok: the inherited fleet home is untouched (plugin-data arm)"
+fi
+out="$(env -u PLANWRIGHT_FLEET_STATE_DIR -u CLAUDE_PLUGIN_DATA CLAUDE_DIR="$tmp/operator-claude" \
+  /bin/bash "$RUNNER" "$tmp/leak-writer" 2>&1)"
+assert "a registry write through the writer arm fails the run" 1 $?
+if [ -e "$tmp/operator-claude" ]; then
+  echo "FAIL: the inherited claude dir was written through the writer arm" >&2
+  failures=$((failures + 1))
+else
+  echo "ok: the inherited fleet home is untouched (writer arm)"
 fi
 out="$(/bin/bash "$RUNNER" "$tmp/leak-marker" 2>&1)"
 assert "a dispatch-marker write to the inherited fleet home fails the run" 1 $?
