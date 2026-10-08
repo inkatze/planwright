@@ -388,6 +388,31 @@ else
   fail "plain: concurrent halts kept $kept of 12 bullets: $(find "$p/many" | tr '\n' ' ')"
 fi
 
+# A section left with neither a placeholder nor a bullet (a hand unpark that
+# dropped both) takes the bullet under its heading, with a blank line on each
+# side, whether a blank line or the next heading follows the heading.
+for gap in blank none; do
+  tasks_v2 "$p/demo/tasks.md"
+  awk '!d && $0 == "(none yet)" { d = 1; s = 1; next } s { s = 0; next } { print }' \
+    "$p/demo/tasks.md" >"$p/demo/tasks.bare" && mv "$p/demo/tasks.bare" "$p/demo/tasks.md"
+  if [ "$gap" = none ]; then
+    awk '/^```/ { f = !f } !f && !d && $0 == "## Awaiting input" { d = 1; print; getline; if ($0 != "") print; next } { print }' \
+      "$p/demo/tasks.md" >"$p/demo/tasks.bare" && mv "$p/demo/tasks.bare" "$p/demo/tasks.md"
+  fi
+  note "$pw" demo 1 "bare section"
+  got=$(section "$p/demo/tasks.md" "Awaiting input" Deferred)
+  want='## Awaiting input
+
+- **Task 1** — bare section
+
+## Deferred'
+  if [ "$rc" -eq 0 ] && [ "$got" = "$want" ]; then
+    ok "plain: an empty section ($gap after the heading) takes the bullet between blank lines"
+  else
+    fail "plain: an empty section ($gap, rc=$rc) reads: $got"
+  fi
+done
+
 # A CRLF bundle keeps CRLF on the lines the helper writes, a new bullet and
 # an added segment alike.
 tasks_v2 "$p/demo/tasks.md"

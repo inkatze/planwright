@@ -189,18 +189,19 @@ tmp=$(mktemp .tasks.md.halt.XXXXXX 2>/dev/null) || {
 # each raw line, parsing nothing, and END prints the file back with the single
 # edit applied: the task's own bullet extended, the placeholder replaced, or
 # a new bullet after the section's last non-blank line (fenced lines count as
-# content). Matching is CRLF-tolerant; every other line stays verbatim. The
-# text rides the environment: `awk -v` would turn a backslash in it into an
-# escape.
+# content), or straight under the heading, between blank lines, when the
+# section holds nothing. Matching is CRLF-tolerant; every other line stays
+# verbatim. The text rides the environment: `awk -v` would turn a backslash in
+# it into an escape.
 HALT_NOTE_TEXT=$text awk -v id="$id" -v heading="$heading" -v section="$section" '{ raw[NR] = $0 }'"$spec_parse_awk_fence$spec_parse_awk_grammar"'
   function norm(s) { sub(/\r$/, "", s); return s }
   function payload(s) { return s == "Awaiting input" || s == "Deferred" || s == "Out of scope" }
   # Leaving the target section with nothing placed: after its last non-blank
-  # line, or after the blank run under the heading when it has none.
-  function place() { at = last ? last : send; done = 1 }
+  # line, or under its heading when it has none.
+  function place() { if (last) at = last; else { at = shead; bare = 1 }; done = 1 }
   BEGIN { lead = "- **Task " id "**"; text = ENVIRON["HALT_NOTE_TEXT"] }
   {
-    if (insec && NR > prev + 1) { last = NR - 1; send = NR - 1 }
+    if (insec && NR > prev + 1) last = NR - 1
     prev = NR
     l = norm($0)
     if (l ~ /^## /) {
@@ -208,10 +209,10 @@ HALT_NOTE_TEXT=$text awk -v id="$id" -v heading="$heading" -v section="$section"
       sec = substr(l, 4); sub(/[ \t]+$/, "", sec)
       insec = (sec == heading)
       if (sec == "Tasks") tasks = 1
-      if (insec) { found = 1; last = 0; send = NR }
+      if (insec) { found = 1; last = 0; shead = NR }
       next
     }
-    if (insec) { send = NR; if (l !~ /^[ \t]*$/) last = NR }
+    if (insec && l !~ /^[ \t]*$/) last = NR
     # A string compare: as numbers, `01` and `1.0` would name Task 1.
     if (tasks && (spec_parse_task_id($0) "") == (id "")) hasblock = 1
     if (payload(sec) && index(l, lead) == 1) {
@@ -234,7 +235,10 @@ HALT_NOTE_TEXT=$text awk -v id="$id" -v heading="$heading" -v section="$section"
       if (i == edit && extend) print norm(raw[i]) "; " text eol
       else if (i == edit) print bullet
       else print raw[i]
-      if (i == at) print bullet
+      if (i != at) continue
+      if (bare) print eol
+      print bullet
+      if (bare && i < NR && norm(raw[i + 1]) !~ /^[ \t]*$/) print eol
     }
   }
 ' "$file" >"$tmp"
