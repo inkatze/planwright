@@ -529,6 +529,17 @@ out=$(run "$h6r" classify "$w") || fail "runtime running classify exited non-zer
 [ "$(state_of "$out")" = working ] || fail "runtime running: '$(state_of "$out")'"
 [ "$(reason_of "$out")" = runtime-running ] || fail "runtime running: reason '$(reason_of "$out")'"
 grep -q '^process 4242$' "$tmp/evidence-calls" || fail "the supervisor pidfile was not used as the death handle"
+# A persistent worker writes `result` at every turn's end and stays up, so a
+# request raised in a later turn is a queued human decision while the session
+# lives, never a finished worker a reaper may close.
+printf 'result\tsuccess\t1700000000\tfalse\n' >"$sd6r/result"
+out=$(run "$h6r" classify "$w") || fail "live result classify exited non-zero"
+[ "$(state_of "$out")" = finished-but-unreaped ] || fail "a live worker idle after its turn: '$(state_of "$out")'"
+printf 'req-1\tpermission\t1700000100\tpending\n' >"$sd6r/journal"
+out=$(run "$h6r" classify "$w") || fail "live result + pending classify exited non-zero"
+[ "$(state_of "$out")" = waiting-on-a-human ] || fail "a later request on a live worker outranks its earlier result: '$(state_of "$out")'"
+[ "$(reason_of "$out")" = journal-pending ] || fail "live result + pending: reason '$(reason_of "$out")'"
+rm -f "$sd6r/result" "$sd6r/journal"
 rm -f "$sd6r/worker.pid"
 out=$(run "$h6r" classify "$w") || fail "one pidfile classify exited non-zero"
 [ "$(state_of "$out")" = unclassified ] || fail "one pidfile is not a running worker: '$(state_of "$out")'"

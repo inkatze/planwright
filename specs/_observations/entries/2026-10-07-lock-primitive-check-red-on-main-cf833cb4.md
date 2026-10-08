@@ -1,0 +1,1 @@
+- 2026-10-07 [planwright] scripts/check-lock-primitive.sh fails on main at tests/rehearsal-lifecycle.sh:526 (a mkdir without -p whose status is consumed, from the lifecycle rehearsal change), so the lock-primitive guard reports red independent of any branch until that line takes a not-a-lock exemption or moves to lock-lib.

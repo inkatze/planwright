@@ -701,7 +701,10 @@ crashed worker's session via `--resume`; `status` surfaces completion and
 liveness from the supervisor, the journal and the captured event stream — a
 live worker with a pending receipt reports `awaiting-input pending=<n>
 oldest=<age>s supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending
-row carries a readable epoch), never a healthy-looking `running`.
+row carries a readable epoch), never a healthy-looking `running`. A worker
+records a `result` at the end of every turn and stays up for the next, so
+`awaiting-input` outranks an earlier turn's `completed`, and the stuck detector
+likewise keeps such a worker `waiting-on-a-human` rather than finished.
 
 `pending [<worker>...]` shows what those pending receipts are asking, so a
 tower can bring the operator the actual decision rather than a count. For each
@@ -844,7 +847,11 @@ a missing close.
 `steer` is the primary steer on the stream-json rung: a tower message becomes a
 user turn on the worker's own stdin, under the same `[planwright tower relay ->
 <worker>]` header the tmux relay pastes, read from a file so its text is never
-part of a command. Never write a frame into a worker's `in.fifo` by hand. The
+part of a command. A delivered steer opens a new turn, so it retires the
+previous turn's `result`: the worker reads `running` again until that turn
+records its own. A steer delivered while the worker is still inside a turn is
+the exception: that turn's `result` lands after the steer, so the queued turn
+reads `completed` until it records its own. Never write a frame into a worker's `in.fifo` by hand. The
 worker reads one JSON line at a time, so a frame missing its newline runs into
 the next one and kills it. Every frame the supervisor writes, `steer`'s,
 `answer`'s, and the launch prompt, is checked before any byte is written: one

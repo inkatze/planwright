@@ -42,10 +42,10 @@
 # or arbitrary execution (REQ-A1.8), and (c) it uses no construct the analyzer
 # cannot confidently parse — command/process substitution, here-docs, subshell
 # or brace grouping, env-assignment prefixes, path-prefixed verbs, escaped
-# operators, ANSI-C quoting — all of which defer (REQ-A1.9). The segments are
-# read in run order, so the state one sets applies to those after it: a `cd`
-# into the session's own worktree moves the working directory later segments
-# are checked against (see cd_target_ok), and the time/timeout prefixes are
+# operators, ANSI-C quoting, shell comments — all of which defer (REQ-A1.9).
+# The segments are read in run order, so the state one sets applies to those
+# after it: a `cd` into the session's own worktree moves the working directory
+# later segments are checked against (see cd_target_ok), and the time/timeout prefixes are
 # looked through to the command they wrap (see strip_prefixes); fin decides
 # where state may carry. The expansions the analyzer resolves itself are a
 # variable the same command assigned a plain literal (`f=a.md && grep x $f`;
@@ -124,7 +124,8 @@ emit_allow() {
 # fd-number prefix). Returns non-zero (DEFER) the instant it meets a construct
 # it will not analyze: unbalanced quotes, command/process substitution, backtick
 # substitution, ANSI-C `$'…'`, a backslash line-continuation or escaped
-# operator/quote. It never executes or expands anything it scans.
+# operator/quote, or a shell comment. It never executes or expands anything it
+# scans.
 # tok_push <type> <value> [quoted]: the optional third arg records whether a W
 # token was built from any quoting or backslash-escaping (1) or is a bare,
 # unquoted literal (0, the default for operators and plain words). classify of a
@@ -424,6 +425,8 @@ tokenize() {
       *)
         # Unquoted pattern characters: a glob (`*`, `?`, a closed `[…]`), a
         # brace expansion (`{` then `,` or `..` then `}`), or a leading `~`.
+        # A word-initial `#` opens a shell comment, which this scan does not
+        # model, so the command defers.
         case $c in
           '*' | '?') curg=1 ;;
           '[') brk=1 ;;
@@ -433,6 +436,7 @@ tokenize() {
           '.') [ "$brc" = 1 ] && [ "${s:i+1:1}" = . ] && brs=1 ;;
           '}') [ "$brs" = 1 ] && curg=1 ;;
           '~') [ "$have" = 0 ] && curg=1 ;;
+          '#') [ "$have" = 0 ] && return 1 ;;
         esac
         [ "$curq" = 1 ] && curqm=1
         cur="$cur$c"

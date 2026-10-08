@@ -1,0 +1,1 @@
+- 2026-10-07 [planwright] resolve-config-knob.sh with --fallback silently ignores a machine-local line written 'step_pool_capacity : 2' (space before the colon): no warning, the fallback wins. Its header says that spelling counts as a malformed value under --degrade, so the --fallback arm warning nothing looks like a gap in the by-layer policy rather than a choice.
