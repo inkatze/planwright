@@ -520,7 +520,7 @@ while :; do
     pw_lock_acquire_for "$pool_dir/slot-$i" "$owner" 1 2>"$errf"
     case $? in
       0)
-        tok=$(pw_lock_owner "$pool_dir/slot-$i")
+        tok=$PW_LOCK_TOKEN
         part="$pool_dir/.holder-$i.$$"
         if (set -C && printf '%s\t%s\t%s\n' "$tok" "$step" "$worktree" >"$part") 2>/dev/null; then
           mv -f "$part" "$pool_dir/holder-$i" 2>/dev/null || rm -f "$part"
