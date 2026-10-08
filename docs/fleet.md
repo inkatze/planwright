@@ -2158,10 +2158,10 @@ The `/tower` front door runs under the same profile. The shapes its sessions
 run routinely (the posture check's `jq` projections, and a flight petition's
 `mktemp` files and their removal) and the deny entries added with them are
 listed, with their limits, in [the front-door delta](tower-posture-delta.md).
-A tower whose settings merged an earlier copy of the profile must merge those
-appended deny entries too: until it does, bring-up's posture check finds them
-missing and holds back repo-mutating routes and relays, unless the operator
-acknowledges running without them.
+Settings that merged an earlier copy of the profile must merge those appended
+deny entries too: until they do, the front door's bring-up posture check finds
+them missing and holds back repo-mutating routes and relays, unless the
+operator acknowledges running without them.
 
 ## What the fleet decides without you (and what it never does)
 
