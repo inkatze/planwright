@@ -205,6 +205,53 @@ else
 fi
 gitq -C "$h" checkout -q -- specs/demo/tasks.md
 
+# A second Deferred bullet for one task, an open fence, and a missing
+# section are each refused.
+note "$w" --section=deferred demo 1 "first deferral"
+note "$w" --section deferred demo 1 "second deferral"
+if [ "$rc" -eq 4 ] && [ "$(grep -c '^- \*\*Task 1\*\*' "$z/demo/tasks.md")" -eq 1 ]; then
+  ok "holder: a second Deferred bullet for the task is refused"
+else
+  fail "holder: a duplicate Deferred bullet (rc=$rc): $out"
+fi
+gitq -C "$h" checkout -q -- specs/demo/tasks.md
+printf '\n```text\nunclosed\n' >>"$z/demo/tasks.md"
+note "$w" demo 1 text
+if [ "$rc" -eq 4 ] && ! grep -q '^- \*\*Task 1\*\*' "$z/demo/tasks.md"; then
+  ok "holder: a tasks.md ending in an open fence is refused"
+else
+  fail "holder: an open fence (rc=$rc): $out"
+fi
+gitq -C "$h" checkout -q -- specs/demo/tasks.md
+mkdir -p "$z/nosection"
+printf '# N\n\n**Status:** Ready\n**Format-version:** 2\n\n## Tasks\n\n### Task 1 — x\n' >"$z/nosection/tasks.md"
+note "$w" nosection 1 text
+if [ "$rc" -eq 4 ]; then
+  ok "holder: a bundle with no Awaiting input section is refused"
+else
+  fail "holder: no section (rc=$rc): $out"
+fi
+for bad in '--section=later' '--section later'; do
+  # shellcheck disable=SC2086 # the flag and its value split on purpose
+  note "$w" $bad demo 1 text
+  if [ "$rc" -eq 2 ]; then
+    ok "holder: '$bad' is refused"
+  else
+    fail "holder: '$bad' (rc=$rc): $out"
+  fi
+done
+note "$w" Not_A_Spec 1 text
+if [ "$rc" -eq 2 ]; then
+  ok "holder: a malformed spec identifier is refused"
+else
+  fail "holder: a malformed spec identifier (rc=$rc): $out"
+fi
+if [ -z "$(find "$z" -name '.tasks.md.halt*')" ]; then
+  ok "holder: no refusal leaves a temp file or lock behind"
+else
+  fail "holder: left behind: $(find "$z" -name '.tasks.md.halt*' | tr '\n' ' ')"
+fi
+
 # A version 1 bundle and a symlinked tasks.md are refused.
 mkdir -p "$z/old" "$z/linked"
 printf '# Old\n\n**Status:** Ready\n**Format-version:** 1\n\n## Awaiting input\n\n(none yet)\n' >"$z/old/tasks.md"
@@ -287,6 +334,17 @@ if [ "$rc" -eq 0 ] && grep -qx -- $'- \\*\\*Task 1\\*\\* — first; second\r' "$
   ok "plain: a CRLF tasks.md keeps CRLF on the written lines"
 else
   fail "plain: CRLF (rc=$rc): $(grep -vn $'\r$' "$p/demo/tasks.md" | tr '\n' ' ')"
+fi
+
+# A spec root that does not resolve.
+gitq -c init.defaultBranch=main init -q "$tmp/broken"
+mkdir -p "$tmp/broken/.claude"
+printf 'spec_root: %s\n' "$tmp/nowhere" >"$tmp/broken/.claude/planwright.local.yml"
+note "$tmp/broken" demo 1 text
+if [ "$rc" -eq 5 ]; then
+  ok "a spec root that does not resolve is refused"
+else
+  fail "an unresolved spec root (rc=$rc): $out"
 fi
 
 # same-repo: the halt rides the task branch, so the helper refuses.
