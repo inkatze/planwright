@@ -422,6 +422,40 @@ rv "$sb"
 assert_contains "a repeated rule position is refused" "claude.two is malformed (rule 'auto' already has a pair at position 1)" "$ERR"
 assert_contains "the first pair at the position stands" "choice${TAB}claude${TAB}auto${TAB}1${TAB}prior-review${TAB}go" "$OUT"
 
+# An entry that lost an indented line to the catalog reader is malformed in
+# its own layer only: a later layer's clean supersede of it stands.
+lost_entry() {
+  cat <<'YAML'
+vendors:
+  - id: claude.extra
+    vendor: claude
+    part: recognizer
+    match: extra refusal text
+      nested: junk
+YAML
+}
+sb="$tmp/lost-line"
+seed "$sb"
+lost_entry | put "$(adopter_cat "$sb")"
+rv "$sb"
+assert_rc "an adopter entry that lost a line degrades" 0 "$RC"
+assert_contains "the lost line is named as the reason" "claude.extra is malformed (an indented line the catalog reader skipped)" "$ERR"
+assert_absent "the entry that lost a line is dropped" "extra refusal text" "$OUT"
+sb="$tmp/lost-line-superseded"
+seed "$sb"
+lost_entry | put "$(adopter_cat "$sb")"
+put "$(repo_cat "$sb")" <<'YAML'
+vendors:
+  - id: claude.extra
+    supersede: true
+    vendor: claude
+    part: recognizer
+    match: clean refusal text
+YAML
+rv "$sb"
+assert_rc "a clean supersede of an entry that lost a line resolves" 0 "$RC"
+assert_contains "the clean supersede stands" "recognizer${TAB}claude${TAB}extra${TAB}clean refusal text${TAB}-" "$OUT"
+
 # ---------------------------------------------------------------------------
 # REQ-C1.5: a hostile --vendor is refused before any use.
 # ---------------------------------------------------------------------------

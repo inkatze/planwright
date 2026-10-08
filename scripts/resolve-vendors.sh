@@ -147,11 +147,16 @@ if grep -q '^resolve-catalog: vendors: repo-tracked ' "$work/err"; then
   printf '%s\n' "$prog: the repo-tracked vendors catalog is malformed (an entry or line the catalog reader skipped); refusing to degrade a shared team catalog" >&2
   exit 4
 fi
+# Keyed by layer and id: a lost line in an entry a later layer supersedes
+# never taints the entry that replaced it.
 awk '
   !/" carries an indented line that is not a field; skipping the line$/ { next }
-  sub(/^resolve-catalog: vendors: (adopter|machine-local) entry "/, "") {
+  sub(/^resolve-catalog: vendors: adopter entry "/, "") { l = "adopter" }
+  sub(/^resolve-catalog: vendors: machine-local entry "/, "") { l = "machine-local" }
+  l != "" {
     sub(/" carries an indented line that is not a field; skipping the line$/, "")
-    print
+    print l "\t" $0
+    l = ""
   }
 ' "$work/err" >"$work/lost"
 grep -q '[^[:space:]]' "$work/merged" || {
@@ -228,7 +233,7 @@ awk -v mode="$mode" -v want="$want" '
   function check(n,   i, p, k, v, ks, nk, allowed, req, r) {
     if (mark[n] != "") return mark[n]
     if (sec[n] != "vendors") return "entry outside the vendors: section"
-    if (id[n] in lost) return "an indented line the catalog reader skipped"
+    if ((layer[id[n]] "\t" id[n]) in lost) return "an indented line the catalog reader skipped"
     p = index(id[n], ".")
     if (p == 0 || !sid(substr(id[n], 1, p - 1)) || !sid(substr(id[n], p + 1))) return "id is not <vendor>.<name>"
     if (!has(n, "vendor")) return "missing required field '\''vendor'\''"
