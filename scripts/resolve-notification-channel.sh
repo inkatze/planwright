@@ -97,7 +97,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # in a malformed-value diagnostic below — must be stripped before it reaches the
 # operator's terminal. Sourced as the sibling scripts do; a missing helper is a
 # broken install.
-if [ ! -r "$script_dir/echo-safety.sh" ]; then
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
   printf '%s\n' "resolve-notification-channel.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
   exit 5
 fi

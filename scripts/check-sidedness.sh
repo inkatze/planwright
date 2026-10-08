@@ -40,7 +40,8 @@
 #   --root <dir>  repository root whose corpus is scanned (default: this repo)
 #   <file>...     scan exactly these files instead of the corpus
 #
-# Exit: 0 after any scan, findings or not; 2 on a usage error only.
+# Exit: 0 after any scan, findings or not; 2 on a usage error or a broken install
+# (echo-safety.sh missing or unreadable).
 #
 # Portable POSIX sh + awk (mawk-safe: no three-argument match). File content
 # is matched as data, never executed; reported excerpts pass the canonical
@@ -51,7 +52,7 @@ export LC_ALL
 unset CDPATH
 
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
-if [ ! -r "$SELF_DIR/echo-safety.sh" ]; then
+if [ ! -f "$SELF_DIR/echo-safety.sh" ] || [ ! -r "$SELF_DIR/echo-safety.sh" ]; then
   printf '%s\n' "check-sidedness.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
   exit 2
 fi

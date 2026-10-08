@@ -62,7 +62,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # The canonical echo-discipline sanitizer (doctrine/security-posture.md),
 # sourced as the sibling fleet scripts do; a missing helper is a broken
 # install.
-if [ ! -r "$script_dir/echo-safety.sh" ]; then
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
   printf '%s\n' "fleet-tower-marker.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
   exit 2
 fi

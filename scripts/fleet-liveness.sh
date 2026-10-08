@@ -287,7 +287,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # sourced as the sibling fleet scripts do; a missing helper is a broken
 # install. In hook mode it still exits 0: a Stop hook exiting 2 would block the
 # worker's own stop (the hook exit discipline above).
-if [ ! -r "$script_dir/echo-safety.sh" ]; then
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
   printf '%s\n' "fleet-liveness.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
   [ "${1:-}" = hook ] && exit 0
   exit 2

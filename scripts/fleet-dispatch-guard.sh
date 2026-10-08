@@ -73,7 +73,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # The canonical echo-discipline sanitizer (doctrine/security-posture.md):
 # argv tokens and settings-file values are untrusted and are stripped of
 # control bytes before any diagnostic (risk 23's sibling discipline).
-if [ ! -r "$script_dir/echo-safety.sh" ]; then
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
   printf '%s\n' "fleet-dispatch-guard.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
   exit 2
 fi

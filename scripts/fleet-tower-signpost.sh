@@ -54,7 +54,7 @@ unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 0
 
-[ -r "$script_dir/echo-safety.sh" ] || exit 0
+[ -f "$script_dir/echo-safety.sh" ] && [ -r "$script_dir/echo-safety.sh" ] || exit 0
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 

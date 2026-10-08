@@ -319,8 +319,8 @@ self="$script_dir/$(basename "$0")"
 # (tool names, result subtypes) are sanitized before any operator-facing
 # echo or attention write.
 echo_safety="$script_dir/echo-safety.sh"
-if [ ! -r "$echo_safety" ]; then
-  printf '%s\n' "$me: required helper $echo_safety missing or not readable" >&2
+if [ ! -f "$echo_safety" ] || [ ! -r "$echo_safety" ]; then
+  printf '%s\n' "$me: required helper echo-safety.sh missing or not readable" >&2
   exit 2
 fi
 # shellcheck source=scripts/echo-safety.sh

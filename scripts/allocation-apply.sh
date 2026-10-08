@@ -92,7 +92,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || {
   exit 5
 }
 
-if [ ! -r "$script_dir/echo-safety.sh" ]; then
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
   printf '%s\n' "$me: missing sibling helper: echo-safety.sh" >&2
   exit 5
 fi

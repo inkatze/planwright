@@ -71,7 +71,7 @@ unset CDPATH
 
 # Canonical echo-discipline sanitizer (doctrine/security-posture.md): strip
 # non-printables off untrusted content before it reaches the terminal.
-if [ ! -r "$(dirname "$0")/echo-safety.sh" ]; then
+if [ ! -f "$(dirname "$0")/echo-safety.sh" ] || [ ! -r "$(dirname "$0")/echo-safety.sh" ]; then
   printf '%s\n' "spec-walkthrough.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
   exit 2
 fi

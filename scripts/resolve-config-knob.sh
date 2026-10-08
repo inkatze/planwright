@@ -142,7 +142,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # resolver siblings predate this and take no caller argv; this resolver is
 # the shared entry point for arbitrary keys and value sets, so it sources
 # the sanitizer like the fleet command scripts do.
-if [ ! -r "$script_dir/echo-safety.sh" ]; then
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
   printf '%s\n' "resolve-config-knob.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
   exit 5
 fi

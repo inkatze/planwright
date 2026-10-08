@@ -119,7 +119,7 @@ RCK="$here/resolve-config-knob.sh"
 # does: caller-controlled values (pane path, backend, handles) are wrapped in
 # sanitize_printable before reaching stderr, so a crafted argument cannot inject
 # terminal escapes into an operator's display (doctrine/security-posture.md).
-if [ ! -r "$here/echo-safety.sh" ]; then
+if [ ! -f "$here/echo-safety.sh" ] || [ ! -r "$here/echo-safety.sh" ]; then
   printf '%s\n' "fleet-pane-detect.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
   exit 2
 fi

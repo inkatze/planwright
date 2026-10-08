@@ -85,7 +85,7 @@ usage() {
 # here too (matching the sibling spec-walkthrough.sh). Display only; the
 # classification logic below still matches on the raw $scope. Wraps the
 # canonical scripts/echo-safety.sh sanitizer with this command's placeholder.
-if [ ! -r "$(dirname "$0")/echo-safety.sh" ]; then
+if [ ! -f "$(dirname "$0")/echo-safety.sh" ] || [ ! -r "$(dirname "$0")/echo-safety.sh" ]; then
   printf '%s\n' "spec-assemble.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
   exit 2
 fi

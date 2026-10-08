@@ -132,7 +132,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
 # Canonical echo-discipline sanitizer (doctrine/security-posture.md): strip
 # non-printables off repo-controlled input before it reaches the terminal.
-if [ ! -r "$script_dir/echo-safety.sh" ]; then
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
   printf '%s\n' "spec-validate.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
   exit 2
 fi

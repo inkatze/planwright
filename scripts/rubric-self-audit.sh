@@ -27,12 +27,12 @@ LC_ALL=C
 export LC_ALL
 unset CDPATH
 
-if [ ! -r "$(dirname "$0")/echo-safety.sh" ]; then
+if [ ! -f "$(dirname "$0")/echo-safety.sh" ] || [ ! -r "$(dirname "$0")/echo-safety.sh" ]; then
   printf '%s\n' "rubric-self-audit.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
   exit 2
 fi
 # shellcheck source=scripts/echo-safety.sh
-. "$(dirname "$0")/echo-safety.sh"
+. "$(dirname "$0")/echo-safety.sh" || exit 2
 
 prog="rubric-self-audit"
 

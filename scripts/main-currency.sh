@@ -101,7 +101,7 @@ export LC_ALL
 unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
-if [ ! -r "$script_dir/echo-safety.sh" ]; then
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
   printf '%s\n' "main-currency.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
   exit 2
 fi

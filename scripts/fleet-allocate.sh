@@ -96,7 +96,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # with the sourced definitions absent. The guard makes a half-installed tree
 # the documented exit 5 on either shell.
 for dep in echo-safety.sh allocation-ladder.sh; do
-  if [ ! -r "$script_dir/$dep" ]; then
+  if [ ! -f "$script_dir/$dep" ] || [ ! -r "$script_dir/$dep" ]; then
     printf '%s\n' "fleet-allocate: sibling helper '$script_dir/$dep' is missing or not readable — broken install" >&2
     exit 5
   fi

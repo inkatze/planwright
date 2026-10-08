@@ -159,8 +159,8 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # half-installed tree the documented exit 5 on either shell, the same answer
 # require_resolver gives for the other half of the install.
 echo_safety="$script_dir/echo-safety.sh"
-if [ ! -r "$echo_safety" ]; then
-  printf '%s\n' "allocation-select: echo-discipline sanitizer '$echo_safety' is missing or not readable — broken install" >&2
+if [ ! -f "$echo_safety" ] || [ ! -r "$echo_safety" ]; then
+  printf '%s\n' "allocation-select: echo-discipline sanitizer echo-safety.sh is missing or not readable — broken install" >&2
   exit 5
 fi
 # shellcheck source=scripts/echo-safety.sh

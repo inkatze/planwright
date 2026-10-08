@@ -101,7 +101,7 @@ unset CDPATH
 # bytes before it reaches a diagnostic, so an embedded escape sequence cannot
 # drive the operator's terminal (doctrine/security-posture.md, "Echo
 # discipline"). Sourced like the other framework callers (spec-validate.sh).
-if [ ! -r "$(dirname "$0")/echo-safety.sh" ]; then
+if [ ! -f "$(dirname "$0")/echo-safety.sh" ] || [ ! -r "$(dirname "$0")/echo-safety.sh" ]; then
   printf '%s\n' "orchestrate-backends.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
   exit 2
 fi

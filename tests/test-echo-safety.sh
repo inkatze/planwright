@@ -9,7 +9,7 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
-if [ ! -r "$here/../scripts/echo-safety.sh" ]; then
+if [ ! -f "$here/../scripts/echo-safety.sh" ] || [ ! -r "$here/../scripts/echo-safety.sh" ]; then
   printf '%s\n' "FAIL: scripts/echo-safety.sh is missing or unreadable" >&2
   exit 1
 fi

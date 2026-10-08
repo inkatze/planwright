@@ -102,7 +102,7 @@ unset CDPATH
 # An invalid backend/id token is untrusted DATA: strip non-printable bytes before
 # it reaches a diagnostic so an embedded escape sequence cannot drive the
 # operator's terminal (doctrine/security-posture.md, "Echo discipline").
-if [ ! -r "$(dirname "$0")/echo-safety.sh" ]; then
+if [ ! -f "$(dirname "$0")/echo-safety.sh" ] || [ ! -r "$(dirname "$0")/echo-safety.sh" ]; then
   printf '%s\n' "orchestrate-degrade.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
   exit 2
 fi

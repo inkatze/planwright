@@ -87,8 +87,8 @@ echo_safety="$script_dir/echo-safety.sh"
 # sanitizes every untrusted value (message-file paths, backend names) before it
 # reaches operator-facing stderr (echo discipline, doctrine/security-posture.md —
 # the same posture every sibling in-scope script applies at each such site).
-if [ ! -r "$echo_safety" ]; then
-  printf '%s\n' "$me: required helper $echo_safety missing or not readable" >&2
+if [ ! -f "$echo_safety" ] || [ ! -r "$echo_safety" ]; then
+  printf '%s\n' "$me: required helper echo-safety.sh missing or not readable" >&2
   exit 2
 fi
 # shellcheck source=scripts/echo-safety.sh
