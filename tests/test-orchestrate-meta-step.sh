@@ -67,7 +67,11 @@ cleanup() {
     [ -f "$pf" ] || continue
     p=$(cat "$pf" 2>/dev/null) || continue
     case $p in *[!0-9]* | '') continue ;; esac
-    kill -9 "$p" 2>/dev/null
+    # A pid file can outlive its process, and the pid be reused: signal only
+    # a process whose command line names this run's directory.
+    case $(ps -o args= -p "$p" 2>/dev/null) in
+      *"$tmp"*) kill -9 "$p" 2>/dev/null ;;
+    esac
   done
   rm -rf "$tmp"
 }
@@ -441,7 +445,7 @@ m8() {
   seed m8 || return
   copy_root
   stub fleet-dispatch-headless.sh 'cat >/dev/null
-printf "already in flight \033[31mX\n" >&2
+printf "already in flight \033[31mX \233[32mY \302\233Z \342\200\224 kept\n" >&2
 exit 3'
   RUN_STEP=$STEP_COPY dispatch
   [ "$RC" -eq 6 ] || fail "m8: a rung exit 3 should exit 6, got $RC: $ERR"
@@ -451,6 +455,11 @@ exit 3'
   printf '%s\n' "$ERR" | grep -q "already in flight" || fail "m8: the rung's message was not relayed"
   esc=$(printf '\033')
   case $ERR in *"$esc"*) fail "m8: a control byte from the rung reached stderr" ;; esac
+  if printf '%s' "$ERR" | LC_ALL=C grep -q "$(printf '\233')"; then
+    fail "m8: a C1 control from the rung reached stderr"
+  fi
+  printf '%s\n' "$ERR" | grep -q "$(printf '\342\200\224') kept" \
+    || fail "m8: valid UTF-8 in the rung's message was mangled"
   pass "m8: a rung that reports a live worker keeps its marker; its message is relayed clean"
 }
 
@@ -663,7 +672,8 @@ EOF
   [ "$(sed -n 1p "$C/rec/sj-argv")" = launch ] || fail "m11: not a launch call"
   [ "$(sed -n 2p "$C/rec/sj-argv")" = demo-task-1 ] || fail "m11: worker '$(sed -n 2p "$C/rec/sj-argv")'"
   [ "$(sed -n 3p "$C/rec/sj-argv")" = demo:task-1 ] || fail "m11: scope '$(sed -n 3p "$C/rec/sj-argv")'"
-  grep -qx -- "$wt" "$C/rec/sj-argv" || fail "m11: --cwd is not the unit worktree"
+  awk -v wt="$wt" 'prev == "--cwd" && $0 == wt { found = 1 } { prev = $0 } END { exit !found }' "$C/rec/sj-argv" \
+    || fail "m11: --cwd is not the unit worktree"
   cmp -s "$C/prompt" "$C/rec/sj-prompt" || fail "m11: the worker did not receive the screened prompt"
   [ "$(field handle)" = demo-task-1 ] || fail "m11: handle line '$(field handle)'"
   pass "m11: the stream-json rung launches in the unit worktree with the prompt"

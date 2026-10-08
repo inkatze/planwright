@@ -97,12 +97,20 @@ die() {
   exit "${2:-2}"
 }
 
-# relay <file> — a child's stderr, stripped of C0 control bytes other than TAB
-# and newline, and of DEL. C1 bytes stay: stripping them would split the UTF-8
-# the children's messages carry.
+# relay <file> — a child's stderr with every control character dropped but TAB
+# and newline: C0 and DEL bytes, standalone C1 bytes (invalid UTF-8, which
+# iconv -c discards), and C1 characters encoded as UTF-8 (C2 80 to C2 9F).
+# Valid UTF-8 text survives, so the children's messages stay readable. Where
+# iconv is missing, every C1-range byte goes, at the cost of that text.
 relay() {
   [ -s "$1" ] || return 0
-  tr -d '\000-\010\013-\037\177' <"$1" >&2
+  if command -v iconv >/dev/null 2>&1; then
+    iconv -c -f UTF-8 -t UTF-8 <"$1" 2>/dev/null \
+      | LC_ALL=C sed "s/$(printf '\302')[$(printf '\200')-$(printf '\237')]//g" \
+      | tr -d '\000-\010\013-\037\177' >&2
+  else
+    tr -d '\000-\010\013-\037\177\200-\237' <"$1" >&2
+  fi
 }
 
 usage() {
