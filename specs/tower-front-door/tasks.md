@@ -307,14 +307,6 @@ router has not demonstrated (REQ-B1.6).
   this branch, and `main`'s own CI fails the same way. Decide how to clear
   it (fix that fixture on its branch, or record the hit in a gitleaks ignore
   on `main`); then re-run this PR's CI, which has not yet reached its tests.
-- **Task 10** — the post-PR review of draft PR #601 (tower posture extension)
-  suggested moving the temp-file removal's operand checks into a helper
-  function. It changes no verdict but edits a security-sensitive guard, so it
-  was not applied. Choose: (a) decline it, since the check is correct,
-  commented, and covered by the suite (recommended); (b) apply it as a
-  code-move-only commit with the suite unchanged, then re-review; or (c) record
-  it as a follow-up for a later cleanup. The last post-PR review step has not
-  run.
 
 ## Deferred
 
