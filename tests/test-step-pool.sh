@@ -26,10 +26,10 @@ TAB=$(printf '\t')
 
 failures=0
 fail() {
-  echo "FAIL: $1" >&2
+  printf 'FAIL: %s\n' "$1" >&2
   failures=$((failures + 1))
 }
-ok() { echo "ok: $1"; }
+ok() { printf 'ok: %s\n' "$1"; }
 # check <status> <ok-message> <fail-message>
 check() {
   if [ "$1" -eq 0 ]; then
@@ -1188,8 +1188,22 @@ cp "$here/test-step-pool.sh" "$tmp/scan/tests/test-step-pool.sh"
 out=$(/bin/bash "$repo_root/scripts/check-lock-primitive.sh" "$tmp/scan" 2>&1)
 verdict "check-lock-primitive reports the helper and its test clean" "check-lock-primitive: $out"
 
+# --- a missing echo-safety.sh falls back to the inline sanitizer ----------------
+if sh_dash=$(command -v dash); then
+  mkdir -p "$tmp/nohelper"
+  cp "$SP" "$tmp/nohelper/step-pool.sh"
+  esc=$(printf '\033')
+  err=$("$sh_dash" "$tmp/nohelper/step-pool.sh" report "x${esc}[31m" 2>&1 >/dev/null)
+  rc=$?
+  shown=$(printf '%s' "$err" | tr -d '\000-\037\177\200-\237')
+  [ "$rc" -eq 2 ] && case $err in *"$esc"* | *"not found"* | *"can't open"*) false ;; *"'x[31m'"*) true ;; *) false ;; esac
+  verdict "without echo-safety.sh a refused pool is sanitized and exits 2" "no helper: rc=$rc err='$shown'"
+else
+  printf 'skip: the echo-safety.sh fallback check needs dash\n'
+fi
+
 if [ "$failures" -gt 0 ]; then
-  echo "$failures failure(s)" >&2
+  printf '%s failure(s)\n' "$failures" >&2
   exit 1
 fi
 echo "all step-pool tests passed"
