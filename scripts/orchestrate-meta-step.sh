@@ -37,8 +37,8 @@
 #   orchestrate-meta-step.sh dispatch <spec-dir> <id> --backend <rung>
 #       --prompt-file <file> [--repo-root <dir>] [-- <extra launch args>...]
 #     <spec-dir>   the spec bundle as orchestrate-meta-select.sh printed it,
-#                  the primary checkout's own bundle under the default spec
-#                  root (a relocated root is refused).
+#                  the primary checkout's own bundle under the spec root that
+#                  checkout resolves (a root outside it is refused).
 #     <id>         one task id; the meta step dispatches single units.
 #     --backend    stream-json-persistent | headless-oneshot. Other rungs are
 #                  refused (exit 2): the harness-native ones belong to the
@@ -193,8 +193,9 @@ fi
 # The lock lives in the spec directory, while the gate and the record address
 # the primary checkout's bundle. They must be one directory, or a
 # single-spec tower locking the primary's copy would not exclude this step.
-# dispatch-fetch.sh takes only the default root's repo-relative form, so a
-# relocated root is refused here, before the lock, rather than by the fetch.
+# The brief is read from the bundle's path inside the repository, derived as
+# dispatch-fetch.sh derives it, so a spec root outside the checkout is
+# refused here, before the lock, rather than by the fetch.
 repo_phys=$(cd "$repo_root" && pwd -P) || die "the repo root cannot be entered"
 primary_phys=$(cd "$repo_phys" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) \
   || die "the primary checkout did not resolve from --repo-root"
@@ -203,11 +204,11 @@ primary_phys=$(cd "$primary_phys" && pwd -P) || die "the primary checkout cannot
   || die "the repo root (--repo-root, else PLANWRIGHT_REPO_ROOT) is not the primary checkout; pass the primary checkout"
 spec_root=$(cd "$repo_phys" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec --primary 2>/dev/null) \
   || die "the primary checkout's spec root did not resolve"
-spec_root_parent=$(cd "${spec_root%/*}" 2>/dev/null && pwd -P) || spec_root_parent=
-root_base=${spec_root##*/}
-[ "$spec_root_parent" = "$repo_phys" ] && [ "$root_base" = specs ] \
-  || die "the spec root is relocated; the dispatch gate reads only the default root"
-spec_rel=$root_base/$spec_name
+case $spec_root in
+  "$repo_phys") spec_rel=$spec_name ;;
+  "$repo_phys"/*) spec_rel=${spec_root#"$repo_phys"/}/$spec_name ;;
+  *) die "the spec root lies outside the primary checkout, so no ref of it holds the bundle" ;;
+esac
 spec_phys=$(cd "$spec_dir" && pwd -P) || die "the spec directory cannot be entered"
 primary_spec=$(cd "$spec_root" 2>/dev/null && cd "$spec_name" 2>/dev/null && pwd -P) \
   || die "the primary checkout holds no bundle named $spec_name"
@@ -296,7 +297,7 @@ say lock held
 # --- 2. the execution freshness gate ------------------------------------
 
 fetch_rc=0
-"$script_dir/dispatch-fetch.sh" --spec "$spec_rel" "$repo_root" >"$wtmp/fetch.out" 2>"$wtmp/fetch.err" </dev/null || fetch_rc=$?
+"$script_dir/dispatch-fetch.sh" --spec "$spec_name" "$repo_root" >"$wtmp/fetch.out" 2>"$wtmp/fetch.err" </dev/null || fetch_rc=$?
 [ "$fetch_rc" -eq 0 ] || relay "$wtmp/fetch.err"
 case $fetch_rc in
   0 | 3) ;;

@@ -26,7 +26,7 @@
 #     parks;
 #   - a silent headless launch still reports the rung's handle form;
 #   - a bad task id or spec name and an unwired rung are refused;
-#   - a lock or fetch refusal, a relocated spec root, or a --repo-root other
+#   - a lock or fetch refusal, a spec root outside the checkout, or a --repo-root other
 #     than the primary checkout is refused (exit 2) before anything is placed.
 #
 # The worker CLI is a recording fake (PLANWRIGHT_HEADLESS_CLAUDE) on the
@@ -595,7 +595,7 @@ exit 0'
   pass "m19: a TERM during the launch keeps the marker and releases the lock"
 }
 
-# --- m18: the primary checkout and the default spec root are required -----
+# --- m18: the primary checkout and an in-repo spec root are required ------
 m18() {
   begin
   seed m18 || return
@@ -607,16 +607,28 @@ m18() {
   run_step dispatch specs/demo 1 --backend headless-oneshot --prompt-file "$C/prompt" --repo-root "$C/wt2"
   [ "$RC" -eq 2 ] || fail "m18: a linked worktree as --repo-root should be refused, got $RC"
   printf '%s\n' "$ERR" | grep -q "not the primary checkout" || fail "m18: wrong refusal: $ERR"
+  # A spec root relocated inside the checkout is gated and dispatched there.
   seed m18-relocated || return
   mkdir -p "$P/.claude" "$P/docs/specs"
   printf 'spec_root: docs/specs\n' >"$P/.claude/planwright.local.yml"
   printf 'project: relocated\nlayout: 1\n' >"$P/docs/specs/planwright-spec-root.yml"
-  cp -R "$P/specs/demo" "$P/docs/specs/demo"
+  gitc "$P" mv specs/demo docs/specs/demo
+  gitc "$P" add docs/specs/planwright-spec-root.yml
+  gitc "$P" commit -q -m "relocate the spec root"
+  gitc "$P" push -q origin main
   run_step dispatch docs/specs/demo 1 --backend headless-oneshot --prompt-file "$C/prompt"
-  [ "$RC" -eq 2 ] || fail "m18: a relocated spec root should be refused, got $RC"
-  printf '%s\n' "$ERR" | grep -q "spec root is relocated" || fail "m18: wrong refusal: $ERR"
-  [ ! -d "$C/fstate" ] || fail "m18: the relocated-root refusal ran the fetch"
-  pass "m18: the step needs the primary checkout and the default root, whatever the environment says"
+  [ "$RC" -eq 0 ] || fail "m18: an in-repo relocated spec root should dispatch, got $RC: $ERR $(halt_reason)"
+  # A spec root outside the checkout holds no bundle any ref of it can show.
+  seed m18-outside || return
+  mkdir -p "$P/.claude" "$C/outside/specs"
+  printf 'spec_root: %s\n' "$C/outside/specs" >"$P/.claude/planwright.local.yml"
+  printf 'project: outside\nlayout: 1\n' >"$C/outside/specs/planwright-spec-root.yml"
+  cp -R "$P/specs/demo" "$C/outside/specs/demo"
+  run_step dispatch "$C/outside/specs/demo" 1 --backend headless-oneshot --prompt-file "$C/prompt"
+  [ "$RC" -eq 2 ] || fail "m18: a spec root outside the checkout should be refused, got $RC"
+  printf '%s\n' "$ERR" | grep -q "outside the primary checkout" || fail "m18: wrong refusal: $ERR"
+  [ ! -d "$C/fstate" ] || fail "m18: the outside-root refusal ran the fetch"
+  pass "m18: the step needs the primary checkout and a spec root inside it, whatever the environment says"
 }
 
 # --- m9: a unit already in flight is a clean no-op ------------------------
