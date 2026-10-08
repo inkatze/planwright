@@ -641,6 +641,9 @@ m18() {
   run_step dispatch nested/specs/demo 1 --backend headless-oneshot --prompt-file "$C/prompt"
   [ "$RC" -eq 2 ] || fail "m18: a spec root in a nested repository should be refused, got $RC"
   printf '%s\n' "$ERR" | grep -q "outside the primary checkout's repository" || fail "m18: wrong nested refusal: $ERR"
+  # The fetch refuses such a root itself, before writing anything, so only
+  # the absent lock line shows the refusal came first.
+  [ "$(field lock)" = "" ] || fail "m18: the nested-root refusal came after the lock"
   # A spec root outside the checkout holds no bundle any ref of it can show.
   seed m18-outside || return
   mkdir -p "$P/.claude" "$C/outside/specs"
@@ -650,7 +653,7 @@ m18() {
   run_step dispatch "$C/outside/specs/demo" 1 --backend headless-oneshot --prompt-file "$C/prompt"
   [ "$RC" -eq 2 ] || fail "m18: a spec root outside the checkout should be refused, got $RC"
   printf '%s\n' "$ERR" | grep -q "outside the primary checkout's repository" || fail "m18: wrong refusal: $ERR"
-  [ ! -d "$C/fstate" ] || fail "m18: the outside-root refusal ran the fetch"
+  [ "$(field lock)" = "" ] || fail "m18: the outside-root refusal came after the lock"
   pass "m18: the step needs the primary checkout and a spec root inside it, whatever the environment says"
 }
 
