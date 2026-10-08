@@ -450,7 +450,10 @@ wait_bound() {
     else if (v ~ /m$/) { m = 60; sub(/m$/, "", v) }
     else if (v ~ /h$/) { m = 3600; sub(/h$/, "", v) }
     else if (v ~ /d$/) { m = 86400; sub(/d$/, "", v) }
-    s = v * m; c = int(s); if (c < s) c++; if (c < 1) c = 1
+    # The slack absorbs float error in the product, so 1.1h is 3960, not
+    # 3961; the cap keeps the result inside shell arithmetic.
+    s = v * m; if (s > 9007199254740992) s = 9007199254740992
+    c = int(s); if (s - c > 2e-15 * (s > 1 ? s : 1)) c++; if (c < 1) c = 1
     printf "%d", c
   }'
 }

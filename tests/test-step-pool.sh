@@ -263,6 +263,15 @@ rc=$?
   && [ "$(grep -c 'step_pool_wait' "$tmp/err")" -eq 1 ]
 verdict "a malformed repo-tracked wait falls back too, with one warning" "tracked wait: rc=$rc /" "$tmp/err"
 
+reset
+printf 'step_pool_wait: 1.1h\n' >"$mlocal"
+a=$(owner)
+b=$(owner)
+sp -- take whole "$a" >/dev/null
+sp -- take whole "$b" --waited 3961 >/dev/null 2>"$tmp/err"
+grep -q 'passed its 3960s bound' "$tmp/err"
+verdict "a whole-second wait is not rounded up a second by float error" "1.1h bound:" "$tmp/err"
+
 # --- REQ-I1.1: bounded repeated calls sum their seconds -------------------------
 reset
 printf 'step_pool_wait: 3s\n' >"$mlocal"
