@@ -552,6 +552,7 @@ bound=$(wait_bound)
 nap=0.1
 round=0
 reported=''
+rechecked=''
 while :; do
   [ "$round" -eq 0 ] || pid_running "$owner" || refuse "owner $owner is not running"
   i=1
@@ -592,6 +593,13 @@ while :; do
   fi
   if [ "$total" -ge "$bound" ]; then
     held=$(holders)
+    if [ -z "$held" ] && [ -z "$rechecked" ]; then
+      # Every holder left after this round's tries, so one more round can take
+      # the freed slot rather than expire on a pool with a slot free.
+      rechecked=yes
+      round=$((round + 1))
+      continue
+    fi
     printf 'step-pool: the wait for pool %s passed its %ss bound; held by: %s\n' \
       "$pool" "$bound" "$(describe "$held")" >&2
     printf 'expired\t-\t%s\n' "$total"
