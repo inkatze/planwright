@@ -434,18 +434,27 @@ shell whatever the suite's exit. The helper's usage header
 
 ```bash
 pool=heavy-suite
-scripts/step-pool.sh take "$pool" "$$" || exit   # waits up to step_pool_wait, naming the holders; an expired wait runs no suite
-PLANWRIGHT_STEP_POOL_HOLD="$pool:$$" mise run check
+mark=${PLANWRIGHT_STEP_POOL_HOLD:-}
+state=$(scripts/step-pool.sh take "$pool" "$$") || exit   # waits up to step_pool_wait, naming the holders; an expired wait runs no suite
+case $state in taken*) mark="$pool:$$" ;; esac
+PLANWRIGHT_STEP_POOL_HOLD="$mark" mise run check
 rc=$?
 scripts/step-pool.sh release "$pool" "$$"
 exit "$rc"
 ```
 
 Run it as one bash script, so `$$` is the process that owns the slot for the
-whole run. If the script dies without releasing, the slot frees once that
-shell exits; a check it leaked in the background never keeps it. A pool the
-helper cannot use (its directory a symbolic link or not yours, or a lock
-error) only warns, and the suite runs unpooled, as a pooled step would.
+whole run. The mark goes on the suite's command line only, never exported
+from the script's own shell: a release made under the mark of its own slot
+counts as nested and frees nothing. Run inside another holder's check, the
+take prints `nested` and the script holds no slot, so it passes that
+holder's mark on unchanged. A mark names one pool: run inside a hold of a
+different pool, the script's own mark replaces that one, so the suite reaching
+the outer pool again waits on the outer holder. If the script dies without
+releasing, the slot frees once that shell exits; a check it leaked in the
+background never keeps it. A pool the helper cannot use (its directory a
+symbolic link or not yours, or a lock error) only warns, and the suite runs
+unpooled, as a pooled step would.
 
 ## 9. The worker literal-path allow entry (adopter-specific)
 
