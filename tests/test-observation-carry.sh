@@ -23,7 +23,8 @@
 #     (scripts/lock-lib.sh): a live holder is a clean no-op no matter how OLD
 #     its lock is, a holder whose process is gone is broken and re-acquired,
 #     a real lock error degrades rather than reporting a no-op, and a lock
-#     DIRECTORY left by the retired mkdir shape is cleared, not wedged;
+#     DIRECTORY left by the retired mkdir shape is contention, left in place
+#     because nothing shows its carry has ended;
 #   - fail-closed on malformed input (non-git dir, bad --branch).
 #
 # Output stream is a tagged TSV on stdout, one record per line:

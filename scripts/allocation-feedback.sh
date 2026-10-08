@@ -356,8 +356,9 @@ emit() {
 
 # The unit lock, released through a trap as well as on the happy path, so a
 # fail-closed exit cannot leave it held. Same shape as allocation-adapt.sh's
-# hold, for the same reasons: the traps are armed BEFORE the acquire (the
-# ledger's hold is detached, so nothing reclaims one leaked by a signal), and
+# hold, for the same reasons: the traps are armed BEFORE the acquire (the hold
+# is owned by this process, so one leaked by a signal stays held until a later
+# acquirer finds this process gone; the trap is what releases it promptly), and
 # the fatal-signal traps re-`exit` rather than returning into the unfinished
 # critical section.
 #
@@ -637,7 +638,7 @@ cmd_evaluate() {
     >/dev/null; then
     # Release BEFORE the diagnostic: a stderr write that dies on SIGPIPE (a
     # consumer piping this through `head`) would otherwise skip the release and
-    # leave the unit's detached lock held with nothing left to reclaim it.
+    # leave the unit's lock held until a later acquirer finds this process gone.
     release_unit_lock
     printf '%s\n' "allocation-feedback: recorded a fragment for unit '$(sanitize_printable "$UNIT" "(unprintable unit)")' but could not mark the ledger; a later evaluation will record a duplicate" >&2
     em_frag=-
