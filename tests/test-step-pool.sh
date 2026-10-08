@@ -452,6 +452,21 @@ rc=$?
   && grep -q 'not a lock symlink' "$tmp/err"
 verdict "a lock-library error runs unpooled naming the cause" "squat: rc=$rc out='$out'" "$tmp/err"
 
+# --- REQ-I1.2: no scratch file still runs unpooled, and release needs none -------
+reset
+a=$(owner)
+sp -- take noscratch "$a" >/dev/null
+out=$(sp "TMPDIR=$tmp/absent" -- release noscratch "$a" 2>"$tmp/err")
+rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "released${TAB}1" ]
+verdict "release needs no scratch file" "release without TMPDIR: rc=$rc out='$out'" "$tmp/err"
+out=$(sp "TMPDIR=$tmp/absent" -- take noscratch "$a" 2>"$tmp/err")
+rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -q 'scratch file' "$tmp/err" \
+  && [ "$(grep -c . "$tmp/err")" -eq 1 ]
+verdict "a take that cannot create its scratch file runs unpooled with one warning" \
+  "take without TMPDIR: rc=$rc out='$out'" "$tmp/err"
+
 # --- REQ-I1.6: no verb executes a command it is given ---------------------------
 reset
 a=$(owner)

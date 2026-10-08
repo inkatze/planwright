@@ -440,14 +440,14 @@ wait_bound() {
 }
 
 # --- verbs -----------------------------------------------------------------------------
-errf=$(mktemp "${TMPDIR:-/tmp}/step-pool.XXXXXX") || refuse "cannot create a scratch file"
+errf=''
 # A slot taken for a long-lived owner but never reported to it would stay held
 # until that owner exits, so an interrupted take gives it back. dash runs no
 # EXIT trap on a fatal signal, hence the signal traps.
 unreported=''
 finish() {
   [ -z "$unreported" ] || pw_lock_release_token "$unreported" "$tok" 2>/dev/null
-  rm -f "$errf"
+  [ -z "$errf" ] || rm -f "$errf"
 }
 trap finish EXIT
 trap 'exit 129' HUP
@@ -520,6 +520,12 @@ if ! locate yes; then
 fi
 if mark_holds; then
   printf 'nested\t-\t%s\n' "$waited"
+  exit 0
+fi
+if ! errf=$(mktemp "${TMPDIR:-/tmp}/step-pool.XXXXXX" 2>/dev/null); then
+  errf=''
+  warn "pool $pool cannot be waited on: no scratch file could be created in $(shown "${TMPDIR:-/tmp}"); running unpooled"
+  printf 'unpooled\t-\t%s\n' "$waited"
   exit 0
 fi
 cap=$(capacity)
