@@ -243,6 +243,7 @@ echo "ok: source audit — no send-keys and no eval path in the relay script's c
 rc_of 2 "no subcommand must be a usage error" -- "$RELAY"
 rc_of 2 "unknown subcommand must be a usage error" -- "$RELAY" frobnicate
 rc_of 2 "validate-handle with no handle must be a usage error" -- "$RELAY" validate-handle tmux
+rc_of 2 "relay-command with no handle must be a usage error" -- "$RELAY" relay-command tmux
 rc_of 2 "relay-command with no message file must be a usage error" -- \
   "$RELAY" relay-command tmux "@3"
 rc_of 2 "deliver with no handle must be a usage error" -- "$RELAY" deliver tmux
@@ -402,6 +403,8 @@ pb1=$(bufname_of paste-buffer "$tmp/idle/log")
   || fail "deliver load and paste must name the same buffer (got '$lb1' vs '$pb1')"
 fake_deliver idle2 "$idle_pane" "@3" "$multi"
 rc_is idle2 0 "second deliver"
+grep -q "^paste-buffer -b $lb1 .* -d\$" "$tmp/idle/log" \
+  || fail "a successful paste must delete its buffer (paste-buffer -d), tmux saw: $(cat "$tmp/idle/log")"
 lb2=$(bufname_of load-buffer "$tmp/idle2/log")
 [ "$lb1" != "$lb2" ] || fail "deliver must use a buffer name unique per invocation (both were '$lb1')"
 echo "ok: relay buffer name is unique per invocation and consistent within one"
@@ -482,7 +485,7 @@ grep -q 'not confirmed' "$tmp/dropped/err" || fail "the unconfirmed diagnostic m
 # The tries knob is bounded so the worst-case wait stays under a minute, short
 # of a caller's two-minute command timeout: past the cap, or not an integer,
 # it takes the default (one capture before the paste plus one per try).
-for knob in 20:21 21:6 x:6 0:6; do
+for knob in 20:21 21:6 x:6 0:6 -1:6; do
   FD_TRIES=${knob%%:*} FD_FLAGS=paste-drops fake_deliver "clamp" "$idle_pane" "@3" "$msg"
   [ "$(grep -c '^capture-pane' "$tmp/clamp/log")" = "${knob##*:}" ] \
     || fail "PLANWRIGHT_RELAY_CONFIRM_TRIES=${knob%%:*} must make ${knob##*:} captures, got $(grep -c '^capture-pane' "$tmp/clamp/log")"
@@ -531,6 +534,7 @@ if host_tmux=$(command -v tmux 2>/dev/null); then
   # A short fixed parent keeps the socket path under the Unix socket length
   # limit whatever TMPDIR is.
   iso_dir=$(mktemp -d /tmp/pwrelay.XXXXXX) || fail "could not make the isolated socket directory"
+  trap 'rm -rf "$tmp" "$iso_dir"' EXIT
   iso_sock="$iso_dir/sock"
   [ "$iso_sock" != "$host_sock" ] || fail "the isolated socket path equals the host's \$TMUX socket"
   mkdir -p "$tmp/isobin"
