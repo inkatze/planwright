@@ -32,7 +32,8 @@
 # Exit: 0 limited · 1 no recognizer matched (nothing printed) · 2 usage ·
 # 3 no resolved adapter declares the vendor · 4/5 propagated from the vendors
 # resolver (a malformed repo-tracked catalog, a broken install) · 6 a runtime
-# failure (unreadable input, no clock, an excerpt that could not be built).
+# failure (unreadable input, no clock, an adapter or excerpt that could not
+# be produced).
 #
 # Portable POSIX sh + awk; bash 3.2 / BSD tooling floor.
 set -u
@@ -116,6 +117,7 @@ tr -d '\000-\011\013-\037\177\200-\237' <"$work/err" >&2
 case $rc in
   0) ;;
   3 | 4 | 5) exit "$rc" ;;
+  6) die 6 "the vendors resolver could not print its resolution" ;;
   *) die 5 "the vendors resolver failed (exit $rc) (broken install)" ;;
 esac
 

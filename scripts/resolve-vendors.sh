@@ -56,7 +56,7 @@
 # Exit: 0 resolved (a degraded overlay entry warned and dropped included) ·
 # 2 usage · 3 --vendor names no resolved vendor · 4 a malformed repo-tracked
 # catalog or entry · 5 a broken install (a malformed core seed or entry, an
-# unusable catalog resolver).
+# unusable catalog resolver) · 6 the resolution could not be printed.
 #
 # Portable bash 3.2 / BSD tooling; POSIX awk without interval expressions.
 set -u
@@ -463,4 +463,7 @@ if grep -qx 'N' "$work/result"; then
   printf '%s\n' "$prog: no resolved adapter declares the requested vendor" >&2
   exit 3
 fi
-sed -n "s/^O$TAB//p" "$work/result"
+sed -n "s/^O$TAB//p" "$work/result" || {
+  printf '%s\n' "$prog: cannot print the resolution" >&2
+  exit 6
+}

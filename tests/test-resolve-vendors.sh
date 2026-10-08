@@ -189,6 +189,15 @@ assert_rc "--vendor filters to one vendor" 0 "$RC"
 assert_absent "--vendor drops other vendors" "claude" "$OUT"
 rv "$sb" --vendor nobody-here
 assert_rc "an undeclared vendor exits 3" 3 "$RC"
+# Output that cannot be written is a runtime failure, never a catalog verdict.
+if [ -w /dev/full ]; then
+  RC=0
+  base PLANWRIGHT_ROOT="$sb/core" PLANWRIGHT_ADOPTER_OVERLAY="$sb/adopter" \
+    PLANWRIGHT_REPO_ROOT="$sb/repo" /bin/bash "$RV" >/dev/full 2>"$sb/err" || RC=$?
+  assert_rc "an unwritable output exits 6" 6 "$RC"
+else
+  ok "an unwritable output exits 6 (skipped: no /dev/full on this host)"
+fi
 
 # ---------------------------------------------------------------------------
 # REQ-C1.1: an overlay supersedes one recognizer without restating the rest.
