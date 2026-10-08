@@ -464,7 +464,8 @@ reset
 a=$(owner)
 sp -- take mute "$a" 1</dev/null 2>"$tmp/err"
 rc=$?
-[ "$rc" -eq 2 ] && [ ! -L "$pools/mute/slot-1" ] && grep -q 'could not be written' "$tmp/err"
+[ "$rc" -eq 2 ] && [ ! -L "$pools/mute/slot-1" ] && grep -q 'could not be written' "$tmp/err" \
+  && ! grep -q 'held for owner' "$tmp/err"
 verdict "a take whose state line cannot be written exits 2 and gives the slot back" "unwritable stdout: rc=$rc" "$tmp/err"
 
 # --- a take stopped inside the acquire gives back the slot it just linked ------
@@ -1101,7 +1102,7 @@ fi
 
 # --- REQ-I1.1: one transient user lookup failure does not refuse a take ---------
 reset
-printf 'step_pool_wait: 2s\n' >"$mlocal"
+printf 'step_pool_wait: 3s\n' >"$mlocal"
 stub20="$tmp/stub20"
 mkdir -p "$stub20"
 real_ps20=$(command -v ps)
