@@ -172,7 +172,7 @@ law is `orchestration-concurrency` (read here). Ordered steps:
      to Awaiting input. On the exit-0 paths, the fetched `origin/main` backs merge
      detection (`orchestrate-state.sh`'s union scan, REQ-D1.2), so a
      task merged on `origin` but not local `main` isn't re-dispatched.
-   - **Validate the entry** (brief's most recent, from the resolved ref; formats:
+   - **Validate the entry** (brief's most recent, from the primary view; formats:
      `spec-format`): a **sanctioned command form**, a **sanctioned writer** (a
      `/spec-kickoff` sign-off or the marked `Class: expression-only` ritual), and
      — meaning-class — a dispositioned `Lens-pass:`.
@@ -423,9 +423,10 @@ was skipped.
 Halt to Awaiting input on ambiguity, a missing dependency, a relayed worker test
 failure, a hard-disqualifier, or contract drift (non-exhaustive; pre-flight
 refusals are defined at their steps). Each halt writes the unit to `## Awaiting
-input` with the reason (on a v2 bundle, a `**Task <id>**` reference bullet, D-3,
-which in a holder or plain store `scripts/halt-note.sh` writes uncommitted, named
-in the report, REQ-E1.9; the `gate-wiring` pause protocol's dispatched arm);
+input` with the reason (a v2 bundle's `**Task <id>**` reference bullet, D-3; in a
+holder or plain store `scripts/halt-note.sh` writes it uncommitted, named in the
+report, custom-spec-location REQ-E1.9; the `gate-wiring` pause protocol's
+dispatched arm);
 attended, present it and wait.
 
 ## Stop conditions (mandatory human handoff)

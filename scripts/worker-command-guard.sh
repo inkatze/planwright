@@ -23,6 +23,11 @@
 #   * The extracted command is treated strictly as INERT DATA — never eval-ed,
 #     re-expanded, glob-expanded, or used as a pattern/format/unquoted arg — so
 #     analyzing a hostile command can never execute it (REQ-B1.1).
+#   * One write class, live only when a dispatcher hands in a spec root outside
+#     the work repository (PLANWRIGHT_WORKER_SPEC_ROOT; see in_spec_zone): a
+#     `>`/`>>` redirect, `tee [-a]`, or `mkdir [-p]` whose every target is a
+#     plain literal inside a bundle or reserved directory of that root. With
+#     no root handed in, or for any other target, the read-only rule holds.
 #   * Fail safe on EVERYTHING: jq absent, malformed/empty/non-string input,
 #     unknown construct, parser confusion, recursion past the depth bound, or
 #     any internal error all DEFER (empty stdout, exit 0). The fallthrough
@@ -39,7 +44,7 @@
 # declared step's line (REQ-A1.4). A
 # command is known-safe only when (a) its verb is on the enumerated allowlist
 # below, (b) its flags/args designate no output/target file and enable no write
-# or arbitrary execution (REQ-A1.8), and (c) it uses no construct the analyzer
+# or arbitrary execution (REQ-A1.8), the spec-root write zone excepted, and (c) it uses no construct the analyzer
 # cannot confidently parse — command/process substitution, here-docs, subshell
 # or brace grouping, env-assignment prefixes, path-prefixed verbs, escaped
 # operators, ANSI-C quoting — all of which defer (REQ-A1.9). The expansions
@@ -688,7 +693,7 @@ is_contained_file() {
 # once at load (SPEC_ZONE below) and never resolves config per call. Inside
 # it, and nowhere else, the guard approves the few write shapes a halting
 # worker's store write takes: a `>`/`>>` redirect of an otherwise approved
-# command, `tee [-a]`, and `mkdir [-p]`. A write anywhere else, the work
+# command (or of none, as a bare `> f`), `tee [-a]`, and `mkdir [-p]`. A write anywhere else, the work
 # repository included, still defers as before.
 #
 # in_spec_zone <path> <cwd>: 0 when <path> is a plain literal (no expansion,
@@ -2703,8 +2708,9 @@ verify_simple() {
 # verify_known_simple: the enumerated known-safe rules for one simple command.
 verify_known_simple() {
   local i verb
-  # Redirects first: a write to a real file defers regardless of the verb
-  # (covers a leading redirect with no command too, e.g. `> f cat x`).
+  # Redirects first: a write to a real file defers regardless of the verb,
+  # unless its target is in the spec-root write zone (covers a leading
+  # redirect with no command too, e.g. `> f cat x`).
   for ((i = 0; i < rn; i++)); do
     classify_redirect "${ro[i]}" "${rt[i]}" || spec_zone_redirect "${ro[i]}" "${rt[i]}" || return 1
   done

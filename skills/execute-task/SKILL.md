@@ -54,9 +54,9 @@ Run once per invocation, in order. Any halt records the unit to the spec's
 `tasks.md` `## Awaiting input` section with the reason — on a format-version 2
 bundle as a committed reference bullet, `**Task <id>** — <reason>`, the block
 staying in `## Tasks` (D-3); in a holder or plain store, `scripts/halt-note.sh`
-writes it uncommitted, named in the handoff (REQ-E1.9) — and ends the
-step (the `gate-wiring` pause protocol's dispatched arm); attended, present and
-wait instead.
+writes it uncommitted, named in the handoff (custom-spec-location REQ-E1.9) —
+and ends the step (the `gate-wiring` pause protocol's dispatched arm); attended,
+present and wait instead.
 
 1. **Parse `$ARGUMENTS`.** Extract one or more task IDs (`5`, `3.5`, or `5 6`
    for a bundle) and an optional bare `<spec>` (alias `specs/<spec>`, one
@@ -103,7 +103,7 @@ wait instead.
      (`spec-format` *Read surface per posture*). Exit **0**, or **3**
      (`no-remote`, offline) → gate against it; any other nonzero → do not
      silently proceed: park to Awaiting input.
-   - **Validate the entry** (brief's most recent, from the resolved ref): it
+   - **Validate the entry** (brief's most recent, from the primary view): it
      parses, uses a **sanctioned command form** (any form on `spec-format`'s
      *Sanctioned command forms* list), a **sanctioned writer** (a
      `/spec-kickoff` sign-off or the marked `Class: expression-only` ritual), and
@@ -370,7 +370,7 @@ classify the edit on the amendment axis:
   accepted decisions): fix it in place in **one commit** with a dated
   `## Changelog` entry, and a **marked self-re-anchor entry** to the brief's
   amendment log — `Class: expression-only`, citing the changelog line, anchor by
-  `scripts/spec-anchor.sh specs/<spec>` written last. This is the one anchor
+  `scripts/spec-anchor.sh <root>/<spec>` written last. This is the one anchor
   entry an execution skill may write.
 - **Meaning-class** (contradicts an accepted decision, alters a REQ's meaning,
   or adds a REQ/D-ID): **contract drift** — do not edit the contract from
@@ -392,7 +392,7 @@ classify the edit on the amendment axis:
    type. Assemble the body per the **PR-body assembly** section of the
    `gate-wiring` doctrine — the single normative home for the layout (D-2). This
    skill supplies the summary inputs: the kickoff brief path
-   (`specs/<spec>/kickoff-brief.md`), the task IDs, the REQs satisfied (from the
+   (`<root>/<spec>/kickoff-brief.md`), the task IDs, the REQs satisfied (from the
    task `Citations:`), the test additions and what they verify, and
    implementation notes (key decisions). The audit record is the convergence
    steps' folded output plus every in-run point's table (`step-record.sh

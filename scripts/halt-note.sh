@@ -11,6 +11,8 @@
 # task branch and commits it, as before.
 #
 # Usage: halt-note.sh [--section awaiting|deferred] <spec> <task-id> <text>
+#   Run from the work repository: the spec root resolves from the current
+#   directory, as the halting skill's own resolver call does.
 #   <spec>     the bare identifier (`specs/<spec>` accepted as an alias, one
 #              trailing slash allowed)
 #   <task-id>  ^[0-9]+(\.[0-9]+)?$, naming a `### Task` block in the bundle
@@ -28,8 +30,9 @@
 #
 # Exit: 0 written, the file's path on stdout · 2 usage or a bad argument ·
 #   3 the store is same-repo · 4 the bundle cannot take the bullet (missing,
-#   not format-version 2, no such task or section, a fence left open, already
-#   parked elsewhere) · 5 the spec root did not resolve · 6 the write failed.
+#   unreadable, not format-version 2, no such task or section, a fence left
+#   open, already parked) · 5 the spec root did not resolve · 6 the write or
+#   its lock failed.
 set -u
 LC_ALL=C
 export LC_ALL
@@ -254,8 +257,8 @@ case $rc in
     exit 6
     ;;
 esac
-# A sibling first: a new file's mode then follows the umask, so match the
-# original's before it replaces it.
+# mktemp creates the temp file 0600, so give it the original's mode before it
+# replaces the original.
 chmod "$(stat -c '%a' "$file" 2>/dev/null || stat -f '%Lp' "$file" 2>/dev/null || echo 644)" "$tmp" 2>/dev/null || :
 mv -f -- "$tmp" "$file" || {
   say "could not replace $file"

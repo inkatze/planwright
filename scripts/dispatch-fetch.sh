@@ -14,16 +14,19 @@
 # local-`main` invariant, orchestration-concurrency). The fetch pins an explicit
 # `+refs/heads/*:refs/remotes/origin/*` refspec, so it updates only
 # remote-tracking refs (and the recorded remote HEAD) and never fast-forwards a
-# local branch, independent of the repo's configured `remote.origin.fetch`. It makes no model/API call — the whole
-# decision path is deterministic git plumbing (REQ-E1.3).
+# local branch, independent of the repo's configured `remote.origin.fetch`. It
+# makes no model/API call — the whole decision path is deterministic git
+# plumbing (REQ-E1.3).
 #
 # Scope boundary (D-9): this is git-ref currency for the dispatch/merge path
 # only. It RE-POINTS the existing content-anchor computer (scripts/spec-anchor.sh)
-# at the fetched ref; it does not implement anchor-hash comparison (that is
-# `anchor-integrity`'s), and it does not touch the release-publish version-
-# derivation path (`release-hardening`'s). Merge detection itself stays in
-# scripts/orchestrate-state.sh — this primitive only makes `origin/main` current
-# so that engine's existing union scan reads a fresh ref.
+# at the bundle's primary view (a fetched ref of the work repository or the
+# holder, or a plain root's files); it does not implement anchor-hash
+# comparison (that is `anchor-integrity`'s), and it does not touch the
+# release-publish version-derivation path (`release-hardening`'s). Merge
+# detection itself stays in scripts/orchestrate-state.sh — this primitive only
+# makes the work repository's remote-tracking refs current so that engine's
+# existing union scan reads a fresh ref.
 #
 # Usage: dispatch-fetch.sh [--spec <spec>] [--best-effort] <repo-root>
 #   <repo-root>            the work repository to fetch in (fetch runs there;
@@ -229,7 +232,8 @@ if [ -z "$repo_top" ]; then
 fi
 repo_root=$repo_top
 
-# The bundle's primary view, from the spec root <repo-root> resolves (D-14):
+# The bundle's primary view, from the spec root <repo-root> resolves
+# (custom-spec-location D-14):
 # in same-repo a path at a ref of this repository, in separate-repo a path at
 # a ref of the holder that contains the root, in plain the directory itself.
 if [ "$spec_given" -eq 1 ]; then
@@ -372,13 +376,13 @@ anchor_at_ref() {
   printf '%s' "$_a"
 }
 
-# default_ref <repo>: print the ref holding <repo>'s default branch (D-14),
-# never assumed to be called main. With an origin remote it is the remote's
-# HEAD branch as git recorded it (refs/remotes/origin/HEAD, which a fetch below
-# learns when it is missing), else origin/ plus the branch the primary
-# checkout's HEAD names; with no remote, that branch itself, or HEAD when the
-# primary is detached. Returns non-zero when a remote exists and neither
-# names a branch.
+# default_ref <repo>: print the ref holding <repo>'s default branch
+# (custom-spec-location D-14), never assumed to be called main. With an origin
+# remote it is the remote's HEAD branch as git recorded it
+# (refs/remotes/origin/HEAD, which a fetch below learns when it is missing),
+# else origin/ plus the branch the primary checkout's HEAD names, with a note;
+# with no remote, that branch itself, or HEAD when the primary is detached.
+# Returns non-zero when a remote exists and neither names a branch.
 default_ref() {
   if git -C "$1" remote get-url origin >/dev/null 2>&1; then
     _dr_b=$(git -C "$1" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) || _dr_b=""

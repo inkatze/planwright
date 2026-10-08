@@ -75,7 +75,8 @@ scripts/behavioral-eval.sh --persona novice \
 The real-tmux path needs `tmux` and `jq` on `PATH`. The hermetic branch coverage
 (`tests/test-behavioral-eval.sh` for the harness, `tests/test-behavioral-eval-kickoff.sh`
 for the kickoff acceptance layer, `tests/test-behavioral-eval-tower.sh` for the
-tower routing fixture, and `tests/test-rubric-instrument.sh` for the rubric
+tower routing fixture, `tests/test-behavioral-eval-holder-halt.sh` for the
+holder halt fixture, and `tests/test-rubric-instrument.sh` for the rubric
 grader/self-audit — all run by `mise run test`) uses the shared **stub
 tmux** (`lib/tmux-stub.sh`) that replays the driver's answers through the real
 fixture skill, so CI needs no tmux, model, or API key.

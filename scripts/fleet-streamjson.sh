@@ -1666,7 +1666,8 @@ cmd_launch() {
 
   # The spec root outside the work repository, which the worker's command
   # guard admits as its write zone (custom-spec-location D-15), computed once
-  # here from the worker's own directory; an inherited value never stands.
+  # here from the worker's own directory; an inherited value never stands in
+  # for it.
   unset PLANWRIGHT_WORKER_SPEC_ROOT
   spec_zone=$(/bin/sh "$script_dir/worker-spec-root.sh" "$PWD" 2>/dev/null </dev/null) || spec_zone=''
   if [ -n "$spec_zone" ]; then

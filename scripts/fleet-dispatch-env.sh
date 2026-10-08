@@ -66,7 +66,10 @@
 #                                               spec root outside the work
 #                                               repository the worker's command
 #                                               guard admits as its write zone
-#                                               (scripts/worker-spec-root.sh)
+#                                               (scripts/worker-spec-root.sh);
+#                                               the guard ignores a directory
+#                                               without its regular-file
+#                                               planwright-spec-root.yml
 #                                           A malformed or half-supplied option is
 #                                           refused (exit 2) before anything runs.
 #                                           Any launch option also drops the
