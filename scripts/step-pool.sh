@@ -140,7 +140,8 @@
 # could not be written (the slot given back); from release, an owner holding
 # several slots without --slot or a slot that could not be freed. Wherever a
 # take gives a slot back, one that could not be freed is named in a warning
-# and stays held for the owner.
+# and stays held for the owner, and one whose lock could not be read back is
+# named as one that may stay held.
 set -u
 LC_ALL=C
 export LC_ALL
@@ -599,6 +600,7 @@ errf=''
 # until that owner exits, so an interrupted take gives it back. dash runs no
 # EXIT trap on a fatal signal, hence the signal traps.
 unreported=''
+tok=''
 finish() {
   if [ -n "$unreported" ]; then
     # The acquire links the slot before it returns, so a signal inside it
@@ -611,6 +613,12 @@ finish() {
       "$owner-${PW_LOCK_EPOCH:-}"-*-"$$"-*)
         pw_lock_release_token "$unreported" "$_fi_tok" 2>/dev/null
         [ "$?" -ne 2 ] || warn "pool $pool: slot ${unreported##*/slot-} could not be given back; it stays held for owner $owner"
+        ;;
+      '')
+        # Once the acquire returned, an unreadable link (the directory no
+        # longer searchable, say) may still be this take's hold.
+        [ -z "$tok" ] \
+          || warn "pool $pool: slot ${unreported##*/slot-} could not be read back to give it back; it may stay held for owner $owner"
         ;;
     esac
   fi

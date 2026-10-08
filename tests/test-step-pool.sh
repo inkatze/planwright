@@ -1042,6 +1042,17 @@ if [ "$(id -u)" -ne 0 ]; then
   [ "$rc" -eq 2 ] && [ -L "$pools/stuck/slot-1" ] && grep -q "pool stuck: slot 1 could not be given back" "$tmp/err"
   verdict "a slot the take could not give back is named in a warning" "stuck give-back: rc=$rc" "$tmp/err"
   sp -- release stuck "$b" >/dev/null
+  # Unsearchable, the directory hides the slot's link, so the take cannot
+  # even read back whose hold it is.
+  rm -f "$stubgb/count"
+  printf '#!/bin/sh\ncase "$*" in *uid=*)\n  n=$(cat "%s/count" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" >"%s/count"\n  if [ "$n" -gt 1 ]; then chmod 600 "%s"; exit 1; fi ;;\nesac\nexec %s "$@"\n' \
+    "$stubgb" "$stubgb" "$pools/hide" "$real_ps14" >"$stubgb/ps"
+  sp "PATH=$stubgb:$PATH" -- take hide "$b" >/dev/null 2>"$tmp/err"
+  rc=$?
+  chmod 700 "$pools/hide" 2>/dev/null
+  [ "$rc" -eq 2 ] && [ -L "$pools/hide/slot-1" ] && grep -q "pool hide: slot 1 could not be read back to give it back" "$tmp/err"
+  verdict "a slot the take could not read back is named in a warning" "hidden give-back: rc=$rc" "$tmp/err"
+  sp -- release hide "$b" >/dev/null
 else
   ok "skipped: root writes into a read-only pool directory"
 fi
