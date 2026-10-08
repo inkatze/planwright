@@ -245,6 +245,23 @@ else
   fail "separate-repo: a bare holder (rc=$rc): $out"
 fi
 
+# With a remote-backed work repository the gate exits 0, and a success exit
+# still carries the holder's anchor; within the work repository's TTL the
+# holder is fetched again, never coalesced.
+gitq -C "$h" remote set-url origin "$tmp/sep/holder-origin.git"
+set_root "$w" "$h/work-specs"
+ttl_state=$tmp/state.sep-ttl
+for pass in fetched fresh-within-ttl; do
+  out=$(cd "$w" && hermetic env PLANWRIGHT_DISPATCH_FETCH_STATE_DIR="$ttl_state" \
+    "$S/dispatch-fetch.sh" --spec demo . 2>&1)
+  rc=$?
+  if [ "$rc" -eq 0 ] && [ "$(field fetch 2)" = "$pass" ] && [ "$(field store-fetch 2)" = fetched ]; then
+    expect_gate "separate-repo, a remote-backed work repository ($pass)" store:origin/trunk mismatch "$recorded"
+  else
+    fail "separate-repo, a remote-backed work repository ($pass, rc=$rc): $out"
+  fi
+done
+
 # --- plain: the directory's files as they are --------------------------------
 gitq -c init.defaultBranch=main init -q "$tmp/plain/work"
 w=$tmp/plain/work
@@ -261,6 +278,15 @@ expect_gate "plain" files match "$recorded"
 printf 'edited\n' >>"$p/demo/test-spec.md"
 gate "$w"
 expect_gate "plain, an edited file" files mismatch "$recorded"
+gitq -c init.defaultBranch=main init -q --bare "$tmp/plain/origin.git"
+gitq -C "$w" remote add origin "$tmp/plain/origin.git"
+gitq -C "$w" push -q origin main
+gate "$w"
+if [ "$rc" -eq 0 ]; then
+  expect_gate "plain, a remote-backed work repository" files mismatch "$recorded"
+else
+  fail "plain, a remote-backed work repository (rc=$rc): $out"
+fi
 rm -f "$p/demo/tasks.md"
 gate "$w"
 if [ "$rc" -eq 5 ] && [ -z "$(field anchor 2)" ]; then
