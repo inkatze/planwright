@@ -474,6 +474,14 @@ rc_is dropped 4 "a paste whose tag never shows"
 grep -q 'not confirmed' "$tmp/dropped/err" || fail "the unconfirmed diagnostic must say so: $(cat "$tmp/dropped/err")"
 [ "$(grep -c '^capture-pane' "$tmp/dropped/log")" -ge 4 ] \
   || fail "deliver must re-read the pane for each confirmation try"
+# The tries knob is bounded so the worst-case wait stays under a minute, short
+# of a caller's two-minute command timeout: past the cap, or not an integer,
+# it takes the default (one capture before the paste plus one per try).
+for knob in 20:21 21:6 x:6 0:6; do
+  FD_TRIES=${knob%%:*} FD_FLAGS=paste-drops fake_deliver "clamp" "$idle_pane" "@3" "$msg"
+  [ "$(grep -c '^capture-pane' "$tmp/clamp/log")" = "${knob##*:}" ] \
+    || fail "PLANWRIGHT_RELAY_CONFIRM_TRIES=${knob%%:*} must make ${knob##*:} captures, got $(grep -c '^capture-pane' "$tmp/clamp/log")"
+done
 FD_FLAGS=paste-fails fake_deliver pastefail "$idle_pane" "@3" "$msg"
 rc_is pastefail 4 "a failed paste-buffer"
 grep -q '^delete-buffer -b planwright-relay-' "$tmp/pastefail/log" \

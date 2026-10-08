@@ -67,8 +67,8 @@
 #       buffer load failed). Exit 4: the paste ran, or deliver was interrupted
 #       around it, but the tag never showed; observe the pane before any
 #       re-send, which would stage a duplicate. PLANWRIGHT_RELAY_CONFIRM_TRIES
-#       (default 5, at most 30) and PLANWRIGHT_RELAY_CONFIRM_SLEEP (seconds,
-#       default 1, at most 5) bound the confirmation wait.
+#       (default 5, at most 20) and PLANWRIGHT_RELAY_CONFIRM_SLEEP (seconds,
+#       default 1, at most 3) bound the confirmation wait to under a minute.
 #
 #   observe-command <backend> <handle>
 #       Print the observe-in-flight status-read command (REQ-D1.3). tmux:
@@ -329,9 +329,9 @@ case "$sub" in
       printf '%s\n' "$me: message file path unsafe to relay once made absolute: $(sanitize_printable "$msg" "(unprintable path)")" >&2
       exit 2
     }
-    tries=$(bounded_int "${PLANWRIGHT_RELAY_CONFIRM_TRIES:-}" 5 30)
+    tries=$(bounded_int "${PLANWRIGHT_RELAY_CONFIRM_TRIES:-}" 5 20)
     [ "$tries" -ge 1 ] || tries=5
-    pause=$(bounded_int "${PLANWRIGHT_RELAY_CONFIRM_SLEEP:-}" 1 5)
+    pause=$(bounded_int "${PLANWRIGHT_RELAY_CONFIRM_SLEEP:-}" 1 3)
     # Captured pane text is DATA: matched as substrings, never evaluated.
     before=$(pane_tail "$handle") || {
       echo "$me: refused, nothing pasted: cannot read target pane $handle" >&2
