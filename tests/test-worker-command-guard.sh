@@ -699,6 +699,9 @@ assert_allow "tracked: used inside a later if body" "P=$PLUGIN_ROOT; if true; th
 assert_allow "tracked: bash \$P/<script>" "P=$PLUGIN_ROOT && bash \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
 assert_allow "tracked: repo root through the cwd's checkout" "R=$SANDBOX && \$R/scripts/ok.sh" Bash "$SANDBOX"
 assert_defer "defer form: a tracked assignment to zsh's path" "path=$SANDBOX && cat README.md" Bash "$SANDBOX"
+assert_defer "defer form: a modifier on a tracked variable" "P=$SANDBOX && find . -name \$P:t" Bash "$SANDBOX"
+assert_defer "defer form: a subscript on a tracked variable" "P=$SANDBOX && find . -name \"\$P[1]\"" Bash "$SANDBOX"
+assert_allow "parity: a braced tracked variable before a colon is still its value" "P=$SANDBOX && cat \${P}/README.md:x" Bash "$SANDBOX"
 assert_allow "tracked: a lone assignment runs nothing" "P=$PLUGIN_ROOT" Bash "$PLUGIN_CWD"
 # NEGATIVES: every way the substitution could differ from what the shell does,
 # or name something the hook does not trust.
