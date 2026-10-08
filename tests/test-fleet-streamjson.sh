@@ -687,8 +687,9 @@ echo "ok: c9 pinned non-bare launch shape with the settings pin, prompt-as-data,
 #     work repository keeps its spec root outside it (here a plain store) gets
 #     that root as PLANWRIGHT_WORKER_SPEC_ROOT; a worker whose root is in its
 #     own repository gets none, and an inherited value never stands. Every
-#     inherited PLANWRIGHT_* variable is dropped and git and HOME are pinned,
-#     since a host overlay or config would hand the resolver a root of its own.
+#     inherited PLANWRIGHT_* variable is dropped, git's discovery and config
+#     are pinned and HOME is left unset (senv strips it), since a host overlay
+#     or config would hand the resolver a root of its own.
 # ---------------------------------------------------------------------------
 launch_c39() {
   (
