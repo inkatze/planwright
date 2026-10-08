@@ -60,8 +60,9 @@
 #                    staging
 #   deferred-<id>    a receipt the journal lock refused, until it is journaled
 #   .deferred.*      its staging temp
-#   attention.dirty.<pid>  the queue row may not match the journal; the tick
-#                    re-syncs
+#   undrained-<id>   a spooled receipt whose journal write failed, set aside
+#   attention.dirty  the queue row may not match the journal; the tick re-syncs
+#   attention.dirty.<pid>  a publish in flight, until its writer confirms it
 #   *.lock#*         a lock break's claim, or an aside, a crashed caller left
 #   *.broken.*       residue of the retired `mkdir` lock's own stale break
 # Which of these a close releases is not a property of their order here: the
@@ -847,16 +848,30 @@ attention_sync() {
   while :; do
     attention_publish "$1" "$2" "$sy_proj"
     sy_round=$((sy_round + 1))
-    journal_lock "$2" 2>/dev/null || return 0
+    if ! journal_lock "$2" 2>/dev/null; then
+      attention_give_up "$2" "$sy_mark"
+      return 0
+    fi
     sy_now=$(journal_oldest_pending "$2")
     journal_unlock "$2"
     if [ "$sy_now" = "$sy_proj" ]; then
       rm -f "$sy_mark" 2>/dev/null || :
       return 0
     fi
-    [ "$sy_round" -lt 4 ] || return 0
+    if [ "$sy_round" -ge 4 ]; then
+      attention_give_up "$2" "$sy_mark"
+      return 0
+    fi
     sy_proj=$sy_now
   done
+}
+
+# attention_give_up <dir> <mark> — hand an unconfirmed row to the tick. The
+# per-process mark exists only while its sync is in flight; a sync that stops
+# without confirming turns it into the shared mark, which the tick acts on
+# whoever raised it, since the writer (the supervisor, say) may well live on.
+attention_give_up() {
+  mv -f "$2" "$1/attention.dirty" 2>/dev/null || : >"$1/attention.dirty" 2>/dev/null || :
 }
 
 # attention_mark_dirty <dir> — note that the queue row may not match the
@@ -864,13 +879,15 @@ attention_sync() {
 # could not be confirmed: its lock was held past the budget, or the journal
 # kept moving for every round.
 attention_mark_dirty() {
-  : >"$1/attention.dirty.$$" 2>/dev/null || :
+  : >"$1/attention.dirty" 2>/dev/null || :
 }
 
-# attention_dirty <dir> — whether a re-sync mark is the tick's to act on: one
-# left by a process that is gone, or by this process. A live writer's mark is
-# still its own to clear by confirming.
+# attention_dirty <dir> — whether a re-sync mark is the tick's to act on: the
+# shared mark a sync left when it gave up, or an in-flight mark whose writer is
+# gone (killed mid-publish) or is this process. A live writer's in-flight mark
+# is still its own to clear by confirming.
 attention_dirty() {
+  [ -f "$1/attention.dirty" ] && [ ! -L "$1/attention.dirty" ] && return 0
   set +f
   for ad_f in "$1"/attention.dirty.*; do
     [ -f "$ad_f" ] && [ ! -L "$ad_f" ] || continue
@@ -887,6 +904,7 @@ attention_dirty() {
 # attention_clear_marks <dir> [all] — remove the marks attention_dirty would
 # act on, or every mark when the worker is being closed.
 attention_clear_marks() {
+  rm -f "$1/attention.dirty" 2>/dev/null || :
   set +f
   for ac_f in "$1"/attention.dirty.*; do
     [ -L "$ac_f" ] || [ -f "$ac_f" ] || continue
@@ -1003,6 +1021,7 @@ receipt_record() {
         # queue item would be a dead end (`answer` refuses on the
         # already-answered/undeliverable row). Surface the failed
         # re-open visibly instead (never silent, never misleading).
+        receipt_quarantine "$rr_spool"
         journal_unlock "$rr_dir"
         attention_failure "$rr_worker" "$rr_dir" \
           "could not re-open request $(printf '%s' "$rr_id" | cut -c1-8) on resume for worker $rr_worker - the journal still reads terminal, investigate disk/store"
@@ -1015,6 +1034,7 @@ receipt_record() {
       # journal append is surfaced rather than proceeding to queue a request
       # with no durable receipt (REQ-E1.5's receipt-first guarantee).
       if ! journal_append "$rr_dir" "$rr_id" "$rr_kind" "$rr_now"; then
+        receipt_quarantine "$rr_spool"
         journal_unlock "$rr_dir"
         attention_failure "$rr_worker" "$rr_dir" \
           "receipt append failed for worker $rr_worker request $(printf '%s' "$rr_id" | cut -c1-8) - the receipt journal is not durable, investigate disk/store"
@@ -1031,6 +1051,15 @@ receipt_record() {
   journal_unlock "$rr_dir"
   attention_sync "$rr_worker" "$rr_dir" "$rr_proj"
   return 0
+}
+
+# receipt_quarantine [<spool>] — set aside a spool whose journal write failed.
+# The failure is surfaced once by the caller; left where the drain looks, the
+# tick would retry it and surface it again every beat. Kept, not removed: it
+# is still the only copy of the request.
+receipt_quarantine() {
+  [ -n "${1:-}" ] || return 0
+  mv -f "$1" "${1%/*}/undrained-${1##*/deferred-}" 2>/dev/null || :
 }
 
 # receipt_defer <dir> <id> <epoch> <line> — spool a receipt the journal lock
@@ -1641,7 +1670,7 @@ journal_close() {
   # undeliverable; left behind, a later supervisor would drain them into a
   # session that never asked. A resumed worker that still wants one asks again.
   set +f
-  for jc_f in "$1"/deferred-*; do
+  for jc_f in "$1"/deferred-* "$1"/undrained-*; do
     if [ -L "$jc_f" ] || [ -f "$jc_f" ]; then rm -f "$jc_f" 2>/dev/null; fi
   done
   set -f
@@ -1708,7 +1737,7 @@ stop_held() {
 held_receipts() {
   attention_dirty "$1" && return 0
   set +f
-  for hr_f in "$1"/deferred-*; do
+  for hr_f in "$1"/deferred-* "$1"/undrained-*; do
     if [ -L "$hr_f" ] || [ -f "$hr_f" ]; then
       set -f
       return 0
@@ -2581,6 +2610,11 @@ alarm_scan_worker() {
     fi
     aw_row=$(awk -F'\t' -v id="$a_id" '$1 == id { print $2 "\t" $3 "\t" $4; exit }' \
       "$aw_dir/journal" 2>/dev/null) || aw_row=''
+    # The settle epoch as well: a re-open keeps the received epoch and moves
+    # only this field, so it is what tells the confirmation below that the
+    # request was answered and asked again in the meantime.
+    aw_set=$(awk -F'\t' -v id="$a_id" '$1 == id { print $5; exit }' \
+      "$aw_dir/journal" 2>/dev/null) || aw_set=''
     aw_now_kind=${aw_row%%"$TAB"*}
     aw_rest=${aw_row#*"$TAB"}
     aw_recv=${aw_rest%%"$TAB"*}
@@ -2596,14 +2630,14 @@ alarm_scan_worker() {
     [ "$aw_fired" = 1 ] || continue
     attention_upsert "$aw_worker" "$aw_dir" "$a_id" "$aw_now_kind" high
     if journal_lock "$aw_dir" 2>/dev/null; then
-      # The whole row again, as the decision read it: a request answered and
-      # then re-opened meanwhile is pending once more, but under a new
-      # received epoch, so it is not the overdue request this escalated.
-      aw_still=$(awk -F'\t' -v id="$a_id" '$1 == id { print $3 "\t" $4; exit }' \
+      # The row again, as the decision read it: a request answered and then
+      # re-opened meanwhile is pending once more, but its settle epoch has
+      # moved, so it is not the overdue request this escalated.
+      aw_still=$(awk -F'\t' -v id="$a_id" '$1 == id { print $3 "\t" $4 "\t" $5; exit }' \
         "$aw_dir/journal" 2>/dev/null) || aw_still=''
       aw_proj=$(journal_oldest_pending "$aw_dir")
       journal_unlock "$aw_dir"
-      if [ "$aw_still" != "$aw_recv${TAB}pending" ]; then
+      if [ "$aw_still" != "$aw_recv${TAB}pending${TAB}$aw_set" ]; then
         attention_sync "$aw_worker" "$aw_dir" "$aw_proj"
         continue
       fi
@@ -2709,7 +2743,7 @@ cmd_status() {
     # A receipt spooled because the journal lock was busy is waiting on an
     # answer just the same.
     set +f
-    for st_f in "$dir"/deferred-*; do
+    for st_f in "$dir"/deferred-* "$dir"/undrained-*; do
       [ -f "$st_f" ] && [ ! -L "$st_f" ] || continue
       st_pend=$((${st_pend:-0} + 1))
       st_e=$(head -n 1 "$st_f" 2>/dev/null) || st_e=''
