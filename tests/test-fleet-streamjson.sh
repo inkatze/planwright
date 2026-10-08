@@ -1955,6 +1955,12 @@ else
     *) fail "c38f: a set-aside receipt must still read as awaiting input, got: $out" ;;
   esac
   chmod 644 "$wdir38f/journal"
+  # Once the journal takes the same request, the set-aside copy is answered.
+  printf '%s\n%s\n' "$(date +%s)" "$line_q" >"$wdir38f/deferred-$req_q"
+  wait_until 100 grep -q "^$req_q$tab.*${tab}pending" "$wdir38f/journal" \
+    || fail "c38f: the re-spooled receipt was not journaled once the journal was writable"
+  [ ! -e "$wdir38f/undrained-$req_q" ] || fail "c38f: a set-aside receipt outlived its journaled request"
+  : >"$wdir38f/undrained-$req_q"
   senv "$home" "$rec" -- stop sjw38f --grace 2 >/dev/null || fail "c38f: stop exited non-zero"
   [ ! -e "$wdir38f/undrained-$req_q" ] || fail "c38f: a close left the set-aside receipt behind"
   echo "ok: c38 a spool that cannot land is set aside once, counted, and removed by a close"
