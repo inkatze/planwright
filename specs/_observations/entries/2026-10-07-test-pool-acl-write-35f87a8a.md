@@ -1,0 +1,1 @@
+- 2026-10-07 [planwright] scripts/run-tests.sh's test-slot pool screen reads only mode bits, so on macOS an access control list granting other users add_file or delete_child on the pool directory passes it unnoticed (Linux shows the ACL mask in the group bits); scripts/step-pool.sh shares the gap, and one shared screen would close it for both.
