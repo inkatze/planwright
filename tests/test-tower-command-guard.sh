@@ -422,6 +422,19 @@ fi
 assert_defer "a symlink then dot-dot out of TMPDIR" "rm -f $TOWER_TMP/tmp.Esc0123456/../tmp.Ab3dE6gH9j"
 assert_defer "a symlinked directory inside TMPDIR" "rm -f $TOWER_TMP/tmp.Esc0123456/tmp.Ab3dE6gH9j"
 RUN_TMPDIR="$SANDBOX/tower-tmp-link" assert_allow "a TMPDIR spelled through a symlink matches its canonical directory" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
+# The directory as written must itself be a temp directory, raw or resolved:
+# a symlink in the written path could be re-pointed by its owner after the
+# check, another local account included when it sits in sticky /tmp.
+if ! { ln -s "$TOWER_TMP" "$SANDBOX/other-link" && mkdir -p "$SANDBOX/st/sub" && ln -s "$TOWER_TMP" "$SANDBOX/st/sub/deep-link"; }; then
+  echo "FAIL: could not build the written-directory fixtures" >&2
+  exit 1
+fi
+assert_defer "a written directory that is a symlink to TMPDIR" "rm -f $SANDBOX/other-link/tmp.Ab3dE6gH9j"
+assert_defer "a written directory reaching TMPDIR through a nested symlink" "rm -f $SANDBOX/st/sub/deep-link/tmp.Ab3dE6gH9j"
+RUN_TMPDIR="$SANDBOX/tower-tmp-link" assert_allow "the written directory is TMPDIR's raw spelling" "rm -f $SANDBOX/tower-tmp-link/tmp.Ab3dE6gH9j"
+RUN_TMPDIR="$SANDBOX/tower-tmp-link/" assert_allow "the raw spelling with TMPDIR's trailing slash" "rm -f $SANDBOX/tower-tmp-link/tmp.Ab3dE6gH9j"
+RUN_TMPDIR="$SANDBOX/tower-tmp-link" assert_defer "TMPDIR's raw spelling does not admit another symlink to it" "rm -f $SANDBOX/other-link/tmp.Ab3dE6gH9j"
+assert_allow "a written directory with a trailing slash" "rm -f $TOWER_TMP//tmp.Ab3dE6gH9j"
 RUN_TMPDIR='' assert_allow "no TMPDIR: a mktemp file directly in /tmp" "rm -f $SLASH_TMP_FILE"
 RUN_TMPDIR='' assert_defer "no TMPDIR: a mktemp file outside /tmp" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
 RUN_TMPDIR="$SANDBOX/no-such-dir" assert_allow "an unresolvable TMPDIR: a mktemp file directly in /tmp" "rm -f $SLASH_TMP_FILE"

@@ -1402,17 +1402,41 @@ canon_temp_dir() {
   printf '%s\n' "$c"
 }
 
-# temp_dirs: the canonical TMPDIR, the canonical macOS per-user temp directory
-# (where bare mktemp writes there, whatever TMPDIR says), and the canonical
-# /tmp, one per line, each only when canon_temp_dir accepts it. Read from the
-# hook's own environment, never from the analyzed command.
+# raw_temp_dir <dir>: an absolute <dir> as spelled, its trailing slashes
+# dropped, on one line; nothing when it is relative, the root, or holds a line
+# break.
+raw_temp_dir() {
+  local r=$1
+  case $r in
+    /*) ;;
+    *) return 0 ;;
+  esac
+  while :; do
+    case $r in
+      */) r=${r%/} ;;
+      *) break ;;
+    esac
+  done
+  case $r in
+    '' | *"$NL"*) return 0 ;;
+  esac
+  printf '%s\n' "$r"
+}
+
+# temp_dirs: TMPDIR, the macOS per-user temp directory (where bare mktemp
+# writes there, whatever TMPDIR says), and /tmp, each as spelled (raw_temp_dir)
+# and as resolved (canon_temp_dir), one per line. Read from the hook's own
+# environment, never from the analyzed command.
 temp_dirs() {
-  local u
-  canon_temp_dir "${TMPDIR:-}"
+  local u t
+  for t in "${TMPDIR:-}" /tmp; do
+    raw_temp_dir "$t"
+    canon_temp_dir "$t"
+  done
   if u=$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null); then
+    raw_temp_dir "$u"
     canon_temp_dir "$u"
   fi
-  canon_temp_dir /tmp
 }
 
 # loop_head_quoted: 0 when an open `for` loop (verify_tokens' LF_QH, by
@@ -1430,7 +1454,8 @@ loop_head_quoted() {
 # grounds files can be cleaned up once the dispatch returns. Each operand must
 # be an absolute path with no `.` or `..` component, whose name has mktemp's
 # default shape (`tmp.` and at least six letters or digits), whose directory
-# resolves physically to exactly one of temp_dirs (never below them), and that
+# is one of temp_dirs both as written and as resolved physically (never below
+# them, and never through a symlink the list does not name), and that
 # is not a symlink, a directory, or any other non-regular file. A name that
 # does not exist yet is allowed: without -r rm cannot take a directory that
 # appears later, and a symlink that appears later is unlinked, never followed.
@@ -1442,7 +1467,7 @@ loop_head_quoted() {
 # quoted `for` head word. The guard cannot tell whose file it is: any
 # same-user file of that name in those directories qualifies.
 guard_rm() {
-  local i a d b s dirs endflags=0 operands=0
+  local i a d b s w dirs endflags=0 operands=0
   [ "${in_unbounded_loop:-0}" = 0 ] || return 1
   no_input_redirect || return 1
   for ((i = 1; i < cwn; i++)); do
@@ -1496,6 +1521,19 @@ guard_rm() {
     [ -n "$dirs" ] || return 1
     case $NL$dirs$NL in
       *"$NL$d$NL"*) ;;
+      *) return 1 ;;
+    esac
+    # The directory as written must be one of them too: a symlink in the
+    # written path could be re-pointed by its owner after this check.
+    w=${a%/*}
+    while :; do
+      case $w in
+        */) w=${w%/} ;;
+        *) break ;;
+      esac
+    done
+    case $NL$dirs$NL in
+      *"$NL$w$NL"*) ;;
       *) return 1 ;;
     esac
     operands=$((operands + 1))
