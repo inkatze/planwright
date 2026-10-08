@@ -83,9 +83,10 @@
 #                           directory, or not writable; the root relative,
 #                           unset, or unusable as a lock path; the lock
 #                           library missing or failing; no scratch file; the
-#                           owner's user unreadable by ps while the owner
-#                           runs): one warning names the cause and the caller
-#                           runs its check unpooled                        exit 0
+#                           owner's user unreadable by ps when the take
+#                           starts, while the owner runs): one warning names
+#                           the cause and the caller runs its check
+#                           unpooled                                       exit 0
 #                 expired   the bound passed with no slot free; stderr names
 #                           the holders and stdout follows with one holder
 #                           line each                                      exit 3
