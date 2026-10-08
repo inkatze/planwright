@@ -979,6 +979,21 @@ elif is_allow; then
 else
   fail "defer form: a NUL byte in the command — expected defer exit 0 (got $CODE)"
 fi
+malformed_run "$(jq -n --arg w "$SANDBOX" '{tool_name:"Bash",tool_input:{command:"git status"},cwd:($w+"\u0000x")}')"
+if [ "$CODE" -eq 0 ] && is_empty; then
+  pass "defer form: a malformed cwd"
+elif is_allow; then
+  fail "defer form: a malformed cwd — FALSE-ALLOW: expected DEFER"
+  false_allows=$((false_allows + 1))
+else
+  fail "defer form: a malformed cwd — expected defer exit 0 (got $CODE)"
+fi
+malformed_run "$(jq -n --arg w "$SANDBOX" '{tool_name:"Bash",tool_input:{command:"git status"},cwd:$w}')"
+if [ "$CODE" -eq 0 ] && is_allow; then
+  pass "parity: a well-formed cwd still allows"
+else
+  fail "parity: a well-formed cwd — expected allow (got $CODE)"
+fi
 malformed_run ''
 if [ "$CODE" -eq 0 ] && is_empty; then pass "empty stdin defers"; else fail "empty stdin — expected defer exit 0 (got $CODE)"; fi
 malformed_run '{"tool_name":"Bash","tool_input":{}}'

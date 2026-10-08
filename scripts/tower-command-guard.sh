@@ -1971,7 +1971,8 @@ main() {
   # (object, array, number, boolean) means the payload does not match the
   # documented PreToolUse contract, so the whole analysis defers rather than
   # containment-checking against whatever `jq -r` renders such a value as.
-  case $(printf '%s' "$input" | jq -r 'if has("cwd") and .cwd != null then (.cwd | type) else "absent" end' 2>/dev/null) in
+  # A NUL byte in cwd defers, as in the command.
+  case $(printf '%s' "$input" | jq -r 'if has("cwd") and .cwd != null then (if (.cwd | type) == "string" and (.cwd | explode | any(. == 0)) then "nul" else (.cwd | type) end) else "absent" end' 2>/dev/null) in
     absent) cwd=$PWD ;;
     string)
       cwd=$(printf '%s' "$input" | jq -r '.cwd' 2>/dev/null) || return 0
