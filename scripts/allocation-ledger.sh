@@ -135,7 +135,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
 for dep in echo-safety.sh allocation-ladder.sh; do
   if [ ! -f "$script_dir/$dep" ] || [ ! -r "$script_dir/$dep" ]; then
-    printf '%s\n' "allocation-ledger: sibling helper '$script_dir/$dep' is missing or not readable — broken install" >&2
+    printf '%s\n' "allocation-ledger: sibling helper $dep is missing or not readable — broken install" >&2
     exit 5
   fi
 done
