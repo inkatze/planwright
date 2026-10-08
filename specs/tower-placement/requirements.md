@@ -1,7 +1,7 @@
 # Tower placement — Requirements
 
-**Status:** Draft
-**Last reviewed:** 2026-10-07
+**Status:** Ready
+**Last reviewed:** 2026-10-08
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -27,7 +27,11 @@ marked as a tower, through a deny-only path that marking can never widen.
 The floor gains the commands that move a branch or write the shared stash.
 The rule underneath, that a tower never moves, dirties, or stashes in a
 checkout it does not own, lands as a fleet doctrine floor, with the knob,
-the check, and the guard as its mechanisms (D-1).
+with the knob and its bring-up check as the capability and the plugin
+floor and the wider deny list as its mechanisms (D-1). In this bundle,
+"tower" means a `/tower` session or an `/orchestrate` orchestrator alike;
+"deny floor" is the guard-enforced deny set and "placement floor" the
+doctrine rule.
 *(Cites: D-1, D-2, the tower-placement seed (Sources).)*
 
 ## Scope
@@ -76,8 +80,12 @@ the check, and the guard as its mechanisms (D-1).
   *(Cites: D-2, D-3, obs:55bb13a7.)*
 - **REQ-A1.2** A tower SHALL NOT move a branch, switch, dirty, or write the
   shared stash in a checkout it does not own; the primary checkout's `main`
-  is never touched by a tower. This rule SHALL be stated as a floor in the
-  fleet coordination doctrine.
+  is never touched by a tower. The exception is a planwright script
+  performing an act the operator has sanctioned for towers (fast-forwarding
+  the primary checkout's `main` for a release, starting a forward-merge in
+  a worker's worktree for the worker to resolve); the floor SHALL name each
+  sanctioned act. This rule SHALL be stated as a floor in the fleet
+  coordination doctrine.
   *(Cites: D-1, the tower-placement seed (Sources), obs:8bc1198c.)*
 - **REQ-A1.3** Placement policy SHALL be one knob, `tower_placement`, with
   the values `warn` (the default), `refuse`, and `allow`, resolved through
@@ -93,48 +101,62 @@ the check, and the guard as its mechanisms (D-1).
 - **REQ-B1.2** A tower in a main tree SHALL respond per `tower_placement`:
   `warn` says so once and continues; `refuse` takes no repo-mutating route
   and no relay until the tower is moved or the operator acknowledges, while
-  questions and read-only work continue; `allow` says nothing. A linked
-  worktree passes under every value.
-  *(Cites: D-4, D-5.)*
+  questions and read-only work continue; `allow` says nothing. For
+  `/orchestrate`, `refuse` holds every outward act on the same terms
+  (dispatch, relay, and the bookkeeping push and PR) while status and
+  read-only reconcile continue; its bring-up runs once per invocation
+  (`--watch` steps do not repeat it), and an unattended orchestrator, which
+  no operator can acknowledge, notifies and parks in Awaiting input. A
+  linked worktree passes under every value.
+  *(Cites: D-2, D-4, D-5.)*
 - **REQ-B1.3** A tower running under Claude Code worktree isolation SHALL
   warn once at bring-up, naming the supported launch; the warning SHALL
   never block the tower.
   *(Cites: D-6, obs:55bb13a7.)*
-- **REQ-B1.4** The bring-up posture check SHALL accept plugin enforcement
-  active for the session as meeting the floor, SHALL keep its read-only
-  fallback when that enforcement is missing or broken, and SHALL name every
-  settings layer it read.
-  *(Cites: D-8, obs:48faa6b7, the tower-enforcement flight (Sources).)*
+- **REQ-B1.4** The bring-up posture check, in `/tower` and in
+  `/orchestrate` alike, SHALL accept plugin enforcement active for the
+  session as meeting the floor, judging it active only when the hook
+  refuses the activation handshake with its "active" message, SHALL fall
+  back when that enforcement is
+  missing or broken (`/tower` to read-only, `/orchestrate` to holding its
+  outward acts), and SHALL name every settings layer it read.
+  *(Cites: D-2, D-8, obs:48faa6b7, the tower-enforcement flight (Sources).)*
 - **REQ-B1.5** Every bring-up placement and posture read SHALL be
-  heartbeat-class: read once at bring-up and again on request, never
-  polled.
-  *(Cites: drafting-session decision (2026-10-07).)*
+  read once at bring-up and again on request, never polled, each read
+  bounded and inline.
+  *(Cites: drafting-session decision (2026-10-07) (Sources).)*
 
 ## REQ-C — Plugin-wired enforcement
 
 - **REQ-C1.1** In a session marked as a tower, the plugin's own PreToolUse
-  hooks SHALL run the policy guard at the tower tier for Bash and for the
-  GitHub tools the profile names, whatever settings the session was
-  launched with.
+  hooks SHALL run the policy guard at the tower tier for Bash and for
+  every GitHub MCP tool in the tower profile's deny list, which gains
+  `mcp__github__update_pull_request_branch`, whatever settings the session
+  was launched with.
   *(Cites: D-7, the tower-enforcement flight (Sources).)*
 - **REQ-C1.2** Marking a session SHALL never widen any session's
   permissions: the plugin path only denies or defers, and no auto-allow is
   granted on the strength of a mark.
   *(Cites: D-7, the tower-enforcement flight review F1 (Sources).)*
 - **REQ-C1.3** A session SHALL be marked by a plugin hook when its prompt
-  opens with the `/tower` or `/orchestrate` command, and again by each
+  opens with the `/tower` or `/orchestrate` command (bare or
+  plugin-namespaced, such as `/planwright:tower`), and again by each
   skill's bring-up; a command tag matched anywhere other than the prompt's
   start SHALL NOT mark.
   *(Cites: D-8, the tower-enforcement flight review F11 (Sources).)*
 - **REQ-C1.4** Enforcement SHALL fail closed in a marked session or one
   whose mark cannot be read: a store that exists but cannot be searched
-  counts as marked; an oversized or unreadable payload denies; a signal or
-  crash before a verdict denies; and any command that names the mark store
-  is refused.
+  counts as marked; in such a session an oversized or unreadable payload
+  denies, a signal or crash before a verdict denies, and any command that
+  names the mark store is refused. Where no store exists, or no top-level
+  session id can be read, the session counts as unmarked and the hook
+  defers.
   *(Cites: D-8, the tower-enforcement flight review F2, F7, F8 (Sources).)*
 - **REQ-C1.5** The session id SHALL be read from the payload's top level
-  only, and every plugin hook entry SHALL carry an explicit timeout below
-  the harness default.
+  only, and every plugin hook entry this bundle adds SHALL carry an
+  explicit timeout longer than the policy guard's own whole-call deadline
+  plus margin and below the harness default, so the guard always reaches
+  its own verdict before the harness can kill it.
   *(Cites: D-8, the tower-enforcement flight review F9, F12 (Sources).)*
 - **REQ-C1.6** An unmarked session SHALL be unaffected, and its path
   through the hook SHALL be a cheap in-shell prefilter before any process
@@ -144,20 +166,30 @@ the check, and the guard as its mechanisms (D-1).
   SHALL keep working as an additional layer, its command guard included.
   *(Cites: D-7.)*
 - **REQ-C1.8** A tower resumed or forked under a different fleet home or
-  session id SHALL be re-marked by its bring-up, and the residual window
-  before bring-up SHALL be stated in the docs as bounded-or-surfaced.
+  session id SHALL be re-marked by its bring-up, and the docs SHALL state
+  the residual window: from the resume until the bring-up or on-request
+  posture check re-marks it, which the posture check reports.
   *(Cites: D-8, the tower-enforcement flight review F10 (Sources).)*
+- **REQ-C1.9** Only plugin hook processes SHALL write marks. The mark
+  store SHALL stay bounded: every mark write SHALL prune marks not
+  refreshed within 30 days, and every bring-up and on-request posture
+  check SHALL refresh the session's own mark through the activation
+  handshake.
+  *(Cites: D-8, kickoff §7 decision-domains gap check (2026-10-08)
+  (Sources).)*
 
 ## REQ-D — The deny floor
 
-- **REQ-D1.1** The tower floor SHALL deny every command that changes which
-  commit a branch or a checkout's HEAD names (checkout, switch, reset in
-  any mode, branch force and rename forms, `symbolic-ref` writes, fetches
-  into a local branch) and every command that writes the shared stash, in
-  every checkout including the tower's own, since the guard cannot prove
-  which checkout a command reaches; a tower that needs a new branch
-  creates it with a new worktree. A read-only stash command SHALL stay
-  allowed.
+- **REQ-D1.1** The tower floor SHALL deny exactly these acts, in every
+  checkout including the tower's own, since the guard cannot prove which
+  checkout a command reaches: `checkout` and `reset` in every form (the
+  path-restoring forms included); `switch`; every form that force-resets
+  an existing branch (`branch -f`, `checkout -B`, `switch -C`,
+  `worktree add -B` on any branch); branch rename and copy (`-m`, `-M`,
+  `-c`, `-C`); `symbolic-ref` writes; fetches into a local branch;
+  `gh pr checkout` and `gh repo sync`; and every `stash` subcommand except
+  `stash list` and `stash show`. Plain branch creation and deletion, and
+  the commit family, stay allowed. Any act not listed is outside the floor.
   *(Cites: D-10, the tower-placement seed (Sources), the
   tower-enforcement flight review D1 (Sources).)*
 - **REQ-D1.2** Each tower deny act SHALL be refused by the policy guard in
@@ -177,14 +209,19 @@ the check, and the guard as its mechanisms (D-1).
   `docs/main`) SHALL NOT be denied for that reason.
   *(Cites: D-7, D-10, the tower-enforcement flight review F5 (Sources).)*
 - **REQ-D1.5** The tower profile's `_about` text SHALL describe the guards
-  as receiving the command as written, unexpanded.
+  as receiving the command as written, unexpanded, and SHALL drop the
+  statements this bundle makes false (tower scoping enforced only by hook
+  wiring; the tower committing via git as its reason not to need the MCP
+  write tools).
   *(Cites: obs:b159857e.)*
 
 ## REQ-E — Dispatch from a tower's own tree
 
 - **REQ-E1.1** Unit worktrees dispatched from a tower in a linked worktree
   SHALL be placed under the repository's primary `.claude/worktrees/`,
-  never nested under the tower's own worktree.
+  never nested under the tower's own worktree. The dispatch scripts
+  already resolve the primary checkout; this bundle pins that with a
+  regression test.
   *(Cites: D-11, obs:6688f319.)*
 - **REQ-E1.2** Flight dispatch slot counting and brief retirement SHALL
   exclude the primary checkout, and worktree lists SHALL be parsed
@@ -208,6 +245,13 @@ the check, and the guard as its mechanisms (D-1).
 - **REQ-F1.4** Every doc and script header the plugin-wired floor makes
   stale SHALL be corrected to name both enforcement paths.
   *(Cites: the tower-enforcement flight review F15 (Sources).)*
+- **REQ-F1.5** The docs SHALL carry an upgrade note: a tower already running
+  when this release installs has no mark, and so no plugin floor, until its
+  next bring-up; restart running towers after installing. The docs SHALL
+  also state that the plugin floor has no off switch: a misfire is worked
+  around from a plain session and fixed by a plugin downgrade or release.
+  *(Cites: D-8, kickoff §7 decision-domains gap check (2026-10-08)
+  (Sources).)*
 
 ## REQ-G — Invariants
 
@@ -230,6 +274,15 @@ the check, and the guard as its mechanisms (D-1).
   kind. Mid-draft, the operator folded the tower-enforcement flight in as
   scope (plugin-wired floor, session marking, the deny-to-act map) after
   its review stopped on validated guard findings.
+- 2026-10-08 — Kickoff walkthrough edits (meaning-class, applied in
+  Draft): `/orchestrate`'s bring-up, posture check, and `refuse` hold over
+  its outward acts; plugin-namespaced marking; hook-only marking through
+  the activation handshake; unknown sessions defer; hook timeouts above
+  the guard's deadline; the mark store's safety bar, pruning (REQ-C1.9),
+  and upgrade note (REQ-F1.5); REQ-D1.1 as a closed act list, the commit
+  family outside it; the sanctioned-script exceptions to the placement
+  floor; REQ-E1.1 as a regression test; the flight review summarized in
+  Sources; task wording, citations, and glossary aligned.
 
 ## Sources
 
@@ -249,13 +302,56 @@ the check, and the guard as its mechanisms (D-1).
   (`scripts/tower-session.sh`, the policy-guard tower acts, the deny-to-act
   fixture), and its review record, findings F1 to F17 and declined log D1
   to D5, held at the security-zone hard pause. Folded in by the operator
-  (2026-10-07) as prior art, not as code to merge.
+  (2026-10-07) as prior art, not as code to merge. The record lives only in
+  that worker's session; its findings, summarized here with their
+  disposition in this bundle, are what the bundle's "flight review"
+  citations refer to:
+  - F1: self-marking unlocked the command guard's auto-allows. Met by D-7
+    and REQ-C1.2 (deny-only plugin path).
+  - F2: an oversized payload in a marked session deferred. REQ-C1.4.
+  - F3: an abbreviated `--reason` let `worktree add … main` through.
+    REQ-D1.2 (long-option prefixes).
+  - F4: a `remotes/<remote>/main` ref form deferred. REQ-D1.2 (ref forms).
+  - F5: a new branch named `docs/main` was wrongly denied. REQ-D1.4.
+  - F6: repo aliases to tower acts deferred. REQ-D1.2 (aliases).
+  - F7: a marked tower could unmark itself through the store. REQ-C1.4.
+  - F8: a signal before the deny trap let a marked call through.
+    REQ-C1.4.
+  - F9: the session id was read at any payload depth. REQ-C1.5.
+  - F10: a resumed or forked tower under another fleet home was unmarked.
+    REQ-C1.8.
+  - F11: a command tag anywhere in the prompt marked. REQ-C1.3.
+  - F12: hook entries carried no timeout. REQ-C1.5.
+  - F13: the unmarked path forked several processes per call. REQ-C1.6.
+  - F14: hand-rolled option walks beside the shared parser. D-9.
+  - F15: stale prose across headers, `_about`, and docs. REQ-D1.5,
+    REQ-F1.4.
+  - F16: missing tests for the F2, F3, F9 and store-failure cases. Task 3
+    and Task 4 Done when.
+  - F17: the session test file ran near the per-file time ceiling under
+    load. Task 3 Done when (the per-file ceiling).
+  - D1 (declined there): further branch-moving forms deferred. Taken up
+    here as REQ-D1.1's closed list; remote `push --delete` stays outside
+    it.
+  - D2 (declined there): shell-feed and wrapper spellings. Deferred in
+    `tasks.md`.
+  - D3 (declined there): only a server named `github` is matched. Out of
+    scope here.
+  - D4 (declined there): the activation pattern accepted shell operators.
+    Superseded by D-8's hook-only handshake.
+  - D5 (declined there): a helper name collision taking constants only.
+    No action.
 - **tower-front-door** (`specs/tower-front-door/`): the tower permission
   posture (its REQ-A1.3, D-14), the hard invariants (its REQ-G group), and
   its bring-up posture check.
 - **concurrent-orchestrator-coordination**
   (`specs/concurrent-orchestrator-coordination/`) and
   `docs/per-tower-checkouts.md`: the per-tower checkout model.
+- **Drafting-session decision** (2026-10-07): the operator's choices made
+  while drafting this bundle, recorded in the decisions that cite it.
+- **Kickoff walkthrough** (2026-10-07 to 2026-10-08):
+  `specs/tower-placement/kickoff-brief.md`; "kickoff §N" citations name its
+  sections.
 - **Research: Claude Code documentation** (consulted 2026-10-07, CLI
   2.1.293): `code.claude.com/docs/en/worktrees.md` (isolation applies after
   `--worktree`, `EnterWorktree`, and resume, and cannot be turned off; no

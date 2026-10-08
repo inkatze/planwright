@@ -1,7 +1,7 @@
 # Tower placement — Design
 
-**Status:** Draft
-**Last reviewed:** 2026-10-07
+**Status:** Ready
+**Last reviewed:** 2026-10-08
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -15,7 +15,11 @@ bundle.
 **Decision:** The rule that a tower never moves, dirties, or stashes in a
 checkout it does not own lands as a new floor in
 `doctrine/fleet-coordination-floor.md`, beside the tower non-authoring
-boundary. Its mechanisms are the `tower_placement` knob with the bring-up
+boundary. The floor binds a tower's own commands and names its exceptions:
+planwright scripts performing operator-sanctioned acts (the release
+fast-forward of the primary `main`, starting a forward-merge in a worker's
+worktree), which the operator chose at kickoff (2026-10-08) to keep rather
+than retire. Its mechanisms are the `tower_placement` knob with the bring-up
 check (capability), the plugin-wired deny-only floor (mechanism), and the
 wider deny list (mechanism). The operator's launcher and knob value are
 local values, outside this repository.
@@ -29,7 +33,8 @@ local values, outside this repository.
   reads less plainly than a named floor.
 
 **Chosen because:** the seed states an invariant across every tower kind,
-which is the autopilot-reflex seed-claim trigger; the floors document
+which is the autopilot-reflex seed-claim trigger (the pinned altitude seed
+claim, Sources); the floors document
 exists to hold exactly such invariants, and no skill loads it at run
 start, so it costs no instruction budget. Operator decision (2026-10-07).
 
@@ -68,7 +73,7 @@ the per-tower-checkouts guide says, because linked worktrees share one
   Rejected because: the isolation refuses any command it cannot prove
   stays inside the worktree, including loops, computed command names, and
   variable-built arguments; the set of helpers would never close, and the
-  harness documents no way to relax it.
+  harness documents no way to relax it (Research, Sources).
 - Run towers in the primary checkout with a stricter floor. Rejected
   because: the operator's requirement is that the primary checkout's
   `main` is never dirtied or switched, and a floor narrows the risk without
@@ -76,8 +81,10 @@ the per-tower-checkouts guide says, because linked worktrees share one
 
 **Chosen because:** a tower's job crosses worktrees, so the only fence it
 can live with is its own floor, not the harness's isolation. Workers branch
-from `origin/main`, so a tower in a linked worktree never needs to move
-local `main`.
+from `origin/main` (`scripts/fleet-dispatch-worktree.sh`), so a tower in a
+linked worktree never needs to move local `main`; plain `git worktree add`
+is already a sanctioned exception to native worktree creation
+(obs:a19fc34c, obs:7ad46e46).
 
 ### D-4: One knob, `tower_placement`, default `warn`  (N)
 
@@ -86,7 +93,11 @@ local `main`.
 `warn` reports a tower in a main tree once and continues. `refuse` applies
 the posture check's existing hold: no repo-mutating route and no relay
 until the tower moves or the operator acknowledges; questions and
-read-only work continue. `allow` is how a dedicated tower clone declares
+read-only work continue. `/orchestrate` holds its outward acts (dispatch,
+relay, the bookkeeping push and PR) on the same terms, status and
+read-only reconcile continuing; its bring-up runs once per invocation, and
+unattended it notifies and parks rather than waiting for an
+acknowledgement. `allow` is how a dedicated tower clone declares
 itself, set in that clone's machine-local layer.
 
 **Alternatives considered:**
@@ -102,7 +113,10 @@ itself, set in that clone's machine-local layer.
 **Chosen because:** git can tell a linked worktree from a main tree but
 not a dedicated clone from the operator's primary checkout; a local `allow`
 is the honest declaration, and the operator's own `refuse` lives in their
-overlay. Operator decision (2026-10-07).
+overlay. `warn` adds a non-blocking message and nothing else, which is as
+close to today's behavior as a new check allows. The hold `refuse` applies
+is tower-front-door's posture hold (its REQ-A1.3, D-14). Operator decision
+(2026-10-07).
 
 ### D-5: A deterministic placement classifier  (N)
 
@@ -148,7 +162,7 @@ restrict the session that carries it, so marking needs no trust.
 - Grant the allows only with a launch-time signal the model cannot write.
   Rejected because: it helps only launchers that set the signal, drops
   desktop and IDE launches, and rests on harness behavior the docs leave
-  undocumented.
+  undocumented (Research, Sources).
 - Keep the floor profile-only. Rejected because: the ask is a floor that
   holds however the tower is launched.
 
@@ -160,24 +174,52 @@ path makes self-marking harmless by construction. Operator decision
 
 **Decision:** A plugin prompt hook marks a session whose prompt opens with
 the `/tower` or `/orchestrate` command; each skill's bring-up marks again,
-so resume, fork, or a skill entered another way is covered. Marks live in
-the fleet state store. The guard reads the session id from the payload's
+so resume, fork, or a skill entered another way is covered. Only hook
+processes write marks, so a mark lands in the fleet home the guard reads
+(the session's own shell can resolve another). Bring-up marks through a
+handshake: it runs a fixed activation command, which the PreToolUse hook
+intercepts, marks the session, and refuses with a constant "active"
+message; the command's own body never runs in a wired session. Seeing
+that refusal is the proof the plugin floor is live, so the posture check
+counts enforcement as active only on it, and any other outcome (the
+command running, a different refusal) as missing or broken. Marks live in
+the fleet home, under the bar the sibling tower stores already hold
+(`tower-queue.sh`, `tower-reply-hook.sh`): owner-only directory and files,
+no symlink anywhere in the store, the session id validated as a UUID
+before it becomes a path, refresh by temp file and rename, and pruning
+that never follows a link. A mark failing that check in a marked session
+denies; a "tampered" mark means exactly such a failure. The guard reads the session id from the payload's
 top level, checks the mark with an in-shell prefilter before forking
-anything, installs its deny trap once the id is read, denies an oversized
-payload in a marked session, treats an unsearchable store as marked, and
-refuses any command naming the store. Every plugin hook entry carries an
-explicit timeout below the harness default. The posture check accepts an
-active mark with the plugin hook wired as meeting the floor.
+anything, installs its deny trap once the session is found marked, denies
+an oversized payload in a marked session, treats an unsearchable store as
+marked, defers where no store exists or no id can be read (ordinary
+sessions are never gated by a broken or absent store), and refuses any
+command naming the store. Every mark write prunes marks not
+refreshed within 30 days, and every mark write refreshes the session's own
+mark, so bring-up and the on-request posture check (each a handshake) keep
+a tower that is still answering. Every plugin hook entry this bundle adds
+carries an explicit timeout longer than the guard's own deadline plus
+margin, since a hook the harness kills lets the command through.
 
 **Alternatives considered:**
 - Mark only from the skill. Rejected because: the model can skip a skill
   step; the hook path cannot be skipped.
+- Mark from a script the skill runs in the session's shell. Rejected
+  because: that shell can resolve a different fleet home than the hook,
+  leaving the floor off while the posture check reports it on, and it
+  cannot prove the hook is live (operator decision at kickoff,
+  2026-10-08).
 - Mark on a command tag anywhere in the prompt. Rejected because: a pasted
   transcript would mark (flight review F11).
 
 **Chosen because:** each element closes a validated finding of the
-flight's review (F2, F7, F8, F9, F10, F11, F12, F13), and failing closed is
-the guard family's contract.
+flight's review (F2, F7, F8, F9, F10, F11, F12, F13), failing closed is
+the guard family's contract, and the hook-only writer, the store's safety
+bar, and its pruning close kickoff §8's lens findings and §7's
+decision-domains gap (2026-10-08). The store is new rather than the
+existing tower marker or fleet presence records because those are keyed
+per spec or published by a loop, while a mark must exist from the first
+prompt of any tower session.
 
 ### D-9: One source of truth for the floor  (N)
 
@@ -189,28 +231,54 @@ check fails when an entry has no act. No hook interprets permission globs.
 **Alternatives considered:**
 - Interpret the deny globs in a hook. Rejected because: it re-implements
   the harness matcher, which the docs say does not match option-shifted
-  spellings anyway.
+  spellings anyway (Research, Sources).
 
 **Chosen because:** the guard sees every spelling the parser can read, and
 the map check keeps the profile and the guard from drifting apart.
 
 ### D-10: What "branch-moving" and "stash-writing" mean  (N)
 
-**Decision:** A branch-moving act is any command that changes which commit
-a branch or a checkout's HEAD names. A stash-writing act is any command
-that changes the stash stack, which every worktree of a clone shares.
-Read-only stash inspection stays allowed. A name that merely contains a
-protected branch name is not a match.
+**Decision:** A branch-moving act is a command that repoints an existing
+branch or a checkout's HEAD without authoring a new commit; a
+stash-writing act is any stash use beyond `list` and `show`, since the
+stack is shared by every worktree of a clone. REQ-D1.1 holds the act list,
+and it is closed: the rule explains the list, the list is what Task 4
+builds. `checkout` and `reset` are denied in every form, path-restoring
+ones included, so the guard never has to tell the forms apart. Plain
+branch creation and deletion stay allowed (a tower cleans up squash-merged
+flight branches with `branch -D`). File-only commands (`restore`,
+`clean`) stay outside it: "dirties" in the doctrine floor has no
+mechanism, by decision.
+The commit family (commit, cherry-pick, revert, am) is outside the rule:
+`/orchestrate` commits its observation fragments by hand and its
+in-session backend runs `/execute-task` in the tower's own session, and a
+tower in its own tree commits onto its own branch. A deliberate commit into
+another checkout stays forbidden by the doctrine floor (D-1) alone.
+A name that merely contains a protected branch name is not a match.
 
 **Alternatives considered:**
 - Only `checkout`, `switch`, and `stash`, as the seed listed. Rejected
   because: `reset`, `branch -f`/`-M`, `symbolic-ref`, and a fetch into a
   local branch move a branch just as well (flight review D1).
+- Include the commit family. Rejected because: it breaks `/orchestrate`'s
+  observation commits and in-session backend, while the stranded-commit
+  incident (obs:8bc1198c) came from a tower in the primary checkout, which
+  the placement check now addresses (operator decision at kickoff,
+  2026-10-08).
 - Deny all stash commands. Rejected because: it removes read-only
   inspection for no safety gain.
 
-**Chosen because:** a decided rule covers spellings an enumeration would
-miss. Operator decision (2026-10-07).
+- Leave the act set as an open rule for the builder to survey. Rejected
+  because: two builders would deny different edge commands (branch
+  delete, `worktree add -B`, file-only forms), and the map fixture needs a
+  fixed set (operator decision at kickoff, 2026-10-08).
+- Also deny `restore` and `clean`. Rejected because: file writes through
+  Edit, Write, and the shell stay open regardless, so it would cost a
+  tower its own tidying for a partial cover.
+
+**Chosen because:** the rule names the intent and the closed list makes it
+buildable and testable; spellings of each listed act are covered by
+REQ-D1.2. Operator decisions (2026-10-07, 2026-10-08).
 
 ### D-11: Dispatch from a tower's own tree  (N)
 
@@ -224,7 +292,10 @@ checkout, reading worktree lists NUL-delimited.
   documented placement and from attachability from the primary checkout.
 
 **Chosen because:** both defects appear exactly when towers move into their
-own trees, which this bundle makes the supported launch. Operator decision
+own trees, which this bundle makes the supported launch. The nesting
+defect (obs:6688f319) was fixed on `main` after the observation was filed,
+so only the flight-count defect (obs:cc66393d) needs a fix; the placement
+gets a regression test. Operator decision
 (2026-10-07).
 
 ### D-12: The flight is prior art, not code to merge  (N)
@@ -248,7 +319,10 @@ tower.
   operator-decided. Integration surface (Claude Code hooks, settings
   layers, worktree isolation) rests on the documentation research in
   Sources, with the undocumented points avoided rather than relied on.
-  Configuration follows the customization-boundary default (D-4).
+  Configuration follows the customization-boundary default (D-4). Data
+  storage (the mark store's lifetime and safety bar) and deploy/migration
+  (the upgrade window, no off switch, the breaking-change marker) were
+  decided at kickoff (D-8, REQ-C1.9, REQ-F1.5).
 - **Instruction headroom.** The skill instruction budget is saturated;
   Task 6 lands its bring-up wiring word-neutral in both skills and puts
   detail in docs and scripts, not skill prose.

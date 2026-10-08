@@ -1,7 +1,7 @@
 # Tower placement — Test Spec
 
-**Status:** Draft
-**Last reviewed:** 2026-10-07
+**Status:** Ready
+**Last reviewed:** 2026-10-08
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -22,8 +22,9 @@ flight's worktree and reads the primary checkout with no refusal.
 
 ### REQ-A1.2 — The placement floor [design-level]
 
-`doctrine/fleet-coordination-floor.md` carries the floor and cites
-REQ-A1.2; the doctrine-index check passes.
+`doctrine/fleet-coordination-floor.md` carries the floor, names each
+sanctioned-script exception, and cites REQ-A1.2 (verified at PR review);
+the doctrine-index check passes.
 
 ### REQ-A1.3 — One knob [test]
 
@@ -41,7 +42,10 @@ bare repository, and a path outside any repository.
 
 A manual run of each skill in a main tree under `warn`, `refuse`, and
 `allow`, and in a linked worktree, records the response; under `refuse`, a
-repo-mutating ask is held and a question is answered.
+`/tower` repo-mutating ask is held and a question is answered, an
+acknowledgement lifts the hold, and `/orchestrate` holds dispatch, relay,
+and the bookkeeping push while a status read completes; an unattended
+`/orchestrate` parks in Awaiting input.
 
 ### REQ-B1.3 — Isolation warning [manual]
 
@@ -50,11 +54,12 @@ supported launch, and keeps answering.
 
 ### REQ-B1.4 — Posture check accepts plugin enforcement [manual]
 
-A tower launched without the profile, with the plugin hook wired, meets
-the floor; with the hook removed it falls back to read-only; both reports
-name every layer read.
+Each skill launched without the profile, with the plugin hook wired,
+meets the floor; with the hook removed, and with the hook wired to a path
+that does not resolve, `/tower` falls back to read-only and `/orchestrate`
+holds its outward acts; every report names each layer read.
 
-### REQ-B1.5 — Heartbeat-class reads [design-level]
+### REQ-B1.5 — Bring-up reads, never polled [design-level]
 
 The skills' bring-up steps read once and on request; no step loops.
 
@@ -63,7 +68,8 @@ The skills' bring-up steps read once and on request; no step loops.
 ### REQ-C1.1 — Floor in marked sessions [test]
 
 Every tower deny entry is refused in a marked session whose payload
-carries no profile.
+carries no profile, each GitHub MCP tool in the deny list
+(`mcp__github__update_pull_request_branch` included) denied by name.
 
 ### REQ-C1.2 — Marking never widens [test]
 
@@ -72,41 +78,58 @@ absent from the plugin hooks file.
 
 ### REQ-C1.3 — Marking from the prompt start and bring-up [test]
 
-The prompt hook marks on a leading `/tower` or `/orchestrate` command and
-not on a tag later in the prompt; the activate verb marks.
+The prompt hook marks on a leading `/tower` or `/orchestrate` command,
+bare or plugin-namespaced, and not on a tag later in the prompt; the
+activation handshake marks and is refused with the "active" message.
 
 ### REQ-C1.4 — Fail closed [test]
 
-A missing, corrupt, unsearchable, or tampered store; an oversized payload;
-a signal before the verdict; and a command naming the store each deny in a
-marked or unknown session.
+In a marked session, a corrupt or tampered mark, an unsearchable store,
+an oversized payload, a signal before the verdict, and a command naming
+the store each deny; a missing store and an unreadable session id each
+defer. A symlinked store, mark, or fleet home, a group- or
+world-writable mark, and a non-UUID id each fail the store check, and a
+prune never follows a planted link.
 
 ### REQ-C1.5 — Top-level id and timeouts [test]
 
 A payload with a nested `session_id` in tool input reads the top-level id;
-a check asserts every plugin hook entry carries a timeout below the
-harness default.
+a check asserts each hook entry this bundle adds carries a timeout longer
+than the policy guard's whole-call deadline plus margin.
 
 ### REQ-C1.6 — Unmarked sessions untouched [test]
 
-An unmarked session defers on every fixture command, and a trace shows no
-process forked before the prefilter decides.
+An unmarked session defers on every fixture command; logging stubs on
+`PATH` record no external command before the prefilter decides, and a
+static check finds no command substitution, pipeline, or subshell in the
+prefilter.
 
 ### REQ-C1.7 — Profile launch still works [test]
 
-The existing tower-settings hook-wiring tests pass unchanged.
+The existing tower-settings hook-wiring tests pass, with only their pinned
+`_about` phrases updated for REQ-D1.5.
 
 ### REQ-C1.8 — Resume residual [manual + design-level]
 
-The docs state the residual; a manual resume under another fleet home
-shows bring-up re-marking the session.
+The docs state the residual; a manual run resumes a tower under another
+fleet home, invokes `/tower` (or the on-request posture check), and finds
+the session marked in the new fleet home.
+
+### REQ-C1.9 — Bounded mark store [test + manual]
+
+A mark write removes a mark older than the pruning age and keeps a
+refreshed one; a handshake moves the session's own mark's age; no
+non-hook process writes a mark. A manual on-request posture check refreshes
+the live session's mark.
 
 ## REQ-D — The deny floor
 
 ### REQ-D1.1 — Branch-moving and stash-writing denied [test]
 
-Each act D-10 defines is refused at the tower tier; read-only stash
-inspection is allowed.
+Each act REQ-D1.1 lists is refused at the tower tier, against the
+tower's own checkout too; `stash list`, `stash show`, a plain commit,
+plain branch creation and deletion, and `git worktree add -b <new>` are
+allowed.
 
 ### REQ-D1.2 — Every parseable spelling [test]
 
@@ -120,12 +143,15 @@ unmapped entry.
 
 ### REQ-D1.4 — Tightening only [test]
 
-The pre-bundle deny list is a subset of the shipped one; a new branch
-named `docs/main` is not denied.
+The pre-bundle deny list, frozen as a committed fixture, is a subset of
+the shipped one; `git worktree add <path> -b docs/main` and
+`git push origin docs/main` are not denied.
 
 ### REQ-D1.5 — `_about` accuracy [test]
 
-A check asserts the profile's `_about` no longer claims expanded commands.
+A test asserts the profile's `_about` says the command arrives as written,
+no longer claims expanded commands, and drops the statements REQ-D1.5
+names.
 
 ## REQ-E — Dispatch from a tower's own tree
 
@@ -159,6 +185,11 @@ The options-reference check finds `tower_placement`, and its row explains
 
 No doc or script header claims the floor loads only with the profile.
 
+### REQ-F1.5 — Upgrade note [design-level]
+
+`docs/fleet.md` carries the restart-after-install note and the no-switch
+recovery path.
+
 ## REQ-G — Invariants
 
 ### REQ-G1.1 — Merge and ready stay reserved [test]
@@ -168,11 +199,16 @@ plugin path refuses both in a marked session.
 
 ### REQ-G1.2 — Workers unchanged [test]
 
-The worker guard and dispatch test suites pass unchanged.
+The worker-tier expectations of the policy-guard and reserved-control
+suites, `tests/test-worker-command-guard.sh`, and
+`tests/test-worker-settings-hook-wiring.sh` pass with no edit to their
+worker-tier expectations; the worker launch path in the dispatch suites is
+unchanged.
 
-### REQ-G1.3 — New commits only [test]
+### REQ-G1.3 — New commits only [design-level]
 
-The standing history-rewrite guards and CI checks pass.
+Verified at each PR's review: no force-push or history rewrite on the PR
+timeline.
 
 ### REQ-G1.4 — Security-zone pause [design-level]
 
