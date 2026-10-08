@@ -57,7 +57,11 @@
 #               recorded as `?` when it holds a C0 or DEL byte (an explicit
 #               --worktree holding one is refused). A take stopped by HUP, INT,
 #               PIPE, or TERM gives back a slot it took but had not yet
-#               reported. stdout is one line, `<state>\t<slot>\t<waited>`,
+#               reported; one landing as the taken line is written can leave
+#               the line printed and the slot given back, or the slot held, so
+#               a state line counts only with exit 0, and a caller whose take
+#               a signal stopped releases (`none` when nothing is held).
+#               stdout is one line, `<state>\t<slot>\t<waited>`,
 #               <slot> being `-` in every state but taken and <waited> the
 #               summed seconds:
 #                 taken     slot <n> is held for the owner              exit 0
@@ -117,12 +121,12 @@
 # inside that waits on the outer holder like any other caller.
 #
 # Exit 2 is a usage error (an unknown verb or option, an extra argument, a
-# malformed pool, pid, step, worktree, or count, an owner that is not running
-# or is another user's process, or, from take, an owner found gone or
-# another user's in a wait round or after the acquire, a slot then given
-# back) or, from take, a taken line that could not be written (the
-# slot is then given back) or, from release, an owner holding several slots
-# without --slot or a slot that could not be freed.
+# malformed pool, pid, step, worktree, or count, or an owner that is not
+# running or is another user's process). From take it is also an owner found
+# gone or another user's in a wait round (holding nothing) or after the
+# acquire (the slot given back), or a taken line that could not be written
+# (the slot given back); from release, an owner holding several slots without
+# --slot or a slot that could not be freed.
 set -u
 LC_ALL=C
 export LC_ALL
