@@ -1195,8 +1195,9 @@ if sh_dash=$(command -v dash); then
   esc=$(printf '\033')
   err=$("$sh_dash" "$tmp/nohelper/step-pool.sh" report "x${esc}[31m" 2>&1 >/dev/null)
   rc=$?
+  shown=$(printf '%s' "$err" | tr -d '\000-\037\177')
   [ "$rc" -eq 2 ] && case $err in *"$esc"* | *"not found"* | *"can't open"*) false ;; *"'x[31m'"*) true ;; *) false ;; esac
-  verdict "without echo-safety.sh a refused pool is sanitized and exits 2" "no helper: rc=$rc err='$err'"
+  verdict "without echo-safety.sh a refused pool is sanitized and exits 2" "no helper: rc=$rc err='$shown'"
 else
   printf 'skip: the echo-safety.sh fallback check needs dash\n'
 fi
