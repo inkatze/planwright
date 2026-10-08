@@ -307,6 +307,15 @@ router has not demonstrated (REQ-B1.6).
   this branch, and `main`'s own CI fails the same way. Decide how to clear
   it (fix that fixture on its branch, or record the hit in a gitleaks ignore
   on `main`); then re-run this PR's CI, which has not yet reached its tests.
+- **Task 10** — the post-PR review of draft PR #601 (tower posture extension)
+  found that zsh options which are off by default would make the command
+  guards read some unquoted mid-word characters differently from the shell.
+  Choose: (a) refuse an unquoted program word holding one of those characters
+  in the screens that read program text (no routine command changes;
+  recommended); (b) treat those characters as unresolved in every word
+  (routine git revision forms would start prompting); or (c) state default zsh
+  options as a precondition of both guards in the delta doc's residuals, with
+  no verdict change. The two later post-PR review steps have not run.
 
 ## Deferred
 
