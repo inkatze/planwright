@@ -39,25 +39,32 @@
 #               (skipped when --waited says an earlier call already began the
 #               wait). Admission is unordered: every round tries each free
 #               slot, so a freed slot goes to whichever waiter tries it first,
-#               and a dead holder's slot is reclaimed within a few rounds. The wait is bounded by step_pool_wait
-#               (a duration, rounded up to whole seconds; malformed, 60m with
-#               one warning). --waited carries the seconds earlier calls of
-#               the same wait already spent, so the bound covers the whole
-#               wait; --for ends this call after that many seconds, for a
-#               caller whose shell calls are capped. --step names the
-#               holder's step id; without it the holder is recorded as the
-#               full-suite run. --worktree defaults to the enclosing git top
-#               level. stdout is one line, `<state>\t<slot>\t<waited>`,
-#               <waited> the summed seconds:
+#               and a dead holder's slot is reclaimed within a few rounds. The
+#               wait is bounded by step_pool_wait (a duration, rounded up to
+#               whole seconds; malformed, 60m with one warning). --waited
+#               carries the seconds earlier calls of the same wait already
+#               spent, so the bound covers the whole wait; --for ends this
+#               call after that many seconds, for a caller whose shell calls
+#               are capped. --step names the holder's step id; without it the
+#               holder is recorded as the full-suite run. --worktree defaults
+#               to the enclosing git top level, else the current directory,
+#               recorded as `?` when unprintable. A take stopped by HUP, INT,
+#               PIPE, or TERM gives back a slot it took but had not yet
+#               reported. stdout is one line, `<state>\t<slot>\t<waited>`,
+#               <slot> being `-` in every state but taken and <waited> the
+#               summed seconds:
 #                 taken     slot <n> is held for the owner              exit 0
 #                 nested    the environment's hold mark (below) names this
 #                           pool and a live owner holding a slot of it, so
 #                           the caller is already inside that hold: nothing
 #                           is taken and nothing is printed on stderr      exit 0
-#                 unpooled  the pool cannot be used (its directory or root a
-#                           symbolic link, not the user's, not writable, or a
-#                           lock-library error): one warning names the cause
-#                           and the caller runs its check unpooled         exit 0
+#                 unpooled  the pool cannot be used (for example its
+#                           directory or root a symbolic link, not the
+#                           user's, not a directory, or not writable; the
+#                           root relative, unset, or unusable as a lock path;
+#                           the lock library missing or failing; no scratch
+#                           file): one warning names the cause and the caller
+#                           runs its check unpooled                        exit 0
 #                 expired   the bound passed with no slot free; stderr names
 #                           the holders and stdout follows with one holder
 #                           line each                                      exit 3
@@ -65,15 +72,18 @@
 # report        one line per live holder of the pool on stdout:
 #               `holder\t<slot>\t<pid>\t<step>\t<worktree>`, <step> being
 #               `(full-suite)` for the full-suite run and `?` (with <worktree>
-#               `?`) when the holder file does not match the slot.
+#               `?`) when the holder file does not match the slot. An absent
+#               pool prints nothing; an unusable one prints nothing and warns
+#               once naming the cause. Exit 0.
 # release       free the owner's slot of the pool: `released\t<n>`. With
 #               --slot only that slot is considered. A slot another owner
 #               holds is never touched, and an owner holding none prints
-#               `none`; an owner holding several must name one. Under a hold
-#               mark naming this pool and a live owner holding a slot of it,
-#               prints `nested` and frees nothing, so a check that took its
-#               own pool again releases nothing of its owner's. An unusable
-#               pool prints `unpooled`. Exit 0 in each case.
+#               `none`. Under a hold mark naming this pool and a live owner
+#               holding a slot of it, prints `nested` and frees nothing, so a
+#               check that took its own pool again releases nothing of its
+#               owner's. An unusable pool prints `unpooled` and warns once
+#               naming the cause. Exit 0 in each of these cases; an owner
+#               holding several slots must name one with --slot (exit 2).
 #
 # THE HOLD MARK. A slot's owner passes the check it runs
 # PLANWRIGHT_STEP_POOL_HOLD=<pool>:<owner-pid>, so a take or release reaching
@@ -81,10 +91,14 @@
 # naming another pool or a dead owner, or not matching the pool charset and a
 # decimal pid, is ignored. A take by an owner that already holds a slot but
 # carries no mark waits like any other caller: only the mark admits nesting.
+# The mark goes on the check's command line, never into the owner's own
+# environment: the owner's release under its own mark counts as nested and
+# frees nothing.
 #
 # Exit 2 is a usage error (an unknown verb or option, an extra argument, a
-# malformed pool, pid, step, worktree, or count, an owner that is not running)
-# or, from release, a slot that could not be freed.
+# malformed pool, pid, step, worktree, or count, an owner that is not running
+# or, from take, stops running during the wait) or, from release, an owner
+# holding several slots without --slot or a slot that could not be freed.
 set -u
 LC_ALL=C
 export LC_ALL
@@ -256,7 +270,8 @@ screen() {
   return 2
 }
 
-# locate <create> — set pool_dir, or pool_cause and return 2 (1: absent).
+# locate <create> — set pool_dir and load the lock library, or set pool_cause
+# and return 2 (1: absent).
 locate() {
   pool_dir=''
   pool_cause=''
