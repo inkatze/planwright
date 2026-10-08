@@ -27,6 +27,8 @@ case $0 in
   */*) script_dir=${0%/*} ;;
   *) script_dir=. ;;
 esac
+# Absolute, since the resolver runs from inside <work-repo-dir>.
+script_dir=$(cd -- "$script_dir" && pwd -P) || exit 2
 TAB=$(printf '\t')
 
 line=$(cd -- "$1" 2>/dev/null && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec --primary --explain 2>/dev/null) \

@@ -71,6 +71,12 @@ if [ "$got" = "$z" ]; then
 else
   fail "worker-spec-root: expected '$z', got '$got'"
 fi
+got=$(cd "$REPO_ROOT" && hermetic /bin/sh scripts/worker-spec-root.sh "$w")
+if [ "$got" = "$z" ]; then
+  ok "worker-spec-root: a relative invocation still finds the resolver"
+else
+  fail "worker-spec-root: called as scripts/worker-spec-root.sh, got '$got'"
+fi
 gitq -c init.defaultBranch=main init -q "$tmp/same"
 got=$(hermetic /bin/sh "$S/worker-spec-root.sh" "$tmp/same")
 rc=$?
