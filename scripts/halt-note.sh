@@ -51,7 +51,7 @@ usage() {
 }
 
 for lib in spec-id-lib.sh spec-parse.sh lock-lib.sh; do
-  [ -r "$script_dir/$lib" ] || {
+  [ -f "$script_dir/$lib" ] && [ -r "$script_dir/$lib" ] || {
     say "broken install: $script_dir/$lib is missing or not readable"
     exit 2
   }

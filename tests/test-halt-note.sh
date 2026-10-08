@@ -194,6 +194,22 @@ if [ "$rc" -eq 2 ] && ! printf '%s' "$out" | LC_ALL=C grep -q "$(printf '[\033\2
 else
   fail "holder: control bytes in a refused identifier (rc=$rc)"
 fi
+# A library replaced by a directory is a broken install, refused as one:
+# dash sources a directory silently and bash's sh only warns, so a bare
+# readability test lets the run go on without the library.
+cp -R "$S" "$tmp/broken-install"
+rm "$tmp/broken-install/lock-lib.sh"
+mkdir "$tmp/broken-install/lock-lib.sh"
+for sh in dash sh; do
+  command -v "$sh" >/dev/null 2>&1 || continue
+  out=$(cd "$w" && hermetic "$sh" "$tmp/broken-install/halt-note.sh" demo 1 text 2>&1)
+  rc=$?
+  if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'broken install'; then
+    ok "holder: a library that is a directory is a broken install under $sh"
+  else
+    fail "holder: a directory library under $sh (rc=$rc): $out"
+  fi
+done
 # A backslash is text, never an escape: `\n` must not split the bullet.
 gitq -C "$h" checkout -q -- specs/demo/tasks.md
 note "$w" demo 1 'see C:\new\table and \\ here'
