@@ -221,6 +221,7 @@ commit_all "$tmp/sep/holder-other" "spec v2"
 gitq -C "$tmp/sep/holder-other" push -q origin trunk
 gitq -C "$h" checkout -q -b feature
 holder_trunk=$(hermetic git -C "$h" rev-parse trunk)
+rm -f "$h/.git/FETCH_HEAD"
 gate "$w"
 expect_gate "separate-repo, an edit on the holder's remote default branch" store:origin/trunk mismatch "$recorded"
 [ "$(field store-fetch 2)" = fetched ] || fail "separate-repo: the holder fetch was not reported: $out"
@@ -228,6 +229,13 @@ if [ "$(hermetic git -C "$h" rev-parse trunk)" = "$holder_trunk" ]; then
   ok "separate-repo: the holder's local default branch is not advanced"
 else
   fail "separate-repo: the holder's local trunk moved"
+fi
+# The holder is the operator's own checkout: a gate fetch must not replace the
+# FETCH_HEAD a `git merge FETCH_HEAD` there would read.
+if [ ! -e "$h/.git/FETCH_HEAD" ]; then
+  ok "separate-repo: the holder fetch writes no FETCH_HEAD"
+else
+  fail "separate-repo: the holder fetch wrote FETCH_HEAD: $(head -c 200 "$h/.git/FETCH_HEAD")"
 fi
 
 # A holder fetch that fails is never a silent stale gate.

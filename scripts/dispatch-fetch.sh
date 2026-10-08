@@ -432,14 +432,16 @@ primary_branch() {
 # config-driven opportunistic ref updates and the explicit
 # `+refs/heads/*:refs/remotes/origin/*` pins the update to remote-tracking
 # refs, so a non-default refspec can never fast-forward a local branch: the
-# read-only-local-`main` invariant holds by construction. A remote HEAD git
+# read-only-local-`main` invariant holds by construction. Nothing reads
+# FETCH_HEAD here, and leaving it alone keeps a gate from replacing the one an
+# operator's own fetch-then-merge in a holder is about to read. A remote HEAD git
 # has not recorded is learned afterwards (`remote set-head --auto` writes only
 # refs/remotes/origin/HEAD), so default_ref reads the remote's own default.
 fetch_origin() {
   _fo_try=0
   while [ "$_fo_try" -lt "$2" ]; do
     _fo_try=$((_fo_try + 1))
-    if git -C "$1" fetch origin --refmap='' \
+    if git -C "$1" fetch origin --refmap='' --no-write-fetch-head \
       '+refs/heads/*:refs/remotes/origin/*' --quiet >/dev/null 2>&1; then
       git -C "$1" symbolic-ref --quiet refs/remotes/origin/HEAD >/dev/null 2>&1 \
         || git -C "$1" remote set-head origin --auto >/dev/null 2>&1 || :
