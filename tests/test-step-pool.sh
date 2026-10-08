@@ -861,6 +861,20 @@ sp "PATH=$stublate:$PATH" -- take nouser "$late" >/dev/null 2>"$tmp/err"
 rc=$?
 [ "$rc" -eq 2 ] && grep -q "owner $late is not running" "$tmp/err" && ! grep -q 'running unpooled' "$tmp/err"
 verdict "an owner that ends during its user lookup is refused, not run unpooled" "late-gone owner: rc=$rc" "$tmp/err"
+# The same, with the owner ending inside the second lookup an unreadable user
+# gets, so only a running check after that read can tell it is gone.
+late2=$(sh -c 'sleep 120 >/dev/null 2>&1 & echo $!')
+printf '%s\n' "$late2" >>"$owners"
+stublate2="$tmp/stublate2"
+mkdir -p "$stublate2"
+printf '#!/bin/sh\ncase "$*" in *uid=*)\n  n=$(cat "%s/count" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" >"%s/count"\n  [ "$n" -eq 2 ] || exit 1\n  kill %s 2>/dev/null; k=0\n  while kill -0 %s 2>/dev/null && [ "$k" -lt 50 ]; do sleep 0.1; k=$((k + 1)); done\n  exit 1 ;;\nesac\nexec %s "$@"\n' \
+  "$stublate2" "$stublate2" "$late2" "$late2" "$real_ps4" >"$stublate2/ps"
+chmod +x "$stublate2/ps"
+sp "PATH=$stublate2:$PATH" -- take nouser "$late2" >/dev/null 2>"$tmp/err"
+rc=$?
+[ "$rc" -eq 2 ] && grep -q "owner $late2 is not running" "$tmp/err" && ! grep -q 'running unpooled' "$tmp/err" \
+  && [ "$(cat "$stublate2/count")" -eq 2 ]
+verdict "an owner that ends during the second user lookup is refused, not run unpooled" "late-gone owner, second lookup: rc=$rc" "$tmp/err"
 out=$(sp -- take nouser "$a")
 [ "$out" = "taken${TAB}1${TAB}0" ]
 verdict "an owner of the running user is accepted" "own owner: '$out'"

@@ -227,11 +227,14 @@ owner_check() {
   pid_running "$owner" || return 1
   _oc_uid=$(ps -o uid= -p "$owner" 2>/dev/null | tr -d ' ') || _oc_uid=''
   if [ -z "$_oc_uid" ]; then
-    pid_running "$owner" || return 1
     # One more read, so a single failed ps in a long wait refuses nothing; a
-    # host that hides the owner fails it again.
+    # host that hides the owner fails it again. The running check comes after
+    # both reads: an owner that ends during either reads as an unreadable user.
     _oc_uid=$(ps -o uid= -p "$owner" 2>/dev/null | tr -d ' ') || _oc_uid=''
-    [ -n "$_oc_uid" ] || return 3
+    if [ -z "$_oc_uid" ]; then
+      pid_running "$owner" || return 1
+      return 3
+    fi
   fi
   [ -z "$me" ] || [ "$_oc_uid" = "$me" ] || return 2
   return 0
