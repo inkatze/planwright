@@ -1,0 +1,38 @@
+---
+# planwright core vendors catalog: the adapter for each metered service a
+# step or worker depends on. docs/quota.md is the reference for the entry
+# contract; scripts/resolve-vendors.sh merges this seed with the overlay
+# `catalogs/vendors.yaml` files (through scripts/resolve-catalog.sh) and
+# validates every entry. Core ships the claude adapter only; third-party
+# adapters live in an operator's overlay.
+#
+# An adapter is flat entries sharing a `vendor:` field, one per part, each
+# with the id `<vendor>.<name>` so an overlay supersedes one part without
+# restating the rest. Recognizers are fixed, case-sensitive substrings.
+#
+# The reader is a constrained awk parser, not full YAML: list items at
+# two-space and fields at four-space indentation, values unquoted or
+# double-quoted single-line scalars (no single quotes, no inline "# ..."
+# comments, no block scalars).
+
+vendors:
+  - id: claude.vendor
+    vendor: claude
+    part: vendor
+    evidence: claude-frames
+  # The API error type of a 429 response.
+  - id: claude.rate-limit-error
+    vendor: claude
+    part: recognizer
+    match: rate_limit_error
+  # A stream-json worker's result when the rate limit killed it; the
+  # routine rate_limit_event frames never carry it.
+  - id: claude.stream-rate-limit
+    vendor: claude
+    part: recognizer
+    match: error":"rate_limit"
+  - id: claude.usage-limit
+    vendor: claude
+    part: recognizer
+    match: usage limit reached
+    reset-after: usage limit reached|

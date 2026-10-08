@@ -1517,6 +1517,22 @@ rc=$?
 [ "$rc" -eq 0 ] && gh_arg "repos/$o39/$n100/statuses/$H_A"
 verdict_of $? "status accepts a 39-byte owner and a 100-byte name" "rc=$rc: $(cat "$tmp/st.err")"
 
+# --- excerpt: the record excerpt screen, outside any worktree -----------------------
+mkdir -p "$tmp/nowt"
+ex=$(cd "$tmp/nowt" && "$SR" excerpt "$tmp/wide.txt")
+verdict_of $? "excerpt runs outside a git work tree" "excerpt failed outside a work tree"
+[ "$ex" = "$(sed -n "s/^excerpt${TAB}//p" "$recw")" ]
+verdict "excerpt prints exactly what write stores" "excerpt differs from the stored one"
+ex=$("$SR" excerpt "$tmp/secret.txt")
+[ "$ex" = "[withheld: the secret screen flagged this excerpt]" ]
+verdict "excerpt withholds a token-shaped text" "excerpt printed: $ex"
+ex=$(env PLANWRIGHT_SECRET_SCREEN_TOOL=broken "$SR" excerpt "$tmp/wide.txt")
+[ "$ex" = "[withheld: the excerpt could not be screened]" ]
+verdict "excerpt withholds what cannot be screened" "excerpt printed: $ex"
+"$SR" excerpt "$tmp/no-such-file" >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "excerpt refuses an unreadable file" "excerpt accepted a missing file"
+
 # --- the cache path is ignored ------------------------------------------------------
 git -C "$repo_root" check-ignore -q ".claude/steps/000001/x.rec"
 verdict "this repository ignores the record cache" ".claude/steps/ is not ignored"

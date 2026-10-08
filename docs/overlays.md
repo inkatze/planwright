@@ -112,8 +112,10 @@ The repo-side pair shares `<repo>/.claude/` and is distinguished by the
 | machine-local | `<repo>/.claude/catalogs.local/<name>.yaml` |
 
 The growable catalogs are **decision-domains** (the catalog behind the
-drift triggers), the builder's **guard catalog**, and **steps** (the step
-definitions the attachment points run, §8).
+drift triggers), the builder's **guard catalog**, **steps** (the step
+definitions the attachment points run, §8), and **vendors** (the adapters
+that recognize a metered service's limit refusals; see
+[Vendor quotas](quota.md)).
 
 ## 3. How each kind merges
 
