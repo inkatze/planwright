@@ -1890,7 +1890,7 @@ kill "$jl_holder" 2>/dev/null || :
 wait "$jl_holder" 2>/dev/null || :
 wait_until 150 grep -q "^$req_perm$tab.*${tab}pending" "$wdir38b/journal" \
   || fail "c38b: a receipt the journal lock refused was lost instead of journaled once the lock freed"
-[ ! -e "$wdir38b/deferred-$req_perm" ] || fail "c38b: the spool outlived the journaled receipt"
+wait_until 100 test ! -e "$wdir38b/deferred-$req_perm" || fail "c38b: the spool outlived the journaled receipt"
 senv "$home" "$rec" -- answer sjw38b "$req_perm" --allow >/dev/null \
   || fail "c38b: the deferred receipt is not answerable"
 wait "$launch38b" || fail "c38b: the run did not end cleanly after the answer"
@@ -1950,7 +1950,8 @@ sleep 1
 printf '%s\n%s\n' "$(date +%s)" "$line_perm" >"$wdir38e/deferred-$req_perm"
 wait_until 100 grep -q "^$req_perm$tab.*${tab}pending" "$wdir38e/journal" \
   || fail "c38e: a spooled re-ask of a settled request was dropped instead of re-opened"
-[ ! -e "$wdir38e/deferred-$req_perm" ] || fail "c38e: the drained spool was left behind"
+# The spool goes only after the journal write it backs, so it is waited for.
+wait_until 100 test ! -e "$wdir38e/deferred-$req_perm" || fail "c38e: the drained spool was left behind"
 senv "$home" "$rec" -- stop sjw38e --grace 2 >/dev/null || fail "c38e: stop exited non-zero"
 echo "ok: c38 a spooled re-ask of a settled request is re-opened, not dropped"
 # (f) A spool whose journal write fails is set aside once, not retried and
