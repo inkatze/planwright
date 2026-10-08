@@ -245,6 +245,19 @@ else
   fail "plain: (rc=$rc): $out"
 fi
 
+# A CRLF bundle keeps CRLF on the lines the helper writes, a new bullet and
+# an added segment alike.
+tasks_v2 "$p/demo/tasks.md"
+sed 's/$/\r/' "$p/demo/tasks.md" >"$p/demo/tasks.crlf" && mv "$p/demo/tasks.crlf" "$p/demo/tasks.md"
+note "$pw" demo 1 "first"
+note "$pw" demo 1 "second"
+if [ "$rc" -eq 0 ] && grep -qx -- $'- \\*\\*Task 1\\*\\* — first; second\r' "$p/demo/tasks.md" \
+  && [ "$(grep -vc $'\r$' "$p/demo/tasks.md")" -eq 0 ]; then
+  ok "plain: a CRLF tasks.md keeps CRLF on the written lines"
+else
+  fail "plain: CRLF (rc=$rc): $(grep -vn $'\r$' "$p/demo/tasks.md" | tr '\n' ' ')"
+fi
+
 # same-repo: the halt rides the task branch, so the helper refuses.
 gitq -c init.defaultBranch=main init -q "$tmp/same"
 mkdir -p "$tmp/same/specs/demo"

@@ -150,11 +150,13 @@ HALT_NOTE_TEXT=$text awk -v id="$id" -v heading="$heading" -v section="$section"
   # lands after its last non-blank line rather than after the gap before the
   # next heading.
   function flush() { for (i = 1; i <= nblank; i++) print blank[i]; nblank = 0 }
-  function emit_new() { print "- **Task " id "** — " text; done = 1 }
+  # A written line takes the line ending of the first line of the file.
+  function emit_new() { print "- **Task " id "** — " text eol; done = 1 }
   BEGIN { lead = "- **Task " id "**"; text = ENVIRON["HALT_NOTE_TEXT"] }
   {
     raw = $0
     l = norm(raw)
+    if (NR == 1) eol = (raw ~ /\r$/) ? "\r" : ""
     if (l ~ /^```/) { flush(); fence = !fence; print raw; next }
     if (fence) { print raw; next }
     if (l ~ /^## /) {
@@ -178,7 +180,7 @@ HALT_NOTE_TEXT=$text awk -v id="$id" -v heading="$heading" -v section="$section"
     if (tasks && l ~ /^### Task / && ($3 "") == (id "")) hasblock = 1
     if (payload(sec) && index(l, lead) == 1) {
       if (!insec) { other = 1 }
-      else if (section == "awaiting" && !done) { print l "; " text; done = 1; next }
+      else if (section == "awaiting" && !done) { print l "; " text eol; done = 1; next }
       else { dup = 1 }
     }
     if (insec && !done && l ~ /^\(none yet\)[ \t]*$/) { emit_new(); next }
