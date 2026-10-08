@@ -327,6 +327,15 @@ else
   # The tower-scoped mis-merge warning.
   require_phrase "_about warns against mis-merging the hook into a non-tower settings file (REQ-C1.2)" \
     "tower-scoping is enforced only by where"
+  # The guard reads the command as written: its shapes defer an unexpanded
+  # variable operand, so a claim that variables arrive expanded misstates it.
+  require_phrase "_about states the hook receives \$VAR references unexpanded" \
+    "unexpanded"
+  if printf '%s' "$about" | grep -qiF "already expanded"; then
+    fail "_about claims variables arrive already expanded, which the guard's model contradicts"
+  else
+    ok "_about makes no already-expanded claim about the hook's input"
+  fi
 fi
 
 if [ "$failures" -gt 0 ]; then
