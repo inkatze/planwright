@@ -89,7 +89,8 @@
 # <spec-root>/<spec>/.orchestrate/ (gitignored runtime state, like the dispatch
 # markers), so nothing here is ever committed.
 #
-# Usage:
+# Usage (<spec> is the bare identifier or its `specs/<spec>` alias, with or
+# without one trailing slash; scripts/spec-id-lib.sh):
 #   fleet-dispatch-headless.sh launch <spec> <id> --worktree <dir>
 #       [--repo-root <dir>] [-- <extra claude args...>]
 #     Prompt text on stdin (required, non-empty). Prints the dispatch record:
@@ -144,7 +145,8 @@
 # already-closed, or (--observe) would-release; 2 an invalid or unknown handle, a bad grace, a symlinked
 # state path, a unit other than --expect-dir, or a process table the close could not read; 3 a close asked for
 # from inside the worker's own process tree, refused rather than attempted; 6 a
-# partial close, some class still held.
+# partial close, some class still held. Every subcommand exits 2 on a broken
+# install missing spec-id-lib.sh.
 #
 # Portable POSIX sh + coreutils (bash 3.2 / BSD compatible): no eval, no jq
 # (REQ-K1.5); every input treated as data. Pathname expansion is disabled
@@ -172,6 +174,18 @@ else
   sanitize_printable() {
     printf '%s' "$1" | tr -d '\000-\037\177\200-\237'
   }
+fi
+
+# Unlike echo-safety.sh the mapper has no fallback, so a missing copy is a
+# broken install, refused with exit 2: a failed `.` ends the shell with a
+# status of the shell's choosing (1 under bash's sh), which this script's exit
+# codes give another meaning or none.
+if [ -r "$script_dir/spec-id-lib.sh" ]; then
+  # shellcheck source=scripts/spec-id-lib.sh
+  . "$script_dir/spec-id-lib.sh"
+else
+  printf '%s\n' "fleet-dispatch-headless: broken install: $(sanitize_printable "$script_dir")/spec-id-lib.sh is missing or not readable" >&2
+  exit 2
 fi
 
 warn() {
@@ -468,6 +482,8 @@ do_launch() {
   [ "$l_have_extra" -eq 1 ] || set --
 
   [ -n "$l_spec" ] && [ -n "$l_id" ] && [ -n "$l_worktree" ] || usage
+  spec_id_canon "$l_spec"
+  l_spec=$SPEC_ID
   valid_spec "$l_spec" || {
     if [ "$l_spec" = flight ]; then
       warn "reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)"
@@ -818,6 +834,8 @@ do_status() {
     esac
   done
   [ -n "$s_spec" ] && [ -n "$s_id" ] || usage
+  spec_id_canon "$s_spec"
+  s_spec=$SPEC_ID
   valid_spec "$s_spec" || {
     if [ "$s_spec" = flight ]; then
       warn "reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)"

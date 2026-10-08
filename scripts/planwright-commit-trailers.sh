@@ -32,6 +32,8 @@
 #   - `--if-exists addIfDifferent` makes a task-ref or `--reject` re-stamp
 #     idempotent: piping an already-trailered message through again does not
 #     duplicate it. A `--sign-off` re-stamp is refused (below).
+#   - A ref's spec may be named by its `specs/<spec>` alias, stamped as the
+#     bare identifier.
 #   - Each ref is grammar-validated before use (REQ-F1.1 discipline): spec
 #     `^[a-z0-9][a-z0-9-]*$` (≤64 chars, the D-36 spec-id grammar), id
 #     `^[0-9]+(\.[0-9]+)?$`. The id is the *single-task subset* of D-36's
@@ -73,6 +75,9 @@ export LC_ALL
 unset CDPATH
 
 prog=${0##*/}
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+# shellcheck source=scripts/spec-id-lib.sh
+. "$script_dir/spec-id-lib.sh"
 
 # A literal newline, for the embedded-newline guard in valid_ref.
 LF='
@@ -149,7 +154,8 @@ for arg in "$@"; do
     --reject) want=reject ;;
     --sign-off) signoffs=$((signoffs + 1)) ;;
     *)
-      if ! valid_ref "$arg"; then
+      spec_ref_canon "$arg"
+      if ! valid_ref "$SPEC_REF"; then
         # Never echo the candidate back: a malformed ref can carry terminal escapes
         # or a newline-injected forged log line, so echoing it verbatim is terminal/
         # log injection. The sibling validators (spec-validate.sh, spec-walkthrough.sh)
@@ -184,7 +190,6 @@ if [ "$signoffs" -gt 0 ]; then
     printf '%s\n' "$prog: the message already carries a sign-off id; an id is written once" >&2
     exit 2
   fi
-  script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
   # A failed allocation has already named its error on stderr; its exit code
   # (3 for an unresolvable range) passes through and nothing is emitted.
   alloc=$("$script_dir/sign-off-checklist.sh" next "$base") || exit $?
@@ -216,7 +221,10 @@ while [ "$i" -lt "$n" ]; do
       i=$((i + 1))
       ;;
     --sign-off) ;;
-    *) set -- "$@" --trailer "Planwright-Task: $arg" ;;
+    *)
+      spec_ref_canon "$arg"
+      set -- "$@" --trailer "Planwright-Task: $SPEC_REF"
+      ;;
   esac
 done
 i=0

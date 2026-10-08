@@ -550,7 +550,7 @@ launch_default() {
   fi
   tmux new-session -d -s "$session_name" -c "$checkout" \
     "$script_dir/fleet-dispatch-env.sh" claude \
-    "/orchestrate --watch --unattended specs/$spec" 2>/dev/null || {
+    "/orchestrate --watch --unattended $spec" 2>/dev/null || {
     echo "fleet-tower-watchdog: tmux new-session failed" >&2
     return 1
   }

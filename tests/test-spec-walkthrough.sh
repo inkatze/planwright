@@ -572,9 +572,9 @@ asws="$tmp/atomic"
 new_ws "$asws"
 mkdir -p "$asws/scripts"
 cp "$script" "$asws/scripts/spec-walkthrough.sh"
-# The scaffold sources scripts/echo-safety.sh and resolves the spec root through
-# its sibling resolver chain; stage them too.
-for sib in echo-safety resolve-root resolve-config-knob config-get resolve-overlay-root; do
+# The scaffold sources scripts/echo-safety.sh and the alias mapper, and resolves
+# the spec root through its sibling resolver chain; stage them too.
+for sib in echo-safety spec-id-lib resolve-root resolve-config-knob config-get resolve-overlay-root; do
   cp "$here/../scripts/$sib.sh" "$asws/scripts/$sib.sh"
 done
 cat >"$asws/scripts/spec-assemble.sh" <<'EOF'

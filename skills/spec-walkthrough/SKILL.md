@@ -7,7 +7,7 @@ description: >
   finished or abandoned spec. Standalone and strictly read-only: it renders any
   status, never edits, signs off, mutates the pipeline, or delivers a verdict of
   its own. The independent complement to /spec-kickoff's guided dialogue.
-argument-hint: "[--scope <selector>] [--reveal] <spec-path>"
+argument-hint: "[--scope <selector>] [--reveal] <spec>"
 ---
 
 # /spec-walkthrough
@@ -55,11 +55,11 @@ Run from the repository root (the scaffold resolves `specs/` relative to the
 working directory, the same contract as the validator):
 
 ```sh
-scripts/spec-walkthrough.sh [--scope <selector>] [--reveal] <spec-path>
+scripts/spec-walkthrough.sh [--scope <selector>] [--reveal] <spec>
 ```
 
-- **`<spec-path>`** — `specs/<spec>` or the bare `<spec>` (the two sanctioned
-  forms). The `<spec>` segment is charset-validated against
+- **`<spec>`** — the bare identifier, or its alias `specs/<spec>`, with or
+  without one trailing slash. The identifier is charset-validated against
   `^[a-z0-9][a-z0-9-]*$` (max 64) and the resolved path is containment-checked
   **before any read** (REQ-A1.6). A hostile or malformed identifier or a path
   that escapes `specs/` is a clean refusal that never becomes a path and never
