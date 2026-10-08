@@ -10,10 +10,11 @@
 #                             absolute path it can create (else it fails and
 #                             pins nothing): the override at <dir>/fleet, the
 #                             plugin-data arm at <dir>/plugin-data, the writer
-#                             arm at <dir>/claude. The first call also
-#                             remembers the registry the inherited environment
-#                             resolved to, so later pins (one per case) never
-#                             mistake a fixture for the inherited home
+#                             arm at <dir>/claude. The first call of any verb
+#                             here remembers the home the inherited
+#                             environment resolved to, so later pins (one per
+#                             case) never mistake a fixture for the inherited
+#                             home
 #   fleet_home_leaked <path>  succeeds when the inherited registry names
 #                             <path>; pass the suite's own mktemp root, which
 #                             no real record can carry, so a concurrent real
@@ -28,11 +29,16 @@ _fh_lib_dir=${BASH_SOURCE[0]%/*}
 _fh_home=""
 _fh_resolved=0
 
+# The inherited home is captured once, before any pin rewrites the chain, by
+# whichever verb runs first.
+_fh_capture() {
+  [ "$_fh_resolved" -eq 0 ] || return 0
+  _fh_home=$(/bin/sh "$_fh_lib_dir/../../scripts/fleet-state.sh" root 2>/dev/null) || _fh_home=""
+  _fh_resolved=1
+}
+
 fleet_home_pin() {
-  if [ "$_fh_resolved" -eq 0 ]; then
-    _fh_home=$(/bin/sh "$_fh_lib_dir/../../scripts/fleet-state.sh" root 2>/dev/null) || _fh_home=""
-    _fh_resolved=1
-  fi
+  _fh_capture
   case $1 in
     /*) ;;
     *) return 1 ;;
@@ -46,6 +52,7 @@ fleet_home_pin() {
 # The -d guard keeps the read from creating a home that does not exist: the
 # registry verb makes the home it resolves, and this one is the caller's.
 fleet_home_leaked() {
+  _fh_capture
   [ -n "$_fh_home" ] && [ -d "$_fh_home" ] || return 1
   _fh_records=$(PLANWRIGHT_FLEET_STATE_DIR="$_fh_home" /bin/sh "$_fh_lib_dir/../../scripts/fleet-state.sh" registry 2>/dev/null) || return 1
   case $_fh_records in
@@ -55,5 +62,6 @@ fleet_home_leaked() {
 }
 
 fleet_home_inherited() {
+  _fh_capture
   printf '%s\n' "$_fh_home"
 }

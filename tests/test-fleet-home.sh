@@ -77,6 +77,14 @@ else
   fail "a record naming the suite's root was not detected"
 fi
 
+# 3b. The leak check reads the inherited home even when no pin ran first, so
+#     a suite that checks before (or without) pinning is never a vacuous pass.
+if run_case "$tmp/op" 'fleet_home_leaked "'"$tmp"'/suite-root"'; then
+  pass "the leak check reads the inherited home without a prior pin"
+else
+  fail "the leak check passed vacuously because no pin ran first"
+fi
+
 # 4. With no inherited home there is nothing to leak into.
 # shellcheck disable=SC2016
 if env -u PLANWRIGHT_FLEET_STATE_DIR -u CLAUDE_PLUGIN_DATA CLAUDE_DIR="$tmp/none" \
