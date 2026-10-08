@@ -818,6 +818,13 @@ c19() {
   rc=$?
   set -e
   kill "$holder" 2>/dev/null || true
+  # Not this shell's child, so waited out by polling: the retry must not race
+  # the holder's exit and still find its owner alive.
+  hw=0
+  while kill -0 "$holder" 2>/dev/null && [ "$hw" -lt 100 ]; do
+    sleep 0.05
+    hw=$((hw + 1))
+  done
 
   [ "$rc" = 0 ] || fail "c19: a live holder is a clean no-op (exit 0), got $rc — $(cat "$tmp/err")"
   [ "$(tag_val "$out" carry)" = noop ] || fail "c19: expected carry=noop, got: $out"
@@ -850,6 +857,13 @@ c20() {
   rc=$?
   set -e
   kill "$holder" 2>/dev/null || true
+  # Not this shell's child, so waited out by polling: the retry must not race
+  # the holder's exit and still find its owner alive.
+  hw=0
+  while kill -0 "$holder" 2>/dev/null && [ "$hw" -lt 100 ]; do
+    sleep 0.05
+    hw=$((hw + 1))
+  done
   [ "$rc" = 0 ] || fail "c20: contention is a clean no-op (exit 0), got $rc — $(cat "$tmp/err")"
   [ "$(tag_val "$out" carry)" = noop ] || fail "c20: expected carry=noop under contention, got: $out"
   [ "$(tag_val "$out" stranded)" = 0 ] \

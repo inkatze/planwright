@@ -359,8 +359,10 @@ mkdir -p -- "$state_dir" 2>/dev/null || true
 # stranded set, so a waiter that eventually wins finds the set already carried
 # and no-ops anyway. The budget is small on purpose — enough to absorb a hold
 # that is mid-release, or the library's "the path changed under me, come back"
-# answer, and not enough to queue a carry behind another carry.
-lock_tries=50
+# answer, and not enough to queue a carry behind another carry. Past the
+# library's holder-probe stride, so a holder that dies after the first look is
+# still found gone before the budget runs out.
+lock_tries=60
 
 # acquire_lock exit codes (the contract the caller below depends on, unchanged —
 # it mirrors orchestrate-lock.sh's real-error-vs-contention split): 0 held; 1

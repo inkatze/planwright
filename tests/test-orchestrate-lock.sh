@@ -69,7 +69,8 @@ echo "ok: a busy lock is a clean no-op (exit 1)"
 #    age rule caused in the other direction: /orchestrate holds across several
 #    tool invocations, and a threshold would hand the lock to the hook
 #    mid-window.
-touch -h -t 200001010000 "$lock" 2>/dev/null || touch -t 200001010000 "$lock" 2>/dev/null || true
+touch -h -t 200001010000 "$lock" 2>/dev/null \
+  || echo "note: touch -h unsupported here; the lock is not aged, and the leg checks liveness only"
 rc=0
 /bin/bash "$LOCK" acquire "$spec" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 1 ] || fail "aged detached lock: exit $rc, expected 1 (a detached hold has no owner to declare absent)"
@@ -94,7 +95,8 @@ case "$(readlink "$lock")" in
   "$live_pid"-*) ;;
   *) fail "owned acquire: token does not name the owner pid (target: $(readlink "$lock"))" ;;
 esac
-touch -h -t 200001010000 "$lock" 2>/dev/null || touch -t 200001010000 "$lock" 2>/dev/null || true
+touch -h -t 200001010000 "$lock" 2>/dev/null \
+  || echo "note: touch -h unsupported here; the lock is not aged, and the leg checks liveness only"
 rc=0
 /bin/bash "$LOCK" acquire "$spec" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 1 ] || fail "live-owner lock: exit $rc, expected 1 (owner still running)"
