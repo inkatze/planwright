@@ -1401,24 +1401,24 @@ yq_expression_safe() {
 }
 
 guard_yq() {
-  local i a expr_taken=0
+  local i a endflags=0
   jq_home_safe || return 1
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
+    # Every operand is screened as the expression: which one yq reads it from
+    # is not always the first operand this loop sees.
+    if [ "$endflags" = 1 ]; then
+      yq_expression_safe "$a" || return 1
+      continue
+    fi
     case $a in
-      --) break ;; # end of flags: what follows is an expression or a file
+      --) endflags=1 ;; # end of flags: what follows is an expression or a file
       # Every long flag defers: the Go spelling's long-only flags include
       # ones that write files, run programs, or carry the expression, and the
       # two spellings share no long-flag table this screen could vouch for.
       --*) return 1 ;;
       -?*) short_flag_hit "$a" 'is' '' && return 1 ;;
-      *)
-        # The first non-flag operand is the expression; later ones are files.
-        if [ "$expr_taken" = 0 ]; then
-          yq_expression_safe "$a" || return 1
-          expr_taken=1
-        fi
-        ;;
+      *) yq_expression_safe "$a" || return 1 ;;
     esac
   done
   return 0

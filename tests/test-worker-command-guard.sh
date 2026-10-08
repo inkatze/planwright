@@ -1209,6 +1209,12 @@ assert_defer "defer form: a yq flag form (1)" "yq -n --security-enable-system-op
 assert_defer "defer form: a yq flag form (2)" "yq --split-exp-file e.yq f.yml"
 assert_defer "defer form: a yq flag form (3)" "yq -n --expression='env(HOME)'"
 assert_allow "parity: yq short flags with an attached value" "yq -n -o=json '.a'"
+assert_defer "defer form: a yq operand form (1)" "yq -o json 'env(HOME)' f.yml"
+assert_defer "defer form: a yq operand form (2)" "yq e 'env(HOME)' f.yml"
+assert_defer "defer form: a yq operand form (3)" "yq -n -- 'env(HOME)'"
+assert_allow "parity: yq several file operands" "yq '.a' f.yml g.yml"
+assert_allow "parity: yq a short subcommand before the expression" "yq e '.a' f.yml"
+assert_allow "parity: yq an expression after the end of flags" "yq -- '.a' f.yml"
 YQ_HOME="$SANDBOX/yq-home"
 mkdir -p "$YQ_HOME" && : >"$YQ_HOME/.jq" || exit 1
 HOOK_ENV=(HOME="$YQ_HOME")
