@@ -257,6 +257,25 @@ else
   fail "plain: (rc=$rc): $out"
 fi
 
+# Concurrent halts on one bundle (a re-anchor fails every in-flight worker's
+# gate at once) each keep their bullet.
+mkdir -p "$p/many"
+{
+  printf '# Many\n\n**Status:** Ready\n**Format-version:** 2\n\n## Tasks\n\n'
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12; do printf '### Task %s — unit %s\n\n' "$i" "$i"; done
+  printf '## Awaiting input\n\n(none yet)\n\n## Deferred\n\n(none yet)\n'
+} >"$p/many/tasks.md"
+for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  (cd "$pw" && hermetic "$S/halt-note.sh" many "$i" "halt $i" >/dev/null 2>&1) &
+done
+wait
+kept=$(grep -c '^- \*\*Task [0-9]*\*\* — halt [0-9]*$' "$p/many/tasks.md")
+if [ "$kept" -eq 12 ] && [ -z "$(find "$p/many" -name '.tasks.md.halt*')" ]; then
+  ok "plain: twelve concurrent halts keep all twelve bullets and leave nothing behind"
+else
+  fail "plain: concurrent halts kept $kept of 12 bullets: $(find "$p/many" | tr '\n' ' ')"
+fi
+
 # A CRLF bundle keeps CRLF on the lines the helper writes, a new bullet and
 # an added segment alike.
 tasks_v2 "$p/demo/tasks.md"

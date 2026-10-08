@@ -23,7 +23,8 @@
 # of the three payload sections is refused, since a task carries at most one.
 # Format-version 2 bundles only: a version 1 bundle parks by moving the block,
 # which stays a hand edit. The file is replaced through a temp file in the
-# same directory, never written through a symlink.
+# same directory, never written through a symlink, under a lock beside it
+# (scripts/lock-lib.sh), so concurrent halts on one bundle each land.
 #
 # Exit: 0 written, the file's path on stdout · 2 usage or a bad argument ·
 #   3 the store is same-repo · 4 the bundle cannot take the bullet (missing,
@@ -46,7 +47,7 @@ usage() {
   exit 2
 }
 
-for lib in spec-id-lib.sh spec-parse.sh; do
+for lib in spec-id-lib.sh spec-parse.sh lock-lib.sh; do
   [ -r "$script_dir/$lib" ] || {
     say "broken install: $script_dir/$lib is missing or not readable"
     exit 2
@@ -56,6 +57,8 @@ done
 . "$script_dir/spec-id-lib.sh"
 # shellcheck source=scripts/spec-parse.sh
 . "$script_dir/spec-parse.sh"
+# shellcheck source=scripts/lock-lib.sh
+. "$script_dir/lock-lib.sh"
 
 section=awaiting
 case ${1:-} in
@@ -124,6 +127,34 @@ case $posture in
 esac
 
 file=$root/$spec/tasks.md
+# Halts on one bundle can race (a re-anchor fails every in-flight worker's
+# gate at once), so the rewrite holds a lock beside the file. It is named from
+# inside the bundle, since lock-lib refuses a `#` a root path may carry.
+if [ ! -d "$root/$spec" ] || ! cd -- "$root/$spec"; then
+  say "no regular tasks.md for '$spec' under the spec root"
+  exit 4
+fi
+tmp=''
+cleanup() {
+  pw_lock_release_all
+  [ -z "$tmp" ] || rm -f "$tmp"
+}
+trap cleanup EXIT
+trap 'cleanup; exit 129' HUP
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
+pw_lock_acquire .tasks.md.halt.lock
+case $? in
+  0) ;;
+  1)
+    say "$file stayed locked by another halt"
+    exit 6
+    ;;
+  *)
+    say "cannot lock $file"
+    exit 6
+    ;;
+esac
 if [ -L "$file" ] || [ ! -f "$file" ]; then
   say "no regular tasks.md for '$spec' under the spec root"
   exit 4
@@ -138,11 +169,11 @@ fv=$(spec_parse_header_value "$file" Format-version) || fv=''
   exit 4
 }
 
-tmp=$(mktemp "$root/$spec/.tasks.md.halt.XXXXXX" 2>/dev/null) || {
+tmp=$(mktemp .tasks.md.halt.XXXXXX 2>/dev/null) || {
+  tmp=''
   say "could not write next to $file"
   exit 6
 }
-trap 'rm -f "$tmp"' EXIT
 
 # The rewrite: fence-aware, CRLF-tolerant matching, every line kept verbatim
 # except the target section's placeholder or the task's own bullet. The text
@@ -230,5 +261,5 @@ mv -f -- "$tmp" "$file" || {
   say "could not replace $file"
   exit 6
 }
-trap - EXIT
+tmp=''
 printf '%s\n' "$file"
