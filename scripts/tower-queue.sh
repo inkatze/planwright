@@ -1122,9 +1122,16 @@ KNOB_DIR=""
 # process is gone, rather than wedging every fleet writer.
 release_lock() {
   [ -n "$LOCK_TOKEN" ] || return 0
-  _tok=$LOCK_TOKEN
+  _rl_rc=0
+  "$FS" unlock "$LOCK_TOKEN" >/dev/null 2>&1 || _rl_rc=$?
+  # 1 is a lock that changed hands, which this release is right to leave. 2 is
+  # this token's lock still on disk: the token is kept so a later release (the
+  # exit handler's included) can try again, and the failure is said.
+  if [ "$_rl_rc" -eq 2 ]; then
+    err "could not release the fleet lock this process holds; it stays held until a release succeeds or its owner is found gone"
+    return 0
+  fi
   LOCK_TOKEN=""
-  "$FS" unlock "$_tok" >/dev/null 2>&1 || true
 }
 # Every scratch path this script mints is tracked, because each one is
 # created inside the 0700 sub-surface: a signal between `mktemp` and the

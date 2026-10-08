@@ -281,10 +281,12 @@ registry_death() {
 claim() {
   _ck=$(printf '%s' "$2" | cksum | awk '{ print $1 "." $2 }')
   CLAIM="$FDIR/$1.$_ck"
+  CLAIM_TOKEN=''
   if [ -d "$CLAIM" ] && [ ! -L "$CLAIM" ]; then
     return 1
   fi
-  pw_lock_try_detached "$CLAIM" 2>/dev/null
+  pw_lock_try_detached "$CLAIM" 2>/dev/null || return $?
+  CLAIM_TOKEN=$PW_LOCK_TOKEN
 }
 
 # claim_recorded <claim> — whether the pass holding a count has recorded it.
@@ -297,15 +299,18 @@ claim_record() {
   (umask 077 && : >"$1.recorded") 2>/dev/null
 }
 
-# claim_release <claim> — give a claim back, with its record mark.
+# claim_release <claim> <token> — give back a claim this pass took, with its
+# record mark. By its token: a claim this pass no longer holds is another
+# pass's, and is left alone with its mark.
 claim_release() {
-  rm -f "$1.recorded" 2>/dev/null
   if [ -d "$1" ] && [ ! -L "$1" ]; then
     rm -f "$1/recorded" 2>/dev/null
     rmdir "$1" 2>/dev/null
-  else
-    pw_lock_break_force "$1" 2>/dev/null
+    return 0
   fi
+  [ -n "${2:-}" ] || return 0
+  pw_lock_release_token "$1" "$2" 2>/dev/null || return 0
+  rm -f "$1.recorded" 2>/dev/null
 }
 
 crash_count() {
@@ -350,6 +355,7 @@ supervise_one() {
   claim counted "$death"
   _cl=$?
   counted=$CLAIM
+  counted_token=$CLAIM_TOKEN
   case $_cl in
     0)
       set -- "$handle" "flight:$id"
@@ -357,7 +363,7 @@ supervise_one() {
       # crash-record's counter is durable once it prints its line, so the line,
       # not the exit, says whether this death was counted.
       if [ -z "$(cd "$repo_root" && /bin/sh "$LIVENESS" crash-record "$@" 2>/dev/null </dev/null)" ]; then
-        claim_release "$CLAIM"
+        claim_release "$CLAIM" "$CLAIM_TOKEN"
         printf 'failed\t%s\t%s\n' "$id" "the crash could not be counted; a later pass counts it"
         return 0
       fi
@@ -397,8 +403,11 @@ supervise_one() {
             # A relaunch that did not start is another failure of this worker:
             # releasing the count too makes the next pass count it, so a
             # relaunch that keeps failing backs off and reaches the disable.
-            claim_release "$CLAIM"
-            claim_release "$counted"
+            claim_release "$CLAIM" "$CLAIM_TOKEN"
+            # The count may be another pass's, recorded before this one ran;
+            # it is released by the token read now, so a count that changed
+            # hands since is left alone.
+            claim_release "$counted" "${counted_token:-$(pw_lock_owner "$counted")}"
             printf 'failed\t%s\t%s\n' "$id" "the relaunch did not start${RELAUNCH_WHY:+ ($RELAUNCH_WHY)}; it counts as another crash"
           fi
           ;;
