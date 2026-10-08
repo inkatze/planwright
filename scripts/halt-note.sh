@@ -183,74 +183,74 @@ tmp=$(mktemp .tasks.md.halt.XXXXXX 2>/dev/null) || {
   exit 6
 }
 
-# The rewrite: fence-aware, CRLF-tolerant matching, every line kept verbatim
-# except the target section's placeholder or the task's own bullet. The text
-# rides the environment: `awk -v` would turn a backslash in it into an escape.
-HALT_NOTE_TEXT=$text awk -v id="$id" -v heading="$heading" -v section="$section" '
+# The rewrite. The parse runs on the shared fence lexer and grammar
+# (scripts/spec-parse.sh), so no fenced line reaches a rule here. A rewrite
+# must still print every line, so the one rule ahead of the lexer only keeps
+# each raw line, parsing nothing, and END prints the file back with the single
+# edit applied: the task's own bullet extended, the placeholder replaced, or
+# a new bullet after the section's last non-blank line (fenced lines count as
+# content). Matching is CRLF-tolerant; every other line stays verbatim. The
+# text rides the environment: `awk -v` would turn a backslash in it into an
+# escape.
+HALT_NOTE_TEXT=$text awk -v id="$id" -v heading="$heading" -v section="$section" '{ raw[NR] = $0 }'"$spec_parse_awk_fence$spec_parse_awk_grammar"'
   function norm(s) { sub(/\r$/, "", s); return s }
   function payload(s) { return s == "Awaiting input" || s == "Deferred" || s == "Out of scope" }
-  # Blank lines inside the target section are held back, so a new bullet
-  # lands after its last non-blank line rather than after the gap before the
-  # next heading.
-  function flush() { for (i = 1; i <= nblank; i++) print blank[i]; nblank = 0 }
-  # A written line takes the line ending of the first line of the file.
-  function emit_new() { print "- **Task " id "** — " text eol; done = 1 }
+  # Leaving the target section with nothing placed: after its last non-blank
+  # line, or after the blank run under the heading when it has none.
+  function place() { at = last ? last : send; done = 1 }
   BEGIN { lead = "- **Task " id "**"; text = ENVIRON["HALT_NOTE_TEXT"] }
   {
-    raw = $0
-    l = norm(raw)
-    if (NR == 1) eol = (raw ~ /\r$/) ? "\r" : ""
-    if (l ~ /^```/) { flush(); fence = !fence; print raw; next }
-    if (fence) { print raw; next }
+    if (insec && NR > prev + 1) { last = NR - 1; send = NR - 1 }
+    prev = NR
+    l = norm($0)
     if (l ~ /^## /) {
-      if (insec && !done) emit_new()
-      flush()
+      if (insec && !done) place()
       sec = substr(l, 4); sub(/[ \t]+$/, "", sec)
       insec = (sec == heading)
       if (sec == "Tasks") tasks = 1
-      if (insec) { found = 1; heading_line = 1 }
-      print raw
+      if (insec) { found = 1; last = 0; send = NR }
       next
     }
-    if (insec && l ~ /^[ \t]*$/) {
-      if (heading_line) { print raw; next }
-      blank[++nblank] = raw
-      next
-    }
-    heading_line = 0
-    flush()
+    if (insec) { send = NR; if (l !~ /^[ \t]*$/) last = NR }
     # A string compare: as numbers, `01` and `1.0` would name Task 1.
-    if (tasks && l ~ /^### Task / && ($3 "") == (id "")) hasblock = 1
+    if (tasks && (spec_parse_task_id($0) "") == (id "")) hasblock = 1
     if (payload(sec) && index(l, lead) == 1) {
       if (!insec) { other = 1 }
-      else if (section == "awaiting" && !done) { print l "; " text eol; done = 1; next }
+      else if (section == "awaiting" && !done) { edit = NR; extend = 1; done = 1; next }
       else { dup = 1 }
     }
-    if (insec && !done && l ~ /^\(none yet\)[ \t]*$/) { emit_new(); next }
-    print raw
+    if (insec && !done && l ~ /^\(none yet\)[ \t]*$/) { edit = NR; done = 1 }
   }
   END {
-    if (fence) exit 5
-    if (insec && !done) emit_new()
-    flush()
-    if (!found) exit 3
+    spec_parse__fence_eof()
+    if (insec && !done) place()
+    if (!found) exit 7
     if (!hasblock) exit 4
     if (other || dup) exit 6
+    # A written line takes the line ending of the first line of the file.
+    eol = (raw[1] ~ /\r$/) ? "\r" : ""
+    bullet = "- **Task " id "** — " text eol
+    for (i = 1; i <= NR; i++) {
+      if (i == edit && extend) print norm(raw[i]) "; " text eol
+      else if (i == edit) print bullet
+      else print raw[i]
+      if (i == at) print bullet
+    }
   }
 ' "$file" >"$tmp"
 rc=$?
 case $rc in
   0) ;;
   3)
-    say "$file has no ## $heading section"
+    say "$file ends inside an open code fence"
     exit 4
     ;;
   4)
     say "$spec has no Task $id block"
     exit 4
     ;;
-  5)
-    say "$file ends inside an open code fence"
+  7)
+    say "$file has no ## $heading section"
     exit 4
     ;;
   6)
