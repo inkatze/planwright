@@ -855,6 +855,18 @@ assert_defer "here-string" "cat <<< hello"
 assert_defer "redirect tokenization not mis-split >|" "echo x >| stat"
 assert_defer "arithmetic double-paren" "(( x = 1 ))"
 
+assert_defer "shell comment defers: trailing comment" "cat README.md #note"
+assert_defer "shell comment defers: comment after an operator" "cat README.md;#note"
+assert_defer "shell comment defers: comment-only command" "# note"
+assert_defer "shell comment defers: multi-line command" "cat README.md # '
+rm -rf x # '"
+assert_defer "shell comment defers: multi-line command after a pipe" "cat README.md |# '
+rm -rf x # '"
+assert_allow "mid-word # is not a comment" "cat a#b"
+assert_allow "single-quoted # is not a comment" "grep -n '#' README.md"
+assert_allow "double-quoted # is not a comment" "grep -n \"#x\" README.md"
+assert_allow "escaped # is not a comment" "grep -n \\#x README.md"
+
 echo "### REQ-A1.10 — script/test/bats path containment"
 assert_defer "bash script escapes repo" "bash ../../../tmp/evil/scripts/x.sh"
 assert_defer "bats path outside repo" "bats /tmp/evil.bats"
