@@ -1,13 +1,13 @@
 #!/bin/bash
-# Tests for scripts/check-echo-safety.sh — the printf-not-echo guard over
-# sanitize_printable output.
+# Tests for scripts/check-echo-discipline.sh — the printf-not-echo guard.
 #
 # `sanitize_printable` strips control BYTES but legitimately preserves the four
 # printable characters `\` `0` `3` `3`. /bin/sh on Linux is dash, whose `echo`
 # expands backslash escapes, so `echo "$(sanitize_printable "$x")"` turns that
 # literal text back into a live ESC and hands the terminal to whoever authored
-# the input. `printf '%s\n'` does not. The sanitizer is correct; the call site
-# is where the class lives, which is why this guard reads call sites.
+# the input. `printf '%s\n'` does not. Any value can carry that text, sanitized
+# or not, so the guard refuses every expansion inside an `echo` unless the line
+# says why the value is trusted.
 #
 # The cases below are organised around the ways such a call site can hide (a
 # comment, a heredoc, a single-quoted string, a variable holding the sanitized
@@ -15,9 +15,7 @@
 # is how a guard earns a reputation for noise and gets switched off.
 #
 # The fail-closed arm is the other half: anything that would make the scan
-# cover less than it claims must exit 2 rather than report a clean tree. The
-# allowlist has its own fail-closed rule — an entry that no longer violates is
-# exit 2, so the allowlist cannot outlive the PRs it exists for.
+# cover less than it claims must exit 2 rather than report a clean tree.
 #
 # shellcheck disable=SC2016 # every fixture body below is literal shell text
 # the guard must read as written; expanding it here would defeat the fixture.
@@ -27,7 +25,7 @@ LC_ALL=C
 export LC_ALL
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CHECKER="$REPO_ROOT/scripts/check-echo-safety.sh"
+CHECKER="$REPO_ROOT/scripts/check-echo-discipline.sh"
 
 failures=0
 assert() {
@@ -64,7 +62,7 @@ if [ ! -f "$CHECKER" ]; then
   exit 1
 fi
 
-tmp="$(mktemp -d "${TMPDIR:-/tmp}/test-check-echo-safety.XXXXXX")" || exit 1
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/test-check-echo-discipline.XXXXXX")" || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
 make_root() {
@@ -103,9 +101,10 @@ filler() {
 #    nothing" from "scanned almost nothing and found nothing".
 # ---------------------------------------------------------------------------
 out="$(/bin/bash "$CHECKER" 2>&1)"
-assert "the repo's own tree is echo-safety-clean" 0 $?
-assert_contains "the clean run reports a file count" "$out" "check-echo-safety: clean ("
+assert "the repo's own tree is echo-discipline-clean" 0 $?
+assert_contains "the clean run reports a file count" "$out" "check-echo-discipline: clean ("
 assert_contains "the clean run reports the skipped bash-interpreter files" "$out" "not at risk"
+assert_contains "the clean run says which bash files were read for sourcing" "$out" "naming echo-safety.sh and read for sourcing"
 real_count="$(printf '%s' "$out" | sed -n 's/.*clean (\([0-9]*\) files.*/\1/p')"
 if [ -n "$real_count" ] && [ "$real_count" -ge 100 ]; then
   echo "ok: the scan reached the whole tree ($real_count files)"
@@ -253,7 +252,7 @@ out="$(/bin/bash "$CHECKER" "$tmp/via-var-braced" 2>&1)"
 assert "a braced expansion of the sanitized variable fails" 1 $?
 
 # A variable that is also assigned from somewhere else is no longer evidence
-# of anything, and guessing there is how a guard starts crying wolf.
+# of a sanitized value, but it is still a value of unknown content in an echo.
 make_root "$tmp/reassigned"
 filler "$tmp/reassigned"
 write_script "$tmp/reassigned/scripts/mixed.sh" \
@@ -261,7 +260,8 @@ write_script "$tmp/reassigned/scripts/mixed.sh" \
   'msg="a fixed string"' \
   'echo "$msg"'
 out="$(/bin/bash "$CHECKER" "$tmp/reassigned" 2>&1)"
-assert "a variable with a non-sanitized assignment too is not flagged" 0 $?
+assert "a reassigned variable in an echo is still flagged" 1 $?
+assert_contains "the reassigned variable is named" "$out" "scripts/mixed.sh:5"
 
 # ---------------------------------------------------------------------------
 # 10. The spellings of `echo` that a word-anchored grep misses.
@@ -556,8 +556,27 @@ write_script "$tmp/round2-clean/scripts/pctpct.sh" \
 write_script "$tmp/round2-clean/scripts/redirok.sh" \
   'printf >&2 "%s\n" "$(sanitize_printable "$x")"' \
   'printf -- "%s\n" "$(sanitize_printable "$y")"'
+# A braced expansion may span lines and hold quotes of its own; ending the
+# expansion at the line end reads the inner quote as an opener and refuses the
+# file as unterminated.
+write_script "$tmp/round2-clean/scripts/multibrace.sh" \
+  'r="${reasons#*"' \
+  '$key	"}"' \
+  'r="${r%%' \
+  '*}"' \
+  'printf "%s\n" "$r"'
 out="$(/bin/bash "$CHECKER" "$tmp/round2-clean" 2>&1)"
 assert "real-world shell shapes stay clean" 0 $?
+
+make_root "$tmp/multibrace-bad"
+filler "$tmp/multibrace-bad"
+write_script "$tmp/multibrace-bad/scripts/after.sh" \
+  'r="${reasons#*"' \
+  '$key	"}"' \
+  'echo "$r"'
+out="$(/bin/bash "$CHECKER" "$tmp/multibrace-bad" 2>&1)"
+assert "an echo after a multi-line braced expansion is still read" 1 $?
+assert_contains "the echo after the multi-line expansion is named" "$out" "scripts/after.sh:5"
 
 make_root "$tmp/round2-bad"
 filler "$tmp/round2-bad"
@@ -577,8 +596,8 @@ write_script "$tmp/round2-bad/scripts/nospace.sh" 'foo(){ echo "$(sanitize_print
 # An option to a transparent prefix must not take the command slot.
 write_script "$tmp/round2-bad/scripts/optprefix.sh" 'command -p echo "$(sanitize_printable "$x")"'
 # A sanitizer under another name is the same hazard. spec-scope.sh and
-# spec-assemble.sh carry inline copies called sanitize_echo, and keying on one
-# spelling reported both clean over eight live call sites.
+# spec-assemble.sh once carried inline copies called sanitize_echo, and keying
+# on one spelling reported both clean over eight live call sites.
 write_script "$tmp/round2-bad/scripts/othername.sh" \
   'safe=$(sanitize_echo "$x")' \
   'echo "scope: $safe" >&2'
@@ -590,37 +609,322 @@ for f in scripts/trimhide.sh scripts/redirfmt.sh scripts/dashfmt.sh scripts/redi
 done
 
 # ---------------------------------------------------------------------------
-# 13. The allowlist. It exempts the exact paths of files open in other PRs, and
-#     nothing else. An entry that no longer violates is a bookkeeping error, so
-#     the allowlist cannot outlive the merges it was created for.
+# 13. The discipline: any expansion inside an echo, sanitized or not. The
+#     sanitizer was never the defect, and a value that skipped it carries the
+#     same backslash text, so tracing the sanitizer alone left most sites open.
 # ---------------------------------------------------------------------------
-make_root "$tmp/allow"
-filler "$tmp/allow"
-write_script "$tmp/allow/scripts/fleet-liveness.sh" 'echo "$(sanitize_printable "$x")"'
-out="$(/bin/bash "$CHECKER" "$tmp/allow" 2>&1)"
-assert "an allowlisted path is exempt" 0 $?
-assert_not_contains "the exempt file is not reported as an offender" "$out" "check-echo-safety: scripts/fleet-liveness.sh"
-assert_contains "the clean run says how many files are allowlisted" "$out" "allowlisted"
+make_root "$tmp/anyvar"
+filler "$tmp/anyvar"
+write_script "$tmp/anyvar/scripts/plain.sh" 'echo "branch: $branch" >&2'
+write_script "$tmp/anyvar/scripts/braced.sh" 'echo ${name}'
+write_script "$tmp/anyvar/scripts/positional.sh" 'echo "arg: $1"'
+write_script "$tmp/anyvar/scripts/all-args.sh" 'echo "$@"'
+write_script "$tmp/anyvar/scripts/star.sh" 'echo "$*"'
+write_script "$tmp/anyvar/scripts/cmdsub.sh" 'echo "now: $(date)"'
+write_script "$tmp/anyvar/scripts/backticks.sh" 'echo `pwd`'
+write_script "$tmp/anyvar/scripts/defaulted.sh" 'echo "${x:-none}"'
+write_script "$tmp/anyvar/tests/in-subst.sh" 'y=$(echo "$x" | tr a b)'
+write_script "$tmp/anyvar/githooks/hook" 'echo "rejected $ref"'
+# An exempt expansion clears only itself, never the rest of its line.
+write_script "$tmp/anyvar/scripts/mixed-len.sh" 'echo "${#x} $x"'
+write_script "$tmp/anyvar/scripts/mixed-arith.sh" 'echo "$((a)) ${b}"'
+out="$(/bin/bash "$CHECKER" "$tmp/anyvar" 2>&1)"
+assert "an expansion of any kind inside an echo fails" 1 $?
+for f in scripts/plain.sh scripts/braced.sh scripts/positional.sh scripts/all-args.sh \
+  scripts/star.sh scripts/cmdsub.sh scripts/backticks.sh scripts/defaulted.sh \
+  scripts/mixed-len.sh scripts/mixed-arith.sh tests/in-subst.sh githooks/hook; do
+  assert_contains "$f is caught" "$out" "$f:3"
+done
+assert_contains "the failure names the annotation that clears a line" "$out" "# trusted:"
 
-# The exemption is by exact repo-relative path, not by basename: the same name
-# under another directory is a different file and is not exempt.
-make_root "$tmp/allow-path"
-filler "$tmp/allow-path"
-write_script "$tmp/allow-path/scripts/fleet-liveness.sh" 'echo "$(sanitize_printable "$x")"'
-write_script "$tmp/allow-path/tests/fleet-liveness.sh" 'echo "$(sanitize_printable "$x")"'
-out="$(/bin/bash "$CHECKER" "$tmp/allow-path" 2>&1)"
-assert "the allowlist matches a path, not a basename" 1 $?
-assert_contains "the same basename elsewhere is still an offender" "$out" "tests/fleet-liveness.sh"
+# Expansions that can only produce digits or a fixed letter set cannot carry a
+# backslash, and literal text never could; neither is a finding.
+make_root "$tmp/numeric"
+filler "$tmp/numeric"
+write_script "$tmp/numeric/scripts/numbers.sh" \
+  'echo "status $? args $# pid $$ bg $! flags $- len ${#x} sum $((a + 1))"' \
+  'echo plain words' \
+  'echo "escaped \$x is literal"' \
+  "echo 'single \$x is literal'"
+out="$(/bin/bash "$CHECKER" "$tmp/numeric" 2>&1)"
+assert "numeric expansions and literal text in an echo are clean" 0 $?
 
-# A stale entry — the file merged and got fixed — must be loud, not silent.
-make_root "$tmp/allow-stale"
-filler "$tmp/allow-stale"
-write_script "$tmp/allow-stale/scripts/fleet-liveness.sh" \
-  'printf "%s\n" "$(sanitize_printable "$x")"'
-out="$(/bin/bash "$CHECKER" "$tmp/allow-stale" 2>&1)"
-assert "an allowlist entry that no longer violates fails closed" 2 $?
-assert_contains "the stale-entry failure names the entry" "$out" "scripts/fleet-liveness.sh"
-assert_contains "the stale-entry failure says to remove it" "$out" "remove"
+# A redirection target names a file; it is never printed.
+make_root "$tmp/redirtarget"
+filler "$tmp/redirtarget"
+write_script "$tmp/redirtarget/scripts/target.sh" \
+  'echo "fixed text" >"$out"' \
+  'echo done 2>"$err" >>"${log}"' \
+  'echo $? >>"$tmp/rc"'
+write_script "$tmp/redirtarget/scripts/stillbad.sh" 'echo >"$out" "$value"'
+out="$(/bin/bash "$CHECKER" "$tmp/redirtarget" 2>&1)"
+assert "an expansion only in a redirection target is not a finding" 1 $?
+assert_not_contains "the redirect-only file is not named" "$out" "scripts/target.sh"
+assert_contains "an argument after a redirection is still read" "$out" "scripts/stillbad.sh:3"
+
+# The annotation: same line, a reason after the colon. A bare marker is not a
+# reason, and an annotation on a neighbouring line covers nothing.
+make_root "$tmp/trusted"
+filler "$tmp/trusted"
+write_script "$tmp/trusted/scripts/ok.sh" \
+  'echo "files: $count" # trusted: integer from wc -l' \
+  'echo "$n" >&2  #trusted:loop counter' \
+  'echo $n # shellcheck disable=SC2086 # trusted: integer from wc -l'
+out="$(/bin/bash "$CHECKER" "$tmp/trusted" 2>&1)"
+assert "a trusted annotation with a reason clears its line" 0 $?
+
+make_root "$tmp/trusted-bad"
+filler "$tmp/trusted-bad"
+write_script "$tmp/trusted-bad/scripts/noreason.sh" 'echo "$n" # trusted:'
+write_script "$tmp/trusted-bad/scripts/above.sh" \
+  '# trusted: the annotation must sit on the echo line itself' \
+  'echo "$n"'
+write_script "$tmp/trusted-bad/scripts/notsan.sh" \
+  'echo "$(sanitize_printable "$x")" # trusted: sanitized output is never trusted'
+write_script "$tmp/trusted-bad/scripts/other.sh" 'echo "$n" # untrusted: no'
+write_script "$tmp/trusted-bad/scripts/quoted.sh" 'echo "$n # trusted: inside the string"'
+write_script "$tmp/trusted-bad/scripts/url.sh" 'echo "$x" # see http://h/#trusted: x'
+out="$(/bin/bash "$CHECKER" "$tmp/trusted-bad" 2>&1)"
+assert "a reasonless, misplaced, or overreaching annotation clears nothing" 1 $?
+assert_contains "a bare trusted marker is a finding" "$out" "scripts/noreason.sh:3"
+assert_contains "the bare marker's message asks for a reason" "$out" "reason"
+assert_contains "an annotation on the line above does not cover the echo" "$out" "scripts/above.sh:4"
+assert_contains "sanitized output stays a finding under an annotation" "$out" "scripts/notsan.sh:3"
+assert_contains "a different comment is not an annotation" "$out" "scripts/other.sh:3"
+assert_contains "a marker inside a quoted string is not an annotation" "$out" "scripts/quoted.sh:3"
+assert_contains "a marker inside a comment word is not an annotation" "$out" "scripts/url.sh:3"
+
+# ---------------------------------------------------------------------------
+# 13a. Guarded sourcing of the sanitizer. `.` is a POSIX special built-in, so
+#      dash aborts on a missing file, but bash outside POSIX mode only warns and
+#      carries on with sanitize_printable undefined. A readability test before
+#      the source turns that into the script's own refusal, in every shell.
+#      This rule holds for bash files too: bash is the shell it bites.
+# ---------------------------------------------------------------------------
+make_root "$tmp/srcbad"
+filler "$tmp/srcbad"
+write_script "$tmp/srcbad/scripts/bare.sh" '. "$script_dir/echo-safety.sh"'
+write_file "$tmp/srcbad/scripts/bash-bare.sh" '#!/bin/bash' 'source "$here/echo-safety.sh"'
+write_script "$tmp/srcbad/scripts/dirname.sh" '. "$(dirname "$0")/echo-safety.sh"'
+write_script "$tmp/srcbad/scripts/or-exit.sh" '. "$d/echo-safety.sh" 2>/dev/null || exit 0'
+write_script "$tmp/srcbad/scripts/wrong-path.sh" \
+  '[ -r "$d/other.sh" ] || exit 2' \
+  '. "$d/echo-safety.sh"'
+write_script "$tmp/srcbad/scripts/after.sh" \
+  '. "$d/echo-safety.sh"' \
+  '[ -r "$d/echo-safety.sh" ] || exit 2'
+write_script "$tmp/srcbad/scripts/via-var.sh" \
+  'es="$d/echo-safety.sh"' \
+  '. "$es"'
+write_script "$tmp/srcbad/scripts/loop-source.sh" \
+  'for lib in echo-safety.sh other.sh; do' \
+  '  . "$d/$lib"' \
+  'done'
+write_script "$tmp/srcbad/scripts/reassigned.sh" \
+  'S="$d/config.sh"' \
+  '[ -r "$S" ] || exit 2' \
+  '. "$S"' \
+  'S="$d/echo-safety.sh"' \
+  '. "$S"'
+write_script "$tmp/srcbad/scripts/loopneg.sh" \
+  'for dep in other.sh; do' \
+  '  [ -r "$d/$dep" ] || exit 5' \
+  'done' \
+  'for dep in echo-safety.sh; do :; done' \
+  '. "$d/echo-safety.sh"'
+write_script "$tmp/srcbad/scripts/late-prior.sh" \
+  'p=""' \
+  'load() { . "$p"; }' \
+  'p="$d/echo-safety.sh"' \
+  'load'
+write_script "$tmp/srcbad/scripts/late-cleared.sh" \
+  'load() { . "$p"; }' \
+  'p="$d/echo-safety.sh"' \
+  'load' \
+  'p='
+write_script "$tmp/srcbad/scripts/unrelated-early.sh" \
+  '[ -r "$conf" ] && . "$conf"' \
+  'conf="$d/echo-safety.sh"' \
+  '. "$conf"'
+write_script "$tmp/srcbad/scripts/continued.sh" \
+  ". \\" \
+  '  "$d/echo-safety.sh"'
+out="$(/bin/bash "$CHECKER" "$tmp/srcbad" 2>&1)"
+assert "an unguarded source of the sanitizer fails" 1 $?
+assert_contains "a bare dot-source is caught" "$out" "scripts/bare.sh:3"
+assert_contains "a bare source in a bash file is caught" "$out" "scripts/bash-bare.sh:2"
+assert_contains "a dirname-relative bare source is caught" "$out" "scripts/dirname.sh:3"
+assert_contains "an or-exit after the source guards nothing under dash" "$out" "scripts/or-exit.sh:3"
+assert_contains "a readability test of another path guards nothing" "$out" "scripts/wrong-path.sh:4"
+assert_contains "a readability test after the source guards nothing" "$out" "scripts/after.sh:3"
+assert_contains "a bare source through a variable is caught" "$out" "scripts/via-var.sh:4"
+assert_contains "a bare source through a loop variable is caught" "$out" "scripts/loop-source.sh:4"
+assert_contains "a test of a variable's earlier value guards nothing" "$out" "scripts/reassigned.sh:7"
+assert_contains "a loop over other names lends no test to the sanitizer" "$out" "scripts/loopneg.sh:7"
+assert_contains "a source continued onto the next line is caught" "$out" "scripts/continued.sh:4"
+assert_contains "a function source of a variable later set to the sanitizer is caught" "$out" "scripts/late-prior.sh:4"
+assert_contains "clearing the variable after the call does not hide the source" "$out" "scripts/late-cleared.sh:3"
+assert_contains "a test made before the variable held the path guards nothing" "$out" "scripts/unrelated-early.sh:5"
+assert_contains "the source finding says what guards it" "$out" "readable"
+
+# A read error while selecting the bash files is not "no match": a grep that
+# fails must stop the scan, never drop the file from it.
+mkdir -p "$tmp/grepfail-bin" || exit 1
+printf '%s\n' '#!/bin/sh' 'exit 2' >"$tmp/grepfail-bin/grep"
+chmod +x "$tmp/grepfail-bin/grep"
+make_root "$tmp/grepfail"
+filler "$tmp/grepfail"
+write_file "$tmp/grepfail/scripts/bash-bare.sh" '#!/bin/bash' 'source "$here/echo-safety.sh"'
+PATH="$tmp/grepfail-bin:$PATH" /bin/bash "$CHECKER" "$tmp/grepfail" >/dev/null 2>&1
+assert "a grep read error while selecting bash files fails closed" 2 $?
+
+make_root "$tmp/srcok"
+filler "$tmp/srcok"
+write_script "$tmp/srcok/scripts/if-r.sh" \
+  'if [ -r "$d/echo-safety.sh" ]; then' \
+  '  . "$d/echo-safety.sh"' \
+  'fi'
+write_script "$tmp/srcok/scripts/not-r.sh" \
+  'es="$d/echo-safety.sh"' \
+  'if [ ! -r "$es" ]; then' \
+  '  printf "%s\n" "missing helper" >&2' \
+  '  exit 2' \
+  'fi' \
+  '. "$es"'
+write_script "$tmp/srcok/scripts/or-r.sh" \
+  '[ -r "$(dirname "$0")/echo-safety.sh" ] || exit 5' \
+  '. "$(dirname "$0")/echo-safety.sh"'
+write_script "$tmp/srcok/scripts/loop.sh" \
+  'for dep in echo-safety.sh other-lib.sh; do' \
+  '  [ -r "$script_dir/$dep" ] || exit 5' \
+  'done' \
+  '. "$script_dir/echo-safety.sh"' \
+  '. "$script_dir/other-lib.sh"'
+write_file "$tmp/srcok/scripts/bash-ok.sh" '#!/bin/bash' \
+  'if [ -r "${here}/echo-safety.sh" ]; then source "${here}/echo-safety.sh"; fi'
+write_script "$tmp/srcok/scripts/prose.sh" \
+  '# never write: . "$d/echo-safety.sh" bare' \
+  "cat <<'DOC'" \
+  '. "$d/echo-safety.sh"' \
+  'DOC'
+write_script "$tmp/srcok/scripts/other-lib.sh" '. "$d/spec-parse.sh"'
+write_script "$tmp/srcok/scripts/var-source.sh" \
+  'ES="$d/echo-safety.sh"' \
+  '[ -r "$d/echo-safety.sh" ] || exit 2' \
+  '. "$ES"'
+write_script "$tmp/srcok/scripts/continued-r.sh" \
+  "if [ -r \\" \
+  '  "$d/echo-safety.sh" ]; then . "$d/echo-safety.sh"; fi'
+out="$(/bin/bash "$CHECKER" "$tmp/srcok" 2>&1)"
+assert "a source behind a readability test is clean" 0 $?
+
+# A `-r` only guards as an operand of a test: `grep -r` names a path it never
+# tests for readability. And a loop names the sanitizer only through its word
+# list, not through a comment or a body on the same line.
+make_root "$tmp/srcnottest"
+filler "$tmp/srcnottest"
+write_script "$tmp/srcnottest/scripts/grep-r.sh" \
+  'grep -r "$d/echo-safety.sh" /tmp >/dev/null' \
+  '. "$d/echo-safety.sh"'
+write_script "$tmp/srcnottest/scripts/loop-comment.sh" \
+  'for dep in other-lib.sh; do # not echo-safety.sh' \
+  '  [ -r "$d/$dep" ] || exit 5' \
+  'done' \
+  '. "$d/echo-safety.sh"'
+write_script "$tmp/srcnottest/scripts/loop-body.sh" \
+  'for dep in other-lib.sh; do printf "%s\n" echo-safety.sh; [ -r "$d/$dep" ] || exit 5; done' \
+  '. "$d/echo-safety.sh"'
+out="$(/bin/bash "$CHECKER" "$tmp/srcnottest" 2>&1)"
+assert "a -r outside a test, or a loop not listing the sanitizer, guards nothing" 1 $?
+assert_contains "grep -r does not guard the source" "$out" "scripts/grep-r.sh:4"
+assert_contains "a loop comment does not name the sanitizer" "$out" "scripts/loop-comment.sh:6"
+assert_contains "a loop body does not name the sanitizer" "$out" "scripts/loop-body.sh:4"
+
+make_root "$tmp/srctestforms"
+filler "$tmp/srctestforms"
+write_script "$tmp/srctestforms/scripts/test-r.sh" \
+  'test -r "$d/echo-safety.sh" || exit 5' \
+  '. "$d/echo-safety.sh"'
+write_file "$tmp/srctestforms/scripts/dbl.sh" '#!/bin/bash' \
+  '[[ -f "$d/echo-safety.sh" && -r "$d/echo-safety.sh" ]] || exit 5' \
+  '. "$d/echo-safety.sh"'
+out="$(/bin/bash "$CHECKER" "$tmp/srctestforms" 2>&1)"
+assert "test -r and a [[ -r ]] operand still guard the source" 0 $?
+
+# xpg_echo makes bash echo expand escapes like dash, so a bash file that turns
+# it on gets the echo rules too.
+make_root "$tmp/xpg"
+filler "$tmp/xpg"
+write_file "$tmp/xpg/scripts/xpg.sh" '#!/bin/bash' 'shopt -s xpg_echo' 'echo "$x"'
+write_file "$tmp/xpg/scripts/plainbash.sh" '#!/bin/bash' 'echo "$x"'
+out="$(/bin/bash "$CHECKER" "$tmp/xpg" 2>&1)"
+assert "a bash file enabling xpg_echo is held to the echo rules" 1 $?
+assert_contains "the xpg_echo file's echo is flagged" "$out" "scripts/xpg.sh:3"
+assert_not_contains "a plain bash file stays exempt" "$out" "scripts/plainbash.sh"
+
+# bash turns xpg_echo on through more spellings than one line-initial shopt.
+# The option name goes through a variable where a spelling would otherwise
+# put this file itself under the echo rules.
+xo=xpg_echo
+make_root "$tmp/xpgforms"
+filler "$tmp/xpgforms"
+write_file "$tmp/xpgforms/scripts/qs.sh" '#!/bin/bash' 'shopt -qs xpg_echo' 'echo "$x"'
+write_file "$tmp/xpgforms/scripts/andand.sh" '#!/bin/bash' "true && shopt -s $xo" 'echo "$x"'
+write_file "$tmp/xpgforms/scripts/then.sh" '#!/bin/bash' "if :; then shopt -s $xo; fi" 'echo "$x"'
+write_file "$tmp/xpgforms/scripts/builtin.sh" '#!/bin/bash' "builtin shopt -s extglob $xo" 'echo "$x"'
+write_file "$tmp/xpgforms/scripts/shebang.sh" '#!/bin/bash -O xpg_echo' 'echo "$x"'
+write_file "$tmp/xpgforms/scripts/quoted.sh" '#!/bin/bash' "printf '%s\n' 'shopt -s xpg_echo'" 'echo "$x"'
+write_file "$tmp/xpgforms/scripts/unset.sh" '#!/bin/bash' 'shopt -u xpg_echo' 'echo "$x"'
+out="$(/bin/bash "$CHECKER" "$tmp/xpgforms" 2>&1)"
+assert "every spelling that enables xpg_echo is held to the echo rules" 1 $?
+assert_contains "shopt -qs enables xpg_echo" "$out" "scripts/qs.sh:3"
+assert_contains "a shopt after && enables xpg_echo" "$out" "scripts/andand.sh:3"
+assert_contains "a shopt after then enables xpg_echo" "$out" "scripts/then.sh:3"
+assert_contains "builtin shopt with two options enables xpg_echo" "$out" "scripts/builtin.sh:3"
+assert_contains "a shebang -O xpg_echo enables it" "$out" "scripts/shebang.sh:2"
+assert_not_contains "a quoted mention enables nothing" "$out" "scripts/quoted.sh"
+assert_not_contains "shopt -u disables rather than enables" "$out" "scripts/unset.sh"
+
+make_root "$tmp/xpgcount"
+filler "$tmp/xpgcount"
+write_file "$tmp/xpgcount/scripts/xpg.sh" '#!/bin/bash' 'shopt -s xpg_echo' "printf '%s\n' \"\$x\""
+out="$(/bin/bash "$CHECKER" "$tmp/xpgcount" 2>&1)"
+assert "a clean xpg_echo bash file passes" 0 $?
+assert_contains "an xpg_echo bash file counts as scanned, not as a bash file at no risk" "$out" "plus 0 bash-interpreter files"
+
+# A `[[` test may span lines, and its `-r` still guards; a `$(...)` inside it is
+# its own command, where `grep -r` tests nothing. A `#` inside a loop word is
+# not a comment.
+make_root "$tmp/dblforms"
+filler "$tmp/dblforms"
+write_file "$tmp/dblforms/scripts/cont.sh" '#!/bin/bash' \
+  "[[ -f \"\$d/echo-safety.sh\" && $bslash" \
+  '   -r "$d/echo-safety.sh" ]] || exit 5' \
+  '. "$d/echo-safety.sh"'
+write_file "$tmp/dblforms/scripts/nl.sh" '#!/bin/bash' \
+  '[[ -f "$d/echo-safety.sh" &&' \
+  '   -r "$d/echo-safety.sh" ]] || exit 5' \
+  '. "$d/echo-safety.sh"'
+write_script "$tmp/dblforms/scripts/loophash.sh" \
+  'for dep in "${pfx#./}" echo-safety.sh; do' \
+  '  [ -r "$d/$dep" ] || exit 5' \
+  'done' \
+  '. "$d/echo-safety.sh"'
+out="$(/bin/bash "$CHECKER" "$tmp/dblforms" 2>&1)"
+assert "a [[ test across lines and a loop word holding # still guard the source" 0 $?
+
+make_root "$tmp/dblsub"
+filler "$tmp/dblsub"
+write_file "$tmp/dblsub/scripts/sub.sh" '#!/bin/bash' \
+  '[[ -n "$(grep -r "$d/echo-safety.sh" /etc)" ]] || exit 5' \
+  '. "$d/echo-safety.sh"'
+write_file "$tmp/dblsub/scripts/arg.sh" '#!/bin/bash' \
+  'printf "%s\n" [[ x; grep -r "$d/echo-safety.sh" /etc' \
+  '. "$d/echo-safety.sh"'
+out="$(/bin/bash "$CHECKER" "$tmp/dblsub" 2>&1)"
+assert "a grep -r inside a [[ substitution, or after a [[ argument, guards nothing" 1 $?
+assert_contains "grep -r in a substitution inside [[ does not guard" "$out" "scripts/sub.sh:3"
+assert_contains "a [[ that is only an argument opens no test" "$out" "scripts/arg.sh:3"
 
 # ---------------------------------------------------------------------------
 # 14. Every offender is reported, not just the first.
@@ -712,7 +1016,8 @@ out="$(/bin/bash "$CHECKER" --help 2>&1)"
 assert "--help exits clean" 0 $?
 assert_contains "--help names the remedy" "$out" "printf"
 assert_contains "--help explains why the sanitizer is not enough" "$out" "dash"
-assert_contains "--help documents the allowlist" "$out" "allowlist"
+assert_contains "--help documents the trusted annotation" "$out" "# trusted: <reason>"
+assert_contains "--help documents the guarded-source rule" "$out" "readable"
 # Asserting the bare word "bash" would pass against help text that says the
 # opposite, which is how this paragraph went stale once already.
 assert_contains "--help names bash as the only skipped interpreter" "$out" "names bash, and nothing else"
@@ -720,7 +1025,6 @@ assert_contains "--help says zsh and ksh are not skipped" "$out" "NOT skipped"
 assert_contains "--help says a shebang-less file is still scanned" "$out" "NO shebang"
 assert_contains "--help names the printf format operand as flagged" "$out" "FORMAT operand"
 assert_contains "--help names the %b conversion as flagged" "$out" "%b"
-assert_contains "--help says an absent allowlisted file is skipped" "$out" "not applicable"
 /bin/bash "$CHECKER" -h >/dev/null 2>&1
 assert "-h is accepted too" 0 $?
 
@@ -737,12 +1041,18 @@ cp -R "$REPO_ROOT/githooks" "$tmp/work/" || exit 1
 /bin/bash "$CHECKER" "$tmp/work" >/dev/null 2>&1
 assert "the copied real tree is clean" 0 $?
 
+# One scan for every plant: each full-tree scan is the expensive part.
 write_script "$tmp/work/scripts/planted-offender.sh" \
   'echo "planted: $(sanitize_printable "$x")"'
+write_script "$tmp/work/scripts/planted-echo.sh" 'echo "planted: $value"'
+write_script "$tmp/work/scripts/planted-source.sh" '. "$script_dir/echo-safety.sh"'
 out="$(/bin/bash "$CHECKER" "$tmp/work" 2>&1)"
-assert "planting the defect in the real tree turns the check red" 1 $?
+assert "planting the defect, a plain-variable echo and a bare source in the real tree turns the check red" 1 $?
 assert_contains "the red run names the planted file" "$out" "scripts/planted-offender.sh"
-rm -f "$tmp/work/scripts/planted-offender.sh"
+assert_contains "the red run names the planted echo" "$out" "scripts/planted-echo.sh:3"
+assert_contains "the red run names the planted source" "$out" "scripts/planted-source.sh:3"
+rm -f "$tmp/work/scripts/planted-offender.sh" "$tmp/work/scripts/planted-echo.sh" \
+  "$tmp/work/scripts/planted-source.sh"
 
 # Reverting one converted script to its echo spelling must also go red — this
 # is what stops the converted call sites from silently regressing.
@@ -773,7 +1083,7 @@ filler "$tmp/decoy"
 write_script "$tmp/decoy/scripts/innocuous.sh" 'printf "%s\n" decoy'
 write_script "$tmp/work/scripts/planted-offender.sh" \
   'echo "planted: $(sanitize_printable "$x")"'
-out="$(cd "$tmp/work" && CDPATH="$tmp/decoy:." /bin/bash scripts/check-echo-safety.sh 2>&1)"
+out="$(cd "$tmp/work" && CDPATH="$tmp/decoy:." /bin/bash scripts/check-echo-discipline.sh 2>&1)"
 assert "under CDPATH the guard resolves its own root correctly" 1 $?
 assert_contains "it scanned the real tree, not the decoy" "$out" "scripts/planted-offender.sh"
 assert_not_contains "it did not scan the decoy" "$out" "innocuous.sh"
@@ -782,16 +1092,16 @@ assert_not_contains "it did not scan the decoy" "$out" "innocuous.sh"
 # 20. The guard is wired into the `check` aggregate, so a red run is reachable
 #     from `mise run check` rather than only by direct invocation.
 # ---------------------------------------------------------------------------
-if grep -q '^\[tasks\."check:echo-safety"\]' "$REPO_ROOT/mise.toml"; then
-  echo "ok: check:echo-safety is defined as a mise task"
+if grep -q '^\[tasks\."check:echo-discipline"\]' "$REPO_ROOT/mise.toml"; then
+  echo "ok: check:echo-discipline is defined as a mise task"
 else
-  echo "FAIL: mise.toml defines no check:echo-safety task" >&2
+  echo "FAIL: mise.toml defines no check:echo-discipline task" >&2
   failures=$((failures + 1))
 fi
-if grep -q '"check:echo-safety",' "$REPO_ROOT/mise.toml"; then
-  echo "ok: check:echo-safety is wired into the check aggregate"
+if grep -q '"check:echo-discipline",' "$REPO_ROOT/mise.toml"; then
+  echo "ok: check:echo-discipline is wired into the check aggregate"
 else
-  echo "FAIL: check:echo-safety is not in the check aggregate's depends list" >&2
+  echo "FAIL: check:echo-discipline is not in the check aggregate's depends list" >&2
   failures=$((failures + 1))
 fi
 
@@ -799,4 +1109,4 @@ if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
 fi
-echo "all check-echo-safety tests passed"
+echo "all check-echo-discipline tests passed"

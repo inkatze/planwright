@@ -35,7 +35,7 @@ sweep="$here/../scripts/anchor-sweep.sh"
 anchor="$here/../scripts/spec-anchor.sh"
 
 fail() {
-  echo "FAIL: $1" >&2
+  printf '%s\n' "FAIL: $1" >&2
   exit 1
 }
 

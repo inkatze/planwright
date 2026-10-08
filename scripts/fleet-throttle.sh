@@ -108,6 +108,10 @@ unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "fleet-throttle.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
@@ -156,7 +160,7 @@ resolve_home() {
 # `|| exit $?`.
 resolve_hold() {
   if [ ! -x "$RESOLVER" ]; then
-    echo "fleet-throttle: shared knob resolver '$RESOLVER' is missing or not executable — broken install" >&2
+    printf '%s\n' "fleet-throttle: shared knob resolver '$RESOLVER' is missing or not executable — broken install" >&2
     exit 5
   fi
   "$RESOLVER" --key fleet_throttle_default_hold --type posint --fallback 300
@@ -190,7 +194,7 @@ acquire_lock() {
         ;;
       1) ;; # a live holder has it — retry
       *)
-        echo "fleet-throttle: cannot acquire the fleet lock (fleet-state exit $al_rc)" >&2
+        printf '%s\n' "fleet-throttle: cannot acquire the fleet lock (fleet-state exit $al_rc)" >&2
         return 2
         ;;
     esac
@@ -236,7 +240,7 @@ read_until() {
   # and fall through in the fail-OPEN direction (check exit 0 while
   # nominally engaged), the opposite of this reader's fail-loud contract.
   if [ "${#ru_v}" -gt 15 ]; then
-    echo "fleet-throttle: throttle state file '$1' is corrupt (value exceeds the 15-digit overflow guard)" >&2
+    printf '%s\n' "fleet-throttle: throttle state file '$1' is corrupt (value exceeds the 15-digit overflow guard)" >&2
     return 2
   fi
   printf '%s' "$ru_v"
@@ -289,7 +293,7 @@ engage_until() {
   # missing gate helper is a broken install (exit 5), matching the sibling
   # resolvers' posture rather than an undocumented 127.
   if [ ! -x "$GATE" ]; then
-    echo "fleet-throttle: daemon gate '$GATE' is missing or not executable — broken install" >&2
+    printf '%s\n' "fleet-throttle: daemon gate '$GATE' is missing or not executable — broken install" >&2
     exit 5
   fi
   "$GATE" "$MECHANISM"
@@ -303,7 +307,7 @@ engage_until() {
     exit 2
   }
   if [ "$eu_until" -gt $((eu_now + MAX_HOLD)) ]; then
-    echo "fleet-throttle: warning: clamping a reset time more than 8 days out (until $eu_until) to the ceiling — a garbage reset must never park the fleet (risk 24)" >&2
+    printf '%s\n' "fleet-throttle: warning: clamping a reset time more than 8 days out (until $eu_until) to the ceiling — a garbage reset must never park the fleet (risk 24)" >&2
     eu_until=$((eu_now + MAX_HOLD))
   fi
 
@@ -340,7 +344,7 @@ engage_until() {
   fi
   if [ -n "$eu_action" ]; then
     mkdir -p "$eu_dir" || {
-      echo "fleet-throttle: cannot create '$eu_dir'" >&2
+      printf '%s\n' "fleet-throttle: cannot create '$eu_dir'" >&2
       release_lock
       exit 2
     }
@@ -353,7 +357,7 @@ engage_until() {
     # atomic-write discipline fleet-state.sh/fleet-audit.sh use for this
     # store area.
     CUR_TMP=$(mktemp "$eu_dir/.until.XXXXXX") || {
-      echo "fleet-throttle: cannot create a write temp under '$eu_dir'" >&2
+      printf '%s\n' "fleet-throttle: cannot create a write temp under '$eu_dir'" >&2
       release_lock
       exit 2
     }
@@ -376,7 +380,7 @@ engage_until() {
     # record is surfaced (exit 2), never swallowed (the trail's contract).
     "$AUDIT" record "$MECHANISM" "$eu_action" "$eu_trigger" \
       "fleet-wide dispatch paused until $(utc_iso "$eu_until") (epoch $eu_until); resumes when check passes that time" || {
-      echo "fleet-throttle: the audit trail refused the $eu_action record — surfacing, not swallowing" >&2
+      printf '%s\n' "fleet-throttle: the audit trail refused the $eu_action record — surfacing, not swallowing" >&2
       exit 2
     }
   fi
@@ -455,11 +459,11 @@ case "$cmd" in
       exit 2
     }
     if [ "$until_arg" -le "$now" ]; then
-      echo "fleet-throttle: refusing a reset time in the past (until $until_arg, now $now) — caller bug" >&2
+      printf '%s\n' "fleet-throttle: refusing a reset time in the past (until $until_arg, now $now) — caller bug" >&2
       exit 2
     fi
     if [ "$until_arg" -gt $((now + MAX_HOLD)) ]; then
-      echo "fleet-throttle: refusing a reset time more than 8 days out (until $until_arg, now $now) — a garbage reset must never park the fleet (risk 24)" >&2
+      printf '%s\n' "fleet-throttle: refusing a reset time more than 8 days out (until $until_arg, now $now) — a garbage reset must never park the fleet (risk 24)" >&2
       exit 2
     fi
     engage_until "$until_arg" "$trigger" ""
@@ -581,7 +585,7 @@ case "$cmd" in
           # The grace window (F1): at/just past the stated minute the reset
           # is effectively now — hold briefly, never jump a day.
           hold=$(resolve_hold) || exit $?
-          echo "fleet-throttle: wall-clock reset is at/just past its stated minute; treating as effectively now (${hold}s hold, not next day)" >&2
+          printf '%s\n' "fleet-throttle: wall-clock reset is at/just past its stated minute; treating as effectively now (${hold}s hold, not next day)" >&2
           delta=$hold
         elif [ "$delta" -le 0 ]; then
           delta=$((delta + 86400))
@@ -597,7 +601,7 @@ case "$cmd" in
           echo "fleet-throttle: cannot read the clock" >&2
           exit 2
         }
-        echo "fleet-throttle: warning: rate-limit signal detected but the reset time could not be parsed; degrading to the ${hold}s default hold" >&2
+        printf '%s\n' "fleet-throttle: warning: rate-limit signal detected but the reset time could not be parsed; degrading to the ${hold}s default hold" >&2
         engage_until $((now + hold)) "$excerpt" "$excerpt"
         ;;
       *)
@@ -640,7 +644,7 @@ case "$cmd" in
     # row commit-or-abort together, never unlinked-unrecorded.
     trap '' INT TERM
     rm -f "$until_file" || {
-      echo "fleet-throttle: cannot remove '$until_file'" >&2
+      printf '%s\n' "fleet-throttle: cannot remove '$until_file'" >&2
       release_lock
       exit 2
     }

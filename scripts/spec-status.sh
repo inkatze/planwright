@@ -89,6 +89,10 @@ unset CDPATH
 TAB=$(printf '\t')
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "spec-status.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
@@ -111,14 +115,14 @@ if [ -z "$spec_dir" ]; then
   exit 2
 fi
 if [ ! -d "$spec_dir" ]; then
-  echo "spec-status: no such spec dir: $spec_dir" >&2
+  printf '%s\n' "spec-status: no such spec dir: $spec_dir" >&2
   exit 2
 fi
 tasks_md="$spec_dir/tasks.md"
 req_md="$spec_dir/requirements.md"
 for f in "$tasks_md" "$req_md"; do
   if [ ! -f "$f" ] || [ ! -r "$f" ]; then
-    echo "spec-status: missing or unreadable $f" >&2
+    printf '%s\n' "spec-status: missing or unreadable $f" >&2
     exit 2
   fi
 done
@@ -146,13 +150,13 @@ esac
 # unchecked capture would read the refusal as an absent declaration. The value
 # must be a known version; no fallback to either version's rules on a bad one.
 if ! fv=$(spec_parse_header_value "$tasks_md" Format-version); then
-  echo "spec-status: unparseable Format-version: declaration in $tasks_md (fail closed)" >&2
+  printf '%s\n' "spec-status: unparseable Format-version: declaration in $tasks_md (fail closed)" >&2
   exit 2
 fi
 case "$fv" in
   1 | 2) ;;
   '')
-    echo "spec-status: $tasks_md has no Format-version: line; refusing to guess the format (fail closed)" >&2
+    printf '%s\n' "spec-status: $tasks_md has no Format-version: line; refusing to guess the format (fail closed)" >&2
     exit 2
     ;;
   *)
@@ -166,13 +170,13 @@ esac
 # declaration: the stored status drives the whole render's mode selection, so a
 # contradictory duplicate has no honest winner to pick (REQ-A1.2, D-6).
 if ! stored=$(spec_parse_header_value "$req_md" Status); then
-  echo "spec-status: unparseable Status: declaration in $req_md (fail closed)" >&2
+  printf '%s\n' "spec-status: unparseable Status: declaration in $req_md (fail closed)" >&2
   exit 2
 fi
 case "$stored" in
   Draft | Ready | Active | Done | Retired | Superseded) ;;
   '')
-    echo "spec-status: $req_md has no Status: header" >&2
+    printf '%s\n' "spec-status: $req_md has no Status: header" >&2
     exit 2
     ;;
   *)
@@ -185,7 +189,7 @@ esac
 if [ "$fv" = 2 ]; then
   case "$stored" in
     Active | Done)
-      echo "spec-status: stored status '$stored' is not a v2 stored state (Active/Done are derived; REQ-A1.3)" >&2
+      printf '%s\n' "spec-status: stored status '$stored' is not a v2 stored state (Active/Done are derived; REQ-A1.3)" >&2
       exit 2
       ;;
   esac
@@ -236,7 +240,7 @@ if [ "$fv" = 2 ]; then
     # Fail closed: an unreadable or malformed parked map would silently drop
     # an Awaiting-input park and let the bundle derive Done (REQ-B1.6's
     # inverse). The lib has already named the reason on stderr.
-    echo "spec-status: could not derive the parked-state map from $tasks_md" >&2
+    printf '%s\n' "spec-status: could not derive the parked-state map from $tasks_md" >&2
     exit 2
   }
 else
@@ -253,7 +257,7 @@ else
       printf "ref\t%s\t%s\t%d\t\n", $3, classof(sec), NR
     }
   ' "$tasks_md") || {
-    echo "spec-status: could not derive the parked-state map from $tasks_md" >&2
+    printf '%s\n' "spec-status: could not derive the parked-state map from $tasks_md" >&2
     exit 2
   }
 fi
@@ -287,7 +291,7 @@ done
 
 # --- Run the derivation engine (D-6: one derivation, one place). -------------
 engine_err=$(mktemp "${TMPDIR:-/tmp}/spec-status-err.XXXXXX") || {
-  echo "spec-status: cannot create a temp file under ${TMPDIR:-/tmp}" >&2
+  printf '%s\n' "spec-status: cannot create a temp file under ${TMPDIR:-/tmp}" >&2
   exit 2
 }
 trap 'rm -f "$engine_err"' EXIT

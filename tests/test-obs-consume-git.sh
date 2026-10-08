@@ -43,7 +43,7 @@ CONSUME="$here/../scripts/obs-consume.sh"
 REC="$here/../scripts/obs-record.sh"
 
 fail() {
-  echo "FAIL: $1" >&2
+  printf '%s\n' "FAIL: $1" >&2
   exit 1
 }
 
@@ -93,7 +93,7 @@ record() {
   PATH="$_stub:$PATH" "$REC" --obs-dir "$_o" --slug "$_slug" --scope planwright \
     --text "$_text" --today 2026-07-09 >/dev/null \
     || fail "record helper failed for uid $_uid"
-  echo "2026-07-09-$_slug-$_uid.md"
+  printf '%s\n' "2026-07-09-$_slug-$_uid.md"
 }
 
 # frag_count <dir> — number of *.md fragments under a directory (null-safe).
@@ -102,7 +102,7 @@ frag_count() {
   for _f in "$1"/*.md; do
     [ -e "$_f" ] && _c=$((_c + 1))
   done
-  echo "$_c"
+  printf '%s\n' "$_c"
 }
 
 # gitc <repo> <args...> — git with fixture identity, no signing, main default.

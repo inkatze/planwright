@@ -26,10 +26,10 @@ another's slice:
   not rebase**) and its post-merge self-sync. When main advances under an
   in-flight worker, that worker merges main into its own branch and resolves the
   conflicts itself.
-- **The meta-tower** ("tower of towers") owns cross-spec *selection* under the
-  fleet bound; it passes a subordinate tower no in-memory state and edits no
-  subordinate's or worker's branch state. Each subordinate runs its own
-  pre-flight, takes its own per-spec lock, and writes its own dispatch record.
+- **The meta-tower** owns cross-spec *selection* under the fleet bound, then
+  runs the chosen spec's single-spec step itself: it takes that spec's
+  per-spec lock, so a single-spec tower on the same spec excludes it, writes
+  the dispatch record, and edits no other tower's or worker's branch state.
 
 ### The "directly" boundary
 

@@ -307,7 +307,7 @@ read_hosts() {
   HOSTS_ERR=''
   if [ -f "$repo_root/.claude/planwright.yml" ] \
     && grep -q '^flight_pr_hosts:' "$repo_root/.claude/planwright.yml" 2>/dev/null; then
-    echo "$prog: ignoring flight_pr_hosts in the repo-tracked config: a repository cannot approve its own push destination" >&2
+    printf '%s\n' "$prog: ignoring flight_pr_hosts in the repo-tracked config: a repository cannot approve its own push destination" >&2
   fi
   # The derived machine-local file sits in the work tree, so a repository can
   # commit it past its own ignore rule, under a case-folded name, or behind a
@@ -334,7 +334,7 @@ read_hosts() {
       esac
     fi
     if [ -n "$_why" ]; then
-      echo "$prog: ignoring flight_pr_hosts in .claude/planwright.local.yml: $_why" >&2
+      printf '%s\n' "$prog: ignoring flight_pr_hosts in .claude/planwright.local.yml: $_why" >&2
       _local=/dev/null/planwright.local.yml
     fi
   fi
@@ -360,7 +360,7 @@ dest_approved() {
   IFS=$LF
   for _e in $HOSTS; do
     if ! printf '%s\n' "$_e" | grep -Eqx '[a-z0-9][a-z0-9.-]*(/[a-z0-9._-]+)?'; then
-      echo "$prog: ignoring a malformed flight_pr_hosts entry" >&2
+      printf '%s\n' "$prog: ignoring a malformed flight_pr_hosts entry" >&2
       continue
     fi
     case $1 in
@@ -477,12 +477,12 @@ read_bound() {
   # arithmetic would read `08` as octal.
   case $_v in
     '' | *[!0-9]* | 0[0-9]*)
-      echo "$prog: max_parallel_units is not 0 or an integer without leading zeros; using the shipped default 3" >&2
+      printf '%s\n' "$prog: max_parallel_units is not 0 or an integer without leading zeros; using the shipped default 3" >&2
       bound=3
       ;;
     *)
       if [ "${#_v}" -gt 6 ]; then
-        echo "$prog: max_parallel_units is out of range; using the shipped default 3" >&2
+        printf '%s\n' "$prog: max_parallel_units is out of range; using the shipped default 3" >&2
         bound=3
       else
         bound=$((_v + 0))
@@ -504,7 +504,7 @@ resolve_tier() {
     0) ;;
     3) die 3 "the flight is withheld by the allocation admission gate; nothing was placed" ;;
     6)
-      echo "$prog: the allocation store is unreachable; launching at the ambient model and effort with the tier unrecorded (degraded)" >&2
+      printf '%s\n' "$prog: the allocation store is unreachable; launching at the ambient model and effort with the tier unrecorded (degraded)" >&2
       return 0
       ;;
     *) die 4 "could not resolve a launch tier (allocation-apply exit $_rc); nothing was placed" ;;
@@ -658,7 +658,7 @@ sweep_briefs() {
     for _sb_h in "tmux-flight-$_sb_id" "print-flight-$_sb_id"; do
       /bin/sh "$ATTN" clear "$_sb_h" >/dev/null 2>&1 </dev/null \
         || {
-          echo "$prog: could not clear the attention row of retired flight $_sb_id; its brief stays for the next retire" >&2
+          printf '%s\n' "$prog: could not clear the attention row of retired flight $_sb_id; its brief stays for the next retire" >&2
           _sb_cleared=0
         }
     done
@@ -667,7 +667,7 @@ sweep_briefs() {
     elif rm -rf "$_sb_dir" 2>/dev/null && [ ! -e "$_sb_dir" ]; then
       printf 'retired\t%s\n' "$_sb_id"
     else
-      echo "$prog: could not remove the brief directory of retired flight $_sb_id ($_sb_dir)" >&2
+      printf '%s\n' "$prog: could not remove the brief directory of retired flight $_sb_id ($_sb_dir)" >&2
       _sb_failed=1
     fi
   done
@@ -998,7 +998,7 @@ cmd_dispatch() {
     esac
   done
   [ -n "$backend" ] || {
-    echo "$prog: --backend is required: /offload's placement axioms choose the rung" >&2
+    printf '%s\n' "$prog: --backend is required: /offload's placement axioms choose the rung" >&2
     usage
   }
   case $backend in
@@ -1052,12 +1052,12 @@ cmd_dispatch() {
     die 2 "the ask is blank: a flight needs something to do"
   fi
   [ "$ask_sanitized" -eq 0 ] \
-    || echo "$prog: NOTE: invisible or bidi-control characters were stripped from the ask" >&2
+    || printf '%s\n' "$prog: NOTE: invisible or bidi-control characters were stripped from the ask" >&2
   clean_text "$work/grounds.raw" "$work/grounds" || die 4 "cannot sanitize the grounds"
   grounds_sanitized=$CLEAN_STRIPPED
   if [ "$grounds_sanitized" -eq 1 ]; then
     grounds=$(cat "$work/grounds")
-    echo "$prog: NOTE: invisible or bidi-control characters were stripped from the grounds" >&2
+    printf '%s\n' "$prog: NOTE: invisible or bidi-control characters were stripped from the grounds" >&2
     [ -n "$(printf '%s' "$grounds" | tr -d ' \t')" ] \
       || die 2 "the grounds are empty once invisible characters are stripped: a route is never silent"
   fi
@@ -1222,7 +1222,7 @@ cmd_dispatch() {
     # arrived: re-dispatching over it would start a second worker.
     outcome=started-unconfirmed
     if [ -z "$session" ]; then
-      echo "$prog: the launch reported no session name, so its startup cannot be confirmed; the flight is placed" >&2
+      printf '%s\n' "$prog: the launch reported no session name, so its startup cannot be confirmed; the flight is placed" >&2
     else
       _confirm_rc=0
       /bin/sh "$WORKTREE" confirm --session "$session" --handle "$brief_handle" \

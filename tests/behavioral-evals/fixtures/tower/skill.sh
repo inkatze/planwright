@@ -48,12 +48,12 @@ if [ -z "$art" ]; then
   exit 2
 fi
 mkdir -p -- "$art" 2>/dev/null || {
-  echo "tower/skill.sh: cannot create artifacts dir '$art'" >&2
+  printf '%s\n' "tower/skill.sh: cannot create artifacts dir '$art'" >&2
   exit 2
 }
 
 die_write() {
-  echo "tower/skill.sh: failed to write $1" >&2
+  printf '%s\n' "tower/skill.sh: failed to write $1" >&2
   exit 2
 }
 

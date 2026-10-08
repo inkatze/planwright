@@ -66,7 +66,7 @@ _gr_replay() {
   gr_fail=0
   for gr_in in "$gr_baseline" "$gr_registry" "$gr_actual"; do
     [ -r "$gr_in" ] || {
-      echo "golden-replay: $gr_in is missing or unreadable"
+      printf '%s\n' "golden-replay: $gr_in is missing or unreadable"
       return 2
     }
   done
@@ -76,7 +76,7 @@ _gr_replay() {
   _gr_split "$gr_actual" "$gr_work/actual" 2 >"$gr_work/actual.keys" || gr_fail=1
   # An empty baseline would make every recording, empty ones included, match.
   [ -s "$gr_work/baseline.keys" ] || {
-    echo "golden-replay: $gr_baseline holds no records"
+    printf '%s\n' "golden-replay: $gr_baseline holds no records"
     gr_fail=1
   }
 
@@ -107,7 +107,7 @@ _gr_replay() {
     gr_id=${gr_id%.txt}
     case $gr_id in
       '' | *[!0-9.]* | .* | *. | *.*.*)
-        echo "golden-replay: ${gr_set##*/} is not named for a task id"
+        printf '%s\n' "golden-replay: ${gr_set##*/} is not named for a task id"
         gr_fail=1
         continue
         ;;
@@ -124,19 +124,19 @@ _gr_replay() {
     while read -r gr_probe gr_vantage gr_corr; do
       gr_owner=$(awk -v c="$gr_corr" '$1 == c { print $2; exit }' "$gr_work/registry")
       if [ -z "$gr_owner" ]; then
-        echo "golden-replay: task $gr_id declares $gr_probe $gr_vantage under unregistered correction '$gr_corr'"
+        printf '%s\n' "golden-replay: task $gr_id declares $gr_probe $gr_vantage under unregistered correction '$gr_corr'"
         gr_fail=1
       elif [ "$gr_owner" != "$gr_id" ]; then
-        echo "golden-replay: task $gr_id declares correction '$gr_corr', which the registry assigns to $gr_owner"
+        printf '%s\n' "golden-replay: task $gr_id declares correction '$gr_corr', which the registry assigns to $gr_owner"
         gr_fail=1
       fi
       if [ ! -f "$gr_work/expected/$gr_probe@$gr_vantage" ]; then
-        echo "golden-replay: task $gr_id declares $gr_probe $gr_vantage, which the baseline does not record"
+        printf '%s\n' "golden-replay: task $gr_id declares $gr_probe $gr_vantage, which the baseline does not record"
         gr_fail=1
         continue
       fi
       cp "$gr_work/set-$gr_id/$gr_probe@$gr_vantage" "$gr_work/expected/$gr_probe@$gr_vantage" || {
-        echo "golden-replay: could not apply task $gr_id's $gr_probe $gr_vantage"
+        printf '%s\n' "golden-replay: could not apply task $gr_id's $gr_probe $gr_vantage"
         gr_fail=1
         continue
       }
@@ -153,7 +153,7 @@ _gr_replay() {
     case $? in
       0) ;;
       1)
-        echo "golden-replay: correction '$gr_corr' is absent from task $gr_owner's declared set"
+        printf '%s\n' "golden-replay: correction '$gr_corr' is absent from task $gr_owner's declared set"
         gr_fail=1
         ;;
       *)
@@ -175,7 +175,7 @@ _gr_replay() {
       gr_key=$gr_probe@$gr_vantage
       [ -f "$gr_work/actual/$gr_key" ] || continue
       if ! diff -q "$gr_work/expected/$gr_key" "$gr_work/actual/$gr_key" >/dev/null 2>&1; then
-        echo "golden-replay: $gr_probe $gr_vantage differs from its expected output:"
+        printf '%s\n' "golden-replay: $gr_probe $gr_vantage differs from its expected output:"
         diff -u "$gr_work/expected/$gr_key" "$gr_work/actual/$gr_key" | tail -n +3 | sed 's/^/  /'
         gr_fail=1
       fi
