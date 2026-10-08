@@ -12,6 +12,13 @@
 # that depends on a dropped entry (its vendor entry, or a choice's control)
 # is dropped with it, whatever its own layer.
 #
+# Two entries that conflict (a second vendor entry for one vendor, or two
+# choice pairs at one position of one rule) are an override when they come
+# from different layers: the higher-precedence layer's entry wins and the
+# other is dropped, with a warning naming both entries and their layers.
+# Only a conflict within one layer is malformed, the later entry in merged
+# order taking that layer's policy.
+#
 # Usage:
 #   resolve-vendors.sh [--vendor <id>] [--explain]
 #     (no flag)    one line per resolved part, grouped by vendor (vendors in
@@ -206,6 +213,18 @@ awk -v mode="$mode" -v want="$want" '
     print "W\twarning: " l " vendors catalog entry " id[n] " is malformed (" reason "); dropped"
     drop[n] = 1
   }
+  # override <a> <b>: two conflicting entries from different layers; the
+  # higher-precedence layer wins, the other is dropped with a warning naming
+  # both. Returns the winner.
+  function override(a, b,   w, l) {
+    if (rank(layer[id[b]]) > rank(layer[id[a]])) { w = b; l = a } else { w = a; l = b }
+    print "W\twarning: vendors catalog entry " id[w] " from the " layer[id[w]] " layer shadows " id[l] " from the " layer[id[l]] " layer"
+    drop[l] = 1
+    return w
+  }
+  function rank(l) {
+    return (l == "core") ? 1 : (l == "adopter") ? 2 : (l == "repo-tracked") ? 3 : 4
+  }
   # cascade <n> <why>: dropped because an entry it depends on was.
   function cascade(n, why) {
     print "W\twarning: " layer[id[n]] " vendors catalog entry " id[n] " is dropped (" why ")"
@@ -379,11 +398,15 @@ awk -v mode="$mode" -v want="$want" '
       if (r != "") bad(i, r)
       if (fatal) exit
     }
-    # One vendor entry per vendor.
+    # One vendor entry per vendor; across layers the higher one overrides.
     for (i = 1; i <= n; i++) {
       if (drop[i] || val(i, "part") != "vendor") continue
       v = val(i, "vendor")
-      if (v in vent) { bad(i, "a second vendor entry for vendor '\''" v "'\''"); if (fatal) exit; continue }
+      if (v in vent) {
+        if (layer[id[i]] == layer[id[vent[v]]]) { bad(i, "a second vendor entry for vendor '\''" v "'\''"); if (fatal) exit; continue }
+        if (override(vent[v], i) == i) vent[v] = i
+        continue
+      }
       vent[v] = i
       vorder[++nv] = v
     }
@@ -423,8 +446,12 @@ awk -v mode="$mode" -v want="$want" '
         continue
       }
       if ((v, val(i, "rule"), val(i, "position") + 0) in pos) {
-        bad(i, "rule '\''" val(i, "rule") "'\'' already has a pair at position " val(i, "position")); if (fatal) exit
-        continue
+        e = pos[v, val(i, "rule"), val(i, "position") + 0]
+        if (layer[id[i]] == layer[id[e]]) {
+          bad(i, "rule '\''" val(i, "rule") "'\'' already has a pair at position " val(i, "position")); if (fatal) exit
+          continue
+        }
+        if (override(e, i) != i) continue
       }
       pos[v, val(i, "rule"), val(i, "position") + 0] = i
     }

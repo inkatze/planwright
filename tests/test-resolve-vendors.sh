@@ -608,6 +608,99 @@ rv "$sb"
 assert_contains "a repeated rule position is refused" "claude.two is malformed (rule 'auto' already has a pair at position 1)" "$ERR"
 assert_contains "the first pair at the position stands" "choice${TAB}claude${TAB}auto${TAB}1${TAB}prior-review${TAB}go" "$OUT"
 
+# A conflict between entries from different layers is an override: the
+# higher-precedence layer wins with a warning naming both, whatever the
+# merged order, and a lower layer never fails a shared catalog.
+sb="$tmp/cross-layer-position"
+seed "$sb"
+put "$(adopter_cat "$sb")" <<'YAML'
+vendors:
+  - id: claude.early
+    vendor: claude
+    part: control
+    args: --early
+  - id: claude.mine
+    vendor: claude
+    part: choice
+    rule: auto
+    position: 1
+    condition: no-prior-review
+    control: early
+YAML
+put "$(repo_cat "$sb")" <<'YAML'
+vendors:
+  - id: claude.go
+    vendor: claude
+    part: control
+    args: --go
+  - id: claude.team
+    vendor: claude
+    part: choice
+    rule: auto
+    position: 1
+    condition: prior-review
+    control: go
+YAML
+rv "$sb"
+assert_rc "an adopter pair never fails a repo-tracked catalog at its position" 0 "$RC"
+assert_contains "the repo-tracked pair wins the position" "choice${TAB}claude${TAB}auto${TAB}1${TAB}prior-review${TAB}go" "$OUT"
+assert_absent "the adopter pair is shadowed" "no-prior-review" "$OUT"
+assert_contains "the override names both entries and layers" "claude.team from the repo-tracked layer shadows claude.mine from the adopter layer" "$ERR"
+assert_absent "an override is not reported as malformed" "is malformed" "$ERR"
+sb="$tmp/cross-layer-vendor"
+seed "$sb"
+put "$(adopter_cat "$sb")" <<'YAML'
+vendors:
+  - id: sample-cli.vendor
+    vendor: sample-cli
+    part: vendor
+    evidence: none
+  - id: sample-cli.quota
+    vendor: sample-cli
+    part: recognizer
+    match: monthly quota exhausted
+YAML
+put "$(local_cat "$sb")" <<'YAML'
+vendors:
+  - id: sample-cli.mine
+    vendor: sample-cli
+    part: vendor
+    evidence: none
+    bot-login: sample-cli-app[bot]
+YAML
+rv "$sb"
+assert_rc "a second vendor entry from a higher layer overrides" 0 "$RC"
+assert_contains "the machine-local vendor entry wins" "vendor${TAB}sample-cli${TAB}none${TAB}sample-cli-app[bot]" "$OUT"
+assert_contains "the vendor's other parts survive the override" "recognizer${TAB}sample-cli${TAB}quota" "$OUT"
+assert_contains "the vendor override names both entries and layers" "sample-cli.mine from the machine-local layer shadows sample-cli.vendor from the adopter layer" "$ERR"
+# A same-layer conflict in a shared layer is still malformed.
+sb="$tmp/same-layer-repo"
+seed "$sb"
+put "$(repo_cat "$sb")" <<'YAML'
+vendors:
+  - id: claude.go
+    vendor: claude
+    part: control
+    args: --go
+  - id: claude.one
+    vendor: claude
+    part: choice
+    rule: auto
+    position: 1
+    condition: prior-review
+    control: go
+  - id: claude.two
+    vendor: claude
+    part: choice
+    rule: auto
+    position: 1
+    condition: no-prior-review
+    control: go
+YAML
+rv "$sb"
+assert_rc "a same-layer conflict in repo-tracked hard-fails" 4 "$RC"
+assert_contains "the same-layer conflict is named malformed" "claude.two is malformed (rule 'auto' already has a pair at position 1)" "$ERR"
+
 # An entry that lost an indented line to the catalog reader is malformed in
 # its own layer only: a later layer's clean supersede of it stands.
 lost_entry() {
