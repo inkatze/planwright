@@ -754,15 +754,13 @@ plant_live_lock() {
   printf '%s\n' "$_pl_pid"
 }
 
-# Plant a lock whose owner has already exited and been reaped, so `kill -0` on
-# its pid answers ESRCH — the only staleness the library recognizes.
+# Plant a lock whose owner cannot exist, so `kill -0` on its pid answers ESRCH,
+# the only staleness the library recognizes. The pid is above every host's pid
+# ceiling; a reaped child's pid can be handed out again before the probe.
 plant_dead_lock() {
   _pd_state="$1"
   mkdir -p "$_pd_state/carry-lock"
-  sh -c 'exit 0' >/dev/null 2>&1 &
-  _pd_pid=$!
-  wait "$_pd_pid" 2>/dev/null || true
-  ln -s "$_pd_pid-1700000000-1" "$(lock_path_for "$_pd_state")"
+  ln -s "999999999-1700000000-1" "$(lock_path_for "$_pd_state")"
 }
 
 # ---------------------------------------------------------------------------

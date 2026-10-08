@@ -582,10 +582,9 @@ cmp -s "$tasks" "$pristine9" || fail "busy lock: hook reconciled instead of skip
 touch -h -t 202001010000 "$repo/specs/demo/.orchestrate.lock" 2>/dev/null || true
 run_hook "$repo" "gh pr create --draft" "https://github.com/o/r/pull/12" || fail "aged live lock: non-zero exit"
 cmp -s "$tasks" "$pristine9" || fail "aged live lock: hook broke a lock whose owner is running"
-# An owner that is gone: a reaped child's pid names no process.
-sh -c 'exit 0' &
-dead_pid=$!
-wait "$dead_pid" 2>/dev/null || true
+# An owner that is gone: a pid above every host's pid ceiling names no process
+# and never will, where a reaped child's pid can be handed out again.
+dead_pid=999999999
 rm -f "$repo/specs/demo/.orchestrate.lock"
 ln -s "$dead_pid-0-1" "$repo/specs/demo/.orchestrate.lock"
 run_hook "$repo" "gh pr create --draft" "https://github.com/o/r/pull/12" || fail "absent-owner lock: non-zero exit"

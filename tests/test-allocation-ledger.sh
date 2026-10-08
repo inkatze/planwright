@@ -443,10 +443,15 @@ kill -0 "$anc_waiter" 2>/dev/null \
 kill "$anc_waiter" 2>/dev/null || true
 wait "$anc_waiter" 2>/dev/null || true
 
-# Reap the owner before probing: an unwaited child is a zombie, and `kill -0`
-# on a zombie succeeds, so the liveness probe would still read it as alive.
+# The live owner is stopped, and the gone owner re-staged on a pid above every
+# host's pid ceiling: a reaped pid could be handed out again before the acquire
+# probes it.
 kill "$anc_pid" 2>/dev/null || true
 wait "$anc_pid" 2>/dev/null || true
+rm -f "$anc_lock"
+anc_token="999999999-$(date +%s)-1"
+ln -s "$anc_token" "$anc_lock" || fail "8j: could not re-stage the ancient lock"
+touch -h -t 200001010000 "$anc_lock" 2>/dev/null || true
 anc_new=$("$LEDGER" lock ancient:unit) || fail "8j: a lock whose owner is gone was not collectable"
 [ "$anc_new" != "$anc_token" ] || fail "8j: the dead owner's token survived the break"
 [ "$(readlink "$anc_lock")" = "$anc_new" ] \

@@ -226,12 +226,10 @@ plant_lock() {
   ln -s "$planted_token" "$1" || fail "cannot plant a lock at $1"
 }
 
-# A pid that is deterministically dead: spawned and reaped here rather than a
-# number assumed free. A host where an assumed pid happened to be live would
-# quietly stop exercising the break the cases below name.
-: >"$tmp/deadpid.probe" &
-dead_pid=$!
-wait "$dead_pid" 2>/dev/null
+# A pid that is deterministically dead: above every host's pid ceiling, so no
+# process can hold it. A reaped child's pid would not do: the host can hand it
+# out again while the cases below still read it as gone.
+dead_pid=999999999
 
 # wait_until <timeout-tenths> <cmd...> — poll a condition.
 wait_until() {

@@ -483,9 +483,9 @@ wait "$other_pid" 2>/dev/null || true
 
 # A hold whose owner is gone is still cleared by release: the recovery path
 # that the wedge depends on does not regress.
-sh -c 'exit 0' &
-gone_pid=$!
-wait "$gone_pid" 2>/dev/null || true
+# A pid above every host's pid ceiling: never a process, where a reaped
+# child's pid can be handed out again before the release probes it.
+gone_pid=999999999
 ln -s "$gone_pid-0-0-1" "$relspec/.orchestrate.lock"
 /bin/bash "$LOCK" release "$relspec" || fail "release over an absent owner was refused"
 [ ! -L "$relspec/.orchestrate.lock" ] || fail "release over an absent owner left the lock"

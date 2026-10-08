@@ -604,11 +604,14 @@ echo "ok: clearing a lock symlink removes the link and never its target"
 # ---------------------------------------------------------------------------
 home_old="$tmp/old-live-home"
 mkdir -p "$home_old"
-# The mint time is NOW: a process cannot have minted a token before it started,
-# and the probe uses exactly that to tell a real owner from an unrelated one
-# wearing a recycled pid. The AGE under test is the file's, back-dated below.
-old_live_token="$$-$(date +%s)-1" # owned by this still-running shell
-ln -s "$old_live_token" "$home_old/.fleet.lock"
+# Minted by the verb itself, on behalf of this still-running shell, so the token
+# carries the mint-time fields the probe uses to tell a real owner from an
+# unrelated one wearing a recycled pid. The AGE under test is the file's,
+# back-dated below.
+old_live_token=$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+  PLANWRIGHT_FLEET_STATE_DIR="$home_old" /bin/sh "$FS" lock --owner-pid "$$") \
+  || fail "could not mint the live owner's lock"
+[ "$(readlink "$home_old/.fleet.lock")" = "$old_live_token" ] || fail "the minted lock is not the one printed"
 touch -h -t 200001010000 "$home_old/.fleet.lock"
 rc=0
 env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
