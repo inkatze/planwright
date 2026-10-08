@@ -2118,6 +2118,14 @@ the in-process (subagent) shape, where a worker inherits the hosting
 session's effective mode. A refusal is a dispatch stop condition, surfaced,
 never bypassed.
 
+**A worker issues `git` without a `cd`.** A dispatched worker already runs in
+its own worktree, so it runs `git` and its reads there directly. The worker
+guard approves a `cd` into that worktree, but Claude Code prompts on its own
+for a command that changes directory before a `git` call, whatever a hook
+decides: `cd <worktree> && git status` still stops the worker, and
+`git status` does not. Write worker prompts and briefs the same way, with no
+`cd` preamble.
+
 **The tower runs under its own tested allow layer.** A tower's own
 orchestration commands — tmux relay/observe, a `claude --worktree` hand-launch
 the tower runs at the operator's request, planwright scripts by resolved

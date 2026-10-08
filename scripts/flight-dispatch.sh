@@ -870,6 +870,8 @@ committed record is the landing reference; push the completion with it:
     printf '%s\n' "- Write no spec state and edit no spec bundle under \`$spec_rel/<spec>/\`; a flight"
     printf '%s\n' "  is specless. The record file under \`$spec_rel/_flights/\` is not a bundle."
     printf '%s\n' "- Unattended: never block on a question. What needs a human parks the flight."
+    printf '%s\n' "- You already run in the flight's worktree: issue \`git\` and reads there without"
+    printf '%s\n' "  a \`cd\`. Claude Code prompts on a \`cd\` before a \`git\` call whatever a hook decides."
     printf '\n%s\n' "When done, finish with one final line exactly:"
     printf '%s\n' "\`FLIGHT-RESULT: landing=<pr-url|record-path|none> status=<landed|parked> reason=<short>\`"
   } >"$brief" || return 1
