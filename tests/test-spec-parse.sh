@@ -1628,6 +1628,21 @@ eq "no entry at all" 1 "$rc"
 rc=0
 spec_parse_latest_anchor_entry "$tmp/b-half.md" >/dev/null 2>&1 || rc=$?
 eq "a half-written newest entry never falls back to the older one" 2 "$rc"
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Anchor: `%s` — computed as\n' "$h1" >"$tmp/b-lonehalf.md"
+rc=0
+spec_parse_latest_anchor_entry "$tmp/b-lonehalf.md" >/dev/null 2>&1 || rc=$?
+eq "a lone half-written entry is unparseable, not absent" 2 "$rc"
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Class:\nClass: meaning\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$h1" >"$tmp/b-emptydup.md"
+rc=0
+spec_parse_latest_anchor_entry "$tmp/b-emptydup.md" --record >/dev/null 2>&1 || rc=$?
+eq "an empty first Class line still counts toward a duplicate" 2 "$rc"
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Class: meaning\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n\000\n' "$h1" >"$tmp/b-nul.md"
+rc=0
+spec_parse_latest_anchor_entry "$tmp/b-nul.md" >/dev/null 2>&1 || rc=$?
+eq "a NUL-bearing brief is refused" 1 "$rc"
 rc=0
 spec_parse_latest_anchor_entry "$tmp/b-two.md" --bogus >/dev/null 2>&1 || rc=$?
 eq "an unknown flag is a usage refusal" 2 "$rc"
