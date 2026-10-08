@@ -450,7 +450,10 @@ if [ -r "$doc" ]; then
   mkdir -p "$sb/repo/.claude/catalogs.local"
   GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$sb/repo"
   awk '/^```yaml$/ { inb = 1; next } /^```$/ { inb = 0; next } inb && !/^vendors:/ { print }' "$doc" \
-    | { echo "vendors:"; cat; } >"$sb/repo/.claude/catalogs.local/vendors.yaml"
+    | {
+      echo "vendors:"
+      cat
+    } >"$sb/repo/.claude/catalogs.local/vendors.yaml"
   RC=0
   OUT=$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_ADOPTER_OVERLAY="$sb/adopter" \
     PLANWRIGHT_REPO_ROOT="$sb/repo" /bin/bash "$RV" 2>"$sb/err") || RC=$?
