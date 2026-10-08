@@ -551,6 +551,7 @@ cap=$(capacity)
 bound=$(wait_bound)
 nap=0.1
 round=0
+reported=''
 while :; do
   [ "$round" -eq 0 ] || pid_running "$owner" || refuse "owner $owner is not running"
   i=1
@@ -584,7 +585,7 @@ while :; do
   done
   elapsed=$(($(date +%s) - start))
   total=$((waited + elapsed))
-  if [ "$waited" -eq 0 ] && [ -z "${reported:-}" ]; then
+  if [ "$waited" -eq 0 ] && [ -z "$reported" ]; then
     reported=yes
     printf 'step-pool: pool %s is full (capacity %s); waiting up to %ss on: %s\n' \
       "$pool" "$cap" "$bound" "$(describe "$(holders)")" >&2
