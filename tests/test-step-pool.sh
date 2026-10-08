@@ -908,8 +908,10 @@ done
 # --- REQ-I1.1: an owner whose pid passes to another user mid-take is refused ----
 # The stub answers the owner's user truthfully for the first lookups, then as
 # another user's, the shape of the owner exiting and its pid being reused.
+# The bound only has to outlast the take's setup on a loaded host: the refusal
+# comes in the first wait round.
 reset
-printf 'step_pool_wait: 3s\n' >"$mlocal"
+printf 'step_pool_wait: 30s\n' >"$mlocal"
 stub11="$tmp/stub11"
 mkdir -p "$stub11"
 real_ps11=$(command -v ps)
@@ -1000,7 +1002,7 @@ fi
 # On a host that hides other users' processes, an unreadable user after entry
 # is what another user's process reusing the owner's pid looks like.
 reset
-printf 'step_pool_wait: 3s\n' >"$mlocal"
+printf 'step_pool_wait: 30s\n' >"$mlocal"
 stub14="$tmp/stub14"
 mkdir -p "$stub14"
 real_ps14=$(command -v ps)
@@ -1101,22 +1103,26 @@ else
 fi
 
 # --- REQ-I1.1: one transient user lookup failure does not refuse a take ---------
+# The stub fails the first wait round's lookup and frees the holder's slot on
+# the re-read, so the take succeeds only by reaching a wait round and not
+# refusing there, however long its setup runs.
 reset
-printf 'step_pool_wait: 3s\n' >"$mlocal"
+printf 'step_pool_wait: 30s\n' >"$mlocal"
 stub20="$tmp/stub20"
 mkdir -p "$stub20"
 real_ps20=$(command -v ps)
-printf '#!/bin/sh\ncase "$*" in *uid=*)\n  n=$(cat "%s/count" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" >"%s/count"\n  [ "$n" -ne 2 ] || exit 1 ;;\nesac\nexec %s "$@"\n' \
-  "$stub20" "$stub20" "$real_ps20" >"$stub20/ps"
-chmod +x "$stub20/ps"
 a=$(owner)
 b=$(owner)
+printf '#!/bin/sh\ncase "$*" in *uid=*)\n  n=$(cat "%s/count" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" >"%s/count"\n  [ "$n" -ne 2 ] || exit 1\n  [ "$n" -ne 3 ] || PATH="%s" "%s" release blip %s >/dev/null ;;\nesac\nexec %s "$@"\n' \
+  "$stub20" "$stub20" "$PATH" "$SP" "$a" "$real_ps20" >"$stub20/ps"
+chmod +x "$stub20/ps"
 sp -- take blip "$a" >/dev/null
-sp "PATH=$stub20:$PATH" -- take blip "$b" >/dev/null 2>"$tmp/err"
+out=$(sp "PATH=$stub20:$PATH" -- take blip "$b" 2>"$tmp/err")
 rc=$?
-[ "$rc" -eq 3 ] && ! grep -q 'could not be read during the take' "$tmp/err" && [ "$(cat "$stub20/count")" -ge 3 ]
-verdict "a single failed user lookup mid-wait is re-read, not refused" "transient lookup: rc=$rc" "$tmp/err"
-sp -- release blip "$a" >/dev/null
+[ "$rc" -eq 0 ] && [ "${out%%"$TAB"*}" = taken ] && ! grep -q 'could not be read during the take' "$tmp/err" \
+  && [ "$(cat "$stub20/count")" -ge 3 ]
+verdict "a single failed user lookup mid-wait is re-read, not refused" "transient lookup: rc=$rc out='$out'" "$tmp/err"
+sp -- release blip "$b" >/dev/null
 
 # --- REQ-I1.2: the helper sits on the shared primitive --------------------------
 grep -qF '. "$script_dir/lock-lib.sh"' "$SP"
