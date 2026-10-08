@@ -242,10 +242,10 @@ derive_handle() {
   # handle at all is the honest answer there, and the sweep already refuses on
   # it rather than guessing.
   [ ! -t 0 ] && [ ! -t 1 ] || return 0
-  # `#{window_id}`, not the index: the death predicate lists a session's
-  # windows as id and name and compares a handle's second argument against
-  # those two, so an index matches neither and a live window would be read as
-  # dead.
+  # `#{window_id}`, not the index or the name: the death predicate looks an id
+  # up across the whole server, so the hold stays attributed to a live window
+  # whose session is renamed, where a session-and-name pair would read that
+  # rename as the holder's death and let a sweep clear a live lock.
   dh_tw=$(tmux display-message -p -t "$TMUX_PANE" '#{session_name} #{window_id}' 2>/dev/null) || dh_tw=""
   # One space, no tab, and no shell pattern character: a handle is recorded to
   # be split and handed to a predicate later, and one carrying a glob is one
