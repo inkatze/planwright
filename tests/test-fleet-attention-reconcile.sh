@@ -31,7 +31,8 @@
 #   w1: the unit rule derives from --repo even when the caller sits elsewhere
 #       and PLANWRIGHT_REPO_ROOT or PLANWRIGHT_BASE_REF point elsewhere (a
 #       side branch's trailer does not complete a unit), and a --repo that
-#       is no repository is refused.
+#       is no repository is refused, as is an empty, dash-led or
+#       control-byte --repo value.
 #   r1: a row its worker rewrote between the verdict and the clear survives.
 #   u2: a row with no registry record and an unfinished unit is kept.
 #   a1: an awaiting-input row is kept whatever its unit or worker evidence.
@@ -389,6 +390,12 @@ rm -f "$home/attention/state"
 n_rc=0
 (cd / && fenv /bin/sh "$REC" --repo "$other" >/dev/null 2>&1) || n_rc=$?
 [ "$n_rc" = 2 ] || fail "w1: a --repo outside any repository with no store exited $n_rc, expected 2"
+for bad in "" "-x" "$repo$(printf '\033')"; do
+  n_rc=0
+  (cd / && fenv /bin/sh "$REC" --repo "$bad" >/dev/null 2>"$tmp/err") || n_rc=$?
+  [ "$n_rc" = 2 ] || fail "w1: a malformed --repo exited $n_rc, expected 2"
+  grep -q 'refusing a' "$tmp/err" || fail "w1: a malformed --repo was not refused as such: $(cat "$tmp/err")"
+done
 echo "ok: w1 the derivation reads the named checkout"
 
 # --- r1: a worker writing between the verdict and the clear -----------------
