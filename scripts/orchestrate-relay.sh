@@ -227,6 +227,31 @@ reject_handle() {
   exit 2
 }
 
+# require_tmux_target <handle> <message-file> — exit 2 unless both are safe to
+# target and emit; sets msg_abs to the message path made absolute.
+require_tmux_target() {
+  valid_handle tmux "$1" || reject_handle tmux
+  valid_msgfile "$2" || {
+    printf '%s\n' "$me: message file missing or path unsafe to relay: $(sanitize_printable "$2" "(unprintable path)")" >&2
+    exit 2
+  }
+  msg_abs=$(absolute_msgfile "$2") || {
+    printf '%s\n' "$me: message file path unsafe to relay once made absolute: $(sanitize_printable "$2" "(unprintable path)")" >&2
+    exit 2
+  }
+}
+
+# require_safe_script_dir — exit 2 when the install path cannot sit inside a
+# single-quoted literal in an emitted command.
+require_safe_script_dir() {
+  case "$script_dir" in
+    *"'"* | *"$nl"*)
+      echo "$me: install path unsafe to emit inside a single-quoted command" >&2
+      exit 2
+      ;;
+  esac
+}
+
 sub=${1:-}
 [ -n "$sub" ] || {
   usage
@@ -254,21 +279,8 @@ case "$sub" in
     msg=$3
     case "$backend" in
       tmux)
-        valid_handle tmux "$handle" || reject_handle tmux
-        valid_msgfile "$msg" || {
-          printf '%s\n' "$me: message file missing or path unsafe to relay: $(sanitize_printable "$msg" "(unprintable path)")" >&2
-          exit 2
-        }
-        msg_abs=$(absolute_msgfile "$msg") || {
-          printf '%s\n' "$me: message file path unsafe to relay once made absolute: $(sanitize_printable "$msg" "(unprintable path)")" >&2
-          exit 2
-        }
-        case "$script_dir" in
-          *"'"* | *"$nl"*)
-            echo "$me: install path unsafe to emit inside a single-quoted command" >&2
-            exit 2
-            ;;
-        esac
+        require_tmux_target "$handle" "$msg"
+        require_safe_script_dir
         # The emitted line runs this script by its literal path (the shape the
         # tower command-guard approves), so the refusal and the confirmation
         # below travel with every relay instead of depending on the caller.
@@ -288,12 +300,7 @@ case "$sub" in
         # approves), never through a variable. The install path is bound into
         # a single-quoted literal the same way the message path is, so it gets
         # the same refusal on a quote or newline.
-        case "$script_dir" in
-          *"'"* | *"$nl"*)
-            echo "$me: install path unsafe to emit inside a single-quoted command" >&2
-            exit 2
-            ;;
-        esac
+        require_safe_script_dir
         printf '%s\n' "'$script_dir/fleet-streamjson.sh' steer '$handle' --message-file '$msg'"
         exit 0
         ;;
@@ -319,16 +326,7 @@ case "$sub" in
       exit 2
     }
     handle=$2
-    msg=$3
-    valid_handle tmux "$handle" || reject_handle tmux
-    valid_msgfile "$msg" || {
-      printf '%s\n' "$me: message file missing or path unsafe to relay: $(sanitize_printable "$msg" "(unprintable path)")" >&2
-      exit 2
-    }
-    msg_abs=$(absolute_msgfile "$msg") || {
-      printf '%s\n' "$me: message file path unsafe to relay once made absolute: $(sanitize_printable "$msg" "(unprintable path)")" >&2
-      exit 2
-    }
+    require_tmux_target "$handle" "$3"
     tries=$(bounded_int "${PLANWRIGHT_RELAY_CONFIRM_TRIES:-}" 5 20)
     [ "$tries" -ge 1 ] || tries=5
     pause=$(bounded_int "${PLANWRIGHT_RELAY_CONFIRM_SLEEP:-}" 1 3)
@@ -405,12 +403,7 @@ case "$sub" in
         ;;
       stream-json)
         valid_handle stream-json "$handle" || reject_handle stream-json
-        case "$script_dir" in
-          *"'"* | *"$nl"*)
-            echo "$me: install path unsafe to emit inside a single-quoted command" >&2
-            exit 2
-            ;;
-        esac
+        require_safe_script_dir
         printf '%s\n' "'$script_dir/fleet-streamjson.sh' status '$handle'"
         exit 0
         ;;
