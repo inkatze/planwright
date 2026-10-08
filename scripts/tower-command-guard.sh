@@ -10,13 +10,18 @@
 # read-only state-observation shapes a tower reads — and DEFERS everything else
 # to Claude Code's normal permission flow, fronting the stochastic `auto`-mode classifier with a tested allow layer so
 # routine orchestration commands are never non-deterministically blocked.
+# The /tower front door runs under the same profile, so the set also carries
+# the shapes its sessions run routinely: jq with an inline filter (the worker
+# guard's screen, kept identical), bare mktemp, and removal of mktemp-named
+# files directly inside TMPDIR, the macOS per-user temp directory, or /tmp.
 #
 # It reuses the worker-command-guard PATTERN (worker-permission-ergonomics,
 # #236/#237) — same tokenizer, same allow-only / fail-closed / no-LLM security
 # contract — but fronts a DISTINCT safe set (D-8, REQ-C1.2): it ADDS the
-# tower-only shapes (tmux relay/observe, the `claude --worktree` hand-launch)
-# the worker guard defers, and it OMITS the worker-only shapes (`bats`, `tests/`
-# scripts, `fish -c` recursion) the tower does not run. The two guards are
+# tower-only shapes (tmux relay/observe, the `claude --worktree` hand-launch,
+# bare mktemp, the temp-file rm) the worker guard defers, and it OMITS the
+# worker-only shapes (`bats`, `tests/` scripts, `fish -c` recursion) the tower
+# does not run. The two guards are
 # separate files by design: worker-command-guard.sh is a shipped, consumed
 # mechanism this task must not perturb, and a self-contained security script is
 # auditable without a cross-file dependency that could break at runtime.
@@ -57,14 +62,15 @@
 # `||` `|` `&` and newlines; EVERY segment's simple command must be
 # independently known-safe. A command is known-safe only when its verb is on the
 # tower allowlist, its flags/args designate no output/target file and enable no
-# write or arbitrary execution, and it uses no construct the analyzer cannot
+# write or arbitrary execution (the bounded temp-file create and remove of
+# guard_mktemp and guard_rm excepted), and it uses no construct the analyzer cannot
 # confidently parse (command/process substitution, here-docs, subshell/brace
 # grouping, env-assignment prefixes, path-prefixed verbs, escaped operators,
-# ANSI-C quoting, shell comments) — all of which defer, as does any other
-# expansion left in a verb or in an operand a screen reads (a `for` variable
-# over plain-literal head words is resolved; see loop_header). planwright
-# `scripts/*.sh` are trusted repo/plugin code but only after their path
-# canonicalizes INSIDE the repo checkout's or the installed plugin's
+# ANSI-C quoting, shell comments, named-fd redirects) — all of which defer, as
+# does any other expansion left in a verb or in an operand a screen reads (a
+# `for` variable over plain-literal head words is resolved; see loop_header).
+# planwright `scripts/*.sh` are trusted repo/plugin code but only after their
+# path canonicalizes INSIDE the repo checkout's or the installed plugin's
 # `scripts/` directory.
 #
 # Portable bash (3.2 floor / BSD compatible), no dependency on python, fish,
@@ -101,7 +107,7 @@ readonly MAX_SIMPLE_CMDS=512
 
 # The fixed reason string. It is NEVER a reflection of the analyzed command:
 # untrusted command content is never echoed to a terminal-driving stream.
-readonly ALLOW_REASON='planwright tower-command-guard: enumerated known-safe tower orchestration / read-only command shape (deterministic, no LLM)'
+readonly ALLOW_REASON='planwright tower-command-guard: enumerated known-safe tower orchestration / read-only / bounded temp-file command shape (deterministic, no LLM)'
 
 # emit_allow: write the single allow decision (the only thing this hook ever
 # prints). Written as one final action after every check has passed, so there
@@ -117,7 +123,8 @@ emit_allow() {
 # operator, possibly with an fd-number prefix). Returns non-zero (DEFER) the
 # instant it meets a construct it will not analyze: unbalanced quotes,
 # command/process substitution, backtick substitution, ANSI-C `$'…'`, a
-# backslash line-continuation or escaped operator/quote, or a shell comment.
+# backslash line-continuation or escaped operator/quote, a shell comment, or a
+# named-fd redirect.
 # It never executes or expands anything it scans. A W token also records
 # whether it carries a LITERAL `$` (single quotes or a backslash), an
 # EXPANDING `$` (1 inside double quotes, 2 unquoted), and an unquoted glob,
@@ -131,14 +138,17 @@ tok_push() {
   TOK_NOEXP[TOK_N]=${4:-0}
   TOK_DYN[TOK_N]=${6:-0}
   TOK_GLOB[TOK_N]=${7:-0}
+  TOK_ZOPT[TOK_N]=${8:-0}
   TOK_N=$((TOK_N + 1))
 }
 
 # dollar_expands <next-char>: 0 when a `$` followed by <next-char> starts an
 # expansion. A `$` before anything else (end of word, `/`, a space) is literal.
+# zsh, the Bash tool's shell on macOS, also expands `$~NAME`, `$=NAME`,
+# `$^NAME` and `$+NAME`, which bash leaves as text.
 dollar_expands() {
   case $1 in
-    [A-Za-z0-9_@*#?!-] | '{' | '$' | '[' | '"') return 0 ;;
+    [A-Za-z0-9_@*#?!~=^+-] | '{' | '$' | '[' | '"') return 0 ;;
   esac
   return 1
 }
@@ -148,10 +158,16 @@ dollar_expands() {
 # around a bare NAME. Any other brace form (`${a[i]}`, `${x:off}`, `${!n}`,
 # `${#x}`, a modifier) evaluates text the hook never sees, an array subscript
 # or offset arithmetically, so a value read at run time can run a command.
+# A non-ASCII byte right after the `$`, or right after the NAME it opens,
+# defers: zsh in a UTF-8 locale reads a non-ASCII letter as part of a name,
+# so the shell expands one longer name where this C-locale scan ends the
+# name before that byte and keeps the byte as literal text. zsh's `$~NAME`
+# defers wherever it appears: it reads the value as a glob pattern, and a
+# glob qualifier in that value can run a command during the expansion.
 dollar_form_ok() {
   local s=$1 i=$2 j body
   case ${s:i+1:1} in
-    '[') return 1 ;;
+    '[' | '~') return 1 ;;
     '{')
       j=$((i + 2))
       body=''
@@ -164,6 +180,20 @@ dollar_form_ok() {
         '' | [!A-Za-z_]* | *[!A-Za-z0-9_]*) return 1 ;;
       esac
       ;;
+    *)
+      j=$((i + 1))
+      case ${s:j:1} in [=^+#]) j=$((j + 1)) ;; esac
+      while [ "$j" -lt "${#s}" ]; do
+        case ${s:j:1} in
+          [A-Za-z0-9_]) j=$((j + 1)) ;;
+          *) break ;;
+        esac
+      done
+      case ${s:j:1} in
+        '' | [[:print:][:cntrl:]]) ;;
+        *) return 1 ;;
+      esac
+      ;;
   esac
   return 0
 }
@@ -172,22 +202,34 @@ tokenize() {
   local s=$1
   local n=${#s}
   local i=0
-  local cur='' have=0 curq=0 curx=0 curd=0 curg=0 brk=0 brc=0 brs=0
+  local cur='' have=0 curq=0 curx=0 curd=0 curg=0 curz=0 brk=0 brc=0 brs=0
   local c nc j k dc dn fdpfx
 
   _flush() {
     if [ "$have" = 1 ]; then
-      tok_push W "$cur" "$curq" "$curx" -1 "$curd" "$curg"
+      tok_push W "$cur" "$curq" "$curx" -1 "$curd" "$curg" "$curz"
       cur=''
       have=0
       curq=0
       curx=0
       curd=0
       curg=0
+      curz=0
       brk=0
       brc=0
       brs=0
     fi
+  }
+
+  # named_fd_word: 0 when the word built up to a redirect is a `{name}`
+  # brace word, which bash and zsh read as a named-fd redirect that assigns
+  # that shell variable, not as an operand.
+  named_fd_word() {
+    [ "$have" = 1 ] || return 1
+    case $cur in
+      '{'*'}') return 0 ;;
+    esac
+    return 1
   }
 
   while [ "$i" -lt "$n" ]; do
@@ -282,8 +324,9 @@ tokenize() {
         fi
         ;;
       '&')
-        _flush
         nc=${s:i+1:1}
+        [ "$nc" = '>' ] && named_fd_word && return 1
+        _flush
         if [ "$nc" = '&' ]; then
           tok_push O '&&'
           i=$((i + 2))
@@ -318,10 +361,11 @@ tokenize() {
         # A pure-digit run built up to here with no intervening space is the
         # fd number of this redirect (e.g. the 2 in 2>&1), not a word.
         fdpfx=''
+        named_fd_word && return 1
         if [ "$have" = 1 ]; then
           case $cur in
-            '' | *[!0-9]*) tok_push W "$cur" "$curq" "$curx" -1 "$curd" "$curg" ;;
-            *) [ "$curq" = 1 ] && tok_push W "$cur" "$curq" "$curx" -1 "$curd" "$curg" || fdpfx=$cur ;;
+            '' | *[!0-9]*) tok_push W "$cur" "$curq" "$curx" -1 "$curd" "$curg" "$curz" ;;
+            *) [ "$curq" = 1 ] && tok_push W "$cur" "$curq" "$curx" -1 "$curd" "$curg" "$curz" || fdpfx=$cur ;;
           esac
           cur=''
           have=0
@@ -329,6 +373,7 @@ tokenize() {
           curx=0
           curd=0
           curg=0
+          curz=0
           brk=0
           brc=0
           brs=0
@@ -393,12 +438,19 @@ tokenize() {
           '*' | '?') curg=1 ;;
           '[') brk=1 ;;
           ']') [ "$brk" = 1 ] && curg=1 ;;
-          '{') brc=1 ;;
+          '{')
+            brc=1
+            curz=1
+            ;;
           ',') [ "$brc" = 1 ] && brs=1 ;;
           '.') [ "$brc" = 1 ] && [ "${s:i+1:1}" = . ] && brs=1 ;;
-          '}') [ "$brs" = 1 ] && curg=1 ;;
-          '~') [ "$have" = 0 ] && curg=1 ;;
-          '#') [ "$have" = 0 ] && return 1 ;;
+          '}')
+            [ "$brs" = 1 ] && curg=1
+            curz=1
+            ;;
+          '~') if [ "$have" = 0 ]; then curg=1; else curz=1; fi ;;
+          '#') if [ "$have" = 0 ]; then return 1; else curz=1; fi ;;
+          '^') curz=1 ;;
         esac
         cur="$cur$c"
         have=1
@@ -772,7 +824,7 @@ guard_sed() {
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$expect_e" = 1 ]; then
-      sed_script_safe "$a" || return 1
+      zsh_opt_word_ok "$i" && sed_script_safe "$a" || return 1
       expect_e=0
       script_taken=1
       continue
@@ -780,14 +832,14 @@ guard_sed() {
     case $a in
       -e) expect_e=1 ;;
       --expression=*)
-        sed_script_safe "${a#--expression=}" || return 1
+        zsh_opt_word_ok "$i" && sed_script_safe "${a#--expression=}" || return 1
         script_taken=1
         ;;
       -n | -E | -r | -s | -z | -u | --posix | --quiet | --silent | --regexp-extended | --separate | --null-data | --unbuffered | --debug | --sandbox | --help | --version | --) ;;
       -*) return 1 ;; # -i / -f / -l / bundled / unknown: defer
       *)
         if [ "$script_taken" = 0 ]; then
-          sed_script_safe "$a" || return 1
+          zsh_opt_word_ok "$i" && sed_script_safe "$a" || return 1
           script_taken=1
         fi
         ;;
@@ -973,7 +1025,7 @@ guard_awk() {
       -*) return 1 ;; # -f / -p / -o / -d / -l / -i / -E / bundled / unknown: defer
       *)
         if [ "$prog_taken" = 0 ]; then
-          awk_program_safe "$a" || return 1
+          zsh_opt_word_ok "$i" && awk_program_safe "$a" || return 1
           prog_taken=1
         fi
         ;;
@@ -1219,6 +1271,345 @@ guard_gh() {
   esac
 }
 
+# zsh_opt_word_ok <index>: 0 unless word <index> of the current simple command
+# (cz, by dynamic scope) holds an unquoted character that a zsh option off by
+# default would expand (extended globbing's `^`, `~` and `#`, brace character
+# classes). The program-text screens read that word as literal text, so they
+# refuse it; the same characters in any other word keep their verdicts.
+zsh_opt_word_ok() {
+  [ "${cz[$1]-0}" = 0 ]
+}
+
+# jq_program_safe <program>: 0 only when a jq filter is provably free of an
+# ENVIRONMENT read and loads no module text. jq's language has no exec and no
+# file-write primitive at all; what it does have is `env` and `$ENV`, either
+# of which hands the whole environment to the filter (and from there to the
+# transcript), `include` / `import`, which pull in module text the guard
+# never sees, from a search path the filter itself can name, and `modulemeta`,
+# which reads that text back. That is the same
+# call guard_awk makes on `ENVIRON`, and for the same reason: the guard can see
+# the read but not what the program does with the value.
+#
+# Each of those names rejects only as a WORD: a preceding `.` makes it a FIELD
+# ACCESS on the input (`.env`, `.a.include`), an identifier character after it
+# a longer name (`envelope`, `ENVIRONMENT`), and a preceding `$` someone's own
+# variable (`$env`, `$import`). `ENV` takes no `$` exemption, since jq 1.6 and
+# older read `$ ENV`, with a space or a comment between the two, as `$ENV`. A
+# mention the rule cannot place that way, `"env"` inside a string included,
+# defers; that costs the filter shapes nothing.
+jq_program_safe() {
+  local s=$1
+  local n=${#s} i=0 p a w words
+  case $s in
+    *\$ENV*) return 1 ;;
+    *env* | *ENV* | *include* | *import* | *modulemeta*) ;;
+    *) return 0 ;; # names none of the screened words
+  esac
+  while [ "$i" -lt "$n" ]; do
+    case ${s:i:1} in
+      e) words='env' ;;
+      E) words='ENV' ;;
+      i) words='include import' ;;
+      m) words='modulemeta' ;;
+      *) words='' ;;
+    esac
+    for w in $words; do
+      [ "${s:i:${#w}}" = "$w" ] || continue
+      a=${s:i+${#w}:1}
+      case $a in
+        [A-Za-z0-9_]) continue ;; # a longer name
+      esac
+      p=''
+      [ "$i" -gt 0 ] && p=${s:i-1:1}
+      case $w:$p in
+        ENV:[A-Za-z0-9_.]) ;; # a field access or a longer name
+        ENV:*) return 1 ;;
+        *:[A-Za-z0-9_.$]) ;; # a field access, a variable, or a longer name
+        *) return 1 ;;
+      esac
+    done
+    i=$((i + 1))
+  done
+  return 0
+}
+
+# jq_home_safe: 0 only when HOME is an absolute path and no `~/.jq` exists,
+# the home-directory half of guard_jq's screen (see there).
+jq_home_safe() {
+  case ${HOME:-} in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  if [ -e "$HOME/.jq" ] || [ -L "$HOME/.jq" ]; then
+    return 1
+  fi
+  return 0
+}
+
+# guard_jq: strict flag allowlist plus the environment-read and module checks
+# on the filter. Only the inline-filter form is verifiable, so `-f`/`--from-file`
+# (a filter in a file) and `-L`/`--library-path` (which is where `include` and
+# `import` read module text from) defer, as does any unrecognized flag, and so
+# does every run while `~/.jq` exists: jq reads a `~/.jq` file into every
+# filter, and a `~/.jq` directory is on its module search path. A HOME that is
+# not an absolute path defers too, since the guard cannot then tell where jq
+# looks (jq 1.6 falls back to the password entry's home when HOME is unset).
+#
+# Every value-taking flag is enumerated because the filter is identified BY
+# POSITION — it is the first non-flag operand — and a value sitting in that
+# position would be screened in its place: without this, `jq --indent 4 '$ENV'`
+# would screen `4` and hand `$ENV` through as if it were a filename. Operands
+# after the filter are input files, or positional arguments under
+# `--args`/`--jsonargs`, and jq only ever READS those.
+guard_jq() {
+  local i a t c expect=0 prog_taken=0 endflags=0
+  jq_home_safe || return 1
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    if [ "$expect" -gt 0 ]; then # a flag's value, never the filter
+      expect=$((expect - 1))
+      continue
+    fi
+    if [ "$endflags" = 0 ]; then
+      case $a in
+        --)
+          endflags=1
+          continue
+          ;;
+        --indent)
+          expect=1
+          continue
+          ;;
+        --arg | --argjson | --slurpfile | --rawfile)
+          expect=2
+          continue
+          ;;
+        --null-input | --raw-input | --slurp | --compact-output | --raw-output | \
+          --raw-output0 | --join-output | --ascii-output | --sort-keys | \
+          --color-output | --monochrome-output | --tab | --unbuffered | --stream | \
+          --stream-errors | --seq | --args | --jsonargs | --exit-status | \
+          --version | --build-configuration | --help)
+          continue
+          ;;
+        --*) return 1 ;; # --from-file / --library-path / unknown
+        -?*)
+          # jq combines short flags (`-rn`), so every character in the token is
+          # its own flag. `f` and `L` carry unscreenable program text and any
+          # other unknown character is an arg model the guard does not have.
+          t=${a#-}
+          while [ -n "$t" ]; do
+            c=${t:0:1}
+            case $c in
+              [acCehjMnrsSRV]) ;;
+              *) return 1 ;;
+            esac
+            t=${t:1}
+          done
+          continue
+          ;;
+      esac
+    fi
+    if [ "$prog_taken" = 0 ]; then
+      zsh_opt_word_ok "$i" && jq_program_safe "$a" || return 1
+      prog_taken=1
+    fi
+  done
+  [ "$expect" = 0 ] || return 1     # a dangling value-flag with no value
+  [ "$prog_taken" = 1 ] || return 1 # no inline filter (the -f form, or none)
+  return 0
+}
+
+# no_input_redirect: 0 when the simple command (verify_simple's ro/rn) carries
+# no input redirect. zsh, the shell the Bash tool runs on macOS, reads `<->`
+# and `<1-99>` as a numeric glob that expands to digit-named files, where the
+# tokenizer sees two redirects; for a writer that turns into operands the
+# guard never checked. mktemp and rm read no stdin, so any `<` form defers.
+no_input_redirect() {
+  local i r
+  for ((i = 0; i < rn; i++)); do
+    r=${ro[i]}
+    while [ -n "$r" ]; do
+      case $r in
+        [0-9]*) r=${r#?} ;;
+        *) break ;;
+      esac
+    done
+    case $r in
+      '<'*) return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# guard_mktemp: the bare form only, which creates one fresh, empty file in the
+# system temp directory (TMPDIR, or on macOS the per-user temp directory) and
+# prints its name. A template, -p/--tmpdir or -t chooses where the file goes;
+# -d makes a directory guard_rm will not remove; -u only names a path, which is
+# the race mktemp exists to avoid. Once a while or until loop has opened in the
+# command (verify_tokens' in_unbounded_loop) it defers: those loops have no
+# pass cap, so mktemp there would create files without bound. An input
+# redirect defers too (no_input_redirect).
+guard_mktemp() {
+  [ "$cwn" -eq 1 ] && [ "${in_unbounded_loop:-0}" = 0 ] && no_input_redirect
+}
+
+# canon_temp_dir <dir>: the physical path of an absolute <dir> on one line, or
+# nothing when it is relative (it would resolve against the hook's directory,
+# not the command's), unresolvable, or holds a line break the list would split.
+canon_temp_dir() {
+  local c
+  case $1 in
+    /*) ;;
+    *) return 0 ;;
+  esac
+  c=$(cd -P -- "$1" 2>/dev/null && pwd -P && printf x) || return 0
+  c=${c%x}
+  c=${c%"$NL"}
+  case $c in
+    *"$NL"*) return 0 ;;
+  esac
+  printf '%s\n' "$c"
+}
+
+# raw_temp_dir <dir>: an absolute <dir> as spelled, its trailing slashes
+# dropped, on one line; nothing when it is relative, the root, or holds a line
+# break.
+raw_temp_dir() {
+  local r=$1
+  case $r in
+    /*) ;;
+    *) return 0 ;;
+  esac
+  while :; do
+    case $r in
+      */) r=${r%/} ;;
+      *) break ;;
+    esac
+  done
+  case $r in
+    '' | *"$NL"*) return 0 ;;
+  esac
+  printf '%s\n' "$r"
+}
+
+# temp_dirs: TMPDIR, the macOS per-user temp directory (where bare mktemp
+# writes there, whatever TMPDIR says), and /tmp, each as spelled (raw_temp_dir)
+# and as resolved (canon_temp_dir), one per line. Read from the hook's own
+# environment, never from the analyzed command.
+temp_dirs() {
+  local u t
+  for t in "${TMPDIR:-}" /tmp; do
+    raw_temp_dir "$t"
+    canon_temp_dir "$t"
+  done
+  if u=$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null); then
+    raw_temp_dir "$u"
+    canon_temp_dir "$u"
+  fi
+}
+
+# loop_head_quoted: 0 when an open `for` loop (verify_tokens' LF_QH, by
+# dynamic scope) has a quoted head word, whose value the reader may have
+# dequoted differently from the shell.
+loop_head_quoted() {
+  local t
+  for ((t = 0; t < lf_n; t++)); do
+    [ "${LF_QH[t]-0}" = 1 ] && return 0
+  done
+  return 1
+}
+
+# guard_rm: removing mktemp-named temp files, so a flight petition's ask and
+# grounds files can be cleaned up once the dispatch returns. Each operand must
+# be an absolute path with no `.` or `..` component, whose name has mktemp's
+# default shape (`tmp.` and at least six letters or digits), whose directory
+# is one of temp_dirs both as written and as resolved physically (never below
+# them, and never through a symlink the list does not name), and that
+# is not a symlink, a directory, or any other non-regular file. A name that
+# does not exist yet is allowed: without -r rm cannot take a directory that
+# appears later, and a symlink that appears later is unlinked, never followed.
+# `-f` and `--` are the only flags, and only before the first operand: BSD rm
+# reads a later one as a file name. -r/-R/-d (directories), -i/-I/-v and every
+# other flag defer, and so does any removal once a while or until loop has
+# opened or with an input redirect, as guard_mktemp does. A quoted or
+# backslash-escaped operand defers too, as does one taking its value from a
+# quoted `for` head word. The guard cannot tell whose file it is: any
+# same-user file of that name in those directories qualifies.
+guard_rm() {
+  local i a d b s w dirs endflags=0 operands=0
+  [ "${in_unbounded_loop:-0}" = 0 ] || return 1
+  no_input_redirect || return 1
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    # The reader drops quoting the shell keeps (a double-quoted backslash
+    # before an ordinary character), so a quoted word, or a loop value taken
+    # from a quoted head word, may name another path to rm.
+    [ "${cq[i]-0}" = 1 ] && return 1
+    if [ "$endflags" = 0 ]; then
+      case $a in
+        --)
+          endflags=1
+          continue
+          ;;
+        -f) continue ;;
+        -*) return 1 ;;
+      esac
+    fi
+    endflags=1
+    # A newline would let a crafted directory name span lines of the
+    # newline-joined directory list below. A dot component would let a logical
+    # path walk back out through a symlink rm itself follows.
+    case $a in
+      *"$NL"* | */./* | */../* | */. | */..) return 1 ;;
+      /*) ;;
+      *) return 1 ;;
+    esac
+    b=${a##*/}
+    case $b in
+      tmp.*) s=${b#tmp.} ;;
+      *) return 1 ;;
+    esac
+    [ "${#s}" -ge 6 ] || return 1
+    case $s in
+      *[!A-Za-z0-9]*) return 1 ;;
+    esac
+    [ -L "$a" ] && return 1
+    if [ -e "$a" ]; then
+      [ -f "$a" ] || return 1
+    fi
+    # The sentinel keeps a trailing newline in the directory's name, which a
+    # bare command substitution would strip into a match.
+    d=$(cd -P -- "${a%/*}/" 2>/dev/null && pwd -P && printf x) || return 1
+    d=${d%x}
+    d=${d%"$NL"}
+    case $d in
+      *"$NL"*) return 1 ;;
+    esac
+    cache_temp_dirs
+    dirs=$TEMP_DIRS_CACHED
+    [ -n "$dirs" ] || return 1
+    case $NL$dirs$NL in
+      *"$NL$d$NL"*) ;;
+      *) return 1 ;;
+    esac
+    # The directory as written must be one of them too: a symlink in the
+    # written path could be re-pointed by its owner after this check.
+    w=${a%/*}
+    while :; do
+      case $w in
+        */) w=${w%/} ;;
+        *) break ;;
+      esac
+    done
+    case $NL$dirs$NL in
+      *"$NL$w$NL"*) ;;
+      *) return 1 ;;
+    esac
+    operands=$((operands + 1))
+  done
+  [ "$operands" -ge 1 ]
+}
+
 # mise: `mise run <task>` / `mise tasks` (and its read-only leaves) only. Any
 # pre-subcommand flag, a `--shell`/`-s` interpreter override, or another
 # subcommand defers.
@@ -1398,6 +1789,12 @@ assign_name_ok() {
       OPTIND | OPTARG | OPTERR | LANG | LANGUAGE | _ | \
       BASH* | COMP_* | READLINE_* | HIST* | LC_* | MAIL* | PS[0-9]*) return 1 ;;
   esac
+  # zsh, the Bash tool's shell on macOS, gives these names a special meaning
+  # as variables, as bash gives PATH and CDPATH.
+  case $name in
+    path | cdpath | NULLCMD | READNULLCMD | module_path | MODULE_PATH | \
+      fpath | FPATH | manpath | MANPATH) return 1 ;;
+  esac
   case $HOOK_ENV_NAMES in
     *"$NL$name$NL"*) return 1 ;;
   esac
@@ -1440,6 +1837,12 @@ expand_word() {
         j=$((j + 1))
       done
       k=$j
+      # zsh, the Bash tool's shell on macOS, applies a subscript or a modifier
+      # to an unbraced name directly followed by `[` or `:`, quoted or not, so
+      # the value is not the name's: leave it unresolved.
+      case ${w:k:1} in
+        '[' | ':') name='' ;;
+      esac
     fi
     found=''
     case $name in
@@ -1644,7 +2047,9 @@ loop_next() {
 # (tmux, claude) carry their own tight guards; and the worker-only shapes
 # (`fish`, `bats`) are deliberately ABSENT so the tower set is distinct from the
 # worker set (REQ-C1.2). Every writer / command-runner / arbitrary-exec verb is
-# simply absent here and so defers.
+# simply absent here and so defers, with one bounded exception: guard_mktemp and
+# guard_rm create and remove mktemp-named temp files and nothing else (whose
+# file it is, the guard cannot tell).
 classify_verb() {
   local verb=$1
   case $verb in
@@ -1664,6 +2069,7 @@ classify_verb() {
     find) guard_find ;;
     sed) guard_sed ;;
     awk) guard_awk ;;
+    jq) guard_jq ;;
     # markdownlint / markdownlint-cli2 are deliberately ABSENT from the tower
     # safe set: their --config/-c and -r/--rules flags load an arbitrary file as
     # an executable module (a code-exec vector a denylist leaks), and the tower
@@ -1674,6 +2080,9 @@ classify_verb() {
     git) guard_git ;;
     gh) guard_gh ;;
     mise) guard_mise ;;
+    # The front door's flight-petition temp files: create, then clean up.
+    mktemp) guard_mktemp ;;
+    rm) guard_rm ;;
     # Tower orchestration surface: relay/observe and the hand-launch.
     tmux) guard_tmux ;;
     claude) guard_claude ;;
@@ -1699,7 +2108,12 @@ verify_simple() {
   if [ "$VAR_C" -gt 0 ]; then
     for ((i = 0; i < cwn; i++)); do
       case ${cw[i]} in
-        *'$'*) [ "${cx[i]}" = 0 ] && expand_word "${cw[i]}" && cw[i]=$EXPANDED ;;
+        *'$'*)
+          if [ "${cx[i]}" = 0 ] && expand_word "${cw[i]}"; then
+            [ "$EXPANDED" != "${cw[i]}" ] && loop_head_quoted && cq[i]=1
+            cw[i]=$EXPANDED
+          fi
+          ;;
       esac
     done
   fi
@@ -1740,13 +2154,13 @@ verify_simple() {
 # non-zero (DEFER).
 verify_tokens() {
   local depth=$1
-  local idx=0 typ val
+  local idx=0 typ val fidx k
   local mode=normal # normal | casehead | casepat | casebody
-  local case_depth=0 ctl_depth=0
-  local -a cw=() cx=() cdyn=() cglob=() ro=() rt=()
+  local case_depth=0 ctl_depth=0 in_unbounded_loop=0
+  local -a cw=() cx=() cdyn=() cglob=() cz=() cq=() ro=() rt=()
   local cwn=0 rn=0
   # The open `for` loops, innermost last (see the worker guard's walker).
-  local -a LF_VAR=() LF_START=() LF_COUNT=() LF_POS=() LF_BODY=() LF_DEPTH=() LF_CASE=()
+  local -a LF_VAR=() LF_START=() LF_COUNT=() LF_POS=() LF_BODY=() LF_DEPTH=() LF_CASE=() LF_QH=()
   local lf_n=0
 
   fin() {
@@ -1755,6 +2169,8 @@ verify_tokens() {
     cx=()
     cdyn=()
     cglob=()
+    cz=()
+    cq=()
     ro=()
     rt=()
     cwn=0
@@ -1831,7 +2247,14 @@ verify_tokens() {
       case $val in
         for)
           fin || return 1
+          fidx=$idx
           loop_enter || return 1
+          # Whether any head word was quoted: guard_rm refuses an operand that
+          # takes such a word's value (the reader drops quoting the shell keeps).
+          LF_QH[lf_n - 1]=0
+          for ((k = fidx + 3; k < fidx + 3 + LH_COUNT; k++)); do
+            [ "${TOK_QUOTED[k]}" = 1 ] && LF_QH[lf_n - 1]=1
+          done
           continue
           ;;
         select)
@@ -1840,6 +2263,7 @@ verify_tokens() {
         while | until | if)
           fin || return 1
           ctl_depth=$((ctl_depth + 1))
+          [ "$val" = if ] || in_unbounded_loop=1
           ;;
         then | elif | else | do)
           fin || return 1 # boundary; regions on both sides are commands
@@ -1885,6 +2309,8 @@ verify_tokens() {
     cx[cwn]=${TOK_NOEXP[idx]}
     cdyn[cwn]=${TOK_DYN[idx]}
     cglob[cwn]=${TOK_GLOB[idx]}
+    cz[cwn]=${TOK_ZOPT[idx]}
+    cq[cwn]=${TOK_QUOTED[idx]}
     cwn=$((cwn + 1))
     idx=$((idx + 1))
   done
@@ -1904,7 +2330,7 @@ analyze_command() {
   local cmd=$1 depth=$2
   [ "$depth" -le "$MAX_DEPTH" ] || return 1
   [ "${#cmd}" -le "$MAX_CMD_LEN" ] || return 1
-  local -a TOK_TYPE=() TOK_VAL=() TOK_QUOTED=() TOK_NOEXP=() TOK_DYN=() TOK_GLOB=()
+  local -a TOK_TYPE=() TOK_VAL=() TOK_QUOTED=() TOK_NOEXP=() TOK_DYN=() TOK_GLOB=() TOK_ZOPT=()
   local TOK_N=0
   # The loop-variable table expand_word reads and the head words it draws from.
   # VAR_L is written by the shared loop_enter; only the worker guard reads it.
@@ -1931,8 +2357,10 @@ main() {
   tool=$(printf '%s' "$input" | jq -r '.tool_name // empty' 2>/dev/null) || return 0
   [ "$tool" = Bash ] || return 0 # every non-Bash tool defers
 
+  # A NUL byte defers too: the command substitution drops it, so the guard
+  # would screen other text than the shell runs.
   cmd=$(printf '%s' "$input" \
-    | jq -r 'if (.tool_input.command | type) == "string" then .tool_input.command else empty end' \
+    | jq -r 'if (.tool_input.command | type) == "string" and (.tool_input.command | explode | any(. == 0) | not) then .tool_input.command else empty end' \
       2>/dev/null) || return 0
   [ -n "$cmd" ] || return 0
 
@@ -1941,7 +2369,8 @@ main() {
   # (object, array, number, boolean) means the payload does not match the
   # documented PreToolUse contract, so the whole analysis defers rather than
   # containment-checking against whatever `jq -r` renders such a value as.
-  case $(printf '%s' "$input" | jq -r 'if has("cwd") and .cwd != null then (.cwd | type) else "absent" end' 2>/dev/null) in
+  # A NUL byte in cwd defers, as in the command.
+  case $(printf '%s' "$input" | jq -r 'if has("cwd") and .cwd != null then (if (.cwd | type) == "string" and (.cwd | explode | any(. == 0)) then "nul" else (.cwd | type) end) else "absent" end' 2>/dev/null) in
     absent) cwd=$PWD ;;
     string)
       cwd=$(printf '%s' "$input" | jq -r '.cwd' 2>/dev/null) || return 0
@@ -1996,6 +2425,16 @@ cache_plugin_root() {
   [ "$PLUGIN_ROOT_DONE" = 1 ] && return 0
   PLUGIN_ROOT_CACHED=$(hook_plugin_root) || PLUGIN_ROOT_CACHED=''
   PLUGIN_ROOT_DONE=1
+}
+
+# cache_temp_dirs: temp_dirs costs a getconf exec, so guard_rm builds the list
+# once per hook call however many removals the command chains.
+TEMP_DIRS_CACHED=''
+TEMP_DIRS_DONE=0
+cache_temp_dirs() {
+  [ "$TEMP_DIRS_DONE" = 1 ] && return 0
+  TEMP_DIRS_CACHED=$(temp_dirs) || TEMP_DIRS_CACHED=''
+  TEMP_DIRS_DONE=1
 }
 
 # Fail safe on any unexpected signal: empty stdout, exit 0. The hook never

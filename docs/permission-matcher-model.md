@@ -140,7 +140,10 @@ hook is allow-only by construction), so this boundary cannot mask a missing
 deny.
 
 **MB-6 — tool-name globs, non-Bash tools, and settings precedence.** Out of
-scope. The fixture table asserts one settings fragment in isolation.
+scope. The fixture table asserts one settings fragment in isolation. The tower
+profile's `mcp__*__` deny entries rely on deny-rule tool-name globs, which
+this model does not cover; `tests/test-tower-settings-hook-wiring.sh` checks
+them against a shell-glob stand-in instead.
 
 **MB-7 — command and process substitution.** M6 splits on the operators the
 documentation enumerates. It does **not** reach into `$(...)`, backticks, or

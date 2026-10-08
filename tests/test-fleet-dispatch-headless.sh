@@ -109,6 +109,7 @@ for a in "\$@"; do printf '%s\n' "\$a" >>"\$rec/argv"; done
 printf '%s\n' "\${CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION-<unset>}" >"\$rec/ghost"
 printf '%s\n' "\${PLANWRIGHT_WORKER_HANDLE-<unset>}" >"\$rec/handle"
 printf '%s\n' "\${PLANWRIGHT_WORKER_SCOPE-<unset>}" >"\$rec/scope"
+printf '%s\n' "\${PLANWRIGHT_WORKER_SPEC_ROOT-<unset>}" >"\$rec/specroot"
 cat >"\$rec/stdin"
 while [ -f "\$rec/hold" ]; do sleep 0.1; done
 [ -f "\$rec/emit" ] && cat "\$rec/emit"
@@ -123,7 +124,7 @@ EOF
   rm -f "$mf_rec/hold"
   "$FAKE" --prewarm </dev/null >/dev/null 2>&1 || true
   rm -f "$mf_rec/cwd" "$mf_rec/claude-pid" "$mf_rec/argv" "$mf_rec/ghost" \
-    "$mf_rec/handle" "$mf_rec/scope" "$mf_rec/stdin"
+    "$mf_rec/handle" "$mf_rec/scope" "$mf_rec/specroot" "$mf_rec/stdin"
 }
 
 # wait_for <path> <tenths>: poll for a file, bounded.
@@ -753,7 +754,62 @@ h16() {
   pass "h16: a swallowed completion write surfaces as unknown, never a false death (C7)"
 }
 
-for c in h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 h12 h13 h14 h15 h16 h17 h18; do
+# --- h19 (custom-spec-location REQ-E1.7): the spec-root hand-off -------------
+# A worker whose work repository keeps its spec root outside it (here a plain
+# store) gets that root as PLANWRIGHT_WORKER_SPEC_ROOT; a worker whose root
+# is in its own repository gets none, an inherited value dropped either way.
+# launch_h19 <id> <worktree>: run_fdh's launch, hermetic for the resolver,
+# with a stale inherited root. Every inherited PLANWRIGHT_* and plugin
+# variable is dropped, since an adopter overlay or local config the host
+# session carries would otherwise hand the resolver a spec_root of its own;
+# the case's own fleet home is handed back explicitly.
+launch_h19() {
+  local unsets
+  unsets=$(env | sed -n 's/^\(PLANWRIGHT_[A-Za-z0-9_]*\)=.*/-u \1/p')
+  # shellcheck disable=SC2086 # one `-u NAME` pair per word
+  env $unsets -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR \
+    HOME="$tmp/home-h19" GIT_CEILING_DIRECTORIES="$tmp" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    PLANWRIGHT_FLEET_STATE_DIR="$PLANWRIGHT_FLEET_STATE_DIR" PLANWRIGHT_WORKER_SPEC_ROOT=/stale PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" \
+    PLANWRIGHT_HEADLESS_STATE_DIR="$STATE" \
+    /bin/sh "$FDH" launch "$SPEC" "$1" --worktree "$2" >/dev/null
+}
+h19() {
+  local rec wt store
+  rec="$tmp/rec-h19"
+  STATE="$tmp/state-h19"
+  wt="$tmp/wt-h19"
+  store="$tmp/store-h19"
+  mkdir -p "$tmp/home-h19" "$store" "$wt/.claude"
+  git -c init.defaultBranch=main init -q "$wt"
+  printf 'project: fixture\nlayout: 1\n' >"$store/planwright-spec-root.yml"
+  printf 'spec_root: %s\n' "$store" >"$wt/.claude/planwright.local.yml"
+  make_fake "$rec"
+  printf 'p' | launch_h19 19 "$wt" || {
+    fail "h19: launch exited non-zero"
+    return
+  }
+  wait_for "$STATE/19/exit" 300 || {
+    fail "h19: worker never completed (no exit file)"
+    return
+  }
+  [ "$(cat "$rec/specroot")" = "$store" ] \
+    || fail "h19: the worker got PLANWRIGHT_WORKER_SPEC_ROOT '$(cat "$rec/specroot")', expected the store"
+  make_fake "$rec"
+  rm -f "$wt/.claude/planwright.local.yml"
+  printf 'p' | launch_h19 20 "$wt" || {
+    fail "h19: second launch exited non-zero"
+    return
+  }
+  wait_for "$STATE/20/exit" 300 || {
+    fail "h19: second worker never completed (no exit file)"
+    return
+  }
+  [ "$(cat "$rec/specroot")" = "<unset>" ] \
+    || fail "h19: an inherited PLANWRIGHT_WORKER_SPEC_ROOT reached a same-repo worker: '$(cat "$rec/specroot")'"
+  pass "h19: the worker gets the outside spec root, and an inherited one never stands (REQ-E1.7)"
+}
+
+for c in h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 h12 h13 h14 h15 h16 h17 h18 h19; do
   fleet_home_pin "$tmp/home-$c" || {
     fail "$c: cannot pin a fixture fleet home under $tmp"
     continue

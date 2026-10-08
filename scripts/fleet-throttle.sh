@@ -76,6 +76,9 @@
 #   fleet-throttle.sh clear [--trigger <text>]
 #       Remove the engagement (manual resume) and log it. No-op exit 0 when
 #       nothing is engaged.
+#   fleet-throttle.sh ceiling
+#       Print the engagement sanity ceiling in seconds, so a caller bounding
+#       a stated reset time (scripts/classify-limit.sh) never restates it.
 #
 # Exit codes: 0 success (including observe-engaged and no-op clear);
 # 1 kill-switch short-circuit (engage/observe) or throttled (check);
@@ -134,7 +137,7 @@ MAX_HOLD=691200
 WALL_GRACE=120
 
 usage() {
-  echo "usage: fleet-throttle.sh check | observe | engage --until <epoch> [--trigger <text>] | clear [--trigger <text>]" >&2
+  echo "usage: fleet-throttle.sh check | observe | engage --until <epoch> [--trigger <text>] | clear [--trigger <text>] | ceiling" >&2
 }
 
 # Unlike fleet-audit.sh's same-named helper (which prints empty on failure
@@ -395,6 +398,15 @@ cmd=$1
 shift
 
 case "$cmd" in
+  ceiling)
+    [ "$#" -eq 0 ] || {
+      usage
+      exit 2
+    }
+    printf '%s\n' "$MAX_HOLD"
+    exit 0
+    ;;
+
   check)
     [ "$#" -eq 0 ] || {
       usage

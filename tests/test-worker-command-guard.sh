@@ -698,6 +698,10 @@ assert_defer "untracked: an earlier untrusted assignment defers the whole comman
 assert_allow "tracked: used inside a later if body" "P=$PLUGIN_ROOT; if true; then \$P/scripts/plug.sh; fi" Bash "$PLUGIN_CWD"
 assert_allow "tracked: bash \$P/<script>" "P=$PLUGIN_ROOT && bash \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
 assert_allow "tracked: repo root through the cwd's checkout" "R=$SANDBOX && \$R/scripts/ok.sh" Bash "$SANDBOX"
+assert_defer "defer form: a tracked assignment to zsh's path" "path=$SANDBOX && cat README.md" Bash "$SANDBOX"
+assert_defer "defer form: a modifier on a tracked variable" "P=$SANDBOX && find . -name \$P:t" Bash "$SANDBOX"
+assert_defer "defer form: a subscript on a tracked variable" "P=$SANDBOX && find . -name \"\$P[1]\"" Bash "$SANDBOX"
+assert_allow "parity: a braced tracked variable before a colon is still its value" "P=$SANDBOX && cat \${P}/README.md:x" Bash "$SANDBOX"
 assert_allow "tracked: a lone assignment runs nothing" "P=$PLUGIN_ROOT" Bash "$PLUGIN_CWD"
 # NEGATIVES: every way the substitution could differ from what the shell does,
 # or name something the hook does not trust.
@@ -771,6 +775,42 @@ assert_defer "bypass: a glob in a direct verb path" "scripts/o*.sh"
 assert_defer "bypass: a glob in a bash script path" "bash scripts/o*.sh"
 assert_defer "bypass: brace expansion assembles a find action" "find . -maxdepth 0 {-exec,id} ';'"
 assert_defer "bypass: a loop variable named PATH re-points later verbs" "for PATH in /tmp; do git status; done"
+assert_defer "defer form: zsh's path as a loop variable" "for path in scripts; do cat README.md; done"
+assert_defer "defer form: zsh's cdpath as a loop variable" "for cdpath in /tmp; do git status; done"
+assert_defer "defer form: NULLCMD as a loop variable" "for NULLCMD in /tmp/x; do >/dev/null; done"
+assert_defer "defer form: READNULLCMD as a loop variable" "for READNULLCMD in /tmp/x; do <README.md; done"
+assert_defer "defer form: module_path as a loop variable" "for module_path in /tmp/x; do for commands in x; do git status; done; done"
+assert_defer "defer form: MODULE_PATH as a loop variable" "for MODULE_PATH in /tmp/x; do git status; done"
+assert_defer "defer form: a further special name as a loop variable (1)" "for fpath in /tmp/x; do git status; done"
+assert_defer "defer form: a further special name as a loop variable (2)" "for FPATH in /tmp/x; do git status; done"
+assert_defer "defer form: a further special name as a loop variable (3)" "for manpath in /tmp/x; do git status; done"
+assert_defer "defer form: a further special name as a loop variable (4)" "for MANPATH in /tmp/x; do git status; done"
+assert_allow "parity: a longer name sharing a special name's prefix still resolves" "for fpaths in scripts; do cat README.md; done"
+assert_allow "parity: a longer lowercase loop variable still resolves" "for paths in scripts; do cat README.md; done"
+assert_defer "defer form: zsh's \$~ parameter form" "for f in a; do find . \$~f; done"
+assert_defer "defer form: zsh's \$= parameter form" "for f in a; do find . \$=f; done"
+assert_defer "defer form: zsh's \$^ parameter form" "for f in a; do find . \$^f; done"
+assert_defer "defer form: zsh's \$+ parameter form" "for f in a; do find . \$+f; done"
+assert_defer "defer form: zsh's \$~ parameter form in double quotes" "for f in a; do find . \"\$~f\"; done"
+assert_allow "parity: a plain loop variable still resolves for find" "for f in a; do find . -name \$f; done"
+assert_defer "defer form: a zsh subscript on an unbraced loop variable" "for f in abcd; do find . -name \"\$f[2,3]\"; done"
+assert_defer "defer form: a zsh modifier on an unbraced loop variable" "for f in a.b; do find . -name \$f:e; done"
+assert_defer "defer form: a zsh modifier on a quoted loop variable" "for f in A; do find . -name \"\$f:l\"; done"
+assert_defer "defer form: a zsh substitution modifier on a loop variable" "for f in a; do find . -name \$f:s/a/b/; done"
+assert_allow "parity: a braced loop variable before a colon is still its value" "for f in README; do cat \${f}:x; done"
+assert_allow "parity: a braced loop variable before a bracket is still its value" "for f in a; do find . -name \"\${f}[0-9]\"; done"
+assert_defer "defer form: zsh's \$= parameter form reaching jq" "for f in a; do jq -n \$=f; done"
+assert_defer "defer form: zsh's \$^ parameter form reaching jq" "for f in a; do jq -n \$^f; done"
+assert_defer "defer form: zsh's \$~ parameter form in double quotes reaching jq" "for f in a; do jq -n \"\$~f\"; done"
+assert_defer "defer form: a zsh subscript on a quoted loop variable reaching jq" "for f in abcd; do jq -n \"\$f[2,3]\"; done"
+assert_defer "defer form: a zsh modifier on a loop variable reaching jq" "for f in a.b; do jq -n \$f:e; done"
+assert_defer "defer form: zsh's glob-substitution parameter form after an argument-independent verb" "echo \$~X"
+assert_defer "defer form: zsh's glob-substitution parameter form over a value read from a file" "read -r X < README.md; echo \$~X"
+assert_defer "defer form: zsh's glob-substitution parameter form past a printf format" "printf '%s' \$~X"
+assert_defer "defer form: a non-ASCII letter directly after a loop variable" "for f in x; do cat a\$fé; done"
+assert_defer "defer form: a non-ASCII letter after a loop variable inside double quotes reaching jq" "for f in x; do jq -n \".a\$fé\"; done"
+assert_defer "defer form: a dollar directly before a non-ASCII letter" "jq -n '.a'\$é'b'"
+assert_allow "parity: a braced loop variable before a non-ASCII letter is still its value" "for f in README; do cat \${f}é; done"
 assert_defer "bypass: read overwrites a loop variable before a screened use" \
   "for d in -name; do read d; find . \$d; done"
 HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
@@ -868,6 +908,15 @@ assert_allow "mid-word # is not a comment" "cat a#b"
 assert_allow "single-quoted # is not a comment" "grep -n '#' README.md"
 assert_allow "double-quoted # is not a comment" "grep -n \"#x\" README.md"
 assert_allow "escaped # is not a comment" "grep -n \\#x README.md"
+assert_defer "defer form: a brace word before an output redirect" "cat README.md {fd}>/dev/null"
+assert_defer "defer form: a brace word before an input redirect" "cat README.md {fd}<README.md"
+assert_defer "defer form: a brace word before an fd duplication" "git status {fd}>&2"
+assert_defer "defer form: a brace word before an fd close" "git status {fd}>&-"
+assert_defer "defer form: a brace word before a combined-output redirect" "git status {fd}&>/dev/null"
+assert_defer "defer form: a brace word before a redirect, then a later command" "printf x {fd}>/dev/null; git status"
+assert_allow "parity: a brace word spaced from its redirect is an operand" "cat {a} >/dev/null"
+assert_allow "parity: a brace mid-word before a redirect is an operand" "cat a{b}>/dev/null"
+assert_allow "parity: an fd-number redirect still allows" "git status 2>&1"
 
 echo "### REQ-A1.10 — script/test/bats path containment"
 assert_defer "bash script escapes repo" "bash ../../../tmp/evil/scripts/x.sh"
@@ -933,6 +982,30 @@ malformed_run() {
 }
 malformed_run '{ this is not json'
 if [ "$CODE" -eq 0 ] && is_empty; then pass "malformed JSON defers"; else fail "malformed JSON — expected defer exit 0 (got $CODE)"; fi
+malformed_run '{"tool_name":"Bash","tool_input":{"command":"git status\u0000"}}'
+if [ "$CODE" -eq 0 ] && is_empty; then
+  pass "defer form: a NUL byte in the command"
+elif is_allow; then
+  fail "defer form: a NUL byte in the command — FALSE-ALLOW: expected DEFER"
+  false_allows=$((false_allows + 1))
+else
+  fail "defer form: a NUL byte in the command — expected defer exit 0 (got $CODE)"
+fi
+malformed_run "$(jq -n --arg w "$SANDBOX" '{tool_name:"Bash",tool_input:{command:"git status"},cwd:($w+"\u0000x")}')"
+if [ "$CODE" -eq 0 ] && is_empty; then
+  pass "defer form: a malformed cwd"
+elif is_allow; then
+  fail "defer form: a malformed cwd — FALSE-ALLOW: expected DEFER"
+  false_allows=$((false_allows + 1))
+else
+  fail "defer form: a malformed cwd — expected defer exit 0 (got $CODE)"
+fi
+malformed_run "$(jq -n --arg w "$SANDBOX" '{tool_name:"Bash",tool_input:{command:"git status"},cwd:$w}')"
+if [ "$CODE" -eq 0 ] && is_allow; then
+  pass "parity: a well-formed cwd still allows"
+else
+  fail "parity: a well-formed cwd — expected allow (got $CODE)"
+fi
 malformed_run ''
 if [ "$CODE" -eq 0 ] && is_empty; then pass "empty stdin defers"; else fail "empty stdin — expected defer exit 0 (got $CODE)"; fi
 malformed_run '{"tool_name":"Bash","tool_input":{}}'
@@ -1021,6 +1094,11 @@ assert_allow "while read -r loop" "while read -r line; do echo \"\$line\"; done"
 assert_allow "read bare sets REPLY" "read"
 assert_defer "read PATH poisons command resolution" "read PATH"
 assert_defer "read IFS changes later word splitting" "read IFS"
+assert_defer "defer form: read of zsh's path" "read path"
+assert_defer "defer form: read of zsh's module_path" "read -r module_path"
+assert_defer "defer form: read of a further special name" "read fpath"
+assert_defer "defer form: a tracked assignment to a further special name" "fpath=$SANDBOX && cat README.md" Bash "$SANDBOX"
+assert_allow "parity: read of a longer lowercase name" "read paths"
 assert_defer "read inside a loop is name-checked too" "while read PATH; do echo x; done"
 assert_defer "read -p takes a value operand" "read -p 'x' y"
 assert_defer "read -a array form" "read -a arr"
@@ -1068,6 +1146,71 @@ assert_defer "jq unknown long flag" "jq --frobnicate '.a' file.json"
 assert_defer "jq unknown short flag" "jq -z '.a' file.json"
 assert_defer "jq dangling value-flag" "jq --indent"
 assert_defer "jq with no filter at all" "jq"
+# A filter's module text and its `ENV` spellings defer, and so does every run
+# while ~/.jq exists or HOME is not an absolute path.
+assert_defer "defer form: jq include with a search path" "jq -n 'include \"m\" {search:\"/tmp/mods\"}; f'"
+assert_defer "defer form: jq import with a search path" "jq -n 'import \"m\" as e {search:\"/tmp/mods\"}; .'"
+assert_defer "defer form: jq include" "jq -n 'include \"m\"; .'"
+assert_defer "defer form: jq import of data" "jq -n 'import \"d\" as \$d; \$d'"
+assert_allow "parity: jq .include is a field access" "jq '.include' file.json"
+assert_allow "parity: jq .imports is a field access" "jq '.a.imports' file.json"
+assert_allow "parity: jq \$import is a variable" "jq --arg import 1 '\$import' file.json"
+assert_defer "defer form: jq ENV after a spaced dollar" "jq -n '\$ ENV'"
+assert_defer "defer form: jq ENV after a dollar and a comment" "jq -n '\$#c
+ENV'"
+assert_defer "defer form: jq bare ENV word" "jq -n 'ENV'"
+assert_allow "parity: jq .ENV is a field access" "jq '.ENV' file.json"
+assert_allow "parity: jq ENVIRONMENT is a longer name" "jq '.a | .ENVIRONMENT' file.json"
+assert_defer "defer form: jq import as the last word" "jq -n '. | import'"
+assert_defer "defer form: jq ENV right after an opening bracket" "jq -n '[ENV]'"
+assert_allow "parity: jq a filter dense in e and i beside a field" "jq '.env | .items[] | select(.line == \"eine\") | .id' file.json"
+assert_allow "parity: jq a user function with env as a prefix" "jq 'def envx: .; envx' file.json"
+assert_allow "parity: jq a user function with env as a suffix" "jq 'def myenv: .; myenv' file.json"
+assert_allow "parity: jq a user function with ENV as a suffix" "jq 'def myENV: .; myENV' file.json"
+assert_defer "defer form: a further jq module read" "jq -n '\"m\"|modulemeta'"
+assert_defer "defer form: a further jq module read as the whole filter" "jq -n modulemeta"
+assert_allow "parity: jq a field named like a module builtin" "jq '.modulemeta' file.json"
+assert_allow "parity: jq a longer name starting like a module builtin" "jq 'def modulemetax: .; modulemetax' file.json"
+JQ_HOME="$SANDBOX/jq-home"
+mkdir -p "$JQ_HOME" && : >"$JQ_HOME/.jq" || exit 1
+HOOK_ENV=(HOME="$JQ_HOME")
+assert_defer "defer form: jq while a ~/.jq file exists" "jq . file.json"
+rm -f "$JQ_HOME/.jq" && mkdir "$JQ_HOME/.jq" || exit 1 # not-a-lock: test fixture directory
+assert_defer "defer form: jq while a ~/.jq directory exists" "jq . file.json"
+rmdir "$JQ_HOME/.jq" && ln -s "$JQ_HOME/not-yet" "$JQ_HOME/.jq" || exit 1
+assert_defer "defer form: jq while ~/.jq is a dangling symlink" "jq . file.json"
+rm -f "$JQ_HOME/.jq"
+assert_allow "parity: jq once ~/.jq is gone" "jq . file.json"
+# The unset case chains a second env, since run_hook's own one sets HOME first.
+HOOK_ENV=(/usr/bin/env -u HOME)
+assert_defer "defer form: jq with HOME unset" "jq . file.json"
+HOOK_ENV=(HOME=)
+assert_defer "defer form: jq with HOME empty" "jq . file.json"
+HOOK_ENV=(HOME=rel-home)
+assert_defer "defer form: jq with a relative HOME" "jq . file.json"
+HOOK_ENV=()
+# A program word holding an unquoted character that a non-default zsh option
+# (extended globbing, brace character classes) would expand defers in the
+# screens that read program text; the same characters elsewhere, and inside
+# quotes, keep their verdicts.
+assert_defer "defer form: an unquoted caret in a jq program word" "jq .a^b file.json"
+assert_defer "defer form: an unquoted mid-word tilde in a jq program word" "jq .a~b file.json"
+assert_defer "defer form: an unquoted mid-word hash in a jq program word" "jq .a#b file.json"
+assert_defer "defer form: an unquoted brace in a jq program word" "jq .a{b} file.json"
+assert_defer "defer form: an unquoted caret in an awk program word" "awk /a^b/ file"
+assert_defer "defer form: an unquoted brace in an awk program word" "awk {print} file"
+assert_defer "defer form: an unquoted caret in a sed script word" "sed s/a^/b/ file"
+assert_defer "defer form: an unquoted mid-word tilde in a sed -e script" "sed -e s/a~/b/ file"
+assert_defer "defer form: an unquoted brace in a sed --expression script" "sed --expression=1{p} file"
+assert_allow "parity: a quoted jq filter with a caret, tilde, hash and brace" "jq '.a | {b} | test(\"^x~#\")' file.json"
+assert_allow "parity: a quoted awk program with braces" "awk '{print \$1}' file"
+assert_allow "parity: a quoted sed script with a caret" "sed 's/^a/b/' file"
+assert_allow "parity: an unquoted jq program word without those characters" "jq .a file.json"
+assert_allow "parity: an input file named with a caret after the jq filter" "jq . a^b.json"
+assert_allow "parity: a git revision with a parent suffix" "git show HEAD^"
+assert_allow "parity: a git revision with an ancestor suffix" "git log --oneline HEAD~2"
+assert_allow "parity: a git reflog selector" "git reflog show HEAD@{1}"
+assert_allow "parity: a mid-word hash in a read operand" "cat a#b"
 # yq EDITS IN PLACE.
 assert_allow "yq read" "yq . file.yml"
 assert_allow "yq -I indent is not -i inplace" "yq -I4 . file.yml"
@@ -1086,6 +1229,41 @@ assert_defer "yq env() inside an assignment" "yq '.a = env(HOME)' f.yml"
 assert_defer "yq --from-file hides the expression" "yq --from-file e.yq f.yml"
 assert_allow "yq plain field access" "yq '.a' f.yml"
 assert_allow "yq a longer name containing env" "yq '.environment' f.yml"
+assert_defer "defer form: a yq environment read (1)" "yq -n '\"x\" | envsubst'"
+assert_defer "defer form: a yq environment read (2)" "yq '.a | envsubst(nu)' f.yml"
+assert_defer "defer form: a yq environment read (3)" "yq -n '\$ENV'"
+assert_defer "defer form: a yq environment read (4)" "yq -n '\$ ENV'"
+assert_defer "defer form: a yq module form (1)" "yq -n 'include \"m\"; .'"
+assert_defer "defer form: a yq module form (2)" "yq -n 'import \"m\" as e; .'"
+assert_defer "defer form: a yq module form (3)" "yq -n '\"m\"|modulemeta'"
+assert_allow "parity: yq a field named like a screened word" "yq '.include' f.yml"
+assert_allow "parity: yq a field sharing an environment read's prefix" "yq '.envs' f.yml"
+assert_allow "parity: yq a longer name sharing a screened prefix" "yq '.a.imports' f.yml"
+assert_defer "defer form: a yq flag form (1)" "yq -n --security-enable-system-operator 'system(\"id\")'"
+assert_defer "defer form: a yq flag form (2)" "yq --split-exp-file e.yq f.yml"
+assert_defer "defer form: a yq flag form (3)" "yq -n --expression='env(HOME)'"
+assert_allow "parity: yq short flags with an attached value" "yq -n -o=json '.a'"
+assert_defer "defer form: a yq operand form (1)" "yq -o json 'env(HOME)' f.yml"
+assert_defer "defer form: a yq operand form (2)" "yq e 'env(HOME)' f.yml"
+assert_defer "defer form: a yq operand form (3)" "yq -n -- 'env(HOME)'"
+assert_allow "parity: yq several file operands" "yq '.a' f.yml g.yml"
+assert_allow "parity: yq a short subcommand before the expression" "yq e '.a' f.yml"
+assert_allow "parity: yq an expression after the end of flags" "yq -- '.a' f.yml"
+assert_defer "defer form: a yq expression form (1)" "yq -n 'eval(\"e\" + \"nv(HOME)\")'"
+assert_defer "defer form: a yq expression form (2)" "yq -n 'eval (.a)'"
+assert_allow "parity: yq a longer name sharing an expression form's prefix" "yq '.evaluation' f.yml"
+assert_allow "parity: yq a field named like an expression form" "yq '.a.eval' f.yml"
+assert_allow "parity: yq the long subcommand before the expression" "yq eval '.a' f.yml"
+assert_allow "parity: yq the all-documents subcommand before the expression" "yq eval-all '.a' f.yml"
+YQ_HOME="$SANDBOX/yq-home"
+mkdir -p "$YQ_HOME" && : >"$YQ_HOME/.jq" || exit 1
+HOOK_ENV=(HOME="$YQ_HOME")
+assert_defer "defer form: yq while a home module file exists" "yq . file.yml"
+rm -f "$YQ_HOME/.jq"
+assert_allow "parity: yq once the home module file is gone" "yq . file.yml"
+HOOK_ENV=(HOME=rel-home)
+assert_defer "defer form: yq with a relative HOME" "yq . file.yml"
+HOOK_ENV=()
 # shfmt: -w formats in place.
 assert_allow "shfmt diff mode" "shfmt -d ."
 assert_allow "shfmt list mode" "shfmt -l ."

@@ -6,8 +6,9 @@
 # same allow-only / fail-closed / no-LLM contract — but fronts a DISTINCT,
 # tower-oriented safe set: the tower's own orchestration surface (tmux
 # relay/observe, `claude --worktree` worker launches, planwright scripts by
-# resolved literal path) plus the read-only state-observation shapes a tower
-# reads, and NOT the worker-only shapes (bats, tests/, fish -c recursion).
+# resolved literal path, and the front door's bare mktemp and temp-file rm)
+# plus the read-only state-observation shapes a tower reads, and NOT the
+# worker-only shapes (bats, tests/, fish -c recursion).
 #
 # The security-critical target is ZERO false-allows over the tower safe set
 # (REQ-C1.3). This adversarial suite is the primary evidence: every fixture
@@ -73,7 +74,11 @@ PLUGIN_ROOT="$(mktemp -d)" || exit 1
 # A real directory outside both roots holding a same-named script, so a
 # lookalike defers on containment rather than on a path that does not exist.
 LOOKALIKE="$(mktemp -d)" || exit 1
-trap 'rm -rf "$SANDBOX" "$PLUGIN_ROOT" "$LOOKALIKE"' EXIT
+# A real mktemp-named file in /tmp itself, and one real mktemp writes to the
+# macOS per-user temp directory, for the temp-file removal fixtures.
+SLASH_TMP_FILE=''
+REAL_TMP_FILE=''
+trap 'rm -rf "$SANDBOX" "$PLUGIN_ROOT" "$LOOKALIKE" ${SLASH_TMP_FILE:+"$SLASH_TMP_FILE"} ${REAL_TMP_FILE:+"$REAL_TMP_FILE"}' EXIT
 mkdir -p "$LOOKALIKE/scripts"
 : >"$LOOKALIKE/scripts/fleet-streamjson.sh"
 mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests" "$SANDBOX/sub"
@@ -90,6 +95,10 @@ ln -sf /etc/hosts "$PLUGIN_ROOT/scripts/evillink.sh"
 
 # run_hook <command> [tool_name] [cwd] -> sets OUT and CODE. CLAUDE_PLUGIN_ROOT
 # is exported into the hook environment so plugin-root containment resolves.
+# HOME is pinned away from the developer's machine (a real ~/.jq would defer
+# every jq case); RUN_HOME overrides it, RUN_NO_HOME=1 unsets it,
+# RUN_HOOK_CWD sets the hook process's own working directory, RUN_PATH
+# replaces its PATH, and RUN_TMPDIR sets its TMPDIR.
 run_hook() {
   local cmd="$1"
   local tool="${2:-Bash}"
@@ -97,7 +106,12 @@ run_hook() {
   local payload
   payload="$(jq -n --arg c "$cmd" --arg t "$tool" --arg w "$cwd" \
     '{tool_name:$t, tool_input:{command:$c}, cwd:$w}')"
-  OUT="$(printf '%s' "$payload" | CLAUDE_PLUGIN_ROOT="${RUN_PLUGIN_ROOT:-$PLUGIN_ROOT}" /bin/bash "$HOOK" 2>/dev/null)"
+  # env costs an exec per hook run, so only the unset-HOME rows pay for it.
+  if [ -n "${RUN_NO_HOME:-}" ]; then
+    OUT="$(cd "${RUN_HOOK_CWD:-.}" && printf '%s' "$payload" | env -u HOME PATH="${RUN_PATH:-$PATH}" TMPDIR="${RUN_TMPDIR-${TMPDIR:-}}" CLAUDE_PLUGIN_ROOT="${RUN_PLUGIN_ROOT:-$PLUGIN_ROOT}" /bin/bash "$HOOK" 2>/dev/null)"
+  else
+    OUT="$(cd "${RUN_HOOK_CWD:-.}" && printf '%s' "$payload" | HOME="${RUN_HOME-$SANDBOX/no-home}" PATH="${RUN_PATH:-$PATH}" TMPDIR="${RUN_TMPDIR-${TMPDIR:-}}" CLAUDE_PLUGIN_ROOT="${RUN_PLUGIN_ROOT:-$PLUGIN_ROOT}" /bin/bash "$HOOK" 2>/dev/null)"
+  fi
   CODE=$?
 }
 
@@ -108,7 +122,7 @@ run_worker_hook() {
   local payload
   payload="$(jq -n --arg c "$cmd" --arg w "$SANDBOX" \
     '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}')"
-  WOUT="$(printf '%s' "$payload" | CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" /bin/bash "$WORKER_HOOK" 2>/dev/null)"
+  WOUT="$(printf '%s' "$payload" | HOME="$SANDBOX/no-home" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" /bin/bash "$WORKER_HOOK" 2>/dev/null)"
 }
 
 is_allow() {
@@ -212,7 +226,7 @@ assert_allow "pending read piped to head" "$PLUGIN_ROOT/scripts/fleet-streamjson
 # HOME points at the plugin root, so the tilde path would land inside it if the
 # guard ever expanded it.
 # shellcheck disable=SC2088 # the literal, unexpanded tilde is the case under test
-HOME="$PLUGIN_ROOT" assert_defer "pending read via a tilde path" "~/scripts/fleet-streamjson.sh pending"
+RUN_HOME="$PLUGIN_ROOT" assert_defer "pending read via a tilde path" "~/scripts/fleet-streamjson.sh pending"
 assert_defer "pending read via an unexpanded variable" "\$CLAUDE_PLUGIN_ROOT/scripts/fleet-streamjson.sh pending"
 assert_defer "pending read from a lookalike outside the roots" "$LOOKALIKE/scripts/fleet-streamjson.sh pending"
 
@@ -234,6 +248,362 @@ assert_allow "ls" "ls -la"
 assert_allow "sed read-only" "sed -n '1,5p' file"
 assert_allow "safe compound && (relay then observe)" "tmux load-buffer /tmp/b && tmux paste-buffer -t fleet:0"
 assert_allow "safe pipe observe" "tmux capture-pane -p -t fleet:0 | grep -c esc"
+
+echo "### tower-front-door REQ-A1.3 — the front door's posture check: jq projections ALLOW"
+# The front door reads each settings layer by jq projection. jq has no exec or
+# file-write primitive; the screen is the worker guard's, kept byte-identical
+# (see the structural parity block), so the environment reads, module
+# loads, a ~/.jq or unusable HOME, unknown flags, file redirects, non-literal
+# operands and the unscreenable-filter forms defer. The tower's tokenizer is not the worker's,
+# so the screen's cases are exercised here through the tower's own pipeline.
+assert_allow "posture check: deny projection of a settings layer" "jq '.permissions.deny' /home/u/.claude/settings.json"
+assert_allow "posture check: hooks projection, raw output" "jq -r '.hooks' .claude/settings.local.json"
+assert_allow "posture check: deny projection of the managed layer (quoted path)" "jq '.permissions.deny // []' '/Library/Application Support/ClaudeCode/managed-settings.json'"
+assert_allow "jq -er with a quoted key and alternatives" "jq -er '.plugins[\"planwright@planwright\"] // [] | map(select(.scope == \"user\")) | last | .installPath // empty' /home/u/.claude/plugins/installed_plugins.json"
+assert_allow "jq in a pipeline" "gh pr view 5 --json title | jq -r .title"
+assert_allow "jq --arg takes two values" "jq --arg x 1 '.a' file.json"
+assert_defer "jq env builtin decants the environment" "jq -n env"
+assert_defer "jq \$ENV decants the environment" "jq -n '\$ENV'"
+assert_defer "jq env behind --indent's value" "jq --indent 4 '\$ENV'"
+assert_defer "jq -f program file is unscreenable" "jq -f prog.jq file.json"
+assert_defer "jq -f bundled into a short cluster" "jq -nf prog.jq"
+assert_defer "jq -L loads module text the guard never sees" "jq -L /tmp/mods 'include \"m\"; .' file.json"
+assert_defer "jq unknown long flag" "jq --frobnicate '.a' file.json"
+assert_defer "jq with no filter at all" "jq"
+assert_defer "jq writing through a redirect" "jq . a.json > out.json"
+assert_defer "jq filter from an unexpanded variable" "jq \"\$F\" file.json"
+assert_allow "jq .env is a field access, not the builtin" "jq '.env' file.json"
+assert_allow "jq .envelope is a field access" "jq '.a.envelope' file.json"
+assert_allow "jq --exit-status takes no value" "jq --exit-status '.a' file.json"
+assert_allow "jq --args operands after the filter are positional strings" "jq -n --args '\$ARGS' a b"
+assert_defer "jq \$ENV after --" "jq -- '\$ENV'"
+assert_defer "jq \$ENV behind --arg's two values" "jq --arg x 1 '\$ENV'"
+assert_defer "jq \$ENV behind --rawfile's two values" "jq --rawfile a f.txt '\$ENV'"
+assert_defer "jq \$ENV behind --argjson's two values" "jq --argjson a 1 '\$ENV'"
+assert_defer "jq \$ENV behind --slurpfile's two values" "jq --slurpfile a f.json '\$ENV'"
+assert_defer "jq env.PATH reads the environment" "jq -n 'env.PATH'"
+assert_defer "jq \$ENV inside string interpolation" "jq -n '\"\\(\$ENV)\"'"
+assert_defer "jq --from-file program file is unscreenable" "jq --from-file prog.jq file.json"
+assert_defer "jq --library-path loads module text" "jq --library-path /tmp/mods '.' file.json"
+assert_defer "jq unknown short flag" "jq -z '.' file.json"
+assert_defer "jq value flag dangling after the filter" "jq '.a' --arg x"
+# A program word holding an unquoted character that a non-default zsh option
+# (extended globbing, brace character classes) would expand defers in the
+# screens that read program text; the same characters elsewhere, and inside
+# quotes, keep their verdicts.
+assert_defer "defer form: an unquoted caret in a jq program word" "jq .a^b file.json"
+assert_defer "defer form: an unquoted mid-word tilde in a jq program word" "jq .a~b file.json"
+assert_defer "defer form: an unquoted mid-word hash in a jq program word" "jq .a#b file.json"
+assert_defer "defer form: an unquoted brace in a jq program word" "jq .a{b} file.json"
+assert_defer "defer form: an unquoted caret in an awk program word" "awk /a^b/ file"
+assert_defer "defer form: an unquoted brace in an awk program word" "awk {print} file"
+assert_defer "defer form: an unquoted caret in a sed script word" "sed s/a^/b/ file"
+assert_defer "defer form: an unquoted mid-word tilde in a sed -e script" "sed -e s/a~/b/ file"
+assert_defer "defer form: an unquoted brace in a sed --expression script" "sed --expression=1{p} file"
+assert_allow "parity: a quoted jq filter with a caret, tilde, hash and brace" "jq '.a | {b} | test(\"^x~#\")' file.json"
+assert_allow "parity: a quoted awk program with braces" "awk '{print \$1}' file"
+assert_allow "parity: a quoted sed script with a caret" "sed 's/^a/b/' file"
+assert_allow "parity: an unquoted jq program word without those characters" "jq .a file.json"
+assert_allow "parity: an input file named with a caret after the jq filter" "jq . a^b.json"
+assert_allow "parity: a git revision with a parent suffix" "git show HEAD^"
+assert_allow "parity: a git revision with an ancestor suffix" "git log --oneline HEAD~2"
+assert_allow "parity: a git reflog selector" "git reflog show HEAD@{1}"
+assert_allow "parity: a mid-word hash in a read operand" "cat a#b"
+# Module text is program text the guard never sees: an include or import
+# reads it from a search path the filter itself can name, and a ~/.jq file is
+# read into every run. jq 1.6 and older also read `$ ENV` (a space or a
+# comment between the two) as the environment.
+assert_defer "jq include with a search path in the filter" "jq -n 'include \"m\" {search:\"/tmp/mods\"}; f'"
+assert_defer "jq import with a search path in the filter" "jq -n 'import \"m\" as e {search:\"/tmp/mods\"}; .'"
+assert_defer "jq include with no search path" "jq -n 'include \"m\"; .'"
+assert_defer "jq import of data" "jq -n 'import \"d\" as \$d; \$d'"
+assert_allow "jq .include is a field access" "jq '.include' file.json"
+assert_allow "jq .imports is a field access" "jq '.a.imports' file.json"
+assert_allow "jq \$import is a variable" "jq --arg import 1 '\$import' file.json"
+assert_defer "jq \$ ENV with a space reads the environment on jq 1.6" "jq -n '\$ ENV'"
+assert_defer "jq \$ ENV across a comment reads the environment on jq 1.6" "jq -n '\$#c
+ENV'"
+assert_defer "jq bare ENV word" "jq -n 'ENV'"
+assert_allow "jq .ENV is a field access" "jq '.ENV' file.json"
+assert_allow "jq ENVIRONMENT is a longer name" "jq '.a | .ENVIRONMENT' file.json"
+# The screen skips a filter naming none of its words and tries the words only
+# at their first letters; these pin the word at each edge of the filter.
+assert_defer "jq env as the whole filter" "jq -n env"
+assert_defer "jq import as the last word" "jq -n '. | import'"
+assert_defer "jq ENV right after an opening bracket" "jq -n '[ENV]'"
+assert_allow "jq a filter dense in e and i beside a screened word as a field" "jq '.env | .items[] | select(.line == \"eine\") | .id' file.json"
+assert_allow "jq a user function named with env as a prefix" "jq 'def envx: .; envx' file.json"
+assert_allow "jq a user function named with env as a suffix" "jq 'def myenv: .; myenv' file.json"
+assert_allow "jq a user function named with ENV as a suffix" "jq 'def myENV: .; myENV' file.json"
+JQ_HOME="$SANDBOX/jq-home"
+mkdir -p "$JQ_HOME" && : >"$JQ_HOME/.jq" || exit 1
+RUN_HOME="$JQ_HOME" assert_defer "jq while a ~/.jq file is read into every run" "jq . file.json"
+rm -f "$JQ_HOME/.jq" && mkdir "$JQ_HOME/.jq" || exit 1 # not-a-lock: test fixture directory
+RUN_HOME="$JQ_HOME" assert_defer "jq while a ~/.jq module directory exists" "jq . file.json"
+rmdir "$JQ_HOME/.jq" && ln -s "$JQ_HOME/not-yet" "$JQ_HOME/.jq" || exit 1
+RUN_HOME="$JQ_HOME" assert_defer "jq while ~/.jq is a dangling symlink" "jq . file.json"
+rm -f "$JQ_HOME/.jq"
+RUN_HOME="$JQ_HOME" assert_allow "jq once ~/.jq is gone" "jq . file.json"
+# With no usable HOME the guard cannot tell where jq looks for ~/.jq: jq 1.6
+# falls back to the password entry's home, and an empty HOME reads /.jq.
+RUN_NO_HOME=1 assert_defer "jq with HOME unset" "jq . file.json"
+RUN_HOME='' assert_defer "jq with HOME empty" "jq . file.json"
+RUN_HOME='rel-home' assert_defer "jq with a relative HOME" "jq . file.json"
+
+echo "### tower-front-door REQ-A1.3 — the flight petition's temp files: mktemp and their removal ALLOW"
+# A flight petition's ask and grounds go into the tower's own mktemp files,
+# written with the file tool and removed once the dispatch returns. Only the
+# bare mktemp form (a fresh file in the system temp directory) and a plain
+# removal of a mktemp-named regular file directly inside TMPDIR, the macOS
+# per-user temp directory, or /tmp are approved.
+# The stand-in TMPDIR lives in the sandbox, so the EXIT trap removes it and
+# everything below it, the newline-named fixture further down included.
+mkdir -p "$SANDBOX/tower-tmp" || exit 1
+TOWER_TMP="$(cd "$SANDBOX/tower-tmp" && pwd -P)" || exit 1
+SLASH_TMP_FILE="$(mktemp /tmp/tmp.XXXXXXXXXX)" || exit 1
+{
+  mkdir -p "$TOWER_TMP/tmp.dir0123456" "$TOWER_TMP/sub" \
+    && : >"$TOWER_TMP/tmp.Ab3dE6gH9j" \
+    && : >"$TOWER_TMP/tmp.Zz9yX8wV7u" \
+    && : >"$TOWER_TMP/sub/tmp.Qq1wE2rT3y" \
+    && : >"$TOWER_TMP/notes.txt" \
+    && : >"$TOWER_TMP/tmp.abc-def-12" \
+    && mkfifo "$TOWER_TMP/tmp.Fifo012345" \
+    && ln -s /etc/hosts "$TOWER_TMP/tmp.LnK0123456" \
+    && ln -s "$TOWER_TMP" "$SANDBOX/tower-tmp-link"
+} || {
+  echo "FAIL: could not build the temp-file fixtures under $TOWER_TMP" >&2
+  exit 1
+}
+export RUN_TMPDIR="$TOWER_TMP/"
+assert_allow "bare mktemp" "mktemp"
+assert_allow "removal of both petition files" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j $TOWER_TMP/tmp.Zz9yX8wV7u"
+assert_allow "removal without -f" "rm $TOWER_TMP/tmp.Ab3dE6gH9j"
+assert_allow "removal after --" "rm -f -- $TOWER_TMP/tmp.Ab3dE6gH9j"
+assert_allow "removal of a petition file already gone" "rm -f $TOWER_TMP/tmp.Gone012345"
+assert_allow "removal of a mktemp file directly in /tmp" "rm -f $SLASH_TMP_FILE"
+assert_allow "mktemp then removal in one command" "mktemp && rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
+assert_defer "mktemp -d makes a directory" "mktemp -d"
+assert_defer "mktemp with a template picks the path" "mktemp /home/u/x.XXXXXX"
+assert_defer "mktemp -p picks the directory" "mktemp -p /home/u"
+assert_defer "mktemp -t picks the prefix" "mktemp -t x"
+assert_defer "mktemp -u only names a path" "mktemp -u"
+assert_defer "mktemp writing through a redirect" "mktemp > out.txt"
+# A while or until loop has no pass cap, so mktemp inside one would create
+# files without bound; a for loop's passes are capped.
+assert_defer "mktemp in a while loop" "while true; do mktemp; done"
+assert_defer "mktemp in an until loop" "until false; do mktemp; done"
+assert_defer "mktemp backgrounded in a while loop" "while true; do mktemp & done"
+assert_defer "mktemp as a while loop's condition" "while mktemp; do true; done"
+assert_allow "mktemp before a while loop" "mktemp && while false; do true; done"
+assert_allow "mktemp inside an if, which is no loop" "if true; then mktemp; fi"
+# Removal is the other half of the bounded temp-file exception, so it takes
+# the same loop check.
+assert_defer "removal in a while loop" "while true; do rm -f $TOWER_TMP/tmp.Ab3dE6gH9j; done"
+assert_defer "removal in an until loop" "until false; do rm -f $TOWER_TMP/tmp.Ab3dE6gH9j; done"
+assert_defer "removal as a while loop's condition" "while rm -f $TOWER_TMP/tmp.Ab3dE6gH9j; do true; done"
+assert_allow "removal in a for loop" "for i in 1 2; do rm -f $TOWER_TMP/tmp.Ab3dE6gH9j; done"
+assert_allow "removal inside an if, which is no loop" "if true; then rm -f $TOWER_TMP/tmp.Ab3dE6gH9j; fi"
+assert_allow "removal before a while loop" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j && while false; do true; done"
+assert_defer "recursive removal" "rm -rf $TOWER_TMP/tmp.dir0123456"
+assert_defer "recursive removal, split flags" "rm -r -f $TOWER_TMP/tmp.dir0123456"
+assert_defer "directory removal" "rm -d $TOWER_TMP/tmp.dir0123456"
+# The rows above also fail the regular-file check; these pin the flag check
+# alone, on a regular file and on a name not yet created.
+assert_defer "recursive removal of a regular temp file" "rm -rf $TOWER_TMP/tmp.Ab3dE6gH9j"
+assert_defer "recursive removal of a temp name not yet created" "rm -r $TOWER_TMP/tmp.Gone012345"
+assert_defer "recursive removal, capital flag, of a temp name not yet created" "rm -R -f $TOWER_TMP/tmp.Gone012345"
+assert_defer "directory removal of a temp name not yet created" "rm -d $TOWER_TMP/tmp.Gone012345"
+assert_defer "a mktemp-named directory, no flags" "rm $TOWER_TMP/tmp.dir0123456"
+assert_defer "a symlink named like a mktemp file" "rm -f $TOWER_TMP/tmp.LnK0123456"
+assert_defer "a file not named like a mktemp file" "rm -f $TOWER_TMP/notes.txt"
+assert_defer "an alphanumeric name without the tmp. prefix" "rm -f $TOWER_TMP/Ab3dE6gH9j"
+assert_defer "a tmp prefix without its dot" "rm -f $TOWER_TMP/tmpXAb3dE6"
+assert_defer "a mktemp-named file below TMPDIR, not in it" "rm -f $TOWER_TMP/sub/tmp.Qq1wE2rT3y"
+assert_defer "a mktemp-named path outside TMPDIR and /tmp" "rm -f $SANDBOX/tmp.Ab3dE6gH9j"
+assert_defer "a mktemp-named path in a system temp directory off the list" "rm -f /var/tmp/tmp.Ab3dE6gH9j"
+assert_defer "a relative path" "rm -f tmp.Ab3dE6gH9j"
+# The guard resolves a relative operand against its own working directory,
+# not the command's, so the case runs the hook from TMPDIR's parent.
+RUN_HOOK_CWD="$SANDBOX" assert_defer "a relative path that resolves into TMPDIR from the hook's directory" "rm -f tower-tmp/tmp.Ab3dE6gH9j"
+assert_defer "a dot-dot path out of TMPDIR" "rm -f $TOWER_TMP/../etc/tmp.Ab3dE6gH9j"
+assert_defer "a glob" "rm -f $TOWER_TMP/tmp.*"
+assert_defer "an unexpanded variable" "rm -f \$TMPDIR/tmp.Ab3dE6gH9j"
+assert_defer "a tilde path" "rm -f ~/tmp.Ab3dE6gH9j"
+assert_defer "one safe operand and one unsafe" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j /etc/hosts"
+assert_defer "an interactive flag" "rm -i $TOWER_TMP/tmp.Ab3dE6gH9j"
+assert_defer "a verbose flag" "rm -v $TOWER_TMP/tmp.Ab3dE6gH9j"
+assert_allow "a repeated -f" "rm -f -f $TOWER_TMP/tmp.Ab3dE6gH9j"
+assert_defer "a mktemp-shaped name with a non-alphanumeric suffix" "rm -f $TOWER_TMP/tmp.abc-def-12"
+assert_defer "a mktemp-named FIFO" "rm -f $TOWER_TMP/tmp.Fifo012345"
+assert_defer "a dot-dot through a real directory back into TMPDIR" "rm -f $TOWER_TMP/sub/../tmp.Ab3dE6gH9j"
+assert_defer "a dot-dot through a real directory up out of TMPDIR" "rm -f $TOWER_TMP/sub/../../tmp.Ab3dE6gH9j"
+assert_defer "a dot component" "rm -f $TOWER_TMP/./tmp.Ab3dE6gH9j"
+assert_defer "a trailing dot-dot, whose name is no mktemp name" "rm -f $TOWER_TMP/sub/.."
+# A logical `cd` drops `<link>/..` as text before following the link, so a
+# symlink inside TMPDIR whose target sits elsewhere would resolve the
+# operand's directory to TMPDIR while rm itself follows the link.
+if ! { mkdir -p "$SANDBOX/elsewhere/sub" && : >"$SANDBOX/elsewhere/tmp.Ab3dE6gH9j" \
+  && ln -s "$SANDBOX/elsewhere/sub" "$TOWER_TMP/tmp.Esc0123456"; }; then
+  echo "FAIL: could not build the symlink-escape fixture" >&2
+  exit 1
+fi
+assert_defer "a symlink then dot-dot out of TMPDIR" "rm -f $TOWER_TMP/tmp.Esc0123456/../tmp.Ab3dE6gH9j"
+assert_defer "a symlinked directory inside TMPDIR" "rm -f $TOWER_TMP/tmp.Esc0123456/tmp.Ab3dE6gH9j"
+RUN_TMPDIR="$SANDBOX/tower-tmp-link" assert_allow "a TMPDIR spelled through a symlink matches its canonical directory" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
+# The directory as written must itself be a temp directory, raw or resolved:
+# a symlink in the written path could be re-pointed by its owner after the
+# check, another local account included when it sits in sticky /tmp.
+if ! { ln -s "$TOWER_TMP" "$SANDBOX/other-link" && mkdir -p "$SANDBOX/st/sub" && ln -s "$TOWER_TMP" "$SANDBOX/st/sub/deep-link"; }; then
+  echo "FAIL: could not build the written-directory fixtures" >&2
+  exit 1
+fi
+assert_defer "a written directory that is a symlink to TMPDIR" "rm -f $SANDBOX/other-link/tmp.Ab3dE6gH9j"
+assert_defer "a written directory reaching TMPDIR through a nested symlink" "rm -f $SANDBOX/st/sub/deep-link/tmp.Ab3dE6gH9j"
+RUN_TMPDIR="$SANDBOX/tower-tmp-link" assert_allow "the written directory is TMPDIR's raw spelling" "rm -f $SANDBOX/tower-tmp-link/tmp.Ab3dE6gH9j"
+RUN_TMPDIR="$SANDBOX/tower-tmp-link/" assert_allow "the raw spelling with TMPDIR's trailing slash" "rm -f $SANDBOX/tower-tmp-link/tmp.Ab3dE6gH9j"
+RUN_TMPDIR="$SANDBOX/tower-tmp-link" assert_defer "TMPDIR's raw spelling does not admit another symlink to it" "rm -f $SANDBOX/other-link/tmp.Ab3dE6gH9j"
+assert_allow "a written directory with a trailing slash" "rm -f $TOWER_TMP//tmp.Ab3dE6gH9j"
+RUN_TMPDIR='' assert_allow "no TMPDIR: a mktemp file directly in /tmp" "rm -f $SLASH_TMP_FILE"
+RUN_TMPDIR='' assert_defer "no TMPDIR: a mktemp file outside /tmp" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
+RUN_TMPDIR="$SANDBOX/no-such-dir" assert_allow "an unresolvable TMPDIR: a mktemp file directly in /tmp" "rm -f $SLASH_TMP_FILE"
+RUN_TMPDIR="$SANDBOX/no-such-dir" assert_defer "an unresolvable TMPDIR: a mktemp file outside /tmp" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
+# A relative TMPDIR would resolve against the hook's own directory, which need
+# not be the command's, so it names no temp directory at all.
+RUN_TMPDIR=tower-tmp RUN_HOOK_CWD="$SANDBOX" assert_defer "a relative TMPDIR names no temp directory" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
+# A newly approved verb never carries a history rewrite through with it.
+assert_defer "mktemp then a force-push" "mktemp && git push --force origin x"
+assert_defer "jq then a rebase" "jq . f.json && git rebase main"
+assert_defer "a temp-file removal then an amend" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j; git commit --amend"
+assert_defer "mktemp piped into a squash" "mktemp | git commit --squash HEAD"
+assert_defer "a flag-shaped operand after --" "rm -f -- -rf"
+assert_defer "an -f after -- is a file in the working directory" "rm -f -- -f $TOWER_TMP/tmp.Ab3dE6gH9j"
+# BSD rm (macOS /bin/rm) stops reading options at the first operand, so a
+# later -f or -- is a file in the command's working directory.
+assert_defer "an -f after an operand" "rm $TOWER_TMP/tmp.Ab3dE6gH9j -f"
+assert_defer "a -- after an operand" "rm $TOWER_TMP/tmp.Ab3dE6gH9j --"
+assert_defer "a -- between two operands" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j -- $TOWER_TMP/tmp.Zz9yX8wV7u"
+assert_defer "bare rm" "rm"
+# zsh, the shell the Bash tool runs on macOS, reads `<->` and `<1-99>` as a
+# numeric glob, not as two redirects: the matching digit-named files in the
+# working directory become extra operands. Neither tool reads stdin, so any
+# input redirect defers; output to /dev/null still passes.
+assert_defer "removal beside a zsh numeric glob" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j <-> /dev/null"
+assert_defer "removal with a zsh numeric glob attached" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j<->/dev/null"
+assert_defer "removal beside a bounded zsh numeric glob" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j <1-99999> /dev/null"
+assert_defer "removal reading stdin from a file" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j </dev/null"
+assert_defer "removal duplicating an input fd" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j 0<&0"
+assert_defer "mktemp beside a zsh numeric glob" "mktemp <->>/dev/null"
+assert_defer "mktemp reading stdin from a file" "mktemp </dev/null"
+assert_allow "removal with its output sent to /dev/null" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j >/dev/null 2>&1"
+assert_allow "mktemp with its errors sent to /dev/null" "mktemp 2>/dev/null"
+# A directory named so that its canonical path, split on the newline, reads as
+# TMPDIR followed by the entry after it in the guard's directory list: /tmp as
+# written.
+SPANNING_DIR="$TOWER_TMP
+/tmp"
+{
+  mkdir -p "$SPANNING_DIR" && : >"$SPANNING_DIR/tmp.Ab3dE6gH9j" \
+    && ln -s "$SPANNING_DIR" "$SANDBOX/span-link" && [ -f "$SANDBOX/span-link/tmp.Ab3dE6gH9j" ]
+} || {
+  echo "FAIL: could not build the newline-spanning fixture" >&2
+  exit 1
+}
+assert_defer "a quoted operand whose directory spans the directory list's lines" "rm -f '$SPANNING_DIR/tmp.Ab3dE6gH9j'"
+assert_defer "a symlink to a directory whose canonical path spans the list's lines" "rm -f $SANDBOX/span-link/tmp.Ab3dE6gH9j"
+# A command substitution strips trailing newlines, so a directory named TMPDIR
+# plus a newline would otherwise resolve to exactly TMPDIR.
+TRAILING_NL_DIR="$TOWER_TMP
+"
+{
+  mkdir -p "$TRAILING_NL_DIR" && : >"$TRAILING_NL_DIR/tmp.Ab3dE6gH9j" \
+    && ln -s "$TRAILING_NL_DIR" "$TOWER_TMP/tmp.Tnl0123456" \
+    && [ -f "$TOWER_TMP/tmp.Tnl0123456/tmp.Ab3dE6gH9j" ]
+} || {
+  echo "FAIL: could not build the trailing-newline fixture" >&2
+  exit 1
+}
+assert_defer "a symlink to TMPDIR's name plus a trailing newline" "rm -f $TOWER_TMP/tmp.Tnl0123456/tmp.Ab3dE6gH9j"
+# The same two names as TMPDIR itself: the temp-directory list drops an entry
+# whose canonical path holds a line break, a trailing one included, rather
+# than letting it split into (or strip down to) TMPDIR.
+RUN_TMPDIR="$TRAILING_NL_DIR" assert_defer "a TMPDIR named TMPDIR plus a trailing newline names no temp directory" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
+RUN_TMPDIR="$SPANNING_DIR" assert_defer "a TMPDIR whose name spans two directory lines names neither" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
+# The directory must equal a whole entry of the list, not end one.
+NEST_TMP="$SANDBOX/nest$TOWER_TMP"
+mkdir -p "$NEST_TMP" || exit 1
+RUN_TMPDIR="$NEST_TMP" assert_defer "a directory whose path only ends a temp-directory entry" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
+# Nor begin one: a symlink named as a prefix of TMPDIR, resolving to it.
+ln -s "$TOWER_TMP" "${TOWER_TMP%?}" || exit 1
+assert_defer "a written directory that only begins a temp-directory entry" "rm -f ${TOWER_TMP%?}/tmp.Ab3dE6gH9j"
+RUN_TMPDIR=/ assert_defer "a TMPDIR of / names no directory as written" "rm -f /tmp.Ab3dE6gH9j"
+# An unquoted line break splits the command, so an operand holds one only
+# inside quotes, which defer even where its directory resolves back into TMPDIR.
+NL_LINK="$TOWER_TMP/a
+b"
+ln -s "$TOWER_TMP" "$NL_LINK" || exit 1
+assert_defer "a quoted operand through a newline-named link back into TMPDIR" "rm -f '$NL_LINK/tmp.Ab3dE6gH9j'"
+# macOS mktemp writes to the per-user temp directory whatever TMPDIR says, so
+# the file it prints must stay removable when the two differ.
+REAL_TMP_FILE="$(TMPDIR="$TOWER_TMP/" mktemp)" || exit 1
+assert_allow "removal of a file real mktemp created" "rm -f $REAL_TMP_FILE"
+rm -f "$REAL_TMP_FILE"
+# The temp-directory list costs a getconf exec, so it is built once per hook
+# call however many removals the command chains.
+GETCONF_STUB="$SANDBOX/getconf-stub"
+mkdir -p "$GETCONF_STUB" || exit 1
+cat >"$GETCONF_STUB/getconf" <<EOF
+#!/bin/sh
+echo getconf >>"$GETCONF_STUB/invocations"
+printf '%s\n' "$TOWER_TMP/"
+EOF
+chmod +x "$GETCONF_STUB/getconf"
+RUN_PATH="$GETCONF_STUB:$PATH" RUN_TMPDIR="$SANDBOX/" \
+  run_hook "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j; rm -f $TOWER_TMP/tmp.Zz9yX8wV7u; rm -f $TOWER_TMP/tmp.Gone012345"
+getconf_calls=$(wc -l <"$GETCONF_STUB/invocations" 2>/dev/null | tr -d ' ')
+if is_allow && [ "${getconf_calls:-0}" = 1 ]; then
+  pass "three chained removals build the temp-directory list once"
+else
+  fail "three chained removals: verdict $(is_allow && echo allow || echo defer), getconf ran ${getconf_calls:-0} time(s), want allow and 1"
+fi
+# A getconf that fails names no temp directory, whatever it printed.
+GETCONF_FAIL="$SANDBOX/getconf-fail"
+GETCONF_DIR="$SANDBOX/getconf-dir"
+mkdir -p "$GETCONF_FAIL" "$GETCONF_DIR" || exit 1
+cat >"$GETCONF_FAIL/getconf" <<EOF
+#!/bin/sh
+printf '%s\n' "$GETCONF_DIR"
+exit 1
+EOF
+chmod +x "$GETCONF_FAIL/getconf"
+RUN_PATH="$GETCONF_FAIL:$PATH" RUN_TMPDIR='' assert_defer "a directory a failing getconf printed" "rm -f $GETCONF_DIR/tmp.Ab3dE6gH9j"
+assert_defer "a suffix too short for mktemp" "rm -f $TOWER_TMP/tmp.abc"
+assert_defer "a suffix one short of mktemp's six" "rm -f $TOWER_TMP/tmp.abcde"
+assert_allow "a suffix of exactly six" "rm -f $TOWER_TMP/tmp.abcdef"
+RUN_TMPDIR="$SANDBOX" assert_defer "a mktemp file in a directory TMPDIR does not name" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
+# Inside double quotes the shell keeps a backslash before an ordinary
+# character, while the guard's reader drops it, so a quoted operand can name
+# one path to the guard and another to rm. Every quoted rm operand defers,
+# a loop head word that was quoted included; nothing else changes verdict.
+if ! ln -s "$SANDBOX/elsewhere" "$TOWER_TMP\\"; then
+  echo "FAIL: could not build the backslash-quoting fixture" >&2
+  exit 1
+fi
+assert_defer "a double-quoted operand whose backslash names another directory" "rm -f \"$TOWER_TMP\\/tmp.Ab3dE6gH9j\""
+assert_defer "the same path through a quoted for-loop head word" "for f in \"$TOWER_TMP\\/tmp.Ab3dE6gH9j\"; do rm -f \$f; done"
+assert_defer "a quoted head word of an outer loop, used in an inner one" "for f in \"$TOWER_TMP\\/tmp.Ab3dE6gH9j\"; do for i in 1; do rm -f \$f; done; done"
+assert_defer "a quoted head word of an inner loop, inside an outer one" "for i in 1; do for f in \"$TOWER_TMP\\/tmp.Ab3dE6gH9j\"; do rm -f \$f; done; done"
+assert_defer "a quoted head word after an unquoted one" "for f in $TOWER_TMP/tmp.Zz9yX8wV7u \"$TOWER_TMP\\/tmp.Ab3dE6gH9j\"; do rm -f \$f; done"
+assert_defer "a quoted head word before an unquoted one" "for f in \"$TOWER_TMP\\/tmp.Ab3dE6gH9j\" $TOWER_TMP/tmp.Zz9yX8wV7u; do rm -f \$f; done"
+assert_defer "a double-quoted temp-file operand" "rm -f \"$TOWER_TMP/tmp.Ab3dE6gH9j\""
+assert_defer "a single-quoted temp-file operand" "rm -f '$TOWER_TMP/tmp.Ab3dE6gH9j'"
+assert_defer "a partly quoted temp-file operand" "rm -f $TOWER_TMP/\"tmp.Ab3dE6gH9j\""
+assert_defer "a backslash-escaped temp-file operand" "rm -f $TOWER_TMP/tmp\\.Ab3dE6gH9j"
+assert_defer "one quoted operand among unquoted ones" "rm -f $TOWER_TMP/tmp.Zz9yX8wV7u \"$TOWER_TMP/tmp.Ab3dE6gH9j\""
+assert_allow "an unquoted for-loop head over temp files" "for f in $TOWER_TMP/tmp.Ab3dE6gH9j $TOWER_TMP/tmp.Zz9yX8wV7u; do rm -f \$f; done"
+assert_defer "a quoted variable, even over unquoted head words" "for f in $TOWER_TMP/tmp.Ab3dE6gH9j; do rm -f \"\$f\"; done"
+
+unset RUN_TMPDIR
 
 echo "### Narrowed screen — sed bracket expressions are read-only (paired positives/negatives)"
 # The engine's sed screen is on what makes a sed script DANGEROUS (the w/W write,
@@ -440,6 +810,15 @@ assert_allow "mid-word # is not a comment" "cat a#b"
 assert_allow "single-quoted # is not a comment" "grep -n '#' README.md"
 assert_allow "double-quoted # is not a comment" "grep -n \"#x\" README.md"
 assert_allow "escaped # is not a comment" "grep -n \\#x README.md"
+assert_defer "defer form: a brace word before an output redirect" "cat README.md {fd}>/dev/null"
+assert_defer "defer form: a brace word before an input redirect" "cat README.md {fd}<README.md"
+assert_defer "defer form: a brace word before an fd duplication" "git status {fd}>&2"
+assert_defer "defer form: a brace word before an fd close" "git status {fd}>&-"
+assert_defer "defer form: a brace word before a combined-output redirect" "git status {fd}&>/dev/null"
+assert_defer "defer form: a brace word before a redirect, then a later command" "printf x {fd}>/dev/null; git status"
+assert_allow "parity: a brace word spaced from its redirect is an operand" "cat {a} >/dev/null"
+assert_allow "parity: a brace mid-word before a redirect is an operand" "cat a{b}>/dev/null"
+assert_allow "parity: an fd-number redirect still allows" "git status 2>&1"
 
 echo "### REQ-C1.2/C1.3 — planwright script containment (REQ-A1.10 pattern)"
 assert_defer "script escapes repo" "bash ../../../tmp/evil/scripts/x.sh"
@@ -462,6 +841,41 @@ assert_defer "bypass: a glob in a bash script path" "bash scripts/o*.sh"
 assert_defer "bypass: a glob in a plugin script path" "$PLUGIN_ROOT/scripts/orchestrate-*.sh"
 assert_defer "bypass: brace expansion assembles a find action" "find . -maxdepth 0 {-exec,id} ';'"
 assert_defer "bypass: a loop variable named PATH re-points later verbs" "for PATH in /tmp; do git status; done"
+assert_defer "defer form: zsh's path as a loop variable" "for path in scripts; do cat README.md; done"
+assert_defer "defer form: zsh's cdpath as a loop variable" "for cdpath in /tmp; do git status; done"
+assert_defer "defer form: NULLCMD as a loop variable" "for NULLCMD in /tmp/x; do >/dev/null; done"
+assert_defer "defer form: READNULLCMD as a loop variable" "for READNULLCMD in /tmp/x; do <README.md; done"
+assert_defer "defer form: module_path as a loop variable" "for module_path in /tmp/x; do for commands in x; do git status; done; done"
+assert_defer "defer form: MODULE_PATH as a loop variable" "for MODULE_PATH in /tmp/x; do git status; done"
+assert_defer "defer form: a further special name as a loop variable (1)" "for fpath in /tmp/x; do git status; done"
+assert_defer "defer form: a further special name as a loop variable (2)" "for FPATH in /tmp/x; do git status; done"
+assert_defer "defer form: a further special name as a loop variable (3)" "for manpath in /tmp/x; do git status; done"
+assert_defer "defer form: a further special name as a loop variable (4)" "for MANPATH in /tmp/x; do git status; done"
+assert_allow "parity: a longer name sharing a special name's prefix still resolves" "for fpaths in scripts; do cat README.md; done"
+assert_allow "parity: a longer lowercase loop variable still resolves" "for paths in scripts; do cat README.md; done"
+assert_defer "defer form: zsh's \$~ parameter form" "for f in a; do find . \$~f; done"
+assert_defer "defer form: zsh's \$= parameter form" "for f in a; do find . \$=f; done"
+assert_defer "defer form: zsh's \$^ parameter form" "for f in a; do find . \$^f; done"
+assert_defer "defer form: zsh's \$+ parameter form" "for f in a; do find . \$+f; done"
+assert_defer "defer form: zsh's \$~ parameter form in double quotes" "for f in a; do find . \"\$~f\"; done"
+assert_allow "parity: a plain loop variable still resolves for find" "for f in a; do find . -name \$f; done"
+assert_defer "defer form: a zsh subscript on an unbraced loop variable" "for f in abcd; do find . -name \"\$f[2,3]\"; done"
+assert_defer "defer form: a zsh modifier on an unbraced loop variable" "for f in a.b; do find . -name \$f:e; done"
+assert_defer "defer form: a zsh modifier on a quoted loop variable" "for f in A; do find . -name \"\$f:l\"; done"
+assert_defer "defer form: a zsh substitution modifier on a loop variable" "for f in a; do find . -name \$f:s/a/b/; done"
+assert_allow "parity: a braced loop variable before a colon is still its value" "for f in README; do cat \${f}:x; done"
+assert_allow "parity: a braced loop variable before a bracket is still its value" "for f in a; do find . -name \"\${f}[0-9]\"; done"
+assert_defer "defer form: zsh's \$= parameter form reaching jq" "for f in a; do jq -n \$=f; done"
+assert_defer "defer form: zsh's \$^ parameter form reaching jq" "for f in a; do jq -n \$^f; done"
+assert_defer "defer form: zsh's \$~ parameter form in double quotes reaching jq" "for f in a; do jq -n \"\$~f\"; done"
+assert_defer "defer form: a zsh subscript on a quoted loop variable reaching jq" "for f in abcd; do jq -n \"\$f[2,3]\"; done"
+assert_defer "defer form: a zsh modifier on a loop variable reaching jq" "for f in a.b; do jq -n \$f:e; done"
+assert_defer "defer form: zsh's glob-substitution parameter form after an argument-independent verb" "echo \$~X"
+assert_defer "defer form: zsh's glob-substitution parameter form past a printf format" "printf '%s' \$~X"
+assert_defer "defer form: a non-ASCII letter directly after a loop variable" "for f in x; do cat a\$fé; done"
+assert_defer "defer form: a non-ASCII letter after a loop variable inside double quotes reaching jq" "for f in x; do jq -n \".a\$fé\"; done"
+assert_defer "defer form: a dollar directly before a non-ASCII letter" "jq -n '.a'\$é'b'"
+assert_allow "parity: a braced loop variable before a non-ASCII letter is still its value" "for f in README; do cat \${f}é; done"
 assert_defer "regression-only: a loop variable reaching bash" "for d in a; do bash \$d; done"
 assert_defer "a loop head past the bound defers whole" \
   "for f in w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 w15 w16 w17; do echo \$f; done"
@@ -520,6 +934,13 @@ if is_allow && ! worker_is_allow; then
 else
   fail "distinctness — claude --worktree: tower=$(is_allow && echo allow || echo defer) worker=$(worker_is_allow && echo allow || echo defer)"
 fi
+run_hook "mktemp"
+run_worker_hook "mktemp"
+if is_allow && ! worker_is_allow; then
+  pass "bare mktemp is tower-allowed and worker-deferred (tower-only)"
+else
+  fail "distinctness — mktemp: tower=$(is_allow && echo allow || echo defer) worker=$(worker_is_allow && echo allow || echo defer)"
+fi
 # A worker-only command: ALLOWED by the worker guard, DEFERRED by the tower guard.
 run_hook "bats tests/ok.bats"
 run_worker_hook "bats tests/ok.bats"
@@ -552,7 +973,7 @@ short_flag_hit guard_sort guard_uniq guard_find guard_file guard_date \
 classify_redirect is_reserved repo_root_of emit_allow dollar_expands \
 word_unresolved arg_independent_verb guard_test guard_printf loop_header \
 assign_name_ok expand_word plugin_root_unlinked dollar_form_ok loop_enter \
-loop_next opaque_words_ok test_opaque_ok"
+loop_next opaque_words_ok test_opaque_ok jq_program_safe jq_home_safe guard_jq zsh_opt_word_ok"
 
 # fn_body <file> <name>: the function's text, from its `name() {` line to the
 # first `}` at column 0, with full-line comments dropped.
@@ -645,12 +1066,39 @@ parity "parity: awk REQ-section filter allows" \
 parity "parity: sort -to is a separator, not an output file" "sort -to file"
 parity "parity: sort -o output defers" "sort -o out file"
 parity "parity: sort -- ends the flags" "sort -- -o"
+# The quoted-operand flag is read by the temp-file removal alone: quoted and
+# backslashed words keep their verdicts for every other verb, in both guards.
+parity "parity: a double-quoted grep alternation still allows" "grep \"a\\|b\" file"
+parity "parity: a double-quoted cat operand with a backslash still allows" "cat \"a\\b\""
+parity "parity: a quoted jq filter and file still allow" "jq '.a' \"f.json\""
+parity "parity: a quoted sed script still allows" "sed -n \"1,5p\" file"
+parity "parity: a quoted git log format still allows" "git log --format=\"%h %s\" -3"
+parity "parity: a quoted for-loop head over cat still allows" "for f in \"a.txt\" b.txt; do cat \$f; done"
 parity "parity: shell comment defers" "cat README.md # '
 rm -rf x # '"
 parity "parity: trailing shell comment defers" "cat README.md #note"
 parity "parity: mid-word # allows" "cat a#b"
 parity "parity: quoted # allows" "grep -n '#' README.md"
 parity "parity: escaped # allows" "grep -n \\#x README.md"
+parity "parity: zsh's path as a loop variable defers" "for path in scripts; do cat README.md; done"
+parity "parity: module_path as a loop variable defers" "for module_path in /tmp/x; do git status; done"
+parity "parity: a longer lowercase loop variable allows" "for paths in scripts; do cat README.md; done"
+parity "parity: zsh's \$~ parameter form defers" "for f in a; do find . \$~f; done"
+parity "parity: a plain loop variable for find allows" "for f in a; do find . -name \$f; done"
+parity "parity: a zsh modifier on a loop variable defers" "for f in a.b; do find . -name \$f:e; done"
+parity "parity: a braced loop variable before a colon allows" "for f in README; do cat \${f}:x; done"
+parity "parity: a brace word before a redirect defers" "cat README.md {fd}>/dev/null"
+parity "parity: a brace word before a combined-output redirect defers" "git status {fd}&>/dev/null"
+parity "parity: a brace word spaced from its redirect allows" "cat {a} >/dev/null"
+parity "parity: a further special name as a loop variable defers" "for fpath in /tmp/x; do git status; done"
+parity "parity: a longer name sharing a special name's prefix allows" "for fpaths in scripts; do cat README.md; done"
+parity "parity: a non-ASCII letter after a loop variable defers" "for f in x; do cat a\$fé; done"
+parity "parity: zsh's glob-substitution parameter form defers past an argument-independent verb" "echo \$~X"
+parity "parity: an unquoted caret in a jq program word defers" "jq .a^b file.json"
+parity "parity: an unquoted brace in an awk program word defers" "awk {print} file"
+parity "parity: an unquoted caret in a sed script word defers" "sed s/a^/b/ file"
+parity "parity: a git revision with an ancestor suffix allows" "git log --oneline HEAD~2"
+parity "parity: a quoted sed script with a caret allows" "sed 's/^a/b/' file"
 
 echo "### REQ-C1.3 — deny-precedence OUTCOME (derived from tower-settings deny block)"
 # Every command drawn from config/tower-settings.json's deny block MUST defer:
@@ -694,6 +1142,30 @@ malformed_run() {
 }
 malformed_run '{ this is not json'
 if [ "$CODE" -eq 0 ] && is_empty; then pass "malformed JSON fails closed (defer)"; else fail "malformed JSON — expected defer exit 0 (got $CODE)"; fi
+malformed_run '{"tool_name":"Bash","tool_input":{"command":"git status\u0000"}}'
+if [ "$CODE" -eq 0 ] && is_empty; then
+  pass "defer form: a NUL byte in the command"
+elif is_allow; then
+  fail "defer form: a NUL byte in the command — FALSE-ALLOW: expected DEFER"
+  false_allows=$((false_allows + 1))
+else
+  fail "defer form: a NUL byte in the command — expected defer exit 0 (got $CODE)"
+fi
+malformed_run "$(jq -n --arg w "$SANDBOX" '{tool_name:"Bash",tool_input:{command:"git status"},cwd:($w+"\u0000x")}')"
+if [ "$CODE" -eq 0 ] && is_empty; then
+  pass "defer form: a malformed cwd"
+elif is_allow; then
+  fail "defer form: a malformed cwd — FALSE-ALLOW: expected DEFER"
+  false_allows=$((false_allows + 1))
+else
+  fail "defer form: a malformed cwd — expected defer exit 0 (got $CODE)"
+fi
+malformed_run "$(jq -n --arg w "$SANDBOX" '{tool_name:"Bash",tool_input:{command:"git status"},cwd:$w}')"
+if [ "$CODE" -eq 0 ] && is_allow; then
+  pass "parity: a well-formed cwd still allows"
+else
+  fail "parity: a well-formed cwd — expected allow (got $CODE)"
+fi
 # `cwd` carries the same type discipline as `command`: a PRESENT non-string value
 # is a payload outside the PreToolUse contract and defers; absent/null keep the
 # documented $PWD fallback. Panel finding (codex backend).

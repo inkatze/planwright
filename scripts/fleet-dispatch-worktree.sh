@@ -36,8 +36,9 @@
 #      never moving a tmux client. The launch runs ONLY if step 1 exited zero.
 #      The worker runs THROUGH scripts/fleet-dispatch-env.sh inside the
 #      session, so the ghost-text pin, the dispatcher's root and fleet home,
-#      the worker identity, and a per-launch token reach the worker itself
-#      whatever the tmux server's environment holds. The registry record is
+#      the worker identity, a per-launch token, and the spec root outside the
+#      work repository its guard admits as a write zone (worker-spec-root.sh)
+#      reach the worker itself whatever the tmux server's environment holds. The registry record is
 #      written once, after the session exists (even when new-session itself
 #      failed or hung), its death handle the session name and window id
 #      new-session printed, or none when that output does not parse; never a
@@ -295,6 +296,7 @@ fi
 
 FETCH="$script_dir/dispatch-fetch.sh"
 ENVWRAP="$script_dir/fleet-dispatch-env.sh"
+LAUNCH_SPEC_ROOT=""
 MARKER="$script_dir/orchestrate-marker.sh"
 TRACK="$script_dir/fleet-worktree-track.sh"
 FLEET_STATE="$script_dir/fleet-state.sh"
@@ -1049,11 +1051,16 @@ resolve_tmux_bin() {
   return 1
 }
 
-# launch_roots — set LAUNCH_ROOT and LAUNCH_HOME to the dispatcher's resolved
-# planwright root and fleet home, which the worker is pinned to.
+# launch_roots [<repo>] — set LAUNCH_ROOT and LAUNCH_HOME to the dispatcher's
+# resolved planwright root and fleet home, which the worker is pinned to, and
+# LAUNCH_SPEC_ROOT to the spec root outside <repo> its guard admits as a write
+# zone (empty for a same-repo root, or when it does not resolve: the posture
+# never blocks a dispatch).
 launch_roots() {
   LAUNCH_ROOT=$(/bin/sh "$script_dir/resolve-root.sh" install 2>/dev/null </dev/null) || LAUNCH_ROOT=''
   LAUNCH_HOME=$(/bin/sh "$FLEET_STATE" root 2>/dev/null </dev/null) || LAUNCH_HOME=''
+  LAUNCH_SPEC_ROOT=''
+  [ -z "${1:-}" ] || LAUNCH_SPEC_ROOT=$(/bin/sh "$script_dir/worker-spec-root.sh" "$1" 2>/dev/null </dev/null) || LAUNCH_SPEC_ROOT=''
 }
 
 # print_plan <suffix> <worktree> <handle> <scope> [<extra launch args>...] —
@@ -1068,7 +1075,7 @@ print_plan() {
   shift 4
   pp_session=$(worker_session "$pp_suffix")
   pp_claude=$(command -v claude 2>/dev/null) || pp_claude=claude
-  launch_roots
+  launch_roots "${_repo_root:-${_aroot:-}}"
   printf 'attach-plan\tsuffix\t%s\n' "$(sanitize_printable "$pp_suffix")"
   printf 'attach-plan\tsession\t%s\n' "$(sanitize_printable "$pp_session")"
   printf 'attach-plan\tlaunch'
@@ -1096,6 +1103,7 @@ tmux_launch() {
   tl_token=$7
   shift 7
   [ -z "$ATTACH_PROMPT" ] || set -- "$@" -- "$ATTACH_PROMPT"
+  [ -z "$LAUNCH_SPEC_ROOT" ] || set -- --spec-root "$LAUNCH_SPEC_ROOT" "$@"
   [ -z "$LAUNCH_HOME" ] || set -- --fleet-home "$LAUNCH_HOME" "$@"
   [ -z "$LAUNCH_ROOT" ] || set -- --root "$LAUNCH_ROOT" "$@"
   [ -z "$tl_token" ] || set -- --launch-token "$tl_token" "$@"
@@ -1395,6 +1403,7 @@ do_dispatch() {
   _token=''
   LAUNCH_ROOT=''
   LAUNCH_HOME=''
+  LAUNCH_SPEC_ROOT=''
   # Every arm needs the names: the collision reconcile probes them for the
   # create-only arm too, and an empty prefix would read as a live session.
   init_session_names "$_repo_root" || {
@@ -1415,7 +1424,7 @@ do_dispatch() {
     exit 3
   fi
   if [ "$_tmux_rung" -eq 1 ] && [ "$_attach_dry" -eq 0 ]; then
-    launch_roots
+    launch_roots "$_repo_root"
     if [ -z "$LAUNCH_ROOT" ] || [ -z "$LAUNCH_HOME" ]; then
       warn "refusing the tmux rung: cannot resolve the planwright root and fleet home to pin the worker to"
       exit 12

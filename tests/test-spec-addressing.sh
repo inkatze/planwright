@@ -190,8 +190,7 @@ esac
 
 # The bundle's path at the ref follows the spec root the repository resolves:
 # the repository root itself and a relocated root inside it answer as the
-# default does, while a root no ref of this repository holds (a separate
-# repository nested in the checkout, a directory outside it) is refused.
+# default does.
 # root_repo <dir> <bundle-parent> <spec_root value> [nested] — a repository
 # with the demo bundle under <bundle-parent>, marked as the configured root.
 root_repo() {
@@ -229,12 +228,17 @@ same "dispatch-fetch: a relocated spec root answers as the default" \
 root_repo "$tmp/root-nested" store store nested || fail "dispatch-fetch: could not build the nested-repository fixture"
 mkdir -p "$tmp/root-far"
 root_repo "$tmp/root-out" ../root-far "$tmp/root-far" || fail "dispatch-fetch: could not build the outside-root fixture"
-for rr in nested out; do
-  case $(root_fetch "$tmp/root-$rr") in
-    *"no ref of it holds the bundle"*"rc=2") ok "dispatch-fetch: a spec root this repository does not hold ($rr) is refused" ;;
-    *) fail "dispatch-fetch: a spec root this repository does not hold ($rr) was not refused: $(root_fetch "$tmp/root-$rr")" ;;
-  esac
-done
+# A root this repository does not hold is read from its own primary view: the
+# nested repository is a holder whose default branch has no commit yet, so it
+# parks; the outside directory is a plain root, read as its files.
+case $(root_fetch "$tmp/root-nested") in
+  *"holder's default branch"*"rc=5") ok "dispatch-fetch: a nested holder with nothing committed parks" ;;
+  *) fail "dispatch-fetch: a nested holder with nothing committed did not park: $(root_fetch "$tmp/root-nested")" ;;
+esac
+case $(root_fetch "$tmp/root-out") in
+  *"anchor	"*"	files"*"rc=3") ok "dispatch-fetch: a plain root outside the repository is read as its files" ;;
+  *) fail "dispatch-fetch: a plain root outside the repository was not read as its files: $(root_fetch "$tmp/root-out")" ;;
+esac
 
 fence_form() { outcome "$S/fleet-fence.sh" refname --spec "$1" 1; }
 seam_forms fleet-fence fence_form

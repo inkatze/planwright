@@ -250,7 +250,11 @@ keeps the attention store current and renders it, through
   `decide` for a still-open `## Awaiting input` entry, and `clear` any row
   whose unit is no longer in flight or awaiting input — so a crash between an
   edge and its mirror, a lost write, or a late heartbeat self-heals within
-  one iteration and stale workers do not linger on the surface.
+  one iteration and stale workers do not linger on the surface. A row an
+  earlier tower wrote, which no live tower mirrors, is cleared by
+  `scripts/fleet-attention-reconcile.sh` in the reconcile sweep once durable
+  evidence settles it: its unit derives completed, or its worker is
+  positively dead.
 - **Each watch iteration ends by rendering the surface on a transition**:
   `scripts/fleet-attention.sh render --on-change <tower>`, then
   `queue --on-change <tower>` (`<tower>`: `scripts/fleet-presence.sh identity`,

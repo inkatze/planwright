@@ -70,14 +70,15 @@ Read the current branch name and parse it against the convention
 charset (`^[a-z0-9][a-z0-9-]*$`, max 64 chars) and refuse the reserved word
 `flight`; no skill interpolates a failing identifier into a path or command
 (REQ-A1.8), so a segment that fails is treated as no match. The `<spec>`
-segment names the spec bundle (`specs/<spec>/`); the `<id-or-ids>` segment
+segment names the spec bundle (`<root>/<spec>/`, `<root>` being the spec
+root's primary view that `scripts/resolve-root.sh spec --primary` prints); the `<id-or-ids>` segment
 names the task or bundle being executed. A flight branch
 `planwright/flight/<flight-id>` is specless: say so and resolve no spec. If
 the branch does not match the convention or `<spec>` fails validation (e.g.
 a spec branch `planwright/<spec>/spec`, a hostile branch name, or an
 unrelated branch), do not guess a task: say which branch you are on and try
 to resolve `<spec>` only when it is unambiguous — a single spec bundle
-under `specs/` (a direct child whose name passes the REQ-A1.8 charset; the
+under `<root>` (a direct child whose name passes the REQ-A1.8 charset; the
 reserved underscore-prefixed directories `_pending/`, `_observations/`
 and `_flights/` are not bundles and are skipped), or a single bundle whose
 `requirements.md` carries the literal `**Status:** Active` marker and that
@@ -90,14 +91,14 @@ in-flight unit).
 Both arms consider only directory names that pass REQ-A1.8 (an Active bundle
 has already passed validation, so its name conforms). If that inference is
 unambiguous, continue with the resolved `<spec>`. If it is not — zero
-candidates (no `specs/` directory, or no bundle directory passes REQ-A1.8) or
+candidates (no spec root, or no bundle directory passes REQ-A1.8) or
 several candidates — say so plainly and proceed with no resolved `<spec>`
 (Steps 3-4 below degrade to a spec-less partial load, a clear message rather
 than an opaque failure per REQ-K1.7) rather than inventing a unit.
 
 ### 3. Load the kickoff brief (the contract)
 
-If Step 2 resolved a `<spec>`, read `specs/<spec>/kickoff-brief.md` — the
+If Step 2 resolved a `<spec>`, read `<root>/<spec>/kickoff-brief.md` — the
 durable contract downstream work executes against. Surface the signed-off
 goal restatement, the task-graph slice for the in-flight unit, and the
 risk-register entries that touch it (when unsure whether an entry is
@@ -109,8 +110,11 @@ useful spec-less partial load.
 
 ### 4. Load tasks.md state
 
-If a `<spec>` was resolved, read `specs/<spec>/tasks.md`, keying the read
-off the bundle's declared `Format-version:` (invariant-tasks D-7):
+If a `<spec>` was resolved, read `<root>/<spec>/tasks.md`, keying the read
+off the bundle's declared `Format-version:` (invariant-tasks D-7). In
+`same-repo`, a halt on the task branch sits in the worktree's own copy
+(`scripts/resolve-root.sh spec`, without `--primary`), so read that copy's
+`## Awaiting input` too, at either version:
 
 - **Format-version 1:** surface the in-flight unit's block — and when the
   branch encodes a cohesion bundle (`task-<id-or-ids>`, e.g. `task-3-4`),
@@ -125,8 +129,11 @@ off the bundle's declared `Format-version:` (invariant-tasks D-7):
   task in `## Awaiting input`, `## Deferred`, or `## Out of scope` (a parked
   task), and read execution status — the unit's phase, each dependency's
   completion, the bundle's derived Active/Done — through the render, the
-  canonical human-facing read surface (`mise run status specs/<spec>`,
-  i.e. `scripts/spec-status.sh`; invariant-tasks D-6). A render failure
+  canonical human-facing read surface (`scripts/spec-status.sh
+  <root>/<spec>`; invariant-tasks D-6). In a `separate-repo` store
+  (`scripts/resolve-root.sh spec --posture`), also note when that `tasks.md`
+  is uncommitted in the holder: a halt note awaiting the operator's commit
+  (custom-spec-location REQ-E1.9). A render failure
   degrades to reporting the definition and bullet state with a clear note.
 - **Missing or unparseable `Format-version:`:** neither arm applies —
   surface it and report definitions and bullets as found, assuming
@@ -202,7 +209,7 @@ the log's other records (D-19); where the harness provides no such log, say
 the mirror was skipped, never improvising one into the repository.
 
 When a `<spec>` was resolved, also recommend — as an **optional independent
-step**, one line — that the human may run `/spec-walkthrough specs/<spec>`
+step**, one line — that the human may run `/spec-walkthrough <spec>`
 themselves for an unaided, plain-language re-read of the bundle to re-orient
 (REQ-F1.1, REQ-F1.2, D-11). It is a suggestion only, never a step this skill
 performs, and as a read-only loader `/resume` neither runs it nor depends on

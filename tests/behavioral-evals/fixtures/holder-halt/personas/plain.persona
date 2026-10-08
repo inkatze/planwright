@@ -1,0 +1,5 @@
+# plain.persona — the execution skill halts with its spec root in a plain
+# directory, in no repository.
+expertise=expert
+answer.1=plain
+answer.2=Done when admits two readings

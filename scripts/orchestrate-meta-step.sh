@@ -196,7 +196,7 @@ fi
 # The brief is read from the bundle's path inside the repository, derived as
 # dispatch-fetch.sh derives it, so a spec root this repository does not hold
 # (outside it, or a separate repository nested in it) is refused here, before
-# the lock, rather than by the fetch.
+# the lock.
 repo_phys=$(cd "$repo_root" && pwd -P) || die "the repo root cannot be entered"
 primary_phys=$(cd "$repo_phys" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) \
   || die "the primary checkout did not resolve from --repo-root"
@@ -310,7 +310,7 @@ case $fetch_rc in
   0 | 3) ;;
   2) die "dispatch-fetch refused the request (exit 2)" ;;
   4) park fetch stale-transient "retry once the remote answers; never gate against a stale main" ;;
-  5) park fetch anchor-unresolved "the bundle could not be anchored at the fetched ref; check it exists on main" ;;
+  5) park fetch anchor-unresolved "the bundle could not be anchored at the fetched ref; check it exists on the remote's default branch, and that origin records one" ;;
   *) park fetch "dispatch-fetch exit $fetch_rc" "inspect the fetch failure before dispatching" ;;
 esac
 fetched_anchor=$(awk -F"$TAB" '$1 == "anchor" { print $2; exit }' "$wtmp/fetch.out")
