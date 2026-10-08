@@ -171,7 +171,7 @@ else
 fi
 
 # 9. --owner-pid is validated as data, like every other argument here.
-for bad in 'not-a-pid' '' '0'; do
+for bad in 'not-a-pid' '' '0' '000' '012' '12345678901'; do
   rc=0
   err=$(/bin/bash "$LOCK" acquire "$spec" --owner-pid "$bad" 2>&1 >/dev/null) || rc=$?
   [ "$rc" = 2 ] || fail "owner pid '$bad': exit $rc, expected 2"

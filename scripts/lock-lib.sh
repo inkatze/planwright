@@ -207,12 +207,19 @@ _pw_lock_path_ok() {
       ;;
     *'#'*)
       # The break claim, its aside and the legacy aside all hang off the lock
-      # path with a `#`. A caller that could name a lock containing one could
-      # name another lock's working path, which is exactly the collision the
-      # separator was chosen to prevent — so this is enforced here rather than
-      # asked of every caller that builds a path out of anything.
-      printf '%s\n' "lock-lib: $1 refuses a lock path containing '#', the character this library derives its working paths with" >&2
-      return 1
+      # path with a `#`. A caller that could name a lock whose NAME contains
+      # one could name another lock's working path, which is exactly the
+      # collision the separator was chosen to prevent — so this is enforced
+      # here rather than asked of every caller that builds a path out of
+      # anything. Only the last component can collide: every working path is a
+      # sibling of its lock, so a `#` in a directory above it (a checkout path
+      # that happens to carry one) names nothing this library derives.
+      case ${2##*/} in
+        *'#'*)
+          printf '%s\n' "lock-lib: $1 refuses a lock name containing '#', the character this library derives its working paths with" >&2
+          return 1
+          ;;
+      esac
       ;;
     */)
       # A PATH WITH NO LAST COMPONENT. Every working path is this one plus a
@@ -1105,11 +1112,17 @@ pw_lock_acquire_detached() {
 pw_lock_acquire_for() {
   _pw_lock_path_ok pw_lock_acquire_for "${1:-}" || return 2
   case ${2:-} in
-    '' | 0 | *[!0-9]*)
-      printf '%s\n' "lock-lib: pw_lock_acquire_for needs a non-zero numeric owner pid" >&2
+    '' | 0* | *[!0-9]*)
+      printf '%s\n' "lock-lib: pw_lock_acquire_for needs a non-zero numeric owner pid with no leading zero" >&2
       return 2
       ;;
   esac
+  # Wider than any pid a system assigns: the liveness probe reads such a token
+  # as naming no process, so the hold would be broken while its owner runs.
+  if [ "${#2}" -gt 10 ]; then
+    printf '%s\n' "lock-lib: pw_lock_acquire_for refuses an owner pid wider than ten digits" >&2
+    return 2
+  fi
   _pw_lock_take_disowned pw_lock_acquire_for "$1" "$2" "${3:-$PW_LOCK_MAX_TRIES}"
 }
 

@@ -456,8 +456,8 @@ case "$cmd" in
         exit 2
       fi
       case $2 in
-        '' | 0 | *[!0-9]*)
-          echo "allocation-ledger: --owner-pid must be a non-zero number" >&2
+        '' | 0* | ???????????* | *[!0-9]*)
+          echo "allocation-ledger: --owner-pid must be a non-zero number, at most ten digits, with no leading zero" >&2
           exit 2
           ;;
       esac

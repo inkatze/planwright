@@ -542,6 +542,20 @@ rm -f "$tmp"/for.lock*
 
 run_sh x 'pw_lock_acquire_for "$1/bad.lock" "not-a-pid"' >/dev/null 2>&1
 assert_exit "a non-numeric owner pid is a usage error" 2 $?
+# A pid the liveness probe would read as naming no process is refused, so a
+# hold can never be minted that the next caller breaks while its owner runs.
+run_sh x 'pw_lock_acquire_for "$1/bad.lock" "000$$"' >/dev/null 2>&1
+assert_exit "a zero-padded owner pid is a usage error" 2 $?
+run_sh x 'pw_lock_acquire_for "$1/bad.lock" "12345678901"' >/dev/null 2>&1
+assert_exit "an owner pid wider than ten digits is a usage error" 2 $?
+[ ! -L "$tmp/bad.lock" ] || fail "a refused owner pid left a lock behind"
+# A `#` above the lock names nothing this library derives, so a checkout path
+# that carries one still takes a lock; one in the lock name itself is refused.
+mkdir -p "$tmp/dir#hash"
+run_sh x 'pw_lock_try "$1/dir#hash/ok.lock" && pw_lock_release "$1/dir#hash/ok.lock"' >/dev/null 2>&1
+assert_exit "a lock under a directory carrying '#' is taken and released" 0 $?
+run_sh x 'pw_lock_try "$1/bad#name.lock"' >/dev/null 2>&1
+assert_exit "a lock name carrying '#' is refused" 2 $?
 
 # ---------------------------------------------------------------------------
 # 15. The lock-holder list in the library's header is the truth

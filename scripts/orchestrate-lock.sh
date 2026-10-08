@@ -136,8 +136,8 @@ if [ "$owner_pid_given" = 1 ]; then
   # writing `--owner-pid "$maybe_unset"` would silently get the stickiest lock
   # available and a success exit. Zero names no process at all.
   case $owner_pid in
-    '' | 0 | *[!0-9]*)
-      echo "orchestrate-lock: --owner-pid must be a non-zero number" >&2
+    '' | 0* | ???????????* | *[!0-9]*)
+      echo "orchestrate-lock: --owner-pid must be a non-zero number, at most ten digits, with no leading zero" >&2
       exit 2
       ;;
   esac
@@ -216,7 +216,7 @@ handle_file="$lock#owner#"
 resolve_owner_pid() {
   [ -z "$owner_pid" ] || return 0
   case ${PLANWRIGHT_TOWER_PID:-} in
-    '' | 0 | *[!0-9]*) return 0 ;;
+    '' | 0* | ???????????* | *[!0-9]*) return 0 ;;
   esac
   # Only a pid that is actually running: naming a dead one would mint a hold
   # the next caller breaks immediately, which is worse than not attributing it.
