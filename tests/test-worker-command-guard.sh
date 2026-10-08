@@ -1080,7 +1080,7 @@ assert_allow "jq ENVIRONMENT is a longer name" "jq '.a | .ENVIRONMENT' file.json
 assert_defer "jq env as the whole filter" "jq -n env"
 assert_defer "jq import as the last word" "jq -n '. | import'"
 assert_defer "jq ENV right after an opening bracket" "jq -n '[ENV]'"
-assert_allow "jq a filter dense in e and i but naming no screened word" "jq '.items[] | select(.line == \"eine\") | .id' file.json"
+assert_allow "jq a filter dense in e and i beside a screened word as a field" "jq '.env | .items[] | select(.line == \"eine\") | .id' file.json"
 assert_allow "jq a user function named with env as a prefix" "jq 'def envx: .; envx' file.json"
 assert_allow "jq a user function named with env as a suffix" "jq 'def myenv: .; myenv' file.json"
 assert_allow "jq a user function named with ENV as a suffix" "jq 'def myENV: .; myENV' file.json"

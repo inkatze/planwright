@@ -306,7 +306,7 @@ assert_allow "jq ENVIRONMENT is a longer name" "jq '.a | .ENVIRONMENT' file.json
 assert_defer "jq env as the whole filter" "jq -n env"
 assert_defer "jq import as the last word" "jq -n '. | import'"
 assert_defer "jq ENV right after an opening bracket" "jq -n '[ENV]'"
-assert_allow "jq a filter dense in e and i but naming no screened word" "jq '.items[] | select(.line == \"eine\") | .id' file.json"
+assert_allow "jq a filter dense in e and i beside a screened word as a field" "jq '.env | .items[] | select(.line == \"eine\") | .id' file.json"
 assert_allow "jq a user function named with env as a prefix" "jq 'def envx: .; envx' file.json"
 assert_allow "jq a user function named with env as a suffix" "jq 'def myenv: .; myenv' file.json"
 assert_allow "jq a user function named with ENV as a suffix" "jq 'def myENV: .; myENV' file.json"
@@ -432,6 +432,7 @@ assert_defer "jq then a rebase" "jq . f.json && git rebase main"
 assert_defer "a temp-file removal then an amend" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j; git commit --amend"
 assert_defer "mktemp piped into a squash" "mktemp | git commit --squash HEAD"
 assert_defer "a flag-shaped operand after --" "rm -f -- -rf"
+assert_defer "an -f after -- is a file in the working directory" "rm -f -- -f $TOWER_TMP/tmp.Ab3dE6gH9j"
 # BSD rm (macOS /bin/rm) stops reading options at the first operand, so a
 # later -f or -- is a file in the command's working directory.
 assert_defer "an -f after an operand" "rm $TOWER_TMP/tmp.Ab3dE6gH9j -f"
@@ -465,7 +466,7 @@ $NEXT_TMP"
   echo "FAIL: could not build the newline-spanning fixture" >&2
   exit 1
 }
-assert_defer "an operand whose directory spans the directory list's lines" "rm -f '$SPANNING_DIR/tmp.Ab3dE6gH9j'"
+assert_defer "a quoted operand whose directory spans the directory list's lines" "rm -f '$SPANNING_DIR/tmp.Ab3dE6gH9j'"
 assert_defer "a symlink to a directory whose canonical path spans the list's lines" "rm -f $SANDBOX/span-link/tmp.Ab3dE6gH9j"
 # A command substitution strips trailing newlines, so a directory named TMPDIR
 # plus a newline would otherwise resolve to exactly TMPDIR.
@@ -489,12 +490,12 @@ RUN_TMPDIR="$SPANNING_DIR" assert_defer "a TMPDIR whose name spans two directory
 NEST_TMP="$SANDBOX/nest$TOWER_TMP"
 mkdir -p "$NEST_TMP" || exit 1
 RUN_TMPDIR="$NEST_TMP" assert_defer "a directory whose path only ends a temp-directory entry" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
-# An operand holding a line break defers even where its directory resolves
-# back into TMPDIR.
+# An unquoted line break splits the command, so an operand holds one only
+# inside quotes, which defer even where its directory resolves back into TMPDIR.
 NL_LINK="$TOWER_TMP/a
 b"
 ln -s "$TOWER_TMP" "$NL_LINK" || exit 1
-assert_defer "an operand through a newline-named link back into TMPDIR" "rm -f '$NL_LINK/tmp.Ab3dE6gH9j'"
+assert_defer "a quoted operand through a newline-named link back into TMPDIR" "rm -f '$NL_LINK/tmp.Ab3dE6gH9j'"
 # macOS mktemp writes to the per-user temp directory whatever TMPDIR says, so
 # the file it prints must stay removable when the two differ.
 REAL_TMP_FILE="$(TMPDIR="$TOWER_TMP/" mktemp)" || exit 1
@@ -530,6 +531,8 @@ EOF
 chmod +x "$GETCONF_FAIL/getconf"
 RUN_PATH="$GETCONF_FAIL:$PATH" RUN_TMPDIR='' assert_defer "a directory a failing getconf printed" "rm -f $GETCONF_DIR/tmp.Ab3dE6gH9j"
 assert_defer "a suffix too short for mktemp" "rm -f $TOWER_TMP/tmp.abc"
+assert_defer "a suffix one short of mktemp's six" "rm -f $TOWER_TMP/tmp.abcde"
+assert_allow "a suffix of exactly six" "rm -f $TOWER_TMP/tmp.abcdef"
 RUN_TMPDIR="$SANDBOX" assert_defer "a mktemp file in a directory TMPDIR does not name" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
 # Inside double quotes the shell keeps a backslash before an ordinary
 # character, while the guard's reader drops it, so a quoted operand can name
@@ -541,6 +544,10 @@ if ! { ln -s "$TOWER_TMP" "$SANDBOX/qx" && ln -s "$SANDBOX/elsewhere" "$SANDBOX/
 fi
 assert_defer "a double-quoted operand whose backslash names another directory" "rm -f \"$SANDBOX/qx\\/tmp.Ab3dE6gH9j\""
 assert_defer "the same path through a quoted for-loop head word" "for f in \"$SANDBOX/qx\\/tmp.Ab3dE6gH9j\"; do rm -f \$f; done"
+assert_defer "a quoted head word of an outer loop, used in an inner one" "for f in \"$SANDBOX/qx\\/tmp.Ab3dE6gH9j\"; do for i in 1; do rm -f \$f; done; done"
+assert_defer "a quoted head word of an inner loop, inside an outer one" "for i in 1; do for f in \"$SANDBOX/qx\\/tmp.Ab3dE6gH9j\"; do rm -f \$f; done; done"
+assert_defer "a quoted head word after an unquoted one" "for f in $TOWER_TMP/tmp.Zz9yX8wV7u \"$SANDBOX/qx\\/tmp.Ab3dE6gH9j\"; do rm -f \$f; done"
+assert_defer "a quoted head word before an unquoted one" "for f in \"$SANDBOX/qx\\/tmp.Ab3dE6gH9j\" $TOWER_TMP/tmp.Zz9yX8wV7u; do rm -f \$f; done"
 assert_defer "a double-quoted temp-file operand" "rm -f \"$TOWER_TMP/tmp.Ab3dE6gH9j\""
 assert_defer "a single-quoted temp-file operand" "rm -f '$TOWER_TMP/tmp.Ab3dE6gH9j'"
 assert_defer "a partly quoted temp-file operand" "rm -f $TOWER_TMP/\"tmp.Ab3dE6gH9j\""
