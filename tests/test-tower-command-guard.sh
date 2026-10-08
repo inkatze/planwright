@@ -287,6 +287,28 @@ assert_defer "jq --from-file program file is unscreenable" "jq --from-file prog.
 assert_defer "jq --library-path loads module text" "jq --library-path /tmp/mods '.' file.json"
 assert_defer "jq unknown short flag" "jq -z '.' file.json"
 assert_defer "jq value flag dangling after the filter" "jq '.a' --arg x"
+# A program word holding an unquoted character that a non-default zsh option
+# (extended globbing, brace character classes) would expand defers in the
+# screens that read program text; the same characters elsewhere, and inside
+# quotes, keep their verdicts.
+assert_defer "defer form: an unquoted caret in a jq program word" "jq .a^b file.json"
+assert_defer "defer form: an unquoted mid-word tilde in a jq program word" "jq .a~b file.json"
+assert_defer "defer form: an unquoted mid-word hash in a jq program word" "jq .a#b file.json"
+assert_defer "defer form: an unquoted brace in a jq program word" "jq .a{b} file.json"
+assert_defer "defer form: an unquoted caret in an awk program word" "awk /a^b/ file"
+assert_defer "defer form: an unquoted brace in an awk program word" "awk {print} file"
+assert_defer "defer form: an unquoted caret in a sed script word" "sed s/a^/b/ file"
+assert_defer "defer form: an unquoted mid-word tilde in a sed -e script" "sed -e s/a~/b/ file"
+assert_defer "defer form: an unquoted brace in a sed --expression script" "sed --expression=1{p} file"
+assert_allow "parity: a quoted jq filter with a caret, tilde, hash and brace" "jq '.a | {b} | test(\"^x~#\")' file.json"
+assert_allow "parity: a quoted awk program with braces" "awk '{print \$1}' file"
+assert_allow "parity: a quoted sed script with a caret" "sed 's/^a/b/' file"
+assert_allow "parity: an unquoted jq program word without those characters" "jq .a file.json"
+assert_allow "parity: an input file named with a caret after the jq filter" "jq . a^b.json"
+assert_allow "parity: a git revision with a parent suffix" "git show HEAD^"
+assert_allow "parity: a git revision with an ancestor suffix" "git log --oneline HEAD~2"
+assert_allow "parity: a git reflog selector" "git reflog show HEAD@{1}"
+assert_allow "parity: a mid-word hash in a read operand" "cat a#b"
 # Module text is program text the guard never sees: an include or import
 # reads it from a search path the filter itself can name, and a ~/.jq file is
 # read into every run. jq 1.6 and older also read `$ ENV` (a space or a
@@ -951,7 +973,7 @@ short_flag_hit guard_sort guard_uniq guard_find guard_file guard_date \
 classify_redirect is_reserved repo_root_of emit_allow dollar_expands \
 word_unresolved arg_independent_verb guard_test guard_printf loop_header \
 assign_name_ok expand_word plugin_root_unlinked dollar_form_ok loop_enter \
-loop_next opaque_words_ok test_opaque_ok jq_program_safe jq_home_safe guard_jq"
+loop_next opaque_words_ok test_opaque_ok jq_program_safe jq_home_safe guard_jq zsh_opt_word_ok"
 
 # fn_body <file> <name>: the function's text, from its `name() {` line to the
 # first `}` at column 0, with full-line comments dropped.
@@ -1072,6 +1094,11 @@ parity "parity: a further special name as a loop variable defers" "for fpath in 
 parity "parity: a longer name sharing a special name's prefix allows" "for fpaths in scripts; do cat README.md; done"
 parity "parity: a non-ASCII letter after a loop variable defers" "for f in x; do cat a\$fé; done"
 parity "parity: zsh's glob-substitution parameter form defers past an argument-independent verb" "echo \$~X"
+parity "parity: an unquoted caret in a jq program word defers" "jq .a^b file.json"
+parity "parity: an unquoted brace in an awk program word defers" "awk {print} file"
+parity "parity: an unquoted caret in a sed script word defers" "sed s/a^/b/ file"
+parity "parity: a git revision with an ancestor suffix allows" "git log --oneline HEAD~2"
+parity "parity: a quoted sed script with a caret allows" "sed 's/^a/b/' file"
 
 echo "### REQ-C1.3 — deny-precedence OUTCOME (derived from tower-settings deny block)"
 # Every command drawn from config/tower-settings.json's deny block MUST defer:

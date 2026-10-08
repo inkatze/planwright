@@ -1189,6 +1189,28 @@ assert_defer "defer form: jq with HOME empty" "jq . file.json"
 HOOK_ENV=(HOME=rel-home)
 assert_defer "defer form: jq with a relative HOME" "jq . file.json"
 HOOK_ENV=()
+# A program word holding an unquoted character that a non-default zsh option
+# (extended globbing, brace character classes) would expand defers in the
+# screens that read program text; the same characters elsewhere, and inside
+# quotes, keep their verdicts.
+assert_defer "defer form: an unquoted caret in a jq program word" "jq .a^b file.json"
+assert_defer "defer form: an unquoted mid-word tilde in a jq program word" "jq .a~b file.json"
+assert_defer "defer form: an unquoted mid-word hash in a jq program word" "jq .a#b file.json"
+assert_defer "defer form: an unquoted brace in a jq program word" "jq .a{b} file.json"
+assert_defer "defer form: an unquoted caret in an awk program word" "awk /a^b/ file"
+assert_defer "defer form: an unquoted brace in an awk program word" "awk {print} file"
+assert_defer "defer form: an unquoted caret in a sed script word" "sed s/a^/b/ file"
+assert_defer "defer form: an unquoted mid-word tilde in a sed -e script" "sed -e s/a~/b/ file"
+assert_defer "defer form: an unquoted brace in a sed --expression script" "sed --expression=1{p} file"
+assert_allow "parity: a quoted jq filter with a caret, tilde, hash and brace" "jq '.a | {b} | test(\"^x~#\")' file.json"
+assert_allow "parity: a quoted awk program with braces" "awk '{print \$1}' file"
+assert_allow "parity: a quoted sed script with a caret" "sed 's/^a/b/' file"
+assert_allow "parity: an unquoted jq program word without those characters" "jq .a file.json"
+assert_allow "parity: an input file named with a caret after the jq filter" "jq . a^b.json"
+assert_allow "parity: a git revision with a parent suffix" "git show HEAD^"
+assert_allow "parity: a git revision with an ancestor suffix" "git log --oneline HEAD~2"
+assert_allow "parity: a git reflog selector" "git reflog show HEAD@{1}"
+assert_allow "parity: a mid-word hash in a read operand" "cat a#b"
 # yq EDITS IN PLACE.
 assert_allow "yq read" "yq . file.yml"
 assert_allow "yq -I indent is not -i inplace" "yq -I4 . file.yml"
