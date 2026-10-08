@@ -771,6 +771,10 @@ assert_defer "bypass: a glob in a direct verb path" "scripts/o*.sh"
 assert_defer "bypass: a glob in a bash script path" "bash scripts/o*.sh"
 assert_defer "bypass: brace expansion assembles a find action" "find . -maxdepth 0 {-exec,id} ';'"
 assert_defer "bypass: a loop variable named PATH re-points later verbs" "for PATH in /tmp; do git status; done"
+assert_defer "bypass: a loop variable named path, zsh's tied PATH, re-points later verbs" "for path in scripts; do cat README.md; done"
+assert_defer "bypass: a loop variable named cdpath, zsh's tied CDPATH" "for cdpath in /tmp; do git status; done"
+assert_defer "bypass: a loop variable named NULLCMD picks what zsh runs for a lone output redirect" "for NULLCMD in /tmp/x; do >/dev/null; done"
+assert_defer "bypass: a loop variable named READNULLCMD picks what zsh runs for a lone input redirect" "for READNULLCMD in /tmp/x; do <README.md; done"
 assert_defer "bypass: read overwrites a loop variable before a screened use" \
   "for d in -name; do read d; find . \$d; done"
 HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")

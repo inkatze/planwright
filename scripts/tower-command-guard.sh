@@ -1682,6 +1682,11 @@ assign_name_ok() {
       OPTIND | OPTARG | OPTERR | LANG | LANGUAGE | _ | \
       BASH* | COMP_* | READLINE_* | HIST* | LC_* | MAIL* | PS[0-9]*) return 1 ;;
   esac
+  # zsh, the Bash tool's shell on macOS: `path` and `cdpath` are tied to PATH
+  # and CDPATH, and NULLCMD / READNULLCMD name the command a lone redirect runs.
+  case $name in
+    path | cdpath | NULLCMD | READNULLCMD) return 1 ;;
+  esac
   case $HOOK_ENV_NAMES in
     *"$NL$name$NL"*) return 1 ;;
   esac

@@ -1948,6 +1948,11 @@ assign_name_ok() {
       OPTIND | OPTARG | OPTERR | LANG | LANGUAGE | _ | \
       BASH* | COMP_* | READLINE_* | HIST* | LC_* | MAIL* | PS[0-9]*) return 1 ;;
   esac
+  # zsh, the Bash tool's shell on macOS: `path` and `cdpath` are tied to PATH
+  # and CDPATH, and NULLCMD / READNULLCMD name the command a lone redirect runs.
+  case $name in
+    path | cdpath | NULLCMD | READNULLCMD) return 1 ;;
+  esac
   # Membership in the hook's own ENVIRONMENT, snapshotted at startup: an
   # exported name the command re-points reaches every child it runs. The
   # snapshot is what is tested, NOT `${!name+x}` — an indirect read also sees
