@@ -55,7 +55,8 @@ stricter bar than the code they help review:
   parsed identifiers) is stripped of non-printable bytes and printed with
   `printf`, never `echo`: the sanitizer keeps backslashes, and dash's `echo`
   expands those back into a live ESC. `check:echo-discipline` refuses
-  text-bearing `echo` expansions in sh files unless annotated `# trusted:`. The canonical sanitizer is
+  text-bearing `echo` expansions outside plain bash lacking `# trusted:`
+  reasons. The canonical sanitizer is
   `scripts/echo-safety.sh` (`sanitize_printable`), sourced behind a
   readability test; inline copies must keep its byte range. The
   awk `gsub(/[^[:print:]]/, "")` header parsers are its in-awk form.

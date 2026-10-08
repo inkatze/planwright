@@ -100,8 +100,9 @@ mise run check      # the full local equivalent of the CI gate
   glob-allow-rule discipline check;
 - the house-pattern checks: `unset CDPATH` before a `cd` in command
   substitution, printf over echo for any expanded value in a file whose
-  shebang does not name bash (an `echo` keeps an expansion only on a line
-  ending `# trusted: <reason>`, and never for sanitized output), a readability
+  shebang does not name bash or that turns on bash's `xpg_echo` (an `echo`
+  keeps an expansion only on a line ending `# trusted: <reason>`, and never
+  for sanitized output), a readability
   test before every source of `scripts/echo-safety.sh`, and every
   `scripts/*.sh` committed at the mode its first line declares (100755 with a
   shebang, 100644 for a shebang-less sourced library), read from the git index;
