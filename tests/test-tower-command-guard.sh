@@ -440,6 +440,15 @@ assert_allow "mid-word # is not a comment" "cat a#b"
 assert_allow "single-quoted # is not a comment" "grep -n '#' README.md"
 assert_allow "double-quoted # is not a comment" "grep -n \"#x\" README.md"
 assert_allow "escaped # is not a comment" "grep -n \\#x README.md"
+assert_defer "defer form: a brace word before an output redirect" "cat README.md {fd}>/dev/null"
+assert_defer "defer form: a brace word before an input redirect" "cat README.md {fd}<README.md"
+assert_defer "defer form: a brace word before an fd duplication" "git status {fd}>&2"
+assert_defer "defer form: a brace word before an fd close" "git status {fd}>&-"
+assert_defer "defer form: a brace word before a combined-output redirect" "git status {fd}&>/dev/null"
+assert_defer "defer form: a brace word before a redirect, then a later command" "printf x {fd}>/dev/null; git status"
+assert_allow "parity: a brace word spaced from its redirect is an operand" "cat {a} >/dev/null"
+assert_allow "parity: a brace mid-word before a redirect is an operand" "cat a{b}>/dev/null"
+assert_allow "parity: an fd-number redirect still allows" "git status 2>&1"
 
 echo "### REQ-C1.2/C1.3 — planwright script containment (REQ-A1.10 pattern)"
 assert_defer "script escapes repo" "bash ../../../tmp/evil/scripts/x.sh"
@@ -462,6 +471,30 @@ assert_defer "bypass: a glob in a bash script path" "bash scripts/o*.sh"
 assert_defer "bypass: a glob in a plugin script path" "$PLUGIN_ROOT/scripts/orchestrate-*.sh"
 assert_defer "bypass: brace expansion assembles a find action" "find . -maxdepth 0 {-exec,id} ';'"
 assert_defer "bypass: a loop variable named PATH re-points later verbs" "for PATH in /tmp; do git status; done"
+assert_defer "defer form: zsh's path as a loop variable" "for path in scripts; do cat README.md; done"
+assert_defer "defer form: zsh's cdpath as a loop variable" "for cdpath in /tmp; do git status; done"
+assert_defer "defer form: NULLCMD as a loop variable" "for NULLCMD in /tmp/x; do >/dev/null; done"
+assert_defer "defer form: READNULLCMD as a loop variable" "for READNULLCMD in /tmp/x; do <README.md; done"
+assert_defer "defer form: module_path as a loop variable" "for module_path in /tmp/x; do for commands in x; do git status; done; done"
+assert_defer "defer form: MODULE_PATH as a loop variable" "for MODULE_PATH in /tmp/x; do git status; done"
+assert_defer "defer form: a further special name as a loop variable (1)" "for fpath in /tmp/x; do git status; done"
+assert_defer "defer form: a further special name as a loop variable (2)" "for FPATH in /tmp/x; do git status; done"
+assert_defer "defer form: a further special name as a loop variable (3)" "for manpath in /tmp/x; do git status; done"
+assert_defer "defer form: a further special name as a loop variable (4)" "for MANPATH in /tmp/x; do git status; done"
+assert_allow "parity: a longer name sharing a special name's prefix still resolves" "for fpaths in scripts; do cat README.md; done"
+assert_allow "parity: a longer lowercase loop variable still resolves" "for paths in scripts; do cat README.md; done"
+assert_defer "defer form: zsh's \$~ parameter form" "for f in a; do find . \$~f; done"
+assert_defer "defer form: zsh's \$= parameter form" "for f in a; do find . \$=f; done"
+assert_defer "defer form: zsh's \$^ parameter form" "for f in a; do find . \$^f; done"
+assert_defer "defer form: zsh's \$+ parameter form" "for f in a; do find . \$+f; done"
+assert_defer "defer form: zsh's \$~ parameter form in double quotes" "for f in a; do find . \"\$~f\"; done"
+assert_allow "parity: a plain loop variable still resolves for find" "for f in a; do find . -name \$f; done"
+assert_defer "defer form: a zsh subscript on an unbraced loop variable" "for f in abcd; do find . -name \"\$f[2,3]\"; done"
+assert_defer "defer form: a zsh modifier on an unbraced loop variable" "for f in a.b; do find . -name \$f:e; done"
+assert_defer "defer form: a zsh modifier on a quoted loop variable" "for f in A; do find . -name \"\$f:l\"; done"
+assert_defer "defer form: a zsh substitution modifier on a loop variable" "for f in a; do find . -name \$f:s/a/b/; done"
+assert_allow "parity: a braced loop variable before a colon is still its value" "for f in README; do cat \${f}:x; done"
+assert_allow "parity: a braced loop variable before a bracket is still its value" "for f in a; do find . -name \"\${f}[0-9]\"; done"
 assert_defer "regression-only: a loop variable reaching bash" "for d in a; do bash \$d; done"
 assert_defer "a loop head past the bound defers whole" \
   "for f in w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 w15 w16 w17; do echo \$f; done"
@@ -651,6 +684,18 @@ parity "parity: trailing shell comment defers" "cat README.md #note"
 parity "parity: mid-word # allows" "cat a#b"
 parity "parity: quoted # allows" "grep -n '#' README.md"
 parity "parity: escaped # allows" "grep -n \\#x README.md"
+parity "parity: zsh's path as a loop variable defers" "for path in scripts; do cat README.md; done"
+parity "parity: module_path as a loop variable defers" "for module_path in /tmp/x; do git status; done"
+parity "parity: a longer lowercase loop variable allows" "for paths in scripts; do cat README.md; done"
+parity "parity: zsh's \$~ parameter form defers" "for f in a; do find . \$~f; done"
+parity "parity: a plain loop variable for find allows" "for f in a; do find . -name \$f; done"
+parity "parity: a zsh modifier on a loop variable defers" "for f in a.b; do find . -name \$f:e; done"
+parity "parity: a braced loop variable before a colon allows" "for f in README; do cat \${f}:x; done"
+parity "parity: a brace word before a redirect defers" "cat README.md {fd}>/dev/null"
+parity "parity: a brace word before a combined-output redirect defers" "git status {fd}&>/dev/null"
+parity "parity: a brace word spaced from its redirect allows" "cat {a} >/dev/null"
+parity "parity: a further special name as a loop variable defers" "for fpath in /tmp/x; do git status; done"
+parity "parity: a longer name sharing a special name's prefix allows" "for fpaths in scripts; do cat README.md; done"
 
 echo "### REQ-C1.3 — deny-precedence OUTCOME (derived from tower-settings deny block)"
 # Every command drawn from config/tower-settings.json's deny block MUST defer:
@@ -694,6 +739,30 @@ malformed_run() {
 }
 malformed_run '{ this is not json'
 if [ "$CODE" -eq 0 ] && is_empty; then pass "malformed JSON fails closed (defer)"; else fail "malformed JSON — expected defer exit 0 (got $CODE)"; fi
+malformed_run '{"tool_name":"Bash","tool_input":{"command":"git status\u0000"}}'
+if [ "$CODE" -eq 0 ] && is_empty; then
+  pass "defer form: a NUL byte in the command"
+elif is_allow; then
+  fail "defer form: a NUL byte in the command — FALSE-ALLOW: expected DEFER"
+  false_allows=$((false_allows + 1))
+else
+  fail "defer form: a NUL byte in the command — expected defer exit 0 (got $CODE)"
+fi
+malformed_run "$(jq -n --arg w "$SANDBOX" '{tool_name:"Bash",tool_input:{command:"git status"},cwd:($w+"\u0000x")}')"
+if [ "$CODE" -eq 0 ] && is_empty; then
+  pass "defer form: a malformed cwd"
+elif is_allow; then
+  fail "defer form: a malformed cwd — FALSE-ALLOW: expected DEFER"
+  false_allows=$((false_allows + 1))
+else
+  fail "defer form: a malformed cwd — expected defer exit 0 (got $CODE)"
+fi
+malformed_run "$(jq -n --arg w "$SANDBOX" '{tool_name:"Bash",tool_input:{command:"git status"},cwd:$w}')"
+if [ "$CODE" -eq 0 ] && is_allow; then
+  pass "parity: a well-formed cwd still allows"
+else
+  fail "parity: a well-formed cwd — expected allow (got $CODE)"
+fi
 # `cwd` carries the same type discipline as `command`: a PRESENT non-string value
 # is a payload outside the PreToolUse contract and defers; absent/null keep the
 # documented $PWD fallback. Panel finding (codex backend).
