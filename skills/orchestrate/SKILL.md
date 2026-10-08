@@ -85,9 +85,10 @@ report (D-45).
    interpolated.
 2. **Resolve the spec path**, in order: (a) an explicit spec argument;
    (b) the current branch parsed against `planwright/<spec>/task-<ids>` (D-36),
-   giving `specs/<spec>/`; (c) the checkout when it holds exactly one `specs/*/`
-   bundle whose `Status:` is `Ready` or `Active` (underscore-prefixed
-   accumulators are not bundles); (d) ask, listing the available bundles. Verify
+   giving `<root>/<spec>/`, `<root>` the primary view `scripts/resolve-root.sh
+   spec --primary` prints; (c) `<root>` when it holds exactly one bundle whose
+   `Status:` is `Ready` or `Active` (underscore-prefixed accumulators are not
+   bundles); (d) ask, listing the available bundles. Verify
    the directory holds `requirements.md`, `design.md`, `tasks.md`, and
    `test-spec.md`.
 3. **Resolve the doctrine docs** (above).
@@ -97,12 +98,12 @@ report (D-45).
    flight) are both dispatchable; refuse Draft, Done, Retired, and Superseded. For
    **Draft**, halt and prompt `/spec-kickoff`; for Done or terminal, say it has
    nothing to orchestrate.
-5. **Run the validator** (REQ-K1.7). `scripts/spec-validate.sh specs/<spec>`. On
+5. **Run the validator** (REQ-K1.7). `scripts/spec-validate.sh <root>/<spec>`. On
    a dispatch step a missing or non-executable validator **fails closed** and
    halts (REQ-A2.1 outranks degradation); a Ready or Active bundle's findings are
    errors — surface and halt (REQ-B1.2). On `--bookkeeping` it degrades with a
    message.
-6. **Verify the kickoff brief** (D-36). `specs/<spec>/kickoff-brief.md` must exist
+6. **Verify the kickoff brief** (D-36). `<root>/<spec>/kickoff-brief.md` must exist
    and carry a final sign-off record with its anchor line (formats: `spec-format`).
    Absent or partial: halt and prompt `/spec-kickoff`.
 7. **Run the reconcile sweep** (REQ-F1.1). Before selecting new work, rebuild from
@@ -110,7 +111,7 @@ report (D-45).
 
 ## Selection (REQ-F1.2)
 
-Pick the next ready unit with `scripts/orchestrate-select.sh specs/<spec>`,
+Pick the next ready unit with `scripts/orchestrate-select.sh <root>/<spec>`,
 critical-path-first over the **live derivation** (`scripts/orchestrate-state.sh`:
 git + trailer + marker + gh evidence), not the committed `tasks.md` snapshot (D-3,
 REQ-B1.2); the full candidacy and exit-code mechanics are the `selection-contract`
@@ -155,7 +156,7 @@ and worker bases stay pristine (REQ-A1.2); section placement is the reconcile's,
 off the dispatch path. The per-spec advisory lock serializes only this window; its
 law is `orchestration-concurrency` (read here). Ordered steps:
 
-1. **Acquire the lock.** `scripts/orchestrate-lock.sh acquire specs/<spec>`. Exit
+1. **Acquire the lock.** `scripts/orchestrate-lock.sh acquire <root>/<spec>`. Exit
    1 (another live holder) is a **clean no-op**: skip this step; `--bookkeeping`
    reconciles anything dropped.
 2. **Run the execution freshness gate** (REQ-F1.9, REQ-F1.10, D-45;
@@ -165,35 +166,33 @@ law is `orchestration-concurrency` (read here). Ordered steps:
    - **Fetch-before-gate** (D-9, REQ-D1.1). `scripts/dispatch-fetch.sh --spec
      <spec> <primary-checkout>` fetches `origin` (bounded by
      `dispatch_fetch_ttl`, coalesced with the reconcile-sweep fetch, **no
-     local-`main` advance**) and prints the fetched **`origin/main`** anchor
-     (re-pointing `spec-anchor.sh`). Exit **0** → gate vs `origin/main`; **3**
-     (`no-remote`, offline) → gate vs local `main`; **4** (`stale-transient`) or
-     any nonzero → park to Awaiting input. On the exit-0 paths, that `origin/main`
-     backs merge detection (`orchestrate-state.sh`'s union scan, REQ-D1.2), so a
-     task merged on `origin` but not local `main` isn't re-dispatched.
-   - **Validate the entry** (brief's most recent, from the resolved ref; formats:
+     local-`main` advance**) and prints the anchor of the bundle's primary view.
+     Exit **0**, or **3** (`no-remote`, offline) → gate against it; any other
+     nonzero → park to Awaiting input. On the exit-0 paths, the fetched
+     `origin/main` backs merge detection (`orchestrate-state.sh`'s union scan,
+     REQ-D1.2), so a task merged only on `origin` isn't re-dispatched.
+   - **Validate the entry** (brief's most recent, from the primary view; formats:
      `spec-format`): a **sanctioned command form**, a **sanctioned writer** (a
      `/spec-kickoff` sign-off or the marked `Class: expression-only` ritual), and
      — meaning-class — a dispositioned `Lens-pass:`.
    - **Compare** against `dispatch-fetch.sh`'s anchor. **Match** → proceed.
      **Mismatch** → halt (remedy: `/spec-kickoff` delta re-walkthrough). **No /
      unparseable / non-sanctioned / wrong-writer entry** → halt (remedy: repair the
-     record per REQ-F1.10). A **pre-change entry** (predating the
-     header-`**Status:**` exclusion, or whole-file form) mismatches over unedited
-     content; remedy: the one-time classify-then-self-re-anchor. Halts go to
-     Awaiting input; no bypass flag.
+     record per REQ-F1.10). A **pre-change entry** (`spec-format` *Pre-change
+     anchors*) mismatches over unedited content; remedy: its one-time
+     classify-then-self-re-anchor. Halts go to Awaiting input; no bypass flag.
 3. **Create the task branch as the first durable act** (REQ-A1.1, D-3), via the
    worktree step below, cut from `main`, named `planwright/<spec>/task-<id>` (a
    bundle: one `task-<id>-<id>` branch, D-36) from grammar-validated ids only.
-   Branch-first is fail-safe: the branch precedes the marker, never the reverse, so
-   a crash here leaves neither and the task derives Ready for clean re-dispatch.
+   Branch-first is fail-safe: a crash here leaves neither branch nor marker, so the
+   task derives Ready for clean re-dispatch.
 4. **Write the timestamped runtime dispatch marker** (D-3, REQ-A1.1):
-   `scripts/orchestrate-marker.sh write specs/<spec> <id> [<id>...]` — one marker
+   `scripts/orchestrate-marker.sh write <root>/<spec> <id> [<id>...]` — one marker
    per task id, never a single `<id>-<id>` marker. It holds the task In progress
    until its branch carries a commit (branch evidence then supersedes it); no
    `tasks.md` write or commit.
 5. **Release the lock** before dispatching: `scripts/orchestrate-lock.sh release
-   specs/<spec>`.
+   <root>/<spec>`.
 
 ### Worktree create / reuse (REQ-F1.8, D-37, D-44)
 
@@ -236,7 +235,7 @@ REQ-B1.1–B1.5). Never silently pick one. Resolve in order:
 - **Explicit `--backend <b>`** — as given, once put through
   `scripts/orchestrate-backends.sh select-unattended <b>` (a semantic value
   ladders, a literal is honored-or-halted).
-- **Otherwise** — `scripts/resolve-dispatch-backend.sh resolve specs/<spec>`
+- **Otherwise** — `scripts/resolve-dispatch-backend.sh resolve <root>/<spec>`
   (attended: add `--attended --session <token>`, a stable session id); use its
   `backend` row, resolved from the per-spec `dispatch_backend_per_spec` entry
   else global `dispatch_backend`. Exit 6 (REQ-B1.5): park to Awaiting input
@@ -380,7 +379,7 @@ The out-of-session drain pass. Dispatches nothing; it:
    `tasks-pr-sync` hook performs in-session, for events it dropped on a busy lock).
    V1 bundles only: a v2 bundle has no placement to reconcile (completion is
    derived, invariant-tasks D-6).
-2. **Evaluates open gates** with `scripts/drain-gates.sh specs/` — the shared
+2. **Evaluates open gates** with `scripts/drain-gates.sh <root>/` — the shared
    evaluator `/drain` also uses. **Nothing is auto-resolved or auto-dropped**
    (REQ-H1.4): a satisfied gate is **re-surfaced** for a human, not closed. Read
    `accumulator-taxonomy` before interpreting the lanes.
@@ -427,8 +426,10 @@ was skipped.
 Halt to Awaiting input on ambiguity, a missing dependency, a relayed worker test
 failure, a hard-disqualifier, or contract drift (non-exhaustive; pre-flight
 refusals are defined at their steps). Each halt writes the unit to `## Awaiting
-input` with the reason (on a v2 bundle, a `**Task <id>**` reference bullet, D-3;
-the `gate-wiring` pause protocol's dispatched arm); attended, present it and wait.
+input` with the reason (a v2 bundle's `**Task <id>**` reference bullet, D-3; in a
+holder or plain store `scripts/halt-note.sh` writes it uncommitted, named in the
+report, custom-spec-location REQ-E1.9; the `gate-wiring` pause protocol's
+dispatched arm); attended, present it and wait.
 
 ## Stop conditions (mandatory human handoff)
 

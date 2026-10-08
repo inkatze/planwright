@@ -1669,6 +1669,17 @@ cmd_launch() {
     }
   fi
 
+  # The spec root outside the work repository, which the worker's command
+  # guard admits as its write zone (custom-spec-location D-15), computed once
+  # here from the worker's own directory; an inherited value never stands in
+  # for it.
+  unset PLANWRIGHT_WORKER_SPEC_ROOT
+  spec_zone=$(/bin/sh "$script_dir/worker-spec-root.sh" "$PWD" 2>/dev/null </dev/null) || spec_zone=''
+  if [ -n "$spec_zone" ]; then
+    PLANWRIGHT_WORKER_SPEC_ROOT=$spec_zone
+    export PLANWRIGHT_WORKER_SPEC_ROOT
+  fi
+
   if [ "$foreground" = 1 ]; then
     # This process becomes the supervisor, so it is its own death handle; the
     # record has to land before supervise blocks.

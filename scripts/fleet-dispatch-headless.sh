@@ -32,7 +32,9 @@
 #      (PLANWRIGHT_WORKER_HANDLE=headless-<spec>-task-<id>,
 #      PLANWRIGHT_WORKER_SCOPE=<spec>:<id>) so the worker's own session fires
 #      hook-push liveness (hook_registration=true — fleet-liveness.sh
-#      push-capable reads it from the contract), wraps the launch in
+#      push-capable reads it from the contract), exports the spec root outside
+#      the work repository its guard admits as a write zone
+#      (worker-spec-root.sh; an inherited value is dropped), wraps the launch in
 #      fleet-dispatch-env.sh (the ghost-text pin), feeds the prompt file on
 #      stdin, and captures stdout/stderr.
 #   4. The runner SUPERVISES the worker as a background child (not exec): it
@@ -767,6 +769,16 @@ do_run_worker() {
     finish 125
     exit 0
   }
+
+  # The spec root outside the work repository, which the worker's command
+  # guard admits as its write zone (custom-spec-location D-15); an inherited
+  # value never stands in for it.
+  unset PLANWRIGHT_WORKER_SPEC_ROOT
+  r_spec_root=$(/bin/sh "$script_dir/worker-spec-root.sh" "$r_wt" 2>/dev/null </dev/null) || r_spec_root=''
+  if [ -n "$r_spec_root" ]; then
+    PLANWRIGHT_WORKER_SPEC_ROOT=$r_spec_root
+    export PLANWRIGHT_WORKER_SPEC_ROOT
+  fi
 
   # The dispatch-time identity env (fleet-liveness.sh hook contract): the
   # worker session inherits these, so its plugin hooks push liveness for
