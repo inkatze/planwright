@@ -203,6 +203,11 @@ expect defer - "mkdir -p $z/demo/x" "mkdir with no root handed in"
 expect defer "$z" "mkdir -m 777 $z/demo/x" "mkdir with a mode"
 expect defer "$z" "mkdir -p $z/_observations/missing/deep" "mkdir under a parent that does not exist"
 expect defer "$z" "rm $z/demo/tasks.md" "a writer verb outside the arm"
+expect defer "$z" "mkdir -p" "mkdir with no operand"
+# The zone clears a redirect of a command the guard already approves, never
+# the command itself.
+expect defer "$z" "curl -s https://example.invalid > $z/demo/x" "an unapproved command redirected into the zone"
+expect defer "$z" "python3 -c 'print(1)' >> $z/demo/tasks.md" "an unapproved interpreter appending into the zone"
 # The load-time checks on the handed-in value: each case would allow if its
 # check were dropped, since the target is otherwise a valid bundle write.
 expect defer "$tmp/holder/specs-evil" "printf x > $tmp/holder/specs-evil/demo/x" "a handed-in directory without the marker"
@@ -220,6 +225,13 @@ mkdir -p "$z/_res.x"
 expect defer "$z" "printf x > $z/_res.x/f" "a reserved directory outside the name charset"
 mkfifo "$z/demo/pipe"
 expect defer "$z" "printf x > $z/demo/pipe" "a leaf that is neither a file nor a directory"
+# The defer cases above, the ones with no root handed in included, must defer
+# without the guard looking a root up per call either.
+if [ ! -e "$tmp/git-called" ]; then
+  ok "guard: no git or config resolution ran for any verdict"
+else
+  fail "guard: a verdict ran git, so the guard resolved something per call"
+fi
 
 if [ "$failures" -ne 0 ]; then
   echo "FAIL: test-worker-spec-zone.sh ($failures failure(s))" >&2

@@ -759,11 +759,17 @@ h16() {
 # store) gets that root as PLANWRIGHT_WORKER_SPEC_ROOT; a worker whose root
 # is in its own repository gets none, an inherited value dropped either way.
 # launch_h19 <id> <worktree>: run_fdh's launch, hermetic for the resolver,
-# with a stale inherited root.
+# with a stale inherited root. Every inherited PLANWRIGHT_* and plugin
+# variable is dropped, since an adopter overlay or local config the host
+# session carries would otherwise hand the resolver a spec_root of its own;
+# the case's own fleet home is handed back explicitly.
 launch_h19() {
-  env -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE \
-    HOME="$tmp/home-h19" GIT_CEILING_DIRECTORIES="$tmp" GIT_CONFIG_GLOBAL=/dev/null \
-    PLANWRIGHT_WORKER_SPEC_ROOT=/stale PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" \
+  local unsets
+  unsets=$(env | sed -n 's/^\(PLANWRIGHT_[A-Za-z0-9_]*\)=.*/-u \1/p')
+  # shellcheck disable=SC2086 # one `-u NAME` pair per word
+  env $unsets -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR \
+    HOME="$tmp/home-h19" GIT_CEILING_DIRECTORIES="$tmp" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    PLANWRIGHT_FLEET_STATE_DIR="$PLANWRIGHT_FLEET_STATE_DIR" PLANWRIGHT_WORKER_SPEC_ROOT=/stale PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" \
     PLANWRIGHT_HEADLESS_STATE_DIR="$STATE" \
     /bin/sh "$FDH" launch "$SPEC" "$1" --worktree "$2" >/dev/null
 }

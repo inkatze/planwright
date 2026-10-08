@@ -175,6 +175,11 @@ case $rc:$out in
   0:*"records no HEAD"*"feature"*) expect_gate "same-repo, a remote HEAD that names no branch" origin/feature match "$recorded" ;;
   *) fail "same-repo, a remote HEAD that names no branch: no fallback note (rc=$rc): $out" ;;
 esac
+# From a linked worktree the fallback is still the primary checkout's branch,
+# never the worktree's own.
+gitq -C "$tmp/same/dangle" worktree add -q "$tmp/same/dangle/.claude/worktrees/wt" -b wt
+gate "$tmp/same/dangle/.claude/worktrees/wt"
+expect_gate "same-repo, no remote HEAD, from a linked worktree" origin/feature match "$recorded"
 
 # No remote: the branch the primary checkout's HEAD names.
 gitq -c init.defaultBranch=trunk init -q "$tmp/same/solo"
@@ -183,6 +188,11 @@ commit_all "$tmp/same/solo" "spec v1"
 gate "$tmp/same/solo"
 [ "$rc" -eq 3 ] || fail "same-repo, no remote: expected the offline exit 3, got $rc: $out"
 expect_gate "same-repo, no remote" trunk match "$recorded"
+gitq -C "$tmp/same/solo" worktree add -q "$tmp/same/solo/.claude/worktrees/wt" -b wt
+make_bundle "$tmp/same/solo/.claude/worktrees/wt/specs/demo" v2
+commit_all "$tmp/same/solo/.claude/worktrees/wt" "spec v2 on the worktree branch"
+gate "$tmp/same/solo/.claude/worktrees/wt"
+expect_gate "same-repo, no remote, from a linked worktree" trunk match "$recorded"
 
 # --- separate-repo: a holder whose default branch is `trunk` -------------------
 gitq -c init.defaultBranch=main init -q "$tmp/sep/work"
