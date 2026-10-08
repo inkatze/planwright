@@ -591,6 +591,25 @@ prepare_brief_dir() {
   private_dir "$brief_dir" || die 4 "refusing to write a brief: $brief_dir is not private to you"
   (umask 077 && printf '%s\n' "$repo_root" >"$brief_dir/checkout") \
     || die 4 "cannot record the brief directory's checkout"
+  # Names this dispatch while it places the flight, so a sweep never takes the
+  # brief of a placement still under way, however long it runs. Written whole
+  # by rename, so a reader never sees it half-written.
+  (umask 077 && printf '%s\n' "$$" >"$brief_dir/placing.$$" && mv -f "$brief_dir/placing.$$" "$brief_dir/placing") \
+    || die 4 "cannot record the brief directory's placing dispatch"
+}
+
+# placing_live <brief-dir> — whether the dispatch that wrote this brief is still
+# placing it. A marker that cannot be read as a pid is "cannot tell", which
+# keeps the brief, as a failed age check does.
+placing_live() {
+  [ -e "$1/placing" ] || [ -L "$1/placing" ] || return 1
+  _pl_pid=$(head -n 1 "$1/placing" 2>/dev/null) || return 0
+  case $_pl_pid in
+    '' | *[!0-9]* | 0*) return 0 ;;
+  esac
+  [ "${#_pl_pid}" -le 10 ] || return 0
+  kill -0 "$_pl_pid" 2>/dev/null && return 0
+  ps -p "$_pl_pid" >/dev/null 2>&1
 }
 
 # The minutes a retired flight's brief is kept before the sweep may take it.
@@ -600,10 +619,11 @@ BRIEF_GRACE_MIN=15
 # checkout (no registered, non-prunable worktree is that flight's), printing
 # `retired<TAB><id>` for each. Each brief directory records its checkout, since
 # the fleet home is shared; one naming another checkout, or none, stays, and
-# so does one younger than BRIEF_GRACE_MIN. A dispatch writes its brief and
-# registers its worktree under one hold of the checkout's lock, which is broken
-# only once that dispatch is gone, so the grace is for the hold an operator
-# clears by hand with a token-less `unlock` while a dispatch is still placing. An
+# so does one younger than BRIEF_GRACE_MIN, and one whose `placing` marker
+# names a dispatch still running. A dispatch writes its brief and registers its
+# worktree under one hold of the checkout's lock, which is broken only once that
+# dispatch is gone; the marker and the grace are for the hold an operator clears
+# by hand with a token-less `unlock` while a dispatch is still placing. An
 # unreadable worktree list or flights directory, one that is not private to
 # the user, or an entry whose name carries a newline removes nothing. Runs
 # under the checkout's lock. Clears each retired flight's attention rows
@@ -640,6 +660,7 @@ sweep_briefs() {
     [ -f "$_sb_dir/checkout" ] && [ ! -L "$_sb_dir/checkout" ] || continue
     [ "$(cat <"$_sb_dir/checkout")" = "$repo_root" ] || continue
     ! printf '%s\n' "$_sb_live" | grep -Fqx -e "$_sb_id" || continue
+    ! placing_live "$_sb_dir" || continue
     # A failed age check keeps the brief: "cannot tell" is never "old".
     _sb_young=$(find "$_sb_dir" -maxdepth 0 -mmin "-$BRIEF_GRACE_MIN" 2>/dev/null </dev/null) || continue
     [ -z "$_sb_young" ] || continue
@@ -1169,6 +1190,7 @@ cmd_dispatch() {
   fi
   _prc=$?
   [ "$_prc" -eq 0 ] || placement_failed "$_prc"
+  rm -f "$brief_dir/placing"
 
   # Relayed whole: a degraded base is a NOTE, and a registration the fleet has
   # no record of is a warning the operator has to see.

@@ -1351,6 +1351,21 @@ age "$c/fleet/flights/$fy"
 run retire --repo-root "$c/primary"
 [ ! -e "$c/fleet/flights/$fy" ] || fail "retire must remove the same brief once it is past the grace"
 
+# A brief its dispatch is still placing stays however old it is: the marker
+# names the placing process, and only that process being gone frees the brief.
+# A dispatch held up past the grace is not a retired flight.
+dispatch_print
+fp=$(field "$OUT" flight)
+gitc "$c/primary" worktree remove --force "$c/primary/.claude/worktrees/flight-$fp"
+printf '%s\n' "$$" >"$c/fleet/flights/$fp/placing"
+age "$c/fleet/flights/$fp"
+run retire --repo-root "$c/primary"
+[ "$RC" -eq 0 ] || fail "retire with a brief still being placed exited $RC: $ERR"
+[ -d "$c/fleet/flights/$fp" ] || fail "retire must keep a brief whose dispatch is still placing it, past the grace"
+printf '%s\n' 999999999 >"$c/fleet/flights/$fp/placing"
+run retire --repo-root "$c/primary"
+[ ! -e "$c/fleet/flights/$fp" ] || fail "retire must remove a brief whose placing dispatch is gone"
+
 # An age check that fails keeps the brief.
 dispatch_print
 fy=$(field "$OUT" flight)
