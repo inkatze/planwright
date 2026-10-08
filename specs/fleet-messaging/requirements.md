@@ -1,7 +1,7 @@
 # Fleet Messaging — Requirements
 
-**Status:** Draft
-**Last reviewed:** 2026-10-07
+**Status:** Ready
+**Last reviewed:** 2026-10-08
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -37,7 +37,8 @@ until the work is done. The amendment adds a launch-time brief for task
 workers, so a worker starts with no message and no keystroke; an honest
 contract for the paste relay, which stays only as the fallback and for
 in-pane targets; a narrow upward message, a worker's question to its tower,
-beside the idle notice that stays the record; the resumed-row fix; and the
+beside the store row and idle notice that stay the record and the push; the
+resumed-row fix; and the
 supervisor duty as doctrine. D-1's transport altitude is unchanged; the
 amendment's own altitude call is D-24.
 *(Cites: D-24; obs:f6658362, obs:37b86229, obs:24faf207, obs:b9f53634,
@@ -79,8 +80,9 @@ obs:fc7fe636.)*
 - The task worker's opening turn on the `tmux` rung: a launch-time brief at
   the task dispatch seam, in the confined shape the flight arm already uses.
 - The paste relay's restated contract: fallback and in-pane targets only,
-  one short pointer line, a pane check after every paste, and an unsubmitted
-  relay raised to the operator.
+  one short pointer line, a submission check after every paste read from
+  the worker's submit hook, and an unsubmitted relay raised to the
+  operator.
 - The attention row's resume edge: a worker resumed after a stop reads
   working again.
 - The supervisor duty, stated in the inter-orchestrator-coordination
@@ -147,7 +149,8 @@ obs:fc7fe636.)*
   detection, the fail-safe reading of the two-valued minimum), plus the
   session's effective `crossSessionInbound` resolving to `accept` — a
   top-level settings key, read from the CLI's settings files by the
-  awk-based parsing the fleet's scripts use (no jq, no eval; REQ-K1.5), or
+  awk-based parsing the fleet's scripts use (no jq, bootstrap REQ-K1.5; no
+  eval, the security-posture doctrine), or
   from `PLANWRIGHT_MESSAGING_INBOUND=accept`, which a fleet launch seam
   exports beside the `--settings` profile it passes: the variable stands
   for that command-line `--settings` layer and outranks every settings
@@ -264,6 +267,21 @@ obs:fc7fe636.)*
   duty-cycle figure gated with Task 6's loop change, the pre-gate circuit
   stated, the duty cycle defined, and the CI exclusion scoped to the live
   circuit.)*
+- **REQ-A1.8** The fleet smoke runner (REQ-A1.7) SHALL also drive the
+  supervision amendment's platform-dependent legs, each against a named
+  observable and exiting non-zero on a missed one: a `tmux` worker
+  starting `/execute-task` from its task brief with no message and no
+  keystroke (REQ-C1.6); a recorded fork whose question message the tower
+  answers once through the claim (REQ-D1.9); a worker that stopped with no
+  decision queued, resumed by a steer message, its row reading `working`
+  at its first tool use (REQ-D1.11); and a relay raised as a pending item
+  in the attention view, then cleared once a submit stamp later than it
+  lands (REQ-C1.7), the live run's stamp coming from the operator's Enter,
+  the step the runner prompts for and waits on. Its dry-run mode covers the
+  added legs' sequencing as REQ-A1.7's covers the circuit's.
+  *(Cites: D-23; kickoff 2026-10-07 §5.)*
+  *(Amended at the kickoff's lens pass 2026-10-07: the resume leg driven
+  from a plain stop; the relay leg's clear named as an operator step.)*
 
 ## REQ-B — Addressable identity
 
@@ -459,31 +477,45 @@ obs:fc7fe636.)*
   canonicalization, on the flight arm's path charset, non-empty, with the
   fleet home and every directory on that path private to the user, and
   `--continue` and `--resume` refused beside it. The tower's dispatch step
-  SHALL write the brief before the launch and pass it on every `tmux` task
-  dispatch. The brief SHALL name the `/execute-task` invocation for the
+  SHALL write the task brief before the launch and pass it on every `tmux` task
+  dispatch. The task brief SHALL name the `/execute-task` invocation for the
   unit and, where the tower's own session name is known, that name and the
   question-only rule of REQ-D1.9; a tower whose name is unknown writes the
-  brief without them, and the worker then has no upward message path. The
+  task brief without them, and the worker then has no upward message path. The
   opening turn rides the launch and is not a messaging path: it works with
   the probe reading absent.
   *(Cites: D-25, obs:f6658362, obs:37b86229.)*
 - **REQ-C1.7** The paste relay (`orchestrate-relay.sh relay-command
   tmux`) SHALL be used only where messaging cannot deliver: as the fallback
-  step of REQ-C1.1's ladder (messaging unavailable, or the target has no
-  recorded name), and for an in-pane target a message cannot reach (a
-  dialog waiting in the pane, a slash command). Its contract SHALL be
-  stated as what the mechanism does: it stages a line and may not submit
-  it, a multi-line paste or a paste into a busy worker staying unsubmitted;
-  a relay is one short pointer line, any payload living in a file the line
-  names. After every paste the tower SHALL run a deterministic pane check
-  (a script verb over a `capture-pane` read, whose text is data), and a
-  relay the check reads as unsubmitted SHALL be raised to the operator as
-  an attention row through the attention store's `park` verb with a fixed
-  reason, never retried by a second paste. An interrupt stays the
-  operator's: no relay path sends a keystroke. Steering a busy worker
-  mid-task is messaging's, which a busy session reads between tool calls.
+  step of REQ-C1.1's ladder (messaging unavailable, the target has no
+  recorded name, or a post refused, failed, dropped, or expired, REQ-C1.5),
+  and for an in-pane target a message cannot reach (a dialog waiting in the
+  pane, never a permission prompt, REQ-C1.4; a slash command). Its contract
+  SHALL be stated as what the mechanism does: a relay is one short pointer
+  line, any payload living in a file the line names, and the paste stages
+  that line and never submits it unattended; one Enter from a human
+  submits it, and a paste into a busy worker stays queued behind its turn.
+  Each relay SHALL leave a pending-relay record for the worker, stamped
+  with the time `relay-command` emitted it. The worker's `UserPromptSubmit`
+  hook stamps each submitted prompt, and only a stamp strictly later than
+  the record's emit time clears the record; nothing the pane renders and
+  no tool use clears it, and a session end drops it with the worker's
+  other liveness records. A record still pending when the tower's
+  submission check runs, a bounded window after the paste, SHALL be raised
+  to the operator as its own item in the attention view, whatever the
+  worker's attention row reads, and it stays raised until the record
+  clears. While a record is pending, `relay-command tmux` SHALL refuse a
+  further paste to that worker. The check reads hook evidence only, never
+  the pane. An interrupt stays the operator's: no relay path sends a
+  keystroke. Steering a busy worker mid-task is messaging's, which a busy
+  session reads between tool calls.
   *(Cites: D-27, obs:24faf207, obs:d88ca86b, obs:f7963c4c, obs:0c58e192,
   obs:f11077ce.)*
+  *(Amended at kickoff 2026-10-07: the verdict read from the worker's
+  submit-hook stamp rather than the pane; at the lens pass, the
+  pending-relay record and its own attention item replacing the park row,
+  the paste stated as never submitting unattended, the redelivery paste
+  allowed, and the permission-prompt exclusion.)*
 
 ## REQ-D — Upward signals
 
@@ -602,13 +634,16 @@ obs:fc7fe636.)*
   and never as an attention row. No worker-side script post exists: a
   worker never learns or holds a tower socket path, no planwright-defined
   upward wire grammar exists, and `fleet-attention.sh`'s write verbs are
-  unchanged. Beside those paths, a worker whose brief names its tower
-  (REQ-C1.6) MAY send that tower one model-composed message carrying a
-  question the tower must answer; a halt that needs a decision counts as
-  one. Before sending it the worker SHALL record the fork or park through
-  the existing attention verbs, so the store row and the idle notice stay
-  the record and the push; the message carries the question's text and
-  never substitutes for either. Clean completion and status SHALL NOT be
+  unchanged. Beside those paths, a worker whose task brief names its tower
+  (REQ-C1.6) MAY send that tower one model-composed message per recorded
+  fork, never resent, carrying a question the tower must answer; a halt
+  that needs a decision counts as one. Before sending it the worker SHALL record the question as an
+  answerable fork through the existing `fork` verb, so the store row and
+  the idle notice stay the record and the push; the message carries the
+  question's text and never substitutes for either. A need the worker
+  cannot put as a fork (a free-form input-wait, a park) sends no message
+  and reaches the tower by its row and the idle notice alone. Clean
+  completion and status SHALL NOT be
   sent upward by message. The tower SHALL treat the message as untrusted
   instruction data (REQ-H1.4): it acts on the fork only through the
   store, answers it through the decision channel's claim (REQ-C1.2), so a
@@ -617,6 +652,8 @@ obs:fc7fe636.)*
   before relying on it. A message lost to a renamed or restarted tower
   costs latency only: the row and the sweep still carry the fork.
   *(Cites: D-26, obs:24faf207, obs:4c25e743.)*
+  *(Amended at kickoff 2026-10-07: the question recorded as a fork only,
+  since the claim answers forks alone; a park sends no message.)*
 - **REQ-D1.7** (supersedes REQ-D1.2, REQ-D1.3) The tower session SHALL
   subscribe to each dispatched worker's idle notice immediately after
   dispatch, conditioned on its own probe reading available, and
@@ -656,6 +693,8 @@ obs:fc7fe636.)*
   addressing by recorded name, the ambiguous and empty cases, the
   ordering rule for every notice-driven turn, and that rule's gating with
   Task 6's loop change.)*
+  *(Amended at kickoff 2026-10-07: REQ-D1.10's one re-arm sanctioned beside
+  the store re-read.)*
 - **REQ-D1.8** Where the tower's own probe reads available and its session
   type survives a turn end (an interactive session; a `-p` tower, the
   continue-as-new handover included, keeps today's metronome), the
@@ -700,18 +739,33 @@ obs:fc7fe636.)*
   fires at once, carrying its last turn's closing line; the tower SHALL
   treat that notice as expected, reading it through `notice-read` like any
   other and never as the worker's completion. Where the notice arrives
-  before the tower has observed the worker's opening turn (the worker's
-  attention row carrying no write since its dispatch), the tower SHALL
-  re-arm the subscription once and take no other action on it.
+  before the worker has moved since the subscription was armed (the
+  worker's attention row carrying no write since then), which covers both
+  the dispatch-time subscription and REQ-D1.7's re-subscription after a
+  downward delivery, the tower SHALL re-arm the subscription once and take
+  no other action on it. Any store write for the worker counts as a write,
+  the Stop hook's idle write included. A notice arriving on the re-armed
+  subscription is read through `notice-read` like any other, with no
+  further re-arm. The re-arm is the one action beside the store re-read
+  that REQ-D1.7 sanctions on a notice.
   *(Cites: D-30, obs:b9f53634.)*
+  *(Amended at kickoff 2026-10-07: the re-arm condition generalized from
+  the opening turn to any subscription armed on a still-idle worker; at
+  the lens pass, what counts as a write, the second notice, and the re-arm's
+  place beside REQ-D1.7's sanction.)*
 - **REQ-D1.11** A worker resumed after a stop SHALL read `working` again
   without waiting for the sweep: when the Stop hook moves a worker's row to
   idle it SHALL leave an idle exit-edge marker, and the next PostToolUse
   hook in that worker SHALL consume the marker and write `working` once,
   the same marker pattern the permission and fork-park exit edges use.
+  That write SHALL be a no-op on a row reading awaiting-input (the
+  escalation-preserve guard, `--unless-awaiting`), so the edge never
+  resolves a queued human decision written after the stop.
   Whatever resumed the worker (a message, an operator's typed turn) does
   not matter to the edge. A missed edge heals on the sweep.
   *(Cites: D-28, obs:b9f53634.)*
+  *(Amended at kickoff 2026-10-07: the escalation-preserve guard on the
+  edge's write.)*
 
 ## REQ-E — Store-load reduction
 
@@ -991,7 +1045,12 @@ obs:fc7fe636.)*
 - **REQ-G1.9** The inter-orchestrator-coordination doctrine SHALL state
   the supervisor duty, and the `/tower` and `/orchestrate` prose SHALL cite
   it: a tower that dispatched a worker stays that worker's operator until
-  the work is finished. It answers the worker's questions from the task,
+  the work is finished. Here, as throughout the supervision amendment, the
+  tower is the supervising session, the session that dispatched the
+  worker: the orchestrator for a task unit, the `/tower` session for a
+  flight (the format glossary's transitional note). The question message
+  and the already-idle re-arm reach task workers only, so their handling
+  is `/orchestrate`'s. It answers the worker's questions from the task,
   the spec, and the code; it answers an in-task prompt it could act on
   itself; it relays to the operator only what it cannot answer or what is
   the operator's to decide (a genuine fork, consent, sign-off), and carries
@@ -1001,6 +1060,8 @@ obs:fc7fe636.)*
   on its own judgment, and every answer it gives unattended stays inside
   the autonomous-safe-decision doctrine.
   *(Cites: D-29, obs:fc7fe636; the autonomous-safe-decision doctrine.)*
+  *(Amended at the kickoff's lens pass 2026-10-07: the supervising session
+  defined.)*
 
 ## REQ-H — Security & hygiene
 
@@ -1045,7 +1106,7 @@ obs:fc7fe636.)*
   and the socket owner/existence predicate is a `fleet-messaging.sh` verb
   the send path applies to its target socket.
   Discipline is not enforced here: the ladder gates model-composed traffic
-  only (REQ-F1.3), and `effective-mode` is the oracle the sending prose
+  only (REQ-F1.7), and `effective-mode` is the oracle the sending prose
   consults.
   *(Cites: D-12.)*
   *(Amended at kickoff 2026-09-02 (resumed): the audit's match set made
@@ -1063,14 +1124,17 @@ obs:fc7fe636.)*
   *(Cites: D-11; the security-posture doctrine.)*
 - **REQ-H1.6** The task brief SHALL be rendered by a script from a shipped
   fixed template with validated fields only — the spec identifier and task
-  id against their grammars, the tower's session name against REQ-B1.3's
-  name screen — and no free text, so nothing the tower composes reaches a
-  worker's opening turn. It SHALL be written owner-only, under directories
-  only the user can write, through the temp-and-rename discipline. It SHALL
-  be removed when the unit's worker is cleaned up, and a brief left by a
-  unit with no live worker SHALL be removed by `/orchestrate`'s reconcile
-  sweep, so briefs never accumulate.
+  id against their grammars, the tower's session name against the renderer's
+  own screen (printable ASCII, no path separator, at most 128 bytes, the
+  screen REQ-D1.7 states, applied as data per REQ-B1.3) — and no free text,
+  so nothing the tower composes reaches a worker's opening turn. It SHALL
+  be written owner-only, under directories only the user can write, through
+  the temp-and-rename discipline. It SHALL be retired by `fleet-sweep.sh`'s
+  residue pass once the unit's worktree is gone, as a flight's brief is, so
+  task briefs never accumulate.
   *(Cites: D-25; the security-posture doctrine.)*
+  *(Amended at kickoff 2026-10-07: the name screen stated inline; removal
+  owned by the sweep's residue pass, keyed on the worktree.)*
 
 ## Changelog
 
@@ -1307,7 +1371,7 @@ obs:fc7fe636.)*
   contract and the unsubmitted-relay attention row), REQ-D1.10 (the
   already-idle notice), REQ-D1.11 (the resume edge), REQ-G1.8 (the
   fallback table's question row and the relay's doctrine contract),
-  REQ-G1.9 (the supervisor duty), REQ-H1.6 (the brief's rendering and
+  REQ-G1.9 (the supervisor duty), REQ-H1.6 (the task brief's rendering and
   lifecycle); D-24 (the amendment's altitude), D-25, D-27, D-28, D-29,
   D-30; Tasks 1.5, 4.5, 5.5, 6.5, 8.5, with their test-spec entries.
   Superseded: REQ-D1.6 → REQ-D1.9 and D-20 → D-26 (a briefed worker may
@@ -1322,6 +1386,35 @@ obs:fc7fe636.)*
   for the operator to confirm at the delta kickoff. Six of the seeds
   ride an unmerged observations PR, so they are cited by UID and left
   unconsumed here (Sources); the four seeds already on main are consumed.
+  The design log also gains the `S` origin tag for the amendment's
+  decisions.
+- 2026-10-07 — Revision at the supervision amendment's delta kickoff
+  (meaning-class, the operator's picklist; brief Amendment 1). Decision
+  provenance closed: D-24, D-25, and D-29 confirmed as drafted; D-26, D-27,
+  D-28, and D-30 amended. Minted: REQ-A1.8 (the smoke runner's supervision
+  legs, shipped by Task 8.5). Amended in place: REQ-C1.7 and D-27 (the
+  verdict read from the worker's submit-hook stamp, never the pane; a
+  pending-relay record cleared only by a later submission and raised as
+  its own attention item, replacing the drafted park row and decision
+  marker; the paste stated as never submitting unattended; the redelivery
+  paste allowed; never a permission prompt), REQ-D1.9 and D-26 (the
+  question recorded as a fork first, one message per fork, a park sending
+  none), REQ-D1.10 and D-30 (the re-arm at any still-idle subscription,
+  what counts as a write, the second notice), REQ-D1.11 and D-28 (the
+  `--unless-awaiting` guard), REQ-H1.6 and D-25 (the name screen inline,
+  retirement by `fleet-sweep.sh`'s residue pass, the template's ladder
+  rule), REQ-G1.9 and D-29 (the supervising session defined), REQ-D1.7 and
+  D-21 (the re-arm sanctioned beside the store re-read), D-4, D-13, and
+  D-23 (annotated for the question path, the question row, and the runner
+  legs), the Goal and the relay Scope bullet. Tasks: 1.5, 4.5, 5.5, 6.5,
+  and 8.5 rewritten to match, 5.5 and 8.5 retitled, 5.5 gaining Dependency
+  6.5 and 8.5 Dependencies 5.5 and 7, efforts re-estimated; Task 1's diet
+  allotment and Tasks 1, 2, 4, 6, and 8's citations re-pointed from
+  superseded IDs; a Deferred bullet consuming the live seeds once PR #600
+  lands. Test-spec entries paired with every change. Expression-only:
+  "task brief" for the launch file throughout, and REQ-A1.1's and D-12's
+  bare `REQ-K1.5` qualified as `bootstrap REQ-K1.5`, with the no-eval half
+  cited to the security-posture doctrine.
 
 ## Sources
 

@@ -1,7 +1,7 @@
 # Fleet Messaging — Design
 
-**Status:** Draft
-**Last reviewed:** 2026-10-07
+**Status:** Ready
+**Last reviewed:** 2026-10-08
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -207,6 +207,10 @@ recorded; the derived-state precedent re-cited.)*
 *(Amended at kickoff 2026-09-07 (resumed): the `off` switch value; at the
 terminal lens pass, `off` stops model-composed sends in every direction
 and an unknown value reads absent.)*
+*(Amended at kickoff 2026-10-07: the worker→tower anchor now also gates a
+shipped path, the briefed question message of D-26 (REQ-F1.7); "no shipped
+path carries worker→tower traffic" above describes the bundle before that
+amendment.)*
 
 **Alternatives considered:**
 - A fixed `tiered` rule for everyone. Rejected because: the operator's desired
@@ -714,7 +718,8 @@ nothing for a tower. `self-name` prints the session's observed name from
 that same record and exits non-zero when the record is absent or carries
 no name; `self-register` calls it, and so does the `--watch` loop when it
 records the tower marker. Every settings and session-record read on these
-paths is awk-based, with no jq and no eval (REQ-K1.5);
+paths is awk-based, with no jq (bootstrap REQ-K1.5) and no eval (the
+security-posture doctrine);
 `crossSessionInbound` is a top-level settings key, and a parse failure
 reads absent. **The wire
 contract is an unverified platform
@@ -809,6 +814,10 @@ citations, the enumerated path set, the floor row, and the two further
 amended sentences stated.)*
 *(Amended at kickoff 2026-09-07 (resumed): the wake path and its
 fallback; the dashboard not demoted; the runtime version rule.)*
+*(Amended at kickoff 2026-10-07: the fallback table gains REQ-G1.8's
+worker→tower question row beyond the fixed path set, and the
+inter-orchestrator-coordination amendment carries the paste relay's
+restated contract, D-27.)*
 
 **Alternatives considered:**
 - A sixth floor in the fleet-coordination-floor doctrine. Rejected because:
@@ -1098,6 +1107,8 @@ unchanged, and the absence of a notice is never read as a signal.
 pass, recorded-name addressing, the ambiguous and empty cases, the
 ordering rule, the wake-on-idle sentence, the seed carrying the sanction
 only.)*
+*(Amended at kickoff 2026-10-07: D-30's one re-arm of a subscription
+that fired on a still-idle worker is sanctioned beside the store re-read.)*
 
 **Alternatives considered:**
 - Using idle notices as a liveness input. Rejected because: silence is never
@@ -1210,6 +1221,8 @@ recorded the way the kickoff's experiments were, in the PR that ran it.
 duty-cycle figure gated with Task 6's loop change, the pre-gate circuit
 stated, the duty cycle defined, and the CI exclusion scoped to the live
 circuit.)*
+*(Amended at kickoff 2026-10-07: Task 8.5 extends the runner with the
+supervision amendment's legs, REQ-A1.8, each with a dry-run arm.)*
 
 **Alternatives considered:**
 - Per-task manual re-verification only (the shape before this decision).
@@ -1269,26 +1282,32 @@ after `--`, the path on argv and never the content, the file confined to
 the unit's own `<fleet-home>/tasks/<spec>/<id>/brief.md` after
 canonicalization, on the same path charset, non-empty, in directories only
 the user can write, and `--continue` and `--resume` refused beside it.
-The tower's dispatch step renders the brief before the launch through a
+The tower's dispatch step renders the task brief before the launch through a
 script that fills a shipped template with validated fields only: the
 `/execute-task` invocation for the unit and, where the tower knows its own
 session name (`fleet-messaging.sh self-name`), that name and the
-question-only rule D-26 states. A tower whose name is unknown writes the
-brief without them. The brief is removed when the unit's worker is cleaned
-up, and the reconcile sweep removes a brief whose unit has no live worker.
+question-only rule D-26 states, with the ladder values at which it may
+send. The renderer screens the name itself (printable ASCII, no path
+separator, at most 128 bytes), so it needs nothing from Task 2. A tower
+whose name is unknown writes the task brief without them. The task brief
+is retired by `fleet-sweep.sh`'s residue pass once the unit's worktree is
+gone, the precedent the flight brief set.
 The opening turn rides the launch, so it works whether or not messaging
 is available. On 2026-10-07 the tower started three task workers by
 sending each its opening turn as a cross-session message, a stopgap while
-the staged paste sat unsubmitted; the brief makes the start work with no
+the staged paste sat unsubmitted; the task brief makes the start work with no
 message at all.
+*(Amended at the kickoff's lens pass 2026-10-07: the template carries the
+ladder rule; the name screen inline; retirement owned by the sweep's
+residue pass.)*
 
 **Alternatives considered:**
 - A fixed prompt the script builds from the validated unit
-  (`/planwright:execute-task <spec> <id>`), no brief file, the tower's name
+  (`/planwright:execute-task <spec> <id>`), no task brief file, the tower's name
   in a new exported variable. Rejected because: it adds an environment
   contract the worker's prose must read, and the question-only rule would
   live in `/execute-task`'s prose for every worker rather than in the
-  brief of a worker that has a tower to ask.
+  task brief of a worker that has a tower to ask.
 - A messaging opening turn: launch bare, then send the start command once
   the worker's name is recorded, with the paste as fallback. Rejected
   because: it depends on the probe reading available, and its fallback is
@@ -1314,16 +1333,21 @@ subscribed at dispatch, reaches the tower within about a second carrying
 the worker's closing line; attention rows written mid-turn reach the tower
 on the healing sweep; a mid-turn suspension surfaces as a stale heartbeat.
 Workers learn no tower socket path and no planwright-defined upward wire
-grammar exists. One path is added beside them. A worker whose brief names
-its tower (D-25) may send that tower one model-composed message carrying
-a question the tower must answer, and a halt that needs a decision counts
-as one. The worker records the fork or park first through the existing
-attention verbs, so the row and the notice remain the record and the
-push; the message carries the question's text and never stands in for
-either. Clean completion and status are never sent upward by message. The
+grammar exists. One path is added beside them. A worker whose task brief names
+its tower (D-25) may send that tower one model-composed message per
+recorded fork, never resent, carrying a question the tower must answer,
+and a halt that needs a decision counts
+as one. The worker records the question first as an answerable fork
+through the existing `fork` verb, so the row and the notice remain the
+record and the push; the message carries the question's text and never
+stands in for either. A need that cannot be put as a fork (a free-form
+input-wait, a park) sends no message: the claim answers forks alone, so a
+park question would have no answered-once mechanism. Clean completion and
+status are never sent upward by message. The
 message rides the worker→tower direction of the discipline ladder (D-4);
 where the effective value forbids it, the row and the notice carry the
 question alone.
+*(Amended at kickoff 2026-10-07: forks only, a park sending no message.)*
 
 Three side effects were weighed. Duplicate signals: a question arrives
 both as a message and, when the worker ends its turn, as a notice; both
@@ -1357,22 +1381,58 @@ words, at the moment it is asked.
 ### D-27: The paste relay's contract — fallback and in-pane targets only, one pointer line, checked after every paste, an unsubmitted relay raised to the operator  (S)
 
 **Decision:** The paste relay stays in two places only: as the fallback
-step of D-3's ladder (messaging unavailable, or a target with no recorded
-name), and for in-pane targets a message cannot reach (a dialog waiting in
-the pane, a slash command). Its contract is restated as what it does: a
-paste stages a line and may not submit it. A multi-line paste becomes a
-placeholder that blocks every later paste, and a paste into a worker with
-work in flight stays queued. So a relay is one short pointer line naming a
-file that holds any payload. After every paste the tower runs a pane check,
-a script verb over a `capture-pane` read whose text is data, and a relay
-the check reads as unsubmitted is raised to the operator as an attention
-row through `fleet-attention.sh park` with a fixed reason. It is never
-retried by a second paste, which could not submit either. Steering a busy
-worker is messaging's: a busy session reads a message between tool calls
-(the platform experiments, Sources). An interrupt needs a keystroke, so it
-stays the operator's.
+step of D-3's ladder (messaging unavailable, a target with no recorded
+name, or a post refused, failed, dropped, or expired, the redelivery
+REQ-C1.5 already routes here), and for in-pane targets a message cannot
+reach (a dialog waiting in the pane, never a permission prompt; a slash
+command). Its contract is restated as what it does: a relay is one short
+pointer line naming a file that holds any payload, loaded with no trailing
+newline, so the paste stages the line and never submits it unattended; one
+Enter from a human submits it. A multi-line paste would become a
+placeholder that blocks every later paste, which is why the line stays
+one, and a paste into a worker with work in flight stays queued.
+
+Each relay leaves a pending-relay record for the worker, stamped with the
+time `relay-command` emitted it. A new `user-prompt-submit` arm of
+`fleet-liveness.sh`, wired to the worker's `UserPromptSubmit` hook, stamps
+each submitted prompt and clears a pending record whose emit time is
+strictly earlier than the stamp; nothing else clears it (no tool use, no
+pane rendering), and a session end drops it with the worker's other
+liveness records. The tower's submission check runs a bounded window after
+the paste and reads only that record: still pending, the relay is raised to
+the operator as its own item in the attention view, read from the pending
+record and independent of the worker's attention row, which may already
+read awaiting-input (an idle-prompt park, a fork) and which `park`, being
+`--unless-awaiting`, could not overwrite. The item stays until the record
+clears. While a record is pending, `relay-command tmux` refuses a further
+paste to the worker, since a second paste could not submit either. Steering
+a busy worker is messaging's: a busy session reads a message between tool
+calls (the platform experiments, Sources). An interrupt needs a keystroke,
+so it stays the operator's.
+*(Amended at kickoff 2026-10-07: the verdict moved from a pane classifier
+to the submit-hook stamp; the permission-prompt exclusion. Amended at the
+lens pass the same day: the pending-relay record and its own attention item
+replace the drafted park row and decision marker, because `park` no-ops on
+an awaiting-input row, a decision marker must follow its row's heartbeat,
+and a busy worker's next tool use would have cleared a still-unsubmitted
+relay; the paste stated as never submitting unattended; the redelivery
+paste allowed.)*
 
 **Alternatives considered:**
+- A pane classifier over a `capture-pane` read (submitted, unsubmitted,
+  or unknown). Rejected because: it reads the CLI's rendering, which
+  changes across versions, and an unclassifiable capture would silently
+  restore the invisible unsubmitted relay this decision closes; the hook
+  stamp is a documented contract.
+- Any row write since the paste as the evidence, with no new hook.
+  Rejected because: a submitted turn that has not yet made its first tool
+  call writes nothing, so it would read unsubmitted until it moved.
+- The unsubmitted relay as a `park` row with a decision marker cleared by
+  the worker's next prompt or tool use (the shape drafted at the walk).
+  Rejected at the lens pass because: `park` no-ops on the awaiting-input
+  row an idle worker usually already carries, a decision marker cannot be
+  written before the row whose heartbeat it carries, and a busy worker's
+  next tool use would clear the row while the paste still sat unsubmitted.
 - Retire the paste relay entirely, the ladder going from messaging
   straight to operator handoff. Rejected because: an in-pane dialog and a
   slash command have no other tower-side path, and a tower with messaging
@@ -1385,8 +1445,9 @@ stays the operator's.
   content, and a keystroke is impersonation.
 
 **Chosen because:** the relay keeps the cases only it can serve, its
-documented promise matches what it delivers, and its failure reaches the
-operator as an attention row instead of staying invisible.
+documented promise matches what it delivers, and a relay nobody submitted
+reaches the operator as its own attention item, whatever the worker's row
+reads, instead of staying invisible.
 
 ### D-28: The resume edge — an idle exit-edge marker the next tool use consumes  (S)
 
@@ -1395,19 +1456,25 @@ idle exit-edge marker beside the permission and fork-park markers
 `fleet-liveness.sh` already keeps. The next PostToolUse hook in that
 worker finds the marker, removes it, and writes `working` once. The fast
 path stays fast: a post-tool-use with no marker present exits at once, as
-today. The edge does not care what resumed the worker (a message, an
-operator's typed turn), and a missed edge heals on the sweep.
+today. The `working` write is a no-op on a row reading awaiting-input
+(`--unless-awaiting`), so a queued human decision written after the stop
+is never resolved by the edge. The edge does not care what resumed the
+worker (a message, an operator's typed turn), and a missed edge heals on
+the sweep.
+*(Amended at kickoff 2026-10-07: the escalation-preserve guard on the
+write.)*
 
 **Alternatives considered:**
 - A UserPromptSubmit hook. Rejected because: whether it fires on a
   cross-session message is unverified, so it would need a live check that
-  could find it does not work.
+  could find it does not work. D-27's submit-stamp arm uses that hook for
+  pasted input, its canonical case, and does not replace this edge.
 - Leave it to the healing sweep and document the lag. Rejected because:
   the tower then reads a working worker as idle for a whole sweep
   interval, which is exactly the interval the store-load reduction makes
   longer.
 
-**Chosen because:** it is the marker pattern the two existing exit edges
+**Chosen because:** it is the marker pattern the existing exit edges
 already use and test, it is deterministic, and it costs one file test per
 tool call only while a marker exists.
 
@@ -1415,7 +1482,9 @@ tool call only while a marker exists.
 
 **Decision:** The inter-orchestrator-coordination doctrine gains the
 supervisor duty: a tower that dispatched a worker stays that worker's
-operator until the work is finished. It answers the worker's questions
+operator until the work is finished. The tower here is the supervising
+session (the orchestrator for a task unit, the `/tower` session for a
+flight), per the format glossary's transitional note. It answers the worker's questions
 from the task, the spec, and the code, answers an in-task prompt it could
 act on itself, relays to the operator only what it cannot answer or what
 is the operator's to decide, carries the answer back, and never hands a
@@ -1439,14 +1508,23 @@ home for any queue change the duty needs.
 worker is the natural home for what it owes one, and the seed asked for
 it there (Sources).
 
-### D-30: The already-idle notice — expected, read through the store, re-armed once before the opening turn  (S)
+### D-30: The already-idle notice — expected, read through the store, re-armed once while the worker has not moved  (S)
 
 **Decision:** A subscription armed on a session that is already idle
 fires at once, carrying the last turn's closing line (observed
 2026-10-07). The tower treats that notice like any other, through
-`notice-read`, and never as completion. Where it arrives before the tower
-has observed the worker's opening turn, the tower re-arms the
-subscription once and does nothing else with it.
+`notice-read`, and never as completion. Where it arrives before the
+worker's row carries any write since the subscription was armed, the
+tower re-arms the subscription once and does nothing else with it. That
+moment comes twice: at dispatch, before the opening turn, and right after
+each downward delivery, when D-21 re-subscribes while the worker may not
+yet have picked the delivery up. Any store write for the worker counts, the
+Stop hook's idle write included, and a notice on the re-armed subscription
+goes through `notice-read` normally with no further re-arm. The re-arm is
+the one action beside the store re-read that D-21 sanctions on a notice.
+*(Amended at kickoff 2026-10-07: generalized from the opening turn to any
+subscription armed on a still-idle worker; at the lens pass, what counts
+as a write, the second notice, and the sanction.)*
 
 **Alternatives considered:**
 - Delay the subscription until the worker's opening turn is observed.
@@ -1457,5 +1535,5 @@ subscription once and does nothing else with it.
   worker never started.
 
 **Chosen because:** the store re-read already makes the notice harmless,
-and one stated re-arm keeps the tower from misreading it at the one moment
+and one stated re-arm keeps the tower from misreading it at the moments
 it is misleading.
