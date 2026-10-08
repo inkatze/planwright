@@ -586,6 +586,8 @@ write_script "$tmp/newline/scripts/envsplit.sh" "env -S 'mkdir \$lock' && exit 0
 write_script "$tmp/newline/scripts/envsassign.sh" "env -S 'FOO=1' mkdir \"\$lock\" && exit 0"
 write_script "$tmp/newline/scripts/envsopt.sh" "env -S '-i' mkdir \"\$lock\" && exit 0"
 write_script "$tmp/newline/scripts/envsoptarg.sh" "env -S '-C /tmp' mkdir \"\$lock\" && exit 0"
+write_script "$tmp/newline/scripts/envsoptlast.sh" "env -S '-C' /tmp mkdir \"\$lock\" && exit 0"
+write_script "$tmp/newline/scripts/envsargv0.sh" "env -S '--argv0 x' mkdir \"\$lock\" && exit 0"
 write_script "$tmp/newline/scripts/subinpe.sh" 'x=${y:-$(mkdir "$lock" && echo held)}'
 write_script "$tmp/newline/scripts/spacedredir.sh" '{ mkdir "$lock"; } > /dev/null && exit 0'
 write_script "$tmp/newline/scripts/eofcont.sh" 'mkdir "$lock" && \'
@@ -600,6 +602,8 @@ assert_contains "env -S runs the command its string names" "$out11bb" "scripts/e
 assert_contains "an env -S string of assignments leaves the next word the command" "$out11bb" "scripts/envsassign.sh:3:"
 assert_contains "so does one of options" "$out11bb" "scripts/envsopt.sh:3:"
 assert_contains "and one whose option takes an argument" "$out11bb" "scripts/envsoptarg.sh:3:"
+assert_contains "and one whose last option takes the next word" "$out11bb" "scripts/envsoptlast.sh:3:"
+assert_contains "and one naming argv0" "$out11bb" "scripts/envsargv0.sh:3:"
 assert_contains "a spaced redirection on a group does not hide the operator" "$out11bb" "scripts/spacedredir.sh:3:"
 assert_contains "a continuation left open at end of file is still read" "$out11bb" "scripts/eofcont.sh:3:"
 assert_contains "a clobber redirection on a group does not hide the operator" "$out11bb" "scripts/clobberredir.sh:3:"

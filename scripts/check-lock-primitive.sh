@@ -584,7 +584,7 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
 
   # walk(path, lno, exempt) — find the mkdir invocations on the tokenized line and
   # decide, per invocation, whether its exit status is being read.
-  function walk(path, lno, exempt,   i, j, k, t, base, opt, lvl, hasp, inopts, term, nxt, kind, wrap, envs, envbase, envp, envmkdir, nsw, sw, m) {
+  function walk(path, lno, exempt,   i, j, k, t, base, opt, lvl, hasp, inopts, term, nxt, kind, wrap, envs, envbase, envp, envmkdir, nsw, sw, m, envskip) {
     i = 1
     wrap = ""; envmkdir = 0
     while (i <= ntok) {
@@ -618,17 +618,21 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
         else if (wrap == "env" && opt ~ /^--split-string=/) envs = substr(opt, 16)
         if (envs != "") {
           nsw = split(envs, sw, /[ \t]+/)
-          envbase = ""; envp = 0
+          envbase = ""; envp = 0; envskip = 0
           for (m = 1; m <= nsw; m++) {
             if (envbase == "" && (sw[m] == "-u" || sw[m] == "-C" || sw[m] == "-P" || sw[m] == "-a" \
-              || sw[m] == "--unset" || sw[m] == "--chdir")) { m++; continue }
+              || sw[m] == "--unset" || sw[m] == "--chdir" || sw[m] == "--argv0")) {
+              # An option last in the string takes the next word outside it.
+              if (m == nsw) envskip = 1
+              m++; continue
+            }
             if (sw[m] == "" || (envbase == "" && (sw[m] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || sw[m] ~ /^-/))) continue
             if (envbase == "") { envbase = sw[m]; sub(/^.*\//, "", envbase); continue }
             if (sw[m] == "--parents" || (sw[m] ~ /^-[A-Za-z]+$/ && sw[m] ~ /p/)) envp = 1
           }
           # A string of assignments and options only names no command: the
           # command is still the next word after it.
-          if (envbase == "") { i++; continue }
+          if (envbase == "") { i += 1 + envskip; continue }
           wrap = ""
           if (envbase != "mkdir") { atcmd = 0; i++; continue }
           envmkdir = 1
@@ -636,7 +640,7 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
         if (!envmkdir && opt ~ /^-/) {
           if ((wrap == "sudo" && opt ~ /^-[ughprtCDTUR]$/) \
             || (wrap == "env" && opt ~ /^-[uCSPa]$/) \
-            || opt == "--user" || opt == "--group" || opt == "--chdir" || opt == "--unset") i++
+            || opt == "--user" || opt == "--group" || opt == "--chdir" || opt == "--unset" || opt == "--argv0") i++
           i++; continue
         }
         if (!envmkdir) wrap = ""
