@@ -249,7 +249,10 @@ if [ "${1:-}" = "--run-one" ]; then
   # home, and fails for it. A detached child writing later still lands in the
   # sentinel, inside this run's log dir, just undetected. The plugin-data and
   # writer arms are redirected only when set, so a file sees the same set/unset
-  # shape it would have seen without the runner.
+  # shape it would have seen without the runner. Each redirected arm is checked
+  # whole rather than at the leaf the resolver derives under it, so the check
+  # never depends on that layout: anything written there would have landed in
+  # the caller's own directory.
   fleet_sentinel="$PLANWRIGHT_TEST_LOG_DIR/$name.fleet"
   export PLANWRIGHT_FLEET_STATE_DIR="$fleet_sentinel/fleet"
   [ -z "${CLAUDE_PLUGIN_DATA+set}" ] || export CLAUDE_PLUGIN_DATA="$fleet_sentinel/plugin-data"
@@ -260,10 +263,10 @@ if [ "${1:-}" = "--run-one" ]; then
   else
     verdict="fail"
   fi
-  for fh in "$fleet_sentinel/fleet" "$fleet_sentinel/plugin-data/fleet" "$fleet_sentinel/claude/planwright"; do
+  for fh in "$fleet_sentinel/fleet" "$fleet_sentinel/plugin-data" "$fleet_sentinel/claude"; do
     if [ -e "$fh" ] || [ -L "$fh" ]; then
       verdict="fail"
-      printf '%s\n' "run-tests: $name wrote fleet state into the fleet home it inherited (under a fleet worker, the operator's real one); pin a fixture home per case (tests/lib/fleet-home.sh)" \
+      printf '%s\n' "run-tests: $name wrote into the fleet home it inherited (under a fleet worker, the operator's real one); pin a fixture home per case (tests/lib/fleet-home.sh)" \
         >>"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
       break
     fi

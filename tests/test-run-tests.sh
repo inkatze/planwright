@@ -378,7 +378,7 @@ assert_contains "the unwritable-report failure names the path" \
 #     them, never the home this suite itself inherited.
 export PLANWRIGHT_FLEET_STATE_DIR="$tmp/operator-fleet"
 export CLAUDE_PLUGIN_DATA="$tmp/operator-data"
-mkdir -p "$tmp/leak-override" "$tmp/leak-plugin" "$tmp/leak-marker" "$tmp/leak-ledger" "$tmp/leak-link" "$tmp/leak-writer" "$tmp/unset-arms" "$tmp/pinned"
+mkdir -p "$tmp/leak-override" "$tmp/leak-plugin" "$tmp/leak-marker" "$tmp/leak-ledger" "$tmp/leak-link" "$tmp/leak-writer" "$tmp/leak-plugin-other" "$tmp/leak-writer-other" "$tmp/unset-arms" "$tmp/pinned"
 cat >"$tmp/leak-override/test-leaky.sh" <<'EOF'
 #!/bin/bash
 mkdir -p "$PLANWRIGHT_FLEET_STATE_DIR"
@@ -408,6 +408,16 @@ cat >"$tmp/leak-writer/test-leaky.sh" <<'EOF'
 #!/bin/bash
 mkdir -p "$CLAUDE_DIR/planwright/planwright/fleet"
 printf 'leaked\n' >>"$CLAUDE_DIR/planwright/planwright/fleet/registry"
+EOF
+cat >"$tmp/leak-plugin-other/test-leaky.sh" <<'EOF'
+#!/bin/bash
+mkdir -p "$CLAUDE_PLUGIN_DATA/other-state"
+printf 'x\n' >"$CLAUDE_PLUGIN_DATA/other-state/f"
+EOF
+cat >"$tmp/leak-writer-other/test-leaky.sh" <<'EOF'
+#!/bin/bash
+mkdir -p "$CLAUDE_DIR"
+printf '{}\n' >"$CLAUDE_DIR/settings.json"
 EOF
 cat >"$tmp/unset-arms/test-unset.sh" <<'EOF'
 #!/bin/bash
@@ -448,6 +458,14 @@ if [ -e "$tmp/operator-claude" ]; then
 else
   echo "ok: the inherited fleet home is untouched (writer arm)"
 fi
+# The check covers each redirected arm whole, not the leaves the resolver
+# happens to derive under it today, so a renamed leaf cannot quietly let a
+# write through.
+out="$(env -u PLANWRIGHT_FLEET_STATE_DIR /bin/bash "$RUNNER" "$tmp/leak-plugin-other" 2>&1)"
+assert "a write anywhere under the redirected plugin-data arm fails the run" 1 $?
+out="$(env -u PLANWRIGHT_FLEET_STATE_DIR -u CLAUDE_PLUGIN_DATA CLAUDE_DIR="$tmp/operator-claude" \
+  /bin/bash "$RUNNER" "$tmp/leak-writer-other" 2>&1)"
+assert "a write anywhere under the redirected writer arm fails the run" 1 $?
 out="$(/bin/bash "$RUNNER" "$tmp/leak-marker" 2>&1)"
 assert "a dispatch-marker write to the inherited fleet home fails the run" 1 $?
 out="$(/bin/bash "$RUNNER" "$tmp/leak-ledger" 2>&1)"
