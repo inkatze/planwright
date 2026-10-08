@@ -307,27 +307,6 @@ router has not demonstrated (REQ-B1.6).
   this branch, and `main`'s own CI fails the same way. Decide how to clear
   it (fix that fixture on its branch, or record the hit in a gitleaks ignore
   on `main`); then re-run this PR's CI, which has not yet reached its tests.
-- **Task 10** — the post-PR review of draft PR #601 (tower posture extension)
-  found two issues in the security-sensitive command guards that need a
-  choice; nothing was applied for either.
-  1. The temp-file removal resolves the file's directory physically, so it
-     accepts a path through a symlink in `/tmp` that another local account
-     owns and can re-point after the check. This branch introduced it. Choose:
-     (a) also require the directory as written to be one of the temp
-     directories, raw or resolved (only prompts more; recommended);
-     (b) refuse a written path that crosses a symlink owned by neither root
-     nor the user (only prompts more, slower); or (c) keep the verdict and
-     widen the documented residual to any local account.
-  2. The guards' command reader does not handle shell comments, which can
-     let a command be approved that it should send to the prompt. This is
-     already on `main` and in the released plugin, in both guards. Choose:
-     (a) send any command with a comment to the prompt, in both guards (only
-     prompts more; commented commands start prompting); (b) model comments
-     as the shell does, in both guards (other verdicts can move either way);
-     or (c) fix it in its own PR off `main`, outside this branch
-     (recommended, with (a) first and (b) later if needed).
-
-  The two later post-PR review steps have not run.
 
 ## Deferred
 
