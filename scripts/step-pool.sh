@@ -84,13 +84,13 @@
 #                           directory or root a symbolic link, not the
 #                           user's, writable by group or other users,
 #                           carrying an access control list, not a
-#                           directory, or not writable; the root relative,
-#                           unset, or unusable as a lock path; the lock
-#                           library missing or failing; no scratch file; the
-#                           owner's user unreadable by ps when the take
-#                           starts, while the owner runs): one warning names
-#                           the cause and the caller runs its check
-#                           unpooled                                       exit 0
+#                           directory, not writable, or not listable; the
+#                           root relative, unset, or unusable as a lock
+#                           path; the lock library missing or failing; no
+#                           scratch file; the owner's user unreadable by ps
+#                           when the take starts, while the owner runs): one
+#                           warning names the cause and the caller runs its
+#                           check unpooled                                 exit 0
 #                 expired   the bound passed with no slot free; stderr names
 #                           the holders and stdout follows with one holder
 #                           line each                                      exit 3
@@ -385,6 +385,10 @@ screen() {
     screen_cause="$(shown "$1") carries an access control list, which may let other users write to it"
   elif [ ! -w "$1" ] || [ ! -x "$1" ]; then
     screen_cause="$(shown "$1") is not writable"
+  elif [ ! -r "$1" ]; then
+    # A take names each slot path, but release, report, and the hold mark find
+    # slots by listing the directory, and an unlisted one would read as empty.
+    screen_cause="$(shown "$1") cannot be listed"
   else
     return 0
   fi

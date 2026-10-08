@@ -773,6 +773,20 @@ else
   [ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -qF "$tmp/ro/pools could not be created" "$tmp/err"
   verdict "a directory that cannot be created is named as such" "no create: '$out'" "$tmp/err"
 fi
+if [ "$(id -u)" = 0 ]; then
+  ok "skipped: a pool directory root cannot list needs a non-root user"
+else
+  sp -- take unlisted "$a" >/dev/null 2>&1
+  chmod 300 "$pools/unlisted"
+  out=$(sp -- release unlisted "$a" 2>"$tmp/err")
+  rout=$(sp -- report unlisted 2>>"$tmp/err")
+  chmod 700 "$pools/unlisted"
+  [ "$out" = unpooled ] && [ -z "$rout" ] && [ -L "$pools/unlisted/slot-1" ] \
+    && [ "$(grep -cF "$pools/unlisted cannot be listed" "$tmp/err")" -eq 2 ]
+  verdict "a pool directory that cannot be listed is named as such, its slot never released as none" \
+    "unlisted: out='$out' report='$rout'" "$tmp/err"
+  sp -- release unlisted "$a" >/dev/null
+fi
 stub8="$tmp/stub8"
 mkdir -p "$stub8"
 printf '#!/bin/sh\nexit 1\n' >"$stub8/id"
