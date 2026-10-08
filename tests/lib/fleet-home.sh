@@ -6,13 +6,14 @@
 # registers a worker without pinning the home writes the operator's real
 # registry.
 #
-#   fleet_home_pin <dir>      point every arm of the chain at <dir>: the
-#                             override at <dir>/fleet, the plugin-data arm at
-#                             <dir>/plugin-data, the writer arm at
-#                             <dir>/claude. The first call also remembers the
-#                             registry the inherited environment resolved to,
-#                             so later pins (one per case) never mistake a
-#                             fixture for the inherited home
+#   fleet_home_pin <dir>      point every arm of the chain at <dir>, an
+#                             absolute path it can create (else it fails and
+#                             pins nothing): the override at <dir>/fleet, the
+#                             plugin-data arm at <dir>/plugin-data, the writer
+#                             arm at <dir>/claude. The first call also
+#                             remembers the registry the inherited environment
+#                             resolved to, so later pins (one per case) never
+#                             mistake a fixture for the inherited home
 #   fleet_home_leaked <path>  succeeds when the inherited registry names
 #                             <path>; pass the suite's own mktemp root, which
 #                             no real record can carry, so a concurrent real
@@ -30,7 +31,11 @@ fleet_home_pin() {
     [ -z "$_fh_home" ] || _fh_inherited="${_fh_home%/}/registry"
     _fh_resolved=1
   fi
-  mkdir -p "$1"
+  case $1 in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  mkdir -p "$1" || return 1
   export PLANWRIGHT_FLEET_STATE_DIR="$1/fleet"
   export CLAUDE_PLUGIN_DATA="$1/plugin-data"
   export CLAUDE_DIR="$1/claude"

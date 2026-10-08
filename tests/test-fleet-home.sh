@@ -35,6 +35,18 @@ else
   fail "a pin left an arm unpinned: $out"
 fi
 
+# 1b. A pin refuses an empty or relative directory, and one it cannot create,
+#     and leaves the chain as it found it.
+for bad in '' 'relative/home' '/dev/null/home'; do
+  # shellcheck disable=SC2016
+  if out=$(run_case "$tmp/op" 'fleet_home_pin "'"$bad"'" && echo pinned; printf "%s\n" "$PLANWRIGHT_FLEET_STATE_DIR"'); then :; fi
+  if [ "$out" = "$tmp/op" ]; then
+    pass "a pin refuses '$bad' and leaves the chain unpinned"
+  else
+    fail "a pin accepted '$bad': $out"
+  fi
+done
+
 # 2. The inherited registry is the one resolved before the first pin, and a
 #    later pin never replaces it with the previous case's fixture.
 out=$(run_case "$tmp/op" 'fleet_home_pin "'"$tmp"'/a"; fleet_home_pin "'"$tmp"'/b"; fleet_home_inherited')
