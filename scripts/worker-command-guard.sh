@@ -165,11 +165,13 @@ dollar_expands() {
 # A non-ASCII byte right after the `$`, or right after the NAME it opens,
 # defers: zsh in a UTF-8 locale reads a non-ASCII letter as part of a name,
 # so the shell expands one longer name where this C-locale scan ends the
-# name before that byte and keeps the byte as literal text.
+# name before that byte and keeps the byte as literal text. zsh's `$~NAME`
+# defers wherever it appears: it reads the value as a glob pattern, and a
+# glob qualifier in that value can run a command during the expansion.
 dollar_form_ok() {
   local s=$1 i=$2 j body
   case ${s:i+1:1} in
-    '[') return 1 ;;
+    '[' | '~') return 1 ;;
     '{')
       j=$((i + 2))
       body=''
@@ -184,7 +186,7 @@ dollar_form_ok() {
       ;;
     *)
       j=$((i + 1))
-      case ${s:j:1} in [~=^+#]) j=$((j + 1)) ;; esac
+      case ${s:j:1} in [=^+#]) j=$((j + 1)) ;; esac
       while [ "$j" -lt "${#s}" ]; do
         case ${s:j:1} in
           [A-Za-z0-9_]) j=$((j + 1)) ;;

@@ -96,7 +96,9 @@ before defer, in code the two guards share:
 - **zsh's parameter forms.** `$~NAME`, `$=NAME`, `$^NAME` and `$+NAME`, and a
   subscript or modifier after an unbraced name (`$f[2,4]`, `$f:e`), read as
   unresolved, so a verb whose verdict rests on the value defers: zsh expands
-  them where bash leaves text.
+  them where bash leaves text. `$~NAME` defers wherever it appears, an
+  argument-independent verb's operand included: zsh reads its value as a glob
+  pattern, and a glob qualifier in that value can run a command.
 - **A NUL byte in the command.** The hook's command substitution drops it, so
   the guard would screen other text than the shell runs.
 - **A named-fd redirect.** A `{name}` brace word written directly before a
