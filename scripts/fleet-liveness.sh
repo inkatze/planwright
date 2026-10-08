@@ -307,6 +307,13 @@ FDG="$script_dir/fleet-daemon-gate.sh"
 RCK="$script_dir/resolve-config-knob.sh"
 TAB=$(printf '\t')
 
+# What a refused scope is told it should look like: the grammar has no slash,
+# so a scope that names a spec names it by the identifier, never by a path
+# (other scopes, such as a flight's, name no spec). Byte-identical
+# in fleet-attention.sh, fleet-liveness.sh, fleet-streamjson.sh, and
+# fleet-pane-detect.sh.
+SCOPE_SHAPE='a field token with no slash, such as <spec>:<id> or <spec>:task-<ids> naming the spec by its bare identifier'
+
 # The fleet field grammar, byte-identical to fleet-state.sh /
 # fleet-attention.sh valid_field: excludes path separators, whitespace, and any
 # control or shell metacharacter, and rejects the bare `.`/`..` dot-runs
@@ -1675,7 +1682,7 @@ case "$cmd" in
       exit 2
     fi
     if ! valid_field "$scope"; then
-      echo "fleet-liveness: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
+      echo "fleet-liveness: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")': $SCOPE_SHAPE" >&2
       exit 2
     fi
     now=""
@@ -2045,7 +2052,7 @@ case "$cmd" in
       exit 2
     fi
     if ! valid_field "$scope"; then
-      echo "fleet-liveness: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
+      echo "fleet-liveness: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")': $SCOPE_SHAPE" >&2
       exit 2
     fi
     now=""
@@ -2104,7 +2111,7 @@ case "$cmd" in
         ;;
       *)
         if ! valid_field "$ALLOC_UNIT"; then
-          printf '%s\n' "fleet-liveness: refusing malformed --alloc-unit '$(sanitize_printable "$ALLOC_UNIT" "(unprintable unit)")'" >&2
+          printf '%s\n' "fleet-liveness: refusing malformed --alloc-unit '$(sanitize_printable "$ALLOC_UNIT" "(unprintable unit)")': $SCOPE_SHAPE" >&2
           exit 2
         fi
         ;;
