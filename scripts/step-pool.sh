@@ -61,7 +61,8 @@
 #                           is taken and nothing is printed on stderr      exit 0
 #                 unpooled  the pool cannot be used (for example its
 #                           directory or root a symbolic link, not the
-#                           user's, not a directory, or not writable; the
+#                           user's, writable by group or other users, not a
+#                           directory, or not writable; the
 #                           root relative, unset, or unusable as a lock path;
 #                           the lock library missing or failing; no scratch
 #                           file): one warning names the cause and the caller
@@ -255,7 +256,12 @@ screen() {
   fi
   # The numeric owner is the one field ls prints alike on BSD and GNU.
   # shellcheck disable=SC2012
-  _sc_owner=$(ls -ldn "$1" 2>/dev/null | awk '{ print $3 }')
+  _sc_long=$(ls -ldn "$1" 2>/dev/null)
+  _sc_owner=$(printf '%s\n' "$_sc_long" | awk '{ print $3 }')
+  # Group and other write bits sit at the sixth and ninth mode characters. A
+  # sticky bit does not help: another user could still create a slot or
+  # holder file under a name this helper reads.
+  _sc_mode=$(printf '%s\n' "$_sc_long" | awk '{ print substr($1, 6, 1) substr($1, 9, 1) }')
   _sc_me=$(id -u 2>/dev/null)
   if [ -L "$1" ]; then
     screen_cause="$(shown "$1") is a symbolic link"
@@ -263,6 +269,8 @@ screen() {
     screen_cause="$(shown "$1") could not be created as a directory"
   elif [ -z "$_sc_owner" ] || [ -z "$_sc_me" ] || [ "$_sc_owner" != "$_sc_me" ]; then
     screen_cause="$(shown "$1") is not owned by the running user"
+  elif [ "$_sc_mode" != -- ]; then
+    screen_cause="$(shown "$1") is writable by group or other users"
   elif [ ! -w "$1" ] || [ ! -x "$1" ]; then
     screen_cause="$(shown "$1") is not writable"
   else

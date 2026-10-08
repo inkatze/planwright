@@ -14,6 +14,9 @@ set -u
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# The helper refuses a group- or other-writable pool, so fixture directories
+# must not inherit a permissive umask from the host.
+umask 077
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
@@ -637,6 +640,36 @@ verdict "the hold mark is the only PLANWRIGHT_STEP_* variable the helper reads" 
 )
 [ -L "$tmp/xdg7/planwright/step-pools/renamed/slot-1" ] && [ ! -e "$tmp/oldroot" ]
 verdict "a PLANWRIGHT_STEP_-prefixed root is not honoured" "the take used the old override name"
+
+# --- REQ-I1.2: a pool another user could write to runs unpooled ----------------
+reset
+printf 'step_pool_wait: 1s\n' >"$mlocal"
+a=$(owner)
+sp -- take shared "$a" >/dev/null 2>&1
+sp -- release shared "$a" >/dev/null 2>&1
+chmod 770 "$pools/shared"
+out=$(sp -- take shared "$a" 2>"$tmp/err")
+rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "unpooled${TAB}-${TAB}0" ] \
+  && grep -qF "$pools/shared is writable by group or other users" "$tmp/err" && [ ! -L "$pools/shared/slot-1" ]
+verdict "a group-writable pool directory runs unpooled" "group-writable: rc=$rc out='$out'" "$tmp/err"
+chmod 707 "$pools/shared"
+out=$(sp -- take shared "$a" 2>"$tmp/err")
+[ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -qF "$pools/shared is writable by group or other users" "$tmp/err"
+verdict "an other-writable pool directory runs unpooled" "other-writable: '$out'" "$tmp/err"
+chmod 700 "$pools/shared"
+chmod 1777 "$pools"
+out=$(sp -- take shared "$a" 2>"$tmp/err")
+[ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -qF "$pools is writable by group or other users" "$tmp/err"
+verdict "a world-writable pools root runs unpooled, sticky bit or not" "root: '$out'" "$tmp/err"
+out=$(sp -- report shared 2>"$tmp/err")
+[ -z "$out" ] && grep -q 'writable by group or other users' "$tmp/err"
+verdict "report on a world-writable root warns and lists nothing" "report: '$out'" "$tmp/err"
+chmod 700 "$pools"
+out=$(sp -- take shared "$a")
+[ "$out" = "taken${TAB}1${TAB}0" ]
+verdict "an owner-only pool is used again once the bits are cleared" "after chmod: '$out'"
+sp -- release shared "$a" >/dev/null
 
 # --- REQ-I1.2: the helper sits on the shared primitive --------------------------
 grep -qF '. "$script_dir/lock-lib.sh"' "$SP"
