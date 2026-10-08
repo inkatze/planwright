@@ -91,7 +91,8 @@ done
 m=$(merged holder "$TMP/holder")
 for defect in '.sign_off.holder_new_commit = true' '.sign_off.holder_new_branch = true' \
   '.sign_off.holder_pushed = true' '.sign_off.uncommitted = false' '.sign_off.bullet_written = false' \
-  '.decision_log |= map(if .kind == "handoff" then .text = "halted" else . end)'; do
+  '.decision_log |= map(if .kind == "handoff" then .text = "halted" else . end)' \
+  '.persona = "plain"'; do
   if printf '%s' "$m" | jq "$defect" | jq -e -f "$GRADEJQ" >/dev/null; then
     fail "the grade passed a run with: $defect"
   else
