@@ -98,8 +98,8 @@ done
 # every untrusted value (spec ids/paths, derivation records) before it reaches
 # operator-facing stderr (echo discipline, doctrine/security-posture.md — the same
 # posture every sibling in-scope script applies at each such site).
-if [ ! -r "$echo_safety" ]; then
-  printf '%s\n' "orchestrate-meta-select: required helper $echo_safety missing or not readable" >&2
+if [ ! -f "$echo_safety" ] || [ ! -r "$echo_safety" ]; then
+  printf '%s\n' "orchestrate-meta-select: required helper echo-safety.sh missing or not readable" >&2
   exit 2
 fi
 # shellcheck source=scripts/echo-safety.sh

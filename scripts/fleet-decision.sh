@@ -60,8 +60,8 @@ me=fleet-decision
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 echo_safety="$script_dir/echo-safety.sh"
-if [ ! -r "$echo_safety" ]; then
-  echo "$me: required helper $echo_safety missing or not readable" >&2
+if [ ! -f "$echo_safety" ] || [ ! -r "$echo_safety" ]; then
+  printf '%s\n' "$me: required helper echo-safety.sh missing or not readable" >&2
   exit 2
 fi
 # shellcheck source=scripts/echo-safety.sh
@@ -73,14 +73,14 @@ RELAY="$script_dir/orchestrate-relay.sh"
 
 for _dep in "$FA" "$FS" "$RELAY"; do
   [ -x "$_dep" ] || {
-    echo "$me: required sibling '$_dep' is missing or not executable" >&2
+    printf '%s\n' "$me: required sibling '$_dep' is missing or not executable" >&2
     exit 2
   }
 done
 
 cmd="${1:-}"
 if [ -z "$cmd" ]; then
-  echo "usage: $me answer <backend> <handle> <worker> <instance-id> <label>" >&2
+  printf '%s\n' "usage: $me answer <backend> <handle> <worker> <instance-id> <label>" >&2
   exit 2
 fi
 shift || true
@@ -94,7 +94,7 @@ case $cmd in
     label="${5:-}"
     if [ -z "$backend" ] || [ -z "$handle" ] || [ -z "$worker" ] \
       || [ -z "$instance" ] || [ -z "$label" ]; then
-      echo "usage: $me answer <backend> <handle> <worker> <instance-id> <label>" >&2
+      printf '%s\n' "usage: $me answer <backend> <handle> <worker> <instance-id> <label>" >&2
       exit 2
     fi
     # Validate the delivery target BEFORE the claim (a read-only check, no store
@@ -123,7 +123,7 @@ case $cmd in
     # (the mv below is the commit point), so the answer is lost — the operator
     # clears the worker's record to re-ask, NOT "recover from a persisted answer".
     root=$("$FS" root) || {
-      echo "$me: could not resolve the fleet home (fork already closed, answer NOT persisted — clear the worker's record to re-ask)" >&2
+      printf '%s\n' "$me: could not resolve the fleet home (fork already closed, answer NOT persisted — clear the worker's record to re-ask)" >&2
       exit 4
     }
     answers_dir="$root/attention/answers"
@@ -138,17 +138,17 @@ case $cmd in
     # attributed by orchestrate-relay's header. Temp + rename so a reader never
     # sees a half-written artifact (the atomic-write discipline).
     tmp_ans=$(mktemp "$answers_dir/.answer.XXXXXX") || {
-      echo "$me: could not stage the answer artifact (fork already closed, answer NOT persisted — clear the record to re-ask)" >&2
+      printf '%s\n' "$me: could not stage the answer artifact (fork already closed, answer NOT persisted — clear the record to re-ask)" >&2
       exit 4
     }
     if ! printf 'planwright-decision-answer instance=%s option=%s\n' "$instance" "$matched" >"$tmp_ans"; then
       rm -f "$tmp_ans" 2>/dev/null
-      echo "$me: could not write the answer artifact (fork already closed, answer NOT persisted — clear the record to re-ask)" >&2
+      printf '%s\n' "$me: could not write the answer artifact (fork already closed, answer NOT persisted — clear the record to re-ask)" >&2
       exit 4
     fi
     if ! mv -f "$tmp_ans" "$answer_file"; then
       rm -f "$tmp_ans" 2>/dev/null
-      echo "$me: could not commit the answer artifact (fork already closed, answer NOT persisted — clear the record to re-ask)" >&2
+      printf '%s\n' "$me: could not commit the answer artifact (fork already closed, answer NOT persisted — clear the record to re-ask)" >&2
       exit 4
     fi
     # Emit the attributed buffer-paste delivery for the tower to run. NEVER

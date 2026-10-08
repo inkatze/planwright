@@ -135,9 +135,9 @@
 #   pre-checks on the two helpers this script calls a bare success/1/4/5 contract
 #   on — the daemon gate (fleet-daemon-gate.sh) and the shared config resolver
 #   (resolve-config-knob.sh) — or a malformed/unresolvable core default. The
-#   sourced echo-safety.sh is a required sibling: under the /bin/sh target a
-#   failed `.` of a missing special-builtin file aborts the shell immediately
-#   (it never proceeds past the source), matching the whole fleet script family.
+#   sourced echo-safety.sh is a required sibling: a readability test before the
+#   source refuses a missing one with exit 2 and a broken-install message,
+#   rather than leaving the shell to abort on the `.` of a missing file.
 #   Never fails opaquely.
 #
 # POSIX sh on the macOS + Linux support bar (bash 3.2 / BSD tooling): awk,
@@ -151,6 +151,10 @@ unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "fleet-usage-gate.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
@@ -244,7 +248,7 @@ acquire_lock() {
         ;;
       1) ;; # a live holder has it — retry
       *)
-        echo "fleet-usage-gate: cannot acquire the fleet lock (fleet-state exit $al_rc)" >&2
+        printf '%s\n' "fleet-usage-gate: cannot acquire the fleet lock (fleet-state exit $al_rc)" >&2
         return 2
         ;;
     esac
@@ -280,7 +284,7 @@ signal_dir() {
 # REQ-E1.4 by-layer malformed policy, implemented once in the resolver.
 resolve_posint() {
   if [ ! -x "$RESOLVER" ]; then
-    echo "fleet-usage-gate: shared knob resolver '$RESOLVER' is missing or not executable — broken install" >&2
+    printf '%s\n' "fleet-usage-gate: shared knob resolver '$RESOLVER' is missing or not executable — broken install" >&2
     exit 5
   fi
   rp_out=$("$RESOLVER" --key "$1" --type posint --fallback "$2") || exit $?
@@ -386,7 +390,7 @@ read_signal() {
   rs_cadence=$(resolve_posint fleet_usage_read_cadence_seconds 300) || exit $?
   rs_ttl=$(resolve_posint fleet_usage_signal_ttl_seconds 900) || exit $?
   if [ "$rs_ttl" -le "$rs_cadence" ]; then
-    echo "fleet-usage-gate: the signal TTL ($rs_ttl s) must exceed the read cadence ($rs_cadence s) — a stale-forever cadence is a config bug" >&2
+    printf '%s\n' "fleet-usage-gate: the signal TTL ($rs_ttl s) must exceed the read cadence ($rs_cadence s) — a stale-forever cadence is a config bug" >&2
     exit 4
   fi
   rs_dir=$(signal_dir) || exit 2
@@ -402,7 +406,7 @@ read_signal() {
   rs_weekly=$(sed -n '3p' "$rs_file" 2>/dev/null | awk -F "$TAB" '{print $2}')
   case $rs_epoch in
     "" | *[!0-9]*)
-      echo "fleet-usage-gate: signal cache '$rs_file' has a corrupt timestamp — treating as unavailable" >&2
+      printf '%s\n' "fleet-usage-gate: signal cache '$rs_file' has a corrupt timestamp — treating as unavailable" >&2
       printf 'unavailable unavailable'
       return 0
       ;;
@@ -461,16 +465,16 @@ resolve_thresholds() {
   W_DA=$(resolve_posint fleet_usage_weekly_defer_all 95) || exit $?
   for rt_v in "$S_DS" "$S_RC" "$S_DH" "$W_DS" "$W_RC" "$W_DH" "$W_DA"; do
     if [ "$rt_v" -lt 1 ] || [ "$rt_v" -gt 100 ]; then
-      echo "fleet-usage-gate: a rung threshold ($rt_v) is outside 1-100 — refusing to run the ladder on an out-of-range threshold" >&2
+      printf '%s\n' "fleet-usage-gate: a rung threshold ($rt_v) is outside 1-100 — refusing to run the ladder on an out-of-range threshold" >&2
       exit 4
     fi
   done
   if [ "$S_DS" -ge "$S_RC" ] || [ "$S_RC" -ge "$S_DH" ]; then
-    echo "fleet-usage-gate: the session thresholds are not strictly ascending (downshift $S_DS < reduce-concurrency $S_RC < defer-heavy $S_DH) — refusing non-monotonic thresholds" >&2
+    printf '%s\n' "fleet-usage-gate: the session thresholds are not strictly ascending (downshift $S_DS < reduce-concurrency $S_RC < defer-heavy $S_DH) — refusing non-monotonic thresholds" >&2
     exit 4
   fi
   if [ "$W_DS" -ge "$W_RC" ] || [ "$W_RC" -ge "$W_DH" ] || [ "$W_DH" -ge "$W_DA" ]; then
-    echo "fleet-usage-gate: the weekly thresholds are not strictly ascending (downshift $W_DS < reduce-concurrency $W_RC < defer-heavy $W_DH < defer-all $W_DA) — refusing non-monotonic thresholds" >&2
+    printf '%s\n' "fleet-usage-gate: the weekly thresholds are not strictly ascending (downshift $W_DS < reduce-concurrency $W_RC < defer-heavy $W_DH < defer-all $W_DA) — refusing non-monotonic thresholds" >&2
     exit 4
   fi
 }
@@ -646,7 +650,7 @@ case "$cmd" in
     r_dir=$(signal_dir) || exit 2
     r_file="$r_dir/signal"
     mkdir -p "$r_dir" || {
-      echo "fleet-usage-gate: cannot create the signal cache dir '$r_dir'" >&2
+      printf '%s\n' "fleet-usage-gate: cannot create the signal cache dir '$r_dir'" >&2
       exit 2
     }
     r_now=$(now_epoch) || {
@@ -658,7 +662,7 @@ case "$cmd" in
     # mode — the render's provenance is untrusted terminal output and the
     # cache is a transient capture artifact (REQ-E1.5 access-restriction).
     r_tmp=$(mktemp "$r_dir/.signal.XXXXXX") || {
-      echo "fleet-usage-gate: cannot create a write temp under '$r_dir'" >&2
+      printf '%s\n' "fleet-usage-gate: cannot create a write temp under '$r_dir'" >&2
       exit 2
     }
     CUR_TMP=$r_tmp
@@ -752,7 +756,7 @@ case "$cmd" in
     # The gate gates ENTRY (D-15): one kill-switch check at the moment the
     # daemon action starts. A missing gate helper is a broken install.
     if [ ! -x "$GATE" ]; then
-      echo "fleet-usage-gate: daemon gate '$GATE' is missing or not executable — broken install" >&2
+      printf '%s\n' "fleet-usage-gate: daemon gate '$GATE' is missing or not executable — broken install" >&2
       exit 5
     fi
     "$GATE" "$MECHANISM"
@@ -824,14 +828,14 @@ case "$cmd" in
         # Awaiting-input hold, so a permanently broken /usage parse is never
         # silent (D-23 version drift). park is atomic-unless-awaiting, so
         # re-firing across cadences preserves a pending decision.
-        echo "fleet-usage-gate: warning: the /usage signal has been unavailable across $count consecutive reads (>= the sustained-loss threshold $loss_limit); raising an operator hold" >&2
+        printf '%s\n' "fleet-usage-gate: warning: the /usage signal has been unavailable across $count consecutive reads (>= the sustained-loss threshold $loss_limit); raising an operator hold" >&2
         if [ -x "$ATTN" ]; then
           "$ATTN" park "$MECHANISM" fleet \
             "proactive /usage signal unavailable across $count consecutive reads; governance is on the reactive backstop only. Operator: choose a model, wait, or proceed." \
             >/dev/null 2>&1 || echo "fleet-usage-gate: warning: could not push the operator hold surface" >&2
         fi
       else
-        echo "fleet-usage-gate: warning: the /usage signal is unavailable ($count of $loss_limit consecutive); deferring to the reactive backstop, no proactive rung change" >&2
+        printf '%s\n' "fleet-usage-gate: warning: the /usage signal is unavailable ($count of $loss_limit consecutive); deferring to the reactive backstop, no proactive rung change" >&2
       fi
       since=$(last_transition_epoch 2>/dev/null) || since=""
       printf 'rung\t%s\tsince\t%s\tsession\tunavailable\tweekly\tunavailable\n' "$cur" "$since"

@@ -67,7 +67,7 @@ repo_root=$(cd "$here/.." && pwd)
 tab=$(printf '\t')
 
 fail() {
-  echo "FAIL: $1" >&2
+  printf '%s\n' "FAIL: $1" >&2
   exit 1
 }
 

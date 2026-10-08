@@ -73,7 +73,7 @@ fi
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 config_get="$script_dir/config-get.sh"
 if [ ! -x "$config_get" ]; then
-  echo "resolve-context-budget-threshold: config reader '$config_get' is missing or not executable" >&2
+  printf '%s\n' "resolve-context-budget-threshold: config reader '$config_get' is missing or not executable" >&2
   exit 5
 fi
 
@@ -121,14 +121,14 @@ if [ "$rc" -eq 3 ]; then
   # context_budget_threshold is absent in every layer. The tracked defaults ship
   # it, so this means a broken/partial install; degrade gracefully to the safe
   # default so the tower still self-manages (REQ-K1.6), warning loudly.
-  echo "resolve-context-budget-threshold: warning: context_budget_threshold is unset in every layer (broken/partial install?); falling back to the safe default '$DEFAULT_THRESHOLD'" >&2
+  printf '%s\n' "resolve-context-budget-threshold: warning: context_budget_threshold is unset in every layer (broken/partial install?); falling back to the safe default '$DEFAULT_THRESHOLD'" >&2
   printf '%s\n' "$DEFAULT_THRESHOLD"
   exit 0
 fi
 if [ "$rc" -ne 0 ]; then
   # Usage/invalid-key (exit 2) cannot occur for a literal key; surface anything
   # unexpected rather than fail opaquely.
-  echo "resolve-context-budget-threshold: unexpected config-get exit $rc resolving context_budget_threshold" >&2
+  printf '%s\n' "resolve-context-budget-threshold: unexpected config-get exit $rc resolving context_budget_threshold" >&2
   exit "$rc"
 fi
 
@@ -143,11 +143,11 @@ fi
 # The winning value is malformed. Apply the REQ-E1.4 by-layer policy.
 case "$layer" in
   repo-tracked)
-    echo "resolve-context-budget-threshold: repo-tracked overlay sets context_budget_threshold to a malformed value ('$value' is not a positive integer or 'off'); refusing to silently degrade a shared team value" >&2
+    printf '%s\n' "resolve-context-budget-threshold: repo-tracked overlay sets context_budget_threshold to a malformed value ('$value' is not a positive integer or 'off'); refusing to silently degrade a shared team value" >&2
     exit 4
     ;;
   adopter | machine-local)
-    echo "resolve-context-budget-threshold: warning: the $layer overlay sets context_budget_threshold to a malformed value ('$value' is not a positive integer or 'off'); degrading to the core default" >&2
+    printf '%s\n' "resolve-context-budget-threshold: warning: the $layer overlay sets context_budget_threshold to a malformed value ('$value' is not a positive integer or 'off'); degrading to the core default" >&2
     # Re-resolve with the overlay layers neutralized so config-get returns the
     # core default. config-get keeps PLANWRIGHT_CONFIG_DEFAULTS; we only blank
     # the three overlay roots. PLANWRIGHT_REPO_ROOT=none leaves repo-tracked
@@ -170,27 +170,27 @@ case "$layer" in
       # The core layer itself omits the key (a partial install where only an
       # overlay set it, and that overlay is the malformed one). Fall back to the
       # safe default so the tower still self-manages.
-      echo "resolve-context-budget-threshold: warning: the core default context_budget_threshold is also unset; falling back to the safe default '$DEFAULT_THRESHOLD'" >&2
+      printf '%s\n' "resolve-context-budget-threshold: warning: the core default context_budget_threshold is also unset; falling back to the safe default '$DEFAULT_THRESHOLD'" >&2
       printf '%s\n' "$DEFAULT_THRESHOLD"
       exit 0
     fi
     if [ "$crc" -ne 0 ]; then
-      echo "resolve-context-budget-threshold: the core default context_budget_threshold is itself unresolvable (exit $crc) — broken install" >&2
+      printf '%s\n' "resolve-context-budget-threshold: the core default context_budget_threshold is itself unresolvable (exit $crc) — broken install" >&2
       exit 5
     fi
     if valid_value "$core_value"; then
       emit_trimmed "$core_value"
       exit 0
     fi
-    echo "resolve-context-budget-threshold: the core default context_budget_threshold ('$core_value') is itself malformed — broken install" >&2
+    printf '%s\n' "resolve-context-budget-threshold: the core default context_budget_threshold ('$core_value') is itself malformed — broken install" >&2
     exit 5
     ;;
   core)
-    echo "resolve-context-budget-threshold: the core default context_budget_threshold ('$value') is malformed — broken install" >&2
+    printf '%s\n' "resolve-context-budget-threshold: the core default context_budget_threshold ('$value') is malformed — broken install" >&2
     exit 5
     ;;
   *)
-    echo "resolve-context-budget-threshold: config-get named an unrecognized layer '$layer'" >&2
+    printf '%s\n' "resolve-context-budget-threshold: config-get named an unrecognized layer '$layer'" >&2
     exit 5
     ;;
 esac

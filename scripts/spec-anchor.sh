@@ -93,7 +93,7 @@ fi
 dir=$1
 for f in requirements.md design.md tasks.md test-spec.md; do
   if [ ! -f "$dir/$f" ] || [ ! -r "$dir/$f" ]; then
-    echo "spec-anchor: missing or unreadable: $dir/$f" >&2
+    printf '%s\n' "spec-anchor: missing or unreadable: $dir/$f" >&2
     exit 1
   fi
 done

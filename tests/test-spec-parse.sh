@@ -51,7 +51,7 @@ lib="$here/../scripts/spec-parse.sh"
 scripts_dir="$here/../scripts"
 
 fail() {
-  echo "FAIL: $1" >&2
+  printf '%s\n' "FAIL: $1" >&2
   exit 1
 }
 
@@ -585,7 +585,7 @@ nolib_refuses() {
     || fail "$nr_label emitted output without the lib (a partial answer is the fail-open): $nr_out"
   grep -q "spec-parse.sh" "$tmp/nolib.err" \
     || fail "$nr_label missing-lib refusal does not name the lib: $(cat "$tmp/nolib.err")"
-  echo "ok: $nr_label fails closed when the lib is missing (REQ-B1.6a)"
+  printf '%s\n' "ok: $nr_label fails closed when the lib is missing (REQ-B1.6a)"
 }
 
 nolib_refuses "spec-status.sh" "$tmp/scripts-nolib2/spec-status.sh" "$tmp/nolib-root/corpus"

@@ -81,7 +81,7 @@ done
 while [ "$target" != "${target%/}" ]; do target=${target%/}; done
 [ -n "$target" ] || target=/
 [ -d "$target" ] || {
-  echo "inception-render: not a directory: $target" >&2
+  printf '%s\n' "inception-render: not a directory: $target" >&2
   exit 2
 }
 
@@ -92,7 +92,7 @@ while [ "$target" != "${target%/}" ]; do target=${target%/}; done
 # would have done with the bit set.
 validator="$script_dir/inception-validate.sh"
 [ -r "$validator" ] || {
-  echo "inception-render: the validator is missing at $validator; refusing to render unchecked" >&2
+  printf '%s\n' "inception-render: the validator is missing at $validator; refusing to render unchecked" >&2
   exit 2
 }
 

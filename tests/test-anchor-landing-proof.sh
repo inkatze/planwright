@@ -45,7 +45,7 @@ repo=$(cd "$here/.." && pwd)
 anchor="$repo/scripts/spec-anchor.sh"
 
 fail() {
-  echo "FAIL: $1" >&2
+  printf '%s\n' "FAIL: $1" >&2
   exit 1
 }
 
@@ -378,4 +378,4 @@ if ! corpus=$(proof_walk "$repo/specs"); then
 fi
 
 printf '%s\n' "$corpus"
-echo "ok: anchor landing proof — $(printf '%s\n' "$corpus" | grep -c '^ok	') recompute equal, $(printf '%s\n' "$corpus" | grep -c '^notice	') notice(s)"
+printf '%s\n' "ok: anchor landing proof — $(printf '%s\n' "$corpus" | grep -c '^ok	') recompute equal, $(printf '%s\n' "$corpus" | grep -c '^notice	') notice(s)"
