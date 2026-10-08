@@ -876,6 +876,40 @@ rc=$?
 verdict "an owner found another user's after the acquire is refused and its slot given back" \
   "post-acquire reuse: rc=$rc out='$out'" "$tmp/err"
 
+# --- REQ-I1.2: a pool directory carrying an ACL runs unpooled -------------------
+# An ACL can grant other users write while the mode bits read owner-only; ls
+# marks one with a trailing `+` on the mode, which the screen refuses.
+reset
+printf 'step_pool_wait: 1s\n' >"$mlocal"
+a=$(owner)
+sp -- take acl "$a" >/dev/null 2>&1
+sp -- release acl "$a" >/dev/null 2>&1
+stub10="$tmp/stub10"
+mkdir -p "$stub10"
+real_ls10=$(command -v ls)
+printf '#!/bin/sh\nif [ "$*" = "-ldn %s" ]; then echo "drwx------+ 2 %s 0 64 Jan 1 00:00 %s"; exit 0; fi\nexec %s "$@"\n' \
+  "$pools/acl" "$(id -u)" "$pools/acl" "$real_ls10" >"$stub10/ls"
+chmod +x "$stub10/ls"
+out=$(sp "PATH=$stub10:$PATH" -- take acl "$a" 2>"$tmp/err")
+rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -qF "$pools/acl carries an access control list" "$tmp/err" \
+  && [ ! -L "$pools/acl/slot-1" ]
+verdict "a pool directory whose mode carries an ACL marker runs unpooled" "acl marker: rc=$rc out='$out'" "$tmp/err"
+printf '#!/bin/sh\nif [ "$*" = "-ldn %s" ]; then echo "drwx------@ 2 %s 0 64 Jan 1 00:00 %s"; exit 0; fi\nexec %s "$@"\n' \
+  "$pools/acl" "$(id -u)" "$pools/acl" "$real_ls10" >"$stub10/ls"
+out=$(sp "PATH=$stub10:$PATH" -- take acl "$a")
+[ "$out" = "taken${TAB}1${TAB}0" ]
+verdict "an extended-attribute marker alone does not refuse the pool" "xattr marker: '$out'"
+sp -- release acl "$a" >/dev/null
+mkdir -p "$pools/realacl"
+if chmod +a "everyone allow add_file,add_subdirectory,delete_child" "$pools/realacl" 2>/dev/null; then
+  out=$(sp -- take realacl "$a" 2>"$tmp/err")
+  [ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -q 'carries an access control list' "$tmp/err"
+  verdict "a real ACL granting other users write runs unpooled" "real acl: '$out'" "$tmp/err"
+else
+  ok "skipped: this host's chmod sets no ACL"
+fi
+
 # --- REQ-I1.2: the helper sits on the shared primitive --------------------------
 grep -qF '. "$script_dir/lock-lib.sh"' "$SP"
 verdict "the helper sources the lock library" "scripts/step-pool.sh does not source lock-lib.sh"

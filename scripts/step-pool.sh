@@ -66,7 +66,8 @@
 #                           is taken and nothing is printed on stderr      exit 0
 #                 unpooled  the pool cannot be used (for example its
 #                           directory or root a symbolic link, not the
-#                           user's, writable by group or other users, not a
+#                           user's, writable by group or other users,
+#                           carrying an access control list, not a
 #                           directory, or not writable; the root relative,
 #                           unset, or unusable as a lock path; the lock
 #                           library missing or failing; no scratch file; the
@@ -321,6 +322,10 @@ screen() {
   # sticky bit does not help: another user could still create a slot or
   # holder file under a name this helper reads.
   _sc_mode=$(printf '%s\n' "$_sc_long" | awk '{ print substr($1, 6, 1) substr($1, 9, 1) }')
+  # A trailing `+` marks an access control list, which can grant other users
+  # write while the mode bits read owner-only (Linux folds an ACL's mask into
+  # the group bits, macOS does not). `@`, extended attributes, grants nothing.
+  _sc_acl=$(printf '%s\n' "$_sc_long" | awk '{ print substr($1, 11, 1) }')
   _sc_me=$(id -u 2>/dev/null)
   if [ -L "$1" ]; then
     screen_cause="$(shown "$1") is a symbolic link"
@@ -336,6 +341,8 @@ screen() {
     screen_cause="$(shown "$1") is not owned by the running user"
   elif [ "$_sc_mode" != -- ]; then
     screen_cause="$(shown "$1") is writable by group or other users"
+  elif [ "$_sc_acl" = + ]; then
+    screen_cause="$(shown "$1") carries an access control list, which may let other users write to it"
   elif [ ! -w "$1" ] || [ ! -x "$1" ]; then
     screen_cause="$(shown "$1") is not writable"
   else
