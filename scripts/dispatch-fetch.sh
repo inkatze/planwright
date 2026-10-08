@@ -376,18 +376,20 @@ anchor_at_ref() {
   printf '%s' "$_a"
 }
 
-# default_ref <repo>: print the ref holding <repo>'s default branch
+# default_ref <repo>: print the full ref holding <repo>'s default branch
 # (custom-spec-location D-14), never assumed to be called main. With an origin
 # remote it is the remote's HEAD branch as git recorded it
 # (refs/remotes/origin/HEAD, which a fetch below learns when it is missing),
-# else origin/ plus the branch the primary checkout's HEAD names, with a note;
-# with no remote, that branch itself, or HEAD when the primary is detached.
-# Returns non-zero when a remote exists and neither names a branch.
+# else the remote-tracking ref of the branch the primary checkout's HEAD names,
+# with a note; with no remote, that branch itself, or HEAD when the primary is
+# detached. Full names, since a tag or branch called `origin/<b>` shadows the
+# short one in git's lookup. Returns non-zero when a remote exists and neither
+# names a branch.
 default_ref() {
   if git -C "$1" remote get-url origin >/dev/null 2>&1; then
-    _dr_b=$(git -C "$1" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) || _dr_b=""
+    _dr_b=$(git -C "$1" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null) || _dr_b=""
     case $_dr_b in
-      origin/?*)
+      refs/remotes/origin/?*)
         printf '%s' "$_dr_b"
         return 0
         ;;
@@ -395,11 +397,24 @@ default_ref() {
     _dr_head=$(primary_branch "$1")
     [ -n "$_dr_head" ] || return 1
     printf '%s\n' "dispatch-fetch: origin records no HEAD branch for '$(sanitize_printable "$1")'; reading the primary checkout's branch '$(sanitize_printable "$_dr_head")' as its default" >&2
-    printf 'origin/%s' "$_dr_head"
+    printf 'refs/remotes/origin/%s' "$_dr_head"
     return 0
   fi
   _dr_head=$(primary_branch "$1")
-  printf '%s' "${_dr_head:-HEAD}"
+  if [ -n "$_dr_head" ]; then
+    printf 'refs/heads/%s' "$_dr_head"
+  else
+    printf 'HEAD'
+  fi
+}
+
+# ref_label <ref>: the short name an anchor record prints for a full ref.
+ref_label() {
+  case $1 in
+    refs/remotes/?*) printf '%s' "${1#refs/remotes/}" ;;
+    refs/heads/?*) printf '%s' "${1#refs/heads/}" ;;
+    *) printf '%s' "$1" ;;
+  esac
 }
 
 # primary_branch <repo>: the branch <repo>'s primary checkout has checked out,
@@ -407,7 +422,10 @@ default_ref() {
 # finding the primary costs a resolver run.
 primary_branch() {
   _pb_prim=$(cd -- "$1" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) || _pb_prim=$1
-  git -C "$_pb_prim" symbolic-ref --quiet --short HEAD 2>/dev/null || :
+  _pb_ref=$(git -C "$_pb_prim" symbolic-ref --quiet HEAD 2>/dev/null) || return 0
+  case $_pb_ref in
+    refs/heads/?*) printf '%s' "${_pb_ref#refs/heads/}" ;;
+  esac
 }
 
 # fetch_origin <repo> <attempts>: the bounded fetch. `--refmap=''` disables
@@ -449,7 +467,7 @@ emit_anchor() {
     same-repo)
       for _r in "$@"; do
         if _hash=$(anchor_at_ref "$repo_root" "$_r"); then
-          printf 'anchor%s%s%s%s\n' "$TAB" "$_hash" "$TAB" "$_r"
+          printf 'anchor%s%s%s%s\n' "$TAB" "$_hash" "$TAB" "$(ref_label "$_r")"
           return 0
         fi
       done
@@ -468,7 +486,7 @@ emit_anchor() {
         printf 'store-fetch%sno-remote\n' "$TAB"
       fi
       if _r=$(default_ref "$store_top") && _hash=$(anchor_at_ref "$store_top" "$_r"); then
-        printf 'anchor%s%s%sstore:%s\n' "$TAB" "$_hash" "$TAB" "$_r"
+        printf 'anchor%s%s%sstore:%s\n' "$TAB" "$_hash" "$TAB" "$(ref_label "$_r")"
         return 0
       fi
       printf '%s\n' "dispatch-fetch: the spec anchor is unresolvable at the holder's default branch; parking rather than gating on a missing anchor" >&2

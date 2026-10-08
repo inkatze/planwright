@@ -138,6 +138,18 @@ gitq -C "$tmp/same/other" push -q origin trunk
 gate "$w"
 expect_gate "same-repo, an edit on the remote default branch" origin/trunk mismatch "$recorded"
 
+# A tag named after the remote-tracking ref (one a pusher can create) shadows
+# that short name in git's lookup, so the gate reads full refs: the anchor is
+# still the fetched default branch's, with no fallback note.
+v2=$(anchor_of "$tmp/same/other/specs/demo")
+gitq -C "$w" tag origin/trunk trunk
+gate "$w"
+case $out in
+  *"records no HEAD"*) fail "same-repo, a tag named origin/trunk: the gate fell back to a guess: $out" ;;
+  *) expect_gate "same-repo, a tag named origin/trunk" origin/trunk match "$v2" ;;
+esac
+gitq -C "$w" tag -d origin/trunk
+
 # With no recorded remote HEAD, the fetch learns it from the remote.
 gitq -c init.defaultBranch=main init -q "$tmp/same/learn"
 gitq -C "$tmp/same/learn" remote add origin "$tmp/same/origin.git"
