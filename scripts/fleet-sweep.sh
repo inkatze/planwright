@@ -565,6 +565,10 @@ reconcile_pass() {
       tasks="${d}tasks.md" # $d already ends in '/'
       [ -f "$tasks" ] || continue
       rel="$specs_rel/$(basename "$d")"
+      # An external spec root is recorded as its full path, which alone can
+      # pass the audit's reasoning cap; the tail names the spec.
+      audit_rel=$rel
+      [ "${#audit_rel}" -le 400 ] || audit_rel="...$(printf '%s' "$audit_rel" | tail -c 397)"
       # Before the reconcile: a per-spec lock whose holder is provably gone
       # stops this spec being dispatched at all, and silently — a dispatch
       # reads the lock as contention, and contention is a clean skip. The sweep
@@ -575,7 +579,7 @@ reconcile_pass() {
         lk_rc=0
         lk_out=$(cd "$repo" && "$LOCK" sweep "$rel" 2>/dev/null) || lk_rc=$?
         if [ "$lk_rc" = 0 ] && [ "$lk_out" = cleared ]; then
-          audit reconcile lock-sweep "$rel per-spec lock cleared on positive evidence its holder was gone"
+          audit reconcile lock-sweep "$audit_rel per-spec lock cleared on positive evidence its holder was gone"
         fi
       fi
       before_sum=$(cksum <"$tasks" 2>/dev/null) || before_sum=""
@@ -587,7 +591,7 @@ reconcile_pass() {
         # next cycle, but a persistent failure needs to surface).
         warn "reconcile of $rel exited $rec_rc — missed-push backstop degraded, retrying next sweep"
       elif [ -n "$before_sum" ] && [ "$before_sum" != "$after_sum" ]; then
-        audit reconcile reconcile-backstop "$rel snapshot drift corrected from git ground truth (missed-push backstop)"
+        audit reconcile reconcile-backstop "$audit_rel snapshot drift corrected from git ground truth (missed-push backstop)"
       fi
     done
     set -f
