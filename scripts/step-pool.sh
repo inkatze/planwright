@@ -27,12 +27,15 @@
 # tests; it stays outside the PLANWRIGHT_STEP_* prefix, which the worker
 # command guard strips from a declared line. Only <root> and <root>/<pool>
 # are screened, never the directories above them, so every directory above
-# <root>, for the override and for $XDG_STATE_HOME alike, must be writable
-# only by its owner or be sticky: another user able to rename entries in any
-# of them could swap the root between the screen and its use. Beside each
-# slot, holder-<n> records the holder's token, step id, and worktree; it is
-# believed only while its token is the slot's current one, so a stale or
-# half-written file reads as an unknown holder rather than a wrong one.
+# <root>, whichever setting places it ($PLANWRIGHT_POOL_DIR, $XDG_STATE_HOME,
+# or $HOME), must be owned by the running user or root and writable by no one
+# else (an ACL included), or be sticky with the entry below it the running
+# user's own directory, not a link. Another user able to rename, replace, or
+# plant an entry in any of them could swap the root between the screen and
+# its use, or steer `mkdir -p` through a link. Beside each slot, holder-<n>
+# records the holder's token, step id, and worktree; it is believed only
+# while its token is the slot's current one, so a stale or half-written file
+# reads as an unknown holder rather than a wrong one.
 #
 # CAPACITY is step_pool_capacity_<pool> (hyphens as underscores) when set,
 # else step_pool_capacity, else 1. A malformed value falls back to the next in
