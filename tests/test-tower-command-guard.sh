@@ -97,8 +97,8 @@ ln -sf /etc/hosts "$PLUGIN_ROOT/scripts/evillink.sh"
 # is exported into the hook environment so plugin-root containment resolves.
 # HOME is pinned away from the developer's machine (a real ~/.jq would defer
 # every jq case); RUN_HOME overrides it, RUN_NO_HOME=1 unsets it,
-# RUN_HOOK_CWD sets the hook process's own working directory, and RUN_PATH
-# replaces its PATH.
+# RUN_HOOK_CWD sets the hook process's own working directory, RUN_PATH
+# replaces its PATH, and RUN_TMPDIR sets its TMPDIR.
 run_hook() {
   local cmd="$1"
   local tool="${2:-Bash}"
@@ -469,12 +469,10 @@ assert_defer "mktemp reading stdin from a file" "mktemp </dev/null"
 assert_allow "removal with its output sent to /dev/null" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j >/dev/null 2>&1"
 assert_allow "mktemp with its errors sent to /dev/null" "mktemp 2>/dev/null"
 # A directory named so that its canonical path, split on the newline, reads as
-# TMPDIR followed by the entry after it in the guard's directory list: the
-# macOS per-user temp directory where getconf names one, /tmp elsewhere.
-NEXT_TMP="$(cd -P -- "$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null)" 2>/dev/null && pwd -P)" \
-  || NEXT_TMP="$(cd -P /tmp && pwd -P)" || exit 1
+# TMPDIR followed by the entry after it in the guard's directory list: /tmp as
+# written.
 SPANNING_DIR="$TOWER_TMP
-$NEXT_TMP"
+/tmp"
 {
   mkdir -p "$SPANNING_DIR" && : >"$SPANNING_DIR/tmp.Ab3dE6gH9j" \
     && ln -s "$SPANNING_DIR" "$SANDBOX/span-link" && [ -f "$SANDBOX/span-link/tmp.Ab3dE6gH9j" ]
@@ -506,6 +504,10 @@ RUN_TMPDIR="$SPANNING_DIR" assert_defer "a TMPDIR whose name spans two directory
 NEST_TMP="$SANDBOX/nest$TOWER_TMP"
 mkdir -p "$NEST_TMP" || exit 1
 RUN_TMPDIR="$NEST_TMP" assert_defer "a directory whose path only ends a temp-directory entry" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j"
+# Nor begin one: a symlink named as a prefix of TMPDIR, resolving to it.
+ln -s "$TOWER_TMP" "${TOWER_TMP%?}" || exit 1
+assert_defer "a written directory that only begins a temp-directory entry" "rm -f ${TOWER_TMP%?}/tmp.Ab3dE6gH9j"
+RUN_TMPDIR=/ assert_defer "a TMPDIR of / names no directory as written" "rm -f /tmp.Ab3dE6gH9j"
 # An unquoted line break splits the command, so an operand holds one only
 # inside quotes, which defer even where its directory resolves back into TMPDIR.
 NL_LINK="$TOWER_TMP/a
@@ -554,16 +556,16 @@ RUN_TMPDIR="$SANDBOX" assert_defer "a mktemp file in a directory TMPDIR does not
 # character, while the guard's reader drops it, so a quoted operand can name
 # one path to the guard and another to rm. Every quoted rm operand defers,
 # a loop head word that was quoted included; nothing else changes verdict.
-if ! { ln -s "$TOWER_TMP" "$SANDBOX/qx" && ln -s "$SANDBOX/elsewhere" "$SANDBOX/qx\\"; }; then
+if ! ln -s "$SANDBOX/elsewhere" "$TOWER_TMP\\"; then
   echo "FAIL: could not build the backslash-quoting fixture" >&2
   exit 1
 fi
-assert_defer "a double-quoted operand whose backslash names another directory" "rm -f \"$SANDBOX/qx\\/tmp.Ab3dE6gH9j\""
-assert_defer "the same path through a quoted for-loop head word" "for f in \"$SANDBOX/qx\\/tmp.Ab3dE6gH9j\"; do rm -f \$f; done"
-assert_defer "a quoted head word of an outer loop, used in an inner one" "for f in \"$SANDBOX/qx\\/tmp.Ab3dE6gH9j\"; do for i in 1; do rm -f \$f; done; done"
-assert_defer "a quoted head word of an inner loop, inside an outer one" "for i in 1; do for f in \"$SANDBOX/qx\\/tmp.Ab3dE6gH9j\"; do rm -f \$f; done; done"
-assert_defer "a quoted head word after an unquoted one" "for f in $TOWER_TMP/tmp.Zz9yX8wV7u \"$SANDBOX/qx\\/tmp.Ab3dE6gH9j\"; do rm -f \$f; done"
-assert_defer "a quoted head word before an unquoted one" "for f in \"$SANDBOX/qx\\/tmp.Ab3dE6gH9j\" $TOWER_TMP/tmp.Zz9yX8wV7u; do rm -f \$f; done"
+assert_defer "a double-quoted operand whose backslash names another directory" "rm -f \"$TOWER_TMP\\/tmp.Ab3dE6gH9j\""
+assert_defer "the same path through a quoted for-loop head word" "for f in \"$TOWER_TMP\\/tmp.Ab3dE6gH9j\"; do rm -f \$f; done"
+assert_defer "a quoted head word of an outer loop, used in an inner one" "for f in \"$TOWER_TMP\\/tmp.Ab3dE6gH9j\"; do for i in 1; do rm -f \$f; done; done"
+assert_defer "a quoted head word of an inner loop, inside an outer one" "for i in 1; do for f in \"$TOWER_TMP\\/tmp.Ab3dE6gH9j\"; do rm -f \$f; done; done"
+assert_defer "a quoted head word after an unquoted one" "for f in $TOWER_TMP/tmp.Zz9yX8wV7u \"$TOWER_TMP\\/tmp.Ab3dE6gH9j\"; do rm -f \$f; done"
+assert_defer "a quoted head word before an unquoted one" "for f in \"$TOWER_TMP\\/tmp.Ab3dE6gH9j\" $TOWER_TMP/tmp.Zz9yX8wV7u; do rm -f \$f; done"
 assert_defer "a double-quoted temp-file operand" "rm -f \"$TOWER_TMP/tmp.Ab3dE6gH9j\""
 assert_defer "a single-quoted temp-file operand" "rm -f '$TOWER_TMP/tmp.Ab3dE6gH9j'"
 assert_defer "a partly quoted temp-file operand" "rm -f $TOWER_TMP/\"tmp.Ab3dE6gH9j\""

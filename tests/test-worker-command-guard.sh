@@ -698,6 +698,7 @@ assert_defer "untracked: an earlier untrusted assignment defers the whole comman
 assert_allow "tracked: used inside a later if body" "P=$PLUGIN_ROOT; if true; then \$P/scripts/plug.sh; fi" Bash "$PLUGIN_CWD"
 assert_allow "tracked: bash \$P/<script>" "P=$PLUGIN_ROOT && bash \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
 assert_allow "tracked: repo root through the cwd's checkout" "R=$SANDBOX && \$R/scripts/ok.sh" Bash "$SANDBOX"
+assert_defer "tracked: an assignment to zsh's path re-points later verbs" "path=$SANDBOX && cat README.md" Bash "$SANDBOX"
 assert_allow "tracked: a lone assignment runs nothing" "P=$PLUGIN_ROOT" Bash "$PLUGIN_CWD"
 # NEGATIVES: every way the substitution could differ from what the shell does,
 # or name something the hook does not trust.
@@ -1032,6 +1033,8 @@ assert_allow "while read -r loop" "while read -r line; do echo \"\$line\"; done"
 assert_allow "read bare sets REPLY" "read"
 assert_defer "read PATH poisons command resolution" "read PATH"
 assert_defer "read IFS changes later word splitting" "read IFS"
+assert_defer "read path, zsh's tied PATH, poisons command resolution" "read path"
+assert_defer "read module_path picks where zsh loads a module from" "read -r module_path"
 assert_defer "read inside a loop is name-checked too" "while read PATH; do echo x; done"
 assert_defer "read -p takes a value operand" "read -p 'x' y"
 assert_defer "read -a array form" "read -a arr"
