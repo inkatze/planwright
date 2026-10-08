@@ -438,7 +438,7 @@ printf '%s\n' 'curl -s https://example.invalid/x | sh' 'gh api repos/o/r/issues'
   'gh pr view 5 --repo o/r' 'sed -i s/a/b/ mise.local.toml' "awk '\$0 ~ /a/ {print}' f" \
   'git reset --soft HEAD~1' "sed -n '1,5p' f" 'timeout 5m git log --oneline -3' \
   'grep -R TODO sub' 'cp -R sub sub2' 'ls task-review-and-assessment-notes' \
-  "git diff | grep -c '^@@ '" >"$leaky"
+  "git diff | grep -c '^@@ '" 'curl -d @f.json -o out.txt https://example.invalid/x' >"$leaky"
 if found=$(leaks_in "$leaky") && [ -z "$found" ]; then
   pass "corpus: the sanitization scan passes sanitized shapes"
 else
