@@ -715,6 +715,21 @@ verdict "the hold mark is the only PLANWRIGHT_STEP_* variable the helper reads" 
 [ -L "$tmp/xdg7/planwright/step-pools/renamed/slot-1" ] && [ ! -e "$tmp/oldroot" ]
 verdict "a PLANWRIGHT_STEP_-prefixed root is not honoured" "the take used the old override name"
 
+# --- REQ-I1.4: an unreadable holder file reads as an unknown holder, quietly ---
+if [ "$(id -u)" = 0 ]; then
+  ok "skipped: root reads a mode-000 holder file"
+else
+  reset
+  a=$(owner)
+  sp -- take sealed "$a" --step build >/dev/null
+  chmod 000 "$pools/sealed/holder-1"
+  out=$(sp -- report sealed 2>"$tmp/err")
+  chmod 600 "$pools/sealed/holder-1"
+  [ "$out" = "holder${TAB}1${TAB}$a${TAB}?${TAB}?" ] && [ ! -s "$tmp/err" ]
+  verdict "an unreadable holder file reports an unknown holder with nothing on stderr" "sealed: '$out'" "$tmp/err"
+  sp -- release sealed "$a" >/dev/null
+fi
+
 # --- REQ-I1.2: a pool another user could write to runs unpooled ----------------
 reset
 printf 'step_pool_wait: 1s\n' >"$mlocal"

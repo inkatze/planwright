@@ -471,7 +471,8 @@ holders() {
     _ho_step='?'
     _ho_wt='?'
     if [ -f "$pool_dir/holder-$_ho_n" ] && [ ! -L "$pool_dir/holder-$_ho_n" ]; then
-      IFS=$TAB read -r _ho_ftok _ho_fstep _ho_fwt <"$pool_dir/holder-$_ho_n" 2>/dev/null || :
+      # stderr is redirected first, so an unreadable file's open error is muted.
+      IFS=$TAB read -r _ho_ftok _ho_fstep _ho_fwt 2>/dev/null <"$pool_dir/holder-$_ho_n" || :
       if [ "${_ho_ftok:-}" = "$_ho_tok" ]; then
         _ho_step=$(shown "${_ho_fstep:-?}")
         _ho_wt=$(shown "${_ho_fwt:-?}")
