@@ -441,7 +441,19 @@ wait_bound() {
 
 # --- verbs -----------------------------------------------------------------------------
 errf=$(mktemp "${TMPDIR:-/tmp}/step-pool.XXXXXX") || refuse "cannot create a scratch file"
-trap 'rm -f "$errf"' EXIT
+# A slot taken for a long-lived owner but never reported to it would stay held
+# until that owner exits, so an interrupted take gives it back. dash runs no
+# EXIT trap on a fatal signal, hence the signal traps.
+unreported=''
+finish() {
+  [ -z "$unreported" ] || pw_lock_release_token "$unreported" "$tok" 2>/dev/null
+  rm -f "$errf"
+}
+trap finish EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 141' PIPE
+trap 'exit 143' TERM
 
 if [ "$verb" = report ]; then
   locate no
@@ -522,10 +534,8 @@ while :; do
     case $? in
       0)
         tok=$PW_LOCK_TOKEN
-        if ! pid_running "$owner"; then
-          pw_lock_release_token "$pool_dir/slot-$i" "$tok" 2>/dev/null
-          refuse "owner $owner is not running"
-        fi
+        unreported=$pool_dir/slot-$i
+        pid_running "$owner" || refuse "owner $owner is not running"
         part="$pool_dir/.holder-$i.$$"
         if (set -C && printf '%s\t%s\t%s\n' "$tok" "$step" "$worktree" >"$part") 2>/dev/null; then
           mv -f "$part" "$pool_dir/holder-$i" 2>/dev/null || rm -f "$part"
@@ -533,7 +543,7 @@ while :; do
         # A take in the first round waited for nothing, whatever second the
         # clock ticked over in meanwhile.
         [ "$round" -eq 0 ] || waited=$((waited + $(date +%s) - start))
-        printf 'taken\t%s\t%s\n' "$i" "$waited"
+        printf 'taken\t%s\t%s\n' "$i" "$waited" && unreported=''
         exit 0
         ;;
       1) ;;

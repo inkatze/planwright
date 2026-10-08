@@ -334,6 +334,33 @@ out=$(cat "$tmp/out")
 verdict "a take whose owner stops running mid-wait ends at once, holding nothing" \
   "owner gone mid-wait: rc=$rc out='$out'" "$tmp/err"
 
+# --- an interrupted take leaves no scratch file behind ---------------------------
+reset
+printf 'step_pool_wait: 60s\n' >"$mlocal"
+mkdir -p "$tmp/scratch"
+a=$(owner)
+w=$(owner)
+sp -- take sig "$a" >/dev/null
+(
+  cd "$repo" || exit 99
+  unset PLANWRIGHT_STEP_POOL_HOLD
+  TMPDIR="$tmp/scratch" PLANWRIGHT_CONFIG_DEFAULTS="$DEFAULTS" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
+    PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" PLANWRIGHT_STEP_POOL_ROOT="$pools" \
+    exec "$SP" take sig "$w" >/dev/null 2>"$tmp/err"
+) &
+waiter=$!
+_n=0
+until grep -q 'is full' "$tmp/err" 2>/dev/null || [ "$_n" -ge 300 ]; do
+  sleep 0.1
+  _n=$((_n + 1))
+done
+kill -TERM "$waiter"
+wait "$waiter"
+rc=$?
+left=$(ls -A "$tmp/scratch")
+[ "$rc" -eq 143 ] && [ -z "$left" ]
+verdict "a take stopped by TERM exits 143 and removes its scratch file" "TERM: rc=$rc left='$left'" "$tmp/err"
+
 # --- REQ-I1.1: released by its owner after a non-zero exit ----------------------
 reset
 printf 'step_pool_wait: 1s\n' >"$mlocal"
