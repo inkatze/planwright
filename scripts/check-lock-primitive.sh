@@ -620,6 +620,8 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
           nsw = split(envs, sw, /[ \t]+/)
           envbase = ""; envp = 0
           for (m = 1; m <= nsw; m++) {
+            if (envbase == "" && (sw[m] == "-u" || sw[m] == "-C" || sw[m] == "-P" || sw[m] == "-a" \
+              || sw[m] == "--unset" || sw[m] == "--chdir")) { m++; continue }
             if (sw[m] == "" || (envbase == "" && (sw[m] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || sw[m] ~ /^-/))) continue
             if (envbase == "") { envbase = sw[m]; sub(/^.*\//, "", envbase); continue }
             if (sw[m] == "--parents" || (sw[m] ~ /^-[A-Za-z]+$/ && sw[m] ~ /p/)) envp = 1
