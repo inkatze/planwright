@@ -162,6 +162,10 @@ dollar_expands() {
 # around a bare NAME. Any other brace form (`${a[i]}`, `${x:off}`, `${!n}`,
 # `${#x}`, a modifier) evaluates text the hook never sees, an array subscript
 # or offset arithmetically, so a value read at run time can run a command.
+# A non-ASCII byte right after the `$`, or right after the NAME it opens,
+# defers: zsh in a UTF-8 locale reads a non-ASCII letter as part of a name,
+# so the shell expands one longer name where this C-locale scan ends the
+# name before that byte and keeps the byte as literal text.
 dollar_form_ok() {
   local s=$1 i=$2 j body
   case ${s:i+1:1} in
@@ -176,6 +180,20 @@ dollar_form_ok() {
       [ "$j" -lt "${#s}" ] || return 1
       case $body in
         '' | [!A-Za-z_]* | *[!A-Za-z0-9_]*) return 1 ;;
+      esac
+      ;;
+    *)
+      j=$((i + 1))
+      case ${s:j:1} in [~=^+#]) j=$((j + 1)) ;; esac
+      while [ "$j" -lt "${#s}" ]; do
+        case ${s:j:1} in
+          [A-Za-z0-9_]) j=$((j + 1)) ;;
+          *) break ;;
+        esac
+      done
+      case ${s:j:1} in
+        '' | [[:print:][:cntrl:]]) ;;
+        *) return 1 ;;
       esac
       ;;
   esac

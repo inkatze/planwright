@@ -827,6 +827,10 @@ assert_defer "bypass: a zsh modifier on a loop variable rewrites its value" "for
 assert_defer "bypass: a zsh modifier on a quoted loop variable rewrites its value" "for f in Env; do jq -n \"\$f:l\"; done"
 assert_defer "bypass: a zsh substitution modifier turns a loop variable into a find action" "for f in a; do find . \$f:s/a/-delete/; done"
 assert_allow "a braced loop variable before a colon is still its value" "for f in README; do cat \${f}:x; done"
+assert_defer "bypass: a non-ASCII letter after a loop variable joins its name in a UTF-8 zsh" "for f in x; do cat a\$fé; done"
+assert_defer "bypass: a non-ASCII letter after a loop variable inside double quotes" "for f in x; do jq -n \".a\$fé\"; done"
+assert_defer "bypass: a dollar before a non-ASCII letter opens an expansion in a UTF-8 zsh" "jq -n '.a'\$é'b'"
+assert_allow "a braced loop variable before a non-ASCII letter is still its value" "for f in README; do cat \${f}é; done"
 assert_defer "regression-only: a loop variable reaching bash" "for d in a; do bash \$d; done"
 assert_defer "a loop head past the bound defers whole" \
   "for f in w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 w15 w16 w17; do echo \$f; done"
@@ -1034,6 +1038,7 @@ parity "parity: escaped # allows" "grep -n \\#x README.md"
 parity "parity: named-fd redirect defers" "cat README.md {fd}>/dev/null"
 parity "parity: named-fd combined-output redirect defers" "git status {fd}&>/dev/null"
 parity "parity: spaced brace operand allows" "cat {a} >/dev/null"
+parity "parity: a non-ASCII letter after a loop variable defers" "for f in x; do cat a\$fé; done"
 
 echo "### REQ-C1.3 — deny-precedence OUTCOME (derived from tower-settings deny block)"
 # Every command drawn from config/tower-settings.json's deny block MUST defer:

@@ -103,6 +103,11 @@ before defer, in code the two guards share:
   redirect operator is not an operand: bash and zsh open a descriptor and
   assign its number to that shell variable, so what runs after it sees a value
   the guard never checked.
+- **A non-ASCII byte after a `$` or its name.** zsh in a UTF-8 locale reads a
+  non-ASCII letter as part of a variable name, where the guards end the name
+  before it and keep the byte as text, so the shell expands a different name
+  from the one the guard resolved; such a byte, directly after the `$` or
+  after the name it opens, defers.
 
 ## The deny delta
 
