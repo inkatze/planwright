@@ -224,7 +224,10 @@ owner_check() {
   _oc_uid=$(ps -o uid= -p "$owner" 2>/dev/null | tr -d ' ') || _oc_uid=''
   if [ -z "$_oc_uid" ]; then
     pid_running "$owner" || return 1
-    return 3
+    # One more read, so a single failed ps in a long wait refuses nothing; a
+    # host that hides the owner fails it again.
+    _oc_uid=$(ps -o uid= -p "$owner" 2>/dev/null | tr -d ' ') || _oc_uid=''
+    [ -n "$_oc_uid" ] || return 3
   fi
   [ -z "$me" ] || [ "$_oc_uid" = "$me" ] || return 2
   return 0

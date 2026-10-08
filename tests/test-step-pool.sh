@@ -1074,6 +1074,24 @@ else
   verdict "a uid read that fails once runs the take unpooled, never holding for pid 1" "uid once: rc=$rc out='$out'" "$tmp/err"
 fi
 
+# --- REQ-I1.1: one transient user lookup failure does not refuse a take ---------
+reset
+printf 'step_pool_wait: 2s\n' >"$mlocal"
+stub20="$tmp/stub20"
+mkdir -p "$stub20"
+real_ps20=$(command -v ps)
+printf '#!/bin/sh\ncase "$*" in *uid=*)\n  n=$(cat "%s/count" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" >"%s/count"\n  [ "$n" -ne 2 ] || exit 1 ;;\nesac\nexec %s "$@"\n' \
+  "$stub20" "$stub20" "$real_ps20" >"$stub20/ps"
+chmod +x "$stub20/ps"
+a=$(owner)
+b=$(owner)
+sp -- take blip "$a" >/dev/null
+sp "PATH=$stub20:$PATH" -- take blip "$b" >/dev/null 2>"$tmp/err"
+rc=$?
+[ "$rc" -eq 3 ] && ! grep -q 'could not be read during the take' "$tmp/err" && [ "$(cat "$stub20/count")" -ge 3 ]
+verdict "a single failed user lookup mid-wait is re-read, not refused" "transient lookup: rc=$rc" "$tmp/err"
+sp -- release blip "$a" >/dev/null
+
 # --- REQ-I1.2: the helper sits on the shared primitive --------------------------
 grep -qF '. "$script_dir/lock-lib.sh"' "$SP"
 verdict "the helper sources the lock library" "scripts/step-pool.sh does not source lock-lib.sh"
