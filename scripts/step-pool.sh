@@ -495,6 +495,7 @@ if [ "$verb" = release ]; then
       exit 0
       ;;
     2)
+      warn "pool $pool $pool_cause; nothing released"
       echo unpooled
       exit 0
       ;;

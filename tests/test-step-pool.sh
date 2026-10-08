@@ -454,6 +454,9 @@ ln -s "$tmp/elsewhere" "$pools"
 out=$(sp -- take rootlink "$a" 2>"$tmp/err")
 [ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -q 'symbolic link' "$tmp/err"
 verdict "a symbolic-link pools root runs unpooled" "root link: '$out'" "$tmp/err"
+out=$(sp -- release rootlink "$a" 2>"$tmp/err")
+[ "$out" = unpooled ] && grep -q 'symbolic link.*nothing released' "$tmp/err"
+verdict "a release on an unusable pool warns, naming the cause" "unusable release: '$out'" "$tmp/err"
 rm -f "$pools"
 
 stub="$tmp/stub"
