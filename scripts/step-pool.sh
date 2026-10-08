@@ -567,6 +567,8 @@ while :; do
         part="$pool_dir/.holder-$i.$$"
         if (set -C && printf '%s\t%s\t%s\n' "$tok" "$step" "$worktree" >"$part") 2>/dev/null; then
           mv -f "$part" "$pool_dir/holder-$i" 2>/dev/null || rm -f "$part"
+        else
+          rm -f "$part"
         fi
         # A take in the first round waited for nothing, whatever second the
         # clock ticked over in meanwhile.
