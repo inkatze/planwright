@@ -307,11 +307,6 @@ router has not demonstrated (REQ-B1.6).
   this branch, and `main`'s own CI fails the same way. Decide how to clear
   it (fix that fixture on its branch, or record the hit in a gitleaks ignore
   on `main`); then re-run this PR's CI, which has not yet reached its tests.
-- **Task 10** — the re-run's pre-flight could not fetch `origin`: the SSH
-  agent refuses to sign, so the freshness gate and the sync with `main`
-  cannot run. Unlock or re-authorize the SSH agent for this machine, then
-  re-dispatch; the branch's fixes for the post-PR review's directory finding
-  have landed and wait on that re-run.
 
 ## Deferred
 
