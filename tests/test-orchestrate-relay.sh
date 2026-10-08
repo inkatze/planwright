@@ -462,7 +462,12 @@ for form in "(#bc-de) [planwright tower relay -> @3] read /tmp/a.txt" \
   pasted_nothing staged-relay "deliver over an unsubmitted relay"
   grep -q 'unsubmitted relay' "$tmp/staged-relay/err" || fail "the refusal must name the unsubmitted relay: $(cat "$tmp/staged-relay/err")"
 done
-echo "ok: deliver refuses to join an unsubmitted relay in the input box"
+# A relay already submitted sits in the transcript, above the input box's top
+# rule; only the row right under that rule is the box, so it does not block.
+fake_deliver sent-relay "❯ (#bc-de) [planwright tower relay -> @3] read /tmp/a.txt
+$idle_pane" "@3" "$msg"
+rc_is sent-relay 0 "deliver after a relay already submitted to the transcript"
+echo "ok: deliver refuses to join an unsubmitted relay in the input box, not one already sent"
 
 # 13e. Delivery is confirmed, never assumed: a paste that never shows its tag
 #      is exit 4, and an earlier relay of the same file still on screen does

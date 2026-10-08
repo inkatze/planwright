@@ -216,10 +216,13 @@ pane_tail() {
 }
 
 # staged_relay_present <window-text> — 0 iff an earlier relay sits unsubmitted
-# on the input box's prompt row. Submitted messages leave that row, so a
-# relay header still beside the prompt glyph is one nobody has sent yet.
+# on the input box's first row, the one right under the box's top rule. A
+# submitted relay moves up into the transcript, away from that rule.
 staged_relay_present() {
-  printf '%s\n' "$1" | grep -q '❯.*\[planwright tower relay -> '
+  printf '%s\n' "$1" | awk '
+    prev ~ /^[[:space:]]*─/ && /❯.*\[planwright tower relay -> / { found = 1 }
+    { prev = $0 }
+    END { exit !found }'
 }
 
 reject_handle() {
