@@ -1205,6 +1205,10 @@ assert_defer "defer form: a yq module form (3)" "yq -n '\"m\"|modulemeta'"
 assert_allow "parity: yq a field named like a screened word" "yq '.include' f.yml"
 assert_allow "parity: yq a field sharing an environment read's prefix" "yq '.envs' f.yml"
 assert_allow "parity: yq a longer name sharing a screened prefix" "yq '.a.imports' f.yml"
+assert_defer "defer form: a yq flag form (1)" "yq -n --security-enable-system-operator 'system(\"id\")'"
+assert_defer "defer form: a yq flag form (2)" "yq --split-exp-file e.yq f.yml"
+assert_defer "defer form: a yq flag form (3)" "yq -n --expression='env(HOME)'"
+assert_allow "parity: yq short flags with an attached value" "yq -n -o=json '.a'"
 YQ_HOME="$SANDBOX/yq-home"
 mkdir -p "$YQ_HOME" && : >"$YQ_HOME/.jq" || exit 1
 HOOK_ENV=(HOME="$YQ_HOME")

@@ -1407,9 +1407,10 @@ guard_yq() {
     a=${cw[i]}
     case $a in
       --) break ;; # end of flags: what follows is an expression or a file
-      --inplace | --inplace=* | --in-place | --in-place=* | --split-exp | --split-exp=*) return 1 ;;
-      --from-file | --from-file=*) return 1 ;; # an expression this screen cannot read
-      --*) ;;
+      # Every long flag defers: the Go spelling's long-only flags include
+      # ones that write files, run programs, or carry the expression, and the
+      # two spellings share no long-flag table this screen could vouch for.
+      --*) return 1 ;;
       -?*) short_flag_hit "$a" 'is' '' && return 1 ;;
       *)
         # The first non-flag operand is the expression; later ones are files.
