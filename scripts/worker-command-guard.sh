@@ -151,6 +151,7 @@ tok_push() {
   TOK_QPOS[TOK_N]=${5:--1}
   TOK_DYN[TOK_N]=${6:-0}
   TOK_GLOB[TOK_N]=${7:-0}
+  TOK_ZOPT[TOK_N]=${8:-0}
   TOK_N=$((TOK_N + 1))
 }
 
@@ -170,10 +171,16 @@ dollar_expands() {
 # around a bare NAME. Any other brace form (`${a[i]}`, `${x:off}`, `${!n}`,
 # `${#x}`, a modifier) evaluates text the hook never sees, an array subscript
 # or offset arithmetically, so a value read at run time can run a command.
+# A non-ASCII byte right after the `$`, or right after the NAME it opens,
+# defers: zsh in a UTF-8 locale reads a non-ASCII letter as part of a name,
+# so the shell expands one longer name where this C-locale scan ends the
+# name before that byte and keeps the byte as literal text. zsh's `$~NAME`
+# defers wherever it appears: it reads the value as a glob pattern, and a
+# glob qualifier in that value can run a command during the expansion.
 dollar_form_ok() {
   local s=$1 i=$2 j body
   case ${s:i+1:1} in
-    '[') return 1 ;;
+    '[' | '~') return 1 ;;
     '{')
       j=$((i + 2))
       body=''
@@ -186,6 +193,20 @@ dollar_form_ok() {
         '' | [!A-Za-z_]* | *[!A-Za-z0-9_]*) return 1 ;;
       esac
       ;;
+    *)
+      j=$((i + 1))
+      case ${s:j:1} in [=^+#]) j=$((j + 1)) ;; esac
+      while [ "$j" -lt "${#s}" ]; do
+        case ${s:j:1} in
+          [A-Za-z0-9_]) j=$((j + 1)) ;;
+          *) break ;;
+        esac
+      done
+      case ${s:j:1} in
+        '' | [[:print:][:cntrl:]]) ;;
+        *) return 1 ;;
+      esac
+      ;;
   esac
   return 0
 }
@@ -194,7 +215,7 @@ tokenize() {
   local s=$1
   local n=${#s}
   local i=0
-  local cur='' have=0 curq=0 curx=0 curqp=-1 curd=0 curg=0 brk=0 brc=0 brs=0
+  local cur='' have=0 curq=0 curx=0 curqp=-1 curd=0 curg=0 curz=0 brk=0 brc=0 brs=0
   local c nc j k dc dn fdpfx
 
   # _flush: push the accumulated word (if any) as a W token carrying its
@@ -202,7 +223,7 @@ tokenize() {
   # then reset the accumulator.
   _flush() {
     if [ "$have" = 1 ]; then
-      tok_push W "$cur" "$curq" "$curx" "$curqp" "$curd" "$curg"
+      tok_push W "$cur" "$curq" "$curx" "$curqp" "$curd" "$curg" "$curz"
       cur=''
       have=0
       curq=0
@@ -210,6 +231,7 @@ tokenize() {
       curqp=-1
       curd=0
       curg=0
+      curz=0
       brk=0
       brc=0
       brs=0
@@ -366,8 +388,8 @@ tokenize() {
           # A quoted digit run is a word (bash only reads an UNQUOTED digit run
           # as this redirect's fd number), so an fd prefix is bare digits only.
           case $cur in
-            '' | *[!0-9]*) tok_push W "$cur" "$curq" "$curx" "$curqp" "$curd" "$curg" ;;
-            *) [ "$curq" = 1 ] && tok_push W "$cur" "$curq" "$curx" "$curqp" "$curd" "$curg" || fdpfx=$cur ;;
+            '' | *[!0-9]*) tok_push W "$cur" "$curq" "$curx" "$curqp" "$curd" "$curg" "$curz" ;;
+            *) [ "$curq" = 1 ] && tok_push W "$cur" "$curq" "$curx" "$curqp" "$curd" "$curg" "$curz" || fdpfx=$cur ;;
           esac
           cur=''
           have=0
@@ -376,6 +398,7 @@ tokenize() {
           curqp=-1
           curd=0
           curg=0
+          curz=0
           brk=0
           brc=0
           brs=0
@@ -440,12 +463,19 @@ tokenize() {
           '*' | '?') curg=1 ;;
           '[') brk=1 ;;
           ']') [ "$brk" = 1 ] && curg=1 ;;
-          '{') brc=1 ;;
+          '{')
+            brc=1
+            curz=1
+            ;;
           ',') [ "$brc" = 1 ] && brs=1 ;;
           '.') [ "$brc" = 1 ] && [ "${s:i+1:1}" = . ] && brs=1 ;;
-          '}') [ "$brs" = 1 ] && curg=1 ;;
-          '~') [ "$have" = 0 ] && curg=1 ;;
-          '#') [ "$have" = 0 ] && return 1 ;;
+          '}')
+            [ "$brs" = 1 ] && curg=1
+            curz=1
+            ;;
+          '~') if [ "$have" = 0 ]; then curg=1; else curz=1; fi ;;
+          '#') if [ "$have" = 0 ]; then return 1; else curz=1; fi ;;
+          '^') curz=1 ;;
         esac
         cur="$cur$c"
         have=1
@@ -1056,7 +1086,7 @@ guard_sed() {
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$expect_e" = 1 ]; then
-      sed_script_safe "$a" || return 1
+      zsh_opt_word_ok "$i" && sed_script_safe "$a" || return 1
       expect_e=0
       script_taken=1
       continue
@@ -1064,14 +1094,14 @@ guard_sed() {
     case $a in
       -e) expect_e=1 ;;
       --expression=*)
-        sed_script_safe "${a#--expression=}" || return 1
+        zsh_opt_word_ok "$i" && sed_script_safe "${a#--expression=}" || return 1
         script_taken=1
         ;;
       -n | -E | -r | -s | -z | -u | --posix | --quiet | --silent | --regexp-extended | --separate | --null-data | --unbuffered | --debug | --sandbox | --help | --version | --) ;;
       -*) return 1 ;; # -i / -f / -l / bundled / unknown: defer
       *)
         if [ "$script_taken" = 0 ]; then
-          sed_script_safe "$a" || return 1
+          zsh_opt_word_ok "$i" && sed_script_safe "$a" || return 1
           script_taken=1
         fi
         ;;
@@ -1257,7 +1287,7 @@ guard_awk() {
       -*) return 1 ;; # -f / -p / -o / -d / -l / -i / -E / bundled / unknown: defer
       *)
         if [ "$prog_taken" = 0 ]; then
-          awk_program_safe "$a" || return 1
+          zsh_opt_word_ok "$i" && awk_program_safe "$a" || return 1
           prog_taken=1
         fi
         ;;
@@ -1266,6 +1296,15 @@ guard_awk() {
   [ "$expect" = none ] || return 1  # a dangling value-flag with no value: defer
   [ "$prog_taken" = 1 ] || return 1 # no inline program (the -f form): defer
   return 0
+}
+
+# zsh_opt_word_ok <index>: 0 unless word <index> of the current simple command
+# (cz, by dynamic scope) holds an unquoted character that a zsh option off by
+# default would expand (extended globbing's `^`, `~` and `#`, brace character
+# classes). The program-text screens read that word as literal text, so they
+# refuse it; the same characters in any other word keep their verdicts.
+zsh_opt_word_ok() {
+  [ "${cz[$1]-0}" = 0 ]
 }
 
 # jq_program_safe <program>: 0 only when a jq filter is provably free of an
@@ -1399,7 +1438,7 @@ guard_jq() {
       esac
     fi
     if [ "$prog_taken" = 0 ]; then
-      jq_program_safe "$a" || return 1
+      zsh_opt_word_ok "$i" && jq_program_safe "$a" || return 1
       prog_taken=1
     fi
   done
@@ -1532,7 +1571,7 @@ guard_yq() {
     # Every operand is screened as the expression: which one yq reads it from
     # is not always the first operand this loop sees.
     if [ "$endflags" = 1 ]; then
-      yq_expression_safe "$a" || return 1
+      zsh_opt_word_ok "$i" && yq_expression_safe "$a" || return 1
       continue
     fi
     case $a in
@@ -1542,7 +1581,7 @@ guard_yq() {
       # two spellings share no long-flag table this screen could vouch for.
       --*) return 1 ;;
       -?*) short_flag_hit "$a" 'is' '' && return 1 ;;
-      *) yq_expression_safe "$a" || return 1 ;;
+      *) zsh_opt_word_ok "$i" && yq_expression_safe "$a" || return 1 ;;
     esac
   done
   return 0
@@ -2863,7 +2902,7 @@ verify_tokens() {
   # Accumulators for the current simple command (dynamic scope: verify_simple
   # reads these): words, their literal-dollar, quote-start, expansion and glob
   # flags, and the redirects. Reset by fin().
-  local -a cw=() cx=() cqp=() cdyn=() cglob=() ro=() rt=()
+  local -a cw=() cx=() cqp=() cdyn=() cglob=() cz=() ro=() rt=()
   local cwn=0 rn=0
   # The open `for` loops, innermost last: the loop variable's VAR slot, its
   # head words in LW, the word being verified, the first body token, and the
@@ -2905,6 +2944,7 @@ verify_tokens() {
     cqp=()
     cdyn=()
     cglob=()
+    cz=()
     ro=()
     rt=()
     cwn=0
@@ -3048,6 +3088,7 @@ verify_tokens() {
     cqp[cwn]=${TOK_QPOS[idx]}
     cdyn[cwn]=${TOK_DYN[idx]}
     cglob[cwn]=${TOK_GLOB[idx]}
+    cz[cwn]=${TOK_ZOPT[idx]}
     cwn=$((cwn + 1))
     idx=$((idx + 1))
   done
@@ -3069,7 +3110,7 @@ analyze_command() {
   local cmd=$1 depth=$2
   [ "$depth" -le "$MAX_DEPTH" ] || return 1
   [ "${#cmd}" -le "$MAX_CMD_LEN" ] || return 1
-  local -a TOK_TYPE=() TOK_VAL=() TOK_QUOTED=() TOK_NOEXP=() TOK_QPOS=() TOK_DYN=() TOK_GLOB=()
+  local -a TOK_TYPE=() TOK_VAL=() TOK_QUOTED=() TOK_NOEXP=() TOK_QPOS=() TOK_DYN=() TOK_GLOB=() TOK_ZOPT=()
   local TOK_N=0
   local HOOK_DEPTH=$depth
   # The substitution table (tracked assignments and loop variables, VAR_L

@@ -2165,7 +2165,8 @@ under `config/tower-settings.json`, which wires `scripts/tower-command-guard.sh`
 as a PreToolUse hook (D-8). It reuses the worker guard's pattern — allow-only,
 fail-closed, no LLM in the decision path — but fronts a **distinct, tower-
 oriented safe set**: it adds the tower-only shapes (tmux relay/observe, the
-hand-launch) the worker guard defers, and omits the worker-only shapes (`bats`,
+hand-launch, the front door's bare `mktemp` and temp-file `rm`) the worker
+guard defers, and omits the worker-only shapes (`bats`,
 `tests/` scripts, `fish -c` recursion) a tower never runs. Coverage is at the
 tmux-subcommand granularity: the guard pre-approves the individual relay/observe
 verbs (`load-buffer`, `paste-buffer`, `capture-pane`), but not yet
@@ -2183,7 +2184,8 @@ output: it denies the shell guardrails (merge, every force-push spelling, amend
 (`git push …:main`, `reset --hard`, `branch -f`, `update-ref`), the equivalent
 GitHub MCP tools (`merge_pull_request`, `update_pull_request`, `push_files` /
 `create_or_update_file` / `delete_file` — denied wholesale by name because a
-Bash-string guard cannot intercept an MCP call), and `gh pr ready`: a tower
+Bash-string guard cannot intercept an MCP call, and on every MCP server by a
+tool-name glob, alongside the PR branch update and PR creation), and `gh pr ready`: a tower
 **never** performs the draft→ready flip. The one sanctioned ready-flip
 (kickoff-lifecycle D-6: `/spec-kickoff` marks the spec PR ready) runs in a
 kickoff session under different settings, not under this tower profile, so the
@@ -2195,6 +2197,15 @@ detached session `scripts/fleet-dispatch-worktree.sh` creates, a planwright
 script the guard allows wholesale by literal path, so that script holds the
 same pin itself, refusing any launch flag after its `--` that is off its own
 allowlist.
+
+The `/tower` front door runs under the same profile. The shapes its sessions
+run routinely (the posture check's `jq` projections, and a flight petition's
+`mktemp` files and their removal) and the deny entries added with them are
+listed, with their limits, in [the front-door delta](tower-posture-delta.md).
+Settings that merged an earlier copy of the profile must merge those appended
+deny entries too: until they do, the front door's bring-up posture check finds
+them missing and holds back repo-mutating routes and relays, unless the
+operator acknowledges running without them.
 
 ## What the fleet decides without you (and what it never does)
 

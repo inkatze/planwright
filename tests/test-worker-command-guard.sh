@@ -799,6 +799,18 @@ assert_defer "defer form: a zsh modifier on a quoted loop variable" "for f in A;
 assert_defer "defer form: a zsh substitution modifier on a loop variable" "for f in a; do find . -name \$f:s/a/b/; done"
 assert_allow "parity: a braced loop variable before a colon is still its value" "for f in README; do cat \${f}:x; done"
 assert_allow "parity: a braced loop variable before a bracket is still its value" "for f in a; do find . -name \"\${f}[0-9]\"; done"
+assert_defer "defer form: zsh's \$= parameter form reaching jq" "for f in a; do jq -n \$=f; done"
+assert_defer "defer form: zsh's \$^ parameter form reaching jq" "for f in a; do jq -n \$^f; done"
+assert_defer "defer form: zsh's \$~ parameter form in double quotes reaching jq" "for f in a; do jq -n \"\$~f\"; done"
+assert_defer "defer form: a zsh subscript on a quoted loop variable reaching jq" "for f in abcd; do jq -n \"\$f[2,3]\"; done"
+assert_defer "defer form: a zsh modifier on a loop variable reaching jq" "for f in a.b; do jq -n \$f:e; done"
+assert_defer "defer form: zsh's glob-substitution parameter form after an argument-independent verb" "echo \$~X"
+assert_defer "defer form: zsh's glob-substitution parameter form over a value read from a file" "read -r X < README.md; echo \$~X"
+assert_defer "defer form: zsh's glob-substitution parameter form past a printf format" "printf '%s' \$~X"
+assert_defer "defer form: a non-ASCII letter directly after a loop variable" "for f in x; do cat a\$fé; done"
+assert_defer "defer form: a non-ASCII letter after a loop variable inside double quotes reaching jq" "for f in x; do jq -n \".a\$fé\"; done"
+assert_defer "defer form: a dollar directly before a non-ASCII letter" "jq -n '.a'\$é'b'"
+assert_allow "parity: a braced loop variable before a non-ASCII letter is still its value" "for f in README; do cat \${f}é; done"
 assert_defer "bypass: read overwrites a loop variable before a screened use" \
   "for d in -name; do read d; find . \$d; done"
 HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
@@ -1177,6 +1189,28 @@ assert_defer "defer form: jq with HOME empty" "jq . file.json"
 HOOK_ENV=(HOME=rel-home)
 assert_defer "defer form: jq with a relative HOME" "jq . file.json"
 HOOK_ENV=()
+# A program word holding an unquoted character that a non-default zsh option
+# (extended globbing, brace character classes) would expand defers in the
+# screens that read program text; the same characters elsewhere, and inside
+# quotes, keep their verdicts.
+assert_defer "defer form: an unquoted caret in a jq program word" "jq .a^b file.json"
+assert_defer "defer form: an unquoted mid-word tilde in a jq program word" "jq .a~b file.json"
+assert_defer "defer form: an unquoted mid-word hash in a jq program word" "jq .a#b file.json"
+assert_defer "defer form: an unquoted brace in a jq program word" "jq .a{b} file.json"
+assert_defer "defer form: an unquoted caret in an awk program word" "awk /a^b/ file"
+assert_defer "defer form: an unquoted brace in an awk program word" "awk {print} file"
+assert_defer "defer form: an unquoted caret in a sed script word" "sed s/a^/b/ file"
+assert_defer "defer form: an unquoted mid-word tilde in a sed -e script" "sed -e s/a~/b/ file"
+assert_defer "defer form: an unquoted brace in a sed --expression script" "sed --expression=1{p} file"
+assert_allow "parity: a quoted jq filter with a caret, tilde, hash and brace" "jq '.a | {b} | test(\"^x~#\")' file.json"
+assert_allow "parity: a quoted awk program with braces" "awk '{print \$1}' file"
+assert_allow "parity: a quoted sed script with a caret" "sed 's/^a/b/' file"
+assert_allow "parity: an unquoted jq program word without those characters" "jq .a file.json"
+assert_allow "parity: an input file named with a caret after the jq filter" "jq . a^b.json"
+assert_allow "parity: a git revision with a parent suffix" "git show HEAD^"
+assert_allow "parity: a git revision with an ancestor suffix" "git log --oneline HEAD~2"
+assert_allow "parity: a git reflog selector" "git reflog show HEAD@{1}"
+assert_allow "parity: a mid-word hash in a read operand" "cat a#b"
 # yq EDITS IN PLACE.
 assert_allow "yq read" "yq . file.yml"
 assert_allow "yq -I indent is not -i inplace" "yq -I4 . file.yml"
