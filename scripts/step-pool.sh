@@ -606,6 +606,7 @@ errf=''
 # EXIT trap on a fatal signal, hence the signal traps.
 unreported=''
 tok=''
+part=''
 finish() {
   if [ -n "$unreported" ]; then
     # The acquire links the slot before it returns, so a signal inside it
@@ -627,6 +628,7 @@ finish() {
         ;;
     esac
   fi
+  [ -z "$part" ] || rm -f "$part"
   [ -z "$errf" ] || rm -f "$errf"
 }
 trap finish EXIT

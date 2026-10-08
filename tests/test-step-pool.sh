@@ -1089,6 +1089,23 @@ else
   ok "skipped: root writes into a read-only pool directory"
 fi
 
+# --- REQ-I1.2: a take stopped while it records its holder leaves no part file ---
+# The mv stub signals the take as the holder file is moved into place and
+# moves nothing, so only the exit handler can remove the part file.
+reset
+stubmv="$tmp/stubmv"
+mkdir -p "$stubmv"
+real_mv=$(command -v mv)
+printf '#!/bin/sh\ncase "$*" in *"/holder-"*) kill -TERM "$PPID"; exit 0 ;; esac\nexec %s "$@"\n' "$real_mv" >"$stubmv/mv"
+chmod +x "$stubmv/mv"
+a=$(owner)
+out=$(sp "PATH=$stubmv:$PATH" -- take parted "$a" 2>"$tmp/err")
+rc=$?
+left=$(find "$pools/parted" -name '.holder-*')
+[ "$rc" -eq 143 ] && [ -z "$out" ] && [ ! -L "$pools/parted/slot-1" ] && [ -z "$left" ]
+verdict "a take stopped while recording its holder gives the slot back and leaves no part file" \
+  "parted: rc=$rc out='$out' left='$left'" "$tmp/err"
+
 # --- REQ-I1.2: a nested take stays silent where the owner's user is unreadable --
 reset
 printf 'step_pool_wait: 1s\n' >"$mlocal"
