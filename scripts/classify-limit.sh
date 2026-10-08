@@ -24,7 +24,7 @@
 # bounds a record excerpt; the whole line is screened first, and a line the
 # screen flags withholds the excerpt whatever the window holds. The reset time is read from the first occurrence of
 # the recognizer's `reset-after` prefix in the output: the word right after
-# it (leading blanks skipped, a trailing `.` dropped) is accepted as epoch
+# it (leading blanks skipped, trailing `.`s dropped) is accepted as epoch
 # seconds (at most 15 digits) or an ISO-8601 UTC timestamp
 # YYYY-MM-DDTHH:MM:SS[.fraction]Z, and only when it lies after --now and no
 # further out than the throttle's hold ceiling (`fleet-throttle.sh
@@ -32,7 +32,8 @@
 #
 # Exit: 0 limited · 1 no recognizer matched (nothing printed) · 2 usage ·
 # 3 no resolved adapter declares the vendor · 4/5 propagated from the vendors
-# resolver (a malformed repo-tracked catalog, a broken install) · 6 a runtime
+# resolver (a malformed repo-tracked catalog, a broken install), 5 also when
+# the throttle's hold ceiling cannot be read · 6 a runtime
 # failure (unreadable input, no clock, an adapter or excerpt that could not
 # be produced).
 #

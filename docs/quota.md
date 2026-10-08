@@ -41,8 +41,8 @@ whose choice's control, was dropped goes with it.
 
 An adapter is a set of flat entries, one per **part**, that share a `vendor:`
 field. Each entry's id is `<vendor>.<name>`, so an overlay can supersede one
-recognizer of a vendor without restating the rest. Ids, vendor ids, names,
-and rule names follow the step-id grammar (`^[a-z][a-z0-9-]*$`, at most 64
+recognizer of a vendor without restating the rest. Each half of an id (the
+vendor id and the name), and rule names, follow the step-id grammar (`^[a-z][a-z0-9-]*$`, at most 64
 bytes). Every value is a single-line scalar the catalog reader keeps; a
 control byte, an empty declared field, an unknown field, or a block scalar is
 malformed.
