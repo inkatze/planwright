@@ -26,8 +26,10 @@
 #     parks;
 #   - a silent headless launch still reports the rung's handle form;
 #   - a bad task id or spec name and an unwired rung are refused;
-#   - a lock or fetch refusal, a spec root outside the checkout, or a --repo-root other
-#     than the primary checkout is refused (exit 2) before anything is placed.
+#   - a spec root relocated inside the checkout, or at its top, dispatches;
+#   - a lock or fetch refusal, a spec root the repository does not hold, or a
+#     --repo-root other than the primary checkout is refused (exit 2) before
+#     anything is placed.
 #
 # The worker CLI is a recording fake (PLANWRIGHT_HEADLESS_CLAUDE) on the
 # headless-oneshot rung, and the stream-json rung is a recording stub, so no
@@ -618,6 +620,27 @@ m18() {
   gitc "$P" push -q origin main
   run_step dispatch docs/specs/demo 1 --backend headless-oneshot --prompt-file "$C/prompt"
   [ "$RC" -eq 0 ] || fail "m18: an in-repo relocated spec root should dispatch, got $RC: $ERR $(halt_reason)"
+  # A spec root at the top of the checkout reads the bundle at the top too.
+  seed m18-top || return
+  mkdir -p "$P/.claude"
+  printf 'spec_root: .\n' >"$P/.claude/planwright.local.yml"
+  printf 'project: top\nlayout: 1\n' >"$P/planwright-spec-root.yml"
+  gitc "$P" mv specs/demo demo
+  gitc "$P" add planwright-spec-root.yml
+  gitc "$P" commit -q -m "spec root at the top"
+  gitc "$P" push -q origin main
+  run_step dispatch demo 1 --backend headless-oneshot --prompt-file "$C/prompt"
+  [ "$RC" -eq 0 ] || fail "m18: a spec root at the checkout's top should dispatch, got $RC: $ERR $(halt_reason)"
+  # A separate repository nested in the checkout is not held by it.
+  seed m18-nested || return
+  mkdir -p "$P/.claude" "$P/nested/specs"
+  git -c init.defaultBranch=main init -q "$P/nested"
+  printf 'spec_root: nested/specs\n' >"$P/.claude/planwright.local.yml"
+  printf 'project: nested\nlayout: 1\n' >"$P/nested/specs/planwright-spec-root.yml"
+  cp -R "$P/specs/demo" "$P/nested/specs/demo"
+  run_step dispatch nested/specs/demo 1 --backend headless-oneshot --prompt-file "$C/prompt"
+  [ "$RC" -eq 2 ] || fail "m18: a spec root in a nested repository should be refused, got $RC"
+  printf '%s\n' "$ERR" | grep -q "outside the primary checkout's repository" || fail "m18: wrong nested refusal: $ERR"
   # A spec root outside the checkout holds no bundle any ref of it can show.
   seed m18-outside || return
   mkdir -p "$P/.claude" "$C/outside/specs"
@@ -626,7 +649,7 @@ m18() {
   cp -R "$P/specs/demo" "$C/outside/specs/demo"
   run_step dispatch "$C/outside/specs/demo" 1 --backend headless-oneshot --prompt-file "$C/prompt"
   [ "$RC" -eq 2 ] || fail "m18: a spec root outside the checkout should be refused, got $RC"
-  printf '%s\n' "$ERR" | grep -q "outside the primary checkout" || fail "m18: wrong refusal: $ERR"
+  printf '%s\n' "$ERR" | grep -q "outside the primary checkout's repository" || fail "m18: wrong refusal: $ERR"
   [ ! -d "$C/fstate" ] || fail "m18: the outside-root refusal ran the fetch"
   pass "m18: the step needs the primary checkout and a spec root inside it, whatever the environment says"
 }

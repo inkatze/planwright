@@ -48,7 +48,7 @@
 #     --prompt-file  the worker's prompt; its first non-blank line invokes
 #                  /execute-task (or /planwright:execute-task).
 #     --repo-root  the primary checkout (default: resolve-root.sh repo
-#                  --primary); <spec-dir> must sit at its `specs/<spec>`.
+#                  --primary); <spec-dir> must be its own bundle.
 #     Everything after `--` reaches the rung's launch (the resolved tier).
 #
 # Report: `meta-step<TAB><key><TAB><value>` lines (lock, record, gate, anchor,
@@ -194,20 +194,27 @@ fi
 # the primary checkout's bundle. They must be one directory, or a
 # single-spec tower locking the primary's copy would not exclude this step.
 # The brief is read from the bundle's path inside the repository, derived as
-# dispatch-fetch.sh derives it, so a spec root outside the checkout is
-# refused here, before the lock, rather than by the fetch.
+# dispatch-fetch.sh derives it, so a spec root this repository does not hold
+# (outside it, or a separate repository nested in it) is refused here, before
+# the lock, rather than by the fetch.
 repo_phys=$(cd "$repo_root" && pwd -P) || die "the repo root cannot be entered"
 primary_phys=$(cd "$repo_phys" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) \
   || die "the primary checkout did not resolve from --repo-root"
 primary_phys=$(cd "$primary_phys" && pwd -P) || die "the primary checkout cannot be entered"
 [ "$repo_phys" = "$primary_phys" ] \
   || die "the repo root (--repo-root, else PLANWRIGHT_REPO_ROOT) is not the primary checkout; pass the primary checkout"
-spec_root=$(cd "$repo_phys" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec --primary 2>/dev/null) \
+spec_line=$(cd "$repo_phys" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec --primary --explain 2>/dev/null) \
   || die "the primary checkout's spec root did not resolve"
-case $spec_root in
-  "$repo_phys") spec_rel=$spec_name ;;
-  "$repo_phys"/*) spec_rel=${spec_root#"$repo_phys"/}/$spec_name ;;
-  *) die "the spec root lies outside the primary checkout, so no ref of it holds the bundle" ;;
+# <source> TAB <path> TAB <posture> TAB <view>, the fields dispatch-fetch.sh
+# splits the same way.
+spec_rest=${spec_line#*"$TAB"}
+spec_root=${spec_rest%%"$TAB"*}
+spec_rest=${spec_rest#*"$TAB"}
+spec_posture=${spec_rest%%"$TAB"*}
+case $spec_posture:$spec_root in
+  "same-repo:$repo_phys") spec_rel=$spec_name ;;
+  "same-repo:$repo_phys"/*) spec_rel=${spec_root#"$repo_phys"/}/$spec_name ;;
+  *) die "the spec root lies outside the primary checkout's repository, so no ref of it holds the bundle" ;;
 esac
 spec_phys=$(cd "$spec_dir" && pwd -P) || die "the spec directory cannot be entered"
 primary_spec=$(cd "$spec_root" 2>/dev/null && cd "$spec_name" 2>/dev/null && pwd -P) \
