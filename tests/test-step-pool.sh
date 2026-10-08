@@ -979,6 +979,35 @@ else
   ok "skipped: this host sets no extended attribute with an ACL"
 fi
 
+# --- REQ-I1.1: an owner whose user turns unreadable mid-take is refused ---------
+# On a host that hides other users' processes, an unreadable user after entry
+# is what another user's process reusing the owner's pid looks like.
+reset
+printf 'step_pool_wait: 3s\n' >"$mlocal"
+stub14="$tmp/stub14"
+mkdir -p "$stub14"
+real_ps14=$(command -v ps)
+printf '#!/bin/sh\ncase "$*" in *uid=*)\n  n=$(cat "%s/count" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" >"%s/count"\n  [ "$n" -le 1 ] || exit 1 ;;\nesac\nexec %s "$@"\n' \
+  "$stub14" "$stub14" "$real_ps14" >"$stub14/ps"
+chmod +x "$stub14/ps"
+a=$(owner)
+b=$(owner)
+sp -- take hidden "$a" >/dev/null
+rm -f "$stub14/count"
+sp "PATH=$stub14:$PATH" -- take hidden "$b" >/dev/null 2>"$tmp/err"
+rc=$?
+[ "$rc" -eq 2 ] && grep -q "owner $b's user could not be read during the take" "$tmp/err" \
+  && grep -q 'waiting up to' "$tmp/err" && [ "$(sp -- report hidden | cut -f 3)" = "$a" ]
+verdict "a wait round refuses an owner whose user turned unreadable, the holder kept" "mid-wait unreadable: rc=$rc" "$tmp/err"
+sp -- release hidden "$a" >/dev/null
+rm -f "$stub14/count"
+out=$(sp "PATH=$stub14:$PATH" -- take hidden "$b" 2>"$tmp/err")
+rc=$?
+[ "$rc" -eq 2 ] && [ -z "$out" ] && grep -q "owner $b's user could not be read during the take" "$tmp/err" \
+  && ! grep -q 'waiting up to' "$tmp/err" && [ ! -L "$pools/hidden/slot-1" ]
+verdict "an owner whose user turned unreadable after the acquire is refused, its slot given back" \
+  "post-acquire unreadable: rc=$rc out='$out'" "$tmp/err"
+
 # --- REQ-I1.2: the helper sits on the shared primitive --------------------------
 grep -qF '. "$script_dir/lock-lib.sh"' "$SP"
 verdict "the helper sources the lock library" "scripts/step-pool.sh does not source lock-lib.sh"

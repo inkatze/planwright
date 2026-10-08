@@ -123,8 +123,8 @@
 # Exit 2 is a usage error (an unknown verb or option, an extra argument, a
 # malformed pool, pid, step, worktree, or count, or an owner that is not
 # running or is another user's process). From take it is also an owner found
-# gone or another user's in a wait round (holding nothing) or after the
-# acquire (the slot given back), or a taken line that could not be written
+# gone, another user's, or with an unreadable user in a wait round (holding
+# nothing) or after the acquire (the slot given back), or a taken line that could not be written
 # (the slot given back); from release, an owner holding several slots without
 # --slot or a slot that could not be freed.
 set -u
@@ -203,8 +203,9 @@ pid_running() {
   esac
   ps -p "$1" >/dev/null 2>&1
 }
-# owner_check — 0 the owner runs as the running user; 1 it is gone; 2 it is
-# another user's process; 3 its user cannot be read. Asked again during the
+# owner_check — 0 the owner runs as the running user, or the running uid is
+# unreadable (the pool screen then runs the take unpooled); 1 it is gone; 2 it
+# is another user's process; 3 its user cannot be read. Asked again during the
 # wait and after the acquire, because an owner that exits can have its pid
 # reused by another user's process, which pid_running alone still reads as the
 # owner and which never exits on this user's behalf.
@@ -218,14 +219,20 @@ owner_check() {
   [ -z "$me" ] || [ "$_oc_uid" = "$me" ] || return 2
   return 0
 }
-# owner_or_refuse — refuse an owner that is gone or another user's; return
-# owner_check's status otherwise.
+# owner_or_refuse [entry] — refuse an owner that is gone or another user's;
+# return owner_check's status otherwise. Past the entry check, an unreadable
+# user is refused too: the user read at entry, so on a host that hides other
+# users' processes this is what another user's reuse of the pid looks like.
 owner_or_refuse() {
   owner_check
   _oor=$?
   case $_oor in
     1) refuse "owner $owner is not running" ;;
     2) refuse "owner $owner is not a process of the running user" ;;
+    3)
+      [ "${1:-}" = entry ] \
+        || refuse "owner $owner's user could not be read during the take; refused as another user's process"
+      ;;
   esac
   return "$_oor"
 }
@@ -299,7 +306,7 @@ if [ "$verb" = take ]; then
   # host where ps cannot name the owner's user is a pool problem, not the
   # step's, so it runs unpooled too.
   me=$(id -u 2>/dev/null) || me=''
-  owner_or_refuse
+  owner_or_refuse entry
   [ "$?" -ne 3 ] || owner_unread=yes
   [ -n "$step" ] || step=$FULL_SUITE
   if [ -z "$worktree" ]; then
