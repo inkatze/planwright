@@ -386,6 +386,12 @@ assert_allow "removal before a while loop" "rm -f $TOWER_TMP/tmp.Ab3dE6gH9j && w
 assert_defer "recursive removal" "rm -rf $TOWER_TMP/tmp.dir0123456"
 assert_defer "recursive removal, split flags" "rm -r -f $TOWER_TMP/tmp.dir0123456"
 assert_defer "directory removal" "rm -d $TOWER_TMP/tmp.dir0123456"
+# The rows above also fail the regular-file check; these pin the flag check
+# alone, on a regular file and on a name not yet created.
+assert_defer "recursive removal of a regular temp file" "rm -rf $TOWER_TMP/tmp.Ab3dE6gH9j"
+assert_defer "recursive removal of a temp name not yet created" "rm -r $TOWER_TMP/tmp.Gone012345"
+assert_defer "recursive removal, capital flag, of a temp name not yet created" "rm -R -f $TOWER_TMP/tmp.Gone012345"
+assert_defer "directory removal of a temp name not yet created" "rm -d $TOWER_TMP/tmp.Gone012345"
 assert_defer "a mktemp-named directory, no flags" "rm $TOWER_TMP/tmp.dir0123456"
 assert_defer "a symlink named like a mktemp file" "rm -f $TOWER_TMP/tmp.LnK0123456"
 assert_defer "a file not named like a mktemp file" "rm -f $TOWER_TMP/notes.txt"
@@ -393,6 +399,7 @@ assert_defer "an alphanumeric name without the tmp. prefix" "rm -f $TOWER_TMP/Ab
 assert_defer "a tmp prefix without its dot" "rm -f $TOWER_TMP/tmpXAb3dE6"
 assert_defer "a mktemp-named file below TMPDIR, not in it" "rm -f $TOWER_TMP/sub/tmp.Qq1wE2rT3y"
 assert_defer "a mktemp-named path outside TMPDIR and /tmp" "rm -f $SANDBOX/tmp.Ab3dE6gH9j"
+assert_defer "a mktemp-named path in a system temp directory off the list" "rm -f /var/tmp/tmp.Ab3dE6gH9j"
 assert_defer "a relative path" "rm -f tmp.Ab3dE6gH9j"
 # The guard resolves a relative operand against its own working directory,
 # not the command's, so the case runs the hook from TMPDIR's parent.
