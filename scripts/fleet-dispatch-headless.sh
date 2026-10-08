@@ -768,6 +768,16 @@ do_run_worker() {
     exit 0
   }
 
+  # The spec root outside the work repository, which the worker's command
+  # guard admits as its write zone (custom-spec-location D-15); an inherited
+  # value never stands in for it.
+  unset PLANWRIGHT_WORKER_SPEC_ROOT
+  r_spec_root=$(/bin/sh "$script_dir/worker-spec-root.sh" "$r_wt" 2>/dev/null </dev/null) || r_spec_root=''
+  if [ -n "$r_spec_root" ]; then
+    PLANWRIGHT_WORKER_SPEC_ROOT=$r_spec_root
+    export PLANWRIGHT_WORKER_SPEC_ROOT
+  fi
+
   # The dispatch-time identity env (fleet-liveness.sh hook contract): the
   # worker session inherits these, so its plugin hooks push liveness for
   # exactly this unit (hook_registration=true on the contract row).

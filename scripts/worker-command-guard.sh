@@ -681,6 +681,115 @@ is_contained_file() {
 }
 
 # --------------------------------------------------------------------------
+# The spec-root write zone (custom-spec-location D-15, REQ-E1.7). A dispatcher
+# whose spec root lies in another repository than the work repository, or in
+# none, computes that root once and hands it to the worker's environment as
+# PLANWRIGHT_WORKER_SPEC_ROOT (scripts/worker-spec-root.sh); the guard reads it
+# once at load (SPEC_ZONE below) and never resolves config per call. Inside
+# it, and nowhere else, the guard approves the few write shapes a halting
+# worker's store write takes: a `>`/`>>` redirect of an otherwise approved
+# command, `tee [-a]`, and `mkdir [-p]`. A write anywhere else, the work
+# repository included, still defers as before.
+#
+# in_spec_zone <path> <cwd>: 0 when <path> is a plain literal (no expansion,
+# glob, or quoting can hide in the charset) that canonicalizes inside a
+# directory under the zone: a bundle (one holding requirements.md) or a
+# reserved underscore directory, never the root's own top level, and never
+# through a dot-led component (.git, .claude, a lock or marker directory). An
+# existing leaf must be a regular file with one link, or a directory, so a
+# write cannot travel through a symlink or a hard link to a file outside.
+in_spec_zone() {
+  local p=$1 cwd=$2 full rel top
+  [ -n "$SPEC_ZONE" ] || return 1
+  case $p in
+    '' | -* | *[!A-Za-z0-9._/@+-]*) return 1 ;;
+  esac
+  full=$(canon_under "$p" "$cwd" "$SPEC_ZONE") || return 1
+  rel=${full#"$SPEC_ZONE"/}
+  case /$rel/ in
+    */.*) return 1 ;;
+  esac
+  case $rel in
+    */*) top=${rel%%/*} ;;
+    *) return 1 ;;
+  esac
+  case $top in
+    _[a-z0-9]*) ;;
+    [a-z0-9]*) [ -f "$SPEC_ZONE/$top/requirements.md" ] || return 1 ;;
+    *) return 1 ;;
+  esac
+  case $top in
+    *[!a-z0-9_-]*) return 1 ;;
+  esac
+  if [ -e "$full" ]; then
+    if [ -f "$full" ]; then
+      [ "$(find "$full" -maxdepth 0 -links 1 2>/dev/null)" = "$full" ] || return 1
+    elif [ ! -d "$full" ]; then
+      return 1
+    fi
+  fi
+  return 0
+}
+
+# spec_zone_redirect <op> <operand>: 0 for a file-writing `>`/`>>` (an fd
+# number before it allowed) whose target is in the zone.
+spec_zone_redirect() {
+  local bare=$1
+  while :; do
+    case $bare in
+      [0-9]*) bare=${bare#?} ;;
+      *) break ;;
+    esac
+  done
+  case $bare in
+    '>' | '>>') in_spec_zone "$2" "$HOOK_CWD" ;;
+    *) return 1 ;;
+  esac
+}
+
+# guard_tee / guard_mkdir: every operand a zone path; the only flag `-a`
+# (append) for tee and `-p` for mkdir, so no mode, context, or ignore flag
+# changes what lands.
+guard_tee() {
+  local i a ends=0
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    if [ "$ends" = 0 ]; then
+      case $a in
+        -a | --append) continue ;;
+        --)
+          ends=1
+          continue
+          ;;
+        -*) return 1 ;;
+      esac
+    fi
+    in_spec_zone "$a" "$HOOK_CWD" || return 1
+  done
+  return 0
+}
+
+guard_mkdir() {
+  local i a ends=0 operands=0
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    if [ "$ends" = 0 ]; then
+      case $a in
+        -p | --parents) continue ;;
+        --)
+          ends=1
+          continue
+          ;;
+        -*) return 1 ;;
+      esac
+    fi
+    in_spec_zone "$a" "$HOOK_CWD" || return 1
+    operands=$((operands + 1))
+  done
+  [ "$operands" -ge 1 ]
+}
+
+# --------------------------------------------------------------------------
 # Per-verb guards. Each reads the current simple command's words from the
 # caller's `cw` array (index 0 = verb) and `cwn` count via dynamic scope, plus
 # `HOOK_CWD` and `HOOK_DEPTH`. Every guard's default/fallthrough is DEFER.
@@ -2295,6 +2404,9 @@ classify_verb() {
     gh) guard_gh ;;
     mise) guard_mise ;;
     lefthook) guard_lefthook ;;
+    # Writers, approved only inside the spec-root write zone.
+    tee) guard_tee ;;
+    mkdir) guard_mkdir ;;
     # Trusted repo-code runners (path-contained) and the fish recursor.
     bash | sh) guard_bashsh ;;
     fish) guard_fish ;;
@@ -2593,7 +2705,7 @@ verify_known_simple() {
   # Redirects first: a write to a real file defers regardless of the verb
   # (covers a leading redirect with no command too, e.g. `> f cat x`).
   for ((i = 0; i < rn; i++)); do
-    classify_redirect "${ro[i]}" "${rt[i]}" || return 1
+    classify_redirect "${ro[i]}" "${rt[i]}" || spec_zone_redirect "${ro[i]}" "${rt[i]}" || return 1
   done
   # A command with redirects but no words (pure `> file`) already handled;
   # an empty simple command (e.g. a trailing separator) is a no-op.
@@ -2951,6 +3063,22 @@ HOOK_ENV_NAMES=$NL$(compgen -e)$NL
 # any payload is read, and left empty when it cannot be resolved (in which case
 # that arm simply never fires). Never derived from the analyzed command.
 HOOK_SELF_ROOT=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd -P) || HOOK_SELF_ROOT=''
+# The spec-root write zone (see in_spec_zone), read once at load from the
+# dispatcher's hand-off: an absolute directory that canonicalizes and carries
+# the root marker as a regular file, or else no zone. Never derived from the
+# analyzed command.
+spec_zone_load() {
+  local v=${PLANWRIGHT_WORKER_SPEC_ROOT:-} c
+  case $v in
+    /?*) ;;
+    *) return 0 ;;
+  esac
+  c=$(cd -P -- "$v" 2>/dev/null && pwd -P) || return 0
+  [ "$c" != / ] || return 0
+  [ -f "$c/planwright-spec-root.yml" ] && [ ! -L "$c/planwright-spec-root.yml" ] || return 0
+  printf '%s' "$c"
+}
+SPEC_ZONE=$(spec_zone_load) || SPEC_ZONE=''
 # plugin_root_unlinked <scripts-dir>: $CLAUDE_PLUGIN_ROOT, or nothing when
 # resolve-installed-roots.sh's symlink rule refuses it (or cannot be run). The
 # chain canonicalizes an arm, so a plugin cache root reached through a symlink
