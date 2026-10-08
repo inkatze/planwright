@@ -525,7 +525,15 @@ errf=''
 # EXIT trap on a fatal signal, hence the signal traps.
 unreported=''
 finish() {
-  [ -z "$unreported" ] || pw_lock_release_token "$unreported" "$tok" 2>/dev/null
+  if [ -n "$unreported" ]; then
+    # The acquire links the slot before it returns, so a signal inside it
+    # leaves a hold no variable names yet: the token is read back and given
+    # up only when this process minted it for this owner.
+    _fi_tok=$(pw_lock_owner "$unreported" 2>/dev/null) || _fi_tok=''
+    case $_fi_tok in
+      "$owner"-*-*-"$$"-*) pw_lock_release_token "$unreported" "$_fi_tok" 2>/dev/null ;;
+    esac
+  fi
   [ -z "$errf" ] || rm -f "$errf"
 }
 trap finish EXIT
@@ -610,11 +618,11 @@ if ! errf=$(mktemp "${TMPDIR:-/tmp}/step-pool.XXXXXX" 2>/dev/null); then
 fi
 # attempt <n> — try slot <n> once; exits on a take or a lock error.
 attempt() {
+  unreported=$pool_dir/slot-$1
   pw_lock_acquire_for "$pool_dir/slot-$1" "$owner" 1 2>"$errf"
   case $? in
     0)
       tok=$PW_LOCK_TOKEN
-      unreported=$pool_dir/slot-$1
       pid_running "$owner" || refuse "owner $owner is not running"
       part="$pool_dir/.holder-$1.$$"
       held="$pool_dir/holder-$1"

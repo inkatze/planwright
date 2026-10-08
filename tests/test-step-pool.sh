@@ -465,6 +465,41 @@ rc=$?
 [ "$rc" -eq 2 ] && [ ! -L "$pools/mute/slot-1" ] && grep -q 'could not be written' "$tmp/err"
 verdict "a take whose state line cannot be written exits 2 and gives the slot back" "unwritable stdout: rc=$rc" "$tmp/err"
 
+# --- a take stopped inside the acquire gives back the slot it just linked ------
+# The stub stalls the acquire's confirming readlink of slot-1, once, after the
+# link exists, so TERM lands before the acquire has returned.
+reset
+a=$(owner)
+stub9="$tmp/stub9"
+mkdir -p "$stub9"
+real_rl9=$(command -v readlink)
+: >"$tmp/gate9"
+printf '#!/bin/sh\ncase "$*" in *"/slot-1") if [ -e %s ]; then rm -f %s; echo $$ >%s; exec sleep 30; fi ;; esac\nexec %s "$@"\n' \
+  "$tmp/gate9" "$tmp/gate9" "$tmp/stall9" "$real_rl9" >"$stub9/readlink"
+chmod +x "$stub9/readlink"
+rm -f "$tmp/stall9"
+(
+  cd "$repo" || exit 99
+  unset PLANWRIGHT_STEP_POOL_HOLD PLANWRIGHT_CONFIG_STRICT_OVERLAYS PLANWRIGHT_ROOT PLANWRIGHT_REPO_ROOT_CHECKED
+  PATH="$stub9:$PATH" PLANWRIGHT_CONFIG_DEFAULTS="$DEFAULTS" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
+    PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" PLANWRIGHT_POOL_DIR="$pools" \
+    exec "$SP" take inacq "$a" >/dev/null 2>"$tmp/err"
+) &
+waiter=$!
+_n=0
+until [ -s "$tmp/stall9" ] || [ "$_n" -ge 300 ]; do
+  sleep 0.1
+  _n=$((_n + 1))
+done
+[ -L "$pools/inacq/slot-1" ]
+verdict "the stalled acquire has linked its slot" "the stub never stalled the acquire" "$tmp/err"
+kill -TERM "$waiter"
+kill "$(cat "$tmp/stall9")" 2>/dev/null
+wait "$waiter"
+rc=$?
+[ "$rc" -eq 143 ] && [ ! -L "$pools/inacq/slot-1" ]
+verdict "a take stopped inside the acquire gives the slot back" "stopped in the acquire: rc=$rc" "$tmp/err"
+
 # --- REQ-I1.1: released by its owner after a non-zero exit ----------------------
 reset
 printf 'step_pool_wait: 1s\n' >"$mlocal"
