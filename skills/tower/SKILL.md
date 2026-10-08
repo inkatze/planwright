@@ -62,7 +62,7 @@ is the one sweep output read.
    settings layer loaded here (user, project, local, managed, any
    `--settings` file) by `jq` projection only (`.permissions.deny`, `.hooks`),
    naming each file, the shipped one included, by its literal path (the user
-   layer by its absolute path, never `~` or a variable, which the command
+   layer by its absolute path, never `~` or an unexpanded variable, which the command
    guard defers), union the deny lists, and compare against the shipped file's. An absent
    layer counts as empty; only a parse or read error makes a layer unreadable.
    The check fails closed: a shipped deny list absent or unreadable, a shipped
@@ -223,7 +223,7 @@ hands `/offload` a **flight petition**: the ask and the grounds line as stated,
 each in a temp file of the tower's own, made by a bare `mktemp` run as its
 own command, written with the file tool (never through shell quoting) and
 removed once the dispatch returns by `rm -f` naming each path unquoted, as
-mktemp printed it (a quoted path, a variable or `$(mktemp)` defers to the
+mktemp printed it (a quoted path, an unexpanded variable or `$(mktemp)` defers to the
 prompt), a kebab slug
 naming the flight, and the declared home. `/offload` picks the rung (REQ-C1.2)
 and places the flight through

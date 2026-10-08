@@ -83,6 +83,23 @@ static `allow` entry is added.
   differently from the shell, so such an operand could name another path to
   `rm`.
 
+## Fixes that only defer more
+
+These change no allow above. Each makes a command both guards approved
+before defer, in code the two guards share:
+
+- **zsh's special names as variables.** `path` and `cdpath` (tied to PATH
+  and CDPATH), `NULLCMD` and `READNULLCMD` (what a lone redirect runs), and
+  `module_path` and `MODULE_PATH` (where zsh loads a module from) defer as
+  `for` loop variables, and in the worker guard also as `read` and tracked
+  assignment names.
+- **zsh's parameter forms.** `$~NAME`, `$=NAME`, `$^NAME` and `$+NAME`, and a
+  subscript or modifier after an unbraced name (`$f[2,4]`, `$f:e`), read as
+  unresolved, so a verb whose verdict rests on the value defers: zsh expands
+  them where bash leaves text.
+- **A NUL byte in the command.** The hook's command substitution drops it, so
+  the guard would screen other text than the shell runs.
+
 ## The deny delta
 
 Seven entries are appended after the existing floor, which stays byte-identical
