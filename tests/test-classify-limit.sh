@@ -125,6 +125,9 @@ verdict "identical input yields identical output" "output differs between runs"
 printf 'monthly quota exhausted; resets at %s.\n' "$((NOW + 60))" >"$tmp/in"
 cl --vendor sample-cli --now "$NOW"
 assert_contains "an epoch reset is accepted" "reset${TAB}$((NOW + 60))" "$OUT"
+printf 'monthly quota exhausted; resets at \t %s\n' "$((NOW + 60))" >"$tmp/in"
+cl --vendor sample-cli --now "$NOW"
+assert_contains "blanks after the reset prefix are skipped, tabs included" "reset${TAB}$((NOW + 60))" "$OUT"
 
 # Fractional-second ISO reset.
 printf 'monthly quota exhausted resets at 2026-09-21T15:13:20.250Z\n' >"$tmp/in"

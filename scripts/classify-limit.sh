@@ -162,7 +162,7 @@ awk -F "$TAB" -v now="$now" -v ceiling="$ceiling" -v linefile="$work/line" '
     for (i = 1; i <= nl; i++) {
       if ((q = index(line[i], loc[hit])) == 0) continue
       rest = substr(line[i], q + length(loc[hit]))
-      sub(/^[ ]+/, "", rest)
+      sub(/^[ \t]+/, "", rest)
       if (!match(rest, /^[0-9A-Za-z:.+-]+/)) exit 0
       w = substr(rest, 1, RLENGTH)
       sub(/[.]+$/, "", w)
