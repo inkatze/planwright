@@ -349,9 +349,9 @@ while IFS= read -r -d '' file; do
   esac
   # bash is the ONLY interpreter here whose `echo` leaves backslash escapes
   # alone (absent xpg_echo), so a bash file is read for the sourcing rule only
-  # (the `b` prefix on its list line), unless it turns xpg_echo on. zsh and the ksh family are deliberately
-  # not exempt: their `echo` follows System V and expands escapes, so they are
-  # as exposed as dash. Everything else — sh, dash, an unrecognised shebang, or
+  # (the `b` prefix on its list line), unless it turns xpg_echo on. zsh and
+  # the ksh family are deliberately not exempt: their `echo` follows System V
+  # and expands escapes, so they are as exposed as dash. Everything else — sh, dash, an unrecognised shebang, or
   # no shebang at all — gets every rule, because a sourced library inherits
   # whichever interpreter sourced it and an unknown one must be assumed
   # hazardous.
