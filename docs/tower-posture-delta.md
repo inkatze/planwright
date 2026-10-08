@@ -110,6 +110,12 @@ before defer, in code the two guards share:
   before it and keep the byte as text, so the shell expands a different name
   from the one the guard resolved; such a byte, directly after the `$` or
   after the name it opens, defers.
+- **Characters a non-default zsh option would expand.** With extended
+  globbing or brace character classes on, zsh expands an unquoted caret,
+  mid-word tilde or hash, or brace where the guards read literal text. A
+  program word holding one, in the jq, awk, sed and (in the worker guard) yq
+  screens, defers; the same characters in any other word, a git revision
+  suffix included, and inside quotes keep their verdicts.
 
 ## The deny delta
 
