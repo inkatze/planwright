@@ -172,7 +172,7 @@ valid_handle() {
 # to place inside a single-quoted shell literal in the emitted command (no single
 # quote, no newline, no control byte). The tower writes the message to a temp file
 # it controls; this guards the emission boundary regardless. Readability is
-# required because the emitted `cat -- '<path>'` would otherwise fail at runtime.
+# required because the receiver reads the file the relay points it at.
 valid_msgfile() {
   [ -f "$1" ] || return 1
   [ -r "$1" ] || return 1

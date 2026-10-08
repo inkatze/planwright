@@ -1222,10 +1222,16 @@ to name the target.
 **The relay refuses an open dialog and confirms what it pasted.** The command
 `relay-command` emits runs the script's own `deliver` step. It reads the
 target pane first and pastes nothing (exit 3) while a selection prompt is
-open, because a paste would answer it, or while a `[Pasted text]` placeholder
-sits staged. After pasting it waits for the paste's fresh `(#<id>)` tag to
-show in the pane and exits 4 if it never does: observe the pane before any
-re-send, which would stage a duplicate.
+open, because a paste would answer it, while a `[Pasted text]` placeholder
+sits staged, or while an earlier relay sits unsubmitted in the input box,
+which this one would join on one line. Exit 3 means wait and re-read the
+pane, or hand the message to the operator; never force it. The dialog
+check reuses the permission-dialog set, so `FLEET_PANE_PROMPT_SIGNATURES`
+changes it too. After pasting it waits for the paste's fresh `(#<id>)` tag,
+which leads the line, and exits 4 if it never shows: observe the pane before
+any re-send, which would stage a duplicate. `PLANWRIGHT_RELAY_CONFIRM_TRIES`
+(default 5, at most 20) and `PLANWRIGHT_RELAY_CONFIRM_SLEEP` (seconds, default
+1, at most 3) bound that wait.
 
 **A paste stages; one Enter submits it.** The tmux relay loads its pointer
 line with no trailing newline, so the paste never submits itself and a single
@@ -1602,7 +1608,8 @@ given.
 
 **The pane signatures are a platform surface.** The permission-dialog text
 and the busy footer markers live in one sourced file,
-`scripts/fleet-pane-vocabulary.sh`, shared with `fleet-pane-detect.sh`;
+`scripts/fleet-pane-vocabulary.sh`, shared with `fleet-pane-detect.sh`,
+`fleet-stuck-detector.sh` and the relay's `deliver` step;
 `FLEET_PANE_PROMPT_SIGNATURES` overrides the dialog set for a bespoke TUI
 the way `FLEET_PANE_PROMPT_ANCHORS` overrides the idle anchors. The strings
 are verified against the installed CLI's own bundle at each change and
@@ -2135,11 +2142,9 @@ oriented safe set**: it adds the tower-only shapes (tmux relay/observe, the
 hand-launch) the worker guard defers, and omits the worker-only shapes (`bats`,
 `tests/` scripts, `fish -c` recursion) a tower never runs. Coverage is at the
 tmux-subcommand granularity: the guard pre-approves the individual relay/observe
-verbs (`load-buffer`, `paste-buffer`, `capture-pane`), but not yet
-`orchestrate-relay.sh`'s full attributed send shape, whose brace-grouped
-`{ ...; } | tmux load-buffer` pipeline the inherited engine defers to the
-classifier (see `specs/_observations` for the follow-up). Only the underlying
-subcommands are deterministically covered. This consciously
+verbs (`load-buffer`, `paste-buffer`, `capture-pane`), and the relay's send,
+`orchestrate-relay.sh deliver`, is covered as a planwright script called by
+its literal path. This consciously
 **re-opens** the worker-only scoping `worker-permission-ergonomics` chose for a
 blast-radius reason: the tower's radius is broader (it launches workers and
 drives tmux), so it gets its own tested layer rather than the worker guard

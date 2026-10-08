@@ -67,9 +67,11 @@ When the target is a Claude Code session the tower's `ListAgents` lists, the
 tower messages it with `SendMessage`: the harness delivers an attributed
 message, queued while the peer is mid-turn, and nothing touches its input box.
 The pane relay below is only for a target that is not listed (another host, a
-harness without peer messaging, a pane that is not Claude Code). The choice
-is the model's: a script can list sessions (`claude agents --json`) but has
-no documented way to send to one. Nobody types or pastes into a pane by hand.
+harness without peer messaging, a pane that is not Claude Code). When the
+two tools are deferred, the tower loads them before deciding; a listed peer
+`SendMessage` cannot reach counts as unlisted. The choice is the model's: a
+script can list sessions (`claude agents --json`) but has no documented way
+to send to one. Nobody types or pastes into a pane by hand.
 
 ### Steer-in-flight: buffer-paste, never `send-keys`
 
@@ -92,7 +94,8 @@ becomes an unsubmittable `[Pasted text]` placeholder that blocks every later
 paste. So the tmux paste is **one unterminated pointer line** (`… read
 <absolute message file>`), never the body. `deliver` reads the pane first and
 refuses, pasting nothing (exit 3), while a selection prompt is open, since a
-paste would answer it, or a paste placeholder is staged; afterwards it
+paste would answer it, a paste placeholder is staged, or an earlier relay sits
+unsubmitted in the input box; afterwards it
 confirms delivery by the paste's fresh tag showing in the pane, never assumes
 it (exit 4 when it never shows: observe before re-sending). The handle is
 explicit (operator-named, or from a live peer's presence record), never the
