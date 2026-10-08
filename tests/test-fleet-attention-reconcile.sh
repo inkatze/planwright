@@ -23,7 +23,8 @@
 #   m1: a row whose state no writer produces, whose scope is longer than
 #       the store's field grammar allows, or that is short of the store's
 #       fields, is kept as malformed, and a task id too long to compare
-#       exactly derives nothing; m2: a
+#       exactly, or naming a task only by its number's value (`03` for 3,
+#       `5.0` for 5), derives nothing; m2: a
 #       handle with two rows is kept and degrades the pass; m3: a clear that
 #       fails keeps the row under its own reason and degrades the pass.
 #   w1: the unit rule derives from --repo even when the caller sits elsewhere
@@ -329,12 +330,16 @@ reg wlong "demo:$long" headless "$repo/specs/demo/.orchestrate/headless/9" "proc
 seed wlong "demo:$long" working
 printf 'wshort\tdemo:task-1\tworking\t1700000000\n' >>"$home/attention/state"
 seed whuge demo:task-6-9007199254740993 merged
+seed wzero demo:task-03 merged
+seed wzfrac demo:5.0 merged
 reconcile m1
 clean m1
 says m1 keep wz malformed
 says m1 keep wshort malformed
 says m1 keep whuge in-flight
 says m1 keep wlong malformed
+says m1 keep wzero in-flight
+says m1 keep wzfrac in-flight
 fresh
 seed w8 demo:task-1 working 1700000000
 seed w8 demo:task-1 working 1700000005

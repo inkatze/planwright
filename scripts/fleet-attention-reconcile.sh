@@ -259,7 +259,8 @@ $dv_lines"
 
 # unit_completed <scope> — true when the scope names a spec unit of this
 # checkout whose every task derives completed. A bundle range `<a>-<b>` covers
-# every task id between its ends, both ends included and required.
+# every task id between its ends, both ends included and required. An end
+# matches only the task id spelled the same: `03` names no task 3.
 unit_completed() {
   uc_spec=${1%%:*}
   uc_unit=${1#*:}
@@ -283,8 +284,8 @@ unit_completed() {
     ($1 "") == (s "") {
       k = key($2)
       if (k < klo || k > khi) next
-      if (k == klo) seen_lo = 1
-      if (k == khi) seen_hi = 1
+      if (($2 "") == (lo "")) seen_lo = 1
+      if (($2 "") == (hi "")) seen_hi = 1
       if ($3 != "completed") open = 1
     }
     END { exit !(seen_lo && seen_hi && !open) }'
