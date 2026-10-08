@@ -79,7 +79,11 @@
 # report        one line per live holder of the pool on stdout:
 #               `holder\t<slot>\t<pid>\t<step>\t<worktree>`, <step> being
 #               `(full-suite)` for the full-suite run and `?` (with <worktree>
-#               `?`) when the holder file does not match the slot. An absent
+#               `?`) when the holder file does not match the slot. <step> and
+#               <worktree> are display text with C0, DEL, and C1 bytes
+#               stripped, so a UTF-8 worktree can show altered here and in
+#               the wait and expiry messages, while the holder file keeps it
+#               as given. An absent
 #               pool prints nothing; an unusable one prints nothing and warns
 #               once naming the cause. Exit 0.
 # release       free the owner's slot of the pool: `released\t<n>`. With
@@ -105,7 +109,9 @@
 # carries no mark waits like any other caller: only the mark admits nesting.
 # The mark goes on the check's command line, never into the owner's own
 # environment: the owner's release under its own mark counts as nested and
-# frees nothing.
+# frees nothing. A mark names one pool, so a check holding one pool that takes
+# a second passes on the second's mark only, and a take of the first from
+# inside that waits on the outer holder like any other caller.
 #
 # Exit 2 is a usage error (an unknown verb or option, an extra argument, a
 # malformed pool, pid, step, worktree, or count, an owner that is not running
@@ -611,9 +617,10 @@ attempt() {
       pid_running "$owner" || refuse "owner $owner is not running"
       part="$pool_dir/.holder-$1.$$"
       held="$pool_dir/holder-$1"
-      # mv onto a directory, or onto a link to one, files the part inside it,
-      # outside the pool: a link is removed first, and a directory leaves the
-      # holder unrecorded.
+      # mv onto a directory, or onto a link to one, files the part inside that
+      # directory instead of replacing the holder file, and through a link
+      # that can be outside the pool: a link is removed first, and a
+      # directory leaves the holder unrecorded.
       [ ! -L "$held" ] || rm -f "$held"
       if [ ! -d "$held" ] && (set -C && printf '%s\t%s\t%s\n' "$tok" "$step" "$worktree" >"$part") 2>/dev/null; then
         mv -f "$part" "$held" 2>/dev/null || rm -f "$part"

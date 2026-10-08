@@ -448,7 +448,9 @@ whole run. The mark goes on the suite's command line only, never exported
 from the script's own shell: a release made under the mark of its own slot
 counts as nested and frees nothing. Run inside another holder's check, the
 take prints `nested` and the script holds no slot, so it passes that
-holder's mark on unchanged. If the script dies without releasing, the slot frees once that
+holder's mark on unchanged. A mark names one pool: run inside a hold of a
+different pool, the script's own mark replaces that one, so the suite reaching
+the outer pool again waits on the outer holder. If the script dies without releasing, the slot frees once that
 shell exits; a check it leaked in the background never keeps it. A pool the
 helper cannot use (its directory a symbolic link or not yours, or a lock
 error) only warns, and the suite runs unpooled, as a pooled step would.
