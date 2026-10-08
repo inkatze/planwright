@@ -1174,8 +1174,9 @@ guard_awk() {
 # ENVIRONMENT read and loads no module text. jq's language has no exec and no
 # file-write primitive at all; what it does have is `env` and `$ENV`, either
 # of which hands the whole environment to the filter (and from there to the
-# transcript), and `include` / `import`, which pull in module text the guard
-# never sees, from a search path the filter itself can name. That is the same
+# transcript), `include` / `import`, which pull in module text the guard
+# never sees, from a search path the filter itself can name, and `modulemeta`,
+# which reads that text back. That is the same
 # call guard_awk makes on `ENVIRON`, and for the same reason: the guard can see
 # the read but not what the program does with the value.
 #
@@ -1191,7 +1192,7 @@ jq_program_safe() {
   local n=${#s} i=0 p a w words
   case $s in
     *\$ENV*) return 1 ;;
-    *env* | *ENV* | *include* | *import*) ;;
+    *env* | *ENV* | *include* | *import* | *modulemeta*) ;;
     *) return 0 ;; # names none of the screened words
   esac
   while [ "$i" -lt "$n" ]; do
@@ -1199,6 +1200,7 @@ jq_program_safe() {
       e) words='env' ;;
       E) words='ENV' ;;
       i) words='include import' ;;
+      m) words='modulemeta' ;;
       *) words='' ;;
     esac
     for w in $words; do
@@ -1221,6 +1223,20 @@ jq_program_safe() {
   return 0
 }
 
+# jq_home_safe: 0 only when HOME is an absolute path and no `~/.jq` exists,
+# the home-directory half of guard_jq's screen (see there), shared with
+# guard_yq for the jq-wrapping yq.
+jq_home_safe() {
+  case ${HOME:-} in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  if [ -e "$HOME/.jq" ] || [ -L "$HOME/.jq" ]; then
+    return 1
+  fi
+  return 0
+}
+
 # guard_jq: strict flag allowlist plus the environment-read and module checks
 # on the filter. Only the inline-filter form is verifiable, so `-f`/`--from-file`
 # (a filter in a file) and `-L`/`--library-path` (which is where `include` and
@@ -1238,13 +1254,7 @@ jq_program_safe() {
 # `--args`/`--jsonargs`, and jq only ever READS those.
 guard_jq() {
   local i a t c expect=0 prog_taken=0 endflags=0
-  case ${HOME:-} in
-    /*) ;;
-    *) return 1 ;;
-  esac
-  if [ -e "$HOME/.jq" ] || [ -L "$HOME/.jq" ]; then
-    return 1
-  fi
+  jq_home_safe || return 1
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$expect" -gt 0 ]; then # a flag's value, never the filter
@@ -1369,27 +1379,38 @@ flag_name_in() {
 # `-ojson` still defers. That is deliberate: two unrelated programs answer to
 # `yq` with different short-flag tables, and a value-taking claim that is wrong
 # for the one actually installed would read a dangerous flag as inert.
-# yq_expression_safe <expr>: 0 unless the expression reads the environment.
+# The jq-wrapping spelling also reads `~/.jq`, so guard_yq takes jq's
+# home-directory check too.
+# yq_expression_safe <expr>: 0 unless the expression reads the environment
+# or, read as a jq filter, fails jq_program_safe.
 # yq's `env(NAME)` and `strenv(NAME)` are the same capability the awk `ENVIRON`
 # reject and jq_program_safe's `env` check exist for — program text whose use
 # of the value this guard cannot see — so the third member of that family is
 # screened the same way rather than left as the one open door.
 yq_expression_safe() {
-  local s=$1 n i p a
+  local s=$1 n i p a w
   case $s in
-    *strenv*) return 1 ;;
+    *strenv* | *envsubst*) return 1 ;;
   esac
+  # The jq-wrapping Python spelling runs the expression as a jq filter.
+  jq_program_safe "$s" || return 1
   # `env` is a bare operator, not only a call: `env | .PATH` and `.a = env`
   # both read the environment. Walk it as a token so a longer identifier
   # (`.environment`, `envelope`) still passes, mirroring jq_program_safe.
   # Raised by the Copilot pass, 2026-09-15.
+  # The second word runs text this screen never sees, so it rejects the same
+  # way, except as the whole operand, where it names a subcommand.
+  case $s in
+    eval | eval-all) return 0 ;;
+  esac
   n=${#s}
   i=0
   while [ "$i" -lt "$n" ]; do
-    if [ "${s:i:3}" = env ]; then
+    for w in env eval; do
+      [ "${s:i:${#w}}" = "$w" ] || continue
       p=''
       [ "$i" -gt 0 ] && p=${s:i-1:1}
-      a=${s:i+3:1}
+      a=${s:i+${#w}:1}
       case $p in
         [A-Za-z0-9_.\$]) ;; # a field access, a variable, or a longer name
         *)
@@ -1399,29 +1420,31 @@ yq_expression_safe() {
           esac
           ;;
       esac
-    fi
+    done
     i=$((i + 1))
   done
   return 0
 }
 
 guard_yq() {
-  local i a expr_taken=0
+  local i a endflags=0
+  jq_home_safe || return 1
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
+    # Every operand is screened as the expression: which one yq reads it from
+    # is not always the first operand this loop sees.
+    if [ "$endflags" = 1 ]; then
+      yq_expression_safe "$a" || return 1
+      continue
+    fi
     case $a in
-      --) break ;; # end of flags: what follows is an expression or a file
-      --inplace | --inplace=* | --in-place | --in-place=* | --split-exp | --split-exp=*) return 1 ;;
-      --from-file | --from-file=*) return 1 ;; # an expression this screen cannot read
-      --*) ;;
+      --) endflags=1 ;; # end of flags: what follows is an expression or a file
+      # Every long flag defers: the Go spelling's long-only flags include
+      # ones that write files, run programs, or carry the expression, and the
+      # two spellings share no long-flag table this screen could vouch for.
+      --*) return 1 ;;
       -?*) short_flag_hit "$a" 'is' '' && return 1 ;;
-      *)
-        # The first non-flag operand is the expression; later ones are files.
-        if [ "$expr_taken" = 0 ]; then
-          yq_expression_safe "$a" || return 1
-          expr_taken=1
-        fi
-        ;;
+      *) yq_expression_safe "$a" || return 1 ;;
     esac
   done
   return 0
@@ -1988,12 +2011,11 @@ assign_name_ok() {
       OPTIND | OPTARG | OPTERR | LANG | LANGUAGE | _ | \
       BASH* | COMP_* | READLINE_* | HIST* | LC_* | MAIL* | PS[0-9]*) return 1 ;;
   esac
-  # zsh, the Bash tool's shell on macOS: `path` and `cdpath` are tied to PATH
-  # and CDPATH, NULLCMD / READNULLCMD name the command a lone redirect runs, and
-  # module_path / MODULE_PATH is where zsh loads a module (a shared object)
-  # from, which binding a name such as `commands` can trigger.
+  # zsh, the Bash tool's shell on macOS, gives these names a special meaning
+  # as variables, as bash gives PATH and CDPATH.
   case $name in
-    path | cdpath | NULLCMD | READNULLCMD | module_path | MODULE_PATH) return 1 ;;
+    path | cdpath | NULLCMD | READNULLCMD | module_path | MODULE_PATH | \
+      fpath | FPATH | manpath | MANPATH) return 1 ;;
   esac
   # Membership in the hook's own ENVIRONMENT, snapshotted at startup: an
   # exported name the command re-points reaches every child it runs. The
@@ -2095,9 +2117,9 @@ expand_word() {
         j=$((j + 1))
       done
       k=$j
-      # zsh, the Bash tool's shell on macOS, applies a subscript (`$f[2,4]`)
-      # or a modifier (`$f:e`) to an unbraced name, quoted or not, so the
-      # value is not the name's: leave it unresolved.
+      # zsh, the Bash tool's shell on macOS, applies a subscript or a modifier
+      # to an unbraced name directly followed by `[` or `:`, quoted or not, so
+      # the value is not the name's: leave it unresolved.
       case ${w:k:1} in
         '[' | ':') name='' ;;
       esac
@@ -2993,7 +3015,8 @@ main() {
   # (object, array, number, boolean) means the payload does not match the
   # documented PreToolUse contract, so the whole analysis defers rather than
   # containment-checking against whatever `jq -r` renders such a value as.
-  case $(printf '%s' "$input" | jq -r 'if has("cwd") and .cwd != null then (.cwd | type) else "absent" end' 2>/dev/null) in
+  # A NUL byte in cwd defers, as in the command.
+  case $(printf '%s' "$input" | jq -r 'if has("cwd") and .cwd != null then (if (.cwd | type) == "string" and (.cwd | explode | any(. == 0)) then "nul" else (.cwd | type) end) else "absent" end' 2>/dev/null) in
     absent) cwd=$PWD ;;
     string)
       cwd=$(printf '%s' "$input" | jq -r '.cwd' 2>/dev/null) || return 0

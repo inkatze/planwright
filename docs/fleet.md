@@ -701,7 +701,10 @@ crashed worker's session via `--resume`; `status` surfaces completion and
 liveness from the supervisor, the journal and the captured event stream — a
 live worker with a pending receipt reports `awaiting-input pending=<n>
 oldest=<age>s supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending
-row carries a readable epoch), never a healthy-looking `running`.
+row carries a readable epoch), never a healthy-looking `running`. A worker
+records a `result` at the end of every turn and stays up for the next, so
+`awaiting-input` outranks an earlier turn's `completed`, and the stuck detector
+likewise keeps such a worker `waiting-on-a-human` rather than finished.
 
 `pending [<worker>...]` shows what those pending receipts are asking, so a
 tower can bring the operator the actual decision rather than a count. For each
@@ -844,7 +847,11 @@ a missing close.
 `steer` is the primary steer on the stream-json rung: a tower message becomes a
 user turn on the worker's own stdin, under the same `[planwright tower relay ->
 <worker>]` header the tmux relay pastes, read from a file so its text is never
-part of a command. Never write a frame into a worker's `in.fifo` by hand. The
+part of a command. A delivered steer opens a new turn, so it retires the
+previous turn's `result`: the worker reads `running` again until that turn
+records its own. A steer delivered while the worker is still inside a turn is
+the exception: that turn's `result` lands after the steer, so the queued turn
+reads `completed` until it records its own. Never write a frame into a worker's `in.fifo` by hand. The
 worker reads one JSON line at a time, so a frame missing its newline runs into
 the next one and kills it. Every frame the supervisor writes, `steer`'s,
 `answer`'s, and the launch prompt, is checked before any byte is written: one
@@ -1776,6 +1783,37 @@ candidates `paused`. The tower's own workers are declined too: it closes
 them with the rung's `stop`.
 `fleet_daemon_pause` pauses the whole cycle. A sweep stopped by a signal,
 one cycle or a watch loop, leaves no temp file behind in the fleet home.
+
+### Stale attention rows: `fleet-attention-reconcile.sh`
+
+A tower clears the attention rows it wrote when their units finish. A tower
+that died first leaves its rows `working`, and no later tower clears a row it
+did not write. The `/orchestrate` reconcile sweep, which runs at start and on
+every `--watch` iteration, ends by judging every row in the store on durable
+evidence:
+
+```sh
+scripts/fleet-attention-reconcile.sh --repo /path/to/primary-checkout
+```
+
+A row that claims a live worker (`working`, `idle`, `hung`, `ended`) is
+cleared when the worker's registry death handle is positively dead
+(`scripts/fleet-death-evidence.sh`). A row nothing on record can still be
+running for (no death handle on record, or a status row such as `pr-ready`)
+is cleared when its spec unit derives completed
+(`scripts/orchestrate-state.sh`; every task of a bundle range). An
+awaiting-input row is always kept, as is a worker that is alive or whose
+death verdict is unknown, even on a completed unit, a worker whose registry
+record carries no death-handle field (torn, or written before the registry
+recorded handles), every row while the registry cannot be read, and a row
+whose unit is still in flight. A worker whose registry record lives in another
+checkout is not judged on this checkout's specs. Each clear goes through
+`fleet-attention.sh clear --if-row`, so a worker that wrote since it was judged
+keeps its new row; each clear is audited under the `attention-reconcile`
+mechanism. `fleet_daemon_pause` pauses the pass.
+The pass clears display rows only: a dead headless worker's pending
+stream-json receipts stay for the rung's `stop` to settle, and until then
+`alarm-scan` can still re-queue a decision from them.
 
 ## Resource governance: models, throttling, and the auto-mode line
 

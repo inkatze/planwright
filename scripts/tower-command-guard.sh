@@ -1265,8 +1265,9 @@ guard_gh() {
 # ENVIRONMENT read and loads no module text. jq's language has no exec and no
 # file-write primitive at all; what it does have is `env` and `$ENV`, either
 # of which hands the whole environment to the filter (and from there to the
-# transcript), and `include` / `import`, which pull in module text the guard
-# never sees, from a search path the filter itself can name. That is the same
+# transcript), `include` / `import`, which pull in module text the guard
+# never sees, from a search path the filter itself can name, and `modulemeta`,
+# which reads that text back. That is the same
 # call guard_awk makes on `ENVIRON`, and for the same reason: the guard can see
 # the read but not what the program does with the value.
 #
@@ -1282,7 +1283,7 @@ jq_program_safe() {
   local n=${#s} i=0 p a w words
   case $s in
     *\$ENV*) return 1 ;;
-    *env* | *ENV* | *include* | *import*) ;;
+    *env* | *ENV* | *include* | *import* | *modulemeta*) ;;
     *) return 0 ;; # names none of the screened words
   esac
   while [ "$i" -lt "$n" ]; do
@@ -1290,6 +1291,7 @@ jq_program_safe() {
       e) words='env' ;;
       E) words='ENV' ;;
       i) words='include import' ;;
+      m) words='modulemeta' ;;
       *) words='' ;;
     esac
     for w in $words; do
@@ -1312,6 +1314,19 @@ jq_program_safe() {
   return 0
 }
 
+# jq_home_safe: 0 only when HOME is an absolute path and no `~/.jq` exists,
+# the home-directory half of guard_jq's screen (see there).
+jq_home_safe() {
+  case ${HOME:-} in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  if [ -e "$HOME/.jq" ] || [ -L "$HOME/.jq" ]; then
+    return 1
+  fi
+  return 0
+}
+
 # guard_jq: strict flag allowlist plus the environment-read and module checks
 # on the filter. Only the inline-filter form is verifiable, so `-f`/`--from-file`
 # (a filter in a file) and `-L`/`--library-path` (which is where `include` and
@@ -1329,13 +1344,7 @@ jq_program_safe() {
 # `--args`/`--jsonargs`, and jq only ever READS those.
 guard_jq() {
   local i a t c expect=0 prog_taken=0 endflags=0
-  case ${HOME:-} in
-    /*) ;;
-    *) return 1 ;;
-  esac
-  if [ -e "$HOME/.jq" ] || [ -L "$HOME/.jq" ]; then
-    return 1
-  fi
+  jq_home_safe || return 1
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$expect" -gt 0 ]; then # a flag's value, never the filter
@@ -1761,12 +1770,11 @@ assign_name_ok() {
       OPTIND | OPTARG | OPTERR | LANG | LANGUAGE | _ | \
       BASH* | COMP_* | READLINE_* | HIST* | LC_* | MAIL* | PS[0-9]*) return 1 ;;
   esac
-  # zsh, the Bash tool's shell on macOS: `path` and `cdpath` are tied to PATH
-  # and CDPATH, NULLCMD / READNULLCMD name the command a lone redirect runs, and
-  # module_path / MODULE_PATH is where zsh loads a module (a shared object)
-  # from, which binding a name such as `commands` can trigger.
+  # zsh, the Bash tool's shell on macOS, gives these names a special meaning
+  # as variables, as bash gives PATH and CDPATH.
   case $name in
-    path | cdpath | NULLCMD | READNULLCMD | module_path | MODULE_PATH) return 1 ;;
+    path | cdpath | NULLCMD | READNULLCMD | module_path | MODULE_PATH | \
+      fpath | FPATH | manpath | MANPATH) return 1 ;;
   esac
   case $HOOK_ENV_NAMES in
     *"$NL$name$NL"*) return 1 ;;
@@ -1810,9 +1818,9 @@ expand_word() {
         j=$((j + 1))
       done
       k=$j
-      # zsh, the Bash tool's shell on macOS, applies a subscript (`$f[2,4]`)
-      # or a modifier (`$f:e`) to an unbraced name, quoted or not, so the
-      # value is not the name's: leave it unresolved.
+      # zsh, the Bash tool's shell on macOS, applies a subscript or a modifier
+      # to an unbraced name directly followed by `[` or `:`, quoted or not, so
+      # the value is not the name's: leave it unresolved.
       case ${w:k:1} in
         '[' | ':') name='' ;;
       esac
@@ -2340,7 +2348,8 @@ main() {
   # (object, array, number, boolean) means the payload does not match the
   # documented PreToolUse contract, so the whole analysis defers rather than
   # containment-checking against whatever `jq -r` renders such a value as.
-  case $(printf '%s' "$input" | jq -r 'if has("cwd") and .cwd != null then (.cwd | type) else "absent" end' 2>/dev/null) in
+  # A NUL byte in cwd defers, as in the command.
+  case $(printf '%s' "$input" | jq -r 'if has("cwd") and .cwd != null then (if (.cwd | type) == "string" and (.cwd | explode | any(. == 0)) then "nul" else (.cwd | type) end) else "absent" end' 2>/dev/null) in
     absent) cwd=$PWD ;;
     string)
       cwd=$(printf '%s' "$input" | jq -r '.cwd' 2>/dev/null) || return 0

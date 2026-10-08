@@ -336,11 +336,11 @@ write (D-7). The sweep:
 
 1. **Refresh the remote view (best-effort).** `scripts/dispatch-fetch.sh
    --best-effort <primary-checkout>` — the same bounded fetch the gate uses (D-9),
-   coalesced with it onto one TTL-stamped fetch instead of one per `--watch`
-   cycle. `--best-effort` is one attempt (no retries); a reconcile tolerates
-   staleness. Remote-tracking refs only; **no local-`main` advance**. Any nonzero
-   exit (`3` no-remote, `4` stale-transient, `2` internal) → continue on
-   last-known refs (the gate, in contrast, blocks on `4`).
+   coalesced with it onto one TTL-stamped fetch. `--best-effort` is one
+   attempt; a reconcile tolerates staleness. Remote-tracking refs only;
+   **no local-`main` advance**. Any nonzero exit (`3` no-remote, `4`
+   stale-transient, `2` internal) → continue on last-known refs (the gate
+   blocks on `4`).
 2. **Rebuild** from `tasks.md`, `gh`, and the process/window list; for each
    in-flight unit (v1: its `## In progress` entry; v2: the derivation's in-progress
    set — no committed placement exists), **reconcile PR state first**: merged →
@@ -354,6 +354,9 @@ write (D-7). The sweep:
    <orphan note>`) on the primary checkout's main view (REQ-B1.4), never the dead
    worker's branch, and only if no live bullet already names the task. Never left
    In progress silently, and **never auto-re-dispatched**.
+5. **Clear stale attention rows**: `scripts/fleet-attention-reconcile.sh --repo
+   <absolute-primary-checkout>`; surface failures and degraded summaries;
+   never halt.
 
 **Report each terminal state** to the escalation feedback loop (model-allocation
 REQ-F1.2; `docs/fleet.md`). Neither report may cost its transition:

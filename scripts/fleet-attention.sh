@@ -127,8 +127,14 @@
 #       additive 9th field) — no option set (that is `decide`'s answerable
 #       channel). Atomic --unless-awaiting: a no-op that preserves a queued
 #       decision. The classifier resolves the row to awaiting-human directly.
-#   fleet-attention.sh clear <worker>
+#   fleet-attention.sh clear <worker> [--if-row <scope> <state> <stamp>]
 #       Remove the worker's row (idempotent) — cleanup on merged/done teardown.
+#       --if-row: remove it only while the row still carries exactly that
+#       scope, state and heartbeat stamp, checked inside the store's critical
+#       section, and only while it is the worker's one row; any
+#       other row (the worker wrote since it was judged, or no row) is left
+#       alone with exit 3. The judge-then-clear primitive for a caller whose
+#       verdict was reached outside the lock (fleet-attention-reconcile.sh).
 #   fleet-attention.sh render [--surface-provided] [--on-change <key> [--liveness <seconds>]]
 #       Status renderer: each worker's scope + state.
 #       --on-change renders on a transition only (the watch loop's form; <key>
@@ -189,7 +195,8 @@
 #   input, or a filesystem/lock error (fail closed); 3 a SEMANTIC refusal on the
 #   Task 4 decision channel — `claim` refusing an answer (stale / bad label /
 #   already-claimed / permission-park / no such fork) and `fork` refusing to
-#   clobber a queued human decision (the unless-decide guard) — distinct from the
+#   clobber a queued human decision (the unless-decide guard), and a guarded
+#   `clear --if-row` finding the row changed since it was judged — distinct from the
 #   operational 2 so a caller can tell "the request does not apply" from "the
 #   store I/O broke"; other non-zero from a propagated resolver hard-fail
 #   (notify).
@@ -1359,9 +1366,40 @@ case $cmd in
 
   clear)
     worker="${1:-}"
+    clr_if=0
+    clr_scope=""
+    clr_state=""
+    clr_stamp=""
+    case $# in
+      1) ;;
+      5)
+        [ "$2" = --if-row ] || worker=""
+        clr_if=1
+        clr_scope=$3
+        clr_state=$4
+        clr_stamp=$5
+        ;;
+      *) worker="" ;;
+    esac
     if [ -z "$worker" ]; then
-      echo "usage: fleet-attention.sh clear <worker>" >&2
+      echo "usage: fleet-attention.sh clear <worker> [--if-row <scope> <state> <stamp>]" >&2
       exit 2
+    fi
+    if [ "$clr_if" = 1 ]; then
+      case $clr_stamp in
+        "" | *[!0-9]*)
+          echo "fleet-attention: refusing a malformed --if-row stamp" >&2
+          exit 2
+          ;;
+      esac
+      if ! valid_field "$clr_scope"; then
+        echo "fleet-attention: refusing a malformed --if-row scope" >&2
+        exit 2
+      fi
+      if [ "$clr_state" != awaiting-input ] && ! valid_heartbeat_state "$clr_state"; then
+        echo "fleet-attention: refusing a malformed --if-row state" >&2
+        exit 2
+      fi
     fi
     if ! valid_field "$worker"; then
       printf '%s\n' "fleet-attention: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
@@ -1371,8 +1409,28 @@ case $cmd in
     attn_dir="$root/attention"
     store="$attn_dir/state"
     # Absent store → nothing to clear (idempotent), no lock, no home creation.
-    [ -f "$store" ] || exit 0
+    # A guarded clear has no row to match there, which is its refusal.
+    if [ ! -f "$store" ]; then
+      [ "$clr_if" = 1 ] && exit 3
+      exit 0
+    fi
     acquire_lock || exit 2
+    if [ "$clr_if" = 1 ]; then
+      # The worker must hold exactly the judged row: a duplicate left by
+      # external corruption, even an identical one, is never cleared on a
+      # verdict about one row, and no row at all is a refusal too.
+      clr_match=$(awk -F "$TAB" -v w="$worker" -v sc="$clr_scope" -v st="$clr_state" -v ts="$clr_stamp" '
+        ($1 "") == (w "") { n++; if (($2 "") != (sc "") || ($3 "") != (st "") || ($4 "") != (ts "")) bad = 1 }
+        END { print (n == 1 && !bad) ? "y" : "n" }' "$store") || {
+        release_lock
+        echo "fleet-attention: could not read the store to evaluate --if-row" >&2
+        exit 2
+      }
+      if [ "$clr_match" != y ]; then
+        release_lock
+        exit 3
+      fi
+    fi
     clr_rc=0
     st_tmp=$(mktemp "$attn_dir/.state.XXXXXX") || {
       release_lock

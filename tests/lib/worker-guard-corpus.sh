@@ -83,7 +83,7 @@ corpus_sandbox() {
   local box main wt scratch outside col
   mkdir -p "$1" || return 1
   [ -z "$(ls -A "$1")" ] || {
-    echo "corpus: sandbox box is not empty: $1" >&2
+    printf 'corpus: sandbox box is not empty: %s\n' "$1" >&2
     return 1
   }
   box=$(cd -P "$1" && pwd -P) || return 1
@@ -168,7 +168,7 @@ corpus_sandbox() {
 
 corpus_parse() {
   [ -r "$1" ] || {
-    echo "corpus: not readable: $1" >&2
+    printf 'corpus: not readable: %s\n' "$1" >&2
     return 2
   }
   awk -F'\t' -v file="$1" '
@@ -323,13 +323,13 @@ corpus_replay() {
     case $col in
       1 | 2 | 3 | 4) ;;
       *)
-        echo "corpus: unknown policy column: $col" >&2
+        printf 'corpus: unknown policy column: %s\n' "$col" >&2
         return 2
         ;;
     esac
     case $seen in
       *" $col "*)
-        echo "corpus: policy column listed twice: $col" >&2
+        printf 'corpus: policy column listed twice: %s\n' "$col" >&2
         return 2
         ;;
     esac

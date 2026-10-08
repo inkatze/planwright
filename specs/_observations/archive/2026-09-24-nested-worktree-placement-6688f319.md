@@ -1,1 +1,2 @@
 - 2026-09-24 [planwright] fleet-dispatch-worktree.sh dispatch, run from a tower that itself lives in .claude/worktrees/tower, places unit worktrees at the tower worktree .claude/worktrees/<spec>-task-<id> (nested) instead of the primary repo .claude/worktrees/, because it keys on the current worktree toplevel. It works, but diverges from the documented placement and from claude --worktree attachability from the primary checkout.
+Consumed-by: specs/tower-placement (2026-10-07)
