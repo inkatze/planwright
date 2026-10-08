@@ -620,10 +620,13 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
           nsw = split(envs, sw, /[ \t]+/)
           envbase = ""; envp = 0
           for (m = 1; m <= nsw; m++) {
-            if (sw[m] == "" || (envbase == "" && sw[m] ~ /^[A-Za-z_][A-Za-z0-9_]*=/)) continue
+            if (sw[m] == "" || (envbase == "" && (sw[m] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || sw[m] ~ /^-/))) continue
             if (envbase == "") { envbase = sw[m]; sub(/^.*\//, "", envbase); continue }
             if (sw[m] == "--parents" || (sw[m] ~ /^-[A-Za-z]+$/ && sw[m] ~ /p/)) envp = 1
           }
+          # A string of assignments and options only names no command: the
+          # command is still the next word after it.
+          if (envbase == "") { i++; continue }
           wrap = ""
           if (envbase != "mkdir") { atcmd = 0; i++; continue }
           envmkdir = 1

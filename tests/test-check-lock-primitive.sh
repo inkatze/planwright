@@ -583,6 +583,8 @@ write_script "$tmp/newline/scripts/dqinpe.sh" \
   'mkdir "$lock" && exit 0'
 write_script "$tmp/newline/scripts/splitword.sh" 'mk\' 'dir "$lock" && exit 0'
 write_script "$tmp/newline/scripts/envsplit.sh" "env -S 'mkdir \$lock' && exit 0"
+write_script "$tmp/newline/scripts/envsassign.sh" "env -S 'FOO=1' mkdir \"\$lock\" && exit 0"
+write_script "$tmp/newline/scripts/envsopt.sh" "env -S '-i' mkdir \"\$lock\" && exit 0"
 write_script "$tmp/newline/scripts/subinpe.sh" 'x=${y:-$(mkdir "$lock" && echo held)}'
 write_script "$tmp/newline/scripts/spacedredir.sh" '{ mkdir "$lock"; } > /dev/null && exit 0'
 write_script "$tmp/newline/scripts/eofcont.sh" 'mkdir "$lock" && \'
@@ -594,6 +596,8 @@ assert_contains "a dollar-quote inside an expansion does not open a string" "$ou
 assert_contains "a command substitution inside an expansion is still code" "$out11bb" "scripts/subinpe.sh:3:"
 assert_contains "a command word split by a continuation is still the command" "$out11bb" "scripts/splitword.sh:3:"
 assert_contains "env -S runs the command its string names" "$out11bb" "scripts/envsplit.sh:3:"
+assert_contains "an env -S string of assignments leaves the next word the command" "$out11bb" "scripts/envsassign.sh:3:"
+assert_contains "so does one of options" "$out11bb" "scripts/envsopt.sh:3:"
 assert_contains "a spaced redirection on a group does not hide the operator" "$out11bb" "scripts/spacedredir.sh:3:"
 assert_contains "a continuation left open at end of file is still read" "$out11bb" "scripts/eofcont.sh:3:"
 assert_contains "a clobber redirection on a group does not hide the operator" "$out11bb" "scripts/clobberredir.sh:3:"
