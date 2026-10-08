@@ -533,7 +533,8 @@ while :; do
       *)
         cause=$(shown "$(tr '\n' ' ' <"$errf")")
         warn "pool $pool lock error: ${cause:-lock-lib failed on slot $i}; running unpooled"
-        printf 'unpooled\t-\t%s\n' "$((waited + $(date +%s) - start))"
+        [ "$round" -eq 0 ] || waited=$((waited + $(date +%s) - start))
+        printf 'unpooled\t-\t%s\n' "$waited"
         exit 0
         ;;
     esac
