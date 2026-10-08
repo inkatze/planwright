@@ -378,7 +378,7 @@ assert_contains "the unwritable-report failure names the path" \
 #     them, never the home this suite itself inherited.
 export PLANWRIGHT_FLEET_STATE_DIR="$tmp/operator-fleet"
 export CLAUDE_PLUGIN_DATA="$tmp/operator-data"
-mkdir -p "$tmp/leak-override" "$tmp/leak-plugin" "$tmp/leak-marker" "$tmp/leak-ledger" "$tmp/pinned"
+mkdir -p "$tmp/leak-override" "$tmp/leak-plugin" "$tmp/leak-marker" "$tmp/leak-ledger" "$tmp/leak-link" "$tmp/pinned"
 cat >"$tmp/leak-override/test-leaky.sh" <<'EOF'
 #!/bin/bash
 mkdir -p "$PLANWRIGHT_FLEET_STATE_DIR"
@@ -398,6 +398,11 @@ cat >"$tmp/leak-ledger/test-leaky.sh" <<'EOF'
 #!/bin/bash
 mkdir -p "$PLANWRIGHT_FLEET_STATE_DIR/allocation"
 printf 'row\n' >"$PLANWRIGHT_FLEET_STATE_DIR/allocation/offload.tsv"
+EOF
+cat >"$tmp/leak-link/test-leaky.sh" <<'EOF'
+#!/bin/bash
+mkdir -p "${PLANWRIGHT_FLEET_STATE_DIR%/*}"
+ln -s /nonexistent-fleet-home "$PLANWRIGHT_FLEET_STATE_DIR"
 EOF
 cat >"$tmp/pinned/test-pinned.sh" <<'EOF'
 #!/bin/bash
@@ -429,6 +434,8 @@ out="$(/bin/bash "$RUNNER" "$tmp/leak-marker" 2>&1)"
 assert "a dispatch-marker write to the inherited fleet home fails the run" 1 $?
 out="$(/bin/bash "$RUNNER" "$tmp/leak-ledger" 2>&1)"
 assert "an allocation-ledger write to the inherited fleet home fails the run" 1 $?
+out="$(/bin/bash "$RUNNER" "$tmp/leak-link" 2>&1)"
+assert "a dangling link left at the inherited fleet home fails the run" 1 $?
 out="$(/bin/bash "$RUNNER" "$tmp/pinned" 2>&1)"
 assert "a file that pins its own fleet home passes" 0 $?
 unset PLANWRIGHT_FLEET_STATE_DIR CLAUDE_PLUGIN_DATA

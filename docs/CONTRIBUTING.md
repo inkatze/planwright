@@ -217,8 +217,8 @@ A suite run from a fleet worker inherits that worker's fleet home, which is the
 operator's real one, so a case that dispatches or registers a worker without
 pinning a home of its own writes the operator's registry. The runner gives every
 test file a sentinel fleet home (`PLANWRIGHT_FLEET_STATE_DIR`, and
-`CLAUDE_PLUGIN_DATA` when it is set) and fails a file that creates anything
-there. Pin a fixture home per case with `fleet_home_pin` from
+`CLAUDE_PLUGIN_DATA` when it is set) and fails a file that has created anything
+there by the time it exits. Pin a fixture home per case with `fleet_home_pin` from
 [`tests/lib/fleet-home.sh`](../tests/lib/fleet-home.sh), whose
 `fleet_home_leaked` also lets a suite run on its own check that it left the
 inherited registry alone.

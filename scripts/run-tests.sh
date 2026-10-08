@@ -244,9 +244,10 @@ if [ "${1:-}" = "--run-one" ]; then
   [ -z "$slot_path" ] || export PLANWRIGHT_TEST_IN_POOLED_FILE=1
   # A run started from a fleet worker inherits the operator's real fleet home,
   # so each file gets a home of its own that nothing should ever touch: a file
-  # that creates anything there wrote fleet state (a registry record, a
-  # dispatch marker, a ledger row) without pinning a fixture home, and fails
-  # for it. The plugin-data arm is redirected only when it was set, so a file
+  # that has created anything there by the time it exits wrote fleet state (a
+  # registry record, a dispatch marker, a ledger row) without pinning a fixture
+  # home, and fails for it. A detached child writing later still lands in the
+  # sentinel, inside this run's log dir, just undetected. The plugin-data arm is redirected only when it was set, so a file
   # sees the same set/unset shape it would have seen without the runner.
   fleet_sentinel="$PLANWRIGHT_TEST_LOG_DIR/$name.fleet"
   export PLANWRIGHT_FLEET_STATE_DIR="$fleet_sentinel/fleet"
@@ -258,7 +259,7 @@ if [ "${1:-}" = "--run-one" ]; then
     verdict="fail"
   fi
   for fh in "$fleet_sentinel/fleet" "$fleet_sentinel/plugin-data/fleet"; do
-    if [ -e "$fh" ]; then
+    if [ -e "$fh" ] || [ -L "$fh" ]; then
       verdict="fail"
       printf '%s\n' "run-tests: $name wrote fleet state into the fleet home it inherited (under a fleet worker, the operator's real one); pin a fixture home per case (tests/lib/fleet-home.sh)" \
         >>"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
