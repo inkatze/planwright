@@ -422,6 +422,16 @@ bad "choice position over six digits" "position is not a positive integer" \
 bad "choice control outside the grammar" "control outside the step-id grammar" \
   "  - id: sample-reviewer.bad-entry" "    vendor: sample-reviewer" "    part: choice" "    rule: auto" \
   "    position: 1" "    condition: prior-review" "    control: Full"
+# A comment body carries no link or HTML markup a scheme screen would miss.
+bad "comment body with a protocol-relative link" "comment-body carries a link or HTML markup" \
+  "  - id: sample-reviewer.bad-entry" "    vendor: sample-reviewer" "    part: control" \
+  "    comment-body: \"@sample-reviewer-app see //example.invalid/a\""
+bad "comment body with a markdown link" "comment-body carries a link or HTML markup" \
+  "  - id: sample-reviewer.bad-entry" "    vendor: sample-reviewer" "    part: control" \
+  "    comment-body: \"@sample-reviewer-app see [here](/a/b)\""
+bad "comment body with an HTML tag" "comment-body carries a link or HTML markup" \
+  "  - id: sample-reviewer.bad-entry" "    vendor: sample-reviewer" "    part: control" \
+  "    comment-body: \"@sample-reviewer-app <img src=x>\""
 # C1 controls, invisible and bidi code points, and invalid UTF-8 are refused
 # wherever a value is printed or posted.
 bad "C1 control in a match" "a C1, invisible, or bidi character, or invalid UTF-8, in a field" \
