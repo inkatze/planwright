@@ -1180,6 +1180,25 @@ assert_defer "yq env() inside an assignment" "yq '.a = env(HOME)' f.yml"
 assert_defer "yq --from-file hides the expression" "yq --from-file e.yq f.yml"
 assert_allow "yq plain field access" "yq '.a' f.yml"
 assert_allow "yq a longer name containing env" "yq '.environment' f.yml"
+assert_defer "defer form: a yq environment read (1)" "yq -n '\"x\" | envsubst'"
+assert_defer "defer form: a yq environment read (2)" "yq '.a | envsubst(nu)' f.yml"
+assert_defer "defer form: a yq environment read (3)" "yq -n '\$ENV'"
+assert_defer "defer form: a yq environment read (4)" "yq -n '\$ ENV'"
+assert_defer "defer form: a yq module form (1)" "yq -n 'include \"m\"; .'"
+assert_defer "defer form: a yq module form (2)" "yq -n 'import \"m\" as e; .'"
+assert_defer "defer form: a yq module form (3)" "yq -n '\"m\"|modulemeta'"
+assert_allow "parity: yq a field named like a screened word" "yq '.include' f.yml"
+assert_allow "parity: yq a field sharing an environment read's prefix" "yq '.envs' f.yml"
+assert_allow "parity: yq a longer name sharing a screened prefix" "yq '.a.imports' f.yml"
+YQ_HOME="$SANDBOX/yq-home"
+mkdir -p "$YQ_HOME" && : >"$YQ_HOME/.jq" || exit 1
+HOOK_ENV=(HOME="$YQ_HOME")
+assert_defer "defer form: yq while a home module file exists" "yq . file.yml"
+rm -f "$YQ_HOME/.jq"
+assert_allow "parity: yq once the home module file is gone" "yq . file.yml"
+HOOK_ENV=(HOME=rel-home)
+assert_defer "defer form: yq with a relative HOME" "yq . file.yml"
+HOOK_ENV=()
 # shfmt: -w formats in place.
 assert_allow "shfmt diff mode" "shfmt -d ."
 assert_allow "shfmt list mode" "shfmt -l ."

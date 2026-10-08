@@ -1203,6 +1203,20 @@ jq_program_safe() {
   return 0
 }
 
+# jq_home_safe: 0 only when HOME is an absolute path and no `~/.jq` exists,
+# the home-directory half of guard_jq's screen (see there), shared with
+# guard_yq for the jq-wrapping yq.
+jq_home_safe() {
+  case ${HOME:-} in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  if [ -e "$HOME/.jq" ] || [ -L "$HOME/.jq" ]; then
+    return 1
+  fi
+  return 0
+}
+
 # guard_jq: strict flag allowlist plus the environment-read and module checks
 # on the filter. Only the inline-filter form is verifiable, so `-f`/`--from-file`
 # (a filter in a file) and `-L`/`--library-path` (which is where `include` and
@@ -1220,13 +1234,7 @@ jq_program_safe() {
 # `--args`/`--jsonargs`, and jq only ever READS those.
 guard_jq() {
   local i a t c expect=0 prog_taken=0 endflags=0
-  case ${HOME:-} in
-    /*) ;;
-    *) return 1 ;;
-  esac
-  if [ -e "$HOME/.jq" ] || [ -L "$HOME/.jq" ]; then
-    return 1
-  fi
+  jq_home_safe || return 1
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$expect" -gt 0 ]; then # a flag's value, never the filter
@@ -1351,7 +1359,10 @@ flag_name_in() {
 # `-ojson` still defers. That is deliberate: two unrelated programs answer to
 # `yq` with different short-flag tables, and a value-taking claim that is wrong
 # for the one actually installed would read a dangerous flag as inert.
-# yq_expression_safe <expr>: 0 unless the expression reads the environment.
+# The jq-wrapping spelling also reads `~/.jq`, so guard_yq takes jq's
+# home-directory check too.
+# yq_expression_safe <expr>: 0 unless the expression reads the environment
+# or, read as a jq filter, fails jq_program_safe.
 # yq's `env(NAME)` and `strenv(NAME)` are the same capability the awk `ENVIRON`
 # reject and jq_program_safe's `env` check exist for — program text whose use
 # of the value this guard cannot see — so the third member of that family is
@@ -1359,8 +1370,10 @@ flag_name_in() {
 yq_expression_safe() {
   local s=$1 n i p a
   case $s in
-    *strenv*) return 1 ;;
+    *strenv* | *envsubst*) return 1 ;;
   esac
+  # The jq-wrapping Python spelling runs the expression as a jq filter.
+  jq_program_safe "$s" || return 1
   # `env` is a bare operator, not only a call: `env | .PATH` and `.a = env`
   # both read the environment. Walk it as a token so a longer identifier
   # (`.environment`, `envelope`) still passes, mirroring jq_program_safe.
@@ -1389,6 +1402,7 @@ yq_expression_safe() {
 
 guard_yq() {
   local i a expr_taken=0
+  jq_home_safe || return 1
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     case $a in
