@@ -18,6 +18,11 @@ fail() {
   echo "FAIL: $1" >&2
   failures=$((failures + 1))
 }
+# verdict <ok> <fail>: judged on the exit status of the command before it.
+verdict() {
+  vr=$?
+  if [ "$vr" -eq 0 ]; then ok "$1"; else fail "$2"; fi
+}
 assert_rc() {
   if [ "$2" -eq "$3" ]; then ok "$1"; else fail "$1 (expected exit $2, got $3)"; fi
 }
@@ -104,14 +109,15 @@ OUT=$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_ADOPTER_OVERLAY="$sb/adopter"
   PLANWRIGHT_REPO_ROOT="$sb/repo" /bin/bash "$RV" 2>"$sb/err") || RC=$?
 assert_rc "shipped catalog resolves" 0 "$RC"
 vendors=$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "vendor" { print $2 }')
-[ "$vendors" = claude ] && ok "the core layer ships exactly one vendor, claude" \
-  || fail "core vendors are '$vendors', expected only claude"
-printf '%s\n' "$OUT" | grep -q "^vendor${TAB}claude${TAB}claude-frames${TAB}-\$" \
-  && ok "claude declares the claude-frames evidence kind" || fail "claude vendor line: $OUT"
-printf '%s\n' "$OUT" | grep -q "^recognizer${TAB}claude${TAB}" \
-  && ok "claude ships at least one recognizer" || fail "no claude recognizer: $OUT"
-[ -z "$(cat "$sb/err")" ] && ok "the shipped catalog resolves without a warning" \
-  || fail "shipped catalog warned: $(cat "$sb/err")"
+[ "$vendors" = claude ]
+verdict "the core layer ships exactly one vendor, claude" "core vendors are '$vendors', expected only claude"
+printf '%s\n' "$OUT" | grep -q "^vendor${TAB}claude${TAB}claude-frames${TAB}-\$"
+verdict "claude declares the claude-frames evidence kind" "claude vendor line: $OUT"
+printf '%s\n' "$OUT" | grep -q "^recognizer${TAB}claude${TAB}"
+verdict "claude ships at least one recognizer" "no claude recognizer: $OUT"
+warned=$(cat "$sb/err")
+[ -z "$warned" ]
+verdict "the shipped catalog resolves without a warning" "shipped catalog warned: $warned"
 
 # ---------------------------------------------------------------------------
 # REQ-C1.1: an adapter resolves across all four layers, with provenance.
@@ -173,9 +179,11 @@ assert_contains "control line carries its comment body" "control${TAB}sample-rev
 assert_contains "choice line carries rule, position, condition, control" "choice${TAB}sample-reviewer${TAB}auto${TAB}2${TAB}prior-review${TAB}delta" "$OUT"
 # Grouped by vendor: every claude line precedes every sample-reviewer line.
 grouped=$(printf '%s\n' "$OUT" | awk -F '\t' '{ v = $2; if (v != last) { if (v in seen) bad = 1; seen[v] = 1; last = v } } END { print bad + 0 }')
-[ "$grouped" = 0 ] && ok "output is grouped by vendor" || fail "vendors interleave: $OUT"
+[ "$grouped" = 0 ]
+verdict "output is grouped by vendor" "vendors interleave: $OUT"
 first=$(printf '%s\n' "$OUT" | awk -F '\t' '$2 == "sample-reviewer" { print $1; exit }')
-[ "$first" = vendor ] && ok "a vendor's group opens with its vendor line" || fail "group opens with '$first'"
+[ "$first" = vendor ]
+verdict "a vendor's group opens with its vendor line" "group opens with '$first'"
 rv "$sb" --vendor sample-reviewer
 assert_rc "--vendor filters to one vendor" 0 "$RC"
 assert_absent "--vendor drops other vendors" "claude" "$OUT"
@@ -331,6 +339,7 @@ big=$(printf 'z%.0s' $(seq 1 1100))
 bad "oversized comment body" "comment-body exceeds 1024 bytes" \
   "  - id: sample-reviewer.bad-entry" "    vendor: sample-reviewer" "    part: control" \
   "    comment-body: \"@sample-reviewer-app $big\""
+# shellcheck disable=SC2016 # the unexpanded substitution is the fixture
 bad "CLI argument with command substitution" "args outside the plain-word grammar" \
   "  - id: sample-reviewer.bad-entry" "    vendor: sample-reviewer" "    part: control" '    args: --effort $(id)'
 bad "CLI argument with a shell operator" "args outside the plain-word grammar" \
@@ -416,6 +425,7 @@ assert_contains "the first pair at the position stands" "choice${TAB}claude${TAB
 # ---------------------------------------------------------------------------
 # REQ-C1.5: a hostile --vendor is refused before any use.
 # ---------------------------------------------------------------------------
+# shellcheck disable=SC2016 # the unexpanded substitution is the fixture
 for hostile in "../../etc" "Claude" "a b" '$(id)' "-x"; do
   sb="$tmp/hostile"
   seed "$sb"
@@ -436,7 +446,8 @@ if [ -r "$doc" ]; then
       *) fail "docs/quota.md example names vendor '$v', not a placeholder" ;;
     esac
   done
-  [ -n "$named" ] && ok "docs/quota.md examples declare vendors ($named)" || fail "docs/quota.md declares no example vendor"
+  [ -n "$named" ]
+  verdict "docs/quota.md examples declare vendors ($named)" "docs/quota.md declares no example vendor"
   for v in sample-reviewer sample-cli; do
     case " $named " in *" $v "*) ok "docs/quota.md illustrates $v" ;; *) fail "docs/quota.md lacks the $v example" ;; esac
   done
@@ -458,8 +469,9 @@ if [ -r "$doc" ]; then
   OUT=$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_ADOPTER_OVERLAY="$sb/adopter" \
     PLANWRIGHT_REPO_ROOT="$sb/repo" /bin/bash "$RV" 2>"$sb/err") || RC=$?
   assert_rc "the docs/quota.md examples resolve" 0 "$RC"
-  [ ! -s "$sb/err" ] && ok "the docs/quota.md examples resolve without a warning" \
-    || fail "docs examples warned: $(cat "$sb/err")"
+  warned=$(cat "$sb/err")
+  [ -z "$warned" ]
+  verdict "the docs/quota.md examples resolve without a warning" "docs examples warned: $warned"
   assert_contains "the example choice rule resolves" "choice${TAB}sample-reviewer${TAB}auto${TAB}1${TAB}no-prior-review${TAB}full" "$OUT"
   assert_contains "the example CLI control resolves" "control${TAB}sample-cli${TAB}quick${TAB}args${TAB}--effort=low --no-tools" "$OUT"
 else

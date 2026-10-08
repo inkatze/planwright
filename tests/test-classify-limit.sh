@@ -20,6 +20,12 @@ fail() {
   echo "FAIL: $1" >&2
   failures=$((failures + 1))
 }
+# verdict <ok> <fail>: judged on the exit status of the command before it.
+verdict() {
+  # shellcheck disable=SC2319 # the caller's condition is the status judged
+  vr=$?
+  if [ "$vr" -eq 0 ]; then ok "$1"; else fail "$2"; fi
+}
 assert_rc() {
   if [ "$2" -eq "$3" ]; then ok "$1"; else fail "$1 (expected exit $2, got $3; stderr: $ERR)"; fi
 }
@@ -112,7 +118,8 @@ assert_absent "the excerpt omits unrelated lines" "starting review" "$OUT"
 # Identical input, identical output, byte for byte (REQ-A1.2).
 first=$OUT
 cl --vendor sample-cli --now "$NOW"
-[ "$first" = "$OUT" ] && ok "identical input yields identical output" || fail "output differs between runs"
+[ "$first" = "$OUT" ]
+verdict "identical input yields identical output" "output differs between runs"
 
 # Epoch-seconds reset.
 printf 'monthly quota exhausted; resets at %s.\n' "$((NOW + 60))" >"$tmp/in"
@@ -151,7 +158,8 @@ assert_contains "a reset exactly at the ceiling is accepted" "reset${TAB}$((NOW 
 printf 'the build failed: assertion error\nMonthly Quota Exhausted\n' >"$tmp/in"
 cl --vendor sample-cli --now "$NOW"
 assert_rc "unrecognized text exits 1" 1 "$RC"
-[ -z "$OUT" ] && ok "unrecognized text prints nothing" || fail "unrecognized text printed: $OUT"
+[ -z "$OUT" ]
+verdict "unrecognized text prints nothing" "unrecognized text printed: $OUT"
 : >"$tmp/in"
 cl --vendor sample-cli --now "$NOW"
 assert_rc "empty input is unrecognized" 1 "$RC"
@@ -165,14 +173,16 @@ assert_rc "a regex-shaped recognizer does not match as a pattern" 1 "$RC"
 printf 'got a.*b[0-9] literally\n' >"$tmp/in"
 cl --vendor sample-cli --now "$NOW"
 assert_contains "a regex-shaped recognizer matches its literal text" "recognizer${TAB}sample-cli.pattern" "$OUT"
+# shellcheck disable=SC2016 # the unexpanded substitution is the fixture
 printf 'output: $(touch PWNED)\n' >"$tmp/in"
 cl --vendor sample-cli --now "$NOW"
 assert_contains "a substitution-shaped recognizer matches literally" "recognizer${TAB}sample-cli.substitution" "$OUT"
-[ ! -e "$sb/repo/PWNED" ] && [ ! -e "$tmp/PWNED" ] && [ ! -e PWNED ] \
-  && ok "no recognizer is executed" || fail "a recognizer ran a command"
+[ ! -e "$sb/repo/PWNED" ] && [ ! -e "$tmp/PWNED" ] && [ ! -e PWNED ]
+verdict "no recognizer is executed" "a recognizer ran a command"
 
 # Several recognizers on one line: the first declared wins; the earliest
 # matching line wins over a later one.
+# shellcheck disable=SC2016 # the unexpanded substitution is the fixture
 printf 'line one $(touch PWNED)\nmonthly quota exhausted\n' >"$tmp/in"
 cl --vendor sample-cli --now "$NOW"
 assert_contains "the earliest matching line wins" "recognizer${TAB}sample-cli.substitution" "$OUT"
@@ -204,7 +214,8 @@ pad=$(printf 'p%.0s' $(seq 1 3000))
 printf '%s monthly quota exhausted %s\n' "$pad" "$pad" >"$tmp/in"
 cl --vendor sample-cli --now "$NOW"
 ex=$(printf '%s\n' "$OUT" | sed -n "s/^excerpt${TAB}//p")
-[ "${#ex}" -le 2000 ] && ok "the excerpt stays within the byte bound" || fail "excerpt is ${#ex} bytes"
+[ "${#ex}" -le 2000 ]
+verdict "the excerpt stays within the byte bound" "excerpt is ${#ex} bytes"
 assert_contains "the bounded excerpt still holds the match" "monthly quota exhausted" "$ex"
 
 # Input from a file argument reads the same as stdin.
@@ -219,6 +230,7 @@ assert_contains "--input reads a capture file" "recognizer${TAB}sample-cli.quota
 printf 'monthly quota exhausted\n' >"$tmp/in"
 cl --vendor nobody --now "$NOW"
 assert_rc "an undeclared vendor exits 3" 3 "$RC"
+# shellcheck disable=SC2016 # the unexpanded substitution is the fixture
 for hostile in "../x" '$(id)' "Sample" ""; do
   cl --vendor "$hostile" --now "$NOW"
   assert_rc "hostile vendor '$hostile' is a usage error" 2 "$RC"
