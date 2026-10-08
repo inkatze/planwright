@@ -187,6 +187,10 @@ The `gh api` spellings of the merge and the ready flip are the policy guard's
   its deferring neighbours, the zero-false-allow bar, the deny-precedence
   outcome for the floor's spellings, and that the shared `jq` screen's code
   matches the worker guard's (full-line comments aside).
+- `tests/test-tower-command-guard.sh` and `tests/test-worker-command-guard.sh`
+  each assert the fixes that only defer more, in their own guard, and the
+  tower suite's parity rows check that both guards give those commands the
+  same verdict.
 - `tests/test-tower-settings-hook-wiring.sh` pins the pre-extension floor as
   the deny block's exact prefix, pins the extension as the exact remainder,
   and checks the globs against other servers' tool names, read-only tools
