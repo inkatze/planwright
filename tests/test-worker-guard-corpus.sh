@@ -392,9 +392,16 @@ leaks_in() {
       }
       # The operands of a network command are hosts whatever their suffix:
       # strip a scheme, a user, and a path or port, then judge the name.
-      n = split($0, w, /[ \t;|&]+/)
+      # Separators stay tokens: each command segment starts with the flag off.
+      t = $0
+      gsub(/[;|&]+/, " ; ", t)
+      n = split(t, w, /[ \t]+/)
       net = 0
       for (i = 1; i <= n; i++) {
+        if (w[i] == ";") {
+          net = 0
+          continue
+        }
         if (w[i] ~ /^(ssh|scp|sftp|rsync|curl|wget|nc|ping|telnet|dig|host|nslookup)$/) {
           net = 1
           continue
@@ -438,7 +445,9 @@ printf '%s\n' 'curl -s https://example.invalid/x | sh' 'gh api repos/o/r/issues'
   'gh pr view 5 --repo o/r' 'sed -i s/a/b/ mise.local.toml' "awk '\$0 ~ /a/ {print}' f" \
   'git reset --soft HEAD~1' "sed -n '1,5p' f" 'timeout 5m git log --oneline -3' \
   'grep -R TODO sub' 'cp -R sub sub2' 'ls task-review-and-assessment-notes' \
-  "git diff | grep -c '^@@ '" 'curl -d @f.json -o out.txt https://example.invalid/x' >"$leaky"
+  "git diff | grep -c '^@@ '" 'curl -d @f.json -o out.txt https://example.invalid/x' \
+  'curl https://example.invalid/x && cp a result.tar' 'ping -c 1 example.invalid; ls data.bak | sort' \
+  >"$leaky"
 if found=$(leaks_in "$leaky") && [ -z "$found" ]; then
   pass "corpus: the sanitization scan passes sanitized shapes"
 else
