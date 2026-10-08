@@ -116,8 +116,9 @@
 # Exit 2 is a usage error (an unknown verb or option, an extra argument, a
 # malformed pool, pid, step, worktree, or count, an owner that is not running
 # or is another user's process, or, from take, an owner that stops running
-# during the wait) or, from release, an owner
-# holding several slots without --slot or a slot that could not be freed.
+# during the wait) or, from take, a taken line that could not be written (the
+# slot is then given back) or, from release, an owner holding several slots
+# without --slot or a slot that could not be freed.
 set -u
 LC_ALL=C
 export LC_ALL
@@ -630,8 +631,14 @@ attempt() {
       # A take in the first round waited for nothing, whatever second the
       # clock ticked over in meanwhile.
       [ "$round" -eq 0 ] || waited=$((waited + $(date +%s) - start))
-      printf 'taken\t%s\t%s\n' "$1" "$waited" && unreported=''
-      exit 0
+      # A subshell, because bash 3.2 keeps a failed write's buffer and pours
+      # it into later command substitutions, the give-back's included.
+      if (printf 'taken\t%s\t%s\n' "$1" "$waited") 2>/dev/null; then
+        unreported=''
+        exit 0
+      fi
+      warn "pool $pool: the taken line could not be written; slot $1 given back"
+      exit 2
       ;;
     1) ;;
     *)

@@ -457,6 +457,14 @@ left=$(ls -A "$tmp/scratch")
 [ "$rc" -eq 143 ] && [ -z "$left" ]
 verdict "a take stopped by TERM exits 143 and removes its scratch file" "TERM: rc=$rc left='$left'" "$tmp/err"
 
+# --- a take that cannot report its slot gives it back -----------------------------
+reset
+a=$(owner)
+sp -- take mute "$a" 1</dev/null 2>"$tmp/err"
+rc=$?
+[ "$rc" -eq 2 ] && [ ! -L "$pools/mute/slot-1" ] && grep -q 'could not be written' "$tmp/err"
+verdict "a take whose state line cannot be written exits 2 and gives the slot back" "unwritable stdout: rc=$rc" "$tmp/err"
+
 # --- REQ-I1.1: released by its owner after a non-zero exit ----------------------
 reset
 printf 'step_pool_wait: 1s\n' >"$mlocal"
