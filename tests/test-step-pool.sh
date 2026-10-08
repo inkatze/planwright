@@ -755,6 +755,29 @@ out=$(sp -- take nouser "$a")
 verdict "an owner of the running user is accepted" "own owner: '$out'"
 sp -- release nouser "$a" >/dev/null
 
+# --- a worktree path is refused only for control characters ---------------------
+# U+20AC is E2 82 AC in UTF-8: its middle byte sits in the C1 range a display
+# sanitizer strips, but the path is a valid one.
+reset
+a=$(owner)
+euro=$(printf '\342\202\254')
+wt6="$tmp/wt-$euro"
+out=$(sp -- take utf "$a" --worktree "$wt6" 2>"$tmp/err")
+rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "taken${TAB}1${TAB}0" ] && [ "$(cut -f 3 "$pools/utf/holder-1")" = "$wt6" ]
+verdict "a UTF-8 --worktree is accepted and recorded as given" "utf-8 worktree: rc=$rc out='$out'" "$tmp/err"
+sp -- release utf "$a" >/dev/null
+mkdir -p "$wt6"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$wt6"
+pool_in "$wt6" "$pools" take utf "$a" >/dev/null 2>"$tmp/err"
+[ "$(cut -f 3 "$pools/utf/holder-1")" = "$wt6" ]
+verdict "a UTF-8 default worktree is recorded, not read as unprintable" "default worktree not recorded" "$tmp/err"
+sp -- release utf "$a" >/dev/null
+for bad in "$tmp/tab$TAB/x" "$tmp/del$(printf '\177')/x" "$tmp/esc$(printf '\033')/x"; do
+  sp -- take utf "$a" --worktree "$bad" >/dev/null 2>&1
+  check $(($? == 2 ? 0 : 1)) "a --worktree carrying a C0 or DEL byte is refused" "a control byte in --worktree was accepted"
+done
+
 # --- REQ-I1.2: the helper sits on the shared primitive --------------------------
 grep -qF '. "$script_dir/lock-lib.sh"' "$SP"
 verdict "the helper sources the lock library" "scripts/step-pool.sh does not source lock-lib.sh"

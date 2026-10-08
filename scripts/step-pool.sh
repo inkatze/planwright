@@ -50,7 +50,8 @@
 #               are capped. --step names the holder's step id; without it the
 #               holder is recorded as the full-suite run. --worktree defaults
 #               to the enclosing git top level, else the current directory,
-#               recorded as `?` when unprintable. A take stopped by HUP, INT,
+#               recorded as `?` when it holds a C0 or DEL byte (an explicit
+#               --worktree holding one is refused). A take stopped by HUP, INT,
 #               PIPE, or TERM gives back a slot it took but had not yet
 #               reported. stdout is one line, `<state>\t<slot>\t<waited>`,
 #               <slot> being `-` in every state but taken and <waited> the
@@ -135,6 +136,11 @@ warn() {
 shown() {
   sanitize_printable "$1" '(unprintable)'
 }
+# C0 and DEL only: the display sanitizer's C1 range would also refuse the
+# continuation bytes of a valid UTF-8 path.
+no_controls() {
+  [ "$1" = "$(printf '%s' "$1" | tr -d '\000-\037\177')" ]
+}
 
 valid_name() {
   [ "${#1}" -le 64 ] || return 1
@@ -212,7 +218,7 @@ while [ "$#" -gt 0 ]; do
             /*) ;;
             *) refuse "--worktree must be an absolute path: '$(shown "$2")'" ;;
           esac
-          [ "$(shown "$2")" = "$2" ] || refuse "--worktree must not contain control characters"
+          no_controls "$2" || refuse "--worktree must not contain control characters"
           worktree=$2
           ;;
         --waited)
@@ -249,7 +255,7 @@ if [ "$verb" = take ]; then
   if [ -z "$worktree" ]; then
     worktree=$(git rev-parse --show-toplevel 2>/dev/null) || worktree=''
     [ -n "$worktree" ] || worktree=$(pwd -P)
-    [ "$(shown "$worktree")" = "$worktree" ] || worktree='?'
+    no_controls "$worktree" || worktree='?'
   fi
 fi
 
