@@ -51,7 +51,8 @@ fi
 # Default cwd for containment: a scratch repo with a .git marker and a
 # scripts/ + tests/ dir so in-repo script/bats paths resolve inside it.
 SANDBOX="$(mktemp -d)" || exit 1
-trap 'rm -rf "$SANDBOX"' EXIT
+# An early exit must not leave the backgrounded first half running.
+trap '[ -z "${first_half_pid:-}" ] || kill "$first_half_pid" 2>/dev/null; rm -rf "$SANDBOX"' EXIT
 mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests" "$SANDBOX/sub"
 : >"$SANDBOX/.git" # worktree-style .git file marker
 : >"$SANDBOX/scripts/ok.sh"
@@ -1732,6 +1733,7 @@ HOOK_ENV=()
 
 first_half_rc=0
 wait "$first_half_pid" || first_half_rc=$?
+first_half_pid=
 cat "$SANDBOX/first-half.out"
 cat "$SANDBOX/first-half.err" >&2
 if [ "$first_half_rc" -eq 0 ] && read -r fh_passes fh_failures fh_false_allows <"$SANDBOX/first-half.counts"; then
