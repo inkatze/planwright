@@ -99,7 +99,7 @@ TAB=$(printf '\t')
 # of a literal backslash sequence that survives the strip
 # (doctrine/security-posture.md echo discipline; obs 2026-07-15).
 script_dir=$(cd -- "$(dirname -- "$0")" && pwd) || exit 2
-if [ -r "$script_dir/echo-safety.sh" ]; then
+if [ -f "$script_dir/echo-safety.sh" ] && [ -r "$script_dir/echo-safety.sh" ]; then
   # shellcheck source=scripts/echo-safety.sh
   . "$script_dir/echo-safety.sh"
 else

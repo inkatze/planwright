@@ -167,8 +167,8 @@ err() {
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
 for helper in echo-safety.sh fleet-pane-vocabulary.sh; do
-  if [ ! -r "$script_dir/$helper" ]; then
-    err "required helper $script_dir/$helper missing or not readable"
+  if [ ! -f "$script_dir/$helper" ] || [ ! -r "$script_dir/$helper" ]; then
+    err "required helper $helper missing or not readable"
     exit 2
   fi
 done

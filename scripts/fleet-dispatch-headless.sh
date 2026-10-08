@@ -167,7 +167,7 @@ EVIDENCE="$script_dir/fleet-death-evidence.sh"
 FS="$script_dir/fleet-state.sh"
 FA="$script_dir/fleet-attention.sh"
 
-if [ -r "$script_dir/echo-safety.sh" ]; then
+if [ -f "$script_dir/echo-safety.sh" ] && [ -r "$script_dir/echo-safety.sh" ]; then
   # shellcheck source=scripts/echo-safety.sh
   . "$script_dir/echo-safety.sh"
 else
