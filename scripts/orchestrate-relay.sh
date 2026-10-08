@@ -47,8 +47,9 @@
 #       refusing first and confirming after, never assuming. The pasted payload
 #       is EXACTLY ONE LINE, a pointer: a per-delivery `(#<id>)` tag, the
 #       attribution header naming the tower origin and target, then `read
-#       <absolute message-file>`. The message body itself is never pasted. Measured on
-#       Claude Code 2.1.270: a multi-line paste lands in the input box as a
+#       <absolute message-file>`. The message body itself is never pasted.
+#       Measured on Claude Code 2.1.270: a multi-line paste lands in the input
+#       box as a
 #       "[Pasted text #N +M lines]" placeholder that nothing submits, and once
 #       the box holds one every later paste is stuck behind it. The line is
 #       loaded with NO trailing newline, so a paste always STAGES the relay and
@@ -59,15 +60,15 @@
 #       is open (a paste would answer that dialog), a paste placeholder is
 #       staged, or an earlier relay sits unsubmitted in the input box (this
 #       one would join it on one line), using the TUI vocabulary in
-#       fleet-pane-vocabulary.sh. After
-#       pasting it re-reads the pane until the `(#<id>)` tag shows. Exit 0:
-#       staged and seen. Exit 2: usage, an invalid handle, an unsafe message
-#       file. Exit 3: refused, nothing pasted (dialog open, placeholder or
-#       relay staged, pane unreadable, buffer load failed). Exit 4: the paste ran but the tag
-#       never showed; observe the pane before any re-send, which would stage a
-#       duplicate. PLANWRIGHT_RELAY_CONFIRM_TRIES (default 5, at most 30) and
-#       PLANWRIGHT_RELAY_CONFIRM_SLEEP (seconds, default 1, at most 5) bound
-#       the confirmation wait.
+#       fleet-pane-vocabulary.sh. After pasting it re-reads the pane until the
+#       `(#<id>)` tag shows. Exit 0: staged and seen. Exit 2: usage, an
+#       invalid handle, an unsafe message file. Exit 3: refused, nothing
+#       pasted (dialog open, placeholder or relay staged, pane unreadable,
+#       buffer load failed). Exit 4: the paste ran, or deliver was interrupted
+#       around it, but the tag never showed; observe the pane before any
+#       re-send, which would stage a duplicate. PLANWRIGHT_RELAY_CONFIRM_TRIES
+#       (default 5, at most 30) and PLANWRIGHT_RELAY_CONFIRM_SLEEP (seconds,
+#       default 1, at most 5) bound the confirmation wait.
 #
 #   observe-command <backend> <handle>
 #       Print the observe-in-flight status-read command (REQ-D1.3). tmux:
@@ -359,6 +360,9 @@ case "$sub" in
     # that opens between the check above and the paste takes the paste's
     # first keys, and a digit there would pick a numbered option.
     tag="#$(printf '%s-%s' "$$" "$(date +%s)" | tr '0-9' 'a-j')"
+    # A kill between the load and the paste would leave the buffer, holding
+    # the relay line, on the shared server under a name a reused PID can meet.
+    trap 'tmux delete-buffer -b "$buf" 2>/dev/null; exit 4' INT TERM HUP
     if ! printf '%s' "($tag) [planwright tower relay -> $handle] read $msg_abs" | tmux load-buffer -b "$buf" - 2>/dev/null; then
       echo "$me: refused, nothing pasted: tmux load-buffer failed" >&2
       exit 3
@@ -368,6 +372,7 @@ case "$sub" in
       echo "$me: not confirmed: tmux paste-buffer to $handle failed; observe the pane before re-sending" >&2
       exit 4
     fi
+    trap - INT TERM HUP
     i=0
     while [ "$i" -lt "$tries" ]; do
       i=$((i + 1))

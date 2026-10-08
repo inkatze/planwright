@@ -324,6 +324,10 @@ case "$1" in
     ;;
   paste-buffer)
     [ -f "$d/paste-fails" ] && exit 1
+    if [ -f "$d/paste-signals" ]; then
+      kill -TERM "$PPID"
+      exit 1
+    fi
     if [ ! -f "$d/paste-drops" ]; then
       cat "$d/buffer" >>"$d/pane"
       printf '\n' >>"$d/pane"
@@ -474,6 +478,12 @@ FD_FLAGS=paste-fails fake_deliver pastefail "$idle_pane" "@3" "$msg"
 rc_is pastefail 4 "a failed paste-buffer"
 grep -q '^delete-buffer -b planwright-relay-' "$tmp/pastefail/log" \
   || fail "a failed paste must delete its buffer, tmux saw: $(cat "$tmp/pastefail/log")"
+# A deliver killed between the load and the paste must not leave its buffer,
+# which holds the relay text, on the shared server.
+FD_FLAGS=paste-signals fake_deliver signalled "$idle_pane" "@3" "$msg"
+[ "$(cat "$tmp/signalled/rc")" != 0 ] || fail "a signalled deliver must not report success"
+grep -q '^delete-buffer -b planwright-relay-' "$tmp/signalled/log" \
+  || fail "a signalled deliver must delete its buffer, tmux saw: $(cat "$tmp/signalled/log")"
 FD_FLAGS=load-fails fake_deliver loadfail "$idle_pane" "@3" "$msg"
 rc_is loadfail 3 "a failed load-buffer"
 grep -q '^paste-buffer' "$tmp/loadfail/log" && fail "a failed load must paste nothing"
