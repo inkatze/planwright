@@ -762,7 +762,7 @@ for c in h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 h12 h13 h14 h15 h16 h17 h18; do
 done
 
 if fleet_home_leaked "$tmp"; then
-  fail "a case registered into the inherited fleet registry $(fleet_home_inherited) instead of its own fixture home"
+  fail "a case registered into the inherited fleet home $(fleet_home_inherited) instead of its own fixture home"
 else
   pass "no case wrote the inherited fleet registry"
 fi

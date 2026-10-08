@@ -47,25 +47,30 @@ for bad in '' 'relative/home' '/dev/null/home'; do
   fi
 done
 
-# 2. The inherited registry is the one resolved before the first pin, and a
+# 2. The inherited home is the one resolved before the first pin, and a
 #    later pin never replaces it with the previous case's fixture.
 out=$(run_case "$tmp/op" 'fleet_home_pin "'"$tmp"'/a"; fleet_home_pin "'"$tmp"'/b"; fleet_home_inherited')
-if [ "$out" = "$tmp/op/registry" ]; then
-  pass "the inherited registry survives later pins"
+if [ "$out" = "$tmp/op" ]; then
+  pass "the inherited home survives later pins"
 else
-  fail "the inherited registry moved to '$out'"
+  fail "the inherited home moved to '$out'"
 fi
 
 # 3. A record naming the needle in the inherited registry is a leak; one that
-#    does not name it, such as a concurrent real dispatch, is not.
-mkdir -p "$tmp/op"
-printf '1\treal-worker\tscope\t-\ttmux\t/elsewhere/wt\tprocess 1\n' >"$tmp/op/registry"
+#    does not name it, such as a concurrent real dispatch, is not. Both are
+#    written by the fleet's own writer, so the check is held to wherever that
+#    writer keeps its records.
+register_op() {
+  PLANWRIGHT_FLEET_STATE_DIR="$tmp/op" /bin/sh "$here/../scripts/fleet-state.sh" register "$1" "$2" --state-dir "$3" \
+    </dev/null >/dev/null 2>&1 || fail "the fleet writer could not register $1 into the stand-in home"
+}
+register_op real-worker scope /elsewhere/wt
 if run_case "$tmp/op" 'fleet_home_pin "'"$tmp"'/a"; fleet_home_leaked "'"$tmp"'/suite-root"'; then
   fail "a registry without the needle read as a leak"
 else
   pass "a record that does not name the suite's root is not a leak"
 fi
-printf '2\theadless-x\tx:3\t-\theadless-oneshot\t%s/suite-root/state-h1/3\tprocess 2\n' "$tmp" >>"$tmp/op/registry"
+register_op headless-x x:3 "$tmp/suite-root/state-h1/3"
 if run_case "$tmp/op" 'fleet_home_pin "'"$tmp"'/a"; fleet_home_leaked "'"$tmp"'/suite-root"'; then
   pass "a record naming the suite's root is a leak"
 else

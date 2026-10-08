@@ -17,18 +17,20 @@
 #   fleet_home_leaked <path>  succeeds when the inherited registry names
 #                             <path>; pass the suite's own mktemp root, which
 #                             no real record can carry, so a concurrent real
-#                             fleet write is never read as this suite's leak
-#   fleet_home_inherited      print the inherited registry path (empty when
-#                             the inherited environment resolved no home)
+#                             fleet write is never read as this suite's leak.
+#                             The records are read through fleet-state.sh's
+#                             own registry verb, so the check follows wherever
+#                             that store keeps them
+#   fleet_home_inherited      print the inherited fleet home (empty when the
+#                             inherited environment resolved none)
 
 _fh_lib_dir=${BASH_SOURCE[0]%/*}
-_fh_inherited=""
+_fh_home=""
 _fh_resolved=0
 
 fleet_home_pin() {
   if [ "$_fh_resolved" -eq 0 ]; then
     _fh_home=$(/bin/sh "$_fh_lib_dir/../../scripts/fleet-state.sh" root 2>/dev/null) || _fh_home=""
-    [ -z "$_fh_home" ] || _fh_inherited="${_fh_home%/}/registry"
     _fh_resolved=1
   fi
   case $1 in
@@ -41,11 +43,17 @@ fleet_home_pin() {
   export CLAUDE_DIR="$1/claude"
 }
 
+# The -d guard keeps the read from creating a home that does not exist: the
+# registry verb makes the home it resolves, and this one is the caller's.
 fleet_home_leaked() {
-  [ -n "$_fh_inherited" ] && [ -f "$_fh_inherited" ] || return 1
-  grep -qF -- "$1" "$_fh_inherited"
+  [ -n "$_fh_home" ] && [ -d "$_fh_home" ] || return 1
+  _fh_records=$(PLANWRIGHT_FLEET_STATE_DIR="$_fh_home" /bin/sh "$_fh_lib_dir/../../scripts/fleet-state.sh" registry 2>/dev/null) || return 1
+  case $_fh_records in
+    *"$1"*) return 0 ;;
+  esac
+  return 1
 }
 
 fleet_home_inherited() {
-  printf '%s\n' "$_fh_inherited"
+  printf '%s\n' "$_fh_home"
 }
