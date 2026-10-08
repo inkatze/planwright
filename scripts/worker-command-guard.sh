@@ -2057,6 +2057,12 @@ expand_word() {
         j=$((j + 1))
       done
       k=$j
+      # zsh, the Bash tool's shell on macOS, applies a subscript (`$f[2,4]`)
+      # or a modifier (`$f:e`) to an unbraced name, quoted or not, so the
+      # value is not the name's: leave it unresolved.
+      case ${w:k:1} in
+        '[' | ':') name='' ;;
+      esac
     fi
     found=''
     case $name in

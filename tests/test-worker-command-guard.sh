@@ -782,6 +782,11 @@ assert_defer "bypass: zsh's \$= form expands a loop variable into a jq env read"
 assert_defer "bypass: zsh's \$^ form expands a loop variable into a jq env read" "for f in env; do jq -n \$^f; done"
 assert_defer "bypass: zsh's \$~ form inside double quotes expands a loop variable" "for f in env; do jq -n \"\$~f\"; done"
 assert_defer "regression-only: zsh's \$+ form is an expansion, not literal text" "for f in a; do find . \$+f; done"
+assert_defer "bypass: a zsh subscript on a quoted loop variable takes part of its value" "for f in xenvx; do jq -n \"\$f[2,4]\"; done"
+assert_defer "bypass: a zsh modifier on a loop variable rewrites its value" "for f in x.env; do jq -n \$f:e; done"
+assert_defer "bypass: a zsh modifier on a quoted loop variable rewrites its value" "for f in Env; do jq -n \"\$f:l\"; done"
+assert_defer "bypass: a zsh substitution modifier turns a loop variable into a find action" "for f in a; do find . \$f:s/a/-delete/; done"
+assert_allow "a braced loop variable before a colon is still its value" "for f in README; do cat \${f}:x; done"
 assert_defer "bypass: read overwrites a loop variable before a screened use" \
   "for d in -name; do read d; find . \$d; done"
 HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
