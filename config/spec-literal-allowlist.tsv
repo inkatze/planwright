@@ -17,7 +17,9 @@ namespace	scripts/obs-consume.sh	legacy_suffix=" — consumed-by: specs/$spec ($
 namespace	scripts/obs-consume.sh	legacy_same_spec=" — consumed-by: specs/$spec ("
 namespace	scripts/obs-consume.sh	OBS_PREFIX="Consumed-by: specs/$spec (" awk '
 resolver	scripts/resolve-root.sh	sr_specs=$(canon "$rp_path/specs") || sr_specs=""
-namespace	scripts/spec-walkthrough.sh	specs/*) spec=${spec#specs/} ;;
+namespace	scripts/spec-id-lib.sh	specs/) return 0 ;;
+namespace	scripts/spec-id-lib.sh	specs/*) _sic=${_sic#specs/} ;;
+namespace	scripts/spec-id-lib.sh	specs/*/*) SPEC_REF=${1#specs/} ;;
 static-glob	lefthook.yml	glob: "specs/**"
 static-glob	.gitignore	specs/*/.orchestrate.lock
 static-glob	.gitignore	specs/*/.orchestrate.lock#*

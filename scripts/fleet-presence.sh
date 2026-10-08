@@ -107,6 +107,8 @@
 #       --pid <pid>) [--min-interval <sec>]   (default 30; 0 disables the cap)
 #   fleet-presence.sh owner    --checkout <dir> (--session-id <uuid> |
 #       --pid <pid>) <spec>/<unit-id>
+#     (owner and attribute also take the unit ref as specs/<spec>/<unit-id>,
+#     the alias scripts/spec-id-lib.sh maps)
 #   fleet-presence.sh attribute --checkout <dir> (--session-id <uuid> |
 #       --pid <pid>) <spec>/<unit-id>
 #   fleet-presence.sh identity --checkout <dir> (--session-id <uuid> | --pid <pid>)
@@ -191,6 +193,8 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
+# shellcheck source=scripts/spec-id-lib.sh
+. "$script_dir/spec-id-lib.sh"
 
 # Temp hygiene on ANY exit, signals included (the fleet-attention.sh trap
 # discipline the sibling fleet scripts share): a SIGINT/SIGTERM between a
@@ -553,6 +557,8 @@ if ! is_epoch "$min_interval"; then
   exit 2
 fi
 if [ "$cmd" = owner ] || [ "$cmd" = attribute ]; then
+  spec_ref_canon "$unit_ref"
+  unit_ref=$SPEC_REF
   if [ -z "$unit_ref" ] || ! is_unit_ref "$unit_ref"; then
     err "refusing malformed unit ref ($cmd takes one <spec>/<unit-id>)"
     exit 2

@@ -475,6 +475,8 @@ out=$(PATH="$bin:$PATH" PLANWRIGHT_FLEET_STATE_DIR="$home" \
 grep -q '^invoke new-session' "$tmux_log" || fail "default launcher must create a session"
 grep '^invoke new-session' "$tmux_log" | grep -q -- '-s planwright-tower-my-spec' \
   || fail "the fresh tower must land in its own planwright-tower-<spec> session"
+grep '^invoke new-session' "$tmux_log" | grep -q -- ' /orchestrate --watch --unattended my-spec$' \
+  || fail "the fresh tower must be told its spec by the bare identifier"
 if grep -q 'new-window' "$tmux_log"; then
   fail "the launcher created a window instead of its own session (REQ-G1.4)"
 fi

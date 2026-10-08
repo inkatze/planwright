@@ -326,7 +326,7 @@ hostile_spec() {
 hostile_spec traversal '../../evil'
 hostile_spec glob 'a*b'
 hostile_spec uppercase 'My-Spec'
-hostile_spec slash 'specs/my-spec'
+hostile_spec slash 'specs/my-spec/requirements.md'
 hostile_spec newline 'a
 b'
 hostile_spec leadhyphen '-spec'

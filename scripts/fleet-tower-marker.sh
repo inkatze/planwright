@@ -36,7 +36,8 @@
 # checkout as an existing absolute directory free of control bytes. A
 # refused field is never echoed raw.
 #
-# Usage:
+# Usage (<spec> is the bare identifier or its `specs/<spec>` alias, with or
+# without one trailing slash; scripts/spec-id-lib.sh):
 #   fleet-tower-marker.sh record <spec> --mode unattended|interactive
 #       --pid <pid> --checkout <dir> [--session-id <uuid>]
 #       [--tmux-session <name>]
@@ -63,6 +64,8 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # install.
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
+# shellcheck source=scripts/spec-id-lib.sh
+. "$script_dir/spec-id-lib.sh"
 
 FS="$script_dir/fleet-state.sh"
 
@@ -176,7 +179,8 @@ if [ "$#" -lt 2 ]; then
   exit 2
 fi
 cmd=$1
-spec=$2
+spec_id_canon "$2"
+spec=$SPEC_ID
 shift 2
 
 if [ "$spec" = flight ]; then
