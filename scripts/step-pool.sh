@@ -386,28 +386,44 @@ mark_holds() {
 }
 
 # --- configuration -------------------------------------------------------------------
-# bad_value <key> — "the <layer> layer sets <key> to '<value>'", or a phrase
-# saying it could not be read.
-bad_value() {
-  _bv=$("$script_dir/config-get.sh" --explain "$1" 2>/dev/null) || _bv=''
-  if [ -n "$_bv" ]; then
-    printf "the %s layer sets %s to '%s'" "${_bv%%"$TAB"*}" "$1" "$(shown "${_bv#*"$TAB"}")"
-  else
-    printf '%s could not be read' "$1"
+# refused <key> <wanted> <fallback> — the one warning for a value the resolver
+# would not accept: the layer and value when config-get can name them, else
+# the resolver's own cause from the scratch file.
+refused() {
+  _rf=$("$script_dir/config-get.sh" --explain "$1" 2>/dev/null) || _rf=''
+  if [ -n "$_rf" ]; then
+    warn "the ${_rf%%"$TAB"*} layer sets $1 to '$(sanitize_printable "${_rf#*"$TAB"}")', not $2; falling back to $3"
+    return 0
   fi
+  _rf=$(tr '\n' ' ' <"$errf" 2>/dev/null) || _rf=''
+  _rf=$(shown "${_rf% }")
+  warn "$1 could not be read${_rf:+ ($_rf)}; falling back to $3"
 }
 
 # capacity — the pool's slot count, falling back key by key.
 capacity() {
   _ca_key=step_pool_capacity_$(printf '%s' "$pool" | tr '-' '_')
   _ca_v=$("$script_dir/resolve-config-knob.sh" --key "$_ca_key" --type posint --no-degrade 2>/dev/null)
-  case $? in
+  _ca_rc=$?
+  if [ "$_ca_rc" -eq 4 ]; then
+    # --no-degrade also exits 4 for a malformed file in any layer, set key or
+    # not, so the key's own winning value decides. The shared read below
+    # reports a malformed file.
+    _ca_x=$("$script_dir/config-get.sh" --explain "$_ca_key" 2>/dev/null) || _ca_x=''
+    if [ -z "$_ca_x" ]; then
+      _ca_rc=5
+    elif valid_count "${_ca_x#*"$TAB"}" && [ "${_ca_x#*"$TAB"}" != 0 ]; then
+      _ca_v=${_ca_x#*"$TAB"}
+      _ca_rc=0
+    fi
+  fi
+  case $_ca_rc in
     0)
       printf '%s' "$_ca_v"
       return 0
       ;;
-    5) ;;
-    *) warn "$(bad_value "$_ca_key"), not a positive integer; falling back to step_pool_capacity" ;;
+    5) ;; # no layer sets the per-pool key
+    *) refused "$_ca_key" 'a positive integer' step_pool_capacity ;;
   esac
   # The resolver's own warning already names a degraded overlay layer.
   if _ca_v=$("$script_dir/resolve-config-knob.sh" --key step_pool_capacity --type posint --fallback 1 2>"$errf"); then
@@ -415,7 +431,7 @@ capacity() {
     printf '%s' "$_ca_v"
     return 0
   fi
-  warn "$(bad_value step_pool_capacity), not a positive integer; falling back to the core default 1"
+  refused step_pool_capacity 'a positive integer' 'the core default 1'
   printf 1
 }
 
@@ -424,7 +440,7 @@ wait_bound() {
   if _wb_v=$("$script_dir/resolve-config-knob.sh" --key step_pool_wait --type duration --fallback "$DEFAULT_WAIT" 2>"$errf"); then
     cat "$errf" >&2
   else
-    warn "$(bad_value step_pool_wait), not a duration; using the core default $DEFAULT_WAIT"
+    refused step_pool_wait 'a duration' "the core default $DEFAULT_WAIT"
     _wb_v=$DEFAULT_WAIT
   fi
   printf '%s\n' "$_wb_v" | awk '{

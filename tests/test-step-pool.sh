@@ -226,6 +226,20 @@ grep -q 'step_pool_capacity_mal' "$tmp/err" && grep -q "machine-local.*'step_poo
   && [ "$rc" -eq 3 ]
 verdict "two malformed values fall back to the core default of one" "double fallback: rc=$rc /" "$tmp/err"
 
+reset
+printf 'step_pool_wait: 1s\nnot a key line\n' >"$mlocal"
+a=$(owner)
+out=$(sp -- take filebad "$a" 2>"$tmp/err")
+[ "$out" = "taken${TAB}1${TAB}0" ] && ! grep -q 'step_pool_capacity_filebad' "$tmp/err"
+verdict "a malformed overlay file is not blamed on an unset per-pool key" "file fallback: '$out'" "$tmp/err"
+
+reset
+printf 'step_pool_wait: 1s\nstep_pool_capacity_empty:\n' >"$mlocal"
+a=$(owner)
+sp -- take empty "$a" >/dev/null 2>"$tmp/err"
+grep -q "machine-local layer sets step_pool_capacity_empty to ''," "$tmp/err"
+verdict "an empty per-pool value is named as empty" "empty value:" "$tmp/err"
+
 # --- REQ-I1.4: a malformed wait falls back to the default with a warning --------
 reset
 printf 'step_pool_wait: soon\n' >"$mlocal"
