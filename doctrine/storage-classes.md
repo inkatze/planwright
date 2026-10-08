@@ -88,7 +88,9 @@ declared:
 | `plain` (supported) | in no git repository | writes the files and skips every commit, push, and PR step, naming each skipped step in the handoff; no guard runs |
 
 Task state derives from the work repository's git in every posture, and a
-root's posture never blocks a dispatch. In `separate-repo` and `plain`, a
+root's posture never blocks a task's dispatch; a visual flight with the root
+outside the checkout needs the PR home for its record (`spec-format`, *Spec
+identifiers*). In `separate-repo` and `plain`, a
 halting execution skill's Awaiting-input and Deferred writes land as
 uncommitted files in the store, each named in the handoff
 (custom-spec-location D-6, D-12, D-13).
