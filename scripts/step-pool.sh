@@ -131,9 +131,11 @@
 # malformed pool, pid, step, worktree, or count, or an owner that is not
 # running or is another user's process). From take it is also an owner found
 # gone, another user's, or with an unreadable user in a wait round (holding
-# nothing) or after the acquire (the slot given back), or a taken line that could not be written
-# (the slot given back); from release, an owner holding several slots without
-# --slot or a slot that could not be freed.
+# nothing) or after the acquire (the slot given back), or a taken line that
+# could not be written (the slot given back); from release, an owner holding
+# several slots without --slot or a slot that could not be freed. Wherever a
+# take gives a slot back, one that could not be freed is named in a warning
+# and stays held for the owner.
 set -u
 LC_ALL=C
 export LC_ALL
@@ -593,7 +595,10 @@ finish() {
     # minted the owner's other hold of the slot.
     _fi_tok=$(pw_lock_owner "$unreported" 2>/dev/null) || _fi_tok=''
     case $_fi_tok in
-      "$owner-${PW_LOCK_EPOCH:-}"-*-"$$"-*) pw_lock_release_token "$unreported" "$_fi_tok" 2>/dev/null ;;
+      "$owner-${PW_LOCK_EPOCH:-}"-*-"$$"-*)
+        pw_lock_release_token "$unreported" "$_fi_tok" 2>/dev/null
+        [ "$?" -ne 2 ] || warn "pool $pool: slot ${unreported##*/slot-} could not be given back; it stays held for owner $owner"
+        ;;
     esac
   fi
   [ -z "$errf" ] || rm -f "$errf"
@@ -713,7 +718,7 @@ attempt() {
         unreported=''
         exit 0
       fi
-      warn "pool $pool: the taken line could not be written; slot $1 given back"
+      warn "pool $pool: the taken line could not be written; giving slot $1 back"
       exit 2
       ;;
     1) ;;

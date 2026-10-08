@@ -1008,6 +1008,28 @@ rc=$?
 verdict "an owner whose user turned unreadable after the acquire is refused, its slot given back" \
   "post-acquire unreadable: rc=$rc out='$out'" "$tmp/err"
 
+# --- REQ-I1.2: a slot a take could not give back is named ----------------------
+# The pool directory turns read-only as the post-acquire check refuses, so the
+# give-back's unlink fails and the slot stays held.
+if [ "$(id -u)" -ne 0 ]; then
+  reset
+  printf 'step_pool_wait: 1s\n' >"$mlocal"
+  stubgb="$tmp/stubgb"
+  mkdir -p "$stubgb"
+  printf '#!/bin/sh\ncase "$*" in *uid=*)\n  n=$(cat "%s/count" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" >"%s/count"\n  if [ "$n" -gt 1 ]; then chmod 500 "%s"; exit 1; fi ;;\nesac\nexec %s "$@"\n' \
+    "$stubgb" "$stubgb" "$pools/stuck" "$real_ps14" >"$stubgb/ps"
+  chmod +x "$stubgb/ps"
+  b=$(owner)
+  sp "PATH=$stubgb:$PATH" -- take stuck "$b" >/dev/null 2>"$tmp/err"
+  rc=$?
+  chmod 700 "$pools/stuck" 2>/dev/null
+  [ "$rc" -eq 2 ] && [ -L "$pools/stuck/slot-1" ] && grep -q "pool stuck: slot 1 could not be given back" "$tmp/err"
+  verdict "a slot the take could not give back is named in a warning" "stuck give-back: rc=$rc" "$tmp/err"
+  sp -- release stuck "$b" >/dev/null
+else
+  ok "skipped: root writes into a read-only pool directory"
+fi
+
 # --- REQ-I1.2: a nested take stays silent where the owner's user is unreadable --
 reset
 printf 'step_pool_wait: 1s\n' >"$mlocal"
