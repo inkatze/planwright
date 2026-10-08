@@ -116,12 +116,12 @@ not an accumulator: it collects no deferred decisions, so it owes no named
 reader and no drain ritual. None of these is ever validated as a bundle, but
 their names must match `^_[a-z0-9][a-z0-9-]*$` (≤64): exemption from bundle
 validation is not exemption from hostile-name screening. The reserved children
-follow the root under its checkout-local view, so a fragment recorded from a
-task worktree rides that worktree's branch, and in a holder each project's
-root carries its own (custom-spec-location D-5). A flight record is committed
-on the flight's branch, so only a root inside the checkout can hold one; with
-the root elsewhere a flight needs the PR home for its record, and a dispatch
-that would take the file home is refused.
+follow the root under its checkout-local view, so in `same-repo` a fragment
+recorded from a task worktree rides that worktree's branch, and in a holder
+each project's root carries its own (custom-spec-location D-5). A flight record
+is committed on the flight's branch, so only a root inside the checkout can
+hold one; with the root elsewhere a flight needs the PR home for its record,
+and a dispatch that would take the file home is refused.
 
 ## Path-placeholder convention
 
@@ -129,8 +129,8 @@ Documentation and skill prose write path and identifier placeholders in
 angle brackets: `<spec>`, `<id>`, `<branch-suffix>`, `<date>`. A placeholder
 stands for exactly one segment; literal text outside the brackets is literal.
 The exceptions are the placeholders naming a directory, which stand for a
-whole path: `<root>`, the resolved spec root (`specs` under the default), as
-well as `<repo>`, `<worktree>`, and `<claude-dir>`.
+whole path, among them `<root>`, the resolved spec root (`specs` under the
+default), `<spec-dir>`, `<repo>`, `<worktree>`, and `<claude-dir>`.
 
 ## Fenced illustration
 
