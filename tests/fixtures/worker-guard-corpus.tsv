@@ -38,7 +38,7 @@
 class	baseline	1	shipped	read-only shapes and trusted repo tasks, and the near-misses that must keep deferring
 class	awk-lexer	1	shipped	awk programs: read-only ones approve, the lexer bypasses defer
 class	expansion	4	shipped	unresolved or opaque $ operands, for-loop modelling, the -v forms
-class	run-order	6	pending	cd, plain assignments, transparent prefixes, wait and inspection verbs
+class	run-order	6	shipped	cd, plain assignments, transparent prefixes, wait and inspection verbs
 class	substitution	7	pending	argument-independent $(...) substitution
 class	own-branch	9	pending	writes confined to the unit branch and worktree
 class	scratch	10	pending	writes confined to the scratch root
