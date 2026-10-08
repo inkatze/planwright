@@ -1,0 +1,1 @@
+- 2026-10-08 [planwright] check:echo-discipline fails on main itself: tests/lib/worker-guard-corpus.sh (from the real-prompt corpus change) echoes four expansions, and the guard that bans them landed beside it, so every branch synced to main inherits a red check until the corpus lib prints them with printf.
