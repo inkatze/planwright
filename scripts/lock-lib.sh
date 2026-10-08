@@ -39,6 +39,8 @@
 #                          takes, so concurrent sweeps close a worker once
 #   scripts/step-record.sh   the record-cache lock that run ids and records
 #                          are issued under
+#   scripts/step-pool.sh   the per-user step pool slots, each held on behalf
+#                          of the process that runs the check
 #
 # Everything else that takes an advisory lock does so by calling a script on
 # that list, so adopting a listed script adopts the tree under it. The list is
