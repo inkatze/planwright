@@ -146,7 +146,9 @@ trap cleanup EXIT
 trap 'cleanup; exit 129' HUP
 trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
-pw_lock_acquire .tasks.md.halt.lock
+# A bounded wait (lock-lib's default spins for minutes): a rewrite holds the
+# lock for well under a second, and a caller's tool timeout must see exit 6.
+pw_lock_acquire .tasks.md.halt.lock 400
 case $? in
   0) ;;
   1)
