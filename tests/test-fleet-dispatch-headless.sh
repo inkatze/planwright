@@ -749,7 +749,7 @@ h16() {
 # --- h19 (custom-spec-location REQ-E1.7): the spec-root hand-off -------------
 # A worker whose work repository keeps its spec root outside it (here a plain
 # store) gets that root as PLANWRIGHT_WORKER_SPEC_ROOT; a worker whose root
-# does not resolve gets none, an inherited value dropped either way.
+# is in its own repository gets none, an inherited value dropped either way.
 # launch_h19 <id> <worktree>: run_fdh's launch, hermetic for the resolver,
 # with a stale inherited root.
 launch_h19() {

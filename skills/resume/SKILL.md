@@ -111,7 +111,10 @@ useful spec-less partial load.
 ### 4. Load tasks.md state
 
 If a `<spec>` was resolved, read `<root>/<spec>/tasks.md`, keying the read
-off the bundle's declared `Format-version:` (invariant-tasks D-7):
+off the bundle's declared `Format-version:` (invariant-tasks D-7). In
+`same-repo`, a halt on the task branch sits in the worktree's own copy
+(`scripts/resolve-root.sh spec`, without `--primary`), so read that copy's
+`## Awaiting input` too, at either version:
 
 - **Format-version 1:** surface the in-flight unit's block — and when the
   branch encodes a cohesion bundle (`task-<id-or-ids>`, e.g. `task-3-4`),
@@ -130,9 +133,7 @@ off the bundle's declared `Format-version:` (invariant-tasks D-7):
   <root>/<spec>`; invariant-tasks D-6). In a `separate-repo` store
   (`scripts/resolve-root.sh spec --posture`), also note when that `tasks.md`
   is uncommitted in the holder: a halt note awaiting the operator's commit
-  (custom-spec-location REQ-E1.9). In `same-repo` a halt on the task branch
-  sits in the worktree's own copy (`scripts/resolve-root.sh spec`, without
-  `--primary`), so read its `## Awaiting input` too. A render failure
+  (custom-spec-location REQ-E1.9). A render failure
   degrades to reporting the definition and bullet state with a clear note.
 - **Missing or unparseable `Format-version:`:** neither arm applies —
   surface it and report definitions and bullets as found, assuming

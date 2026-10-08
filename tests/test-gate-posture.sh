@@ -245,7 +245,8 @@ else
   fail "separate-repo: a bare holder (rc=$rc): $out"
 fi
 
-# With a remote-backed work repository the gate exits 0, and a success exit
+# With a remote-backed work repository (the origin the bare-holder case above
+# added) the gate exits 0, and a success exit
 # still carries the holder's anchor; within the work repository's TTL the
 # holder is fetched again, never coalesced.
 gitq -C "$h" remote set-url origin "$tmp/sep/holder-origin.git"

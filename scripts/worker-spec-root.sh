@@ -13,7 +13,8 @@
 # Usage: worker-spec-root.sh <work-repo-dir>
 # Exit: 0 printed, or nothing to print · 1 the spec root did not resolve (the
 #   caller hands no root; the store's posture never blocks a dispatch,
-#   REQ-E1.4) · 2 usage.
+#   REQ-E1.4) · 2 usage, or a broken install (the script's own directory
+#   cannot be entered).
 set -u
 LC_ALL=C
 export LC_ALL
