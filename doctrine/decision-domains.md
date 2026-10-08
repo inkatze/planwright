@@ -73,7 +73,7 @@ paths:
 - **Through the drain loop.** Execution hitting a domain decision the
   catalog does not cover records an observation fragment through the shared
   helper (`scripts/obs-record.sh`; the fragment lands under
-  `specs/_observations/entries/`). Recurring observations are the evidence
+  `<root>/_observations/entries/`). Recurring observations are the evidence
   a domain has earned an entry; the entry is added when the accumulator is
   mined.
 - **By the adopter.** Projects with domains this seed list does not cover

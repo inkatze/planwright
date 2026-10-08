@@ -33,7 +33,7 @@ shift 2
 
 stub_record_pid "$$"
 stub_claim_seq worker || {
-  echo "stub worker: cannot claim a record sequence number under $STUB_STATE" >&2
+  printf '%s\n' "stub worker: cannot claim a record sequence number under $STUB_STATE" >&2
   exit 70
 }
 id=$STUB_SEQ

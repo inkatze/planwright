@@ -182,7 +182,7 @@ if [ -n "$spec_dir" ] && [ "$spec_dir" != "-" ]; then
   here=$(cd "$(dirname "$0")" && pwd)
   translate="$here/spec-translate.sh"
   if [ ! -x "$translate" ]; then
-    echo "spec-teachback: cannot find an executable spec-translate.sh at $translate" >&2
+    printf '%s\n' "spec-teachback: cannot find an executable spec-translate.sh at $translate" >&2
     exit 2
   fi
   # Strip trailing slashes for the requirements.md read (mirror the model).

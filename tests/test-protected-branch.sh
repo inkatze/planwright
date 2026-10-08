@@ -249,6 +249,30 @@ with_layers /bin/sh "$broken/protected-branch.sh" feature-x >/dev/null 2>&1 || r
 [ "$rc" = 5 ] || fail "broken install: an unexpected resolver exit reached protected-branch.sh's caller as $rc, expected 5"
 echo "ok: a missing shared resolver is a broken install (exit 5)"
 
+# A missing echo-safety.sh is a broken install too: 5, not the usage code 2
+# that sends policy-guard's deny toward "name a valid branch".
+nohelper="$tmp/nohelper/scripts"
+mkdir -p "$nohelper"
+cp "$RPK" "$PB" "$nohelper/"
+rc=0
+err=$(with_layers /bin/sh "$nohelper/protected-branch.sh" feature-x 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 5 ] || fail "broken install: a missing echo-safety.sh exited $rc, expected 5"
+case $err in
+  *"broken install"*) ;;
+  *) fail "broken install: a missing echo-safety.sh did not say so: $err" ;;
+esac
+echo "ok: a missing echo-safety.sh is a broken install (exit 5)"
+# A directory at that path is readable but sources nothing, under dash too,
+# and with every other helper present the reader used to answer "unprotected".
+dirhelper="$tmp/dirhelper"
+cp -R "$here/../scripts" "$dirhelper"
+rm -f "$dirhelper/echo-safety.sh"
+mkdir "$dirhelper/echo-safety.sh"
+rc=0
+with_layers /bin/sh "$dirhelper/protected-branch.sh" feature-x >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "broken install: an echo-safety.sh directory exited $rc, expected 5"
+echo "ok: an echo-safety.sh directory is a broken install (exit 5)"
+
 [ ! -s "$host_log" ] || fail "a host call was made: $(cat "$host_log")"
 echo "ok: no host call in the stubbed call log"
 

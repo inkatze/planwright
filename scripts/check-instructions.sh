@@ -94,7 +94,7 @@ self_dir="$(cd "$(dirname "$0")" && pwd -P)"
 # Sourced from the canonical helper; an inline fallback (behavior-identical to
 # echo-safety.sh, reformatted for the nested block) keeps the guard
 # self-contained if the helper is unavailable.
-if [ -r "$self_dir/echo-safety.sh" ]; then
+if [ -f "$self_dir/echo-safety.sh" ] && [ -r "$self_dir/echo-safety.sh" ]; then
   # shellcheck source=scripts/echo-safety.sh
   . "$self_dir/echo-safety.sh"
 else

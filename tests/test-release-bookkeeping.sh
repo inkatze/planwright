@@ -115,10 +115,9 @@ assert_contains "comparator error surfaces a diagnostic on stderr" "$err" "relea
 
 # 5. Comparator absent: the surface degrades with a message (missing prerequisite
 #    on a non-dispatch path), nothing on stdout, exit 0. echo-safety.sh IS copied
-#    so release-pending.sh is the *only* missing prerequisite — the script sources
-#    echo-safety.sh (line ~39) before the comparator check, so omitting it would
-#    add a separate `source` error to stderr and let the test pass for the wrong
-#    reason, masking whether the missing-comparator diagnostic actually fires.
+#    so the run reaches the comparator check; without it the script stops at its
+#    broken-install refusal first (case 5b), and the missing-comparator
+#    diagnostic would never fire.
 work="$tmp/no-comparator/scripts"
 mkdir -p "$work"
 cp "$here/../scripts/release-bookkeeping.sh" "$here/../scripts/echo-safety.sh" "$work/"
@@ -131,6 +130,19 @@ assert_eq "a missing comparator degrades (exit 0)" "$rc" "0"
 assert_eq "a missing comparator prints nothing on stdout" "$out" ""
 err=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null scripts/release-bookkeeping.sh 2>&1 >/dev/null) || true
 assert_contains "a missing comparator surfaces a diagnostic on stderr" "$err" "comparator scripts/release-pending.sh is missing"
+
+# 5b. A missing sanitizer is a broken install, but this surface never blocks:
+#     the refusal is a diagnostic and exit 0, like every other degraded path.
+work="$tmp/no-sanitizer/scripts"
+mkdir -p "$work"
+cp "$here/../scripts/release-bookkeeping.sh" "$work/"
+r="$tmp/no-sanitizer"
+make_repo "$r" 0.2.0
+rc=0
+err=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null scripts/release-bookkeeping.sh 2>&1 >"$tmp/no-sanitizer.out") || rc=$?
+assert_eq "a missing sanitizer degrades (exit 0)" "$rc" "0"
+assert_eq "a missing sanitizer prints nothing on stdout" "$(cat "$tmp/no-sanitizer.out")" ""
+assert_contains "a missing sanitizer surfaces a diagnostic on stderr" "$err" "echo-safety.sh is missing or unreadable"
 
 # 6. CDPATH regression (REQ-D1.9): a hostile CDPATH with a decoy `scripts/` must
 #    not corrupt the script's `cd "$(dirname "$0")"` (it calls `unset CDPATH`).

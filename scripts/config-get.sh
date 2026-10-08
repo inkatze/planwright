@@ -137,13 +137,13 @@ for key in "$@"; do
   case "$key" in
     [a-z]*) ;;
     *)
-      echo "planwright: invalid config key '$key' (must match ^[a-z][a-z0-9_]*\$)" >&2
+      printf '%s\n' "planwright: invalid config key '$key' (must match ^[a-z][a-z0-9_]*\$)" >&2
       exit 2
       ;;
   esac
   case "$key" in
     *[!a-z0-9_]*)
-      echo "planwright: invalid config key '$key' (must match ^[a-z][a-z0-9_]*\$)" >&2
+      printf '%s\n' "planwright: invalid config key '$key' (must match ^[a-z][a-z0-9_]*\$)" >&2
       exit 2
       ;;
   esac
@@ -158,7 +158,7 @@ defaults=""
 if [ -n "${PLANWRIGHT_CONFIG_DEFAULTS:-}" ]; then
   defaults="$PLANWRIGHT_CONFIG_DEFAULTS"
 elif [ ! -r "$script_dir/resolve-root.sh" ]; then
-  echo "config-get: warning: the root helper '$script_dir/resolve-root.sh' is missing or unreadable (broken install); the core defaults cannot be located" >&2
+  printf '%s\n' "config-get: warning: the root helper '$script_dir/resolve-root.sh' is missing or unreadable (broken install); the core defaults cannot be located" >&2
 else
   while IFS= read -r root; do
     if [ -n "$root" ] && [ -f "$root/config/defaults.yml" ]; then
@@ -185,7 +185,7 @@ fi
 overlay_resolver="$script_dir/resolve-overlay-root.sh"
 overlay_resolver_ok=1
 if [ ! -x "$overlay_resolver" ]; then
-  echo "config-get: warning: overlay resolver '$overlay_resolver' is missing or not executable; resolver-derived overlay layers (adopter, repo-tracked, machine-local) are unavailable, resolving from core defaults (an explicit PLANWRIGHT_LOCAL_CONFIG override, if set, is still honored)" >&2
+  printf '%s\n' "config-get: warning: overlay resolver '$overlay_resolver' is missing or not executable; resolver-derived overlay layers (adopter, repo-tracked, machine-local) are unavailable, resolving from core defaults (an explicit PLANWRIGHT_LOCAL_CONFIG override, if set, is still honored)" >&2
   overlay_resolver_ok=0
 fi
 
@@ -324,7 +324,7 @@ strict_key_shape() {
     && [ "$(grep -Ec "^${key}[[:space:]]*:" "$1" 2>/dev/null)" -le 1 ]; then
     return 0
   fi
-  echo "config-get: $2 overlay '$1' sets '$key' with a space before the colon or more than once; the caller allows no skip" >&2
+  printf '%s\n' "config-get: $2 overlay '$1' sets '$key' with a space before the colon or more than once; the caller allows no skip" >&2
   [ "$2" = repo-tracked ] && exit 4
   exit 6
 }
@@ -353,7 +353,7 @@ $layer_lines"
 # queried key (D-7). Checked before resolution so a broken shared config cannot
 # hide behind a higher layer happening to set the key.
 if [ -n "$tracked_cfg" ] && [ -e "$tracked_cfg" ] && malformed_config "$tracked_cfg"; then
-  echo "config-get: repo-tracked overlay '$tracked_cfg' is malformed (not flat 'key: value' YAML, or unreadable); refusing to silently degrade a shared team config" >&2
+  printf '%s\n' "config-get: repo-tracked overlay '$tracked_cfg' is malformed (not flat 'key: value' YAML, or unreadable); refusing to silently degrade a shared team config" >&2
   exit 4
 fi
 
@@ -365,11 +365,11 @@ walk_key() {
   if [ -n "$mlocal_cfg" ] && [ -e "$mlocal_cfg" ]; then
     if malformed_once mlocal "$mlocal_cfg"; then
       if [ "${PLANWRIGHT_CONFIG_STRICT_OVERLAYS:-}" = 1 ]; then
-        echo "config-get: machine-local overlay '$mlocal_cfg' is malformed (not flat 'key: value' YAML, or unreadable); the caller allows no skip" >&2
+        printf '%s\n' "config-get: machine-local overlay '$mlocal_cfg' is malformed (not flat 'key: value' YAML, or unreadable); the caller allows no skip" >&2
         exit 6
       fi
       [ -n "$warned_mlocal" ] \
-        || echo "config-get: warning: machine-local overlay '$mlocal_cfg' is malformed (not flat 'key: value' YAML, or unreadable); skipping (degraded to next lower layer)" >&2
+        || printf '%s\n' "config-get: warning: machine-local overlay '$mlocal_cfg' is malformed (not flat 'key: value' YAML, or unreadable); skipping (degraded to next lower layer)" >&2
       warned_mlocal=1
     else
       strict_key_shape "$mlocal_cfg" machine-local
@@ -388,11 +388,11 @@ walk_key() {
   if [ -n "$adopter_cfg" ] && [ -e "$adopter_cfg" ]; then
     if malformed_once adopter "$adopter_cfg"; then
       if [ "${PLANWRIGHT_CONFIG_STRICT_OVERLAYS:-}" = 1 ]; then
-        echo "config-get: adopter overlay '$adopter_cfg' is malformed (not flat 'key: value' YAML, or unreadable); the caller allows no skip" >&2
+        printf '%s\n' "config-get: adopter overlay '$adopter_cfg' is malformed (not flat 'key: value' YAML, or unreadable); the caller allows no skip" >&2
         exit 6
       fi
       [ -n "$warned_adopter" ] \
-        || echo "config-get: warning: adopter overlay '$adopter_cfg' is malformed (not flat 'key: value' YAML, or unreadable); skipping (degraded to next lower layer)" >&2
+        || printf '%s\n' "config-get: warning: adopter overlay '$adopter_cfg' is malformed (not flat 'key: value' YAML, or unreadable); skipping (degraded to next lower layer)" >&2
       warned_adopter=1
     else
       strict_key_shape "$adopter_cfg" adopter
@@ -415,7 +415,7 @@ if [ "$n_keys" -gt 1 ]; then
     layer_lines=""
     walk_key
     if [ -z "$layer_lines" ] && { [ -z "$defaults" ] || [ ! -r "$defaults" ]; }; then
-      echo "config-get: tracked defaults not found (looked via PLANWRIGHT_CONFIG_DEFAULTS, then each arm of the core root chain: resolve-root.sh install --all --explain); '$key' unresolved" >&2
+      printf '%s\n' "config-get: tracked defaults not found (looked via PLANWRIGHT_CONFIG_DEFAULTS, then each arm of the core root chain: resolve-root.sh install --all --explain); '$key' unresolved" >&2
     fi
     while IFS= read -r line; do
       [ -z "$line" ] || batch="$batch$key	$line
@@ -439,6 +439,6 @@ fi
 # delivery), not a normal absent key — surface it rather than failing opaquely.
 # The exit code stays 3 so callers still pick their own fallback.
 if [ -z "$defaults" ] || [ ! -r "$defaults" ]; then
-  echo "config-get: tracked defaults not found (looked via PLANWRIGHT_CONFIG_DEFAULTS, then each arm of the core root chain: resolve-root.sh install --all --explain); '$key' unresolved" >&2
+  printf '%s\n' "config-get: tracked defaults not found (looked via PLANWRIGHT_CONFIG_DEFAULTS, then each arm of the core root chain: resolve-root.sh install --all --explain); '$key' unresolved" >&2
 fi
 exit 3

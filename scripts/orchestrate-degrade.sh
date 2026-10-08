@@ -102,6 +102,10 @@ unset CDPATH
 # An invalid backend/id token is untrusted DATA: strip non-printable bytes before
 # it reaches a diagnostic so an embedded escape sequence cannot drive the
 # operator's terminal (doctrine/security-posture.md, "Echo discipline").
+if [ ! -f "$(dirname "$0")/echo-safety.sh" ] || [ ! -r "$(dirname "$0")/echo-safety.sh" ]; then
+  printf '%s\n' "orchestrate-degrade.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$(dirname "$0")/echo-safety.sh"
 
@@ -376,7 +380,7 @@ rung_of() {
 # real rung; anything unclassifiable is refused by the caller.
 rung_num() {
   case "$1" in
-    1 | 2 | 3 | 4) echo "$1" ;;
+    1 | 2 | 3 | 4) printf '%s\n' "$1" ;;
     manual) echo 5 ;;
     *) return 1 ;;
   esac
@@ -467,7 +471,7 @@ write_record() {
   wr_spec=$1
   wr_backend=$2
   if [ ! -d "$wr_spec" ]; then
-    echo "orchestrate-degrade: no such spec dir: $wr_spec" >&2
+    printf '%s\n' "orchestrate-degrade: no such spec dir: $wr_spec" >&2
     return 2
   fi
   if ! is_known "$wr_backend" && ! valid_name "$wr_backend"; then
@@ -477,17 +481,17 @@ write_record() {
   wr_file=$(record_path "$wr_spec")
   wr_dir=$(dirname "$wr_file")
   if ! mkdir -p "$wr_dir" 2>/dev/null; then
-    echo "orchestrate-degrade: cannot create state dir $wr_dir" >&2
+    printf '%s\n' "orchestrate-degrade: cannot create state dir $wr_dir" >&2
     return 2
   fi
   # Refuse a symlink or any other non-regular file already at the record path —
   # never write through it (the marker's write-time symlink-swap guard).
   if [ -L "$wr_file" ]; then
-    echo "orchestrate-degrade: refusing symlink at record path $wr_file" >&2
+    printf '%s\n' "orchestrate-degrade: refusing symlink at record path $wr_file" >&2
     return 2
   fi
   if [ -e "$wr_file" ] && [ ! -f "$wr_file" ]; then
-    echo "orchestrate-degrade: refusing non-regular file at record path $wr_file" >&2
+    printf '%s\n' "orchestrate-degrade: refusing non-regular file at record path $wr_file" >&2
     return 2
   fi
   # (No containment check is needed: the record filename is the constant literal
@@ -497,7 +501,7 @@ write_record() {
   wr_now=$(date +%s)
   case "$wr_now" in '' | *[!0-9]*) wr_now=0 ;; esac
   wr_tmp=$(mktemp "$wr_dir/.effbk.XXXXXX") || {
-    echo "orchestrate-degrade: cannot create a temp record in $wr_dir" >&2
+    printf '%s\n' "orchestrate-degrade: cannot create a temp record in $wr_dir" >&2
     return 2
   }
   if ! printf '%s\t%s\n' "$wr_backend" "$wr_now" >"$wr_tmp"; then
@@ -532,7 +536,7 @@ cmd_read() {
   # record — refuse to follow it (write-path parity; a reconcile sweep degrades
   # to the configured backend on a nonzero read). Treated as "no valid record".
   if [ -L "$rd_file" ] || [ ! -f "$rd_file" ]; then
-    echo "orchestrate-degrade: ignoring non-regular effective-backend record at $rd_file" >&2
+    printf '%s\n' "orchestrate-degrade: ignoring non-regular effective-backend record at $rd_file" >&2
     return 1
   fi
   # First field of the first line is the backend name. Pre-initialize so a
@@ -564,7 +568,7 @@ cmd_failover() {
   fo_current=$2
   shift 2
   if [ ! -d "$fo_spec" ]; then
-    echo "orchestrate-degrade: no such spec dir: $fo_spec" >&2
+    printf '%s\n' "orchestrate-degrade: no such spec dir: $fo_spec" >&2
     return 2
   fi
   if ! is_known "$fo_current" && ! valid_name "$fo_current"; then
@@ -645,7 +649,7 @@ cmd_failover() {
       fo_reason="no lower rung is present below '$fo_current' (rung $fo_cur_rung); nothing safe to descend to"
       [ "$fo_off_ladder" -eq 1 ] && fo_reason="$fo_reason (the manual 'print' backend remains, but the tower cannot drive it)"
     fi
-    echo "NOTE: runtime-failover ESCALATION: $fo_reason." >&2
+    printf '%s\n' "NOTE: runtime-failover ESCALATION: $fo_reason." >&2
     printf -- '- **Backend failover escalation (%s):** %s. Human decision required.\n' \
       "$today" "$fo_reason"
     return 3
@@ -654,7 +658,7 @@ cmd_failover() {
   # A safe descent exists. Record it FIRST (fail-closed: if we cannot record the
   # effective backend, we do not proceed unrecorded — R12).
   if ! write_record "$fo_spec" "$fo_best_backend"; then
-    echo "NOTE: runtime-failover ESCALATION: could not record the effective backend for '$fo_spec'; aborting rather than degrade unrecorded." >&2
+    printf '%s\n' "NOTE: runtime-failover ESCALATION: could not record the effective backend for '$fo_spec'; aborting rather than degrade unrecorded." >&2
     # shellcheck disable=SC2016 # the backticks are literal markdown, not expansion
     printf -- '- **Backend failover escalation (%s):** could not persist the effective-backend record; aborted the descent to `%s` rather than proceed unrecorded (fail-closed). Human decision required.\n' \
       "$today" "$fo_best_backend"
@@ -664,7 +668,7 @@ cmd_failover() {
   # Name the ACTUAL record location (record_path honors PLANWRIGHT_ORCH_STATE_DIR),
   # not a hardcoded `.orchestrate/` the record may not live in under that override.
   fo_rec=$(record_path "$fo_spec")
-  echo "NOTE: runtime failover — backend '$fo_current' (rung $fo_cur_rung) unavailable; descended one rung to '$fo_best_backend' (rung $fo_best_n). Effective backend recorded spec-locally." >&2
+  printf '%s\n' "NOTE: runtime failover — backend '$fo_current' (rung $fo_cur_rung) unavailable; descended one rung to '$fo_best_backend' (rung $fo_best_n). Effective backend recorded spec-locally." >&2
   # shellcheck disable=SC2016 # the backticks are literal markdown, not expansion
   printf -- '- **Backend failover (%s):** `%s` (rung %s) died mid-run; descended one rung to `%s` (rung %s). Effective backend recorded spec-locally in `%s`; all guards held. Review before resuming.\n' \
     "$today" "$fo_current" "$fo_cur_rung" "$fo_best_backend" "$fo_best_n" "$fo_rec"
@@ -684,7 +688,7 @@ case "$sub" in
     exit 2
     ;;
   *)
-    echo "orchestrate-degrade: unknown subcommand: $sub" >&2
+    printf '%s\n' "orchestrate-degrade: unknown subcommand: $sub" >&2
     exit 2
     ;;
 esac

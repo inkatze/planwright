@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.55.0](https://github.com/inkatze/planwright/compare/v0.54.0...v0.55.0) (2026-10-08)
+
+
+### Features
+
+* **custom-steps:** add the step pool helper and its config knobs ([#610](https://github.com/inkatze/planwright/issues/610)) ([307c9e0](https://github.com/inkatze/planwright/commit/307c9e05c79d1dddececdc71e2d9d2124f90f7ce))
+* **guards:** print echoed expansions with printf and guard the sanitizer source ([#606](https://github.com/inkatze/planwright/issues/606)) ([5f732e8](https://github.com/inkatze/planwright/commit/5f732e87bfa26ead87f9c3573358a574c06aa936))
+* **orchestrate:** run the meta-tower's dispatch step in its own session ([#604](https://github.com/inkatze/planwright/issues/604)) ([7cf02aa](https://github.com/inkatze/planwright/commit/7cf02aa6b4ececc795d64886a0b90f677dff4603))
+* **spec-location:** name a spec by its bare identifier on every identity seam ([#598](https://github.com/inkatze/planwright/issues/598)) ([49d79cb](https://github.com/inkatze/planwright/commit/49d79cb566c7fba55f6dcd5d58a1c76ba7397fa0))
+
+
+### Bug Fixes
+
+* **echo-discipline:** restore main's red echo-discipline check by guarding step-pool's helper source ([#612](https://github.com/inkatze/planwright/issues/612)) ([c4ccd98](https://github.com/inkatze/planwright/commit/c4ccd981e9aa03bacace8e93baa49110aaac7af5))
+* **guards:** the guards now defer commands containing a shell comment ([#609](https://github.com/inkatze/planwright/issues/609)) ([5b7933b](https://github.com/inkatze/planwright/commit/5b7933b6939cd09efd941e131843d43867b69776))
+* **lock-lib:** read a dead lock owner as dead whatever the caller path contains ([#597](https://github.com/inkatze/planwright/issues/597)) ([f0d17a0](https://github.com/inkatze/planwright/commit/f0d17a05052529ae49ab06fa6fb09dea6b7e7e77))
+* **streamjson:** report a pending request over an earlier turn's result ([#602](https://github.com/inkatze/planwright/issues/602)) ([2bd4a88](https://github.com/inkatze/planwright/commit/2bd4a882f73a9ce6ac85390801dd386a35e147cb))
+* **tests:** keep fleet test suites out of the operator's real fleet registry ([#608](https://github.com/inkatze/planwright/issues/608)) ([9ea089a](https://github.com/inkatze/planwright/commit/9ea089a8abac363e8b34229c97343c63e5620e94))
+
 ## [0.54.0](https://github.com/inkatze/planwright/compare/v0.53.0...v0.54.0) (2026-10-06)
 
 

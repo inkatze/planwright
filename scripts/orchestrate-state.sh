@@ -96,12 +96,12 @@ if [ -z "$spec_dir" ]; then
   exit 2
 fi
 if [ ! -d "$spec_dir" ]; then
-  echo "orchestrate-state: no such spec dir: $spec_dir" >&2
+  printf '%s\n' "orchestrate-state: no such spec dir: $spec_dir" >&2
   exit 2
 fi
 tasks_md="$spec_dir/tasks.md"
 if [ ! -f "$tasks_md" ] || [ ! -r "$tasks_md" ]; then
-  echo "orchestrate-state: missing or unreadable $tasks_md" >&2
+  printf '%s\n' "orchestrate-state: missing or unreadable $tasks_md" >&2
   exit 2
 fi
 
@@ -110,7 +110,7 @@ fi
 spec_id=$(basename "$spec_dir")
 case "$spec_id" in
   '' | *[!a-z0-9-]* | [!a-z0-9]*)
-    echo "orchestrate-state: invalid spec id '$spec_id'" >&2
+    printf '%s\n' "orchestrate-state: invalid spec id '$spec_id'" >&2
     exit 2
     ;;
   flight)
@@ -124,7 +124,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # one holding the bundle: a relocated spec root may sit in a holder or in no
 # repository at all.
 repo_root=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir") || {
-  echo "orchestrate-state: no work repository for $spec_dir" >&2
+  printf '%s\n' "orchestrate-state: no work repository for $spec_dir" >&2
   exit 2
 }
 
@@ -149,7 +149,7 @@ fi
 # safety). The defaults (main / origin/main / HEAD) and normal ref names pass.
 case "$base" in
   -* | *[!a-zA-Z0-9/._-]*)
-    echo "orchestrate-state: refusing unsafe base ref '$base'" >&2
+    printf '%s\n' "orchestrate-state: refusing unsafe base ref '$base'" >&2
     exit 2
     ;;
 esac
@@ -159,7 +159,7 @@ esac
 # merged task as ready instead of failing closed (REQ-F1.1; same
 # `rev-parse --verify <ref>^{commit}` resolution guard spec-validate.sh uses).
 if ! git -C "$repo_root" rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1; then
-  echo "orchestrate-state: base ref '$base' does not resolve to a commit" >&2
+  printf '%s\n' "orchestrate-state: base ref '$base' does not resolve to a commit" >&2
   exit 2
 fi
 
@@ -232,7 +232,7 @@ tv=${tv%m}
 case "$tv" in
   '') ;; # key absent everywhere: the tracked default (15) stands
   *[!0-9]*)
-    echo "orchestrate-state: ignoring malformed stale_marker_threshold; using ${threshold_min}m" >&2
+    printf '%s\n' "orchestrate-state: ignoring malformed stale_marker_threshold; using ${threshold_min}m" >&2
     ;;
   *) threshold_min=$tv ;;
 esac
@@ -246,7 +246,7 @@ threshold_sec=$((threshold_min * 60))
 # dir, and a symlink at the marker path is refused — so a crafted task id or a
 # symlink swap cannot redirect the read outside the dir (defense in depth).
 marker_dirs=$(/bin/sh "$script_dir/orchestrate-marker-home.sh" read "$spec_dir") || {
-  echo "orchestrate-state: cannot resolve the marker dirs for $spec_dir" >&2
+  printf '%s\n' "orchestrate-state: cannot resolve the marker dirs for $spec_dir" >&2
   exit 2
 }
 # The shared home under the git common dir must be the canonical path the
@@ -405,7 +405,7 @@ tasks=$(awk '
 ' "$tasks_md")
 
 if [ -z "$tasks" ]; then
-  echo "orchestrate-state: no task records in $tasks_md" >&2
+  printf '%s\n' "orchestrate-state: no task records in $tasks_md" >&2
   exit 2
 fi
 

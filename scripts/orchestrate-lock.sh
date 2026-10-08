@@ -61,7 +61,7 @@ if [ -z "$cmd" ] || [ -z "$spec_dir" ]; then
   exit 2
 fi
 if [ ! -d "$spec_dir" ]; then
-  echo "orchestrate-lock: no such spec dir: $spec_dir" >&2
+  printf '%s\n' "orchestrate-lock: no such spec dir: $spec_dir" >&2
   exit 2
 fi
 
@@ -72,19 +72,19 @@ fi
 # escaping symlink) is a clean refusal rather than an out-of-tree lock path.
 # This applies to release too: a hostile path must never reach an rmdir.
 canon_dir=$(cd "$spec_dir" 2>/dev/null && pwd -P) || {
-  echo "orchestrate-lock: cannot resolve spec dir: $spec_dir" >&2
+  printf '%s\n' "orchestrate-lock: cannot resolve spec dir: $spec_dir" >&2
   exit 2
 }
 spec_id=${canon_dir##*/}
 spec_parent=${canon_dir%/*}
 case "$spec_id" in
   '' | -* | *[!a-z0-9-]*)
-    echo "orchestrate-lock: refusing malformed spec id '$spec_id' (REQ-F1.1: must match ^[a-z0-9][a-z0-9-]*\$)" >&2
+    printf '%s\n' "orchestrate-lock: refusing malformed spec id '$spec_id' (REQ-F1.1: must match ^[a-z0-9][a-z0-9-]*\$)" >&2
     exit 2
     ;;
 esac
 if [ "${#spec_id}" -gt 64 ]; then
-  echo "orchestrate-lock: refusing spec id '$spec_id' (REQ-F1.1: exceeds 64 chars)" >&2
+  printf '%s\n' "orchestrate-lock: refusing spec id '$spec_id' (REQ-F1.1: exceeds 64 chars)" >&2
   exit 2
 fi
 if [ "$spec_id" = flight ]; then
@@ -108,7 +108,7 @@ is_spec_root() {
 # The primary view first: callers address the primary's copy, and from a
 # linked worktree the checkout view of it never matches.
 if ! is_spec_root . --primary && ! is_spec_root . && ! is_spec_root "$canon_dir"; then
-  echo "orchestrate-lock: spec dir '$canon_dir' is not contained under a resolved spec root; refusing (REQ-F1.1)" >&2
+  printf '%s\n' "orchestrate-lock: spec dir '$canon_dir' is not contained under a resolved spec root; refusing (REQ-F1.1)" >&2
   exit 2
 fi
 
@@ -121,7 +121,7 @@ case "$cmd" in
     ;;
   acquire) ;;
   *)
-    echo "orchestrate-lock: unknown command '$cmd' (acquire|release)" >&2
+    printf '%s\n' "orchestrate-lock: unknown command '$cmd' (acquire|release)" >&2
     exit 2
     ;;
 esac
@@ -147,7 +147,7 @@ v=${v%m}
 case "$v" in
   '') ;; # key absent everywhere: the tracked default (15) stands
   *[!0-9]*)
-    echo "orchestrate-lock: ignoring malformed stale_lock_threshold; using ${threshold_min}m" >&2
+    printf '%s\n' "orchestrate-lock: ignoring malformed stale_lock_threshold; using ${threshold_min}m" >&2
     ;;
   *) threshold_min=$v ;;
 esac
@@ -161,7 +161,7 @@ fi
 # where the lock never got created. Masking the latter as a clean "busy" no-op
 # would make /orchestrate skip the spec forever; fail closed instead.
 if [ ! -d "$lock" ]; then
-  echo "orchestrate-lock: cannot create $lock (spec dir unwritable or filesystem error)" >&2
+  printf '%s\n' "orchestrate-lock: cannot create $lock (spec dir unwritable or filesystem error)" >&2
   exit 2
 fi
 if [ -n "$(find "$lock" -maxdepth 0 -mmin +"$threshold_min" 2>/dev/null)" ]; then
@@ -172,10 +172,10 @@ if [ -n "$(find "$lock" -maxdepth 0 -mmin +"$threshold_min" 2>/dev/null)" ]; the
   # Same distinction as the initial mkdir: no lock dir means a real error
   # (fail closed), a present one means another holder won the post-break race.
   if [ ! -d "$lock" ]; then
-    echo "orchestrate-lock: cannot create $lock after stale break (spec dir unwritable or filesystem error)" >&2
+    printf '%s\n' "orchestrate-lock: cannot create $lock after stale break (spec dir unwritable or filesystem error)" >&2
     exit 2
   fi
-  echo "orchestrate-lock: contention after stale break; skipping ($lock)" >&2
+  printf '%s\n' "orchestrate-lock: contention after stale break; skipping ($lock)" >&2
   exit 1
 fi
 # Held by a live holder within the threshold: clean no-op.

@@ -27,10 +27,10 @@ export PLANWRIGHT_SECRET_SCREEN_TOOL
 
 failures=0
 fail() {
-  echo "FAIL: $1" >&2
+  printf '%s\n' "FAIL: $1" >&2
   failures=$((failures + 1))
 }
-ok() { echo "ok: $1"; }
+ok() { printf '%s\n' "ok: $1"; }
 # verdict <ok-message> <fail-message>: judged on the exit status of the
 # command that precedes the call.
 verdict() {
@@ -1522,7 +1522,7 @@ git -C "$repo_root" check-ignore -q ".claude/steps/000001/x.rec"
 verdict "this repository ignores the record cache" ".claude/steps/ is not ignored"
 
 if [ "$failures" -gt 0 ]; then
-  echo "$failures failure(s)" >&2
+  printf '%s\n' "$failures failure(s)" >&2
   exit 1
 fi
 echo "all step-record tests passed"

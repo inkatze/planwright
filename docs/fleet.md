@@ -47,9 +47,9 @@ command does three things, and asks before the one choice that is yours:
    degrade safely — see the
    [options reference](options-reference.md)).
 2. **Starts the orchestrator(s)**: a meta-orchestrator supervising every
-   Ready/Active spec, launching a subordinate orchestrator per spec, each
-   dispatching workers into
-   isolated worktrees, all under the fleet concurrency bound.
+   Ready/Active spec, running each chosen spec's dispatch step itself and
+   dispatching workers into isolated worktrees, all under the fleet
+   concurrency bound.
 3. **Renders the attention surface**: the decision queue plus a per-worker
    heartbeat view, re-rendered as the fleet advances.
 
@@ -499,6 +499,11 @@ attention surface), not as a separate system:
 | b. Non-terminal user | tmux driven as a detached server, or the subagent backend (in-harness background workers) — invisible plumbing either way, nothing to attach to | The decision queue, read from any plain terminal or via the notification channel | Answer queue items; the tower relays to workers |
 | c. Editor-feedback user | The same background plumbing as (b) | The editor renders the queue and diffs (an editor panel tails the same files; `editor-toast` is the matching notification channel) | An editor affordance submits the queue answer; the tower relays |
 
+Under `--fleet` the meta step dispatches only through the stream-json and
+headless rungs; a unit whose resolved rung is tmux or the subagent backend
+parks to its spec's `## Awaiting input`, so every persona above gets the
+tmux and subagent backends from single-spec towers for now.
+
 Two audit notes behind that table:
 
 - **All durable fleet state is files** — the worker registry, the attention
@@ -696,7 +701,10 @@ crashed worker's session via `--resume`; `status` surfaces completion and
 liveness from the supervisor, the journal and the captured event stream — a
 live worker with a pending receipt reports `awaiting-input pending=<n>
 oldest=<age>s supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending
-row carries a readable epoch), never a healthy-looking `running`.
+row carries a readable epoch), never a healthy-looking `running`. A worker
+records a `result` at the end of every turn and stays up for the next, so
+`awaiting-input` outranks an earlier turn's `completed`, and the stuck detector
+likewise keeps such a worker `waiting-on-a-human` rather than finished.
 
 `pending [<worker>...]` shows what those pending receipts are asking, so a
 tower can bring the operator the actual decision rather than a count. For each
@@ -839,7 +847,11 @@ a missing close.
 `steer` is the primary steer on the stream-json rung: a tower message becomes a
 user turn on the worker's own stdin, under the same `[planwright tower relay ->
 <worker>]` header the tmux relay pastes, read from a file so its text is never
-part of a command. Never write a frame into a worker's `in.fifo` by hand. The
+part of a command. A delivered steer opens a new turn, so it retires the
+previous turn's `result`: the worker reads `running` again until that turn
+records its own. A steer delivered while the worker is still inside a turn is
+the exception: that turn's `result` lands after the steer, so the queued turn
+reads `completed` until it records its own. Never write a frame into a worker's `in.fifo` by hand. The
 worker reads one JSON line at a time, so a frame missing its newline runs into
 the next one and kills it. Every frame the supervisor writes, `steer`'s,
 `answer`'s, and the launch prompt, is checked before any byte is written: one
@@ -1173,9 +1185,10 @@ strand against a unit whose merged PR it simply could not see.
 
 ## Scaling out: the meta-tower
 
-`/orchestrate --fleet` supervises **all** Ready/Active specs by launching a
-subordinate tower per spec — a tower of towers (the `--meta` mode, which
-`--fleet` wraps with the watch loop and the default attention surface).
+`/orchestrate --fleet` supervises **all** Ready/Active specs from one
+meta-tower session that runs each chosen spec's single-spec step itself,
+under that spec's lock (the `--meta` mode, which `--fleet` wraps with the
+watch loop and the default attention surface).
 Fleet-wide load is capped by
 `fleet_max_parallel_units` (in-flight units summed across every spec), enforced
 against the live cross-spec derivation so the bound survives any crash;
