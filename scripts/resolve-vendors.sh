@@ -44,7 +44,8 @@
 #   control       exactly one of comment-body (at most 1024 bytes, needing the
 #                 vendor's bot-login; it mentions no handle but `@<login>`,
 #                 and carries no `#<digit>`, `GH-<digit>`, `://`, or `www.`,
-#                 and no `//`, `](`, or `<`, the link and HTML forms)
+#                 and no `//`, `](`, or `<`, the link and HTML forms, nor an
+#                 HTML entity, which could spell a mention or reference)
 #                 and args (blank-separated words in custom-steps' plain-word
 #                 args charset [A-Za-z0-9._/:=@%,+-]; a word opening with `@`,
 #                 a word opening with `-` that is not `-<alnum>`,
@@ -302,6 +303,7 @@ awk -v mode="$mode" -v want="$want" '
         v = val(n, "comment-body")
         if (length(v) > 1024) return "comment-body exceeds 1024 bytes"
         v = tolower(v)
+        if (v ~ /&(#[0-9]+|#x[0-9a-f]+|[a-z][a-z0-9]*);/) return "comment-body carries an HTML entity"
         if (v ~ /#[0-9]/ || v ~ /gh-[0-9]/ || index(v, "://") || index(v, "www.")) return "comment-body carries an issue or URL reference"
         if (index(v, "//") || index(v, "](") || index(v, "<")) return "comment-body carries a link or HTML markup"
       } else {

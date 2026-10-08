@@ -432,6 +432,28 @@ bad "comment body with a markdown link" "comment-body carries a link or HTML mar
 bad "comment body with an HTML tag" "comment-body carries a link or HTML markup" \
   "  - id: sample-reviewer.bad-entry" "    vendor: sample-reviewer" "    part: control" \
   "    comment-body: \"@sample-reviewer-app <img src=x>\""
+# An HTML entity could spell a mention or reference the screens above miss.
+for ent in "&commat;someone" "&#64;someone" "&#x40;someone" "&num;12" "&NewLine;"; do
+  bad "comment body with the entity $ent" "comment-body carries an HTML entity" \
+    "  - id: sample-reviewer.bad-entry" "    vendor: sample-reviewer" "    part: control" \
+    "    comment-body: \"@sample-reviewer-app cc $ent\""
+done
+sb="$tmp/ampersand-ok"
+seed "$sb"
+put "$(local_cat "$sb")" <<'YAML'
+vendors:
+  - id: sample-reviewer.vendor
+    vendor: sample-reviewer
+    part: vendor
+    evidence: none
+    bot-login: sample-reviewer-app[bot]
+  - id: sample-reviewer.plain
+    vendor: sample-reviewer
+    part: control
+    comment-body: "@sample-reviewer-app review R&D notes & tests"
+YAML
+rv "$sb"
+assert_contains "a bare ampersand in a comment body resolves" "R&D notes & tests" "$OUT"
 # C1 controls, invisible and bidi code points, and invalid UTF-8 are refused
 # wherever a value is printed or posted.
 bad "C1 control in a match" "a C1, invisible, or bidi character, or invalid UTF-8, in a field" \
