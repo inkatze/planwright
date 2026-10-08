@@ -34,11 +34,11 @@
 # are only correct under the C locale; a non-C collation would mis-rank
 # prerelease identifiers.
 
-# _rl_safe <value> — strip C0/DEL/C1 control bytes so an error-path echo of an
+# _rl_safe <value> — strip C0/DEL/C1 control bytes so an error-path message of an
 # untrusted (invalid) version/selector value cannot drive the terminal. The
-# doctrine's canonical sanitizer is scripts/echo-safety.sh; this is the
-# sanctioned self-contained inline copy for the sourced lib (same posture as
-# spec-assemble.sh's inline copy).
+# doctrine's canonical sanitizer is scripts/echo-safety.sh; this is a copy of
+# its byte range because a sourced lib cannot portably locate its siblings (the
+# same reason spec-parse.sh gives for spec_parse_printable).
 _rl_safe() {
   printf '%s' "${1-}" | tr -d '\000-\037\177\200-\237'
 }
@@ -307,7 +307,7 @@ rl_extract_version() {
   if [[ "$sel" =~ $sel_re ]]; then
     key="${BASH_REMATCH[1]}"
     if ! command -v jq >/dev/null 2>&1; then
-      echo "release-lib: jq is required to read a JSON version_file selector ($(_rl_safe "$sel"))" >&2
+      printf '%s\n' "release-lib: jq is required to read a JSON version_file selector ($(_rl_safe "$sel"))" >&2
       return 2
     fi
     # Capture jq's exit status: on malformed JSON, jq exits non-zero and writes a
@@ -320,13 +320,13 @@ rl_extract_version() {
     # failure. Output has no trailing newline, consistent with whole-file mode.
     local out
     if ! out=$(jq -r --arg k "$key" '.[$k] // empty' 2>/dev/null); then
-      echo "release-lib: could not parse JSON version_file (jq failed on selector $(_rl_safe "$sel"))" >&2
+      printf '%s\n' "release-lib: could not parse JSON version_file (jq failed on selector $(_rl_safe "$sel"))" >&2
       return 2
     fi
     printf '%s' "$out"
     return 0
   fi
-  echo "release-lib: unsupported version_file selector (expected \$.<key> or whole-file): $(_rl_safe "$sel")" >&2
+  printf '%s\n' "release-lib: unsupported version_file selector (expected \$.<key> or whole-file): $(_rl_safe "$sel")" >&2
   return 2
 }
 

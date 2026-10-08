@@ -87,8 +87,8 @@ dispatch_backend_per_spec: {}
 
 max_parallel_units: 3
 
-# Fleet-level concurrency bound for the meta-tower ("tower of towers",
-# /orchestrate --meta, D-6, REQ-D1.5). Caps the TOTAL number of in-flight
+# Fleet-level concurrency bound for the meta-tower
+# (/orchestrate --meta, D-6, REQ-D1.5). Caps the TOTAL number of in-flight
 # execution units summed across ALL specs the meta-tower supervises — distinct
 # from max_parallel_units, which caps one spec. The safe default is
 # conservative: 3 holds total fleet concurrency to a single spec's worth, so
@@ -214,6 +214,17 @@ steps_post_dispatch: []
 steps_unit_halted: []
 steps_post_merge: []
 steps_orchestrator_idle: []
+
+# Step pools (scripts/step-pool.sh; doctrine/custom-steps.md, *Expensive
+# checks*). A pool bounds how many checks naming it run at once across every
+# checkout and worktree of the user on the host. step_pool_capacity is the
+# slot count of every pool without its own step_pool_capacity_<pool> (hyphens
+# as underscores), an open family with no core default. step_pool_wait bounds
+# a caller's wait for a free slot (a duration). full_suite_pool names the pool
+# /execute-task's full local suite joins; empty leaves the suite unpooled.
+step_pool_capacity: 1
+step_pool_wait: 60m
+full_suite_pool:
 
 # The operator kill-switch for the autonomous daemon layer (fleet-autonomy
 # D-15, REQ-F1.3). `true` pauses every autonomous daemon action the fleet

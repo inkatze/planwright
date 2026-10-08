@@ -149,8 +149,8 @@ unset CDPATH
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
 for dep in echo-safety.sh allocation-ladder.sh lock-lib.sh; do
-  if [ ! -r "$script_dir/$dep" ]; then
-    echo "allocation-ledger: sibling helper '$script_dir/$dep' is missing or not readable — broken install" >&2
+  if [ ! -f "$script_dir/$dep" ] || [ ! -r "$script_dir/$dep" ]; then
+    printf '%s\n' "allocation-ledger: sibling helper $dep is missing or not readable — broken install" >&2
     exit 5
   fi
 done
@@ -248,7 +248,7 @@ in_set() {
 
 store_dir() {
   if [ ! -x "$FS" ]; then
-    echo "allocation-ledger: fleet-state helper '$FS' is missing or not executable — broken install" >&2
+    printf '%s\n' "allocation-ledger: fleet-state helper '$FS' is missing or not executable — broken install" >&2
     exit 5
   fi
   sd_root=$("$FS" root) || exit 2
@@ -268,7 +268,7 @@ lock_path() {
 ensure_store() {
   es_dir=$(store_dir) || exit $?
   if ! mkdir -p "$es_dir" 2>/dev/null; then
-    echo "allocation-ledger: cannot create the allocation store $es_dir" >&2
+    printf '%s\n' "allocation-ledger: cannot create the allocation store $es_dir" >&2
     exit 2
   fi
   printf '%s' "$es_dir"
@@ -313,7 +313,7 @@ check_health() {
   ch_file=$1
   [ -e "$ch_file" ] || return 0
   if [ ! -r "$ch_file" ]; then
-    echo "allocation-ledger: ledger '$ch_file' is not readable" >&2
+    printf '%s\n' "allocation-ledger: ledger '$ch_file' is not readable" >&2
     return 3
   fi
   # The event and tier columns are checked here for the same reason the scope
@@ -368,7 +368,7 @@ check_health() {
     }
   ' "$ch_file" 2>/dev/null)
   if [ -n "$ch_bad" ]; then
-    echo "allocation-ledger: ledger '$ch_file' is unhealthy — $(sanitize_printable "$ch_bad" "(unprintable detail)")" >&2
+    printf '%s\n' "allocation-ledger: ledger '$ch_file' is unhealthy — $(sanitize_printable "$ch_bad" "(unprintable detail)")" >&2
     return 3
   fi
   return 0
@@ -410,7 +410,7 @@ usage() {
 
 require_unit() {
   if ! valid_key "$1"; then
-    echo "allocation-ledger: refusing malformed unit key '$(sanitize_printable "$1" "(unprintable unit)")'" >&2
+    printf '%s\n' "allocation-ledger: refusing malformed unit key '$(sanitize_printable "$1" "(unprintable unit)")'" >&2
     exit 2
   fi
 }
@@ -482,7 +482,7 @@ case "$cmd" in
       pw_lock_acquire_detached "$l_lock" || l_rc=$?
     fi
     if [ "$l_rc" -eq 1 ]; then
-      echo "allocation-ledger: gave up acquiring $l_lock after contention" >&2
+      printf '%s\n' "allocation-ledger: gave up acquiring $l_lock after contention" >&2
       exit 2
     fi
     [ "$l_rc" -eq 0 ] || exit 2
@@ -492,7 +492,7 @@ case "$cmd" in
     # fails the write and lands here, rather than ending this process first.
     trap '' PIPE
     if ! printf '%s\n' "$PW_LOCK_TOKEN"; then
-      echo "allocation-ledger: could not hand back the lock token for $l_unit; releasing rather than leaving a hold nobody can name" >&2
+      printf '%s\n' "allocation-ledger: could not hand back the lock token for $l_unit; releasing rather than leaving a hold nobody can name" >&2
       pw_lock_release_token "$l_lock" "$PW_LOCK_TOKEN" >/dev/null 2>&1 || :
       exit 2
     fi
@@ -521,7 +521,7 @@ case "$cmd" in
       pw_lock_release_token "$u_lock" "$2"
       u_rc=$?
       if [ "$u_rc" -eq 2 ]; then
-        echo "allocation-ledger: could not release $u_lock" >&2
+        printf '%s\n' "allocation-ledger: could not release $u_lock" >&2
         exit 2
       fi
     else
@@ -530,7 +530,7 @@ case "$cmd" in
       # lock DIRECTORY left by the retired `mkdir` shape, which is what makes an
       # in-place upgrade from that shape possible at all.
       pw_lock_break_force "$u_lock" || {
-        echo "allocation-ledger: $u_lock is not a lock this can safely clear" >&2
+        printf '%s\n' "allocation-ledger: $u_lock is not a lock this can safely clear" >&2
         exit 2
       }
     fi
@@ -583,31 +583,31 @@ case "$cmd" in
 
     require_unit "$a_unit"
     valid_step "$a_step" || {
-      echo "allocation-ledger: refusing malformed step '$(sanitize_printable "$a_step" "(unprintable step)")'" >&2
+      printf '%s\n' "allocation-ledger: refusing malformed step '$(sanitize_printable "$a_step" "(unprintable step)")'" >&2
       exit 2
     }
     valid_count "$a_attempt" || {
-      echo "allocation-ledger: refusing non-numeric attempt '$(sanitize_printable "$a_attempt" "(unprintable attempt)")'" >&2
+      printf '%s\n' "allocation-ledger: refusing non-numeric attempt '$(sanitize_printable "$a_attempt" "(unprintable attempt)")'" >&2
       exit 2
     }
     alloc_event_dir "$a_event" >/dev/null || {
-      echo "allocation-ledger: refusing unknown event class '$(sanitize_printable "$a_event" "(unprintable event)")'" >&2
+      printf '%s\n' "allocation-ledger: refusing unknown event class '$(sanitize_printable "$a_event" "(unprintable event)")'" >&2
       exit 2
     }
     for a_cell in "$a_pm" "$a_cm" "$a_rm"; do
       valid_model_cell "$a_cell" || {
-        echo "allocation-ledger: refusing unknown model '$(sanitize_printable "$a_cell" "(unprintable model)")'" >&2
+        printf '%s\n' "allocation-ledger: refusing unknown model '$(sanitize_printable "$a_cell" "(unprintable model)")'" >&2
         exit 2
       }
     done
     for a_cell in "$a_pe" "$a_ce" "$a_re"; do
       valid_effort_cell "$a_cell" || {
-        echo "allocation-ledger: refusing unknown effort '$(sanitize_printable "$a_cell" "(unprintable effort)")'" >&2
+        printf '%s\n' "allocation-ledger: refusing unknown effort '$(sanitize_printable "$a_cell" "(unprintable effort)")'" >&2
         exit 2
       }
     done
     in_set "$a_scope" "$ALLOC_SCOPES" || {
-      echo "allocation-ledger: refusing unknown scope '$(sanitize_printable "$a_scope" "(unprintable scope)")'" >&2
+      printf '%s\n' "allocation-ledger: refusing unknown scope '$(sanitize_printable "$a_scope" "(unprintable scope)")'" >&2
       exit 2
     }
     # The step-tier/step pairing, refused at the boundary as well as flagged by
@@ -617,11 +617,11 @@ case "$cmd" in
     # refusing the write. One-directional, matching the health rule: `step-tier`
     # implies `step`, `step` does not imply `step-tier`.
     if [ "$a_event" = step-tier ] && [ "$a_scope" != step ]; then
-      echo "allocation-ledger: refusing a step-tier row at '$(sanitize_printable "$a_scope" "(unprintable scope)")' scope — a step-tier row records one launch and must be step-scoped" >&2
+      printf '%s\n' "allocation-ledger: refusing a step-tier row at '$(sanitize_printable "$a_scope" "(unprintable scope)")' scope — a step-tier row records one launch and must be step-scoped" >&2
       exit 2
     fi
     in_set "$a_outcome" "$ALLOC_OUTCOMES" || {
-      echo "allocation-ledger: refusing unknown outcome '$(sanitize_printable "$a_outcome" "(unprintable outcome)")'" >&2
+      printf '%s\n' "allocation-ledger: refusing unknown outcome '$(sanitize_printable "$a_outcome" "(unprintable outcome)")'" >&2
       exit 2
     }
     valid_inputs "$a_inputs" || {
@@ -675,7 +675,7 @@ case "$cmd" in
         # The library says nothing on a budget it merely exhausted, and an
         # append that exits without a word leaves its caller reporting a ledger
         # failure with no cause.
-        echo "allocation-ledger: gave up acquiring $a_lock after contention" >&2
+        printf '%s\n' "allocation-ledger: gave up acquiring $a_lock after contention" >&2
       fi
       [ "$a_rc" -eq 0 ] || exit 2
       a_token=$PW_LOCK_TOKEN
@@ -705,7 +705,7 @@ case "$cmd" in
     # nothing in this process took that lock, so this is the only place its
     # continued existence is ever established.
     if [ "$(pw_lock_owner "$a_lock")" != "$a_token" ]; then
-      echo "allocation-ledger: lost the per-unit lock for '$(sanitize_printable "$a_unit" "(unprintable unit)")' mid-append — refusing to write a stale sequence number" >&2
+      printf '%s\n' "allocation-ledger: lost the per-unit lock for '$(sanitize_printable "$a_unit" "(unprintable unit)")' mid-append — refusing to write a stale sequence number" >&2
       exit 2
     fi
     if ! printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
@@ -713,7 +713,7 @@ case "$cmd" in
       "$a_pm" "$a_pe" "$a_cm" "$a_ce" "$a_rm" "$a_re" \
       "$a_scope" "$a_outcome" "$a_inputs" >>"$a_file"; then
       [ "$a_held" -eq 0 ] && pw_lock_release "$a_lock"
-      echo "allocation-ledger: failed to append to $a_file" >&2
+      printf '%s\n' "allocation-ledger: failed to append to $a_file" >&2
       exit 2
     fi
     [ "$a_held" -eq 0 ] && pw_lock_release "$a_lock"
@@ -791,7 +791,7 @@ case "$cmd" in
     }
     require_unit "$1"
     if ! alloc_valid_tier "$2" "$3"; then
-      echo "allocation-ledger: refusing invalid starting tier '$(sanitize_printable "$2" "?")'/'$(sanitize_printable "$3" "?")'" >&2
+      printf '%s\n' "allocation-ledger: refusing invalid starting tier '$(sanitize_printable "$2" "?")'/'$(sanitize_printable "$3" "?")'" >&2
       exit 2
     fi
     d_file=$(ledger_path "$1")

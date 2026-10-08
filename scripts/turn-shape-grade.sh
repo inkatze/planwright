@@ -49,6 +49,10 @@ export LC_ALL
 unset CDPATH
 
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ ! -f "$SELF_DIR/echo-safety.sh" ] || [ ! -r "$SELF_DIR/echo-safety.sh" ]; then
+  printf '%s\n' "turn-shape-grade.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$SELF_DIR/echo-safety.sh"
 PROGRAM="$SELF_DIR/turn-shape-grade.jq"

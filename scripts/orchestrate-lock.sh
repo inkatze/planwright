@@ -125,7 +125,7 @@ while [ "$#" -gt 0 ]; do
       shift 2
       ;;
     *)
-      echo "orchestrate-lock: unknown option '$1'" >&2
+      printf '%s\n' "orchestrate-lock: unknown option '$1'" >&2
       exit 2
       ;;
   esac
@@ -143,7 +143,7 @@ if [ "$owner_pid_given" = 1 ]; then
   esac
 fi
 if [ ! -d "$spec_dir" ]; then
-  echo "orchestrate-lock: no such spec dir: $spec_dir" >&2
+  printf '%s\n' "orchestrate-lock: no such spec dir: $spec_dir" >&2
   exit 2
 fi
 
@@ -154,19 +154,19 @@ fi
 # escaping symlink) is a clean refusal rather than an out-of-tree lock path.
 # This applies to release too: a hostile path must never reach an unlink.
 canon_dir=$(cd "$spec_dir" 2>/dev/null && pwd -P) || {
-  echo "orchestrate-lock: cannot resolve spec dir: $spec_dir" >&2
+  printf '%s\n' "orchestrate-lock: cannot resolve spec dir: $spec_dir" >&2
   exit 2
 }
 spec_id=${canon_dir##*/}
 spec_parent=${canon_dir%/*}
 case "$spec_id" in
   '' | -* | *[!a-z0-9-]*)
-    echo "orchestrate-lock: refusing malformed spec id '$spec_id' (REQ-F1.1: must match ^[a-z0-9][a-z0-9-]*\$)" >&2
+    printf '%s\n' "orchestrate-lock: refusing malformed spec id '$spec_id' (REQ-F1.1: must match ^[a-z0-9][a-z0-9-]*\$)" >&2
     exit 2
     ;;
 esac
 if [ "${#spec_id}" -gt 64 ]; then
-  echo "orchestrate-lock: refusing spec id '$spec_id' (REQ-F1.1: exceeds 64 chars)" >&2
+  printf '%s\n' "orchestrate-lock: refusing spec id '$spec_id' (REQ-F1.1: exceeds 64 chars)" >&2
   exit 2
 fi
 if [ "$spec_id" = flight ]; then
@@ -190,7 +190,7 @@ is_spec_root() {
 # The primary view first: callers address the primary's copy, and from a
 # linked worktree the checkout view of it never matches.
 if ! is_spec_root . --primary && ! is_spec_root . && ! is_spec_root "$canon_dir"; then
-  echo "orchestrate-lock: spec dir '$canon_dir' is not contained under a resolved spec root; refusing (REQ-F1.1)" >&2
+  printf '%s\n' "orchestrate-lock: spec dir '$canon_dir' is not contained under a resolved spec root; refusing (REQ-F1.1)" >&2
   exit 2
 fi
 
@@ -198,7 +198,7 @@ lock="$canon_dir/.orchestrate.lock"
 
 # shellcheck source=scripts/lock-lib.sh
 . "$script_dir/lock-lib.sh" || {
-  echo "orchestrate-lock: cannot load the lock primitive $script_dir/lock-lib.sh" >&2
+  printf '%s\n' "orchestrate-lock: cannot load the lock primitive $script_dir/lock-lib.sh" >&2
   exit 2
 }
 
@@ -303,7 +303,7 @@ case "$cmd" in
     fi
     if [ ! -x "$evidence_cmd" ]; then
       printf '%s\n' unknown
-      echo "orchestrate-lock: $evidence_cmd is missing or not executable; refusing to judge $lock" >&2
+      printf '%s\n' "orchestrate-lock: $evidence_cmd is missing or not executable; refusing to judge $lock" >&2
       exit 3
     fi
     ev_rc=0
@@ -349,7 +349,7 @@ case "$cmd" in
     fi
     if [ "$sweep_rc" -ne 0 ]; then
       printf '%s\n' unknown
-      echo "orchestrate-lock: cannot clear $lock (it is still present after the removal; check its type and the spec directory's permissions)" >&2
+      printf '%s\n' "orchestrate-lock: cannot clear $lock (it is still present after the removal; check its type and the spec directory's permissions)" >&2
       exit 3
     fi
     printf '%s\n' cleared
@@ -361,7 +361,7 @@ case "$cmd" in
     # that clears a lock DIRECTORY left by the retired mkdir shape.
     rm -f "$handle_file" 2>/dev/null || :
     pw_lock_break_force "$lock" || {
-      echo "orchestrate-lock: cannot clear $lock (it is still present after the removal; check its type and the spec directory's permissions)" >&2
+      printf '%s\n' "orchestrate-lock: cannot clear $lock (it is still present after the removal; check its type and the spec directory's permissions)" >&2
       exit 2
     }
     exit 0
@@ -389,7 +389,7 @@ case "$cmd" in
       # process's as an abandoned one. The verb that promises to refuse what it
       # cannot show is its own does not get an exception for the one shape it
       # cannot read at all.
-      echo "orchestrate-lock: $lock is not a readable lock, so this cannot tell whose it is; refusing to release it (use 'break' to clear it anyway)" >&2
+      printf '%s\n' "orchestrate-lock: $lock is not a readable lock, so this cannot tell whose it is; refusing to release it (use 'break' to clear it anyway)" >&2
       exit 1
     fi
     if [ -n "$rel_token" ]; then
@@ -406,7 +406,7 @@ case "$cmd" in
           if [ -n "$handle" ]; then
             derive_handle
             if [ "$derived" != "$handle" ]; then
-              echo "orchestrate-lock: $lock was taken by a different session than this one; refusing to release it (use 'break' to clear it anyway)" >&2
+              printf '%s\n' "orchestrate-lock: $lock was taken by a different session than this one; refusing to release it (use 'break' to clear it anyway)" >&2
               exit 1
             fi
           fi
@@ -418,7 +418,7 @@ case "$cmd" in
           resolve_owner_pid
           if [ -n "$owner_pid" ]; then
             if [ "$rel_owner" != "$owner_pid" ] && pw_lock_owner_alive "$rel_token"; then
-              echo "orchestrate-lock: $lock is held by pid $rel_owner, not the pid $owner_pid this release speaks for; refusing (use 'break' to clear it anyway)" >&2
+              printf '%s\n' "orchestrate-lock: $lock is held by pid $rel_owner, not the pid $owner_pid this release speaks for; refusing (use 'break' to clear it anyway)" >&2
               exit 1
             fi
           elif pw_lock_owner_alive "$rel_token"; then
@@ -426,7 +426,7 @@ case "$cmd" in
             # another user answers EPERM, which says it EXISTS and is not ours.
             # Reading that as absence is how a release force-breaks a live
             # stranger's lock.
-            echo "orchestrate-lock: $lock is held by pid $rel_owner, which still exists; refusing to release somebody else's hold (use 'break' to clear it anyway)" >&2
+            printf '%s\n' "orchestrate-lock: $lock is held by pid $rel_owner, which still exists; refusing to release somebody else's hold (use 'break' to clear it anyway)" >&2
             exit 1
           fi
           ;;
@@ -460,14 +460,14 @@ case "$cmd" in
         # the removal can fail on an unwritable spec dir as readily as on
         # something unusual at the path, and naming one of those sends the
         # operator to inspect the wrong thing.
-        echo "orchestrate-lock: cannot clear $lock (it is still present after the removal; check its type and the spec directory's permissions)" >&2
+        printf '%s\n' "orchestrate-lock: cannot clear $lock (it is still present after the removal; check its type and the spec directory's permissions)" >&2
         exit 2
         ;;
     esac
     ;;
   acquire) ;;
   *)
-    echo "orchestrate-lock: unknown command '$cmd' (acquire|release|break|sweep)" >&2
+    printf '%s\n' "orchestrate-lock: unknown command '$cmd' (acquire|release|break|sweep)" >&2
     exit 2
     ;;
 esac
@@ -511,17 +511,17 @@ if [ "$rc" -eq 0 ] && [ -n "$sweep_handle" ]; then
   # rather than as evidence about a holder it never described. Staged and
   # renamed, because a redirect would follow a link planted at the path.
   if [ -d "$handle_file" ] && [ ! -L "$handle_file" ]; then
-    echo "orchestrate-lock: $handle_file is a directory; cannot record who holds $lock; released it" >&2
+    printf '%s\n' "orchestrate-lock: $handle_file is a directory; cannot record who holds $lock; released it" >&2
     exit 2
   fi
   hf_tmp=$(mktemp "$handle_file.XXXXXX" 2>/dev/null) || {
     hf_tmp=''
-    echo "orchestrate-lock: cannot record who holds $lock; released it" >&2
+    printf '%s\n' "orchestrate-lock: cannot record who holds $lock; released it" >&2
     exit 2
   }
   if ! printf '%s\t%s\n' "$PW_LOCK_TOKEN" "$sweep_handle" >"$hf_tmp" \
     || ! rm -f "$handle_file" || ! mv -f "$hf_tmp" "$handle_file"; then
-    echo "orchestrate-lock: cannot record who holds $lock; released it" >&2
+    printf '%s\n' "orchestrate-lock: cannot record who holds $lock; released it" >&2
     exit 2
   fi
   hf_tmp=''

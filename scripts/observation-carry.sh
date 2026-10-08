@@ -70,7 +70,7 @@ unset CDPATH
 TAB=$(printf '\t')
 
 script_dir=$(cd -- "$(dirname -- "$0")" && pwd) || exit 2
-if [ -r "$script_dir/echo-safety.sh" ]; then
+if [ -f "$script_dir/echo-safety.sh" ] && [ -r "$script_dir/echo-safety.sh" ]; then
   # shellcheck source=scripts/echo-safety.sh
   . "$script_dir/echo-safety.sh"
 else

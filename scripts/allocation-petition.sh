@@ -109,8 +109,8 @@ unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
-if [ ! -r "$script_dir/echo-safety.sh" ]; then
-  echo "allocation-petition: sibling helper '$script_dir/echo-safety.sh' is missing or not readable — broken install" >&2
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "allocation-petition: sibling helper echo-safety.sh is missing or not readable — broken install" >&2
   exit 5
 fi
 # shellcheck source=scripts/echo-safety.sh
@@ -284,7 +284,7 @@ cmd_write() {
     exit 2
   }
   [ "${#w_reason}" -le "$PET_MAX_REASON" ] || {
-    echo "allocation-petition: the reason is longer than $PET_MAX_REASON characters" >&2
+    printf '%s\n' "allocation-petition: the reason is longer than $PET_MAX_REASON characters" >&2
     exit 2
   }
 
@@ -293,7 +293,7 @@ cmd_write() {
     exit 2
   }
   if [ -L "$w_wtp/$PET_SUBDIR" ]; then
-    echo "allocation-petition: '$PET_SUBDIR' in the worktree is a symlink — refusing to write through it" >&2
+    printf '%s\n' "allocation-petition: '$PET_SUBDIR' in the worktree is a symlink — refusing to write through it" >&2
     exit 2
   fi
   mkdir -p "$w_wtp/$PET_SUBDIR" 2>/dev/null || {

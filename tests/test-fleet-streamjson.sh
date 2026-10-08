@@ -1965,6 +1965,44 @@ else
   [ ! -e "$wdir38f/undrained-$req_q" ] || fail "c38f: a close left the set-aside receipt behind"
   echo "ok: c38 a spool that cannot land is set aside once, counted, and removed by a close"
 fi
+# ---------------------------------------------------------------------------
+# c39: a turn result does not hide a later request. A persistent worker writes
+#     `result` at the end of every turn and stays up; steered into a new turn
+#     that raises a permission request, it is waiting on a human, so status
+#     reads awaiting-input with the oldest request's age, not the earlier
+#     turn's `completed`. Once the session is gone the result stands again.
+# ---------------------------------------------------------------------------
+home="$tmp/h39"
+w39="$home/streamjson/sjw39"
+mkdir -p "$w39"
+printf '%s\n' "$$" >"$w39/supervisor.pid"
+printf '%s\n' "$$" >"$w39/worker.pid"
+now39=$(date +%s)
+printf 'result\tsuccess\t%s\tfalse\n' "$((now39 - 600))" >"$w39/result"
+out=$(senv "$home" "$tmp/r39" -- status sjw39) || fail "c39: status exited non-zero"
+case $out in
+  "status sjw39 completed result=success") : ;;
+  *) fail "c39: a live worker idle after its turn with nothing pending reads completed, got: $out" ;;
+esac
+printf 'req-a\tpermission\t%s\tpending\t\n' "$((now39 - 120))" >"$w39/journal"
+out=$(senv "$home" "$tmp/r39" -- status sjw39) || fail "c39: status exited non-zero"
+case $out in
+  "status sjw39 awaiting-input pending=1 oldest="*"s supervisor=$$ worker=$$") : ;;
+  *) fail "c39: a request raised after the earlier turn's result must read awaiting-input, got: $out" ;;
+esac
+age39=${out#*oldest=}
+age39=${age39%%s *}
+[ "$age39" -ge 120 ] || fail "c39: oldest must be the request's age, got: $out"
+sh -c ':' &
+dead39=$!
+wait "$dead39"
+printf '%s\n' "$dead39" >"$w39/supervisor.pid"
+out=$(senv "$home" "$tmp/r39" -- status sjw39) || fail "c39: status exited non-zero"
+case $out in
+  "status sjw39 completed result=success") : ;;
+  *) fail "c39: with the supervisor gone the recorded result stands, got: $out" ;;
+esac
+echo "ok: c39 a pending request outranks an earlier turn's result while the worker lives"
 
 # ---------------------------------------------------------------------------
 # c37: the suite leaves nothing running. Every supervisor, tick, and shim a

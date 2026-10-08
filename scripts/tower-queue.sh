@@ -557,7 +557,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 6
 # Guarded like the jargon list `report` checks for: an unguarded `.` exits
 # with the shell's own status for a missing file, which says nothing about
 # which dependency went missing.
-if [ ! -r "$script_dir/echo-safety.sh" ]; then
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
   printf '%s\n' "tower-queue: scripts/echo-safety.sh is missing — broken install" >&2
   exit 5
 fi

@@ -22,9 +22,13 @@
 #                           row (PermissionRequest / Notification / a supervisor
 #                           decide) that no answer has claimed yet — or a
 #                           pending control_request in the stream-json journal
-#                           of a session that has not ended, or a POSITIVELY
-#                           MATCHED permission-prompt signature in a captured
-#                           pane (REQ-C1.2, obs:4c25e743). Never elapsed time.
+#                           of a session that has not ended (no completion
+#                           record, or both runtime pidfiles with the
+#                           supervisor positively alive: a persistent worker
+#                           records a result per turn and outlives it), or a
+#                           POSITIVELY MATCHED permission-prompt signature in
+#                           a captured pane (REQ-C1.2, obs:4c25e743). Never
+#                           elapsed time.
 #   finished-but-unreaped   a successful session-ended signal — the attention
 #                           store's `ended` row (SessionEnd), a stream-json
 #                           `result success` record not flagged is_error, a
@@ -161,14 +165,14 @@ unset CDPATH
 me='fleet-stuck-detector'
 
 err() {
-  echo "$me: $1" >&2
+  printf '%s\n' "$me: $1" >&2
 }
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
 for helper in echo-safety.sh fleet-pane-vocabulary.sh; do
-  if [ ! -r "$script_dir/$helper" ]; then
-    err "required helper $script_dir/$helper missing or not readable"
+  if [ ! -f "$script_dir/$helper" ] || [ ! -r "$script_dir/$helper" ]; then
+    err "required helper $helper missing or not readable"
     exit 2
   fi
 done
@@ -1192,7 +1196,11 @@ classify_one() {
   elif [ "$attn_state" = awaiting-input ] && { [ -z "$attn_claimed" ] || [ "$attn_claimed" = - ]; }; then
     state='waiting-on-a-human'
     reason='hook-push'
-  elif [ "$journal_pending" -gt 0 ] && [ "$completion" = absent ]; then
+  # A persistent stream-json worker writes its result at every turn's end and
+  # stays up for the next turn, so a completion record ends the session only
+  # once the worker is gone: a pending receipt on a live one is a request
+  # raised after that turn, and reaping it would close a worker mid-question.
+  elif [ "$journal_pending" -gt 0 ] && { [ "$completion" = absent ] || { [ "$runtime_pids" = 1 ] && [ "$death" = alive ]; }; }; then
     state='waiting-on-a-human'
     reason='journal-pending'
   elif [ "$pane_state" = permission-prompt ]; then

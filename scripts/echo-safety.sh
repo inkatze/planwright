@@ -1,9 +1,12 @@
 # shellcheck shell=sh
 # echo-safety.sh — the canonical echo-discipline sanitizer for planwright's
-# framework scripts (sourced, never executed). Sourced today by the migrated
-# command-tier callers (spec-validate.sh, spec-walkthrough.sh); spec-assemble.sh
-# (deliberately self-contained) and spec-scope.sh (a tracked follow-up) keep
-# byte-identical inline copies.
+# framework scripts (sourced, never executed). Callers source it behind a
+# readability test (`[ -r ... ]` first), which scripts/check-echo-discipline.sh
+# enforces: dash aborts on a missing `.` file while bash runs on without the
+# function. Any inline copy keeps this byte range: sourced libraries that cannot
+# locate their siblings (spec-parse.sh, release-lib.sh) carry one instead, and
+# scripts that must never be unable to sanitize define one as a fallback, ahead
+# of the source or in its readability test's else branch.
 #
 # Echo discipline (doctrine/security-posture.md, "Framework-script security"):
 # untrusted content — spec-file values, branch names, parsed identifiers — must
@@ -30,9 +33,7 @@
 # The awk `gsub(/[^[:print:]]/, "")` form (spec-validate.sh first_header, and the
 # sibling header parsers) is the in-awk expression of the same posture but strips
 # ALL non-printable bytes; it cannot call this sourced shell function and is
-# intentionally left in place. The inline copies in spec-scope.sh /
-# spec-assemble.sh still strip C0 + DEL only — widening them to match is a
-# tracked follow-up, out of this change's scope.
+# intentionally left in place.
 sanitize_printable() {
   _sp=$(printf '%s' "$1" | tr -d '\000-\037\177\200-\237')
   if [ -z "$_sp" ] && [ $# -ge 2 ]; then

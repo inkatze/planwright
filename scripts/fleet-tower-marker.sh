@@ -62,6 +62,10 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # The canonical echo-discipline sanitizer (doctrine/security-posture.md),
 # sourced as the sibling fleet scripts do; a missing helper is a broken
 # install.
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "fleet-tower-marker.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 # shellcheck source=scripts/spec-id-lib.sh
@@ -157,7 +161,7 @@ acquire_lock() {
         ;;
       1) ;; # a live holder has it — retry
       *)
-        echo "fleet-tower-marker: cannot acquire the fleet lock (fleet-state exit $al_rc)" >&2
+        printf '%s\n' "fleet-tower-marker: cannot acquire the fleet lock (fleet-state exit $al_rc)" >&2
         return 2
         ;;
     esac
@@ -293,7 +297,7 @@ case "$cmd" in
     # Idempotent, order-independent: created BEFORE the lock to keep the
     # contended critical section short (the fleet-audit discipline).
     if ! mkdir -p "$towers_dir" 2>/dev/null; then
-      echo "fleet-tower-marker: cannot create the towers dir $towers_dir" >&2
+      printf '%s\n' "fleet-tower-marker: cannot create the towers dir $towers_dir" >&2
       exit 2
     fi
     acquire_lock || exit 2
@@ -306,7 +310,7 @@ case "$cmd" in
         ;;
     esac
     tmpfile=$(mktemp "$towers_dir/.marker.XXXXXX") || {
-      echo "fleet-tower-marker: cannot create a temp file in $towers_dir" >&2
+      printf '%s\n' "fleet-tower-marker: cannot create a temp file in $towers_dir" >&2
       exit 2
     }
     PENDING_TMP=$tmpfile

@@ -1141,4 +1141,15 @@ case $ea_none in 0:*) ;; *) fail "the default sweep of an empty spec root failed
 [ "$ea_empty" = "$ea_none" ] || fail "an empty argument did not act as the default (default '$ea_none', empty '$ea_empty')"
 echo "ok: an empty argument is the no-argument default"
 
+# A target path holding control bytes is refused without them reaching stderr.
+nd_rc=0
+nd_err=$("$MIGRATE" "$tmp/no-such-$(printf '\033')[31mdir" 2>&1 >/dev/null) || nd_rc=$?
+[ "$nd_rc" = 2 ] || fail "the not-a-directory refusal exited $nd_rc, expected 2"
+case $nd_err in
+  *"$(printf '\033')"*) fail "the not-a-directory refusal printed a raw ESC: $nd_err" ;;
+  *"not a directory"*) ;;
+  *) fail "the not-a-directory refusal did not appear: $nd_err" ;;
+esac
+echo "ok: a hostile target path is sanitized in the refusal"
+
 echo "PASS: all migrate-format-version tests passed"

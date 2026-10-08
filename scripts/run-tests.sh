@@ -62,6 +62,9 @@
 #   PLANWRIGHT_TEST_FORCE_SERIAL   1 forces the serial fallback path
 #   PLANWRIGHT_TEST_TIMING_REPORT  where to persist the timing report
 #                                  (default: <suite-dir>/.timing-report.tsv)
+#   PLANWRIGHT_FLEET_STATE_DIR     replaced per file by a sentinel fleet home
+#   CLAUDE_PLUGIN_DATA, CLAUDE_DIR (the latter two only when set); a file that
+#                                  creates anything in that home fails
 #   SPEC_WALKTHROUGH_DOT_TIMEOUT   exported to every test (default 60 here:
 #                                  suite load headroom; caller value wins)
 #   PLANWRIGHT_TEST_IN_POOLED_FILE internal: the mark a pooled worker gives
@@ -239,12 +242,35 @@ if [ "${1:-}" = "--run-one" ]; then
     fi
   fi
   [ -z "$slot_path" ] || export PLANWRIGHT_TEST_IN_POOLED_FILE=1
+  # A run started from a fleet worker inherits the operator's real fleet home,
+  # so each file gets a home of its own that nothing should ever touch: a file
+  # that has created anything there by the time it exits wrote fleet state (a
+  # registry record, a dispatch marker, a ledger row) without pinning a fixture
+  # home, and fails for it. A detached child writing later still lands in the
+  # sentinel, inside this run's log dir, just undetected. The plugin-data and
+  # writer arms are redirected only when set, so a file sees the same set/unset
+  # shape it would have seen without the runner. Each redirected arm is checked
+  # whole rather than at the leaf the resolver derives under it, so the check
+  # never depends on that layout: anything written there would have landed in
+  # the caller's own directory.
+  fleet_sentinel="$PLANWRIGHT_TEST_LOG_DIR/$name.fleet"
+  export PLANWRIGHT_FLEET_STATE_DIR="$fleet_sentinel/fleet"
+  [ -z "${CLAUDE_PLUGIN_DATA+set}" ] || export CLAUDE_PLUGIN_DATA="$fleet_sentinel/plugin-data"
+  [ -z "${CLAUDE_DIR+set}" ] || export CLAUDE_DIR="$fleet_sentinel/claude"
   started="$(now_ms)"
   if /bin/bash "$t" >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1; then
     verdict="done"
   else
     verdict="fail"
   fi
+  for fh in "$fleet_sentinel/fleet" "$fleet_sentinel/plugin-data" "$fleet_sentinel/claude"; do
+    if [ -e "$fh" ] || [ -L "$fh" ]; then
+      verdict="fail"
+      printf '%s\n' "run-tests: $name wrote into the fleet home it inherited (under a fleet worker, the operator's real one); pin a fixture home per case (tests/lib/fleet-home.sh)" \
+        >>"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
+      break
+    fi
+  done
   finished="$(now_ms)"
   [ -z "$slot_path" ] || pw_lock_release "$slot_path" 2>/dev/null || :
   # The timing record is this worker's own file, written before the verdict

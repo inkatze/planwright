@@ -41,7 +41,7 @@ while IFS= read -r line || [ -n "$line" ]; do
 done <"$1"
 case $subject in
   "squash!"* | "fixup!"* | "amend!"*)
-    echo "planwright githooks: commit-msg: refusing '${subject%%!*}!' subject" \
+    printf '%s %s\n' "planwright githooks: commit-msg: refusing '${subject%%!*}!' subject" \
       "(append-only history, never-squash/fixup/amend invariant)" >&2
     exit 1
     ;;
@@ -111,7 +111,7 @@ case $subject in
       *) cm_ok= ;;
     esac
     if [ -z "$cm_ok" ]; then
-      echo "planwright githooks: commit-msg: subject is not conventional:" \
+      printf '%s %s\n' "planwright githooks: commit-msg: subject is not conventional:" \
         "$subject" >&2
       echo "planwright githooks: expected 'type(scope): description' with type" \
         "one of build chore ci docs feat fix perf refactor revert style test." \
@@ -141,7 +141,7 @@ if ! top=$(git rev-parse --show-toplevel 2>/dev/null); then
 fi
 screen="$top/scripts/check-purged-identifiers.sh"
 if [ ! -x "$screen" ]; then
-  echo "planwright githooks: commit-msg: $screen missing or not executable;" \
+  printf '%s %s\n' "planwright githooks: commit-msg: $screen missing or not executable;" \
     "failing closed rather than committing an unscreened message" >&2
   exit 1
 fi

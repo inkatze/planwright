@@ -183,6 +183,9 @@
 #       settle a pending permission request (the tower may not answer those).
 #       The file is data (64 KiB cap, refused whole when over, non-empty); a
 #       dead channel is exit 3, never a hang. Prints `steered <worker> <bytes>`.
+#       A delivered steer retires the previous turn's `result`, so the worker
+#       reads running again until the new turn records its own; one delivered
+#       mid-turn cannot, since that turn's `result` lands after it.
 #       Like every frame written to the fifo (see frame_check), the composed
 #       frame is checked before the write; a refused one is exit 2 with
 #       nothing written.
@@ -227,7 +230,10 @@
 #       control_request: the detail carries `pending=<n> oldest=<age>s
 #       supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending row
 #       has a readable epoch; a spooled receipt counts as pending), so a worker
-#       that cannot proceed never reads as a healthy `running`.
+#       that cannot proceed never reads as a healthy `running`. It outranks a
+#       recorded `result`, which a persistent worker writes at the end of every
+#       turn and outlives, so an earlier turn's `completed` never hides a later
+#       request.
 #   fleet-streamjson.sh pending [<worker>...]
 #       Read-only view of the journaled requests `status` counts (a spooled
 #       receipt is counted there but listed here only once it is journaled,
@@ -330,8 +336,8 @@ self="$script_dir/$(basename "$0")"
 # (tool names, result subtypes) are sanitized before any operator-facing
 # echo or attention write.
 echo_safety="$script_dir/echo-safety.sh"
-if [ ! -r "$echo_safety" ]; then
-  echo "$me: required helper $echo_safety missing or not readable" >&2
+if [ ! -f "$echo_safety" ] || [ ! -r "$echo_safety" ]; then
+  printf '%s\n' "$me: required helper echo-safety.sh missing or not readable" >&2
   exit 2
 fi
 # shellcheck source=scripts/echo-safety.sh
@@ -343,7 +349,7 @@ fi
 # library is no mutual exclusion at all rather than a degraded kind.
 lock_lib="$script_dir/lock-lib.sh"
 if [ ! -r "$lock_lib" ]; then
-  echo "$me: required helper $lock_lib missing or not readable" >&2
+  printf '%s\n' "$me: required helper $lock_lib missing or not readable" >&2
   exit 2
 fi
 # shellcheck source=scripts/lock-lib.sh
@@ -413,7 +419,7 @@ usage() {
     echo "       fleet-streamjson.sh stop <worker> [--grace <secs>] [--observe]"
     echo "       fleet-streamjson.sh status <worker>"
     echo "       fleet-streamjson.sh pending [<worker>...]"
-    echo "  <scope> is $SCOPE_SHAPE"
+    printf '%s\n' "  <scope> is $SCOPE_SHAPE"
   } >&2
   exit 2
 }
@@ -422,7 +428,7 @@ now_epoch() {
   ne_v=$(date +%s)
   case $ne_v in
     '' | *[!0-9]*)
-      echo "$me: date +%s produced no epoch" >&2
+      printf '%s\n' "$me: date +%s produced no epoch" >&2
       return 1
       ;;
   esac
@@ -434,7 +440,7 @@ now_epoch() {
 # re-implemented (the Task 9 discipline).
 worker_dir() {
   wd_root=$(/bin/sh "$FS" root) || {
-    echo "$me: cannot resolve the fleet home (fleet-state.sh root failed)" >&2
+    printf '%s\n' "$me: cannot resolve the fleet home (fleet-state.sh root failed)" >&2
     return 2
   }
   printf '%s/streamjson/%s' "$wd_root" "$1"
@@ -539,7 +545,7 @@ journal_lock() {
   # Busy and broken stay apart for the callers that answer them differently
   # (receipt_record); every other caller treats any non-zero as "leave it".
   if [ "$jl_rc" -eq 1 ]; then
-    [ "${2:-}" = 1 ] || echo "$me: journal lock busy at $jl_dir" >&2
+    [ "${2:-}" = 1 ] || printf '%s\n' "$me: journal lock busy at $jl_dir" >&2
     return 1
   fi
   return 2
@@ -813,7 +819,7 @@ attention_upsert() {
     au_q="OVERDUE $au_q"
   fi
   /bin/sh "$FA" decide "$au_worker" "$au_scope" "$au_q" deny "allow|deny" "$au_prio" \
-    || echo "$me: attention decide failed for $au_worker req $au_short" >&2
+    || printf '%s\n' "$me: attention decide failed for $au_worker req $au_short" >&2
 }
 
 # attention_publish <worker> <dir> <projection> — write the queue row a
@@ -937,7 +943,7 @@ attention_resync() {
 attention_failure() {
   af_scope=$(read_scope "$2")
   /bin/sh "$FA" decide "$1" "$af_scope" "$3" acknowledge "acknowledge|investigate" high \
-    || echo "$me: attention failure-item write failed for $1" >&2
+    || printf '%s\n' "$me: attention failure-item write failed for $1" >&2
   /bin/sh "$FA" notify "$3" >/dev/null 2>&1 || :
 }
 
@@ -1139,7 +1145,7 @@ handle_line() {
     *'"type":"control_request"'*)
       hl_id=$(json_field "$hl_line" request_id)
       if ! valid_reqid "$hl_id"; then
-        echo "$me: refused a control_request with an out-of-grammar request_id" >&2
+        printf '%s\n' "$me: refused a control_request with an out-of-grammar request_id" >&2
         return 0
       fi
       hl_now=$(now_epoch) || hl_now=0
@@ -1246,7 +1252,7 @@ supervise() {
       kill -9 "$sv_pid" 2>/dev/null || :
     fi
     wait "$sv_pid" 2>/dev/null || :
-    echo "$me: could not publish worker.pid for $sv_worker; the worker was closed rather than left unrecorded" >&2
+    printf '%s\n' "$me: could not publish worker.pid for $sv_worker; the worker was closed rather than left unrecorded" >&2
     return 2
   fi
   # The ESCALATION TICK (see the header): a background scan of this worker's
@@ -1314,7 +1320,7 @@ build_initial_msg() {
   printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"%s"}]}}\n' \
     "$bi_body" >"$2" || return 2
   bi_why=$(frame_check "$2") || {
-    echo "$me: launch frame refused: $bi_why" >&2
+    printf '%s\n' "$me: launch frame refused: $bi_why" >&2
     return 2
   }
 }
@@ -1325,7 +1331,7 @@ refuse_bare() {
   for rb_a in "$@"; do
     case $rb_a in
       --bare | -b)
-        echo "$me: refusing '--bare' in the launch argv - the non-bare pin is structural (execution-backends D-12, REQ-A1.5)" >&2
+        printf '%s\n' "$me: refusing '--bare' in the launch argv - the non-bare pin is structural (execution-backends D-12, REQ-A1.5)" >&2
         return 2
         ;;
     esac
@@ -1339,7 +1345,7 @@ refuse_settings() {
   for rs_a in "$@"; do
     case $rs_a in
       --settings | --settings=*)
-        echo "$me: refusing '--settings' in the launch argv - the worker-settings pin is structural (fleet-autonomy D-19, REQ-E1.4)" >&2
+        printf '%s\n' "$me: refusing '--settings' in the launch argv - the worker-settings pin is structural (fleet-autonomy D-19, REQ-E1.4)" >&2
         return 2
         ;;
     esac
@@ -1356,7 +1362,7 @@ refuse_mode_overrides() {
   for rm_a in "$@"; do
     case $rm_a in
       --dangerously-skip-permissions | --permission-mode | --permission-mode=*)
-        echo "$me: refusing '$rm_a' in the launch argv - it would override the pinned worker-settings posture (fleet-autonomy D-19, REQ-E1.4)" >&2
+        printf '%s\n' "$me: refusing '$rm_a' in the launch argv - it would override the pinned worker-settings posture (fleet-autonomy D-19, REQ-E1.4)" >&2
         return 2
         ;;
     esac
@@ -1372,7 +1378,7 @@ worker_settings_path() {
   ws_dir=$(cd "$script_dir/../config" 2>/dev/null && pwd -P) || ws_dir="$script_dir/../config"
   ws_path="$ws_dir/worker-settings.json"
   if [ ! -f "$ws_path" ] || [ ! -r "$ws_path" ]; then
-    echo "$me: refusing to launch: worker-settings fragment $ws_path missing or unreadable - without it the worker inherits the operator's permission mode (fleet-autonomy D-19, REQ-E1.4)" >&2
+    printf '%s\n' "$me: refusing to launch: worker-settings fragment $ws_path missing or unreadable - without it the worker inherits the operator's permission mode (fleet-autonomy D-19, REQ-E1.4)" >&2
     return 7
   fi
   printf '%s\n' "$ws_path"
@@ -1392,7 +1398,7 @@ dispatch_env_path() {
   # launch depends on; a readable-but-not-executable wrapper would otherwise
   # surface much later as an opaque worker exit 126.
   if [ ! -x "$de_path" ]; then
-    echo "$me: refusing to launch: dispatch-env wrapper $de_path missing or not executable - the worker would run without the ghost-text pin and without a resolvable planwright root (fleet-autonomy D-10, REQ-D1.1)" >&2
+    printf '%s\n' "$me: refusing to launch: dispatch-env wrapper $de_path missing or not executable - the worker would run without the ghost-text pin and without a resolvable planwright root (fleet-autonomy D-10, REQ-D1.1)" >&2
     return 8
   fi
   printf '%s\n' "$de_path"
@@ -1411,7 +1417,7 @@ guard_preflight() {
     refuse | warn) ;;
     off) return 0 ;;
     *)
-      echo "$me: invalid PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT '$gp_mode' (refuse|warn|off)" >&2
+      printf '%s\n' "$me: invalid PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT '$gp_mode' (refuse|warn|off)" >&2
       return 2
       ;;
   esac
@@ -1430,7 +1436,7 @@ guard_preflight() {
   # Executable, not merely readable: the wrapper execs it, and a guard that
   # cannot run would otherwise read as "does not approve" every root below.
   if [ ! -x "$gp_guard" ]; then
-    echo "$me: launch preflight: the auto-approve hook $gp_guard is missing or not executable; the worker would prompt on every routine command" >&2
+    printf '%s\n' "$me: launch preflight: the auto-approve hook $gp_guard is missing or not executable; the worker would prompt on every routine command" >&2
     [ "$gp_mode" = warn ] && return 0
     return 9
   fi
@@ -1438,12 +1444,12 @@ guard_preflight() {
   # the policy guard, so a hook root without it would leave them unrefused (a
   # hook that fails to run blocks nothing).
   if [ ! -x "$gp_hook_root/scripts/policy-guard.sh" ]; then
-    echo "$me: launch preflight: the policy guard $gp_hook_root/scripts/policy-guard.sh is missing or not executable; the worker's merges and history rewrites would go unchecked" >&2
+    printf '%s\n' "$me: launch preflight: the policy guard $gp_hook_root/scripts/policy-guard.sh is missing or not executable; the worker's merges and history rewrites would go unchecked" >&2
     [ "$gp_mode" = warn ] && return 0
     return 9
   fi
   gp_tmp=$(mktemp) || {
-    echo "$me: launch preflight: cannot create a temp file for the proof record (TMPDIR=${TMPDIR:-/tmp})" >&2
+    printf '%s\n' "$me: launch preflight: cannot create a temp file for the proof record (TMPDIR=${TMPDIR:-/tmp})" >&2
     [ "$gp_mode" = warn ] && return 0
     return 2
   }
@@ -1472,7 +1478,7 @@ guard_preflight() {
     esac
   done >"$gp_tmp" || {
     rm -f "$gp_tmp"
-    echo "$me: launch preflight: could not record the proof (writing $gp_tmp failed)" >&2
+    printf '%s\n' "$me: launch preflight: could not record the proof (writing $gp_tmp failed)" >&2
     [ "$gp_mode" = warn ] && return 0
     return 2
   }
@@ -1480,19 +1486,19 @@ guard_preflight() {
   gp_failed=$(sed -n 's/^failed //p' "$gp_tmp" 2>/dev/null) || gp_failed=''
   rm -f "$gp_tmp"
   if [ "${gp_tested:-0}" -eq 0 ]; then
-    echo "$me: launch preflight: proved nothing - no candidate root resolved (launcher $gp_launcher, hook root $gp_hook_root)" >&2
+    printf '%s\n' "$me: launch preflight: proved nothing - no candidate root resolved (launcher $gp_launcher, hook root $gp_hook_root)" >&2
     [ "$gp_mode" = warn ] && return 0
     return 9
   fi
   [ -n "$gp_failed" ] || return 0
   printf '%s\n' "$gp_failed" | while IFS= read -r gp_root; do
-    echo "$me: launch preflight: the auto-approve hook does not approve '$gp_root/scripts/resolve-rule-doc.sh spec-format' - a worker whose skill resolves to that root stalls on its first doctrine call (check jq is installed, and that the hook resolves the root: PLANWRIGHT_ROOT / CLAUDE_PLUGIN_ROOT / scripts/resolve-installed-roots.sh)" >&2
+    printf '%s\n' "$me: launch preflight: the auto-approve hook does not approve '$gp_root/scripts/resolve-rule-doc.sh spec-format' - a worker whose skill resolves to that root stalls on its first doctrine call (check jq is installed, and that the hook resolves the root: PLANWRIGHT_ROOT / CLAUDE_PLUGIN_ROOT / scripts/resolve-installed-roots.sh)" >&2
   done
   if [ "$gp_mode" = warn ]; then
-    echo "$me: launch preflight: continuing anyway (PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=warn)" >&2
+    printf '%s\n' "$me: launch preflight: continuing anyway (PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=warn)" >&2
     return 0
   fi
-  echo "$me: refusing to launch: the worker would pend on its opening plugin-script call (exit 9; PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=warn to launch regardless)" >&2
+  printf '%s\n' "$me: refusing to launch: the worker would pend on its opening plugin-script call (exit 9; PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=warn to launch regardless)" >&2
   return 9
 }
 
@@ -1523,7 +1529,7 @@ guard_preflight() {
 register_dispatch() {
   rd_reg="$script_dir/fleet-register.sh"
   if [ ! -r "$rd_reg" ]; then
-    echo "$me: cannot register $1: $rd_reg is missing or unreadable; this worker will not appear in the fleet inventory" >&2
+    printf '%s\n' "$me: cannot register $1: $rd_reg is missing or unreadable; this worker will not appear in the fleet inventory" >&2
     return 0
   fi
   rd_scope=$2
@@ -1699,7 +1705,7 @@ journal_close() {
   # pending. Checking first makes the distinction independent of which awk
   # this host ships.
   [ -r "$1/journal" ] || {
-    echo "$me: the receipt journal is unreadable; the attention class is left held" >&2
+    printf '%s\n' "$me: the receipt journal is unreadable; the attention class is left held" >&2
     return 1
   }
   # Three outcomes, not two: awk exits 1 for "no pending rows" and something
@@ -1711,7 +1717,7 @@ journal_close() {
     0) ;;
     1) return 0 ;;
     *)
-      echo "$me: cannot read the receipt journal; the attention class is left held" >&2
+      printf '%s\n' "$me: cannot read the receipt journal; the attention class is left held" >&2
       return 1
       ;;
   esac
@@ -1741,7 +1747,7 @@ stop_held() {
     scratch) held_scratch "$2" ;;
     attention) held_attention "$4" "$3" || held_receipts "$2" ;;
     *)
-      echo "$me: no held-probe for release class '$1'" >&2
+      printf '%s\n' "$me: no held-probe for release class '$1'" >&2
       return 0
       ;;
   esac
@@ -1770,7 +1776,7 @@ stop_release() {
     scratch) release_scratch "$2" ;;
     attention) release_attention "$3" "$2" ;;
     *)
-      echo "$me: no release for class '$1'" >&2
+      printf '%s\n' "$me: no release for class '$1'" >&2
       return 1
       ;;
   esac
@@ -1827,23 +1833,23 @@ cmd_launch() {
     esac
   done
   valid_field "${worker:-}" || {
-    echo "$me: invalid worker handle" >&2
+    printf '%s\n' "$me: invalid worker handle" >&2
     exit 2
   }
   # The internal --resume-session seam gets the same ingress grammar as every
   # other input: cmd_recover validates the persisted sid before passing it,
   # but a direct invocation must not ride an out-of-grammar id into the argv.
   if [ -n "$resume_sid" ] && ! valid_reqid "$resume_sid"; then
-    echo "$me: invalid --resume-session id" >&2
+    printf '%s\n' "$me: invalid --resume-session id" >&2
     exit 2
   fi
   if [ -z "$resume_sid" ]; then
     valid_field "${scope:-}" || {
-      echo "$me: invalid scope: $SCOPE_SHAPE" >&2
+      printf '%s\n' "$me: invalid scope: $SCOPE_SHAPE" >&2
       exit 2
     }
     if [ -z "$prompt_file" ] || [ ! -r "$prompt_file" ]; then
-      echo "$me: --prompt-file missing or unreadable" >&2
+      printf '%s\n' "$me: --prompt-file missing or unreadable" >&2
       exit 2
     fi
   fi
@@ -1863,7 +1869,7 @@ cmd_launch() {
   # refusing it here too is what stops one being FOLLOWED in the first place,
   # which is the earlier and more useful of the two checks.
   [ ! -L "$dir" ] || {
-    echo "$me: refusing to launch $worker: its state directory is a symlink" >&2
+    printf '%s\n' "$me: refusing to launch $worker: its state directory is a symlink" >&2
     exit 2
   }
   mkdir -p "$dir" || exit 2
@@ -1889,11 +1895,11 @@ cmd_launch() {
     # or a parent this cannot write. The library has already said which.
     # Calling it "already in flight" would send an operator to look for a
     # launch that does not exist.
-    echo "$me: cannot take the launch election for $worker (lock error)" >&2
+    printf '%s\n' "$me: cannot take the launch election for $worker (lock error)" >&2
     exit 2
   fi
   if [ "$lt_rc" -ne 0 ]; then
-    echo "$me: a launch is already in flight for $worker (refused: single initiator)" >&2
+    printf '%s\n' "$me: a launch is already in flight for $worker (refused: single initiator)" >&2
     exit 3
   fi
 
@@ -1901,7 +1907,7 @@ cmd_launch() {
   # arriving after that against a supervisor already up needs its own refusal:
   # it reaches the same double-supervisor outcome by the later route.
   if worker_alive "$dir"; then
-    echo "$me: worker $worker is already running; launch refused" >&2
+    printf '%s\n' "$me: worker $worker is already running; launch refused" >&2
     exit 3
   fi
 
@@ -1942,7 +1948,7 @@ cmd_launch() {
   if [ -n "$run_cwd" ]; then
     cd "$run_cwd" || {
       rm -f "$init_msg"
-      echo "$me: --cwd not accessible" >&2
+      printf '%s\n' "$me: --cwd not accessible" >&2
       exit 2
     }
   fi
@@ -1985,7 +1991,7 @@ cmd_launch() {
     sleep 0.1
     li=$((li + 1))
   done
-  echo "$me: detached supervisor for $worker did not start within 5s; see $dir/supervisor.log" >&2
+  printf '%s\n' "$me: detached supervisor for $worker did not start within 5s; see $dir/supervisor.log" >&2
   return 2
 }
 
@@ -1995,11 +2001,11 @@ cmd_answer() {
   req=$2
   shift 2
   valid_field "$worker" || {
-    echo "$me: invalid worker handle" >&2
+    printf '%s\n' "$me: invalid worker handle" >&2
     exit 2
   }
   valid_reqid "$req" || {
-    echo "$me: invalid request id" >&2
+    printf '%s\n' "$me: invalid request id" >&2
     exit 2
   }
   mode=''
@@ -2034,7 +2040,7 @@ cmd_answer() {
   [ -n "$mode" ] || usage
   if [ "$mode" = 'file' ]; then
     if [ ! -r "$resp_file" ]; then
-      echo "$me: --response-file missing or unreadable" >&2
+      printf '%s\n' "$me: --response-file missing or unreadable" >&2
       exit 2
     fi
     # Read one byte past the 64 KiB cap so an oversize body is REFUSED whole,
@@ -2043,13 +2049,13 @@ cmd_answer() {
     # plus its final newline still fits.)
     body=$(head -c 65537 <"$resp_file")
     if [ "$(printf '%s' "$body" | wc -c | tr -d ' ')" -gt 65536 ]; then
-      echo "$me: --response-file exceeds the 64 KiB cap (refused, not truncated)" >&2
+      printf '%s\n' "$me: --response-file exceeds the 64 KiB cap (refused, not truncated)" >&2
       exit 2
     fi
     # An empty body would emit '"response":' with no value — an invalid
     # frame on the worker's stdin. Refused fail-closed.
     if [ -z "$body" ]; then
-      echo "$me: --response-file is empty" >&2
+      printf '%s\n' "$me: --response-file is empty" >&2
       exit 2
     fi
     # The response rides ONE line of the worker's stdin stream: an embedded
@@ -2058,13 +2064,13 @@ cmd_answer() {
     # already stripped the trailing newline, so any count above zero is an
     # embedded one.)
     if [ "$(printf '%s' "$body" | wc -l | tr -d ' ')" != 0 ]; then
-      echo "$me: --response-file must be single-line JSON (embedded newline refused)" >&2
+      printf '%s\n' "$me: --response-file must be single-line JSON (embedded newline refused)" >&2
       exit 2
     fi
   fi
   dir=$(worker_dir "$worker") || exit 2
   [ -d "$dir" ] || {
-    echo "$me: unknown worker $worker" >&2
+    printf '%s\n' "$me: unknown worker $worker" >&2
     exit 2
   }
   if [ "$mode" = 'file' ]; then
@@ -2081,7 +2087,7 @@ cmd_answer() {
     resp_ok=$?
     rm -f "$resp_probe"
     if [ "$resp_ok" != 0 ]; then
-      echo "$me: --response-file refused: $resp_why" >&2
+      printf '%s\n' "$me: --response-file refused: $resp_why" >&2
       exit 2
     fi
   fi
@@ -2149,7 +2155,7 @@ cmd_answer() {
   case $sent in
     2)
       journal_unlock "$dir"
-      echo "$me: answer refused, nothing written to worker $worker: $why (request $short stays pending)" >&2
+      printf '%s\n' "$me: answer refused, nothing written to worker $worker: $why (request $short stays pending)" >&2
       exit 2
       ;;
     3)
@@ -2192,7 +2198,7 @@ cmd_steer() {
   worker=$1
   shift
   valid_field "$worker" || {
-    echo "$me: invalid worker handle" >&2
+    printf '%s\n' "$me: invalid worker handle" >&2
     exit 2
   }
   st_file=''
@@ -2208,30 +2214,30 @@ cmd_steer() {
   done
   [ -n "$st_file" ] || usage
   if [ ! -f "$st_file" ] || [ ! -r "$st_file" ]; then
-    echo "$me: --message-file missing or unreadable" >&2
+    printf '%s\n' "$me: --message-file missing or unreadable" >&2
     exit 2
   fi
   # One byte past the cap, so an oversize message is refused whole rather
   # than truncated into a message the worker reads as complete.
   st_bytes=$(head -c 65537 <"$st_file" | wc -c | tr -d ' ')
   if [ "$st_bytes" -gt 65536 ]; then
-    echo "$me: --message-file exceeds the 64 KiB cap (refused, not truncated)" >&2
+    printf '%s\n' "$me: --message-file exceeds the 64 KiB cap (refused, not truncated)" >&2
     exit 2
   fi
   if [ "$(tr -d '[:space:]' <"$st_file" | wc -c | tr -d ' ')" = 0 ]; then
-    echo "$me: --message-file is empty" >&2
+    printf '%s\n' "$me: --message-file is empty" >&2
     exit 2
   fi
   dir=$(worker_dir "$worker") || exit 2
   [ -d "$dir" ] || {
-    echo "$me: unknown worker $worker" >&2
+    printf '%s\n' "$me: unknown worker $worker" >&2
     exit 2
   }
   # The receipt row carries the path as given; a tab or newline in it would
   # split the row, so such a path is refused rather than recorded mangled.
   case $st_file in
     *"$TAB"* | *"$NL"*)
-      echo "$me: --message-file path may not contain a tab or newline" >&2
+      printf '%s\n' "$me: --message-file path may not contain a tab or newline" >&2
       exit 2
       ;;
   esac
@@ -2254,19 +2260,34 @@ cmd_steer() {
     journal_unlock "$dir"
     exit 2
   fi
+  # A steer opens a new turn, so the previous turn's result stops speaking for
+  # the worker: left in place, status and the stuck detector read a worker
+  # mid-turn as completed, and a reaper closes it. Set aside BEFORE the send,
+  # since the new turn's own result can land the moment the frame does, and
+  # put back with `ln` on a send that delivered nothing: it fails rather than
+  # overwrite the end record a supervisor exiting meanwhile writes.
+  st_prev=''
+  if [ -f "$dir/result" ]; then
+    st_prev="$dir/.result.steer"
+    mv -f "$dir/result" "$st_prev" 2>/dev/null || st_prev=''
+  fi
   trap '' PIPE
   st_why=$(frame_send "$dir" "$st_frame")
   st_sent=$?
   rm -f "$st_frame"
+  if [ -n "$st_prev" ]; then
+    [ "$st_sent" = 0 ] || ln "$st_prev" "$dir/result" 2>/dev/null || :
+    rm -f "$st_prev"
+  fi
   case $st_sent in
     2)
       journal_unlock "$dir"
-      echo "$me: steer refused, nothing written to worker $worker: $st_why" >&2
+      printf '%s\n' "$me: steer refused, nothing written to worker $worker: $st_why" >&2
       exit 2
       ;;
     3)
       journal_unlock "$dir"
-      echo "$me: steer not delivered: channel for worker $worker is dead (recover the worker first)" >&2
+      printf '%s\n' "$me: steer not delivered: channel for worker $worker is dead (recover the worker first)" >&2
       exit 3
       ;;
   esac
@@ -2276,7 +2297,7 @@ cmd_steer() {
     printf 'steered %s %s\n' "$worker" "$st_bytes"
   else
     journal_unlock "$dir"
-    echo "$me: steer not delivered: write to worker $worker stdin failed (recover the worker first)" >&2
+    printf '%s\n' "$me: steer not delivered: write to worker $worker stdin failed (recover the worker first)" >&2
     exit 3
   fi
 }
@@ -2289,7 +2310,7 @@ cmd__frame_check() {
   if fc_why=$(frame_check "$1"); then
     echo "frame ok"
   else
-    echo "frame refused: $fc_why"
+    printf '%s\n' "frame refused: $fc_why"
     exit 2
   fi
 }
@@ -2299,7 +2320,7 @@ cmd_recover() {
   worker=$1
   shift
   valid_field "$worker" || {
-    echo "$me: invalid worker handle" >&2
+    printf '%s\n' "$me: invalid worker handle" >&2
     exit 2
   }
   foreground=''
@@ -2320,7 +2341,7 @@ cmd_recover() {
   done
   dir=$(worker_dir "$worker") || exit 2
   [ -d "$dir" ] || {
-    echo "$me: unknown worker $worker" >&2
+    printf '%s\n' "$me: unknown worker $worker" >&2
     exit 2
   }
 
@@ -2343,11 +2364,11 @@ cmd_recover() {
   lock_take "$dir/recover.lock"
   lt_rc=$?
   if [ "$lt_rc" -eq 2 ]; then
-    echo "$me: cannot take the recovery election for $worker (lock error)" >&2
+    printf '%s\n' "$me: cannot take the recovery election for $worker (lock error)" >&2
     exit 2
   fi
   if [ "$lt_rc" -ne 0 ]; then
-    echo "$me: recovery already in progress for $worker (refused: single initiator)" >&2
+    printf '%s\n' "$me: recovery already in progress for $worker (refused: single initiator)" >&2
     exit 3
   fi
 
@@ -2356,7 +2377,7 @@ cmd_recover() {
   for pidfile in worker.pid supervisor.pid; do
     pid=$(cat "$dir/$pidfile" 2>/dev/null) || pid=''
     if valid_posnum "${pid:-}" && pid_live "$pid"; then
-      echo "$me: $pidfile ($pid) still alive for $worker - not orphaned, recovery refused" >&2
+      printf '%s\n' "$me: $pidfile ($pid) still alive for $worker - not orphaned, recovery refused" >&2
       exit 3
     fi
   done
@@ -2365,7 +2386,7 @@ cmd_recover() {
   if ! valid_reqid "${sid:-}"; then
     attention_failure "$worker" "$dir" \
       "resume halt: worker $worker has no usable persisted session_id - unit halted awaiting operator direction"
-    echo "$me: no usable session_id for $worker; halt (REQ-E1.5)" >&2
+    printf '%s\n' "$me: no usable session_id for $worker; halt (REQ-E1.5)" >&2
     exit 4
   fi
 
@@ -2388,12 +2409,12 @@ cmd_recover() {
     # unit on it would tell the operator to intervene while a perfectly good
     # launch is running. Pass the refusal through instead.
     if [ "$ec" = 3 ]; then
-      echo "$me: relaunch for $worker refused; another launch holds this worker" >&2
+      printf '%s\n' "$me: relaunch for $worker refused; another launch holds this worker" >&2
       exit 3
     fi
     attention_failure "$worker" "$dir" \
       "resume halt: --resume relaunch for worker $worker failed (exit $ec) - unit halted awaiting operator direction"
-    echo "$me: --resume relaunch failed for $worker (exit $ec); halt (REQ-E1.5)" >&2
+    printf '%s\n' "$me: --resume relaunch failed for $worker (exit $ec); halt (REQ-E1.5)" >&2
     exit 5
   fi
 }
@@ -2404,7 +2425,7 @@ cmd_stop() {
   # library costs `stop` and no other verb. Required rather than degraded:
   # without it the close has no process match at all.
   if [ ! -r "$script_dir/fleet-stop-lib.sh" ]; then
-    echo "$me: required helper $script_dir/fleet-stop-lib.sh missing or not readable" >&2
+    printf '%s\n' "$me: required helper $script_dir/fleet-stop-lib.sh missing or not readable" >&2
     exit 2
   fi
   # shellcheck source=scripts/fleet-stop-lib.sh
@@ -2412,7 +2433,7 @@ cmd_stop() {
   worker=$1
   shift
   valid_field "$worker" || {
-    echo "$me: invalid worker handle" >&2
+    printf '%s\n' "$me: invalid worker handle" >&2
     exit 2
   }
   grace=$grace_default
@@ -2442,13 +2463,13 @@ cmd_stop() {
   # names no worker — reported as such rather than as `already-closed`, which
   # would read a typo as a successful close.
   [ -d "$dir" ] || {
-    echo "$me: unknown worker $worker" >&2
+    printf '%s\n' "$me: unknown worker $worker" >&2
     exit 2
   }
   # The handle grammar blocks traversal tokens but not a symlink planted under
   # the fleet home, and this verb deletes inside whatever it is handed.
   [ ! -L "$dir" ] || {
-    echo "$me: refusing to close $worker: its state directory is a symlink" >&2
+    printf '%s\n' "$me: refusing to close $worker: its state directory is a symlink" >&2
     exit 2
   }
   stop_refuse_self_hosted "$dir" "$(stop_match "$worker" "$dir")" \
@@ -2476,28 +2497,28 @@ cmd__tick() {
   # Its stderr is the supervisor's log, the one place a ticker that never
   # started can be seen, so every refusal says what it refused.
   valid_field "$tk_worker" || {
-    echo "$me: tick: invalid worker handle" >&2
+    printf '%s\n' "$me: tick: invalid worker handle" >&2
     exit 2
   }
   if ! valid_posnum "$tk_sup" || ! valid_posnum "$tk_wrk"; then
-    echo "$me: tick: supervisor and worker pids must be positive integers" >&2
+    printf '%s\n' "$me: tick: supervisor and worker pids must be positive integers" >&2
     exit 2
   fi
   # The directory must be this worker's own state directory, resolved the way
   # every other verb resolves it, not a caller-chosen path to scan.
   tk_expect=$(worker_dir "$tk_worker") || exit 2
   if [ "$tk_dir" != "$tk_expect" ] || [ ! -d "$tk_dir" ]; then
-    echo "$me: tick: $tk_dir is not the state directory of worker $tk_worker" >&2
+    printf '%s\n' "$me: tick: $tk_dir is not the state directory of worker $tk_worker" >&2
     exit 2
   fi
   tk_tick=${PLANWRIGHT_STREAMJSON_ALARM_TICK:-60}
   valid_posnum "$tk_tick" || {
-    echo "$me: tick: invalid PLANWRIGHT_STREAMJSON_ALARM_TICK '$tk_tick'; using 60" >&2
+    printf '%s\n' "$me: tick: invalid PLANWRIGHT_STREAMJSON_ALARM_TICK '$tk_tick'; using 60" >&2
     tk_tick=60
   }
   tk_thr=${PLANWRIGHT_STREAMJSON_PENDING_AGE:-900}
   valid_posnum "$tk_thr" || {
-    echo "$me: tick: invalid PLANWRIGHT_STREAMJSON_PENDING_AGE '$tk_thr'; using 900" >&2
+    printf '%s\n' "$me: tick: invalid PLANWRIGHT_STREAMJSON_PENDING_AGE '$tk_thr'; using 900" >&2
     tk_thr=900
   }
   tk_i=0
@@ -2538,14 +2559,14 @@ cmd_alarm_scan() {
     esac
   done
   valid_posnum "$threshold" || {
-    echo "$me: invalid threshold" >&2
+    printf '%s\n' "$me: invalid threshold" >&2
     exit 2
   }
   if [ -z "$now" ]; then
     now=$(now_epoch) || exit 2
   fi
   valid_posnum "$now" || {
-    echo "$me: invalid --now" >&2
+    printf '%s\n' "$me: invalid --now" >&2
     exit 2
   }
   as_root=$(/bin/sh "$FS" root) || exit 2
@@ -2670,17 +2691,67 @@ $aw_ids
 AWIDS
 }
 
+# status_awaiting <worker> <dir> <sup-pid> <wrk-pid> — print the awaiting-input
+# verdict and return 0 when the journal holds a pending receipt; return 1, with
+# nothing printed, when it holds none.
+status_awaiting() {
+  # A live worker with a pending receipt is not making progress: it is
+  # waiting on an answer nobody may be about to give. Say so, with the
+  # count and the oldest age, rather than a `running` that reads as healthy.
+  # One read of the journal for both figures, so the count and the age come
+  # from the same generation of a file that is replaced by rename; a pending
+  # row whose epoch is unreadable still counts, with the age reported as
+  # unknown rather than the row dropped back to `running`.
+  sa_pend=0
+  sa_oldest=''
+  if [ -f "$2/journal" ]; then
+    sa_row=$(awk -F'\t' '$4 == "pending" { n++; if ($3 ~ /^[0-9]+$/ && (o == "" || $3 + 0 < o + 0)) o = $3 } END { print n + 0 "\t" o }' \
+      "$2/journal" 2>/dev/null) || sa_row=''
+    sa_pend=${sa_row%%"$TAB"*}
+    sa_oldest=${sa_row#*"$TAB"}
+    [ "$sa_oldest" != "$sa_row" ] || sa_oldest=''
+  fi
+  # A receipt spooled because the journal lock was busy, or set aside after a
+  # failed write, is waiting on an answer just the same.
+  set +f
+  for sa_f in "$2"/deferred-* "$2"/undrained-*; do
+    [ -f "$sa_f" ] && [ ! -L "$sa_f" ] || continue
+    sa_pend=$((${sa_pend:-0} + 1))
+    sa_e=$(head -n 1 "$sa_f" 2>/dev/null) || sa_e=''
+    if valid_posnum "${sa_e:-}" && { [ -z "$sa_oldest" ] || [ "$sa_e" -lt "$sa_oldest" ]; }; then
+      sa_oldest=$sa_e
+    fi
+  done
+  set -f
+  valid_posnum "${sa_pend:-}" || return 1
+  sa_age=unknown
+  if valid_posnum "${sa_oldest:-}" && sa_now=$(now_epoch); then
+    sa_age=$((sa_now - sa_oldest))
+    [ "$sa_age" -ge 0 ] || sa_age=0
+    sa_age="${sa_age}s"
+  fi
+  printf 'status %s awaiting-input pending=%s oldest=%s supervisor=%s worker=%s\n' \
+    "$1" "$sa_pend" "$sa_age" "$3" "$4"
+}
+
 cmd_status() {
   [ $# -eq 1 ] || usage
   worker=$1
   valid_field "$worker" || {
-    echo "$me: invalid worker handle" >&2
+    printf '%s\n' "$me: invalid worker handle" >&2
     exit 2
   }
   dir=$(worker_dir "$worker") || exit 2
   if [ ! -d "$dir" ]; then
     printf 'status %s unknown no-runtime-dir\n' "$worker"
     return 0
+  fi
+  sup_pid=$(cat "$dir/supervisor.pid" 2>/dev/null) || sup_pid=''
+  wrk_pid=$(cat "$dir/worker.pid" 2>/dev/null) || wrk_pid=''
+  st_live=0
+  if valid_posnum "${sup_pid:-}" && pid_live "$sup_pid" \
+    && valid_posnum "${wrk_pid:-}" && pid_live "$wrk_pid"; then
+    st_live=1
   fi
   # ONE read, with every field parsed from that single snapshot. The writer
   # truncates and rewrites this file in place, so separate reads can straddle
@@ -2714,6 +2785,13 @@ cmd_status() {
   esac
   st_line=${st_raw%%"$NL"*}
   if [ "$st_seen" = 1 ]; then
+    # A persistent worker writes `result` at the end of every turn and stays
+    # up for the next one, so the record says only that some turn ended. A
+    # live worker with a pending request is waiting on a human whatever an
+    # earlier turn recorded: a watcher keyed on this verdict must see it.
+    if [ "$st_live" = 1 ]; then
+      status_awaiting "$worker" "$dir" "$sup_pid" "$wrk_pid" && return 0
+    fi
     st_kind=$(printf '%s\n' "$st_line" | awk -F'\t' 'NR == 1 { print $1 }')
     detail=$(printf '%s\n' "$st_line" | awk -F'\t' 'NR == 1 { print $1 "=" $2 }')
     # A `result` event is a completion unless the frame flagged is_error — the
@@ -2737,49 +2815,8 @@ cmd_status() {
     fi
     return 0
   fi
-  sup_pid=$(cat "$dir/supervisor.pid" 2>/dev/null) || sup_pid=''
-  wrk_pid=$(cat "$dir/worker.pid" 2>/dev/null) || wrk_pid=''
-  if valid_posnum "${sup_pid:-}" && pid_live "$sup_pid" \
-    && valid_posnum "${wrk_pid:-}" && pid_live "$wrk_pid"; then
-    # A live worker with a pending receipt is not making progress: it is
-    # waiting on an answer nobody may be about to give. Say so, with the
-    # count and the oldest age, rather than a `running` that reads as healthy.
-    # One read of the journal for both figures, so the count and the age come
-    # from the same generation of a file that is replaced by rename; a pending
-    # row whose epoch is unreadable still counts, with the age reported as
-    # unknown rather than the row dropped back to `running`.
-    st_pend=0
-    st_oldest=''
-    if [ -f "$dir/journal" ]; then
-      st_row=$(awk -F'\t' '$4 == "pending" { n++; if ($3 ~ /^[0-9]+$/ && (o == "" || $3 + 0 < o + 0)) o = $3 } END { print n + 0 "\t" o }' \
-        "$dir/journal" 2>/dev/null) || st_row=''
-      st_pend=${st_row%%"$TAB"*}
-      st_oldest=${st_row#*"$TAB"}
-      [ "$st_oldest" != "$st_row" ] || st_oldest=''
-    fi
-    # A receipt spooled because the journal lock was busy is waiting on an
-    # answer just the same.
-    set +f
-    for st_f in "$dir"/deferred-* "$dir"/undrained-*; do
-      [ -f "$st_f" ] && [ ! -L "$st_f" ] || continue
-      st_pend=$((${st_pend:-0} + 1))
-      st_e=$(head -n 1 "$st_f" 2>/dev/null) || st_e=''
-      if valid_posnum "${st_e:-}" && { [ -z "$st_oldest" ] || [ "$st_e" -lt "$st_oldest" ]; }; then
-        st_oldest=$st_e
-      fi
-    done
-    set -f
-    if valid_posnum "${st_pend:-}"; then
-      st_age=unknown
-      if valid_posnum "${st_oldest:-}" && st_now=$(now_epoch); then
-        st_age=$((st_now - st_oldest))
-        [ "$st_age" -ge 0 ] || st_age=0
-        st_age="${st_age}s"
-      fi
-      printf 'status %s awaiting-input pending=%s oldest=%s supervisor=%s worker=%s\n' \
-        "$worker" "$st_pend" "$st_age" "$sup_pid" "$wrk_pid"
-      return 0
-    fi
+  if [ "$st_live" = 1 ]; then
+    status_awaiting "$worker" "$dir" "$sup_pid" "$wrk_pid" && return 0
     printf 'status %s running supervisor=%s worker=%s\n' "$worker" "$sup_pid" "$wrk_pid"
     return 0
   fi
@@ -3041,11 +3078,11 @@ pending_show() {
 # generation of it.
 pending_worker() {
   if [ ! -r "$2" ] || [ ! -x "$2" ] || { [ -e "$2/journal" ] && [ ! -r "$2/journal" ]; }; then
-    echo "$me: cannot read the receipt journal of worker $1" >&2
+    printf '%s\n' "$me: cannot read the receipt journal of worker $1" >&2
     return 2
   fi
   pw_ids=$(journal_pending_ids "$2") || {
-    echo "$me: cannot read the receipt journal of worker $1" >&2
+    printf '%s\n' "$me: cannot read the receipt journal of worker $1" >&2
     return 2
   }
   [ -n "$pw_ids" ] || return 0
@@ -3058,7 +3095,7 @@ pending_worker() {
 cmd_pending() {
   for pd_w in "$@"; do
     valid_field "$pd_w" || {
-      echo "$me: invalid worker handle" >&2
+      printf '%s\n' "$me: invalid worker handle" >&2
       exit 2
     }
   done
@@ -3069,7 +3106,7 @@ cmd_pending() {
   if [ $# -eq 0 ]; then
     [ -d "$pd_root/streamjson" ] || return 0
     [ -r "$pd_root/streamjson" ] && [ -x "$pd_root/streamjson" ] || {
-      echo "$me: cannot list the stream-json workers under $pd_root" >&2
+      printf '%s\n' "$me: cannot list the stream-json workers under $pd_root" >&2
       exit 2
     }
     set +f
@@ -3084,7 +3121,7 @@ cmd_pending() {
   fi
   for pd_w in "$@"; do
     [ -d "$pd_root/streamjson/$pd_w" ] || {
-      echo "$me: no stream-json worker $pd_w" >&2
+      printf '%s\n' "$me: no stream-json worker $pd_w" >&2
       exit 2
     }
   done

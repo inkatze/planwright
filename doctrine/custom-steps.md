@@ -343,7 +343,7 @@ regeneration and draft check, the PR a draft. Once per run (D-28).
 
 A run is a **resume** exactly when its invocation carries
 `--resume <run-id>:<point>`, as in
-`/execute-task 5 specs/<spec> --resume 000004:post-pr`, the run id in the
+`/execute-task 5 <spec> --resume 000004:post-pr`, the run id in the
 record helper's grammar and the point an in-run point,
 both validated before any record is read; quota-handling's resume supplies
 them, and only this runner skips. The run starts at that point, never

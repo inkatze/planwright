@@ -131,9 +131,9 @@ It is a durable, timestamped marker file, one per task, under the common git
 directory of the repository holding the bundle
 (`<git-common-dir>/planwright/orchestrate/<spec>/markers/<id>`; a bundle in no
 repository uses its work repository's), so every worktree of the repository
-counts it: a meta-tower running from one worktree sees the marker a subordinate
-dropped from another. Another clone has its own git directory and sees none of
-them. The writer also drops a copy in the checkout-local
+counts it: a tower running from one worktree sees a marker another tower
+dropped from a different worktree. Another clone has its own git directory and
+sees none of them. The writer also drops a copy in the checkout-local
 `<spec-dir>/.orchestrate/markers/<id>`, and readers consult that location too
 (and, from a linked worktree, the primary checkout's), so a marker an older
 planwright version wrote at the old location still counts from the same

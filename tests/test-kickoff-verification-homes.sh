@@ -59,7 +59,7 @@ BUNDLE=invariant-tasks
 HEADING='### Amendment 6 '
 
 fail() {
-  echo "FAIL: $1" >&2
+  printf '%s\n' "FAIL: $1" >&2
   exit 1
 }
 
@@ -134,7 +134,7 @@ awk -v h="$HEADING" '
 [ -s "$tmp/captured.md" ] || fail "the landing commit's brief carries no entry opening with '$HEADING'"
 cmp -s "$tmp/captured.md" "$FIXTURE" \
   || fail "fixture diverges from the entry at $LANDING; re-capture it rather than editing it"
-echo "ok: fixture is byte-identical to the entry at $LANDING"
+printf '%s\n' "ok: fixture is byte-identical to the entry at $LANDING"
 
 ########################################################################
 # 2. Execution-validity marks
@@ -157,7 +157,7 @@ awk -v d="- $cited" '
   in_ch && index($0, d) == 1 { found = 1 }
   END { exit !found }
 ' "$landed/requirements.md" || fail "cited changelog date $cited has no dated bullet under ## Changelog at $LANDING"
-echo "ok: entry cites a changelog entry that exists ($cited)"
+printf '%s\n' "ok: entry cites a changelog entry that exists ($cited)"
 
 # Anchor-written-last: the final two non-blank lines are the `Anchor:` line
 # and its backticked command.

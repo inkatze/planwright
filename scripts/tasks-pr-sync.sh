@@ -977,15 +977,15 @@ if [ "${1:-}" = reconcile-status ]; then
     exit 2
   fi
   cli_dir=$(cd "$cli_arg" 2>/dev/null && pwd -P) || {
-    echo "tasks-pr-sync: no such spec dir: $cli_arg" >&2
+    printf '%s\n' "tasks-pr-sync: no such spec dir: $cli_arg" >&2
     exit 2
   }
   if [ ! -f "$cli_dir/tasks.md" ]; then
-    echo "tasks-pr-sync: no tasks.md in $cli_dir" >&2
+    printf '%s\n' "tasks-pr-sync: no tasks.md in $cli_dir" >&2
     exit 2
   fi
   if [ -L "$cli_dir/tasks.md" ]; then
-    echo "tasks-pr-sync: refusing symlinked tasks.md in $cli_dir" >&2
+    printf '%s\n' "tasks-pr-sync: refusing symlinked tasks.md in $cli_dir" >&2
     exit 2
   fi
   # Version keying (REQ-C1.1, REQ-C1.8): fail closed on a missing/unparseable
@@ -1020,18 +1020,18 @@ if [ "${1:-}" = reconcile ]; then
     exit 2
   fi
   cli_dir=$(cd "$cli_arg" 2>/dev/null && pwd -P) || {
-    echo "tasks-pr-sync: no such spec dir: $cli_arg" >&2
+    printf '%s\n' "tasks-pr-sync: no such spec dir: $cli_arg" >&2
     exit 2
   }
   if [ ! -f "$cli_dir/tasks.md" ]; then
-    echo "tasks-pr-sync: no tasks.md in $cli_dir" >&2
+    printf '%s\n' "tasks-pr-sync: no tasks.md in $cli_dir" >&2
     exit 2
   fi
   # A symlinked tasks.md is unsafe input: do_placement refuses it (-L) but
   # run_reconcile masks that refusal with `|| true`, so the CLI must reject it
   # here to honor the fail-closed contract rather than exit 0 on a silent skip.
   if [ -L "$cli_dir/tasks.md" ]; then
-    echo "tasks-pr-sync: refusing symlinked tasks.md in $cli_dir" >&2
+    printf '%s\n' "tasks-pr-sync: refusing symlinked tasks.md in $cli_dir" >&2
     exit 2
   fi
   # Version keying (REQ-C1.1, REQ-C1.8): mirror of the reconcile-status arm

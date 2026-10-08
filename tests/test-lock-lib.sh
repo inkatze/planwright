@@ -2257,6 +2257,55 @@ for v in pw_lock_release pw_lock_release_all pw_lock_release_token; do
   assert_eq "$v does not forget a hold by hand" "0" "$forgets"
 done
 
+# ---------------------------------------------------------------------------
+# 60. The caller's own path never decides whether an owner is alive
+# ---------------------------------------------------------------------------
+#
+# A failed `kill -0` prints an error the shell prefixes with the running
+# script's path, so a verdict read from that text inherits whatever words the
+# path happens to contain. Every worktree of a branch named for permissions
+# read every dead holder as alive, and its stale locks never cleared. Run from
+# such a path, a dead owner must still read dead, and a live one, or one this
+# shell may not signal, alive.
+
+perm_dir="$tmp/worker-permission-ergonomics-not-permitted"
+mkdir -p "$perm_dir"
+cat >"$perm_dir/probe.sh" <<'EOF'
+. "$1"
+pw_lock_owner_alive "$2"
+EOF
+probe_from_permission_path() {
+  $SH "$perm_dir/probe.sh" "$LIB" "$1" >/dev/null 2>&1
+}
+# Above any pid a host can assign, so no recycled process can answer for it.
+gone=9999999
+probe_from_permission_path "$gone-0-1"
+assert_exit "a dead owner reads dead from a path naming permission" 1 $?
+sleep 120 &
+perm_live=$!
+probe_from_permission_path "$perm_live-0-1"
+assert_exit "a live owner reads alive from that path" 0 $?
+kill "$perm_live" 2>/dev/null
+wait "$perm_live" 2>/dev/null
+if [ "$(id -u)" -ne 0 ]; then
+  probe_from_permission_path "1-0-1"
+  assert_exit "and a process this shell may not signal still reads alive" 0 $?
+fi
+# Where the process table hides other users' processes, the error text is the
+# only witness left. Staged by shadowing `ps` and `kill` with functions over a
+# pid absent from /proc: an EPERM still reads alive, and a message whose path
+# names permission but whose tail says no such process still reads dead.
+hidden_table_probe() {
+  PW_T_MSG="$perm_dir/probe.sh: 2: kill: $1" PW_T_PID="$gone" run_sh x '
+    ps() { return 1; }
+    kill() { printf "%s\n" "$PW_T_MSG" >&2; return 1; }
+    pw_lock_owner_alive "$PW_T_PID-0-1"' >/dev/null 2>&1
+}
+hidden_table_probe "Operation not permitted"
+assert_exit "a hidden process answering EPERM reads alive" 0 $?
+hidden_table_probe "No such process"
+assert_exit "and a hidden table's absent process reads dead whatever its path" 1 $?
+
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."
 else

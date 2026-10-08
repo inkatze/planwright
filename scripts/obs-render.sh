@@ -63,7 +63,7 @@ unset CDPATH
 prog=obs-render
 
 usage() {
-  echo "usage: $prog [--archived] [--obs-dir <dir>]" >&2
+  printf '%s\n' "usage: $prog [--archived] [--obs-dir <dir>]" >&2
 }
 
 # warn <message> — a skip-and-warn notice on stderr. printf, not echo: the
@@ -221,12 +221,12 @@ done
 # (mirrors obs-record.sh / check-obs.sh): an empty path would masquerade as
 # "no root" and a '-' is read as an option by the tooling below.
 [ -n "$obsdir" ] || {
-  echo "$prog: observations directory must not be empty" >&2
+  printf '%s\n' "$prog: observations directory must not be empty" >&2
   exit 2
 }
 case "$obsdir" in
   -*)
-    echo "$prog: observations directory must not begin with a hyphen" >&2
+    printf '%s\n' "$prog: observations directory must not begin with a hyphen" >&2
     exit 2
     ;;
 esac
@@ -236,7 +236,7 @@ esac
 # and per-file symlink checks below cover entries/, archive/, and the fragment
 # files, but not the root itself.
 [ ! -L "$obsdir" ] || {
-  echo "$prog: observations directory must not be a symlink" >&2
+  printf '%s\n' "$prog: observations directory must not be a symlink" >&2
   exit 2
 }
 
@@ -249,7 +249,7 @@ legacy="$obsdir/opportunities.md"
 # content is sanitized before it lands here, so it carries no tab (0x09 is a
 # stripped C0 byte) and the tab delimiter is unambiguous.
 work=$(mktemp "${TMPDIR:-/tmp}/obs-render.XXXXXX") || {
-  echo "$prog: cannot create a temporary work file" >&2
+  printf '%s\n' "$prog: cannot create a temporary work file" >&2
   exit 2
 }
 # A trapped signal does not itself terminate the shell in POSIX sh; split INT/

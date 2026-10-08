@@ -63,7 +63,7 @@ unset CDPATH
 prog=${0##*/}
 
 usage() {
-  echo "usage: $prog (list|next) <base> [<head>]" >&2
+  printf '%s\n' "usage: $prog (list|next) <base> [<head>]" >&2
   exit 2
 }
 
@@ -83,7 +83,7 @@ for ref in "$base" "$head"; do
 done
 
 unresolvable() {
-  echo "$prog: unresolvable range: $1; no checklist emitted" >&2
+  printf '%s\n' "$prog: unresolvable range: $1; no checklist emitted" >&2
   exit 3
 }
 

@@ -89,7 +89,7 @@ unset CDPATH
 trap 'exit 0' INT TERM HUP QUIT PIPE
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 0
-if [ ! -r "$script_dir/echo-safety.sh" ]; then
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
   printf '%s\n' "tower-reply-hook: scripts/echo-safety.sh is missing — broken install; reply not recorded" >&2
   exit 0
 fi

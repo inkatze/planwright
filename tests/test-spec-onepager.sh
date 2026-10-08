@@ -72,7 +72,7 @@ KILLER_MAX=3
 SHOWN_MAX=9
 
 fail() {
-  echo "FAIL: $1" >&2
+  printf '%s\n' "FAIL: $1" >&2
   exit 1
 }
 

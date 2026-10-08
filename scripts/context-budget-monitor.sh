@@ -64,7 +64,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || {
 }
 resolver="$script_dir/resolve-context-budget-threshold.sh"
 if [ ! -x "$resolver" ]; then
-  echo "context-budget-monitor: threshold resolver '$resolver' is missing or not executable" >&2
+  printf '%s\n' "context-budget-monitor: threshold resolver '$resolver' is missing or not executable" >&2
   exit 5
 fi
 
