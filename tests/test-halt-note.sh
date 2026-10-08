@@ -185,6 +185,15 @@ if [ "$rc" -eq 2 ]; then
 else
   fail "holder: a multi-line text (rc=$rc): $out"
 fi
+# A refused argument is echoed back without its control bytes: C0 and DEL,
+# and the C1 range the canonical sanitizer (scripts/echo-safety.sh) drops,
+# whose 0x9b opens a control sequence on a terminal honouring 8-bit controls.
+note "$w" "$(printf 'x\033[31m\23331m')" 1 text
+if [ "$rc" -eq 2 ] && ! printf '%s' "$out" | LC_ALL=C grep -q "$(printf '[\033\233]')"; then
+  ok "holder: a refused identifier reaches stderr with no control byte"
+else
+  fail "holder: control bytes in a refused identifier (rc=$rc)"
+fi
 # A backslash is text, never an escape: `\n` must not split the bullet.
 gitq -C "$h" checkout -q -- specs/demo/tasks.md
 note "$w" demo 1 'see C:\new\table and \\ here'

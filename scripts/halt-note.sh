@@ -44,7 +44,7 @@ case $0 in
 esac
 TAB=$(printf '\t')
 
-say() { printf 'halt-note: %s\n' "$(printf '%s' "$1" | tr -d '\000-\037\177')" >&2; }
+say() { printf 'halt-note: %s\n' "$(printf '%s' "$1" | tr -d '\000-\037\177\200-\237')" >&2; }
 usage() {
   say "usage: halt-note.sh [--section awaiting|deferred] <spec> <task-id> <text>"
   exit 2
