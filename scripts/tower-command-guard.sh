@@ -1391,13 +1391,24 @@ assign_name_ok() {
   case $name in
     '' | *[!A-Za-z0-9_]* | [0-9]*) return 1 ;;
   esac
+  # The second row: names bash evaluates as arithmetic on assignment (a
+  # subscript in the value runs a command), keeps readonly, or rewrites by
+  # itself (`read` with no NAME sets REPLY), so the modelled value would lie.
   case $name in
     IFS | PATH | CDPATH | HOME | ENV | BASH_ENV | SHELL | PWD | OLDPWD | TMPDIR | TMOUT | \
+      RANDOM | SRANDOM | HISTCMD | SECONDS | LINENO | EPOCHSECONDS | EPOCHREALTIME | UID | EUID | \
+      PPID | GROUPS | FUNCNAME | DIRSTACK | SHELLOPTS | REPLY | MAPFILE | COPROC | \
       GLOBIGNORE | EXECIGNORE | FIGNORE | PROMPT_COMMAND | POSIXLY_CORRECT | FUNCNEST | \
       HOSTFILE | INPUTRC | IGNOREEOF | TIMEFORMAT | histchars | auto_resume | \
       OPTIND | OPTARG | OPTERR | LANG | LANGUAGE | _ | \
       BASH* | COMP_* | READLINE_* | HIST* | LC_* | MAIL* | PS[0-9]*) return 1 ;;
   esac
+  # Membership in the hook's own ENVIRONMENT, snapshotted at startup: an
+  # exported name the command re-points reaches every child it runs. The
+  # snapshot is what is tested, NOT `${!name+x}` — an indirect read also sees
+  # every shell variable in scope, so the guard's own locals answered for the
+  # name under test and `read i`, `read a` and `read name` (the helper's own
+  # parameter) all deferred, which is the exact shape guard_read exists for.
   case $HOOK_ENV_NAMES in
     *"$NL$name$NL"*) return 1 ;;
   esac
@@ -1611,6 +1622,7 @@ loop_enter() {
   VAR_N[VAR_C]=$LH_NAME
   VAR_V[VAR_C]=${LW[LH_START]}
   VAR_L[VAR_C]=1
+  VAR_O[VAR_C]=0
   VAR_C=$((VAR_C + 1))
   idx=$LH_NEXT
   return 0
@@ -1909,7 +1921,7 @@ analyze_command() {
   # The loop-variable table expand_word reads and the head words it draws from.
   # VAR_L is written by the shared loop_enter; only the worker guard reads it.
   # shellcheck disable=SC2034
-  local -a VAR_N=() VAR_V=() VAR_L=() LW=()
+  local -a VAR_N=() VAR_V=() VAR_L=() VAR_O=() LW=()
   local VAR_C=0 LW_N=0
   local LH_NAME='' LH_START=0 LH_COUNT=0 LH_NEXT=0
   tokenize "$cmd" || return 1

@@ -551,7 +551,7 @@ sed_bracket_end sed_delim_ok sed_scan_literal sed_scan_regex guard_sed \
 short_flag_hit guard_sort guard_uniq guard_find guard_file guard_date \
 classify_redirect is_reserved repo_root_of emit_allow dollar_expands \
 word_unresolved arg_independent_verb guard_test guard_printf loop_header \
-assign_name_ok expand_word plugin_root_unlinked dollar_form_ok loop_enter \
+assign_name_ok plugin_root_unlinked dollar_form_ok loop_enter \
 loop_next opaque_words_ok test_opaque_ok"
 
 # fn_body <file> <name>: the function's text, from its `name() {` line to the
@@ -582,9 +582,12 @@ done
 # the list keeps its old length, and the new function drifts unwatched. So every
 # same-named function must be declared exactly once — identical (above) or
 # deliberately different (below, where each guard reaches its own safe set).
-DISTINCT_FNS="analyze_command canon_under classify_verb guard_bashsh guard_gh \
-guard_git guard_mise is_planwright_script main tokenize tok_push verify_simple \
-verify_tokens"
+# expand_word differs because only the worker guard substitutes any plain
+# literal, word-split as the shell splits it; the tower guard substitutes only
+# a trusted-root path, which never splits.
+DISTINCT_FNS="analyze_command canon_under classify_verb expand_word guard_bashsh \
+guard_gh guard_git guard_mise is_planwright_script main tokenize tok_push \
+verify_simple verify_tokens"
 
 fn_names() { grep -oE '^[a-z_][a-z0-9_]*\(\)' "$1" | tr -d '()' | sort -u; }
 undeclared=''
