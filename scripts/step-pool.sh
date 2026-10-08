@@ -91,6 +91,11 @@
 #               owner's. An unusable pool prints `unpooled` and warns once
 #               naming the cause. Exit 0 in each of these cases; an owner
 #               holding several slots must name one with --slot (exit 2).
+#               Nothing proves the caller is the owner it names: any process
+#               of the same user can release a slot by its owner's pid. The
+#               guarantee is cooperative among one user's processes, which
+#               already share the pool directory, never a boundary between
+#               them.
 #
 # THE HOLD MARK. A slot's owner passes the check it runs
 # PLANWRIGHT_STEP_POOL_HOLD=<pool>:<owner-pid>, so a take or release reaching
