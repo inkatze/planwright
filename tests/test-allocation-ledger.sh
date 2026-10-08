@@ -346,6 +346,14 @@ kill "$eng" 2>/dev/null || :
 wait "$eng" 2>/dev/null || :
 tok6=$("$LEDGER" lock lockowner:unit --owner-pid $$) || fail "8j: a hold whose owner is gone was not broken"
 "$LEDGER" unlock lockowner:unit "$tok6"
+# `owner` names only a live owner: an inherited hold whose owner is gone is a
+# lock the next waiter breaks, not a hold for a child to keep using.
+sh -c 'exit 0' &
+gone_eng=$!
+wait "$gone_eng" 2>/dev/null || :
+ln -s "$gone_eng-0-0-$gone_eng-1" "$lock_file"
+[ -z "$("$LEDGER" owner lockowner:unit)" ] || fail "8l: owner named a token whose process is gone"
+rm -f "$lock_file"
 # A token that cannot reach its caller is given back, not left as a hold
 # nobody can name.
 # /dev/full fails every write, which a closed descriptor does not reliably do.

@@ -550,7 +550,15 @@ case "$cmd" in
     # Sanitized, because the token is a symlink target and a symlink target is
     # whatever the writer put there: this verb exists to be read by a person,
     # and a control sequence in it would drive their terminal.
-    printf '%s\n' "$(sanitize_printable "$(pw_lock_owner "$(lock_path "$1")")" "")"
+    # Only a LIVE owner's token: a caller's equality check against it is what
+    # lets an inherited hold skip its own acquire, and a link a dead owner left
+    # is a lock the next waiter will break, not a hold to inherit.
+    o_tok=$(pw_lock_owner "$(lock_path "$1")")
+    if [ -n "$o_tok" ] && pw_lock_owner_alive "$o_tok"; then
+      printf '%s\n' "$(sanitize_printable "$o_tok" "")"
+    else
+      printf '\n'
+    fi
     ;;
 
   append)
@@ -649,7 +657,8 @@ case "$cmd" in
     a_token=""
     if [ "${PLANWRIGHT_ALLOC_LOCK_HELD:-}" = "$a_unit" ] \
       && [ -n "${PLANWRIGHT_ALLOC_LOCK_TOKEN:-}" ] \
-      && [ "$(pw_lock_owner "$a_lock")" = "${PLANWRIGHT_ALLOC_LOCK_TOKEN:-}" ]; then
+      && [ "$(pw_lock_owner "$a_lock")" = "${PLANWRIGHT_ALLOC_LOCK_TOKEN:-}" ] \
+      && pw_lock_owner_alive "$PLANWRIGHT_ALLOC_LOCK_TOKEN"; then
       a_held=1
       a_token=$PLANWRIGHT_ALLOC_LOCK_TOKEN
     fi
