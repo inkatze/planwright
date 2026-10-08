@@ -128,7 +128,8 @@
 # No model/API call anywhere in the branch-naming decision path (REQ-E1.3): the
 # whole path is deterministic string logic + git plumbing.
 #
-# Usage:
+# Usage (<spec> is the bare identifier or its `specs/<spec>` alias, with or
+# without one trailing slash; scripts/spec-id-lib.sh):
 #   fleet-dispatch-worktree.sh dispatch <spec> <id> \
 #       [--repo-root <dir>] [--launch-only | --attach-dry-run | --no-attach] \
 #       [-- <extra launch args>...]
@@ -204,8 +205,8 @@
 #      --launch-only) the session created, or started: the worker confirmed
 #      its startup.
 #   2  usage / invalid input (fail closed — a malformed or hostile token is
-#      never interpolated), a launch word ending in `;`, or a live standalone
-#      attach.
+#      never interpolated), a launch word ending in `;`, a live standalone
+#      attach, or (any subcommand) a broken install missing spec-id-lib.sh.
 #   3  already-in-flight: a LIVE concurrent/repeat dispatch, a live session
 #      already holding the session name (or a probe tmux could not answer), a
 #      new-session that lost the race for it (nothing touched), a registered
@@ -278,6 +279,18 @@ else
   sanitize_printable() {
     printf '%s' "$1" | tr -d '\000-\037\177'
   }
+fi
+
+# Unlike echo-safety.sh the mapper has no fallback, so a missing copy is a
+# broken install, refused with exit 2: a failed `.` ends the shell with a
+# status of the shell's choosing (1 under bash's sh), which this script's exit
+# codes give another meaning or none.
+if [ -r "$script_dir/spec-id-lib.sh" ]; then
+  # shellcheck source=scripts/spec-id-lib.sh
+  . "$script_dir/spec-id-lib.sh"
+else
+  printf '%s\n' "fleet-dispatch-worktree: broken install: $(sanitize_printable "$script_dir")/spec-id-lib.sh is missing or not readable" >&2
+  exit 2
 fi
 
 FETCH="$script_dir/dispatch-fetch.sh"
@@ -1269,6 +1282,8 @@ do_dispatch() {
     _suffix="flight-$_flight"
     _branch="planwright/flight/$_flight"
   else
+    spec_id_canon "$_spec"
+    _spec=$SPEC_ID
     valid_spec "$_spec" || {
       if [ "$_spec" = flight ]; then
         warn "reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)"
