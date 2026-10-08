@@ -37,9 +37,9 @@
 # take          hold one slot, waiting while none is free. The first round
 #               that finds the pool full reports every live holder on stderr
 #               (skipped when --waited says an earlier call already began the
-#               wait). Admission is unordered: every round tries each slot,
-#               reclaiming a dead holder's, so a freed slot goes to whichever
-#               waiter tries it first. The wait is bounded by step_pool_wait
+#               wait). Admission is unordered: every round tries each free
+#               slot, so a freed slot goes to whichever waiter tries it first,
+#               and a dead holder's slot is reclaimed within a few rounds. The wait is bounded by step_pool_wait
 #               (a duration, rounded up to whole seconds; malformed, 60m with
 #               one warning). --waited carries the seconds earlier calls of
 #               the same wait already spent, so the bound covers the whole
@@ -548,45 +548,62 @@ if ! errf=$(mktemp "${TMPDIR:-/tmp}/step-pool.XXXXXX" 2>/dev/null); then
   printf 'unpooled\t-\t%s\n' "$waited"
   exit 0
 fi
+# attempt <n> — try slot <n> once; exits on a take or a lock error.
+attempt() {
+  pw_lock_acquire_for "$pool_dir/slot-$1" "$owner" 1 2>"$errf"
+  case $? in
+    0)
+      tok=$PW_LOCK_TOKEN
+      unreported=$pool_dir/slot-$1
+      pid_running "$owner" || refuse "owner $owner is not running"
+      part="$pool_dir/.holder-$1.$$"
+      if (set -C && printf '%s\t%s\t%s\n' "$tok" "$step" "$worktree" >"$part") 2>/dev/null; then
+        mv -f "$part" "$pool_dir/holder-$1" 2>/dev/null || rm -f "$part"
+      else
+        rm -f "$part"
+      fi
+      # A take in the first round waited for nothing, whatever second the
+      # clock ticked over in meanwhile.
+      [ "$round" -eq 0 ] || waited=$((waited + $(date +%s) - start))
+      printf 'taken\t%s\t%s\n' "$1" "$waited" && unreported=''
+      exit 0
+      ;;
+    1) ;;
+    *)
+      cause=$(shown "$(tr '\n' ' ' <"$errf")")
+      warn "pool $pool lock error: ${cause:-lock-lib failed on slot $1}; running unpooled"
+      [ "$round" -eq 0 ] || waited=$((waited + $(date +%s) - start))
+      printf 'unpooled\t-\t%s\n' "$waited"
+      exit 0
+      ;;
+  esac
+}
+
 cap=$(capacity)
 bound=$(wait_bound)
 nap=0.1
 round=0
 reported=''
 rechecked=''
+probe_all=yes
+next=1
 while :; do
   [ "$round" -eq 0 ] || pid_running "$owner" || refuse "owner $owner is not running"
+  # Probing a held slot's owner forks several times, so after the first round
+  # only a slot with no lock on it is tried, plus one held slot per stride,
+  # rotating, which still reclaims a dead holder's slot within a few strides.
   i=1
   while [ "$i" -le "$cap" ]; do
-    pw_lock_acquire_for "$pool_dir/slot-$i" "$owner" 1 2>"$errf"
-    case $? in
-      0)
-        tok=$PW_LOCK_TOKEN
-        unreported=$pool_dir/slot-$i
-        pid_running "$owner" || refuse "owner $owner is not running"
-        part="$pool_dir/.holder-$i.$$"
-        if (set -C && printf '%s\t%s\t%s\n' "$tok" "$step" "$worktree" >"$part") 2>/dev/null; then
-          mv -f "$part" "$pool_dir/holder-$i" 2>/dev/null || rm -f "$part"
-        else
-          rm -f "$part"
-        fi
-        # A take in the first round waited for nothing, whatever second the
-        # clock ticked over in meanwhile.
-        [ "$round" -eq 0 ] || waited=$((waited + $(date +%s) - start))
-        printf 'taken\t%s\t%s\n' "$i" "$waited" && unreported=''
-        exit 0
-        ;;
-      1) ;;
-      *)
-        cause=$(shown "$(tr '\n' ' ' <"$errf")")
-        warn "pool $pool lock error: ${cause:-lock-lib failed on slot $i}; running unpooled"
-        [ "$round" -eq 0 ] || waited=$((waited + $(date +%s) - start))
-        printf 'unpooled\t-\t%s\n' "$waited"
-        exit 0
-        ;;
-    esac
+    if [ -n "$probe_all" ] || [ ! -L "$pool_dir/slot-$i" ]; then
+      attempt "$i"
+    fi
     i=$((i + 1))
   done
+  if [ -z "$probe_all" ] && [ $((round % 5)) -eq 0 ]; then
+    attempt "$next"
+    next=$((next % cap + 1))
+  fi
+  probe_all=''
   elapsed=$(($(date +%s) - start))
   total=$((waited + elapsed))
   if [ "$waited" -eq 0 ] && [ -z "$reported" ]; then
@@ -600,6 +617,7 @@ while :; do
       # Every holder left after this round's tries, so one more round can take
       # the freed slot rather than expire on a pool with a slot free.
       rechecked=yes
+      probe_all=yes
       round=$((round + 1))
       continue
     fi

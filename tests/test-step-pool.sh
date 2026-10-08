@@ -307,6 +307,26 @@ out=$(sp -- take dead "$b")
 [ "$out" = "taken${TAB}1${TAB}0" ]
 verdict "a dead holder's slot is reclaimed by the next caller" "reclaim: '$out'"
 
+# --- REQ-I1.2: a holder that dies during a wait is reclaimed by the waiter -------
+reset
+printf 'step_pool_wait: 60s\n' >"$mlocal"
+a=$(owner)
+b=$(owner)
+sp -- take midwait "$a" >/dev/null
+sp -- take midwait "$b" >"$tmp/out" 2>"$tmp/err" &
+waiter=$!
+_n=0
+until grep -q 'is full' "$tmp/err" 2>/dev/null || [ "$_n" -ge 300 ]; do
+  sleep 0.1
+  _n=$((_n + 1))
+done
+kill_owner "$a"
+wait "$waiter"
+rc=$?
+out=$(cat "$tmp/out")
+[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q "^taken${TAB}1${TAB}"
+verdict "a waiter reclaims a holder that dies during its wait" "mid-wait reclaim: rc=$rc out='$out'" "$tmp/err"
+
 # --- REQ-I1.1: a slot is reclaimed after its owner exits normally ---------------
 reset
 printf 'step_pool_wait: 1s\n' >"$mlocal"
