@@ -4,7 +4,8 @@
 # REQ-A1.1..A1.10, REQ-B1.1..B1.7, D-1..D-4). Wired into
 # config/worker-settings.json (Task 2), it reads a Claude Code PreToolUse
 # payload on stdin and prints a `permissionDecision: allow` decision for an
-# ENUMERATED set of known-safe, read-only Bash command shapes — silencing the
+# ENUMERATED set of known-safe Bash command shapes (read-only shapes, trusted
+# repo code, and the spec-root write zone) — silencing the
 # permission-prompt flood on the shapes /execute-task actually issues (plugin
 # scripts, `for`/`while` loops, read-only git/coreutil pipelines) — and DEFERS
 # everything else to Claude Code's normal permission flow.
@@ -15,11 +16,12 @@
 #     NEVER exits non-zero — approval is upgrade-only; blocking stays with
 #     permissions.deny/ask (REQ-A1.2, REQ-B1.7). A hook `allow` therefore never
 #     needs to (and by design never does) auto-approve a deny-listed command:
-#     the enumerated allowlist is read-only shapes with zero overlap with the
-#     worker deny block, and the adversarial suite pins that (REQ-A1.3,
-#     REQ-B1.6). A declared step's line is the exception: it is whatever an
-#     operator declared, its trust resting on the declaring layer, not on the
-#     deny block (see declared_line_ok).
+#     the enumerated allowlist is read-only shapes, trusted repo code, and the
+#     spec-root write zone, with zero overlap with the worker deny block, and
+#     the adversarial suite pins that (REQ-A1.3, REQ-B1.6). A declared step's
+#     line is the exception: it is whatever an operator declared, its trust
+#     resting on the declaring layer, not on the deny block (see
+#     declared_line_ok).
 #   * The extracted command is treated strictly as INERT DATA — never eval-ed,
 #     re-expanded, glob-expanded, or used as a pattern/format/unquoted arg — so
 #     analyzing a hostile command can never execute it (REQ-B1.1).
@@ -28,7 +30,7 @@
 #     the work repository (see in_spec_zone): a `>`/`>>` redirect, `tee
 #     [-a]`, or `mkdir [-p]` whose every target is a plain literal inside a
 #     bundle or reserved directory of that root. With no root handed in, or
-#     for any other target, the read-only rule holds.
+#     for any other target, it defers.
 #   * Fail safe on EVERYTHING: jq absent, malformed/empty/non-string input,
 #     unknown construct, parser confusion, recursion past the depth bound, or
 #     any internal error all DEFER (empty stdout, exit 0). The fallthrough

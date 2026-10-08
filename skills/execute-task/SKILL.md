@@ -370,7 +370,7 @@ classify the edit on the amendment axis:
   accepted decisions): fix it in place in **one commit** with a dated
   `## Changelog` entry, and a **marked self-re-anchor entry** to the brief's
   amendment log — `Class: expression-only`, citing the changelog line, anchor by
-  `scripts/spec-anchor.sh <root>/<spec>` written last. This is the one anchor
+  the brief's recorded command form, written last. This is the one anchor
   entry an execution skill may write.
 - **Meaning-class** (contradicts an accepted decision, alters a REQ's meaning,
   or adds a REQ/D-ID): **contract drift** — do not edit the contract from
@@ -390,9 +390,8 @@ classify the edit on the amendment axis:
    title is conventional and passes the PR-title lint
    (`scripts/check-commit-msgs.sh`): `feat(<scope>): <task title>` or the fitting
    type. Assemble the body per the **PR-body assembly** section of the
-   `gate-wiring` doctrine — the single normative home for the layout (D-2). This
-   skill supplies the summary inputs: the kickoff brief path
-   (`<root>/<spec>/kickoff-brief.md`), the task IDs, the REQs satisfied (from the
+   `gate-wiring` doctrine (D-2). This skill supplies the summary inputs: the
+   kickoff brief path relative to its repository, the task IDs, the REQs satisfied (from the
    task `Citations:`), the test additions and what they verify, and
    implementation notes (key decisions). The audit record is the convergence
    steps' folded output plus every in-run point's table (`step-record.sh
