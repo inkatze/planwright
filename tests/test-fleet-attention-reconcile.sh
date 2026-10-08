@@ -42,8 +42,8 @@
 #   k1: the kill-switch pauses the pass before it clears anything; k2: one
 #       set mid-pass stops every clear after it.
 #
-# Hermetic: every case pins its own fleet home and fake tmux. Runs standalone
-# under /bin/bash (the bash 3.2 floor):
+# Hermetic: every case pins its own fleet home, fake tmux and (absent)
+# adopter overlay. Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-fleet-attention-reconcile.sh
 set -u
 LC_ALL=C
@@ -154,8 +154,11 @@ fresh() {
   : >"$home/attention/state"
   rm -f "$tmp/race"
 }
+# The adopter layer is pinned to an absent overlay: the caller's own, which a
+# dispatched session exports, would otherwise reach every kill-switch check.
 fenv() {
-  PATH="$fakebin:$PATH" PLANWRIGHT_FLEET_STATE_DIR="$home" "$@"
+  PATH="$fakebin:$PATH" PLANWRIGHT_FLEET_STATE_DIR="$home" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$tmp/no-adopter" "$@"
 }
 # Rows are seeded in the store's own layouts rather than through the writers,
 # which cost a lock round trip each; g1 exercises the real writer.
