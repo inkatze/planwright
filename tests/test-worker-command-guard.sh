@@ -858,6 +858,8 @@ assert_defer "arithmetic double-paren" "(( x = 1 ))"
 assert_defer "shell comment defers: trailing comment" "cat README.md #note"
 assert_defer "shell comment defers: comment after an operator" "cat README.md;#note"
 assert_defer "shell comment defers: comment-only command" "# note"
+assert_defer "shell comment defers: comment after a redirect" "cat README.md 2>#note"
+assert_defer "shell comment defers: inside fish -c" "fish -c 'cat README.md #note'"
 assert_defer "shell comment defers: multi-line command" "cat README.md # '
 rm -rf x # '"
 assert_defer "shell comment defers: multi-line command after a pipe" "cat README.md |# '
