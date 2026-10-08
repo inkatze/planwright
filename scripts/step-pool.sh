@@ -30,13 +30,15 @@
 # every checkout and worktree. $PLANWRIGHT_POOL_DIR overrides <root> for
 # tests; it stays outside the PLANWRIGHT_STEP_* prefix, which the worker
 # command guard strips from a declared line. Only <root> and <root>/<pool>
-# are screened, never the directories above them, so every directory above
-# <root>, whichever setting places it ($PLANWRIGHT_POOL_DIR, $XDG_STATE_HOME,
-# or $HOME), must be owned by the running user or root and writable by no one
-# else (an ACL included), or be sticky with the entry below it the running
-# user's own directory, not a link. Another user able to rename, replace, or
-# plant an entry in any of them could swap the root between the screen and
-# its use, or steer `mkdir -p` through a link. Beside each slot, holder-<n>
+# are screened, never the directories above them, so every directory the
+# path to <root> passes through, a symbolic link's target and the
+# directories above it included, whichever setting places it
+# ($PLANWRIGHT_POOL_DIR, $XDG_STATE_HOME, or $HOME), must be owned by the
+# running user or root and either writable by no one else (an ACL included)
+# or sticky with the entry below it the running user's own directory, not a
+# link. Another user able to rename, replace, or plant an entry in any of
+# them could swap the root between the screen and its use, or steer
+# `mkdir -p` through a link. Beside each slot, holder-<n>
 # records the holder's token, step id, and worktree; it is believed only
 # while its token is the slot's current one, so a stale or half-written file
 # reads as an unknown holder rather than a wrong one.
