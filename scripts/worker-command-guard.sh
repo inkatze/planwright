@@ -1154,8 +1154,9 @@ guard_awk() {
 # ENVIRONMENT read and loads no module text. jq's language has no exec and no
 # file-write primitive at all; what it does have is `env` and `$ENV`, either
 # of which hands the whole environment to the filter (and from there to the
-# transcript), and `include` / `import`, which pull in module text the guard
-# never sees, from a search path the filter itself can name. That is the same
+# transcript), `include` / `import`, which pull in module text the guard
+# never sees, from a search path the filter itself can name, and `modulemeta`,
+# which reads that text back. That is the same
 # call guard_awk makes on `ENVIRON`, and for the same reason: the guard can see
 # the read but not what the program does with the value.
 #
@@ -1171,7 +1172,7 @@ jq_program_safe() {
   local n=${#s} i=0 p a w words
   case $s in
     *\$ENV*) return 1 ;;
-    *env* | *ENV* | *include* | *import*) ;;
+    *env* | *ENV* | *include* | *import* | *modulemeta*) ;;
     *) return 0 ;; # names none of the screened words
   esac
   while [ "$i" -lt "$n" ]; do
@@ -1179,6 +1180,7 @@ jq_program_safe() {
       e) words='env' ;;
       E) words='ENV' ;;
       i) words='include import' ;;
+      m) words='modulemeta' ;;
       *) words='' ;;
     esac
     for w in $words; do

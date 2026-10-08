@@ -1140,6 +1140,10 @@ assert_allow "parity: jq a filter dense in e and i beside a field" "jq '.env | .
 assert_allow "parity: jq a user function with env as a prefix" "jq 'def envx: .; envx' file.json"
 assert_allow "parity: jq a user function with env as a suffix" "jq 'def myenv: .; myenv' file.json"
 assert_allow "parity: jq a user function with ENV as a suffix" "jq 'def myENV: .; myENV' file.json"
+assert_defer "defer form: a further jq module read" "jq -n '\"m\"|modulemeta'"
+assert_defer "defer form: a further jq module read as the whole filter" "jq -n modulemeta"
+assert_allow "parity: jq a field named like a module builtin" "jq '.modulemeta' file.json"
+assert_allow "parity: jq a longer name starting like a module builtin" "jq 'def modulemetax: .; modulemetax' file.json"
 JQ_HOME="$SANDBOX/jq-home"
 mkdir -p "$JQ_HOME" && : >"$JQ_HOME/.jq" || exit 1
 HOOK_ENV=(HOME="$JQ_HOME")
