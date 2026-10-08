@@ -1188,6 +1188,19 @@ cp "$here/test-step-pool.sh" "$tmp/scan/tests/test-step-pool.sh"
 out=$(/bin/bash "$repo_root/scripts/check-lock-primitive.sh" "$tmp/scan" 2>&1)
 verdict "check-lock-primitive reports the helper and its test clean" "check-lock-primitive: $out"
 
+# --- a missing echo-safety.sh falls back to the inline sanitizer ----------------
+if sh_dash=$(command -v dash); then
+  mkdir -p "$tmp/nohelper"
+  cp "$SP" "$tmp/nohelper/step-pool.sh"
+  esc=$(printf '\033')
+  err=$("$sh_dash" "$tmp/nohelper/step-pool.sh" report "x${esc}[31m" 2>&1 >/dev/null)
+  rc=$?
+  [ "$rc" -eq 2 ] && case $err in *"$esc"* | *"not found"* | *"can't open"*) false ;; *"'x[31m'"*) true ;; *) false ;; esac
+  verdict "without echo-safety.sh a refused pool is sanitized and exits 2" "no helper: rc=$rc err='$err'"
+else
+  printf 'skip: the echo-safety.sh fallback check needs dash\n'
+fi
+
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2
   exit 1
