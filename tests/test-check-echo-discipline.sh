@@ -818,6 +818,50 @@ write_script "$tmp/srcok/scripts/continued-r.sh" \
 out="$(/bin/bash "$CHECKER" "$tmp/srcok" 2>&1)"
 assert "a source behind a readability test is clean" 0 $?
 
+# A `-r` only guards as an operand of a test: `grep -r` names a path it never
+# tests for readability. And a loop names the sanitizer only through its word
+# list, not through a comment or a body on the same line.
+make_root "$tmp/srcnottest"
+filler "$tmp/srcnottest"
+write_script "$tmp/srcnottest/scripts/grep-r.sh" \
+  'grep -r "$d/echo-safety.sh" /tmp >/dev/null' \
+  '. "$d/echo-safety.sh"'
+write_script "$tmp/srcnottest/scripts/loop-comment.sh" \
+  'for dep in other-lib.sh; do # not echo-safety.sh' \
+  '  [ -r "$d/$dep" ] || exit 5' \
+  'done' \
+  '. "$d/echo-safety.sh"'
+write_script "$tmp/srcnottest/scripts/loop-body.sh" \
+  'for dep in other-lib.sh; do printf "%s\n" echo-safety.sh; [ -r "$d/$dep" ] || exit 5; done' \
+  '. "$d/echo-safety.sh"'
+out="$(/bin/bash "$CHECKER" "$tmp/srcnottest" 2>&1)"
+assert "a -r outside a test, or a loop not listing the sanitizer, guards nothing" 1 $?
+assert_contains "grep -r does not guard the source" "$out" "scripts/grep-r.sh:4"
+assert_contains "a loop comment does not name the sanitizer" "$out" "scripts/loop-comment.sh:6"
+assert_contains "a loop body does not name the sanitizer" "$out" "scripts/loop-body.sh:4"
+
+make_root "$tmp/srctestforms"
+filler "$tmp/srctestforms"
+write_script "$tmp/srctestforms/scripts/test-r.sh" \
+  'test -r "$d/echo-safety.sh" || exit 5' \
+  '. "$d/echo-safety.sh"'
+write_file "$tmp/srctestforms/scripts/dbl.sh" '#!/bin/bash' \
+  '[[ -f "$d/echo-safety.sh" && -r "$d/echo-safety.sh" ]] || exit 5' \
+  '. "$d/echo-safety.sh"'
+out="$(/bin/bash "$CHECKER" "$tmp/srctestforms" 2>&1)"
+assert "test -r and a [[ -r ]] operand still guard the source" 0 $?
+
+# xpg_echo makes bash echo expand escapes like dash, so a bash file that turns
+# it on gets the echo rules too.
+make_root "$tmp/xpg"
+filler "$tmp/xpg"
+write_file "$tmp/xpg/scripts/xpg.sh" '#!/bin/bash' 'shopt -s xpg_echo' 'echo "$x"'
+write_file "$tmp/xpg/scripts/plainbash.sh" '#!/bin/bash' 'echo "$x"'
+out="$(/bin/bash "$CHECKER" "$tmp/xpg" 2>&1)"
+assert "a bash file enabling xpg_echo is held to the echo rules" 1 $?
+assert_contains "the xpg_echo file's echo is flagged" "$out" "scripts/xpg.sh:3"
+assert_not_contains "a plain bash file stays exempt" "$out" "scripts/plainbash.sh"
+
 # ---------------------------------------------------------------------------
 # 14. Every offender is reported, not just the first.
 # ---------------------------------------------------------------------------

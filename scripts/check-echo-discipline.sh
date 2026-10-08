@@ -207,7 +207,8 @@ yield only digits or flag letters (`$?`, `$#`, `$$`, `$!`, `$-`, `${#x}`,
 `$((...))`) need no annotation.
 
 Sourcing: every `.` or `source` of echo-safety.sh must follow a `-r` (readable)
-test of the same operand, so a missing helper is the script's own refusal
+test of the same operand, as an operand of `[`, `test` or `[[` (`grep -r` is no
+test), so a missing helper is the script's own refusal
 rather than a dash abort or a bash run with the sanitizer undefined. A loop over
 the dependency names that tests `<dir>/$name` counts. This rule reads bash
 files too.
@@ -219,7 +220,7 @@ the sourced shebang-less libraries are covered.
 Skipped by the echo rules: files whose shebang names bash, and nothing else.
 bash is the only shell here whose `echo` leaves escapes alone (absent
 xpg_echo), so those files are safe as written and rewriting them would be
-churn. zsh and the ksh family are NOT skipped: their `echo` follows System V
+churn; a bash file that runs `shopt -s xpg_echo` gets the echo rules. zsh and the ksh family are NOT skipped: their `echo` follows System V
 and expands escapes. A file with NO shebang is scanned too: a sourced library
 runs under whichever interpreter sourced it, and dash is one of them.
 
@@ -338,6 +339,18 @@ while IFS= read -r -d '' file; do
   case "$interp" in
     bash)
       bashfiles=$((bashfiles + 1))
+      # `shopt -s xpg_echo` makes bash echo expand escapes as dash does, so a
+      # bash file that enables it gets every rule.
+      grep -qE '^[[:space:]]*shopt[[:space:]]+-s[^#]*xpg_echo' "$file" 2>/dev/null
+      case $? in
+        0)
+          printf 's%s\n' "$file" >>"$work/list"
+          count=$((count + 1))
+          continue
+          ;;
+        1) ;;
+        *) fail_closed "cannot read $(sanitize_printable "$rel" "(unprintable filename)") — the scan would cover less than it claims" ;;
+      esac
       # The sourcing rule can only fire where the file names echo-safety.sh,
       # directly or in the assignment a sourced variable carries, so a bash
       # file that never mentions it is exact to skip, and tokenizing all of
@@ -757,7 +770,11 @@ awk -v listfile="$work/list" '
       if (j > i) {
         w = substr(s, i, j - i)
         if (w == "--" && argn[depth] == 1) argn[depth]--
-        if (w == "-r") cap = "r"
+        # A `-r` guards only as a test operand: `[`, `test`, or inside `[[`.
+        # `grep -r` names a path it never tests for readability.
+        if (w == "[[") dbl = 1
+        else if (w == "]]") dbl = 0
+        if (w == "-r" && (cmd[depth] == "[" || cmd[depth] == "test" || dbl)) cap = "r"
         else if (atcmd && (w == "." || w == "source")) cap = "src"
         else if (atcmd && w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) {
           name = w; sub(/=.*$/, "", name)
@@ -811,9 +828,12 @@ awk -v listfile="$work/list" '
       # names never lends its tests to a later one that names the sanitizer.
       if (match(line, /^[ \t]*for[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+in[ \t]/)) {
         lv = line; sub(/^[ \t]*for[ \t]+/, "", lv); sub(/[^A-Za-z0-9_].*$/, "", lv)
-        loopv[lv] = (index(line, "echo-safety.sh") > 0)
+        lst = line; sub(/^[ \t]*for[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+in[ \t]+/, "", lst)
+        sub(/[;#].*$/, "", lst); sub(/[ \t]+do([ \t].*)?$/, "", lst)
+        loopv[lv] = (index(lst, "echo-safety.sh") > 0)
       }
       tokenize(line, maxln)
+      dbl = 0
       # A backslash continuation carries a pending `.` or `-r` operand onto the
       # next line, where the shell still reads it as the same command.
       if (!esc) cap = ""
