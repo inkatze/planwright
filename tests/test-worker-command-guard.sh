@@ -164,6 +164,8 @@ assert_defer() {
 # and counts are replayed once it is joined, before the bounded-runtime rows,
 # whose timing bounds should not compete with the other half for the CPU.
 first_half() {
+  # The subshell inherits the parent's counts; it reports only its own.
+  passes=0 failures=0 false_allows=0
   echo "### REQ-A1.7 — Bash-only; every other tool defers"
   assert_defer "non-Bash Read defers" "cat /etc/passwd" "Read"
   assert_defer "non-Bash Write defers" "shellcheck scripts/ok.sh" "Write"
