@@ -1008,6 +1008,27 @@ rc=$?
 verdict "an owner whose user turned unreadable after the acquire is refused, its slot given back" \
   "post-acquire unreadable: rc=$rc out='$out'" "$tmp/err"
 
+# --- REQ-I1.2: a nested take stays silent where the owner's user is unreadable --
+reset
+printf 'step_pool_wait: 1s\n' >"$mlocal"
+stub15="$tmp/stub15"
+mkdir -p "$stub15"
+real_ps15=$(command -v ps)
+printf '#!/bin/sh\ncase "$*" in *uid=*) exit 1 ;; esac\nexec %s "$@"\n' "$real_ps15" >"$stub15/ps"
+chmod +x "$stub15/ps"
+a=$(owner)
+b=$(owner)
+sp -- take quiet "$a" >/dev/null
+out=$(sp "PATH=$stub15:$PATH" "PLANWRIGHT_STEP_POOL_HOLD=quiet:$a" -- take quiet "$b" 2>"$tmp/err")
+rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "nested${TAB}-${TAB}0" ] && [ ! -s "$tmp/err" ]
+verdict "a nested take under a live mark prints nested and no warning when no user can be read" \
+  "nested unreadable: rc=$rc out='$out'" "$tmp/err"
+out=$(sp "PATH=$stub15:$PATH" -- take quiet "$b" 2>"$tmp/err")
+[ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -q "owner $b's user could not be read; running unpooled" "$tmp/err"
+verdict "without a mark the unreadable owner still runs unpooled" "unmarked unreadable: '$out'" "$tmp/err"
+sp -- release quiet "$a" >/dev/null
+
 # --- REQ-I1.2: the helper sits on the shared primitive --------------------------
 grep -qF '. "$script_dir/lock-lib.sh"' "$SP"
 verdict "the helper sources the lock library" "scripts/step-pool.sh does not source lock-lib.sh"

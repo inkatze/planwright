@@ -656,11 +656,6 @@ fi
 # The clock starts before the config reads, which can take seconds on a busy
 # host, so --for and the summed wait cover the whole call.
 start=$(date +%s)
-if [ -n "$owner_unread" ]; then
-  warn "pool $pool: owner $owner's user could not be read; running unpooled"
-  printf 'unpooled\t-\t%s\n' "$waited"
-  exit 0
-fi
 if ! locate yes; then
   warn "pool $pool $pool_cause; running unpooled"
   printf 'unpooled\t-\t%s\n' "$waited"
@@ -668,6 +663,12 @@ if ! locate yes; then
 fi
 if mark_holds; then
   printf 'nested\t-\t%s\n' "$waited"
+  exit 0
+fi
+# After the mark: a take nested in a live hold is silent whatever ps can read.
+if [ -n "$owner_unread" ]; then
+  warn "pool $pool: owner $owner's user could not be read; running unpooled"
+  printf 'unpooled\t-\t%s\n' "$waited"
   exit 0
 fi
 if ! errf=$(mktemp "${TMPDIR:-/tmp}/step-pool.XXXXXX" 2>/dev/null); then
