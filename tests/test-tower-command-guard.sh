@@ -1045,6 +1045,15 @@ malformed_run() {
 }
 malformed_run '{ this is not json'
 if [ "$CODE" -eq 0 ] && is_empty; then pass "malformed JSON fails closed (defer)"; else fail "malformed JSON — expected defer exit 0 (got $CODE)"; fi
+malformed_run '{"tool_name":"Bash","tool_input":{"command":"git status\u0000"}}'
+if [ "$CODE" -eq 0 ] && is_empty; then
+  pass "a NUL byte in the command defers"
+elif is_allow; then
+  fail "a NUL byte in the command — FALSE-ALLOW: approved text the shell would read differently"
+  false_allows=$((false_allows + 1))
+else
+  fail "a NUL byte in the command — expected defer exit 0 (got $CODE)"
+fi
 # `cwd` carries the same type discipline as `command`: a PRESENT non-string value
 # is a payload outside the PreToolUse contract and defers; absent/null keep the
 # documented $PWD fallback. Panel finding (codex backend).

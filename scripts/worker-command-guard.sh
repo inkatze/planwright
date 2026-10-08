@@ -2943,8 +2943,10 @@ main() {
 
   # The command must be a JSON string; a present-but-empty or non-string value
   # defers (REQ-B1.7).
+  # A NUL byte defers too: the command substitution drops it, so the guard
+  # would screen other text than the shell runs.
   cmd=$(printf '%s' "$input" \
-    | jq -r 'if (.tool_input.command | type) == "string" then .tool_input.command else empty end' \
+    | jq -r 'if (.tool_input.command | type) == "string" and (.tool_input.command | explode | any(. == 0) | not) then .tool_input.command else empty end' \
       2>/dev/null) || return 0
   [ -n "$cmd" ] || return 0
 

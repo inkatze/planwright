@@ -2289,8 +2289,10 @@ main() {
   tool=$(printf '%s' "$input" | jq -r '.tool_name // empty' 2>/dev/null) || return 0
   [ "$tool" = Bash ] || return 0 # every non-Bash tool defers
 
+  # A NUL byte defers too: the command substitution drops it, so the guard
+  # would screen other text than the shell runs.
   cmd=$(printf '%s' "$input" \
-    | jq -r 'if (.tool_input.command | type) == "string" then .tool_input.command else empty end' \
+    | jq -r 'if (.tool_input.command | type) == "string" and (.tool_input.command | explode | any(. == 0) | not) then .tool_input.command else empty end' \
       2>/dev/null) || return 0
   [ -n "$cmd" ] || return 0
 
