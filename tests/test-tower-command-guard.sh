@@ -792,6 +792,8 @@ assert_defer "bypass: a loop variable named path, zsh's tied PATH, re-points lat
 assert_defer "bypass: a loop variable named cdpath, zsh's tied CDPATH" "for cdpath in /tmp; do git status; done"
 assert_defer "bypass: a loop variable named NULLCMD picks what zsh runs for a lone output redirect" "for NULLCMD in /tmp/x; do >/dev/null; done"
 assert_defer "bypass: a loop variable named READNULLCMD picks what zsh runs for a lone input redirect" "for READNULLCMD in /tmp/x; do <README.md; done"
+assert_defer "bypass: a loop variable named module_path picks where zsh loads a module from" "for module_path in /tmp/x; do for commands in x; do git status; done; done"
+assert_defer "bypass: a loop variable named MODULE_PATH, zsh's tied module_path" "for MODULE_PATH in /tmp/x; do git status; done"
 assert_defer "regression-only: a loop variable reaching bash" "for d in a; do bash \$d; done"
 assert_defer "a loop head past the bound defers whole" \
   "for f in w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 w15 w16 w17; do echo \$f; done"

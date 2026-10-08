@@ -1949,9 +1949,11 @@ assign_name_ok() {
       BASH* | COMP_* | READLINE_* | HIST* | LC_* | MAIL* | PS[0-9]*) return 1 ;;
   esac
   # zsh, the Bash tool's shell on macOS: `path` and `cdpath` are tied to PATH
-  # and CDPATH, and NULLCMD / READNULLCMD name the command a lone redirect runs.
+  # and CDPATH, NULLCMD / READNULLCMD name the command a lone redirect runs, and
+  # module_path / MODULE_PATH is where zsh loads a module (a shared object)
+  # from, which binding a name such as `commands` can trigger.
   case $name in
-    path | cdpath | NULLCMD | READNULLCMD) return 1 ;;
+    path | cdpath | NULLCMD | READNULLCMD | module_path | MODULE_PATH) return 1 ;;
   esac
   # Membership in the hook's own ENVIRONMENT, snapshotted at startup: an
   # exported name the command re-points reaches every child it runs. The

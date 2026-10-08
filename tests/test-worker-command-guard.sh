@@ -775,6 +775,8 @@ assert_defer "bypass: a loop variable named path, zsh's tied PATH, re-points lat
 assert_defer "bypass: a loop variable named cdpath, zsh's tied CDPATH" "for cdpath in /tmp; do git status; done"
 assert_defer "bypass: a loop variable named NULLCMD picks what zsh runs for a lone output redirect" "for NULLCMD in /tmp/x; do >/dev/null; done"
 assert_defer "bypass: a loop variable named READNULLCMD picks what zsh runs for a lone input redirect" "for READNULLCMD in /tmp/x; do <README.md; done"
+assert_defer "bypass: a loop variable named module_path picks where zsh loads a module from" "for module_path in /tmp/x; do for commands in x; do git status; done; done"
+assert_defer "bypass: a loop variable named MODULE_PATH, zsh's tied module_path" "for MODULE_PATH in /tmp/x; do git status; done"
 assert_defer "bypass: read overwrites a loop variable before a screened use" \
   "for d in -name; do read d; find . \$d; done"
 HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
