@@ -2258,9 +2258,8 @@ EOF
 probe_from_permission_path() {
   $SH "$perm_dir/probe.sh" "$LIB" "$1" >/dev/null 2>&1
 }
-sh -c 'exit 0' &
-gone=$!
-wait "$gone" 2>/dev/null
+# Above any pid a host can assign, so no recycled process can answer for it.
+gone=9999999
 probe_from_permission_path "$gone-0-1"
 assert_exit "a dead owner reads dead from a path naming permission" 1 $?
 sleep 120 &
