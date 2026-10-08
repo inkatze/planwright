@@ -34,6 +34,15 @@ floor and the wider deny list as its mechanisms (D-1). In this bundle,
 doctrine rule.
 *(Cites: D-1, D-2, the tower-placement seed (Sources).)*
 
+The tower settings profile's own hooks also run when it is delivered with
+`--settings`, which they do not today: they name the plugin root in a
+spelling Claude Code honors only for a plugin's own hooks, so the command
+guard and the policy guard never start in a profile-launched tower. A
+check over every settings profile keeps the spelling from coming back, and
+the policy guard's hooks refuse rather than vanish when the root does not
+resolve. The fix is a mechanism and its check, not a new rule (D-13).
+*(Cites: D-13, D-14, the profile-hooks seed (Sources).)*
+
 ## Scope
 
 ### In scope
@@ -55,6 +64,9 @@ doctrine rule.
   every spelling the guard can parse.
 - The two dispatch defects a tower in its own tree triggers: nested unit
   worktrees and the primary checkout counted as a live flight.
+- The tower profile's hooks running under `--settings`: their plugin-root
+  spelling, a refusal when the root does not resolve, and a check over
+  every settings profile under `config/` that carries hooks.
 
 ### Out of scope
 
@@ -70,6 +82,11 @@ doctrine rule.
   its own tree can miss (deferred; see `tasks.md`).
 - GitHub tools exposed by MCP servers other than the one the profile names.
 - Any change to sign-off, merge, or the draft-to-ready flip.
+- The plugin's own `hooks/hooks.json`, where the braced plugin-root token
+  is the correct spelling.
+- The worker profile's hook commands, which already use the working
+  spelling; the profile-wide check covers them, and their policy hooks'
+  behaviour on an unresolved root is deferred (see `tasks.md`).
 
 ## REQ-A — Placement
 
@@ -165,6 +182,15 @@ doctrine rule.
 - **REQ-C1.7** The profile launch (`--settings` with the tower profile)
   SHALL keep working as an additional layer, its command guard included.
   *(Cites: D-7.)*
+  **Superseded-by: REQ-C1.13** (2026-10-08) — the "keep working" premise
+  was false: none of the profile's hooks ran under `--settings`, and the
+  verification path passed because it matched the broken spelling.
+- **REQ-C1.13** (supersedes REQ-C1.7) The profile launch (`--settings`
+  with the tower profile) SHALL work as an additional layer: each of the
+  profile's hooks, the command guard included, SHALL execute in a session
+  launched that way, verified by running the hook commands through a shell
+  rather than by matching their spelling.
+  *(Cites: D-7, D-14, the profile-hooks seed (Sources).)*
 - **REQ-C1.8** A tower resumed or forked under a different fleet home or
   session id SHALL be re-marked by its bring-up, and the docs SHALL state
   the residual window: from the resume until the bring-up or on-request
@@ -177,6 +203,23 @@ doctrine rule.
   handshake.
   *(Cites: D-8, kickoff §7 decision-domains gap check (2026-10-08)
   (Sources).)*
+- **REQ-C1.10** Every hook command in the tower profile SHALL name the
+  plugin root in the quoted, unbraced form (`"$CLAUDE_PLUGIN_ROOT"/scripts/…`),
+  which the session's shell expands from the environment the launcher
+  sets.
+  *(Cites: D-14, obs:a4a4fa59, obs:aed5517e.)*
+- **REQ-C1.11** A check SHALL fail when any hook command, in any settings
+  profile under `config/` that carries a `hooks` key, contains the braced
+  plugin-root token or names the plugin root in any form other than the
+  quoted, unbraced one.
+  *(Cites: D-15, obs:aed5517e.)*
+- **REQ-C1.12** When the plugin root does not resolve to the policy guard,
+  each tower-profile hook that runs the policy guard SHALL block the call
+  with a reason naming the unresolved guard, never pass it by a
+  command-not-found error; the command guard's hook SHALL keep deferring
+  in that case.
+  *(Cites: D-16, the profile-hooks seed (Sources), Research: Claude Code
+  hooks exit codes (Sources).)*
 
 ## REQ-D — The deny floor
 
@@ -214,6 +257,12 @@ doctrine rule.
   wiring; the tower committing via git as its reason not to need the MCP
   write tools).
   *(Cites: obs:b159857e.)*
+- **REQ-D1.6** The tower profile's `_about` text SHALL state the hooks'
+  quoted, unbraced spelling and why it differs from `hooks/hooks.json`,
+  that the launcher must export `CLAUDE_PLUGIN_ROOT`, and that the policy
+  hooks refuse when it does not resolve; it SHALL drop the claim that the
+  profile references the script exactly as `hooks/hooks.json` does.
+  *(Cites: D-14, D-16.)*
 
 ## REQ-E — Dispatch from a tower's own tree
 
@@ -252,6 +301,11 @@ doctrine rule.
   around from a plain session and fixed by a plugin downgrade or release.
   *(Cites: D-8, kickoff §7 decision-domains gap check (2026-10-08)
   (Sources).)*
+- **REQ-F1.6** The fleet docs SHALL state that a `--settings` tower launch
+  needs `CLAUDE_PLUGIN_ROOT` exported, that its policy hooks refuse every
+  call without it, and that a running tower picks up a changed profile
+  only on relaunch.
+  *(Cites: D-14, D-16.)*
 
 ## REQ-G — Invariants
 
@@ -283,6 +337,12 @@ doctrine rule.
   family outside it; the sanctioned-script exceptions to the placement
   floor; REQ-E1.1 as a regression test; the flight review summarized in
   Sources; task wording, citations, and glossary aligned.
+- 2026-10-08 — Extension (post-merge, Draft content in the Ready bundle):
+  the tower profile's hooks never ran under `--settings`. Adds REQ-C1.10
+  to REQ-C1.12, REQ-D1.6, REQ-F1.6, and REQ-C1.13 superseding REQ-C1.7;
+  D-13 to D-16; Task 8, with Task 3 now depending on it; a deferred entry
+  for the worker profile's policy hooks. Consumes obs:a4a4fa59 and
+  obs:aed5517e. Signs off through a `/spec-kickoff` delta re-walkthrough.
 
 ## Sources
 
@@ -360,6 +420,26 @@ doctrine rule.
   matched per subcommand and do not match `git -C` or `-c` spellings),
   `plugins-reference.md` (plugin hooks share the settings hook shape,
   `timeout` included).
+- **The profile-hooks seed** (2026-10-08, drafting invocation, routed as
+  an amendment by the operator): every `--settings` tower launch loads
+  `config/tower-settings.json`, whose PreToolUse hooks all name the
+  plugin root in the braced form Claude Code refuses for a settings-file
+  hook, so neither guard runs; the deny list still applies. The worker
+  profile was fixed the same way earlier; a throwaway settings file
+  confirmed the braced form does not run and the plain form does. Asked
+  for: the rewrite, a profile-wide check, a fail-closed decision, and the
+  REQ-C1.7 reconciliation.
+- **Research: Claude Code hooks exit codes** (consulted 2026-10-08,
+  `code.claude.com/docs/en/hooks.md`): in PreToolUse only exit 2 blocks;
+  any other non-zero exit, a missing script's 127 included, is a
+  non-blocking error and the call proceeds, which the docs call a silently
+  disabled gate. The page documents `${CLAUDE_PLUGIN_ROOT}` for plugin
+  hooks only.
+- **obs:a4a4fa59** — a `--settings` profile whose hook names the braced
+  plugin root ships a dead guard hook (consumed).
+- **obs:aed5517e** — the braced plugin-root token substitutes empty under
+  `--settings` while the plain form expands, measured, and wants a pinning
+  test (consumed).
 - **obs:55bb13a7** — a `--worktree` tower has `git -C`, worktree removal,
   `$(...)` arguments, and tmux formats refused.
 - **obs:48faa6b7** — the bring-up posture check cannot see the `--settings`

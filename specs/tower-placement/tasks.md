@@ -5,12 +5,45 @@
 **Format-version:** 2
 **Execution:** derived — see the status render
 
-Tasks in dependency order. Tasks 3 and 4 change guard code, hook wiring,
-and the tower profile: each takes the security-zone hard pause, and its PR
-presents the allow/deny delta for human sign-off. The tower-enforcement
+Tasks in dependency order. Tasks 8, 3, and 4 change guard code, hook
+wiring, and the tower profile: each takes the security-zone hard pause, and
+its PR presents the allow/deny delta for human sign-off. The tower-enforcement
 flight's branch is prior art for both (D-12).
 
 ## Tasks
+
+### Task 8 — Tower profile hooks that run under `--settings`
+
+- **Deliverables:** every hook command in
+  `config/tower-settings.json` rewritten to the quoted, unbraced
+  `"$CLAUDE_PLUGIN_ROOT"/scripts/…` spelling, each policy-guard
+  command prefixed with an executability check that prints a reason
+  naming the unresolved guard and exits 2; the static half of
+  `tests/test-settings-fragment-hook-expansion.sh` widened to every hook
+  command in every `config/*.json` carrying a `hooks` key, its header
+  naming both profiles; `tests/test-tower-settings-hook-wiring.sh` no
+  longer pinning the braced spelling; an execution test that runs each
+  tower hook command through a shell with a fixture payload; the
+  profile's `_about` corrected per REQ-D1.6; the tower-profile paragraph
+  of `docs/fleet.md` carrying REQ-F1.6's three statements.
+- **Done when:** the widened check passes on the shipped profiles and
+  fails on fixture profiles carrying the braced token in a non-first hook
+  entry and an unquoted root; the execution test shows each tower hook
+  reaching its script with the root exported, both policy hooks exiting 2
+  with their reason when it is unset or points at a directory without the
+  guard, and the command guard's hook exiting neither 0 nor 2 in that
+  case; `config/worker-settings.json` unchanged and the worker-tier
+  expectations of the policy-guard and reserved-control suites
+  unchanged; `mise run check` passes under umask 022; the PR body states
+  the result of one manual profile launch through the supported launcher
+  (a tmux read auto-approved, a reserved act refused by the policy guard)
+  and of the opt-in live CLI probe, and presents the hook delta for the
+  security-zone sign-off; the changelog states that a `--settings` tower
+  launch without `CLAUDE_PLUGIN_ROOT` now refuses Bash.
+- **Dependencies:** none
+- **Citations:** D-13, D-14, D-15, D-16 · REQ-C1.10, REQ-C1.11,
+  REQ-C1.12, REQ-C1.13, REQ-D1.6, REQ-F1.6, REQ-G1.2, REQ-G1.4
+- **Estimated effort:** half day
 
 ### Task 1 — Tower placement floor in the fleet doctrine
 
@@ -93,9 +126,9 @@ flight's branch is prior art for both (D-12).
   umask 022; the PR body carries the deny-to-act map and what stays
   untested; its commits carry the breaking-change marker and the changelog
   states the new tower-session denials.
-- **Dependencies:** none
+- **Dependencies:** 8
 - **Citations:** D-1, D-7, D-8, D-9, D-12 · REQ-C1.1, REQ-C1.2, REQ-C1.3,
-  REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7, REQ-C1.9, REQ-D1.2, REQ-D1.3,
+  REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.13, REQ-C1.9, REQ-D1.2, REQ-D1.3,
   REQ-D1.4, REQ-G1.1, REQ-G1.2, REQ-G1.4
 - **Estimated effort:** 3 days
 
@@ -192,7 +225,11 @@ flight's branch is prior art for both (D-12).
 
 ## Awaiting input
 
-(none yet)
+- **Task 8** anchor re-review pending: the 2026-10-08 extension is
+  meaning-class Draft content inside this signed bundle, so its recorded
+  anchor no longer recomputes; Task 8 and the tasks the freshness gate
+  holds with it wait on the delta kickoff, whose sign-off re-records the
+  anchor and removes this bullet.
 
 ## Deferred
 
@@ -218,6 +255,15 @@ flight's branch is prior art for both (D-12).
   `allow` in its machine-local layer. Confidence: high.
   **Gate:** GATE(when: task 7 completed).
   Citations: D-1, D-4 · the tower-placement seed (Sources).
+
+- **Worker profile's policy hooks on an unresolved root.** The worker
+  profile's policy-guard hooks share the tower's exposure: with
+  `CLAUDE_PLUGIN_ROOT` unset they exit 127 and the call proceeds. The
+  dispatch wrapper exports the root, and REQ-G1.2 keeps workers unchanged
+  here, so the D-16 prefix for the worker profile is a follow-up.
+  Confidence: high.
+  **Gate:** GATE(when: task 8 completed).
+  Citations: D-16 · obs:aed5517e.
 
 ## Out of scope
 

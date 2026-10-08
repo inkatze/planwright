@@ -109,6 +109,19 @@ prefilter.
 The existing tower-settings hook-wiring tests pass, with only their pinned
 `_about` phrases updated for REQ-D1.5.
 
+Superseded by REQ-C1.13 (2026-10-08): this path passed while every hook
+was dead, because the hook-wiring test pinned the broken spelling.
+
+### REQ-C1.13 — Profile hooks execute [test + manual]
+
+An execution test runs each tower-profile hook command through a shell
+with a fixture payload and `CLAUDE_PLUGIN_ROOT` exported, and finds each
+reaching its script; the tower-settings hook-wiring tests pass, with their
+spelling pins and `_about` phrases updated. A manual launch through the
+supported launcher shows a tmux read auto-approved by the command guard
+and a reserved act refused by the policy guard; the opt-in live CLI probe
+(`PLANWRIGHT_LIVE_CLI_PROBE=1`) re-measures the spelling by hand.
+
 ### REQ-C1.8 — Resume residual [manual + design-level]
 
 The docs state the residual; a manual run resumes a tower under another
@@ -121,6 +134,23 @@ A mark write removes a mark older than the pruning age and keeps a
 refreshed one; a handshake moves the session's own mark's age; no
 non-hook process writes a mark. A manual on-request posture check refreshes
 the live session's mark.
+
+### REQ-C1.10 — Quoted, unbraced spelling [test]
+
+The widened static check in `tests/test-settings-fragment-hook-expansion.sh`
+finds every tower-profile hook command in the quoted, unbraced form.
+
+### REQ-C1.11 — Check over every profile [test]
+
+The check passes on the shipped profiles and fails on fixture profiles
+with the braced token in a non-first hook entry and with an unquoted root;
+it selects profiles by their `hooks` key, not by name.
+
+### REQ-C1.12 — Policy hooks refuse an unresolved root [test]
+
+With `CLAUDE_PLUGIN_ROOT` unset, and set to a directory without the guard,
+each policy-guard hook exits 2 with a reason naming the guard, and the
+command guard's hook exits neither 0 nor 2.
 
 ## REQ-D — The deny floor
 
@@ -152,6 +182,12 @@ the shipped one; `git worktree add <path> -b docs/main` and
 A test asserts the profile's `_about` says the command arrives as written,
 no longer claims expanded commands, and drops the statements REQ-D1.5
 names.
+
+### REQ-D1.6 — `_about` names the spelling [test]
+
+A test asserts the profile's `_about` states the quoted, unbraced spelling,
+the launcher's export, and the policy hooks' refusal, and no longer says
+it references the script exactly as `hooks/hooks.json` does.
 
 ## REQ-E — Dispatch from a tower's own tree
 
@@ -189,6 +225,11 @@ No doc or script header claims the floor loads only with the profile.
 
 `docs/fleet.md` carries the restart-after-install note and the no-switch
 recovery path.
+
+### REQ-F1.6 — Launch needs the root exported [design-level]
+
+The tower-profile paragraph of `docs/fleet.md` states the export, the
+refusal without it, and relaunch to pick up a changed profile.
 
 ## REQ-G — Invariants
 
