@@ -203,8 +203,23 @@ expect defer - "mkdir -p $z/demo/x" "mkdir with no root handed in"
 expect defer "$z" "mkdir -m 777 $z/demo/x" "mkdir with a mode"
 expect defer "$z" "mkdir -p $z/_observations/missing/deep" "mkdir under a parent that does not exist"
 expect defer "$z" "rm $z/demo/tasks.md" "a writer verb outside the arm"
-expect defer "$tmp/holder/elsewhere" "printf x > $tmp/holder/elsewhere/x" "a handed-in directory without the marker"
-expect defer "holder/specs" "printf x > $z/demo/tasks.md" "a relative handed-in value"
+# The load-time checks on the handed-in value: each case would allow if its
+# check were dropped, since the target is otherwise a valid bundle write.
+expect defer "$tmp/holder/specs-evil" "printf x > $tmp/holder/specs-evil/demo/x" "a handed-in directory without the marker"
+mkdir -p "$tmp/linkroot/demo"
+printf '# Demo\n' >"$tmp/linkroot/demo/requirements.md"
+ln -s "$z/planwright-spec-root.yml" "$tmp/linkroot/planwright-spec-root.yml"
+expect defer "$tmp/linkroot" "printf x > $tmp/linkroot/demo/x" "a handed-in directory whose marker is a symlink"
+e_got=$(cd "$tmp" && verdict "holder/specs" "printf x > $z/demo/tasks.md")
+if [ "$e_got" = defer ]; then
+  ok "guard: defer a relative handed-in value, even where it would resolve"
+else
+  fail "guard: expected defer, got $e_got, for a relative handed-in value resolved from $tmp"
+fi
+mkdir -p "$z/_res.x"
+expect defer "$z" "printf x > $z/_res.x/f" "a reserved directory outside the name charset"
+mkfifo "$z/demo/pipe"
+expect defer "$z" "printf x > $z/demo/pipe" "a leaf that is neither a file nor a directory"
 
 if [ "$failures" -ne 0 ]; then
   echo "FAIL: test-worker-spec-zone.sh ($failures failure(s))" >&2
