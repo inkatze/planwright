@@ -18,7 +18,11 @@
 #                user. The slot is held ON ITS BEHALF (lock-lib's
 #                pw_lock_acquire_for), never by an open descriptor, so nothing
 #                the check spawns inherits it, and once that process is gone
-#                the next caller reclaims the slot.
+#                the next caller reclaims the slot. A take trusts the pid for
+#                its whole wait: an owner that exits and has its pid taken by
+#                another process of the same user before the acquire passes
+#                every check, and the slot then stays held until that process
+#                exits. Release trusts the pid the same way.
 #
 # SLOTS. A pool of capacity N is the lock-lib locks slot-1 .. slot-N under
 # <root>/<pool>/, <root> being $XDG_STATE_HOME/planwright/step-pools, else
