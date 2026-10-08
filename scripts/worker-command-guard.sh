@@ -747,11 +747,11 @@ spec_zone_redirect() {
   esac
 }
 
-# guard_tee / guard_mkdir: every operand a zone path; the only flag `-a`
-# (append) for tee and `-p` for mkdir, so no mode, context, or ignore flag
-# changes what lands.
+# guard_tee / guard_mkdir: at least one operand, every operand a zone path;
+# the only flag `-a` (append) for tee and `-p` for mkdir, so no mode, context,
+# or ignore flag changes what lands.
 guard_tee() {
-  local i a ends=0
+  local i a ends=0 operands=0
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$ends" = 0 ]; then
@@ -765,8 +765,9 @@ guard_tee() {
       esac
     fi
     in_spec_zone "$a" "$HOOK_CWD" || return 1
+    operands=$((operands + 1))
   done
-  return 0
+  [ "$operands" -ge 1 ]
 }
 
 guard_mkdir() {
