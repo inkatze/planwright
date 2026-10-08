@@ -329,8 +329,13 @@ screen() {
   _sc_mode=$(printf '%s\n' "$_sc_long" | awk '{ print substr($1, 6, 1) substr($1, 9, 1) }')
   # A trailing `+` marks an access control list, which can grant other users
   # write while the mode bits read owner-only (Linux folds an ACL's mask into
-  # the group bits, macOS does not). `@`, extended attributes, grants nothing.
+  # the group bits, macOS does not). macOS shows `@` instead when extended
+  # attributes are present too, so the ACL entries themselves are read there.
   _sc_acl=$(printf '%s\n' "$_sc_long" | awk '{ print substr($1, 11, 1) }')
+  if [ "$_sc_acl" = @ ]; then
+    # shellcheck disable=SC2012
+    ls -lde "$1" 2>/dev/null | awk 'NR > 1 && /^ *[0-9]+: / { found = 1 } END { exit !found }' && _sc_acl=+
+  fi
   _sc_me=$(id -u 2>/dev/null)
   if [ -L "$1" ]; then
     screen_cause="$(shown "$1") is a symbolic link"

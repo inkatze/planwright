@@ -956,6 +956,29 @@ else
   ok "skipped: this host's chmod sets no ACL"
 fi
 
+# --- REQ-I1.2: an ACL hidden behind an extended-attribute marker is found -------
+# macOS ls shows `@` in place of `+` when a directory carries both, so the
+# screen reads the ACL entries themselves.
+reset
+printf 'step_pool_wait: 1s\n' >"$mlocal"
+a=$(owner)
+mkdir -p "$pools/xattracl" "$pools/xattronly"
+if command -v xattr >/dev/null 2>&1 && xattr -w org.example.pool 1 "$pools/xattronly" 2>/dev/null \
+  && xattr -w org.example.pool 1 "$pools/xattracl" 2>/dev/null \
+  && chmod +a "everyone allow add_file,add_subdirectory,delete_child" "$pools/xattracl" 2>/dev/null; then
+  out=$(sp -- take xattracl "$a" 2>"$tmp/err")
+  rc=$?
+  [ "$rc" -eq 0 ] && [ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -q 'carries an access control list' "$tmp/err" \
+    && [ ! -L "$pools/xattracl/slot-1" ]
+  verdict "an ACL behind an extended-attribute marker runs unpooled" "xattr+acl: rc=$rc out='$out'" "$tmp/err"
+  out=$(sp -- take xattronly "$a" 2>"$tmp/err")
+  [ "$out" = "taken${TAB}1${TAB}0" ] && [ ! -s "$tmp/err" ]
+  verdict "an extended attribute without an ACL is accepted" "xattr only: '$out'" "$tmp/err"
+  sp -- release xattronly "$a" >/dev/null
+else
+  ok "skipped: this host sets no extended attribute with an ACL"
+fi
+
 # --- REQ-I1.2: the helper sits on the shared primitive --------------------------
 grep -qF '. "$script_dir/lock-lib.sh"' "$SP"
 verdict "the helper sources the lock library" "scripts/step-pool.sh does not source lock-lib.sh"
