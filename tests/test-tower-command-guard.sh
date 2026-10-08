@@ -104,11 +104,14 @@ run_hook() {
   local tool="${2:-Bash}"
   local cwd="${3:-$SANDBOX}"
   local payload
-  local -a home=("HOME=${RUN_HOME-$SANDBOX/no-home}")
-  [ -n "${RUN_NO_HOME:-}" ] && home=(-u HOME)
   payload="$(jq -n --arg c "$cmd" --arg t "$tool" --arg w "$cwd" \
     '{tool_name:$t, tool_input:{command:$c}, cwd:$w}')"
-  OUT="$(cd "${RUN_HOOK_CWD:-.}" && printf '%s' "$payload" | env "${home[@]}" PATH="${RUN_PATH:-$PATH}" TMPDIR="${RUN_TMPDIR-${TMPDIR:-}}" CLAUDE_PLUGIN_ROOT="${RUN_PLUGIN_ROOT:-$PLUGIN_ROOT}" /bin/bash "$HOOK" 2>/dev/null)"
+  # env costs an exec per hook run, so only the unset-HOME rows pay for it.
+  if [ -n "${RUN_NO_HOME:-}" ]; then
+    OUT="$(cd "${RUN_HOOK_CWD:-.}" && printf '%s' "$payload" | env -u HOME PATH="${RUN_PATH:-$PATH}" TMPDIR="${RUN_TMPDIR-${TMPDIR:-}}" CLAUDE_PLUGIN_ROOT="${RUN_PLUGIN_ROOT:-$PLUGIN_ROOT}" /bin/bash "$HOOK" 2>/dev/null)"
+  else
+    OUT="$(cd "${RUN_HOOK_CWD:-.}" && printf '%s' "$payload" | HOME="${RUN_HOME-$SANDBOX/no-home}" PATH="${RUN_PATH:-$PATH}" TMPDIR="${RUN_TMPDIR-${TMPDIR:-}}" CLAUDE_PLUGIN_ROOT="${RUN_PLUGIN_ROOT:-$PLUGIN_ROOT}" /bin/bash "$HOOK" 2>/dev/null)"
+  fi
   CODE=$?
 }
 
