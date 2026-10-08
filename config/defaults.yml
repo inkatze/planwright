@@ -87,8 +87,8 @@ dispatch_backend_per_spec: {}
 
 max_parallel_units: 3
 
-# Fleet-level concurrency bound for the meta-tower ("tower of towers",
-# /orchestrate --meta, D-6, REQ-D1.5). Caps the TOTAL number of in-flight
+# Fleet-level concurrency bound for the meta-tower
+# (/orchestrate --meta, D-6, REQ-D1.5). Caps the TOTAL number of in-flight
 # execution units summed across ALL specs the meta-tower supervises — distinct
 # from max_parallel_units, which caps one spec. The safe default is
 # conservative: 3 holds total fleet concurrency to a single spec's worth, so

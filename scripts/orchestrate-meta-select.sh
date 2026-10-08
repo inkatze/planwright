@@ -1,5 +1,5 @@
 #!/bin/sh
-# orchestrate-meta-select.sh — the meta-tower ("tower of towers") selector for
+# orchestrate-meta-select.sh — the meta-tower selector for
 # /orchestrate --meta (orchestration-fleet Task 6, REQ-D1.1, REQ-D1.5, D-6).
 #
 # Given the spec dirs a meta-tower supervises, pick the next unit to advance
@@ -35,7 +35,7 @@
 # crash-safe exactly like a single-spec tower. The fleet-level advisory lock and
 # the atomic same-instant reservation live in fleet-state.sh; this selector is
 # the pure, side-effect-free decision the /orchestrate --meta step wraps in that
-# lock before it launches a subordinate tower.
+# lock before it runs the single-spec step (orchestrate-meta-step.sh).
 #
 # IN-FLIGHT SOURCE OF TRUTH. The authoritative fleet in-flight count for THIS
 # decision is the live git derivation summed below — level-triggered and
@@ -43,8 +43,8 @@
 # deriving as in-progress). This selector reads ONLY that git truth; it does not
 # read or write fleet-state.sh's `bound-incr` counter. That counter is a separate
 # same-instant RESERVATION primitive (its fleet-bound accounting is Task 6's, per
-# the fleet-state.sh header) meant to close the sub-second window between a meta
-# step deciding and a subordinate tower materializing its branch/marker; it is
+# the fleet-state.sh header) meant to close the window between a meta
+# step deciding and that step materializing its branch/marker; it is
 # deliberately NOT this selector's source of truth. The two can diverge (and the
 # counter, unlike the git derivation, is not crash-self-healing); the git
 # derivation is what reconciles.
