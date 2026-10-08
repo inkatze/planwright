@@ -899,12 +899,24 @@ c21() {
   lock=$(lock_path_for "$tmp/ghstate")
   mkdir -p "$lock" # the retired shape's leftover
 
+  # The retired shape recorded no holder, so nothing shows its carry has ended:
+  # a carry started before the upgrade may still be pushing under it. It is
+  # contention, the same clean no-op as a live holder, and it stays where it is.
   out=$(run_carry "$gh" "$tmp/ghstate" "$repo" 2>"$tmp/err") \
-    || fail "c21: a legacy directory lock wedged the carry — exit $? — $(cat "$tmp/err")"
+    || fail "c21: a legacy directory lock must read as contention, got exit $? — $(cat "$tmp/err")"
+  [ "$(tag_val "$out" carry)" = noop ] \
+    || fail "c21: expected carry=noop while a legacy lock directory stands, got: $out"
+  [ -d "$lock" ] || fail "c21: the legacy lock directory was removed while its carry may still be running"
+  grep -q "observation-carry.lock" "$tmp/err" \
+    || fail "c21: the no-op must name the legacy lock directory, stderr: $(cat "$tmp/err")"
+
+  # Once its carry ends it removes the directory itself, and the next carry runs.
+  rmdir "$lock"
+  out=$(run_carry "$gh" "$tmp/ghstate" "$repo" 2>"$tmp/err") \
+    || fail "c21: the carry failed once the legacy lock was gone — exit $? — $(cat "$tmp/err")"
   [ "$(tag_val "$out" carry)" = created ] \
-    || fail "c21: expected carry=created after clearing the legacy lock, got: $out"
-  [ ! -d "$lock" ] || fail "c21: the legacy lock directory is still at the lock path"
-  echo "ok c21: a legacy mkdir directory lock is cleared instead of wedging the carry"
+    || fail "c21: expected carry=created once the legacy lock was gone, got: $out"
+  echo "ok c21: a legacy mkdir directory lock is contention, never removed under a running carry"
 }
 
 c1

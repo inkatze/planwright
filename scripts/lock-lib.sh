@@ -1313,6 +1313,10 @@ pw_lock_break_force() {
 # path has gone, because a caller that reads a 2 as "cleared" would go on to
 # take a path that is still occupied.
 #
+# It does not ask whether the directory's holder has exited: the retired shapes
+# recorded a holder differently or not at all, so that proof is the caller's to
+# make first, and a directory without it is contention, never a clear.
+#
 # A caller cannot do this with a test and pw_lock_break_force: the test and the
 # removal are two steps, and a peer taking the path in between would have its
 # LIVE lock deleted — a double grant out of a recovery path. The rename below

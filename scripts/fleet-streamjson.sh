@@ -1634,12 +1634,24 @@ held_locks() {
 # and only a directory, in one step, so a peer that wins the path in between
 # keeps its live lock rather than having it deleted by a recovery.
 #
-# A failure to clear is surfaced rather than swallowed: the callers are
-# `recover` and `launch`, and neither may go on to report contention for a
-# condition that will not clear.
+# Only a directory whose recorded holder is gone is cleared. The retired shape
+# wrote its holder's pid into `holder` just after taking the lock, so one whose
+# holder still runs, or that recorded none yet, may be a launch or recovery from
+# before the upgrade that is still going, and removing it would run this verb
+# beside that one. It is contention (1), left standing. A failure to clear is
+# surfaced rather than swallowed (2): neither caller may go on to report
+# contention for a condition that will not clear.
 clear_legacy_lock_dirs() {
   cl_rc=0
   for cl_l in $lock_classes; do
+    [ -d "$1/$cl_l" ] && [ ! -L "$1/$cl_l" ] || continue
+    cl_h=$(head -n 1 "$1/$cl_l/holder" 2>/dev/null) || cl_h=''
+    valid_posnum "${cl_h:-}" || cl_h=''
+    if [ -z "$cl_h" ] || pid_live "$cl_h"; then
+      printf '%s\n' "$me: $1/$cl_l is a lock directory from before the upgrade whose holder (${cl_h:-not recorded}) may still be running; leaving it in place" >&2
+      [ "$cl_rc" -eq 2 ] || cl_rc=1
+      continue
+    fi
     pw_lock_clear_legacy "$1/$cl_l" 2>/dev/null
     if [ "$?" -eq 2 ]; then
       printf '%s\n' "$me: cannot clear the legacy lock directory $1/$cl_l (parent unwritable or filesystem error)" >&2
@@ -1876,7 +1888,15 @@ cmd_launch() {
   chmod 700 "$dir" 2>/dev/null || :
   # A lock left as a directory by the retired shape refuses every acquire, the
   # journal's included, so a relaunch clears it as `recover` does.
-  clear_legacy_lock_dirs "$dir" || exit 2
+  clear_legacy_lock_dirs "$dir"
+  case $? in
+    0) ;;
+    1)
+      printf '%s\n' "$me: launch refused for $worker: a lock from before the upgrade may still be held" >&2
+      exit 3
+      ;;
+    *) exit 2 ;;
+  esac
 
   # Single launch initiator, on the same election `recover` uses. Two concurrent
   # launches for one worker otherwise both reach `supervise`, and the second
@@ -2351,7 +2371,15 @@ cmd_recover() {
   # acquire for this worker, including the election below. A clear that fails
   # is fatal here rather than swallowed: the election would otherwise report
   # contention for a condition that will not clear.
-  clear_legacy_lock_dirs "$dir" || exit 2
+  clear_legacy_lock_dirs "$dir"
+  case $? in
+    0) ;;
+    1)
+      printf '%s\n' "$me: recovery refused for $worker: a lock from before the upgrade may still be held" >&2
+      exit 3
+      ;;
+    *) exit 2 ;;
+  esac
   receipt_requeue "$dir"
 
   # Single recovery initiator (REQ-E1.5): the election refuses a concurrent

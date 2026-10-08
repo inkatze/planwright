@@ -1172,7 +1172,24 @@ senv "$home" "$rec" SHIM_EVENTS="$ev24" SHIM_READ_FIRST=0 -- \
   || fail "c24c: a lock left as a directory must be cleared, not wedge the verb"
 grep -q -- "--resume $sid" "$rec/argv" \
   || fail "c24c: the relaunch after the in-place clear must resume the session"
-echo "ok: c24 a recover.lock breaks on its holder's absence, and a legacy lock directory is cleared in place (obs:81ba2dce)"
+# (d) the in-place clear is for a directory whose recorded holder is gone. One
+#     whose holder still runs, or that never recorded one, may belong to a
+#     recovery from before the upgrade that is still going: refused as
+#     contention and left standing, never removed from under it.
+for c24_holder in $$ ''; do
+  mkdir -p "$wdir24/recover.lock" || fail "c24d: cannot plant the legacy lock directory"
+  rm -f "$wdir24/recover.lock/holder"
+  [ -z "$c24_holder" ] || printf '%s\n' "$c24_holder" >"$wdir24/recover.lock/holder"
+  rc24=0
+  senv "$home" "$rec" SHIM_EVENTS="$ev24" SHIM_READ_FIRST=0 -- \
+    recover sjw24 --foreground >/dev/null 2>"$tmp/err24" || rc24=$?
+  [ "$rc24" -eq 3 ] \
+    || fail "c24d: a legacy lock directory whose holder may still run (holder '${c24_holder}') must refuse with 3, got $rc24: $(cat "$tmp/err24")"
+  [ -d "$wdir24/recover.lock" ] \
+    || fail "c24d: a legacy lock directory whose holder may still run (holder '${c24_holder}') was removed"
+  rm -rf "$wdir24/recover.lock"
+done
+echo "ok: c24 a recover.lock breaks on its holder's absence, and a legacy lock directory is cleared in place only once its holder is gone (obs:81ba2dce)"
 
 # ---------------------------------------------------------------------------
 # c25 (obs:917e384e): `launch` elects a single initiator, so two concurrent
@@ -1890,10 +1907,19 @@ senv "$home" "$rec" -- stop sjw38b --grace 2 >/dev/null || fail "c38c: stop exit
 [ ! -e "$wdir38b/attention.dirty.999999999" ] || fail "c38c: a close left the re-sync mark behind"
 echo "ok: c38 a close discards spooled receipts and the re-sync mark"
 # (d) A relaunch clears a journal lock left as a directory by the retired
-#     shape; otherwise every receipt of the new run would be spooled forever.
+#     shape once its recorded holder is gone; otherwise every receipt of the
+#     new run would be spooled forever. One whose holder still runs is refused
+#     and left standing.
 home="$tmp/h38d"
 mkdir -p "$home/streamjson/sjw38d/journal.lock"
 wdir38d="$home/streamjson/sjw38d"
+printf '%s\n' $$ >"$wdir38d/journal.lock/holder"
+rc38d=0
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw38d execution-backends:4 --prompt-file "$tmp/prompt38" --foreground >/dev/null 2>&1 || rc38d=$?
+[ "$rc38d" -eq 3 ] || fail "c38d: a launch over a legacy journal lock with a live holder must refuse with 3, got $rc38d"
+[ -d "$wdir38d/journal.lock" ] || fail "c38d: a legacy journal lock directory with a live holder was removed"
+printf '%s\n' "$dead_pid" >"$wdir38d/journal.lock/holder"
 senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_RESULT_LINE="$line_result" -- \
   launch sjw38d execution-backends:4 --prompt-file "$tmp/prompt38" --foreground &
 launch38d=$!

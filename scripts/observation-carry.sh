@@ -372,16 +372,25 @@ lock_tries=60
 # a clean no-op while observations are still stranded would be a silent drop, so
 # the caller degrades on 2. pw_lock_acquire draws exactly that line already.
 acquire_lock() {
-  # The in-place upgrade from the retired `mkdir` shape. A DIRECTORY at the lock
-  # path is a lock the previous implementation left behind; nothing releases one
-  # any more, and the library refuses to wait on a non-symlink, so it would wedge
-  # every future carry until someone deleted it by hand. The library's clear is
-  # what makes this safe to do unconditionally: it takes a directory and only a
-  # directory, in one step, so a peer that wins the path meanwhile keeps its
-  # live lock.
-  pw_lock_clear_legacy "$lock_path"
-  [ "$?" -ne 2 ] || return 2
-  pw_lock_acquire "$lock_path" "$lock_tries"
+  # A DIRECTORY at the lock path is the retired `mkdir` shape, held by a carry
+  # from before the upgrade. That shape recorded no holder, so nothing can show
+  # its carry has ended: it may still be mid-push, and removing the directory
+  # would let this run push the same set beside it. So it is contention, the
+  # same clean no-op as a live holder. A carry that ends removes its own
+  # directory; one killed outright leaves it, which only a person who knows no
+  # older carry is running can clear. Checked again after a refused acquire, so
+  # a directory made between the two looks is contention too, not an error.
+  if ! legacy_lock_busy; then
+    pw_lock_acquire "$lock_path" "$lock_tries"
+    al_rc=$?
+    [ "$al_rc" -eq 2 ] || return "$al_rc"
+    legacy_lock_busy || return 2
+  fi
+  printf '%s\n' "observation-carry: $lock_path is a lock directory from before the upgrade; the carry that made it may still be running and recorded no pid to check, so this run leaves it in place. Remove it by hand once no older carry is running." >&2
+  return 1
+}
+legacy_lock_busy() {
+  [ -d "$lock_path" ] && [ ! -L "$lock_path" ]
 }
 release_lock() {
   pw_lock_release "$lock_path" 2>/dev/null || :
