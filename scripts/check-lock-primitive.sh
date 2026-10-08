@@ -377,8 +377,11 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
   # backslash-continued command is read as the one command it is.
   function tokenize(line, append,   i, n, c, nc, pc, c2, w, k, delim, hd_dash, j, ch, e, quoted) {
     if (!append) { ntok = 0; comment = ""; hascomment = 0 }
-    endsopen = 0; bscont = 0
+    endsopen = 0; bscont = 0; qcont = 0
+    # A word left unfinished by the line before (a continuation inside it, or
+    # a quote still open) goes on here rather than starting a new word.
     w = ""
+    if (append && carryset) { w = carryw; carryset = 0 }
     i = 1; n = length(line)
     while (i <= n) {
       c = substr(line, i, 1)
@@ -537,10 +540,19 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
       }
       w = w c; i++
     }
-    if (w != "") addtok(w, arr ? "aw" : "w")
     # A line that ends inside a quote or an expansion has not ended its word,
-    # let alone its command.
-    if (sq || dq || aq || pe) endsopen = 1
+    # let alone its command, and neither has one whose last word runs into a
+    # continuation: the word is carried to the next line whole, so the next
+    # line never starts a command position halfway through it.
+    if (sq || dq || aq || pe) {
+      endsopen = 1; qcont = 1
+      # Only the head of a word can make it a command word, and a string spanning
+      # hundreds of lines would otherwise be copied whole on every one.
+      carryw = substr(w, 1, 256) "\n"; carryset = 1; w = ""
+    } else if (bscont && w != "") {
+      carryw = w; carryset = 1; w = ""
+    }
+    if (w != "") addtok(w, arr ? "aw" : "w")
     if (ntok > 0 && tokt[ntok] == "op") {
       c = tok[ntok]
       if (c == "&&" || c == "||" || c == "|" || c == "(" || c == "$(") endsopen = 1
@@ -572,9 +584,9 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
 
   # walk(path, lno, exempt) — find the mkdir invocations on the tokenized line and
   # decide, per invocation, whether its exit status is being read.
-  function walk(path, lno, exempt,   i, j, k, t, base, opt, lvl, hasp, inopts, term, nxt, kind, wrap) {
+  function walk(path, lno, exempt,   i, j, k, t, base, opt, lvl, hasp, inopts, term, nxt, kind, wrap, envs, envbase, envp, envmkdir, nsw, sw, m) {
     i = 1
-    wrap = ""
+    wrap = ""; envmkdir = 0
     while (i <= ntok) {
       if (tokt[i] == "op") {
         # Every control operator and every substitution boundary opens a
@@ -597,29 +609,50 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
         # them, the next word is that command.
         opt = unquote(t)
         if (opt == "--") { wrap = ""; i++; continue }
-        if (opt ~ /^-/) {
+        # `env -S <string>` runs the command its string names, so that string
+        # is read as the command line: its first word that is not an
+        # assignment is the command word, and a -p among its words is that command -p.
+        envs = ""
+        if (wrap == "env" && (opt == "-S" || opt == "--split-string") && i < ntok) { i++; envs = unquote(tok[i]) }
+        else if (wrap == "env" && opt ~ /^-S./) envs = substr(opt, 3)
+        else if (wrap == "env" && opt ~ /^--split-string=/) envs = substr(opt, 16)
+        if (envs != "") {
+          nsw = split(envs, sw, /[ \t]+/)
+          envbase = ""; envp = 0
+          for (m = 1; m <= nsw; m++) {
+            if (sw[m] == "" || (envbase == "" && sw[m] ~ /^[A-Za-z_][A-Za-z0-9_]*=/)) continue
+            if (envbase == "") { envbase = sw[m]; sub(/^.*\//, "", envbase); continue }
+            if (sw[m] == "--parents" || (sw[m] ~ /^-[A-Za-z]+$/ && sw[m] ~ /p/)) envp = 1
+          }
+          wrap = ""
+          if (envbase != "mkdir") { atcmd = 0; i++; continue }
+          envmkdir = 1
+        }
+        if (!envmkdir && opt ~ /^-/) {
           if ((wrap == "sudo" && opt ~ /^-[ughprtCDTUR]$/) \
             || (wrap == "env" && opt ~ /^-[uCSPa]$/) \
             || opt == "--user" || opt == "--group" || opt == "--chdir" || opt == "--unset") i++
           i++; continue
         }
-        wrap = ""
+        if (!envmkdir) wrap = ""
       }
       # A keyword is a keyword only at a command position, and a case pattern
       # spelled like one (`if)`) is not one.
-      if ((t == "if" || t == "elif" || t == "while" || t == "until") \
+      if (!envmkdir && (t == "if" || t == "elif" || t == "while" || t == "until") \
         && !(i < ntok && (tok[i + 1] == ")" || tok[i + 1] == "|"))) { cond = 1; i++; continue }
-      if (t == "then" || t == "do" || t == "else" || t == "esac") { cond = 0; i++; continue }
+      if (!envmkdir && (t == "then" || t == "do" || t == "else" || t == "esac")) { cond = 0; i++; continue }
       # Transparent to the command that follows them: the next word is still a
       # command name, so `command mkdir` and `FOO=1 mkdir` are still mkdir.
-      if (t == "!" || t == "time" || t == "command" || t == "builtin" || t == "exec" || t == "nohup") { i++; continue }
-      if (t ~ /^[A-Za-z_][A-Za-z0-9_]*\+?=/) { i++; continue }
-      base = unquote(t)
-      sub(/^.*\//, "", base)
-      if (base == "env" || base == "sudo") { wrap = base; i++; continue }
-      if (base != "mkdir") { atcmd = 0; i++; continue }
+      if (!envmkdir) {
+        if (t == "!" || t == "time" || t == "command" || t == "builtin" || t == "exec" || t == "nohup") { i++; continue }
+        if (t ~ /^[A-Za-z_][A-Za-z0-9_]*\+?=/) { i++; continue }
+        base = unquote(t)
+        sub(/^.*\//, "", base)
+        if (base == "env" || base == "sudo") { wrap = base; i++; continue }
+        if (base != "mkdir") { atcmd = 0; i++; continue }
+      }
 
-      hasp = 0; inopts = 1
+      hasp = envmkdir ? envp : 0; inopts = 1; envmkdir = 0
       lvl = tokl[i]
       j = i + 1
       # An operand of THIS command is a word at THIS level. Everything deeper
@@ -687,6 +720,7 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
     pend = 0; pend_line = 0; pend_exempt = 0
     prev_annot = 0; atcmd = 1; cond = 0
     dq = 0; sq = 0; aq = 0; pe = 0; arr = 0; depth = 0; bt = 0; toodeep = 0
+    carryset = 0; carryw = ""
     opened = 0; cont = 0
     # getline returns -1 when the file cannot be opened or read, which is not
     # end-of-input. Treating the two alike would silently clear a file the scan
@@ -720,7 +754,7 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
       # know they belong to a mkdir.
       if (!cont) { lstart = opened; lexempt = (annot_here || prev_annot) ? 1 : 0 }
       else if (annot_here) lexempt = 1
-      if (bscont) { cont = 1; continue }
+      if (bscont || qcont) { cont = 1; continue }
       cont = 0
       exempt = lexempt
 
@@ -740,6 +774,7 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
       if (!endsopen) atcmd = 1
     }
     # A continuation still open at end of file is a command all the same.
+    if (cont && carryset) { addtok(carryw, "w"); carryset = 0 }
     if (cont && ntok > 0) {
       if (pend) { if (reads_status(1, tokl[1]) && !pend_exempt) print path "\t" pend_line "\trc"; pend = 0 }
       walk(path, lstart, lexempt)
