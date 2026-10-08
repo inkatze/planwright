@@ -500,6 +500,34 @@ rc=$?
 [ "$rc" -eq 143 ] && [ ! -L "$pools/inacq/slot-1" ]
 verdict "a take stopped inside the acquire gives the slot back" "stopped in the acquire: rc=$rc" "$tmp/err"
 
+# --- a take stopped while waiting keeps an earlier take's hold under its pid ----
+# The owner already holds slot-1 through a token an earlier take minted under
+# the pid this take now runs as, the shape of a recycled helper pid.
+reset
+printf 'step_pool_wait: 60s\n' >"$mlocal"
+o=$(owner)
+sp -- take samepid "$o" >/dev/null
+sp -- release samepid "$o" >/dev/null
+(
+  cd "$repo" || exit 99
+  unset PLANWRIGHT_STEP_POOL_HOLD PLANWRIGHT_CONFIG_STRICT_OVERLAYS PLANWRIGHT_ROOT PLANWRIGHT_REPO_ROOT_CHECKED
+  PLANWRIGHT_CONFIG_DEFAULTS="$DEFAULTS" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
+    PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" PLANWRIGHT_POOL_DIR="$pools" \
+    exec sh -c 'ln -s "$1-1000-999999999-$$-1" "$2/slot-1" && exec "$3" take samepid "$1"' \
+    sh "$o" "$pools/samepid" "$SP" >/dev/null 2>"$tmp/err"
+) &
+waiter=$!
+_n=0
+until grep -q 'is full' "$tmp/err" 2>/dev/null || [ "$_n" -ge 300 ]; do
+  sleep 0.1
+  _n=$((_n + 1))
+done
+kill -TERM "$waiter"
+wait "$waiter"
+rc=$?
+[ "$rc" -eq 143 ] && [ "$(readlink "$pools/samepid/slot-1" 2>/dev/null)" = "$o-1000-999999999-$waiter-1" ]
+verdict "a take stopped while waiting leaves a hold an earlier same-pid take minted" "same-pid hold: rc=$rc" "$tmp/err"
+
 # --- REQ-I1.1: released by its owner after a non-zero exit ----------------------
 reset
 printf 'step_pool_wait: 1s\n' >"$mlocal"

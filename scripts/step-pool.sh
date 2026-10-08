@@ -565,10 +565,12 @@ finish() {
   if [ -n "$unreported" ]; then
     # The acquire links the slot before it returns, so a signal inside it
     # leaves a hold no variable names yet: the token is read back and given
-    # up only when this process minted it for this owner.
+    # up only when this process minted it for this owner. The mint epoch is
+    # matched too: an earlier take that ran under this same pid may have
+    # minted the owner's other hold of the slot.
     _fi_tok=$(pw_lock_owner "$unreported" 2>/dev/null) || _fi_tok=''
     case $_fi_tok in
-      "$owner"-*-*-"$$"-*) pw_lock_release_token "$unreported" "$_fi_tok" 2>/dev/null ;;
+      "$owner-${PW_LOCK_EPOCH:-}"-*-"$$"-*) pw_lock_release_token "$unreported" "$_fi_tok" 2>/dev/null ;;
     esac
   fi
   [ -z "$errf" ] || rm -f "$errf"
