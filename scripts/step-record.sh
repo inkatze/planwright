@@ -22,6 +22,7 @@
 #       [--run <id>] [--checklist-only]
 #   step-record.sh [--worktree <dir>] status --point <flip-point>
 #       --head <sha> --repo <owner>/<name>
+#   step-record.sh excerpt <file>
 #
 #   --worktree    the unit's worktree; default the enclosing git top level.
 #                 The cache is <worktree>/.claude/steps/, created mode 0700;
@@ -82,6 +83,11 @@
 #                 earlier one. A failed post exits 1 naming the repository
 #                 and the permission the login needs; an exit 1 after the
 #                 post (a failed print) leaves the status in place.
+#   excerpt       print <file> as write would store it as a record excerpt
+#                 (cleaned, screened, and bounded, or its placeholder line),
+#                 with no record cache or work tree involved; the excerpt a
+#                 caller outside the runner (scripts/classify-limit.sh)
+#                 carries. A missing or unreadable file exits 2.
 #
 # Field grammar (write refuses a violation with exit 2, naming the field and
 # never echoing its value; no value is ever interpolated before it passes):
@@ -396,6 +402,21 @@ screen_values() {
   done
 }
 
+# build_excerpt <in> <out>: the excerpt the header pins, cleaned, screened,
+# and bounded, or its one-line placeholder.
+build_excerpt() {
+  scratch
+  clean "$1" "$work/excerpt.full"
+  screen "$work/excerpt.full"
+  if [ "$SCREEN_RC" -eq 0 ]; then
+    tail -n "$EXCERPT_LINES" "$work/excerpt.full" | tail -c "$EXCERPT_BYTES" \
+      | iconv -c -f UTF-8 -t UTF-8 >"$2" 2>/dev/null
+  else
+    withheld excerpt >"$2"
+    printf '\n' >>"$2"
+  fi
+}
+
 # --- global option and verb ---------------------------------------------------
 worktree=''
 while [ $# -gt 0 ]; do
@@ -412,6 +433,17 @@ done
 [ $# -ge 1 ] || usage
 verb=$1
 shift
+
+# excerpt reads no record cache, so it runs before the worktree is resolved.
+if [ "$verb" = excerpt ]; then
+  [ $# -eq 1 ] && [ -z "$worktree" ] || usage
+  [ -f "$1" ] && [ -r "$1" ] || bad excerpt "not a readable file"
+  command -v iconv >/dev/null 2>&1 || die 1 "iconv is not on PATH"
+  scratch
+  build_excerpt "$1" "$work/excerpt"
+  cat "$work/excerpt" || die 1 "cannot print the excerpt"
+  exit 0
+fi
 
 if [ -z "$worktree" ]; then
   command -v git >/dev/null 2>&1 || die 1 "git is not on PATH"
@@ -681,17 +713,7 @@ cmd_write() {
   done <"$work/screened"
 
   : >"$work/excerpt"
-  if [ -n "$excerpt_file" ]; then
-    clean "$excerpt_file" "$work/excerpt.full"
-    screen "$work/excerpt.full"
-    if [ "$SCREEN_RC" -eq 0 ]; then
-      tail -n "$EXCERPT_LINES" "$work/excerpt.full" | tail -c "$EXCERPT_BYTES" \
-        | iconv -c -f UTF-8 -t UTF-8 >"$work/excerpt" 2>/dev/null
-    else
-      withheld excerpt >"$work/excerpt"
-      printf '\n' >>"$work/excerpt"
-    fi
-  fi
+  [ -z "$excerpt_file" ] || build_excerpt "$excerpt_file" "$work/excerpt"
 
   {
     put point "$point"
