@@ -85,7 +85,7 @@ declared:
 | --- | --- | --- |
 | `same-repo` (recommended; the default root is always here) | in the work repository, any worktree of it included | commits bundles on the spec branch and opens the spec PR in the work repository |
 | `separate-repo` (for a shared holder) | in a **holder**, a second git repository holding one root per project it serves | the spec branch and worktree, the bundle and consume commits, and the spec PR target the holder; task branches, task PRs, and commit trailers stay in the work repository |
-| `plain` (supported) | in no git repository | writes the files and skips every commit, push, and PR step, naming each skipped step in the handoff; no guard runs |
+| `plain` (supported) | in no git repository | writes the files and skips every commit, push, and PR step, naming each skipped step in the handoff; no spec guard runs (the freshness gate still reads the files; `spec-format`, *Execution validity*) |
 
 Task state derives from the work repository's git in every posture, and a
 root's posture never blocks a task's dispatch; a visual flight with the root
