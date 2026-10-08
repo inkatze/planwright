@@ -388,6 +388,127 @@ bad "choice naming an undeclared control" "choice names control 'full', which ve
   "    position: 1" "    condition: prior-review" "    control: full"
 bad "hostile vendor field" "vendor outside the step-id grammar" \
   "  - id: sample-reviewer.bad-entry" "    vendor: ../../etc" "    part: recognizer" "    match: x"
+bad "control byte in a field" "a control byte in a field" \
+  "  - id: sample-reviewer.bad-entry" "    vendor: sample-reviewer" "    part: recognizer" "    match: x$(printf '\001')y"
+bad "repeated field" "a repeated field 'match'" \
+  "  - id: sample-reviewer.bad-entry" "    vendor: sample-reviewer" "    part: recognizer" "    match: x" "    match: y"
+bad "field name outside the grammar" "a field name outside [a-z-]" \
+  "  - id: sample-reviewer.bad-entry" "    vendor: sample-reviewer" "    part: recognizer" "    match: x" "    Reset-after: y"
+bad "empty field" "empty match" \
+  "  - id: sample-reviewer.bad-entry" "    vendor: sample-reviewer" "    part: recognizer" "    match: \"\""
+bad "missing vendor" "missing required field 'vendor'" \
+  "  - id: sample-reviewer.bad-entry" "    part: recognizer" "    match: x"
+bad "oversized locator" "reset-after exceeds 256 bytes" \
+  "  - id: sample-reviewer.bad-entry" "    vendor: sample-reviewer" "    part: recognizer" "    match: x" "    reset-after: $long"
+bad "bot login over the length bound" "bot-login is not a GitHub bot login (<login>[bot])" \
+  "  - id: other.vendor" "    vendor: other" "    part: vendor" "    evidence: none" \
+  "    bot-login: $(printf 'b%.0s' $(seq 1 40))[bot]" \
+  "  - id: other.bad-entry" "    vendor: other" "    part: recognizer" "    match: x"
+bad "comment body with a www. link" "comment-body carries an issue or URL reference" \
+  "  - id: sample-reviewer.bad-entry" "    vendor: sample-reviewer" "    part: control" \
+  "    comment-body: \"@sample-reviewer-app see www.example.invalid\""
+bad "comment body with an uppercase GH- reference" "comment-body carries an issue or URL reference" \
+  "  - id: sample-reviewer.bad-entry" "    vendor: sample-reviewer" "    part: control" \
+  "    comment-body: \"@sample-reviewer-app see GH-7\""
+bad "choice missing its rule" "missing required field 'rule'" \
+  "  - id: sample-reviewer.bad-entry" "    vendor: sample-reviewer" "    part: choice" \
+  "    position: 1" "    condition: prior-review" "    control: full"
+bad "choice rule outside the grammar" "rule outside the step-id grammar" \
+  "  - id: sample-reviewer.bad-entry" "    vendor: sample-reviewer" "    part: choice" "    rule: Auto" \
+  "    position: 1" "    condition: prior-review" "    control: full"
+bad "choice position over six digits" "position is not a positive integer" \
+  "  - id: sample-reviewer.bad-entry" "    vendor: sample-reviewer" "    part: choice" "    rule: auto" \
+  "    position: 1234567" "    condition: prior-review" "    control: full"
+bad "choice control outside the grammar" "control outside the step-id grammar" \
+  "  - id: sample-reviewer.bad-entry" "    vendor: sample-reviewer" "    part: choice" "    rule: auto" \
+  "    position: 1" "    condition: prior-review" "    control: Full"
+
+# An entry outside the vendors: section is malformed.
+sb="$tmp/outside-section"
+seed "$sb"
+put "$(local_cat "$sb")" <<'YAML'
+vendors:
+  - id: claude.fine
+    vendor: claude
+    part: recognizer
+    match: fine text
+elsewhere:
+  - id: claude.bad-entry
+    vendor: claude
+    part: recognizer
+    match: stray text
+YAML
+rv "$sb"
+assert_rc "an entry outside the vendors section degrades" 0 "$RC"
+assert_contains "the outside-section reason is named" "claude.bad-entry is malformed (entry outside the vendors: section)" "$ERR"
+assert_absent "the outside-section entry is dropped" "stray text" "$OUT"
+
+# The adopter layer degrades as machine-local does.
+sb="$tmp/bad-adopter"
+seed "$sb"
+put "$(adopter_cat "$sb")" <<'YAML'
+vendors:
+  - id: claude.bad-entry
+    vendor: claude
+    part: control
+    args: --x;y
+YAML
+rv "$sb"
+assert_rc "a malformed adopter entry degrades" 0 "$RC"
+assert_contains "the adopter warning names the reason" "adopter vendors catalog entry claude.bad-entry is malformed (args outside the plain-word grammar); dropped" "$ERR"
+
+# A choice whose control was dropped is dropped with it, warned, any layer.
+sb="$tmp/choice-cascade"
+seed "$sb"
+put "$(local_cat "$sb")" <<'YAML'
+vendors:
+  - id: claude.go
+    vendor: claude
+    part: control
+    args: --go;now
+YAML
+put "$(repo_cat "$sb")" <<'YAML'
+vendors:
+  - id: claude.pick
+    vendor: claude
+    part: choice
+    rule: auto
+    position: 1
+    condition: prior-review
+    control: go
+YAML
+rv "$sb"
+assert_rc "a choice whose control was dropped degrades, any layer" 0 "$RC"
+assert_contains "the choice cascade names its control" "claude.pick is dropped (its control 'go' was dropped)" "$ERR"
+assert_absent "the cascaded choice is gone" "choice${TAB}" "$OUT"
+
+# A line the catalog reader skipped: core is a broken install, repo-tracked
+# hard-fails.
+sb="$tmp/skip-core"
+seed "$sb"
+printf '%s\n' "      nested: junk" >>"$(core_cat "$sb")"
+# An overlay present sends the core seed through the merging reader too.
+put "$(local_cat "$sb")" <<'YAML'
+vendors:
+  - id: claude.local
+    vendor: claude
+    part: recognizer
+    match: local refusal text
+YAML
+rv "$sb"
+assert_rc "a reader-skipped line in core is a broken install" 5 "$RC"
+sb="$tmp/skip-repo"
+seed "$sb"
+put "$(repo_cat "$sb")" <<'YAML'
+vendors:
+  - id: claude.extra
+    vendor: claude
+    part: recognizer
+    match: extra refusal text
+      nested: junk
+YAML
+rv "$sb"
+assert_rc "a reader-skipped line in repo-tracked hard-fails" 4 "$RC"
 
 # A malformed repo-tracked entry hard-fails rather than degrading.
 sb="$tmp/bad-repo"

@@ -154,6 +154,10 @@ no_reset "oversized epoch" "monthly quota exhausted, resets at 17900000000000000
 printf 'monthly quota exhausted, resets at %s\n' "$((NOW + ceiling))" >"$tmp/in"
 cl --vendor sample-cli --now "$NOW"
 assert_contains "a reset exactly at the ceiling is accepted" "reset${TAB}$((NOW + ceiling))" "$OUT"
+# Only the first occurrence of the locator is read.
+printf 'resets at soon\nmonthly quota exhausted, resets at %s\n' "$((NOW + 60))" >"$tmp/in"
+cl --vendor sample-cli --now "$NOW"
+assert_absent "only the locator's first occurrence is read" "reset${TAB}" "$OUT"
 
 # ---------------------------------------------------------------------------
 # No match on unrecognized text.
@@ -246,6 +250,25 @@ cl --vendor sample-cli --now ""
 assert_rc "an empty --now is a usage error" 2 "$RC"
 cl --vendor sample-cli --now "$NOW" --input ""
 assert_rc "an empty --input is a usage error" 2 "$RC"
+cl --vendor sample-cli --now "$NOW" --input "$tmp/no-such-capture"
+assert_rc "an unreadable --input is a runtime failure" 6 "$RC"
+
+# A malformed repo-tracked catalog propagates the resolver's exit 4.
+sb4="$tmp/sb4"
+mkdir -p "$sb4/repo/.claude/catalogs"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$sb4/repo"
+cat >"$sb4/repo/.claude/catalogs/vendors.yaml" <<'YAML'
+vendors:
+  - id: sample-cli.broken
+    vendor: sample-cli
+    part: gadget
+YAML
+RC=0
+(cd "$sb4/repo" && base PLANWRIGHT_ROOT="$sb/core" PLANWRIGHT_ADOPTER_OVERLAY="$sb4/adopter" \
+  PLANWRIGHT_REPO_ROOT="$sb4/repo" /bin/sh "$CL" --vendor sample-cli --now "$NOW" \
+  <"$tmp/in" >"$tmp/out" 2>"$tmp/err") || RC=$?
+ERR=$(cat "$tmp/err")
+assert_rc "a malformed repo-tracked catalog exits 4" 4 "$RC"
 
 # ---------------------------------------------------------------------------
 # The shipped claude adapter: a rate-limit death is recognized, a routine

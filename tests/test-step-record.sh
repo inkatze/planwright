@@ -1532,6 +1532,15 @@ verdict "excerpt withholds what cannot be screened" "excerpt printed: $ex"
 "$SR" excerpt "$tmp/no-such-file" >/dev/null 2>&1
 [ $? -eq 2 ]
 verdict "excerpt refuses an unreadable file" "excerpt accepted a missing file"
+"$SR" excerpt >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "excerpt without a file is a usage error" "excerpt ran without a file"
+"$SR" excerpt "$tmp/wide.txt" "$tmp/wide.txt" >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "excerpt with two files is a usage error" "excerpt ran with two files"
+"$SR" --worktree "$tmp/nowt" excerpt "$tmp/wide.txt" >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "excerpt with --worktree is a usage error" "excerpt ran with --worktree"
 
 # --- the cache path is ignored ------------------------------------------------------
 git -C "$repo_root" check-ignore -q ".claude/steps/000001/x.rec"
