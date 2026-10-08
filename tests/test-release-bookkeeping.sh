@@ -139,8 +139,9 @@ cp "$here/../scripts/release-bookkeeping.sh" "$work/"
 r="$tmp/no-sanitizer"
 make_repo "$r" 0.2.0
 rc=0
-err=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null scripts/release-bookkeeping.sh 2>&1 >/dev/null) || rc=$?
+err=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null scripts/release-bookkeeping.sh 2>&1 >"$tmp/no-sanitizer.out") || rc=$?
 assert_eq "a missing sanitizer degrades (exit 0)" "$rc" "0"
+assert_eq "a missing sanitizer prints nothing on stdout" "$(cat "$tmp/no-sanitizer.out")" ""
 assert_contains "a missing sanitizer surfaces a diagnostic on stderr" "$err" "echo-safety.sh is missing or unreadable"
 
 # 6. CDPATH regression (REQ-D1.9): a hostile CDPATH with a decoy `scripts/` must

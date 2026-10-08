@@ -30,9 +30,11 @@ bad() {
   failures=$((failures + 1))
 }
 
-# The count of control bytes in $1, newline and tab excepted.
+# The count of control bytes in file $1, newline and tab excepted. A file,
+# never a command substitution: bash drops NUL bytes from those, so a NUL the
+# shell emitted would go uncounted.
 ctl_count() {
-  printf '%s' "$1" | tr -d '\n\t' | tr -cd '\000-\037\177' | wc -c | tr -d ' '
+  tr -d '\n\t' <"$1" | tr -cd '\000-\037\177' | wc -c | tr -d ' '
 }
 
 expands() {
@@ -51,19 +53,20 @@ if [ -z "$sh_under_test" ]; then
 fi
 ok "shell under test: $sh_under_test"
 
-hostile='x\033[31mRED\0033[0m'
-
-# Control: the located shell turns the printable text into a live ESC.
-out=$("$sh_under_test" -c 'echo "$1"' _ "$hostile")
-if [ "$(ctl_count "$out")" -gt 0 ]; then
-  ok "the shell under test re-synthesizes ESC from printable text (the hazard is real here)"
-else
-  bad "the shell under test did not expand the escape text, so the cases below would prove nothing"
-fi
+# ESC in both octal spellings dash reads, and a NUL (\0000).
+hostile='x\033[31mRED\0033[0m\0000end'
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/test-echo-dash-regression.XXXXXX")" || exit 1
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/home" "$tmp/data" "$tmp/spec"
+
+# Control: the located shell turns the printable text into live ESC and NUL.
+"$sh_under_test" -c 'echo "$1"' _ "$hostile" >"$tmp/control"
+if [ "$(ctl_count "$tmp/control")" -gt 0 ] && [ "$(tr -cd '\000' <"$tmp/control" | wc -c | tr -d ' ')" -gt 0 ]; then
+  ok "the shell under test re-synthesizes ESC and NUL from printable text (the hazard is real here)"
+else
+  bad "the shell under test did not expand the escape text, so the cases below would prove nothing"
+fi
 
 # run_case <label> <script> <args...> — run under the shell, from an empty
 # directory with HOME and the plugin data dir pointed into the temp tree, and
@@ -71,23 +74,24 @@ mkdir -p "$tmp/home" "$tmp/data" "$tmp/spec"
 run_case() {
   label=$1
   shift
-  out=$(cd "$tmp" && HOME="$tmp/home" CLAUDE_PLUGIN_DATA="$tmp/data" \
-    "$sh_under_test" "$@" 2>&1 </dev/null)
+  (cd "$tmp" && HOME="$tmp/home" CLAUDE_PLUGIN_DATA="$tmp/data" \
+    "$sh_under_test" "$@" >"$tmp/out" 2>&1 </dev/null)
   rc=$?
   if [ "$rc" -eq 0 ]; then
     bad "$label: expected a refusal, got exit 0"
     return
   fi
-  n=$(ctl_count "$out")
+  n=$(ctl_count "$tmp/out")
   if [ "$n" -eq 0 ]; then
     ok "$label: refusal carries no control byte"
   else
     bad "$label: refusal emitted $n control byte(s)"
   fi
-  case "$out" in
-    *'\033'*) ok "$label: the escape text is shown inert" ;;
-    *) bad "$label: the refusal did not show the hostile value as text" ;;
-  esac
+  if grep -qF '\033' "$tmp/out"; then
+    ok "$label: the escape text is shown inert"
+  else
+    bad "$label: the refusal did not show the hostile value as text"
+  fi
 }
 
 run_case "allocation-ledger malformed unit" \
