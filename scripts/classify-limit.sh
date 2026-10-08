@@ -125,9 +125,11 @@ esac
 ceiling=$(/bin/sh "$script_dir/fleet-throttle.sh" ceiling) || die 5 "cannot read the throttle's hold ceiling (broken install)"
 case $ceiling in "" | *[!0-9]*) die 5 "the throttle's hold ceiling is not a number (broken install)" ;; esac
 
-# The values reach awk as file data, never through -v, which would expand
-# backslash escapes in them.
-awk -F "$TAB" -v now="$now" -v ceiling="$ceiling" -v linefile="$work/line" -v fullfile="$work/full" '
+# The values reach awk as file data, and the scratch paths through ENVIRON,
+# never through -v, which would expand backslash escapes in a TMPDIR.
+CL_LINEFILE="$work/line" CL_FULLFILE="$work/full" \
+  awk -F "$TAB" -v now="$now" -v ceiling="$ceiling" '
+  BEGIN { linefile = ENVIRON["CL_LINEFILE"]; fullfile = ENVIRON["CL_FULLFILE"] }
   # days_from_civil: days since 1970-01-01 for a proleptic Gregorian date.
   function days(y, m, d,   era, yoe, doy, doe) {
     y -= (m <= 2)

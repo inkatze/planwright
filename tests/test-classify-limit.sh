@@ -317,6 +317,15 @@ assert_rc "an overload error is not a limit" 1 "$RC"
 # ---------------------------------------------------------------------------
 # REQ-A1.2: classification is script logic, never a model call.
 # ---------------------------------------------------------------------------
+mkdir -p "$tmp/back\\tslash"
+printf 'error: monthly quota exhausted, resets at %s\n' "$HOUR_ISO" >"$tmp/in"
+TMPDIR="$tmp/back\\tslash"
+export TMPDIR
+cl --vendor sample-cli --now "$NOW"
+unset TMPDIR
+assert_rc "a backslash in TMPDIR still classifies" 0 "$RC"
+assert_contains "a backslash in TMPDIR keeps the excerpt" "excerpt${TAB}error: monthly quota exhausted" "$OUT"
+
 if grep -nE '(^|[^a-z-])(claude|codex|gemini|llm|ollama)( |$)|offload-dispatch|fleet-dispatch' "$CL" \
   | grep -v '^[0-9]*:[[:space:]]*#' >/dev/null; then
   fail "the classifier invokes a model or agent command"
