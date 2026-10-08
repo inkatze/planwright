@@ -1929,6 +1929,36 @@ wait_until 100 grep -q "^$req_perm$tab.*${tab}pending" "$wdir38e/journal" \
 [ ! -e "$wdir38e/deferred-$req_perm" ] || fail "c38e: the drained spool was left behind"
 senv "$home" "$rec" -- stop sjw38e --grace 2 >/dev/null || fail "c38e: stop exited non-zero"
 echo "ok: c38 a spooled re-ask of a settled request is re-opened, not dropped"
+# (f) A spool whose journal write fails is set aside once, not retried and
+#     re-reported every beat; status still counts it, and a close removes it.
+#     A read-only journal makes the append fail; root writes through that, so
+#     the leg is skipped there.
+if [ "$(id -u)" = 0 ]; then
+  echo "skip: c38f a set-aside spool (running as root, a read-only journal still takes the write)"
+else
+  home="$tmp/h38f"
+  wdir38f="$home/streamjson/sjw38f"
+  senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_SLEEP=60 -- \
+    launch sjw38f execution-backends:4 --prompt-file "$tmp/prompt38" &
+  wait_until 100 grep -q "^$req_perm$tab" "$wdir38f/journal" \
+    || fail "c38f: the receipt was never journaled"
+  senv "$home" "$rec" -- answer sjw38f "$req_perm" --allow >/dev/null \
+    || fail "c38f: answer exited non-zero"
+  chmod 444 "$wdir38f/journal"
+  printf '%s\n%s\n' "$(date +%s)" "$line_q" >"$wdir38f/deferred-$req_q"
+  wait_until 100 test -f "$wdir38f/undrained-$req_q" \
+    || fail "c38f: a spool whose journal write failed was not set aside"
+  [ ! -e "$wdir38f/deferred-$req_q" ] || fail "c38f: the failed spool was left where the drain retries it"
+  out=$(senv "$home" "$rec" -- status sjw38f) || fail "c38f: status exited non-zero"
+  case $out in
+    "status sjw38f awaiting-input pending=1 "*) : ;;
+    *) fail "c38f: a set-aside receipt must still read as awaiting input, got: $out" ;;
+  esac
+  chmod 644 "$wdir38f/journal"
+  senv "$home" "$rec" -- stop sjw38f --grace 2 >/dev/null || fail "c38f: stop exited non-zero"
+  [ ! -e "$wdir38f/undrained-$req_q" ] || fail "c38f: a close left the set-aside receipt behind"
+  echo "ok: c38 a spool that cannot land is set aside once, counted, and removed by a close"
+fi
 
 # ---------------------------------------------------------------------------
 # c37: the suite leaves nothing running. Every supervisor, tick, and shim a

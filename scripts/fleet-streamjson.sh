@@ -61,6 +61,7 @@
 #   deferred-<id>    a receipt the journal lock refused, until it is journaled
 #   .deferred.*      its staging temp
 #   undrained-<id>   a spooled receipt whose journal write failed, set aside
+#                    until `recover` re-queues it
 #   attention.dirty  the queue row may not match the journal; the tick re-syncs
 #   attention.dirty.<pid>  a publish in flight, until its writer confirms it
 #   *.lock#*         a lock break's claim, or an aside, a crashed caller left
@@ -874,14 +875,6 @@ attention_give_up() {
   mv -f "$2" "$1/attention.dirty" 2>/dev/null || : >"$1/attention.dirty" 2>/dev/null || :
 }
 
-# attention_mark_dirty <dir> — note that the queue row may not match the
-# journal, for the tick to put right (attention_resync). Raised when a publish
-# could not be confirmed: its lock was held past the budget, or the journal
-# kept moving for every round.
-attention_mark_dirty() {
-  : >"$1/attention.dirty" 2>/dev/null || :
-}
-
 # attention_dirty <dir> — whether a re-sync mark is the tick's to act on: the
 # shared mark a sync left when it gave up, or an in-flight mark whose writer is
 # gone (killed mid-publish) or is this process. A live writer's in-flight mark
@@ -916,7 +909,7 @@ attention_clear_marks() {
   set -f
 }
 
-# attention_resync <worker> <dir> — the tick's half of attention_mark_dirty:
+# attention_resync <worker> <dir> — the tick's half of attention_give_up:
 # one non-waiting attempt to read the projection and publish it, confirmed as
 # every publish is. A lock still busy leaves the marks for the next beat; once
 # the projection is read, the marks it answers are cleared and the publish
@@ -993,7 +986,7 @@ receipt_record() {
         fi
         ;;
       pending)
-        rm -f "$rr_spool" 2>/dev/null || :
+        rm -f "$rr_spool" "$rr_dir/undrained-$rr_id" 2>/dev/null || :
         ;;
     esac
   fi
@@ -1043,6 +1036,8 @@ receipt_record() {
       ;;
   esac
   [ -z "$rr_spool" ] || rm -f "$rr_spool" 2>/dev/null || :
+  # Any earlier copy set aside after a failed write is answered by this row.
+  rm -f "$rr_dir/undrained-$rr_id" 2>/dev/null || :
   printf '%s\n' "$rr_line" >"$rr_dir/req-$rr_id.json"
   # The projection is the OLDEST still-pending request, which the one just
   # recorded is not when an earlier one is still open. Read under the lock and
@@ -1060,6 +1055,19 @@ receipt_record() {
 receipt_quarantine() {
   [ -n "${1:-}" ] || return 0
   mv -f "$1" "${1%/*}/undrained-${1##*/deferred-}" 2>/dev/null || :
+}
+
+# receipt_requeue <dir> — put set-aside spools back where the drain looks, once:
+# `recover` is the operator's retry after fixing what failed the write.
+receipt_requeue() {
+  set +f
+  for rq_f in "$1"/undrained-*; do
+    [ -f "$rq_f" ] && [ ! -L "$rq_f" ] || continue
+    rq_id=${rq_f##*/undrained-}
+    valid_reqid "$rq_id" || continue
+    [ -e "$1/deferred-$rq_id" ] || mv -f "$rq_f" "$1/deferred-$rq_id" 2>/dev/null || :
+  done
+  set -f
 }
 
 # receipt_defer <dir> <id> <epoch> <line> — spool a receipt the journal lock
@@ -2315,6 +2323,7 @@ cmd_recover() {
   # is fatal here rather than swallowed: the election would otherwise report
   # contention for a condition that will not clear.
   clear_legacy_lock_dirs "$dir" || exit 2
+  receipt_requeue "$dir"
 
   # Single recovery initiator (REQ-E1.5): the election refuses a concurrent
   # second attempt rather than racing it, and breaks a lock whose holder's
@@ -2588,11 +2597,11 @@ alarm_scan_worker() {
     # this projection prevents, arriving through the sweep.
     #
     # The whole ROW is re-read, not just the state. A request can be answered
-    # and then re-opened by handle_line with a fresh received epoch while this
-    # waits for the lock; a state-only check sees `pending` again and escalates
-    # against the age the first scan measured, marking a request overdue that
-    # has not yet had its threshold. The kind can change with it, so that is
-    # taken from the same read.
+    # and then re-opened by handle_line while this waits for the lock; a
+    # state-only check sees `pending` again and escalates a request the
+    # operator has just been asked afresh. The kind can change with it, so that
+    # is taken from the same read, and the confirmation below compares the
+    # settle epoch, the field a re-open moves.
     #
     # A lock this scan cannot take ends the worker, not the request: `continue`
     # would send every remaining row of a busy worker through the same retry
