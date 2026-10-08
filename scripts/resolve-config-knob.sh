@@ -142,6 +142,10 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # resolver siblings predate this and take no caller argv; this resolver is
 # the shared entry point for arbitrary keys and value sets, so it sources
 # the sanitizer like the fleet command scripts do.
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "resolve-config-knob.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 5
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
@@ -401,7 +405,7 @@ fi
 
 config_get="$script_dir/config-get.sh"
 if [ ! -x "$config_get" ]; then
-  echo "resolve-config-knob: config reader '$config_get' is missing or not executable" >&2
+  printf '%s\n' "resolve-config-knob: config reader '$config_get' is missing or not executable" >&2
   exit 5
 fi
 
@@ -420,7 +424,7 @@ resolve_path() {
     exit 0
   fi
   if [ "$rp_rc" -ne 0 ]; then
-    echo "resolve-config-knob: unexpected config-get exit $rp_rc resolving '$key'" >&2
+    printf '%s\n' "resolve-config-knob: unexpected config-get exit $rp_rc resolving '$key'" >&2
     exit "$rp_rc"
   fi
   # --layers prints lowest first; reverse so the walk starts at the winner.
@@ -499,7 +503,7 @@ if [ "$rc" -eq 6 ]; then
 $lower
 EOF_LOWER
   if [ "$no_degrade" -eq 1 ]; then
-    echo "resolve-config-knob: an overlay file is malformed (named above); refusing to read '$key' with no degrade" >&2
+    printf '%s\n' "resolve-config-knob: an overlay file is malformed (named above); refusing to read '$key' with no degrade" >&2
     exit 4
   fi
   printf '%s\n' "resolve-config-knob: warning: an overlay is malformed; degrading '$key' to the strict value '$(sanitize_printable "$degrade" "(unprintable degrade)")'" >&2
@@ -513,7 +517,7 @@ if [ "$rc" -eq 4 ]; then
   exit 4
 fi
 if [ "$rc" -eq 3 ] && [ "$no_degrade" -eq 1 ]; then
-  echo "resolve-config-knob: '$key' is unset in every layer and the caller allows no fallback — broken install" >&2
+  printf '%s\n' "resolve-config-knob: '$key' is unset in every layer and the caller allows no fallback — broken install" >&2
   exit 5
 fi
 if [ "$rc" -eq 3 ]; then
@@ -524,7 +528,7 @@ if [ "$rc" -eq 3 ]; then
   exit 0
 fi
 if [ "$rc" -ne 0 ]; then
-  echo "resolve-config-knob: unexpected config-get exit $rc resolving '$key'" >&2
+  printf '%s\n' "resolve-config-knob: unexpected config-get exit $rc resolving '$key'" >&2
   exit "$rc"
 fi
 
@@ -647,7 +651,7 @@ case "$layer" in
       exit 0
     fi
     if [ "$crc" -ne 0 ]; then
-      echo "resolve-config-knob: the core default for '$key' is itself unresolvable (exit $crc) — broken install" >&2
+      printf '%s\n' "resolve-config-knob: the core default for '$key' is itself unresolvable (exit $crc) — broken install" >&2
       exit 5
     fi
     if valid_value "$core_value"; then

@@ -50,16 +50,16 @@ failures=0
 passes=0
 
 pass() {
-  echo "ok: $1"
+  printf '%s\n' "ok: $1"
   passes=$((passes + 1))
 }
 fail() {
-  echo "FAIL: $1" >&2
+  printf '%s\n' "FAIL: $1" >&2
   failures=$((failures + 1))
 }
 
 if [ ! -f "$HOOK" ]; then
-  echo "FAIL: ready-guard script missing at $HOOK" >&2
+  printf '%s\n' "FAIL: ready-guard script missing at $HOOK" >&2
   exit 1
 fi
 if ! command -v jq >/dev/null 2>&1; then

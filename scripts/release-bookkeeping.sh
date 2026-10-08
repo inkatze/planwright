@@ -35,8 +35,12 @@ export LC_ALL
 unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "release-bookkeeping.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 0
+fi
 # shellcheck source=scripts/echo-safety.sh
-. "$script_dir/echo-safety.sh"
+. "$script_dir/echo-safety.sh" || exit 0
 
 # The publish command this repo documents everywhere the release flow is named
 # (release-please PR body, docs/options-reference.md): the portable script is the

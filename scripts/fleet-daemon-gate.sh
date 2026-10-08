@@ -75,7 +75,7 @@ fi
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 resolver="$script_dir/resolve-config-knob.sh"
 if [ ! -x "$resolver" ]; then
-  echo "fleet-daemon-gate: knob resolver '$resolver' is missing or not executable — blocking the daemon action (fail closed)" >&2
+  printf '%s\n' "fleet-daemon-gate: knob resolver '$resolver' is missing or not executable — blocking the daemon action (fail closed)" >&2
   exit 5
 fi
 
@@ -90,13 +90,13 @@ if [ "$rc" -ne 0 ]; then
   # The resolver already named the failure on stderr (a malformed team-shared
   # value is exit 4, a broken install exit 5). Any resolution failure blocks
   # the daemon action: never act under unknown kill-switch state.
-  echo "fleet-daemon-gate: could not resolve fleet_daemon_pause (exit $rc) — blocking the daemon action (fail closed)" >&2
+  printf '%s\n' "fleet-daemon-gate: could not resolve fleet_daemon_pause (exit $rc) — blocking the daemon action (fail closed)" >&2
   exit "$rc"
 fi
 
 if [ "$value" = true ]; then
   if [ -n "$mechanism" ]; then
-    echo "fleet-daemon-gate: fleet_daemon_pause is set — pausing daemon action '$mechanism' (unset the knob to resume)" >&2
+    printf '%s\n' "fleet-daemon-gate: fleet_daemon_pause is set — pausing daemon action '$mechanism' (unset the knob to resume)" >&2
   else
     echo "fleet-daemon-gate: fleet_daemon_pause is set — pausing the daemon action (unset the knob to resume)" >&2
   fi

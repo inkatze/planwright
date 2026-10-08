@@ -52,10 +52,10 @@ fi
 
 for h in pre-push pre-rebase prepare-commit-msg commit-msg pre-commit; do
   if [ ! -f "$top/githooks/$h" ]; then
-    echo "check-githooks: githooks/$h missing from this checkout" >&2
+    printf '%s\n' "check-githooks: githooks/$h missing from this checkout" >&2
     status=1
   elif [ ! -x "$top/githooks/$h" ]; then
-    echo "check-githooks: githooks/$h is not executable (git silently skips" \
+    printf '%s %s\n' "check-githooks: githooks/$h is not executable (git silently skips" \
       "non-executable hooks — half-wired)" >&2
     status=1
   fi

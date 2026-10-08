@@ -205,9 +205,9 @@ run = "/bin/bash scripts/check-backend-capability-drift.sh"
 description = "CDPATH house-pattern guard: fail on any shell file under scripts/, tests/, or githooks/ that resolves paths through a cd command substitution without a top-level 'unset CDPATH'; enumerates by shebang or .sh suffix so both the extensionless hooks and the sourced libraries are covered, and fails closed on anything that would narrow the scan (guard-coverage Task 10, REQ-G1.2, REQ-H1.3, D-12)"
 run = "/bin/bash scripts/check-cdpath.sh"
 
-[tasks."check:echo-safety"]
-description = "printf-not-echo guard over sanitized output: fail on a shell file under scripts/, tests/, or githooks/ that passes `sanitize_printable` output through `echo`, directly or through a variable, into the printf FORMAT operand, or to a printf `%b` (dash re-expands the backslash escape TEXT the sanitizer legitimately preserves, handing the terminal to whoever authored the input); enumerates by shebang or .sh suffix, keys on the sanitizer family rather than one function name, exempts bash-shebang files only (zsh and ksh expand escapes too) and a shrinking allowlist of paths open in other PRs, and fails closed on anything that would narrow the scan or on a stale allowlist entry"
-run = "/bin/bash scripts/check-echo-safety.sh"
+[tasks."check:echo-discipline"]
+description = "printf-not-echo guard: fail on a shell file under scripts/, tests/, or githooks/ whose `echo` carries any expansion (a variable, a positional, a command substitution) without a `# trusted: <reason>` annotation on that line, or that puts `sanitize_printable` output into the printf FORMAT operand or a printf `%b` (dash re-expands backslash escape TEXT into live control bytes); and fail on any shell file, bash included, that sources scripts/echo-safety.sh without first testing it readable; enumerates by shebang or .sh suffix, exempts bash-shebang files from the echo rule only, and fails closed on anything that would narrow the scan"
+run = "/bin/bash scripts/check-echo-discipline.sh"
 
 [tasks."check:script-modes"]
 description = "executable-bit guard: every scripts/*.sh in the git index carries the mode its first line declares, a shebang file 100755 (called by path it otherwise fails with Permission denied) and a shebang-less sourced library 100644; reads modes and first lines from the index, not the working tree, and fails closed on no repository, an unreadable index or blob, or zero scripts"
@@ -276,7 +276,7 @@ depends = [
   "check:doctrine-index",
   "check:doctrine-manifest",
   "check:cdpath",
-  "check:echo-safety",
+  "check:echo-discipline",
   "check:script-modes",
   "check:spec-literals",
   "check:task-registration",

@@ -259,7 +259,7 @@ project-bespoke guards, including the spec validator, the doctrine link, index,
 options-reference and backend-capability tethers, the permission-matcher
 fixture, the git-hook backstop and its wiring check, the purged-identifier,
 workflow-posture and CI-eval-exclusion guards, the test-time budget, the
-CDPATH and echo-safety house patterns, and the task-registration check that
+CDPATH and echo-discipline house patterns, and the task-registration check that
 keeps every `check:`/`lint:`/`scan:` task inside `check` — which are project
 instances, not the universal core the builder reproduces for every adopter
 (pinned-action freshness is catalogued but not yet run here).

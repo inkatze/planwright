@@ -100,6 +100,10 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # The canonical echo-discipline sanitizer (doctrine/security-posture.md),
 # sourced as the sibling fleet scripts do; a missing helper is a broken
 # install.
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "fleet-audit.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
@@ -165,7 +169,7 @@ acquire_lock() {
         ;;
       1) ;; # a live holder has it — retry
       *)
-        echo "fleet-audit: cannot acquire the fleet lock (fleet-state exit $al_rc)" >&2
+        printf '%s\n' "fleet-audit: cannot acquire the fleet lock (fleet-state exit $al_rc)" >&2
         return 2
         ;;
     esac
@@ -220,7 +224,7 @@ case "$cmd" in
     # The dir create is idempotent and order-independent; doing it BEFORE the
     # lock keeps the contended critical section as short as possible.
     if ! mkdir -p "$audit_dir" 2>/dev/null; then
-      echo "fleet-audit: cannot create the audit dir $audit_dir" >&2
+      printf '%s\n' "fleet-audit: cannot create the audit dir $audit_dir" >&2
       exit 2
     fi
     # A caller whose state is derived from this trail (the usage-gate ladder)
@@ -278,7 +282,7 @@ case "$cmd" in
     store="$audit_dir/audit-$day.tsv"
     w_rc=0
     w_tmp=$(mktemp "$audit_dir/.audit.XXXXXX") || {
-      echo "fleet-audit: cannot create a temp file under $audit_dir" >&2
+      printf '%s\n' "fleet-audit: cannot create a temp file under $audit_dir" >&2
       exit 2
     }
     if [ -f "$store" ]; then
@@ -363,14 +367,14 @@ case "$cmd" in
     # state), not masquerade as an empty trail.
     [ -e "$audit_dir" ] || exit 0
     if [ ! -d "$audit_dir" ]; then
-      echo "fleet-audit: audit path $audit_dir exists but is not a directory" >&2
+      printf '%s\n' "fleet-audit: audit path $audit_dir exists but is not a directory" >&2
       exit 2
     fi
     # An unreadable/untraversable dir must not masquerade as an empty trail
     # (an audit query answering "nothing happened" because of a permission
     # problem is an opaque failure).
     if [ ! -r "$audit_dir" ] || [ ! -x "$audit_dir" ]; then
-      echo "fleet-audit: audit dir $audit_dir exists but is not readable" >&2
+      printf '%s\n' "fleet-audit: audit dir $audit_dir exists but is not readable" >&2
       exit 2
     fi
     # The file list is built by a glob INSIDE the dir (a subshell cd), so a
@@ -400,11 +404,11 @@ case "$cmd" in
         # platform-variant: silently tolerated by BSD awk, warned or fatal
         # under gawk), never let it masquerade as data or emptiness.
         if [ ! -f "$f" ]; then
-          echo "fleet-audit: store match $audit_dir/$f is not a regular file" >&2
+          printf '%s\n' "fleet-audit: store match $audit_dir/$f is not a regular file" >&2
           exit 2
         fi
         if [ ! -r "$f" ]; then
-          echo "fleet-audit: cannot read $audit_dir/$f" >&2
+          printf '%s\n' "fleet-audit: cannot read $audit_dir/$f" >&2
           exit 2
         fi
       done

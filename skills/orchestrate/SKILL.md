@@ -282,7 +282,7 @@ it when relaying to or cleaning up after a worker.
 `interactive` plus `--session-id <uuid>`, the signpost's resume handle; clear
 it on graceful exit.
 
-**Presence (coordination D-2).** Next, before any step launches a subordinate
+**Presence (coordination D-2).** Next, before any step launches a worker
 (else it registers ownerless), and each iteration:
 `scripts/fleet-presence.sh publish --checkout <primary> --pid <pid>` (and
 `--session-id <uuid>` when interactive) plus the death handle
@@ -482,7 +482,7 @@ These hold at every step:
   freshness-gate-plus-marker window (D-10).
 - **Never** loosen any invariant at the meta tier (`--meta`, D-6): never-merge and
   never-ready hold across every tier (REQ-A1.2); the fleet lock is held only across
-  the meta decision window, not a subordinate's execution; the fleet bound
+  the meta decision window, not the dispatch; the fleet bound
   (`fleet_max_parallel_units`) caps fleet-wide in-flight units, distinct from
   per-spec `max_parallel_units` (REQ-D1.5); and the meta-tower never edits another
   tower's or a worker's branch state (REQ-D1.2).
