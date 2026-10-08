@@ -196,7 +196,7 @@ fi
 # The brief is read from the bundle's path inside the repository, derived as
 # dispatch-fetch.sh derives it, so a spec root this repository does not hold
 # (outside it, or a separate repository nested in it) is refused here, before
-# the lock, rather than by the fetch.
+# the lock.
 repo_phys=$(cd "$repo_root" && pwd -P) || die "the repo root cannot be entered"
 primary_phys=$(cd "$repo_phys" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) \
   || die "the primary checkout did not resolve from --repo-root"
