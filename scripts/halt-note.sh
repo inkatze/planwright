@@ -174,7 +174,8 @@ HALT_NOTE_TEXT=$text awk -v id="$id" -v heading="$heading" -v section="$section"
     }
     heading_line = 0
     flush()
-    if (tasks && l ~ /^### Task / && $3 == id) hasblock = 1
+    # A string compare: as numbers, `01` and `1.0` would name Task 1.
+    if (tasks && l ~ /^### Task / && ($3 "") == (id "")) hasblock = 1
     if (payload(sec) && index(l, lead) == 1) {
       if (!insec) { other = 1 }
       else if (section == "awaiting" && !done) { print l "; " text; done = 1; next }

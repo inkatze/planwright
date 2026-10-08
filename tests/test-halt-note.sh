@@ -163,6 +163,14 @@ if [ "$rc" -eq 4 ]; then
 else
   fail "holder: an unknown task (rc=$rc): $out"
 fi
+for numeric in 01 1.0; do
+  note "$w" demo "$numeric" "a numeric twin of Task 1"
+  if [ "$rc" -eq 4 ] && ! grep -qF -- "**Task $numeric**" "$z/demo/tasks.md"; then
+    ok "holder: the task id '$numeric' names no block, so it is refused"
+  else
+    fail "holder: the task id '$numeric' (rc=$rc): $out"
+  fi
+done
 for bad in '1;2' 1.2.3 '-1' ''; do
   note "$w" demo "$bad" text
   if [ "$rc" -eq 2 ]; then
