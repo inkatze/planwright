@@ -390,6 +390,7 @@ default_ref() {
     esac
     _dr_head=$(primary_branch "$1")
     [ -n "$_dr_head" ] || return 1
+    printf '%s\n' "dispatch-fetch: origin records no HEAD branch for '$(sanitize_printable "$1")'; reading the primary checkout's branch '$(sanitize_printable "$_dr_head")' as its default" >&2
     printf 'origin/%s' "$_dr_head"
     return 0
   fi

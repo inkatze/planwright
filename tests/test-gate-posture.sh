@@ -148,6 +148,22 @@ gitq -C "$tmp/same/learn" checkout -q -b feature
 gate "$tmp/same/learn"
 expect_gate "same-repo, a remote HEAD learned at fetch" origin/trunk match "$v2"
 
+# A remote whose HEAD names no pushed branch leaves the gate on the primary
+# checkout's branch, and it says so rather than guess silently.
+gitq -c init.defaultBranch=master init -q --bare "$tmp/same/dangle.git"
+gitq -c init.defaultBranch=main init -q "$tmp/same/dangle"
+make_bundle "$tmp/same/dangle/specs/demo" v1
+commit_all "$tmp/same/dangle" "spec v1"
+gitq -C "$tmp/same/dangle" remote add origin "$tmp/same/dangle.git"
+gitq -C "$tmp/same/dangle" push -q origin main
+gitq -C "$tmp/same/dangle" checkout -q -b feature
+gitq -C "$tmp/same/dangle" push -q origin feature
+gate "$tmp/same/dangle"
+case $rc:$out in
+  0:*"records no HEAD"*"feature"*) expect_gate "same-repo, a remote HEAD that names no branch" origin/feature match "$recorded" ;;
+  *) fail "same-repo, a remote HEAD that names no branch: no fallback note (rc=$rc): $out" ;;
+esac
+
 # No remote: the branch the primary checkout's HEAD names.
 gitq -c init.defaultBranch=trunk init -q "$tmp/same/solo"
 make_bundle "$tmp/same/solo/specs/demo" v1
