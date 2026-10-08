@@ -39,8 +39,14 @@ The tower settings profile's own hooks also run when it is delivered with
 spelling Claude Code honors only for a plugin's own hooks, so the command
 guard and the policy guard never start in a profile-launched tower. A
 check over every settings profile keeps the spelling from coming back, and
-the policy guard's hooks refuse rather than vanish when the root does not
-resolve. The fix is a mechanism and its check, not a new rule (D-13).
+the policy guard's hooks refuse rather than vanish when the guard does not
+run. The fix is a mechanism and its check, not a new rule (D-13). A
+"settings profile" is a `config/*.json` settings fragment carrying a
+`hooks` key, and the tower profile is supported only as a `--settings`
+launch; the "supported launcher" is any tower launch that exports
+`CLAUDE_PLUGIN_ROOT`, pointing at a plugin root holding the guards, before
+passing the profile (the repository ships none; the operator's launcher
+does).
 *(Cites: D-13, D-14, the profile-hooks seed (Sources).)*
 
 ## Scope
@@ -84,6 +90,8 @@ resolve. The fix is a mechanism and its check, not a new rule (D-13).
 - Any change to sign-off, merge, or the draft-to-ready flip.
 - The plugin's own `hooks/hooks.json`, where the braced plugin-root token
   is the correct spelling.
+- Merging the tower profile into a settings file; a `--settings` launch is
+  its only supported delivery.
 - The worker profile's hook commands, which already use the working
   spelling; the profile-wide check covers them, and their policy hooks'
   behaviour on an unresolved root is deferred (see `tasks.md`).
@@ -190,7 +198,8 @@ resolve. The fix is a mechanism and its check, not a new rule (D-13).
   profile's hooks, the command guard included, SHALL execute in a session
   launched that way, verified by running the hook commands through a shell
   rather than by matching their spelling.
-  *(Cites: D-7, D-14, the profile-hooks seed (Sources).)*
+  *(Cites: D-7, D-14, the profile-hooks seed (Sources), the hook-expansion
+  pinning test (Sources).)*
 - **REQ-C1.8** A tower resumed or forked under a different fleet home or
   session id SHALL be re-marked by its bring-up, and the docs SHALL state
   the residual window: from the resume until the bring-up or on-request
@@ -207,17 +216,22 @@ resolve. The fix is a mechanism and its check, not a new rule (D-13).
   plugin root in the quoted, unbraced form (`"$CLAUDE_PLUGIN_ROOT"/scripts/…`),
   which the session's shell expands from the environment the launcher
   sets.
-  *(Cites: D-14, obs:a4a4fa59, obs:aed5517e.)*
-- **REQ-C1.11** A check SHALL fail when any hook command, in any settings
-  profile under `config/` that carries a `hooks` key, contains the braced
-  plugin-root token or names the plugin root in any form other than the
-  quoted, unbraced one.
+  *(Cites: D-14, obs:a4a4fa59, obs:aed5517e, the hook-expansion pinning
+  test (Sources).)*
+- **REQ-C1.11** A check SHALL fail when any hook command, under any event,
+  in any settings profile (a `config/*.json` file carrying a `hooks` key)
+  contains an expansion of `CLAUDE_PLUGIN_ROOT` other than exactly
+  `"$CLAUDE_PLUGIN_ROOT"/`, the braced `${CLAUDE_PLUGIN_ROOT}` and
+  `${CLAUDE_PLUGIN_ROOT:-…}` forms included, wherever in the command it
+  occurs. A command that never expands the variable passes.
   *(Cites: D-15, obs:aed5517e.)*
-- **REQ-C1.12** When the plugin root does not resolve to the policy guard,
-  each tower-profile hook that runs the policy guard SHALL block the call
-  with a reason naming the unresolved guard, never pass it by a
-  command-not-found error; the command guard's hook SHALL keep deferring
-  in that case.
+- **REQ-C1.12** When the policy guard does not run (the plugin root unset,
+  empty, or not holding an executable guard), each tower-profile hook that
+  runs the policy guard SHALL block the Bash or MCP call, printing on
+  stderr a reason that names the guard and the remedy (export
+  `CLAUDE_PLUGIN_ROOT` and relaunch), never passing the call by a
+  non-blocking error; the command guard's hook SHALL stay non-blocking in
+  that case.
   *(Cites: D-16, the profile-hooks seed (Sources), Research: Claude Code
   hooks exit codes (Sources).)*
 
@@ -260,9 +274,12 @@ resolve. The fix is a mechanism and its check, not a new rule (D-13).
 - **REQ-D1.6** The tower profile's `_about` text SHALL state the hooks'
   quoted, unbraced spelling and why it differs from `hooks/hooks.json`,
   that the launcher must export `CLAUDE_PLUGIN_ROOT`, and that the policy
-  hooks refuse when it does not resolve; it SHALL drop the claim that the
-  profile references the script exactly as `hooks/hooks.json` does.
-  *(Cites: D-14, D-16.)*
+  hooks refuse every Bash call when the guard does not run; it SHALL drop
+  the claim that the profile references the script exactly as
+  `hooks/hooks.json` does and so resolves under a marketplace install, and
+  the invitation to merge the profile into a settings file, naming a
+  `--settings` launch as the only supported delivery.
+  *(Cites: D-14, D-16, kickoff §9 lens review (2026-10-08) (Sources).)*
 
 ## REQ-E — Dispatch from a tower's own tree
 
@@ -301,11 +318,15 @@ resolve. The fix is a mechanism and its check, not a new rule (D-13).
   around from a plain session and fixed by a plugin downgrade or release.
   *(Cites: D-8, kickoff §7 decision-domains gap check (2026-10-08)
   (Sources).)*
-- **REQ-F1.6** The fleet docs SHALL state that a `--settings` tower launch
-  needs `CLAUDE_PLUGIN_ROOT` exported, that its policy hooks refuse every
-  call without it, and that a running tower picks up a changed profile
-  only on relaunch.
-  *(Cites: D-14, D-16.)*
+- **REQ-F1.6** The fleet docs SHALL state that the tower profile is
+  delivered only with `--settings`; that the launch needs
+  `CLAUDE_PLUGIN_ROOT` exported and pointing at a plugin root holding the
+  guards, derived at launch rather than hard-coded to a versioned install
+  path a plugin update can remove; that its policy hooks refuse every Bash
+  call when the guard does not run, an update that removes the exported
+  root included; and that a running tower picks up a changed profile only
+  on relaunch.
+  *(Cites: D-14, D-16, kickoff §9 lens review (2026-10-08) (Sources).)*
 
 ## REQ-G — Invariants
 
@@ -343,6 +364,12 @@ resolve. The fix is a mechanism and its check, not a new rule (D-13).
   D-13 to D-16; Task 8, with Task 3 now depending on it; a deferred entry
   for the worker profile's policy hooks. Consumes obs:a4a4fa59 and
   obs:aed5517e. Signs off through a `/spec-kickoff` delta re-walkthrough.
+- 2026-10-08 — Delta re-walkthrough (kickoff §9): the policy hooks run the
+  guard first and block on any non-zero exit (D-16 reworded); the profile
+  is supported only as a `--settings` launch; Task 8 carries the
+  breaking-change marker, updates the two existing readers of the hook
+  commands, and presents the newly live allows; the lens review's wording,
+  testability, citation, and glossary fixes.
 
 ## Sources
 
@@ -407,8 +434,14 @@ resolve. The fix is a mechanism and its check, not a new rule (D-13).
 - **concurrent-orchestrator-coordination**
   (`specs/concurrent-orchestrator-coordination/`) and
   `docs/per-tower-checkouts.md`: the per-tower checkout model.
-- **Drafting-session decision** (2026-10-07): the operator's choices made
-  while drafting this bundle, recorded in the decisions that cite it.
+- **Drafting-session decision** (2026-10-07, 2026-10-08): the operator's
+  choices made while drafting this bundle and its extension, recorded in
+  the decisions that cite it.
+- **The hook-expansion pinning test** (`tests/test-settings-fragment-hook-expansion.sh`,
+  landed with the worker-profile fix, #441): its header records the
+  quoting half measured directly (an unquoted root word-splits on a space
+  and the hook never runs), and its opt-in live CLI probe re-measures the
+  spelling.
 - **Kickoff walkthrough** (2026-10-07 to 2026-10-08):
   `specs/tower-placement/kickoff-brief.md`; "kickoff §N" citations name its
   sections.

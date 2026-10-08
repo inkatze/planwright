@@ -8,7 +8,7 @@
 Tasks in dependency order. Tasks 8, 3, and 4 change guard code, hook
 wiring, and the tower profile: each takes the security-zone hard pause, and
 its PR presents the allow/deny delta for human sign-off. The tower-enforcement
-flight's branch is prior art for both (D-12).
+flight's branch is prior art for Tasks 3 and 4 (D-12).
 
 ## Tasks
 
@@ -16,34 +16,55 @@ flight's branch is prior art for both (D-12).
 
 - **Deliverables:** every hook command in
   `config/tower-settings.json` rewritten to the quoted, unbraced
-  `"$CLAUDE_PLUGIN_ROOT"/scripts/…` spelling, each policy-guard
-  command prefixed with an executability check that prints a reason
-  naming the unresolved guard and exits 2; the static half of
+  `"$CLAUDE_PLUGIN_ROOT"/scripts/…` spelling, each policy-guard command
+  suffixed, in POSIX shell, so a non-zero exit prints on stderr a reason
+  naming the guard and the remedy and exits 2 (D-16); the static half of
   `tests/test-settings-fragment-hook-expansion.sh` widened to every hook
-  command in every `config/*.json` carrying a `hooks` key, its header
-  naming both profiles; `tests/test-tower-settings-hook-wiring.sh` no
-  longer pinning the braced spelling; an execution test that runs each
-  tower hook command through a shell with a fixture payload; the
-  profile's `_about` corrected per REQ-D1.6; the tower-profile paragraph
-  of `docs/fleet.md` carrying REQ-F1.6's three statements.
+  command under every event in every `config/*.json` carrying a `hooks`
+  key, per REQ-C1.11's per-occurrence rule, reading the profiles from a
+  directory the test can point at fixtures, its header naming both
+  profiles; `tests/test-tower-settings-hook-wiring.sh` re-pinned to both
+  guards' new full commands, keeping its tier-word assertion;
+  `scripts/check-hook-contracts.sh` and its test taught the suffixed
+  command shape (its command-exists and silence checks still run against
+  the guard script); the tier-argument parsing in
+  `tests/test-reserved-control-spellings.sh` taught the same shape; an
+  execution test that runs each tower hook command with `sh -c` and a
+  payload shaped for its matcher; the profile's `_about` corrected per
+  REQ-D1.6 and a test asserting it; the tower-profile paragraph of
+  `docs/fleet.md` carrying REQ-F1.6's statements.
 - **Done when:** the widened check passes on the shipped profiles and
-  fails on fixture profiles carrying the braced token in a non-first hook
-  entry and an unquoted root; the execution test shows each tower hook
-  reaching its script with the root exported, both policy hooks exiting 2
-  with their reason when it is unset or points at a directory without the
-  guard, and the command guard's hook exiting neither 0 nor 2 in that
-  case; `config/worker-settings.json` unchanged and the worker-tier
-  expectations of the policy-guard and reserved-control suites
-  unchanged; `mise run check` passes under umask 022; the PR body states
-  the result of one manual profile launch through the supported launcher
-  (a tmux read auto-approved, a reserved act refused by the policy guard)
-  and of the opt-in live CLI probe, and presents the hook delta for the
-  security-zone sign-off; the changelog states that a `--settings` tower
-  launch without `CLAUDE_PLUGIN_ROOT` now refuses Bash.
+  fails on fixture profiles carrying the braced token in a later hook of
+  the same group, in a later matcher group, and under another event, an
+  unquoted root, and `${CLAUDE_PLUGIN_ROOT:-}`, and passes a fixture with
+  a compliant suffixed command; with the root exported, the execution test
+  shows the command guard emitting its allow on a tmux read and each policy
+  hook emitting the guard's own deny on a reserved act shaped for its
+  matcher; with the root unset, empty, pointing at a directory without the
+  guard, or at a guard that is not executable, both policy hooks exit 2
+  with the reason on stderr and the command guard's hook exits neither 0
+  nor 2; the `_about` test asserts REQ-D1.6's statements, the "why it
+  differs" included, and the absence of the dropped claims;
+  `config/worker-settings.json` unchanged; the tower-tier and worker-tier
+  expectations of the policy-guard and reserved-control suites unchanged;
+  each test file within `config/test-time-budget.yml`'s per-file ceiling
+  as measured on CI, and the suite total within budget or the budget
+  raised deliberately in the PR; `mise run check` passes under umask 022;
+  the PR body carries an operator checklist, run before the ready flip,
+  of one manual launch through the supported launcher (a tmux read
+  auto-approved with no other settings layer allowing it, and
+  `git -C . merge`, which no deny rule matches, refused with the policy
+  guard's own reason) and of the opt-in live CLI probe, a skip stated as
+  a skip; the PR body presents the allow/deny delta for the security-zone
+  sign-off, the command guard's allow set newly live in profile-launched
+  towers and the exported root as the trust root for its script allows
+  included; its commits carry the breaking-change marker, whose footer
+  names the newly live allows and denials in a profile-launched tower and
+  that a launch whose policy guard does not run now refuses Bash.
 - **Dependencies:** none
 - **Citations:** D-13, D-14, D-15, D-16 · REQ-C1.10, REQ-C1.11,
   REQ-C1.12, REQ-C1.13, REQ-D1.6, REQ-F1.6, REQ-G1.2, REQ-G1.4
-- **Estimated effort:** half day
+- **Estimated effort:** 1 day
 
 ### Task 1 — Tower placement floor in the fleet doctrine
 
@@ -120,7 +141,8 @@ flight's branch is prior art for both (D-12).
   write and a refreshed one kept; the handshake refused with the "active"
   message in a wired session and its command body never running there;
   the worker-tier expectations of the policy-guard and reserved-control
-  suites unchanged; each test file within `config/test-time-budget.yml`'s
+  suites unchanged; Task 8's execution test still passing; each test
+  file within `config/test-time-budget.yml`'s
   per-file ceiling as measured on CI, and the suite total within budget or
   the budget raised deliberately in the PR; `mise run check` passes under
   umask 022; the PR body carries the deny-to-act map and what stays
@@ -225,11 +247,7 @@ flight's branch is prior art for both (D-12).
 
 ## Awaiting input
 
-- **Task 8** anchor re-review pending: the 2026-10-08 extension is
-  meaning-class Draft content inside this signed bundle, so its recorded
-  anchor no longer recomputes; Task 8 and the tasks the freshness gate
-  holds with it wait on the delta kickoff, whose sign-off re-records the
-  anchor and removes this bullet.
+(none yet)
 
 ## Deferred
 
@@ -250,20 +268,22 @@ flight's branch is prior art for both (D-12).
   Citations: D-11 · obs:d9fa2e76, obs:af90eadf.
 - **Operator launcher and overlay adopt the supported launch.** Outside
   this repository: the operator's tower launcher follows the documented
-  recipe (own working tree, never `--worktree`), the operator's overlay
+  recipe (own working tree, never `--worktree`, `CLAUDE_PLUGIN_ROOT`
+  exported when passing the profile), running profile-launched towers are
+  relaunched once Task 8 releases, the operator's overlay
   sets `tower_placement: refuse`, and any dedicated tower clone sets
   `allow` in its machine-local layer. Confidence: high.
   **Gate:** GATE(when: task 7 completed).
-  Citations: D-1, D-4 · the tower-placement seed (Sources).
+  Citations: D-1, D-4, D-14 · REQ-F1.6 · the tower-placement seed (Sources).
 
 - **Worker profile's policy hooks on an unresolved root.** The worker
   profile's policy-guard hooks share the tower's exposure: with
   `CLAUDE_PLUGIN_ROOT` unset they exit 127 and the call proceeds. The
   dispatch wrapper exports the root, and REQ-G1.2 keeps workers unchanged
-  here, so the D-16 prefix for the worker profile is a follow-up.
+  here, so the D-16 suffix for the worker profile is a follow-up.
   Confidence: high.
   **Gate:** GATE(when: task 8 completed).
-  Citations: D-16 · obs:aed5517e.
+  Citations: D-16 · REQ-G1.2 · obs:aed5517e.
 
 ## Out of scope
 
