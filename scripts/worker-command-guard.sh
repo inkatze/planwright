@@ -146,9 +146,11 @@ tok_push() {
 
 # dollar_expands <next-char>: 0 when a `$` followed by <next-char> starts an
 # expansion. A `$` before anything else (end of word, `/`, a space) is literal.
+# zsh, the Bash tool's shell on macOS, also expands `$~NAME`, `$=NAME`,
+# `$^NAME` and `$+NAME`, which bash leaves as text.
 dollar_expands() {
   case $1 in
-    [A-Za-z0-9_@*#?!-] | '{' | '$' | '[' | '"') return 0 ;;
+    [A-Za-z0-9_@*#?!~=^+-] | '{' | '$' | '[' | '"') return 0 ;;
   esac
   return 1
 }

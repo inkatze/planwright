@@ -777,6 +777,11 @@ assert_defer "bypass: a loop variable named NULLCMD picks what zsh runs for a lo
 assert_defer "bypass: a loop variable named READNULLCMD picks what zsh runs for a lone input redirect" "for READNULLCMD in /tmp/x; do <README.md; done"
 assert_defer "bypass: a loop variable named module_path picks where zsh loads a module from" "for module_path in /tmp/x; do for commands in x; do git status; done; done"
 assert_defer "bypass: a loop variable named MODULE_PATH, zsh's tied module_path" "for MODULE_PATH in /tmp/x; do git status; done"
+assert_defer "bypass: zsh's \$~ form expands a loop variable into a find action" "for f in -exec; do find . -maxdepth 0 \$~f id {} +; done"
+assert_defer "bypass: zsh's \$= form expands a loop variable into a jq env read" "for f in env; do jq -n \$=f; done"
+assert_defer "bypass: zsh's \$^ form expands a loop variable into a jq env read" "for f in env; do jq -n \$^f; done"
+assert_defer "bypass: zsh's \$~ form inside double quotes expands a loop variable" "for f in env; do jq -n \"\$~f\"; done"
+assert_defer "regression-only: zsh's \$+ form is an expansion, not literal text" "for f in a; do find . \$+f; done"
 assert_defer "bypass: read overwrites a loop variable before a screened use" \
   "for d in -name; do read d; find . \$d; done"
 HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
