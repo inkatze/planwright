@@ -15,7 +15,14 @@ REQ-A1.7, REQ-A1.8, REQ-B2.2 · D-1, D-20, D-25, D-40, D-45.
 
 ## Overview
 
-A spec is a directory `specs/<spec>/` containing exactly four authored files:
+A spec is a directory `<root>/<spec>/` containing exactly four authored files,
+where `<root>` is the **spec root**: `specs/` at the top of the work repository
+by default, or the directory the `spec_root` option names, which may sit
+elsewhere in the repository, in a separate holder repository, or in no
+repository (custom-spec-location D-1, D-3). `scripts/resolve-root.sh spec` is
+the one resolver; no consumer composes the root itself. A root other than the
+default carries the marker `planwright-spec-root.yml`, and the root's posture
+(its git relationship to the work repository) is defined in `storage-classes`.
 
 | File | Role |
 | --- | --- |
@@ -43,7 +50,9 @@ All four files open with the same header block:
 mirror it and are kept in sync at sign-offs and amendments. `Last reviewed:`
 is per-file and is bumped whenever that file is materially reviewed or
 edited. A `Superseded` bundle additionally carries a mandatory
-`**Superseded-by:** specs/<spec>/` pointer line in the header block.
+`**Superseded-by:** specs/<spec>/` pointer line in the header block, naming the
+replacement in the namespace form whatever the root, so the committed pointer
+never carries a machine path.
 
 **Header-block extent.** The header block is the leading region of the file made
 up of nothing but the H1 title line, `**<Key>:** <value>` lines, and blank lines;
@@ -74,13 +83,22 @@ duplicate, and non-load-bearing keys keep first-match-wins.
 
 ## Spec identifiers
 
-The `<spec>` segment (used in `specs/<spec>/`, branch names, worktree paths,
+The `<spec>` segment (used in `<root>/<spec>/`, branch names, worktree paths,
 lock paths, and printed launch commands) matches the anchored, full-string
 pattern `^[a-z0-9][a-z0-9-]*$`, maximum length 64. Substring matching is
 non-conforming: an identifier is valid only if the whole string matches. No
 skill or hook interpolates a failing identifier into a path or command;
 identifiers proposed by accumulator contents (seeds) are re-validated at
 consumption before any interpolation.
+
+**Addressing a spec.** A skill argument or identity seam that names a spec
+takes the bare identifier, the canonical form, or `specs/<spec>` as an alias
+mapped to the same identifier, either with or without one trailing slash, and
+no other form; the alias is a namespace form, read the same whatever the root.
+A script that operates on a bundle directory keeps taking that directory, as
+the resolver produces it. The forms keyed on the identifier (branch, worktree,
+lock path, commit trailer, the `Consumed-by: specs/<spec>` annotation) are
+unchanged in form whatever the root (custom-spec-location D-11).
 
 **`flight` is reserved** (tower-front-door D-11). It is the flight branch
 segment (`planwright/flight/<flight-id>`, *Branch, worktree, and task-id
@@ -89,21 +107,28 @@ bundle so named and `--check-id` rejects it, and every script that screens a
 spec identifier refuses the word the way it refuses a charset failure. Identifiers that merely
 contain it (`flight-plan`, `flights`) are ordinary.
 
-Direct children of `specs/` with a leading underscore are **reserved non-spec
-directories**: the accumulators (`_pending/`, `_observations/`) and the
-**flight record directory** `_flights/` (tower-front-door D-6), which holds one
-audit record per visual flight at `specs/_flights/<flight-id>.md`, riding the
-flight's own branch. The record is an artifact in the kickoff-brief class, not
-an accumulator: it collects no deferred decisions, so it owes no named reader
-and no drain ritual. None of these is ever validated as a bundle, but their
-names must match `^_[a-z0-9][a-z0-9-]*$` (≤64): exemption from bundle
-validation is not exemption from hostile-name screening.
+Direct children of the spec root with a leading underscore are **reserved
+non-spec directories**: the accumulators (`_pending/`, `_observations/`) and
+the **flight record directory** `_flights/` (tower-front-door D-6), which holds
+one audit record per visual flight at `<root>/_flights/<flight-id>.md`, riding
+the flight's own branch. The record is an artifact in the kickoff-brief class,
+not an accumulator: it collects no deferred decisions, so it owes no named
+reader and no drain ritual. None of these is ever validated as a bundle, but
+their names must match `^_[a-z0-9][a-z0-9-]*$` (≤64): exemption from bundle
+validation is not exemption from hostile-name screening. The reserved children
+follow the root under its checkout-local view, so a fragment recorded from a
+task worktree rides that worktree's branch, and in a holder each project's
+root carries its own (custom-spec-location D-5). A flight record is committed
+on the flight's branch, so only a root inside the checkout can hold one; with
+the root elsewhere the flight keeps its record in its PR.
 
 ## Path-placeholder convention
 
 Documentation and skill prose write path and identifier placeholders in
 angle brackets: `<spec>`, `<id>`, `<branch-suffix>`, `<date>`. A placeholder
 stands for exactly one segment; literal text outside the brackets is literal.
+The one exception is `<root>`, the resolved spec root, which stands for a whole
+path (`specs` under the default).
 
 ## Fenced illustration
 
@@ -562,7 +587,7 @@ with a changelog line plus the marked self-re-anchor entry (D-44).
 
 ## The kickoff brief
 
-`specs/<spec>/kickoff-brief.md`, written by `/spec-kickoff`, is the durable
+`<root>/<spec>/kickoff-brief.md`, written by `/spec-kickoff`, is the durable
 contract between human and agent (two-brief model, D-3: kickoff brief is
 contract; an optional handover brief at `<worktree>/.claude/handover.md` is
 cache, not source of truth). Downstream skills operate from the brief, not by
@@ -797,8 +822,8 @@ anchor); that is an expression-only edit and re-anchors via the marked entry.
 `/orchestrate` (inside the per-spec lock window, immediately before the
 `tasks.md` update) and `/execute-task` (at pre-flight) recompute the anchor
 with the command recorded in the brief's most recent anchor entry and compare,
-both read from the primary checkout's main view. All halt conditions fail
-closed to Awaiting input, naming the remedy:
+both read from the bundle's primary view (*Read surface per posture*, below).
+All halt conditions fail closed to Awaiting input, naming the remedy:
 
 - **Anchor mismatch** (any anchored content changed since the entry,
   committed or not) → remedy: `/spec-kickoff` delta re-walkthrough.
@@ -842,8 +867,22 @@ chain only where it is absent, so the checked tree's own script always wins over
 an ambient root. Resolution finds the same tool; it never rewrites the recorded
 form.
 
-**Reference frame (version 1 bundles).** The comparison is framed on a single
-pinned commit of the main view (anchor-integrity D-4, REQ-B1.1). Where the
+**Read surface per posture** (custom-spec-location D-14). The gate reads the
+bundle from its primary view in each posture of the spec root
+([storage-classes](storage-classes.md)): in `same-repo`, the default branch's
+committed view of the primary checkout, while a worker writes its own
+worktree's copy; in `separate-repo`, the holder's default branch's committed
+view, so an uncommitted edit in the holder's working tree is outside the read
+surface; in `plain`, the directory's files as they are. The default branch is
+the remote's HEAD branch where a remote exists, else the branch the local HEAD
+names, never assumed to be called `main`. The sanctioned command forms are
+unchanged in every posture: the anchor hashes file content wherever the files
+live, and the resolution-aware form resolves the tool, not the bundle.
+
+**Reference frame (version 1 bundles).** In the two git postures the comparison
+is framed on a single pinned commit of the default branch's committed view
+(anchor-integrity D-4, REQ-B1.1); in `plain` there is no committed view to frame
+against, so the gate compares against the files as they are. Where the
 checkout the gate reads diverges from that pinned view within anchored content
 only by header `**Status:**` lines carrying sanctioned status values, across any
 subset of the four files — the shape the single-writer derived mirror produces —
@@ -896,7 +935,7 @@ anchor).
   ref exists (never a forced create), is the only atomic claim. The id is **never
   reused**: while durable evidence of an id exists — a local or
   remote-tracking flight branch, a record file
-  `specs/_flights/<flight-id>.md` in the working tree or on the default
+  `<root>/_flights/<flight-id>.md` in the working tree or on the default
   branch (local or remote-tracking), or a placed worktree — a mint skips
   that uid and draws another, so a retired flight's id is never re-minted
   against its branch or record. Remote evidence is as fresh as the last
@@ -1030,11 +1069,17 @@ the declared format-version:
   name by the session it is wired to, not by the word.
 - **Observations log** — the canonical name for the observations
   accumulator: per-entry fragment files under
-  `specs/_observations/entries/` (live) and `specs/_observations/archive/`
+  `<root>/_observations/entries/` (live) and `<root>/_observations/archive/`
   (consumed), plus the frozen legacy `opportunities.md` while it drains,
   mined by `/spec-draft` (its canonical reader), with the chronological
   view rendered on demand and never committed. The accumulator-taxonomy
   doctrine carries the canonical class-3 definition and drain ritual.
+- **Spec root** — the directory holding the bundles and the reserved
+  children, `specs/` by default (*Overview*). Two views of it: the
+  checkout-local view, the current checkout's own copy, which writers use;
+  and the primary view, the primary checkout's copy (the holder's in
+  `separate-repo`, the directory itself in `plain`), which the freshness gate
+  and the derivation read. Its posture is defined in `storage-classes`.
 - **Dispatch step** — one atomic `/orchestrate` step: select a ready unit,
   take the lock, move state, dispatch, release, exit.
 - **Content anchor** — the manifest-style hash over the four spec files
@@ -1270,3 +1315,30 @@ bundle would have to migrate to:
   they gain the writer-delivery arm, and an arm holding neither `doctrine/`
   nor `scripts/` is skipped with a warning. *(custom-spec-location D-9 ·
   REQ-C1.1, REQ-C1.3.)*
+- 2026-10-07 — The spec home made a resolved location. A bundle is
+  `<root>/<spec>/`, the spec root being `specs/` by default or the directory
+  the `spec_root` option names, resolved by `scripts/resolve-root.sh spec`,
+  with a marker on any other root and the posture ladder defined in
+  `storage-classes` (*Overview*); `<root>` is the one placeholder standing for
+  a whole path (*Path-placeholder convention*); the `Superseded-by:` pointer
+  keeps the `specs/<spec>/` namespace form (*Overview*); a skill argument or
+  identity seam takes the bare identifier or its `specs/<spec>` alias, and the
+  forms keyed on the identifier are unchanged (*Spec identifiers*, addressing);
+  the reserved children, `_flights/` included, are children of the spec root
+  under its checkout-local view, and a flight record needs a root inside the
+  checkout (*Spec identifiers*, reserved directories; *Branch, worktree, and
+  task-id grammar*, the flight-id evidence); the kickoff brief's path follows
+  the bundle (*The kickoff brief*); the freshness gate's read surface is stated
+  per posture, on the default branch rather than one assumed to be `main`, and
+  the version-1 reference frame applies in the git postures only (*Execution
+  validity*); and the glossary gains **Spec root** and points the observations
+  log at the root (*Glossary*). Sibling specs owning passages this entry
+  touches: `tower-front-door` owns `_flights/` and the flight grammar (D-6,
+  D-11), whose meaning is unchanged; `format-grammar`'s amendment of this
+  document landed as the 2026-07-29 entry, and none of its passages moves here.
+  **No version bump:** with `spec_root` unset the root is `specs/` and every
+  rule reads as before, so every bundle stays conformant. The gate's
+  per-posture read and the posture-aware skills land as their own tasks; as
+  with the earlier doctrine-half entries, the rule is stated before the
+  tooling catches up.
+  *(custom-spec-location D-1, D-5, D-11, D-14, D-20 · REQ-E1.5, REQ-G1.4.)*

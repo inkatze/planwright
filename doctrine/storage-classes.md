@@ -9,7 +9,8 @@ paths; a work product parked in framework state is invisible to review and dies
 with the laptop; configuration hidden in state is neither diffable nor
 reviewable. Naming the class first makes the home obvious.
 
-Citations: inception REQ-I1.5 · inception D-8.
+Citations: inception REQ-I1.5 · inception D-8 · custom-spec-location
+REQ-G1.4 · custom-spec-location D-1, D-4, D-6, D-12, D-13, D-18, D-20.
 
 ## The three classes
 
@@ -29,6 +30,14 @@ and `catalogs.local/`.
 Everything except the machine-local layer is committed and reviewed. Config
 never holds derived values (that is class 2) and never holds secrets (see
 below).
+
+One class-1 file lives outside the chain: the **spec-root marker**,
+`planwright-spec-root.yml`, at the top of a spec root other than the default
+(class 3 below). It is the root's identity (`project: <id>`, `layout: 1`),
+read so that a mistyped `spec_root` pointer is refused rather than resolved to
+an empty root. `scripts/resolve-root.sh spec --init` writes it once at the
+human's request and never replaces it; it is committed wherever the root is
+committed (custom-spec-location D-4).
 
 ### 2. Framework runtime state
 
@@ -54,12 +63,35 @@ What the human owns, and what they would keep if planwright disappeared
 tomorrow. Spec bundles, inception bundles and their exports, observation
 fragments, the artifacts a run produces.
 
-**Home:** a git repository the human owns — `specs/<name>/` in the work repo,
-the inception bundle in the venture repo, the accumulator under
-`specs/_observations/`.
+**Home:** a location the human owns. Spec bundles and the observations
+accumulator live under the **spec root**: `<root>/<name>/` for a bundle and
+`<root>/_observations/` for the accumulator, where the root is `specs/` in the
+work repository unless the `spec_root` option names another directory
+(`scripts/resolve-root.sh spec` resolves it; `spec-format`, *Overview*). The
+inception bundle lives in the venture repo.
 
-Committed, plain text, and readable without the framework. A work product that
-can only be read through planwright's own tooling has failed this class.
+Plain text and readable without the framework, in every posture below; a work
+product that can only be read through planwright's own tooling has failed this
+class. **Committed** in the two git postures: the commit is the review surface
+and the history. In `plain` there is no git to commit to, and the files are the
+whole record.
+
+**The posture ladder.** A spec root's posture is its git relationship to the
+work repository (the repository whose code the tasks change), derived by the
+resolver from repository identity (`resolve-root.sh spec --posture`) and never
+declared:
+
+| Posture | Where the root lies | What authoring does there |
+| --- | --- | --- |
+| `same-repo` (recommended; the default root is always here) | in the work repository, any worktree of it included | commits bundles on the spec branch and opens the spec PR in the work repository |
+| `separate-repo` (for a shared holder) | in a **holder**, a second git repository holding one root per project it serves | the spec branch and worktree, the bundle and consume commits, and the spec PR target the holder; task branches, task PRs, and commit trailers stay in the work repository |
+| `plain` (supported) | in no git repository | writes the files and skips every commit, push, and PR step, naming each skipped step in the handoff; no guard runs |
+
+Task state derives from the work repository's git in every posture, and a
+root's posture never blocks a dispatch. In `separate-repo` and `plain`, a
+halting execution skill's Awaiting-input and Deferred writes land as
+uncommitted files in the store, each named in the handoff
+(custom-spec-location D-6, D-12, D-13).
 
 ## The rule
 
@@ -74,7 +106,7 @@ can only be read through planwright's own tooling has failed this class.
 
 A file that answers "the framework authored it *and* losing it loses
 information" is a work product the framework happens to write, and belongs in
-the repo — not in `CLAUDE_PLUGIN_DATA`.
+the class-3 home — not in `CLAUDE_PLUGIN_DATA`.
 
 ## Secrets belong to none of them
 
@@ -93,6 +125,9 @@ three homes is nearest and why it does not fit, in the spec's design decision
 or the kickoff brief's risk register, before minting one.
 
 `CLAUDE_PLUGIN_DATA` as the runtime-state home is recorded as **interim**
-(inception D-8): it is the sanctioned cross-repo state home today, and it
-re-anchors on the cross-repo routing effort when that revives. The three-class
-split itself is not interim; only the current address of class 2 is.
+(inception D-8): it is the sanctioned cross-repo state home today. The
+cross-repo routing effort D-8 waited on has revived as custom-spec-location,
+whose named observation targets write a fragment into another project's
+accumulator on the same machine (custom-spec-location D-18), and the interim
+home re-anchors there. The three-class split itself is not interim; only the
+current address of class 2 is.

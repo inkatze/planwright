@@ -8,7 +8,8 @@ prompt for every such call. Its section *One plain command per Bash call*
 covers every command any skill issues inside a dispatched worker or a
 subordinate tower, `/polish` and `/self-review` included.
 
-Citations: REQ-D1.1, D-7; obs:344dd129, obs:885bc3c9.
+Citations: REQ-D1.1, D-7; obs:344dd129, obs:885bc3c9 · custom-spec-location
+REQ-G1.4.
 
 ## The convention
 
@@ -26,8 +27,10 @@ Take the resolved value once, then substitute it literally at each call site:
 ```sh
 # Resolve once:
 /abs/copy/scripts/resolve-root.sh install    # prints the root, e.g. /abs/planwright
-# Then call by the literal absolute path (what a worker's command actually is):
-/abs/planwright/scripts/spec-validate.sh specs/<spec>
+# Then call by the literal absolute path (what a worker's command actually is),
+# a bundle argument being its directory under the resolved spec root
+# (resolve-root.sh spec; specs/<spec> under the default):
+/abs/planwright/scripts/spec-validate.sh <root>/<spec>
 ```
 
 ## Why the literal shape matters
