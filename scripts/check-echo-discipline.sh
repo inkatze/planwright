@@ -48,7 +48,9 @@
 # escapes — dash, which is /bin/sh on Linux — is at risk. bash's `echo` does not
 # expand escapes unless xpg_echo is set, so a `#!/usr/bin/env bash` script under
 # scripts/ is NOT vulnerable and the echo rules skip it: flagging it would be a
-# false positive and would push churn onto files that are already safe. A file
+# false positive and would push churn onto files that are already safe. A bash
+# file that turns xpg_echo on (a `shopt` with -s at a command position, or
+# `-O xpg_echo` in its shebang) gets the echo rules after all. A file
 # with no shebang IS scanned, because a sourced library runs under whichever
 # interpreter sourced it, and dash is one of them. The sourcing rule reads
 # bash files as well.
@@ -84,7 +86,10 @@
 # since a lexical scan cannot tell which value the call will see. A variable
 # reused for another library and later for the sanitizer needs its earlier
 # sources tested too. Presence, not position, is checked for the variable
-# form: a use written above the assignment still counts.
+# form: a use written above the assignment still counts. xpg_echo is found by
+# spelling in the file itself: one enabled by a sourced library, through
+# BASHOPTS in the environment, or by an option name built at run time is
+# unseen, and any matching shopt line counts wherever it sits.
 #
 # Scope is every shell file under scripts/, tests/, and githooks/, reached
 # either by shebang or by an .sh suffix. Neither test alone is enough: the
@@ -208,10 +213,9 @@ yield only digits or flag letters (`$?`, `$#`, `$$`, `$!`, `$-`, `${#x}`,
 
 Sourcing: every `.` or `source` of echo-safety.sh must follow a `-r` (readable)
 test of the same operand, as an operand of `[`, `test` or `[[` (`grep -r` is no
-test), so a missing helper is the script's own refusal
-rather than a dash abort or a bash run with the sanitizer undefined. A loop over
-the dependency names that tests `<dir>/$name` counts. This rule reads bash
-files too.
+test), so a missing helper is the script's own refusal rather than a dash abort
+or a bash run with the sanitizer undefined. A loop over the dependency names
+that tests `<dir>/$name` counts. This rule reads bash files too.
 
 Scanned: every shell file under scripts/, tests/, and githooks/, reached either
 by shebang or by an .sh suffix, so both the extensionless githooks/ hooks and
@@ -220,9 +224,11 @@ the sourced shebang-less libraries are covered.
 Skipped by the echo rules: files whose shebang names bash, and nothing else.
 bash is the only shell here whose `echo` leaves escapes alone (absent
 xpg_echo), so those files are safe as written and rewriting them would be
-churn; a bash file that runs `shopt -s xpg_echo` gets the echo rules. zsh and the ksh family are NOT skipped: their `echo` follows System V
-and expands escapes. A file with NO shebang is scanned too: a sourced library
-runs under whichever interpreter sourced it, and dash is one of them.
+churn. A bash file that turns xpg_echo on, by a shopt with -s or by -O in its
+shebang, gets the echo rules. zsh and the ksh family are NOT skipped: their
+`echo` follows System V and expands escapes. A file with NO shebang is scanned
+too: a sourced library runs under whichever interpreter sourced it, and dash is
+one of them.
 
 Also flagged: sanitized text in the printf FORMAT operand, or passed to a
 printf `%b`, directly or through a variable assigned only from a sanitizer.
@@ -289,6 +295,20 @@ count=0
 bashfiles=0
 bashread=0
 dropped=0
+# A shopt at a command position (line start, after a separator, or after a
+# word such as `then` or `builtin`) whose options include -s. A quoted mention
+# is not matched, so a file that only talks about the option stays exempt.
+XPG_ON='(^|[;&|({!]|[[:alpha:]][[:space:]])[[:space:]]*shopt[[:space:]]([^;&|#]*[[:space:]])?-[[:alpha:]]*s[^;&|#]*xpg_echo'
+# file_greps <ERE>: whether $file matches. grep's 2 is a read error, not "no
+# match": skipping on it would report clean over a file the scan never read.
+file_greps() {
+  grep -qE "$1" "$file" 2>/dev/null
+  case $? in
+    0) return 0 ;;
+    1) return 1 ;;
+    *) fail_closed "cannot read $(sanitize_printable "$rel" "(unprintable filename)") — the scan would cover less than it claims" ;;
+  esac
+}
 newline='
 '
 tab="$(printf '\t')"
@@ -329,7 +349,7 @@ while IFS= read -r -d '' file; do
   esac
   # bash is the ONLY interpreter here whose `echo` leaves backslash escapes
   # alone (absent xpg_echo), so a bash file is read for the sourcing rule only
-  # (the `b` prefix on its list line). zsh and the ksh family are deliberately
+  # (the `b` prefix on its list line), unless it turns xpg_echo on. zsh and the ksh family are deliberately
   # not exempt: their `echo` follows System V and expands escapes, so they are
   # as exposed as dash. Everything else — sh, dash, an unrecognised shebang, or
   # no shebang at all — gets every rule, because a sourced library inherits
@@ -338,31 +358,29 @@ while IFS= read -r -d '' file; do
   shebang_interp "$first"
   case "$interp" in
     bash)
-      bashfiles=$((bashfiles + 1))
-      # `shopt -s xpg_echo` makes bash echo expand escapes as dash does, so a
-      # bash file that enables it gets every rule.
-      grep -qE '^[[:space:]]*shopt[[:space:]]+-s[^#]*xpg_echo' "$file" 2>/dev/null
-      case $? in
-        0)
-          printf 's%s\n' "$file" >>"$work/list"
-          count=$((count + 1))
-          continue
-          ;;
-        1) ;;
-        *) fail_closed "cannot read $(sanitize_printable "$rel" "(unprintable filename)") — the scan would cover less than it claims" ;;
-      esac
       # The sourcing rule can only fire where the file names echo-safety.sh,
-      # directly or in the assignment a sourced variable carries, so a bash
-      # file that never mentions it is exact to skip, and tokenizing all of
-      # them would quadruple the guard's cost for no finding.
-      # grep's 2 is a read error, not "no match": skipping on it would report
-      # clean over a file the scan never read.
-      grep -qF 'echo-safety.sh' "$file" 2>/dev/null
-      case $? in
-        0) ;;
-        1) continue ;;
-        *) fail_closed "cannot read $(sanitize_printable "$rel" "(unprintable filename)") — the scan would cover less than it claims" ;;
+      # directly or in the assignment a sourced variable carries, and the echo
+      # rules only where it turns on xpg_echo, so a bash file naming neither
+      # is exact to skip on one read; tokenizing all of them would quadruple
+      # the guard's cost for no finding.
+      file_greps 'echo-safety\.sh|xpg_echo' || {
+        bashfiles=$((bashfiles + 1))
+        continue
+      }
+      # xpg_echo makes bash echo expand escapes as dash does, so a bash file
+      # that enables it, by shopt at a command position or `-O` in its
+      # shebang, gets every rule.
+      case "$first" in
+        *xpg_echo*) xpg=1 ;;
+        *) xpg=0 ;;
       esac
+      if [ "$xpg" = 1 ] || file_greps "$XPG_ON"; then
+        printf 's%s\n' "$file" >>"$work/list"
+        count=$((count + 1))
+        continue
+      fi
+      bashfiles=$((bashfiles + 1))
+      file_greps 'echo-safety\.sh' || continue
       bashread=$((bashread + 1))
       printf 'b%s\n' "$file" >>"$work/list"
       ;;
@@ -507,7 +525,7 @@ awk -v listfile="$work/list" '
     if (depth >= 400) { toodeep = 1; return }
     depth++
     savedq[depth] = dq; savesq[depth] = sq; isbt[depth] = bt
-    dq = 0; sq = 0; cmd[depth] = ""; atcmd = 1; argn[depth] = 0; inarg[depth] = 0; fmtb[depth] = 0; redirpend[depth] = 0; inredir[depth] = 0
+    dq = 0; sq = 0; cmd[depth] = ""; dbl[depth] = 0; atcmd = 1; argn[depth] = 0; inarg[depth] = 0; fmtb[depth] = 0; redirpend[depth] = 0; inredir[depth] = 0
   }
   function pop_depth() {
     if (depth <= 0) return
@@ -771,10 +789,12 @@ awk -v listfile="$work/list" '
         w = substr(s, i, j - i)
         if (w == "--" && argn[depth] == 1) argn[depth]--
         # A `-r` guards only as a test operand: `[`, `test`, or inside `[[`.
-        # `grep -r` names a path it never tests for readability.
-        if (w == "[[") dbl = 1
-        else if (w == "]]") dbl = 0
-        if (w == "-r" && (cmd[depth] == "[" || cmd[depth] == "test" || dbl)) cap = "r"
+        # `grep -r` names a path it never tests for readability. A `[[` opens a
+        # test only at a command position, and holds per depth until its `]]`,
+        # across lines too, so a `$(...)` inside it is a command of its own.
+        if (w == "[[" && atcmd) dbl[depth] = 1
+        else if (w == "]]") dbl[depth] = 0
+        if (w == "-r" && (cmd[depth] == "[" || cmd[depth] == "test" || dbl[depth])) cap = "r"
         else if (atcmd && (w == "." || w == "source")) cap = "src"
         else if (atcmd && w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) {
           name = w; sub(/=.*$/, "", name)
@@ -797,7 +817,7 @@ awk -v listfile="$work/list" '
     split("", hits); split("", exph); split("", trusted); split("", trustbare)
     split("", varval); split("", loopv); split("", tested); split("", srchit)
     split("", latev); split("", lateln); split("", lateok)
-    split("", testedraw); split("", everes)
+    split("", testedraw); split("", everes); split("", dbl)
     nlate = 0; cap = ""
     cmd[0] = ""; nref = 0; ncase = 0; split("", casedep); split("", argn); split("", inarg); split("", refkind); split("", fmtb); split("", redirpend); split("", pctesc); split("", inredir)
     toodeep = 0; baddelim = 0; bpend = 0
@@ -829,11 +849,10 @@ awk -v listfile="$work/list" '
       if (match(line, /^[ \t]*for[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+in[ \t]/)) {
         lv = line; sub(/^[ \t]*for[ \t]+/, "", lv); sub(/[^A-Za-z0-9_].*$/, "", lv)
         lst = line; sub(/^[ \t]*for[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+in[ \t]+/, "", lst)
-        sub(/[;#].*$/, "", lst); sub(/[ \t]+do([ \t].*)?$/, "", lst)
+        sub(/;.*$/, "", lst); sub(/(^|[ \t])#.*$/, "", lst); sub(/[ \t]+do([ \t].*)?$/, "", lst)
         loopv[lv] = (index(lst, "echo-safety.sh") > 0)
       }
       tokenize(line, maxln)
-      dbl = 0
       # A backslash continuation carries a pending `.` or `-r` operand onto the
       # next line, where the shell still reads it as the same command.
       if (!esc) cap = ""

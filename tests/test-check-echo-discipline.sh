@@ -862,6 +862,70 @@ assert "a bash file enabling xpg_echo is held to the echo rules" 1 $?
 assert_contains "the xpg_echo file's echo is flagged" "$out" "scripts/xpg.sh:3"
 assert_not_contains "a plain bash file stays exempt" "$out" "scripts/plainbash.sh"
 
+# bash turns xpg_echo on through more spellings than one line-initial shopt.
+# The option name goes through a variable where a spelling would otherwise
+# put this file itself under the echo rules.
+xo=xpg_echo
+make_root "$tmp/xpgforms"
+filler "$tmp/xpgforms"
+write_file "$tmp/xpgforms/scripts/qs.sh" '#!/bin/bash' 'shopt -qs xpg_echo' 'echo "$x"'
+write_file "$tmp/xpgforms/scripts/andand.sh" '#!/bin/bash' "true && shopt -s $xo" 'echo "$x"'
+write_file "$tmp/xpgforms/scripts/then.sh" '#!/bin/bash' "if :; then shopt -s $xo; fi" 'echo "$x"'
+write_file "$tmp/xpgforms/scripts/builtin.sh" '#!/bin/bash' "builtin shopt -s extglob $xo" 'echo "$x"'
+write_file "$tmp/xpgforms/scripts/shebang.sh" '#!/bin/bash -O xpg_echo' 'echo "$x"'
+write_file "$tmp/xpgforms/scripts/quoted.sh" '#!/bin/bash' "printf '%s\n' 'shopt -s xpg_echo'" 'echo "$x"'
+write_file "$tmp/xpgforms/scripts/unset.sh" '#!/bin/bash' 'shopt -u xpg_echo' 'echo "$x"'
+out="$(/bin/bash "$CHECKER" "$tmp/xpgforms" 2>&1)"
+assert "every spelling that enables xpg_echo is held to the echo rules" 1 $?
+assert_contains "shopt -qs enables xpg_echo" "$out" "scripts/qs.sh:3"
+assert_contains "a shopt after && enables xpg_echo" "$out" "scripts/andand.sh:3"
+assert_contains "a shopt after then enables xpg_echo" "$out" "scripts/then.sh:3"
+assert_contains "builtin shopt with two options enables xpg_echo" "$out" "scripts/builtin.sh:3"
+assert_contains "a shebang -O xpg_echo enables it" "$out" "scripts/shebang.sh:2"
+assert_not_contains "a quoted mention enables nothing" "$out" "scripts/quoted.sh"
+assert_not_contains "shopt -u disables rather than enables" "$out" "scripts/unset.sh"
+
+make_root "$tmp/xpgcount"
+filler "$tmp/xpgcount"
+write_file "$tmp/xpgcount/scripts/xpg.sh" '#!/bin/bash' 'shopt -s xpg_echo' "printf '%s\n' \"\$x\""
+out="$(/bin/bash "$CHECKER" "$tmp/xpgcount" 2>&1)"
+assert "a clean xpg_echo bash file passes" 0 $?
+assert_contains "an xpg_echo bash file counts as scanned, not as a bash file at no risk" "$out" "plus 0 bash-interpreter files"
+
+# A `[[` test may span lines, and its `-r` still guards; a `$(...)` inside it is
+# its own command, where `grep -r` tests nothing. A `#` inside a loop word is
+# not a comment.
+make_root "$tmp/dblforms"
+filler "$tmp/dblforms"
+write_file "$tmp/dblforms/scripts/cont.sh" '#!/bin/bash' \
+  "[[ -f \"\$d/echo-safety.sh\" && $bslash" \
+  '   -r "$d/echo-safety.sh" ]] || exit 5' \
+  '. "$d/echo-safety.sh"'
+write_file "$tmp/dblforms/scripts/nl.sh" '#!/bin/bash' \
+  '[[ -f "$d/echo-safety.sh" &&' \
+  '   -r "$d/echo-safety.sh" ]] || exit 5' \
+  '. "$d/echo-safety.sh"'
+write_script "$tmp/dblforms/scripts/loophash.sh" \
+  'for dep in "${pfx#./}" echo-safety.sh; do' \
+  '  [ -r "$d/$dep" ] || exit 5' \
+  'done' \
+  '. "$d/echo-safety.sh"'
+out="$(/bin/bash "$CHECKER" "$tmp/dblforms" 2>&1)"
+assert "a [[ test across lines and a loop word holding # still guard the source" 0 $?
+
+make_root "$tmp/dblsub"
+filler "$tmp/dblsub"
+write_file "$tmp/dblsub/scripts/sub.sh" '#!/bin/bash' \
+  '[[ -n "$(grep -r "$d/echo-safety.sh" /etc)" ]] || exit 5' \
+  '. "$d/echo-safety.sh"'
+write_file "$tmp/dblsub/scripts/arg.sh" '#!/bin/bash' \
+  'printf "%s\n" [[ x; grep -r "$d/echo-safety.sh" /etc' \
+  '. "$d/echo-safety.sh"'
+out="$(/bin/bash "$CHECKER" "$tmp/dblsub" 2>&1)"
+assert "a grep -r inside a [[ substitution, or after a [[ argument, guards nothing" 1 $?
+assert_contains "grep -r in a substitution inside [[ does not guard" "$out" "scripts/sub.sh:3"
+assert_contains "a [[ that is only an argument opens no test" "$out" "scripts/arg.sh:3"
+
 # ---------------------------------------------------------------------------
 # 14. Every offender is reported, not just the first.
 # ---------------------------------------------------------------------------
