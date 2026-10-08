@@ -166,12 +166,11 @@ law is `orchestration-concurrency` (read here). Ordered steps:
    - **Fetch-before-gate** (D-9, REQ-D1.1). `scripts/dispatch-fetch.sh --spec
      <spec> <primary-checkout>` fetches `origin` (bounded by
      `dispatch_fetch_ttl`, coalesced with the reconcile-sweep fetch, **no
-     local-`main` advance**) and prints the anchor of the bundle's primary view
-     (`spec-format` *Read surface per posture*). Exit **0**,
-     or **3** (`no-remote`, offline) → gate against it; any other nonzero → park
-     to Awaiting input. On the exit-0 paths, the fetched `origin/main` backs merge
-     detection (`orchestrate-state.sh`'s union scan, REQ-D1.2), so a
-     task merged on `origin` but not local `main` isn't re-dispatched.
+     local-`main` advance**) and prints the anchor of the bundle's primary view.
+     Exit **0**, or **3** (`no-remote`, offline) → gate against it; any other
+     nonzero → park to Awaiting input. On the exit-0 paths, the fetched
+     `origin/main` backs merge detection (`orchestrate-state.sh`'s union scan,
+     REQ-D1.2), so a task merged only on `origin` isn't re-dispatched.
    - **Validate the entry** (brief's most recent, from the primary view; formats:
      `spec-format`): a **sanctioned command form**, a **sanctioned writer** (a
      `/spec-kickoff` sign-off or the marked `Class: expression-only` ritual), and
@@ -336,10 +335,11 @@ write (D-7). The sweep:
 
 1. **Refresh the remote view (best-effort).** `scripts/dispatch-fetch.sh
    --best-effort <primary-checkout>` — the same bounded fetch the gate uses (D-9),
-   coalesced with it onto one TTL-stamped fetch. `--best-effort` is one attempt; a
-   reconcile tolerates staleness. Remote-tracking refs only; **no local-`main`
-   advance**. Any nonzero exit (`3` no-remote, `4` stale-transient, `2` internal)
-   → continue on last-known refs (the gate parks on `4`).
+   coalesced with it onto one TTL-stamped fetch. `--best-effort` is one
+   attempt; a reconcile tolerates staleness. Remote-tracking refs only;
+   **no local-`main` advance**. Any nonzero exit (`3` no-remote, `4`
+   stale-transient, `2` internal) → continue on last-known refs (the gate
+   blocks on `4`).
 2. **Rebuild** from `tasks.md`, `gh`, and the process/window list; for each
    in-flight unit (v1: its `## In progress` entry; v2: the derivation's in-progress
    set — no committed placement exists), **reconcile PR state first**: merged →
@@ -353,6 +353,9 @@ write (D-7). The sweep:
    <orphan note>`) on the primary checkout's main view (REQ-B1.4), never the dead
    worker's branch, and only if no live bullet already names the task. Never left
    In progress silently, and **never auto-re-dispatched**.
+5. **Clear stale attention rows**: `scripts/fleet-attention-reconcile.sh --repo
+   <absolute-primary-checkout>`; surface failures and degraded summaries;
+   never halt.
 
 **Report each terminal state** to the escalation feedback loop (model-allocation
 REQ-F1.2; `docs/fleet.md`). Neither report may cost its transition:
@@ -426,8 +429,7 @@ refusals are defined at their steps). Each halt writes the unit to `## Awaiting
 input` with the reason (a v2 bundle's `**Task <id>**` reference bullet, D-3; in a
 holder or plain store `scripts/halt-note.sh` writes it uncommitted, named in the
 report, custom-spec-location REQ-E1.9; the `gate-wiring` pause protocol's
-dispatched arm);
-attended, present it and wait.
+dispatched arm); attended, present it and wait.
 
 ## Stop conditions (mandatory human handoff)
 
