@@ -294,18 +294,25 @@ claim() {
 }
 
 # claim_recorded <claim> — whether the pass holding a count has recorded it.
+# The mark names the token it was written under, so one left by an earlier
+# holder of the same claim never reads as the current holder's count recorded.
 claim_recorded() {
-  [ -e "$1.recorded" ] || [ -e "$1/recorded" ]
+  [ ! -e "$1/recorded" ] || return 0
+  _cr_t=$(readlink "$1" 2>/dev/null) || return 1
+  [ -n "$_cr_t" ] && [ "$(head -n 1 "$1.recorded" 2>/dev/null)" = "$_cr_t" ]
 }
 
-# claim_record <claim> — mark a held count as recorded.
+# claim_record <claim> <token> — mark a held count as recorded under its token.
 claim_record() {
-  (umask 077 && : >"$1.recorded") 2>/dev/null
+  (umask 077 && printf '%s\n' "$2" >"$1.recorded.$$" && mv -f "$1.recorded.$$" "$1.recorded") 2>/dev/null && return 0
+  rm -f "$1.recorded.$$" 2>/dev/null
+  return 1
 }
 
 # claim_release <claim> <token> — give back a claim this pass took, with its
 # record mark. By its token: a claim this pass no longer holds is another
-# pass's, and is left alone with its mark.
+# pass's, and is left alone with its mark. A release that fails leaves a
+# detached hold nothing else will break, so it is named rather than swallowed.
 claim_release() {
   if [ -d "$1" ] && [ ! -L "$1" ]; then
     rm -f "$1/recorded" 2>/dev/null
@@ -313,8 +320,18 @@ claim_release() {
     return 0
   fi
   [ -n "${2:-}" ] || return 0
-  pw_lock_release_token "$1" "$2" 2>/dev/null || return 0
-  rm -f "$1.recorded" 2>/dev/null
+  _cl_rc=0
+  pw_lock_release_token "$1" "$2" 2>/dev/null || _cl_rc=$?
+  case $_cl_rc in
+    0) ;;
+    1) return 0 ;;
+    *)
+      printf '%s: could not release the claim at %s; later passes wait on it until it is removed\n' "$prog" "$1" >&2
+      return 2
+      ;;
+  esac
+  [ "$(head -n 1 "$1.recorded" 2>/dev/null)" != "$2" ] || rm -f "$1.recorded" 2>/dev/null
+  return 0
 }
 
 crash_count() {
@@ -371,7 +388,7 @@ supervise_one() {
         printf 'failed\t%s\t%s\n' "$id" "the crash could not be counted; a later pass counts it"
         return 0
       fi
-      if ! claim_record "$CLAIM"; then
+      if ! claim_record "$CLAIM" "$CLAIM_TOKEN"; then
         printf 'failed\t%s\t%s\n' "$id" "the crash was counted but its record mark could not be written; later passes wait on it"
         return 0
       fi
