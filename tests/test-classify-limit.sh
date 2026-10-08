@@ -224,6 +224,22 @@ ex=$(printf '%s\n' "$OUT" | sed -n "s/^excerpt${TAB}//p")
 [ "${#ex}" -le 2000 ]
 verdict "the excerpt stays within the byte bound" "excerpt is ${#ex} bytes"
 assert_contains "the bounded excerpt still holds the match" "monthly quota exhausted" "$ex"
+# A token the window cut would split is still screened: the whole matched
+# line is screened before it is windowed. The window opens 800 bytes before
+# the match, so a token placed across that edge is cut.
+tail_tok="N3pQ5rS7tU9vW1xY3zA5bC7dE9fG1hJ3kL5mP7"
+straddle_tok="ghp_${tail_tok}"
+for lead in 1000 1010 1030; do
+  # The window starts at match - 800; put the match 800 + (token start + 20)
+  # bytes in, so the cut lands inside the token.
+  gap=$((800 + 20 - 2 - ${#straddle_tok}))
+  printf '%s %s %s monthly quota exhausted %s\n' \
+    "$(printf 'p%.0s' $(seq 1 "$lead"))" "$straddle_tok" \
+    "$(printf 'q%.0s' $(seq 1 "$gap"))" "$(printf 'r%.0s' $(seq 1 1500))" >"$tmp/in"
+  cl --vendor sample-cli --now "$NOW"
+  assert_absent "a token straddling the window edge never leaks ($lead)" "dE9fG1hJ3kL5mP7" "$OUT"
+  assert_contains "a token straddling the window edge withholds the excerpt ($lead)" "excerpt${TAB}[withheld: the secret screen flagged this excerpt]" "$OUT"
+done
 
 # Input from a file argument reads the same as stdin.
 printf 'monthly quota exhausted\n' >"$tmp/capture.txt"

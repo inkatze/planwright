@@ -21,7 +21,8 @@
 # The winning recognizer is the first declared one matching the earliest
 # matching line. The excerpt is that line (a long line cut to a window that
 # keeps the match) as scripts/step-record.sh's `excerpt` verb screens and
-# bounds a record excerpt. The reset time is read from the first occurrence of
+# bounds a record excerpt; the whole line is screened first, and a line the
+# screen flags withholds the excerpt whatever the window holds. The reset time is read from the first occurrence of
 # the recognizer's `reset-after` prefix in the output: the word right after
 # it (leading blanks skipped, a trailing `.` dropped) is accepted as epoch
 # seconds (at most 15 digits) or an ISO-8601 UTC timestamp
@@ -126,7 +127,7 @@ case $ceiling in "" | *[!0-9]*) die 5 "the throttle's hold ceiling is not a numb
 
 # The values reach awk as file data, never through -v, which would expand
 # backslash escapes in them.
-awk -F "$TAB" -v now="$now" -v ceiling="$ceiling" -v linefile="$work/line" '
+awk -F "$TAB" -v now="$now" -v ceiling="$ceiling" -v linefile="$work/line" -v fullfile="$work/full" '
   # days_from_civil: days since 1970-01-01 for a proleptic Gregorian date.
   function days(y, m, d,   era, yoe, doy, doe) {
     y -= (m <= 2)
@@ -164,6 +165,7 @@ awk -F "$TAB" -v now="$now" -v ceiling="$ceiling" -v linefile="$work/line" '
         if ((p = index(line[i], pat[r])) > 0) { hit = r; at = i; break }
     if (!hit) exit 1
     l = line[at]
+    print l > fullfile
     if (length(l) > 1900) {
       st = p - 800
       if (st < 1) st = 1
@@ -191,7 +193,13 @@ case $? in
   *) die 6 "the classifier failed" ;;
 esac
 
-excerpt=$(/bin/sh "$script_dir/step-record.sh" excerpt "$work/line") || die 6 "cannot build the excerpt"
+# The whole matched line is screened before the window is cut, since a cut
+# through a secret leaves a remainder the screen no longer recognizes.
+excerpt=$(/bin/sh "$script_dir/step-record.sh" excerpt "$work/full") || die 6 "cannot build the excerpt"
+case $excerpt in
+  "[withheld: "*"]") ;;
+  *) cmp -s "$work/full" "$work/line" || excerpt=$(/bin/sh "$script_dir/step-record.sh" excerpt "$work/line") || die 6 "cannot build the excerpt" ;;
+esac
 recognizer=$(sed -n "s/^recognizer$TAB//p" "$work/result")
 reset=$(sed -n "s/^reset$TAB//p" "$work/result")
 {
