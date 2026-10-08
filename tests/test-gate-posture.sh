@@ -211,6 +211,24 @@ else
   fail "separate-repo: a failed holder fetch (rc=$rc): $out"
 fi
 
+# A holder whose top level git cannot name (a root inside a bare repository)
+# is refused outright, never read or fetched as the caller's own repository.
+gitq -c init.defaultBranch=main init -q --bare "$tmp/sep/bare-origin.git"
+gitq -C "$w" remote add origin "$tmp/sep/bare-origin.git"
+gitq -C "$w" push -q origin main
+gitq -c init.defaultBranch=trunk init -q --bare "$tmp/sep/bare.git"
+mark_root_dir=$tmp/sep/bare.git/specs
+mkdir -p "$mark_root_dir"
+mark_root "$mark_root_dir"
+make_bundle "$mark_root_dir/demo" v1
+set_root "$w" "$mark_root_dir"
+gate "$w"
+if [ "$rc" -eq 2 ] && [ -z "$(field store-fetch 2)" ] && [ -z "$(field anchor 2)" ]; then
+  ok "separate-repo: a holder with no resolvable top level is refused"
+else
+  fail "separate-repo: a bare holder (rc=$rc): $out"
+fi
+
 # --- plain: the directory's files as they are --------------------------------
 gitq -c init.defaultBranch=main init -q "$tmp/plain/work"
 w=$tmp/plain/work

@@ -72,7 +72,8 @@
 #      EVERY path, so the --spec guarantee "an anchor record OR a nonzero park
 #      code" holds uniformly online and offline.
 #   2  usage / invalid input / internal failure (fail closed), including a
-#      --spec whose spec root does not resolve. A root inside a repository
+#      --spec whose spec root does not resolve, or lies in a git posture whose
+#      repository's top level does not resolve. A root inside a repository
 #      that no ref holds (gitignored or never committed) is read at the ref
 #      like any other and parks with 5.
 #
@@ -250,8 +251,16 @@ if [ "$spec_given" -eq 1 ]; then
       store_top=$(cd -P -- "$spec_root" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || store_top=""
       [ -z "$store_top" ] || store_top=$(cd -P -- "$store_top" 2>/dev/null && pwd -P) || store_top=""
       ;;
-    plain) store_top=-plain- ;;
     *) store_top="" ;;
+  esac
+  # An empty top level would match any absolute root below, and `git -C ""`
+  # reads the caller's own repository: refuse it.
+  case $spec_posture:$store_top in
+    plain:* | *:?*) ;;
+    *)
+      printf '%s\n' "dispatch-fetch: the $(sanitize_printable "$spec_posture") spec root '$(sanitize_printable "$spec_root")' lies in no repository whose top level resolves, so no ref holds the bundle" >&2
+      exit 2
+      ;;
   esac
   case $spec_posture:$spec_root in
     plain:*) spec_dir="$spec_root/$spec_name" ;;
