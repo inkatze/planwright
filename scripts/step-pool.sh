@@ -587,8 +587,13 @@ attempt() {
       unreported=$pool_dir/slot-$1
       pid_running "$owner" || refuse "owner $owner is not running"
       part="$pool_dir/.holder-$1.$$"
-      if (set -C && printf '%s\t%s\t%s\n' "$tok" "$step" "$worktree" >"$part") 2>/dev/null; then
-        mv -f "$part" "$pool_dir/holder-$1" 2>/dev/null || rm -f "$part"
+      held="$pool_dir/holder-$1"
+      # mv onto a directory, or onto a link to one, files the part inside it,
+      # outside the pool: a link is removed first, and a directory leaves the
+      # holder unrecorded.
+      [ ! -L "$held" ] || rm -f "$held"
+      if [ ! -d "$held" ] && (set -C && printf '%s\t%s\t%s\n' "$tok" "$step" "$worktree" >"$part") 2>/dev/null; then
+        mv -f "$part" "$held" 2>/dev/null || rm -f "$part"
       else
         rm -f "$part"
       fi

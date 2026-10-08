@@ -706,6 +706,28 @@ out=$(sp "PATH=$stub8b:$PATH" -- take noowner "$a" 2>"$tmp/err")
   && ! grep -q 'not owned' "$tmp/err"
 verdict "an unreadable owner is not reported as foreign ownership" "no owner: '$out'" "$tmp/err"
 
+# --- REQ-I1.2: the holder file never writes outside the pool --------------------
+reset
+printf 'step_pool_wait: 1s\n' >"$mlocal"
+a=$(owner)
+mkdir -p "$pools/hlink" "$tmp/outside"
+ln -s "$tmp/outside" "$pools/hlink/holder-1"
+out=$(sp -- take hlink "$a" --step build)
+[ "$out" = "taken${TAB}1${TAB}0" ] && [ -z "$(ls -A "$tmp/outside")" ] \
+  && [ ! -L "$pools/hlink/holder-1" ] && [ -f "$pools/hlink/holder-1" ]
+verdict "a symbolic-link holder file is replaced, never written through" "symlink holder: '$out'"
+sp -- report hlink | grep -q "${TAB}build${TAB}"
+verdict "the replaced holder file names the holder" "report: holder not recorded"
+sp -- release hlink "$a" >/dev/null
+mkdir -p "$pools/hdir/holder-1"
+out=$(sp -- take hdir "$a" --step build)
+[ "$out" = "taken${TAB}1${TAB}0" ] && [ -z "$(ls -A "$pools/hdir/holder-1")" ] \
+  && [ -z "$(find "$pools/hdir" -name '.holder-*')" ]
+verdict "a directory squatting the holder file is left alone and no part file remains" "dir holder: '$out'"
+sp -- report hdir | grep -q "${TAB}?${TAB}?$"
+verdict "a holder that could not be recorded reads as unknown" "the report named a holder it could not have recorded"
+sp -- release hdir "$a" >/dev/null
+
 # --- REQ-I1.2: the helper sits on the shared primitive --------------------------
 grep -qF '. "$script_dir/lock-lib.sh"' "$SP"
 verdict "the helper sources the lock library" "scripts/step-pool.sh does not source lock-lib.sh"
