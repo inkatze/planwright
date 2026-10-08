@@ -61,7 +61,9 @@ is the one sweep output read.
    block is the floor**; the command guard hook only pre-approves. Read each
    settings layer loaded here (user, project, local, managed, any
    `--settings` file) by `jq` projection only (`.permissions.deny`, `.hooks`),
-   union the deny lists, and compare against the shipped file's. An absent
+   naming each file, the shipped one included, by its literal path (the user
+   layer by its absolute path, never `~` or an unexpanded variable, which the command
+   guard defers), union the deny lists, and compare against the shipped file's. An absent
    layer counts as empty; only a parse or read error makes a layer unreadable.
    The check fails closed: a shipped deny list absent or unreadable, a shipped
    entry missing from the union, or an unreadable layer — say so once, and
@@ -218,8 +220,11 @@ repo-tracked config); a committed record file at `specs/_flights/<flight-id>.md`
 on the flight's own branch otherwise. It states the reported destination with
 the home, so the operator hears where a push goes before any push. It then
 hands `/offload` a **flight petition**: the ask and the grounds line as stated,
-each in a temp file of the tower's own written with the file tool (never
-through shell quoting) and removed once the dispatch returns, a kebab slug
+each in a temp file of the tower's own, made by a bare `mktemp` run as its
+own command, written with the file tool (never through shell quoting) and
+removed once the dispatch returns by `rm -f` naming each path unquoted, as
+mktemp printed it (a quoted path, an unexpanded variable or `$(mktemp)` defers to the
+prompt), a kebab slug
 naming the flight, and the declared home. `/offload` picks the rung (REQ-C1.2)
 and places the flight through
 `scripts/flight-dispatch.sh dispatch`, which counts live flights against

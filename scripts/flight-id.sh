@@ -107,18 +107,18 @@ valid_flight_id() {
 resolve_repo() {
   if [ -z "$repo_root" ]; then
     repo_root=$(/bin/sh "$script_dir/resolve-root.sh" repo --checkout 2>/dev/null) || {
-      echo "$prog: not inside a git work tree and no --repo-root given" >&2
+      printf '%s\n' "$prog: not inside a git work tree and no --repo-root given" >&2
       exit 2
     }
   fi
   [ -d "$repo_root" ] || {
-    echo "$prog: --repo-root is not a directory" >&2
+    printf '%s\n' "$prog: --repo-root is not a directory" >&2
     exit 2
   }
   # The work-tree top, whatever subdirectory was named: the record lookup is
   # relative to it, and a bare repository (no work tree) is refused here.
   repo_root=$(cd "$repo_root" && /bin/sh "$script_dir/resolve-root.sh" repo --checkout 2>/dev/null) || {
-    echo "$prog: --repo-root is not inside a git work tree" >&2
+    printf '%s\n' "$prog: --repo-root is not inside a git work tree" >&2
     exit 2
   }
   primary=$(cd "$repo_root" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) \
@@ -127,7 +127,7 @@ resolve_repo() {
   # the checkout when the root lies inside it, which is the only place a
   # committed record can be found on a branch.
   flights=$(cd "$repo_root" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec) || {
-    echo "$prog: the spec root did not resolve for $repo_root, so its flight records cannot be searched" >&2
+    printf '%s\n' "$prog: the spec root did not resolve for $repo_root, so its flight records cannot be searched" >&2
     exit 5
   }
   case $flights in
@@ -140,7 +140,7 @@ resolve_repo() {
 # A git failure while probing is not "no evidence": refuse to judge the id
 # rather than mint it over a branch or record the probe could not read.
 probe_failed() {
-  echo "$prog: evidence probe failed ($1); refusing to judge the id" >&2
+  printf '%s\n' "$prog: evidence probe failed ($1); refusing to judge the id" >&2
   exit 5
 }
 
@@ -258,23 +258,23 @@ next_uid() {
     # Read through a redirect, never as an operand: a name like `x=1` or
     # `-n` would otherwise be an awk assignment or a sed option.
     uid=$(sed -n "${uid_n}p" <"$PLANWRIGHT_FLIGHT_UID_SOURCE") || {
-      echo "$prog: no usable uid source (PLANWRIGHT_FLIGHT_UID_SOURCE unreadable)" >&2
+      printf '%s\n' "$prog: no usable uid source (PLANWRIGHT_FLIGHT_UID_SOURCE unreadable)" >&2
       exit 4
     }
     valid_uid "$uid" || {
-      echo "$prog: malformed uid in PLANWRIGHT_FLIGHT_UID_SOURCE (line $uid_n)" >&2
+      printf '%s\n' "$prog: malformed uid in PLANWRIGHT_FLIGHT_UID_SOURCE (line $uid_n)" >&2
       exit 2
     }
     return 0
   fi
   [ "$uid_n" -le 16 ] || return 1
   [ -r /dev/urandom ] || {
-    echo "$prog: no usable uid source (/dev/urandom unreadable)" >&2
+    printf '%s\n' "$prog: no usable uid source (/dev/urandom unreadable)" >&2
     exit 4
   }
   uid=$(od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n') || uid=""
   valid_uid "$uid" || {
-    echo "$prog: no usable uid source (/dev/urandom read failed)" >&2
+    printf '%s\n' "$prog: no usable uid source (/dev/urandom read failed)" >&2
     exit 4
   }
 }
@@ -308,26 +308,26 @@ done
 case $cmd in
   check)
     valid_flight_id "$arg" && exit 0
-    echo "$prog: not a flight id (expected <slug>-<uid>: slug ^[a-z0-9][a-z0-9-]*\$, uid eight lowercase hex characters, 64 characters at most)" >&2
+    printf '%s\n' "$prog: not a flight id (expected <slug>-<uid>: slug ^[a-z0-9][a-z0-9-]*\$, uid eight lowercase hex characters, 64 characters at most)" >&2
     exit 1
     ;;
   branch)
     valid_flight_id "$arg" || {
-      echo "$prog: refusing to derive a branch from a malformed flight id" >&2
+      printf '%s\n' "$prog: refusing to derive a branch from a malformed flight id" >&2
       exit 2
     }
     printf 'planwright/flight/%s\n' "$arg"
     ;;
   suffix)
     valid_flight_id "$arg" || {
-      echo "$prog: refusing to derive a worktree suffix from a malformed flight id" >&2
+      printf '%s\n' "$prog: refusing to derive a worktree suffix from a malformed flight id" >&2
       exit 2
     }
     printf 'flight-%s\n' "$arg"
     ;;
   taken)
     valid_flight_id "$arg" || {
-      echo "$prog: refusing to look up a malformed flight id" >&2
+      printf '%s\n' "$prog: refusing to look up a malformed flight id" >&2
       exit 2
     }
     resolve_repo
@@ -338,14 +338,14 @@ case $cmd in
     ;;
   new)
     valid_slug "$arg" || {
-      echo "$prog: refusing a malformed slug (expected ^[a-z0-9][a-z0-9-]*\$, 55 characters at most)" >&2
+      printf '%s\n' "$prog: refusing a malformed slug (expected ^[a-z0-9][a-z0-9-]*\$, 55 characters at most)" >&2
       exit 2
     }
     resolve_repo
     if [ -n "${PLANWRIGHT_FLIGHT_UID_SOURCE:-}" ]; then
       { [ -f "$PLANWRIGHT_FLIGHT_UID_SOURCE" ] && [ -r "$PLANWRIGHT_FLIGHT_UID_SOURCE" ] \
         && [ -s "$PLANWRIGHT_FLIGHT_UID_SOURCE" ]; } || {
-        echo "$prog: no usable uid source (PLANWRIGHT_FLIGHT_UID_SOURCE is missing, unreadable, or empty)" >&2
+        printf '%s\n' "$prog: no usable uid source (PLANWRIGHT_FLIGHT_UID_SOURCE is missing, unreadable, or empty)" >&2
         exit 4
       }
       src_lines=$(awk 'END { print NR }' <"$PLANWRIGHT_FLIGHT_UID_SOURCE")
@@ -359,7 +359,7 @@ case $cmd in
         exit 0
       fi
     done
-    echo "$prog: every uid candidate for slug '$arg' is already taken" >&2
+    printf '%s\n' "$prog: every uid candidate for slug '$arg' is already taken" >&2
     exit 3
     ;;
 esac

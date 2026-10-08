@@ -1,0 +1,1 @@
+- 2026-10-07 [planwright] scripts/run-tests.sh's test-slot pool screen accepts a pool directory that group or other users can write, so another local user could plant or remove ticket links; scripts/step-pool.sh refuses that case, and the two screens could share one implementation.

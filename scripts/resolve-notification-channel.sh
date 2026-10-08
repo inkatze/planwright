@@ -97,12 +97,16 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # in a malformed-value diagnostic below — must be stripped before it reaches the
 # operator's terminal. Sourced as the sibling scripts do; a missing helper is a
 # broken install.
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "resolve-notification-channel.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 5
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
 config_get="$script_dir/config-get.sh"
 if [ ! -x "$config_get" ]; then
-  echo "resolve-notification-channel: config reader '$config_get' is missing or not executable" >&2
+  printf '%s\n' "resolve-notification-channel: config reader '$config_get' is missing or not executable" >&2
   exit 5
 fi
 
@@ -142,14 +146,14 @@ if [ "$rc" -eq 3 ]; then
   # notification_channel is absent in every layer. The tracked defaults ship it,
   # so this means a broken/partial install; degrade gracefully to the safe
   # default so the seam still resolves (REQ-K1.7), warning loudly.
-  echo "resolve-notification-channel: warning: notification_channel is unset in every layer (broken/partial install?); falling back to the safe default '$DEFAULT_CHANNEL'" >&2
+  printf '%s\n' "resolve-notification-channel: warning: notification_channel is unset in every layer (broken/partial install?); falling back to the safe default '$DEFAULT_CHANNEL'" >&2
   printf '%s\n' "$DEFAULT_CHANNEL"
   exit 0
 fi
 if [ "$rc" -ne 0 ]; then
   # Usage/invalid-key (exit 2) cannot occur for a literal key; surface anything
   # unexpected rather than fail opaquely.
-  echo "resolve-notification-channel: unexpected config-get exit $rc resolving notification_channel" >&2
+  printf '%s\n' "resolve-notification-channel: unexpected config-get exit $rc resolving notification_channel" >&2
   exit "$rc"
 fi
 
@@ -191,12 +195,12 @@ case "$layer" in
       # The core layer itself omits the key (a partial install where only an
       # overlay set it, and that overlay is the malformed one). Fall back to the
       # safe default so the seam still resolves.
-      echo "resolve-notification-channel: warning: the core default notification_channel is also unset; falling back to the safe default '$DEFAULT_CHANNEL'" >&2
+      printf '%s\n' "resolve-notification-channel: warning: the core default notification_channel is also unset; falling back to the safe default '$DEFAULT_CHANNEL'" >&2
       printf '%s\n' "$DEFAULT_CHANNEL"
       exit 0
     fi
     if [ "$crc" -ne 0 ]; then
-      echo "resolve-notification-channel: the core default notification_channel is itself unresolvable (exit $crc) — broken install" >&2
+      printf '%s\n' "resolve-notification-channel: the core default notification_channel is itself unresolvable (exit $crc) — broken install" >&2
       exit 5
     fi
     if valid_value "$core_value"; then

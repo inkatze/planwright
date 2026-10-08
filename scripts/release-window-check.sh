@@ -46,8 +46,12 @@ export LC_ALL
 unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "release-window-check.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
-. "$script_dir/echo-safety.sh"
+. "$script_dir/echo-safety.sh" || exit 2
 
 # The human-gated, signed publish step (Task 4). Named in the block message so
 # the forcing function is actionable, not just obstructive.

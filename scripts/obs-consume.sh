@@ -45,8 +45,10 @@
 #   --uid      the 8-lowercase-hex fragment UID to consume (fragment arm)
 #   --legacy   consume a frozen-log line instead of a fragment (legacy arm)
 #   --line     the exact frozen-log line content to annotate (legacy arm)
-#   --spec     the consuming spec identifier ([a-z0-9][a-z0-9-]*, ≤64 chars);
-#              written into the `Consumed-by: specs/<spec> (<date>)` annotation
+#   --spec     the consuming spec identifier ([a-z0-9][a-z0-9-]*, ≤64 chars;
+#              its `specs/<spec>` alias accepted, either form with or without
+#              one trailing slash); written into the
+#              `Consumed-by: specs/<spec> (<date>)` annotation
 #   --today    pin the consume date (tests); defaults to the system date
 #   --obs-dir  the observations dir holding entries/ + archive/ + the frozen
 #              legacy files; defaults to specs/_observations under the repo cwd
@@ -72,6 +74,9 @@ export LC_ALL
 unset CDPATH
 
 prog=obs-consume
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+# shellcheck source=scripts/spec-id-lib.sh
+. "$script_dir/spec-id-lib.sh"
 
 # Tracks the current temp file so the EXIT trap removes it if a refusal or a
 # signal fires between mktemp and the publishing rename (mirrors obs-record.sh /
@@ -98,7 +103,7 @@ EOF
 # but never echoes raw untrusted input, so no attacker-controlled byte reaches
 # the terminal (the echo-discipline posture, satisfied by omission).
 refuse() {
-  echo "$prog: $2" >&2
+  printf '%s\n' "$prog: $2" >&2
   exit "$1"
 }
 
@@ -252,6 +257,8 @@ fi
 # identifier discipline, bootstrap REQ-A1.8). Validated before it is written
 # into the `Consumed-by:` line — traversal (`/`, `.`), glob (`*`, `?`),
 # uppercase, whitespace, and control bytes are all outside the set (D-7).
+spec_id_canon "$spec"
+spec=$SPEC_ID
 [ "${#spec}" -ge 1 ] && [ "${#spec}" -le 64 ] \
   || refuse 1 "spec identifier must be 1 to 64 characters"
 case "$spec" in

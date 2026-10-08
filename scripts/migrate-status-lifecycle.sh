@@ -36,7 +36,7 @@ here=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 sync_sh="$here/tasks-pr-sync.sh"
 
 if [ ! -x "$sync_sh" ]; then
-  echo "migrate-status-lifecycle: reconcile writer missing or not executable: $sync_sh" >&2
+  printf '%s\n' "migrate-status-lifecycle: reconcile writer missing or not executable: $sync_sh" >&2
   exit 2
 fi
 
@@ -49,7 +49,7 @@ else
   }
 fi
 specs_dir=$(cd "$specs_arg" 2>/dev/null && pwd -P) || {
-  echo "migrate-status-lifecycle: no such specs dir: $specs_arg" >&2
+  printf '%s\n' "migrate-status-lifecycle: no such specs dir: $specs_arg" >&2
   exit 2
 }
 
@@ -89,7 +89,7 @@ for spec_dir in "$specs_dir"/*/; do
     reason="no bundle **Status:** header in requirements.md"
   fi
   if [ -n "$reason" ]; then
-    echo "skipped (malformed): $spec_dir — $reason" >&2
+    printf '%s\n' "skipped (malformed): $spec_dir — $reason" >&2
     skipped=$((skipped + 1))
     continue
   fi
@@ -107,19 +107,19 @@ for spec_dir in "$specs_dir"/*/; do
     # "skipped ...: <path> — <diag>" record — otherwise the 2nd+ diagnostics are
     # orphaned (no path prefix) and a log scan keyed on the skip marker misses them.
     rc_err=$(printf '%s\n' "$rc_err" | awk 'NR > 1 { printf "; " } { printf "%s", $0 }')
-    echo "skipped (reconcile failed): $spec_dir${rc_err:+ — $rc_err}" >&2
+    printf '%s\n' "skipped (reconcile failed): $spec_dir${rc_err:+ — $rc_err}" >&2
     skipped=$((skipped + 1))
     continue
   fi
   after=$(status_of "$req")
 
   if [ "$before" != "$after" ]; then
-    echo "migrated: $name  $before -> $after"
+    printf '%s\n' "migrated: $name  $before -> $after"
     migrated=$((migrated + 1))
   else
-    echo "unchanged: $name  ($after)"
+    printf '%s\n' "unchanged: $name  ($after)"
     unchanged=$((unchanged + 1))
   fi
 done
 
-echo "migrate-status-lifecycle: $migrated migrated, $unchanged unchanged, $skipped skipped"
+printf '%s\n' "migrate-status-lifecycle: $migrated migrated, $unchanged unchanged, $skipped skipped"

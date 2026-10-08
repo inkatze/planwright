@@ -27,17 +27,17 @@ REAL_SCRIPTS="$REPO_ROOT/scripts"
 passes=0
 failures=0
 pass() {
-  echo "ok: $1"
+  printf '%s\n' "ok: $1"
   passes=$((passes + 1))
 }
 fail() {
-  echo "FAIL: $1" >&2
+  printf '%s\n' "FAIL: $1" >&2
   failures=$((failures + 1))
 }
 
 for t in jq git timeout; do
   command -v "$t" >/dev/null 2>&1 || {
-    echo "FAIL: $t is required to run this suite" >&2
+    printf '%s\n' "FAIL: $t is required to run this suite" >&2
     exit 1
   }
 done
@@ -193,6 +193,6 @@ no_gh_calls() {
 
 finish() {
   echo
-  echo "passes: $passes  failures: $failures"
+  printf '%s\n' "passes: $passes  failures: $failures"
   [ "$failures" = 0 ]
 }

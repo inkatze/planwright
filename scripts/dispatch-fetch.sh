@@ -8,58 +8,77 @@
 # local `main` bases a dispatch on outdated spec content, misses an upstream
 # re-anchor, and re-dispatches a task whose PR already merged on `origin` but
 # whose merge trailer has not reached local `main`. This script fetches `origin`
-# and reports the currency + (with --spec) the content anchor over the fetched
-# `origin/main`, WITHOUT advancing local `main` (the shared-checkout read-only-
+# and reports the currency + (with --spec) the content anchor over the bundle's
+# primary view, the fetched remote default branch for a bundle in the work
+# repository, WITHOUT advancing local `main` (the shared-checkout read-only-
 # local-`main` invariant, orchestration-concurrency). The fetch pins an explicit
 # `+refs/heads/*:refs/remotes/origin/*` refspec, so it updates only
-# remote-tracking refs and never fast-forwards local `main`, independent of the
-# repo's configured `remote.origin.fetch`. It makes no model/API call — the whole
-# decision path is deterministic git plumbing (REQ-E1.3).
+# remote-tracking refs (and the recorded remote HEAD) and never fast-forwards a
+# local branch, independent of the repo's configured `remote.origin.fetch`. It
+# makes no model/API call — the whole decision path is deterministic git
+# plumbing (REQ-E1.3).
 #
 # Scope boundary (D-9): this is git-ref currency for the dispatch/merge path
 # only. It RE-POINTS the existing content-anchor computer (scripts/spec-anchor.sh)
-# at the fetched ref; it does not implement anchor-hash comparison (that is
-# `anchor-integrity`'s), and it does not touch the release-publish version-
-# derivation path (`release-hardening`'s). Merge detection itself stays in
-# scripts/orchestrate-state.sh — this primitive only makes `origin/main` current
-# so that engine's existing union scan reads a fresh ref.
+# at the bundle's primary view (a fetched ref of the work repository or the
+# holder, or a plain root's files); it does not implement anchor-hash
+# comparison (that is `anchor-integrity`'s), and it does not touch the
+# release-publish version-derivation path (`release-hardening`'s). Merge
+# detection itself stays in scripts/orchestrate-state.sh — this primitive only
+# makes the work repository's remote-tracking refs current so that engine's
+# existing union scan reads a fresh ref.
 #
-# Usage: dispatch-fetch.sh [--spec <repo-rel-spec-dir>] [--best-effort] <repo-root>
-#   <repo-root>            the primary checkout to fetch in (fetch runs there;
-#                          local `main` is never advanced).
-#   --spec <specs/<name>>  also compute and print the content anchor over the
-#                          resolved ref's version of that spec bundle.
+# Usage: dispatch-fetch.sh [--spec <spec>] [--best-effort] <repo-root>
+#   <repo-root>            the work repository to fetch in (fetch runs there;
+#                          no local branch is ever advanced).
+#   --spec <spec>          also compute and print the content anchor over that
+#                          bundle's primary view under the spec root <repo-root>
+#                          resolves (custom-spec-location D-14): in same-repo the
+#                          work repository's default branch, in separate-repo the
+#                          holder's default branch (the holder is fetched too,
+#                          bounded the same way but never TTL-coalesced), in
+#                          plain the directory's files as they are. A default
+#                          branch is the remote's HEAD branch where an origin
+#                          exists, else the branch the primary checkout's HEAD
+#                          names, never assumed to be called main. The
+#                          identifier is bare; `specs/<spec>` is accepted as an
+#                          alias, with or without one trailing slash.
 #   --best-effort          single fetch attempt (no retries) for the reconcile
 #                          sweep, so a down remote does not stall each idle cycle.
 #
 # Output — a tagged TSV stream on stdout (consumers switch on column 1):
 #   fetch<TAB><fetched|fresh-within-ttl|no-remote|stale-transient>
-#   anchor<TAB><hash><TAB><ref>   (only with --spec, when an anchor is computed)
+#   store-fetch<TAB><fetched|no-remote|stale-transient>   (separate-repo only)
+#   anchor<TAB><hash><TAB><ref>   (only with --spec, when an anchor is computed;
+#                                  <ref> is the work repository's ref, store:<ref>
+#                                  for the holder's, or files for a plain root)
 #
-# Exit codes:
+# Exit codes (the work repository's currency; with --spec, the anchor rules):
 #   0  remote current (fetched, or fresh-within-ttl — a prior fetch is still
-#      within the TTL, so no network I/O ran). The gate proceeds against
-#      origin/main; with --spec, an `origin/main` anchor line is guaranteed
-#      present (a success exit never carries a stale or missing anchor).
+#      within the TTL, so no network I/O ran). With --spec an anchor line is
+#      guaranteed present, from the fetched remote default branch in same-repo
+#      (a success exit never carries a stale or missing anchor).
 #   3  no-remote — structurally offline (no `origin` remote). Offline is
-#      first-class: the caller proceeds DEGRADED, and with --spec the anchor is
-#      computed against local `main` (the only ref available). With --spec, an
-#      exit-3 result ALWAYS carries an anchor line: if the bundle cannot be
-#      anchored even at local `main`/`HEAD`, the script fails closed with exit 5
-#      instead (see below) rather than degrade with no anchor.
+#      first-class: the caller proceeds DEGRADED, and in same-repo the anchor
+#      is computed against the local default branch, then HEAD. With --spec an
+#      exit-3 result ALWAYS carries an anchor line, or fails closed with 4 or 5.
 #   4  stale-transient — a present remote's fetch failed after the bounded
-#      retries. The caller MUST NOT silently proceed against a stale ref: block,
-#      or proceed only under an explicit operator stale flag. No anchor is
-#      printed (never anchor a stale ref).
+#      retries, the work repository's or (with --spec, separate-repo) the
+#      holder's. The caller MUST NOT silently proceed against a stale ref:
+#      block, or proceed only under an explicit operator stale flag. No anchor
+#      is printed (never anchor a stale ref).
 #   5  anchor-unresolved — with --spec, the spec content anchor could not be
-#      computed at the ref the gate would compare against (`origin/main` on the
-#      online success paths; local `main`/`HEAD` on the offline no-remote path):
-#      ref unresolved, bundle absent there, or the anchor computer failed. No
-#      anchor is printed; the caller MUST NOT gate against a stale/missing anchor
-#      — park. Fail closed on EVERY path rather than emit a success/degrade exit
-#      that carries no anchor, so the --spec guarantee "an anchor record OR a
-#      nonzero park code" holds uniformly online and offline.
-#   2  usage / invalid input / internal failure (fail closed).
+#      computed from the primary view the gate compares against: ref
+#      unresolved, the remote's default branch unknown, the bundle absent
+#      there, or the anchor computer failed. No anchor is printed; the caller
+#      MUST NOT gate against a stale/missing anchor — park. Fail closed on
+#      EVERY path, so the --spec guarantee "an anchor record OR a nonzero park
+#      code" holds uniformly online and offline.
+#   2  usage / invalid input / internal failure (fail closed), including a
+#      --spec whose spec root does not resolve, or lies in a git posture whose
+#      repository's top level does not resolve. A root inside a repository
+#      that no ref holds (gitignored or never committed) is read at the ref
+#      like any other and parks with 5.
 #
 # Environment overrides (tests, worktree callers):
 #   PLANWRIGHT_DISPATCH_FETCH_STATE_DIR  dir holding the last-fetch TTL stamp
@@ -91,7 +110,7 @@ TAB=$(printf '\t')
 # of a literal backslash sequence that survives the strip
 # (doctrine/security-posture.md echo discipline; obs 2026-07-15).
 script_dir=$(cd -- "$(dirname -- "$0")" && pwd) || exit 2
-if [ -r "$script_dir/echo-safety.sh" ]; then
+if [ -f "$script_dir/echo-safety.sh" ] && [ -r "$script_dir/echo-safety.sh" ]; then
   # shellcheck source=scripts/echo-safety.sh
   . "$script_dir/echo-safety.sh"
 else
@@ -101,12 +120,27 @@ else
   sanitize_printable() { printf '%s' "$1" | tr -d '\000-\037\177\200-\237'; }
 fi
 
+# Unlike echo-safety.sh the mapper has no fallback, so a missing copy is a
+# broken install, refused with exit 2: a failed `.` ends the shell with a
+# status of the shell's choosing (1 under bash's sh), which this script's exit
+# codes give another meaning or none.
+if [ -r "$script_dir/spec-id-lib.sh" ]; then
+  # shellcheck source=scripts/spec-id-lib.sh
+  . "$script_dir/spec-id-lib.sh"
+else
+  printf '%s\n' "dispatch-fetch: broken install: $(sanitize_printable "$script_dir")/spec-id-lib.sh is missing or not readable" >&2
+  exit 2
+fi
+
 usage() {
-  printf '%s\n' "usage: dispatch-fetch.sh [--spec <specs/<name>>] [--best-effort] <repo-root>" >&2
+  printf '%s\n' "usage: dispatch-fetch.sh [--spec <spec>] [--best-effort] <repo-root>" >&2
   exit 2
 }
 
+spec_arg=""
 spec_rel=""
+spec_dir=""
+spec_posture=""
 spec_given=0
 repo_root=""
 best_effort=0
@@ -114,12 +148,12 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --spec)
       [ $# -ge 2 ] || usage
-      spec_rel="$2"
+      spec_arg="$2"
       spec_given=1
       shift 2
       ;;
     --spec=*)
-      spec_rel="${1#--spec=}"
+      spec_arg="${1#--spec=}"
       spec_given=1
       shift
       ;;
@@ -160,30 +194,22 @@ fi
 
 # A supplied-but-empty --spec is invalid input, not "no --spec". Treating an
 # empty value as omitted would silently waive the --spec anchor guarantee (a
-# success exit is contracted to carry an origin/main anchor), so fail closed
-# here rather than downgrade to currency-only. (A realistic `--spec specs/<name>`
-# with an empty name is already caught by the grammar below; this closes the
-# literally-empty flag.)
-if [ "$spec_given" -eq 1 ] && [ -z "$spec_rel" ]; then
-  printf '%s\n' "dispatch-fetch: --spec requires a non-empty 'specs/<name>' value" >&2
+# success exit is contracted to carry an anchor), so fail closed
+# here rather than downgrade to currency-only.
+if [ "$spec_given" -eq 1 ] && [ -z "$spec_arg" ]; then
+  printf '%s\n' "dispatch-fetch: --spec requires a non-empty spec identifier" >&2
   exit 2
 fi
 
-# Validate the spec path against traversal / injection before it reaches
-# `git show <ref>:<path>`. It must be a plain `specs/<identifier>` under the
-# repo (the identifier grammar: REQ-A1.8). Anything else fails closed.
-if [ -n "$spec_rel" ]; then
-  case "$spec_rel" in
-    specs/*) : ;;
-    *)
-      printf '%s\n' "dispatch-fetch: --spec must be 'specs/<name>' (got '$(sanitize_printable "$spec_rel")')" >&2
-      exit 2
-      ;;
-  esac
-  spec_name="${spec_rel#specs/}"
+# Validate the identifier against traversal / injection before it reaches a
+# path or `git show <ref>:<path>` (the identifier grammar: REQ-A1.8). Anything
+# else, a bundle-file path included, fails closed.
+if [ "$spec_given" -eq 1 ]; then
+  spec_id_canon "$spec_arg"
+  spec_name=$SPEC_ID
   case "$spec_name" in
     '' | */* | *[!a-z0-9-]* | [!a-z0-9]*)
-      printf '%s\n' "dispatch-fetch: invalid spec name in '$(sanitize_printable "$spec_rel")'" >&2
+      printf '%s\n' "dispatch-fetch: --spec must be a spec identifier matching ^[a-z0-9][a-z0-9-]*\$ (got '$(sanitize_printable "$spec_arg")')" >&2
       exit 2
       ;;
     flight)
@@ -191,6 +217,10 @@ if [ -n "$spec_rel" ]; then
       exit 2
       ;;
   esac
+  if [ "${#spec_name}" -gt 64 ]; then
+    printf '%s\n' "dispatch-fetch: --spec identifier is longer than 64 characters" >&2
+    exit 2
+  fi
 fi
 
 # Repo-root must be inside a git work tree; resolve its top so refs/paths are
@@ -201,6 +231,51 @@ if [ -z "$repo_top" ]; then
   exit 2
 fi
 repo_root=$repo_top
+
+# The bundle's primary view, from the spec root <repo-root> resolves
+# (custom-spec-location D-14):
+# in same-repo a path at a ref of this repository, in separate-repo a path at
+# a ref of the holder that contains the root, in plain the directory itself.
+if [ "$spec_given" -eq 1 ]; then
+  spec_line=$(cd -- "$repo_root" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec --primary --explain) || {
+    printf '%s\n' "dispatch-fetch: the spec root for '$(sanitize_printable "$repo_root")' did not resolve" >&2
+    exit 2
+  }
+  # <source> TAB <path> TAB <posture> TAB <view>; the resolver refuses a root
+  # whose path carries a tab, so the fields split cleanly.
+  spec_rest=${spec_line#*"$TAB"}
+  spec_root=${spec_rest%%"$TAB"*}
+  spec_rest=${spec_rest#*"$TAB"}
+  spec_posture=${spec_rest%%"$TAB"*}
+  case $spec_posture in
+    same-repo)
+      store_top=$(cd -- "$repo_root" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) || store_top=""
+      ;;
+    separate-repo)
+      store_top=$(cd -P -- "$spec_root" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || store_top=""
+      [ -z "$store_top" ] || store_top=$(cd -P -- "$store_top" 2>/dev/null && pwd -P) || store_top=""
+      ;;
+    *) store_top="" ;;
+  esac
+  # An empty top level would match any absolute root below, and `git -C ""`
+  # reads the caller's own repository: refuse it.
+  case $spec_posture:$store_top in
+    plain:* | *:?*) ;;
+    *)
+      printf '%s\n' "dispatch-fetch: the $(sanitize_printable "$spec_posture") spec root '$(sanitize_printable "$spec_root")' lies in no repository whose top level resolves, so no ref holds the bundle" >&2
+      exit 2
+      ;;
+  esac
+  case $spec_posture:$spec_root in
+    plain:*) spec_dir="$spec_root/$spec_name" ;;
+    *:"$store_top") spec_rel=$spec_name ;;
+    *:"$store_top"/*) spec_rel="${spec_root#"$store_top"/}/$spec_name" ;;
+    *)
+      printf '%s\n' "dispatch-fetch: the $(sanitize_printable "$spec_posture") spec root '$(sanitize_printable "$spec_root")' is not inside the repository that should hold it, so no ref holds the bundle" >&2
+      exit 2
+      ;;
+  esac
+fi
 
 anchor_script="$script_dir/spec-anchor.sh"
 config_get="$script_dir/config-get.sh"
@@ -257,6 +332,7 @@ retries=${PLANWRIGHT_DISPATCH_FETCH_RETRIES:-$retries_default}
 case "$retries" in *[!0-9]* | '' | 0?*) retries=$retries_default ;; esac
 retry_sleep=${PLANWRIGHT_DISPATCH_FETCH_RETRY_SLEEP:-2}
 case "$retry_sleep" in *[!0-9]* | '' | 0?*) retry_sleep=2 ;; esac
+max_attempts=$((retries + 1))
 
 state_dir="${PLANWRIGHT_DISPATCH_FETCH_STATE_DIR:-$repo_root/.claude/orchestrate.local}"
 stamp_file="$state_dir/last-fetch"
@@ -271,19 +347,21 @@ now=$(date +%s 2>/dev/null) || now=""
 case "$now" in '' | *[!0-9]*) now="" ;; esac
 
 # --- Anchor a spec bundle at a git ref ---------------------------------------
-# Re-point the EXISTING content-anchor computer at <ref> by materializing that
-# ref's four spec files and running scripts/spec-anchor.sh over them. Prints the
-# anchor on success; returns non-zero (prints nothing) if the ref does not
-# resolve, a file is missing at that ref, or spec-anchor fails. Reuses the
-# shipped anchor computer — no hash logic is re-implemented here (D-9).
+# Re-point the EXISTING content-anchor computer at <ref> of <repo> by
+# materializing that ref's four spec files under <rel> and running
+# scripts/spec-anchor.sh over them. Prints the anchor on success; returns
+# non-zero (prints nothing) if the ref does not resolve, a file is missing at
+# that ref, or spec-anchor fails. Reuses the shipped anchor computer — no hash
+# logic is re-implemented here (D-9).
 anchor_at_ref() {
-  _ref="$1"
-  git -C "$repo_root" rev-parse --verify --quiet "$_ref^{commit}" >/dev/null 2>&1 || return 1
+  _repo="$1"
+  _ref="$2"
+  git -C "$_repo" rev-parse --verify --quiet "$_ref^{commit}" >/dev/null 2>&1 || return 1
   [ -x "$anchor_script" ] || return 1
   _td=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-fetch-anchor.XXXXXX") || return 1
   _ok=1
   for _f in requirements.md design.md tasks.md test-spec.md; do
-    if ! git -C "$repo_root" show "$_ref:$spec_rel/$_f" >"$_td/$_f" 2>/dev/null; then
+    if ! git -C "$_repo" show "$_ref:$spec_rel/$_f" >"$_td/$_f" 2>/dev/null; then
       _ok=0
       break
     fi
@@ -298,57 +376,167 @@ anchor_at_ref() {
   printf '%s' "$_a"
 }
 
-# Emit the anchor record for a resolved ref, falling back through a ref list.
-# With --spec this MUST yield an anchor: if none of the fallback refs can be
-# anchored (the bundle is absent even at local `main`/`HEAD`, or the anchor
-# computer is unusable), there is no content baseline to gate against, so fail
-# CLOSED (return 5) rather than let the caller proceed under an offline-degrade
-# status with no anchor — the same silent-gate hazard emit_anchor_strict guards
-# against on the online paths (D-9: never gate on a missing anchor). Without
-# --spec there is nothing to require: return 0.
-emit_anchor() {
-  [ -n "$spec_rel" ] || return 0
-  # Distinguish an unusable anchor computer from "files absent at the ref": both
-  # yield no anchor line, but only the former is a tooling fault worth a note.
-  [ -x "$anchor_script" ] || printf '%s\n' "dispatch-fetch: anchor computer $(sanitize_printable "$anchor_script") missing/not executable; no anchor emitted" >&2
-  for _r in "$@"; do
-    if _hash=$(anchor_at_ref "$_r"); then
-      printf 'anchor%s%s%s%s\n' "$TAB" "$_hash" "$TAB" "$_r"
+# default_ref <repo>: print the full ref holding <repo>'s default branch
+# (custom-spec-location D-14), never assumed to be called main. With an origin
+# remote it is the remote's HEAD branch as git recorded it
+# (refs/remotes/origin/HEAD, which a fetch below learns when it is missing),
+# else the remote-tracking ref of the branch the primary checkout's HEAD names,
+# with a note; with no remote, that branch itself, or HEAD when the primary is
+# detached. Full names, since a tag or branch called `origin/<b>` shadows the
+# short one in git's lookup. Returns non-zero when a remote exists and neither
+# names a branch.
+default_ref() {
+  if git -C "$1" remote get-url origin >/dev/null 2>&1; then
+    _dr_b=$(git -C "$1" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null) || _dr_b=""
+    case $_dr_b in
+      refs/remotes/origin/?*)
+        printf '%s' "$_dr_b"
+        return 0
+        ;;
+    esac
+    _dr_head=$(primary_branch "$1")
+    [ -n "$_dr_head" ] || return 1
+    printf '%s\n' "dispatch-fetch: origin records no HEAD branch for '$(sanitize_printable "$1")'; reading the primary checkout's branch '$(sanitize_printable "$_dr_head")' as its default" >&2
+    printf 'refs/remotes/origin/%s' "$_dr_head"
+    return 0
+  fi
+  _dr_head=$(primary_branch "$1")
+  if [ -n "$_dr_head" ]; then
+    printf 'refs/heads/%s' "$_dr_head"
+  else
+    printf 'HEAD'
+  fi
+}
+
+# ref_label <ref>: the short name an anchor record prints for a full ref.
+ref_label() {
+  case $1 in
+    refs/remotes/?*) printf '%s' "${1#refs/remotes/}" ;;
+    refs/heads/?*) printf '%s' "${1#refs/heads/}" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+# primary_branch <repo>: the branch <repo>'s primary checkout has checked out,
+# or nothing when it is detached. Run only when the remote names no HEAD, since
+# finding the primary costs a resolver run.
+primary_branch() {
+  _pb_prim=$(cd -- "$1" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) || _pb_prim=$1
+  _pb_ref=$(git -C "$_pb_prim" symbolic-ref --quiet HEAD 2>/dev/null) || return 0
+  case $_pb_ref in
+    refs/heads/?*) printf '%s' "${_pb_ref#refs/heads/}" ;;
+  esac
+}
+
+# fetch_origin <repo> <attempts>: the bounded fetch. `--refmap=''` disables
+# config-driven opportunistic ref updates and the explicit
+# `+refs/heads/*:refs/remotes/origin/*` pins the update to remote-tracking
+# refs, so a non-default refspec can never fast-forward a local branch: the
+# read-only-local-`main` invariant holds by construction. Nothing reads
+# FETCH_HEAD here, and leaving it alone keeps a gate from replacing the one an
+# operator's own fetch-then-merge in a holder is about to read. A remote HEAD git
+# has not recorded is learned afterwards (`remote set-head --auto` writes only
+# refs/remotes/origin/HEAD), so default_ref reads the remote's own default.
+fetch_origin() {
+  _fo_try=0
+  while [ "$_fo_try" -lt "$2" ]; do
+    _fo_try=$((_fo_try + 1))
+    if git -C "$1" fetch origin --refmap='' --no-write-fetch-head \
+      '+refs/heads/*:refs/remotes/origin/*' --quiet >/dev/null 2>&1; then
+      git -C "$1" symbolic-ref --quiet refs/remotes/origin/HEAD >/dev/null 2>&1 \
+        || git -C "$1" remote set-head origin --auto >/dev/null 2>&1 || :
       return 0
     fi
+    if [ "$_fo_try" -lt "$2" ] && [ "$retry_sleep" -gt 0 ]; then
+      sleep "$retry_sleep"
+    fi
   done
-  printf '%s\n' "dispatch-fetch: offline, but the spec anchor is unresolvable at local main/HEAD; parking rather than gating on a missing anchor" >&2
+  return 1
+}
+
+# emit_anchor <work-ref>...: print the anchor record from the bundle's primary
+# view, or return non-zero with no record: 5 when it cannot be anchored there
+# (never gate on a missing anchor, D-9), 4 when the holder's fetch failed
+# (never anchor a stale ref). In same-repo the work repository's refs are
+# tried in order; a holder is fetched (bounded, no TTL: a holder's fetch is
+# never coalesced with the work repository's sweep) and read at its own
+# default branch, recorded as store:<ref>; a plain root is read as files.
+# Without --spec there is nothing to require: return 0.
+emit_anchor() {
+  [ "$spec_given" -eq 1 ] || return 0
+  [ -x "$anchor_script" ] || printf '%s\n' "dispatch-fetch: anchor computer $(sanitize_printable "$anchor_script") missing/not executable; no anchor emitted" >&2
+  case $spec_posture in
+    same-repo)
+      for _r in "$@"; do
+        if _hash=$(anchor_at_ref "$repo_root" "$_r"); then
+          printf 'anchor%s%s%s%s\n' "$TAB" "$_hash" "$TAB" "$(ref_label "$_r")"
+          return 0
+        fi
+      done
+      printf '%s\n' "dispatch-fetch: the spec anchor is unresolvable at the default branch ($(sanitize_printable "$*")); parking rather than gating on a stale/missing anchor" >&2
+      return 5
+      ;;
+    separate-repo)
+      if git -C "$store_top" remote get-url origin >/dev/null 2>&1; then
+        if ! fetch_origin "$store_top" "$max_attempts"; then
+          printf 'store-fetch%sstale-transient\n' "$TAB"
+          printf '%s\n' "dispatch-fetch: the holder's fetch failed; parking rather than gating on a stale holder" >&2
+          return 4
+        fi
+        printf 'store-fetch%sfetched\n' "$TAB"
+      else
+        printf 'store-fetch%sno-remote\n' "$TAB"
+      fi
+      if _r=$(default_ref "$store_top") && _hash=$(anchor_at_ref "$store_top" "$_r"); then
+        printf 'anchor%s%s%sstore:%s\n' "$TAB" "$_hash" "$TAB" "$(ref_label "$_r")"
+        return 0
+      fi
+      printf '%s\n' "dispatch-fetch: the spec anchor is unresolvable at the holder's default branch; parking rather than gating on a missing anchor" >&2
+      return 5
+      ;;
+    plain)
+      if [ -x "$anchor_script" ] && _hash=$("$anchor_script" "$spec_dir" 2>/dev/null) && [ -n "$_hash" ]; then
+        printf 'anchor%s%s%sfiles\n' "$TAB" "$_hash" "$TAB"
+        return 0
+      fi
+      printf '%s\n' "dispatch-fetch: the spec anchor is unresolvable over the plain root's files; parking rather than gating on a missing anchor" >&2
+      return 5
+      ;;
+  esac
   return 5
 }
 
-# Emit the anchor over the CURRENT origin/main on a success (exit-0) path,
-# failing CLOSED. With --spec the anchor MUST come from origin/main — the very
-# ref the gate compares against: if it cannot be computed there (origin/main
-# unresolved, the bundle absent at that ref, or the anchor computer failing),
-# there is no current baseline, so we must not silently fall back to a stale
-# local `main` or emit nothing under a success exit — either would let the caller
-# gate on a stale or missing anchor (the silent-stale-gate D-9 forbids). Print no
-# anchor, note the reason, return 5 (the caller parks on any nonzero). With no
-# --spec there is nothing to require: return 0.
-emit_anchor_strict() {
-  [ -n "$spec_rel" ] || return 0
-  if _hash=$(anchor_at_ref origin/main); then
-    printf 'anchor%s%s%sorigin/main\n' "$TAB" "$_hash" "$TAB"
-    return 0
+# emit_current_anchor: the anchor on a success (exit-0) path, failing CLOSED.
+# In same-repo it MUST come from the fetched remote default branch, the very
+# ref the gate compares against: there is no fallback to a stale local branch
+# under a success exit, which would let the caller gate on a stale anchor (the
+# silent-stale-gate D-9 forbids). The caller parks on any nonzero.
+emit_current_anchor() {
+  [ "$spec_posture" = same-repo ] || {
+    emit_anchor
+    return
+  }
+  if _cr=$(default_ref "$repo_root"); then
+    emit_anchor "$_cr"
+    return
   fi
-  [ -x "$anchor_script" ] || printf '%s\n' "dispatch-fetch: anchor computer $(sanitize_printable "$anchor_script") missing/not executable" >&2
-  printf '%s\n' "dispatch-fetch: fetch succeeded but the spec anchor is unresolvable at origin/main; parking rather than gating on a stale/missing anchor" >&2
+  printf '%s\n' "dispatch-fetch: fetch succeeded but the remote's default branch is unknown (no recorded origin/HEAD and a detached primary checkout); parking rather than gating on a guessed branch" >&2
   return 5
 }
 
 # --- Structural no-remote: offline is first-class ----------------------------
 if ! git -C "$repo_root" remote get-url origin >/dev/null 2>&1; then
   printf 'fetch%sno-remote\n' "$TAB"
-  # Degrade the anchor to local main (the only ref available), then HEAD. With
-  # --spec, if neither can be anchored there is no content baseline, so
-  # emit_anchor returns 5 and we park (exit 5) rather than exit 3 with no anchor
-  # — keeping the --spec guarantee (anchor record OR nonzero park) intact offline.
-  emit_anchor main HEAD || exit 5
+  # Degrade the anchor to the local default branch (the only view available),
+  # then HEAD. With --spec, if neither can be anchored there is no content
+  # baseline, so we park (exit 5, or 4 on a failed holder fetch) rather than
+  # exit 3 with no anchor — keeping the --spec guarantee (anchor record OR
+  # nonzero park) intact offline.
+  if [ "$spec_posture" = same-repo ]; then
+    emit_anchor "$(default_ref "$repo_root")" HEAD || exit $?
+  else
+    emit_anchor || exit $?
+  fi
   exit 3
 fi
 
@@ -376,34 +564,15 @@ fi
 
 if [ "$within_ttl" -eq 1 ]; then
   printf 'fetch%sfresh-within-ttl\n' "$TAB"
-  emit_anchor_strict || exit $?
+  emit_current_anchor || exit $?
   exit 0
 fi
 
-# --- Bounded fetch with retry. `git fetch origin` updates remote-tracking refs
-# only and never advances local `main`. On success stamp the TTL; on repeated
-# failure DO NOT stamp (so the next call retries) and report stale-transient. ---
-attempt=0
-max_attempts=$((retries + 1))
+# --- Bounded fetch with retry (fetch_origin). On success stamp the TTL; on
+# repeated failure DO NOT stamp (so the next call retries) and report
+# stale-transient. ---
 fetched=0
-while [ "$attempt" -lt "$max_attempts" ]; do
-  attempt=$((attempt + 1))
-  # Isolate the fetch from the repo's configured `remote.origin.fetch`:
-  # `--refmap=''` disables config-driven opportunistic ref updates, and the
-  # explicit `+refs/heads/*:refs/remotes/origin/*` pins the update to
-  # remote-tracking refs. Together they guarantee a non-default refspec (e.g. one
-  # mapping into `refs/heads/*`) can never fast-forward local `main` — the
-  # read-only-local-`main` invariant holds by construction, not by config
-  # convention or git's checked-out-branch guard.
-  if git -C "$repo_root" fetch origin --refmap='' \
-    '+refs/heads/*:refs/remotes/origin/*' --quiet >/dev/null 2>&1; then
-    fetched=1
-    break
-  fi
-  if [ "$attempt" -lt "$max_attempts" ] && [ "$retry_sleep" -gt 0 ]; then
-    sleep "$retry_sleep"
-  fi
-done
+fetch_origin "$repo_root" "$max_attempts" && fetched=1
 
 if [ "$fetched" -ne 1 ]; then
   # Present remote, fetch failed after the bounded retries: never a silent stale
@@ -435,9 +604,5 @@ if mkdir -p -- "$state_dir" 2>/dev/null; then
 fi
 
 printf 'fetch%sfetched\n' "$TAB"
-# The gate reads the fetched origin/main. With --spec the anchor must come from
-# origin/main; fail closed (exit 5, no anchor) rather than fall back to a stale
-# local `main` under this success exit, so the caller never gates on a
-# stale/missing anchor. The caller parks on any nonzero.
-emit_anchor_strict || exit $?
+emit_current_anchor || exit $?
 exit 0

@@ -92,8 +92,8 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # when a broken install omits it. It sanitizes untrusted spec content (rejected
 # bullet ids, engine diagnostics) before it reaches stderr (REQ-C1.9).
 echo_safety="$script_dir/echo-safety.sh"
-if [ ! -r "$echo_safety" ]; then
-  printf '%s\n' "orchestrate-select: required helper $echo_safety missing or not readable" >&2
+if [ ! -f "$echo_safety" ] || [ ! -r "$echo_safety" ]; then
+  printf '%s\n' "orchestrate-select: required helper echo-safety.sh missing or not readable" >&2
   exit 2
 fi
 # shellcheck source=scripts/echo-safety.sh

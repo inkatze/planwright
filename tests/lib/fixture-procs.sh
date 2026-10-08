@@ -91,7 +91,7 @@ _fp_table_ok() {
 fixture_procs() {
   local needle=$1 snap
   _fp_needle_ok "$needle" || {
-    echo "fixture_procs: refusing needle '$needle': not an existing directory under a fixture_scratch directory" >&2
+    printf '%s\n' "fixture_procs: refusing needle '$needle': not an existing directory under a fixture_scratch directory" >&2
     return 2
   }
   snap=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || snap=''
@@ -162,6 +162,6 @@ fixture_reap() {
   # shellcheck disable=SC2086
   left=$(_fp_alive $seen)
   [ -z "$rows" ] && [ -z "$left" ] && return 0
-  echo "fixture_reap: process(es) survived SIGKILL: $(printf '%s\n' "$rows" "$left" | tr '\n' ';')" >&2
+  printf '%s\n' "fixture_reap: process(es) survived SIGKILL: $(printf '%s\n' "$rows" "$left" | tr '\n' ';')" >&2
   return 1
 }

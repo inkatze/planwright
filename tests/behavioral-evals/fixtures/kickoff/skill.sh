@@ -54,7 +54,7 @@ if [ -z "$art" ]; then
   exit 2
 fi
 mkdir -p "$art" 2>/dev/null || {
-  echo "kickoff/skill.sh: cannot create artifacts dir '$art'" >&2
+  printf '%s\n' "kickoff/skill.sh: cannot create artifacts dir '$art'" >&2
   exit 2
 }
 

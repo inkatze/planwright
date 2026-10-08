@@ -1,0 +1,1 @@
+- 2026-10-08 [planwright] Three say() helpers on main (scripts/resolve-root.sh, scripts/orchestrate-marker.sh, scripts/resolve-work-repo.sh) strip only C0 bytes and DEL while security-posture now requires inline sanitizer copies to keep the canonical byte range, C1 included; no guard checks inline copies, so the rule is enforced by review alone.

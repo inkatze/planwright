@@ -38,8 +38,11 @@
 #   --root <dir>  an explicit tree (e.g. a branch export, before merge).
 #
 # MODES
-#   (default)  offline. Replay the corpus through the hook as wired. Fast,
-#              deterministic, no model, no spend — safe for `mise run check`.
+#   (default)  offline. Replay the corpus's empty-policy column (the core
+#              default) through the hook as wired, in the corpus sandbox.
+#              Fast, deterministic, no model, no spend — safe for
+#              `mise run check`. tests/test-worker-guard-corpus.sh replays
+#              every policy column against the script directly.
 #   --live     additionally launch ONE real worker through
 #              scripts/fleet-streamjson.sh and assert its receipt journal
 #              records zero permission control_requests. Costs tokens and wall
@@ -57,10 +60,8 @@ CORPUS="$REPO_ROOT/tests/fixtures/worker-guard-corpus.tsv"
 SETTINGS="$REPO_ROOT/config/worker-settings.json"
 ROOT=""
 LIVE=0
-TAB=$(printf '\t')
-# The corpus is the evidence; a parse that yields fewer rows than this means
-# the file was mangled, not that the guard got better.
-MIN_ROWS=30
+# shellcheck source=tests/lib/worker-guard-corpus.sh
+. "$REPO_ROOT/tests/lib/worker-guard-corpus.sh"
 
 usage() {
   cat >&2 <<'USAGE'
@@ -197,40 +198,25 @@ else
 fi
 echo
 
-passes=0
-failures=0
-false_allows=0
-
-# decide <command> -> prints "allow" or "defer"
-decide() {
-  local payload out
-  payload=$(printf '%s' "$1" | jq -Rs \
-    --arg cwd "$REPO_ROOT" \
-    '{hook_event_name:"PreToolUse", tool_name:"Bash",
-      tool_input:{command:.}, cwd:$cwd}')
-  # Evaluated, not called by path: the settings spelling is under test.
-  out=$(printf '%s' "$payload" \
-    | CLAUDE_PLUGIN_ROOT="$ROOT" PLANWRIGHT_ROOT="$ROOT" \
-      eval "$HOOK_CMD" 2>/dev/null)
-  # Parse the decision field rather than substring-matching the blob: a
-  # `deny` whose reason text happened to contain the word "allow" would
-  # otherwise read as an approval. Anything that is not exactly "allow" -
-  # including deny, ask, malformed JSON, or no output at all - is a defer.
-  case $(printf '%s' "$out" \
-    | jq -r '.hookSpecificOutput.permissionDecision // .permissionDecision // empty' \
-      2>/dev/null) in
-    allow) echo allow ;;
-    *) echo defer ;;
-  esac
+SMOKE_BOX=$(mktemp -d) || exit 2
+trap 'rm -rf "$SMOKE_BOX"' EXIT
+corpus_sandbox "$SMOKE_BOX/box" "$ROOT" || {
+  echo "smoke: could not build the corpus sandbox" >&2
+  exit 2
 }
+
+# Evaluated, not called by path: the settings spelling is under test.
+# corpus_decide sets CLAUDE_PLUGIN_ROOT to the root under test for each call.
+# shellcheck disable=SC2329  # the corpus replay invokes it by name
+smoke_hook() { eval "$HOOK_CMD"; }
 
 # Positive control. A corpus row deferring and a hook that never ran look
 # identical from here (defer IS silence), so before trusting a single `defer`
 # verdict, prove the hook is reachable and decides: one canary that must
 # allow, one that must defer. Without this, `--root` pointing anywhere at all
 # reports every defer-expected row as passing.
-canary_allow=$(decide 'true')
-canary_defer=$(decide 'rm -rf /')
+canary_allow=$(corpus_decide smoke_hook 1 'true')
+canary_defer=$(corpus_decide smoke_hook 1 'rm -rf /')
 if [ "$canary_allow" != allow ] || [ "$canary_defer" != defer ]; then
   echo "smoke: POSITIVE CONTROL FAILED - the hook is not deciding" >&2
   echo "smoke:   expected allow for 'true', got $canary_allow" >&2
@@ -242,96 +228,58 @@ fi
 echo "smoke: positive control ok (hook reachable and deciding)"
 echo
 
-rows=0
-lineno=0
-while IFS= read -r line; do
-  lineno=$((lineno + 1))
-  line=${line%$'\r'}                       # tolerate a CRLF corpus
-  trimmed=${line#"${line%%[![:space:]]*}"} # strip leading whitespace
-  case $trimmed in '' | '#'*) continue ;; esac
+# An unexpected ALLOW is a security regression and always fails; an
+# unexpected DEFER is a worker stall and fails unless its class is pending.
+# The replay names which on stderr.
+corpus_replay "$CORPUS" smoke_hook 1
+[ $? -eq 2 ] && exit 2
+failures=$CORPUS_FAILED
 
-  expect=${trimmed%%"$TAB"*}
-  command=${trimmed#*"$TAB"}
-  # A row whose tab was eaten (editor, copy-paste, patch mangling) would
-  # otherwise be skipped silently and the suite would still report PASS.
-  if [ "$expect" = "$trimmed" ] || [ -z "$command" ]; then
-    echo "smoke: $CORPUS:$lineno: row has no tab separator" >&2
-    exit 2
-  fi
-  case $expect in
-    allow | defer) ;;
-    *)
-      echo "smoke: $CORPUS:$lineno: expectation must be allow|defer, got '$expect'" >&2
-      exit 2
-      ;;
-  esac
-
-  # The corpus is machine-independent by construction; the harness binds the
-  # placeholder to whichever root is under test.
-  command=${command//@@PLUGIN_ROOT@@/$ROOT}
-  command=${command//@@REPO_ROOT@@/$REPO_ROOT}
-
-  rows=$((rows + 1))
-  got=$(decide "$command")
-  if [ "$got" = "$expect" ]; then
-    passes=$((passes + 1))
-  else
-    failures=$((failures + 1))
-    # An unexpected ALLOW is a security regression; an unexpected DEFER is a
-    # worker stall. Both fail, but they are not the same severity of wrong.
-    if [ "$got" = allow ]; then
-      false_allows=$((false_allows + 1))
-      printf 'FALSE-ALLOW (security regression): %s\n' "$command" >&2
-    else
-      printf 'STALL (expected allow, got defer): %s\n' "$command" >&2
-    fi
-  fi
-done <"$CORPUS"
-
-# A corpus that parsed to nothing is not a pass. Every other guard in this
-# repo fails closed on an empty scan; this one used to report PASS.
-if [ "$rows" -lt "$MIN_ROWS" ]; then
-  echo "smoke: corpus yielded $rows row(s), below the floor of $MIN_ROWS" >&2
+# Too few rows means the file was mangled, not that the guard got better.
+if [ "$CORPUS_ROWS" -lt "$CORPUS_MIN_ROWS" ]; then
+  echo "smoke: corpus yielded $CORPUS_ROWS row(s), below the minimum of $CORPUS_MIN_ROWS" >&2
   exit 2
 fi
 
 echo
-printf 'smoke: corpus %d passed, %d failed (%d false-allow)\n' \
-  "$passes" "$failures" "$false_allows"
+printf 'smoke: corpus %d replayed, %d failed (%d false-allow), %d pending\n' \
+  "$CORPUS_ROWS" "$CORPUS_FAILED" "$CORPUS_FALSE_ALLOWS" "$CORPUS_PENDING"
 
 if [ "$LIVE" = 1 ]; then
   echo
   echo "smoke: --live probe"
   probe_prompt=$(mktemp) || exit 2
   probe_dir=""
+  launched=0
   # shellcheck disable=SC2329  # invoked by the EXIT trap below
   cleanup() {
     rm -f "$probe_prompt"
-    [ -n "$probe_dir" ] && "$ROOT/scripts/fleet-streamjson.sh" stop smoke-probe >/dev/null 2>&1
+    [ "$launched" = 1 ] && "$ROOT/scripts/fleet-streamjson.sh" stop smoke-probe >/dev/null 2>&1
+    rm -rf "$SMOKE_BOX"
   }
   trap cleanup EXIT
 
-  # The probe runs the corpus's allow-expected commands and nothing else. If
-  # the hook is wired and correct, the worker completes without ever reaching
-  # the permission gate.
+  # The probe runs the shipped rows the empty policy approves and nothing
+  # else. If the hook is wired and correct, the worker completes without ever
+  # reaching the permission gate. It runs in the corpus sandbox, whose files
+  # the rows name, and skips the rows that print the environment, which would
+  # copy the worker's environment into its transcript.
   {
     echo "Run each of these commands exactly as written, in order, one Bash call each."
     echo "Do not modify them. Do not explain. Report only the count you ran."
     echo
-    # Same placeholder binding the offline loop applies. Without it the probe
-    # hands a real worker literal @@PLUGIN_ROOT@@ paths, which stall or fail
-    # for a reason that has nothing to do with the guard under test.
-    awk -F'\t' -v pr="$ROOT" -v rr="$REPO_ROOT" \
-      '$1 == "allow" {
-         line = $2
-         gsub(/@@PLUGIN_ROOT@@/, pr, line)
-         gsub(/@@REPO_ROOT@@/, rr, line)
-         print "  " line
-       }' "$CORPUS" | head -12
+    corpus_parse "$CORPUS" | while IFS="$CORPUS_TAB" read -r kind _ _ state v1 _ _ _ cmd; do
+      [ "$kind" = row ] && [ "$state" = shipped ] && [ "$v1" = allow ] || continue
+      case $cmd in env | env\ * | printenv*) continue ;; esac
+      printf '  %s\n' "$(corpus_bind "$cmd")"
+    done | head -12
   } >"$probe_prompt"
 
-  if "$ROOT/scripts/fleet-streamjson.sh" launch smoke-probe smoke:probe \
-    --prompt-file "$probe_prompt" --cwd "$REPO_ROOT" >/dev/null 2>&1; then
+  launched=1
+  "$ROOT/scripts/fleet-streamjson.sh" launch smoke-probe smoke:probe \
+    --prompt-file "$probe_prompt" --cwd "$CORPUS_WORKTREE" >/dev/null 2>&1
+  launch_rc=$?
+  if [ "$launch_rc" -eq 0 ]; then
     # fleet-streamjson.sh resolves its state root through fleet-state.sh
     # (PLANWRIGHT_FLEET_STATE_DIR, CLAUDE_PLUGIN_DATA, writer-mode manifest
     # fallback). Rebuilding that path by hand means a host resolving it any
@@ -395,6 +343,11 @@ if [ "$LIVE" = 1 ]; then
       esac
     fi
   else
+    # Exit 3 is a refusal (a probe already running or launching under this
+    # handle): this run started nothing, so cleanup must not stop that one.
+    # Any other failure may follow a supervisor already spawned, which
+    # cleanup still stops.
+    [ "$launch_rc" -eq 3 ] && launched=0
     failures=$((failures + 1))
     echo "smoke: LIVE FAIL — could not launch the probe worker" >&2
   fi

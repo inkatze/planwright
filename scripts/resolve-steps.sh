@@ -209,11 +209,12 @@ export LC_ALL
 unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
-# shellcheck source=scripts/echo-safety.sh
-. "$script_dir/echo-safety.sh" || {
-  echo "resolve-steps: sanitizer '$script_dir/echo-safety.sh' is missing or unreadable (broken install)" >&2
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "resolve-steps: sanitizer echo-safety.sh is missing or unreadable (broken install)" >&2
   exit 5
-}
+fi
+# shellcheck source=scripts/echo-safety.sh
+. "$script_dir/echo-safety.sh" || exit 5
 
 TAB=$(printf '\t')
 # scripts/step-record.sh's is_point holds the same vocabulary, and
@@ -351,7 +352,8 @@ replay() {
 
 # command_word_ok <word>: one word of a command step's args (the args
 # charset), shared by entry validation and --line. scripts/worker-command-guard.sh's
-# step_arg_ok holds the same charset; they change together.
+# step_arg_ok and scripts/resolve-vendors.sh's args_fault hold the same
+# charset; they change together.
 command_word_ok() {
   case "$1" in
     "" | *[!A-Za-z0-9._/:=@%,+-]*) return 1 ;;

@@ -106,14 +106,14 @@ pane_vocabulary="$script_dir/fleet-pane-vocabulary.sh"
 # sanitizes every untrusted value (message-file paths, backend names) before it
 # reaches operator-facing stderr (echo discipline, doctrine/security-posture.md —
 # the same posture every sibling in-scope script applies at each such site).
-if [ ! -r "$echo_safety" ]; then
-  echo "$me: required helper $echo_safety missing or not readable" >&2
+if [ ! -f "$echo_safety" ] || [ ! -r "$echo_safety" ]; then
+  printf '%s\n' "$me: required helper echo-safety.sh missing or not readable" >&2
   exit 2
 fi
 # shellcheck source=scripts/echo-safety.sh
 . "$echo_safety"
 if [ ! -r "$pane_vocabulary" ]; then
-  echo "$me: required helper $pane_vocabulary missing or not readable" >&2
+  printf '%s\n' "$me: required helper $pane_vocabulary missing or not readable" >&2
   exit 2
 fi
 # shellcheck source=scripts/fleet-pane-vocabulary.sh
@@ -124,8 +124,8 @@ nl='
 '
 
 usage() {
-  echo "$me: usage: $me <validate-handle|relay-command|deliver|observe-command> <backend> <handle> [<message-file>]" >&2
-  echo "$me: <handle> is explicit (operator-named, or a live peer's handle from fleet-presence.sh), never the active pane" >&2
+  printf '%s\n' "$me: usage: $me <validate-handle|relay-command|deliver|observe-command> <backend> <handle> [<message-file>]" >&2
+  printf '%s\n' "$me: <handle> is explicit (operator-named, or a live peer's handle from fleet-presence.sh), never the active pane" >&2
 }
 
 # Per-backend handle grammar. Input is DATA: a case-glob whitelist, evaluated by
@@ -225,7 +225,7 @@ staged_relay_present() {
 }
 
 reject_handle() {
-  echo "$me: refusing invalid $1 handle (REQ-B1.7: validated before use)" >&2
+  printf '%s\n' "$me: refusing invalid $1 handle (REQ-B1.7: validated before use)" >&2
   exit 2
 }
 
@@ -248,7 +248,7 @@ require_tmux_target() {
 require_safe_script_dir() {
   case "$script_dir" in
     *"'"* | *"$nl"*)
-      echo "$me: install path unsafe to emit inside a single-quoted command" >&2
+      printf '%s\n' "$me: install path unsafe to emit inside a single-quoted command" >&2
       exit 2
       ;;
   esac
@@ -308,7 +308,7 @@ case "$sub" in
         ;;
       subagent)
         valid_handle subagent "$handle" || reject_handle subagent
-        echo "$me: subagent is harness-native; relay via the tower's prompt queue, no shell command" >&2
+        printf '%s\n' "$me: subagent is harness-native; relay via the tower's prompt queue, no shell command" >&2
         exit 0
         ;;
       *)
@@ -334,19 +334,19 @@ case "$sub" in
     pause=$(bounded_int "${PLANWRIGHT_RELAY_CONFIRM_SLEEP:-}" 1 3)
     # Captured pane text is DATA: matched as substrings, never evaluated.
     before=$(pane_tail "$handle") || {
-      echo "$me: refused, nothing pasted: cannot read target pane $handle" >&2
+      printf '%s\n' "$me: refused, nothing pasted: cannot read target pane $handle" >&2
       exit 3
     }
     if selection_prompt_present "$before"; then
-      echo "$me: refused, nothing pasted: $handle shows an open selection prompt, which a paste would answer" >&2
+      printf '%s\n' "$me: refused, nothing pasted: $handle shows an open selection prompt, which a paste would answer" >&2
       exit 3
     fi
     if staged_paste_present "$before"; then
-      echo "$me: refused, nothing pasted: $handle holds a staged paste placeholder that would block this one" >&2
+      printf '%s\n' "$me: refused, nothing pasted: $handle holds a staged paste placeholder that would block this one" >&2
       exit 3
     fi
     if staged_relay_present "$before"; then
-      echo "$me: refused, nothing pasted: $handle holds an unsubmitted relay this paste would join onto one line" >&2
+      printf '%s\n' "$me: refused, nothing pasted: $handle holds an unsubmitted relay this paste would join onto one line" >&2
       exit 3
     fi
     # tmux named buffers are server-global, so a fixed buffer name lets two
@@ -364,12 +364,12 @@ case "$sub" in
     # the relay line, on the shared server under a name a reused PID can meet.
     trap 'tmux delete-buffer -b "$buf" 2>/dev/null; exit 4' INT TERM HUP
     if ! printf '%s' "($tag) [planwright tower relay -> $handle] read $msg_abs" | tmux load-buffer -b "$buf" - 2>/dev/null; then
-      echo "$me: refused, nothing pasted: tmux load-buffer failed" >&2
+      printf '%s\n' "$me: refused, nothing pasted: tmux load-buffer failed" >&2
       exit 3
     fi
     if ! tmux paste-buffer -b "$buf" -t "$handle" -d 2>/dev/null; then
       tmux delete-buffer -b "$buf" 2>/dev/null || :
-      echo "$me: not confirmed: tmux paste-buffer to $handle failed; observe the pane before re-sending" >&2
+      printf '%s\n' "$me: not confirmed: tmux paste-buffer to $handle failed; observe the pane before re-sending" >&2
       exit 4
     fi
     trap - INT TERM HUP
@@ -384,7 +384,7 @@ case "$sub" in
       esac
       [ "$i" -lt "$tries" ] && sleep "$pause"
     done
-    echo "$me: not confirmed: pasted to $handle but ($tag) never showed in the pane; observe it before re-sending, which would stage a duplicate" >&2
+    printf '%s\n' "$me: not confirmed: pasted to $handle but ($tag) never showed in the pane; observe it before re-sending, which would stage a duplicate" >&2
     exit 4
     ;;
 
@@ -411,7 +411,7 @@ case "$sub" in
         ;;
       subagent)
         valid_handle subagent "$handle" || reject_handle subagent
-        echo "$me: subagent is harness-native; observe via completion/notification, no shell command" >&2
+        printf '%s\n' "$me: subagent is harness-native; observe via completion/notification, no shell command" >&2
         exit 0
         ;;
       *)

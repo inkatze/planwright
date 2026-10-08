@@ -37,8 +37,12 @@
 #   scripts/run-tests.sh   the test runner's machine-wide ticket pool
 #   scripts/fleet-reap-lock.sh   the per-worker reap lock the reap actuator
 #                          takes, so concurrent sweeps close a worker once
+#   scripts/halt-note.sh   the per-bundle lock a halt note's rewrite of a
+#                          store's tasks.md holds, so concurrent halts all land
 #   scripts/step-record.sh   the record-cache lock that run ids and records
 #                          are issued under
+#   scripts/step-pool.sh   the per-user step pool slots, each held on behalf
+#                          of the process hosting the check's runner
 #
 # Everything else that takes an advisory lock does so by calling a script on
 # that list, so adopting a listed script adopts the tree under it. The list is
@@ -440,26 +444,31 @@ pw_lock_owner_alive() {
   fi
   # `kill -0` fails for two very different reasons and only one of them means
   # absent. A process owned by another user answers EPERM, and breaking ITS
-  # lock is the double-grant this whole file exists to prevent, so an EPERM
-  # reads as alive. `ps` is the second opinion where the message is unfamiliar.
-  # LC_ALL is pinned for the capture rather than assumed from the caller: the
-  # match below is on the error TEXT, and a translated message would read as
-  # absent and break a live process's lock.
+  # lock is the double-grant this whole file exists to prevent, so a process
+  # that exists but is not ours reads as alive. Existence is asked of the
+  # process table first, by a question whose answer is not text.
+  #
+  # An existing process is an answer to "is it there", not to "is it the one
+  # that minted this", so every existence branch goes through the same second
+  # question — otherwise a pid recycled by another user bypasses the check.
+  if [ -d "/proc/$_pwa_pid" ] \
+    || { command -v ps >/dev/null 2>&1 && ps -p "$_pwa_pid" >/dev/null 2>&1; }; then
+    _pw_lock_owner_is_minter "$1" "$_pwa_pid"
+    return $?
+  fi
+  # A process table that hides other users' processes (procfs `hidepid`, a
+  # restricted `ps`) answers "absent" for one that exists, and only the error
+  # text still says EPERM. MATCH ITS TAIL ONLY: the shell prefixes the message
+  # with the running script's path, so an unanchored match reads every dead
+  # owner as alive from any path containing the word. LC_ALL is pinned because
+  # a translated message would read as absent and break a live process's lock.
   _pwa_err=$(LC_ALL=C kill -0 "$_pwa_pid" 2>&1) || :
   case $_pwa_err in
-    *[Pp]ermission* | *[Pp]ermitted*)
-      # EPERM says the process EXISTS and is not ours. That is an answer to
-      # "is it there", not to "is it the one that minted this", so it goes
-      # through the same second question every other existing process does —
-      # otherwise a pid recycled by another user bypasses the check entirely.
+    *[Pp]ermitted | *[Pp]ermission\ denied)
       _pw_lock_owner_is_minter "$1" "$_pwa_pid"
       return $?
       ;;
   esac
-  if command -v ps >/dev/null 2>&1 && ps -p "$_pwa_pid" >/dev/null 2>&1; then
-    _pw_lock_owner_is_minter "$1" "$_pwa_pid"
-    return $?
-  fi
   return 1
 }
 
