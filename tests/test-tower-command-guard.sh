@@ -477,6 +477,11 @@ assert_defer "defer form: NULLCMD as a loop variable" "for NULLCMD in /tmp/x; do
 assert_defer "defer form: READNULLCMD as a loop variable" "for READNULLCMD in /tmp/x; do <README.md; done"
 assert_defer "defer form: module_path as a loop variable" "for module_path in /tmp/x; do for commands in x; do git status; done; done"
 assert_defer "defer form: MODULE_PATH as a loop variable" "for MODULE_PATH in /tmp/x; do git status; done"
+assert_defer "defer form: a further special name as a loop variable (1)" "for fpath in /tmp/x; do git status; done"
+assert_defer "defer form: a further special name as a loop variable (2)" "for FPATH in /tmp/x; do git status; done"
+assert_defer "defer form: a further special name as a loop variable (3)" "for manpath in /tmp/x; do git status; done"
+assert_defer "defer form: a further special name as a loop variable (4)" "for MANPATH in /tmp/x; do git status; done"
+assert_allow "parity: a longer name sharing a special name's prefix still resolves" "for fpaths in scripts; do cat README.md; done"
 assert_allow "parity: a longer lowercase loop variable still resolves" "for paths in scripts; do cat README.md; done"
 assert_defer "defer form: zsh's \$~ parameter form" "for f in a; do find . \$~f; done"
 assert_defer "defer form: zsh's \$= parameter form" "for f in a; do find . \$=f; done"
@@ -689,6 +694,8 @@ parity "parity: a braced loop variable before a colon allows" "for f in README; 
 parity "parity: a brace word before a redirect defers" "cat README.md {fd}>/dev/null"
 parity "parity: a brace word before a combined-output redirect defers" "git status {fd}&>/dev/null"
 parity "parity: a brace word spaced from its redirect allows" "cat {a} >/dev/null"
+parity "parity: a further special name as a loop variable defers" "for fpath in /tmp/x; do git status; done"
+parity "parity: a longer name sharing a special name's prefix allows" "for fpaths in scripts; do cat README.md; done"
 
 echo "### REQ-C1.3 — deny-precedence OUTCOME (derived from tower-settings deny block)"
 # Every command drawn from config/tower-settings.json's deny block MUST defer:

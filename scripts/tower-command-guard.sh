@@ -1417,7 +1417,8 @@ assign_name_ok() {
   # zsh, the Bash tool's shell on macOS, gives these names a special meaning
   # as variables, as bash gives PATH and CDPATH.
   case $name in
-    path | cdpath | NULLCMD | READNULLCMD | module_path | MODULE_PATH) return 1 ;;
+    path | cdpath | NULLCMD | READNULLCMD | module_path | MODULE_PATH | \
+      fpath | FPATH | manpath | MANPATH) return 1 ;;
   esac
   case $HOOK_ENV_NAMES in
     *"$NL$name$NL"*) return 1 ;;

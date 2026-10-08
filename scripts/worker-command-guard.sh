@@ -1971,7 +1971,8 @@ assign_name_ok() {
   # zsh, the Bash tool's shell on macOS, gives these names a special meaning
   # as variables, as bash gives PATH and CDPATH.
   case $name in
-    path | cdpath | NULLCMD | READNULLCMD | module_path | MODULE_PATH) return 1 ;;
+    path | cdpath | NULLCMD | READNULLCMD | module_path | MODULE_PATH | \
+      fpath | FPATH | manpath | MANPATH) return 1 ;;
   esac
   # Membership in the hook's own ENVIRONMENT, snapshotted at startup: an
   # exported name the command re-points reaches every child it runs. The
