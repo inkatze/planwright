@@ -698,6 +698,7 @@ assert_defer "untracked: an earlier untrusted assignment defers the whole comman
 assert_allow "tracked: used inside a later if body" "P=$PLUGIN_ROOT; if true; then \$P/scripts/plug.sh; fi" Bash "$PLUGIN_CWD"
 assert_allow "tracked: bash \$P/<script>" "P=$PLUGIN_ROOT && bash \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
 assert_allow "tracked: repo root through the cwd's checkout" "R=$SANDBOX && \$R/scripts/ok.sh" Bash "$SANDBOX"
+assert_defer "defer form: a tracked assignment to zsh's path" "path=$SANDBOX && cat README.md" Bash "$SANDBOX"
 assert_allow "tracked: a lone assignment runs nothing" "P=$PLUGIN_ROOT" Bash "$PLUGIN_CWD"
 # NEGATIVES: every way the substitution could differ from what the shell does,
 # or name something the hook does not trust.
@@ -771,6 +772,25 @@ assert_defer "bypass: a glob in a direct verb path" "scripts/o*.sh"
 assert_defer "bypass: a glob in a bash script path" "bash scripts/o*.sh"
 assert_defer "bypass: brace expansion assembles a find action" "find . -maxdepth 0 {-exec,id} ';'"
 assert_defer "bypass: a loop variable named PATH re-points later verbs" "for PATH in /tmp; do git status; done"
+assert_defer "defer form: zsh's path as a loop variable" "for path in scripts; do cat README.md; done"
+assert_defer "defer form: zsh's cdpath as a loop variable" "for cdpath in /tmp; do git status; done"
+assert_defer "defer form: NULLCMD as a loop variable" "for NULLCMD in /tmp/x; do >/dev/null; done"
+assert_defer "defer form: READNULLCMD as a loop variable" "for READNULLCMD in /tmp/x; do <README.md; done"
+assert_defer "defer form: module_path as a loop variable" "for module_path in /tmp/x; do for commands in x; do git status; done; done"
+assert_defer "defer form: MODULE_PATH as a loop variable" "for MODULE_PATH in /tmp/x; do git status; done"
+assert_allow "parity: a longer lowercase loop variable still resolves" "for paths in scripts; do cat README.md; done"
+assert_defer "defer form: zsh's \$~ parameter form" "for f in a; do find . \$~f; done"
+assert_defer "defer form: zsh's \$= parameter form" "for f in a; do find . \$=f; done"
+assert_defer "defer form: zsh's \$^ parameter form" "for f in a; do find . \$^f; done"
+assert_defer "defer form: zsh's \$+ parameter form" "for f in a; do find . \$+f; done"
+assert_defer "defer form: zsh's \$~ parameter form in double quotes" "for f in a; do find . \"\$~f\"; done"
+assert_allow "parity: a plain loop variable still resolves for find" "for f in a; do find . -name \$f; done"
+assert_defer "defer form: a zsh subscript on an unbraced loop variable" "for f in abcd; do find . -name \"\$f[2,3]\"; done"
+assert_defer "defer form: a zsh modifier on an unbraced loop variable" "for f in a.b; do find . -name \$f:e; done"
+assert_defer "defer form: a zsh modifier on a quoted loop variable" "for f in A; do find . -name \"\$f:l\"; done"
+assert_defer "defer form: a zsh substitution modifier on a loop variable" "for f in a; do find . -name \$f:s/a/b/; done"
+assert_allow "parity: a braced loop variable before a colon is still its value" "for f in README; do cat \${f}:x; done"
+assert_allow "parity: a braced loop variable before a bracket is still its value" "for f in a; do find . -name \"\${f}[0-9]\"; done"
 assert_defer "bypass: read overwrites a loop variable before a screened use" \
   "for d in -name; do read d; find . \$d; done"
 HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
@@ -868,6 +888,15 @@ assert_allow "mid-word # is not a comment" "cat a#b"
 assert_allow "single-quoted # is not a comment" "grep -n '#' README.md"
 assert_allow "double-quoted # is not a comment" "grep -n \"#x\" README.md"
 assert_allow "escaped # is not a comment" "grep -n \\#x README.md"
+assert_defer "defer form: a brace word before an output redirect" "cat README.md {fd}>/dev/null"
+assert_defer "defer form: a brace word before an input redirect" "cat README.md {fd}<README.md"
+assert_defer "defer form: a brace word before an fd duplication" "git status {fd}>&2"
+assert_defer "defer form: a brace word before an fd close" "git status {fd}>&-"
+assert_defer "defer form: a brace word before a combined-output redirect" "git status {fd}&>/dev/null"
+assert_defer "defer form: a brace word before a redirect, then a later command" "printf x {fd}>/dev/null; git status"
+assert_allow "parity: a brace word spaced from its redirect is an operand" "cat {a} >/dev/null"
+assert_allow "parity: a brace mid-word before a redirect is an operand" "cat a{b}>/dev/null"
+assert_allow "parity: an fd-number redirect still allows" "git status 2>&1"
 
 echo "### REQ-A1.10 — script/test/bats path containment"
 assert_defer "bash script escapes repo" "bash ../../../tmp/evil/scripts/x.sh"
@@ -933,6 +962,15 @@ malformed_run() {
 }
 malformed_run '{ this is not json'
 if [ "$CODE" -eq 0 ] && is_empty; then pass "malformed JSON defers"; else fail "malformed JSON — expected defer exit 0 (got $CODE)"; fi
+malformed_run '{"tool_name":"Bash","tool_input":{"command":"git status\u0000"}}'
+if [ "$CODE" -eq 0 ] && is_empty; then
+  pass "defer form: a NUL byte in the command"
+elif is_allow; then
+  fail "defer form: a NUL byte in the command — FALSE-ALLOW: expected DEFER"
+  false_allows=$((false_allows + 1))
+else
+  fail "defer form: a NUL byte in the command — expected defer exit 0 (got $CODE)"
+fi
 malformed_run ''
 if [ "$CODE" -eq 0 ] && is_empty; then pass "empty stdin defers"; else fail "empty stdin — expected defer exit 0 (got $CODE)"; fi
 malformed_run '{"tool_name":"Bash","tool_input":{}}'
@@ -1021,6 +1059,9 @@ assert_allow "while read -r loop" "while read -r line; do echo \"\$line\"; done"
 assert_allow "read bare sets REPLY" "read"
 assert_defer "read PATH poisons command resolution" "read PATH"
 assert_defer "read IFS changes later word splitting" "read IFS"
+assert_defer "defer form: read of zsh's path" "read path"
+assert_defer "defer form: read of zsh's module_path" "read -r module_path"
+assert_allow "parity: read of a longer lowercase name" "read paths"
 assert_defer "read inside a loop is name-checked too" "while read PATH; do echo x; done"
 assert_defer "read -p takes a value operand" "read -p 'x' y"
 assert_defer "read -a array form" "read -a arr"
@@ -1068,6 +1109,45 @@ assert_defer "jq unknown long flag" "jq --frobnicate '.a' file.json"
 assert_defer "jq unknown short flag" "jq -z '.a' file.json"
 assert_defer "jq dangling value-flag" "jq --indent"
 assert_defer "jq with no filter at all" "jq"
+# A filter's module text and its `ENV` spellings defer, and so does every run
+# while ~/.jq exists or HOME is not an absolute path.
+assert_defer "defer form: jq include with a search path" "jq -n 'include \"m\" {search:\"/tmp/mods\"}; f'"
+assert_defer "defer form: jq import with a search path" "jq -n 'import \"m\" as e {search:\"/tmp/mods\"}; .'"
+assert_defer "defer form: jq include" "jq -n 'include \"m\"; .'"
+assert_defer "defer form: jq import of data" "jq -n 'import \"d\" as \$d; \$d'"
+assert_allow "parity: jq .include is a field access" "jq '.include' file.json"
+assert_allow "parity: jq .imports is a field access" "jq '.a.imports' file.json"
+assert_allow "parity: jq \$import is a variable" "jq --arg import 1 '\$import' file.json"
+assert_defer "defer form: jq ENV after a spaced dollar" "jq -n '\$ ENV'"
+assert_defer "defer form: jq ENV after a dollar and a comment" "jq -n '\$#c
+ENV'"
+assert_defer "defer form: jq bare ENV word" "jq -n 'ENV'"
+assert_allow "parity: jq .ENV is a field access" "jq '.ENV' file.json"
+assert_allow "parity: jq ENVIRONMENT is a longer name" "jq '.a | .ENVIRONMENT' file.json"
+assert_defer "defer form: jq import as the last word" "jq -n '. | import'"
+assert_defer "defer form: jq ENV right after an opening bracket" "jq -n '[ENV]'"
+assert_allow "parity: jq a filter dense in e and i beside a field" "jq '.env | .items[] | select(.line == \"eine\") | .id' file.json"
+assert_allow "parity: jq a user function with env as a prefix" "jq 'def envx: .; envx' file.json"
+assert_allow "parity: jq a user function with env as a suffix" "jq 'def myenv: .; myenv' file.json"
+assert_allow "parity: jq a user function with ENV as a suffix" "jq 'def myENV: .; myENV' file.json"
+JQ_HOME="$SANDBOX/jq-home"
+mkdir -p "$JQ_HOME" && : >"$JQ_HOME/.jq" || exit 1
+HOOK_ENV=(HOME="$JQ_HOME")
+assert_defer "defer form: jq while a ~/.jq file exists" "jq . file.json"
+rm -f "$JQ_HOME/.jq" && mkdir "$JQ_HOME/.jq" || exit 1 # not-a-lock: test fixture directory
+assert_defer "defer form: jq while a ~/.jq directory exists" "jq . file.json"
+rmdir "$JQ_HOME/.jq" && ln -s "$JQ_HOME/not-yet" "$JQ_HOME/.jq" || exit 1
+assert_defer "defer form: jq while ~/.jq is a dangling symlink" "jq . file.json"
+rm -f "$JQ_HOME/.jq"
+assert_allow "parity: jq once ~/.jq is gone" "jq . file.json"
+# The unset case chains a second env, since run_hook's own one sets HOME first.
+HOOK_ENV=(/usr/bin/env -u HOME)
+assert_defer "defer form: jq with HOME unset" "jq . file.json"
+HOOK_ENV=(HOME=)
+assert_defer "defer form: jq with HOME empty" "jq . file.json"
+HOOK_ENV=(HOME=rel-home)
+assert_defer "defer form: jq with a relative HOME" "jq . file.json"
+HOOK_ENV=()
 # yq EDITS IN PLACE.
 assert_allow "yq read" "yq . file.yml"
 assert_allow "yq -I indent is not -i inplace" "yq -I4 . file.yml"
