@@ -318,7 +318,10 @@ case "$1" in
     [ -f "$d/capture-fails" ] && exit 1
     cat "$d/pane"
     ;;
-  load-buffer) cat >"$d/buffer" ;;
+  load-buffer)
+    [ -f "$d/load-fails" ] && exit 1
+    cat >"$d/buffer"
+    ;;
   paste-buffer)
     [ -f "$d/paste-fails" ] && exit 1
     if [ ! -f "$d/paste-drops" ]; then
@@ -455,6 +458,11 @@ grep -q 'not confirmed' "$tmp/dropped/err" || fail "the unconfirmed diagnostic m
   || fail "deliver must re-read the pane for each confirmation try"
 FD_FLAGS=paste-fails fake_deliver pastefail "$idle_pane" "@3" "$msg"
 rc_is pastefail 4 "a failed paste-buffer"
+grep -q '^delete-buffer -b planwright-relay-' "$tmp/pastefail/log" \
+  || fail "a failed paste must delete its buffer, tmux saw: $(cat "$tmp/pastefail/log")"
+FD_FLAGS=load-fails fake_deliver loadfail "$idle_pane" "@3" "$msg"
+rc_is loadfail 3 "a failed load-buffer"
+grep -q '^paste-buffer' "$tmp/loadfail/log" && fail "a failed load must paste nothing"
 echo "ok: deliver confirms by a fresh tag and reports an unseen paste as not confirmed"
 
 # 13f. deliver validates like relay-command: tmux only, handle and message
@@ -467,6 +475,10 @@ fake_deliver nofile "$idle_pane" "@3" "$tmp/does-not-exist.txt"
 rc_is nofile 2 "deliver with a missing message file"
 rc_of 2 "deliver refuses a non-tmux backend" -- "$RELAY" deliver stream-json "fg-task-7" "$msg"
 rc_of 2 "deliver with no message file is a usage error" -- "$RELAY" deliver tmux "@3"
+(cd "$tmp" && fake_deliver relpath "$idle_pane" "@3" "relay-msg.txt")
+rc_is relpath 0 "deliver with a relative message path"
+grep -qF " read $msg" "$tmp/relpath/pasted" \
+  || fail "deliver must paste the message path absolute, got: $(cat "$tmp/relpath/pasted")"
 echo "ok: deliver validates its backend, handle, and message file before touching tmux"
 
 # ---------------------------------------------------------------------------
@@ -479,9 +491,12 @@ echo "ok: deliver validates its backend, handle, and message file before touchin
 #     call resolves to is checked before deliver runs and before any kill.
 # ---------------------------------------------------------------------------
 if host_tmux=$(command -v tmux 2>/dev/null); then
-  iso_sock="$tmp/tmuxsrv/sock"
+  # A short fixed parent keeps the socket path under the Unix socket length
+  # limit whatever TMPDIR is.
+  iso_dir=$(mktemp -d /tmp/pwrelay.XXXXXX) || fail "could not make the isolated socket directory"
+  iso_sock="$iso_dir/sock"
   [ "$iso_sock" != "$host_sock" ] || fail "the isolated socket path equals the host's \$TMUX socket"
-  mkdir -p "$tmp/tmuxsrv" "$tmp/isobin"
+  mkdir -p "$tmp/isobin"
   cat >"$tmp/isobin/tmux" <<EOF
 #!/bin/sh
 exec env -u TMUX -u TMUX_PANE '$host_tmux' -S '$iso_sock' "\$@"
@@ -490,7 +505,8 @@ EOF
   iso_tmux="$tmp/isobin/tmux"
   # A failing check below exits through the trap; the wrapper pins the socket,
   # so this kill can only reach the isolated server.
-  trap '[ -S "$iso_sock" ] && "$iso_tmux" kill-server >/dev/null 2>&1; rm -rf "$tmp"' EXIT
+  # The kill fails once the server is gone, so it must not decide the exit status.
+  trap '"$iso_tmux" kill-server >/dev/null 2>&1 || :; rm -rf "$tmp" "$iso_dir"' EXIT
   "$iso_tmux" -f /dev/null new-session -d -s relaytest -x 200 -y 30 cat \
     || fail "could not start an isolated tmux server for the end-to-end check"
   resolved=$("$iso_tmux" display-message -p -t relaytest '#{socket_path}') \
