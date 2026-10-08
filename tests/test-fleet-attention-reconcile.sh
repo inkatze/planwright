@@ -26,7 +26,8 @@
 #       exactly, or naming a task only by its number's value (`03` for 3,
 #       `5.0` for 5), derives nothing; m2: a
 #       handle with two rows is kept and degrades the pass; m3: a clear that
-#       fails keeps the row under its own reason and degrades the pass.
+#       fails keeps the row under its own reason and degrades the pass; m4:
+#       a spec whose derivation fails keeps its rows and degrades the pass.
 #   w1: the unit rule derives from --repo even when the caller sits elsewhere
 #       and PLANWRIGHT_REPO_ROOT or PLANWRIGHT_BASE_REF point elsewhere (a
 #       side branch's trailer does not complete a unit), and a --repo that
@@ -38,7 +39,8 @@
 #   x1: a completed unit whose worker record lives in another checkout, or
 #       climbs out of this one through `..`, is not cleared on this
 #       checkout's derivation.
-#   i1: every clear is audited, and a second pass clears nothing.
+#   i1: every clear is audited, and a second pass clears nothing; i2: a
+#       clear whose audit record fails stands, and degrades the pass.
 #   k1: the kill-switch pauses the pass before it clears anything; k2: one
 #       set mid-pass stops every clear after it.
 #
@@ -358,7 +360,17 @@ chmod 755 "$home/attention"
 has_row @145 || fail "m3: a failed clear removed the row"
 says m3 keep @145 clear-failed
 printf '%s\n' "$out" | grep -q "status=degraded$" || fail "m3: a failed clear did not degrade the pass: $out"
-echo "ok: m1 m2 m3 rows the pass cannot act on"
+fresh
+mkdir -p "$repo/specs/broken"
+printf '# Broken — Tasks\n' >"$repo/specs/broken/tasks.md"
+seed @180 broken:task-1 working
+reconcile m4
+rm -rf "$repo/specs/broken"
+has_row @180 || fail "m4: a failed derivation let its row be cleared"
+says m4 keep @180 no-evidence
+printf '%s\n' "$out" | grep -q "status=degraded$" || fail "m4: a failed derivation did not degrade the pass: $out"
+grep -q 'derivation of spec broken failed' "$tmp/err" || fail "m4: a failed derivation was not named: $(cat "$tmp/err")"
+echo "ok: m1 m2 m3 m4 rows the pass cannot act on"
 
 # --- w1: the derivation reads --repo, whatever the caller's directory ------
 fresh
@@ -407,7 +419,15 @@ reconcile i1
 clean i1
 printf '%s\n' "$out" | grep -q "^clear" && fail "i1: a second pass cleared again: $out"
 says i1 summary rows=0 "cleared=0${TAB}kept=0${TAB}status=ok"
-echo "ok: i1 audited and idempotent"
+fresh
+seed @145 demo:task-1 working
+: >"$home/audit"
+reconcile i2
+has_row @145 && fail "i2: a clear whose audit record failed was undone"
+says i2 clear @145 unit-completed
+printf '%s\n' "$out" | grep -q "status=degraded$" || fail "i2: a failed audit record did not degrade the pass: $out"
+grep -q "could not record the clear of '@145'" "$tmp/err" || fail "i2: a failed audit record did not name the worker: $(cat "$tmp/err")"
+echo "ok: i1 i2 audited and idempotent"
 
 # --- k1: kill-switch -------------------------------------------------------
 fresh
