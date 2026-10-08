@@ -28,8 +28,9 @@
 #                  step-id grammar before any use.
 #
 # Entry grammar (every value a single-line scalar the catalog reader keeps; a
-# control byte, an empty declared field, or a block-scalar indicator is
-# malformed):
+# control byte, a C1 control, an invisible or bidi code point (the set
+# scripts/flight-text.sh's INVIS_SED names), invalid UTF-8, an empty declared
+# field, or a block-scalar indicator is malformed):
 #   id            <vendor>.<name>, both halves ^[a-z][a-z0-9-]*$ (at most 64
 #                 bytes each), the first equal to the entry's `vendor`
 #   vendor        the step-id grammar above
@@ -164,7 +165,25 @@ grep -q '[^[:space:]]' "$work/merged" || {
   exit 5
 }
 
+# A line that loses bytes to the cleaning step-record and flight-text apply
+# (invalid UTF-8, C1 controls, invisible and bidi code points) carries a
+# character a terminal or a posted comment would act on.
+if [ -r "$script_dir/flight-text.sh" ] && command -v iconv >/dev/null 2>&1; then
+  # shellcheck source=scripts/flight-text.sh
+  . "$script_dir/flight-text.sh"
+else
+  printf '%s\n' "$prog: flight-text.sh or iconv is missing (broken install)" >&2
+  exit 5
+fi
+c1_sed=$(printf 's/\302[\200-\237]//g')
+iconv -c -f UTF-8 -t UTF-8 <"$work/merged" 2>/dev/null \
+  | sed -e ':a' -e "$INVIS_SED" -e "$c1_sed" -e 't a' >"$work/clean" || {
+  printf '%s\n' "$prog: cannot clean the merged catalog (broken install)" >&2
+  exit 5
+}
+
 awk -v mode="$mode" -v want="$want" '
+  BEGIN { UNCLEAN = "a C1, invisible, or bidi character, or invalid UTF-8, in a field" }
   function sid(s) { return s ~ /^[a-z][a-z0-9-]*$/ && length(s) <= 64 }
   function has(n, k) { return ((n, k) in fset) }
   function val(n, k) { return has(n, k) ? fval[n, k] : "" }
@@ -305,6 +324,8 @@ awk -v mode="$mode" -v want="$want" '
     layer[substr($0, 1, length($0) - length(l) - 1)] = l
     next
   }
+  FILENAME == ARGV[3] { clean[FNR] = $0; next }
+  { dirty = ($0 != clean[FNR]) }
   /^[ \t]*#/ { next }
   /^[^ \t]/ {
     have = 0
@@ -324,6 +345,7 @@ awk -v mode="$mode" -v want="$want" '
     sec[n] = section
     keys[n] = "|"
     mark[n] = (raw ~ /[[:cntrl:]]/) ? "a control byte in a field" : ""
+    if (dirty) mark[n] = UNCLEAN
     next
   }
   have && /^    [A-Za-z]/ {
@@ -333,6 +355,7 @@ awk -v mode="$mode" -v want="$want" '
     else { key = raw; v = "" }
     sub(/[ \t]*$/, "", v)
     if (v ~ /^".*"$/ && length(v) >= 2) v = substr(v, 2, length(v) - 2)
+    if (dirty) { if (mark[n] == "") mark[n] = UNCLEAN; next }
     if (key ~ /[[:cntrl:]]/ || v ~ /[[:cntrl:]]/) { if (mark[n] == "") mark[n] = "a control byte in a field"; next }
     if (key == "supersede") next
     if ((n, key) in fset) { if (mark[n] == "") mark[n] = "a repeated field '\''" key "'\''"; next }
@@ -445,7 +468,7 @@ awk -v mode="$mode" -v want="$want" '
     if (mode == "explain") print "O\t" val(i, "vendor") "\t" val(i, "part") "\t" id[i] "\t" layer[id[i]]
     else print "O\t" line
   }
-' "$work/lost" "$work/layers" "$work/merged" >"$work/result"
+' "$work/lost" "$work/layers" "$work/clean" "$work/merged" >"$work/result"
 awk_rc=$?
 
 # The reader's degraded-layer warnings, then this validator's.

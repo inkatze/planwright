@@ -422,6 +422,30 @@ bad "choice position over six digits" "position is not a positive integer" \
 bad "choice control outside the grammar" "control outside the step-id grammar" \
   "  - id: sample-reviewer.bad-entry" "    vendor: sample-reviewer" "    part: choice" "    rule: auto" \
   "    position: 1" "    condition: prior-review" "    control: Full"
+# C1 controls, invisible and bidi code points, and invalid UTF-8 are refused
+# wherever a value is printed or posted.
+bad "C1 control in a match" "a C1, invisible, or bidi character, or invalid UTF-8, in a field" \
+  "  - id: sample-reviewer.bad-entry" "    vendor: sample-reviewer" "    part: recognizer" "    match: a$(printf '\302\233')b"
+bad "bidi override in a locator" "a C1, invisible, or bidi character, or invalid UTF-8, in a field" \
+  "  - id: sample-reviewer.bad-entry" "    vendor: sample-reviewer" "    part: recognizer" "    match: x" \
+  "    reset-after: a$(printf '\342\200\256')b"
+bad "zero-width space in a comment body" "a C1, invisible, or bidi character, or invalid UTF-8, in a field" \
+  "  - id: sample-reviewer.bad-entry" "    vendor: sample-reviewer" "    part: control" \
+  "    comment-body: \"@sample-reviewer-app go$(printf '\342\200\213')\""
+bad "invalid UTF-8 byte in a match" "a C1, invisible, or bidi character, or invalid UTF-8, in a field" \
+  "  - id: sample-reviewer.bad-entry" "    vendor: sample-reviewer" "    part: recognizer" "    match: a$(printf '\233')b"
+sb="$tmp/utf8-ok"
+seed "$sb"
+put "$(local_cat "$sb")" <<YAML
+vendors:
+  - id: claude.dash
+    vendor: claude
+    part: recognizer
+    match: limit reached $(printf '\342\200\224') try later
+YAML
+rv "$sb"
+assert_rc "valid UTF-8 punctuation in a match resolves" 0 "$RC"
+assert_contains "the em dash survives" "limit reached $(printf '\342\200\224') try later" "$OUT"
 
 # An entry outside the vendors: section is malformed.
 sb="$tmp/outside-section"
