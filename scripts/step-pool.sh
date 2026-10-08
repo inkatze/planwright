@@ -148,8 +148,18 @@ export LC_ALL
 unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
-# shellcheck source=scripts/echo-safety.sh
-. "$script_dir/echo-safety.sh"
+if [ -f "$script_dir/echo-safety.sh" ] && [ -r "$script_dir/echo-safety.sh" ]; then
+  # shellcheck source=scripts/echo-safety.sh
+  . "$script_dir/echo-safety.sh"
+else
+  sanitize_printable() {
+    _sp=$(printf '%s' "$1" | tr -d '\000-\037\177\200-\237')
+    if [ -z "$_sp" ] && [ $# -ge 2 ]; then
+      _sp=$2
+    fi
+    printf '%s' "$_sp"
+  }
+fi
 
 FULL_SUITE='(full-suite)'
 DEFAULT_WAIT=60m
