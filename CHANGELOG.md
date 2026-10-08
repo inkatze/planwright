@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.55.0](https://github.com/inkatze/planwright/compare/v0.54.0...v0.55.0) (2026-10-08)
+
+
+### Features
+
+* **spec-location:** name a spec by its bare identifier on every identity seam ([#598](https://github.com/inkatze/planwright/issues/598)) ([49d79cb](https://github.com/inkatze/planwright/commit/49d79cb566c7fba55f6dcd5d58a1c76ba7397fa0))
+
 ## [0.54.0](https://github.com/inkatze/planwright/compare/v0.53.0...v0.54.0) (2026-10-06)
 
 
