@@ -1904,7 +1904,8 @@ reset_layers
 
 # A broken install whose echo-safety.sh is a directory: bash would source it,
 # fail, and run on with the sanitizer undefined; it exits 5 instead.
-bi_dir=$(mktemp -d)
+bi_dir="$tmp/broken-install"
+mkdir "$bi_dir" || exit 1
 cp -R "$here/../scripts" "$bi_dir/"
 rm -f "$bi_dir/scripts/echo-safety.sh"
 mkdir "$bi_dir/scripts/echo-safety.sh"
