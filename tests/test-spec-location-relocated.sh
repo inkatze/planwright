@@ -232,6 +232,11 @@ for posture in in-repo holder plain; do
   else
     fail "$posture: no dispatch marker in the relocated bundle: $out"
   fi
+  # A commit on the dispatched task branch, in the work repository, is what
+  # the state then derives from, wherever the bundle lives (REQ-E1.4).
+  gitq -C "$w/.claude/worktrees/demo-task-2" commit -q --allow-empty -m "wip"
+  at "$w" "$S/orchestrate-state.sh" "$root/demo"
+  expect "$posture: state derives task 2 from the work repository's task branch" "task	2	in-progress	branch-commits" "$out"
 done
 
 # The spec checks in mise.toml read the resolved root (REQ-G1.2): the

@@ -53,7 +53,8 @@ Doctrine: point-of-use custom-steps
 Run once per invocation, in order. Any halt records the unit to the spec's
 `tasks.md` `## Awaiting input` section with the reason — on a format-version 2
 bundle as a committed reference bullet, `**Task <id>** — <reason>`, the block
-staying in `## Tasks` (a halting-skill human-payload write, D-3) — and ends the
+staying in `## Tasks` (D-3); in a holder or plain store, `scripts/halt-note.sh`
+writes it uncommitted, named in the handoff (REQ-E1.9) — and ends the
 step (the `gate-wiring` pause protocol's dispatched arm); attended, present and
 wait instead.
 
@@ -67,11 +68,12 @@ wait instead.
    ask which task to execute.
 2. **Resolve the spec path**, in order: (a) an explicit spec argument
    (validated in step 1); (b) the branch name
-   parsed against `planwright/<spec>/task-<ids>` (D-36); (c) the current
-   checkout when it holds exactly one `specs/*/` bundle whose `Status:` is
-   `Ready` or `Active`; (d) ask, listing the available bundles
-   (underscore-prefixed reserved directories are not bundles). Verify the directory
-   holds `requirements.md`, `design.md`, `tasks.md`, and `test-spec.md`.
+   parsed against `planwright/<spec>/task-<ids>` (D-36); (c) the spec root's
+   primary view (`scripts/resolve-root.sh spec --primary`, `<root>` below) when
+   it holds exactly one bundle whose `Status:` is `Ready` or `Active`; (d) ask,
+   listing the available bundles (underscore-prefixed reserved directories are
+   not bundles). Verify the directory holds `requirements.md`, `design.md`,
+   `tasks.md`, and `test-spec.md`.
 3. **Resolve the run-start doctrine docs** (above).
 4. **Verify the spec is Ready or Active** (REQ-C1.1, superseding the bootstrap
    non-Active refusal REQ-J1.2, D-33; kickoff-lifecycle D-2, D-3). Read the
@@ -83,11 +85,11 @@ wait instead.
    spec has nothing to execute. A `Ready` spec runs on the same terms as Active:
    the freshness gate (step 7) still applies (REQ-C1.3); the two gates compose.
    There is no bypass flag.
-5. **Run the validator.** `scripts/spec-validate.sh specs/<spec>`. On this
+5. **Run the validator.** `scripts/spec-validate.sh <root>/<spec>`. On this
    dispatch path a missing or non-executable validator fails closed and halts
    (REQ-K1.7). A Ready or Active bundle's findings are errors: surface them and
    halt.
-6. **Verify the kickoff brief.** `specs/<spec>/kickoff-brief.md` must exist and
+6. **Verify the kickoff brief.** `<root>/<spec>/kickoff-brief.md` must exist and
    carry a final sign-off record with an anchor line (D-36). Absent, or partial
    (sections signed but no sign-off record, or a record without its anchor line
    — anchor-written-last makes a killed kickoff look absent, by design): halt
@@ -97,10 +99,10 @@ wait instead.
    content changed since sign-off and against a **stale local `main`**:
    - **Fetch-before-gate** (D-9, REQ-D1.1). Run `scripts/dispatch-fetch.sh
      --spec <spec> <primary-checkout>`: it fetches `origin` (bounded, **no
-     local-`main` advance**) and prints the fetched **`origin/main`** anchor
-     (re-pointing `spec-anchor.sh`). Exit **0** → gate vs `origin/main`; **3**
-     (`no-remote`, offline) → gate vs local `main`; **4** (`stale-transient`) or
-     any other nonzero → do not silently proceed: park to Awaiting input.
+     local-`main` advance**) and prints the anchor of the bundle's primary view
+     (`spec-format` *Read surface per posture*). Exit **0**, or **3**
+     (`no-remote`, offline) → gate against it; any other nonzero → do not
+     silently proceed: park to Awaiting input.
    - **Validate the entry** (brief's most recent, from the resolved ref): it
      parses, uses a **sanctioned command form** (any form on `spec-format`'s
      *Sanctioned command forms* list), a **sanctioned writer** (a
@@ -411,11 +413,10 @@ classify the edit on the amendment axis:
    block's `- **Last activity:** <today>` annotation; write **no** `Status`
    line. Section placement is the `tasks-pr-sync` reconcile's sole job
    (REQ-B1.1, D-1); the reconcile preserves annotations untouched and does not
-   author the `Status` text. Writing a `PR #<N> draft` Status here would race
-   the reconcile: the hook is fail-soft on a busy lock (a clean no-op), so the
-   block can still sit in `## Forward plan`, an in-progress `Status` there being
-   exactly the section/status contradiction `scripts/check-ledger.sh` flags
-   (REQ-E1.1, REQ-E1.2).
+   author the `Status` text. A `PR #<N> draft` Status here would race it: the
+   hook is fail-soft on a busy lock, leaving the block in `## Forward plan` with
+   the section/status contradiction `scripts/check-ledger.sh` flags (REQ-E1.1,
+   REQ-E1.2).
 
 **Hand off.** Report: the unit and spec, the freshness-gate result, tests
 written and CI outcome, step counts per point, the convergence summary, the verified anchor, the
