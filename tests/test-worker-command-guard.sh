@@ -1563,19 +1563,6 @@ assert_defer "relative target's location from another working directory deferred
   "$FXC/tools/declared.sh --rel" Bash "$FXC/tools"
 assert_allow "declared line inside fish -c approved" "fish -c '$DECLARED --mode strict'" Bash "$FXC"
 assert_defer "changed declared line inside fish -c deferred" "fish -c '$DECLARED --mode lax'" Bash "$FXC"
-# At the default deadline, on the host running the suite, the resolution of
-# every wired point fits: a declared line is approved with no override.
-# A loaded runner gets one retry; a resolution that never fits still fails.
-HOOK_ENV=("${FX_ENV[@]}")
-run_hook "$DECLARED --mode strict" Bash "$FXC"
-is_allow || run_hook "$DECLARED --mode strict" Bash "$FXC"
-if ! check_invariants "declared line approved within the default deadline"; then
-  :
-elif is_allow; then
-  pass "declared line approved within the default deadline"
-else
-  fail "declared line approved within the default deadline — expected ALLOW on one of two tries, got defer"
-fi
 HOOK_ENV=()
 assert_defer "declared line with no declaring overlay deferred" "$DECLARED --mode strict" Bash "$FXC"
 
@@ -1743,6 +1730,22 @@ if [ "$first_half_rc" -eq 0 ] && read -r fh_passes fh_failures fh_false_allows <
 else
   fail "the first half of the cases ended early (exit $first_half_rc) without reporting its counts"
 fi
+
+# At the default deadline, on the host running the suite, the resolution of
+# every wired point fits: a declared line is approved with no override.
+# A loaded runner gets one retry; a resolution that never fits still fails.
+# It runs after the join so the other half does not compete for its deadline.
+HOOK_ENV=("${FX_ENV[@]}")
+run_hook "$DECLARED --mode strict" Bash "$FXC"
+is_allow || run_hook "$DECLARED --mode strict" Bash "$FXC"
+if ! check_invariants "declared line approved within the default deadline"; then
+  :
+elif is_allow; then
+  pass "declared line approved within the default deadline"
+else
+  fail "declared line approved within the default deadline — expected ALLOW on one of two tries, got defer"
+fi
+HOOK_ENV=()
 
 echo "### REQ-B1.7 — bounded runtime on pathological input"
 big="$(head -c 200000 /dev/zero | tr '\0' 'a')"
