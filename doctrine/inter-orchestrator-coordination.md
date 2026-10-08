@@ -94,8 +94,9 @@ paste. So the tmux paste is **one unterminated pointer line** (`… read
 refuses, pasting nothing (exit 3), while a selection prompt is open, since a
 paste would answer it, or a paste placeholder is staged; afterwards it
 confirms delivery by the paste's fresh tag showing in the pane, never assumes
-it (exit 4 when it never shows: observe before re-sending). The handle is explicit (operator-named, or from
-a live peer's presence record), never the active pane. `relay-command stream-json`
+it (exit 4 when it never shows: observe before re-sending). The handle is
+explicit (operator-named, or from a live peer's presence record), never the
+active pane. `relay-command stream-json`
 instead emits `fleet-streamjson.sh steer`: a user turn on the worker's own
 stdin, a real submit with a receipt row — the unattended path.
 
