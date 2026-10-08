@@ -312,6 +312,28 @@ out=$(sp -- take leak "$b")
 [ "$out" = "taken${TAB}1${TAB}0" ]
 verdict "a leaked child does not keep its owner's slot" "leaked child: '$out'"
 
+# --- REQ-I1.1: an owner that stops running ends its own wait --------------------
+reset
+printf 'step_pool_wait: 60s\n' >"$mlocal"
+a=$(owner)
+w=$(owner)
+sp -- take gone "$a" >/dev/null
+sp -- take gone "$w" >"$tmp/out" 2>"$tmp/err" &
+waiter=$!
+_n=0
+until grep -q 'is full' "$tmp/err" 2>/dev/null || [ "$_n" -ge 300 ]; do
+  sleep 0.1
+  _n=$((_n + 1))
+done
+kill_owner "$w"
+wait "$waiter"
+rc=$?
+out=$(cat "$tmp/out")
+[ "$rc" -eq 2 ] && grep -q "owner $w is not running" "$tmp/err" && [ -z "$out" ] \
+  && [ "$(sp -- report gone | grep -c .)" -eq 1 ]
+verdict "a take whose owner stops running mid-wait ends at once, holding nothing" \
+  "owner gone mid-wait: rc=$rc out='$out'" "$tmp/err"
+
 # --- REQ-I1.1: released by its owner after a non-zero exit ----------------------
 reset
 printf 'step_pool_wait: 1s\n' >"$mlocal"

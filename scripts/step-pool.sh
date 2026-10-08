@@ -515,12 +515,17 @@ bound=$(wait_bound)
 nap=0.1
 round=0
 while :; do
+  [ "$round" -eq 0 ] || pid_running "$owner" || refuse "owner $owner is not running"
   i=1
   while [ "$i" -le "$cap" ]; do
     pw_lock_acquire_for "$pool_dir/slot-$i" "$owner" 1 2>"$errf"
     case $? in
       0)
         tok=$PW_LOCK_TOKEN
+        if ! pid_running "$owner"; then
+          pw_lock_release_token "$pool_dir/slot-$i" "$tok" 2>/dev/null
+          refuse "owner $owner is not running"
+        fi
         part="$pool_dir/.holder-$i.$$"
         if (set -C && printf '%s\t%s\t%s\n' "$tok" "$step" "$worktree" >"$part") 2>/dev/null; then
           mv -f "$part" "$pool_dir/holder-$i" 2>/dev/null || rm -f "$part"
