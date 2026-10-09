@@ -987,6 +987,8 @@ first_half() {
   assert_defer "REQ-E1.2: SECONDS is a dynamic variable" "SECONDS=1 && ls"
   assert_defer "REQ-E1.2: a zsh read-only ZSH_ special is refused" "ZSH_NAME=scripts/ok.sh && bash \$ZSH_NAME"
   assert_defer "REQ-E1.2: zsh's funcstack is refused" "funcstack=scripts/ok.sh && bash \$funcstack"
+  assert_defer "REQ-E1.2: zsh's options hash is refused" "options=scripts/ok.sh && bash \$options"
+  assert_defer "REQ-E1.2: zsh's argv is refused" "argv=scripts/ok.sh && bash \$argv"
   assert_defer "REQ-E1.2: UID is readonly, so the model would be wrong" "UID=-delete && find . \$UID"
   assert_defer "REQ-E1.2: a conditional assignment before a use" "false && f=x; grep -n x \$f"
   assert_defer "REQ-E1.2: an assignment after a real command is conditional" "ls && f=-delete && find . \$f"

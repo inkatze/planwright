@@ -1804,7 +1804,9 @@ assign_name_ok() {
       ARGC | GID | EGID | ERRNO | HISTSIZE | SAVEHIST | KEYTIMEOUT | LISTMAX | LOGCHECK | PERIOD | \
       SHLVL | TTYIDLE | TRY_BLOCK_ERROR | TRY_BLOCK_INTERRUPT | COLUMNS | LINES | BAUD | \
       DIRSTACKSIZE | USERNAME | STTY | ZDOTDIR | TMPPREFIX | status | pipestatus | \
-      ZSH_* | funcstack | funcfiletrace | functrace | zsh_eval_context | MBEGIN | MEND) return 1 ;;
+      ZSH_* | funcstack | funcfiletrace | functrace | zsh_eval_context | MBEGIN | MEND | \
+      options | commands | functions | aliases | parameters | argv | match | MATCH | mbegin | \
+      mend | reply) return 1 ;;
   esac
   # Membership in the hook's own ENVIRONMENT, snapshotted at startup: an
   # exported name the command re-points reaches every child it runs. The
