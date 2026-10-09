@@ -26,8 +26,8 @@
 #
 # Usage: refresh-test-durations.sh [--suite <dir>] [--out <path>] <source>
 #        (defaults: <repo-root>/tests, <repo-root>/config/test-durations.tsv)
-# Exit:  0 written · 2 usage error, unreadable source, no usable row, or a
-#        table that could not be written
+# Exit:  0 written · 2 usage error, unreadable source, a ranked table cut
+#        short, no usable row, or a table that could not be written
 set -u
 unset CDPATH
 LC_ALL=C
