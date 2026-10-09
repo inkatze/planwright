@@ -12,13 +12,18 @@
 #     over-length) BEFORE the handle is ever used to target a worker
 #     (REQ-B1.7: handles parsed for targeting are validated before use). Exit 0
 #     valid, exit 2 invalid/hostile/usage. No stdout.
-#   - `relay-command <backend> <handle> <message-file>` emits the ATTRIBUTED,
-#     buffer-paste relay command (tmux `load-buffer`/`paste-buffer`) — never a
-#     `send-keys` impersonation path (REQ-D1.3). The message is delivered as
-#     DATA: the emitted command references the message FILE, never inlines its
-#     content, so worker/tower message text is never spliced into the command as
-#     code (REQ-B1.7: worker output is data, no eval/expansion path). subagent
-#     is harness-native (no screen-scrape surface): empty stdout, exit 0.
+#   - `relay-command <backend> <handle> <message-file>` emits the relay
+#     command; for tmux that is this script's own `deliver` by literal path.
+#     The message is DATA: the emitted command references the message FILE,
+#     never inlines its content, so worker/tower message text is never spliced
+#     into the command as code (REQ-B1.7: worker output is data, no
+#     eval/expansion path). subagent is harness-native (no screen-scrape
+#     surface): empty stdout, exit 0.
+#   - `deliver tmux <handle> <message-file>` runs the ATTRIBUTED buffer-paste
+#     (`load-buffer`/`paste-buffer`, never `send-keys`, REQ-D1.3): it refuses
+#     while the target shows a selection prompt or a staged paste placeholder,
+#     pastes one unterminated pointer line carrying a fresh tag, and confirms
+#     the tag shows in the pane rather than assuming delivery.
 #   - `observe-command <backend> <handle>` emits the capture-pane
 #     observe-in-flight read (REQ-D1.3), handle validated first.
 #   - Source audit: no `send-keys` and no `eval` path exists anywhere in the
@@ -42,6 +47,19 @@ fail() {
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
+# The relay emits message paths through `pwd -P`; expected paths built from
+# $tmp must match where TMPDIR is a symlink (macOS /var -> /private/var).
+tmp=$(cd "$tmp" && pwd -P)
+
+# No tmux call here may reach the host's server: tmux honours $TMUX over
+# TMUX_TMPDIR, so a test run from inside a tmux pane would otherwise act on
+# the operator's live sessions. Section 14 pins its own socket on top of this.
+host_sock=${TMUX:-}
+host_sock=${host_sock%%,*}
+unset TMUX TMUX_PANE
+TMUX_TMPDIR="$tmp/tmux-default"
+export TMUX_TMPDIR
+mkdir -p "$TMUX_TMPDIR"
 
 # rc_of <expected-rc> <label> -- <cmd...>: run the command with output
 # suppressed and assert its exit code, without tripping `set -e`.
@@ -103,42 +121,26 @@ rc_of 2 "validate-handle must reject an unknown backend" -- \
 echo "ok: validate-handle fails closed on an unknown backend"
 
 # ---------------------------------------------------------------------------
-# 5. relay-command tmux: emits the attributed buffer-paste command, references
-#    the message FILE (never inlines its content), and has NO send-keys path.
+# 5. relay-command tmux: emits this script's own `deliver` by literal path,
+#    references the message FILE made absolute (never inlines its content),
+#    and has NO send-keys path.
 # ---------------------------------------------------------------------------
+relay_dir=$(cd "$(dirname "$RELAY")" && pwd)
 msg="$tmp/relay-msg.txt"
 printf 'merge main into your branch and resolve conflicts, please.\n' >"$msg"
 out=$("$RELAY" relay-command tmux "@3" "$msg") \
   || fail "relay-command tmux exited non-zero on a valid handle+message"
+[ "$out" = "'$relay_dir/orchestrate-relay.sh' deliver tmux '@3' '$msg'" ] \
+  || fail "relay-command tmux must emit the literal-path deliver invocation, got: $out"
 case "$out" in
-  *"tmux load-buffer"*) : ;;
-  *) fail "relay-command tmux must use tmux load-buffer (buffer-paste mechanism)" ;;
-esac
-case "$out" in
-  *"tmux paste-buffer"*) : ;;
-  *) fail "relay-command tmux must use tmux paste-buffer (buffer-paste mechanism)" ;;
-esac
-case "$out" in
-  *"$msg"*) : ;;
-  *) fail "relay-command tmux must reference the message FILE (data, not inlined)" ;;
-esac
-case "$out" in
-  *"@3"*) : ;;
-  *) fail "relay-command tmux must target the validated handle" ;;
-esac
-case "$out" in
-  *send-keys*) fail "relay-command tmux must NEVER emit a send-keys path" ;;
+  *send-keys* | *"\$"*) fail "relay-command tmux must emit no send-keys path and no variable" ;;
   *) : ;;
 esac
-# Attribution: pin the human-visible, tower-marked header naming the target
-# direction — the actual non-impersonation marker (REQ-D1.3), NOT merely the
-# internal `planwright-relay` buffer name (a bare `*planwright*relay*` glob would
-# pass on the buffer name alone even if the visible header were deleted).
-case "$out" in
-  *"[planwright tower relay -> @3]"*) : ;;
-  *) fail "relay-command tmux must emit the attributed, target-named header ([planwright tower relay -> @3])" ;;
-esac
-echo "ok: relay-command tmux emits an attributed buffer-paste command, no send-keys"
+(cd "$tmp" && "$RELAY" relay-command tmux "@3" "relay-msg.txt") >"$tmp/rel.out" \
+  || fail "relay-command tmux exited non-zero on a relative message path"
+grep -qF "'$msg'" "$tmp/rel.out" \
+  || fail "relay-command must emit the message path absolute, got: $(cat "$tmp/rel.out")"
+echo "ok: relay-command tmux emits the literal-path deliver, message file absolute, no send-keys"
 
 # ---------------------------------------------------------------------------
 # 6. relay-command: message text is DATA. A message file full of shell
@@ -244,8 +246,10 @@ echo "ok: source audit — no send-keys and no eval path in the relay script's c
 rc_of 2 "no subcommand must be a usage error" -- "$RELAY"
 rc_of 2 "unknown subcommand must be a usage error" -- "$RELAY" frobnicate
 rc_of 2 "validate-handle with no handle must be a usage error" -- "$RELAY" validate-handle tmux
+rc_of 2 "relay-command with no handle must be a usage error" -- "$RELAY" relay-command tmux
 rc_of 2 "relay-command with no message file must be a usage error" -- \
   "$RELAY" relay-command tmux "@3"
+rc_of 2 "deliver with no handle must be a usage error" -- "$RELAY" deliver tmux
 echo "ok: fail-closed usage errors"
 
 # ---------------------------------------------------------------------------
@@ -305,72 +309,306 @@ rc_of 2 "observe-command must still fail closed on a control-byte backend" -- \
 echo "ok: echo discipline — diagnostics sanitize untrusted paths/backends; msgfile guard rejects unreadable + control-byte paths"
 
 # ---------------------------------------------------------------------------
-# 13. Concurrency: the tmux buffer name must be UNIQUE per relay invocation.
-#     tmux named buffers are server-global, so a fixed name lets two relays on
-#     one tmux server interleave (A load, B load, A paste) and deliver the wrong
-#     payload to the wrong target — a live risk since this feature is multi-tower
-#     coordination sharing a server. Within one invocation, load and paste must
-#     still name the SAME buffer; across invocations the names must differ.
+# 13. deliver tmux, against a recording tmux whose pane is a file: the paste
+#     appends the loaded buffer to the pane unless told to drop it.
 # ---------------------------------------------------------------------------
-bufname_of() { printf '%s\n' "$1" | sed -n 's/.*-b \([^ ]*\).*/\1/p'; }
-out1=$("$RELAY" relay-command tmux "@3" "$msg") \
-  || fail "relay-command tmux exited non-zero building the buffer-name fixture"
-lb1=$(bufname_of "$(printf '%s\n' "$out1" | grep 'tmux load-buffer')")
-pb1=$(bufname_of "$(printf '%s\n' "$out1" | grep 'tmux paste-buffer')")
-[ -n "$lb1" ] || fail "could not extract the load-buffer name from relay-command output"
-[ "$lb1" = "$pb1" ] \
-  || fail "relay-command load and paste must name the same buffer within one invocation (got '$lb1' vs '$pb1')"
-out2=$("$RELAY" relay-command tmux "@3" "$msg") \
-  || fail "relay-command tmux exited non-zero on the second buffer-name fixture"
-lb2=$(bufname_of "$(printf '%s\n' "$out2" | grep 'tmux load-buffer')")
-[ "$lb1" != "$lb2" ] \
-  || fail "relay-command must use a buffer name unique per invocation (both were '$lb1'); a fixed server-global buffer races across concurrent relays"
-echo "ok: relay buffer name is unique per invocation and consistent within one (no cross-relay race)"
-
-# ---------------------------------------------------------------------------
-# 14. The tmux paste is ONE LINE, a pointer to the message file, never the body.
-#     Measured on Claude Code 2.1.270: a multi-line paste becomes a
-#     "[Pasted text #N +M lines]" placeholder the CLI never submits, and it
-#     wedges every later paste behind it. The old emission (`printf header;
-#     cat -- <file>`) was multi-line for EVERY message. Now the loaded payload
-#     is a single printf of header + `read <absolute file>`, whatever the
-#     file holds.
-# ---------------------------------------------------------------------------
-multi="$tmp/multi-line.txt"
-printf 'line one\nline two\nline three\n' >"$multi"
-out=$("$RELAY" relay-command tmux "@3" "$multi") \
-  || fail "relay-command tmux exited non-zero on a multi-line message"
-load=$(printf '%s\n' "$out" | grep 'tmux load-buffer')
-case "$load" in
-  *"cat -- "*) fail "relay-command must not paste the message body (the body is what made the paste multi-line)" ;;
-  *) : ;;
-esac
-case "$load" in
-  "printf '%s' '[planwright tower relay -> @3] read $multi' | tmux load-buffer -b "*) : ;;
-  *) fail "relay-command must load exactly one pointer line (header + read <file>), got: $load" ;;
-esac
-# The payload the emitted command loads is what tmux pastes: run the load half
-# with tmux replaced by a recorder and compare the bytes it receives.
 mkdir -p "$tmp/fakebin"
 cat >"$tmp/fakebin/tmux" <<'EOF'
 #!/bin/sh
-cat >"$FAKE_TMUX_OUT"
+d=$FAKE_TMUX_DIR
+printf '%s\n' "$*" >>"$d/log"
+case "$1" in
+  capture-pane)
+    [ -f "$d/capture-fails" ] && exit 1
+    cat "$d/pane"
+    ;;
+  load-buffer)
+    [ -f "$d/load-fails" ] && exit 1
+    cat >"$d/buffer"
+    ;;
+  paste-buffer)
+    [ -f "$d/paste-fails" ] && exit 1
+    if [ -f "$d/paste-signals" ]; then
+      kill -TERM "$PPID"
+      exit 1
+    fi
+    if [ ! -f "$d/paste-drops" ]; then
+      cat "$d/buffer" >>"$d/pane"
+      printf '\n' >>"$d/pane"
+    fi
+    cp "$d/buffer" "$d/pasted"
+    rm -f "$d/buffer"
+    ;;
+  delete-buffer) rm -f "$d/buffer" ;;
+esac
+exit 0
 EOF
 chmod +x "$tmp/fakebin/tmux"
-FAKE_TMUX_OUT="$tmp/pasted.txt" PATH="$tmp/fakebin:$PATH" sh -c "$load" \
-  || fail "the emitted load-buffer line did not run"
-# Byte-exact: no trailing newline. paste-buffer turns a trailing LF into a CR,
-# which Claude Code ingests as a hidden newline inside the input box, so the
-# receiving human's first Enter is spent on it and only a second one submits.
-printf '%s' "[planwright tower relay -> @3] read $multi" >"$tmp/expected-paste.txt"
-cmp -s "$tmp/pasted.txt" "$tmp/expected-paste.txt" \
-  || fail "the pasted payload must be exactly the attributed pointer with no trailing newline, got: $(od -c "$tmp/pasted.txt" | tail -3)"
-# A relative message path is emitted absolute: the worker's cwd is not the tower's.
-(cd "$tmp" && "$RELAY" relay-command tmux "@3" "multi-line.txt") >"$tmp/rel.out" \
-  || fail "relay-command tmux exited non-zero on a relative message path"
-grep -q "read $multi'" "$tmp/rel.out" \
-  || fail "relay-command must emit the message path absolute, got: $(cat "$tmp/rel.out")"
-echo "ok: tmux relay pastes exactly one unterminated pointer line and never the message body"
+
+idle_pane='● Done. Tests pass.
+
+────────────────────────────────────────
+❯ 
+────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents'
+
+# fake_deliver <case-dir> <pane-text> [deliver args...]: reset the fake, run
+# deliver, leave its stdout/stderr/rc in the case dir. FD_FLAGS names the
+# fake's failure switches to set first (capture-fails, paste-drops, ...).
+fake_deliver() {
+  fd_dir="$tmp/$1"
+  rm -rf "$fd_dir"
+  mkdir -p "$fd_dir"
+  printf '%s\n' "$2" >"$fd_dir/pane"
+  : >"$fd_dir/log"
+  for fd_flag in ${FD_FLAGS:-}; do
+    touch "$fd_dir/$fd_flag"
+  done
+  shift 2
+  fd_rc=0
+  FAKE_TMUX_DIR="$fd_dir" PATH="$tmp/fakebin:$PATH" \
+    PLANWRIGHT_RELAY_CONFIRM_TRIES="${FD_TRIES:-2}" PLANWRIGHT_RELAY_CONFIRM_SLEEP=0 \
+    "$RELAY" deliver tmux "$@" >"$fd_dir/out" 2>"$fd_dir/err" || fd_rc=$?
+  printf '%s\n' "$fd_rc" >"$fd_dir/rc"
+}
+rc_is() { [ "$(cat "$tmp/$1/rc")" = "$2" ] || fail "$3: expected exit $2, got $(cat "$tmp/$1/rc") ($(cat "$tmp/$1/err"))"; }
+pasted_nothing() {
+  grep -qE '^(load-buffer|paste-buffer)' "$tmp/$1/log" \
+    && fail "$2: must paste nothing, tmux saw: $(cat "$tmp/$1/log")"
+  return 0
+}
+
+# 13a. An idle input box: one unterminated attributed pointer line is pasted,
+#      the body never is, and the tag seen in the pane confirms it (exit 0).
+multi="$tmp/multi-line.txt"
+printf 'line one\nline two\nline three\n' >"$multi"
+fake_deliver idle "$idle_pane" "@3" "$multi"
+rc_is idle 0 "deliver to an idle pane"
+grep -q '^staged @3 (#' "$tmp/idle/out" || fail "deliver must report the staged tag, got: $(cat "$tmp/idle/out")"
+tag=$(sed -n 's/^staged @3 (\(#[a-j-]*\)).*/\1/p' "$tmp/idle/out")
+[ -n "$tag" ] || fail "could not read a letters-only tag from: $(cat "$tmp/idle/out")"
+# The tag leads, so it sits at the start of the input box's first row however
+# narrow the pane wraps, and the paste opens with no digit a dialog could take.
+printf '%s' "($tag) [planwright tower relay -> @3] read $multi" >"$tmp/expected-paste.txt"
+cmp -s "$tmp/idle/pasted" "$tmp/expected-paste.txt" \
+  || fail "the pasted payload must be exactly the attributed pointer with its tag and no trailing newline, got: $(od -c "$tmp/idle/pasted" | tail -3)"
+grep -q 'line two' "$tmp/idle/pasted" && fail "deliver must never paste the message body"
+grep -q 'send-keys' "$tmp/idle/log" && fail "deliver must never call send-keys"
+echo "ok: deliver pastes exactly one unterminated attributed pointer line and confirms it by its tag"
+
+# 13b. Buffer name: the load and the paste name the same buffer within one
+#      delivery, and two deliveries never share one (tmux buffers are
+#      server-global, so a fixed name races across concurrent relays).
+bufname_of() { sed -n "s/^$1 -b \([^ ]*\).*/\1/p" "$2"; }
+lb1=$(bufname_of load-buffer "$tmp/idle/log")
+pb1=$(bufname_of paste-buffer "$tmp/idle/log")
+[ -n "$lb1" ] && [ "$lb1" = "$pb1" ] \
+  || fail "deliver load and paste must name the same buffer (got '$lb1' vs '$pb1')"
+fake_deliver idle2 "$idle_pane" "@3" "$multi"
+rc_is idle2 0 "second deliver"
+grep -q "^paste-buffer -b $lb1 .* -d\$" "$tmp/idle/log" \
+  || fail "a successful paste must delete its buffer (paste-buffer -d), tmux saw: $(cat "$tmp/idle/log")"
+lb2=$(bufname_of load-buffer "$tmp/idle2/log")
+[ "$lb1" != "$lb2" ] || fail "deliver must use a buffer name unique per invocation (both were '$lb1')"
+echo "ok: relay buffer name is unique per invocation and consistent within one"
+
+# 13c. Refuse, pasting nothing, while a selection prompt is open: a permission
+#      dialog, a select menu's footer, or the cursor on a numbered option.
+perm_pane='  Bash command
+
+    ./tests/test-fleet-liveness.sh
+
+  Do you want to proceed?
+  ❯ 1. Yes
+    2. Yes, and don'"'"'t ask again for ./tests/ commands in this worktree
+    3. No, and tell Claude what to do differently (esc)'
+menu_pane='  Which approach?
+
+  ❯ 1. Strict
+    2. Lenient
+
+  ↑/↓ to navigate · Enter to select · Esc to cancel'
+cursor_pane='  Pick one
+  ❯ 2. Second option
+    3. Third option'
+for c in perm menu cursor; do
+  case "$c" in
+    perm) pane=$perm_pane ;;
+    menu) pane=$menu_pane ;;
+    cursor) pane=$cursor_pane ;;
+  esac
+  fake_deliver "sel-$c" "$pane" "@3" "$msg"
+  rc_is "sel-$c" 3 "deliver over an open selection prompt ($c)"
+  pasted_nothing "sel-$c" "deliver over an open selection prompt ($c)"
+  grep -q 'selection prompt' "$tmp/sel-$c/err" || fail "the $c refusal must name the selection prompt: $(cat "$tmp/sel-$c/err")"
+done
+echo "ok: deliver refuses, pasting nothing, while a selection prompt is open"
+
+# 13d. Refuse while a multi-line paste placeholder sits staged in the box, and
+#      when the pane cannot be read at all.
+fake_deliver staged "$(printf '%s\n' '────' '❯ [Pasted text #1 +4 lines]' '────' '  ⏵⏵ auto mode on')" "@3" "$msg"
+rc_is staged 3 "deliver over a staged paste placeholder"
+pasted_nothing staged "deliver over a staged paste placeholder"
+FD_FLAGS=capture-fails fake_deliver unreadable "$idle_pane" "@3" "$msg"
+rc_is unreadable 3 "deliver over an unreadable pane"
+pasted_nothing unreadable "deliver over an unreadable pane"
+# A blank pane reads fine: unreadable means the capture failed, not that it
+# came back empty.
+fake_deliver blank "" "@3" "$msg"
+rc_is blank 0 "deliver to a blank but readable pane"
+echo "ok: deliver refuses a staged placeholder and an unreadable pane, not a blank one"
+
+# 13d2. Refuse while an earlier relay sits unsubmitted in the input box: the
+#       paste has no trailing newline, so a second one would join it on one
+#       line and one Enter would submit both as a garbled path.
+for form in "(#bc-de) [planwright tower relay -> @3] read /tmp/a.txt" \
+  "[planwright tower relay -> @3] (#1-1) read /tmp/a.txt"; do
+  fake_deliver staged-relay "$(printf '%s\n' '────' "❯ $form" '────' '  ⏵⏵ auto mode on')" "@3" "$msg"
+  rc_is staged-relay 3 "deliver over an unsubmitted relay ($form)"
+  pasted_nothing staged-relay "deliver over an unsubmitted relay"
+  grep -q 'unsubmitted relay' "$tmp/staged-relay/err" || fail "the refusal must name the unsubmitted relay: $(cat "$tmp/staged-relay/err")"
+done
+# A relay already submitted sits in the transcript, above the input box's top
+# rule; only the row right under that rule is the box, so it does not block.
+fake_deliver sent-relay "❯ (#bc-de) [planwright tower relay -> @3] read /tmp/a.txt
+$idle_pane" "@3" "$msg"
+rc_is sent-relay 0 "deliver after a relay already submitted to the transcript"
+# A narrow box wraps the header onto the row below the tag; the staged relay
+# is still in the box, so it still refuses.
+fake_deliver wrapped-relay "$(printf '%s\n' '────' '❯ (#bc-de)' '  [planwright tower relay -> @3] read /tmp/a.txt' '────' '  ⏵⏵ auto mode on')" "@3" "$msg"
+rc_is wrapped-relay 3 "deliver over an unsubmitted relay whose header wrapped"
+pasted_nothing wrapped-relay "deliver over an unsubmitted relay whose header wrapped"
+# Transcript text quoting a paste placeholder sits above the box and does not
+# block; only the box's own rows count.
+fake_deliver quoted-placeholder "● The box showed [Pasted text #1 +4 lines] and nothing submitted it.
+$idle_pane" "@3" "$msg"
+rc_is quoted-placeholder 0 "deliver with a placeholder quoted in the transcript"
+echo "ok: deliver refuses to join an unsubmitted relay in the input box, not one already sent"
+
+# 13e. Delivery is confirmed, never assumed: a paste that never shows its tag
+#      is exit 4, and an earlier relay of the same file still on screen does
+#      not pass for this one.
+stale_pane="$idle_pane
+[planwright tower relay -> @3] (#1-1) read $msg"
+FD_TRIES=3 FD_FLAGS=paste-drops fake_deliver dropped "$stale_pane" "@3" "$msg"
+rc_is dropped 4 "a paste whose tag never shows"
+grep -q 'not confirmed' "$tmp/dropped/err" || fail "the unconfirmed diagnostic must say so: $(cat "$tmp/dropped/err")"
+[ "$(grep -c '^capture-pane' "$tmp/dropped/log")" -ge 4 ] \
+  || fail "deliver must re-read the pane for each confirmation try"
+# The tries knob is bounded so the worst-case wait stays under a minute, short
+# of a caller's two-minute command timeout: past the cap, or not an integer,
+# it takes the default (one capture before the paste plus one per try).
+for knob in 20:21 21:6 x:6 0:6 -1:6; do
+  FD_TRIES=${knob%%:*} FD_FLAGS=paste-drops fake_deliver "clamp" "$idle_pane" "@3" "$msg"
+  [ "$(grep -c '^capture-pane' "$tmp/clamp/log")" = "${knob##*:}" ] \
+    || fail "PLANWRIGHT_RELAY_CONFIRM_TRIES=${knob%%:*} must make ${knob##*:} captures, got $(grep -c '^capture-pane' "$tmp/clamp/log")"
+done
+FD_FLAGS=paste-fails fake_deliver pastefail "$idle_pane" "@3" "$msg"
+rc_is pastefail 4 "a failed paste-buffer"
+grep -q '^delete-buffer -b planwright-relay-' "$tmp/pastefail/log" \
+  || fail "a failed paste must delete its buffer, tmux saw: $(cat "$tmp/pastefail/log")"
+# A deliver killed between the load and the paste must not leave its buffer,
+# which holds the relay text, on the shared server.
+FD_FLAGS=paste-signals fake_deliver signalled "$idle_pane" "@3" "$msg"
+[ "$(cat "$tmp/signalled/rc")" != 0 ] || fail "a signalled deliver must not report success"
+grep -q '^delete-buffer -b planwright-relay-' "$tmp/signalled/log" \
+  || fail "a signalled deliver must delete its buffer, tmux saw: $(cat "$tmp/signalled/log")"
+FD_FLAGS=load-fails fake_deliver loadfail "$idle_pane" "@3" "$msg"
+rc_is loadfail 3 "a failed load-buffer"
+grep -q '^paste-buffer' "$tmp/loadfail/log" && fail "a failed load must paste nothing"
+echo "ok: deliver confirms by a fresh tag and reports an unseen paste as not confirmed"
+
+# 13f. deliver validates like relay-command: tmux only, handle and message
+#      file checked before any tmux call.
+# shellcheck disable=SC2016 # 'a$(id)' is a literal hostile handle, not an expansion
+fake_deliver hostile "$idle_pane" 'a$(id)' "$msg"
+rc_is hostile 2 "deliver with a hostile handle"
+[ -s "$tmp/hostile/log" ] && fail "deliver must not call tmux for a hostile handle"
+fake_deliver nofile "$idle_pane" "@3" "$tmp/does-not-exist.txt"
+rc_is nofile 2 "deliver with a missing message file"
+rc_of 2 "deliver refuses a non-tmux backend" -- "$RELAY" deliver stream-json "fg-task-7" "$msg"
+rc_of 2 "deliver with no message file is a usage error" -- "$RELAY" deliver tmux "@3"
+(cd "$tmp" && fake_deliver relpath "$idle_pane" "@3" "relay-msg.txt")
+rc_is relpath 0 "deliver with a relative message path"
+grep -qF " read $msg" "$tmp/relpath/pasted" \
+  || fail "deliver must paste the message path absolute, got: $(cat "$tmp/relpath/pasted")"
+echo "ok: deliver validates its backend, handle, and message file before touching tmux"
+
+# 13g. A vocabulary file that sources but lacks the refusal checks fails
+#      closed: without them every check would read "no dialog" and paste.
+broken="$tmp/broken-install"
+mkdir -p "$broken"
+cp "$RELAY" "$here/../scripts/echo-safety.sh" "$broken/"
+printf '%s\n' '# a vocabulary from an older install, without the refusal checks' >"$broken/fleet-pane-vocabulary.sh"
+mkdir -p "$tmp/broken-fake"
+printf '%s\n' "$perm_pane" >"$tmp/broken-fake/pane"
+: >"$tmp/broken-fake/log"
+rc=0
+FAKE_TMUX_DIR="$tmp/broken-fake" PATH="$tmp/fakebin:$PATH" \
+  "$broken/orchestrate-relay.sh" deliver tmux "@3" "$msg" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "a vocabulary without the refusal checks must exit 2, got $rc"
+grep -qE '^(load-buffer|paste-buffer)' "$tmp/broken-fake/log" \
+  && fail "a vocabulary without the refusal checks must paste nothing"
+# The install path reaches stderr in both vocabulary diagnostics, so a control
+# byte in it must be stripped there, never sent raw to the operator's terminal.
+esc_install="$tmp/esc$(printf '\033')[31m-install"
+mkdir -p "$esc_install"
+cp "$RELAY" "$here/../scripts/echo-safety.sh" "$esc_install/"
+"$esc_install/orchestrate-relay.sh" validate-handle tmux "@3" 2>"$tmp/esc-missing.err" && fail "a missing vocabulary must refuse"
+cp "$broken/fleet-pane-vocabulary.sh" "$esc_install/"
+"$esc_install/orchestrate-relay.sh" validate-handle tmux "@3" 2>"$tmp/esc-undefined.err" && fail "a vocabulary without its checks must refuse"
+for e in esc-missing esc-undefined; do
+  [ -s "$tmp/$e.err" ] || fail "the $e diagnostic must say why it refused"
+  grep -q "$(printf '\033')" "$tmp/$e.err" && fail "the $e diagnostic must not carry a raw ESC from the install path"
+done
+echo "ok: deliver fails closed when the pane vocabulary lacks its refusal checks"
+
+# ---------------------------------------------------------------------------
+# 14. deliver against a real tmux server whose pane runs `cat`: the paste must
+#     show up and be confirmed, end to end. Every tmux call here, the test's
+#     and deliver's, goes through a wrapper that pins an explicit socket and
+#     unsets TMUX: tmux honours $TMUX over TMUX_TMPDIR, so from inside a tmux
+#     pane a TMUX_TMPDIR-only "isolation" reaches the host's server, and a
+#     kill-server there ends every session on the machine. The socket each
+#     call resolves to is checked before deliver runs and before any kill.
+# ---------------------------------------------------------------------------
+if host_tmux=$(command -v tmux 2>/dev/null); then
+  # A short fixed parent keeps the socket path under the Unix socket length
+  # limit whatever TMPDIR is.
+  iso_dir=$(mktemp -d /tmp/pwrelay.XXXXXX) || fail "could not make the isolated socket directory"
+  trap 'rm -rf "$tmp" "$iso_dir"' EXIT
+  iso_sock="$iso_dir/sock"
+  [ "$iso_sock" != "$host_sock" ] || fail "the isolated socket path equals the host's \$TMUX socket"
+  mkdir -p "$tmp/isobin"
+  cat >"$tmp/isobin/tmux" <<EOF
+#!/bin/sh
+exec env -u TMUX -u TMUX_PANE '$host_tmux' -S '$iso_sock' "\$@"
+EOF
+  chmod +x "$tmp/isobin/tmux"
+  iso_tmux="$tmp/isobin/tmux"
+  # A failing check below exits through the trap; the wrapper pins the socket,
+  # so this kill can only reach the isolated server.
+  # The kill fails once the server is gone, so it must not decide the exit status.
+  trap '"$iso_tmux" kill-server >/dev/null 2>&1 || :; rm -rf "$tmp" "$iso_dir"' EXIT
+  "$iso_tmux" -f /dev/null new-session -d -s relaytest -x 200 -y 30 cat \
+    || fail "could not start an isolated tmux server for the end-to-end check"
+  resolved=$("$iso_tmux" display-message -p -t relaytest '#{socket_path}') \
+    || fail "could not read the isolated server's socket path"
+  [ "$resolved" = "$iso_sock" ] && [ "$resolved" != "$host_sock" ] \
+    || fail "the end-to-end tmux resolved to $resolved, not the isolated $iso_sock"
+  # deliver runs a bare `tmux`, which must find the wrapper first on its PATH.
+  resolved=$(PATH="$tmp/isobin:$PATH" tmux display-message -p '#{socket_path}') \
+    && [ "$resolved" = "$iso_sock" ] \
+    || fail "a bare tmux on deliver's PATH resolved to ${resolved:-nothing}, not the isolated $iso_sock"
+  rc=0
+  out=$(PATH="$tmp/isobin:$PATH" PLANWRIGHT_RELAY_CONFIRM_TRIES=10 \
+    "$RELAY" deliver tmux relaytest "$msg" 2>&1) || rc=$?
+  "$iso_tmux" kill-server >/dev/null 2>&1 || :
+  [ "$rc" = 0 ] || fail "deliver to a real tmux pane: expected exit 0, got $rc: $out"
+  echo "ok: deliver stages and confirms a paste in a real, socket-isolated tmux pane"
+else
+  echo "skip: tmux not installed, end-to-end deliver check not run"
+fi
 
 # ---------------------------------------------------------------------------
 # 15. stream-json: the sanctioned unattended steer path. relay-command emits the

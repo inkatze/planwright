@@ -324,20 +324,19 @@ ok "claim refuses a permission-park — the decide shape, the explicit permissio
 # 8. ANSWER + DELIVERY (REQ-A1.5): fleet-decision.sh answer claims by label and
 #    emits the DOWNWARD delivery through the attributed buffer-paste path — the
 #    label lands in a structured-marker answer artifact, and the emitted command
-#    is a load-buffer/paste-buffer relay, NEVER send-keys.
+#    is orchestrate-relay.sh's buffer-paste `deliver tmux` step, NEVER send-keys.
 # ---------------------------------------------------------------------------
 h8="$tmp/h8"
 aenv "$h8" fork w1 spec-a "Approve?" "Apply" "Apply|Skip" "iid-1" || fail "fork exited non-zero"
 out=$(denv "$h8" answer tmux "dev:1.0" w1 "iid-1" "Apply") || fail "answer exited non-zero"
-# The emitted delivery is a buffer-paste relay (load-buffer + paste-buffer) at
-# the target handle — the same attributed path orchestrate-relay.sh emits. Assert
-# the buffer-paste verbs and the target handle SEPARATELY (not orchestrate-relay's
-# exact flag layout), so a benign relay-format change does not break this channel
-# test while the channel behavior is unchanged.
-printf '%s\n' "$out" | grep -q "load-buffer" \
-  || fail "answer did not emit a buffer-paste (load-buffer) delivery: [$out]"
-printf '%s\n' "$out" | grep -q "paste-buffer" \
-  || fail "answer did not emit a paste-buffer delivery: [$out]"
+# The emitted delivery is orchestrate-relay.sh's own tmux `deliver` step (the
+# refusing, confirming buffer-paste) at the target handle. Assert the deliver
+# verb and the target handle SEPARATELY (not orchestrate-relay's exact layout),
+# so a benign relay-format change does not break this channel test.
+printf '%s\n' "$out" | grep -q "orchestrate-relay.sh" \
+  || fail "answer did not emit the relay's delivery: [$out]"
+printf '%s\n' "$out" | grep -q " deliver tmux " \
+  || fail "answer did not emit the relay's tmux deliver step: [$out]"
 printf '%s\n' "$out" | grep -q "dev:1.0" \
   || fail "answer did not target the requested handle: [$out]"
 # NEVER a send-keys menu-navigation path.

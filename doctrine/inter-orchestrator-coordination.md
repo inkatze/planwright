@@ -61,6 +61,19 @@ attributed buffer-paste mechanism serves both **tower-to-worker** relay and
 example, reconcile-then-quick-PR hand-offs); in either direction the header marks
 the message as tower-originated, which is what keeps it non-impersonating.
 
+### A listed peer gets a direct message; the paste is the fallback
+
+When the target is a Claude Code session the tower's `ListAgents` lists, the
+tower messages it with `SendMessage`: the harness delivers an attributed
+message, queued while the peer is mid-turn, and nothing touches its input box.
+The pane relay below is only for a target that is not listed (another host, a
+harness without peer messaging, a pane that is not Claude Code). When the
+two tools are deferred, the tower loads their schemas (`ToolSearch`) and calls
+`ListAgents` before deciding; a listed peer that `SendMessage` cannot reach
+counts as unlisted. The choice is the model's: a
+script can list sessions (`claude agents --json`) but has no documented way
+to send to one. Nobody types or pastes into a pane by hand.
+
 ### Steer-in-flight: buffer-paste, never `send-keys`
 
 Messages are delivered by a **buffer-paste** mechanism (under tmux,
@@ -72,17 +85,22 @@ the human typed it: an authorization decision made by screen-scraping with no
 audit trail (the rejection bootstrap D-38 made).
 
 `scripts/orchestrate-relay.sh relay-command tmux <handle> <message-file>` emits
-exactly this: a buffer-paste command carrying a fixed attribution header, with
-the message body left in its file (see data discipline below). It emits no
-`send-keys` path by construction, and a source audit (its test) proves the code
-contains none.
+exactly this: the script's own `deliver` step, whose paste carries a fixed
+attribution header, with the message body left in its file (see data
+discipline below). It has no `send-keys` path by construction, and a source
+audit (its test) proves the code contains none.
 
 **A paste stages; one Enter submits.** On Claude Code 2.1.270 a multi-line paste
 becomes an unsubmittable `[Pasted text]` placeholder that blocks every later
 paste. So the tmux paste is **one unterminated pointer line** (`… read
-<absolute message file>`), never the body, and delivery is confirmed by
-observe-command, never assumed. The handle is explicit (operator-named, or from
-a live peer's presence record), never the active pane. `relay-command stream-json`
+<absolute message file>`), never the body. `deliver` reads the pane first and
+refuses, pasting nothing (exit 3), while a selection prompt is open, since a
+paste would answer it, a paste placeholder is staged, or an earlier relay sits
+unsubmitted in the input box; afterwards it
+confirms delivery by the paste's fresh tag showing in the pane, never assumes
+it (exit 4 when it never shows: observe before re-sending). The handle is
+explicit (operator-named, or from a live peer's presence record), never the
+active pane. `relay-command stream-json`
 instead emits `fleet-streamjson.sh steer`: a user turn on the worker's own
 stdin, a real submit with a receipt row — the unattended path.
 
