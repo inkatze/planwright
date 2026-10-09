@@ -3017,6 +3017,9 @@ resolve_declared() {
 declared_line_ok() {
   local i=0 i0 f w name key
   [ "$rn" -eq 0 ] || return 1
+  # The declarations resolve from the payload cwd: after a `cd`, a declared
+  # line's relative args would name other files than the declared ones.
+  [ "$HOOK_CWD" = "$HOOK_PAYLOAD_CWD" ] || return 1
   case ${sw[0]} in
     PLANWRIGHT_STEP_*)
       for f in $STEP_CONTEXT_FIELDS; do
@@ -3578,7 +3581,7 @@ main() {
       ;;
     *) return 0 ;; # present but not a string: defer
   esac
-  local HOOK_CWD=$cwd
+  local HOOK_CWD=$cwd HOOK_PAYLOAD_CWD=$cwd
   # The session's own worktree, which a `cd` may not leave: the checkout the
   # payload cwd sits in, resolved once before any `cd` moves HOOK_CWD.
   local HOOK_WT_ROOT HOOK_WT_GIT=''

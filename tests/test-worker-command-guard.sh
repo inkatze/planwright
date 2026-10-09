@@ -1654,6 +1654,11 @@ assert_allow "bare target's resolved location approved" "$FX/bin/fixture-tool --
 assert_allow "declared line with no args approved" "$OTHER" Bash "$FXC"
 assert_allow "declared line chained with a known-safe segment approved" \
   "$DECLARED --mode strict && git status" Bash "$FXC"
+# The declarations resolve from the payload cwd, so after a `cd` a declared
+# line's relative args would name other files than the ones declared.
+# Regression-only here: this catalog's relative step already fails to resolve
+# from the subdirectory.
+assert_defer "REQ-A1.12: a declared line after a cd defers" "cd tools && $DECLARED --mode strict" Bash "$FXC"
 assert_defer "bare target instead of its resolved location deferred" "fixture-tool --x" Bash "$FXC"
 assert_defer "segment sharing only the first word deferred" "$DECLARED --mode lax" Bash "$FXC"
 assert_defer "declared line plus an extra arg deferred" "$DECLARED --mode strict --extra" Bash "$FXC"
