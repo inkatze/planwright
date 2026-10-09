@@ -222,15 +222,12 @@ assert_eq "a truncated ranked table exits 2" 2 "$?"
 assert_eq "a truncated ranked table leaves the table untouched" keep "$(cat "$tmp/keep.tsv")"
 assert_contains "the refusal names the truncation" "--all" "$(cat "$tmp/short.out")"
 
-# 11. The committed table is current enough to be worth reading: it parses,
-#     and every row names a file the suite has.
+# 11. The committed table parses. A row for a file the suite no longer has is
+#     not checked: the runner ignores it, so removing or renaming a test file
+#     never has to touch the table.
 committed="$REPO_ROOT/config/test-durations.tsv"
 if [ -f "$committed" ]; then
   echo "ok: committed duration table exists"
-  stale="$(grep -v '^#' "$committed" | cut -f1 | while IFS= read -r n; do
-    [ -f "$REPO_ROOT/tests/$n" ] || printf '%s ' "$n"
-  done)"
-  assert_eq "committed table names only existing test files" "" "$stale"
   assert_eq "committed table rows are name<TAB>seconds" "" \
     "$(grep -v '^#' "$committed" | grep -vE "^[A-Za-z0-9._-]+\.sh${tab}[0-9]+(\.[0-9]+)?$")"
 else
