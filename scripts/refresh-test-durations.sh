@@ -113,8 +113,11 @@ for f in "$suite"/*.sh; do
 done
 
 # Emits `<name><TAB><seconds>` per usable source row, first row per name.
-awk -F'\t' -v discovered="$work/discovered" '
+RD_DISCOVERED="$work/discovered" awk -F'\t' '
   BEGIN {
+    # Through ENVIRON, never -v, which would expand backslash escapes in a
+    # TMPDIR.
+    discovered = ENVIRON["RD_DISCOVERED"]
     while ((getline n < discovered) > 0) want[n] = 1
     close(discovered)
     num = "^[0-9]+(\\.[0-9]+)?$"

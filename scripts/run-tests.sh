@@ -484,8 +484,11 @@ if [ -n "$durations" ] && [ -f "$durations" ] && [ -r "$durations" ]; then
     for t in "${files[@]}"; do
       printf '%s\t%s\n' "$i" "${t##*/}"
       i=$((i + 1))
-    done | awk -F'\t' -v table="$durations" '
+    done | RT_DURATIONS="$durations" awk -F'\t' '
       BEGIN {
+        # Through ENVIRON, never -v, which would expand backslash escapes in
+        # the path.
+        table = ENVIRON["RT_DURATIONS"]
         while ((getline line < table) > 0) {
           if (line ~ /^#/) continue
           if (split(line, f, "\t") != 2) continue

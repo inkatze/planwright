@@ -133,6 +133,14 @@ assert_contains "absent table is stated" "name order" "$(cat "$tmp/run.out")"
 assert_eq "empty knob disables the table" \
   "test-a.sh test-b.sh test-c.sh test-d.sh test-e.sh" "$(run_order "$tmp/s" "")"
 
+# 5b. A table path with a backslash is read as written (awk -v would expand
+#     the escape and open a different path).
+bs_dir="$tmp/back\\new"
+mkdir -p "$bs_dir"
+cp "$tmp/table.tsv" "$bs_dir/t.tsv"
+assert_eq "a backslash in the table path is read literally" \
+  "test-d.sh test-e.sh test-b.sh test-c.sh test-a.sh" "$(run_order "$tmp/s" "$bs_dir/t.tsv")"
+
 # 6. A failing file still fails the run wherever the order puts it.
 make_suite "$tmp/f" test-a.sh test-b.sh
 cat >"$tmp/f/test-z.sh" <<'EOF'
@@ -182,6 +190,10 @@ assert_eq "refresh from a timing report exits 0" 0 "$?"
 assert_eq "refreshed rows from a timing report" \
   "test-e.sh:7.200 test-a.sh:3.100" \
   "$(grep -v '^#' "$tmp/fresh2.tsv" | tr '\t' ':' | tr '\n' ' ' | sed 's/ $//')"
+
+# 9b. A TMPDIR with a backslash in it still finds the discovered files.
+TMPDIR="$bs_dir" /bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/fresh3.tsv" "$tmp/report-in.tsv" >/dev/null 2>&1
+assert_eq "refresh under a backslash TMPDIR exits 0" 0 "$?"
 
 # 10. A source with no usable row is refused and the table left alone.
 printf 'keep\n' >"$tmp/keep.tsv"
