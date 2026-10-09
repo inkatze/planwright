@@ -1,0 +1,1 @@
+- 2026-10-07 [planwright] tests/test-ready-guard.sh fails five cd-tracking cases when TMPDIR ends in a slash (the macOS default): the expected path keeps the doubled slash from $TMPDIR/ while the guard reports the canonical path. The suite passes with a slash-free TMPDIR; the expectation should canonicalize the same way the guard does.

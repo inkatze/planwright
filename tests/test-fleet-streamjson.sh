@@ -115,6 +115,7 @@ printf '%s\n' "$*" >>"$SHIM_RECORD_DIR/argv"
 # behind is the environment, which is the property worth asserting.
 printf 'ghost=%s\n' "${CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'plugin_root=%s\n' "${CLAUDE_PLUGIN_ROOT-<unset>}" >>"$SHIM_RECORD_DIR/env"
+printf 'spec_root=%s\n' "${PLANWRIGHT_WORKER_SPEC_ROOT-<unset>}" >>"$SHIM_RECORD_DIR/env"
 n=${SHIM_READ_FIRST:-1}
 i=0
 while [ "$i" -lt "$n" ]; do
@@ -680,6 +681,42 @@ grep -q "worker-settings.json" "$tmp/nocfg.err" \
   || fail "c9: the fragment refusal must name the resolved path"
 [ ! -s "$rec/argv" ] || fail "c9: the fragment-less launch must never spawn the worker"
 echo "ok: c9 pinned non-bare launch shape with the settings pin, prompt-as-data, --bare and --settings refused, missing fragment fails closed (REQ-A1.9, D-12, D-19)"
+
+# ---------------------------------------------------------------------------
+# c39 (custom-spec-location REQ-E1.7): the spec-root hand-off. A worker whose
+#     work repository keeps its spec root outside it (here a plain store) gets
+#     that root as PLANWRIGHT_WORKER_SPEC_ROOT; a worker whose root is in its
+#     own repository gets none, and an inherited value never stands. Every
+#     inherited PLANWRIGHT_* variable is dropped, git's discovery and config
+#     are pinned and HOME is left unset (senv strips it), since a host overlay
+#     or config would hand the resolver a root of its own.
+# ---------------------------------------------------------------------------
+launch_c39() {
+  (
+    for _v in $(env | sed -n 's/^\(PLANWRIGHT_[A-Za-z0-9_]*\)=.*/\1/p'); do
+      unset "$_v"
+    done
+    export PLANWRIGHT_WORKER_SPEC_ROOT=/stale GIT_CEILING_DIRECTORIES="$tmp" \
+      GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+    senv "$tmp/h39" "$tmp/r39" SHIM_EVENTS="$tmp/ev9" -- \
+      launch "$1" execution-backends:4 --prompt-file "$tmp/prompt9" --cwd "$tmp/wt39" --foreground
+  )
+}
+mkdir -p "$tmp/r39" "$tmp/store39" "$tmp/wt39/.claude"
+git -c init.defaultBranch=main init -q "$tmp/wt39" || fail "c39: cannot create the work repository"
+printf 'project: fixture\nlayout: 1\n' >"$tmp/store39/planwright-spec-root.yml"
+printf 'spec_root: %s\n' "$tmp/store39" >"$tmp/wt39/.claude/planwright.local.yml"
+launch_c39 sjw39 >/dev/null || fail "c39: launch exited non-zero"
+store39=$(cd "$tmp/store39" && pwd -P)
+got39=$(grep '^spec_root=' "$tmp/r39/env" | tail -n 1)
+[ "${got39#spec_root=}" = "$store39" ] \
+  || fail "c39: the worker got '${got39#spec_root=}' as PLANWRIGHT_WORKER_SPEC_ROOT, expected the store"
+rm -f "$tmp/wt39/.claude/planwright.local.yml"
+launch_c39 sjw39b >/dev/null || fail "c39: second launch exited non-zero"
+got39=$(grep '^spec_root=' "$tmp/r39/env" | tail -n 1)
+[ "${got39#spec_root=}" = "<unset>" ] \
+  || fail "c39: an inherited PLANWRIGHT_WORKER_SPEC_ROOT reached a same-repo worker: '${got39#spec_root=}'"
+echo "ok: c39 the worker gets the outside spec root, and an inherited one never stands (REQ-E1.7)"
 
 # ---------------------------------------------------------------------------
 # c10: hostile inputs are refused before any path use.

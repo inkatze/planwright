@@ -4,7 +4,8 @@
 # REQ-A1.1..A1.10, REQ-B1.1..B1.7, D-1..D-4). Wired into
 # config/worker-settings.json (Task 2), it reads a Claude Code PreToolUse
 # payload on stdin and prints a `permissionDecision: allow` decision for an
-# ENUMERATED set of known-safe, read-only Bash command shapes — silencing the
+# ENUMERATED set of known-safe Bash command shapes (read-only shapes, trusted
+# repo code, and the spec-root write zone) — silencing the
 # permission-prompt flood on the shapes /execute-task actually issues (plugin
 # scripts, `for`/`while` loops, read-only git/coreutil pipelines) — and DEFERS
 # everything else to Claude Code's normal permission flow.
@@ -15,14 +16,21 @@
 #     NEVER exits non-zero — approval is upgrade-only; blocking stays with
 #     permissions.deny/ask (REQ-A1.2, REQ-B1.7). A hook `allow` therefore never
 #     needs to (and by design never does) auto-approve a deny-listed command:
-#     the enumerated allowlist is read-only shapes with zero overlap with the
-#     worker deny block, and the adversarial suite pins that (REQ-A1.3,
-#     REQ-B1.6). A declared step's line is the exception: it is whatever an
-#     operator declared, its trust resting on the declaring layer, not on the
-#     deny block (see declared_line_ok).
+#     the enumerated allowlist is read-only shapes, trusted repo code, and the
+#     spec-root write zone, with zero overlap with the worker deny block, and
+#     the adversarial suite pins that (REQ-A1.3, REQ-B1.6). A declared step's
+#     line is the exception: it is whatever an operator declared, its trust
+#     resting on the declaring layer, not on the deny block (see
+#     declared_line_ok).
 #   * The extracted command is treated strictly as INERT DATA — never eval-ed,
 #     re-expanded, glob-expanded, or used as a pattern/format/unquoted arg — so
 #     analyzing a hostile command can never execute it (REQ-B1.1).
+#   * One write class, live only when PLANWRIGHT_WORKER_SPEC_ROOT names a
+#     marked spec root, which the dispatchers hand in only when it lies outside
+#     the work repository (see in_spec_zone): a `>`/`>>` redirect, `tee
+#     [-a]`, or `mkdir [-p]` whose every target is a plain literal inside a
+#     bundle or reserved directory of that root. With no root handed in, or
+#     for any other target, it defers.
 #   * Fail safe on EVERYTHING: jq absent, malformed/empty/non-string input,
 #     unknown construct, parser confusion, recursion past the depth bound, or
 #     any internal error all DEFER (empty stdout, exit 0). The fallthrough
@@ -39,20 +47,21 @@
 # declared step's line (REQ-A1.4). A
 # command is known-safe only when (a) its verb is on the enumerated allowlist
 # below, (b) its flags/args designate no output/target file and enable no write
-# or arbitrary execution (REQ-A1.8), and (c) it uses no construct the analyzer
-# cannot confidently parse — command/process substitution, here-docs, subshell
-# or brace grouping, env-assignment prefixes, path-prefixed verbs, escaped
-# operators, ANSI-C quoting, shell comments — all of which defer (REQ-A1.9).
-# The segments are read in run order, so the state one sets applies to those
-# after it: a `cd` into the session's own worktree moves the working directory
-# later segments are checked against (see cd_target_ok), and the time/timeout prefixes are
-# looked through to the command they wrap (see strip_prefixes); fin decides
-# where state may carry. The expansions the analyzer resolves itself are a
-# variable the same command assigned a plain literal (`f=a.md && grep x $f`;
-# see track_assignment and expand_words) and a `for` variable over
-# plain-literal head words (see loop_header): the substitution reproduces what
-# the shell will do for exactly those value classes and nothing else, and any
-# other expansion left in a verb, or in an operand a screen reads, defers (see
+# or arbitrary execution (REQ-A1.8), the spec-root write zone excepted, and (c)
+# it uses no construct the analyzer cannot confidently parse — command/process
+# substitution, here-docs, subshell or brace grouping, env-assignment prefixes,
+# path-prefixed verbs, escaped operators, ANSI-C quoting, shell comments,
+# named-fd redirects — all of which defer (REQ-A1.9). The segments are read in
+# run order, so the state one sets applies to those after it: a `cd` into the
+# session's own worktree moves the working directory later segments are
+# checked against (see cd_target_ok), and the time/timeout prefixes are looked
+# through to the command they wrap (see strip_prefixes); fin decides where
+# state may carry. The expansions the analyzer resolves itself are a variable
+# the same command assigned a plain literal (`f=a.md && grep x $f`; see
+# track_assignment and expand_words) and a `for` variable over plain-literal
+# head words (see loop_header): the substitution reproduces what the shell
+# will do for exactly those value classes and nothing else, and any other
+# expansion left in a verb, or in an operand a screen reads, defers (see
 # word_unresolved). Repo `scripts/*.sh`
 # / `tests/*.sh` and `bats <file>` are trusted repo code but only after their
 # path canonicalizes INSIDE the repository, and an INSTALLED planwright root's
@@ -124,8 +133,8 @@ emit_allow() {
 # fd-number prefix). Returns non-zero (DEFER) the instant it meets a construct
 # it will not analyze: unbalanced quotes, command/process substitution, backtick
 # substitution, ANSI-C `$'…'`, a backslash line-continuation or escaped
-# operator/quote, or a shell comment. It never executes or expands anything it
-# scans.
+# operator/quote, a shell comment, or a named-fd redirect. It never executes or
+# expands anything it scans.
 # tok_push <type> <value> [quoted]: the optional third arg records whether a W
 # token was built from any quoting or backslash-escaping (1) or is a bare,
 # unquoted literal (0, the default for operators and plain words). classify of a
@@ -152,15 +161,18 @@ tok_push() {
   TOK_QPOS[TOK_N]=${5:--1}
   TOK_DYN[TOK_N]=${6:-0}
   TOK_GLOB[TOK_N]=${7:-0}
-  TOK_QMIX[TOK_N]=${8:-0}
+  TOK_ZOPT[TOK_N]=${8:-0}
+  TOK_QMIX[TOK_N]=${9:-0}
   TOK_N=$((TOK_N + 1))
 }
 
 # dollar_expands <next-char>: 0 when a `$` followed by <next-char> starts an
 # expansion. A `$` before anything else (end of word, `/`, a space) is literal.
+# zsh, the Bash tool's shell on macOS, also expands `$~NAME`, `$=NAME`,
+# `$^NAME` and `$+NAME`, which bash leaves as text.
 dollar_expands() {
   case $1 in
-    [A-Za-z0-9_@*#?!-] | '{' | '$' | '[' | '"') return 0 ;;
+    [A-Za-z0-9_@*#?!~=^+-] | '{' | '$' | '[' | '"') return 0 ;;
   esac
   return 1
 }
@@ -170,10 +182,16 @@ dollar_expands() {
 # around a bare NAME. Any other brace form (`${a[i]}`, `${x:off}`, `${!n}`,
 # `${#x}`, a modifier) evaluates text the hook never sees, an array subscript
 # or offset arithmetically, so a value read at run time can run a command.
+# A non-ASCII byte right after the `$`, or right after the NAME it opens,
+# defers: zsh in a UTF-8 locale reads a non-ASCII letter as part of a name,
+# so the shell expands one longer name where this C-locale scan ends the
+# name before that byte and keeps the byte as literal text. zsh's `$~NAME`
+# defers wherever it appears: it reads the value as a glob pattern, and a
+# glob qualifier in that value can run a command during the expansion.
 dollar_form_ok() {
   local s=$1 i=$2 j body
   case ${s:i+1:1} in
-    '[') return 1 ;;
+    '[' | '~') return 1 ;;
     '{')
       j=$((i + 2))
       body=''
@@ -186,6 +204,20 @@ dollar_form_ok() {
         '' | [!A-Za-z_]* | *[!A-Za-z0-9_]*) return 1 ;;
       esac
       ;;
+    *)
+      j=$((i + 1))
+      case ${s:j:1} in [=^+#]) j=$((j + 1)) ;; esac
+      while [ "$j" -lt "${#s}" ]; do
+        case ${s:j:1} in
+          [A-Za-z0-9_]) j=$((j + 1)) ;;
+          *) break ;;
+        esac
+      done
+      case ${s:j:1} in
+        '' | [[:print:][:cntrl:]]) ;;
+        *) return 1 ;;
+      esac
+      ;;
   esac
   return 0
 }
@@ -194,7 +226,7 @@ tokenize() {
   local s=$1
   local n=${#s}
   local i=0
-  local cur='' have=0 curq=0 curx=0 curqp=-1 curd=0 curg=0 curqm=0 brk=0 brc=0 brs=0
+  local cur='' have=0 curq=0 curx=0 curqp=-1 curd=0 curg=0 curz=0 curqm=0 brk=0 brc=0 brs=0
   local c nc j k dc dn fdpfx
 
   # _flush: push the accumulated word (if any) as a W token carrying its
@@ -202,7 +234,7 @@ tokenize() {
   # then reset the accumulator.
   _flush() {
     if [ "$have" = 1 ]; then
-      tok_push W "$cur" "$curq" "$curx" "$curqp" "$curd" "$curg" "$curqm"
+      tok_push W "$cur" "$curq" "$curx" "$curqp" "$curd" "$curg" "$curz" "$curqm"
       cur=''
       have=0
       curq=0
@@ -210,6 +242,7 @@ tokenize() {
       curqp=-1
       curd=0
       curg=0
+      curz=0
       curqm=0
       brk=0
       brc=0
@@ -221,6 +254,17 @@ tokenize() {
     [ "$curq" = 1 ] && curqm=1
     [ "$curq" = 1 ] || curqp=${#cur}
     curq=1
+  }
+
+  # named_fd_word: 0 when the word built up to a redirect is a `{name}`
+  # brace word, which bash and zsh read as a named-fd redirect that assigns
+  # that shell variable, not as an operand.
+  named_fd_word() {
+    [ "$have" = 1 ] || return 1
+    case $cur in
+      '{'*'}') return 0 ;;
+    esac
+    return 1
   }
 
   while [ "$i" -lt "$n" ]; do
@@ -316,8 +360,9 @@ tokenize() {
         fi
         ;;
       '&')
-        _flush
         nc=${s:i+1:1}
+        [ "$nc" = '>' ] && named_fd_word && return 1
+        _flush
         if [ "$nc" = '&' ]; then
           tok_push O '&&'
           i=$((i + 2))
@@ -352,12 +397,13 @@ tokenize() {
         # A pure-digit run built up to here with no intervening space is the
         # fd number of this redirect (e.g. the 2 in 2>&1), not a word.
         fdpfx=''
+        named_fd_word && return 1
         if [ "$have" = 1 ]; then
           # A quoted digit run is a word (bash only reads an UNQUOTED digit run
           # as this redirect's fd number), so an fd prefix is bare digits only.
           case $cur in
-            '' | *[!0-9]*) tok_push W "$cur" "$curq" "$curx" "$curqp" "$curd" "$curg" "$curqm" ;;
-            *) [ "$curq" = 1 ] && tok_push W "$cur" "$curq" "$curx" "$curqp" "$curd" "$curg" "$curqm" || fdpfx=$cur ;;
+            '' | *[!0-9]*) tok_push W "$cur" "$curq" "$curx" "$curqp" "$curd" "$curg" "$curz" "$curqm" ;;
+            *) [ "$curq" = 1 ] && tok_push W "$cur" "$curq" "$curx" "$curqp" "$curd" "$curg" "$curz" "$curqm" || fdpfx=$cur ;;
           esac
           cur=''
           have=0
@@ -366,6 +412,7 @@ tokenize() {
           curqp=-1
           curd=0
           curg=0
+          curz=0
           curqm=0
           brk=0
           brc=0
@@ -431,12 +478,19 @@ tokenize() {
           '*' | '?') curg=1 ;;
           '[') brk=1 ;;
           ']') [ "$brk" = 1 ] && curg=1 ;;
-          '{') brc=1 ;;
+          '{')
+            brc=1
+            curz=1
+            ;;
           ',') [ "$brc" = 1 ] && brs=1 ;;
           '.') [ "$brc" = 1 ] && [ "${s:i+1:1}" = . ] && brs=1 ;;
-          '}') [ "$brs" = 1 ] && curg=1 ;;
-          '~') [ "$have" = 0 ] && curg=1 ;;
-          '#') [ "$have" = 0 ] && return 1 ;;
+          '}')
+            [ "$brs" = 1 ] && curg=1
+            curz=1
+            ;;
+          '~') if [ "$have" = 0 ]; then curg=1; else curz=1; fi ;;
+          '#') if [ "$have" = 0 ]; then return 1; else curz=1; fi ;;
+          '^') curz=1 ;;
         esac
         [ "$curq" = 1 ] && curqm=1
         cur="$cur$c"
@@ -678,6 +732,116 @@ is_contained_file() {
 }
 
 # --------------------------------------------------------------------------
+# The spec-root write zone (custom-spec-location D-15, REQ-E1.7). A dispatcher
+# whose spec root lies in another repository than the work repository, or in
+# none, computes that root once and hands it to the worker's environment as
+# PLANWRIGHT_WORKER_SPEC_ROOT (scripts/worker-spec-root.sh); the guard reads it
+# once at load (SPEC_ZONE below) and never resolves config per call. Inside
+# it, and nowhere else, the guard approves the few write shapes a halting
+# worker's store write takes: a `>`/`>>` redirect of an otherwise approved
+# command (or of none, as a bare `> f`), `tee [-a]`, and `mkdir [-p]`. A write
+# anywhere else, the work repository included, still defers as before.
+#
+# in_spec_zone <path> <cwd>: 0 when <path> is a plain literal (no expansion,
+# glob, or quoting can hide in the charset) that canonicalizes inside a
+# directory under the zone: a bundle (one holding requirements.md) or a
+# reserved underscore directory, never the root's own top level, and never
+# through a dot-led component (.git, .claude, a lock or marker directory). An
+# existing leaf must be a regular file with one link, or a directory, so a
+# write cannot travel through a symlink or a hard link to a file outside.
+in_spec_zone() {
+  local p=$1 cwd=$2 full rel top
+  [ -n "$SPEC_ZONE" ] || return 1
+  case $p in
+    '' | -* | *[!A-Za-z0-9._/@+-]*) return 1 ;;
+  esac
+  full=$(canon_under "$p" "$cwd" "$SPEC_ZONE") || return 1
+  rel=${full#"$SPEC_ZONE"/}
+  case /$rel/ in
+    */.*) return 1 ;;
+  esac
+  case $rel in
+    */*) top=${rel%%/*} ;;
+    *) return 1 ;;
+  esac
+  case $top in
+    _[a-z0-9]*) ;;
+    [a-z0-9]*) [ -f "$SPEC_ZONE/$top/requirements.md" ] || return 1 ;;
+    *) return 1 ;;
+  esac
+  case $top in
+    *[!a-z0-9_-]*) return 1 ;;
+  esac
+  if [ -e "$full" ]; then
+    if [ -f "$full" ]; then
+      [ "$(find "$full" -maxdepth 0 -links 1 2>/dev/null)" = "$full" ] || return 1
+    elif [ ! -d "$full" ]; then
+      return 1
+    fi
+  fi
+  return 0
+}
+
+# spec_zone_redirect <op> <operand>: 0 for a file-writing `>`/`>>` (an fd
+# number before it allowed) whose target is in the zone.
+spec_zone_redirect() {
+  local bare=$1
+  while :; do
+    case $bare in
+      [0-9]*) bare=${bare#?} ;;
+      *) break ;;
+    esac
+  done
+  case $bare in
+    '>' | '>>') in_spec_zone "$2" "$HOOK_CWD" ;;
+    *) return 1 ;;
+  esac
+}
+
+# guard_tee / guard_mkdir: at least one operand, every operand a zone path;
+# the only flag `-a` (append) for tee and `-p` for mkdir, so no mode, context,
+# or ignore flag changes what lands.
+guard_tee() {
+  local i a ends=0 operands=0
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    if [ "$ends" = 0 ]; then
+      case $a in
+        -a | --append) continue ;;
+        --)
+          ends=1
+          continue
+          ;;
+        -*) return 1 ;;
+      esac
+    fi
+    in_spec_zone "$a" "$HOOK_CWD" || return 1
+    operands=$((operands + 1))
+  done
+  [ "$operands" -ge 1 ]
+}
+
+guard_mkdir() {
+  local i a ends=0 operands=0
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    if [ "$ends" = 0 ]; then
+      case $a in
+        -p | --parents) continue ;;
+        --)
+          ends=1
+          continue
+          ;;
+        -*) return 1 ;;
+      esac
+    fi
+    in_spec_zone "$a" "$HOOK_CWD" || return 1
+    operands=$((operands + 1))
+  done
+  [ "$operands" -ge 1 ]
+}
+
+# --------------------------------------------------------------------------
 # Per-verb guards. Each reads the current simple command's words from the
 # caller's `cw` array (index 0 = verb) and `cwn` count via dynamic scope, plus
 # `HOOK_CWD` and `HOOK_DEPTH`. Every guard's default/fallthrough is DEFER.
@@ -915,7 +1079,7 @@ guard_sed() {
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$expect_e" = 1 ]; then
-      sed_script_safe "$a" || return 1
+      zsh_opt_word_ok "$i" && sed_script_safe "$a" || return 1
       expect_e=0
       script_taken=1
       continue
@@ -923,14 +1087,14 @@ guard_sed() {
     case $a in
       -e) expect_e=1 ;;
       --expression=*)
-        sed_script_safe "${a#--expression=}" || return 1
+        zsh_opt_word_ok "$i" && sed_script_safe "${a#--expression=}" || return 1
         script_taken=1
         ;;
       -n | -E | -r | -s | -z | -u | --posix | --quiet | --silent | --regexp-extended | --separate | --null-data | --unbuffered | --debug | --sandbox | --help | --version | --) ;;
       -*) return 1 ;; # -i / -f / -l / bundled / unknown: defer
       *)
         if [ "$script_taken" = 0 ]; then
-          sed_script_safe "$a" || return 1
+          zsh_opt_word_ok "$i" && sed_script_safe "$a" || return 1
           script_taken=1
         fi
         ;;
@@ -1116,7 +1280,7 @@ guard_awk() {
       -*) return 1 ;; # -f / -p / -o / -d / -l / -i / -E / bundled / unknown: defer
       *)
         if [ "$prog_taken" = 0 ]; then
-          awk_program_safe "$a" || return 1
+          zsh_opt_word_ok "$i" && awk_program_safe "$a" || return 1
           prog_taken=1
         fi
         ;;
@@ -1127,50 +1291,90 @@ guard_awk() {
   return 0
 }
 
+# zsh_opt_word_ok <index>: 0 unless word <index> of the current simple command
+# (cz, by dynamic scope) holds an unquoted character that a zsh option off by
+# default would expand (extended globbing's `^`, `~` and `#`, brace character
+# classes). The program-text screens read that word as literal text, so they
+# refuse it; the same characters in any other word keep their verdicts.
+zsh_opt_word_ok() {
+  [ "${cz[$1]-0}" = 0 ]
+}
+
 # jq_program_safe <program>: 0 only when a jq filter is provably free of an
-# ENVIRONMENT read. jq's language has no exec and no file-write primitive at
-# all, so nothing else in a filter needs screening; what it does have is `env`
-# and `$ENV`, either of which hands the whole environment to the filter (and
-# from there to the transcript). That is the same call guard_awk makes on
-# `ENVIRON`, and for the same reason: the guard can see the read but not what
-# the program does with the value.
+# ENVIRONMENT read and loads no module text. jq's language has no exec and no
+# file-write primitive at all; what it does have is `env` and `$ENV`, either
+# of which hands the whole environment to the filter (and from there to the
+# transcript), `include` / `import`, which pull in module text the guard
+# never sees, from a search path the filter itself can name, and `modulemeta`,
+# which reads that text back. That is the same
+# call guard_awk makes on `ENVIRON`, and for the same reason: the guard can see
+# the read but not what the program does with the value.
 #
-# `$ENV` rejects wherever it appears. `env` rejects only as a WORD — a `.env`
-# or `.a.env` is a FIELD ACCESS on the input, not the builtin, and a `$env` is
-# someone's own variable, so a preceding `.` or `$` (or an identifier
-# character, as in `envelope`) leaves it alone. A mention the rule cannot place
-# that way, `"env"` inside a string included, defers; that costs the filter
-# shapes nothing.
+# Each of those names rejects only as a WORD: a preceding `.` makes it a FIELD
+# ACCESS on the input (`.env`, `.a.include`), an identifier character after it
+# a longer name (`envelope`, `ENVIRONMENT`), and a preceding `$` someone's own
+# variable (`$env`, `$import`). `ENV` takes no `$` exemption, since jq 1.6 and
+# older read `$ ENV`, with a space or a comment between the two, as `$ENV`. A
+# mention the rule cannot place that way, `"env"` inside a string included,
+# defers; that costs the filter shapes nothing.
 jq_program_safe() {
   local s=$1
-  local n=${#s} i=0 p a
+  local n=${#s} i=0 p a w words
   case $s in
     *\$ENV*) return 1 ;;
+    *env* | *ENV* | *include* | *import* | *modulemeta*) ;;
+    *) return 0 ;; # names none of the screened words
   esac
   while [ "$i" -lt "$n" ]; do
-    if [ "${s:i:3}" = env ]; then
+    case ${s:i:1} in
+      e) words='env' ;;
+      E) words='ENV' ;;
+      i) words='include import' ;;
+      m) words='modulemeta' ;;
+      *) words='' ;;
+    esac
+    for w in $words; do
+      [ "${s:i:${#w}}" = "$w" ] || continue
+      a=${s:i+${#w}:1}
+      case $a in
+        [A-Za-z0-9_]) continue ;; # a longer name
+      esac
       p=''
       [ "$i" -gt 0 ] && p=${s:i-1:1}
-      a=${s:i+3:1}
-      case $p in
-        [A-Za-z0-9_.$]) ;; # a field access, a variable, or a longer name
-        *)
-          case $a in
-            [A-Za-z0-9_]) ;; # a longer name: `envelope`, `env_of`
-            *) return 1 ;;   # the builtin
-          esac
-          ;;
+      case $w:$p in
+        ENV:[A-Za-z0-9_.]) ;; # a field access or a longer name
+        ENV:*) return 1 ;;
+        *:[A-Za-z0-9_.$]) ;; # a field access, a variable, or a longer name
+        *) return 1 ;;
       esac
-    fi
+    done
     i=$((i + 1))
   done
   return 0
 }
 
-# guard_jq: strict flag allowlist plus the environment-read check on the
-# filter. Only the inline-filter form is verifiable, so `-f`/`--from-file` (a
-# filter in a file) and `-L`/`--library-path` (which is where `include` and
-# `import` read module text from) defer, as does any unrecognized flag.
+# jq_home_safe: 0 only when HOME is an absolute path and no `~/.jq` exists,
+# the home-directory half of guard_jq's screen (see there), shared with
+# guard_yq for the jq-wrapping yq.
+jq_home_safe() {
+  case ${HOME:-} in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  if [ -e "$HOME/.jq" ] || [ -L "$HOME/.jq" ]; then
+    return 1
+  fi
+  return 0
+}
+
+# guard_jq: strict flag allowlist plus the environment-read and module checks
+# on the filter. Only the inline-filter form is verifiable, so `-f`/`--from-file`
+# (a filter in a file) and `-L`/`--library-path` (which is where `include` and
+# `import` read module text from) defer, as does any unrecognized flag, and so
+# does every run while `~/.jq` exists: jq reads a `~/.jq` file into every
+# filter, and a `~/.jq` directory is on its module search path. A HOME that is
+# not an absolute path defers too, since the guard cannot then tell where jq
+# looks (jq 1.6 falls back to the password entry's home when HOME is unset).
 #
 # Every value-taking flag is enumerated because the filter is identified BY
 # POSITION — it is the first non-flag operand — and a value sitting in that
@@ -1180,6 +1384,7 @@ jq_program_safe() {
 # `--args`/`--jsonargs`, and jq only ever READS those.
 guard_jq() {
   local i a t c expect=0 prog_taken=0 endflags=0
+  jq_home_safe || return 1
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$expect" -gt 0 ]; then # a flag's value, never the filter
@@ -1226,7 +1431,7 @@ guard_jq() {
       esac
     fi
     if [ "$prog_taken" = 0 ]; then
-      jq_program_safe "$a" || return 1
+      zsh_opt_word_ok "$i" && jq_program_safe "$a" || return 1
       prog_taken=1
     fi
   done
@@ -1392,27 +1597,38 @@ flag_name_in() {
 # `-ojson` still defers. That is deliberate: two unrelated programs answer to
 # `yq` with different short-flag tables, and a value-taking claim that is wrong
 # for the one actually installed would read a dangerous flag as inert.
-# yq_expression_safe <expr>: 0 unless the expression reads the environment.
+# The jq-wrapping spelling also reads `~/.jq`, so guard_yq takes jq's
+# home-directory check too.
+# yq_expression_safe <expr>: 0 unless the expression reads the environment
+# or, read as a jq filter, fails jq_program_safe.
 # yq's `env(NAME)` and `strenv(NAME)` are the same capability the awk `ENVIRON`
 # reject and jq_program_safe's `env` check exist for — program text whose use
 # of the value this guard cannot see — so the third member of that family is
 # screened the same way rather than left as the one open door.
 yq_expression_safe() {
-  local s=$1 n i p a
+  local s=$1 n i p a w
   case $s in
-    *strenv*) return 1 ;;
+    *strenv* | *envsubst*) return 1 ;;
   esac
+  # The jq-wrapping Python spelling runs the expression as a jq filter.
+  jq_program_safe "$s" || return 1
   # `env` is a bare operator, not only a call: `env | .PATH` and `.a = env`
   # both read the environment. Walk it as a token so a longer identifier
   # (`.environment`, `envelope`) still passes, mirroring jq_program_safe.
   # Raised by the Copilot pass, 2026-09-15.
+  # The second word runs text this screen never sees, so it rejects the same
+  # way, except as the whole operand, where it names a subcommand.
+  case $s in
+    eval | eval-all) return 0 ;;
+  esac
   n=${#s}
   i=0
   while [ "$i" -lt "$n" ]; do
-    if [ "${s:i:3}" = env ]; then
+    for w in env eval; do
+      [ "${s:i:${#w}}" = "$w" ] || continue
       p=''
       [ "$i" -gt 0 ] && p=${s:i-1:1}
-      a=${s:i+3:1}
+      a=${s:i+${#w}:1}
       case $p in
         [A-Za-z0-9_.\$]) ;; # a field access, a variable, or a longer name
         *)
@@ -1422,29 +1638,31 @@ yq_expression_safe() {
           esac
           ;;
       esac
-    fi
+    done
     i=$((i + 1))
   done
   return 0
 }
 
 guard_yq() {
-  local i a expr_taken=0
+  local i a endflags=0
+  jq_home_safe || return 1
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
+    # Every operand is screened as the expression: which one yq reads it from
+    # is not always the first operand this loop sees.
+    if [ "$endflags" = 1 ]; then
+      zsh_opt_word_ok "$i" && yq_expression_safe "$a" || return 1
+      continue
+    fi
     case $a in
-      --) break ;; # end of flags: what follows is an expression or a file
-      --inplace | --inplace=* | --in-place | --in-place=* | --split-exp | --split-exp=*) return 1 ;;
-      --from-file | --from-file=*) return 1 ;; # an expression this screen cannot read
-      --*) ;;
+      --) endflags=1 ;; # end of flags: what follows is an expression or a file
+      # Every long flag defers: the Go spelling's long-only flags include
+      # ones that write files, run programs, or carry the expression, and the
+      # two spellings share no long-flag table this screen could vouch for.
+      --*) return 1 ;;
       -?*) short_flag_hit "$a" 'is' '' && return 1 ;;
-      *)
-        # The first non-flag operand is the expression; later ones are files.
-        if [ "$expr_taken" = 0 ]; then
-          yq_expression_safe "$a" || return 1
-          expr_taken=1
-        fi
-        ;;
+      *) zsh_opt_word_ok "$i" && yq_expression_safe "$a" || return 1 ;;
     esac
   done
   return 0
@@ -2025,11 +2243,11 @@ guard_git() {
 #     or the end. Anywhere else (a pipeline, the background, after a real
 #     command's `&&` or `||`, a loop/if/case body) the shell may not set it for
 #     what follows, so the whole command defers.
-# A substituted value is word-split the way the shell splits it: an unquoted
-# use becomes one word per space-separated field (none for an empty value),
-# a use inside double quotes stays one word, and a word mixing the two keeps
-# a value with a space unresolved. A word carrying a literal `$` (single
-# quotes, backslash) is never substituted, an unknown `$NAME` is left in
+# A value holding a space is substituted only inside double quotes, where it
+# stays one word in every shell; unquoted, bash splits it and zsh (the Bash
+# tool's shell on macOS) does not, so there it stays unresolved. An empty
+# value removes an unquoted word in both. A word carrying a literal `$`
+# (single quotes, backslash) is never substituted, an unknown `$NAME` is left in
 # place, and the table is per analyze_command entry, so a `fish -c` inner
 # string starts empty.
 
@@ -2050,6 +2268,17 @@ assign_name_ok() {
       HOSTFILE | INPUTRC | IGNOREEOF | TIMEFORMAT | histchars | auto_resume | \
       OPTIND | OPTARG | OPTERR | LANG | LANGUAGE | _ | \
       BASH* | COMP_* | READLINE_* | HIST* | LC_* | MAIL* | PS[0-9]*) return 1 ;;
+  esac
+  # zsh, the Bash tool's shell on macOS, gives these names a special meaning
+  # as variables, as bash gives PATH and CDPATH; the second and third rows are
+  # its integer-typed or behaviour-changing ones, refused on the same grounds
+  # as the bash row above.
+  case $name in
+    path | cdpath | NULLCMD | READNULLCMD | module_path | MODULE_PATH | \
+      fpath | FPATH | manpath | MANPATH | \
+      ARGC | GID | EGID | ERRNO | HISTSIZE | SAVEHIST | KEYTIMEOUT | LISTMAX | LOGCHECK | PERIOD | \
+      SHLVL | TTYIDLE | TRY_BLOCK_ERROR | TRY_BLOCK_INTERRUPT | COLUMNS | LINES | BAUD | \
+      DIRSTACKSIZE | USERNAME | STTY | ZDOTDIR | TMPPREFIX | status | pipestatus) return 1 ;;
   esac
   # Membership in the hook's own ENVIRONMENT, snapshotted at startup: an
   # exported name the command re-points reaches every child it runs. The
@@ -2133,8 +2362,8 @@ track_assignment() {
 # unknown or opaque name, a `${NAME:-...}` modifier, a bare `$` — is left in
 # place so the word still reads as unresolved. <mode> is `split` (every
 # expansion unquoted), `whole` (every expansion inside double quotes), or
-# `mixed`, where a value holding a space is left in place too, since the
-# split it would get depends on quoting the analyzer no longer sees. Leaves
+# `mixed`; outside `whole`, a value holding a space is left in place too
+# (see the splitting rule above). Leaves
 # the result in EXPANDED (a global, so the caller needs no command
 # substitution, which forks once per word).
 expand_word() {
@@ -2170,6 +2399,12 @@ expand_word() {
         j=$((j + 1))
       done
       k=$j
+      # zsh, the Bash tool's shell on macOS, applies a subscript or a modifier
+      # to an unbraced name directly followed by `[` or `:`, quoted or not, so
+      # the value is not the name's: leave it unresolved.
+      case ${w:k:1} in
+        '[' | ':') name='' ;;
+      esac
     fi
     hit=0
     found=''
@@ -2185,7 +2420,7 @@ expand_word() {
         done
         ;;
     esac
-    if [ "$hit" = 1 ] && [ "$mode" = mixed ]; then
+    if [ "$hit" = 1 ] && [ "$mode" != whole ]; then
       case $found in
         *' '*) hit=0 ;;
       esac
@@ -2202,11 +2437,11 @@ expand_word() {
 }
 
 # expand_words: rewrite the current simple command (`cw` and its flag arrays,
-# by dynamic scope) with the tracked values substituted, an unquoted
-# expansion split into its fields (see expand_word).
+# by dynamic scope) with the tracked values substituted; a bare word whose
+# expansions all came out empty is removed, as both shells remove it.
 expand_words() {
   local i f mode
-  local -a nw=() nx=() nq=() nd=() ng=() nm=() fields=()
+  local -a nw=() nx=() nq=() nd=() ng=() nz=() nm=() fields=()
   local nn=0
   for ((i = 0; i < cwn; i++)); do
     case ${cw[i]} in
@@ -2221,8 +2456,6 @@ expand_words() {
           fi
           expand_word "${cw[i]}" "$mode"
           if [ "$mode" = split ]; then
-            # The literal text of a bare word holds no space, so splitting
-            # the whole result on spaces splits exactly the expanded parts.
             fields=()
             [ -z "$EXPANDED" ] || IFS=' ' read -r -a fields <<<"$EXPANDED"
             for f in ${fields[@]+"${fields[@]}"}; do
@@ -2231,6 +2464,7 @@ expand_words() {
               nq[nn]=-1
               nd[nn]=${cdyn[i]}
               ng[nn]=${cglob[i]}
+              nz[nn]=${cz[i]-0}
               nm[nn]=0
               nn=$((nn + 1))
             done
@@ -2247,6 +2481,7 @@ expand_words() {
     nq[nn]=${cqp[i]}
     nd[nn]=${cdyn[i]}
     ng[nn]=${cglob[i]}
+    nz[nn]=${cz[i]-0}
     nm[nn]=${cqm[i]}
     nn=$((nn + 1))
   done
@@ -2255,6 +2490,7 @@ expand_words() {
   cqp=(${nq[@]+"${nq[@]}"})
   cdyn=(${nd[@]+"${nd[@]}"})
   cglob=(${ng[@]+"${ng[@]}"})
+  cz=(${nz[@]+"${nz[@]}"})
   cqm=(${nm[@]+"${nm[@]}"})
   cwn=$nn
 }
@@ -2262,13 +2498,14 @@ expand_words() {
 # shift_words <n>: drop the first <n> words of the current simple command.
 shift_words() {
   local i n=$1
-  local -a nw=() nx=() nq=() nd=() ng=() nm=()
+  local -a nw=() nx=() nq=() nd=() ng=() nz=() nm=()
   for ((i = n; i < cwn; i++)); do
     nw[i - n]=${cw[i]}
     nx[i - n]=${cx[i]}
     nq[i - n]=${cqp[i]}
     nd[i - n]=${cdyn[i]}
     ng[i - n]=${cglob[i]}
+    nz[i - n]=${cz[i]-0}
     nm[i - n]=${cqm[i]}
   done
   cw=(${nw[@]+"${nw[@]}"})
@@ -2276,6 +2513,7 @@ shift_words() {
   cqp=(${nq[@]+"${nq[@]}"})
   cdyn=(${nd[@]+"${nd[@]}"})
   cglob=(${ng[@]+"${ng[@]}"})
+  cz=(${nz[@]+"${nz[@]}"})
   cqm=(${nm[@]+"${nm[@]}"})
   cwn=$((cwn > n ? cwn - n : 0))
 }
@@ -2532,6 +2770,9 @@ classify_verb() {
     gh) guard_gh ;;
     mise) guard_mise ;;
     lefthook) guard_lefthook ;;
+    # Writers, approved only inside the spec-root write zone.
+    tee) guard_tee ;;
+    mkdir) guard_mkdir ;;
     # Trusted repo-code runners (path-contained) and the fish recursor.
     bash | sh) guard_bashsh ;;
     fish) guard_fish ;;
@@ -2932,10 +3173,11 @@ version_tool() {
 # verify_known_simple: the enumerated known-safe rules for one simple command.
 verify_known_simple() {
   local i verb
-  # Redirects first: a write to a real file defers regardless of the verb
-  # (covers a leading redirect with no command too, e.g. `> f cat x`).
+  # Redirects first: a write to a real file defers regardless of the verb,
+  # unless its target is in the spec-root write zone (covers a leading
+  # redirect with no command too, e.g. `> f cat x`).
   for ((i = 0; i < rn; i++)); do
-    classify_redirect "${ro[i]}" "${rt[i]}" || return 1
+    classify_redirect "${ro[i]}" "${rt[i]}" || spec_zone_redirect "${ro[i]}" "${rt[i]}" || return 1
   done
   # A command with redirects but no words (pure `> file`) already handled;
   # an empty simple command (e.g. a trailing separator) is a no-op.
@@ -3009,9 +3251,9 @@ verify_tokens() {
   # and whether a `cd` has: together they decide where state may carry (fin).
   local ctl_depth=0 seg_open='' prev_commit=0 cd_live=0
   # Accumulators for the current simple command (dynamic scope: verify_simple
-  # reads these): words, their literal-dollar, quote-start, expansion, glob and
-  # mixed-quoting flags, and the redirects. Reset by fin().
-  local -a cw=() cx=() cqp=() cdyn=() cglob=() cqm=() ro=() rt=()
+  # reads these): words, their literal-dollar, quote-start, expansion, glob,
+  # zsh-option and mixed-quoting flags, and the redirects. Reset by fin().
+  local -a cw=() cx=() cqp=() cdyn=() cglob=() cz=() cqm=() ro=() rt=()
   local cwn=0 rn=0
   # The open `for` loops, innermost last: the loop variable's VAR slot, its
   # head words in LW, the word being verified, the first body token, and the
@@ -3083,6 +3325,7 @@ verify_tokens() {
     cqp=()
     cdyn=()
     cglob=()
+    cz=()
     cqm=()
     ro=()
     rt=()
@@ -3227,6 +3470,7 @@ verify_tokens() {
     cqp[cwn]=${TOK_QPOS[idx]}
     cdyn[cwn]=${TOK_DYN[idx]}
     cglob[cwn]=${TOK_GLOB[idx]}
+    cz[cwn]=${TOK_ZOPT[idx]}
     cqm[cwn]=${TOK_QMIX[idx]}
     cwn=$((cwn + 1))
     idx=$((idx + 1))
@@ -3249,7 +3493,7 @@ analyze_command() {
   local cmd=$1 depth=$2
   [ "$depth" -le "$MAX_DEPTH" ] || return 1
   [ "${#cmd}" -le "$MAX_CMD_LEN" ] || return 1
-  local -a TOK_TYPE=() TOK_VAL=() TOK_QUOTED=() TOK_NOEXP=() TOK_QPOS=() TOK_DYN=() TOK_GLOB=() TOK_QMIX=()
+  local -a TOK_TYPE=() TOK_VAL=() TOK_QUOTED=() TOK_NOEXP=() TOK_QPOS=() TOK_DYN=() TOK_GLOB=() TOK_ZOPT=() TOK_QMIX=()
   local TOK_N=0
   local HOOK_DEPTH=$depth
   # The substitution table (tracked assignments and loop variables, VAR_L
@@ -3286,8 +3530,10 @@ main() {
 
   # The command must be a JSON string; a present-but-empty or non-string value
   # defers (REQ-B1.7).
+  # A NUL byte defers too: the command substitution drops it, so the guard
+  # would screen other text than the shell runs.
   cmd=$(printf '%s' "$input" \
-    | jq -r 'if (.tool_input.command | type) == "string" then .tool_input.command else empty end' \
+    | jq -r 'if (.tool_input.command | type) == "string" and (.tool_input.command | explode | any(. == 0) | not) then .tool_input.command else empty end' \
       2>/dev/null) || return 0
   [ -n "$cmd" ] || return 0
 
@@ -3296,7 +3542,8 @@ main() {
   # (object, array, number, boolean) means the payload does not match the
   # documented PreToolUse contract, so the whole analysis defers rather than
   # containment-checking against whatever `jq -r` renders such a value as.
-  case $(printf '%s' "$input" | jq -r 'if has("cwd") and .cwd != null then (.cwd | type) else "absent" end' 2>/dev/null) in
+  # A NUL byte in cwd defers, as in the command.
+  case $(printf '%s' "$input" | jq -r 'if has("cwd") and .cwd != null then (if (.cwd | type) == "string" and (.cwd | explode | any(. == 0)) then "nul" else (.cwd | type) end) else "absent" end' 2>/dev/null) in
     absent) cwd=$PWD ;;
     string)
       cwd=$(printf '%s' "$input" | jq -r '.cwd' 2>/dev/null) || return 0
@@ -3335,6 +3582,22 @@ HOOK_ENV_NAMES=$NL$(compgen -e)$NL
 # any payload is read, and left empty when it cannot be resolved (in which case
 # that arm simply never fires). Never derived from the analyzed command.
 HOOK_SELF_ROOT=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd -P) || HOOK_SELF_ROOT=''
+# The spec-root write zone (see in_spec_zone), read once at load from the
+# dispatcher's hand-off: an absolute directory that canonicalizes and carries
+# the root marker as a regular file, or else no zone. Never derived from the
+# analyzed command.
+spec_zone_load() {
+  local v=${PLANWRIGHT_WORKER_SPEC_ROOT:-} c
+  case $v in
+    /?*) ;;
+    *) return 0 ;;
+  esac
+  c=$(cd -P -- "$v" 2>/dev/null && pwd -P) || return 0
+  [ "$c" != / ] || return 0
+  [ -f "$c/planwright-spec-root.yml" ] && [ ! -L "$c/planwright-spec-root.yml" ] || return 0
+  printf '%s' "$c"
+}
+SPEC_ZONE=$(spec_zone_load) || SPEC_ZONE=''
 # plugin_root_unlinked <scripts-dir>: $CLAUDE_PLUGIN_ROOT, or nothing when
 # resolve-installed-roots.sh's symlink rule refuses it (or cannot be run). The
 # chain canonicalizes an arm, so a plugin cache root reached through a symlink
