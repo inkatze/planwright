@@ -437,10 +437,11 @@ dispatch_print
 fb=$(field "$OUT" flight)
 gitc "$c/primary" worktree remove --force "$c/primary/.claude/worktrees/flight-$fb"
 git -C "$c/primary/.claude/worktrees/flight-$fa" switch -q "planwright/flight/$fb"
-age "$c/fleet/flights/$fa"
+age "$c/fleet/flights/$fa" "$c/fleet/flights/$fb"
 run retire --repo-root "$c/primary"
 [ "$RC" -eq 0 ] || fail "retire with a switched flight exited $RC: $ERR"
 [ -d "$c/fleet/flights/$fa" ] || fail "a flight switched onto another flight's branch lost its own brief"
+[ -d "$c/fleet/flights/$fb" ] || fail "a flight whose branch a live worktree holds lost its brief"
 
 # Liveness keys on the worktree path, not the branch: a detached or
 # mid-rebase flight keeps its brief and its slot.
