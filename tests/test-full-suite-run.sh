@@ -77,6 +77,7 @@ log=$1 mode=$2 code=$3
 dir=$(dirname "$log")
 running=$dir/running
 printf 'mark=%s\n' "${PLANWRIGHT_STEP_POOL_HOLD-<unset>}" >>"$log.mark"
+printf 'lc=%s\n' "${LC_ALL-<unset>}" >>"$log.lc"
 printf '%s\n' "$$" >>"$dir/owners"
 mkdir "$running" 2>/dev/null || printf 'overlap\n' >>"$running.overlap"
 printf '%s\n' "$$" >"$log.pid"
@@ -179,6 +180,21 @@ verdict "a pooled run holds a full-suite slot and hands the suite its hold mark"
 # stays until a later take reclaims it; only a release removes it.
 [ ! -L "$pools/gate/slot-1" ]
 verdict "the slot is released after the suite ends" "slot-1 left behind (not released)"
+
+# --- the suite runs in the caller's locale, not the script's own --------------------
+reset
+printf 'full_suite_pool: gate\n' >"$tracked"
+fsr LC_ALL=en_US.UTF-8 -- -- "$suite" "$tmp/log" 0 0 >/dev/null 2>"$tmp/err"
+rc_set=$?
+(
+  unset LC_ALL
+  fsr -- -- "$suite" "$tmp/log2" 0 0 >/dev/null 2>>"$tmp/err"
+)
+rc_unset=$?
+[ "$rc_set" -eq 0 ] && [ "$rc_unset" -eq 0 ] && grep -qx 'lc=en_US.UTF-8' "$tmp/log.lc" \
+  && grep -qx 'lc=<unset>' "$tmp/log2.lc"
+verdict "the suite keeps the caller's LC_ALL, set or unset" \
+  "locale: rc=$rc_set/$rc_unset" "$tmp/err"
 
 # --- a failing suite still releases, its exit kept ------------------------------
 reset

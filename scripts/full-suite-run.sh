@@ -40,6 +40,10 @@
 #          reported as 1 with one stderr line saying so, so 75 always means
 #          an expired wait
 set -u
+# The command runs in the caller's locale; only this script's own parsing is
+# pinned to C.
+caller_lc_all=${LC_ALL-}
+caller_lc_all_set=${LC_ALL+1}
 LC_ALL=C
 export LC_ALL
 unset CDPATH
@@ -96,11 +100,19 @@ run_suite() {
   shift
   suite_rc=0
   [ -z "$caught" ] || return 0
-  if [ -n "$_rs_mark" ]; then
-    PLANWRIGHT_STEP_POOL_HOLD="$_rs_mark" "$@" </dev/null
-  else
-    "$@" </dev/null
-  fi
+  (
+    if [ -n "$caller_lc_all_set" ]; then
+      LC_ALL=$caller_lc_all
+      export LC_ALL
+    else
+      unset LC_ALL
+    fi
+    if [ -n "$_rs_mark" ]; then
+      PLANWRIGHT_STEP_POOL_HOLD=$_rs_mark
+      export PLANWRIGHT_STEP_POOL_HOLD
+    fi
+    exec "$@" </dev/null
+  )
   suite_rc=$?
 }
 
