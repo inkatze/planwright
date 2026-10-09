@@ -143,8 +143,12 @@ RD_DISCOVERED="$work/discovered" awk -F'\t' '
       print name "\t" secs
     }
   }
-' "$source" | sort -t "$(printf '\t')" -k2,2nr -k1,1 >"$work/rows" \
-  || die "could not read the source"
+' <"$source" >"$work/kept" || die "could not read the source"
+# A redirect rather than an operand: awk takes an operand shaped like
+# `name=value` as an assignment, not a file. Sorted only once awk has
+# succeeded, so a failure partway never writes a partial table.
+sort -t "$(printf '\t')" -k2,2nr -k1,1 "$work/kept" >"$work/rows" \
+  || die "could not sort the source's rows"
 [ -s "$work/rows" ] \
   || die "no timed test file found in $(sanitize_printable "$source" "(unprintable path)"); table left unchanged"
 

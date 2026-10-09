@@ -195,6 +195,13 @@ assert_eq "refreshed rows from a timing report" \
 TMPDIR="$bs_dir" /bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/fresh3.tsv" "$tmp/report-in.tsv" >/dev/null 2>&1
 assert_eq "refresh under a backslash TMPDIR exits 0" 0 "$?"
 
+# 9c. A relative source named like an awk assignment (`ci=log`) is read as a
+#     file, not as a variable setting.
+mkdir -p "$tmp/eq"
+cp "$tmp/ci.log" "$tmp/eq/ci=log"
+(cd "$tmp/eq" && /bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/fresh4.tsv" ci=log </dev/null >/dev/null 2>&1)
+assert_eq "a source named like an awk assignment is read" 0 "$?"
+
 # 10. A source with no usable row is refused and the table left alone.
 printf 'keep\n' >"$tmp/keep.tsv"
 printf 'nothing to see\n' >"$tmp/empty.log"
