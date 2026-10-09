@@ -53,12 +53,19 @@
 #                    the field existed (read as false). Newline-terminated:
 #                    the terminator is what says the writer finished, so a row
 #                    without one is a write in flight, never a completion.
-#   supervisor.pid / worker.pid / recover.lock/ / journal.lock/ / launch.lock/
+#   supervisor.pid / worker.pid / recover.lock / journal.lock / launch.lock
 #   scope            the dispatch scope, when the launch supplied one
 #   supervisor.log   the detached supervisor's own stderr
 #   .init.* / .frame.* / .journal.* / .session.* / .pid.*  mktemp-beside-target
 #                    staging
-#   *.broken.*       a lock directory a stale-break renamed out of the way
+#   deferred-<id>    a receipt the journal lock refused, until it is journaled
+#   .deferred.*      its staging temp
+#   undrained-<id>   a spooled receipt whose journal write failed, set aside
+#                    until `recover` re-queues it
+#   attention.dirty  the queue row may not match the journal; the tick re-syncs
+#   attention.dirty.<pid>  a publish in flight, until its writer confirms it
+#   *.lock#*         a lock break's claim, or an aside, a crashed caller left
+#   *.broken.*       residue of the retired `mkdir` lock's own stale break
 # Which of these a close releases is not a property of their order here: the
 # release set is `release_classes` and the globs each class names, and the
 # entries above are listed by what they hold, not by who removes them.
@@ -70,13 +77,15 @@
 # exclusion explicitly (the "named in the secret-scan surface" clause).
 #
 # CRASH WINDOWS (REQ-E1.5). Receipt state is the on-disk journal, written
-# BEFORE the attention upsert, so a supervisor kill loses no receipt. The
+# BEFORE the attention upsert, so a supervisor kill loses no receipt; a receipt
+# the journal lock refused is on disk as its spool until it is journaled. The
 # pending-age alarm is scan-based over that journal (`alarm-scan`), so it is
 # re-armed after `--resume` by construction — no in-memory timer to lose.
 # Duplicate delivery of a request id (same run, or re-issued across the
 # resume boundary) deduplicates on request identity: a journaled id is never
 # journaled or queued twice. Recovery (`recover`) has a single initiator —
-# an atomic mkdir election — and checks the orphaned worker's liveness
+# an election on the shared lock primitive (scripts/lock-lib.sh), one atomic
+# symlink create — and checks the orphaned worker's liveness
 # before `--resume`; a failed resume surfaces as a halt of this unit
 # (attention item + distinct exit code), never a silent loss. A
 # `can_use_tool` arriving in the supervisor-down window is covered after
@@ -220,12 +229,15 @@
 #       captured event stream. `awaiting-input` is a live worker with a pending
 #       control_request: the detail carries `pending=<n> oldest=<age>s
 #       supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending row
-#       has a readable epoch), so a worker that cannot proceed never reads as
-#       a healthy `running`. It outranks a recorded `result`, which a
-#       persistent worker writes at the end of every turn and outlives, so an
-#       earlier turn's `completed` never hides a later request.
+#       has a readable epoch; a spooled receipt counts as pending), so a worker
+#       that cannot proceed never reads as a healthy `running`. It outranks a
+#       recorded `result`, which a persistent worker writes at the end of every
+#       turn and outlives, so an earlier turn's `completed` never hides a later
+#       request.
 #   fleet-streamjson.sh pending [<worker>...]
-#       Read-only view of the requests `status` counts: for every request the
+#       Read-only view of the journaled requests `status` counts (a spooled
+#       receipt is counted there but listed here only once it is journaled,
+#       which is also when `answer` can reach it): for every request the
 #       journal still reads `pending` (no args: every worker), oldest first,
 #       print `== <worker> <request-id> <tool>` (the tool name suffixed
 #       `:sanitized` when it had to be altered to fit the header), then the
@@ -331,6 +343,18 @@ fi
 # shellcheck source=scripts/echo-safety.sh
 . "$echo_safety"
 
+# The one advisory-lock primitive (universal-binary D-11), required readable
+# and fail-closed when absent for the same reason the sanitizer is: every
+# election and every journal mutation below runs under it, so a missing
+# library is no mutual exclusion at all rather than a degraded kind.
+lock_lib="$script_dir/lock-lib.sh"
+if [ ! -r "$lock_lib" ]; then
+  printf '%s\n' "$me: required helper $lock_lib missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/lock-lib.sh
+. "$lock_lib"
+
 FS="$script_dir/fleet-state.sh"
 FA="$script_dir/fleet-attention.sh"
 FDE="$script_dir/fleet-death-evidence.sh"
@@ -422,86 +446,32 @@ worker_dir() {
   printf '%s/streamjson/%s' "$wd_root" "$1"
 }
 
-# stat_mtime <path> — mtime in epoch seconds, portable across GNU/busybox and
-# BSD stat. BOTH flavors are tried and each result is validated to be a plain
-# integer, because exit status alone does not discriminate between them: on
-# GNU/busybox stat `-f` means --file-system, so the BSD form's format string is
-# consumed as a FILE operand and the call prints a whole filesystem dump on
-# stdout while exiting non-zero. A bare `stat -f … || stat -c …` chain
-# therefore CONCATENATES that dump with the fallback's epoch, and the
-# `$((now - mtime))` below it is then a FATAL error that kills the shell
-# mid-decision (`Illegal number` on Debian/dash, `arithmetic syntax error` on
-# Alpine/busybox, `unbound variable` under macOS sh) — a silent Linux-red
-# failure the BSD-green floor platform never showed. Shape-validating each
-# candidate rather than trusting its exit status makes the probe
-# order-independent and immune to that class. Mirrors fleet-pane-detect.sh's
-# stat_uid (execution-backends task 3), which fixed the same defect on the
-# same reasoning.
-# Returns non-zero when neither flavor yields an integer, so callers fail safe
-# rather than computing an age from garbage.
-stat_mtime() {
-  sm_v=$(stat -c '%Y' "$1" 2>/dev/null) || sm_v=''
-  case $sm_v in
-    '' | *[!0-9]*) sm_v=$(stat -f '%m' "$1" 2>/dev/null) || sm_v='' ;;
-  esac
-  case $sm_v in
-    '' | *[!0-9]*) return 1 ;;
-  esac
-  printf '%s\n' "$sm_v"
-}
-
 # --- single-initiator locks -------------------------------------------------
 
-# The ages past which a lock whose holder never recorded itself is a crashed
-# holder rather than a live one, each sized against the operation it covers: a
-# recovery spans a relaunch and its startup wait; a launch's unrecorded window
-# closes as soon as it writes its holder pid.
-recover_lock_stale=300
-launch_lock_stale=60
-journal_lock_stale=60
+# Every lock this script takes goes through the shared primitive
+# (scripts/lock-lib.sh): the lock IS an atomic symlink whose target names its
+# holder, and STALE MEANS THE HOLDER'S PROCESS IS ABSENT, never an age. An age
+# cannot tell a crash from a `--foreground` launch legitimately holding its lock
+# for the whole run, so it would break live locks under load and leave dead
+# ones standing for the whole threshold. The holder's process is the evidence
+# instead, for every class alike.
 
-# lock_take <lock-dir> <max-age> — take an atomic mkdir election, breaking a
-# lock whose holder is gone. Non-zero, lock untouched, when a holder is
-# genuinely live.
+# lock_take <lock-path> — take a single-initiator election. 0 taken, non-zero
+# refused with the lock untouched.
 #
-# The holder's pid is recorded inside the lock, so a crashed holder is detected
-# by evidence rather than by an age that cannot tell a crash from a legitimate
-# long hold — a `--foreground` launch holds its lock for the whole run. The age
-# is the fallback for a lock whose holder died before recording itself, and an
-# unreadable mtime reads as fresh, so an unprobeable lock is refused rather
-# than broken.
-#
-# The break renames before it removes: `rmdir` then `mkdir` is not a
-# compare-and-swap, and two callers racing to break one stale lock would both
-# win it. Only one rename can find the directory.
+# ONE attempt, never a spin. Both callers are elections whose entire answer to a
+# live holder is "someone else is already doing this" (exit 3), so waiting here
+# would turn an immediate refusal into a two-minute stall. The journal lock,
+# whose callers do want to wait, spins in `journal_lock` instead.
 lock_take() {
-  if mkdir "$1" 2>/dev/null; then
-    printf '%s\n' "$$" >"$1/holder" 2>/dev/null || :
-    return 0
-  fi
-  lt_holder=$(cat "$1/holder" 2>/dev/null) || lt_holder=''
-  if valid_posnum "${lt_holder:-}"; then
-    # Not `kill -0`: an EPERM holder is alive, and breaking its lock would let
-    # two callers into the critical section at once.
-    pid_live "$lt_holder" && return 1
-  else
-    lt_now=$(now_epoch) || return 1
-    lt_mt=$(stat_mtime "$1") || lt_mt=$lt_now
-    [ $((lt_now - lt_mt)) -gt "$2" ] || return 1
-  fi
-  lt_broken="$1.broken.$$"
-  mv "$1" "$lt_broken" 2>/dev/null || return 1
-  rm -rf "$lt_broken" 2>/dev/null || :
-  mkdir "$1" 2>/dev/null || return 1
-  printf '%s\n' "$$" >"$1/holder" 2>/dev/null || :
+  pw_lock_try "$1"
 }
 
-# lock_drop <lock-dir> — release a lock this process still holds. A lock some
-# other caller has since taken is left alone: without the ownership check, a
-# holder that outlived a break of its own lock would remove its successor's.
+# lock_drop <lock-path> — release a lock this process holds. The primitive
+# verifies ownership, so a holder that outlived a break of its own lock finds a
+# stranger's token at the path and leaves the successor's lock alone.
 lock_drop() {
-  [ "$(cat "$1/holder" 2>/dev/null)" = "$$" ] || return 0
-  rm -rf "$1" 2>/dev/null || :
+  pw_lock_release "$1"
 }
 
 # write_pidfile <path> <pid> — publish a pid file the way this script publishes
@@ -525,10 +495,9 @@ write_pidfile() {
 # pid_live <pid> — true when the pid names a live process, INCLUDING one this
 # user may not signal. `kill -0` conflates two answers: "no such process" and
 # EPERM, which means the process is alive and owned by someone else. Reading
-# the second as death is how a live lock gets broken out from under its holder
-# and how a second launch proceeds over a running worker. `ps -p` answers
-# existence regardless of ownership and is consulted only after `kill -0` has
-# already said no, so the common path stays fork-free.
+# the second as death is how a second launch proceeds over a running worker.
+# `ps -p` answers existence regardless of ownership and is consulted only after
+# `kill -0` has already said no, so the common path stays fork-free.
 pid_live() {
   kill -0 "$1" 2>/dev/null && return 0
   ps -p "$1" >/dev/null 2>&1
@@ -547,34 +516,39 @@ worker_alive() {
 
 # --- journal (the REQ-E1.5 durable receipt state) ---------------------------
 # One tab-separated row per request id: id kind received-epoch state [epoch].
-# Mutations run under the file's own election lock. That premise used to be
-# "journal writes are sub-second, so an older lock is a crashed holder", and it
-# stopped holding when this path began publishing the queue projection inside
-# the critical section: a hold now spans a shell-out and an old lock is no
-# longer evidence of a crash. So age is the fallback, not the test. The
-# election reads the holder pid first and refuses to break a live one, which is
-# what makes a long legitimate hold safe; the age branch applies only to a lock
-# with no usable holder stamp. The cost of refusing is on the other side and is
-# real: a wedged holder is not reclaimed at all, only waited out.
+# Mutations run under the file's own lock, and the hold is short: no shell-out
+# runs inside it, the queue projection included (attention_sync says why). A
+# crashed writer's lock is reclaimed on the next attempt, because the primitive
+# probes the holder's process, and a live writer's is never taken out from
+# under it. A receipt that meets a busy lock anyway is spooled beside the
+# journal and journaled once the lock frees (receipt_defer, receipt_drain).
 
+# ~5s of waiting, the bound this lock has always had, expressed in the
+# primitive's own 0.02s tick.
+journal_lock_tries=250
+
+# journal_lock <dir> [<tries>] — take the journal lock, waiting out a busy one
+# for <tries> attempts (default the full budget). 1 when it stays busy for the
+# whole budget, 2 when it cannot be taken at all; either is the caller's cue to
+# leave the journal alone rather than write a row it cannot vouch for.
 journal_lock() {
-  # Delegated to the file's own election primitive rather than hand-rolled here.
-  # It already answers every hazard this lock met: the break renames before it
-  # removes, so two waiters cannot both win one stale lock; the holder's pid is
-  # recorded inside, so a live holder is never broken on age alone; and the drop
-  # is ownership-checked, so a holder that outlived a break of its own lock
-  # leaves its successor's alone. The spin is what this lock adds -- callers
-  # here wait for a busy journal rather than failing on the first refusal.
+  # Armed before the acquire, and idempotent: the verbs that reach here have no
+  # handler of their own, and the two that do (`launch`, `recover`) armed this
+  # same one ahead of their own election.
+  pw_lock_trap_install
   jl_dir="$1/journal.lock"
-  jl_i=0
-  until lock_take "$jl_dir" "$journal_lock_stale"; do
-    jl_i=$((jl_i + 1))
-    if [ "$jl_i" -ge 50 ]; then
-      printf '%s\n' "$me: journal lock busy at $jl_dir" >&2
-      return 2
-    fi
-    sleep 0.1
-  done
+  pw_lock_acquire "$jl_dir" "${2:-$journal_lock_tries}"
+  jl_rc=$?
+  [ "$jl_rc" -eq 0 ] && return 0
+  # A budget exhausted against a live holder is the only outcome this layer has
+  # anything to add to; the primitive has already said its piece about the rest.
+  # Busy and broken stay apart for the callers that answer them differently
+  # (receipt_record); every other caller treats any non-zero as "leave it".
+  if [ "$jl_rc" -eq 1 ]; then
+    [ "${2:-}" = 1 ] || printf '%s\n' "$me: journal lock busy at $jl_dir" >&2
+    return 1
+  fi
+  return 2
 }
 
 journal_unlock() {
@@ -848,15 +822,119 @@ attention_upsert() {
     || printf '%s\n' "$me: attention decide failed for $au_worker req $au_short" >&2
 }
 
-# attention_settled <worker> <dir> — after a request settles, re-point the
-# queue item at the oldest still-pending request, or clear the row.
-attention_settled() {
-  as_pending=$(journal_oldest_pending "$2")
-  if [ -n "$as_pending" ]; then
-    attention_upsert "$1" "$2" "${as_pending%% *}" "${as_pending#* }"
+# attention_publish <worker> <dir> <projection> — write the queue row a
+# journal projection names: the `<id> <kind>` of the oldest pending request, or
+# nothing, which clears the worker's row.
+attention_publish() {
+  if [ -n "$3" ]; then
+    attention_upsert "$1" "$2" "${3%% *}" "${3#* }"
   else
     /bin/sh "$FA" clear "$1" || :
   fi
+}
+
+# attention_sync <worker> <dir> <projection> — publish the projection the
+# caller read under the journal lock, then confirm it is still the one the
+# journal implies, publishing again until it is. Called WITHOUT the lock.
+#
+# THE JOURNAL LOCK IS NEVER HELD ACROSS THE ATTENTION STORE. The store takes the
+# fleet lock, so a journal lock held across it turns one stuck lock into two:
+# every answer, steer and receipt for this worker waits on a fleet lock it has
+# nothing to do with, and a receipt that cannot wait is lost. What the hold used
+# to buy was that no `answer` could settle a request between the read and the
+# publish and have its clear undone by a stale row. Publish-then-confirm buys
+# the same without it: every writer that changes the journal publishes after
+# its change and confirms after its publish, so whichever publish lands last is
+# checked against the journal as it stands by then, and a stale one is replaced
+# by the confirmation of the writer that published it. Every publish is
+# confirmed, the last one included. A confirmation that cannot happen (the lock
+# held past its budget, or a journal still moving after the bounded rounds)
+# marks the row for the tick to re-sync rather than trusting it.
+#
+# The mark is raised BEFORE the first publish and cleared only by this call's
+# own confirmation, so a process killed between a stale publish and its
+# confirmation still leaves the row marked. Each process marks under its own
+# name, so one writer's confirmation never clears another's mark.
+attention_sync() {
+  sy_proj=$3
+  sy_round=0
+  sy_mark="$2/attention.dirty.$$"
+  : >"$sy_mark" 2>/dev/null || :
+  while :; do
+    attention_publish "$1" "$2" "$sy_proj"
+    sy_round=$((sy_round + 1))
+    if ! journal_lock "$2" 2>/dev/null; then
+      attention_give_up "$2" "$sy_mark"
+      return 0
+    fi
+    sy_now=$(journal_oldest_pending "$2")
+    journal_unlock "$2"
+    if [ "$sy_now" = "$sy_proj" ]; then
+      rm -f "$sy_mark" 2>/dev/null || :
+      return 0
+    fi
+    if [ "$sy_round" -ge 4 ]; then
+      attention_give_up "$2" "$sy_mark"
+      return 0
+    fi
+    sy_proj=$sy_now
+  done
+}
+
+# attention_give_up <dir> <mark> — hand an unconfirmed row to the tick. The
+# per-process mark exists only while its sync is in flight; a sync that stops
+# without confirming turns it into the shared mark, which the tick acts on
+# whoever raised it, since the writer (the supervisor, say) may well live on.
+attention_give_up() {
+  mv -f "$2" "$1/attention.dirty" 2>/dev/null || : >"$1/attention.dirty" 2>/dev/null || :
+}
+
+# attention_dirty <dir> — whether a re-sync mark is the tick's to act on: the
+# shared mark a sync left when it gave up, or an in-flight mark whose writer is
+# gone (killed mid-publish) or is this process. A live writer's in-flight mark
+# is still its own to clear by confirming.
+attention_dirty() {
+  [ -f "$1/attention.dirty" ] && [ ! -L "$1/attention.dirty" ] && return 0
+  set +f
+  for ad_f in "$1"/attention.dirty.*; do
+    [ -f "$ad_f" ] && [ ! -L "$ad_f" ] || continue
+    ad_pid=${ad_f##*.}
+    if [ "$ad_pid" = "$$" ] || ! valid_posnum "$ad_pid" || ! pid_live "$ad_pid"; then
+      set -f
+      return 0
+    fi
+  done
+  set -f
+  return 1
+}
+
+# attention_clear_marks <dir> [all] — remove the marks attention_dirty would
+# act on, or every mark when the worker is being closed.
+attention_clear_marks() {
+  rm -f "$1/attention.dirty" 2>/dev/null || :
+  set +f
+  for ac_f in "$1"/attention.dirty.*; do
+    [ -L "$ac_f" ] || [ -f "$ac_f" ] || continue
+    ac_pid=${ac_f##*.}
+    if [ "${2:-}" = all ] || [ "$ac_pid" = "$$" ] || ! valid_posnum "$ac_pid" || ! pid_live "$ac_pid"; then
+      rm -f "$ac_f" 2>/dev/null
+    fi
+  done
+  set -f
+}
+
+# attention_resync <worker> <dir> — the tick's half of attention_give_up:
+# one non-waiting attempt to read the projection and publish it, confirmed as
+# every publish is. A lock still busy leaves the marks for the next beat; once
+# the projection is read, the marks it answers are cleared and the publish
+# raises its own.
+attention_resync() {
+  attention_dirty "$2" || return 0
+  journal_lock "$2" 1 2>/dev/null || return 0
+  rs_proj=$(journal_oldest_pending "$2")
+  journal_unlock "$2"
+  attention_clear_marks "$2"
+  attention_sync "$1" "$2" "$rs_proj"
 }
 
 # attention_failure <worker> <dir> <text> — a visible failure item
@@ -870,6 +948,191 @@ attention_failure() {
 }
 
 # --- the supervisor loop ----------------------------------------------------
+
+# request_kind <line> — the receipt kind a control_request carries.
+request_kind() {
+  case $(json_field "$1" tool_name) in
+    AskUserQuestion) printf 'question' ;;
+    *) printf 'permission' ;;
+  esac
+}
+
+# receipt_record <worker> <dir> <id> <kind> <epoch> <line> [<spool> [<tries>]]
+# — journal one control_request and project it into the queue. 0 handled
+# (recorded, a duplicate, or a failure already surfaced), 1 the journal lock
+# is busy and nothing was written, 2 the journal lock cannot be taken at all.
+#
+# A <spool> is the deferred copy being drained, removed under the same lock
+# hold that records it and only once the journal holds the receipt: a second
+# drainer that read it too finds it gone under the lock and records nothing,
+# so a drained receipt is recorded exactly once and never lost.
+receipt_record() {
+  rr_worker=$1
+  rr_dir=$2
+  rr_id=$3
+  rr_kind=$4
+  rr_now=$5
+  rr_line=$6
+  rr_spool=${7:-}
+  journal_lock "$rr_dir" "${8:-}" || return $?
+  rr_state=$(journal_state "$rr_dir" "$rr_id")
+  if [ -n "$rr_spool" ]; then
+    # Gone means another drainer recorded it under this same lock already.
+    if [ ! -f "$rr_spool" ]; then
+      journal_unlock "$rr_dir"
+      return 0
+    fi
+    # The spool is the only durable copy until the journal holds the receipt,
+    # so it is removed only once the journal write below has landed, or here
+    # when the journal already accounts for it. A kill in between leaves a
+    # spool the next drain finds already pending, and drops.
+    # Against a settled row, a spool is a resume re-ask only if it was
+    # received after the settle; one received before it is a duplicate of the
+    # request the operator already answered, spooled while the answer held
+    # the lock, and re-opening it would ask a settled question again.
+    case $rr_state in
+      answered | undeliverable)
+        rr_settled=$(awk -F'\t' -v id="$rr_id" '$1 == id { print $5; exit }' "$rr_dir/journal" 2>/dev/null) || rr_settled=''
+        if valid_posnum "${rr_settled:-}" && [ "$rr_now" -lt "$rr_settled" ]; then
+          rm -f "$rr_spool" 2>/dev/null || :
+          journal_unlock "$rr_dir"
+          return 0
+        fi
+        ;;
+      pending)
+        rm -f "$rr_spool" "$rr_dir/undrained-$rr_id" 2>/dev/null || :
+        ;;
+    esac
+  fi
+  case $rr_state in
+    pending)
+      # A still-open request re-delivered: dedup on request identity — no
+      # second journal row, no second queue item. This is the within-run
+      # duplicate the CLI can emit and the resume-boundary re-delivery of
+      # an unanswered request (REQ-E1.1, REQ-E1.2, REQ-E1.5).
+      journal_unlock "$rr_dir"
+      return 0
+      ;;
+    answered | undeliverable)
+      # The same id re-surfaces in a terminal state. That legitimately
+      # happens only across a `--resume`: the worker is asking AGAIN, so
+      # the prior answer never took (a control_response written into a
+      # buffer the killed worker never read, or an undeliverable verdict).
+      # Re-OPEN the receipt to pending and re-queue it, so the resumed
+      # ask is answerable — never silently swallowed (the no-pend-
+      # unobserved invariant, and the "recover the worker and re-ask"
+      # remedy this tool prints). The alarm re-arms on the new pending
+      # row by construction.
+      if ! journal_set_state "$rr_dir" "$rr_id" pending "$rr_now"; then
+        # Fail closed: with the journal still terminal, an answerable
+        # queue item would be a dead end (`answer` refuses on the
+        # already-answered/undeliverable row). Surface the failed
+        # re-open visibly instead (never silent, never misleading).
+        receipt_quarantine "$rr_spool"
+        journal_unlock "$rr_dir"
+        attention_failure "$rr_worker" "$rr_dir" \
+          "could not re-open request $(printf '%s' "$rr_id" | cut -c1-8) on resume for worker $rr_worker - the journal still reads terminal, investigate disk/store"
+        return 0
+      fi
+      ;;
+    *)
+      # Durable receipt FIRST (a kill after this write loses nothing), then
+      # the envelope (answer composition), then the queue item. A failed
+      # journal append is surfaced rather than proceeding to queue a request
+      # with no durable receipt (REQ-E1.5's receipt-first guarantee).
+      if ! journal_append "$rr_dir" "$rr_id" "$rr_kind" "$rr_now"; then
+        receipt_quarantine "$rr_spool"
+        journal_unlock "$rr_dir"
+        attention_failure "$rr_worker" "$rr_dir" \
+          "receipt append failed for worker $rr_worker request $(printf '%s' "$rr_id" | cut -c1-8) - the receipt journal is not durable, investigate disk/store"
+        return 0
+      fi
+      ;;
+  esac
+  [ -z "$rr_spool" ] || rm -f "$rr_spool" 2>/dev/null || :
+  # Any earlier copy set aside after a failed write is answered by this row.
+  rm -f "$rr_dir/undrained-$rr_id" 2>/dev/null || :
+  printf '%s\n' "$rr_line" >"$rr_dir/req-$rr_id.json"
+  # The projection is the OLDEST still-pending request, which the one just
+  # recorded is not when an earlier one is still open. Read under the lock and
+  # published after it, as attention_sync describes.
+  rr_proj=$(journal_oldest_pending "$rr_dir")
+  journal_unlock "$rr_dir"
+  attention_sync "$rr_worker" "$rr_dir" "$rr_proj"
+  return 0
+}
+
+# receipt_quarantine [<spool>] — set aside a spool whose journal write failed.
+# The failure is surfaced once by the caller; left where the drain looks, the
+# tick would retry it and surface it again every beat. Kept, not removed: it
+# is still the only copy of the request.
+receipt_quarantine() {
+  [ -n "${1:-}" ] || return 0
+  mv -f "$1" "${1%/*}/undrained-${1##*/deferred-}" 2>/dev/null || :
+}
+
+# receipt_requeue <dir> — put set-aside spools back where the drain looks, once:
+# `recover` is the operator's retry after fixing what failed the write.
+receipt_requeue() {
+  set +f
+  for rq_f in "$1"/undrained-*; do
+    [ -f "$rq_f" ] && [ ! -L "$rq_f" ] || continue
+    rq_id=${rq_f##*/undrained-}
+    valid_reqid "$rq_id" || continue
+    [ -e "$1/deferred-$rq_id" ] || mv -f "$rq_f" "$1/deferred-$rq_id" 2>/dev/null || :
+  done
+  set -f
+}
+
+# receipt_defer <dir> <id> <epoch> <line> — spool a receipt the journal lock
+# refused: its received epoch, then the request line. Staged beside the target
+# and renamed, like every other durable write here, so a drain never reads half
+# of one.
+receipt_defer() {
+  # A rename onto a link to a directory files the spool inside it and still
+  # succeeds, where no drain would ever find it.
+  if [ -L "$1/deferred-$2" ] || { [ -e "$1/deferred-$2" ] && [ ! -f "$1/deferred-$2" ]; }; then
+    return 1
+  fi
+  rf_tmp=$(mktemp "$1/.deferred.XXXXXX") || return 1
+  if printf '%s\n%s\n' "$3" "$4" >"$rf_tmp" && mv "$rf_tmp" "$1/deferred-$2"; then
+    return 0
+  fi
+  rm -f "$rf_tmp" 2>/dev/null || :
+  return 1
+}
+
+# receipt_drain <worker> <dir> [<tries>] — journal every spooled receipt the
+# journal lock now admits, under its original received epoch, so the journal's
+# oldest-first order is the order the requests arrived in. 0 nothing left
+# spooled, otherwise receipt_record's code for the lock that refused (1 busy,
+# 2 broken). The supervisor drains on every
+# request, waiting out a busy lock; the tick on every beat, with one attempt.
+# Both may race for one spool, and the spool is removed under the lock that
+# records it, so the loser finds it gone or already journaled.
+receipt_drain() {
+  set +f
+  for dr_f in "$2"/deferred-*; do
+    set -f
+    [ -f "$dr_f" ] && [ ! -L "$dr_f" ] || continue
+    dr_id=${dr_f##*/deferred-}
+    valid_reqid "$dr_id" || continue
+    dr_epoch=$(head -n 1 "$dr_f" 2>/dev/null) || continue
+    case $dr_epoch in
+      '' | *[!0-9]*) continue ;;
+    esac
+    dr_line=$(tail -n +2 "$dr_f" 2>/dev/null) || continue
+    dr_rc=0
+    receipt_record "$1" "$2" "$dr_id" "$(request_kind "$dr_line")" "$dr_epoch" "$dr_line" \
+      "$dr_f" "${3:-}" || dr_rc=$?
+    if [ "$dr_rc" -ne 0 ]; then
+      set -f
+      return "$dr_rc"
+    fi
+  done
+  set -f
+  return 0
+}
 
 # handle_line <worker> <dir> <line> — classify one captured event line and
 # apply the D-5 coupling. NEVER writes to the worker's stdin (the
@@ -885,92 +1148,32 @@ handle_line() {
         printf '%s\n' "$me: refused a control_request with an out-of-grammar request_id" >&2
         return 0
       fi
-      hl_tool=$(json_field "$hl_line" tool_name)
-      case $hl_tool in
-        AskUserQuestion) hl_kind=question ;;
-        *) hl_kind=permission ;;
-      esac
-      if ! journal_lock "$hl_dir"; then
-        # The receipt could not be journaled: surface it rather than letting
-        # the request pend unobserved (the invariant this script exists for).
+      hl_now=$(now_epoch) || hl_now=0
+      # Earlier receipts the journal lock refused go first; when it still
+      # refuses, this one joins them rather than being dropped.
+      hl_rc=0
+      receipt_drain "$hl_worker" "$hl_dir" || hl_rc=$?
+      if [ "$hl_rc" -eq 0 ]; then
+        receipt_record "$hl_worker" "$hl_dir" "$hl_id" "$(request_kind "$hl_line")" "$hl_now" "$hl_line" \
+          || hl_rc=$?
+        [ "$hl_rc" -ne 0 ] || return 0
+      fi
+      # The receipt could not be journaled now. It must not pend unobserved
+      # (the invariant this script exists for), and it must not be lost
+      # either: spooled, it is journaled by the next receipt or the next
+      # tick that finds the lock free, with nothing restarted.
+      hl_spooled=0
+      receipt_defer "$hl_dir" "$hl_id" "$hl_now" "$hl_line" && hl_spooled=1
+      if [ "$hl_spooled" = 1 ] && [ "$hl_rc" -ne 2 ]; then
+        attention_failure "$hl_worker" "$hl_dir" \
+          "receipt for worker $hl_worker request $(printf '%s' "$hl_id" | cut -c1-8) deferred: the journal lock is busy; it is journaled once the lock frees"
+      elif [ "$hl_spooled" = 1 ]; then
+        attention_failure "$hl_worker" "$hl_dir" \
+          "receipt for worker $hl_worker request $(printf '%s' "$hl_id" | cut -c1-8) deferred: the journal lock cannot be taken at all - investigate $hl_dir/journal.lock"
+      else
         attention_failure "$hl_worker" "$hl_dir" \
           "receipt journaling failed for worker $hl_worker request $(printf '%s' "$hl_id" | cut -c1-8) - investigate the journal lock"
-        return 0
       fi
-      hl_state=$(journal_state "$hl_dir" "$hl_id")
-      case $hl_state in
-        pending)
-          # A still-open request re-delivered: dedup on request identity — no
-          # second journal row, no second queue item. This is the within-run
-          # duplicate the CLI can emit and the resume-boundary re-delivery of
-          # an unanswered request (REQ-E1.1, REQ-E1.2, REQ-E1.5).
-          journal_unlock "$hl_dir"
-          return 0
-          ;;
-        answered | undeliverable)
-          # The same id re-surfaces in a terminal state. That legitimately
-          # happens only across a `--resume`: the worker is asking AGAIN, so
-          # the prior answer never took (a control_response written into a
-          # buffer the killed worker never read, or an undeliverable verdict).
-          # Re-OPEN the receipt to pending and re-queue it, so the resumed
-          # ask is answerable — never silently swallowed (the no-pend-
-          # unobserved invariant, and the "recover the worker and re-ask"
-          # remedy this tool prints). The alarm re-arms on the new pending
-          # row by construction.
-          hl_now=$(now_epoch) || hl_now=0
-          if ! journal_set_state "$hl_dir" "$hl_id" pending "$hl_now"; then
-            # Fail closed: with the journal still terminal, an answerable
-            # queue item would be a dead end (`answer` refuses on the
-            # already-answered/undeliverable row). Surface the failed
-            # re-open visibly instead (never silent, never misleading).
-            journal_unlock "$hl_dir"
-            attention_failure "$hl_worker" "$hl_dir" \
-              "could not re-open request $(printf '%s' "$hl_id" | cut -c1-8) on resume for worker $hl_worker - the journal still reads terminal, investigate disk/store"
-            return 0
-          fi
-          printf '%s\n' "$hl_line" >"$hl_dir/req-$hl_id.json"
-          # Derived under the lock for the reason the sibling site below spells
-          # out. Note this surfaces the oldest still-pending request rather
-          # than the one just re-opened: when an earlier request is also open,
-          # that older one is what the row is supposed to carry.
-          attention_settled "$hl_worker" "$hl_dir"
-          journal_unlock "$hl_dir"
-          return 0
-          ;;
-      esac
-      hl_now=$(now_epoch) || hl_now=0
-      # Durable receipt FIRST (a kill after this write loses nothing), then
-      # the envelope (answer composition), then the queue item. A failed
-      # journal append is surfaced rather than proceeding to queue a request
-      # with no durable receipt (REQ-E1.5's receipt-first guarantee).
-      if ! journal_append "$hl_dir" "$hl_id" "$hl_kind" "$hl_now"; then
-        journal_unlock "$hl_dir"
-        attention_failure "$hl_worker" "$hl_dir" \
-          "receipt append failed for worker $hl_worker request $(printf '%s' "$hl_id" | cut -c1-8) - the receipt journal is not durable, investigate disk/store"
-        return 0
-      fi
-      printf '%s\n' "$hl_line" >"$hl_dir/req-$hl_id.json"
-      # Derived and published INSIDE the journal lock. The queue row is a
-      # projection of journal state, so reading that state and writing the row
-      # have to be one step: with the publish outside, `answer` lands between
-      # them, marks the row answered and clears the queue, and this write then
-      # re-posts a decision the operator already made. Deriving instead of
-      # publishing the id captured above is the other half -- the row carries
-      # the OLDEST still-pending request, which the just-appended id is not
-      # when an earlier one is still open. Held across the shell-out
-      # deliberately: nothing reachable from here re-takes this lock or takes
-      # the attention store's lock ahead of it, so it cannot deadlock. The
-      # cost is real and is NOT bounded by the stale break, which is what an
-      # earlier revision of this comment claimed: the election refuses to break
-      # a lock whose holder is live, on purpose, so a wedged fleet-attention.sh
-      # is not reclaimed at journal_lock_stale at all. Other journal writers
-      # spin their retry budget, report busy, and stay out until this call
-      # returns. An attention-store hang therefore becomes a journal stall for
-      # this worker. Bounding that needs a kill-safe shell-out or a recovery
-      # path neither this change nor the primitive provides; it is recorded
-      # rather than papered over.
-      attention_settled "$hl_worker" "$hl_dir"
-      journal_unlock "$hl_dir"
       ;;
     *'"type":"system"'*'"subtype":"init"'*)
       hl_sid=$(json_field "$hl_line" session_id)
@@ -1379,7 +1582,7 @@ stop_pidfiles='supervisor.pid worker.pid'
 # lock. Everything else in the state directory is the durable record a close
 # keeps: the capture, the journal, the session, the stored envelopes, and the
 # result.
-scratch_patterns='in.fifo out.fifo .init.* .frame.* .journal.* .session.* .pid.* *.broken.*'
+scratch_patterns='in.fifo out.fifo .init.* .frame.* .journal.* .session.* .pid.* .deferred.* *.lock#* *.broken.*'
 
 # stop_match <worker> <dir> — the argv the supervisor re-execs itself with.
 # The handle and the directory together are what keep a sibling whose handle
@@ -1403,25 +1606,76 @@ stop_process_closed() {
   done
 }
 
-# `-e` rather than `-d`: a lock path that exists as a regular file blocks the
-# `mkdir` election just as effectively as a directory does, and gating on `-d`
-# would leave the verb it blocks wedged with nothing able to clear it.
+# `-L` BEFORE `-e`, and both: a held lock is a symlink whose target is a token
+# rather than a file, so `-e` follows it and reads FALSE on exactly the shape
+# this probe exists to see. `-e` still earns its place for everything else that
+# can occupy the path — a regular file, or a directory left by the retired
+# `mkdir` shape — because each of those blocks an acquire just as effectively,
+# and a probe that missed them would leave the verb they block wedged with
+# nothing able to clear it.
 held_locks() {
   for hl_l in $lock_classes; do
-    [ -e "$1/$hl_l" ] && return 0
+    if [ -L "$1/$hl_l" ] || [ -e "$1/$hl_l" ]; then
+      return 0
+    fi
   done
   return 1
 }
 
-# `rm -rf` rather than `rmdir`: an election lock carries its holder's pid
-# inside it, so it is not an empty directory. The names are literals from
-# `lock_classes` under a directory the caller has already validated.
+# clear_legacy_lock_dirs <dir> — clear a lock left as a DIRECTORY by the
+# retired `mkdir` shape.
+#
+# The current primitive never creates one, so a directory at a lock path can
+# only be residue of a fleet home that predates the migration. Nothing acquires
+# over it: an acquire refuses a path occupied by something that is not a lock
+# symlink rather than guessing, so one such directory wedges every verb for
+# this worker until something removes it. That is what makes this the in-place
+# upgrade path. The library's clear is what makes it safe: it takes a directory
+# and only a directory, in one step, so a peer that wins the path in between
+# keeps its live lock rather than having it deleted by a recovery.
+#
+# Only a directory whose recorded holder is gone is cleared. The retired shape
+# wrote its holder's pid into `holder` just after taking the lock, so one whose
+# holder still runs, or that recorded none yet, may be a launch or recovery from
+# before the upgrade that is still going, and removing it would run this verb
+# beside that one. It is contention (1), left standing. A failure to clear is
+# surfaced rather than swallowed (2): neither caller may go on to report
+# contention for a condition that will not clear.
+clear_legacy_lock_dirs() {
+  cl_rc=0
+  for cl_l in $lock_classes; do
+    [ -d "$1/$cl_l" ] && [ ! -L "$1/$cl_l" ] || continue
+    cl_h=$(head -n 1 "$1/$cl_l/holder" 2>/dev/null) || cl_h=''
+    valid_posnum "${cl_h:-}" || cl_h=''
+    if [ -z "$cl_h" ] || pid_live "$cl_h"; then
+      printf '%s\n' "$me: $1/$cl_l is a lock directory from before the upgrade whose holder (${cl_h:-not recorded}) may still be running; leaving it in place" >&2
+      [ "$cl_rc" -eq 2 ] || cl_rc=1
+      continue
+    fi
+    pw_lock_clear_legacy "$1/$cl_l" 2>/dev/null
+    if [ "$?" -eq 2 ]; then
+      printf '%s\n' "$me: cannot clear the legacy lock directory $1/$cl_l (parent unwritable or filesystem error)" >&2
+      cl_rc=2
+    fi
+  done
+  return "$cl_rc"
+}
+
+# `pw_lock_break_force` rather than a bare `rm`: it is the primitive's own
+# unconditional clear, and it takes a lock left as a DIRECTORY by the retired
+# `mkdir` shape as readily as a symlink — so the close is the second place a
+# fleet home that predates the migration gets unwedged. The names are literals
+# from `lock_classes` under a directory the caller has already validated.
 release_locks() {
   rl_rc=0
   for rl_l in $lock_classes; do
-    [ -e "$1/$rl_l" ] || continue
-    rm -rf "${1:?}/$rl_l" 2>/dev/null || :
-    [ -e "$1/$rl_l" ] && rl_rc=1
+    if [ ! -L "$1/$rl_l" ] && [ ! -e "$1/$rl_l" ]; then
+      continue
+    fi
+    pw_lock_break_force "${1:?}/$rl_l" >/dev/null 2>&1 || :
+    if [ -L "$1/$rl_l" ] || [ -e "$1/$rl_l" ]; then
+      rl_rc=1
+    fi
   done
   return "$rl_rc"
 }
@@ -1446,6 +1700,15 @@ release_attention() {
 }
 
 journal_close() {
+  # Spooled receipts were never journaled, and a close makes every receipt
+  # undeliverable; left behind, a later supervisor would drain them into a
+  # session that never asked. A resumed worker that still wants one asks again.
+  set +f
+  for jc_f in "$1"/deferred-* "$1"/undrained-*; do
+    if [ -L "$jc_f" ] || [ -f "$jc_f" ]; then rm -f "$jc_f" 2>/dev/null; fi
+  done
+  set -f
+  attention_clear_marks "$1" all
   [ -f "$1/journal" ] || return 0
   # Readable, not merely present. The exit-code reading below leans on awk
   # separating "no pending rows" (1) from "could not read" (something else),
@@ -1494,12 +1757,28 @@ stop_held() {
     process) held_process "$2" "$(stop_match "$3" "$2")" "$stop_pidfiles" ;;
     locks) held_locks "$2" ;;
     scratch) held_scratch "$2" ;;
-    attention) held_attention "$4" "$3" ;;
+    attention) held_attention "$4" "$3" || held_receipts "$2" ;;
     *)
       printf '%s\n' "$me: no held-probe for release class '$1'" >&2
       return 0
       ;;
   esac
+}
+
+# held_receipts <dir> — a spooled receipt or a re-sync mark is part of the
+# attention class: the close settles both, and either one left behind would be
+# replayed into a later session by its tick.
+held_receipts() {
+  attention_dirty "$1" && return 0
+  set +f
+  for hr_f in "$1"/deferred-* "$1"/undrained-*; do
+    if [ -L "$hr_f" ] || [ -f "$hr_f" ]; then
+      set -f
+      return 0
+    fi
+  done
+  set -f
+  return 1
 }
 
 stop_release() {
@@ -1607,17 +1886,42 @@ cmd_launch() {
   }
   mkdir -p "$dir" || exit 2
   chmod 700 "$dir" 2>/dev/null || :
+  # A lock left as a directory by the retired shape refuses every acquire, the
+  # journal's included, so a relaunch clears it as `recover` does.
+  clear_legacy_lock_dirs "$dir"
+  case $? in
+    0) ;;
+    1)
+      printf '%s\n' "$me: launch refused for $worker: a lock from before the upgrade may still be held" >&2
+      exit 3
+      ;;
+    *) exit 2 ;;
+  esac
 
-  # Single launch initiator, on the atomic-mkdir election `recover` already
-  # uses. Two concurrent launches for one worker otherwise both reach
-  # `supervise`, and the second overwrites the first's pid files — orphaning a
-  # supervisor that nothing records and nothing can close.
+  # Single launch initiator, on the same election `recover` uses. Two concurrent
+  # launches for one worker otherwise both reach `supervise`, and the second
+  # overwrites the first's pid files — orphaning a supervisor that nothing
+  # records and nothing can close.
   #
-  if ! lock_take "$dir/launch.lock" "$launch_lock_stale"; then
+  # The release is armed BEFORE the election, not after it: a signal landing in
+  # the gap between a successful take and a later `trap` left the lock standing
+  # with no holder. It covers the journal lock a `--foreground` launch goes on
+  # to take in this same process, too.
+  pw_lock_trap_install
+  lock_take "$dir/launch.lock"
+  lt_rc=$?
+  if [ "$lt_rc" -eq 2 ]; then
+    # A real error, not contention: something that is not a lock at the path,
+    # or a parent this cannot write. The library has already said which.
+    # Calling it "already in flight" would send an operator to look for a
+    # launch that does not exist.
+    printf '%s\n' "$me: cannot take the launch election for $worker (lock error)" >&2
+    exit 2
+  fi
+  if [ "$lt_rc" -ne 0 ]; then
     printf '%s\n' "$me: a launch is already in flight for $worker (refused: single initiator)" >&2
     exit 3
   fi
-  trap 'lock_drop "$dir/launch.lock"' EXIT
 
   # The election ends when the first launch releases its lock, so a launch
   # arriving after that against a supervisor already up needs its own refusal:
@@ -1904,8 +2208,9 @@ cmd_answer() {
         "answer for worker $worker request $short was delivered but the receipt could not be marked answered - the journal is stale, do not re-answer, investigate disk/store"
       exit 2
     fi
-    attention_settled "$worker" "$dir"
+    proj=$(journal_oldest_pending "$dir")
     journal_unlock "$dir"
+    attention_sync "$worker" "$dir" "$proj"
     printf 'answered %s %s\n' "$worker" "$req"
   else
     journal_set_state "$dir" "$req" undeliverable "$now"
@@ -2071,15 +2376,40 @@ cmd_recover() {
     exit 2
   }
 
+  # `recover` is the verb an operator reaches for when a worker is stuck, so it
+  # is where a fleet home predating the symlink primitive gets its in-place
+  # upgrade: one lock left as a directory by the retired shape refuses every
+  # acquire for this worker, including the election below. A clear that fails
+  # is fatal here rather than swallowed: the election would otherwise report
+  # contention for a condition that will not clear.
+  clear_legacy_lock_dirs "$dir"
+  case $? in
+    0) ;;
+    1)
+      printf '%s\n' "$me: recovery refused for $worker: a lock from before the upgrade may still be held" >&2
+      exit 3
+      ;;
+    *) exit 2 ;;
+  esac
+  receipt_requeue "$dir"
+
   # Single recovery initiator (REQ-E1.5): the election refuses a concurrent
-  # second attempt rather than racing it, and breaks a lock whose holder is
-  # gone — without that break, one SIGKILL between the election and the trap
-  # that releases it wedges `recover` for this worker permanently.
-  if ! lock_take "$dir/recover.lock" "$recover_lock_stale"; then
+  # second attempt rather than racing it, and breaks a lock whose holder's
+  # process is gone — without that break, one SIGKILL between the election and
+  # the release wedges `recover` for this worker permanently. The release is
+  # armed before the take for the same reason: a signal landing in the gap
+  # would leave the lock standing with no holder.
+  pw_lock_trap_install
+  lock_take "$dir/recover.lock"
+  lt_rc=$?
+  if [ "$lt_rc" -eq 2 ]; then
+    printf '%s\n' "$me: cannot take the recovery election for $worker (lock error)" >&2
+    exit 2
+  fi
+  if [ "$lt_rc" -ne 0 ]; then
     printf '%s\n' "$me: recovery already in progress for $worker (refused: single initiator)" >&2
     exit 3
   fi
-  trap 'lock_drop "$dir/recover.lock"' EXIT
 
   # Orphan liveness BEFORE --resume (REQ-E1.5): a still-alive worker or
   # supervisor is not orphaned; resuming over it would fork the session.
@@ -2235,6 +2565,10 @@ cmd__tick() {
     sleep 1
     pid_live "$tk_sup" || exit 0
     pid_live "$tk_wrk" || exit 0
+    # Every beat, not every tick: a receipt the journal lock refused is the
+    # one thing here that someone is waiting on.
+    receipt_drain "$tk_worker" "$tk_dir" 1 || :
+    attention_resync "$tk_worker" "$tk_dir"
     tk_i=$((tk_i + 1))
     [ "$tk_i" -ge "$tk_tick" ] || continue
     tk_i=0
@@ -2312,9 +2646,13 @@ alarm_scan_worker() {
   # unlocked and its values can be stale by the time the lock is taken.
   # Carrying them forward from here is what let a re-opened request be
   # escalated against the age this scan measured.
-  awk -F'\t' -v now="$aw_now" -v thr="$aw_thr" \
+  # Read into a variable and looped in this shell, not piped: a pipeline runs
+  # the loop in a subshell whose locks carry this shell's pid, held by a
+  # process that can outlive or predecease the one the token names.
+  aw_ids=$(awk -F'\t' -v now="$aw_now" -v thr="$aw_thr" \
     '$4 == "pending" && (now - $3) > thr { print $1 }' \
-    "$aw_dir/journal" | while read -r a_id; do
+    "$aw_dir/journal") || aw_ids=''
+  while read -r a_id; do
     valid_reqid "$a_id" || continue
     # Escalation only (the kickoff-pinned alarm outcome): the queue item
     # is re-upserted at high priority and the notify seam is pushed —
@@ -2327,27 +2665,33 @@ alarm_scan_worker() {
     # this projection prevents, arriving through the sweep.
     #
     # The whole ROW is re-read, not just the state. A request can be answered
-    # and then re-opened by handle_line with a fresh received epoch while this
-    # waits for the lock; a state-only check sees `pending` again and escalates
-    # against the age the first scan measured, marking a request overdue that
-    # has not yet had its threshold. The kind can change with it, so that is
-    # taken from the same read.
+    # and then re-opened by handle_line while this waits for the lock; a
+    # state-only check sees `pending` again and escalates a request the
+    # operator has just been asked afresh. The kind can change with it, so that
+    # is taken from the same read, and the confirmation below compares the
+    # settle epoch, the field a re-open moves.
     #
     # A lock this scan cannot take ends the worker, not the request: `continue`
     # would send every remaining row of a busy worker through the same retry
     # budget, turning one skip into seconds of spinning. The next pass retries
     # the whole worker.
-    # ONE lock, held from the re-read through the publish. An earlier revision
-    # of this took the lock twice -- read, unlock, decide, relock, publish --
-    # which put the whole decision outside any lock and let an answer settle
-    # the request in the gap, so the publish overwrote it. That is the very
-    # row this change exists to prevent, reintroduced by the fix for the age
-    # predicate. Every skip path below unlocks before it leaves.
+    # The DECISION is made under one lock, from one read. The publish is not:
+    # the attention store takes the fleet lock, and holding the journal across
+    # it is how one stuck lock becomes two. So the publish is confirmed
+    # afterwards instead, the way attention_sync confirms every other one: if
+    # an answer settled the request while the row was being written, the
+    # confirmation finds it no longer pending and republishes what the journal
+    # implies now. Every skip path below unlocks before it leaves.
     if ! journal_lock "$aw_dir"; then
       break
     fi
     aw_row=$(awk -F'\t' -v id="$a_id" '$1 == id { print $2 "\t" $3 "\t" $4; exit }' \
       "$aw_dir/journal" 2>/dev/null) || aw_row=''
+    # The settle epoch as well: a re-open keeps the received epoch and moves
+    # only this field, so it is what tells the confirmation below that the
+    # request was answered and asked again in the meantime.
+    aw_set=$(awk -F'\t' -v id="$a_id" '$1 == id { print $5; exit }' \
+      "$aw_dir/journal" 2>/dev/null) || aw_set=''
     aw_now_kind=${aw_row%%"$TAB"*}
     aw_rest=${aw_row#*"$TAB"}
     aw_recv=${aw_rest%%"$TAB"*}
@@ -2356,19 +2700,34 @@ alarm_scan_worker() {
     if [ "$aw_state" = pending ] && valid_posnum "${aw_recv:-}"; then
       aw_age=$((aw_now - aw_recv))
       if [ "$aw_age" -gt "$aw_thr" ]; then
-        attention_upsert "$aw_worker" "$aw_dir" "$a_id" "$aw_now_kind" high
         aw_fired=1
       fi
     fi
     journal_unlock "$aw_dir"
     [ "$aw_fired" = 1 ] || continue
+    attention_upsert "$aw_worker" "$aw_dir" "$a_id" "$aw_now_kind" high
+    if journal_lock "$aw_dir" 2>/dev/null; then
+      # The row again, as the decision read it: a request answered and then
+      # re-opened meanwhile is pending once more, but its settle epoch has
+      # moved, so it is not the overdue request this escalated.
+      aw_still=$(awk -F'\t' -v id="$a_id" '$1 == id { print $3 "\t" $4 "\t" $5; exit }' \
+        "$aw_dir/journal" 2>/dev/null) || aw_still=''
+      aw_proj=$(journal_oldest_pending "$aw_dir")
+      journal_unlock "$aw_dir"
+      if [ "$aw_still" != "$aw_recv${TAB}pending${TAB}$aw_set" ]; then
+        attention_sync "$aw_worker" "$aw_dir" "$aw_proj"
+        continue
+      fi
+    fi
     if [ -z "$aw_tick" ] || [ "$aw_age" -le $((aw_thr + aw_tick)) ]; then
       /bin/sh "$FA" notify \
         "stream-json worker $aw_worker: request $(printf '%s' "$a_id" | cut -c1-8) pending ${aw_age}s past threshold" \
         >/dev/null 2>&1 || :
     fi
     printf 'alarm %s %s %s\n' "$aw_worker" "$a_id" "$aw_age"
-  done
+  done <<AWIDS
+$aw_ids
+AWIDS
 }
 
 # status_awaiting <worker> <dir> <sup-pid> <wrk-pid> — print the awaiting-input
@@ -2391,6 +2750,18 @@ status_awaiting() {
     sa_oldest=${sa_row#*"$TAB"}
     [ "$sa_oldest" != "$sa_row" ] || sa_oldest=''
   fi
+  # A receipt spooled because the journal lock was busy, or set aside after a
+  # failed write, is waiting on an answer just the same.
+  set +f
+  for sa_f in "$2"/deferred-* "$2"/undrained-*; do
+    [ -f "$sa_f" ] && [ ! -L "$sa_f" ] || continue
+    sa_pend=$((${sa_pend:-0} + 1))
+    sa_e=$(head -n 1 "$sa_f" 2>/dev/null) || sa_e=''
+    if valid_posnum "${sa_e:-}" && { [ -z "$sa_oldest" ] || [ "$sa_e" -lt "$sa_oldest" ]; }; then
+      sa_oldest=$sa_e
+    fi
+  done
+  set -f
   valid_posnum "${sa_pend:-}" || return 1
   sa_age=unknown
   if valid_posnum "${sa_oldest:-}" && sa_now=$(now_epoch); then

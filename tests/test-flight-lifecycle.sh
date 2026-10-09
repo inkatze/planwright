@@ -412,6 +412,22 @@ out=$(supervise "$((t + 400000))")
 [ "$(lineof "$out" "$V")" = waiting ] || fail "a count another pass has not recorded yet holds the relaunch (got: $out)"
 calls_matching new-session | grep -q "flight-$V" && fail "no relaunch before the death is recorded"
 
+# A record mark left by an earlier holder of the claim is not this holder's: a
+# pass that released its count and another that took it since must not read the
+# old mark as the new count recorded.
+X=race-aaaaaab5
+HX="tmux-flight-$X"
+gitc "$repo" worktree add -q -b "planwright/flight/$X" "$repo/.claude/worktrees/flight-$X" HEAD
+brief_dir "$X"
+xd="process $(dead_pid 20)"
+/bin/sh "$STATE" register "$HX" "flight:$X" --backend tmux --death-handle "$xd" >/dev/null
+xc="$tmp/fleet/flights/$X/counted.$(printf '%s' "$xd" | cksum | awk '{ print $1 "." $2 }')"
+ln -s "detached-$$-2-1-1-2" "$xc"
+(umask 077 && printf '%s\n' "detached-$$-1-1-1-1" >"$xc.recorded")
+out=$(supervise "$((t + 400001))")
+[ "$(lineof "$out" "$X")" = waiting ] || fail "an earlier holder's record mark reads as the current count recorded (got: $out)"
+calls_matching new-session | grep -q "flight-$X" && fail "no relaunch on an earlier holder's record mark"
+
 "$SCRIPT" supervise --repo-root "$repo" --now 1234567890123456 >/dev/null 2>&1
 [ $? -eq 2 ] || fail "an epoch the crash policy cannot take is refused up front"
 

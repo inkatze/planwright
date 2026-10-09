@@ -2,14 +2,19 @@
 # Tests for scripts/orchestrate-lock.sh — the per-spec advisory lock behind
 # /orchestrate's state moves (Task 13, REQ-F1.3, D-10).
 #
-# Lock contract (REQ-F1.3, and risk-register row 18: the path + mkdir
-# protocol MUST match tasks-pr-sync.sh so the two writers exclude each other):
-#   - acquire creates <spec-dir>/.orchestrate.lock (mkdir, atomic);
-#   - a second acquire on a fresh lock is a clean no-op (exit 1), lock intact;
-#   - release removes the lock and is idempotent;
-#   - a lock older than stale_lock_threshold is broken and re-acquired;
-#   - the local stale_lock_threshold override is honored (a huge value keeps
-#     an old lock busy); a malformed override falls back to 15m with a warning.
+# Lock contract (REQ-F1.3, and risk-register row 18: the path and protocol MUST
+# match tasks-pr-sync.sh so the two writers exclude each other):
+#   - acquire creates <spec-dir>/.orchestrate.lock as a symlink whose target is
+#     an owner token, through the shared primitive scripts/lock-lib.sh;
+#   - a second acquire on a held lock is a clean no-op (exit 1), lock intact;
+#   - release clears the lock and is idempotent; a lock DIRECTORY left by the
+#     retired mkdir shape cannot show whose it is, so release refuses it and
+#     `break` is the verb that clears it;
+#   - a lock is broken when its OWNER PROCESS IS ABSENT, never because it is
+#     old: /orchestrate's hold spans tool invocations and has no owner to probe
+#     (the detached default, cleared only by release), while a caller that
+#     works and releases inside one invocation passes --owner-pid $$ and gets a
+#     hold the next caller breaks the moment that process is gone.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -eu
@@ -37,65 +42,114 @@ git_repo() {
   GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$1"
 }
 
-# Fixture: a <repo>/specs/<spec> layout so the local-config lookup resolves
-# to <repo>/.claude/planwright.local.yml the way it will in a real checkout.
+# Fixture: a <repo>/specs/<spec> layout, the shape a real checkout has.
 repo="$tmp/repo"
 spec="$repo/specs/demo"
 git_repo "$repo"
 mkdir -p "$spec" "$repo/.claude"
-lockdir="$spec/.orchestrate.lock"
+lock="$spec/.orchestrate.lock"
 
-# 1. Acquire on a fresh spec creates the canonical lock path.
+# 1. Acquire on a fresh spec creates the canonical lock path, as a symlink
+#    carrying an owner token.
 /bin/bash "$LOCK" acquire "$spec" || fail "fresh acquire: non-zero exit"
-[ -d "$lockdir" ] || fail "fresh acquire: lock dir not created at the canonical path"
-echo "ok: acquire creates <spec-dir>/.orchestrate.lock"
+[ -L "$lock" ] || fail "fresh acquire: lock not created as a symlink at the canonical path"
+case "$(readlink "$lock")" in
+  detached-*) ;;
+  *) fail "fresh acquire: default hold is not detached (target: $(readlink "$lock"))" ;;
+esac
+echo "ok: acquire creates <spec-dir>/.orchestrate.lock as a detached owner-token symlink"
 
 # 2. A second acquire on the held lock is a clean no-op (exit 1), intact.
 rc=0
 /bin/bash "$LOCK" acquire "$spec" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 1 ] || fail "busy acquire: exit $rc, expected 1"
-[ -d "$lockdir" ] || fail "busy acquire: lock disappeared"
+[ -L "$lock" ] || fail "busy acquire: lock disappeared"
 echo "ok: a busy lock is a clean no-op (exit 1)"
 
-# 3. Release removes the lock and is idempotent.
-/bin/bash "$LOCK" release "$spec" || fail "release: non-zero exit"
-[ ! -d "$lockdir" ] || fail "release: lock not removed"
-/bin/bash "$LOCK" release "$spec" || fail "release (idempotent): non-zero exit"
-echo "ok: release removes the lock and is idempotent"
-
-# 4. A stale lock (mtime in 2020) is broken and re-acquired at the default
-#    threshold.
-mkdir "$lockdir"
-touch -t 202001010000 "$lockdir"
-/bin/bash "$LOCK" acquire "$spec" || fail "stale acquire: non-zero exit"
-[ -d "$lockdir" ] || fail "stale acquire: lock missing after re-acquire"
-[ -z "$(find "$lockdir" -maxdepth 0 -mmin +60 2>/dev/null)" ] \
-  || fail "stale acquire: lock mtime not refreshed (not re-created)"
-/bin/bash "$LOCK" release "$spec"
-echo "ok: a stale lock is broken and re-acquired"
-
-# 5. A huge local override keeps the 2020 lock busy.
-printf 'stale_lock_threshold: 99999999m\n' >"$repo/.claude/planwright.local.yml"
-mkdir "$lockdir"
-touch -t 202001010000 "$lockdir"
+# 3. The detached hold is NOT broken by age. This is the defect the retired
+#    age rule caused in the other direction: /orchestrate holds across several
+#    tool invocations, and a threshold would hand the lock to the hook
+#    mid-window.
+touch -h -t 200001010000 "$lock" 2>/dev/null \
+  || echo "note: touch -h unsupported here; the lock is not aged, and the leg checks liveness only"
 rc=0
 /bin/bash "$LOCK" acquire "$spec" >/dev/null 2>&1 || rc=$?
-[ "$rc" = 1 ] || fail "override acquire: exit $rc, expected 1 (lock held by huge threshold)"
-[ -d "$lockdir" ] || fail "override acquire: lock wrongly broken"
-echo "ok: a local stale_lock_threshold override is honored"
+[ "$rc" = 1 ] || fail "aged detached lock: exit $rc, expected 1 (a detached hold has no owner to declare absent)"
+[ -L "$lock" ] || fail "aged detached lock: wrongly broken"
+echo "ok: a detached hold is never broken by age"
 
-# 6. A malformed override falls back to 15m with a warning; the 2020 lock is
-#    stale at 15m and is broken.
-printf 'stale_lock_threshold: banana\n' >"$repo/.claude/planwright.local.yml"
-err=$(/bin/bash "$LOCK" acquire "$spec" 2>&1 >/dev/null) || fail "malformed acquire: non-zero exit"
-[ -d "$lockdir" ] || fail "malformed acquire: stale lock not broken under the default fallback"
-case $err in
-  *"malformed stale_lock_threshold"*) ;;
-  *) fail "malformed acquire: missing fallback warning (got: $err)" ;;
+# 4. Release clears the lock and is idempotent — which is also the recovery
+#    path for a detached hold whose owner never came back.
+/bin/bash "$LOCK" release "$spec" || fail "release: non-zero exit"
+if [ -L "$lock" ] || [ -e "$lock" ]; then
+  fail "release: lock not removed"
+fi
+/bin/bash "$LOCK" release "$spec" || fail "release (idempotent): non-zero exit"
+echo "ok: release clears the lock and is idempotent"
+
+# 5. An --owner-pid hold whose owner is still running is busy, however old the
+#    lock is.
+sleep 45 >/dev/null 2>&1 &
+live_pid=$!
+/bin/bash "$LOCK" acquire "$spec" --owner-pid "$live_pid" || fail "owned acquire: non-zero exit"
+case "$(readlink "$lock")" in
+  "$live_pid"-*) ;;
+  *) fail "owned acquire: token does not name the owner pid (target: $(readlink "$lock"))" ;;
 esac
-echo "ok: a malformed threshold warns and falls back to the default"
+touch -h -t 200001010000 "$lock" 2>/dev/null \
+  || echo "note: touch -h unsupported here; the lock is not aged, and the leg checks liveness only"
+rc=0
+/bin/bash "$LOCK" acquire "$spec" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "live-owner lock: exit $rc, expected 1 (owner still running)"
+kill "$live_pid" 2>/dev/null || true
+wait "$live_pid" 2>/dev/null || true
+echo "ok: a lock whose owner process still runs is busy at any age"
 
-# 7. A non-contention mkdir failure (unwritable spec dir / filesystem error)
+# 6. The same lock, once its owner is gone, is broken and re-acquired — with no
+#    threshold to wait out.
+/bin/bash "$LOCK" acquire "$spec" --owner-pid "$$" || fail "dead-owner acquire: non-zero exit"
+case "$(readlink "$lock")" in
+  "$$"-*) ;;
+  *) fail "dead-owner acquire: the break did not hand the lock over (target: $(readlink "$lock"))" ;;
+esac
+/bin/bash "$LOCK" release "$spec" --owner-pid "$$"
+echo "ok: a lock whose owner process is gone is broken at once, with no threshold"
+
+# 7. A lock that is not a symlink tells this caller nothing about whose it is.
+#    `release` says so rather than clearing it: an unreadable lock is exactly
+#    as likely to be a live older process's as an abandoned one, and the verb
+#    that promises to refuse what it cannot show is its own must not make an
+#    exception for the one shape it cannot read at all. `break` is the verb for
+#    it, and is also the in-place upgrade path off the retired mkdir shape.
+mkdir "$lock"
+rc=0
+err=$(/bin/bash "$LOCK" release "$spec" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 1 ] || fail "legacy release: exit $rc, expected 1 (it cannot show whose it is)"
+[ -d "$lock" ] || fail "legacy release: the directory was cleared anyway"
+case $err in
+  *break*) ;;
+  *) fail "legacy release: the refusal does not name the verb that clears it (got: $err)" ;;
+esac
+: >"$lock/stray"
+rc=0
+/bin/bash "$LOCK" release "$spec" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "legacy release over a non-empty directory: exit $rc, expected 1"
+[ -f "$lock/stray" ] || fail "legacy release removed the directory's contents"
+/bin/bash "$LOCK" break "$spec" || fail "legacy break: non-zero exit"
+[ ! -e "$lock" ] || fail "legacy break: the mkdir-shape lock directory survived"
+/bin/bash "$LOCK" acquire "$spec" || fail "post-legacy acquire: non-zero exit"
+/bin/bash "$LOCK" release "$spec"
+
+# A regular file squatting the path is the same answer.
+: >"$lock"
+rc=0
+/bin/bash "$LOCK" release "$spec" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "release over a regular file: exit $rc, expected 1"
+[ -f "$lock" ] || fail "release over a regular file cleared it anyway"
+/bin/bash "$LOCK" break "$spec" || fail "break over a regular file: non-zero exit"
+echo "ok: release refuses a lock it cannot read; break is the verb that clears one"
+
+# 8. A non-contention create failure (unwritable spec dir / filesystem error)
 #    must fail closed (exit 2 + diagnostic), NOT be masked as a clean "busy"
 #    no-op (exit 1) — otherwise /orchestrate silently skips the spec forever.
 rorepo="$tmp/ro"
@@ -109,65 +163,75 @@ chmod u+w "$rospec" # restore so the trap cleanup can remove it
 if [ "$rc" = 0 ]; then
   # Running as root bypasses the directory-write check; the failure mode is
   # unobservable, so skip rather than assert a false negative.
-  echo "skip: unwritable-dir case (mkdir succeeded — likely running as root)"
+  echo "skip: unwritable-dir case (create succeeded — likely running as root)"
 else
   [ "$rc" = 2 ] || fail "unwritable spec dir: exit $rc, expected 2 (real error, not busy)"
   case $err in
     *"cannot create"*) ;;
     *) fail "unwritable spec dir: missing diagnostic (got: $err)" ;;
   esac
-  echo "ok: a non-contention mkdir failure fails closed (exit 2) with a diagnostic"
+  echo "ok: a non-contention create failure fails closed (exit 2) with a diagnostic"
 fi
 
-# 8. REQ-F1.1: the lock path is derived from a grammar-validated spec id. A
-#    spec dir whose id fails the spec-id grammar (`^[a-z0-9][a-z0-9-]*$`) is a
-#    clean refusal (exit 2, diagnostic, no lock created) — hostile/malformed
-#    input is never used to build an on-disk lock path.
+# 9. --owner-pid is validated as data, like every other argument here.
+for bad in 'not-a-pid' '' '0' '000' '012' '12345678901'; do
+  rc=0
+  err=$(/bin/bash "$LOCK" acquire "$spec" --owner-pid "$bad" 2>&1 >/dev/null) || rc=$?
+  [ "$rc" = 2 ] || fail "owner pid '$bad': exit $rc, expected 2"
+  case $err in
+    *"must be a non-zero number"*) ;;
+    *) fail "owner pid '$bad': missing diagnostic (got: $err)" ;;
+  esac
+  if [ -L "$lock" ] || [ -e "$lock" ]; then
+    fail "owner pid '$bad': a lock was taken anyway"
+  fi
+done
+rc=0
+err=$(/bin/bash "$LOCK" acquire "$spec" --frobnicate 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "unknown option: exit $rc, expected 2"
+echo "ok: an empty, zero or malformed --owner-pid and an unknown option are clean refusals"
+
+# 10. REQ-F1.1: the lock path is derived from a grammar-validated spec id. A
+#     spec dir whose id fails the spec-id grammar (`^[a-z0-9][a-z0-9-]*$`) is a
+#     clean refusal (exit 2, diagnostic, no lock created) — hostile/malformed
+#     input is never used to build an on-disk lock path.
 badspec="$tmp/badid/specs/Bad_Spec"
 git_repo "$tmp/badid"
 mkdir -p "$badspec"
 rc=0
 err=$(/bin/bash "$LOCK" acquire "$badspec" 2>&1 >/dev/null) || rc=$?
 [ "$rc" = 2 ] || fail "hostile spec id: exit $rc, expected 2 (clean refusal)"
-[ ! -d "$badspec/.orchestrate.lock" ] || fail "hostile spec id: a lock was created"
+[ ! -e "$badspec/.orchestrate.lock" ] || fail "hostile spec id: a lock was created"
 case $err in
   *F1.1* | *refus*) ;;
   *) fail "hostile spec id: missing refusal diagnostic (got: $err)" ;;
 esac
 echo "ok: a spec id failing the grammar is refused (REQ-F1.1)"
 
-# 8b. `flight` is reserved (tower-front-door D-11): a spec dir so named is
-#     refused like a grammar failure, so no lock path is ever built for it.
+# 10b. `flight` is reserved (tower-front-door D-11): a spec dir so named is
+#      refused like a grammar failure, so no lock path is ever built for it.
 flightspec="$tmp/reserved/specs/flight"
 git_repo "$tmp/reserved"
 mkdir -p "$flightspec"
 rc=0
-err=$(/bin/bash "$LOCK" acquire "$flightspec" 2>&1 >/dev/null) || rc=$?
+/bin/bash "$LOCK" acquire "$flightspec" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "reserved spec id: exit $rc, expected 2 (clean refusal)"
-[ ! -d "$flightspec/.orchestrate.lock" ] || fail "reserved spec id: a lock was created"
-case $err in
-  *reserved*) ;;
-  *) fail "reserved spec id: missing refusal diagnostic (got: $err)" ;;
-esac
-echo "ok: the reserved identifier flight is refused"
+[ ! -e "$flightspec/.orchestrate.lock" ] || fail "reserved spec id: a lock was created"
+echo "ok: the reserved spec id 'flight' is refused"
 
-# 9. REQ-F1.1 containment: a spec dir not contained under the resolved spec root is
-#    refused — the derived lock path must stay inside the spec tree.
+# 11. REQ-F1.1 containment: a spec dir not contained under the resolved spec
+#     root is refused — the derived lock path must stay inside the spec tree.
 loosespec="$tmp/loose/notspecs/demo"
 git_repo "$tmp/loose"
 mkdir -p "$loosespec"
 rc=0
-err=$(/bin/bash "$LOCK" acquire "$loosespec" 2>&1 >/dev/null) || rc=$?
-[ "$rc" = 2 ] || fail "uncontained spec dir: exit $rc, expected 2"
-case $err in
-  *"not contained under a resolved spec root"*) ;;
-  *) fail "uncontained spec dir: refused for another reason: $err" ;;
-esac
-[ ! -d "$loosespec/.orchestrate.lock" ] || fail "uncontained spec dir: a lock was created"
-echo "ok: a spec dir under no resolved spec root is refused (REQ-F1.1)"
+/bin/bash "$LOCK" acquire "$loosespec" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "non-specs parent: exit $rc, expected 2"
+[ ! -e "$loosespec/.orchestrate.lock" ] || fail "non-specs parent: a lock was created"
+echo "ok: a spec dir outside a specs/ parent is refused (REQ-F1.1)"
 
-# 10. REQ-F1.1 containment *after canonicalization*: a spec dir that is a
-#     symlink resolving outside the spec root is refused — the physical
+# 12. REQ-F1.1 containment *after canonicalization*: a spec dir that is a
+#     symlink resolving outside any specs/ parent is refused — the physical
 #     path, not the link path, decides containment, so an escaping symlink
 #     cannot smuggle the lock out of the tree.
 realout="$tmp/realout/demo" # canonical parent is realout, not specs
@@ -178,10 +242,10 @@ ln -s "$realout" "$tmp/linked/specs/demo" # specs/demo -> .../realout/demo
 rc=0
 /bin/bash "$LOCK" acquire "$tmp/linked/specs/demo" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "escaping symlink: exit $rc, expected 2"
-[ ! -d "$realout/.orchestrate.lock" ] || fail "escaping symlink: lock created outside the tree"
+[ ! -e "$realout/.orchestrate.lock" ] || fail "escaping symlink: lock created outside the tree"
 echo "ok: a spec dir symlinked outside a specs/ parent is refused (REQ-F1.1)"
 
-# 11. REQ-F1.1 length cap: a spec id whose charset is valid but whose length
+# 13. REQ-F1.1 length cap: a spec id whose charset is valid but whose length
 #     exceeds the 64-char bound is its own refusal branch (separate from the
 #     grammar and containment checks). A 65-char all-valid id under a specs/
 #     parent must be a clean refusal (exit 2, diagnostic naming the bound, no
@@ -193,25 +257,397 @@ mkdir -p "$longspec"
 rc=0
 err=$(/bin/bash "$LOCK" acquire "$longspec" 2>&1 >/dev/null) || rc=$?
 [ "$rc" = 2 ] || fail "over-length spec id: exit $rc, expected 2 (clean refusal)"
-[ ! -d "$longspec/.orchestrate.lock" ] || fail "over-length spec id: a lock was created"
+[ ! -e "$longspec/.orchestrate.lock" ] || fail "over-length spec id: a lock was created"
 case $err in
   *64*) ;;
   *) fail "over-length spec id: diagnostic does not name the 64-char bound (got: $err)" ;;
 esac
 echo "ok: a spec id exceeding 64 chars is refused (REQ-F1.1)"
 
-# A refused PLANWRIGHT_REPO_ROOT is said, not silently traded for the
-# no-repository threshold: the bundle's own repository still contains it, so
-# the lock is taken, and the refusal reaches the operator.
-/bin/bash "$LOCK" release "$spec" || fail "refused override: pre-release failed"
-rc=0
-err=$(cd "$tmp" && PLANWRIGHT_REPO_ROOT=relative/root /bin/bash "$LOCK" acquire "$spec" 2>&1 >/dev/null) || rc=$?
-[ "$rc" = 0 ] || fail "refused override: acquire exited $rc: $err"
-case $err in
-  *"refusing PLANWRIGHT_REPO_ROOT"*) ;;
-  *) fail "refused override: the refusal was swallowed (stderr: '$err')" ;;
+# 14. The sweep: a detached hold is cleared ONLY on positive evidence that its
+#     holder is gone, and left alone otherwise.
+#
+#     This is the half of the liveness rule a detached hold cannot answer for
+#     itself. /orchestrate holds across tool calls, so no process of its own is
+#     running to probe; if the session then dies, the lock stands and every
+#     later dispatch reads it as contention and skips the spec — silently,
+#     because contention is a clean no-op. The sweep is where the proof lives,
+#     and it is held to the same bar every other destructive mechanism here
+#     meets: the recorded holder is demonstrably gone, never merely unobserved,
+#     and never a length of time.
+sweepspec="$repo/specs/demo"
+evid="$tmp/evidence.sh"
+cat >"$evid" <<'EVID'
+#!/bin/sh
+# Stand-in for fleet-death-evidence.sh: the verdict is whatever the fixture
+# wrote, so each leg pins one verdict rather than the host's process table.
+printf '%s
+' "$(cat "$EVIDENCE_VERDICT_FILE")"
+case $(cat "$EVIDENCE_VERDICT_FILE") in
+  dead) exit 0 ;;
+  alive) exit 1 ;;
+  *) exit 3 ;;
 esac
-/bin/bash "$LOCK" release "$spec" || fail "refused override: release failed"
-echo "ok: a refused PLANWRIGHT_REPO_ROOT is reported, not swallowed"
+EVID
+chmod +x "$evid"
+verdict_file="$tmp/verdict"
+
+sweep() {
+  rc=0
+  out=$(EVIDENCE_VERDICT_FILE="$verdict_file" \
+    PLANWRIGHT_TOWER_EVIDENCE_CMD="$evid" \
+    /bin/bash "$LOCK" sweep "$sweepspec" 2>/dev/null) || rc=$?
+}
+
+# A free path has nothing to sweep.
+/bin/bash "$LOCK" release "$sweepspec"
+sweep
+[ "$rc" = 0 ] || fail "sweep on a free path: exit $rc, expected 0"
+[ "$out" = no-lock ] || fail "sweep on a free path said '$out', expected no-lock"
+
+# A PROCESS-OWNED hold is not the sweep's business: the primitive breaks it
+# itself the moment its owner is gone.
+sleep 120 >/dev/null 2>&1 &
+live_pid=$!
+/bin/bash "$LOCK" acquire "$sweepspec" --owner-pid "$live_pid" || fail "sweep fixture: owned acquire failed"
+sweep
+[ "$out" = owned ] || fail "sweep over an owned hold said '$out', expected owned"
+[ -L "$sweepspec/.orchestrate.lock" ] || fail "sweep over an owned hold cleared it"
+kill "$live_pid" 2>/dev/null || true
+wait "$live_pid" 2>/dev/null || true
+/bin/bash "$LOCK" break "$sweepspec"
+
+# A detached hold the acquire could not attribute to anything: no evidence is
+# establishable, so the sweep refuses and says which.
+env -u PLANWRIGHT_TOWER_PID -u TMUX -u TMUX_PANE \
+  /bin/bash "$LOCK" acquire "$sweepspec" || fail "sweep fixture: detached acquire failed"
+sweep
+[ "$rc" = 3 ] || fail "sweep over an unattributed hold: exit $rc, expected 3"
+[ "$out" = unattributed ] || fail "sweep over an unattributed hold said '$out'"
+[ -L "$sweepspec/.orchestrate.lock" ] || fail "sweep cleared a hold it could not judge"
+/bin/bash "$LOCK" release "$sweepspec"
+
+# THE REAL SCENARIO, both directions. A tower holds the spec lock across its
+# dispatch window; it could name itself only by the tmux window it occupies,
+# which is a death-evidence class but not a pid, so the hold stays detached and
+# the handle is recorded beside it for the sweep to resolve.
+env -u PLANWRIGHT_TOWER_PID -u TMUX -u TMUX_PANE \
+  /bin/bash "$LOCK" acquire "$sweepspec" || fail "sweep fixture: detached acquire failed"
+held_token=$(readlink "$sweepspec/.orchestrate.lock")
+printf '%s\ttmux-window planwright 3\n' "$held_token" >"$sweepspec/.orchestrate.lock#owner#"
+
+# Holder still running: untouched, whatever else is true.
+printf 'alive\n' >"$verdict_file"
+sweep
+[ "$rc" = 1 ] || fail "sweep over a live holder: exit $rc, expected 1"
+[ "$out" = alive ] || fail "sweep over a live holder said '$out', expected alive"
+[ -L "$sweepspec/.orchestrate.lock" ] || fail "sweep cleared a live holder's lock"
+
+# The query mechanism cannot answer: lost observability is not observed death.
+printf 'unknown\n' >"$verdict_file"
+sweep
+[ "$rc" = 3 ] || fail "sweep with no answer: exit $rc, expected 3"
+[ "$out" = unknown ] || fail "sweep with no answer said '$out', expected unknown"
+[ -L "$sweepspec/.orchestrate.lock" ] || fail "sweep cleared a lock it could not judge"
+
+# A record that does not describe the holder now at the path is not evidence
+# about it: a stale one is read as absent rather than acted on.
+printf 'dead\n' >"$verdict_file"
+printf 'some-other-token\ttmux-window planwright 3\n' >"$sweepspec/.orchestrate.lock#owner#"
+sweep
+[ "$out" = unattributed ] || fail "sweep honoured a record for a different token ('$out')"
+[ -L "$sweepspec/.orchestrate.lock" ] || fail "sweep cleared a lock on a stale record"
+printf '%s\ttmux-window planwright 3\n' "$held_token" >"$sweepspec/.orchestrate.lock#owner#"
+
+# Holder demonstrably gone: cleared, and the path is usable again.
+sweep
+[ "$rc" = 0 ] || fail "sweep over a dead holder: exit $rc, expected 0"
+[ "$out" = cleared ] || fail "sweep over a dead holder said '$out', expected cleared"
+if [ -L "$sweepspec/.orchestrate.lock" ] || [ -e "$sweepspec/.orchestrate.lock" ]; then
+  fail "sweep reported cleared but the lock is still there"
+fi
+# The record is left where it is, since removing it after the clear could
+# remove a successor's; it names the token just cleared, so the next hold is
+# never attributed to it.
+env -u PLANWRIGHT_TOWER_PID -u TMUX -u TMUX_PANE \
+  /bin/bash "$LOCK" acquire "$sweepspec" || fail "the spec is still undispatchable after the sweep"
+sweep
+[ "$out" = unattributed ] || fail "a new hold was attributed to the record its predecessor left ('$out')"
+/bin/bash "$LOCK" release "$sweepspec"
+# A handle is split into the words the predicate takes, and a tmux window can
+# legally be named `*`. Splitting with globbing live would expand it against
+# the working directory and hand the predicate a list of filenames instead.
+printf 'dead\n' >"$verdict_file"
+argv_probe="$tmp/argv.sh"
+cat >"$argv_probe" <<'ARGV'
+#!/bin/sh
+printf '%s\n' "$#" >"$ARGV_OUT"
+for a in "$@"; do printf '%s\n' "$a" >>"$ARGV_OUT"; done
+exit 0
+ARGV
+chmod +x "$argv_probe"
+env -u PLANWRIGHT_TOWER_PID -u TMUX -u TMUX_PANE \
+  /bin/bash "$LOCK" acquire "$sweepspec" || fail "glob fixture: detached acquire failed"
+glob_token=$(readlink "$sweepspec/.orchestrate.lock")
+printf '%s\ttmux-window * 3\n' "$glob_token" >"$sweepspec/.orchestrate.lock#owner#"
+# Files in the working directory the split would pick up if it expanded.
+mkdir -p "$tmp/globdir" && : >"$tmp/globdir/decoy-one" && : >"$tmp/globdir/decoy-two"
+(cd "$tmp/globdir" && ARGV_OUT="$tmp/argv.out" EVIDENCE_VERDICT_FILE="$verdict_file" \
+  PLANWRIGHT_TOWER_EVIDENCE_CMD="$argv_probe" \
+  /bin/bash "$LOCK" sweep "$sweepspec" >/dev/null 2>&1) || true
+[ -f "$tmp/argv.out" ] || fail "glob case: the evidence command was never reached"
+argv_n=$(sed -n 1p "$tmp/argv.out")
+[ "$argv_n" = 3 ] || fail "glob case: the predicate got $argv_n arguments, expected 3 (the handle expanded)"
+[ "$(sed -n 3p "$tmp/argv.out")" = '*' ] \
+  || fail "glob case: the window name reached the predicate as '$(sed -n 3p "$tmp/argv.out")', expected the literal *"
+/bin/bash "$LOCK" release "$sweepspec"
+# The window field recorded here must be one the death predicate actually
+# matches on. A `#{window_index}` matches no field the predicate lists, so a
+# live window would be reported DEAD and the sweep would clear a lock whose
+# holder is still running. Pinned across the two files, because the bug is the
+# disagreement and neither file is wrong on its own. Comment lines are left
+# out on both sides: a field only a comment names is not one the code asks for.
+code_fields() {
+  grep -v '^[[:space:]]*#' "$1" | grep -o "#{window_[a-z]*}" | sort -u
+}
+evid_fields=$(code_fields "$here/../scripts/fleet-death-evidence.sh")
+asked=$(code_fields "$LOCK")
+[ -n "$evid_fields" ] || fail "window-field pin: found no window fields in fleet-death-evidence.sh"
+[ -n "$asked" ] || fail "window-field pin: orchestrate-lock.sh asks tmux for no window field"
+for f in $asked; do
+  case "$evid_fields" in
+    *"$f"*) ;;
+    *) fail "window-field pin: the handle records $f, which fleet-death-evidence.sh never matches on (it matches: $(printf '%s' "$evid_fields" | tr '\n' ' '))" ;;
+  esac
+done
+echo "ok: the recorded window field is one the death predicate matches on"
+
+echo "ok: a handle is split into words without expanding against the filesystem"
+
+echo "ok: the sweep clears a detached hold whose holder is gone, and only then"
+
+# 15. An attributed tower hold needs no sweep at all: naming a live process as
+#     the owner makes it an ordinary hold, which the primitive breaks by itself
+#     once that process is gone.
+sleep 120 >/dev/null 2>&1 &
+tower_pid=$!
+PLANWRIGHT_TOWER_PID="$tower_pid" /bin/bash "$LOCK" acquire "$sweepspec" \
+  || fail "attributed acquire failed"
+case "$(readlink "$sweepspec/.orchestrate.lock")" in
+  "$tower_pid"-*) ;;
+  *) fail "an attributed hold is not owned by the tower (target: $(readlink "$sweepspec/.orchestrate.lock"))" ;;
+esac
+rc=0
+/bin/bash "$LOCK" acquire "$sweepspec" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "attributed hold: a peer got exit $rc, expected 1 while the tower runs"
+kill "$tower_pid" 2>/dev/null || true
+wait "$tower_pid" 2>/dev/null || true
+/bin/bash "$LOCK" acquire "$sweepspec" --owner-pid "$$" \
+  || fail "attributed hold: not broken once the tower is gone"
+/bin/bash "$LOCK" release "$sweepspec" --owner-pid "$$"
+echo "ok: a hold attributed to a live tower is an ordinary hold and self-heals"
+
+# 16. `release` verifies what it can; `break` is the unconditional clear.
+#
+#    `release` used to be unconditional, which was sound while nothing cleared
+#    a live-looking hold. The sweep changed that: it clears A, B acquires, and
+#    A's delayed release then deletes B's lock while B still believes it holds
+#    it. Both properties are wanted — a hold whose owner is gone must still be
+#    clearable, or the wedge returns — so they are two verbs now, and `release`
+#    refuses whenever it can show the lock is not the one its caller took.
+relspec="$repo/specs/demo"
+/bin/bash "$LOCK" release "$relspec" >/dev/null 2>&1
+
+# Its own hold: cleared.
+/bin/bash "$LOCK" acquire "$relspec" --owner-pid "$$" || fail "release fixture: acquire failed"
+/bin/bash "$LOCK" release "$relspec" --owner-pid "$$" || fail "release of its own hold was refused"
+[ ! -L "$relspec/.orchestrate.lock" ] || fail "release of its own hold left the lock"
+
+# Somebody else's live hold: refused, and left exactly as found.
+sleep 120 >/dev/null 2>&1 &
+other_pid=$!
+/bin/bash "$LOCK" acquire "$relspec" --owner-pid "$other_pid" || fail "release fixture: foreign acquire failed"
+foreign_token=$(readlink "$relspec/.orchestrate.lock")
+rc=0
+/bin/bash "$LOCK" release "$relspec" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "release over a live foreign hold: exit $rc, expected 1"
+[ "$(readlink "$relspec/.orchestrate.lock")" = "$foreign_token" ] \
+  || fail "release deleted a live foreign hold"
+rc=0
+/bin/bash "$LOCK" release "$relspec" --owner-pid "$$" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "release claiming the wrong owner: exit $rc, expected 1"
+[ "$(readlink "$relspec/.orchestrate.lock")" = "$foreign_token" ] \
+  || fail "release claiming the wrong owner still deleted the lock"
+
+# `break` is the recovery verb and is unconditional by design.
+/bin/bash "$LOCK" break "$relspec" || fail "break over a live foreign hold was refused"
+[ ! -L "$relspec/.orchestrate.lock" ] || fail "break left the lock"
+kill "$other_pid" 2>/dev/null || true
+wait "$other_pid" 2>/dev/null || true
+
+# A hold whose owner is gone is still cleared by release: the recovery path
+# that the wedge depends on does not regress.
+# A pid above every host's pid ceiling: never a process, where a reaped
+# child's pid can be handed out again before the release probes it.
+gone_pid=999999999
+ln -s "$gone_pid-0-0-1" "$relspec/.orchestrate.lock"
+/bin/bash "$LOCK" release "$relspec" || fail "release over an absent owner was refused"
+[ ! -L "$relspec/.orchestrate.lock" ] || fail "release over an absent owner left the lock"
+
+# A detached hold whose recorded handle is demonstrably ALIVE is refused: that
+# is a holder this call can show is not itself.
+env -u PLANWRIGHT_TOWER_PID -u TMUX -u TMUX_PANE \
+  /bin/bash "$LOCK" acquire "$relspec" || fail "release fixture: detached acquire failed"
+det_token=$(readlink "$relspec/.orchestrate.lock")
+printf '%s\ttmux-window planwright %%9\n' "$det_token" >"$relspec/.orchestrate.lock#owner#"
+printf 'alive\n' >"$verdict_file"
+rc=0
+EVIDENCE_VERDICT_FILE="$verdict_file" PLANWRIGHT_TOWER_EVIDENCE_CMD="$evid" \
+  /bin/bash "$LOCK" release "$relspec" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "release over a detached hold with a live handle: exit $rc, expected 1"
+[ "$(readlink "$relspec/.orchestrate.lock")" = "$det_token" ] \
+  || fail "release deleted a detached hold whose handle is alive"
+/bin/bash "$LOCK" break "$relspec"
+
+# A detached hold with nothing recorded is the one case nothing distinguishes,
+# and the frozen caller depends on being able to release it.
+env -u PLANWRIGHT_TOWER_PID -u TMUX -u TMUX_PANE \
+  /bin/bash "$LOCK" acquire "$relspec" || fail "release fixture: second detached acquire failed"
+/bin/bash "$LOCK" release "$relspec" || fail "release of an unattributed detached hold was refused"
+[ ! -L "$relspec/.orchestrate.lock" ] || fail "release of an unattributed detached hold left the lock"
+# A caller that acquired implicitly — the tower naming itself through the
+# environment rather than on the command line — must be able to end its own
+# window the same way. Acquire and release resolve the owner identically, or
+# the ordinary attributed path refuses its own release.
+/bin/bash "$LOCK" break "$relspec" >/dev/null 2>&1
+sleep 120 >/dev/null 2>&1 &
+env_pid=$!
+PLANWRIGHT_TOWER_PID="$env_pid" /bin/bash "$LOCK" acquire "$relspec" \
+  || fail "implicit acquire failed"
+case "$(readlink "$relspec/.orchestrate.lock")" in
+  "$env_pid"-*) ;;
+  *) fail "implicit acquire did not attribute the hold to the environment's pid" ;;
+esac
+PLANWRIGHT_TOWER_PID="$env_pid" /bin/bash "$LOCK" release "$relspec" \
+  || fail "a caller that acquired implicitly cannot release its own hold"
+if [ -L "$relspec/.orchestrate.lock" ]; then
+  fail "the implicit release left the lock"
+fi
+kill "$env_pid" 2>/dev/null || true
+wait "$env_pid" 2>/dev/null || true
+echo "ok: acquire and release resolve the owner the same way"
+
+echo "ok: release refuses a hold it can show is not its own; break stays unconditional"
+
+# 17. `release` clears only the token it read. Its checks judge the holder by
+#     the token at the path, and between that read and the clear the holder can
+#     release and a successor acquire; a clear that is not bound to the judged
+#     token lands on the successor while it is inside its window. A readlink
+#     shim opens that window deterministically: on the first read of the lock
+#     it reports the original token, then hands the path to a successor.
+/bin/bash "$LOCK" break "$relspec" >/dev/null 2>&1
+real_readlink=$(command -v readlink)
+shimdir="$tmp/rlshim"
+mkdir -p "$shimdir"
+cat >"$shimdir/readlink" <<SHIM
+#!/bin/sh
+out=\$("$real_readlink" "\$@") || exit \$?
+printf '%s\n' "\$out"
+case \$* in
+  *.orchestrate.lock)
+    if [ ! -e "$tmp/swapped" ]; then
+      : >"$tmp/swapped"
+      rm -f "$relspec/.orchestrate.lock"
+      ln -s "\$SUCCESSOR_TOKEN" "$relspec/.orchestrate.lock"
+    fi
+    ;;
+esac
+SHIM
+chmod +x "$shimdir/readlink"
+sleep 120 >/dev/null 2>&1 &
+succ_pid=$!
+succ_token="$succ_pid-0-0-$succ_pid-1"
+env -u PLANWRIGHT_TOWER_PID -u TMUX -u TMUX_PANE \
+  /bin/bash "$LOCK" acquire "$relspec" || fail "release-window fixture: acquire failed"
+rc=0
+env -u PLANWRIGHT_TOWER_PID -u TMUX -u TMUX_PANE PATH="$shimdir:$PATH" SUCCESSOR_TOKEN="$succ_token" \
+  /bin/bash "$LOCK" release "$relspec" >/dev/null 2>&1 || rc=$?
+[ -e "$tmp/swapped" ] || fail "release-window fixture: the shim never opened the window"
+[ "$rc" = 0 ] || fail "release after its lock changed hands: exit $rc, expected 0"
+[ "$(readlink "$relspec/.orchestrate.lock")" = "$succ_token" ] \
+  || fail "release cleared the successor's lock that took the path after the read"
+kill "$succ_pid" 2>/dev/null || true
+wait "$succ_pid" 2>/dev/null || true
+/bin/bash "$LOCK" break "$relspec" >/dev/null 2>&1
+echo "ok: release clears only the token it read, never a successor's lock"
+
+# 18. `sweep` clears only the token its verdict was about. The evidence call
+#     sits between reading the holder and clearing it, and the holder can
+#     release and a successor acquire in that time; the stub hands the path to
+#     a successor and then answers "dead" for the holder it was asked about.
+swapevid="$tmp/swap-evidence.sh"
+cat >"$swapevid" <<EVID
+#!/bin/sh
+rm -f "$relspec/.orchestrate.lock"
+ln -s "\$SUCCESSOR_TOKEN" "$relspec/.orchestrate.lock"
+exit 0
+EVID
+chmod +x "$swapevid"
+/bin/bash "$LOCK" break "$relspec" >/dev/null 2>&1
+sleep 120 >/dev/null 2>&1 &
+succ2_pid=$!
+succ2_token="$succ2_pid-0-0-$succ2_pid-1"
+gone_token="detached-0-0-0-1"
+ln -s "$gone_token" "$relspec/.orchestrate.lock"
+printf '%s\ttmux-window planwright %%9\n' "$gone_token" >"$relspec/.orchestrate.lock#owner#"
+rc=0
+out=$(PLANWRIGHT_TOWER_EVIDENCE_CMD="$swapevid" SUCCESSOR_TOKEN="$succ2_token" \
+  /bin/bash "$LOCK" sweep "$relspec" 2>/dev/null) || rc=$?
+[ "$rc" = 1 ] && [ "$out" = alive ] \
+  || fail "sweep after its lock changed hands: expected 'alive' exit 1, got '$out' exit $rc"
+[ "$(readlink "$relspec/.orchestrate.lock")" = "$succ2_token" ] \
+  || fail "sweep cleared the successor's lock that took the path during the verdict"
+kill "$succ2_pid" 2>/dev/null || true
+wait "$succ2_pid" 2>/dev/null || true
+/bin/bash "$LOCK" break "$relspec" >/dev/null 2>&1
+echo "ok: sweep clears only the token its verdict was about"
+
+# 19. A release that names an owner refuses a different owner only while that
+#     owner runs: one that is gone is cleared, as a release naming nobody would.
+sh -c 'exit 0' &
+gone2=$!
+wait "$gone2" 2>/dev/null || true
+ln -s "$gone2-0-0-$gone2-1" "$relspec/.orchestrate.lock"
+/bin/bash "$LOCK" release "$relspec" --owner-pid "$$" \
+  || fail "release naming an owner refused a different owner that is gone"
+[ ! -L "$relspec/.orchestrate.lock" ] || fail "release over a gone mismatched owner left the lock"
+echo "ok: a release naming an owner clears a different owner that is gone"
+
+# 20. A detached hold whose attribution record cannot be written is given back,
+#     not left standing unattributed where `sweep` could never clear it. A
+#     tmux shim gives the call a window to attribute the hold to, and a
+#     directory squats the record's path.
+tmuxshim="$tmp/tmuxshim"
+mkdir -p "$tmuxshim"
+printf '#!/bin/sh\nprintf "%%s\\n" "planwright @7"\n' >"$tmuxshim/tmux"
+chmod +x "$tmuxshim/tmux"
+mkdir -p "$relspec/.orchestrate.lock#owner#"
+rc=0
+err=$(env -u PLANWRIGHT_TOWER_PID PATH="$tmuxshim:$PATH" TMUX=/tmp/fake,1,0 TMUX_PANE=%1 \
+  /bin/bash "$LOCK" acquire "$relspec" 2>&1 </dev/null >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "acquire with an unwritable attribution record: exit $rc, expected 2"
+case $err in *"released it"*) ;; *) fail "the refusal does not say the hold was released (got: $err)" ;; esac
+if [ -L "$relspec/.orchestrate.lock" ] || [ -e "$relspec/.orchestrate.lock" ]; then
+  fail "an unattributable detached hold was left standing"
+fi
+rmdir "$relspec/.orchestrate.lock#owner#"
+# Control: with the path free, the same call records the window.
+env -u PLANWRIGHT_TOWER_PID PATH="$tmuxshim:$PATH" TMUX=/tmp/fake,1,0 TMUX_PANE=%1 \
+  /bin/bash "$LOCK" acquire "$relspec" </dev/null >/dev/null 2>&1 \
+  || fail "the attributed acquire failed with the record path free"
+grep -q "	tmux-window planwright @7$" "$relspec/.orchestrate.lock#owner#" \
+  || fail "the attributed acquire did not record its window"
+/bin/bash "$LOCK" break "$relspec" >/dev/null 2>&1
+echo "ok: a hold whose attribution cannot be recorded is given back"
 
 echo "PASS: orchestrate-lock"

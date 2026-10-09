@@ -22,6 +22,7 @@ namespace	scripts/spec-id-lib.sh	specs/*) _sic=${_sic#specs/} ;;
 namespace	scripts/spec-id-lib.sh	specs/*/*) SPEC_REF=${1#specs/} ;;
 static-glob	lefthook.yml	glob: "specs/**"
 static-glob	.gitignore	specs/*/.orchestrate.lock
+static-glob	.gitignore	specs/*/.orchestrate.lock#*
 static-glob	.gitignore	specs/*/.tasks-pr-sync.*
 static-glob	.gitignore	specs/*/.orchestrate/
 static-glob	.gitignore	specs/_pending/notes.md

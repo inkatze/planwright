@@ -628,7 +628,7 @@ rm -rf "${long_top:?}"
   | grep -q "$long_leaf" || fail "the prune of a long or non-printable checkout path is audited"
 
 # ...and retires the brief of a flight whose worktree is gone, once it is past
-# the lock's stale threshold, audited.
+# the sweep's brief grace, audited.
 brief="$c/fleet/flights/$STRAND"
 (umask 077 && mkdir -p "$brief" && printf '%s\n' "$repo" >"$brief/checkout")
 touch -t 202001010000 "$brief" "$brief/checkout"

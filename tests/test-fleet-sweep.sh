@@ -398,6 +398,37 @@ case $(audit_rows --mechanism housekeeping-sweep) in
 esac
 echo "ok: the reconcile backstop corrects a drifted tasks.md snapshot on the sweep"
 
+# 9b. A per-spec lock the sweep clears is audited even under a spec root whose
+#     path alone would carry the audit reasoning past its length cap: the path
+#     is shortened, never the record dropped.
+rm -rf "$fleet_home"
+lr="$tmp/lock-sweep-repo"
+make_pushed_repo "$lr"
+seg=$(printf '%0100d' 0)
+long_root="$tmp/ext/$seg/$seg/$seg/$seg/$seg/specs"
+mkdir -p "$long_root/demo" "$lr/.claude"
+printf 'project: demo\nlayout: 1\n' >"$long_root/planwright-spec-root.yml"
+printf 'spec_root: %s\n' "$long_root" >"$lr/.claude/planwright.yml"
+cp "$rr/specs/demo/"*.md "$long_root/demo/"
+ls_token="detached-$$-1-1-1-1"
+ln -s "$ls_token" "$long_root/demo/.orchestrate.lock"
+printf '%s\ttmux-window planwright @3\n' "$ls_token" >"$long_root/demo/.orchestrate.lock#owner#"
+printf '#!/bin/sh\necho dead\nexit 0\n' >"$tmp/evidence-dead"
+chmod +x "$tmp/evidence-dead"
+# The lock verb resolves the spec root itself, so this run names the repository
+# rather than the suite's no-repository default.
+PATH="$stub:$PATH" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+  PLANWRIGHT_REPO_ROOT="$lr" PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter" PLANWRIGHT_LOCAL_CONFIG="" \
+  PLANWRIGHT_TOWER_EVIDENCE_CMD="$tmp/evidence-dead" /bin/bash "$SWEEP" --repo "$lr" >/dev/null 2>"$tmp/ls-err" \
+  || fail "lock sweep under a long spec root: sweep exited non-zero ($(cat "$tmp/ls-err"))"
+[ ! -L "$long_root/demo/.orchestrate.lock" ] \
+  || fail "lock sweep fixture: the dead holder's lock was not cleared ($(cat "$tmp/ls-err"))"
+case $(audit_rows --mechanism housekeeping-sweep) in
+  *"per-spec lock cleared"*) ;;
+  *) fail "a lock cleared under a long spec root left no audit row ($(cat "$tmp/ls-err"))" ;;
+esac
+echo "ok: a lock cleared under a long spec root is still audited"
+
 # 10. A refused spec_root does not silently stop the reconcile backstop: the
 #     sweep still completes, and says the backstop was skipped.
 rm -rf "$fleet_home"

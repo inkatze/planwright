@@ -102,10 +102,13 @@ at the fleet tier:
 
 1. **Acquire the fleet advisory lock** — `scripts/fleet-state.sh lock` (the
    named cross-spec concurrency primitive under `${CLAUDE_PLUGIN_DATA}`),
-   serializing concurrent meta-towers: the cross-spec analogue of the
-   per-spec lock. Exit 1 (another live meta-tower holds it) is a **clean
-   no-op**: skip this step. Hold it only across the decision below, never
-   across the dispatch (the D-10 discipline at the fleet tier).
+   serializing concurrent meta-towers, printing the owner token. The hold
+   spans tool calls, so it is detached and nothing breaks it on its own: a
+   meta-tower that died holding it is cleared with `unlock <token>`, naming
+   the dead meta-tower's token read off the lock, which leaves any other
+   fleet writer's hold standing. Exit 1 (it is held) is a **clean no-op**: skip
+   this step. Hold it only across the decision below, never across the
+   dispatch (the D-10 discipline at the fleet tier).
 2. **Select across the fleet**, under the lock:
    `scripts/orchestrate-meta-select.sh <root>/<a> <root>/<b> …`, each argument
    a bundle directory under the resolved spec root. It reads each
@@ -134,7 +137,8 @@ at the fleet tier:
    narrow the effective bound. (The slot-leak limitation is tracked as an
    observation.)
 4. **Release the fleet lock** before launching
-   (`scripts/fleet-state.sh unlock`).
+   (`scripts/fleet-state.sh unlock <token>`); the token-less form is the
+   operator's escape hatch.
 5. **Run the single-spec step** for the chosen unit. First run the skill's
    resource-governance lines and its `orchestrate_dispatch` launch tier for
    it (a pause, withhold, or refusal skips the step); the script runs
