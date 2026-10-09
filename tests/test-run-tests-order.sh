@@ -275,6 +275,19 @@ assert_eq "a truncated ranked table exits 2" 2 "$?"
 assert_eq "a truncated ranked table leaves the table untouched" keep "$(cat "$tmp/keep.tsv")"
 assert_contains "the refusal names the truncation" "--all" "$(cat "$tmp/short.out")"
 
+# 10c. A log that ends partway through the ranked table (an interrupted job,
+#     a clipped paste) holds fewer rows than its header announces: refused,
+#     table untouched, so the files it lost are not queued ahead of the rest.
+cat >"$tmp/cut.log" <<EOF
+check-test-time: 3 files ranked slowest-first (per-file budget 120s)
+       41.250s  test-c.sh
+        9.000s  test-a.sh
+EOF
+/bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/keep.tsv" "$tmp/cut.log" >"$tmp/cut.out" 2>&1
+assert_eq "a ranked table short of its header's count exits 2" 2 "$?"
+assert_eq "a short ranked table leaves the table untouched" keep "$(cat "$tmp/keep.tsv")"
+assert_contains "the refusal names the announced count" "3 files ranked" "$(cat "$tmp/cut.out")"
+
 # 11. The committed table parses. A row for a file the suite no longer has is
 #     not checked: the runner ignores it, so removing or renaming a test file
 #     never has to touch the table.

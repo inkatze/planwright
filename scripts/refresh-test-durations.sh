@@ -21,7 +21,8 @@
 # Rows are kept only for files the suite has, the first row per file wins, and
 # discovered files the source did not time are named on stderr (the runner
 # queues those ahead of every timed one). A source yielding no usable row, or
-# a ranked table check-test-time cut short (its local mode without --all), is
+# a ranked table check-test-time cut short (its local mode without --all) or
+# holding fewer rows than its header announces (an interrupted log), is
 # refused and the table left as it was. The table is written atomically.
 #
 # Usage: refresh-test-durations.sh [--suite <dir>] [--out <path>] <source>
@@ -121,8 +122,9 @@ for f in "$suite"/*.sh; do
   printf '%s\n' "${f##*/}" >>"$work/discovered"
 done
 
-# Emits `<name><TAB><seconds>` per usable source row, first row per name.
-RD_DISCOVERED="$work/discovered" awk -F'\t' '
+# Emits `<name><TAB><seconds>` per usable source row, first row per name, and
+# records the ranked table's announced and seen sizes for the check below.
+RD_DISCOVERED="$work/discovered" RD_RANKED="$work/ranked" awk -F'\t' '
   BEGIN {
     # Through ENVIRON, never -v, which would expand backslash escapes in a
     # TMPDIR.
@@ -139,10 +141,18 @@ RD_DISCOVERED="$work/discovered" awk -F'\t' '
   {
     line = $0
     gsub(/\033\[[0-9;]*m/, "", line)
+    if (match(line, /check-test-time: [0-9]+ files ranked slowest-first/)) {
+      split(substr(line, RSTART, RLENGTH), hdr, " ")
+      announced = hdr[2] + 0
+    }
     if (match(line, /[0-9]+(\.[0-9]+)?s  [A-Za-z0-9._-]+\.sh( |$)/)) {
       cell = substr(line, RSTART, RLENGTH)
       sub(/ $/, "", cell)
       split(cell, part, "s  ")
+      if (!(part[2] in ranked)) {
+        ranked[part[2]] = 1
+        nranked++
+      }
       keep(part[2], part[1])
     }
   }
@@ -152,7 +162,12 @@ RD_DISCOVERED="$work/discovered" awk -F'\t' '
       print name "\t" secs
     }
   }
+  END { print announced + 0, nranked + 0 > ENVIRON["RD_RANKED"] }
 ' <"$src" >"$work/kept" || die "could not read the source"
+read -r announced nranked <"$work/ranked" || die "could not read the source"
+if [ "$nranked" -lt "$announced" ]; then
+  die "the source announces $announced files ranked but lists $nranked (an interrupted or clipped log?); table left unchanged"
+fi
 # A redirect rather than an operand: awk takes an operand shaped like
 # `name=value` as an assignment, not a file. Sorted only once awk has
 # succeeded, so a failure partway never writes a partial table.
