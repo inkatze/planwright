@@ -1043,7 +1043,13 @@ first_half() {
   assert_allow "REQ-E1.5: sleep" "sleep 5"
   assert_allow "REQ-E1.5: sleep with a fraction and a unit" "sleep 0.5; sleep 1m"
   assert_allow "REQ-E1.5: sleep then a read" "sleep 20; gh pr checks 5"
-  assert_allow "REQ-E1.5: ps -ef" "ps -ef"
+  # `-e` prints process environments on macOS and the BSDs (operator
+  # decision 2026-10-09), so every form carrying it defers.
+  assert_defer "REQ-E1.5: ps -ef prints environments on macOS" "ps -ef"
+  assert_defer "REQ-E1.5: ps -e" "ps -e"
+  assert_defer "REQ-E1.5: ps -eo" "ps -eo pid,args"
+  assert_allow "REQ-E1.5: ps -A selects every process" "ps -A"
+  assert_allow "REQ-E1.5: ps -o pid,args" "ps -o pid,args"
   assert_allow "REQ-E1.5: ps with a format and a pid" "ps -o etimes= -p 1"
   assert_allow "REQ-E1.5: uptime" "uptime"
   assert_allow "REQ-E1.5: which" "which git"
@@ -1094,7 +1100,7 @@ first_half() {
   for f in -h --heads -b --branches -t --tags --refs -q --quiet --exit-code --get-url --symref --sort=refname; do
     assert_allow "REQ-E1.5: git ls-remote $f" "git ls-remote $f origin" Bash "$WT"
   done
-  for f in -A -a -d -e -f -F -H -j -l -L -M -m -T -w -x -y -Z --no-headers --forest; do
+  for f in -A -a -d -f -F -H -j -l -L -M -m -T -w -x -y -Z --no-headers --forest; do
     assert_allow "REQ-E1.5: ps $f" "ps $f"
   done
   for f in "-p 1" "-u root" "-o pid,etime" "--sort pid" "--pid=1" "ax" "axwww" "1,2"; do

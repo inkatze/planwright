@@ -1473,8 +1473,9 @@ guard_sleep() {
 # differs by platform, so only the enumerated flags pass: the selection and
 # format flags (a value-taking one, alone or ending a bundle, consumes the
 # next word), BSD-style letter words, and pid operands. Whatever prints
-# process environments, which carry secrets, defers: the BSD `e` modifier and
-# a format naming an environment field (ps_format_ok).
+# process environments, which carry secrets, defers: `-e` (which does on
+# macOS and the BSDs), the BSD `e` modifier, and a format naming an
+# environment field (ps_format_ok).
 guard_ps() {
   local i a body
   for ((i = 1; i < cwn; i++)); do
@@ -1493,7 +1494,7 @@ guard_ps() {
       -?*)
         body=${a#-}
         case $body in
-          *[!AadefFHjlLMmTwxyZoOpqtuUgGCs]*) return 1 ;;
+          *[!AadfFHjlLMmTwxyZoOpqtuUgGCs]*) return 1 ;;
           *[oOpqtuUgGCs]?*) return 1 ;; # a value-taking flag must end its bundle
           *[oO])
             i=$((i + 1))
