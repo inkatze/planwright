@@ -214,7 +214,11 @@ release_lock() {
   "$FS" unlock "$LOCK_TOKEN" >/dev/null 2>&1 || rlk_rc=$?
   # 1 is a lock that changed hands, rightly left standing. 2 is this token's
   # lock still on disk, so the token is kept for the exit handler to retry.
-  [ "$rlk_rc" -eq 2 ] || LOCK_TOKEN=""
+  if [ "$rlk_rc" -eq 2 ]; then
+    printf '%s\n' "fleet-throttle: could not release the fleet lock this process holds; it stays held until a release succeeds or its owner is found gone" >&2
+    return 0
+  fi
+  LOCK_TOKEN=""
 }
 
 # read_until <file>: print the stored reset epoch, empty when absent.
