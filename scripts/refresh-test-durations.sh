@@ -17,7 +17,8 @@
 #
 # Rows are kept only for files the suite has, the first row per file wins, and
 # discovered files the source did not time are named on stderr (the runner
-# queues those ahead of every timed one). A source yielding no usable row is
+# queues those ahead of every timed one). A source yielding no usable row, or
+# a ranked table check-test-time cut short (its local mode without --all), is
 # refused and the table left as it was. The table is written atomically.
 #
 # Usage: refresh-test-durations.sh [--suite <dir>] [--out <path>] <source>
@@ -94,6 +95,12 @@ done
 [ -f "$source" ] && [ -r "$source" ] \
   || die "source not readable: $(sanitize_printable "$source" "(unprintable path)")"
 [ -d "$suite" ] || die "suite directory not found: $(sanitize_printable "$suite" "(unprintable path)")"
+
+# check-test-time's local mode prints only the slowest few rows; a table built
+# from that would queue every file it left out ahead of the slowest ones.
+if grep -q 'more under budget; --all lists them' <"$source"; then
+  die "the source's ranked table is cut short (check-test-time without --all); use a CI log or a timing report"
+fi
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/refresh-test-durations.XXXXXX")" \
   || die "could not create a temporary directory"

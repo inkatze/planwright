@@ -190,6 +190,19 @@ printf 'nothing to see\n' >"$tmp/empty.log"
 assert_eq "a source with no rows exits 2" 2 "$?"
 assert_eq "a refused refresh leaves the table untouched" keep "$(cat "$tmp/keep.tsv")"
 
+# 10b. A ranked table check-test-time cut short (its local mode prints only
+#     the slowest few) would leave every other file untimed and queued ahead of
+#     the slowest: refused, table untouched.
+cat >"$tmp/short.log" <<EOF
+       41.250s  test-c.sh
+        9.000s  test-a.sh
+  (3 more under budget; --all lists them)
+EOF
+/bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/keep.tsv" "$tmp/short.log" >"$tmp/short.out" 2>&1
+assert_eq "a truncated ranked table exits 2" 2 "$?"
+assert_eq "a truncated ranked table leaves the table untouched" keep "$(cat "$tmp/keep.tsv")"
+assert_contains "the refusal names the truncation" "--all" "$(cat "$tmp/short.out")"
+
 # 11. The committed table is current enough to be worth reading: it parses,
 #     and every row names a file the suite has.
 committed="$REPO_ROOT/config/test-durations.tsv"
