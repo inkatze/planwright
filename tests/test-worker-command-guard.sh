@@ -1108,6 +1108,18 @@ first_half() {
   done
   assert_allow "REQ-E1.5: which -a and -s" "which -a -s git"
   assert_defer "REQ-E1.5: sleep with an opaque operand" "sleep \$X"
+  # Approved waits are capped at two hours, so a typo cannot park a worker.
+  assert_allow "REQ-E1.5: sleep at the cap" "sleep 2h"
+  assert_allow "REQ-E1.5: sleep at the cap in minutes" "sleep 120m"
+  assert_allow "REQ-E1.5: sleep at the cap in seconds" "sleep 7200"
+  assert_allow "REQ-E1.5: sleep with leading zeros" "sleep 0099"
+  assert_defer "REQ-E1.5: sleep past the cap" "sleep 7201"
+  assert_defer "REQ-E1.5: sleep past the cap in minutes" "sleep 121m"
+  assert_defer "REQ-E1.5: sleep past the cap by a fraction" "sleep 7200.5"
+  assert_defer "REQ-E1.5: sleep for a year" "sleep 365d"
+  assert_defer "REQ-E1.5: sleep operands summing past the cap" "sleep 2h 1s"
+  assert_allow "REQ-A1.13: timeout at the cap" "timeout 2h git status"
+  assert_defer "REQ-A1.13: timeout past the cap" "timeout 3h git status"
   assert_defer "REQ-E1.5: sleep with a non-numeric operand" "sleep forever"
   assert_defer "REQ-E1.5: sleep with no operand" "sleep"
   assert_defer "REQ-E1.5: ps with an unrecognized flag" "ps --bogus"

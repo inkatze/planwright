@@ -1459,14 +1459,16 @@ guard_env() {
   [ "$cwn" -eq 1 ]
 }
 
-# guard_sleep: `sleep <duration>…`, numeric durations only.
+# guard_sleep: `sleep <duration>…`, numeric durations only, within the cap.
 guard_sleep() {
-  local i
+  local i total=0
   [ "$cwn" -ge 2 ] || return 1
   for ((i = 1; i < cwn; i++)); do
     is_duration "${cw[i]}" || return 1
+    total=$((total + DURATION_SECONDS))
   done
-  return 0
+  # sleep waits for the sum of its operands.
+  [ "$total" -le "$MAX_WAIT_SECONDS" ]
 }
 
 # guard_ps: ps writes no file and runs nothing, but its option grammar
@@ -3119,10 +3121,29 @@ verify_simple() {
   declared_line_ok
 }
 
-# is_duration <word>: the `sleep` / `timeout` duration form.
+# An approved wait or time limit is at most two hours, which covers the
+# longest real wait (a full gate run) while a typo such as `sleep 365d` still
+# reaches the prompt instead of parking the worker for good.
+readonly MAX_WAIT_SECONDS=7200
+
+# is_duration <word>: the `sleep` / `timeout` duration form, its length (a
+# fraction rounded up to a whole unit, which errs short of the cap) left in
+# DURATION_SECONDS; at most MAX_WAIT_SECONDS.
 is_duration() {
-  local re='^[0-9]+(\.[0-9]+)?[smhd]?$'
-  [[ $1 =~ $re ]]
+  local re='^([0-9]{1,9})(\.([0-9]+))?([smhd]?)$' whole mult
+  [[ $1 =~ $re ]] || return 1
+  whole=$((10#${BASH_REMATCH[1]}))
+  case ${BASH_REMATCH[4]} in
+    m) mult=60 ;;
+    h) mult=3600 ;;
+    d) mult=86400 ;;
+    *) mult=1 ;;
+  esac
+  DURATION_SECONDS=$((whole * mult))
+  case ${BASH_REMATCH[3]} in
+    *[1-9]*) DURATION_SECONDS=$((DURATION_SECONDS + mult)) ;;
+  esac
+  [ "$DURATION_SECONDS" -le "$MAX_WAIT_SECONDS" ]
 }
 
 # strip_prefixes: drop the transparent `time [-p]` and `timeout <duration>`
