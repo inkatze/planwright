@@ -473,6 +473,16 @@ done
 fake_deliver sent-relay "❯ (#bc-de) [planwright tower relay -> @3] read /tmp/a.txt
 $idle_pane" "@3" "$msg"
 rc_is sent-relay 0 "deliver after a relay already submitted to the transcript"
+# A narrow box wraps the header onto the row below the tag; the staged relay
+# is still in the box, so it still refuses.
+fake_deliver wrapped-relay "$(printf '%s\n' '────' '❯ (#bc-de)' '  [planwright tower relay -> @3] read /tmp/a.txt' '────' '  ⏵⏵ auto mode on')" "@3" "$msg"
+rc_is wrapped-relay 3 "deliver over an unsubmitted relay whose header wrapped"
+pasted_nothing wrapped-relay "deliver over an unsubmitted relay whose header wrapped"
+# Transcript text quoting a paste placeholder sits above the box and does not
+# block; only the box's own rows count.
+fake_deliver quoted-placeholder "● The box showed [Pasted text #1 +4 lines] and nothing submitted it.
+$idle_pane" "@3" "$msg"
+rc_is quoted-placeholder 0 "deliver with a placeholder quoted in the transcript"
 echo "ok: deliver refuses to join an unsubmitted relay in the input box, not one already sent"
 
 # 13e. Delivery is confirmed, never assumed: a paste that never shows its tag

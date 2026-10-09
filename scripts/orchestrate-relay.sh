@@ -222,14 +222,20 @@ pane_tail() {
   printf '%s\n' "$pt_text" | tail -n 24
 }
 
-# staged_relay_present <window-text> — 0 iff an earlier relay sits unsubmitted
-# on the input box's first row, the one right under the box's top rule. A
-# submitted relay moves up into the transcript, away from that rule.
-staged_relay_present() {
+# input_box_rows <window-text> — the rows of Claude Code's input box, between
+# the last two horizontal rules; nothing when the window shows no box. What
+# the box holds is unsubmitted; anything above it is transcript.
+input_box_rows() {
   printf '%s\n' "$1" | awk '
-    prev ~ /^[[:space:]]*─/ && /❯.*\[planwright tower relay -> / { found = 1 }
-    { prev = $0 }
-    END { exit !found }'
+    { line[NR] = $0 }
+    /^[[:space:]]*─/ { top = bottom; bottom = NR }
+    END { if (top) for (i = top + 1; i < bottom; i++) print line[i] }'
+}
+
+# staged_relay_present <box-rows> — 0 iff an earlier relay sits unsubmitted in
+# the box: its header, or its tag alone where a narrow box wrapped the header.
+staged_relay_present() {
+  printf '%s\n' "$1" | grep -Eq '\[planwright tower relay -> |\(#[a-j]+-[a-j]+\)'
 }
 
 reject_handle() {
@@ -349,11 +355,12 @@ case "$sub" in
       printf '%s\n' "$me: refused, nothing pasted: $handle shows an open selection prompt, which a paste would answer" >&2
       exit 3
     fi
-    if staged_paste_present "$before"; then
+    box=$(input_box_rows "$before")
+    if staged_paste_present "$box"; then
       printf '%s\n' "$me: refused, nothing pasted: $handle holds a staged paste placeholder that would block this one" >&2
       exit 3
     fi
-    if staged_relay_present "$before"; then
+    if staged_relay_present "$box"; then
       printf '%s\n' "$me: refused, nothing pasted: $handle holds an unsubmitted relay this paste would join onto one line" >&2
       exit 3
     fi
