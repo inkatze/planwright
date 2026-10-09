@@ -227,15 +227,16 @@ resolve_home() {
 LOCK_TOKEN=""
 CUR_TMP=""
 # Release the lock AND reap any in-flight cache write temp on ANY exit, signals
-# included (the fleet-throttle.sh trap discipline): a SIGINT/SIGTERM
+# included (the fleet-throttle.sh trap discipline): a SIGINT/SIGTERM/SIGHUP
 # mid-critical-section must not leave the shared cross-spec lock held until a
 # later acquirer notices this process is gone (the hold names it with
-# --owner-pid), nor litter the signal dir with a `.signal.XXXXXX` orphan. INT/TERM route through EXIT via explicit exits with the conventional
+# --owner-pid), nor litter the signal dir with a `.signal.XXXXXX` orphan. INT/TERM/HUP route through EXIT via explicit exits with the conventional
 # codes. Inlined (not a named cleanup function) so the trap reference is visible
 # to static analysis.
 trap 'release_lock; [ -n "$CUR_TMP" ] && rm -f "$CUR_TMP"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+trap 'exit 129' HUP
 acquire_lock() {
   al_tries=0
   while [ "$al_tries" -lt 1000 ]; do
@@ -265,13 +266,15 @@ release_lock() {
   [ -n "$LOCK_TOKEN" ] || return 0
   rlk_rc=0
   "$FS" unlock "$LOCK_TOKEN" >/dev/null 2>&1 || rlk_rc=$?
-  # 1 is a lock that changed hands, rightly left standing. 2 is this token's
-  # lock still on disk, so the token is kept for the exit handler to retry.
-  if [ "$rlk_rc" -eq 2 ]; then
-    printf '%s\n' "fleet-usage-gate: could not release the fleet lock this process holds; it stays held until a release succeeds or its owner is found gone" >&2
-    return 0
-  fi
-  LOCK_TOKEN=""
+  # 0 is released and 1 is a lock that changed hands, rightly left standing.
+  # Anything else (2, this token's lock still on disk, or an unlock that never
+  # ran) keeps the token for the exit handler to retry.
+  case $rlk_rc in
+    0 | 1) LOCK_TOKEN="" ;;
+    *)
+      printf '%s\n' "fleet-usage-gate: could not release the fleet lock this process holds; it stays held until a release succeeds or its owner is found gone" >&2
+      ;;
+  esac
 }
 
 # signal_dir: the per-tower, local signal cache directory. Default under the
@@ -819,7 +822,7 @@ case "$cmd" in
             exit 2
           }
           if [ "$cur" != normal ] && grace_elapsed "$grace"; then
-            trap '' INT TERM
+            trap '' INT TERM HUP
             PLANWRIGHT_FLEET_LOCK_HELD="$MECHANISM" "$AUDIT" record "$MECHANISM" normal \
               "proactive usage gate rung decay" \
               "usage gate: signal unavailable past grace ${grace}s -> rung normal (was $cur)" || {
@@ -910,9 +913,9 @@ case "$cmd" in
       printf 'rung\t%s\tsince\t%s\tsession\t%s\tweekly\t%s\n' "$cur" "$since" "$sess" "$week"
       exit 0
     fi
-    # Defer INT/TERM across the commit span so a signal cannot land a rung
+    # Defer INT/TERM/HUP across the commit span so a signal cannot land a rung
     # change with a half-written trail; the lock is released on the way out.
-    trap '' INT TERM
+    trap '' INT TERM HUP
     reasoning="usage gate: session=$sess% weekly=$week% -> rung $target (was $cur)"
     # Pass the mechanism name (not a bare 1) so fleet-audit skips its acquire
     # ONLY for this usage-gate record — a global flag could let an inherited env

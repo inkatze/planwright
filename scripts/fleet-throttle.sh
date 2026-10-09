@@ -172,7 +172,7 @@ resolve_hold() {
 LOCK_TOKEN=""
 CUR_TMP=""
 # Release on ANY exit, signals included (the fleet-attention.sh trap
-# discipline); INT/TERM route through EXIT with the conventional codes. The
+# discipline); INT/TERM/HUP route through EXIT with the conventional codes. The
 # EXIT arm also reaps an in-flight write temp so a signal mid-critical-
 # section cannot litter the throttle dir.
 cleanup_on_exit() {
@@ -185,6 +185,7 @@ cleanup_on_exit() {
 trap 'cleanup_on_exit' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+trap 'exit 129' HUP
 acquire_lock() {
   al_tries=0
   while [ "$al_tries" -lt 1000 ]; do
@@ -214,13 +215,15 @@ release_lock() {
   [ -n "$LOCK_TOKEN" ] || return 0
   rlk_rc=0
   "$FS" unlock "$LOCK_TOKEN" >/dev/null 2>&1 || rlk_rc=$?
-  # 1 is a lock that changed hands, rightly left standing. 2 is this token's
-  # lock still on disk, so the token is kept for the exit handler to retry.
-  if [ "$rlk_rc" -eq 2 ]; then
-    printf '%s\n' "fleet-throttle: could not release the fleet lock this process holds; it stays held until a release succeeds or its owner is found gone" >&2
-    return 0
-  fi
-  LOCK_TOKEN=""
+  # 0 is released and 1 is a lock that changed hands, rightly left standing.
+  # Anything else (2, this token's lock still on disk, or an unlock that never
+  # ran) keeps the token for the exit handler to retry.
+  case $rlk_rc in
+    0 | 1) LOCK_TOKEN="" ;;
+    *)
+      printf '%s\n' "fleet-throttle: could not release the fleet lock this process holds; it stays held until a release succeeds or its owner is found gone" >&2
+      ;;
+  esac
 }
 
 # read_until <file>: print the stored reset epoch, empty when absent.
@@ -360,11 +363,11 @@ engage_until() {
       release_lock
       exit 2
     }
-    # Defer INT/TERM across the commit→audit span: a signal landing after
+    # Defer INT/TERM/HUP across the commit→audit span: a signal landing after
     # the rename but before the audit record would leave a state change
     # with no trail row — the exact unrecorded action the trail exists to
     # prevent. (SIGKILL stays unpreventable; the window is best-effort.)
-    trap '' INT TERM
+    trap '' INT TERM HUP
     # mktemp, not a predictable $$-suffixed name: the same symlink-safe
     # atomic-write discipline fleet-state.sh/fleet-audit.sh use for this
     # store area.
@@ -663,7 +666,7 @@ case "$cmd" in
     fi
     # Same signal deferral as the engage path: the unlink and its audit
     # row commit-or-abort together, never unlinked-unrecorded.
-    trap '' INT TERM
+    trap '' INT TERM HUP
     rm -f "$until_file" || {
       printf '%s\n' "fleet-throttle: cannot remove '$until_file'" >&2
       release_lock

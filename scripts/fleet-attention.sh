@@ -307,13 +307,15 @@ release_lock() {
   [ -n "$LOCK_TOKEN" ] || return 0
   rlk_rc=0
   "$FS" unlock "$LOCK_TOKEN" >/dev/null 2>&1 || rlk_rc=$?
-  # 1 is a lock that changed hands, rightly left standing. 2 is this token's
-  # lock still on disk, so the token is kept for the exit handler to retry.
-  if [ "$rlk_rc" -eq 2 ]; then
-    printf '%s\n' "fleet-attention: could not release the fleet lock this process holds; it stays held until a release succeeds or its owner is found gone" >&2
-    return 0
-  fi
-  LOCK_TOKEN=""
+  # 0 is released and 1 is a lock that changed hands, rightly left standing.
+  # Anything else (2, this token's lock still on disk, or an unlock that never
+  # ran) keeps the token for the exit handler to retry.
+  case $rlk_rc in
+    0 | 1) LOCK_TOKEN="" ;;
+    *)
+      printf '%s\n' "fleet-attention: could not release the fleet lock this process holds; it stays held until a release succeeds or its owner is found gone" >&2
+      ;;
+  esac
 }
 # The EXIT trap is the cleanup; the fatal-signal traps re-`exit` so the
 # interrupted critical section does NOT resume with the lock released (a bare

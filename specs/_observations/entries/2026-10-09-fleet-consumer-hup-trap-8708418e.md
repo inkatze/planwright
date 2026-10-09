@@ -1,1 +1,0 @@
-- 2026-10-09 [planwright] fleet-throttle.sh, fleet-usage-gate.sh, fleet-tower-marker.sh and fleet-liveness.sh install INT and TERM traps that re-exit through the EXIT cleanup but no HUP trap, unlike fleet-attention.sh, fleet-audit.sh and tower-queue.sh; a hangup mid-critical-section leaves the fleet lock to the --owner-pid break rather than a release.

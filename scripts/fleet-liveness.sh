@@ -396,6 +396,7 @@ ORACLE_TMP=""
 trap 'release_lock; [ -z "${ORACLE_TMP:-}" ] || oracle_cleanup' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+trap 'exit 129' HUP
 acquire_lock() {
   al_tries=0
   while [ "$al_tries" -lt 1000 ]; do
@@ -425,13 +426,15 @@ release_lock() {
   [ -n "$LOCK_TOKEN" ] || return 0
   rlk_rc=0
   "$FS" unlock "$LOCK_TOKEN" >/dev/null 2>&1 || rlk_rc=$?
-  # 1 is a lock that changed hands, rightly left standing. 2 is this token's
-  # lock still on disk, so the token is kept for the exit handler to retry.
-  if [ "$rlk_rc" -eq 2 ]; then
-    printf '%s\n' "fleet-liveness: could not release the fleet lock this process holds; it stays held until a release succeeds or its owner is found gone" >&2
-    return 0
-  fi
-  LOCK_TOKEN=""
+  # 0 is released and 1 is a lock that changed hands, rightly left standing.
+  # Anything else (2, this token's lock still on disk, or an unlock that never
+  # ran) keeps the token for the exit handler to retry.
+  case $rlk_rc in
+    0 | 1) LOCK_TOKEN="" ;;
+    *)
+      printf '%s\n' "fleet-liveness: could not release the fleet lock this process holds; it stays held until a release succeeds or its owner is found gone" >&2
+      ;;
+  esac
 }
 
 # The attention record's field indices this script reads (fleet-attention.sh
@@ -779,7 +782,7 @@ ORACLE_BIN="${PLANWRIGHT_ORACLE_CLAUDE:-claude}"
 # residual class the file layout had). ORACLE_TMP itself is initialized up at
 # the file-level trap install (init-before-trap, the sibling discipline).
 oracle_cleanup() {
-  # Reap an oracle supervisor abandoned by an interrupt: the top-level INT/TERM
+  # Reap an oracle supervisor abandoned by an interrupt: the top-level INT/TERM/HUP
   # traps exit straight into this EXIT handler, so a probe cut short mid-fetch
   # would otherwise orphan `of_sub` (and its CLI child) until their own timeout.
   # Kill only when still live AND not already reaped — oracle_fetch clears
@@ -1224,11 +1227,11 @@ shift
 case "$cmd" in
   hook)
     # Signals must not turn a valid hook invocation into a non-zero exit
-    # (the always-exit-0 discipline): an INT/TERM delivered to the worker's
+    # (the always-exit-0 discipline): an INT/TERM/HUP delivered to the worker's
     # process group mid-hook would otherwise ride the file-level 130/143
     # traps out as a non-zero hook exit. No lock is ever held in this arm,
     # so exiting 0 on a signal abandons nothing.
-    trap 'exit 0' INT TERM
+    trap 'exit 0' INT TERM HUP
     if [ "$#" -ne 1 ]; then
       echo "usage: fleet-liveness.sh hook <stop|permission-request|post-tool-use|session-end|stop-failure|notification|session-start>" >&2
       exit 2

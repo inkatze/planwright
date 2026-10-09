@@ -142,13 +142,14 @@ resolve_home() {
 
 LOCK_TOKEN=""
 # Release on ANY exit, signals included (the fleet-attention.sh trap
-# discipline): a SIGINT/SIGTERM mid-critical-section must not leave the
+# discipline): a SIGINT/SIGTERM/SIGHUP mid-critical-section must not leave the
 # shared cross-spec lock held until a later acquirer notices this process is
 # gone (the hold names it with --owner-pid).
 PENDING_TMP=""
 trap 'release_lock; [ -z "$PENDING_TMP" ] || rm -f "$PENDING_TMP"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+trap 'exit 129' HUP
 acquire_lock() {
   al_tries=0
   while [ "$al_tries" -lt 1000 ]; do
@@ -178,13 +179,15 @@ release_lock() {
   [ -n "$LOCK_TOKEN" ] || return 0
   rlk_rc=0
   "$FS" unlock "$LOCK_TOKEN" >/dev/null 2>&1 || rlk_rc=$?
-  # 1 is a lock that changed hands, rightly left standing. 2 is this token's
-  # lock still on disk, so the token is kept for the exit handler to retry.
-  if [ "$rlk_rc" -eq 2 ]; then
-    printf '%s\n' "fleet-tower-marker: could not release the fleet lock this process holds; it stays held until a release succeeds or its owner is found gone" >&2
-    return 0
-  fi
-  LOCK_TOKEN=""
+  # 0 is released and 1 is a lock that changed hands, rightly left standing.
+  # Anything else (2, this token's lock still on disk, or an unlock that never
+  # ran) keeps the token for the exit handler to retry.
+  case $rlk_rc in
+    0 | 1) LOCK_TOKEN="" ;;
+    *)
+      printf '%s\n' "fleet-tower-marker: could not release the fleet lock this process holds; it stays held until a release succeeds or its owner is found gone" >&2
+      ;;
+  esac
 }
 
 if [ "$#" -lt 2 ]; then

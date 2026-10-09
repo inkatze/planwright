@@ -10,11 +10,15 @@
 #            forward the caller's own `unlock` unchanged, and record whether
 #            the successor's lock survived it. A token-less release removes
 #            it; a release by token leaves it.
-#   fail     forward every token release, then report exit 2 (the lock still
-#            on disk), logging each caller's command line, so the consumer's
+#   fail     forward every token release, then report LOCKTEST_FAIL_RC (2,
+#            the lock still on disk, or a status like 126 from an unlock that
+#            never ran), logging each caller's command line, so the consumer's
 #            handling of a failed release shows: it says so, and its exit
 #            handler retries. Callers are told apart because a consumer that
 #            spawns fleet-audit sees that child's releases logged as well.
+#   hup      on the first `lock`, hand the hold over and then send SIGHUP to
+#            the --owner-pid it names, so the consumer's hangup path shows
+#            whether its exit handler still releases the hold.
 #   (unset)  pass everything through, so the consumer's own release is the
 #            only thing that can clear its hold.
 #
@@ -51,8 +55,22 @@ real='$real_fs'
 ev=\${LOCKTEST_EVIDENCE:-}
 if [ "\${LOCKTEST_MODE:-}" = fail ] && [ "\${1:-}" = unlock ] && [ "\$#" -eq 2 ]; then
   "\$real" "\$@" >/dev/null 2>&1 || :
-  ps -ww -o args= -p "\$PPID" >>"\$ev" 2>/dev/null || echo unknown-caller >>"\$ev"
-  exit 2
+  if [ -r "/proc/\$PPID/cmdline" ]; then
+    tr '\\000' ' ' <"/proc/\$PPID/cmdline" >>"\$ev"
+    echo >>"\$ev"
+  else
+    ps -ww -o args= -p "\$PPID" >>"\$ev" 2>/dev/null || echo unknown-caller >>"\$ev"
+  fi
+  exit "\${LOCKTEST_FAIL_RC:-2}"
+fi
+if [ "\${LOCKTEST_MODE:-}" = hup ] && [ "\${1:-}" = lock ] && [ "\${2:-}" = --owner-pid ] && [ ! -e "\$ev" ]; then
+  rc=0
+  tok=\$("\$real" "\$@") || rc=\$?
+  [ "\$rc" -eq 0 ] || exit "\$rc"
+  printf '%s\n' "\$tok"
+  echo sent >"\$ev"
+  kill -HUP "\$3"
+  exit 0
 fi
 if [ "\${LOCKTEST_MODE:-}" = clobber ] && [ "\${1:-}" = unlock ] && [ ! -e "\$ev" ]; then
   root=\$("\$real" root) || exit 2
@@ -117,6 +135,7 @@ run() {
     PLANWRIGHT_LOCAL_CONFIG="" \
     LOCKTEST_MODE="$r_mode" \
     LOCKTEST_EVIDENCE="$r_ev" \
+    LOCKTEST_FAIL_RC="$fail_rc" \
     /bin/sh "$sd/$r_script" "$@"
 }
 
@@ -159,6 +178,7 @@ lock_gone() {
 
 consumers="fleet-attention fleet-throttle fleet-audit fleet-usage-gate fleet-tower-marker fleet-liveness fleet-worktree-track"
 now=$(date +%s)
+fail_rc=2
 
 # The harness itself: a token-less release through the clobber stand-in is
 # recorded as removing the successor's lock, so "intact" below is a result,
@@ -186,14 +206,24 @@ for c in $consumers; do
   lock_gone "$h" || fail "$c: its own release did not clear its own hold"
   printf '%s\n' "ok: $c releases its own hold"
 
-  h="$tmp/h-fail-$c"
-  ev="$tmp/ev-fail-$c"
-  drive "$c" "$h" fail "$ev" || :
-  [ -f "$ev" ] && [ "$(grep -c "/$c\.sh" "$ev")" -ge 2 ] \
-    || fail "$c: a failed release was not retried by the exit handler"
-  grep -q "could not release the fleet lock" "$ev.err" \
-    || fail "$c: a failed release was not reported"
-  printf '%s\n' "ok: $c reports a failed release and retries it on exit"
+  for fail_rc in 2 126; do
+    h="$tmp/h-fail$fail_rc-$c"
+    ev="$tmp/ev-fail$fail_rc-$c"
+    drive "$c" "$h" fail "$ev" || :
+    [ -f "$ev" ] && [ "$(grep -c "/$c\.sh" "$ev")" -ge 2 ] \
+      || fail "$c: a release failing with exit $fail_rc was not retried by the exit handler"
+    grep -q "could not release the fleet lock" "$ev.err" \
+      || fail "$c: a release failing with exit $fail_rc was not reported"
+    printf '%s\n' "ok: $c reports a release failing with exit $fail_rc and retries it on exit"
+  done
+  fail_rc=2
+
+  h="$tmp/h-hup-$c"
+  ev="$tmp/ev-hup-$c"
+  drive "$c" "$h" hup "$ev" || :
+  [ -f "$ev" ] || fail "$c: no lock reached fleet-state.sh, so no hangup was sent"
+  lock_gone "$h" || fail "$c: a hangup while holding the fleet lock left it standing"
+  printf '%s\n' "ok: $c releases its hold when hung up while holding it"
 done
 
 # The token-less form stays the operator's escape hatch: it clears a detached
