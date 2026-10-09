@@ -549,6 +549,18 @@ FAKE_TMUX_DIR="$tmp/broken-fake" PATH="$tmp/fakebin:$PATH" \
 [ "$rc" = 2 ] || fail "a vocabulary without the refusal checks must exit 2, got $rc"
 grep -qE '^(load-buffer|paste-buffer)' "$tmp/broken-fake/log" \
   && fail "a vocabulary without the refusal checks must paste nothing"
+# The install path reaches stderr in both vocabulary diagnostics, so a control
+# byte in it must be stripped there, never sent raw to the operator's terminal.
+esc_install="$tmp/esc$(printf '\033')[31m-install"
+mkdir -p "$esc_install"
+cp "$RELAY" "$here/../scripts/echo-safety.sh" "$esc_install/"
+"$esc_install/orchestrate-relay.sh" validate-handle tmux "@3" 2>"$tmp/esc-missing.err" && fail "a missing vocabulary must refuse"
+cp "$broken/fleet-pane-vocabulary.sh" "$esc_install/"
+"$esc_install/orchestrate-relay.sh" validate-handle tmux "@3" 2>"$tmp/esc-undefined.err" && fail "a vocabulary without its checks must refuse"
+for e in esc-missing esc-undefined; do
+  [ -s "$tmp/$e.err" ] || fail "the $e diagnostic must say why it refused"
+  grep -q "$(printf '\033')" "$tmp/$e.err" && fail "the $e diagnostic must not carry a raw ESC from the install path"
+done
 echo "ok: deliver fails closed when the pane vocabulary lacks its refusal checks"
 
 # ---------------------------------------------------------------------------

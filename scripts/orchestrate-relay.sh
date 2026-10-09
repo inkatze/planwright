@@ -113,7 +113,7 @@ fi
 # shellcheck source=scripts/echo-safety.sh
 . "$echo_safety"
 if [ ! -r "$pane_vocabulary" ]; then
-  printf '%s\n' "$me: required helper $pane_vocabulary missing or not readable" >&2
+  printf '%s\n' "$me: required helper $(sanitize_printable "$pane_vocabulary" "(unprintable helper path)") missing or not readable" >&2
   exit 2
 fi
 # shellcheck source=scripts/fleet-pane-vocabulary.sh
@@ -122,7 +122,7 @@ fi
 # a vocabulary from a mismatched install would paste over an open dialog.
 for vocab_fn in selection_prompt_present staged_paste_present; do
   command -v "$vocab_fn" >/dev/null 2>&1 || {
-    printf '%s\n' "$me: required helper $pane_vocabulary does not define $vocab_fn" >&2
+    printf '%s\n' "$me: required helper $(sanitize_printable "$pane_vocabulary" "(unprintable helper path)") does not define $vocab_fn" >&2
     exit 2
   }
 done
