@@ -157,7 +157,7 @@ resolve_home() {
 # a skipped hook record self-heals on the next sweep's `scan`.
 LOCK_MAX_TRIES=1000
 
-HOLD_LOCK=0
+LOCK_TOKEN=""
 # The temps are created beside the registry, so one a signal strands would sit
 # in the fleet home for good; the traps remove whichever are in flight. The
 # signals re-`exit` so the EXIT cleanup runs under every shell.
@@ -179,11 +179,14 @@ trap 'exit 129' HUP
 acquire_lock() {
   al_tries=0
   while [ "$al_tries" -lt "$LOCK_MAX_TRIES" ]; do
-    "$FS" lock --owner-pid "$$" >/dev/null 2>&1
-    al_rc=$?
+    # The token lands in LOCK_TOKEN as part of the assignment, and a trap runs
+    # between commands, so the exit handler knows every hold `lock` reported. A
+    # `lock` killed after taking the hold but before printing its token leaves
+    # a hold only --owner-pid names, broken once this process is gone.
+    al_rc=0
+    LOCK_TOKEN=$("$FS" lock --owner-pid "$$" 2>/dev/null) || al_rc=$?
     case $al_rc in
       0)
-        HOLD_LOCK=1
         return 0
         ;;
       1) ;;
@@ -195,10 +198,18 @@ acquire_lock() {
   return 2
 }
 release_lock() {
-  if [ "$HOLD_LOCK" = 1 ]; then
-    "$FS" unlock >/dev/null 2>&1 || true
-    HOLD_LOCK=0
-  fi
+  [ -n "$LOCK_TOKEN" ] || return 0
+  rlk_rc=0
+  "$FS" unlock "$LOCK_TOKEN" >/dev/null 2>&1 || rlk_rc=$?
+  # 0 is released and 1 is a lock that changed hands, rightly left standing.
+  # Anything else (2, this token's lock still on disk, or an unlock that never
+  # ran) keeps the token for the exit handler to retry.
+  case $rlk_rc in
+    0 | 1) LOCK_TOKEN="" ;;
+    *)
+      printf '%s\n' "fleet-worktree-track: could not release the fleet lock this process holds; it stays held until a release succeeds or its owner is found gone" >&2
+      ;;
+  esac
 }
 
 # reg_dir / reg_file — resolve the registry paths under a resolvable home.

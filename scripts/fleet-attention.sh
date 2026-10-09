@@ -298,21 +298,24 @@ now_epoch() {
 #     an attention write is never dropped under contention, matching fleet-state
 #     spin_acquire's bounded 20ms backoff. On a fatal signal the trap releases
 #     AND exits (below) rather than resuming the critical section unlocked.
-#     HOLD_LOCK gates WHETHER we release, and that is all it does. Two things
-#     it is not: the token-less `unlock` we call is unconditional, so running it
-#     for a hold we no longer own unlinks whoever holds it now; and the flag is
-#     set after `lock` returns, so a signal in that gap leaves a lock we do hold
-#     unreleased until the next acquirer finds this process gone (the hold
-#     names it with --owner-pid). `lock` prints the owner token and
-#     `unlock <token>` verifies it; this script does not capture it yet, so
-#     both gaps stand until it does.
-HOLD_LOCK=0
+#     The release is by the owner token `lock` printed: `unlock <token>`
+#     unlinks only while the link is still that token's, so a hold cleared from
+#     under this process and retaken by a peer is left standing.
+LOCK_TOKEN=""
 
 release_lock() {
-  if [ "$HOLD_LOCK" = 1 ]; then
-    "$FS" unlock >/dev/null 2>&1 || true
-    HOLD_LOCK=0
-  fi
+  [ -n "$LOCK_TOKEN" ] || return 0
+  rlk_rc=0
+  "$FS" unlock "$LOCK_TOKEN" >/dev/null 2>&1 || rlk_rc=$?
+  # 0 is released and 1 is a lock that changed hands, rightly left standing.
+  # Anything else (2, this token's lock still on disk, or an unlock that never
+  # ran) keeps the token for the exit handler to retry.
+  case $rlk_rc in
+    0 | 1) LOCK_TOKEN="" ;;
+    *)
+      printf '%s\n' "fleet-attention: could not release the fleet lock this process holds; it stays held until a release succeeds or its owner is found gone" >&2
+      ;;
+  esac
 }
 # The EXIT trap is the cleanup; the fatal-signal traps re-`exit` so the
 # interrupted critical section does NOT resume with the lock released (a bare
@@ -342,11 +345,14 @@ trap 'exit 129' HUP
 acquire_lock() {
   al_tries=0
   while [ "$al_tries" -lt 1000 ]; do
-    "$FS" lock --owner-pid "$$" >/dev/null 2>&1
-    al_rc=$?
+    # The token lands in LOCK_TOKEN as part of the assignment, and a trap runs
+    # between commands, so the exit handler knows every hold `lock` reported. A
+    # `lock` killed after taking the hold but before printing its token leaves
+    # a hold only --owner-pid names, broken once this process is gone.
+    al_rc=0
+    LOCK_TOKEN=$("$FS" lock --owner-pid "$$" 2>/dev/null) || al_rc=$?
     case $al_rc in
       0)
-        HOLD_LOCK=1
         return 0
         ;;
       1) ;; # a live holder has it — retry
