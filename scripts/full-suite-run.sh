@@ -20,11 +20,12 @@
 # command with the inherited mark, if any, and releases nothing. One attempt is
 # one slot, each with its own wait bound: a retry calls this script again.
 #
-# The command runs as a child this script waits on, its stdin /dev/null. HUP,
-# INT, or TERM reaching this script is passed to the command as TERM, and the
-# slot is released only after the command has exited, so a signalled attempt
-# never frees its slot while its suite still runs. The slot also frees once
-# this process exits, released or not.
+# The command runs in the foreground. HUP, INT, or TERM reaching this script
+# is held until the command has finished (the shell runs a trap only then),
+# after which the slot is released and the script exits 128+n: a signal never
+# frees the slot while the suite or anything it started in the foreground
+# still runs. To stop a suite early, signal its process group. A signal that
+# arrives after the take and before the command starts runs no command.
 #
 # Exit:
 #   75     the wait passed its bound and the command did not run; stderr
@@ -78,32 +79,26 @@ valid_pool() {
   return 0
 }
 
-child=''
 caught=''
 # shellcheck disable=SC2329 # invoked by the traps set below
 on_signal() {
   caught=$1
-  [ -z "$child" ] || kill -TERM "$child" 2>/dev/null
 }
 
-# run_suite <mark> <command> [<arg>...] — run the command as a waited-on
-# child and set suite_rc. An empty <mark> leaves the inherited one, if any; a
-# wait a trapped signal interrupts is resumed until the child has exited.
+# run_suite <mark> <command> [<arg>...] — run the command in the foreground,
+# setting suite_rc, unless a signal has already arrived. An empty <mark>
+# leaves the inherited one, if any.
 run_suite() {
   _rs_mark=$1
   shift
+  suite_rc=0
+  [ -z "$caught" ] || return 0
   if [ -n "$_rs_mark" ]; then
-    PLANWRIGHT_STEP_POOL_HOLD="$_rs_mark" "$@" </dev/null &
+    PLANWRIGHT_STEP_POOL_HOLD="$_rs_mark" "$@"
   else
-    "$@" </dev/null &
+    "$@"
   fi
-  child=$!
-  while :; do
-    wait "$child"
-    suite_rc=$?
-    kill -0 "$child" 2>/dev/null || break
-  done
-  child=''
+  suite_rc=$?
 }
 
 pool=$("$script_dir/config-get.sh" full_suite_pool 2>/dev/null)

@@ -196,28 +196,32 @@ rc=$?
 [ "$rc" -eq 1 ] && grep -q 'itself exited 75' "$tmp/err" && ! grep -q 'wait expired' "$tmp/err"
 verdict "a suite's own exit 75 is reported as 1" "suite 75: rc=$rc" "$tmp/err"
 
-# --- a signal to the wrapper reaches the suite before the slot frees ----------------
-reset
-printf 'full_suite_pool: gate\n' >"$tracked"
-(fsr -- -- "$suite" "$tmp/log" hold 0 >/dev/null 2>"$tmp/err") &
-bg=$!
-await "$tmp/log.pid"
-wrapper=$(sed -n 's/^mark=gate://p' "$tmp/log.mark")
-spid=$(cat "$tmp/log.pid")
-kill -TERM "$wrapper"
-wait "$bg"
-rc=$?
-_n=0
-while kill -0 "$spid" 2>/dev/null && [ "$_n" -lt 20 ]; do
-  sleep 0.1
-  _n=$((_n + 1))
-done
-alive=no
-kill -0 "$spid" 2>/dev/null && alive=yes
-: >"$tmp/log.go"
-[ "$rc" -eq 143 ] && [ "$alive" = no ] && [ ! -L "$pools/gate/slot-1" ]
-verdict "TERM to the wrapper ends the suite, then releases, exiting 143" \
-  "signal: rc=$rc suite alive=$alive" "$tmp/err"
+# --- a signal to the wrapper waits for the suite, then releases ----------------------
+# sig_case <signal> <expected exit> — signal the wrapper while its pooled suite
+# holds, check the suite and the slot outlive the signal, then let it finish.
+sig_case() {
+  reset
+  printf 'full_suite_pool: gate\n' >"$tracked"
+  (fsr -- -- "$suite" "$tmp/log" hold 0 >/dev/null 2>"$tmp/err") &
+  _bg=$!
+  await "$tmp/log.pid"
+  _wrapper=$(sed -n 's/^mark=gate://p' "$tmp/log.mark")
+  _spid=$(cat "$tmp/log.pid")
+  kill "-$1" "$_wrapper"
+  sleep 1
+  _during=gone
+  kill -0 "$_spid" 2>/dev/null && kill -0 "$_wrapper" 2>/dev/null && [ -L "$pools/gate/slot-1" ] && _during=held
+  : >"$tmp/log.go"
+  wait "$_bg"
+  _rc=$?
+  [ "$_during" = held ] && [ "$_rc" -eq "$2" ] && [ ! -L "$pools/gate/slot-1" ]
+}
+sig_case TERM 143
+verdict "TERM to the wrapper keeps the slot until the suite ends, then exits 143" \
+  "TERM: during=$_during rc=$_rc" "$tmp/err"
+sig_case HUP 129
+verdict "HUP to the wrapper keeps the slot until the suite ends, then exits 129" \
+  "HUP: during=$_during rc=$_rc" "$tmp/err"
 
 # --- two runs sharing the pool never overlap -------------------------------------
 reset
@@ -285,6 +289,15 @@ rc=$?
 [ "$rc" -eq 0 ] && grep -qx 'mark=<unset>' "$tmp/log.mark" \
   && [ "$(grep -c 'pool helper failed' "$tmp/err")" -eq 1 ]
 verdict "a failing pool helper warns once and the suite runs unpooled" "helper: rc=$rc" "$tmp/err"
+
+# --- a config read failure warns once and runs unpooled -------------------------------
+reset
+printf '#!/bin/sh\nexit 4\n' >"$stub/config-get.sh"
+(cd "$repo" && unset PLANWRIGHT_STEP_POOL_HOLD && "$stub/full-suite-run.sh" -- "$suite" "$tmp/log" 0 0) >/dev/null 2>"$tmp/err"
+rc=$?
+[ "$rc" -eq 0 ] && grep -qx 'mark=<unset>' "$tmp/log.mark" \
+  && [ "$(grep -c 'cannot read full_suite_pool' "$tmp/err")" -eq 1 ]
+verdict "a config read failure warns once and the suite runs unpooled" "config: rc=$rc" "$tmp/err"
 
 # --- usage ---------------------------------------------------------------------------
 reset
