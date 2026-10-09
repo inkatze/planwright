@@ -3153,8 +3153,26 @@ cd_target_ok() {
     "$HOOK_WT_ROOT" | "$HOOK_WT_ROOT"/*) ;;
     *) return 1 ;;
   esac
+  cd_same_repo "$canon" || return 1
   PENDING_CD=$canon
   return 0
+}
+
+# cd_same_repo <canonical-dir>: 0 only when git places <dir> in the session's
+# own repository: the same top level and the same common directory as the
+# worktree root. A nested repository, a submodule, another worktree, or the
+# git directory itself would hand every later `git` that repository's own
+# config (its fsmonitor, hooks, aliases, pager), which is why `git -C <dir>`
+# defers; a `cd` there defers the same way. rev-parse reads config but runs
+# none of it.
+cd_same_repo() {
+  local here
+  if [ -z "${HOOK_WT_GIT:-}" ]; then
+    HOOK_WT_GIT=$(git -C "$HOOK_WT_ROOT" rev-parse --path-format=absolute --show-toplevel --git-common-dir 2>/dev/null) \
+      || return 1
+  fi
+  here=$(git -C "$1" rev-parse --path-format=absolute --show-toplevel --git-common-dir 2>/dev/null) || return 1
+  [ -n "$here" ] && [ "$here" = "$HOOK_WT_GIT" ]
 }
 
 # version_tool <verb>: the allowlisted tools whose bare `--version` form
@@ -3554,7 +3572,7 @@ main() {
   local HOOK_CWD=$cwd
   # The session's own worktree, which a `cd` may not leave: the checkout the
   # payload cwd sits in, resolved once before any `cd` moves HOOK_CWD.
-  local HOOK_WT_ROOT
+  local HOOK_WT_ROOT HOOK_WT_GIT=''
   HOOK_WT_ROOT=$(repo_root_of "$cwd") || HOOK_WT_ROOT=''
   # Shared across `fish -c` recursion so nesting cannot multiply the bound.
   LOOP_PASSES=0
