@@ -521,12 +521,22 @@ if [ -n "$durations" ] && [ -f "$durations" ] && [ -r "$durations" ]; then
   done <<EOF
 $ranked
 EOF
-  # A name the awk pass could not key (a tab or newline in it) still runs.
+  # A name the awk pass could not key (a tab in it) is untimed, so it still
+  # runs, and ahead of the timed files like any other untimed file.
+  unkeyed=()
   i=0
   while [ "$i" -lt "${#files[@]}" ]; do
-    [ -n "${queued[i]:-}" ] || queue+=("${files[$i]}")
+    [ -n "${queued[i]:-}" ] || unkeyed+=("${files[$i]}")
     i=$((i + 1))
   done
+  # Guarded: bash before 4.4 calls an empty array's expansion unbound under -u.
+  if [ "${#unkeyed[@]}" -gt 0 ]; then
+    if [ "${#queue[@]}" -gt 0 ]; then
+      queue=("${unkeyed[@]}" "${queue[@]}")
+    else
+      queue=("${unkeyed[@]}")
+    fi
+  fi
   order_desc="slowest-first ($timed of ${#files[@]} files timed by $(sanitize_printable "$durations" "(unprintable path)"); untimed files first)"
 elif [ -n "$durations" ]; then
   order_desc="name order (no readable duration table at $(sanitize_printable "$durations" "(unprintable path)"))"

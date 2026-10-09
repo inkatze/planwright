@@ -136,12 +136,13 @@ assert_eq "empty knob disables the table" \
   "test-a.sh test-b.sh test-c.sh test-d.sh test-e.sh" "$(run_order "$tmp/s" "")"
 assert_contains "the disabled table is stated" "duration table disabled" "$(cat "$tmp/run.out")"
 
-# 5a. A name the ranking pass cannot key (a tab in it) still runs, once.
+# 5a. A name the ranking pass cannot key (a tab in it) is untimed: it runs
+#     once, ahead of the timed files like any other untimed file.
 tabname="test-x${tab}y.sh"
 make_suite "$tmp/t" test-a.sh "$tabname"
 printf 'test-a.sh%s3\n' "$tab" >"$tmp/t.tsv"
 got="$(run_order "$tmp/t" "$tmp/t.tsv")"
-assert_eq "an unkeyable name still runs once" "test-a.sh test-x${tab}y.sh" "$got"
+assert_eq "an unkeyable name runs once, first" "test-x${tab}y.sh test-a.sh" "$got"
 assert_eq "an unkeyable name does not fail the run" 0 "$(run_rc)"
 
 # 5b. A table path with a backslash is read as written (awk -v would expand
