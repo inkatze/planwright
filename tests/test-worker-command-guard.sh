@@ -994,6 +994,11 @@ first_half() {
   assert_defer "REQ-A1.12: an assignment in a pipeline reaching a screen" "x=-delete | find . \$x"
   assert_defer "REQ-A1.12: an assignment backgrounded" "x=a & grep \$x"
   assert_defer "REQ-A1.12: an assignment inside a loop body" "for d in a; do x=\$d; grep -n y \$x; done"
+  CHAIN32=''
+  for n in $(seq 32); do CHAIN32="${CHAIN32}v$n=x && "; done
+  assert_allow "REQ-E1.2: tracked assignments up to the bound" "${CHAIN32}find . -name \$v32"
+  assert_defer "REQ-E1.2: tracked assignments past the bound defer" "${CHAIN32}v33=x && find . -name \$v33"
+  assert_defer "REQ-E1.2: fish -c has no NAME=value statement" "fish -c 'X=README.md; cat \$X'"
   assert_defer "REQ-A1.12: read makes the variable opaque" "read f; find . \$f"
   assert_defer "REQ-A1.12: printf -v makes the variable opaque" "printf -v f x && find . \$f"
   assert_defer "REQ-A1.12: mapfile makes the variable opaque" "mapfile -t a < f; find . \${a[0]}"

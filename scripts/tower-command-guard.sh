@@ -1782,9 +1782,10 @@ assign_name_ok() {
   case $name in
     '' | *[!A-Za-z0-9_]* | [0-9]*) return 1 ;;
   esac
-  # The second row: names bash evaluates as arithmetic on assignment (a
-  # subscript in the value runs a command), keeps readonly, or rewrites by
-  # itself (`read` with no NAME sets REPLY), so the modelled value would lie.
+  # Beside the names the shell consumes, this refuses the ones bash evaluates
+  # as arithmetic on assignment (a subscript in the value runs a command),
+  # keeps readonly, or rewrites by itself (`read` with no NAME sets REPLY), so
+  # a modelled value would lie.
   case $name in
     IFS | PATH | CDPATH | HOME | ENV | BASH_ENV | SHELL | PWD | OLDPWD | TMPDIR | TMOUT | \
       RANDOM | SRANDOM | HISTCMD | SECONDS | LINENO | EPOCHSECONDS | EPOCHREALTIME | UID | EUID | \
@@ -1795,9 +1796,8 @@ assign_name_ok() {
       BASH* | COMP_* | READLINE_* | HIST* | LC_* | MAIL* | PS[0-9]*) return 1 ;;
   esac
   # zsh, the Bash tool's shell on macOS, gives these names a special meaning
-  # as variables, as bash gives PATH and CDPATH; the second and third rows are
-  # its integer-typed or behaviour-changing ones, refused on the same grounds
-  # as the bash row above.
+  # as variables, as bash gives PATH and CDPATH, or types, freezes, or sets
+  # them itself, refused on the same grounds as the bash names above.
   case $name in
     path | cdpath | NULLCMD | READNULLCMD | module_path | MODULE_PATH | \
       fpath | FPATH | manpath | MANPATH | \
@@ -2351,7 +2351,8 @@ analyze_command() {
   local -a TOK_TYPE=() TOK_VAL=() TOK_QUOTED=() TOK_NOEXP=() TOK_DYN=() TOK_GLOB=() TOK_ZOPT=()
   local TOK_N=0
   # The loop-variable table expand_word reads and the head words it draws from.
-  # VAR_L is written by the shared loop_enter; only the worker guard reads it.
+  # VAR_L and VAR_O are written by the shared loop_enter; only the worker
+  # guard reads them.
   # shellcheck disable=SC2034
   local -a VAR_N=() VAR_V=() VAR_L=() VAR_O=() LW=()
   local VAR_C=0 LW_N=0

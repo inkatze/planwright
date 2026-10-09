@@ -112,6 +112,9 @@ readonly MAX_LOOP_PASSES=64
 # strings included: each may canonicalize a path, so this bounds the runtime
 # the loop modelling multiplies. Past it the command defers.
 readonly MAX_SIMPLE_CMDS=512
+# Assignments tracked in one command: expand_word scans the table once per
+# `$`, so past this the command defers rather than outrun the hook timeout.
+readonly MAX_TRACKED_VARS=32
 
 # The fixed reason string. It is NEVER a reflection of the analyzed command
 # (REQ-B1.4): untrusted command content is never echoed to a terminal-driving
@@ -2279,9 +2282,10 @@ assign_name_ok() {
   case $name in
     '' | *[!A-Za-z0-9_]* | [0-9]*) return 1 ;;
   esac
-  # The second row: names bash evaluates as arithmetic on assignment (a
-  # subscript in the value runs a command), keeps readonly, or rewrites by
-  # itself (`read` with no NAME sets REPLY), so the modelled value would lie.
+  # Beside the names the shell consumes, this refuses the ones bash evaluates
+  # as arithmetic on assignment (a subscript in the value runs a command),
+  # keeps readonly, or rewrites by itself (`read` with no NAME sets REPLY), so
+  # a modelled value would lie.
   case $name in
     IFS | PATH | CDPATH | HOME | ENV | BASH_ENV | SHELL | PWD | OLDPWD | TMPDIR | TMOUT | \
       RANDOM | SRANDOM | HISTCMD | SECONDS | LINENO | EPOCHSECONDS | EPOCHREALTIME | UID | EUID | \
@@ -2292,9 +2296,8 @@ assign_name_ok() {
       BASH* | COMP_* | READLINE_* | HIST* | LC_* | MAIL* | PS[0-9]*) return 1 ;;
   esac
   # zsh, the Bash tool's shell on macOS, gives these names a special meaning
-  # as variables, as bash gives PATH and CDPATH; the second and third rows are
-  # its integer-typed or behaviour-changing ones, refused on the same grounds
-  # as the bash row above.
+  # as variables, as bash gives PATH and CDPATH, or types, freezes, or sets
+  # them itself, refused on the same grounds as the bash names above.
   case $name in
     path | cdpath | NULLCMD | READNULLCMD | module_path | MODULE_PATH | \
       fpath | FPATH | manpath | MANPATH | \
@@ -2356,6 +2359,8 @@ assign_value_literal() {
 # segment's placement.
 track_assignment() {
   local w=${cw[0]} qpos=${cqp[0]} name value eqpos v vq
+  # fish has no `NAME=value` statement, so inside `fish -c` the word is not one.
+  [ "$HOOK_DEPTH" -eq 0 ] || return 1
   case $w in
     [A-Za-z_]*=*) ;;
     *) return 1 ;;
@@ -2467,8 +2472,8 @@ expand_word() {
 # by dynamic scope) with the tracked values substituted; a bare word whose
 # expansions all came out empty is removed, as both shells remove it.
 expand_words() {
-  local i f mode
-  local -a nw=() nx=() nq=() nd=() ng=() nz=() nm=() fields=()
+  local i mode
+  local -a nw=() nx=() nq=() nd=() ng=() nz=() nm=()
   local nn=0
   for ((i = 0; i < cwn; i++)); do
     case ${cw[i]} in
@@ -2482,21 +2487,8 @@ expand_words() {
             mode=mixed
           fi
           expand_word "${cw[i]}" "$mode"
-          if [ "$mode" = split ]; then
-            fields=()
-            [ -z "$EXPANDED" ] || IFS=' ' read -r -a fields <<<"$EXPANDED"
-            for f in ${fields[@]+"${fields[@]}"}; do
-              nw[nn]=$f
-              nx[nn]=0
-              nq[nn]=-1
-              nd[nn]=${cdyn[i]}
-              ng[nn]=${cglob[i]}
-              nz[nn]=${cz[i]-0}
-              nm[nn]=0
-              nn=$((nn + 1))
-            done
-            continue
-          fi
+          # A bare word that expanded to nothing is removed.
+          [ "$mode" = split ] && [ -z "$EXPANDED" ] && continue
           nw[nn]=$EXPANDED
         else
           nw[nn]=${cw[i]}
@@ -3104,10 +3096,11 @@ is_duration() {
 # strip_prefixes: drop the transparent `time [-p]` and `timeout <duration>`
 # prefixes (REQ-A1.13) from the current simple command, setting PREFIXED, so
 # the command they wrap is verified as if it stood alone. Non-zero defers: a
-# prefix with nothing to run, or a second prefix under `timeout`, which
-# would be the `time` program or another timeout rather than a keyword. A
-# `timeout` whose next word is not a duration is left as the verb, and
-# classify_verb defers it.
+# prefix with nothing to run, a `cd` under a prefix (its directory would not
+# carry), or a `time` or `timeout` left after the prefixes, which would be
+# the `time` program or a nested timeout rather than a keyword. A `timeout`
+# whose next word is not a duration is left as the verb, and classify_verb
+# defers it.
 strip_prefixes() {
   PREFIXED=0
   # `time` is a keyword only when written as a bare word, and `-p` only when
@@ -3150,6 +3143,10 @@ cd_target_ok() {
   local t=${cw[1]-} base acc comp canon
   local -a comps=()
   [ "$cwn" -eq 2 ] && [ "$HOOK_DEPTH" -eq 0 ] && [ "$HOOK_CDPATH_SET" = 0 ] || return 1
+  if [ "$HOOK_WT_RESOLVED" = 0 ]; then
+    HOOK_WT_ROOT=$(repo_root_of "$HOOK_PAYLOAD_CWD") || HOOK_WT_ROOT=''
+    HOOK_WT_RESOLVED=1
+  fi
   [ -n "$HOOK_WT_ROOT" ] || return 1
   word_unresolved "$t" "${cdyn[1]}" "${cglob[1]}" "${cx[1]}" && return 1
   # A plain operand only: bash tilde-expands after `=`, zsh reads `+N` / `-N`
@@ -3361,6 +3358,7 @@ verify_tokens() {
         HOOK_CWD=$PENDING_CD
         cd_live=1
       else
+        [ "$VAR_C" -lt "$MAX_TRACKED_VARS" ] || return 1
         VAR_N[VAR_C]=$PENDING_ASSIGN_N
         VAR_V[VAR_C]=$PENDING_ASSIGN_V
         VAR_L[VAR_C]=0
@@ -3605,9 +3603,8 @@ main() {
   esac
   local HOOK_CWD=$cwd HOOK_PAYLOAD_CWD=$cwd
   # The session's own worktree, which a `cd` may not leave: the checkout the
-  # payload cwd sits in, resolved once before any `cd` moves HOOK_CWD.
-  local HOOK_WT_ROOT HOOK_WT_GIT=''
-  HOOK_WT_ROOT=$(repo_root_of "$cwd") || HOOK_WT_ROOT=''
+  # payload cwd sits in, resolved by the first `cd` (cd_target_ok).
+  local HOOK_WT_ROOT='' HOOK_WT_RESOLVED=0 HOOK_WT_GIT=''
   # Shared across `fish -c` recursion so nesting cannot multiply the bound.
   LOOP_PASSES=0
   SIMPLE_N=0
