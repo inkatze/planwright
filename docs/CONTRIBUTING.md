@@ -202,6 +202,23 @@ with the new measured baseline recorded in the file's comment. Split or slim
 the offending file first, and measure on the reference runner (the gate's own
 CI log prints the full ranked table), never on a shared dev box.
 
+### Queue order
+
+The runner starts the slowest files first, so the suite does not end with one
+long file running alone while the other jobs sit idle. Expected times come from
+[`config/test-durations.tsv`](../config/test-durations.tsv); a file with no row
+there (a new one, say) starts ahead of every timed file. The table only orders
+the queue: every file still runs exactly once, and nothing in it is a budget.
+The order is exact on CI; on a dev box where other suites hold test-pool
+tickets it is best effort, since waiting files take tickets as they free up.
+When it drifts, regenerate it from a reference-runner CI log rather than editing
+it by hand:
+
+```bash
+gh run view <run-id> --log > ci.log
+scripts/refresh-test-durations.sh ci.log
+```
+
 ### The machine-wide test pool
 
 Every `mise run test` on a machine shares one per-user pool of tickets under

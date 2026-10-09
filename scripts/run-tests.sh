@@ -62,6 +62,9 @@
 #   PLANWRIGHT_TEST_FORCE_SERIAL   1 forces the serial fallback path
 #   PLANWRIGHT_TEST_TIMING_REPORT  where to persist the timing report
 #                                  (default: <suite-dir>/.timing-report.tsv)
+#   PLANWRIGHT_TEST_DURATIONS      the duration table the queue is ordered
+#                                  by (default: <repo-root>/config/
+#                                  test-durations.tsv; empty disables it)
 #   PLANWRIGHT_FLEET_STATE_DIR     replaced per file by a sentinel fleet home
 #   CLAUDE_PLUGIN_DATA, CLAUDE_DIR (the latter two only when set); a file that
 #                                  creates anything in that home fails
@@ -462,6 +465,90 @@ if [ "$clock" = seconds ]; then
 fi
 report="${PLANWRIGHT_TEST_TIMING_REPORT:-$suite_dir/.timing-report.tsv}"
 
+# Queue order: longest expected file first (longest-processing-time
+# scheduling). In name order a slow file dispatched near the end ran alone
+# while the other jobs sat idle, and that tail decided the suite's wall-clock.
+# Expected times come from the committed duration table, kept by
+# scripts/refresh-test-durations.sh; a file with no usable row is ranked ahead
+# of every timed one, since an unmeasured file placed last could be the tail.
+# The table only ever reorders: rows for files the suite lacks are ignored,
+# every discovered file is queued exactly once, ties keep name order, and a
+# missing or unreadable table is name order, never a failure. `files` keeps
+# name order for the summary and report below. The order holds at dispatch;
+# when the machine-wide pool has fewer free tickets than this run has jobs,
+# waiting workers take tickets as they free up, so it is best effort there
+# (CI runs alone, every dispatched worker holding a ticket at once).
+tab="$(printf '\t')"
+durations="${PLANWRIGHT_TEST_DURATIONS-$repo_root/config/test-durations.tsv}"
+queue=("${files[@]}")
+if [ -n "$durations" ] && [ -f "$durations" ] && [ -r "$durations" ]; then
+  # awk's getline reads a file named `-` as standard input.
+  case "$durations" in
+    /*) durations_path="$durations" ;;
+    *) durations_path="./$durations" ;;
+  esac
+  ranked="$(
+    i=0
+    for t in "${files[@]}"; do
+      printf '%s\t%s\n' "$i" "${t##*/}"
+      i=$((i + 1))
+    done | RT_DURATIONS="$durations_path" awk -F'\t' '
+      BEGIN {
+        # Through ENVIRON, never -v, which would expand backslash escapes in
+        # the path.
+        table = ENVIRON["RT_DURATIONS"]
+        while ((getline line < table) > 0) {
+          if (line ~ /^#/) continue
+          if (split(line, f, "\t") != 2) continue
+          if (f[2] !~ /^[0-9]+(\.[0-9]+)?$/ || (f[1] in dur)) continue
+          dur[f[1]] = f[2]
+        }
+        close(table)
+      }
+      NF == 2 && $1 ~ /^[0-9]+$/ {
+        if ($2 in dur) print 1 "\t" dur[$2] "\t" $1
+        else print 0 "\t0\t" $1
+      }
+    ' | LC_ALL=C sort -t "$tab" -k1,1n -k2,2nr -k3,3n
+  )"
+  queue=()
+  queued=()
+  timed=0
+  while IFS="$tab" read -r cls _ idx; do
+    case "$idx" in
+      '' | *[!0-9]*) continue ;;
+    esac
+    [ "$idx" -lt "${#files[@]}" ] || continue
+    [ -z "${queued[idx]:-}" ] || continue
+    queued[idx]=1
+    queue+=("${files[$idx]}")
+    [ "$cls" != 1 ] || timed=$((timed + 1))
+  done <<EOF
+$ranked
+EOF
+  # A name the awk pass could not key (a tab in it) is untimed, so it still
+  # runs, and ahead of the timed files like any other untimed file.
+  unkeyed=()
+  i=0
+  while [ "$i" -lt "${#files[@]}" ]; do
+    [ -n "${queued[i]:-}" ] || unkeyed+=("${files[$i]}")
+    i=$((i + 1))
+  done
+  # Guarded: bash before 4.4 calls an empty array's expansion unbound under -u.
+  if [ "${#unkeyed[@]}" -gt 0 ]; then
+    if [ "${#queue[@]}" -gt 0 ]; then
+      queue=("${unkeyed[@]}" "${queue[@]}")
+    else
+      queue=("${unkeyed[@]}")
+    fi
+  fi
+  order_desc="slowest-first ($timed of ${#files[@]} files timed by $(sanitize_printable "$durations" "(unprintable path)"); untimed files first)"
+elif [ -n "$durations" ]; then
+  order_desc="name order (no readable duration table at $(sanitize_printable "$durations" "(unprintable path)"))"
+else
+  order_desc="name order (duration table disabled)"
+fi
+
 # Probe for a working `xargs -P` before relying on it; degrade to the
 # serial loop when it is absent or explicitly disabled.
 parallel=1
@@ -479,13 +566,15 @@ suite_started="$(now_ms)"
 if [ "$parallel" -eq 1 ]; then
   mode=parallel
   echo "run-tests: ${#files[@]} files, $jobs jobs, $pool_desc"
-  printf '%s\0' "${files[@]}" \
+  echo "run-tests: queue $order_desc"
+  printf '%s\0' "${queue[@]}" \
     | xargs -0 -n 1 -P "$jobs" /bin/bash "$self" --run-one \
     || dispatch_failed=1
 else
   mode=serial
   echo "run-tests: ${#files[@]} files, serial (no parallel primitive), $pool_desc"
-  for t in "${files[@]}"; do
+  echo "run-tests: queue $order_desc"
+  for t in "${queue[@]}"; do
     /bin/bash "$self" --run-one "$t" || dispatch_failed=1
   done
 fi
