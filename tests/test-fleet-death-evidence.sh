@@ -194,6 +194,7 @@ case "\$cmd" in
   list-windows)
     case "\$mode" in
       window-present | session-renamed) printf '@1\tworker-3\n@2\tother\n' ;;
+      named-like-id) printf '@3\t@7\n' ;;
       window-absent) printf '@2\tother\n' ;;
       listing-fails)
         echo "server exited unexpectedly" >&2
@@ -245,6 +246,11 @@ out=$(run_tmux session-renamed tmux-window planwright @1 2>/dev/null) || rc=$?
 rc=0
 out=$(run_tmux session-renamed tmux-window planwright @9 2>/dev/null) || rc=$?
 [ "$rc" = 0 ] || fail "tmux window @id absent server-wide: exit $rc, expected 0 (dead)"
+# A window NAMED like an id (`@7`, with id @3) still matches by name, as any
+# other name does; an @-token is never read as an id alone.
+rc=0
+out=$(run_tmux named-like-id tmux-window planwright @7 2>/dev/null) || rc=$?
+[ "$rc" = 1 ] || fail "tmux window named like an id: exit $rc, expected 1 (alive)"
 echo "ok: a window @id target is found across the server, so a renamed session does not read as death"
 
 # 7. Server healthy, session present, window absent from the authoritative

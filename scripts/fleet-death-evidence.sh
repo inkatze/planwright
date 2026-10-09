@@ -39,9 +39,10 @@
 #       (a healthy server is authoritative for its sessions: absent -> dead),
 #       `list-windows` (window absent from the authoritative listing -> dead;
 #       <window> matches either the #{window_id} or #{window_name} field
-#       exactly). A <window> given as an id (`@<n>`) is looked up across every
-#       session instead, with no session probe: an id names its window for the
-#       server's lifetime, so a renamed session cannot read as its death. Session/window tokens are validated against a conservative
+#       exactly). A <window> shaped like an id (`@<n>`) is looked up across
+#       every session instead, by id or name, with no session probe: an id
+#       names its window for the server's lifetime, so a renamed session cannot
+#       read as its death. Session/window tokens are validated against a conservative
 #       subset of the orchestrate-relay.sh tmux charset (no `:` or `/`: the
 #       relay validates combined session:window targets, while the separate
 #       per-token arguments here need neither) before any `-t` interpolation,
@@ -166,11 +167,13 @@ case "$class" in
     # it lives: a renamed session, or the window moved to another, leaves the
     # recorded session name absent while the window runs on. So an id is
     # looked up across the server, and the session probe below, which would
-    # read that rename as death, is not consulted for it.
+    # read that rename as death, is not consulted for it. A window may also be
+    # NAMED `@<n>`, so the token matches a name as well as an id; a match
+    # anywhere only ever reads as alive, never as a death.
     case $window in
       @*[!0-9]* | @) ;;
       @*)
-        listing=$(tmux list-windows -a -F '#{window_id}' 2>/dev/null) || {
+        listing=$(tmux list-windows -a -F '#{window_id}	#{window_name}' 2>/dev/null) || {
           echo "fleet-death-evidence: tmux list-windows failed after the server answered — refusing to report death" >&2
           verdict unknown
         }
@@ -178,7 +181,7 @@ case "$class" in
         IFS='
 '
         for line in $listing; do
-          if [ "${line%%	*}" = "$window" ]; then
+          if [ "${line%%	*}" = "$window" ] || [ "${line#*	}" = "$window" ]; then
             IFS=$old_ifs
             verdict alive
           fi
