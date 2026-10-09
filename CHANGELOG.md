@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.57.0](https://github.com/inkatze/planwright/compare/v0.56.0...v0.57.0) (2026-10-09)
+
+
+### Features
+
+* **locks:** adopt the lock holders onto the shared lock primitive ([#603](https://github.com/inkatze/planwright/issues/603)) ([c52b802](https://github.com/inkatze/planwright/commit/c52b80233d2c57692c66976dc0d057f3fbf99cbb))
+* **relay:** message listed peers directly; make the pane relay refuse and confirm ([#626](https://github.com/inkatze/planwright/issues/626)) ([9a0b858](https://github.com/inkatze/planwright/commit/9a0b858b881d1d7ea1c0f21eab96819eaa132462))
+
 ## [0.56.0](https://github.com/inkatze/planwright/compare/v0.55.0...v0.56.0) (2026-10-08)
 
 
