@@ -98,6 +98,8 @@ done
 [ -f "$src" ] && [ -r "$src" ] \
   || die "source not readable: $(sanitize_printable "$src" "(unprintable path)")"
 [ -d "$suite" ] || die "suite directory not found: $(sanitize_printable "$suite" "(unprintable path)")"
+# mv onto a directory would drop the staged table inside it and report success.
+[ ! -d "$out" ] || die "--out is a directory, not a table path: $(sanitize_printable "$out" "(unprintable path)")"
 
 # check-test-time's local mode prints only the slowest few rows; a table built
 # from that would queue every file it left out ahead of the slowest ones.

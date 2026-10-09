@@ -221,6 +221,11 @@ assert_eq "a missing source exits 2" 2 "$?"
 /bin/bash "$REFRESH" --suite "$tmp/no-suite" --out "$tmp/x.tsv" "$tmp/ci.log" >/dev/null 2>&1
 assert_eq "a missing suite directory exits 2" 2 "$?"
 
+mkdir -p "$tmp/outdir"
+/bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/outdir" "$tmp/ci.log" >/dev/null 2>&1
+assert_eq "an --out that is a directory exits 2" 2 "$?"
+assert_eq "an --out directory is left empty" "" "$(ls -A "$tmp/outdir")"
+
 # 8. The refreshed table drives the runner.
 assert_eq "refreshed table orders the run" \
   "test-d.sh test-e.sh test-b.sh test-c.sh test-a.sh" \
