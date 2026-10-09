@@ -492,7 +492,7 @@ age "$c/fleet/flights/$fr"
 run retire --repo-root "$c/primary"
 [ "$RC" -eq 0 ] && [ ! -e "$c/fleet/flights/$fr" ] || fail "retire must remove the brief once it can (rc $RC: $ERR)"
 
-# --- plugin-root pair with an installed plugin -------------------------------
+# --- 10. plugin-root pair with an installed plugin ---------------------------
 tower_v=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT/.claude-plugin/plugin.json" | head -n 1)
 for want in same skewed; do
   new_case
@@ -530,7 +530,7 @@ run dispatch readme-typo --backend print --ask-file "$c/ask.txt" --grounds-file 
 [ "$RC" -eq 0 ] || fail "CRLF grounds are one line and must be accepted (rc $RC: $ERR)"
 case $(cat "$(field "$OUT" brief)") in *"$(printf '\r')"*) fail "a CRLF grounds line must reach the brief without its CR" ;; esac
 
-# --- dispatch from a linked worktree ------------------------------------------
+# --- 11. dispatch from a linked worktree --------------------------------------
 # The primary's config layers govern, and the flight is placed beside the
 # primary, never nested in the worktree it was dispatched from.
 new_case
@@ -551,7 +551,7 @@ primary_phys=$(cd "$c/primary" && pwd -P)
   || fail "a worktree dispatch placed the flight at '$(field "$OUT" worktree)', not under the primary"
 echo "ok: a flight dispatched from a linked worktree reads the primary's config and lands beside it"
 
-# --- a spec root outside the checkout ------------------------------------------
+# --- 12. a spec root outside the checkout --------------------------------------
 # A file-home record is committed on the flight's branch, so it cannot live in
 # a spec root outside the checkout. When the PR home is unavailable too, the
 # refusal says so, and comes before anything is minted or placed.
