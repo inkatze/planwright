@@ -474,7 +474,10 @@ report="${PLANWRIGHT_TEST_TIMING_REPORT:-$suite_dir/.timing-report.tsv}"
 # The table only ever reorders: rows for files the suite lacks are ignored,
 # every discovered file is queued exactly once, ties keep name order, and a
 # missing or unreadable table is name order, never a failure. `files` keeps
-# name order for the summary and report below.
+# name order for the summary and report below. The order holds at dispatch;
+# when the machine-wide pool has fewer free tickets than this run has jobs,
+# waiting workers take tickets as they free up, so it is best effort there
+# (CI runs alone, every dispatched worker holding a ticket at once).
 tab="$(printf '\t')"
 durations="${PLANWRIGHT_TEST_DURATIONS-$repo_root/config/test-durations.tsv}"
 queue=("${files[@]}")

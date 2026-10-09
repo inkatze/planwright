@@ -209,6 +209,8 @@ long file running alone while the other jobs sit idle. Expected times come from
 [`config/test-durations.tsv`](../config/test-durations.tsv); a file with no row
 there (a new one, say) starts ahead of every timed file. The table only orders
 the queue: every file still runs exactly once, and nothing in it is a budget.
+The order is exact on CI; on a dev box where other suites hold test-pool
+tickets it is best effort, since waiting files take tickets as they free up.
 When it drifts, regenerate it from a reference-runner CI log rather than editing
 it by hand:
 

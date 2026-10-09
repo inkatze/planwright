@@ -7,7 +7,10 @@
 #
 # Two sources, told apart by their first line:
 #   - a timing report scripts/run-tests.sh persisted (tests/.timing-report.tsv,
-#     version 2): each file row's execution time, never its pool wait;
+#     version 2): each file row's execution time, never its pool wait. The
+#     report records no verdicts and is written for failing runs too, so use
+#     only a green run's report: a file that failed early would be ranked as
+#     cheap;
 #   - anything else is read as a log carrying check-test-time's ranked table,
 #     such as a CI job log (`gh run view <id> --log`), whose CI mode prints
 #     every file. Step prefixes and colour codes are tolerated; only
