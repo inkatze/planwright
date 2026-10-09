@@ -66,7 +66,7 @@ EOF
 
 suite=""
 out=""
-source=""
+src=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --suite | --out)
@@ -83,22 +83,22 @@ while [ "$#" -gt 0 ]; do
       ;;
     -*) die "unknown option: $(sanitize_printable "$1" "(unprintable)") (see --help)" ;;
     *)
-      [ -z "$source" ] || die "one source only (see --help)"
-      source="$1"
+      [ -z "$src" ] || die "one source only (see --help)"
+      src="$1"
       shift
       ;;
   esac
 done
-[ -n "$source" ] || die "a source file is required (see --help)"
+[ -n "$src" ] || die "a source file is required (see --help)"
 [ -n "$suite" ] || suite="$repo_root/tests"
 [ -n "$out" ] || out="$repo_root/config/test-durations.tsv"
-[ -f "$source" ] && [ -r "$source" ] \
-  || die "source not readable: $(sanitize_printable "$source" "(unprintable path)")"
+[ -f "$src" ] && [ -r "$src" ] \
+  || die "source not readable: $(sanitize_printable "$src" "(unprintable path)")"
 [ -d "$suite" ] || die "suite directory not found: $(sanitize_printable "$suite" "(unprintable path)")"
 
 # check-test-time's local mode prints only the slowest few rows; a table built
 # from that would queue every file it left out ahead of the slowest ones.
-if grep -q 'more under budget; --all lists them' <"$source"; then
+if grep -q 'more under budget; --all lists them' <"$src"; then
   die "the source's ranked table is cut short (check-test-time without --all); use a CI log or a timing report"
 fi
 
@@ -147,14 +147,14 @@ RD_DISCOVERED="$work/discovered" awk -F'\t' '
       print name "\t" secs
     }
   }
-' <"$source" >"$work/kept" || die "could not read the source"
+' <"$src" >"$work/kept" || die "could not read the source"
 # A redirect rather than an operand: awk takes an operand shaped like
 # `name=value` as an assignment, not a file. Sorted only once awk has
 # succeeded, so a failure partway never writes a partial table.
 sort -t "$(printf '\t')" -k2,2nr -k1,1 "$work/kept" >"$work/rows" \
   || die "could not sort the source's rows"
 [ -s "$work/rows" ] \
-  || die "no timed test file found in $(sanitize_printable "$source" "(unprintable path)"); table left unchanged"
+  || die "no timed test file found in $(sanitize_printable "$src" "(unprintable path)"); table left unchanged"
 
 {
   cat <<'EOF'

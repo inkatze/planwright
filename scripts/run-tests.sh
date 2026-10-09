@@ -511,7 +511,7 @@ if [ -n "$durations" ] && [ -f "$durations" ] && [ -r "$durations" ]; then
       '' | *[!0-9]*) continue ;;
     esac
     [ "$idx" -lt "${#files[@]}" ] || continue
-    [ -z "${queued[$idx]:-}" ] || continue
+    [ -z "${queued[idx]:-}" ] || continue
     queued[idx]=1
     queue+=("${files[$idx]}")
     [ "$cls" != 1 ] || timed=$((timed + 1))
@@ -521,7 +521,7 @@ EOF
   # A name the awk pass could not key (a tab or newline in it) still runs.
   i=0
   while [ "$i" -lt "${#files[@]}" ]; do
-    [ -n "${queued[$i]:-}" ] || queue+=("${files[$i]}")
+    [ -n "${queued[i]:-}" ] || queue+=("${files[$i]}")
     i=$((i + 1))
   done
   order_desc="slowest-first ($timed of ${#files[@]} files timed by $(sanitize_printable "$durations" "(unprintable path)"); untimed files first)"
