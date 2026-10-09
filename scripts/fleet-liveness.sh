@@ -1228,7 +1228,7 @@ case "$cmd" in
   hook)
     # Signals must not turn a valid hook invocation into a non-zero exit
     # (the always-exit-0 discipline): an INT/TERM/HUP delivered to the worker's
-    # process group mid-hook would otherwise ride the file-level 130/143
+    # process group mid-hook would otherwise ride the file-level 130/143/129
     # traps out as a non-zero hook exit. No lock is ever held in this arm,
     # so exiting 0 on a signal abandons nothing.
     trap 'exit 0' INT TERM HUP
