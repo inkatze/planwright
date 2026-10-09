@@ -118,6 +118,14 @@ if [ ! -r "$pane_vocabulary" ]; then
 fi
 # shellcheck source=scripts/fleet-pane-vocabulary.sh
 . "$pane_vocabulary"
+# A missing refusal check would read as "no dialog" inside deliver's `if`, so
+# a vocabulary from a mismatched install would paste over an open dialog.
+for vocab_fn in selection_prompt_present staged_paste_present; do
+  command -v "$vocab_fn" >/dev/null 2>&1 || {
+    printf '%s\n' "$me: required helper $pane_vocabulary does not define $vocab_fn" >&2
+    exit 2
+  }
+done
 
 # A literal newline, for the message-file path safety check below.
 nl='

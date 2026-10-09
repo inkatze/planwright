@@ -521,6 +521,23 @@ grep -qF " read $msg" "$tmp/relpath/pasted" \
   || fail "deliver must paste the message path absolute, got: $(cat "$tmp/relpath/pasted")"
 echo "ok: deliver validates its backend, handle, and message file before touching tmux"
 
+# 13g. A vocabulary file that sources but lacks the refusal checks fails
+#      closed: without them every check would read "no dialog" and paste.
+broken="$tmp/broken-install"
+mkdir -p "$broken"
+cp "$RELAY" "$here/../scripts/echo-safety.sh" "$broken/"
+printf '%s\n' '# a vocabulary from an older install, without the refusal checks' >"$broken/fleet-pane-vocabulary.sh"
+mkdir -p "$tmp/broken-fake"
+printf '%s\n' "$perm_pane" >"$tmp/broken-fake/pane"
+: >"$tmp/broken-fake/log"
+rc=0
+FAKE_TMUX_DIR="$tmp/broken-fake" PATH="$tmp/fakebin:$PATH" \
+  "$broken/orchestrate-relay.sh" deliver tmux "@3" "$msg" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "a vocabulary without the refusal checks must exit 2, got $rc"
+grep -qE '^(load-buffer|paste-buffer)' "$tmp/broken-fake/log" \
+  && fail "a vocabulary without the refusal checks must paste nothing"
+echo "ok: deliver fails closed when the pane vocabulary lacks its refusal checks"
+
 # ---------------------------------------------------------------------------
 # 14. deliver against a real tmux server whose pane runs `cat`: the paste must
 #     show up and be confirmed, end to end. Every tmux call here, the test's
