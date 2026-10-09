@@ -10,12 +10,15 @@
 #            forward the caller's own `unlock` unchanged, and record whether
 #            the successor's lock survived it. A token-less release removes
 #            it; a release by token leaves it.
-#   fail     forward every token release, then report LOCKTEST_FAIL_RC (2,
-#            the lock still on disk, or a status like 126 from an unlock that
-#            never ran), logging each caller's command line, so the consumer's
-#            handling of a failed release shows: it says so, and its exit
-#            handler retries. Callers are told apart because a consumer that
-#            spawns fleet-audit sees that child's releases logged as well.
+#   fail     log each token release's caller; answer the first with
+#            LOCKTEST_FAIL_RC (2, the lock still on disk, or a status like 126
+#            from an unlock that never ran) without forwarding it, so the hold
+#            stays, and forward every later one. The consumer's handling of a
+#            failed release shows: it says so, and its exit handler's retry
+#            is what clears the hold. While that hold stands, `lock` is
+#            refused at once, so a fleet-audit the consumer spawns fails fast
+#            instead of waiting out its retry budget; callers are still told
+#            apart in the log, since such a child's releases would land there.
 #   hup      on the first `lock`, hand the hold over and then send SIGHUP to
 #            the --owner-pid it names, so the consumer's hangup path shows
 #            whether its exit handler still releases the hold.
@@ -54,14 +57,20 @@ cat >"$sd/fleet-state.sh" <<EOF
 real='$real_fs'
 ev=\${LOCKTEST_EVIDENCE:-}
 if [ "\${LOCKTEST_MODE:-}" = fail ] && [ "\${1:-}" = unlock ] && [ "\$#" -eq 2 ]; then
-  "\$real" "\$@" >/dev/null 2>&1 || :
   if [ -r "/proc/\$PPID/cmdline" ]; then
     tr '\\000' ' ' <"/proc/\$PPID/cmdline" >>"\$ev"
     echo >>"\$ev"
   else
     ps -ww -o args= -p "\$PPID" >>"\$ev" 2>/dev/null || echo unknown-caller >>"\$ev"
   fi
-  exit "\${LOCKTEST_FAIL_RC:-2}"
+  if [ ! -e "\$ev.injected" ]; then
+    : >"\$ev.injected"
+    exit "\${LOCKTEST_FAIL_RC:-2}"
+  fi
+  exec "\$real" "\$@"
+fi
+if [ "\${LOCKTEST_MODE:-}" = fail ] && [ "\${1:-}" = lock ] && [ -e "\$ev.injected" ]; then
+  exit 2
 fi
 if [ "\${LOCKTEST_MODE:-}" = hup ] && [ "\${1:-}" = lock ] && [ "\${2:-}" = --owner-pid ] && [ ! -e "\$ev" ]; then
   rc=0
@@ -214,6 +223,7 @@ for c in $consumers; do
       || fail "$c: a release failing with exit $fail_rc was not retried by the exit handler"
     grep -q "could not release the fleet lock" "$ev.err" \
       || fail "$c: a release failing with exit $fail_rc was not reported"
+    lock_gone "$h" || fail "$c: the exit handler's retry after a release failing with exit $fail_rc did not clear the hold"
     printf '%s\n' "ok: $c reports a release failing with exit $fail_rc and retries it on exit"
   done
   fail_rc=2
