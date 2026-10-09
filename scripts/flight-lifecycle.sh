@@ -98,6 +98,8 @@ if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" 
 fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
+# shellcheck source=scripts/lock-lib.sh
+. "$script_dir/lock-lib.sh"
 # shellcheck source=scripts/flight-common.sh
 . "$script_dir/flight-common.sh"
 
@@ -268,16 +270,68 @@ registry_death() {
     $2 == h { last = $7 } END { if (last != "-") print last }'
 }
 
-# claim <kind> <death> — take the one-time claim of <kind> for this death,
-# atomically: mkdir succeeds for exactly one caller, so two sweeps racing on
-# one death cannot both count it or both relaunch it. Sets CLAIM to its path;
-# returns 1 when another pass holds it, 2 when it could not be taken at all.
+# claim <kind> <death> — take the one-time claim of <kind> for this death, so
+# two sweeps racing on one death cannot both count it or both relaunch it. Sets
+# CLAIM to its path; returns 1 when another pass holds it, 2 when it could not
+# be taken at all.
+#
+# The claim is a detached hold of the shared lock primitive, not a `mkdir`: an
+# atomic create is the whole exclusion, and `mkdir` was measured returning
+# success to several concurrent creators on a host inside the support bar. A
+# detached hold names no process, so nothing ever breaks it on its own, which
+# is what a one-time claim is; claim_release gives it back. A claim left as a
+# DIRECTORY by the earlier shape still reads as held, with its record mark
+# inside it.
 claim() {
   _ck=$(printf '%s' "$2" | cksum | awk '{ print $1 "." $2 }')
   CLAIM="$FDIR/$1.$_ck"
-  (umask 077 && mkdir "$CLAIM") 2>/dev/null && return 0
-  [ -d "$CLAIM" ] && [ ! -L "$CLAIM" ] && return 1
-  return 2
+  CLAIM_TOKEN=''
+  if [ -d "$CLAIM" ] && [ ! -L "$CLAIM" ]; then
+    return 1
+  fi
+  pw_lock_try_detached "$CLAIM" 2>/dev/null || return $?
+  CLAIM_TOKEN=$PW_LOCK_TOKEN
+}
+
+# claim_recorded <claim> — whether the pass holding a count has recorded it.
+# The mark names the token it was written under, so one left by an earlier
+# holder of the same claim never reads as the current holder's count recorded.
+claim_recorded() {
+  [ ! -e "$1/recorded" ] || return 0
+  _cr_t=$(readlink "$1" 2>/dev/null) || return 1
+  [ -n "$_cr_t" ] && [ "$(head -n 1 "$1.recorded" 2>/dev/null)" = "$_cr_t" ]
+}
+
+# claim_record <claim> <token> — mark a held count as recorded under its token.
+claim_record() {
+  (umask 077 && printf '%s\n' "$2" >"$1.recorded.$$" && mv -f "$1.recorded.$$" "$1.recorded") 2>/dev/null && return 0
+  rm -f "$1.recorded.$$" 2>/dev/null
+  return 1
+}
+
+# claim_release <claim> <token> — give back a claim this pass took, with its
+# record mark. By its token: a claim this pass no longer holds is another
+# pass's, and is left alone with its mark. A release that fails leaves a
+# detached hold nothing else will break, so it is named rather than swallowed.
+claim_release() {
+  if [ -d "$1" ] && [ ! -L "$1" ]; then
+    rm -f "$1/recorded" 2>/dev/null
+    rmdir "$1" 2>/dev/null
+    return 0
+  fi
+  [ -n "${2:-}" ] || return 0
+  _cl_rc=0
+  pw_lock_release_token "$1" "$2" 2>/dev/null || _cl_rc=$?
+  case $_cl_rc in
+    0) ;;
+    1) return 0 ;;
+    *)
+      printf '%s: could not release the claim at %s; later passes wait on it until it is removed\n' "$prog" "$1" >&2
+      return 2
+      ;;
+  esac
+  [ "$(head -n 1 "$1.recorded" 2>/dev/null)" != "$2" ] || rm -f "$1.recorded" 2>/dev/null
+  return 0
 }
 
 crash_count() {
@@ -322,6 +376,7 @@ supervise_one() {
   claim counted "$death"
   _cl=$?
   counted=$CLAIM
+  counted_token=$CLAIM_TOKEN
   case $_cl in
     0)
       set -- "$handle" "flight:$id"
@@ -329,11 +384,11 @@ supervise_one() {
       # crash-record's counter is durable once it prints its line, so the line,
       # not the exit, says whether this death was counted.
       if [ -z "$(cd "$repo_root" && /bin/sh "$LIVENESS" crash-record "$@" 2>/dev/null </dev/null)" ]; then
-        rmdir "$CLAIM" 2>/dev/null
+        claim_release "$CLAIM" "$CLAIM_TOKEN"
         printf 'failed\t%s\t%s\n' "$id" "the crash could not be counted; a later pass counts it"
         return 0
       fi
-      if ! (umask 077 && : >"$CLAIM/recorded") 2>/dev/null; then
+      if ! claim_record "$CLAIM" "$CLAIM_TOKEN"; then
         printf 'failed\t%s\t%s\n' "$id" "the crash was counted but its record mark could not be written; later passes wait on it"
         return 0
       fi
@@ -341,7 +396,7 @@ supervise_one() {
     1)
       # Until the pass holding the count has recorded it, crash-check would
       # read the previous streak and authorize a relaunch early.
-      if [ ! -e "$CLAIM/recorded" ]; then
+      if ! claim_recorded "$CLAIM"; then
         printf 'waiting\t%s\t%s\n' "$id" "$(crash_count "$handle")"
         return 0
       fi
@@ -369,8 +424,11 @@ supervise_one() {
             # A relaunch that did not start is another failure of this worker:
             # releasing the count too makes the next pass count it, so a
             # relaunch that keeps failing backs off and reaches the disable.
-            rmdir "$CLAIM" 2>/dev/null
-            rm -f "$counted/recorded" && rmdir "$counted" 2>/dev/null
+            claim_release "$CLAIM" "$CLAIM_TOKEN"
+            # The count may be another pass's, recorded before this one ran;
+            # it is released by the token read now, so a count that changed
+            # hands since is left alone.
+            claim_release "$counted" "${counted_token:-$(pw_lock_owner "$counted")}"
             printf 'failed\t%s\t%s\n' "$id" "the relaunch did not start${RELAUNCH_WHY:+ ($RELAUNCH_WHY)}; it counts as another crash"
           fi
           ;;

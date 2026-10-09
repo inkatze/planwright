@@ -38,6 +38,9 @@
 #             / home-resolution failure closed the fork but persisted NOTHING —
 #             the answer is lost, so the operator clears the worker's record to
 #             re-ask. Either way the fork is already closed; never re-claim.
+#         On exit 0 the tower runs the emitted delivery itself; when that deliver
+#         step refuses or cannot confirm, it re-runs it later from the same
+#         answer artifact, never re-claiming.
 #
 # What this script NEVER does, by construction (REQ-A1.5, REQ-E1.3): it never
 # emits a `send-keys` path (delivery is delegated wholesale to orchestrate-relay

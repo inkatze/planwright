@@ -32,7 +32,9 @@
 #    retracted.
 #
 # 3. RECONCILE BACKSTOP. The level-triggered tasks.md reconcile
-#    (tasks-pr-sync.sh reconcile) for every spec bundle in the tower's checkout.
+#    (tasks-pr-sync.sh reconcile) for every spec bundle in the tower's checkout,
+#    after `orchestrate-lock.sh sweep` clears a per-spec lock whose recorded
+#    holder is provably gone (audited as `reconcile lock-sweep`).
 #    A dropped `gh pr create`/`merge` PostToolUse hook leaves the snapshot
 #    lagging git ground truth; this corrects it from that same ground truth on
 #    the next cycle. It runs after the dirty-tree pass, so a correction planted
@@ -169,6 +171,7 @@ SYNC="$script_dir/tasks-pr-sync.sh"
 FLIGHT_DISPATCH="$script_dir/flight-dispatch.sh"
 FLIGHT_SWEEP="$script_dir/flight-sweep.sh"
 FLIGHT_LIFECYCLE="$script_dir/flight-lifecycle.sh"
+LOCK="$script_dir/orchestrate-lock.sh"
 CONFIG_GET="$script_dir/config-get.sh"
 KNOB="$script_dir/resolve-config-knob.sh"
 OVERLAY="$script_dir/resolve-overlay-root.sh"
@@ -562,6 +565,23 @@ reconcile_pass() {
       tasks="${d}tasks.md" # $d already ends in '/'
       [ -f "$tasks" ] || continue
       rel="$specs_rel/$(basename "$d")"
+      # An external spec root is recorded as its full path, which alone can
+      # pass the audit's reasoning cap; the tail names the spec.
+      audit_rel=$rel
+      [ "${#audit_rel}" -le 400 ] || audit_rel="...$(printf '%s' "$audit_rel" | tail -c 397)"
+      # Before the reconcile: a per-spec lock whose holder is provably gone
+      # stops this spec being dispatched at all, and silently — a dispatch
+      # reads the lock as contention, and contention is a clean skip. The sweep
+      # verb clears one only on positive evidence of the holder's death and
+      # refuses on anything less, so its own refusals are not reportable
+      # events; only an actual clear is.
+      if [ -x "$LOCK" ] && { [ -L "${d}.orchestrate.lock" ] || [ -e "${d}.orchestrate.lock" ]; }; then
+        lk_rc=0
+        lk_out=$(cd "$repo" && "$LOCK" sweep "$rel" 2>/dev/null) || lk_rc=$?
+        if [ "$lk_rc" = 0 ] && [ "$lk_out" = cleared ]; then
+          audit reconcile lock-sweep "$audit_rel per-spec lock cleared on positive evidence its holder was gone"
+        fi
+      fi
       before_sum=$(cksum <"$tasks" 2>/dev/null) || before_sum=""
       rec_rc=0
       (cd "$repo" && "$SYNC" reconcile "$rel") >/dev/null 2>&1 || rec_rc=$?
@@ -571,7 +591,7 @@ reconcile_pass() {
         # next cycle, but a persistent failure needs to surface).
         warn "reconcile of $rel exited $rec_rc — missed-push backstop degraded, retrying next sweep"
       elif [ -n "$before_sum" ] && [ "$before_sum" != "$after_sum" ]; then
-        audit reconcile reconcile-backstop "$rel snapshot drift corrected from git ground truth (missed-push backstop)"
+        audit reconcile reconcile-backstop "$audit_rel snapshot drift corrected from git ground truth (missed-push backstop)"
       fi
     done
     set -f

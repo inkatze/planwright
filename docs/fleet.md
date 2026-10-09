@@ -688,7 +688,9 @@ stream-json worker's stdio: `launch` starts a worker with the pinned
 non-`--bare` stream-json shape and passes the prompt as data on stdin
 (never interpolated into a shell command line); every `can_use_tool` or
 AskUserQuestion control_request becomes a decision-queue item in the
-attention store plus a durable journal receipt, with a scan-based
+attention store plus a durable journal receipt (a receipt that meets a busy
+journal lock is spooled beside the journal and journaled once the lock frees,
+by the next request or the supervisor's next tick), with a scan-based
 pending-age alarm that escalates overdue items — it never auto-answers and
 never kills a worker. The supervisor runs that scan itself for its own
 worker on a cadence (`PLANWRIGHT_STREAMJSON_ALARM_TICK`, default 60s), so a
@@ -701,14 +703,17 @@ crashed worker's session via `--resume`; `status` surfaces completion and
 liveness from the supervisor, the journal and the captured event stream — a
 live worker with a pending receipt reports `awaiting-input pending=<n>
 oldest=<age>s supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending
-row carries a readable epoch), never a healthy-looking `running`. A worker
-records a `result` at the end of every turn and stays up for the next, so
-`awaiting-input` outranks an earlier turn's `completed`, and the stuck detector
-likewise keeps such a worker `waiting-on-a-human` rather than finished.
+row carries a readable epoch; a spooled receipt counts as pending), never a
+healthy-looking `running`. A worker records a `result` at the end of every turn
+and stays up for the next, so `awaiting-input` outranks an earlier turn's
+`completed`, and the stuck detector likewise keeps such a worker
+`waiting-on-a-human` rather than finished.
 
 `pending [<worker>...]` shows what those pending receipts are asking, so a
 tower can bring the operator the actual decision rather than a count. For each
-request the journal still reads `pending` (every worker when none is named,
+request the journal still reads `pending` (a spooled receipt is listed once it
+is journaled, which is also when `answer` can reach it; every worker when none
+is named,
 oldest request first) it prints `== <worker> <request-id> <tool>`, then the
 request with every line prefixed by `|` and a space. A Bash request shows its
 command decoded, with any escape it does not decode left visible as escape
@@ -760,19 +765,20 @@ diverge between the two; the hook's remaining arms (`PLANWRIGHT_ROOT`,
 `CLAUDE_PLUGIN_ROOT`, `<claude-dir>/planwright`, its own location) are trusted
 without a proof of their own.
 
-`stop <worker> [--grace <secs>]` is the close: it terminates the supervisor
-and its children (SIGTERM, then SIGKILL after the grace, since children do not
+`stop <worker> [--grace <secs>]` is the close: it terminates the supervisor and
+its children (SIGTERM, then SIGKILL after the grace, since children do not
 reliably die with a parent SIGTERM) and releases the locks, scratch temp, and
 attention record the worker held. `--grace` takes a whole number of seconds
 within the bounds the script declares; run `stop` with an out-of-range value to
 have it name them. The event capture, the persisted session, and the receipt
 journal survive a stop: they are the durable record, not runtime. The journal
 survives as a file but not untouched — the close marks its still-`pending`
-receipts `undeliverable`, because a close makes them undeliverable by
-definition and a receipt left pending is what `alarm-scan` re-queues a decision
-item from. A stop never touches the worktree, the branch, or the unit's fence:
-the release set is exactly the reproducible resources, and worktree reclamation
-stays with `fleet-cleanup.sh worktree` and its positive-evidence checks.
+receipts `undeliverable` and discards any spooled receipt, because a close
+makes them undeliverable by definition and a receipt left pending is what
+`alarm-scan` re-queues a decision item from. A stop never touches the worktree,
+the branch, or the unit's fence: the release set is exactly the reproducible
+resources, and worktree reclamation stays with `fleet-cleanup.sh worktree` and
+its positive-evidence checks.
 
 Processes are matched on the worker's state directory and on the pids that
 directory records, never on a process name or command pattern — the guarantee
@@ -1198,9 +1204,12 @@ Concurrent towers and workers stay safe by a strict
 [division of labor](../doctrine/inter-orchestrator-coordination.md): a tower
 owns the ledger reconcile, dispatch, and merged-worker cleanup; a worker owns
 its own branch — its conflict resolution, its post-merge sync. No tower ever
-edits another tower's or worker's branch state. Messages *into* a live worker
-go through the attributed relay: clearly marked as tower-origin, delivered by
-a paste mechanism that cannot be mistaken for the worker typing, and **never**
+edits another tower's or worker's branch state. A tower messages a Claude Code
+session its `ListAgents` tool lists with `SendMessage`, which queues the
+message while that session is mid-turn and never touches its input box. Any
+other live worker gets the attributed relay: clearly marked as tower-origin,
+delivered by a paste mechanism that cannot be mistaken for the worker typing,
+and **never**
 answering a worker's harness permission prompt on the tower's own judgment —
 a worker's authorization gate belongs to you at every tier. The one answer a
 tower records there is yours: a standing decision you wrote that the prompt
@@ -1228,6 +1237,20 @@ paste: a tower partway through closing still passes, and a pane capture
 carries no colour, so it cannot tell a dimmed prompt suggestion from typed
 input. When there is any doubt which session is the live one, ask the operator
 to name the target.
+
+**The relay refuses an open dialog and confirms what it pasted.** The command
+`relay-command` emits runs the script's own `deliver` step. It reads the
+target pane first and pastes nothing (exit 3) while a selection prompt is
+open, because a paste would answer it, while a `[Pasted text]` placeholder
+sits staged, or while an earlier relay sits unsubmitted in the input box,
+which this one would join on one line. Exit 3 means wait and re-read the
+pane, or hand the message to the operator; never force it. The dialog
+check reuses the permission-dialog set, so `FLEET_PANE_PROMPT_SIGNATURES`
+changes it too. After pasting it waits for the paste's fresh `(#<id>)` tag,
+which leads the line, and exits 4 if it never shows: observe the pane before
+any re-send, which would stage a duplicate. `PLANWRIGHT_RELAY_CONFIRM_TRIES`
+(default 5, at most 20) and `PLANWRIGHT_RELAY_CONFIRM_SLEEP` (seconds, default
+1, at most 3) bound that wait.
 
 **A paste stages; one Enter submits it.** The tmux relay loads its pointer
 line with no trailing newline, so the paste never submits itself and a single
@@ -1604,7 +1627,8 @@ given.
 
 **The pane signatures are a platform surface.** The permission-dialog text
 and the busy footer markers live in one sourced file,
-`scripts/fleet-pane-vocabulary.sh`, shared with `fleet-pane-detect.sh`;
+`scripts/fleet-pane-vocabulary.sh`, shared with `fleet-pane-detect.sh`,
+`fleet-stuck-detector.sh` and the relay's `deliver` step;
 `FLEET_PANE_PROMPT_SIGNATURES` overrides the dialog set for a bespoke TUI
 the way `FLEET_PANE_PROMPT_ANCHORS` overrides the idle anchors. The strings
 are verified against the installed CLI's own bundle at each change and
@@ -1699,7 +1723,9 @@ The knobs are read from the `--repo` checkout's overlay layers wherever the
 sweep is started. The wait between cycles is never under one second.
 
 Each cycle runs seven passes: the worktree disk scan, so a worktree nothing
-recorded is tracked; the dirty-tree pass; the `tasks.md` reconcile backstop;
+recorded is tracked; the dirty-tree pass; the `tasks.md` reconcile backstop,
+which first clears a per-spec lock whose recorded holder is provably gone
+(`orchestrate-lock.sh sweep`, audited as `reconcile lock-sweep`);
 the process reap; the registry reconcile, which heals and retires dispatch
 records from their markers (see *The dispatch record*) and, terminating
 nothing, runs in both modes; the flight residues, which retire a gone
@@ -2177,11 +2203,9 @@ hand-launch, the front door's bare `mktemp` and temp-file `rm`) the worker
 guard defers, and omits the worker-only shapes (`bats`,
 `tests/` scripts, `fish -c` recursion) a tower never runs. Coverage is at the
 tmux-subcommand granularity: the guard pre-approves the individual relay/observe
-verbs (`load-buffer`, `paste-buffer`, `capture-pane`), but not yet
-`orchestrate-relay.sh`'s full attributed send shape, whose brace-grouped
-`{ ...; } | tmux load-buffer` pipeline the inherited engine defers to the
-classifier (see `specs/_observations` for the follow-up). Only the underlying
-subcommands are deterministically covered. This consciously
+verbs (`load-buffer`, `paste-buffer`, `capture-pane`), and the relay's send,
+`orchestrate-relay.sh deliver`, is covered as a planwright script called by
+its literal path. This consciously
 **re-opens** the worker-only scoping `worker-permission-ergonomics` chose for a
 blast-radius reason: the tower's radius is broader (it launches workers and
 drives tmux), so it gets its own tested layer rather than the worker guard

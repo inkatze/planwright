@@ -124,7 +124,8 @@ other="$tmp/elsewhere"
 mkdir -p "$other"
 
 # A fake tmux: `ls` health from a mode file, sessions and their windows from a
-# listing file (`<session> <window-id>` per line).
+# listing file (`<session> <window-id>` per line). `list-windows -a` lists every
+# window, which is how a window id is looked up.
 fakebin="$tmp/bin"
 mkdir -p "$fakebin"
 cat >"$fakebin/tmux" <<EOF
@@ -136,7 +137,14 @@ case \$1 in
   has-session)
     [ -f "$tmp/race" ] && /bin/sh "$tmp/race"
     awk -v s="\${3#=}" '\$1 == s { f = 1 } END { exit !f }' "$tmp/tmux-windows" ;;
-  list-windows) awk -v s="\${3#=}" '\$1 == s { printf "%s\tname\n", \$2 }' "$tmp/tmux-windows" ;;
+  list-windows)
+    if [ "\$2" = -a ]; then
+      [ -f "$tmp/race" ] && /bin/sh "$tmp/race"
+      awk '{ printf "%s\tname\n", \$2 }' "$tmp/tmux-windows"
+    else
+      awk -v s="\${3#=}" '\$1 == s { printf "%s\tname\n", \$2 }' "$tmp/tmux-windows"
+    fi
+    ;;
 esac
 EOF
 chmod +x "$fakebin/tmux"

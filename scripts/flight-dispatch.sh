@@ -42,7 +42,7 @@
 #       Remove the brief directory of each of this checkout's retired flights
 #       (its worktree removed, or gone and prunable), one `retired<TAB><id>`
 #       line each, under the checkout's flight lock. Other checkouts' briefs,
-#       and briefs younger than the lock's stale threshold, stay; so does
+#       and briefs younger than its 15-minute grace, stay; so does
 #       everything when the worktree list or the flights directory cannot be
 #       read, the fleet home or the flights directory is not private to the
 #       user, or an entry's name carries a newline (exit 4). Each retired
@@ -255,12 +255,15 @@ resolve_spec_rel() {
   esac
 }
 
-# The checkout's flight lock is fleet-state.sh's lock (owner token, atomic
-# stale claim, `stale_lock_threshold`) pointed at a home in the shared git dir,
-# so every worktree of one checkout contends on it. Not the fleet home's own
-# lock: the placement registers its worktree under that one.
+# The checkout's flight lock is fleet-state.sh's lock pointed at a home in the
+# shared git dir, so every worktree of one checkout contends on it. Not the
+# fleet home's own lock: the placement registers its worktree under that one.
+# The hold names this process as its owner, so it is broken only once this
+# process is gone, and released with the token `lock` printed, so a release
+# can never land on a later dispatch's hold.
 lock_home=''
 lock_held=0
+lock_token=''
 take_lock() {
   _common=$(git -C "$repo_root" rev-parse --git-common-dir 2>/dev/null) \
     || die 4 "cannot resolve the git dir for the flight lock"
@@ -271,8 +274,9 @@ take_lock() {
   lock_home="$_common/planwright-flight"
   _waited=0
   while :; do
-    PLANWRIGHT_FLEET_STATE_DIR=$lock_home /bin/sh "$STATE" lock >/dev/null 2>&1 </dev/null
-    case $? in
+    _lrc=0
+    lock_token=$(PLANWRIGHT_FLEET_STATE_DIR=$lock_home /bin/sh "$STATE" lock --owner-pid "$$" 2>/dev/null </dev/null) || _lrc=$?
+    case $_lrc in
       0)
         lock_held=1
         return 0
@@ -288,9 +292,10 @@ take_lock() {
 }
 release_lock() {
   if [ "$lock_held" -eq 1 ]; then
-    PLANWRIGHT_FLEET_STATE_DIR=$lock_home /bin/sh "$STATE" unlock >/dev/null 2>&1 </dev/null
+    PLANWRIGHT_FLEET_STATE_DIR=$lock_home /bin/sh "$STATE" unlock "$lock_token" >/dev/null 2>&1 </dev/null
   fi
   lock_held=0
+  lock_token=
 }
 
 # read_hosts — set HOSTS to the `flight_pr_hosts` entries, one per line,
@@ -580,37 +585,45 @@ prepare_brief_dir() {
     || die 4 "refusing to write a brief: $_flights is not a directory owned by you that only you can write"
   brief_dir="$_flights/$flight_id"
   # A plain mkdir fails on anything already there, a symlink included.
+  # not-a-lock: refuses a pre-existing path under a freshly minted id
   (umask 077 && mkdir "$brief_dir") 2>/dev/null \
     || die 4 "refusing to write a brief: $brief_dir already exists or cannot be created"
   private_dir "$brief_dir" || die 4 "refusing to write a brief: $brief_dir is not private to you"
   (umask 077 && printf '%s\n' "$repo_root" >"$brief_dir/checkout") \
     || die 4 "cannot record the brief directory's checkout"
+  # Names this dispatch while it places the flight, so a sweep never takes the
+  # brief of a placement still under way, however long it runs. Written whole
+  # by rename, so a reader never sees it half-written.
+  (umask 077 && printf '%s\n' "$$" >"$brief_dir/placing.$$" && mv -f "$brief_dir/placing.$$" "$brief_dir/placing") \
+    || die 4 "cannot record the brief directory's placing dispatch"
 }
 
-# stale_min — set STALE_MIN to the flight lock's stale-break threshold in
-# minutes, read as fleet-state.sh reads it for this lock home: no repo-side
-# layer, a bad value the 15m default, and zero floored to it.
-STALE_MIN=15
-stale_min() {
-  _sm=$(PLANWRIGHT_REPO_ROOT=none /bin/sh "$CONFIG" stale_lock_threshold </dev/null 2>/dev/null) || _sm=''
-  _sm=${_sm%m}
-  case $_sm in
-    '' | *[!0-9]*) STALE_MIN=15 ;;
-    *[!0]*) STALE_MIN=$_sm ;;
-    *) STALE_MIN=15 ;;
+# placing_live <brief-dir> — whether the dispatch that wrote this brief is still
+# placing it. A marker that cannot be read as a pid is "cannot tell", which
+# keeps the brief, as a failed age check does.
+placing_live() {
+  [ -e "$1/placing" ] || [ -L "$1/placing" ] || return 1
+  _pl_pid=$(head -n 1 "$1/placing" 2>/dev/null) || return 0
+  case $_pl_pid in
+    '' | *[!0-9]* | 0*) return 0 ;;
   esac
-  # Past six digits, clamp high (about two years) rather than fall back to the
-  # default, which could be shorter than the lock's own window.
-  STALE_MIN=$(printf '%s' "$STALE_MIN" | sed 's/^0*//')
-  [ "${#STALE_MIN}" -le 6 ] || STALE_MIN=999999
+  [ "${#_pl_pid}" -le 10 ] || return 0
+  kill -0 "$_pl_pid" 2>/dev/null && return 0
+  ps -p "$_pl_pid" >/dev/null 2>&1
 }
+
+# The minutes a retired flight's brief is kept before the sweep may take it.
+BRIEF_GRACE_MIN=15
 
 # sweep_briefs — remove the brief directory of every retired flight of this
 # checkout (no registered, non-prunable worktree is that flight's), printing
 # `retired<TAB><id>` for each. Each brief directory records its checkout, since
 # the fleet home is shared; one naming another checkout, or none, stays, and
-# so does one younger than the lock's stale threshold: a broken stale lock can
-# let this sweep run beside a dispatch that has just written its brief. An
+# so does one younger than BRIEF_GRACE_MIN, and one whose `placing` marker
+# names a dispatch still running. A dispatch writes its brief and registers its
+# worktree under one hold of the checkout's lock, which is broken only once that
+# dispatch is gone; the marker and the grace are for the hold an operator clears
+# by hand with a token-less `unlock` while a dispatch is still placing. An
 # unreadable worktree list or flights directory, one that is not private to
 # the user, or an entry whose name carries a newline removes nothing. Runs
 # under the checkout's lock. Clears each retired flight's attention rows
@@ -632,7 +645,6 @@ sweep_briefs() {
     || die 4 "cannot list $_sb_flights to find retired flights; nothing was removed"
   [ -z "$_sb_nl" ] \
     || die 4 "refusing to sweep: an entry under $_sb_flights has a newline in its name; nothing was removed"
-  stale_min
   _sb_failed=0
   _old_ifs=$IFS
   IFS=$LF
@@ -648,8 +660,9 @@ sweep_briefs() {
     [ -f "$_sb_dir/checkout" ] && [ ! -L "$_sb_dir/checkout" ] || continue
     [ "$(cat <"$_sb_dir/checkout")" = "$repo_root" ] || continue
     ! printf '%s\n' "$_sb_live" | grep -Fqx -e "$_sb_id" || continue
+    ! placing_live "$_sb_dir" || continue
     # A failed age check keeps the brief: "cannot tell" is never "old".
-    _sb_young=$(find "$_sb_dir" -maxdepth 0 -mmin "-$STALE_MIN" 2>/dev/null </dev/null) || continue
+    _sb_young=$(find "$_sb_dir" -maxdepth 0 -mmin "-$BRIEF_GRACE_MIN" 2>/dev/null </dev/null) || continue
     [ -z "$_sb_young" ] || continue
     # The flight's lifecycle rows go first: a retired flight has nothing left
     # to report, and the brief is what the next retire finds it by, so a row
@@ -743,7 +756,7 @@ write_brief() {
   # the record too.
   cp "$work/grounds.raw" "$brief_dir/grounds.txt" || return 1
   cp "$work/ask.raw" "$brief_dir/ask.txt" || return 1
-  mkdir "$brief_dir/record" || return 1
+  mkdir "$brief_dir/record" || return 1 # not-a-lock: error check on a fresh private dir
   _rd=$brief_dir/record
   _inputs="--flight-id $flight_id"
   _inputs="$_inputs --ask-file $(sh_quote "$brief_dir/ask.txt")"
@@ -1179,6 +1192,7 @@ cmd_dispatch() {
   fi
   _prc=$?
   [ "$_prc" -eq 0 ] || placement_failed "$_prc"
+  rm -f "$brief_dir/placing"
 
   # Relayed whole: a degraded base is a NOTE, and a registration the fleet has
   # no record of is a warning the operator has to see.

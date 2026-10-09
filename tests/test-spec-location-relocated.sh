@@ -166,8 +166,9 @@ for posture in in-repo holder plain; do
   expect "$posture: meta-select selects the next unit" "$root/demo	2" "$out"
 
   # The sync hook (REQ-E1.6) locates the bundle through the resolver: with
-  # its lock held, it reports the busy lock of the bundle it found.
-  mkdir "$root/demo/.orchestrate.lock"
+  # its lock held (a detached hold, which no liveness probe breaks), it
+  # reports the busy lock of the bundle it found.
+  ln -s "detached-$$-0-0-$$-1" "$root/demo/.orchestrate.lock"
   gitq -C "$w" branch planwright/demo/task-1
   gitq -C "$w" checkout -q planwright/demo/task-1
   # shellcheck disable=SC2016 # the child shell expands its own arguments
@@ -176,13 +177,13 @@ for posture in in-repo holder plain; do
     "$S/tasks-pr-sync.sh"
   expect "$posture: the sync hook finds the bundle in the relocated root" "lock unavailable (acquire exit 1)" "$out"
   gitq -C "$w" checkout -q main
-  rmdir "$root/demo/.orchestrate.lock"
+  rm -f "$root/demo/.orchestrate.lock"
 
   # The lock needs no `specs` parent (REQ-A1.7), from the checkout or a
   # worktree of it.
   for from in "$w" "$wt"; do
     at "$from" "$S/orchestrate-lock.sh" acquire "$root/demo"
-    if [ "$rc" -eq 0 ] && [ -d "$root/demo/.orchestrate.lock" ]; then
+    if [ "$rc" -eq 0 ] && [ -L "$root/demo/.orchestrate.lock" ]; then
       ok "$posture: the lock is taken in the relocated root (from ${from#"$tmp/"})"
     else
       fail "$posture: the lock was refused from ${from#"$tmp/"} (rc=$rc): $out"
