@@ -37,6 +37,12 @@ catalog never degrades silently), and in an adopter or machine-local overlay
 it is dropped with a warning naming the reason. A part whose vendor entry, or
 whose choice's control, was dropped goes with it.
 
+Two entries that conflict, a second vendor entry for one vendor or two choice
+pairs at the same position of one rule, are an override when they come from
+different layers: the higher layer's entry wins and the resolver warns, naming
+both entries and their layers. Only a conflict within a single layer is
+malformed.
+
 ## The adapter contract
 
 An adapter is a set of flat entries, one per **part**, that share a `vendor:`
