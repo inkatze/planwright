@@ -47,6 +47,9 @@ fail() {
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
+# The relay emits message paths through `pwd -P`; expected paths built from
+# $tmp must match where TMPDIR is a symlink (macOS /var -> /private/var).
+tmp=$(cd "$tmp" && pwd -P)
 
 # No tmux call here may reach the host's server: tmux honours $TMUX over
 # TMUX_TMPDIR, so a test run from inside a tmux pane would otherwise act on
