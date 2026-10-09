@@ -187,10 +187,13 @@ assert_contains "refresh names the files left untimed" "test-d.sh" "$(cat "$tmp/
 assert_eq "the refreshed table carries its header" \
   "# Expected per-file seconds for scripts/run-tests.sh's queue order: the runner" \
   "$(head -n 1 "$tmp/fresh.tsv")"
-case "$(ls -l "$tmp/fresh.tsv")" in
-  -rw-r--r--*) echo "ok: the refreshed table is world-readable like any tracked file" ;;
+# A single known path, so SC2012's filename concern does not apply.
+# shellcheck disable=SC2012
+fresh_mode="$(ls -l "$tmp/fresh.tsv" | cut -c1-10)"
+case "$fresh_mode" in
+  -rw-r--r--) echo "ok: the refreshed table is world-readable like any tracked file" ;;
   *)
-    echo "FAIL: the refreshed table's mode is $(ls -l "$tmp/fresh.tsv" | cut -c1-10)" >&2
+    echo "FAIL: the refreshed table's mode is $fresh_mode" >&2
     failures=$((failures + 1))
     ;;
 esac
