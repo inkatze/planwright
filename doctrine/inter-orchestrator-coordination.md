@@ -69,8 +69,8 @@ message, queued while the peer is mid-turn, and nothing touches its input box.
 The pane relay below is only for a target that is not listed (another host, a
 harness without peer messaging, a pane that is not Claude Code). When the
 two tools are deferred, the tower loads their schemas (`ToolSearch`) and calls
-`ListAgents` before deciding; a listed peer
-`SendMessage` cannot reach counts as unlisted. The choice is the model's: a
+`ListAgents` before deciding; a listed peer that `SendMessage` cannot reach
+counts as unlisted. The choice is the model's: a
 script can list sessions (`claude agents --json`) but has no documented way
 to send to one. Nobody types or pastes into a pane by hand.
 
