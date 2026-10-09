@@ -2232,10 +2232,11 @@ guard_git() {
 #     (IFS, CDPATH, the BASH_* family, PS4, RANDOM, REPLY, UID...);
 #   * the name and the `=` are unquoted, and the word is the WHOLE simple
 #     command: an assignment PREFIX before a verb still defers (REQ-A1.9);
-#   * the VALUE is any literal, bare or quoted as a whole from its first
-#     character; one carrying an expansion, a glob character, a tilde, a
-#     control character, or a quote that starts mid-value is assigned all the
-#     same, but leaves the variable OPAQUE: a later `$NAME` stays unresolved,
+#   * the VALUE is any literal of a plain character set (see
+#     assign_value_literal), bare or quoted as a whole from its first
+#     character; one carrying an expansion, any other character, or a quote
+#     that starts mid-value is assigned all the same, but leaves the variable
+#     OPAQUE: a later `$NAME` stays unresolved,
 #     so it may only reach a position whose approval does not read it;
 #   * the assignment is unconditional and at the top level of the command:
 #     opened by nothing, by `;`, or by `&&` directly after another segment
@@ -2316,8 +2317,12 @@ assign_value_literal() {
     0) [ "$3" = 0 ] || return 1 ;;
     *) return 1 ;;
   esac
+  # An allowlist, not a list of known pattern characters: bash globs an
+  # unquoted expansion with every pattern syntax a shell option can turn on
+  # (extglob's `@(…)`, a lone backslash in bash 5.0), and the snapshot a
+  # Bash tool shell replays can turn them on.
   case $1 in
-    *[[:cntrl:]]* | *'$'* | *'`'* | *'*'* | *'?'* | *'['* | *'~'*) return 1 ;;
+    *[!A-Za-z0-9._/:=@%,+\ -]*) return 1 ;;
   esac
   return 0
 }
