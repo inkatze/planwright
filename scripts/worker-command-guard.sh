@@ -2192,7 +2192,8 @@ guard_git() {
         '' | [!A-Za-z0-9]* | *[!A-Za-z0-9._-]*) return 1 ;;
       esac
       [ -e "$HOOK_CWD/$remote" ] || [ -e "$HOOK_CWD/$remote.git" ] && return 1
-      return 0
+      # A name no remote is configured as is read as a path or URL instead.
+      git -C "$HOOK_CWD" config --get "remote.$remote.url" >/dev/null 2>&1
       ;;
     worktree)
       # Only `git worktree list`. Bare `git worktree` is a usage error, and
