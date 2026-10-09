@@ -3122,8 +3122,12 @@ cd_target_ok() {
   [ "$cwn" -eq 2 ] && [ "$HOOK_DEPTH" -eq 0 ] && [ "$HOOK_CDPATH_SET" = 0 ] || return 1
   [ -n "$HOOK_WT_ROOT" ] || return 1
   word_unresolved "$t" "${cdyn[1]}" "${cglob[1]}" "${cx[1]}" && return 1
+  # A plain operand only: bash tilde-expands after `=`, zsh reads `+N` / `-N`
+  # as the directory stack and `=cmd` as a command path, and zsh glob options
+  # a shell snapshot can carry turn `^`, `#`, `~` and braces into patterns.
+  [ "${cz[1]-0}" = 0 ] || return 1
   case $t in
-    '' | -* | *[[:cntrl:]]*) return 1 ;;
+    '' | [-+]* | *[!A-Za-z0-9._/@%,:+-]*) return 1 ;;
   esac
   case /$t/ in
     */../*) return 1 ;;
