@@ -903,6 +903,11 @@ first_half() {
   : >"$WT/sub/g"
   ln -s "$SANDBOX_P/install/outside" "$WT/outlink"
   ln -s "$WT/sub" "$WT/inlink"
+  # The hook's own git calls (the repository check a `cd` makes, the remote
+  # lookups `git ls-remote` makes) must not read the host's git config, where
+  # an insteadOf or remote setting could change a verdict.
+  GIT_ISO=("GIT_CONFIG_GLOBAL=/dev/null" "GIT_CONFIG_NOSYSTEM=1")
+  HOOK_ENV=("${GIT_ISO[@]}")
   echo "### REQ-A1.12 / REQ-E1.4 — cd into the own worktree, then the rest analysed from there"
   assert_allow "REQ-E1.4: cd into an in-worktree directory" "cd sub && ls" Bash "$WT"
   assert_allow "REQ-E1.4: cd to the worktree root by absolute path" "cd $WT && grep -n x f" Bash "$WT"
@@ -949,7 +954,7 @@ first_half() {
   assert_defer "REQ-A1.12: cd under timeout" "timeout 5 cd sub && ls" Bash "$WT"
   assert_defer "REQ-A1.12: cd under time" "time cd sub && ls" Bash "$WT"
   assert_defer "REQ-E1.4: CDPATH set in the command" "CDPATH=/ && cd sub && ls" Bash "$WT"
-  HOOK_ENV=("CDPATH=/")
+  HOOK_ENV=("${GIT_ISO[@]}" "CDPATH=/")
   assert_defer "REQ-E1.4: CDPATH exported to the hook" "cd sub && ls" Bash "$WT"
   HOOK_ENV=()
 
@@ -1062,6 +1067,7 @@ first_half() {
   assert_allow "REQ-E1.5: git check-ignore" "git check-ignore x"
   assert_allow "REQ-E1.5: git check-ignore -q" "git check-ignore -q .claude/x && echo ignored"
   GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "$WT" remote add origin https://example.invalid/r.git
+  HOOK_ENV=("${GIT_ISO[@]}")
   assert_allow "REQ-E1.5: git ls-remote <remote>" "git ls-remote origin" Bash "$WT"
   assert_allow "REQ-E1.5: git ls-remote <remote> <pattern>" "git ls-remote --heads origin refs/heads/main" Bash "$WT"
   assert_defer "REQ-E1.5: git ls-remote to a name no remote is configured as" "git ls-remote foo" Bash "$WT"
@@ -1087,6 +1093,7 @@ first_half() {
   assert_defer "REQ-E1.5: git ls-remote to a URL insteadOf rewrites to a helper" "git ls-remote rewritten" Bash "$WT"
   assert_defer "REQ-E1.5: git ls-remote to a remote naming a vcs helper" "git ls-remote withvcs" Bash "$WT"
   assert_defer "REQ-E1.5: git ls-remote to a remote with its own upload-pack" "git ls-remote withpack" Bash "$WT"
+  HOOK_ENV=()
   assert_allow "REQ-E1.5: jq --version" "jq --version"
   assert_allow "REQ-E1.5: shellcheck --version" "shellcheck --version"
   assert_allow "REQ-E1.5: git --version" "git --version"
@@ -1102,9 +1109,11 @@ first_half() {
   for f in -q --quiet -v --verbose -n --non-matching --no-index -z; do
     assert_allow "REQ-E1.5: git check-ignore $f" "git check-ignore $f x"
   done
+  HOOK_ENV=("${GIT_ISO[@]}")
   for f in -h --heads -b --branches -t --tags --refs -q --quiet --exit-code --get-url --symref --sort=refname; do
     assert_allow "REQ-E1.5: git ls-remote $f" "git ls-remote $f origin" Bash "$WT"
   done
+  HOOK_ENV=()
   for f in -A -a -d -f -F -H -j -l -L -M -m -T -w -x -y -Z --no-headers --forest; do
     assert_allow "REQ-E1.5: ps $f" "ps $f"
   done
