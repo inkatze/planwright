@@ -304,7 +304,7 @@ judgment.
 ### Run the full project CI (REQ-E1.2)
 
 Run the `pre-ci` point, then pre-flight step 9's command as
-`scripts/full-suite-run.sh -- sh -c '<command>'` (each attempt backgrounded,
+`scripts/full-suite-run.sh -- bash -c '<command>'` (each attempt backgrounded,
 waited on in-turn); exit 75 parks, the entry naming the printed holders. The
 full suite must pass before convergence; capture its output.
 
