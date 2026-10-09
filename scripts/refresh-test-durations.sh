@@ -145,15 +145,18 @@ RD_DISCOVERED="$work/discovered" RD_RANKED="$work/ranked" awk -F'\t' '
       split(substr(line, RSTART, RLENGTH), hdr, " ")
       announced = hdr[2] + 0
     }
-    if (match(line, /[0-9]+(\.[0-9]+)?s  [A-Za-z0-9._-]+\.sh( |$)/)) {
+    if (match(line, /[0-9]+(\.[0-9]+)?s  [A-Za-z0-9._ -]+\.sh( |$)/)) {
       cell = substr(line, RSTART, RLENGTH)
       sub(/ $/, "", cell)
-      split(cell, part, "s  ")
-      if (!(part[2] in ranked)) {
-        ranked[part[2]] = 1
+      secs = cell
+      sub(/s  .*/, "", secs)
+      name = cell
+      sub(/^[0-9.]+s  /, "", name)
+      if (!(name in ranked)) {
+        ranked[name] = 1
         nranked++
       }
-      keep(part[2], part[1])
+      keep(name, secs)
     }
   }
   function keep(name, secs) {

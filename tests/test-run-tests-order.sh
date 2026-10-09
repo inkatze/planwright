@@ -288,6 +288,20 @@ assert_eq "a ranked table short of its header's count exits 2" 2 "$?"
 assert_eq "a short ranked table leaves the table untouched" keep "$(cat "$tmp/keep.tsv")"
 assert_contains "the refusal names the announced count" "3 files ranked" "$(cat "$tmp/cut.out")"
 
+# 10d. The runner takes a file name with a space in it, so the ranked log's
+#     row for one is timed, and counts toward the header's total.
+make_suite "$tmp/sp" "test-sp ace.sh" test-a.sh
+cat >"$tmp/sp.log" <<EOF
+check-test-time: 2 files ranked slowest-first (per-file budget 120s)
+      130.000s  test-sp ace.sh  >= per-file budget
+        9.000s  test-a.sh
+EOF
+/bin/bash "$REFRESH" --suite "$tmp/sp" --out "$tmp/sp.tsv" "$tmp/sp.log" >/dev/null 2>&1
+assert_eq "a ranked row for a name with a space refreshes" 0 "$?"
+assert_eq "a name with a space keeps its time" \
+  "test-sp ace.sh:130.000 test-a.sh:9.000" \
+  "$(grep -v '^#' "$tmp/sp.tsv" | tr '\t' ':' | tr '\n' ' ' | sed 's/ $//')"
+
 # 11. The committed table parses. A row for a file the suite no longer has is
 #     not checked: the runner ignores it, so removing or renaming a test file
 #     never has to touch the table.
