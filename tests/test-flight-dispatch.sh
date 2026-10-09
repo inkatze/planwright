@@ -51,6 +51,7 @@
 # acceptance demo's, not this suite's.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
+unset CDPATH
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=tests/lib/flight-dispatch-fixture.sh
 . "$here/lib/flight-dispatch-fixture.sh"
