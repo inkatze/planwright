@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.58.0](https://github.com/inkatze/planwright/compare/v0.57.0...v0.58.0) (2026-10-09)
+
+
+### Features
+
+* **execute-task:** hold a full_suite_pool slot for every full-suite attempt ([#630](https://github.com/inkatze/planwright/issues/630)) ([68025a8](https://github.com/inkatze/planwright/commit/68025a88937aef8588423b31337d4a6336f957cc))
+* **locks:** release the fleet lock by owner token in its remaining consumers ([#635](https://github.com/inkatze/planwright/issues/635)) ([623a1d0](https://github.com/inkatze/planwright/commit/623a1d0b83ef778fd3ffe9cb120d5ec3cf5bc496))
+
+
+### Performance Improvements
+
+* **test-runner:** start the slowest test files first so the suite has no long tail ([#631](https://github.com/inkatze/planwright/issues/631)) ([7b55818](https://github.com/inkatze/planwright/commit/7b558183e6d9c189cb6f8736878252891301fc8d))
+
 ## [0.57.0](https://github.com/inkatze/planwright/compare/v0.56.0...v0.57.0) (2026-10-09)
 
 
