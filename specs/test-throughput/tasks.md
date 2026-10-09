@@ -1,7 +1,7 @@
 # Test throughput — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-09-28
+**Last reviewed:** 2026-10-09
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -225,6 +225,47 @@ first, its `Done when:` names that precondition (D-7).
 - **Citations:** D-14 · REQ-C1.5
 - **Estimated effort:** 3 days
 
+### Task 14 — Per-file test deadline in the runner
+
+- **Deliverables:** `scripts/run-tests.sh` running each test file under
+  the deadline `PLANWRIGHT_TEST_FILE_DEADLINE` names (a positive integer
+  number of seconds, default 900; anything else, `0` included, falling
+  back to the default with one warning), through `timeout` or `gtimeout`,
+  whichever the host provides; a file past the deadline ended, recorded as
+  failed with a message naming the file and the deadline, and its ticket
+  returned; one warning and unbounded files on a host with neither tool; a
+  nested runner exempted by REQ-A1.8 inheriting the variable; the variable
+  and its default documented in the runner's usage header; tests for each
+  case.
+- **Done when:** a fixture test file that sleeps past a short deadline is
+  ended, reported failed naming the file and the deadline, and its ticket
+  is free for the next file; a file finishing inside the deadline is
+  unaffected; a malformed value and `0` each warn once naming the default
+  of 900 and use it; a fixture host with neither `timeout` nor `gtimeout`
+  on its path warns once and runs files unbounded; the usage header names
+  the variable and its default; `mise run check` passes.
+- **Dependencies:** 1, 4
+- **Citations:** D-21 · REQ-D1.4
+- **Estimated effort:** 0.5 days
+
+### Task 15 — The predicate accepts CI on a pushed head
+
+- **Deliverables:** `doctrine/finding-categorization.md`'s Agent-resolvable
+  "Passing project CI" condition amended to accept a green CI run on a
+  pushed head containing the fix as well as a green full local suite, with
+  a fix awaiting that run reported resolved only once it is green and left
+  unresolved on a red run; every other doctrine sentence restating the
+  condition amended in the same change; the doctrine index row updated
+  where its summary names the condition.
+- **Done when:** finding-categorization's condition and every doctrine
+  sentence restating it name both a green full local suite after the fix
+  and a green CI run on a pushed head containing the fix, and state that
+  such a fix is reported resolved only once that run is green;
+  `mise run check` passes.
+- **Dependencies:** none
+- **Citations:** D-18 · REQ-F1.7
+- **Estimated effort:** 0.5 days
+
 ### Task 10 — The `full_suite_evidence` setting in `/execute-task`
 
 - **Deliverables:** the `full_suite_evidence` key (`local` default,
@@ -247,8 +288,9 @@ first, its `Done when:` names that precondition (D-7).
   `Convergence: pending` in the early PR body until the handoff replaces
   it, and falling back to the pooled local suite on "no CI" with the
   evidence used recorded in the convergence summary; the setting read once
-  at the unit's pre-flight; tests for the helper and both settings'
-  resolution.
+  at each run's pre-flight; tests for the helper and both settings'
+  resolution. *(Amended at delta re-walkthrough 2026-10-09: read per run,
+  per REQ-B1.12; the third value lands with Task 16.)*
 - **Done when:** review-effectiveness Task 6's
   `scripts/check-diff-scoped.sh` is on `main` and is the targeted check
   used; helper tests cover each verdict against recorded check fixtures,
@@ -264,11 +306,11 @@ first, its `Done when:` names that precondition (D-7).
   replaces it, no convergence report without green CI on the final pushed
   head, the no-CI fallback converging on the local suite with its evidence
   recorded, and CI pending past `pr_ci_wait` halting to an Awaiting-input
-  entry; a setting changed mid-unit takes effect only at the next unit's
+  entry; a setting changed mid-run takes effect only at the next run's
   pre-flight; under `local` a fixture unit's recorded steps match the same
   unit run before the change; `mise run check` passes.
-- **Dependencies:** 1, 4
-- **Citations:** D-1, D-5 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5
+- **Dependencies:** 1, 4, 15
+- **Citations:** D-1, D-5, D-18 · REQ-B1.12, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5
 - **Estimated effort:** 3 days
 
 ### Task 11 — The known-environmental list
@@ -298,7 +340,7 @@ first, its `Done when:` names that precondition (D-7).
   entry with the list unchanged; a passing listed test flagged;
   `mise run check` passes.
 - **Dependencies:** 10
-- **Citations:** D-6 · REQ-B1.6, REQ-B1.7, REQ-B1.8, REQ-B1.9
+- **Citations:** D-6 · REQ-B1.13, REQ-B1.7, REQ-B1.8, REQ-B1.9
 - **Estimated effort:** 2 days
 
 ### Task 12 — Portable detached long-run recipe
@@ -319,21 +361,89 @@ first, its `Done when:` names that precondition (D-7).
 - **Citations:** D-8 · REQ-B1.10
 - **Estimated effort:** 1 day
 
-### Task 13 — Review-loop wiring and planwright's `remote-ci` value
+### Task 13 — Review-loop wiring under `remote-ci`
 
 - **Deliverables:** the review loop (the nested `/polish` and
   `/self-review` convergence) taking PR CI on the iteration's pushed head as
   its per-iteration full suite under `remote-ci`, with the diff-scoped
-  check per fix unchanged; `.claude/planwright.yml` setting
-  `full_suite_evidence: remote-ci` for this repository.
+  check per fix unchanged. *(Amended at spec-draft extension 2026-10-09:
+  the switch of this repository's value moved to Task 17, per D-20.)*
 - **Done when:** review-effectiveness's full-suite requirement has been
   amended through its own delta sign-off to accept PR CI, and that
   amendment is on `main`; a fixture unit under `remote-ci` shows the loop
-  reading PR CI per iteration; `full_suite_evidence` resolves to
-  `remote-ci` in this repository; `mise run check` passes.
+  reading PR CI per iteration; `mise run check` passes.
 - **Dependencies:** 10, 11
-- **Citations:** D-1, D-7 · REQ-B1.11
+- **Citations:** D-1, D-7, D-20 · REQ-B1.11
 - **Estimated effort:** 1 day
+
+### Task 16 — Fix rounds under `local-then-ci`
+
+- **Deliverables:** `local-then-ci` accepted by `full_suite_evidence`'s
+  resolution and documented in the options reference beside `local` and
+  `remote-ci`, with tests for its resolution and malformed fallback; a
+  classification helper (a script, or a mode of `scripts/await-pr-ci.sh`)
+  that reads the branch's open pull request through `gh` and prints fix
+  round, first run, or read failed with its reason, with tests stubbing
+  `gh` for each; `skills/execute-task/SKILL.md` amended so a run under the
+  value reads the setting and classifies itself once at pre-flight through
+  that helper (a failed read proceeding as `local` and naming the reason in
+  its convergence summary), a first run behaves as `local`, and a fix round
+  runs the targeted check per change and per review-loop fix, consults the
+  known-environmental list as `remote-ci` does, runs no full local suite
+  outside the no-CI fallback, pushes at the push step after `pre-pr`
+  writing `Convergence: pending` into the pull request body, runs the
+  `post-pr` point, waits on the branch's final head (the current head when
+  the round added no commit) through `scripts/await-pr-ci.sh` under
+  `pr_ci_wait`, re-reads the head before acting on a red verdict (awaiting
+  a moved head that contains the gated one, halting naming both
+  otherwise), sends a red verdict on an unmoved head through the failure
+  classifier (logic halts, transient retries), and hands off only on green
+  CI or the no-CI fallback's green local suite, replacing the pending line;
+  the review loop's per-iteration full suite replaced by the round's CI in
+  a fix round.
+- **Done when:** custom-steps' attachment-point moments and
+  review-effectiveness's full-suite-per-iteration requirement have each
+  been amended through that bundle's own delta sign-off to accept a run
+  whose full-suite evidence is CI on its pushed head, and both amendments
+  are on `main`; `local-then-ci` resolves from an overlay and a malformed
+  value falls back to `local` with one warning; the options-reference row
+  for `full_suite_evidence` names `local-then-ci`, checked at this task's
+  PR review; the helper's tests cover open pull request, no pull request,
+  and a failed read; a fixture first run under `local-then-ci` runs the
+  full local suite once and opens the draft pull request after it; a
+  fixture fix round runs only the targeted check, no full local suite,
+  pushes after `pre-pr` with `Convergence: pending` in the body, waits
+  after `post-pr`, and does not hand off until the helper reports green; a
+  logic red verdict fixture halts to Awaiting input with the pending line
+  left in place; a moved-head fixture waits on the new head when it
+  contains the gated one and halts otherwise; a no-commit round gates the
+  current head; a no-CI fixture falls back to the pooled local suite; a
+  failed pull-request read runs as `local` and names the reason; under
+  `local` and `remote-ci` fixture units' recorded steps match the same
+  units run before the change; `mise run check` passes.
+- **Dependencies:** 10, 13, 15
+- **Citations:** D-16, D-17, D-19, D-20 · REQ-B1.12, REQ-B1.13, REQ-F1.1,
+  REQ-F1.2, REQ-F1.3, REQ-F1.4, REQ-F1.5, REQ-F1.6, REQ-F1.8, REQ-F1.10
+- **Estimated effort:** 2.5 days
+
+### Task 17 — This repository adopts `local-then-ci`
+
+- **Deliverables:** `.claude/planwright.yml` setting
+  `full_suite_evidence: local-then-ci`; the interim `fix-round-cadence`
+  prompt step removed from that file's `steps_post_pr` list (the key
+  removed when the list is left empty) and from
+  `.claude/catalogs/steps.yaml` (the file removed when it holds no other
+  entry), together with the comments in both files that describe it, in
+  the same change.
+- **Done when:** `full_suite_evidence` resolves to `local-then-ci` in this
+  repository; neither `.claude/planwright.yml` nor
+  `.claude/catalogs/steps.yaml` names `fix-round-cadence` or keeps a comment
+  describing the fix-round prompt; `scripts/resolve-steps.sh pre-implementation
+  pre-ci convergence pre-pr post-pr --explain --check --unattended` exits 0;
+  `mise run check` passes.
+- **Dependencies:** 16
+- **Citations:** D-15, D-20 · REQ-F1.9
+- **Estimated effort:** 0.5 days
 
 ## Awaiting input
 
@@ -347,6 +457,15 @@ first, its `Done when:` names that precondition (D-7).
   full-suite-per-iteration requirement to accept the PR's CI run on the
   iteration's pushed head is recorded and merged to main.
   Citations: D-7, REQ-B1.11.
+- **Task 16** — parked until custom-steps and review-effectiveness accept
+  a run whose full-suite evidence is CI on its pushed head. Confidence:
+  high.
+  **Gate:** custom-steps' delta re-sign-off amending its attachment-point
+  moments, and review-effectiveness's delta re-sign-off amending its
+  full-suite-per-iteration requirement, each accepting CI on the run's
+  pushed head as the run's full-suite evidence, are both recorded and
+  merged to main.
+  Citations: D-20, REQ-F1.8.
 - **Task 9.2** — parked until the profile shows the developer-tool
   exemption falls short. Confidence: medium.
   **Gate:** Task 9's PR records that the developer-tool exemption falls
