@@ -25,7 +25,7 @@
 # a trap only then), after which the slot is released and the script exits
 # 128+n, so none of them frees the slot while the suite or anything it started
 # in the foreground still runs. To stop a suite early, signal its process
-# group. A signal that arrives after the take and before the command starts
+# group. A signal the script has already caught when it reaches the command
 # runs no command; one during the take ends this script at once. A KILL ends
 # it outright, and the pool then reclaims the slot even while a suite it
 # started still runs.
