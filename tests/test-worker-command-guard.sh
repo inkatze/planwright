@@ -1054,6 +1054,28 @@ first_half() {
   assert_allow "REQ-E1.5: git ls-remote <remote>" "git ls-remote origin" Bash "$WT"
   assert_allow "REQ-E1.5: git ls-remote <remote> <pattern>" "git ls-remote --heads origin refs/heads/main" Bash "$WT"
   assert_defer "REQ-E1.5: git ls-remote to a name no remote is configured as" "git ls-remote foo" Bash "$WT"
+  # Only a built-in transport: any other URL, as configured or after an
+  # insteadOf rewrite, makes git run a git-remote-<transport> helper.
+  wtgit() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "$WT" "$@"; }
+  wtgit remote add viassh ssh://git@example.invalid/r.git
+  wtgit remote add viascp git@example.invalid:r.git
+  wtgit remote add viagit git://example.invalid/r.git
+  wtgit remote add viafile "$SANDBOX_P/install/outside"
+  wtgit remote add helper 'evil::anything'
+  wtgit remote add rewritten https://rewritten.invalid/r.git
+  wtgit config url.evil::y.insteadOf https://rewritten.invalid/
+  wtgit remote add withvcs https://example.invalid/v.git
+  wtgit config remote.withvcs.vcs evil
+  wtgit remote add withpack https://example.invalid/p.git
+  wtgit config remote.withpack.uploadpack 'sh -c id'
+  assert_allow "REQ-E1.5: git ls-remote to an ssh:// remote" "git ls-remote viassh" Bash "$WT"
+  assert_allow "REQ-E1.5: git ls-remote to an scp-style remote" "git ls-remote viascp" Bash "$WT"
+  assert_allow "REQ-E1.5: git ls-remote to a git:// remote" "git ls-remote viagit" Bash "$WT"
+  assert_allow "REQ-E1.5: git ls-remote to a local-path remote" "git ls-remote viafile" Bash "$WT"
+  assert_defer "REQ-E1.5: git ls-remote to a custom-transport remote" "git ls-remote helper" Bash "$WT"
+  assert_defer "REQ-E1.5: git ls-remote to a URL insteadOf rewrites to a helper" "git ls-remote rewritten" Bash "$WT"
+  assert_defer "REQ-E1.5: git ls-remote to a remote naming a vcs helper" "git ls-remote withvcs" Bash "$WT"
+  assert_defer "REQ-E1.5: git ls-remote to a remote with its own upload-pack" "git ls-remote withpack" Bash "$WT"
   assert_allow "REQ-E1.5: jq --version" "jq --version"
   assert_allow "REQ-E1.5: shellcheck --version" "shellcheck --version"
   assert_allow "REQ-E1.5: git --version" "git --version"

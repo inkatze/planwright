@@ -2217,7 +2217,8 @@ guard_git() {
       esac
       [ -e "$HOOK_CWD/$remote" ] || [ -e "$HOOK_CWD/$remote.git" ] && return 1
       # A name no remote is configured as is read as a path or URL instead.
-      git -C "$HOOK_CWD" config --get "remote.$remote.url" >/dev/null 2>&1
+      git -C "$HOOK_CWD" config --get "remote.$remote.url" >/dev/null 2>&1 || return 1
+      ls_remote_url_ok "$remote"
       ;;
     worktree)
       # Only `git worktree list`. Bare `git worktree` is a usage error, and
@@ -2230,6 +2231,33 @@ guard_git() {
       ;;
     *) return 1 ;;
   esac
+}
+
+# ls_remote_url_ok <remote>: 0 only when `git ls-remote <remote>` would use a
+# built-in transport: the URL git resolves (insteadOf rewrites applied, which
+# is why the configured value alone is not read) is https://, ssh://, git://,
+# file://, an absolute path, or scp-style `[user@]host:path`. Any other URL,
+# `<transport>::<address>` above all, makes git run a git-remote-<transport>
+# helper, as does a remote's `vcs` setting, and a remote's own `uploadpack`
+# names the program git runs. A host starting with `-` would be read as an ssh
+# option. Asking git for the URL contacts no remote and runs no helper.
+ls_remote_url_ok() {
+  local url
+  git -C "$HOOK_CWD" config --get "remote.$1.vcs" >/dev/null 2>&1 && return 1
+  git -C "$HOOK_CWD" config --get "remote.$1.uploadpack" >/dev/null 2>&1 && return 1
+  url=$(git -C "$HOOK_CWD" ls-remote --get-url "$1" 2>/dev/null) || return 1
+  case $url in
+    '' | *::* | *[[:cntrl:]]* | -* | *://-* | *@-*) return 1 ;;
+    https://?* | ssh://?* | git://?* | file://?* | /?*) return 0 ;;
+    [A-Za-z0-9._-]*:?*)
+      # scp-style: no `/` before the first colon, or git reads it as a path.
+      case ${url%%:*} in
+        */*) return 1 ;;
+      esac
+      return 0
+      ;;
+  esac
+  return 1
 }
 
 # classify_verb: the enumerated allowlist. A bare verb (no slash) is looked up
