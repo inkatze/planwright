@@ -79,6 +79,12 @@ run_sh() {
   $SH -c ". \"\$1\"; shift; $2" sh "$LIB" "$tmp"
 }
 
+# lib_uptime — the host's uptime as the library reads it for a token's witness,
+# so a hand-made token carries the same clock a minted one does.
+lib_uptime() {
+  $SH -c '. "$1"; _pw_lock_uptime; printf "%s" "$_pw_lock_uptime_out"' sh "$LIB"
+}
+
 # ---------------------------------------------------------------------------
 # 1. Acquisition is an atomic create carrying an owner token
 # ---------------------------------------------------------------------------
@@ -1182,7 +1188,7 @@ rm -f "$tmp"/rel4.lock*
 # ever turn a live-looking owner into an absent one, never the reverse.
 
 now=$(date +%s)
-host_up=$(ps -o etimes= -p 1 2>/dev/null | tr -d ' ')
+host_up=$(lib_uptime)
 run_sh x "pw_lock_owner_alive \"\$\$-$now-$host_up-1-1\"" >/dev/null 2>&1
 assert_exit "a token minted now by a running process reads alive" 0 $?
 # Minted when the host booted, by a shell that started minutes ago: whatever
@@ -1343,7 +1349,7 @@ assert_eq "no site restores a displaced link by hand" "0" "$strays"
 # signal it" instead of "is it there, and is it the one that minted this".
 
 now=$(date +%s)
-up=$(ps -o etimes= -p 1 2>/dev/null | tr -d ' ')
+up=$(lib_uptime)
 run_sh x "pw_lock_owner_alive \"1-$now-$up-1-1\"" >/dev/null 2>&1
 assert_exit "a process this shell cannot signal is not absent" 0 $?
 # pid 1 started with the host, so no mint time can be earlier than its start
@@ -1369,7 +1375,7 @@ probe_alive() {
     pw_lock_owner_alive \"$1\"" >/dev/null 2>&1
   printf '%s' "$?"
 }
-up=$(ps -o etimes= -p 1 2>/dev/null | tr -d ' ')
+up=$(lib_uptime)
 live_tok="$$-$(date +%s)-$up-1-1"
 a=$(probe_alive "$live_tok" "$(date +%s)")
 b=$(probe_alive "$live_tok" "$(($(date +%s) + 3600))")
@@ -1473,7 +1479,7 @@ sh -c 'sleep 30 & echo $!' >"$tmp/holder.pid"
 holder=$(cat "$tmp/holder.pid")
 # A token the minter check accepts, or the first probe reads the holder as a
 # recycled pid, breaks the lock, and the wait never spins at all.
-up=$(ps -o etimes= -p 1 | tr -d ' ')
+up=$(lib_uptime)
 ln -s "$holder-$(date +%s)-$up-$holder-1" "$tmp/spin.lock"
 : >"$tmp/pscount"
 PS_COUNT="$tmp/pscount" PATH="$tmp/shim:$PATH" \
@@ -1489,6 +1495,21 @@ else
 fi
 kill "$holder" 2>/dev/null || :
 rm -f "$tmp"/spin.lock* "$tmp/pscount"
+
+# Nor does an uncontended take, where the kernel publishes its uptime: every
+# process that takes a lock mints once, and a `ps` per mint is most of an
+# uncontended acquire's cost on a busy host.
+if [ -r /proc/uptime ]; then
+  : >"$tmp/pscount"
+  PS_COUNT="$tmp/pscount" PATH="$tmp/shim:$PATH" \
+    run_sh x 'pw_lock_acquire "$1/quiet.lock" 5 && pw_lock_release "$1/quiet.lock"' >/dev/null 2>&1
+  quiet=$(grep -c '' "$tmp/pscount" 2>/dev/null) || :
+  quiet=${quiet:-0}
+  assert_eq "an uncontended acquire and release fork no ps where /proc/uptime is readable" "0" "$quiet"
+  rm -f "$tmp"/quiet.lock* "$tmp/pscount"
+else
+  echo "skip: no /proc/uptime on this host; the mint reads pid 1's elapsed time instead"
+fi
 
 # ---------------------------------------------------------------------------
 # 44. Nothing this library hands a tool can be read as options
@@ -1601,7 +1622,8 @@ done
 exec /bin/ps "$@"
 SHIM
 chmod +x "$tmp/bsd/ps"
-tok=$(PATH="$tmp/bsd:$PATH" run_sh x 'pw_lock_acquire "$1/bsd.lock" 5 >/dev/null && pw_lock_owner "$1/bsd.lock"')
+# The kernel's uptime file is set aside so the mint takes the `ps` path.
+tok=$(PATH="$tmp/bsd:$PATH" run_sh x '_pw_lock_uptime_src=$1/no-uptime; pw_lock_acquire "$1/bsd.lock" 5 >/dev/null && pw_lock_owner "$1/bsd.lock"')
 # Field 3 is the uptime at mint.
 f3=${tok#*-}
 f3=${f3#*-}

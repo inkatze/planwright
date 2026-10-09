@@ -188,6 +188,9 @@ PW_LOCK_SLEEP=0.02
 # `readlink` fifty times a second per waiter for a condition that cannot become
 # true faster than the holder can exit.
 PW_LOCK_PROBE_EVERY=50
+# Where the kernel publishes its uptime. Set here rather than read from the
+# environment, so no caller's environment chooses the clock the witness uses.
+_pw_lock_uptime_src=/proc/uptime
 
 _pw_lock_usage() {
   printf '%s\n' "lock-lib: $1 needs a lock path" >&2
@@ -373,10 +376,29 @@ _pw_lock_etimes() {
 }
 
 # _pw_lock_uptime — set _pw_lock_uptime_out to the host's uptime in seconds, or
-# to the empty string where it cannot be read. pid 1 has been running for
-# exactly as long as the host has, and its elapsed time is reported by the same
-# `ps` field every other liveness question here uses.
+# to the empty string where it cannot be read.
+#
+# From the kernel's own uptime file where there is one, read without a fork:
+# every process that takes a lock mints once, and a `ps` per mint was most of
+# an uncontended acquire's cost on a busy host. It is the clock `ps` itself
+# derives elapsed times from there, so the minter check, which subtracts an
+# owner's elapsed time from this, compares like with like. Elsewhere pid 1's
+# elapsed time stands in: pid 1 has been running as long as the host has.
 _pw_lock_uptime() {
+  _pw_lock_uptime_out=''
+  if [ -r "$_pw_lock_uptime_src" ]; then
+    _pwu_raw=''
+    { IFS=' ' read -r _pwu_raw _pwu_idle; } <"$_pw_lock_uptime_src" 2>/dev/null || :
+    _pwu_raw=${_pwu_raw%%.*}
+    case $_pwu_raw in
+      '' | *[!0-9]*) ;;
+      *)
+        _pw_lock_dec "$_pwu_raw"
+        _pw_lock_uptime_out=$_pw_lock_dec_out
+        return 0
+        ;;
+    esac
+  fi
   _pw_lock_etimes 1
   _pw_lock_uptime_out=$_pw_lock_etimes_out
 }
