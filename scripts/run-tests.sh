@@ -482,12 +482,17 @@ tab="$(printf '\t')"
 durations="${PLANWRIGHT_TEST_DURATIONS-$repo_root/config/test-durations.tsv}"
 queue=("${files[@]}")
 if [ -n "$durations" ] && [ -f "$durations" ] && [ -r "$durations" ]; then
+  # awk's getline reads a file named `-` as standard input.
+  case "$durations" in
+    /*) durations_path="$durations" ;;
+    *) durations_path="./$durations" ;;
+  esac
   ranked="$(
     i=0
     for t in "${files[@]}"; do
       printf '%s\t%s\n' "$i" "${t##*/}"
       i=$((i + 1))
-    done | RT_DURATIONS="$durations" awk -F'\t' '
+    done | RT_DURATIONS="$durations_path" awk -F'\t' '
       BEGIN {
         # Through ENVIRON, never -v, which would expand backslash escapes in
         # the path.

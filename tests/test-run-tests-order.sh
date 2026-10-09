@@ -153,6 +153,14 @@ cp "$tmp/table.tsv" "$bs_dir/t.tsv"
 assert_eq "a backslash in the table path is read literally" \
   "test-d.sh test-e.sh test-b.sh test-c.sh test-a.sh" "$(run_order "$tmp/s" "$bs_dir/t.tsv")"
 
+# 5c. A relative table path is a file, even one named `-` (awk alone would
+#     read that as standard input).
+mkdir -p "$tmp/dash"
+cp "$tmp/table.tsv" "$tmp/dash/-"
+assert_eq "a table named - is read as a file" \
+  "test-d.sh test-e.sh test-b.sh test-c.sh test-a.sh" \
+  "$(cd "$tmp/dash" && run_order "$tmp/s" -)"
+
 # 6. A failing file still fails the run wherever the order puts it.
 make_suite "$tmp/f" test-a.sh test-b.sh
 cat >"$tmp/f/test-z.sh" <<'EOF'
