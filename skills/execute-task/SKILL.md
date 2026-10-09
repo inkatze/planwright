@@ -303,10 +303,10 @@ judgment.
 
 ### Run the full project CI (REQ-E1.2)
 
-Run the `pre-ci` point, then pre-flight step 9's command as
-`scripts/full-suite-run.sh -- bash -c '<command>'` (each attempt backgrounded,
-waited on in-turn); exit 75 parks, the entry naming the printed holders. The
-full suite must pass before convergence; capture its output.
+Run the `pre-ci` point, then pre-flight step 9's command, saved to a `mktemp`
+file, as `scripts/full-suite-run.sh -- bash <file>` (each attempt backgrounded,
+waited in-turn); exit 75 parks, naming the holders. The full suite must pass
+before convergence; capture its output.
 
 ### Adaptive CI-failure handling (REQ-E1.2, D-25)
 
