@@ -303,8 +303,10 @@ judgment.
 
 ### Run the full project CI (REQ-E1.2)
 
-Run the `pre-ci` point, then the command derived in pre-flight step 9. The full
-suite must pass before convergence; capture its output.
+Run the `pre-ci` point, then pre-flight step 9's command, saved to a `mktemp`
+file, as `scripts/full-suite-run.sh -- bash <file>` (each attempt backgrounded,
+waited in-turn); exit 75 parks, naming the holders. The full suite must pass
+before convergence; capture its output.
 
 ### Adaptive CI-failure handling (REQ-E1.2, D-25)
 
@@ -455,8 +457,6 @@ These hold at every step:
   no step session opens a PR (REQ-C1.4).
 - **Never** skip the test-first loop for a behavior-introducing unit with a
   `test-spec.md` verification path (REQ-E1.1).
-- **Never** retry a logic CI failure; transient retries cap at two; unknown
-  classifications default to logic (REQ-E1.2).
 - **Never** silently proceed past a meaning-class contract drift; route to
   `/spec-kickoff` (REQ-A3.3).
 - **Never** write a meaning-class anchor entry; the only one this skill writes

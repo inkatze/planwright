@@ -50,10 +50,9 @@ instruction_budget_closure_error: 23967
 
 # One full local suite at a time per host: a shared `gate` pool with one slot,
 # a queued suite waiting up to step_pool_wait (config/defaults.yml) so queue
-# time never eats the run's own timeout. Today only an operator's hand-run gate
-# takes the slot, through the recipe in docs/overlays.md, which reads the
-# capacity below. /execute-task does not yet read full_suite_pool: its own
-# suites stay unpooled until its full-suite runs are wired to the pool helper.
+# time never eats the run's own timeout. /execute-task's full-suite attempts
+# take the slot through scripts/full-suite-run.sh, and an operator's hand-run
+# gate through the recipe in docs/overlays.md, which reads the capacity below.
 full_suite_pool: gate
 step_pool_capacity_gate: 1
 
