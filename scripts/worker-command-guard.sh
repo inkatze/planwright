@@ -153,9 +153,10 @@ emit_allow() {
 # The sixth arg records an EXPANDING `$` (one the shell will expand: 1 inside
 # double quotes only, 2 unquoted), the seventh an unquoted glob, brace
 # expansion, or leading tilde: either way the word's value is not its text
-# (see word_unresolved). The eighth records that the quoting is mixed: a
-# second quoted run, or an unquoted character after quoting began, so a value
-# quoted from its first character is wholly quoted only when this is 0.
+# (see word_unresolved). The eighth is the zsh-option flag (see
+# zsh_opt_word_ok). The ninth records that the quoting is mixed: a second
+# quoted run, or an unquoted character after quoting began, so a value quoted
+# from its first character is wholly quoted only when this is 0.
 tok_push() {
   TOK_TYPE[TOK_N]=$1
   TOK_VAL[TOK_N]=$2
