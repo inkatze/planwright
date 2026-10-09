@@ -11,8 +11,10 @@
 #            the successor's lock survived it. A token-less release removes
 #            it; a release by token leaves it.
 #   fail     forward every token release, then report exit 2 (the lock still
-#            on disk), logging each call, so the consumer's handling of a
-#            failed release shows: it says so, and its exit handler retries.
+#            on disk), logging each caller's command line, so the consumer's
+#            handling of a failed release shows: it says so, and its exit
+#            handler retries. Callers are told apart because a consumer that
+#            spawns fleet-audit sees that child's releases logged as well.
 #   (unset)  pass everything through, so the consumer's own release is the
 #            only thing that can clear its hold.
 #
@@ -49,7 +51,7 @@ real='$real_fs'
 ev=\${LOCKTEST_EVIDENCE:-}
 if [ "\${LOCKTEST_MODE:-}" = fail ] && [ "\${1:-}" = unlock ] && [ "\$#" -eq 2 ]; then
   "\$real" "\$@" >/dev/null 2>&1 || :
-  echo unlock >>"\$ev"
+  ps -o args= -p "\$PPID" >>"\$ev" 2>/dev/null || echo unknown-caller >>"\$ev"
   exit 2
 fi
 if [ "\${LOCKTEST_MODE:-}" = clobber ] && [ "\${1:-}" = unlock ] && [ ! -e "\$ev" ]; then
@@ -187,7 +189,7 @@ for c in $consumers; do
   h="$tmp/h-fail-$c"
   ev="$tmp/ev-fail-$c"
   drive "$c" "$h" fail "$ev" || :
-  [ -f "$ev" ] && [ "$(wc -l <"$ev")" -ge 2 ] \
+  [ -f "$ev" ] && [ "$(grep -c "/$c\.sh" "$ev")" -ge 2 ] \
     || fail "$c: a failed release was not retried by the exit handler"
   grep -q "could not release the fleet lock" "$ev.err" \
     || fail "$c: a failed release was not reported"
