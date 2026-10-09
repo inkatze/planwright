@@ -180,6 +180,14 @@ esac
 gitq -C "$tmp/same/dangle" worktree add -q "$tmp/same/dangle/.claude/worktrees/wt" -b wt
 gate "$tmp/same/dangle/.claude/worktrees/wt"
 expect_gate "same-repo, no remote HEAD, from a linked worktree" origin/feature match "$recorded"
+# With the primary detached as well, nothing names the default branch: the gate
+# parks rather than guess one, though origin/main exists.
+gitq -C "$tmp/same/dangle" checkout -q --detach
+gate "$tmp/same/dangle"
+case $rc:$(field anchor 2):$out in
+  5::*"default branch is unknown"*) ok "same-repo, no remote HEAD and a detached primary: the gate parks" ;;
+  *) fail "same-repo, no remote HEAD and a detached primary: expected a park with no anchor (rc=$rc): $out" ;;
+esac
 
 # No remote: the branch the primary checkout's HEAD names.
 gitq -c init.defaultBranch=trunk init -q "$tmp/same/solo"

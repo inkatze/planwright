@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.56.0](https://github.com/inkatze/planwright/compare/v0.55.0...v0.56.0) (2026-10-08)
+
+
+### Features
+
+* **quota:** add the vendors catalog, its resolver, and the limit classifier ([#617](https://github.com/inkatze/planwright/issues/617)) ([3b9396e](https://github.com/inkatze/planwright/commit/3b9396e1a80cc4b95d0eca0f131f4561a7d6baf8))
+* **spec-location:** run execution against a spec root outside the work repository ([#616](https://github.com/inkatze/planwright/issues/616)) ([8fc3140](https://github.com/inkatze/planwright/commit/8fc3140fb9c4591af2fc4a10a352a17f85dd146a))
+* **spec:** tower-placement kickoff sign-off ([#619](https://github.com/inkatze/planwright/issues/619)) ([c813704](https://github.com/inkatze/planwright/commit/c81370400c99506abc718af8fee36b5e1f90e6bb))
+* **tower:** extend the tower posture for the front door ([#601](https://github.com/inkatze/planwright/issues/601)) ([df70b7a](https://github.com/inkatze/planwright/commit/df70b7a64ae1a37691ae470c7be4905c65500194))
+
+
+### Bug Fixes
+
+* **fleet:** clear stale attention rows a dead earlier tower left behind ([#615](https://github.com/inkatze/planwright/issues/615)) ([b465813](https://github.com/inkatze/planwright/commit/b465813b2dea7288935f84615abfc3319bb6629c))
+* **guards:** defer more shell expansion and quoting forms ([#618](https://github.com/inkatze/planwright/issues/618)) ([2a51986](https://github.com/inkatze/planwright/commit/2a519861d29b8960ae41a7f424e33a4366395911))
+
 ## [0.55.0](https://github.com/inkatze/planwright/compare/v0.54.0...v0.55.0) (2026-10-08)
 
 

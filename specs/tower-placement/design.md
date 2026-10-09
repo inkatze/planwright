@@ -312,21 +312,141 @@ branch is never merged.
 **Chosen because:** operator decision (2026-10-07), relayed through the
 tower.
 
+### D-13: Altitude of the profile-hooks fix — a mechanism and its check  (N)
+
+**Decision:** The dead tower-profile hooks are fixed as a mechanism (the
+spelling and a fail-closed suffix) plus a check over every settings
+profile, not as a new doctrine rule. The recurrence (the worker profile
+fixed, the tower profile missed) is the mid-flow signal that triggered
+this call.
+
+**Alternatives considered:**
+- A doctrine rule on how settings profiles name the plugin root. Rejected
+  because: the rule is a single spelling a test can enforce; the existing
+  pinning test already holds the explanation, and a check is what stops a
+  third profile from repeating the defect.
+- Fix the tower profile alone. Rejected because: that is how the tower
+  profile was missed after the worker fix.
+
+**Chosen because:** a mechanical rule belongs in a mechanical check.
+Drafting-session decision (2026-10-08).
+
+### D-14: The quoted, unbraced plugin-root spelling  (N)
+
+**Decision:** Each tower-profile hook names its script as
+`"$CLAUDE_PLUGIN_ROOT"/scripts/…`, which Claude Code leaves alone and the
+shell expands from the environment the launcher exports, exactly as
+`config/worker-settings.json` already does.
+
+**Alternatives considered:**
+- A literal absolute path generated at launch. Rejected because: it adds a
+  generation step to every launcher, while the supported launcher already
+  exports the root.
+- `${CLAUDE_PROJECT_DIR}`. Rejected because: it names the project, not the
+  plugin install, and a tower may run the installed plugin rather than a
+  checkout.
+- Unquoted `$CLAUDE_PLUGIN_ROOT`. Rejected because: it word-splits on a
+  root containing a space, a second way for the hook to never run
+  (obs:aed5517e).
+
+**Chosen because:** it is the one spelling measured to run under
+`--settings` (obs:aed5517e, the profile-hooks seed), and it matches the
+worker profile, so one check covers both.
+
+### D-15: One check over every settings profile  (N)
+
+**Decision:** The static half of
+`tests/test-settings-fragment-hook-expansion.sh` is widened from the
+worker profile's first hook to every hook command, under every event, in
+every `config/*.json` that carries a `hooks` key, failing on any expansion
+of the plugin root other than `"$CLAUDE_PLUGIN_ROOT"/` wherever it occurs
+in the command; it reads the profiles from a directory the test can point
+at fixtures. `tests/test-tower-settings-hook-wiring.sh` re-pins both
+guards' commands to the new full text, keeping its tier-word assertion.
+*(Amended at kickoff §9 lens review 2026-10-08: per-occurrence rule,
+fixture directory, re-pin rather than drop.)*
+
+**Alternatives considered:**
+- A new `scripts/check-*.sh` under `mise run check`. Rejected because: the
+  existing test already owns this rule and its rationale, and a second
+  home would split them.
+- Move the rule into `scripts/check-hook-contracts.sh`, which already
+  reads both profiles. Rejected because: it lists them by name and
+  substitutes the braced token itself, which is why it passed the dead
+  hooks; it stays a liveness check and Task 8 only teaches it the new
+  command shape.
+- List the profiles by name. Rejected because: a new profile would escape
+  the check, which is the recurrence this fixes.
+
+**Chosen because:** reuse of the existing seam, scoped by a decided rule
+(a `hooks` key) rather than an enumerated list. Drafting-session decision
+(2026-10-08).
+
+### D-16: Policy hooks refuse when the guard does not run  (N)
+
+**Decision:** Each tower-profile hook that runs the policy guard runs it
+first and, on any non-zero exit, prints on stderr a reason naming the
+guard and the remedy (export `CLAUDE_PLUGIN_ROOT` and relaunch) and exits
+2, which blocks the call. The guard's own contract is that every exit is
+0 (a deny travels as its output, and a crash under a tier already denies),
+so a non-zero exit means it did not run: an unset, empty, or wrong root
+(127), or a guard that is not executable (126). The command is POSIX
+shell, keeps the guard script as its first word, and names the root
+once. The command guard's hook carries no such suffix: when it cannot
+run, the harness treats the error as non-blocking, which for an
+allow-only guard is a defer, its existing fail-closed behaviour.
+*(Amended at kickoff §9 lens review 2026-10-08: run first and block on
+failure, replacing a check-first prefix; reason on stderr with remedy.)*
+
+**Alternatives considered:**
+- Check that the guard is executable before running it. Rejected because
+  (kickoff §9): it misses a guard that exists but cannot start, names the
+  root twice, and moves the script off the command's first word, which
+  both existing readers of the hook commands key on.
+- Also block on the command guard's hook. Rejected because: the policy
+  hook already blocks every Bash call in that state, so it adds nothing,
+  and it would give an allow-only guard a blocking path.
+- Leave every hook non-blocking. Rejected because: a non-blocking error
+  lets the call through, so a missing environment variable silently
+  removes the deny-emitting layer, against the guard family's fail-closed
+  property the profile's `_about` states.
+
+**Chosen because:** without the script running, only exit 2 blocks in
+PreToolUse (a JSON deny needs the guard itself; Research: Claude Code
+hooks exit codes, Sources), and refusing every Bash call until the tower
+is relaunched correctly is loud where a dropped layer is silent. Operator
+decisions (2026-10-08, drafting and kickoff §9).
+
 ## Cross-cutting concerns
 
 - **Decision domains.** Security posture and authorization (the plugin
   floor, marking, the deny list) are escalated as D-7 through D-10, each
   operator-decided. Integration surface (Claude Code hooks, settings
   layers, worktree isolation) rests on the documentation research in
-  Sources, with the undocumented points avoided rather than relied on.
-  Configuration follows the customization-boundary default (D-4). Data
-  storage (the mark store's lifetime and safety bar) and deploy/migration
-  (the upgrade window, no off switch, the breaking-change marker) were
-  decided at kickoff (D-8, REQ-C1.9, REQ-F1.5).
+  Sources, with the undocumented points avoided rather than relied on,
+  except one: the plugin-root spelling under `--settings` (D-14) is
+  empirical CLI behaviour, pinned by the hook-expansion test and its live
+  probe (kickoff §9 risk row 19). Configuration follows the
+  customization-boundary default (D-4). Data storage (the mark store's
+  lifetime and safety bar) and deploy/migration (the upgrade window, no
+  off switch, the breaking-change marker) were decided at kickoff (D-8,
+  REQ-C1.9, REQ-F1.5); the extension's fail-closed scope (D-16), seam
+  reuse (D-15), launcher export and delivery path (REQ-F1.6), and
+  breaking-change marker (Task 8) at its delta kickoff.
 - **Instruction headroom.** The skill instruction budget is saturated;
   Task 6 lands its bring-up wiring word-neutral in both skills and puts
   detail in docs and scripts, not skill prose.
 - **Concurrency.** The mark store takes concurrent writers; a mark write is
   atomic and idempotent, and the guard reads it without the fleet lock.
-- **Plugin-version skew.** A tower and its plugin hooks resolve the same
-  plugin root; the posture check reports the root it read.
+- **Profile rollout.** A running tower keeps the profile it launched
+  with; the fixed hooks take effect on relaunch. A profile-launched tower
+  newly gets the command guard's allows and the policy guard's denials,
+  and a launch whose policy guard does not run refuses Bash outright
+  (D-16); the docs state it (REQ-F1.6) and Task 8's breaking-change footer
+  names it.
+- **Plugin-version skew.** The plugin's own hooks resolve the installed
+  plugin root; the profile's hooks resolve the root the launcher exports.
+  The two can differ (a tower running the installed plugin with a profile
+  exported from a checkout, or the reverse), so one tower may run two
+  copies of the policy guard; both only deny. The posture check reports
+  the root it read.
