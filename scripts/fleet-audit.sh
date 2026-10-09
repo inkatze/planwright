@@ -146,7 +146,7 @@ now_epoch() {
   esac
 }
 
-HOLD_LOCK=0
+LOCK_TOKEN=""
 # Release on ANY exit, signals included (the fleet-attention.sh trap
 # discipline): a SIGINT/SIGTERM/SIGHUP mid-critical-section must not leave the
 # shared cross-spec lock held until a later acquirer notices this process is
@@ -161,11 +161,12 @@ trap 'exit 129' HUP
 acquire_lock() {
   al_tries=0
   while [ "$al_tries" -lt 1000 ]; do
-    "$FS" lock --owner-pid "$$" >/dev/null 2>&1
-    al_rc=$?
+    # The token lands in LOCK_TOKEN as part of the assignment, and a trap runs
+    # between commands, so the exit handler never misses a hold this process has.
+    al_rc=0
+    LOCK_TOKEN=$("$FS" lock --owner-pid "$$" 2>/dev/null) || al_rc=$?
     case $al_rc in
       0)
-        HOLD_LOCK=1
         return 0
         ;;
       1) ;; # a live holder has it — retry
@@ -181,10 +182,12 @@ acquire_lock() {
   return 2
 }
 release_lock() {
-  if [ "$HOLD_LOCK" = 1 ]; then
-    "$FS" unlock >/dev/null 2>&1 || true
-    HOLD_LOCK=0
-  fi
+  [ -n "$LOCK_TOKEN" ] || return 0
+  rlk_rc=0
+  "$FS" unlock "$LOCK_TOKEN" >/dev/null 2>&1 || rlk_rc=$?
+  # 1 is a lock that changed hands, rightly left standing. 2 is this token's
+  # lock still on disk, so the token is kept for the exit handler to retry.
+  [ "$rlk_rc" -eq 2 ] || LOCK_TOKEN=""
 }
 
 if [ "$#" -lt 1 ]; then
