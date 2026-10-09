@@ -7,8 +7,9 @@
 #   - acquire creates <spec-dir>/.orchestrate.lock as a symlink whose target is
 #     an owner token, through the shared primitive scripts/lock-lib.sh;
 #   - a second acquire on a held lock is a clean no-op (exit 1), lock intact;
-#   - release clears the lock and is idempotent, and clears a lock DIRECTORY
-#     left by the retired mkdir shape so an in-place upgrade recovers itself;
+#   - release clears the lock and is idempotent; a lock DIRECTORY left by the
+#     retired mkdir shape cannot show whose it is, so release refuses it and
+#     `break` is the verb that clears it;
 #   - a lock is broken when its OWNER PROCESS IS ABSENT, never because it is
 #     old: /orchestrate's hold spans tool invocations and has no owner to probe
 #     (the detached default, cleared only by release), while a caller that
