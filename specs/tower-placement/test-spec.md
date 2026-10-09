@@ -7,8 +7,9 @@
 
 Coverage mix: `[test]` for the classifier, the knob, the guard, the hooks,
 and dispatch, as shell test files run by `mise run check` and the repo CI;
-`[manual]` for bring-up behavior in live sessions, since worktree isolation
-and settings layers exist only in a real Claude Code session;
+`[manual]` for bring-up behavior and the profile launch in live sessions,
+since worktree isolation and settings layers exist only in a real Claude
+Code session;
 `[design-level]` for doctrine and docs, where the artifact's existence and
 coverage is the verification.
 
@@ -104,10 +105,29 @@ An unmarked session defers on every fixture command; logging stubs on
 static check finds no command substitution, pipeline, or subshell in the
 prefilter.
 
-### REQ-C1.7 — Profile launch still works [test]
+### REQ-C1.7 — Profile launch still works (superseded) [test]
 
 The existing tower-settings hook-wiring tests pass, with only their pinned
 `_about` phrases updated for REQ-D1.5.
+
+Superseded by REQ-C1.13 (2026-10-08): this path passed while every hook
+was dead, because the hook-wiring test pinned the broken spelling.
+
+### REQ-C1.13 — Profile hooks execute [test + manual]
+
+An execution test runs each tower-profile hook command with `sh -c`, a
+payload shaped for its matcher, and `CLAUDE_PLUGIN_ROOT` exported, and
+shows each guard ran by its own output: the command guard's allow on a
+tmux read, each policy hook's deny on a reserved act. The tower-settings
+hook-wiring tests pass, re-pinned to both guards' new full commands with
+the tier-word assertion kept. A manual launch through the supported
+launcher, run from Task 8's PR checklist, shows a tmux read auto-approved
+with no other settings layer allowing it and `git -C . merge`, which no
+deny rule matches, refused with the policy guard's own reason; the opt-in
+live CLI probe (`PLANWRIGHT_LIVE_CLI_PROBE=1`) re-measures the spelling by
+hand, a skip stated as a skip. The MCP-matcher policy hook's live run is
+not observed (the deny list refuses that tool first); the execution test
+is its verification.
 
 ### REQ-C1.8 — Resume residual [manual + design-level]
 
@@ -121,6 +141,28 @@ A mark write removes a mark older than the pruning age and keeps a
 refreshed one; a handshake moves the session's own mark's age; no
 non-hook process writes a mark. A manual on-request posture check refreshes
 the live session's mark.
+
+### REQ-C1.10 — Quoted, unbraced spelling [test]
+
+The widened static check in `tests/test-settings-fragment-hook-expansion.sh`
+finds every expansion of the plugin root in every tower-profile hook
+command in the quoted, unbraced form.
+
+### REQ-C1.11 — Check over every profile [test]
+
+The check passes on the shipped profiles and on a fixture with a
+compliant suffixed command, and fails on fixture profiles with the braced
+token in a later hook of the same group, in a later matcher group, and
+under another event, with an unquoted root, and with
+`${CLAUDE_PLUGIN_ROOT:-}`; it selects profiles by their `hooks` key, not
+by name, from a directory the test points at the fixtures.
+
+### REQ-C1.12 — Policy hooks refuse when the guard does not run [test]
+
+With `CLAUDE_PLUGIN_ROOT` unset, empty, set to a directory without the
+guard, and set to a root whose guard is not executable, each policy-guard
+hook exits 2 with a reason on stderr naming the guard and the remedy, and
+the command guard's hook exits neither 0 nor 2 (non-blocking).
 
 ## REQ-D — The deny floor
 
@@ -152,6 +194,15 @@ the shipped one; `git worktree add <path> -b docs/main` and
 A test asserts the profile's `_about` says the command arrives as written,
 no longer claims expanded commands, and drops the statements REQ-D1.5
 names.
+
+### REQ-D1.6 — `_about` names the spelling [test]
+
+A test asserts the profile's `_about` states the quoted, unbraced spelling
+and why it differs from `hooks/hooks.json`, the launcher's export, the
+policy hooks' refusal, and `--settings` as the only supported delivery,
+and no longer says it references the script exactly as `hooks/hooks.json`
+does, resolves under a marketplace install, or may be merged into a
+settings file.
 
 ## REQ-E — Dispatch from a tower's own tree
 
@@ -190,6 +241,13 @@ No doc or script header claims the floor loads only with the profile.
 `docs/fleet.md` carries the restart-after-install note and the no-switch
 recovery path.
 
+### REQ-F1.6 — Launch needs the root exported [design-level]
+
+The tower-profile paragraph of `docs/fleet.md` states `--settings` as the
+only delivery, the export and how the launcher derives the root, the
+refusal when the guard does not run (a root an update removed included),
+and relaunch to pick up a changed profile.
+
 ## REQ-G — Invariants
 
 ### REQ-G1.1 — Merge and ready stay reserved [test]
@@ -212,4 +270,4 @@ timeline.
 
 ### REQ-G1.4 — Security-zone pause [design-level]
 
-Tasks 3 and 4's PRs carry the allow/deny delta and record the hard pause.
+Tasks 8, 3, and 4's PRs carry the allow/deny delta and record the hard pause.
