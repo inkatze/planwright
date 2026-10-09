@@ -84,7 +84,9 @@ got="$(run_order "$tmp/s" "$tmp/table.tsv")"
 assert_eq "parallel path dispatches untimed then longest-first" \
   "test-d.sh test-e.sh test-b.sh test-c.sh test-a.sh" "$got"
 assert_eq "ordered run passes" 0 "$(run_rc)"
-assert_contains "the run states the order it used" "slowest-first" "$(cat "$tmp/run.out")"
+assert_contains "the run states the order and the timed count" \
+  "slowest-first (3 of 5 files timed" "$(cat "$tmp/run.out")"
+assert_contains "the one-job run took the parallel path" "mode=parallel" "$(head -n 1 "$tmp/report.tsv")"
 
 got="$(run_order "$tmp/s" "$tmp/table.tsv" serial)"
 assert_eq "serial path uses the same order" \
@@ -132,6 +134,15 @@ assert_eq "absent table still passes" 0 "$(run_rc)"
 assert_contains "absent table is stated" "name order" "$(cat "$tmp/run.out")"
 assert_eq "empty knob disables the table" \
   "test-a.sh test-b.sh test-c.sh test-d.sh test-e.sh" "$(run_order "$tmp/s" "")"
+assert_contains "the disabled table is stated" "duration table disabled" "$(cat "$tmp/run.out")"
+
+# 5a. A name the ranking pass cannot key (a tab in it) still runs, once.
+tabname="test-x${tab}y.sh"
+make_suite "$tmp/t" test-a.sh "$tabname"
+printf 'test-a.sh%s3\n' "$tab" >"$tmp/t.tsv"
+got="$(run_order "$tmp/t" "$tmp/t.tsv")"
+assert_eq "an unkeyable name still runs once" "test-a.sh test-x${tab}y.sh" "$got"
+assert_eq "an unkeyable name does not fail the run" 0 "$(run_rc)"
 
 # 5b. A table path with a backslash is read as written (awk -v would expand
 #     the escape and open a different path).
@@ -172,6 +183,31 @@ assert_eq "refreshed rows from a CI log" \
   "test-b.sh:130.000 test-c.sh:41.250 test-a.sh:9.000" \
   "$(grep -v '^#' "$tmp/fresh.tsv" | tr '\t' ':' | tr '\n' ' ' | sed 's/ $//')"
 assert_contains "refresh names the files left untimed" "test-d.sh" "$(cat "$tmp/refresh.out")"
+
+assert_eq "the refreshed table carries its header" \
+  "# Expected per-file seconds for scripts/run-tests.sh's queue order: the runner" \
+  "$(head -n 1 "$tmp/fresh.tsv")"
+case "$(ls -l "$tmp/fresh.tsv")" in
+  -rw-r--r--*) echo "ok: the refreshed table is world-readable like any tracked file" ;;
+  *)
+    echo "FAIL: the refreshed table's mode is $(ls -l "$tmp/fresh.tsv" | cut -c1-10)" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
+# 7b. A file timed twice keeps its first row.
+printf '       9.000s  test-a.sh\n       3.000s  test-a.sh\n' >"$tmp/dup.log"
+/bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/dup.tsv" "$tmp/dup.log" >/dev/null 2>&1
+assert_eq "a file timed twice keeps its first row" "test-a.sh:9.000" \
+  "$(grep -v '^#' "$tmp/dup.tsv" | tr '\t' ':' | tr '\n' ' ' | sed 's/ $//')"
+
+# 7c. Usage errors exit 2.
+/bin/bash "$REFRESH" --bogus "$tmp/ci.log" >/dev/null 2>&1
+assert_eq "an unknown option exits 2" 2 "$?"
+/bin/bash "$REFRESH" --suite "$tmp/s" --out "$tmp/x.tsv" >/dev/null 2>&1
+assert_eq "a missing source exits 2" 2 "$?"
+/bin/bash "$REFRESH" --suite "$tmp/no-suite" --out "$tmp/x.tsv" "$tmp/ci.log" >/dev/null 2>&1
+assert_eq "a missing suite directory exits 2" 2 "$?"
 
 # 8. The refreshed table drives the runner.
 assert_eq "refreshed table orders the run" \
