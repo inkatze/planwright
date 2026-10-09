@@ -671,8 +671,82 @@ YAML
 rv "$sb"
 assert_rc "a second vendor entry from a higher layer overrides" 0 "$RC"
 assert_contains "the machine-local vendor entry wins" "vendor${TAB}sample-cli${TAB}none${TAB}sample-cli-app[bot]" "$OUT"
+assert_absent "the adopter vendor entry is gone" "vendor${TAB}sample-cli${TAB}none${TAB}-" "$OUT"
 assert_contains "the vendor's other parts survive the override" "recognizer${TAB}sample-cli${TAB}quota" "$OUT"
 assert_contains "the vendor override names both entries and layers" "sample-cli.mine from the machine-local layer shadows sample-cli.vendor from the adopter layer" "$ERR"
+# A same-layer conflict is found even when a higher-layer winner was
+# visited first: a supersede keeps its entry at the lower layer's position.
+sb="$tmp/same-layer-behind-winner"
+seed "$sb"
+put "$(local_cat "$sb")" <<'YAML'
+vendors:
+  - id: claude.vendor
+    supersede: true
+    vendor: claude
+    part: vendor
+    evidence: none
+YAML
+put "$(repo_cat "$sb")" <<'YAML'
+vendors:
+  - id: claude.alt-one
+    vendor: claude
+    part: vendor
+    evidence: none
+  - id: claude.alt-two
+    vendor: claude
+    part: vendor
+    evidence: none
+YAML
+rv "$sb"
+assert_rc "two repo-tracked vendor entries behind a higher winner hard-fail" 4 "$RC"
+assert_contains "the same-layer vendor conflict is named malformed" "claude.alt-two is malformed (a second vendor entry for vendor 'claude')" "$ERR"
+sb="$tmp/same-layer-position-behind-winner"
+seed "$sb"
+put "$(adopter_cat "$sb")" <<'YAML'
+vendors:
+  - id: claude.go
+    vendor: claude
+    part: control
+    args: --go
+  - id: claude.pick
+    vendor: claude
+    part: choice
+    rule: auto
+    position: 1
+    condition: prior-review
+    control: go
+YAML
+put "$(local_cat "$sb")" <<'YAML'
+vendors:
+  - id: claude.pick
+    supersede: true
+    vendor: claude
+    part: choice
+    rule: auto
+    position: 1
+    condition: no-prior-review
+    control: go
+YAML
+put "$(repo_cat "$sb")" <<'YAML'
+vendors:
+  - id: claude.one
+    vendor: claude
+    part: choice
+    rule: auto
+    position: 1
+    condition: prior-review
+    control: go
+  - id: claude.two
+    vendor: claude
+    part: choice
+    rule: auto
+    position: 1
+    condition: prior-review
+    control: go
+YAML
+rv "$sb"
+assert_rc "two repo-tracked pairs at one position behind a higher winner hard-fail" 4 "$RC"
+assert_contains "the same-layer position conflict is named malformed" "claude.two is malformed (rule 'auto' already has a pair at position 1)" "$ERR"
 # A same-layer conflict in a shared layer is still malformed.
 sb="$tmp/same-layer-repo"
 seed "$sb"

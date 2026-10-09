@@ -402,8 +402,11 @@ awk -v mode="$mode" -v want="$want" '
     for (i = 1; i <= n; i++) {
       if (drop[i] || val(i, "part") != "vendor") continue
       v = val(i, "vendor")
+      # Same-layer duplicates are tracked apart from the winner, which may be
+      # an entry from a higher layer visited first.
+      if ((v, layer[id[i]]) in vlay) { bad(i, "a second vendor entry for vendor '\''" v "'\''"); if (fatal) exit; continue }
+      vlay[v, layer[id[i]]] = i
       if (v in vent) {
-        if (layer[id[i]] == layer[id[vent[v]]]) { bad(i, "a second vendor entry for vendor '\''" v "'\''"); if (fatal) exit; continue }
         if (override(vent[v], i) == i) vent[v] = i
         continue
       }
@@ -445,13 +448,13 @@ awk -v mode="$mode" -v want="$want" '
         else { bad(i, "choice names control '\''" k "'\'', which vendor '\''" v "'\'' does not declare"); if (fatal) exit }
         continue
       }
+      if ((v, val(i, "rule"), val(i, "position") + 0, layer[id[i]]) in play) {
+        bad(i, "rule '\''" val(i, "rule") "'\'' already has a pair at position " val(i, "position")); if (fatal) exit
+        continue
+      }
+      play[v, val(i, "rule"), val(i, "position") + 0, layer[id[i]]] = i
       if ((v, val(i, "rule"), val(i, "position") + 0) in pos) {
-        e = pos[v, val(i, "rule"), val(i, "position") + 0]
-        if (layer[id[i]] == layer[id[e]]) {
-          bad(i, "rule '\''" val(i, "rule") "'\'' already has a pair at position " val(i, "position")); if (fatal) exit
-          continue
-        }
-        if (override(e, i) != i) continue
+        if (override(pos[v, val(i, "rule"), val(i, "position") + 0], i) != i) continue
       }
       pos[v, val(i, "rule"), val(i, "position") + 0] = i
     }
