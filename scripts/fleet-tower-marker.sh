@@ -153,7 +153,9 @@ acquire_lock() {
   al_tries=0
   while [ "$al_tries" -lt 1000 ]; do
     # The token lands in LOCK_TOKEN as part of the assignment, and a trap runs
-    # between commands, so the exit handler never misses a hold this process has.
+    # between commands, so the exit handler knows every hold `lock` reported. A
+    # `lock` killed after taking the hold but before printing its token leaves
+    # a hold only --owner-pid names, broken once this process is gone.
     al_rc=0
     LOCK_TOKEN=$("$FS" lock --owner-pid "$$" 2>/dev/null) || al_rc=$?
     case $al_rc in
