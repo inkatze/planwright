@@ -23,9 +23,11 @@
 #     de-escalation restores the pre-step tier, un-bumping the model before the
 #     effort), the mirror fallback with no escalation to reverse, and net
 #     displacement with refunds;
-#   - the per-unit lock (D-6): concurrent same-unit appends serialize with no
-#     lost row and no duplicate sequence number, and cross-unit appends never
-#     contend;
+#   - the per-unit lock (D-6, D-11): concurrent same-unit appends serialize with
+#     no lost row and no duplicate sequence number, cross-unit appends never
+#     contend, the owner token gates release, a failure that is not contention
+#     fails closed at once, staleness is the owner process's absence rather than
+#     the lock's age, and a nested acquire in one shell is reentrant;
 #   - health and degraded mode (REQ-F1.1): a torn/corrupt/short row makes the
 #     ledger unhealthy, and the last recorded tier stays readable;
 #   - instrumentation (REQ-F1.3): `stats` surfaces unit count, row count, byte
@@ -326,6 +328,46 @@ lock_file="$("$LEDGER" home)/.lock.lockowner:unit"
 [ -L "$lock_file" ] && fail "8f: the owner's unlock did not release the lock"
 tok3=$("$LEDGER" lock lockowner:unit) || fail "8g: the lock could not be re-acquired after release"
 "$LEDGER" unlock lockowner:unit "$tok3"
+# An empty token is refused, never read as the token-less unconditional clear:
+# a caller whose token variable came back empty must not delete a live hold.
+tok4=$("$LEDGER" lock lockowner:unit) || fail "8i: lock failed"
+rc=0
+"$LEDGER" unlock lockowner:unit "" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "8i: unlock with an empty token exited $rc, expected 2"
+[ "$(readlink "$lock_file")" = "$tok4" ] || fail "8i: unlock with an empty token cleared the lock"
+"$LEDGER" unlock lockowner:unit "$tok4"
+# --owner-pid names the engine as the owner, so a hold its engine left behind
+# is broken once the engine is gone.
+sleep 60 >/dev/null 2>&1 &
+eng=$!
+tok5=$("$LEDGER" lock lockowner:unit --owner-pid "$eng") || fail "8j: lock --owner-pid failed"
+case $tok5 in "$eng"-*) ;; *) fail "8j: the token does not name the owner ($tok5)" ;; esac
+kill "$eng" 2>/dev/null || :
+wait "$eng" 2>/dev/null || :
+tok6=$("$LEDGER" lock lockowner:unit --owner-pid $$) || fail "8j: a hold whose owner is gone was not broken"
+"$LEDGER" unlock lockowner:unit "$tok6"
+# `owner` names only a live owner: an inherited hold whose owner is gone is a
+# lock the next waiter breaks, not a hold for a child to keep using.
+sh -c 'exit 0' &
+gone_eng=$!
+wait "$gone_eng" 2>/dev/null || :
+ln -s "$gone_eng-0-0-$gone_eng-1" "$lock_file"
+[ -z "$("$LEDGER" owner lockowner:unit)" ] || fail "8l: owner named a token whose process is gone"
+rm -f "$lock_file"
+# A token that cannot reach its caller is given back, not left as a hold
+# nobody can name.
+# /dev/full fails every write, which a closed descriptor does not reliably do.
+if [ -w /dev/full ]; then
+  rc=0
+  "$LEDGER" lock lockowner:unit >/dev/full 2>/dev/null || rc=$?
+  [ "$rc" = 2 ] || fail "8k: lock with an unwritable stdout exited $rc, expected 2"
+  [ -L "$lock_file" ] && fail "8k: a token that never reached the caller left its hold standing"
+else
+  echo "skip: 8k (no /dev/full on this host)"
+fi
+rc=0
+"$LEDGER" lock lockowner:unit --owner-pid 0 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "8j: a zero owner pid was accepted (exit $rc)"
 
 # A failure that is NOT contention must fail closed at once. The ~100s spin
 # budget buys patience for a deep same-unit queue; spending it on a condition
@@ -367,6 +409,86 @@ else
   [ "$l_elapsed" -le 10 ] \
     || fail "8i: an unwritable store spun ${l_elapsed}s before refusing; it must fail closed at once"
 fi
+
+# STALE IS THE OWNER PROCESS'S ABSENCE, NEVER AN AGE. The lock below is dated to
+# the year 2000 and its owner is a running process; an age rule would break it
+# on sight, and breaking a LIVE holder's lock is a double grant — the exact
+# defect the owner-token protocol exists to prevent. The same lock, back-dated
+# the same way, IS collectable the moment its owner is gone, which is the half
+# an age rule gets wrong in the other direction: it would leave a dead holder's
+# lock standing for the whole threshold.
+# The owner's streams are detached: on the failure path below the kill never
+# runs, and an orphan still holding this script's stdout keeps whatever is
+# reading it waiting for a process the test already gave up on.
+sleep 30 >/dev/null 2>&1 &
+anc_pid=$!
+# The mint time is NOW. What is ancient here is the FILE, back-dated below;
+# a token minted before its own owner started would name an owner that cannot
+# be the minter, which is a different case (case 36 in test-lock-lib.sh).
+anc_token="$anc_pid-$(date +%s)-1"
+anc_lock="$lock_home/.lock.ancient:unit"
+ln -s "$anc_token" "$anc_lock" || fail "8j: could not stage the ancient lock"
+touch -h -t 200001010000 "$anc_lock" 2>/dev/null || true
+
+# A waiter, held to a slice of its budget: the assertion is what it did NOT do.
+"$LEDGER" lock ancient:unit >/dev/null 2>&1 &
+anc_waiter=$!
+sleep 1
+# A waiter that had already given up would make the assertion below vacuous, so
+# its still being there is what proves the lock was contended and not broken.
+kill -0 "$anc_waiter" 2>/dev/null \
+  || fail "8j: the waiter left before it could be observed waiting; the case proved nothing"
+[ "$(readlink "$anc_lock")" = "$anc_token" ] \
+  || fail "8j: an ancient lock whose owner is still running was broken; staleness is not an age"
+kill "$anc_waiter" 2>/dev/null || true
+wait "$anc_waiter" 2>/dev/null || true
+
+# The live owner is stopped, and the gone owner re-staged on a pid above every
+# host's pid ceiling: a reaped pid could be handed out again before the acquire
+# probes it.
+kill "$anc_pid" 2>/dev/null || true
+wait "$anc_pid" 2>/dev/null || true
+rm -f "$anc_lock"
+anc_token="999999999-$(date +%s)-1"
+ln -s "$anc_token" "$anc_lock" || fail "8j: could not re-stage the ancient lock"
+touch -h -t 200001010000 "$anc_lock" 2>/dev/null || true
+anc_new=$("$LEDGER" lock ancient:unit) || fail "8j: a lock whose owner is gone was not collectable"
+[ "$anc_new" != "$anc_token" ] || fail "8j: the dead owner's token survived the break"
+[ "$(readlink "$anc_lock")" = "$anc_new" ] \
+  || fail "8j: the break did not leave the lock pointing at the new owner"
+"$LEDGER" unlock ancient:unit "$anc_new" || fail "8j: the broken-and-retaken lock would not release"
+
+# REENTRANCY IS BY TOKEN, WITHIN ONE SHELL. A nested acquire of a path this
+# shell already holds deepens the hold rather than deadlocking on itself, and
+# the link survives until the OUTERMOST release. This is what replaced the
+# hand-rolled suppression the ledger used to need for nesting.
+re_lock="$lock_home/.lock.reentrant:unit"
+re_rc=0
+(
+  # shellcheck source=scripts/lock-lib.sh
+  . "$here/../scripts/lock-lib.sh"
+  pw_lock_acquire "$re_lock" 50 || exit 11
+  re_outer=$PW_LOCK_TOKEN
+  pw_lock_acquire "$re_lock" 50 || exit 12
+  [ "$(readlink "$re_lock")" = "$re_outer" ] || exit 13
+  pw_lock_release "$re_lock" || exit 14
+  if [ ! -L "$re_lock" ]; then exit 15; fi
+  [ "$(readlink "$re_lock")" = "$re_outer" ] || exit 16
+  pw_lock_release "$re_lock" || exit 17
+  if [ -L "$re_lock" ]; then exit 18; fi
+  exit 0
+) || re_rc=$?
+case $re_rc in
+  0) ;;
+  11) fail "8k: the outer acquire failed" ;;
+  12) fail "8k: a nested acquire of a lock this shell holds was refused" ;;
+  13) fail "8k: the nested acquire replaced the outer hold's token" ;;
+  14) fail "8k: the inner release failed" ;;
+  15 | 16) fail "8k: the inner release dropped the lock; it is held to the outermost" ;;
+  17) fail "8k: the outermost release failed" ;;
+  18) fail "8k: the outermost release left the lock standing" ;;
+  *) fail "8k: the reentrancy fixture exited $re_rc" ;;
+esac
 
 # --- 9. health and degraded mode (REQ-F1.1) -------------------------------
 

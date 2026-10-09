@@ -149,9 +149,10 @@ now_epoch() {
 HOLD_LOCK=0
 # Release on ANY exit, signals included (the fleet-attention.sh trap
 # discipline): a SIGINT/SIGTERM/SIGHUP mid-critical-section must not leave the
-# shared cross-spec lock held until the stale-break threshold, nor the
-# in-flight write temp beside the day file. The signals route through EXIT via
-# explicit exits with the conventional codes.
+# shared cross-spec lock held until a later acquirer notices this process is
+# gone (the hold names it with --owner-pid), nor the in-flight write temp beside
+# the day file. The signals route through EXIT via explicit exits with the
+# conventional codes.
 w_tmp=""
 trap 'release_lock; [ -z "$w_tmp" ] || rm -f "$w_tmp"' EXIT
 trap 'exit 130' INT
@@ -160,7 +161,7 @@ trap 'exit 129' HUP
 acquire_lock() {
   al_tries=0
   while [ "$al_tries" -lt 1000 ]; do
-    "$FS" lock >/dev/null 2>&1
+    "$FS" lock --owner-pid "$$" >/dev/null 2>&1
     al_rc=$?
     case $al_rc in
       0)

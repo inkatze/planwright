@@ -145,6 +145,7 @@ check_private_dir() {
     warn "security: $(sanitize_printable "$_p" "(unprintable path)") is a symlink — refusing to write through a redirect"
     return 1
   fi
+  # not-a-lock: bootstrap where a peer winning the create is success
   [ -d "$_p" ] || mkdir "$_p" 2>/dev/null || [ -d "$_p" ] || {
     warn "cannot create $(sanitize_printable "$_p" "(unprintable path)")"
     return 1

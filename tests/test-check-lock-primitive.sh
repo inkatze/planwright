@@ -18,8 +18,9 @@
 # than it claims — an absent root or scope directory, an unreadable file, a
 # scan reaching nothing — must exit 2 rather than report a clean tree.
 #
-# shellcheck disable=SC2016 # every fixture body below is literal shell text
-# the guard must read as written; expanding it here would defeat the fixture.
+# shellcheck disable=SC2016,SC1003 # every fixture body below is literal shell
+# text the guard must read as written, a trailing continuation backslash
+# included; expanding or escaping it here would defeat the fixture.
 set -u
 unset CDPATH
 LC_ALL=C
@@ -197,12 +198,14 @@ write_script "$tmp/groups/scripts/subsh.sh" '(mkdir "$d") && exit 0'
 write_script "$tmp/groups/scripts/brace.sh" '{ mkdir "$d"; } && exit 0'
 write_script "$tmp/groups/scripts/subshor.sh" '(mkdir "$d") || return 1'
 write_script "$tmp/groups/scripts/nested.sh" '( { mkdir "$d"; } ) && exit 0'
+write_script "$tmp/groups/scripts/redir.sh" '(umask 077 && mkdir "$d") 2>/dev/null || exit 1'
 out5="$(/bin/bash "$CHECKER" "$tmp/groups" 2>&1)"
 assert "a mkdir at the end of a group is still read" 1 $?
 assert_contains "a subshell does not hide it" "$out5" "scripts/subsh.sh:3:"
 assert_contains "a brace group does not hide it" "$out5" "scripts/brace.sh:3:"
 assert_contains "nor does the || form" "$out5" "scripts/subshor.sh:3:"
 assert_contains "nor a group inside a group" "$out5" "scripts/nested.sh:3:"
+assert_contains "nor a redirection on the group" "$out5" "scripts/redir.sh:3:"
 # Control: the same groups with -p stay clean, so the look-through did not turn
 # every grouped mkdir into a finding.
 make_root "$tmp/groupsok"
@@ -540,23 +543,231 @@ assert_contains "--help names the replacement primitive" "$out" "pw_lock_acquire
 assert "-h is accepted too" 0 $?
 
 # ---------------------------------------------------------------------------
+# 11b. State that has to survive a newline. The scanner reads a line at a time,
+#      and three things it is inside of do not end where a line does: an `if`
+#      whose condition sits on its own line, a parameter expansion carrying a
+#      quote across the break, and a command continued with a backslash.
+# ---------------------------------------------------------------------------
+make_root "$tmp/newline"
+write_script "$tmp/newline/scripts/ifalone.sh" \
+  'if' \
+  '  mkdir "$lock" 2>/dev/null' \
+  'then' \
+  '  exit 0' \
+  'fi'
+write_script "$tmp/newline/scripts/whilealone.sh" \
+  'while' \
+  '  mkdir "$lock" 2>/dev/null' \
+  'do' \
+  '  break' \
+  'done'
+write_script "$tmp/newline/scripts/openpe.sh" \
+  'msg=${greeting:-"hello' \
+  'world"}' \
+  'mkdir "$lock" && exit 0'
+write_script "$tmp/newline/scripts/contchain.sh" \
+  'mkdir "$lock" \' \
+  '  && exit 0'
+write_script "$tmp/newline/scripts/contoperand.sh" \
+  'mkdir \' \
+  '  "$lock" || exit 1'
+out11b="$(/bin/bash "$CHECKER" "$tmp/newline" 2>&1)"
+assert "state carried across a newline does not hide a lock" 1 $?
+assert_contains "an if condition on its own line is still a condition" "$out11b" "scripts/ifalone.sh:4:"
+assert_contains "a while condition on its own line is still a condition" "$out11b" "scripts/whilealone.sh:4:"
+assert_contains "an open parameter expansion does not turn the next line into a string" "$out11b" "scripts/openpe.sh:5:"
+assert_contains "a continued command keeps the && on its next line" "$out11b" "scripts/contchain.sh:3:"
+assert_contains "a continued command keeps its operands and their ||" "$out11b" "scripts/contoperand.sh:3:"
+write_script "$tmp/newline/scripts/dqinpe.sh" \
+  "x=\${y:-\$'a\\'b'}" \
+  'mkdir "$lock" && exit 0'
+write_script "$tmp/newline/scripts/splitword.sh" 'mk\' 'dir "$lock" && exit 0'
+write_script "$tmp/newline/scripts/envsplit.sh" "env -S 'mkdir \$lock' && exit 0"
+write_script "$tmp/newline/scripts/envsassign.sh" "env -S 'FOO=1' mkdir \"\$lock\" && exit 0"
+write_script "$tmp/newline/scripts/envsopt.sh" "env -S '-i' mkdir \"\$lock\" && exit 0"
+write_script "$tmp/newline/scripts/envsoptarg.sh" "env -S '-C /tmp' mkdir \"\$lock\" && exit 0"
+write_script "$tmp/newline/scripts/envsoptlast.sh" "env -S '-C' /tmp mkdir \"\$lock\" && exit 0"
+write_script "$tmp/newline/scripts/envsargv0.sh" "env -S '--argv0 x' mkdir \"\$lock\" && exit 0"
+write_script "$tmp/newline/scripts/subinpe.sh" 'x=${y:-$(mkdir "$lock" && echo held)}'
+write_script "$tmp/newline/scripts/spacedredir.sh" '{ mkdir "$lock"; } > /dev/null && exit 0'
+write_script "$tmp/newline/scripts/eofcont.sh" 'mkdir "$lock" && \'
+write_script "$tmp/newline/scripts/clobberredir.sh" '{ mkdir "$lock"; } >| /dev/null && exit 0'
+write_script "$tmp/newline/scripts/ampredir.sh" '{ mkdir "$lock"; } &> /dev/null && exit 0'
+write_script "$tmp/newline/scripts/hdredir.sh" '{ mkdir "$lock"; } <<- EOF && exit 0' '	EOF'
+out11bb="$(/bin/bash "$CHECKER" "$tmp/newline" 2>&1)"
+assert_contains "a dollar-quote inside an expansion does not open a string" "$out11bb" "scripts/dqinpe.sh:4:"
+assert_contains "a command substitution inside an expansion is still code" "$out11bb" "scripts/subinpe.sh:3:"
+assert_contains "a command word split by a continuation is still the command" "$out11bb" "scripts/splitword.sh:3:"
+assert_contains "env -S runs the command its string names" "$out11bb" "scripts/envsplit.sh:3:"
+assert_contains "an env -S string of assignments leaves the next word the command" "$out11bb" "scripts/envsassign.sh:3:"
+assert_contains "so does one of options" "$out11bb" "scripts/envsopt.sh:3:"
+assert_contains "and one whose option takes an argument" "$out11bb" "scripts/envsoptarg.sh:3:"
+assert_contains "and one whose last option takes the next word" "$out11bb" "scripts/envsoptlast.sh:3:"
+assert_contains "and one naming argv0" "$out11bb" "scripts/envsargv0.sh:3:"
+assert_contains "a spaced redirection on a group does not hide the operator" "$out11bb" "scripts/spacedredir.sh:3:"
+assert_contains "a continuation left open at end of file is still read" "$out11bb" "scripts/eofcont.sh:3:"
+assert_contains "a clobber redirection on a group does not hide the operator" "$out11bb" "scripts/clobberredir.sh:3:"
+assert_contains "nor does an &> redirection" "$out11bb" "scripts/ampredir.sh:3:"
+assert_contains "nor does a heredoc on the group" "$out11bb" "scripts/hdredir.sh:3:"
+# A quoted string spanning lines is one word: its second line is not a command
+# position, whatever it starts with.
+make_root "$tmp/qspan"
+write_script "$tmp/qspan/scripts/q.sh" "msg='first" "mkdir' && exit 0"
+write_script "$tmp/qspan/scripts/dq.sh" 'msg="first' 'mkdir" && exit 0'
+out11bq="$(/bin/bash "$CHECKER" "$tmp/qspan" 2>&1)"
+assert "a string spanning lines is not read as a command" 0 $?
+assert_not_contains "a single-quoted span is text" "$out11bq" "scripts/q.sh"
+assert_not_contains "a double-quoted span is text" "$out11bq" "scripts/dq.sh"
+# A case pattern spelled like a keyword opens no condition, alternation included.
+make_root "$tmp/casekw"
+write_script "$tmp/casekw/scripts/alt.sh" \
+  'case $x in' \
+  '  while|until)' \
+  '    mkdir "$d"' \
+  '    ;;' \
+  'esac'
+out11bc="$(/bin/bash "$CHECKER" "$tmp/casekw" 2>&1)"
+assert "a keyword-spelled case alternation opens no condition" 0 $?
+assert_not_contains "the mkdir under it is not read as a condition" "$out11bc" "scripts/alt.sh"
+# Control: the same continuation carrying a -p onto the next line is the error
+# check it looks like, and the open expansion is not a command at all.
+make_root "$tmp/newlineok"
+write_script "$tmp/newlineok/scripts/contp.sh" \
+  'mkdir \' \
+  '  -p "$d" || exit 1'
+write_script "$tmp/newlineok/scripts/pe.sh" \
+  'msg=${greeting:-"mkdir' \
+  'x"} && printf ok'
+out11c="$(/bin/bash "$CHECKER" "$tmp/newlineok" 2>&1)"
+assert "a -p continued onto the next line is still -p" 0 $?
+assert_not_contains "the continued -p is not reported" "$out11c" "contp.sh"
+
+# ---------------------------------------------------------------------------
+# 11c. What counts as reading the status. `rc=$?` on the line below is one
+#      spelling; the same capture after a semicolon, with a comment after it,
+#      as a test that never assigns, or behind `export`/`readonly` all read
+#      the same exit status.
+# ---------------------------------------------------------------------------
+make_root "$tmp/reads"
+write_script "$tmp/reads/scripts/semi.sh" 'mkdir "$lock"; rc=$?'
+write_script "$tmp/reads/scripts/comment.sh" \
+  'mkdir "$lock"' \
+  'rc=$? # did we win'
+write_script "$tmp/reads/scripts/test.sh" \
+  'mkdir "$lock"' \
+  '[ $? -eq 0 ] || exit 1'
+write_script "$tmp/reads/scripts/semitest.sh" \
+  'mkdir "$lock"; if [ "$?" -ne 0 ]; then exit 1; fi'
+write_script "$tmp/reads/scripts/case.sh" \
+  'mkdir "$lock"' \
+  'case $? in 0) : ;; *) exit 1 ;; esac'
+write_script "$tmp/reads/scripts/export.sh" \
+  'mkdir "$lock"' \
+  'export rc=$?'
+write_script "$tmp/reads/scripts/readonly.sh" \
+  'mkdir "$lock"' \
+  'readonly won=$?'
+out11d="$(/bin/bash "$CHECKER" "$tmp/reads" 2>&1)"
+assert "every spelling of a status read is a read" 1 $?
+assert_contains "a capture after a semicolon is a read" "$out11d" "scripts/semi.sh:3:"
+assert_contains "a capture with a trailing comment is a read" "$out11d" "scripts/comment.sh:3:"
+assert_contains "a test of \$? that assigns nothing is a read" "$out11d" "scripts/test.sh:3:"
+assert_contains "a test after a semicolon is a read" "$out11d" "scripts/semitest.sh:3:"
+assert_contains "a case on \$? is a read" "$out11d" "scripts/case.sh:3:"
+assert_contains "an exported capture is a read" "$out11d" "scripts/export.sh:3:"
+assert_contains "a readonly capture is a read" "$out11d" "scripts/readonly.sh:3:"
+# Control: a single-quoted '$?' is text, and a semicolon followed by a command
+# that never looks at the status reads nothing.
+make_root "$tmp/readsok"
+write_script "$tmp/readsok/scripts/text.sh" \
+  'mkdir "$dir"' \
+  "printf '%s\\n' 'the status is \$?'"
+write_script "$tmp/readsok/scripts/semi.sh" 'mkdir "$dir"; printf made'
+out11e="$(/bin/bash "$CHECKER" "$tmp/readsok" 2>&1)"
+assert "a status nobody reads is still not read" 0 $?
+assert_not_contains "a quoted \$? is not a read" "$out11e" "text.sh"
+
+# ---------------------------------------------------------------------------
+# 11d. What counts as the command word. The dollar-quote form is quoting, so
+#      `$'mkdir'` is mkdir, escapes included; and `env` and `sudo` run their
+#      operand as the command, so what follows their options is the command
+#      word.
+# ---------------------------------------------------------------------------
+make_root "$tmp/cmdword"
+write_script "$tmp/cmdword/scripts/dollarq.sh" "\$'mkdir' \"\$lock\" && exit 0"
+write_script "$tmp/cmdword/scripts/dollarqesc.sh" "\$'mk\\x64ir' \"\$lock\" && exit 0"
+write_script "$tmp/cmdword/scripts/env.sh" 'env mkdir "$lock" && exit 0'
+write_script "$tmp/cmdword/scripts/envopts.sh" 'env -i PATH=/bin mkdir "$lock" || exit 1'
+write_script "$tmp/cmdword/scripts/sudo.sh" 'sudo mkdir "$lock" && exit 0'
+write_script "$tmp/cmdword/scripts/sudoopts.sh" 'sudo -n -u root mkdir "$lock" || exit 1'
+out11f="$(/bin/bash "$CHECKER" "$tmp/cmdword" 2>&1)"
+assert "every spelling of the command word is the command" 1 $?
+assert_contains "a dollar-quoted mkdir is mkdir" "$out11f" "scripts/dollarq.sh:3:"
+assert_contains "a dollar-quoted mkdir spelled with an escape is mkdir" "$out11f" "scripts/dollarqesc.sh:3:"
+assert_contains "env runs mkdir" "$out11f" "scripts/env.sh:3:"
+assert_contains "env with options and assignments runs mkdir" "$out11f" "scripts/envopts.sh:3:"
+assert_contains "sudo runs mkdir" "$out11f" "scripts/sudo.sh:3:"
+assert_contains "sudo with an option argument runs mkdir" "$out11f" "scripts/sudoopts.sh:3:"
+# Control: the same wrappers around a -p stay clean.
+make_root "$tmp/cmdwordok"
+write_script "$tmp/cmdwordok/scripts/envp.sh" 'env mkdir -p "$d" || exit 1'
+write_script "$tmp/cmdwordok/scripts/sudop.sh" 'sudo -u root mkdir -p "$d" || exit 1'
+out11g="$(/bin/bash "$CHECKER" "$tmp/cmdwordok" 2>&1)"
+assert "a wrapped mkdir -p is still clean" 0 $?
+assert_not_contains "no wrapped -p is reported under env" "$out11g" "scripts/envp.sh"
+assert_not_contains "nor under sudo" "$out11g" "scripts/sudop.sh"
+
+# ---------------------------------------------------------------------------
+# 11e. Two reports that are wrong the other way. An array's value list is
+#      data, not a command position; and a heredoc delimiter carrying an
+#      escape or quote is still a delimiter, so its body is still prose.
+# ---------------------------------------------------------------------------
+make_root "$tmp/misreport"
+write_script "$tmp/misreport/scripts/array.sh" 'tools=(mkdir "$d") && printf ok'
+write_script "$tmp/misreport/scripts/localarray.sh" \
+  'f() {' \
+  '  local arr=(mkdir ln) || return 1' \
+  '}'
+write_script "$tmp/misreport/scripts/multiarray.sh" \
+  'deps=(' \
+  '  mkdir "$d") && printf ok'
+write_script "$tmp/misreport/scripts/hdquoted.sh" \
+  'cat <<"\EOF"' \
+  'if mkdir "$lock"; then exit 0; fi' \
+  '\EOF' \
+  'printf fine'
+out11h="$(/bin/bash "$CHECKER" "$tmp/misreport" 2>&1)"
+assert "an array word and a heredoc body are not locks" 0 $?
+assert_not_contains "a mkdir named in an array is not reported" "$out11h" "scripts/array.sh"
+assert_not_contains "nor in a local array" "$out11h" "scripts/localarray.sh"
+assert_not_contains "nor in an array opened on the line above" "$out11h" "scripts/multiarray.sh"
+assert_not_contains "a heredoc with an escaped delimiter keeps its body prose" "$out11h" "hdquoted.sh"
+# The escaped delimiter must also END where the shell ends it. Read as a
+# shorter word, the body never closes and swallows the real lock below it.
+make_root "$tmp/hdend"
+write_script "$tmp/hdend/scripts/hdesc.sh" \
+  'cat <<E\OF' \
+  'prose: if mkdir "$lock"; then' \
+  'EOF' \
+  'mkdir "$lock" && exit 0'
+out11i="$(/bin/bash "$CHECKER" "$tmp/hdend" 2>&1)"
+assert "an escaped delimiter closes its heredoc" 1 $?
+assert_contains "the code after the heredoc is still scanned" "$out11i" "scripts/hdesc.sh:6:"
+assert_not_contains "the heredoc body is not" "$out11i" "scripts/hdesc.sh:4:"
+
+# ---------------------------------------------------------------------------
 # 12. Done-when, on the real corpus. Synthetic fixtures cannot show that the
-#     scan survives 300-odd real files: the tree is mid-migration, so the
-#     verdict is deliberately not asserted, but a fail-closed exit 2 would mean
-#     the enumeration itself broke, and a planted offender must still surface.
+#     scan survives the real files: every lock holder takes its locks through
+#     the library now, so the tree is clean, and a planted offender must still
+#     surface.
 # ---------------------------------------------------------------------------
 mkdir -p "$tmp/work"
 cp -R "$REPO_ROOT/scripts" "$tmp/work/" || exit 1
 cp -R "$REPO_ROOT/tests" "$tmp/work/" || exit 1
 cp -R "$REPO_ROOT/githooks" "$tmp/work/" || exit 1
-/bin/bash "$CHECKER" "$tmp/work" >/dev/null 2>&1
-real_rc=$?
-if [ "$real_rc" -eq 0 ] || [ "$real_rc" -eq 1 ]; then
-  echo "ok: the real corpus scans to a verdict rather than failing closed"
-else
-  echo "FAIL: the real corpus did not scan (exit $real_rc)" >&2
-  failures=$((failures + 1))
-fi
+out="$(/bin/bash "$CHECKER" "$tmp/work" 2>&1)"
+assert "the real corpus is clean" 0 $?
+assert_contains "and it says so" "$out" "check-lock-primitive: clean ("
 
 write_script "$tmp/work/scripts/planted-lock.sh" \
   'if mkdir "$spec_dir/.orchestrate.lock" 2>/dev/null; then' \
