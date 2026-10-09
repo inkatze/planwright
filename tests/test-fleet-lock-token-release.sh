@@ -51,7 +51,7 @@ real='$real_fs'
 ev=\${LOCKTEST_EVIDENCE:-}
 if [ "\${LOCKTEST_MODE:-}" = fail ] && [ "\${1:-}" = unlock ] && [ "\$#" -eq 2 ]; then
   "\$real" "\$@" >/dev/null 2>&1 || :
-  ps -o args= -p "\$PPID" >>"\$ev" 2>/dev/null || echo unknown-caller >>"\$ev"
+  ps -ww -o args= -p "\$PPID" >>"\$ev" 2>/dev/null || echo unknown-caller >>"\$ev"
   exit 2
 fi
 if [ "\${LOCKTEST_MODE:-}" = clobber ] && [ "\${1:-}" = unlock ] && [ ! -e "\$ev" ]; then
