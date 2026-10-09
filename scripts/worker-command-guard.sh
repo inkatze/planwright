@@ -1468,14 +1468,21 @@ guard_sleep() {
 # guard_ps: ps writes no file and runs nothing, but its option grammar
 # differs by platform, so only the enumerated flags pass: the selection and
 # format flags (a value-taking one, alone or ending a bundle, consumes the
-# next word), BSD-style letter words, and pid operands.
+# next word), BSD-style letter words, and pid operands. Whatever prints
+# process environments, which carry secrets, defers: the BSD `e` modifier and
+# a format naming an environment field (ps_format_ok).
 guard_ps() {
   local i a body
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     case $a in
-      --no-headers | --no-heading | --headers | --forest | --cumulative | --sort=* | --format=* | --pid=* | --ppid=* | --cols=* | --columns=* | --width=*) ;;
-      --sort | --format | --pid | --ppid | --cols | --columns | --width)
+      --format=*) ps_format_ok "${a#--format=}" || return 1 ;;
+      --no-headers | --no-heading | --headers | --forest | --cumulative | --sort=* | --pid=* | --ppid=* | --cols=* | --columns=* | --width=*) ;;
+      --format)
+        i=$((i + 1))
+        [ "$i" -lt "$cwn" ] && ps_format_ok "${cw[i]}" || return 1
+        ;;
+      --sort | --pid | --ppid | --cols | --columns | --width)
         i=$((i + 1))
         [ "$i" -lt "$cwn" ] || return 1
         ;;
@@ -1484,7 +1491,11 @@ guard_ps() {
         case $body in
           *[!AadefFHjlLMmTwxyZoOpqtuUgGCs]*) return 1 ;;
           *[oOpqtuUgGCs]?*) return 1 ;; # a value-taking flag must end its bundle
-          *[oOpqtuUgGCs])
+          *[oO])
+            i=$((i + 1))
+            [ "$i" -lt "$cwn" ] && ps_format_ok "${cw[i]}" || return 1
+            ;;
+          *[pqtuUgGCs])
             i=$((i + 1))
             [ "$i" -lt "$cwn" ] || return 1
             ;;
@@ -1492,11 +1503,20 @@ guard_ps() {
         ;;
       '' | *[!0-9,]*)
         case $a in
-          '' | *[!auxwefjlT]*) return 1 ;;
+          '' | *[!auxwfjlT]*) return 1 ;;
         esac
         ;;
     esac
   done
+  return 0
+}
+
+# ps_format_ok <format>: 0 unless the format names an environment field
+# (`env`, `environ`, in any case).
+ps_format_ok() {
+  case $1 in
+    *[eE][nN][vV]*) return 1 ;;
+  esac
   return 0
 }
 
