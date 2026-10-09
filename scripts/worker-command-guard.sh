@@ -3156,11 +3156,13 @@ is_duration() {
 # defers it.
 strip_prefixes() {
   PREFIXED=0
-  # `time` is a keyword only when written as a bare word, and `-p` only when
-  # written literally, so both are read from the unsubstituted words (`sw`,
-  # verify_simple's copy): a `$T` that expands to `time` runs the program.
+  # `time` is a keyword only when written as a bare word, and `-p` its option
+  # only when written bare too (a quoted `"-p"` is the command it runs), so
+  # both are read from the unsubstituted words (`sw` / `swq`, verify_simple's
+  # copy): a `$T` that expands to `time` runs the program. The timeout
+  # duration is held to a bare word the same way.
   if [ "${sw[0]-}" = time ] && [ "${swq[0]-}" -lt 0 ]; then
-    if [ "${sw[1]-}" = -p ] && [ "${cw[1]-}" = -p ]; then
+    if [ "${sw[1]-}" = -p ] && [ "${swq[1]-}" -lt 0 ] && [ "${cw[1]-}" = -p ]; then
       shift_words 2
     else
       shift_words 1
@@ -3168,7 +3170,7 @@ strip_prefixes() {
     PREFIXED=1
     [ "$cwn" -ge 1 ] || return 1
   fi
-  if [ "${cw[0]}" = timeout ] && [ "$cwn" -ge 2 ] \
+  if [ "${cw[0]}" = timeout ] && [ "$cwn" -ge 2 ] && [ "${cqp[1]}" -lt 0 ] \
     && ! word_unresolved "${cw[1]}" "${cdyn[1]}" "${cglob[1]}" "${cx[1]}" \
     && is_duration "${cw[1]}"; then
     shift_words 2

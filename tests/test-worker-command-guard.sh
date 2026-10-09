@@ -1032,6 +1032,11 @@ first_half() {
   assert_defer "REQ-A1.13: a malformed duration" "timeout 5x ls"
   assert_defer "REQ-A1.13: an opaque duration" "timeout \$T ls"
   assert_defer "REQ-A1.13: time with another flag" "time -v ls"
+  # bash reads `-p` as time's option only when it is written bare; quoted, it
+  # is the command time runs.
+  assert_defer "REQ-A1.13: a double-quoted -p is the command time runs" "time \"-p\" git status"
+  assert_defer "REQ-A1.13: a single-quoted -p is the command time runs" "time '-p' git status"
+  assert_defer "REQ-A1.13: a quoted timeout duration" "timeout \"30\" git status"
   assert_defer "REQ-A1.13: time with nothing to run" "time"
   assert_defer "REQ-A1.13: timeout with nothing to run" "timeout 30"
   assert_defer "REQ-A1.13: nested timeout" "timeout 30 timeout 5 ls"
