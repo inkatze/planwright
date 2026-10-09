@@ -12,8 +12,9 @@
 # replace this one on that host.
 
 steps:
-  # Holds post-PR fix rounds to targeted checks. Hosted in-session so the rule
-  # reaches the session that runs the review fix rounds.
+  # Reminds post-PR fix rounds to stay on targeted checks. Hosted in-session so
+  # it reaches the review steps that follow it at post-pr in the same session;
+  # it cannot hold back /execute-task's own pre-convergence full CI.
   - id: fix-round-cadence
     kind: prompt
     target: "For every fix round after the PR exists, run only the targeted tests and lint for what changed; CI on the PR head is the gate of record; do not run the full local gate."
