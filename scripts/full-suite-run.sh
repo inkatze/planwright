@@ -20,12 +20,15 @@
 # command with the inherited mark, if any, and releases nothing. One attempt is
 # one slot, each with its own wait bound: a retry calls this script again.
 #
-# The command runs in the foreground. HUP, INT, or TERM reaching this script
-# is held until the command has finished (the shell runs a trap only then),
-# after which the slot is released and the script exits 128+n: a signal never
-# frees the slot while the suite or anything it started in the foreground
-# still runs. To stop a suite early, signal its process group. A signal that
-# arrives after the take and before the command starts runs no command.
+# The command runs in the foreground, its stdin /dev/null. HUP, INT, or TERM
+# reaching this script is held until the command has finished (the shell runs
+# a trap only then), after which the slot is released and the script exits
+# 128+n, so none of them frees the slot while the suite or anything it started
+# in the foreground still runs. To stop a suite early, signal its process
+# group. A signal that arrives after the take and before the command starts
+# runs no command; one during the take ends this script at once. A KILL ends
+# it outright, and the pool then reclaims the slot even while a suite it
+# started still runs.
 #
 # Exit:
 #   75     the wait passed its bound and the command did not run; stderr
@@ -94,9 +97,9 @@ run_suite() {
   suite_rc=0
   [ -z "$caught" ] || return 0
   if [ -n "$_rs_mark" ]; then
-    PLANWRIGHT_STEP_POOL_HOLD="$_rs_mark" "$@"
+    PLANWRIGHT_STEP_POOL_HOLD="$_rs_mark" "$@" </dev/null
   else
-    "$@"
+    "$@" </dev/null
   fi
   suite_rc=$?
 }

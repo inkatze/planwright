@@ -223,6 +223,29 @@ sig_case HUP 129
 verdict "HUP to the wrapper keeps the slot until the suite ends, then exits 129" \
   "HUP: during=$_during rc=$_rc" "$tmp/err"
 
+# --- a signal during the take ends the wait at once, running no suite ------------------
+reset
+printf 'full_suite_pool: gate\nstep_pool_wait: 60s\n' >"$tracked"
+h=$(owner)
+sp take gate "$h" >/dev/null
+(fsr -- -- "$suite" "$tmp/log" 0 0 >/dev/null 2>"$tmp/err") &
+bg=$!
+_n=0
+until grep -q 'waiting up to' "$tmp/err" 2>/dev/null || [ "$_n" -ge 600 ]; do
+  sleep 0.1
+  _n=$((_n + 1))
+done
+waiter=$(sp report gate | wc -l)
+pkill -TERM -f "full-suite-run.sh -- $suite $tmp/log "
+start=$(date +%s)
+wait "$bg"
+rc=$?
+took=$(($(date +%s) - start))
+[ "$rc" -eq 143 ] && [ "$took" -le 10 ] && [ ! -e "$tmp/log.pid" ]
+verdict "TERM during the take ends the wait at once and runs no suite" \
+  "take signal: rc=$rc took=${took}s holders=$waiter" "$tmp/err"
+sp release gate "$h" >/dev/null
+
 # --- two runs sharing the pool never overlap -------------------------------------
 reset
 printf 'full_suite_pool: gate\nstep_pool_capacity_gate: 1\n' >"$tracked"
