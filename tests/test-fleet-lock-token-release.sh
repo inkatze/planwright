@@ -22,7 +22,7 @@ src="$here/../scripts"
 real_fs="$src/fleet-state.sh"
 
 fail() {
-  echo "FAIL: $1" >&2
+  printf '%s\n' "FAIL: $1" >&2
   exit 1
 }
 
@@ -111,7 +111,7 @@ expect_intact() {
   [ "$(cat "$3")" = intact ] || fail "$1: a release after the hold was cleared removed the successor's lock"
   [ ! -e "$2/.fleet.lock" ] && [ ! -L "$2/.fleet.lock" ] \
     || fail "$1: the fleet lock was left standing after the run"
-  echo "ok: $1 leaves a successor's lock standing when its own hold was cleared"
+  printf '%s\n' "ok: $1 leaves a successor's lock standing when its own hold was cleared"
 }
 
 now=$(date +%s)
