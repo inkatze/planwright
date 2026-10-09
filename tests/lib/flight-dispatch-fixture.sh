@@ -30,7 +30,7 @@ ESC=$(printf '\033')
 
 fails=0
 fail() {
-  echo "FAIL: $1" >&2
+  printf 'FAIL: %s\n' "$1" >&2
   fails=$((fails + 1))
 }
 
@@ -153,8 +153,8 @@ dispatch_print() {
 # finish <suite> — report the failure count and exit on it.
 finish() {
   if [ "$fails" -gt 0 ]; then
-    echo "$1: $fails failure(s)" >&2
+    printf '%s: %s failure(s)\n' "$1" "$fails" >&2
     exit 1
   fi
-  echo "$1: ok"
+  printf '%s: ok\n' "$1"
 }
