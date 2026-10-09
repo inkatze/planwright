@@ -104,7 +104,11 @@ fi
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/refresh-test-durations.XXXXXX")" \
   || die "could not create a temporary directory"
-trap 'rm -rf "$work"' EXIT
+out_tmp=""
+trap 'rm -rf "$work"; [ -z "$out_tmp" ] || rm -f "$out_tmp"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 
 : >"$work/discovered"
 for f in "$suite"/*.sh; do
