@@ -540,8 +540,10 @@ for heading in 'Lens coverage' 'Auto-applicable' 'Agent-resolvable' 'Needs sign-
 done
 printf '%s\n' "$b" | grep -q "an operator override included" || fail "brief does not keep the gate-wiring hard pauses"
 printf '%s\n' "$b" | grep -q "steps_convergence" || fail "brief does not name the flight convergence point"
-printf '%s\n' "$b" | grep -q 'and reads there without' \
+printf '%s\n' "$b" | grep -q 'issue .git. and reads there without' \
   || fail "REQ-E1.4: the brief must tell the worker to issue git without a cd"
+printf '%s\n' "$b" | grep -q 'prompts on a .cd. before a .git. call' \
+  || fail "REQ-E1.4: the brief must say why a cd before git still prompts"
 [ "$(printf '%s\n' "$b" | tail -n 1 | cut -c1-15)" = '`FLIGHT-RESULT:' ] || fail "brief does not end on the result line"
 printf '%s\n' "$b" | grep -Fq "flight-lifecycle.sh' push awaiting-decision $fid --handle print-flight-$fid --reason" \
   || fail "a hard pause must push the awaiting-decision lifecycle event"

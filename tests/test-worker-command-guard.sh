@@ -692,7 +692,7 @@ first_half() {
   # The verifier resolves exactly one class of expansion itself — a standalone,
   # unconditional, top-level assignment of a bare absolute path inside a trusted
   # root — and every other `$` in a verb still defers.
-  echo "### REQ-A1.9 — tracked assignment of a trusted-root path"
+  echo "### REQ-A1.9 / REQ-E1.2 — tracked assignments"
   HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
   assert_allow "tracked: the 2026-09-12 stalled command shape" \
     "P=$PLUGIN_ROOT && for d in a b c; do printf '%s -> ' \$d; \$P/scripts/plug.sh \$d; done; echo; grep -n 'Status:' specs/x.md | head" Bash "$PLUGIN_CWD"
@@ -715,56 +715,56 @@ first_half() {
   assert_allow "tracked: a lone assignment runs nothing" "P=$PLUGIN_ROOT" Bash "$PLUGIN_CWD"
   # NEGATIVES: every way the substitution could differ from what the shell does,
   # or name something the hook does not trust.
-  assert_defer "untracked: single-quoted '\$P' is literal" "P=$PLUGIN_ROOT && '\$P'/scripts/plug.sh x" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: backslash-escaped \\\$P is literal" "P=$PLUGIN_ROOT && \\\$P/scripts/plug.sh x" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: whole-word quoted 'P=..' is a command" "'P=$PLUGIN_ROOT' && \$P/scripts/plug.sh x" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: \${P:-x} modifier" "P=$PLUGIN_ROOT && \${P:-/tmp}/scripts/plug.sh x" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: unknown variable" "\$Q/scripts/plug.sh x" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: value outside every trusted root" "P=$SANDBOX/install/outside && \$P/evil.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: name-PREFIX decoy root as value" "P=$PLUGIN_DECOY && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: value with a glob" "P=$PLUGIN_ROOT/* && \$P/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: value with .. that escapes" "P=$PLUGIN_ROOT/../../.. && \$P/etc/x.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: value carries an expansion" "P=\$Q && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: tilde value" "P=~ && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: IFS even with a trusted value" "IFS=$PLUGIN_ROOT && \$IFS/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: PATH even with a trusted value" "PATH=$PLUGIN_ROOT && \$PATH/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: CDPATH" "CDPATH=$PLUGIN_ROOT && \$CDPATH/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: BASH_ENV" "BASH_ENV=$PLUGIN_ROOT && \$BASH_ENV/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: PS4" "PS4=$PLUGIN_ROOT && \$PS4/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: an exported name (HOME)" "HOME=$PLUGIN_ROOT && \$HOME/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: single-quoted '\$P' is literal" "P=$PLUGIN_ROOT && '\$P'/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+  assert_defer "defer: backslash-escaped \\\$P is literal" "P=$PLUGIN_ROOT && \\\$P/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+  assert_defer "defer: whole-word quoted 'P=..' is a command" "'P=$PLUGIN_ROOT' && \$P/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+  assert_defer "defer: \${P:-x} modifier" "P=$PLUGIN_ROOT && \${P:-/tmp}/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+  assert_defer "defer: unknown variable" "\$Q/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+  assert_defer "defer: value outside every trusted root" "P=$SANDBOX/install/outside && \$P/evil.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: name-PREFIX decoy root as value" "P=$PLUGIN_DECOY && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: value with a glob" "P=$PLUGIN_ROOT/* && \$P/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: value with .. that escapes" "P=$PLUGIN_ROOT/../../.. && \$P/etc/x.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: value carries an expansion" "P=\$Q && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: tilde value" "P=~ && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: IFS even with a trusted value" "IFS=$PLUGIN_ROOT && \$IFS/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: PATH even with a trusted value" "PATH=$PLUGIN_ROOT && \$PATH/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: CDPATH" "CDPATH=$PLUGIN_ROOT && \$CDPATH/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: BASH_ENV" "BASH_ENV=$PLUGIN_ROOT && \$BASH_ENV/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: PS4" "PS4=$PLUGIN_ROOT && \$PS4/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: an exported name (HOME)" "HOME=$PLUGIN_ROOT && \$HOME/scripts/plug.sh" Bash "$PLUGIN_CWD"
   HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "P=/already-exported")
-  assert_defer "untracked: a name present in the hook's environment" "P=$PLUGIN_ROOT && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: a name present in the hook's environment" "P=$PLUGIN_ROOT && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
   HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
-  assert_defer "untracked: assignment conditional after a command (&&)" "true && P=$PLUGIN_ROOT; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: assignment conditional after a command (||)" "false || P=$PLUGIN_ROOT; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: assignment inside a loop body" "for d in a; do P=$PLUGIN_ROOT; done; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: assignment inside an if body" "if true; then P=$PLUGIN_ROOT; fi; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: assignment in a pipeline" "P=$PLUGIN_ROOT | cat; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: assignment backgrounded" "P=$PLUGIN_ROOT & \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: assignment PREFIX still defers" "P=$PLUGIN_ROOT \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: the table does not cross into fish -c" "P=$PLUGIN_ROOT && fish -c '\$P/scripts/plug.sh'" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: substituted verb still needs a trusted script" "P=$PLUGIN_ROOT && \$P/notscripts.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: substituted path with .. escaping" "P=$PLUGIN_ROOT && \$P/scripts/../../outside/evil.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: substitution never widens the verb set" "P=$PLUGIN_ROOT && rm -rf \$P" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: a closer with no opener" "P=$PLUGIN_ROOT; fi; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: assignment conditional after a command (&&)" "true && P=$PLUGIN_ROOT; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: assignment conditional after a command (||)" "false || P=$PLUGIN_ROOT; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: assignment inside a loop body" "for d in a; do P=$PLUGIN_ROOT; done; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: assignment inside an if body" "if true; then P=$PLUGIN_ROOT; fi; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: assignment in a pipeline" "P=$PLUGIN_ROOT | cat; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: assignment backgrounded" "P=$PLUGIN_ROOT & \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: assignment PREFIX still defers" "P=$PLUGIN_ROOT \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: the table does not cross into fish -c" "P=$PLUGIN_ROOT && fish -c '\$P/scripts/plug.sh'" Bash "$PLUGIN_CWD"
+  assert_defer "defer: substituted verb still needs a trusted script" "P=$PLUGIN_ROOT && \$P/notscripts.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: substituted path with .. escaping" "P=$PLUGIN_ROOT && \$P/scripts/../../outside/evil.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: substitution never widens the verb set" "P=$PLUGIN_ROOT && rm -rf \$P" Bash "$PLUGIN_CWD"
+  assert_defer "defer: a closer with no opener" "P=$PLUGIN_ROOT; fi; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
   # The boundaries the tracker turns on, each one a verdict a one-token mutant
   # flips: a literal `\$` inside double quotes, quoting that starts exactly on
   # the `=`, the two expand_word shapes that leave the `$` in place, the newline
   # separator, nesting, and the environment-name probe against the names the
   # dispatch wrapper actually exports.
-  assert_defer "untracked: double-quoted \"\\\$P\" is literal" "P=$PLUGIN_ROOT && \"\\\$P\"/scripts/plug.sh x" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: quoting that starts on the = makes a command word" "P\"=\"$PLUGIN_ROOT && \$P/scripts/plug.sh x" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: unterminated \${P" "P=$PLUGIN_ROOT && \${P/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: \$Pfoo is another name" "P=$PLUGIN_ROOT && \$Pfoo/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: double-quoted \"\\\$P\" is literal" "P=$PLUGIN_ROOT && \"\\\$P\"/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+  assert_defer "defer: quoting that starts on the = makes a command word" "P\"=\"$PLUGIN_ROOT && \$P/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+  assert_defer "defer: unterminated \${P" "P=$PLUGIN_ROOT && \${P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: \$Pfoo is another name" "P=$PLUGIN_ROOT && \$Pfoo/scripts/plug.sh" Bash "$PLUGIN_CWD"
   assert_allow "tracked: newline-separated" "P=$PLUGIN_ROOT
 \$P/scripts/plug.sh x" Bash "$PLUGIN_CWD"
   assert_allow "tracked: used inside an if nested in a for" "P=$PLUGIN_ROOT; for d in a; do if true; then \$P/scripts/plug.sh x; fi; done" Bash "$PLUGIN_CWD"
   HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "LD_PRELOAD=/already-exported")
-  assert_defer "untracked: an exported LD_PRELOAD is refused as a name" "LD_PRELOAD=$PLUGIN_ROOT && \$LD_PRELOAD/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: an exported LD_PRELOAD is refused as a name" "LD_PRELOAD=$PLUGIN_ROOT && \$LD_PRELOAD/scripts/plug.sh" Bash "$PLUGIN_CWD"
   HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
-  assert_defer "untracked: PLANWRIGHT_ROOT, exported by the dispatch wrapper" "PLANWRIGHT_ROOT=$PLUGIN_ROOT && \$PLANWRIGHT_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: PLANWRIGHT_ROOT, exported by the dispatch wrapper" "PLANWRIGHT_ROOT=$PLUGIN_ROOT && \$PLANWRIGHT_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
   HOOK_ENV=("CLAUDE_PLUGIN_ROOT=$PLUGIN_ROOT")
-  assert_defer "untracked: CLAUDE_PLUGIN_ROOT, exported by the dispatch wrapper" "CLAUDE_PLUGIN_ROOT=$PLUGIN_ROOT && \$CLAUDE_PLUGIN_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: CLAUDE_PLUGIN_ROOT, exported by the dispatch wrapper" "CLAUDE_PLUGIN_ROOT=$PLUGIN_ROOT && \$CLAUDE_PLUGIN_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
   HOOK_ENV=()
 
   # The hook sees the command unexpanded, so a word whose value it cannot see
@@ -999,6 +999,19 @@ first_half() {
   assert_allow "REQ-E1.2: tracked assignments up to the bound" "${CHAIN32}find . -name \$v32"
   assert_defer "REQ-E1.2: tracked assignments past the bound defer" "${CHAIN32}v33=x && find . -name \$v33"
   assert_defer "REQ-E1.2: fish -c has no NAME=value statement" "fish -c 'X=README.md; cat \$X'"
+  # Each opacity row against its control: the same shape with no rewrite
+  # resolves, so only the rewriting form can be what defers it.
+  assert_allow "REQ-A1.12: control, a tracked flag reaching find" "f=-name && find . \$f a.sh"
+  assert_defer "REQ-A1.12: read after a tracked assignment makes it opaque" "f=-name && read f && find . \$f a.sh"
+  assert_defer "REQ-A1.12: printf -v after a tracked assignment" "f=-name && printf -v f x && find . \$f a.sh"
+  assert_defer "REQ-A1.12: mapfile after a tracked assignment" "f=-name && mapfile f < g && find . \$f a.sh"
+  assert_defer "REQ-A1.12: declare after a tracked assignment" "f=-name && declare f=-delete && find . \$f"
+  assert_defer "REQ-A1.12: typeset after a tracked assignment" "f=-name && typeset f=-delete && find . \$f"
+  assert_defer "REQ-A1.12: local after a tracked assignment" "f=-name && local f=-delete && find . \$f"
+  assert_defer "REQ-A1.12: export after a tracked assignment" "f=-name && export f=-delete && find . \$f"
+  assert_defer "REQ-A1.12: readarray after a tracked assignment" "f=-name && readarray f < g && find . \$f a.sh"
+  assert_defer "REQ-A1.12: let after a tracked assignment" "n=1 && let n=2 && sed -n \${n}p f"
+  assert_defer "REQ-A1.12: arithmetic after a tracked assignment" "n=1 && ((n++)) && sed -n \${n}p f"
   assert_defer "REQ-A1.12: read makes the variable opaque" "read f; find . \$f"
   assert_defer "REQ-A1.12: printf -v makes the variable opaque" "printf -v f x && find . \$f"
   assert_defer "REQ-A1.12: mapfile makes the variable opaque" "mapfile -t a < f; find . \${a[0]}"
@@ -1042,6 +1055,28 @@ first_half() {
   assert_allow "REQ-E1.5: jq --version" "jq --version"
   assert_allow "REQ-E1.5: shellcheck --version" "shellcheck --version"
   assert_allow "REQ-E1.5: git --version" "git --version"
+  for tool in git gh jq yq rg fd sed awk find grep sort uniq date file bash sh fish bats mise lefthook \
+    shellcheck shfmt yamllint markdownlint markdownlint-cli2 cat head tail wc ls diff stat od tr seq \
+    cut comm cmp basename dirname realpath readlink nl paste column md5sum sha1sum sha256sum \
+    sha512sum cksum env printenv sleep ps uptime which; do
+    assert_allow "REQ-E1.5: $tool --version" "$tool --version"
+  done
+  for f in -p --pretty -s --since; do
+    assert_allow "REQ-E1.5: uptime $f" "uptime $f"
+  done
+  for f in -q --quiet -v --verbose -n --non-matching --no-index -z; do
+    assert_allow "REQ-E1.5: git check-ignore $f" "git check-ignore $f x"
+  done
+  for f in -h --heads -b --branches -t --tags --refs -q --quiet --exit-code --get-url --symref --sort=refname; do
+    assert_allow "REQ-E1.5: git ls-remote $f" "git ls-remote $f origin" Bash "$WT"
+  done
+  for f in -A -a -d -e -f -F -H -j -l -L -M -m -T -w -x -y -Z --no-headers --forest; do
+    assert_allow "REQ-E1.5: ps $f" "ps $f"
+  done
+  for f in "-p 1" "-u root" "-o pid,etime" "--sort pid" "--pid=1" "ax" "axwww" "1,2"; do
+    assert_allow "REQ-E1.5: ps $f" "ps $f"
+  done
+  assert_allow "REQ-E1.5: which -a and -s" "which -a -s git"
   assert_defer "REQ-E1.5: sleep with an opaque operand" "sleep \$X"
   assert_defer "REQ-E1.5: sleep with a non-numeric operand" "sleep forever"
   assert_defer "REQ-E1.5: sleep with no operand" "sleep"
