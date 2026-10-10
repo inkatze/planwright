@@ -1,7 +1,7 @@
 # Fleet Hardening — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-10-04
+**Last reviewed:** 2026-10-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -412,10 +412,114 @@ the same launch function, so it waits for Task 12 rather than running beside it.
 - **Citations:** D-10, D-13 · REQ-H1.5, REQ-H1.6
 - **Estimated effort:** 1 day
 
+### Task 15 — The session mark records its kind
+
+- **Deliverables:** The plugin prompt hook and the activation handshake that write
+  `tower-placement`'s session mark record the kind of command that marked the session (`tower` for
+  `/tower`, `orchestrate` for `/orchestrate`, bare or plugin-namespaced). The handshake gains two
+  fixed spellings, one per kind, matched only when the whole command equals one of them;
+  `tower-placement`'s original spelling becomes the `orchestrate` spelling and its handshake tests
+  move to the two spellings; `skills/tower/SKILL.md` runs the `tower` spelling and
+  `skills/orchestrate/SKILL.md` the `orchestrate` one at bring-up and each on-request posture
+  check. A mark written as `tower` keeps that kind when a later `/orchestrate` refreshes it, and a
+  kindless or `orchestrate` mark becomes `tower` when the `/tower` handshake re-marks it. The policy
+  guard exposes a read of the kind under the store's existing safety bar, returning `tower` for an
+  unsearchable store, a mark that fails the store's check, or an unknown kind value. Marks written
+  before this task carry no kind and read as `orchestrate`.
+- **Done when:** tests show a `/tower` prompt, a `/planwright:tower` prompt, and the `tower`
+  handshake each write kind `tower`; an `/orchestrate` prompt and the `orchestrate` handshake (the
+  original spelling) each write `orchestrate`; each spelling is refused with the "active" message
+  and its body never runs; a command that contains a spelling without equalling it marks nothing;
+  an `/orchestrate` refresh of a `tower` mark leaves it `tower`; the `tower` handshake turns a
+  kindless and an `orchestrate` mark into `tower`; a kindless mark reads `orchestrate`; an
+  unsearchable store, a tampered mark, and an unknown kind each read `tower`;
+  `tests/test-tower-skill.sh` and its `/orchestrate` counterpart find each skill running its own
+  spelling; the mark store's safety-bar and pruning tests pass unchanged, and its handshake tests
+  pass on the two spellings. tests/CI pass.
+- **Dependencies:** none
+- **Citations:** D-18, D-19 · REQ-I1.4, REQ-I1.5
+- **Estimated effort:** half day
+
+### Task 16 — The file-tool authoring floor
+
+- **Deliverables:** One PreToolUse entry in `hooks/hooks.json` matching exactly Edit, Write, and
+  NotebookEdit, with an explicit timeout set as `tower-placement` REQ-C1.5 requires and the harness
+  default on hook failure, running the policy guard on a new file surface. The surface runs the
+  in-shell prefilter first and defers an unmarked session there. In a marked session it reads the
+  kind; it denies a target inside the mark store in any marked session; an `orchestrate`-kind
+  session otherwise defers. In a `tower`-kind session it denies, with a constant reason naming the
+  rule and the route (a flight, or the operator for a machine-local uncommitted file), a target
+  inside any git repository, Claude Code's user settings files, or the plugin's installed root,
+  judged for both the lexically normalized and the canonical path, the session's own memory
+  directory exempt; it denies on an unreadable or oversized payload, a tool name outside the
+  three, a target that is absent, empty, not a string, or not absolute, a target that cannot be
+  canonicalized, or a git that cannot run; it defers otherwise, by exit 0 with no decision output.
+- **Done when:** an adversarial suite in `tests/test-policy-guard.sh` (or a sibling file it names)
+  passes, every case in a `tower`-kind session unless stated:
+  - Edit, Write, and NotebookEdit into the primary checkout, a linked worktree, the git directory,
+    a separate clone of the same project, and a clone of an unrelated project are denied, as are a
+    checkout root itself, a not-yet-existing nested path, a `..` path climbing back in, an in-repo
+    symlink to outside followed by `..`, a temp-directory symlink into a checkout, a temp file that
+    is a symlink into a checkout, and a dangling symlink whose target lies in a checkout;
+  - a `.GIT` spelling on a case-insensitive volume denies where the platform allows the fixture;
+  - Claude Code's user settings files and the plugin's installed root are denied, and the
+    session's memory directory defers;
+  - a target inside the mark store is denied in a `tower`-kind and an `orchestrate`-kind session;
+  - a temp-file target, a path outside every repository, and a sibling path sharing a checkout's
+    string prefix (`<checkout>-other/f`) defer;
+  - an oversized payload, a malformed payload, a tool name outside the three, a missing target
+    field, a relative target, and a git that cannot run each deny, and so does a signal at the
+    guard's pause point;
+  - the deny reason equals the constant naming the rule and the word "flight";
+  - in an `orchestrate`-kind session every in-repository call defers, a malformed payload
+    included; in an unmarked session every call defers and logging stubs on `PATH` record no
+    external command, with a static check finding no command substitution, pipeline, or subshell
+    in the file surface's prefilter;
+  - the guard never emits allow on this surface, and every defer exits 0 with no decision output;
+  - a check finds exactly one PreToolUse entry in `hooks/hooks.json` whose matcher matches Edit,
+    Write, and NotebookEdit and no other tool, running the file surface, with a timeout above the
+    guard's whole-call deadline plus margin and below the harness default.
+
+  tests/CI pass.
+- **Dependencies:** 15
+- **Citations:** D-17, D-18 · REQ-I1.1, REQ-I1.2, REQ-I1.3, REQ-I1.5, REQ-I1.7
+- **Estimated effort:** 1 day
+
+### Task 17 — Posture report, skill, profile, and docs
+
+- **Deliverables:** The `/tower` bring-up and on-request posture report states whether the
+  authoring floor is active, counting it active only when the plugin's hook refuses the `tower`
+  handshake with its "active" message and the session's mark then reads `tower`, and naming it
+  missing or broken otherwise. `skills/tower/SKILL.md` replaces "The posture allows Edit and
+  Write; not authoring is this skill's own rule" with the refusal and its route.
+  `config/tower-settings.json`'s `_about` and `docs/tower-posture-delta.md` describe the
+  plugin-wired file-tool deny for `/tower` sessions, that it is expected to hold over the profile's
+  Edit and Write allow, and that shell-spelled writes are outside it. `docs/fleet.md`'s tower floor
+  section states the floor, the window in which a mark written before kinds existed leaves a
+  running tower unfloored until it is re-marked, and that an `/orchestrate` run inside a `/tower`
+  session has its in-repository writes refused.
+- **Done when:** `tests/test-tower-skill.sh` finds the posture step naming the authoring floor and
+  tying "active" to the handshake refusal and the `tower` kind; a grep over `skills/`, `config/`,
+  and `docs/` finds no "The posture allows Edit and Write" sentence, the line-wrapped form
+  included; `check:instructions`, `check:links`, and `lint:md` pass; the PR description records live
+  runs with the plugin loaded from the PR branch's checkout (`claude --plugin-dir <checkout>`): a
+  `/tower` session launched with the tower profile and one launched with plain `claude` each show
+  the hook's deny reason on a Write tool call into the checkout (not the model declining to make
+  one) while a Write into a `mktemp` file goes through, a Write issued by an Agent subagent of the
+  `/tower` session is refused the same way, and the posture report reads active there and not
+  active in a session with the plugin's hooks missing. tests/CI pass.
+- **Dependencies:** 16
+- **Citations:** D-18 · REQ-I1.1, REQ-I1.4, REQ-I1.6
+- **Estimated effort:** half day
+
 ## Awaiting input
 
 ## Deferred
 
+- **Task 15** — Builds on `tower-placement`'s session mark and plugin-wired floor, which are
+  not on `main` yet; the later tasks of this extension depend on it. Confidence: high.
+  **Gate:** GATE(when: spec tower-placement done).
+  Citations: D-19 · REQ-I1.4.
 - **Retire the prior launcher's liveness probe.** D-14 keeps a liveness probe for the prior
   launcher's `<repo-basename>_worktree-<suffix'>` session spelling so workers started before the
   detached launch still read as live. Once no such worker can be running, the probe matches
