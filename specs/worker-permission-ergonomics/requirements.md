@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-10-05
+**Last reviewed:** 2026-10-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -174,11 +174,19 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   EVERY segment of a compound command (quote-aware split on `;`, `&&`, `||`,
   `|`, `&`, and newlines) is independently approvable, the segments analysed
   in run order so state a segment establishes (the working directory, a
-  variable's value) is applied to the segments after it. State SHALL carry
-  only from a segment that runs unconditionally in the current shell to a
-  successor joined by `&&`; a state-setting segment followed by any other
-  operator, inside a pipeline, backgrounded, or under a prefix such as
-  `timeout`, SHALL defer the command. Any segment that assigns a variable by a
+  variable's value) is applied to the segments after it. A segment runs
+  unconditionally when it is the first segment, or is opened by `;` or a
+  newline, or by `&&` directly after a state-setting segment (an assignment
+  or a `cd`) that itself carried state. State SHALL carry only from a segment
+  that runs unconditionally in the current shell to a successor joined by
+  `&&`, except that a REQ-E1.2 plain assignment also carries to a successor
+  joined by `;`, a newline, or `||`, because it cannot fail: its name passes
+  the name screen, and a value holding a substitution carries only opaque
+  state. A state-setting segment followed by any other operator, inside a
+  pipeline, backgrounded, or under a prefix such as `timeout`, SHALL defer
+  the command; a `cd`'s directory carries only through an unbroken `&&`
+  chain, so a `;`, newline, or `||` reached while it is in force defers the
+  command even past an intervening assignment. Any segment that assigns a variable by a
   means other than a REQ-E1.2 plain assignment (`read`, `printf -v`,
   `mapfile`/`readarray`, `declare`/`typeset`/`local`/`export` with a value,
   `let`, `((…))`, or a loop the REQ-E1.1 modelling does not cover) SHALL make
@@ -192,8 +200,14 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   arm admits (REQ-F1.3, REQ-F1.4); subshell or brace grouping; or an
   unrecognized verb. File-descriptor duplication or closing whose operand is a
   digit or `-` is not a file write and does not defer.
-  *(Cites: D-3, D-11, D-19; obs:885bc3c9, obs:01629047; the live-run prompt
-  replay (Sources).)*
+  *(Amended at the 2026-10-10 extension: a plain assignment also carries
+  across `;` and `||` (D-24).)*
+  *(Amended at the 2026-10-10 extension kickoff: the newline, the
+  "runs unconditionally" definition, the substitution-valued case, and the
+  `cd` chain rule pinned to the shipped guard.)*
+  *(Cites: D-3, D-11, D-19, D-24; obs:885bc3c9, obs:01629047; the live-run
+  prompt replay; the Task 6 review forks (Sources); brief Amendment 3
+  (2026-10-10).)*
 - **REQ-A1.5** The known-safe set SHALL be an explicit enumerated allowlist of
   verbs and invocation shapes — never a category match — comprising: plugin/repo
   `scripts/*.sh` and `tests/*.sh` executed directly or via `bash`/`sh <path>`
@@ -420,8 +434,9 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
 
 - **REQ-E1.1** A word carrying an unresolved or opaque `$` expansion (a
   variable the same command did not assign a plain literal, a special
-  parameter such as `$_` or `$?` used as an operand, or a variable assigned
-  from a substitution) SHALL defer wherever the verb's approval depends on that
+  parameter such as `$_` or `$?` used as an operand, a variable assigned
+  from a substitution, or a use REQ-E1.2 leaves unresolved) SHALL defer
+  wherever the verb's approval depends on that
   word's value: an operand of a verb with flag or argument screens, a verb
   position, or a path the hook containment-checks. A `for` loop variable SHALL
   be modelled by verifying the loop body once per plain-literal head word with
@@ -430,19 +445,38 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   whole loop defers past the bound; it is never verified in part). The worker
   guard and the tower command guard, which
   shares the operand screens, SHALL both carry this rule.
-  *(Cites: D-11; obs:9255e1d1; drafting-session decision (2026-10-05).)*
+  *(Amended at the 2026-10-10 extension kickoff: a use REQ-E1.2 leaves
+  unresolved counts as unresolved here.)*
+  *(Cites: D-11, D-25; obs:9255e1d1; drafting-session decision (2026-10-05).)*
 - **REQ-E1.2** A plain assignment `NAME=<plain literal>` segment SHALL be
   approvable, and a later `$NAME` or `${NAME}` in the same command SHALL be
-  analysed as that literal (quoted or unquoted, with unquoted word splitting
-  reproduced), for any literal value and not only a trusted-root path. Only
+  analysed as that literal, for any literal value and not only a trusted-root
+  path. A value holding a space SHALL resolve only in a word whose every
+  expansion lies inside double quotes (literal text around them may be
+  unquoted), where it stays one word in every shell; unquoted, bash splits
+  it and zsh (the Bash tool's shell on macOS) does not, so the use SHALL stay
+  unresolved under REQ-E1.1. A tab or newline is outside the plain-literal
+  set and leaves the variable opaque. An empty value SHALL remove an
+  unquoted word made only of expansions that all come out empty, as both
+  shells do; literal text joined to the expansion stays. Only
   the value rule widens: the shipped guard's name screen (`assign_name_ok`:
   shell-consumed names such as `PATH`, `IFS`, `CDPATH`, `HOME`, `TMPDIR`, and
-  `BASH*`, and any name exported in the hook's environment) and its
+  `BASH*`, every name bash or zsh keeps readonly, evaluates as arithmetic,
+  or sets itself, and any name exported in the hook's environment) and its
   unconditional top-level placement rule still apply, and a refused name
   defers the command. An
   assignment whose value carries a quote the analyzer does not model, a glob,
-  or an expansion SHALL leave the variable opaque.
-  *(Cites: D-19; obs:885bc3c9, obs:23a619c0.)*
+  an expansion, or a `=` that zsh expands in an assignment (leading the
+  value, or following a `:`) SHALL leave the variable opaque.
+  *(Amended at the 2026-10-10 extension: unquoted word splitting is no longer
+  reproduced; a whitespace-bearing value resolves only inside double quotes
+  (D-25).)*
+  *(Amended at the 2026-10-10 extension kickoff: the quoting, empty-word,
+  and tab/newline readings pinned to the shipped guard; the name screen
+  covers both shells' readonly and self-set names, and a zsh-expanded `=`
+  makes the value opaque (Task 6.1).)*
+  *(Cites: D-19, D-25; obs:885bc3c9, obs:23a619c0, obs:8d46a461; the Task 6
+  review forks (Sources); brief Amendment 3 (2026-10-10).)*
 - **REQ-E1.3** A `$(…)` substitution SHALL be approvable only when all of these
   hold: its inner text is a single simple command or pipeline that
   independently passes the read-only analysis; it contains no nested
@@ -475,8 +509,23 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   operands are a configured remote name and optional ref patterns (no URL or
   path, no `--upload-pack`/`-u`), and the `--version` form of an allowlisted
   tool; the exhaustive membership is
-  carried by the implementation and pinned by the suite.
-  *(Cites: D-19; the live-run prompt replay (Sources).)*
+  carried by the implementation and pinned by the suite. Every `ps` form that
+  can print process environments SHALL defer: an `e` option letter in a dash
+  cluster (`-e`, `-ef`, `-Ae`) or a dashless BSD flag word (`e`, `auxe`), and
+  a format naming an environment field (`-o env`, `-o environ`).
+  *(Amended at the 2026-10-10 extension kickoff: the `ps` environment forms
+  stated.)*
+  *(Cites: D-19, D-26; the live-run prompt replay (Sources).)*
+- **REQ-E1.6** A read of another process's environment SHALL defer whatever
+  the route: a guard-analysed operand or redirect source that names an
+  `environ` file under `/proc` other than `/proc/self/environ` or
+  `/proc/thread-self/environ`, or a glob that could match one; the profile
+  SHALL deny the `Read` tool on `/proc/*/environ`; and no new static Bash
+  allow rule SHALL name a verb that prints the content of an arbitrary path
+  operand (REQ-G1.1).
+  The worker's own environment stays readable, as `env` and `printenv`
+  already are.
+  *(Cites: D-27; brief Amendment 3 (2026-10-10).)*
 
 ## REQ-F — The self-approval policy
 
@@ -556,11 +605,13 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
 ## REQ-G — Profiles, delivery, and the unattended contract
 
 - **REQ-G1.1** `config/worker-settings.json` SHALL ship a static read-only
-  allow set scoped to the worker profile, covering `grep`, `cat`, `head`,
-  `tail`, `wc`, `ls`, `jq`, `cut`, `diff`, `stat`, and the read-only `git`
-  subcommands Task 12 enumerates, so an adopter needs no user-scope allow
-  rule. Because a static rule bypasses the guard's argument screens, no new
-  rule SHALL name a verb or subcommand that has a file-writing or
+  allow set scoped to the worker profile, covering `wc`, `ls`, `stat`, and
+  the read-only `git` subcommands Task 12 enumerates, so an adopter needs no
+  user-scope allow rule. Because a static rule bypasses the guard's argument
+  screens, no new rule SHALL name a verb that prints the content of an
+  arbitrary path operand (`cat`, `grep`, `head`, `tail`, `cut`, `diff`, `jq`:
+  each would read another process's environment, REQ-E1.6), nor a verb or
+  subcommand that has a file-writing or
   program-running form (for `git`: no `log`, `show`, `diff`, or other
   diff-family subcommand, which take `--output`; no `grep`, which takes
   `-O`; no `cat-file`, which takes `--textconv`): the set SHALL NOT include
@@ -572,7 +623,9 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   permission-matcher fixture table, and the matcher test SHALL fail on an
   allow rule with no fixture row.
   *(Amended at kickoff 2026-10-05: `sed -n`, `sort`, and `uniq` dropped.)*
-  *(Cites: D-15; the dotfiles stopgap (Sources); obs:65c35236.)*
+  *(Amended at the 2026-10-10 extension kickoff: the seven content-printing
+  verbs dropped (D-27).)*
+  *(Cites: D-15, D-27; the dotfiles stopgap (Sources); obs:65c35236.)*
 - **REQ-G1.2** The worker launcher SHALL create a per-worker scratch root
   owned by the worker, export it as the worker's `TMPDIR`, and record it in
   the session record (REQ-G1.8); the guard SHALL treat no other directory as
@@ -658,6 +711,43 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   *(Cites: D-21; obs:9255e1d1; drafting-session decision (2026-10-05).)*
 
 ## Changelog
+
+- 2026-10-10 — Delta kickoff via `/spec-kickoff` (brief Amendment 3),
+  meaning-class. The walk names the newline beside `;` and `||` in
+  REQ-A1.12 and D-24 (the merged guard and its suite already carry it).
+  The sign-off lens pass pins the readings the merged guard already takes:
+  REQ-A1.12 defines "runs unconditionally", narrows "cannot fail" to
+  substitution-free values, and states the `cd` chain rule; REQ-E1.1 counts
+  REQ-E1.2's unresolved use; REQ-E1.2 pins quoting, empty-word, and
+  tab/newline readings and widens the name-screen statement to both shells'
+  readonly and self-set names. REQ-E1.5 and D-26 state the `ps` environment
+  forms. Two gaps in the merged guard are found and given Task 6.1 (Task 7
+  now depends on it): zsh special names the name screen misses and the `=`
+  zsh expands in an assignment value, and reads of other processes'
+  environments under `/proc`. Mints REQ-E1.6 and D-27 for that boundary;
+  REQ-G1.1, D-15, and Task 12 drop the seven content-printing verbs from the
+  static set and add a `Read` deny rule. Task 6's text is aligned with what
+  it shipped. Test-spec entries for REQ-A1.12, REQ-E1.2, REQ-E1.5, REQ-G1.1
+  gain discriminating fixtures; REQ-E1.6 gets its entry. D-26's source claim
+  is narrowed to the cited pages.
+
+- 2026-10-10 — Bundle extended via `/spec-draft` to match three operator
+  decisions taken while Task 6's PR (#637) was in review, which the merged
+  guard already implements. Reopen cycle: stored Ready→Draft on all four
+  headers, although the bundle derives Active (Task 8 in progress), because
+  the content-anchor gate refuses an unanchored edit to a signed bundle and
+  a v2 bundle has no valid park form; the `/spec-kickoff` delta
+  re-walkthrough flips it back and re-anchors before this branch merges, so
+  main and Task 8 never see the Draft status. REQ-A1.12 and REQ-E1.2 are amended in place rather
+  than superseded, an operator choice at this drafting session (2026-10-10)
+  that keeps the guard suite's fixture labels and the task citations valid;
+  the kickoff classifies both as meaning-class. REQ-A1.12 widens: a plain
+  assignment also carries across `;` and `||` (D-24). REQ-E1.2 narrows: a
+  whitespace-bearing value resolves only inside double quotes (D-25). The
+  REQ-E1.5 test-spec entry now pins every `ps` form carrying `-e` as
+  deferring (D-26); the REQ text, whose membership the implementation
+  carries, is unchanged beyond the citation. Mints D-24, D-25, D-26; D-19
+  carries an amendment note. No task block changes.
 
 - 2026-10-05 — Bundle extended via `/spec-draft` (reopen cycle: stored
   Ready→Draft on all four headers; the scoped kickoff of the delta flips it
@@ -797,7 +887,9 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   widened the operator's interactive sessions too, which REQ-G1.1 undoes.
   REQ-G1.1 moves it to the profile minus `sed -n`, `sort`, `uniq`, and `cd`
   (kickoff 2026-10-05: each has a write or execution form a static rule
-  cannot screen).
+  cannot screen), and minus `grep`, `cat`, `head`, `tail`, `jq`, `cut`, and
+  `diff` (kickoff 2026-10-10: each prints an arbitrary path's content,
+  D-27).
 - **The live-run prompt replay (2026-10-05)** — a read-only replay, during
   drafting, of every Bash permission request journaled by the stream-json
   supervisor between 2026-10-02 and 2026-10-05 through the then-current guard.
@@ -857,3 +949,20 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   (left unconsumed).
 - **obs:fd1824a4** — the standing-decision settle does not deliver, gating
   D-18's deferral (left unconsumed).
+- **The Task 6 review forks** — the "Open spec forks" list in the
+  description of PR #637 (merged 2026-10-10) and its review record: the
+  three interpretation forks between the signed text and the reviewed guard,
+  with the operator's decisions of 2026-10-09 ("Refuse -e" among them).
+  Framed D-24, D-25, and D-26.
+- **obs:8d46a461** — the shared guard tokenizer models bash while the Bash
+  tool runs zsh on macOS; background for D-25 (left unconsumed: its
+  shared-tokenizer root fix is outside this delta).
+- **Research: the `ps(1)` manual pages** (consulted 2026-10-10) — FreeBSD's
+  page documents `-e` as "Display the environment as well"; Apple's
+  (`adv_cmds`) documents `-e` as identical to `-A` with `-E` printing the
+  environment, and `-e` printing it under the legacy mode; Linux procps's
+  page documents the BSD-style `e` modifier as "Show the environment after
+  the command". Grounds D-26.
+- **The `proc(5)` manual page** (consulted 2026-10-10) — `/proc/<pid>/environ`
+  holds a process's initial environment, readable by a process of the same
+  user. Grounds D-27.

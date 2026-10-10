@@ -690,3 +690,271 @@ Class: meaning
 Lens-pass: §9 Amendment 2, 2.8 (delta-scoped fan-out, one reviewer per lens plus the declared security lens; canonical lens-coverage table above; all findings dispositioned — applied)
 Anchor: `fe407f11a05100bbfee2657922428ae9f673e5db` — computed as
 `scripts/spec-anchor.sh specs/worker-permission-ergonomics`
+
+### Amendment 3 — 2026-10-10 (reopen: align with the merged guard, delta kickoff)
+
+#### 3.1 Header
+
+- **Mode:** reopened-bundle delta kickoff (Status Draft with a complete signed
+  brief, the reopen cycle). The sign-off flips Draft→Ready again. The bundle
+  derives Active on main (Task 8 in flight); the reopen exists only on this
+  branch, per the 2026-10-10 Changelog entry.
+- **Delta:** the 2026-10-10 `/spec-draft --extend` commit plus this
+  kickoff's edits; the bundle's two `## Changelog` 2026-10-10 entries (the
+  extension and the delta kickoff) are the authoritative list.
+- **Spec commit at walkthrough start:** `b7e159a`
+- **Walkthrough date:** 2026-10-10
+- **Validator outcome (pre-flight):** clean, 0 errors, 0 warnings
+  (`scripts/spec-validate.sh`)
+- **Config:** `commit_on_kickoff: true`, `mark_spec_pr_ready_on_kickoff: true`,
+  `kickoff_ready_ci_wait: 10m` (defaults; no local override)
+- **Working location:** spec worktree on `planwright/worker-permission-ergonomics/spec`,
+  clean tree; the prior kickoff PR (#582) is merged, so this delta gets a new
+  spec PR.
+- **Decision/transcript log:** no harness-provided log in this session; the
+  mirror is skipped.
+
+#### 3.2 Goal & glossary (delta)
+
+**Restatement.** The guard merged in PR #637 implements three operator
+decisions of 2026-10-09 that depart from the signed text; this delta writes
+them back so the signed spec matches the shipped guard before the remaining
+guard tasks build on it. Wider: a plain assignment carries its value across
+`;`, a newline, and `||` as well as `&&` (D-24); `cd` and every other
+state-setting segment stay `&&`-only. Narrower: a whitespace-bearing value
+resolves only inside double quotes, the one form bash and zsh agree on
+(D-25). Narrower: every `ps` form carrying `-e` defers, with `ps -A` the
+approved spelling (D-26). *(The newline came from §3.3's E1; §3.8's lens
+pass widened the delta with REQ-E1.6, D-27, and Task 6.1.)*
+
+**Rules out:** the shared-tokenizer zsh root fix (obs:8d46a461 stays
+unconsumed). *(As walked this also ruled out task-block changes; §3.5 and
+§3.8 reopened that: Task 6.1 added, Tasks 6, 7, and 12 edited.)*
+
+**Assumes:** the merged guard implements all three; D-24's "cannot fail"
+rests on the name screen covering both shells' readonly and self-set names.
+*(As walked this read "which `assign_name_ok` does"; §3.8's lens pass found
+zsh `zsh/parameter` read-only names it misses, now Task 6.1.)*
+
+**Implicit terms resolved:**
+
+- **Runs unconditionally** (REQ-A1.12, D-24): the segment is opened by
+  nothing, by `;` or a newline, or by `&&` directly after another
+  state-setting segment that itself carried state; an assignment after
+  `||`, or after a real command's `&&`, is conditional and carries nothing.
+  §3.8 wrote this definition into REQ-A1.12.
+
+**Spec edits (consolidated list, this section):** none.
+
+Signed off: 2026-10-10
+
+#### 3.3 Requirements walkthrough (delta)
+
+Each claim was probed against the merged guard (`scripts/worker-command-guard.sh`
+fed hook payloads):
+
+- **REQ-A1.12 (assignment carry).** Confirmed: assignment carry across `;` and
+  `||` allows; a carried `-delete` still meets `find`'s screen; `cd` across
+  `||` or `;`, and an assignment after `||`, defer. Gap found: the guard also
+  carries an assignment across a newline (pinned by the suite's
+  "tracked: newline-separated" fixture) while the text named only `;` and `||`,
+  so read literally a newline-joined successor had to defer. Resolved by
+  naming the newline, which ends a command as `;` does (edit E1; operator
+  decision).
+- **REQ-E1.2 (whitespace values).** Confirmed: a double-quoted use resolves as
+  one word; an unquoted use stays unresolved and defers only where the verb
+  screens the word (`grep`, which has no operand screen, still allows, as
+  REQ-E1.1 provides); an empty value removes an unquoted word.
+- **REQ-E1.5 (`ps`).** Confirmed: `ps -A`, `ps -o …`, and `ps aux` allow;
+  every form carrying `-e` (`-ef`, `-e`, `-eo`, `-Ae`, `-A -e`) and the BSD
+  `e` forms defer. The REQ text, whose membership the implementation carries,
+  needs no change.
+
+**Spec edits (consolidated list, this section):**
+
+- **E1.** REQ-A1.12, its amendment note, D-24 (title and decision), the D-19
+  amendment note, and the REQ-A1.12 test-spec entry: a plain assignment
+  carries across `;`, a newline, and `||`. The test-spec entry adds the
+  newline pair, `cd` then a newline, and an assignment after `||`.
+  Meaning-class (widens REQ-A1.12's text to the shipped behaviour).
+
+**Mid-walk lens on E1 (inline; the delta is one clause).** Checked the
+clauses that read REQ-A1.12's carry rule: REQ-E1.4 keeps `cd` on the `&&`
+rule (unchanged, correct); REQ-E1.2's placement rule needs no edit; the
+§3.2 "runs unconditionally" definition omitted the newline opener, fixed in
+place. No other finding.
+
+Signed off: 2026-10-10
+
+#### 3.4 Design walkthrough (delta)
+
+Ledger for the delta (earlier D-IDs stand as §4, Amendment 1, and
+Amendment 2 recorded them):
+
+- **D-24:** confirmed, rationale intact; amended at this kickoff (E1) to name
+  the newline.
+- **D-25:** confirmed; both rejected alternatives (reproduce bash splitting,
+  model per host shell) hold as recorded.
+- **D-26:** confirmed; its claim that macOS's `-E` is already outside the
+  accepted flags was probed (`ps -E`, `ps -AE` defer), as were the long
+  `--everyone` form and the BSD `e` modifier (both defer).
+- **D-19:** amendment note carries the newline (E1).
+
+No design decision contradicts a walked requirement.
+
+Signed off: 2026-10-10
+
+#### 3.5 Verification approach (delta)
+
+- **Coverage mix:** unchanged; every delta REQ is `[test]`. Tag tallies:
+  derive from `test-spec.md`.
+- **Ownership:** CI runs the guard suite (`tests/test-worker-command-guard.sh`)
+  through `mise run test` / `mise run check`; no `[manual]` entry changes.
+- **Dead paths:** checked each fixture the delta's test-spec entries name
+  against the merged suite. Every REQ-E1.2 and REQ-E1.5 fixture is pinned.
+  Three REQ-A1.12 fixtures were not: an assignment carried across `||`
+  allowing (in the extension's own text), and `cd` then a newline and an
+  assignment after `||` deferring (added by E1). The guard already decides
+  all three correctly (probed); only the pins are missing. Resolved by
+  folding them into Task 7, the next unit to edit the suite and already
+  citing REQ-A1.12 (edit E2; operator decision).
+
+**Spec edits (consolidated list, this section):**
+
+- **E2.** Task 7 Deliverables and Done-when: pin the three REQ-A1.12 carry
+  fixtures, regression-only. Meaning-class (a task-definition change).
+
+**Mid-walk lens on E2 (inline).** Task 7 already cites REQ-A1.12; no new
+dependency or edge; the fixtures are regression-only, so the Done-when's
+over-broad-variant rule does not apply to them. No finding.
+
+*(Superseded at §3.8: the sign-off lens pass found the three fixtures did
+not discriminate and other pins missing; E2 is reverted from Task 7 and the
+sharpened pins move to Task 6.1.)*
+
+Signed off: 2026-10-10
+
+#### 3.6 Task graph (delta)
+
+Reconstructed from the `Dependencies:` lines (render with
+`scripts/spec-graph.sh specs/worker-permission-ergonomics`). As walked, no
+edge changed. §3.8 then added Task 6.1 on edge 6 → 6.1, and moved Task 7's
+dependency from 6 to 6.1, so the serialized guard chain runs through 6.1
+before 7. Every other edge, and §2.6's deliberate non-edges, stand. The
+renderer's `GRAPHCRIT` line is the authoritative critical path.
+
+Signed off: 2026-10-10
+
+#### 3.7 Risk register (delta)
+
+**Decision-domains gap check:** the merged catalog
+(`scripts/resolve-catalog.sh decision-domains`, no overlay additions) walked
+against the delta. Touched and decided: auth (the carry widening and the two
+narrowings, D-24 to D-26), secrets-config (`ps -e` environment exposure,
+D-26), existing-seam-reuse (the shipped name screen D-24 rests on). No touched
+domain is undecided. *(The §3.8 lens pass found secrets-config incomplete:
+other-process environments via `/proc`, now decided by D-27 and REQ-E1.6.)*
+
+Rows appended (R1 to R15 stand):
+
+| # | Risk | Mitigation / early signal |
+|---|---|---|
+| R16 | **The spec trailed the code.** Three operator decisions shipped in a task PR before the signed text caught up, so a later task could build on text the guard no longer matches. | This delta kickoff re-aligns text and guard before the next guard task starts. Early signal: an "open spec forks" list in a task PR description. |
+| R17 | **Other bash/zsh model gaps remain.** D-25 settles quoting, and Task 6.1 closes the name-screen and `=` gaps the lens pass found; the shared tokenizer still models bash while the Bash tool runs zsh on macOS. The zsh claims could not be run on the review host (no zsh). | Accepted for this delta; obs:8d46a461 stays unconsumed and carries the root fix to `/spec-draft`. Early signal: Task 6.1 fixtures are bash-run; a zsh-host run of the suite is the confirmation. |
+| R18 | **Static routes to other-process environments outside the new rule.** The existing static `git diff` rule's `--no-index` reads arbitrary paths, and the `Read` deny depends on Claude Code matching `/proc` paths. | The `git diff` route joins R13's pre-existing static git rules (observation `worker-profile-static-git-write-forms`); Task 12's matcher row pins the `Read` deny. |
+| R19 | **Seven read verbs lose their no-hook fallback.** With `cat`, `grep`, `head`, `tail`, `cut`, `diff`, and `jq` out of the static set, a worker whose hook cannot run (no `jq`) prompts on them. | Accepted (operator decision 2026-10-10, D-27). Early signal: prompts on these verbs in an unattended run mean the hook is not running. |
+
+**Open questions:** none outstanding.
+
+**Data hygiene:** no secrets, credentials, internal hostnames, or raw worker
+commands recorded.
+
+Signed off: 2026-10-10
+
+#### 3.8 Sign-off lens review and record
+
+**Class:** meaning (operator-confirmed walk; the delta mints D-24 to D-27,
+REQ-E1.6, and Task 6.1, and edits REQ text, so the doctrine's
+additions-are-meaning rule decides it).
+
+**Scope and path.** Delta-scoped Discovery-Rigor review of the extension
+commit plus this kickoff's walk edits (E1, E2), spec lens set per
+`artifact-lenses`, fanned out to one read-only reviewer per lens. Declared
+scopings, as at Amendment 2: dead verification paths and testability ran as
+one reviewer, and a code-class **security** lens was added because the
+bundle specifies an allow-only permission mechanism. Rendered-content
+safety: `n/a`.
+
+**Validation.** Findings were deduplicated across lenses. Every behavioural
+claim was reproduced by feeding hook payloads to the merged guard (the
+carry, quoting, empty-word, `ps`, zsh-name, `=`, and `/proc` shapes);
+fixture claims were checked by grepping the suite; contract and drift
+claims by reading both clauses; source claims against the local `ps(1)`
+page and the PR the Sources entry names. The zsh behaviour claims could not
+be run (no zsh on the review host): they rest on the zsh manual and on the
+guard's own refusal of sibling names from the same `zsh/parameter` table,
+and are recorded at that confidence (R17). Adversarial pass: no kept finding
+was refuted; one decline stands (the PR description's own slip is not a
+spec defect).
+
+**Lens-coverage table (spec set, plus the declared security lens):**
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 4 | "Cannot fail" false under zsh (unscreened `zsh/parameter` read-only names); Task 6 text contradicts amended REQ-A1.12/E1.2; "no task-block change" vs E2; REQ-E1.1's "unresolved" does not cover REQ-E1.2's unquoted use. |
+| Security (declared, code-class) | 2 | D-26 text left the BSD `e` modifier open (guard already defers); zsh expands a leading `=` in an assignment value, so the modelled literal differs (guard allows). |
+| Ambiguity and interpretation forks | 6 | Whitespace scope (tab/newline); partly quoted words; empty-word removal with joined text; "runs unconditionally"; `cd` in force across a later `;`; what "carrying `-e`" covers. |
+| Citation and coverage integrity | 6 | Changelog stale (newline, Task 7); D-24 provenance for the newline; amendment notes credit the wrong event; brief §3.2 rules-out and restatement stale; D-26 "other BSDs" uncited. |
+| Dead verification paths and testability | 4 | `;`/newline plain-literal carry unpinned; carry fixtures cannot tell carried from dropped; `cd`-newline fixture defers either way; `ps -e` cluster and later-flag forms unpinned. |
+| Decision-domain gaps | 2 | secrets-config: `/proc/<pid>/environ` readable though D-26 refuses the same exposure; D-26 covers only the `-e` spelling. |
+| Cross-file consistency | 5 | Changelog vs E1/E2; §3.2 vs E2; §3.2 vs E1; Task 6 vs amended REQs; "cannot fail" vs substitution-valued assignments. |
+| Documentation and glossary drift | 10 | Stale Changelog, §3.1, §3.2, Task 6 (stale prose); event attribution and missing amendment notes (annotation format); "unresolved" and "state-carrying" (term drift); name screen's readonly coverage undocumented (missing contract). |
+| Rendered-content safety | n/a | Not rendered into an executing or markup context. |
+
+**Kickoff-specific checks.**
+
+- **Altitude (triggered bundle).** The altitude record (D-9) is untouched;
+  the delta adds mechanism under existing capability. No finding.
+- **Ship-gate.** Every out-of-band fix named carries a record: the guard
+  gaps are Task 6.1, the static-set and `Read` deny changes are Task 12, the
+  zsh tokenizer root fix is obs:8d46a461, the static `git diff` route rides
+  R13's observation. No finding.
+
+**Dispositions (every finding dispositioned with the operator):**
+
+- **zsh model gaps** (unscreened read-only names; zsh-expanded `=`) —
+  *applied*: new Task 6.1 (depends on 6; Task 7 now depends on 6.1), REQ-E1.2
+  and D-24/D-25 text (operator decision).
+- **Other-process environments** — *applied*: REQ-E1.6 and D-27 minted; the
+  guard deferral rides Task 6.1; the profile denies `Read` on
+  `/proc/*/environ` and REQ-G1.1, D-15, and Task 12 drop `cat`, `grep`,
+  `head`, `tail`, `cut`, `diff`, `jq` from the static set (operator
+  decisions, including widening from four verbs to seven once the
+  content-printing rule was written).
+- **All remaining findings** — *applied* as one batch (operator decision):
+  the stale and attribution text, amendment notes, the pinned readings in
+  REQ-A1.12, REQ-E1.1, REQ-E1.2, REQ-E1.5, and D-24 to D-26, Task 6 aligned
+  with what shipped, E2 reverted from Task 7 with the sharpened fixtures in
+  Task 6.1, and the D-26 source narrowed. Each requirement change carries its
+  paired test-spec edit.
+- **Declined:** none.
+
+**Post-lens stale-reference sweep.** Swept the bundle and this amendment for
+the minted IDs (REQ-E1.6, D-27, Task 6.1), the re-scoped static set, and the
+moved Task 7 edge: fixed the stopgap Sources entry, brief §3.1, §3.2, §3.5,
+§3.6, and the §3.7 gap-check note; added R18 and R19. The validator's
+changed-REQ heuristic then flagged REQ-E1.1's unchanged test entry, paired
+by a fixture line. No copied tallies.
+
+**Pre-flip checks.** Lint (`mise run lint:md`) clean over the brief and the
+four spec files; validator clean (0 errors, 0 warnings); enumerations in the
+delta are decided rules or cite their source (`ps(1)`, `proc(5)`, the PR
+named in Sources); the brief cites rather than copies its figures.
+
+Draft→Ready flipped on all four files at this sign-off (reopen cycle);
+validator clean at Ready.
+
+Class: meaning
+Lens-pass: §9 Amendment 3, 3.8 (delta-scoped fan-out, one reviewer per lens plus the declared security lens; canonical lens-coverage table above; all findings dispositioned — applied)
+Anchor: `88f9ec559aff449b9a2809b2e3874a2b509e8eba` — computed as
+`scripts/spec-anchor.sh specs/worker-permission-ergonomics`

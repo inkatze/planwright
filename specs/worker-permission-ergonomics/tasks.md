@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-10-05
+**Last reviewed:** 2026-10-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -143,13 +143,15 @@ below; `scripts/spec-graph.sh` renders it on demand.
 ### Task 6 — Run-order analysis: cd, plain assignments, transparent prefixes, timing verbs
 
 - **Deliverables:** the worker guard walks segments in run order carrying the
-  working directory and plain-literal variable values across `&&` only, from
-  segments that run unconditionally in the current shell; approves a
+  working directory across `&&` only and plain-literal variable values across
+  `&&`, `;`, a newline, and `||` (D-24), from segments that run
+  unconditionally in the current shell; approves a
   `cd <literal>` (never through `CDPATH`) that canonicalizes to an existing
   directory inside the session's own worktree and analyses later segments
   against it; resolves `NAME=<plain literal>` for any literal, under the
-  existing `assign_name_ok` screen and placement rule, with unquoted word
-  splitting reproduced; makes a variable opaque after any other
+  existing `assign_name_ok` screen and placement rule, a value holding a
+  space resolving only inside double quotes (D-25); makes a variable opaque
+  after any other
   variable-writing form; treats `time` (bare or `-p`) and flagless
   `timeout <duration>` as transparent prefixes; adds the wait and inspection
   verbs of REQ-E1.5 under the safe-invocation rule; fixtures for each,
@@ -163,8 +165,33 @@ below; `scripts/spec-graph.sh` renders it on demand.
   exercised by fixtures; the fleet guide and the worker launch text state
   that a worker issues `git` without a `cd`; the suite and lints pass.
 - **Dependencies:** 5
-- **Citations:** D-19 · REQ-A1.12, REQ-A1.13, REQ-E1.2, REQ-E1.4, REQ-E1.5
+- **Citations:** D-19, D-24, D-25, D-26 · REQ-A1.12, REQ-A1.13, REQ-E1.2,
+  REQ-E1.4, REQ-E1.5
 - **Estimated effort:** 2 days
+
+### Task 6.1 — Close the zsh model and other-process environment gaps in the worker guard
+
+- **Deliverables:** the worker guard's name screen refuses every name zsh
+  keeps readonly or sets itself that it does not yet refuse (the
+  `zsh/parameter` read-only arrays such as `history`, `builtins`,
+  `modules`, `reswords`, `userdirs`, and the core specials such as
+  `signals`), checked against the zsh manual and source rather than a
+  copied list; a plain assignment value that zsh would expand (a leading
+  `=`, or `=` after a `:`) leaves the variable opaque; an operand or
+  redirect source naming an `environ` file under `/proc` other than
+  `/proc/self/environ` or `/proc/thread-self/environ`, or a glob that could
+  match one, defers (REQ-E1.6); fixtures for each; and the discriminating
+  regression fixtures the REQ-A1.12, REQ-E1.2, and REQ-E1.5 test-spec
+  entries name that the suite lacks (the carry across `;`, a newline, and
+  `||` shown through a resolved flag that allows only when carried; `cd`
+  followed by a newline and a reader; an assignment after `||`; the
+  `ps -e` cluster and later-flag forms).
+- **Done when:** each new deferral fixture is first shown allowing against
+  the pre-change guard and deferring against the changed one; the
+  regression fixtures pass on both; the suite and lints pass.
+- **Dependencies:** 6
+- **Citations:** D-24, D-25, D-27 · REQ-A1.12, REQ-E1.2, REQ-E1.5, REQ-E1.6
+- **Estimated effort:** 1 day
 
 ### Task 7 — Admit argument-independent command substitution
 
@@ -184,7 +211,7 @@ below; `scripts/spec-graph.sh` renders it on demand.
   read-only analysis) and deferring against the real one, while the nesting
   and backtick fixtures, which defer by separate code, are regression-only;
   the suite and lints pass.
-- **Dependencies:** 6
+- **Dependencies:** 6.1
 - **Citations:** D-11 · REQ-A1.12, REQ-E1.3
 - **Estimated effort:** 2–3 days
 
@@ -270,21 +297,23 @@ below; `scripts/spec-graph.sh` renders it on demand.
   checked against the no-write-or-exec-form rule, and `git push -u origin`;
   its `deny` block gains only the `Write`/`Edit` path rules for the REQ-F1.6
   paths, the session record location, and the overlay config files
-  (REQ-G1.8), after checking which of those paths Claude Code already
-  protects itself; `_about` rewritten to describe every approval category,
+  (REQ-G1.8), and the `Read` rule for `/proc/*/environ` (REQ-E1.6), after
+  checking which of those paths Claude Code already protects itself; `_about` rewritten to describe every approval category,
   each policy arm, and the floor; the permission-matcher model doc, its
   re-implementation, and the fixture table updated to the documented
   nested-command behaviour, with a row per nesting form; the matcher test
   gains an allow-rule coverage pass mirroring its deny-rule pass.
 - **Done when:** the permission-matcher test passes and fails on an allow
   rule with no fixture row; every nesting form has a row; `awk`, `find`,
-  `xargs`, `sed`, `sort`, `uniq`, and the diff-family, `grep`, and
-  `cat-file` `git` subcommands have no new allow rule; the `deny` block
-  differs from its pre-change content only by the added path rules; the
-  settings-fragment and hook-contract checks pass.
+  `xargs`, `sed`, `sort`, `uniq`, the content-printing verbs REQ-G1.1
+  excludes, and the diff-family, `grep`, and `cat-file` `git` subcommands
+  have no new allow rule; a matcher row shows the `Read` tool denied on a
+  `/proc/<pid>/environ` path; the `deny` block differs from its pre-change
+  content only by the added path rules; the settings-fragment and
+  hook-contract checks pass.
 - **Dependencies:** 9, 10
-- **Citations:** D-10, D-15, D-22, D-23 · REQ-G1.1, REQ-G1.6, REQ-G1.7,
-  REQ-H1.2, REQ-F1.6, REQ-G1.8
+- **Citations:** D-10, D-15, D-22, D-23, D-27 · REQ-G1.1, REQ-G1.6,
+  REQ-G1.7, REQ-H1.2, REQ-F1.6, REQ-G1.8, REQ-E1.6
 - **Estimated effort:** 1–2 days
 
 ### Task 13 — Relaunch under the current profile
