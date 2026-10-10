@@ -32,7 +32,9 @@
 #      (PLANWRIGHT_WORKER_HANDLE=headless-<spec>-task-<id>,
 #      PLANWRIGHT_WORKER_SCOPE=<spec>:<id>) so the worker's own session fires
 #      hook-push liveness (hook_registration=true — fleet-liveness.sh
-#      push-capable reads it from the contract), wraps the launch in
+#      push-capable reads it from the contract), exports the spec root outside
+#      the work repository its guard admits as a write zone
+#      (worker-spec-root.sh; an inherited value is dropped), wraps the launch in
 #      fleet-dispatch-env.sh (the ghost-text pin), feeds the prompt file on
 #      stdin, and captures stdout/stderr.
 #   4. The runner SUPERVISES the worker as a background child (not exec): it
@@ -70,7 +72,8 @@
 # WORKTREES. This primitive NEVER creates a worktree (the D-7 `git worktree`
 # exception stays scoped to fleet-dispatch-worktree.sh): the tower creates the
 # unit's worktree first — `fleet-dispatch-worktree.sh dispatch <spec> <id>
-# --no-attach` — and passes it via --worktree.
+# --no-attach`, which creates the worktree without launching a worker — and
+# passes it via --worktree.
 #
 # STATE. One dir per unit:
 #   ${PLANWRIGHT_HEADLESS_STATE_DIR:-<spec-root>/<spec>/.orchestrate/headless}/<id>/
@@ -88,7 +91,8 @@
 # <spec-root>/<spec>/.orchestrate/ (gitignored runtime state, like the dispatch
 # markers), so nothing here is ever committed.
 #
-# Usage:
+# Usage (<spec> is the bare identifier or its `specs/<spec>` alias, with or
+# without one trailing slash; scripts/spec-id-lib.sh):
 #   fleet-dispatch-headless.sh launch <spec> <id> --worktree <dir>
 #       [--repo-root <dir>] [-- <extra claude args...>]
 #     Prompt text on stdin (required, non-empty). Prints the dispatch record:
@@ -143,7 +147,8 @@
 # already-closed, or (--observe) would-release; 2 an invalid or unknown handle, a bad grace, a symlinked
 # state path, a unit other than --expect-dir, or a process table the close could not read; 3 a close asked for
 # from inside the worker's own process tree, refused rather than attempted; 6 a
-# partial close, some class still held.
+# partial close, some class still held. Every subcommand exits 2 on a broken
+# install missing spec-id-lib.sh.
 #
 # Portable POSIX sh + coreutils (bash 3.2 / BSD compatible): no eval, no jq
 # (REQ-K1.5); every input treated as data. Pathname expansion is disabled
@@ -164,13 +169,25 @@ EVIDENCE="$script_dir/fleet-death-evidence.sh"
 FS="$script_dir/fleet-state.sh"
 FA="$script_dir/fleet-attention.sh"
 
-if [ -r "$script_dir/echo-safety.sh" ]; then
+if [ -f "$script_dir/echo-safety.sh" ] && [ -r "$script_dir/echo-safety.sh" ]; then
   # shellcheck source=scripts/echo-safety.sh
   . "$script_dir/echo-safety.sh"
 else
   sanitize_printable() {
-    printf '%s' "$1" | tr -d '\000-\037\177'
+    printf '%s' "$1" | tr -d '\000-\037\177\200-\237'
   }
+fi
+
+# Unlike echo-safety.sh the mapper has no fallback, so a missing copy is a
+# broken install, refused with exit 2: a failed `.` ends the shell with a
+# status of the shell's choosing (1 under bash's sh), which this script's exit
+# codes give another meaning or none.
+if [ -r "$script_dir/spec-id-lib.sh" ]; then
+  # shellcheck source=scripts/spec-id-lib.sh
+  . "$script_dir/spec-id-lib.sh"
+else
+  printf '%s\n' "fleet-dispatch-headless: broken install: $(sanitize_printable "$script_dir")/spec-id-lib.sh is missing or not readable" >&2
+  exit 2
 fi
 
 warn() {
@@ -467,6 +484,8 @@ do_launch() {
   [ "$l_have_extra" -eq 1 ] || set --
 
   [ -n "$l_spec" ] && [ -n "$l_id" ] && [ -n "$l_worktree" ] || usage
+  spec_id_canon "$l_spec"
+  l_spec=$SPEC_ID
   valid_spec "$l_spec" || {
     if [ "$l_spec" = flight ]; then
       warn "reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)"
@@ -751,6 +770,16 @@ do_run_worker() {
     exit 0
   }
 
+  # The spec root outside the work repository, which the worker's command
+  # guard admits as its write zone (custom-spec-location D-15); an inherited
+  # value never stands in for it.
+  unset PLANWRIGHT_WORKER_SPEC_ROOT
+  r_spec_root=$(/bin/sh "$script_dir/worker-spec-root.sh" "$r_wt" 2>/dev/null </dev/null) || r_spec_root=''
+  if [ -n "$r_spec_root" ]; then
+    PLANWRIGHT_WORKER_SPEC_ROOT=$r_spec_root
+    export PLANWRIGHT_WORKER_SPEC_ROOT
+  fi
+
   # The dispatch-time identity env (fleet-liveness.sh hook contract): the
   # worker session inherits these, so its plugin hooks push liveness for
   # exactly this unit (hook_registration=true on the contract row).
@@ -817,6 +846,8 @@ do_status() {
     esac
   done
   [ -n "$s_spec" ] && [ -n "$s_id" ] || usage
+  spec_id_canon "$s_spec"
+  s_spec=$SPEC_ID
   valid_spec "$s_spec" || {
     if [ "$s_spec" = flight ]; then
       warn "reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)"

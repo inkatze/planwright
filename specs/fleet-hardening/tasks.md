@@ -414,8 +414,6 @@ the same launch function, so it waits for Task 12 rather than running beside it.
 
 ## Awaiting input
 
-(none yet)
-
 ## Deferred
 
 - **Retire the prior launcher's liveness probe.** D-14 keeps a liveness probe for the prior

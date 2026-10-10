@@ -1,0 +1,1 @@
+- 2026-10-05 [planwright] retiring a visual flight removes its fleet-home directory but not its liveness crash counter (<fleet home>/liveness/crash/tmux-flight-<id>), so every flight that ever crashed leaves one small file behind; flight ids are never reused, so it is a slow leak rather than a correctness bug

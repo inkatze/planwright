@@ -2,10 +2,10 @@
 # whitespace-trimmed line text, one row per occurrence. Exactly three classes:
 #   resolver     the resolver itself (scripts/resolve-root.sh only)
 #   namespace    a specs/<id> naming a spec, not a directory: the Consumed-by
-#                writer, the alias mapper, and the anchor-freshness parse of
-#                the recorded `scripts/spec-anchor.sh specs/<id>` form existing
-#                briefs carry (compared as text; the recompute reads the bundle
-#                the root resolves)
+#                writer, the alias mapper, and the anchor-freshness and meta
+#                step parses of the recorded `scripts/spec-anchor.sh
+#                specs/<id>` form existing briefs carry (compared as text; the
+#                recompute reads the bundle the root resolves)
 #   static-glob  a pattern a tool reads statically: the lefthook pre-commit glob
 #                (its limitation for a relocated root is accepted) and the
 #                default root's ignore rules (a relocated root gets its own from
@@ -17,12 +17,16 @@ namespace	scripts/obs-consume.sh	legacy_suffix=" — consumed-by: specs/$spec ($
 namespace	scripts/obs-consume.sh	legacy_same_spec=" — consumed-by: specs/$spec ("
 namespace	scripts/obs-consume.sh	OBS_PREFIX="Consumed-by: specs/$spec (" awk '
 resolver	scripts/resolve-root.sh	sr_specs=$(canon "$rp_path/specs") || sr_specs=""
-namespace	scripts/spec-walkthrough.sh	specs/*) spec=${spec#specs/} ;;
+namespace	scripts/spec-id-lib.sh	specs/) return 0 ;;
+namespace	scripts/spec-id-lib.sh	specs/*) _sic=${_sic#specs/} ;;
+namespace	scripts/spec-id-lib.sh	specs/*/*) SPEC_REF=${1#specs/} ;;
 static-glob	lefthook.yml	glob: "specs/**"
 static-glob	.gitignore	specs/*/.orchestrate.lock
+static-glob	.gitignore	specs/*/.orchestrate.lock#*
 static-glob	.gitignore	specs/*/.tasks-pr-sync.*
 static-glob	.gitignore	specs/*/.orchestrate/
 static-glob	.gitignore	specs/_pending/notes.md
 resolver	scripts/resolve-root.sh	sr_primary=$rp_path/specs
 resolver	scripts/resolve-root.sh	sr_primary=$rp_path/specs
 namespace	scripts/check-anchor-freshness.sh	specs/*) rc_id=${rc_arg#specs/} ;;
+namespace	scripts/orchestrate-meta-step.sh	"scripts/spec-anchor.sh specs/$spec_name" | "spec-anchor.sh specs/$spec_name") ;;

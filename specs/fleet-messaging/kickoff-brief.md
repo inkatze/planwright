@@ -1543,3 +1543,446 @@ Class: meaning
 Lens-pass: Terminal lens pass (2026-09-07) — full bundle, sign-off step 1
 Anchor: `c192280a9ff3b9ded2f8e6c0d4e5b6aef2922102` — computed as
 `scripts/spec-anchor.sh specs/fleet-messaging`
+
+## 9. Amendment log
+
+### Amendment 1 (2026-10-07) — the supervision amendment, reopened-bundle delta kickoff
+
+**Header.** Spec: specs/fleet-messaging. Spec commit at walkthrough start:
+`59fd9d0`. Delta walked: the extension commit `b8549ca` over the signed
+bundle on main at `6cbcbbc`, whose content reproduces the sign-off anchor
+recorded above (`c192280a`), so nothing else moved since sign-off.
+Walkthrough date: 2026-10-07. Mode: reopened-bundle delta kickoff (stored
+Draft with a complete signed brief; nothing had been dispatched). Validator
+at pre-flight: `scripts/spec-validate.sh specs/fleet-messaging`, 0 errors
+and 1 warning (an unqualified foreign `REQ-K1.5` in pre-existing REQ-A1.1
+text). Worktree `.claude/worktrees/spec-draft-fleet-coordination` on
+`planwright/fleet-messaging/spec`, clean. Config: `commit_on_kickoff`,
+`mark_spec_pr_ready_on_kickoff`, `kickoff_ready_ci_wait` at their defaults
+(no kickoff keys in the local overlay). The seed observations the
+`requirements.md` Sources entry marks unconsumed ride the open
+observations PR #600, not yet on main.
+
+#### A1 §2. Goal & glossary (delta)
+
+**Restatement.** A 2026-10-07 tmux fleet run found four gaps around the
+signed design, and the amendment closes them without moving D-1's
+transport altitude (D-24 records the amendment's own altitude call):
+(1) a tmux task worker launches with no opening turn, so it gains a
+launch-time task brief at the dispatch seam, in the flight arm's confined
+shape, working with messaging absent; (2) the paste relay promises more
+than it delivers, so it is narrowed to the ladder's fallback and in-pane
+targets, one pointer line, checked after every paste, an unsubmitted relay
+raised as an attention row and never re-pasted or keyed; (3) a supervising
+tower learns of a worker's question only at the idle notice, so a worker
+whose task brief names its tower MAY message it the question, after
+recording the fork, never completion or status, the tower answering once
+through the claim; (4) attention rows misread a resumed worker and an
+already-idle subscription, so an idle exit-edge marker restores `working`
+and the already-idle notice is expected and re-armed once. The supervisor
+duty becomes doctrine in inter-orchestrator-coordination.
+
+**Rules out.** The tower's launch-independent permission floor
+(`fleet-hardening`), queue mechanics (`tower-comms`), interrupting a busy
+worker, and two fixes already running as their own flights.
+
+**Assumes.** The harness behaviors the 2026-10-07 run observed; Task 2's
+`fleet-messaging.sh self-name` for the tower's name (absent until it
+lands, the task brief then omitting the name); the unconsumed seeds on
+PR #600 landing on main.
+
+**Implicit terms resolved.**
+- *Task brief*: the launch file `<fleet-home>/tasks/<spec>/<id>/brief.md`.
+  The delta called it "the brief" unqualified, which the format glossary
+  reserves for the kickoff brief; the operator chose to qualify it in the
+  spec text (edit E1 below).
+- *Briefed worker*: a worker whose task brief names its tower; only it has
+  an upward message path.
+- *In-pane target*: something only a pane can receive (a dialog waiting in
+  the pane, a slash command).
+- *Supervising session* (added at the lens pass, L24): the amendment's
+  "tower" is the session that dispatched the worker, the orchestrator for
+  a task unit and the `/tower` session for a flight, per the format
+  glossary's transitional note; defined in REQ-G1.9 and D-29.
+
+**Spec edits.** E1 (expression-only): unqualified "brief" meaning the
+launch file becomes "task brief" across the delta's text in all four
+files, with three rewraps.
+
+Signed off: 2026-10-07
+
+#### A1 §3. Requirements walkthrough (delta)
+
+Walked against the shipped seams the delta builds on
+(`fleet-dispatch-worktree.sh`'s flight `--brief` confinement,
+`fleet-attention.sh`'s `park`/`fork`/`claim` verbs, `fleet-liveness.sh`'s
+exit-edge markers, `orchestrate-relay.sh`'s paste path, the
+`UserPromptSubmit` wiring in `hooks/hooks.json`).
+
+**Per group.**
+- *REQ-C (C1.6, C1.7).* C1.6 confirmed as drafted: the task arm's
+  confinement copies the flight arm's, and the escalation pin keeps
+  `--continue`/`--resume` for brief-less launches. C1.7 amended (decisions
+  2 and 3 below) and cross-referenced to REQ-C1.4 so an in-pane dialog is
+  never a permission prompt.
+- *REQ-D (D1.9 superseding D1.6, D1.10, D1.11).* D1.9 amended to forks
+  only (decision 1). D1.10 generalized (decision 4). D1.11 gains the
+  escalation-preserve guard (decision 5).
+- *REQ-F (F1.7 superseding F1.3).* Confirmed; the ladder gates the
+  question message as drafted.
+- *REQ-G (G1.8, G1.9).* Confirmed; G1.8's relay contract follows C1.7's
+  amended text by reference.
+- *REQ-H (H1.6).* Confirmed.
+
+**Decisions.**
+1. *A park question has no answered-once mechanism.* `claim` answers
+   `fork` records alone, so the question message is allowed only after
+   the worker records an answerable fork; a park or free-form need sends
+   no message and rides its row and the idle notice (operator: forks
+   only; grounded in the claim's shape).
+2. *The submission verdict comes from the worker's hooks, never the
+   pane.* The drafted pane classifier read the CLI's rendering, and its
+   "unknown writes nothing" arm would silently restore the invisible
+   unsubmitted relay on a TUI change. A `user-prompt-submit` arm of
+   `fleet-liveness.sh` stamps each submitted prompt; a relay is submitted
+   only when a stamp later than the paste lands within a bounded window,
+   otherwise it is raised, and a pane capture may only add reason detail
+   (operator, after asking for the long-term design).
+3. *The unsubmitted-relay row's exit edge.* The tower's park also leaves a
+   decision marker with the fork-park exit edges, so the worker's next
+   prompt submission or tool use clears it and a turn-end leaves it; a
+   false alarm heals itself (operator: the worker's resume clears it).
+4. *The already-idle re-arm covers every still-idle subscription.*
+   REQ-D1.7 re-subscribes after each downward delivery while the worker
+   may still be idle, so the re-arm condition became "no row write since
+   the subscription was armed" (operator: generalize).
+5. *The resume edge never resolves a queued human decision.* Its
+   `working` write is `--unless-awaiting`, the existing escalation-preserve
+   primitive (resolved from the existing guard, reported).
+
+**Mid-walk lens over the applied edits** (`kickoff-verification`,
+delta-scoped to decisions 1 to 5 and their dependents, inline). Two
+dependents found and applied: REQ-D1.9's existing source audit requires
+`fleet-attention.sh` byte-identical to Task 6's base and no `SendMessage`
+in any `scripts/*.sh`, so Task 5.5 writes its marker through
+`fleet-liveness.sh` and leaves `fleet-attention.sh` untouched, and Task
+4.5's template is a file the renderer reads, never text inside a
+`scripts/*.sh` file. Stale-reference grep for the replaced wording ("pane
+check", "fork or park first", "captured-pane", "reads unknown") clean.
+Validator 0 errors; its one warning (REQ-A1.1 changed while its test-spec
+entry did not) is declined: the change is edit E6's citation qualifier,
+which moves no verification path. `mise run lint:md` clean.
+
+**Spec edits.**
+- E2 (meaning): REQ-C1.7, D-27 (with two new rejected alternatives), Task
+  5.5 (deliverables, done-when, effort 1 → 2 days, title), test-spec
+  REQ-C1.7, the Scope bullet, Task 1.5's relay wording: decisions 2 and 3,
+  and the permission-prompt exclusion.
+- E3 (meaning): REQ-D1.9, D-26, Tasks 1.5 and 8.5, test-spec REQ-D1.9:
+  decision 1.
+- E4 (meaning): REQ-D1.10, D-30 (title included), Task 8.5, test-spec
+  REQ-D1.10: decision 4.
+- E5 (meaning): REQ-D1.11, D-28 (plus a note that D-27's submit arm does
+  not replace the edge), Task 6.5, test-spec REQ-D1.11: decision 5.
+- E6 (expression-only): REQ-A1.1's bare `REQ-K1.5` qualified as
+  `bootstrap REQ-K1.5`, clearing the pre-flight validator warning.
+- E7 (meaning): Tasks 4.5 and 5.5 gain the two audit-preserving
+  constraints the mid-walk lens found.
+
+Signed off: 2026-10-07
+
+#### A1 §4. Design walkthrough (delta)
+
+Every D-ID the delta touches, accounted for; D-IDs outside the delta are
+unchanged (main's content reproduces the recorded anchor) and keep their
+§4 ledger entries.
+
+- **D-20** superseded by D-26 (as drafted; lineage pointer in place).
+- **D-24** (altitude) confirmed by the operator as drafted: the duty is
+  doctrine, the opening turn a dispatch-seam capability, the rest
+  mechanism in seams this bundle owns; D-1 unchanged.
+- **D-25** (task brief) confirmed by the operator as drafted; the term
+  qualified per E1, and E7's template-location constraint added to its
+  Task 4.5.
+- **D-26** amended (E3): forks only, a park sending no message.
+- **D-27** amended (E2): the submit-hook verdict, the row's exit edge, the
+  permission-prompt exclusion, two rejected alternatives recorded (the
+  pane classifier, any-row-write evidence).
+- **D-28** amended (E5): the `--unless-awaiting` guard; a note that D-27's
+  submit arm does not replace the edge.
+- **D-29** (the duty's home) confirmed by the operator as drafted.
+- **D-30** amended (E4): the re-arm generalized, title included.
+
+Decision provenance closed: the changelog's "for the operator to confirm at
+the delta kickoff" (D-25, D-27, D-28, D-29 chosen by the supervising
+tower; D-30 by the drafting session) is resolved here, each confirmed or
+amended by the operator. No design decision contradicts a walked
+requirement.
+
+Signed off: 2026-10-07
+
+#### A1 §5. Verification approach (delta)
+
+Coverage: every REQ the delta mints or supersedes has its own entry, and
+the superseded REQ-D1.6 and REQ-F1.3 entries carry forward under their
+successors' headings (pairing per `test-spec.md`'s REQ-C, REQ-D, REQ-F,
+REQ-G, REQ-H, and new REQ-A1.8 entries). Ownership is §5's, unchanged:
+CI's shell suite runs every `[test]` arm; each executing task's PR records
+its `[manual]` arm with the observed CLI version; `[design-level]` review
+lands in the task PR.
+
+**Dead paths: none.** Thinnest path, stated as such: REQ-D1.10's re-arm is
+prose behavior, verified by a fixture grep plus the live observation.
+
+**Decision 6 (operator: extend in Task 8.5).** The fleet smoke runner is
+the bundle's standing platform-drift check (D-23), yet none of the
+amendment's platform-dependent legs, each observed only once on
+2026-10-07, reached it. REQ-A1.8 (new) adds four legs after the circuit:
+the task-brief start, the question answered once, the resume reading
+`working`, and the unsubmitted relay raised and cleared. Task 8.5 ships
+them with dry-run arms; its live runner pass replaces its two-session
+check, and Task 8.5 gains Dependencies 5.5 and 7.
+
+**Spec edits.** E8 (meaning): REQ-A1.8 minted with its test-spec entry;
+Task 8.5 retitled, its deliverables, done-when, dependencies, citations,
+and effort (1 → 2 days) amended; the REQ-A1.8, REQ-D1.9, and REQ-D1.10
+test-spec entries point at the runner pass instead of the two-session
+check.
+
+Signed off: 2026-10-07
+
+#### A1 §6. Task graph (delta)
+
+Reconstructed from the `Dependencies:` lines of the new units (Tasks
+1.5, 4.5, 5.5, 6.5, 8.5 in `tasks.md`); the effort-weighted critical path
+and the parallelism are whatever `scripts/spec-graph.sh
+specs/fleet-messaging` reports (`GRAPHCRIT`), not copied here. *(Revised
+at the lens pass: transcribed graph figures replaced by the citation.)*
+
+**Decision 7 (operator: add the edge).** Task 5.5 now depends on Task
+6.5: both change `fleet-liveness.sh`, and 5.5's submit arm must leave
+6.5's idle marker to its own edge, which 5.5's tests now cover. *(Revised
+at the lens pass: 5.5 no longer touches the post-tool-use arm.)*
+No schedule cost: 6.5 has no dependencies, while 5.5 already waits on
+Task 5.
+
+**Deliberate non-edges (do not "fix").**
+- 4.5 ⟂ 2: the task brief omits the tower's name until Task 2's
+  `self-name` lands; the brief works without it.
+- 4.5 ⟂ 4, 6, 8: each touches `/orchestrate` prose or the dispatch seam,
+  but none depends on another's behavior; the shared-file and
+  instruction-budget pressure is risk row A1-R3, not an edge.
+- 1.5 ⟂ 5.5: the doctrine states the relay contract from REQ-C1.7, and
+  the mechanism implements the same REQ; neither reads the other's text.
+
+**Spec edits.** E9 (meaning): Task 5.5 gains Dependency 6.5 and the
+idle-marker coexistence test.
+
+Signed off: 2026-10-07
+
+#### A1 §7. Risk register (delta)
+
+Rows append to §7's register; none overwrites an existing row.
+
+- **A1-R1. Seeds riding an unmerged PR.** Five supervision seeds and
+  obs:6be13a0c sit on observations PR #600, so the bundle's `obs:`
+  citations to them do not resolve on main until it merges, and their
+  consumption was named in prose only. Mitigation: a Deferred bullet in
+  `tasks.md` gated on #600 merging (ship-gate record; Decision 8 below).
+  Early signal: `/drain` surfacing the gate.
+- **A1-R2. Platform behavior observed once.** The already-idle notice,
+  `UserPromptSubmit` firing on a submitted paste, and a busy session
+  reading a message between tool calls each rest on one 2026-10-07
+  observation. Mitigation: REQ-A1.8's runner legs. Early signal: a runner
+  leg failing on a CLI update.
+- **A1-R3. One skill file, many writers.** The tasks whose deliverables
+  edit `skills/orchestrate/SKILL.md` press its instruction
+  budget and inviting merge conflicts among units with no edge between
+  them. Mitigation: each task's `check:instructions` with no pending-diet
+  allowance, Task 8.5 measured after Task 8. Early signal: headroom
+  shrinking task over task.
+- **A1-R4. Plugin version skew (deploy-migration).** A worker launched
+  before the submit arm ships never clears a pending relay, so its first
+  relay stays raised and further pastes to it are refused until its
+  session ends. Accepted: the failure is visible, as a
+  `relay:unsubmitted` item, and a relaunch picks up the arm. Early signal:
+  a raised item on a worker whose pane shows the line submitted.
+- **A1-R5. Pending-relay lifecycle (data-storage).** The record must not
+  outlive its worker. Mitigation applied: the session-end and
+  stop-failure arms drop it with the worker's other liveness records
+  (Task 5.5, with a test). *(Revised at the lens pass: the drafted submit
+  stamp file no longer exists.)*
+- **A1-R6. Record and submission order (concurrency).** A submission
+  landing before the record exists could never clear it. Mitigation:
+  `relay-command` writes the record, with its emit time, before it emits
+  the paste command, and only a strictly later stamp clears it. *(Revised
+  at the lens pass: the drafted marker-first ordering contradicted the
+  marker identity rule and was dropped with the park row, L1.)*
+
+**Gap check** (`scripts/resolve-catalog.sh decision-domains`, merged
+catalog). Domains the delta touches and decides: api-surface (the task
+arm's `--brief`, the new hook arm, the check verb, the attention item,
+each with its `docs/fleet.md` row in its task), auth (permission prompts
+excluded throughout), secrets-config (no new knob: the check's window is
+a verb argument with a script-defined default), queues-async (queue
+mechanics routed to `tower-comms`), observability,
+human-comprehension (the fixed `relay:unsubmitted` label),
+existing-seam-reuse (the flight arm's brief, the liveness marker
+pattern), llm-output-quality (the question message untrusted). Touched
+and not fully decided, now rows: data-storage (A1-R5), deploy-migration
+(A1-R4), concurrency (A1-R6). Not touched: caching, dependency-adoption,
+versioning-scheme, product-strategy, packaging-pricing,
+knowledge-engineering, org-design, ip-posture.
+
+**Ship-gate check.** The two fixes the Scope names as running in their own
+flights are exclusions this bundle does not rely on, so they owe no gate
+here (declined with that rationale). The two pending notes are tracked
+accumulator entries. The seed consumption is A1-R1's Deferred bullet.
+
+**Decision 8 (operator: Deferred bullet).** The live seeds' consumption is
+tracked as a plain Deferred bullet in `tasks.md`, gated on PR #600
+merging.
+
+**Spec edits.** E10 (expression-only, gap-fill): Task 5.5's stamp cleanup
+and marker-first ordering, with the paired test-spec REQ-C1.7 cases
+(both superseded at the lens pass by the pending-relay record, L1). E11
+(meaning): the Deferred seed-consumption bullet in `tasks.md`.
+
+**Open questions:** none.
+
+Signed off: 2026-10-07
+
+#### A1 §8. Sign-off
+
+##### Lens review pass (2026-10-07) — delta-scoped, sign-off step 1
+
+Class of the delta: meaning (new REQs and D-IDs; additions count as
+meaning-class). Scope: the bundle's delta against `6cbcbbc`, the
+extension commit plus every kickoff edit, and what depends on it. Path:
+fan-out, one read-only reviewer per spec-class lens (`artifact-lenses`),
+seven in all, sharing the validator and lint output; the altitude,
+ship-gate, and decision-domain items run inline (the last as §7's gap
+check). The coordinator merged and deduplicated the raw findings into the
+numbered list below, then checked the load-bearing claims against the code
+(`orchestrate-relay.sh`'s one-line, no-newline paste; `fleet-attention.sh
+park`'s `--unless-awaiting`; the notification arm's idle-prompt park;
+`fleet-liveness.sh`'s `marker_live` identity rule) and adversarially
+re-read the rest against both quoted sides.
+
+Lens coverage (artifact class: spec):
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 7 raw | L1, L2, L3, L4 |
+| Ambiguity and interpretation forks | 8 raw | L1, L4, L6, L7, L9 |
+| Citation and coverage integrity | 7 raw | L7, L16, L17, L26, L27, L28 |
+| Dead verification paths | 8 raw | L1, L2, L10, L11, L14, L15 |
+| Decision-domain gaps | 3 | inline, §7 rows A1-R4 to A1-R6 |
+| Testability | 11 raw | L10, L11, L12, L13, L14 |
+| Cross-file consistency | 11 raw | L4, L5, L6, L7, L8, L10, L13, L16 to L20, L22, L25 |
+| Documentation and glossary drift | 7 raw | stale (L19, L21, L22), missing doc (L11, L12), cite-derived-figures (L23), glossary fork (L24), changelog (L25) |
+| Security, reframed (data hygiene) | none | no secrets, hostnames, or private detail in the delta or this entry |
+| Rendered-content safety | n/a | committed markdown, rendered into no executing or markup context |
+| Performance, concurrency, error handling | n/a | spec class: no execution path (`artifact-lenses`) |
+
+Kickoff-specific items: **altitude** pass (seed claims pinned in Sources;
+D-24 present and cited from the Goal; doctrine in Task 1.5, the dispatch
+capability in Task 4.5, mechanism elsewhere); **ship-gate** pass (§7). Both
+qualified-citation and requirement/test-spec-pairing items ran under the
+citation and cross-file lenses (L16, L17, L26; pairing kept by every
+disposition below).
+
+**Merged findings and dispositions** (every one applied; none declined or
+deferred; the operator chose L1's design and approved L2 to L28 as a batch):
+
+1. L1 — the drafted unsubmitted-relay row cannot work (`park` no-ops on an
+   awaiting-input row, a decision marker must follow its row, a busy
+   worker's next tool use would clear it, the paste time is unknown to any
+   script). Applied, operator decision 9: a pending-relay record written
+   before the paste, cleared only by a strictly later submit stamp, raised
+   as its own `relay:unsubmitted` attention item, refusing further pastes
+   while pending (REQ-C1.7, D-27, Task 5.5, test-spec; A1-R4 to A1-R6
+   revised).
+2. L2 — the paste never submits unattended; "multi-line relay" legs were
+   unproducible. Applied (REQ-C1.7, D-27, Task 1.5, REQ-A1.8, Tasks 5.5
+   and 8.5, test-spec).
+3. L3 — the redelivery paste of REQ-C1.5 was outside the allowed uses.
+   Applied.
+4. L4 — the smoke resume leg ran from a fork, never reaching REQ-D1.11.
+   Applied: driven from a plain stop and a steer message.
+5. L5 — the relay leg had no unattended clear. Applied: the operator's
+   Enter, prompted by the runner; a fixture stamp in the dry run.
+6. L6 — the re-arm sat outside REQ-D1.7's one sanctioned action, and what
+   counts as a write and the second notice were open. Applied (REQ-D1.7,
+   D-21, REQ-D1.10, D-30, Task 6's sanction wording, test-spec).
+7. L7 — the template's full question rule had no owner. Applied: Task 4.5
+   owns it (fork first, one per fork, `tiered`/`open` only), citing
+   REQ-D1.9, REQ-F1.7, D-26.
+8. L8 — Task 4.5 used Task 2's name screen. Applied: the screen inline.
+9. L9 — "worker cleanup" and the brief's sweep had no owner. Applied: the
+   session-end and stop-failure arms drop records and markers;
+   `fleet-sweep.sh`'s residue pass retires a task brief once its worktree
+   is gone.
+10. L10 — Task 4.5's done-when gaps. Applied.
+11. L11 — Task 5.5's done-when and doc gaps. Applied.
+12. L12 — Task 6.5's doc and atomic-write checks. Applied.
+13. L13 — Task 1.5's missing exclusion, criteria, and grep tokens. Applied.
+14. L14 — Task 8.5's missing design-level clauses and re-arm observation.
+    Applied.
+15. L15 — the "fleet-attention.sh byte-identical" constraint (E7) was
+    unverifiable. Applied: replaced by REQ-D1.9's actual invariant, no
+    write verb gains a post.
+16. L16 — tasks and two REQ/test lines cited superseded IDs. Applied.
+17. L17 — D-4 contradicted by REQ-F1.7. Applied (annotation).
+18. L18 — REQ-G1.1's exact-path-set test vs REQ-G1.8's added row.
+    Applied (test-spec wording; D-13 annotation).
+19. L19 — test-spec's intro and REQ-D1.9's audit sentence falsified by
+    the question message. Applied.
+20. L20 — the Goal called the idle notice the record. Applied.
+21. L21 — Task 1's diet allotment omitted the new growth tasks. Applied.
+22. L22 — D-23 unamended for REQ-A1.8. Applied.
+23. L23 — this entry copied derived figures (header, §6, A1-R3). Applied.
+24. L24 — "tower" meant two sessions in new text. Applied: the
+    supervising session defined (REQ-G1.9, D-29, A1 §2).
+25. L25 — no changelog entry for the kickoff's edits; the `S` legend
+    unnamed. Applied.
+26. L26 — `bootstrap REQ-K1.5` backed only the no-jq half; D-12 still bare.
+    Applied.
+27. L27 — D-28 enumerated the existing exit edges. Applied.
+28. L28 — Decision 8 was referenced but unrecorded. Applied (A1 §7).
+
+Validator heuristic warnings declined: REQ-A1.1 and REQ-H1.3 changed while
+their test-spec entries did not, each change a citation qualifier or
+re-point that moves no verification path.
+
+**Decision 9 (operator: pending record, own view item).** Recorded in
+finding 1. It supersedes the mechanism of decisions 2 and 3 (A1 §3), not
+their intent: the verdict still comes from the worker's submit hook, and
+the worker resuming, now its prompt submission, still clears it.
+
+**Post-lens stale-reference sweep** (`kickoff-verification`): REQ-A1.8
+minted and REQ-C1.7 re-scoped at this pass; grep over the bundle and this
+entry for the replaced mechanism ("park row", "decision marker",
+"multi-line relay", "worker cleanup", "pane check", "may not submit",
+"two-session check") leaves only rejected-alternative text, amendment
+annotations, and pre-existing circuit text naming a different park.
+
+##### Sign-off record (2026-10-08, reopened-bundle delta kickoff)
+
+Mode: the reopen cycle's scoped kickoff of the supervision amendment's
+delta. A1 §2 to §7 signed on 2026-10-07; the lens pass above dispositions
+every finding (applied all; declined none beyond the two validator
+heuristics named there; deferred none). Pre-flip checks: `mise run
+lint:md` clean over the brief and the four files; the recorded claims
+re-derived (the new task IDs against `6cbcbbc`'s `tasks.md`; the tasks
+naming `/orchestrate` prose against Task 1's diet allotment; the sweep
+greps); the enumeration cross-check run over the delta's counts and lists.
+Status flipped Draft → Ready on all four files with `Last reviewed:
+2026-10-08`; `scripts/spec-validate.sh specs/fleet-messaging` on the Ready
+bundle: 0 errors, the two declined heuristic warnings. Operator approval
+recorded at the approval summary (2026-10-08).
+
+Class: meaning
+Lens-pass: Lens review pass (2026-10-07) — delta-scoped, A1 §8
+Anchor: `a909ab3194705e919941d9edba7c7a1e139df03f` — computed as
+`scripts/spec-anchor.sh specs/fleet-messaging`

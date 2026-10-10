@@ -11,15 +11,18 @@
 #   step-record.sh [--worktree <dir>] new-run
 #   step-record.sh [--worktree <dir>] write --run <id> --point <point>
 #       --step <id> --kind <kind> --target <target> --hosting <hosting>
-#       --backend <name> --head <sha> --start <ts> --end <ts>
+#       --backend <name> [--head <sha>] --start <ts> [--end <ts>]
 #       --outcome <outcome> [--session <id>] [--excerpt-file <file>]
 #       [--output <path>] [--skip-reason <text>]
 #   step-record.sh [--worktree <dir>] write --completion --run <id>
-#       --point <point> --head <sha> [--warning <text>]...
+#       --point <point> [--head <sha>] [--warning <text>]...
 #   step-record.sh [--worktree <dir>] list [--run <id>] [--point <point>]
 #   step-record.sh [--worktree <dir>] render [--run <id>] [--point <point>]...
 #   step-record.sh [--worktree <dir>] regenerate --base <rev> --head <rev>
 #       [--run <id>] [--checklist-only]
+#   step-record.sh [--worktree <dir>] status --point <flip-point>
+#       [--head <sha>] --repo <owner>/<name>
+#   step-record.sh excerpt <file>
 #
 #   --worktree    the unit's worktree; default the enclosing git top level.
 #                 The cache is <worktree>/.claude/steps/, created mode 0700;
@@ -39,13 +42,12 @@
 #                 atomically, and a step or completion record for a point the
 #                 run already completed is refused. A repeated write is a
 #                 second record; retrying is the caller's call. A write that
-#                 fails before its record exists releases its claims, short
-#                 of an uncatchable kill, which can leave the point claimed
-#                 with no record (a new run recovers); an exit 1 after the
-#                 record exists (a failed print) leaves the record, and for a
-#                 completion the claim, in place. A reader running while
-#                 writers are still in flight can see a later record before
-#                 an earlier one lands.
+#                 fails before its record exists leaves nothing claimed,
+#                 short of an uncatchable kill, which leaves the cache lock
+#                 for the next writer to break once the killed process is
+#                 gone; an exit 1 after the record exists (a failed print)
+#                 leaves the record in place. A reader running while writers
+#                 are in flight may miss a record that lands during its read.
 #                 --excerpt-file resolves against the caller's directory.
 #   list          print every record of the run (every run when --run is
 #                 absent), oldest first, optionally one point's only: a
@@ -63,6 +65,30 @@
 #                 the PR base branch's current tip, so commits a merge from
 #                 the base brought in are reachable from it and never enter
 #                 the range.
+#   status        post a flip point's commit status on --head (default the
+#                 worktree's HEAD, as under the field grammar) in --repo, the
+#                 base repository the PR targets, and print
+#                 `posted<TAB><context><TAB><state><TAB><head>`. The point is
+#                 pre-ready-flip or pre-spec-ready-flip, the context
+#                 `planwright/<point>`. The latest attempt is the highest run
+#                 holding a completion record of that point naming --head; a
+#                 head with none is refused (exit 1) with no post. The state
+#                 is `failure` when any of that run's step records at the
+#                 point is halted or failed, whatever head it started on,
+#                 else `success` (an empty list included). The description
+#                 is `<point>: no step halted or failed (run <id>)`, or `a
+#                 step halted or failed` in its place; the status carries no
+#                 target URL, excerpt, or path. The post is
+#                 `gh api --method POST repos/<repo>/statuses/<head>`; a
+#                 later post on the same head and context replaces the
+#                 earlier one. A failed post exits 1 naming the repository
+#                 and the permission the login needs; an exit 1 after the
+#                 post (a failed print) leaves the status in place.
+#   excerpt       print <file> as write would store it as a record excerpt
+#                 (cleaned, screened, and bounded, or its placeholder line),
+#                 with no record cache or work tree involved; the excerpt a
+#                 caller outside the runner (scripts/classify-limit.sh)
+#                 carries. A missing or unreadable file exits 2.
 #
 # Field grammar (write refuses a violation with exit 2, naming the field and
 # never echoing its value; no value is ever interpolated before it passes):
@@ -75,8 +101,16 @@
 #   --backend      ^[a-z0-9][a-z0-9-]*$, at most 64 bytes (the backend
 #                  identifier charset)
 #   --session      [A-Za-z0-9._:-], 1 to 128 bytes; optional
-#   --head         a full commit id: 40 or 64 lowercase hex digits
-#   --start/--end  YYYY-MM-DDTHH:MM:SSZ
+#   --head         a full commit id: 40 or 64 lowercase hex digits; omitted
+#                  (write and status), the worktree's HEAD commit when the
+#                  verb runs, refused when it has none. Given, even empty, it
+#                  is never defaulted. A step record holds the head its step
+#                  started on, so a step that may commit passes that head;
+#                  the default fits a completion, status, and a step that
+#                  leaves HEAD where it found it.
+#   --start/--end  YYYY-MM-DDTHH:MM:SSZ; an omitted write --end is the UTC
+#                  time the record is written, refused if earlier than
+#                  --start
 #   --outcome      passed | applied | halted | failed | skipped; skipped
 #                  requires --skip-reason, and --skip-reason requires skipped
 #   --target, --skip-reason, --warning
@@ -91,8 +125,12 @@
 # Storage: <cache>/<run>/<seq>-step-<point>.rec and
 # <cache>/<run>/<seq>-done-<point>.rec (a name never carries a step id, which
 # the screen may withhold), <seq> three digits unique within the run and
-# increasing in write order (each claimed atomically), at most 999 records a
-# run. A record is `<key><TAB><value>` lines: type, run, seq, then
+# increasing in write order, at most 999 records a run. Issuing a run id and
+# writing a record each happen under <cache>/.lock, taken through
+# scripts/lock-lib.sh, so a record's own file is its sequence claim and its
+# point's completion. A cache from before that lock also holds `.seq-<seq>`
+# and `.done-<point>` directories; they still count as a claimed number and a
+# completed point. A record is `<key><TAB><value>` lines: type, run, seq, then
 # the fields above under their flag names (`excerpt` for --excerpt-file), an
 # empty optional field stored empty; `excerpt` and `warning` lines repeat.
 # Records are mode 0600. Its form is unstable to anything but this helper.
@@ -171,9 +209,15 @@
 # An empty checklist renders `- none`. A <base> or <head> that does not
 # resolve, or a range git cannot read, fails by name.
 #
+# status's --repo is <owner>/<name>: the owner [A-Za-z0-9-], at most 39 bytes,
+# not opening with `-`; the name [A-Za-z0-9._-], at most 100 bytes, neither
+# `.` nor `..` nor opening with `-`. Its --point and --head follow the grammar
+# above, the point one of the two flip points.
+#
 # Exit: 0 success · 1 a runtime failure (an unresolvable or unreadable range,
-# a cache that cannot be read or written, an exhausted counter) · 2 a usage
-# or field-validation error.
+# a cache that cannot be read or written, an exhausted counter, a cache lock
+# another writer held past the wait, a status with no attempt to post or a
+# post that failed) · 2 a usage or field-validation error.
 #
 # Portable POSIX sh + awk + iconv; bash 3.2 / BSD tooling floor.
 set -u
@@ -183,8 +227,14 @@ unset CDPATH
 umask 077
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 1
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "step-record.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 1
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
+# shellcheck source=scripts/lock-lib.sh
+. "$script_dir/lock-lib.sh"
 
 prog='step-record.sh'
 TAB=$(printf '\t')
@@ -205,18 +255,9 @@ set -f
 
 work=''
 pending=''
-seq_claim=''
-done_claim=''
 cleanup() {
+  pw_lock_release_all
   [ -z "$pending" ] || rm -f "$pending"
-  [ -z "$seq_claim" ] || rmdir "$seq_claim" 2>/dev/null
-  # A completion record already linked keeps its claim, whatever the signal
-  # interrupted.
-  if [ -n "$done_claim" ]; then
-    _run_dir=${done_claim%/*}
-    _point=${done_claim##*/.done-}
-    [ -n "$(glob_names "$_run_dir" "[0-9][0-9][0-9]-done-$_point.rec")" ] || rmdir "$done_claim" 2>/dev/null
-  fi
   [ -z "$work" ] || rm -rf "$work"
 }
 trap cleanup EXIT
@@ -238,6 +279,8 @@ bad() { die 2 "$1: $2"; }
 scratch() {
   [ -n "$work" ] && return 0
   work=$(mktemp -d "${TMPDIR:-/tmp}/step-record.XXXXXX") || die 1 "cannot create a temporary directory"
+  # Absolute, because a claim reads it after lock_cache has changed directory.
+  case $work in /*) ;; *) work="$(pwd -P)/$work" ;; esac
 }
 
 # has_ctl <value>: true when the value carries a C0 control byte or DEL.
@@ -286,6 +329,19 @@ is_ts() {
     [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) return 0 ;;
   esac
   return 1
+}
+
+# set_head_from_worktree: assigns head the worktree's own HEAD commit. An
+# inherited GIT_DIR or GIT_WORK_TREE would override -C, and a --worktree that is
+# a plain directory inside another repository would resolve that repository, so
+# both are refused rather than recording a commit from elsewhere.
+set_head_from_worktree() {
+  command -v git >/dev/null 2>&1 || die 1 "git is not on PATH"
+  _top=$(unset GIT_DIR GIT_WORK_TREE && git -C "$worktree" rev-parse --show-toplevel 2>/dev/null) \
+    && _top=$(cd -P -- "$_top" 2>/dev/null && pwd -P) && [ "$_top" = "$worktree" ] \
+    || bad --head "not given and the worktree is not the top of a git work tree to default from"
+  head=$(unset GIT_DIR GIT_WORK_TREE && git -C "$worktree" rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null) \
+    || bad --head "not given and the worktree has no commit to default to"
 }
 
 is_run_id() {
@@ -368,6 +424,21 @@ screen_values() {
   done
 }
 
+# build_excerpt <in> <out>: the excerpt the header pins, cleaned, screened,
+# and bounded, or its one-line placeholder.
+build_excerpt() {
+  scratch
+  clean "$1" "$work/excerpt.full"
+  screen "$work/excerpt.full"
+  if [ "$SCREEN_RC" -eq 0 ]; then
+    tail -n "$EXCERPT_LINES" "$work/excerpt.full" | tail -c "$EXCERPT_BYTES" \
+      | iconv -c -f UTF-8 -t UTF-8 >"$2" 2>/dev/null
+  else
+    withheld excerpt >"$2"
+    printf '\n' >>"$2"
+  fi
+}
+
 # --- global option and verb ---------------------------------------------------
 worktree=''
 while [ $# -gt 0 ]; do
@@ -384,6 +455,17 @@ done
 [ $# -ge 1 ] || usage
 verb=$1
 shift
+
+# excerpt reads no record cache, so it runs before the worktree is resolved.
+if [ "$verb" = excerpt ]; then
+  [ $# -eq 1 ] && [ -z "$worktree" ] || usage
+  [ -f "$1" ] && [ -r "$1" ] || bad excerpt "not a readable file"
+  command -v iconv >/dev/null 2>&1 || die 1 "iconv is not on PATH"
+  scratch
+  build_excerpt "$1" "$work/excerpt"
+  cat "$work/excerpt" || die 1 "cannot print the excerpt"
+  exit 0
+fi
 
 if [ -z "$worktree" ]; then
   command -v git >/dev/null 2>&1 || die 1 "git is not on PATH"
@@ -440,6 +522,28 @@ valid_run() {
   check_run "$1"
 }
 
+# lock_cache / unlock_cache: hold <cache>/.lock around a claim. The lock is
+# named from inside the cache because lock-lib refuses a path carrying `#`,
+# which a worktree path may; every path a claim reads is absolute by then.
+lock_cache() {
+  cd "$cache" || die 1 "cannot enter the record cache"
+  pw_lock_acquire .lock
+  case $? in
+    0) ;;
+    1) die 1 "the record cache stayed locked by another writer" ;;
+    *) die 1 "cannot lock the record cache" ;;
+  esac
+}
+# A release that fails stays recorded, and the exit handler retries it.
+unlock_cache() { pw_lock_release .lock || :; }
+
+# point_done <run> <point>: true once the run completed the point, by its
+# record or by a directory-shaped marker an older writer left.
+point_done() {
+  [ -d "$cache/$1/.done-$2" ] \
+    || [ -n "$(glob_names "$cache/$1" "[0-9][0-9][0-9]-done-$2.rec")" ]
+}
+
 # latest_run: sets LATEST to the highest run id, if any.
 latest_run() {
   LATEST=$(run_ids | tail -n 1)
@@ -450,21 +554,18 @@ latest_run() {
 cmd_new_run() {
   [ $# -eq 0 ] || usage
   mkdir -p "$cache" || die 1 "cannot create the record cache"
+  lock_cache
   last=$(run_ids | tail -n 1)
   next=$((1${last:-000000} - 1000000 + 1))
-  while :; do
-    [ "$next" -le 999999 ] || die 1 "the run-id counter is exhausted"
-    id=$(printf '%06d' "$next")
-    if mkdir "$cache/$id" 2>/dev/null; then
-      printf '%s\n' "$id" || {
-        rmdir "$cache/$id"
-        die 1 "cannot print the run id"
-      }
-      return 0
-    fi
-    [ -d "$cache/$id" ] || die 1 "cannot create a run directory"
-    next=$((next + 1))
-  done
+  [ "$next" -le 999999 ] || die 1 "the run-id counter is exhausted"
+  id=$(printf '%06d' "$next")
+  { [ ! -e "$cache/$id" ] && [ ! -L "$cache/$id" ]; } || die 1 "cannot create a run directory"
+  mkdir -p "$cache/$id" || die 1 "cannot create a run directory"
+  unlock_cache
+  printf '%s\n' "$id" || {
+    rmdir "$cache/$id"
+    die 1 "cannot print the run id"
+  }
 }
 
 # --- write ------------------------------------------------------------------------
@@ -474,47 +575,35 @@ put() {
   printf '%s\t%s\n' "$1" "$2" || die 1 "cannot write a temporary file"
 }
 
-# claim <run> <stem> <type> <body-file> [<point>]: write the record under
-# the run's next sequence number, claimed atomically, and print its absolute
-# path. Given a point, refuse once the point's completion is claimed: a
-# completion claims its marker before its sequence number, so a step whose
-# number came first still sorts before the completion.
+# claim <run> <stem> <type> <body-file> <point>: under the cache lock, refuse
+# once the point is completed, then write the record under the run's next
+# sequence number and print its absolute path.
 claim() {
   dir="$cache/$1"
-  last=$(glob_names "$dir" '.seq-[0-9][0-9][0-9]' | tail -n 1)
-  last=${last#.seq-}
+  lock_cache
+  point_done "$1" "$5" && bad --point "already completed in this run"
+  last=$({
+    glob_names "$dir" '.seq-[0-9][0-9][0-9]' | sed 's/^\.seq-//'
+    glob_names "$dir" '[0-9][0-9][0-9]-*.rec' | cut -c1-3
+  } | sort | tail -n 1)
   next=$((1${last:-000} - 1000 + 1))
-  while :; do
-    [ "$next" -le 999 ] || die 1 "the run's record counter is exhausted"
-    seq=$(printf '%03d' "$next")
-    if mkdir "$dir/.seq-$seq" 2>/dev/null; then
-      seq_claim="$dir/.seq-$seq"
-      break
-    fi
-    [ -d "$dir/.seq-$seq" ] || die 1 "cannot write to the record cache"
-    next=$((next + 1))
-  done
-  if [ -n "${5:-}" ] && [ -d "$dir/.done-$5" ]; then
-    bad --point "already completed in this run"
-  fi
-  pending="$dir/.rec-$seq"
-  set -C
+  [ "$next" -le 999 ] || die 1 "the run's record counter is exhausted"
+  seq=$(printf '%03d' "$next")
+  pending=$(mktemp "$dir/.rec-XXXXXX") || die 1 "cannot write to the record cache"
   { printf 'type\t%s\nrun\t%s\nseq\t%s\n' "$3" "$1" "$seq" && cat "$4"; } >"$pending" \
     || die 1 "cannot write to the record cache"
-  set +C
   path="$dir/$seq-$2.rec"
   ln "$pending" "$path" || die 1 "cannot write to the record cache"
-  seq_claim=''
-  done_claim=''
   rm -f "$pending"
   pending=''
+  unlock_cache
   printf '%s\n' "$path" || die 1 "cannot print the record path"
 }
 
 cmd_write() {
   completion=0 run='' point='' step='' kind='' target='' hosting='' backend=''
   session='' head='' start='' end='' outcome='' excerpt_file='' output=''
-  skip_reason='' warnings=''
+  skip_reason='' warnings='' head_given=0 end_given=0
   while [ $# -gt 0 ]; do
     case $1 in
       --completion)
@@ -538,9 +627,15 @@ cmd_write() {
       --hosting) hosting=$2 ;;
       --backend) backend=$2 ;;
       --session) session=$2 ;;
-      --head) head=$2 ;;
+      --head)
+        head=$2
+        head_given=1
+        ;;
       --start) start=$2 ;;
-      --end) end=$2 ;;
+      --end)
+        end=$2
+        end_given=1
+        ;;
       --outcome) outcome=$2 ;;
       --excerpt-file) excerpt_file=$2 ;;
       --output) output=$2 ;;
@@ -556,8 +651,11 @@ cmd_write() {
   [ -n "$run" ] || bad --run "required"
   valid_run "$run"
   is_point "$point" || bad --point "not a point of the vocabulary"
+  # An explicit --head, even an empty one, is never defaulted: an empty value
+  # is more likely a failed substitution than a request for HEAD.
+  [ "$head_given" -eq 1 ] || set_head_from_worktree
   is_head "$head" || bad --head "not a full commit id"
-  [ ! -d "$cache/$run/.done-$point" ] || bad --point "already completed in this run"
+  ! point_done "$run" "$point" || bad --point "already completed in this run"
 
   if [ "$completion" -eq 1 ]; then
     for f in "$step" "$kind" "$target" "$hosting" "$backend" "$session" \
@@ -580,13 +678,7 @@ cmd_write() {
         put warning "$w"
       done <"$work/screened"
     } >"$work/body" || die 1 "cannot write a temporary file"
-    if mkdir "$cache/$run/.done-$point" 2>/dev/null; then
-      done_claim="$cache/$run/.done-$point"
-    else
-      [ ! -d "$cache/$run/.done-$point" ] || bad --point "already completed in this run"
-      die 1 "cannot write to the record cache"
-    fi
-    claim "$run" "done-$point" completion "$work/body"
+    claim "$run" "done-$point" completion "$work/body" "$point"
     return
   fi
   [ -z "$warnings" ] || bad --warning "belongs to write --completion"
@@ -599,6 +691,12 @@ cmd_write() {
   is_backend "$backend" || bad --backend "not a backend name"
   [ -z "$session" ] || is_session "$session" || bad --session "not a session id"
   is_ts "$start" || bad --start "not YYYY-MM-DDTHH:MM:SSZ"
+  if [ "$end_given" -eq 0 ]; then
+    end=$(date -u +%Y-%m-%dT%H:%M:%SZ) || die 1 "cannot read the clock"
+    # Same-width UTC stamps: the digits compare as numbers.
+    [ "$(printf '%s' "$end" | tr -d -- '-:TZ')" -ge "$(printf '%s' "$start" | tr -d -- '-:TZ')" ] \
+      || bad --end "not given, and the clock now reads earlier than --start"
+  fi
   is_ts "$end" || bad --end "not YYYY-MM-DDTHH:MM:SSZ"
   case $outcome in passed | applied | halted | failed | skipped) ;; *) bad --outcome "not passed, applied, halted, failed, or skipped" ;; esac
   if [ "$outcome" = skipped ]; then
@@ -652,17 +750,7 @@ cmd_write() {
   done <"$work/screened"
 
   : >"$work/excerpt"
-  if [ -n "$excerpt_file" ]; then
-    clean "$excerpt_file" "$work/excerpt.full"
-    screen "$work/excerpt.full"
-    if [ "$SCREEN_RC" -eq 0 ]; then
-      tail -n "$EXCERPT_LINES" "$work/excerpt.full" | tail -c "$EXCERPT_BYTES" \
-        | iconv -c -f UTF-8 -t UTF-8 >"$work/excerpt" 2>/dev/null
-    else
-      withheld excerpt >"$work/excerpt"
-      printf '\n' >>"$work/excerpt"
-    fi
-  fi
+  [ -z "$excerpt_file" ] || build_excerpt "$excerpt_file" "$work/excerpt"
 
   {
     put point "$point"
@@ -981,6 +1069,74 @@ cmd_regenerate() {
   fi
 }
 
+# --- status --------------------------------------------------------------------------
+is_repo() {
+  case $1 in */*/* | -* | */-* | */ | /*) return 1 ;; */*) ;; *) return 1 ;; esac
+  _owner=${1%%/*} _name=${1#*/}
+  case $_owner in *[!A-Za-z0-9-]*) return 1 ;; esac
+  case $_name in . | .. | *[!A-Za-z0-9._-]*) return 1 ;; esac
+  [ "${#_owner}" -le 39 ] && [ "${#_name}" -le 100 ]
+}
+
+cmd_status() {
+  point='' head='' repo='' head_given=0
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --point | --head | --repo) [ $# -ge 2 ] || usage ;;
+      *) usage ;;
+    esac
+    case $1 in
+      --point) point=$2 ;;
+      --head)
+        head=$2
+        head_given=1
+        ;;
+      --repo) repo=$2 ;;
+    esac
+    shift 2
+  done
+  case $point in pre-ready-flip | pre-spec-ready-flip) ;; *) bad --point "not a flip point" ;; esac
+  [ "$head_given" -eq 1 ] || set_head_from_worktree
+  is_head "$head" || bad --head "not a full commit id"
+  is_repo "$repo" || bad --repo "not an <owner>/<name> repository"
+
+  attempt=''
+  for r in $(run_ids | sort -r); do
+    check_run "$r"
+    for f in $(glob_names "$cache/$r" "[0-9][0-9][0-9]-done-$point.rec"); do
+      if grep -Fxq "head$TAB$head" "$cache/$r/$f"; then
+        attempt=$r
+        break 2
+      fi
+    done
+  done
+  [ -n "$attempt" ] || die 1 "no completion record of $point names $head; refusing to post a status"
+
+  state=success
+  for f in $(record_files "$attempt"); do
+    { grep -Fxq "type${TAB}step" "$f" && grep -Fxq "point$TAB$point" "$f"; } || continue
+    if grep -Fxq "outcome${TAB}halted" "$f" || grep -Fxq "outcome${TAB}failed" "$f"; then
+      state=failure
+    fi
+  done
+  context="planwright/$point"
+  if [ "$state" = success ]; then
+    description="$point: no step halted or failed (run $attempt)"
+  else
+    description="$point: a step halted or failed (run $attempt)"
+  fi
+
+  command -v gh >/dev/null 2>&1 || die 1 "gh is not on PATH; cannot post the $context status"
+  scratch
+  if ! gh api --method POST "repos/$repo/statuses/$head" -f "state=$state" \
+    -f "context=$context" -f "description=$description" >/dev/null 2>"$work/gh.err"; then
+    why=$(head -n 1 "$work/gh.err")
+    why=$(sanitize_printable "$why" 'no error text')
+    die 1 "cannot post the $context status on $head in $repo ($why); if the cause is a missing permission, the login needs commit-status write access: repo:status on a classic token, or Commit statuses write on a fine-grained token or app"
+  fi
+  printf 'posted\t%s\t%s\t%s\n' "$context" "$state" "$head" || die 1 "cannot print the posted status"
+}
+
 command -v iconv >/dev/null 2>&1 || die 1 "iconv is not on PATH"
 check_dir "$worktree/.claude"
 check_dir "$cache"
@@ -990,6 +1146,7 @@ if command -v git >/dev/null 2>&1 && [ -d "$cache" ]; then
 fi
 
 case $verb in
+  status) cmd_status "$@" ;;
   new-run) cmd_new_run "$@" ;;
   write) cmd_write "$@" ;;
   list) cmd_list "$@" ;;

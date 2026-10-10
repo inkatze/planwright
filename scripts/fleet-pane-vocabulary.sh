@@ -1,10 +1,11 @@
 # shellcheck shell=sh
 # fleet-pane-vocabulary.sh — the codified Claude Code TUI marker vocabulary
 # and the footer classifier over it (sourced, never executed) by every pane consumer
-# (fleet-pane-detect.sh, fleet-stuck-detector.sh). This is the SINGLE point a
-# tower updates if the TUI footer or dialog text changes — the whole value of
-# codifying the pane discipline once (fleet-hardening D-3) instead of every
-# consumer re-deriving a fragile heuristic; the platform-rendered surface it
+# (fleet-pane-detect.sh, fleet-stuck-detector.sh, orchestrate-relay.sh). This is
+# the SINGLE point a tower updates if the TUI footer or dialog text changes —
+# the whole value of codifying the pane discipline once (fleet-hardening D-3)
+# instead of every consumer re-deriving a fragile heuristic; the
+# platform-rendered surface it
 # pins is a known fragility (fleet-lifecycle-closure kickoff risk row 2), so
 # the live-CLI rehearsal is what catches a silent divergence, not a fixture.
 #
@@ -33,6 +34,14 @@
 #   do differently`; the older per-tool phrasings (`make this edit`, `create
 #   <file>`) no longer exist and are deliberately not listed. Override via
 #   FLEET_PANE_PROMPT_SIGNATURES, same shape as the anchor override.
+# Selection-prompt signatures (case-insensitive substring, bounded window):
+#   any open dialog a paste would answer instead of reaching the input box —
+#   the permission signatures above plus the select-menu footers (`↑/↓ to
+#   navigate · Enter to select`, `Esc to cancel`), verified the same way
+#   against 2.1.293, and a cursor resting on a numbered option (`❯ 1.`).
+# Staged-paste signature: `[Pasted text #`, the placeholder a multi-line paste
+#   leaves in the input box (2.1.293), which nothing submits and which holds
+#   every later paste behind it.
 #
 # Every needle is matched as a plain substring through the sh `case` glob, so
 # no regex metacharacter in a needle is ever interpreted; the caller lowercases
@@ -139,4 +148,31 @@ raw_classify() {
 permission_prompt_present() {
   ppp_lc=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
   printf '%s\n' "$(permission_prompt_signatures)" | { contains_any "$ppp_lc"; }
+}
+
+default_selection_prompt_signatures() {
+  cat <<'SIGNATURES'
+enter to select
+to navigate
+esc to cancel
+SIGNATURES
+}
+
+# selection_prompt_present <window-text> — 0 iff the bounded window shows an
+# open dialog: a permission prompt, a select-menu footer, or a line whose
+# first glyph is the selection cursor on a numbered option.
+selection_prompt_present() {
+  permission_prompt_present "$1" && return 0
+  spp_lc=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  printf '%s\n' "$(default_selection_prompt_signatures)" | { contains_any "$spp_lc"; } && return 0
+  printf '%s\n' "$1" | grep -Eq '^[[:space:]]*❯[[:space:]]*[0-9]+\.'
+}
+
+# staged_paste_present <window-text> — 0 iff the input box holds a multi-line
+# paste placeholder.
+staged_paste_present() {
+  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+    *'[pasted text #'*) return 0 ;;
+  esac
+  return 1
 }

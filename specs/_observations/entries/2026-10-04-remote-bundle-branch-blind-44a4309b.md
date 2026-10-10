@@ -1,0 +1,1 @@
+- 2026-10-04 [planwright] orchestrate-state.sh probes only planwright/<spec>/task-<id> on origin, so a cohesion bundle pushed from another checkout as task-<a>-<b> holds none of its member tasks there; the local path covers bundles only through this host's per-id markers, which do not cross machines.

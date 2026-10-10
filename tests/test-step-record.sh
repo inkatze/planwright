@@ -27,10 +27,10 @@ export PLANWRIGHT_SECRET_SCREEN_TOOL
 
 failures=0
 fail() {
-  echo "FAIL: $1" >&2
+  printf '%s\n' "FAIL: $1" >&2
   failures=$((failures + 1))
 }
-ok() { echo "ok: $1"; }
+ok() { printf '%s\n' "ok: $1"; }
 # verdict <ok-message> <fail-message>: judged on the exit status of the
 # command that precedes the call.
 verdict() {
@@ -38,6 +38,17 @@ verdict() {
     ok "$1"
   else
     fail "$2"
+  fi
+}
+# verdict_of <status> <ok-message> <fail-message>: the same, judged on a status
+# passed in, for a fail message that runs a command substitution. Expanding the
+# substitution resets $? under bash before verdict could read it; $? as the
+# first word expands before the substitution runs.
+verdict_of() {
+  if [ "$1" -eq 0 ]; then
+    ok "$2"
+  else
+    fail "$3"
   fi
 }
 
@@ -661,23 +672,27 @@ sr2 write --run "$r" --point pre-ci --step edge-k --kind command --target t --ho
   --outcome passed --excerpt-file "$tmp/invalid.txt" >/dev/null
 verdict "an all-invalid excerpt still writes its record" "all-invalid excerpt refused"
 
-# A completion that fails before its record exists releases its claim.
+# A completion that fails before its record exists leaves nothing claimed.
 shim="$tmp/shim"
 mkdir -p "$shim"
-printf '#!/bin/sh\nexit 1\n' >"$shim/ln"
+# Only the record's hard link fails; the cache lock's symlink still goes through.
+# shellcheck disable=SC2016 # the shim's own $1 and $@, expanded when it runs
+printf '#!/bin/sh\n[ "$1" = -s ] && exec "%s" "$@"\nexit 1\n' "$(command -v ln)" >"$shim/ln"
 chmod +x "$shim/ln"
 r8=$(sr2 new-run)
 env PATH="$shim:$PATH" "$SR" --worktree "$w2" write --completion --run "$r8" --point pre-ci \
-  --head "$HEAD_SHA" >/dev/null 2>&1
-[ $? -eq 1 ]
-verdict "a completion whose link fails exits 1" "failed link not reported"
+  --head "$HEAD_SHA" >/dev/null 2>"$tmp/err8"
+[ $? -eq 1 ] && grep -q "cannot write to the record cache" "$tmp/err8"
+verdict_of $? "a completion whose link fails exits 1" "failed link not reported: $(cat "$tmp/err8")"
+[ -z "$(find "$w2/.claude/steps/$r8" -mindepth 1)" ] && [ ! -L "$w2/.claude/steps/.lock" ]
+verdict "a failed completion leaves no temp file and no lock" "leftovers after a failed completion"
 sr2 write --completion --run "$r8" --point pre-ci --head "$HEAD_SHA" >/dev/null
-verdict "a retried completion after a failed one succeeds" "the failed completion kept its claim"
+verdict "a retried completion after a failed one succeeds" "the failed completion left its point completed"
 
 # A missing secret screen withholds, never passes.
 lone="$tmp/lone"
 mkdir -p "$lone"
-cp "$SR" "$repo_root/scripts/echo-safety.sh" "$lone/"
+cp "$SR" "$repo_root/scripts/echo-safety.sh" "$repo_root/scripts/lock-lib.sh" "$lone/"
 w6="$tmp/w6"
 fresh "$w6"
 r6=$("$lone/step-record.sh" --worktree "$w6" new-run)
@@ -738,11 +753,11 @@ has 'Reject with: a later commit carrying `Planwright-Sign-Off-Rejected: PS-12`'
 verdict "a merge commit's entry names the rejection trailer" "merge recipe missing"
 
 # --- third-round edges ---------------------------------------------------------------
-# A step refused after claiming its sequence number releases the claim; a
-# completion with no warning runs no screen.
+# A step refused because its point completed while it was screening leaves
+# nothing behind; a completion with no warning runs no screen.
 slow="$tmp/slow"
 mkdir -p "$slow"
-cp "$SR" "$repo_root/scripts/echo-safety.sh" "$slow/"
+cp "$SR" "$repo_root/scripts/echo-safety.sh" "$repo_root/scripts/lock-lib.sh" "$slow/"
 cat >"$slow/inception-secret-screen.sh" <<'STUB'
 #!/bin/sh
 if grep -q slowstep "$2"; then
@@ -758,23 +773,27 @@ fresh "$w9"
 r9=$("$slow/step-record.sh" --worktree "$w9" new-run)
 "$slow/step-record.sh" --worktree "$w9" write --run "$r9" --point pre-ci --step s --kind command \
   --target slowstep --hosting isolated --backend runner --head "$HEAD_SHA" \
-  --start 2026-09-28T15:00:00Z --end 2026-09-28T15:00:01Z --outcome passed >/dev/null 2>&1 &
+  --start 2026-09-28T15:00:00Z --end 2026-09-28T15:00:01Z --outcome passed >/dev/null 2>"$tmp/err9" &
+slowpid=$!
 i=0
 while [ ! -e "$slow/slow-started" ] && [ "$i" -lt 60 ]; do
   sleep 1
   i=$((i + 1))
 done
+[ -e "$slow/slow-started" ]
+verdict "the slow step reached its screen before the completion" "the slow step never screened"
 "$slow/step-record.sh" --worktree "$w9" write --completion --run "$r9" --point pre-ci \
   --head "$HEAD_SHA" >/dev/null
 [ ! -s "$slow/calls" ]
 verdict "a completion with no warning runs no screen" "the screen ran for a warning-free completion"
-wait
-nseq=$(find "$w9/.claude/steps/$r9" -name '.seq-*' | wc -l | tr -d ' ')
-nrec=$(find "$w9/.claude/steps/$r9" -name '[0-9]*.rec' | wc -l | tr -d ' ')
-[ "$nseq" -eq "$nrec" ]
-verdict "a step refused after its claim releases it" "$nseq claims for $nrec records"
+wait "$slowpid"
+rc=$?
+left=$(find "$w9/.claude/steps/$r9" -mindepth 1 -exec basename {} \; | sort | tr '\n' ' ')
+[ "$rc" -eq 2 ] && grep -q "already completed" "$tmp/err9" && [ "$left" = "001-done-pre-ci.rec " ] \
+  && [ ! -L "$w9/.claude/steps/.lock" ]
+verdict "a step refused after its point completed leaves nothing behind" "rc=$rc, run holds: $left"
 
-# A done marker that cannot be made is a runtime failure, not a completed point.
+# A completion that cannot be written is a runtime failure, not a completed point.
 r10=$(sr2 new-run)
 chmod 500 "$w2/.claude/steps/$r10"
 sr2 write --completion --run "$r10" --point pre-ci --head "$HEAD_SHA" >/dev/null 2>"$tmp/err10"
@@ -1173,12 +1192,526 @@ verdict "render defaults to the latest run, even an empty one" "render showed an
 ! sr regenerate --base "$BASE" --head "$HEAD2" | grep -q '^## Steps at'
 verdict "regenerate defaults to the latest run, even an empty one" "regenerate showed an older run"
 
+# --- a mkdir that tells every racer it won ---------------------------------------------
+# Some coreutils reimplementations report success to several concurrent
+# creators of one directory. The shim makes that the rule rather than the race,
+# so a writer that still takes its claims by mkdir status shows it every run.
+multi="$tmp/multi-mkdir"
+mkdir -p "$multi"
+real_mkdir=$(command -v mkdir)
+printf '#!/bin/sh\n"%s" -p "$@" 2>/dev/null\nexit 0\n' "$real_mkdir" >"$multi/mkdir"
+chmod +x "$multi/mkdir"
+wm="$tmp/wm"
+fresh "$wm"
+srm() { env PATH="$multi:$PATH" "$SR" --worktree "$wm" "$@"; }
+i=1
+while [ "$i" -le 4 ]; do
+  srm new-run >>"$tmp/multi-runs" 2>/dev/null &
+  i=$((i + 1))
+done
+wait
+nruns=$(grep -c . "$tmp/multi-runs")
+druns=$(sort "$tmp/multi-runs" | uniq -d | grep -c .)
+[ "$nruns" -eq 4 ] && [ "$druns" -eq 0 ]
+verdict "concurrent new-runs issue distinct ids under a multi-winner mkdir" \
+  "$nruns ids issued, $druns duplicated"
+rm6=$(srm new-run)
+i=1
+while [ "$i" -le 8 ]; do
+  srm write --run "$rm6" --point pre-implementation --step "m$i" --kind command --target t \
+    --hosting isolated --backend runner --head "$HEAD_SHA" \
+    --start 2026-09-28T16:00:00Z --end 2026-09-28T16:00:01Z --outcome passed >/dev/null 2>&1 &
+  i=$((i + 1))
+done
+wait
+dups=$(srm list --run "$rm6" | sed -n "s/^seq${TAB}//p" | sort | uniq -d | wc -l | tr -d ' ')
+count=$(srm list --run "$rm6" | grep -c "^seq${TAB}")
+[ "$dups" -eq 0 ] && [ "$count" -eq 8 ]
+verdict "concurrent writers keep unique sequence numbers under a multi-winner mkdir" \
+  "$count records, $dups duplicate seqs"
+rm7=$(srm new-run)
+i=1
+while [ "$i" -le 4 ]; do
+  {
+    srm write --completion --run "$rm7" --point pre-ci --head "$HEAD_SHA" >/dev/null 2>&1
+    echo $? >>"$tmp/rc7"
+  } &
+  i=$((i + 1))
+done
+wait
+ndone=$(find "$wm/.claude/steps/$rm7" -name '[0-9]*-done-pre-ci.rec' | wc -l | tr -d ' ')
+rcs=$(sort "$tmp/rc7" | tr '\n' ' ')
+[ "$ndone" -eq 1 ] && [ "$rcs" = "0 2 2 2 " ] && [ ! -L "$wm/.claude/steps/.lock" ] \
+  && [ -z "$(find "$wm/.claude/steps" -name '.rec-*')" ]
+verdict "one completion wins under a multi-winner mkdir" "$ndone completion records, exits $rcs"
+
+# --- caches holding directory-shaped markers ------------------------------------------
+# A .seq- directory counts as a used sequence number and a .done- directory as a
+# completed point, with or without the record they were claimed for.
+wl="$tmp/wl"
+fresh "$wl"
+rl="$wl/.claude/steps/000007"
+mkdir -p "$rl/.seq-001" "$rl/.seq-002" "$rl/.seq-003" "$rl/.done-pre-ci"
+printf 'type\tstep\nrun\t000007\nseq\t001\npoint\tpre-ci\nstep\told\nkind\tcommand\ntarget\tt\nhosting\tisolated\nbackend\trunner\nsession\t\nhead\t%s\nstart\t2026-09-28T09:00:00Z\nend\t2026-09-28T09:00:01Z\noutcome\tpassed\noutput\t\nskip-reason\t\n' \
+  "$HEAD_SHA" >"$rl/001-step-pre-ci.rec"
+"$SR" --worktree "$wl" render --run 000007 | grep -q '^| 1 | old |'
+verdict "a pre-existing run's records still render" "legacy run did not render"
+"$SR" --worktree "$wl" write --run 000007 --point pre-ci --step late --kind command --target t \
+  --hosting isolated --backend runner --head "$HEAD_SHA" --start 2026-09-28T09:00:02Z \
+  --end 2026-09-28T09:00:03Z --outcome passed >/dev/null 2>"$tmp/errl"
+[ $? -eq 2 ] && grep -q "already completed" "$tmp/errl"
+verdict "a directory-shaped completion marker still closes its point" "a step landed after a legacy completion"
+recl=$("$SR" --worktree "$wl" write --run 000007 --point pre-pr --step next --kind command --target t \
+  --hosting isolated --backend runner --head "$HEAD_SHA" --start 2026-09-28T09:00:04Z \
+  --end 2026-09-28T09:00:05Z --outcome passed)
+[ "${recl##*/}" = "004-step-pre-pr.rec" ]
+verdict "a new record numbers past directory-shaped sequence markers" "new record at '${recl##*/}'"
+mkdir -p "$wl/.claude/steps/000008/.done-post-pr"
+"$SR" --worktree "$wl" write --completion --run 000008 --point post-pr --head "$HEAD_SHA" >/dev/null 2>"$tmp/errl"
+[ $? -eq 2 ] && grep -q "already completed" "$tmp/errl"
+verdict "a completion marker with no record still claims its point" "a second completion landed"
+[ "$("$SR" --worktree "$wl" new-run)" = 000009 ]
+verdict "new-run numbers past a pre-existing cache" "new-run reused or skipped an id"
+# No writer ever left a .done- marker that is not a directory, so a stray file
+# completes nothing.
+: >"$wl/.claude/steps/000009/.done-pre-ci"
+"$SR" --worktree "$wl" write --run 000009 --point pre-ci --step stray --kind command --target t \
+  --hosting isolated --backend runner --head "$HEAD_SHA" --start 2026-09-28T09:00:06Z \
+  --end 2026-09-28T09:00:07Z --outcome passed >/dev/null 2>"$tmp/errl"
+verdict "a stray .done- file does not close its point" "a step was refused after a stray .done- file"
+
+# A sequence counter used up by records alone is exhausted too.
+mkdir -p "$wl/.claude/steps/000010"
+cp "$rl/001-step-pre-ci.rec" "$wl/.claude/steps/000010/999-step-pre-ci.rec"
+"$SR" --worktree "$wl" write --completion --run 000010 --point pre-pr --head "$HEAD_SHA" >/dev/null 2>"$tmp/errl"
+[ $? -eq 1 ] && grep -q "exhausted" "$tmp/errl"
+verdict "an exhausted record counter counts records as well as markers" "record written past seq 999"
+
+# --- the cache lock ---------------------------------------------------------------------
+# A lock left by a writer that died is broken, not waited out.
+wk="$tmp/wk"
+fresh "$wk"
+mkdir -p "$wk/.claude/steps"
+sh -c 'exit 0' &
+deadpid=$!
+wait "$deadpid"
+ln -s "$deadpid-1700000000-1" "$wk/.claude/steps/.lock"
+rk=$("$SR" --worktree "$wk" new-run 2>/dev/null)
+[ "$rk" = 000001 ] && [ ! -L "$wk/.claude/steps/.lock" ]
+verdict "a dead writer's cache lock is broken" "new-run printed '$rk' past a dead writer's lock"
+# The lock lives inside the cache so a worktree path carrying `#` still writes.
+wh="$tmp/w#hash"
+fresh "$wh"
+rh=$("$SR" --worktree "$wh" new-run 2>"$tmp/errh") \
+  && "$SR" --worktree "$wh" write --completion --run "$rh" --point pre-ci --head "$HEAD_SHA" >/dev/null 2>>"$tmp/errh"
+verdict_of $? "a worktree path carrying # still writes records" "$(cat "$tmp/errh")"
+
+# A relative TMPDIR still writes: the scratch is resolved before the cache lock
+# moves the writer into the cache.
+wr="$tmp/wr"
+fresh "$wr"
+mkdir -p "$wr/reltmp"
+rr=$("$SR" --worktree "$wr" new-run)
+(cd "$wr" && TMPDIR=reltmp "$SR" write --run "$rr" --point pre-ci --step rel --kind command \
+  --target t --hosting isolated --backend runner --head "$HEAD_SHA" --start 2026-09-28T17:00:00Z \
+  --end 2026-09-28T17:00:01Z --outcome passed >/dev/null 2>"$tmp/errrel")
+rc=$?
+st=1
+if [ "$rc" -eq 0 ] && [ -z "$(find "$wr/reltmp" -mindepth 1)" ]; then st=0; fi
+verdict_of "$st" "a relative TMPDIR writes its record and leaves no scratch behind" "rc=$rc: $(cat "$tmp/errrel")"
+
+# --- status: the flip-point evidence (custom-steps REQ-E1.5) -------------------------
+# A fresh worktree so earlier sections' runs cannot hold a completion for these
+# heads, and a gh stub that logs each argument on its own line and fails on demand.
+wt2="$tmp/wt2"
+mkdir -p "$wt2"
+git -C "$wt2" init -q -b main
+stub="$tmp/ghstub"
+mkdir -p "$stub"
+cat >"$stub/gh" <<'STUB'
+#!/bin/sh
+: >"$GH_STUB_LOG"
+for a in "$@"; do printf '%s\n' "$a" >>"$GH_STUB_LOG"; done
+if [ "${GH_STUB_FAIL:-0}" -ne 0 ]; then
+  echo 'HTTP 403: Resource not accessible by integration' >&2
+  exit 1
+fi
+printf '{"state":"posted"}\n'
+STUB
+chmod +x "$stub/gh"
+GH_STUB_LOG="$tmp/gh.args"
+GH_STUB_FAIL=0
+export GH_STUB_LOG GH_STUB_FAIL
+
+sr2() { PATH="$stub:$PATH" "$SR" --worktree "$wt2" "$@"; }
+H_A=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+H_B=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+H_C=cccccccccccccccccccccccccccccccccccccccc
+H_D=dddddddddddddddddddddddddddddddddddddddd
+H_E=eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+H_F=ffffffffffffffffffffffffffffffffffffffff
+H_G=1111111111111111111111111111111111111111
+
+# step_rec <run> <point> <outcome> <head>: one step record at the point.
+step_rec() {
+  if [ "$3" = skipped ]; then
+    set -- "$@" --skip-reason "not applicable"
+  else
+    set -- "$@" --session fixture
+  fi
+  sr2 write --run "$1" --point "$2" --step "s-$3" --kind command --target "true" \
+    --hosting in-session --backend terminal --head "$4" \
+    --start 2026-10-01T10:00:00Z --end 2026-10-01T10:00:01Z --outcome "$3" "$5" "$6" >/dev/null \
+    || fail "fixture: cannot write a $3 step record"
+}
+done_rec() {
+  sr2 write --completion --run "$1" --point "$2" --head "$3" >/dev/null \
+    || fail "fixture: cannot write a $2 completion record"
+}
+# post_state <point> <head>: run the verb against the fixture base repository;
+# sets ST_RC and ST_OUT, and leaves the gh call in $GH_STUB_LOG.
+post_state() {
+  rm -f "$GH_STUB_LOG"
+  ST_OUT=$(sr2 status --point "$1" --head "$2" --repo acme/widgets 2>"$tmp/st.err")
+  ST_RC=$?
+}
+gh_arg() { [ -f "$GH_STUB_LOG" ] && grep -Fxq -- "$1" "$GH_STUB_LOG"; }
+
+# An empty attempt: the point completed with no step record.
+r=$(sr2 new-run)
+done_rec "$r" pre-ready-flip "$H_A"
+post_state pre-ready-flip "$H_A"
+[ "$ST_RC" -eq 0 ] && gh_arg state=success && gh_arg context=planwright/pre-ready-flip
+verdict_of $? "status derives success over an empty attempt" "rc=$ST_RC: $(cat "$tmp/st.err")"
+gh_arg "repos/acme/widgets/statuses/$H_A" && gh_arg POST
+verdict_of $? "the posting call names the base repository and the exact head" "gh args: $(tr '\n' ' ' <"$GH_STUB_LOG" 2>/dev/null)"
+printf '%s\n' "$ST_OUT" | grep -Fxq "posted${TAB}planwright/pre-ready-flip${TAB}success${TAB}$H_A"
+verdict "status prints the posted context, state, and head" "printed '$ST_OUT'"
+! grep -Fq "$wt2" "$GH_STUB_LOG" && ! grep -q '^target_url=' "$GH_STUB_LOG"
+verdict "the status carries no local path and no target" "gh args carry a path or target"
+grep -Fxq "description=pre-ready-flip: no step halted or failed (run $r)" "$GH_STUB_LOG"
+verdict_of $? "the status carries the pinned description" "description: $(grep '^description=' "$GH_STUB_LOG")"
+
+# Passed, applied, and skipped records all derive success.
+r=$(sr2 new-run)
+step_rec "$r" pre-ready-flip passed "$H_B"
+step_rec "$r" pre-ready-flip applied "$H_B"
+step_rec "$r" pre-ready-flip skipped "$H_B"
+done_rec "$r" pre-ready-flip "$H_B"
+post_state pre-ready-flip "$H_B"
+[ "$ST_RC" -eq 0 ] && gh_arg state=success
+verdict "status derives success over passed, applied, and skipped records" "rc=$ST_RC"
+
+# A halted or a failed record derives failure, the description saying so.
+for o in halted failed; do
+  r=$(sr2 new-run)
+  h=$H_C
+  [ "$o" = failed ] && h=$H_D
+  step_rec "$r" pre-ready-flip passed "$h"
+  step_rec "$r" pre-ready-flip "$o" "$h"
+  done_rec "$r" pre-ready-flip "$h"
+  post_state pre-ready-flip "$h"
+  [ "$ST_RC" -eq 0 ] && gh_arg state=failure \
+    && grep -Fxq "description=pre-ready-flip: a step halted or failed (run $r)" "$GH_STUB_LOG"
+  verdict_of $? "status derives failure over a $o record" "rc=$ST_RC: $(cat "$tmp/st.err")"
+done
+
+# A step that moved the head still belongs to the attempt the completion names.
+r=$(sr2 new-run)
+step_rec "$r" pre-ready-flip failed "$H_A"
+done_rec "$r" pre-ready-flip "$H_E"
+post_state pre-ready-flip "$H_E"
+[ "$ST_RC" -eq 0 ] && gh_arg state=failure
+verdict "a step recorded on the starting head counts for the head the list ended on" "rc=$ST_RC"
+
+# The latest attempt for the head wins, either way round; a later run that
+# completed on another head, or another point, does not displace it.
+r=$(sr2 new-run)
+step_rec "$r" pre-ready-flip failed "$H_F"
+done_rec "$r" pre-ready-flip "$H_F"
+r=$(sr2 new-run)
+step_rec "$r" pre-ready-flip passed "$H_F"
+done_rec "$r" pre-ready-flip "$H_F"
+r=$(sr2 new-run)
+step_rec "$r" pre-ready-flip failed "$H_G"
+done_rec "$r" pre-ready-flip "$H_G"
+step_rec "$r" pre-spec-ready-flip failed "$H_F"
+done_rec "$r" pre-spec-ready-flip "$H_F"
+sr2 new-run >/dev/null
+post_state pre-ready-flip "$H_F"
+[ "$ST_RC" -eq 0 ] && gh_arg state=success
+verdict "status ignores an earlier attempt's failure for the same head" "rc=$ST_RC"
+r=$(sr2 new-run)
+step_rec "$r" pre-ready-flip halted "$H_F"
+done_rec "$r" pre-ready-flip "$H_F"
+post_state pre-ready-flip "$H_F"
+[ "$ST_RC" -eq 0 ] && gh_arg state=failure
+verdict "a later attempt's failure replaces an earlier success" "rc=$ST_RC"
+
+# The spec-PR flip point posts its own context.
+post_state pre-spec-ready-flip "$H_F"
+[ "$ST_RC" -eq 0 ] && gh_arg context=planwright/pre-spec-ready-flip && gh_arg state=failure
+verdict "the spec-PR flip point posts the pre-spec-ready-flip context" "rc=$ST_RC"
+
+# Only the queried point's records count: another point's failure in the same
+# run leaves this point's status green.
+H_X=3333333333333333333333333333333333333333
+r=$(sr2 new-run)
+step_rec "$r" pre-ready-flip failed "$H_X"
+done_rec "$r" pre-ready-flip "$H_X"
+step_rec "$r" pre-spec-ready-flip passed "$H_X"
+done_rec "$r" pre-spec-ready-flip "$H_X"
+post_state pre-spec-ready-flip "$H_X"
+[ "$ST_RC" -eq 0 ] && gh_arg state=success
+verdict "another point's failed record does not fail this point's status" "rc=$ST_RC"
+
+# A head with no completion record is refused, with no post.
+r=$(sr2 new-run)
+step_rec "$r" pre-ready-flip passed 2222222222222222222222222222222222222222
+post_state pre-ready-flip 2222222222222222222222222222222222222222
+[ "$ST_RC" -eq 1 ] && [ ! -f "$GH_STUB_LOG" ] && grep -Fq 'no completion record' "$tmp/st.err"
+verdict_of $? "status refuses a head with no completion record, posting nothing" "rc=$ST_RC: $(cat "$tmp/st.err")"
+post_state pre-spec-ready-flip "$H_A"
+[ "$ST_RC" -eq 1 ] && [ ! -f "$GH_STUB_LOG" ]
+verdict "another flip point's completion does not stand in for this one's" "rc=$ST_RC"
+
+# A failed post fails the verb and names the permission the login needs, as
+# one possible cause: an outage or an unknown repository fails the same way.
+GH_STUB_FAIL=1
+post_state pre-ready-flip "$H_A"
+GH_STUB_FAIL=0
+[ "$ST_RC" -eq 1 ] && grep -Fq 'repo:status' "$tmp/st.err" && grep -Fq 'Commit statuses' "$tmp/st.err" \
+  && grep -Fq 'acme/widgets' "$tmp/st.err" && grep -Fq 'if the cause is a missing permission' "$tmp/st.err"
+verdict_of $? "a failed post exits 1 naming the permission as a possible cause and the repository" "rc=$ST_RC: $(cat "$tmp/st.err")"
+
+# Field validation: only the two flip points, a full head, an owner/name repo.
+for args in "--point convergence --head $H_A --repo acme/widgets" \
+  "--point pre-ready-flip --head abc --repo acme/widgets" \
+  "--point pre-ready-flip --head $H_A --repo widgets" \
+  "--point pre-ready-flip --head $H_A --repo acme/../widgets" \
+  "--point pre-ready-flip --head $H_A --repo -acme/widgets" \
+  "--point pre-ready-flip --head $H_A --repo acme/-widgets" \
+  "--point pre-ready-flip --head $H_A --repo acme/" \
+  "--point pre-ready-flip --head $H_A --repo /widgets" \
+  "--point pre-ready-flip --head $H_A --repo acme/." \
+  "--point pre-ready-flip --head $H_A --repo acme/.." \
+  "--point pre-ready-flip --head $H_A --repo ac_me/widgets" \
+  "--point pre-ready-flip --head $H_A --repo acme/wid@gets" \
+  "--point pre-ready-flip --head $H_A --repo $(printf 'o%.0s' $(seq 1 40))/widgets" \
+  "--point pre-ready-flip --head $H_A --repo acme/$(printf 'n%.0s' $(seq 1 101))" \
+  "--point pre-ready-flip --head $H_A --repo" \
+  "--point pre-ready-flip --head $H_A --repo acme/widgets --bogus x" \
+  "--point pre-ready-flip --head $H_A"; do
+  rm -f "$GH_STUB_LOG"
+  # shellcheck disable=SC2086 # split into flags by design
+  sr2 status $args >/dev/null 2>&1
+  rc=$?
+  [ "$rc" -eq 2 ] && [ ! -f "$GH_STUB_LOG" ]
+  verdict "status refuses '$args' as a usage error" "rc=$rc for '$args'"
+done
+o39=$(printf 'o%.0s' $(seq 1 39))
+n100=$(printf 'n%.0s' $(seq 1 100))
+rm -f "$GH_STUB_LOG"
+sr2 status --point pre-ready-flip --head "$H_A" --repo "$o39/$n100" >/dev/null 2>"$tmp/st.err"
+rc=$?
+[ "$rc" -eq 0 ] && gh_arg "repos/$o39/$n100/statuses/$H_A"
+verdict_of $? "status accepts a 39-byte owner and a 100-byte name" "rc=$rc: $(cat "$tmp/st.err")"
+
+# --- self-resolved defaults (worker-permission-ergonomics REQ-H1.1) -----------------
+# An omitted --head is the worktree's current HEAD, read when the verb runs, and
+# an omitted write --end is the time the record is written, so a caller never
+# needs a command substitution to fill either.
+wd="$tmp/wd"
+mkdir -p "$wd"
+git -C "$wd" init -q -b main
+git -C "$wd" config user.name "Fixture"
+git -C "$wd" config user.email "fixture@example.invalid"
+git -C "$wd" config commit.gpgsign false
+git -C "$wd" commit -q --allow-empty -m "chore: first"
+git -C "$wd" commit -q --allow-empty -m "chore: second"
+WD_HEAD=$(git -C "$wd" rev-parse HEAD)
+srd() { PATH="$stub:$PATH" "$SR" --worktree "$wd" "$@"; }
+rd=$(srd new-run)
+
+recd=$(srd write --run "$rd" --point pre-ci --step nohead --kind command --target true \
+  --hosting in-session --backend terminal --start 2026-10-06T10:00:00Z \
+  --end 2026-10-06T10:00:01Z --outcome passed 2>"$tmp/wd.err")
+verdict_of $? "write accepts an omitted --head" "rc!=0: $(cat "$tmp/wd.err")"
+grep -Fxq "head${TAB}$WD_HEAD" "$recd" 2>/dev/null
+verdict "an omitted --head records the worktree's current HEAD" "record head: $(grep "^head${TAB}" "$recd" 2>/dev/null)"
+
+srd write --completion --run "$rd" --point pre-ci >/dev/null 2>"$tmp/wd.err"
+verdict_of $? "write --completion accepts an omitted --head" "rc!=0: $(cat "$tmp/wd.err")"
+cat "$wd/.claude/steps/$rd/"*-done-pre-ci.rec 2>/dev/null | grep -Fxq "head${TAB}$WD_HEAD"
+verdict "an omitted completion --head records the current HEAD" "completion head not $WD_HEAD"
+
+# The default is read per call, not fixed by an earlier one: it follows a new commit.
+git -C "$wd" commit -q --allow-empty -m "chore: third"
+WD_HEAD2=$(git -C "$wd" rev-parse HEAD)
+recd2=$(srd write --run "$rd" --point pre-pr --step later --kind command --target true \
+  --hosting in-session --backend terminal --start 2026-10-06T10:01:00Z \
+  --end 2026-10-06T10:01:01Z --outcome passed 2>"$tmp/wd.err")
+verdict_of $? "a second defaulted write succeeds" "rc!=0: $(cat "$tmp/wd.err")"
+grep -Fxq "head${TAB}$WD_HEAD2" "$recd2" 2>/dev/null
+verdict "the --head default follows the HEAD at write time" "record head: $(grep "^head${TAB}" "$recd2" 2>/dev/null)"
+
+# An explicit --head still wins over the default.
+recd3=$(srd write --run "$rd" --point pre-pr --step pinned --kind command --target true \
+  --hosting in-session --backend terminal --head "$WD_HEAD" --start 2026-10-06T10:02:00Z \
+  --end 2026-10-06T10:02:01Z --outcome passed 2>"$tmp/wd.err")
+grep -Fxq "head${TAB}$WD_HEAD" "$recd3" 2>/dev/null
+verdict "an explicit --head is recorded as given" "record head: $(grep "^head${TAB}" "$recd3" 2>/dev/null)"
+
+# An explicit empty --head (a substitution that printed nothing) is refused, not
+# defaulted.
+srd write --completion --run "$rd" --point pre-pr --head "" >/dev/null 2>"$tmp/wd.err"
+rc=$?
+[ "$rc" -eq 2 ] && grep -Fq -- "step-record.sh: --head:" "$tmp/wd.err"
+verdict_of $? "an explicit empty --head is refused, never defaulted" "rc=$rc: $(cat "$tmp/wd.err")"
+srd write --run "$rd" --point convergence --step emptyend --kind command --target true \
+  --hosting in-session --backend terminal --start 2026-10-06T10:00:00Z --end "" \
+  --outcome passed >/dev/null 2>"$tmp/wd.err"
+rc=$?
+[ "$rc" -eq 2 ] && grep -Fq -- "step-record.sh: --end:" "$tmp/wd.err"
+verdict_of $? "an explicit empty --end is refused, never defaulted" "rc=$rc: $(cat "$tmp/wd.err")"
+
+# A defaulted --end earlier than --start (a start from a skewed clock) is
+# refused rather than recording a negative duration.
+srd write --run "$rd" --point convergence --step future --kind command --target true \
+  --hosting in-session --backend terminal --start 2999-01-01T00:00:00Z \
+  --outcome passed >/dev/null 2>"$tmp/wd.err"
+rc=$?
+[ "$rc" -eq 2 ] && grep -Fq -- "step-record.sh: --end:" "$tmp/wd.err"
+verdict_of $? "a defaulted --end earlier than --start is refused" "rc=$rc: $(cat "$tmp/wd.err")"
+
+stamp_digits() { printf '%s' "$1" | tr -d -- '-:TZ'; }
+before=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+recd4=$(srd write --run "$rd" --point convergence --step noend --kind command --target true \
+  --hosting in-session --backend terminal --start "$before" --outcome passed 2>"$tmp/wd.err")
+verdict_of $? "write accepts an omitted --end" "rc!=0: $(cat "$tmp/wd.err")"
+after=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+endv=$(sed -n "s/^end${TAB}//p" "$recd4" 2>/dev/null)
+case $endv in
+  [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z)
+    if [ "$(stamp_digits "$endv")" -lt "$(stamp_digits "$before")" ] \
+      || [ "$(stamp_digits "$endv")" -gt "$(stamp_digits "$after")" ]; then
+      fail "an omitted --end recorded '$endv', outside $before..$after"
+    else
+      ok "an omitted --end records the write time in UTC"
+    fi
+    ;;
+  *) fail "an omitted --end recorded '$endv'" ;;
+esac
+
+# A worktree with no commit has no HEAD to default to: refused as a usage error
+# naming the field, never recorded with an empty head.
+wu="$tmp/wu"
+mkdir -p "$wu"
+git -C "$wu" init -q -b main
+ru=$("$SR" --worktree "$wu" new-run)
+[ -n "$ru" ] && [ -d "$wu/.claude/steps/$ru" ]
+verdict "the no-commit fixture has a run to write into" "new-run in the no-commit worktree printed '$ru'"
+err=$("$SR" --worktree "$wu" write --run "$ru" --point pre-ci --step x --kind command \
+  --target true --hosting in-session --backend terminal --start 2026-10-06T10:00:00Z \
+  --end 2026-10-06T10:00:01Z --outcome passed 2>&1 >/dev/null)
+rc=$?
+[ "$rc" -eq 2 ] && printf '%s' "$err" | grep -Fq -- "step-record.sh: --head:" \
+  && [ -z "$(ls -A "$wu/.claude/steps/$ru")" ]
+verdict_of $? "an omitted --head with no commit is refused and writes nothing" "rc=$rc: $err"
+err=$("$SR" --worktree "$wu" write --completion --run "$ru" --point pre-ci 2>&1 >/dev/null)
+rc=$?
+[ "$rc" -eq 2 ] && printf '%s' "$err" | grep -Fq -- "step-record.sh: --head:" \
+  && [ -z "$(ls -A "$wu/.claude/steps/$ru")" ]
+verdict_of $? "an omitted completion --head with no commit is refused" "rc=$rc: $err"
+rm -f "$GH_STUB_LOG"
+err=$(PATH="$stub:$PATH" "$SR" --worktree "$wu" status --point pre-ready-flip --repo acme/widgets 2>&1 >/dev/null)
+rc=$?
+[ "$rc" -eq 2 ] && printf '%s' "$err" | grep -Fq -- "step-record.sh: --head:" && [ ! -f "$GH_STUB_LOG" ]
+verdict_of $? "an omitted status --head with no commit is refused and posts nothing" "rc=$rc: $err"
+
+# The default names the worktree's own repository: a plain directory inside
+# another repository, or an inherited GIT_DIR naming another one, is refused
+# rather than recording a foreign commit.
+mkdir -p "$wd/plain"
+rp=$("$SR" --worktree "$wd/plain" new-run)
+err=$("$SR" --worktree "$wd/plain" write --completion --run "$rp" --point pre-ci 2>&1 >/dev/null)
+rc=$?
+[ "$rc" -eq 2 ] && printf '%s' "$err" | grep -Fq -- "step-record.sh: --head:"
+verdict_of $? "a --worktree inside another repository never defaults to its HEAD" "rc=$rc: $err"
+rg=$(srd new-run)
+GIT_DIR="$wt/.git" "$SR" --worktree "$wd" write --completion --run "$rg" --point pre-ci \
+  >/dev/null 2>"$tmp/wd.err"
+verdict_of $? "a defaulted write under an inherited GIT_DIR succeeds" "rc!=0: $(cat "$tmp/wd.err")"
+cat "$wd/.claude/steps/$rg/"*-done-pre-ci.rec 2>/dev/null | grep -Fxq "head${TAB}$WD_HEAD2"
+verdict "an inherited GIT_DIR does not redirect the --head default" "completion head is not the worktree's own"
+rw=$(srd new-run)
+GIT_DIR="$wt/.git" GIT_WORK_TREE="$wt" "$SR" --worktree "$wd" write --completion --run "$rw" \
+  --point pre-ci >/dev/null 2>"$tmp/wd.err"
+verdict_of $? "a defaulted write under an inherited GIT_WORK_TREE succeeds" "rc!=0: $(cat "$tmp/wd.err")"
+cat "$wd/.claude/steps/$rw/"*-done-pre-ci.rec 2>/dev/null | grep -Fxq "head${TAB}$WD_HEAD2"
+verdict "an inherited GIT_WORK_TREE does not redirect the --head default" "completion head is not the worktree's own"
+
+# status: an omitted --head is the current HEAD, the completion naming it found.
+rs=$(srd new-run)
+srd write --completion --run "$rs" --point pre-ready-flip >/dev/null
+rm -f "$GH_STUB_LOG"
+srd status --point pre-ready-flip --repo acme/widgets >/dev/null 2>"$tmp/st.err"
+rc=$?
+[ "$rc" -eq 0 ] && gh_arg "repos/acme/widgets/statuses/$WD_HEAD2" && gh_arg state=success
+verdict_of $? "status posts on the current HEAD when --head is omitted" "rc=$rc: $(cat "$tmp/st.err")"
+# It is re-read per call: after a new commit no completion names the default,
+# so status refuses and posts nothing.
+git -C "$wd" commit -q --allow-empty -m "chore: fourth"
+rm -f "$GH_STUB_LOG"
+srd status --point pre-ready-flip --repo acme/widgets >/dev/null 2>"$tmp/st.err"
+rc=$?
+if [ "$rc" -eq 1 ] && [ ! -f "$GH_STUB_LOG" ]; then
+  ok "status re-reads HEAD for its default"
+else
+  fail "rc=$rc: $(cat "$tmp/st.err")"
+fi
+rm -f "$GH_STUB_LOG"
+srd status --point pre-ready-flip --head "" --repo acme/widgets >/dev/null 2>"$tmp/st.err"
+rc=$?
+if [ "$rc" -eq 2 ] && [ ! -f "$GH_STUB_LOG" ]; then
+  ok "status refuses an explicit empty --head, never defaulting it"
+else
+  fail "rc=$rc: $(cat "$tmp/st.err")"
+fi
+
+# --- excerpt: the record excerpt screen, outside any worktree -----------------------
+mkdir -p "$tmp/nowt"
+ex=$(cd "$tmp/nowt" && "$SR" excerpt "$tmp/wide.txt")
+verdict_of $? "excerpt runs outside a git work tree" "excerpt failed outside a work tree"
+[ "$ex" = "$(sed -n "s/^excerpt${TAB}//p" "$recw")" ]
+verdict "excerpt prints exactly what write stores" "excerpt differs from the stored one"
+ex=$("$SR" excerpt "$tmp/secret.txt")
+exrc=$?
+[ "$exrc" -eq 0 ] && [ "$ex" = "[withheld: the secret screen flagged this excerpt]" ]
+verdict "excerpt withholds a token-shaped text" "excerpt exited $exrc and printed: $ex"
+ex=$(env PLANWRIGHT_SECRET_SCREEN_TOOL=broken "$SR" excerpt "$tmp/wide.txt")
+exrc=$?
+[ "$exrc" -eq 0 ] && [ "$ex" = "[withheld: the excerpt could not be screened]" ]
+verdict "excerpt withholds what cannot be screened" "excerpt exited $exrc and printed: $ex"
+"$SR" excerpt "$tmp/no-such-file" >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "excerpt refuses an unreadable file" "excerpt accepted a missing file"
+"$SR" excerpt >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "excerpt without a file is a usage error" "excerpt ran without a file"
+"$SR" excerpt "$tmp/wide.txt" "$tmp/wide.txt" >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "excerpt with two files is a usage error" "excerpt ran with two files"
+"$SR" --worktree "$tmp/nowt" excerpt "$tmp/wide.txt" >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "excerpt with --worktree is a usage error" "excerpt ran with --worktree"
+
 # --- the cache path is ignored ------------------------------------------------------
 git -C "$repo_root" check-ignore -q ".claude/steps/000001/x.rec"
 verdict "this repository ignores the record cache" ".claude/steps/ is not ignored"
 
 if [ "$failures" -gt 0 ]; then
-  echo "$failures failure(s)" >&2
+  printf '%s\n' "$failures failure(s)" >&2
   exit 1
 fi
 echo "all step-record tests passed"

@@ -1,8 +1,8 @@
 #!/bin/sh
 # fleet-sweep.sh — the periodic fleet sweep: the worktree disk-scan reconcile,
 # the dirty-tree sweep, the tasks.md reconcile backstop for missed pushes, the
-# reap of leaked worker processes, and the flight residues, as one cycle on a
-# schedule
+# reap of leaked worker processes, the flight residues, and the flight crash
+# policy, as one cycle on a schedule
 # (fleet-autonomy D-8, D-1; fleet-lifecycle-closure D-5, D-14).
 #
 # ON A SCHEDULE, NEVER ON A THRESHOLD (D-5). A cycle has no precondition: it
@@ -12,7 +12,7 @@
 # tower, which the reap needs (see --tower-id below). The dirty-tree grace (`fleet_dirty_tree_threshold`) defers one
 # escalation and never gates a cycle.
 #
-# SIX PASSES, ONE CYCLE, in this order.
+# SEVEN PASSES, ONE CYCLE, in this order.
 #
 # 1. WORKTREE SCAN. The disk-scan reconcile (fleet-worktree-track.sh scan) over
 #    the tower's checkout, so a worktree no dispatch seam recorded is tracked
@@ -32,7 +32,9 @@
 #    retracted.
 #
 # 3. RECONCILE BACKSTOP. The level-triggered tasks.md reconcile
-#    (tasks-pr-sync.sh reconcile) for every spec bundle in the tower's checkout.
+#    (tasks-pr-sync.sh reconcile) for every spec bundle in the tower's checkout,
+#    after `orchestrate-lock.sh sweep` clears a per-spec lock whose recorded
+#    holder is provably gone (audited as `reconcile lock-sweep`).
 #    A dropped `gh pr create`/`merge` PostToolUse hook leaves the snapshot
 #    lagging git ground truth; this corrects it from that same ground truth on
 #    the next cycle. It runs after the dirty-tree pass, so a correction planted
@@ -87,10 +89,19 @@
 #    It runs after the registry reconcile, so the dispatch records it reads
 #    are already healed or retired for this cycle.
 #
+# 7. FLIGHT CRASH POLICY. flight-lifecycle.sh supervise runs one pass of the
+#    fleet crash-loop policy over the checkout's flights: a flight worker with
+#    positive death evidence and no landing is counted, relaunched into its
+#    own worktree once its backoff has passed, and surfaced as a decision at
+#    the disable threshold. Each relaunch and disable is audited; a failed or
+#    waiting flight is warned and left for the next cycle. It runs last, after the
+#    registry reconcile and the residue pass, so it reads this cycle's records.
+#
 # KILL-SWITCH + AUDIT. The cycle gates through fleet-daemon-gate.sh at entry
 # (a set fleet_daemon_pause pauses the whole cycle; the reap actuator also
-# gates on its own). Escalations, reconciles that corrected drift, reaps, and
-# flight residue removals are audited through fleet-audit.sh; a no-op is not.
+# gates on its own). Escalations, reconciles that corrected drift, reaps,
+# flight residue removals, and flight relaunches and disables are audited
+# through fleet-audit.sh; a no-op is not.
 #
 # SIGNALS. A watch loop is normally stopped by a signal, so the dirty-since
 # temp this script creates beside its marker is removed by the INT/TERM/HUP
@@ -145,6 +156,10 @@ unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "fleet-sweep.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
@@ -155,6 +170,8 @@ WT="$script_dir/fleet-worktree-track.sh"
 SYNC="$script_dir/tasks-pr-sync.sh"
 FLIGHT_DISPATCH="$script_dir/flight-dispatch.sh"
 FLIGHT_SWEEP="$script_dir/flight-sweep.sh"
+FLIGHT_LIFECYCLE="$script_dir/flight-lifecycle.sh"
+LOCK="$script_dir/orchestrate-lock.sh"
 CONFIG_GET="$script_dir/config-get.sh"
 KNOB="$script_dir/resolve-config-knob.sh"
 OVERLAY="$script_dir/resolve-overlay-root.sh"
@@ -548,6 +565,23 @@ reconcile_pass() {
       tasks="${d}tasks.md" # $d already ends in '/'
       [ -f "$tasks" ] || continue
       rel="$specs_rel/$(basename "$d")"
+      # An external spec root is recorded as its full path, which alone can
+      # pass the audit's reasoning cap; the tail names the spec.
+      audit_rel=$rel
+      [ "${#audit_rel}" -le 400 ] || audit_rel="...$(printf '%s' "$audit_rel" | tail -c 397)"
+      # Before the reconcile: a per-spec lock whose holder is provably gone
+      # stops this spec being dispatched at all, and silently — a dispatch
+      # reads the lock as contention, and contention is a clean skip. The sweep
+      # verb clears one only on positive evidence of the holder's death and
+      # refuses on anything less, so its own refusals are not reportable
+      # events; only an actual clear is.
+      if [ -x "$LOCK" ] && { [ -L "${d}.orchestrate.lock" ] || [ -e "${d}.orchestrate.lock" ]; }; then
+        lk_rc=0
+        lk_out=$(cd "$repo" && "$LOCK" sweep "$rel" 2>/dev/null) || lk_rc=$?
+        if [ "$lk_rc" = 0 ] && [ "$lk_out" = cleared ]; then
+          audit reconcile lock-sweep "$audit_rel per-spec lock cleared on positive evidence its holder was gone"
+        fi
+      fi
       before_sum=$(cksum <"$tasks" 2>/dev/null) || before_sum=""
       rec_rc=0
       (cd "$repo" && "$SYNC" reconcile "$rel") >/dev/null 2>&1 || rec_rc=$?
@@ -557,7 +591,7 @@ reconcile_pass() {
         # next cycle, but a persistent failure needs to surface).
         warn "reconcile of $rel exited $rec_rc — missed-push backstop degraded, retrying next sweep"
       elif [ -n "$before_sum" ] && [ "$before_sum" != "$after_sum" ]; then
-        audit reconcile reconcile-backstop "$rel snapshot drift corrected from git ground truth (missed-push backstop)"
+        audit reconcile reconcile-backstop "$audit_rel snapshot drift corrected from git ground truth (missed-push backstop)"
       fi
     done
     set -f
@@ -841,6 +875,26 @@ flight_residue_pass() {
   fi
 }
 
+# flight_crash_pass — pass 7.
+flight_crash_pass() {
+  [ -x "$FLIGHT_LIFECYCLE" ] || return 0
+  fc_all=$("$FLIGHT_LIFECYCLE" supervise --repo-root "$repo" 2>&1 </dev/null)
+  fc_rc=$?
+  fc_tab=$(printf '\t')
+  if [ "$fc_rc" -ne 0 ]; then
+    fc_why=$(printf '%s\n' "$fc_all" | tail -n 1)
+    warn "flight crash policy exited $fc_rc${fc_why:+ ($(sanitize_printable "$fc_why"))} — flight workers left for the next sweep"
+  fi
+  printf '%s\n' "$fc_all" | while IFS="$fc_tab" read -r fc_kind fc_id fc_what; do
+    case $fc_kind in
+      relaunched) audit flight-relaunch flight-crash "relaunched the dead worker of flight $fc_id into its own worktree (consecutive crash $fc_what)" ;;
+      disabled) audit flight-disable flight-crash "flight $fc_id reached the crash disable threshold after $fc_what crashes; queued for the operator" ;;
+      failed) warn "flight $fc_id crash policy: $(sanitize_printable "$fc_what") — left for the next sweep" ;;
+      waiting) warn "flight $fc_id crash policy: waiting on another pass's count or relaunch of its dead worker — left for the next sweep; a wait that persists is a pass that died mid-claim, or a relaunched worker the registry never learned" ;;
+    esac
+  done
+}
+
 # cycle — one sweep; 4 when the kill-switch paused it before any pass.
 cycle() {
   # Kill-switch gate: the sweep is a daemon action. A set switch (or an
@@ -855,6 +909,7 @@ cycle() {
   reap_pass
   registry_pass
   flight_residue_pass
+  flight_crash_pass
   return 0
 }
 

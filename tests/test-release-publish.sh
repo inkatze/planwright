@@ -1305,7 +1305,7 @@ want "resume/malformed-config: the verification ref is cleaned up on the fail-cl
 # 12. require_ci knob (REQ-G1.3, release-hardening Task 6): a core `require_ci`
 #     knob (default `true`) that, when `false`, relaxes ONLY the NONE / "no
 #     positive CI confirmation" verdict — across all three NONE sub-cases (null
-#     rollup, empty-after-window-lock-exclusion, all-NEUTRAL/SKIPPED) — while a
+#     rollup, empty-after-exclusion, all-NEUTRAL/SKIPPED) — while a
 #     FAILING, PENDING, TOO_MANY, or query-failure verdict stays fail-closed.
 #     The relaxed NONE publish emits a stderr diagnostic naming `require_ci=false`
 #     (present on the relaxed path, absent otherwise). The value is validated as
@@ -1452,6 +1452,15 @@ run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
 assert_ne "reqci/bad-value-resume: exits non-zero on the resume path too" "$RC" "0"
 assert_contains "reqci/bad-value-resume: names require_ci (validated at read time, not in the skipped CI gate)" "$ERR" "require_ci"
 deny "reqci/bad-value-resume: no Release create attempted (config error precedes resume)" gh_called "$LOG" "release create"
+
+# A missing sanitizer is a broken install, an operational failure (exit 1),
+# never the usage error exit 2 reports.
+mkdir -p "$tmp/no-sanitizer"
+cp "$PUBLISH" "$tmp/no-sanitizer/"
+RC=0
+ERR=$(/bin/bash "$tmp/no-sanitizer/release-publish.sh" 2>&1 >/dev/null) || RC=$?
+assert_eq "broken-install: a missing sanitizer exits 1, not usage" "$RC" "1"
+assert_contains "broken-install: the refusal names the missing helper" "$ERR" "echo-safety.sh is missing"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

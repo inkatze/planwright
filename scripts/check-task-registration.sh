@@ -56,7 +56,7 @@ while [ "$#" -gt 0 ]; do
   case $1 in
     --repo-root)
       [ "$#" -ge 2 ] || {
-        echo "$me: --repo-root needs a directory" >&2
+        printf '%s\n' "$me: --repo-root needs a directory" >&2
         exit 2
       }
       repo_root=$2
@@ -64,7 +64,7 @@ while [ "$#" -gt 0 ]; do
       ;;
     --aggregate)
       [ "$#" -ge 2 ] || {
-        echo "$me: --aggregate needs a task name" >&2
+        printf '%s\n' "$me: --aggregate needs a task name" >&2
         exit 2
       }
       aggregate=$2
@@ -75,7 +75,7 @@ while [ "$#" -gt 0 ]; do
       exit 0
       ;;
     *)
-      echo "$me: unknown argument" >&2
+      printf '%s\n' "$me: unknown argument" >&2
       exit 2
       ;;
   esac
@@ -85,18 +85,18 @@ done
 # task-name grammar first; anything else is a usage error, never a pattern.
 case $aggregate in
   '' | *[!A-Za-z0-9:_.-]*)
-    echo "$me: --aggregate must be a task name (letters, digits, ':', '_', '.', '-')" >&2
+    printf '%s\n' "$me: --aggregate must be a task name (letters, digits, ':', '_', '.', '-')" >&2
     exit 2
     ;;
 esac
 
 repo_root=$(cd "$repo_root" 2>/dev/null && pwd) || {
-  echo "$me: repo root is not a readable directory" >&2
+  printf '%s\n' "$me: repo root is not a readable directory" >&2
   exit 5
 }
 misefile="$repo_root/mise.toml"
 [ -r "$misefile" ] || {
-  echo "$me: $misefile is missing or unreadable — there is no task graph to walk" >&2
+  printf '%s\n' "$me: $misefile is missing or unreadable — there is no task graph to walk" >&2
   exit 5
 }
 
@@ -283,17 +283,17 @@ report=$(awk -v agg="$aggregate" '
     }
   }
 ' "$misefile") || {
-  echo "$me: could not read $misefile — failing closed" >&2
+  printf '%s\n' "$me: could not read $misefile — failing closed" >&2
   exit 5
 }
 
 case $report in
   PARSE*)
-    echo "$me: ${report#PARSE?} — failing closed rather than reporting a clean scan" >&2
+    printf '%s\n' "$me: ${report#PARSE?} — failing closed rather than reporting a clean scan" >&2
     exit 5
     ;;
   '')
-    echo "$me: the parser reported nothing — failing closed" >&2
+    printf '%s\n' "$me: the parser reported nothing — failing closed" >&2
     exit 5
     ;;
 esac
@@ -301,7 +301,7 @@ esac
 count=$(printf '%s\n' "$report" | awk -F'\t' '$1 == "COUNT" { print $2; exit }')
 case ${count:-0} in
   '' | *[!0-9]* | 0)
-    echo "$me: the parse reported no tasks — failing closed" >&2
+    printf '%s\n' "$me: the parse reported no tasks — failing closed" >&2
     exit 5
     ;;
 esac
@@ -324,5 +324,5 @@ if [ -n "$unregistered" ]; then
   exit 1
 fi
 
-echo "$me: ok, every check:/lint:/scan: task is reached from \`$aggregate\` ($count tasks parsed)"
+printf '%s\n' "$me: ok, every check:/lint:/scan: task is reached from \`$aggregate\` ($count tasks parsed)"
 exit 0

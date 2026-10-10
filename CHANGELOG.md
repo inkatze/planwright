@@ -1,5 +1,115 @@
 # Changelog
 
+## [0.58.0](https://github.com/inkatze/planwright/compare/v0.57.0...v0.58.0) (2026-10-09)
+
+
+### Features
+
+* **execute-task:** hold a full_suite_pool slot for every full-suite attempt ([#630](https://github.com/inkatze/planwright/issues/630)) ([68025a8](https://github.com/inkatze/planwright/commit/68025a88937aef8588423b31337d4a6336f957cc))
+* **locks:** release the fleet lock by owner token in its remaining consumers ([#635](https://github.com/inkatze/planwright/issues/635)) ([623a1d0](https://github.com/inkatze/planwright/commit/623a1d0b83ef778fd3ffe9cb120d5ec3cf5bc496))
+
+
+### Performance Improvements
+
+* **test-runner:** start the slowest test files first so the suite has no long tail ([#631](https://github.com/inkatze/planwright/issues/631)) ([7b55818](https://github.com/inkatze/planwright/commit/7b558183e6d9c189cb6f8736878252891301fc8d))
+
+## [0.57.0](https://github.com/inkatze/planwright/compare/v0.56.0...v0.57.0) (2026-10-09)
+
+
+### Features
+
+* **locks:** adopt the lock holders onto the shared lock primitive ([#603](https://github.com/inkatze/planwright/issues/603)) ([c52b802](https://github.com/inkatze/planwright/commit/c52b80233d2c57692c66976dc0d057f3fbf99cbb))
+* **relay:** message listed peers directly; make the pane relay refuse and confirm ([#626](https://github.com/inkatze/planwright/issues/626)) ([9a0b858](https://github.com/inkatze/planwright/commit/9a0b858b881d1d7ea1c0f21eab96819eaa132462))
+
+## [0.56.0](https://github.com/inkatze/planwright/compare/v0.55.0...v0.56.0) (2026-10-08)
+
+
+### Features
+
+* **quota:** add the vendors catalog, its resolver, and the limit classifier ([#617](https://github.com/inkatze/planwright/issues/617)) ([3b9396e](https://github.com/inkatze/planwright/commit/3b9396e1a80cc4b95d0eca0f131f4561a7d6baf8))
+* **spec-location:** run execution against a spec root outside the work repository ([#616](https://github.com/inkatze/planwright/issues/616)) ([8fc3140](https://github.com/inkatze/planwright/commit/8fc3140fb9c4591af2fc4a10a352a17f85dd146a))
+* **spec:** tower-placement kickoff sign-off ([#619](https://github.com/inkatze/planwright/issues/619)) ([c813704](https://github.com/inkatze/planwright/commit/c81370400c99506abc718af8fee36b5e1f90e6bb))
+* **tower:** extend the tower posture for the front door ([#601](https://github.com/inkatze/planwright/issues/601)) ([df70b7a](https://github.com/inkatze/planwright/commit/df70b7a64ae1a37691ae470c7be4905c65500194))
+
+
+### Bug Fixes
+
+* **fleet:** clear stale attention rows a dead earlier tower left behind ([#615](https://github.com/inkatze/planwright/issues/615)) ([b465813](https://github.com/inkatze/planwright/commit/b465813b2dea7288935f84615abfc3319bb6629c))
+* **guards:** defer more shell expansion and quoting forms ([#618](https://github.com/inkatze/planwright/issues/618)) ([2a51986](https://github.com/inkatze/planwright/commit/2a519861d29b8960ae41a7f424e33a4366395911))
+
+## [0.55.0](https://github.com/inkatze/planwright/compare/v0.54.0...v0.55.0) (2026-10-08)
+
+
+### Features
+
+* **custom-steps:** add the step pool helper and its config knobs ([#610](https://github.com/inkatze/planwright/issues/610)) ([307c9e0](https://github.com/inkatze/planwright/commit/307c9e05c79d1dddececdc71e2d9d2124f90f7ce))
+* **guards:** print echoed expansions with printf and guard the sanitizer source ([#606](https://github.com/inkatze/planwright/issues/606)) ([5f732e8](https://github.com/inkatze/planwright/commit/5f732e87bfa26ead87f9c3573358a574c06aa936))
+* **orchestrate:** run the meta-tower's dispatch step in its own session ([#604](https://github.com/inkatze/planwright/issues/604)) ([7cf02aa](https://github.com/inkatze/planwright/commit/7cf02aa6b4ececc795d64886a0b90f677dff4603))
+* **spec-location:** name a spec by its bare identifier on every identity seam ([#598](https://github.com/inkatze/planwright/issues/598)) ([49d79cb](https://github.com/inkatze/planwright/commit/49d79cb566c7fba55f6dcd5d58a1c76ba7397fa0))
+
+
+### Bug Fixes
+
+* **echo-discipline:** restore main's red echo-discipline check by guarding step-pool's helper source ([#612](https://github.com/inkatze/planwright/issues/612)) ([c4ccd98](https://github.com/inkatze/planwright/commit/c4ccd981e9aa03bacace8e93baa49110aaac7af5))
+* **guards:** the guards now defer commands containing a shell comment ([#609](https://github.com/inkatze/planwright/issues/609)) ([5b7933b](https://github.com/inkatze/planwright/commit/5b7933b6939cd09efd941e131843d43867b69776))
+* **lock-lib:** read a dead lock owner as dead whatever the caller path contains ([#597](https://github.com/inkatze/planwright/issues/597)) ([f0d17a0](https://github.com/inkatze/planwright/commit/f0d17a05052529ae49ab06fa6fb09dea6b7e7e77))
+* **streamjson:** report a pending request over an earlier turn's result ([#602](https://github.com/inkatze/planwright/issues/602)) ([2bd4a88](https://github.com/inkatze/planwright/commit/2bd4a882f73a9ce6ac85390801dd386a35e147cb))
+* **tests:** keep fleet test suites out of the operator's real fleet registry ([#608](https://github.com/inkatze/planwright/issues/608)) ([9ea089a](https://github.com/inkatze/planwright/commit/9ea089a8abac363e8b34229c97343c63e5620e94))
+
+## [0.54.0](https://github.com/inkatze/planwright/compare/v0.53.0...v0.54.0) (2026-10-06)
+
+
+### Features
+
+* **check:** describe the detached tmux launch and guard against the old shape ([#589](https://github.com/inkatze/planwright/issues/589)) ([2120b87](https://github.com/inkatze/planwright/commit/2120b87d941034dd825a8bfa85d4532ca81091e7))
+* **dispatch:** confirm a tmux worker's startup from its SessionStart hook ([#590](https://github.com/inkatze/planwright/issues/590)) ([5afd9ab](https://github.com/inkatze/planwright/commit/5afd9ab800388404f3ee9afc8c01c55ca5d71530))
+* **spec:** quota-handling kickoff sign-off ([#587](https://github.com/inkatze/planwright/issues/587)) ([4001194](https://github.com/inkatze/planwright/commit/40011943fececb61b20a62dd25c4345157fee4de))
+
+
+### Bug Fixes
+
+* **guard:** defer unexpanded operands and -v forms in both command guards ([#592](https://github.com/inkatze/planwright/issues/592)) ([13b5de0](https://github.com/inkatze/planwright/commit/13b5de0a33acade0a1a452ec84ec3b957036116e))
+* **resolve-root:** name core.bare and its repair when a working tree is marked bare ([#586](https://github.com/inkatze/planwright/issues/586)) ([441cdb7](https://github.com/inkatze/planwright/commit/441cdb711c0da1a7efbe7e50e951c10334091fd6))
+
+## [0.53.0](https://github.com/inkatze/planwright/compare/v0.52.0...v0.53.0) (2026-10-05)
+
+
+### Features
+
+* **tower:** flight lifecycle pushes and the crash policy for flight workers ([#579](https://github.com/inkatze/planwright/issues/579)) ([36e1daa](https://github.com/inkatze/planwright/commit/36e1daa320032b93898c94a45568dc18a310ff0f))
+
+## [0.52.0](https://github.com/inkatze/planwright/compare/v0.51.0...v0.52.0) (2026-10-05)
+
+
+### Features
+
+* **dispatch:** launch the tmux worker detached, with its safety arms ([#581](https://github.com/inkatze/planwright/issues/581)) ([7fd70ee](https://github.com/inkatze/planwright/commit/7fd70ee448783d3f8a95a4e5fab222fdca123960))
+* **spec:** worker-permission-ergonomics extension kickoff sign-off ([#582](https://github.com/inkatze/planwright/issues/582)) ([81fe6eb](https://github.com/inkatze/planwright/commit/81fe6eb423eb4ea43a5ecf9f093845b4b2e09b80))
+
+
+### Bug Fixes
+
+* **orchestrate:** count dispatch markers across worktrees of a repository ([#576](https://github.com/inkatze/planwright/issues/576)) ([db3fff7](https://github.com/inkatze/planwright/commit/db3fff78e4ca701bdb170b5aa6b1454ef150a752))
+* **relay:** stage the tmux relay paste unterminated so one Enter submits it ([#571](https://github.com/inkatze/planwright/issues/571)) ([e933587](https://github.com/inkatze/planwright/commit/e9335871f2c4596538264e6b9b7e771282c3604a))
+* **scripts:** restore the executable bit on ready-flip.sh and guard script modes ([#577](https://github.com/inkatze/planwright/issues/577)) ([2a3c028](https://github.com/inkatze/planwright/commit/2a3c028032b2f5175db1b2b8613edbccc4f68c46))
+
+## [0.51.0](https://github.com/inkatze/planwright/compare/v0.50.0...v0.51.0) (2026-10-04)
+
+
+### Features
+
+* **human-gates:** add the ready-flip helper and its wiring ([#557](https://github.com/inkatze/planwright/issues/557)) ([732a63a](https://github.com/inkatze/planwright/commit/732a63a7cfa122337440db2d5b49fd7bc109a19b))
+
+
+### Bug Fixes
+
+* **custom-steps:** resolve every point in one pass so the guard fits its deadline ([#561](https://github.com/inkatze/planwright/issues/561)) ([783c2ac](https://github.com/inkatze/planwright/commit/783c2ac6b24448ea53d40d970bd23a4562e59ae8))
+* **orchestrate-state:** hold a task whose remote branch carries unmerged work ([#569](https://github.com/inkatze/planwright/issues/569)) ([a29b4f1](https://github.com/inkatze/planwright/commit/a29b4f1ca710392dcb91f68edd26aa65b3502929))
+* **ready-flip:** address the cubic findings on the ready-flip helper ([#565](https://github.com/inkatze/planwright/issues/565)) ([c49d28d](https://github.com/inkatze/planwright/commit/c49d28d6a1403414e888bd7615c186191369e552))
+* **skills:** issue one plain command per Bash call in dispatched runs ([#568](https://github.com/inkatze/planwright/issues/568)) ([df191ae](https://github.com/inkatze/planwright/commit/df191ae839cf7d6da7fedd80006910a161b7d55b))
+* **step-record:** take run ids and records under lock-lib ([#563](https://github.com/inkatze/planwright/issues/563)) ([52326ef](https://github.com/inkatze/planwright/commit/52326ef14de49dd39205478664109c98bdf4c32a))
+* **tests:** make the permission-matcher test parse under bash 3.2 ([#567](https://github.com/inkatze/planwright/issues/567)) ([8b38f4a](https://github.com/inkatze/planwright/commit/8b38f4a7e6e2b00b5681cc381c534699f9804562))
+
 ## [0.50.0](https://github.com/inkatze/planwright/compare/v0.49.0...v0.50.0) (2026-10-02)
 
 

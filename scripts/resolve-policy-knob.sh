@@ -28,6 +28,10 @@ export LC_ALL
 unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "resolve-policy-knob.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 5
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
@@ -45,7 +49,7 @@ usage() {
 knob=$1
 rck="$script_dir/resolve-config-knob.sh"
 [ -r "$rck" ] || {
-  echo "resolve-policy-knob: the shared resolver '$rck' is missing — broken install" >&2
+  printf '%s\n' "resolve-policy-knob: the shared resolver '$rck' is missing — broken install" >&2
   exit 5
 }
 

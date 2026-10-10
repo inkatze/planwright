@@ -21,7 +21,10 @@
 #               covers solo direct-to-base commits and squash merges (R2).
 #   in-progress the branch exists with commits beyond base (not yet merged), OR
 #               gh reports its PR OPEN, OR a FRESH runtime dispatch marker (D-3)
-#               holds it across the branch-create → first-commit window.
+#               holds it across the branch-create → first-commit window, OR
+#               its origin remote-tracking ref carries commits beyond both
+#               base and base's remote counterpart (work pushed from another
+#               checkout).
 #   ready       no in-progress/completed evidence and every dependency is
 #               completed. A STALE marker (older than the staleness threshold,
 #               branch carrying no commits) no longer holds the task: a crashed
@@ -62,11 +65,9 @@
 # Environment overrides (tests, worktree callers):
 #   PLANWRIGHT_BASE_REF        the integration ref reachability is measured
 #                              against (default: main → origin/main → HEAD).
-#   PLANWRIGHT_ORCH_STATE_DIR  the dir holding per-task runtime markers
-#                              (default: <spec-dir>/.orchestrate/markers). The
-#                              dispatch writer (T3) and the unified lock (T6)
-#                              MUST resolve the same path; D-3's plugin-data home
-#                              is reconciled when T6 unifies the lock primitive.
+#   PLANWRIGHT_ORCH_STATE_DIR  the only dir holding per-task runtime markers;
+#                              unset, the read dirs orchestrate-marker-home.sh
+#                              resolves (a superset of the writer's).
 #
 # Usage: orchestrate-state.sh <spec-dir>
 # Exit: 0 records emitted; 2 the spec dir / tasks.md is missing, unreadable, or
@@ -95,12 +96,12 @@ if [ -z "$spec_dir" ]; then
   exit 2
 fi
 if [ ! -d "$spec_dir" ]; then
-  echo "orchestrate-state: no such spec dir: $spec_dir" >&2
+  printf '%s\n' "orchestrate-state: no such spec dir: $spec_dir" >&2
   exit 2
 fi
 tasks_md="$spec_dir/tasks.md"
 if [ ! -f "$tasks_md" ] || [ ! -r "$tasks_md" ]; then
-  echo "orchestrate-state: missing or unreadable $tasks_md" >&2
+  printf '%s\n' "orchestrate-state: missing or unreadable $tasks_md" >&2
   exit 2
 fi
 
@@ -109,7 +110,7 @@ fi
 spec_id=$(basename "$spec_dir")
 case "$spec_id" in
   '' | *[!a-z0-9-]* | [!a-z0-9]*)
-    echo "orchestrate-state: invalid spec id '$spec_id'" >&2
+    printf '%s\n' "orchestrate-state: invalid spec id '$spec_id'" >&2
     exit 2
     ;;
   flight)
@@ -123,7 +124,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # one holding the bundle: a relocated spec root may sit in a holder or in no
 # repository at all.
 repo_root=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir") || {
-  echo "orchestrate-state: no work repository for $spec_dir" >&2
+  printf '%s\n' "orchestrate-state: no work repository for $spec_dir" >&2
   exit 2
 }
 
@@ -148,7 +149,7 @@ fi
 # safety). The defaults (main / origin/main / HEAD) and normal ref names pass.
 case "$base" in
   -* | *[!a-zA-Z0-9/._-]*)
-    echo "orchestrate-state: refusing unsafe base ref '$base'" >&2
+    printf '%s\n' "orchestrate-state: refusing unsafe base ref '$base'" >&2
     exit 2
     ;;
 esac
@@ -158,7 +159,7 @@ esac
 # merged task as ready instead of failing closed (REQ-F1.1; same
 # `rev-parse --verify <ref>^{commit}` resolution guard spec-validate.sh uses).
 if ! git -C "$repo_root" rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1; then
-  echo "orchestrate-state: base ref '$base' does not resolve to a commit" >&2
+  printf '%s\n' "orchestrate-state: base ref '$base' does not resolve to a commit" >&2
   exit 2
 fi
 
@@ -173,9 +174,10 @@ fi
 # remote-tracking counterpart so completion survives a stale local base. This
 # adds no network I/O (it reads whatever git already fetched) and never regresses
 # a local-only repo: with no upstream and no origin/<base>, the union is just
-# base. Only the TRAILER scan widens — the branch/merge-reachability arms below
-# stay base-local by design, because they reason about LOCAL task branches,
-# whereas a merged PR's completion anchor (the trailer) is what can lag the base.
+# base. The merge-reachability arms below stay base-local by design, because
+# they reason about LOCAL task branches, whereas a merged PR's completion anchor
+# (the trailer) is what can lag the base. The remote-tracking in-progress arm
+# reads this union too, for the opposite reason: its branch lives on the remote.
 scan_refs="$base"
 # Prefer the configured upstream (correct when tracking is set); fall back to a
 # conventional origin/<base> when base is a local branch with no tracking config
@@ -230,19 +232,41 @@ tv=${tv%m}
 case "$tv" in
   '') ;; # key absent everywhere: the tracked default (15) stands
   *[!0-9]*)
-    echo "orchestrate-state: ignoring malformed stale_marker_threshold; using ${threshold_min}m" >&2
+    printf '%s\n' "orchestrate-state: ignoring malformed stale_marker_threshold; using ${threshold_min}m" >&2
     ;;
   *) threshold_min=$tv ;;
 esac
 threshold_sec=$((threshold_min * 60))
 
-# Runtime-marker base dir. PLANWRIGHT_ORCH_STATE_DIR is a trusted operator/test
-# override and sets this tree freely; the hardening is at the read, not here.
-# Each per-task marker (built from a grammar-validated id) is containment-checked
-# below to sit directly under marker_dir, and a symlink at the marker path is
-# refused — so a crafted task id or a symlink swap cannot redirect the read
-# outside marker_dir (defense in depth).
-marker_dir="${PLANWRIGHT_ORCH_STATE_DIR:-$spec_dir/.orchestrate/markers}"
+# Runtime-marker dirs, the helper's read list (one per line, a superset of the
+# writer's): the shared home every worktree of the repository reads, then the
+# checkout-local dirs an older writer may have used. A marker in any of them counts. The
+# hardening is at the read, not here: each per-task marker (built from a
+# grammar-validated id) is containment-checked below to sit directly under its
+# dir, and a symlink at the marker path is refused — so a crafted task id or a
+# symlink swap cannot redirect the read outside the dir (defense in depth).
+marker_dirs=$(/bin/sh "$script_dir/orchestrate-marker-home.sh" read "$spec_dir") || {
+  printf '%s\n' "orchestrate-state: cannot resolve the marker dirs for $spec_dir" >&2
+  exit 2
+}
+# The shared home under the git common dir must be the canonical path the
+# helper printed; one reached through a symlink holds nothing. Checkout-local
+# dirs keep the symlink tolerance they always had, and the override is a
+# trusted knob. Checked once, before the task loop.
+if [ -z "${PLANWRIGHT_ORCH_STATE_DIR:-}" ]; then
+  usable_dirs=''
+  while IFS= read -r marker_dir; do
+    case "$marker_dir" in
+      */.orchestrate/markers) ;;
+      *) [ "$(cd -P -- "$marker_dir" 2>/dev/null && pwd -P)" = "$marker_dir" ] || continue ;;
+    esac
+    usable_dirs="$usable_dirs$marker_dir
+"
+  done <<EOF
+$marker_dirs
+EOF
+  marker_dirs=$usable_dirs
+fi
 
 now=$(date +%s)
 
@@ -381,12 +405,29 @@ tasks=$(awk '
 ' "$tasks_md")
 
 if [ -z "$tasks" ]; then
-  echo "orchestrate-state: no task records in $tasks_md" >&2
+  printf '%s\n' "orchestrate-state: no task records in $tasks_md" >&2
   exit 2
 fi
 
 # Branch-reachability helper.
 branch_exists() { git -C "$repo_root" show-ref --verify --quiet "refs/heads/$1"; }
+
+# Work pushed from another checkout or machine exists here only as a
+# remote-tracking ref. This reads what the dispatch fetch already mapped under
+# refs/remotes/origin/* (task branches carry no upstream config, so origin is
+# named directly) and adds no network call; an unfetched remote branch stays
+# invisible until the next fetch. The count excludes scan_refs, not base alone:
+# the fetch never advances local main, so measuring against a lagging base would
+# count origin/main's newer commits as the task's own work. A count that errors
+# once the ref exists holds the task: reading it as nothing ahead would free the
+# task for the duplicate dispatch this arm exists to prevent.
+remote_branch_ahead() {
+  git -C "$repo_root" show-ref --verify --quiet "refs/remotes/origin/$1" || return 1
+  # shellcheck disable=SC2086
+  rb_count=$(git -C "$repo_root" rev-list --count "refs/remotes/origin/$1" --not $scan_refs 2>/dev/null) || return 0
+  case "$rb_count" in '' | *[!0-9]*) return 0 ;; esac
+  [ "$rb_count" -gt 0 ]
+}
 
 # Membership test: is commit $1 on base's first-parent mainline? Used by the
 # branch-merged check below to tell a stale zero-commit fork (tip ON the line)
@@ -495,31 +536,45 @@ while IFS="$TAB" read -r id deps; do
   # meaningful while the branch carries no commits (branch evidence supersedes
   # it). A stale or malformed marker holds nothing — the task reverts to ready.
   marker_fresh=0
-  marker_file="$marker_dir/$id"
-  # A symlink at the marker path is never a legitimate marker (the writer emits
-  # a regular file); refuse it rather than follow it outside the tree (REQ-F1.1
-  # path containment, closing the read-time symlink swap).
-  if [ -f "$marker_file" ] && [ ! -L "$marker_file" ]; then
+  while IFS= read -r marker_dir; do
+    [ -n "$marker_dir" ] || continue
+    marker_file="$marker_dir/$id"
+    # A symlink at the marker path is never a legitimate marker (the writer emits
+    # a regular file); refuse it rather than follow it outside the tree (REQ-F1.1
+    # path containment, closing the read-time symlink swap).
+    [ -f "$marker_file" ] && [ ! -L "$marker_file" ] || continue
     # Containment: the resolved marker must sit under its base dir.
     base_real=$(cd "$marker_dir" 2>/dev/null && pwd -P) || base_real=""
     file_real=$(cd "$(dirname "$marker_file")" 2>/dev/null && pwd -P) || file_real=""
-    if [ -n "$base_real" ] && [ "$file_real" = "$base_real" ]; then
-      mts=$(cat "$marker_file" 2>/dev/null)
-      case "$mts" in
-        '' | *[!0-9]*) mts="" ;; # malformed timestamp → no hold (fail safe)
-      esac
-      if [ -n "$mts" ]; then
-        # Fresh iff the marker time is within ±threshold of now. A small forward
-        # clock skew (marker slightly in the future) still reads fresh; a marker
-        # far in the future is anomalous and, like a far-past one, holds nothing
-        # — the fail-safe bias (the task reverts to Ready, re-dispatchable; the
-        # lock + live-truth selection guard double-dispatch separately).
-        delta=$((now - mts))
-        if [ "${delta#-}" -le "$threshold_sec" ]; then
-          marker_fresh=1
-        fi
-      fi
+    [ -n "$base_real" ] && [ "$file_real" = "$base_real" ] || continue
+    mts=$(cat "$marker_file" 2>/dev/null)
+    case "$mts" in
+      '' | *[!0-9]*) continue ;; # malformed timestamp → no hold (fail safe)
+    esac
+    # Fresh iff the marker time is within ±threshold of now. A small forward
+    # clock skew (marker slightly in the future) still reads fresh; a marker
+    # far in the future is anomalous and, like a far-past one, holds nothing
+    # — the fail-safe bias (the task reverts to Ready, re-dispatchable; the
+    # lock + live-truth selection guard double-dispatch separately).
+    delta=$((now - mts))
+    if [ "${delta#-}" -le "$threshold_sec" ]; then
+      marker_fresh=1
+      break
     fi
+  done <<EOF
+$marker_dirs
+EOF
+
+  # The last in-progress arm, probed only when no other evidence decides the
+  # task: every arm above outranks it, and a kept squash-merged head branch
+  # stays ahead of base for good, so walking it otherwise would change nothing.
+  # Checking only the local branch's absence of work keeps a zero-commit local
+  # dispatch branch from masking commits pushed elsewhere.
+  rbr_commits=0
+  if [ "$br_commits" -eq 0 ] && [ "$br_merged" -eq 0 ] && [ "$trailer_done" -eq 0 ] \
+    && [ "$pr_merged" -eq 0 ] && [ "$pr_open" -eq 0 ] && [ "$marker_fresh" -eq 0 ] \
+    && remote_branch_ahead "$branch"; then
+    rbr_commits=1
   fi
 
   evstate=unresolved
@@ -546,6 +601,9 @@ while IFS="$TAB" read -r id deps; do
   elif [ "$marker_fresh" -eq 1 ]; then
     evstate=in-progress
     evidence="marker-fresh"
+  elif [ "$rbr_commits" -eq 1 ]; then
+    evstate=in-progress
+    evidence="remote-branch-commits"
   fi
 
   # Contradiction: git ground truth says completed (a merged branch or a

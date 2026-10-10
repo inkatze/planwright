@@ -80,9 +80,10 @@
 # A park that cannot be committed restores the file and is named instead; one
 # committed but not pushed is named as such, and the next run pushes it
 # before it pins a head. Reconciling also re-reads the fetched base and drops
-# a segment the base once carried and has since cleared (one a park composed
-# in); a segment the unit wrote itself stays. A bullet with neither is never
-# rewritten.
+# a segment the base once carried for that task and has since cleared (one a
+# park composed in); a segment the unit wrote itself stays unless the base
+# once carried the same text for the same task. A bullet with neither is
+# never rewritten.
 #
 # The precondition record (evaluate's output, flip's --preconditions input):
 #   head<TAB><sha>
@@ -108,8 +109,12 @@ LC_ALL=C
 export LC_ALL
 
 SCRIPTS=$(cd "$(dirname "$0")" && pwd) || exit 2
+if [ ! -f "$SCRIPTS/echo-safety.sh" ] || [ ! -r "$SCRIPTS/echo-safety.sh" ]; then
+  printf '%s\n' "ready-flip.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
-. "$SCRIPTS/echo-safety.sh"
+. "$SCRIPTS/echo-safety.sh" || exit 2
 # shellcheck source=scripts/spec-parse.sh
 . "$SCRIPTS/spec-parse.sh"
 
@@ -333,9 +338,9 @@ edit_tasks() {
 
 # stale_base_segments <base ref> <out> — write `<line>\t<segment>` for each
 # live segment of a unit bullet in the checkout that the base once carried
-# (a park composed it in) and its current tip no longer does: someone cleared
-# it there. A segment the unit wrote itself never appears in the base's
-# history and stays. Nothing is written when the base cannot be read.
+# for the same task (a park composed it in) and its current tip no longer
+# does: someone cleared it there. A segment the base never carried for this
+# task stays. Nothing is written when the base cannot be read.
 stale_base_segments() {
   local ref=$1 out=$2 id line live seg
   : >"$out"
@@ -347,12 +352,34 @@ stale_base_segments() {
     while IFS= read -r seg; do
       [ -n "$seg" ] || continue
       # Still on the base for this task: not stale.
-      awk -F '\t' -v id="$id" -v s="$seg" '$1 == id { n = split($3, p, "; "); for (i = 1; i <= n; i++) if (p[i] == s) f = 1 } END { exit !f }' \
-        "$SCRATCH/stale.baserefs" && continue
-      [ -n "$(git log -1 --format=%H -S"$seg" "$ref" -- "$TASKS" 2>/dev/null)" ] || continue
+      segment_held "$id" "$seg" <"$SCRATCH/stale.baserefs" && continue
+      base_carried "$ref" "$id" "$seg" || continue
       printf '%s\t%s\n' "$line" "$seg" >>"$out"
     done <<<"${live//; /$'\n'}"
   done <"$SCRATCH/stale.local"
+}
+
+# segment_held <id> <segment> — 0 when task <id>'s row of the unit_refs
+# output on stdin holds <segment>. Both travel through the environment
+# because awk -v would unescape a backslash in the segment.
+segment_held() {
+  HELD_ID=$1 HELD_SEG=$2 awk -F '\t' '$1 == ENVIRON["HELD_ID"] { n = split($3, p, "; "); for (i = 1; i <= n; i++) if (p[i] == ENVIRON["HELD_SEG"]) f = 1 } END { exit !f }'
+}
+
+# base_carried <base ref> <id> <segment> — 0 when some commit of the base's
+# tasks.md history (or its parent) carried <segment> in task <id>'s own
+# Awaiting-input bullet. The text search only nominates commits: matching the
+# text anywhere in the file would take a segment the unit wrote itself for
+# one the base once held under another task, and drop it.
+base_carried() {
+  local c v
+  for c in $(git log --format=%H -S"$3" "$1" -- "$TASKS" 2>/dev/null); do
+    for v in "$c" "$c^"; do
+      git show "$v:$TASKS" >"$SCRATCH/carried.base" 2>/dev/null || continue
+      unit_refs "$SCRATCH/carried.base" 2>/dev/null | segment_held "$2" "$3" && return 0
+    done
+  done
+  return 1
 }
 
 # base_ref — the fetched remote-tracking ref of the PR base (or, with no PR
@@ -475,7 +502,10 @@ duration_seconds() { # <value> — a resolver-validated duration, rounded up
 
 POLL=${PLANWRIGHT_READY_FLIP_POLL_SECONDS:-15}
 [[ $POLL =~ ^[0-9]{1,4}$ ]] || POLL=15
+# Base 10 explicitly: bash arithmetic reads a leading zero as octal.
+POLL=$((10#$POLL))
 ATTEMPTS=1
+LOOKUP_CAP=1
 WAIT_TEXT=''
 WAIT_SECS=0
 read_wait() {
@@ -487,9 +517,13 @@ read_wait() {
   if [ "$POLL" = 0 ]; then
     ATTEMPTS=${PLANWRIGHT_READY_FLIP_MAX_POLLS:-1}
     [[ $ATTEMPTS =~ ^[1-9][0-9]{0,3}$ ]] || ATTEMPTS=1
+    LOOKUP_CAP=$ATTEMPTS
   else
-    ATTEMPTS=$(((s + POLL - 1) / POLL))
-    [ "$ATTEMPTS" -ge 1 ] || ATTEMPTS=1
+    # A read at 0s, one per interval, and a last one at the deadline.
+    ATTEMPTS=$(((s + POLL - 1) / POLL + 1))
+    # Each lookup retry naps a full interval, so the lookup gets one try per
+    # interval the wait spans and its naps stay inside the wait.
+    LOOKUP_CAP=$(((s + POLL - 1) / POLL))
   fi
 }
 
@@ -504,7 +538,7 @@ readonly LOOKUP_ATTEMPTS=3
 # 1 a host read that kept failing.
 lookup_pr() {
   local i=0 raw err rc tries=$LOOKUP_ATTEMPTS
-  [ "$ATTEMPTS" -ge "$tries" ] || tries=$ATTEMPTS
+  [ "$LOOKUP_CAP" -ge "$tries" ] || tries=$LOOKUP_CAP
   while [ "$i" -lt "$tries" ]; do
     i=$((i + 1))
     raw=$(gh pr view "${PR:-$BRANCH}" --json number,isDraft,state,baseRefName,headRefName,isCrossRepository 2>"$SCRATCH/err")
@@ -692,7 +726,7 @@ pred_review() {
 # shellcheck disable=SC2016
 ROLLUP_JQ='
   [ (.statusCheckRollup // [])[]
-    | select(((.context // .name // "") as $n | any($ex[]; . == $n)) | not)
+    | select((.__typename == "StatusContext" and ((.context // "") as $n | any($ex[]; . == $n))) | not)
     | if .__typename == "StatusContext" then
         (if .state == "SUCCESS" then "green" elif (.state == "PENDING" or .state == "EXPECTED") then "pending" else "failing" end)
       else
@@ -709,10 +743,10 @@ ROLLUP_JQ='
 HEAD_MOVED=0
 pred_ci() {
   local i=0 raw oid verdict last='the check rollup could not be read' deadline=$((SECONDS + WAIT_SECS))
-  # The read count bounds the wait, and so does the clock: a head re-read
-  # inside an attempt naps too, so the bound can overrun by at most that one
-  # re-read's pauses.
-  while [ "$i" -lt "$ATTEMPTS" ] && { [ "$POLL" = 0 ] || [ "$i" = 0 ] || [ "$SECONDS" -lt "$deadline" ]; }; do
+  # The read count bounds the wait, and so does the clock: every nap here ends
+  # by the deadline, so only a head re-read, which naps on its own, can
+  # overrun it, by that re-read's pauses.
+  while :; do
     i=$((i + 1))
     raw=$(gh pr view "$PR" --json headRefOid,statusCheckRollup 2>/dev/null) || raw=''
     if [ -n "$raw" ] && oid=$(printf '%s' "$raw" | jq -r '.headRefOid // empty' 2>/dev/null) && [ -n "$oid" ]; then
@@ -731,7 +765,9 @@ pred_ci() {
         esac
         oid=$(printf '%s' "$raw" | jq -r '.headRefOid // empty' 2>/dev/null) || oid=''
       fi
-      if [ "$oid" != "$HEAD_SHA" ]; then
+      if [ -z "$oid" ]; then
+        verdict=''
+      elif [ "$oid" != "$HEAD_SHA" ]; then
         verdict=moved
         last="the PR head did not settle on the pinned head ${HEAD_SHA:0:12}"
       else
@@ -751,8 +787,16 @@ pred_ci() {
         none) last='no check has reported a success' ;;
         *) last='the check rollup could not be read' ;;
       esac
+    else
+      last='the check rollup could not be read'
     fi
-    [ "$i" -ge "$ATTEMPTS" ] || nap
+    [ "$i" -lt "$ATTEMPTS" ] || break
+    if [ "$POLL" = 0 ]; then
+      continue
+    elif [ "$SECONDS" -ge "$deadline" ]; then
+      break
+    fi
+    sleep "$((deadline - SECONDS < POLL ? deadline - SECONDS : POLL))"
   done
   set_pred ci-rollup fail "$last at the end of the ${WAIT_TEXT:-bounded} wait"
 }

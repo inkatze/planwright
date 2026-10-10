@@ -31,11 +31,16 @@ reconcile alone (D-3), never at dispatch.
 
 The dispatch record is the **task branch** (the first durable act) plus the
 **timestamped runtime marker** — never a `tasks.md` write. The **per-spec
-advisory lock** is not part of the record; it is the mechanism that
-serializes the freshness-gate-plus-branch-create-plus-marker-write window so
-that window is atomic against a concurrent tower or the `tasks-pr-sync` hook.
-The lock path and mkdir protocol are shared with `tasks-pr-sync.sh` so the
-two exclude each other. An `acquire` exit 1 (another live holder) is a
+advisory lock** is not part of the record; it is the mechanism that serializes
+the freshness-gate-plus-branch-create-plus-marker-write window so that window
+is atomic against a concurrent tower or the `tasks-pr-sync` hook. The lock path
+and protocol are shared with `tasks-pr-sync.sh` so the two exclude each other:
+one primitive, `scripts/lock-lib.sh`, broken only on owner absence. A detached
+hold (one spanning tool calls with no owner pid recorded,
+`PLANWRIGHT_TOWER_PID` unset) has no owner to probe; `orchestrate-lock.sh
+sweep` clears one on the positive-evidence bar below, never on less. `release`
+ends the caller's own window and refuses a hold it can show belongs to another;
+`break` is the unconditional clear. An `acquire` exit 1 (a holder has it) is a
 **clean no-op**: skip the step — another tower or the hook holds it, and
 `--bookkeeping` reconciles anything dropped. The lock is released the moment
 the write window closes, before dispatch, and is never held across execution:
@@ -59,7 +64,7 @@ supersedes it — and a stale orphan marker (marker without a surviving branch)
 reverts the task to Ready. A bundle writes one marker per component task id,
 never a single `<id>-<id>` marker. The writer (`orchestrate-marker.sh`)
 grammar-validates each id and containment-checks the marker path before the
-write, dropping a discardable, gitignored local artifact: no `tasks.md`
+write, dropping a discardable, untracked local artifact: no `tasks.md`
 write, no commit. From branch + marker, `orchestrate-state.sh` derives the
 task In progress.
 
@@ -88,8 +93,8 @@ the unit is orphaning considered.
 
 **Orphan only when all three hold** (else leave the entry alone):
 
-1. the entry is **older than the grace threshold** (default: the stale-lock
-   threshold, D-10);
+1. the entry is **older than the grace threshold**
+   (`stale_marker_threshold`);
 2. the backend's **liveness is observable from this session** — a worker
    dispatched by *another* tower is not yours to judge; **print-backend units
    are exempt**: no process exists until the human pastes the command, so

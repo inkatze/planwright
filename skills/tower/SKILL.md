@@ -61,7 +61,9 @@ is the one sweep output read.
    block is the floor**; the command guard hook only pre-approves. Read each
    settings layer loaded here (user, project, local, managed, any
    `--settings` file) by `jq` projection only (`.permissions.deny`, `.hooks`),
-   union the deny lists, and compare against the shipped file's. An absent
+   naming each file, the shipped one included, by its literal path (the user
+   layer by its absolute path, never `~` or an unexpanded variable, which the command
+   guard defers), union the deny lists, and compare against the shipped file's. An absent
    layer counts as empty; only a parse or read error makes a layer unreadable.
    The check fails closed: a shipped deny list absent or unreadable, a shipped
    entry missing from the union, or an unreadable layer — say so once, and
@@ -199,9 +201,9 @@ route, overridden or not.
 
 The gate-wiring hard pauses stay in force inside every worker whatever the
 route; a flight whose scope outgrows its route parks behind its hard pause and
-returns for re-routing. The operator hears that through the decision queue once
-flight lifecycle pushes exist; until then a pause leaves no branch or record
-evidence, so the sweep's `in-air` is said as "in the air or paused", with its
+returns for re-routing. The worker pushes the pause into the decision queue,
+which is where the operator hears it; a pause that push missed leaves no branch
+or record evidence, so the sweep's `in-air` is said as "in the air or paused", with its
 liveness; `stranded` as a leftover branch with no worktree and no landing;
 `unknown` as not checked; after the fallback reads, a flight without a landing reference is
 "no landing yet: in the air, paused, or dead — not checked", with its observe or
@@ -218,8 +220,11 @@ repo-tracked config); a committed record file at `specs/_flights/<flight-id>.md`
 on the flight's own branch otherwise. It states the reported destination with
 the home, so the operator hears where a push goes before any push. It then
 hands `/offload` a **flight petition**: the ask and the grounds line as stated,
-each in a temp file of the tower's own written with the file tool (never
-through shell quoting) and removed once the dispatch returns, a kebab slug
+each in a temp file of the tower's own, made by a bare `mktemp` run as its
+own command, written with the file tool (never through shell quoting) and
+removed once the dispatch returns by `rm -f` naming each path unquoted, as
+mktemp printed it (a quoted path, an unexpanded variable or `$(mktemp)` defers to the
+prompt), a kebab slug
 naming the flight, and the declared home. `/offload` picks the rung (REQ-C1.2)
 and places the flight through
 `scripts/flight-dispatch.sh dispatch`, which counts live flights against
@@ -289,6 +294,13 @@ tower declines the relay and hands the operator the command to run in an
 attached session; it never falls back to a subagent. It reports the worker's
 handle and observe hint; after that it only answers status, below.
 
+**Messaging another session.** To reach a Claude Code session on this machine
+(an orchestrator, a drafting session, a worker), the tower sends it
+`SendMessage` when `ListAgents` lists it, loading both tools first when they
+are deferred; only an unlisted target, or a listed one `SendMessage` cannot
+reach, takes the pane relay, `scripts/orchestrate-relay.sh relay-command`. It
+never types or pastes into a pane by hand.
+
 ## Status on demand (REQ-A1.5)
 
 The tower answers status on all planwright work, spec-mode included, from
@@ -299,13 +311,16 @@ durable evidence through the existing surfaces:
 - **A flight:** a fresh `scripts/flight-sweep.sh sweep`, else the bounded
   reads bring-up used.
 - **Decisions waiting on the operator:** `scripts/fleet-attention.sh queue`,
-  actionable items first.
+  actionable items first; a parked flight is one of them, under its
+  worker handle.
 - **Reserved-control relays:** the post-sign-off go above, on explicit request.
 
 The tower never supervises or polls spec-mode execution: no watch loop, no
 timer, no unprompted read of orchestrator state. Spec-mode pushes stay on the
-fleet surfaces; flight lifecycle pushes reach the decision queue by
-deterministic push from hooks and scripts where wired (REQ-F1.1, REQ-F1.2).
+fleet surfaces; a flight's dispatch, pause, and landing reach the attention
+store by push from the dispatch and the worker, never by tower polling, and
+the tower renders them through `scripts/fleet-attention.sh` (REQ-F1.1,
+REQ-F1.2).
 
 ## Refusals
 
@@ -330,7 +345,10 @@ handed back — never silently.
 Every guarantee about work outliving the tower is stated bounded-or-surfaced,
 never absolutely (REQ-F1.3, REQ-F1.6): a killed tower leaves every residue
 bounded and swept, or durably surfaced to the operator — never silently lost.
-Dead flight workers inherit the fleet crash-loop policy (REQ-F1.5). What only
+Dead flight workers inherit the fleet crash-loop policy (REQ-F1.5) while a
+fleet sweep runs: a provably dead worker relaunches into its own worktree after
+its backoff, and at the disable threshold it is surfaced in the decision queue
+instead; one whose death cannot be proven is not relaunched and reads unknown. What only
 the conversation held (an unanswered case, an unconfirmed capture, a declined
 ask) dies with the session and is re-asked; the first turn says so.
 

@@ -95,7 +95,7 @@ fleet_flailing_threshold: 3
 fleet_hung_heartbeat_seconds: 900
 fleet_crash_backoff_base_seconds: 30
 fleet_crash_disable_threshold: 3
-stale_lock_threshold: 15m
+stale_marker_threshold: 15m
 EOF
 
 # run <fleet-home> <args...> — invoke fleet-liveness.sh with the pinned layers
@@ -644,6 +644,18 @@ out=$(run "$home16" crash-record "$w" "$s" --now 100000) || fail "crash after re
 echo "ok: crash-reset clears the consecutive-failure streak"
 
 # ---------------------------------------------------------------------------
+# 18b. crash-count reads the consecutive-failure count without changing it,
+#      0 for a worker with no record, so a supervisor never parses the record.
+# ---------------------------------------------------------------------------
+out=$(run "$home16" crash-count "$w") || fail "crash-count: non-zero exit"
+[ "$out" = 1 ] || fail "crash-count: '$out', expected the 1 crash recorded after the reset"
+out=$(run "$home16" crash-count "$w") || fail "crash-count reread: non-zero exit"
+[ "$out" = 1 ] || fail "crash-count changed the count it read (now '$out')"
+out=$(run "$tmp/h18b" crash-count "$w") || fail "crash-count without a record: non-zero exit"
+[ "$out" = 0 ] || fail "crash-count without a record: '$out', expected 0"
+echo "ok: crash-count reads the streak without changing it"
+
+# ---------------------------------------------------------------------------
 # 19. The operator kill-switch (fleet-daemon-gate) short-circuits relaunch
 #     authorization: with fleet_daemon_pause true, crash-check refuses even a
 #     worker that is past its delay and not disabled.
@@ -693,7 +705,7 @@ echo "ok: the flailing threshold resolves through the shared knob resolver"
 #     subcommand, malformed --now/--heartbeat/--progress.
 # ---------------------------------------------------------------------------
 for args in "" "bogus" "hook" "hook not-an-event" "push-capable" "classify" \
-  "crash-record" "crash-check" "crash-reset"; do
+  "crash-record" "crash-check" "crash-reset" "crash-count"; do
   rc=0
   # shellcheck disable=SC2086
   run "$tmp/h21" $args >/dev/null 2>&1 || rc=$?
@@ -819,7 +831,7 @@ err=$(printf '{}' | env -u PLANWRIGHT_WORKER_SCOPE \
 echo "ok: a half-set identity env is refused loudly with no write"
 
 # ---------------------------------------------------------------------------
-# 28. Hostile handles are refused by crash-check and crash-reset too.
+# 28. Hostile handles are refused by crash-check, crash-reset and crash-count too.
 # ---------------------------------------------------------------------------
 # shellcheck disable=SC2016 # the literal '$(x)' is the hostile token under test
 for bad in 'w w' 'w/../x' '$(x)' '.' '..'; do
@@ -829,8 +841,11 @@ for bad in 'w w' 'w/../x' '$(x)' '.' '..'; do
   rc=0
   run "$tmp/h28" crash-reset "$bad" >/dev/null 2>&1 || rc=$?
   [ "$rc" = 2 ] || fail "hostile worker '$bad' (crash-reset): exit $rc, expected 2"
+  rc=0
+  run "$tmp/h28" crash-count "$bad" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "hostile worker '$bad' (crash-count): exit $rc, expected 2"
 done
-echo "ok: crash-check and crash-reset refuse hostile handles"
+echo "ok: crash-check, crash-reset and crash-count refuse hostile handles"
 
 # ---------------------------------------------------------------------------
 # 29. REQ-A1.2 — a flailing threshold ABOVE the 50-row history floor still

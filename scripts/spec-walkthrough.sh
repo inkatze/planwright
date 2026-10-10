@@ -15,10 +15,10 @@
 # one sanctioned write (REQ-A1.3); the load report stays read-only.
 #
 # Usage:
-#   spec-walkthrough.sh [--scope <selector>] [--reveal] <spec-path>
+#   spec-walkthrough.sh [--scope <selector>] [--reveal] <spec>
 #
-# <spec-path> is `specs/<spec>` or the bare `<spec>` (the two sanctioned forms,
-# the same pair the sibling skills accept), resolved under the spec root the
+# <spec> is the bare identifier or its `specs/<spec>` alias, with or without
+# one trailing slash (scripts/spec-id-lib.sh), resolved under the spec root the
 # working directory's repository resolves (scripts/resolve-root.sh spec); with
 # no root resolved it is refused. <selector> names which part to render (REQ-B1.2):
 #   whole                 the whole bundle (default)
@@ -71,11 +71,17 @@ unset CDPATH
 
 # Canonical echo-discipline sanitizer (doctrine/security-posture.md): strip
 # non-printables off untrusted content before it reaches the terminal.
+if [ ! -f "$(dirname "$0")/echo-safety.sh" ] || [ ! -r "$(dirname "$0")/echo-safety.sh" ]; then
+  printf '%s\n' "spec-walkthrough.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$(dirname "$0")/echo-safety.sh"
+# shellcheck source=scripts/spec-id-lib.sh
+. "$(dirname "$0")/spec-id-lib.sh"
 
 usage() {
-  echo "usage: spec-walkthrough.sh [--scope <selector>] [--reveal] <spec-path>" >&2
+  echo "usage: spec-walkthrough.sh [--scope <selector>] [--reveal] <spec>" >&2
   exit 2
 }
 
@@ -153,15 +159,11 @@ done
 
 [ -n "$specpath" ] || usage
 
-# Derive the spec identifier from the path before it is ever used as a path
-# (REQ-A1.6). Strip a trailing slash and an optional single leading `specs/`;
-# what remains must be a bare identifier. A charset failure here is a clean
-# refusal that never names the candidate back.
-spec=$specpath
-while [ "$spec" != "${spec%/}" ]; do spec=${spec%/}; done
-case $spec in
-  specs/*) spec=${spec#specs/} ;;
-esac
+# Map the alias to the identifier before it is ever used as a path
+# (REQ-A1.6); what remains must be a bare identifier. A charset failure here
+# is a clean refusal that never names the candidate back.
+spec_id_canon "$specpath"
+spec=$SPEC_ID
 if ! check_spec_id "$spec"; then
   if [ "$spec" = flight ]; then
     echo "spec-walkthrough: reserved spec identifier: 'flight' is the flight branch segment (tower-front-door D-11); refused before any read" >&2
@@ -203,7 +205,7 @@ if [ -d "$bundle_dir" ]; then
   case "$bundle_real/" in
     "$specs_real/"*) ;;
     *)
-      echo "spec-walkthrough: resolved bundle path escapes the $specs_disp/ tree; refused before any read" >&2
+      printf '%s\n' "spec-walkthrough: resolved bundle path escapes the $specs_disp/ tree; refused before any read" >&2
       exit 2
       ;;
   esac
@@ -212,7 +214,7 @@ fi
 # Missing bundle: a clear, non-opaque degradation naming the expected location
 # and the four files it would hold (REQ-A1.5).
 if [ ! -d "$bundle_dir" ]; then
-  echo "spec-walkthrough: no bundle at $bundle_disp — the directory is absent (expected requirements.md, design.md, tasks.md, test-spec.md)" >&2
+  printf '%s\n' "spec-walkthrough: no bundle at $bundle_disp — the directory is absent (expected requirements.md, design.md, tasks.md, test-spec.md)" >&2
   exit 1
 fi
 
@@ -230,7 +232,7 @@ done
 # An empty bundle (directory present, none of the four files): degrade rather
 # than render an empty artifact (REQ-A1.5).
 if [ -z "$present" ]; then
-  echo "spec-walkthrough: bundle at $bundle_disp holds none of the four spec files (expected requirements.md, design.md, tasks.md, test-spec.md)" >&2
+  printf '%s\n' "spec-walkthrough: bundle at $bundle_disp holds none of the four spec files (expected requirements.md, design.md, tasks.md, test-spec.md)" >&2
   exit 1
 fi
 
@@ -322,7 +324,7 @@ case ${scope:-whole} in
     if [ -f "$bundle_dir/design.md" ] && grep -qE '^### D-[0-9]+:' "$bundle_dir/design.md" 2>/dev/null; then
       scope_label="decision set"
     else
-      echo "spec-walkthrough: scope 'decisions' resolves to no decision set in $bundle_disp; design.md is absent or holds no decisions" >&2
+      printf '%s\n' "spec-walkthrough: scope 'decisions' resolves to no decision set in $bundle_disp; design.md is absent or holds no decisions" >&2
       exit 1
     fi
     ;;
@@ -330,7 +332,7 @@ case ${scope:-whole} in
     if [ -f "$bundle_dir/tasks.md" ]; then
       scope_label="task graph"
     else
-      echo "spec-walkthrough: scope 'tasks' resolves to no task graph in $bundle_disp; tasks.md is absent" >&2
+      printf '%s\n' "spec-walkthrough: scope 'tasks' resolves to no task graph in $bundle_disp; tasks.md is absent" >&2
       exit 1
     fi
     ;;

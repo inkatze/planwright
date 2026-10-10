@@ -265,7 +265,7 @@ echo "ok: each rung's stop closes, repeats as already-closed, and refuses a host
 # --- presence is attribution, never authority -------------------------------
 S="$here/../scripts"
 strip() { sed -E -e 's/^[[:space:]]*#.*//' -e 's/[[:space:]]#.*//' "$1"; }
-for f in orchestrate-select.sh orchestrate-meta-select.sh orchestrate-marker.sh orchestrate-lock.sh \
+for f in orchestrate-select.sh orchestrate-meta-select.sh orchestrate-marker.sh orchestrate-marker-home.sh orchestrate-lock.sh \
   fleet-dispatch-worktree.sh fleet-dispatch-headless.sh fleet-streamjson.sh offload-dispatch.sh \
   flight-dispatch.sh fleet-registry-reconcile.sh fleet-cleanup.sh fleet-sweep.sh fleet-stop-lib.sh; do
   [ -f "$S/$f" ] || fail "presence audit: $f is gone; update the audited set"

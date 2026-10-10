@@ -1,0 +1,3 @@
+# Task 6 maps the specs/<id> alias onto the bare identifier at the identity
+# seams and changes no probe: the branch, worktree, lock, trailer, and
+# Consumed-by forms stay byte-identical, so its declared set is empty.

@@ -361,3 +361,269 @@ Class: meaning
 Lens-pass: the lens review recorded in this section (full bundle, spec lens set, fan-out, findings dispositioned)
 Anchor: `145382e20837ade338225b1099010d78d5bf1bd9` — computed as
 `scripts/spec-anchor.sh specs/test-throughput`
+
+## 9. Amendment log
+
+### Amendment 1 — delta re-walkthrough (2026-10-09)
+
+#### 1. Header (delta)
+
+- **Mode:** delta re-walkthrough of an Active (derived) format-version 2
+  bundle; scope confirmed by the operator as the 2026-10-09 `/spec-draft`
+  extension only (see the `requirements.md` Changelog entry of that date)
+- **Spec commit at walkthrough start:** `8ad3099e`; the extension was staged
+  and uncommitted at start (the pre-commit anchor-freshness mirror refuses
+  it until this re-walkthrough re-anchors; recorded as obs:2db6972c)
+- **Freshness comparison:** the Sign-off record's anchor no longer matches a
+  recompute with its recorded command over the extended bundle
+- **Validator outcome (pre-flight):** `scripts/spec-validate.sh` — 0 errors,
+  0 warnings
+- **Config:** core defaults (`commit_on_kickoff`,
+  `mark_spec_pr_ready_on_kickoff`, `kickoff_ready_ci_wait`); no
+  machine-local override
+- **Working location:** spec branch `planwright/test-throughput/spec` in
+  `.claude/worktrees/test-throughput-spec`
+- **Cross-bundle preconditions checked at start:** custom-steps and
+  review-effectiveness are stored Ready; `scripts/check-diff-scoped.sh` and
+  `scripts/await-pr-ci.sh` do not exist yet (review-effectiveness Task 6 and
+  this bundle's Task 10 ship them)
+- **Decision/transcript log:** no harness-provided log path; mirror skipped
+
+#### 2. Goal & glossary (delta)
+
+**Restatement (confirmed by the operator).** Once a unit's pull request
+exists, a later run against it (a fix round after review or a red check)
+stops re-running the full local suite. Under the new opt-in value
+`local-then-ci`, the first run behaves as `local` (one full local suite
+before the pull request opens); a fix round runs the targeted check, pushes,
+and takes green CI on the pushed head as the gate of record. Separately, the
+runner gains a per-file deadline so one hung test file cannot hold the
+host's suite lock.
+
+**Rules out.** Editing custom-steps' or review-effectiveness's signed text
+(Task 16 waits on their own deltas); amending bootstrap (D-19 records a
+reading instead); the worker-brief text operators hand workers.
+
+**Assumes.** Task 10's CI-wait helper and review-effectiveness's targeted
+check exist before Task 16 runs (both are named in its dependencies or
+`Done when:`).
+
+**Implicit terms surfaced.**
+
+- **Fix round:** a run that finds an open pull request for its unit's branch
+  at pre-flight; classified once per run, never changed mid-run.
+- **Gate of record:** the single check whose green result is the run's
+  full-suite evidence.
+- **Pushed head:** the commit the run itself pushed, on which CI is awaited.
+
+Signed off: 2026-10-09
+
+#### 3. Requirements walkthrough (delta)
+
+- **REQ-D1.4 (per-file deadline).** Intent confirmed as written: a file past
+  the deadline is ended, recorded failed naming file and deadline, and its
+  ticket returned; a host with no bounding tool runs unbounded and warns
+  once.
+- **REQ-F (fix rounds on an open pull request).** Intent confirmed: a fix
+  round is classified once at pre-flight from an open pull request; it runs
+  the targeted check, pushes after `pre-pr`, and takes green CI on the
+  pushed head as the gate of record, reusing REQ-B1.4/B1.5's wait, halt and
+  no-CI fallback.
+- **Inconsistency halt, resolved by spec edit.** REQ-F1.4's "SHALL NOT run
+  the full local suite at any point in the run" contradicted REQ-F1.5's
+  no-CI fallback to the pooled full local suite. Operator chose the
+  carve-out reading (grounded in D-17 and Task 16, which already decide the
+  fallback): REQ-F1.4 now excepts REQ-F1.5's no-CI fallback, and D-17's
+  decision text, Task 16's deliverables and test-spec REQ-F1.4 match.
+- **REQ-B1.1 superseded by REQ-B1.12.** B1.1 named `remote-ci` as "the"
+  opt-in value; with REQ-F1.1 adding `local-then-ci`, the operator chose to
+  supersede rather than leave a merged requirement readable as exhaustive.
+  REQ-B1.12 lists both opt-in values; Task 10's citation and the test-spec
+  entry moved to it. REQ-F1.8 still governs when `local-then-ci` may be
+  offered.
+
+**Consolidated spec-edit list (this delta re-walkthrough).** Recorded in the
+`requirements.md` Changelog entry dated 2026-10-09 for the delta
+re-walkthrough edits.
+
+Signed off: 2026-10-09
+
+#### 4. Design walkthrough (delta)
+
+Reconciled ledger for the delta (earlier D-IDs keep the section 4 ledger
+above):
+
+- **D-1** — superseded in part by D-15: this repository's own value becomes
+  `local-then-ci`; the capability-versus-value altitude split is unchanged.
+- **D-7** — superseded in part by D-20: Task 13 keeps the review-loop wiring
+  and its review-effectiveness gate but no longer switches this
+  repository's value.
+- **D-15, D-16, D-18, D-19, D-20, D-21** — confirmed, rationale intact.
+- **D-17** — amended during this walk: "runs no full local suite anywhere in
+  the run except the no-CI fallback below", matching REQ-F1.4's carve-out.
+
+No design decision contradicts a walked requirement. The instruction-budget
+pressure D-18 and D-17 put on doctrine and `skills/execute-task/SKILL.md`
+is carried to the risk register.
+
+Signed off: 2026-10-09
+
+#### 5. Verification approach (delta)
+
+- **Coverage mix.** The delta's entries follow the existing mix in
+  `test-spec.md`'s intro: `[test]` run by `mise run check` in CI;
+  `[Gherkin]` fixture-unit results recorded by the implementing worker in
+  the PR body (Tasks 10 and 16); `[design-level]` for the doctrine
+  amendment (REQ-F1.7, reviewed in Task 15's PR) and the parked-task gate
+  (REQ-F1.8).
+- **Ownership.** CI owns `[test]`; the implementing worker records
+  `[Gherkin]`; the operator sweeps `[manual]` at PR review.
+- **Dead path found and fixed.** REQ-F1.9 was tagged `[test]`, but nothing in
+  `mise run check` or CI runs `scripts/resolve-steps.sh --check` or a grep
+  over this repository's own steps configuration. The operator chose a
+  one-time `[manual]` check recorded in Task 17's PR; the test-spec intro's
+  `[manual]` clause names it. No lasting guard keeps the interim step from
+  returning (accepted).
+
+Signed off: 2026-10-09
+
+#### 6. Task graph (delta)
+
+Reconstructed from the `Dependencies:` lines in `tasks.md` (render with
+`scripts/spec-graph.sh specs/test-throughput`).
+
+- **New edges:** Tasks 1 and 4 → Task 14; Task 15 → Task 10; Tasks 10, 13
+  and 15 → Task 16; Task 16 → Task 17.
+- **Edge added during this walk:** Task 13 → Task 16. Both rewrite the review
+  loop's per-iteration full-suite behavior; the operator chose sequencing
+  over concurrent edits, accepting that Task 16 cannot start before Task 13
+  merges even if its own gates clear first.
+- **Parallelism:** Task 15 has no dependencies and can start at once;
+  Task 14 runs beside Tasks 10 to 13 once Task 4 lands.
+- **Critical path:** unchanged from section 6 above while Task 16 stays
+  parked; once its gate clears, Tasks 16 and 17 extend the chain after
+  Task 13.
+- **Deliberate non-edges:** Task 14 does not depend on the pool tasks
+  beyond Task 1 (the deadline returns a ticket through the existing
+  release path); Task 15 does not depend on Task 10 (the doctrine reading
+  serves every value of the setting, D-18).
+
+Signed off: 2026-10-09
+
+#### 7. Risk register (delta)
+
+Rows continue the numbering of section 7 above; accepted by the operator.
+
+| # | Risk | Mitigation / early signal |
+| --- | --- | --- |
+| 10 | Task 15's doctrine amendment and Task 16's `skills/execute-task/SKILL.md` edits grow instruction closures that sit near their word budget | Word-neutral edits and dedupe against the loading skill's manifest. Signal: `check:instructions` red on the task PR |
+| 11 | A deadline kill signals the file's process group with TERM; a daemonized descendant or a file trapping TERM can outlive its returned ticket, so the pool undercounts | Accepted; Task 14's implementer chooses the kill details within D-21. Signal: processes left behind after the deadline fixture, or pool overlap beyond capacity on the host |
+| 12 | The 900-second default fails a slow but healthy file on a loaded host | `PLANWRIGHT_TEST_FILE_DEADLINE` override; Task 9's profile names the slow files. Signal: deadline failures on files that pass in isolation |
+| 13 | Task 16's gate needs two other bundles' delta sign-offs and may never clear, leaving the interim `fix-round-cadence` prompt step as the mechanism | The drain pass surfaces the gate verbatim (REQ-F1.8). Signal: the gate still pending at each drain |
+
+**Decision-domains gap check (delta).** Catalog resolved via
+`scripts/resolve-catalog.sh decision-domains`. Touched and decided:
+secrets-config (the new value is documented in the options reference,
+REQ-F1.1; the deadline variable in the runner's usage header, D-21),
+deploy-migration (the repository's value flip takes effect at the next
+unit's pre-flight, REQ-B1.12), observability (deadline failures and a failed
+pull-request read are reported by name, REQ-D1.4, REQ-F1.3), concurrency
+(fix-round classification is fixed once per run, REQ-F1.3),
+dependency-adoption (`timeout`/`gtimeout` are already used by the
+repository). No undecided domain question remains.
+
+Signed off: 2026-10-09
+
+#### 8. Lens review (delta-scoped) and dispositions
+
+**Path.** Delta-scoped Discovery-Rigor review with the **spec** artifact
+class's lens set (`artifact-lenses`), fanned out to one read-only sub-agent
+per lens over the full delta (the extension plus the walk's own edits);
+the mid-walk edits of sections 3, 5 and 6 were checked inline for dependents
+at application and re-covered by this pass. Validation scoping (declared):
+every finding was re-read against its quoted text by the lens that raised
+it; findings carrying a contract change were spot-checked against the
+source by the coordinator (execute-task's classifier rules, bootstrap's
+retry policy, review-effectiveness REQ-D1.3, `ci.yml`'s cancel-in-progress
+group, `rl_ci_state`'s folding of a cancellation into failing,
+`scripts/resolve-steps.sh`'s usage); every disposition was the operator's.
+Merged result: 50 raw findings (the table's counts), 28 after dedupe, none refuted.
+
+Lens-coverage table (artifact class: spec):
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 8 | Red-CI fix loop vs escalate rule; B1.12 vs F1.8; D-5 and D-1 left stale; Task 15 vs review-effectiveness REQ-D1.3; unit vs run read; custom-steps conflict misstated; pending line vs D-5's purpose |
+| Ambiguity and interpretation forks | 5 | Wait vs `post-pr` order; no-commit round; body update timing; which classifier; deadline `0` |
+| Citation and coverage integrity | 4 | Unqualified foreign IDs in D-20; F1.8 missing foreign cites; custom-steps text misstated; B1.12's third value traced only indirectly |
+| Dead verification paths | 4 | F1.1 value check unrunnable by the key-only guard; F1.3 `[test]` half with no script; signed section 5 names `check:options-reference` (the task is `check:options`); Task 16 names no resolution tests |
+| Decision-domain gaps | 3 | Concurrency: moved head and cancelled CI read as red; deploy-migration: per-branch propagation and rollback; observability: halted round reads converged |
+| Testability | 7 | Task 17 `resolve-steps.sh` form unrunnable and comments unchecked; Task 15 "states" unevaluable; Tasks 14, 15, 16 deliverables without checks; Task 10 cross-bundle precondition |
+| Cross-file consistency | 12 | Unreadable-CI fixture; Gherkin "recorded in" lines; read-once for the third value; pending line only in design; known-environmental list undefined in fix rounds; two pools; nested runner not carried down; "in part"; D-5 switch; Task 17 empty key and file; stale signed brief sections (below) |
+| Documentation and glossary drift | 7 | D-5 Task 13; F1.3 unscoped; slot vs step-pool slot and "suite lock"; D-18 and D-21 enumerations; glossary for full-suite evidence and first run |
+| Rendered-content safety | n/a | The bundle is not rendered into an executing or markup context |
+| Altitude check (REQ-H1.3) | none | Triggered (pinned seed claim in Sources); D-15 is the record, cited from the goal; Tasks 15 (doctrine), 16 (core capability), 17 (repository value) match its rungs |
+| Ship-gate check (REQ-L1.4) | none | The custom-steps and review-effectiveness preconditions carry Task 16's gated Deferred bullet; the commit-hook park gap is obs:2db6972c |
+
+**Dispositions (operator, 2026-10-09).**
+
+- *Applied, operator-chosen:* a red CI verdict in a fix round is handled
+  exactly as a local failure (logic halts, transient retries), the
+  fix-and-push loop dropped (D-17, REQ-F1.5, Task 16, test-spec); one
+  package for the push and wait: wait after `post-pr` on the final head,
+  re-read a moved head before acting on red, gate the current head when no
+  commit was added, and `Convergence: pending` from push to handoff (new
+  REQ-F1.10); D-18 records its compatibility with review-effectiveness
+  REQ-D1.3, Task 15 stays ungated; a fix round consults the
+  known-environmental list (REQ-B1.13 supersedes REQ-B1.6, D-6 superseded
+  in part) and the setting is read per run (REQ-B1.12, Task 10, D-5 in
+  part); both pools named, "as it does today" dropped for the step pool;
+  Task 16 ships a classification helper with `gh`-stubbed tests (its
+  estimate moved accordingly); the options-reference value check moved to
+  Task 16's PR review.
+- *Applied, mechanical batch (operator-approved):* foreign IDs qualified in
+  D-20; F1.8 cites both foreign records; the custom-steps conflict reworded
+  as an ordering conflict (Out of scope, D-20); "in part" on both
+  supersessions in the intro and Changelog; D-5 and D-1 markers; F1.3
+  scoped to `local-then-ci`; the D-18 and D-21 enumerations removed; the
+  deadline a positive integer, `0` malformed; nested-runner inheritance and
+  usage-header checks in Task 14; Task 15's Done-when made checkable;
+  Task 17's exact `resolve-steps.sh` command, named files, comment check,
+  and empty key and file handling; Gherkin "recorded in" lines and the
+  unreadable-CI fixture in test-spec; B1.12 gated by F1.8 and cited by
+  Task 16.
+- *Accepted risk:* the value flip reaches each unit when its branch carries
+  Task 17, and a run reads the setting at its own pre-flight; rollback is
+  reverting Task 17's change, which restores both the value and the interim
+  step (risk row 14 below).
+- *Declined:* Task 10's cross-bundle precondition (review-effectiveness
+  Task 6) is signed text outside this delta, already named in section 2's
+  Assumes.
+- *Recorded, not editable here:* signed sections above are append-only, so
+  their now-stale statements are superseded by this amendment rather than
+  edited: section 2's five-part restatement and two-value glossary;
+  section 5's `check:options-reference` (the task is `check:options`);
+  section 6's graph without Tasks 14 to 17; section 7's deploy-migration
+  line naming Task 13 and REQ-B1.1; section 8's altitude and ship-gate
+  notes naming Task 13 alone.
+
+**Glossary additions.** *Full-suite evidence* under `local-then-ci`: a
+first run's full local suite, a fix round's CI on its final head. *First
+run*: a run under `local-then-ci` that is not a fix round.
+
+| # | Risk | Mitigation / early signal |
+| --- | --- | --- |
+| 14 | The `local-then-ci` flip reaches units branch by branch, and a fix round on a branch cut before Task 17 runs under the old value | Each run reads the setting at its own pre-flight; rollback reverts Task 17. Signal: a fix round on an old branch running the full local suite |
+
+#### Sign-off record (Amendment 1)
+
+Signed off 2026-10-09 by the operator after the shared-understanding
+approval summary, as a delta re-walkthrough of an Active (derived) bundle:
+no status flip; `Last reviewed:` bumped on all four spec files;
+`scripts/spec-validate.sh` re-run after the edits with 0 errors and
+0 warnings; `mise run lint:md` clean.
+
+Class: meaning
+Lens-pass: Amendment 1, section 8 (delta-scoped, spec lens set, fanned out; every finding dispositioned)
+Anchor: `0e3e8e7ec9e73c573e040807b24c7c684b5285fd` — computed as
+`scripts/spec-anchor.sh specs/test-throughput`

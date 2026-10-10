@@ -112,3 +112,23 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
         run: /bin/sh scripts/check-purged-identifiers.sh --commit-range "origin/${BASE_REF}..HEAD"
+
+  # The macOS userland the scripts actually run on for most operators: its
+  # /usr/bin/awk is one-true-awk, which rejects a newline inside a -v value
+  # where the ubuntu runner's awk accepts it, so that class of bug passes the
+  # job above and breaks every Mac. Deliberately narrow (the awk-sensitive
+  # suites, no mise, no tool installs) until the full suite is green under the
+  # macOS /bin/bash; REQUIRE_BSD_AWK makes a runner image without that awk fail
+  # instead of skipping green.
+  macos-awk:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - env:
+          PLANWRIGHT_TEST_REQUIRE_BSD_AWK: "1"
+        run: |
+          /usr/bin/awk --version
+          /bin/sh tests/test-bsd-awk-multiline.sh
+          /bin/sh tests/test-spec-validate.sh
+          /bin/bash tests/test-spec-parse-corpus.sh

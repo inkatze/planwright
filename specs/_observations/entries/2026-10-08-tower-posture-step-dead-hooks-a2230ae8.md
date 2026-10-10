@@ -1,0 +1,1 @@
+- 2026-10-08 [planwright] /tower's bring-up posture step (command guard wired as a PreToolUse hook whose hook path resolves) judged the tower profile's dead braced-root hooks as wired: it resolves the path itself rather than as a --settings session would, and it does not cover the policy guard. Surfaced at the tower-placement delta kickoff (2026-10-08, brief risk row 20).

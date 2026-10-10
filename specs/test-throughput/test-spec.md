@@ -1,7 +1,7 @@
 # Test throughput — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-09-28
+**Last reviewed:** 2026-10-09
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -11,8 +11,9 @@ fixtures, all run by `mise run check` in the repository CI, with the bash
 `/execute-task` behaviors a fixture unit exercises end to end, recorded in
 the PR body; `[manual]` for the macOS-host measurements and the
 real-Graphviz run, which need the operator's machine because the CI runner
-is Linux, and for the sweep search records the operator reviews at PR
-review; `[design-level]` where the artifact's content is the
+is Linux, for the sweep search records the operator reviews at PR
+review, and for the one-time check that adopting a setting retired what it
+replaces; `[design-level]` where the artifact's content is the
 verification.
 
 ## REQ-A — Machine-wide test ticket pool
@@ -73,7 +74,7 @@ pool test that clears the mark still exercises pooling.
 
 ## REQ-B — CI-first worker verification
 
-### REQ-B1.1 — The setting resolves with a preserving default [test + Gherkin]
+### REQ-B1.1 — The setting resolves with a preserving default [test + Gherkin] (superseded by REQ-B1.12)
 
 `full_suite_evidence` resolves to `local` with no overlay, to `remote-ci`
 when an overlay sets it, and to `local` with one warning when malformed;
@@ -81,6 +82,17 @@ the options reference documents it (checked by the options-reference
 guard). Given a fixture unit whose setting changes mid-unit, the change
 takes effect only at the next unit's pre-flight, recorded in Task 10's PR
 body.
+
+Verification now pins to REQ-B1.12, below.
+
+### REQ-B1.12 — The setting resolves its three values with a preserving default [test + Gherkin]
+
+`full_suite_evidence` resolves to `local` with no overlay, to `remote-ci`
+when an overlay sets it, and to `local` with one warning when malformed;
+the options reference documents it (checked by the options-reference
+guard). Given a fixture unit whose setting changes mid-run, the change
+takes effect only at the next run's pre-flight, recorded in Task 10's PR
+body. Resolution of `local-then-ci` is verified under REQ-F1.1.
 
 ### REQ-B1.2 — Targeted check while iterating [Gherkin]
 
@@ -120,7 +132,7 @@ naming the pending CI; `pr_ci_wait` resolves to `30m` with no overlay, to
 an overlay's value when set, and to `30m` with one warning when malformed,
 and the options-reference guard passes with it documented.
 
-### REQ-B1.6 — Listed failures are reported, not re-proven [test]
+### REQ-B1.6 — Listed failures are reported, not re-proven [test] (superseded by REQ-B1.13)
 
 Under `remote-ci`, a fixture failure matching a list entry (file-level,
 and case-level on an exact match of the runner's per-case failure label)
@@ -129,6 +141,16 @@ or the logic classification; a near-miss case label does not match; the
 list is found from a worktree through git's common directory; with a bare
 primary the reader warns once and matches nothing. Under `local` the list
 is not consulted.
+
+Verification now pins to REQ-B1.13, below.
+
+### REQ-B1.13 — Listed failures are reported in remote-ci and fix rounds [test + Gherkin]
+
+The REQ-B1.6 fixtures, run under `remote-ci`, unchanged. Given a fix round
+under `local-then-ci`, a fixture failure matching a list entry is reported
+as known environmental; given a first run under `local-then-ci`, the list
+is not consulted. The two `local-then-ci` scenarios are recorded in Task
+16's PR body.
 
 ### REQ-B1.7 — The list never excuses CI or changed code [test]
 
@@ -226,6 +248,16 @@ under the same load.
 A fixture that removes the runner's scratch directory mid-run: the runner
 exits 2 naming the cause and records no test as failed.
 
+### REQ-D1.4 — A hung file is ended at its deadline [test]
+
+A fixture test file sleeping past a short `PLANWRIGHT_TEST_FILE_DEADLINE`
+is ended and recorded as failed with a message naming the file and the
+deadline, and the next file obtains its ticket; a file finishing inside
+the deadline is unaffected; a malformed value warns once and uses the
+default; a fixture host with neither `timeout` nor `gtimeout` warns once
+and runs files unbounded; `0` is treated as malformed. Run by
+`mise run check` in CI.
+
 ## REQ-E — macOS portability fixes and guards
 
 ### REQ-E1.1 — The two scripts parse under bash 3.2 [test + manual]
@@ -272,3 +304,82 @@ git hooks; a test in Task 4 asserts the step's image reference carries a
 
 The lint fails on each construct fixture REQ-E1.6 uses and passes on the
 tree, running inside `mise run check`.
+
+## REQ-F — Fix rounds on an open pull request
+
+### REQ-F1.1 — The third value resolves like the other two [test + design-level]
+
+`full_suite_evidence: local-then-ci` resolves from an overlay, and a
+malformed value falls back to `local` with one warning, run by
+`mise run check` in CI. The options-reference row naming `local-then-ci`
+is checked at Task 16's PR review, since the options-reference guard
+checks keys, not values.
+
+### REQ-F1.2 — A first run behaves as `local` [Gherkin]
+
+Given a unit under `local-then-ci` whose branch has no open pull request,
+when `/execute-task` runs it, then the full local suite runs once (in the
+pool when one is configured) and the draft pull request opens after it.
+Recorded in Task 16's PR body.
+
+### REQ-F1.3 — Fix-round classification is made once [test + Gherkin]
+
+Task 16's classification helper, with `gh` stubbed, reports a fix round
+for an open pull request, a first run for none, and a failed read with its
+reason, run by `mise run check` in CI. Given a fixture fix round, the
+classification holds for the whole run; given a failed read, the run
+proceeds as `local` and names the reason in its convergence summary.
+Recorded in Task 16's PR body.
+
+### REQ-F1.4 — No full local suite in a fix round [Gherkin]
+
+Given a fix round under `local-then-ci`, when the run validates its changes
+and review-loop fixes, then only the targeted check and linters run, and
+the run's recorded steps contain no full local suite unless the no-CI
+fallback ran. Recorded in Task 16's PR body.
+
+### REQ-F1.5 — CI on the pushed head gates the round [test + Gherkin]
+
+The wait helper's verdicts are tested under Task 10. Fixture fix rounds
+against recorded check fixtures, recorded in Task 16's PR body: green
+after `post-pr` hands off; a logic red verdict halts to Awaiting input; a
+transient one is retried; a head that moved past the gated one and
+contains it is awaited, and any other moved head halts naming both; a
+round with no new commit gates the current head; no CI falls back to the
+pooled local suite; CI pending past `pr_ci_wait` and an unreadable CI each
+halt to an Awaiting-input entry. No fixture hands off without green CI or
+the fallback's green local suite.
+
+### REQ-F1.6 — The review loop reads the round's CI [Gherkin]
+
+Given a fix round under `local-then-ci`, when the review loop iterates,
+then each fix is validated by the targeted check and the loop's full-suite
+evidence is the round's CI run on the final pushed head. Recorded in Task
+16's PR body.
+
+### REQ-F1.7 — The predicate accepts CI on a pushed head [design-level]
+
+`doctrine/finding-categorization.md` and every doctrine sentence restating
+the Agent-resolvable project-CI condition accept a green CI run on a pushed
+head containing the fix, and state that such a fix is reported resolved
+only once that run is green. Reviewed in Task 15's PR.
+
+### REQ-F1.8 — The value waits on two delta sign-offs [design-level]
+
+Task 16 is parked under `## Deferred` with the free-text gate naming the
+custom-steps and review-effectiveness amendments, and its `Done when:`
+names both; the drain pass surfaces the gate verbatim.
+
+### REQ-F1.9 — Adopting the value retires the interim step [manual]
+
+In Task 17's PR, with this repository's value set to `local-then-ci`: a
+repository grep finds no configuration or catalog naming
+`fix-round-cadence`, and `scripts/resolve-steps.sh --check` passes for each
+wired point; both outputs are recorded in the PR body.
+
+### REQ-F1.10 — The pending line covers a fix round [Gherkin]
+
+Given a fix round under `local-then-ci`, when it pushes, then the pull
+request body carries `Convergence: pending`; when it hands off, the
+convergence summary replaces it; when it halts, the line stays. Recorded
+in Task 16's PR body.

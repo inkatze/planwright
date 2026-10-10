@@ -343,7 +343,8 @@ assert_eq "init: after --init the root resolves" "$repo/relocated" "$out"
 
 # REQ-A1.5: the local-only entries are ignored wherever git sees the root.
 mkdir -p "$repo/relocated/_pending" "$repo/relocated/feat/.orchestrate"
-for f in _pending/notes.md feat/.orchestrate.lock feat/.tasks-pr-sync.tmp feat/.orchestrate/m; do
+for f in _pending/notes.md feat/.orchestrate.lock "feat/.orchestrate.lock#owner#" feat/.tasks-pr-sync.tmp feat/.orchestrate/m \
+  feat/.tasks.md.halt.lock feat/.tasks.md.halt.AbC123; do
   touch "$repo/relocated/$f"
   base git -C "$repo" check-ignore -q "relocated/$f"
   assert_eq "init: git ignores relocated/$f" 0 "$?"

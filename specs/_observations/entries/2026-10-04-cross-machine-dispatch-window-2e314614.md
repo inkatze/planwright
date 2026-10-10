@@ -1,0 +1,1 @@
+- 2026-10-04 [planwright] A remote task branch becomes in-progress evidence only once a worker pushes, and /execute-task pushes just before gh pr create, so two hosts can still select and run the same task for its whole execution; the per-spec lock and dispatch markers are host-local. Only the origin fence closes that window.

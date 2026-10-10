@@ -100,6 +100,10 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # The canonical echo-discipline sanitizer (doctrine/security-posture.md),
 # sourced as the sibling fleet scripts do; a missing helper is a broken
 # install.
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "fleet-audit.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
@@ -142,12 +146,13 @@ now_epoch() {
   esac
 }
 
-HOLD_LOCK=0
+LOCK_TOKEN=""
 # Release on ANY exit, signals included (the fleet-attention.sh trap
 # discipline): a SIGINT/SIGTERM/SIGHUP mid-critical-section must not leave the
-# shared cross-spec lock held until the stale-break threshold, nor the
-# in-flight write temp beside the day file. The signals route through EXIT via
-# explicit exits with the conventional codes.
+# shared cross-spec lock held until a later acquirer notices this process is
+# gone (the hold names it with --owner-pid), nor the in-flight write temp beside
+# the day file. The signals route through EXIT via explicit exits with the
+# conventional codes.
 w_tmp=""
 trap 'release_lock; [ -z "$w_tmp" ] || rm -f "$w_tmp"' EXIT
 trap 'exit 130' INT
@@ -156,16 +161,19 @@ trap 'exit 129' HUP
 acquire_lock() {
   al_tries=0
   while [ "$al_tries" -lt 1000 ]; do
-    "$FS" lock >/dev/null 2>&1
-    al_rc=$?
+    # The token lands in LOCK_TOKEN as part of the assignment, and a trap runs
+    # between commands, so the exit handler knows every hold `lock` reported. A
+    # `lock` killed after taking the hold but before printing its token leaves
+    # a hold only --owner-pid names, broken once this process is gone.
+    al_rc=0
+    LOCK_TOKEN=$("$FS" lock --owner-pid "$$" 2>/dev/null) || al_rc=$?
     case $al_rc in
       0)
-        HOLD_LOCK=1
         return 0
         ;;
       1) ;; # a live holder has it — retry
       *)
-        echo "fleet-audit: cannot acquire the fleet lock (fleet-state exit $al_rc)" >&2
+        printf '%s\n' "fleet-audit: cannot acquire the fleet lock (fleet-state exit $al_rc)" >&2
         return 2
         ;;
     esac
@@ -176,10 +184,18 @@ acquire_lock() {
   return 2
 }
 release_lock() {
-  if [ "$HOLD_LOCK" = 1 ]; then
-    "$FS" unlock >/dev/null 2>&1 || true
-    HOLD_LOCK=0
-  fi
+  [ -n "$LOCK_TOKEN" ] || return 0
+  rlk_rc=0
+  "$FS" unlock "$LOCK_TOKEN" >/dev/null 2>&1 || rlk_rc=$?
+  # 0 is released and 1 is a lock that changed hands, rightly left standing.
+  # Anything else (2, this token's lock still on disk, or an unlock that never
+  # ran) keeps the token for the exit handler to retry.
+  case $rlk_rc in
+    0 | 1) LOCK_TOKEN="" ;;
+    *)
+      printf '%s\n' "fleet-audit: could not release the fleet lock this process holds; it stays held until a release succeeds or its owner is found gone" >&2
+      ;;
+  esac
 }
 
 if [ "$#" -lt 1 ]; then
@@ -220,7 +236,7 @@ case "$cmd" in
     # The dir create is idempotent and order-independent; doing it BEFORE the
     # lock keeps the contended critical section as short as possible.
     if ! mkdir -p "$audit_dir" 2>/dev/null; then
-      echo "fleet-audit: cannot create the audit dir $audit_dir" >&2
+      printf '%s\n' "fleet-audit: cannot create the audit dir $audit_dir" >&2
       exit 2
     fi
     # A caller whose state is derived from this trail (the usage-gate ladder)
@@ -278,7 +294,7 @@ case "$cmd" in
     store="$audit_dir/audit-$day.tsv"
     w_rc=0
     w_tmp=$(mktemp "$audit_dir/.audit.XXXXXX") || {
-      echo "fleet-audit: cannot create a temp file under $audit_dir" >&2
+      printf '%s\n' "fleet-audit: cannot create a temp file under $audit_dir" >&2
       exit 2
     }
     if [ -f "$store" ]; then
@@ -363,14 +379,14 @@ case "$cmd" in
     # state), not masquerade as an empty trail.
     [ -e "$audit_dir" ] || exit 0
     if [ ! -d "$audit_dir" ]; then
-      echo "fleet-audit: audit path $audit_dir exists but is not a directory" >&2
+      printf '%s\n' "fleet-audit: audit path $audit_dir exists but is not a directory" >&2
       exit 2
     fi
     # An unreadable/untraversable dir must not masquerade as an empty trail
     # (an audit query answering "nothing happened" because of a permission
     # problem is an opaque failure).
     if [ ! -r "$audit_dir" ] || [ ! -x "$audit_dir" ]; then
-      echo "fleet-audit: audit dir $audit_dir exists but is not readable" >&2
+      printf '%s\n' "fleet-audit: audit dir $audit_dir exists but is not readable" >&2
       exit 2
     fi
     # The file list is built by a glob INSIDE the dir (a subshell cd), so a
@@ -400,11 +416,11 @@ case "$cmd" in
         # platform-variant: silently tolerated by BSD awk, warned or fatal
         # under gawk), never let it masquerade as data or emptiness.
         if [ ! -f "$f" ]; then
-          echo "fleet-audit: store match $audit_dir/$f is not a regular file" >&2
+          printf '%s\n' "fleet-audit: store match $audit_dir/$f is not a regular file" >&2
           exit 2
         fi
         if [ ! -r "$f" ]; then
-          echo "fleet-audit: cannot read $audit_dir/$f" >&2
+          printf '%s\n' "fleet-audit: cannot read $audit_dir/$f" >&2
           exit 2
         fi
       done

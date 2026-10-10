@@ -79,6 +79,12 @@ run_sh() {
   $SH -c ". \"\$1\"; shift; $2" sh "$LIB" "$tmp"
 }
 
+# lib_uptime — the host's uptime as the library reads it for a token's witness,
+# so a hand-made token carries the same clock a minted one does.
+lib_uptime() {
+  $SH -c '. "$1"; _pw_lock_uptime; printf "%s" "$_pw_lock_uptime_out"' sh "$LIB"
+}
+
 # ---------------------------------------------------------------------------
 # 1. Acquisition is an atomic create carrying an owner token
 # ---------------------------------------------------------------------------
@@ -542,6 +548,25 @@ rm -f "$tmp"/for.lock*
 
 run_sh x 'pw_lock_acquire_for "$1/bad.lock" "not-a-pid"' >/dev/null 2>&1
 assert_exit "a non-numeric owner pid is a usage error" 2 $?
+# A pid the liveness probe would read as naming no process is refused, so a
+# hold can never be minted that the next caller breaks while its owner runs.
+run_sh x 'pw_lock_acquire_for "$1/bad.lock" "000$$"' >/dev/null 2>&1
+assert_exit "a zero-padded owner pid is a usage error" 2 $?
+run_sh x 'pw_lock_acquire_for "$1/bad.lock" "12345678901"' >/dev/null 2>&1
+assert_exit "an owner pid wider than ten digits is a usage error" 2 $?
+[ ! -L "$tmp/bad.lock" ] || fail "a refused owner pid left a lock behind"
+# A `#` above the lock names nothing this library derives, so a checkout path
+# that carries one still takes a lock; one in the lock name itself is refused.
+mkdir -p "$tmp/dir#hash"
+run_sh x 'pw_lock_try "$1/dir#hash/ok.lock" && pw_lock_release "$1/dir#hash/ok.lock"' >/dev/null 2>&1
+assert_exit "a lock under a directory carrying '#' is taken and released" 0 $?
+run_sh x 'pw_lock_try "$1/bad#name.lock"' >/dev/null 2>&1
+assert_exit "a lock name carrying '#' is refused" 2 $?
+# A '#' above the lock does not excuse the path from the other refusals.
+run_sh x '_pw_lock_path_ok t "-x#y/lock"' >/dev/null 2>&1
+assert_exit "a dash-led path is refused even with a '#' in a directory" 1 $?
+run_sh x '_pw_lock_path_ok t "dir#y/"' >/dev/null 2>&1
+assert_exit "a trailing slash is refused even with a '#' in a directory" 1 $?
 
 # ---------------------------------------------------------------------------
 # 15. The lock-holder list in the library's header is the truth
@@ -1163,7 +1188,7 @@ rm -f "$tmp"/rel4.lock*
 # ever turn a live-looking owner into an absent one, never the reverse.
 
 now=$(date +%s)
-host_up=$(ps -o etimes= -p 1 2>/dev/null | tr -d ' ')
+host_up=$(lib_uptime)
 run_sh x "pw_lock_owner_alive \"\$\$-$now-$host_up-1-1\"" >/dev/null 2>&1
 assert_exit "a token minted now by a running process reads alive" 0 $?
 # Minted when the host booted, by a shell that started minutes ago: whatever
@@ -1324,7 +1349,7 @@ assert_eq "no site restores a displaced link by hand" "0" "$strays"
 # signal it" instead of "is it there, and is it the one that minted this".
 
 now=$(date +%s)
-up=$(ps -o etimes= -p 1 2>/dev/null | tr -d ' ')
+up=$(lib_uptime)
 run_sh x "pw_lock_owner_alive \"1-$now-$up-1-1\"" >/dev/null 2>&1
 assert_exit "a process this shell cannot signal is not absent" 0 $?
 # pid 1 started with the host, so no mint time can be earlier than its start
@@ -1350,7 +1375,7 @@ probe_alive() {
     pw_lock_owner_alive \"$1\"" >/dev/null 2>&1
   printf '%s' "$?"
 }
-up=$(ps -o etimes= -p 1 2>/dev/null | tr -d ' ')
+up=$(lib_uptime)
 live_tok="$$-$(date +%s)-$up-1-1"
 a=$(probe_alive "$live_tok" "$(date +%s)")
 b=$(probe_alive "$live_tok" "$(($(date +%s) + 3600))")
@@ -1454,7 +1479,7 @@ sh -c 'sleep 30 & echo $!' >"$tmp/holder.pid"
 holder=$(cat "$tmp/holder.pid")
 # A token the minter check accepts, or the first probe reads the holder as a
 # recycled pid, breaks the lock, and the wait never spins at all.
-up=$(ps -o etimes= -p 1 | tr -d ' ')
+up=$(lib_uptime)
 ln -s "$holder-$(date +%s)-$up-$holder-1" "$tmp/spin.lock"
 : >"$tmp/pscount"
 PS_COUNT="$tmp/pscount" PATH="$tmp/shim:$PATH" \
@@ -1470,6 +1495,21 @@ else
 fi
 kill "$holder" 2>/dev/null || :
 rm -f "$tmp"/spin.lock* "$tmp/pscount"
+
+# Nor does an uncontended take, where the kernel publishes its uptime: every
+# process that takes a lock mints once, and a `ps` per mint is most of an
+# uncontended acquire's cost on a busy host.
+if [ -r /proc/uptime ]; then
+  : >"$tmp/pscount"
+  PS_COUNT="$tmp/pscount" PATH="$tmp/shim:$PATH" \
+    run_sh x 'pw_lock_acquire "$1/quiet.lock" 5 && pw_lock_release "$1/quiet.lock"' >/dev/null 2>&1
+  quiet=$(grep -c '' "$tmp/pscount" 2>/dev/null) || :
+  quiet=${quiet:-0}
+  assert_eq "an uncontended acquire and release fork no ps where /proc/uptime is readable" "0" "$quiet"
+  rm -f "$tmp"/quiet.lock* "$tmp/pscount"
+else
+  echo "skip: no /proc/uptime on this host; the mint reads pid 1's elapsed time instead"
+fi
 
 # ---------------------------------------------------------------------------
 # 44. Nothing this library hands a tool can be read as options
@@ -1582,7 +1622,8 @@ done
 exec /bin/ps "$@"
 SHIM
 chmod +x "$tmp/bsd/ps"
-tok=$(PATH="$tmp/bsd:$PATH" run_sh x 'pw_lock_acquire "$1/bsd.lock" 5 >/dev/null && pw_lock_owner "$1/bsd.lock"')
+# The kernel's uptime file is set aside so the mint takes the `ps` path.
+tok=$(PATH="$tmp/bsd:$PATH" run_sh x '_pw_lock_uptime_src=$1/no-uptime; pw_lock_acquire "$1/bsd.lock" 5 >/dev/null && pw_lock_owner "$1/bsd.lock"')
 # Field 3 is the uptime at mint.
 f3=${tok#*-}
 f3=${f3#*-}
@@ -2237,6 +2278,55 @@ for v in pw_lock_release pw_lock_release_all pw_lock_release_token; do
   forgets=$(code_of "$v" | grep -cE "_pw_lock_store [^ ]+ '' 0" || :)
   assert_eq "$v does not forget a hold by hand" "0" "$forgets"
 done
+
+# ---------------------------------------------------------------------------
+# 60. The caller's own path never decides whether an owner is alive
+# ---------------------------------------------------------------------------
+#
+# A failed `kill -0` prints an error the shell prefixes with the running
+# script's path, so a verdict read from that text inherits whatever words the
+# path happens to contain. Every worktree of a branch named for permissions
+# read every dead holder as alive, and its stale locks never cleared. Run from
+# such a path, a dead owner must still read dead, and a live one, or one this
+# shell may not signal, alive.
+
+perm_dir="$tmp/worker-permission-ergonomics-not-permitted"
+mkdir -p "$perm_dir"
+cat >"$perm_dir/probe.sh" <<'EOF'
+. "$1"
+pw_lock_owner_alive "$2"
+EOF
+probe_from_permission_path() {
+  $SH "$perm_dir/probe.sh" "$LIB" "$1" >/dev/null 2>&1
+}
+# Above any pid a host can assign, so no recycled process can answer for it.
+gone=9999999
+probe_from_permission_path "$gone-0-1"
+assert_exit "a dead owner reads dead from a path naming permission" 1 $?
+sleep 120 &
+perm_live=$!
+probe_from_permission_path "$perm_live-0-1"
+assert_exit "a live owner reads alive from that path" 0 $?
+kill "$perm_live" 2>/dev/null
+wait "$perm_live" 2>/dev/null
+if [ "$(id -u)" -ne 0 ]; then
+  probe_from_permission_path "1-0-1"
+  assert_exit "and a process this shell may not signal still reads alive" 0 $?
+fi
+# Where the process table hides other users' processes, the error text is the
+# only witness left. Staged by shadowing `ps` and `kill` with functions over a
+# pid absent from /proc: an EPERM still reads alive, and a message whose path
+# names permission but whose tail says no such process still reads dead.
+hidden_table_probe() {
+  PW_T_MSG="$perm_dir/probe.sh: 2: kill: $1" PW_T_PID="$gone" run_sh x '
+    ps() { return 1; }
+    kill() { printf "%s\n" "$PW_T_MSG" >&2; return 1; }
+    pw_lock_owner_alive "$PW_T_PID-0-1"' >/dev/null 2>&1
+}
+hidden_table_probe "Operation not permitted"
+assert_exit "a hidden process answering EPERM reads alive" 0 $?
+hidden_table_probe "No such process"
+assert_exit "and a hidden table's absent process reads dead whatever its path" 1 $?
 
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."

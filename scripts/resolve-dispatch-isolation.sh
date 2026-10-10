@@ -66,7 +66,7 @@ fi
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 config_get="$script_dir/config-get.sh"
 if [ ! -x "$config_get" ]; then
-  echo "resolve-dispatch-isolation: config reader '$config_get' is missing or not executable" >&2
+  printf '%s\n' "resolve-dispatch-isolation: config reader '$config_get' is missing or not executable" >&2
   exit 5
 fi
 
@@ -104,14 +104,14 @@ if [ "$rc" -eq 3 ]; then
   # dispatch_isolation is absent in every layer. The tracked defaults ship it,
   # so this means a broken/partial install; degrade gracefully to the safe
   # default so /execute-task still runs (REQ-K1.6), warning loudly.
-  echo "resolve-dispatch-isolation: warning: dispatch_isolation is unset in every layer (broken/partial install?); falling back to the safe default '$DEFAULT_ISOLATION'" >&2
+  printf '%s\n' "resolve-dispatch-isolation: warning: dispatch_isolation is unset in every layer (broken/partial install?); falling back to the safe default '$DEFAULT_ISOLATION'" >&2
   printf '%s\n' "$DEFAULT_ISOLATION"
   exit 0
 fi
 if [ "$rc" -ne 0 ]; then
   # Usage/invalid-key (exit 2) cannot occur for a literal key; surface anything
   # unexpected rather than fail opaquely.
-  echo "resolve-dispatch-isolation: unexpected config-get exit $rc resolving dispatch_isolation" >&2
+  printf '%s\n' "resolve-dispatch-isolation: unexpected config-get exit $rc resolving dispatch_isolation" >&2
   exit "$rc"
 fi
 
@@ -126,11 +126,11 @@ fi
 # The winning value is malformed. Apply the REQ-E1.4 by-layer policy.
 case "$layer" in
   repo-tracked)
-    echo "resolve-dispatch-isolation: repo-tracked overlay sets dispatch_isolation to a malformed value ('$value' is not 'per-step' or 'per-unit'); refusing to silently degrade a shared team value" >&2
+    printf '%s\n' "resolve-dispatch-isolation: repo-tracked overlay sets dispatch_isolation to a malformed value ('$value' is not 'per-step' or 'per-unit'); refusing to silently degrade a shared team value" >&2
     exit 4
     ;;
   adopter | machine-local)
-    echo "resolve-dispatch-isolation: warning: the $layer overlay sets dispatch_isolation to a malformed value ('$value' is not 'per-step' or 'per-unit'); degrading to the core default" >&2
+    printf '%s\n' "resolve-dispatch-isolation: warning: the $layer overlay sets dispatch_isolation to a malformed value ('$value' is not 'per-step' or 'per-unit'); degrading to the core default" >&2
     # Re-resolve with the overlay layers neutralized so config-get returns the
     # core default. config-get keeps PLANWRIGHT_CONFIG_DEFAULTS; we only blank
     # the three overlay roots. PLANWRIGHT_REPO_ROOT=none leaves repo-tracked
@@ -153,27 +153,27 @@ case "$layer" in
       # The core layer itself omits the key (a partial install where only an
       # overlay set it, and that overlay is the malformed one). Fall back to the
       # safe default so /execute-task still runs.
-      echo "resolve-dispatch-isolation: warning: the core default dispatch_isolation is also unset; falling back to the safe default '$DEFAULT_ISOLATION'" >&2
+      printf '%s\n' "resolve-dispatch-isolation: warning: the core default dispatch_isolation is also unset; falling back to the safe default '$DEFAULT_ISOLATION'" >&2
       printf '%s\n' "$DEFAULT_ISOLATION"
       exit 0
     fi
     if [ "$crc" -ne 0 ]; then
-      echo "resolve-dispatch-isolation: the core default dispatch_isolation is itself unresolvable (exit $crc) — broken install" >&2
+      printf '%s\n' "resolve-dispatch-isolation: the core default dispatch_isolation is itself unresolvable (exit $crc) — broken install" >&2
       exit 5
     fi
     if valid_value "$core_value"; then
       emit_trimmed "$core_value"
       exit 0
     fi
-    echo "resolve-dispatch-isolation: the core default dispatch_isolation ('$core_value') is itself malformed — broken install" >&2
+    printf '%s\n' "resolve-dispatch-isolation: the core default dispatch_isolation ('$core_value') is itself malformed — broken install" >&2
     exit 5
     ;;
   core)
-    echo "resolve-dispatch-isolation: the core default dispatch_isolation ('$value') is malformed — broken install" >&2
+    printf '%s\n' "resolve-dispatch-isolation: the core default dispatch_isolation ('$value') is malformed — broken install" >&2
     exit 5
     ;;
   *)
-    echo "resolve-dispatch-isolation: config-get named an unrecognized layer '$layer'" >&2
+    printf '%s\n' "resolve-dispatch-isolation: config-get named an unrecognized layer '$layer'" >&2
     exit 5
     ;;
 esac

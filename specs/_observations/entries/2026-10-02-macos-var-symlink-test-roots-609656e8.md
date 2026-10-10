@@ -1,0 +1,1 @@
+- 2026-10-02 [tests] Three tower-queue tests (capture, next, store) fail on macOS stock bash: they compare the canonical stored root against the unresolved mktemp -d path, and /var is a symlink to /private/var. Resolving tmp with pwd -P fixes all three; Linux CI never sees it. Found by the post-merge macOS check on #556.

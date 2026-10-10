@@ -523,7 +523,7 @@ done
 exit 0
 SHIM
 chmod +x "$mk/bin/claude"
-mkdir "$mk/hold" || {
+mkdir "$mk/hold" || { # not-a-lock: error check on a fresh scratch dir
   echo "rehearsal: could not create the hold directory" >&2
   exit 2
 }
