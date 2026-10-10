@@ -1,6 +1,6 @@
 # Worker Permission Ergonomics — Design
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-10-10
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -396,19 +396,23 @@ alone and needs no state. Cites obs:1f1141ec, obs:65c35236.
 ### D-15: The profile ships the static read-only allow set and the `-u` push spelling (N)
 
 **Decision:** `config/worker-settings.json` gains static allow rules for the
-read-only verbs the operator's user-scope stopgap carried (`grep`, `cat`,
-`head`, `tail`, `wc`, `ls`, `jq`, `cut`, `diff`, `stat`, and the read-only
-`git` subcommands Task 12 enumerates), plus `git push -u origin`. A static
-rule skips the guard's argument screens, so the set admits no verb with a
-file-writing or program-running form: `find`, every `sed` (its `w`/`e`
+read-only verbs the operator's user-scope stopgap carried that print no
+file content (`wc`, `ls`, `stat`, and the read-only `git` subcommands Task 12
+enumerates), plus `git push -u origin`. A static rule skips the guard's
+argument screens, so the set admits no verb that prints an arbitrary path's
+content (`grep`, `cat`, `head`, `tail`, `jq`, `cut`, `diff`: D-27), and no
+verb with a file-writing or program-running form: `find`, every `sed` (its `w`/`e`
 commands work under `-n`), `sort` (`-o`, `--compress-program`), `uniq`
 (output-file operand), and the diff-family `git` subcommands (`--output`),
 `git grep` (`-O`), and `git cat-file` (`--textconv`) stay with the guard,
 which approves their safe forms; `awk` and `xargs` defer everywhere. Each
 rule passes the permission-matcher fixture table. The profile's `deny` block
-grows only by the `Write`/`Edit` path rules D-22 and D-23 add.
+grows only by the `Write`/`Edit` path rules D-22 and D-23 add and the
+`Read` rule D-27 adds.
 *(Amended at kickoff 2026-10-05: `sed -n`, `sort`, and `uniq` dropped from
 the stopgap's set.)*
+*(Amended at the 2026-10-10 extension kickoff: the seven content-printing
+verbs dropped and the `Read` deny rule added (D-27).)*
 
 **Alternatives considered:**
 - Leave the static layer alone; the hook covers these. Rejected because: the
@@ -535,6 +539,9 @@ directories. Cites research: Claude Code permissions doc (Sources).
 across `;` and `||` (D-24), and a whitespace-bearing value resolves only
 inside double quotes (D-25).)*
 
+*(Amended at the 2026-10-10 extension kickoff: the carry also crosses a
+newline (D-24).)*
+
 ### D-20: A sanitized corpus of real prompts is the acceptance test (N)
 
 **Decision:** A sanitized corpus drawn from real worker prompts joins the
@@ -625,10 +632,11 @@ own tools are the only ones an allow-only guard can trust; the cost (a policy
 change needs a relaunch) is already true of the profile (D-16). Operator
 decision at the 2026-10-05 kickoff.
 
-### D-24: A plain assignment carries its value across `;` and `||` too (N)
+### D-24: A plain assignment carries its value across `;`, newline, and `||` (N)
 
 **Decision:** A REQ-E1.2 plain assignment that runs unconditionally carries
-its value to a successor joined by `;` or `||`, not only `&&`. Every other
+its value to a successor joined by `;`, a newline (which ends a command as
+`;` does), or `||`, not only `&&`. Every other
 state-setting segment, `cd` included, still carries across `&&` only.
 
 **Alternatives considered:**
@@ -639,18 +647,29 @@ state-setting segment, `cd` included, still carries across `&&` only.
   (`f=README.md; grep -n x $f`) and narrow the shipped placement rule
   REQ-E1.2 keeps.
 
-**Chosen because:** an assignment whose name passes the name screen (no
-read-only, shell-consumed, or exported name) cannot fail, so the shell sets
-the value whichever operator follows; the guard models what will run.
-Operator decision of 2026-10-09 during Task 6's review; the merged guard
-implements it. Cites the Task 6 review forks (Sources).
+**Chosen because:** an assignment whose name passes the name screen
+(no name either shell keeps readonly, evaluates as arithmetic, or sets
+itself; no shell-consumed or exported name) and whose value holds no
+substitution cannot fail, so the shell sets the value whichever operator
+follows; a substitution-valued assignment carries only opaque state, so its
+exit status does not matter. The guard models what will run. Operator
+decision of 2026-10-09 during Task 6's review for `;` and `||`; the newline
+was named at the 2026-10-10 delta kickoff, the guard and its suite already
+carrying it. The name screen's zsh coverage is completed by Task 6.1. Cites
+the Task 6 review forks (Sources) and brief Amendment 3 (2026-10-10).
+
+*(Amended at the 2026-10-10 extension kickoff: the newline, the
+substitution-valued case, and both shells' readonly names.)*
 
 ### D-25: A whitespace-bearing value resolves only inside double quotes (N)
 
-**Decision:** The guard substitutes a value holding whitespace only where
-the use is double-quoted, as one word. An unquoted use of such a value stays
-unresolved, so REQ-E1.1 defers it wherever its value matters. An empty
-value still removes an unquoted word.
+**Decision:** The guard substitutes a value holding a space only in a word
+whose every expansion is double-quoted, as one word. An unquoted use of such
+a value stays unresolved, so REQ-E1.1 defers it wherever its value matters.
+A tab or newline leaves the value outside the plain-literal set (opaque). An
+empty value still removes an unquoted word made only of empty expansions.
+A value zsh would expand in an assignment (a leading `=`, or `=` after a
+`:`) is opaque, since only bash keeps it literal.
 
 **Alternatives considered:**
 - Reproduce bash's word splitting, as the signed REQ-E1.2 text said.
@@ -664,30 +683,69 @@ value still removes an unquoted word.
 **Chosen because:** inside double quotes both shells agree, so the only
 resolved form is the one that is the same everywhere, and the cost is a
 prompt on an unquoted whitespace value. Operator decision of 2026-10-09
-during Task 6's review; the merged guard implements it. Cites the Task 6
-review forks and obs:8d46a461 (Sources).
+during Task 6's review; the merged guard implements it, and Task 6.1 adds
+the `=` case. Cites the Task 6 review forks and obs:8d46a461 (Sources).
 
-### D-26: `ps` forms carrying `-e` defer (N)
+*(Amended at the 2026-10-10 extension kickoff: the quoting, tab/newline,
+and empty-word readings pinned; the zsh `=` case added.)*
 
-**Decision:** Every `ps` invocation whose flags carry `-e` defers, `ps -ef`
-included. `ps -A` remains the approved way to select every process.
+### D-26: `ps` forms that can print environments defer (N)
+
+**Decision:** Every `ps` invocation that can print process environments
+defers: an `e` option letter in a dash cluster (`ps -ef`, `ps -Ae`), the
+dashless BSD `e` modifier (`ps e`, `ps auxe`), and a format naming an
+environment field (`-o env`, `-o environ`). `ps -A` remains the approved way
+to select every process.
 
 **Alternatives considered:**
 - Keep `ps -ef` approved, as the REQ-E1.5 test-spec entry pinned. Rejected
-  because: on FreeBSD and the other BSDs `-e` prints each process's
-  environment, as it does on macOS when `ps` runs in its legacy mode, and
-  those environments can carry credentials of other same-user processes, a
-  wider exposure than the own-environment reads the profile accepts.
+  because: on FreeBSD `-e` prints each process's environment, as it does on
+  macOS when `ps` runs in its legacy mode, and those environments can carry
+  credentials of other same-user processes, the exposure D-27 refuses.
 - Approve `-e` where it only selects processes (Linux, and macOS in its
   default mode). Rejected because: the guard cannot know the host's `ps`
   dialect or mode from the command text.
 
 **Chosen because:** `-A` gives the same process selection without the
-environment exposure, so refusing `-e` costs a prompt on one spelling.
-macOS's own environment flag, `-E`, is outside the guard's accepted flags
-already. Operator decision of 2026-10-09 ("Refuse -e") during Task 6's
-review; the merged guard implements it. Cites the Task 6 review forks and
-research: the FreeBSD and Apple `ps(1)` manual pages (Sources).
+environment exposure, so refusing `-e` costs a prompt on one spelling; the
+BSD `e` modifier prints environments on Linux too. macOS's own environment
+flag, `-E`, is outside the guard's accepted flags already. Operator decision
+of 2026-10-09 ("Refuse -e") during Task 6's review; the merged guard
+implements it, the BSD and format forms included. Cites the Task 6 review
+forks and research: the `ps(1)` manual pages (Sources).
+
+*(Amended at the 2026-10-10 extension kickoff: the BSD `e` modifier and
+environment format fields stated; the source claim narrowed to the cited
+pages.)*
+
+### D-27: Other processes' environments are outside the profile (N)
+
+**Decision:** No route the profile approves reads another process's
+environment. The guard defers an operand or redirect source naming an
+`environ` file under `/proc` other than the reading process's own
+(`/proc/self`, `/proc/thread-self`), and a glob that could match one; the
+profile denies the `Read` tool on `/proc/*/environ`; and the static allow
+set names no verb that prints an arbitrary path's content, so `cat`,
+`grep`, `head`, `tail`, `cut`, `diff`, and `jq` leave it and reach workers
+only through the guard. The worker's own environment stays readable.
+
+**Alternatives considered:**
+- Guard-only deferral. Rejected because: the profile's static `Read` allow
+  and the planned static read verbs never pass through the guard, so the
+  refusal would look safe without being safe (the D-22 reasoning).
+- Narrow D-26's rationale and record the exposure as a risk. Rejected
+  because: D-26 already refuses the same exposure through `ps`, and leaving
+  `/proc` open makes that refusal decorative.
+- Drop the whole static read set. Rejected because: `wc`, `stat`, and `ls`
+  print no file content, and keeping them preserves part of the no-hook
+  fallback.
+
+**Chosen because:** other same-user processes' environments can carry
+credentials, and every route to them now closes in the layer that would
+otherwise approve it. The cost is that the seven content-printing verbs
+prompt when the hook cannot run. Operator decisions at the 2026-10-10 delta
+kickoff. Cites research: the `proc(5)` manual page (Sources); brief
+Amendment 3 (2026-10-10).
 
 ## Cross-cutting concerns
 

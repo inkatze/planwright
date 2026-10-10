@@ -1,6 +1,6 @@
 # Worker Permission Ergonomics — Test Spec
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-10-10
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -75,16 +75,25 @@ Supersedes REQ-A1.4's entry, which it keeps in full under the empty policy
 (every compound, ambiguity, redirect, and fd-dup fixture still applies there;
 under an enabled arm, a segment that arm admits follows REQ-F, and a `$(…)`
 REQ-E1.3 admits follows REQ-E1.3) and extends: state carried across `&&`
-only, except that a plain assignment also carries across `;` and `||`
-(`cd <own worktree> && grep -n x f`, `f=README.md; grep -n x $f`, and
-`f=README.md || grep -n x $f` allow; `x=-delete; find . $x` defers because
-the carried value meets the `find` screen; `cd /tmp && ls`,
-`cd missing; rm -r ../x`, `cd sub || ls`, `cd sub | rm -r ../x`, and
-`x=a | grep $x` defer; `read f`, `printf -v f`, or `mapfile f` before a use
-of `$f` makes it opaque);
+only, except that a plain assignment also carries across `;`, a newline, and
+`||`. The carry fixtures use a resolved flag that allows only when the value
+carries (`find . $f a.sh` alone defers): `cd <own worktree> && grep -n x f`,
+`f=-name; find . $f a.sh`, the same pair split by a newline,
+`f=-name || find . $f a.sh`, and `f=-name && g=a.sh; find . $f $g` (an
+assignment opened by `&&` after a carrying assignment) allow;
+`x=-delete; find . $x` defers; `cd /tmp && ls`, `cd missing; rm -r ../x`,
+`cd sub` followed by a newline and `ls`, `cd sub || ls`,
+`cd sub && f=x; ls` (a `;` while the `cd` is in force),
+`cd sub | rm -r ../x`, `x=a | grep $x`, an assignment after `||`
+(`f=a || g=x; grep $g README.md`), and one after a real command
+(`true && f=-name; find . $f a.sh`) defer; `read f`, `printf -v f`, or
+`mapfile f` before a use of `$f` makes it opaque);
 a write-redirect into an enabled arm's root allows only under that arm;
 backtick and process substitution defer everywhere; a `$(…)` defers unless
 REQ-E1.3 admits it.
+
+*(Amended at the 2026-10-10 extension kickoff: discriminating carry
+fixtures, the `cd` chain, and the "runs unconditionally" cases.)*
 
 ### REQ-A1.5 — The enumerated known-safe set [test]
 
@@ -294,7 +303,11 @@ shown allowing against the pre-change guard; a loop variable reaching `bash`
 or a containment check defers as a regression-only fixture (the pre-change
 guard already defers it); a loop head past the stated bound defers whole;
 `for f in a b; do grep -n x $f; done` still allows, matching its substituted
-literal form.
+literal form. A use REQ-E1.2 leaves unresolved counts here: in the worker
+suite, `F='x -delete' && find . -name $F` defers while
+`F='a b' && grep -n $F README.md` (no operand screen) allows.
+*(Amended at the 2026-10-10 extension kickoff: the REQ-E1.2 unresolved
+use.)*
 
 ### REQ-E1.2 — Plain-literal assignments resolve [test]
 
@@ -302,12 +315,25 @@ literal form.
 only inside double quotes, so `F='a b' && find . -name "$F"` and
 `F='x -delete' && find . -name "$F"` allow as one operand while
 `F='-name a.sh' && find . $F` and `F='x -delete' && find . -name $F` defer
-(unquoted, the value stays unresolved, since zsh does not split it); an
-empty value removes an unquoted word (`f= && find . $f -name a` allows);
+(unquoted, the value stays unresolved, since zsh does not split it);
+`F='a b' && find . -path x"$F"` allows (literal text outside the quotes),
+while `F='a b' && find . -name "$F"x` defers (accepted fail-safe: the
+guard leaves an expansion followed by adjoined text unresolved); a value
+holding a tab (`F='a<TAB>b' && find . -name "$F"`) is opaque and defers; an
+empty value removes an unquoted word made only of expansions
+(`f= && find . $f -name a` allows) but not joined text
+(`f= && find . -delete$f` defers);
 `IFS=- && …`, `PATH=x && …`, and a conditional `false && f=x` before
-a use of `$f` defer under the name and placement rules; an assignment whose
+a use of `$f` defer under the name and placement rules; a zsh read-only
+name (`history=-name; find . $history a.sh`) and a value zsh expands
+(`f==a.sh && find . -name $f`, against the control `f=a.sh && find . -name
+$f`, which allows) defer, each first shown allowing against the pre-Task 6.1
+guard; an assignment whose
 value carries a glob, an expansion, or an unmodelled quote leaves the
 variable opaque and its use in a screened position defers.
+
+*(Amended at the 2026-10-10 extension kickoff: quoting, tab, empty-word,
+zsh-name, and zsh `=` fixtures.)*
 
 ### REQ-E1.3 — Argument-independent command substitution [test]
 
@@ -334,9 +360,23 @@ Code's own `cd`-before-`git` gate is outside the hook's reach.
 
 `sleep 5`, `ps -A`, `ps -o pid,args`, `uptime`, `which git`,
 `command -v jq`, `git check-ignore x`, `git ls-remote origin`, `jq --version`
-allow; `sleep $X`, `ps` with an unrecognized flag, every `ps` form carrying
-`-e` (`ps -ef`, `ps -e`, `ps -eo pid,args`; D-26), `git ls-remote https://h/x`,
+allow; `sleep $X`, `ps` with an unrecognized flag, every `ps` form that can
+print environments (`ps -ef`, `ps -e`, `ps -eo pid,args`, `ps -Ae`,
+`ps -A -e`, `ps -o pid,args -e`, `ps auxe`, `ps -A e`, `ps -o env`,
+`ps -o environ`; D-26), `git ls-remote https://h/x`,
 `git ls-remote ./path`, and `git ls-remote --upload-pack=x origin` defer.
+
+*(Amended at the 2026-10-10 extension kickoff: the cluster, later-flag, BSD,
+and format forms.)*
+
+### REQ-E1.6 — Other processes' environments stay unread [test]
+
+`cat /proc/1234/environ`, `grep -a x < /proc/1234/environ`,
+`cat /proc/1234/task/1234/environ`, and `cat /proc/*/environ` defer, each
+first shown allowing against the pre-Task 6.1 guard; `cat /proc/self/environ`,
+`env`, and `printenv` allow. The permission-matcher fixture table carries a
+row denying the `Read` tool on a `/proc/<pid>/environ` path, and the
+REQ-G1.1 assertions cover the static set.
 
 ## REQ-F — The self-approval policy
 
@@ -405,8 +445,10 @@ Under `own-branch`: writes (Bash writers and redirects) to the worktree's
 
 The permission-matcher fixture table carries a row for every new allow rule
 and the test fails on an allow rule with no row; assertions that no new rule
-names `awk`, `find`, `xargs`, `sed` (any form), `sort`, `uniq`, a diff-family
-`git` subcommand, `git grep`, or `git cat-file`.
+names `awk`, `find`, `xargs`, `sed` (any form), `sort`, `uniq`, a
+content-printing verb (`cat`, `grep`, `head`, `tail`, `cut`, `diff`, `jq`), a
+diff-family `git` subcommand, `git grep`, or `git cat-file`.
+*(Amended at the 2026-10-10 extension kickoff: the content-printing verbs.)*
 
 ### REQ-G1.2 — Launcher-created scratch root [test]
 

@@ -1,0 +1,1 @@
+- 2026-10-10 [planwright] The worker profile static Bash(git diff:*) rule admits git diff --no-index <path> <path>, which prints arbitrary file content without passing the guard, so it reaches /proc/<pid>/environ and anything else the user can read; worker-permission-ergonomics D-27 closes the other static routes but leaves the pre-existing git rules (R13, R18) to a later spec.
