@@ -90,11 +90,22 @@ mise run check      # the full local equivalent of the CI gate
   (see below), the coordination-artifact hygiene guard (a clean no-op on a
   tree that commits no presence record or fence-ref line), and the
   hook-contracts guard over every hook registration surface;
+- the launch-shape prose guard: shipped prose that names the native
+  `claude --worktree` launcher must label it an operator's hand-launch (or,
+  where it describes sessions that launcher created before the change, the
+  prior launcher), since the tmux rung launches its worker in a detached
+  session of its own;
 - the CI posture guards: the fork-PR workflow-posture check, the transitive
   CI-eval exclusion over the workflows and the task graph, and the
   glob-allow-rule discipline check;
 - the house-pattern checks: `unset CDPATH` before a `cd` in command
-  substitution, and printf over echo for sanitized output;
+  substitution, printf over echo for any expanded value in a file whose
+  shebang does not name bash or that turns on bash's `xpg_echo` (an `echo`
+  keeps an expansion only on a line ending `# trusted: <reason>`, and never
+  for sanitized output), a readability
+  test before every source of `scripts/echo-safety.sh`, and every
+  `scripts/*.sh` committed at the mode its first line declares (100755 with a
+  shebang, 100644 for a shebang-less sourced library), read from the git index;
 - the two registration guards that keep the gate complete: every check script
   must be run by a task the aggregate reaches, a workflow, or an allowlisted
   runner (`check:guard-wiring`), and every `check:`/`lint:`/`scan:` task must
@@ -191,6 +202,23 @@ with the new measured baseline recorded in the file's comment. Split or slim
 the offending file first, and measure on the reference runner (the gate's own
 CI log prints the full ranked table), never on a shared dev box.
 
+### Queue order
+
+The runner starts the slowest files first, so the suite does not end with one
+long file running alone while the other jobs sit idle. Expected times come from
+[`config/test-durations.tsv`](../config/test-durations.tsv); a file with no row
+there (a new one, say) starts ahead of every timed file. The table only orders
+the queue: every file still runs exactly once, and nothing in it is a budget.
+The order is exact on CI; on a dev box where other suites hold test-pool
+tickets it is best effort, since waiting files take tickets as they free up.
+When it drifts, regenerate it from a reference-runner CI log rather than editing
+it by hand:
+
+```bash
+gh run view <run-id> --log > ci.log
+scripts/refresh-test-durations.sh ci.log
+```
+
 ### The machine-wide test pool
 
 Every `mise run test` on a machine shares one per-user pool of tickets under
@@ -203,6 +231,18 @@ Runs that disagree on the capacity are bounded by the largest value in use.
 killed run is reclaimed automatically. If the pool cannot be used (a symbolic
 link or another user's directory at that path, or an unwritable one), the run
 prints one warning naming the cause and runs unpooled rather than failing.
+
+### Fleet state stays in the fixture
+
+A suite run from a fleet worker inherits that worker's fleet home, which is the
+operator's real one, so a case that dispatches or registers a worker without
+pinning a home of its own writes the operator's registry. The runner gives every
+test file a sentinel fleet home (`PLANWRIGHT_FLEET_STATE_DIR`, and
+`CLAUDE_PLUGIN_DATA` and `CLAUDE_DIR` when they are set) and fails a file that has created anything
+there by the time it exits. Pin a fixture home per case with `fleet_home_pin` from
+[`tests/lib/fleet-home.sh`](../tests/lib/fleet-home.sh), whose
+`fleet_home_leaked` also lets a suite run on its own check that it left the
+inherited registry alone.
 
 ### The git hook backstop
 

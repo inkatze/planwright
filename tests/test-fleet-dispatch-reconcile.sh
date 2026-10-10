@@ -41,6 +41,8 @@ set -u
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# Live launches here have no confirming worker; shorten the startup wait.
+export PLANWRIGHT_DISPATCH_CONFIRM_CAP=1 PLANWRIGHT_DISPATCH_CONFIRM_INTERVAL=0.2
 
 export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_SYSTEM=/dev/null
@@ -374,11 +376,15 @@ gitc "$wrepo" commit -qm init >/dev/null 2>&1
 stub_w="$tmp/bin-wt"
 mkdir -p "$stub_w"
 printf '#!/bin/sh\nexit 0\n' >"$stub_w/claude"
-wtpath="$wrepo/.claude/worktrees/spec-w-task-1"
 cat >"$stub_w/tmux" <<EOF
 #!/bin/sh
 case "\$1" in
-  list-panes) printf '%s\tworker-session\t@42\t%s\n' "\$(date +%s)" "$wtpath" ;;
+  new-session)
+    while [ \$# -gt 0 ]; do
+      [ "\$1" = -s ] && { printf '%s\t@42\n' "\$2"; exit 0; }
+      shift
+    done
+    ;;
 esac
 exit 0
 EOF
@@ -390,6 +396,9 @@ d_rc=0
 PATH="$stub_w:$PATH" at "$h" "$SUPS" SUPPRESS_LOG="$log" PLANWRIGHT_TOWER_ID="$owner" \
   PLANWRIGHT_DISPATCH_LIVENESS_SKIP_TMUX=1 -- \
   fleet-dispatch-worktree.sh dispatch spec-w 1 --repo-root "$wrepo" >/dev/null 2>"$tmp/h-wt.err" || d_rc=$?
+# A created session with no startup confirmation reports started-unconfirmed,
+# which is a placed worker, not a failed dispatch.
+[ "$d_rc" != 14 ] || d_rc=0
 heal_case "fleet-dispatch-worktree.sh" "$h" "$log" "$d_rc" "$tmp/h-wt.err"
 
 # --- flight-dispatch.sh (the visual-flight print rung) ----------------------

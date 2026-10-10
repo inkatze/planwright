@@ -37,8 +37,18 @@
 #   scripts/run-tests.sh   the test runner's machine-wide ticket pool
 #   scripts/fleet-reap-lock.sh   the per-worker reap lock the reap actuator
 #                          takes, so concurrent sweeps close a worker once
+#   scripts/halt-note.sh   the per-bundle lock a halt note's rewrite of a
+#                          store's tasks.md holds, so concurrent halts all land
 #   scripts/step-record.sh   the record-cache lock that run ids and records
 #                          are issued under
+#   scripts/orchestrate-lock.sh   the per-spec orchestration lock
+#   scripts/fleet-state.sh        the fleet state registry and its counters
+#   scripts/allocation-ledger.sh  the per-unit allocation ledgers
+#   scripts/fleet-streamjson.sh   the supervisor's journal/launch/recover locks
+#   scripts/observation-carry.sh  the observation carry's push+PR section
+#   scripts/flight-lifecycle.sh   the one-time crash and relaunch claims
+#   scripts/step-pool.sh   the per-user step pool slots, each held on behalf
+#                          of the process hosting the check's runner
 #
 # Everything else that takes an advisory lock does so by calling a script on
 # that list, so adopting a listed script adopts the tree under it. The list is
@@ -178,6 +188,9 @@ PW_LOCK_SLEEP=0.02
 # `readlink` fifty times a second per waiter for a condition that cannot become
 # true faster than the holder can exit.
 PW_LOCK_PROBE_EVERY=50
+# Where the kernel publishes its uptime. Set here rather than read from the
+# environment, so no caller's environment chooses the clock the witness uses.
+_pw_lock_uptime_src=/proc/uptime
 
 _pw_lock_usage() {
   printf '%s\n' "lock-lib: $1 needs a lock path" >&2
@@ -194,18 +207,24 @@ _pw_lock_path_ok() {
     _pw_lock_usage "$1"
     return 1
   fi
+  # The break claim, its aside and the legacy aside all hang off the lock path
+  # with a `#`. A caller that could name a lock whose NAME contains one could
+  # name another lock's working path, which is exactly the collision the
+  # separator was chosen to prevent — so this is enforced here rather than
+  # asked of every caller that builds a path out of anything. Only the last
+  # component can collide: every working path is a sibling of its lock, so a
+  # `#` in a directory above it (a checkout path that happens to carry one)
+  # names nothing this library derives. Checked on its own, ahead of the case
+  # below, so a path that passes it still meets every other refusal.
+  case ${2##*/} in
+    *'#'*)
+      printf '%s\n' "lock-lib: $1 refuses a lock name containing '#', the character this library derives its working paths with" >&2
+      return 1
+      ;;
+  esac
   case $2 in
     *"$PW_LOCK_NL"*)
       printf '%s\n' "lock-lib: $1 refuses a lock path containing a newline" >&2
-      return 1
-      ;;
-    *'#'*)
-      # The break claim, its aside and the legacy aside all hang off the lock
-      # path with a `#`. A caller that could name a lock containing one could
-      # name another lock's working path, which is exactly the collision the
-      # separator was chosen to prevent — so this is enforced here rather than
-      # asked of every caller that builds a path out of anything.
-      printf '%s\n' "lock-lib: $1 refuses a lock path containing '#', the character this library derives its working paths with" >&2
       return 1
       ;;
     */)
@@ -357,10 +376,29 @@ _pw_lock_etimes() {
 }
 
 # _pw_lock_uptime — set _pw_lock_uptime_out to the host's uptime in seconds, or
-# to the empty string where it cannot be read. pid 1 has been running for
-# exactly as long as the host has, and its elapsed time is reported by the same
-# `ps` field every other liveness question here uses.
+# to the empty string where it cannot be read.
+#
+# From the kernel's own uptime file where there is one, read without a fork:
+# every process that takes a lock mints once, and a `ps` per mint was most of
+# an uncontended acquire's cost on a busy host. It is the clock `ps` itself
+# derives elapsed times from there, so the minter check, which subtracts an
+# owner's elapsed time from this, compares like with like. Elsewhere pid 1's
+# elapsed time stands in: pid 1 has been running as long as the host has.
 _pw_lock_uptime() {
+  _pw_lock_uptime_out=''
+  if [ -r "$_pw_lock_uptime_src" ]; then
+    _pwu_raw=''
+    { IFS=' ' read -r _pwu_raw _pwu_idle; } <"$_pw_lock_uptime_src" 2>/dev/null || :
+    _pwu_raw=${_pwu_raw%%.*}
+    case $_pwu_raw in
+      '' | *[!0-9]*) ;;
+      *)
+        _pw_lock_dec "$_pwu_raw"
+        _pw_lock_uptime_out=$_pw_lock_dec_out
+        return 0
+        ;;
+    esac
+  fi
   _pw_lock_etimes 1
   _pw_lock_uptime_out=$_pw_lock_etimes_out
 }
@@ -440,26 +478,31 @@ pw_lock_owner_alive() {
   fi
   # `kill -0` fails for two very different reasons and only one of them means
   # absent. A process owned by another user answers EPERM, and breaking ITS
-  # lock is the double-grant this whole file exists to prevent, so an EPERM
-  # reads as alive. `ps` is the second opinion where the message is unfamiliar.
-  # LC_ALL is pinned for the capture rather than assumed from the caller: the
-  # match below is on the error TEXT, and a translated message would read as
-  # absent and break a live process's lock.
+  # lock is the double-grant this whole file exists to prevent, so a process
+  # that exists but is not ours reads as alive. Existence is asked of the
+  # process table first, by a question whose answer is not text.
+  #
+  # An existing process is an answer to "is it there", not to "is it the one
+  # that minted this", so every existence branch goes through the same second
+  # question — otherwise a pid recycled by another user bypasses the check.
+  if [ -d "/proc/$_pwa_pid" ] \
+    || { command -v ps >/dev/null 2>&1 && ps -p "$_pwa_pid" >/dev/null 2>&1; }; then
+    _pw_lock_owner_is_minter "$1" "$_pwa_pid"
+    return $?
+  fi
+  # A process table that hides other users' processes (procfs `hidepid`, a
+  # restricted `ps`) answers "absent" for one that exists, and only the error
+  # text still says EPERM. MATCH ITS TAIL ONLY: the shell prefixes the message
+  # with the running script's path, so an unanchored match reads every dead
+  # owner as alive from any path containing the word. LC_ALL is pinned because
+  # a translated message would read as absent and break a live process's lock.
   _pwa_err=$(LC_ALL=C kill -0 "$_pwa_pid" 2>&1) || :
   case $_pwa_err in
-    *[Pp]ermission* | *[Pp]ermitted*)
-      # EPERM says the process EXISTS and is not ours. That is an answer to
-      # "is it there", not to "is it the one that minted this", so it goes
-      # through the same second question every other existing process does —
-      # otherwise a pid recycled by another user bypasses the check entirely.
+    *[Pp]ermitted | *[Pp]ermission\ denied)
       _pw_lock_owner_is_minter "$1" "$_pwa_pid"
       return $?
       ;;
   esac
-  if command -v ps >/dev/null 2>&1 && ps -p "$_pwa_pid" >/dev/null 2>&1; then
-    _pw_lock_owner_is_minter "$1" "$_pwa_pid"
-    return $?
-  fi
   return 1
 }
 
@@ -1099,11 +1142,17 @@ pw_lock_acquire_detached() {
 pw_lock_acquire_for() {
   _pw_lock_path_ok pw_lock_acquire_for "${1:-}" || return 2
   case ${2:-} in
-    '' | 0 | *[!0-9]*)
-      printf '%s\n' "lock-lib: pw_lock_acquire_for needs a non-zero numeric owner pid" >&2
+    '' | 0* | *[!0-9]*)
+      printf '%s\n' "lock-lib: pw_lock_acquire_for needs a non-zero numeric owner pid with no leading zero" >&2
       return 2
       ;;
   esac
+  # Wider than any pid a system assigns: the liveness probe reads such a token
+  # as naming no process, so the hold would be broken while its owner runs.
+  if [ "${#2}" -gt 10 ]; then
+    printf '%s\n' "lock-lib: pw_lock_acquire_for refuses an owner pid wider than ten digits" >&2
+    return 2
+  fi
   _pw_lock_take_disowned pw_lock_acquire_for "$1" "$2" "${3:-$PW_LOCK_MAX_TRIES}"
 }
 
@@ -1287,6 +1336,10 @@ pw_lock_break_force() {
 # NOTHING IS REMOVED on a 2, and the diagnostic names where what was at the
 # path has gone, because a caller that reads a 2 as "cleared" would go on to
 # take a path that is still occupied.
+#
+# It does not ask whether the directory's holder has exited: the retired shapes
+# recorded a holder differently or not at all, so that proof is the caller's to
+# make first, and a directory without it is contention, never a clear.
 #
 # A caller cannot do this with a test and pw_lock_break_force: the test and the
 # removal are two steps, and a peer taking the path in between would have its

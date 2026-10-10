@@ -79,7 +79,7 @@ stop_now() {
   sn_v=$(date +%s)
   case $sn_v in
     '' | *[!0-9]*)
-      echo "$me: date +%s produced no epoch" >&2
+      printf '%s\n' "$me: date +%s produced no epoch" >&2
       return 1
       ;;
   esac
@@ -93,7 +93,7 @@ stop_grace_ok() {
 }
 
 stop_grace_refusal() {
-  echo "$me: --grace must be a whole number of seconds, 1 to $grace_max (default $grace_default)" >&2
+  printf '%s\n' "$me: --grace must be a whole number of seconds, 1 to $grace_max (default $grace_default)" >&2
 }
 
 # stop_scratch_walk <dir> <probe|release> <patterns> — visit every path under
@@ -117,11 +117,14 @@ stop_scratch_walk() {
   for sw_pat in $3; do
     set +f
     for sw_p in "$1"/$sw_pat; do
-      [ -e "$sw_p" ] || continue
+      # `-L` as well as `-e`: a lock break's leftover claim or aside is a link
+      # whose target is a token rather than a file, and `-e` follows a link
+      # and reads it as absent.
+      [ -L "$sw_p" ] || [ -e "$sw_p" ] || continue
       sw_found=0
       [ "$2" = release ] || break 2
-      # `rm -rf`, not `rm -f`: a lock a stale-break renamed out of the way is a
-      # directory, and `rm -f` cannot remove one. The class would then read held
+      # `rm -rf`, not `rm -f`: a lock the retired `mkdir` shape's stale break
+      # renamed out of the way is a directory, and `rm -f` cannot remove one. The class would then read held
       # on every later close, with no re-invocation able to make progress.
       rm -rf "$sw_p" 2>/dev/null || :
     done
@@ -405,7 +408,7 @@ stop_live() {
 # operator asked for.
 release_processes() {
   rp_found=$(stop_candidates "$1" "$2" "$3") || {
-    echo "$me: cannot read the process table; the process class is left held" >&2
+    printf '%s\n' "$me: cannot read the process table; the process class is left held" >&2
     return 1
   }
   stop_tracked=$(stop_live "$stop_tracked $rp_found")
@@ -494,12 +497,12 @@ stop_refuse_self_hosted() {
   stop_self_hosted "$1" "$2" "$3"
   case $? in
     0)
-      echo "$me: refusing to close $4 from inside its own process tree" >&2
+      printf '%s\n' "$me: refusing to close $4 from inside its own process tree" >&2
       exit 3
       ;;
     1) ;;
     *)
-      echo "$me: cannot read the process table; refusing to close $4" >&2
+      printf '%s\n' "$me: cannot read the process table; refusing to close $4" >&2
       exit 2
       ;;
   esac

@@ -1,0 +1,1 @@
+- 2026-10-09 [planwright] Nothing static stops a script from releasing the fleet lock with the token-less `fleet-state.sh unlock`, which is unconditional and deletes whoever holds the lock now. check-lock-primitive.sh only flags mkdir used as a lock. A guard that flags token-less unlock calls outside the operator escape hatch would keep the owner-token discipline from regressing.

@@ -1,0 +1,1 @@
+- 2026-10-07 [planwright] fleet-attention-reconcile.sh and fleet-registry-reconcile.sh each carry the same registry last-record read, latest() lookup and death-handle-to-verdict mapping; a shared sourced helper (the lock-lib.sh pattern) would keep a death-handle parsing fix from landing twice

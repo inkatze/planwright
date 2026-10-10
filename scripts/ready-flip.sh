@@ -109,8 +109,12 @@ LC_ALL=C
 export LC_ALL
 
 SCRIPTS=$(cd "$(dirname "$0")" && pwd) || exit 2
+if [ ! -f "$SCRIPTS/echo-safety.sh" ] || [ ! -r "$SCRIPTS/echo-safety.sh" ]; then
+  printf '%s\n' "ready-flip.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
-. "$SCRIPTS/echo-safety.sh"
+. "$SCRIPTS/echo-safety.sh" || exit 2
 # shellcheck source=scripts/spec-parse.sh
 . "$SCRIPTS/spec-parse.sh"
 
@@ -722,7 +726,7 @@ pred_review() {
 # shellcheck disable=SC2016
 ROLLUP_JQ='
   [ (.statusCheckRollup // [])[]
-    | select(((.context // .name // "") as $n | any($ex[]; . == $n)) | not)
+    | select((.__typename == "StatusContext" and ((.context // "") as $n | any($ex[]; . == $n))) | not)
     | if .__typename == "StatusContext" then
         (if .state == "SUCCESS" then "green" elif (.state == "PENDING" or .state == "EXPECTED") then "pending" else "failing" end)
       else

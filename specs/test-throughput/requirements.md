@@ -1,7 +1,7 @@
 # Test throughput — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-28
+**Last reviewed:** 2026-10-09
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -29,6 +29,19 @@ with guards that stop them returning. The altitude call, placing the
 worker policy as an opt-in core capability and everything else as this
 repository's own mechanism, is D-1.
 
+An extension (2026-10-09) adds a sixth part. Once a unit's pull request
+exists, a later run against it (a fix round after review or a red check)
+should not re-run the full local suite. Under `local`, today it does,
+queued behind every other suite on the host. On 2026-10-08 that stalled a
+pull request for most of a day while its fixes sat unpushed. A third
+setting value, `local-then-ci`, runs the full local suite once before the
+pull request opens. After that, each fix round runs targeted tests plus
+lint, pushes, and takes green CI on the pushed head as the gate of record.
+The runner also gains a per-file deadline, so one hung test file cannot
+hold its ticket, or any whole-suite lock its run holds, without bound. The
+extension keeps D-1's altitude, restated with this repository's value
+changed in D-15, which supersedes it in part.
+
 ## Scope
 
 ### In scope
@@ -54,6 +67,16 @@ repository's own mechanism, is D-1.
   bash-only scripts invoked through `sh`, the `check:githooks` worktree
   failure, the symlinked-`TMPDIR` and Graphviz 15 test failures) and adding
   a CI bash 3.2 parse check plus a local lint against their return.
+- A `local-then-ci` value of `full_suite_evidence`: one full local suite
+  before a unit's pull request opens, then fix rounds on that open pull
+  request validated by targeted tests plus lint and gated on CI for the
+  pushed head.
+- Amending the Agent-resolvable predicate in
+  `doctrine/finding-categorization.md` so green CI on a pushed head
+  containing the fix counts as passing project CI.
+- Switching this repository to `local-then-ci` and retiring the interim
+  post-PR prompt step that only reminds fix rounds of the rule.
+- A per-file deadline in `scripts/run-tests.sh`.
 
 ### Out of scope
 
@@ -71,6 +94,16 @@ repository's own mechanism, is D-1.
   (obs:ada69b21).
 - Changing the default verification behavior for adopters. The worker
   policy ships behind a setting whose default preserves today's behavior.
+- Editing custom-steps' signed text. Its attachment-point moments place
+  the run's first full CI run before `convergence`, which a fix round whose
+  only CI run follows `pre-pr` cannot meet; that bundle's own delta changes
+  them, and this bundle names that delta as a precondition
+  (D-20).
+- Amending bootstrap. Its requirement that `/execute-task` run full
+  project CI is met by CI that the run triggers and waits for on its own
+  pushed head (D-19).
+- The worker-brief text operators hand dispatched workers. It lives
+  outside the repository.
 
 ## REQ-A — Machine-wide test ticket pool
 
@@ -127,6 +160,19 @@ repository's own mechanism, is D-1.
   so a change takes effect from the next unit and never mid-way through
   one.
   *(Cites: D-1, D-5.)*
+  **Superseded-by: REQ-B1.12** (2026-10-09) — the setting gains a second
+  opt-in value, `local-then-ci`.
+- **REQ-B1.12** (supersedes REQ-B1.1) A config setting
+  `full_suite_evidence` SHALL select where a worker's full-suite evidence
+  comes from, with the value `local` (today's behavior) as the core default
+  and `remote-ci` and, once REQ-F1.8's preconditions hold,
+  `local-then-ci` (REQ-F1.1) as the opt-in values; it
+  SHALL resolve through the config overlay layers and be documented in the
+  canonical options reference; a malformed value SHALL fall back to `local`
+  with one warning. A worker SHALL read it once at each run's pre-flight,
+  so a change takes effect from the next run and never mid-way through
+  one.
+  *(Cites: D-1, D-5, D-16, delta re-walkthrough (2026-10-09).)*
 - **REQ-B1.2** Under `remote-ci`, `/execute-task` SHALL validate each change
   while iterating with a targeted local check (the tests touching the
   changed files, plus the linters) instead of the full suite.
@@ -171,6 +217,20 @@ repository's own mechanism, is D-1.
   known environmental and SHALL NOT be re-proven against a baseline or
   classified as a logic failure; under `local` the list is not consulted.
   *(Cites: D-6, obs:76435039, the drafting seed (Sources).)*
+  **Superseded-by: REQ-B1.13** (2026-10-09) — the list is also consulted
+  in a fix round under `local-then-ci`.
+- **REQ-B1.13** (supersedes REQ-B1.6) A machine-local, gitignored list of
+  known environmental failures SHALL exist per clone, readable from every
+  worktree of that clone, each entry naming a test file (optionally one
+  case within it), the environmental reason, and the date recorded. Under
+  `remote-ci`, and in a fix round under `local-then-ci` (REQ-F1.3), a local
+  failure matching an entry (the file, and where a case is named, an exact
+  match on the runner's per-case failure label) SHALL be reported as known
+  environmental and SHALL NOT be re-proven against a baseline or classified
+  as a logic failure; under `local`, and in a first run under
+  `local-then-ci`, the list is not consulted.
+  *(Cites: D-6, D-16, obs:76435039, the drafting seed (Sources),
+  delta re-walkthrough (2026-10-09).)*
 - **REQ-B1.7** A known-environmental entry SHALL NOT excuse any failure in
   the PR's CI, and SHALL NOT excuse a local failure in any test the
   targeted check selects for the worker's diff.
@@ -251,6 +311,13 @@ repository's own mechanism, is D-1.
   mid-run, the runner SHALL report an environment error (exit 2) naming the
   cause, rather than recording a failure against a test file.
   *(Cites: D-10, obs:0044e073.)*
+- **REQ-D1.4** The runner SHALL end any test file still running past a
+  per-file deadline, SHALL record that file as failed with a message
+  naming the file and the deadline, and SHALL return the file's ticket,
+  so a hung file cannot hold its ticket, or any whole-suite lock its run
+  holds, past the deadline. With no way to bound a process on the host, the
+  runner SHALL run files unbounded and warn once.
+  *(Cites: D-21, obs:9393af12.)*
 
 ## REQ-E — macOS portability fixes and guards
 
@@ -289,6 +356,75 @@ repository's own mechanism, is D-1.
   Linux-only local run catches their return before a push.
   *(Cites: D-11.)*
 
+## REQ-F — Fix rounds on an open pull request
+
+- **REQ-F1.1** `full_suite_evidence` SHALL accept a third value,
+  `local-then-ci`, opt-in like `remote-ci`, resolved, documented, read once
+  at each run's pre-flight, and falling back on a malformed value exactly
+  as REQ-B1.12 requires.
+  *(Cites: D-15, D-16.)*
+- **REQ-F1.2** Under `local-then-ci`, a run for a unit whose branch has no
+  open pull request SHALL behave as under `local`: its full local suite,
+  held in custom-steps' `full_suite_pool` step pool when that wiring names
+  one, is the run's full-suite evidence, and the draft pull request opens
+  after it.
+  *(Cites: D-16, the fix-round seed (Sources).)*
+- **REQ-F1.3** Under `local-then-ci`, a run SHALL be a fix round when, at
+  pre-flight, an open pull request exists for the unit's branch; the classification SHALL be made
+  once per run and SHALL NOT change mid-run. When the pull-request read
+  fails, the run SHALL proceed as under `local` and SHALL say why in its
+  convergence summary.
+  *(Cites: D-16, drafting-session decision (2026-10-09).)*
+- **REQ-F1.4** Under `local-then-ci`, a fix round SHALL validate each
+  change with the targeted check (the tests touching the changed files,
+  plus the linters) and SHALL NOT run the full local suite at any point in
+  the run, its pre-convergence CI step included, except as REQ-F1.5's no-CI
+  fallback.
+  *(Cites: D-17, obs:9b52ed36, obs:0670aadb.)*
+- **REQ-F1.5** Under `local-then-ci`, a fix round SHALL push its branch at
+  the push step after the `pre-pr` point, SHALL run the `post-pr` point,
+  and SHALL then take a green CI run on the branch's final head as the gate
+  of record, waiting, halting and falling back to the full local suite
+  through the runner's ticket pool on no CI exactly as REQ-B1.4 and
+  REQ-B1.5 define; a round that added no commit SHALL gate the pull
+  request's current head. It SHALL NOT hand the round off as converged
+  without that green run or the fallback's green local suite. Before
+  acting on a red verdict it SHALL re-read the head: a head that moved past
+  the gated one and contains it SHALL be awaited instead, and any other
+  moved head SHALL halt the round to Awaiting input naming both heads. A red
+  verdict on an unmoved head SHALL go through the existing failure
+  classifier exactly as a local failure does: a logic failure halts to
+  Awaiting input, and a transient one is retried under the adaptive policy.
+  *(Cites: D-17, the fix-round seed (Sources), delta re-walkthrough
+  (2026-10-09).)*
+- **REQ-F1.6** In a fix round under `local-then-ci`, the review loop SHALL
+  validate each fix with the targeted check and SHALL take the round's CI
+  run on the final pushed head as its full-suite evidence instead of a
+  full local suite per iteration.
+  *(Cites: D-17, D-20.)*
+- **REQ-F1.7** The Agent-resolvable predicate's passing-project-CI
+  condition SHALL be met by a green CI run on a pushed head that contains
+  the fix, as well as by a green full local suite; a finding whose fix
+  awaits that run SHALL NOT be reported resolved until the run is green.
+  *(Cites: D-18.)*
+- **REQ-F1.8** `local-then-ci` SHALL NOT be offered as a valid value before
+  custom-steps' attachment-point moments and review-effectiveness's
+  full-suite-per-iteration requirement have each been amended, through
+  that bundle's own delta sign-off, to accept a run whose full-suite
+  evidence is CI on its pushed head.
+  *(Cites: D-20, custom-steps D-3, REQ-A1.1 (Sources),
+  review-effectiveness REQ-D1.3 (Sources).)*
+- **REQ-F1.9** When this repository sets `full_suite_evidence:
+  local-then-ci`, the interim post-PR prompt step that reminds fix rounds
+  of the rule SHALL be removed from its configuration and from its
+  repo-tracked steps catalog in the same change.
+  *(Cites: D-15, D-20, the fix-round seed (Sources).)*
+- **REQ-F1.10** Under `local-then-ci`, a fix round's push SHALL set the
+  pull request body's `Convergence: pending` line (REQ-B1.3's line), the
+  round's handoff SHALL replace it with the convergence summary, and a
+  halted round SHALL leave it in place.
+  *(Cites: D-17, delta re-walkthrough (2026-10-09).)*
+
 ## Changelog
 
 - 2026-09-28 — Drafted from the drafting seed, the observations log, and
@@ -305,6 +441,35 @@ repository's own mechanism, is D-1.
   first-execution measurement (REQ-C1.1, REQ-C1.5); the bash 3.2 dialect
   rule (REQ-E1.6); always wiring at worktree creation (REQ-E1.3); two
   observations recorded as sources for REQ-E1.1 and REQ-E1.4.
+- 2026-10-09 — Extended by `/spec-draft` (meaning-class: new REQs and
+  D-IDs). Added REQ-D1.4 (per-file test deadline) and the REQ-F group
+  (fix rounds on an open pull request under a new `local-then-ci` value);
+  D-15 supersedes D-1 in part and D-20 supersedes D-7 in part, changing this repository's
+  own value from `remote-ci` to `local-then-ci`; D-16 to D-19 and D-21 are
+  new. Task 13 drops its repository switch, Task 10 gains a dependency on
+  the new Task 15, and Tasks 14 to 17 are new. Fold-detection placed the
+  idea here because REQ-B owns where full-suite evidence comes from. The
+  bundle stays Active; the delta is signed off through `/spec-kickoff`'s
+  delta re-walkthrough.
+- 2026-10-09 — Delta re-walkthrough edits (meaning-class). REQ-F1.4 gains
+  the carve-out for REQ-F1.5's no-CI fallback, with D-17, Task 16 and its
+  test-spec entry aligned; REQ-B1.12 supersedes REQ-B1.1, listing
+  `local-then-ci` beside `remote-ci` as an opt-in value, with Task 10's
+  citation and the test-spec entry moved to it; test-spec REQ-F1.9 is
+  retagged `[manual]`, recorded in Task 17's PR, since no CI step checks
+  this repository's own steps configuration; Task 16 gains a dependency
+  on Task 13, so the two review-loop edits land in sequence.
+- 2026-10-09 — Delta re-walkthrough lens-pass dispositions
+  (meaning-class). A fix round waits on CI after the `post-pr` point,
+  re-reads a moved head before acting on red, escalates a logic failure as
+  every run does, gates the current head when it added no commit, and
+  carries `Convergence: pending` until handoff (REQ-F1.5, new REQ-F1.10,
+  D-17); REQ-B1.13 supersedes REQ-B1.6 so a fix round consults the
+  known-environmental list; the setting is read per run (REQ-B1.12, Task
+  10, D-5 in part); D-18 records its compatibility with
+  review-effectiveness REQ-D1.3; Task 16 gains a classification helper; plus
+  wording, citation and testability fixes recorded in the brief's
+  Amendment 1.
 
 ## Sources
 
@@ -369,3 +534,28 @@ repository's own mechanism, is D-1.
 - **Research: Docker Hub official bash image** — the `library/bash`
   repository's `3.2` tag, multi-architecture, last updated 2026-09-19
   (consulted 2026-09-28).
+- **The fix-round seed (2026-10-09)** — the operator's decision behind
+  the 2026-10-09 extension: one full local gate before a pull request
+  opens; once it exists, each fix round runs targeted tests plus lint,
+  pushes, and CI on the pushed head is the gate of record. The seed named
+  the conflicting texts (custom-steps' pre-convergence suite, bootstrap's
+  full-project-CI requirement, the Agent-resolvable predicate), the
+  interim repo-tracked post-PR prompt step and worker-brief text as too
+  late or advisory, and a fix round's full local gate queued on the host
+  lock that stalled a pull request for most of 2026-10-08.
+- **Pinned altitude claim (fix-round seed)** — the interim measures are
+  "advisory" and run "too late": an enforcement claim, pinned as an
+  altitude trigger and resolved in D-15.
+- **obs:0670aadb** — the tower's trial policy of targeted suites while
+  iterating and GitHub CI on the draft pull request as the one full-suite
+  run, asking for built-in support.
+- **obs:9b52ed36** — workers re-running the whole suite at every
+  checkpoint, review rounds included, where a human runs covering tests
+  while iterating and the full suite once at a strategic point.
+- **obs:9393af12** — a full gate holding the host lock for over 40 minutes
+  behind one hung test file, with no per-file deadline.
+- **custom-steps D-3, REQ-A1.1** — the attachment-point moments that
+  place `pre-ci` before the run's first full CI run and `convergence`
+  after it is green, which REQ-F1.8 waits on.
+- **bootstrap REQ-E1.2** — `/execute-task` runs full project CI, read by
+  D-19.

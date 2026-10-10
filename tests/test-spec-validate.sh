@@ -113,7 +113,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 validator="$here/../scripts/spec-validate.sh"
 
 fail() {
-  echo "FAIL: $1" >&2
+  printf '%s\n' "FAIL: $1" >&2
   exit 1
 }
 

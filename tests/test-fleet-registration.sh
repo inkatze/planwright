@@ -39,6 +39,9 @@
 #   c1 (REQ-E1.1): the seam-coverage manifest — every dispatch seam registers,
 #      and discovery over scripts/ finds no seam missing from the manifest, so
 #      the requirement does not silently decay as seams are added.
+#   c1b (fleet-hardening REQ-H1.6): the watchdog's exemption covers its tower
+#      relaunch command only; a worker launch added beside it, or a reworded
+#      relaunch, is discovered.
 #   c2 (REQ-E1.1, REQ-E1.2): the headless rung registers a complete record.
 #   c3 (REQ-E1.1, REQ-E1.2): the stream-json rung registers a complete record.
 #   c4 (REQ-E1.1, REQ-D1.8): the offload print rung registers its deferred
@@ -57,6 +60,8 @@ set -u
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# Live launches here have no confirming worker; shorten the startup wait.
+export PLANWRIGHT_DISPATCH_CONFIRM_CAP=1 PLANWRIGHT_DISPATCH_CONFIRM_INTERVAL=0.2
 
 here=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$here/.." && pwd)
@@ -392,36 +397,143 @@ grep -qE 'register_dispatch .* print' "$REPO_ROOT/scripts/offload-dispatch.sh" \
 # current four is a tautology — it re-derives the manifest and can never catch
 # the new seam the manifest exists to catch. So: a line that launches the
 # worker CLI in a non-interactive mode (`-p`/`--print` with an `--output-format`,
-# in either order and with flags in between), or opens a tmux window, or attaches
-# a classic tmux session, or names a native `claude --worktree` launch (run or
-# printed for a human to run). Same shape as the sibling guard in
+# in either order and with flags in between), or opens a tmux window, or
+# creates a detached tmux session in a start directory (`new-session -d -s
+# <name> -c`, however the tmux binary is spelled: the detached launch runs a
+# resolved path, not the bare word), or names a native `claude --worktree`
+# launch (run or printed for a human to run). Same shape as the sibling guard in
 # tests/test-dispatch-launch-pin.sh. Comment lines are stripped first: a guard
 # that quotes a launch shape in its prose is documenting one, not spawning one.
-discovered=$(for f in "$REPO_ROOT"/scripts/*.sh; do
-  body=$(grep -v '^[[:space:]]*#' "$f")
-  if printf '%s\n' "$body" | grep -qE -- '(^|[[:space:]])(-p|--print)([[:space:]].*)?[[:space:]]--output-format' \
-    || printf '%s\n' "$body" | grep -qE -- '--output-format([[:space:]].*)?[[:space:]](-p|--print)([[:space:]]|$)' \
-    || printf '%s\n' "$body" | grep -qE -- '--tmux=classic|tmux new-window|claude --worktree'; then
-    basename "$f"
-  fi
-done | sort -u)
+# The one exemption is a single command, not a file: fleet-tower-watchdog.sh
+# opens a tmux session to relaunch a tower, not a worker, so that launch has no
+# registry record to write. Any other launch in the same file is still
+# discovered. The command is matched whole, continuation lines joined, so
+# rewording any part of the relaunch (what it runs included) surfaces it here
+# rather than widening the exemption silently.
+exempt_file="fleet-tower-watchdog.sh"
+# shellcheck disable=SC2016 # the relaunch command as written in the watchdog
+exempt_cmd='tmux new-session -d -s "$session_name" -c "$checkout" "$script_dir/fleet-dispatch-env.sh" claude "/orchestrate --watch --unattended $spec" 2>/dev/null || {'
+# script_commands <file> — the file without its comment lines, each command on
+# one line however it is wrapped, whitespace runs collapsed.
+script_commands() {
+  grep -v '^[[:space:]]*#' "$1" | awk '
+    { sub(/[ \t]+$/, "") }
+    /\\$/ { acc = acc substr($0, 1, length($0) - 1) " "; next }
+    { $0 = acc $0; acc = ""; gsub(/[ \t]+/, " "); sub(/^ /, ""); print }
+    END { if (acc != "") print acc }'
+}
+# exempt_filter drop|count — drop the relaunch command from script_commands
+# output, or count how often it occurs there.
+exempt_filter() {
+  EXEMPT_CMD=$exempt_cmd awk -v mode="$1" '
+    $0 == ENVIRON["EXEMPT_CMD"] { n++; next }
+    mode == "drop" { print }
+    END { if (mode == "count") print n + 0 }'
+}
+# discover_seams <dir> — the basename of every script in <dir> that spawns a
+# worker, one per line, sorted.
+discover_seams() {
+  local f body
+  for f in "$1"/*.sh; do
+    [ -f "$f" ] || continue
+    if [ "${f##*/}" = "$exempt_file" ]; then
+      body=$(script_commands "$f" | exempt_filter drop)
+    else
+      body=$(grep -v '^[[:space:]]*#' "$f")
+    fi
+    if printf '%s\n' "$body" | grep -qE -- '(^|[[:space:]])(-p|--print)([[:space:]].*)?[[:space:]]--output-format' \
+      || printf '%s\n' "$body" | grep -qE -- '--output-format([[:space:]].*)?[[:space:]](-p|--print)([[:space:]]|$)' \
+      || printf '%s\n' "$body" | grep -qE -- '--tmux=classic|tmux new-window|new-session -d -s [^ ]+ -c|claude --worktree'; then
+      printf '%s\n' "${f##*/}"
+    fi
+  done | sort -u
+}
+# not_in_manifest — the names on stdin the manifest does not list.
+not_in_manifest() {
+  local d
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    printf '%s\n' "$manifest" | grep -Fqx "$d" || printf '%s\n' "$d"
+  done
+}
+# unmanifested <dir> — the seams discovered in <dir> the manifest does not name.
+unmanifested() {
+  discover_seams "$1" | not_in_manifest
+}
+# exempt_reached <file> — the relaunch command occurs in <file> exactly once.
+exempt_reached() {
+  [ "$(script_commands "$1" | exempt_filter count)" = 1 ]
+}
+discovered=$(discover_seams "$REPO_ROOT/scripts")
 [ -n "$discovered" ] || fail "c1: seam discovery found nothing (the scan has drifted)"
 # Non-vacuity floor, the sibling guard's p1: the scan must still find every
 # seam the manifest names. A scan that has drifted into finding nothing (or
 # only some) would pass the loop below trivially, which is the failure mode
 # that lets an unregistered seam through.
 for seam in $manifest; do
-  printf '%s\n' "$discovered" | grep -qx "$seam" \
+  printf '%s\n' "$discovered" | grep -Fqx "$seam" \
     || fail "c1: discovery no longer finds $seam — the scan has drifted and can pass vacuously"
 done
-# No exemption arm: nothing this scan discovers today is a non-dispatch site.
-# One is added when the scan first finds one, so an exemption can never sit
-# here unreached, reading as coverage it does not provide.
-for d in $discovered; do
-  printf '%s\n' "$manifest" | grep -qx "$d" \
-    || fail "c1: $d spawns a worker but is not in the seam-coverage manifest"
+# The exemption must stay reachable: the real watchdog holds the command
+# exactly once, and the command on its own is one discovery would flag.
+exempt_reached "$REPO_ROOT/scripts/$exempt_file" \
+  || fail "c1: the exemption's relaunch command does not occur exactly once in $exempt_file; it is unreached"
+printf '%s\n' "$exempt_cmd" | grep -qE -- 'new-session -d -s [^ ]+ -c' \
+  || fail "c1: the exemption's command is not a launch discovery would flag; drop it"
+for d in $(printf '%s\n' "$discovered" | not_in_manifest); do
+  fail "c1: $d spawns a worker but is not in the seam-coverage manifest"
 done
 ok c1 "every dispatch seam registers, and discovery finds none missing"
+
+# ---------------------------------------------------------------------------
+# c1b — the exemption covers the tower relaunch, not its file (REQ-H1.6).
+#
+# A fixture copy of the watchdog gains a worker launch beside its tower
+# relaunch: discovery must report the copy as an unmanifested seam. A copy
+# whose relaunch is reworded anywhere (its session, its start directory, or
+# what it runs) is discovered too, so the exemption cannot match more than the
+# one command it names; and a copy holding the relaunch twice fails the
+# unreached-exemption guard, which is what stops a duplicate hiding there.
+# ---------------------------------------------------------------------------
+c1b_dir="$tmp/c1b-scripts"
+c1b_src="$REPO_ROOT/scripts/$exempt_file"
+mkdir -p "$c1b_dir/clean" "$c1b_dir/added" "$c1b_dir/session" "$c1b_dir/startdir" \
+  "$c1b_dir/runs" "$c1b_dir/twice"
+cp "$c1b_src" "$c1b_dir/clean/"
+cp "$c1b_src" "$c1b_dir/added/"
+# shellcheck disable=SC2016 # literal shell text for the fixture to carry
+printf '%s\n' '  tmux new-session -d -s "$worker" -c "$worktree" -- claude' \
+  >>"$c1b_dir/added/$exempt_file"
+# c1b_reword <case> <sed program> — a copy with the relaunch reworded.
+c1b_reword() {
+  sed "$2" "$c1b_src" >"$c1b_dir/$1/$exempt_file"
+  cmp -s "$c1b_dir/$1/$exempt_file" "$c1b_src" \
+    && fail "c1b: fixture construction failed ($1: the relaunch was not reworded)"
+}
+# shellcheck disable=SC2016 # sed programs, not shell expansions
+c1b_reword session 's/new-session -d -s "\$session_name"/new-session -d -s "$tower_session"/'
+# shellcheck disable=SC2016
+c1b_reword startdir 's/-c "\$checkout" \\$/-c "$worktree" \\/'
+c1b_reword runs 's|"/orchestrate --watch --unattended |"/execute-task |'
+awk '{ print } /^  tmux new-session -d -s "\$session_name"/ { dup = 3 } dup > 0 { buf = buf $0 "\n"; if (--dup == 0) printf "%s", buf }' \
+  "$c1b_src" >"$c1b_dir/twice/$exempt_file"
+[ -z "$(unmanifested "$c1b_dir/clean")" ] \
+  || fail "c1b: an unmodified watchdog copy is reported as an unmanifested seam"
+unmanifested "$c1b_dir/added" | grep -Fqx "$exempt_file" \
+  || fail "c1b: a worker launch added beside the tower relaunch is not discovered"
+for c in session startdir runs; do
+  unmanifested "$c1b_dir/$c" | grep -Fqx "$exempt_file" \
+    || fail "c1b: the exemption matched a relaunch reworded in its $c"
+done
+exempt_reached "$c1b_dir/clean/$exempt_file" \
+  || fail "c1b: the unreached-exemption guard refuses an unmodified copy"
+# The duplicate must really hold the command twice, or the refusal below would
+# be the guard rejecting a broken fixture rather than a duplicate.
+[ "$(script_commands "$c1b_dir/twice/$exempt_file" | exempt_filter count)" = 2 ] \
+  || fail "c1b: fixture construction failed (twice: the relaunch is not duplicated)"
+exempt_reached "$c1b_dir/twice/$exempt_file" \
+  && fail "c1b: the unreached-exemption guard accepts a copy holding the relaunch twice"
+ok c1b "the watchdog exemption covers only its tower relaunch command"
 
 # ---------------------------------------------------------------------------
 # c2 — the headless rung registers a complete record.
@@ -567,13 +679,13 @@ grep -qi 'regist' "$errfile" \
 ok c4 "the print rung registers, and a registry-write failure never fails the dispatch"
 
 # ---------------------------------------------------------------------------
-# c5 — the worktree seam: the real attach path registers and then supersedes
-#      its own record with the death handle; the create-only and dry-run arms
-#      register nothing.
+# c5 — the worktree seam: the real launch path registers once, after the
+#      session exists, with the death handle new-session printed; the
+#      create-only and dry-run arms register nothing.
 #
-# The attach is driven with a PATH-stubbed `claude` and a PATH-stubbed `tmux`,
-# so the two-phase write and the death-handle discovery are exercised without a
-# live session — the path that ships, not just the one a fixture can reach.
+# The launch is driven with a PATH-stubbed `claude` and a PATH-stubbed `tmux`,
+# so the registration is exercised without a live session — the path that
+# ships, not just the one a fixture can reach.
 # ---------------------------------------------------------------------------
 if command -v git >/dev/null 2>&1; then
   mkrepo() {
@@ -590,27 +702,26 @@ if command -v git >/dev/null 2>&1; then
   repo="$tmp/repo-c5"
   mkrepo "$repo"
 
-  # The stub bin dir: a no-op `claude`, and a `tmux` that answers list-panes
-  # with a fixture. The fixture's FIRST row is a decoy whose path carries a
-  # literal tab and would, under naive positional parsing, present an
-  # attacker-chosen session and window as the match. The second row is a
-  # pre-existing session (created long before this dispatch) sitting in the
-  # very worktree the dispatch targets — the operator's own shell. Only the
-  # third, created during this dispatch, may be selected.
+  # The stub bin dir: a no-op `claude`, and a `tmux` whose new-session prints
+  # its -P -F line for the name it was given, and whose list-panes offers a
+  # decoy pane sitting in the worktree: the death handle must come from the
+  # creation output, never from a pane-path match.
   stub="$tmp/bin-c5"
   mkdir -p "$stub"
   printf '#!/bin/sh\nexit 0\n' >"$stub/claude"
   chmod +x "$stub/claude"
-  wt5="$repo/.claude/worktrees/spec-c5-task-1"
+  wt5="$(cd "$repo" && pwd -P)/.claude/worktrees/spec-c5-task-1"
   cat >"$stub/tmux" <<EOF
 #!/bin/sh
 case "\$1" in
-  list-panes)
-    printf '1\tevil-session\t@99\t%s\tdecoy-session\t@98\n' "$wt5"
-    printf '1\tstale-session\t@7\t%s\n' "$wt5"
-    printf '%s\tworker-session\t@42\t%s\n' "\$(date +%s)" "$wt5"
+  new-session)
+    while [ \$# -gt 0 ]; do
+      [ "\$1" = -s ] && { printf '%s\t@42\n' "\$2"; exit 0; }
+      shift
+    done
     ;;
-  *) : ;;
+  list-panes) printf '%s\tdecoy-session\t@98\t%s\n' "\$(date +%s)" "$wt5" ;;
+  has-session) exit 1 ;;
 esac
 exit 0
 EOF
@@ -622,27 +733,24 @@ EOF
     PLANWRIGHT_DISPATCH_LIVENESS_SKIP_TMUX=1 \
     /bin/sh "$FDW" dispatch spec-c5 1 --repo-root "$repo" 2>&1)
   st=$?
-  if [ "$st" = 0 ] && [ -f "$h/registry" ]; then
-    [ "$(col "$h" 2 | tail -n 1)" = "tmux-spec-c5-task-1" ] \
+  sess5=$(printf '%s\n' "$out" | awk -F'\t' '$1 == "launch" && $2 == "session" { print $3 }')
+  if [ "$st" = 14 ] && [ -f "$h/registry" ]; then
+    [ "$(col "$h" 2)" = "tmux-spec-c5-task-1" ] \
       || fail "c5: the registered handle is not the D-36 task identity"
-    [ "$(col "$h" 3 | tail -n 1)" = "spec-c5:1" ] || fail "c5: the registered scope is wrong"
-    [ "$(col "$h" 4 | tail -n 1)" = p3.t3.c3 ] || fail "c5: the owner token was not recorded"
-    [ "$(col "$h" 5 | tail -n 1)" = tmux ] || fail "c5: the backend is not tmux"
-    [ "$(col "$h" 6 | tail -n 1)" = "$wt5" ] || fail "c5: the worktree was not recorded as the state dir"
-    # Two records: the pre-attach one, then the superseding complete one.
+    [ "$(col "$h" 3)" = "spec-c5:1" ] || fail "c5: the registered scope is wrong"
+    [ "$(col "$h" 4)" = p3.t3.c3 ] || fail "c5: the owner token was not recorded"
+    [ "$(col "$h" 5)" = tmux ] || fail "c5: the backend is not tmux"
+    [ "$(col "$h" 6)" = "$wt5" ] || fail "c5: the worktree was not recorded as the state dir"
+    # One record, written once the session exists.
     n5=$(wc -l <"$h/registry" | tr -d ' ')
-    [ "$n5" = 2 ] || fail "c5: expected a dispatch record superseded by a complete one, got $n5"
-    [ "$(col "$h" 7 | head -n 1)" = "-" ] \
-      || fail "c5: the pre-attach record claims a death handle it cannot know yet"
-    [ "$(col "$h" 7 | tail -n 1)" = "tmux-window worker-session @42" ] \
-      || fail "c5: the death handle is not the session created by this dispatch, got '$(col "$h" 7 | tail -n 1)'"
-    grep -q 'evil-session\|decoy-session' "$h/registry" \
-      && fail "c5: a tab in the pane path shifted the fields an attacker controls into the record"
-    grep -q 'stale-session' "$h/registry" \
-      && fail "c5: a session predating the dispatch was adopted as the worker's"
-    ok c5 "the worktree seam registers, then supersedes with a positively-matched death handle"
+    [ "$n5" = 1 ] || fail "c5: expected one record written after the session exists, got $n5"
+    [ -n "$sess5" ] && [ "$(col "$h" 7)" = "tmux-window $sess5 @42" ] \
+      || fail "c5: the death handle is not the creation output, got '$(col "$h" 7)'"
+    grep -q 'decoy-session' "$h/registry" \
+      && fail "c5: a pane sitting in the worktree was taken for the worker's"
+    ok c5 "the worktree seam registers once, with the death handle new-session printed"
   else
-    skip c5 "worktree dispatch unavailable here: $out"
+    fail "c5: the stubbed launch must report started-unconfirmed (exit 14) and register, got $st: $out"
   fi
 
   # The arms that launch nothing must record nothing: an append-only store has
@@ -822,7 +930,7 @@ ok e7 "diagnostics report untrusted text literally, never as terminal escapes"
 
 # ---------------------------------------------------------------------------
 # e8 — an interrupted registration releases the shared fleet lock, rather than
-#      wedging every other fleet writer until the stale-break threshold.
+#      wedging every other fleet writer until its owner is found gone.
 # ---------------------------------------------------------------------------
 h=$(home e8)
 mkdir -p "$h"

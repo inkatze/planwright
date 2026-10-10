@@ -51,7 +51,7 @@ lib="$here/../scripts/spec-parse.sh"
 scripts_dir="$here/../scripts"
 
 fail() {
-  echo "FAIL: $1" >&2
+  printf '%s\n' "FAIL: $1" >&2
   exit 1
 }
 
@@ -585,7 +585,7 @@ nolib_refuses() {
     || fail "$nr_label emitted output without the lib (a partial answer is the fail-open): $nr_out"
   grep -q "spec-parse.sh" "$tmp/nolib.err" \
     || fail "$nr_label missing-lib refusal does not name the lib: $(cat "$tmp/nolib.err")"
-  echo "ok: $nr_label fails closed when the lib is missing (REQ-B1.6a)"
+  printf '%s\n' "ok: $nr_label fails closed when the lib is missing (REQ-B1.6a)"
 }
 
 nolib_refuses "spec-status.sh" "$tmp/scripts-nolib2/spec-status.sh" "$tmp/nolib-root/corpus"
@@ -1551,5 +1551,101 @@ got=$(LC_ALL=C awk "$spec_parse_awk_fence$spec_parse_awk_grammar"'
 ' <"$tmp/g-fence.md")
 eq "fenced line-80 content" "T1 D 2 " "$got"
 echo "ok: the line-80 grammar composes with the fence lexer, fence rules first (REQ-C1.2)"
+
+# ---------------------------------------------------------------------------
+# 12. The brief's most recent anchor entry, plain and with --record.
+# ---------------------------------------------------------------------------
+h1=1111111111111111111111111111111111111111
+h2=2222222222222222222222222222222222222222
+# shellcheck disable=SC2016 # literal backticks: the record format
+{
+  printf 'Class: meaning\nLens-pass: §8\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n\n' "$h1"
+  printf 'Class: expression-only\nAnchor: `%s` (`spec-anchor.sh specs/x`)\n' "$h2"
+} >"$tmp/b-two.md"
+eq "plain mode: hash and command only" "$h2	spec-anchor.sh specs/x" \
+  "$(spec_parse_latest_anchor_entry "$tmp/b-two.md")"
+eq "record mode: the newest entry's own class, no inherited lens" \
+  "$h2	spec-anchor.sh specs/x	expression-only	" \
+  "$(spec_parse_latest_anchor_entry "$tmp/b-two.md" --record)"
+
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Class: meaning\nLens-pass: §9\tfold\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$h1" >"$tmp/b-tab.md"
+eq "record mode folds a tab in a label value" \
+  "$h1	scripts/spec-anchor.sh specs/x	meaning	§9 fold" \
+  "$(spec_parse_latest_anchor_entry "$tmp/b-tab.md" --record)"
+
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Class: meaning\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x\texpression-only`\n' "$h1" >"$tmp/b-cmdtab.md"
+eq "record mode folds a tab in the command so it cannot shift the labels" \
+  "$h1	scripts/spec-anchor.sh specs/x expression-only	meaning	" \
+  "$(spec_parse_latest_anchor_entry "$tmp/b-cmdtab.md" --record)"
+
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Class: meaning\n```\nClass: expression-only\nLens-pass: example\n```\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$h1" >"$tmp/b-fence.md"
+eq "record mode ignores labels inside a fence" \
+  "$h1	scripts/spec-anchor.sh specs/x	meaning	" \
+  "$(spec_parse_latest_anchor_entry "$tmp/b-fence.md" --record)"
+
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Class: meaning\nClass: expression-only\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$h1" >"$tmp/b-dup.md"
+rc=0
+spec_parse_latest_anchor_entry "$tmp/b-dup.md" --record >/dev/null 2>&1 || rc=$?
+eq "record mode refuses two Class lines in one entry" 2 "$rc"
+rc=0
+spec_parse_latest_anchor_entry "$tmp/b-dup.md" >/dev/null 2>&1 || rc=$?
+eq "plain mode does not read labels at all" 0 "$rc"
+
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Class: meaning\nLens-pass: a\nLens-pass: b\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$h1" >"$tmp/b-duplens.md"
+rc=0
+spec_parse_latest_anchor_entry "$tmp/b-duplens.md" --record >/dev/null 2>&1 || rc=$?
+eq "record mode refuses two Lens-pass lines in one entry" 2 "$rc"
+
+# shellcheck disable=SC2016 # literal backticks: the record format
+{
+  printf 'Class: meaning\nClass: meaning\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n\n' "$h1"
+  printf 'Class: expression-only\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$h2"
+} >"$tmp/b-olddup.md"
+eq "an older entry's duplicate never taints a clean newest entry" \
+  "$h2	scripts/spec-anchor.sh specs/x	expression-only	" \
+  "$(spec_parse_latest_anchor_entry "$tmp/b-olddup.md" --record)"
+
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Class: meaning\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n\n```\nunclosed\n' "$h1" >"$tmp/b-open.md"
+rc=0
+spec_parse_latest_anchor_entry "$tmp/b-open.md" --record >/dev/null 2>&1 || rc=$?
+eq "record mode refuses a brief ending inside an open fence" 2 "$rc"
+
+printf 'No anchor here.\n' >"$tmp/b-none.md"
+rc=0
+spec_parse_latest_anchor_entry "$tmp/b-none.md" >/dev/null 2>&1 || rc=$?
+eq "no entry at all" 1 "$rc"
+# shellcheck disable=SC2016 # literal backticks: the record format
+{
+  printf 'Anchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n\n' "$h1"
+  printf 'Anchor: `%s` — computed as\n' "$h2"
+} >"$tmp/b-half.md"
+rc=0
+spec_parse_latest_anchor_entry "$tmp/b-half.md" >/dev/null 2>&1 || rc=$?
+eq "a half-written newest entry never falls back to the older one" 2 "$rc"
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Anchor: `%s` — computed as\n' "$h1" >"$tmp/b-lonehalf.md"
+rc=0
+spec_parse_latest_anchor_entry "$tmp/b-lonehalf.md" >/dev/null 2>&1 || rc=$?
+eq "a lone half-written entry is unparseable, not absent" 2 "$rc"
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Class:\nClass: meaning\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$h1" >"$tmp/b-emptydup.md"
+rc=0
+spec_parse_latest_anchor_entry "$tmp/b-emptydup.md" --record >/dev/null 2>&1 || rc=$?
+eq "an empty first Class line still counts toward a duplicate" 2 "$rc"
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Class: meaning\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n\000\n' "$h1" >"$tmp/b-nul.md"
+rc=0
+spec_parse_latest_anchor_entry "$tmp/b-nul.md" >/dev/null 2>&1 || rc=$?
+eq "a NUL-bearing brief is refused" 1 "$rc"
+rc=0
+spec_parse_latest_anchor_entry "$tmp/b-two.md" --bogus >/dev/null 2>&1 || rc=$?
+eq "an unknown flag is a usage refusal" 2 "$rc"
+echo "ok: the anchor-entry parse reads the newest entry, its own labels, and refuses the undecidable"
 
 echo "PASS: test-spec-parse.sh"

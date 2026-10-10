@@ -557,7 +557,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 6
 # Guarded like the jargon list `report` checks for: an unguarded `.` exits
 # with the shell's own status for a missing file, which says nothing about
 # which dependency went missing.
-if [ ! -r "$script_dir/echo-safety.sh" ]; then
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
   printf '%s\n' "tower-queue: scripts/echo-safety.sh is missing — broken install" >&2
   exit 5
 fi
@@ -1011,9 +1011,6 @@ resolve_surface() {
     err "cannot resolve the current uid"
     exit 6
   }
-  # fleet-state.sh owns this name; it is read here only to check the link's
-  # target against the token this process holds, never to create the lock.
-  LOCK_PATH="$home/.fleet.lock"
   surface="$home/tower-comms"
   log_file="$surface/events.log"
   seq_file="$surface/events.seq"
@@ -1075,7 +1072,9 @@ ensure_surface() {
     exit 4
   fi
   if [ ! -d "$surface" ]; then
-    mkdir "$surface" 2>/dev/null || true
+    # A peer creating the same sub-surface concurrently is a success here, so
+    # the status is discarded and the -d test below is what decides.
+    mkdir "$surface" 2>/dev/null || true # not-a-lock: best-effort creation
   fi
   if [ ! -d "$surface" ]; then
     err "cannot create the sub-surface $(sanitize_printable "$surface" "(unprintable path)")"
@@ -1102,11 +1101,8 @@ verify_surface() {
 # The fleet lock, bounded
 # ---------------------------------------------------------------------------
 
-HOLD_LOCK=0
-LOCK_PATH=""
 LOCK_AT=""
 LOCK_TOKEN=""
-LOCK_CHILD=""
 PENDING_TMP=""
 WORK_TMP=""
 # Declared with the other tracked scratch paths rather than beside ev_prepare:
@@ -1117,28 +1113,25 @@ EVID_FILE=""
 EVID_RAW=""
 RULE_FILE=""
 KNOB_DIR=""
-# fleet-state disowns the lock its `lock` verb takes to this caller, and its
-# `unlock` is an unconditional `rm -f` its own header calls out as able to
-# delete a successor's lock. What closes both is the discipline try_acquire
-# documents: claim ownership BEFORE anything can publish the link, and unlink
-# only while the link is still ours. The claim here is the pid of the forked
-# child, which is the `<pid>-<epoch>` owner token fleet-state writes, recorded
-# before that child can be waited on; the check is the link's target read back.
-# So a signal inside the acquire window still releases a lock this process
-# took, and a lock broken as stale and retaken by a peer reads back a foreign
-# target and is left standing.
+# fleet-state's `lock` verb hands its hold to this caller and PRINTS the token
+# that proves it. Holding that token is the whole release discipline: `unlock
+# <token>` unlinks only while the link is still that token's, so a hold cleared
+# from under this process and retaken by a peer is left standing rather than
+# deleted. The hold names this process as its owner (`--owner-pid`), so one
+# leaked by a kill nothing can trap is broken by the next acquirer once this
+# process is gone, rather than wedging every fleet writer.
 release_lock() {
-  [ "$HOLD_LOCK" = 1 ] || return 0
-  HOLD_LOCK=0
-  [ -n "$LOCK_PATH" ] || return 0
-  _lt=$(readlink "$LOCK_PATH" 2>/dev/null) || _lt=""
-  [ -n "$_lt" ] || return 0
-  # The pid-prefix fallback stands in only while the token was never read
-  # back (a signal inside the acquire window); once a token is known, a
-  # mismatch is a lock that changed hands and is left standing.
-  if [ "$_lt" = "$LOCK_TOKEN" ] || { [ -z "$LOCK_TOKEN" ] && [ -n "$LOCK_CHILD" ] && [ "${_lt%%-*}" = "$LOCK_CHILD" ]; }; then
-    rm -f "$LOCK_PATH" 2>/dev/null || err "could not release the fleet lock at $(sanitize_printable "$LOCK_PATH" "(unprintable path)"); it stays held until fleet-state breaks it"
+  [ -n "$LOCK_TOKEN" ] || return 0
+  _rl_rc=0
+  "$FS" unlock "$LOCK_TOKEN" >/dev/null 2>&1 || _rl_rc=$?
+  # 1 is a lock that changed hands, which this release is right to leave. 2 is
+  # this token's lock still on disk: the token is kept so a later release (the
+  # exit handler's included) can try again, and the failure is said.
+  if [ "$_rl_rc" -eq 2 ]; then
+    err "could not release the fleet lock this process holds; it stays held until a release succeeds or its owner is found gone"
+    return 0
   fi
+  LOCK_TOKEN=""
 }
 # Every scratch path this script mints is tracked, because each one is
 # created inside the 0700 sub-surface: a signal between `mktemp` and the
@@ -1200,23 +1193,20 @@ acquire_lock() {
     _tries=$(wait_tries "$1")
   fi
   while :; do
-    # Forked rather than run in the foreground so the pid inside the owner
-    # token is this process's knowledge BEFORE the child can publish the link.
-    LOCK_TOKEN=""
-    "$FS" lock >/dev/null 2>&1 &
-    LOCK_CHILD=$!
-    HOLD_LOCK=1
-    wait "$LOCK_CHILD"
-    _rc=$?
+    # The token lands in LOCK_TOKEN as part of the assignment itself, and a
+    # trap runs between commands rather than inside one, so there is no instant
+    # where this process holds the lock and its cleanup does not know the token
+    # that releases it. A refused acquire prints nothing, which leaves
+    # LOCK_TOKEN empty and makes the cleanup a no-op.
+    _rc=0
+    LOCK_TOKEN=$("$FS" lock --owner-pid "$$" 2>/dev/null) || _rc=$?
     case $_rc in
       0)
-        LOCK_TOKEN=$(readlink "$LOCK_PATH" 2>/dev/null) || LOCK_TOKEN=""
         LOCK_AT=$(clock_s)
         return 0
         ;;
-      1) HOLD_LOCK=0 ;;
+      1) ;;
       *)
-        HOLD_LOCK=0
         err "cannot acquire the fleet lock (fleet-state exit $_rc)"
         return 2
         ;;
@@ -2631,7 +2621,7 @@ ensure_queue_surface() {
     err "security: $(sanitize_printable "$delivery_dir" "(unprintable path)") is a symlink — refusing to write through a redirect"
     exit 4
   fi
-  [ -d "$delivery_dir" ] || mkdir "$delivery_dir" 2>/dev/null || true
+  [ -d "$delivery_dir" ] || mkdir "$delivery_dir" 2>/dev/null || true # not-a-lock: best-effort creation
   [ -d "$delivery_dir" ] || {
     err "cannot create the delivery sub-surface $(sanitize_printable "$delivery_dir" "(unprintable path)")"
     exit 6

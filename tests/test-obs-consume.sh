@@ -62,7 +62,7 @@ CONSUME="$here/../scripts/obs-consume.sh"
 REC="$here/../scripts/obs-record.sh"
 
 fail() {
-  echo "FAIL: $1" >&2
+  printf '%s\n' "FAIL: $1" >&2
   exit 1
 }
 
@@ -114,7 +114,7 @@ record() {
   PATH="$_stub:$PATH" "$REC" --obs-dir "$_o" --slug "$_slug" --scope planwright \
     --text "$_text" --today 2026-07-09 >/dev/null \
     || fail "record helper failed for uid $_uid"
-  echo "2026-07-09-$_slug-$_uid.md"
+  printf '%s\n' "2026-07-09-$_slug-$_uid.md"
 }
 
 # frag_count <dir> — number of *.md fragments under a directory (null-safe).
@@ -123,7 +123,7 @@ frag_count() {
   for _f in "$1"/*.md; do
     [ -e "$_f" ] && _c=$((_c + 1))
   done
-  echo "$_c"
+  printf '%s\n' "$_c"
 }
 
 # consumed_count <file> — number of `Consumed-by:` metadata lines in a fragment.
@@ -142,7 +142,7 @@ frag=$(record "$o" aaaa1111 topic-alpha 'a real observation')
   || fail "1: happy-path consume exited non-zero"
 [ ! -e "$o/entries/$frag" ] || fail "1: fragment still in entries/ after consume"
 [ -f "$o/archive/$frag" ] || fail "1: fragment not in archive/ after consume"
-echo "$frag" | grep -Eq "$NAME_RE" \
+printf '%s\n' "$frag" | grep -Eq "$NAME_RE" \
   || fail "1: archived name [$frag] no longer matches the grammar"
 [ "$(consumed_count "$o/archive/$frag")" -eq 1 ] \
   || fail "1: archived fragment must carry exactly one Consumed-by line"
@@ -326,7 +326,7 @@ hostile_spec() {
 hostile_spec traversal '../../evil'
 hostile_spec glob 'a*b'
 hostile_spec uppercase 'My-Spec'
-hostile_spec slash 'specs/my-spec'
+hostile_spec slash 'specs/my-spec/requirements.md'
 hostile_spec newline 'a
 b'
 hostile_spec leadhyphen '-spec'

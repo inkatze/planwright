@@ -36,7 +36,8 @@
 # checkout as an existing absolute directory free of control bytes. A
 # refused field is never echoed raw.
 #
-# Usage:
+# Usage (<spec> is the bare identifier or its `specs/<spec>` alias, with or
+# without one trailing slash; scripts/spec-id-lib.sh):
 #   fleet-tower-marker.sh record <spec> --mode unattended|interactive
 #       --pid <pid> --checkout <dir> [--session-id <uuid>]
 #       [--tmux-session <name>]
@@ -61,8 +62,14 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # The canonical echo-discipline sanitizer (doctrine/security-posture.md),
 # sourced as the sibling fleet scripts do; a missing helper is a broken
 # install.
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "fleet-tower-marker.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
+# shellcheck source=scripts/spec-id-lib.sh
+. "$script_dir/spec-id-lib.sh"
 
 FS="$script_dir/fleet-state.sh"
 
@@ -133,27 +140,32 @@ resolve_home() {
   printf '%s' "$rh_root"
 }
 
-HOLD_LOCK=0
+LOCK_TOKEN=""
 # Release on ANY exit, signals included (the fleet-attention.sh trap
-# discipline): a SIGINT/SIGTERM mid-critical-section must not leave the
-# shared cross-spec lock held until the stale-break threshold.
+# discipline): a SIGINT/SIGTERM/SIGHUP mid-critical-section must not leave the
+# shared cross-spec lock held until a later acquirer notices this process is
+# gone (the hold names it with --owner-pid).
 PENDING_TMP=""
 trap 'release_lock; [ -z "$PENDING_TMP" ] || rm -f "$PENDING_TMP"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+trap 'exit 129' HUP
 acquire_lock() {
   al_tries=0
   while [ "$al_tries" -lt 1000 ]; do
-    "$FS" lock >/dev/null 2>&1
-    al_rc=$?
+    # The token lands in LOCK_TOKEN as part of the assignment, and a trap runs
+    # between commands, so the exit handler knows every hold `lock` reported. A
+    # `lock` killed after taking the hold but before printing its token leaves
+    # a hold only --owner-pid names, broken once this process is gone.
+    al_rc=0
+    LOCK_TOKEN=$("$FS" lock --owner-pid "$$" 2>/dev/null) || al_rc=$?
     case $al_rc in
       0)
-        HOLD_LOCK=1
         return 0
         ;;
       1) ;; # a live holder has it — retry
       *)
-        echo "fleet-tower-marker: cannot acquire the fleet lock (fleet-state exit $al_rc)" >&2
+        printf '%s\n' "fleet-tower-marker: cannot acquire the fleet lock (fleet-state exit $al_rc)" >&2
         return 2
         ;;
     esac
@@ -164,10 +176,18 @@ acquire_lock() {
   return 2
 }
 release_lock() {
-  if [ "$HOLD_LOCK" = 1 ]; then
-    "$FS" unlock >/dev/null 2>&1 || true
-    HOLD_LOCK=0
-  fi
+  [ -n "$LOCK_TOKEN" ] || return 0
+  rlk_rc=0
+  "$FS" unlock "$LOCK_TOKEN" >/dev/null 2>&1 || rlk_rc=$?
+  # 0 is released and 1 is a lock that changed hands, rightly left standing.
+  # Anything else (2, this token's lock still on disk, or an unlock that never
+  # ran) keeps the token for the exit handler to retry.
+  case $rlk_rc in
+    0 | 1) LOCK_TOKEN="" ;;
+    *)
+      printf '%s\n' "fleet-tower-marker: could not release the fleet lock this process holds; it stays held until a release succeeds or its owner is found gone" >&2
+      ;;
+  esac
 }
 
 if [ "$#" -lt 2 ]; then
@@ -175,7 +195,8 @@ if [ "$#" -lt 2 ]; then
   exit 2
 fi
 cmd=$1
-spec=$2
+spec_id_canon "$2"
+spec=$SPEC_ID
 shift 2
 
 if [ "$spec" = flight ]; then
@@ -288,7 +309,7 @@ case "$cmd" in
     # Idempotent, order-independent: created BEFORE the lock to keep the
     # contended critical section short (the fleet-audit discipline).
     if ! mkdir -p "$towers_dir" 2>/dev/null; then
-      echo "fleet-tower-marker: cannot create the towers dir $towers_dir" >&2
+      printf '%s\n' "fleet-tower-marker: cannot create the towers dir $towers_dir" >&2
       exit 2
     fi
     acquire_lock || exit 2
@@ -301,7 +322,7 @@ case "$cmd" in
         ;;
     esac
     tmpfile=$(mktemp "$towers_dir/.marker.XXXXXX") || {
-      echo "fleet-tower-marker: cannot create a temp file in $towers_dir" >&2
+      printf '%s\n' "fleet-tower-marker: cannot create a temp file in $towers_dir" >&2
       exit 2
     }
     PENDING_TMP=$tmpfile

@@ -1,0 +1,2 @@
+- 2026-10-07 [planwright] config/tower-settings.json's _about still says the guard reads the Bash command with variables already expanded before the hook runs; the tower guard's own header says $VAR references arrive unexpanded (measured on CLI 2.1.270), and the worker profile's _about already retracts the same claim. The guard's shapes rely on the unexpanded form, since an unexpanded variable operand defers. Pre-dates the front-door delta.
+Consumed-by: specs/tower-front-door (2026-10-07)

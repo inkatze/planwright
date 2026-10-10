@@ -189,7 +189,7 @@ ok "dispatch tmux reports the spawned window handle; petition rides an absolutiz
 : >"$tmp/tmux-argv"
 printf 'relative petition\n' >"$tmp/rel-petition.txt"
 tmp_norm=$(cd "$tmp" && pwd)
-(cd "$tmp" && PATH="$stubbin:$PATH" /bin/sh "$script" dispatch tmux rel-petition.txt >/dev/null) || fail "relative-path dispatch exited nonzero"
+(cd "$tmp" && PATH="$stubbin:$PATH" sandbox_env /bin/sh "$script" dispatch tmux rel-petition.txt >/dev/null) || fail "relative-path dispatch exited nonzero"
 grep -qF "$tmp_norm/rel-petition.txt" "$tmp/tmux-argv" || fail "relative prompt path was not absolutized in the worker argv"
 ok "a relative prompt-file path is absolutized before dispatch"
 
@@ -199,7 +199,7 @@ ok "a relative prompt-file path is absolutized before dispatch"
 : >"$tmp/tmux-argv"
 mkdir -p "$tmp/-P" || exit 1
 printf 'dash-dir petition\n' >"$tmp/-P/pet.txt"
-(cd "$tmp" && PATH="$stubbin:$PATH" /bin/sh "$script" dispatch tmux "-P/pet.txt" >/dev/null 2>&1) || fail "dash-leading relative prompt path: dispatch exited nonzero"
+(cd "$tmp" && PATH="$stubbin:$PATH" sandbox_env /bin/sh "$script" dispatch tmux "-P/pet.txt" >/dev/null 2>&1) || fail "dash-leading relative prompt path: dispatch exited nonzero"
 grep -qF "$tmp_norm/-P/pet.txt" "$tmp/tmux-argv" || fail "dash-leading relative prompt path was not absolutized against the cwd"
 ok "a dash-leading relative prompt path absolutizes against the cwd (cd -- discipline)"
 

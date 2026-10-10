@@ -3,8 +3,8 @@
 # (fleet-autonomy Task 6; D-10, REQ-D1.1).
 #
 # Every fleet-launched Claude Code session that another session reads via pane
-# capture — a dispatched worker, and any subordinate tower a meta-tower
-# observes — is launched THROUGH this wrapper. The wrapper pins
+# capture (a dispatched worker, and a tower the watchdog relaunches) is
+# launched THROUGH this wrapper. The wrapper pins
 # CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false into the launched process's
 # environment, disabling input-line ghost-text (prompt suggestions) at the
 # source so a pane capture is never ambiguous between real input and a rendered
@@ -34,6 +34,62 @@
 #                                           caller that can wrap the exec should
 #                                           prefer --emit-launch, which quotes
 #                                           every token for exactly this reason.
+#   fleet-dispatch-env.sh [--check] [<launch options>] <cmd> [args...]
+#                                           the tmux rung's session command: the
+#                                           wrapper runs INSIDE the worker's
+#                                           detached session, so the environment
+#                                           it builds is the worker's own whatever
+#                                           the tmux server's environment holds
+#                                           (fleet-hardening D-10, D-11). The
+#                                           options, each at most once:
+#                                             --identity <handle> <scope>
+#                                               exported as PLANWRIGHT_WORKER_HANDLE
+#                                               and PLANWRIGHT_WORKER_SCOPE; both
+#                                               on the identity-gate grammar
+#                                               fleet-liveness.sh enforces, and
+#                                               neither starting with `-`
+#                                             --launch-token <hex>
+#                                               16-64 lowercase hex digits, exported
+#                                               as PLANWRIGHT_WORKER_LAUNCH_TOKEN
+#                                             --root <dir>
+#                                               an absolute directory, exported as
+#                                               PLANWRIGHT_ROOT and
+#                                               CLAUDE_PLUGIN_ROOT, replacing any
+#                                               inherited value
+#                                             --fleet-home <dir>
+#                                               an absolute path, exported as
+#                                               PLANWRIGHT_FLEET_STATE_DIR
+#                                             --spec-root <dir>
+#                                               an existing absolute directory,
+#                                               exported as
+#                                               PLANWRIGHT_WORKER_SPEC_ROOT: the
+#                                               spec root outside the work
+#                                               repository the worker's command
+#                                               guard admits as its write zone
+#                                               (scripts/worker-spec-root.sh);
+#                                               the guard ignores a directory
+#                                               without its regular-file
+#                                               planwright-spec-root.yml
+#                                           A malformed or half-supplied option is
+#                                           refused (exit 2) before anything runs.
+#                                           Any launch option also drops the
+#                                           tower identity and repository pins
+#                                           (PLANWRIGHT_TOWER_ID,
+#                                           PLANWRIGHT_TOWER_SESSION_ID,
+#                                           PLANWRIGHT_TOWER_PID,
+#                                           PLANWRIGHT_TOWER_CHECKOUT,
+#                                           PLANWRIGHT_REPO_ROOT,
+#                                           PLANWRIGHT_ORCH_STATE_DIR, and an
+#                                           inherited
+#                                           PLANWRIGHT_WORKER_SPEC_ROOT) the tmux
+#                                           server's environment may carry from
+#                                           whichever session started it: a
+#                                           worker is not a tower, and resolves
+#                                           its repository from its worktree.
+#                                           --check validates the options and the
+#                                           presence of <cmd>, then exits 0
+#                                           without exec, so the dispatch reports
+#                                           a refusal before it creates a session.
 #   fleet-dispatch-env.sh --emit-launch <launch-argv...>
 #                                           print the pin-carrying WRAPPED launch
 #                                           command line — this wrapper's own
@@ -56,10 +112,11 @@
 #
 # The command is exec'd directly (exec "$@") — no shell, no eval — so arguments
 # pass through unmangled and there is no injection surface; the wrapper only
-# adds one fixed literal assignment and hands control to the operator-supplied
-# command. `--emit-launch` is pure string construction (no exec, no model/API
-# call — REQ-E1.3): it prints the launch line for a backend to run, the wrapper
-# prefix applying the pin only when that emitted line is later exec'd. Its tokens
+# adds fixed assignments (with launch options, the validated values they name)
+# and hands control to the operator-supplied command. `--emit-launch` is pure
+# string construction (no exec, no model/API call — REQ-E1.3): it prints the
+# launch line for a backend to run, the wrapper prefix applying the pin only
+# when that emitted line is later exec'd. Its tokens
 # are single-quote-wrapped, so a repo path or dispatch token carrying a space or
 # shell metacharacter survives re-splitting and adds no injection surface — the
 # same argument-boundary safety the exec path gets from `exec "$@"` — while
@@ -71,7 +128,7 @@
 # Exit: execs <cmd> (adopting its exit status); a failed exec follows the
 # shell's not-found/not-executable convention (typically 127/126, but
 # shell-dependent — a bash acting as /bin/sh reports 126 for a missing file);
-# --print and --emit-launch exit 0; a no-command or otherwise malformed
+# --print, --emit-launch, and an accepted --check exit 0; a no-command or otherwise malformed
 # invocation is a usage error, exit 2.
 set -u
 
@@ -90,8 +147,105 @@ usage() {
   echo "usage: fleet-dispatch-env.sh <cmd> [args...]           (exec <cmd> with the hardened dispatch env)" >&2
   echo "       fleet-dispatch-env.sh --print                   (print the KEY=VALUE assignment(s), one per line)" >&2
   echo "       fleet-dispatch-env.sh --emit-launch <argv...>   (print the pin-carrying wrapped launch command line)" >&2
+  echo "       fleet-dispatch-env.sh [--check] [--identity <handle> <scope>] [--launch-token <hex>] [--root <dir>] [--fleet-home <dir>] [--spec-root <dir>] <cmd> [args...]" >&2
   exit 2
 }
+
+refuse_option() {
+  printf '%s\n' "fleet-dispatch-env.sh: $1; nothing was launched" >&2
+  exit 2
+}
+
+# The identity-gate grammar fleet-liveness.sh's valid_field enforces, minus a
+# leading `-`: a flag-shaped value is the next option, so the option before it
+# was half-supplied.
+valid_identity_field() {
+  case $1 in
+    '' | . | .. | -* | *[!A-Za-z0-9._=@:-]*) return 1 ;;
+  esac
+  [ "${#1}" -le 128 ]
+}
+
+# An absolute path with no control byte: it becomes an exported value the
+# worker's hooks resolve against.
+valid_abs_path() {
+  case $1 in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  [ "$(printf '%s' "$1" | tr -d '\000-\037\177')" = "$1" ]
+}
+
+opt_check=0
+opt_handle=''
+opt_scope=''
+opt_token=''
+opt_root=''
+opt_home=''
+opt_spec_root=''
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    --check)
+      [ "$opt_check" -eq 0 ] || refuse_option "--check given twice"
+      opt_check=1
+      shift
+      ;;
+    --identity)
+      [ -z "$opt_handle" ] || refuse_option "--identity given twice"
+      if [ "$#" -lt 3 ] || ! valid_identity_field "$2" || ! valid_identity_field "$3"; then
+        refuse_option "--identity needs a handle and a scope on the identity-gate grammar [A-Za-z0-9._=@:-] (at most 128 bytes each)"
+      fi
+      opt_handle=$2
+      opt_scope=$3
+      shift 3
+      ;;
+    --launch-token)
+      [ -z "$opt_token" ] || refuse_option "--launch-token given twice"
+      [ "$#" -ge 2 ] || refuse_option "--launch-token needs a value"
+      case $2 in
+        '' | *[!0-9a-f]*) refuse_option "--launch-token must be 16 to 64 lowercase hex digits" ;;
+      esac
+      [ "${#2}" -ge 16 ] && [ "${#2}" -le 64 ] \
+        || refuse_option "--launch-token must be 16 to 64 lowercase hex digits"
+      opt_token=$2
+      shift 2
+      ;;
+    --root)
+      [ -z "$opt_root" ] || refuse_option "--root given twice"
+      if [ "$#" -lt 2 ] || ! valid_abs_path "$2" || [ ! -d "$2" ]; then
+        refuse_option "--root must name an existing directory by its absolute path"
+      fi
+      opt_root=$2
+      shift 2
+      ;;
+    --fleet-home)
+      [ -z "$opt_home" ] || refuse_option "--fleet-home given twice"
+      if [ "$#" -lt 2 ] || ! valid_abs_path "$2"; then
+        refuse_option "--fleet-home must be an absolute path"
+      fi
+      opt_home=$2
+      shift 2
+      ;;
+    --spec-root)
+      [ -z "$opt_spec_root" ] || refuse_option "--spec-root given twice"
+      if [ "$#" -lt 2 ] || ! valid_abs_path "$2" || [ ! -d "$2" ]; then
+        refuse_option "--spec-root must name an existing directory by its absolute path"
+      fi
+      opt_spec_root=$2
+      shift 2
+      ;;
+    *) break ;;
+  esac
+done
+opt_any=0
+[ "$opt_check" -eq 0 ] && [ -z "$opt_handle$opt_token$opt_root$opt_home$opt_spec_root" ] || opt_any=1
+if [ "$opt_any" -eq 1 ]; then
+  [ "$#" -ge 1 ] || refuse_option "the launch options need a command to run"
+  case $1 in
+    --print | --emit-launch) refuse_option "the launch options take a command, not $1" ;;
+  esac
+  [ "$opt_check" -eq 0 ] || exit 0
+fi
 
 # resolve_self — print this wrapper's absolute path.
 #
@@ -145,7 +299,8 @@ planwright_root() {
 #
 # Unlike the ghost-text pin, these do NOT override an inherited value: both are
 # documented operator overrides (tests, adopters pointing at a checkout), and the
-# wrapper must not silently outrank a root the operator chose.
+# wrapper must not silently outrank a root the operator chose. --root is that
+# choice made explicit by the dispatcher, so it is set before this runs.
 # warn_unresolved_root — say so, once, when neither an operator value nor
 # self-location produced a root. Not fatal: the launch's own mode source is the
 # settings fragment, not this. But never silent, because the only symptom is a
@@ -154,7 +309,7 @@ planwright_root() {
 warn_unresolved_root() {
   [ "${root_warned:-0}" = 1 ] && return 0
   root_warned=1
-  echo "fleet-dispatch-env.sh: cannot derive the planwright root from $0; the worker's auto-approve hook will not resolve and it will prompt on every command" >&2
+  printf '%s\n' "fleet-dispatch-env.sh: cannot derive the planwright root from $0; the worker's auto-approve hook will not resolve and it will prompt on every command" >&2
 }
 
 # An operator value stands on its own: it must survive even when self-location
@@ -258,5 +413,34 @@ fi
 # command. `export` makes the value visible to the launched session and every
 # descendant it spawns; the unconditional set overrides any inherited value.
 export "$GHOST_TEXT_KEY=$GHOST_TEXT_VALUE"
+if [ "$opt_any" -eq 1 ]; then
+  unset PLANWRIGHT_TOWER_ID PLANWRIGHT_TOWER_SESSION_ID PLANWRIGHT_TOWER_PID \
+    PLANWRIGHT_TOWER_CHECKOUT PLANWRIGHT_REPO_ROOT PLANWRIGHT_ORCH_STATE_DIR \
+    PLANWRIGHT_WORKER_SPEC_ROOT
+fi
+if [ -n "$opt_handle" ]; then
+  PLANWRIGHT_WORKER_HANDLE=$opt_handle
+  PLANWRIGHT_WORKER_SCOPE=$opt_scope
+  export PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE
+fi
+if [ -n "$opt_token" ]; then
+  PLANWRIGHT_WORKER_LAUNCH_TOKEN=$opt_token
+  export PLANWRIGHT_WORKER_LAUNCH_TOKEN
+fi
+# The dispatcher's root replaces an inherited one here: under a detached
+# session "inherited" means the tmux server's environment, which can be stale.
+if [ -n "$opt_root" ]; then
+  PLANWRIGHT_ROOT=$opt_root
+  CLAUDE_PLUGIN_ROOT=$opt_root
+  export PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT
+fi
+if [ -n "$opt_home" ]; then
+  PLANWRIGHT_FLEET_STATE_DIR=$opt_home
+  export PLANWRIGHT_FLEET_STATE_DIR
+fi
+if [ -n "$opt_spec_root" ]; then
+  PLANWRIGHT_WORKER_SPEC_ROOT=$opt_spec_root
+  export PLANWRIGHT_WORKER_SPEC_ROOT
+fi
 export_root_vars
 exec "$@"

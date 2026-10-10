@@ -3,8 +3,8 @@
 # hardening wrapper (fleet-autonomy Task 6; D-10, REQ-D1.1).
 #
 # Every fleet-launched Claude Code session another session reads via pane
-# capture — a dispatched worker, and any subordinate tower a meta-tower
-# observes — is launched THROUGH this wrapper so it inherits
+# capture (a dispatched worker, and a tower the watchdog relaunches) is
+# launched THROUGH this wrapper so it inherits
 # CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false, disabling input-line ghost-text
 # (prompt suggestions) at the source (D-10). Prevention at the launch
 # environment, never a runtime detection heuristic (REQ-D1.1; the backspace
@@ -155,5 +155,75 @@ printf '%s\n' "$arg_out" | grep -qx "arg1=hello world" \
 uc=0
 "$FDE" >/dev/null 2>&1 || uc=$?
 [ "$uc" -eq 2 ] || fail "a no-command invocation should exit 2 (usage), got $uc"
+
+# The launch options: a detached tmux session runs the wrapper as its command,
+# so the worker's identity and the dispatcher's roots have to come from the
+# options, not from whatever the tmux server's environment inherited.
+id_session="$tmp/id-session.sh"
+cat >"$id_session" <<'EOF'
+#!/bin/sh
+for v in PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_WORKER_LAUNCH_TOKEN \
+  PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT PLANWRIGHT_FLEET_STATE_DIR CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION \
+  PLANWRIGHT_TOWER_ID PLANWRIGHT_TOWER_SESSION_ID PLANWRIGHT_TOWER_PID PLANWRIGHT_TOWER_CHECKOUT \
+  PLANWRIGHT_REPO_ROOT PLANWRIGHT_ORCH_STATE_DIR; do
+  printf '%s=%s\n' "$v" "$(printenv "$v" || echo '<unset>')"
+done
+printf 'args=%s\n' "$*"
+EOF
+chmod +x "$id_session"
+mkdir -p "$tmp/root" "$tmp/fleet"
+tok=0123456789abcdef0123456789abcdef
+id_out=$(PLANWRIGHT_ROOT=/decoy CLAUDE_PLUGIN_ROOT=/decoy PLANWRIGHT_FLEET_STATE_DIR=/decoy \
+  PLANWRIGHT_TOWER_ID=p9.t9.c9 PLANWRIGHT_TOWER_SESSION_ID=decoy PLANWRIGHT_TOWER_PID=1 \
+  PLANWRIGHT_TOWER_CHECKOUT=/decoy PLANWRIGHT_REPO_ROOT=/decoy PLANWRIGHT_ORCH_STATE_DIR=/decoy \
+  PLANWRIGHT_WORKER_HANDLE=stale "$FDE" --identity tmux-demo-task-3 demo:3 --launch-token "$tok" \
+  --root "$tmp/root" --fleet-home "$tmp/fleet" "$id_session" a b) \
+  || fail "a launch with every option failed (exit $?)"
+for want in "PLANWRIGHT_WORKER_HANDLE=tmux-demo-task-3" "PLANWRIGHT_WORKER_SCOPE=demo:3" \
+  "PLANWRIGHT_WORKER_LAUNCH_TOKEN=$tok" "PLANWRIGHT_ROOT=$tmp/root" "CLAUDE_PLUGIN_ROOT=$tmp/root" \
+  "PLANWRIGHT_FLEET_STATE_DIR=$tmp/fleet" "$VAR=false" "args=a b" \
+  "PLANWRIGHT_TOWER_ID=<unset>" "PLANWRIGHT_TOWER_SESSION_ID=<unset>" "PLANWRIGHT_TOWER_PID=<unset>" \
+  "PLANWRIGHT_TOWER_CHECKOUT=<unset>" "PLANWRIGHT_REPO_ROOT=<unset>" "PLANWRIGHT_ORCH_STATE_DIR=<unset>"; do
+  printf '%s\n' "$id_out" | grep -qxF "$want" \
+    || fail "the launch options must reach the launched process as '$want', got: $id_out"
+done
+
+# --check validates every option and launches nothing.
+ck_out=$("$FDE" --check --identity tmux-demo-task-3 demo:3 --launch-token "$tok" \
+  --root "$tmp/root" --fleet-home "$tmp/fleet" "$id_session") \
+  || fail "--check over well-formed options must exit 0 (exit $?)"
+[ -z "$ck_out" ] || fail "--check must launch nothing, got: $ck_out"
+
+# A malformed or half-supplied option is a usage refusal under --check and
+# under a launch alike, and the command never runs.
+expect_refused() {
+  _label=$1
+  shift
+  for _mode in --check launch; do
+    _rc=0
+    if [ "$_mode" = --check ]; then
+      _o=$("$FDE" --check "$@" "$id_session" 2>&1) || _rc=$?
+    else
+      _o=$("$FDE" "$@" "$id_session" 2>&1) || _rc=$?
+    fi
+    [ "$_rc" -eq 2 ] || fail "$_label ($_mode): expected exit 2, got $_rc ($_o)"
+    case $_o in *args=*) fail "$_label ($_mode): the command ran ($_o)" ;; esac
+  done
+}
+expect_refused "identity missing its scope" --identity tmux-demo-task-3
+expect_refused "identity whose scope is the next option" --identity tmux-demo-task-3 --launch-token "$tok"
+expect_refused "identity outside the identity-gate grammar" --identity 'tmux demo' demo:3
+expect_refused "identity holding a slash" --identity tmux-demo demo/3
+expect_refused "identity given twice" --identity a b --identity c d
+expect_refused "launch token missing" --launch-token
+expect_refused "launch token not lowercase hex" --launch-token 0123456789ABCDEF
+expect_refused "launch token too short" --launch-token 0123abcd
+expect_refused "root missing" --root
+expect_refused "relative root" --root relative/root
+expect_refused "root that is not a directory" --root "$tmp/missing"
+expect_refused "relative fleet home" --fleet-home fleet
+uc=0
+"$FDE" --check --identity a b >/dev/null 2>&1 || uc=$?
+[ "$uc" -eq 2 ] || fail "--check with no command should exit 2 (usage), got $uc"
 
 echo "ok: test-fleet-dispatch-env"

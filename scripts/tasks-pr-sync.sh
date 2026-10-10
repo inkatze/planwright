@@ -55,7 +55,7 @@
 #     such a section leaves both copies for the human to resolve — the reconcile
 #     does not edit human-owned bodies (sticky preservation wins there).
 #   * Atomic write (REQ-B1.1): the rewrite goes to a same-directory temp file
-#     and is renamed into place, so a racy stale lock-break cannot observe a
+#     and is renamed into place, so a concurrent reader never observes a
 #     half-written tasks.md.
 #   * Definition invariance (REQ-B1.1): the five task-definition fields move
 #     byte-for-byte. The task-level Last activity / Dispatch annotations, and a
@@ -872,12 +872,12 @@ do_status_only() {
   return $dso_rc
 }
 
-# The held lock dir for the EXIT/signal trap (empty when nothing is held).
-rr_lockdir=""
+# The spec dir whose lock is held, for the EXIT/signal trap (empty when free).
+rr_lockspec=""
 # shellcheck disable=SC2329 # invoked indirectly via the EXIT trap in run_reconcile
 rm_lock_and_tmp() {
-  if [ -n "$rr_lockdir" ]; then
-    "$lock_sh" release "$rr_lockdir" >/dev/null 2>&1 || true
+  if [ -n "$rr_lockspec" ]; then
+    "$lock_sh" release "$rr_lockspec" --owner-pid "$$" >/dev/null 2>&1 || true
   fi
   [ -n "$tmpf" ] && rm -f "$tmpf"
   [ -n "$wsh_tmp" ] && rm -f "$wsh_tmp"
@@ -914,7 +914,7 @@ run_reconcile() {
     return 0
   fi
   rr_rc=0
-  "$lock_sh" acquire "$rr_dir" || rr_rc=$?
+  "$lock_sh" acquire "$rr_dir" --owner-pid "$$" || rr_rc=$?
   if [ "$rr_rc" -ne 0 ]; then
     log "lock unavailable (acquire exit $rr_rc); skipping (bookkeeping reconciles)"
     # acquire 1 = busy (a clean skip); 2 = error/refusal. The CLI surfaces a
@@ -924,17 +924,17 @@ run_reconcile() {
     fi
     return 0
   fi
-  # Set rr_lockdir BEFORE arming the trap so the EXIT trap, once armed, always
-  # sees a populated lock dir (closing the trap-armed-but-lockdir-still-empty
-  # race). This does NOT make the post-acquire window leak-free: a signal
+  # Set rr_lockspec BEFORE arming the trap so the EXIT trap, once armed, always
+  # sees the locked spec dir (closing the trap-armed-but-still-empty race).
+  # This does NOT make the post-acquire window leak-free: a signal
   # delivered between acquire succeeding and the trap arming still terminates
-  # without running cleanup — that residual window falls to the stale-break,
-  # exactly like SIGKILL below. Release through the same primitive (idempotent
-  # rmdir) and clean any half-written temp. The explicit exit on a fatal signal
-  # makes the EXIT cleanup run under shells (dash) that skip EXIT traps on
-  # signal-default termination; SIGKILL remains unrecoverable and falls to the
-  # stale-break.
-  rr_lockdir=$rr_dir
+  # without running cleanup. That residual is self-healing: the hold is owned
+  # by THIS pid (--owner-pid above), so the next caller finds the owner gone
+  # and breaks it at once. Release through the same primitive (idempotent) and clean any
+  # half-written temp. The explicit exit on a fatal signal makes the EXIT
+  # cleanup run under shells (dash) that skip EXIT traps on signal-default
+  # termination; SIGKILL leaves the release to that same owner-absence break.
+  rr_lockspec=$rr_dir
   tmpf=""
   trap 'rm_lock_and_tmp' EXIT
   trap 'exit 130' HUP INT TERM
@@ -943,8 +943,8 @@ run_reconcile() {
     status) do_status_only "$rr_dir" || rr_op_rc=$? ;;
     *) do_placement "$rr_dir" || true ;;
   esac
-  "$lock_sh" release "$rr_dir" >/dev/null 2>&1 || true
-  rr_lockdir=""
+  "$lock_sh" release "$rr_dir" --owner-pid "$$" >/dev/null 2>&1 || true
+  rr_lockspec=""
   trap - EXIT HUP INT TERM
   if [ -n "$tmpf" ]; then
     rm -f "$tmpf"
@@ -977,15 +977,15 @@ if [ "${1:-}" = reconcile-status ]; then
     exit 2
   fi
   cli_dir=$(cd "$cli_arg" 2>/dev/null && pwd -P) || {
-    echo "tasks-pr-sync: no such spec dir: $cli_arg" >&2
+    printf '%s\n' "tasks-pr-sync: no such spec dir: $cli_arg" >&2
     exit 2
   }
   if [ ! -f "$cli_dir/tasks.md" ]; then
-    echo "tasks-pr-sync: no tasks.md in $cli_dir" >&2
+    printf '%s\n' "tasks-pr-sync: no tasks.md in $cli_dir" >&2
     exit 2
   fi
   if [ -L "$cli_dir/tasks.md" ]; then
-    echo "tasks-pr-sync: refusing symlinked tasks.md in $cli_dir" >&2
+    printf '%s\n' "tasks-pr-sync: refusing symlinked tasks.md in $cli_dir" >&2
     exit 2
   fi
   # Version keying (REQ-C1.1, REQ-C1.8): fail closed on a missing/unparseable
@@ -1020,18 +1020,18 @@ if [ "${1:-}" = reconcile ]; then
     exit 2
   fi
   cli_dir=$(cd "$cli_arg" 2>/dev/null && pwd -P) || {
-    echo "tasks-pr-sync: no such spec dir: $cli_arg" >&2
+    printf '%s\n' "tasks-pr-sync: no such spec dir: $cli_arg" >&2
     exit 2
   }
   if [ ! -f "$cli_dir/tasks.md" ]; then
-    echo "tasks-pr-sync: no tasks.md in $cli_dir" >&2
+    printf '%s\n' "tasks-pr-sync: no tasks.md in $cli_dir" >&2
     exit 2
   fi
   # A symlinked tasks.md is unsafe input: do_placement refuses it (-L) but
   # run_reconcile masks that refusal with `|| true`, so the CLI must reject it
   # here to honor the fail-closed contract rather than exit 0 on a silent skip.
   if [ -L "$cli_dir/tasks.md" ]; then
-    echo "tasks-pr-sync: refusing symlinked tasks.md in $cli_dir" >&2
+    printf '%s\n' "tasks-pr-sync: refusing symlinked tasks.md in $cli_dir" >&2
     exit 2
   fi
   # Version keying (REQ-C1.1, REQ-C1.8): mirror of the reconcile-status arm

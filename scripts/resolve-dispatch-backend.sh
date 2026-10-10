@@ -45,7 +45,7 @@
 #       the spec-local ask-state (atomic write; a symlink or non-regular file
 #       at the path is refused, never written through).
 #
-# Ask-state: ${PLANWRIGHT_ORCH_STATE_DIR:-<spec-dir>/.orchestrate/markers}'s
+# Ask-state, per checkout: ${PLANWRIGHT_ORCH_STATE_DIR:-<spec-dir>/.orchestrate/markers}'s
 # parent /tmux-ask — one line, `<asked|yes|no> <token>`, gitignored alongside
 # the sibling runtime records (the orchestration-fleet REQ-B1.6 precedent).
 # The write is best-effort on the resolve path (a failed record warns and the
@@ -86,6 +86,10 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
 # Echo discipline (doctrine/security-posture.md): refused tokens and config
 # values are stripped of control bytes before any diagnostic.
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "resolve-dispatch-backend.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 5
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
@@ -127,7 +131,7 @@ valid_value() {
   [ "${#1}" -le 64 ]
 }
 
-# The ask-state path: sibling of the runtime marker dir, so the same trusted
+# The ask-state path: sibling of the checkout-local runtime marker dir, so the same trusted
 # operator/test knob relocates every spec-local runtime record consistently
 # (the orchestrate-degrade.sh record_path convention). The filename is a
 # constant literal — no token is interpolated into the path.
@@ -368,7 +372,7 @@ malformed_by_layer() {
 
 for helper in "$config_get" "$backends"; do
   if [ ! -x "$helper" ]; then
-    echo "resolve-dispatch-backend: helper '$helper' is missing or not executable — broken install" >&2
+    printf '%s\n' "resolve-dispatch-backend: helper '$helper' is missing or not executable — broken install" >&2
     exit 5
   fi
 done
@@ -499,7 +503,7 @@ case "$rc" in
           # global value governs. Any other non-zero is a broken install and
           # must surface, exactly as the global-knob degrade path does below
           # (never silently swallowed).
-          echo "resolve-dispatch-backend: the core default for 'dispatch_backend_per_spec' is unresolvable (exit $crc) — broken install" >&2
+          printf '%s\n' "resolve-dispatch-backend: the core default for 'dispatch_backend_per_spec' is unresolvable (exit $crc) — broken install" >&2
           exit 5
         fi
         ;;
@@ -508,7 +512,7 @@ case "$rc" in
   3) ;; # key absent in every layer: no per-spec override exists
   4) exit 4 ;;
   *)
-    echo "resolve-dispatch-backend: unexpected config-get exit $rc resolving 'dispatch_backend_per_spec'" >&2
+    printf '%s\n' "resolve-dispatch-backend: unexpected config-get exit $rc resolving 'dispatch_backend_per_spec'" >&2
     exit 5
     ;;
 esac
@@ -531,7 +535,7 @@ if [ -z "$configured" ]; then
           configured=full-session
           source=global
         elif [ "$crc" -ne 0 ]; then
-          echo "resolve-dispatch-backend: the core default for 'dispatch_backend' is unresolvable (exit $crc) — broken install" >&2
+          printf '%s\n' "resolve-dispatch-backend: the core default for 'dispatch_backend' is unresolvable (exit $crc) — broken install" >&2
           exit 5
         elif valid_value "$cval"; then
           configured=$cval
@@ -549,7 +553,7 @@ if [ -z "$configured" ]; then
       ;;
     4) exit 4 ;;
     *)
-      echo "resolve-dispatch-backend: unexpected config-get exit $rc resolving 'dispatch_backend'" >&2
+      printf '%s\n' "resolve-dispatch-backend: unexpected config-get exit $rc resolving 'dispatch_backend'" >&2
       exit 5
       ;;
   esac

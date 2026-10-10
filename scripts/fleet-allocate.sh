@@ -96,8 +96,8 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # with the sourced definitions absent. The guard makes a half-installed tree
 # the documented exit 5 on either shell.
 for dep in echo-safety.sh allocation-ladder.sh; do
-  if [ ! -r "$script_dir/$dep" ]; then
-    echo "fleet-allocate: sibling helper '$script_dir/$dep' is missing or not readable — broken install" >&2
+  if [ ! -f "$script_dir/$dep" ] || [ ! -r "$script_dir/$dep" ]; then
+    printf '%s\n' "fleet-allocate: sibling helper $dep is missing or not readable — broken install" >&2
     exit 5
   fi
 done
@@ -140,7 +140,7 @@ in_enum() {
 # require_exec <path> <label>: fail-closed broken-install guard for a sibling.
 require_exec() {
   if [ ! -x "$1" ]; then
-    echo "fleet-allocate: $2 '$1' is missing or not executable — broken install" >&2
+    printf '%s\n' "fleet-allocate: $2 '$1' is missing or not executable — broken install" >&2
     exit 5
   fi
 }
@@ -265,13 +265,13 @@ resolve_caps() {
   CAP_HAIKU=$(resolve_posint fleet_cap_haiku 100) || exit $?
   for rc_v in "$CAP_FABLE" "$CAP_OPUS" "$CAP_SONNET" "$CAP_HAIKU"; do
     if [ "$rc_v" -lt 1 ] || [ "$rc_v" -gt 100 ]; then
-      echo "fleet-allocate: a per-tier cap ($rc_v) is outside 1-100 — refusing an out-of-range cap" >&2
+      printf '%s\n' "fleet-allocate: a per-tier cap ($rc_v) is outside 1-100 — refusing an out-of-range cap" >&2
       exit 4
     fi
   done
   if [ "$CAP_FABLE" -gt "$CAP_OPUS" ] || [ "$CAP_OPUS" -gt "$CAP_SONNET" ] \
     || [ "$CAP_SONNET" -gt "$CAP_HAIKU" ]; then
-    echo "fleet-allocate: per-tier caps are non-monotonic (require fable<=opus<=sonnet<=haiku so an expensive tier withdraws no later than a cheaper one; got fable=$CAP_FABLE opus=$CAP_OPUS sonnet=$CAP_SONNET haiku=$CAP_HAIKU) — refusing a config that inverts the withdraw ordering" >&2
+    printf '%s\n' "fleet-allocate: per-tier caps are non-monotonic (require fable<=opus<=sonnet<=haiku so an expensive tier withdraws no later than a cheaper one; got fable=$CAP_FABLE opus=$CAP_OPUS sonnet=$CAP_SONNET haiku=$CAP_HAIKU) — refusing a config that inverts the withdraw ordering" >&2
     exit 4
   fi
 }

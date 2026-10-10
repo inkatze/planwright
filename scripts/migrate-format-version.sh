@@ -91,6 +91,10 @@ anchor_sh="$here/spec-anchor.sh"
 lock_sh="$here/orchestrate-lock.sh"
 
 # Canonical echo-discipline sanitizer (doctrine/security-posture.md).
+if [ ! -f "$here/echo-safety.sh" ] || [ ! -r "$here/echo-safety.sh" ]; then
+  printf '%s\n' "migrate-format-version.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$here/echo-safety.sh"
 
@@ -116,11 +120,11 @@ fi
 . "$spec_parse_sh" || exit 2
 
 if [ ! -x "$anchor_sh" ]; then
-  echo "migrate-format-version: spec-anchor.sh missing or not executable: $anchor_sh" >&2
+  printf '%s\n' "migrate-format-version: spec-anchor.sh missing or not executable: $(sanitize_printable "$anchor_sh" "(unprintable path)")" >&2
   exit 2
 fi
 if [ ! -x "$lock_sh" ]; then
-  echo "migrate-format-version: orchestrate-lock.sh missing or not executable: $lock_sh" >&2
+  printf '%s\n' "migrate-format-version: orchestrate-lock.sh missing or not executable: $(sanitize_printable "$lock_sh" "(unprintable path)")" >&2
   exit 2
 fi
 # The extraction self-check and the anchor both hash via git; failing here
@@ -145,7 +149,7 @@ else
 fi
 while [ "$target" != "${target%/}" ]; do target=${target%/}; done
 if [ ! -d "$target" ]; then
-  echo "migrate-format-version: not a directory: $target" >&2
+  printf '%s\n' "migrate-format-version: not a directory: $(sanitize_printable "$target" "(unprintable path)")" >&2
   exit 2
 fi
 
@@ -154,15 +158,16 @@ gtmp=$(mktemp -d) || {
   echo "migrate-format-version: mktemp failed (cannot allocate a work dir)" >&2
   exit 2
 }
-# The held lock dir for the EXIT trap (empty when nothing is held) — the
+# The spec dir whose lock is held, for the EXIT trap (empty when free). The
 # same idiom as tasks-pr-sync.sh's rm_lock_and_tmp: a caught signal or an
 # unexpected abort releases the per-spec lock instead of leaving other
-# writers to wait out orchestrate-lock.sh's stale-break. A SIGKILL still
-# falls through to the stale-break by design.
+# writers behind it. A SIGKILL skips this, and the hold being owned by THIS
+# pid is what makes that recoverable: the next caller finds the owner absent
+# and breaks the lock at once.
 cur_lockdir=""
 cleanup() {
   if [ -n "$cur_lockdir" ]; then
-    "$lock_sh" release "$cur_lockdir" >/dev/null 2>&1 || true
+    "$lock_sh" release "$cur_lockdir" --owner-pid "$$" >/dev/null 2>&1 || true
   fi
   rm -rf "$gtmp"
 }
@@ -482,7 +487,7 @@ process_bundle() {
   # telling the operator to "re-run when quiet" would mask a permanent
   # refusal as transient contention, the exact trap orchestrate-lock's
   # fail-closed distinction exists to prevent.
-  if lock_err=$("$lock_sh" acquire "$bdir" 2>&1 >/dev/null); then
+  if lock_err=$("$lock_sh" acquire "$bdir" --owner-pid "$$" 2>&1 >/dev/null); then
     :
   elif [ $? -eq 1 ]; then
     refuse "$bname" "per-spec lock busy; nothing written (re-run when quiet)"
@@ -493,7 +498,7 @@ process_bundle() {
   fi
   cur_lockdir=$bdir
   process_bundle_locked "$bdir" "$bname"
-  "$lock_sh" release "$bdir" >/dev/null 2>&1 || true
+  "$lock_sh" release "$bdir" --owner-pid "$$" >/dev/null 2>&1 || true
   cur_lockdir=""
   return 0
 }
@@ -552,17 +557,17 @@ process_bundle_locked() {
         return 0
       fi
       if grep -qF "$entry_marker" "$brief"; then
-        echo "unchanged (already format-version 2): $bname"
+        printf '%s\n' "unchanged (already format-version 2): $bname"
         unchanged=$((unchanged + 1))
       elif append_reanchor "$bdir"; then
-        echo "repaired: $bname (missing re-anchor entry appended)"
+        printf '%s\n' "repaired: $bname (missing re-anchor entry appended)"
         repaired=$((repaired + 1))
       else
         refuse "$bname" "re-anchor completion failed"
         return 0
       fi
     else
-      echo "unchanged (already format-version 2): $bname"
+      printf '%s\n' "unchanged (already format-version 2): $bname"
       unchanged=$((unchanged + 1))
     fi
     return 0
@@ -572,7 +577,7 @@ process_bundle_locked() {
   # rewritten (D-10).
   case $status in
     Done | Retired | Superseded)
-      echo "unchanged (not live): $bname ($status)"
+      printf '%s\n' "unchanged (not live): $bname ($status)"
       unchanged=$((unchanged + 1))
       return 0
       ;;
@@ -784,7 +789,7 @@ EOF
     fi
   fi
 
-  echo "migrated: $bname"
+  printf '%s\n' "migrated: $bname"
   migrated=$((migrated + 1))
   return 0
 }
@@ -935,5 +940,5 @@ else
   done
 fi
 
-echo "migrate-format-version: $migrated migrated, $repaired repaired, $unchanged unchanged, $refused refused"
+printf '%s\n' "migrate-format-version: $migrated migrated, $repaired repaired, $unchanged unchanged, $refused refused"
 [ "$refused" -eq 0 ]

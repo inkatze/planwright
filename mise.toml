@@ -169,6 +169,10 @@ run = "/bin/sh scripts/check-githooks.sh"
 description = "purged-identifier guard: fail if an identifier deliberately purged from this history reappears in the tracked tree, matched as SHA-256 over normalized candidates so no plaintext is committed; fails closed on a missing, malformed, or below-floor seed file (guard-coverage Task 3, REQ-B1.1, REQ-B1.2, REQ-H1.3, D-5)"
 run = "/bin/sh scripts/check-purged-identifiers.sh"
 
+[tasks."check:launch-shape"]
+description = "launch-shape prose guard: fail on shipped prose (docs/, doctrine/, skills/, scripts/, config/, READMEs; not specs/, tests/, or a changelog) that names the native worktree launcher, with or without its classic-tmux flag, without labeling it an operator's hand-launch; the tmux rung launches its worker in a detached session it creates itself. Fails closed when nothing is in scope (fleet-hardening Task 14, REQ-H1.5, D-10)"
+run = "/bin/sh scripts/check-launch-shape.sh"
+
 [tasks."check:coordination-hygiene"]
 description = "conditional coordination-artifact hygiene guard: when a coordination record (a presence record, a fence-ref line) has actually landed in the tracked tree, screen it for a peer tower's checkout path, its death handle, internal hostnames, and credentials; a tree that commits none is a clean no-op (concurrent-orchestrator-coordination Task 5, REQ-D1.4, D-9)"
 run = "/bin/sh scripts/check-coordination-hygiene.sh"
@@ -201,9 +205,13 @@ run = "/bin/bash scripts/check-backend-capability-drift.sh"
 description = "CDPATH house-pattern guard: fail on any shell file under scripts/, tests/, or githooks/ that resolves paths through a cd command substitution without a top-level 'unset CDPATH'; enumerates by shebang or .sh suffix so both the extensionless hooks and the sourced libraries are covered, and fails closed on anything that would narrow the scan (guard-coverage Task 10, REQ-G1.2, REQ-H1.3, D-12)"
 run = "/bin/bash scripts/check-cdpath.sh"
 
-[tasks."check:echo-safety"]
-description = "printf-not-echo guard over sanitized output: fail on a shell file under scripts/, tests/, or githooks/ that passes `sanitize_printable` output through `echo`, directly or through a variable, into the printf FORMAT operand, or to a printf `%b` (dash re-expands the backslash escape TEXT the sanitizer legitimately preserves, handing the terminal to whoever authored the input); enumerates by shebang or .sh suffix, keys on the sanitizer family rather than one function name, exempts bash-shebang files only (zsh and ksh expand escapes too) and a shrinking allowlist of paths open in other PRs, and fails closed on anything that would narrow the scan or on a stale allowlist entry"
-run = "/bin/bash scripts/check-echo-safety.sh"
+[tasks."check:echo-discipline"]
+description = "printf-not-echo guard: fail on a shell file under scripts/, tests/, or githooks/ whose `echo` carries any expansion (a variable, a positional, a command substitution) without a `# trusted: <reason>` annotation on that line, or that puts `sanitize_printable` output into the printf FORMAT operand or a printf `%b` (dash re-expands backslash escape TEXT into live control bytes); and fail on any shell file, bash included, that sources scripts/echo-safety.sh without first testing it readable; enumerates by shebang or .sh suffix, exempts bash-shebang files from the echo rule only, and fails closed on anything that would narrow the scan"
+run = "/bin/bash scripts/check-echo-discipline.sh"
+
+[tasks."check:script-modes"]
+description = "executable-bit guard: every scripts/*.sh in the git index carries the mode its first line declares, a shebang file 100755 (called by path it otherwise fails with Permission denied) and a shebang-less sourced library 100644; reads modes and first lines from the index, not the working tree, and fails closed on no repository, an unreadable index or blob, or zero scripts"
+run = "/bin/bash scripts/check-script-modes.sh"
 
 [tasks."check:spec-literals"]
 description = "flag the spec home composed as a literal path instead of resolved through scripts/resolve-root.sh (custom-spec-location REQ-G1.1)"
@@ -212,6 +220,9 @@ run = "/bin/sh scripts/check-spec-literals.sh"
 [tasks."check:task-registration"]
 description = "task-registration check: every check:/lint:/scan: task in this mise.toml must be reachable from the `check` aggregate through depends/depends_post (wildcards expanded; wait_for only orders a task already scheduled, so it is not an edge), so no guard task is discoverable only by reading CI logs. The complement of check:guard-wiring one level up: that one asks whether each check-*.sh script is run by something, this one whether each guard task is part of the gate. Parse boundary: mise.toml only, read as text; a name in a description, comment, or run body is not an edge. Fails closed on a missing or unreadable file, a zero-task parse, no `check` task, zero namespaced tasks, or a tasks header outside the parsed form (a bare [tasks] table, an array of tables) (guard-coverage Task 11, REQ-H1.2, REQ-H1.3, D-13)"
 run = "/bin/sh scripts/check-task-registration.sh"
+[tasks."check:lock-primitive"]
+description = "retired-mkdir guard over advisory locking: fail on any shell file under scripts/, tests/, or githooks/ that reads a `mkdir`'s exit status as a lock-acquisition signal, the primitive that was measured losing mutual exclusion in the ordinary acquire/read-modify-write/release cycle; scripts/lock-lib.sh is the one acquisition primitive now, and a site that consumes mkdir's status for something else (a mode-pinned bootstrap where EEXIST is success, a best-effort creation, a deliberate atomicity probe) says so with a `# not-a-lock: <reason>` annotation; enumerates by shebang or .sh suffix so the extensionless hooks and the sourced libraries are covered, and fails closed on anything that would narrow the scan (universal-binary Task 1, D-11, REQ-E1.5)"
+run = "/bin/bash scripts/check-lock-primitive.sh"
 
 [tasks."check:test-time"]
 description = "test wall-clock budget gate: reads the per-file timing report scripts/run-tests.sh persisted (never re-runs the suite; the depends edge orders it after `test`) and compares it against config/test-time-budget.yml; measured >= budget trips, hard-failing on GitHub Actions and warning loudly elsewhere; fails closed on a missing, empty, malformed, or stale report, or a discovered test file with no entry (guard-coverage Task 7, REQ-E1.1, REQ-H1.3, D-8)"
@@ -262,14 +273,17 @@ depends = [
   "check:workflow-posture",
   "check:githooks",
   "check:purged-identifiers",
+  "check:launch-shape",
   "check:coordination-hygiene",
   "check:hook-contracts",
   "check:doctrine-index",
   "check:doctrine-manifest",
   "check:cdpath",
-  "check:echo-safety",
+  "check:echo-discipline",
+  "check:script-modes",
   "check:spec-literals",
   "check:task-registration",
+  "check:lock-primitive",
   "check:guard-wiring",
   "check:sidedness",
   "check:backend-capability-drift",

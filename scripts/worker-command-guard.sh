@@ -4,7 +4,8 @@
 # REQ-A1.1..A1.10, REQ-B1.1..B1.7, D-1..D-4). Wired into
 # config/worker-settings.json (Task 2), it reads a Claude Code PreToolUse
 # payload on stdin and prints a `permissionDecision: allow` decision for an
-# ENUMERATED set of known-safe, read-only Bash command shapes — silencing the
+# ENUMERATED set of known-safe Bash command shapes (read-only shapes, trusted
+# repo code, and the spec-root write zone) — silencing the
 # permission-prompt flood on the shapes /execute-task actually issues (plugin
 # scripts, `for`/`while` loops, read-only git/coreutil pipelines) — and DEFERS
 # everything else to Claude Code's normal permission flow.
@@ -15,14 +16,21 @@
 #     NEVER exits non-zero — approval is upgrade-only; blocking stays with
 #     permissions.deny/ask (REQ-A1.2, REQ-B1.7). A hook `allow` therefore never
 #     needs to (and by design never does) auto-approve a deny-listed command:
-#     the enumerated allowlist is read-only shapes with zero overlap with the
-#     worker deny block, and the adversarial suite pins that (REQ-A1.3,
-#     REQ-B1.6). A declared step's line is the exception: it is whatever an
-#     operator declared, its trust resting on the declaring layer, not on the
-#     deny block (see declared_line_ok).
+#     the enumerated allowlist is read-only shapes, trusted repo code, and the
+#     spec-root write zone, with zero overlap with the worker deny block, and
+#     the adversarial suite pins that (REQ-A1.3, REQ-B1.6). A declared step's
+#     line is the exception: it is whatever an operator declared, its trust
+#     resting on the declaring layer, not on the deny block (see
+#     declared_line_ok).
 #   * The extracted command is treated strictly as INERT DATA — never eval-ed,
 #     re-expanded, glob-expanded, or used as a pattern/format/unquoted arg — so
 #     analyzing a hostile command can never execute it (REQ-B1.1).
+#   * One write class, live only when PLANWRIGHT_WORKER_SPEC_ROOT names a
+#     marked spec root, which the dispatchers hand in only when it lies outside
+#     the work repository (see in_spec_zone): a `>`/`>>` redirect, `tee
+#     [-a]`, or `mkdir [-p]` whose every target is a plain literal inside a
+#     bundle or reserved directory of that root. With no root handed in, or
+#     for any other target, it defers.
 #   * Fail safe on EVERYTHING: jq absent, malformed/empty/non-string input,
 #     unknown construct, parser confusion, recursion past the depth bound, or
 #     any internal error all DEFER (empty stdout, exit 0). The fallthrough
@@ -39,15 +47,22 @@
 # declared step's line (REQ-A1.4). A
 # command is known-safe only when (a) its verb is on the enumerated allowlist
 # below, (b) its flags/args designate no output/target file and enable no write
-# or arbitrary execution (REQ-A1.8), and (c) it uses no construct the analyzer
-# cannot confidently parse — command/process substitution, here-docs, subshell
-# or brace grouping, env-assignment prefixes, path-prefixed verbs, escaped
-# operators, ANSI-C quoting — all of which defer (REQ-A1.9). The ONE expansion
-# the analyzer resolves itself is a variable the same command assigned a
-# literal, trusted-root path to (`P=/root && $P/scripts/x.sh`; see
-# track_assignment and expand_word): the substitution reproduces what the shell
-# will do for exactly that value class and nothing else, and every other `$`
-# left in a verb defers. Repo `scripts/*.sh`
+# or arbitrary execution (REQ-A1.8), the spec-root write zone excepted, and (c)
+# it uses no construct the analyzer cannot confidently parse — command/process
+# substitution, here-docs, subshell or brace grouping, env-assignment prefixes,
+# path-prefixed verbs, escaped operators, ANSI-C quoting, shell comments,
+# named-fd redirects — all of which defer (REQ-A1.9). The segments are read in
+# run order, so the state one sets applies to those after it: a `cd` into the
+# session's own worktree moves the working directory later segments are
+# checked against (see cd_target_ok), and the time/timeout prefixes are looked
+# through to the command they wrap (see strip_prefixes); fin decides where
+# state may carry. The expansions the analyzer resolves itself are a variable
+# the same command assigned a plain literal (`f=a.md && grep x $f`; see
+# track_assignment and expand_words) and a `for` variable over plain-literal
+# head words (see loop_header): the substitution reproduces what the shell
+# will do for exactly those value classes and nothing else, and any other
+# expansion left in a verb, or in an operand a screen reads, defers (see
+# word_unresolved). Repo `scripts/*.sh`
 # / `tests/*.sh` and `bats <file>` are trusted repo code but only after their
 # path canonicalizes INSIDE the repository, and an INSTALLED planwright root's
 # `scripts/*.sh` is trusted after canonicalizing inside a root the hook resolves
@@ -63,6 +78,10 @@
 # the hook degrades to deferring everything (REQ-B1.2), never a hand-rolled JSON
 # parse and never a false-allow.
 set -u
+# Whether the environment the hook inherited sets a CDPATH, read before the
+# unset below: a `cd` the shell could resolve through it is never approved.
+HOOK_CDPATH_SET=0
+[ -z "${CDPATH:-}" ] || HOOK_CDPATH_SET=1
 unset CDPATH
 # Pin the C locale so bracket expressions and character classes below mean
 # exactly their ASCII range on every host (mirrors the sibling hooks).
@@ -83,6 +102,19 @@ export LC_ALL
 # a nested-`fish -c` bomb can never spin.
 readonly MAX_CMD_LEN=8192
 readonly MAX_DEPTH=3
+# A `for` loop is verified once per head word (loop_header), so its cost
+# multiplies the body's: past MAX_LOOP_WORDS head words the whole loop
+# defers, and past MAX_LOOP_PASSES body walks in one command (nested loops
+# multiply) the command defers.
+readonly MAX_LOOP_WORDS=16
+readonly MAX_LOOP_PASSES=64
+# Simple commands verified in one hook call, loop passes and `fish -c` inner
+# strings included: each may canonicalize a path, so this bounds the runtime
+# the loop modelling multiplies. Past it the command defers.
+readonly MAX_SIMPLE_CMDS=512
+# Assignments tracked in one command: expand_word scans the table once per
+# `$`, so past this the command defers rather than outrun the hook timeout.
+readonly MAX_TRACKED_VARS=32
 
 # The fixed reason string. It is NEVER a reflection of the analyzed command
 # (REQ-B1.4): untrusted command content is never echoed to a terminal-driving
@@ -104,7 +136,8 @@ emit_allow() {
 # fd-number prefix). Returns non-zero (DEFER) the instant it meets a construct
 # it will not analyze: unbalanced quotes, command/process substitution, backtick
 # substitution, ANSI-C `$'…'`, a backslash line-continuation or escaped
-# operator/quote. It never executes or expands anything it scans.
+# operator/quote, a shell comment, or a named-fd redirect. It never executes or
+# expands anything it scans.
 # tok_push <type> <value> [quoted]: the optional third arg records whether a W
 # token was built from any quoting or backslash-escaping (1) or is a bare,
 # unquoted literal (0, the default for operators and plain words). classify of a
@@ -117,39 +150,125 @@ emit_allow() {
 # arg is the offset within the word at which quoting FIRST began (-1 when the
 # word is bare): track_assignment needs the name and the `=` of an assignment
 # to be unquoted, which the whole-word flag cannot tell from a quoted value.
+# The sixth arg records an EXPANDING `$` (one the shell will expand: 1 inside
+# double quotes only, 2 unquoted), the seventh an unquoted glob, brace
+# expansion, or leading tilde: either way the word's value is not its text
+# (see word_unresolved). The eighth is the zsh-option flag (see
+# zsh_opt_word_ok). The ninth records that the quoting is mixed: a second
+# quoted run, or an unquoted character after quoting began, so a value quoted
+# from its first character is wholly quoted only when this is 0.
 tok_push() {
   TOK_TYPE[TOK_N]=$1
   TOK_VAL[TOK_N]=$2
   TOK_QUOTED[TOK_N]=${3:-0}
   TOK_NOEXP[TOK_N]=${4:-0}
   TOK_QPOS[TOK_N]=${5:--1}
+  TOK_DYN[TOK_N]=${6:-0}
+  TOK_GLOB[TOK_N]=${7:-0}
+  TOK_ZOPT[TOK_N]=${8:-0}
+  TOK_QMIX[TOK_N]=${9:-0}
   TOK_N=$((TOK_N + 1))
+}
+
+# dollar_expands <next-char>: 0 when a `$` followed by <next-char> starts an
+# expansion. A `$` before anything else (end of word, `/`, a space) is literal.
+# zsh, the Bash tool's shell on macOS, also expands `$~NAME`, `$=NAME`,
+# `$^NAME` and `$+NAME`, which bash leaves as text.
+dollar_expands() {
+  case $1 in
+    [A-Za-z0-9_@*#?!~=^+-] | '{' | '$' | '[' | '"') return 0 ;;
+  esac
+  return 1
+}
+
+# dollar_form_ok <string> <index>: the `$` at <index> opens a form whose value
+# the analyzer can reason about: not `$[…]` arithmetic, and a `${…}` only
+# around a bare NAME. Any other brace form (`${a[i]}`, `${x:off}`, `${!n}`,
+# `${#x}`, a modifier) evaluates text the hook never sees, an array subscript
+# or offset arithmetically, so a value read at run time can run a command.
+# A non-ASCII byte right after the `$`, or right after the NAME it opens,
+# defers: zsh in a UTF-8 locale reads a non-ASCII letter as part of a name,
+# so the shell expands one longer name where this C-locale scan ends the
+# name before that byte and keeps the byte as literal text. zsh's `$~NAME`
+# defers wherever it appears: it reads the value as a glob pattern, and a
+# glob qualifier in that value can run a command during the expansion.
+dollar_form_ok() {
+  local s=$1 i=$2 j body
+  case ${s:i+1:1} in
+    '[' | '~') return 1 ;;
+    '{')
+      j=$((i + 2))
+      body=''
+      while [ "$j" -lt "${#s}" ] && [ "${s:j:1}" != '}' ]; do
+        body="$body${s:j:1}"
+        j=$((j + 1))
+      done
+      [ "$j" -lt "${#s}" ] || return 1
+      case $body in
+        '' | [!A-Za-z_]* | *[!A-Za-z0-9_]*) return 1 ;;
+      esac
+      ;;
+    *)
+      j=$((i + 1))
+      case ${s:j:1} in [=^+#]) j=$((j + 1)) ;; esac
+      while [ "$j" -lt "${#s}" ]; do
+        case ${s:j:1} in
+          [A-Za-z0-9_]) j=$((j + 1)) ;;
+          *) break ;;
+        esac
+      done
+      case ${s:j:1} in
+        '' | [[:print:][:cntrl:]]) ;;
+        *) return 1 ;;
+      esac
+      ;;
+  esac
+  return 0
 }
 
 tokenize() {
   local s=$1
   local n=${#s}
   local i=0
-  local cur='' have=0 curq=0 curx=0 curqp=-1
+  local cur='' have=0 curq=0 curx=0 curqp=-1 curd=0 curg=0 curz=0 curqm=0 brk=0 brc=0 brs=0
   local c nc j k dc dn fdpfx
 
   # _flush: push the accumulated word (if any) as a W token carrying its
-  # quoting-provenance, literal-dollar and quote-start flags, then reset the
-  # accumulator.
+  # quoting-provenance, literal-dollar, quote-start, expansion and glob flags,
+  # then reset the accumulator.
   _flush() {
     if [ "$have" = 1 ]; then
-      tok_push W "$cur" "$curq" "$curx" "$curqp"
+      tok_push W "$cur" "$curq" "$curx" "$curqp" "$curd" "$curg" "$curz" "$curqm"
       cur=''
       have=0
       curq=0
       curx=0
       curqp=-1
+      curd=0
+      curg=0
+      curz=0
+      curqm=0
+      brk=0
+      brc=0
+      brs=0
     fi
   }
   # _quoting: record where quoting first began in the current word.
   _quoting() {
+    [ "$curq" = 1 ] && curqm=1
     [ "$curq" = 1 ] || curqp=${#cur}
     curq=1
+  }
+
+  # named_fd_word: 0 when the word built up to a redirect is a `{name}`
+  # brace word, which bash and zsh read as a named-fd redirect that assigns
+  # that shell variable, not as an operand.
+  named_fd_word() {
+    [ "$have" = 1 ] || return 1
+    case $cur in
+      '{'*'}') return 0 ;;
+    esac
+    return 1
   }
 
   while [ "$i" -lt "$n" ]; do
@@ -199,6 +318,9 @@ tokenize() {
             dn=${s:j+1:1}
             [ "$dn" = '(' ] && return 1 # $( command substitution
             [ "$dn" = "'" ] && return 1 # $' ANSI-C quoting
+            dollar_form_ok "$s" "$j" || return 1
+            [ "$dn" != '"' ] && dollar_expands "$dn" && { [ "$curd" = 2 ] || curd=1; }
+            [ "$dn" = '@' ] && curd=2 # "$@" splits into words even quoted
           fi
           [ "$dc" = '`' ] && return 1 # backtick substitution
           k="$k$dc"
@@ -215,6 +337,9 @@ tokenize() {
         nc=${s:i+1:1}
         [ "$nc" = '(' ] && return 1 # $( command substitution
         [ "$nc" = "'" ] && return 1 # $' ANSI-C quoting
+        dollar_form_ok "$s" "$i" || return 1
+        dollar_expands "$nc" && curd=2
+        [ "$curq" = 1 ] && curqm=1
         cur="$cur$c"
         have=1
         i=$((i + 1))
@@ -239,8 +364,9 @@ tokenize() {
         fi
         ;;
       '&')
-        _flush
         nc=${s:i+1:1}
+        [ "$nc" = '>' ] && named_fd_word && return 1
+        _flush
         if [ "$nc" = '&' ]; then
           tok_push O '&&'
           i=$((i + 2))
@@ -275,18 +401,26 @@ tokenize() {
         # A pure-digit run built up to here with no intervening space is the
         # fd number of this redirect (e.g. the 2 in 2>&1), not a word.
         fdpfx=''
+        named_fd_word && return 1
         if [ "$have" = 1 ]; then
           # A quoted digit run is a word (bash only reads an UNQUOTED digit run
           # as this redirect's fd number), so an fd prefix is bare digits only.
           case $cur in
-            '' | *[!0-9]*) tok_push W "$cur" "$curq" "$curx" "$curqp" ;;
-            *) [ "$curq" = 1 ] && tok_push W "$cur" "$curq" "$curx" "$curqp" || fdpfx=$cur ;;
+            '' | *[!0-9]*) tok_push W "$cur" "$curq" "$curx" "$curqp" "$curd" "$curg" "$curz" "$curqm" ;;
+            *) [ "$curq" = 1 ] && tok_push W "$cur" "$curq" "$curx" "$curqp" "$curd" "$curg" "$curz" "$curqm" || fdpfx=$cur ;;
           esac
           cur=''
           have=0
           curq=0
           curx=0
           curqp=-1
+          curd=0
+          curg=0
+          curz=0
+          curqm=0
+          brk=0
+          brc=0
+          brs=0
         fi
         if [ "$c" = '<' ]; then
           nc=${s:i+1:1}
@@ -340,6 +474,29 @@ tokenize() {
         i=$((i + 1))
         ;;
       *)
+        # Unquoted pattern characters: a glob (`*`, `?`, a closed `[…]`), a
+        # brace expansion (`{` then `,` or `..` then `}`), or a leading `~`.
+        # A word-initial `#` opens a shell comment, which this scan does not
+        # model, so the command defers.
+        case $c in
+          '*' | '?') curg=1 ;;
+          '[') brk=1 ;;
+          ']') [ "$brk" = 1 ] && curg=1 ;;
+          '{')
+            brc=1
+            curz=1
+            ;;
+          ',') [ "$brc" = 1 ] && brs=1 ;;
+          '.') [ "$brc" = 1 ] && [ "${s:i+1:1}" = . ] && brs=1 ;;
+          '}')
+            [ "$brs" = 1 ] && curg=1
+            curz=1
+            ;;
+          '~') if [ "$have" = 0 ]; then curg=1; else curz=1; fi ;;
+          '#') if [ "$have" = 0 ]; then return 1; else curz=1; fi ;;
+          '^') curz=1 ;;
+        esac
+        [ "$curq" = 1 ] && curqm=1
         cur="$cur$c"
         have=1
         i=$((i + 1))
@@ -515,6 +672,17 @@ planwright_roots() {
   done
 }
 
+# cache_roots: compute planwright_roots once per hook call into PW_ROOTS. A
+# loop body re-verifies its script paths on every pass, and each computation
+# runs the root resolver.
+PW_ROOTS=''
+PW_ROOTS_DONE=0
+cache_roots() {
+  [ "$PW_ROOTS_DONE" = 1 ] && return 0
+  PW_ROOTS=$(planwright_roots)
+  PW_ROOTS_DONE=1
+}
+
 # installed_planwright_roots: arm 5's raw (uncanonicalized) candidates, from the
 # sibling resolver the stream-json launch preflight reads too — one computation
 # of "which roots does a worker run scripts from", so the launcher's proof and
@@ -540,6 +708,7 @@ is_planwright_script() {
     *.sh) ;;
     *) return 1 ;;
   esac
+  cache_roots
   while IFS= read -r root; do
     [ -n "$root" ] || continue
     full=$(canon_under "$p" "$cwd" "$root") || continue
@@ -548,29 +717,7 @@ is_planwright_script() {
       scripts/*) return 0 ;;
     esac
   done <<EOF
-$(planwright_roots)
-EOF
-  return 1
-}
-
-# is_trusted_dir <canonical-dir> <cwd>: 0 when the directory is, or sits inside,
-# the repo checkout or a resolved planwright root. Bounds what a tracked
-# assignment may name (see track_assignment); the verb built from it is still
-# verified by is_trusted_script afterwards.
-is_trusted_dir() {
-  local canon=$1 cwd=$2 root
-  if root=$(repo_root_of "$cwd"); then
-    case $canon in
-      "$root" | "$root"/*) return 0 ;;
-    esac
-  fi
-  while IFS= read -r root; do
-    [ -n "$root" ] || continue
-    case $canon in
-      "$root" | "$root"/*) return 0 ;;
-    esac
-  done <<EOF
-$(planwright_roots)
+$PW_ROOTS
 EOF
   return 1
 }
@@ -586,6 +733,116 @@ is_trusted_script() {
 # stays REPO-scoped — an install ships no test files to run).
 is_contained_file() {
   canon_contained "$1" "$2" >/dev/null
+}
+
+# --------------------------------------------------------------------------
+# The spec-root write zone (custom-spec-location D-15, REQ-E1.7). A dispatcher
+# whose spec root lies in another repository than the work repository, or in
+# none, computes that root once and hands it to the worker's environment as
+# PLANWRIGHT_WORKER_SPEC_ROOT (scripts/worker-spec-root.sh); the guard reads it
+# once at load (SPEC_ZONE below) and never resolves config per call. Inside
+# it, and nowhere else, the guard approves the few write shapes a halting
+# worker's store write takes: a `>`/`>>` redirect of an otherwise approved
+# command (or of none, as a bare `> f`), `tee [-a]`, and `mkdir [-p]`. A write
+# anywhere else, the work repository included, still defers as before.
+#
+# in_spec_zone <path> <cwd>: 0 when <path> is a plain literal (no expansion,
+# glob, or quoting can hide in the charset) that canonicalizes inside a
+# directory under the zone: a bundle (one holding requirements.md) or a
+# reserved underscore directory, never the root's own top level, and never
+# through a dot-led component (.git, .claude, a lock or marker directory). An
+# existing leaf must be a regular file with one link, or a directory, so a
+# write cannot travel through a symlink or a hard link to a file outside.
+in_spec_zone() {
+  local p=$1 cwd=$2 full rel top
+  [ -n "$SPEC_ZONE" ] || return 1
+  case $p in
+    '' | -* | *[!A-Za-z0-9._/@+-]*) return 1 ;;
+  esac
+  full=$(canon_under "$p" "$cwd" "$SPEC_ZONE") || return 1
+  rel=${full#"$SPEC_ZONE"/}
+  case /$rel/ in
+    */.*) return 1 ;;
+  esac
+  case $rel in
+    */*) top=${rel%%/*} ;;
+    *) return 1 ;;
+  esac
+  case $top in
+    _[a-z0-9]*) ;;
+    [a-z0-9]*) [ -f "$SPEC_ZONE/$top/requirements.md" ] || return 1 ;;
+    *) return 1 ;;
+  esac
+  case $top in
+    *[!a-z0-9_-]*) return 1 ;;
+  esac
+  if [ -e "$full" ]; then
+    if [ -f "$full" ]; then
+      [ "$(find "$full" -maxdepth 0 -links 1 2>/dev/null)" = "$full" ] || return 1
+    elif [ ! -d "$full" ]; then
+      return 1
+    fi
+  fi
+  return 0
+}
+
+# spec_zone_redirect <op> <operand>: 0 for a file-writing `>`/`>>` (an fd
+# number before it allowed) whose target is in the zone.
+spec_zone_redirect() {
+  local bare=$1
+  while :; do
+    case $bare in
+      [0-9]*) bare=${bare#?} ;;
+      *) break ;;
+    esac
+  done
+  case $bare in
+    '>' | '>>') in_spec_zone "$2" "$HOOK_CWD" ;;
+    *) return 1 ;;
+  esac
+}
+
+# guard_tee / guard_mkdir: at least one operand, every operand a zone path;
+# the only flag `-a` (append) for tee and `-p` for mkdir, so no mode, context,
+# or ignore flag changes what lands.
+guard_tee() {
+  local i a ends=0 operands=0
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    if [ "$ends" = 0 ]; then
+      case $a in
+        -a | --append) continue ;;
+        --)
+          ends=1
+          continue
+          ;;
+        -*) return 1 ;;
+      esac
+    fi
+    in_spec_zone "$a" "$HOOK_CWD" || return 1
+    operands=$((operands + 1))
+  done
+  [ "$operands" -ge 1 ]
+}
+
+guard_mkdir() {
+  local i a ends=0 operands=0
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    if [ "$ends" = 0 ]; then
+      case $a in
+        -p | --parents) continue ;;
+        --)
+          ends=1
+          continue
+          ;;
+        -*) return 1 ;;
+      esac
+    fi
+    in_spec_zone "$a" "$HOOK_CWD" || return 1
+    operands=$((operands + 1))
+  done
+  [ "$operands" -ge 1 ]
 }
 
 # --------------------------------------------------------------------------
@@ -826,7 +1083,7 @@ guard_sed() {
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$expect_e" = 1 ]; then
-      sed_script_safe "$a" || return 1
+      zsh_opt_word_ok "$i" && sed_script_safe "$a" || return 1
       expect_e=0
       script_taken=1
       continue
@@ -834,14 +1091,14 @@ guard_sed() {
     case $a in
       -e) expect_e=1 ;;
       --expression=*)
-        sed_script_safe "${a#--expression=}" || return 1
+        zsh_opt_word_ok "$i" && sed_script_safe "${a#--expression=}" || return 1
         script_taken=1
         ;;
       -n | -E | -r | -s | -z | -u | --posix | --quiet | --silent | --regexp-extended | --separate | --null-data | --unbuffered | --debug | --sandbox | --help | --version | --) ;;
       -*) return 1 ;; # -i / -f / -l / bundled / unknown: defer
       *)
         if [ "$script_taken" = 0 ]; then
-          sed_script_safe "$a" || return 1
+          zsh_opt_word_ok "$i" && sed_script_safe "$a" || return 1
           script_taken=1
         fi
         ;;
@@ -1027,7 +1284,7 @@ guard_awk() {
       -*) return 1 ;; # -f / -p / -o / -d / -l / -i / -E / bundled / unknown: defer
       *)
         if [ "$prog_taken" = 0 ]; then
-          awk_program_safe "$a" || return 1
+          zsh_opt_word_ok "$i" && awk_program_safe "$a" || return 1
           prog_taken=1
         fi
         ;;
@@ -1038,50 +1295,90 @@ guard_awk() {
   return 0
 }
 
+# zsh_opt_word_ok <index>: 0 unless word <index> of the current simple command
+# (cz, by dynamic scope) holds an unquoted character that a zsh option off by
+# default would expand (extended globbing's `^`, `~` and `#`, brace character
+# classes). The program-text screens read that word as literal text, so they
+# refuse it; the same characters in any other word keep their verdicts.
+zsh_opt_word_ok() {
+  [ "${cz[$1]-0}" = 0 ]
+}
+
 # jq_program_safe <program>: 0 only when a jq filter is provably free of an
-# ENVIRONMENT read. jq's language has no exec and no file-write primitive at
-# all, so nothing else in a filter needs screening; what it does have is `env`
-# and `$ENV`, either of which hands the whole environment to the filter (and
-# from there to the transcript). That is the same call guard_awk makes on
-# `ENVIRON`, and for the same reason: the guard can see the read but not what
-# the program does with the value.
+# ENVIRONMENT read and loads no module text. jq's language has no exec and no
+# file-write primitive at all; what it does have is `env` and `$ENV`, either
+# of which hands the whole environment to the filter (and from there to the
+# transcript), `include` / `import`, which pull in module text the guard
+# never sees, from a search path the filter itself can name, and `modulemeta`,
+# which reads that text back. That is the same
+# call guard_awk makes on `ENVIRON`, and for the same reason: the guard can see
+# the read but not what the program does with the value.
 #
-# `$ENV` rejects wherever it appears. `env` rejects only as a WORD — a `.env`
-# or `.a.env` is a FIELD ACCESS on the input, not the builtin, and a `$env` is
-# someone's own variable, so a preceding `.` or `$` (or an identifier
-# character, as in `envelope`) leaves it alone. A mention the rule cannot place
-# that way, `"env"` inside a string included, defers; that costs the filter
-# shapes nothing.
+# Each of those names rejects only as a WORD: a preceding `.` makes it a FIELD
+# ACCESS on the input (`.env`, `.a.include`), an identifier character after it
+# a longer name (`envelope`, `ENVIRONMENT`), and a preceding `$` someone's own
+# variable (`$env`, `$import`). `ENV` takes no `$` exemption, since jq 1.6 and
+# older read `$ ENV`, with a space or a comment between the two, as `$ENV`. A
+# mention the rule cannot place that way, `"env"` inside a string included,
+# defers; that costs the filter shapes nothing.
 jq_program_safe() {
   local s=$1
-  local n=${#s} i=0 p a
+  local n=${#s} i=0 p a w words
   case $s in
     *\$ENV*) return 1 ;;
+    *env* | *ENV* | *include* | *import* | *modulemeta*) ;;
+    *) return 0 ;; # names none of the screened words
   esac
   while [ "$i" -lt "$n" ]; do
-    if [ "${s:i:3}" = env ]; then
+    case ${s:i:1} in
+      e) words='env' ;;
+      E) words='ENV' ;;
+      i) words='include import' ;;
+      m) words='modulemeta' ;;
+      *) words='' ;;
+    esac
+    for w in $words; do
+      [ "${s:i:${#w}}" = "$w" ] || continue
+      a=${s:i+${#w}:1}
+      case $a in
+        [A-Za-z0-9_]) continue ;; # a longer name
+      esac
       p=''
       [ "$i" -gt 0 ] && p=${s:i-1:1}
-      a=${s:i+3:1}
-      case $p in
-        [A-Za-z0-9_.$]) ;; # a field access, a variable, or a longer name
-        *)
-          case $a in
-            [A-Za-z0-9_]) ;; # a longer name: `envelope`, `env_of`
-            *) return 1 ;;   # the builtin
-          esac
-          ;;
+      case $w:$p in
+        ENV:[A-Za-z0-9_.]) ;; # a field access or a longer name
+        ENV:*) return 1 ;;
+        *:[A-Za-z0-9_.$]) ;; # a field access, a variable, or a longer name
+        *) return 1 ;;
       esac
-    fi
+    done
     i=$((i + 1))
   done
   return 0
 }
 
-# guard_jq: strict flag allowlist plus the environment-read check on the
-# filter. Only the inline-filter form is verifiable, so `-f`/`--from-file` (a
-# filter in a file) and `-L`/`--library-path` (which is where `include` and
-# `import` read module text from) defer, as does any unrecognized flag.
+# jq_home_safe: 0 only when HOME is an absolute path and no `~/.jq` exists,
+# the home-directory half of guard_jq's screen (see there), shared with
+# guard_yq for the jq-wrapping yq.
+jq_home_safe() {
+  case ${HOME:-} in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  if [ -e "$HOME/.jq" ] || [ -L "$HOME/.jq" ]; then
+    return 1
+  fi
+  return 0
+}
+
+# guard_jq: strict flag allowlist plus the environment-read and module checks
+# on the filter. Only the inline-filter form is verifiable, so `-f`/`--from-file`
+# (a filter in a file) and `-L`/`--library-path` (which is where `include` and
+# `import` read module text from) defer, as does any unrecognized flag, and so
+# does every run while `~/.jq` exists: jq reads a `~/.jq` file into every
+# filter, and a `~/.jq` directory is on its module search path. A HOME that is
+# not an absolute path defers too, since the guard cannot then tell where jq
+# looks (jq 1.6 falls back to the password entry's home when HOME is unset).
 #
 # Every value-taking flag is enumerated because the filter is identified BY
 # POSITION — it is the first non-flag operand — and a value sitting in that
@@ -1091,6 +1388,7 @@ jq_program_safe() {
 # `--args`/`--jsonargs`, and jq only ever READS those.
 guard_jq() {
   local i a t c expect=0 prog_taken=0 endflags=0
+  jq_home_safe || return 1
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$expect" -gt 0 ]; then # a flag's value, never the filter
@@ -1137,7 +1435,7 @@ guard_jq() {
       esac
     fi
     if [ "$prog_taken" = 0 ]; then
-      jq_program_safe "$a" || return 1
+      zsh_opt_word_ok "$i" && jq_program_safe "$a" || return 1
       prog_taken=1
     fi
   done
@@ -1161,20 +1459,138 @@ guard_env() {
   [ "$cwn" -eq 1 ]
 }
 
+# guard_sleep: `sleep <duration>…`, numeric durations only, within the cap.
+guard_sleep() {
+  local i total=0
+  [ "$cwn" -ge 2 ] || return 1
+  for ((i = 1; i < cwn; i++)); do
+    is_duration "${cw[i]}" || return 1
+    total=$((total + DURATION_SECONDS))
+  done
+  # sleep waits for the sum of its operands.
+  [ "$total" -le "$MAX_WAIT_SECONDS" ]
+}
+
+# guard_ps: ps writes no file and runs nothing, but its option grammar
+# differs by platform, so only the enumerated flags pass: the selection and
+# format flags (a value-taking one, alone or ending a bundle, consumes the
+# next word), BSD-style letter words, and pid operands. Whatever prints
+# process environments, which carry secrets, defers: `-e` (which does on
+# macOS and the BSDs), the BSD `e` modifier, and a format naming an
+# environment field (ps_format_ok).
+guard_ps() {
+  local i a body
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    case $a in
+      --format=*) ps_format_ok "${a#--format=}" || return 1 ;;
+      --no-headers | --no-heading | --headers | --forest | --cumulative | --sort=* | --pid=* | --ppid=* | --cols=* | --columns=* | --width=*) ;;
+      --format)
+        i=$((i + 1))
+        [ "$i" -lt "$cwn" ] && ps_format_ok "${cw[i]}" || return 1
+        ;;
+      --sort | --pid | --ppid | --cols | --columns | --width)
+        i=$((i + 1))
+        [ "$i" -lt "$cwn" ] || return 1
+        ;;
+      -?*)
+        body=${a#-}
+        case $body in
+          *[!AadfFHjlLMmTwxyZoOpqtuUgGCs]*) return 1 ;;
+          *[oOpqtuUgGCs]?*) return 1 ;; # a value-taking flag must end its bundle
+          *[oO])
+            i=$((i + 1))
+            [ "$i" -lt "$cwn" ] && ps_format_ok "${cw[i]}" || return 1
+            ;;
+          *[pqtuUgGCs])
+            i=$((i + 1))
+            [ "$i" -lt "$cwn" ] || return 1
+            ;;
+        esac
+        ;;
+      '' | *[!0-9,]*)
+        case $a in
+          '' | *[!auxwfjlT]*) return 1 ;;
+        esac
+        ;;
+    esac
+  done
+  return 0
+}
+
+# ps_format_ok <format>: 0 unless the format names an environment field
+# (`env`, `environ`, in any case).
+ps_format_ok() {
+  case $1 in
+    *[eE][nN][vV]*) return 1 ;;
+  esac
+  return 0
+}
+
+# guard_uptime: bare, or one of the report-format flags.
+guard_uptime() {
+  case $cwn in
+    1) return 0 ;;
+    2)
+      case ${cw[1]} in
+        -p | --pretty | -s | --since) return 0 ;;
+      esac
+      ;;
+  esac
+  return 1
+}
+
+# guard_which: names to look up, with `-a` / `-s` only.
+guard_which() {
+  local i
+  [ "$cwn" -ge 2 ] || return 1
+  for ((i = 1; i < cwn; i++)); do
+    case ${cw[i]} in
+      -a | -s) ;;
+      -* | '') return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# guard_command: only the lookup forms `command -v` / `command -V NAME…`;
+# every other form runs its operand as a command.
+guard_command() {
+  local i
+  case ${cw[1]-} in
+    -v | -V) ;;
+    *) return 1 ;;
+  esac
+  [ "$cwn" -ge 3 ] || return 1
+  for ((i = 2; i < cwn; i++)); do
+    case ${cw[i]} in
+      -* | '') return 1 ;;
+    esac
+  done
+  return 0
+}
+
 # guard_read: `read [-r] [NAME…]`. read runs nothing and writes no file, but it
 # ASSIGNS shell variables, and a name like PATH or IFS would re-point every
 # later command in the same shell — the exact hazard assign_name_ok exists for,
 # so each name goes through it. Only `-r` is allowed: every other read flag
 # takes a value (`-d`, `-n`, `-a`, `-u`, `-p`, `-t`, `-i`), and a value operand
-# would otherwise be name-checked as if it were a variable.
+# would otherwise be name-checked as if it were a variable. A name the
+# analyzer is substituting (a tracked assignment or a loop variable) would
+# keep its modelled value after read replaced it, so it defers too.
 guard_read() {
-  local i a
+  local i a v
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     case $a in
       -r | --) ;;
       -*) return 1 ;;
-      *) assign_name_ok "$a" || return 1 ;;
+      *)
+        assign_name_ok "$a" || return 1
+        for ((v = 0; v < VAR_C; v++)); do
+          [ "${VAR_N[v]}" = "$a" ] && return 1
+        done
+        ;;
     esac
   done
   return 0
@@ -1208,27 +1624,38 @@ flag_name_in() {
 # `-ojson` still defers. That is deliberate: two unrelated programs answer to
 # `yq` with different short-flag tables, and a value-taking claim that is wrong
 # for the one actually installed would read a dangerous flag as inert.
-# yq_expression_safe <expr>: 0 unless the expression reads the environment.
+# The jq-wrapping spelling also reads `~/.jq`, so guard_yq takes jq's
+# home-directory check too.
+# yq_expression_safe <expr>: 0 unless the expression reads the environment
+# or, read as a jq filter, fails jq_program_safe.
 # yq's `env(NAME)` and `strenv(NAME)` are the same capability the awk `ENVIRON`
 # reject and jq_program_safe's `env` check exist for — program text whose use
 # of the value this guard cannot see — so the third member of that family is
 # screened the same way rather than left as the one open door.
 yq_expression_safe() {
-  local s=$1 n i p a
+  local s=$1 n i p a w
   case $s in
-    *strenv*) return 1 ;;
+    *strenv* | *envsubst*) return 1 ;;
   esac
+  # The jq-wrapping Python spelling runs the expression as a jq filter.
+  jq_program_safe "$s" || return 1
   # `env` is a bare operator, not only a call: `env | .PATH` and `.a = env`
   # both read the environment. Walk it as a token so a longer identifier
   # (`.environment`, `envelope`) still passes, mirroring jq_program_safe.
   # Raised by the Copilot pass, 2026-09-15.
+  # The second word runs text this screen never sees, so it rejects the same
+  # way, except as the whole operand, where it names a subcommand.
+  case $s in
+    eval | eval-all) return 0 ;;
+  esac
   n=${#s}
   i=0
   while [ "$i" -lt "$n" ]; do
-    if [ "${s:i:3}" = env ]; then
+    for w in env eval; do
+      [ "${s:i:${#w}}" = "$w" ] || continue
       p=''
       [ "$i" -gt 0 ] && p=${s:i-1:1}
-      a=${s:i+3:1}
+      a=${s:i+${#w}:1}
       case $p in
         [A-Za-z0-9_.\$]) ;; # a field access, a variable, or a longer name
         *)
@@ -1238,29 +1665,31 @@ yq_expression_safe() {
           esac
           ;;
       esac
-    fi
+    done
     i=$((i + 1))
   done
   return 0
 }
 
 guard_yq() {
-  local i a expr_taken=0
+  local i a endflags=0
+  jq_home_safe || return 1
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
+    # Every operand is screened as the expression: which one yq reads it from
+    # is not always the first operand this loop sees.
+    if [ "$endflags" = 1 ]; then
+      zsh_opt_word_ok "$i" && yq_expression_safe "$a" || return 1
+      continue
+    fi
     case $a in
-      --) break ;; # end of flags: what follows is an expression or a file
-      --inplace | --inplace=* | --in-place | --in-place=* | --split-exp | --split-exp=*) return 1 ;;
-      --from-file | --from-file=*) return 1 ;; # an expression this screen cannot read
-      --*) ;;
+      --) endflags=1 ;; # end of flags: what follows is an expression or a file
+      # Every long flag defers: the Go spelling's long-only flags include
+      # ones that write files, run programs, or carry the expression, and the
+      # two spellings share no long-flag table this screen could vouch for.
+      --*) return 1 ;;
       -?*) short_flag_hit "$a" 'is' '' && return 1 ;;
-      *)
-        # The first non-flag operand is the expression; later ones are files.
-        if [ "$expr_taken" = 0 ]; then
-          yq_expression_safe "$a" || return 1
-          expr_taken=1
-        fi
-        ;;
+      *) zsh_opt_word_ok "$i" && yq_expression_safe "$a" || return 1 ;;
     esac
   done
   return 0
@@ -1756,6 +2185,44 @@ guard_git() {
         *) return 1 ;;
       esac
       ;;
+    check-ignore)
+      local ddash=0
+      for ((i = subidx + 1; i < cwn; i++)); do
+        [ "$ddash" = 1 ] && continue
+        case ${cw[i]} in
+          --) ddash=1 ;;
+          -q | --quiet | -v | --verbose | -n | --non-matching | --no-index | --stdin | -z) ;;
+          -*) return 1 ;;
+        esac
+      done
+      return 0
+      ;;
+    ls-remote)
+      # Only a remote NAME: a URL, a path, or an scp-style address would make
+      # git open whatever repository it names (a local one through its own
+      # upload-pack), and `--upload-pack` / `-u` choose the program run. A
+      # name that is also an existing path, as itself or as git's `.git`
+      # variants, could be read as that path, so it defers too.
+      local remote='' positional=0
+      for ((i = subidx + 1; i < cwn; i++)); do
+        a=${cw[i]}
+        case $a in
+          -h | --heads | -b | --branches | -t | --tags | --refs | -q | --quiet | --exit-code | --get-url | --symref | --sort=*) ;;
+          -*) return 1 ;;
+          *)
+            positional=$((positional + 1))
+            [ "$positional" -eq 1 ] && remote=$a
+            ;;
+        esac
+      done
+      case $remote in
+        '' | [!A-Za-z0-9]* | *[!A-Za-z0-9._-]*) return 1 ;;
+      esac
+      [ -e "$HOOK_CWD/$remote" ] || [ -e "$HOOK_CWD/$remote.git" ] && return 1
+      # A name no remote is configured as is read as a path or URL instead.
+      git -C "$HOOK_CWD" config --get "remote.$remote.url" >/dev/null 2>&1 || return 1
+      ls_remote_url_ok "$remote"
+      ;;
     worktree)
       # Only `git worktree list`. Bare `git worktree` is a usage error, and
       # every other leaf (add/remove/move/prune/repair/lock/unlock) mutates the
@@ -1769,6 +2236,33 @@ guard_git() {
   esac
 }
 
+# ls_remote_url_ok <remote>: 0 only when `git ls-remote <remote>` would use a
+# built-in transport: the URL git resolves (insteadOf rewrites applied, which
+# is why the configured value alone is not read) is https://, ssh://, git://,
+# file://, an absolute path, or scp-style `[user@]host:path`. Any other URL,
+# `<transport>::<address>` above all, makes git run a git-remote-<transport>
+# helper, as does a remote's `vcs` setting, and a remote's own `uploadpack`
+# names the program git runs. A host starting with `-` would be read as an ssh
+# option. Asking git for the URL contacts no remote and runs no helper.
+ls_remote_url_ok() {
+  local url
+  git -C "$HOOK_CWD" config --get "remote.$1.vcs" >/dev/null 2>&1 && return 1
+  git -C "$HOOK_CWD" config --get "remote.$1.uploadpack" >/dev/null 2>&1 && return 1
+  url=$(git -C "$HOOK_CWD" ls-remote --get-url "$1" 2>/dev/null) || return 1
+  case $url in
+    '' | *::* | *[[:cntrl:]]* | -* | *://-* | *@-*) return 1 ;;
+    https://?* | ssh://?* | git://?* | file://?* | /?*) return 0 ;;
+    [A-Za-z0-9._-]*:?*)
+      # scp-style: no `/` before the first colon, or git reads it as a path.
+      case ${url%%:*} in
+        */*) return 1 ;;
+      esac
+      return 0
+      ;;
+  esac
+  return 1
+}
+
 # classify_verb: the enumerated allowlist. A bare verb (no slash) is looked up
 # here; the fallthrough is DEFER (REQ-A1.6). Read-only tools with NO
 # file-write, code-exec, or output-to-file capability are approved with any
@@ -1777,41 +2271,42 @@ guard_git() {
 # writer / command-runner / arbitrary-exec verb is simply absent here and so
 # defers (REQ-A1.8 recognized-safe-invocation rule).
 # --------------------------------------------------------------------------
-# Same-command variable tracking: the one expansion the analyzer resolves.
+# Same-command variable tracking: the assignment expansion the analyzer
+# resolves (loop variables are the other; see loop_header).
 #
-# Claude Code hands the hook the raw command, so `P=<root> && $P/scripts/x.sh`
-# — the shape a worker produces when it abbreviates the resolved root the
-# doctrine step tells it to call scripts under — reaches the verifier with `$P`
-# unexpanded, and a verb carrying `$` can never canonicalize. Rather than defer
-# the shape the hook exists to approve, the verifier tracks a standalone
-# assignment and substitutes it into later words, under bounds that keep the
-# substitution IDENTICAL to what the shell will do:
-#   * the value is a bare absolute path of [A-Za-z0-9/._-] only — no `$`, glob
-#     character, tilde, whitespace, or quote residue — so expanding it yields
-#     exactly that string, with no word splitting and no globbing;
-#   * the value canonicalizes to, or inside, a trusted root (the repo checkout
-#     or a resolved planwright root), so whatever the variable later names is
-#     already code the hook trusts, and the verb built from it still goes
-#     through is_trusted_script;
+# Claude Code hands the hook the raw command, so `f=notes.md && grep -n x $f`
+# or `P=<root> && $P/scripts/x.sh` reaches the verifier with the `$` unexpanded.
+# Rather than defer those shapes, the verifier tracks a standalone assignment
+# and substitutes its value into later words exactly as the shell will, so
+# every screen then judges the value the command will really carry (a
+# resolved `-delete` still meets find's screen, a resolved script path still
+# canonicalizes):
 #   * the NAME is a plain identifier, is not present in the hook's own
 #     environment (an exported variable reaches every child the command runs:
 #     PATH, LD_*, GIT_*, anything the operator exported), and is not a name the
-#     shell itself consumes unexported (IFS, CDPATH, the BASH_* family, PS4...);
-#   * the name and the `=` are unquoted (a quoted value is fine: quote removal
-#     already happened and the charset rule applies to what is left), and the
-#     word is the WHOLE simple command — an assignment PREFIX before a verb
-#     still defers (REQ-A1.9);
+#     shell itself consumes, evaluates as arithmetic, or rewrites on its own
+#     (IFS, CDPATH, the BASH_* family, PS4, RANDOM, REPLY, UID...);
+#   * the name and the `=` are unquoted, and the word is the WHOLE simple
+#     command: an assignment PREFIX before a verb still defers (REQ-A1.9);
+#   * the VALUE is any literal of a plain character set (see
+#     assign_value_literal), bare or quoted as a whole from its first
+#     character; one carrying an expansion, any other character, or a quote
+#     that starts mid-value is assigned all the same, but leaves the variable
+#     OPAQUE: a later `$NAME` stays unresolved,
+#     so it may only reach a position whose approval does not read it;
 #   * the assignment is unconditional and at the top level of the command:
-#     opened by nothing, by `;`, or by `&&` directly after another tracked
-#     assignment; closed by `;`, `&&`, `||` or the end. A `|` or `&` on either
-#     side runs it in a subshell and a `&&`/`||` after a real command makes it
-#     conditional; a loop/if/case body may not run at all. In every one of those
-#     the variable can be unset for what follows, so nothing is tracked (the
-#     segment itself is still harmless and passes; only the substitution is
-#     withheld).
-# A word carrying a literal `$` (single quotes, backslash) is never substituted,
-# an unknown `$NAME` is left in place (the verb then defers as before), and the
-# table is per analyze_command entry, so a `fish -c` inner string starts empty.
+#     opened by nothing, by `;`, or by `&&` directly after another segment
+#     that carried state (an assignment or a `cd`); closed by `;`, `&&`, `||`
+#     or the end. Anywhere else (a pipeline, the background, after a real
+#     command's `&&` or `||`, a loop/if/case body) the shell may not set it for
+#     what follows, so the whole command defers.
+# A value holding a space is substituted only inside double quotes, where it
+# stays one word in every shell; unquoted, bash splits it and zsh (the Bash
+# tool's shell on macOS) does not, so there it stays unresolved. An empty
+# value removes an unquoted word in both. A word carrying a literal `$`
+# (single quotes, backslash) is never substituted, an unknown `$NAME` is left in
+# place, and the table is per analyze_command entry, so a `fish -c` inner
+# string starts empty.
 
 # assign_name_ok <name>: the NAME rule above.
 assign_name_ok() {
@@ -1819,12 +2314,31 @@ assign_name_ok() {
   case $name in
     '' | *[!A-Za-z0-9_]* | [0-9]*) return 1 ;;
   esac
+  # Beside the names the shell consumes, this refuses the ones bash evaluates
+  # as arithmetic on assignment (a subscript in the value runs a command),
+  # keeps readonly, or rewrites by itself (`read` with no NAME sets REPLY), so
+  # a modelled value would lie.
   case $name in
     IFS | PATH | CDPATH | HOME | ENV | BASH_ENV | SHELL | PWD | OLDPWD | TMPDIR | TMOUT | \
+      RANDOM | SRANDOM | HISTCMD | SECONDS | LINENO | EPOCHSECONDS | EPOCHREALTIME | UID | EUID | \
+      PPID | GROUPS | FUNCNAME | DIRSTACK | SHELLOPTS | REPLY | MAPFILE | COPROC | \
       GLOBIGNORE | EXECIGNORE | FIGNORE | PROMPT_COMMAND | POSIXLY_CORRECT | FUNCNEST | \
       HOSTFILE | INPUTRC | IGNOREEOF | TIMEFORMAT | histchars | auto_resume | \
       OPTIND | OPTARG | OPTERR | LANG | LANGUAGE | _ | \
       BASH* | COMP_* | READLINE_* | HIST* | LC_* | MAIL* | PS[0-9]*) return 1 ;;
+  esac
+  # zsh, the Bash tool's shell on macOS, gives these names a special meaning
+  # as variables, as bash gives PATH and CDPATH, or types, freezes, or sets
+  # them itself, refused on the same grounds as the bash names above.
+  case $name in
+    path | cdpath | NULLCMD | READNULLCMD | module_path | MODULE_PATH | \
+      fpath | FPATH | manpath | MANPATH | \
+      ARGC | GID | EGID | ERRNO | HISTSIZE | SAVEHIST | KEYTIMEOUT | LISTMAX | LOGCHECK | PERIOD | \
+      SHLVL | TTYIDLE | TRY_BLOCK_ERROR | TRY_BLOCK_INTERRUPT | COLUMNS | LINES | BAUD | \
+      DIRSTACKSIZE | USERNAME | STTY | ZDOTDIR | TMPPREFIX | status | pipestatus | \
+      ZSH_* | funcstack | funcfiletrace | functrace | zsh_eval_context | MBEGIN | MEND | \
+      options | commands | functions | aliases | parameters | argv | match | MATCH | mbegin | \
+      mend | reply) return 1 ;;
   esac
   # Membership in the hook's own ENVIRONMENT, snapshotted at startup: an
   # exported name the command re-points reaches every child it runs. The
@@ -1851,19 +2365,36 @@ bare_abs_path_ok() {
   return 0
 }
 
-# assign_value_ok <value> <cwd>: the VALUE rule above.
-assign_value_ok() {
-  local v=$1 cwd=$2 canon
-  bare_abs_path_ok "$v" || return 1
-  canon=$(cd "$v" 2>/dev/null && pwd -P) || return 1
-  is_trusted_dir "$canon" "$cwd"
+# assign_value_literal <value> <value-quote-start> <mixed> <expands> <globs>
+# <literal-dollar>: 0 when the value is the plain literal the VALUE rule above
+# substitutes; non-zero leaves the variable opaque. The quote start is
+# relative to the value (0: quoted from its first character, -1: bare).
+assign_value_literal() {
+  [ "$4" = 0 ] && [ "$5" = 0 ] && [ "$6" = 0 ] || return 1
+  case $2 in
+    -1) ;;
+    0) [ "$3" = 0 ] || return 1 ;;
+    *) return 1 ;;
+  esac
+  # An allowlist, not a list of known pattern characters: bash globs an
+  # unquoted expansion with every pattern syntax a shell option can turn on
+  # (extglob's `@(…)`, a lone backslash in bash 5.0), and the snapshot a
+  # Bash tool shell replays can turn them on.
+  case $1 in
+    *[!A-Za-z0-9._/:=@%,+\ -]*) return 1 ;;
+  esac
+  return 0
 }
 
-# track_assignment <word> <quote-start> : 0 when the word is a standalone
-# assignment the rules admit, leaving its halves in PENDING_ASSIGN_N / _V for
-# verify_tokens to commit once it knows the segment was unconditional.
+# track_assignment: 0 when the current one-word simple command (`cw` and its
+# flag arrays, by dynamic scope, before any substitution) is a standalone
+# assignment the rules admit, leaving its halves in PENDING_ASSIGN_N / _V and
+# PENDING_ASSIGN_O (1: opaque) for verify_tokens to commit once it knows the
+# segment's placement.
 track_assignment() {
-  local w=$1 qpos=$2 name value eqpos
+  local w=${cw[0]} qpos=${cqp[0]} name value eqpos v vq
+  # fish has no `NAME=value` statement, so inside `fish -c` the word is not one.
+  [ "$HOOK_DEPTH" -eq 0 ] || return 1
   case $w in
     [A-Za-z_]*=*) ;;
     *) return 1 ;;
@@ -1877,19 +2408,33 @@ track_assignment() {
     return 1
   fi
   assign_name_ok "$name" || return 1
-  assign_value_ok "$value" "$HOOK_CWD" || return 1
+  # A loop variable keeps its modelled value for the whole body pass, so the
+  # body may not re-point it.
+  for ((v = 0; v < VAR_C; v++)); do
+    [ "${VAR_N[v]}" = "$name" ] && [ "${VAR_L[v]}" = 1 ] && return 1
+  done
+  vq=-1
+  [ "$qpos" -lt 0 ] || vq=$((qpos - eqpos - 1))
+  PENDING_ASSIGN_O=0
+  assign_value_literal "$value" "$vq" "${cqm[0]}" "${cdyn[0]}" "${cglob[0]}" "${cx[0]}" \
+    || PENDING_ASSIGN_O=1
   PENDING_ASSIGN_N=$name
   PENDING_ASSIGN_V=$value
   return 0
 }
 
-# expand_word <word>: substitute every `$NAME` / `${NAME}` whose NAME the
-# table holds (latest assignment wins, as in the shell); any other `$` — an
-# unknown name, a `${NAME:-...}` modifier, a bare `$` — is left in place so the
-# word still defers downstream. Prints the result.
+# expand_word <word> <mode>: substitute every `$NAME` / `${NAME}` the table
+# resolves (latest assignment wins, as in the shell); any other `$` — an
+# unknown or opaque name, a `${NAME:-...}` modifier, a bare `$` — is left in
+# place so the word still reads as unresolved. <mode> is `split` (every
+# expansion unquoted), `whole` (every expansion inside double quotes), or
+# `mixed`; outside `whole`, a value holding a space is left in place too
+# (see the splitting rule above). Leaves
+# the result in EXPANDED (a global, so the caller needs no command
+# substitution, which forks once per word).
 expand_word() {
-  local w=$1
-  local out='' i=0 n=${#w} c name j k found v
+  local w=$1 mode=$2
+  local out='' i=0 n=${#w} c name j k found v hit
   while [ "$i" -lt "$n" ]; do
     c=${w:i:1}
     if [ "$c" != '$' ]; then
@@ -1920,20 +2465,33 @@ expand_word() {
         j=$((j + 1))
       done
       k=$j
+      # zsh, the Bash tool's shell on macOS, applies a subscript or a modifier
+      # to an unbraced name directly followed by `[` or `:`, quoted or not, so
+      # the value is not the name's: leave it unresolved.
+      case ${w:k:1} in
+        '[' | ':') name='' ;;
+      esac
     fi
+    hit=0
     found=''
     case $name in
       '' | *[!A-Za-z0-9_]*) ;;
       *)
         for ((v = VAR_C - 1; v >= 0; v--)); do
           if [ "${VAR_N[v]}" = "$name" ]; then
+            [ "${VAR_O[v]}" = 1 ] || hit=1
             found=${VAR_V[v]}
             break
           fi
         done
         ;;
     esac
-    if [ -n "$found" ]; then
+    if [ "$hit" = 1 ] && [ "$mode" != whole ]; then
+      case $found in
+        *' '*) hit=0 ;;
+      esac
+    fi
+    if [ "$hit" = 1 ]; then
       out="$out$found"
       i=$k
     else
@@ -1941,16 +2499,287 @@ expand_word() {
       i=$((i + 1))
     fi
   done
-  printf '%s' "$out"
+  EXPANDED=$out
+}
+
+# expand_words: rewrite the current simple command (`cw` and its flag arrays,
+# by dynamic scope) with the tracked values substituted; a bare word whose
+# expansions all came out empty is removed, as both shells remove it.
+expand_words() {
+  local i mode
+  local -a nw=() nx=() nq=() nd=() ng=() nz=() nm=()
+  local nn=0
+  for ((i = 0; i < cwn; i++)); do
+    case ${cw[i]} in
+      *'$'*)
+        if [ "${cx[i]}" = 0 ]; then
+          if [ "${cqp[i]}" -lt 0 ]; then
+            mode='split'
+          elif [ "${cdyn[i]}" = 1 ]; then
+            mode=whole
+          else
+            mode=mixed
+          fi
+          expand_word "${cw[i]}" "$mode"
+          # A bare word that expanded to nothing is removed.
+          [ "$mode" = split ] && [ -z "$EXPANDED" ] && continue
+          nw[nn]=$EXPANDED
+        else
+          nw[nn]=${cw[i]}
+        fi
+        ;;
+      *) nw[nn]=${cw[i]} ;;
+    esac
+    nx[nn]=${cx[i]}
+    nq[nn]=${cqp[i]}
+    nd[nn]=${cdyn[i]}
+    ng[nn]=${cglob[i]}
+    nz[nn]=${cz[i]-0}
+    nm[nn]=${cqm[i]}
+    nn=$((nn + 1))
+  done
+  cw=(${nw[@]+"${nw[@]}"})
+  cx=(${nx[@]+"${nx[@]}"})
+  cqp=(${nq[@]+"${nq[@]}"})
+  cdyn=(${nd[@]+"${nd[@]}"})
+  cglob=(${ng[@]+"${ng[@]}"})
+  cz=(${nz[@]+"${nz[@]}"})
+  cqm=(${nm[@]+"${nm[@]}"})
+  cwn=$nn
+}
+
+# shift_words <n>: drop the first <n> words of the current simple command.
+shift_words() {
+  local i n=$1
+  local -a nw=() nx=() nq=() nd=() ng=() nz=() nm=()
+  for ((i = n; i < cwn; i++)); do
+    nw[i - n]=${cw[i]}
+    nx[i - n]=${cx[i]}
+    nq[i - n]=${cqp[i]}
+    nd[i - n]=${cdyn[i]}
+    ng[i - n]=${cglob[i]}
+    nz[i - n]=${cz[i]-0}
+    nm[i - n]=${cqm[i]}
+  done
+  cw=(${nw[@]+"${nw[@]}"})
+  cx=(${nx[@]+"${nx[@]}"})
+  cqp=(${nq[@]+"${nq[@]}"})
+  cdyn=(${nd[@]+"${nd[@]}"})
+  cglob=(${ng[@]+"${ng[@]}"})
+  cz=(${nz[@]+"${nz[@]}"})
+  cqm=(${nm[@]+"${nm[@]}"})
+  cwn=$((cwn > n ? cwn - n : 0))
+}
+
+# --------------------------------------------------------------------------
+# Words whose value is not their text. The hook sees the command unexpanded, so
+# a word carrying an expansion the analyzer did not resolve (an unknown or
+# special `$` parameter, a `${…}` modifier, a glob, a brace expansion, a leading
+# tilde) can hold any value at run time: `find . $_` after a printf of
+# `-exec id ;` runs id. Such a word may only reach a verb whose approval does
+# not read that word (arg_independent_verb); anywhere else, and always in the
+# verb position, it defers.
+
+# word_unresolved <word> <expands> <globs> <literal-dollar>: 0 when the word,
+# after tracked substitution, still carries an expansion the analyzer did not
+# resolve. A word mixing a literal and an expanding `$` is never substituted.
+word_unresolved() {
+  [ "$3" = 1 ] && return 0
+  [ "$2" = 0 ] && return 1
+  [ "$4" = 1 ] && return 0
+  case $1 in
+    *'$'*) return 0 ;;
+  esac
+  return 1
+}
+
+# arg_independent_verb <verb>: the verbs whose approval reads no operand value,
+# so an opaque operand is equivalent to some literal they already approve.
+# printf qualifies past its format only (guard_printf).
+arg_independent_verb() {
+  case $1 in
+    cat | head | tail | wc | cut | comm | cmp | basename | dirname | realpath | pwd | echo | seq | true | false | od | tr | stat | grep | ls | diff) return 0 ;;
+    printenv | readlink | nl | paste | column | md5sum | sha1sum | sha256sum | sha512sum | cksum | shellcheck | yamllint) return 0 ;;
+  esac
+  return 1
+}
+
+# guard_test: `test`/`[` evaluate a `-v` operand as an array subscript, which
+# runs any `$(…)` inside it even when the word was single-quoted.
+guard_test() {
+  local i
+  for ((i = 1; i < cwn; i++)); do
+    [ "${cw[i]}" = -v ] && return 1
+  done
+  return 0
+}
+
+# guard_printf: `printf -v NAME` assigns a variable (PATH included) and
+# evaluates a subscript in NAME the way `test -v` does; bash also takes the
+# bundled `-vNAME`. A first word that is any option other than `--` defers.
+guard_printf() {
+  [ "${cw[1]-}" = -- ] && return 0
+  case ${cw[1]-} in
+    -*) return 1 ;;
+  esac
+  return 0
+}
+
+# opaque_words_ok: the current simple command (`cw` and its flag arrays, by
+# dynamic scope) places every unresolved word where its value cannot change
+# the verdict: never the verb, and otherwise only an operand of an
+# argument-independent verb, printf past its format, or a test shape
+# test_opaque_ok admits.
+opaque_words_ok() {
+  local i verb=${cw[0]} fmt=1
+  word_unresolved "$verb" "${cdyn[0]}" "${cglob[0]}" "${cx[0]}" && return 1
+  case $verb in
+    test | '[')
+      test_opaque_ok
+      return
+      ;;
+  esac
+  [ "${cw[1]-}" = -- ] && fmt=2
+  for ((i = 1; i < cwn; i++)); do
+    word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" || continue
+    [ "$verb" = printf ] && [ "$i" -gt "$fmt" ] && continue
+    arg_independent_verb "$verb" || return 1
+  done
+  return 0
+}
+
+# test_opaque_ok: `test`/`[` read their operands as operators by position,
+# and a `-v` operand runs a subscript, so an opaque word is admitted only
+# where bash cannot read it as an operator: it must expand inside double
+# quotes alone (one word, never split or globbed), and the expression must
+# be one operand, a literal unary operator and its operand, or two operands
+# around a literal binary operator. guard_test still refuses a literal `-v`.
+test_opaque_ok() {
+  local i n=$cwn opaque=0
+  [ "${cw[0]}" = '[' ] && [ "${cw[cwn - 1]}" = ']' ] && n=$((cwn - 1))
+  for ((i = 1; i < cwn; i++)); do
+    word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" || continue
+    [ "$i" -lt "$n" ] && [ "${cdyn[i]}" = 1 ] && [ "${cglob[i]}" = 0 ] || return 1
+    opaque=1
+  done
+  [ "$opaque" = 1 ] || return 0
+  case $((n - 1)) in
+    1) return 0 ;;
+    2)
+      word_unresolved "${cw[1]}" "${cdyn[1]}" "${cglob[1]}" "${cx[1]}" && return 1
+      return 0
+      ;;
+    3)
+      word_unresolved "${cw[2]}" "${cdyn[2]}" "${cglob[2]}" "${cx[2]}" && return 1
+      case ${cw[2]} in
+        = | == | != | '<' | '>' | -eq | -ne | -lt | -le | -gt | -ge | -nt | -ot | -ef | -a | -o) return 0 ;;
+      esac
+      return 1
+      ;;
+  esac
+  return 1
+}
+
+# loop_header <idx>: model the `for NAME in WORD…; do` header whose `for` sits
+# at TOK index <idx>. Succeeds only when NAME passes assign_name_ok and is not
+# already in the substitution table (its old value would come back after the
+# loop), and every head word is a plain literal (no
+# expansion, glob, or character outside the guard's path charset, so it reads
+# the same quoted or not and splits into nothing), at most MAX_LOOP_WORDS of
+# them. Appends the words to LW and sets LH_NAME, LH_START, LH_COUNT, and
+# LH_NEXT (the first body token). Any other header shape defers the command.
+loop_header() {
+  local j=$(($1 + 1)) w cnt=0 v
+  [ "$j" -lt "$TOK_N" ] && [ "${TOK_TYPE[j]}" = W ] && [ "${TOK_QUOTED[j]}" = 0 ] || return 1
+  LH_NAME=${TOK_VAL[j]}
+  assign_name_ok "$LH_NAME" || return 1
+  for ((v = 0; v < VAR_C; v++)); do
+    [ "${VAR_N[v]}" = "$LH_NAME" ] && return 1
+  done
+  j=$((j + 1))
+  [ "$j" -lt "$TOK_N" ] && [ "${TOK_TYPE[j]}" = W ] && [ "${TOK_VAL[j]}" = in ] && [ "${TOK_QUOTED[j]}" = 0 ] || return 1
+  j=$((j + 1))
+  LH_START=$LW_N
+  while [ "$j" -lt "$TOK_N" ] && [ "${TOK_TYPE[j]}" = W ]; do
+    w=${TOK_VAL[j]}
+    [ "${TOK_DYN[j]}" = 0 ] && [ "${TOK_GLOB[j]}" = 0 ] || return 1
+    case $w in
+      '' | *[!A-Za-z0-9._/:=@%,+-]*) return 1 ;;
+    esac
+    cnt=$((cnt + 1))
+    [ "$cnt" -le "$MAX_LOOP_WORDS" ] || return 1
+    LW[LW_N]=$w
+    LW_N=$((LW_N + 1))
+    j=$((j + 1))
+  done
+  [ "$cnt" -ge 1 ] || return 1
+  [ "$j" -lt "$TOK_N" ] && [ "${TOK_TYPE[j]}" = O ] && [ "${TOK_VAL[j]}" = ';' ] || return 1
+  j=$((j + 1))
+  [ "$j" -lt "$TOK_N" ] && [ "${TOK_TYPE[j]}" = W ] && [ "${TOK_VAL[j]}" = 'do' ] && [ "${TOK_QUOTED[j]}" = 0 ] || return 1
+  LH_NEXT=$((j + 1))
+  LH_COUNT=$cnt
+  return 0
+}
+
+# loop_enter / loop_next: the `for` modelling inside verify_tokens, reading and
+# writing its walk state (idx, ctl_depth, case_depth, the LF_* frames) by
+# dynamic scope. loop_enter opens a loop at the `for` token: its variable takes
+# the first head word and the walk moves to the body. loop_next runs at a
+# `done`, after the depth drop: 0 sends the walk back to the body with the
+# next head word, 1 lets it go on past the `done` (the loop is closed, its
+# variable dropped from the table, so a later use is opaque), 2 defers.
+loop_enter() {
+  loop_header "$idx" || return 1
+  LOOP_PASSES=$((LOOP_PASSES + 1))
+  [ "$LOOP_PASSES" -le "$MAX_LOOP_PASSES" ] || return 1
+  ctl_depth=$((ctl_depth + 1))
+  LF_VAR[lf_n]=$VAR_C
+  LF_START[lf_n]=$LH_START
+  LF_COUNT[lf_n]=$LH_COUNT
+  LF_POS[lf_n]=0
+  LF_BODY[lf_n]=$LH_NEXT
+  LF_DEPTH[lf_n]=$ctl_depth
+  LF_CASE[lf_n]=$case_depth
+  lf_n=$((lf_n + 1))
+  VAR_N[VAR_C]=$LH_NAME
+  VAR_V[VAR_C]=${LW[LH_START]}
+  VAR_L[VAR_C]=1
+  VAR_O[VAR_C]=0
+  VAR_C=$((VAR_C + 1))
+  idx=$LH_NEXT
+  return 0
+}
+
+loop_next() {
+  local t p
+  [ "$lf_n" -gt 0 ] && [ "$ctl_depth" -eq $((LF_DEPTH[lf_n - 1] - 1)) ] || return 1
+  t=$((lf_n - 1))
+  [ "$case_depth" -eq "${LF_CASE[t]}" ] || return 2
+  p=$((LF_POS[t] + 1))
+  if [ "$p" -lt "${LF_COUNT[t]}" ]; then
+    LOOP_PASSES=$((LOOP_PASSES + 1))
+    [ "$LOOP_PASSES" -le "$MAX_LOOP_PASSES" ] || return 2
+    LF_POS[t]=$p
+    VAR_V[LF_VAR[t]]=${LW[LF_START[t] + p]}
+    ctl_depth=$((ctl_depth + 1))
+    idx=${LF_BODY[t]}
+    return 0
+  fi
+  VAR_C=${LF_VAR[t]}
+  LW_N=${LF_START[t]}
+  lf_n=$t
+  return 1
 }
 
 classify_verb() {
   local verb=$1
   case $verb in
     # Read-only, no write/exec/output vector: any flags are safe.
-    cat | head | tail | wc | cut | comm | cmp | basename | dirname | realpath | pwd | echo | printf | seq | true | false | od | tr | stat | grep | ls | diff | test | '[')
+    cat | head | tail | wc | cut | comm | cmp | basename | dirname | realpath | pwd | echo | seq | true | false | od | tr | stat | grep | ls | diff)
       return 0
       ;;
+    test | '[') guard_test ;;
+    printf) guard_printf ;;
     # Same class, added 2026-09-14 from the shapes real dispatched workers
     # stalled on. Each was checked for a write/exec vector across its whole
     # flag surface and has none: `readlink`/`nl`/`paste`/`column` and the
@@ -1967,6 +2796,12 @@ classify_verb() {
       ;;
     # Read-only analyzers (results to stdout only).
     shellcheck | yamllint) return 0 ;;
+    # Waits and process / lookup inspection (REQ-E1.5).
+    sleep) guard_sleep ;;
+    ps) guard_ps ;;
+    uptime) guard_uptime ;;
+    which) guard_which ;;
+    command) guard_command ;;
     # Read-only tools with a specific write/set/output vector: guarded.
     sort) guard_sort ;;
     uniq) guard_uniq ;;
@@ -1988,6 +2823,9 @@ classify_verb() {
     gh) guard_gh ;;
     mise) guard_mise ;;
     lefthook) guard_lefthook ;;
+    # Writers, approved only inside the spec-root write zone.
+    tee) guard_tee ;;
+    mkdir) guard_mkdir ;;
     # Trusted repo-code runners (path-contained) and the fish recursor.
     bash | sh) guard_bashsh ;;
     fish) guard_fish ;;
@@ -2197,7 +3035,8 @@ resolve_declared() {
   DECL_PGID=''
   [ "$killed" = 0 ] || return 0
   # Only `run` rows count, so the exit status needs no reading: a point that
-  # parks or asks prints those tokens, one that fails prints nothing, and
+  # parks or asks prints those tokens (a refused step its own `refuse`), one
+  # that fails prints nothing, and
   # either leaves the other points' rows as their own runs print them.
   # The --explain columns resolve-steps.sh documents; it prints `-` for an
   # empty field, which a tab IFS would otherwise collapse.
@@ -2226,6 +3065,9 @@ resolve_declared() {
 declared_line_ok() {
   local i=0 i0 f w name key
   [ "$rn" -eq 0 ] || return 1
+  # The declarations resolve from the payload cwd: after a `cd`, a declared
+  # line's relative args would name other files than the declared ones.
+  [ "$HOOK_CWD" = "$HOOK_PAYLOAD_CWD" ] || return 1
   case ${sw[0]} in
     PLANWRIGHT_STEP_*)
       for f in $STEP_CONTEXT_FIELDS; do
@@ -2268,6 +3110,8 @@ declared_line_ok() {
 # from the caller via dynamic scope. Returns 0 (safe) or non-zero (DEFER).
 verify_simple() {
   local i swn=$cwn
+  SIMPLE_N=$((SIMPLE_N + 1))
+  [ "$SIMPLE_N" -le "$MAX_SIMPLE_CMDS" ] || return 1
   local -a sw=() swq=()
   for ((i = 0; i < cwn; i++)); do
     sw[i]=${cw[i]}
@@ -2277,34 +3121,191 @@ verify_simple() {
   declared_line_ok
 }
 
+# An approved wait or time limit is at most two hours, which covers the
+# longest real wait (a full gate run) while a typo such as `sleep 365d` still
+# reaches the prompt instead of parking the worker for good.
+readonly MAX_WAIT_SECONDS=7200
+
+# is_duration <word>: the `sleep` / `timeout` duration form, its length (a
+# fraction rounded up to a whole unit, which errs short of the cap) left in
+# DURATION_SECONDS; at most MAX_WAIT_SECONDS.
+is_duration() {
+  local re='^([0-9]{1,9})(\.([0-9]+))?([smhd]?)$' whole mult
+  [[ $1 =~ $re ]] || return 1
+  whole=$((10#${BASH_REMATCH[1]}))
+  case ${BASH_REMATCH[4]} in
+    m) mult=60 ;;
+    h) mult=3600 ;;
+    d) mult=86400 ;;
+    *) mult=1 ;;
+  esac
+  DURATION_SECONDS=$((whole * mult))
+  case ${BASH_REMATCH[3]} in
+    *[1-9]*) DURATION_SECONDS=$((DURATION_SECONDS + mult)) ;;
+  esac
+  [ "$DURATION_SECONDS" -le "$MAX_WAIT_SECONDS" ]
+}
+
+# strip_prefixes: drop the transparent `time [-p]` and `timeout <duration>`
+# prefixes (REQ-A1.13) from the current simple command, setting PREFIXED, so
+# the command they wrap is verified as if it stood alone. Non-zero defers: a
+# prefix with nothing to run, a `cd` under a prefix (its directory would not
+# carry), or a `time` or `timeout` left after the prefixes, which would be
+# the `time` program or a nested timeout rather than a keyword. A `timeout`
+# whose next word is not a duration is left as the verb, and classify_verb
+# defers it.
+strip_prefixes() {
+  PREFIXED=0
+  # `time` is a keyword only when written as a bare word, and `-p` its option
+  # only when written bare too (a quoted `"-p"` is the command it runs), so
+  # both are read from the unsubstituted words (`sw` / `swq`, verify_simple's
+  # copy): a `$T` that expands to `time` runs the program. The timeout
+  # duration is held to a bare word the same way.
+  if [ "${sw[0]-}" = time ] && [ "${swq[0]-}" -lt 0 ]; then
+    if [ "${sw[1]-}" = -p ] && [ "${swq[1]-}" -lt 0 ] && [ "${cw[1]-}" = -p ]; then
+      shift_words 2
+    else
+      shift_words 1
+    fi
+    PREFIXED=1
+    [ "$cwn" -ge 1 ] || return 1
+  fi
+  if [ "${cw[0]}" = timeout ] && [ "$cwn" -ge 2 ] && [ "${cqp[1]}" -lt 0 ] \
+    && ! word_unresolved "${cw[1]}" "${cdyn[1]}" "${cglob[1]}" "${cx[1]}" \
+    && is_duration "${cw[1]}"; then
+    shift_words 2
+    PREFIXED=1
+    [ "$cwn" -ge 1 ] || return 1
+  fi
+  if [ "$PREFIXED" = 1 ]; then
+    case ${cw[0]} in
+      time | timeout | cd) return 1 ;;
+    esac
+  fi
+  return 0
+}
+
+# cd_target_ok: the current simple command is `cd <dir>` naming an existing
+# directory inside the session's own worktree (REQ-E1.4); leaves its
+# canonical path in PENDING_CD for verify_tokens to carry once it knows the
+# segment's placement. The operand is resolved by this hook against the
+# modelled working directory, never through CDPATH, and only where bash's
+# logical `cd` lands on the same directory as the physical path checked
+# here: no `..` component, no symlinked component, and an absolute operand
+# written in its canonical form. A `fish -c` inner string defers, its `cd`
+# being fish's.
+cd_target_ok() {
+  local t=${cw[1]-} base acc comp canon
+  local -a comps=()
+  [ "$cwn" -eq 2 ] && [ "$HOOK_DEPTH" -eq 0 ] && [ "$HOOK_CDPATH_SET" = 0 ] || return 1
+  if [ "$HOOK_WT_RESOLVED" = 0 ]; then
+    HOOK_WT_ROOT=$(repo_root_of "$HOOK_PAYLOAD_CWD") || HOOK_WT_ROOT=''
+    HOOK_WT_RESOLVED=1
+  fi
+  [ -n "$HOOK_WT_ROOT" ] || return 1
+  word_unresolved "$t" "${cdyn[1]}" "${cglob[1]}" "${cx[1]}" && return 1
+  # A plain operand only: bash tilde-expands after `=`, zsh reads `+N` / `-N`
+  # as the directory stack and `=cmd` as a command path, and zsh glob options
+  # a shell snapshot can carry turn `^`, `#`, `~` and braces into patterns.
+  [ "${cz[1]-0}" = 0 ] || return 1
+  case $t in
+    '' | [-+]* | *[!A-Za-z0-9._/@%,:+-]*) return 1 ;;
+  esac
+  case /$t/ in
+    */../*) return 1 ;;
+  esac
+  case $t in
+    /*)
+      canon=$(cd "$t" 2>/dev/null && pwd -P) || return 1
+      [ "$canon" = "$t" ] || [ "$canon/" = "$t" ] || return 1
+      ;;
+    *)
+      base=$(cd "$HOOK_CWD" 2>/dev/null && pwd -P) || return 1
+      acc=$base
+      IFS=/ read -r -a comps <<<"$t"
+      for comp in ${comps[@]+"${comps[@]}"}; do
+        case $comp in
+          '' | .) continue ;;
+        esac
+        acc=$acc/$comp
+        [ -L "$acc" ] && return 1
+        [ -d "$acc" ] || return 1
+      done
+      canon=$(cd "$acc" 2>/dev/null && pwd -P) || return 1
+      [ "$canon" = "$acc" ] || return 1
+      ;;
+  esac
+  case $canon in
+    "$HOOK_WT_ROOT" | "$HOOK_WT_ROOT"/*) ;;
+    *) return 1 ;;
+  esac
+  cd_same_repo "$canon" || return 1
+  PENDING_CD=$canon
+  return 0
+}
+
+# cd_same_repo <canonical-dir>: 0 only when git places <dir> in the session's
+# own repository: the same top level and the same common directory as the
+# worktree root. A nested repository, a submodule, another worktree, or the
+# git directory itself would hand every later `git` that repository's own
+# config (its fsmonitor, hooks, aliases, pager), which is why `git -C <dir>`
+# defers; a `cd` there defers the same way. rev-parse reads config but runs
+# none of it.
+cd_same_repo() {
+  local here
+  if [ -z "${HOOK_WT_GIT:-}" ]; then
+    HOOK_WT_GIT=$(git -C "$HOOK_WT_ROOT" rev-parse --path-format=absolute --show-toplevel --git-common-dir 2>/dev/null) \
+      || return 1
+  fi
+  here=$(git -C "$1" rev-parse --path-format=absolute --show-toplevel --git-common-dir 2>/dev/null) || return 1
+  [ -n "$here" ] && [ "$here" = "$HOOK_WT_GIT" ]
+}
+
+# version_tool <verb>: the allowlisted tools whose bare `--version` form
+# (REQ-E1.5) only prints a version.
+version_tool() {
+  case $1 in
+    git | gh | jq | yq | rg | fd | sed | awk | find | grep | sort | uniq | date | file | \
+      bash | sh | fish | bats | mise | lefthook | shellcheck | shfmt | yamllint | \
+      markdownlint | markdownlint-cli2 | cat | head | tail | wc | ls | diff | stat | od | tr | \
+      seq | cut | comm | cmp | basename | dirname | realpath | readlink | nl | paste | column | \
+      md5sum | sha1sum | sha256sum | sha512sum | cksum | env | printenv | sleep | ps | uptime | which) return 0 ;;
+  esac
+  return 1
+}
+
 # verify_known_simple: the enumerated known-safe rules for one simple command.
 verify_known_simple() {
   local i verb
-  # Redirects first: a write to a real file defers regardless of the verb
-  # (covers a leading redirect with no command too, e.g. `> f cat x`).
+  # Redirects first: a write to a real file defers regardless of the verb,
+  # unless its target is in the spec-root write zone (covers a leading
+  # redirect with no command too, e.g. `> f cat x`).
   for ((i = 0; i < rn; i++)); do
-    classify_redirect "${ro[i]}" "${rt[i]}" || return 1
+    classify_redirect "${ro[i]}" "${rt[i]}" || spec_zone_redirect "${ro[i]}" "${rt[i]}" || return 1
   done
   # A command with redirects but no words (pure `> file`) already handled;
   # an empty simple command (e.g. a trailing separator) is a no-op.
   [ "$cwn" -ge 1 ] || return 0
-  # Resolve the tracked assignments into this command's words first, so a verb
-  # or script path written through `$ROOT` is verified as the literal path the
-  # shell will run. Words carrying a literal `$` are left alone.
-  if [ "$VAR_C" -gt 0 ]; then
-    for ((i = 0; i < cwn; i++)); do
-      case ${cw[i]} in
-        *'$'*) [ "${cx[i]}" = 0 ] && cw[i]=$(expand_word "${cw[i]}") ;;
-      esac
-    done
-  fi
-  verb=${cw[0]}
   # A standalone assignment (the whole simple command is one `NAME=value`
   # word) that the tracking rules admit runs nothing and is recorded for the
-  # words that follow; whether it is committed is verify_tokens' call.
-  if [ "$cwn" -eq 1 ] && track_assignment "$verb" "${cqp[0]}"; then
+  # words that follow; whether it is committed is verify_tokens' call. It is
+  # read before substitution: a word that only becomes `NAME=value` through
+  # an expansion is a command name, not an assignment.
+  if [ "$cwn" -eq 1 ] && track_assignment; then
     return 0
   fi
+  # Resolve the tracked assignments into this command's words, so a verb,
+  # script path, or screened operand written through `$NAME` is verified as
+  # the words the shell will run. Words carrying a literal `$` are left alone.
+  [ "$VAR_C" -eq 0 ] || expand_words
+  [ "$cwn" -ge 1 ] || return 0
+  strip_prefixes || return 1
+  verb=${cw[0]}
+  if [ "$verb" = cd ]; then
+    cd_target_ok
+    return
+  fi
+  opaque_words_ok || return 1
   # Inline environment-assignment prefix (REQ-A1.9): VAR=value [cmd].
   case $verb in
     [A-Za-z_]*=*)
@@ -2327,6 +3328,9 @@ verify_known_simple() {
       return 1
       ;;
   esac
+  if [ "$cwn" -eq 2 ] && [ "${cw[1]}" = --version ] && version_tool "$verb"; then
+    return 0
+  fi
   classify_verb "$verb"
 }
 
@@ -2334,48 +3338,88 @@ verify_known_simple() {
 # verify_tokens <depth>: walk the token stream (in the caller's TOK_* locals),
 # splitting into simple commands on control operators and recognizing the
 # for/while/until/if/case control structures so their COMMAND regions are each
-# verified while their header/pattern regions are skipped (REQ-A1.5). Any
+# verified while their case pattern regions are skipped (REQ-A1.5). A `for`
+# header is modelled (loop_enter: the body is verified once per head word);
+# `select`, `for` with no in-list, and an arithmetic `for ((…))` defer. Any
 # construct it cannot confidently place — a stray `)`, a subshell `(`, a brace
 # group, a nested `case`, an unbalanced structure — defers. Returns 0 (every
 # simple command safe) or non-zero (DEFER).
 verify_tokens() {
   local depth=$1
   local idx=0 typ val
-  local mode=normal # normal | skip | casehead | casepat | casebody
+  local mode=normal # normal | casehead | casepat | casebody
   local case_depth=0
   # Nesting depth of for/while/until/if/case bodies, and the operator that
   # opened the current segment ('' at the start, a control operator, or `ctl`
-  # for a reserved-word boundary): together they decide whether a tracked
-  # assignment was unconditional (see track_assignment).
-  local ctl_depth=0 seg_open='' prev_commit=0
+  # for a reserved-word boundary), whether the previous segment carried state,
+  # and whether a `cd` has: together they decide where state may carry (fin).
+  local ctl_depth=0 seg_open='' prev_commit=0 cd_live=0
   # Accumulators for the current simple command (dynamic scope: verify_simple
-  # reads these): words, their literal-dollar flags, their quote-start offsets,
-  # and the redirects. Reset by fin().
-  local -a cw=() cx=() cqp=() ro=() rt=()
+  # reads these): words, their literal-dollar, quote-start, expansion, glob,
+  # zsh-option and mixed-quoting flags, and the redirects. Reset by fin().
+  local -a cw=() cx=() cqp=() cdyn=() cglob=() cz=() cqm=() ro=() rt=()
   local cwn=0 rn=0
+  # The open `for` loops, innermost last: the loop variable's VAR slot, its
+  # head words in LW, the word being verified, the first body token, and the
+  # ctl/case depth inside the body, so the matching `done` is the one the walk
+  # itself pairs with this `for`.
+  local -a LF_VAR=() LF_START=() LF_COUNT=() LF_POS=() LF_BODY=() LF_DEPTH=() LF_CASE=()
+  local lf_n=0
 
-  # fin <closing-op>: finalize the current simple command (verify it), commit a
-  # tracked assignment when its segment was unconditional and top-level, and
-  # reset. Only called in normal / casebody accumulation modes.
+  # fin <closing-op>: finalize the current simple command (verify it), carry
+  # the state it sets (a tracked assignment, a `cd`) when its placement allows,
+  # and reset. Only called in normal / casebody accumulation modes. State
+  # carries from a segment at the top level opened by nothing, `;`, or `&&`
+  # straight after another state-carrying segment: anywhere else the segment
+  # may run in a subshell or not at all, so the command defers. An assignment
+  # always succeeds, so it may also close with `;` or `||`; a `cd` can fail,
+  # so it must close with `&&` or end the command, and once one is carried,
+  # every later top-level operator must keep the walk inside its `&&` chain
+  # (`&&`, or `|`, which binds tighter), since after `;`, `||`, or `&` the
+  # directory is no longer known.
   fin() {
-    local close=$1 ok=0
+    local close=$1 placed=0
     PENDING_ASSIGN_N=''
     PENDING_ASSIGN_V=''
+    PENDING_ASSIGN_O=0
+    PENDING_CD=''
     verify_simple || return 1
-    if [ -n "$PENDING_ASSIGN_N" ] && [ "$ctl_depth" -eq 0 ]; then
-      case $seg_open in
-        '' | ';') ok=1 ;;
-        '&&') [ "$prev_commit" = 1 ] && ok=1 ;;
-      esac
+    if [ "$cd_live" = 1 ] && [ "$ctl_depth" -eq 0 ]; then
       case $close in
-        ';' | '&&' | '||' | end) ;;
-        *) ok=0 ;;
+        '&&' | '|' | ctl | end) ;;
+        *) return 1 ;;
       esac
     fi
-    if [ "$ok" = 1 ]; then
-      VAR_N[VAR_C]=$PENDING_ASSIGN_N
-      VAR_V[VAR_C]=$PENDING_ASSIGN_V
-      VAR_C=$((VAR_C + 1))
+    if [ -n "$PENDING_ASSIGN_N" ] || [ -n "$PENDING_CD" ]; then
+      if [ "$ctl_depth" -eq 0 ]; then
+        case $seg_open in
+          '' | ';') placed=1 ;;
+          '&&') [ "$prev_commit" = 1 ] && placed=1 ;;
+        esac
+      fi
+      if [ -n "$PENDING_CD" ]; then
+        case $close in
+          '&&' | end) ;;
+          *) placed=0 ;;
+        esac
+      else
+        case $close in
+          ';' | '&&' | '||' | end) ;;
+          *) placed=0 ;;
+        esac
+      fi
+      [ "$placed" = 1 ] || return 1
+      if [ -n "$PENDING_CD" ]; then
+        HOOK_CWD=$PENDING_CD
+        cd_live=1
+      else
+        [ "$VAR_C" -lt "$MAX_TRACKED_VARS" ] || return 1
+        VAR_N[VAR_C]=$PENDING_ASSIGN_N
+        VAR_V[VAR_C]=$PENDING_ASSIGN_V
+        VAR_L[VAR_C]=0
+        VAR_O[VAR_C]=$PENDING_ASSIGN_O
+        VAR_C=$((VAR_C + 1))
+      fi
       prev_commit=1
     else
       prev_commit=0
@@ -2384,6 +3428,10 @@ verify_tokens() {
     cw=()
     cx=()
     cqp=()
+    cdyn=()
+    cglob=()
+    cz=()
+    cqm=()
     ro=()
     rt=()
     cwn=0
@@ -2395,14 +3443,6 @@ verify_tokens() {
     typ=${TOK_TYPE[idx]}
     val=${TOK_VAL[idx]}
 
-    # for-loop header: skip everything up to the matching `do`.
-    if [ "$mode" = skip ]; then
-      if [ "$typ" = W ] && [ "$val" = "do" ]; then
-        mode=normal
-      fi
-      idx=$((idx + 1))
-      continue
-    fi
     # case head: skip the matched word up to `in`.
     if [ "$mode" = casehead ]; then
       if [ "$typ" = W ] && [ "$val" = "in" ]; then
@@ -2475,10 +3515,15 @@ verify_tokens() {
     # yet) is structural; otherwise it is an ordinary argument.
     if [ "$cwn" -eq 0 ] && is_reserved "$val"; then
       case $val in
-        for | select)
+        for)
+          # Verify the body once per head word, the loop variable substituted
+          # (REQ-E1.1); `done` loops the walk back to the body for the next one.
           fin ctl || return 1
-          ctl_depth=$((ctl_depth + 1))
-          mode=skip
+          loop_enter || return 1
+          continue
+          ;;
+        select)
+          return 1 # its variable takes whatever the user types: not modelled
           ;;
         while | until | if)
           fin ctl || return 1
@@ -2487,10 +3532,20 @@ verify_tokens() {
         then | elif | else | do)
           fin ctl || return 1 # boundary; regions on both sides are commands
           ;;
-        fi | done)
+        fi)
           fin ctl || return 1
           ctl_depth=$((ctl_depth - 1))
           [ "$ctl_depth" -ge 0 ] || return 1 # a closer with no opener: defer
+          ;;
+        done)
+          fin ctl || return 1
+          ctl_depth=$((ctl_depth - 1))
+          [ "$ctl_depth" -ge 0 ] || return 1 # a closer with no opener: defer
+          loop_next
+          case $? in
+            0) continue ;;
+            2) return 1 ;;
+          esac
           ;;
         'case')
           fin ctl || return 1
@@ -2518,6 +3573,10 @@ verify_tokens() {
     cw[cwn]=$val
     cx[cwn]=${TOK_NOEXP[idx]}
     cqp[cwn]=${TOK_QPOS[idx]}
+    cdyn[cwn]=${TOK_DYN[idx]}
+    cglob[cwn]=${TOK_GLOB[idx]}
+    cz[cwn]=${TOK_ZOPT[idx]}
+    cqm[cwn]=${TOK_QMIX[idx]}
     cwn=$((cwn + 1))
     idx=$((idx + 1))
   done
@@ -2539,14 +3598,18 @@ analyze_command() {
   local cmd=$1 depth=$2
   [ "$depth" -le "$MAX_DEPTH" ] || return 1
   [ "${#cmd}" -le "$MAX_CMD_LEN" ] || return 1
-  local -a TOK_TYPE=() TOK_VAL=() TOK_QUOTED=() TOK_NOEXP=() TOK_QPOS=()
+  local -a TOK_TYPE=() TOK_VAL=() TOK_QUOTED=() TOK_NOEXP=() TOK_QPOS=() TOK_DYN=() TOK_GLOB=() TOK_ZOPT=() TOK_QMIX=()
   local TOK_N=0
   local HOOK_DEPTH=$depth
-  # The tracked-assignment table (track_assignment / expand_word), fresh per
-  # entry so a `fish -c` inner string never inherits the outer shell's.
-  local -a VAR_N=() VAR_V=()
-  local VAR_C=0
-  local PENDING_ASSIGN_N='' PENDING_ASSIGN_V=''
+  # The substitution table (tracked assignments and loop variables, VAR_L
+  # marking the latter and VAR_O an opaque value; track_assignment /
+  # loop_header / expand_word), fresh
+  # per entry so a `fish -c` inner string never inherits the outer shell's,
+  # and the loop head words it draws from.
+  local -a VAR_N=() VAR_V=() VAR_L=() VAR_O=() LW=()
+  local VAR_C=0 LW_N=0
+  local LH_NAME='' LH_START=0 LH_COUNT=0 LH_NEXT=0
+  local PENDING_ASSIGN_N='' PENDING_ASSIGN_V='' PENDING_ASSIGN_O=0 PENDING_CD='' PREFIXED=0
   tokenize "$cmd" || return 1
   verify_tokens "$depth"
 }
@@ -2572,8 +3635,10 @@ main() {
 
   # The command must be a JSON string; a present-but-empty or non-string value
   # defers (REQ-B1.7).
+  # A NUL byte defers too: the command substitution drops it, so the guard
+  # would screen other text than the shell runs.
   cmd=$(printf '%s' "$input" \
-    | jq -r 'if (.tool_input.command | type) == "string" then .tool_input.command else empty end' \
+    | jq -r 'if (.tool_input.command | type) == "string" and (.tool_input.command | explode | any(. == 0) | not) then .tool_input.command else empty end' \
       2>/dev/null) || return 0
   [ -n "$cmd" ] || return 0
 
@@ -2582,7 +3647,8 @@ main() {
   # (object, array, number, boolean) means the payload does not match the
   # documented PreToolUse contract, so the whole analysis defers rather than
   # containment-checking against whatever `jq -r` renders such a value as.
-  case $(printf '%s' "$input" | jq -r 'if has("cwd") and .cwd != null then (.cwd | type) else "absent" end' 2>/dev/null) in
+  # A NUL byte in cwd defers, as in the command.
+  case $(printf '%s' "$input" | jq -r 'if has("cwd") and .cwd != null then (if (.cwd | type) == "string" and (.cwd | explode | any(. == 0)) then "nul" else (.cwd | type) end) else "absent" end' 2>/dev/null) in
     absent) cwd=$PWD ;;
     string)
       cwd=$(printf '%s' "$input" | jq -r '.cwd' 2>/dev/null) || return 0
@@ -2590,7 +3656,13 @@ main() {
       ;;
     *) return 0 ;; # present but not a string: defer
   esac
-  local HOOK_CWD=$cwd
+  local HOOK_CWD=$cwd HOOK_PAYLOAD_CWD=$cwd
+  # The session's own worktree, which a `cd` may not leave: the checkout the
+  # payload cwd sits in, resolved by the first `cd` (cd_target_ok).
+  local HOOK_WT_ROOT='' HOOK_WT_RESOLVED=0 HOOK_WT_GIT=''
+  # Shared across `fish -c` recursion so nesting cannot multiply the bound.
+  LOOP_PASSES=0
+  SIMPLE_N=0
 
   analyze_command "$cmd" 0 || return 0
   emit_allow
@@ -2614,6 +3686,32 @@ HOOK_ENV_NAMES=$NL$(compgen -e)$NL
 # any payload is read, and left empty when it cannot be resolved (in which case
 # that arm simply never fires). Never derived from the analyzed command.
 HOOK_SELF_ROOT=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd -P) || HOOK_SELF_ROOT=''
+# The spec-root write zone (see in_spec_zone), read once at load from the
+# dispatcher's hand-off: an absolute directory that canonicalizes and carries
+# the root marker as a regular file, or else no zone. Never derived from the
+# analyzed command.
+spec_zone_load() {
+  local v=${PLANWRIGHT_WORKER_SPEC_ROOT:-} c
+  case $v in
+    /?*) ;;
+    *) return 0 ;;
+  esac
+  c=$(cd -P -- "$v" 2>/dev/null && pwd -P) || return 0
+  [ "$c" != / ] || return 0
+  [ -f "$c/planwright-spec-root.yml" ] && [ ! -L "$c/planwright-spec-root.yml" ] || return 0
+  printf '%s' "$c"
+}
+SPEC_ZONE=$(spec_zone_load) || SPEC_ZONE=''
+# plugin_root_unlinked <scripts-dir>: $CLAUDE_PLUGIN_ROOT, or nothing when
+# resolve-installed-roots.sh's symlink rule refuses it (or cannot be run). The
+# chain canonicalizes an arm, so a plugin cache root reached through a symlink
+# would make wherever it points trusted.
+plugin_root_unlinked() {
+  local r=${CLAUDE_PLUGIN_ROOT:-}
+  [ -n "$r" ] && [ -r "$1/resolve-installed-roots.sh" ] || return 0
+  /bin/sh "$1/resolve-installed-roots.sh" --unlinked "$r" 2>/dev/null && printf '%s' "$r"
+  return 0
+}
 # Arm 1: the core root chain, from the resolver shipped beside this hook. It
 # runs only when a script path is actually checked, since most commands never
 # need it and the hook runs on every tool call. Its warnings are dropped: a
@@ -2621,7 +3719,7 @@ HOOK_SELF_ROOT=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd -P) || HOOK_SELF_ROO
 # trusted.
 chain_roots() {
   [ -n "$HOOK_SELF_ROOT" ] && [ -r "$HOOK_SELF_ROOT/scripts/resolve-root.sh" ] || return 0
-  /bin/sh "$HOOK_SELF_ROOT/scripts/resolve-root.sh" install --all 2>/dev/null || :
+  CLAUDE_PLUGIN_ROOT=$(plugin_root_unlinked "$HOOK_SELF_ROOT/scripts") /bin/sh "$HOOK_SELF_ROOT/scripts/resolve-root.sh" install --all 2>/dev/null || :
 }
 # Arm 3 of the same chain: the roots Claude Code itself installed the plugin
 # at, resolved once at load from its own record and cache (never from the
