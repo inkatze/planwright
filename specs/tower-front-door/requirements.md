@@ -1,7 +1,7 @@
 # Tower front door — Requirements
 
-**Status:** Ready
-**Last reviewed:** 2026-09-03
+**Status:** Draft
+**Last reviewed:** 2026-10-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -70,6 +70,12 @@ the mechanism filling the entrance seam.
 - Persistent memory of past flights beyond the audit trail (preference
   learning, style adaptation).
 - Any change to sign-off or merge semantics.
+- (2026-10-10 amendment) The fleet-messaging transport, the tower
+  permission floor, and the stale-attention sweep: each is owned by its
+  own amendment or has shipped.
+- (2026-10-10 amendment) Any change to the custom-steps contract itself:
+  flights consume the step grammar, resolver, records, and runner
+  procedure as they stand; custom-steps' own ledger is not edited here.
 
 ## REQ-A — The entrance
 
@@ -177,6 +183,38 @@ the mechanism filling the entrance seam.
   routed with stated grounds.
   *(Cites: kickoff §3 REQ-C (2026-08-28), work-placement doctrine
   (Sources).)*
+- **REQ-C1.7** A visual flight SHALL fire every in-run attachment point
+  `/execute-task` fires for a task unit, in the same order and at the same
+  moments relative to its own work, each resolved with unit kind
+  `flight`; no in-run point SHALL be skipped on a flight because the unit
+  is specless.
+  *(Cites: D-16, obs:91ee3112, obs:6f21547d.)*
+- **REQ-C1.8** Every step a flight fires SHALL follow the same runner
+  contract a task unit's steps follow — resolution, screening, hosting,
+  timeout, on-failure posture, and step records — for every step kind the
+  step grammar defines; no flight-only step grammar, refusal, or config
+  knob SHALL be introduced.
+  *(Cites: D-16, D-17, obs:91ee3112, the custom-steps flight deferral
+  (Sources).)*
+- **REQ-C1.9** A step the resolver degrades for a task unit SHALL degrade
+  identically on a flight; dispatch SHALL refuse to place a flight only
+  where the same resolution would stop a task unit's pre-flight point
+  check, and every refusal SHALL name the point and the step id.
+  *(Cites: D-16, obs:6f21547d.)*
+- **REQ-C1.10** A command step on a flight SHALL be approved by the worker
+  command guard on exactly the terms a task worker's declared command line
+  is approved; a flight worker SHALL NOT gain any approval a task worker
+  lacks.
+  *(Cites: D-19, security-posture doctrine (Sources).)*
+- **REQ-C1.11** A flight's `post-pr` point SHALL fire only after its draft
+  PR exists; on the file home, where no PR exists, the point SHALL NOT
+  fire and the record's `post-pr` step table SHALL say it was not fired
+  and why.
+  *(Cites: D-18.)*
+- **REQ-C1.12** After its `post-pr` list, a flight SHALL re-emit its step
+  tables into the record and verify its PR is still a draft, parking when
+  it is not, as a task unit does after its own `post-pr` list.
+  *(Cites: D-16, D-18.)*
 
 ## REQ-D — Instrument flight
 
@@ -204,6 +242,19 @@ the mechanism filling the entrance seam.
   (REQ-C1.3), the worker handle, and the revert path. The flight worker
   authors and lands the record.
   *(Cites: D-6, the tower-front-door seed (Sources).)*
+  **Superseded-by: REQ-E1.6** (2026-10-10) — the record carries the
+  public statement of the ask rather than the ask verbatim, and every
+  fired point's step table.
+- **REQ-E1.6** (supersedes REQ-E1.1) Every visual flight's audit record
+  SHALL carry: the public statement of the ask — the ask itself, or the
+  tower's public summary when one was given, followed by a fixed line
+  saying the worker was briefed beyond it; the routing decision and its
+  grounds; the audit tables the review skills produce (lens coverage, the
+  four buckets, the declined log, the pending-sign-off checklist) and the
+  step table of every point the flight fired; any rigor scoping applied
+  (REQ-C1.3); the worker handle; and the revert path. The flight worker
+  authors and lands the record.
+  *(Cites: D-6, D-20, obs:2080c12b.)*
 - **REQ-E1.2** The record's authoritative home SHALL be adaptive,
   determined and declared at routing time: the draft PR body where a
   remote and `gh` are available; a committed per-flight record file at
@@ -229,6 +280,28 @@ the mechanism filling the entrance seam.
   its downstream parsing.
   *(Cites: kickoff §3 REQ-E (2026-09-01), security-posture doctrine
   (Sources).)*
+- **REQ-E1.7** The tower SHALL supply a public summary of the ask whenever
+  the ask carries detail the security-posture data-hygiene rule keeps off
+  committed or remote surfaces; when a summary is given, the full ask
+  SHALL reach the worker only through its private brief under the fleet
+  home, and no write by dispatch, the worker, or the record renderer SHALL
+  place the full ask on a committed or remote surface.
+  *(Cites: D-13, D-20, obs:2080c12b, security-posture doctrine (Sources).)*
+- **REQ-E1.8** The record renderer's no-restated-prompt check SHALL test
+  the record's lead against the private ask as well as against the public
+  statement, refusing a lead that restates either.
+  *(Cites: D-20, REQ-E1.5.)*
+- **REQ-E1.9** A flight that parks SHALL first render its partial record —
+  the review findings so far, the declined log, and the park reason — to a
+  private location beside its brief under the fleet home, never committed
+  and never pushed; the tower's start sweep and `/resume`'s tower mode
+  SHALL surface it; it SHALL persist while the flight's worktree exists,
+  and its removal after that SHALL be bounded-or-surfaced (REQ-F1.6).
+  *(Cites: D-21, obs:6d860346.)*
+- **REQ-E1.10** The flight-rules doctrine SHALL state every condition under
+  which dispatch refuses a record home, the spec root lying outside the
+  checkout included.
+  *(Cites: D-22, obs:357b0e50.)*
 
 ## REQ-F — Attention and survival
 
@@ -372,6 +445,18 @@ the mechanism filling the entrance seam.
   (format-grammar REQ-D1.1) reads as a non-reference bullet; that section
   is outside the content anchor. No requirement or decision changes
   meaning.
+- 2026-10-10 — Amendment drafted (meaning-class, pending a scoped
+  `/spec-kickoff` delta re-walkthrough; stored status Ready→Draft on all
+  four headers until that kickoff flips it back): flights fire every in-run attachment point
+  under the task runner contract, every step kind included, with a broken
+  step degrading as on a task unit instead of refusing the flight
+  (REQ-C1.7–C1.12 minted); REQ-E1.1 superseded by REQ-E1.6 (the record
+  carries the public statement of the ask and every fired point's step
+  table); REQ-E1.7–E1.10 minted (the public ask summary and the private
+  brief, the restate check against both, the parked flight's private
+  partial record, the outside-root home refusal stated in doctrine);
+  D-16–D-22 minted; Tasks 14–18 added; Out of scope extended. Seeded from
+  five observations (Sources). Files touched: all four authored files.
 
 ## Sources
 
@@ -441,3 +526,30 @@ the mechanism filling the entrance seam.
 - **Drafting-session decisions** (2026-08-27): the operator walk recorded
   in this bundle's D-IDs and the fork resolutions cited as
   drafting-session decisions.
+- **obs:91ee3112** (2026-10-07) — flights carry only the convergence list
+  and refuse prompt steps, so a flight PR never gets the configured
+  post-PR point; the tower relayed the post-PR list to each flight by
+  hand.
+- **obs:2080c12b** (2026-10-07) — the flight record quotes the ask
+  verbatim into the PR body, so an ask briefing the worker on a sensitive
+  defect publishes the briefing; the worker parked and the tower swapped
+  in a sanitized ask.
+- **obs:6f21547d** (2026-10-05) — one machine-local prompt step in the
+  convergence list stopped every flight dispatch on the host: a single
+  step's kind took down the whole flight path instead of degrading.
+- **obs:6d860346** (2026-10-08) — a flight parked at a hard pause kept its
+  review record only in its session transcript and an uncommitted file;
+  a later kickoff had to recover the findings from the transcript.
+- **obs:357b0e50** (2026-10-07) — flight-rules states the record's two
+  homes but not that dispatch refuses the file home when the spec root
+  lies outside the checkout.
+- **The custom-steps flight deferral** — custom-steps' Deferred entry
+  "Command and prompt steps on a flight" (custom-steps D-10, D-13 ·
+  custom-steps REQ-F1.5, REQ-G1.1), whose gate the obs:6f21547d
+  observation fires; it enumerates what a flight needs to run command and
+  prompt steps. This amendment satisfies it; the entry itself is left to
+  its owning bundle.
+- **Drafting-session decisions** (2026-10-10): the amendment's scope (all
+  in-run points, every step kind), the public-summary shape, the private
+  parked record, the worker-as-runner mechanism, and keeping both gaps in
+  this bundle rather than splitting gap 1 into custom-steps.

@@ -1,1 +1,2 @@
 - 2026-10-08 [planwright] A flight parked at the security-zone hard pause kept its review record (findings and declined log) only in its worker session transcript and an uncommitted .claude/polish-audit.md in its worktree; the branch was local-only with no PR. A spec that folded the flight in (tower-placement) cited the findings by number, and the kickoff had to recover them from the transcript. A parked flight could land its audit record somewhere durable (the flight record file or a draft PR) before parking.
+Consumed-by: specs/tower-front-door (2026-10-10)

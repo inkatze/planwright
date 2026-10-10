@@ -1,12 +1,13 @@
 # Tower front door — Design
 
-**Status:** Ready
-**Last reviewed:** 2026-09-01
+**Status:** Draft
+**Last reviewed:** 2026-10-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 
 Origin tags: `N` = new decision, minted in this bundle's drafting session
-(2026-08-27). Foreign IDs are namespace-qualified.
+(2026-08-27); `E` = extension decision, minted in the 2026-10-10 amendment
+drafting session. Foreign IDs are namespace-qualified.
 
 ## Decision log
 
@@ -383,6 +384,182 @@ kickoff) is untouched.
 
 **Chosen because:** the go stays a conscious human act per request while
 the front door stays useful end-to-end.
+
+### D-16: Flights fire every in-run point under the task runner contract  (E)
+
+**Decision:** A visual flight fires every in-run attachment point
+`/execute-task` fires (custom-steps' point vocabulary, read from its
+doctrine rather than restated here), in the same order and at the same
+moments relative to its own work, with unit kind `flight`. Every step kind
+the step grammar defines runs, under the same runner contract a task unit's
+steps follow. Dispatch replaces its skill-only refusal with the same
+whole-run point check `/execute-task` runs at pre-flight, so a step that
+degrades for a task unit (a machine-local malformation, a missing skill)
+degrades the same way on a flight, and dispatch refuses only where that
+check would stop a task unit, naming the point and step id. D-7's one
+convergence sequence stands unchanged; the skill-only narrowing was a
+dispatch-path choice recorded in custom-steps' flight deferral, not a
+decision of this bundle, and it is the narrowing that is lifted.
+
+**Alternatives considered:**
+- Convergence plus `post-pr` only. Rejected because: the operator's
+  overlay already carries steps at the other points (a `pre-ci` command
+  step among them), and leaving them unfired on flights keeps the "relay
+  it by hand" gap open for every point but one.
+- Keep the skill-only rule, degrading a non-skill step to a recorded skip.
+  Rejected because: it fixes the blast radius (obs:6f21547d) but not the
+  gap itself: a configured prompt step at `post-pr` still never runs on a
+  flight.
+- Keep refusing a flight whose list names a non-skill step. Rejected
+  because: one machine-local step entry took down every flight on a host
+  (obs:6f21547d), a blast radius a task unit does not suffer.
+
+**Chosen because:** custom-steps already defines a unit run as covering the
+flight, and the operator's verification cadence is per PR, not per route;
+parity removes the tower's hand relay instead of moving it.
+
+### D-17: The flight worker runs points by `/execute-task`'s procedure  (E)
+
+**Decision:** The flight worker is the runner at each point. The brief
+names each in-run point at its moment in the flight's work and directs the
+worker to run it by `/execute-task`'s *Points* procedure, read from the
+planwright root dispatch resolved, with that root pinned for the
+resolver so a point resolves against the same catalog and skills dispatch
+checked. Dispatch keeps an up-front check of every in-run point. A
+pin-check asserts the referenced section heading exists in
+`/execute-task`'s skill, so a rename there fails the gate instead of
+breaking flights silently.
+
+**Alternatives considered:**
+- Extract the *Points* procedure into one shared runner doc both consumers
+  load. Rejected because: it reworks `/execute-task`'s text and the
+  instruction budget for a dedupe whose payoff, one copy, the pin-check
+  already protects; the operator chose the smaller change.
+- Pre-render every resolved step into the brief (hosting, timeout,
+  posture, screened text) and have the worker run the list. Rejected
+  because: it re-implements, in dispatch, the screening and resolution the
+  resolver already owns — the parallel machinery REQ-G1.5 rules out, and
+  the reason custom-steps deferred flight rendering in the first place.
+
+**Chosen because:** one runner procedure serves both unit kinds with no
+second copy, and resolution at point time in the flight's own worktree
+gives worktree-relative command resolution for free.
+
+### D-18: `post-pr` fires only on a PR; the file home records it unfired  (E)
+
+**Decision:** A flight's `post-pr` point fires after its draft PR exists,
+with the PR number in the step context, then the flight re-emits its step
+tables into the record (the PR body) and verifies the PR is still a draft,
+parking when it is not — `/execute-task`'s after-`post-pr` sequence. On the
+file home there is no PR: the point does not fire, and the record's
+`post-pr` table carries a not-fired row stating why.
+
+**Alternatives considered:**
+- Fire `post-pr` on the file home too, after the record is landed, with no
+  PR number in the context. Rejected because: the point is defined as
+  "after the draft PR exists", and steps written for it (a hosted-review
+  drain) have nothing to act on without one.
+
+**Chosen because:** it keeps the point's meaning identical across unit
+kinds, and a not-fired row keeps the record honest about what ran.
+
+### D-19: Command steps on a flight: guard parity, no new approval  (E)
+
+**Decision:** A flight's command steps are approved by the worker command
+guard through the same declared-line path a task worker's are (the guard
+already accepts unit kind `flight`); this amendment adds parity tests,
+including adversarial ones showing a flight worker gains no approval a
+task worker lacks, and changes no guard rule unless a test shows a gap.
+
+**Alternatives considered:**
+- A flight-specific allow shape for command steps. Rejected because: it
+  is a second approval path for the same act, and an authorization surface
+  (decision-domains: authentication and authorization) widened without a
+  stake-bearing reason.
+- Keep command steps refused on flights. Rejected because: the operator
+  chose full step-kind parity (D-16).
+
+**Chosen because:** the guard's declared-line rule was built for exactly
+this act and already names the flight unit kind; parity tests are the
+cheapest honest proof that nothing widened.
+
+### D-20: A public summary beside the private ask  (E)
+
+**Decision:** The tower may hand dispatch a public summary of the ask
+alongside the ask, and must when the ask carries detail security-posture
+keeps off committed or remote surfaces (REQ-E1.7). The full ask reaches the
+worker only through its brief under the fleet home; the record quotes the
+summary, followed by a fixed line saying the worker was briefed beyond it,
+with the existing sanitizing and markup neutralization applied to it.
+Without a summary the record quotes the ask as today. The renderer's
+restate check tests the lead against both texts, so a worker cannot leak
+the private ask through its own summary. The tower's call on when a
+summary is owed is load-bearing model judgment, so it joins D-13's eval
+gate: fixtures assert a summary for a sensitive ask and none for an
+ordinary one.
+
+**Alternatives considered:**
+- A private marker: the record withholds the ask behind a fixed line.
+  Rejected because: the public record then states nothing of what was
+  asked, weakening specless traceability (REQ-E1.4).
+- Never quote the ask; always a tower-written statement. Rejected
+  because: it costs verbatim-ask traceability on every ordinary flight to
+  serve the rare sensitive one.
+- Leave the record as it is and rely on the tower sanitizing asks by
+  hand. Rejected because: the 2026-10-07 save depended on the worker
+  noticing and parking (obs:2080c12b), and hand discipline is the memory
+  burden the autopilot reflex closes.
+
+**Chosen because:** every record still carries a statement of the ask,
+nothing private reaches a public surface, and the default path is
+unchanged.
+
+### D-21: A parked flight's partial record stays private under the fleet home  (E)
+
+**Decision:** Before parking, a flight renders its partial record (review
+findings so far, declined log, park reason) beside its brief under the
+fleet home, never committed or pushed. The flight sweep, and through it
+the tower's start sweep and `/resume`'s tower mode, surfaces the record's
+path for a parked flight. It persists while the flight's worktree exists;
+the brief sweep that retires the flight names the partial record before
+removing it (bounded-or-surfaced, D-10).
+
+**Alternatives considered:**
+- Commit the partial record on the flight branch. Rejected because: a
+  flight that later lands as a PR would carry a second copy of its record
+  in the diff, which D-6 rejected.
+- Open the draft PR at park time with the partial record. Rejected
+  because: it publishes a security-pause flight's findings, the exposure
+  D-20 closes.
+- Leave it out of scope. Rejected because: the operator chose to consume
+  obs:6d860346 here.
+
+**Chosen because:** the fleet home is already the flight's private,
+session-surviving store, and a hard-pause flight is exactly the case whose
+findings security-posture keeps off public surfaces.
+
+### D-22: Cross-bundle edges of this amendment  (E)
+
+**Decision:** Both gaps land in this bundle, as the operator chose over
+splitting gap 1 into a custom-steps extension. This bundle's tasks edit
+custom-steps' doctrine line on flights (the doc custom-steps owns) to
+match the new behavior, and leave custom-steps' own ledger, its "Command
+and prompt steps on a flight" deferral included, to that bundle's owner;
+custom-steps REQ-F1.5 stays satisfied, since flights still read
+`steps_convergence` with unit kind `flight`. The flight-rules doctrine,
+owned here, also gains the outside-root record-home refusal spec-format
+already states (obs:357b0e50).
+
+**Alternatives considered:**
+- Split: gap 1 as a custom-steps extension draining its own deferral.
+  Rejected by the operator: two drafts and two kickoffs for one
+  operator-facing gap.
+- Also remove custom-steps' deferral bullet from this spec branch.
+  Rejected by the operator: a write into another bundle's ledger.
+
+**Chosen because:** the flight dispatch path and the record are this
+bundle's, and the doctrine edit to custom-steps is a consistency
+follow-through, not a change to the step contract.
 
 ## Cross-cutting concerns
 

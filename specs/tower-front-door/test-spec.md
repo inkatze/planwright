@@ -1,7 +1,7 @@
 # Tower front door — Test Spec
 
-**Status:** Ready
-**Last reviewed:** 2026-09-01
+**Status:** Draft
+**Last reviewed:** 2026-10-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -138,6 +138,44 @@ The flight-rules doctrine doc states the boundary (mutating work only),
 and review confirms no code path mints flight identity for read-only
 work.
 
+### REQ-C1.7 — Every in-run point fires on a flight [test]
+
+Dispatch and brief tests (`tests/test-flight-dispatch.sh`) assert the brief
+names every point the resolver wires as an in-run point, read from the
+resolver rather than a copied list, in `/execute-task`'s order.
+
+### REQ-C1.8 — One runner contract, every step kind [test + design-level]
+
+Dispatch tests place a flight whose lists carry skill, prompt, and command
+steps; the brief points at `/execute-task`'s *Points* procedure under the
+pinned root, and a pin-check fails when that heading is renamed. Review
+confirms no flight-only step grammar, refusal, or knob exists.
+
+### REQ-C1.9 — Degrade like a task, refuse like a task [test]
+
+With a machine-local malformed or missing step, dispatch places the flight
+with that step degraded exactly as `/execute-task`'s pre-flight check
+degrades it for a task unit; a stopping resolution refuses, naming the
+point and step id, and places nothing.
+
+### REQ-C1.10 — Command steps on guard parity [test]
+
+Worker-command-guard tests approve a flight worker's declared command line
+on exactly a task worker's terms, and adversarial cases show no approval a
+task worker lacks (`tests/test-worker-command-guard.sh`).
+
+### REQ-C1.11 — post-pr only on a PR [test]
+
+Brief tests assert `post-pr` fires after the draft PR on the PR home with
+the PR number in context, and on the file home is recorded not fired, with
+its reason, in the record's `post-pr` table.
+
+### REQ-C1.12 — Re-emit and draft check after post-pr [test]
+
+Brief tests assert the re-emit of the step tables and the still-a-draft
+check follow the `post-pr` list on the PR home, and that a non-draft PR
+parks the flight.
+
 ## REQ-D — Instrument flight
 
 ### REQ-D1.1 — Escalation through /spec-draft [Gherkin]
@@ -201,6 +239,43 @@ contract element with the ask sanitized and markup-neutralized (an ask
 containing a fence or closing tag cannot break the collapse or the
 sweep's parse); manual review of demo-flight PRs confirms the lead reads
 as a human author's what/why/verification.
+
+### REQ-E1.6 — The record carries the public statement [test]
+
+Record tests (`tests/test-flight-record.sh`) assert every contract element
+is present in both homes; with a summary given, the summary and the fixed
+briefed-beyond line appear and the ask does not; without one, the ask is
+quoted as before; every fired point's step table appears, including a
+not-fired `post-pr` row on the file home.
+
+### REQ-E1.7 — A summary when the ask is sensitive [test + manual]
+
+Dispatch and record tests find no line of a full ask outside the private
+brief directory when a summary is given, in either home and in the
+dispatch report. Behavioral-eval fixtures (on the eval harness, outside
+the repo CI, as the coverage-mix intro states) assert the tower supplies a
+summary for an ask briefing a sensitive defect and none for an ordinary
+ask. Manual: a demo flight briefing a sensitive defect, routed
+by the tower, carries a summary in its record, and the tower's skill text
+states when one is owed.
+
+### REQ-E1.8 — Restate check against both texts [test]
+
+Record tests refuse a lead restating the private ask, and one restating
+the public summary, under the existing restate thresholds.
+
+### REQ-E1.9 — A parked flight's private partial record [test]
+
+A parked test flight leaves its partial record under its brief directory,
+nothing new on its branch or any remote; the flight sweep renders the
+record's path; retiring the flight names the record before removing it;
+the partial record passes the full record's secret screen.
+
+### REQ-E1.10 — Every home refusal stated [design-level]
+
+`doctrine/flight-rules.md` states each condition under which dispatch
+refuses a record home, the spec root outside the checkout included; review
+checks the list against `scripts/flight-dispatch.sh`'s refusals.
 
 ## REQ-F — Attention and survival
 

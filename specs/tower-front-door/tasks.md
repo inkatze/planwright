@@ -1,7 +1,7 @@
 # Tower front door — Tasks
 
-**Status:** Ready
-**Last reviewed:** 2026-09-03
+**Status:** Draft
+**Last reviewed:** 2026-10-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -262,6 +262,111 @@ router has not demonstrated (REQ-B1.6).
 - **Dependencies:** 5, 9
 - **Citations:** kickoff §5 (2026-09-01) · REQ-A1.1, REQ-A1.2, REQ-D1.2,
   REQ-F1.1
+- **Estimated effort:** half day
+
+### Task 14 — Flight points in dispatch and brief
+
+- **Deliverables:** `scripts/flight-dispatch.sh` drops its skill-only
+  refusal and checks every in-run point with unit kind `flight` the way
+  `/execute-task`'s pre-flight point check does, refusing only where that
+  check stops a task unit and naming the point and step id; the brief
+  names each in-run point at its moment in the flight's work and directs
+  the worker to run it by `/execute-task`'s *Points* procedure under the
+  dispatch-resolved planwright root, pinned for the resolver; on the PR
+  home the brief fires `post-pr` after the draft PR exists, then re-emits
+  the step tables into the PR body and verifies the PR is still a draft,
+  parking when it is not; on the file home the record's `post-pr` table
+  carries a not-fired row; the dispatch report lists each point's step
+  ids; a pin-check asserting the referenced *Points* heading exists in
+  `/execute-task`'s skill.
+- **Done when:** dispatch tests place a flight whose configured lists
+  carry skill, prompt, and command steps at every in-run point, and the
+  brief names every in-run point the resolver wires; a dispatch whose
+  only problem is a machine-local malformed or missing step places the
+  flight with that step degraded as for a task unit; a stopping
+  resolution refuses with the point and step id named; brief tests assert
+  `post-pr` follows the draft PR on the PR home and is recorded not fired
+  on the file home, and that the re-emit and draft check follow it; the
+  pin-check fails when the heading is renamed; the instruction-budget
+  guard passes.
+- **Dependencies:** none
+- **Citations:** D-16, D-17, D-18 · REQ-C1.7, REQ-C1.8, REQ-C1.9,
+  REQ-C1.11, REQ-C1.12, REQ-E1.6
+- **Estimated effort:** 1.5 days
+
+### Task 15 — Guard and degradation parity tests
+
+- **Deliverables:** worker-command-guard tests showing a flight worker's
+  declared command line is approved on exactly the terms a task worker's
+  is, including adversarial cases showing no approval a task worker lacks;
+  a guard change only where a test shows a gap, carrying its own security
+  pass; dispatch tests for degradation parity across the overlay layers.
+- **Done when:** the parity and adversarial guard tests pass; any guard
+  change carries the hard-pause discipline and its allow/deny delta for
+  human sign-off; the degradation-parity tests pass at every layer the
+  resolver's missing-step matrix distinguishes.
+- **Dependencies:** 14
+- **Citations:** D-16, D-19 · REQ-C1.9, REQ-C1.10
+- **Estimated effort:** half day
+
+### Task 16 — Public ask summary
+
+- **Deliverables:** `scripts/flight-dispatch.sh` accepts an optional
+  public summary file beside the ask, keeps the full ask only in the
+  private brief directory, and never echoes either into its report;
+  `scripts/flight-record.sh` takes the summary, quotes it in place of the
+  ask with the fixed briefed-beyond line, applies the existing sanitizing
+  and markup neutralization to it, and runs the restate check against both
+  texts; the `/tower` skill states when a summary is owed (REQ-E1.7) and
+  hands it over as data like the ask; routing behavioral-eval fixtures
+  asserting a summary for an ask briefing a sensitive defect and none for
+  an ordinary ask (D-13's gate applied to this judgment).
+- **Done when:** with a summary given, record tests find no line of the
+  full ask in either home's output and find the summary plus the fixed
+  line; without one, the record is byte-identical to today's; a lead
+  restating the private ask is refused; dispatch tests find the full ask
+  nowhere outside the private brief directory; the summary fixtures pass
+  their grader assertions on the behavioral-eval harness; the
+  instruction-budget guard passes with the skill edit.
+- **Dependencies:** none
+- **Citations:** D-13, D-20 · REQ-E1.6, REQ-E1.7, REQ-E1.8
+- **Estimated effort:** 1 day
+
+### Task 17 — Parked flight's private partial record
+
+- **Deliverables:** a `flight-record.sh` mode rendering a partial record
+  (findings so far, declined log, park reason) into the flight's brief
+  directory under the fleet home; the brief's hard-pause section running
+  it before the awaiting-decision push; `scripts/flight-sweep.sh`
+  surfacing the partial record's path for a parked flight, so the tower's
+  start sweep and `/resume`'s tower mode show it; the brief sweep naming a
+  partial record before removing a retired flight's brief.
+- **Done when:** a parked test flight leaves a partial record under its
+  brief directory and nothing new in its branch or on any remote; the
+  sweep renders its path; retiring the flight names the record before
+  removal; the partial record passes the same secret screen the full
+  record does.
+- **Dependencies:** 16
+- **Citations:** D-21 · REQ-E1.9
+- **Estimated effort:** 1 day
+
+### Task 18 — Doctrine and docs for flight points and the record
+
+- **Deliverables:** `doctrine/flight-rules.md` updated: flights fire every
+  in-run point under the task runner contract, the record contract per
+  REQ-E1.6 with the public summary, the parked partial record, and every
+  record-home refusal condition including the spec root outside the
+  checkout; the flights line in `doctrine/custom-steps.md` updated to
+  match (D-22); the options and docs surfaces that describe flight steps
+  updated.
+- **Done when:** flight-rules states the points rule, the record contract,
+  the parked record, and every home-refusal condition dispatch enforces,
+  each citing its D-ID; no doc surface still says a flight runs skill
+  steps only or convergence only; `check-doctrine-index`, lint, and the
+  instruction-budget guard pass.
+- **Dependencies:** 14, 16, 17
+- **Citations:** D-16, D-20, D-21, D-22 · REQ-C1.7, REQ-E1.6, REQ-E1.9,
+  REQ-E1.10
 - **Estimated effort:** half day
 
 ## Awaiting input
