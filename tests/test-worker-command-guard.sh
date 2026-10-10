@@ -692,7 +692,7 @@ first_half() {
   # The verifier resolves exactly one class of expansion itself — a standalone,
   # unconditional, top-level assignment of a bare absolute path inside a trusted
   # root — and every other `$` in a verb still defers.
-  echo "### REQ-A1.9 — tracked assignment of a trusted-root path"
+  echo "### REQ-A1.9 / REQ-E1.2 — tracked assignments"
   HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
   assert_allow "tracked: the 2026-09-12 stalled command shape" \
     "P=$PLUGIN_ROOT && for d in a b c; do printf '%s -> ' \$d; \$P/scripts/plug.sh \$d; done; echo; grep -n 'Status:' specs/x.md | head" Bash "$PLUGIN_CWD"
@@ -703,7 +703,8 @@ first_half() {
   assert_allow "tracked: semicolon-separated" "P=$PLUGIN_ROOT; \$P/scripts/plug.sh x" Bash "$PLUGIN_CWD"
   assert_allow "tracked: two assignments chained by &&" "A=$PLUGIN_ROOT && B=$PLUGIN_ROOT/scripts && \$A/scripts/plug.sh && \$B/plug.sh" Bash "$PLUGIN_CWD"
   assert_allow "tracked: later assignment wins" "P=$PLUGIN_ROOT/scripts && P=$PLUGIN_ROOT && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: an earlier untrusted assignment defers the whole command" "P=$PLUGIN_DECOY && P=$PLUGIN_ROOT && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_allow "REQ-E1.2: an earlier untrusted value is replaced by the later one" "P=$PLUGIN_DECOY && P=$PLUGIN_ROOT && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "REQ-E1.2: a later untrusted value replaces the trusted one" "P=$PLUGIN_ROOT && P=$PLUGIN_DECOY && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
   assert_allow "tracked: used inside a later if body" "P=$PLUGIN_ROOT; if true; then \$P/scripts/plug.sh; fi" Bash "$PLUGIN_CWD"
   assert_allow "tracked: bash \$P/<script>" "P=$PLUGIN_ROOT && bash \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
   assert_allow "tracked: repo root through the cwd's checkout" "R=$SANDBOX && \$R/scripts/ok.sh" Bash "$SANDBOX"
@@ -714,56 +715,56 @@ first_half() {
   assert_allow "tracked: a lone assignment runs nothing" "P=$PLUGIN_ROOT" Bash "$PLUGIN_CWD"
   # NEGATIVES: every way the substitution could differ from what the shell does,
   # or name something the hook does not trust.
-  assert_defer "untracked: single-quoted '\$P' is literal" "P=$PLUGIN_ROOT && '\$P'/scripts/plug.sh x" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: backslash-escaped \\\$P is literal" "P=$PLUGIN_ROOT && \\\$P/scripts/plug.sh x" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: whole-word quoted 'P=..' is a command" "'P=$PLUGIN_ROOT' && \$P/scripts/plug.sh x" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: \${P:-x} modifier" "P=$PLUGIN_ROOT && \${P:-/tmp}/scripts/plug.sh x" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: unknown variable" "\$Q/scripts/plug.sh x" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: value outside every trusted root" "P=$SANDBOX/install/outside && \$P/evil.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: name-PREFIX decoy root as value" "P=$PLUGIN_DECOY && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: value with a glob" "P=$PLUGIN_ROOT/* && \$P/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: value with .. that escapes" "P=$PLUGIN_ROOT/../../.. && \$P/etc/x.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: value carries an expansion" "P=\$Q && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: tilde value" "P=~ && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: IFS even with a trusted value" "IFS=$PLUGIN_ROOT && \$IFS/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: PATH even with a trusted value" "PATH=$PLUGIN_ROOT && \$PATH/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: CDPATH" "CDPATH=$PLUGIN_ROOT && \$CDPATH/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: BASH_ENV" "BASH_ENV=$PLUGIN_ROOT && \$BASH_ENV/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: PS4" "PS4=$PLUGIN_ROOT && \$PS4/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: an exported name (HOME)" "HOME=$PLUGIN_ROOT && \$HOME/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: single-quoted '\$P' is literal" "P=$PLUGIN_ROOT && '\$P'/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+  assert_defer "defer: backslash-escaped \\\$P is literal" "P=$PLUGIN_ROOT && \\\$P/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+  assert_defer "defer: whole-word quoted 'P=..' is a command" "'P=$PLUGIN_ROOT' && \$P/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+  assert_defer "defer: \${P:-x} modifier" "P=$PLUGIN_ROOT && \${P:-/tmp}/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+  assert_defer "defer: unknown variable" "\$Q/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+  assert_defer "defer: value outside every trusted root" "P=$SANDBOX/install/outside && \$P/evil.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: name-PREFIX decoy root as value" "P=$PLUGIN_DECOY && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: value with a glob" "P=$PLUGIN_ROOT/* && \$P/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: value with .. that escapes" "P=$PLUGIN_ROOT/../../.. && \$P/etc/x.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: value carries an expansion" "P=\$Q && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: tilde value" "P=~ && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: IFS even with a trusted value" "IFS=$PLUGIN_ROOT && \$IFS/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: PATH even with a trusted value" "PATH=$PLUGIN_ROOT && \$PATH/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: CDPATH" "CDPATH=$PLUGIN_ROOT && \$CDPATH/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: BASH_ENV" "BASH_ENV=$PLUGIN_ROOT && \$BASH_ENV/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: PS4" "PS4=$PLUGIN_ROOT && \$PS4/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: an exported name (HOME)" "HOME=$PLUGIN_ROOT && \$HOME/scripts/plug.sh" Bash "$PLUGIN_CWD"
   HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "P=/already-exported")
-  assert_defer "untracked: a name present in the hook's environment" "P=$PLUGIN_ROOT && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: a name present in the hook's environment" "P=$PLUGIN_ROOT && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
   HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
-  assert_defer "untracked: assignment conditional after a command (&&)" "true && P=$PLUGIN_ROOT; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: assignment conditional after a command (||)" "false || P=$PLUGIN_ROOT; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: assignment inside a loop body" "for d in a; do P=$PLUGIN_ROOT; done; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: assignment inside an if body" "if true; then P=$PLUGIN_ROOT; fi; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: assignment in a pipeline" "P=$PLUGIN_ROOT | cat; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: assignment backgrounded" "P=$PLUGIN_ROOT & \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: assignment PREFIX still defers" "P=$PLUGIN_ROOT \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: the table does not cross into fish -c" "P=$PLUGIN_ROOT && fish -c '\$P/scripts/plug.sh'" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: substituted verb still needs a trusted script" "P=$PLUGIN_ROOT && \$P/notscripts.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: substituted path with .. escaping" "P=$PLUGIN_ROOT && \$P/scripts/../../outside/evil.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: substitution never widens the verb set" "P=$PLUGIN_ROOT && rm -rf \$P" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: a closer with no opener" "P=$PLUGIN_ROOT; fi; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: assignment conditional after a command (&&)" "true && P=$PLUGIN_ROOT; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: assignment conditional after a command (||)" "false || P=$PLUGIN_ROOT; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: assignment inside a loop body" "for d in a; do P=$PLUGIN_ROOT; done; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: assignment inside an if body" "if true; then P=$PLUGIN_ROOT; fi; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: assignment in a pipeline" "P=$PLUGIN_ROOT | cat; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: assignment backgrounded" "P=$PLUGIN_ROOT & \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: assignment PREFIX still defers" "P=$PLUGIN_ROOT \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: the table does not cross into fish -c" "P=$PLUGIN_ROOT && fish -c '\$P/scripts/plug.sh'" Bash "$PLUGIN_CWD"
+  assert_defer "defer: substituted verb still needs a trusted script" "P=$PLUGIN_ROOT && \$P/notscripts.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: substituted path with .. escaping" "P=$PLUGIN_ROOT && \$P/scripts/../../outside/evil.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: substitution never widens the verb set" "P=$PLUGIN_ROOT && rm -rf \$P" Bash "$PLUGIN_CWD"
+  assert_defer "defer: a closer with no opener" "P=$PLUGIN_ROOT; fi; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
   # The boundaries the tracker turns on, each one a verdict a one-token mutant
   # flips: a literal `\$` inside double quotes, quoting that starts exactly on
   # the `=`, the two expand_word shapes that leave the `$` in place, the newline
   # separator, nesting, and the environment-name probe against the names the
   # dispatch wrapper actually exports.
-  assert_defer "untracked: double-quoted \"\\\$P\" is literal" "P=$PLUGIN_ROOT && \"\\\$P\"/scripts/plug.sh x" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: quoting that starts on the = makes a command word" "P\"=\"$PLUGIN_ROOT && \$P/scripts/plug.sh x" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: unterminated \${P" "P=$PLUGIN_ROOT && \${P/scripts/plug.sh" Bash "$PLUGIN_CWD"
-  assert_defer "untracked: \$Pfoo is another name" "P=$PLUGIN_ROOT && \$Pfoo/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: double-quoted \"\\\$P\" is literal" "P=$PLUGIN_ROOT && \"\\\$P\"/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+  assert_defer "defer: quoting that starts on the = makes a command word" "P\"=\"$PLUGIN_ROOT && \$P/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+  assert_defer "defer: unterminated \${P" "P=$PLUGIN_ROOT && \${P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: \$Pfoo is another name" "P=$PLUGIN_ROOT && \$Pfoo/scripts/plug.sh" Bash "$PLUGIN_CWD"
   assert_allow "tracked: newline-separated" "P=$PLUGIN_ROOT
 \$P/scripts/plug.sh x" Bash "$PLUGIN_CWD"
   assert_allow "tracked: used inside an if nested in a for" "P=$PLUGIN_ROOT; for d in a; do if true; then \$P/scripts/plug.sh x; fi; done" Bash "$PLUGIN_CWD"
   HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "LD_PRELOAD=/already-exported")
-  assert_defer "untracked: an exported LD_PRELOAD is refused as a name" "LD_PRELOAD=$PLUGIN_ROOT && \$LD_PRELOAD/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: an exported LD_PRELOAD is refused as a name" "LD_PRELOAD=$PLUGIN_ROOT && \$LD_PRELOAD/scripts/plug.sh" Bash "$PLUGIN_CWD"
   HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
-  assert_defer "untracked: PLANWRIGHT_ROOT, exported by the dispatch wrapper" "PLANWRIGHT_ROOT=$PLUGIN_ROOT && \$PLANWRIGHT_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: PLANWRIGHT_ROOT, exported by the dispatch wrapper" "PLANWRIGHT_ROOT=$PLUGIN_ROOT && \$PLANWRIGHT_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
   HOOK_ENV=("CLAUDE_PLUGIN_ROOT=$PLUGIN_ROOT")
-  assert_defer "untracked: CLAUDE_PLUGIN_ROOT, exported by the dispatch wrapper" "CLAUDE_PLUGIN_ROOT=$PLUGIN_ROOT && \$CLAUDE_PLUGIN_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
+  assert_defer "defer: CLAUDE_PLUGIN_ROOT, exported by the dispatch wrapper" "CLAUDE_PLUGIN_ROOT=$PLUGIN_ROOT && \$CLAUDE_PLUGIN_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
   HOOK_ENV=()
 
   # The hook sees the command unexpanded, so a word whose value it cannot see
@@ -887,11 +888,283 @@ first_half() {
   assert_defer "an opaque test operator position" "[ \"\$a\" \"\$op\" b ]"
   assert_defer "a four-word test with an opaque operand" "[ \"\$a\" = b -o c ]"
 
+  # Run-order analysis: the state a segment sets (the working directory, a
+  # variable's value) applies to what follows it, carried only across `&&`
+  # from a segment that runs unconditionally in the current shell. The `cd`
+  # fixtures run in a real repository at its canonical path, since the hook asks
+  # git whether a target belongs to the session's own repository and an
+  # absolute operand must be written canonically.
+  SANDBOX_P=$(cd "$SANDBOX" && pwd -P)
+  WT=$SANDBOX_P/cdrepo
+  mkdir -p "$WT/sub/deep" "$WT/scripts" "$WT/nested/inner"
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$WT"
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$WT/nested"
+  : >"$WT/scripts/ok.sh"
+  : >"$WT/sub/g"
+  ln -s "$SANDBOX_P/install/outside" "$WT/outlink"
+  ln -s "$WT/sub" "$WT/inlink"
+  # The hook's own git calls (the repository check a `cd` makes, the remote
+  # lookups `git ls-remote` makes) must not read the host's git config, where
+  # an insteadOf or remote setting could change a verdict.
+  GIT_ISO=("GIT_CONFIG_GLOBAL=/dev/null" "GIT_CONFIG_NOSYSTEM=1")
+  HOOK_ENV=("${GIT_ISO[@]}")
+  echo "### REQ-A1.12 / REQ-E1.4 — cd into the own worktree, then the rest analysed from there"
+  assert_allow "REQ-E1.4: cd into an in-worktree directory" "cd sub && ls" Bash "$WT"
+  assert_allow "REQ-E1.4: cd to the worktree root by absolute path" "cd $WT && grep -n x f" Bash "$WT"
+  assert_allow "REQ-E1.4: cd by absolute in-worktree path" "cd $WT/sub && grep -n x g" Bash "$WT"
+  assert_allow "REQ-E1.4: chained cds each carry state" "cd sub && cd deep && ls" Bash "$WT"
+  assert_allow "REQ-E1.4: a ./ component is harmless" "cd ./sub/ && ls" Bash "$WT"
+  assert_allow "REQ-E1.4: an assignment then a cd, both carried" "d=sub && cd \$d && ls" Bash "$WT"
+  assert_allow "REQ-E1.4: a lone trailing cd" "ls; cd sub" Bash "$WT"
+  assert_allow "REQ-A1.12: a later script path resolves from the new directory" "cd sub && ../scripts/ok.sh" Bash "$WT"
+  assert_defer "REQ-A1.12: a later script path no longer resolves from the old directory" "cd sub && scripts/ok.sh" Bash "$WT"
+  assert_defer "REQ-E1.4: cd out of the worktree" "cd /tmp && ls" Bash "$WT"
+  assert_defer "REQ-E1.4: cd to an existing directory outside the worktree" "cd $SANDBOX_P/install/outside && ls" Bash "$WT"
+  assert_defer "REQ-E1.4: cd with a non-literal operand" "cd \$X && ls" Bash "$WT"
+  assert_defer "REQ-E1.4: cd .. from the worktree root" "cd .. && ls" Bash "$WT"
+  assert_defer "REQ-E1.4: a .. component anywhere" "cd sub/.. && ls" Bash "$WT"
+  assert_defer "REQ-E1.4: cd into a missing directory" "cd missing && ls" Bash "$WT"
+  assert_defer "REQ-E1.4: cd through a symlink leaving the worktree" "cd outlink && ls" Bash "$WT"
+  assert_defer "REQ-E1.4: cd through a symlink, even one staying inside" "cd inlink && ls" Bash "$WT"
+  assert_allow "REQ-E1.4: cd within the own repository, then git" "cd scripts && git status" Bash "$WT"
+  assert_defer "REQ-E1.4: cd into a nested repository, then git" "cd nested && git status" Bash "$WT"
+  assert_defer "REQ-E1.4: cd into a nested repository" "cd nested && ls" Bash "$WT"
+  assert_defer "REQ-E1.4: cd below a nested repository's root" "cd nested/inner && ls" Bash "$WT"
+  assert_defer "REQ-E1.4: cd into the git directory" "cd .git && ls" Bash "$WT"
+  mkdir -p "$WT/x=~" "$WT/x=" "$WT/+0" "$WT/x^y" "$WT/a~b" "$WT/6-7" "$WT/{6-7}"
+  assert_defer "REQ-E1.4: bash tilde-expands after = in a cd operand" "cd x=~ && ls" Bash "$WT"
+  assert_defer "REQ-E1.4: a ~ anywhere in a cd operand" "cd a~b && ls" Bash "$WT"
+  assert_defer "REQ-E1.4: zsh reads cd +N as the directory stack" "cd +0 && ls" Bash "$WT"
+  assert_defer "REQ-E1.4: a zsh extended-glob character in a cd operand" "cd x^y && ls" Bash "$WT"
+  assert_defer "REQ-E1.4: a zsh brace class in a cd operand" "cd {6-7} && ls" Bash "$WT"
+  assert_defer "REQ-E1.4: an absolute operand not written canonically" "cd $WT//sub/./ && ls" Bash "$WT"
+  assert_defer "REQ-E1.4: bare cd goes home" "cd && ls" Bash "$WT"
+  assert_defer "REQ-E1.4: cd - goes to OLDPWD" "cd - && ls" Bash "$WT"
+  assert_defer "REQ-E1.4: cd with a flag" "cd -P sub && ls" Bash "$WT"
+  assert_defer "REQ-E1.4: cd with two operands" "cd sub deep && ls" Bash "$WT"
+  assert_defer "REQ-A1.12: cd followed by ;" "cd sub; ls" Bash "$WT"
+  assert_defer "REQ-A1.12: a failed cd before ; leaves the old directory" "cd missing; rm -r ../x" Bash "$WT"
+  assert_defer "REQ-A1.12: cd followed by ||" "cd sub || ls" Bash "$WT"
+  assert_defer "REQ-A1.12: cd in a pipeline" "cd sub | cat" Bash "$WT"
+  assert_defer "REQ-A1.12: cd backgrounded" "cd sub & ls" Bash "$WT"
+  assert_defer "REQ-A1.12: cd after a real command is conditional" "ls && cd sub && ls" Bash "$WT"
+  assert_defer "REQ-A1.12: cd after || is conditional" "true || cd sub && ls" Bash "$WT"
+  assert_defer "REQ-A1.12: cd inside a loop body" "for d in sub; do cd \$d && ls; done" Bash "$WT"
+  assert_defer "REQ-A1.12: cd inside fish -c" "fish -c 'cd sub && ls'" Bash "$WT"
+  assert_defer "REQ-A1.12: cd under timeout" "timeout 5 cd sub && ls" Bash "$WT"
+  assert_defer "REQ-A1.12: cd under time" "time cd sub && ls" Bash "$WT"
+  assert_defer "REQ-E1.4: CDPATH set in the command" "CDPATH=/ && cd sub && ls" Bash "$WT"
+  HOOK_ENV=("${GIT_ISO[@]}" "CDPATH=/")
+  assert_defer "REQ-E1.4: CDPATH exported to the hook" "cd sub && ls" Bash "$WT"
+  HOOK_ENV=()
+
+  echo "### REQ-E1.2 — plain-literal assignments resolve, any literal"
+  assert_allow "REQ-E1.2: an ordinary literal reaches a later operand" "f=README.md && grep -n x \$f"
+  assert_allow "REQ-E1.2: a resolved flag still meets the screen it reaches" "X=-name && find . \$X a.sh"
+  assert_defer "REQ-E1.2: a resolved write flag defers" "X=-delete && find . \$X"
+  assert_defer "REQ-E1.2: a resolved write flag after ; defers" "x=-delete; find . \$x"
+  assert_allow "REQ-E1.2: a whole-quoted value resolves" "F='-name' && find . \$F a.sh"
+  assert_defer "REQ-E1.2: an unquoted value with a space stays unresolved (zsh does not split it)" "F='-name a.sh' && find . \$F"
+  assert_defer "REQ-E1.2: so a write flag inside it still defers" "F='x -delete' && find . -name \$F"
+  assert_allow "REQ-E1.2: a quoted value with a space resolves as one word" "F='a b' && find . -name \"\$F\""
+  # zsh-option characters stay attached to their own word when words move.
+  assert_allow "a quoted ^ awk program under a prefix" "time awk '/^a/' f"
+  assert_defer "REQ-A1.13: an unquoted ^ awk program keeps its flag after a prefix shift" "time awk /^a/ f"
+  assert_defer "REQ-E1.2: an unquoted ^ awk program keeps its flag after an empty word is removed" "E= && awk \$E /^a/ f"
+  assert_allow "REQ-E1.2: a quoted use stays one word" "F='x -delete' && find . -name \"\$F\""
+  assert_allow "REQ-E1.2: an empty value removes an unquoted word" "f= && find . \$f -name a"
+  assert_allow "REQ-E1.2: a lone opaque assignment runs nothing" "f=\$HOME && echo \$f"
+  assert_defer "REQ-E1.2: a value carrying an expansion is opaque" "f=\$HOME && find \$f"
+  assert_defer "REQ-E1.2: a value carrying a glob is opaque" "f=*.md && find . \$f"
+  assert_defer "REQ-E1.2: a value carrying a tilde is opaque" "f=~/x && find \$f"
+  assert_defer "REQ-E1.2: a partly quoted value is opaque" "f=a\"b\"c && find . \$f"
+  assert_defer "REQ-E1.2: an extglob pattern in a value is opaque" "X='@(-delete)' && find . \$X"
+  assert_defer "REQ-E1.2: a backslash in a value is opaque" "X='\\-delete' && find . \$X"
+  assert_defer "REQ-E1.2: a negated extglob in a value is opaque" "X='!(a)' && find . -name \$X -delete"
+  assert_defer "REQ-E1.2: an opaque assignment shadows an earlier literal" "f=-name && f=\$X && find . \$f a"
+  assert_defer "REQ-E1.2: a value whitespace splits inside a mixed word is not modelled" "F='a -delete' && find . -name x\$F\"y\""
+  assert_defer "REQ-E1.2: a substituted assignment-shaped verb is a command" "A='B=-delete' && \$A && find . \$B"
+  assert_defer "REQ-E1.2: IFS is refused" "IFS=- && ls"
+  assert_defer "REQ-E1.2: PATH is refused" "PATH=x && ls"
+  assert_defer "REQ-E1.2: RANDOM evaluates its value as arithmetic" "RANDOM=1 && ls"
+  assert_defer "REQ-E1.2: SRANDOM evaluates its value as arithmetic" "SRANDOM=1 && ls"
+  assert_defer "REQ-E1.2: HISTCMD evaluates its value as arithmetic" "HISTCMD=1 && ls"
+  assert_defer "REQ-E1.2: SECONDS is a dynamic variable" "SECONDS=1 && ls"
+  assert_defer "REQ-E1.2: a zsh read-only ZSH_ special is refused" "ZSH_NAME=scripts/ok.sh && bash \$ZSH_NAME"
+  assert_defer "REQ-E1.2: zsh's funcstack is refused" "funcstack=scripts/ok.sh && bash \$funcstack"
+  assert_defer "REQ-E1.2: zsh's options hash is refused" "options=scripts/ok.sh && bash \$options"
+  assert_defer "REQ-E1.2: zsh's argv is refused" "argv=scripts/ok.sh && bash \$argv"
+  assert_defer "REQ-E1.2: UID is readonly, so the model would be wrong" "UID=-delete && find . \$UID"
+  assert_defer "REQ-E1.2: a conditional assignment before a use" "false && f=x; grep -n x \$f"
+  assert_defer "REQ-E1.2: an assignment after a real command is conditional" "ls && f=-delete && find . \$f"
+  assert_defer "REQ-A1.12: an assignment in a pipeline" "x=a | grep \$x"
+  assert_defer "REQ-A1.12: an assignment in a pipeline reaching a screen" "x=-delete | find . \$x"
+  assert_defer "REQ-A1.12: an assignment backgrounded" "x=a & grep \$x"
+  assert_defer "REQ-A1.12: an assignment inside a loop body" "for d in a; do x=\$d; grep -n y \$x; done"
+  CHAIN32=''
+  for n in $(seq 32); do CHAIN32="${CHAIN32}v$n=x && "; done
+  assert_allow "REQ-E1.2: tracked assignments up to the bound" "${CHAIN32}find . -name \$v32"
+  assert_defer "REQ-E1.2: tracked assignments past the bound defer" "${CHAIN32}v33=x && find . -name \$v33"
+  assert_defer "REQ-E1.2: fish -c has no NAME=value statement" "fish -c 'X=README.md; cat \$X'"
+  # Each opacity row against its control: the same shape with no rewrite
+  # resolves, so only the rewriting form can be what defers it.
+  assert_allow "REQ-A1.12: control, a tracked flag reaching find" "f=-name && find . \$f a.sh"
+  assert_defer "REQ-A1.12: read after a tracked assignment makes it opaque" "f=-name && read f && find . \$f a.sh"
+  assert_defer "REQ-A1.12: printf -v after a tracked assignment" "f=-name && printf -v f x && find . \$f a.sh"
+  assert_defer "REQ-A1.12: mapfile after a tracked assignment" "f=-name && mapfile f < g && find . \$f a.sh"
+  assert_defer "REQ-A1.12: declare after a tracked assignment" "f=-name && declare f=-delete && find . \$f"
+  assert_defer "REQ-A1.12: typeset after a tracked assignment" "f=-name && typeset f=-delete && find . \$f"
+  assert_defer "REQ-A1.12: local after a tracked assignment" "f=-name && local f=-delete && find . \$f"
+  assert_defer "REQ-A1.12: export after a tracked assignment" "f=-name && export f=-delete && find . \$f"
+  assert_defer "REQ-A1.12: readarray after a tracked assignment" "f=-name && readarray f < g && find . \$f a.sh"
+  assert_defer "REQ-A1.12: let after a tracked assignment" "n=1 && let n=2 && sed -n \${n}p f"
+  assert_defer "REQ-A1.12: arithmetic after a tracked assignment" "n=1 && ((n++)) && sed -n \${n}p f"
+  assert_defer "REQ-A1.12: read makes the variable opaque" "read f; find . \$f"
+  assert_defer "REQ-A1.12: printf -v makes the variable opaque" "printf -v f x && find . \$f"
+  assert_defer "REQ-A1.12: mapfile makes the variable opaque" "mapfile -t a < f; find . \${a[0]}"
+
+  echo "### REQ-A1.13 — time and timeout are transparent prefixes"
+  assert_allow "REQ-A1.13: time" "time git status"
+  assert_allow "REQ-A1.13: time -p" "time -p git status"
+  assert_allow "REQ-A1.13: timeout <seconds>" "timeout 30 git status"
+  assert_allow "REQ-A1.13: timeout <minutes>" "timeout 5m git log --oneline -3"
+  assert_allow "REQ-A1.13: timeout <fraction>" "timeout 1.5 grep -n x f"
+  assert_allow "REQ-A1.13: time around timeout" "time timeout 30 git status"
+  assert_allow "REQ-A1.13: the wrapped command is verified as if alone" "timeout 30 cat \$X"
+  assert_defer "REQ-A1.13: timeout around a writer" "timeout 30 rm -rf x"
+  assert_defer "REQ-A1.13: timeout with a flag" "timeout -k 5 30 git status"
+  assert_defer "REQ-A1.13: time around bash -c" "time bash -c x"
+  assert_defer "REQ-A1.13: a malformed duration" "timeout 5x ls"
+  assert_defer "REQ-A1.13: an opaque duration" "timeout \$T ls"
+  assert_defer "REQ-A1.13: time with another flag" "time -v ls"
+  # bash reads `-p` as time's option only when it is written bare; quoted, it
+  # is the command time runs.
+  assert_defer "REQ-A1.13: a double-quoted -p is the command time runs" "time \"-p\" git status"
+  assert_defer "REQ-A1.13: a single-quoted -p is the command time runs" "time '-p' git status"
+  assert_defer "REQ-A1.13: a quoted timeout duration" "timeout \"30\" git status"
+  assert_defer "REQ-A1.13: time with nothing to run" "time"
+  assert_defer "REQ-A1.13: timeout with nothing to run" "timeout 30"
+  assert_defer "REQ-A1.13: nested timeout" "timeout 30 timeout 5 ls"
+  assert_defer "REQ-A1.13: the time program under timeout" "timeout 30 time ls"
+  assert_defer "REQ-A1.13: an opaque operand the wrapped screen reads" "timeout 30 find . \$X"
+  assert_defer "REQ-A1.13: an assignment under a prefix" "time f=x"
+
+  echo "### REQ-E1.5 — timing and inspection verbs"
+  assert_allow "REQ-E1.5: sleep" "sleep 5"
+  assert_allow "REQ-E1.5: sleep with a fraction and a unit" "sleep 0.5; sleep 1m"
+  assert_allow "REQ-E1.5: sleep then a read" "sleep 20; gh pr checks 5"
+  # `-e` prints process environments on macOS and the BSDs (operator
+  # decision 2026-10-09), so every form carrying it defers.
+  assert_defer "REQ-E1.5: ps -ef prints environments on macOS" "ps -ef"
+  assert_defer "REQ-E1.5: ps -e" "ps -e"
+  assert_defer "REQ-E1.5: ps -eo" "ps -eo pid,args"
+  assert_allow "REQ-E1.5: ps -A selects every process" "ps -A"
+  assert_allow "REQ-E1.5: ps -o pid,args" "ps -o pid,args"
+  assert_allow "REQ-E1.5: ps with a format and a pid" "ps -o etimes= -p 1"
+  assert_allow "REQ-E1.5: uptime" "uptime"
+  assert_allow "REQ-E1.5: which" "which git"
+  assert_allow "REQ-E1.5: command -v" "command -v jq"
+  assert_allow "REQ-E1.5: git check-ignore" "git check-ignore x"
+  assert_allow "REQ-E1.5: git check-ignore -q" "git check-ignore -q .claude/x && echo ignored"
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "$WT" remote add origin https://example.invalid/r.git
+  HOOK_ENV=("${GIT_ISO[@]}")
+  assert_allow "REQ-E1.5: git ls-remote <remote>" "git ls-remote origin" Bash "$WT"
+  assert_allow "REQ-E1.5: git ls-remote <remote> <pattern>" "git ls-remote --heads origin refs/heads/main" Bash "$WT"
+  assert_defer "REQ-E1.5: git ls-remote to a name no remote is configured as" "git ls-remote foo" Bash "$WT"
+  # Only a built-in transport: any other URL, as configured or after an
+  # insteadOf rewrite, makes git run a git-remote-<transport> helper.
+  wtgit() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "$WT" "$@"; }
+  wtgit remote add viassh ssh://git@example.invalid/r.git
+  wtgit remote add viascp git@example.invalid:r.git
+  wtgit remote add viagit git://example.invalid/r.git
+  wtgit remote add viafile "$SANDBOX_P/install/outside"
+  wtgit remote add helper 'evil::anything'
+  wtgit remote add rewritten https://rewritten.invalid/r.git
+  wtgit config url.evil::y.insteadOf https://rewritten.invalid/
+  wtgit remote add withvcs https://example.invalid/v.git
+  wtgit config remote.withvcs.vcs evil
+  wtgit remote add withpack https://example.invalid/p.git
+  wtgit config remote.withpack.uploadpack 'sh -c id'
+  assert_allow "REQ-E1.5: git ls-remote to an ssh:// remote" "git ls-remote viassh" Bash "$WT"
+  assert_allow "REQ-E1.5: git ls-remote to an scp-style remote" "git ls-remote viascp" Bash "$WT"
+  assert_allow "REQ-E1.5: git ls-remote to a git:// remote" "git ls-remote viagit" Bash "$WT"
+  assert_allow "REQ-E1.5: git ls-remote to a local-path remote" "git ls-remote viafile" Bash "$WT"
+  assert_defer "REQ-E1.5: git ls-remote to a custom-transport remote" "git ls-remote helper" Bash "$WT"
+  assert_defer "REQ-E1.5: git ls-remote to a URL insteadOf rewrites to a helper" "git ls-remote rewritten" Bash "$WT"
+  assert_defer "REQ-E1.5: git ls-remote to a remote naming a vcs helper" "git ls-remote withvcs" Bash "$WT"
+  assert_defer "REQ-E1.5: git ls-remote to a remote with its own upload-pack" "git ls-remote withpack" Bash "$WT"
+  HOOK_ENV=()
+  assert_allow "REQ-E1.5: jq --version" "jq --version"
+  assert_allow "REQ-E1.5: shellcheck --version" "shellcheck --version"
+  assert_allow "REQ-E1.5: git --version" "git --version"
+  for tool in git gh jq yq rg fd sed awk find grep sort uniq date file bash sh fish bats mise lefthook \
+    shellcheck shfmt yamllint markdownlint markdownlint-cli2 cat head tail wc ls diff stat od tr seq \
+    cut comm cmp basename dirname realpath readlink nl paste column md5sum sha1sum sha256sum \
+    sha512sum cksum env printenv sleep ps uptime which; do
+    assert_allow "REQ-E1.5: $tool --version" "$tool --version"
+  done
+  for f in -p --pretty -s --since; do
+    assert_allow "REQ-E1.5: uptime $f" "uptime $f"
+  done
+  for f in -q --quiet -v --verbose -n --non-matching --no-index -z; do
+    assert_allow "REQ-E1.5: git check-ignore $f" "git check-ignore $f x"
+  done
+  HOOK_ENV=("${GIT_ISO[@]}")
+  for f in -h --heads -b --branches -t --tags --refs -q --quiet --exit-code --get-url --symref --sort=refname; do
+    assert_allow "REQ-E1.5: git ls-remote $f" "git ls-remote $f origin" Bash "$WT"
+  done
+  HOOK_ENV=()
+  for f in -A -a -d -f -F -H -j -l -L -M -m -T -w -x -y -Z --no-headers --forest; do
+    assert_allow "REQ-E1.5: ps $f" "ps $f"
+  done
+  for f in "-p 1" "-u root" "-o pid,etime" "--sort pid" "--pid=1" "ax" "axwww" "1,2"; do
+    assert_allow "REQ-E1.5: ps $f" "ps $f"
+  done
+  assert_allow "REQ-E1.5: which -a and -s" "which -a -s git"
+  assert_defer "REQ-E1.5: sleep with an opaque operand" "sleep \$X"
+  # Approved waits are capped at two hours, so a typo cannot park a worker.
+  assert_allow "REQ-E1.5: sleep at the cap" "sleep 2h"
+  assert_allow "REQ-E1.5: sleep at the cap in minutes" "sleep 120m"
+  assert_allow "REQ-E1.5: sleep at the cap in seconds" "sleep 7200"
+  assert_allow "REQ-E1.5: sleep with leading zeros" "sleep 0099"
+  assert_defer "REQ-E1.5: sleep past the cap" "sleep 7201"
+  assert_defer "REQ-E1.5: sleep past the cap in minutes" "sleep 121m"
+  assert_defer "REQ-E1.5: sleep past the cap by a fraction" "sleep 7200.5"
+  assert_defer "REQ-E1.5: sleep for a year" "sleep 365d"
+  assert_defer "REQ-E1.5: sleep operands summing past the cap" "sleep 2h 1s"
+  assert_allow "REQ-A1.13: timeout at the cap" "timeout 2h git status"
+  assert_defer "REQ-A1.13: timeout past the cap" "timeout 3h git status"
+  assert_defer "REQ-E1.5: sleep with a non-numeric operand" "sleep forever"
+  assert_defer "REQ-E1.5: sleep with no operand" "sleep"
+  assert_defer "REQ-E1.5: ps with an unrecognized flag" "ps --bogus"
+  assert_allow "REQ-E1.5: ps aux" "ps aux"
+  assert_defer "REQ-E1.5: BSD e prints other processes' environments" "ps auxe"
+  assert_defer "REQ-E1.5: ps eww" "ps eww"
+  assert_defer "REQ-E1.5: ps e" "ps e"
+  assert_defer "REQ-E1.5: a format naming env" "ps -o pid,env"
+  assert_defer "REQ-E1.5: a format naming environ" "ps --format=pid,environ"
+  assert_defer "REQ-E1.5: an -O format naming env" "ps -O env"
+  assert_defer "REQ-E1.5: uptime with an unrecognized flag" "uptime --bogus"
+  assert_defer "REQ-E1.5: command runs its operand" "command ls"
+  assert_defer "REQ-E1.5: command -p runs its operand" "command -p ls"
+  assert_defer "REQ-E1.5: which with an unrecognized flag" "which --read-functions git"
+  assert_defer "REQ-E1.5: git check-ignore with an unrecognized flag" "git check-ignore --bogus x"
+  assert_defer "REQ-E1.5: git ls-remote to a URL" "git ls-remote https://example.invalid/x"
+  assert_defer "REQ-E1.5: git ls-remote to a relative path" "git ls-remote ./path"
+  assert_defer "REQ-E1.5: git ls-remote to a parent path" "git ls-remote ../other"
+  assert_defer "REQ-E1.5: git ls-remote to an scp-style address" "git ls-remote h:r"
+  assert_defer "REQ-E1.5: git ls-remote --upload-pack" "git ls-remote --upload-pack=x origin"
+  assert_defer "REQ-E1.5: git ls-remote -u" "git ls-remote -u x origin"
+  assert_defer "REQ-E1.5: git ls-remote naming an existing path" "git ls-remote sub"
+  assert_defer "REQ-E1.5: git ls-remote with no remote" "git ls-remote"
+  assert_defer "REQ-E1.5: --version of a verb outside the allowlist" "rm --version"
+  assert_defer "REQ-E1.5: --version with another operand" "git --version x"
+
   echo "### REQ-A1.9 — grammar-conservative deferral"
   assert_defer "env-assignment prefix BASH_ENV" "BASH_ENV=/tmp/x bash scripts/ok.sh"
   assert_defer "env-assignment LD_PRELOAD" "LD_PRELOAD=/tmp/x cat f"
   assert_defer "env-assignment GIT_PAGER" "GIT_PAGER='!cmd' git log"
-  assert_defer "bare env-assignment only" "FOO=bar"
+  assert_allow "REQ-E1.2: a lone plain assignment runs nothing" "FOO=bar"
   assert_defer "path-prefixed verb absolute" "/tmp/evil/cat f"
   assert_defer "path-prefixed verb dot-slash" "./cat f"
   assert_defer "subshell grouping" "(rm -rf x)"
@@ -1488,6 +1761,11 @@ assert_allow "bare target's resolved location approved" "$FX/bin/fixture-tool --
 assert_allow "declared line with no args approved" "$OTHER" Bash "$FXC"
 assert_allow "declared line chained with a known-safe segment approved" \
   "$DECLARED --mode strict && git status" Bash "$FXC"
+# The declarations resolve from the payload cwd, so after a `cd` a declared
+# line's relative args would name other files than the ones declared.
+# Regression-only here: this catalog's relative step already fails to resolve
+# from the subdirectory.
+assert_defer "REQ-A1.12: a declared line after a cd defers" "cd tools && $DECLARED --mode strict" Bash "$FXC"
 assert_defer "bare target instead of its resolved location deferred" "fixture-tool --x" Bash "$FXC"
 assert_defer "segment sharing only the first word deferred" "$DECLARED --mode lax" Bash "$FXC"
 assert_defer "declared line plus an extra arg deferred" "$DECLARED --mode strict --extra" Bash "$FXC"

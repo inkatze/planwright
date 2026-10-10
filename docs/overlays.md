@@ -472,8 +472,8 @@ The **primary** approval path for those invocations is the auto-approve hook
 wired into [`config/worker-settings.json`](../config/worker-settings.json), which
 reads the command exactly as the worker wrote it (Claude Code hands a hook the
 raw `tool_input.command`, variables unexpanded), allows the known-safe set, and
-resolves one same-command `P=<trusted root> && $P/scripts/x.sh` assignment
-itself. As
+resolves a same-command plain-literal assignment (`P=<root> && $P/scripts/x.sh`)
+and a leading `cd` into the worker's own worktree itself. As
 **defense-in-depth beneath that hook** — most relevant on the hook's degraded
 path (when `jq` is absent the hook defers everything) — an adopter may add a
 literal-path allow entry to their **worker** settings that persistent-allows the
