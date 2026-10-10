@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.59.0](https://github.com/inkatze/planwright/compare/v0.58.0...v0.59.0) (2026-10-10)
+
+
+### Features
+
+* **step-record:** default --head and --end so workers need no substitution ([#640](https://github.com/inkatze/planwright/issues/640)) ([94de3eb](https://github.com/inkatze/planwright/commit/94de3eba458ec346d50f2ba40172b250f2a8dea1))
+* **worker-guard:** read segments in run order, model cd and plain assignments ([#637](https://github.com/inkatze/planwright/issues/637)) ([1d5421b](https://github.com/inkatze/planwright/commit/1d5421bf5562abd5a4d8cc0f8c25e24ad9acb7ad))
+
+
+### Bug Fixes
+
+* **quota:** let a higher layer override a conflicting vendors catalog entry ([#638](https://github.com/inkatze/planwright/issues/638)) ([c834946](https://github.com/inkatze/planwright/commit/c8349467b614ea3e736dadd536cdc6f1e15d355b))
+
 ## [0.58.0](https://github.com/inkatze/planwright/compare/v0.57.0...v0.58.0) (2026-10-09)
 
 
