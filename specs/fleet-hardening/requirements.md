@@ -1,6 +1,6 @@
 # Fleet Hardening — Requirements
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-10-10
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -56,9 +56,10 @@ the repository: every mutation it is asked for becomes a flight. Today that rule
 only, because the tower profile allows Edit and Write outright, so a tower that slips (or a prompt
 that talks it into "just edit it here") writes straight into a checkout other sessions read. The
 extension makes the rule mechanical: in a session marked as a `/tower` session, the plugin's own
-hooks refuse every file-tool write whose target lies inside the repository, however the session
-was launched, and leave the tower's own writes outside it (its petition temp files, its memory)
-alone (REQ-I). It builds on `tower-placement`'s session mark and plugin-wired floor, which own
+hooks refuse every file-tool write whose target lies inside any git repository, or in the few
+places outside one that would switch the floor off, whatever permission settings the session was
+launched with, and leave the tower's other writes (its petition temp files, its memory) alone
+(REQ-I). It builds on `tower-placement`'s session mark and plugin-wired floor, which own
 the rest of the launch-independent tower floor and the posture check that reads it; this
 extension adds only what that bundle leaves out, and waits for it to land (D-19). The altitude is
 mechanism under D-1, enforcing an existing rule rather than stating a new one (D-16).
@@ -120,8 +121,9 @@ mechanism under D-1, enforcing an existing rule rather than stating a new one (D
   relaunch.
 - *(Extension 2026-10-10.)* The front door's authoring floor: the session mark records which
   command marked it, and a plugin-wired file-tool hook denies Edit, Write, and NotebookEdit into
-  the repository in a `/tower` session, with the bring-up posture report, the tower skill, and the
-  tower profile's description updated to match.
+  any git repository, the mark store, Claude Code's settings files, and the plugin's own root in a
+  `/tower` session, with the bring-up and on-request posture report, the tower skill, the tower
+  profile's description, `docs/tower-posture-delta.md`, and `docs/fleet.md` updated to match.
 
 ### Out of scope
 
@@ -159,15 +161,21 @@ mechanism under D-1, enforcing an existing rule rather than stating a new one (D
   and the other rungs are unaffected (D-12).
 - *(Extension 2026-10-10.)* The launch-independent tower floor itself: session marking, the
   plugin-wired deny-only policy guard, the deny list every tower entry maps to a guard act, and
-  the posture check that accepts plugin enforcement (`tower-placement` owns all four; obs:6be13a0c
-  and obs:48faa6b7 are delivered there).
-- *(Extension 2026-10-10.)* Refusing Edit or Write in an `/orchestrate` session, whose reconcile
-  writes Awaiting-input bullets into `tasks.md` on the primary checkout (D-17).
+  the posture check that accepts plugin enforcement (`tower-placement` owns all four; obs:48faa6b7
+  is consumed there, and obs:6be13a0c is consumed here as framing, its remedy being that bundle's).
+- *(Extension 2026-10-10.)* Refusing Edit, Write, or NotebookEdit in a session marked only by
+  `/orchestrate`, whose reconcile writes Awaiting-input bullets into `tasks.md` on the primary
+  checkout (D-17). An `/orchestrate` run inside a session `/tower` marked is unsupported: the
+  sticky `tower` kind refuses its in-repository writes (D-18).
 - *(Extension 2026-10-10.)* Writes into the repository spelled through the shell (a redirect,
   `sed -i`, `tee`) or through an MCP filesystem tool: the file-tool hook does not see them, and
   the shell path stays with the command guards and the deny list.
 - *(Extension 2026-10-10.)* Removing Edit and Write from the tower profile's allow list:
-  `/orchestrate` runs under the same profile, and the plugin hook's deny holds over the allow.
+  `/orchestrate` runs under the same profile, and the plugin hook's deny is expected to hold over
+  the allow (checked live, REQ-I1.1).
+- *(Extension 2026-10-10.)* A launch that switches hooks off altogether (`disableAllHooks`): the
+  floor cannot run there, and `tower-placement`'s activation handshake reports it missing.
+- *(Extension 2026-10-10.)* An opt-out knob: the floor enforces an unconditional rule (D-17).
 - *(Extension 2026-10-10.)* The worker's own posture, including a unit-owner worker reading its
   own ready-flip output (`worker-permission-ergonomics` is its home).
 
@@ -419,35 +427,68 @@ mechanism under D-1, enforcing an existing rule rather than stating a new one (D
 
 ## REQ-I — The front door's authoring floor
 
-- **REQ-I1.1** In a session marked as a `/tower` session, the plugin's own PreToolUse hooks SHALL
-  deny every Edit, Write, and NotebookEdit call whose target lies inside the session's repository
-  (its primary checkout, any of its linked worktrees, or its git directory), whatever settings the
-  session was launched with, the tower profile's allow of Edit and Write included.
+- **REQ-I1.1** In a `/tower` session (one whose mark reads kind `tower`, REQ-I1.4), the plugin's
+  own PreToolUse hooks SHALL deny every Edit, Write, and NotebookEdit call whose target lies inside
+  any git repository (a working tree, a `.git` directory, a separate git directory, or a bare
+  repository, whatever project it belongs to), inside Claude Code's user settings files
+  (`settings.json` and `settings.local.json` in its configuration directory), or inside the
+  plugin's own installed root, whatever permission settings the session was launched with, the
+  tower profile's allow of Edit and Write included. The session's own Claude Code memory directory
+  is exempt.
   *(Cites: D-17, D-18, obs:ce918748.)*
-- **REQ-I1.2** The refusal reason SHALL name the rule (the front door does not author) and the
-  route (open a flight for the change).
+- **REQ-I1.2** The refusal reason SHALL be a constant that names the rule (the front door does not
+  author) and the route: open a flight for a change that is committed, or ask the operator for a
+  machine-local file that is not.
   *(Cites: D-17.)*
-- **REQ-I1.3** The file-tool hook SHALL only deny or defer, never allow, and SHALL defer for every
-  target outside the repository, in a session marked only by `/orchestrate`, and in an unmarked
-  session, where its path SHALL be the in-shell prefilter `tower-placement` REQ-C1.6 sets for the
-  policy guard.
+- **REQ-I1.3** The file-tool hook SHALL only deny or defer, never allow, where defer means exit 0
+  with no decision output. In a `/tower` session it SHALL defer for every target outside the places
+  REQ-I1.1 and REQ-I1.7 name. In a session marked only by `/orchestrate` it SHALL defer on every
+  call but REQ-I1.7's, after reading the kind; in an unmarked session it SHALL defer through the
+  in-shell prefilter `tower-placement` REQ-C1.6 sets for the policy guard, forking nothing.
   *(Cites: D-17, D-18, `tower-placement` REQ-C1.2, REQ-C1.6.)*
-- **REQ-I1.4** The session mark SHALL record which command marked the session, and a session
-  marked by `/tower` at any point SHALL count as a `/tower` session for as long as its mark lives,
-  whatever later marks it.
+- **REQ-I1.4** The session mark SHALL record which command marked the session: the prompt hook
+  from the command opening the prompt, the activation handshake from which of its two fixed
+  spellings ran, the whole command equal to one of them. A session marked by `/tower` at any point
+  SHALL count as a `/tower` session for as long as its mark lives, whatever later marks it. A mark
+  carrying no kind SHALL read as `orchestrate` until a `/tower` bring-up or posture check re-marks
+  it, and the docs SHALL state that window.
   *(Cites: D-18.)*
-- **REQ-I1.5** The containment test SHALL compare canonical paths: symlinks and `..` components
-  resolved, and a target that does not exist yet resolved through its deepest existing ancestor.
-  In a `/tower` session the hook SHALL deny when the payload cannot be read, the target path is
-  missing or cannot be resolved, or the repository's checkouts cannot be listed.
-  *(Cites: D-18, research: Claude Code hooks reference (Sources).)*
-- **REQ-I1.6** The `/tower` bring-up posture report SHALL state whether the authoring floor is
-  active, and the tower skill and the tower profile's `_about` text SHALL describe the refusal in
-  place of the statement that the posture allows Edit and Write.
+- **REQ-I1.5** A target SHALL count as inside a repository when it or any ancestor holds a `.git`
+  entry (the name matched case-insensitively) or git reports it inside a git directory, judged for
+  both the target's lexically normalized path and its canonical path (symlinks resolved at every
+  component, the final one included, and a tail that does not exist yet resolved through its
+  deepest existing ancestor); either one inside denies, and the root of a protected place counts
+  as inside it. In a `/tower` session the hook SHALL deny when the payload cannot be read or
+  exceeds the guard's size bound, the tool name is not one of the three, the target field is
+  absent, empty, not a string, or not an absolute path, the target cannot be canonicalized, or git
+  cannot run. On the file surface, a mark store that cannot be searched, a mark that fails the
+  store's check, or a kind other than `tower`, `orchestrate`, or none SHALL count as kind `tower`.
+  *(Cites: D-18, `tower-placement` REQ-C1.4, research: Claude Code hooks reference (Sources).)*
+- **REQ-I1.6** The `/tower` bring-up and on-request posture report SHALL state whether the
+  authoring floor is active, counting it active only when the plugin's hook refused the activation
+  handshake with its "active" message and the session's mark then reads kind `tower`, and naming
+  it missing or broken otherwise, as `tower-placement` REQ-B1.4 does for the plugin floor. The
+  tower skill SHALL describe the refusal in place of its statement that the posture allows Edit
+  and Write; the tower profile's `_about` text and `docs/tower-posture-delta.md` SHALL describe the
+  refusal, that it is expected to hold over the profile's Edit and Write allow, and that
+  shell-spelled writes fall outside it.
   *(Cites: D-18, `tower-placement` REQ-B1.4.)*
+- **REQ-I1.7** In any marked session the file-tool hook SHALL deny a target inside the session mark
+  store, which only plugin hook processes write.
+  *(Cites: D-18, `tower-placement` REQ-C1.4, REQ-C1.9.)*
 
 ## Changelog
 
+- 2026-10-10 — Extension kickoff (`/spec-kickoff`, delta walk and lens review; the bundle is Draft,
+  edits in place). The floor now protects any git repository rather than the session's own, so a
+  tower handling several projects or running from a separate clone is covered, and it no longer
+  depends on any working directory; it also refuses Claude Code's user settings files, the
+  plugin's root, and (in any marked session) the mark store, so the floor cannot be switched off
+  through a file write. The kind is carried by two fixed handshake spellings (`tower-placement`'s
+  original spelling becoming the `orchestrate` one); fail-closed arms apply once the kind reads
+  `tower`, and an unreadable or unknown mark counts as `tower`; containment judges both the lexical
+  and the canonical path. REQ-I1.7 is minted; REQ-I1.1 through I1.6 are re-scoped with their
+  paired test-spec entries; the posture report's check becomes a structural test plus a live run.
 - 2026-10-10 — Extension (`/spec-draft --extend`, meaning-class: new REQ-I1.1 through REQ-I1.6,
   D-16 through D-19, Tasks 15 through 17). Reopen cycle: the bundle derived Done, so the stored
   Status moves Ready to Draft on all four files; the scoped kickoff of the delta flips it back.
@@ -666,12 +707,19 @@ mechanism under D-1, enforcing an existing rule rather than stating a new one (D
   (obs:48faa6b7, consumed there). Its scope excludes an Edit and Write deny for towers, which this
   extension supplies on top of its mark.
 - **research: Claude Code hooks reference** (the hooks, permissions, and tools reference pages of
-  the official Claude Code docs, read 2026-10-10) — Edit and Write carry an absolute
-  `tool_input.file_path` and NotebookEdit a `notebook_path`; a plugin matcher may name the three
-  tools as a plain list; a blocking hook decision outranks a settings allow rule (stated for the
-  exit-2 form; the JSON deny form is expected to match and is checked live, see the test spec);
-  path-scoped permission rules apply to Edit only, which is why the floor is a hook; shell and MCP
-  filesystem writes never reach a file-tool matcher.
+  the official Claude Code docs, read 2026-10-10; re-checked at kickoff the same day) — Edit and
+  Write carry a `tool_input.file_path` the harness makes absolute before hooks run; NotebookEdit
+  carries a `notebook_path` whose form is not documented; a plugin matcher may name the three
+  tools as a plain list, and they are the only built-in file-writing tools; a blocking hook
+  decision outranks a settings allow rule (stated for the exit-2 form, with the JSON deny routed
+  the same way; checked live, see the test spec); a hook that cannot start, fails, or times out
+  lets the call through unless its entry sets `onFailure: block` (Claude Code v2.1.295 or later);
+  the payload's `cwd` follows the session's `cd` while `CLAUDE_PROJECT_DIR` stays at the start
+  directory; a subagent's tool calls fire the same hooks, carrying `agent_id` and `agent_type`,
+  with no statement on whether `session_id` is the parent's; `disableAllHooks` switches plugin
+  hooks off for a run; path rules are spelled `Edit(...)` and cover Write and NotebookEdit too, but
+  a settings rule cannot tell one session from another, which is why the floor is a hook; shell and
+  MCP filesystem writes never reach a file-tool matcher.
 - **obs:c2c57cdf** (not consumed) — a unit-owner worker could not read its own background
   ready-flip output. Considered and left live: it is worker posture, owned by
   `worker-permission-ergonomics`.

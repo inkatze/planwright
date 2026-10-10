@@ -681,6 +681,315 @@ operator, the grouped fixes applied, two findings declined with rationale)
 Anchor: `05f21e5a2c213c3c9a97c8fba6ca7cad7f35c74c` — computed as
 `scripts/spec-anchor.sh specs/fleet-hardening`
 
+### 2026-10-10 — Extension delta kickoff (`/spec-kickoff`, reopened bundle): the front door's authoring floor
+
+**Header.**
+
+- **Spec path:** `specs/fleet-hardening`
+- **Spec commit at walkthrough start:** `9ff0c33` (the `/spec-draft --extend` commit that reopened
+  the bundle to Draft on all four headers)
+- **Walkthrough date:** 2026-10-10
+- **Mode:** reopened-bundle delta kickoff (Status Draft with a complete signed brief). Delta: the
+  2026-10-10 extension as recorded in `requirements.md`'s `## Changelog`; everything outside it
+  stands as signed above.
+- **Validator outcome (pre-flight):** `spec-validate specs/fleet-hardening` → 0 errors, 0 warnings
+- **Config:** `commit_on_kickoff: true`, `mark_spec_pr_ready_on_kickoff: true`,
+  `kickoff_ready_ci_wait: 10m` (defaults; no local override of these keys)
+- **Working location:** spec worktree `.claude/worktrees/fleet-hardening-spec`, branch
+  `planwright/fleet-hardening/spec`, clean; no open spec PR for the branch.
+- **Decision/transcript log:** no harness-provided log in this session; the turn mirror is skipped.
+
+**Goal & glossary (delta).**
+
+*Restatement.* `/tower`, the front door, already has the rule that it never edits the repository
+and routes every change as a flight, but nothing enforces it: the tower profile allows Edit and
+Write outright, so a tower that slips, or is talked into "just edit it here", writes straight into
+a checkout other sessions read. The extension adds a plugin-wired PreToolUse hook that, in any
+session marked by `/tower` however it was launched, refuses Edit, Write, and NotebookEdit whose
+target lies inside the repository (primary checkout, any linked worktree, the git directory), with
+a reason naming the rule and the flight route. Writes outside the repository (petition temp files,
+memory) pass. To tell the front door from an orchestrator, `tower-placement`'s session mark gains
+a kind; `tower` is sticky for the mark's life, and a mark written before the change reads as
+`orchestrate`. The altitude is mechanism under D-1: it enforces an existing rule (D-16).
+
+*Rules out.* `/orchestrate` sessions (their reconcile writes `tasks.md` on the primary checkout);
+shell-spelled and MCP filesystem writes (the command guards and the deny list keep the shell path);
+removing Edit and Write from the profile's allow list; worker posture; and everything
+`tower-placement` owns (the mark store, the plugin Bash/MCP floor, the deny-to-act coverage, the
+posture check that reads plugin enforcement).
+
+*Assumes.* `tower-placement` lands first (Task 15 is gated on it deriving Done, D-19); a hook's JSON
+deny outranks a settings allow on the running Claude Code version (documented for the exit-2 form,
+checked live per the REQ-I1.1 `[manual]` entry).
+
+*Implicit terms surfaced.*
+
+- **Kind:** the `tower` / `orchestrate` field on a session mark.
+- **Inside the repository:** canonical-path containment in the primary checkout, a linked worktree,
+  or the git directory of the repository the session's working directory belongs to.
+- **Authoring floor:** this file-tool deny.
+
+*Resolutions.*
+
+- **A working directory in no repository** (operator decision). REQ-I1.5's "the repository's
+  checkouts cannot be listed" read two ways when the session's working directory is not inside any
+  git repository. Resolved: no repository means nothing to protect, so the hook defers; a listing
+  that fails inside a repository, or a git that cannot run, still denies. Grounded in D-17's scope
+  ("the session's repository"); a tower launched outside its tree is already flagged by
+  `tower-placement`'s placement check. Spec edit 1 below (applied in place).
+  *(Superseded after the lens pass: the floor now protects any git repository and no longer
+  depends on a working directory, which the payload `cwd` showed to move with every `cd`; a
+  target in no repository defers.)*
+
+Signed off: 2026-10-10
+
+**Requirements walkthrough (delta).**
+
+- *REQ-I, the authoring floor.* In a `/tower` session the plugin denies in-repo Edit, Write, and
+  NotebookEdit whatever the launch settings (I1.1), naming the rule and the flight route (I1.2);
+  the hook only denies or defers, deferring for outside targets, `orchestrate`-kind sessions, and
+  unmarked sessions through the in-shell prefilter (I1.3); the mark records its kind and `tower`
+  is sticky (I1.4); containment compares canonical paths and fails closed (I1.5); the posture
+  report and docs describe the floor (I1.6). Outcome: confirmed with two gap-fills (edits 1 and 2).
+  Probed and left standing: a forged `tower` mark only restricts (deny-only path); a kindless
+  pre-upgrade mark leaves a running tower unfloored until its next bring-up or posture check
+  re-marks it, the same residual window `tower-placement` REQ-C1.8 documents; the posture
+  report's "active" rests on the Bash entry's handshake, accepted in D-18 because both entries
+  ship in one hooks file.
+  *(Reconciled after the lens pass: I1.1 covers any git repository plus Claude Code's user
+  settings files and the plugin root; REQ-I1.7 is minted for the mark store; I1.3 through I1.6 are
+  re-scoped as the lens dispositions below record; the kindless-mark window is the docs' to state,
+  not REQ-C1.8's, which covers resume and fork.)*
+
+*Consolidated spec-edit list (all applied in place; the bundle is Draft):*
+
+1. `requirements.md` REQ-I1.5, `design.md` D-18, `tasks.md` Task 16 (deliverables and done-when),
+   `test-spec.md` REQ-I1.5: a working directory in no git repository defers; a failing listing
+   inside a repository, or a git that cannot run, still denies (operator decision, section 2).
+   *(Superseded by the lens disposition "any git repository": no working directory decides the
+   protected set.)*
+2. `design.md` D-18, `tasks.md` Task 15 (deliverables and done-when), `test-spec.md` REQ-I1.4: the
+   activation handshake gains two fixed spellings, one per kind, matched as fixed strings, anything
+   else marking nothing; each skill's bring-up and posture check runs its own (operator decision:
+   `tower-placement`'s single fixed handshake could not carry the kind, and it is the path that
+   re-marks a tower entered by resume, fork, or a mid-session skill call).
+   *(Refined after the lens pass: matched by whole-command equality; `tower-placement`'s original
+   spelling becomes the `orchestrate` one.)*
+
+Both edits resolve ambiguities the operator decided; neither is an agent-authored meaning-class
+edit, so no mid-walk lens pass ran. The whole extension is meaning-class and takes the terminal
+lens pass.
+
+Signed off: 2026-10-10
+
+**Design walkthrough (delta).** D-16 through D-19 are minted. D-16 (mechanism altitude) confirmed;
+D-17 (front-door sessions, in-repo targets, deny) confirmed; D-18 (the kind-carrying mark and the
+file surface inside the policy guard) amended by edits 1 and 2; D-19 (parked on `GATE(when: spec
+tower-placement done)`) confirmed: the gate is a valid status atom in `accumulator-taxonomy`'s
+grammar, and `spec-status` treats a Deferred-parked task as excluded from the Done universe while
+Tasks 16 and 17 stay pending on it, so the bundle cannot derive Done around the parked work.
+D-1 through D-15 are untouched by the delta and stand as signed. No design decision contradicts a
+walked requirement. *(Reconciled after the lens pass: D-16 is amended (where the rule already
+lives), D-17 amended (any repository, the floor-switching places, the decided-rule wording, no
+knob), D-18 amended (kind-gated fail-closed arms, handshake spelling fate, both-path containment,
+the hook-failure default, the corrected path-rule research, the deny-list relation); D-19
+confirmed.)*
+
+Signed off: 2026-10-10
+
+**Verification approach (delta).** REQ-I1.2 through I1.5 are `[test]`, run by repository CI under
+`mise run check` from Task 15's and Task 16's suites. REQ-I1.1 is `[test + manual]`: the deny per
+target class runs in CI; the live confirmation that the hook's JSON deny outranks the tower
+profile's Edit/Write allow on the running Claude Code version (profile launch and plain launch)
+is swept by the operator on Task 17's PR, whose description records both runs. REQ-I1.6 is
+`[test + design-level]`: posture fixtures in CI; the reviewer confirms the skill, profile `_about`,
+and posture-delta doc wording at PR review. Dead-path check: every `[test]` entry names a fixture
+the policy guard's existing test harness can run (the fork-stub fixture reuses the prefilter
+seam `tower-placement` REQ-C1.6 establishes); none depends on an unavailable platform.
+*(Reconciled after the lens pass: the posture report has no script to feed a fixture, so REQ-I1.6
+is `[test + manual + design-level]`, its `[test]` a structural check in `tests/test-tower-skill.sh`
+plus a grep for the retired sentence; the fork check uses logging stubs and a static check, as
+`tower-placement` does; REQ-I1.4 gains a `[manual]` docs check; REQ-I1.7 is `[test]`; the live
+runs load the plugin from the PR branch and include a subagent Write; the `.GIT` case-variant
+fixture runs where the platform allows it.)*
+
+Signed off: 2026-10-10
+
+**Task graph (delta).** From the `Dependencies:` lines: Task 15 has none; Task 16 depends on 15;
+Task 17 on 16. A strict chain, no parallelism; critical path 15 → 16 → 17 (see the tasks' effort
+lines). Task 15 is parked by its gated Deferred bullet (`GATE(when: spec tower-placement done)`),
+so the chain cannot start before `tower-placement` derives Done. Deliberate non-edges: Task 15
+carries no `Dependencies:` edge on `tower-placement`, because task dependencies cannot cross
+bundles; the gate is the cross-bundle wait (D-19). Task 17 has no direct edge on 15; it reaches it
+through 16.
+
+Signed off: 2026-10-10
+
+**Risk register (delta).** Rows continue the numbering of §7 as appended rows; earlier rows are
+untouched.
+
+- **F1. `tower-placement` slips.** The extension stays parked as long as that bundle is not Done,
+  its docs task included. Mitigation: the gate re-surfaces on every drain; early signal: the drain
+  reporting the gate unreached while `tower-placement`'s code tasks are merged.
+- **F2. The JSON deny may not outrank a settings allow** on the running Claude Code version (the
+  docs state precedence for the exit-2 form). Mitigation: the REQ-I1.1 `[manual]` live check on
+  Task 17, with the exit-2 form as the fallback spelling; early signal: a live Write into the
+  checkout succeeding under the tower profile.
+- **F3. Kindless or stale marks leave a running tower unfloored** until its next bring-up or
+  posture check re-marks it. Mitigation: the bring-up and on-request handshakes re-mark with kind
+  `tower`; `docs/fleet.md` states the window (Task 17). No live early signal: the posture check is
+  itself the re-marking handshake, so a kindless mark is never visible as inactive; the residual
+  is bounded by how long a tower runs before its next posture check.
+- **F4. "Active" is proven by the Bash entry's handshake, not the file-tool entry's.** A broken
+  file-tool matcher would report active while letting writes through. Mitigation: both entries ship
+  in one hooks file, a CI check pins the file-tool entry's matcher and timeout (Task 16), and Task
+  17's live check exercises the file-tool deny; early signal: the REQ-I1.1 `[manual]` run.
+- **F5. An undocumented tower write inside a repository breaks.** A tower habit that writes a repo
+  file with the file tool (a machine-local, uncommitted file, for example) is now refused.
+  Intended by D-17; mitigation: the refusal names a flight or the operator as the route; early
+  signal: refusals in tower sessions on paths no flight would own.
+- **F6. Mark-format change across plugin versions** (data-storage and deploy-migration domains).
+  Adding a kind changes the
+  mark's content; a guard from an older plugin version reading a newer mark under the store's
+  strict check could read it as tampered and deny everything in that session. Accepted: a mark is
+  written and read by one session's own hooks, so a mismatch needs a plugin upgrade mid-session;
+  mitigation: Task 15 keeps the kindless form readable (it reads as `orchestrate`); early signal: a
+  tower denying every Bash call right after an upgrade, cleared by a fresh session.
+- **F7. A hook that cannot start or times out lets the write through** (operator decision at the
+  lens pass: keep the harness default rather than `onFailure: block`). Mitigation: the explicit
+  timeout above the guard's own deadline, and a plugin install the posture check proves live;
+  early signal: a tower Write into a checkout succeeding while the posture report reads active.
+- **F8. A subagent's tool calls may not carry the parent's session id** (undocumented). If not, a
+  `/tower` session that delegates a write to an Agent subagent gets an unmarked lookup and a defer.
+  Mitigation: the Task 17 live run includes a subagent Write; early signal: that run succeeding.
+- **F9. Hardlinks and a check-then-write race.** A hardlink from a temp path to a repository file,
+  or a symlink swapped between the guard's check and the write, defeats path containment; both
+  need a shell step, which stays out of scope with the command guards. Accepted.
+- **F10. A future built-in file-writing tool** would be unmatched by the fixed Edit, Write, and
+  NotebookEdit matcher. Mitigation: the hooks-wiring check names the three; early signal: a new
+  file tool in the Claude Code tools reference.
+- **F11. A broken mark store denies file writes host-wide.** An unsearchable store or tampered mark
+  counts as `tower` (operator decision at the lens pass), so every marked session, and any session
+  while the store cannot be searched, loses in-repository file writes, workers included, as
+  `tower-placement` already accepts for Bash. Early signal: workers refused Edit in their own
+  worktrees.
+
+*Decision-domains gap check* (catalog via `scripts/resolve-catalog.sh decision-domains`, seed plus
+overlay domains): authentication and authorization (deny-only, sticky `tower` kind, forged
+handshake only restricts), concurrency (one session's prompt hook and tool hooks never overlap, so
+the sticky read-modify-write has no in-session race), observability (posture report, refusal
+reason), deploy and migration (kindless marks read `orchestrate`; the D-19 gate), human
+comprehension (the refusal names the rule and route), existing-seam reuse (the policy guard and
+`tower-placement`'s store) are touched and decided. Versioning is touched and undecided in the
+spec (the mark-format change across plugin versions): recorded as accepted risk F6. No other gap.
+*(Reconciled after the lens pass: the lens found the auth, concurrency, and deploy-migration
+claims only partly decided and four domains missed; each is now decided in the spec or recorded
+here: the protected set and its anchor (auth, D-17), the sticky refresh's no-race rationale and
+the kindless window (concurrency and deploy-migration, D-18 and REQ-I1.4), the handshake
+spelling's fate (deploy-migration, D-18), the kind's storage as a mark-store shape change
+(data-storage, F6 relabelled), the refusal's route for uncommitted files (API surface, REQ-I1.2),
+no opt-out knob (secrets and configuration, D-17), and canonicalization pinned by behavior
+rather than a named primitive (dependency adoption, the Task 16 cases).)*
+
+Signed off: 2026-10-10
+
+**Lens review (delta-scoped, parallel fan-out).** Artifact class: spec, so the spec lens set,
+plus one explicitly named code lens (security and failure modes of the designed mechanism) because
+the delta specifies a containment guard. Nine read-only sub-agents, one per lens, over the
+extension delta (`git diff 0e173fbc` of the four spec files, the code it names, and
+`tower-placement`); rendered-content safety walked inline. The Claude Code platform claims the
+lenses relied on (`onFailure`, the default on hook failure, path-rule coverage, absolute targets,
+`cwd` versus `CLAUDE_PROJECT_DIR`, subagent payloads, deny precedence, `disableAllHooks`, the
+file-tool set) were re-checked independently against the current hooks, permissions, tools,
+settings, and subagent reference pages. Raw findings overlapped heavily and were merged before
+disposition.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 9 | file tools could rewrite the mark (floor off); fail-closed contract vs "orchestrate defers" (a genuine contradiction); unreadable-mark kind undecided; working directory unpinned; separate-clone tower; handshake spelling fate; F3 signal could not fire; `/orchestrate` inside a tower session; relative targets |
+| Ambiguity and interpretation forks | 17 | working-directory source; common vs per-worktree git dir; `..` vs symlink order; dangling symlinks; "no repository" test; arm precedence; orchestrate-kind prefilter; fixed-string matching; "active"; profile-answered handshake; live-run mismatch; "target missing"; relative targets; nested repos; unexpected tool name; "defer" output; case-insensitive volumes |
+| Citation and coverage integrity | 6 | live-run mismatch; Done-when gaps; D-16 misplaced the rule's home; obs:6be13a0c "delivered there"; REQ-I1.6 omitted the posture-delta doc; changelog lacked the kickoff edits |
+| Dead verification paths | 7 | posture `[test]` had nothing to run; fork check could not fail; Done-when gaps; live-run mismatch; live run could pass without the hook (model refusal, installed plugin); working-directory source; repo-wide negative unrunnable |
+| Decision-domain gaps | 7 | auth (working directory), data-storage (mark shape, missed), deploy-migration (handshake fate), API surface (route for uncommitted files, missed), secrets-config (knob, missed), concurrency rationale, dependency adoption (canonicalization primitive, missed) |
+| Testability | 18 | posture fixture unrunnable; hooks.json wiring untested; live-run mismatch; Done-when pairing gaps; unpinned reason text; prefix sibling; root equality; case-insensitive; inherited fail-closed arms untested; orchestrate-kind vs fail-closed; mark store via file tool; unknown kind; marking paths; "existing tests" anchor; doc Done-when; check names; posture wording; working directory and relative targets |
+| Cross-file consistency | 11 | handshake fate vs `tower-placement` D-8; unreadable-mark kind; mark store writable; REQ-I1.4 vs kindless rule; orchestrate prefilter; oversized outside Write; out-of-scope line vs stickiness; precedence stated as settled; REQ-I1.6 scope; separate clone; D-9 deny-list relation and the window's docs home |
+| Documentation and glossary drift | 7 | wrong path-rule research claim; REQ-I1.4 vs kindless; unreadable-mark kind; D-17 enumerated claim; `_about` has no Edit/Write statement; prefilter scope; NotebookEdit omitted in scope line |
+| Security and failure modes of the designed mechanism (named code lens) | 9 | working directory moves with `cd`; outside-repo off-switches (mark store, settings, plugin root); fail-open on hook failure; case-insensitive and bind mounts; subagent session id; reverse symlink, hardlinks, race; relative targets; path-rule claim; `disableAllHooks` overclaim and future file tools |
+| Rendered-content safety | n/a | the bundle is not rendered into an executing or markup context; data hygiene checked: no secrets, hostnames, or private detail |
+
+*Validation.* Each merged finding was taken through three passes: re-reading the delta as each
+consumer (the Task 15/16/17 workers, the reviewer, the operator); checking it against the guard
+code and `tower-placement`'s text (the payload `cwd` read and its `$PWD` fallback, the
+`CLAUDE_PROJECT_DIR` read, the 2 MB payload bound, the hooks file's entries); and checking the
+platform claims against the docs. An adversarial pass then tried to refute the keep set and
+resurrect the decline set. It refuted the claim that `..` must be collapsed first (the writer's
+order is undocumented) and replaced it with the order-independent "either path inside denies"
+rule. It also refuted the eval-artifact finding in part, since the default eval directory sits
+under the temp directory, though the decided-rule wording still lands.
+
+*Check items.* Altitude (REQ-H1.3): the pinned seed claim is reconciled as mechanism under D-1 and
+recorded as D-16, cited from the goal; Tasks 15 to 17 are mechanism tasks, matching. Ship gate
+(REQ-L1.4): the one out-of-band follow-up, pointing `tower-placement` D-8 at D-18 once Task 15
+lands, carries observation `2026-10-10-tower-placement-handshake-superseded-c29675e0`; obs:c2c57cdf
+stays live, owned by `worker-permission-ergonomics`. Qualified cross-spec citations resolve.
+
+*Dispositions.* Operator decisions:
+
+1. The fail-closed contradiction: arms are kind-gated; an `orchestrate`-kind or unmarked session
+   defers on every arm (except the mark store); an unsearchable store, tampered mark, or unknown
+   kind counts as `tower`; an oversized payload denies in a `tower`-kind session (D-18, REQ-I1.3,
+   REQ-I1.5, risk F11).
+2. Protect any git repository, whatever project, rather than the session's own; this supersedes
+   the working-directory anchor (decided `CLAUDE_PROJECT_DIR` first, then superseded the same turn
+   when the operator raised towers handling several projects) and section 2's no-repo resolution
+   (D-17, REQ-I1.1, REQ-I1.5).
+3. Close Claude Code's user settings files and the plugin root as floor-switching places, the
+   separate-clone gap (by 2), and case-insensitive volumes (by the case-insensitive `.git` walk)
+   (D-17, D-18, REQ-I1.1, REQ-I1.5).
+4. Keep the harness default on hook failure rather than `onFailure: block` (D-18, risk F7).
+
+Applied as one grouped disposition (operator: apply all): the mark store closed to file tools in
+any marked session (REQ-I1.7); the handshake's whole-command matching with `tower-placement`'s
+spelling becoming `orchestrate`; REQ-I1.4's kindless carve-out and its documented window; the
+posture `[test]` made structural plus a `[manual]` live/missing run, with "active" requiring the
+`tower` kind afterward; the hooks.json wiring check; Task 16's cases (reason constant, logging-stub
+fork check, prefix sibling, root equality, dangling and file symlinks, both-path containment,
+relative target, unexpected tool, defer output, the inherited fail-closed arms); the Task 17 live
+runs (PR-branch plugin, both launches, the hook's own deny text, a subagent Write); the corrected
+path-rule research and the Sources research entry; D-16's rule home; D-17's decided-rule wording
+and no knob; D-18's relation to the deny list; REQ-I1.2's operator route for uncommitted files;
+the scope lines (NotebookEdit, "marked only by `/orchestrate`", `/orchestrate` inside a tower,
+precedence "expected", `disableAllHooks`, obs:6be13a0c); REQ-I1.6 and Task 17's doc set
+(`docs/tower-posture-delta.md`, `docs/fleet.md`); the changelog's kickoff entry; and risk rows F7
+to F11 with F3, F4, F5, and F6 revised.
+
+Declined, with rationale:
+
+- Naming a canonicalization primitive in the spec (`cd -P` plus a `readlink` loop): the worker
+  picks it under the guard's portability floor; the Task 16 cases (file and dangling symlinks,
+  both-path containment) pin the behavior.
+- Collapsing `..` lexically before resolving symlinks: refuted as stated; replaced by judging both
+  paths.
+
+*Post-lens stale-reference sweep.* The lens re-scoped REQ-I1.1 through I1.6 and minted REQ-I1.7.
+Grepped the four spec files and this entry for the superseded wording ("the session's
+repository", "working directory belongs", "checkouts cannot be listed", "checkout list",
+"unlistable", "inside the repository", "for Edit only", "holds over the allow", "matched as fixed
+strings", "no git repository"); the one remaining hit is the drafting changelog entry, which
+records history correctly. Earlier sections of this entry carry reconciliation notes in place.
+`spec-validate` afterwards: 0 errors, 0 warnings. `mise run lint:md`: 0 errors.
+
+**Sign-off.** Approved by the operator 2026-10-10 after the shared-understanding summary; Status
+flipped Draft→Ready on all four spec files, `Last reviewed:` 2026-10-10. Validator at Ready: 0
+errors, 0 warnings.
+
+Class: meaning
+Lens-pass: this entry's lens review (delta-scoped, spec lens set plus a named security lens,
+parallel fan-out; four operator decisions, the grouped fixes applied, two findings declined with
+rationale)
+Anchor: `e854030aaaf798476697e8c64e66c6905ed251d0` — computed as
+`scripts/spec-anchor.sh specs/fleet-hardening`
+
 ## 10. Execution research log
 
 <!-- Research-rigor recordings appended during execution (findings, tradeoffs,

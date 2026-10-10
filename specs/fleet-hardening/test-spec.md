@@ -1,6 +1,6 @@
 # Fleet Hardening — Test Spec
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-10-10
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -349,40 +349,70 @@ guard still passes on the real file.
 
 ## REQ-I — The front door's authoring floor
 
-### REQ-I1.1 — In-repo file-tool writes are refused in a /tower session, however launched [test + manual]
+### REQ-I1.1 — In-repository and floor-switching file-tool writes are refused in a /tower session, however launched [test + manual]
 
 `[test]`: Task 16's suite feeds Edit, Write, and NotebookEdit payloads for a `tower`-kind session
-targeting the primary checkout, a linked worktree, and the git directory, and asserts a deny for
-each, run through `mise run check` in CI. `[manual]`: in a live `/tower` session launched with the
-tower profile (whose allow list names Edit and Write) and in one launched with plain `claude`, a
-Write into the checkout is refused, confirming the hook's deny outranks the settings allow on the
-running Claude Code version; the Task 17 PR description records both runs.
+targeting the primary checkout, a linked worktree, the git directory, a separate clone of the same
+project, a clone of an unrelated project, a checkout root itself, Claude Code's user settings
+files, and the plugin's installed root, and asserts a deny for each, while the session's memory
+directory defers; a check asserts `hooks/hooks.json` carries exactly one PreToolUse entry whose
+matcher matches the three tools and no other, running the file surface, with its explicit timeout.
+Both run through `mise run check` in CI. `[manual]`: with the plugin loaded from the PR branch's
+checkout, in a live `/tower` session launched with the tower profile (whose allow list names Edit
+and Write) and in one launched with plain `claude`, a Write tool call into the checkout shows the
+hook's deny reason (not the model declining to make the call) while a Write into a `mktemp` file
+goes through, and a Write issued by an Agent subagent of the session is refused the same way,
+confirming the hook's deny outranks the settings allow and that subagent calls carry the session's
+mark on the running Claude Code version; the Task 17 PR description records the runs.
 
 ### REQ-I1.2 — The refusal names the rule and the route [test]
 
-The Task 16 suite asserts the deny reason names the non-authoring rule and opening a flight.
+The Task 16 suite asserts the deny reason equals the constant naming the non-authoring rule, a
+flight for a committed change, and the operator for a machine-local file.
 
-### REQ-I1.3 — Deny or defer only; outside targets and other sessions defer [test]
+### REQ-I1.3 — Deny or defer only; other targets and other sessions defer [test]
 
-The Task 16 suite asserts a temp-file target and a path outside every checkout defer in a
-`tower`-kind session, that every in-repo call defers in an `orchestrate`-kind and an unmarked
-session, and that the file surface never emits allow; a fixture with the guard's fork primitives
-stubbed to fail shows the unmarked path forks nothing.
+The Task 16 suite asserts, in a `tower`-kind session, that a temp-file target, a path outside every
+repository, and a sibling path sharing a checkout's string prefix defer; that every in-repository
+call defers in an `orchestrate`-kind session, a malformed payload included, and in an unmarked
+session; that the file surface never emits allow and every defer exits 0 with no decision output;
+and that on the unmarked path logging stubs on `PATH` record no external command, with a static
+check finding no command substitution, pipeline, or subshell in the file surface's prefilter.
 
-### REQ-I1.4 — The mark records its kind; tower is sticky [test]
+### REQ-I1.4 — The mark records its kind; tower is sticky [test + manual]
 
-Task 15's tests assert the kind each marking path writes, that an `/orchestrate` refresh of a
-`tower` mark leaves it `tower`, and that a kindless mark reads `orchestrate`.
+`[test]`: Task 15's tests assert the kind each marking path writes (the prompt hook, bare and
+plugin-namespaced, and each of the two handshake spellings, the original being `orchestrate`),
+that each spelling is refused with the "active" message and its body never runs, that a command
+containing a spelling without equalling it marks nothing, that an `/orchestrate` refresh of a
+`tower` mark leaves it `tower` while the `tower` handshake turns a kindless or `orchestrate` mark
+into `tower`, and that a kindless mark reads `orchestrate`; `tests/test-tower-skill.sh` and its
+`/orchestrate` counterpart find each skill running its own spelling. `[manual]`: the Task 17 PR
+reviewer confirms `docs/fleet.md` states the kindless-mark window.
 
-### REQ-I1.5 — Canonical containment; fail closed in a /tower session [test]
+### REQ-I1.5 — Containment on both paths; fail closed in a /tower session [test]
 
-The Task 16 suite denies a not-yet-existing nested target, a `..` path climbing back into the
-checkout, and a temp-directory symlink into the checkout, and denies a malformed payload, a missing
-target field, and a repository whose checkouts cannot be listed, each in a `tower`-kind session.
+The Task 16 suite denies, in a `tower`-kind session, a not-yet-existing nested target, a `..` path
+climbing back into a checkout, an in-repository symlink to outside followed by `..`, a
+temp-directory symlink into a checkout, a temp file that is a symlink into a checkout, a dangling
+symlink whose target lies in a checkout, and a `.GIT` spelling on a case-insensitive volume where
+the platform allows the fixture; and denies an oversized payload, a malformed payload, a tool name
+outside the three, a missing target field, a relative target, a git that cannot run, and a signal
+at the guard's pause point. Task 15's tests show an unsearchable store, a tampered mark, and an
+unknown kind each read `tower`, so the file surface treats the session as `tower`-kind.
 
-### REQ-I1.6 — The posture report and the docs describe the floor [test + design-level]
+### REQ-I1.6 — The posture report and the docs describe the floor [test + manual + design-level]
 
-`[test]`: Task 17's posture fixtures show the report naming the authoring floor active with the
-plugin floor live and not active with it missing. `[design-level]`: the tower skill, the tower
-profile's `_about`, and `docs/tower-posture-delta.md` describe the refusal and no longer say the
-posture allows Edit and Write without it; the PR reviewer confirms.
+`[test]`: `tests/test-tower-skill.sh` finds the posture step naming the authoring floor and tying
+"active" to the handshake refusal and the `tower` kind, and a grep over `skills/`, `config/`, and
+`docs/` finds no "The posture allows Edit and Write" sentence, its line-wrapped form included.
+`[manual]`: the Task 17 PR description records the posture report reading active in a live
+`/tower` session with the plugin loaded and not active with the plugin's hooks missing.
+`[design-level]`: the tower skill, the tower profile's `_about`, and `docs/tower-posture-delta.md`
+describe the refusal, that it is expected to hold over the profile's Edit and Write allow, and that
+shell-spelled writes fall outside it; the PR reviewer confirms.
+
+### REQ-I1.7 — The mark store is closed to the file tools in any marked session [test]
+
+The Task 16 suite denies a Write and an Edit whose target lies inside the session mark store, in a
+`tower`-kind and in an `orchestrate`-kind session.
