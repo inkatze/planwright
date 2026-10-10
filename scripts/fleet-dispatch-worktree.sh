@@ -36,8 +36,9 @@
 #      never moving a tmux client. The launch runs ONLY if step 1 exited zero.
 #      The worker runs THROUGH scripts/fleet-dispatch-env.sh inside the
 #      session, so the ghost-text pin, the dispatcher's root and fleet home,
-#      the worker identity, and a per-launch token reach the worker itself
-#      whatever the tmux server's environment holds. The registry record is
+#      the worker identity, a per-launch token, and the spec root outside the
+#      work repository its guard admits as a write zone (worker-spec-root.sh)
+#      reach the worker itself whatever the tmux server's environment holds. The registry record is
 #      written once, after the session exists (even when new-session itself
 #      failed or hung), its death handle the session name and window id
 #      new-session printed, or none when that output does not parse; never a
@@ -128,7 +129,8 @@
 # No model/API call anywhere in the branch-naming decision path (REQ-E1.3): the
 # whole path is deterministic string logic + git plumbing.
 #
-# Usage:
+# Usage (<spec> is the bare identifier or its `specs/<spec>` alias, with or
+# without one trailing slash; scripts/spec-id-lib.sh):
 #   fleet-dispatch-worktree.sh dispatch <spec> <id> \
 #       [--repo-root <dir>] [--launch-only | --attach-dry-run | --no-attach] \
 #       [-- <extra launch args>...]
@@ -204,8 +206,8 @@
 #      --launch-only) the session created, or started: the worker confirmed
 #      its startup.
 #   2  usage / invalid input (fail closed — a malformed or hostile token is
-#      never interpolated), a launch word ending in `;`, or a live standalone
-#      attach.
+#      never interpolated), a launch word ending in `;`, a live standalone
+#      attach, or (any subcommand) a broken install missing spec-id-lib.sh.
 #   3  already-in-flight: a LIVE concurrent/repeat dispatch, a live session
 #      already holding the session name (or a probe tmux could not answer), a
 #      new-session that lost the race for it (nothing touched), a registered
@@ -271,17 +273,30 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # Guarded source with an inline fallback, matching dispatch-fetch.sh: a missing
 # echo-safety.sh must not turn every sanitize_printable on an error path into a
 # "command not found" (set -e is unset, so the source would not otherwise abort).
-if [ -r "$script_dir/echo-safety.sh" ]; then
+if [ -f "$script_dir/echo-safety.sh" ] && [ -r "$script_dir/echo-safety.sh" ]; then
   # shellcheck source=scripts/echo-safety.sh
   . "$script_dir/echo-safety.sh"
 else
   sanitize_printable() {
-    printf '%s' "$1" | tr -d '\000-\037\177'
+    printf '%s' "$1" | tr -d '\000-\037\177\200-\237'
   }
+fi
+
+# Unlike echo-safety.sh the mapper has no fallback, so a missing copy is a
+# broken install, refused with exit 2: a failed `.` ends the shell with a
+# status of the shell's choosing (1 under bash's sh), which this script's exit
+# codes give another meaning or none.
+if [ -r "$script_dir/spec-id-lib.sh" ]; then
+  # shellcheck source=scripts/spec-id-lib.sh
+  . "$script_dir/spec-id-lib.sh"
+else
+  printf '%s\n' "fleet-dispatch-worktree: broken install: $(sanitize_printable "$script_dir")/spec-id-lib.sh is missing or not readable" >&2
+  exit 2
 fi
 
 FETCH="$script_dir/dispatch-fetch.sh"
 ENVWRAP="$script_dir/fleet-dispatch-env.sh"
+LAUNCH_SPEC_ROOT=""
 MARKER="$script_dir/orchestrate-marker.sh"
 TRACK="$script_dir/fleet-worktree-track.sh"
 FLEET_STATE="$script_dir/fleet-state.sh"
@@ -1036,11 +1051,16 @@ resolve_tmux_bin() {
   return 1
 }
 
-# launch_roots — set LAUNCH_ROOT and LAUNCH_HOME to the dispatcher's resolved
-# planwright root and fleet home, which the worker is pinned to.
+# launch_roots [<repo>] — set LAUNCH_ROOT and LAUNCH_HOME to the dispatcher's
+# resolved planwright root and fleet home, which the worker is pinned to, and
+# LAUNCH_SPEC_ROOT to the spec root outside <repo> its guard admits as a write
+# zone (empty for a same-repo root, or when it does not resolve: the posture
+# never blocks a dispatch).
 launch_roots() {
   LAUNCH_ROOT=$(/bin/sh "$script_dir/resolve-root.sh" install 2>/dev/null </dev/null) || LAUNCH_ROOT=''
   LAUNCH_HOME=$(/bin/sh "$FLEET_STATE" root 2>/dev/null </dev/null) || LAUNCH_HOME=''
+  LAUNCH_SPEC_ROOT=''
+  [ -z "${1:-}" ] || LAUNCH_SPEC_ROOT=$(/bin/sh "$script_dir/worker-spec-root.sh" "$1" 2>/dev/null </dev/null) || LAUNCH_SPEC_ROOT=''
 }
 
 # print_plan <suffix> <worktree> <handle> <scope> [<extra launch args>...] —
@@ -1055,7 +1075,7 @@ print_plan() {
   shift 4
   pp_session=$(worker_session "$pp_suffix")
   pp_claude=$(command -v claude 2>/dev/null) || pp_claude=claude
-  launch_roots
+  launch_roots "${_repo_root:-${_aroot:-}}"
   printf 'attach-plan\tsuffix\t%s\n' "$(sanitize_printable "$pp_suffix")"
   printf 'attach-plan\tsession\t%s\n' "$(sanitize_printable "$pp_session")"
   printf 'attach-plan\tlaunch'
@@ -1083,6 +1103,7 @@ tmux_launch() {
   tl_token=$7
   shift 7
   [ -z "$ATTACH_PROMPT" ] || set -- "$@" -- "$ATTACH_PROMPT"
+  [ -z "$LAUNCH_SPEC_ROOT" ] || set -- --spec-root "$LAUNCH_SPEC_ROOT" "$@"
   [ -z "$LAUNCH_HOME" ] || set -- --fleet-home "$LAUNCH_HOME" "$@"
   [ -z "$LAUNCH_ROOT" ] || set -- --root "$LAUNCH_ROOT" "$@"
   [ -z "$tl_token" ] || set -- --launch-token "$tl_token" "$@"
@@ -1269,6 +1290,8 @@ do_dispatch() {
     _suffix="flight-$_flight"
     _branch="planwright/flight/$_flight"
   else
+    spec_id_canon "$_spec"
+    _spec=$SPEC_ID
     valid_spec "$_spec" || {
       if [ "$_spec" = flight ]; then
         warn "reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)"
@@ -1380,6 +1403,7 @@ do_dispatch() {
   _token=''
   LAUNCH_ROOT=''
   LAUNCH_HOME=''
+  LAUNCH_SPEC_ROOT=''
   # Every arm needs the names: the collision reconcile probes them for the
   # create-only arm too, and an empty prefix would read as a live session.
   init_session_names "$_repo_root" || {
@@ -1400,7 +1424,7 @@ do_dispatch() {
     exit 3
   fi
   if [ "$_tmux_rung" -eq 1 ] && [ "$_attach_dry" -eq 0 ]; then
-    launch_roots
+    launch_roots "$_repo_root"
     if [ -z "$LAUNCH_ROOT" ] || [ -z "$LAUNCH_HOME" ]; then
       warn "refusing the tmux rung: cannot resolve the planwright root and fleet home to pin the worker to"
       exit 12
@@ -1610,8 +1634,8 @@ do_dispatch() {
   # /orchestrate flow provides that serialization (it records the marker under
   # the per-spec lock BEFORE dispatching, so a concurrent B sees A's marker and
   # aborts). Giving the marker an owner token to close the direct-invocation race
-  # is a lock-discipline change deferred repo-wide across the planwright lock
-  # family (see scripts/fleet-state.sh's stale-break note), not resolved here. A
+  # is a marker-discipline change, not resolved here: the lock family carries
+  # owner tokens, the dispatch marker does not. A
   # failed launch clears the marker this run set, so a retry is not read as
   # in-flight.
   if [ "$_relaunch" -eq 0 ] && [ -x "$TRACK" ]; then

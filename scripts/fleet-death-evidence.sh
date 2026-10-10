@@ -39,7 +39,10 @@
 #       (a healthy server is authoritative for its sessions: absent -> dead),
 #       `list-windows` (window absent from the authoritative listing -> dead;
 #       <window> matches either the #{window_id} or #{window_name} field
-#       exactly). Session/window tokens are validated against a conservative
+#       exactly). A <window> shaped like an id (`@<n>`) is looked up across
+#       every session instead, by id or name, with no session probe: an id
+#       names its window for the server's lifetime, so a renamed session cannot
+#       read as its death. Session/window tokens are validated against a conservative
 #       subset of the orchestrate-relay.sh tmux charset (no `:` or `/`: the
 #       relay validates combined session:window targets, while the separate
 #       per-token arguments here need neither) before any `-t` interpolation,
@@ -73,7 +76,7 @@ class="${1:-}"
 case "$class" in
   process | tmux-window) ;;
   timeout | silence | stale | staleness | heartbeat | heartbeat-age | idle-time)
-    echo "fleet-death-evidence: '$class' is not positive evidence of death (REQ-A1.7): a timeout or silent heartbeat proves lost observability, not death — refusing" >&2
+    printf '%s\n' "fleet-death-evidence: '$class' is not positive evidence of death (REQ-A1.7): a timeout or silent heartbeat proves lost observability, not death — refusing" >&2
     exit 2
     ;;
   *)
@@ -118,7 +121,7 @@ case "$class" in
       0) verdict alive ;;
       1) verdict dead ;;
       *)
-        echo "fleet-death-evidence: ps -p exited $ps_rc — lost observability, refusing to report death" >&2
+        printf '%s\n' "fleet-death-evidence: ps -p exited $ps_rc — lost observability, refusing to report death" >&2
         verdict unknown
         ;;
     esac
@@ -160,6 +163,37 @@ case "$class" in
       echo "fleet-death-evidence: tmux server unreachable — lost observability, refusing to report death" >&2
       verdict unknown
     fi
+    # A window id (`@<n>`) names one window for the server's lifetime, wherever
+    # it lives: a renamed session, or the window moved to another, leaves the
+    # recorded session name absent while the window runs on. So an id is
+    # looked up across the server, and the session probe below, which would
+    # read that rename as death, is not consulted for it. A window may also be
+    # NAMED `@<n>`, so the token matches a name as well as an id; a match
+    # anywhere only ever reads as alive, never as a death.
+    case $window in
+      @*[!0-9]* | @) ;;
+      @*)
+        listing=$(tmux list-windows -a -F '#{window_id}	#{window_name}' 2>/dev/null) || {
+          echo "fleet-death-evidence: tmux list-windows failed after the server answered — refusing to report death" >&2
+          verdict unknown
+        }
+        old_ifs=$IFS
+        IFS='
+'
+        for line in $listing; do
+          if [ "${line%%	*}" = "$window" ] || [ "${line#*	}" = "$window" ]; then
+            IFS=$old_ifs
+            verdict alive
+          fi
+        done
+        IFS=$old_ifs
+        if tmux ls >/dev/null 2>&1; then
+          verdict dead
+        fi
+        echo "fleet-death-evidence: tmux server lost between probes — lost observability, refusing to report death" >&2
+        verdict unknown
+        ;;
+    esac
     # Probe 2: session presence. A healthy server is authoritative for its
     # own sessions — but `has-session` exits non-zero identically for
     # "session absent" and "no server reachable", and the server can die

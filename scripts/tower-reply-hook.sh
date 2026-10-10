@@ -89,7 +89,7 @@ unset CDPATH
 trap 'exit 0' INT TERM HUP QUIT PIPE
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 0
-if [ ! -r "$script_dir/echo-safety.sh" ]; then
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
   printf '%s\n' "tower-reply-hook: scripts/echo-safety.sh is missing — broken install; reply not recorded" >&2
   exit 0
 fi
@@ -145,6 +145,7 @@ check_private_dir() {
     warn "security: $(sanitize_printable "$_p" "(unprintable path)") is a symlink — refusing to write through a redirect"
     return 1
   fi
+  # not-a-lock: bootstrap where a peer winning the create is success
   [ -d "$_p" ] || mkdir "$_p" 2>/dev/null || [ -d "$_p" ] || {
     warn "cannot create $(sanitize_printable "$_p" "(unprintable path)")"
     return 1

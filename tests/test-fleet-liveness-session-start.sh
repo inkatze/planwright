@@ -40,7 +40,7 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/t-liveness-ss.XXXXXX") || {
 }
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/adopter"
-printf 'stale_lock_threshold: 15m\n' >"$tmp/core.yml"
+printf 'stale_marker_threshold: 15m\n' >"$tmp/core.yml"
 
 # start <home> <source> [VAR=value...] — fire the arm with a SessionStart
 # payload, as Claude Code does, and only the given worker variables set.

@@ -132,6 +132,10 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
 # Canonical echo-discipline sanitizer (doctrine/security-posture.md): strip
 # non-printables off repo-controlled input before it reaches the terminal.
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "spec-validate.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
@@ -235,7 +239,7 @@ done
 [ -n "$target" ] || usage
 while [ "$target" != "${target%/}" ]; do target=${target%/}; done
 if [ ! -d "$target" ]; then
-  echo "spec-validate: not a directory: $target" >&2
+  printf '%s\n' "spec-validate: not a directory: $target" >&2
   exit 2
 fi
 
@@ -1023,7 +1027,7 @@ baseline_checks() {
   bdir=$1
   if ! git -C "$bdir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     if [ "$explicit_baseline" -eq 1 ]; then
-      echo "spec-validate: --baseline given but $bdir is not in a git work tree" >&2
+      printf '%s\n' "spec-validate: --baseline given but $bdir is not in a git work tree" >&2
       exit 2
     fi
     return 0
@@ -1034,7 +1038,7 @@ baseline_checks() {
   # default-baseline skip path.
   if ! git -C "$bdir" rev-parse --verify --quiet "$baseline^{commit}" >/dev/null 2>&1; then
     if [ "$explicit_baseline" -eq 1 ]; then
-      echo "spec-validate: baseline ref does not resolve: $baseline" >&2
+      printf '%s\n' "spec-validate: baseline ref does not resolve: $baseline" >&2
       exit 2
     fi
     return 0

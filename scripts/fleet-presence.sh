@@ -107,6 +107,8 @@
 #       --pid <pid>) [--min-interval <sec>]   (default 30; 0 disables the cap)
 #   fleet-presence.sh owner    --checkout <dir> (--session-id <uuid> |
 #       --pid <pid>) <spec>/<unit-id>
+#     (owner and attribute also take the unit ref as specs/<spec>/<unit-id>,
+#     the alias scripts/spec-id-lib.sh maps)
 #   fleet-presence.sh attribute --checkout <dir> (--session-id <uuid> |
 #       --pid <pid>) <spec>/<unit-id>
 #   fleet-presence.sh identity --checkout <dir> (--session-id <uuid> | --pid <pid>)
@@ -189,8 +191,14 @@ unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "fleet-presence.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
+# shellcheck source=scripts/spec-id-lib.sh
+. "$script_dir/spec-id-lib.sh"
 
 # Temp hygiene on ANY exit, signals included (the fleet-attention.sh trap
 # discipline the sibling fleet scripts share): a SIGINT/SIGTERM between a
@@ -553,6 +561,8 @@ if ! is_epoch "$min_interval"; then
   exit 2
 fi
 if [ "$cmd" = owner ] || [ "$cmd" = attribute ]; then
+  spec_ref_canon "$unit_ref"
+  unit_ref=$SPEC_REF
   if [ -z "$unit_ref" ] || ! is_unit_ref "$unit_ref"; then
     err "refusing malformed unit ref ($cmd takes one <spec>/<unit-id>)"
     exit 2
@@ -750,6 +760,7 @@ write_sentinel() {
 ensure_infra_dir() {
   check_surface_not_redirected "$1"
   if [ ! -d "$1" ]; then
+    # not-a-lock: mode-pinned bootstrap; the [ -d ] below is what fails closed
     mkdir -m 0700 "$1" 2>/dev/null || true
   fi
   if [ ! -d "$1" ]; then
@@ -800,6 +811,8 @@ ensure_surface_dir() {
     exit 3
   fi
   write_sentinel "$esd_sentinel"
+  # The failure arm re-tests for the directory rather than trusting this status.
+  # not-a-lock: mode-pinned bootstrap; a concurrent one's EEXIST is success
   if ! mkdir -m 0700 "$esd_dir" 2>/dev/null; then
     if [ ! -d "$esd_dir" ]; then
       err "cannot create presence surface $esd_dir — failing closed; fix the fleet home's writability and retry"

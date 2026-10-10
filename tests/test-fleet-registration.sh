@@ -412,7 +412,7 @@ grep -qE 'register_dispatch .* print' "$REPO_ROOT/scripts/offload-dispatch.sh" \
 # rather than widening the exemption silently.
 exempt_file="fleet-tower-watchdog.sh"
 # shellcheck disable=SC2016 # the relaunch command as written in the watchdog
-exempt_cmd='tmux new-session -d -s "$session_name" -c "$checkout" "$script_dir/fleet-dispatch-env.sh" claude "/orchestrate --watch --unattended specs/$spec" 2>/dev/null || {'
+exempt_cmd='tmux new-session -d -s "$session_name" -c "$checkout" "$script_dir/fleet-dispatch-env.sh" claude "/orchestrate --watch --unattended $spec" 2>/dev/null || {'
 # script_commands <file> — the file without its comment lines, each command on
 # one line however it is wrapped, whitespace runs collapsed.
 script_commands() {
@@ -514,7 +514,7 @@ c1b_reword() {
 c1b_reword session 's/new-session -d -s "\$session_name"/new-session -d -s "$tower_session"/'
 # shellcheck disable=SC2016
 c1b_reword startdir 's/-c "\$checkout" \\$/-c "$worktree" \\/'
-c1b_reword runs 's|"/orchestrate --watch --unattended specs/|"/execute-task specs/|'
+c1b_reword runs 's|"/orchestrate --watch --unattended |"/execute-task |'
 awk '{ print } /^  tmux new-session -d -s "\$session_name"/ { dup = 3 } dup > 0 { buf = buf $0 "\n"; if (--dup == 0) printf "%s", buf }' \
   "$c1b_src" >"$c1b_dir/twice/$exempt_file"
 [ -z "$(unmanifested "$c1b_dir/clean")" ] \
@@ -930,7 +930,7 @@ ok e7 "diagnostics report untrusted text literally, never as terminal escapes"
 
 # ---------------------------------------------------------------------------
 # e8 — an interrupted registration releases the shared fleet lock, rather than
-#      wedging every other fleet writer until the stale-break threshold.
+#      wedging every other fleet writer until its owner is found gone.
 # ---------------------------------------------------------------------------
 h=$(home e8)
 mkdir -p "$h"

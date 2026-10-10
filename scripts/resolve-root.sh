@@ -508,7 +508,7 @@ init_spec_root() {
       { printf '\n' >>"$is_ignore"; } 2>/dev/null \
         || refuse_spec "--init could not write the ignore rules"
     fi
-    for is_rule in /_pending/notes.md '/*/.orchestrate.lock' '/*/.tasks-pr-sync.*' '/*/.orchestrate/'; do
+    for is_rule in /_pending/notes.md '/*/.orchestrate.lock' '/*/.orchestrate.lock#*' '/*/.tasks-pr-sync.*' '/*/.orchestrate/' '/*/.tasks.md.halt.*'; do
       if [ -f "$is_ignore" ] && grep -Fqx -- "$is_rule" "$is_ignore"; then
         continue
       fi

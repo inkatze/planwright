@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tests for the one-plain-command-per-Bash-call convention: the skills a
-# dispatched worker or subordinate tower runs (/orchestrate, /execute-task,
+# dispatched worker or a tower session runs (/orchestrate, /execute-task,
 # /polish, /self-review) direct one plain command per Bash call, and neither
 # they nor the doctrine they cite for command shape show a compound line for a
 # routine step.
@@ -25,7 +25,7 @@
 #     filter;
 #   - /orchestrate names the arguments the tower-marker `record` and the
 #     presence `publish` usage lines require, and publishes presence before
-#     the loop's first step can launch a subordinate.
+#     the loop's first step can launch a worker.
 #
 # Runs standalone: ./tests/test-skill-plain-commands.sh
 set -u

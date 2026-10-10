@@ -1,0 +1,1 @@
+- 2026-10-08 [planwright] doctrine/orchestration-concurrency.md still says the freshness gate's local-main view tracks the operator's checked-out brief, not the remote tip; the gate has read the fetched remote default branch (and, for a holder, the holder's) since the fetch-before-gate primitive, so the sentence should point at spec-format's Read surface per posture instead.

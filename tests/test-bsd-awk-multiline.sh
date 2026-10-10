@@ -29,7 +29,7 @@ validator="$here/../scripts/spec-validate.sh"
 FA="$here/../scripts/fleet-attention.sh"
 
 fail() {
-  echo "FAIL: $1" >&2
+  printf '%s\n' "FAIL: $1" >&2
   exit 1
 }
 
@@ -38,7 +38,7 @@ fail() {
 
 skip() {
   [ "${PLANWRIGHT_TEST_REQUIRE_BSD_AWK:-0}" != 1 ] || fail "setup: $1 (PLANWRIGHT_TEST_REQUIRE_BSD_AWK=1 forbids the skip)"
-  echo "skip: $1"
+  printf '%s\n' "skip: $1"
   exit 0
 }
 

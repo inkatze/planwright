@@ -51,7 +51,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 CONSUME="$here/../scripts/obs-consume.sh"
 
 fail() {
-  echo "FAIL: $1" >&2
+  printf '%s\n' "FAIL: $1" >&2
   exit 1
 }
 
@@ -96,7 +96,7 @@ frag_count() {
   for _f in "$1"/*.md; do
     [ -e "$_f" ] && _c=$((_c + 1))
   done
-  echo "$_c"
+  printf '%s\n' "$_c"
 }
 
 # --- 12. Legacy in-place annotation --------------------------------------

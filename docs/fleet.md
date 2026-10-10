@@ -47,9 +47,9 @@ command does three things, and asks before the one choice that is yours:
    degrade safely — see the
    [options reference](options-reference.md)).
 2. **Starts the orchestrator(s)**: a meta-orchestrator supervising every
-   Ready/Active spec, launching a subordinate orchestrator per spec, each
-   dispatching workers into
-   isolated worktrees, all under the fleet concurrency bound.
+   Ready/Active spec, running each chosen spec's dispatch step itself and
+   dispatching workers into isolated worktrees, all under the fleet
+   concurrency bound.
 3. **Renders the attention surface**: the decision queue plus a per-worker
    heartbeat view, re-rendered as the fleet advances.
 
@@ -499,6 +499,11 @@ attention surface), not as a separate system:
 | b. Non-terminal user | tmux driven as a detached server, or the subagent backend (in-harness background workers) — invisible plumbing either way, nothing to attach to | The decision queue, read from any plain terminal or via the notification channel | Answer queue items; the tower relays to workers |
 | c. Editor-feedback user | The same background plumbing as (b) | The editor renders the queue and diffs (an editor panel tails the same files; `editor-toast` is the matching notification channel) | An editor affordance submits the queue answer; the tower relays |
 
+Under `--fleet` the meta step dispatches only through the stream-json and
+headless rungs; a unit whose resolved rung is tmux or the subagent backend
+parks to its spec's `## Awaiting input`, so every persona above gets the
+tmux and subagent backends from single-spec towers for now.
+
 Two audit notes behind that table:
 
 - **All durable fleet state is files** — the worker registry, the attention
@@ -683,7 +688,9 @@ stream-json worker's stdio: `launch` starts a worker with the pinned
 non-`--bare` stream-json shape and passes the prompt as data on stdin
 (never interpolated into a shell command line); every `can_use_tool` or
 AskUserQuestion control_request becomes a decision-queue item in the
-attention store plus a durable journal receipt, with a scan-based
+attention store plus a durable journal receipt (a receipt that meets a busy
+journal lock is spooled beside the journal and journaled once the lock frees,
+by the next request or the supervisor's next tick), with a scan-based
 pending-age alarm that escalates overdue items — it never auto-answers and
 never kills a worker. The supervisor runs that scan itself for its own
 worker on a cadence (`PLANWRIGHT_STREAMJSON_ALARM_TICK`, default 60s), so a
@@ -696,11 +703,17 @@ crashed worker's session via `--resume`; `status` surfaces completion and
 liveness from the supervisor, the journal and the captured event stream — a
 live worker with a pending receipt reports `awaiting-input pending=<n>
 oldest=<age>s supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending
-row carries a readable epoch), never a healthy-looking `running`.
+row carries a readable epoch; a spooled receipt counts as pending), never a
+healthy-looking `running`. A worker records a `result` at the end of every turn
+and stays up for the next, so `awaiting-input` outranks an earlier turn's
+`completed`, and the stuck detector likewise keeps such a worker
+`waiting-on-a-human` rather than finished.
 
 `pending [<worker>...]` shows what those pending receipts are asking, so a
 tower can bring the operator the actual decision rather than a count. For each
-request the journal still reads `pending` (every worker when none is named,
+request the journal still reads `pending` (a spooled receipt is listed once it
+is journaled, which is also when `answer` can reach it; every worker when none
+is named,
 oldest request first) it prints `== <worker> <request-id> <tool>`, then the
 request with every line prefixed by `|` and a space. A Bash request shows its
 command decoded, with any escape it does not decode left visible as escape
@@ -752,19 +765,20 @@ diverge between the two; the hook's remaining arms (`PLANWRIGHT_ROOT`,
 `CLAUDE_PLUGIN_ROOT`, `<claude-dir>/planwright`, its own location) are trusted
 without a proof of their own.
 
-`stop <worker> [--grace <secs>]` is the close: it terminates the supervisor
-and its children (SIGTERM, then SIGKILL after the grace, since children do not
+`stop <worker> [--grace <secs>]` is the close: it terminates the supervisor and
+its children (SIGTERM, then SIGKILL after the grace, since children do not
 reliably die with a parent SIGTERM) and releases the locks, scratch temp, and
 attention record the worker held. `--grace` takes a whole number of seconds
 within the bounds the script declares; run `stop` with an out-of-range value to
 have it name them. The event capture, the persisted session, and the receipt
 journal survive a stop: they are the durable record, not runtime. The journal
 survives as a file but not untouched — the close marks its still-`pending`
-receipts `undeliverable`, because a close makes them undeliverable by
-definition and a receipt left pending is what `alarm-scan` re-queues a decision
-item from. A stop never touches the worktree, the branch, or the unit's fence:
-the release set is exactly the reproducible resources, and worktree reclamation
-stays with `fleet-cleanup.sh worktree` and its positive-evidence checks.
+receipts `undeliverable` and discards any spooled receipt, because a close
+makes them undeliverable by definition and a receipt left pending is what
+`alarm-scan` re-queues a decision item from. A stop never touches the worktree,
+the branch, or the unit's fence: the release set is exactly the reproducible
+resources, and worktree reclamation stays with `fleet-cleanup.sh worktree` and
+its positive-evidence checks.
 
 Processes are matched on the worker's state directory and on the pids that
 directory records, never on a process name or command pattern — the guarantee
@@ -839,7 +853,11 @@ a missing close.
 `steer` is the primary steer on the stream-json rung: a tower message becomes a
 user turn on the worker's own stdin, under the same `[planwright tower relay ->
 <worker>]` header the tmux relay pastes, read from a file so its text is never
-part of a command. Never write a frame into a worker's `in.fifo` by hand. The
+part of a command. A delivered steer opens a new turn, so it retires the
+previous turn's `result`: the worker reads `running` again until that turn
+records its own. A steer delivered while the worker is still inside a turn is
+the exception: that turn's `result` lands after the steer, so the queued turn
+reads `completed` until it records its own. Never write a frame into a worker's `in.fifo` by hand. The
 worker reads one JSON line at a time, so a frame missing its newline runs into
 the next one and kills it. Every frame the supervisor writes, `steer`'s,
 `answer`'s, and the launch prompt, is checked before any byte is written: one
@@ -1173,9 +1191,10 @@ strand against a unit whose merged PR it simply could not see.
 
 ## Scaling out: the meta-tower
 
-`/orchestrate --fleet` supervises **all** Ready/Active specs by launching a
-subordinate tower per spec — a tower of towers (the `--meta` mode, which
-`--fleet` wraps with the watch loop and the default attention surface).
+`/orchestrate --fleet` supervises **all** Ready/Active specs from one
+meta-tower session that runs each chosen spec's single-spec step itself,
+under that spec's lock (the `--meta` mode, which `--fleet` wraps with the
+watch loop and the default attention surface).
 Fleet-wide load is capped by
 `fleet_max_parallel_units` (in-flight units summed across every spec), enforced
 against the live cross-spec derivation so the bound survives any crash;
@@ -1185,9 +1204,12 @@ Concurrent towers and workers stay safe by a strict
 [division of labor](../doctrine/inter-orchestrator-coordination.md): a tower
 owns the ledger reconcile, dispatch, and merged-worker cleanup; a worker owns
 its own branch — its conflict resolution, its post-merge sync. No tower ever
-edits another tower's or worker's branch state. Messages *into* a live worker
-go through the attributed relay: clearly marked as tower-origin, delivered by
-a paste mechanism that cannot be mistaken for the worker typing, and **never**
+edits another tower's or worker's branch state. A tower messages a Claude Code
+session its `ListAgents` tool lists with `SendMessage`, which queues the
+message while that session is mid-turn and never touches its input box. Any
+other live worker gets the attributed relay: clearly marked as tower-origin,
+delivered by a paste mechanism that cannot be mistaken for the worker typing,
+and **never**
 answering a worker's harness permission prompt on the tower's own judgment —
 a worker's authorization gate belongs to you at every tier. The one answer a
 tower records there is yours: a standing decision you wrote that the prompt
@@ -1215,6 +1237,20 @@ paste: a tower partway through closing still passes, and a pane capture
 carries no colour, so it cannot tell a dimmed prompt suggestion from typed
 input. When there is any doubt which session is the live one, ask the operator
 to name the target.
+
+**The relay refuses an open dialog and confirms what it pasted.** The command
+`relay-command` emits runs the script's own `deliver` step. It reads the
+target pane first and pastes nothing (exit 3) while a selection prompt is
+open, because a paste would answer it, while a `[Pasted text]` placeholder
+sits staged, or while an earlier relay sits unsubmitted in the input box,
+which this one would join on one line. Exit 3 means wait and re-read the
+pane, or hand the message to the operator; never force it. The dialog
+check reuses the permission-dialog set, so `FLEET_PANE_PROMPT_SIGNATURES`
+changes it too. After pasting it waits for the paste's fresh `(#<id>)` tag,
+which leads the line, and exits 4 if it never shows: observe the pane before
+any re-send, which would stage a duplicate. `PLANWRIGHT_RELAY_CONFIRM_TRIES`
+(default 5, at most 20) and `PLANWRIGHT_RELAY_CONFIRM_SLEEP` (seconds, default
+1, at most 3) bound that wait.
 
 **A paste stages; one Enter submits it.** The tmux relay loads its pointer
 line with no trailing newline, so the paste never submits itself and a single
@@ -1591,7 +1627,8 @@ given.
 
 **The pane signatures are a platform surface.** The permission-dialog text
 and the busy footer markers live in one sourced file,
-`scripts/fleet-pane-vocabulary.sh`, shared with `fleet-pane-detect.sh`;
+`scripts/fleet-pane-vocabulary.sh`, shared with `fleet-pane-detect.sh`,
+`fleet-stuck-detector.sh` and the relay's `deliver` step;
 `FLEET_PANE_PROMPT_SIGNATURES` overrides the dialog set for a bespoke TUI
 the way `FLEET_PANE_PROMPT_ANCHORS` overrides the idle anchors. The strings
 are verified against the installed CLI's own bundle at each change and
@@ -1686,7 +1723,9 @@ The knobs are read from the `--repo` checkout's overlay layers wherever the
 sweep is started. The wait between cycles is never under one second.
 
 Each cycle runs seven passes: the worktree disk scan, so a worktree nothing
-recorded is tracked; the dirty-tree pass; the `tasks.md` reconcile backstop;
+recorded is tracked; the dirty-tree pass; the `tasks.md` reconcile backstop,
+which first clears a per-spec lock whose recorded holder is provably gone
+(`orchestrate-lock.sh sweep`, audited as `reconcile lock-sweep`);
 the process reap; the registry reconcile, which heals and retires dispatch
 records from their markers (see *The dispatch record*) and, terminating
 nothing, runs in both modes; the flight residues, which retire a gone
@@ -1770,6 +1809,37 @@ candidates `paused`. The tower's own workers are declined too: it closes
 them with the rung's `stop`.
 `fleet_daemon_pause` pauses the whole cycle. A sweep stopped by a signal,
 one cycle or a watch loop, leaves no temp file behind in the fleet home.
+
+### Stale attention rows: `fleet-attention-reconcile.sh`
+
+A tower clears the attention rows it wrote when their units finish. A tower
+that died first leaves its rows `working`, and no later tower clears a row it
+did not write. The `/orchestrate` reconcile sweep, which runs at start and on
+every `--watch` iteration, ends by judging every row in the store on durable
+evidence:
+
+```sh
+scripts/fleet-attention-reconcile.sh --repo /path/to/primary-checkout
+```
+
+A row that claims a live worker (`working`, `idle`, `hung`, `ended`) is
+cleared when the worker's registry death handle is positively dead
+(`scripts/fleet-death-evidence.sh`). A row nothing on record can still be
+running for (no death handle on record, or a status row such as `pr-ready`)
+is cleared when its spec unit derives completed
+(`scripts/orchestrate-state.sh`; every task of a bundle range). An
+awaiting-input row is always kept, as is a worker that is alive or whose
+death verdict is unknown, even on a completed unit, a worker whose registry
+record carries no death-handle field (torn, or written before the registry
+recorded handles), every row while the registry cannot be read, and a row
+whose unit is still in flight. A worker whose registry record lives in another
+checkout is not judged on this checkout's specs. Each clear goes through
+`fleet-attention.sh clear --if-row`, so a worker that wrote since it was judged
+keeps its new row; each clear is audited under the `attention-reconcile`
+mechanism. `fleet_daemon_pause` pauses the pass.
+The pass clears display rows only: a dead headless worker's pending
+stream-json receipts stay for the rung's `stop` to settle, and until then
+`alarm-scan` can still re-queue a decision from them.
 
 ## Resource governance: models, throttling, and the auto-mode line
 
@@ -2112,6 +2182,14 @@ the in-process (subagent) shape, where a worker inherits the hosting
 session's effective mode. A refusal is a dispatch stop condition, surfaced,
 never bypassed.
 
+**A worker issues `git` without a `cd`.** A dispatched worker already runs in
+its own worktree, so it runs `git` and its reads there directly. The worker
+guard approves a `cd` into that worktree, but Claude Code prompts on its own
+for a command that changes directory before a `git` call, whatever a hook
+decides: `cd <worktree> && git status` still stops the worker, and
+`git status` does not. Write worker prompts and briefs the same way, with no
+`cd` preamble.
+
 **The tower runs under its own tested allow layer.** A tower's own
 orchestration commands — tmux relay/observe, a `claude --worktree` hand-launch
 the tower runs at the operator's request, planwright scripts by resolved
@@ -2121,14 +2199,13 @@ under `config/tower-settings.json`, which wires `scripts/tower-command-guard.sh`
 as a PreToolUse hook (D-8). It reuses the worker guard's pattern — allow-only,
 fail-closed, no LLM in the decision path — but fronts a **distinct, tower-
 oriented safe set**: it adds the tower-only shapes (tmux relay/observe, the
-hand-launch) the worker guard defers, and omits the worker-only shapes (`bats`,
+hand-launch, the front door's bare `mktemp` and temp-file `rm`) the worker
+guard defers, and omits the worker-only shapes (`bats`,
 `tests/` scripts, `fish -c` recursion) a tower never runs. Coverage is at the
 tmux-subcommand granularity: the guard pre-approves the individual relay/observe
-verbs (`load-buffer`, `paste-buffer`, `capture-pane`), but not yet
-`orchestrate-relay.sh`'s full attributed send shape, whose brace-grouped
-`{ ...; } | tmux load-buffer` pipeline the inherited engine defers to the
-classifier (see `specs/_observations` for the follow-up). Only the underlying
-subcommands are deterministically covered. This consciously
+verbs (`load-buffer`, `paste-buffer`, `capture-pane`), and the relay's send,
+`orchestrate-relay.sh deliver`, is covered as a planwright script called by
+its literal path. This consciously
 **re-opens** the worker-only scoping `worker-permission-ergonomics` chose for a
 blast-radius reason: the tower's radius is broader (it launches workers and
 drives tmux), so it gets its own tested layer rather than the worker guard
@@ -2139,7 +2216,8 @@ output: it denies the shell guardrails (merge, every force-push spelling, amend
 (`git push …:main`, `reset --hard`, `branch -f`, `update-ref`), the equivalent
 GitHub MCP tools (`merge_pull_request`, `update_pull_request`, `push_files` /
 `create_or_update_file` / `delete_file` — denied wholesale by name because a
-Bash-string guard cannot intercept an MCP call), and `gh pr ready`: a tower
+Bash-string guard cannot intercept an MCP call, and on every MCP server by a
+tool-name glob, alongside the PR branch update and PR creation), and `gh pr ready`: a tower
 **never** performs the draft→ready flip. The one sanctioned ready-flip
 (kickoff-lifecycle D-6: `/spec-kickoff` marks the spec PR ready) runs in a
 kickoff session under different settings, not under this tower profile, so the
@@ -2151,6 +2229,15 @@ detached session `scripts/fleet-dispatch-worktree.sh` creates, a planwright
 script the guard allows wholesale by literal path, so that script holds the
 same pin itself, refusing any launch flag after its `--` that is off its own
 allowlist.
+
+The `/tower` front door runs under the same profile. The shapes its sessions
+run routinely (the posture check's `jq` projections, and a flight petition's
+`mktemp` files and their removal) and the deny entries added with them are
+listed, with their limits, in [the front-door delta](tower-posture-delta.md).
+Settings that merged an earlier copy of the profile must merge those appended
+deny entries too: until they do, the front door's bring-up posture check finds
+them missing and holds back repo-mutating routes and relays, unless the
+operator acknowledges running without them.
 
 ## What the fleet decides without you (and what it never does)
 

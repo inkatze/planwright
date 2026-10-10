@@ -3,8 +3,8 @@
 # (fleet-autonomy Task 6; D-10, REQ-D1.1).
 #
 # Every fleet-launched Claude Code session that another session reads via pane
-# capture — a dispatched worker, and any subordinate tower a meta-tower
-# observes — is launched THROUGH this wrapper. The wrapper pins
+# capture (a dispatched worker, and a tower the watchdog relaunches) is
+# launched THROUGH this wrapper. The wrapper pins
 # CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false into the launched process's
 # environment, disabling input-line ghost-text (prompt suggestions) at the
 # source so a pane capture is never ambiguous between real input and a rendered
@@ -59,6 +59,17 @@
 #                                             --fleet-home <dir>
 #                                               an absolute path, exported as
 #                                               PLANWRIGHT_FLEET_STATE_DIR
+#                                             --spec-root <dir>
+#                                               an existing absolute directory,
+#                                               exported as
+#                                               PLANWRIGHT_WORKER_SPEC_ROOT: the
+#                                               spec root outside the work
+#                                               repository the worker's command
+#                                               guard admits as its write zone
+#                                               (scripts/worker-spec-root.sh);
+#                                               the guard ignores a directory
+#                                               without its regular-file
+#                                               planwright-spec-root.yml
 #                                           A malformed or half-supplied option is
 #                                           refused (exit 2) before anything runs.
 #                                           Any launch option also drops the
@@ -68,7 +79,9 @@
 #                                           PLANWRIGHT_TOWER_PID,
 #                                           PLANWRIGHT_TOWER_CHECKOUT,
 #                                           PLANWRIGHT_REPO_ROOT,
-#                                           PLANWRIGHT_ORCH_STATE_DIR) the tmux
+#                                           PLANWRIGHT_ORCH_STATE_DIR, and an
+#                                           inherited
+#                                           PLANWRIGHT_WORKER_SPEC_ROOT) the tmux
 #                                           server's environment may carry from
 #                                           whichever session started it: a
 #                                           worker is not a tower, and resolves
@@ -134,12 +147,12 @@ usage() {
   echo "usage: fleet-dispatch-env.sh <cmd> [args...]           (exec <cmd> with the hardened dispatch env)" >&2
   echo "       fleet-dispatch-env.sh --print                   (print the KEY=VALUE assignment(s), one per line)" >&2
   echo "       fleet-dispatch-env.sh --emit-launch <argv...>   (print the pin-carrying wrapped launch command line)" >&2
-  echo "       fleet-dispatch-env.sh [--check] [--identity <handle> <scope>] [--launch-token <hex>] [--root <dir>] [--fleet-home <dir>] <cmd> [args...]" >&2
+  echo "       fleet-dispatch-env.sh [--check] [--identity <handle> <scope>] [--launch-token <hex>] [--root <dir>] [--fleet-home <dir>] [--spec-root <dir>] <cmd> [args...]" >&2
   exit 2
 }
 
 refuse_option() {
-  echo "fleet-dispatch-env.sh: $1; nothing was launched" >&2
+  printf '%s\n' "fleet-dispatch-env.sh: $1; nothing was launched" >&2
   exit 2
 }
 
@@ -169,6 +182,7 @@ opt_scope=''
 opt_token=''
 opt_root=''
 opt_home=''
+opt_spec_root=''
 while [ "$#" -gt 0 ]; do
   case $1 in
     --check)
@@ -212,11 +226,19 @@ while [ "$#" -gt 0 ]; do
       opt_home=$2
       shift 2
       ;;
+    --spec-root)
+      [ -z "$opt_spec_root" ] || refuse_option "--spec-root given twice"
+      if [ "$#" -lt 2 ] || ! valid_abs_path "$2" || [ ! -d "$2" ]; then
+        refuse_option "--spec-root must name an existing directory by its absolute path"
+      fi
+      opt_spec_root=$2
+      shift 2
+      ;;
     *) break ;;
   esac
 done
 opt_any=0
-[ "$opt_check" -eq 0 ] && [ -z "$opt_handle$opt_token$opt_root$opt_home" ] || opt_any=1
+[ "$opt_check" -eq 0 ] && [ -z "$opt_handle$opt_token$opt_root$opt_home$opt_spec_root" ] || opt_any=1
 if [ "$opt_any" -eq 1 ]; then
   [ "$#" -ge 1 ] || refuse_option "the launch options need a command to run"
   case $1 in
@@ -287,7 +309,7 @@ planwright_root() {
 warn_unresolved_root() {
   [ "${root_warned:-0}" = 1 ] && return 0
   root_warned=1
-  echo "fleet-dispatch-env.sh: cannot derive the planwright root from $0; the worker's auto-approve hook will not resolve and it will prompt on every command" >&2
+  printf '%s\n' "fleet-dispatch-env.sh: cannot derive the planwright root from $0; the worker's auto-approve hook will not resolve and it will prompt on every command" >&2
 }
 
 # An operator value stands on its own: it must survive even when self-location
@@ -393,7 +415,8 @@ fi
 export "$GHOST_TEXT_KEY=$GHOST_TEXT_VALUE"
 if [ "$opt_any" -eq 1 ]; then
   unset PLANWRIGHT_TOWER_ID PLANWRIGHT_TOWER_SESSION_ID PLANWRIGHT_TOWER_PID \
-    PLANWRIGHT_TOWER_CHECKOUT PLANWRIGHT_REPO_ROOT PLANWRIGHT_ORCH_STATE_DIR
+    PLANWRIGHT_TOWER_CHECKOUT PLANWRIGHT_REPO_ROOT PLANWRIGHT_ORCH_STATE_DIR \
+    PLANWRIGHT_WORKER_SPEC_ROOT
 fi
 if [ -n "$opt_handle" ]; then
   PLANWRIGHT_WORKER_HANDLE=$opt_handle
@@ -414,6 +437,10 @@ fi
 if [ -n "$opt_home" ]; then
   PLANWRIGHT_FLEET_STATE_DIR=$opt_home
   export PLANWRIGHT_FLEET_STATE_DIR
+fi
+if [ -n "$opt_spec_root" ]; then
+  PLANWRIGHT_WORKER_SPEC_ROOT=$opt_spec_root
+  export PLANWRIGHT_WORKER_SPEC_ROOT
 fi
 export_root_vars
 exec "$@"

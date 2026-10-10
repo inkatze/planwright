@@ -27,10 +27,10 @@ export PLANWRIGHT_SECRET_SCREEN_TOOL
 
 failures=0
 fail() {
-  echo "FAIL: $1" >&2
+  printf '%s\n' "FAIL: $1" >&2
   failures=$((failures + 1))
 }
-ok() { echo "ok: $1"; }
+ok() { printf '%s\n' "ok: $1"; }
 # verdict <ok-message> <fail-message>: judged on the exit status of the
 # command that precedes the call.
 verdict() {
@@ -1679,12 +1679,39 @@ else
   fail "rc=$rc: $(cat "$tmp/st.err")"
 fi
 
+# --- excerpt: the record excerpt screen, outside any worktree -----------------------
+mkdir -p "$tmp/nowt"
+ex=$(cd "$tmp/nowt" && "$SR" excerpt "$tmp/wide.txt")
+verdict_of $? "excerpt runs outside a git work tree" "excerpt failed outside a work tree"
+[ "$ex" = "$(sed -n "s/^excerpt${TAB}//p" "$recw")" ]
+verdict "excerpt prints exactly what write stores" "excerpt differs from the stored one"
+ex=$("$SR" excerpt "$tmp/secret.txt")
+exrc=$?
+[ "$exrc" -eq 0 ] && [ "$ex" = "[withheld: the secret screen flagged this excerpt]" ]
+verdict "excerpt withholds a token-shaped text" "excerpt exited $exrc and printed: $ex"
+ex=$(env PLANWRIGHT_SECRET_SCREEN_TOOL=broken "$SR" excerpt "$tmp/wide.txt")
+exrc=$?
+[ "$exrc" -eq 0 ] && [ "$ex" = "[withheld: the excerpt could not be screened]" ]
+verdict "excerpt withholds what cannot be screened" "excerpt exited $exrc and printed: $ex"
+"$SR" excerpt "$tmp/no-such-file" >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "excerpt refuses an unreadable file" "excerpt accepted a missing file"
+"$SR" excerpt >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "excerpt without a file is a usage error" "excerpt ran without a file"
+"$SR" excerpt "$tmp/wide.txt" "$tmp/wide.txt" >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "excerpt with two files is a usage error" "excerpt ran with two files"
+"$SR" --worktree "$tmp/nowt" excerpt "$tmp/wide.txt" >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "excerpt with --worktree is a usage error" "excerpt ran with --worktree"
+
 # --- the cache path is ignored ------------------------------------------------------
 git -C "$repo_root" check-ignore -q ".claude/steps/000001/x.rec"
 verdict "this repository ignores the record cache" ".claude/steps/ is not ignored"
 
 if [ "$failures" -gt 0 ]; then
-  echo "$failures failure(s)" >&2
+  printf '%s\n' "$failures failure(s)" >&2
   exit 1
 fi
 echo "all step-record tests passed"

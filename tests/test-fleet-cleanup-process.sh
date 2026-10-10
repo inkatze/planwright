@@ -967,7 +967,12 @@ env PATH="$sig_dir:$PATH" SIG_LOG="$tmp/sig-canary-calls" SIG_RUNS="$tmp/sig-can
   || fail "kill-path audit: the harness missed a canary call: $(cat "$tmp/sig-canary-calls")"
 [ "$(wc -l <"$tmp/sig-runs" | tr -d ' ')" -ge 100 ] \
   || fail "kill-path audit: only $(wc -l <"$tmp/sig-runs" | tr -d ' ') runs went through the harness"
-[ ! -s "$tmp/sig-calls" ] || fail "kill-path audit: the actuator called a signal or process-table tool: $(cat "$tmp/sig-calls")"
+# One read is exempt, exactly as spelled: the shared lock primitive reads pid
+# 1's elapsed time as the host uptime its owner tokens record, whenever the
+# actuator's audit write takes the fleet lock. It names no process to act on,
+# so it is no second kill path; anything else `ps` is asked still fails here.
+sig_seen=$(grep -vxE 'ps -o etimes?= -p 1' "$tmp/sig-calls" || :)
+[ -z "$sig_seen" ] || fail "kill-path audit: the actuator called a signal or process-table tool: $sig_seen"
 # What the harness cannot observe: a tool named by absolute path, one reached
 # past the function through `command`/`builtin`/`exec`, and a /proc read.
 code=$(sed -E -e 's/^[[:space:]]*#.*//' -e 's/[[:space:]]#.*//' \

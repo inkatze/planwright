@@ -598,6 +598,9 @@ mkdir -p "$audtree"
 cp "$FT" "$audtree/fleet-throttle.sh"
 cp "$here/../scripts/echo-safety.sh" "$audtree/echo-safety.sh"
 cp "$here/../scripts/fleet-state.sh" "$audtree/fleet-state.sh"
+# fleet-state.sh takes its lock through the shared primitive, so a faithful
+# fixture install carries it too.
+cp "$here/../scripts/lock-lib.sh" "$audtree/lock-lib.sh"
 printf '#!/bin/sh\nexit 0\n' >"$audtree/fleet-daemon-gate.sh"
 printf '#!/bin/sh\nexit 1\n' >"$audtree/fleet-audit.sh"
 chmod +x "$audtree/fleet-daemon-gate.sh" "$audtree/fleet-audit.sh"
@@ -701,5 +704,21 @@ done
 [ "$rc" = 1 ] \
   || fail "the same excerpt after elapse is a fresh event and must re-engage (check exit $rc)"
 echo "ok: an elapsed anchor re-engages on the next observation"
+
+# The ceiling verb prints the bound engage enforces, and takes no argument.
+reset_state
+ceiling=$(run ceiling) || fail "ceiling failed"
+case "$ceiling" in "" | *[!0-9]*) fail "ceiling printed '$ceiling', not seconds" ;; esac
+rc=0
+run engage --until "$(($(now) + ceiling - 600))" --trigger "inside the ceiling" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "an --until inside the printed ceiling was refused (exit $rc)"
+reset_state
+rc=0
+run engage --until "$(($(now) + ceiling + 600))" --trigger "beyond the ceiling" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "an --until beyond the printed ceiling: exit $rc, expected 2"
+rc=0
+run ceiling extra >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "ceiling with an argument: exit $rc, expected 2"
+echo "ok: the ceiling verb prints the bound engage enforces"
 
 echo "ALL PASS: fleet-throttle"

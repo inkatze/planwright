@@ -1,7 +1,7 @@
 # Test throughput — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-09-28
+**Last reviewed:** 2026-10-09
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -46,6 +46,12 @@ repeating) asked for the ritual to be closed durably, and
 customization-boundary splits the feature along its seam: the general
 ability to take full-suite evidence from remote CI is core's, the choice to
 use it is each repository's.
+
+**Superseded-by: D-15** (2026-10-09), in part — this repository's own
+value becomes `local-then-ci`, not `remote-ci`; the altitude split is
+unchanged. D-18 amends one doctrine rule, the Agent-resolvable predicate's
+evidence condition, so the no-doctrine sentence above no longer holds for
+that condition.
 
 ### D-2: The ticket pool is a set of numbered lock-lib locks with dead-holder reclaim  (N)
 
@@ -243,6 +249,10 @@ are unchanged.
 early draft PR turns it into a per-iteration full suite with no workflow
 change, and bounded polling keeps the worker's session live.
 
+**Superseded-by: D-16, D-20** (2026-10-09), in part — the setting gains a
+third value, `local-then-ci`, and is read at each run's pre-flight; this
+repository's switch moves from Task 13 to Task 17.
+
 ### D-6: The known-environmental list is one gitignored file per clone, proposed by workers and written on the operator's confirmation  (N)
 
 **Decision:** The list lives at
@@ -285,6 +295,9 @@ once, the ignore rule keeps machine-specific detail out of commits, and
 the operator's confirmation keeps a human judgment in front of anything
 that silences a failure.
 
+**Superseded-by: D-16** (2026-10-09), in part — the list is also
+consulted in a fix round under `local-then-ci`.
+
 ### D-7: Review-loop wiring waits on the review-effectiveness amendment  (N)
 
 **Decision:** The part of `remote-ci` that lets the review loop use PR CI as
@@ -308,6 +321,9 @@ setting and its `/execute-task` behavior with the core default untouched.
 **Chosen because:** it keeps every signed text true at every commit, while
 the drain pass surfaces the gate verbatim so the parked task is not
 forgotten.
+
+**Superseded-by: D-20** (2026-10-09), in part — the parked task keeps the
+review-loop wiring but no longer switches this repository to `remote-ci`.
 
 ### D-8: Long local runs use one portable detached recipe that proves it started  (N)
 
@@ -521,6 +537,228 @@ profile's verdict.
 **Chosen because:** it tries the remedy that costs nothing in the suite
 first and commits to a suite-wide migration only on measured evidence that
 the setting falls short for attended runs or fleet workers.
+
+### D-15: The fix-round cadence is the same opt-in capability; this repository's value is `local-then-ci`  (N, supersedes D-1 in part)
+
+**Decision:** The 2026-10-09 extension stays on D-1's rungs. The ability
+to run fix rounds against CI on the pushed head is core capability,
+behind `full_suite_evidence`, whose core default `local` keeps today's
+behavior. The cadence this repository uses is its own value, set in its
+repo-tracked overlay: `local-then-ci`, replacing the `remote-ci` D-1
+named. The one doctrine change is the evidence rule inside the
+Agent-resolvable predicate (D-18), because that predicate is doctrine every
+value of the setting reads. The interim post-PR prompt step and the
+worker-brief text are retired as the mechanism, because a prompt reaches
+only the steps after it and cannot hold back `/execute-task`'s own suite.
+The irreducible human gates are unchanged: the ready-flip still requires
+green CI on the pull request's head, and merge stays the operator's.
+
+**Alternatives considered:**
+- State "after a pull request exists, CI on the pushed head is the gate of
+  record" as a doctrine rule for every adopter. Rejected because: the
+  evidence is still one repository's fleet (the seed and two
+  observations), which customization-boundary does not let graduate a
+  default.
+- Keep the interim prompt step and strengthen the brief text. Rejected
+  because: the seed's claim is that both run too late or only advise; a
+  step at `post-pr` fires after the full suite already ran, and nothing
+  enforces the brief.
+- Keep `remote-ci` as this repository's end state. Rejected because: the
+  operator's working rule keeps one full local suite before the pull
+  request opens, which `remote-ci` drops (drafting-session decision,
+  2026-10-09).
+
+**Chosen because:** the pinned seed claim asks for enforcement, which a
+setting value read by `/execute-task` gives, and D-1's
+capability-versus-value split already places it.
+
+### D-16: `local-then-ci` is a third value; a fix round is an open pull request at pre-flight  (N)
+
+**Decision:** `full_suite_evidence` gains `local-then-ci` beside `local`
+and `remote-ci`, resolved through `scripts/resolve-config-knob.sh` like the
+other two, and read at each run's pre-flight rather than once per unit,
+because a unit's fix rounds are separate runs. A run under it classifies
+itself once, at pre-flight: a fix round when an open pull request exists
+for the unit's branch, otherwise a first run that behaves exactly as
+`local` (one full local suite, held in custom-steps' `full_suite_pool`
+step pool when that wiring names one, then the draft pull request). The
+read uses `gh` against the branch through a small classification helper
+Task 16 ships, so the classification is testable with `gh` stubbed; when
+the read fails (no remote, no `gh`, an authentication or network failure),
+the run proceeds as `local` and records the reason in its convergence
+summary. A fix round consults the known-environmental list as `remote-ci`
+does, because its CI verdict is the same kind of evidence; a first run
+does not, as under `local`.
+
+**Alternatives considered:**
+- A separate `fix_round_evidence` setting. Rejected because: under
+  `remote-ci` it would do nothing, so two settings would carry one
+  decision and a reader would have to resolve both (drafting-session
+  decision, 2026-10-09).
+- Change what `local` does on fix rounds. Rejected because: every
+  adopter's workers would change behavior on upgrade (D-1).
+- Halt to Awaiting input when the pull-request read fails, as REQ-B1.4
+  does for an unreadable CI. Rejected because: falling back to `local`
+  only adds verification, while a halt parks the unit over a transient
+  read (drafting-session decision, 2026-10-09).
+- Classify by whether the run is a re-dispatch of the unit. Rejected
+  because: dispatch history does not say whether the pull request is
+  still open; the pull request's state does.
+
+**Chosen because:** the evidence source is one decision with three
+cadences, and the pull request's existence is the line the operator's rule
+draws.
+
+### D-17: A fix round reuses `remote-ci`'s push-and-wait path after `post-pr`  (N)
+
+**Decision:** Under `local-then-ci`, a fix round validates each change
+and each review-loop fix with the targeted check
+(`scripts/check-diff-scoped.sh`, as D-5 uses), runs no full local suite
+anywhere in the run except the no-CI fallback below, and pushes at the
+existing push step after `pre-pr`, writing the `Convergence: pending` line
+REQ-B1.3 defines into the existing pull request's body. It runs the
+`post-pr` point, then waits on CI for the branch's final head (a round
+that added no commit gates the pull request's current head) through Task
+10's `scripts/await-pr-ci.sh` under `pr_ci_wait`, with the verdicts, halts
+and no-CI fallback REQ-B1.4 and REQ-B1.5 define. Before acting on a red
+verdict it re-reads the head: CI cancels a superseded head's run and the
+CI judge folds a cancellation into red, so a head that moved past the
+gated one and contains it is awaited instead, and any other moved head
+halts the round to Awaiting input naming both. A red verdict on an
+unmoved head goes through the failure classifier exactly as a local
+failure does: a logic failure halts to Awaiting input, a transient one is
+retried under the adaptive policy. The round is handed off only on green
+CI or on the no-CI fallback's green local suite, and the handoff replaces
+the pending line with the convergence summary; a halted round leaves it.
+
+**Alternatives considered:**
+- Push each fix before convergence so the review loop sees CI per
+  iteration, as `remote-ci` does. Rejected because: a fix round is
+  usually small, so one CI run after the round's last fix is the cheaper
+  proof, and a CI wait per iteration would multiply the round's wall
+  time by its iteration count.
+- A second wait helper for fix rounds. Rejected because: two pollers can
+  drift on what counts as green; Task 10's helper already sources
+  `rl_ci_state`.
+- Run the full local suite once at the end of a fix round. Rejected
+  because: that is the queued gate the seed records stalling a pull
+  request for most of a day.
+- Fix a logic failure forward, push it, and wait again. Rejected because:
+  it departs from the escalate-immediately rule the retry policy and D-5
+  apply to every run, and a fix round is no reason to retry a logic
+  failure (delta re-walkthrough, 2026-10-09).
+- Wait before the `post-pr` point. Rejected because: commits its steps
+  push would go ungated.
+- Write no `Convergence: pending` line, since the pull request carries the
+  first run's summary. Rejected because: a halted round would leave a body
+  reading converged over unverified commits.
+
+**Chosen because:** every piece already exists or is already specified
+(the push step, the targeted check, the wait helper, the pending line), so
+the fix round is a branch in `/execute-task`'s CI and convergence steps,
+not new machinery.
+
+### D-18: Green CI on a pushed head containing the fix satisfies the predicate's project-CI condition  (N)
+
+**Decision:** `doctrine/finding-categorization.md`'s Agent-resolvable
+condition "Passing project CI" is amended to accept either a green full
+local suite after the fix or a green CI run on a pushed head that contains
+the fix, with no new regressions in either. A fix applied in a run whose
+evidence is CI is applied on the targeted check and listed as awaiting
+that run; it is reported resolved only once the run is green, and a red
+run leaves it unresolved while the run handles the red verdict through the
+failure classifier. Every other doctrine sentence that restates the
+condition is amended in the same change. The reading is compatible with
+review-effectiveness REQ-D1.3: CI on a head containing the fix runs the
+full suite, so "the full suite" is met where it runs, the reading D-19
+records for bootstrap; what D-20 still waits on is that requirement's
+per-iteration cadence, not this predicate. The amendment also serves
+`remote-ci`, which needs the same reading, so Task 10 takes an edge from
+the task that lands it.
+
+**Alternatives considered:**
+- Keep the predicate and treat review fixes in a fix round as Needs
+  sign-off. Rejected because: it moves every fix into the operator's
+  checklist only because of where the suite ran, not because of what the
+  fix is.
+- Read "project CI" as already covering remote CI and change nothing.
+  Rejected because: the condition's text says the full suite "passes after
+  the fix", and a worker reading it literally runs the full suite locally,
+  which is the behavior the seed reports.
+
+**Chosen because:** the predicate's purpose is proof that the full suite
+passes with the fix, and CI on a head containing the fix is that proof.
+
+### D-19: Awaited CI on the run's own pushed head is "full project CI"  (N)
+
+**Decision:** bootstrap REQ-E1.2 ("`/execute-task` SHALL run full project
+CI") is met when the run triggers CI by pushing its head and waits for a
+verdict on that head. This bundle records that reading and amends nothing
+in bootstrap.
+
+**Alternatives considered:**
+- Amend bootstrap through its own delta. Rejected because: bootstrap is
+  Done, so a delta would reopen it to Draft for a sentence the signed
+  `remote-ci` design already reads this way (D-5), and the operator chose
+  to record the reading instead (drafting-session decision, 2026-10-09).
+
+**Chosen because:** the requirement's intent is that the full suite runs
+and gates the unit; where it runs is not part of it, and D-5 already
+relies on the same reading.
+
+### D-20: Fix-round wiring waits on custom-steps and review-effectiveness; Task 13 keeps only the review-loop wiring  (N, supersedes D-7 in part)
+
+**Decision:** The task that wires `local-then-ci` into `/execute-task`
+(Task 16) is parked under `## Deferred` with a free-text gate naming two
+delta sign-offs: custom-steps amending its attachment-point moments
+(custom-steps D-3, REQ-A1.1) so a run whose first full CI run follows
+`pre-pr` still has defined `pre-ci` and `convergence` moments, and
+review-effectiveness amending its full-suite-per-iteration requirement
+(review-effectiveness REQ-D1.3) to accept one CI run on the round's final
+pushed head in place of a full suite per iteration. Its `Done when:` names both preconditions. Task 13 keeps the
+review-loop wiring under `remote-ci` and its review-effectiveness gate
+but no longer switches this repository's value; Task 17 sets
+`local-then-ci` and removes the interim step once Task 16 lands.
+
+**Alternatives considered:**
+- Ship the `/execute-task` half now and wait only for the review-loop
+  half. Rejected because: the operator accepted one gate for the whole
+  value (drafting-session decision, 2026-10-09), and a value whose only CI
+  run follows `pre-pr` while custom-steps still places the run's first full
+  CI run before `convergence` would contradict signed text.
+- Edit custom-steps' and review-effectiveness's text from this bundle.
+  Rejected because: D-7's reason holds, signed text changes only through
+  its owner's sign-off.
+- A structured gate. Rejected because: D-7's reason holds, the gate
+  grammar has no atom for another bundle's delta sign-off.
+
+**Chosen because:** it keeps every signed text true at every commit, and
+the drain pass surfaces the gate so the parked task is not forgotten.
+
+### D-21: A per-file deadline in the runner, set by environment, 900 seconds by default  (N)
+
+**Decision:** `scripts/run-tests.sh` runs each test file under a deadline
+read from `PLANWRIGHT_TEST_FILE_DEADLINE` (a positive integer number of
+seconds, default 900; anything else, `0` included, is malformed and falls
+back to the default with one warning), using `timeout` or `gtimeout`,
+whichever the host provides. A file
+that passes the deadline is ended, recorded as failed with a message
+naming the file and the deadline, and its ticket returned; with neither
+tool on the host the runner warns once and runs files unbounded. A nested
+runner exempted by REQ-A1.8 inherits the variable like any other.
+
+**Alternatives considered:**
+- A core config knob resolved through the overlays. Rejected because: the
+  runner is this repository's mechanism (D-1), and the runner already
+  takes environment knobs.
+- A 1800-second default. Rejected because: a hung file would hold its
+  run's whole-suite lock for up to half an hour (drafting-session decision,
+  2026-10-09).
+- A deadline on the whole suite instead. Rejected because: it cannot name
+  the hung file, and a slow but healthy suite would trip it on a busy host.
+
+**Chosen because:** the observed stall is one file that never returns,
+and a per-file bound ends exactly that while naming it.
 
 ## Cross-cutting concerns
 

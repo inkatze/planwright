@@ -935,9 +935,11 @@ seeded_bundle "$tmp/refuse-no-brief/specs/poisoned" Ready
 refusal_case no-brief "a signed bundle without a kickoff brief"
 
 mkrefusal lock-busy
-mkdir "$tmp/refuse-lock-busy/specs/poisoned/.orchestrate.lock"
+# A live holder, named the way the shared primitive names one: a symlink whose
+# target is an owner token leading with a running pid (this test process).
+ln -s "$$-0-1" "$tmp/refuse-lock-busy/specs/poisoned/.orchestrate.lock"
 refusal_case lock-busy "a live per-spec lock (single-writer serialization)"
-rmdir "$tmp/refuse-lock-busy/specs/poisoned/.orchestrate.lock"
+rm -f "$tmp/refuse-lock-busy/specs/poisoned/.orchestrate.lock"
 
 # Lock-before-read ordering (the TOCTOU guard): with the lock busy, the
 # refusal must be the lock refusal, not a compute-phase diagnostic — the
@@ -946,11 +948,11 @@ rmdir "$tmp/refuse-lock-busy/specs/poisoned/.orchestrate.lock"
 # is silently clobbered.
 mkrefusal lock-order
 printf '%s\n' '' '## Backlog' '' '(nothing)' >>"$tmp/refuse-lock-order/specs/poisoned/tasks.md"
-mkdir "$tmp/refuse-lock-order/specs/poisoned/.orchestrate.lock"
+ln -s "$$-0-1" "$tmp/refuse-lock-order/specs/poisoned/.orchestrate.lock"
 refusal_case lock-order "a busy per-spec lock (checked before any compute-phase read)"
 grep -q 'lock busy' "$tmp/refuse-lock-order.err" \
   || fail "lock ordering: busy-lock refusal reported '$(cat "$tmp/refuse-lock-order.err")' — the compute phase ran before the lock was checked (TOCTOU)"
-rmdir "$tmp/refuse-lock-order/specs/poisoned/.orchestrate.lock"
+rm -f "$tmp/refuse-lock-order/specs/poisoned/.orchestrate.lock"
 
 # A lock ERROR is not lock contention: orchestrate-lock exits 2 (with a
 # diagnostic) for environment/containment faults — e.g. a bundle dir not
@@ -1138,5 +1140,16 @@ ea_empty="$ea_rc:$ea_empty"
 case $ea_none in 0:*) ;; *) fail "the default sweep of an empty spec root failed: $ea_none" ;; esac
 [ "$ea_empty" = "$ea_none" ] || fail "an empty argument did not act as the default (default '$ea_none', empty '$ea_empty')"
 echo "ok: an empty argument is the no-argument default"
+
+# A target path holding control bytes is refused without them reaching stderr.
+nd_rc=0
+nd_err=$("$MIGRATE" "$tmp/no-such-$(printf '\033')[31mdir" 2>&1 >/dev/null) || nd_rc=$?
+[ "$nd_rc" = 2 ] || fail "the not-a-directory refusal exited $nd_rc, expected 2"
+case $nd_err in
+  *"$(printf '\033')"*) fail "the not-a-directory refusal printed a raw ESC: $nd_err" ;;
+  *"not a directory"*) ;;
+  *) fail "the not-a-directory refusal did not appear: $nd_err" ;;
+esac
+echo "ok: a hostile target path is sanitized in the refusal"
 
 echo "PASS: all migrate-format-version tests passed"

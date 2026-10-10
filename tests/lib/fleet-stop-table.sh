@@ -56,7 +56,7 @@ LIB="$here/../scripts/fleet-stop-lib.sh"
 FA="$here/../scripts/fleet-attention.sh"
 
 fail() {
-  echo "FAIL: [${rung:-}] $1" >&2
+  printf '%s\n' "FAIL: [${rung:-}] $1" >&2
   exit 1
 }
 
@@ -547,7 +547,7 @@ c19() {
   w_durable_ok "$home" "$rec" "$d" "$w"
   [ "$(ls -A "$wt")" = "$wt_before" ] || fail "c19: the worktree's contents changed"
   [ "$(cat "$wt/marker")" = "keep me" ] || fail "c19: a worktree file was modified"
-  echo "ok: [$rung] c19 stop terminates the tree, releases the runtime set, keeps the record and the worktree (REQ-B1.2, REQ-B1.4, REQ-A1.3)"
+  printf '%s\n' "ok: [$rung] c19 stop terminates the tree, releases the runtime set, keeps the record and the worktree (REQ-B1.2, REQ-B1.4, REQ-A1.3)"
 }
 
 # ---------------------------------------------------------------------------
@@ -597,7 +597,7 @@ c20() {
   # The difference pins that --grace is read; this pins the unit. Set far above
   # any plausible scheduling delay, since the suite runs beside the whole gate.
   [ "$elapsed" -lt 120 ] || fail "c20: a 4s grace should not take ${elapsed}s"
-  echo "ok: [$rung] c20 SIGTERM first, SIGKILL after the grace the caller set (REQ-B1.2)"
+  printf '%s\n' "ok: [$rung] c20 SIGTERM first, SIGKILL after the grace the caller set (REQ-B1.2)"
 }
 
 # ---------------------------------------------------------------------------
@@ -647,7 +647,7 @@ EOF
       || fail "c21: a worker whose handle merely extends the stopped one must survive (pid $p)"
   done
   renv "$home" "$rec" -- stop "$ws" --grace 2 >/dev/null || fail "c21: sibling stop failed"
-  echo "ok: [$rung] c21 state-directory matching spares a look-alike session and a prefix sibling (REQ-B1.3)"
+  printf '%s\n' "ok: [$rung] c21 state-directory matching spares a look-alike session and a prefix sibling (REQ-B1.3)"
 }
 
 # The source audit is rung-independent in what it reads — the shared kill path
@@ -694,7 +694,7 @@ c22() {
     || fail "c22: a repeat stop must return the distinct already-closed result, got: $out"
   [ "$before" = "$after" ] || fail "c22: a repeat stop must send no signal"
   w_terminated_ok "$home" "$rec" "$w"
-  echo "ok: [$rung] c22 a repeat close returns already-closed and signals nothing (REQ-B1.7)"
+  printf '%s\n' "ok: [$rung] c22 a repeat close returns already-closed and signals nothing (REQ-B1.7)"
 
   # c22c, against the closed worker above: the lock class where the rung has
   # one, and the refusals every rung shares.
@@ -722,7 +722,7 @@ c22() {
   [ $? -eq 2 ] || fail "c22c: --grace 0 must be refused"
   renv "$home" "$rec" -- stop "$w" --grace 99999999 >/dev/null 2>&1
   [ $? -eq 2 ] || fail "c22c: an out-of-range --grace must be refused"
-  echo "ok: [$rung] c22c bad handles and graces are refused (REQ-A1.3)"
+  printf '%s\n' "ok: [$rung] c22c bad handles and graces are refused (REQ-A1.3)"
 }
 
 # ---------------------------------------------------------------------------
@@ -757,7 +757,7 @@ c22b() {
   wait_until 100 all_gone "$stubborn" \
     || fail "c22b: a reparented grandchild must not survive a close that reports success"
   wait_until 50 no_proc_under "$d" || fail "c22b: the state directory is still referenced"
-  echo "ok: [$rung] c22b a reparented SIGTERM-surviving grandchild is still closed (REQ-B1.2)"
+  printf '%s\n' "ok: [$rung] c22b a reparented SIGTERM-surviving grandchild is still closed (REQ-B1.2)"
 }
 
 # ---------------------------------------------------------------------------
@@ -794,7 +794,7 @@ c22d() {
   renv "$home" "$rec" -- stop "$w" --grace 2 >/dev/null || fail "c22d: the outside close failed"
   # shellcheck disable=SC2086 # the pid list is split on purpose
   wait_until 100 all_gone $recorded || fail "c22d: the re-exec survived the outside close"
-  echo "ok: [$rung] c22d a close from inside the worker's own tree is refused (REQ-B1.3)"
+  printf '%s\n' "ok: [$rung] c22d a close from inside the worker's own tree is refused (REQ-B1.3)"
 }
 
 # selfpid_close <home> <rec> <pidfile> <handle> [env=val...] — run `stop` from a
@@ -838,7 +838,7 @@ c22efg() {
     sj) [ ! -e "$d/$pf" ] || fail "c22e: the close must clear the stale pid file, or the handle stays wedged" ;;
     hl) [ "$out" = "stop $w already-closed" ] || fail "c22e: a pid file alone holds nothing here, got: $out" ;;
   esac
-  echo "ok: [$rung] c22e a recorded pid in the closer's ancestry is not a self-close (REQ-B1.3)"
+  printf '%s\n' "ok: [$rung] c22e a recorded pid in the closer's ancestry is not a self-close (REQ-B1.3)"
 
   # c22f: on a host whose `ps` truncates argv, a missing match is not evidence
   # of absence, so the recorded pids are consulted and the close fails closed.
@@ -864,7 +864,7 @@ NPS
     *'from inside its own process tree'*) : ;;
     *) fail "c22f: wrong refusal: $out" ;;
   esac
-  echo "ok: [$rung] c22f a truncated-argv host consults the recorded pids and fails closed (REQ-B1.3)"
+  printf '%s\n' "ok: [$rung] c22f a truncated-argv host consults the recorded pids and fails closed (REQ-B1.3)"
 
   # c22g: a process table that cannot be read at all refuses the close.
   mkdir -p "$tmp/deadbin"
@@ -878,7 +878,7 @@ NPS
   [ "$rc" = 2 ] \
     || fail "c22g: an unreadable process table must refuse the close (exit 2), got rc=$rc ($out)"
   [ -e "$d/$pf" ] || fail "c22g: a refused close must not have cleared the pid file"
-  echo "ok: [$rung] c22g an unreadable process table refuses rather than proceeds (REQ-B1.3)"
+  printf '%s\n' "ok: [$rung] c22g an unreadable process table refuses rather than proceeds (REQ-B1.3)"
 
   # c22h: a pid file the worker replaced with a fifo cannot hang the close. A
   # blocking read there would stall `stop` before it sent a single signal.
@@ -915,13 +915,13 @@ NPS
     }
     wait "$closer" || fail "c22h: the close failed: $(cat "$rec/c22h2.out")"
   fi
-  echo "ok: [$rung] c22h a fifo planted at the pid file does not hang the close (REQ-B1.3)"
+  printf '%s\n' "ok: [$rung] c22h a fifo planted at the pid file does not hang the close (REQ-B1.3)"
 }
 
 # ---------------------------------------------------------------------------
 c23() {
   if [ "$(id -u)" = 0 ]; then
-    echo "skip: [$rung] c23 partial-close injection needs a non-root user (running as root)"
+    printf '%s\n' "skip: [$rung] c23 partial-close injection needs a non-root user (running as root)"
     return 0
   fi
   case_dirs 23
@@ -953,7 +953,7 @@ c23() {
     out=$(renv "$home" "$rec" -- status "$SPEC" 23)
     [ "$out" = "completed 0" ] || fail "c23: the runner's own exit must survive the close, got: $out"
   fi
-  echo "ok: [$rung] c23 a partial close reports partial and the retry drains what is still held (REQ-A1.3, REQ-B1.7)"
+  printf '%s\n' "ok: [$rung] c23 a partial close reports partial and the retry drains what is still held (REQ-A1.3, REQ-B1.7)"
 }
 
 # ---------------------------------------------------------------------------
@@ -1019,7 +1019,7 @@ c40() {
   #     whose `ps` reads argv in full is. A host whose `ps` truncates it seeds
   #     from the file by design, since nothing else finds a live runner there.
   if ! ps -A -ww -o pid=,ppid=,args= >/dev/null 2>&1; then
-    echo "skip: [$rung] c40 reissued-pid leg: this host's ps truncates argv, where the pid file is the only seed by design"
+    printf '%s\n' "skip: [$rung] c40 reissued-pid leg: this host's ps truncates argv, where the pid file is the only seed by design"
   else
     sleep 120 &
     stranger=$!
@@ -1030,7 +1030,7 @@ c40() {
       || fail "c40: a close signalled the stranger a dead runner's pid file named"
     [ "$out" = "stop $w already-closed" ] || fail "c40: a reissued pid holds nothing of the unit's, got: $out"
   fi
-  echo "ok: [$rung] c40 a finished or dead unit keeps its record, and where argv is readable its stale pid is never signalled (REQ-B1.3, REQ-B1.7)"
+  printf '%s\n' "ok: [$rung] c40 a finished or dead unit keeps its record, and where argv is readable its stale pid is never signalled (REQ-B1.3, REQ-B1.7)"
 }
 
 # ---------------------------------------------------------------------------
@@ -1076,7 +1076,7 @@ AWKFAIL
   # The exit code too: asserting the wording alone would let a regression that
   # reported success alongside a held class pass.
   [ "$rc" = 6 ] || fail "c32: a partial close must exit 6, got $rc: $out"
-  echo "ok: [$rung] c32 an attention probe that cannot answer counts as held (REQ-A1.3)"
+  printf '%s\n' "ok: [$rung] c32 an attention probe that cannot answer counts as held (REQ-A1.3)"
 }
 
 # ---------------------------------------------------------------------------
@@ -1149,7 +1149,7 @@ c41() {
       *) fail "c41: handle '$bad' must be refused as malformed, got: $out" ;;
     esac
   done
-  echo "ok: [$rung] c41 the default layout keys on the spec, refuses a symlinked state dir and a malformed handle (REQ-B1.3, REQ-B1.4)"
+  printf '%s\n' "ok: [$rung] c41 the default layout keys on the spec, refuses a symlinked state dir and a malformed handle (REQ-B1.3, REQ-B1.4)"
 }
 
 # ---------------------------------------------------------------------------
@@ -1187,7 +1187,7 @@ c42() {
     *fleet-stop-lib*) : ;;
     *) fail "c42: the refusal must name the missing library, got: $out" ;;
   esac
-  echo "ok: [$rung] c42 a missing close library costs stop and no other verb"
+  printf '%s\n' "ok: [$rung] c42 a missing close library costs stop and no other verb"
 }
 
 # ---------------------------------------------------------------------------
@@ -1235,7 +1235,7 @@ c43() {
   out=$(renv "$home" "$rec" -- stop "$w" --observe)
   [ "$out" = "stop $w already-closed" ] \
     || fail "c43: observing a closed worker must report already-closed, got: $out"
-  echo "ok: [$rung] c43 an observing stop names what a close would take and releases nothing (REQ-F1.6)"
+  printf '%s\n' "ok: [$rung] c43 an observing stop names what a close would take and releases nothing (REQ-F1.6)"
 }
 
 # run_table <rung> — every cell against one rung. STOP_CELLS narrows the run to
@@ -1245,7 +1245,7 @@ run_table() {
   rung=$1
   mkdir -p "$tmp/$rung"
   if [ -n "${STOP_CELLS:-}" ]; then
-    echo "skip: [$rung] every cell but '$STOP_CELLS' (narrowed by STOP_CELLS)"
+    printf '%s\n' "skip: [$rung] every cell but '$STOP_CELLS' (narrowed by STOP_CELLS)"
   fi
   for cell in ${STOP_CELLS:-c19 c20 c21 c22 c22b c22d c22efg c23 c32 c40 c41 c42 c43}; do
     "$cell"

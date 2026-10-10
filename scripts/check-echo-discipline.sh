@@ -1,0 +1,990 @@
+#!/usr/bin/env bash
+# check-echo-discipline.sh — the printf-not-echo guard.
+#
+# `scripts/echo-safety.sh` provides `sanitize_printable`, which strips C0, DEL
+# and C1 control BYTES and emits through printf. That helper is correct. The
+# defect lives one level up, at the call site:
+#
+#   echo    "... $(sanitize_printable "$x") ..."   # unsafe
+#   printf '%s\n' "... $(sanitize_printable "$x") ..."   # inert
+#
+# The sanitizer legitimately passes the four printable characters `\` `0` `3`
+# `3` through — they are printable, and stripping them would corrupt ordinary
+# text. /bin/sh on Linux is dash, whose `echo` expands backslash escapes, so it
+# turns that literal text back into a real ESC. Worker-authored content then
+# reaches the operator's terminal with live escape sequences, through the
+# scripts whose whole job is to contain it.
+# `tests/test-check-echo-discipline.sh` pins the mechanism, and
+# `tests/test-echo-dash-regression.sh` reproduces it under a real dash.
+#
+# ANY VALUE, NOT ONLY A SANITIZED ONE. A value that never met the sanitizer
+# carries the same backslash text, and tracing the sanitizer alone left the
+# class open after one sweep had already closed it once. So an `echo` whose
+# arguments hold any expansion (a variable, a positional, `$@`, a command
+# substitution) is a finding, unless the line ends with an annotation saying
+# why the value cannot carry a backslash:
+#
+#   echo "files: $count"   # trusted: integer from wc -l
+#
+# The annotation is `# trusted:` followed by a reason, on the line the
+# expansion is on; a bare marker is itself a finding. Expansions that can only
+# produce digits or a fixed letter set (`$?`, `$#`, `$$`, `$!`, `$-`, `${#x}`,
+# `$((...))`) are not findings. Sanitized output is never cleared by an
+# annotation: it is exactly the text the hazard is made of.
+#
+# GUARDED SOURCING OF THE SANITIZER. Every `.` or `source` of echo-safety.sh,
+# directly or through a variable holding its path, must come after a `-r` test
+# of the same operand (a `for` loop over the dependency names, testing
+# `<dir>/$var`, counts). The reason is the shell, not taste: `.` is a POSIX
+# special built-in, so dash aborts on a missing file with a raw shell error,
+# while bash outside POSIX mode only warns and runs on with sanitize_printable
+# undefined, reporting a caller error instead of the broken install it is. The
+# readability test turns both into the script's own refusal. This rule covers
+# bash files too, since bash is the shell it bites. It is lexical: it checks
+# that the test precedes the source, not what the script does on failure.
+#
+# THE INTERPRETER IS THE HAZARD, NOT THE DIRECTORY. This is the subtlety most
+# likely to be misread. Only a script run by a POSIX sh that expands echo
+# escapes — dash, which is /bin/sh on Linux — is at risk. bash's `echo` does not
+# expand escapes unless xpg_echo is set, so a `#!/usr/bin/env bash` script under
+# scripts/ is NOT vulnerable and the echo rules skip it: flagging it would be a
+# false positive and would push churn onto files that are already safe. A bash
+# file that turns xpg_echo on (a `shopt` with -s at a command position, or
+# `-O xpg_echo` in its shebang) gets the echo rules after all. A file
+# with no shebang IS scanned, because a sourced library runs under whichever
+# interpreter sourced it, and dash is one of them. The sourcing rule reads
+# bash files as well.
+#
+# What counts as an offense under the echo rules:
+#   - any expansion inside an `echo` command's arguments, at any nesting depth
+#     (an inner `printf` does not launder it: the outermost command decides
+#     whether the escapes come back to life), without a `# trusted:` reason;
+#   - a sanitizer substitution, or a variable whose only assignments come from
+#     one, inside an `echo`, annotated or not;
+#   - either of those in the printf FORMAT operand, which every shell expands,
+#     so it is worse than the echo it replaced;
+#   - either of those passed to a printf `%b`, which expands escapes in the
+#     argument.
+#
+# What is not an offense: a comment, a heredoc body, or a single-quoted string
+# mentioning the pattern. Every file that documents this rule contains one, so
+# reading them as code would make the guard flag its own explanation.
+#
+# Known limits: the printf FORMAT and `%b` checks follow a sanitized value one
+# hop only (`a=$(sanitize_printable "$x"); b=$a; printf "$b"` is not seen), and
+# nothing reads through `eval` or an `echo` whose command name is itself
+# quoted or escaped (`\echo`), held in a variable (`$e "$x"`), or aliased. An
+# unquoted heredoc body is not read, so a command substitution inside one goes
+# unseen, and a filename glob or a `~` in an echo is not counted as an
+# expansion. Sanitizer output is recognised by the `sanitize_` name prefix, so
+# an inline copy named otherwise (`safe`, `_rl_safe`) is not tracked. A loop
+# naming the sanitizer counts only from a `for ... in` list written on the
+# line that opens the loop. A test of `$v` made before v holds the sanitizer
+# path guards no top-level source of it; test the path where it is sourced. A
+# source of `$v` inside a function defined before v is assigned is judged by
+# spelling instead: any earlier `-r "$v"` clears it, whatever v held then,
+# since a lexical scan cannot tell which value the call will see. A variable
+# reused for another library and later for the sanitizer needs its earlier
+# sources tested too. Presence, not position, is checked for the variable
+# form: a use written above the assignment still counts. xpg_echo is found by
+# spelling in the file itself: one enabled by a sourced library, through
+# BASHOPTS in the environment, or by an option name built at run time is
+# unseen, and any matching shopt line counts wherever it sits.
+#
+# Scope is every shell file under scripts/, tests/, and githooks/, reached
+# either by shebang or by an .sh suffix. Neither test alone is enough: the
+# githooks/ hooks are extensionless, and the sourced libraries carry a
+# `# shellcheck shell=` line instead of a shebang.
+#
+# Usage:
+#   check-echo-discipline.sh [<root>]   scan the scope directories under <root>
+#                                       (default: the parent of this script's dir)
+#   check-echo-discipline.sh --help | -h
+#
+# Exit codes: 0 clean, 1 an offending file, 2 usage or a broken enumeration.
+# Anything that would make the scan cover less than it claims — an absent root
+# or scope directory, an unreadable file, a `find` that fails partway, a scan
+# reaching no files at all — is exit 2, never a clean report.
+#
+# Portable bash 3.2 / BSD tooling; no fish/mise/tmux/Ansible.
+set -u
+
+LC_ALL=C
+export LC_ALL
+
+unset CDPATH
+
+SCOPE_DIRS="scripts tests githooks"
+
+self_dir="$(cd "$(dirname "$0")" && pwd -P)"
+repo_root="$(cd "$(dirname "$0")/.." && pwd -P)"
+
+# Display sanitizer for untrusted content headed for the terminal (echo
+# discipline, doctrine/security-posture.md). Filenames and the root argument
+# both reach stderr, and on a fork PR both are attacker-authored. The inline
+# fallback keeps diagnostics safe when the shared helper cannot be sourced.
+sanitize_printable() {
+  _sp=$(printf '%s' "$1" | tr -d '\000-\037\177\200-\237' 2>/dev/null) || _sp=''
+  if [ -z "$_sp" ] && [ $# -ge 2 ]; then
+    _sp=$2
+  fi
+  printf '%s' "$_sp"
+}
+if [ -r "$self_dir/echo-safety.sh" ]; then
+  # shellcheck source=scripts/echo-safety.sh
+  . "$self_dir/echo-safety.sh"
+fi
+
+fail_closed() {
+  printf 'check-echo-discipline: %s\n' "$1" >&2
+  exit 2
+}
+
+# The interpreter a shebang actually selects, as a bare program name, resolving
+# the `#!/usr/bin/env <prog>` form (and any env options or VAR=value operands
+# before the program). Sets `interp`, empty for a file with no shebang: the
+# answer is wanted once per enumerated file, and returning it through a command
+# substitution would fork for every one of them. `set --` inside a function
+# touches only the function's own positional parameters.
+shebang_interp() {
+  interp=""
+  case "$1" in
+    '#!'*) ;;
+    *) return 0 ;;
+  esac
+  _si=${1#'#!'}
+  # Splitting is wanted here; GLOBBING is not. A shebang is file content, so on
+  # a fork PR it is attacker-authored, and `#!*/bash` would otherwise expand
+  # against the working directory and could name this file bash — skipping a
+  # file that dash actually runs. `set -f` makes the split word-only.
+  set -f
+  # shellcheck disable=SC2086 # deliberate splitting: a shebang is whitespace-separated
+  set -- $_si
+  set +f
+  _prog=${1:-}
+  if [ "${_prog##*/}" = "env" ]; then
+    shift
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        -* | *=*) shift ;;
+        *) break ;;
+      esac
+    done
+    _prog=${1:-}
+  fi
+  interp=${_prog##*/}
+}
+
+usage() {
+  cat <<'EOF'
+check-echo-discipline.sh — flag an `echo` that prints an expansion, sanitized
+output in a printf FORMAT operand or `%b`, and an unguarded source of the
+sanitizer.
+
+Usage:
+  check-echo-discipline.sh [<root>]   scan the scope directories under <root>
+                                      (default: the parent of this script's dir)
+  check-echo-discipline.sh --help | -h
+
+Why: `sanitize_printable` strips control BYTES, and it correctly leaves the
+printable characters `\` `0` `3` `3` alone. /bin/sh on Linux is dash, whose
+`echo` expands backslash escapes and turns that literal text back into a real
+ESC, so untrusted content drives the operator's terminal after all. Any value
+can carry that text, sanitized or not. `printf` does not expand its operands,
+so it is inert.
+
+Remedy: rewrite the call site.
+
+  echo "prefix $(sanitize_printable "$x")" >&2          # wrong
+  printf 'prefix %s\n' "$(sanitize_printable "$x")" >&2  # right
+  echo "branch: $branch"                                # wrong
+  printf '%s\n' "branch: $branch"                       # right
+
+Keep the sanitizer: it is what strips the control bytes. `printf` is what stops
+the surviving printable escape TEXT from being re-expanded. Both are needed.
+Never interpolate untrusted text into the printf FORMAT operand — a `%` in it
+would be read as a conversion; pass it as an argument to `%s`.
+
+When a value provably cannot carry a backslash, the line may keep its echo by
+ending with `# trusted: <reason>`. The reason is required, the annotation
+covers only its own line, and it never clears sanitized output. Expansions that
+yield only digits or flag letters (`$?`, `$#`, `$$`, `$!`, `$-`, `${#x}`,
+`$((...))`) need no annotation.
+
+Sourcing: every `.` or `source` of echo-safety.sh must follow a `-r` (readable)
+test of the same operand, as an operand of `[`, `test` or `[[` (`grep -r` is no
+test), so a missing helper is the script's own refusal rather than a dash abort
+or a bash run with the sanitizer undefined. A loop over the dependency names
+that tests `<dir>/$name` counts. This rule reads bash files too.
+
+Scanned: every shell file under scripts/, tests/, and githooks/, reached either
+by shebang or by an .sh suffix, so both the extensionless githooks/ hooks and
+the sourced shebang-less libraries are covered.
+
+Skipped by the echo rules: files whose shebang names bash, and nothing else.
+bash is the only shell here whose `echo` leaves escapes alone (absent
+xpg_echo), so those files are safe as written and rewriting them would be
+churn. A bash file that turns xpg_echo on, by a shopt with -s or by -O in its
+shebang, gets the echo rules. zsh and the ksh family are NOT skipped: their
+`echo` follows System V and expands escapes. A file with NO shebang is scanned
+too: a sourced library runs under whichever interpreter sourced it, and dash is
+one of them.
+
+Also flagged: sanitized text in the printf FORMAT operand, or passed to a
+printf `%b`, directly or through a variable assigned only from a sanitizer.
+Detection keys on the `sanitize_` name prefix, so an inline copy named
+`sanitize_*` counts; a copy named otherwise (`safe`, `_rl_safe`) is not
+tracked. Comments, heredoc bodies and single-quoted strings are prose, not
+calls, and are never flagged.
+
+Exit codes: 0 clean, 1 an offending file, 2 usage or a broken enumeration.
+EOF
+}
+
+case "${1:-}" in
+  --help | -h)
+    [ "$#" -eq 1 ] || fail_closed "--help takes no other arguments"
+    usage
+    exit 0
+    ;;
+  -*)
+    fail_closed "unknown option: $(sanitize_printable "$1" "(unprintable)") (see --help)"
+    ;;
+esac
+
+[ "$#" -le 1 ] || fail_closed "too many arguments (expected at most one root)"
+
+root="${1:-$repo_root}"
+safe_root="$(sanitize_printable "$root" "(unprintable path)")"
+[ -d "$root" ] || fail_closed "root not found or not a directory: $safe_root"
+
+missing=""
+for dir in $SCOPE_DIRS; do
+  [ -d "$root/$dir" ] || missing="$missing $dir"
+done
+[ -z "$missing" ] \
+  || fail_closed "scope directories missing under $safe_root:$missing — the scan would cover less than it claims"
+
+# Explicit template (the house pattern, see scripts/check-hook-contracts.sh): a
+# bare `mktemp -d` relies on a default template BSD mktemp does not supply, so
+# it fails outright on the macOS half of the support bar this script claims.
+work="$(mktemp -d "${TMPDIR:-/tmp}/check-echo-discipline.XXXXXX")" \
+  || fail_closed "could not create a temporary directory"
+trap 'rm -rf "$work"' EXIT
+: >"$work/all"
+
+# Enumerate one scope directory at a time so a root containing whitespace or a
+# glob character stays a single argument, and so a find that fails partway is
+# caught instead of silently contributing nothing. The walk is physical and
+# takes symlinks as leaves rather than following them: a symlinked script still
+# runs, so it still has to be scanned, but descending through a symlinked
+# directory would walk a tree outside the root and report its files as if they
+# lived here. Those are refused below instead.
+for dir in $SCOPE_DIRS; do
+  if ! find -P "$root/$dir" \( -type f -o -type l \) -print0 >>"$work/all" 2>"$work/err"; then
+    fail_closed "find failed under $safe_root/$dir: $(sanitize_printable "$(cat "$work/err")" "(unprintable)")"
+  fi
+done
+
+# Select the shell files. The enumeration is NUL-delimited so a filename
+# containing a newline survives it intact; such a name is then refused rather
+# than skipped, because the file list awk reads is newline-delimited and a
+# silently dropped file is the failure this guard exists to prevent.
+: >"$work/list"
+count=0
+bashfiles=0
+bashread=0
+dropped=0
+# A shopt at a command position (line start, after a separator, or after a
+# word such as `then` or `builtin`) whose options include -s. A quoted mention
+# is not matched, so a file that only talks about the option stays exempt.
+XPG_ON='(^|[;&|({!]|[[:alpha:]][[:space:]])[[:space:]]*shopt[[:space:]]([^;&|#]*[[:space:]])?-[[:alpha:]]*s[^;&|#]*xpg_echo'
+# file_greps <ERE>: whether $file matches. grep's 2 is a read error, not "no
+# match": skipping on it would report clean over a file the scan never read.
+file_greps() {
+  grep -qE "$1" "$file" 2>/dev/null
+  case $? in
+    0) return 0 ;;
+    1) return 1 ;;
+    *) fail_closed "cannot read $(sanitize_printable "$rel" "(unprintable filename)") — the scan would cover less than it claims" ;;
+  esac
+}
+newline='
+'
+tab="$(printf '\t')"
+while IFS= read -r -d '' file; do
+  rel="${file#"$root"/}"
+  # Sanitizing forks, so it happens only on the paths that actually reach the
+  # terminal, never once per enumerated file.
+  # A newline or a tab in a filename would be swallowed by the newline-
+  # delimited file list or by the tab-delimited offender records below.
+  # Refusing is the fail-closed answer; silently skipping is not.
+  case "$file" in
+    *"$newline"* | *"$tab"*)
+      fail_closed "filename contains a newline or tab, refusing to scan: $(sanitize_printable "$rel" "(unprintable filename)")"
+      ;;
+  esac
+  # A symlink is followed only to a regular file. A symlinked directory has no
+  # honest traversal (following it leaves the root; skipping it covers less
+  # than the scan claims), and a symlink to a FIFO or a character device is
+  # worse than either: reading it blocks forever with no writer, or never ends
+  # on /dev/zero, so the guard hangs instead of answering. -r rules out none of
+  # these — the thing behind the link reads fine.
+  if [ -L "$file" ] && [ ! -f "$file" ]; then
+    fail_closed "symlink in the scan scope does not resolve to a regular file, refusing to follow: $(sanitize_printable "$rel" "(unprintable filename)")"
+  fi
+  [ -r "$file" ] \
+    || fail_closed "cannot read $(sanitize_printable "$rel" "(unprintable filename)") — the scan would cover less than it claims"
+  first=""
+  IFS= read -r first <"$file" 2>/dev/null || true
+  case "$first" in
+    '#!'*) ;;
+    *) case "$file" in
+      *.sh) ;;
+      *)
+        dropped=$((dropped + 1))
+        continue
+        ;;
+    esac ;;
+  esac
+  # bash is the ONLY interpreter here whose `echo` leaves backslash escapes
+  # alone (absent xpg_echo), so a bash file is read for the sourcing rule only
+  # (the `b` prefix on its list line), unless it turns xpg_echo on. zsh and
+  # the ksh family are deliberately not exempt: their `echo` follows System V
+  # and expands escapes, so they are as exposed as dash. Everything else — sh, dash, an unrecognised shebang, or
+  # no shebang at all — gets every rule, because a sourced library inherits
+  # whichever interpreter sourced it and an unknown one must be assumed
+  # hazardous.
+  shebang_interp "$first"
+  case "$interp" in
+    bash)
+      # The sourcing rule can only fire where the file names echo-safety.sh,
+      # directly or in the assignment a sourced variable carries, and the echo
+      # rules only where it turns on xpg_echo, so a bash file naming neither
+      # is exact to skip on one read; tokenizing all of them would quadruple
+      # the guard's cost for no finding.
+      file_greps 'echo-safety\.sh|xpg_echo' || {
+        bashfiles=$((bashfiles + 1))
+        continue
+      }
+      # xpg_echo makes bash echo expand escapes as dash does, so a bash file
+      # that enables it, by shopt at a command position or `-O` in its
+      # shebang, gets every rule.
+      case "$first" in
+        *xpg_echo*) xpg=1 ;;
+        *) xpg=0 ;;
+      esac
+      if [ "$xpg" = 1 ] || file_greps "$XPG_ON"; then
+        printf 's%s\n' "$file" >>"$work/list"
+        count=$((count + 1))
+        continue
+      fi
+      bashfiles=$((bashfiles + 1))
+      file_greps 'echo-safety\.sh' || continue
+      bashread=$((bashread + 1))
+      printf 'b%s\n' "$file" >>"$work/list"
+      ;;
+    *)
+      printf 's%s\n' "$file" >>"$work/list"
+      count=$((count + 1))
+      ;;
+  esac
+done <"$work/all"
+
+[ "$count" -gt 0 ] \
+  || fail_closed "no sh-interpreted shell files found under $SCOPE_DIRS in $safe_root — a broken enumeration, not a clean tree"
+
+# One awk pass over the whole list, as a shell tokenizer rather than a line
+# regex. Nothing weaker distinguishes the four shapes that matter: an `echo` is
+# only an `echo` at a command position (`true | echo`, `then echo`, `command
+# echo`), a `$(` inside a double-quoted string opens a fresh unquoted context,
+# a `#` is a comment only at a word boundary outside quotes, and a heredoc body
+# is not code at all. Every one of those is a false positive or a miss for a
+# grep. Files are opened by getline rather than through ARGV, so a name
+# containing `=` or a leading `-` is read as a path, never as an awk variable
+# assignment or option.
+awk -v listfile="$work/list" '
+  function is_echo_ancestor(d,   j) {
+    for (j = 0; j <= d; j++) if (cmd[j] == "echo") return 1
+    return 0
+  }
+  # printf expands escapes in its FORMAT operand in every shell, so the
+  # remedy this guard prescribes has an unsafe spelling of its own:
+  # `printf "$(sanitize_printable "$x")\n"` is worse than the echo it replaced.
+  # Untrusted text belongs in a %s argument, never in the format.
+  function is_fmt_ancestor(d,   j) {
+    for (j = 0; j <= d; j++) if (cmd[j] == "printf" && argn[j] == 1) return 1
+    return 0
+  }
+  # `%b` is the other unsafe printf spelling: it expands escapes in the
+  # ARGUMENT, so `printf %b "$safe"` revives exactly what %s leaves inert.
+  function is_pctb_ancestor(d,   j) {
+    for (j = 0; j <= d; j++) if (cmd[j] == "printf" && fmtb[j] && argn[j] > 1) return 1
+    return 0
+  }
+  # Any expansion inside an echo is a finding, except inside an arithmetic
+  # expansion nested below that echo, whose result is an integer however its
+  # operands were spelled, or in a redirection target, which is never printed.
+  # bash files are read for the sourcing rule only.
+  function note_exp(ln, d,   j, e) {
+    if (isbash) return
+    e = -1
+    for (j = 0; j <= d; j++) if (cmd[j] == "echo") e = j
+    if (e < 0) return
+    for (j = e + 1; j <= d; j++) if (cmd[j] == "#arith") return
+    for (j = e; j <= d; j++) if (inredir[j]) return
+    exph[ln] = 1
+  }
+  # The raw text of the shell word starting at p, quotes included, so a source
+  # operand and a `-r` operand can be compared as written. A `$(...)` inside
+  # the word is followed by paren depth; its own quotes come in pairs and
+  # cannot end the word.
+  # Returned as one substr of the line: building it a character at a time is
+  # quadratic in the word length, and the word is fork-PR authored.
+  function rawword(s, p,   n, c, q, d, p0) {
+    n = length(s); q = ""; d = 0; p0 = p
+    while (p <= n) {
+      c = substr(s, p, 1)
+      if (q == "\047") { if (c == "\047") q = ""; p++; continue }
+      if (c == "\\") { p += 2; continue }
+      if (c == "$" && substr(s, p + 1, 1) == "(") { d++; p += 2; continue }
+      if (d > 0) { if (c == "(") d++; else if (c == ")") d--; p++; continue }
+      if (q == "\"") { if (c == "\"") q = ""; p++; continue }
+      if (c == "\"" || c == "\047") { q = c; p++; continue }
+      if (index(" \t;&|<>()", c) > 0) break
+      p++
+    }
+    return substr(s, p0, p - p0)
+  }
+  # Quotes dropped and `${name}` read as `$name`: the two spellings of one path.
+  # The brace rewrite is quadratic in the word, so a word longer than any path
+  # keeps its braces; that can only make a test and a source compare unequal,
+  # which reports the source rather than clearing it.
+  function normw(w,   nm) {
+    gsub(/["\047]/, "", w)
+    if (length(w) > 512) return w
+    while (match(w, /\$\{[A-Za-z_][A-Za-z0-9_]*\}/)) {
+      nm = substr(w, RSTART + 2, RLENGTH - 3)
+      w = substr(w, 1, RSTART - 1) "$" nm substr(w, RSTART + RLENGTH)
+    }
+    return w
+  }
+  # The path an operand names at this point in the file: a bare `$v` is read
+  # through the latest assignment to v, and `<dir>/$v` inside a loop whose list names
+  # the sanitizer through v reads as `<dir>/echo-safety.sh`. Resolving when the
+  # operand is captured, not at end of file, is what ties a `-r` test to the
+  # value it tested rather than to a name that may be reassigned later.
+  function resolve(w,   v) {
+    if (w ~ /^\$[A-Za-z_][A-Za-z0-9_]*$/) {
+      v = substr(w, 2)
+      return (v in varval) ? varval[v] : w
+    }
+    if (match(w, /\/\$[A-Za-z_][A-Za-z0-9_]*$/)) {
+      v = substr(w, RSTART + 2)
+      if (loopv[v]) return substr(w, 1, RSTART) "echo-safety.sh"
+    }
+    return w
+  }
+  # One hash of the operands tested so far keeps the check linear: a source is
+  # guarded when the path it resolves to was tested readable before it. A `$v`
+  # tested while v had no value tested no path, so it guards no source that
+  # resolves to one: an unrelated early test must not clear the sanitizer.
+  function take_cap(w, ln,   p, isvar) {
+    w = normw(w)
+    p = resolve(w)
+    isvar = (w ~ /^\$[A-Za-z_][A-Za-z0-9_]*$/)
+    if (cap == "r") {
+      tested[p] = 1; testedraw[w] = 1
+      return
+    }
+    if (index(p, "echo-safety.sh") > 0) {
+      if (!(p in tested)) srchit[ln] = 1
+      return
+    }
+    # A `$v` source that does not name the sanitizer here may still be one: a
+    # function body runs with whatever v holds when it is called, which can be
+    # an assignment further down. Any variable ever assigned the sanitizer path
+    # is judged at end of file, guarded only by a test of the same spelling.
+    if (isvar) {
+      nlate++; latev[nlate] = substr(w, 2); lateln[nlate] = ln; lateok[nlate] = (w in testedraw)
+    }
+  }
+  # An assignment is only over when something terminates it at ITS OWN depth. A
+  # command word inside its right-hand side — which is exactly where the
+  # sanitizer call sits in `safe="$(sanitize_printable "$x")"` — must not close
+  # it, or the assignment is filed as untainted before the call is seen.
+  function finish_assign(d) {
+    if (pend_assign != "" && d <= pend_depth) {
+      if (pend_san) sanvar[pend_assign] = 1; else othervar[pend_assign] = 1
+      pend_assign = ""; pend_san = 0; pend_depth = 0
+    }
+  }
+  function push_depth(bt) {
+    # A file with hundreds of unclosed `$(` is not shell anyone wrote, and the
+    # per-depth arrays grow with it. Refusing is the fail-closed answer.
+    if (depth >= 400) { toodeep = 1; return }
+    depth++
+    savedq[depth] = dq; savesq[depth] = sq; isbt[depth] = bt
+    dq = 0; sq = 0; cmd[depth] = ""; dbl[depth] = 0; atcmd = 1; argn[depth] = 0; inarg[depth] = 0; fmtb[depth] = 0; redirpend[depth] = 0; inredir[depth] = 0
+  }
+  function pop_depth() {
+    if (depth <= 0) return
+    dq = savedq[depth]; sq = savesq[depth]
+    depth--; atcmd = 0
+  }
+  function record_ref(name, ln) {
+    if (name == "") return
+    if (is_echo_ancestor(depth)) { nref++; refname[nref] = name; refline[nref] = ln; refkind[nref] = "variable"; return }
+    if (is_fmt_ancestor(depth)) { nref++; refname[nref] = name; refline[nref] = ln; refkind[nref] = "format"; return }
+    if (is_pctb_ancestor(depth)) { nref++; refname[nref] = name; refline[nref] = ln; refkind[nref] = "percentb" }
+  }
+  function word_at_cmd(w, ln) {
+    if (w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) {
+      finish_assign(depth)
+      pend_assign = w; sub(/=.*$/, "", pend_assign); pend_san = 0; pend_depth = depth
+      return
+    }
+    # `case` and `esac` are transparent keywords, but the pattern list between
+    # them changes what a `)` means, so the construct is tracked before the
+    # keyword is waved through.
+    if (w == "case") { ncase++; casedep[ncase] = depth; return }
+    if (w == "esac") { if (ncase > 0) ncase--; return }
+    if (w in transparent) return
+    if (cmd[depth] == "" && w ~ /^-/) return
+    finish_assign(depth)
+    cmd[depth] = w
+    atcmd = 0; argn[depth] = 0; inarg[depth] = 1; fmtb[depth] = 0
+    redirpend[depth] = 0; pctesc[depth] = 0; inredir[depth] = 0
+    # Keyed on the sanitizer FAMILY, not one spelling. Inline copies named
+    # sanitize_echo once hid eight live call sites from a guard that matched
+    # only the canonical name.
+    if (w ~ /^sanitize_/) {
+      if (pend_assign != "" && depth > pend_depth) pend_san = 1
+      if (depth > 0 && is_echo_ancestor(depth - 1)) hits[ln] = "direct"
+      else if (depth > 0 && is_fmt_ancestor(depth - 1)) hits[ln] = "format"
+      else if (depth > 0 && is_pctb_ancestor(depth - 1)) hits[ln] = "percentb"
+    }
+  }
+  function is_wordstart(p) {
+    return (p == "" || p == " " || p == "\t" || p == "\n" || p == ";" \
+      || p == "&" || p == "|" || p == "(" || p == ")" || p == "{" || p == "}")
+  }
+  # Consumes a heredoc operator and returns the index just past it, recording
+  # the delimiter so the body can be skipped. Getting the delimiter charset
+  # wrong is not a near miss: too narrow and `<<EOF-1` never sees its
+  # terminator and swallows the rest of the file; too eager and `<<<` (a
+  # herestring, no body) swallows it instead.
+  function heredoc_op(s, i,   j, c, dash, delim, q, n) {
+    n = length(s); j = i + 2
+    if (substr(s, j, 1) == "<") return j + 1
+    dash = 0
+    if (substr(s, j, 1) == "-") { dash = 1; j++ }
+    while (substr(s, j, 1) == " " || substr(s, j, 1) == "\t") j++
+    delim = ""; c = substr(s, j, 1)
+    if (c == "\\") { j++; c = substr(s, j, 1) }
+    if (c == "\"" || c == "\047") {
+      q = c; j++
+      while (j <= n && substr(s, j, 1) != q) { delim = delim substr(s, j, 1); j++ }
+      j++
+    } else {
+      # A delimiter is an ordinary word. Restricting it to a word-character
+      # charset refuses real shell: `<<!EOF!` and `<<EOF:1` both ship in
+      # scripts on a stock system, and refusing them fails a clean tree.
+      while (j <= n && index(" \t<>&|;()\"\047`", substr(s, j, 1)) == 0) {
+        delim = delim substr(s, j, 1); j++
+      }
+    }
+    # A `<<` whose delimiter matches nothing leaves the body extent unknown,
+    # so the body would be read as code. Refusing beats guessing.
+    if (delim == "") { baddelim = 1; return j }
+    pend_heredoc = delim; pend_dash = dash
+    return j
+  }
+  function tokenize(s, ln,   n, i, c, c2, w, name, j, rest) {
+    n = length(s); i = 1; prev = "\n"
+    if (esc) esc = 0
+    # The rest of a `${...}` opened on an earlier line: its body is skipped up
+    # to the matching `}`, quotes inside it included, as on a single line.
+    while (bpend > 0 && i <= n) {
+      c = substr(s, i, 1)
+      if (c == "{") bpend++
+      else if (c == "}") bpend--
+      i++
+    }
+    if (bpend > 0) return
+    while (i <= n) {
+      c = substr(s, i, 1)
+      # The operand of a `.`/`source` or a `-r` test: captured whole at its
+      # first character, then scanned as usual. A line-ending backslash is a
+      # continuation, not the operand.
+      if (cap != "" && !sq && !dq && !esc && c != " " && c != "\t" && !(c == "\\" && i == n)) {
+        take_cap(rawword(s, i), ln); cap = ""
+      }
+      # Track which argument of the current command we are inside, so the
+      # format operand (argument 1) can be told from the %s operands after it.
+      if (!sq && !dq && !esc) {
+        if (c == " " || c == "\t") { inarg[depth] = 0; inredir[depth] = 0 }
+        else if (cmd[depth] != "" && !inarg[depth]) {
+          inarg[depth] = 1
+          # A redirection target is not an argument. Counting it shifts every
+          # later operand by one, and `printf >&2 "..."` — house style here —
+          # then hides its format operand from the format check entirely. It
+          # is never printed either, so an expansion in it is not a finding.
+          if (redirpend[depth]) { redirpend[depth] = 0; inredir[depth] = 1 }
+          else argn[depth]++
+        }
+        if (c == ">" || c == "<") {
+          if (inarg[depth]) { argn[depth]--; inarg[depth] = 0 }
+          redirpend[depth] = 1
+        }
+      }
+      # Checked regardless of quote state: the format operand is normally a
+      # quoted literal, which the branches below skip over wholesale.
+      if (cmd[depth] == "printf" && argn[depth] == 1 && c == "%") {
+        if (pctesc[depth]) {
+          pctesc[depth] = 0            # the second `%` of a literal `%%`
+        } else {
+          pctesc[depth] = 1
+          k = i + 1
+          while (k <= n && index("-+ #0123456789.*\047", substr(s, k, 1)) > 0) k++
+          if (substr(s, k, 1) == "b") fmtb[depth] = 1
+        }
+      } else if (c != "%") {
+        pctesc[depth] = 0
+      }
+      if (esc) { esc = 0; prev = c; i++; continue }
+      if (c == "\\") {
+        if (sq) { prev = c; i++; continue }
+        esc = 1; i++; continue
+      }
+      if (sq) { if (c == "\047") sq = 0; prev = c; i++; continue }
+      if (c == "\047" && !dq) { sq = 1; prev = c; i++; continue }
+      if (c == "\"") { dq = !dq; prev = c; i++; continue }
+      # Expansions stay live inside double quotes, which is exactly why the
+      # defect hides there.
+      if (c == "$") {
+        c2 = substr(s, i + 1, 1)
+        if (c2 == "(") {
+          if (substr(s, i + 2, 1) == "(") {
+            push_depth(0); push_depth(0)
+            cmd[depth] = "#arith"; cmd[depth - 1] = "#arith"; atcmd = 0
+            prev = "("; i += 3; continue
+          }
+          note_exp(ln, depth)
+          push_depth(0); prev = "("; i += 2; continue
+        }
+        # Positionals and `$@`/`$*` carry caller text; `$?`, `$#`, `$$`, `$!`
+        # and `$-` cannot carry a backslash and fall through below.
+        if (c2 ~ /[0-9@*]/) {
+          note_exp(ln, depth)
+          prev = "x"; i += 2; continue
+        }
+        if (c2 == "{") {
+          # The FIRST `}` is the wrong one for a nested expansion: the POSIX
+          # trim idiom `${x#"${x%%[! ]*}"}` closes an inner brace there, and
+          # resuming after it re-reads the tail as code, where a stray quote
+          # flips the string state for the rest of the file — a silent miss,
+          # or a bogus unterminated-string refusal.
+          bdepth = 1; j = 0
+          for (k = i + 2; k <= n; k++) {
+            ch = substr(s, k, 1)
+            if (ch == "{") bdepth++
+            else if (ch == "}") { bdepth--; if (bdepth == 0) { j = k - i - 1; break } }
+          }
+          rest = substr(s, i + 2)
+          name = (j > 0) ? substr(rest, 1, j - 1) : rest
+          # `${#v}` expands to a LENGTH, never content, so it is not noted.
+          # `${!v}` is an indirect value and is noted, but neither names the
+          # variable v itself, so neither feeds the sanitized-variable check.
+          if (substr(rest, 1, 1) != "#") note_exp(ln, depth)
+          if (name ~ /^[#!]/) name = ""
+          sub(/[^A-Za-z0-9_].*$/, "", name)
+          record_ref(name, ln)
+          # `${x:-$(sanitize_printable "$y")}` is a live substitution. Skipping
+          # the word whole would step straight over it, so when the body holds
+          # one, resume scanning just past the name instead.
+          body = (j > 0) ? substr(rest, 1, j - 1) : rest
+          if (index(body, "$(") > 0 || index(body, "`") > 0) {
+            i += 2 + length(name); prev = "x"; continue
+          }
+          if (j == 0) bpend = bdepth
+          i += (j > 0) ? (2 + j) : (n + 1)
+          prev = "}"; continue
+        }
+        if (c2 ~ /[A-Za-z_]/) {
+          name = substr(s, i + 1)
+          sub(/[^A-Za-z0-9_].*$/, "", name)
+          note_exp(ln, depth)
+          record_ref(name, ln)
+          i += 1 + length(name); prev = "x"; continue
+        }
+        prev = c; i++; continue
+      }
+      if (c == "`") {
+        if (depth > 0 && isbt[depth]) pop_depth(); else { note_exp(ln, depth); push_depth(1) }
+        prev = "`"; i++; continue
+      }
+      if (dq) { prev = c; i++; continue }
+      if (c == "#" && is_wordstart(prev)) {
+        # `# trusted: <reason>` clears the plain expansions on this line; a bare
+        # marker is recorded so it can be reported rather than honoured. The
+        # annotation ends the line, so it may follow another comment
+        # (`# shellcheck disable=... # trusted: ...`), but only at a word start:
+        # a `#trusted:` inside a URL is not one.
+        cm = substr(s, i)
+        if (match(cm, /(^|[ \t])#[ \t]*trusted:/)) {
+          cm = substr(cm, RSTART)
+          sub(/^[ \t]*#[ \t]*trusted:[ \t]*/, "", cm)
+          if (cm ~ /[^ \t]/) trusted[ln] = 1; else trustbare[ln] = 1
+        }
+        break
+      }
+      if (c == "(") {
+        if (atcmd && substr(s, i + 1, 1) == "(") {
+          push_depth(0); push_depth(0)
+          cmd[depth] = "#arith"; cmd[depth - 1] = "#arith"; atcmd = 0
+          prev = "("; i += 2; continue
+        }
+        # The optional open paren of a case pattern — `(a) cmd ...` — opens no
+        # subshell. Pushing a depth for it desynchronises the stack and the
+        # command in that arm is then read as an argument.
+        if (ncase > 0 && depth == casedep[ncase] && atcmd) { prev = c; i++; continue }
+        push_depth(0); prev = c; i++; continue
+      }
+      # In `a) echo ...`, the `)` ends a case PATTERN and opens a command
+      # position; it closes nothing. Reading it as a paren close leaves the
+      # echo inside that arm parsed as an argument, and every case arm goes
+      # unchecked — which is exactly what it did before this was tracked.
+      if (c == ")") {
+        if (ncase > 0 && depth == casedep[ncase]) {
+          finish_assign(depth); cmd[depth] = ""; atcmd = 1; redirpend[depth] = 0; inredir[depth] = 0
+        } else if (depth > 0) {
+          pop_depth()
+        } else {
+          finish_assign(depth); cmd[depth] = ""; atcmd = 1; redirpend[depth] = 0; inredir[depth] = 0
+        }
+        prev = c; i++; continue
+      }
+      if (c == "{" && is_wordstart(prev)) {
+        finish_assign(depth); cmd[depth] = ""; atcmd = 1; redirpend[depth] = 0; inredir[depth] = 0; prev = c; i++; continue
+      }
+      # `>&2` and `2>&1`: the `&` is part of the redirection, not a control
+      # operator. Resetting on it makes `echo >&2 "..."` parse `2` as the
+      # command word, and the echo is never seen — a spelling this repo uses.
+      if (c == "&" && (prev == ">" || prev == "<")) { prev = c; i++; continue }
+      if (c == ";" || c == "&" || c == "|") {
+        finish_assign(depth); cmd[depth] = ""; atcmd = 1; redirpend[depth] = 0; inredir[depth] = 0; prev = c; i++; continue
+      }
+      if (c == "<" && substr(s, i + 1, 1) == "<" && cmd[depth] != "#arith") {
+        # The delimiter is the operator operand and is consumed here, so the
+        # redirect is complete; leaving it pending would eat the next word.
+        i = heredoc_op(s, i); redirpend[depth] = 0; prev = "H"; continue
+      }
+      # Scanned forward rather than matched against substr(s, i): that copies
+      # the whole line remainder once per word token, which is quadratic in the
+      # line length and reachable from a file a fork PR authors.
+      j = i
+      while (j <= n && index(STOP, substr(s, j, 1)) == 0) j++
+      if (j > i) {
+        w = substr(s, i, j - i)
+        if (w == "--" && argn[depth] == 1) argn[depth]--
+        # A `-r` guards only as a test operand: `[`, `test`, or inside `[[`.
+        # `grep -r` names a path it never tests for readability. A `[[` opens a
+        # test only at a command position, and holds per depth until its `]]`,
+        # across lines too, so a `$(...)` inside it is a command of its own.
+        if (w == "[[" && atcmd) dbl[depth] = 1
+        else if (w == "]]") dbl[depth] = 0
+        if (w == "-r" && (cmd[depth] == "[" || cmd[depth] == "test" || dbl[depth])) cap = "r"
+        else if (atcmd && (w == "." || w == "source")) cap = "src"
+        else if (atcmd && w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) {
+          name = w; sub(/=.*$/, "", name)
+          val = rawword(s, i + length(name) + 1)
+          # Only whether the value is the sanitizer path matters, so any other
+          # value is held as a marker no operand can equal, unnormalized.
+          varval[name] = (index(val, "echo-safety.sh") > 0) ? normw(val) : "\001"
+          if (varval[name] != "\001") everes[name] = 1
+        }
+        if (atcmd) word_at_cmd(w, ln)
+        i = j; prev = "w"; continue
+      }
+      prev = c; i++
+    }
+  }
+  function scan(path,   line, r, body, ln, maxln, k) {
+    sq = 0; dq = 0; esc = 0; depth = 0; atcmd = 1; prev = "\n"
+    split("", cmd); split("", savedq); split("", savesq); split("", isbt)
+    split("", sanvar); split("", othervar); split("", refname); split("", refline)
+    split("", hits); split("", exph); split("", trusted); split("", trustbare)
+    split("", varval); split("", loopv); split("", tested); split("", srchit)
+    split("", latev); split("", lateln); split("", lateok)
+    split("", testedraw); split("", everes); split("", dbl)
+    nlate = 0; cap = ""
+    cmd[0] = ""; nref = 0; ncase = 0; split("", casedep); split("", argn); split("", inarg); split("", refkind); split("", fmtb); split("", redirpend); split("", pctesc); split("", inredir)
+    toodeep = 0; baddelim = 0; bpend = 0
+    pend_assign = ""; pend_san = 0; pend_depth = 0
+    heredoc = ""; heredoc_dash = 0; pend_heredoc = ""; pend_dash = 0
+    maxln = 0
+    # getline returns -1 when the file cannot be opened or read, which is not
+    # end-of-input. Treating the two alike would silently clear a file the scan
+    # never saw, reachable as a TOCTOU race against the readability check the
+    # selection loop already made.
+    while ((r = (getline line < path)) > 0) {
+      maxln++
+      sub(/\r$/, "", line)
+      if (heredoc != "") {
+        body = line
+        if (heredoc_dash) sub(/^\t+/, "", body)
+        # `V=`cat <<EOF ... EOF`` closes the substitution on the terminator
+        # line. The terminator is still the terminator; only the closer that
+        # follows it belongs to the enclosing command.
+        term = body
+        sub(/[`)]+[ \t]*$/, "", term)
+        if (body == heredoc || term == heredoc) heredoc = ""
+        continue
+      }
+      # `for dep in echo-safety.sh ...` names the sanitizer through a loop
+      # variable; a `-r "<dir>/$dep"` test inside it then guards the source.
+      # Each `for` over the variable replaces the last, so a loop over other
+      # names never lends its tests to a later one that names the sanitizer.
+      if (match(line, /^[ \t]*for[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+in[ \t]/)) {
+        lv = line; sub(/^[ \t]*for[ \t]+/, "", lv); sub(/[^A-Za-z0-9_].*$/, "", lv)
+        lst = line; sub(/^[ \t]*for[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+in[ \t]+/, "", lst)
+        sub(/;.*$/, "", lst); sub(/(^|[ \t])#.*$/, "", lst); sub(/[ \t]+do([ \t].*)?$/, "", lst)
+        loopv[lv] = (index(lst, "echo-safety.sh") > 0)
+      }
+      tokenize(line, maxln)
+      # A backslash continuation carries a pending `.` or `-r` operand onto the
+      # next line, where the shell still reads it as the same command.
+      if (!esc) cap = ""
+      if (esc) {
+        esc = 0
+      } else if (sq || dq || bpend > 0) {
+        # An unterminated string or braced expansion carries the command onto
+        # the next line.
+      } else {
+        finish_assign(depth); cmd[depth] = ""; atcmd = 1; redirpend[depth] = 0; inredir[depth] = 0
+      }
+      if (pend_heredoc != "") {
+        heredoc = pend_heredoc; heredoc_dash = pend_dash; pend_heredoc = ""
+      }
+    }
+    close(path)
+    if (r < 0) { print "!\t0\tunreadable\t" path; return }
+    if (toodeep) { print "!\t0\ttoodeep\t" path; return }
+    # Reaching EOF inside a heredoc body or an unterminated string means the
+    # rest of the file was never read as code. Reporting clean over it is the
+    # silent-undercoverage failure the contract here rules out.
+    if (baddelim) { print "!\t0\tbaddelim\t" path; return }
+    if (heredoc != "" || sq || dq || bpend > 0) { print "!\t0\tunterminated\t" path; return }
+    finish_assign(0)
+    # A variable is evidence only when every assignment to it came from the
+    # sanitizer. One assignment from anywhere else and the name no longer says
+    # anything about what reaches the echo, and guessing there is how a guard
+    # starts crying wolf.
+    for (k = 1; k <= nref; k++) {
+      if ((refname[k] in sanvar) && !(refname[k] in othervar)) {
+        if (!(refline[k] in hits)) hits[refline[k]] = refkind[k]
+      }
+    }
+    for (k = 1; k <= nlate; k++) {
+      v = latev[k]
+      if ((v in everes) && !lateok[k]) srchit[lateln[k]] = 1
+    }
+    for (ln = 1; ln <= maxln; ln++) {
+      if (!isbash) {
+        if (ln in hits) print path "\t" ln "\t" hits[ln]
+        else if ((ln in exph) && (ln in trustbare)) print path "\t" ln "\tnoreason"
+        else if ((ln in exph) && !(ln in trusted)) print path "\t" ln "\texpansion"
+      }
+      if (ln in srchit) print path "\t" ln "\tsource"
+    }
+    split("", srchit)
+  }
+  BEGIN {
+    split("if then else elif fi do done while until for case esac in select " \
+      "function time command builtin exec nohup env ! { } [[ " \
+      "local export readonly typeset declare", tw, " ")
+    for (t in tw) transparent[tw[t]] = 1
+    # The characters that end a bare word. Held as a string so the scan can ask
+    # index() per character instead of running a regex over the line remainder.
+    STOP = " \t;&|()<>{}\"\047$#`\\"
+    # Each list line is a one-letter rule set, `s` or `b` (bash: sourcing
+    # rule only), then the path.
+    while ((lr = (getline entry < listfile)) > 0) {
+      isbash = (substr(entry, 1, 1) == "b")
+      scan(substr(entry, 2))
+    }
+    # An unreadable list is not an empty one; reporting clean over it would be
+    # the same vacuous pass the scan-side check refuses.
+    if (lr < 0) print "!\t0\tunreadable\t" listfile
+  }
+' >"$work/offenders" 2>"$work/awkerr" \
+  || fail_closed "the scan could not complete: $(sanitize_printable "$(cat "$work/awkerr")" "(unprintable diagnostic)")"
+# awk names the offending path in its own diagnostics, and a filename is
+# attacker-authored on a fork PR. Every other print path here is sanitized;
+# this one would not be if it went straight to the terminal.
+if [ -s "$work/awkerr" ]; then
+  fail_closed "the scan reported a diagnostic: $(sanitize_printable "$(cat "$work/awkerr")" "(unprintable diagnostic)")"
+fi
+
+status=0
+while IFS="$(printf '\t')" read -r file lineno kind extra; do
+  [ -n "$file" ] || continue
+  if [ "$file" = "!" ]; then
+    case "$kind" in
+      unterminated)
+        fail_closed "$(sanitize_printable "${extra#"$root"/}" "(unprintable filename)") ends inside a heredoc or an unterminated string — the scan did not read all of it as code, so it cannot report it clean"
+        ;;
+      baddelim)
+        fail_closed "$(sanitize_printable "${extra#"$root"/}" "(unprintable filename)") opens a heredoc whose delimiter the scan cannot parse — the body's extent is unknown, so it cannot report it clean"
+        ;;
+    esac
+    if [ "$kind" = "toodeep" ]; then
+      fail_closed "nesting depth in $(sanitize_printable "${extra#"$root"/}" "(unprintable filename)") exceeds what the scan will follow — refusing rather than reporting a file it did not finish reading"
+    fi
+    fail_closed "could not read $(sanitize_printable "${extra#"$root"/}" "(unprintable filename)") during the scan — the scan would cover less than it claims"
+  fi
+  rel="${file#"$root"/}"
+  safe_rel="$(sanitize_printable "$rel" "(unprintable filename)")"
+  case "$kind" in
+    format)
+      printf 'check-echo-discipline: %s:%s puts sanitized output in the printf FORMAT operand; pass it as a %s argument instead\n' \
+        "$safe_rel" "$lineno" "'%s'" >&2
+      ;;
+    percentb)
+      printf 'check-echo-discipline: %s:%s passes sanitized output to a printf %s conversion, which expands escapes in the argument; use %s\n' \
+        "$safe_rel" "$lineno" "'%b'" "'%s'" >&2
+      ;;
+    variable)
+      printf 'check-echo-discipline: %s:%s echoes a variable holding sanitized output; print it with printf instead\n' \
+        "$safe_rel" "$lineno" >&2
+      ;;
+    expansion)
+      printf 'check-echo-discipline: %s:%s echoes an expansion; print it with printf %s instead, or end the line with %s when the value cannot carry a backslash\n' \
+        "$safe_rel" "$lineno" "'%s\n'" "'# trusted: <reason>'" >&2
+      ;;
+    noreason)
+      printf 'check-echo-discipline: %s:%s carries a %s annotation with no reason; say why the value cannot carry a backslash, or print it with printf\n' \
+        "$safe_rel" "$lineno" "'# trusted:'" >&2
+      ;;
+    source)
+      printf 'check-echo-discipline: %s:%s sources echo-safety.sh without first testing it readable (%s on the same operand), so a missing helper aborts dash and leaves bash running with sanitize_printable undefined\n' \
+        "$safe_rel" "$lineno" "'[ -r ... ]'" >&2
+      ;;
+    *)
+      printf 'check-echo-discipline: %s:%s passes sanitized output through echo; print it with printf instead\n' \
+        "$safe_rel" "$lineno" >&2
+      ;;
+  esac
+  status=1
+done <"$work/offenders"
+
+if [ "$status" -ne 0 ]; then
+  printf 'check-echo-discipline: dash expands backslash escapes in echo, so a PRINTABLE-ONLY value still reaches the terminal as a live ESC; the sanitizer keeps backslashes, so it does not help. See --help for the remedy.\n' >&2
+fi
+
+if [ "$status" -eq 0 ]; then
+  printf 'check-echo-discipline: clean (%s files scanned, plus %s bash-interpreter files not at risk from echo, %s of them naming echo-safety.sh and read for sourcing; %s not shell)\n' \
+    "$count" "$bashfiles" "$bashread" "$dropped"
+fi
+exit "$status"

@@ -109,8 +109,8 @@ unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
-if [ ! -r "$script_dir/echo-safety.sh" ]; then
-  echo "allocation-petition: sibling helper '$script_dir/echo-safety.sh' is missing or not readable — broken install" >&2
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "allocation-petition: sibling helper echo-safety.sh is missing or not readable — broken install" >&2
   exit 5
 fi
 # shellcheck source=scripts/echo-safety.sh
@@ -134,8 +134,9 @@ PET_NAME=allocation-petition
 # WROTE the petition — normally one boundary earlier — not the time it was
 # claimed. An mtime-based guard therefore treats every ordinary petition as
 # pre-expired and sweeps live consumers, which is the whole defect this guard
-# exists to prevent. The sibling locks age a mkdir-created directory, where
-# mtime does mean "held since"; that invariant does not survive the copy.
+# exists to prevent. The lock family has no age threshold either: staleness
+# there is the owner process being absent (a token's mint time is read only
+# to tell a recycled pid from its owner), so there is no idiom to borrow.
 PET_CLAIM_ORPHAN_SEC=900
 # One claim namespace is 16 slots (see take_claim), so a legitimate sweep never
 # exceeds that. Each reconciled claim costs the caller a ledger row, so the
@@ -283,7 +284,7 @@ cmd_write() {
     exit 2
   }
   [ "${#w_reason}" -le "$PET_MAX_REASON" ] || {
-    echo "allocation-petition: the reason is longer than $PET_MAX_REASON characters" >&2
+    printf '%s\n' "allocation-petition: the reason is longer than $PET_MAX_REASON characters" >&2
     exit 2
   }
 
@@ -292,7 +293,7 @@ cmd_write() {
     exit 2
   }
   if [ -L "$w_wtp/$PET_SUBDIR" ]; then
-    echo "allocation-petition: '$PET_SUBDIR' in the worktree is a symlink — refusing to write through it" >&2
+    printf '%s\n' "allocation-petition: '$PET_SUBDIR' in the worktree is a symlink — refusing to write through it" >&2
     exit 2
   fi
   mkdir -p "$w_wtp/$PET_SUBDIR" 2>/dev/null || {

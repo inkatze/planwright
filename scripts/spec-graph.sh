@@ -93,7 +93,7 @@ model_sh="$here/spec-model.sh"
 select_sh="$here/orchestrate-select.sh"
 for s in "$model_sh" "$select_sh"; do
   if [ ! -x "$s" ]; then
-    echo "spec-graph: cannot find an executable $(basename "$s") at $s" >&2
+    printf '%s\n' "spec-graph: cannot find an executable $(basename "$s") at $s" >&2
     exit 2
   fi
 done

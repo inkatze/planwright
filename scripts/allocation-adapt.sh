@@ -192,8 +192,8 @@ unset CDPATH
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
 for dep in echo-safety.sh allocation-ladder.sh; do
-  if [ ! -r "$script_dir/$dep" ]; then
-    echo "allocation-adapt: sibling helper '$script_dir/$dep' is missing or not readable — broken install" >&2
+  if [ ! -f "$script_dir/$dep" ] || [ ! -r "$script_dir/$dep" ]; then
+    printf '%s\n' "allocation-adapt: sibling helper $dep is missing or not readable — broken install" >&2
     exit 5
   fi
 done
@@ -220,7 +220,7 @@ usage() {
 
 require_exec() {
   if [ ! -x "$1" ]; then
-    echo "allocation-adapt: $2 '$1' is missing or not executable — broken install" >&2
+    printf '%s\n' "allocation-adapt: $2 '$1' is missing or not executable — broken install" >&2
     exit 5
   fi
 }
@@ -288,7 +288,7 @@ resolve_caps() {
   CAP_HAIKU=$(resolve_posint fleet_cap_haiku 100) || exit $?
   for rc_v in "$CAP_FABLE" "$CAP_OPUS" "$CAP_SONNET" "$CAP_HAIKU"; do
     if [ "$rc_v" -lt 1 ] || [ "$rc_v" -gt 100 ]; then
-      echo "allocation-adapt: a per-tier cap ($rc_v) is outside 1-100 — refusing an out-of-range cap" >&2
+      printf '%s\n' "allocation-adapt: a per-tier cap ($rc_v) is outside 1-100 — refusing an out-of-range cap" >&2
       exit 4
     fi
   done
@@ -416,7 +416,7 @@ flush_mirror() {
     # per-unit ledger row, already committed. Losing a dashboard row must not
     # turn a resolved launch into a failed one.
     "$AUDIT" record "$MECHANISM" "$fm_action" "unit-$UNIT" "$fm_why" >/dev/null 2>&1 \
-      || echo "allocation-adapt: could not mirror the '$fm_action' governance row into the shared trail" >&2
+      || printf '%s\n' "allocation-adapt: could not mirror the '$fm_action' governance row into the shared trail" >&2
     IFS='
 '
   done
@@ -427,7 +427,14 @@ flush_mirror() {
 # record <event> <prop-model> <prop-effort> <clamp-model> <clamp-effort>
 #        <res-model> <res-effort> <scope> <outcome> <inputs>
 record() {
-  PLANWRIGHT_ALLOC_LOCK_HELD="$UNIT" "$LEDGER" append "$UNIT" "$STEP" "$ATTEMPT" \
+  # The hold this row is written under was taken by a DIFFERENT process (the
+  # `lock` verb invocation in take_unit_lock), so the announcement carries the
+  # OWNER TOKEN as well as the unit: the ledger checks the token against the
+  # lock's live owner and only then skips an acquire of its own. The unit name
+  # alone is intent, not evidence, and on its own it would let a hold this
+  # process no longer has suppress the append's locking.
+  PLANWRIGHT_ALLOC_LOCK_HELD="$UNIT" PLANWRIGHT_ALLOC_LOCK_TOKEN="$ALLOC_LOCK_TOKEN" \
+    "$LEDGER" append "$UNIT" "$STEP" "$ATTEMPT" \
     "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" >/dev/null || {
     # A failed append is an unhealthy ledger by definition: adjustments are
     # already suspended by the time this can matter, and the failure is
@@ -465,35 +472,49 @@ incident_seen() {
 
 # The unit lock is released through a trap as well as on the happy path: a
 # fail-closed `exit` from a malformed knob or an invalid tier would otherwise
-# leave the lock held until the stale break, blocking the unit's next launch for
-# a minute on what is really a config error. Releasing is idempotent (the
-# ledger's `unlock` is an rm), so the trap and the explicit call cannot conflict.
+# leave the lock held, blocking the unit's next launch on what is really a
+# config error. Releasing is idempotent, so the trap and the explicit call
+# cannot conflict.
 ALLOC_LOCK_TAKEN=no
 ALLOC_LOCK_TOKEN=""
 take_unit_lock() {
-  # `lock` prints the OWNER TOKEN, and the release presents it back: this hold
-  # spans several processes (the engine acquires, `append` writes, the engine
-  # releases), so ownership cannot be inferred from a pid — it has to be carried.
-  ALLOC_LOCK_TOKEN=$("$LEDGER" lock "$UNIT") || exit 2
-  ALLOC_LOCK_TAKEN=yes
+  # THE TRAPS ARE ARMED BEFORE THE ACQUIRE, and that ordering is now
+  # load-bearing. The ledger's hold is DETACHED — it has no owning process, so
+  # nothing reclaims it on its own — and a signal landing between an acquire and
+  # a later `trap` would wedge the unit until an operator ran a token-less
+  # `unlock`. Arming first leaves one window that cannot be closed from here:
+  # a signal during the command substitution itself, where the child holds the
+  # lock and the token has not made it back to a variable to release with.
+  # Releasing before the lock is taken is already a no-op, so arming early costs
+  # nothing.
+  #
   # The EXIT trap is the cleanup; the fatal-signal traps re-`exit` so the
   # interrupted critical section does NOT resume with the lock released. A bare
   # `trap release_unit_lock ... TERM` would run the handler and then RETURN into
-  # the unfinished derive-then-append, unlocked — and `record` still exports
-  # PLANWRIGHT_ALLOC_LOCK_HELD, so the append would skip its own acquire too,
-  # letting a concurrent same-unit launch derive the same sequence number. The
-  # explicit exit re-enters the EXIT trap, so the release still runs. Same shape
-  # as the sibling lock-holders scripts/fleet-attention.sh and
-  # scripts/tasks-pr-sync.sh; SIGKILL stays unrecoverable and falls to the stale
-  # break.
+  # the unfinished derive-then-append, unlocked — and `record` still announces
+  # the hold to the ledger, so the append would trust an announcement whose lock
+  # is gone. (It would now catch that: the token no longer owns the lock, so the
+  # append takes its own. The re-`exit` is still what stops a half-finished
+  # critical section from continuing at all.) Same shape as the sibling
+  # lock-holders scripts/fleet-attention.sh and scripts/tasks-pr-sync.sh.
   trap release_unit_lock EXIT
   trap 'exit 129' HUP
   trap 'exit 130' INT
   trap 'exit 143' TERM
+  # `lock` prints the OWNER TOKEN, and the release presents it back: this hold
+  # spans several processes (the engine acquires, `append` writes, the engine
+  # releases), so ownership cannot be inferred from a pid — it has to be carried.
+  # Marked before the take, not after: a signal between the two would otherwise
+  # leave a hold this process owns and will not release. The release needs the
+  # token as well, so a take that never completed releases nothing. The hold
+  # names this process, so one a SIGKILL leaves behind is broken once it is
+  # gone rather than wedging the unit.
+  ALLOC_LOCK_TAKEN=yes
+  ALLOC_LOCK_TOKEN=$("$LEDGER" lock "$UNIT" --owner-pid "$$") || exit 2
 }
 
 release_unit_lock() {
-  [ "$ALLOC_LOCK_TAKEN" = yes ] || return 0
+  [ "$ALLOC_LOCK_TAKEN" = yes ] && [ -n "$ALLOC_LOCK_TOKEN" ] || return 0
   ALLOC_LOCK_TAKEN=no
   "$LEDGER" unlock "$UNIT" "$ALLOC_LOCK_TOKEN" 2>/dev/null || true
 }
@@ -888,7 +909,7 @@ cmd_resolve() {
     STEP_EFFORT=${st_row#*"$TAB"}
     alloc_valid_tier "$STEP_MODEL" "$STEP_EFFORT" 2>/dev/null \
       || [ "$STEP_MODEL" = inherit ] || [ "$STEP_EFFORT" = inherit ] || {
-      echo "allocation-adapt: selection resolver returned an unusable step tier for step type '$(sanitize_printable "$STEP_TYPE" "(unprintable step type)")'" >&2
+      printf '%s\n' "allocation-adapt: selection resolver returned an unusable step tier for step type '$(sanitize_printable "$STEP_TYPE" "(unprintable step type)")'" >&2
       exit 5
     }
   fi

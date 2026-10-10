@@ -1902,6 +1902,21 @@ capture pre-implementation pre-ci convergence pre-pr post-pr --explain --check -
 verdict "a several-point check passes when every point resolves" "several-point clean check: rc=$RC out='$OUT' err='$ERR'"
 reset_layers
 
+# A broken install whose echo-safety.sh is a directory: bash would source it,
+# fail, and run on with the sanitizer undefined; it exits 5 instead.
+bi_dir="$tmp/broken-install"
+mkdir "$bi_dir" || exit 1 # not-a-lock: a fresh fixture directory under the test tmp
+cp -R "$here/../scripts" "$bi_dir/"
+rm -f "$bi_dir/scripts/echo-safety.sh"
+mkdir "$bi_dir/scripts/echo-safety.sh"
+bi_rc=0
+bi_err=$(/bin/bash "$bi_dir/scripts/resolve-steps.sh" convergence --explain --unattended 2>&1 >/dev/null) || bi_rc=$?
+rm -rf "$bi_dir"
+case "$bi_rc:$bi_err" in
+  "5:"*"echo-safety.sh is missing or unreadable (broken install)"*) ok "an echo-safety.sh directory is refused as a broken install (exit 5)" ;;
+  *) fail "an echo-safety.sh directory: rc=$bi_rc err='$bi_err', expected the broken-install refusal" ;;
+esac
+
 if [ "$failures" -ne 0 ]; then
   echo "FAIL: resolve-steps ($failures failure(s))" >&2
   exit 1

@@ -168,7 +168,7 @@ if [ -n "$spec_dir" ] && [ "$spec_dir" != "-" ]; then
   here=$(cd "$(dirname "$0")" && pwd)
   translate="$here/spec-translate.sh"
   if [ ! -x "$translate" ]; then
-    echo "spec-onepager: cannot find an executable spec-translate.sh at $translate" >&2
+    printf '%s\n' "spec-onepager: cannot find an executable spec-translate.sh at $translate" >&2
     exit 2
   fi
   # Capture the upstream stream first so its exit code propagates (fail closed on

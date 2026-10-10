@@ -131,9 +131,9 @@ It is a durable, timestamped marker file, one per task, under the common git
 directory of the repository holding the bundle
 (`<git-common-dir>/planwright/orchestrate/<spec>/markers/<id>`; a bundle in no
 repository uses its work repository's), so every worktree of the repository
-counts it: a meta-tower running from one worktree sees the marker a subordinate
-dropped from another. Another clone has its own git directory and sees none of
-them. The writer also drops a copy in the checkout-local
+counts it: a tower running from one worktree sees a marker another tower
+dropped from a different worktree. Another clone has its own git directory and
+sees none of them. The writer also drops a copy in the checkout-local
 `<spec-dir>/.orchestrate/markers/<id>`, and readers consult that location too
 (and, from a linked worktree, the primary checkout's), so a marker an older
 planwright version wrote at the old location still counts from the same
@@ -192,8 +192,8 @@ The reconcile is:
   reconciles to the same canonical placement.
 - **Conflict-safe.** A git-conflicted `tasks.md` is regenerated from the
   derivation, never resolved by `ours` / `theirs` / `union`.
-- **Atomic.** The rewrite is a same-directory temp file renamed into place, so a
-  racy stale lock-break cannot tear `tasks.md` under concurrent reconcile.
+- **Atomic.** The rewrite is a same-directory temp file renamed into place, so no
+  reader sees a torn `tasks.md` under concurrent reconcile.
 
 It runs two ways: the `tasks-pr-sync` hook fires on `gh pr create` / `gh pr
 merge` for a convention-named branch; the same script's direct form,
@@ -311,7 +311,6 @@ pointer line, and the derivation-as-read-surface rule lives in
 The thresholds this model relies on, with safe defaults, are in the
 [options reference](options-reference.md):
 
-- `stale_lock_threshold`: when a per-spec advisory lock is treated as stale.
 - `stale_marker_threshold`: when a runtime marker whose branch has no commits is
   treated as stale, reverting the task to Ready.
 

@@ -85,7 +85,8 @@
 # operation outside the namespace. Untrusted text reaching a terminal passes
 # the echo-discipline sanitizer. All input is data; no eval.
 #
-# Usage:
+# Usage (<spec> is the bare identifier or its `specs/<spec>` alias, with or
+# without one trailing slash; scripts/spec-id-lib.sh):
 #   fleet-fence.sh refname --spec <spec> <unit-id>
 #   fleet-fence.sh check   --checkout <dir> --spec <spec> <unit-id>
 #   fleet-fence.sh fence   --checkout <dir> --spec <spec> <unit-id>...
@@ -144,8 +145,14 @@ unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
+if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "fleet-fence.sh: echo-safety.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
+# shellcheck source=scripts/spec-id-lib.sh
+. "$script_dir/spec-id-lib.sh"
 
 TAB=$(printf '\t')
 NS_ROOT=refs/planwright-fence
@@ -401,12 +408,14 @@ for f in "$alloc_key" "$obs_scope"; do
   fi
 done
 
+spec_id_canon "$spec"
+spec=$SPEC_ID
 if [ "$cmd" != list ] || [ -n "$spec" ]; then
   if ! is_spec_id "$spec"; then
     if [ "$spec" = flight ]; then
       err "refusing the reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)"
     else
-      err "refusing malformed spec id (the ^[a-z0-9][a-z0-9-]*\$ identifier grammar, <=64)"
+      err "refusing malformed spec id (a spec identifier, not a path: the ^[a-z0-9][a-z0-9-]*\$ grammar, <=64)"
     fi
     exit 2
   fi
@@ -689,18 +698,19 @@ report_terminal_feedback() {
   # recording that published nothing, from a published fragment whose ledger
   # mark failed. Those two call for opposite operator responses.
   rtf_out=$(
-    if [ "${PLANWRIGHT_ALLOC_LOCK_HELD:-}" = "$spec:task-$1" ]; then
-      # A hold for exactly this unit is real and inherited: honoring it is what
-      # keeps the non-reentrant lock from deadlocking against its own owner.
-      "$AFB" evaluate "$spec:task-$1" --key "$alloc_key" --terminal completed \
-        --scope "$obs_scope" --obs-dir "$rtf_dir"
-    else
-      # Any other value belongs to some other unit and would suppress a real
-      # acquire here — this command retires many units in one pass.
-      unset PLANWRIGHT_ALLOC_LOCK_HELD
-      "$AFB" evaluate "$spec:task-$1" --key "$alloc_key" --terminal completed \
-        --scope "$obs_scope" --obs-dir "$rtf_dir"
+    # An inherited allocation hold travels in the environment as a unit name
+    # plus the token that proves it. This command retires MANY units in one
+    # pass, so an announcement naming some other unit must not travel into this
+    # evaluation; it is dropped here, token and all. An announcement for exactly
+    # this unit is passed through untouched and allocation-feedback.sh decides
+    # what it is worth, by checking the token against the lock's live owner —
+    # this command never holds the lock itself and has nothing to add to that
+    # question.
+    if [ "${PLANWRIGHT_ALLOC_LOCK_HELD:-}" != "$spec:task-$1" ]; then
+      unset PLANWRIGHT_ALLOC_LOCK_HELD PLANWRIGHT_ALLOC_LOCK_TOKEN
     fi
+    "$AFB" evaluate "$spec:task-$1" --key "$alloc_key" --terminal completed \
+      --scope "$obs_scope" --obs-dir "$rtf_dir"
   ) || rtf_rc=$?
   [ "$rtf_rc" -eq 0 ] && return 0
   rtf_reason=$(printf '%s\n' "$rtf_out" | awk -F'\t' '$1 == "reason" { print $2; exit }')
