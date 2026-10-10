@@ -1,0 +1,1 @@
+- 2026-10-10 [planwright] spec-format defines the kickoff brief sections but not the shape of a delta re-walkthrough entry in the amendment log; mirroring the numbered section headings inside the entry collides with markdownlint MD024 (a duplicate "1. Header"), found at the tower-front-door delta kickoff (2026-10-10). A pinned delta-entry heading shape would settle it.

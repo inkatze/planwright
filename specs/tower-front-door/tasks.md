@@ -1,6 +1,6 @@
 # Tower front door — Tasks
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-10-10
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -267,43 +267,65 @@ router has not demonstrated (REQ-B1.6).
 ### Task 14 — Flight points in dispatch and brief
 
 - **Deliverables:** `scripts/flight-dispatch.sh` drops its skill-only
-  refusal and checks every in-run point with unit kind `flight` the way
-  `/execute-task`'s pre-flight point check does, refusing only where that
-  check stops a task unit and naming the point and step id; the brief
-  names each in-run point at its moment in the flight's work and directs
-  the worker to run it by `/execute-task`'s *Points* procedure under the
-  dispatch-resolved planwright root, pinned for the resolver; on the PR
-  home the brief fires `post-pr` after the draft PR exists, then re-emits
-  the step tables into the PR body and verifies the PR is still a draft,
-  parking when it is not; on the file home the record's `post-pr` table
-  carries a not-fired row; the dispatch report lists each point's step
-  ids; a pin-check asserting the referenced *Points* heading exists in
-  `/execute-task`'s skill.
+  refusal and checks every in-run point with unit kind `flight` in
+  `/execute-task`'s pre-flight check mode, under the same root the brief
+  pins, refusing exactly where that check stops a task unit and naming
+  the point and step id, and naming every skipped step in its report;
+  the brief names each in-run point (custom-steps' wired-in-`/execute-task`
+  points, the flip points excluded) at its moment in the flight's work
+  and directs the worker to run it by `/execute-task`'s *Points* procedure
+  under the pinned root, always `--unattended`, mapping the procedure's
+  pause protocol to the flight park; the convergence point runs the
+  `main` sync where the flight has a remote and records it not run where
+  it has none; on the PR home the brief fires `post-pr` after the draft PR
+  exists with the PR number in the step context, then runs
+  `/execute-task`'s after-`post-pr` sequence by reference (less the
+  unit-PR ready-flip), re-emitting the record only by re-running
+  `flight-record.sh render` with the same inputs, and parks when the PR
+  is no longer a draft; `scripts/flight-record.sh` accepts a step table
+  per in-run point (its required audit elements widened from the
+  convergence table alone) and renders the file home's not-fired
+  `post-pr` row; the header comments and brief text in
+  `scripts/flight-dispatch.sh` that say a flight runs skill steps only
+  are corrected; a pin-check asserting the referenced *Points* heading
+  exists in `/execute-task`'s skill.
 - **Done when:** dispatch tests place a flight whose configured lists
   carry skill, prompt, and command steps at every in-run point, and the
-  brief names every in-run point the resolver wires; a dispatch whose
-  only problem is a machine-local malformed or missing step places the
-  flight with that step degraded as for a task unit; a stopping
-  resolution refuses with the point and step id named; brief tests assert
-  `post-pr` follows the draft PR on the PR home and is recorded not fired
-  on the file home, and that the re-emit and draft check follow it; the
-  pin-check fails when the heading is renamed; the instruction-budget
+  brief names, in order, exactly the points `/execute-task`'s pre-flight
+  point check names, less the conditional `pre-ready-flip`; the brief
+  points at the *Points* procedure under the pinned root and states
+  `--unattended` and the flight-park mapping; a dispatch whose only
+  problem is an adopter or machine-local list naming an undefined step id
+  places the flight, that step named as skipped in the report and the
+  brief; a malformed entry at any layer, or an unresolvable skill target,
+  refuses with the point and step id named and places nothing; dispatch
+  under root skew checks against the pinned root; brief tests assert the
+  convergence `main` sync and its no-remote not-run record, `post-pr`
+  after the draft PR with the PR number in context, the after-`post-pr`
+  sequence referenced with the re-emit through `flight-record.sh render`,
+  and a park on a non-draft PR; record tests find every fired point's
+  table in both homes and the not-fired `post-pr` row on the file home;
+  the pin-check fails when the heading is renamed; the instruction-budget
   guard passes.
 - **Dependencies:** none
 - **Citations:** D-16, D-17, D-18 · REQ-C1.7, REQ-C1.8, REQ-C1.9,
   REQ-C1.11, REQ-C1.12, REQ-E1.6
-- **Estimated effort:** 1.5 days
+- **Estimated effort:** 2 days
 
 ### Task 15 — Guard and degradation parity tests
 
-- **Deliverables:** worker-command-guard tests showing a flight worker's
-  declared command line is approved on exactly the terms a task worker's
-  is, including adversarial cases showing no approval a task worker lacks;
-  a guard change only where a test shows a gap, carrying its own security
-  pass; dispatch tests for degradation parity across the overlay layers.
-- **Done when:** the parity and adversarial guard tests pass; any guard
-  change carries the hard-pause discipline and its allow/deny delta for
-  human sign-off; the degradation-parity tests pass at every layer the
+- **Deliverables:** worker-command-guard tests running one shared corpus
+  of declared command lines under unit kind `task` and `flight`,
+  including adversarial cases showing a flight worker gains no approval a
+  task worker lacks, and a root-skew case showing a catalog command
+  step's line deferred, not approved, when the brief's pinned root differs
+  from the guard's own; a guard change only where a test shows a gap,
+  carrying its own security pass; dispatch tests for degradation parity
+  across the overlay layers.
+- **Done when:** the shared corpus yields identical verdicts under both
+  unit kinds; the adversarial and root-skew tests pass; any guard change
+  carries the hard-pause discipline and its allow/deny delta for human
+  sign-off; the degradation-parity tests pass at every layer the
   resolver's missing-step matrix distinguishes.
 - **Dependencies:** 14
 - **Citations:** D-16, D-19 · REQ-C1.9, REQ-C1.10
@@ -311,41 +333,66 @@ router has not demonstrated (REQ-B1.6).
 
 ### Task 16 — Public ask summary
 
-- **Deliverables:** `scripts/flight-dispatch.sh` accepts an optional
-  public summary file beside the ask, keeps the full ask only in the
-  private brief directory, and never echoes either into its report;
-  `scripts/flight-record.sh` takes the summary, quotes it in place of the
-  ask with the fixed briefed-beyond line, applies the existing sanitizing
-  and markup neutralization to it, and runs the restate check against both
-  texts; the `/tower` skill states when a summary is owed (REQ-E1.7) and
-  hands it over as data like the ask; routing behavioral-eval fixtures
-  asserting a summary for an ask briefing a sensitive defect and none for
-  an ordinary ask (D-13's gate applied to this judgment).
-- **Done when:** with a summary given, record tests find no line of the
-  full ask in either home's output and find the summary plus the fixed
-  line; without one, the record is byte-identical to today's; a lead
-  restating the private ask is refused; dispatch tests find the full ask
-  nowhere outside the private brief directory; the summary fixtures pass
-  their grader assertions on the behavioral-eval harness; the
-  instruction-budget guard passes with the skill edit.
-- **Dependencies:** none
-- **Citations:** D-13, D-20 · REQ-E1.6, REQ-E1.7, REQ-E1.8
-- **Estimated effort:** 1 day
+- **Deliverables:** `/offload`'s flight petition gains the optional public
+  summary file (its petition definition and its dispatch line), and
+  `scripts/flight-dispatch.sh` accepts it beside the ask, keeps the
+  private ask only in the private brief directory, and echoes neither
+  into its report; the brief, when a summary is given, tells the worker
+  the ask is private and keeps its commits, PR title, record inputs, and
+  PR comments at the summary's level; `scripts/flight-record.sh` takes the
+  summary (under an option distinct from the lead's existing
+  `--summary-file`), quotes it in place of the ask with the fixed
+  briefed-beyond line, applies the existing sanitizing, markup
+  neutralization, and any personal-data handling Task 19 lands to it, and
+  runs the restate check of the lead against both texts and of every
+  other worker-written input against the private ask; the `/tower` skill
+  states when a summary is owed (REQ-E1.7, an undisclosed security defect
+  named), draws the slug from the summary, and hands the summary over as
+  data like the ask; the tower posture-delta doc's petition temp-file row
+  updated; the eval-only seam's dispatch record gains a summary field,
+  with the tower stand-in and `grade.jq` reading it, and routing fixtures
+  asserting a summary (and a summary-derived slug) for an ask briefing an
+  undisclosed security defect and none for an ordinary ask.
+- **Done when:** with a summary given, record tests using distinctive
+  ask lines above the restate thresholds find none of them in either
+  home's output, first render or re-emit, and find the summary plus the
+  fixed line; without one, the record is byte-identical to what
+  `flight-record.sh` at this task's base renders from the same inputs
+  (the existing record tests pass unchanged); a lead restating either the
+  private ask or the summary is refused, as is another worker-written
+  input restating the private ask; dispatch tests find no private-ask line
+  on dispatch's stdout or stderr, in the flight worktree (tracked or
+  untracked), on the branch, or under the fleet home outside the brief
+  directory, and no summary line in the report; brief tests assert the
+  privacy instruction; the summary fixtures pass their grader assertions,
+  and the D-13 gate's live-tower run (or its operator-run fallback) is
+  recorded for this judgment; the instruction-budget guard passes with
+  the skill edits.
+- **Dependencies:** 19
+- **Citations:** D-13, D-20 · REQ-E1.6, REQ-E1.7, REQ-E1.8, REQ-E1.11
+- **Estimated effort:** 1.5 days
 
 ### Task 17 — Parked flight's private partial record
 
 - **Deliverables:** a `flight-record.sh` mode rendering a partial record
   (findings so far, declined log, park reason) into the flight's brief
-  directory under the fleet home; the brief's hard-pause section running
-  it before the awaiting-decision push; `scripts/flight-sweep.sh`
-  surfacing the partial record's path for a parked flight, so the tower's
-  start sweep and `/resume`'s tower mode show it; the brief sweep naming a
-  partial record before removing a retired flight's brief.
-- **Done when:** a parked test flight leaves a partial record under its
-  brief directory and nothing new in its branch or on any remote; the
-  sweep renders its path; retiring the flight names the record before
-  removal; the partial record passes the same secret screen the full
-  record does.
+  directory under the fleet home, written create-only, without following
+  symlinks, and refusing any target outside the brief directory; the
+  brief running it before every park (a hard pause, a point's halt or
+  park, the non-draft check after `post-pr`, a renderer refusal, a
+  destination mismatch, a question it may not wait on), with the park
+  notification naming only the kind of park; `scripts/flight-sweep.sh`
+  surfacing the partial record's path for a parked flight, so every
+  surface rendering the sweep shows it; the brief sweep removing it with
+  the brief directory when it retires the flight.
+- **Done when:** mode tests find the partial record, carrying the
+  findings, declined log, and park reason, under the brief directory and
+  no change to any git ref or remote; a target outside the brief
+  directory, or a symlink in its place, is refused; a secret planted in an
+  input is redacted or refused as in the full record; brief tests find
+  the mode run before every park site and a park notification carrying no
+  detail beyond the kind; the sweep renders the path; retiring the flight
+  removes the record with its brief directory.
 - **Dependencies:** 16
 - **Citations:** D-21 · REQ-E1.9
 - **Estimated effort:** 1 day
@@ -353,25 +400,64 @@ router has not demonstrated (REQ-B1.6).
 ### Task 18 — Doctrine and docs for flight points and the record
 
 - **Deliverables:** `doctrine/flight-rules.md` updated: flights fire every
-  in-run point under the task runner contract, the record contract per
-  REQ-E1.6 with the public summary, the parked partial record, and every
-  record-home refusal condition including the spec root outside the
-  checkout; the flights line in `doctrine/custom-steps.md` updated to
-  match (D-22); the options and docs surfaces that describe flight steps
-  updated.
+  in-run point under the task runner contract, unattended, parking
+  through the flight park; the record contract per REQ-E1.6 with the
+  public summary and the private ask; the parked partial record; and
+  every record-home refusal condition including the spec root outside the
+  checkout; `doctrine/custom-steps.md` updated where it describes flights
+  (the unit-run definition, the in-run points' heading, the flights line,
+  the posture rule's flight destination) and `doctrine/gate-wiring.md`'s
+  pause protocol given the flight destination (D-22); the flight row of
+  `doctrine/README.md`; the convergence passage of `skills/tower/SKILL.md`;
+  the consumer column of the step options in `docs/options-reference.md`;
+  and the flight-residue passage of `docs/fleet.md`.
 - **Done when:** flight-rules states the points rule, the record contract,
   the parked record, and every home-refusal condition dispatch enforces,
-  each citing its D-ID; no doc surface still says a flight runs skill
-  steps only or convergence only; `check-doctrine-index`, lint, and the
-  instruction-budget guard pass.
+  each citing its D-ID; a search of `doctrine/`, `skills/`, `docs/`,
+  `README.md`, `config/`, and the `scripts/flight-*.sh` headers finds no
+  passage still saying a flight runs skill steps only or converges only;
+  `check-doctrine-index`, lint, and the instruction-budget guard pass.
 - **Dependencies:** 14, 16, 17
-- **Citations:** D-16, D-20, D-21, D-22 · REQ-C1.7, REQ-E1.6, REQ-E1.9,
-  REQ-E1.10
-- **Estimated effort:** half day
+- **Citations:** D-16, D-17, D-20, D-21, D-22 · REQ-C1.7, REQ-C1.8,
+  REQ-E1.6, REQ-E1.9, REQ-E1.10, REQ-E1.12
+- **Estimated effort:** 1 day
+
+### Task 19 — The record renderer's held security fixes
+
+- **Deliverables:** the five security-sensitive fixes to
+  `scripts/flight-record.sh` that Task 6's convergence review held for
+  decision (its `## Awaiting input` bullet states each problem and its
+  recommended fix): whole-block redaction of a pasted private key, a
+  case-insensitive assignment rule in the secret screen, a screen run on
+  fixed ASCII names that refuses a finding naming a non-input path, the
+  operator's chosen handling of personal data in the ask, and a `land`
+  that creates the record only when absent, re-checks its directories
+  after creating them, rolls back only an uncommitted record from an exit
+  handler, and lets a matching re-run succeed. Each fix sits in a
+  hard-disqualifier zone, so the worker pauses for the operator's
+  decision on each before applying it, recording each decision in the PR
+  body's pending-sign-off checklist; the PR removes Task 6's bullet.
+- **Done when:** record tests show a pasted private key redacted from
+  `BEGIN` through `END` (or to end of input when unterminated), an
+  uppercase key assignment caught, a non-ASCII temp path neither passing
+  nor mis-redacting a finding; the personal-data choice is verified as it
+  was made (a pattern test, or a tower-skill clause and eval fixture when
+  the operator chose confirmation); `land` tests, interleaved
+  deterministically through a stub between its checks and its write,
+  leave neither a committed-but-deleted record nor a stuck file, refuse a
+  symlink swapped in after the directory checks, and report success for
+  a re-run whose committed record matches; the PR body records each
+  decision; the PR's diff removes Task 6's bullet.
+- **Dependencies:** none
+- **Citations:** D-6, kickoff delta re-walkthrough (2026-10-10) ·
+  REQ-E1.2, REQ-E1.11
+- **Estimated effort:** 1 day
 
 ## Awaiting input
 
-- **Task 6** — the convergence review of the flight record renderer
+- **Task 6** — scheduled as Task 19, which lands these fixes and removes
+  this bullet; the record below is that task's decision input. The
+  convergence review of the flight record renderer
   (`scripts/flight-record.sh`) found security-sensitive fixes the review may
   not apply on its own: its secret handling, and the file writes and
   rollback in `land`. None were applied; each needs a decision.

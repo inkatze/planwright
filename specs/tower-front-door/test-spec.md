@@ -1,6 +1,6 @@
 # Tower front door — Test Spec
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-10-10
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -141,40 +141,51 @@ work.
 ### REQ-C1.7 — Every in-run point fires on a flight [test]
 
 Dispatch and brief tests (`tests/test-flight-dispatch.sh`) assert the brief
-names every point the resolver wires as an in-run point, read from the
-resolver rather than a copied list, in `/execute-task`'s order.
+names, in order, exactly the points `/execute-task`'s pre-flight point
+check names (the list a task unit's runner checks), less its conditional
+`pre-ready-flip`, which is a flip point and not an in-run point; brief
+tests assert the convergence point's `main` sync and its not-run record
+for a flight with no remote.
 
 ### REQ-C1.8 — One runner contract, every step kind [test + design-level]
 
 Dispatch tests place a flight whose lists carry skill, prompt, and command
 steps; the brief points at `/execute-task`'s *Points* procedure under the
-pinned root, and a pin-check fails when that heading is renamed. Review
+pinned root, states `--unattended`, and maps the pause protocol to the
+flight park; a pin-check fails when that heading is renamed. Review
 confirms no flight-only step grammar, refusal, or knob exists.
 
 ### REQ-C1.9 — Degrade like a task, refuse like a task [test]
 
-With a machine-local malformed or missing step, dispatch places the flight
-with that step degraded exactly as `/execute-task`'s pre-flight check
-degrades it for a task unit; a stopping resolution refuses, naming the
-point and step id, and places nothing.
+With an adopter or machine-local list naming an undefined step id,
+dispatch places the flight with that step skipped exactly as
+`/execute-task`'s pre-flight check passes it for a task unit, naming it
+in the report and the brief; with a malformed entry at any layer, or an
+unresolvable skill target, dispatch refuses, naming the point and step
+id, and places nothing; under root skew the check runs against the
+pinned root.
 
 ### REQ-C1.10 — Command steps on guard parity [test]
 
-Worker-command-guard tests approve a flight worker's declared command line
-on exactly a task worker's terms, and adversarial cases show no approval a
-task worker lacks (`tests/test-worker-command-guard.sh`).
+Worker-command-guard tests run one corpus of declared command lines under
+unit kinds `task` and `flight` and find identical verdicts; adversarial
+cases show no approval a task worker lacks, and a root-skew case shows a
+catalog command step's line deferred, not approved
+(`tests/test-worker-command-guard.sh`).
 
-### REQ-C1.11 — post-pr only on a PR [test]
+### REQ-C1.11 — post-pr only on a PR [test + manual]
 
-Brief tests assert `post-pr` fires after the draft PR on the PR home with
-the PR number in context, and on the file home is recorded not fired, with
-its reason, in the record's `post-pr` table.
+Brief tests assert the brief directs `post-pr` after the draft PR on the
+PR home with the PR number in the step context, and record tests find the
+file home's not-fired `post-pr` row with its reason. Manual: the first
+flight PR after Task 14 lands shows its `post-pr` steps run.
 
-### REQ-C1.12 — Re-emit and draft check after post-pr [test]
+### REQ-C1.12 — The after-post-pr sequence [test + manual]
 
-Brief tests assert the re-emit of the step tables and the still-a-draft
-check follow the `post-pr` list on the PR home, and that a non-draft PR
-parks the flight.
+Brief tests assert the brief references `/execute-task`'s after-`post-pr`
+sequence (less the unit-PR ready-flip), re-emits the record only through
+`flight-record.sh render` with the same inputs, and parks on a non-draft
+PR. Manual: the same first flight PR shows its re-emitted step tables.
 
 ## REQ-D — Instrument flight
 
@@ -204,12 +215,14 @@ the existing machinery.
 
 ## REQ-E — The audit record
 
-### REQ-E1.1 — The content contract [test + manual]
+### REQ-E1.1 — The content contract [test + manual] (superseded by REQ-E1.6)
 
-Template unit tests assert every contract element (ask, route and
-grounds, audit tables, declined log, pending-sign-off checklist, any
-rigor scoping applied, worker handle, revert path) is present; manual PR
-inspection on the demo flights.
+Superseded 2026-10-10: verification moves to the REQ-E1.6 entry, which
+replaces the quoted ask with the public statement of the ask. Original
+entry, kept for lineage: template unit tests assert every contract
+element (ask, route and grounds, audit tables, declined log,
+pending-sign-off checklist, any rigor scoping applied, worker handle,
+revert path) is present; manual PR inspection on the demo flights.
 
 ### REQ-E1.2 — Adaptive home, declared [test]
 
@@ -225,51 +238,80 @@ serialization; timestamps excluded) from evidence; the index path is
 never tracked; no code path treats the index as authoritative over git
 or forge evidence.
 
-### REQ-E1.4 — Specless traceability [design-level]
+### REQ-E1.4 — Specless traceability [design-level] (superseded by REQ-E1.12)
 
-The flight-rules doctrine doc states the definition (ask, route and
-grounds, evidence, revert path), and the record template implements it;
-existence plus the REQ-E1.1 tests are the verification.
+Superseded 2026-10-10: verification moves to the REQ-E1.12 entry.
+Original entry, kept for lineage: the flight-rules doctrine doc states the
+definition (ask, route and grounds, evidence, revert path), and the
+record template implements it; existence plus the REQ-E1.1 tests are the
+verification.
 
-### REQ-E1.5 — Human-first record rendering [test + manual]
+### REQ-E1.12 — Specless traceability, public statement [design-level]
 
-Template unit tests assert, in both homes, that the lead carries no
-restated prompt and the collapsed section carries every REQ-E1.1
-contract element with the ask sanitized and markup-neutralized (an ask
-containing a fence or closing tag cannot break the collapse or the
-sweep's parse); manual review of demo-flight PRs confirms the lead reads
-as a human author's what/why/verification.
+The flight-rules doctrine doc states the definition (the public statement
+of the ask, route and grounds, evidence, revert path), and the record
+renderer implements it; existence plus the REQ-E1.6 record tests are the
+verification.
+
+### REQ-E1.5 — Human-first record rendering [test + manual] (superseded by REQ-E1.11)
+
+Superseded 2026-10-10: verification moves to the REQ-E1.11 entry.
+Original entry, kept for lineage: template unit tests assert, in both
+homes, that the lead carries no restated prompt and the collapsed section
+carries every REQ-E1.1 contract element with the ask sanitized and
+markup-neutralized; manual review of demo-flight PRs confirms the lead
+reads as a human author's what/why/verification.
+
+### REQ-E1.11 — Human-first rendering of the REQ-E1.6 contract [test + manual]
+
+Record tests (`tests/test-flight-record.sh`) assert, in both homes, that
+the lead carries no restated prompt and the collapsed section carries
+every REQ-E1.6 contract element with the public statement of the ask
+sanitized and markup-neutralized (a statement containing a fence or
+closing tag cannot break the collapse or the sweep's parse); manual
+review of demo-flight PRs confirms the lead reads as a human author's
+what/why/verification.
 
 ### REQ-E1.6 — The record carries the public statement [test]
 
 Record tests (`tests/test-flight-record.sh`) assert every contract element
 is present in both homes; with a summary given, the summary and the fixed
-briefed-beyond line appear and the ask does not; without one, the ask is
-quoted as before; every fired point's step table appears, including a
-not-fired `post-pr` row on the file home.
+briefed-beyond line appear and no distinctive ask line does; without one,
+the ask is quoted as before; every fired point's step table appears,
+including a not-fired `post-pr` row on the file home.
 
 ### REQ-E1.7 — A summary when the ask is sensitive [test + manual]
 
-Dispatch and record tests find no line of a full ask outside the private
-brief directory when a summary is given, in either home and in the
-dispatch report. Behavioral-eval fixtures (on the eval harness, outside
-the repo CI, as the coverage-mix intro states) assert the tower supplies a
-summary for an ask briefing a sensitive defect and none for an ordinary
-ask. Manual: a demo flight briefing a sensitive defect, routed
-by the tower, carries a summary in its record, and the tower's skill text
-states when one is owed.
+Dispatch and record tests, using distinctive ask lines above the restate
+thresholds, find none of them on any committed or remote surface (either
+home, first render or re-emit, the branch, the flight worktree) or in
+the dispatch report when a summary is given; brief tests find the
+privacy instruction. Behavioral-eval fixtures (on the eval harness,
+outside the repo CI, as the coverage-mix intro states) grade the eval
+decision log's summary field: a summary and a summary-derived slug for an
+ask briefing an undisclosed security defect, none for an ordinary ask;
+the D-13 gate's live-tower run or its operator-run fallback is recorded.
+Manual: once Task 16 lands, the operator routes one sensitive ask through
+the tower and confirms its record carries the summary, and the tower's
+skill text states when one is owed.
 
 ### REQ-E1.8 — Restate check against both texts [test]
 
 Record tests refuse a lead restating the private ask, and one restating
-the public summary, under the existing restate thresholds.
+the public summary, under the existing restate thresholds; with a summary
+given, they also refuse another worker-written input restating the
+private ask.
 
 ### REQ-E1.9 — A parked flight's private partial record [test]
 
-A parked test flight leaves its partial record under its brief directory,
-nothing new on its branch or any remote; the flight sweep renders the
-record's path; retiring the flight names the record before removing it;
-the partial record passes the full record's secret screen.
+Mode tests find the partial record (findings, declined log, park reason)
+under the brief directory and no change to any git ref or remote, refuse
+a target outside the brief directory or a symlink in its place, and find
+a planted secret redacted or refused as in the full record; brief tests
+find the mode run before every park site and a notification carrying
+only the kind of park; the flight sweep renders the record's path, which
+is how every surface rendering the sweep shows it; retiring the flight
+removes the record with its brief directory.
 
 ### REQ-E1.10 — Every home refusal stated [design-level]
 
