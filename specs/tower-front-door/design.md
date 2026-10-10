@@ -1,12 +1,13 @@
 # Tower front door — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-09-01
+**Last reviewed:** 2026-10-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 
 Origin tags: `N` = new decision, minted in this bundle's drafting session
-(2026-08-27). Foreign IDs are namespace-qualified.
+(2026-08-27); `E` = extension decision, minted in the 2026-10-10 amendment
+drafting session. Foreign IDs are namespace-qualified.
 
 ## Decision log
 
@@ -155,7 +156,8 @@ enforced.
 
 ### D-6: The audit record — adaptive home, artifact not accumulator  (N)
 
-**Decision:** The record's content contract is fixed (REQ-E1.1). Its
+**Decision:** The record's content contract is fixed (REQ-E1.1; *(Amended
+at kickoff delta re-walkthrough 2026-10-10: now REQ-E1.6, per D-20.)*). Its
 authoritative home is adaptive and declared at routing time: with a
 remote and `gh`, the draft PR body; without, a committed per-flight
 record file riding the flight's own branch (the tower cannot write the
@@ -383,6 +385,243 @@ kickoff) is untouched.
 
 **Chosen because:** the go stays a conscious human act per request while
 the front door stays useful end-to-end.
+
+### D-16: Flights fire every in-run point under the task runner contract  (E)
+
+**Decision:** A visual flight fires every in-run attachment point
+`/execute-task` fires (custom-steps' point vocabulary, read from its
+doctrine rather than restated here; the flip points are not in-run
+points), in the same order and at the same moments relative to its own
+work, with unit kind `flight`. The `convergence` point keeps its whole
+definition, the merge-currency `main` sync included, so a flight's
+converged head is `main`-current like a task's; a flight with no remote
+records the sync as not run. Every step kind the step grammar defines
+runs, under the same runner contract a task unit's steps follow.
+Dispatch replaces its skill-only refusal with the same whole-run point
+check `/execute-task` runs at pre-flight (check mode), and refuses exactly
+where that check stops a task unit — a malformed entry at any layer,
+machine-local included, or a step no worker can run (an unresolvable
+skill target) — naming the point and step id. What degrades is what
+check mode passes with a warning: an adopter or machine-local list naming
+a step id no catalog defines, skipped on a flight exactly as on a task
+unit, and named in the dispatch report and the brief. *(Amended at
+kickoff delta re-walkthrough 2026-10-10: the degrade examples corrected
+to check mode's actual behaviour, the operator choosing strict parity
+over a more lenient flight dispatch; the convergence `main` sync and the
+flip-point exclusion stated.)* D-7's one
+convergence sequence stands unchanged; the skill-only narrowing was a
+dispatch-path choice recorded in custom-steps' flight deferral, not a
+decision of this bundle, and it is the narrowing that is lifted.
+
+**Alternatives considered:**
+- Convergence plus `post-pr` only. Rejected because: the operator's
+  overlay already carries steps at the other points (a `pre-ci` command
+  step among them), and leaving them unfired on flights keeps the "relay
+  it by hand" gap open for every point but one.
+- Keep the skill-only rule, degrading a non-skill step to a recorded skip.
+  Rejected because: it fixes the blast radius (obs:6f21547d) but not the
+  gap itself: a configured prompt step at `post-pr` still never runs on a
+  flight.
+- Keep refusing a flight whose list names a non-skill step. Rejected
+  because: one machine-local step entry took down every flight on a host
+  (obs:6f21547d), a blast radius a task unit does not suffer.
+
+**Chosen because:** custom-steps already counts the flight as a unit kind
+(custom-steps D-13), and the operator's verification cadence is per PR,
+not per route; parity removes the tower's hand relay instead of moving
+it.
+
+### D-17: The flight worker runs points by `/execute-task`'s procedure  (E)
+
+**Decision:** The flight worker is the runner at each point. The brief
+names each in-run point at its moment in the flight's work and directs the
+worker to run it by `/execute-task`'s *Points* procedure, read from the
+planwright root the brief pins — the worker's root — with that root
+pinned for the resolver; dispatch runs its up-front check of every
+in-run point under that same pinned root, so the check and the run
+resolve against one catalog and one set of skills. Two mappings make the
+procedure fit a specless unit, stated in the brief: a flight always
+resolves `--unattended` (it never blocks on a question), and wherever the
+procedure ends or parks the unit through the pause protocol — whose
+dispatched destination is a spec's `tasks.md` — a flight parks through
+the flight park instead (the awaiting-decision push and the private
+partial record, D-21), writing no spec state. A pin-check asserts the
+referenced section heading exists in `/execute-task`'s skill, so a
+rename there fails the gate instead of breaking flights silently; a
+change of procedure under the same heading reaches flights by design.
+*(Amended at kickoff delta re-walkthrough 2026-10-10: the pinned root,
+unattended resolution, and the pause-protocol mapping stated.)*
+
+**Alternatives considered:**
+- Extract the *Points* procedure into one shared runner doc both consumers
+  load. Rejected because: it reworks `/execute-task`'s text and the
+  instruction budget for a dedupe whose payoff, one copy, the pin-check
+  already protects; the operator chose the smaller change.
+- Pre-render every resolved step into the brief (hosting, timeout,
+  posture, screened text) and have the worker run the list. Rejected
+  because: it re-implements, in dispatch, the screening and resolution the
+  resolver already owns — the parallel machinery REQ-G1.5 rules out, and
+  the reason custom-steps deferred flight rendering in the first place.
+
+**Chosen because:** one runner procedure serves both unit kinds with no
+second copy, and resolution at point time in the flight's own worktree
+gives worktree-relative command resolution for free.
+
+### D-18: `post-pr` fires only on a PR; the file home records it unfired  (E)
+
+**Decision:** A flight's `post-pr` point fires after its draft PR exists,
+with the PR number in the step context, then the flight runs
+`/execute-task`'s after-`post-pr` sequence by reference (read from that
+skill, not restated), less the unit-PR ready-flip a flight never
+performs; its re-emit of the step tables into the record (the PR body)
+goes only through the record renderer, re-run with the same inputs as
+the first render, so the screen, neutralization, size bound, and public
+summary all apply again; and it verifies the PR is still a draft,
+parking when it is not. On the file home there is no PR: the point does
+not fire, and the record's `post-pr` table carries a not-fired row
+stating why, which the record renderer produces (the step-record helper
+has no not-fired outcome, and this amendment adds none). *(Amended at
+kickoff delta re-walkthrough 2026-10-10: the sequence cited rather than
+partly enumerated; the re-emit path and the not-fired row's producer
+named.)*
+
+**Alternatives considered:**
+- Fire `post-pr` on the file home too, after the record is landed, with no
+  PR number in the context. Rejected because: the point is defined as
+  "after the draft PR exists", and steps written for it (a hosted-review
+  drain) have nothing to act on without one.
+
+**Chosen because:** it keeps the point's meaning identical across unit
+kinds, and a not-fired row keeps the record honest about what ran.
+
+### D-19: Command steps on a flight: guard parity, no new approval  (E)
+
+**Decision:** A flight's command steps are approved by the worker command
+guard through the same declared-line path a task worker's are (the guard
+already accepts unit kind `flight`); this amendment adds parity tests,
+including adversarial ones showing a flight worker gains no approval a
+task worker lacks, and changes no guard rule unless a test shows a gap.
+The guard takes its install root from its own resolution, never from the
+root a brief pins: under root skew a catalog command step's declared line
+is deferred to the human, not approved, because letting the brief choose
+the catalog the guard trusts would be exactly the widening this decision
+rules out. *(Amended at kickoff delta re-walkthrough 2026-10-10: the
+root-skew rule stated.)*
+
+**Alternatives considered:**
+- A flight-specific allow shape for command steps. Rejected because: it
+  is a second approval path for the same act, and an authorization surface
+  (decision-domains: authentication and authorization) widened without a
+  stake-bearing reason.
+- Keep command steps refused on flights. Rejected because: the operator
+  chose full step-kind parity (D-16).
+
+**Chosen because:** the guard's declared-line rule was built for exactly
+this act and already names the flight unit kind; parity tests are the
+cheapest honest proof that nothing widened.
+
+### D-20: A public summary beside the private ask  (E)
+
+**Decision:** The tower may hand dispatch a public summary of the ask
+alongside the ask, and must when the ask carries detail security-posture
+keeps off committed or remote surfaces (REQ-E1.7). The full ask reaches the
+worker only through its brief under the fleet home; the record quotes the
+summary, followed by a fixed line saying the worker was briefed beyond it,
+with the existing sanitizing and markup neutralization applied to it.
+Without a summary the record quotes the ask as today. The renderer's
+restate check tests the lead against both texts, and, when a summary is
+given, every other worker-written record input against the private ask;
+the brief tells the worker the ask is private and keeps its commits, PR
+title, record inputs, and PR comments at the summary's level, and the
+tower draws the flight's slug (which becomes the pushed branch name)
+from the summary. The check catches restatement above its thresholds,
+not paraphrase or short fragments; that residual rests on the brief's
+instruction and is recorded as a risk, not claimed closed. The tower's
+call on when a summary is owed is load-bearing model judgment, so it
+joins D-13's eval gate: fixtures assert a summary for a sensitive ask (an
+undisclosed security defect among them) and none for an ordinary one,
+graded from a summary field on the eval decision log's dispatch record.
+This moves D-6's content-contract pointer from REQ-E1.1 to REQ-E1.6.
+*(Amended at kickoff delta re-walkthrough 2026-10-10: the worker-side
+surfaces, the slug, the widened restate check and its stated residual,
+the graded field, and the D-6 pointer added; "its own summary" corrected
+to the lead.)*
+
+**Alternatives considered:**
+- A private marker: the record withholds the ask behind a fixed line.
+  Rejected because: the public record then states nothing of what was
+  asked, weakening specless traceability (REQ-E1.12).
+- Never quote the ask; always a tower-written statement. Rejected
+  because: it costs verbatim-ask traceability on every ordinary flight to
+  serve the rare sensitive one.
+- Leave the record as it is and rely on the tower sanitizing asks by
+  hand. Rejected because: the 2026-10-07 save depended on the worker
+  noticing and parking (obs:2080c12b), and hand discipline is the memory
+  burden the autopilot reflex closes.
+
+**Chosen because:** every record still carries a statement of the ask,
+nothing private reaches a public surface, and the default path is
+unchanged.
+
+### D-21: A parked flight's partial record stays private under the fleet home  (E)
+
+**Decision:** Before parking, for any reason (a hard pause, a step halt
+or park at a point, the non-draft check after `post-pr`, a renderer
+refusal, a destination mismatch, a question it may not wait on), a flight
+renders its partial record (review findings so far, declined log, park
+reason) beside its brief under the fleet home, never committed or
+pushed, written create-only, without following symlinks, and contained
+to the brief directory. The park notification names only the kind of
+park; its detail stays in the partial record, since the notification
+channel may leave the host. The flight sweep surfaces the record's path
+for a parked flight, so every surface rendering the sweep (the tower's
+start sweep, and `/resume`'s tower mode once it lands) shows it. It
+persists while the flight's worktree exists, and is removed with its
+brief directory by the sweep that retires the flight: bounded, D-10.
+*(Amended at kickoff delta re-walkthrough 2026-10-10: every park site,
+the generic notification, write safety, the sweep as the one surfacing
+path, and bounded removal stated.)*
+
+**Alternatives considered:**
+- Commit the partial record on the flight branch. Rejected because: a
+  flight that later lands as a PR would carry a second copy of its record
+  in the diff, which D-6 rejected.
+- Open the draft PR at park time with the partial record. Rejected
+  because: it publishes a security-pause flight's findings, the exposure
+  D-20 closes.
+- Leave it out of scope. Rejected because: the operator chose to consume
+  obs:6d860346 here.
+
+**Chosen because:** the fleet home is already the flight's private,
+session-surviving store, and a hard-pause flight is exactly the case whose
+findings security-posture keeps off public surfaces.
+
+### D-22: Cross-bundle edges of this amendment  (E)
+
+**Decision:** Both gaps land in this bundle, as the operator chose over
+splitting gap 1 into a custom-steps extension. This bundle's tasks edit
+the custom-steps doctrine lines that describe flights (the doc
+custom-steps owns: its unit-run definition, the in-run points'
+heading, the flights line, and the posture rule's flight destination)
+and gate-wiring's pause protocol (a flight's destination) to match the
+new behavior, and leave custom-steps' own ledger, its "Command
+and prompt steps on a flight" deferral included, to that bundle's owner,
+told through an observation recorded at this amendment's kickoff;
+custom-steps REQ-F1.5 stays satisfied, since flights still read
+`steps_convergence` with unit kind `flight`. The flight-rules doctrine,
+owned here, also gains the outside-root record-home refusal spec-format
+already states (obs:357b0e50).
+
+**Alternatives considered:**
+- Split: gap 1 as a custom-steps extension draining its own deferral.
+  Rejected by the operator: two drafts and two kickoffs for one
+  operator-facing gap.
+- Also remove custom-steps' deferral bullet from this spec branch.
+  Rejected by the operator: a write into another bundle's ledger.
+
+**Chosen because:** the flight dispatch path and the record are this
+bundle's, and the doctrine edit to custom-steps is a consistency
+follow-through, not a change to the step contract.
 
 ## Cross-cutting concerns
 
