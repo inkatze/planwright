@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Test Spec
 
-**Status:** Ready
-**Last reviewed:** 2026-10-05
+**Status:** Draft
+**Last reviewed:** 2026-10-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -75,9 +75,13 @@ Supersedes REQ-A1.4's entry, which it keeps in full under the empty policy
 (every compound, ambiguity, redirect, and fd-dup fixture still applies there;
 under an enabled arm, a segment that arm admits follows REQ-F, and a `$(…)`
 REQ-E1.3 admits follows REQ-E1.3) and extends: state carried across `&&`
-only (`cd <own worktree> && grep -n x f` allows; `cd /tmp && ls`,
-`cd missing; rm -r ../x`, `cd sub | rm -r ../x`, and `x=a | grep $x` defer;
-`read f`, `printf -v f`, or `mapfile f` before a use of `$f` makes it opaque);
+only, except that a plain assignment also carries across `;` and `||`
+(`cd <own worktree> && grep -n x f`, `f=README.md; grep -n x $f`, and
+`f=README.md || grep -n x $f` allow; `x=-delete; find . $x` defers because
+the carried value meets the `find` screen; `cd /tmp && ls`,
+`cd missing; rm -r ../x`, `cd sub || ls`, `cd sub | rm -r ../x`, and
+`x=a | grep $x` defer; `read f`, `printf -v f`, or `mapfile f` before a use
+of `$f` makes it opaque);
 a write-redirect into an enabled arm's root allows only under that arm;
 backtick and process substitution defer everywhere; a `$(…)` defers unless
 REQ-E1.3 admits it.
@@ -294,8 +298,13 @@ literal form.
 
 ### REQ-E1.2 — Plain-literal assignments resolve [test]
 
-`f=README.md && grep -n x $f` allows; `f="a b" && cat $f` is analysed as two
-operands; `IFS=- && …`, `PATH=x && …`, and a conditional `false && f=x` before
+`f=README.md && grep -n x $f` allows; a whitespace-bearing value resolves
+only inside double quotes, so `F='a b' && find . -name "$F"` and
+`F='x -delete' && find . -name "$F"` allow as one operand while
+`F='-name a.sh' && find . $F` and `F='x -delete' && find . -name $F` defer
+(unquoted, the value stays unresolved, since zsh does not split it); an
+empty value removes an unquoted word (`f= && find . $f -name a` allows);
+`IFS=- && …`, `PATH=x && …`, and a conditional `false && f=x` before
 a use of `$f` defer under the name and placement rules; an assignment whose
 value carries a glob, an expansion, or an unmodelled quote leaves the
 variable opaque and its use in a screened position defers.
@@ -323,9 +332,10 @@ Code's own `cd`-before-`git` gate is outside the hook's reach.
 
 ### REQ-E1.5 — Timing and inspection verbs [test]
 
-`sleep 5`, `ps -ef`, `uptime`, `which git`, `command -v jq`,
-`git check-ignore x`, `git ls-remote origin`, `jq --version` allow;
-`sleep $X`, `ps` with an unrecognized flag, `git ls-remote https://h/x`,
+`sleep 5`, `ps -A`, `ps -o pid,args`, `uptime`, `which git`,
+`command -v jq`, `git check-ignore x`, `git ls-remote origin`, `jq --version`
+allow; `sleep $X`, `ps` with an unrecognized flag, every `ps` form carrying
+`-e` (`ps -ef`, `ps -e`, `ps -eo pid,args`; D-26), `git ls-remote https://h/x`,
 `git ls-remote ./path`, and `git ls-remote --upload-pack=x origin` defer.
 
 ## REQ-F — The self-approval policy

@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Requirements
 
-**Status:** Ready
-**Last reviewed:** 2026-10-05
+**Status:** Draft
+**Last reviewed:** 2026-10-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -176,8 +176,10 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   in run order so state a segment establishes (the working directory, a
   variable's value) is applied to the segments after it. State SHALL carry
   only from a segment that runs unconditionally in the current shell to a
-  successor joined by `&&`; a state-setting segment followed by any other
-  operator, inside a pipeline, backgrounded, or under a prefix such as
+  successor joined by `&&`, except that a REQ-E1.2 plain assignment, which
+  cannot fail once its name passes the name screen, also carries to a
+  successor joined by `;` or `||`; a state-setting segment followed by any
+  other operator, inside a pipeline, backgrounded, or under a prefix such as
   `timeout`, SHALL defer the command. Any segment that assigns a variable by a
   means other than a REQ-E1.2 plain assignment (`read`, `printf -v`,
   `mapfile`/`readarray`, `declare`/`typeset`/`local`/`export` with a value,
@@ -192,8 +194,10 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   arm admits (REQ-F1.3, REQ-F1.4); subshell or brace grouping; or an
   unrecognized verb. File-descriptor duplication or closing whose operand is a
   digit or `-` is not a file write and does not defer.
-  *(Cites: D-3, D-11, D-19; obs:885bc3c9, obs:01629047; the live-run prompt
-  replay (Sources).)*
+  *(Amended at the 2026-10-10 extension: a plain assignment also carries
+  across `;` and `||` (D-24).)*
+  *(Cites: D-3, D-11, D-19, D-24; obs:885bc3c9, obs:01629047; the live-run
+  prompt replay; the Task 6 review forks (Sources).)*
 - **REQ-A1.5** The known-safe set SHALL be an explicit enumerated allowlist of
   verbs and invocation shapes — never a category match — comprising: plugin/repo
   `scripts/*.sh` and `tests/*.sh` executed directly or via `bash`/`sh <path>`
@@ -433,8 +437,12 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   *(Cites: D-11; obs:9255e1d1; drafting-session decision (2026-10-05).)*
 - **REQ-E1.2** A plain assignment `NAME=<plain literal>` segment SHALL be
   approvable, and a later `$NAME` or `${NAME}` in the same command SHALL be
-  analysed as that literal (quoted or unquoted, with unquoted word splitting
-  reproduced), for any literal value and not only a trusted-root path. Only
+  analysed as that literal, for any literal value and not only a trusted-root
+  path. A value holding whitespace SHALL resolve only inside double quotes,
+  where it stays one word in every shell; unquoted, bash splits it and zsh
+  (the Bash tool's shell on macOS) does not, so the use SHALL stay unresolved
+  under REQ-E1.1. An empty value SHALL remove an unquoted word, as both
+  shells do. Only
   the value rule widens: the shipped guard's name screen (`assign_name_ok`:
   shell-consumed names such as `PATH`, `IFS`, `CDPATH`, `HOME`, `TMPDIR`, and
   `BASH*`, and any name exported in the hook's environment) and its
@@ -442,7 +450,11 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   defers the command. An
   assignment whose value carries a quote the analyzer does not model, a glob,
   or an expansion SHALL leave the variable opaque.
-  *(Cites: D-19; obs:885bc3c9, obs:23a619c0.)*
+  *(Amended at the 2026-10-10 extension: unquoted word splitting is no longer
+  reproduced; a whitespace-bearing value resolves only inside double quotes
+  (D-25).)*
+  *(Cites: D-19, D-25; obs:885bc3c9, obs:23a619c0, obs:8d46a461; the Task 6
+  review forks (Sources).)*
 - **REQ-E1.3** A `$(…)` substitution SHALL be approvable only when all of these
   hold: its inner text is a single simple command or pipeline that
   independently passes the read-only analysis; it contains no nested
@@ -476,7 +488,7 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   path, no `--upload-pack`/`-u`), and the `--version` form of an allowlisted
   tool; the exhaustive membership is
   carried by the implementation and pinned by the suite.
-  *(Cites: D-19; the live-run prompt replay (Sources).)*
+  *(Cites: D-19, D-26; the live-run prompt replay (Sources).)*
 
 ## REQ-F — The self-approval policy
 
@@ -658,6 +670,24 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   *(Cites: D-21; obs:9255e1d1; drafting-session decision (2026-10-05).)*
 
 ## Changelog
+
+- 2026-10-10 — Bundle extended via `/spec-draft` to match three operator
+  decisions taken while Task 6's PR (#637) was in review, which the merged
+  guard already implements. Reopen cycle: stored Ready→Draft on all four
+  headers, although the bundle derives Active (Task 8 in progress), because
+  the content-anchor gate refuses an unanchored edit to a signed bundle and
+  a v2 bundle has no valid park form; the `/spec-kickoff` delta
+  re-walkthrough flips it back and re-anchors before this branch merges, so
+  main and Task 8 never see the Draft status. REQ-A1.12 and REQ-E1.2 are amended in place rather
+  than superseded, an operator choice at this drafting session (2026-10-10)
+  that keeps the guard suite's fixture labels and the task citations valid;
+  the kickoff classifies both as meaning-class. REQ-A1.12 widens: a plain
+  assignment also carries across `;` and `||` (D-24). REQ-E1.2 narrows: a
+  whitespace-bearing value resolves only inside double quotes (D-25). The
+  REQ-E1.5 test-spec entry now pins every `ps` form carrying `-e` as
+  deferring (D-26); the REQ text, whose membership the implementation
+  carries, is unchanged beyond the citation. Mints D-24, D-25, D-26; D-19
+  carries an amendment note. No task block changes.
 
 - 2026-10-05 — Bundle extended via `/spec-draft` (reopen cycle: stored
   Ready→Draft on all four headers; the scoped kickoff of the delta flips it
@@ -857,3 +887,15 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   (left unconsumed).
 - **obs:fd1824a4** — the standing-decision settle does not deliver, gating
   D-18's deferral (left unconsumed).
+- **The Task 6 review forks** — the "Open spec forks" list in the
+  description of PR #637 (merged 2026-10-10) and its review record: the
+  three interpretation forks between the signed text and the reviewed guard,
+  with the operator's decisions of 2026-10-09 ("Refuse -e" among them).
+  Framed D-24, D-25, and D-26.
+- **obs:8d46a461** — the shared guard tokenizer models bash while the Bash
+  tool runs zsh on macOS; background for D-25 (left unconsumed: its
+  shared-tokenizer root fix is outside this delta).
+- **Research: the `ps(1)` manual pages** (consulted 2026-10-10) — FreeBSD's
+  page documents `-e` as "Display the environment as well"; Apple's
+  (`adv_cmds`) documents `-e` as identical to `-A` with `-E` printing the
+  environment, and `-e` printing it under the legacy mode. Grounds D-26.

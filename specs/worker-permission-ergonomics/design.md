@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Design
 
-**Status:** Ready
-**Last reviewed:** 2026-10-05
+**Status:** Draft
+**Last reviewed:** 2026-10-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -531,6 +531,10 @@ launch text say to issue `git` without a `cd`. The same holds for Claude
 Code's sensitive-path prompt on reads under the harness's own plugin
 directories. Cites research: Claude Code permissions doc (Sources).
 
+*(Amended at the 2026-10-10 extension: a plain assignment also carries
+across `;` and `||` (D-24), and a whitespace-bearing value resolves only
+inside double quotes (D-25).)*
+
 ### D-20: A sanitized corpus of real prompts is the acceptance test (N)
 
 **Decision:** A sanitized corpus drawn from real worker prompts joins the
@@ -620,6 +624,70 @@ and the overlay config files the policy resolves through.
 own tools are the only ones an allow-only guard can trust; the cost (a policy
 change needs a relaunch) is already true of the profile (D-16). Operator
 decision at the 2026-10-05 kickoff.
+
+### D-24: A plain assignment carries its value across `;` and `||` too (N)
+
+**Decision:** A REQ-E1.2 plain assignment that runs unconditionally carries
+its value to a successor joined by `;` or `||`, not only `&&`. Every other
+state-setting segment, `cd` included, still carries across `&&` only.
+
+**Alternatives considered:**
+- Keep assignments `&&`-only, as the signed REQ-A1.12 text said. Rejected
+  because: the `;` rule exists because a failed `cd` leaves the old
+  directory in force, and a plain assignment has no failure to guard
+  against; the restriction would only re-prompt shapes workers write
+  (`f=README.md; grep -n x $f`) and narrow the shipped placement rule
+  REQ-E1.2 keeps.
+
+**Chosen because:** an assignment whose name passes the name screen (no
+read-only, shell-consumed, or exported name) cannot fail, so the shell sets
+the value whichever operator follows; the guard models what will run.
+Operator decision of 2026-10-09 during Task 6's review; the merged guard
+implements it. Cites the Task 6 review forks (Sources).
+
+### D-25: A whitespace-bearing value resolves only inside double quotes (N)
+
+**Decision:** The guard substitutes a value holding whitespace only where
+the use is double-quoted, as one word. An unquoted use of such a value stays
+unresolved, so REQ-E1.1 defers it wherever its value matters. An empty
+value still removes an unquoted word.
+
+**Alternatives considered:**
+- Reproduce bash's word splitting, as the signed REQ-E1.2 text said.
+  Rejected because: zsh, the Bash tool's shell on macOS, does not split an
+  unquoted expansion by default, so the split model would judge operands
+  that never reach the command there.
+- Model splitting per host shell. Rejected because: the guard decides from
+  the command text and cannot tell which shell will run it, and two models
+  double the surface the adversarial suite must cover.
+
+**Chosen because:** inside double quotes both shells agree, so the only
+resolved form is the one that is the same everywhere, and the cost is a
+prompt on an unquoted whitespace value. Operator decision of 2026-10-09
+during Task 6's review; the merged guard implements it. Cites the Task 6
+review forks and obs:8d46a461 (Sources).
+
+### D-26: `ps` forms carrying `-e` defer (N)
+
+**Decision:** Every `ps` invocation whose flags carry `-e` defers, `ps -ef`
+included. `ps -A` remains the approved way to select every process.
+
+**Alternatives considered:**
+- Keep `ps -ef` approved, as the REQ-E1.5 test-spec entry pinned. Rejected
+  because: on FreeBSD and the other BSDs `-e` prints each process's
+  environment, as it does on macOS when `ps` runs in its legacy mode, and
+  those environments can carry credentials of other same-user processes, a
+  wider exposure than the own-environment reads the profile accepts.
+- Approve `-e` where it only selects processes (Linux, and macOS in its
+  default mode). Rejected because: the guard cannot know the host's `ps`
+  dialect or mode from the command text.
+
+**Chosen because:** `-A` gives the same process selection without the
+environment exposure, so refusing `-e` costs a prompt on one spelling.
+macOS's own environment flag, `-E`, is outside the guard's accepted flags
+already. Operator decision of 2026-10-09 ("Refuse -e") during Task 6's
+review; the merged guard implements it. Cites the Task 6 review forks and
+research: the FreeBSD and Apple `ps(1)` manual pages (Sources).
 
 ## Cross-cutting concerns
 
