@@ -1,7 +1,7 @@
 # Fleet Hardening — Test Spec
 
-**Status:** Ready
-**Last reviewed:** 2026-10-04
+**Status:** Draft
+**Last reviewed:** 2026-10-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -346,3 +346,43 @@ its non-vacuity floor passes. A fixture copy of `fleet-tower-watchdog.sh`, fed t
 through a directory argument or seam, gains a second tmux worker launch; the discovery reports it
 as missing from the manifest while the tower relaunch stays exempt, and the unreached-exemption
 guard still passes on the real file.
+
+## REQ-I — The front door's authoring floor
+
+### REQ-I1.1 — In-repo file-tool writes are refused in a /tower session, however launched [test + manual]
+
+`[test]`: Task 16's suite feeds Edit, Write, and NotebookEdit payloads for a `tower`-kind session
+targeting the primary checkout, a linked worktree, and the git directory, and asserts a deny for
+each, run through `mise run check` in CI. `[manual]`: in a live `/tower` session launched with the
+tower profile (whose allow list names Edit and Write) and in one launched with plain `claude`, a
+Write into the checkout is refused, confirming the hook's deny outranks the settings allow on the
+running Claude Code version; the Task 17 PR description records both runs.
+
+### REQ-I1.2 — The refusal names the rule and the route [test]
+
+The Task 16 suite asserts the deny reason names the non-authoring rule and opening a flight.
+
+### REQ-I1.3 — Deny or defer only; outside targets and other sessions defer [test]
+
+The Task 16 suite asserts a temp-file target and a path outside every checkout defer in a
+`tower`-kind session, that every in-repo call defers in an `orchestrate`-kind and an unmarked
+session, and that the file surface never emits allow; a fixture with the guard's fork primitives
+stubbed to fail shows the unmarked path forks nothing.
+
+### REQ-I1.4 — The mark records its kind; tower is sticky [test]
+
+Task 15's tests assert the kind each marking path writes, that an `/orchestrate` refresh of a
+`tower` mark leaves it `tower`, and that a kindless mark reads `orchestrate`.
+
+### REQ-I1.5 — Canonical containment; fail closed in a /tower session [test]
+
+The Task 16 suite denies a not-yet-existing nested target, a `..` path climbing back into the
+checkout, and a temp-directory symlink into the checkout, and denies a malformed payload, a missing
+target field, and a repository whose checkouts cannot be listed, each in a `tower`-kind session.
+
+### REQ-I1.6 — The posture report and the docs describe the floor [test + design-level]
+
+`[test]`: Task 17's posture fixtures show the report naming the authoring floor active with the
+plugin floor live and not active with it missing. `[design-level]`: the tower skill, the tower
+profile's `_about`, and `docs/tower-posture-delta.md` describe the refusal and no longer say the
+posture allows Edit and Write without it; the PR reviewer confirms.

@@ -1,7 +1,7 @@
 # Fleet Hardening — Design
 
-**Status:** Ready
-**Last reviewed:** 2026-10-04
+**Status:** Draft
+**Last reviewed:** 2026-10-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -638,3 +638,96 @@ watches, which is the bundle's principle (D-1). It exists only because REQ-F1.5 
 workers an identity. The three outcomes keep the one failure #546 made costly, reporting a running
 worker as failed, from returning: a missing confirmation with a live session, or an unreadable
 server, is never read as death.
+
+### D-16: Altitude of the authoring floor — a mechanism enforcing an existing rule (N, extension 2026-10-10)
+
+**Decision:** The front door's authoring floor is a mechanism under D-1. The rule it enforces, that
+`/tower` never edits the repository and routes every mutation as a flight, already exists in the
+tower skill; this extension adds no doctrine and changes no rule's wording beyond describing the
+enforcement.
+
+**Alternatives considered:**
+- A doctrine statement that a tower never authors, in the fleet coordination doctrine. Rejected
+  because: the rule is already stated where its one reader (the tower skill) loads it, and
+  `tower-placement` D-1 already lands the placement floor there; what the seed reported missing
+  was enforcement, not a rule.
+- Leave the rule as prose. Rejected because: the check needs no judgment (a path is inside the
+  repository or it is not), and autopilot-reflex step 5 prefers a mechanical tool wherever no
+  judgment is needed.
+
+**Chosen because:** the pinned seed claim ("rests on skill prose alone") names a missing
+mechanism for a stated rule, which is mechanism altitude.
+
+### D-17: Front-door sessions only, targets inside the repository, deny (N, extension 2026-10-10)
+
+**Decision:** The floor covers sessions marked by `/tower`, refuses Edit, Write, and NotebookEdit
+whose target lies inside the session's repository (primary checkout, every linked worktree, the
+git directory), and refuses by deny with a reason naming the rule and the flight route. Targets
+outside the repository are untouched.
+
+**Alternatives considered:**
+- Every marked tower, `/orchestrate` included. Rejected because: `/orchestrate`'s reconcile writes
+  Awaiting-input bullets into `tasks.md` on the primary checkout, a sanctioned write the floor
+  would break or force onto a new shell path (operator decision, 2026-10-10).
+- An allowlist (temp directories and the session's memory only). Rejected because: every new
+  legitimate write location outside the repository would break the tower until the list grew,
+  while the rule being enforced is about the repository alone (operator decision, 2026-10-10).
+- Every file-tool write. Rejected because: the front door writes its flight petition's ask and
+  grounds files with the file tool, into temp files it made with `mktemp`.
+- Ask instead of deny. Rejected because: the plugin path is deny-only (`tower-placement` D-7), and
+  an ask parks an unattended tower on a prompt the rule says it never needs (operator decision,
+  2026-10-10).
+
+**Chosen because:** it is the narrowest floor that makes the stated rule hold, it keeps every
+write the front door is documented to make, and a deny is the contract the plugin path already
+has.
+
+### D-18: The plugin hook on a kind-carrying mark, inside the policy guard (N, extension 2026-10-10)
+
+**Decision:** `tower-placement`'s session mark gains the kind of command that marked it (`tower`
+or `orchestrate`); a session marked by `/tower` at any point stays a `/tower` session for its
+mark's lifetime, so a later `/orchestrate` never loosens it. The plugin's `hooks/hooks.json` gains
+one PreToolUse entry matching Edit, Write, and NotebookEdit that runs the policy guard on a new
+file surface. On that surface the guard reads the session id and the target (`file_path`, or
+`notebook_path` for NotebookEdit) from the payload's top level and `tool_input`, applies the same
+in-shell prefilter and fail-closed contract as its Bash surface, canonicalizes the target, and
+denies when it lies inside the repository the session's working directory belongs to, its
+checkouts listed by git. A `/tower` session whose payload, target, or checkout list cannot be read
+is denied. The bring-up posture report states the floor active on the same activation handshake
+`tower-placement` D-8 defines, since the file-tool entry ships in the same plugin hooks file as the
+Bash entry the handshake proves live.
+
+**Alternatives considered:**
+- A hook in the tower profile only. Rejected because: it holds only under a `--settings` launch,
+  the launch dependence the seed brief exists to remove, and `/orchestrate` shares that profile
+  (operator decision, 2026-10-10).
+- A separate front-door profile. Rejected because: still launch-dependent, and a second profile
+  to keep in step with the first (operator decision, 2026-10-10).
+- A path-scoped `Edit(...)` deny rule in settings. Rejected because: Claude Code consults path
+  rules for Edit only, not Write or NotebookEdit (research: Claude Code hooks reference), and a
+  settings rule cannot tell a `/tower` session from any other.
+- A new standalone guard script. Rejected because: the mark lookup, prefilter, payload bounds, and
+  fail-closed trap already live in the policy guard; a second script would duplicate them and let
+  the two drift (the existing-seam-reuse domain).
+- A separate file-tool handshake that writes a probe file. Rejected because: a probe that reaches a
+  missing hook would create a file in the repository, the act the floor forbids.
+
+**Chosen because:** it is the only option that holds however the session was launched, it reuses
+the store and contract `tower-placement` already secured, and the kind on the mark is the minimum
+that tells the front door from an orchestrator.
+
+### D-19: Parked until `tower-placement` derives Done (N, extension 2026-10-10)
+
+**Decision:** The extension's first task is parked with a Deferred reference bullet gated
+`GATE(when: spec tower-placement done)`; the later tasks depend on it, so none dispatches before
+the mark store and the plugin floor exist on `main`.
+
+**Alternatives considered:**
+- A precondition in each task's Done-when, with no gate. Rejected because: the task could dispatch
+  before the store exists and fail at the worker, spending a slot (operator decision, 2026-10-10).
+- Amending `tower-placement` to carry the mark-kind change. Rejected because: it would split one
+  feature across two bundles' sign-offs (operator decision, 2026-10-10).
+
+**Chosen because:** task dependencies cannot cross bundles and the gate grammar can wait only on a
+whole bundle's status; waiting for Done also waits on that bundle's docs task, which costs time
+but never dispatches work onto a missing foundation.

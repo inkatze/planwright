@@ -1,7 +1,7 @@
 # Fleet Hardening — Requirements
 
-**Status:** Ready
-**Last reviewed:** 2026-10-04
+**Status:** Draft
+**Last reviewed:** 2026-10-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -50,6 +50,19 @@ written, a lost race touches nothing the winner owns, the worker CLI resolves fa
 death handle comes from session creation, and a launch is reported started only once its own
 worker has confirmed it. REQ-H holds the fixtures and docs that keep both honest. The altitude is
 unchanged: mechanism-primary under D-1.
+
+**Extension (2026-10-10): the front door's authoring floor.** The `/tower` front door never edits
+the repository: every mutation it is asked for becomes a flight. Today that rule is skill prose
+only, because the tower profile allows Edit and Write outright, so a tower that slips (or a prompt
+that talks it into "just edit it here") writes straight into a checkout other sessions read. The
+extension makes the rule mechanical: in a session marked as a `/tower` session, the plugin's own
+hooks refuse every file-tool write whose target lies inside the repository, however the session
+was launched, and leave the tower's own writes outside it (its petition temp files, its memory)
+alone (REQ-I). It builds on `tower-placement`'s session mark and plugin-wired floor, which own
+the rest of the launch-independent tower floor and the posture check that reads it; this
+extension adds only what that bundle leaves out, and waits for it to land (D-19). The altitude is
+mechanism under D-1, enforcing an existing rule rather than stating a new one (D-16).
+*(Cites: D-16, D-17, D-18, D-19, obs:ce918748, the tower-floor seed brief (Sources).)*
 
 ## Scope
 
@@ -105,6 +118,10 @@ unchanged: mechanism-primary under D-1.
   launch fixtures, a fixture per refusal arm, the docs and comments that still describe the old
   launch, and seam discovery that sees the new launch with a scoped exemption for the tower
   relaunch.
+- *(Extension 2026-10-10.)* The front door's authoring floor: the session mark records which
+  command marked it, and a plugin-wired file-tool hook denies Edit, Write, and NotebookEdit into
+  the repository in a `/tower` session, with the bring-up posture report, the tower skill, and the
+  tower profile's description updated to match.
 
 ### Out of scope
 
@@ -140,6 +157,19 @@ unchanged: mechanism-primary under D-1.
 - *(Extension 2026-10-04.)* A tmux rung for a checkout whose physical path falls outside the launch
   charset (a path holding a space, for example): the tmux rung refuses there, naming the charset,
   and the other rungs are unaffected (D-12).
+- *(Extension 2026-10-10.)* The launch-independent tower floor itself: session marking, the
+  plugin-wired deny-only policy guard, the deny list every tower entry maps to a guard act, and
+  the posture check that accepts plugin enforcement (`tower-placement` owns all four; obs:6be13a0c
+  and obs:48faa6b7 are delivered there).
+- *(Extension 2026-10-10.)* Refusing Edit or Write in an `/orchestrate` session, whose reconcile
+  writes Awaiting-input bullets into `tasks.md` on the primary checkout (D-17).
+- *(Extension 2026-10-10.)* Writes into the repository spelled through the shell (a redirect,
+  `sed -i`, `tee`) or through an MCP filesystem tool: the file-tool hook does not see them, and
+  the shell path stays with the command guards and the deny list.
+- *(Extension 2026-10-10.)* Removing Edit and Write from the tower profile's allow list:
+  `/orchestrate` runs under the same profile, and the plugin hook's deny holds over the allow.
+- *(Extension 2026-10-10.)* The worker's own posture, including a unit-owner worker reading its
+  own ready-flip output (`worker-permission-ergonomics` is its home).
 
 ## REQ-A — Attention & decision signals
 
@@ -387,8 +417,46 @@ unchanged: mechanism-primary under D-1.
   *(Cites: drafting-session decision (2026-10-04) · the parked flight's review findings (Sources) ·
   `fleet-lifecycle-closure` REQ-E1.1.)*
 
+## REQ-I — The front door's authoring floor
+
+- **REQ-I1.1** In a session marked as a `/tower` session, the plugin's own PreToolUse hooks SHALL
+  deny every Edit, Write, and NotebookEdit call whose target lies inside the session's repository
+  (its primary checkout, any of its linked worktrees, or its git directory), whatever settings the
+  session was launched with, the tower profile's allow of Edit and Write included.
+  *(Cites: D-17, D-18, obs:ce918748.)*
+- **REQ-I1.2** The refusal reason SHALL name the rule (the front door does not author) and the
+  route (open a flight for the change).
+  *(Cites: D-17.)*
+- **REQ-I1.3** The file-tool hook SHALL only deny or defer, never allow, and SHALL defer for every
+  target outside the repository, in a session marked only by `/orchestrate`, and in an unmarked
+  session, where its path SHALL be the in-shell prefilter `tower-placement` REQ-C1.6 sets for the
+  policy guard.
+  *(Cites: D-17, D-18, `tower-placement` REQ-C1.2, REQ-C1.6.)*
+- **REQ-I1.4** The session mark SHALL record which command marked the session, and a session
+  marked by `/tower` at any point SHALL count as a `/tower` session for as long as its mark lives,
+  whatever later marks it.
+  *(Cites: D-18.)*
+- **REQ-I1.5** The containment test SHALL compare canonical paths: symlinks and `..` components
+  resolved, and a target that does not exist yet resolved through its deepest existing ancestor.
+  In a `/tower` session the hook SHALL deny when the payload cannot be read, the target path is
+  missing or cannot be resolved, or the repository's checkouts cannot be listed.
+  *(Cites: D-18, research: Claude Code hooks reference (Sources).)*
+- **REQ-I1.6** The `/tower` bring-up posture report SHALL state whether the authoring floor is
+  active, and the tower skill and the tower profile's `_about` text SHALL describe the refusal in
+  place of the statement that the posture allows Edit and Write.
+  *(Cites: D-18, `tower-placement` REQ-B1.4.)*
+
 ## Changelog
 
+- 2026-10-10 — Extension (`/spec-draft --extend`, meaning-class: new REQ-I1.1 through REQ-I1.6,
+  D-16 through D-19, Tasks 15 through 17). Reopen cycle: the bundle derived Done, so the stored
+  Status moves Ready to Draft on all four files; the scoped kickoff of the delta flips it back.
+  Adds the front door's authoring floor: a `/tower` session's file-tool writes into the repository
+  are refused by a plugin hook, however the session was launched. Fold-detection against
+  `tower-placement` (Ready) found it already owns the launch-independent floor, the session mark,
+  and the posture check the seed brief's other two gaps ask for, so this extension covers only the
+  Edit and Write gap that bundle leaves out of scope, and parks its first task until that bundle
+  derives Done. No existing requirement or decision changes meaning.
 - 2026-10-04 — Extension kickoff (`/spec-kickoff`, delta walk and lens review; the bundle is Draft,
   edits in place). A lost race now aborts touching nothing, and the registry is written only after
   the session exists; the flight lock is released before the startup wait (launch and confirm are
@@ -569,3 +637,41 @@ unchanged: mechanism-primary under D-1.
 - **`test-throughput`** (Ready; extension cross-reference, 2026-10-04) — owns the macOS path
   canonicalization of `tests/test-fleet-dispatch-worktree.sh` (its REQ-E1.4), left out of this
   extension's scope.
+- **The tower-floor seed brief** (2026-10-07; extension, 2026-10-10) — a pending note asking for a
+  tower permission floor that does not depend on how the session was launched, naming three gaps:
+  no deny list or command guard without the profile launch (obs:6be13a0c), a posture check blind
+  to the `--settings` layer (obs:48faa6b7), and Edit and Write allowed outright (obs:ce918748). It
+  proposed a plugin-wired prompt-hook mark plus a policy-guard tower tier reading the profile's
+  deny list. Fold-detection found `tower-placement` (Ready, signed off 2026-10-08) already owns the
+  first two gaps and the proposal (its REQ-B1.4, REQ-C, and REQ-D1.3); this extension takes the
+  third.
+- **Pinned seed claim (extension, 2026-10-10).** The seed stated that the front door's
+  non-authoring rule "rests on skill prose alone". Reconciled as a claim that an existing rule
+  lacks a mechanism, not that a new rule is missing: recorded as D-16, mechanism under D-1.
+- **The policy-guard coverage check** (drafting session, 2026-10-10) — the tower tier of
+  `scripts/policy-guard.sh` was run against representative commands for every family in the tower
+  profile's deny list. It refuses the merge, pull, rebase, amend-family, push, `gh pr merge`, and
+  draft-flip families, but not `reset --hard`, `filter-branch` / `filter-repo`, `branch -f`,
+  `update-ref`, or the dangerous `worktree` forms, and among the MCP tools only the draft flip; it
+  hardcodes its own act list rather than reading the profile. `tower-placement` REQ-D1.3 (every
+  deny entry maps to a guard act, mechanically checked) and REQ-C1.1 own closing that, so this
+  extension does not.
+- **obs:ce918748** — the tower profile allows Edit and Write outright, so `/tower`'s non-authoring
+  rule is enforced by skill prose alone. Consumed; grounds REQ-I.
+- **obs:6be13a0c** — the tower floor depends on how the session was launched; proposes the
+  plugin-wired mark and policy-guard tower tier. Consumed here as the extension's framing; its
+  remedy is `tower-placement`'s (REQ-C, D-7, D-8), not this bundle's.
+- **`tower-placement`** (Ready; extension cross-reference, 2026-10-10) — owns session marking, the
+  plugin-wired deny-only floor, the deny-to-act coverage rule, and the bring-up posture check
+  (obs:48faa6b7, consumed there). Its scope excludes an Edit and Write deny for towers, which this
+  extension supplies on top of its mark.
+- **research: Claude Code hooks reference** (the hooks, permissions, and tools reference pages of
+  the official Claude Code docs, read 2026-10-10) — Edit and Write carry an absolute
+  `tool_input.file_path` and NotebookEdit a `notebook_path`; a plugin matcher may name the three
+  tools as a plain list; a blocking hook decision outranks a settings allow rule (stated for the
+  exit-2 form; the JSON deny form is expected to match and is checked live, see the test spec);
+  path-scoped permission rules apply to Edit only, which is why the floor is a hook; shell and MCP
+  filesystem writes never reach a file-tool matcher.
+- **obs:c2c57cdf** (not consumed) — a unit-owner worker could not read its own background
+  ready-flip output. Considered and left live: it is worker posture, owned by
+  `worker-permission-ergonomics`.
