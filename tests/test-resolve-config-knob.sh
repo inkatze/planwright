@@ -108,6 +108,27 @@ got=$(run)
 [ "$got" = true ] || fail "whitespace/comment not tolerated (got '$got')"
 echo "ok: inner whitespace and a trailing comment are tolerated"
 
+# 3b. The trim takes tabs as well as spaces, on a layer value and on the
+#     caller's fallback alike; a fallback spanning lines is trimmed line by
+#     line, so a leading empty line leaves it outside the enum.
+reset_layers
+printf 'fleet_daemon_pause:\t true\t\n' >"$tracked_cfg"
+got=$(run)
+[ "$got" = true ] || fail "a tab-padded value was not trimmed (got '$got')"
+reset_layers
+got=$(PLANWRIGHT_CONFIG_DEFAULTS="$tmp/absent.yml" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RCK" --key fleet_daemon_pause --type enum --values 'true false' \
+  --fallback "$(printf ' \t true \t')" 2>/dev/null) || got="exit $?"
+[ "$got" = true ] || fail "a padded fallback was not emitted trimmed (got '$got')"
+rc=0
+PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RCK" --key fleet_daemon_pause --type enum --values 'true false' \
+  --fallback "$(printf '\ntrue')" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "a fallback led by an empty line must be refused as a caller bug (rc $rc)"
+echo "ok: the trim covers tabs and the fallback, and keeps a multi-line value per line"
+
 # 4. Bad value in the adopter overlay: degrade to the core default with a
 #    warning naming the layer, exit 0.
 reset_layers
