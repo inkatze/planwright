@@ -94,7 +94,8 @@ m=$(merged holder "$TMP/holder")
 for defect in '.sign_off.branch_has_bundle = false' '.sign_off.work_new_commit = true' \
   '.sign_off.work_new_branch = true' '.sign_off.work_new_worktree = true' \
   '.sign_off.holder_pushed = true' '.sign_off.holder_clean = false' \
-  '.sign_off.worktree = "/elsewhere"' '.sign_off.files_written = 3' '.persona = "plain"'; do
+  '.sign_off.worktree = "/elsewhere"' '.sign_off.files_written = 3' '.persona = "plain"' \
+  '.sign_off.eval_only = false' '.sign_off.authoritative = true'; do
   if printf '%s' "$m" | jq "$defect" | jq -e -f "$GRADEJQ" >/dev/null; then
     fail "the holder grade passed a run with: $defect"
   else
@@ -106,6 +107,7 @@ for defect in '.sign_off.spec_branch_anywhere = true' '.sign_off.store_has_git =
   '.sign_off.work_new_commit = true' \
   '.decision_log |= map(if .kind == "handoff" then .text |= sub("ready flip"; "") else . end)' \
   '.decision_log |= map(if .kind == "handoff" then .text |= sub("no spec guard runs"; "") else . end)' \
+  '.decision_log |= map(if .kind == "handoff" then .text |= sub("commit, "; "") else . end)' \
   '.persona = "holder"'; do
   if printf '%s' "$m" | jq "$defect" | jq -e -f "$GRADEJQ" >/dev/null; then
     fail "the plain grade passed a run with: $defect"

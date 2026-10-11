@@ -11,11 +11,14 @@
 #            the worktree sits at <holder>/.claude/worktrees/<id>-spec, and
 #            nothing was pushed;
 #   plain  — no spec branch exists in any repository, the store gained no
-#            .git, and the handoff names every skipped step and the absence
-#            of spec guards.
+#            .git (standing in for test-spec's "no git command ran in the
+#            store"), the handoff's skipped-steps list names every skipped
+#            step as an item, and the handoff names the absence of spec
+#            guards.
 (.sign_off // {}) as $s
 | (.decision_log // []) as $log
 | ($log | map(select(.kind == "handoff")) | .[0].text // "") as $handoff
+| (($handoff | capture("skipped: (?<l>[^;]*);") | .l) // "" | split(", ")) as $skipped
 | ($s.files_written == 4)
   and ($s.eval_only == true)
   and ($s.authoritative == false)
@@ -31,7 +34,7 @@
        elif $s.posture == "plain" then
          ($s.spec_branch_anywhere == false)
          and ($s.store_has_git == false)
-         and ([ "spec branch", "spec worktree", "commit", "push", "spec PR", "ready flip",
-                "no spec guard runs" ]
-              | all(. as $step | $handoff | contains($step)))
+         and ([ "spec branch", "spec worktree", "commit", "push", "spec PR", "ready flip" ]
+              | all(. as $step | $skipped | index([$step]) != null))
+         and ($handoff | contains("no spec guard runs"))
        else false end)

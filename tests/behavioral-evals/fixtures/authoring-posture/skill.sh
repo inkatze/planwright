@@ -133,7 +133,8 @@ if [ "$posture_answer" = holder ]; then
   rel=${bundle#"$worktree"/}
   [ "$(fx git -C "$h" ls-tree --name-only "planwright/$id/spec" -- "$rel/" 2>/dev/null | wc -l | tr -d ' ')" -eq 4 ] \
     && branch_has_bundle=true
-  [ -z "$(fx git -C "$h" status --porcelain)" ] && [ -z "$(fx git -C "$worktree" status --porcelain)" ] && holder_clean=true
+  [ -n "$worktree" ] && [ -z "$(fx git -C "$h" status --porcelain)" ] \
+    && [ -z "$(fx git -C "$worktree" status --porcelain)" ] && holder_clean=true
   [ "$(fx git --git-dir="$art/holder-origin.git" for-each-ref --format='%(refname) %(objectname)')" = "$remote_before" ] \
     || holder_pushed=true
 else
