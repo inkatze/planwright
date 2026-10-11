@@ -179,7 +179,7 @@ blank() {
 # never prints the matched text, and neither does anything here.
 screen_all() {
   _src=0
-  (cd "$work" && PLANWRIGHT_SECRET_SCREEN_TOOL=none exec /bin/sh "$SCREEN" -- "$@") \
+  (cd "$work" && TMPDIR=$work PLANWRIGHT_SECRET_SCREEN_TOOL=none exec /bin/sh "$SCREEN" -- "$@") \
     >/dev/null 2>"$work/screen.err" </dev/null || _src=$?
   : >"$work/hits" || die 4 "cannot write the screen's findings"
   case $_src in
@@ -628,6 +628,9 @@ esac
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/flight-record.XXXXXX") || die 4 "cannot create a work directory"
 trap 'rm -rf "$work"' EXIT
+# Absolute, so the screen run from inside it, and its own temp files under
+# TMPDIR, resolve whatever TMPDIR was.
+work=$(cd "$work" && pwd -P) || die 4 "cannot resolve the work directory"
 trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP

@@ -426,6 +426,17 @@ OUT=$(TMPDIR="$tmp/t${EMDASH}mp" /bin/sh "$SCRIPT" render --home pr "${args[@]}"
 RC=$?
 [ "$RC" -eq 2 ] || fail "under a non-ASCII TMPDIR a secret in the summary must be refused with 2 (got $RC)"
 
+# A relative TMPDIR still screens: the work directory is made absolute before
+# the screen runs inside it.
+mkdir -p "$tmp/reltmp"
+defaults
+OUT=$(cd "$tmp" && TMPDIR=reltmp /bin/sh "$SCRIPT" render --home pr "${args[@]}" 2>"$tmp/err")
+RC=$?
+ERR=$(cat "$tmp/err")
+[ "$RC" -eq 0 ] || fail "render under a relative TMPDIR exited $RC: $ERR"
+case $OUT in *"$TOKEN"*) fail "under a relative TMPDIR a token-shaped secret reached the record" ;; esac
+printf '%s\n' "$OUT" | grep -q 'redacted: github-token' || fail "under a relative TMPDIR the redaction must be marked"
+
 # A finding that names no input is refused, never passed: a screen whose
 # report this script cannot place has not cleared anything.
 mkdir -p "$tmp/foreign/scripts"
