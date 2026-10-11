@@ -2741,11 +2741,33 @@ environ_word_risky() {
   # The guard resolves the directory in its own process, so one it cannot
   # enter may still resolve for the command (`/dev/fd/0` with a /proc
   # directory on the command's stdin), and defers.
-  canon=$(cd -P -- "$dir" 2>/dev/null && pwd) || return 0
+  canon_dir_cached "$dir"
+  canon=$CANON
+  [ -n "$canon" ] || return 0
   case $canon in
     /proc | /proc/*) return 0 ;;
   esac
   return 1
+}
+
+# canon_dir_cached <absolute-dir>: the directory's canonical path in CANON,
+# empty when it cannot be entered. Each lookup forks, and a loop re-walks
+# its body once per head word, so results are kept for the hook's run.
+canon_dir_cached() {
+  local k n=${CANON_N:-0}
+  for ((k = 0; k < n; k++)); do
+    if [ "${CANON_D[k]}" = "$1" ]; then
+      CANON=${CANON_P[k]}
+      return 0
+    fi
+  done
+  CANON=$(cd -P -- "$1" 2>/dev/null && pwd) || CANON=''
+  if [ "$n" -lt 64 ]; then
+    CANON_D[n]=$1
+    CANON_P[n]=$CANON
+    CANON_N=$((n + 1))
+  fi
+  return 0
 }
 
 # environ_words_ok: no word of the current simple command could name

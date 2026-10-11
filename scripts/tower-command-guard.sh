@@ -2044,7 +2044,9 @@ environ_word_risky() {
   # The guard resolves the directory in its own process, so one it cannot
   # enter may still resolve for the command (`/dev/fd/0` with a /proc
   # directory on the command's stdin), and defers.
-  canon=$(cd -P -- "$dir" 2>/dev/null && pwd) || return 0
+  canon_dir_cached "$dir"
+  canon=$CANON
+  [ -n "$canon" ] || return 0
   case $canon in
     /proc | /proc/*) return 0 ;;
   esac
@@ -2105,6 +2107,23 @@ environ_redirect_ok() {
     proc | proc/* | */proc | */proc/*) return 1 ;;
   esac
   environ_word_risky "$w" "$g" && return 1
+  return 0
+}
+
+canon_dir_cached() {
+  local k n=${CANON_N:-0}
+  for ((k = 0; k < n; k++)); do
+    if [ "${CANON_D[k]}" = "$1" ]; then
+      CANON=${CANON_P[k]}
+      return 0
+    fi
+  done
+  CANON=$(cd -P -- "$1" 2>/dev/null && pwd) || CANON=''
+  if [ "$n" -lt 64 ]; then
+    CANON_D[n]=$1
+    CANON_P[n]=$CANON
+    CANON_N=$((n + 1))
+  fi
   return 0
 }
 

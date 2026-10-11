@@ -1226,6 +1226,25 @@ first_half() {
   assert_defer "REQ-E1.6: a thread's memory" "cat /proc/1234/task/1234/mem"
   assert_defer "REQ-E1.6: a glob matching mem" "cat /proc/1234/me?"
   assert_allow "REQ-E1.6: a name only starting with mem" "cat memo.md"
+  # A loop re-walks its body per head word, so each glob directory is
+  # resolved once per hook run: counted in-process, not timed.
+  rm -f "$SANDBOX/cd-calls"
+  if (
+    eval "$(sed -n '/^canon_dir_cached() {$/,/^}$/p' "$HOOK")"
+    want=$(cd -P "$SANDBOX" && pwd)
+    cd() {
+      echo x >>"$SANDBOX/cd-calls"
+      builtin cd "$@"
+    }
+    canon_dir_cached "$SANDBOX" && canon_dir_cached "$SANDBOX" && canon_dir_cached "$SANDBOX"
+    [ "$CANON" = "$want" ] || exit 1
+    canon_dir_cached "$SANDBOX/missing" && canon_dir_cached "$SANDBOX/missing"
+    [ -z "$CANON" ] && [ "$(wc -l <"$SANDBOX/cd-calls")" -eq 2 ]
+  ); then
+    pass "REQ-E1.6: each glob directory is resolved once per hook run"
+  else
+    fail "REQ-E1.6: canon_dir_cached resolved a directory more than once, or wrongly"
+  fi
   assert_defer "REQ-E1.6: every file of a process" "head /proc/1234/*"
   assert_defer "REQ-E1.6: a bracket glob matching environ" "cat /proc/1234/[e]nviron"
   assert_defer "REQ-E1.6: a brace expansion in the last component" "cat /proc/1234/{environ,status}"
