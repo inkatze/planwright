@@ -3,7 +3,7 @@
 # points' lists in one --explain run) into the chain the runner executes
 # there, with provenance, the missing-step decision, and
 # the by-layer malformed policy applied before anything runs (custom-steps
-# Task 2; REQ-A1.3, REQ-A1.4, REQ-B1.1–B1.6, REQ-C1.1–C1.6, REQ-C1.8,
+# Task 2; REQ-A1.3, REQ-A1.6, REQ-B1.1–B1.6, REQ-C1.1–C1.6, REQ-C1.8,
 # REQ-D1.3, REQ-D1.8, REQ-D1.9, REQ-G1.1, REQ-H1.3; D-4, D-5, D-6, D-10,
 # D-17, D-19).
 # doctrine/custom-steps.md is the normative home of every rule this script
@@ -119,7 +119,7 @@
 # by several reads of the same layer, or shared by the points of a
 # several-point run, is printed once.
 #
-# The preamble (--preamble; REQ-A1.4, D-14). The runner sets the
+# The preamble (--preamble; REQ-A1.6, D-14). The runner sets the
 # PLANWRIGHT_STEP_* variables in this script's environment and prepends the
 # rendered block to a skill or prompt step's launch prompt or invocation. The
 # block is one field per line, `NAME=value`, between two delimiter lines
@@ -263,21 +263,31 @@ line_words=()
 attendance=""
 hold_pool=""
 hold_owner=""
-hold_flags=0
+pool_given=0
+owner_given=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --pool | --owner)
-      if [ $# -lt 2 ]; then
-        echo "resolve-steps: $1 needs a value" >&2
-        usage
-      fi
+      # No pool or pid starts with a dash, so a following flag is no value.
+      case "${2:-}" in
+        "" | -*)
+          echo "resolve-steps: $1 needs a value" >&2
+          usage
+          ;;
+      esac
       if [ "$1" = --pool ]; then
-        [ "$((hold_flags & 1))" -eq 0 ] || usage
-        hold_flags=$((hold_flags | 1))
+        [ "$pool_given" -eq 0 ] || {
+          echo "resolve-steps: --pool given twice" >&2
+          usage
+        }
+        pool_given=1
         hold_pool=$2
       else
-        [ "$((hold_flags & 2))" -eq 0 ] || usage
-        hold_flags=$((hold_flags | 2))
+        [ "$owner_given" -eq 0 ] || {
+          echo "resolve-steps: --owner given twice" >&2
+          usage
+        }
+        owner_given=1
         hold_owner=$2
       fi
       shift
@@ -323,7 +333,8 @@ while [ $# -gt 0 ]; do
   shift
 done
 [ "$n_points" -ge 1 ] || usage
-if [ "$hold_flags" -ne 0 ] && { [ "$hold_flags" -ne 3 ] || [ "$preamble" -eq 1 ] || [ $((prefix + line_mode)) -eq 0 ]; }; then
+if [ "$pool_given" -ne "$owner_given" ] \
+  || { [ "$pool_given" -eq 1 ] && { [ "$preamble" -eq 1 ] || [ $((prefix + line_mode)) -eq 0 ]; }; }; then
   echo "resolve-steps: --pool and --owner come together, with --prefix or --line only" >&2
   usage
 fi
@@ -486,7 +497,7 @@ if [ $((preamble + prefix + line_mode)) -gt 0 ]; then
     eval "ctx_$f=\$v"
   done
   hold_mark=""
-  if [ "$hold_flags" -eq 3 ]; then
+  if [ "$pool_given" -eq 1 ]; then
     valid_id "$hold_pool" || refuse POOL_HOLD "a pool outside the step-id charset"
     case "$hold_owner" in
       [!1-9]* | *[!0-9]* | "") refuse POOL_HOLD "an owner that is not a decimal pid" ;;
@@ -1334,7 +1345,9 @@ validate_expensive() {
       ERR="empty paths"
       return
     }
+    xwords=0
     for xw in $xpaths; do
+      xwords=$((xwords + 1))
       case "$xw" in
         /* | -* | *[!A-Za-z0-9._/-]* | .. | ../* | */.. | */../*)
           ERR="a paths word outside its grammar (repository-relative letters, digits, '.', '_', '-', and '/', no leading '/' or '-', no '..' segment)"
@@ -1342,6 +1355,11 @@ validate_expensive() {
           ;;
       esac
     done
+    # A quoted value of blanks only splits to no word: it covers nothing.
+    [ "$xwords" -gt 0 ] || {
+      ERR="empty paths"
+      return
+    }
   fi
   if is_set "$xn" refire; then
     [ "$xrefire" = post-pr ] || {
