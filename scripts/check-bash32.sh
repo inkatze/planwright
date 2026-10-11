@@ -278,6 +278,8 @@ export PW_ROOT
 # `=` or a leading `-` is read as a path.
 PW_LIST="$work/candidates" awk '
   function dialect_name(w) {
+    # env -S takes the interpreter quoted, as in -S "bash".
+    gsub(/["'"'"']/, "", w)
     sub(/^.*\//, "", w)
     if (w == "sh" || w == "dash") return "sh"
     if (w == "bash") return "bash"

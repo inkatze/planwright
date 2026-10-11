@@ -66,6 +66,7 @@ printf '#!/usr/bin/env -S bash -e\n:\n' >"$tmp/d/c.sh"
 printf '#!/bin/dash\n:\n' >"$tmp/d/e.sh"
 printf '#!/usr/bin/env -u FOO bash\n:\n' >"$tmp/d/u.sh"
 printf '#!/usr/bin/env -Sbash -e\n:\n' >"$tmp/d/s.sh"
+printf '#!/usr/bin/env -S "bash" -e\n:\n' >"$tmp/d/sq.sh"
 printf '#!/bin/sh\r\n:\r\n' >"$tmp/d/crlf.sh"
 printf '# shellcheck shell=sh\n# a library\nf() { :; }\n' >"$tmp/d/lib/l.sh"
 printf '# Title\n\n# shellcheck shell=bash\nf() { :; }\n' >"$tmp/d/lib/m.sh"
@@ -74,12 +75,13 @@ printf '#!/bin/bash\n:\n' >"$tmp/d/hooks/pre-commit"
 printf '#!/usr/bin/env python3\npass\n' >"$tmp/d/tool"
 printf 'not shell\n' >"$tmp/d/notes.txt"
 printf 'f() { :; }\n# shellcheck shell=sh\n' >"$tmp/d/late.sh"
-printf '%s\n' a.sh b.sh c.sh e.sh u.sh s.sh crlf.sh lib/l.sh lib/m.sh lib/n.sh \
+printf '%s\n' a.sh b.sh c.sh e.sh u.sh s.sh sq.sh crlf.sh lib/l.sh lib/m.sh lib/n.sh \
   hooks/pre-commit tool notes.txt a.sh >"$tmp/d-list"
 out="$(/bin/sh "$CHECKER" list --root "$tmp/d" --files-from - <"$tmp/d-list" 2>&1)"
 assert_exit "a tree of declared files lists clean, read from stdin" 0 $?
 assert_contains "env -u skips its operand" "$out" "bash${tab}u.sh"
 assert_contains "env -S with an attached word names the interpreter" "$out" "bash${tab}s.sh"
+assert_contains "env -S with a quoted word names the interpreter" "$out" "bash${tab}sq.sh"
 n_a=$(printf '%s\n' "$out" | grep -c "${tab}a.sh\$")
 if [ "$n_a" -eq 1 ]; then pass "a path listed twice is covered once"; else fail "a path listed twice is covered once ($n_a)"; fi
 assert_contains "a /bin/sh shebang is sh" "$out" "sh${tab}a.sh"
