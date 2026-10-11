@@ -3260,7 +3260,8 @@ step_name_cataloged() {
 }
 
 # resolve_declared <location>: fill DECL_LINES with one `<location> <arg>...`
-# line per declared command step that resolves to `run`, when <location>'s
+# line, then a tab and the step's declared pool (`-` for none), per declared
+# command step that resolves to `run`, when <location>'s
 # file name is cataloged, by one multi-point resolver run from HOOK_CWD. Runs
 # once per hook call: a miss defers its segment, which ends the analysis. The
 # check and the run share one job in its own process group, bounded by
@@ -3268,7 +3269,7 @@ step_name_cataloged() {
 # it started outlives the call.
 resolve_declared() {
   local rs deadline ticks pid killed=0
-  local dec target kind args loc key w _
+  local dec target kind args loc pool key w _
   DECL_RESOLVED=1
   [ -n "${HOOK_SELF_ROOT:-}" ] || return 0
   rs="$HOOK_SELF_ROOT/scripts/resolve-steps.sh"
@@ -3319,7 +3320,7 @@ resolve_declared() {
   # either leaves the other points' rows as their own runs print them.
   # The --explain columns resolve-steps.sh documents; it prints `-` for an
   # empty field, which a tab IFS would otherwise collapse.
-  while IFS=$TAB read -r dec _ _ _ _ target _ kind args _ _ _ loc _; do
+  while IFS=$TAB read -r dec _ _ _ _ target _ kind args _ _ _ loc pool _; do
     [ "$dec" = run ] && [ "$kind" = command ] || continue
     step_location_ok "$loc" "$target" || continue
     key=$loc
@@ -3333,7 +3334,7 @@ resolve_declared() {
         key="$key $w"
       done
     fi
-    DECL_LINES="$DECL_LINES$key$NL"
+    DECL_LINES="$DECL_LINES$key$TAB${pool:--}$NL"
   done <"$DECL_TMP/out"
   return 0
 }
@@ -3342,7 +3343,7 @@ resolve_declared() {
 # `swq` / `swn` from verify_simple, before any tracked-assignment
 # substitution), is a declared step's line. Reads `rn` via dynamic scope.
 declared_line_ok() {
-  local i=0 i0 f w name key
+  local i=0 i0 f w name key mark_pool=''
   [ "$rn" -eq 0 ] || return 1
   # The declarations resolve from the payload cwd: after a `cd`, a declared
   # line's relative args would name other files than the declared ones.
@@ -3373,6 +3374,8 @@ declared_line_ok() {
             return 1
           fi
           step_pool_hold_ok "${sw[i]#*=}" || return 1
+          mark_pool=${sw[i]#*=}
+          mark_pool=${mark_pool%%:*}
           i=$((i + 1))
           ;;
       esac
@@ -3389,8 +3392,16 @@ declared_line_ok() {
     i=$((i + 1))
   done
   [ "$DECL_RESOLVED" = 1 ] || resolve_declared "${sw[i0]}" 2>/dev/null
+  # A mark is approved only on a step that declares the pool it names, so a
+  # line can never claim a pool hold its step was not given.
+  if [ -n "$mark_pool" ]; then
+    case $NL$DECL_LINES in
+      *"$NL$key$TAB$mark_pool$NL"*) return 0 ;;
+    esac
+    return 1
+  fi
   case $NL$DECL_LINES in
-    *"$NL$key$NL"*) return 0 ;;
+    *"$NL$key$TAB"*) return 0 ;;
   esac
   return 1
 }
