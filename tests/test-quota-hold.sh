@@ -52,7 +52,12 @@ pass() {
 [ -x "$QH" ] || fail "scripts/quota-hold.sh missing or not executable"
 
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+# A background loop a case starts is named here, so an interrupted suite stops
+# it instead of leaving it spinning on a removed directory.
+bg_loop=""
+trap '[ -z "$bg_loop" ] || kill "$bg_loop" 2>/dev/null; rm -rf "$tmp"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # shellcheck source=tests/lib/fleet-home.sh
 . "$here/lib/fleet-home.sh"
@@ -228,6 +233,76 @@ STUB
     || fail "unreleased: no warning that the push stayed reserved: $(cat "$tmp/unreleased-err")"
   pass "a failed push whose reservation cannot be released says so"
 fi
+
+# A holder killed mid-push releases its reservation, so the next joiner pushes;
+# and a failing holder never releases a later hold's reservation that began in
+# the same second.
+cat >"$stub/fleet-attention.sh" <<'STUB'
+#!/bin/sh
+case ${QH_STUB_MODE:-ok} in
+  slow) sleep 30 ;;
+  slowfail)
+    n=0
+    while [ ! -e "$QH_GO" ] && [ "$n" -lt 60 ]; do
+      sleep 1
+      n=$((n + 1))
+    done
+    exit 1
+    ;;
+esac
+printf '%s\n' "$4" >>"$QH_PUSHES"
+STUB
+chmod 755 "$stub/fleet-attention.sh"
+new_home killed-push
+: >"$tmp/late-pushes"
+QH_STUB_MODE=slow srun hold --vendor sample-cli --unit spec-a:task-1 --step panel --reason quota --now "$NOW" >/dev/null 2>&1 &
+victim=$!
+n=0
+until [ -s "$home/fleet/quota/sample-cli/pushed" ]; do
+  n=$((n + 1))
+  [ "$n" -lt 60 ] || fail "killed-push: the push was never reserved"
+  sleep 1
+done
+# TERM the whole tree, as a timeout wrapper's process-group signal would.
+term_tree() {
+  for tt_c in $(pgrep -P "$1" 2>/dev/null); do
+    term_tree "$tt_c"
+  done
+  kill -TERM "$1" 2>/dev/null || :
+}
+term_tree "$victim"
+wait "$victim" 2>/dev/null || :
+n=0
+while [ -s "$home/fleet/quota/sample-cli/pushed" ] && [ "$n" -lt 20 ]; do
+  n=$((n + 1))
+  sleep 1
+done
+srun hold --vendor sample-cli --unit spec-b:task-2 --step panel --reason quota --now "$NOW" >/dev/null 2>&1 || fail "killed-push: the next joiner failed"
+[ "$(grep -c "quota-hold-sample-cli-$NOW" "$tmp/late-pushes")" = 1 ] \
+  || fail "killed-push: the next joiner did not push the hold a killed holder had reserved"
+pass "a holder killed mid-push releases its reservation"
+
+new_home same-second
+: >"$tmp/late-pushes"
+rm -f "$tmp/go-a"
+QH_STUB_MODE=slowfail QH_GO="$tmp/go-a" srun hold --vendor sample-cli --unit spec-a:task-1 --step panel --reason quota --now "$NOW" >/dev/null 2>&1 &
+holder_a=$!
+n=0
+until [ -s "$home/fleet/quota/sample-cli/pushed" ]; do
+  n=$((n + 1))
+  [ "$n" -lt 60 ] || fail "same-second: the first push was never reserved"
+  sleep 1
+done
+srun resume --vendor sample-cli --now "$NOW" >/dev/null || fail "same-second: resume failed"
+srun hold --vendor sample-cli --unit spec-b:task-2 --step panel --reason quota --now "$NOW" >/dev/null 2>&1 || fail "same-second: the new hold failed"
+: >"$tmp/go-a"
+rc=0
+wait "$holder_a" || rc=$?
+[ "$rc" = 3 ] || fail "same-second: the failing holder exited $rc, not 3"
+srun hold --vendor sample-cli --unit spec-c:task-3 --step panel --reason quota --now "$NOW" >/dev/null 2>&1 || fail "same-second: the joiner failed"
+[ "$(grep -c "quota-hold-sample-cli-$NOW" "$tmp/late-pushes")" = 1 ] \
+  || fail "same-second: a failing holder released the new hold's reservation, so it was pushed $(grep -c "quota-hold-sample-cli-$NOW" "$tmp/late-pushes") times"
+pass "a failing holder releases only its own reservation"
 
 new_home noreset
 run hold --vendor sample-cli --unit spec-a:task-1 --step panel \
@@ -788,13 +863,14 @@ new_home push-race
 relayed="$tmp/push-race-relayed"
 : >"$relayed"
 (
-  while [ ! -e "$tmp/push-race-done" ]; do
+  while [ -d "$tmp" ] && [ ! -e "$tmp/push-race-done" ]; do
     PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
       PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
       /bin/sh "$repo_root/scripts/fleet-attention.sh" relay >>"$relayed" 2>/dev/null || :
   done
 ) &
 relay_pid=$!
+bg_loop=$relay_pid
 pids=""
 for u in $units; do
   run hold --vendor sample-reviewer --unit "$u" --step bot-review --reason quota --now "$NOW" >/dev/null 2>&1 &
@@ -805,6 +881,7 @@ for p in $pids; do
 done
 : >"$tmp/push-race-done"
 wait "$relay_pid" || :
+bg_loop=""
 PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
   PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
   /bin/sh "$repo_root/scripts/fleet-attention.sh" relay >>"$relayed" 2>/dev/null || :

@@ -12,9 +12,10 @@
 #               since  unit  step  reset  recognizer  reason  end
 #   ledger.tsv  one appended line per event, rewritten only by prune:
 #               time  event  unit  pr  head  recognizer  reason  end
-#   pushed      the since of the hold whose attention event is pushed or
-#               being pushed, reserved under the lock before the push, removed
-#               again if the push fails, and removed by resume
+#   pushed      `<since> <holder token>` for the hold whose attention event is
+#               pushed or being pushed: reserved under the lock before the
+#               push, removed by that holder if the push fails or the holder
+#               is stopped first (SIGKILL aside), and removed by resume
 #   lock        the vendor's lock, taken through scripts/lock-lib.sh for every
 #               write, since several units on a host can meet one limit at once
 # An absent optional field is `-`. The trailing `end` field is what lets a line
@@ -112,8 +113,35 @@ RETENTION_MAX=36500
 
 work=""
 CUR_TMP=""
+PUSH_DIR=""
+PUSH_TOKEN=""
+RR_ERR=""
+# release_reservation: remove the push reservation PUSH_TOKEN names, under the
+# vendor's lock and only while it is still this holder's, so the next joiner
+# pushes; sets RR_ERR when it cannot.
+release_reservation() {
+  RR_ERR=""
+  if pw_lock_acquire "$PUSH_DIR/lock" 500; then
+    if [ -f "$PUSH_DIR/pushed" ] && [ "$(cat "$PUSH_DIR/pushed" 2>/dev/null)" = "$PUSH_TOKEN" ]; then
+      rm -f "$PUSH_DIR/pushed" || RR_ERR="the reservation could not be removed"
+    fi
+    pw_lock_release "$PUSH_DIR/lock" \
+      || printf '%s\n' "$prog: the vendor's lock could not be released (retried on exit)" >&2
+  else
+    RR_ERR="the vendor's lock could not be taken"
+  fi
+  PUSH_TOKEN=""
+}
+
 cleanup() {
   pw_lock_release_all
+  # A holder stopped between reserving its push and making it releases the
+  # reservation, or that hold would never be pushed. SIGKILL cannot be caught.
+  if [ -n "$PUSH_TOKEN" ]; then
+    release_reservation
+    [ -z "$RR_ERR" ] || printf '%s\n' "$prog: the push stays reserved ($RR_ERR); a unit joining this hold will not push it" >&2
+    pw_lock_release_all
+  fi
   [ -z "$CUR_TMP" ] || rm -f "$CUR_TMP"
   [ -z "$work" ] || rm -rf "$work"
 }
@@ -397,12 +425,21 @@ case $verb in
     CUR_TMP=""
     # The push is reserved here, under the lock, so two joiners can never both
     # find it unmade; the notify key alone dedupes only while a push is pending.
+    # The record is `<since> <holder token>`: joiners match the since, and a
+    # holder releases only a reservation carrying its own token, never a later
+    # hold's that began in the same second.
     reserved=0
-    if [ ! -f "$pf" ] || [ "$(cat "$pf" 2>/dev/null)" != "$since" ]; then
+    pr_cur=""
+    [ ! -f "$pf" ] || pr_cur=$(cat "$pf" 2>/dev/null)
+    if [ "${pr_cur%% *}" != "$since" ]; then
+      nonce=$(od -An -N4 -tx4 /dev/urandom 2>/dev/null | tr -d ' \n')
+      token="$since $$-$now-${nonce:-0}"
       CUR_TMP=$(mktemp "$dir/.pushed.XXXXXX") || die 6 "cannot create a write temp"
-      printf '%s\n' "$since" >"$CUR_TMP" || die 6 "cannot write the vendor's push record"
+      printf '%s\n' "$token" >"$CUR_TMP" || die 6 "cannot write the vendor's push record"
       mv -f "$CUR_TMP" "$pf" || die 6 "cannot commit the vendor's push record"
       CUR_TMP=""
+      PUSH_DIR=$dir
+      PUSH_TOKEN=$token
       reserved=1
     fi
     unlock_vendor "$dir"
@@ -422,21 +459,13 @@ case $verb in
     elif ! "$ATTN" notify "$summary" --key "quota-hold-$vendor-$since" >/dev/null; then
       push_failed="its attention push failed"
     fi
-    [ -n "$push_failed" ] || exit 0
-    # Release the reservation, while it is still this hold's, so the next
-    # joiner pushes instead.
-    unreleased=""
-    if pw_lock_acquire "$dir/lock"; then
-      if [ -f "$pf" ] && [ "$(cat "$pf" 2>/dev/null)" = "$since" ]; then
-        rm -f "$pf" || unreleased="the reservation could not be removed"
-      fi
-      pw_lock_release "$dir/lock" \
-        || printf '%s\n' "$prog: the vendor's lock could not be released (retried on exit)" >&2
-    else
-      unreleased="the vendor's lock could not be taken"
+    if [ -z "$push_failed" ]; then
+      PUSH_TOKEN=""
+      exit 0
     fi
+    release_reservation
     printf '%s\n' "$prog: the hold on $vendor is recorded, but $push_failed" >&2
-    [ -z "$unreleased" ] || printf '%s\n' "$prog: the push stays reserved ($unreleased); a unit joining this hold will not push it" >&2
+    [ -z "$RR_ERR" ] || printf '%s\n' "$prog: the push stays reserved ($RR_ERR); a unit joining this hold will not push it" >&2
     exit 3
     ;;
 
