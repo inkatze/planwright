@@ -153,7 +153,10 @@ while [ "$#" -gt 0 ]; do
       refs[${#refs[@]}]=$2
       shift 2
       ;;
-    --) shift; break ;;
+    --)
+      shift
+      break
+      ;;
     -*) die 2 usage "unknown option; $USAGE" ;;
     *) break ;;
   esac
