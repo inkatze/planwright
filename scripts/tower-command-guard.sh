@@ -1967,6 +1967,7 @@ opens_operands() {
   case $1 in
     cat | head | tail | wc | cut | comm | cmp | od | grep | diff | nl | paste | column) return 0 ;;
     md5sum | sha1sum | sha256sum | sha512sum | cksum | shellcheck | yamllint) return 0 ;;
+    sort | uniq | file | sed | awk | jq | yq | rg | shfmt | markdownlint | markdownlint-cli2) return 0 ;;
   esac
   return 1
 }
@@ -2030,8 +2031,36 @@ environ_word_risky() {
 }
 
 environ_words_ok() {
-  local i
+  local i pi=0 opts=1 given=0
+  case ${cw[0]} in
+    grep | rg)
+      for ((i = 1; i < cwn; i++)); do
+        if [ "$opts" = 1 ]; then
+          case ${cw[i]} in
+            --)
+              opts=0
+              continue
+              ;;
+            --regexp* | --file*)
+              given=1
+              continue
+              ;;
+            --*) continue ;;
+            -?*)
+              case ${cw[i]} in
+                -*[ef]*) given=1 ;;
+              esac
+              continue
+              ;;
+          esac
+        fi
+        [ "$pi" -gt 0 ] || pi=$i
+      done
+      [ "$given" = 0 ] || pi=0
+      ;;
+  esac
   for ((i = 0; i < cwn; i++)); do
+    [ "$i" -eq "$pi" ] && [ "$pi" -gt 0 ] && continue
     environ_word_risky "${cw[i]}" "${cglob[i]}" && return 1
   done
   return 0
@@ -2241,7 +2270,9 @@ verify_simple() {
     done
   fi
   verb=${cw[0]}
-  environ_words_ok || return 1
+  if opens_operands "$verb"; then
+    environ_words_ok || return 1
+  fi
   opaque_words_ok || return 1
   # Inline environment-assignment prefix: VAR=value [cmd].
   case $verb in

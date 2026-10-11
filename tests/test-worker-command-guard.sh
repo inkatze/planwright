@@ -1250,6 +1250,19 @@ first_half() {
   assert_allow "REQ-E1.6: a glob in the worktree" "cat *.md; grep -n x scripts/*"
   assert_allow "REQ-E1.6: a last component only starting with environ" "cat environment.md"
   assert_allow "REQ-E1.6: a plain redirect source" "wc -l < README.md"
+  # Only a verb that opens its operands meets the environ test.
+  assert_allow "REQ-E1.6: environ as a grep pattern" "grep environ README.md"
+  assert_allow "REQ-E1.6: environ as a grep pattern after flags and --" "grep -n -- environ README.md"
+  assert_defer "REQ-E1.6: a grep pattern before the environ file" "grep environ /proc/1234/environ"
+  assert_defer "REQ-E1.6: grep -e makes the first operand a file" "grep -e x /proc/1234/environ"
+  assert_defer "REQ-E1.6: a later -e makes the first operand a file" "grep environ -e x"
+  assert_defer "REQ-E1.6: -f in a cluster makes the first operand a file" "grep -nf p environ"
+  assert_defer "REQ-E1.6: --regexp makes the first operand a file" "rg --regexp=x environ"
+  assert_allow "REQ-E1.6: environ as an echo operand" "echo environ"
+  assert_allow "REQ-E1.6: environ as a git log pattern" "git log --grep environ"
+  for v in "sed -n p" sort uniq file "jq -R ." "rg x" "awk 1" shfmt; do
+    assert_defer "REQ-E1.6: $v reads another process's environ" "$v /proc/1234/environ"
+  done
 
   echo "### REQ-A1.9 — grammar-conservative deferral"
   assert_defer "env-assignment prefix BASH_ENV" "BASH_ENV=/tmp/x bash scripts/ok.sh"

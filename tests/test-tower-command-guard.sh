@@ -850,6 +850,10 @@ assert_defer "REQ-E1.6: a loop head naming one" "for f in /proc/1234/environ; do
 assert_allow "REQ-E1.6: the reading process's own environ" "cat /proc/self/environ"
 assert_allow "REQ-E1.6: an opaque operand of a non-reader" "echo \$X"
 assert_allow "REQ-E1.6: a loop variable reaching a reader" "for f in README.md; do cat \$f; done"
+assert_allow "REQ-E1.6: environ as a grep pattern" "grep environ README.md"
+assert_allow "REQ-E1.6: environ as an echo operand" "echo environ"
+assert_defer "REQ-E1.6: sed reads another process's environ" "sed -n p /proc/1234/environ"
+assert_defer "REQ-E1.6: sort reads another process's environ" "sort /proc/1234/environ"
 
 # Each bypass row was approved before the fix; regression-only rows already
 # deferred and pin that they still do.

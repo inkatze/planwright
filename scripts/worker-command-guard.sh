@@ -2628,14 +2628,17 @@ arg_independent_verb() {
   return 1
 }
 
-# opens_operands <verb>: the argument-independent verbs that open a file
-# operand and print what it holds (or a digest of it). An unresolved word
-# reaching one could name another process's environment, `$_` after an
-# `echo` of that path included, so it defers there.
+# opens_operands <verb>: the verbs that open a file operand and print what
+# it holds, part of it, or a digest of it. Only their words and the
+# redirects meet the environ test below, so `grep environ f` and
+# `git log --grep environ` stay approvable. An unresolved word reaching one
+# of them that is also argument-independent could name another process's
+# environment, `$_` after an `echo` of that path included, so it defers.
 opens_operands() {
   case $1 in
     cat | head | tail | wc | cut | comm | cmp | od | grep | diff | nl | paste | column) return 0 ;;
     md5sum | sha1sum | sha256sum | sha512sum | cksum | shellcheck | yamllint) return 0 ;;
+    sort | uniq | file | sed | awk | jq | yq | rg | shfmt | markdownlint | markdownlint-cli2) return 0 ;;
   esac
   return 1
 }
@@ -2719,10 +2722,41 @@ environ_word_risky() {
 }
 
 # environ_words_ok: no word of the current simple command could name
-# another process's environ file.
+# another process's environ file. grep and rg read their first operand as
+# the pattern unless a flag anywhere supplies one (GNU grep permutes its
+# arguments); any short cluster holding `e` or `f` is taken to, so the
+# pattern is skipped only when it surely is one.
 environ_words_ok() {
-  local i
+  local i pi=0 opts=1 given=0
+  case ${cw[0]} in
+    grep | rg)
+      for ((i = 1; i < cwn; i++)); do
+        if [ "$opts" = 1 ]; then
+          case ${cw[i]} in
+            --)
+              opts=0
+              continue
+              ;;
+            --regexp* | --file*)
+              given=1
+              continue
+              ;;
+            --*) continue ;;
+            -?*)
+              case ${cw[i]} in
+                -*[ef]*) given=1 ;;
+              esac
+              continue
+              ;;
+          esac
+        fi
+        [ "$pi" -gt 0 ] || pi=$i
+      done
+      [ "$given" = 0 ] || pi=0
+      ;;
+  esac
   for ((i = 0; i < cwn; i++)); do
+    [ "$i" -eq "$pi" ] && [ "$pi" -gt 0 ] && continue
     environ_word_risky "${cw[i]}" "${cglob[i]}" && return 1
   done
   return 0
@@ -3439,12 +3473,14 @@ verify_known_simple() {
   # the words the shell will run. Words carrying a literal `$` are left alone.
   [ "$VAR_C" -eq 0 ] || expand_words
   [ "$cwn" -ge 1 ] || return 0
-  environ_words_ok || return 1
   strip_prefixes || return 1
   verb=${cw[0]}
   if [ "$verb" = cd ]; then
     cd_target_ok
     return
+  fi
+  if opens_operands "$verb"; then
+    environ_words_ok || return 1
   fi
   opaque_words_ok || return 1
   # Inline environment-assignment prefix (REQ-A1.9): VAR=value [cmd].
