@@ -528,6 +528,7 @@ deferred until every flipper posts.
   host, since its own units run the installed plugin (REQ-I1.13); clear
   this bullet when that release is installed.
 - **Task 11** — pending ready-flip: ready-guard failed on d021e74a28bd
+
 ## Deferred
 
 - **Orchestrator-side and pipeline-side points.** `spec-drafted`,
