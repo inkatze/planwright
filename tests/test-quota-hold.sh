@@ -178,7 +178,11 @@ rm -rf "$stub"
 cp -R "$repo_root/scripts" "$stub"
 cat >"$stub/fleet-attention.sh" <<'STUB'
 #!/bin/sh
-while [ ! -e "$QH_GO" ]; do sleep 1; done
+n=0
+while [ ! -e "$QH_GO" ] && [ "$n" -lt 90 ]; do
+  sleep 1
+  n=$((n + 1))
+done
 printf '%s\n' "$4" >>"$QH_PUSHES"
 STUB
 chmod 755 "$stub/fleet-attention.sh"
@@ -318,35 +322,60 @@ out=$(run hold --vendor sample-reviewer --unit spec-a:task-1 --step bot-review -
 [ -z "$(ls -A "$vdir/hold.tsv")" ] || fail "hold-not-file: the hold wrote inside the directory"
 pass "a hold store that is not a regular file is refused"
 
-# The other store files are held to the same rule, and status never blocks
-# on a FIFO where a store file belongs.
-bg_status() {
-  run status --vendor sample-reviewer --now "$NOW" >/dev/null 2>&1 &
-  st_pid=$!
-  (
-    sleep 20
-    kill "$st_pid" 2>/dev/null
-  ) &
-  dog=$!
-  st_rc=0
-  wait "$st_pid" || st_rc=$?
-  kill "$dog" 2>/dev/null || :
-  wait "$dog" 2>/dev/null || :
+# The other store files are held to the same rule, and no verb blocks on a
+# FIFO where a store file belongs.
+# bg_run <fifo> <args>: run the script in the background; one still running
+# after 20s is released by opening <fifo> for writing, and bg_rc reads hung.
+bg_run() {
+  bg_fifo=$1
+  shift
+  run "$@" >/dev/null 2>&1 &
+  bg_pid=$!
+  n=0
+  while kill -0 "$bg_pid" 2>/dev/null && [ "$n" -lt 20 ]; do
+    sleep 1
+    n=$((n + 1))
+  done
+  if kill -0 "$bg_pid" 2>/dev/null; then
+    (: >"$bg_fifo") >/dev/null 2>&1 &
+    bg_w=$!
+    wait "$bg_pid" 2>/dev/null || :
+    kill "$bg_w" 2>/dev/null || :
+    wait "$bg_w" 2>/dev/null || :
+    bg_rc=hung
+  else
+    bg_rc=0
+    wait "$bg_pid" || bg_rc=$?
+  fi
 }
 for f in hold.tsv ledger.tsv; do
   new_home "fifo-$f"
   vdir="$home/fleet/quota/sample-reviewer"
   mkdir -p "$vdir"
   mkfifo "$vdir/$f"
-  bg_status
-  [ "$st_rc" = 6 ] || fail "non-regular: status over a FIFO $f exited $st_rc, not 6"
+  bg_run "$vdir/$f" status --vendor sample-reviewer --now "$NOW"
+  [ "$bg_rc" = 6 ] || fail "non-regular: status over a FIFO $f exited $bg_rc, not 6"
 done
 new_home resume-not-file
 vdir="$home/fleet/quota/sample-reviewer"
-mkdir -p "$vdir/hold.tsv"
+mkdir -p "$vdir"
+mkfifo "$vdir/hold.tsv"
+bg_run "$vdir/hold.tsv" resume --vendor sample-reviewer --now "$NOW"
+[ "$bg_rc" = 6 ] || fail "non-regular: a resume over a FIFO hold store exited $bg_rc, not 6"
+rm -f "$vdir/hold.tsv"
+mkdir "$vdir/hold.tsv"
 rc=0
 run resume --vendor sample-reviewer --now "$NOW" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 6 ] || fail "non-regular: a resume over a hold store that is a directory exited $rc, not 6"
+new_home pushed-stuck
+run hold --vendor sample-reviewer --unit spec-a:task-1 --step bot-review --reason "quota" --now "$NOW" >/dev/null 2>&1 || fail "pushed-stuck fixture: hold failed"
+vdir="$home/fleet/quota/sample-reviewer"
+rm -f "$vdir/pushed"
+mkdir -p "$vdir/pushed/kept"
+rc=0
+run resume --vendor sample-reviewer --now "$NOW" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 6 ] || fail "non-regular: a resume that could not clear the push record exited $rc, not 6"
+grep -q "${TAB}spec-a:task-1${TAB}" "$vdir/hold.tsv" || fail "non-regular: a resume that could not clear the push record released the holds"
 new_home pushed-not-file
 vdir="$home/fleet/quota/sample-reviewer"
 mkdir -p "$vdir/pushed"
@@ -421,7 +450,7 @@ run hold --vendor sample-reviewer --unit spec-b:task-1 --step bot-review --reaso
 [ "$(grep -c "${TAB}spec-b:task-1${TAB}" "$(holdfile sample-reviewer)")" = 1 ] || fail "renewal: the unit was written twice"
 grep -q "^$((NOW + 10))${TAB}spec-b:task-1${TAB}bot-review${TAB}-${TAB}-${TAB}renewed${TAB}end$" "$(holdfile sample-reviewer)" \
   || fail "renewal: the renewed line did not take the new step and reason: $(cat "$(holdfile sample-reviewer)")"
-st=$(run status --vendor sample-reviewer --now $((NOW + 30)))
+st=$(run status --vendor sample-reviewer --now $((NOW + 30))) || fail "status exited non-zero (--vendor sample-reviewer)"
 printf '%s\n' "$st" | grep -q "^vendor${TAB}sample-reviewer${TAB}held${TAB}${NOW}${TAB}$((NOW + 500))${TAB}4${TAB}first$" \
   || fail "status: the vendor line is not the earliest since and reason with the latest reset"
 pass "a renewal takes the new step and reason, and the vendor line aggregates its holders"
@@ -433,18 +462,18 @@ new_home retention
 run record --vendor sample-reviewer --event request --now $((NOW - 90 * DAY)) || fail "retention fixture: record at the cutoff failed"
 run record --vendor sample-reviewer --event request --now $((NOW - 90 * DAY - 1)) || fail "retention fixture: record past the cutoff failed"
 run record --vendor sample-cli --event request --now $((NOW - 200 * DAY)) || fail "retention fixture: other vendor record failed"
-st=$(run status --vendor sample-reviewer --now "$NOW")
+st=$(run status --vendor sample-reviewer --now "$NOW") || fail "status exited non-zero (--vendor sample-reviewer)"
 printf '%s\n' "$st" | grep -q "^count${TAB}sample-reviewer${TAB}request${TAB}1$" \
   || fail "retention: a line exactly at the cutoff was not counted (or one past it was)"
 run prune --vendor sample-reviewer --now "$NOW" || fail "prune --vendor failed"
 [ "$(wc -l <"$(ledger sample-reviewer)" | tr -d ' ')" = 1 ] || fail "retention: prune did not keep exactly the line at the cutoff"
 [ "$(wc -l <"$(ledger sample-cli)" | tr -d ' ')" = 1 ] || fail "retention: prune --vendor touched another vendor"
 printf 'quota_ledger_retention_days: 99999\n' >"$local_cfg"
-st=$(run status --vendor sample-reviewer --now "$NOW")
+st=$(run status --vendor sample-reviewer --now "$NOW") || fail "status exited non-zero (--vendor sample-reviewer)"
 printf '%s\n' "$st" | grep -q "^retention${TAB}36500$" || fail "retention: a value above 36500 did not read as 36500"
 : >"$local_cfg"
 mkdir -p "$home/fleet/quota/Not-A-Vendor"
-st=$(run status --now "$NOW")
+st=$(run status --now "$NOW") || fail "status exited non-zero (all vendors)"
 ! printf '%s\n' "$st" | grep -q "Not-A-Vendor" || fail "status listed a store directory outside the vendor grammar"
 run hold --vendor sample-cli --unit spec-a:task-1 --step panel --reason "quota" --now "$NOW" >/dev/null 2>&1 || fail "retention fixture: hold failed"
 run resume --vendor sample-cli --reason "window reset seen" --now "$NOW" >/dev/null || fail "resume with a reason failed"
@@ -556,11 +585,14 @@ mkdir -p "$home/fleet/quota/sample-cli"
   printf '%s\tspec-a:task-1\tpanel\t-\tother.quota\tr\tend\n' "$NOW"
   printf '%s\tspec-a:task-1\tpanel\t-\t-\tbad%sbyte\tend\n' "$NOW" "$esc"
   printf '%s\tspec-a:task-1\tpanel\t-\t-\tr\tnot-end\n' "$NOW"
+  printf '%s\tspec-a:task-1\tpanel\t-\t-\tr\tend\textra\n' "$NOW"
+  printf '1%015d\tspec-a:task-1\tpanel\t-\t-\tr\tend\n' 0
+  printf '%s\tspec-ok:task-1\tpanel\t-\t-\tr\tend\n' "$NOW"
 } >"$(holdfile sample-cli)"
-st=$(run status --vendor sample-cli --now "$NOW")
-printf '%s\n' "$st" | grep -q "^vendor${TAB}sample-cli${TAB}clear${TAB}" || fail "forged-holds: a forged hold line was read as a holder: $st"
+st=$(run status --vendor sample-cli --now "$NOW") || fail "forged-holds: status exited non-zero"
+printf '%s\n' "$st" | grep -q "^vendor${TAB}sample-cli${TAB}held${TAB}${NOW}${TAB}-${TAB}1${TAB}r$" || fail "forged-holds: a forged hold line was read as a holder: $st"
 out=$(run resume --vendor sample-cli --now "$NOW") || fail "forged-holds: resume failed"
-[ -z "$out" ] || fail "forged-holds: resume released a forged line: $out"
+[ "$out" = "released${TAB}spec-ok:task-1${TAB}panel" ] || fail "forged-holds: resume released other than the one valid line: $out"
 pass "every hold-store read rule skips its own forged line"
 
 # An append that was cut short (a full disk) never swallows the next line.
@@ -568,13 +600,13 @@ new_home torn
 run record --vendor sample-cli --event request --now "$NOW" || fail "torn fixture: record failed"
 printf '%s\trequest\t-\t-' "$NOW" >>"$(ledger sample-cli)"
 run record --vendor sample-cli --event refusal --now "$NOW" || fail "torn: the record after a torn line failed"
-st=$(run status --vendor sample-cli --now "$NOW")
+st=$(run status --vendor sample-cli --now "$NOW") || fail "status exited non-zero (--vendor sample-cli)"
 printf '%s\n' "$st" | grep -q "^count${TAB}sample-cli${TAB}refusal${TAB}1$" \
   || fail "torn: the line appended after a torn one was lost"
 # A crash can leave the tail as NUL bytes rather than a cut line.
 printf '%s\trequest\t-\t-\t-\t-\t-\te\000\000' "$NOW" >>"$(ledger sample-cli)"
 run record --vendor sample-cli --event answer --now "$NOW" || fail "torn: the record after a NUL tail failed"
-st=$(run status --vendor sample-cli --now "$NOW")
+st=$(run status --vendor sample-cli --now "$NOW") || fail "status exited non-zero (--vendor sample-cli)"
 printf '%s\n' "$st" | grep -q "^count${TAB}sample-cli${TAB}answer${TAB}1$" \
   || fail "torn: the line appended after a NUL tail was lost"
 pass "a torn ledger line never swallows the next append"
@@ -701,7 +733,7 @@ fi
 # A stated reset of 0 is still a stated reset in the status view.
 new_home reset-zero
 run hold --vendor sample-cli --unit spec-a:task-1 --step panel --reason "quota" --reset 0 --now "$NOW" >/dev/null 2>&1 || fail "reset-zero fixture: hold failed"
-st=$(run status --vendor sample-cli --now "$NOW")
+st=$(run status --vendor sample-cli --now "$NOW") || fail "status exited non-zero (--vendor sample-cli)"
 printf '%s\n' "$st" | grep -q "^vendor${TAB}sample-cli${TAB}held${TAB}${NOW}${TAB}0${TAB}1${TAB}" \
   || fail "status dropped a stated reset of 0"
 pass "a stated reset of 0 reads the same in status as in the push"
