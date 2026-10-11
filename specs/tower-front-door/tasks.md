@@ -455,50 +455,6 @@ router has not demonstrated (REQ-B1.6).
 
 ## Awaiting input
 
-- **Task 19** — every ruling from 2026-10-11 is applied, but the second
-  convergence review (point `convergence`, step `polish`, outcome
-  `halted`, record `.claude/steps/000002/001-step-convergence.rec`) found
-  more problems in the same security-sensitive code, so each waits for a
-  decision. Nothing below is applied; no PR is open. Items 1 to 6 are an
-  applied fix falling short of its ruling, or breaking something; 7 on are
-  new. Reply per item, or for all at once: the recommended fix, a variant,
-  or no change. Agent recommendation: the recommended fix for every item,
-  and for item 7 the documented false positive.
-  1. Regression (confirmed): `land --repo-root .` now fails (exit 4),
-     because `land` changes its working directory while the root stays
-     relative. Fix: use the resolved absolute root after resolving it,
-     with a relative-root test.
-  2. Ruling 2 partial: a hook that renames a new file over the record
-     gives it a new identity, so rollback leaves it staged and on disk.
-     Fix: once the record is staged and HEAD lacks it, always unstage it;
-     delete the file only when it is still this run's.
-  3. Ruling 6 partial: any format's end marker closes any open key block,
-     so a line carrying a foreign end marker inside a PuTTY key publishes
-     its private lines. Fix: a block ends only at its own format's end.
-  4. Ruling 7 partial: a digit run mixing spaces and dashes is skipped
-     whole, so a card next to an expiry or a date is missed. Fix: require
-     one separator per layout window, not per run.
-  5. Speed regression: the card layout loop takes seconds on a long line
-     of digit groups. Fix: start windows only at four-digit groups and
-     bound the windows scanned.
-  6. Ruling 7 partial: an IBAN after an IBAN-shaped token is missed. Fix:
-     on a failed check, resume the search after the first group.
-  7. The spaced SSN form flags port-like triples such as `443 80 8080`.
-     Fix: require a nearby keyword, or document it as a known false
-     positive.
-  8. Smaller items, each with a recommended fix: a flagged line inside a
-     key block prints its own marker and can raise a wrong personal-data
-     note (mark only outside a block, flags from printed markers); the
-     commit-failure message says "removed" before rollback runs (let
-     rollback report what it did); the header's exit-code summary misses
-     the new filesystem failures (amend it); `ln`'s error text is dropped
-     on exit 4 (print it); a directory that cannot be entered reports
-     "became a symlink" (exit 4 with its own message); the comments
-     overstate what personal data is caught (list the deliberate misses);
-     the `+` phone rule misses a number followed by `24h` (end the match
-     where the digit count first fits); `(555)-234-5678` is not matched
-     (allow a separator after `)`).
-
 ## Deferred
 
 - **Tower floor bypass paths from the skill core's review.** The deny
