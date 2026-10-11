@@ -118,7 +118,7 @@ is classed on `finding-categorization`'s *Prose findings* axis first:
 expression-only when no normative statement changes meaning, meaning-class
 otherwise. A behaviour-changing Needs-sign-off fix commits alone; prose-only
 ones batch into one commit per iteration carrying the wiring doc's manifest,
-so one commit can carry several checklist entries. Attended or unattended, a
+so one checklist entry carries a sub-item per fix. Attended or unattended, a
 Needs-sign-off fix is committed on the branch, never asked about first. Each
 iteration's commits stand as the per-iteration audit trail.
 
