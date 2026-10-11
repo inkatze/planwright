@@ -15,7 +15,7 @@ argument-hint: "<feature-name> [--extend <spec>]"
 
 The authoring entry point of the planwright pipeline (REQ-B1.1): a Socratic,
 interactive elicitation that turns an idea plus its seed material into a
-compliant four-file bundle at `specs/<spec>/`, Status Draft, committed on the
+compliant four-file bundle at `<root>/<spec>/`, Status Draft, committed on the
 spec branch. Drafting ends where comprehension begins: `/spec-kickoff` walks
 the Draft to sign-off and flips it Ready. This skill never pushes, never
 opens a PR, and never flips a status to Ready — sign-off is a reserved human
@@ -82,16 +82,18 @@ Doctrine: point-of-use decision-domains (the design-phase catalog walk)
    interpolated. No name given: elicit the idea first (seed gathering
    below) and propose a name from it. When `--extend <spec>` is present,
    additionally
-   verify the target: `specs/<spec>/requirements.md` must exist and its
+   verify the target: `<root>/<spec>/requirements.md` must exist and its
    Status must be non-terminal. A nonexistent target gets a clear message
    listing the specs that do exist; a Retired or Superseded target is
    refused per the extend-mode terminal rule, up front rather than after
    elicitation starts.
-2. **Detect the git state.** Not a git repository: degrade per REQ-K1.7 —
-   say so up front, elicit and write the bundle in place, and skip every
-   branch/worktree/commit step below, surfacing at the end what was skipped
-   and why. No remote configured: irrelevant here (this skill never pushes);
-   note it only so the human knows `/spec-kickoff`'s push step will degrade.
+2. **Detect the git state.** Resolve `<root>` and its posture per
+   `docs/spec-location.md`; outside `same-repo`, its table replaces the
+   branch, worktree, and commit steps below. Not a git repository: degrade
+   per REQ-K1.7 — say so up front, elicit and write the bundle in place, and
+   skip every branch/worktree/commit step below, surfacing at the end what
+   was skipped and why. No remote configured: irrelevant here; note it only
+   so the human knows `/spec-kickoff`'s push step will degrade.
 3. **Read the config.** `commit_on_draft` from `config/defaults.yml`
    overridden by `<repo>/.claude/planwright.local.yml` (local wins). Default
    `true`; an absent, unreadable, or malformed config file falls back to the
@@ -126,7 +128,7 @@ question; seeds answer questions the human would otherwise repeat.
 
 1. **The invocation itself** — whatever idea, links, or files came with the
    prompt.
-2. **Pending notes** — files under `specs/_pending/`. Read them; ask which
+2. **Pending notes** — files under `<root>/_pending/`. Read them; ask which
    apply if more than one plausibly does.
 3. **The observations accumulator** — the live fragments under
    `specs/_observations/entries/` plus the frozen legacy
@@ -141,7 +143,7 @@ question; seeds answer questions the human would otherwise repeat.
    with the relevant set pre-marked) so nothing is consumed silently.
 4. **Transcripts and documents** the human offers.
 
-An absent `specs/_pending/`, fragment directory, legacy log, or `specs/`
+An absent `<root>/_pending/`, fragment directory, legacy log, or root
 directory entirely (a first-run repo) is not an error: note what was absent
 and proceed with the seeds that exist.
 
@@ -192,7 +194,7 @@ this drain ritual; this section applies it, not defines it.
 Runs on **every** invocation, regardless of the feature name — the name is a
 hint, not a command. Skipped only when `--extend` already named the target.
 
-1. Scan every existing spec under `specs/` (any non-terminal status: Draft,
+1. Scan every existing spec under `<root>` (any non-terminal status: Draft,
    Ready, Active, Done). Read each bundle's `requirements.md` Goal and Scope
    sections — bounded by design; the overlap signal lives in goal/scope. A malformed bundle (missing
    `requirements.md`, unparseable header) is skipped with a notice naming
@@ -365,7 +367,7 @@ validator the first time.
    open questions surfaced to the human (an erroring pass named as such,
    never counted as clean), and the delta-plus-open summary, with the full
    disposition list one request away.
-   Run `scripts/spec-validate.sh specs/<spec>` when present and executable
+   Run `scripts/spec-validate.sh <root>/<spec>` when present and executable
    (findings are warnings on Draft: surface them, fix structural ones,
    let the human defer judgment ones); validator absent: note it and
    continue — authoring is a graceful-degradation path (REQ-K1.7), and
@@ -378,7 +380,7 @@ committed prose neutralizes them.
 
 ## Completion
 
-1. **Write the bundle** at `specs/<spec>/` in the spec worktree (plus the
+1. **Write the bundle** at `<root>/<spec>/` in the spec worktree (plus the
    `_observations` consumption writes — fragment moves into `archive/` and
    any frozen-legacy in-place annotations — when entries were consumed).
 2. **Neutralize machine-local references (REQ-D1.1, REQ-D1.2, D-4).** Before
@@ -404,8 +406,7 @@ committed prose neutralizes them.
    set: leave the work uncommitted and say so explicitly.
 4. **Hand off.** Report: the bundle path and branch, validator outcome,
    seeds consumed (and archived), fold-detection outcome, and the next step —
-   `/spec-kickoff specs/<spec>` for the walkthrough and sign-off. Push, PR, and
-   the status flip belong to kickoff and the human; this skill stops here.
+   `/spec-kickoff specs/<spec>` for the walkthrough and sign-off.
    - Optionally recommend `/spec-walkthrough specs/<spec>` for an unaided,
      plain-language read before sign-off (REQ-F1.1, REQ-F1.2, D-11) — a
      suggestion only, never a step this skill performs.

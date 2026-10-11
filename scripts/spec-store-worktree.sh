@@ -46,7 +46,7 @@ spec_id_canon "$1"
 id=$SPEC_ID
 case $id in
   '' | flight | *[!a-z0-9-]* | [!a-z0-9]*)
-    say "refused: the spec must be an identifier matching ^[a-z0-9][a-z0-9-]*\$ (or specs/<id>), not flight"
+    say "refused: the spec must be an identifier matching ^[a-z0-9][a-z0-9-]*\$, not flight"
     exit 2
     ;;
 esac

@@ -15,7 +15,7 @@ argument-hint: "<spec>"
 
 The comprehension layer of the planwright pipeline (REQ-B2.4, REQ-B2.2):
 a section-by-section walkthrough of a spec bundle until human and agent
-hold the same understanding, recorded as `specs/<spec>/kickoff-brief.md` —
+hold the same understanding, recorded as `<root>/<spec>/kickoff-brief.md` —
 the durable contract (two-brief model, D-3). Downstream skills
 (`/execute-task`, `/orchestrate`) operate from the brief, not the spec; what
 this walkthrough gets wrong, execution gets wrong.
@@ -34,8 +34,7 @@ docs via the rule-doc resolution convention
 (`scripts/resolve-rule-doc.sh <doc-name>` under the resolved planwright
 root); their definitions govern wherever this skill names a concept:
 
-- `security-posture` — artifact data-hygiene: the brief and risk register are
-  committed.
+- `security-posture` — artifact data-hygiene.
 
 **Invoking plugin scripts (REQ-D1.1, D-7).** Call `scripts/<name>.sh` by the
 **resolved literal absolute path**, never `$VAR/scripts/<name>.sh` —
@@ -121,7 +120,7 @@ Superseded are terminal: refuse — no skill-driven transition leaves them.
    trailing slash allowed). Validate the mapped identifier against the anchored, full-string
    pattern `^[a-z0-9][a-z0-9-]*$`, maximum length 64 (REQ-A1.8), **before** it
    appears in any path, branch name, or command; a failing identifier is never
-   interpolated. No argument: list the bundles under `specs/`
+   interpolated. No argument: list the bundles under `<root>`
    (underscore-prefixed accumulators are not bundles) and ask.
 2. **Verify the bundle and select the mode.** All four files must exist
    (`requirements.md`, `design.md`, `tasks.md`, `test-spec.md`). A missing file
@@ -147,7 +146,7 @@ Superseded are terminal: refuse — no skill-driven transition leaves them.
      whole-bundle delta re-walkthrough (a missing brief gets the full
      first-activation structure minus the already-done flip).
    - **Done / Retired / Superseded** → per the Modes section.
-3. **Run the validator.** `scripts/spec-validate.sh specs/<spec>` when present
+3. **Run the validator.** `scripts/spec-validate.sh <root>/<spec>` when present
    and executable. Draft findings are warnings: surface them, fix structural
    ones with the human before walking, and record the outcome for the brief
    header. Ready or Active findings are errors (status-aware — Ready blocks on
@@ -167,6 +166,8 @@ Superseded are terminal: refuse — no skill-driven transition leaves them.
    `mark_spec_pr_ready_on_kickoff` gates the terminal ready-flip and
    `kickoff_ready_ci_wait` bounds its CI wait (sign-off step 8).
 5. **Resolve the working location** (D-44, graceful in every starting state).
+   Resolve `<root>` and its posture per `docs/spec-location.md`; outside
+   `same-repo`, its table governs every git step.
    The spec branch is `planwright/<spec>/spec` (the namespace `tasks-pr-sync`
    no-ops on); the spec worktree is `<repo>/.claude/worktrees/<spec>-spec` (D-37).
    - **Already in the spec worktree:** proceed; on dirty/diverged state, surface
@@ -193,7 +194,7 @@ Superseded are terminal: refuse — no skill-driven transition leaves them.
 7. **Surface the optional independent walkthrough (suggest only).** Recommend
    `/spec-walkthrough specs/<spec>` for an unaided cold read — a complement,
    never a dependency (REQ-F1.1, REQ-F1.2, D-11; comprehend-first stays in-band
-   per `kickoff-dialogue`). This skill never performs it.
+   per `kickoff-dialogue`).
 
 ## The walkthrough
 
@@ -346,8 +347,8 @@ most recent anchor entry never describes spec content that was not walked.
    as an appended amendment-log entry (everything later) — sections above the
    amendment log are append-only after first sign-off. Carry `Class:`,
    `Lens-pass:` (meaning-class only), and **the anchor line last** (the
-   fail-closed ordering). Compute the anchor
-   with `scripts/spec-anchor.sh specs/<spec>` after every spec-file edit of this
+   fail-closed ordering). Compute the anchor with `scripts/spec-anchor.sh
+   <root>/<spec>`, recorded as `specs/<spec>`, after every spec-file edit of this
    run (flip, `Last reviewed:`, applied findings) is on disk; it fails closed on
    a defective bundle — surface its stderr and stop with no anchor line, never
    hand-roll it. Absent that script, descend `spec-format`'s sanctioned-form

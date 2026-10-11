@@ -28,19 +28,21 @@ Doctrine: point-of-use interaction-style (Steps 3 and 4, the attended turns)
 
 ## Procedure
 
-### 1. Resolve the evaluator and the specs root
+### 1. Resolve the evaluator and the spec root
 
 Resolve the planwright root via the standard chain
 (`PLANWRIGHT_ROOT` → `CLAUDE_PLUGIN_ROOT` → `<claude-dir>/planwright`); the
-evaluator is `<root>/scripts/drain-gates.sh`. The specs root is the current
-repository's `specs/` directory. If there is no `specs/` directory, report
-that there is nothing to drain and stop (this is a read-only authoring-path
-move: degrade gracefully, REQ-K1.7).
+evaluator is `<root>/scripts/drain-gates.sh`. The spec root is what
+`scripts/resolve-root.sh spec` prints from the current repository, in any
+posture (`docs/spec-location.md`); the sweep only reads it. If the root does
+not resolve or names no directory, report that there is nothing to drain and
+stop, naming the resolver's refusal when it gave one (this is a read-only
+authoring-path move: degrade gracefully, REQ-K1.7).
 
 ### 2. Run the evaluator
 
 ```sh
-<planwright-root>/scripts/drain-gates.sh specs/
+<planwright-root>/scripts/drain-gates.sh <spec-root>
 ```
 
 The evaluator resolves task-completion atoms through the derivation engine
