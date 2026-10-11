@@ -402,8 +402,7 @@ redact() {
       }
       NR == FNR {
         r[$1] = (r[$1] == "" ? $2 : r[$1] ", " $2)
-        if ($2 ~ /^personal-data-/) personal = 1
-        else secret[$1] = sec = 1
+        if ($2 !~ /^personal-data-/) secret[$1] = 1
         next
       }
       {
@@ -429,8 +428,14 @@ redact() {
             }
           }
         }
-        if (FNR in r) print "[redacted: " r[FNR] ((FNR in secret) ? ", a token-shaped secret]" : ", personal data]")
-        else if (!was) print
+        # A line inside a block goes with the block, unmarked: its key is
+        # already marked, and its findings raise no note of their own.
+        if (was) next
+        if (FNR in r) {
+          print "[redacted: " r[FNR] ((FNR in secret) ? ", a token-shaped secret]" : ", personal data]")
+          if (r[FNR] ~ /personal-data-/) personal = 1
+          if (FNR in secret) sec = 1
+        } else print
       }
       END { print sec + 2 * personal >flags }' flags="$work/$1.flags" "$work/$1.hits" "$work/$1.clean" >"$2" \
       || die 4 "cannot redact --$1"

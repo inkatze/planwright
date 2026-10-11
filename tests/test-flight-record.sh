@@ -411,6 +411,16 @@ for part in Private-Lines "$KEY_BODY2" "$PUTTY_END"; do
   case $OUT in *"$part"*) fail "a foreign end marker published a key line: ${part:0:16}" ;; esac
 done
 printf '%s\n' "$OUT" | grep -qx '  Then rerun the deploy.' || fail "the line after the key's own end must survive"
+# A line inside a key block that the screens also flag is dropped with the
+# block: one marker for the key, and no personal-data note from its comment.
+printf 'Use this key:\n%s\nComment: call %s\n%s\n%s\nThen rerun the deploy.\n' \
+  "$PGP_BEGIN" "$NANP_IN_KEY" "$KEY_BODY1" "$PGP_END" >"$in/ask-key-pii.txt"
+run_render pr --ask-file "$in/ask-key-pii.txt"
+[ "$RC" -eq 0 ] || fail "render of a key with personal data in its comment exited $RC: $ERR"
+[ "$(printf '%s\n' "$OUT" | grep -c '^  \[redacted: ')" -eq 1 ] \
+  || fail "a key block must carry one redaction marker: $(printf '%s\n' "$OUT" | grep redacted)"
+printf '%s\n' "$OUT" | grep -q 'personal data were redacted' \
+  && fail "a key's comment must not raise the personal-data note"
 
 # Personal data in the ask (identity, account, and contact numbers) is
 # redacted a whole line at a time and noted; ordinary numbers in an ask are
