@@ -728,6 +728,27 @@ run hold --vendor sample-cli --unit spec-a:task-1 --step panel --reason r --now 
 [ "$rc" = 6 ] || fail "symlink: a hold beside a linked push record exited $rc, not 6"
 pass "a hold refuses a linked push record"
 
+# A file where the store or a vendor's directory belongs hides every hold.
+for pos in store vendor; do
+  for verb in status resume; do
+    new_home "nondir-$pos-$verb"
+    case $pos in
+      store)
+        mkdir -p "$home/fleet"
+        : >"$home/fleet/quota"
+        ;;
+      vendor)
+        mkdir -p "$home/fleet/quota"
+        : >"$home/fleet/quota/sample-cli"
+        ;;
+    esac
+    rc=0
+    run "$verb" --vendor sample-cli --now "$NOW" >/dev/null 2>&1 || rc=$?
+    [ "$rc" = 6 ] || fail "non-directory: $verb over a file at the $pos path exited $rc, not 6"
+  done
+done
+pass "a file at the store or vendor path is refused"
+
 # --- 7. The vendor view in fleet-stats.sh render ---------------------------
 # The render reads the real clock, so this fixture is stamped relative to it.
 new_home stats

@@ -304,6 +304,10 @@ refuse_links() {
   for rl_p in "$store" "$store/$1" "$store/$1/ledger.tsv" "$store/$1/hold.tsv" "$store/$1/pushed"; do
     [ ! -L "$rl_p" ] || die 6 "refusing a symlink in the vendor's store"
   done
+  # A file where a directory belongs would read as a store with no holds.
+  for rl_p in "$store" "$store/$1"; do
+    [ ! -e "$rl_p" ] || [ -d "$rl_p" ] || die 6 "the vendor's store path is not a directory"
+  done
 }
 
 vendor_dir() {
