@@ -263,6 +263,10 @@ put scripts/no-suffix <<'EOF'
 shopt -s nullglob
 EOF
 ln -s lib.sh "$fx/scripts/linked.sh"
+put scripts/busy <<'EOF'
+#!/bin/busybox sh
+exit 0
+EOF
 put scripts/notes.txt <<'EOF'
 not a script
 EOF
@@ -291,7 +295,8 @@ expect() {
 # ---------------------------------------------------------------------------
 [ "$(head -n 1 "$tmp/out1")" = "$(printf 'path\ttier\tflag\tcallers\tmutation\tprofile\tunresolved')" ] \
   || fail "p0: header is $(head -n 1 "$tmp/out1")"
-want_paths=$(printf '%s\n' githooks/pre-commit scripts/bareonly.sh scripts/both.sh scripts/commented.sh \
+want_paths=$(printf '%s\n' githooks/pre-commit scripts/bareonly.sh scripts/both.sh scripts/busy \
+  scripts/commented.sh \
   scripts/deadlib.sh scripts/described.sh scripts/devtool.sh scripts/doconly.sh \
   scripts/filetask.sh scripts/gitcalled.sh scripts/glued.sh scripts/heredoc-only.sh \
   scripts/hook-and-skill.sh scripts/hooked.sh scripts/interp.sh scripts/lib.sh scripts/linked.sh \
@@ -355,6 +360,7 @@ expect scripts/described.sh tests-only no-live-caller - - - -
 expect scripts/commented.sh tests-only no-live-caller - - - -
 expect scripts/heredoc-only.sh tests-only no-live-caller - - - -
 expect scripts/no-suffix tests-only no-live-caller - - shopt -
+expect scripts/busy tests-only no-live-caller - - - -
 expect scripts/name.sh tests-only no-live-caller - - - -
 expect scripts/glued.sh tests-only no-live-caller - - - -
 # shellcheck disable=SC2016 # the literal text the partition reports
@@ -441,7 +447,7 @@ printf '%s\n' '{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "sc
 rc=0
 run_sp "$tmp/fx10" >/dev/null || rc=$?
 [ "$rc" = 5 ] || fail "p7: an empty hooks.json beside a live settings fragment exited $rc, want 5"
-echo "ok: p7 fails closed on a missing task file, an unreadable or empty hook registration, an unreadable skill body, a duplicate name, no workflow, and an empty root"
+echo "ok: p7 fails closed on a missing task file, an unreadable or empty hook registration, an unreadable skill body, a duplicate name, no workflow, and an empty root, and reads a root named -dash as a path"
 
 # ---------------------------------------------------------------------------
 # p8: the repository's own partition runs, and places the script itself in

@@ -182,7 +182,7 @@ scan_files() {
       while ((r = (getline line < f)) > 0) {
         if (first) {
           first = 0
-          if (!keep && line ~ /^#![ \t]*[^ \t]*(\/|env[ \t]+)(ba|da|k|z|a)?sh([ \t]|$)/) keep = 1
+          if (!keep && line ~ /^#![ \t]*[^ \t]*(\/|[ \t]+)(ba|da|k|z|a)?sh([ \t]|$)/) keep = 1
           if (!keep) break
           if (k == "layer") { print substr(f, length(root) + 2); break }
         }
