@@ -2,20 +2,15 @@
 
 After [Discovery Rigor](discovery-rigor.md) produces findings and
 [Validation Rigor](validation-rigor.md) confirms them, skills that act on
-findings locally (such as `/self-review`, `/polish`, and the
-convergence phase inside `/execute-task`) categorize each finding into one of
-four buckets. The buckets are an **audit taxonomy, not a decision queue**
-(REQ-C1.5): they record what kind of action the agent took and what evidence
-backs it, so the human can review the whole record at the draft PR.
+findings locally categorize each finding into one of four buckets. The
+buckets are an **audit taxonomy, not a decision queue** (REQ-C1.5): they
+record what kind of action the agent took and what evidence backs it, so the
+human can review the whole record at the draft PR.
 
 Citations: REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6,
 REQ-C1.7 · D-4, D-5, D-6 · operator-dialogue REQ-I1.1, REQ-I1.2, REQ-I1.4 ·
 operator-dialogue D-14, D-15 · prose-disposition REQ-B1.1, REQ-B1.5 ·
-prose-disposition D-3 · human-gates REQ-B1.1 · test-throughput REQ-F1.7 ·
-test-throughput D-18.
-
-The operational wiring is specified in [Gate Wiring](gate-wiring.md), which
-implements the buckets and principles defined here.
+prose-disposition D-3 · human-gates REQ-B1.1.
 
 ## The principle: honest decision shape
 
@@ -74,12 +69,10 @@ conditions must hold (REQ-C1.2).
 1. **Failing-then-passing regression test.** A test exists that fails on the
    current code for the finding's exact reason, written and confirmed to fail
    *before* the fix, and passing unchanged after it.
-2. **Passing project CI.** The project's full test, lint, and type-check
-   suite passes with the fix, with no new regressions anywhere: either a
-   green full local suite after the fix, or a green CI run on a pushed head
-   containing the fix. A fix awaiting that CI run is listed as awaiting it
-   and reported resolved only once the run is green; a red run leaves it
-   unresolved.
+2. **Passing project CI.** The full test, lint, and type-check suite passes
+   with no new regressions anywhere: a green full local suite after the fix, or a
+   green CI run on a pushed head containing it; a fix awaiting that run is
+   reported resolved only once it is green.
 3. **Kickoff-brief alignment.** No contract drift relative to the active
    kickoff brief's goals, constraints, or decisions. If no kickoff brief is
    active for the current branch, the finding cannot be Agent-resolvable.

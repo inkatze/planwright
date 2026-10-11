@@ -39,11 +39,9 @@ bucket.
    upward.
 3. **Disposition by bucket:**
    - *Auto-applicable* → apply now, audit row with the rule citation.
-   - *Agent-resolvable* → resolve with the evidence row (failing-then-passing
-     test, CI result, and a brief-alignment citation naming the brief section
-     or REQ/D-ID it aligns with). The CI result is a green full local suite
-     after the fix or a green CI run on a pushed head containing the fix; a
-     fix awaiting that run is reported resolved only once it is green.
+   - *Agent-resolvable* → resolve with the evidence row the predicate
+     requires, its brief-alignment citation naming the brief section or
+     REQ/D-ID it aligns with.
    - *Needs sign-off* → apply on the branch per the commit discipline below,
      add a pending-sign-off checklist entry.
    - *Needs-human-judgment candidate* → climb the resolution ladder (see
