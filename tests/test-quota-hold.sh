@@ -163,6 +163,49 @@ case $(cat "$push_dir"/* 2>/dev/null) in
 esac
 pass "a joined or renewed hold is never pushed twice, and a new hold after a resume is"
 
+# A push record naming an older hold never silences a new one.
+new_home stale-record
+mkdir -p "$home/fleet/quota/sample-cli"
+printf '%s\n' $((NOW - 999)) >"$home/fleet/quota/sample-cli/pushed"
+run hold --vendor sample-cli --unit spec-a:task-1 --step panel --reason "quota" --now "$NOW" >/dev/null 2>&1 || fail "stale-record: hold failed"
+[ -n "$(ls -A "$home/fleet/attention/push" 2>/dev/null)" ] || fail "stale-record: a push record for an older hold silenced a new one"
+
+# A push that finishes after a resume and a new hold never records the old
+# hold over the new one: a stub notify parks the first push until released.
+new_home late-push
+stub="$tmp/stub-scripts"
+rm -rf "$stub"
+cp -R "$repo_root/scripts" "$stub"
+cat >"$stub/fleet-attention.sh" <<'STUB'
+#!/bin/sh
+while [ ! -e "$QH_GO" ]; do sleep 1; done
+printf '%s\n' "$4" >>"$QH_PUSHES"
+STUB
+chmod 755 "$stub/fleet-attention.sh"
+srun() {
+  PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
+    QH_PUSHES="$tmp/late-pushes" /bin/sh "$stub/quota-hold.sh" "$@"
+}
+: >"$tmp/late-pushes"
+QH_GO="$tmp/go-first" srun hold --vendor sample-cli --unit spec-a:task-1 --step panel --reason "quota" --now "$NOW" >/dev/null 2>&1 &
+first=$!
+n=0
+until [ -s "$home/fleet/quota/sample-cli/hold.tsv" ]; do
+  n=$((n + 1))
+  [ "$n" -lt 60 ] || fail "late-push: the first hold never landed"
+  sleep 1
+done
+: >"$tmp/go-now"
+QH_GO="$tmp/go-now" srun resume --vendor sample-cli --now $((NOW + 50)) >/dev/null || fail "late-push: resume failed"
+QH_GO="$tmp/go-now" srun hold --vendor sample-cli --unit spec-b:task-1 --step panel --reason "quota" --now $((NOW + 100)) >/dev/null 2>&1 || fail "late-push: the second hold failed"
+: >"$tmp/go-first"
+wait "$first" || fail "late-push: the parked first hold failed"
+QH_GO="$tmp/go-now" srun hold --vendor sample-cli --unit spec-c:task-1 --step panel --reason "quota" --now $((NOW + 200)) >/dev/null 2>&1 || fail "late-push: the joining hold failed"
+[ "$(grep -c "quota-hold-sample-cli-$((NOW + 100))" "$tmp/late-pushes")" = 1 ] \
+  || fail "late-push: the live hold was pushed again after a late push recorded the old one: $(cat "$tmp/late-pushes")"
+pass "a push record follows the live hold, never an older one"
+
 new_home noreset
 run hold --vendor sample-cli --unit spec-a:task-1 --step panel \
   --reason "monthly allowance exhausted" --now "$NOW" >/dev/null 2>&1 || fail "hold without a reset exited non-zero"
