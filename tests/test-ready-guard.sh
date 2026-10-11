@@ -944,6 +944,48 @@ run_hook "$(bash_payload 'gh pr ready 42')"
 HOOK=$SAVED_HOOK
 assert_deny_because "conflict-only with no resolver beside the guard degrades to refuse" '7 commit'
 
+# The guard's own reading of the resolver's answer, driven through a stub
+# resolver beside a copy of the guard: only an exact `conflict-only` on a
+# zero exit within the bound relaxes the check.
+STUBBED="$SANDBOX/stubbed"
+mkdir -p "$STUBBED"
+cp "$HOOK" "$STUBBED/ready-guard.sh"
+cp "$(dirname "$HOOK")/echo-safety.sh" "$STUBBED/echo-safety.sh"
+# run_stubbed_resolver <label> <deny|defer> <resolver body>
+run_stubbed_resolver() {
+  printf '%s\n' "$3" >"$STUBBED/resolve-policy-knob.sh"
+  reset_stub_env
+  STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
+  RG_GH_TIMEOUT=1
+  SAVED_HOOK=$HOOK
+  HOOK="$STUBBED/ready-guard.sh"
+  run_hook "$(bash_payload 'gh pr ready 42')"
+  HOOK=$SAVED_HOOK
+  if [ "$2" = defer ]; then
+    assert_defer "$1"
+  else
+    assert_deny_because "$1" '7 commit'
+  fi
+}
+run_stubbed_resolver "positive control: a stub resolver answering conflict-only is reached and relaxes" \
+  defer "printf 'conflict-only\n'"
+run_stubbed_resolver "a resolver answer that only starts with conflict-only applies refuse" \
+  deny "printf 'conflict-only-x\n'"
+run_stubbed_resolver "a resolver answer with conflict-only on a later line applies refuse" \
+  deny "printf 'warning\nconflict-only\n'"
+run_stubbed_resolver "conflict-only printed before a non-zero exit applies refuse" \
+  deny "printf 'conflict-only\n'; exit 1"
+run_stubbed_resolver "a resolver that answers only after the query bound applies refuse" \
+  deny "sleep 2; printf 'conflict-only\n'"
+
+# An inherited machine-local file path is dropped like the derived one.
+reset_stub_env
+printf 'ready_guard_behind_base: conflict-only\n' >"$SANDBOX/local-override.yml"
+RG_LOCAL_CONFIG="$SANDBOX/local-override.yml"
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "a PLANWRIGHT_LOCAL_CONFIG file saying conflict-only does not relax the guard" '7 commit'
+
 echo "### REQ-C1.7 — global wiring in hooks/hooks.json"
 
 if [ ! -f "$HOOKS_JSON" ]; then
