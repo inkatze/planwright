@@ -25,7 +25,8 @@
 # Exit: 0 ready; 2 usage or a refused identifier; 3 the root is not in a
 # holder (same-repo and plain keep their own paths); 4 the root did not
 # resolve, or the holder refused (a foreign directory at the worktree path,
-# a symlinked .claude, no default branch, a git failure).
+# a symlinked .claude, a symlink on the bundle path inside the worktree, no
+# default branch, a git failure).
 set -u
 LC_ALL=C
 export LC_ALL
@@ -147,9 +148,24 @@ else
   add_wt "create $wt on a new $branch" --no-track -b "$branch" "$wt" "$base"
 fi
 
-if [ -n "$rel" ]; then
-  bundle="$wt/$rel/$id"
-else
-  bundle="$wt/$id"
-fi
+# The skills write through the printed path, so no component of it below the
+# worktree may be a symlink: one committed on the spec branch or the default
+# branch would carry the writes outside the holder.
+bundle=$wt
+rest=${rel:+$rel/}$id
+while [ -n "$rest" ]; do
+  bundle=$bundle/${rest%%/*}
+  case $rest in
+    */*) rest=${rest#*/} ;;
+    *) rest='' ;;
+  esac
+  [ ! -L "$bundle" ] || {
+    say "refused: $bundle is a symlink"
+    exit 4
+  }
+  [ ! -e "$bundle" ] || [ -d "$bundle" ] || {
+    say "refused: $bundle is not a directory"
+    exit 4
+  }
+done
 printf 'worktree\t%s\nbundle\t%s\nbranch\t%s\n' "$wt" "$bundle" "$branch"

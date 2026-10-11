@@ -308,6 +308,54 @@ point "$W11" "$tmp/no-such-root"
 sw "$W11" demo
 if [ "$rc" -eq 4 ] && [ -z "$out" ]; then ok "an unresolvable root exits 4"; else fail "unresolvable root: rc=$rc out=$out"; fi
 
+# --- the printed bundle path never leaves the holder worktree --------------
+# A symlink committed at the root's path on the spec branch.
+sw "$W" sym
+symwt="$H/.claude/worktrees/sym-spec"
+mkdir -p "$tmp/outside"
+rm -rf "$symwt/projects/demo-root"
+ln -s "$tmp/outside" "$symwt/projects/demo-root"
+gitq -C "$symwt" add -A && gitq -C "$symwt" commit -q -m swap
+sw "$W" sym
+if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'symlink'; then
+  ok "a symlinked root path in the reused worktree is refused, no path printed"
+else
+  fail "symlinked root on reuse: rc=$rc out=$out err=$err"
+fi
+gitq -C "$H" worktree remove --force "$symwt"
+sw "$W" sym
+if [ "$rc" -eq 4 ] && [ -z "$out" ]; then
+  ok "a symlinked root path on a recreated worktree is refused"
+else
+  fail "symlinked root on recreate: rc=$rc out=$out err=$err"
+fi
+# A symlink committed at the bundle directory itself.
+sw "$W" symb
+symbwt="$H/.claude/worktrees/symb-spec"
+mkdir -p "$tmp/outside2"
+ln -s "$tmp/outside2" "$symbwt/projects/demo-root/symb"
+gitq -C "$symbwt" add -A && gitq -C "$symbwt" commit -q -m link
+sw "$W" symb
+if [ "$rc" -eq 4 ] && [ -z "$out" ] && [ -z "$(ls -A "$tmp/outside2")" ]; then
+  ok "a symlinked bundle directory is refused"
+else
+  fail "symlinked bundle: rc=$rc out=$out err=$err"
+fi
+
+# A root path with a space and a glob byte is walked component by component.
+H6="$tmp/holder6"
+W6="$tmp/work6"
+work_repo "$W6"
+holder "$H6" main 'spec roots/a*'
+mkdir -p "$H6/spec roots/ab"
+point "$W6" "$H6/spec roots/a*"
+sw "$W6" demo
+if [ "$rc" -eq 0 ] && [ "$(field bundle)" = "$H6/.claude/worktrees/demo-spec/spec roots/a*/demo" ]; then
+  ok "a root path with a space and a glob byte is printed as it is"
+else
+  fail "spaced root: rc=$rc out=$out err=$err"
+fi
+
 # --- other postures and bad identifiers are refused -----------------------
 W4="$tmp/work4"
 work_repo "$W4"
