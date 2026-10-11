@@ -398,11 +398,13 @@ new_home renewal
 run hold --vendor sample-reviewer --unit spec-a:task-1 --step bot-review --reason "first" --reset $((NOW + 100)) --now "$NOW" >/dev/null 2>&1 || fail "renewal fixture: hold a failed"
 run hold --vendor sample-reviewer --unit spec-b:task-1 --step panel --reason "second" --reset $((NOW + 900)) --now $((NOW + 10)) >/dev/null 2>&1 || fail "renewal fixture: hold b failed"
 run hold --vendor sample-reviewer --unit spec-c:task-1 --step panel --reason "third" --reset $((NOW + 500)) --now $((NOW + 20)) >/dev/null 2>&1 || fail "renewal fixture: hold c failed"
+run hold --vendor sample-reviewer --unit spec-d:task-1 --step panel --reason "fourth" --reset $((NOW + 200)) --now $((NOW + 25)) >/dev/null 2>&1 || fail "renewal fixture: hold d failed"
 run hold --vendor sample-reviewer --unit spec-b:task-1 --step bot-review --reason "renewed" --now $((NOW + 30)) >/dev/null 2>&1 || fail "renewal fixture: renew b failed"
 [ "$(grep -c "${TAB}spec-b:task-1${TAB}" "$(holdfile sample-reviewer)")" = 1 ] || fail "renewal: the unit was written twice"
 grep -q "^$((NOW + 10))${TAB}spec-b:task-1${TAB}bot-review${TAB}-${TAB}-${TAB}renewed${TAB}end$" "$(holdfile sample-reviewer)" \
   || fail "renewal: the renewed line did not take the new step and reason: $(cat "$(holdfile sample-reviewer)")"
-run status --vendor sample-reviewer --now $((NOW + 30)) | grep -q "^vendor${TAB}sample-reviewer${TAB}held${TAB}${NOW}${TAB}$((NOW + 500))${TAB}3${TAB}first$" \
+st=$(run status --vendor sample-reviewer --now $((NOW + 30)))
+printf '%s\n' "$st" | grep -q "^vendor${TAB}sample-reviewer${TAB}held${TAB}${NOW}${TAB}$((NOW + 500))${TAB}4${TAB}first$" \
   || fail "status: the vendor line is not the earliest since and reason with the latest reset"
 pass "a renewal takes the new step and reason, and the vendor line aggregates its holders"
 
@@ -413,16 +415,19 @@ new_home retention
 run record --vendor sample-reviewer --event request --now $((NOW - 90 * DAY)) || fail "retention fixture: record at the cutoff failed"
 run record --vendor sample-reviewer --event request --now $((NOW - 90 * DAY - 1)) || fail "retention fixture: record past the cutoff failed"
 run record --vendor sample-cli --event request --now $((NOW - 200 * DAY)) || fail "retention fixture: other vendor record failed"
-run status --vendor sample-reviewer --now "$NOW" | grep -q "^count${TAB}sample-reviewer${TAB}request${TAB}1$" \
+st=$(run status --vendor sample-reviewer --now "$NOW")
+printf '%s\n' "$st" | grep -q "^count${TAB}sample-reviewer${TAB}request${TAB}1$" \
   || fail "retention: a line exactly at the cutoff was not counted (or one past it was)"
 run prune --vendor sample-reviewer --now "$NOW" || fail "prune --vendor failed"
 [ "$(wc -l <"$(ledger sample-reviewer)" | tr -d ' ')" = 1 ] || fail "retention: prune did not keep exactly the line at the cutoff"
 [ "$(wc -l <"$(ledger sample-cli)" | tr -d ' ')" = 1 ] || fail "retention: prune --vendor touched another vendor"
 printf 'quota_ledger_retention_days: 99999\n' >"$local_cfg"
-run status --vendor sample-reviewer --now "$NOW" | grep -q "^retention${TAB}36500$" || fail "retention: a value above 36500 did not read as 36500"
+st=$(run status --vendor sample-reviewer --now "$NOW")
+printf '%s\n' "$st" | grep -q "^retention${TAB}36500$" || fail "retention: a value above 36500 did not read as 36500"
 : >"$local_cfg"
 mkdir -p "$home/fleet/quota/Not-A-Vendor"
-! run status --now "$NOW" | grep -q "Not-A-Vendor" || fail "status listed a store directory outside the vendor grammar"
+st=$(run status --now "$NOW")
+! printf '%s\n' "$st" | grep -q "Not-A-Vendor" || fail "status listed a store directory outside the vendor grammar"
 run hold --vendor sample-cli --unit spec-a:task-1 --step panel --reason "quota" --now "$NOW" >/dev/null 2>&1 || fail "retention fixture: hold failed"
 run resume --vendor sample-cli --reason "window reset seen" --now "$NOW" >/dev/null || fail "resume with a reason failed"
 grep -q "${TAB}resume${TAB}-${TAB}-${TAB}-${TAB}-${TAB}window reset seen${TAB}end$" "$(ledger sample-cli)" || fail "retention: the resume reason did not reach the ledger"
@@ -507,6 +512,13 @@ esc=$(printf '\033')
   printf '%s\tspend\t-\t-\t-\t-\tr\tend\n' "$NOW"
   printf '%s\trequest\t-\t-\t-\t-\tbad%sbyte\tend\n' "$NOW" "$esc"
   printf '%s\trequest\t-\t-\t-\t-\tr\tnot-end\n' "$NOW"
+  printf '%s\trequest\t-\t-\t-\t-\t%s\tend\n' "$NOW" "$(printf '%0513d' 0)"
+  printf '%s\trequest\t-\t-\t-\t-\t\tend\n' "$NOW"
+  printf '%s\trequest\t-\t-\t%sa\t-\tr\tend\n' "$NOW" "$HEAD40"
+  printf '1%015d\trequest\t-\t-\t-\t-\tr\tend\n' 0
+  printf '%s\trequest\t..\t-\t-\t-\tr\tend\n' "$NOW"
+  printf '%s\trequest\tu%0128d\t-\t-\t-\tr\tend\n' "$NOW" 0
+  printf '%s\trequest\t-\t-\t-\t-\tr\tend\textra\n' "$NOW"
 } >>"$lf"
 status=$(run status --vendor sample-cli --now "$NOW")
 printf '%s\n' "$status" | grep -q "^count${TAB}sample-cli${TAB}request${TAB}0$" || fail "forged-fields: a line breaking one field was counted: $status"
@@ -514,6 +526,24 @@ printf '%s\n' "$status" | grep -q "^count${TAB}sample-cli${TAB}answer${TAB}1$" |
 run prune --now "$NOW" || fail "forged-fields: prune failed"
 [ "$(wc -l <"$lf" | tr -d ' ')" = 1 ] || fail "forged-fields: prune kept a line failing the grammar: $(cat "$lf")"
 pass "every read rule skips its own forged line, and prune drops them"
+
+# The hold store's read rules, one forged line each: none is a holder, and a
+# resume releases none of them.
+new_home forged-holds
+mkdir -p "$home/fleet/quota/sample-cli"
+{
+  printf 'soon\tspec-a:task-1\tpanel\t-\t-\tr\tend\n'
+  printf '%s\tspec-a:task-1\tBad Step\t-\t-\tr\tend\n' "$NOW"
+  printf '%s\tspec-a:task-1\tpanel\tlater\t-\tr\tend\n' "$NOW"
+  printf '%s\tspec-a:task-1\tpanel\t-\tother.quota\tr\tend\n' "$NOW"
+  printf '%s\tspec-a:task-1\tpanel\t-\t-\tbad%sbyte\tend\n' "$NOW" "$esc"
+  printf '%s\tspec-a:task-1\tpanel\t-\t-\tr\tnot-end\n' "$NOW"
+} >"$(holdfile sample-cli)"
+st=$(run status --vendor sample-cli --now "$NOW")
+printf '%s\n' "$st" | grep -q "^vendor${TAB}sample-cli${TAB}clear${TAB}" || fail "forged-holds: a forged hold line was read as a holder: $st"
+out=$(run resume --vendor sample-cli --now "$NOW") || fail "forged-holds: resume failed"
+[ -z "$out" ] || fail "forged-holds: resume released a forged line: $out"
+pass "every hold-store read rule skips its own forged line"
 
 # An append that was cut short (a full disk) never swallows the next line.
 new_home torn
@@ -617,25 +647,33 @@ pass "the render names a missing reset, plural units, and the configured retenti
 
 # A store status cannot read fails closed: never a held vendor rendered clear
 # or missing.
-new_home stats-unreadable
-run hold --vendor sample-reviewer --unit spec-a:task-1 --step bot-review --reason "quota" --now "$NOW" >/dev/null 2>&1 || fail "unreadable fixture: hold failed"
-for f in hold.tsv ledger.tsv; do
-  chmod 000 "$home/fleet/quota/sample-reviewer/$f"
-  rc=0
-  run status --now "$NOW" >/dev/null 2>&1 || rc=$?
-  [ "$rc" = 6 ] || fail "status over an unreadable $f exited $rc, not 6"
-  render=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
-    PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
-    /bin/sh "$FSTATS" render 2>/dev/null) || fail "fleet-stats render (unreadable) exited non-zero"
-  printf '%s\n' "$render" | grep -q '^  vendors:        unknown$' || fail "render over an unreadable $f is not unknown: $render"
-  chmod 600 "$home/fleet/quota/sample-reviewer/$f"
-done
-pass "status fails closed over an unreadable store, and the render says unknown"
+if [ "$(id -u)" = 0 ]; then
+  echo "skip: unreadable-store checks (root reads through mode 000)"
+else
+  new_home stats-unreadable
+  run hold --vendor sample-reviewer --unit spec-a:task-1 --step bot-review --reason "quota" --now "$NOW" >/dev/null 2>&1 || fail "unreadable fixture: hold failed"
+  qs="$home/fleet/quota"
+  for f in "$qs/sample-reviewer/hold.tsv" "$qs/sample-reviewer/ledger.tsv" "$qs"; do
+    mode=600
+    [ -f "$f" ] || mode=700
+    chmod 000 "$f"
+    rc=0
+    run status --now "$NOW" >/dev/null 2>&1 || rc=$?
+    render=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+      PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
+      /bin/sh "$FSTATS" render 2>/dev/null) || render="(render exited non-zero)"
+    chmod "$mode" "$f"
+    [ "$rc" = 6 ] || fail "status over an unreadable ${f#"$qs"/} exited $rc, not 6"
+    printf '%s\n' "$render" | grep -q '^  vendors:        unknown$' || fail "render over an unreadable ${f#"$qs"/} is not unknown: $render"
+  done
+  pass "status fails closed over an unreadable store, and the render says unknown"
+fi
 
 # A stated reset of 0 is still a stated reset in the status view.
 new_home reset-zero
 run hold --vendor sample-cli --unit spec-a:task-1 --step panel --reason "quota" --reset 0 --now "$NOW" >/dev/null 2>&1 || fail "reset-zero fixture: hold failed"
-run status --vendor sample-cli --now "$NOW" | grep -q "^vendor${TAB}sample-cli${TAB}held${TAB}${NOW}${TAB}0${TAB}1${TAB}" \
+st=$(run status --vendor sample-cli --now "$NOW")
+printf '%s\n' "$st" | grep -q "^vendor${TAB}sample-cli${TAB}held${TAB}${NOW}${TAB}0${TAB}1${TAB}" \
   || fail "status dropped a stated reset of 0"
 pass "a stated reset of 0 reads the same in status as in the push"
 
