@@ -510,9 +510,19 @@ PW_LIST="$work/list" awk '
         j = i + 2; dash = 0
         if (substr(s, j, 1) == "-") { dash = 1; j++ }
         while (substr(s, j, 1) ~ /[ \t]/) j++
+        # The delimiter is one shell word: quoted parts may hold spaces, and
+        # the quotes themselves are dropped.
         w = ""
-        while (j <= n && substr(s, j, 1) !~ /[ \t;&|<>()]/) { w = w substr(s, j, 1); j++ }
-        gsub(/["'"'"'\\]/, "", w)
+        while (j <= n && substr(s, j, 1) !~ /[ \t;&|<>()]/) {
+          c = substr(s, j, 1)
+          if (c == "\\") { w = w substr(s, j + 1, 1); j += 2 }
+          else if (c == "'"'"'" || c == "\"") {
+            k = index(substr(s, j + 1), c)
+            if (!k) { w = w substr(s, j + 1); j = n + 1 }
+            else { w = w substr(s, j + 1, k - 1); j += k + 1 }
+          }
+          else { w = w c; j++ }
+        }
         if (w != "") {
           lx_nhd++
           lx_hd[lx_nhd] = w; lx_hdash[lx_nhd] = dash
@@ -556,6 +566,18 @@ PW_LIST="$work/list" awk '
     return st || bt || p
   }
 
+  # Whether a pattern after a ;; (or ;& or ;;&) on the line is bare.
+  function later_bare(r,   seg, n, i, s) {
+    n = split(r, seg, /;;&?|;&/)
+    for (i = 2; i <= n; i++) {
+      s = seg[i]
+      sub(/^[ \t]+/, "", s)
+      if (s ~ /^esac([ \t;)]|$)/) return 0
+      if (s ~ BARE_PATTERN) return 1
+    }
+    return 0
+  }
+
   # Case-statement state for the substitution numbered id, from its text t
   # on one line. Returns 1 when t holds a bare pattern there.
   function case_step(id, t,   r, bad) {
@@ -564,6 +586,7 @@ PW_LIST="$work/list" awk '
       ncase[id]++; want_in[id] = 0
       r = substr(t, RSTART + RLENGTH)
       if (r != "" && r !~ /^\(/ && r !~ /^#/) bad = 1
+      if (later_bare(r)) bad = 1
       want_pat[id] = (r == "")
       if (r ~ ESAC) ncase[id]--
     } else if (t ~ CASE_NO_IN) want_in[id] = 1
@@ -574,6 +597,7 @@ PW_LIST="$work/list" awk '
       want_pat[id] = (r == "")
     } else if (ncase[id] > 0) {
       if (want_pat[id] && t ~ BARE_PATTERN && t !~ /^[ \t]*esac([ \t;)]|$)/) bad = 1
+      if (later_bare(t)) bad = 1
       if (t !~ /^[ \t]*$/) want_pat[id] = 0
       if (t ~ ESAC) ncase[id]--
     }
@@ -638,8 +662,9 @@ PW_LIST="$work/list" awk '
       }
       # A substitution opened and closed on this line never reaches
       # case_step; this catches its one-line case.
-      if (!flagged && lx_bare ~ /(^|[^\\])\$\([ \t]*case[ \t]+[^ \t;]+[ \t]+in[ \t]+[^( \t]/) {
-        report(rel, n, CASE_MSG)
+      if (!flagged && match(lx_bare, /(^|[^\\])\$\([ \t]*case[ \t]+[^ \t;]+[ \t]+in[ \t]+/)) {
+        i = substr(lx_bare, RSTART + RLENGTH)
+        if (i ~ /^[^( \t]/ || later_bare(i)) report(rel, n, CASE_MSG)
       }
       if (flagged) {
         report(rel, n, CASE_MSG)

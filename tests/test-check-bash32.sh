@@ -372,6 +372,12 @@ expect_flag "a case in a process substitution" 4 "$CASE_MSG" procsub.sh \
   'while read -r l; do :; done < <(' '  case $x in' '    a) echo a ;;' '  esac' ')'
 expect_flag "a pattern whose arm reopens a substitution" 4 "$CASE_MSG" arm-reopen.sh \
   'x=$(' '  case $v in' '    a) y=$(echo hi) ;;' '  esac' ')'
+expect_flag "a later bare pattern on the case line" 2 "$CASE_MSG" later-bare.sh \
+  'x=$(case $y in (x) : ;; b) : ;; esac)'
+expect_lint_only "a later bare pattern in a double-quoted substitution" 2 "$CASE_MSG" later-bare-dq.sh \
+  'x="$(case $y in (x) : ;; b) : ;; esac)"'
+expect_flag "a later bare pattern on a pattern line" 4 "$CASE_MSG" later-bare-ml.sh \
+  'x=$(' '  case $y in' '    (x) : ;; b) : ;;' '  esac' ')'
 expect_flag "a pattern on the same line as case in" 3 "$CASE_MSG" same-line-in.sh \
   'x=$(' '  case $y in a) echo ;; esac' ')'
 expect_flag "a pattern on a lone in line" 4 "$CASE_MSG" in-line-pattern.sh \
@@ -408,6 +414,8 @@ expect_flag "a heredoc after nested arithmetic" 2 "$HEREDOC_MSG" arith-nested.sh
   'x=$(n=$(((1+2)*2)); cat <<HD' "it's" 'HD' ')'
 expect_flag "a heredoc after a single-quoted string closes" 5 "$HEREDOC_MSG" sq-close.sh \
   'x=$(' "  awk '" '    {print}' "  ' - <<HD" "it's" 'HD' ')'
+expect_flag "a heredoc with a quoted, spaced delimiter" 3 "$HEREDOC_MSG" spaced-delim-sub.sh \
+  'x=$(' "  cat <<'END MARK'" "it's" 'END MARK' ')'
 expect_lint_only "a heredoc whose delimiter never appears" 2 "$UNCLOSED_MSG" unclosed.sh \
   'cat <<EOF' 'body'
 expect_flag "a quote that never closes" 2 "$QUOTE_MSG" open-quote.sh \
@@ -457,6 +465,8 @@ expect_clean "an arithmetic shift" shift.sh \
   'x=$(' '  echo $((1 << 2))' ')' 'case $f in' '  a) : ;;' 'esac'
 expect_clean "a here-string" herestring.sh \
   'x=$(' '  cat <<<"$y"' ')' 'z=1'
+expect_clean "a quoted delimiter holding a space" spaced-delim.sh \
+  "cat <<'END MARK'" 'body' 'END MARK'
 expect_clean "esac) closing a multi-line case" esac-close.sh \
   'x=$(' '  case a in' '    (a) : ;;' '  esac)'
 expect_clean "an ANSI-C quoted escape in a heredoc body" body-ansi.sh \
