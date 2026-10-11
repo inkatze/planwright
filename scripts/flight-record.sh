@@ -16,7 +16,8 @@
 # Every structural line (the markers, the headings, the collapse tags, the
 # fences) sits at column zero. The ask and the grounds are operator text: each
 # is stripped of control and invisible characters, its token-shaped secrets
-# redacted a whole line (a private key its whole block) at a time, and it is
+# and personal data (identity, account, and contact numbers) redacted a whole
+# line (a private key its whole block) at a time, and it is
 # quoted inside a fence longer than any backtick run it holds with every
 # non-blank line indented two spaces, so
 # no fence, tag, heading, or marker it carries renders, closes the collapse, or
@@ -204,6 +205,85 @@ screen_all() {
   [ -s "$work/hits" ] || die 4 "the secret screen reported a finding this script could not place"
 }
 
+# personal_data <name> — append to $work/hits a `<name><TAB><line><TAB><rule>`
+# finding for each personal-data rule a line of the operator text <name>
+# matches: a US social security number (personal-data-identity), a payment
+# card that passes its Luhn check or an uppercase IBAN that passes its mod-97
+# check (personal-data-account), and a NANP or `+`-prefixed international
+# phone number (personal-data-contact). The checksums and the separator
+# shapes keep version strings, dates, PR numbers, and hashes out; a card or
+# an IBAN run on into following digits is missed rather than guessed at.
+# awk without interval expressions, which POSIX awk does not promise.
+personal_data() {
+  awk -v name="$1" '
+    function digits(s) { gsub(/[^0-9]/, "", s); return s }
+    function luhn(d,   i, x, s, alt) {
+      s = 0
+      alt = 0
+      for (i = length(d); i >= 1; i--) {
+        x = substr(d, i, 1) + 0
+        if (alt) { x *= 2; if (x > 9) x -= 9 }
+        s += x
+        alt = !alt
+      }
+      return s % 10 == 0
+    }
+    function iban(s,   r, i, c) {
+      s = substr(s, 5) substr(s, 1, 4)
+      r = 0
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (c ~ /[0-9]/) r = (r * 10 + c) % 97
+        else r = (r * 100 + index("ABCDEFGHIJKLMNOPQRSTUVWXYZ", c) + 9) % 97
+      }
+      return r == 1
+    }
+    function hit(rule) {
+      if (!(rule in seen)) print name "\t" FNR "\t" rule
+      seen[rule] = 1
+    }
+    # each(re) — the matches of re in s, one per call, with the byte before
+    # and after each; false when there are no more.
+    function each(re,   t) {
+      t = substr(s, off + 1)
+      if (!match(t, re)) return 0
+      st = off + RSTART
+      m = substr(s, st, RLENGTH)
+      pre = substr(s, st - 1, 1)
+      post = substr(s, st + RLENGTH, 1)
+      off = st + RLENGTH - 1
+      return 1
+    }
+    {
+      split("", seen)
+      s = " " $0 " "
+      if (s ~ /[^0-9-][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9][^0-9-]/) hit("personal-data-identity")
+      if (s ~ /[^0-9.-][(]?[0-9][0-9][0-9][)]?[ .-][0-9][0-9][0-9][ .-][0-9][0-9][0-9][0-9][^0-9.-]/) hit("personal-data-contact")
+      off = 0
+      while (each("[+][0-9][0-9 .()-]*[0-9]")) {
+        if (pre ~ /[A-Za-z0-9_]/) continue
+        n = length(digits(m))
+        if (n >= 8 && n <= 15) hit("personal-data-contact")
+      }
+      off = 0
+      while (each("[0-9]+([ -][0-9]+)*")) {
+        if (pre ~ /[A-Za-z_]/ || post ~ /[A-Za-z_]/) continue
+        d = digits(m)
+        if (length(d) >= 13 && length(d) <= 19 && luhn(d)) hit("personal-data-account")
+      }
+      off = 0
+      while (each("[A-Z][A-Z][0-9][0-9]( ?[A-Z0-9])+")) {
+        if (pre ~ /[A-Za-z0-9_]/) continue
+        c = ""
+        ng = split(m, g, " ")
+        for (j = 1; j <= ng; j++) {
+          c = c g[j]
+          if (length(c) >= 15 && length(c) <= 34 && iban(c)) { hit("personal-data-account"); break }
+        }
+      }
+    }' "$work/$1" >>"$work/hits" || die 4 "cannot screen --${1%.clean} for personal data"
+}
+
 # hits_for <name> <out> — the screen's `<line><TAB><rule>` findings in the
 # input <name>; true when there are any.
 hits_for() {
@@ -221,15 +301,18 @@ operator_text() {
 }
 
 # redact <name> <out> — the cleaned text with each line the screen flagged
-# replaced whole; REDACTED is 1 when any was. The screen flags only a key
-# block's BEGIN line, so a flagged private-key-block also takes every line
-# through its END line, or to the end of the text when there is none.
+# replaced whole; REDACTED is 1 when a secret was, REDACTED_PERSONAL when
+# personal data was. The screen flags only a key block's BEGIN line, so a
+# flagged private-key-block also takes every line through its END line, or to
+# the end of the text when there is none.
 redact() {
   REDACTED=0
+  REDACTED_PERSONAL=0
   if hits_for "$1.clean" "$work/$1.hits"; then
     awk -F '\t' '
       NR == FNR {
         r[$1] = (r[$1] == "" ? $2 : r[$1] ", " $2)
+        if ($2 !~ /^personal-data-/) secret[$1] = 1
         if ($2 == "private-key-block") k[$1] = 1
         next
       }
@@ -238,12 +321,13 @@ redact() {
         next
       }
       FNR in r {
-        print "[redacted: " r[FNR] ", a token-shaped secret]"
-        if (FNR in k && $0 !~ /-----END ([A-Z]+ )?PRIVATE KEY-----/) inkey = 1
+        print "[redacted: " r[FNR] ((FNR in secret) ? ", a token-shaped secret]" : ", personal data]")
+        if ((FNR in k) && $0 !~ /-----END ([A-Z]+ )?PRIVATE KEY-----/) inkey = 1
         next
       }
       { print }' "$work/$1.hits" "$work/$1.clean" >"$2" || die 4 "cannot redact --$1"
-    REDACTED=1
+    ! cut -f2 "$work/$1.hits" | grep -qv '^personal-data-' || REDACTED=1
+    ! cut -f2 "$work/$1.hits" | grep -q '^personal-data-' || REDACTED_PERSONAL=1
   else
     cp "$work/$1.clean" "$2" || die 4 "cannot copy --$1"
   fi
@@ -416,12 +500,14 @@ render_to() {
     printf 'Quoted as the operator gave it, fenced so its markup stays inert.\n'
     [ "$ask_stripped" -eq 0 ] || printf 'Invisible or bidi-control characters were stripped from it.\n'
     [ "$ask_redacted" -eq 0 ] || printf 'Lines carrying a token-shaped secret were redacted whole.\n'
+    [ "$ask_personal" -eq 0 ] || printf 'Lines carrying personal data were redacted whole.\n'
     printf '\n'
     fenced "$work/ask" || return 1
     printf '\n### Route and grounds\n\n'
     printf 'Visual flight. Grounds as the tower stated them:\n'
     [ "$grounds_stripped" -eq 0 ] || printf 'Invisible or bidi-control characters were stripped from them.\n'
     [ "$grounds_redacted" -eq 0 ] || printf 'A token-shaped secret in them was redacted whole.\n'
+    [ "$grounds_personal" -eq 0 ] || printf 'Personal data in them was redacted whole.\n'
     printf '\n'
     fenced "$work/grounds" || return 1
     printf '\n### Record home\n\n'
@@ -562,10 +648,14 @@ if [ -n "$revert_file" ]; then
 fi
 
 screen_all "$@"
+personal_data ask-file.clean
+personal_data grounds-file.clean
 redact ask-file "$work/ask"
 ask_redacted=$REDACTED
+ask_personal=$REDACTED_PERSONAL
 redact grounds-file "$work/grounds"
 grounds_redacted=$REDACTED
+grounds_personal=$REDACTED_PERSONAL
 refuse_secrets summary-file summary
 refuse_secrets verification-file verification
 refuse_secrets audit-file audit

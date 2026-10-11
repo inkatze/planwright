@@ -342,6 +342,40 @@ for part in "$KEY_BODY1" "$KEY_BODY2"; do
 done
 printf '%s\n' "$OUT" | grep -qx '  Use this key:' || fail "the line before an unterminated key block must survive"
 
+# Personal data in the ask (identity, account, and contact numbers) is
+# redacted a whole line at a time and noted; ordinary numbers in an ask are
+# not. Fixtures are assembled at run time.
+SSN="078-05-""1120"
+CARD="4111 1111 ""1111 1111"
+IBAN="GB82 WEST ""1234 5698 7654 32"
+INTL="+44 20 ""7946 0958"
+NANP="(555) ""123-4567"
+for case in "identity:$SSN" "account:$CARD" "account:$IBAN" "contact:$INTL" "contact:$NANP"; do
+  rule=personal-data-${case%%:*}
+  value=${case#*:}
+  printf 'Reach the customer.\nTheir number is %s, thanks.\n' "$value" >"$in/ask-pii.txt"
+  run_render pr --ask-file "$in/ask-pii.txt"
+  [ "$RC" -eq 0 ] || fail "render of an ask with $rule exited $RC: $ERR"
+  case $OUT in *"$value"*) fail "$rule ($value) reached the record" ;; esac
+  printf '%s\n' "$OUT" | grep -qF "[redacted: $rule, personal data]" || fail "$rule must be redacted and marked: $(printf '%s\n' "$OUT" | grep redacted)"
+  printf '%s\n' "$OUT" | grep -qx '  Reach the customer.' || fail "$rule: an unflagged line must survive"
+  collapsed_of "$OUT" | awk '/^### The ask$/ {on=1} /^### Route and grounds$/ {on=0} on' \
+    | grep -q 'personal data were redacted whole' || fail "$rule: the ask section must note the personal-data redaction"
+done
+printf 'automatic: callback on %s\n' "$NANP" >"$in/grounds-pii.txt"
+run_render pr --grounds-file "$in/grounds-pii.txt"
+[ "$RC" -eq 0 ] || fail "render with personal data in the grounds exited $RC: $ERR"
+case $OUT in *"$NANP"*) fail "personal data in the grounds reached the record" ;; esac
+{
+  printf 'Fix PR #646 before 2026-10-11 and bump v0.56.0 to v0.57.0.\n'
+  printf 'The race is in test-fleet-stop-sj.sh c20 at line 1234, run 1791679375.\n'
+  printf 'Commit 2b6eb007c0ffee1234567890abcdef1234567890 and card 4111 1111 1111 1112.\n'
+  printf 'Pin AB12 to issue 555-12-345 and 10.20.30.40, port 8080, +5 lines.\n'
+} >"$in/ask-numbers.txt"
+run_render pr --ask-file "$in/ask-numbers.txt"
+[ "$RC" -eq 0 ] || fail "render of an ask with ordinary numbers exited $RC: $ERR"
+printf '%s\n' "$OUT" | grep -q 'redacted' && fail "ordinary numbers must not be redacted: $(printf '%s\n' "$OUT" | grep redacted)"
+
 # A non-ASCII temp directory neither lets a finding pass nor misplaces its
 # redaction: the screen reads fixed ASCII names, not the work directory's path.
 EMDASH=$(printf '\342\200\224')
