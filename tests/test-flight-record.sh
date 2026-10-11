@@ -354,7 +354,9 @@ CARD="4111 1111 ""1111 1111"
 IBAN="GB82 WEST ""1234 5698 7654 32"
 INTL="+44 20 ""7946 0958"
 NANP="(555) ""123-4567"
-for case in "identity:$SSN" "account:$CARD" "account:$IBAN" "contact:$INTL" "contact:$NANP"; do
+for case in "identity:$SSN" "account:$CARD" "account:$IBAN" "contact:$INTL" "contact:$NANP" \
+  "account:4111111111""111111" "account:4111-1111-""1111-1111" "account:GB82WEST1234""5698765432" \
+  "contact:555-123-""4567" "contact:555.123.""4567"; do
   rule=personal-data-${case%%:*}
   value=${case#*:}
   printf 'Reach the customer.\nTheir number is %s, thanks.\n' "$value" >"$in/ask-pii.txt"
@@ -365,16 +367,38 @@ for case in "identity:$SSN" "account:$CARD" "account:$IBAN" "contact:$INTL" "con
   printf '%s\n' "$OUT" | grep -qx '  Reach the customer.' || fail "$rule: an unflagged line must survive"
   collapsed_of "$OUT" | awk '/^### The ask$/ {on=1} /^### Route and grounds$/ {on=0} on' \
     | grep -q 'personal data were redacted whole' || fail "$rule: the ask section must note the personal-data redaction"
+  printf '%s\n' "$OUT" | grep -q 'token-shaped secret were redacted' \
+    && fail "$rule: a personal-data redaction must not be noted as a secret"
 done
 printf 'automatic: callback on %s\n' "$NANP" >"$in/grounds-pii.txt"
 run_render pr --grounds-file "$in/grounds-pii.txt"
 [ "$RC" -eq 0 ] || fail "render with personal data in the grounds exited $RC: $ERR"
 case $OUT in *"$NANP"*) fail "personal data in the grounds reached the record" ;; esac
+printf '%s\n' "$OUT" | grep -qF '[redacted: personal-data-contact, personal data]' \
+  || fail "personal data in the grounds must be marked: $(printf '%s\n' "$OUT" | grep redacted)"
+collapsed_of "$OUT" | awk '/^### Route and grounds$/ {on=1} /^### Record home$/ {on=0} on' \
+  | grep -q 'Personal data in them was redacted whole' || fail "the grounds section must note the personal-data redaction"
+# A line carrying both a secret and personal data is marked as a secret, and
+# both notes appear.
+printf 'Reach the customer.\nKey %s for %s today\n' "$TOKEN" "$NANP" >"$in/ask-mixed.txt"
+run_render pr --ask-file "$in/ask-mixed.txt"
+[ "$RC" -eq 0 ] || fail "render of an ask with a secret and personal data on one line exited $RC: $ERR"
+case $OUT in *"$TOKEN"* | *"$NANP"*) fail "a mixed line reached the record" ;; esac
+printf '%s\n' "$OUT" | grep -q '^  \[redacted: .*personal-data-contact.*, a token-shaped secret\]$' \
+  || fail "a mixed line must be marked as a secret naming both rules: $(printf '%s\n' "$OUT" | grep redacted)"
+printf '%s\n' "$OUT" | grep -q 'token-shaped secret were redacted whole' || fail "a mixed line must note the secret"
+printf '%s\n' "$OUT" | grep -q 'personal data were redacted whole' || fail "a mixed line must note the personal data"
+# Near-misses, one per guard: a failed checksum, a digit run inside a hash, a
+# `+` glued to a word, a short international number, an SSN inside a longer
+# dashed run, and a dotted number with a leading country digit.
 {
   printf 'Fix PR #646 before 2026-10-11 and bump v0.56.0 to v0.57.0.\n'
   printf 'The race is in test-fleet-stop-sj.sh c20 at line 1234, run 1791679375.\n'
   printf 'Commit 2b6eb007c0ffee1234567890abcdef1234567890 and card 4111 1111 1111 1112.\n'
   printf 'Pin AB12 to issue 555-12-345 and 10.20.30.40, port 8080, +5 lines.\n'
+  printf 'Not an IBAN: GB82 WEST 1234 5698 7654 33.\n'
+  printf 'Blob deadbeef4111111111111111cafe and x+44 20 7946 0958 and call +12 345.\n'
+  printf 'Ranges 10-078-05-1120-3 and 1.555.123.4567 stay.\n'
 } >"$in/ask-numbers.txt"
 run_render pr --ask-file "$in/ask-numbers.txt"
 [ "$RC" -eq 0 ] || fail "render of an ask with ordinary numbers exited $RC: $ERR"
@@ -384,9 +408,8 @@ printf '%s\n' "$OUT" | grep -q 'redacted' && fail "ordinary numbers must not be 
 # redaction: the screen reads fixed ASCII names, not the work directory's path.
 EMDASH=$(printf '\342\200\224')
 mkdir -p "$tmp/t${EMDASH}mp"
-OUT=$(TMPDIR="$tmp/t${EMDASH}mp" /bin/sh "$SCRIPT" render --home pr --flight-id "$FID" \
-  --ask-file "$in/ask.txt" --grounds-file "$in/grounds.txt" --summary-file "$in/summary.md" \
-  --verification-file "$in/verification.md" --audit-file "$in/audit.md" --handle "$HANDLE" 2>"$tmp/err")
+defaults
+OUT=$(TMPDIR="$tmp/t${EMDASH}mp" /bin/sh "$SCRIPT" render --home pr "${args[@]}" 2>"$tmp/err")
 RC=$?
 ERR=$(cat "$tmp/err")
 [ "$RC" -eq 0 ] || fail "render under a non-ASCII TMPDIR exited $RC: $ERR"
@@ -394,9 +417,8 @@ case $OUT in *"$TOKEN"*) fail "under a non-ASCII TMPDIR a token-shaped secret re
 printf '%s\n' "$OUT" | grep -q 'redacted: github-token' || fail "under a non-ASCII TMPDIR the redaction must be marked"
 printf '%s\n' "$OUT" | grep -q 'hiddenjoin' || fail "under a non-ASCII TMPDIR an unflagged line must survive"
 printf 'Rotated the key %s.\n' "$TOKEN" >"$in/secret-tmp.md"
-OUT=$(TMPDIR="$tmp/t${EMDASH}mp" /bin/sh "$SCRIPT" render --home pr --flight-id "$FID" \
-  --ask-file "$in/ask.txt" --grounds-file "$in/grounds.txt" --summary-file "$in/secret-tmp.md" \
-  --verification-file "$in/verification.md" --audit-file "$in/audit.md" --handle "$HANDLE" 2>"$tmp/err")
+OUT=$(TMPDIR="$tmp/t${EMDASH}mp" /bin/sh "$SCRIPT" render --home pr "${args[@]}" \
+  --summary-file "$in/secret-tmp.md" 2>"$tmp/err")
 RC=$?
 [ "$RC" -eq 2 ] || fail "under a non-ASCII TMPDIR a secret in the summary must be refused with 2 (got $RC)"
 
@@ -411,6 +433,8 @@ defaults
 /bin/sh "$tmp/foreign/scripts/flight-record.sh" render --home pr "${args[@]}" >/dev/null 2>"$tmp/err"
 RC=$?
 [ "$RC" -eq 4 ] || fail "a finding naming no input must fail with 4 (got $RC: $(cat "$tmp/err"))"
+grep -q 'no input this script screened' "$tmp/err" \
+  || fail "a finding naming no input must be refused as unplaced: $(cat "$tmp/err")"
 
 # CR line endings stay line breaks, and a CRLF ask is not flagged as stripped.
 printf 'first line\r\nsecond line\rthird line\r\n' >"$in/ask-cr.txt"
@@ -689,6 +713,19 @@ printf 'A different account of the change.\n' >"$in/summary-other.md"
 run_land --summary-file "$in/summary-other.md"
 [ "$RC" -eq 3 ] || fail "a second record for one flight that differs must be refused with 3 (got $RC)"
 [ "$(git -C "$repo" rev-parse HEAD)" = "$before" ] || fail "a refused land must commit nothing"
+# A re-run matches only when the checkout still holds the committed record:
+# a deleted or edited copy is refused, and left as it was.
+rm -f "$repo/specs/_flights/$FID.md"
+run_land
+[ "$RC" -eq 3 ] || fail "a re-run whose record was deleted from the checkout must be refused with 3 (got $RC: $ERR)"
+[ ! -e "$repo/specs/_flights/$FID.md" ] || fail "a refused re-run must not restore the record"
+git -C "$repo" checkout -q -- "specs/_flights/$FID.md"
+printf 'edited\n' >>"$repo/specs/_flights/$FID.md"
+run_land
+[ "$RC" -eq 3 ] || fail "a re-run whose record was edited in the checkout must be refused with 3 (got $RC: $ERR)"
+[ "$(tail -n 1 "$repo/specs/_flights/$FID.md")" = edited ] || fail "a refused re-run must leave the edited record alone"
+git -C "$repo" checkout -q -- "specs/_flights/$FID.md"
+[ "$(git -C "$repo" rev-parse HEAD)" = "$before" ] || fail "a refused re-run must commit nothing"
 
 run_land --home pr
 [ "$RC" -eq 2 ] || fail "land is the file home only: --home must be refused with 2 (got $RC)"
@@ -841,6 +878,8 @@ printf 'the other run\n' >"$repo/specs/_flights/$RACE1.md"
 EOF
 run_land_stub 'diff --cached' "$tmp/act-commit-first.sh" --flight-id "$RACE1"
 [ "$RC" -eq 3 ] || fail "a record committed after land's checks must be refused with 3 (got $RC: $ERR)"
+printf '%s\n' "$ERR" | grep -q 'appeared while land ran' \
+  || fail "a record committed after land's checks must be refused as appearing: $ERR"
 [ "$(cat "$repo/specs/_flights/$RACE1.md" 2>/dev/null)" = 'the other run' ] \
   || fail "a raced land must leave the other run's committed record on disk"
 [ -z "$(git -C "$repo" status --porcelain)" ] || fail "a raced land must leave no staged deletion: $(git -C "$repo" status --porcelain)"
@@ -866,20 +905,17 @@ git -C "$repo" reset -q
 rm -rf "$repo/specs"
 
 # An interrupt during the commit rolls the uncommitted record back, so a
-# re-run is not refused over a stuck file.
+# re-run is not refused over a stuck file. The action fails the commit call,
+# so the record never reaches HEAD.
 INTR=interrupt-0a1b2c3d
 gitc "$repo" checkout -q -b "planwright/flight/$INTR" main
 printf 'kill -TERM "$STUB_LAND_PID"\nexit 1\n' >"$tmp/act-interrupt.sh"
 intr_head=$(git -C "$repo" rev-parse HEAD)
 run_land_stub 'commit' "$tmp/act-interrupt.sh" --flight-id "$INTR"
 [ "$RC" -ne 0 ] || fail "an interrupted land must not report success"
-if git -C "$repo" cat-file -e "HEAD:specs/_flights/$INTR.md" 2>/dev/null; then
-  [ -f "$repo/specs/_flights/$INTR.md" ] || fail "an interrupt after the commit must keep the committed record"
-else
-  [ -e "$repo/specs/_flights/$INTR.md" ] && fail "an interrupted land must leave no stuck record file"
-  [ -z "$(git -C "$repo" diff --cached --name-only)" ] || fail "an interrupted land must leave nothing staged"
-  [ "$(git -C "$repo" rev-parse HEAD)" = "$intr_head" ] || fail "an interrupted land must not move HEAD"
-fi
+[ "$(git -C "$repo" rev-parse HEAD)" = "$intr_head" ] || fail "an interrupted land must not move HEAD"
+[ -z "$(git -C "$repo" status --porcelain)" ] \
+  || fail "an interrupted land must leave no record, temp file, or staged entry: $(git -C "$repo" status --porcelain)"
 run_land --flight-id "$INTR"
 [ "$RC" -eq 0 ] || fail "a re-run after an interrupted land must succeed (got $RC: $ERR)"
 git -C "$repo" reset -q
