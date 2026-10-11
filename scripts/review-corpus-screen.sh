@@ -153,7 +153,7 @@ $0 == "" { next }
   if ($2 !~ /^[1-9][0-9]*$/) refuse("pr is not a positive integer")
   if ($3 !~ /^[0-9a-f]+$/ || length($3) != 40) refuse("commit is not a 40-hex id")
   p = $4
-  if (p == "" || p ~ /^\// || p ~ /^~/ || p ~ /^-/ || p ~ /(^|\/)\.\.(\/|$)/ || p ~ /[[:cntrl:]]/)
+  if (p == "" || p ~ /^\// || p ~ /^~/ || p ~ /^-/ || p ~ /(^|\/)\.\.(\/|$)/ || p ~ /[^ -~]/)
     refuse("path is not repository-relative")
   if ($5 !~ /^[1-9][0-9]*$/) refuse("line is not a positive integer")
   if (!inlist($6, categories)) refuse("category is not in the vocabulary")

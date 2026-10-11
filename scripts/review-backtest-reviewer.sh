@@ -13,7 +13,7 @@
 #
 # The session reads historical, untrusted content, so it gets read-only file
 # tools and nothing else: no shell (even read-only git can write a file through
-# --output), no MCP servers, no project settings from the copy, and no
+# --output), no MCP servers, no settings files (restricted mode), and no
 # permission prompts that an auto mode could approve. It reads the diff
 # review-backtest.sh wrote (BACKTEST_DIFF), the copy (its working directory),
 # and the planwright checkout. A declined row's coordinator ledger
@@ -68,7 +68,7 @@ using a real tab character between fields. Print nothing after the last one."
 out=$("$claude_bin" -p "$prompt" --model "$BACKTEST_MODEL" \
   --output-format json --max-turns "$max_turns" \
   --tools 'Read,Grep,Glob' --allowedTools 'Read' 'Grep' 'Glob' \
-  --permission-mode dontAsk --strict-mcp-config --setting-sources user \
+  --permission-mode dontAsk --strict-mcp-config --restricted \
   --add-dir "$root" --add-dir "$rowdir" </dev/null 2>/dev/null) || {
   printf '%s\n' "$prog: the review session failed" >&2
   exit 1

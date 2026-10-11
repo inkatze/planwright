@@ -9,7 +9,8 @@
 # operator's own `claude` login; operator-local only, like its caller.
 #
 # The gist and the dismissal are paraphrases: the refresh drops any that
-# repeats the comment's wording and screens the rest, so this prompt asks for
+# repeats the comment's wording or names a login, and screens the rest, so this
+# prompt asks for
 # the defect in fresh words and never for a quote, a login, or a product name.
 #
 # Environment:
@@ -17,7 +18,8 @@
 #   PLANWRIGHT_BACKTEST_MODEL    the model for the call (default: the CLI's)
 #
 # Exit codes: 0 answers printed (possibly fewer than requested; the refresh
-# counts the gap); 1 the model call failed or returned no result.
+# counts the gap); 1 the model call failed, reported an error, or returned no
+# result, or a class in the shared vocabulary has no description here.
 set -eu
 unset CDPATH
 
@@ -80,9 +82,10 @@ missed this defect, one of:
 $reason_lines"
 
 # The input is untrusted review text: the call gets no tools, no MCP servers,
-# no project settings, and no permission prompt an auto mode could approve.
+# no settings files (restricted mode), and no permission prompt an auto mode
+# could approve.
 set -- --output-format json --max-turns 1 --tools '' --permission-mode dontAsk \
-  --strict-mcp-config --setting-sources user
+  --strict-mcp-config --restricted
 [ -z "${PLANWRIGHT_BACKTEST_MODEL:-}" ] || set -- "$@" --model "$PLANWRIGHT_BACKTEST_MODEL"
 out=$(printf '%s\n' "$batch" | "$claude_bin" -p "$prompt" "$@" 2>/dev/null) || {
   printf '%s\n' "$prog: the model call failed" >&2

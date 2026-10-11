@@ -70,7 +70,8 @@ cat >"$hist" <<'EOF'
   "reviews":[{"author":"helper-bot","bot":true},{"author":"helper-bot","bot":true}],
   "threads":[
    {"path":"a.sh","line":1,"commit":"0123456789abcdef0123456789abcdef01234567","author":"helper-bot","bot":true,"body":"x","replies":[{"author":"owner","body":"Fixed in abc1234"}]},
-   {"path":"a.sh","line":9,"commit":"0123456789abcdef0123456789abcdef01234567","author":"helper-bot","bot":true,"body":"y","replies":[{"author":"owner","body":"Addressed in abc1234"}]}]},
+   {"path":"a.sh","line":9,"commit":"0123456789abcdef0123456789abcdef01234567","author":"helper-bot","bot":true,"body":"y","replies":[{"author":"owner","body":"Addressed in abc1234"}]},
+   {"path":"a.sh","line":20,"commit":"0123456789abcdef0123456789abcdef01234567","author":"a-human","bot":false,"body":"h","replies":[{"author":"owner","body":"Fixed in abc1234"}]}]},
  {"number":11,"author":"owner","merged_at":"2026-10-02T00:00:00Z","body":"",
   "reviews":[{"author":"helper-bot","bot":true}],"threads":[]},
  {"number":12,"author":"owner","merged_at":"2026-10-03T00:00:00Z","body":"","reviews":[],"threads":[]},
@@ -86,6 +87,7 @@ mkdir -p "$ledger"
 mkdir -p "$T/archive"
 printf '%s\n' "- 2026-10-05 [planwright] review-miss(correctness, bogus): #11 b.sh: a reason outside the vocabulary" >"$ledger/2026-10-05-review-miss-0000bbbb.md"
 printf '%s\n' "- 2026-10-05 [planwright] review-miss(correctness, runtime-tracing): #13 b.sh: a fix the pass missed" >"$T/archive/2026-10-05-review-miss-0000aaaa.md"
+cp "$T/archive/2026-10-05-review-miss-0000aaaa.md" "$ledger/"
 
 base="$T/baselines.tsv"
 printf 'post_convergence_finding_rate\t0.889\tfixture\nmedian_tokens_per_convergence_run\t17000000\tfixture\n' >"$base"
@@ -106,6 +108,7 @@ assert_contains "computes the finding rate" "post-convergence finding rate: 0.66
 assert_contains "computes the median fixed findings" "fixed findings per such PR (median): 1.5" "$out"
 assert_contains "computes the median review rounds" "review rounds per such PR (median): 1.5" "$out"
 assert_contains "counts the miss-ledger entries" "miss-ledger entries in window: 1" "$out"
+assert_contains "warns about the malformed ledger fragment" "warning: 1 malformed review-miss" "$out"
 assert_contains "refuses a verdict on a window under the closeout minimum" "verdict: window too small (3 < 15)" "$out"
 
 out=$(run --prs-from 11 2>&1)

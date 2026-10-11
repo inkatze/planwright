@@ -475,9 +475,9 @@ Recorded by the executing task after sign-off; no row above is changed.
   match found few rows, so a targeted replay of either class is a small
   sample. The zero-row refusal still applies.
 - **A refresh carries labels forward.** A row the previous version already
-  holds (same PR, path, line, and commit) keeps its labels and gist unless a
-  ledger entry for its PR and path now exists, so a ledger that has since
-  been drained never relabels it `other`; the `other` fallback applies to
+  holds (same PR, path, line, and commit) keeps its category, gist, class, and
+  dismissal; a ledger entry for its PR and path that now exists replaces only
+  the class. A drained ledger therefore never relabels it `other`; the `other` fallback applies to
   findings new to the refresh with no ledger entry.
 - **Replay cost, measured** (row 6): one row of today's pass costs from a
   few hundred thousand to over a million tokens and a minute or several; the

@@ -20,10 +20,11 @@
 #
 # THE POST-CONVERGENCE FINDING RATE, from the PR history and the miss ledger.
 # Of the bot-reviewed PRs in the window (a review or thread by a bot account,
-# the population the baselines measured), the share with a fixed external
-# finding: a thread opened by anyone but the author# the author answered with a fix reply (review-backtest-lib.sh's predicate),
-# or a `review-miss` ledger entry naming the PR. Also reported: the median
-# fixed findings and external review rounds per such PR.
+# the population the baselines measured), the share with a fixed bot finding:
+# a bot's thread the author answered with a fix reply (review-backtest-lib.sh's
+# predicate), or a `review-miss` ledger entry naming the PR. Also reported:
+# the median fixed findings and bot review rounds per such PR. Malformed
+# ledger fragments are counted on stderr, never read.
 #
 # THE BAR (REQ-H1.4, fixed before the window): both the finding rate and the
 # median tokens per run below their baselines. A window with fewer than
@@ -61,7 +62,7 @@ repo_root=$(cd "$here/.." && pwd)
 usage() {
   cat >&2 <<EOF
 usage: $prog [--transcripts <dir>]... [--events <file>]... [--history <file>]
-         [--ledger-dir <dir>] [--baselines <file>] [--prs-from <N>]
+         [--ledger-dir <dir>]... [--baselines <file>] [--prs-from <N>]
          [--merged-after <YYYY-MM-DD>] [--min-window <N>]
 EOF
   exit 2
@@ -72,7 +73,8 @@ die() {
 }
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/rbt-cost.XXXXXX")
-trap 'rm -rf "$tmp"' EXIT INT TERM
+trap 'rm -rf "$tmp"' EXIT
+trap 'exit 130' INT TERM
 : >"$tmp/tdirs"
 : >"$tmp/efiles"
 history=
@@ -221,15 +223,18 @@ jq -e '.prs | type == "array"' "$history" >/dev/null 2>&1 || die 2 "the history 
 set --
 while IFS= read -r d; do set -- "$@" "$d"; done <"$tmp/ldirs"
 rbt_read_ledger "$tmp/ledger.tsv" "$@"
+if [ "$RBT_LEDGER_MALFORMED" -gt 0 ]; then
+  printf '%s\n' "$prog: warning: $RBT_LEDGER_MALFORMED malformed review-miss fragment(s) ignored" >&2
+fi
 jq -R -s -c '[split("\n")[] | select(length > 0) | split("\t")[0] | tonumber]' "$tmp/ledger.tsv" >"$tmp/ledger.json"
 
 jq -r --slurpfile led "$tmp/ledger.json" --argjson from "$prs_from" --arg after "$merged_after" "$RBT_JQ_DEFS"'
   [ .prs[] | select(.number >= $from) | select($after == "" or ((.merged_at // "") >= $after))
     | . as $p
     | { n: .number, ext: rbt_bot_reviewed,
-        fixed: (([.threads[]? | select(rbt_fixed_external($p.author))] | length)
+        fixed: (([.threads[]? | select(.bot == true and rbt_fixed_external($p.author))] | length)
                 + ([$led[0][] | select(. == $p.number)] | length)),
-        rounds: ([.reviews[]? | select((.author // "") != $p.author)] | length),
+        rounds: ([.reviews[]? | select(.bot == true)] | length),
         ledger: ([$led[0][] | select(. == $p.number)] | length) } ] as $w
   | ($w | map(select(.ext))) as $ext
   | ($ext | map(select(.fixed > 0))) as $hit

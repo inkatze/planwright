@@ -58,8 +58,9 @@ mise run eval:backtest-refresh
 threads with `gh api graphql`, keeps each thread opened by someone other than
 the PR's author and answered by the author with a fix reply, fetches every
 PR's head ref to set the replayable flag, and writes the next `v<N>`.
-Labels come from a `review-miss` ledger fragment for the same PR and path,
-else from the same row in the previous version, else from the annotator's
+Labels come from a `review-miss` ledger fragment for the same PR and path
+(read from the observation entries and archive), else from the same row in
+the previous version, else from the annotator's
 match against the PR body's declined log, else reason `other` (reported as
 the fallback count). `--label-reasons` has the annotator assign the class
 instead of `other`; that is how a version is bootstrapped where no ledger
@@ -88,8 +89,10 @@ unreplayable rows; it refuses a sample with no replayable row overall or in a
 targeted class. Each row is one review pass, no fixes and no loop, run by
 the reviewer command in a fresh clone at the row's pre-fix commit, with no
 remote to push to and a redirected home and state home for the commands it
-runs. The default reviewer reads the change from a diff file beside the clone
-and has read-only file tools only. A `declined` row's dismissal is seeded
+runs, when the reviewer is one that runs commands. The default reviewer runs
+none: it reads the change from a diff file beside the clone with read-only
+file tools in restricted mode. A reviewer that exits non-zero is retried once,
+after `PLANWRIGHT_BACKTEST_RETRY_WAIT` seconds (30 by default). A `declined` row's dismissal is seeded
 into the coordinator's ledger the pass receives. A row is caught when any
 finding cites its file within 10 lines of its line.
 

@@ -31,8 +31,9 @@
 # the checkout, or a commit sharing no history with main, which leaves no base
 # to diff against; the refresh marks such rows unreplayable) or when the
 # reviewer exits non-zero twice, the retry waiting PLANWRIGHT_BACKTEST_RETRY_WAIT
-# seconds (default 30) first. An error row is recorded, never scored as a miss
-# and never dropped. The corpus must pass review-corpus-screen.sh first.
+# seconds (default 30) first. An error row is recorded as a row but left out of
+# its class's counts, never scored as a miss and never dropped, and a result
+# holding one cannot serve as a baseline. The corpus must pass review-corpus-screen.sh first.
 #
 # THE REVIEWER is an executable run once per row with these variables set:
 #   BACKTEST_ROW         the row id
@@ -187,6 +188,8 @@ if [ -n "$baseline" ]; then
   b_cap=$(kv cap "$baseline")
   case $b_seed in '' | *[!0-9]*) die 2 "the baseline's seed is missing or not a number" ;; esac
   rbt_is_uint "$b_cap" || die 2 "the baseline's cap is missing or not a positive integer"
+  awk -F '\t' '$1 == "row" && $4 == "error" { exit 1 }' "$baseline" \
+    || die 2 "the baseline holds error rows; re-run it until every row scores"
   awk -F '\t' '$1 == "class" { if (NF != 4 || $3 !~ /^[0-9]+$/ || $4 !~ /^[0-9]+$/ || ($2 in seen)) bad = 1; seen[$2] = 1 }
     END { exit bad }' "$baseline" || die 2 "the baseline's class lines are malformed or repeated"
   [ "$b_corpus" = "$version" ] \
@@ -235,7 +238,8 @@ plugin_commit=$(git -C "$repo_root" rev-parse HEAD 2>/dev/null) || plugin_commit
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/rbt-replay.XXXXXX")
 pids=
 # Background row jobs ignore an interrupt in a non-interactive shell, so the
-# trap ends them before removing the directory they work in.
+# trap sends them TERM, which each row passes on to its reviewer, before the
+# directory they work in is removed.
 trap 'rm -rf "$tmp"' EXIT
 # shellcheck disable=SC2086 # pids is a list of integers
 trap '[ -z "$pids" ] || kill $pids 2>/dev/null; exit 130' INT TERM
@@ -322,13 +326,19 @@ replay_row() {
     rc=1
     for attempt in 1 2; do
       [ "$attempt" -eq 1 ] || sleep "$retry_wait"
-      if (cd "$rdir/copy" \
+      (cd "$rdir/copy" \
         && BACKTEST_ROW=$id BACKTEST_HEAD=$commit BACKTEST_BASE=$base \
           BACKTEST_DIFF=$rdir/change.diff \
           BACKTEST_HOME=$rdir/home BACKTEST_STATE_HOME=$rdir/state \
           BACKTEST_MODEL=$model BACKTEST_PLANWRIGHT_ROOT=$repo_root \
           BACKTEST_LEDGER=$ledger BACKTEST_USAGE_FILE=$rdir/usage.$attempt \
-          "$reviewer" >"$rdir/findings.raw" 2>"$rdir/reviewer.err" </dev/null); then
+          exec "$reviewer" >"$rdir/findings.raw" 2>"$rdir/reviewer.err" </dev/null) &
+      rpid=$!
+      trap 'kill "$rpid" 2>/dev/null; exit 143' TERM
+      arc=0
+      wait "$rpid" || arc=$?
+      trap - TERM
+      if [ "$arc" -eq 0 ]; then
         rc=0
         break
       fi
@@ -387,7 +397,7 @@ rm -rf "$tmp/rows"
   printf 'excluded_unreplayable\t%s\n' "$excluded"
   awk -F '\t' '{ t += $4 } END { printf "tokens_total\t%d\n", t }' "$tmp/verdicts.tsv"
   for c in $targets; do
-    awk -F '\t' -v c="$c" '$2 == c { s++; if ($3 == "caught") k++ } END { printf "class\t%s\t%d\t%d\n", c, s, k }' "$tmp/verdicts.tsv"
+    awk -F '\t' -v c="$c" '$2 == c && $3 != "error" { s++; if ($3 == "caught") k++ } END { printf "class\t%s\t%d\t%d\n", c, s, k }' "$tmp/verdicts.tsv"
   done
   awk -F '\t' '{ printf "row\t%s\t%s\t%s\n", $1, $2, $3 }' "$tmp/verdicts.tsv"
 } >"$tmp/result.tsv"

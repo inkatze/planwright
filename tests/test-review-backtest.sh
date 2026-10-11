@@ -268,6 +268,31 @@ run --reviewer "$T/dying.sh" --model m --seed 7 --classes claim-vs-code --out "$
 assert_exit "a row whose replay job dies makes the run exit 4" 4 $?
 if grep -q '^row	r0003	claim-vs-code	error$' "$T/dying.tsv"; then ok "the dead row is recorded as an error"; else fail "the dead row vanished"; fi
 
+if grep -q '^class	claim-vs-code	0	0$' "$T/dying.tsv"; then ok "an error row stays out of its class's counts"; else fail "an error row was scored"; fi
+run --reviewer-stub "$stub" --model m --baseline "$T/dying.tsv" >/dev/null 2>&1
+assert_exit "a baseline holding error rows is refused" 2 $?
+
+# --- stopping the harness stops the reviewer it started ---
+cat >"$T/slow.sh" <<EOF
+#!/bin/sh
+: >"$T/slow.started"
+sleep 4
+: >"$T/slow.finished"
+EOF
+chmod +x "$T/slow.sh"
+rm -f "$T/slow.started" "$T/slow.finished"
+"$HARNESS" --corpus "$corpus_dir" --remote "$remote" --reviewer "$T/slow.sh" --model m --seed 7 --classes claim-vs-code >/dev/null 2>&1 &
+hpid=$!
+n=0
+until [ -e "$T/slow.started" ] || [ "$n" -ge 200 ]; do
+  sleep 0.1
+  n=$((n + 1))
+done
+kill -TERM "$hpid"
+wait "$hpid" 2>/dev/null
+sleep 5
+if [ -e "$T/slow.started" ] && [ ! -e "$T/slow.finished" ]; then ok "TERM to the harness ends the running reviewer"; else fail "the reviewer outlived the harness"; fi
+
 # --- refusals that would otherwise let a gate pass on nothing ---
 run --reviewer-stub "$stub" --model stub-model --seed 7 --classes , >/dev/null 2>&1
 assert_exit "an empty --classes is refused" 2 $?
@@ -282,8 +307,9 @@ assert_exit "a baseline with a non-integer count is refused" 2 $?
 cp "$T/base.tsv" "$T/same.tsv"
 run --reviewer-stub "$T/worse.tsv" --model stub-model --baseline "$T/same.tsv" --out "$T/same.tsv" --classes runtime-tracing >/dev/null 2>&1
 assert_exit "a worse run fails the gate even when --out is the baseline file" 1 $?
-run --reviewer-stub "$stub" --model stub-model --seed 7 --out "$T/absent-dir/r.tsv" >/dev/null 2>&1
+out=$(run --reviewer-stub "$stub" --model stub-model --seed 7 --out "$T/absent-dir/r.tsv" 2>&1)
 assert_exit "an unwritable --out is a usage error, not a gate failure" 2 $?
+assert_lacks "an unwritable --out is refused before any row replays" "sampled:" "$out"
 run --reviewer-stub "$stub" --model stub-model --baseline "$T/base.tsv" --cap 3 >/dev/null 2>&1
 assert_exit "a new cap against a baseline is refused" 2 $?
 

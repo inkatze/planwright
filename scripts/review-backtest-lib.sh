@@ -71,13 +71,14 @@ rbt_is_sha() {
 }
 
 # rbt_safe_relpath <path> — 0 for a repository-relative path: not empty, not
-# absolute or home-relative, no `..` segment, no leading dash, no control byte
-# (a tab included). The screen's awk and the refresh's jq apply the same rule.
+# absolute or home-relative, no `..` segment, no leading dash, and printable
+# ASCII only (no control byte, tab, or byte a bidi override could hide in).
+# The screen's awk and the refresh's jq apply the same rule.
 rbt_safe_relpath() {
   case $1 in
     '' | /* | '~'* | -* | ../* | */../* | */.. | ..) return 1 ;;
   esac
-  _rsr_bad=$(printf '%s' "$1" | LC_ALL=C tr -dc '\001-\037\177')
+  _rsr_bad=$(printf '%s' "$1" | LC_ALL=C tr -d ' -~')
   [ -z "$_rsr_bad" ]
 }
 
@@ -88,17 +89,28 @@ rbt_safe_relpath() {
 # `- <date> [<scope>] review-miss(<lens>, <reason>): #<pr> <path>: <text>`,
 # the lens a lowercase name, the reason one of RBT_REASONS, the PR a positive
 # integer, the path repository-relative. A fragment naming review-miss that
-# breaks the grammar is counted in RBT_LEDGER_MALFORMED, never read.
+# breaks the grammar, or cannot be read, is counted in RBT_LEDGER_MALFORMED,
+# never read. A fragment is read once even when a drain left it in both
+# directories for a moment (the filename carries its UID).
 rbt_read_ledger() {
   _rrl_out=$1
   shift
   : >"$_rrl_out"
   RBT_LEDGER_MALFORMED=0
+  _rrl_seen=" "
   for _rrl_d in "$@"; do
     [ -d "$_rrl_d" ] || continue
     for _rrl_f in "$_rrl_d"/*.md; do
       [ -f "$_rrl_f" ] || continue
-      _rrl_line=$(grep -m1 'review-miss' "$_rrl_f") || continue
+      case $_rrl_seen in *" ${_rrl_f##*/} "*) continue ;; esac
+      _rrl_seen="$_rrl_seen${_rrl_f##*/} "
+      _rrl_rc=0
+      _rrl_line=$(grep -m1 'review-miss' "$_rrl_f") || _rrl_rc=$?
+      [ "$_rrl_rc" -ne 1 ] || continue
+      if [ "$_rrl_rc" -ne 0 ]; then
+        RBT_LEDGER_MALFORMED=$((RBT_LEDGER_MALFORMED + 1))
+        continue
+      fi
       _rrl_row=$(printf '%s\n' "$_rrl_line" | sed -n 's/^- [0-9-]* \[[^]]*\] review-miss(\([a-z0-9][a-z0-9-]*\), \([a-z-]*\)): #\([1-9][0-9]*\) \([^ :][^ :]*\): .*$/\3	\4	\2	\1/p')
       _rrl_reason=$(printf '%s\n' "$_rrl_row" | cut -f3)
       if [ -z "$_rrl_row" ] || ! rbt_in_list "$_rrl_reason" "$RBT_REASONS" \

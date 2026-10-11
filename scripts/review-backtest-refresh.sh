@@ -19,19 +19,21 @@
 #      `ledger`), read from the observation entries and archive alike, in the
 #      grammar review-backtest-lib.sh's rbt_read_ledger parses;
 #   2. the same finding in the latest earlier version (same PR, path, line,
-#      and commit), whose category, class, gist and dismissal are carried, so
-#      a refresh relabels a row it already holds only when a ledger entry
-#      for it now exists;
+#      and commit), whose category, gist, class and dismissal are carried; a
+#      ledger entry for it that now exists replaces only the class and its
+#      label source;
 #   3. a match against the PR body's declined log, judged by the annotator
 #      (`declined-log`), carrying a paraphrased dismissal;
 #   4. otherwise reason `other` (`fallback`), counted and reported so ledger
 #      coverage is visible; with --label-reasons the annotator assigns the
 #      class instead (`model`), the bootstrap used where no ledger exists yet.
 #
-# HYGIENE. Every gist and dismissal is a paraphrase written by the annotator.
-# One sharing an eight-word run with the comment or the reply it came from,
+# HYGIENE. Every gist and dismissal is a paraphrase written by the annotator,
+# except the fixed dismissal a declined row gets when none was recorded. One
+# sharing an eight-word run with the comment or the reply it came from,
 # or containing the whole of either when it is short, is dropped as verbatim;
-# one naming any login the history holds is dropped too. The written rows
+# one naming any login the history holds is dropped too. Both checks run on
+# carried rows as well, so a rule added later reaches the rows already held. The written rows
 # then pass review-corpus-screen.sh with the product-name list required; a
 # refused row is dropped. Every drop is counted. The list lives in the
 # machine-local state home and this script refuses to run without it.
@@ -109,7 +111,11 @@ die() {
 }
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/rbt-refresh.XXXXXX")
-trap 'rm -rf "$tmp"' EXIT INT TERM
+claimed=
+# A version claimed but never filled is removed, or every later refresh would
+# stop at it.
+trap 'rm -rf "$tmp"; [ -z "$claimed" ] || [ -f "$claimed/corpus.tsv" ] || rm -rf "$claimed"' EXIT
+trap 'exit 130' INT TERM
 
 history=
 repo=
@@ -241,7 +247,7 @@ jq -c "$RBT_JQ_DEFS"'
   def wellformed: (.commit | type == "string" and test("^[0-9a-f]{40}$"))
     and (.line | type == "number" and . == floor and . >= 1)
     and (.path | type == "string" and length > 0 and (test("^[/~-]") | not)
-         and (test("(^|/)\\.\\.(/|$)") | not) and (test("[\\x00-\\x1f\\x7f]") | not));
+         and (test("(^|/)\\.\\.(/|$)") | not) and (test("[^ -~]") | not));
   .prs[] | . as $pr | ($pr.body | declined_lines) as $dl
   | $pr.threads[] | select(rbt_fixed_external($pr.author))
   | { pr: $pr.number, path, line, commit, finding: (.body // ""),
@@ -345,11 +351,15 @@ jq -c \
   | if $prev[0][$c.key] then
       $prev[0][$c.key] as $p
       | ($lr // $p.reason) as $reason
-      | {status: "carried", pr, path, line, commit, replayable: $rp, category: $p.category,
+      | if ($p.gist | verbatim($c)) or ($p.dismissal != "-" and ($p.dismissal | verbatim($c))) then {status: "verbatim"}
+        elif ($p.gist | names_login) or ($p.dismissal != "-" and ($p.dismissal | names_login)) then {status: "login"}
+        else
+      {status: "carried", pr, path, line, commit, replayable: $rp, category: $p.category,
          reason: $reason, label_source: (if $lr then "ledger" else $p.label_source end), gist: $p.gist,
          dismissal: (if $reason != "declined" then "-"
                      elif $p.dismissal != "-" then $p.dismissal
                      else "the convergence pass declined it" end)}
+        end
     else
       ($ans[0][$c.key]) as $a
       | if ($a | type) != "object" or (($a.gist // null) | text | not)
@@ -408,7 +418,8 @@ kept=$(($(wc -l <"$tmp/corpus.tsv") - 1))
 # renamed within the same filesystem, so a reader never sees a partial corpus.
 dest=$corpus_root/v$next
 mkdir -p "$corpus_root"
-mkdir "$dest" 2>/dev/null || die 1 "corpus version v$next already exists; nothing written"
+mkdir "$dest" 2>/dev/null || die 1 "could not create corpus version v$next (it exists, or the corpus root is not writable); nothing written"
+claimed=$dest
 cp "$tmp/corpus.tsv" "$dest/.corpus.tsv.partial"
 mv "$dest/.corpus.tsv.partial" "$dest/corpus.tsv"
 
