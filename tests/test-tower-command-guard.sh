@@ -835,6 +835,35 @@ assert_defer "symlinked plugin script escapes" "bash $PLUGIN_ROOT/scripts/evilli
 assert_defer "arbitrary absolute script outside repo/plugin" "/tmp/evil/scripts/x.sh"
 assert_defer "plugin tests dir is not a script dir" "bash $PLUGIN_ROOT/tests/x.sh"
 
+echo "### worker-permission-ergonomics REQ-E1.6 — other processes' environments stay unread"
+assert_defer "REQ-E1.6: another process's environ" "cat /proc/1234/environ"
+assert_defer "REQ-E1.6: a redirect source naming one" "grep -a x < /proc/1234/environ"
+assert_defer "REQ-E1.6: a glob over every process" "cat /proc/*/environ"
+assert_defer "REQ-E1.6: a glob in the last component" "cat /proc/1234/env*"
+assert_defer "REQ-E1.6: a doubled leading slash" "cat //proc/1234/env*"
+assert_defer "REQ-E1.6: a . component before proc" "cat /./proc/1234/env*"
+assert_defer "REQ-E1.6: /dev/fd/0 into a process directory on a loop's stdin" "for f in a; do cat /dev/fd/0/env*; done </proc/1"
+assert_defer "REQ-E1.6: a glob directory the guard cannot enter" "cat nodir/envir?n"
+assert_defer "REQ-E1.6: a ** glob matching environ" "cat **env*"
+assert_defer "REQ-E1.6: another process's memory" "od -N 8 /proc/1/mem"
+assert_defer "REQ-E1.6: a redirect source glob" "grep x < /proc/1234/env*"
+assert_defer "REQ-E1.6: an unexpanded redirect source" "grep x < \$f"
+if [ -d /proc/1 ]; then
+  assert_defer "REQ-E1.6: a glob whose directory resolves into /proc" "cat /dev/fd/../../1/env*"
+fi
+assert_defer "REQ-E1.6: \$_ reaching a reader" "echo a; cat \$_"
+assert_defer "REQ-E1.6: a loop head naming one" "for f in /proc/1234/environ; do cat \$f; done"
+assert_allow "REQ-E1.6: the reading process's own environ" "cat /proc/self/environ"
+assert_allow "REQ-E1.6: an opaque operand of a non-reader" "echo \$X"
+assert_allow "REQ-E1.6: a loop variable reaching a reader" "for f in README.md; do cat \$f; done"
+assert_allow "REQ-E1.6: environ as a grep pattern" "grep environ README.md"
+assert_allow "REQ-E1.6: environ as an echo operand" "echo environ"
+assert_defer "REQ-E1.6: sed reads another process's environ" "sed -n p /proc/1234/environ"
+assert_defer "REQ-E1.6: sort reads another process's environ" "sort /proc/1234/environ"
+assert_defer "REQ-E1.6: a glob pattern operand expands into files grep reads" "grep /proc/*/environ"
+assert_defer "REQ-E1.6: zsh's # operator matching environ" "cat /proc/1234/environ#"
+assert_defer "REQ-E1.6: zsh's # operator on a redirect source" "wc -c < /dev/fd/../../1234/environ#"
+
 # Each bypass row was approved before the fix; regression-only rows already
 # deferred and pin that they still do.
 echo "### REQ-E1.1 — an unresolved \$ in a screened position defers"
@@ -859,6 +888,8 @@ assert_defer "defer form: a further special name as a loop variable (1)" "for fp
 assert_defer "defer form: a further special name as a loop variable (2)" "for FPATH in /tmp/x; do git status; done"
 assert_defer "defer form: a further special name as a loop variable (3)" "for manpath in /tmp/x; do git status; done"
 assert_defer "defer form: a further special name as a loop variable (4)" "for MANPATH in /tmp/x; do git status; done"
+assert_defer "defer form: zsh's read-only history as a loop variable" "for history in scripts; do git status; done"
+assert_defer "defer form: zsh's mapfile as a loop variable" "for mapfile in x; do git status; done"
 assert_allow "parity: a longer name sharing a special name's prefix still resolves" "for fpaths in scripts; do cat README.md; done"
 assert_allow "parity: a longer lowercase loop variable still resolves" "for paths in scripts; do cat README.md; done"
 assert_defer "defer form: zsh's \$~ parameter form" "for f in a; do find . \$~f; done"
@@ -893,7 +924,7 @@ assert_allow "a resolved loop variable passes a screened verb" \
   "for f in a.sh b.sh; do find . -name \$f; done"
 assert_defer "a resolved loop variable still meets the screen" \
   "for f in -name -delete; do find . \$f; done"
-assert_allow "an opaque operand of an argument-independent verb" "cat \$X; echo \"\$Y\""
+assert_allow "an opaque operand of an argument-independent verb" "ls \$X; echo \"\$Y\""
 ln -s "$PLUGIN_ROOT" "$SANDBOX/linked-plugin-root"
 RUN_PLUGIN_ROOT="$SANDBOX/linked-plugin-root" assert_defer "bypass: a symlinked CLAUDE_PLUGIN_ROOT" \
   "$PLUGIN_ROOT/scripts/orchestrate-select.sh specs/x" Bash "$LOOKALIKE"
@@ -981,7 +1012,9 @@ short_flag_hit guard_sort guard_uniq guard_find guard_file guard_date \
 classify_redirect is_reserved repo_root_of emit_allow dollar_expands \
 word_unresolved arg_independent_verb guard_test guard_printf loop_header \
 assign_name_ok plugin_root_unlinked dollar_form_ok loop_enter \
-loop_next opaque_words_ok test_opaque_ok jq_program_safe jq_home_safe guard_jq zsh_opt_word_ok"
+loop_next opaque_words_ok test_opaque_ok jq_program_safe jq_home_safe guard_jq zsh_opt_word_ok \
+opens_operands opener_word_risky environ_word_risky environ_words_ok environ_redirect_ok \
+canon_dir_cached"
 
 # fn_body <file> <name>: the function's text, from its `name() {` line to the
 # first `}` at column 0, with full-line comments dropped.
