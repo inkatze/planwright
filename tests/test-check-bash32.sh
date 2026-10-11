@@ -65,6 +65,7 @@ printf '#!/usr/bin/env bash\n:\n' >"$tmp/d/b.sh"
 printf '#!/usr/bin/env -S bash -e\n:\n' >"$tmp/d/c.sh"
 printf '#!/bin/dash\n:\n' >"$tmp/d/e.sh"
 printf '#!/usr/bin/env -u FOO bash\n:\n' >"$tmp/d/u.sh"
+printf '#!/usr/bin/env -Sbash -e\n:\n' >"$tmp/d/s.sh"
 printf '#!/bin/sh\r\n:\r\n' >"$tmp/d/crlf.sh"
 printf '# shellcheck shell=sh\n# a library\nf() { :; }\n' >"$tmp/d/lib/l.sh"
 printf '# Title\n\n# shellcheck shell=bash\nf() { :; }\n' >"$tmp/d/lib/m.sh"
@@ -73,11 +74,12 @@ printf '#!/bin/bash\n:\n' >"$tmp/d/hooks/pre-commit"
 printf '#!/usr/bin/env python3\npass\n' >"$tmp/d/tool"
 printf 'not shell\n' >"$tmp/d/notes.txt"
 printf 'f() { :; }\n# shellcheck shell=sh\n' >"$tmp/d/late.sh"
-printf '%s\n' a.sh b.sh c.sh e.sh u.sh crlf.sh lib/l.sh lib/m.sh lib/n.sh \
+printf '%s\n' a.sh b.sh c.sh e.sh u.sh s.sh crlf.sh lib/l.sh lib/m.sh lib/n.sh \
   hooks/pre-commit tool notes.txt a.sh >"$tmp/d-list"
 out="$(/bin/sh "$CHECKER" list --root "$tmp/d" --files-from - <"$tmp/d-list" 2>&1)"
 assert_exit "a tree of declared files lists clean, read from stdin" 0 $?
 assert_contains "env -u skips its operand" "$out" "bash${tab}u.sh"
+assert_contains "env -S with an attached word names the interpreter" "$out" "bash${tab}s.sh"
 n_a=$(printf '%s\n' "$out" | grep -c "${tab}a.sh\$")
 if [ "$n_a" -eq 1 ]; then pass "a path listed twice is covered once"; else fail "a path listed twice is covered once ($n_a)"; fi
 assert_contains "a /bin/sh shebang is sh" "$out" "sh${tab}a.sh"
@@ -143,8 +145,10 @@ printf 'real.sh\nlink.sh\n' >"$tmp/s-list"
 assert_exit "a tracked symlink is refused rather than skipped" 2 $?
 mkdir -p "$tmp/out-dir" "$tmp/s2" || exit 1
 printf '#!/bin/sh\n:\n' >"$tmp/out-dir/x.sh"
+mkdir -p "$tmp/out-dir/sub" || exit 1
+printf '#!/bin/sh\n:\n' >"$tmp/out-dir/sub/x.sh"
 ln -s ../out-dir "$tmp/s2/dirlink" || exit 1
-printf 'dirlink/x.sh\n' >"$tmp/s2-list"
+printf 'dirlink/sub/x.sh\n' >"$tmp/s2-list"
 /bin/sh "$CHECKER" list --root "$tmp/s2" --files-from "$tmp/s2-list" >/dev/null 2>&1
 assert_exit "a path through a symlinked directory is refused" 2 $?
 
@@ -168,6 +172,10 @@ if [ "$1" = -c ]; then printf '%s' "${STUB_VERSION:-3.2.57(1)-stub}"; exit 0; fi
 printf '%s\n' "$*" >>"${0%/*}/stub.log"
 for last; do :; done
 if grep -q CRASH "$last"; then exit 139; fi
+if grep -q ARRAY "$last"; then
+  printf '%s: line 2: unexpected EOF while looking for matching )\n' "$last" >&2
+  exit "${STUB_ARRAY_EXIT:-0}"
+fi
 if grep -q MISPARSE "$last"; then
   printf '%s: line 2: syntax error\n' "$last" >&2
   exit 2
@@ -200,6 +208,22 @@ printf 'ok-sh.sh\ncrash.sh\n' >"$tmp/crash-list"
 out="$(/bin/sh "$CHECKER" parse --root "$tmp/p" --files-from "$tmp/crash-list" --bash "$tmp/stub-bash" 2>&1)"
 assert_exit "a parser that crashes is a broken run, not a parse finding" 2 $?
 assert_contains "naming its exit status" "$out" "exited 139"
+# bash 3.2 reports some syntax errors (an unterminated array assignment)
+# with exit 0 under -n and exit 1 under --posix -n.
+printf '#!/bin/bash\n# ARRAY\n' >"$tmp/p/array.sh"
+printf 'array.sh\n' >"$tmp/array-list"
+out="$(/bin/sh "$CHECKER" parse --root "$tmp/p" --files-from "$tmp/array-list" --bash "$tmp/stub-bash" 2>&1)"
+assert_exit "a syntax error reported with exit 0 is still a finding" 1 $?
+assert_contains "naming the file" "$out" "array.sh does not parse as bash"
+out="$(STUB_ARRAY_EXIT=1 /bin/sh "$CHECKER" parse --root "$tmp/p" --files-from "$tmp/array-list" --bash "$tmp/stub-bash" 2>&1)"
+assert_exit "a syntax error reported with exit 1 is a finding" 1 $?
+
+mkdir -p "$tmp/bang" || exit 1
+printf '#!/bin/bash\nx=$(\n  case a in\n    a) echo 1 ;;\n  esac\n)\n' >"$tmp/bang/!"
+printf '!\n' >"$tmp/bang-list"
+out="$(/bin/sh "$CHECKER" lint --root "$tmp/bang" --files-from "$tmp/bang-list" 2>&1)"
+assert_exit "a file named ! is linted, not taken for a read failure" 1 $?
+assert_contains "and its finding is reported" "$out" "!:4: a case pattern"
 
 # ---------------------------------------------------------------------------
 # 4. parse mode against the fixtures: every later bash accepts them, so a
@@ -266,23 +290,19 @@ lint_one() {
   /bin/sh "$CHECKER" lint --root "$tmp/l" --files-from "$tmp/l-list" 2>&1
 }
 parses() { bash -n "$tmp/l/$1" >/dev/null 2>&1; }
-expect_flag() {
-  # expect_flag <description> <line> <message> <name> <line>...: the lint
-  # reports <message> at <line> of <name>, and bash 3.2 rejects the file.
-  _d=$1 _at=$2 _msg=$3 _f=$4
-  shift 3
-  out="$(lint_one "$@")"
-  assert_exit "flagged: $_d" 1 $?
-  assert_contains "flagged at the construct: $_d" "$out" "$_f:$_at: $_msg"
-  if [ "$oracle" = 1 ] && parses "$_f"; then fail "bash 3.2 parses what the lint flags: $_d"; fi
-}
 expect_lint_only() {
-  # The same, for a shape bash 3.2 -n accepts but the lint must still flag.
+  # expect_lint_only <description> <lineno> <message> <name> <line>...: the
+  # lint reports <message> at <lineno> of <name>.
   _d=$1 _at=$2 _msg=$3 _f=$4
   shift 3
   out="$(lint_one "$@")"
   assert_exit "flagged: $_d" 1 $?
   assert_contains "flagged at the construct: $_d" "$out" "$_f:$_at: $_msg"
+}
+expect_flag() {
+  # The same, and bash 3.2 rejects the file.
+  expect_lint_only "$@"
+  if [ "$oracle" = 1 ] && parses "$4"; then fail "bash 3.2 parses what the lint flags: $1"; fi
 }
 expect_clean() {
   # expect_clean <description> <name> <line>...: bash 3.2 parses it and the
@@ -336,6 +356,33 @@ expect_flag "a case after a heredoc operator in a comment" 5 "$CASE_MSG" comment
   ': # see cat <<EOF' 'x=$(' '  case a in' '    a) echo 1 ;;' '  esac' ')'
 expect_lint_only "a case inside a double-quoted substitution" 4 "$CASE_MSG" dq-case.sh \
   'echo "pre $(' '  case $y in' '    a) echo a ;;' '  esac' ') post"'
+expect_lint_only "a substitution opened on a continued string line" 5 "$CASE_MSG" dq-cont.sh \
+  'echo "pre' '$(' '  case $y in' '    a) echo a ;;' '  esac' ') post"'
+expect_flag "a case after an escaped quote left a string open" 6 "$CASE_MSG" dq-escaped-open.sh \
+  'echo "a\"' "it's\"" 'x=$(' '  case a in' '    a) echo 1 ;;' '  esac' ')'
+expect_flag "a case arm that opens a substitution" 5 "$CASE_MSG" arm-opens.sh \
+  'case $x in' '  a) v=$(' '    case $y in' '      b) echo b ;;' '    esac' '  ) ;;' 'esac'
+expect_flag "a case word holding a substitution" 4 "$CASE_MSG" word-sub.sh \
+  'os=$(' '  case "$(uname -s)" in' '    Darwin) echo mac ;;' '  esac' ')'
+expect_flag "a case word holding a substitution, on the opening line" 3 "$CASE_MSG" word-sub-open.sh \
+  'os=$(case $(uname -s) in' '  Darwin) echo mac ;;' 'esac)'
+expect_flag "a case in a process substitution" 4 "$CASE_MSG" procsub.sh \
+  'while read -r l; do :; done < <(' '  case $x in' '    a) echo a ;;' '  esac' ')'
+expect_flag "a pattern whose arm reopens a substitution" 4 "$CASE_MSG" arm-reopen.sh \
+  'x=$(' '  case $v in' '    a) y=$(echo hi) ;;' '  esac' ')'
+expect_flag "a pattern on the same line as case in" 3 "$CASE_MSG" same-line-in.sh \
+  'x=$(' '  case $y in a) echo ;; esac' ')'
+expect_flag "a pattern on a lone in line" 4 "$CASE_MSG" in-line-pattern.sh \
+  'x=$(' '  case a' '  in a) echo ;; esac' ')'
+expect_flag "a ) inside \${ } within a substitution" 3 'a ) inside ${ }' brace-paren.sh \
+  'z=$(' '  y=${x%%)*}' '  echo' ')'
+expect_flag "a quote in a comment inside a double-quoted substitution" 3 \
+  'a # comment inside a double-quoted $( )' dq-comment-code.sh \
+  'x="$(' "  # the child's pid" '  echo a' ')"'
+expect_flag "a substitution that never closes" 2 'a $( ) command substitution that never closes' open-sub.sh \
+  'z=$(echo a'
+expect_flag "a heredoc after a flagged pattern still checked" 8 "$HEREDOC_MSG" after-flag.sh \
+  'y=$(' '  x=$(' '    case a in' '      a) : ;;' '    esac' '  )' '  cat <<EOF' "it's" 'EOF' ')'
 
 expect_flag "inside \"\$( )\" a comment's quote counts" 3 "$HEREDOC_MSG" dq-comment.sh \
   'x="$(' "  cat <<'EOF'" "# the child's" 'EOF' ')"'
@@ -408,6 +455,16 @@ expect_clean "an arithmetic shift" shift.sh \
   'x=$(' '  echo $((1 << 2))' ')' 'case $f in' '  a) : ;;' 'esac'
 expect_clean "a here-string" herestring.sh \
   'x=$(' '  cat <<<"$y"' ')' 'z=1'
+expect_clean "esac) closing a multi-line case" esac-close.sh \
+  'x=$(' '  case a in' '    (a) : ;;' '  esac)'
+expect_clean "an ANSI-C quoted escape in a heredoc body" body-ansi.sh \
+  'x=$(' '  cat <<EOF' "\$'it\\'s'" 'EOF' ')'
+expect_clean "a heredoc whose command line continues a quote" heredoc-quote.sh \
+  'cat <<EOF; echo "a' 'b"' 'body' 'EOF'
+expect_clean "a quote in a comment inside a bare substitution" bare-comment-code.sh \
+  'x=$(' "  # the child's pid" '  echo a' ')'
+expect_clean "\${ } with a ) outside any substitution" brace-top.sh \
+  'y=${x%%)*}' 'case $f in' '  a) : ;;' 'esac'
 
 # The lint catches the two regressions it exists for, in their original
 # form (needs the repository's history).
@@ -452,6 +509,10 @@ assert_exit "an image outside Docker's official library fails" 1 $?
 printf 'a: docker.io/library/bash:3.2@sha256:%s\n' "$digest" >"$tmp/official.yml"
 /bin/sh "$CHECKER" pin "$tmp/official.yml" >/dev/null 2>&1
 assert_exit "the official image's full name passes" 0 $?
+printf 'a: bash:3.2@sha256:%s\nb: echo "see #1"; docker run evil.example/bash:3.2 bash\n' \
+  "$digest" >"$tmp/quoted-hash.yml"
+/bin/sh "$CHECKER" pin "$tmp/quoted-hash.yml" >/dev/null 2>&1
+assert_exit "a reference after a quoted # is still checked" 1 $?
 printf 'a: bash:3.2@sha256:0fd7\n' >"$tmp/short.yml"
 /bin/sh "$CHECKER" pin "$tmp/short.yml" >/dev/null 2>&1
 assert_exit "a truncated digest fails" 1 $?
@@ -477,6 +538,25 @@ assert_contains "CI parses the tracked files in the pinned image" "$runs" \
   '"$BASH32_IMAGE" bash scripts/check-bash32.sh parse --files-from - --expect-version 3.2'
 assert_contains "CI runs this file under the same parser, a missing 3.2 failing" "$runs" \
   '-e PLANWRIGHT_TEST_REQUIRE_BASH32=1 "$BASH32_IMAGE" bash tests/test-check-bash32.sh'
+n_image=$(grep -c 'BASH32_IMAGE:' "$WORKFLOW")
+if [ "$n_image" -eq 1 ]; then
+  pass "the image is set once, so no step overrides the pinned value"
+else
+  fail "the image is set once, so no step overrides the pinned value ($n_image assignments)"
+fi
+# The parse step keeps `shell: bash` (pipefail) and runs even when the gate
+# before it failed.
+awk '
+  /^      - / {
+    if (step ~ /check-bash32\.sh parse/) { printf "%s", step; done = 1; exit }
+    step = ""
+  }
+  { step = step $0 "\n" }
+  END { if (!done && step ~ /check-bash32\.sh parse/) printf "%s", step }
+' "$WORKFLOW" >"$tmp/parse-step" || exit 1
+step="$(cat "$tmp/parse-step")"
+assert_contains "the parse step runs unless the run was cancelled" "$step" 'if: ${{ !cancelled() }}'
+assert_contains "the parse step runs under bash, with pipefail" "$step" 'shell: bash'
 n_runs=$(grep -c . "$tmp/docker-runs")
 n_check=$(grep -c "^check${tab}.*\"\\\$BASH32_IMAGE\"" "$tmp/docker-runs")
 if [ "$n_runs" -ge 2 ] && [ "$n_check" -eq "$n_runs" ]; then

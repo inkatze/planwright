@@ -25,8 +25,14 @@
 #              double-quoted `$( )` even `bash -n` under 3.2 accepts the file
 #              and the misparse appears only when it runs, so for that form
 #              the lint is the only guard.
-#          A heredoc whose delimiter never appears, and a quote that never
-#          closes, are findings too: the lint cannot read past either.
+#            - inside a double-quoted `$( )`, a `#` comment holding an
+#              unbalanced quote, backtick, or parenthesis: 3.2 reads the
+#              comment as code there.
+#            - a `)` inside `${ }` within a `$( )`, which 3.2 takes for the
+#              end of the substitution.
+#          A heredoc whose delimiter never appears, and a quote or a `$( )`
+#          that never closes, are findings too: the lint cannot read past
+#          any of them.
 #
 # Dialect: the shebang's interpreter (sh or dash, bash; directly or through
 # env), else a `# shellcheck shell=` directive in the file's leading comment
@@ -105,9 +111,10 @@ parse  `bash -n` each covered file (`bash --posix -n` for sh dialect) with the
        bash on PATH or --bash; a parser whose version does not start with
        --expect-version (default 3.2; empty accepts any) is refused.
 lint   flag, inside a `$( )` command substitution, a heredoc whose body bash
-       3.2 would lex unbalanced, and a case pattern without its leading `(`
-       (move such a case out of the substitution: shfmt strips the `(`); also
-       a heredoc whose delimiter never appears and a quote that never closes.
+       3.2 would lex unbalanced, a case pattern without its leading `(`
+       (move such a case out of the substitution: shfmt strips the `(`), an
+       unbalanced comment in a double-quoted one, and a `)` inside `${ }`;
+       also a heredoc, quote, or `$( )` that never closes.
 list   print `<dialect><TAB><path>` for each covered file.
 pin    require Docker's official image by an @sha256: digest on every
        bash:3.2 reference in a workflow file, and at least one reference.
@@ -139,13 +146,15 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/check-bash32.XXXXXX")" \
 trap 'rm -rf "$work"' EXIT
 
 # pin <workflow>: every bash:3.2 image reference names the official image by
-# digest, at least one. Comments are prose, so a digest in one pins nothing;
-# each reference on a line is checked on its own.
+# digest, at least one. Each reference on a line is checked on its own, so
+# a digest in a trailing comment pins nothing.
 if [ "$mode" = pin ]; then
   [ "$#" -eq 1 ] || fail_closed "pin takes exactly one workflow file"
   safe_wf="$(sanitize_printable "$1" "(unprintable path)")"
   [ -r "$1" ] || fail_closed "cannot read workflow file: $safe_wf"
-  sed -e 's/^[[:space:]]*#.*//' -e 's/[[:space:]]#.*//' "$1" >"$work/pin.txt" \
+  # Only a full-line comment is dropped: a ` #` may sit inside quotes, and a
+  # reference read from a trailing comment can only fail the check.
+  sed -e 's/^[[:space:]]*#.*//' "$1" >"$work/pin.txt" \
     || fail_closed "could not read workflow file: $safe_wf"
   rc=0
   grep -o -E '[^[:space:]"'\'']*bash:3\.2[^[:space:]"'\'']*' "$work/pin.txt" >"$work/pin.occ" || rc=$?
@@ -288,6 +297,8 @@ PW_LIST="$work/candidates" awk '
         # Skip env options, the operand of those that take one, and
         # NAME=value assignments.
         for (i++; i <= n; i++) {
+          if (w[i] ~ /^-S./) return dialect_name(substr(w[i], 3))
+          if (w[i] ~ /^--split-string=./) { sub(/^[^=]*=/, "", w[i]); return dialect_name(w[i]) }
           if (w[i] ~ /^-[uCP]$/ || w[i] ~ /^--(unset|chdir)$/) i++
           else if (w[i] !~ /^-/ && w[i] !~ /=/) break
         }
@@ -370,11 +381,17 @@ case "$mode" in
       else
         "$bash_bin" -n "$root/$rel" >"$work/err" 2>&1 || rc=$?
       fi
-      [ "$rc" -eq 0 ] && continue
-      # bash -n rejects a file with exit 2; anything else is the parser
+      # bash 3.2 rejects most files with exit 2, but an unterminated array
+      # assignment with exit 1 under --posix and exit 0 under plain -n, so
+      # its message is the verdict there. Any other exit is the parser
       # failing, which says nothing about the file.
-      [ "$rc" -eq 2 ] \
-        || fail_closed "the parser exited $rc on $(sanitize_printable "$rel" "(unprintable filename)") — not a verdict on the file"
+      case "$rc" in
+        0)
+          grep -q -E 'syntax error|unexpected EOF' "$work/err" || continue
+          ;;
+        1 | 2) ;;
+        *) fail_closed "the parser exited $rc on $(sanitize_printable "$rel" "(unprintable filename)") — not a verdict on the file" ;;
+      esac
       printf 'check-bash32: %s does not parse as %s under bash %s:\n' \
         "$(sanitize_printable "$rel" "(unprintable filename)")" "$dialect" "$version" >&2
       while IFS= read -r line; do
@@ -388,80 +405,106 @@ case "$mode" in
 esac
 
 # lint. Each file is lexed line by line with its state carried across lines:
-# the quote it is inside, and a stack of open groups, each a paren group, an
-# arithmetic (( )), or a $( ) opened outside or inside double quotes. So text
-# inside quotes or comments never reads as code, and a substitution is
-# followed from wherever it opens to the `)` that closes it.
+# the quote it is inside, and a stack of open groups (a paren group, an
+# arithmetic (( )), a ${ }, or a command substitution opened outside or
+# inside double quotes). So text inside quotes or comments never reads as
+# code, and a substitution is followed from wherever it opens to the `)`
+# that closes it.
 PW_LIST="$work/list" awk '
   BEGIN {
     CASE_MSG = "a case pattern without its leading ( inside a $( ) command substitution (move the case out of it: shfmt strips the ()"
     HEREDOC_MSG = "a heredoc inside a $( ) command substitution with an unbalanced quote, backtick, or parenthesis in its body"
+    COMMENT_MSG = "a # comment inside a double-quoted $( ) command substitution, which bash 3.2 reads as code, with an unbalanced quote, backtick, or parenthesis"
+    BRACE_MSG = "a ) inside ${ } within a $( ) command substitution, which bash 3.2 takes for the end of the substitution"
     UNCLOSED_MSG = "a heredoc whose delimiter never appears, so nothing after it was checked"
     QUOTE_MSG = "a quote that never closes, so nothing after it was checked"
+    OPEN_MSG = "a $( ) command substitution that never closes, so nothing after it was checked"
     # `case WORD in` at a command position, and `esac` as a word.
     CASE_IN = "(^|[;&|(]|[ \t](then|do|else|!))[ \t]*case[ \t]+[^ \t;]+[ \t]+in([ \t]+|$)"
     CASE_NO_IN = "(^|[;&|(]|[ \t](then|do|else|!))[ \t]*case[ \t]+[^ \t;]+[ \t]*$"
     ESAC = "(^|[ \t;&|])esac([ \t;)]|$)"
     BARE_PATTERN = "^[ \t]*[^ \t()#;][^()]*\\)"
   }
-  function report(rel, n, what) { print rel "\t" n "\t" what }
+  function report(rel, n, what) { print "F\t" rel "\t" n "\t" what }
 
-  # The open groups, G[1..gn], carried across a file: "P" a paren group, "A"
-  # an arithmetic (( )), "S0" a $( ) opened outside double quotes, "S2" one
-  # opened inside them. For each S at index k: NC[k] open case statements in
-  # it, WP[k] a case pattern may start next, WI[k] a case awaits its `in`.
-  function push(t) { G[++gn] = t; if (t ~ /^S/) { NC[gn] = 0; WP[gn] = 0; WI[gn] = 0 } }
-  function top_sub(   k) { for (k = gn; k > 0; k--) if (G[k] ~ /^S/) return k; return 0 }
+  # The open groups, grp[1..ngrp], carried across a file: "P" a paren group,
+  # "A" an arithmetic (( )), "B" a ${ }, "S0" a $( ) or <( ) opened outside
+  # double quotes, "S2" a $( ) opened inside them. gid[k] numbers each group
+  # as it opens, so a substitution closed and another opened at the same depth
+  # never share state. Per substitution id: ncase[] its open case statements,
+  # want_pat[] a case pattern may start next, want_in[] a case awaits its in.
+  function push(t) {
+    grp[++ngrp] = t; gid[ngrp] = ++serial; opened_at[serial] = n
+    ncase[serial] = 0; want_pat[serial] = 0; want_in[serial] = 0
+  }
+  function first_sub(   k) { for (k = 1; k <= ngrp; k++) if (grp[k] ~ /^S/) return k; return 0 }
+  function top_sub(   k) { for (k = ngrp; k > 0; k--) if (grp[k] ~ /^S/) return k; return 0 }
   function in_arith(   k) {
-    for (k = gn; k > 0; k--) { if (G[k] == "A") return 1; if (G[k] ~ /^S/) return 0 }
+    for (k = ngrp; k > 0; k--) { if (grp[k] == "A") return 1; if (grp[k] ~ /^S/) return 0 }
     return 0
   }
+  function in_dq_sub(   k) { for (k = ngrp; k > 0; k--) if (grp[k] == "S2") return 1; return 0 }
+  function save(   k) {
+    sv_n = ngrp; sv_qs = qs; sv_serial = serial
+    for (k = 1; k <= ngrp; k++) { sv_grp[k] = grp[k]; sv_gid[k] = gid[k] }
+  }
+  function restore(   k) {
+    ngrp = sv_n; qs = sv_qs; serial = sv_serial
+    for (k = 1; k <= ngrp; k++) { grp[k] = sv_grp[k]; gid[k] = sv_gid[k] }
+  }
 
-  # lex(s): lexes one line from the carried quote state qs (0 none, 1 single,
-  # 2 double, 3 ANSI-C $'"'"'...'"'"') and the carried stack. Sets lx_bare (the
-  # line with comments removed, escapes neutralized, and quoted text blanked
-  # down to its quote marks), lx_pop (the first group a `)` on the line
-  # closed, "" for none), lx_orphan (how many `)` found nothing open), and
-  # lx_hd[1..lx_nhd] with lx_hdash[], lx_hsub[],
-  # lx_hdq[]: each heredoc delimiter, whether it is `<<-`, whether it opens
-  # inside a $( ), and whether that $( ) sits in double quotes.
-  function lex(s,   i, c, n, w, j, dash, k, prev) {
-    lx_bare = ""; lx_pop = ""; lx_nhd = 0; lx_orphan = 0
+  # lex(s, at, id, keep): lexes one line from the carried quote state qs (0
+  # none, 1 single, 2 double, 3 ANSI-C) and the carried stack. Sets lx_bare
+  # (the line with comments removed, escapes neutralized, and quoted text
+  # blanked down to its quote marks); lx_text, the part of lx_bare at depth
+  # `at` while the group there is still the one numbered id (what a case
+  # statement in that substitution sees, nested groups reduced to their
+  # brackets); lx_comment, a comment that bash 3.2 reads as code because a
+  # double-quoted $( ) is open; lx_brace, set when a ) inside ${ } sits in a
+  # $( ); and lx_hd[1..lx_nhd] with lx_hdash[], lx_hsub[], lx_hdq[]: each
+  # heredoc delimiter, whether it is <<-, whether it opens inside a $( ), and
+  # whether that one sits in double quotes. With keep set, the first ) that
+  # would close the group at `at` leaves it open, as a pattern ) should.
+  function lex(s, at, id, keep,   i, c, n, w, j, dash, k, prev, piece, here) {
+    lx_bare = ""; lx_text = ""; lx_comment = ""; lx_brace = 0; lx_nhd = 0
     n = length(s); prev = " "
     for (i = 1; i <= n; i++) {
-      c = substr(s, i, 1)
-      if (qs == 1) { if (c == "'"'"'") { qs = 0; lx_bare = lx_bare c; prev = c }; continue }
-      if (qs == 3) {
+      c = substr(s, i, 1); piece = ""
+      here = (ngrp == at && (at == 0 || gid[at] == id))
+      if (qs == 1) { if (c == "'"'"'") { qs = 0; piece = c } }
+      else if (qs == 3) { if (c == "\\") i++; else if (c == "'"'"'") { qs = 0; piece = c } }
+      else if (qs == 2) {
         if (c == "\\") i++
-        else if (c == "'"'"'") { qs = 0; lx_bare = lx_bare c; prev = c }
-        continue
-      }
-      if (qs == 2) {
-        if (c == "\\") { i++; continue }
-        if (c == "\"") { qs = 0; lx_bare = lx_bare c; prev = c; continue }
-        if (c == "$" && substr(s, i + 1, 1) == "(" && substr(s, i + 2, 1) != "(") {
-          push("S2"); qs = 0; lx_bare = lx_bare "$("; i++; prev = "("
+        else if (c == "\"") { qs = 0; piece = c }
+        else if (c == "$" && substr(s, i + 1, 1) == "(" && substr(s, i + 2, 1) != "(") {
+          push("S2"); qs = 0; piece = "$("; i++
         }
-        continue
       }
-      if (c == "\\") { lx_bare = lx_bare "\\x"; i++; prev = "x"; continue }
-      if (c == "#" && prev ~ /[ \t;&|(]/) break
-      if (c == "'"'"'") { qs = 1; lx_bare = lx_bare c; prev = c; continue }
-      if (c == "$" && substr(s, i + 1, 1) == "'"'"'") { qs = 3; lx_bare = lx_bare "$'"'"'"; i++; prev = c; continue }
-      if (c == "\"") { qs = 2; lx_bare = lx_bare c; prev = c; continue }
-      if (c == "$" && substr(s, i + 1, 2) == "((") { push("A"); lx_bare = lx_bare "$(("; i += 2; prev = "("; continue }
-      if (c == "(" && substr(s, i + 1, 1) == "(") { push("A"); lx_bare = lx_bare "(("; i++; prev = "("; continue }
-      if (c == "$" && substr(s, i + 1, 1) == "(") { push("S0"); lx_bare = lx_bare "$("; i++; prev = "("; continue }
-      if (c == ")" && gn > 0 && G[gn] == "A" && substr(s, i + 1, 1) == ")") {
-        gn--; lx_bare = lx_bare "))"; i++; prev = ")"; continue
+      else if (c == "\\") { piece = "\\x"; i++ }
+      else if (c == "#" && prev ~ /[ \t;&|(]/) {
+        if (in_dq_sub()) lx_comment = substr(s, i)
+        break
       }
-      if (c == "(") push("P")
-      else if (c == ")" && gn == 0) lx_orphan++
+      else if (c == "'"'"'") { qs = 1; piece = c }
+      else if (c == "$" && substr(s, i + 1, 1) == "'"'"'") { qs = 3; piece = "$'"'"'"; i++ }
+      else if (c == "\"") { qs = 2; piece = c }
+      else if (c == "$" && substr(s, i + 1, 1) == "{") { push("B"); piece = "${"; i++ }
+      else if (c == "}" && ngrp > 0 && grp[ngrp] == "B") { ngrp--; piece = c }
+      else if (c == "$" && substr(s, i + 1, 2) == "((") { push("A"); piece = "$(("; i += 2 }
+      else if (c == "(" && substr(s, i + 1, 1) == "(") { push("A"); piece = "(("; i++ }
+      else if (c == "$" && substr(s, i + 1, 1) == "(") { push("S0"); piece = "$("; i++ }
+      else if (c == "(" && (prev == "<" || prev == ">")) { push("S0"); piece = c }
+      else if (c == ")" && ngrp > 0 && grp[ngrp] == "A" && substr(s, i + 1, 1) == ")") {
+        ngrp--; piece = "))"; i++
+      }
+      else if (c == "(") { push("P"); piece = c }
       else if (c == ")") {
-        if (lx_pop == "") lx_pop = G[gn]
-        if (G[gn--] == "S2") { qs = 2; lx_bare = lx_bare c; prev = c; continue }
+        piece = c
+        if (ngrp > 0 && grp[ngrp] == "B") { if (top_sub()) lx_brace = 1 }
+        else if (keep && ngrp == at && gid[at] == id) keep = 0
+        else if (ngrp > 0) { if (grp[ngrp] == "S2") qs = 2; ngrp-- }
       }
-      if (c == "<" && substr(s, i, 2) == "<<" && substr(s, i + 2, 1) != "<" && prev != "<" && !in_arith()) {
+      else if (c == "<" && substr(s, i, 2) == "<<" && substr(s, i + 2, 1) != "<" && prev != "<" && !in_arith()) {
         j = i + 2; dash = 0
         if (substr(s, j, 1) == "-") { dash = 1; j++ }
         while (substr(s, j, 1) ~ /[ \t]/) j++
@@ -472,21 +515,24 @@ PW_LIST="$work/list" awk '
           lx_nhd++
           lx_hd[lx_nhd] = w; lx_hdash[lx_nhd] = dash
           k = top_sub()
-          lx_hsub[lx_nhd] = (k > 0); lx_hdq[lx_nhd] = (k > 0 && G[k] == "S2")
-          lx_bare = lx_bare substr(s, i, j - i)
-          i = j - 1; prev = "x"
-          continue
-        }
+          lx_hsub[lx_nhd] = (k > 0); lx_hdq[lx_nhd] = (k > 0 && grp[k] == "S2")
+          piece = substr(s, i, j - i); i = j - 1
+        } else piece = c
       }
-      lx_bare = lx_bare c; prev = c
+      else piece = c
+      if (piece != "") {
+        lx_bare = lx_bare piece
+        if (here || (ngrp == at && (at == 0 || gid[at] == id))) lx_text = lx_text piece
+        prev = substr(piece, length(piece), 1)
+      }
     }
   }
 
-  # Whether bash 3.2 finds a heredoc body unbalanced inside a $( ): it lexes
-  # the body as shell, so an unclosed quote, backtick, or ( runs off the end
-  # of the file. In a bare $( ) it also honors # comments and rejects a stray
-  # ); in a double-quoted one it does neither.
-  function unbalanced(s, bare,   i, c, st, bt, p, n) {
+  # Whether bash 3.2 finds text unbalanced when it lexes it as shell inside
+  # a $( ): an unclosed quote, backtick, or ( runs off the end of the file.
+  # comments: it honors # comments (a bare $( ), not a double-quoted one).
+  # strict: a stray ) counts too (it closes the substitution early).
+  function unbalanced(s, comments, strict,   i, c, st, bt, p, n) {
     st = 0; bt = 0; p = 0; n = length(s)
     for (i = 1; i <= n; i++) {
       c = substr(s, i, 1)
@@ -494,7 +540,7 @@ PW_LIST="$work/list" awk '
       if (st == 3) { if (c == "\\") i++; else if (c == "'"'"'") st = 0; continue }
       if (c == "\\") { i++; continue }
       if (st == 2) { if (c == "\"") st = 0; else if (c == "`") bt = !bt; continue }
-      if (bare && c == "#" && (i == 1 || substr(s, i - 1, 1) ~ /[ \t\n]/)) {
+      if (comments && c == "#" && (i == 1 || substr(s, i - 1, 1) ~ /[ \t\n]/)) {
         while (i <= n && substr(s, i, 1) != "\n") i++
         continue
       }
@@ -503,108 +549,124 @@ PW_LIST="$work/list" awk '
       else if (c == "\"") st = 2
       else if (c == "`") bt = !bt
       else if (c == "(") p++
-      else if (c == ")") { if (p > 0) p--; else if (bare) return 1 }
+      else if (c == ")") { if (p > 0) p--; else if (strict) return 1 }
     }
     return st || bt || p
   }
 
-  # Case-statement state for the substitution at k, from line text t.
-  # Returns 1 when t holds a bare pattern there.
-  function case_step(k, t,   r, bad) {
+  # Case-statement state for the substitution numbered id, from its text t
+  # on one line. Returns 1 when t holds a bare pattern there.
+  function case_step(id, t,   r, bad) {
     bad = 0
     if (match(t, CASE_IN)) {
-      NC[k]++; WI[k] = 0
+      ncase[id]++; want_in[id] = 0
       r = substr(t, RSTART + RLENGTH)
       if (r != "" && r !~ /^\(/ && r !~ /^#/) bad = 1
-      WP[k] = (r == "")
-      if (r ~ ESAC) NC[k]--
-    } else if (t ~ CASE_NO_IN) WI[k] = 1
-    else if (WI[k] && t ~ /^[ \t]*in([ \t]|$)/) {
-      WI[k] = 0; NC[k]++
+      want_pat[id] = (r == "")
+      if (r ~ ESAC) ncase[id]--
+    } else if (t ~ CASE_NO_IN) want_in[id] = 1
+    else if (want_in[id] && t ~ /^[ \t]*in([ \t]|$)/) {
+      want_in[id] = 0; ncase[id]++
       r = t; sub(/^[ \t]*in[ \t]*/, "", r)
       if (r != "" && r !~ /^\(/) bad = 1
-      WP[k] = (r == "")
-    } else if (NC[k] > 0) {
-      if (WP[k] && t ~ BARE_PATTERN && t !~ /^[ \t]*esac([ \t;)]|$)/) bad = 1
-      if (t !~ /^[ \t]*$/) WP[k] = 0
-      if (t ~ ESAC) NC[k]--
+      want_pat[id] = (r == "")
+    } else if (ncase[id] > 0) {
+      if (want_pat[id] && t ~ BARE_PATTERN && t !~ /^[ \t]*esac([ \t;)]|$)/) bad = 1
+      if (t !~ /^[ \t]*$/) want_pat[id] = 0
+      if (t ~ ESAC) ncase[id]--
     }
-    if (NC[k] > 0 && t ~ /;;&?[ \t]*$|;&[ \t]*$/) WP[k] = 1
+    if (ncase[id] > 0 && t ~ /;;&?[ \t]*$|;&[ \t]*$/) want_pat[id] = 1
     return bad
   }
 
-  # A line that, outside every group and quote, can change nothing: no quote
-  # mark, heredoc, escape, or unmatched paren. Lexing is the cost, so these
-  # are skipped.
+  # A line that, outside every group and quote, can change nothing: no
+  # single quote, odd double quote, heredoc, escape, substitution opener, or
+  # unmatched paren. Lexing is the cost, so these are skipped.
   function inert(line,   t) {
     if (index(line, "'"'"'") || index(line, "<<") || index(line, "\\")) return 0
+    if (index(line, "$(") || index(line, "<(") || index(line, ">(")) return 0
     t = line
     if (gsub(/"/, "", t) % 2) return 0
     t = line
     return gsub(/\(/, "", t) == gsub(/\)/, "", line)
   }
 
-  function scan(rel,   path, line, n, r, nq, cur, hq, hdash, hin, gdq, gline, body, t, k, k0, flagged, i, qline) {
+  function scan(rel,   path, line, r, nq, cur, pend, hq, hdash, hd_sub, hd_dq, hd_line, body, k0, id0, k1, id1, flagged, fid, i, qline) {
     path = ENVIRON["PW_ROOT"] "/" rel
-    n = 0; gn = 0; qs = 0; nq = 0; cur = 0; body = ""; qline = 0
+    n = 0; ngrp = 0; serial = 0; qs = 0; nq = 0; cur = 0; pend = 0; body = ""; qline = 0
     while ((r = (getline line < path)) > 0) {
       n++
       sub(/\r$/, "", line)
       # Heredoc bodies: every body opened on one line is one stream to bash,
-      # so their quotes are judged together once the last one closes.
+      # so their quotes are judged together once the last one closes. Only a
+      # body inside a $( ) is kept.
       if (cur > 0) {
-        t = line
-        if (hdash[cur]) sub(/^\t+/, "", t)
-        if (t == hq[cur]) {
+        i = line
+        if (hdash[cur]) sub(/^\t+/, "", i)
+        if (i == hq[cur]) {
           if (cur < nq) cur++
           else {
-            if (hin && unbalanced(body, !gdq)) report(rel, gline, HEREDOC_MSG)
+            if (hd_sub && unbalanced(body, !hd_dq, !hd_dq)) report(rel, hd_line, HEREDOC_MSG)
             cur = 0; nq = 0; body = ""
           }
-        } else body = body line "\n"
+        } else if (hd_sub) body = body line "\n"
         continue
       }
       if (qs == 1 && !index(line, "'"'"'")) continue
       if (qs == 3 && !index(line, "'"'"'")) continue
       if (qs == 2 && !index(line, "\"") && !index(line, "$(")) continue
       if (qs == 0) {
-        if (line ~ /^[ \t]*(#.*)?$/) continue
-        if (gn == 0 && inert(line)) continue
+        # Inside a double-quoted $( ) bash 3.2 reads a comment as code.
+        if (line ~ /^[ \t]*(#.*)?$/ && (line ~ /^[ \t]*$/ || !in_dq_sub())) continue
+        if (ngrp == 0 && inert(line)) continue
       }
 
-      k0 = top_sub()
+      k0 = top_sub(); id0 = k0 ? gid[k0] : 0
       if (qs == 0) qline = n
-      lex(line)
+      save()
+      lex(line, k0, id0, 0)
       flagged = 0
-
-      # Case tracking runs in the substitution the line belongs to: the one
-      # open when it began, or one the line itself opens (its text after the
-      # last $( ).
-      k = top_sub(); t = lx_bare
-      if (k > k0) { i = t; while (match(i, /\$\(/)) i = substr(i, RSTART + 2); t = i }
-      else k = k0
-      if (k > 0 && case_step(k, t)) { report(rel, n, CASE_MSG); flagged = 1 }
-      if (!flagged && lx_bare ~ /(^|[^\\])\$\([ \t]*case[ \t]+[^ \t;]+[ \t]+in[ \t]+[^( \t]/) {
-        report(rel, n, CASE_MSG); flagged = 1
+      # Case tracking runs in the substitution the line began in and, when
+      # the line opens one that stays open, in that one too.
+      if (k0 > 0 && case_step(id0, lx_text)) { flagged = k0; fid = id0 }
+      k1 = top_sub(); id1 = k1 ? gid[k1] : 0
+      if (!flagged && k1 > 0 && id1 != id0) {
+        restore(); lex(line, k1, id1, 0)
+        if (case_step(id1, lx_text)) { flagged = k1; fid = id1 }
       }
-      # The pattern ) closed the substitution in this reading, as it does
-      # for bash 3.2; reopen it so the rest of the file reads as written,
-      # unless a later ) on the line found nothing open to close.
-      if (flagged && lx_pop ~ /^S/ && !lx_orphan) { push(lx_pop); if (qs == 2) qs = 0 }
+      # A substitution opened and closed on this line never reaches
+      # case_step; this catches its one-line case.
+      if (!flagged && lx_bare ~ /(^|[^\\])\$\([ \t]*case[ \t]+[^ \t;]+[ \t]+in[ \t]+[^( \t]/) {
+        report(rel, n, CASE_MSG)
+      }
+      if (flagged) {
+        report(rel, n, CASE_MSG)
+        # In this reading the pattern ) closed the substitution, as it does
+        # for bash 3.2; lex again with it left open, so the rest of the file
+        # reads as written.
+        restore(); lex(line, flagged, fid, 1)
+      }
+      if (lx_comment != "" && unbalanced(lx_comment, 0, 1)) report(rel, n, COMMENT_MSG)
+      if (lx_brace) report(rel, n, BRACE_MSG)
 
       if (lx_nhd > 0) {
-        hin = 0; gdq = 0
+        hd_sub = 0; hd_dq = 0
         for (i = 1; i <= lx_nhd; i++) {
           nq++; hq[nq] = lx_hd[i]; hdash[nq] = lx_hdash[i]
-          if (lx_hsub[i] && !hin) { hin = 1; gdq = lx_hdq[i] }
+          if (lx_hsub[i] && !hd_sub) { hd_sub = 1; hd_dq = lx_hdq[i] }
         }
-        cur = 1; body = ""; gline = n
+        body = ""; hd_line = n
+        pend = 1
       }
+      # The bodies start on the line after the command ends, which a quote
+      # left open can push further down.
+      if (pend && qs == 0) { cur = 1; pend = 0 }
     }
     close(path)
     if (r < 0) print "!\t" rel
-    else if (cur > 0) report(rel, gline, UNCLOSED_MSG)
+    else if (cur > 0 || pend) report(rel, hd_line, UNCLOSED_MSG)
     else if (qs != 0) report(rel, qline, QUOTE_MSG)
+    else if ((i = first_sub())) report(rel, opened_at[gid[i]], OPEN_MSG)
   }
   BEGIN {
     listfile = ENVIRON["PW_LIST"]
@@ -616,11 +678,12 @@ PW_LIST="$work/list" awk '
   }
 ' >"$work/findings" || fail_closed "the lint could not complete"
 
-while IFS="$tab" read -r rel lineno what; do
-  [ -n "$rel" ] || continue
-  if [ "$rel" = "!" ]; then
-    fail_closed "could not read $(sanitize_printable "$lineno" "(unprintable filename)") during the lint — it would cover less than it claims"
-  fi
+while IFS="$tab" read -r kind rel lineno what; do
+  case "$kind" in
+    F) ;;
+    '!') fail_closed "could not read $(sanitize_printable "$rel" "(unprintable filename)") during the lint — it would cover less than it claims" ;;
+    *) continue ;;
+  esac
   printf 'check-bash32: %s:%s: %s (bash 3.2 misparses it)\n' \
     "$(sanitize_printable "$rel" "(unprintable filename)")" "$lineno" "$what" >&2
   status=1

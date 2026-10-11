@@ -225,7 +225,7 @@ description = "retired-mkdir guard over advisory locking: fail on any shell file
 run = "/bin/bash scripts/check-lock-primitive.sh"
 
 [tasks."check:bash32"]
-description = "bash 3.2 construct lint over every tracked shell file outside tests/fixtures/bash32/: flag a heredoc whose body bash 3.2 would lex unbalanced inside a $( ) command substitution, and a case pattern without its leading ( inside one, constructs macOS's bash 3.2 misparses, a heredoc or quote that never closes, and any tracked .sh file declaring no dialect (neither a shebang nor a `# shellcheck shell=` directive); the real 3.2 parse of every file runs as a step of CI's check job (test-throughput REQ-E1.6, REQ-E1.7, D-11)"
+description = "bash 3.2 construct lint over every tracked shell file outside tests/fixtures/bash32/: flag the constructs macOS's bash 3.2 misparses inside a $( ) command substitution (a heredoc whose body it lexes unbalanced, a case pattern without its leading (, an unbalanced comment in a double-quoted one, a ) inside ${ }), a heredoc, quote, or $( ) that never closes, and any tracked .sh file declaring no dialect (neither a shebang nor a `# shellcheck shell=` directive); the real 3.2 parse of every file runs as a step of CI's check job (test-throughput REQ-E1.6, REQ-E1.7, D-11)"
 run = "/bin/sh scripts/check-bash32.sh lint"
 
 [tasks."check:test-time"]
