@@ -304,34 +304,48 @@ operator_text() {
   ! blank "$work/$1.clean" || die 2 "--$1 is empty once sanitized"
 }
 
+# The private-key block markers: KEY_BEGIN matches what the screen's
+# private-key-block rule flags, KEY_END each format's last line.
+KEY_BEGIN='-----BEGIN ([A-Z0-9]+ )*PRIVATE KEY( BLOCK)?-----|---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----|PuTTY-User-Key-File-[0-9]+:'
+KEY_END='-----END ([A-Z0-9]+ )*PRIVATE KEY( BLOCK)?-----|---- END SSH2 ENCRYPTED PRIVATE KEY ----|Private-MAC:'
+
 # redact <name> <out> — the cleaned text with each line the screen flagged
 # replaced whole; REDACTED is 1 when a secret was, REDACTED_PERSONAL when
-# personal data was. The screen flags only a key block's BEGIN line, so a
-# flagged private-key-block also takes every line through its END line, or to
-# the end of the text when there is none.
+# personal data was. The screen flags only a key block's BEGIN line, so every
+# line after it is dropped through the block's END line, or to the end of the
+# text when there is none; on a line carrying both markers the last decides.
 redact() {
   REDACTED=0
   REDACTED_PERSONAL=0
   if hits_for "$1.clean" "$work/$1.hits"; then
-    awk -F '\t' '
+    awk -F '\t' -v kb="$KEY_BEGIN" -v ke="$KEY_END" '
+      function lastpos(s, re,   p) {
+        p = 0
+        while (match(substr(s, p + 1), re)) p += RSTART
+        return p
+      }
       NR == FNR {
         r[$1] = (r[$1] == "" ? $2 : r[$1] ", " $2)
-        if ($2 !~ /^personal-data-/) secret[$1] = 1
-        if ($2 == "private-key-block") k[$1] = 1
+        if ($2 ~ /^personal-data-/) personal = 1
+        else secret[$1] = sec = 1
         next
       }
-      inkey {
-        if ($0 ~ /-----END ([A-Z]+ )?PRIVATE KEY-----/) inkey = 0
-        next
+      {
+        was = inkey
+        if (was || FNR in r) {
+          b = lastpos($0, kb)
+          e = lastpos($0, ke)
+          if (b > e) inkey = 1
+          else if (e) inkey = 0
+        }
+        if (FNR in r) print "[redacted: " r[FNR] ((FNR in secret) ? ", a token-shaped secret]" : ", personal data]")
+        else if (!was) print
       }
-      FNR in r {
-        print "[redacted: " r[FNR] ((FNR in secret) ? ", a token-shaped secret]" : ", personal data]")
-        if ((FNR in k) && $0 !~ /-----END ([A-Z]+ )?PRIVATE KEY-----/) inkey = 1
-        next
-      }
-      { print }' "$work/$1.hits" "$work/$1.clean" >"$2" || die 4 "cannot redact --$1"
-    ! cut -f2 "$work/$1.hits" | grep -qv '^personal-data-' || REDACTED=1
-    ! cut -f2 "$work/$1.hits" | grep -q '^personal-data-' || REDACTED_PERSONAL=1
+      END { print sec + 2 * personal >flags }' flags="$work/$1.flags" "$work/$1.hits" "$work/$1.clean" >"$2" \
+      || die 4 "cannot redact --$1"
+    _flags=$(cat "$work/$1.flags") || die 4 "cannot redact --$1"
+    REDACTED=$((_flags % 2))
+    REDACTED_PERSONAL=$((_flags / 2))
   else
     cp "$work/$1.clean" "$2" || die 4 "cannot copy --$1"
   fi

@@ -78,9 +78,12 @@ mk aws "aws_key = AKIA""IOSFODNN7EXAMPLE"
 mk github "token: ghp_""0123456789abcdefghijklmnopqrstuvwxyz"
 mk slack "hook = xoxb-""1234567890-abcdefghijklmno"
 mk pem "-----BEGIN RSA PRIVATE KEY""-----"
+mk pgp "-----BEGIN PGP PRIVATE KEY BLOCK""-----"
+mk ssh2 "---- BEGIN SSH2 ENCRYPTED PRIVATE KEY"" ----"
+mk putty "PuTTY-User-Key""-File-2: ssh-rsa"
 mk generic "api_key = ""s3cr3tVALUE0123456789abcdefXYZ"
 
-for case in aws github slack pem generic; do
+for case in aws github slack pem pgp ssh2 putty generic; do
   out="$("$SCREEN" "$tmp/$case.md" 2>&1)"
   rc=$?
   assert_eq "$case: exit 1" "1" "$rc"

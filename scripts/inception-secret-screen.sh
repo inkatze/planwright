@@ -229,7 +229,7 @@ fi
 # which would loosen the provider prefixes that are case-exact.
 rules=$(
   cat <<'RULES'
-private-key-block	-----BEGIN ([A-Z]+ )?PRIVATE KEY-----
+private-key-block	-----BEGIN ([A-Z0-9]+ )*PRIVATE KEY( BLOCK)?-----|---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----|PuTTY-User-Key-File-[0-9]+:
 aws-access-key-id	(AKIA|ASIA)[0-9A-Z]{16}
 github-token	gh[pousr]_[A-Za-z0-9]{36,}
 slack-token	xox[abpsr]-[A-Za-z0-9-]{16,}

@@ -349,6 +349,35 @@ for part in "$KEY_BODY1" "$KEY_BODY2"; do
   case $OUT in *"$part"*) fail "an unterminated key block leaked a line: ${part:0:12}" ;; esac
 done
 printf '%s\n' "$OUT" | grep -qx '  Use this key:' || fail "the line before an unterminated key block must survive"
+# A line that ends one key and begins the next keeps the second key's body
+# out: the line's last marker decides.
+printf 'Two keys:\n%s\n%s\n%s %s\n%s\n%s\nDone.\n' "$KEY_BEGIN" "$KEY_BODY1" "$KEY_END" "$KEY_BEGIN" \
+  "$KEY_BODY2" "$KEY_END" >"$in/ask-key-two.txt"
+run_render pr --ask-file "$in/ask-key-two.txt"
+[ "$RC" -eq 0 ] || fail "render of an ask with back-to-back keys exited $RC: $ERR"
+for part in "$KEY_BODY1" "$KEY_BODY2"; do
+  case $OUT in *"$part"*) fail "back-to-back keys leaked a body line: ${part:0:12}" ;; esac
+done
+printf '%s\n' "$OUT" | grep -qx '  Done.' || fail "the line after back-to-back keys must survive"
+# PGP, SSH2, and PuTTY private keys are blocks too, through their own end.
+PGP_BEGIN="-----BEGIN PGP PRIVATE KEY ""BLOCK-----"
+PGP_END="-----END PGP PRIVATE KEY ""BLOCK-----"
+SSH2_BEGIN="---- BEGIN SSH2 ENCRYPTED PRIVATE ""KEY ----"
+SSH2_END="---- END SSH2 ENCRYPTED PRIVATE ""KEY ----"
+PUTTY_BEGIN="PuTTY-User-Key-""File-3: ssh-ed25519"
+PUTTY_END="Private-""MAC: 0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+for fmt in "PGP|$PGP_BEGIN|$PGP_END" "SSH2|$SSH2_BEGIN|$SSH2_END" "PuTTY|$PUTTY_BEGIN|$PUTTY_END"; do
+  name=${fmt%%|*}
+  rest=${fmt#*|}
+  printf 'Use this key:\n%s\n%s\n%s\n%s\nThen rerun the deploy.\n' \
+    "${rest%%|*}" "$KEY_BODY1" "$KEY_BODY2" "${rest#*|}" >"$in/ask-key-fmt.txt"
+  run_render pr --ask-file "$in/ask-key-fmt.txt"
+  [ "$RC" -eq 0 ] || fail "render of an ask with a $name key exited $RC: $ERR"
+  for part in "${rest%%|*}" "$KEY_BODY1" "$KEY_BODY2" "${rest#*|}"; do
+    case $OUT in *"$part"*) fail "a $name key leaked a line: ${part:0:16}" ;; esac
+  done
+  printf '%s\n' "$OUT" | grep -qx '  Then rerun the deploy.' || fail "the line after a $name key's end must survive"
+done
 
 # Personal data in the ask (identity, account, and contact numbers) is
 # redacted a whole line at a time and noted; ordinary numbers in an ask are
