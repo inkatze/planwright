@@ -454,6 +454,28 @@ operator's added steps are named in §5 and D-9). Information UX (the
 angles record follows output-hygiene's collapsed-detail convention,
 REQ-E1.6). Product strategy and packaging do not apply.
 
+### Execution notes: Task 1 (2026-10-11)
+
+Recorded by the executing task; no row above is changed.
+
+- **The research seed's datasets were gone.** They lived only in the
+  drafting session's scratchpad. Corpus v1 was rebuilt from this public
+  repository's PR review threads (`gh api graphql`) by the refresh script,
+  with `--label-reasons` standing in for the seed's labels: the category,
+  class, and paraphrased gist come from a model annotator, recorded as label
+  source `model`. This is the label noise row 16 anticipates, not a new risk;
+  the catch rule still reads only file and line.
+- **`declined` and `lintable` rows are scarce** (row 17): the declined-log
+  match found few rows, so a targeted replay of either class is a small
+  sample. The zero-row refusal still applies.
+- **A refresh carries labels forward.** A row the previous version already
+  holds (same PR, path, line, and commit) keeps its labels and gist, so a
+  ledger that has since been drained never relabels it `other`; the `other`
+  fallback applies to findings new to the refresh with no ledger entry.
+- **Replay cost, measured** (row 6): one row of today's pass costs on the
+  order of a few hundred thousand tokens and a minute or two; the baseline
+  result records its total.
+
 Signed off: 2026-09-24
 
 ## 8. Sign-off
