@@ -124,7 +124,7 @@ The `check` task's `depends` list in `mise.toml` is the authoritative
 inventory; the two registration guards are what keep it complete. GitHub
 Actions runs the same gate on every pull request, plus two checks it cannot
 run locally: the awk-sensitive suites on macOS, and a parse of every tracked
-shell file under the real bash 3.2 (the `bash32-parse` job, in Docker's
+shell file under the real bash 3.2 (a step of the `check` job, in Docker's
 official `bash:3.2` image pinned by digest in `.github/workflows/ci.yml`;
 reproduce it with the `docker run` lines there, and refresh the image by
 editing only that digest). This is dev tooling
