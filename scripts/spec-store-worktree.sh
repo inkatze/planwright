@@ -273,9 +273,10 @@ while [ -n "$rest" ]; do
 done
 # Nor may anything inside the bundle, committed or not, be a symlink or a
 # multiply-linked file: the skills write each bundle file in place.
-# The scan fails closed: a directory it cannot read could hide a link.
+# The scan fails closed: a directory it cannot read or enter could hide a
+# link, so the probe runs the full predicate the refusals below test.
 if [ -d "$bundle" ]; then
-  why=$(find "$bundle" -mindepth 1 -type l 2>&1 >/dev/null) && [ -z "$why" ] || {
+  why=$(find "$bundle" -mindepth 1 \( -type l -o -type f -links +1 \) 2>&1 >/dev/null) && [ -z "$why" ] || {
     say "refused: could not scan $bundle for links: ${why:-find failed}"
     exit 4
   }

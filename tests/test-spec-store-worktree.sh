@@ -442,6 +442,25 @@ if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'sub/x.md ha
 else
   fail "nested hardlinked file: rc=$rc out=$out err=$err"
 fi
+# The link-count scan fails closed too: a directory that can be listed but
+# not entered hides a hard link from it. Needs a user, as above.
+sw "$W" hlr
+hlrdir="$H/.claude/worktrees/hlr-spec/projects/demo-root/hlr/listed"
+mkdir -p "$hlrdir"
+printf 'outside\n' >"$tmp/outside5/hlr"
+ln "$tmp/outside5/hlr" "$hlrdir/requirements.md"
+chmod 400 "$hlrdir"
+if [ "$(id -u)" -ne 0 ]; then
+  sw "$W" hlr
+  if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'could not scan'; then
+    ok "a hard link inside a non-traversable directory is refused, with find's reason"
+  else
+    fail "hard link in a non-traversable dir: rc=$rc out=$out err=$err"
+  fi
+else
+  echo "skip: as root, a hard link inside a non-traversable directory"
+fi
+chmod 755 "$hlrdir"
 # A symlink nested below the bundle's top level, on reuse and on recreate.
 sw "$W" nest
 nestwt="$H/.claude/worktrees/nest-spec"
