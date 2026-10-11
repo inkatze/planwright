@@ -749,6 +749,20 @@ for pos in store vendor; do
 done
 pass "a file at the store or vendor path is refused"
 
+# A ledger that is not a regular file is never skipped as though absent.
+new_home prune-ledger-dir
+mkdir -p "$home/fleet/quota/sample-cli/ledger.tsv"
+rc=0
+run prune --now "$NOW" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 6 ] || fail "prune over a directory at ledger.tsv exited $rc, not 6"
+new_home prune-ledger-fifo
+mkdir -p "$home/fleet/quota/sample-cli"
+mkfifo "$home/fleet/quota/sample-cli/ledger.tsv"
+rc=0
+run prune --vendor sample-cli --now "$NOW" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 6 ] || fail "prune over a FIFO at ledger.tsv exited $rc, not 6"
+pass "prune refuses a ledger that is not a regular file"
+
 # --- 7. The vendor view in fleet-stats.sh render ---------------------------
 # The render reads the real clock, so this fixture is stamped relative to it.
 new_home stats

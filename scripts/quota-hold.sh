@@ -555,7 +555,8 @@ case $verb in
     for v in $(list_vendors); do
       refuse_links "$v"
       [ ! -d "$store/$v" ] || [ -x "$store/$v" ] || die 6 "cannot search the store of $v"
-      [ -f "$store/$v/ledger.tsv" ] || continue
+      [ -e "$store/$v/ledger.tsv" ] || continue
+      [ -f "$store/$v/ledger.tsv" ] || die 6 "the ledger of $v is not a regular file"
       dir=$(vendor_dir "$v") || exit 6
       lock_vendor "$dir"
       CUR_TMP=$(mktemp "$dir/.ledger.XXXXXX") || die 6 "cannot create a write temp"
