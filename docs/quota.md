@@ -84,7 +84,7 @@ worker. `scripts/claude-frames.sh read` shows the session and weekly
 utilization those readings give: for each window, a reading whose reset time
 has passed is ignored, and of the rest the one with the furthest-future reset
 is taken, whichever worker sent it. `scripts/fleet-stats.sh render` shows the
-same as its `claude usage` line.
+same as its `Claude usage` line.
 
 These readings are **account-wide**: every session on the Claude account counts
 toward them, not only the fleet's workers, so they are a ceiling to respect,

@@ -46,7 +46,7 @@
 #                     units, the stated reset time, the reason) and its ledger
 #                     counts over the retention period, read through
 #                     scripts/quota-hold.sh status (quota-handling REQ-E1.2).
-#   claude usage    — Claude's session and weekly utilization from the workers'
+#   Claude usage    — Claude's session and weekly utilization from the workers'
 #                     rate-limit frames, read through scripts/claude-frames.sh
 #                     and labelled account-wide: every session on the account
 #                     counts toward it, so it is never the fleet's own spend.
@@ -77,7 +77,7 @@
 # Usage:
 #   fleet-stats.sh render
 #       The multi-line human-facing stats block (last cleanup, watchdog trips,
-#       throttle state, allocation, vendors, claude usage).
+#       throttle state, allocation, vendors, Claude usage).
 #   fleet-stats.sh line
 #       The compact single-line render for a statusLine, folding in the worker
 #       decision-queue length and, while a tower is live, the operator queue's
@@ -341,7 +341,7 @@ derive_claude_usage() {
   dc_rc=0
   dc_out=$("$FRAMES" read 2>/dev/null) || dc_rc=$?
   if [ "$dc_rc" != 0 ]; then
-    printf '%s\n' "fleet-stats: could not read the Claude rate-limit frames (claude-frames read exit $dc_rc); claude usage degraded to unknown" >&2
+    printf '%s\n' "fleet-stats: could not read the rate-limit frames (claude-frames.sh read exit $dc_rc); Claude usage degraded to unknown" >&2
     CLAUDE_USAGE="unknown"
     return 0
   fi
@@ -529,7 +529,7 @@ case $cmd in
     else
       printf '  vendors:        %s\n' "$VENDOR_STATE"
     fi
-    printf '  claude usage:   %s\n' "$(sanitize_printable "$CLAUDE_USAGE" "?")"
+    printf '  Claude usage:   %s\n' "$(sanitize_printable "$CLAUDE_USAGE" "?")"
     exit 0
     ;;
 

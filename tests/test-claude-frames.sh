@@ -291,17 +291,17 @@ new_home render
 real=$(date +%s)
 put a $((real - 60)) 0.31 $((real + HOUR)) 0.53 $((real + 86400))
 render=$(cfenv /bin/sh "$FSTATS" render 2>/dev/null) || fail "fleet-stats render exited non-zero"
-line=$(printf '%s\n' "$render" | grep '^  claude usage:') || fail "render: no claude usage line: $render"
+line=$(printf '%s\n' "$render" | grep '^  Claude usage:') || fail "render: no Claude usage line: $render"
 case $line in
   *account-wide*"session 31%"*"weekly 53%"*) ;;
-  *) fail "render: the claude usage line lacks its label or readings: $line" ;;
+  *) fail "render: the Claude usage line lacks its label or readings: $line" ;;
 esac
 case $line in
   *"fleet's"* | *"fleet used"* | *"workers used"*) fail "render: the reading is attributed to the fleet: $line" ;;
 esac
 new_home render-empty
 render=$(cfenv /bin/sh "$FSTATS" render 2>/dev/null) || fail "fleet-stats render (empty) exited non-zero"
-printf '%s\n' "$render" | grep -q '^  claude usage:   account-wide; unmeasured' \
+printf '%s\n' "$render" | grep -q '^  Claude usage:   account-wide; unmeasured' \
   || fail "render: a frameless fleet does not render unmeasured with its label: $render"
 pass "the read and fleet-stats.sh render carry the account-wide label"
 
