@@ -197,8 +197,9 @@ BASE=$(printf '%s' "$raw" | jq -r '.baseRefName // empty' 2>/dev/null)
 HEAD_NAME=$(printf '%s' "$raw" | jq -r '.headRefName // empty' 2>/dev/null)
 fork=$(printf '%s' "$raw" | jq -r '.isCrossRepository' 2>/dev/null)
 [[ $PR =~ ^[1-9][0-9]{0,9}$ ]] || refuse 'the pull request number could not be read'
-[[ $BASE =~ ^[A-Za-z0-9_][A-Za-z0-9._/-]*$ ]] && git check-ref-format --branch "$BASE" >/dev/null 2>&1 \
-  || refuse 'the pull request base is not a branch name'
+if ! [[ $BASE =~ ^[A-Za-z0-9_][A-Za-z0-9._/-]*$ ]] || ! git check-ref-format --branch "$BASE" >/dev/null 2>&1; then
+  refuse 'the pull request base is not a branch name'
+fi
 if [ "$state" != OPEN ]; then
   say "skipped: PR #$PR is not open"
   exit 3

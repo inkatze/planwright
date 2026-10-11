@@ -48,7 +48,7 @@ scenario() { # <title> — a case heading the feature file names
 REC="$SANDBOX/record"
 evaluate() {
   rm -f "$REC"
-  mp_run "$CLASS" evaluate --spec specs/demo --task 1 --out "$REC" "$@"
+  mp_run "$CLASS" evaluate --spec specs/demo --task 1 --out "$REC"
 }
 pred() { # <name> <result>
   grep -q "^pred	$1	$2	" "$REC" 2>/dev/null

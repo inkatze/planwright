@@ -123,9 +123,9 @@ has two facets:
     signer-agnostic step that cuts the signed annotated tag on the observed
     release-merge commit.
 
-The policy the scaffold realizes — detection and proposal automated,
-approval is the human merge, publish human-gated and signed, the window
-locked, merge and publish never crossed on the machine's own judgment — is
+The policy the scaffold realizes — proposal automated, approval the human
+merge under every `merge_policy` value (a release PR is never a class
+admission), publish human-gated and signed, the window locked — is
 [release-tagging.md](release-tagging.md);
 this entry is the builder-facing consent surface that doc's mechanism row
 (capability in core, mechanism as opt-in template, value as config) points at.

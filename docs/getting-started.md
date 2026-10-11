@@ -288,7 +288,9 @@ policy and the altitude split behind it live in the doctrine.
    (`.claude-plugin/plugin.json`) and updates `CHANGELOG.md`. Editing the PR
    corrects the proposal; closing it cancels. CI never creates a tag or Release.
 2. **You merge the release PR.** The merge *is* the release approval, and it
-   stays a human act in GitHub's UI — no planwright command merges it. Merging
+   stays a human act in GitHub's UI (or your enabling auto-merge) under every
+   `merge_policy` value: the policy class admits only task branches, so a
+   release PR is never a class admission and no planwright command merges it. Merging
    lands the version bump on `main` and opens the **untagged window**.
 3. **The untagged window is locked by a required CI check.** This is the
    [release-tagging policy](../doctrine/release-tagging.md)'s forcing function:

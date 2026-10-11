@@ -210,6 +210,7 @@ mp_policy() {
 }
 
 # mp_run <script> <args...> — a helper from the unit clone, stub first on PATH.
+# shellcheck disable=SC2034 # OUT and CODE are read by the sourcing suite
 mp_run() {
   local script=$1
   shift

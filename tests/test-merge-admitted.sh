@@ -224,5 +224,25 @@ for s in polish self-review tower orchestrate; do
   check "/$s never calls the helper" not grep -q 'merge-admitted\.sh' "$REPO_ROOT/skills/$s/SKILL.md"
 done
 
+echo "# the release rule on every passage describing the release approval (REQ-D1.9)"
+RULE='never a class admission'
+point() { # <n> — release-tagging.md's numbered point <n>, joined to one line
+  awk -v n="$1" '$0 ~ "^" n "\\. " { on = 1 } on && $0 ~ "^(" n + 1 "\\. |## )" { exit } on' \
+    "$REPO_ROOT/doctrine/release-tagging.md" | tr '\n' ' ' | tr -s ' '
+}
+for n in 2 5; do
+  check "release-tagging point $n states the rule" grep -q "$RULE" <<<"$(point "$n")"
+done
+check "release-tagging point 2 no longer claims no merge call site exists" not grep -q 'no merge call sites exist' <<<"$(point 2)"
+joined() { tr '\n' ' ' <"$1" | tr -s ' '; }
+check "the human-gates merge-policy row states the rule" grep -q "^| Executing an authorized merge |.*$RULE" "$REPO_ROOT/doctrine/human-gates.md"
+check "the human-gates citation header cites REQ-D1.9 and D-15" grep -q 'REQ-D1.9.*D-15' <<<"$(sed -n '/^Citations:/,/^$/p' "$REPO_ROOT/doctrine/human-gates.md" | tr '\n' ' ')"
+check "guard-catalog's approval line states the rule" grep -q "approval the human merge under every .merge_policy. value (a release PR is $RULE" <<<"$(joined "$REPO_ROOT/doctrine/guard-catalog.md")"
+for d in human-gates release-tagging guard-catalog; do
+  check "the doctrine README row of $d.md states the rule" grep -q "^| \[$d.md\].*$RULE.*REQ-D1.9" "$REPO_ROOT/doctrine/README.md"
+done
+check "getting-started's release step states the rule" grep -q "2\. \*\*You merge the release PR\.\*\*.*$RULE" <<<"$(joined "$REPO_ROOT/docs/getting-started.md")"
+check "the release-please template README states the rule twice" [ "$(joined "$REPO_ROOT/templates/release-please/README.md" | grep -o "$RULE" | wc -l | tr -d ' ')" -ge 2 ]
+
 echo "merge-admitted: $passes passed, $failures failed"
 [ "$failures" = 0 ]
