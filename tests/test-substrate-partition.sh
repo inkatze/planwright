@@ -186,12 +186,11 @@ put scripts/filetask.sh <<'EOF'
 exit 0
 EOF
 
-# Interpreter options that take a value, a slashless built name, wrapper
-# options that take a value (sudo -u, exec -a, time -p, a timeout duration
-# held in a variable, env options in an unquoted expansion), a command run by
-# find -exec, `name ()` with a
-# space, a `name()` line inside a quoted string, a slashless built name, and
-# a variable run as a command: unresolved unless it holds a literal path.
+# Interpreter and wrapper options that take a value (bash -o, sudo -u, exec -a,
+# time -p, a timeout duration held in a variable, env options in an unquoted
+# expansion); commands run by find -exec; `name ()` with a space and a
+# `name()` line inside a quoted string; slashless built names; and a variable
+# run as a command, unresolved unless it holds a literal path.
 put scripts/interp.sh <<'EOF'
 #!/bin/sh
 bash -o pipefail "$d/$n"

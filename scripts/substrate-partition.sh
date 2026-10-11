@@ -47,9 +47,10 @@
 # among them, so a subprocess script's function names are excluded too), or
 # by a direct caller (a callback), or a layer script: the external processes
 # it drives.
-# A word reached through `command`, `exec`, `env`, `nohup`, `nice`, `sudo`,
-# `time`, `timeout`, or `xargs` counts; `command -v`'s operand is a lookup and
-# does not. The command `find -exec` (or -execdir, -ok, -okdir) runs counts too.
+# A word reached through `builtin`, `command`, `exec`, `env`, `nohup`, `nice`,
+# `sudo`, `time`, `timeout`, or `xargs` counts; `command -v`'s operand is a
+# lookup and does not. The command `find -exec` (or -execdir, -ok, -okdir) runs
+# counts too.
 #
 # UNRESOLVED. A command word, sourced path, or script handed to sh or bash
 # whose file name is built from an expansion (`"$dir/$name.sh"`), so no
