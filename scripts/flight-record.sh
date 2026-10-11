@@ -366,25 +366,39 @@ operator_text() {
   ! blank "$work/$1.clean" || die 2 "--$1 is empty once sanitized"
 }
 
-# The private-key block markers: KEY_BEGIN matches what the screen's
-# private-key-block rule flags, KEY_END each format's last line.
-KEY_BEGIN='-----BEGIN ([A-Z0-9]+ )*PRIVATE KEY( BLOCK)?-----|---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----|PuTTY-User-Key-File-[0-9]+:'
-KEY_END='-----END ([A-Z0-9]+ )*PRIVATE KEY( BLOCK)?-----|---- END SSH2 ENCRYPTED PRIVATE KEY ----|Private-MAC:'
+# The private-key block markers, one begin and end pair per format (PEM and
+# PGP, SSH2, PuTTY): the begins together match what the screen's
+# private-key-block rule flags, and each end is its own format's last line.
+KEY_FORMATS='-----BEGIN ([A-Z0-9]+ )*PRIVATE KEY( BLOCK)?-----	-----END ([A-Z0-9]+ )*PRIVATE KEY( BLOCK)?-----
+---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----	---- END SSH2 ENCRYPTED PRIVATE KEY ----
+PuTTY-User-Key-File-[0-9]+:	Private-MAC:'
 
 # redact <name> <out> — the cleaned text with each line the screen flagged
 # replaced whole; REDACTED is 1 when a secret was, REDACTED_PERSONAL when
 # personal data was. The screen flags only a key block's BEGIN line, so every
-# line after it is dropped through the block's END line, or to the end of the
-# text when there is none; on a line carrying both markers the last decides.
+# line after it is dropped through that format's own END line, or to the end
+# of the text when there is none; a line is read marker by marker, so the
+# last one on it decides, and another format's end inside a key ends nothing.
 redact() {
   REDACTED=0
   REDACTED_PERSONAL=0
   if hits_for "$1.clean" "$work/$1.hits"; then
-    awk -F '\t' -v kb="$KEY_BEGIN" -v ke="$KEY_END" '
-      function lastpos(s, re,   p) {
-        p = 0
-        while (match(substr(s, p + 1), re)) p += RSTART
-        return p
+    awk -F '\t' -v formats="$KEY_FORMATS" '
+      BEGIN {
+        nk = split(formats, f, "\n")
+        for (k = 1; k <= nk; k++) {
+          split(f[k], pair, "\t")
+          kb[k] = pair[1]
+          ke[k] = pair[2]
+        }
+      }
+      # at(s, re, from) — where re first matches s at or after from, its
+      # length in RL; 0 when it does not.
+      function at(s, re, from,   t) {
+        t = substr(s, from)
+        if (!match(t, re)) return 0
+        RL = RLENGTH
+        return from + RSTART - 1
       }
       NR == FNR {
         r[$1] = (r[$1] == "" ? $2 : r[$1] ", " $2)
@@ -395,10 +409,25 @@ redact() {
       {
         was = inkey
         if (was || FNR in r) {
-          b = lastpos($0, kb)
-          e = lastpos($0, ke)
-          if (b > e) inkey = 1
-          else if (e) inkey = 0
+          pos = 1
+          while (1) {
+            if (inkey) {
+              p = at($0, ke[kind], pos)
+              if (!p) break
+              inkey = 0
+              pos = p + RL
+            } else {
+              best = 0
+              for (k = 1; k <= nk; k++) {
+                p = at($0, kb[k], pos)
+                if (p && (!best || p < best)) { best = p; bk = k; bl = RL }
+              }
+              if (!best) break
+              inkey = 1
+              kind = bk
+              pos = best + bl
+            }
+          }
         }
         if (FNR in r) print "[redacted: " r[FNR] ((FNR in secret) ? ", a token-shaped secret]" : ", personal data]")
         else if (!was) print

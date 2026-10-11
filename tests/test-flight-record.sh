@@ -383,6 +383,7 @@ SSH2_BEGIN="---- BEGIN SSH2 ENCRYPTED PRIVATE ""KEY ----"
 SSH2_END="---- END SSH2 ENCRYPTED PRIVATE ""KEY ----"
 PUTTY_BEGIN="PuTTY-User-Key-""File-3: ssh-ed25519"
 PUTTY_END="Private-""MAC: 0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+NANP_IN_KEY="(555) ""234-5678"
 WORDS_BEGIN="-----BEGIN ENCRYPTED RSA PRIVATE ""KEY-----"
 WORDS_END="-----END ENCRYPTED RSA PRIVATE ""KEY-----"
 DIGIT_BEGIN="-----BEGIN SM2 PRIVATE ""KEY-----"
@@ -400,6 +401,16 @@ for fmt in "PGP|$PGP_BEGIN|$PGP_END" "SSH2|$SSH2_BEGIN|$SSH2_END" "PuTTY|$PUTTY_
   done
   printf '%s\n' "$OUT" | grep -qx '  Then rerun the deploy.' || fail "the line after a $name key's end must survive"
 done
+# A block ends only at its own format's end: another format's end marker in
+# a key's free-text comment does not publish the rest of the key.
+printf 'Use this key:\n%s\nEncryption: none\nComment: %s\nPrivate-Lines: 1\n%s\n%s\nThen rerun the deploy.\n' \
+  "$PUTTY_BEGIN" "$KEY_END" "$KEY_BODY2" "$PUTTY_END" >"$in/ask-key-foreign.txt"
+run_render pr --ask-file "$in/ask-key-foreign.txt"
+[ "$RC" -eq 0 ] || fail "render of a key with a foreign end marker exited $RC: $ERR"
+for part in Private-Lines "$KEY_BODY2" "$PUTTY_END"; do
+  case $OUT in *"$part"*) fail "a foreign end marker published a key line: ${part:0:16}" ;; esac
+done
+printf '%s\n' "$OUT" | grep -qx '  Then rerun the deploy.' || fail "the line after the key's own end must survive"
 
 # Personal data in the ask (identity, account, and contact numbers) is
 # redacted a whole line at a time and noted; ordinary numbers in an ask are
