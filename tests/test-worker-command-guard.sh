@@ -1317,6 +1317,12 @@ first_half() {
   assert_defer "REQ-E1.6: a glob pattern operand expands into files grep reads" "grep /proc/*/environ"
   assert_defer "REQ-E1.6: a brace pattern operand expands into files" "grep {x,/proc/1234/environ}"
   assert_allow "REQ-E1.6: a quoted glob pattern stays one word" "grep -n 'env*ron' README.md"
+  # zsh's EXTENDED_GLOB makes `#`, `^` and a mid-word `~` pattern operators.
+  assert_defer "REQ-E1.6: zsh's # operator matching environ" "cat /proc/1234/environ#"
+  assert_defer "REQ-E1.6: zsh's ^ negation matching environ" "cat /proc/1234/^status"
+  assert_defer "REQ-E1.6: zsh's ~ exclusion matching environ" "cat /proc/1234/environ~x"
+  assert_defer "REQ-E1.6: zsh's # operator on a redirect source" "wc -c < /dev/fd/../../1234/environ#"
+  assert_allow "REQ-E1.6: zsh pattern characters that cannot match environ" "cat README.md#"
   assert_allow "REQ-E1.6: environ as an echo operand" "echo environ"
   assert_allow "REQ-E1.6: environ as a git log pattern" "git log --grep environ"
   for v in "sed -n p" sort uniq file "jq -R ." "rg x" "awk 1" shfmt; do

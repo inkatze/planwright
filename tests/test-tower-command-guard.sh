@@ -861,6 +861,8 @@ assert_allow "REQ-E1.6: environ as an echo operand" "echo environ"
 assert_defer "REQ-E1.6: sed reads another process's environ" "sed -n p /proc/1234/environ"
 assert_defer "REQ-E1.6: sort reads another process's environ" "sort /proc/1234/environ"
 assert_defer "REQ-E1.6: a glob pattern operand expands into files grep reads" "grep /proc/*/environ"
+assert_defer "REQ-E1.6: zsh's # operator matching environ" "cat /proc/1234/environ#"
+assert_defer "REQ-E1.6: zsh's # operator on a redirect source" "wc -c < /dev/fd/../../1234/environ#"
 
 # Each bypass row was approved before the fix; regression-only rows already
 # deferred and pin that they still do.

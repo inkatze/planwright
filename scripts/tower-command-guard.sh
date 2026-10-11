@@ -1942,7 +1942,7 @@ guard_printf() {
 # opener_word_risky clears the word), printf past its format, or a test
 # shape test_opaque_ok admits.
 opaque_words_ok() {
-  local i verb=${cw[0]} fmt=1
+  local i verb=${cw[0]} fmt=1 g
   word_unresolved "$verb" "${cdyn[0]}" "${cglob[0]}" "${cx[0]}" && return 1
   case $verb in
     test | '[')
@@ -1956,7 +1956,9 @@ opaque_words_ok() {
     [ "$verb" = printf ] && [ "$i" -gt "$fmt" ] && continue
     arg_independent_verb "$verb" || return 1
     if opens_operands "$verb" && [ "${cdyn[i]}" != 0 ]; then
-      opener_word_risky "${cw[i]}" "${cx[i]}" "${cglob[i]}" && return 1
+      g=${cglob[i]}
+      [ "${cz[i]-0}" = 0 ] || g=1
+      opener_word_risky "${cw[i]}" "${cx[i]}" "$g" && return 1
     fi
   done
   return 0
@@ -2055,7 +2057,7 @@ environ_word_risky() {
 }
 
 environ_words_ok() {
-  local i pi=0 opts=1 given=0
+  local i pi=0 opts=1 given=0 g
   case ${cw[0]} in
     grep | rg)
       for ((i = 1; i < cwn; i++)); do
@@ -2090,7 +2092,11 @@ environ_words_ok() {
   esac
   for ((i = 0; i < cwn; i++)); do
     [ "$i" -eq "$pi" ] && [ "$pi" -gt 0 ] && continue
-    environ_word_risky "${cw[i]}" "${cglob[i]}" && return 1
+    # A character zsh's EXTENDED_GLOB makes an operator (`#`, `^`, a
+    # mid-word `~`) is flagged apart from globs, but matches like one.
+    g=${cglob[i]}
+    [ "${cz[i]-0}" = 0 ] || g=1
+    environ_word_risky "${cw[i]}" "$g" && return 1
   done
   return 0
 }
@@ -2099,7 +2105,7 @@ environ_redirect_ok() {
   local g=0 w=$1
   case $w in
     *'$'*) return 1 ;;
-    *[*?[\{~]*) g=1 ;;
+    *[*?[\{~#^]*) g=1 ;;
   esac
   while [ "${w#*//}" != "$w" ]; do
     w=${w//\/\//\/}
