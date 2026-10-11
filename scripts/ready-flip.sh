@@ -10,6 +10,11 @@
 #       [--worktree <dir>] [--out <file>]
 #   ready-flip.sh flip      --spec <dir> --task <id>... [--pr <n>]
 #       [--worktree <dir>] [--expect-head <sha>] [--preconditions <file>]
+#       [--for-merge]
+#   ready-flip.sh awaiting  --spec <dir> --task <id>... --base <branch>
+#       [--worktree <dir>]
+#   ready-flip.sh park      --spec <dir> --task <id>... --reason <name>
+#       [--base <branch>] [--worktree <dir>]
 #
 #   --spec      the bundle directory, relative to the unit checkout
 #               (specs/<spec>); its tasks.md must be format-version 2
@@ -23,8 +28,9 @@
 #               call.
 #   evaluate    reconcile, then evaluate every precondition on the head and
 #               write the precondition record (below) to --out, else stdout.
-#               Never flips, comments, or parks. The merge helper (human-gates
-#               REQ-D1.4, not yet built) is to hand the record to `flip` so
+#               Never flips, comments, or parks. scripts/merge-class.sh runs
+#               it with --for-merge, which evaluates a PR already ready too,
+#               and scripts/merge-admitted.sh hands the record to `flip` so
 #               the bounded CI wait runs once.
 #   flip        read ready_flip_policy (anything but unit-owner refuses, with
 #               no host call), reconcile, evaluate, then write the PR record
@@ -39,6 +45,15 @@
 #               rollup as one read with no polling, so a hand-in never stands
 #               in for a check. The PR's head on the host is re-read before the
 #               record and again before the flip call; a moved head parks.
+#               --for-merge is the merge helper's own flip of a PR its class
+#               admitted: it reads merge_policy in place of ready_flip_policy
+#               and refuses unless that is policy-class.
+#   awaiting    the awaiting-input precondition alone, read from the checkout
+#               and the fetched <branch>, as one record line. No host call,
+#               no commit: the merge helper's re-read before its merge call.
+#   park        park the unit with `<name> failed` on the current head, the
+#               segment composed with the bullets the fetched <branch> carries
+#               for the unit. The merge helper's park after a failed merge.
 #
 # The unit-PR flip, as /execute-task runs it after its post-pr point when
 # ready_flip_policy resolves unit-owner: `reconcile`; then the pre-ready-flip
@@ -91,8 +106,9 @@
 #
 # Exit: 0 reconciled / all preconditions hold / flipped; 2 usage; 3 skipped
 # cleanly (no PR, no gh, PR not open or already ready, policy not unit-owner);
-# 4 not flipped, park written and pushed (for evaluate, which never parks: a
-# precondition failed); 5 not flipped and no park pushed (the park could not
+# 4 not flipped, park written and pushed (for evaluate and awaiting, which
+# never park: a precondition failed; for park, parked); 5 not flipped and no
+# park pushed (the park could not
 # be written or pushed, the PR head moved off the checked head, reconcile
 # failed, an unreadable policy, an unsupported bundle, a wrong branch or a
 # fork PR). A head someone else moved gets no park, since one could not be
@@ -136,13 +152,13 @@ trap 'rm -rf "$SCRATCH"' EXIT
 
 MODE=${1:-}
 case $MODE in
-  reconcile | evaluate | flip) shift ;;
-  *) usage 'the first argument must be reconcile, evaluate, or flip' ;;
+  reconcile | evaluate | flip | awaiting | park) shift ;;
+  *) usage 'the first argument must be reconcile, evaluate, flip, awaiting, or park' ;;
 esac
-SPEC='' WT='' PR='' OUTF='' HANDIN='' EXPECT='' IDS=()
+SPEC='' WT='' PR='' OUTF='' HANDIN='' EXPECT='' BASE_ARG='' REASON='' FOR_MERGE=0 IDS=()
 while [ "$#" -gt 0 ]; do
   case $1 in
-    --spec | --task | --pr | --worktree | --out | --preconditions | --expect-head)
+    --spec | --task | --pr | --worktree | --out | --preconditions | --expect-head | --base | --reason)
       [ "$#" -ge 2 ] || usage "$1 needs a value"
       case $1 in
         --spec) SPEC=$2 ;;
@@ -152,8 +168,14 @@ while [ "$#" -gt 0 ]; do
         --out) OUTF=$2 ;;
         --preconditions) HANDIN=$2 ;;
         --expect-head) EXPECT=$2 ;;
+        --base) BASE_ARG=$2 ;;
+        --reason) REASON=$2 ;;
       esac
       shift 2
+      ;;
+    --for-merge)
+      FOR_MERGE=1
+      shift
       ;;
     *) usage "unknown argument '$(sanitize_printable "$1" '?')'" ;;
   esac
@@ -170,7 +192,23 @@ done
 [ -z "$EXPECT" ] || [[ $EXPECT =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || usage '--expect-head must be a full commit id'
 [ "$MODE" = flip ] || [ -z "$EXPECT$HANDIN" ] || usage '--expect-head and --preconditions belong to flip'
 [ "$MODE" = evaluate ] || [ -z "$OUTF" ] || usage '--out belongs to evaluate'
-[ "$MODE" != reconcile ] || [ -z "$PR" ] || usage 'reconcile reads no PR'
+case $MODE in
+  reconcile | awaiting | park) [ -z "$PR" ] || usage "$MODE reads no PR" ;;
+esac
+case $MODE in
+  awaiting | park) ;;
+  *) [ -z "$BASE_ARG" ] || usage '--base belongs to awaiting and park' ;;
+esac
+[ "$MODE" = park ] || [ -z "$REASON" ] || usage '--reason belongs to park'
+case $MODE in
+  evaluate | flip) ;;
+  *) [ "$FOR_MERGE" = 0 ] || usage '--for-merge belongs to evaluate and flip' ;;
+esac
+[ "$MODE" != awaiting ] || [ -n "$BASE_ARG" ] || usage 'awaiting needs --base'
+[ "$MODE" != park ] || [[ $REASON =~ ^[a-z][a-z-]{0,39}$ ]] || usage 'park needs --reason, a lower-case predicate name'
+# The base reaches git as an argument, so no option shape.
+[ -z "$BASE_ARG" ] || { [[ $BASE_ARG =~ ^[A-Za-z0-9_][A-Za-z0-9._/-]*$ ]] && git check-ref-format --branch "$BASE_ARG" >/dev/null 2>&1; } \
+  || usage '--base must be a branch name'
 
 refuse() { # <message> — not flipped, nothing parked
   say "not flipped: $1"
@@ -564,6 +602,8 @@ lookup_pr() {
   base=$(printf '%s' "$raw" | jq -r '.baseRefName // empty' 2>/dev/null)
   head=$(printf '%s' "$raw" | jq -r '.headRefName // empty' 2>/dev/null)
   fork=$(printf '%s' "$raw" | jq -r '.isCrossRepository' 2>/dev/null)
+  # The class evaluates a PR the unit already flipped; a flip still skips it.
+  [ "$MODE$FOR_MERGE" != evaluate1 ] || [ "$draft" != false ] || draft=true
   [[ $num =~ ^[1-9][0-9]{0,9}$ ]] || return 1
   [ "$head" = "$BRANCH" ] || refuse "PR #$num is not this checkout's branch"
   [ "$fork" = false ] || refuse "PR #$num is not from this repository's own branch"
@@ -938,10 +978,10 @@ print_record() {
 
 # The backticks below are markdown for the PR comment, never expansions.
 # shellcheck disable=SC2016
-record_body() { # <policy>
+record_body() { # <policy knob> <value>
   local i=0
   printf '<!-- planwright:ready-flip -->\n'
-  printf '**Ready-flip record.** `ready_flip_policy` is `%s`; flipping head `%s` once every precondition below held on it.\n\n' "$1" "$HEAD_SHA"
+  printf '**Ready-flip record.** `%s` is `%s`; flipping head `%s` once every precondition below held on it.\n\n' "$1" "$2" "$HEAD_SHA"
   printf '| Precondition | Result | Evidence |\n| --- | --- | --- |\n'
   while [ "$i" -lt "${#P_NAME[@]}" ]; do
     printf '| %s | %s | %s |\n' "${P_NAME[$i]}" "${P_RES[$i]}" "$(printf '%s' "${P_EVD[$i]}" | tr '|' '/')"
@@ -957,12 +997,32 @@ if [ "$MODE" = reconcile ]; then
   exit 0
 fi
 
-POLICY=''
+if [ "$MODE" = awaiting ] || [ "$MODE" = park ]; then
+  PR_BASE=$BASE_ARG
+  HEAD_SHA=$(git rev-parse HEAD) || refuse 'HEAD does not resolve'
+  if [ "$MODE" = awaiting ]; then
+    pred_awaiting
+    print_record | grep '^pred'
+    [ -z "$(failed_preds)" ] || exit 4
+    exit 0
+  fi
+  # Only for the base's bullets, which the park composes with.
+  pred_awaiting
+  park "$REASON" || {
+    say "not parked: $COMMIT_ERR"
+    exit 5
+  }
+  say "parked: $REASON failed on ${HEAD_SHA:0:12}, under ## Awaiting input in $TASKS"
+  exit 4
+fi
+
+POLICY='' KNOB=ready_flip_policy WANT=unit-owner
+[ "$FOR_MERGE" = 0 ] || KNOB=merge_policy WANT=policy-class
 if [ "$MODE" = flip ]; then
-  POLICY=$(/bin/sh "$SCRIPTS/resolve-policy-knob.sh" ready_flip_policy 2>/dev/null) \
-    || refuse 'ready_flip_policy could not be resolved, so the flip is refused'
-  if [ "$POLICY" != unit-owner ]; then
-    say "skipped: ready_flip_policy is $(sanitize_printable "$POLICY" '?'), so a person marks this PR ready"
+  POLICY=$(/bin/sh "$SCRIPTS/resolve-policy-knob.sh" "$KNOB" 2>/dev/null) \
+    || refuse "$KNOB could not be resolved, so the flip is refused"
+  if [ "$POLICY" != "$WANT" ]; then
+    say "skipped: $KNOB is $(sanitize_printable "$POLICY" '?'), so a person marks this PR ready"
     exit 3
   fi
 fi
@@ -1012,7 +1072,7 @@ if [ "$pin" != 0 ]; then
   [ "$pin" != 1 ] || HEAD_MOVED=1
   park_and_exit head-check
 fi
-record_body "$POLICY" >"$SCRATCH/record.md"
+record_body "$KNOB" "$POLICY" >"$SCRATCH/record.md"
 gh pr comment "$PR" --body-file "$SCRATCH/record.md" >/dev/null 2>&1 || park_and_exit record-write
 pr_head_pinned
 pin=$?
