@@ -79,6 +79,10 @@ case "$knob" in
     exec /bin/sh "$rck" --key "$knob" --type enum --values 'allow deny' \
       --fallback deny --degrade deny
     ;;
+  ready_guard_behind_base)
+    exec /bin/sh "$rck" --key "$knob" --type enum --values 'refuse conflict-only' \
+      --fallback refuse --degrade refuse
+    ;;
   worker_merge_conflict_policy)
     exec /bin/sh "$rck" --key "$knob" --type enum --values 'halt resolve' \
       --fallback halt --degrade halt

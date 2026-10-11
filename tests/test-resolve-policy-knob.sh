@@ -89,7 +89,8 @@ merge_class_exclude_paths|docs/* vendor/*.lock *|docs/*|*|a,b
 merge_class_strategy|sole-allowed squash merge rebase|squash|sole-allowed|fast-forward
 worker_base_merge|allow deny|allow|deny|yes
 worker_merge_conflict_policy|halt resolve|resolve|halt|merge
-unpushed_rewrite|allow deny|allow|deny|sometimes'
+unpushed_rewrite|allow deny|allow|deny|sometimes
+ready_guard_behind_base|refuse conflict-only|conflict-only|refuse|lenient'
 
 # A stubbed reader <knob> <permissive value>: it allows the act only on the
 # permissive value and refuses on anything else, a resolver failure included,
@@ -258,6 +259,7 @@ merge_class_strategy|sole-allowed
 worker_base_merge|allow
 worker_merge_conflict_policy|halt
 unpushed_rewrite|allow
+ready_guard_behind_base|refuse
 protected_branches|main master planwright/*/spec'
 reset_layers
 printf '%s\n' "$SHIPPED" | while IFS='|' read -r knob expected; do
