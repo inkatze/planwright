@@ -141,7 +141,8 @@ Superseded are terminal: refuse — no skill-driven transition leaves them.
      on an Active bundle — an amendment, always human-declared; a Ready bundle's
      pre-merge change is the delta re-walk path, REQ-D1.4). On a format-version 2
      bundle the stored header rests at Ready, so distinguish
-     Ready from Active via the render (`mise run status specs/<spec>`), never a
+     Ready from Active via the render (`scripts/spec-status.sh`, path per the
+     guide), never a
      stored `Active`. **Brief or anchor entry absent, unparseable, or
      non-sanctioned** → the sign-off record needs creating or repairing; this
      skill's sign-off flow is the repair REQ-F1.9 names: walk it as a

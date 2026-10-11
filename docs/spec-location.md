@@ -40,6 +40,7 @@ commit trailers stay in the work repository in every posture.
 | Spec PR ready flip | per `mark_spec_pr_ready_on_kickoff` | the same, on the holder's PR | skipped |
 | Spec guards (CI, hooks) | the work repository's | the holder's, if wired | none |
 | `/spec-walkthrough` suggestion | made | skipped until the spec PR merges: until then the bundle's changes live only on the spec branch | made |
+| Status render (Ready or Active) | `scripts/spec-status.sh <root>/<spec>` | the same, `<root>` as `resolve-root.sh spec` prints it, never the worktree's `bundle` path, which would derive state from the holder | the same |
 
 **`separate-repo`.** The session stays in the work repository and works on
 the holder by path. `scripts/spec-store-worktree.sh <spec>` opens the spec
