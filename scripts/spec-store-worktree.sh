@@ -111,7 +111,10 @@ elif hg show-ref --verify --quiet "refs/heads/$branch"; then
   }
 else
   base=$(hg symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null) || base=''
-  [ -n "$base" ] || base=$(hg symbolic-ref -q HEAD 2>/dev/null) || base=''
+  # A recorded origin/HEAD can outlive the branch it names (renamed, pruned).
+  if [ -z "$base" ] || ! hg rev-parse -q --verify "$base^{commit}" >/dev/null 2>&1; then
+    base=$(hg symbolic-ref -q HEAD 2>/dev/null) || base=''
+  fi
   if [ -z "$base" ] || ! hg rev-parse -q --verify "$base^{commit}" >/dev/null 2>&1; then
     say "the holder has no default branch to start $branch from"
     exit 4

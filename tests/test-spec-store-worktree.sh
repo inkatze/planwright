@@ -178,6 +178,20 @@ else
   fail "no remote: rc=$rc err=$err"
 fi
 
+# A recorded origin/HEAD whose target is gone falls back to the HEAD branch.
+H6="$tmp/holder6"
+W6="$tmp/work6"
+work_repo "$W6"
+holder "$H6" trunk r
+gitq -C "$H6" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/gone
+point "$W6" "$H6/r"
+sw "$W6" demo
+if [ "$rc" -eq 0 ] && [ "$(hermetic git -C "$H6/.claude/worktrees/demo-spec" rev-parse HEAD 2>/dev/null)" = "$(hermetic git -C "$H6" rev-parse trunk)" ]; then
+  ok "a dangling origin/HEAD falls back to the holder's HEAD branch"
+else
+  fail "dangling origin/HEAD: rc=$rc err=$err"
+fi
+
 # --- other postures and bad identifiers are refused -----------------------
 W4="$tmp/work4"
 work_repo "$W4"
