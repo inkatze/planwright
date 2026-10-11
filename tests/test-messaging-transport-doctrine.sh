@@ -5,8 +5,11 @@
 # REQ-G1.6, REQ-G1.7, REQ-A1.6, REQ-F1.2, REQ-F1.6, REQ-E1.1, REQ-E1.2).
 #
 # Literal-token checks only: the design-level reading of each content is the
-# task PR's review. Sentences are matched over the doc with its line breaks
-# folded to spaces, so a rewrap never fails a check.
+# task PR's review, and so are the two diff-shaped clauses (the floor doctrine
+# changes in nothing beyond its one row and column, the contract doc gains
+# nothing beyond its derivation rule), which a test run after merge could not
+# tell apart from history. Sentences are matched over the doc with its line
+# breaks folded to spaces, so a rewrap never fails a check.
 set -u
 unset CDPATH
 
@@ -37,11 +40,20 @@ has() {
   if folded "$2" | grep -Eq -- "$3"; then ok "$1"; else fail "$1"; fi
 }
 
-# section <file> <heading-prefix> — the lines under the first `## ` heading
+# section <file> <heading-prefix> — the lines under each `## ` heading
 # starting with the prefix, up to the next `## ` heading.
 section() {
   awk -v want="$2" '
     /^## / { on = (index($0, want) == 1); next }
+    on { print }
+  ' "$1"
+}
+
+# subsection <file> <heading-prefix> — the same for a `### ` heading, ending
+# at the next `### ` or `## ` heading.
+subsection() {
+  awk -v want="$2" '
+    /^##+ / { on = (index($0, want) == 1); next }
     on { print }
   ' "$1"
 }
@@ -55,17 +67,23 @@ section_has() {
   fi
 }
 
-if [ ! -f "$DOC" ]; then
-  echo "FAIL: doctrine/messaging-transport.md missing" >&2
-  exit 1
-fi
+missing=0
+for f in "$DOC" "$FLOOR" "$IOC" "$CONTRACT" "$DEFAULTS" "$OPTIONS" "$FLEET"; do
+  if [ ! -f "$f" ]; then
+    echo "FAIL: ${f#"$REPO_ROOT"/} missing" >&2
+    missing=1
+  fi
+done
+[ "$missing" = 0 ] || exit 1
 
 # --- REQ-G1.5: resolves through the rule-doc chain --------------------------
-resolved=$(PLANWRIGHT_ROOT="$REPO_ROOT" "$REPO_ROOT/scripts/resolve-rule-doc.sh" messaging-transport 2>/dev/null)
+resolve_err=$(mktemp)
+resolved=$(PLANWRIGHT_ROOT="$REPO_ROOT" "$REPO_ROOT/scripts/resolve-rule-doc.sh" messaging-transport 2>"$resolve_err")
 case "$resolved" in
   */doctrine/messaging-transport.md) ok "the doc resolves through the rule-doc chain" ;;
-  *) fail "the doc does not resolve through the rule-doc chain (got '$resolved')" ;;
+  *) fail "the doc does not resolve through the rule-doc chain (got '$resolved': $(cat "$resolve_err"))" ;;
 esac
+rm -f "$resolve_err"
 
 # --- REQ-G1.5: the nine contents --------------------------------------------
 section_has "signal-vs-record rule present" "$DOC" "## Signal versus record" \
@@ -76,12 +94,14 @@ section_has "a mid-turn suspension is the healing sweep's case" "$DOC" "## Signa
   "mid-turn suspension${S}healing sweep"
 section_has "fallback obligation present" "$DOC" "## The fallback obligation" \
   'names its (deterministic )?fallback'
-has "discipline ladder reads script < tiered < open" "$DOC" \
+section_has "discipline ladder reads script < tiered < open" "$DOC" "## The discipline ladder" \
   '`script` < `tiered` < `open`'
 section_has "the ladder names its three directions" "$DOC" "## The discipline ladder" \
   'worker.{1,3}tower.*tower.{1,3}worker.*tower.{1,3}tower'
 section_has "send-time pressure demotion stated" "$DOC" "## The discipline ladder" \
-  'pressure'
+  '`reduce-concurrency`[^.]*one value further down'
+section_has "the effective-value composition stated" "$DOC" "## The discipline ladder" \
+  'max\(script, knob − direction offset − pressure demotion\)'
 section_has "probe: the socket variable" "$DOC" "## The per-session probe" \
   'CLAUDE_CODE_MESSAGING_SOCKET'
 section_has "probe: the version minimum" "$DOC" "## The per-session probe" \
@@ -106,24 +126,44 @@ section_has "REQ-G1.6: the subscription is tower-side and self-closing" "$DOC" "
 
 # --- REQ-G1.1 / D-13: the per-path fallback table ---------------------------
 table=$(section "$DOC" "## The per-path fallback table" | grep '^|' | sed '1,2d')
-row() { printf '%s\n' "$table" | grep -i -- "$1" | head -1; }
+# row <path> — the row whose Path cell (the first) names <path>.
+row() {
+  printf '%s\n' "$table" | awk -F'|' -v p="$1" 'index(tolower($2), tolower(p)) { print; exit }'
+}
+# fallback_cell <row> — that row's Fallback cell (the third), trimmed.
+fallback_cell() {
+  printf '%s\n' "$1" | awk -F'|' '{ c = $4; gsub(/^[ \t]+|[ \t]+$/, "", c); print c }'
+}
 for path in 'steer' 'decision answer' 'idle notice' "tower's own wake" \
   'healing sweep' 'projection refresh' 'advisory'; do
-  if [ -n "$(row "$path")" ]; then ok "fallback table row: $path"; else fail "fallback table row missing: $path"; fi
+  r=$(row "$path")
+  if [ -z "$r" ]; then
+    fail "fallback table row missing: $path"
+  elif [ -z "$(fallback_cell "$r")" ]; then
+    fail "fallback table row names no fallback: $path"
+  else
+    ok "fallback table row names a fallback: $path"
+  fi
 done
-case "$(row "tower's own wake")" in
+case "$(fallback_cell "$(row "tower's own wake")")" in
   *metronome*) ok "the wake row names today's metronome" ;;
   *) fail "the wake row does not name today's metronome" ;;
 esac
-for path in 'steer' 'decision answer'; do
-  r=$(row "$path")
-  for rung in '`tmux`' '`stream-json-persistent`' '`headless-oneshot`'; do
-    case "$r" in
-      *"$rung"*) ok "the $path row reads per rung: $rung" ;;
-      *) fail "the $path row has no $rung cell" ;;
-    esac
-  done
-done
+# per_rung <path> <rung> <outcome-regex> — the row's Fallback cell reads the
+# rung's own outcome right after naming it.
+per_rung() {
+  if fallback_cell "$(row "$1")" | grep -Eq -- "on \`$2\`[^;]*$3"; then
+    ok "the $1 row reads per rung: $2"
+  else
+    fail "the $1 row's fallback does not read $2 as $3"
+  fi
+}
+per_rung steer tmux 'attributed buffer-paste'
+per_rung steer stream-json-persistent 'operator handoff'
+per_rung steer headless-oneshot 'none'
+per_rung 'decision answer' tmux 'attributed buffer-paste'
+per_rung 'decision answer' stream-json-persistent 'control response'
+per_rung 'decision answer' headless-oneshot 'none'
 
 # --- REQ-G1.6: one row and one column in the floor doctrine ----------------
 class_rows=$(awk '
@@ -150,6 +190,7 @@ case "$header" in
   *) fail "the rungs-by-classes table's last column is not the inbox socket" ;;
 esac
 want_cols=$(printf '%s\n' "$header" | awk -F'|' '{ print NF }')
+rung_rows=$(printf '%s\n' "$rungs" | sed '1,2d')
 blank=0
 while IFS= read -r r; do
   [ -n "$r" ] || continue
@@ -157,9 +198,11 @@ while IFS= read -r r; do
   cell=$(printf '%s\n' "$r" | awk -F'|' '{ c = $(NF - 1); gsub(/^[ \t]+|[ \t]+$/, "", c); print c }')
   if [ "$n" != "$want_cols" ] || [ -z "$cell" ]; then blank=$((blank + 1)); fi
 done <<EOF
-$(printf '%s\n' "$rungs" | sed '1,2d')
+$rung_rows
 EOF
-if [ "$blank" = 0 ]; then ok "every rung fills the inbox-socket cell"; else fail "$blank rung row(s) leave the inbox-socket cell blank or misaligned"; fi
+if [ -z "$rung_rows" ]; then
+  fail "the rungs-by-classes table has no rows"
+elif [ "$blank" = 0 ]; then ok "every rung fills the inbox-socket cell"; else fail "$blank rung row(s) leave the inbox-socket cell blank or misaligned"; fi
 rung_count=$(printf '%s\n' "$rungs" | sed '1,2d' | grep -c '^| `')
 if [ "$rung_count" = 6 ]; then ok "the cross still covers all six rungs"; else fail "the cross covers $rung_count rungs, not six"; fi
 
@@ -169,15 +212,18 @@ case "$steer_heading" in
   *essag*first*uffer-paste*) ok "the steer-in-flight heading reads messaging first, buffer-paste the fallback" ;;
   *) fail "the steer-in-flight heading does not read messaging first ($steer_heading)" ;;
 esac
-section_has "the steer-in-flight body names fleet-messaging.sh first" "$IOC" "## Attributed, non-impersonating relay" \
-  'fleet-messaging\.sh send'
+if subsection "$IOC" "### Steer-in-flight" | tr '\n' ' ' | grep -q 'fleet-messaging\.sh send'; then
+  ok "the steer-in-flight body names fleet-messaging.sh first"
+else
+  fail "the steer-in-flight body does not name fleet-messaging.sh"
+fi
 has "the one-audited-script sentence names fleet-messaging.sh" "$IOC" \
   "audited script${S}fleet-messaging\\.sh"
 has "the relay-command description names fleet-messaging.sh" "$IOC" \
   "\`relay-command\`${S}fleet-messaging\\.sh"
 has "the tower-to-tower clause cross-references the advisory rule" "$IOC" \
   "[Tt]ower-to-tower\\*\\*${S}advisor${S}messaging-transport\\.md"
-if grep -q 'buffer-paste mechanism serves both' "$IOC"; then
+if folded "$IOC" | grep -q 'buffer-paste mechanism serves both'; then
   fail "buffer-paste is still pinned as the tower-to-tower mechanism of record"
 else
   ok "buffer-paste is no longer the tower-to-tower mechanism of record"
@@ -188,7 +234,7 @@ has "the contract doc derives messaging eligibility from Session-grade" "$CONTRA
   "[Mm]essaging eligibility${S}\`Session-grade\`"
 has "the contract doc distinguishes dispatch eligibility" "$CONTRACT" \
   '[Mm]essaging eligibility[^|]*dispatch eligibility'
-if grep -q 'CLAUDE_CODE_MESSAGING_SOCKET' "$CONTRACT"; then
+if folded "$CONTRACT" | grep -q 'CLAUDE_CODE_MESSAGING_SOCKET'; then
   fail "the contract doc carries a probe definition"
 else
   ok "the contract doc carries no probe definition"
@@ -202,17 +248,25 @@ check_default messaging_discipline tiered
 check_default messaging_cross_machine false
 check_default messaging_heal_cadence_seconds 300
 
+# check_option_default <knob> <value> — the options reference row exists and
+# its Default cell is the backticked value defaults.yml carries.
+check_option_default() {
+  cell=$(grep "^| \`$1\`" "$OPTIONS" | awk -F'|' '{ c = $3; gsub(/^[ \t]+|[ \t]+$/, "", c); print c }')
+  if [ "$cell" = "\`$2\`" ]; then ok "options reference row: $1 defaults to $2"; else fail "options reference row for $1 does not default to $2 (got '$cell')"; fi
+}
+check_option_default messaging_discipline tiered
+check_option_default messaging_cross_machine false
+check_option_default messaging_heal_cadence_seconds 300
 for knob in messaging_discipline messaging_cross_machine messaging_heal_cadence_seconds; do
-  if grep -q "^| \`$knob\`" "$OPTIONS"; then ok "options reference row: $knob"; else fail "options reference row missing: $knob"; fi
   if grep -q "^| \`$knob\`" "$FLEET"; then ok "fleet knobs row: $knob"; else fail "fleet knobs row missing: $knob"; fi
 done
 
-# The discipline knob's comment block in defaults.yml: from the first comment
-# line naming it to the key line itself.
+# The discipline knob's own comment entry in defaults.yml: from the comment
+# line that opens it to the next knob's entry.
 disc_comment=$(awk '
-  /^#/ && /messaging_discipline/ { on = 1 }
-  on { print }
-  /^messaging_discipline:/ { exit }
+  /^# messaging_discipline / { on = 1; print; next }
+  on && /^# [a-z_]+ / { exit }
+  on && /^#/ { print }
 ' "$DEFAULTS")
 disc_option=$(grep '^| `messaging_discipline`' "$OPTIONS")
 disc_fleet=$(grep '^| `messaging_discipline`' "$FLEET")
@@ -223,10 +277,14 @@ for surface in defaults options fleet; do
     fleet) text=$disc_fleet ;;
   esac
   for v in off script tiered open; do
-    case "$text" in
-      *"$v"*) ok "$surface: messaging_discipline lists $v" ;;
-      *) fail "$surface: messaging_discipline does not list $v" ;;
-    esac
+    # Markdown surfaces backtick each value; the yaml comment has no markup,
+    # so it is matched as a whole word.
+    if [ "$surface" = defaults ]; then
+      printf '%s\n' "$text" | grep -qw -- "$v" && listed=1 || listed=0
+    else
+      case "$text" in *"\`$v\`"*) listed=1 ;; *) listed=0 ;; esac
+    fi
+    if [ "$listed" = 1 ]; then ok "$surface: messaging_discipline lists $v"; else fail "$surface: messaging_discipline does not list $v"; fi
   done
   case "$text" in
     *"kill switch"*) ok "$surface: off named the kill switch" ;;
