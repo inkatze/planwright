@@ -311,7 +311,8 @@ personal_data() {
       }
       # A card: 13 to 19 digits unseparated, or a standard group layout
       # (4-4-4-4, 4-4-4-4-3, 4-6-5, 4-6-4) under one separator, found
-      # anywhere in a run of groups so a number before it does not hide it.
+      # anywhere in a run of groups, whatever separates its neighbours, so a
+      # date or an expiry beside it does not hide it.
       off = 0
       while (each("[0-9]+([ -][0-9]+)*")) {
         if (pre ~ /[A-Za-z_]/ || post ~ /[A-Za-z_]/) continue
@@ -320,15 +321,22 @@ personal_data() {
           if (length(m) >= 13 && length(m) <= 19 && card(m)) hit("personal-data-account")
           continue
         }
-        if (index(m, " ") && index(m, "-")) continue
-        ng = split(m, g, "[ -]")
+        # g[j] is the j-th group, sp[j] the separator before it.
+        ng = 0
+        t = m
+        while (match(t, /[0-9]+/)) {
+          ng++
+          g[ng] = substr(t, RSTART, RLENGTH)
+          sp[ng] = RSTART > 1 ? substr(t, RSTART - 1, 1) : ""
+          t = substr(t, RSTART + RLENGTH)
+        }
         for (i = 1; i <= ng && !("personal-data-account" in seen); i++) {
           nl = split("4 4 4 4 3|4 4 4 4|4 6 5|4 6 4", lay, "|")
           for (l = 1; l <= nl; l++) {
             k = split(lay[l], w, " ")
             if (i + k - 1 > ng) continue
             d = ""
-            for (j = 1; j <= k && length(g[i + j - 1]) == w[j]; j++) d = d g[i + j - 1]
+            for (j = 1; j <= k && length(g[i + j - 1]) == w[j] && (j < 3 || sp[i + j - 1] == sp[i + 1]); j++) d = d g[i + j - 1]
             if (j > k && card(d)) { hit("personal-data-account"); break }
           }
         }

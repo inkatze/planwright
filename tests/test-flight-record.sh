@@ -438,7 +438,7 @@ for case in "identity|is |$SSN|, thanks." "identity|is |078 05 ""1120|." \
   "account|is order 12 |$CARD| now." "account|is |3782 822463 ""10005|." \
   "contact|is |$INTL|." "contact|is |$NANP|, thanks." "contact|is |555-234-""5678|." \
   "contact|is |555.234.""5678|, thanks." "contact|is |(555)234-""5678|." \
-  "contact|is |1-555-234-""5678|." "contact|is |(555)-234-""5678|." "contact|is |$INTL| 24h support." "account|is ref AB12 |$IBAN|."; do
+  "contact|is |1-555-234-""5678|." "contact|is |(555)-234-""5678|." "contact|is |$INTL| 24h support." "account|is ref AB12 |$IBAN|." "account|is |4111-1111-""1111-1111| 12 27." "account|is 2026-10-11 |$CARD|."; do
   rule=personal-data-${case%%|*}
   rest=${case#*|}
   before=${rest%%|*}
@@ -490,6 +490,7 @@ printf '%s\n' "$OUT" | grep -q 'personal data were redacted whole' || fail "a mi
   printf 'Ranges 10-078-05-1120-3 and 1.555.123.4567 stay.\n'
   printf 'Exchange 555-123-4567, area 900-12-3456, sizes 128 256 1024 4096.\n'
   printf 'At 1791679375009 the job ended; 4111 1111 1111 ran short.\n'
+  printf 'Mixed 4111-1111 1111-1111 is no card layout.\n'
   printf 'Moved +15000 -3200 and ids 078-05 1120, 078-00-1120, 078-05-0000, 000-12-3456, 666-12-3456.\n'
   printf 'Dialed 555-234.5678; zeros 0000 0000 0000 0000 and 0000000000000000; ports 640 641 642 643 644.\n'
 } >"$in/ask-numbers.txt"
