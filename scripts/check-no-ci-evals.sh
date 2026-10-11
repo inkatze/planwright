@@ -21,8 +21,10 @@
 #         `evaluate-release` and prose that merely says "eval".
 #      b. Invoking a kept-eval runner script directly, bypassing mise entirely
 #         (`sh scripts/prompt-eval.sh …`, `./scripts/behavioral-eval.sh …`).
-#         Both on-demand runners are covered — the guard must see EVERY eval
-#         harness, not only `prompt-eval.sh`. The runner name is matched at a
+#         Every on-demand runner is covered, the review backtest's replay,
+#         refresh, reviewer, annotator, and cost metric included — the guard
+#         must see EVERY eval harness, not only `prompt-eval.sh`. The runner
+#         name is matched at a
 #         leading TOKEN BOUNDARY (`(^|[^[:alnum:]_-])`), so a path or
 #         whitespace before it triggers but a `-`/word-char prefix does not:
 #         the test file `tests/test-behavioral-eval.sh` (which CI legitimately
@@ -270,7 +272,7 @@ grep_rc=$?
 mise_eval="$(printf '%s\n' "$mise_lines" | grep -aE '(^|[^[:alnum:]_-])eval:')"
 grep_rc=$?
 [ "$grep_rc" -le 1 ] || fail_closed "grep failed (exit $grep_rc) while matching the eval: namespace under '$dir'."
-direct="$(grep -aHnE '(^|[^[:alnum:]_-])(prompt-eval|behavioral-eval)\.sh' -- "$@")"
+direct="$(grep -aHnE '(^|[^[:alnum:]_-])(prompt-eval|behavioral-eval|review-backtest(-refresh|-reviewer|-annotate)?|review-cost)\.sh' -- "$@")"
 grep_rc=$?
 [ "$grep_rc" -le 1 ] || fail_closed "grep failed (exit $grep_rc) while matching the eval runners under '$dir'."
 # A task name reaches CI without `mise` beside it whenever the invocation is
@@ -327,7 +329,7 @@ function tokmatch(line, name,   off, pos, before, after) {
 }
 function is_mise(s) { return s ~ /(^|[^[:alnum:]_-])mise[[:space:]]/ }
 function has_evalns(s) { return s ~ /(^|[^[:alnum:]_-])eval:/ }
-function is_runner(s) { return s ~ /(^|[^[:alnum:]_-])(prompt-eval|behavioral-eval)\.sh/ }
+function is_runner(s) { return s ~ /(^|[^[:alnum:]_-])(prompt-eval|behavioral-eval|review-backtest(-refresh|-reviewer|-annotate)?|review-cost)\.sh/ }
 function bail(why) { if (parse_error == "") parse_error = why }
 
 # Every character outside a wildcard is escaped, so a crafted dependency

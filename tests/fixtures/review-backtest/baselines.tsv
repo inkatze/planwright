@@ -1,0 +1,6 @@
+post_convergence_finding_rate	0.889	research seed section 1 finding 1: 80 of 90 bot-reviewed PRs in the PR 301+ slice (147 of 182 in the 1-300 slice)
+median_fixed_findings_per_pr	3	research seed section 1 finding 1: the median bot-reviewed PR carried 3 fixed findings
+median_review_rounds_per_pr	3-4	research seed section 1 finding 2: a median of 3 to 4 review rounds on PRs with a bot finding (mean 4.2 to 4.4)
+median_tokens_per_convergence_run	17000000	research seed section 1 finding 7: median 17.0M tokens per convergence run over the last 20 runs (p90 44.8M)
+convergence_share_of_unit	0.52	research seed section 1 finding 7: median 52% of an execute-task worker's tokens across 57 workers (p10 28%, p90 80%)
+lens_none_share	0.39	research seed section 1 finding 3: 188 of 482 checkable fixed findings fell under a lens row marked none in the first slice, a floor (38 of 209 in the second slice)
