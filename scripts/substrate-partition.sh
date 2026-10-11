@@ -52,7 +52,8 @@
 # UNRESOLVED. A command word, sourced path, or script handed to sh or bash
 # whose file name is built from an expansion (`"$dir/$name.sh"`), so no
 # literal script name can be read from it. It is reported, never counted as a
-# caller.
+# caller. A bare `"$var"` is resolved, as for MUTATION, when every value the
+# script assigns to `var` ends in a literal file name.
 #
 # KNOWN LIMITS. The scanner is a tokenizer, not a shell parser: a script name
 # in a live line that does not run it (an echo, a message string) still counts
@@ -320,6 +321,14 @@ function dynbase(x,   b) {
   b = x; sub(/.*\//, "", b)
   return b == "" || b ~ /[$}]/
 }
+# A bare `$name` run as a command or handed to sh: a V record, resolved like
+# a sourced one against the A records, so a variable holding a literal
+# script path is not unresolved.
+function barevar(x,   b) {
+  if (x !~ /^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/) return 0
+  b = x; gsub(/[${}]/, "", b); out("V", b)
+  return 1
+}
 function endword(  x, e, q, b) {
   if (!wany[cf]) return
   x = w[cf]; e = wexp[cf]; q = wq[cf]
@@ -354,7 +363,7 @@ function endword(  x, e, q, b) {
       return
     }
     interp[cf] = 0
-    if (e && dynbase(x)) out("U", x)
+    if (e && !barevar(x) && dynbase(x)) out("U", x)
     return
   }
   if (decl[cf] && x ~ assignre) { assign(x); return }
@@ -383,7 +392,7 @@ function endword(  x, e, q, b) {
   }
   cmdpos[cf] = 0
   if (e) {
-    if (x ~ /\/|\.sh$/ && dynbase(x)) out("U", x)
+    if (!barevar(x) && x ~ /\/|\.sh$/ && dynbase(x)) out("U", x)
     return
   }
   b = x; sub(/.*\//, "", b)
@@ -643,7 +652,7 @@ $1 == "A" {
   if (a[2] == 0) nonlit[$2, a[1]] = 1
   next
 }
-$1 == "S" { ns++; spath[ns] = $2; sname[ns] = $3; next }
+$1 == "S" || $1 == "V" { ns++; skind[ns] = $1; spath[ns] = $2; sname[ns] = $3; next }
 $1 == "M" { mut[$2] = 1; next }
 $1 == "U" {
   if (!(($2, $3) in unres)) { unres[$2, $3] = 1; ulist[$2] = ulist[$2] "\n" $3 }
@@ -653,7 +662,7 @@ END {
   for (s = 1; s <= ns; s++) {
     p = spath[s]; x = sname[s]
     if (((p, x) in assigned) && !((p, x) in nonlit)) continue
-    mut[p] = 1
+    if (skind[s] == "S") mut[p] = 1
     if (!((p, "$" x) in unres)) { unres[p, "$" x] = 1; ulist[p] = ulist[p] "\n$" x }
   }
   for (e = 1; e <= ne; e++) {
