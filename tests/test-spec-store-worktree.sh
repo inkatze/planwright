@@ -401,6 +401,24 @@ else
   fail "default-branch symlink: rc=$rc out=$out err=$err"
 fi
 gitq -C "$H" rm -q "projects/demo-root/pre" && gitq -C "$H" commit -q -m "unlink pre" && gitq -C "$H" push -q origin trunk
+# The in-bundle scan fails closed: an unreadable directory could hide a
+# symlink. Root reads through a 000 directory, so the case needs a user.
+sw "$W" unr
+unrdir="$H/.claude/worktrees/unr-spec/projects/demo-root/unr/hidden"
+mkdir -p "$unrdir"
+ln -s "$tmp/outside" "$unrdir/escape"
+chmod 000 "$unrdir"
+if [ "$(id -u)" -ne 0 ]; then
+  sw "$W" unr
+  if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'could not scan'; then
+    ok "an unreadable directory inside the bundle is refused, with find's reason"
+  else
+    fail "unreadable bundle dir: rc=$rc out=$out err=$err"
+  fi
+else
+  ok "skipped as root: an unreadable directory inside the bundle"
+fi
+chmod 755 "$unrdir"
 # A symlink nested below the bundle's top level, on reuse and on recreate.
 sw "$W" nest
 nestwt="$H/.claude/worktrees/nest-spec"
