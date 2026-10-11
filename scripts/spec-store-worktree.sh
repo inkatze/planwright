@@ -30,10 +30,12 @@
 #
 # Exit: 0 ready; 2 usage or a refused identifier; 3 the root is not in a
 # holder (same-repo and plain keep their own paths); 4 the root did not
-# resolve, or the holder refused (a foreign directory at the worktree path,
-# a symlinked .claude, another project's spec branch, a symlink on the
-# bundle path inside the worktree or inside the bundle, no default branch, a
-# git failure).
+# resolve or lies outside its holder's primary checkout, or the holder
+# refused (a foreign directory at the worktree path, a symlinked or
+# non-directory .claude or .claude/worktrees, another project's spec branch,
+# a symlink or non-directory on the bundle path or a symlink inside the
+# bundle, in the start commit or the worktree, no default branch, a git
+# failure).
 set -u
 LC_ALL=C
 export LC_ALL
