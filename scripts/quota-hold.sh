@@ -404,22 +404,26 @@ case $verb in
     }
     # Recorded under the lock and only while this hold is still the vendor's:
     # a late write for a hold a resume already ended would silence the next.
-    pr_rc=0
-    pw_lock_acquire "$dir/lock" || pr_rc=$?
-    if [ "$pr_rc" = 0 ]; then
-      cur=""
+    unrecorded=""
+    if pw_lock_acquire "$dir/lock"; then
+      cur="" cur_rc=0
       [ ! -f "$hf" ] || cur=$(awk -F "$TAB" -v v="$vendor" "$AWK_GRAMMAR"'
-        hold_ok() && (m == "" || $1 + 0 < m + 0) { m = $1 } END { print m }' "$hf") || cur=""
-      if [ "$cur" = "$since" ]; then
+        hold_ok() && (m == "" || $1 + 0 < m + 0) { m = $1 } END { print m }' "$hf") || cur_rc=$?
+      if [ "$cur_rc" != 0 ]; then
+        unrecorded="the hold store could not be read"
+      elif [ "$cur" = "$since" ]; then
         if CUR_TMP=$(mktemp "$dir/.pushed.XXXXXX") && printf '%s\n' "$since" >"$CUR_TMP" && mv -f "$CUR_TMP" "$pf"; then
           CUR_TMP=""
         else
-          pr_rc=1
+          unrecorded="the record could not be written"
         fi
       fi
-      pw_lock_release "$dir/lock" || pr_rc=1
+      pw_lock_release "$dir/lock" \
+        || printf '%s\n' "$prog: the hold on $vendor is pushed, but the vendor's lock could not be released (retried on exit)" >&2
+    else
+      unrecorded="the vendor's lock could not be taken"
     fi
-    [ "$pr_rc" = 0 ] || printf '%s\n' "$prog: the hold on $vendor is pushed, but the push was not recorded; a unit joining it may push again" >&2
+    [ -z "$unrecorded" ] || printf '%s\n' "$prog: the hold on $vendor is pushed, but the push was not recorded ($unrecorded); a unit joining it may push again" >&2
     exit 0
     ;;
 

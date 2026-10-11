@@ -206,6 +206,24 @@ QH_GO="$tmp/go-now" srun hold --vendor sample-cli --unit spec-c:task-1 --step pa
   || fail "late-push: the live hold was pushed again after a late push recorded the old one: $(cat "$tmp/late-pushes")"
 pass "a push record follows the live hold, never an older one"
 
+# A push whose record cannot be checked says so rather than going quiet.
+if [ "$(id -u)" != 0 ]; then
+  new_home unrecorded
+  cat >"$stub/fleet-attention.sh" <<'STUB'
+#!/bin/sh
+chmod 000 "$QH_HOLDFILE"
+STUB
+  rc=0
+  QH_HOLDFILE="$(holdfile sample-cli)" srun hold --vendor sample-cli --unit spec-a:task-1 --step panel \
+    --reason "quota" --now "$NOW" >/dev/null 2>"$tmp/unrecorded-err" || rc=$?
+  chmod 600 "$(holdfile sample-cli)"
+  [ "$rc" = 0 ] || fail "unrecorded: a pushed hold whose record could not be checked exited $rc"
+  grep -q "the push was not recorded (the hold store could not be read)" "$tmp/unrecorded-err" \
+    || fail "unrecorded: no warning that the push went unrecorded: $(cat "$tmp/unrecorded-err")"
+  [ ! -e "$home/fleet/quota/sample-cli/pushed" ] || fail "unrecorded: a push record was written anyway"
+  pass "a push whose record cannot be checked warns that it went unrecorded"
+fi
+
 new_home noreset
 run hold --vendor sample-cli --unit spec-a:task-1 --step panel \
   --reason "monthly allowance exhausted" --now "$NOW" >/dev/null 2>&1 || fail "hold without a reset exited non-zero"
