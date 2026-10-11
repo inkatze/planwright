@@ -336,20 +336,25 @@ personal_data() {
       # An IBAN, unseparated or in groups of four, the last shorter; the
       # groups stop at 34 characters so a long uppercase run costs little.
       off = 0
+      # A candidate that is no IBAN resumes the search after its first
+      # group, so an IBAN-shaped token before an IBAN does not hide it.
       while (each("[A-Z][A-Z][0-9][0-9]( ?[A-Z0-9])+")) {
-        if (pre ~ /[A-Za-z0-9_]/) continue
         ng = split(m, g, " ")
-        if (length(g[1]) > 4) {
-          if (length(g[1]) >= 15 && length(g[1]) <= 34 && (ng > 1 || post !~ /[a-z_]/) && iban(g[1])) hit("personal-data-account")
-          continue
+        found = 0
+        if (pre ~ /[A-Za-z0-9_]/) found = 0
+        else if (length(g[1]) > 4) {
+          found = length(g[1]) >= 15 && length(g[1]) <= 34 && (ng > 1 || post !~ /[a-z_]/) && iban(g[1])
+        } else {
+          c = g[1]
+          for (j = 2; j <= ng && length(g[j]) <= 4; j++) {
+            c = c g[j]
+            if (length(c) > 34) break
+            if (length(c) >= 15 && iban(c)) { found = 1; break }
+            if (length(g[j]) < 4) break
+          }
         }
-        c = g[1]
-        for (j = 2; j <= ng && length(g[j]) <= 4; j++) {
-          c = c g[j]
-          if (length(c) > 34) break
-          if (length(c) >= 15 && iban(c)) { hit("personal-data-account"); break }
-          if (length(g[j]) < 4) break
-        }
+        if (found) hit("personal-data-account")
+        else off = st + length(g[1]) - 1
       }
     }' "$work/$1" >>"$work/hits" || die 4 "cannot screen --${1%.clean} for personal data"
 }
