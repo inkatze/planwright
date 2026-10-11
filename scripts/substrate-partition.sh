@@ -19,8 +19,9 @@
 #   task      named in the run body of a task in mise.toml, or its `file`
 #   workflow  named in a .github/workflows file
 #   test      named in a shell file under tests/
-# A description, a whole-line comment, a script comment, a heredoc body, and
-# any Markdown file that is not a skill body name nothing.
+# A task description; a whole-line comment in a task, workflow or test; a
+# comment or heredoc body in a layer script; and any Markdown file that is not
+# a skill body name nothing.
 #
 # TIER. The first that holds, in this order: hook (git, githook, or hook),
 # skill-called (skill), library (script), dev-check (task or workflow),
@@ -166,8 +167,8 @@ list_files() {
 # scan_files <kind> <list> <shell-only>: every line of every listed file as a
 # `T<tab>kind<tab>line` caller record. Shell-only keeps a file only when it has
 # a .sh suffix or a shell shebang; with kind `layer` the kept paths are printed
-# instead. Workflow whole-line comments are dropped. An unreadable file fails
-# the scan rather than vanishing from it.
+# instead. Workflow and test whole-line comments are dropped. An unreadable
+# file fails the scan rather than vanishing from it.
 scan_files() {
   awk -v k="$1" -v shellonly="$3" '
     BEGIN { root = ENVIRON["SP_ROOT"] }
@@ -180,7 +181,7 @@ scan_files() {
           if (!keep) break
           if (k == "layer") { print substr(f, length(root) + 2); break }
         }
-        if (k == "workflow" && line ~ /^[ \t]*#/) continue
+        if ((k == "workflow" || k == "test") && line ~ /^[ \t]*#/) continue
         gsub(/\t/, " ", line)
         print "T\t" k "\t" line
       }

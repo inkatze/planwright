@@ -96,6 +96,7 @@ EOF
 put tests/test-helper.sh <<'EOF'
 #!/bin/bash
 /bin/sh "$REPO_ROOT/scripts/testhelper.sh"
+# A comment naming scripts/commented.sh is not a caller.
 EOF
 
 put scripts/hooked.sh <<'EOF'
@@ -214,7 +215,7 @@ timeout "$gh_t" gh pr view
 opts=""
 env $opts /bin/sh x
 find . -type f -exec cat {} +
-find . -exec /bin/sh -c 'true' {} \;
+find . -exec od {} \; -exec xz {} +
 exec -a myname curl x
 EOF
 
@@ -348,7 +349,7 @@ expect scripts/no-suffix tests-only no-live-caller - - shopt -
 expect scripts/name.sh tests-only no-live-caller - - - -
 expect scripts/glued.sh tests-only no-live-caller - - - -
 # shellcheck disable=SC2016 # the literal text the partition reports
-expect scripts/interp.sh tests-only no-live-caller - - bash,cat,curl,date,env,find,gh,gzip,make,pick,sh,sudo,timeout '$d/$n,$name.sh,$tool,${variant}.sh'
+expect scripts/interp.sh tests-only no-live-caller - - bash,cat,curl,date,env,find,gh,gzip,make,od,pick,sh,sudo,timeout,xz '$d/$n,$name.sh,$tool,${variant}.sh'
 # A symlink is in the layer as the file it names.
 expect scripts/linked.sh tests-only no-live-caller - - cb_fn,grep -
 echo "ok: p4 no caller, a library reachable only from a flagged script, a test-only helper, and a docs-only script are flagged"
