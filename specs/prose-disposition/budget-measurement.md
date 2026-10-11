@@ -529,8 +529,11 @@ in.
 
 ### The rung: a manifest change, the one Task 12 took
 
-Rung 1 is recorded exhausted above, with no safe candidate on `/polish`'s
-surfaces. Rung 2 applied directly: `doctrine/refactor-instinct.md` moved from
+Rung 1 cannot cover it. The surveys above did not measure `/polish` as a
+surface, since it was warn-level then, but the one safe candidate they found
+that reaches it, E2 (about 45 words in `finding-categorization`), is short of
+the gist, and the `/polish` entry's own comment records every in-file
+candidate as the last copy of a live rule. Rung 2 applied: `doctrine/refactor-instinct.md` moved from
 `run-start` to `point-of-use` in `/polish`'s manifest, the reclassification
 Task 12 made in `/self-review`'s. `/polish`'s body never reads that doc; the
 manifest carried it only because the skill resolves "the same rule docs as
