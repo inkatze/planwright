@@ -17,12 +17,11 @@
 # fences) sits at column zero. The ask and the grounds are operator text: each
 # is stripped of control and invisible characters, its token-shaped secrets
 # and personal data (identity, account, and contact numbers) redacted a whole
-# line (a private key its whole block) at a time, and it is
-# quoted inside a fence longer than any backtick run it holds with every
-# non-blank line indented two spaces, so
-# no fence, tag, heading, or marker it carries renders, closes the collapse, or
-# reaches column zero where a line-anchored reader would take it for
-# structure. Worker-authored inputs are stripped the same way and normalized
+# line (a private key its whole block) at a time, and it is quoted inside a
+# fence longer than any backtick run it holds with every non-blank line
+# indented two spaces, so no fence, tag, heading, or marker it carries
+# renders, closes the collapse, or reaches column zero where a line-anchored
+# reader would take it for structure. Worker-authored inputs are stripped the same way and normalized
 # for the markdown lint (trailing whitespace, blank-line runs, edge blank
 # lines), and refused, never otherwise rewritten, when they carry a
 # token-shaped secret or markup that would reshape the record around them (raw
@@ -46,8 +45,8 @@
 #       `planwright/flight/<flight-id>`, when the record already exists, when
 #       a directory on the record path is a symlink or not a directory (checked
 #       again after land creates them), or when the index holds other staged
-#       changes. A re-run whose committed record matches its render reports
-#       that record and succeeds. The record is created only if absent, so a
+#       changes. A re-run whose record matches its render, both committed and
+#       in the checkout, reports that record and succeeds. The record is created only if absent, so a
 #       concurrent run's record is never overwritten. A commit git or its hooks
 #       refuse (exit 4), or an interrupt, takes a record this run wrote back
 #       out of the index and the worktree unless it is already in HEAD.
@@ -83,10 +82,11 @@
 # and spacing, is refused (exit 2).
 #
 # Exit codes: 0 rendered or landed · 2 usage or an input refused · 3 refused
-# by state (over the PR-body limit; for land, the branch, an existing record,
-# a symlink or non-directory on the record path, or a staged index) · 4 an
-# environment failure (a missing helper, a sanitizer, the secret screen, or git
-# could not run, or refused the record commit).
+# by state (over the PR-body limit; for land, the branch, an existing record
+# that differs from the render, a symlink or non-directory on the record path,
+# or a staged index) · 4 an environment failure (a missing helper, a
+# sanitizer, the secret screen, or git could not run, or refused the record
+# commit; or the screen reported a finding in no input it was given).
 #
 # Portable POSIX sh (the bash 3.2 floor); no eval; pathname expansion off.
 set -uf
@@ -288,8 +288,8 @@ personal_data() {
     }' "$work/$1" >>"$work/hits" || die 4 "cannot screen --${1%.clean} for personal data"
 }
 
-# hits_for <name> <out> — the screen's `<line><TAB><rule>` findings in the
-# input <name>; true when there are any.
+# hits_for <name> <out> — the `<line><TAB><rule>` findings, the screen's and
+# the personal-data pass's, in the input <name>; true when there are any.
 hits_for() {
   awk -F '\t' -v p="$1" '$1 == p { print $2 "\t" $3 }' "$work/hits" >"$2" || die 4 "cannot read the screen's findings"
   [ -s "$2" ]

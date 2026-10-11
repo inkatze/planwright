@@ -15,12 +15,16 @@
 #      restates the ask is refused; the pending-sign-off IDs surface in the
 #      lead as well as in the collapsed checklist.
 #   3. The ask is sanitized and markup-neutralized: control and invisible
-#      characters stripped, token-shaped secrets redacted, and an ask carrying
-#      a fence, a closing tag, a heading, or a record marker cannot close the
-#      collapse, forge a marker, or break a column-zero parse.
+#      characters stripped, token-shaped secrets redacted (a pasted private
+#      key from its BEGIN line through its END line, or to the end), personal
+#      data in the ask and grounds redacted and noted while ordinary numbers
+#      pass, and an ask carrying a fence, a closing tag, a heading, or a
+#      record marker cannot close the collapse, forge a marker, or break a
+#      column-zero parse; a non-ASCII temp directory changes none of it.
 #   4. Worker-authored inputs are screened: a structural line or a
-#      token-shaped secret is refused, and an audit missing a contract element
-#      is refused naming it.
+#      token-shaped secret is refused, an audit missing a contract element
+#      is refused naming it, and a screen finding naming no input is refused
+#      (exit 4).
 #   5. A PR-home record over GitHub's body limit is refused, not truncated.
 #   6. The no-remote arm (`land`) commits exactly one record file, at the
 #      path its caller passes (`--record-path`, required: repo-relative or
