@@ -2005,7 +2005,10 @@ environ_word_risky() {
     esac
   fi
   last=${w##*/}
-  [ "$last" = environ ] && return 0
+  # `mem` holds the whole process's memory, its environment included.
+  case $last in
+    environ | mem) return 0 ;;
+  esac
   [ "$2" = 1 ] || return 1
   # Pattern syntax beyond `*`, `?`, and `[…]` (braces, zsh's extended
   # characters, a backslash) is not matched here, only assumed to match.
@@ -2013,7 +2016,7 @@ environ_word_risky() {
     *[{}\\~^#\<\>\|]*) ;;
     *)
       # shellcheck disable=SC2053 # the operand is the pattern under test
-      [[ environ == $last ]] || return 1
+      [[ environ == $last || mem == $last ]] || return 1
       ;;
   esac
   # fish's `**` descends into subdirectories, through symlinks too, so no
