@@ -277,6 +277,17 @@ status=$(run status --vendor sample-cli --now "$NOW")
 printf '%s\n' "$status" | grep -q "^vendor${TAB}sample-cli${TAB}clear${TAB}" || fail "forged: a hostile hold line was trusted: $status"
 pass "forged ledger and hold lines are skipped on read"
 
+# A planted symlink in the store is never written through.
+new_home symlink
+mkdir -p "$home/fleet/quota/sample-cli"
+: >"$tmp/link-target"
+ln -s "$tmp/link-target" "$home/fleet/quota/sample-cli/ledger.tsv"
+rc=0
+run record --vendor sample-cli --event request --now "$NOW" 2>/dev/null || rc=$?
+[ "$rc" = 6 ] || fail "symlink: a record through a planted ledger link exited $rc, not 6"
+[ ! -s "$tmp/link-target" ] || fail "symlink: the record wrote through the planted link"
+pass "a planted symlink in the store is refused"
+
 # --- 7. The vendor view in fleet-stats.sh render ---------------------------
 # The render reads the real clock, so this fixture is stamped relative to it.
 new_home stats

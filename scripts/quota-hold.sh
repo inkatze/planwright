@@ -292,6 +292,10 @@ clean_reason() {
 
 vendor_dir() {
   vd_d="$store/$1"
+  # An append follows a symlink, so a planted link must never be written through.
+  for vd_p in "$store" "$vd_d" "$vd_d/ledger.tsv" "$vd_d/hold.tsv"; do
+    [ ! -L "$vd_p" ] || die 6 "refusing a symlink in the vendor's store"
+  done
   mkdir -p "$vd_d" || die 6 "cannot create the vendor's store directory"
   printf '%s' "$vd_d"
 }
@@ -389,8 +393,8 @@ case $verb in
     else
       REASON="operator resume"
     fi
-    dir="$store/$vendor"
-    [ -f "$dir/hold.tsv" ] || exit 0
+    [ -f "$store/$vendor/hold.tsv" ] || exit 0
+    dir=$(vendor_dir "$vendor") || exit 6
     lock_vendor "$dir"
     hf="$dir/hold.tsv"
     if [ ! -f "$hf" ]; then
@@ -452,8 +456,8 @@ case $verb in
     days=$(retention_days) || exit $?
     cutoff=$((now - days * 86400))
     for v in $(list_vendors); do
-      dir="$store/$v"
-      [ -f "$dir/ledger.tsv" ] || continue
+      [ -f "$store/$v/ledger.tsv" ] || continue
+      dir=$(vendor_dir "$v") || exit 6
       lock_vendor "$dir"
       CUR_TMP=$(mktemp "$dir/.ledger.XXXXXX") || die 6 "cannot create a write temp"
       awk -F "$TAB" -v v="$v" -v cutoff="$cutoff" "$AWK_GRAMMAR"'
