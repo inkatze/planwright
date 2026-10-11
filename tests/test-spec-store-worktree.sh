@@ -358,7 +358,7 @@ usymwt="$H/.claude/worktrees/usym-spec"
 mkdir -p "$usymwt/projects/demo-root/usym"
 ln -s "$tmp/outside3/design.md" "$usymwt/projects/demo-root/usym/design.md"
 sw "$W" usym
-if [ "$rc" -eq 4 ] && [ -z "$out" ] && [ ! -e "$tmp/outside3/design.md" ]; then
+if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'design.md'; then
   ok "an uncommitted symlinked bundle file is refused"
 else
   fail "uncommitted symlinked bundle file: rc=$rc out=$out err=$err"
@@ -401,6 +401,63 @@ else
   fail "default-branch symlink: rc=$rc out=$out err=$err"
 fi
 gitq -C "$H" rm -q "projects/demo-root/pre" && gitq -C "$H" commit -q -m "unlink pre" && gitq -C "$H" push -q origin trunk
+# A symlink nested below the bundle's top level, on reuse and on recreate.
+sw "$W" nest
+nestwt="$H/.claude/worktrees/nest-spec"
+mkdir -p "$nestwt/projects/demo-root/nest/sub"
+ln -s "$tmp/outside3/x.md" "$nestwt/projects/demo-root/nest/sub/x.md"
+gitq -C "$nestwt" add -A && gitq -C "$nestwt" commit -q -m "nested link"
+sw "$W" nest
+if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'sub/x.md'; then
+  ok "a nested symlink inside the reused bundle is refused"
+else
+  fail "nested symlink on reuse: rc=$rc out=$out err=$err"
+fi
+gitq -C "$H" worktree remove --force "$nestwt"
+sw "$W" nest
+if [ "$rc" -eq 4 ] && [ -z "$out" ] && [ ! -e "$nestwt" ]; then
+  ok "a nested symlink on the spec branch is refused before the worktree opens"
+else
+  fail "nested symlink on recreate: rc=$rc out=$out err=$err"
+fi
+# A symlinked bundle file on a spec branch that survives only on origin.
+sw "$W" osym
+osymwt="$H/.claude/worktrees/osym-spec"
+mkdir -p "$osymwt/projects/demo-root/osym"
+ln -s "$tmp/outside3/tasks.md" "$osymwt/projects/demo-root/osym/tasks.md"
+gitq -C "$osymwt" add -A && gitq -C "$osymwt" commit -q -m "link tasks"
+gitq -C "$osymwt" push -q origin planwright/osym/spec
+gitq -C "$H" worktree remove --force "$osymwt"
+gitq -C "$H" branch -q -D planwright/osym/spec
+sw "$W" osym
+if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'origin/planwright/osym/spec' \
+  && [ ! -e "$osymwt" ] \
+  && ! hermetic git -C "$H" show-ref --verify --quiet refs/heads/planwright/osym/spec; then
+  ok "a symlink on an origin-only spec branch creates no branch or worktree"
+else
+  fail "origin-only symlink: rc=$rc out=$out err=$err"
+fi
+# A file where the bundle directory belongs, on the default branch and in a
+# reused worktree.
+printf 'x\n' >"$H/projects/demo-root/filed"
+gitq -C "$H" add -A && gitq -C "$H" commit -q -m "file filed" && gitq -C "$H" push -q origin trunk
+sw "$W" filed
+if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'not a directory' \
+  && [ ! -e "$H/.claude/worktrees/filed-spec" ] \
+  && ! hermetic git -C "$H" show-ref --verify --quiet refs/heads/planwright/filed/spec; then
+  ok "a file at the bundle path on the default branch creates no branch or worktree"
+else
+  fail "default-branch file: rc=$rc out=$out err=$err"
+fi
+gitq -C "$H" rm -q "projects/demo-root/filed" && gitq -C "$H" commit -q -m "unfile filed" && gitq -C "$H" push -q origin trunk
+sw "$W" fdir
+printf 'x\n' >"$H/.claude/worktrees/fdir-spec/projects/demo-root/fdir"
+sw "$W" fdir
+if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'not a directory'; then
+  ok "a file at the bundle path in the reused worktree is refused"
+else
+  fail "reused worktree file: rc=$rc out=$out err=$err"
+fi
 
 # --- one holder, two projects: a spec id is not shared across them ----------
 HM="$tmp/multi"
