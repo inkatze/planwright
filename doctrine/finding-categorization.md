@@ -11,7 +11,8 @@ backs it, so the human can review the whole record at the draft PR.
 Citations: REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6,
 REQ-C1.7 · D-4, D-5, D-6 · operator-dialogue REQ-I1.1, REQ-I1.2, REQ-I1.4 ·
 operator-dialogue D-14, D-15 · prose-disposition REQ-B1.1, REQ-B1.5 ·
-prose-disposition D-3 · human-gates REQ-B1.1.
+prose-disposition D-3 · human-gates REQ-B1.1 · test-throughput REQ-F1.7 ·
+test-throughput D-18.
 
 The operational wiring is specified in [Gate Wiring](gate-wiring.md), which
 implements the buckets and principles defined here.
@@ -74,7 +75,11 @@ conditions must hold (REQ-C1.2).
    current code for the finding's exact reason, written and confirmed to fail
    *before* the fix, and passing unchanged after it.
 2. **Passing project CI.** The project's full test, lint, and type-check
-   suite passes after the fix, with no new regressions anywhere.
+   suite passes with the fix, with no new regressions anywhere: either a
+   green full local suite after the fix, or a green CI run on a pushed head
+   containing the fix. A fix awaiting that CI run is listed as awaiting it
+   and reported resolved only once the run is green; a red run leaves it
+   unresolved.
 3. **Kickoff-brief alignment.** No contract drift relative to the active
    kickoff brief's goals, constraints, or decisions. If no kickoff brief is
    active for the current branch, the finding cannot be Agent-resolvable.
