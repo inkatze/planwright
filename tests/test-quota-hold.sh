@@ -210,6 +210,16 @@ run resume --vendor sample-reviewer --now "$NOW" >/dev/null 2>&1 || rc=$?
 grep -q "${TAB}spec-a:task-1${TAB}" "$vdir/hold.tsv" || fail "ledger-fails: a resume that exited 6 released its holders"
 pass "a failed ledger write leaves the hold store unchanged"
 
+new_home hold-not-file
+vdir="$home/fleet/quota/sample-reviewer"
+mkdir -p "$vdir/hold.tsv"
+rc=0
+out=$(run hold --vendor sample-reviewer --unit spec-a:task-1 --step bot-review --reason "quota" --now "$NOW" 2>/dev/null) || rc=$?
+[ "$rc" = 6 ] || fail "hold-not-file: a hold over a hold store that is a directory exited $rc, not 6 ($out)"
+[ -z "$out" ] || fail "hold-not-file: a refused hold printed $out"
+[ -z "$(ls -A "$vdir/hold.tsv")" ] || fail "hold-not-file: the hold wrote inside the directory"
+pass "a hold store that is not a regular file is refused"
+
 # --- 4. The ledger, its counts, and retention pruning -----------------------
 new_home ledger
 run record --vendor sample-reviewer --event request --unit spec-a:task-1 --pr 42 --head "$HEAD40" --now $((NOW - 100 * DAY)) || fail "record request (old) failed"

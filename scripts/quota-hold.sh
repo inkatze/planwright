@@ -347,6 +347,8 @@ case $verb in
     dir=$(vendor_dir "$vendor") || exit 6
     lock_vendor "$dir"
     hf="$dir/hold.tsv"
+    # mv onto a directory would land the store inside it and report a hold.
+    [ ! -e "$hf" ] || [ -f "$hf" ] || die 6 "the vendor's hold store is not a regular file"
     src=/dev/null
     [ ! -f "$hf" ] || src=$hf
     CUR_TMP=$(mktemp "$dir/.hold.XXXXXX") || die 6 "cannot create a write temp"
