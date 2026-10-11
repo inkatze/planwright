@@ -653,7 +653,7 @@ else
   new_home stats-unreadable
   run hold --vendor sample-reviewer --unit spec-a:task-1 --step bot-review --reason "quota" --now "$NOW" >/dev/null 2>&1 || fail "unreadable fixture: hold failed"
   qs="$home/fleet/quota"
-  for f in "$qs/sample-reviewer/hold.tsv" "$qs/sample-reviewer/ledger.tsv" "$qs"; do
+  for f in "$qs/sample-reviewer/hold.tsv" "$qs/sample-reviewer/ledger.tsv" "$qs/sample-reviewer" "$qs"; do
     mode=600
     [ -f "$f" ] || mode=700
     chmod 000 "$f"
@@ -666,7 +666,18 @@ else
     [ "$rc" = 6 ] || fail "status over an unreadable ${f#"$qs"/} exited $rc, not 6"
     printf '%s\n' "$render" | grep -q '^  vendors:        unknown$' || fail "render over an unreadable ${f#"$qs"/} is not unknown: $render"
   done
-  pass "status fails closed over an unreadable store, and the render says unknown"
+  for f in "$qs/sample-reviewer" "$qs"; do
+    chmod 000 "$f"
+    rc=0
+    run status --vendor sample-reviewer --now "$NOW" >/dev/null 2>&1 || rc=$?
+    rrc=0
+    run resume --vendor sample-reviewer --now "$NOW" >/dev/null 2>&1 || rrc=$?
+    chmod 700 "$f"
+    [ "$rc" = 6 ] || fail "status --vendor under an unsearchable ${f#"$qs"} exited $rc, not 6"
+    [ "$rrc" = 6 ] || fail "resume under an unsearchable ${f#"$qs"} exited $rrc, not 6"
+  done
+  grep -q "${TAB}spec-a:task-1${TAB}" "$qs/sample-reviewer/hold.tsv" || fail "a refused resume released the vendor"
+  pass "status and resume fail closed over an unreadable or unsearchable store"
 fi
 
 # A stated reset of 0 is still a stated reset in the status view.

@@ -429,6 +429,10 @@ case $verb in
     else
       REASON="operator resume"
     fi
+    # A directory that cannot be searched hides the hold file it holds.
+    for d in "$store" "$store/$vendor"; do
+      [ ! -d "$d" ] || [ -x "$d" ] || die 6 "cannot search the vendor's store"
+    done
     [ -e "$store/$vendor/hold.tsv" ] || exit 0
     dir=$(vendor_dir "$vendor") || exit 6
     lock_vendor "$dir"
@@ -464,13 +468,16 @@ case $verb in
   status)
     days=$(retention_days) || exit $?
     cutoff=$((now - days * 86400))
-    if [ "$vendor_set" != 1 ] && [ -e "$store" ] && { [ ! -r "$store" ] || [ ! -x "$store" ]; }; then
+    # A directory that cannot be searched hides its files, and one that
+    # cannot be listed hides its vendors: neither reads as clear.
+    if [ -d "$store" ] && { [ ! -x "$store" ] || { [ "$vendor_set" != 1 ] && [ ! -r "$store" ]; }; }; then
       die 6 "cannot read the quota store"
     fi
     vendors=$(list_vendors)
     [ -n "$work" ] || work=$(mktemp -d "${TMPDIR:-/tmp}/quota-hold.XXXXXX") || die 6 "cannot create a temporary directory"
     printf 'retention\t%s\n' "$days"
     for v in $vendors; do
+      [ ! -d "$store/$v" ] || [ -x "$store/$v" ] || die 6 "cannot search the store of $v"
       hf="$store/$v/hold.tsv"
       lf="$store/$v/ledger.tsv"
       # A FIFO or a directory here would hang or skip the read.
