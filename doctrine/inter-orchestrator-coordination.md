@@ -102,9 +102,10 @@ uses `send-keys`-style impersonation — typing into a worker's input line as if
 the human typed it: an authorization decision made by screen-scraping with no
 audit trail (the rejection bootstrap D-38 made).
 
-`relay-command` posts through `fleet-messaging.sh` first, and
+`relay-command` tries its messaging arm, which posts through
+`fleet-messaging.sh`, before any paste; on the fallback,
 `scripts/orchestrate-relay.sh relay-command tmux <handle> <message-file>` emits
-the fallback: the script's own `deliver` step, whose paste carries a fixed
+the paste: the script's own `deliver` step, whose paste carries a fixed
 attribution header, with the message body left in its file (see data
 discipline below). It has no `send-keys` path by construction, and a source
 audit (its test) proves the code contains none.

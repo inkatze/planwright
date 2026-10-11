@@ -320,7 +320,7 @@ write (D-7). The sweep:
 1. **Refresh the remote view (best-effort).** `scripts/dispatch-fetch.sh
    --best-effort <primary-checkout>`: one attempt, coalesced with the gate's
    fetch (D-9), **no local-`main` advance**. Any nonzero exit → continue on
-   last-known refs (the gate blocks on `4`).
+   last-known refs (the gate blocks on `4`, stale-transient).
 2. **Rebuild** from `tasks.md`, `gh`, and the process/window list; for each
    in-flight unit (v1: its `## In progress` entry; v2: the derivation's in-progress
    set — no committed placement exists), **reconcile PR state first**: merged →
@@ -437,7 +437,7 @@ These hold at every step:
 - **Never** hold the per-spec lock across execution; only across the
   freshness-gate-plus-marker window (D-10).
 - **Never** loosen any invariant at the meta tier (`--meta`, D-6; its fleet lock
-  and fleet bound are `orchestration-modes`').
+  and fleet bound live in `orchestration-modes`).
 
 ## Observations
 
