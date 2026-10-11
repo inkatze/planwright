@@ -310,6 +310,15 @@ status=$(run status --vendor sample-cli --now "$NOW")
 printf '%s\n' "$status" | grep -q "^vendor${TAB}sample-cli${TAB}clear${TAB}" || fail "forged: a hostile hold line was trusted: $status"
 pass "forged ledger and hold lines are skipped on read"
 
+# An append that was cut short (a full disk) never swallows the next line.
+new_home torn
+run record --vendor sample-cli --event request --now "$NOW" || fail "torn fixture: record failed"
+printf '%s\trequest\t-\t-' "$NOW" >>"$(ledger sample-cli)"
+run record --vendor sample-cli --event refusal --now "$NOW" || fail "torn: the record after a torn line failed"
+run status --vendor sample-cli --now "$NOW" | grep -q "^count${TAB}sample-cli${TAB}refusal${TAB}1$" \
+  || fail "torn: the line appended after a torn one was lost"
+pass "a torn ledger line never swallows the next append"
+
 # A planted symlink in the store is never written through.
 new_home symlink
 mkdir -p "$home/fleet/quota/sample-cli"
