@@ -1808,6 +1808,19 @@ assign_name_ok() {
       options | commands | functions | aliases | parameters | argv | match | MATCH | mbegin | \
       mend | reply) return 1 ;;
   esac
+  # The rest of zsh's own tables; see the worker guard's copy for the sources.
+  case $name in
+    TERM | TERMINFO | TERMINFO_DIRS | WORDCHARS | KEYBOARD_HACK | ZLE_RPROMPT_INDENT | POSTEDIT | \
+      RPS1 | RPS2 | RPROMPT | RPROMPT2 | SPROMPT | prompt | PROMPT | PROMPT2 | PROMPT3 | PROMPT4 | \
+      PSVAR | psvar | fignore | mailpath | TIMEFMT | HOST | LOGNAME | CPUTYPE | MACHTYPE | OSTYPE | \
+      TTY | VENDOR | signals | \
+      dis_functions | functions_source | dis_functions_source | funcsourcetrace | builtins | \
+      dis_builtins | reswords | dis_reswords | patchars | dis_patchars | modules | dirstack | \
+      history | historywords | jobtexts | jobdirs | jobstates | nameddirs | userdirs | usergroups | \
+      dis_aliases | galiases | dis_galiases | saliases | dis_saliases | \
+      epochtime | zgdbm_tied | langinfo | mapfile | errnos | sysparams | termcap | terminfo | \
+      WATCH | watch | widgets | keymaps | zsh_scheduled_events) return 1 ;;
+  esac
   # Membership in the hook's own ENVIRONMENT, snapshotted at startup: an
   # exported name the command re-points reaches every child it runs. The
   # snapshot is what is tested, NOT `${!name+x}` — an indirect read also sees
@@ -1925,10 +1938,11 @@ guard_printf() {
 # opaque_words_ok: the current simple command (`cw` and its flag arrays, by
 # dynamic scope) places every unresolved word where its value cannot change
 # the verdict: never the verb, and otherwise only an operand of an
-# argument-independent verb, printf past its format, or a test shape
-# test_opaque_ok admits.
+# argument-independent verb (one that opens its operands only when
+# opener_word_risky clears the word), printf past its format, or a test
+# shape test_opaque_ok admits.
 opaque_words_ok() {
-  local i verb=${cw[0]} fmt=1
+  local i verb=${cw[0]} fmt=1 g
   word_unresolved "$verb" "${cdyn[0]}" "${cglob[0]}" "${cx[0]}" && return 1
   case $verb in
     test | '[')
@@ -1941,7 +1955,187 @@ opaque_words_ok() {
     word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" || continue
     [ "$verb" = printf ] && [ "$i" -gt "$fmt" ] && continue
     arg_independent_verb "$verb" || return 1
+    if opens_operands "$verb" && [ "${cdyn[i]}" != 0 ]; then
+      g=${cglob[i]}
+      [ "${cz[i]-0}" = 0 ] || g=1
+      opener_word_risky "${cw[i]}" "${cx[i]}" "$g" && return 1
+    fi
   done
+  return 0
+}
+
+# Other processes' environments and memory: the worker guard's rule,
+# shared; see its copy for the reasons.
+opens_operands() {
+  case $1 in
+    cat | head | tail | wc | cut | comm | cmp | od | grep | diff | nl | paste | column) return 0 ;;
+    md5sum | sha1sum | sha256sum | sha512sum | cksum | shellcheck | yamllint) return 0 ;;
+    sort | uniq | file | sed | awk | jq | yq | rg | shfmt | markdownlint | markdownlint-cli2) return 0 ;;
+  esac
+  return 1
+}
+
+opener_word_risky() {
+  local piece
+  local -a pieces
+  case $1 in
+    *'$'*) ;;
+    *) return 1 ;;
+  esac
+  [ "$2" = 0 ] || return 0
+  expand_word "$1" whole
+  case $EXPANDED in
+    *'$'*) return 0 ;;
+  esac
+  environ_word_risky "$EXPANDED" "$3" && return 0
+  IFS=' ' read -r -a pieces <<<"$EXPANDED"
+  for piece in ${pieces[@]+"${pieces[@]}"}; do
+    environ_word_risky "$piece" "$3" && return 0
+  done
+  return 1
+}
+
+environ_word_risky() {
+  local w=$1 last dir canon
+  # `//proc` names /proc to the kernel, and bash's `cd -P` keeps the two
+  # slashes, so neither test below would see /proc in it.
+  while [ "${w#*//}" != "$w" ]; do
+    w=${w//\/\//\/}
+  done
+  if [ "$2" = 0 ]; then
+    case $w in
+      /proc/self/environ | /proc/thread-self/environ) return 1 ;;
+    esac
+  fi
+  last=${w##*/}
+  # `mem` holds the whole process's memory, its environment included.
+  case $last in
+    environ | mem) return 0 ;;
+  esac
+  [ "$2" = 1 ] || return 1
+  # Pattern syntax beyond `*`, `?`, and `[…]` (braces, zsh's extended
+  # characters, a backslash) is not matched here, only assumed to match.
+  case $last in
+    *[{}\\~^#\<\>\|]*) ;;
+    *)
+      # shellcheck disable=SC2053 # the operand is the pattern under test
+      [[ environ == $last || mem == $last ]] || return 1
+      ;;
+  esac
+  # fish's `**` descends into subdirectories, through symlinks too, so no
+  # directory test can bound where it matches.
+  case $last in
+    *'**'*) return 0 ;;
+  esac
+  case $w in
+    */*)
+      dir=${w%/*}
+      [ -n "$dir" ] || dir=/
+      ;;
+    *) dir=. ;;
+  esac
+  # A process directory can appear between this check and the run, so a
+  # path through any `proc` component (`/./proc`, `../../proc`) defers
+  # whether or not it exists now.
+  case $dir in
+    *[*?[{}~\$]* | proc | proc/* | */proc | */proc/*) return 0 ;;
+  esac
+  case $dir in
+    /*) ;;
+    *) dir=$HOOK_CWD/$dir ;;
+  esac
+  # The guard resolves the directory in its own process, so one it cannot
+  # enter may still resolve for the command (`/dev/fd/0` with a /proc
+  # directory on the command's stdin), and defers.
+  canon_dir_cached "$dir"
+  canon=$CANON
+  [ -n "$canon" ] || return 0
+  case $canon in
+    /proc | /proc/*) return 0 ;;
+  esac
+  return 1
+}
+
+environ_words_ok() {
+  local i pi=0 opts=1 given=0 g
+  case ${cw[0]} in
+    grep | rg)
+      for ((i = 1; i < cwn; i++)); do
+        if [ "$opts" = 1 ]; then
+          case ${cw[i]} in
+            --)
+              opts=0
+              continue
+              ;;
+            --regexp* | --file*)
+              given=1
+              continue
+              ;;
+            --*) continue ;;
+            -?*)
+              case ${cw[i]} in
+                -*[ef]*) given=1 ;;
+              esac
+              continue
+              ;;
+          esac
+        fi
+        [ "$pi" -gt 0 ] || pi=$i
+      done
+      [ "$given" = 0 ] || pi=0
+      # A pattern that can expand into several words (a glob, a brace, an
+      # expansion) hands grep its later words as files, so it is checked.
+      if [ "$pi" -gt 0 ]; then
+        [ "${cglob[pi]}" = 0 ] && [ "${cdyn[pi]}" = 0 ] && [ "${cz[pi]-0}" = 0 ] || pi=0
+      fi
+      ;;
+  esac
+  for ((i = 0; i < cwn; i++)); do
+    [ "$i" -eq "$pi" ] && [ "$pi" -gt 0 ] && continue
+    # A character zsh's EXTENDED_GLOB makes an operator (`#`, `^`, a
+    # mid-word `~`) is flagged apart from globs, but matches like one.
+    g=${cglob[i]}
+    [ "${cz[i]-0}" = 0 ] || g=1
+    environ_word_risky "${cw[i]}" "$g" && return 1
+  done
+  return 0
+}
+
+environ_redirect_ok() {
+  local g=0 w=$1
+  case $w in
+    *'$'*) return 1 ;;
+    *[*?[\{~#^]*) g=1 ;;
+  esac
+  while [ "${w#*//}" != "$w" ]; do
+    w=${w//\/\//\/}
+  done
+  if [ "$g" = 0 ]; then
+    case $w in
+      /proc/self/environ | /proc/thread-self/environ) return 0 ;;
+    esac
+  fi
+  case $w in
+    proc | proc/* | */proc | */proc/*) return 1 ;;
+  esac
+  environ_word_risky "$w" "$g" && return 1
+  return 0
+}
+
+canon_dir_cached() {
+  local k n=${CANON_N:-0}
+  for ((k = 0; k < n; k++)); do
+    if [ "${CANON_D[k]}" = "$1" ]; then
+      CANON=${CANON_P[k]}
+      return 0
+    fi
+  done
+  CANON=$(cd -P -- "$1" 2>/dev/null && pwd) || CANON=''
+  if [ "$n" -lt 64 ]; then
+    CANON_D[n]=$1
+    CANON_P[n]=$CANON
+    CANON_N=$((n + 1))
+  fi
   return 0
 }
 
@@ -2121,6 +2315,7 @@ verify_simple() {
   [ "$SIMPLE_N" -le "$MAX_SIMPLE_CMDS" ] || return 1
   for ((i = 0; i < rn; i++)); do
     classify_redirect "${ro[i]}" "${rt[i]}" || return 1
+    environ_redirect_ok "${rt[i]}" || return 1
   done
   [ "$cwn" -ge 1 ] || return 0
   # Substitute the loop variables in scope, then refuse an unresolved word
@@ -2138,6 +2333,9 @@ verify_simple() {
     done
   fi
   verb=${cw[0]}
+  if opens_operands "$verb"; then
+    environ_words_ok || return 1
+  fi
   opaque_words_ok || return 1
   # Inline environment-assignment prefix: VAR=value [cmd].
   case $verb in

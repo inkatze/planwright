@@ -221,10 +221,12 @@ valid_count() {
   return 0
 }
 # A process owned by another user answers kill -0 with EPERM; it still runs.
+# Only the message's tail is matched: the shell prefixes it with this
+# script's path, which may itself contain the word.
 pid_running() {
   kill -0 "$1" 2>/dev/null && return 0
   case $(LC_ALL=C kill -0 "$1" 2>&1) in
-    *[Pp]ermission* | *[Pp]ermitted*) return 0 ;;
+    *[Pp]ermitted | *[Pp]ermission\ denied) return 0 ;;
   esac
   ps -p "$1" >/dev/null 2>&1
 }

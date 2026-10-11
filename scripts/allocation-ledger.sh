@@ -146,7 +146,12 @@ LC_ALL=C
 export LC_ALL
 unset CDPATH
 
-script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+# The directory part of $0 without forking dirname: this script is on hot paths.
+case $0 in
+  */*) script_dir=${0%/*}/ ;;
+  *) script_dir=./ ;;
+esac
+script_dir=$(cd "$script_dir" && pwd) || exit 2
 
 for dep in echo-safety.sh allocation-ladder.sh lock-lib.sh; do
   if [ ! -f "$script_dir/$dep" ] || [ ! -r "$script_dir/$dep" ]; then

@@ -158,7 +158,12 @@ esac
   exit 2
 }
 
-script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+# The directory part of $0 without forking dirname: this script is on hot paths.
+case $0 in
+  */*) script_dir=${0%/*}/ ;;
+  *) script_dir=./ ;;
+esac
+script_dir=$(cd "$script_dir" && pwd) || exit 2
 overlay_root="$script_dir/resolve-overlay-root.sh"
 # /bin/sh runs the primitive, so readability (not the execute bit) is what it
 # needs.

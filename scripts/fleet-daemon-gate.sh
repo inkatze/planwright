@@ -72,7 +72,12 @@ if [ -n "$mechanism" ]; then
   fi
 fi
 
-script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+# The directory part of $0 without forking dirname: this script is on hot paths.
+case $0 in
+  */*) script_dir=${0%/*}/ ;;
+  *) script_dir=./ ;;
+esac
+script_dir=$(cd "$script_dir" && pwd) || exit 2
 resolver="$script_dir/resolve-config-knob.sh"
 if [ ! -x "$resolver" ]; then
   printf '%s\n' "fleet-daemon-gate: knob resolver '$resolver' is missing or not executable — blocking the daemon action (fail closed)" >&2
