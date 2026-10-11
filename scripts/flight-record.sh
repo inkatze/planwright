@@ -51,8 +51,9 @@
 #       does a run whose commit finds a concurrent run already committed the
 #       same render. The record is created only if absent, so a concurrent
 #       run's record is never overwritten. A commit git or its hooks refuse
-#       (exit 4), or an interrupt, takes the record this run wrote back out of
-#       the index and the worktree unless it is already in HEAD.
+#       (exit 4), or an interrupt, rolls back while HEAD lacks the record: it
+#       unstages it and deletes it when it is still the file this run wrote,
+#       reporting on stderr what it removed, kept, or could not unstage.
 #
 #   The caller chooses the record path (flight-dispatch.sh computes it), so
 #   this script composes no spec-home path of its own. It is repo-relative,
@@ -886,7 +887,7 @@ rollback() {
       printf '%s: could not unstage %s, so it stays on disk and staged; remove it with: git rm -f -- %s\n' \
         "$prog" "$rel" "$rel" >&2
     elif is_mine; then
-      rm -f -- "$base"
+      rm -f -- "$base" && printf '%s: the uncommitted record was removed\n' "$prog" >&2
     elif [ "$staged" -eq 1 ] && { [ -e "$base" ] || [ -L "$base" ]; }; then
       printf '%s: a hook replaced %s, so it is unstaged and left on disk\n' "$prog" "$rel" >&2
     fi
@@ -950,6 +951,6 @@ if ! git -C "$repo_root" add -- "$rel" >/dev/null 2>"$work/git.err" \
     exit 0
   fi
   sed 's/^/  /' "$work/git.err" | tr -d '\000-\010\013-\037\177' >&2
-  die 4 "could not commit $rel; an uncommitted record this run wrote is removed"
+  die 4 "could not commit $rel"
 fi
 report
