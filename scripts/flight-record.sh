@@ -87,10 +87,13 @@
 #
 # Exit codes: 0 rendered or landed · 2 usage or an input refused · 3 refused
 # by state (over the PR-body limit; for land, the branch, an existing record
-# that differs from the render, a symlink or non-directory on the record path,
-# or a staged index) · 4 an environment failure (a missing helper, a
-# sanitizer, the secret screen, or git could not run, or refused the record
-# commit; or the screen reported a finding in no input it was given).
+# other than a matching re-run, a record that appeared while land ran, a
+# symlink or non-directory on the record path, or a staged index) · 4 an
+# environment failure (a missing helper, a sanitizer, the secret screen, or
+# git could not run, or refused the record commit; the screen reported a
+# finding in no input it was given; or the work directory, the record, or a
+# directory on its path could not be resolved, created, entered, or
+# written).
 #
 # Portable POSIX sh (the bash 3.2 floor); no eval; pathname expansion off.
 set -uf
