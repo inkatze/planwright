@@ -356,6 +356,53 @@ else
   fail "spaced root: rc=$rc out=$out err=$err"
 fi
 
+# --- one holder, two projects: a spec id is not shared across them ----------
+HM="$tmp/multi"
+WA="$tmp/work-a"
+WB="$tmp/work-b"
+work_repo "$WA"
+work_repo "$WB"
+holder "$HM" main projects/a
+mkdir -p "$HM/projects/b"
+printf 'project: other\nlayout: 1\n' >"$HM/projects/b/planwright-spec-root.yml"
+gitq -C "$HM" add -A && gitq -C "$HM" commit -q -m b && gitq -C "$HM" push -q origin main
+point "$WA" "$HM/projects/a"
+point "$WB" "$HM/projects/b"
+sw "$WA" shared
+wta="$HM/.claude/worktrees/shared-spec"
+mkdir -p "$wta/projects/a/shared"
+printf '# a\n' >"$wta/projects/a/shared/requirements.md"
+gitq -C "$wta" add -A && gitq -C "$wta" commit -q -m "draft a"
+sw "$WA" shared
+if [ "$rc" -eq 0 ] && [ "$(field worktree)" = "$wta" ]; then
+  ok "the owning project reuses its own spec branch"
+else
+  fail "owner reuse: rc=$rc err=$err"
+fi
+sw "$WB" shared
+if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'projects/a/shared'; then
+  ok "another project's spec branch with the same id is refused, naming its bundle"
+else
+  fail "cross-project reuse: rc=$rc out=$out err=$err"
+fi
+gitq -C "$HM" worktree remove --force "$wta"
+sw "$WB" shared
+if [ "$rc" -eq 4 ] && [ -z "$out" ] && [ ! -e "$wta" ]; then
+  ok "the refusal holds when only the branch survives"
+else
+  fail "cross-project recreate: rc=$rc out=$out err=$err"
+fi
+gitq -C "$HM" push -q origin planwright/shared/spec
+gitq -C "$HM" branch -D planwright/shared/spec
+sw "$WB" shared
+if [ "$rc" -eq 4 ] && [ -z "$out" ] && ! hermetic git -C "$HM" show-ref --verify --quiet refs/heads/planwright/shared/spec; then
+  ok "the refusal holds when the branch survives only on origin"
+else
+  fail "cross-project origin: rc=$rc out=$out err=$err"
+fi
+sw "$WA" shared
+if [ "$rc" -eq 0 ]; then ok "the owning project still recreates from origin"; else fail "owner origin: rc=$rc err=$err"; fi
+
 # --- other postures and bad identifiers are refused -----------------------
 W4="$tmp/work4"
 work_repo "$W4"

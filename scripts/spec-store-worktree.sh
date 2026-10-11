@@ -22,11 +22,17 @@
 #   bundle<TAB><the bundle directory inside that worktree>
 #   branch<TAB>planwright/<spec>/spec
 #
+# One holder may serve several projects, each with its own root, while the
+# branch and worktree are named by the identifier alone: an existing spec
+# branch that already carries another root's bundle of the same identifier
+# belongs to that project and is refused, so spec identifiers stay unique
+# per holder in practice.
+#
 # Exit: 0 ready; 2 usage or a refused identifier; 3 the root is not in a
 # holder (same-repo and plain keep their own paths); 4 the root did not
 # resolve, or the holder refused (a foreign directory at the worktree path,
-# a symlinked .claude, a symlink on the bundle path inside the worktree, no
-# default branch, a git failure).
+# a symlinked .claude, another project's spec branch, a symlink on the
+# bundle path inside the worktree, no default branch, a git failure).
 set -u
 LC_ALL=C
 export LC_ALL
@@ -125,26 +131,64 @@ add_wt() {
   exit 4
 }
 
+# default_base — set base to the holder's default branch: origin/HEAD when
+# it is recorded and still names a commit (it can outlive a renamed or
+# pruned branch), else the holder's HEAD branch; empty when neither does.
+default_base() {
+  base=$(hg symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null) || base=''
+  if [ -z "$base" ] || ! hg rev-parse -q --verify "$base^{commit}" >/dev/null 2>&1; then
+    base=$(hg symbolic-ref -q HEAD 2>/dev/null) || base=''
+  fi
+  if [ -n "$base" ] && ! hg rev-parse -q --verify "$base^{commit}" >/dev/null 2>&1; then
+    base=''
+  fi
+}
+# own_spec <ref> — refuse when <ref> changed, since leaving the default
+# branch, a bundle of this identifier under a root other than this one.
+own_spec() {
+  [ -n "$base" ] || {
+    say "refused: the holder has no default branch to tell which project owns $branch"
+    exit 4
+  }
+  own=${rel:+$rel/}$id/
+  changed=$(hg -c core.quotePath=false diff --name-only "$base...$1" 2>/dev/null) || {
+    say "git could not compare $branch with the holder's default branch"
+    exit 4
+  }
+  foreign=$(printf '%s\n' "$changed" | while IFS= read -r p; do
+    case $p in
+      "$own"*) ;;
+      */"$id"/* | "$id"/*)
+        printf '%s\n' "${p%/*}"
+        break
+        ;;
+    esac
+  done)
+  [ -z "$foreign" ] || {
+    say "refused: $branch carries another project's bundle at $foreign; spec identifiers must be unique per holder"
+    exit 4
+  }
+}
+
+default_base
 if [ -e "$wt" ] || [ -L "$wt" ]; then
   is_spec_wt || {
     say "refused: $wt exists and is not the holder's worktree on $branch"
     exit 4
   }
+  own_spec "refs/heads/$branch"
 elif hg show-ref --verify --quiet "refs/heads/$branch"; then
+  own_spec "refs/heads/$branch"
   add_wt "recreate $wt from $branch" "$wt" "$branch"
 elif hg show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+  own_spec "refs/remotes/origin/$branch"
   # Pushed from elsewhere: starting afresh would diverge from the spec PR.
   add_wt "recreate $wt from origin/$branch" --track -b "$branch" "$wt" "refs/remotes/origin/$branch"
 else
-  base=$(hg symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null) || base=''
-  # A recorded origin/HEAD can outlive the branch it names (renamed, pruned).
-  if [ -z "$base" ] || ! hg rev-parse -q --verify "$base^{commit}" >/dev/null 2>&1; then
-    base=$(hg symbolic-ref -q HEAD 2>/dev/null) || base=''
-  fi
-  if [ -z "$base" ] || ! hg rev-parse -q --verify "$base^{commit}" >/dev/null 2>&1; then
+  [ -n "$base" ] || {
     say "the holder has no default branch to start $branch from"
     exit 4
-  fi
+  }
   add_wt "create $wt on a new $branch" --no-track -b "$branch" "$wt" "$base"
 fi
 
