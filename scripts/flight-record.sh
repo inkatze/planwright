@@ -865,24 +865,30 @@ matches_head() {
 }
 
 # rollback — run on every exit, signals ignored so a second one cannot cut it
-# short. The temp file goes, and so does the record when it is this run's file
-# and not in HEAD, so a refused commit or an interrupt leaves nothing a re-run
-# trips over; a record in HEAD, or another run's, stays. The record is deleted
-# only once it is unstaged, never leaving the index adding a missing file.
+# short. The temp file goes. While HEAD lacks the record, a record this run
+# staged is unstaged (the index held nothing else when land began), and the
+# file is deleted when it is still this run's, so a refused commit or an
+# interrupt leaves nothing a re-run trips over; a record in HEAD stays, and a
+# file a hook put in the record's place is left on disk and named. The file is
+# deleted only once it is unstaged, never leaving the index adding a missing
+# file.
 tmpname=''
 rino=''
+staged=0
 rollback() {
   trap '' INT TERM HUP
   if [ -n "$tmpname" ]; then
     rm -f -- "$tmpname"
     if [ -d "$base" ] && [ "$(inode "$base/$tmpname")" = "$rino" ]; then rm -f -- "$base/$tmpname"; fi
   fi
-  if is_mine && ! git -C "$repo_root" cat-file -e "HEAD:$rel" 2>/dev/null; then
-    if git -C "$repo_root" rm -q --cached -f --ignore-unmatch -- "$rel" >/dev/null 2>&1; then
-      rm -f -- "$base"
-    else
+  if [ -n "$rino" ] && ! git -C "$repo_root" cat-file -e "HEAD:$rel" 2>/dev/null; then
+    if [ "$staged" -eq 1 ] && ! git -C "$repo_root" rm -q --cached -f --ignore-unmatch -- "$rel" >/dev/null 2>&1; then
       printf '%s: could not unstage %s, so it stays on disk and staged; remove it with: git rm -f -- %s\n' \
         "$prog" "$rel" "$rel" >&2
+    elif is_mine; then
+      rm -f -- "$base"
+    elif [ "$staged" -eq 1 ] && { [ -e "$base" ] || [ -L "$base" ]; }; then
+      printf '%s: a hook replaced %s, so it is unstaged and left on disk\n' "$prog" "$rel" >&2
     fi
   fi
   rm -rf "$work"
@@ -935,6 +941,7 @@ fi
 is_mine || die 3 "$rel appeared while land ran: one flight, one record; nothing was written"
 rm -f -- "$tmpname"
 tmpname=''
+staged=1
 if ! git -C "$repo_root" add -- "$rel" >/dev/null 2>"$work/git.err" \
   || ! git -C "$repo_root" commit -q -m "docs(flight): record flight $flight_id" -- "$rel" >>"$work/git.err" 2>&1; then
   # A concurrent run that committed this same render has landed the record.

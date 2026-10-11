@@ -1103,6 +1103,18 @@ run_land --flight-id "$REW"
   || fail "a record a hook rewrote must leave nothing staged: $(git -C "$repo" status --porcelain)"
 git -C "$repo" reset -q
 rm -rf "$repo/specs"
+# A hook that renames a new file over the record and refuses the commit
+# leaves nothing staged; the replaced file is not this run's, so it stays and
+# land says so.
+printf '#!/bin/sh\nprintf "replaced\\n" >.git/new.md && mv .git/new.md "specs/_flights/%s.md"\nexit 1\n' "$REW" \
+  >"$repo/.git/hooks/pre-commit"
+run_land --flight-id "$REW"
+[ "$RC" -eq 4 ] || fail "a replacing, refusing hook must fail with 4 (got $RC: $ERR)"
+[ -z "$(git -C "$repo" diff --cached --name-only)" ] \
+  || fail "a record a hook replaced must be unstaged: $(git -C "$repo" status --porcelain)"
+printf '%s\n' "$ERR" | grep -q 'replaced' || fail "land must say a hook replaced the record: $ERR"
+git -C "$repo" reset -q
+rm -rf "$repo/specs"
 # A second signal during the rollback does not cut it short.
 printf '#!/bin/sh\nexit 1\n' >"$repo/.git/hooks/pre-commit"
 printf 'kill -TERM "$STUB_LAND_PID"\n' >"$tmp/act-rollback-signal.sh"
