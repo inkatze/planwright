@@ -225,6 +225,19 @@ require_exec() {
   fi
 }
 
+# pin_repo_root — resolve the repository root once and pin it for every
+# sibling, as resolve-steps.sh does: a resolve reads knob after knob, and each
+# read would otherwise repeat the primary-checkout lookup. none pins the
+# absence of one.
+pin_repo_root() {
+  [ -x "$script_dir/resolve-overlay-root.sh" ] || return 0
+  pr_claude=$("$script_dir/resolve-overlay-root.sh" repo-tracked) || pr_claude=""
+  PLANWRIGHT_REPO_ROOT=${pr_claude%/.claude}
+  [ -n "$pr_claude" ] || PLANWRIGHT_REPO_ROOT=none
+  PLANWRIGHT_REPO_ROOT_CHECKED=$PLANWRIGHT_REPO_ROOT
+  export PLANWRIGHT_REPO_ROOT PLANWRIGHT_REPO_ROOT_CHECKED
+}
+
 resolve_enum() {
   re_out=$("$RESOLVER" --key "$1" --type enum --values "$2" --fallback "$3") || exit $?
   printf '%s' "$re_out"
@@ -832,6 +845,7 @@ discard_petition() {
 
 cmd_resolve() {
   parse_args "$@"
+  pin_repo_root
   require_exec "$RESOLVER" "shared knob resolver"
   require_exec "$SELECT" "selection resolver"
   require_exec "$LEDGER" "allocation ledger"
@@ -1215,6 +1229,7 @@ apply_down() {
 
 cmd_derive() {
   parse_args "$@"
+  pin_repo_root
   require_exec "$SELECT" "selection resolver"
   require_exec "$LEDGER" "allocation ledger"
   base=$("$SELECT" select "$KEY") || exit $?
