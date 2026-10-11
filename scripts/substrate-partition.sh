@@ -48,7 +48,7 @@
 # it drives.
 # A word reached through `command`, `exec`, `env`, `nohup`, `nice`, `sudo`,
 # `time`, `timeout`, or `xargs` counts; `command -v`'s operand is a lookup and
-# does not.
+# does not. The command `find -exec` (or -execdir, -ok, -okdir) runs counts too.
 #
 # UNRESOLVED. A command word, sourced path, or script handed to sh or bash
 # whose file name is built from an expansion (`"$dir/$name.sh"`), so no
@@ -289,7 +289,7 @@ function out(kind, text) {
 }
 function initframe(i, purpose) {
   ctx[i] = "c"; fr[i] = purpose; cmdpos[i] = 1; mode[i] = ""; wrap[i] = ""
-  skip[i] = 0; wrapskip[i] = 0; ev[i] = 0; src[i] = 0; decl[i] = 0; interp[i] = 0
+  skip[i] = 0; wrapskip[i] = 0; ev[i] = 0; src[i] = 0; decl[i] = 0; interp[i] = 0; findx[i] = 0
   w[i] = ""; wexp[i] = 0; wq[i] = 0; wany[i] = 0; nw[i] = 0; lastc[i] = ""; lastcn[i] = -1
 }
 function findcf(  k) {
@@ -368,6 +368,7 @@ function endword(  x, e, q, b) {
     if (e && !barevar(x) && dynbase(x)) out("U", x)
     return
   }
+  if (findx[cf] && !cmdpos[cf] && !e && x ~ /^-(exec|execdir|ok|okdir)$/) { cmdpos[cf] = 1; return }
   if (decl[cf] && x ~ assignre) { assign(x); return }
   if (!cmdpos[cf]) return
   if (wrap[cf] != "") {
@@ -409,6 +410,7 @@ function endword(  x, e, q, b) {
   else if (x == "." || x == "source") src[cf] = 1
   else if (x ~ /^(local|export|readonly|declare|typeset)$/) decl[cf] = 1
   else if (b ~ /^(ba|da|k|z|a)?sh$/) interp[cf] = 1
+  else if (b == "find") findx[cf] = 1
 }
 # A sourced `$name` resolves when every value the script assigns to `name`
 # ends in a literal file name; the A records let the assembly stage judge.
@@ -423,7 +425,7 @@ function sep() {
   if (mode[cf] == "pat" || mode[cf] == "chead" || mode[cf] == "dbl") return
   if (mode[cf] == "forskip" || mode[cf] == "fname") mode[cf] = ""
   cmdpos[cf] = 1; wrap[cf] = ""; wrapskip[cf] = 0; ev[cf] = 0; src[cf] = 0; skip[cf] = 0
-  decl[cf] = 0; interp[cf] = 0
+  decl[cf] = 0; interp[cf] = 0; findx[cf] = 0
 }
 function dollar(s, i,   c2) {
   c2 = substr(s, i + 1, 1)
