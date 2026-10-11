@@ -107,11 +107,13 @@ mise run check      # the full local equivalent of the CI gate
   `scripts/*.sh` committed at the mode its first line declares (100755 with a
   shebang, 100644 for a shebang-less sourced library), read from the git index;
 - the bash 3.2 construct lint (`check:bash32`): macOS ships bash 3.2 as
-  `/bin/bash` and `/bin/sh`, and it misparses a heredoc whose body holds an
-  unbalanced quote, backtick, or parenthesis inside a `$( )`, and a `case`
-  pattern without its leading `(` inside one (move such a `case` out of the
-  substitution: shfmt strips the `(`); every tracked `.sh` file must also
-  declare its dialect by shebang or `# shellcheck shell=` directive;
+  `/bin/bash` and `/bin/sh`, and it misparses two constructs inside a `$( )`:
+  a heredoc whose body it lexes unbalanced, and a `case` pattern without its
+  leading `(` (move such a `case` out of the substitution: shfmt strips the
+  `(`). `scripts/check-bash32.sh`'s header states the exact rules. Every
+  tracked `.sh` file outside `tests/fixtures/bash32/` (the guards' own
+  misparse fixtures) must also declare its dialect by shebang or
+  `# shellcheck shell=` directive;
 - the two registration guards that keep the gate complete: every check script
   must be run by a task the aggregate reaches, a workflow, or an allowlisted
   runner (`check:guard-wiring`), and every `check:`/`lint:`/`scan:` task must
@@ -122,12 +124,13 @@ mise run check      # the full local equivalent of the CI gate
 
 The `check` task's `depends` list in `mise.toml` is the authoritative
 inventory; the two registration guards are what keep it complete. GitHub
-Actions runs the same gate on every pull request, plus two checks it cannot
-run locally: the awk-sensitive suites on macOS, and a parse of every tracked
-shell file under the real bash 3.2 (a step of the `check` job, in Docker's
-official `bash:3.2` image pinned by digest in `.github/workflows/ci.yml`;
-reproduce it with the `docker run` lines there, and refresh the image by
-editing only that digest). This is dev tooling
+Actions runs the same gate on every pull request, plus two checks outside
+`mise run check`: the awk-sensitive suites on macOS, and a parse of every
+tracked shell file (outside `tests/fixtures/bash32/`) under the real bash 3.2,
+a step of the `check` job in Docker's official `bash:3.2` image pinned by
+digest in `.github/workflows/ci.yml`. To reproduce the parse, set
+`BASH32_IMAGE` to that job's `env` value and run the step's `docker run`
+lines; to refresh the image, edit only that digest. This is dev tooling
 only — planwright's **runtime** scripts stay plain portable bash with no mise
 dependency.
 
