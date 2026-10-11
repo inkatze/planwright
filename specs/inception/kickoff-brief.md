@@ -176,6 +176,12 @@ Open questions: none — all resolved to decisions or accepted risks.
 
 Signed off: 2026-07-13
 
+### Execution research — Task 7 (2026-10-11)
+
+| # | Risk | Mitigation / early signal |
+| --- | --- | --- |
+| R9 | Ephemeral-environment detection rests on a platform claim: Claude Code's env-var reference documents `CLAUDE_CODE_REMOTE` as set to `true` in a cloud session (source: code.claude.com/docs/en/env-vars, read 2026-10-11). Other ephemeral hosts (Cowork, third-party sandboxes) set nothing the helper reads. | The helper reads the documented variable and takes `PLANWRIGHT_INCEPTION_EPHEMERAL=1\|0` as the operator's override either way; Task 14's detection and build-time re-verification own the wider host set (R5). Early signal: a dogfood run on a cloud session that reports the local arm as durable. |
+
 ## 8. Sign-off
 
 **Mode / scope:** first activation, resumed at §3; full-bundle walkthrough; the consolidated
