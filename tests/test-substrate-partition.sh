@@ -186,7 +186,8 @@ exit 0
 EOF
 
 # Interpreter options that take a value, a slashless built name, wrapper
-# options that take a value, and `name ()` with a space.
+# options that take a value (sudo -u, exec -a, time -p), `name ()` with a
+# space, a `name()` line inside a quoted string, and a slashless built name.
 put scripts/interp.sh <<'EOF'
 #!/bin/sh
 bash -o pipefail "$d/$n"
@@ -194,6 +195,13 @@ sh "$name.sh"
 sudo -u root make
 x=1; bar () { :; }
 bar
+usage='
+date() is printed
+'
+date
+time -p gzip -c x
+"${variant}.sh"
+exec -a myname curl x
 EOF
 
 # Named only through a built name (`$name.sh`, `${pre}glued.sh`): not callers.
@@ -326,7 +334,7 @@ expect scripts/no-suffix tests-only no-live-caller - - shopt -
 expect scripts/name.sh tests-only no-live-caller - - - -
 expect scripts/glued.sh tests-only no-live-caller - - - -
 # shellcheck disable=SC2016 # the literal text the partition reports
-expect scripts/interp.sh tests-only no-live-caller - - bash,make,sh,sudo '$d/$n,$name.sh'
+expect scripts/interp.sh tests-only no-live-caller - - bash,curl,date,gzip,make,sh,sudo '$d/$n,$name.sh,${variant}.sh'
 # A symlink is in the layer as the file it names.
 expect scripts/linked.sh tests-only no-live-caller - - cb_fn,grep -
 echo "ok: p4 no caller, a library reachable only from a flagged script, a test-only helper, and a docs-only script are flagged"
@@ -396,6 +404,14 @@ rm "$tmp/fx9/.github/workflows/ci.yml"
 rc=0
 run_sp "$tmp/fx9" >/dev/null || rc=$?
 [ "$rc" = 5 ] || fail "p7: a workflows directory with no workflow exited $rc, want 5"
+cp -R "$fx" "$tmp/fx10"
+: >"$tmp/fx10/hooks/hooks.json"
+mkdir -p "$tmp/fx10/config"
+printf '%s\n' '{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "scripts/gitcalled.sh"}]}]}}' \
+  >"$tmp/fx10/config/worker-settings.json"
+rc=0
+run_sp "$tmp/fx10" >/dev/null || rc=$?
+[ "$rc" = 5 ] || fail "p7: an empty hooks.json beside a live settings fragment exited $rc, want 5"
 echo "ok: p7 fails closed on a missing task file, an unreadable or empty hook registration, an unreadable skill body, a duplicate name, no workflow, and an empty root"
 
 # ---------------------------------------------------------------------------
@@ -425,3 +441,17 @@ ln -s "$fx" "$tmp/link"
 run_sp "$tmp/link" >"$tmp/out6" || fail "p10: a symlinked root failed: $(cat "$tmp/err")"
 cmp -s "$tmp/out1" "$tmp/out6" || fail "p10: a symlinked root partitions differently"
 echo "ok: p10 a symlinked root gives the same partition"
+
+# ---------------------------------------------------------------------------
+# p11: a machine-local mise overlay redefining a task does not hide the
+#      tracked task's caller.
+# ---------------------------------------------------------------------------
+cp -R "$fx" "$tmp/fx11"
+cat >"$tmp/fx11/mise.local.toml" <<'EOF'
+[tasks."check:devtool"]
+run = "true"
+EOF
+run_sp "$tmp/fx11" >"$tmp/out11" || fail "p11: the partition failed: $(cat "$tmp/err")"
+got=$(awk -F'\t' '$1 == "scripts/devtool.sh" { print $2 "\t" $3 "\t" $4 }' "$tmp/out11")
+[ "$got" = "$(printf 'dev-check\t-\ttask')" ] || fail "p11: a local overlay hid the tracked task: $got"
+echo "ok: p11 a machine-local overlay does not hide a tracked task"

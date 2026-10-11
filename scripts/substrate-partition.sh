@@ -41,7 +41,8 @@
 #
 # PROFILE. Every command word the script runs that is not a POSIX shell builtin
 # (special built-ins, intrinsic utilities, and echo, printf and test), a
-# function defined by the script, by a script it calls (a sourced library), or
+# function defined by the script, by any script it names (its sourced libraries
+# among them, so a subprocess script's function names are excluded too), or
 # by a direct caller (a callback), or a layer script: the external processes
 # it drives.
 # A word reached through `command`, `exec`, `env`, `nohup`, `nice`, `sudo`,
@@ -66,8 +67,9 @@
 # Usage: substrate-partition.sh [--repo-root <dir>]
 # Exit codes: 0 partition written; 1 interrupted by a signal; 2 usage error;
 # 5 fail-closed (an input that would make the partition vacuous or wrong: no
-# layer; a missing, unreadable, or empty hook registration, skills or
-# workflows directory; an unreadable file in the layer or among its callers;
+# layer; a missing hooks/hooks.json; an unreadable or empty hook registration;
+# an empty skills or workflows directory; an unreadable file in the layer or
+# among its callers;
 # a task file mise will not list, as it will not an untrusted one holding
 # templates; a duplicate script file name; or a missing jq or mise).
 #
@@ -207,13 +209,16 @@ sort "$work/layer.raw" >"$work/layer"
 dups=$(awk '/^scripts\// { b = $0; sub(/.*\//, "", b); print b }' "$work/layer" | sort | uniq -d)
 [ -z "$dups" ] || fail_closed "two layer scripts share a file name, so a call to one cannot be told from the other"
 
+# The settings fragments are optional; each registration that exists must
+# register something, or its scripts would drop a tier unnoticed.
 : >"$work/hookcmds"
 for f in hooks/hooks.json config/worker-settings.json config/tower-settings.json; do
   [ -e "$repo_root/$f" ] || continue
   jq -r '.hooks // {} | [.. | objects | .command? // empty | strings] | .[]' "$repo_root/$f" \
-    >>"$work/hookcmds" 2>/dev/null || fail_closed "$f is not readable JSON"
+    >"$work/hookcmds.one" 2>/dev/null || fail_closed "$f is not readable JSON"
+  [ -s "$work/hookcmds.one" ] || fail_closed "$f registers no hook command"
+  cat "$work/hookcmds.one" >>"$work/hookcmds"
 done
-[ -s "$work/hookcmds" ] || fail_closed "the hook registrations hold no command"
 awk '{ gsub(/\t/, " "); print "T\thook\t" $0 }' "$work/hookcmds" >"$work/facts"
 
 list_files "$work/skills.list" "$repo_root/skills" \( -type f -o -type l \) -name SKILL.md
@@ -236,8 +241,10 @@ fi
 # mise's business: each run body and each `file` task's path. Descriptions are
 # prose and never read. No trust is granted here: mise evaluates a config's
 # templates even to list its tasks, so it refuses an untrusted config that
-# holds any, and this script grants no trust that would override it.
-graph=$(cd "$repo_root" && mise tasks --json --hidden 2>/dev/null) || graph=''
+# holds any, and this script grants no trust that would override it. Only
+# mise.toml is loaded: a machine-local or env overlay redefining a task would
+# otherwise hide the tracked one.
+graph=$(cd "$repo_root" && unset MISE_ENV MISE_PROFILE && MISE_OVERRIDE_CONFIG_FILENAMES=mise.toml mise tasks --json --hidden 2>/dev/null) || graph=''
 [ -n "$graph" ] || fail_closed "'mise tasks --json --hidden' produced nothing (is the tree's mise.toml trusted?)"
 printf '%s' "$graph" | jq -r --arg src "$repo_root/mise.toml" '
   [ .[] | select(.source == $src) ]
@@ -357,7 +364,7 @@ function endword(  x, e, q, b) {
     if (!e && x ~ /^-/) {
       if (wrap[cf] == "command" && x ~ /^-[A-Za-z]*[vV]/) { wrap[cf] = ""; cmdpos[cf] = 0 }
       else if ((wrap[cf] == "env" && x ~ /^-[uCS]$/) || (wrap[cf] == "timeout" && x ~ /^-[sk]$/) \
-        || (wrap[cf] == "sudo" && x ~ /^-[ugCDhprtU]$/) || (x ~ /^--[a-z-]+$/ && x !~ /^--(preserve-status|foreground|null|verbose|no-run-if-empty)$/) \
+        || (wrap[cf] == "exec" && x == "-a") || (wrap[cf] == "sudo" && x ~ /^-[ugCDhprtU]$/) || (x ~ /^--[a-z-]+$/ && x !~ /^--(preserve-status|foreground|null|verbose|no-run-if-empty)$/) \
         || (wrap[cf] == "nice" && x == "-n") || (wrap[cf] == "xargs" && x ~ /^-[IinPLsdE]$/)) wrapskip[cf] = 1
       return
     }
@@ -366,7 +373,8 @@ function endword(  x, e, q, b) {
     wrap[cf] = ""
   } else if (x ~ assignre) { assign(x); return }
   if (!e && !q) {
-    if (x ~ /^(if|then|else|elif|do|while|until|!|\{|time)$/) return
+    if (x ~ /^(if|then|else|elif|do|while|until|!|\{)$/) return
+    if (x == "time") { wrap[cf] = x; return }
     if (x ~ /^(fi|done|\}|esac)$/) { mode[cf] = ""; cmdpos[cf] = 0; return }
     if (x == "for" || x == "select") { mode[cf] = "forskip"; return }
     if (x == "case") { mode[cf] = "chead"; return }
@@ -375,7 +383,7 @@ function endword(  x, e, q, b) {
   }
   cmdpos[cf] = 0
   if (e) {
-    if (x ~ /\// && dynbase(x)) out("U", x)
+    if (x ~ /\/|\.sh$/ && dynbase(x)) out("U", x)
     return
   }
   b = x; sub(/.*\//, "", b)
@@ -542,7 +550,7 @@ FNR == 1 {
     if (t == hdd[hd_i]) { hd_i++; if (hd_i > hd_n) { inhd = 0; hd_n = 0 } }
     next
   }
-  if (match(line, /^[ \t]*(function[ \t]+)?[A-Za-z_][A-Za-z0-9_:.-]*[ \t]*\(\)/)) {
+  if (ctx[d] == "c" && match(line, /^[ \t]*(function[ \t]+)?[A-Za-z_][A-Za-z0-9_:.-]*[ \t]*\(\)/)) {
     fn = substr(line, RSTART, RLENGTH)
     sub(/^[ \t]*(function[ \t]+)?/, "", fn); sub(/[ \t]*\(\)$/, "", fn)
     out("F", fn)
