@@ -129,6 +129,8 @@ cat >"$tmp/bin/claude" <<'SHIM'
 #   SHIM_SLEEP        sleep after emitting (hold open)
 #   SHIM_STUBBORN_CHILD  path a SIGTERM-surviving grandchild records its pid in
 #   SHIM_IGNORE_TERM=1   survive SIGTERM, recording each one in <record>/signals
+#   SHIM_HOLDING      with SHIM_IGNORE_TERM, a path the shim writes its pid to
+#                     once its TERM handler is in place
 #   SHIM_SELF_CLOSE   a command run from inside the worker's own tree, after
 #                     SHIM_SELF_CLOSE_WHEN exists; its output and exit are
 #                     recorded as selfclose.out / selfclose.rc
@@ -152,6 +154,9 @@ if [ -n "${SHIM_STUBBORN_CHILD:-}" ]; then
 fi
 if [ "${SHIM_IGNORE_TERM:-0}" = 1 ]; then
   trap 'printf "term\n" >>"$SHIM_RECORD_DIR/signals"' TERM
+  if [ -n "${SHIM_HOLDING:-}" ]; then
+    printf '%s\n' "$$" >"$SHIM_HOLDING.tmp" && mv "$SHIM_HOLDING.tmp" "$SHIM_HOLDING"
+  fi
   while :; do
     sleep 1
   done
@@ -470,6 +475,26 @@ attention_rows() {
   awk -F "$tab" -v w="$2" '($1 "") == (w "") { n++ } END { print n + 0 }' "$ar_store"
 }
 
+# w_hold <marker> <dir> <cell> — wait for a TERM-ignoring shim launched with
+# SHIM_HOLDING=<marker> to reach its hold loop, then set `wrk` to the worker the
+# rung recorded, which must be that same process. The marker, not a child of
+# the worker, is the proof: the shim's `cat` and each loop `sleep` come and go,
+# so a child seen once may be gone by the next look. The deadline is wall-clock
+# and far above any plausible scheduling delay, since the suite runs beside the
+# whole gate; only a worker that never gets there spends it.
+w_hold() {
+  wh_end=$(($(date +%s) + 120))
+  while [ ! -s "$1" ]; do
+    [ "$(date +%s)" -lt "$wh_end" ] || fail "$3: the worker never reached its hold loop"
+    sleep 0.1
+  done
+  wh_pid=$(cat "$1")
+  wrk=$(w_worker_pid "$2")
+  [ "$wh_pid" = "$wrk" ] \
+    || fail "$3: the process in the hold loop ($wh_pid) is not the worker the rung recorded (${wrk:-none})"
+  kill -0 "$wrk" 2>/dev/null || fail "$3: the worker left its hold loop"
+}
+
 wait_until() {
   wu_n=$1
   shift
@@ -558,18 +583,11 @@ c20_stop() {
   d=$(w_dir "$home" "$w")
   printf 'ignore term\n' >"$tmp/$rung/prompt$1"
   w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt$1" "$wt" \
-    SHIM_EVENTS="$ev_hold" SHIM_IGNORE_TERM=1 || fail "c20: detached launch exited non-zero"
+    SHIM_EVENTS="$ev_hold" SHIM_IGNORE_TERM=1 SHIM_HOLDING="$rec/holding$1" \
+    || fail "c20: detached launch exited non-zero"
   wait_until 100 w_up "$d" || fail "c20: the worker never came up"
-  wrk=$(w_worker_pid "$d")
-  # The shim installs its TERM handler only after emitting, and the hold loop's
-  # own `sleep` child is the first thing that exists afterwards. Waiting for
-  # that child is what proves the handler is in place.
-  i=0
-  while [ "$i" -lt 100 ] && [ -z "$(first_child "$wrk")" ]; do
-    sleep 0.1
-    i=$((i + 1))
-  done
-  [ -n "$(first_child "$wrk")" ] || fail "c20: the worker never reached its hold loop"
+  # SIGTERM before the handler is in place would kill the shim outright.
+  w_hold "$rec/holding$1" "$d" c20
   started=$(date +%s)
   out=$(renv "$home" "$rec" -- stop "$w" --grace "$2")
   rc=$?
@@ -1200,15 +1218,10 @@ c43() {
   d=$(w_dir "$home" "$w")
   printf 'observe me\n' >"$tmp/$rung/prompt43"
   w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt43" "$wt" \
-    SHIM_EVENTS="$ev_hold" SHIM_IGNORE_TERM=1 || fail "c43: detached launch exited non-zero"
+    SHIM_EVENTS="$ev_hold" SHIM_IGNORE_TERM=1 SHIM_HOLDING="$rec/holding43" \
+    || fail "c43: detached launch exited non-zero"
   wait_until 100 w_up "$d" || fail "c43: the worker never came up"
-  wrk=$(w_worker_pid "$d")
-  i=0
-  while [ "$i" -lt 100 ] && [ -z "$(first_child "$wrk")" ]; do
-    sleep 0.1
-    i=$((i + 1))
-  done
-  [ -n "$(first_child "$wrk")" ] || fail "c43: the worker never reached its hold loop"
+  w_hold "$rec/holding43" "$d" c43
   w_occupy_attention "$home" "$w" || fail "c43: no attention record to hold"
   w_occupy_scratch "$d" || fail "c43: no scratch to hold"
   # The shim records every SIGTERM it survives, creating the file on the first.
