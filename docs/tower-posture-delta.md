@@ -42,7 +42,8 @@ static `allow` entry is added.
   `--slurpfile` values are not limited to settings layers: any file the
   session can read qualifies, as it already does for `cat` and `head` under
   this guard and for the profile's `Read` allow, except another process's
-  `/proc/<pid>/environ` or `/proc/<pid>/mem`, which defer. What defers: a filter reading the environment
+  `/proc/<pid>/environ` and any `/proc/.../mem`, the reading process's own
+  included, which defer. What defers: a filter reading the environment
   (`env`, `$ENV`, and jq 1.6's `$ ENV` with a space or comment between), a
   filter loading module text (`include`, `import`), a filter from a file
   (`-f`), a module search path (`-L`), every run while `~/.jq` exists (a file
