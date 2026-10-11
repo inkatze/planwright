@@ -2041,7 +2041,7 @@ environ_redirect_ok() {
   local g=0
   case $1 in
     *'$'*) return 1 ;;
-    *[*?[{~]*) g=1 ;;
+    *[*?[\{~]*) g=1 ;;
   esac
   environ_word_risky "$1" "$g" && return 1
   return 0
