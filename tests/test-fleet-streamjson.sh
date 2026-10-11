@@ -2021,7 +2021,10 @@ else
   printf '%s\n%s\n' "$(date +%s)" "$line_q" >"$wdir38f/deferred-$req_q"
   wait_until 100 grep -q "^$req_q$tab.*${tab}pending" "$wdir38f/journal" \
     || fail "c38f: the re-spooled receipt was not journaled once the journal was writable"
-  [ ! -e "$wdir38f/undrained-$req_q" ] || fail "c38f: a set-aside receipt outlived its journaled request"
+  # The drain removes the set-aside copy after the journal row lands, inside
+  # the lock hold this lock-free read does not take, so it is waited for.
+  wait_until 100 test ! -e "$wdir38f/undrained-$req_q" \
+    || fail "c38f: a set-aside receipt outlived its journaled request"
   : >"$wdir38f/undrained-$req_q"
   senv "$home" "$rec" -- stop sjw38f --grace 2 >/dev/null || fail "c38f: stop exited non-zero"
   [ ! -e "$wdir38f/undrained-$req_q" ] || fail "c38f: a close left the set-aside receipt behind"
