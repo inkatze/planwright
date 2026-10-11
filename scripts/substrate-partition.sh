@@ -43,10 +43,10 @@
 #
 # PROFILE. Every command word the script runs that is not a POSIX shell builtin
 # (special built-ins, intrinsic utilities, and echo, printf and test), a
-# function defined by the script, by any script it names (its sourced libraries
-# among them, so a subprocess script's function names are excluded too), or
-# by a direct caller (a callback), or a layer script: the external processes
-# it drives.
+# function defined by the script or by any script it names, sourced or run (so
+# a function only a subprocess script defines is dropped from the profile
+# too), or by a direct caller (a callback), or a layer script: the external
+# processes it drives.
 # A word reached through `builtin`, `command`, `exec`, `env`, `nohup`, `nice`,
 # `sudo`, `time`, `timeout`, or `xargs` counts; `command -v`'s operand is a
 # lookup and does not. The command `find -exec` (or -execdir, -ok, -okdir) runs
@@ -117,6 +117,10 @@ done
 # Physical, not logical: mise reports each task's source by its real path, so
 # a root reached through a symlink (macOS's /tmp and $TMPDIR are) would match
 # no task.
+# A leading dash would read as a cd option, and a bare `-` as $OLDPWD.
+case $repo_root in
+  -*) repo_root=./$repo_root ;;
+esac
 repo_root=$(cd "$repo_root" 2>/dev/null && pwd -P) || {
   printf '%s\n' "$me: repo root is not a readable directory" >&2
   exit 5
@@ -224,7 +228,8 @@ for f in hooks/hooks.json config/worker-settings.json config/tower-settings.json
   [ -s "$work/hookcmds.one" ] || fail_closed "$f registers no hook command"
   cat "$work/hookcmds.one" >>"$work/hookcmds"
 done
-awk '{ gsub(/\t/, " "); print "T\thook\t" $0 }' "$work/hookcmds" >"$work/facts"
+awk '{ gsub(/\t/, " "); print "T\thook\t" $0 }' "$work/hookcmds" >"$work/facts" \
+  || fail_closed "could not write the caller records"
 
 list_files "$work/skills.list" "$repo_root/skills" \( -type f -o -type l \) -name SKILL.md
 [ -s "$work/skills.list" ] || fail_closed "skills/ holds no SKILL.md"
@@ -258,7 +263,8 @@ printf '%s' "$graph" | jq -r --arg src "$repo_root/mise.toml" '
     end
 ' >"$work/runs" 2>/dev/null || fail_closed "could not read the task graph"
 [ "$(head -n 1 "$work/runs")" != NOTASKS ] || fail_closed "the task graph holds no task from this repo's mise.toml"
-grep -v '^[[:space:]]*#' "$work/runs" | awk '{ gsub(/\t/, " "); print "T\ttask\t" $0 }' >>"$work/facts"
+grep -v '^[[:space:]]*#' "$work/runs" | awk '{ gsub(/\t/, " "); print "T\ttask\t" $0 }' >>"$work/facts" \
+  || fail_closed "could not write the caller records"
 
 # The layer's own code, through the tokenizer below. Its records:
 #   W  a word naming a path (`/` or `.sh`), the raw material of script edges
@@ -597,6 +603,7 @@ function refs(text,   n, i, m, j, c, res, toks, comps) {
     m = split(toks[i], comps, "/")
     for (j = 1; j <= m; j++) {
       c = comps[j]
+      sub(/^-+/, "", c)
       if (c ~ /\$/ || !(c in byname)) continue
       if (j == 1 && c !~ /\.sh$/) continue
       if (j > 1 && comps[j - 1] == "tests") continue

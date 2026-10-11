@@ -3,9 +3,10 @@
 # the script layer.
 #
 # One fixture tree carries a script per tier, the tie-break, the shell-mutation
-# cases and the no-live-caller cases; a second copy adds the task that clears a
-# flag. Every row is asserted whole, so a column drifting is caught alongside a
-# tier drifting.
+# cases and the no-live-caller cases; copies of it vary one input each (the
+# task that clears a flag, a broken or emptied input, a symlinked root). Every
+# row is asserted whole, so a column drifting is caught alongside a tier
+# drifting.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-substrate-partition.sh
@@ -35,7 +36,8 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-substrate-partition.XXXXXX") || fail "mkte
 trap 'rm -rf "$tmp"' EXIT
 # The physical path, as mise reports task sources (macOS's $TMPDIR sits
 # behind a symlink).
-tmp=$(cd "$tmp" && pwd -P) || fail "cannot resolve the temp directory"
+tmp_p=$(cd "$tmp" && pwd -P) || fail "cannot resolve the temp directory"
+tmp=$tmp_p
 
 # put <relative-path>: write stdin to a file in the fixture tree.
 put() {
@@ -179,6 +181,13 @@ EOF
 put scripts/wfonly.sh <<'EOF'
 #!/bin/sh
 . "${LIB:-$d/lib.sh}"
+. "${LIBX:-bareonly.sh}"
+EOF
+
+# Named only as a bare ${VAR:-default}: the default is a caller.
+put scripts/bareonly.sh <<'EOF'
+#!/bin/sh
+exit 0
 EOF
 
 put scripts/filetask.sh <<'EOF'
@@ -282,7 +291,7 @@ expect() {
 # ---------------------------------------------------------------------------
 [ "$(head -n 1 "$tmp/out1")" = "$(printf 'path\ttier\tflag\tcallers\tmutation\tprofile\tunresolved')" ] \
   || fail "p0: header is $(head -n 1 "$tmp/out1")"
-want_paths=$(printf '%s\n' githooks/pre-commit scripts/both.sh scripts/commented.sh \
+want_paths=$(printf '%s\n' githooks/pre-commit scripts/bareonly.sh scripts/both.sh scripts/commented.sh \
   scripts/deadlib.sh scripts/described.sh scripts/devtool.sh scripts/doconly.sh \
   scripts/filetask.sh scripts/gitcalled.sh scripts/glued.sh scripts/heredoc-only.sh \
   scripts/hook-and-skill.sh scripts/hooked.sh scripts/interp.sh scripts/lib.sh scripts/linked.sh \
@@ -308,7 +317,8 @@ expect scripts/lib.sh library - script - grep -
 expect scripts/devtool.sh dev-check - task - cat,curl,dirname,sh,tr,wc '$here/$rung,$here/${pre}glued.sh'
 expect scripts/filetask.sh dev-check - task - - -
 # shellcheck disable=SC2016 # the literal text the partition reports
-expect scripts/wfonly.sh dev-check - workflow shell-mutation - '${LIB:-$d/lib.sh}'
+expect scripts/wfonly.sh dev-check - workflow shell-mutation - '${LIB:-$d/lib.sh},${LIBX:-bareonly.sh}'
+expect scripts/bareonly.sh library - script - - -
 expect scripts/testhelper.sh tests-only no-live-caller test - - -
 echo "ok: p1 one script lands in each tier"
 
@@ -356,7 +366,7 @@ echo "ok: p4 no caller, a library reachable only from a flagged script, a test-o
 # ---------------------------------------------------------------------------
 # p5: the flag clears on the same script once a task names it.
 # ---------------------------------------------------------------------------
-cp -R "$fx" "$tmp/fx2"
+cp -R "$fx" "$tmp/fx2" || fail "fixture copy failed"
 cat >>"$tmp/fx2/mise.toml" <<'EOF'
 
 [tasks."tool:doconly"]
@@ -378,12 +388,12 @@ echo "ok: p6 two runs produce byte-identical output"
 # ---------------------------------------------------------------------------
 # p7: fails closed on a tree that would make the scan vacuous.
 # ---------------------------------------------------------------------------
-cp -R "$fx" "$tmp/fx3"
+cp -R "$fx" "$tmp/fx3" || fail "fixture copy failed"
 rm "$tmp/fx3/mise.toml"
 rc=0
 run_sp "$tmp/fx3" >/dev/null || rc=$?
 [ "$rc" = 5 ] || fail "p7: a tree without mise.toml exited $rc, want 5"
-cp -R "$fx" "$tmp/fx4"
+cp -R "$fx" "$tmp/fx4" || fail "fixture copy failed"
 printf '{not json' >"$tmp/fx4/hooks/hooks.json"
 rc=0
 run_sp "$tmp/fx4" >/dev/null || rc=$?
@@ -391,13 +401,13 @@ run_sp "$tmp/fx4" >/dev/null || rc=$?
 rc=0
 /bin/sh "$SP" --bogus >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "p7: an unknown argument exited $rc, want 2"
-cp -R "$fx" "$tmp/fx6"
+cp -R "$fx" "$tmp/fx6" || fail "fixture copy failed"
 printf '{}\n' >"$tmp/fx6/hooks/hooks.json"
 rc=0
 run_sp "$tmp/fx6" >/dev/null || rc=$?
 [ "$rc" = 5 ] || fail "p7: a hook registration with no command exited $rc, want 5"
 if [ "$(id -u)" != 0 ]; then
-  cp -R "$fx" "$tmp/fx7"
+  cp -R "$fx" "$tmp/fx7" || fail "fixture copy failed"
   chmod 000 "$tmp/fx7/skills/demo/SKILL.md"
   rc=0
   run_sp "$tmp/fx7" >/dev/null || rc=$?
@@ -407,18 +417,23 @@ fi
 rc=0
 /bin/sh "$SP" --repo-root "" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "p7: an empty --repo-root exited $rc, want 2"
-cp -R "$fx" "$tmp/fx8"
+rc=0
+cp -R "$fx" "$tmp/-dash" || fail "fixture copy failed"
+(cd "$tmp" && /bin/sh "$SP" --repo-root -dash >"$tmp/outdash" 2>"$tmp/err") || rc=$?
+[ "$rc" = 0 ] || fail "p7: a root named -dash exited $rc: $(cat "$tmp/err")"
+cmp -s "$tmp/out1" "$tmp/outdash" || fail "p7: a root named -dash partitions differently"
+cp -R "$fx" "$tmp/fx8" || fail "fixture copy failed"
 mkdir -p "$tmp/fx8/scripts/sub"
 cp "$fx/scripts/devtool.sh" "$tmp/fx8/scripts/sub/devtool.sh"
 rc=0
 run_sp "$tmp/fx8" >/dev/null || rc=$?
 [ "$rc" = 5 ] || fail "p7: a duplicate script file name exited $rc, want 5"
-cp -R "$fx" "$tmp/fx9"
+cp -R "$fx" "$tmp/fx9" || fail "fixture copy failed"
 rm "$tmp/fx9/.github/workflows/ci.yml"
 rc=0
 run_sp "$tmp/fx9" >/dev/null || rc=$?
 [ "$rc" = 5 ] || fail "p7: a workflows directory with no workflow exited $rc, want 5"
-cp -R "$fx" "$tmp/fx10"
+cp -R "$fx" "$tmp/fx10" || fail "fixture copy failed"
 : >"$tmp/fx10/hooks/hooks.json"
 mkdir -p "$tmp/fx10/config"
 printf '%s\n' '{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "scripts/gitcalled.sh"}]}]}}' \
@@ -440,7 +455,7 @@ echo "ok: p8 the repository partitions and the script sits in the dev-check tier
 # ---------------------------------------------------------------------------
 # p9: a control byte in an unresolved invocation never reaches the output.
 # ---------------------------------------------------------------------------
-cp -R "$fx" "$tmp/fx5"
+cp -R "$fx" "$tmp/fx5" || fail "fixture copy failed"
 # shellcheck disable=SC2016 # the planted script text, not an expansion
 printf '#!/bin/sh\n"$(dirname "$0")/$x\033[2J.sh"\n' >"$tmp/fx5/scripts/ctl.sh"
 run_sp "$tmp/fx5" >"$tmp/out5" || fail "p9: the partition failed: $(cat "$tmp/err")"
@@ -451,7 +466,7 @@ echo "ok: p9 control bytes in file-derived text are replaced"
 # ---------------------------------------------------------------------------
 # p10: a root reached through a symlink partitions the same as its real path.
 # ---------------------------------------------------------------------------
-ln -s "$fx" "$tmp/link"
+ln -s "$fx" "$tmp/link" || fail "symlink failed"
 run_sp "$tmp/link" >"$tmp/out6" || fail "p10: a symlinked root failed: $(cat "$tmp/err")"
 cmp -s "$tmp/out1" "$tmp/out6" || fail "p10: a symlinked root partitions differently"
 echo "ok: p10 a symlinked root gives the same partition"
@@ -460,7 +475,7 @@ echo "ok: p10 a symlinked root gives the same partition"
 # p11: a machine-local mise overlay redefining a task does not hide the
 #      tracked task's caller.
 # ---------------------------------------------------------------------------
-cp -R "$fx" "$tmp/fx11"
+cp -R "$fx" "$tmp/fx11" || fail "fixture copy failed"
 cat >"$tmp/fx11/mise.local.toml" <<'EOF'
 [tasks."check:devtool"]
 run = "true"
