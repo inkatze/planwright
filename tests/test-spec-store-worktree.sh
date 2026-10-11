@@ -239,6 +239,75 @@ else
   fail "remote-only branch: rc=$rc err=$err"
 fi
 
+# A root at the holder's top level puts the bundle at the worktree's top.
+H8="$tmp/holder8"
+W8="$tmp/work8"
+work_repo "$W8"
+holder "$H8" trunk .
+point "$W8" "$H8"
+# origin/HEAD wins over the branch the primary checkout has out.
+gitq -C "$H8" switch -q -c feature
+printf 'ahead\n' >"$H8/ahead" && gitq -C "$H8" add ahead && gitq -C "$H8" commit -q -m ahead
+sw "$W8" demo
+wt8="$H8/.claude/worktrees/demo-spec"
+if [ "$rc" -eq 0 ] && [ "$(field bundle)" = "$wt8/demo" ]; then
+  ok "a root at the holder's top level gives the bundle <worktree>/<id>"
+else
+  fail "top-level root: rc=$rc out=$out err=$err"
+fi
+if [ "$(hermetic git -C "$wt8" rev-parse HEAD 2>/dev/null)" = "$(hermetic git -C "$H8" rev-parse origin/trunk)" ] \
+  && [ "$(hermetic git -C "$wt8" rev-parse HEAD 2>/dev/null)" != "$(hermetic git -C "$H8" rev-parse HEAD)" ]; then
+  ok "the spec branch starts at origin/HEAD, not the checked-out branch"
+else
+  fail "base preference: the spec branch did not start at origin/trunk"
+fi
+
+# Reuse refuses a holder worktree on another branch, and a symlink to a
+# valid spec worktree.
+gitq -C "$H8" worktree add -q -b side "$H8/.claude/worktrees/x-spec" trunk
+sw "$W8" x
+if [ "$rc" -eq 4 ]; then ok "a holder worktree on another branch is refused"; else fail "wrong-branch worktree: rc=$rc"; fi
+ln -s "$wt8" "$H8/.claude/worktrees/y-spec"
+sw "$W8" y
+if [ "$rc" -eq 4 ]; then ok "a symlink at the worktree path is refused"; else fail "symlinked worktree path: rc=$rc"; fi
+
+# A symlinked .claude/worktrees in the holder is refused.
+H9="$tmp/holder9"
+W9="$tmp/work9"
+work_repo "$W9"
+holder "$H9" main r
+mkdir -p "$H9/.claude" "$tmp/elsewhere9"
+ln -s "$tmp/elsewhere9" "$H9/.claude/worktrees"
+point "$W9" "$H9/r"
+sw "$W9" demo
+if [ "$rc" -eq 4 ] && [ -z "$(ls -A "$tmp/elsewhere9")" ]; then
+  ok "a symlinked .claude/worktrees in the holder is refused"
+else
+  fail "symlinked .claude/worktrees: rc=$rc err=$err"
+fi
+
+# An unborn holder has no default branch to start from.
+H10="$tmp/holder10"
+W10="$tmp/work10"
+work_repo "$W10"
+gitq -c init.defaultBranch=main init -q "$H10"
+mkdir -p "$H10/r"
+printf 'project: fixture\nlayout: 1\n' >"$H10/r/planwright-spec-root.yml"
+point "$W10" "$H10/r"
+sw "$W10" demo
+if [ "$rc" -eq 4 ] && [ ! -e "$H10/.claude/worktrees/demo-spec" ]; then
+  ok "an unborn holder is refused with exit 4"
+else
+  fail "unborn holder: rc=$rc err=$err"
+fi
+
+# A spec root that does not resolve is exit 4, not a posture refusal.
+W11="$tmp/work11"
+work_repo "$W11"
+point "$W11" "$tmp/no-such-root"
+sw "$W11" demo
+if [ "$rc" -eq 4 ] && [ -z "$out" ]; then ok "an unresolvable root exits 4"; else fail "unresolvable root: rc=$rc out=$out"; fi
+
 # --- other postures and bad identifiers are refused -----------------------
 W4="$tmp/work4"
 work_repo "$W4"
@@ -260,7 +329,12 @@ if [ "$rc" -eq 3 ] && [ -z "$plain_entries" ] && printf '%s' "$err" | grep -q 'p
 else
   fail "plain: rc=$rc err=$err"
 fi
-for bad in 'Demo' 'flight' 'a/b' 'specs/demo/requirements.md' '../x' '' "$(printf 'a\nb')"; do
+for good in specs/demo demo/; do
+  sw "$W" "$good"
+  if [ "$rc" -eq 0 ] && [ "$(field worktree)" = "$wt" ]; then ok "identifier form accepted: $good"; else fail "identifier form refused: $good rc=$rc"; fi
+done
+long=$(printf '%065d' 0 | tr 0 a)
+for bad in 'Demo' 'flight' 'a/b' 'specs/demo/requirements.md' '../x' '' "$(printf 'a\nb')" '-x' "$long"; do
   sw "$W" "$bad"
   if [ "$rc" -eq 2 ] && [ -z "$out" ]; then
     ok "identifier refused: $(printf '%s' "$bad" | tr '\n' '?')"
