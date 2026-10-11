@@ -36,7 +36,9 @@
 #
 # REPLAYABLE. Each row's PR head ref (refs/pull/<N>/head) is fetched from the
 # remote into a temporary bare mirror; a row whose pre-fix commit is not in
-# that ref's history, or whose PR has no head ref, is marked unreplayable.
+# that ref's history, whose PR has no head ref, or whose commit shares no
+# history with the remote's main (a PR from before a history rewrite, which
+# leaves no base to diff against) is marked unreplayable.
 #
 # THE ANNOTATOR is an executable reading JSON lines on stdin, one request per
 # row: {key, pr, path, line, finding, reply, declined_log, label_reason}. It
@@ -286,6 +288,7 @@ git init -q --bare "$mirror"
 jq -r '.pr' "$tmp/cand.jsonl" | sort -un >"$tmp/prs.txt"
 git ls-remote "$remote" 'refs/pull/*/head' >"$tmp/heads.txt" 2>/dev/null || die 1 "git ls-remote failed against the remote"
 : >"$tmp/refspecs.txt"
+git -C "$mirror" fetch -q --no-tags "$remote" "+refs/heads/main:refs/heads/main" || die 1 "git fetch of the remote's main failed"
 while IFS= read -r n; do
   if grep -q "	refs/pull/$n/head\$" "$tmp/heads.txt"; then
     printf '+refs/pull/%s/head:refs/backtest/pr/%s\n' "$n" "$n" >>"$tmp/refspecs.txt"
@@ -302,7 +305,8 @@ fi
 jq -r '[.key, (.pr | tostring), .commit] | @tsv' "$tmp/cand.jsonl" | while IFS='	' read -r key n commit; do
   flag=no
   if git -C "$mirror" rev-parse -q --verify "refs/backtest/pr/$n" >/dev/null 2>&1 \
-    && git -C "$mirror" merge-base --is-ancestor "$commit" "refs/backtest/pr/$n" 2>/dev/null; then
+    && git -C "$mirror" merge-base --is-ancestor "$commit" "refs/backtest/pr/$n" 2>/dev/null \
+    && git -C "$mirror" merge-base "$commit" main >/dev/null 2>&1; then
     flag=yes
   fi
   printf '%s\t%s\n' "$key" "$flag"

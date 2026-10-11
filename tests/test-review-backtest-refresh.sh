@@ -61,6 +61,9 @@ git clone -q --bare "$src" "$remote"
 git -C "$remote" update-ref refs/pull/7/head "$B"
 git -C "$remote" update-ref refs/pull/2/head "$C"
 git -C "$remote" update-ref refs/pull/4/head "$B"
+# PR 5's head is the orphan branch: its commit is in the head ref but shares no
+# history with main, as a PR from before a history rewrite does.
+git -C "$remote" update-ref refs/pull/5/head "$C"
 MISSING=ffffffffffffffffffffffffffffffffffffffff
 
 history() {
@@ -90,6 +93,11 @@ history() {
   "reviews":[],
   "threads":[
    {"path":"f.sh","line":12,"commit":"$A","author":"helper-bot","bot":true,"body":"GNU-only flag","replies":[{"author":"owner","body":"Fixed in 3333333"}]}
+  ]},
+ {"number":5,"author":"owner","merged_at":"2026-09-05T00:00:00Z","body":"",
+  "reviews":[],
+  "threads":[
+   {"path":"g.sh","line":1,"commit":"$C","author":"helper-bot","bot":true,"body":"an unrelated-history finding","replies":[{"author":"owner","body":"Fixed in 4444444"}]}
   ]}
 ]}
 EOF
@@ -164,13 +172,15 @@ assert_contains "a commit absent from the head ref marks the row unreplayable" "
 r=$(row 4 f.sh)
 assert_contains "a declined-log match becomes a declined row" "	declined	yes	declined-log	" "$r"
 assert_contains "the declined row carries its paraphrased dismissal" "portable enough" "$r"
+r=$(row 5 g.sh)
+assert_contains "a commit with no merge base on main marks the row unreplayable" "	no	" "$r"
 assert_lacks "an unfixed thread is not a row" "	a.sh	3	" "$(cat "$c1")"
 assert_lacks "the author's own thread is not a row" "	a.sh	5	" "$(cat "$c1")"
 assert_lacks "a verbatim gist is dropped" "VERBATIM" "$(cat "$c1")"
 assert_lacks "a row naming a listed product is dropped" "e.sh" "$(cat "$c1")"
 assert_lacks "no reviewer login reaches the corpus" "helper-bot" "$(cat "$c1")"
-assert_contains "reports the fallback count (a.sh and b.sh)" "fallback other: 2" "$out"
-assert_contains "reports the unreplayable count" "unreplayable: 1" "$out"
+assert_contains "reports the fallback count (a.sh, b.sh, g.sh)" "fallback other: 3" "$out"
+assert_contains "reports the unreplayable count" "unreplayable: 2" "$out"
 assert_contains "reports the verbatim drop" "dropped verbatim: 1" "$out"
 assert_contains "reports the screened drop" "dropped by screen: 1" "$out"
 assert_contains "warns about a malformed miss fragment" "malformed review-miss" "$out"

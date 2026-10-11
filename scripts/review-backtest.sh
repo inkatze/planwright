@@ -24,7 +24,9 @@
 # gets its recorded dismissal seeded into a coordinator ledger file
 # (BACKTEST_LEDGER), the loop ledger a real pass would hold; no other row has
 # one. A reviewer that exits non-zero is retried once; a second failure marks
-# the row `error` and the run exits 4.
+# the row `error` and the run exits 4, as does a row whose commit shares no
+# history with main (no base to diff against; the refresh marks such rows
+# unreplayable). The corpus must pass review-corpus-screen.sh first.
 #
 # THE REVIEWER is an executable run once per row with these variables set:
 #   BACKTEST_ROW         the row id
@@ -142,6 +144,10 @@ case $version in
 esac
 [ -f "$corpus/corpus.tsv" ] || die 2 "no corpus.tsv in the corpus directory"
 [ "$(sed -n 1p "$corpus/corpus.tsv")" = "$RBT_HEADER" ] || die 2 "the corpus header does not match the schema"
+# Every field below reaches git or a reviewer, so a row the schema screen
+# refuses (a commit that is not a 40-hex id, a path that escapes) stops the run.
+"$here/review-corpus-screen.sh" "$corpus/corpus.tsv" >/dev/null 2>&1 \
+  || die 2 "the corpus fails its schema screen; run review-corpus-screen.sh on it"
 rbt_is_uint "$jobs" || die 2 "--jobs must be a positive integer"
 if [ -n "$stub" ]; then
   [ -f "$stub" ] && [ -r "$stub" ] || die 2 "the reviewer stub is not readable"
@@ -269,6 +275,11 @@ replay_row() {
       return 0
     fi
     base=$(git -C "$rdir/copy" merge-base "$commit" main 2>/dev/null) || base=
+    if [ -z "$base" ]; then
+      printf '%s\n' "$prog: row $id: no merge base with main, so no change to review; mark it unreplayable" >&2 # trusted: id is screened
+      printf '%s\t%s\terror\t0\n' "$id" "$class"
+      return 0
+    fi
     mkdir -p "$rdir/home" "$rdir/state"
     ledger=
     if [ "$class" = declined ]; then

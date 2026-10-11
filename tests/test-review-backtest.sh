@@ -189,6 +189,38 @@ out=$(run --reviewer "$T/broken.sh" --model m --seed 7 --classes claim-vs-code 2
 assert_exit "a reviewer failing twice makes the run exit 4" 4 $?
 if [ "$(wc -l <"$REVIEWER_LOG.broken" | tr -d ' ')" -eq 2 ]; then ok "a failing reviewer is retried once"; else fail "retry count wrong"; fi
 
+# --- a corpus failing the schema screen never reaches git ---
+mkdir -p "$T/corpus/v3"
+{
+  printf '%s\n' "$HDR"
+  printf 'r0001\t1\t--upload-pack=x\ta.sh\t50\tcorrectness\truntime-tracing\tyes\tmodel\ta hostile commit field\t-\n'
+} >"$T/corpus/v3/corpus.tsv"
+: >"$REVIEWER_LOG"
+out=$("$HARNESS" --corpus "$T/corpus/v3" --remote "$remote" --reviewer "$rev" --model m --seed 7 2>&1)
+assert_exit "a corpus failing the screen is refused" 2 $?
+assert_contains "names the screen refusal" "screen" "$out"
+if [ ! -s "$REVIEWER_LOG" ]; then ok "no row of a refused corpus is replayed"; else fail "a refused corpus reached the reviewer"; fi
+
+# --- a row whose commit shares no history with main is an error, not a pass ---
+git -C "$src" checkout -q --orphan unrelated
+git -C "$src" rm -rqf .
+printf 'z\n' >"$src/c.sh"
+git -C "$src" add c.sh
+git -C "$src" commit -qm unrelated
+P3=$(git -C "$src" rev-parse HEAD)
+git -C "$src" checkout -q main
+git -C "$src" push -q "$remote" "$P3:refs/pull/3/head"
+mkdir -p "$T/corpus/v4"
+{
+  printf '%s\n' "$HDR"
+  printf 'r0001\t3\t%s\tc.sh\t1\tcorrectness\truntime-tracing\tyes\tmodel\tan unrelated-history row\t-\n' "$P3"
+} >"$T/corpus/v4/corpus.tsv"
+: >"$REVIEWER_LOG"
+out=$("$HARNESS" --corpus "$T/corpus/v4" --remote "$remote" --reviewer "$rev" --model m --seed 7 2>&1)
+assert_exit "a row with no merge base on main makes the run exit 4" 4 $?
+assert_contains "names the missing merge base" "no merge base" "$out"
+if [ ! -s "$REVIEWER_LOG" ]; then ok "the reviewer is not run without a base"; else fail "the reviewer ran without a base"; fi
+
 # --- usage refusals ---
 "$HARNESS" --corpus "$corpus_dir" --remote "$remote" --reviewer-stub "$stub" >/dev/null 2>&1
 assert_exit "a replay without --model is refused" 2 $?

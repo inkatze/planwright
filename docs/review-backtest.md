@@ -28,7 +28,7 @@ once written: every recall comparison is made within one version.
 | `path`, `line` | where the thread pointed, in that commit |
 | `category` | what kind of defect it was |
 | `reason` | the miss reason, which is the row's class |
-| `replayable` | `yes` when the commit is in the PR head ref's history |
+| `replayable` | `yes` when the commit is in the PR head ref's history and shares history with `main` |
 | `label_source` | `model`, `ledger`, `declined-log`, or `fallback` |
 | `gist` | one paraphrased line saying what was wrong |
 | `dismissal` | for a `declined` row, the paraphrased reason it was declined; else `-` |
