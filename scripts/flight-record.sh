@@ -44,9 +44,13 @@
 #       `record<TAB><repo-relative path>` and `commit<TAB><sha>`. Refused
 #       (exit 3, nothing written) off the branch
 #       `planwright/flight/<flight-id>`, when the record already exists, when
-#       a directory on the record path is a symlink or not a directory, or
-#       when the index holds other staged changes. A commit git or its hooks refuse takes the record back out of
-#       the index and the worktree (exit 4).
+#       a directory on the record path is a symlink or not a directory (checked
+#       again after land creates them), or when the index holds other staged
+#       changes. A re-run whose committed record matches its render reports
+#       that record and succeeds. The record is created only if absent, so a
+#       concurrent run's record is never overwritten. A commit git or its hooks
+#       refuse (exit 4), or an interrupt, takes a record this run wrote back
+#       out of the index and the worktree unless it is already in HEAD.
 #
 #   The caller chooses the record path (flight-dispatch.sh computes it), so
 #   this script composes no spec-home path of its own. It is repo-relative,
@@ -707,22 +711,98 @@ _head=$(git -C "$repo_root" symbolic-ref -q HEAD 2>/dev/null) || _head=''
 [ "$_head" = "refs/heads/$branch" ] \
   || die 3 "land runs on the flight's own branch, $branch; nothing was written"
 rel=$record_rel
-_dir=''
-_rest=${rel%/*}
-[ "$_rest" != "$rel" ] || _rest=''
-while [ -n "$_rest" ]; do
-  _seg=${_rest%%/*}
-  _dir=${_dir:+$_dir/}$_seg
-  if [ -L "$repo_root/$_dir" ] || { [ -e "$repo_root/$_dir" ] && [ ! -d "$repo_root/$_dir" ]; }; then
-    die 3 "$_dir is a symlink or not a directory; the record is written inside the checkout only; nothing was written"
+parent=${rel%/*}
+[ "$parent" != "$rel" ] || parent=''
+base=${rel##*/}
+phys=$(cd "$repo_root" && pwd -P) || die 4 "cannot resolve --repo-root"
+
+# bad_dir — print the first directory on the record path that is a symlink or
+# not a directory; false when there is none.
+bad_dir() {
+  _dir=''
+  _rest=$parent
+  while [ -n "$_rest" ]; do
+    _dir=${_dir:+$_dir/}${_rest%%/*}
+    if [ -L "$repo_root/$_dir" ] || { [ -e "$repo_root/$_dir" ] && [ ! -d "$repo_root/$_dir" ]; }; then
+      printf '%s' "$_dir"
+      return 0
+    fi
+    case $_rest in
+      */*) _rest=${_rest#*/} ;;
+      *) _rest='' ;;
+    esac
+  done
+  return 1
+}
+
+# in_parent <command>... — run <command> in a subshell whose working directory
+# is the record's parent, entered physically and checked to be the one inside
+# the checkout, so a symlink swapped onto the path cannot redirect it. Exit 5
+# when the directory is not that one.
+in_parent() {
+  (
+    cd -P "$repo_root${parent:+/$parent}" 2>/dev/null || exit 5
+    [ "$(pwd -P)" = "$phys${parent:+/$parent}" ] || exit 5
+    "$@"
+  )
+}
+
+# create_record — link a filled temp file to the record's name: link(2) fails
+# when the name exists, a dangling symlink included, so this creates the record
+# only when it is absent, without the window a check-then-write leaves.
+create_record() {
+  _t=$(mktemp ".$base.XXXXXX") || exit 4
+  trap 'rm -f "$_t"' EXIT
+  cat "$work/record.md" >"$_t" || exit 4
+  chmod "$(printf '%o' $((0666 & ~$(umask))))" "$_t" || exit 4
+  ln -- "$_t" "$base" 2>/dev/null || exit 3
+}
+
+# is_render — the record on disk is a regular file holding this run's render.
+is_render() {
+  [ -f "$base" ] && [ ! -L "$base" ] && cmp -s "$work/record.md" "$base"
+}
+
+# remove_mine — delete the record only while it is the one this run wrote.
+remove_mine() {
+  is_render && rm -f -- "$base"
+}
+
+# rollback — run on every exit: a record this run created that is not in HEAD
+# leaves the index and the checkout, so a refused commit or an interrupt leaves
+# nothing a re-run would trip over; a record in HEAD, this run's or a
+# concurrent run's, stays.
+created=0
+rollback() {
+  if [ "$created" -eq 1 ] && ! git -C "$repo_root" cat-file -e "HEAD:$rel" 2>/dev/null; then
+    git -C "$repo_root" rm -q --cached --ignore-unmatch -- "$rel" >/dev/null 2>&1 || :
+    in_parent remove_mine || :
   fi
-  case $_rest in
-    */*) _rest=${_rest#*/} ;;
-    *) _rest='' ;;
-  esac
-done
+  rm -rf "$work"
+}
+trap rollback EXIT
+
+report() {
+  # The commit that added the record, not HEAD: a post-commit hook may commit again.
+  _sha=$(git -C "$repo_root" log -1 --format=%H -- "$rel" 2>/dev/null) && [ -n "$_sha" ] \
+    || die 4 "cannot read the record commit"
+  printf 'record\t%s\n' "$rel"
+  printf 'commit\t%s\n' "$_sha"
+}
+
+if _bad=$(bad_dir); then
+  die 3 "$_bad is a symlink or not a directory; the record is written inside the checkout only; nothing was written"
+fi
+render_to "$work/record.md" || die 4 "cannot write the record"
 if [ -e "$repo_root/$rel" ] || [ -L "$repo_root/$rel" ] \
   || git -C "$repo_root" cat-file -e "HEAD:$rel" 2>/dev/null; then
+  # A re-run whose record is already committed, and on disk, as this render.
+  if git -C "$repo_root" cat-file blob "HEAD:$rel" >"$work/head.md" 2>/dev/null \
+    && cmp -s "$work/head.md" "$work/record.md" \
+    && in_parent is_render; then
+    report
+    exit 0
+  fi
   die 3 "$rel already exists: one flight, one record; nothing was written"
 fi
 _drc=0
@@ -733,20 +813,21 @@ case $_drc in
   *) die 4 "cannot read the index" ;;
 esac
 
-render_to "$work/record.md" || die 4 "cannot write the record"
-case $rel in
-  */*) mkdir -p "$repo_root/${rel%/*}" || die 4 "cannot create ${rel%/*}" ;;
+[ -z "$parent" ] || mkdir -p "$repo_root/$parent" || die 4 "cannot create $parent"
+if _bad=$(bad_dir); then
+  die 3 "$_bad became a symlink or not a directory during land; the record is written inside the checkout only; nothing was written"
+fi
+_crc=0
+in_parent create_record || _crc=$?
+case $_crc in
+  0) created=1 ;;
+  3) die 3 "$rel appeared while land ran: one flight, one record; nothing was written" ;;
+  5) die 3 "${parent:-the worktree} moved while land ran; the record is written inside the checkout only; nothing was written" ;;
+  *) die 4 "cannot write $rel" ;;
 esac
-cp "$work/record.md" "$repo_root/$rel" || die 4 "cannot write $rel"
 if ! git -C "$repo_root" add -- "$rel" >/dev/null 2>"$work/git.err" \
   || ! git -C "$repo_root" commit -q -m "docs(flight): record flight $flight_id" -- "$rel" >>"$work/git.err" 2>&1; then
-  git -C "$repo_root" rm -q --cached --ignore-unmatch -- "$rel" >/dev/null 2>&1 || :
-  rm -f "$repo_root/$rel"
   sed 's/^/  /' "$work/git.err" | tr -d '\000-\010\013-\037\177' >&2
-  die 4 "could not commit $rel; the record was removed"
+  die 4 "could not commit $rel; an uncommitted record is removed"
 fi
-# The commit that added the record, not HEAD: a post-commit hook may commit again.
-_sha=$(git -C "$repo_root" log -1 --format=%H -- "$rel" 2>/dev/null) && [ -n "$_sha" ] \
-  || die 4 "cannot read the record commit"
-printf 'record\t%s\n' "$rel"
-printf 'commit\t%s\n' "$_sha"
+report

@@ -27,10 +27,14 @@
 #      absolute inside the worktree, named `<id>.md`, only [A-Za-z0-9._/-],
 #      no empty, `.`, `..`, `.git`, or dash-led segment, no trailing slash,
 #      at most 1024 bytes), on the flight's own branch, and refuses a
-#      missing or malformed path, a second record, the wrong branch, a
-#      symlinked directory on the path, a root other than the worktree's top
-#      level, or an index holding other changes; a commit the hooks refuse
-#      leaves nothing behind. The file home's render names the passed path.
+#      missing or malformed path, a second record that differs, the wrong
+#      branch, a symlinked directory on the path, a root other than the
+#      worktree's top level, or an index holding other changes; a commit the
+#      hooks refuse leaves nothing behind. A matching re-run succeeds, and
+#      races interleaved between land's checks and its write leave neither a
+#      committed-but-deleted record nor a stuck file, and write nothing
+#      through a symlink swapped in. The file home's render names the passed
+#      path.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -u
@@ -677,7 +681,13 @@ printf '%s\n' "$landed" | grep -qx "commit	$(git -C "$repo" rev-parse HEAD)" || 
 
 before=$(git -C "$repo" rev-parse HEAD)
 run_land
-[ "$RC" -eq 3 ] || fail "a second record for one flight must be refused with 3 (got $RC)"
+[ "$RC" -eq 0 ] || fail "a re-run whose committed record matches must succeed (got $RC: $ERR)"
+[ "$(git -C "$repo" rev-parse HEAD)" = "$before" ] || fail "a matching re-run must commit nothing"
+printf '%s\n' "$OUT" | grep -qx "commit	$before" || fail "a matching re-run must report the record's commit: $OUT"
+printf '%s\n' "$OUT" | grep -qx "record	specs/_flights/$FID.md" || fail "a matching re-run must report the record path: $OUT"
+printf 'A different account of the change.\n' >"$in/summary-other.md"
+run_land --summary-file "$in/summary-other.md"
+[ "$RC" -eq 3 ] || fail "a second record for one flight that differs must be refused with 3 (got $RC)"
 [ "$(git -C "$repo" rev-parse HEAD)" = "$before" ] || fail "a refused land must commit nothing"
 
 run_land --home pr
@@ -778,6 +788,117 @@ run_land --flight-id "$HOOK"
 [ -z "$(git -C "$repo" diff --cached --name-only)" ] || fail "a refused commit must leave nothing staged"
 [ "$(git -C "$repo" rev-parse HEAD)" = "$hook_head" ] || fail "a refused commit must not move HEAD"
 rm -f "$repo/.git/hooks/pre-commit"
+rm -rf "$repo/specs"
+
+# Races, interleaved deterministically: a `git` stub first on PATH runs a
+# case's action once, at the first git call whose arguments match the case's
+# pattern, then hands every call to the real git unless the action fails,
+# which fails that call instead. The action sees land's pid as STUB_LAND_PID.
+# `diff --cached` falls after land's checks and before its write; `add` and
+# `commit` after its write.
+REAL_GIT=$(command -v git)
+stub="$tmp/stub"
+mkdir -p "$stub"
+cat >"$stub/git" <<EOF
+#!/bin/sh
+case " \$* " in
+  *" \$STUB_ON "*)
+    if [ ! -e "\$STUB_DONE" ]; then
+      : >"\$STUB_DONE"
+      STUB_LAND_PID=\$PPID /bin/sh "\$STUB_ACTION" || exit \$?
+    fi
+    ;;
+esac
+exec "$REAL_GIT" "\$@"
+EOF
+chmod +x "$stub/git"
+# run_land_stub <pattern> <action-script> [overrides...]
+run_land_stub() {
+  _on=$1
+  _act=$2
+  shift 2
+  rm -f "$tmp/stub.done"
+  defaults
+  with_record_path "$@"
+  OUT=$(cd "$repo" && PATH="$stub:$PATH" STUB_ON="$_on" STUB_ACTION="$_act" STUB_DONE="$tmp/stub.done" \
+    GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid \
+    GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.invalid \
+    /bin/sh "$SCRIPT" land "${args[@]}" "$@" 2>"$tmp/err")
+  RC=$?
+  ERR=$(cat "$tmp/err")
+}
+
+# Another run commits the record between this run's checks and its write:
+# this run leaves the committed record in place, on disk and in the index.
+RACE1=raceone-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$RACE1" main
+cat >"$tmp/act-commit-first.sh" <<EOF
+mkdir -p "$repo/specs/_flights"
+printf 'the other run\n' >"$repo/specs/_flights/$RACE1.md"
+"$REAL_GIT" -C "$repo" add -- "specs/_flights/$RACE1.md"
+"$REAL_GIT" -C "$repo" -c user.name=test -c user.email=test@example.invalid -c commit.gpgsign=false \
+  commit -q --no-verify -m other -- "specs/_flights/$RACE1.md"
+EOF
+run_land_stub 'diff --cached' "$tmp/act-commit-first.sh" --flight-id "$RACE1"
+[ "$RC" -eq 3 ] || fail "a record committed after land's checks must be refused with 3 (got $RC: $ERR)"
+[ "$(cat "$repo/specs/_flights/$RACE1.md" 2>/dev/null)" = 'the other run' ] \
+  || fail "a raced land must leave the other run's committed record on disk"
+[ -z "$(git -C "$repo" status --porcelain)" ] || fail "a raced land must leave no staged deletion: $(git -C "$repo" status --porcelain)"
+git -C "$repo" reset -q
+rm -rf "$repo/specs"
+
+# Another run commits the record after this run wrote it, so this run's commit
+# finds nothing to commit: its rollback leaves the committed record alone.
+RACE2=racetwo-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$RACE2" main
+cat >"$tmp/act-commit-mine.sh" <<EOF
+"$REAL_GIT" -C "$repo" add -- "specs/_flights/$RACE2.md"
+"$REAL_GIT" -C "$repo" -c user.name=test -c user.email=test@example.invalid -c commit.gpgsign=false \
+  commit -q --no-verify -m other -- "specs/_flights/$RACE2.md"
+EOF
+run_land_stub 'add' "$tmp/act-commit-mine.sh" --flight-id "$RACE2"
+git -C "$repo" cat-file -e "HEAD:specs/_flights/$RACE2.md" 2>/dev/null \
+  || fail "the race fixture must have committed the record"
+[ -f "$repo/specs/_flights/$RACE2.md" ] || fail "a raced rollback must not delete a committed record"
+[ -z "$(git -C "$repo" status --porcelain)" ] \
+  || fail "a raced rollback must leave no staged deletion: $(git -C "$repo" status --porcelain)"
+git -C "$repo" reset -q
+rm -rf "$repo/specs"
+
+# An interrupt during the commit rolls the uncommitted record back, so a
+# re-run is not refused over a stuck file.
+INTR=interrupt-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$INTR" main
+printf 'kill -TERM "$STUB_LAND_PID"\nexit 1\n' >"$tmp/act-interrupt.sh"
+intr_head=$(git -C "$repo" rev-parse HEAD)
+run_land_stub 'commit' "$tmp/act-interrupt.sh" --flight-id "$INTR"
+[ "$RC" -ne 0 ] || fail "an interrupted land must not report success"
+if git -C "$repo" cat-file -e "HEAD:specs/_flights/$INTR.md" 2>/dev/null; then
+  [ -f "$repo/specs/_flights/$INTR.md" ] || fail "an interrupt after the commit must keep the committed record"
+else
+  [ -e "$repo/specs/_flights/$INTR.md" ] && fail "an interrupted land must leave no stuck record file"
+  [ -z "$(git -C "$repo" diff --cached --name-only)" ] || fail "an interrupted land must leave nothing staged"
+  [ "$(git -C "$repo" rev-parse HEAD)" = "$intr_head" ] || fail "an interrupted land must not move HEAD"
+fi
+run_land --flight-id "$INTR"
+[ "$RC" -eq 0 ] || fail "a re-run after an interrupted land must succeed (got $RC: $ERR)"
+git -C "$repo" reset -q
+rm -rf "$repo/specs"
+
+# A symlink swapped in for a directory after land's checks is refused before
+# the write, and nothing lands outside the checkout.
+SWAP=swapped-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$SWAP" main
+rm -rf "$tmp/swap-out"
+mkdir -p "$tmp/swap-out" "$repo/specs/_flights"
+cat >"$tmp/act-swap.sh" <<EOF
+rm -rf "$repo/specs/_flights"
+ln -s "$tmp/swap-out" "$repo/specs/_flights"
+EOF
+run_land_stub 'diff --cached' "$tmp/act-swap.sh" --flight-id "$SWAP"
+[ "$RC" -eq 3 ] || fail "a symlink swapped in after the checks must be refused with 3 (got $RC: $ERR)"
+printf '%s\n' "$ERR" | grep -q 'symlink' || fail "the swapped-symlink refusal must name the symlink: $ERR"
+[ -z "$(ls -A "$tmp/swap-out")" ] || fail "a swapped-in symlink carried the write outside the checkout"
 rm -rf "$repo/specs"
 
 gitc "$repo" checkout -q main
