@@ -94,21 +94,37 @@ branch="planwright/$id/spec"
 wt="$holder/.claude/worktrees/$id-spec"
 hg() { git -C "$holder" "$@"; }
 
-if [ -e "$wt" ] || [ -L "$wt" ]; then
+# is_spec_wt — true when $wt is the holder's own worktree on $branch.
+is_spec_wt() {
+  [ ! -L "$wt" ] || return 1
   wt_common=$(git -C "$wt" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || wt_common=''
   h_common=$(hg rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || h_common=''
   wt_top=$(git -C "$wt" rev-parse --show-toplevel 2>/dev/null) || wt_top=''
   wt_branch=$(git -C "$wt" symbolic-ref -q --short HEAD 2>/dev/null) || wt_branch=''
-  if [ -L "$wt" ] || [ -z "$h_common" ] || [ "$wt_common" != "$h_common" ] \
-    || [ "$wt_top" != "$wt" ] || [ "$wt_branch" != "$branch" ]; then
+  [ -n "$h_common" ] && [ "$wt_common" = "$h_common" ] && [ "$wt_top" = "$wt" ] && [ "$wt_branch" = "$branch" ]
+}
+# add_wt <what> <worktree-add args...> — git's own reason reaches the caller.
+# A failure that still left the spec worktree in place (a holder hook failing
+# after checkout, a concurrent run winning the race) is a warning, not a refusal.
+add_wt() {
+  what=$1
+  shift
+  add_err=$(hg worktree add -q "$@" 2>&1 >/dev/null) && return 0
+  if is_spec_wt; then
+    say "warning: git reported a failure after opening $wt: $add_err"
+    return 0
+  fi
+  say "git could not $what: $add_err"
+  exit 4
+}
+
+if [ -e "$wt" ] || [ -L "$wt" ]; then
+  is_spec_wt || {
     say "refused: $wt exists and is not the holder's worktree on $branch"
     exit 4
-  fi
-elif hg show-ref --verify --quiet "refs/heads/$branch"; then
-  hg worktree add -q "$wt" "$branch" >/dev/null 2>&1 || {
-    say "git could not recreate $wt from $branch"
-    exit 4
   }
+elif hg show-ref --verify --quiet "refs/heads/$branch"; then
+  add_wt "recreate $wt from $branch" "$wt" "$branch"
 else
   base=$(hg symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null) || base=''
   # A recorded origin/HEAD can outlive the branch it names (renamed, pruned).
@@ -119,10 +135,7 @@ else
     say "the holder has no default branch to start $branch from"
     exit 4
   fi
-  hg worktree add -q --no-track -b "$branch" "$wt" "$base" >/dev/null 2>&1 || {
-    say "git could not create $wt on a new $branch"
-    exit 4
-  }
+  add_wt "create $wt on a new $branch" --no-track -b "$branch" "$wt" "$base"
 fi
 
 if [ -n "$rel" ]; then

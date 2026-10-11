@@ -192,6 +192,28 @@ else
   fail "dangling origin/HEAD: rc=$rc err=$err"
 fi
 
+# A failed add names git's own reason: the spec branch checked out elsewhere.
+gitq -C "$H6" branch planwright/busy/spec trunk
+gitq -C "$H6" switch -q planwright/busy/spec
+sw "$W6" busy
+if [ "$rc" -eq 4 ] && printf '%s' "$err" | grep -q 'already'; then
+  ok "a failed add passes git's reason through"
+else
+  fail "busy branch: rc=$rc err=$err"
+fi
+gitq -C "$H6" switch -q trunk
+
+# A holder hook failing after git opened the worktree is not a failure.
+printf '#!/bin/sh\nexit 1\n' >"$H6/.git/hooks/post-checkout"
+chmod +x "$H6/.git/hooks/post-checkout"
+sw "$W6" hooked
+if [ "$rc" -eq 0 ] && [ "$(hermetic git -C "$H6/.claude/worktrees/hooked-spec" symbolic-ref -q --short HEAD 2>/dev/null)" = "planwright/hooked/spec" ]; then
+  ok "an opened worktree is reported ready though a holder hook failed"
+else
+  fail "hook failure: rc=$rc err=$err"
+fi
+rm -f "$H6/.git/hooks/post-checkout"
+
 # --- other postures and bad identifiers are refused -----------------------
 W4="$tmp/work4"
 work_repo "$W4"
