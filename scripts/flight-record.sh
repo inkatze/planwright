@@ -793,6 +793,8 @@ parent=${rel%/*}
 [ "$parent" != "$rel" ] || parent=''
 base=${rel##*/}
 phys=$(cd "$repo_root" && pwd -P) || die 4 "cannot resolve --repo-root"
+# Absolute from here on: land changes its working directory below.
+repo_root=$phys
 # Without its trailing slash, so a worktree at / composes as /<path>.
 root=${phys%/}
 

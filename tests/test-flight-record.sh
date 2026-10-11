@@ -1234,6 +1234,16 @@ else
   echo "test-flight-record: markdownlint-cli2 unavailable; record lint check skipped" >&2
 fi
 
+# A relative --repo-root names the same worktree from wherever land works.
+RELR=relroot-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$RELR" main
+run_land --flight-id "$RELR" --repo-root .
+[ "$RC" -eq 0 ] || fail "land with --repo-root . exited $RC: $ERR"
+git -C "$repo" cat-file -e "HEAD:specs/_flights/$RELR.md" 2>/dev/null || fail "land with --repo-root . must commit the record"
+[ -z "$(git -C "$repo" status --porcelain)" ] || fail "land with --repo-root . must leave the tree clean"
+rm -rf "$repo/specs"
+gitc "$repo" checkout -q main
+
 # land runs at the worktree's top level, inside a git worktree.
 mkdir -p "$repo/sub"
 run_land --repo-root "$repo/sub"
