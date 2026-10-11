@@ -75,19 +75,24 @@ cat >"$hist" <<'EOF'
   "reviews":[{"author":"helper-bot","bot":true}],"threads":[]},
  {"number":12,"author":"owner","merged_at":"2026-10-03T00:00:00Z","body":"","reviews":[],"threads":[]},
  {"number":13,"author":"owner","merged_at":"2026-10-04T00:00:00Z","body":"",
-  "reviews":[{"author":"helper-bot","bot":true}],"threads":[]}
+  "reviews":[{"author":"helper-bot","bot":true}],"threads":[]},
+ {"number":14,"author":"owner","merged_at":"2026-10-05T00:00:00Z","body":"",
+  "reviews":[{"author":"a-human","bot":false}],
+  "threads":[{"path":"c.sh","line":2,"commit":"0123456789abcdef0123456789abcdef01234567","author":"a-human","bot":false,"body":"z","replies":[{"author":"owner","body":"Fixed in abc1234"}]}]}
 ]}
 EOF
 ledger="$T/entries"
 mkdir -p "$ledger"
-printf '%s\n' "- 2026-10-05 [planwright] review-miss(correctness, runtime-tracing): #13 b.sh: a fix the pass missed" >"$ledger/2026-10-05-review-miss-0000aaaa.md"
+mkdir -p "$T/archive"
+printf '%s\n' "- 2026-10-05 [planwright] review-miss(correctness, bogus): #11 b.sh: a reason outside the vocabulary" >"$ledger/2026-10-05-review-miss-0000bbbb.md"
+printf '%s\n' "- 2026-10-05 [planwright] review-miss(correctness, runtime-tracing): #13 b.sh: a fix the pass missed" >"$T/archive/2026-10-05-review-miss-0000aaaa.md"
 
 base="$T/baselines.tsv"
 printf 'post_convergence_finding_rate\t0.889\tfixture\nmedian_tokens_per_convergence_run\t17000000\tfixture\n' >"$base"
 
 run() {
   "$COST" --transcripts "$proj" --events "$events" --history "$hist" \
-    --ledger-dir "$ledger" --baselines "$base" "$@"
+    --ledger-dir "$ledger" --ledger-dir "$T/archive" --baselines "$base" "$@"
 }
 
 out=$(run --prs-from 10 2>&1)
@@ -95,8 +100,8 @@ assert_exit "the metric runs over fixtures" 0 $?
 assert_contains "counts the convergence runs" "convergence runs: 2" "$out"
 assert_contains "the median run spans a PR-creation end, a human-message end, and subagents" "tokens per convergence run (median): 5000" "$out"
 assert_contains "the unit share prefers the fleet events' total" "convergence share of unit (median): 0.42" "$out"
-assert_contains "counts the externally reviewed PRs in the window" "externally reviewed PRs: 3" "$out"
-assert_contains "a ledger entry counts as a post-convergence finding" "PRs with a fixed post-convergence finding: 2" "$out"
+assert_contains "counts the bot-reviewed PRs in the window, a human-only review outside it" "bot-reviewed PRs: 3" "$out"
+assert_contains "an archived ledger entry counts, one with a bad reason does not" "PRs with a fixed post-convergence finding: 2" "$out"
 assert_contains "computes the finding rate" "post-convergence finding rate: 0.667" "$out"
 assert_contains "computes the median fixed findings" "fixed findings per such PR (median): 1.5" "$out"
 assert_contains "computes the median review rounds" "review rounds per such PR (median): 1.5" "$out"
@@ -118,8 +123,33 @@ for k in post_convergence_finding_rate median_fixed_findings_per_pr median_revie
   median_tokens_per_convergence_run convergence_share_of_unit lens_none_share; do
   if grep -q "^$k	" "$B"; then ok "baseline records $k"; else fail "baseline lacks $k"; fi
 done
-out=$("$COST" --transcripts "$proj" --events "$events" --history "$hist" --ledger-dir "$ledger" 2>&1)
+out=$("$COST" --transcripts "$proj" --events "$events" --history "$hist" --ledger-dir "$ledger" --ledger-dir "$T/archive" 2>&1)
 assert_contains "the committed baselines are the default comparison" "baseline: rate 0.889" "$out"
+
+# --- without --history the metric fetches through the refresh's --fetch-only ---
+mkdir -p "$T/bin"
+cat >"$T/bin/gh" <<'EOF'
+#!/bin/sh
+case "$1 $2" in
+  "repo view") printf 'example/repo\n' ;;
+  "api graphql")
+    cat <<'JSON'
+{"data":{"repository":{"pullRequests":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
+ {"number":40,"mergedAt":"2026-10-01T00:00:00Z","body":"","author":{"login":"owner"},
+  "reviews":{"nodes":[{"author":{"login":"helper-bot","__typename":"Bot"},"submittedAt":"2026-10-01T00:00:00Z"}]},
+  "reviewThreads":{"nodes":[{"path":"a.sh","originalLine":4,"comments":{"nodes":[
+    {"author":{"login":"helper-bot","__typename":"Bot"},"body":"x","originalCommit":{"oid":"0123456789abcdef0123456789abcdef01234567"}},
+    {"author":{"login":"owner","__typename":"User"},"body":"Fixed in abc1234","originalCommit":{"oid":"0123456789abcdef0123456789abcdef01234567"}}]}}]}}
+]}}}}
+JSON
+    ;;
+  *) exit 9 ;;
+esac
+EOF
+chmod +x "$T/bin/gh"
+out=$(PATH="$T/bin:$PATH" "$COST" --transcripts "$proj" --ledger-dir "$ledger" 2>&1)
+assert_exit "the metric fetches the history itself when none is given" 0 $?
+assert_contains "the fetched history feeds the finding rate" "post-convergence finding rate: 1.000" "$out"
 
 "$COST" --history "$T/absent.json" --transcripts "$proj" >/dev/null 2>&1
 assert_exit "an unreadable history is a usage error" 2 $?

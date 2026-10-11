@@ -30,6 +30,29 @@ claude_bin=${PLANWRIGHT_BACKTEST_CLAUDE:-claude}
 batch=$(cat)
 [ -n "$batch" ] || exit 0
 
+# The class list is the shared vocabulary; `declined` comes from the declined-log
+# match, never from this choice. A class added to the vocabulary without a
+# description here stops the run rather than going unoffered.
+reason_lines=
+for r in $RBT_REASONS; do
+  case $r in
+    outside-diff) d='seeing it needed code outside the changed lines (callers, other files)' ;;
+    runtime-tracing) d="seeing it needed running or tracing the code's behaviour" ;;
+    claim-vs-code) d='a comment, doc, header, usage text, or PR claim disagrees with the code' ;;
+    pruned) d='it was visible in the changed lines, or a twin site of a fixed one was left unswept' ;;
+    spec-conflict) d='it conflicts with a spec, doctrine rule, or repository convention' ;;
+    lintable) d='a shell-lint or formatter rule could have caught it' ;;
+    other) d='none of the above fits' ;;
+    declined) continue ;;
+    *)
+      printf '%s\n' "$prog: no description for a miss reason in the vocabulary" >&2
+      exit 1
+      ;;
+  esac
+  reason_lines="$reason_lines  $r: $d
+"
+done
+
 prompt="You annotate fixed code-review findings for a regression corpus.
 The input below is JSON lines, one finding per line: key, pr, path, line,
 finding (the review comment that raised it), reply (the author's fix reply),
@@ -54,26 +77,20 @@ Otherwise declined is false and dismissal is omitted.
 
 reason (only when label_reason is true): why a reviewer reading the change
 missed this defect, one of:
-  outside-diff     seeing it needed code outside the changed lines (callers, other files)
-  runtime-tracing  seeing it needed running or tracing the code's behaviour
-  claim-vs-code    a comment, doc, header, usage text, or PR claim disagrees with the code
-  pruned           it was visible in the changed lines, or a twin site of a fixed one was left unswept
-  spec-conflict    it conflicts with a spec, doctrine rule, or repository convention
-  lintable         a shell-lint or formatter rule could have caught it
-  other            none of the above fits"
+$reason_lines"
 
-if [ -n "${PLANWRIGHT_BACKTEST_MODEL:-}" ]; then
-  out=$(printf '%s\n' "$batch" | "$claude_bin" -p "$prompt" --model "$PLANWRIGHT_BACKTEST_MODEL" \
-    --output-format json --max-turns 1 --disallowedTools 'Bash Edit Write Read Glob Grep WebFetch WebSearch Task' 2>/dev/null) || {
-    printf '%s\n' "$prog: the model call failed" >&2
-    exit 1
-  }
-else
-  out=$(printf '%s\n' "$batch" | "$claude_bin" -p "$prompt" \
-    --output-format json --max-turns 1 --disallowedTools 'Bash Edit Write Read Glob Grep WebFetch WebSearch Task' 2>/dev/null) || {
-    printf '%s\n' "$prog: the model call failed" >&2
-    exit 1
-  }
+# The input is untrusted review text: the call gets no tools, no MCP servers,
+# no project settings, and no permission prompt an auto mode could approve.
+set -- --output-format json --max-turns 1 --tools '' --permission-mode dontAsk \
+  --strict-mcp-config --setting-sources user
+[ -z "${PLANWRIGHT_BACKTEST_MODEL:-}" ] || set -- "$@" --model "$PLANWRIGHT_BACKTEST_MODEL"
+out=$(printf '%s\n' "$batch" | "$claude_bin" -p "$prompt" "$@" 2>/dev/null) || {
+  printf '%s\n' "$prog: the model call failed" >&2
+  exit 1
+}
+if [ "$(printf '%s\n' "$out" | jq -r '.is_error // false' 2>/dev/null)" != false ]; then
+  printf '%s\n' "$prog: the model call reported an error" >&2
+  exit 1
 fi
 result=$(printf '%s\n' "$out" | jq -r '.result // empty' 2>/dev/null) || result=
 if [ -z "$result" ]; then

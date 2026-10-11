@@ -87,7 +87,11 @@ history() {
   "reviews":[],
   "threads":[
    {"path":"d.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"VERBATIM the counter is read before it is set in this branch","replies":[{"author":"owner","body":"Fixed in 1111111"}]},
-   {"path":"e.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"acmereview style issue","replies":[{"author":"owner","body":"Fixed in 2222222"}]}
+   {"path":"e.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"acmereview style issue","replies":[{"author":"owner","body":"Fixed in 2222222"}]},
+   {"path":"d2.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"VERBATIM quote it","replies":[{"author":"owner","body":"Fixed in 5555555, thanks for catching that one"}]},
+   {"path":"h.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"BADANSWER thing","replies":[{"author":"owner","body":"Fixed in 6666666"}]},
+   {"path":"i.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"LOGINGIST thing","replies":[{"author":"owner","body":"Fixed in 7777777"}]},
+   {"path":"k.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"BADDISMISS thing","replies":[{"author":"owner","body":"Fixed in 8888888"}]}
   ]},
  {"number":4,"author":"owner","merged_at":"2026-09-04T00:00:00Z","body":"## Declined\\n\\n| f.sh | portable enough on the floor |\\n\\n## Next",
   "reviews":[],
@@ -109,12 +113,17 @@ cat >"$T/annotate.sh" <<'STUB'
 batch=$(cat)
 printf '%s\n' "$batch" >>"$ANNOTATE_LOG.all"
 printf '%s\n' "$batch" | jq -c '
+  if (.finding | test("BADANSWER")) then {key, category: "o", gist: 5}
+  elif (.finding | test("BADDISMISS")) then {key, category: "correctness", gist: "a dismissal of the wrong type", declined: true, dismissal: 5}
+  else
   { key, category: "correctness",
     gist: (if (.finding | test("VERBATIM")) then .finding
            elif (.finding | test("acmereview")) then "acmereview flagged a style issue"
+           elif (.finding | test("LOGINGIST")) then "as helper-bot noted, the loop races"
            else "paraphrased finding at \(.path)" end) }
   + (if .label_reason then {reason: "runtime-tracing"} else {} end)
-  + (if (.declined_log | length) > 0 then {declined: true, dismissal: "the pass judged it portable enough"} else {declined: false} end)'
+  + (if (.declined_log | length) > 0 then {declined: true, dismissal: "the pass judged it portable enough"} else {declined: false} end)
+  end'
 STUB
 chmod +x "$T/annotate.sh"
 export ANNOTATE_LOG="$T/annotate"
@@ -126,6 +135,7 @@ mkdir -p "$ledger"
 printf '%s\n' "- 2026-09-05 [planwright] review-miss(sibling-sweep, outside-diff): #7 lib/c.sh: a twin site kept the bug" >"$ledger/2026-09-05-review-miss-0000aaaa.md"
 printf '%s\n' "- 2026-09-05 [planwright] review-miss(correctness, pruned): #9 x.sh: a different PR" >"$ledger/2026-09-05-review-miss-0000bbbb.md"
 printf '%s\n' "- 2026-09-05 [planwright] review-miss(correctness): #7 a.sh: malformed, no reason" >"$ledger/2026-09-05-review-miss-0000cccc.md"
+printf '%s\n' "- 2026-09-05 [planwright] review-miss(correctness, pruned): a.sh: no PR number" >"$ledger/2026-09-05-review-miss-0000dddd.md"
 
 hist="$T/history.json"
 history 7 >"$hist"
@@ -179,15 +189,21 @@ assert_lacks "the author's own thread is not a row" "	a.sh	5	" "$(cat "$c1")"
 assert_lacks "a verbatim gist is dropped" "VERBATIM" "$(cat "$c1")"
 assert_lacks "a row naming a listed product is dropped" "e.sh" "$(cat "$c1")"
 assert_lacks "no reviewer login reaches the corpus" "helper-bot" "$(cat "$c1")"
-assert_contains "reports the fallback count (a.sh, b.sh, g.sh)" "fallback other: 3" "$out"
-assert_contains "reports the unreplayable count" "unreplayable: 2" "$out"
-assert_contains "reports the verbatim drop" "dropped verbatim: 1" "$out"
+assert_contains "reports the fallback count (a.sh, b.sh, g.sh, k.sh)" "fallback other: 4" "$out"
+assert_contains "reports the unreplayable count (b.sh, g.sh, and k.sh on a PR with no head ref)" "unreplayable: 3" "$out"
+assert_contains "reports the verbatim drops, a short comment copied whole included" "dropped verbatim: 2" "$out"
+assert_contains "a malformed annotator answer is dropped, not fatal" "dropped unannotated: 1" "$out"
+assert_contains "a gist naming a login from the history is dropped" "dropped naming a login: 1" "$out"
+assert_lacks "the login-naming gist never reaches the corpus" "i.sh" "$(cat "$c1")"
+r=$(row 3 k.sh)
+assert_contains "a non-string dismissal is not a declined match" "	other	no	fallback	" "$r"
 assert_contains "reports the screened drop" "dropped by screen: 1" "$out"
-assert_contains "warns about a malformed miss fragment" "malformed review-miss" "$out"
+assert_contains "warns about the malformed miss fragments, one lacking a PR number" "warning: 2 malformed review-miss" "$out"
 assert_lacks "never echoes a PR body or comment" "never exits" "$out"
 
 # --- a second refresh writes v2, carries labels, leaves v1 untouched ---
 sum1=$(cksum <"$c1")
+printf '%s\n' "- 2026-09-06 [planwright] review-miss(correctness, declined): #7 a.sh: declined before the fix" >"$ledger/2026-09-06-review-miss-0000eeee.md"
 : >"$ANNOTATE_LOG.all"
 out=$(run_refresh --names "$names" 2>&1)
 assert_exit "refresh into v2 succeeds" 0 $?
@@ -195,7 +211,11 @@ if [ -f "$croot/v2/corpus.tsv" ]; then ok "v2 corpus written"; else fail "v2 cor
 if [ "$(cksum <"$c1")" = "$sum1" ]; then ok "v1 is unchanged by a later refresh"; else fail "v1 changed"; fi
 carried=$(grep -c '"path":"a.sh"' "$ANNOTATE_LOG.all")
 if [ "$carried" -eq 0 ]; then ok "a carried row is not re-annotated"; else fail "carried row re-annotated ($carried)"; fi
-assert_contains "reports the carried rows" "carried: " "$out"
+assert_contains "reports the carried rows" "carried: 6" "$out"
+r=$(awk -F '\t' '$2 == 7 && $4 == "a.sh"' "$croot/v2/corpus.tsv")
+assert_contains "a new ledger entry relabels a carried row" "	declined	yes	ledger	" "$r"
+assert_contains "a carried row relabelled declined gets a dismissal" "the convergence pass declined it" "$r"
+rm -f "$ledger/2026-09-06-review-miss-0000eeee.md"
 
 # --- --label-reasons asks the annotator for the class (the v1 bootstrap) ---
 rm -rf "$croot"/v*
@@ -203,6 +223,35 @@ run_refresh --names "$names" --label-reasons >/dev/null 2>&1
 assert_exit "a labelling refresh succeeds" 0 $?
 r=$(awk -F '\t' '$2 == 7 && $4 == "a.sh"' "$croot/v1/corpus.tsv")
 assert_contains "a model-labelled row records its label source" "	runtime-tracing	yes	model	" "$r"
+
+# --- --fetch-only normalizes the fetched history, needing no list or annotator ---
+mkdir -p "$T/bin"
+cat >"$T/bin/gh" <<'EOF'
+#!/bin/sh
+case "$1 $2" in
+  "repo view") printf 'example/repo\n' ;;
+  "api graphql")
+    cat <<'JSON'
+{"data":{"repository":{"pullRequests":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
+ {"number":12,"mergedAt":"2026-09-01T00:00:00Z","body":"b","author":{"login":"owner"},
+  "reviews":{"nodes":[{"author":{"login":"helper-bot","__typename":"Bot"},"submittedAt":"2026-09-01T00:00:00Z"}]},
+  "reviewThreads":{"nodes":[{"path":"a.sh","originalLine":4,"comments":{"nodes":[
+    {"author":{"login":"helper-bot","__typename":"Bot"},"body":"x","originalCommit":{"oid":"0123456789abcdef0123456789abcdef01234567"}},
+    {"author":null,"body":"Fixed in abc1234","originalCommit":{"oid":"0123456789abcdef0123456789abcdef01234567"}}]}}]}}
+]}}}}
+JSON
+    ;;
+  *) exit 9 ;;
+esac
+EOF
+chmod +x "$T/bin/gh"
+out=$(PATH="$T/bin:$PATH" CLAUDE_PLUGIN_DATA="$T/nostate" "$REFRESH" --fetch-only --dump-history "$T/fetched.json" 2>&1)
+assert_exit "--fetch-only runs without the name list or an annotator" 0 $?
+norm=$(jq -c '.prs[0] | [.number, .author, .reviews[0].bot, .threads[0].line, .threads[0].commit[0:7], .threads[0].replies[0].author]' "$T/fetched.json" 2>&1)
+assert_contains "--fetch-only writes the normalized history" '[12,"owner",true,4,"0123456","ghost"]' "$norm"
+if [ -d "$croot/v2" ]; then fail "--fetch-only wrote a corpus version"; else ok "--fetch-only writes no corpus"; fi
+"$REFRESH" --fetch-only >/dev/null 2>&1
+assert_exit "--fetch-only without --dump-history is a usage error" 2 $?
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2

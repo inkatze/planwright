@@ -22,7 +22,7 @@ once written: every recall comparison is made within one version.
 
 | Column | Meaning |
 | --- | --- |
-| `id` | `r<digits>`, unique within the version |
+| `id` | `r` and at least four digits, unique within the version |
 | `pr` | the pull request number |
 | `commit` | the pre-fix commit: the commit the review thread was opened on |
 | `path`, `line` | where the thread pointed, in that commit |
@@ -39,9 +39,11 @@ grammar's reason tokens.
 
 **Hygiene.** The corpus holds only this public repository's data. A gist or
 dismissal is always a paraphrase: never reviewer text, a login, a URL, or a
-home path. `scripts/review-corpus-screen.sh` refuses a row that breaks the
-schema or those rules, and with `--names <file>` also a row naming a listed
-product. The product-name list is machine-local, at
+home path. The refresh drops a paraphrase that repeats its comment's wording
+or names any login the PR history holds, since only it holds both.
+`scripts/review-corpus-screen.sh` refuses a row that breaks the schema or
+those rules, and with `--names <file>` also a row naming a listed product.
+The product-name list is machine-local, at
 `$CLAUDE_PLUGIN_DATA/review-backtest/product-names.txt`, one name per line,
 and never committed; CI, which has no list, runs the rest of the screen
 through the test suite.
@@ -68,6 +70,9 @@ row passes the screen with the product-name list required.
 
 The refresh refuses to run without the product-name list, and refuses a
 history carrying a PR number that is not a positive integer.
+`--dump-history <file>` saves the fetched history, raw review text and logins
+included, so keep that file outside the repository; `--fetch-only` stops
+there, writing no corpus.
 
 ## Replaying it
 
@@ -83,9 +88,10 @@ unreplayable rows; it refuses a sample with no replayable row overall or in a
 targeted class. Each row is one review pass, no fixes and no loop, run by
 the reviewer command in a fresh clone at the row's pre-fix commit, with no
 remote to push to and a redirected home and state home for the commands it
-runs. A `declined` row's dismissal is seeded into the coordinator's ledger the
-pass receives. A row is caught when any finding cites its file within 10
-lines of its line.
+runs. The default reviewer reads the change from a diff file beside the clone
+and has read-only file tools only. A `declined` row's dismissal is seeded
+into the coordinator's ledger the pass receives. A row is caught when any
+finding cites its file within 10 lines of its line.
 
 With `--baseline`, the run reuses the baseline's seed and cap, refuses a
 baseline recorded on another model or corpus version, and exits 1 when a
@@ -106,8 +112,9 @@ mise run eval:review-cost --prs-from <first PR in the window>
 
 `scripts/review-cost.sh` reports tokens per convergence run and its share of
 the unit (from the transcripts and fleet events), and the post-convergence
-finding rate, median fixed findings, and median review rounds (from the PR
-history and the miss ledger). It compares the rate and the token median
+finding rate over bot-reviewed PRs, median fixed findings, and median review
+rounds (from the PR history and the miss ledger, its archived fragments
+included). It compares the rate and the token median
 against `tests/fixtures/review-backtest/baselines.tsv`, the research seed's
 measurements recorded as decided values, and gives a verdict only over a
-window of at least 15 externally reviewed PRs.
+window of at least 15 bot-reviewed PRs.

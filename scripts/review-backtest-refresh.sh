@@ -16,10 +16,12 @@
 #
 # LABELS, in order:
 #   1. a miss-ledger fragment keyed on the PR number and path (label source
-#      `ledger`): `review-miss(<lens>, <reason>): #<pr> <path>: ...`;
+#      `ledger`), read from the observation entries and archive alike, in the
+#      grammar review-backtest-lib.sh's rbt_read_ledger parses;
 #   2. the same finding in the latest earlier version (same PR, path, line,
-#      and commit), whose labels, gist and dismissal are carried unchanged, so
-#      a refresh never relabels a row it already holds;
+#      and commit), whose category, class, gist and dismissal are carried, so
+#      a refresh relabels a row it already holds only when a ledger entry
+#      for it now exists;
 #   3. a match against the PR body's declined log, judged by the annotator
 #      (`declined-log`), carrying a paraphrased dismissal;
 #   4. otherwise reason `other` (`fallback`), counted and reported so ledger
@@ -27,11 +29,12 @@
 #      class instead (`model`), the bootstrap used where no ledger exists yet.
 #
 # HYGIENE. Every gist and dismissal is a paraphrase written by the annotator.
-# A paraphrase sharing an eight-word run with the comment or reply it came
-# from, or containing the whole of a short one, is dropped as verbatim. The
-# written rows then pass review-corpus-screen.sh with the product-name list
-# required; a refused row is dropped. Both drops are counted. The list lives
-# in the machine-local state home and this script refuses to run without it.
+# One sharing an eight-word run with the comment or the reply it came from,
+# or containing the whole of either when it is short, is dropped as verbatim;
+# one naming any login the history holds is dropped too. The written rows
+# then pass review-corpus-screen.sh with the product-name list required; a
+# refused row is dropped. Every drop is counted. The list lives in the
+# machine-local state home and this script refuses to run without it.
 # Reviewer logins, comment text, and PR bodies never reach stdout or stderr.
 #
 # REPLAYABLE. Each row's PR head ref (refs/pull/<N>/head) is fetched from the
@@ -54,24 +57,31 @@
 #     "reviews": [{"author", "bot", "submitted_at"}],
 #     "threads": [{"path", "line", "commit", "author", "bot", "body",
 #                  "replies": [{"author", "body"}]}]}]}
-# Every PR number must be a positive integer, or the run is refused.
+# Every PR number must be a positive integer, or the run is refused. A dump
+# holds raw review text and logins: keep it outside the repository.
+# --fetch-only stops after the fetch and the dump, writing no corpus and
+# needing neither the name list nor an annotator (review-cost.sh uses it).
 #
 # Usage:
 #   review-backtest-refresh.sh [--history <file> | --repo <owner/name>]
-#       [--remote <url-or-path>] [--corpus-root <dir>] [--ledger-dir <dir>]
+#       [--remote <url-or-path>] [--corpus-root <dir>] [--ledger-dir <dir>]...
 #       [--names <file>] [--annotate-cmd <executable>] [--batch <n>]
 #       [--label-reasons] [--dump-history <file>]
+#   review-backtest-refresh.sh --fetch-only --dump-history <file>
+#       [--repo <owner/name>]
 #
 #   --corpus-root   default tests/fixtures/review-backtest in this checkout
-#   --ledger-dir    default the observation entries under the spec root
+#   --ledger-dir    default the observation entries and archive under the
+#                   spec root
 #   --names         default $CLAUDE_PLUGIN_DATA/review-backtest/product-names.txt
 #   --remote        default https://github.com/<repo>.git
 #   --batch         annotation requests per annotator call, default 20
 #
-# Exit codes: 0 a new version written; 1 the annotator or a git fetch failed,
-#   or the screened rows still fail the screen; 2 usage, a missing name list,
-#   an unreadable or malformed history (a non-integer PR number included), or
-#   a refresh that would write zero rows.
+# Exit codes: 0 a new version written (or, with --fetch-only, the history
+#   dumped); 1 gh, a git fetch, or the annotator failed, the target version
+#   already exists, or the screened rows still fail the screen; 2 usage, a
+#   missing name list, an unreadable or malformed history (a non-integer PR
+#   number included), or a refresh that would write zero rows.
 set -eu
 LC_ALL=C
 export LC_ALL
@@ -86,9 +96,10 @@ repo_root=$(cd "$here/.." && pwd)
 usage() {
   cat >&2 <<EOF
 usage: $prog [--history <file> | --repo <owner/name>] [--remote <url-or-path>]
-         [--corpus-root <dir>] [--ledger-dir <dir>] [--names <file>]
+         [--corpus-root <dir>] [--ledger-dir <dir>]... [--names <file>]
          [--annotate-cmd <executable>] [--batch <n>] [--label-reasons]
          [--dump-history <file>]
+       $prog --fetch-only --dump-history <file> [--repo <owner/name>]
 EOF
   exit 2
 }
@@ -97,15 +108,19 @@ die() {
   exit "$1"
 }
 
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/rbt-refresh.XXXXXX")
+trap 'rm -rf "$tmp"' EXIT INT TERM
+
 history=
 repo=
 remote=
 corpus_root=$repo_root/tests/fixtures/review-backtest
-ledger_dir=
+: >"$tmp/ledger-dirs"
 names=
 annotate=$here/review-backtest-annotate.sh
 batch=20
 label_reasons=false
+fetch_only=0
 dump=
 while [ $# -gt 0 ]; do
   case $1 in
@@ -116,7 +131,7 @@ while [ $# -gt 0 ]; do
         --repo) repo=$2 ;;
         --remote) remote=$2 ;;
         --corpus-root) corpus_root=$2 ;;
-        --ledger-dir) ledger_dir=$2 ;;
+        --ledger-dir) printf '%s\n' "$2" >>"$tmp/ledger-dirs" ;;
         --names) names=$2 ;;
         --annotate-cmd) annotate=$2 ;;
         --batch) batch=$2 ;;
@@ -128,27 +143,32 @@ while [ $# -gt 0 ]; do
       label_reasons=true
       shift
       ;;
+    --fetch-only)
+      fetch_only=1
+      shift
+      ;;
     *) usage ;;
   esac
 done
 rbt_is_uint "$batch" || die 2 "--batch must be a positive integer"
 
-if [ -z "$names" ]; then
-  [ -n "${CLAUDE_PLUGIN_DATA:-}" ] \
-    || die 2 "no product-name list: pass --names or set CLAUDE_PLUGIN_DATA (the list lives at <state home>/review-backtest/product-names.txt)"
-  names=${CLAUDE_PLUGIN_DATA%/}/review-backtest/product-names.txt
+if [ "$fetch_only" -eq 1 ]; then
+  [ -n "$dump" ] || die 2 "--fetch-only needs --dump-history <file>"
+  [ -z "$history" ] || die 2 "--fetch-only fetches; it takes no --history"
+else
+  if [ -z "$names" ]; then
+    [ -n "${CLAUDE_PLUGIN_DATA:-}" ] \
+      || die 2 "no product-name list: pass --names or set CLAUDE_PLUGIN_DATA (the list lives at <state home>/review-backtest/product-names.txt)"
+    names=${CLAUDE_PLUGIN_DATA%/}/review-backtest/product-names.txt
+  fi
+  [ -f "$names" ] && [ -r "$names" ] \
+    || die 2 "the product-name list is missing; the refresh refuses to run without it (one name per line, kept machine-local, never committed)"
+  [ -x "$annotate" ] || die 2 "the annotate command is not an executable file"
+  if [ ! -s "$tmp/ledger-dirs" ]; then
+    spec_root=$("$here/resolve-root.sh" spec) || die 2 "cannot resolve the spec root for the miss ledger; pass --ledger-dir"
+    printf '%s\n%s\n' "$spec_root/_observations/entries" "$spec_root/_observations/archive" >"$tmp/ledger-dirs"
+  fi
 fi
-[ -f "$names" ] && [ -r "$names" ] \
-  || die 2 "the product-name list is missing; the refresh refuses to run without it (one name per line, kept machine-local, never committed)"
-[ -x "$annotate" ] || die 2 "the annotate command is not an executable file"
-
-if [ -z "$ledger_dir" ]; then
-  spec_root=$("$here/resolve-root.sh" spec) || die 2 "cannot resolve the spec root for the miss ledger; pass --ledger-dir"
-  ledger_dir=$spec_root/_observations/entries
-fi
-
-tmp=$(mktemp -d "${TMPDIR:-/tmp}/rbt-refresh.XXXXXX")
-trap 'rm -rf "$tmp"' EXIT INT TERM
 
 # --- the history -------------------------------------------------------------
 
@@ -203,6 +223,7 @@ jq -e 'type == "object" and (.prs | type == "array")' "$tmp/history.json" >/dev/
 jq -e '.prs | all(.number | type == "number" and . == floor and . > 0)' "$tmp/history.json" >/dev/null 2>&1 \
   || die 2 "the history carries a PR number that is not a positive integer; refused"
 [ -z "$dump" ] || cp "$tmp/history.json" "$dump"
+[ "$fetch_only" -eq 0 ] || exit 0
 [ -n "$repo" ] || repo=$(jq -r '.repo // ""' "$tmp/history.json")
 if [ -z "$remote" ]; then
   case $repo in
@@ -220,10 +241,10 @@ jq -c "$RBT_JQ_DEFS"'
   def wellformed: (.commit | type == "string" and test("^[0-9a-f]{40}$"))
     and (.line | type == "number" and . == floor and . >= 1)
     and (.path | type == "string" and length > 0 and (test("^[/~-]") | not)
-         and (test("(^|/)\\.\\.(/|$)") | not) and (test("[[:cntrl:]]") | not));
+         and (test("(^|/)\\.\\.(/|$)") | not) and (test("[\\x00-\\x1f\\x7f]") | not));
   .prs[] | . as $pr | ($pr.body | declined_lines) as $dl
   | $pr.threads[] | select(rbt_fixed_external($pr.author))
-  | { pr: $pr.number, path, line, commit, finding: .body,
+  | { pr: $pr.number, path, line, commit, finding: (.body // ""),
       reply: ([ .replies[] | select(.author == $pr.author and (.body | rbt_fix_reply)) | .body ][0] // ""),
       declined_log: ((.path // "") as $p | ($p | split("/") | last) as $base
         | [ $dl[] | select($base != "" and index($base)) | .[0:300] ][0:5]),
@@ -231,25 +252,16 @@ jq -c "$RBT_JQ_DEFS"'
 ' "$tmp/history.json" >"$tmp/cand-all.jsonl" || die 2 "could not read the PR history"
 jq -c 'select(.ok) | del(.ok) | .key = "\(.pr):\(.path):\(.line):\(.commit)"' "$tmp/cand-all.jsonl" >"$tmp/cand.jsonl"
 malformed_loc=$(jq -c 'select(.ok | not)' "$tmp/cand-all.jsonl" | wc -l | tr -d ' ')
+jq -c '[ .prs[] | .author, (.reviews[]?.author), (.threads[]? | .author, (.replies[]?.author)) ]
+  | map(select(type == "string") | ascii_downcase | sub("\\[bot\\]$"; "") | select(length >= 3 and . != "ghost")) | unique' \
+  "$tmp/history.json" >"$tmp/logins.json"
 
 # --- the miss ledger ---------------------------------------------------------
 
-: >"$tmp/ledger.tsv"
-malformed_miss=0
-if [ -d "$ledger_dir" ]; then
-  for f in "$ledger_dir"/*.md; do
-    [ -f "$f" ] || continue
-    grep -q 'review-miss' "$f" || continue
-    line=$(grep -m1 'review-miss' "$f")
-    parsed=$(printf '%s\n' "$line" | sed -n 's/^- [0-9-]* \[[^]]*\] review-miss(\([a-z0-9-]*\), \([a-z-]*\)): #\([1-9][0-9]*\) \([^ :][^ :]*\): .*$/\3	\4	\2	\1/p')
-    reason=$(printf '%s\n' "$parsed" | cut -f3)
-    if [ -z "$parsed" ] || ! rbt_in_list "$reason" "$RBT_REASONS" || ! rbt_safe_relpath "$(printf '%s\n' "$parsed" | cut -f2)"; then
-      malformed_miss=$((malformed_miss + 1))
-      continue
-    fi
-    printf '%s\n' "$parsed" >>"$tmp/ledger.tsv"
-  done
-fi
+set --
+while IFS= read -r d; do set -- "$@" "$d"; done <"$tmp/ledger-dirs"
+rbt_read_ledger "$tmp/ledger.tsv" "$@"
+malformed_miss=$RBT_LEDGER_MALFORMED
 jq -R -s -c '[ split("\n")[] | select(length > 0) | split("\t") | {key: "\(.[0]):\(.[1])", reason: .[2]} ]
   | map({(.key): .reason}) | add // {}' "$tmp/ledger.tsv" >"$tmp/ledger.json"
 
@@ -289,11 +301,9 @@ jq -r '.pr' "$tmp/cand.jsonl" | sort -un >"$tmp/prs.txt"
 git ls-remote "$remote" 'refs/pull/*/head' >"$tmp/heads.txt" 2>/dev/null || die 1 "git ls-remote failed against the remote"
 : >"$tmp/refspecs.txt"
 git -C "$mirror" fetch -q --no-tags "$remote" "+refs/heads/main:refs/heads/main" || die 1 "git fetch of the remote's main failed"
-while IFS= read -r n; do
-  if grep -q "	refs/pull/$n/head\$" "$tmp/heads.txt"; then
-    printf '+refs/pull/%s/head:refs/backtest/pr/%s\n' "$n" "$n" >>"$tmp/refspecs.txt"
-  fi
-done <"$tmp/prs.txt"
+awk -F '\t' 'FILENAME == ARGV[1] { want[$1] = 1; next }
+  { n = $2; sub(/^refs\/pull\//, "", n); sub(/\/head$/, "", n); if (n in want) printf "+refs/pull/%s/head:refs/backtest/pr/%s\n", n, n }' \
+  "$tmp/prs.txt" "$tmp/heads.txt" >"$tmp/refspecs.txt"
 if [ -s "$tmp/refspecs.txt" ]; then
   split -l 200 "$tmp/refspecs.txt" "$tmp/refs."
   for r in "$tmp"/refs.*; do
@@ -301,8 +311,7 @@ if [ -s "$tmp/refspecs.txt" ]; then
     git -C "$mirror" fetch -q --no-tags "$remote" $(cat "$r") || die 1 "git fetch of the PR head refs failed"
   done
 fi
-: >"$tmp/replay.tsv"
-jq -r '[.key, (.pr | tostring), .commit] | @tsv' "$tmp/cand.jsonl" | while IFS='	' read -r key n commit; do
+jq -r '[.key, (.pr | tostring), .commit] | join("\t")' "$tmp/cand.jsonl" | while IFS='	' read -r key n commit; do
   flag=no
   if git -C "$mirror" rev-parse -q --verify "refs/backtest/pr/$n" >/dev/null 2>&1 \
     && git -C "$mirror" merge-base --is-ancestor "$commit" "refs/backtest/pr/$n" 2>/dev/null \
@@ -319,33 +328,41 @@ jq -s -c 'map({(.key): .}) | add // {}' "$tmp/answers.jsonl" >"$tmp/answers.json
 jq -c \
   --slurpfile prev "$tmp/prev.json" --slurpfile ans "$tmp/answers.json" \
   --slurpfile ledger "$tmp/ledger.json" --slurpfile replay "$tmp/replay.json" \
+  --slurpfile logins "$tmp/logins.json" \
   --arg reasons "$RBT_REASONS" --arg categories "$RBT_CATEGORIES" --argjson label "$label_reasons" '
   def words: ascii_downcase | [scan("[a-z0-9]+")];
   def shingles: . as $w | [range(0; ($w | length) - 7) | $w[.:(. + 8)] | join(" ")];
-  def verbatim($src): ($src | words) as $sw | (. | words) as $gw
+  def copies($src): ($src | words) as $sw | (. | words) as $gw
     | (($gw | shingles) - (($gw | shingles) - ($sw | shingles)) | length > 0)
       or (($sw | length) >= 3 and (($gw | join(" ")) | contains($sw | join(" "))));
+  def verbatim($c): copies($c.finding) or copies($c.reply);
+  def names_login: (ascii_downcase | [scan("[a-z0-9][a-z0-9_-]*")]) as $t | any($logins[0][]; . as $l | $t | index([$l]) != null);
+  def text: type == "string" and length > 0;
   def oneline: gsub("[\\t\\r\\n]+"; " ") | gsub("^ +| +$"; "");
   ($reasons | split(" ")) as $R | ($categories | split(" ")) as $C
   | . as $c | ($ledger[0]["\($c.pr):\($c.path)"]) as $lr
   | ($replay[0][$c.key] // "no") as $rp
   | if $prev[0][$c.key] then
       $prev[0][$c.key] as $p
+      | ($lr // $p.reason) as $reason
       | {status: "carried", pr, path, line, commit, replayable: $rp, category: $p.category,
-         reason: ($lr // $p.reason), label_source: (if $lr then "ledger" else $p.label_source end),
-         gist: $p.gist, dismissal: (if ($lr // $p.reason) == "declined" then $p.dismissal else "-" end)}
+         reason: $reason, label_source: (if $lr then "ledger" else $p.label_source end), gist: $p.gist,
+         dismissal: (if $reason != "declined" then "-"
+                     elif $p.dismissal != "-" then $p.dismissal
+                     else "the convergence pass declined it" end)}
     else
       ($ans[0][$c.key]) as $a
-      | if ($a == null) or (($a.gist // "") | type != "string" or length == 0)
-           or ([$a.category] | inside($C) | not) then {status: "unannotated"}
+      | if ($a | type) != "object" or (($a.gist // null) | text | not)
+           or (($a.category // null) as $k | any($C[]; . == $k) | not) then {status: "unannotated"}
         else
-          (($a.gist | oneline)) as $g
-          | (if ($a.declined == true) and (($a.dismissal // "") | length > 0) then ($a.dismissal | oneline) else null end) as $d
+          ($a.gist | oneline) as $g
+          | (if $a.declined == true and (($a.dismissal // null) | text) then ($a.dismissal | oneline) else null end) as $d
           | (if $lr then {reason: $lr, src: "ledger"}
              elif $d then {reason: "declined", src: "declined-log"}
-             elif $label and ([$a.reason] | inside($R)) then {reason: $a.reason, src: "model"}
+             elif $label and (($a.reason // null) as $k | any($R[]; . == $k)) then {reason: $a.reason, src: "model"}
              else {reason: "other", src: "fallback"} end) as $lab
-          | if ($g | verbatim($c.finding + " " + $c.reply)) or ($d and ($d | verbatim($c.finding + " " + $c.reply))) then {status: "verbatim"}
+          | if ($g | verbatim($c)) or ($d and ($d | verbatim($c))) then {status: "verbatim"}
+            elif ($g | names_login) or ($d and ($d | names_login)) then {status: "login"}
             else
               {status: (if $lab.src == "fallback" then "fallback" elif $lab.src == "ledger" then "ledger" elif $lab.src == "declined-log" then "declined" else "model" end),
                pr, path, line, commit, replayable: $rp, category: $a.category, reason: $lab.reason,
@@ -358,16 +375,18 @@ jq -c \
 
 count() { jq -c "select(.status == \"$1\")" "$tmp/rows.jsonl" | wc -l | tr -d ' '; }
 
-jq -r 'select(.pr != null) | [.pr, .path, .line, .commit, .category, .reason, .replayable, .label_source, .gist, .dismissal] | @tsv' \
+# Joined with tabs, never @tsv: @tsv escapes a backslash, and a carried row
+# read back raw would gain one more on every refresh.
+jq -r 'select(.pr != null) | [.pr, .path, .line, .commit, .category, .reason, .replayable, .label_source, .gist, .dismissal]
+  | map(tostring) | join("\t")' \
   "$tmp/rows.jsonl" | sort -t '	' -k1,1n -k2,2 -k3,3n -k4,4 \
-  | awk -F '\t' 'BEGIN { OFS = "\t" } { printf "r%04d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", NR, $1, $4, $2, $3, $5, $6, $7, $8, $9, $10 }' \
+  | awk -F '\t' '{ printf "r%04d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", NR, $1, $4, $2, $3, $5, $6, $7, $8, $9, $10 }' \
     >"$tmp/body.tsv"
+[ -s "$tmp/body.tsv" ] || die 2 "the refresh would write zero rows; nothing written"
 {
   printf '%s\n' "$RBT_HEADER"
   cat "$tmp/body.tsv"
 } >"$tmp/corpus.tsv"
-
-[ -s "$tmp/body.tsv" ] || die 2 "the refresh would write zero rows; nothing written"
 
 # --- the hygiene screen: drop each refused row, then the rest must pass ------
 
@@ -385,28 +404,29 @@ kept=$(($(wc -l <"$tmp/corpus.tsv") - 1))
 
 # --- publish v<next> ---------------------------------------------------------
 
+# mkdir claims the version atomically; the file is staged beside it and
+# renamed within the same filesystem, so a reader never sees a partial corpus.
 dest=$corpus_root/v$next
-[ ! -e "$dest" ] || die 1 "corpus version v$next already exists; nothing written"
 mkdir -p "$corpus_root"
-mkdir "$tmp/v"
-cp "$tmp/corpus.tsv" "$tmp/v/corpus.tsv"
-mv "$tmp/v" "$dest"
+mkdir "$dest" 2>/dev/null || die 1 "corpus version v$next already exists; nothing written"
+cp "$tmp/corpus.tsv" "$dest/.corpus.tsv.partial"
+mv "$dest/.corpus.tsv.partial" "$dest/corpus.tsv"
 
 unrep=$(awk -F '\t' 'NR > 1 && $8 == "no"' "$dest/corpus.tsv" | wc -l | tr -d ' ')
 fallback=$(awk -F '\t' 'NR > 1 && $9 == "fallback"' "$dest/corpus.tsv" | wc -l | tr -d ' ')
-# Every value printed below is an integer from wc or awk.
-printf '%s\n' "$prog: wrote corpus v$next ($kept rows)" # trusted: integers and a fixed name
+printf '%s\n' "$prog: wrote corpus v$next ($kept rows)"
 printf '%s\n' "  candidates: $(wc -l <"$tmp/cand.jsonl" | tr -d ' ')"
 printf '%s\n' "  carried: $(count carried)"
 printf '%s\n' "  ledger-labelled: $(count ledger)"
 printf '%s\n' "  declined-log: $(count declined)"
 printf '%s\n' "  model-labelled: $(count model)"
-printf '%s\n' "  fallback other: $fallback" # trusted: integer from awk
-printf '%s\n' "  unreplayable: $unrep"      # trusted: integer from awk
+printf '%s\n' "  fallback other: $fallback"
+printf '%s\n' "  unreplayable: $unrep"
 printf '%s\n' "  dropped unannotated: $(count unannotated)"
 printf '%s\n' "  dropped verbatim: $(count verbatim)"
-printf '%s\n' "  dropped by screen: $screened"               # trusted: integer from wc
-printf '%s\n' "  skipped malformed location: $malformed_loc" # trusted: integer from wc
+printf '%s\n' "  dropped naming a login: $(count login)"
+printf '%s\n' "  dropped by screen: $screened"
+printf '%s\n' "  skipped malformed location: $malformed_loc"
 if [ "$malformed_miss" -gt 0 ]; then
-  printf '%s\n' "$prog: warning: $malformed_miss malformed review-miss fragment(s) ignored (grammar: review-miss(<lens>, <reason>): #<pr> <path>: ...)" >&2 # trusted: integer
+  printf '%s\n' "$prog: warning: $malformed_miss malformed review-miss fragment(s) ignored (grammar: review-miss(<lens>, <reason>): #<pr> <path>: ...)" >&2
 fi

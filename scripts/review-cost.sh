@@ -19,19 +19,19 @@
 # boundaries are a heuristic, the same one the research seed measured with.
 #
 # THE POST-CONVERGENCE FINDING RATE, from the PR history and the miss ledger.
-# Of the externally reviewed PRs in the window (a review or thread by someone
-# other than the author), the share with a fixed external finding: a thread
-# the author answered with a fix reply (review-backtest-lib.sh's predicate),
+# Of the bot-reviewed PRs in the window (a review or thread by a bot account,
+# the population the baselines measured), the share with a fixed external
+# finding: a thread opened by anyone but the author# the author answered with a fix reply (review-backtest-lib.sh's predicate),
 # or a `review-miss` ledger entry naming the PR. Also reported: the median
 # fixed findings and external review rounds per such PR.
 #
 # THE BAR (REQ-H1.4, fixed before the window): both the finding rate and the
 # median tokens per run below their baselines. A window with fewer than
-# --min-window (default 15) externally reviewed PRs gets no verdict.
+# --min-window (default 15) bot-reviewed PRs gets no verdict.
 #
 # Usage:
 #   review-cost.sh [--transcripts <dir>]... [--events <file>]...
-#       [--history <file>] [--ledger-dir <dir>] [--baselines <file>]
+#       [--history <file>] [--ledger-dir <dir>]... [--baselines <file>]
 #       [--prs-from <N>] [--merged-after <YYYY-MM-DD>] [--min-window <N>]
 #
 #   --transcripts  a Claude Code project directory (<session>.jsonl files and
@@ -41,7 +41,9 @@
 #                  under the fleet home
 #   --history      the normalized PR history review-backtest-refresh.sh
 #                  writes; default a fresh fetch through it
-#   --ledger-dir   default the observation entries under the spec root
+#   --ledger-dir   repeatable; default the observation entries and archive
+#                  under the spec root (a drained miss is still a miss)
+#   --merged-after PRs merged on or after this date (UTC)
 #   --baselines    default tests/fixtures/review-backtest/baselines.tsv
 #
 # Exit codes: 0 report printed; 2 usage or an unreadable input.
@@ -74,7 +76,7 @@ trap 'rm -rf "$tmp"' EXIT INT TERM
 : >"$tmp/tdirs"
 : >"$tmp/efiles"
 history=
-ledger_dir=
+: >"$tmp/ldirs"
 baselines=$repo_root/tests/fixtures/review-backtest/baselines.tsv
 prs_from=1
 merged_after=
@@ -87,7 +89,7 @@ while [ $# -gt 0 ]; do
         --transcripts) printf '%s\n' "$2" >>"$tmp/tdirs" ;;
         --events) printf '%s\n' "$2" >>"$tmp/efiles" ;;
         --history) history=$2 ;;
-        --ledger-dir) ledger_dir=$2 ;;
+        --ledger-dir) printf '%s\n' "$2" >>"$tmp/ldirs" ;;
         --baselines) baselines=$2 ;;
         --prs-from) prs_from=$2 ;;
         --merged-after) merged_after=$2 ;;
@@ -117,9 +119,9 @@ if [ ! -s "$tmp/efiles" ] && [ -n "${CLAUDE_PLUGIN_DATA:-}" ]; then
     [ -f "$f" ] && printf '%s\n' "$f" >>"$tmp/efiles"
   done
 fi
-if [ -z "$ledger_dir" ]; then
+if [ ! -s "$tmp/ldirs" ]; then
   spec_root=$("$here/resolve-root.sh" spec 2>/dev/null) || spec_root=
-  [ -z "$spec_root" ] || ledger_dir=$spec_root/_observations/entries
+  [ -z "$spec_root" ] || printf '%s\n%s\n' "$spec_root/_observations/entries" "$spec_root/_observations/archive" >"$tmp/ldirs"
 fi
 
 # --- tokens per convergence run ----------------------------------------------
@@ -192,19 +194,19 @@ while IFS= read -r e; do
 done <"$tmp/efiles"
 
 # shellcheck disable=SC2016 # awk program text
+# The median of numbers already sorted ascending (`sort -n` feeds it).
 median='{ v[NR] = $1 } END {
   if (NR == 0) { print "n/a"; exit }
-  for (i = 2; i <= NR; i++) { x = v[i]; for (j = i - 1; j >= 1 && v[j] > x; j--) v[j + 1] = v[j]; v[j + 1] = x }
   m = (NR % 2) ? v[(NR + 1) / 2] : (v[NR / 2] + v[NR / 2 + 1]) / 2
   print m
 }'
 runs=$(wc -l <"$tmp/runs.tsv" | tr -d ' ')
-med_tokens=$(cut -f4 "$tmp/runs.tsv" | awk "$median")
+med_tokens=$(cut -f4 "$tmp/runs.tsv" | sort -n | awk "$median")
 med_share=$(awk -F '\t' '
   FILENAME == ARGV[1] { fleet[$1] += $2; next }
   FILENAME == ARGV[2] { unit[$1] = $2; next }
   { u = ($1 in fleet) ? fleet[$1] : unit[$1]; if (u > 0) print $4 / u }
-' "$tmp/fleet.tsv" "$tmp/units.tsv" "$tmp/runs.tsv" | awk "$median")
+' "$tmp/fleet.tsv" "$tmp/units.tsv" "$tmp/runs.tsv" | sort -n | awk "$median")
 
 # --- the post-convergence finding rate ---------------------------------------
 
@@ -216,19 +218,15 @@ fi
 [ -f "$history" ] && [ -r "$history" ] || die 2 "the history file is not readable"
 jq -e '.prs | type == "array"' "$history" >/dev/null 2>&1 || die 2 "the history is not the normalized shape"
 
-: >"$tmp/ledger.tsv"
-if [ -n "$ledger_dir" ] && [ -d "$ledger_dir" ]; then
-  for f in "$ledger_dir"/*.md; do
-    [ -f "$f" ] || continue
-    sed -n 's/^- [0-9-]* \[[^]]*\] review-miss([a-z0-9-]*, [a-z-]*): #\([1-9][0-9]*\) [^ :][^ :]*: .*$/\1/p' "$f" >>"$tmp/ledger.tsv"
-  done
-fi
-jq -R -s -c '[split("\n")[] | select(length > 0) | tonumber]' "$tmp/ledger.tsv" >"$tmp/ledger.json"
+set --
+while IFS= read -r d; do set -- "$@" "$d"; done <"$tmp/ldirs"
+rbt_read_ledger "$tmp/ledger.tsv" "$@"
+jq -R -s -c '[split("\n")[] | select(length > 0) | split("\t")[0] | tonumber]' "$tmp/ledger.tsv" >"$tmp/ledger.json"
 
 jq -r --slurpfile led "$tmp/ledger.json" --argjson from "$prs_from" --arg after "$merged_after" "$RBT_JQ_DEFS"'
   [ .prs[] | select(.number >= $from) | select($after == "" or ((.merged_at // "") >= $after))
     | . as $p
-    | { n: .number, ext: rbt_external_reviewed,
+    | { n: .number, ext: rbt_bot_reviewed,
         fixed: (([.threads[]? | select(rbt_fixed_external($p.author))] | length)
                 + ([$led[0][] | select(. == $p.number)] | length)),
         rounds: ([.reviews[]? | select((.author // "") != $p.author)] | length),
@@ -241,27 +239,29 @@ jq -r --slurpfile led "$tmp/ledger.json" --argjson from "$prs_from" --arg after 
 ' "$history" >"$tmp/rate.tsv" || die 2 "could not read the PR history"
 IFS='	' read -r n_window n_ext n_hit n_ledger fixed_list rounds_list <"$tmp/rate.tsv" || true
 rate=$(awk -v h="$n_hit" -v e="$n_ext" 'BEGIN { if (e > 0) printf "%.3f", h / e; else print "n/a" }')
-med_fixed=$(printf '%s\n' "$fixed_list" | tr ',' '\n' | awk 'NF' | awk "$median")
-med_rounds=$(printf '%s\n' "$rounds_list" | tr ',' '\n' | awk 'NF' | awk "$median")
+med_fixed=$(printf '%s\n' "$fixed_list" | tr ',' '\n' | awk 'NF' | sort -n | awk "$median")
+med_rounds=$(printf '%s\n' "$rounds_list" | tr ',' '\n' | awk 'NF' | sort -n | awk "$median")
 
 # --- report and bar ------------------------------------------------------------
 
 fmt_share=$(printf '%s\n' "$med_share" | awk '$1 == "n/a" { print; next } { printf "%.2f\n", $1 }')
-printf '%s\n' "convergence runs: $runs"                           # trusted: integer from wc
-printf '%s\n' "tokens per convergence run (median): $med_tokens"  # trusted: number from awk
-printf '%s\n' "convergence share of unit (median): $fmt_share"    # trusted: number from awk
-printf '%s\n' "PRs in window: $n_window"                          # trusted: integer from jq
-printf '%s\n' "externally reviewed PRs: $n_ext"                   # trusted: integer from jq
-printf '%s\n' "PRs with a fixed post-convergence finding: $n_hit" # trusted: integer from jq
-printf '%s\n' "post-convergence finding rate: $rate"              # trusted: number from awk
-printf '%s\n' "fixed findings per such PR (median): $med_fixed"   # trusted: number from awk
-printf '%s\n' "review rounds per such PR (median): $med_rounds"   # trusted: number from awk
-printf '%s\n' "miss-ledger entries in window: $n_ledger"          # trusted: integer from jq
+printf '%s\n' "convergence runs: $runs"
+printf '%s\n' "tokens per convergence run (median): $med_tokens"
+printf '%s\n' "convergence share of unit (median): $fmt_share"
+printf '%s\n' "PRs in window: $n_window"
+printf '%s\n' "bot-reviewed PRs: $n_ext"
+printf '%s\n' "PRs with a fixed post-convergence finding: $n_hit"
+printf '%s\n' "post-convergence finding rate: $rate"
+printf '%s\n' "fixed findings per such PR (median): $med_fixed"
+printf '%s\n' "review rounds per such PR (median): $med_rounds"
+printf '%s\n' "miss-ledger entries in window: $n_ledger"
 
 if [ -f "$baselines" ] && [ -r "$baselines" ]; then
   b_rate=$(awk -F '\t' '$1 == "post_convergence_finding_rate" { print $2; exit }' "$baselines")
   b_tokens=$(awk -F '\t' '$1 == "median_tokens_per_convergence_run" { print $2; exit }' "$baselines")
-  printf '%s\n' "baseline: rate $b_rate, tokens $b_tokens" # trusted: numbers read from the tracked baselines
+  case $b_rate in '' | *[!0-9.]*) die 2 "the baselines' post_convergence_finding_rate is missing or not a number" ;; esac
+  case $b_tokens in '' | *[!0-9]*) die 2 "the baselines' median_tokens_per_convergence_run is missing or not a number" ;; esac
+  printf '%s\n' "baseline: rate $b_rate, tokens $b_tokens"
   verdict=$(awk -v r="$rate" -v br="$b_rate" -v t="$med_tokens" -v bt="$b_tokens" -v e="$n_ext" -v m="$min_window" 'BEGIN {
     if (e < m) { printf "window too small (%d < %d)", e, m; exit }
     if (r == "n/a" || t == "n/a" || br == "" || bt == "") { print "no verdict (a metric or baseline is missing)"; exit }
@@ -271,5 +271,7 @@ if [ -f "$baselines" ] && [ -r "$baselines" ]; then
   case $verdict in
     window* | no*) verdict="verdict: $verdict" ;;
   esac
-  printf '%s\n' "$verdict" # trusted: built from numbers and fixed text
+  printf '%s\n' "$verdict"
+else
+  printf '%s\n' "baseline: none (the baselines file is missing or unreadable); no verdict"
 fi

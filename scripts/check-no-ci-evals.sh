@@ -22,10 +22,10 @@
 #      b. Invoking a kept-eval runner script directly, bypassing mise entirely
 #         (`sh scripts/prompt-eval.sh …`, `./scripts/behavioral-eval.sh …`).
 #         Every on-demand runner is covered, the review backtest's replay,
-#         refresh, reviewer, annotator, and cost metric included — the guard
+#         refresh, reviewer, annotator, and cost metric included: the guard
 #         must see EVERY eval harness, not only `prompt-eval.sh`. The runner
-#         name is matched at a
-#         leading TOKEN BOUNDARY (`(^|[^[:alnum:]_-])`), so a path or
+#         name is matched at a leading TOKEN BOUNDARY
+#         (`(^|[^[:alnum:]_-])`), so a path or
 #         whitespace before it triggers but a `-`/word-char prefix does not:
 #         the test file `tests/test-behavioral-eval.sh` (which CI legitimately
 #         runs via the `tests/*.sh` glob) is NOT mistaken for the runner it

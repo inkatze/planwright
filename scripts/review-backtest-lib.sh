@@ -2,7 +2,8 @@
 # shellcheck disable=SC2034 # every variable here is read by the scripts sourcing it
 # review-backtest-lib.sh — the vocabulary and row rules the backtest corpus
 # scripts share (review-backtest.sh, review-backtest-refresh.sh,
-# review-corpus-screen.sh, review-cost.sh). Sourced, never run.
+# review-backtest-annotate.sh, review-corpus-screen.sh, review-cost.sh).
+# Sourced, never run.
 #
 # One definition of the corpus columns, the miss-reason classes, the category
 # and label-source vocabularies, the miss-ledger grammar, and the catch rule,
@@ -41,9 +42,7 @@ def rbt_fix_reply: test("^\\W*(fixed|addressed|applied|corrected|reworded)\\b"; 
       and (test("\\b(declin|not fixed|won.t fix|false positive|deferr)"; "i") | not));
 def rbt_fixed_external($author): (.author // "") != $author
   and any(.replies[]?; (.author // "") == $author and ((.body // "") | rbt_fix_reply));
-def rbt_external_reviewed: . as $pr
-  | any(.reviews[]?; (.author // "") != $pr.author)
-    or any(.threads[]?; (.author // "") != $pr.author);
+def rbt_bot_reviewed: any(.reviews[]?; .bot == true) or any(.threads[]?; .bot == true);
 '
 
 # rbt_in_list <word> <space-separated list> — 0 when word is a member.
@@ -73,17 +72,43 @@ rbt_is_sha() {
 
 # rbt_safe_relpath <path> — 0 for a repository-relative path: not empty, not
 # absolute or home-relative, no `..` segment, no leading dash, no control byte
-# or whitespace other than a plain space.
+# (a tab included). The screen's awk and the refresh's jq apply the same rule.
 rbt_safe_relpath() {
   case $1 in
     '' | /* | '~'* | -* | ../* | */../* | */.. | ..) return 1 ;;
   esac
-  _rsr_bad=$(printf '%s' "$1" | LC_ALL=C tr -d '[:print:]')
-  [ -z "$_rsr_bad" ] || return 1
-  case $1 in
-    *'	'*) return 1 ;;
-  esac
-  return 0
+  _rsr_bad=$(printf '%s' "$1" | LC_ALL=C tr -dc '\001-\037\177')
+  [ -z "$_rsr_bad" ]
+}
+
+# rbt_read_ledger <out-tsv> <dir>... — parse every miss-ledger fragment in the
+# given observation directories (entries and archive both: a drained fragment
+# is still a recorded miss) into `<pr><TAB><path><TAB><reason><TAB><lens>`
+# rows. The grammar (review-effectiveness D-8): a fragment line
+# `- <date> [<scope>] review-miss(<lens>, <reason>): #<pr> <path>: <text>`,
+# the lens a lowercase name, the reason one of RBT_REASONS, the PR a positive
+# integer, the path repository-relative. A fragment naming review-miss that
+# breaks the grammar is counted in RBT_LEDGER_MALFORMED, never read.
+rbt_read_ledger() {
+  _rrl_out=$1
+  shift
+  : >"$_rrl_out"
+  RBT_LEDGER_MALFORMED=0
+  for _rrl_d in "$@"; do
+    [ -d "$_rrl_d" ] || continue
+    for _rrl_f in "$_rrl_d"/*.md; do
+      [ -f "$_rrl_f" ] || continue
+      _rrl_line=$(grep -m1 'review-miss' "$_rrl_f") || continue
+      _rrl_row=$(printf '%s\n' "$_rrl_line" | sed -n 's/^- [0-9-]* \[[^]]*\] review-miss(\([a-z0-9][a-z0-9-]*\), \([a-z-]*\)): #\([1-9][0-9]*\) \([^ :][^ :]*\): .*$/\3	\4	\2	\1/p')
+      _rrl_reason=$(printf '%s\n' "$_rrl_row" | cut -f3)
+      if [ -z "$_rrl_row" ] || ! rbt_in_list "$_rrl_reason" "$RBT_REASONS" \
+        || ! rbt_safe_relpath "$(printf '%s\n' "$_rrl_row" | cut -f2)"; then
+        RBT_LEDGER_MALFORMED=$((RBT_LEDGER_MALFORMED + 1))
+        continue
+      fi
+      printf '%s\n' "$_rrl_row" >>"$_rrl_out"
+    done
+  done
 }
 
 # rbt_latest_version <corpus-root> — print the highest N of a v<N> directory

@@ -181,4 +181,4 @@ set -e
 if [ "$rc" -ne 0 ]; then
   exit 1
 fi
-printf '%s\n' "$prog: $rows row(s) pass" # trusted: integer from awk
+printf '%s\n' "$prog: $rows row(s) pass"

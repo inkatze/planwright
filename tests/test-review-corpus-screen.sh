@@ -63,7 +63,7 @@ check_refused() {
   assert_exit "$1: refused" 1 "$rc"
   assert_contains "$1: names the rule" "$2" "$out"
 }
-check_refused "non-integer pr" "pr" "r0003	1x	$SHA	scripts/a.sh	4	correctness	other	yes	fallback	gist text here	-"
+check_refused "non-integer pr" "pr is not" "r0003	1x	$SHA	scripts/a.sh	4	correctness	other	yes	fallback	gist text here	-"
 check_refused "short commit" "commit" "r0003	12	0123abc	scripts/a.sh	4	correctness	other	yes	fallback	gist text here	-"
 check_refused "absolute path" "path" "r0003	12	$SHA	/etc/passwd	4	correctness	other	yes	fallback	gist text here	-"
 check_refused "dot-dot path" "path" "r0003	12	$SHA	scripts/../x	4	correctness	other	yes	fallback	gist text here	-"

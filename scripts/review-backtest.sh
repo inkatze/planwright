@@ -7,37 +7,44 @@
 # an `eval:` task so check:no-ci-evals keeps it out of CI; its mechanics are
 # tested offline through the reviewer-stub seam.
 #
-# THE SAMPLE. Rows marked unreplayable are excluded first and counted. For each
-# targeted class (a class is a row's miss reason; when --classes is absent, every class
-# holding a replayable row, the others reported as not sampled) the replayable rows are ordered by the POSIX cksum
-# of "<seed>:<id>" and the first <cap> taken, so a class's sample depends only
-# on the seed, the cap, and the corpus, never on which other classes run. A
+# THE SAMPLE. Rows marked unreplayable are excluded first and counted. For
+# each targeted class (a class is a row's miss reason; when --classes is
+# absent, every class holding a replayable row, the others reported as not
+# sampled) the replayable rows are ordered by the POSIX cksum of
+# "<seed>:<id>" and the first <cap> taken, so a class's sample depends only on
+# the seed, the cap, and the corpus, never on which other classes run. A
 # sample with zero replayable rows overall, or in a targeted class, is
 # refused. The cap (default 5) and seed are printed and recorded.
 #
 # ONE ROW, ONE PASS. Each sampled row's pre-fix commit is checked out into an
 # isolated copy: a fresh clone of a temporary bare mirror of the remote, with
-# no remote left to push to, removed on exit. The reviewer runs with that copy
-# as its working directory and is told, through the environment, the redirected
-# home and state home every command it executes must use; the reviewing
-# session itself keeps its own home and credentials. A `declined`-class row
-# gets its recorded dismissal seeded into a coordinator ledger file
-# (BACKTEST_LEDGER), the loop ledger a real pass would hold; no other row has
-# one. A reviewer that exits non-zero is retried once; a second failure marks
-# the row `error` and the run exits 4, as does a row whose commit shares no
-# history with main (no base to diff against; the refresh marks such rows
-# unreplayable). The corpus must pass review-corpus-screen.sh first.
+# no remote left to push to, removed on exit. The change under review, `git
+# diff <base>...<commit>`, is written beside the copy. The reviewer runs with
+# the copy as its working directory and is told, through the environment, the
+# redirected home and state home any command it executes must use; the
+# reviewing session itself keeps its own home and credentials. A
+# `declined`-class row gets its recorded dismissal seeded into a coordinator
+# ledger file (BACKTEST_LEDGER), the loop ledger a real pass would hold; no
+# other row has one.
+#
+# A ROW ENDS IN ERROR, and the run exits 4, when its setup fails (the clone,
+# the checkout, or a commit sharing no history with main, which leaves no base
+# to diff against; the refresh marks such rows unreplayable) or when the
+# reviewer exits non-zero twice, the retry waiting PLANWRIGHT_BACKTEST_RETRY_WAIT
+# seconds (default 30) first. An error row is recorded, never scored as a miss
+# and never dropped. The corpus must pass review-corpus-screen.sh first.
 #
 # THE REVIEWER is an executable run once per row with these variables set:
 #   BACKTEST_ROW         the row id
 #   BACKTEST_HEAD        the pre-fix commit (the copy's HEAD)
 #   BACKTEST_BASE        the merge base of that commit with the remote's main
+#   BACKTEST_DIFF        the file holding the diff from the base to the head
 #   BACKTEST_HOME        the redirected home for executed commands
 #   BACKTEST_STATE_HOME  the redirected machine-local state home
 #   BACKTEST_LEDGER      the coordinator ledger, declined rows only
 #   BACKTEST_MODEL       the --model value
 #   BACKTEST_PLANWRIGHT_ROOT  the planwright checkout whose doctrine is "today's"
-#   BACKTEST_USAGE_FILE  where the reviewer may write the row's token count
+#   BACKTEST_USAGE_FILE  where the reviewer may write the attempt's token count
 # It prints one finding per line as `<path><TAB><line>[<TAB><anything>]`. The
 # default is review-backtest-reviewer.sh beside this script. --reviewer-stub
 # replaces it with recorded findings, `<row id><TAB><path><TAB><line>` per
@@ -50,13 +57,14 @@
 # THE GATE. --baseline names an earlier result. Its corpus version and model
 # must equal this run's, or the comparison is refused (exit 3) and the baseline
 # must be re-run; its seed and cap are reused, and a different --seed or --cap
-# is refused, since a failed gate is never re-rolled. The run exits 1 when any
+# is refused, since a failed gate is never re-rolled. A baseline whose seed,
+# cap, or class counts are malformed is refused. The run exits 1 when any
 # targeted class catches fewer sampled rows than the baseline did.
 #
 # THE RESULT (--out) is tab-separated key lines: `review-backtest 1`, `corpus`,
 # `model`, `seed`, `cap`, `plugin_commit`, `classes`, `excluded_unreplayable`,
-# `tokens_total` (the sum the reviewer reported, 0 for the stub),
-# then `class <name> <sampled> <caught>` and `row <id> <class>
+# `tokens_total` (the sum the reviewer reported over every attempt, 0 for the
+# stub), then `class <name> <sampled> <caught>` and `row <id> <class>
 # caught|missed|error`. A result is also a baseline.
 #
 # Usage:
@@ -69,9 +77,9 @@
 #   --jobs    rows replayed at once, default 1
 #
 # Exit codes: 0 replay done (gate passed when a baseline was given); 1 a
-#   targeted class dropped below its baseline; 2 usage or a refused sample;
-#   3 a baseline from another model or corpus version; 4 a reviewer failed on
-#   a row twice.
+#   targeted class dropped below its baseline; 2 usage, a refused sample, or a
+#   malformed baseline; 3 a baseline from another model or corpus version; 4 a
+#   row ended in error.
 set -eu
 LC_ALL=C
 export LC_ALL
@@ -149,10 +157,22 @@ esac
 "$here/review-corpus-screen.sh" "$corpus/corpus.tsv" >/dev/null 2>&1 \
   || die 2 "the corpus fails its schema screen; run review-corpus-screen.sh on it"
 rbt_is_uint "$jobs" || die 2 "--jobs must be a positive integer"
+retry_wait=${PLANWRIGHT_BACKTEST_RETRY_WAIT:-30}
+case $retry_wait in '' | *[!0-9]*) die 2 "PLANWRIGHT_BACKTEST_RETRY_WAIT must be a whole number of seconds" ;; esac
 if [ -n "$stub" ]; then
   [ -f "$stub" ] && [ -r "$stub" ] || die 2 "the reviewer stub is not readable"
 else
-  [ -x "$reviewer" ] || die 2 "the reviewer is not an executable file"
+  [ -x "$reviewer" ] && [ -f "$reviewer" ] || die 2 "the reviewer is not an executable file"
+  # The reviewer runs from inside the copy, so a relative path must not be
+  # resolved there.
+  case $reviewer in
+    /*) ;;
+    *) reviewer=$(cd "$(dirname "$reviewer")" && pwd)/$(basename "$reviewer") ;;
+  esac
+fi
+if [ -n "$out" ]; then
+  out_dir=$(dirname "$out")
+  [ -d "$out_dir" ] && [ -w "$out_dir" ] || die 2 "the --out directory does not exist or is not writable"
 fi
 
 # --- the baseline: its seed and cap are this run's ---------------------------
@@ -165,6 +185,10 @@ if [ -n "$baseline" ]; then
   b_model=$(kv model "$baseline")
   b_seed=$(kv seed "$baseline")
   b_cap=$(kv cap "$baseline")
+  case $b_seed in '' | *[!0-9]*) die 2 "the baseline's seed is missing or not a number" ;; esac
+  rbt_is_uint "$b_cap" || die 2 "the baseline's cap is missing or not a positive integer"
+  awk -F '\t' '$1 == "class" { if (NF != 4 || $3 !~ /^[0-9]+$/ || $4 !~ /^[0-9]+$/ || ($2 in seen)) bad = 1; seen[$2] = 1 }
+    END { exit bad }' "$baseline" || die 2 "the baseline's class lines are malformed or repeated"
   [ "$b_corpus" = "$version" ] \
     || die 3 "the baseline was recorded on another corpus version; re-run the baseline on this one"
   [ "$b_model" = "$model" ] \
@@ -190,8 +214,10 @@ esac
 # --- the targeted classes ----------------------------------------------------
 
 present=$(awk -F '\t' 'NR > 1 && $0 != "" { print $7 }' "$corpus/corpus.tsv" | sort -u | tr '\n' ' ')
+[ -n "$present" ] || die 2 "the corpus holds no rows"
 if [ -n "$classes" ]; then
-  targets=$(printf '%s\n' "$classes" | tr ',' ' ')
+  targets=$(printf '%s\n' "$classes" | tr ',' '\n' | awk 'NF && !seen[$0]++' | tr '\n' ' ')
+  [ -n "$targets" ] || die 2 "--classes names no class"
   for c in $targets; do
     rbt_in_list "$c" "$RBT_REASONS" || die 2 "unknown class (not a miss reason)"
   done
@@ -200,15 +226,19 @@ else
   # rows are all unreplayable is reported, not sampled.
   targets=$(awk -F '\t' 'NR > 1 && $8 == "yes" { print $7 }' "$corpus/corpus.tsv" | sort -u | tr '\n' ' ')
   for c in $present; do
-    rbt_in_list "$c" "$targets" || printf '%s\n' "$prog: class $c has no replayable rows; not sampled" >&2 # trusted: class read from a screened corpus
+    rbt_in_list "$c" "$targets" || printf '%s\n' "$prog: class $c has no replayable rows; not sampled" >&2
   done
 fi
-[ -n "$present" ] || die 2 "the corpus holds no rows"
 
 # Read before any row runs: the checkout may move while a long replay is going.
 plugin_commit=$(git -C "$repo_root" rev-parse HEAD 2>/dev/null) || plugin_commit=unknown
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/rbt-replay.XXXXXX")
-trap 'rm -rf "$tmp"' EXIT INT TERM
+pids=
+# Background row jobs ignore an interrupt in a non-interactive shell, so the
+# trap ends them before removing the directory they work in.
+trap 'rm -rf "$tmp"' EXIT
+# shellcheck disable=SC2086 # pids is a list of integers
+trap '[ -z "$pids" ] || kill $pids 2>/dev/null; exit 130' INT TERM
 
 excluded=$(awk -F '\t' 'NR > 1 && $8 == "no"' "$corpus/corpus.tsv" | wc -l | tr -d ' ')
 replayable=$(awk -F '\t' 'NR > 1 && $8 == "yes"' "$corpus/corpus.tsv" | wc -l | tr -d ' ')
@@ -228,11 +258,11 @@ for c in $targets; do
 done
 sampled=$(wc -l <"$tmp/sample.tsv" | tr -d ' ')
 
-printf '%s\n' "$prog: corpus $version, model $model" # trusted: version and model are shape-checked above
-printf '%s\n' "cap: $cap"                            # trusted: integer
-printf '%s\n' "seed: $seed"                          # trusted: integer
-printf '%s\n' "excluded unreplayable: $excluded"     # trusted: integer from wc
-printf '%s\n' "sampled: $sampled"                    # trusted: integer from wc
+printf '%s\n' "$prog: corpus $version, model $model"
+printf '%s\n' "cap: $cap"
+printf '%s\n' "seed: $seed"
+printf '%s\n' "excluded unreplayable: $excluded"
+printf '%s\n' "sampled: $sampled"
 
 # --- the mirror: the remote's main plus every sampled PR head ----------------
 
@@ -242,6 +272,8 @@ if [ -z "$stub" ]; then
   fi
   mirror=$tmp/mirror.git
   git init -q --bare "$mirror"
+  # A clone then checks out main whatever the host's init.defaultBranch is.
+  git -C "$mirror" symbolic-ref HEAD refs/heads/main
   refspecs="+refs/heads/main:refs/heads/main"
   cut -f2 "$tmp/sample.tsv" | sort -un >"$tmp/prs.txt"
   while IFS= read -r n; do
@@ -254,7 +286,7 @@ fi
 # --- replay -------------------------------------------------------------------
 
 replay_row() {
-  # replay_row <row line> — print `<id>\t<class>\t<verdict>` for one row.
+  # replay_row <row line> — print `<id>\t<class>\t<verdict>\t<tokens>`.
   id=$(printf '%s\n' "$1" | cut -f1)
   commit=$(printf '%s\n' "$1" | cut -f3)
   path=$(printf '%s\n' "$1" | cut -f4)
@@ -265,23 +297,21 @@ replay_row() {
   mkdir -p "$rdir"
   if [ -n "$stub" ]; then
     awk -F '\t' -v id="$id" 'BEGIN { OFS = "\t" } $1 == id { print $2, $3 }' "$stub" >"$rdir/findings.tsv"
-    rc=0
   else
-    git clone -q --no-hardlinks "$mirror" "$rdir/copy" 2>/dev/null || {
-      printf '%s\t%s\terror\n' "$id" "$class"
-      return 0
-    }
-    git -C "$rdir/copy" remote remove origin
-    if ! git -C "$rdir/copy" -c advice.detachedHead=false checkout -q "$commit" 2>/dev/null; then
-      printf '%s\t%s\terror\n' "$id" "$class"
+    if ! git clone -q --shared "$mirror" "$rdir/copy" 2>/dev/null \
+      || ! git -C "$rdir/copy" remote remove origin \
+      || ! git -C "$rdir/copy" -c advice.detachedHead=false checkout -q "$commit" 2>/dev/null; then
+      printf '%s\n' "$prog: row $id: could not prepare its isolated copy" >&2
+      printf '%s\t%s\terror\t0\n' "$id" "$class"
       return 0
     fi
     base=$(git -C "$rdir/copy" merge-base "$commit" main 2>/dev/null) || base=
     if [ -z "$base" ]; then
-      printf '%s\n' "$prog: row $id: no merge base with main, so no change to review; mark it unreplayable" >&2 # trusted: id is screened
+      printf '%s\n' "$prog: row $id: no merge base with main, so no change to review; mark it unreplayable" >&2
       printf '%s\t%s\terror\t0\n' "$id" "$class"
       return 0
     fi
+    git -C "$rdir/copy" diff "$base...$commit" >"$rdir/change.diff"
     mkdir -p "$rdir/home" "$rdir/state"
     ledger=
     if [ "$class" = declined ]; then
@@ -290,47 +320,61 @@ replay_row() {
       printf 'declined\t%s\t%s\t%s\n' "$path" "$line" "$dismissal" >>"$ledger"
     fi
     rc=1
-    for _attempt in 1 2; do
+    for attempt in 1 2; do
+      [ "$attempt" -eq 1 ] || sleep "$retry_wait"
       if (cd "$rdir/copy" \
         && BACKTEST_ROW=$id BACKTEST_HEAD=$commit BACKTEST_BASE=$base \
+          BACKTEST_DIFF=$rdir/change.diff \
           BACKTEST_HOME=$rdir/home BACKTEST_STATE_HOME=$rdir/state \
           BACKTEST_MODEL=$model BACKTEST_PLANWRIGHT_ROOT=$repo_root \
-          BACKTEST_LEDGER=$ledger BACKTEST_USAGE_FILE=$rdir/usage \
+          BACKTEST_LEDGER=$ledger BACKTEST_USAGE_FILE=$rdir/usage.$attempt \
           "$reviewer" >"$rdir/findings.raw" 2>"$rdir/reviewer.err" </dev/null); then
         rc=0
         break
       fi
     done
-    awk -F '\t' 'BEGIN { OFS = "\t" } $2 ~ /^[1-9][0-9]*$/ { print $1, $2 }' "$rdir/findings.raw" >"$rdir/findings.tsv" 2>/dev/null || : >"$rdir/findings.tsv"
-  fi
-  if [ "$rc" -ne 0 ]; then
-    printf '%s\t%s\terror\n' "$id" "$class"
-    return 0
+    tokens=$(cat "$rdir"/usage.* 2>/dev/null | awk '$1 ~ /^[0-9]+$/ { t += $1 } END { printf "%d", t }')
+    if [ "$rc" -ne 0 ]; then
+      printf '%s\n' "$prog: row $id: the reviewer failed twice" >&2
+      printf '%s\t%s\terror\t%s\n' "$id" "$class" "$tokens"
+      return 0
+    fi
+    awk -F '\t' 'BEGIN { OFS = "\t" } $2 ~ /^[1-9][0-9]*$/ { print $1, $2 }' "$rdir/findings.raw" >"$rdir/findings.tsv"
   fi
   verdict=$(awk -F '\t' -v p="$path" -v l="$line" -v k="$RBT_CATCH_LINES" '
     $1 == p { d = $2 - l; if (d < 0) d = -d; if (d <= k) hit = 1 }
     END { print (hit ? "caught" : "missed") }' "$rdir/findings.tsv")
-  tokens=$(sed -n 1p "$rdir/usage" 2>/dev/null) || tokens=
-  case $tokens in '' | *[!0-9]*) tokens=0 ;; esac
-  printf '%s\t%s\t%s\t%s\n' "$id" "$class" "$verdict" "$tokens"
+  printf '%s\t%s\t%s\t%s\n' "$id" "$class" "$verdict" "${tokens:-0}"
 }
 
-: >"$tmp/verdicts.tsv"
 i=0
 while IFS= read -r row; do
   i=$((i + 1))
+  printf '%s\n' "$row" >"$tmp/row.$i"
   (replay_row "$row" >"$tmp/verdict.$i") &
-  if [ $((i % jobs)) -eq 0 ]; then wait; fi
+  pids="$pids $!"
+  if [ $((i % jobs)) -eq 0 ]; then
+    wait
+    pids=
+  fi
 done <"$tmp/sample.tsv"
 wait
+pids=
+: >"$tmp/verdicts.tsv"
 j=1
 while [ "$j" -le "$i" ]; do
-  cat "$tmp/verdict.$j" >>"$tmp/verdicts.tsv"
-  rm -rf "$tmp/rows/$(cut -f1 "$tmp/verdict.$j")"
+  # A row whose job died without a verdict is an error, never a silent drop.
+  if [ -s "$tmp/verdict.$j" ]; then
+    cat "$tmp/verdict.$j" >>"$tmp/verdicts.tsv"
+  else
+    printf '%s\n' "$prog: a row's replay ended without a verdict" >&2
+    awk -F '\t' '{ printf "%s\t%s\terror\t0\n", $1, $7 }' "$tmp/row.$j" >>"$tmp/verdicts.tsv"
+  fi
   j=$((j + 1))
 done
+rm -rf "$tmp/rows"
 
-# --- score, record, gate ------------------------------------------------------
+# --- score, gate, record ------------------------------------------------------
 
 {
   printf 'review-backtest\t1\n'
@@ -349,27 +393,32 @@ done
 } >"$tmp/result.tsv"
 
 awk -F '\t' '$1 == "class" { printf "%s: %d/%d\n", $2, $4, $3 }' "$tmp/result.tsv"
-[ -z "$out" ] || cp "$tmp/result.tsv" "$out"
 
+# The gate reads the baseline before --out is written: the two may be one file.
 errors=$(awk -F '\t' '$3 == "error"' "$tmp/verdicts.tsv" | wc -l | tr -d ' ')
 gate=0
 if [ -n "$baseline" ]; then
   for c in $targets; do
     now=$(awk -F '\t' -v c="$c" '$1 == "class" && $2 == c { print $4 }' "$tmp/result.tsv")
-    then_=$(awk -F '\t' -v c="$c" '$1 == "class" && $2 == c { print $4 }' "$baseline")
-    if [ -z "$then_" ]; then
-      printf '%s\n' "$prog: gate: class $c has no baseline row; not compared" >&2 # trusted: class is vocabulary-checked
+    base_caught=$(awk -F '\t' -v c="$c" '$1 == "class" && $2 == c { print $4 }' "$baseline")
+    if [ -z "$base_caught" ]; then
+      printf '%s\n' "$prog: gate: class $c has no baseline row; not compared" >&2
       continue
     fi
-    if [ "${now:-0}" -lt "$then_" ]; then
-      printf '%s\n' "$prog: gate: $c caught ${now:-0} < baseline $then_" >&2 # trusted: vocabulary and integers
+    if [ "${now:-0}" -lt "$base_caught" ]; then
+      printf '%s\n' "$prog: gate: $c caught ${now:-0} < baseline $base_caught" >&2
       gate=1
     fi
   done
   [ "$gate" -eq 0 ] && printf '%s\n' "gate: pass (no targeted class below its baseline)"
 fi
+if [ -n "$out" ]; then
+  if ! cp "$tmp/result.tsv" "$out.partial.$$" || ! mv "$out.partial.$$" "$out"; then
+    die 2 "could not write the result to --out"
+  fi
+fi
 if [ "$errors" -gt 0 ]; then
-  printf '%s\n' "$prog: $errors row(s) failed in the reviewer twice; see the result's error rows" >&2 # trusted: integer
+  printf '%s\n' "$prog: $errors row(s) ended in error (a setup step or the reviewer failed); see the result's error rows" >&2
   exit 4
 fi
 exit "$gate"
