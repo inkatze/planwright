@@ -41,7 +41,8 @@ static `allow` entry is added.
   exec or file-write primitive. Its input files and `--rawfile` /
   `--slurpfile` values are not limited to settings layers: any file the
   session can read qualifies, as it already does for `cat` and `head` under
-  this guard and for the profile's `Read` allow. What defers: a filter reading the environment
+  this guard and for the profile's `Read` allow, except another process's
+  `/proc/<pid>/environ`, which defers. What defers: a filter reading the environment
   (`env`, `$ENV`, and jq 1.6's `$ ENV` with a space or comment between), a
   filter loading module text (`include`, `import`), a filter from a file
   (`-f`), a module search path (`-L`), every run while `~/.jq` exists (a file
