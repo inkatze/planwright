@@ -461,6 +461,17 @@ else
   echo "skip: as root, a hard link inside a non-traversable directory"
 fi
 chmod 755 "$hlrdir"
+# Nothing inside the bundle may be other than a directory or a regular file.
+sw "$W" fifo
+fifodir="$H/.claude/worktrees/fifo-spec/projects/demo-root/fifo"
+mkdir -p "$fifodir"
+mkfifo "$fifodir/tasks.md"
+sw "$W" fifo
+if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'tasks.md is neither a directory nor a regular file'; then
+  ok "a FIFO inside the bundle is refused, naming it"
+else
+  fail "fifo in bundle: rc=$rc out=$out err=$err"
+fi
 # A symlink nested below the bundle's top level, on reuse and on recreate.
 sw "$W" nest
 nestwt="$H/.claude/worktrees/nest-spec"
