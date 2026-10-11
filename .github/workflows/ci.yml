@@ -2,7 +2,8 @@
 # planwright self-hosting CI (Task 2, REQ-G1.7): every guard the repo
 # prescribes runs on every PR. The single `mise run check` step is the same
 # aggregate gate contributors run locally, with tool versions pinned in
-# mise.toml (contributor/CI parity by construction). Actions are pinned to
+# mise.toml (contributor/CI parity by construction); the bash 3.2 parse step
+# after it needs Docker, so it runs here only. Actions are pinned to
 # full commit SHAs (supply-chain discipline per the security posture).
 #
 # "on" is quoted so yamllint's truthy rule (which this repo runs on
@@ -39,22 +40,6 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           fetch-depth: 0
-
-      # macOS ships bash 3.2 as /bin/bash and /bin/sh, and its parser rejects
-      # constructs every later bash accepts, so every tracked shell file is
-      # parsed in its declared dialect under the real 3.2 from Docker's
-      # official image, pinned by digest (tests/test-check-bash32.sh checks
-      # the pin). The same test then runs under that parser, its misparse
-      # fixtures proving the step can fail. git stays outside the container,
-      # which has none; the checkout is mounted read-only with no network.
-      - shell: bash
-        run: |
-          git -c core.quotepath=off ls-files \
-            | docker run --rm -i --network none -v "$PWD:/src:ro" -w /src "$BASH32_IMAGE" \
-              bash scripts/check-bash32.sh parse --files-from - --expect-version 3.2
-          docker run --rm --network none -v "$PWD:/src:ro" -w /src \
-            -e PLANWRIGHT_TEST_REQUIRE_BASH32=1 "$BASH32_IMAGE" \
-            bash tests/test-check-bash32.sh
 
       # mise pinned: 2026.6.3 regressed the pipx backend (it passes pip an
       # `--uploaded-prior-to` flag the runner's pip rejects, breaking the
@@ -102,6 +87,27 @@ jobs:
       # full-history gitleaks scan. lint:commits inside `check` covers local runs; the
       # strict PR-range lint is the dedicated step below.
       - run: mise run check
+
+      # macOS ships bash 3.2 as /bin/bash and /bin/sh, and its parser rejects
+      # constructs every later bash accepts, so every tracked shell file
+      # outside tests/fixtures/bash32/ is parsed in its declared dialect under
+      # the real 3.2 from Docker's official image, pinned by digest
+      # (tests/test-check-bash32.sh checks the pin). The same test then runs
+      # under that parser, its misparse fixtures proving the step can fail.
+      # git stays outside the container, which has none; the checkout is
+      # mounted read-only with no network. It runs even when the gate above
+      # failed, so one push reports both. `shell: bash` is what sets pipefail,
+      # so a failed `git ls-files` fails the step instead of feeding it a
+      # short list.
+      - if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          git -c core.quotepath=off ls-files \
+            | docker run --rm -i --network none -v "$PWD:/src:ro" -w /src "$BASH32_IMAGE" \
+              bash scripts/check-bash32.sh parse --files-from - --expect-version 3.2
+          docker run --rm --network none -v "$PWD:/src:ro" -w /src \
+            -e PLANWRIGHT_TEST_REQUIRE_BASH32=1 "$BASH32_IMAGE" \
+            bash tests/test-check-bash32.sh
 
       # Conventional-commit lint over exactly the PR's commits. The local task
       # skips quietly when there is nothing ahead of origin/main; on a PR an
