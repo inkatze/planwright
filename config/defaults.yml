@@ -837,6 +837,34 @@ tower_catchup_limit: 20
 tower_shelve_return: 1h
 tower_reknock_age: 30m
 
+# Cross-session messaging, the fleet's signal transport where a session has it
+# (doctrine/messaging-transport.md).
+#
+# messaging_discipline            which model-composed messages a session may
+#                                 send: the ladder script < tiered < open
+#                                 (script none, tiered only on the paths the
+#                                 doctrine's fallback table names, open any),
+#                                 read at the knob value worker-to-tower and
+#                                 tower-to-tower and one value stricter
+#                                 tower-to-worker, one further under usage
+#                                 pressure. off sits outside the ladder: the
+#                                 per-fleet kill switch, making the probe read
+#                                 absent so every consumer takes today's path.
+#                                 Script sends and idle notices ride at every
+#                                 ladder value; an unknown value reads absent.
+# messaging_cross_machine         the documented cue to relax the
+#                                 isolatePeerMachines setting both shipped
+#                                 settings profiles must carry; no script reads it,
+#                                 the harness's approval prompt being the gate.
+# messaging_heal_cadence_seconds  the healing sweep's cadence, in seconds,
+#                                 wherever push is live, one value for every
+#                                 demoted tower-facing consumer; an explicit
+#                                 --interval wins. Bounded at the attention
+#                                 watcher's default liveness max-age.
+messaging_discipline: tiered
+messaging_cross_machine: false
+messaging_heal_cadence_seconds: 300
+
 # Human-gate policies (doctrine/human-gates.md). Each resolves through
 # scripts/resolve-policy-knob.sh, which names the strict value a malformed
 # adopter or machine-local setting degrades to (a malformed flip-wait value, a

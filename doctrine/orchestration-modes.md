@@ -3,14 +3,16 @@
 The rare mode branches of `/orchestrate`, read at the branch that takes them:
 the **degradation ladder and runtime failover** (a chosen backend dying or
 proving unavailable), the **meta-tower** (`--meta`, supervising several specs
-at once), and the **fleet entry** (`--fleet`, the one obvious command).
+at once), the **fleet entry** (`--fleet`, the one obvious command), and the
+**drain pass** (`--bookkeeping`).
 Every invariant in the skill's always-loaded core, and every tower-tier rule
 [Human Gates](human-gates.md) states, holds unchanged in every mode here.
 
 Citations: orchestration-fleet REQ-B1.5, REQ-B1.6, REQ-D1.1, REQ-D1.2,
 REQ-D1.5, REQ-E1.1, REQ-E1.2, REQ-E1.5 · orchestration-fleet D-3, D-6, D-9,
 D-12, D-13 · human-gates REQ-D1.6 · worker-permission-ergonomics REQ-G1.5,
-D-17 · custom-spec-location REQ-G1.4 · custom-spec-location D-11.
+D-17 · custom-spec-location REQ-G1.4 · custom-spec-location D-11 · bootstrap
+REQ-H1.4, D-31.
 
 ## Degradation ladder & runtime failover (REQ-B1.5, REQ-B1.6, D-3)
 
@@ -278,3 +280,41 @@ what makes a new surface a renderer rather than a new execution model
 **Nothing else changes.** `--fleet` adds presentation, not autonomy: every
 meta-tower rule, the autonomous-safe-decision policy, and the tower-tier rules
 hold exactly as written above.
+
+## The drain pass (`--bookkeeping`; bootstrap REQ-H1.4, D-31)
+
+The out-of-session drain pass. Dispatches nothing; it:
+
+1. **Reconciles merged PRs** into `tasks.md` (the merged → Completed move the
+   `tasks-pr-sync` hook performs in-session, for events it dropped on a busy lock).
+   V1 bundles only: a v2 bundle has no placement to reconcile (completion is
+   derived, invariant-tasks D-6).
+2. **Evaluates open gates** with `scripts/drain-gates.sh <root>/` — the shared
+   evaluator `/drain` also uses. **Nothing is auto-resolved or auto-dropped**
+   (bootstrap REQ-H1.4): a satisfied gate is **re-surfaced** for a human, not
+   closed. Read [Accumulator Taxonomy](accumulator-taxonomy.md) before
+   interpreting the lanes.
+3. **Surfaces observation staleness**: report the accumulator's unmined count and
+   oldest-entry age as the evaluator derives them — live fragments under
+   `specs/_observations/entries/` plus the frozen legacy file's unconsumed lines,
+   naming both, flagging stuck consumes and skipped invalid fragments.
+4. **Reports a pending release** (autopilot-reflex REQ-F1.2, D-7, D-8): runs
+   `scripts/release-bookkeeping.sh` over the shared comparator (`release-pending.sh`,
+   the one definition of "pending" the untagged-window lock also reads,
+   autopilot-reflex REQ-D1.8). In the untagged window it prints the pending
+   version and publish command; else silence. On comparator trouble it degrades
+   to a silent no-op (diagnostic on stderr), always exits 0, and never blocks the
+   pass.
+5. **Carries stranded tower observations toward `main`** (fleet-hardening D-9,
+   REQ-D1.3): runs `scripts/observation-carry.sh <repo-root>` in the tower's
+   checkout — pushes the current `HEAD` (tower-branch) observation fragments absent
+   from `origin/main` onto ONE chore branch (`planwright/chore/observations`) and
+   opens or reuses ONE **draft** chore PR, so learnings are not stranded unpushed.
+   Idempotent (deduped against `origin/main` and the chore branch — a repeat opens
+   no second PR), concurrency-safe (a per-repo lock), git-plumbing-built so local
+   `main` is never touched; never merges, marks ready, or force-pushes; a degrade
+   (no remote/`gh`, rejected push/PR) **names** the stranded observations and exits
+   non-zero; no LLM (fleet-hardening REQ-E1.3). See the script header.
+
+On `--bookkeeping`, missing prerequisites degrade with a message (not a dispatch
+path); it never merges and never advances local `main`.
