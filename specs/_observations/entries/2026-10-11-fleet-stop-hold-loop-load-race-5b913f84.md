@@ -1,0 +1,1 @@
+- 2026-10-11 [planwright] tests/lib/fleet-stop-table.sh c20/c43 poll ten seconds for the hold loop sleep child and time the --grace stop by date +%s; under host load (load average ~30 on 12 cores) pristine main failed 7 of 12 parallel runs of test-fleet-stop-hl.sh (hold loop never reached, or 1s grace measured 5-7s), so a busy gate host reds it without a code change
