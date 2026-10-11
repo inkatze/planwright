@@ -652,6 +652,42 @@ run prune --now "$NOW" 2>/dev/null || rc=$?
 [ -s "$tmp/prune-target" ] || fail "symlink: the prune rewrote the planted link's target"
 pass "a planted symlink in the store is refused"
 
+# status refuses the same links the writers do, named or enumerated.
+for pos in store vendor hold ledger; do
+  for form in named all; do
+    new_home "symlink-status-$pos-$form"
+    mkdir -p "$tmp/status-link-$pos-$form"
+    printf '%s\t%s\tpanel\t-\t-\tplanted\tend\n' "$NOW" spec-a:task-1 >"$tmp/status-link-$pos-$form/hold.tsv"
+    case $pos in
+      store)
+        mkdir -p "$home/fleet"
+        mkdir -p "$tmp/status-link-$pos-$form/sample-cli"
+        ln -s "$tmp/status-link-$pos-$form" "$home/fleet/quota"
+        ;;
+      vendor)
+        mkdir -p "$home/fleet/quota"
+        ln -s "$tmp/status-link-$pos-$form" "$home/fleet/quota/sample-cli"
+        ;;
+      hold)
+        mkdir -p "$home/fleet/quota/sample-cli"
+        ln -s "$tmp/status-link-$pos-$form/hold.tsv" "$home/fleet/quota/sample-cli/hold.tsv"
+        ;;
+      ledger)
+        mkdir -p "$home/fleet/quota/sample-cli"
+        ln -s "$tmp/status-link-$pos-$form/hold.tsv" "$home/fleet/quota/sample-cli/ledger.tsv"
+        ;;
+    esac
+    rc=0
+    if [ "$form" = named ]; then
+      run status --vendor sample-cli --now "$NOW" >/dev/null 2>&1 || rc=$?
+    else
+      run status --now "$NOW" >/dev/null 2>&1 || rc=$?
+    fi
+    [ "$rc" = 6 ] || fail "symlink: status ($form) through a planted $pos link exited $rc, not 6"
+  done
+done
+pass "status refuses a symlink in the store, as the writers do"
+
 # --- 7. The vendor view in fleet-stats.sh render ---------------------------
 # The render reads the real clock, so this fixture is stamped relative to it.
 new_home stats

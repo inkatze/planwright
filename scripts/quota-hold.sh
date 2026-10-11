@@ -77,7 +77,8 @@
 # Exit: 0 success · 2 usage, or a refused field · 3 the hold is recorded but its
 # attention push failed (named on stderr) · 4/5 propagated from the knob
 # resolver · 6 a runtime failure (no fleet home, the lock, a write, no clock, a
-# store file or directory that is unreadable or not a regular file).
+# store file or directory that is unreadable, not a regular file, or a symlink,
+# which every verb refuses, status included).
 #
 # POSIX sh + awk on the bash 3.2 / BSD tooling floor. No eval. Every stored and
 # read value is data.
@@ -297,12 +298,17 @@ clean_reason() {
   [ -n "$REASON" ] || REASON=-
 }
 
+# refuse_links <vendor>: an append follows a symlink, and a read through one
+# reports a store that is not this one, so no verb goes through a planted link.
+refuse_links() {
+  for rl_p in "$store" "$store/$1" "$store/$1/ledger.tsv" "$store/$1/hold.tsv"; do
+    [ ! -L "$rl_p" ] || die 6 "refusing a symlink in the vendor's store"
+  done
+}
+
 vendor_dir() {
   vd_d="$store/$1"
-  # An append follows a symlink, so a planted link must never be written through.
-  for vd_p in "$store" "$vd_d" "$vd_d/ledger.tsv" "$vd_d/hold.tsv"; do
-    [ ! -L "$vd_p" ] || die 6 "refusing a symlink in the vendor's store"
-  done
+  refuse_links "$1"
   mkdir -p "$vd_d" || die 6 "cannot create the vendor's store directory"
   printf '%s' "$vd_d"
 }
@@ -345,7 +351,8 @@ list_vendors() {
     return 0
   fi
   [ -d "$store" ] || return 0
-  find "$store" -mindepth 1 -maxdepth 1 -type d | while IFS= read -r lv_p; do
+  # A linked vendor directory is listed so the reader refuses it.
+  find "$store" -mindepth 1 -maxdepth 1 \( -type d -o -type l \) | while IFS= read -r lv_p; do
     lv_n=${lv_p##*/}
     valid_id "$lv_n" && printf '%s\n' "$lv_n"
   done | sort
@@ -476,6 +483,7 @@ case $verb in
   status)
     days=$(retention_days) || exit $?
     cutoff=$((now - days * 86400))
+    [ ! -L "$store" ] || die 6 "refusing a symlink in the vendor's store"
     # A directory that cannot be searched hides its files, and one that
     # cannot be listed hides its vendors: neither reads as clear.
     if [ -d "$store" ] && { [ ! -x "$store" ] || { [ "$vendor_set" != 1 ] && [ ! -r "$store" ]; }; }; then
@@ -485,6 +493,7 @@ case $verb in
     [ -n "$work" ] || work=$(mktemp -d "${TMPDIR:-/tmp}/quota-hold.XXXXXX") || die 6 "cannot create a temporary directory"
     printf 'retention\t%s\n' "$days"
     for v in $vendors; do
+      refuse_links "$v"
       [ ! -d "$store/$v" ] || [ -x "$store/$v" ] || die 6 "cannot search the store of $v"
       hf="$store/$v/hold.tsv"
       lf="$store/$v/ledger.tsv"
