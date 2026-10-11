@@ -4,7 +4,9 @@ This doctrine turns the tmux operator's hand-relay protocol between towers and
 workers into an enforceable capability with two parts: an explicit **division
 of labor** and an **attributed, non-impersonating relay that works against a
 live, busy worker**. One audited script, `scripts/orchestrate-relay.sh`,
-enforces the relay's mechanics.
+enforces the relay's mechanics and delegates every messaging post to
+`scripts/fleet-messaging.sh`, the messaging enforcement point the
+[Messaging Transport](messaging-transport.md) doctrine names.
 
 Citations: orchestration-fleet REQ-D1.2 (division of labor), orchestration-fleet
 REQ-D1.3 (attributed, non-impersonating relay), orchestration-fleet REQ-B1.7
@@ -55,11 +57,14 @@ rather than *asking that branch's owner to*? If so, it crossed the boundary.
 ## Attributed, non-impersonating relay
 
 A tower steers and observes a **live, busy worker mid-task** — not a paused one.
-The relay discipline keeps the worker's authorization boundary intact. The same
-attributed buffer-paste mechanism serves both **tower-to-worker** relay and
-**tower-to-tower** coordination between peer towers sharing a checkout (for
-example, reconcile-then-quick-PR hand-offs); in either direction the header marks
-the message as tower-originated, which is what keeps it non-impersonating.
+The relay discipline keeps the worker's authorization boundary intact.
+**Tower-to-worker** relay is attributed in every form below, which is what keeps
+it non-impersonating. **Tower-to-tower** coordination between peer towers (for
+example, reconcile-then-quick-PR hand-offs) is an advisory under the
+[Messaging Transport](messaging-transport.md) doctrine's advisory rule: the
+tower's model sends it through the harness's message tool, it never claims,
+releases, or resolves a unit of work, and with messaging absent it is not sent
+rather than pasted.
 
 ### A listed peer gets a direct message; the paste is the fallback
 
@@ -67,16 +72,25 @@ When the target is a Claude Code session the tower's `ListAgents` lists, the
 tower messages it with `SendMessage`: the harness delivers an attributed
 message, queued while the peer is mid-turn, and nothing touches its input box.
 The pane relay below is only for a target that is not listed (another host, a
-harness without peer messaging, a pane that is not Claude Code). When the
+harness without peer messaging, a pane that is not Claude Code), and never
+for a peer tower, whose advisory is not sent instead. When the
 two tools are deferred, the tower loads their schemas (`ToolSearch`) and calls
 `ListAgents` before deciding; a listed peer that `SendMessage` cannot reach
 counts as unlisted. The choice is the model's: a
 script can list sessions (`claude agents --json`) but has no documented way
 to send to one. Nobody types or pastes into a pane by hand.
 
-### Steer-in-flight: buffer-paste, never `send-keys`
+### Steer-in-flight: messaging first, buffer-paste the fallback, never `send-keys`
 
-Messages are delivered by a **buffer-paste** mechanism (under tmux,
+A steer or a decision answer reaches an eligible worker as a message first:
+`fleet-messaging.sh send --to-worker <handle>`, called by the relay's messaging
+arm and by `fleet-decision.sh`, so the harness delivers it attributed and
+nothing touches the input box. When the sending session's probe reads absent,
+the worker has no recorded inbox, or the post is refused or fails, delivery
+falls back to the rung's attributed steer delivery, the fallback ladder in the
+messaging-transport doctrine's per-path table.
+
+That fallback is a **buffer-paste** mechanism (under tmux,
 `load-buffer` then `paste-buffer`; the backend's steer-in-flight equivalent
 elsewhere), clearly **marked as tower-originated** so the worker can tell a
 relayed instruction from its own reasoning or the human's. The relay **never**
@@ -84,8 +98,9 @@ uses `send-keys`-style impersonation — typing into a worker's input line as if
 the human typed it: an authorization decision made by screen-scraping with no
 audit trail (the rejection bootstrap D-38 made).
 
+`relay-command` posts through `fleet-messaging.sh` first, and
 `scripts/orchestrate-relay.sh relay-command tmux <handle> <message-file>` emits
-exactly this: the script's own `deliver` step, whose paste carries a fixed
+the fallback: the script's own `deliver` step, whose paste carries a fixed
 attribution header, with the message body left in its file (see data
 discipline below). It has no `send-keys` path by construction, and a source
 audit (its test) proves the code contains none.
@@ -159,5 +174,7 @@ tower falls back to the completion-notification surface. The
 [Autonomous-Safe-Decision Policy](autonomous-safe-decision.md) draws the line
 this doctrine depends on — a worker's *permission prompt* versus a routine
 *question to the tower*. The
+[Messaging Transport](messaging-transport.md) doctrine owns the message channel
+the relay tries first and its fallback table. The
 [Security Posture](security-posture.md) is the parent of the security bounds
 above.

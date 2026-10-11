@@ -2332,6 +2332,9 @@ are in the [options reference](options-reference.md).
 | `tower_log_rotate_age` | Event-log rotation, floored at the report window | How long the log keeps its lines | `30d` — well past the report window, so the scorecard never reads a rotated-out stretch |
 | `tower_report_window` | The window the scorecard reads | How far back the scorecard looks | `7d` — a week of sessions |
 | `tower_hook_lock_wait` | The fleet-lock wait for every queue write and the reply hook's log line (the reads take no lock); at expiry the hook drops its log line rather than delay your prompt | How much a busy lock may cost your prompt | `2s` — bounded; the attention stamp is written without the lock, so a dropped log line never loses the attention stamp |
+| `messaging_discipline` | Cross-session messaging as the signal transport, with a fallback on every path ([messaging-transport doctrine](../doctrine/messaging-transport.md)) | Which model-composed messages your sessions send: `off`, `script`, `tiered`, or `open` | `tiered` — model-composed messages only on the doctrine's named paths, one value stricter toward workers; `off` sits outside the ladder as the per-fleet kill switch, every consumer then taking today's path |
+| `messaging_cross_machine` | The harness's approval prompt on every cross-machine message (`isolatePeerMachines: true` in both shipped profiles) | Whether you have decided to relax that setting for a fleet | `false` — a cue, not a gate: nothing leaves the machine without the harness asking |
+| `messaging_heal_cadence_seconds` | The healing sweep, kept at every setting because messages are lossy | How often the tower-facing sweep runs where push is live | `300` — slow enough to cut store reads, and never past the watcher's liveness window |
 
 Style values never gate capability: every knob's default keeps the full
 pipeline functional, and raising richness (a richer backend, a push channel,
