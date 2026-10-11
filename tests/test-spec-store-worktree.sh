@@ -388,6 +388,13 @@ if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'projects/a/
 else
   fail "cross-project reuse: rc=$rc out=$out err=$err"
 fi
+out=$(cd "$WB" && hermetic env GIT_LITERAL_PATHSPECS=1 "$S/spec-store-worktree.sh" shared 2>/dev/null)
+rc=$?
+if [ "$rc" -eq 4 ] && [ -z "$out" ]; then
+  ok "an inherited GIT_LITERAL_PATHSPECS does not switch the refusal off"
+else
+  fail "literal pathspecs env: rc=$rc out=$out"
+fi
 gitq -C "$HM" worktree remove --force "$wta"
 sw "$WB" shared
 if [ "$rc" -eq 4 ] && [ -z "$out" ] && [ ! -e "$wta" ]; then

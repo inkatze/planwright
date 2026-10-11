@@ -38,7 +38,8 @@ LC_ALL=C
 export LC_ALL
 unset CDPATH
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
-  GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+  GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT \
+  GIT_LITERAL_PATHSPECS GIT_GLOB_PATHSPECS GIT_NOGLOB_PATHSPECS GIT_ICASE_PATHSPECS
 
 script_dir=$(cd -- "$(dirname -- "$0")" && pwd -P) || exit 4
 # shellcheck source=scripts/spec-id-lib.sh
@@ -167,7 +168,7 @@ own_spec() {
     say "refused: the holder has no default branch to tell which project owns $branch"
     exit 4
   }
-  changed=$(foreign hg diff --no-renames --name-only "$base...$1" 2>/dev/null) || {
+  changed=$(foreign hg -c core.quotePath=false diff --no-renames --name-only "$base...$1" 2>/dev/null) || {
     why=$(foreign hg diff --no-renames --name-only "$base...$1" 2>&1 >/dev/null)
     say "git could not compare $branch with the holder's default branch: $why"
     exit 4
@@ -177,7 +178,7 @@ own_spec() {
 # own_wt — the same refusal over the worktree's uncommitted files, where a
 # draft not yet committed (or never, under commit_on_draft: false) lives.
 own_wt() {
-  pending=$(foreign git -C "$wt" status --porcelain --untracked-files=all 2>/dev/null) || {
+  pending=$(foreign git -C "$wt" -c core.quotePath=false status --porcelain --untracked-files=all 2>/dev/null) || {
     say "git could not read the status of $wt"
     exit 4
   }
