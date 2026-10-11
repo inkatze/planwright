@@ -57,7 +57,9 @@
 # Predicate (D-3, REQ-C1.1). From ONE `gh pr view` of the target PR:
 # `baseRefName`, `headRefOid`, `mergeable`, `isDraft`, `url`. From the compare
 # endpoint `repos/<owner>/<repo>/compare/<baseRefName>...<headRefOid>`:
-# `behind_by`. DEFER only when `behind_by == 0` AND `mergeable == MERGEABLE`.
+# `behind_by`. DEFER only when `behind_by == 0` AND `mergeable == MERGEABLE`,
+# unless the adopter sets `ready_guard_behind_base: conflict-only`, under which
+# a MERGEABLE PR behind its base defers too (see behind_base_policy).
 # Currency is deliberately NOT keyed on `mergeStateStatus`, which reports
 # `BEHIND` only under the base's "require up to date" branch protection — on an
 # unprotected base (planwright's own `main`) a stale PR reads `CLEAN`, which is
@@ -997,13 +999,33 @@ evaluate_predicate() {
   valid_count "$behind" \
     || emit_deny "GitHub's compare endpoint returned no readable \`behind_by\` for this pull request, so its currency with its base branch could not be confirmed - refusing (fail closed). Wait and retry."
 
-  if [ "$behind" != 0 ]; then
+  if [ "$behind" != 0 ] && [ "$(behind_base_policy)" != conflict-only ]; then
     emit_deny "this pull request is $behind commit(s) behind its base branch $(sanitize_printable "$base" 'its base'), so it has NOT been verified on a current head - refusing the draft->ready flip. Merge the base branch into it ('git fetch origin && git merge FETCH_HEAD'), let CI and review re-run, then retry."
   fi
 
-  # behind_by == 0 AND mergeable == MERGEABLE: the only conforming outcome.
-  # Emit nothing and let the flip proceed.
+  # mergeable == MERGEABLE and either behind_by == 0 or conflict-only: emit
+  # nothing and let the flip proceed.
   return 0
+}
+
+# behind_base_policy — ready_guard_behind_base from the core and adopter layers
+# only. The repo-side layers sit inside a checkout the flipping session can
+# edit, and finding the primary checkout's takes the local git D-5 rules out,
+# so PLANWRIGHT_REPO_ROOT=none and an empty legacy local-config path drop them.
+# Read only for a PR that is behind, so a current PR pays nothing. A missing
+# resolver, a timeout, a failed read, or any answer but conflict-only is
+# refuse: no failure here can relax the check.
+behind_base_policy() {
+  local v=''
+  if [ -n "$GUARD_DIR" ] && [ -r "$GUARD_DIR/resolve-policy-knob.sh" ]; then
+    v=$(PLANWRIGHT_REPO_ROOT=none PLANWRIGHT_LOCAL_CONFIG='' \
+      "$RG_TIMEOUT_BIN" -k 2 "$RG_GH_T" /bin/sh "$GUARD_DIR/resolve-policy-knob.sh" \
+      ready_guard_behind_base 2>/dev/null </dev/null) || v=''
+  fi
+  case $v in
+    conflict-only) printf 'conflict-only' ;;
+    *) printf 'refuse' ;;
+  esac
 }
 
 # read_view_fields — pull the predicate's fields out of the query answer into

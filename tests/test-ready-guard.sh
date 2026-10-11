@@ -830,6 +830,120 @@ else
   fail "slashed base ref not in the compare argv: $(cat "$STATE/argv.log")"
 fi
 
+echo "### ready_guard_behind_base — the behind-base refusal is an adopter-layer knob"
+
+# The knob is read from the core and adopter layers only, both outside every
+# worktree, so a session cannot relax its own guard; the repo-side layers would
+# need local git to locate (D-5). The fixtures assert no `git` ran.
+KNOB_ADOPTER="$SANDBOX/adopter-overlay"
+mkdir -p "$KNOB_ADOPTER"
+knob_adopter() {
+  printf 'ready_guard_behind_base: %s\n' "$1" >"$KNOB_ADOPTER/planwright.yml"
+  RG_ADOPTER_OVERLAY=$KNOB_ADOPTER
+}
+
+reset_stub_env
+knob_adopter conflict-only
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_defer "conflict-only: a conflict-free PR 7 commits behind its base defers"
+assert_no_sentinels "conflict-only: reading the knob runs no git/curl/claude"
+if grep -q $'\tapi\trepos/acme/widgets/compare/' "$STATE/argv.log"; then
+  pass "conflict-only still runs the compare call (its failure modes stay fail-closed)"
+else
+  fail "conflict-only skipped the compare call: $(cat "$STATE/argv.log")"
+fi
+
+reset_stub_env
+knob_adopter conflict-only
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
+RG_SURFACE=mcp run_hook "$(mcp_payload acme widgets 42 false)"
+assert_defer "conflict-only: the MCP surface defers a conflict-free behind PR too"
+
+reset_stub_env
+knob_adopter conflict-only
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_defer "conflict-only: a current, mergeable PR still defers"
+
+reset_stub_env
+knob_adopter conflict-only
+STUB_VIEW_JSON=$VIEW_CONFLICTING STUB_COMPARE_OUT=3
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "conflict-only: a conflicting PR still denies" 'CONFLICTING'
+
+reset_stub_env
+knob_adopter conflict-only
+STUB_VIEW_JSON=$VIEW_UNKNOWN STUB_COMPARE_OUT=3
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "conflict-only: mergeable UNKNOWN after the re-query still denies" 'still UNKNOWN'
+
+reset_stub_env
+knob_adopter conflict-only
+STUB_VIEW_JSON='{"baseRefName":"main","headRefOid":"cccccccccccccccccccccccccccccccccccccccc","isDraft":true,"mergeable":"BLOCKED","url":"https://github.com/acme/widgets/pull/42"}'
+STUB_COMPARE_OUT=3
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "conflict-only: an unrecognized mergeable value still denies" 'could not be confirmed'
+
+reset_stub_env
+knob_adopter conflict-only
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_RC=1
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "conflict-only: a failing compare call still denies" 'compare endpoint could not be reached'
+
+reset_stub_env
+knob_adopter conflict-only
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT='not-a-number'
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "conflict-only: an unreadable behind_by still denies" 'no readable'
+
+reset_stub_env
+knob_adopter refuse
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "refuse: a conflict-free PR 7 commits behind denies" '7 commit'
+assert_no_sentinels "refuse: reading the knob runs no git/curl/claude"
+
+reset_stub_env
+knob_adopter lenient
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "a malformed adopter value degrades to refuse, never to a pass" '7 commit'
+
+# A repo-side layer cannot relax the guard. The hook runs from inside a real
+# repository whose repo-tracked and machine-local files say conflict-only, with
+# a working git on PATH so the overlay resolver COULD find them if the guard let
+# it; the adopter layer says nothing.
+REPO_SIDE="$SANDBOX/repo-side"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$REPO_SIDE"
+mkdir -p "$REPO_SIDE/.claude"
+printf 'ready_guard_behind_base: conflict-only\n' >"$REPO_SIDE/.claude/planwright.yml"
+printf 'ready_guard_behind_base: conflict-only\n' >"$REPO_SIDE/.claude/planwright.local.yml"
+cp "$BIN/git" "$SANDBOX/git.sentinel"
+ln -sf "$(command -v git)" "$BIN/git"
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
+cd "$REPO_SIDE" || exit 1
+run_hook "$(bash_payload 'gh pr ready 42' "$REPO_SIDE")"
+cd "$REPO_ROOT" || exit 1
+rm -f "$BIN/git"
+cp "$SANDBOX/git.sentinel" "$BIN/git"
+assert_deny_because "repo-tracked and machine-local conflict-only do not relax the guard" '7 commit'
+
+# The resolver missing beside the guard is a refusal, never a pass.
+LONE="$SANDBOX/lone"
+mkdir -p "$LONE"
+cp "$HOOK" "$LONE/ready-guard.sh"
+cp "$(dirname "$HOOK")/echo-safety.sh" "$LONE/echo-safety.sh"
+reset_stub_env
+knob_adopter conflict-only
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
+SAVED_HOOK=$HOOK
+HOOK="$LONE/ready-guard.sh"
+run_hook "$(bash_payload 'gh pr ready 42')"
+HOOK=$SAVED_HOOK
+assert_deny_because "conflict-only with no resolver beside the guard degrades to refuse" '7 commit'
+
 echo "### REQ-C1.7 — global wiring in hooks/hooks.json"
 
 if [ ! -f "$HOOKS_JSON" ]; then
