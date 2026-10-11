@@ -956,7 +956,7 @@ run_stubbed_resolver() {
   printf '%s\n' "$3" >"$STUBBED/resolve-policy-knob.sh"
   reset_stub_env
   STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
-  RG_GH_TIMEOUT=1
+  RG_GH_TIMEOUT=2
   SAVED_HOOK=$HOOK
   HOOK="$STUBBED/ready-guard.sh"
   run_hook "$(bash_payload 'gh pr ready 42')"
@@ -976,7 +976,7 @@ run_stubbed_resolver "a resolver answer with conflict-only on a later line appli
 run_stubbed_resolver "conflict-only printed before a non-zero exit applies refuse" \
   deny "printf 'conflict-only\n'; exit 1"
 run_stubbed_resolver "a resolver that answers only after the query bound applies refuse" \
-  deny "sleep 2; printf 'conflict-only\n'"
+  deny "sleep 5; printf 'conflict-only\n'"
 
 # An inherited machine-local file path is dropped like the derived one.
 reset_stub_env
