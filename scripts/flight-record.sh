@@ -775,7 +775,7 @@ case $record_path in
   /*)
     _phys=$(cd "$repo_root" && pwd -P) || die 4 "cannot resolve --repo-root"
     case $record_path in
-      "$_phys"/*) record_rel=${record_path#"$_phys"/} ;;
+      "${_phys%/}"/*) record_rel=${record_path#"${_phys%/}"/} ;;
       "$repo_root"/*) record_rel=${record_path#"$repo_root"/} ;;
       *) die 2 "refusing --record-path: it is outside the worktree ($_phys)" ;;
     esac
@@ -790,6 +790,8 @@ parent=${rel%/*}
 [ "$parent" != "$rel" ] || parent=''
 base=${rel##*/}
 phys=$(cd "$repo_root" && pwd -P) || die 4 "cannot resolve --repo-root"
+# Without its trailing slash, so a worktree at / composes as /<path>.
+root=${phys%/}
 
 # bad_dir — print the first directory on the record path that is a symlink or
 # not a directory; false when there is none.
@@ -810,48 +812,73 @@ bad_dir() {
   return 1
 }
 
-# in_parent <command>... — run <command> in a subshell whose working directory
-# is the record's parent, entered physically and checked to be the one inside
-# the checkout, so a symlink swapped onto the path cannot redirect it. Exit 5
-# when the directory is not that one.
-in_parent() {
-  (
-    cd -P "$repo_root${parent:+/$parent}" 2>/dev/null || exit 5
-    [ "$(pwd -P)" = "$phys${parent:+/$parent}" ] || exit 5
-    "$@"
-  )
+# enter_parent — make the record's parent the working directory, one
+# component at a time from the physical root: each is created when absent,
+# refused when it is a symlink or not a directory, entered physically, and
+# checked to be the one inside the checkout. A symlink swapped onto any
+# component can then neither redirect the record nor make a directory outside
+# the checkout, and every later step on the record runs from here.
+enter_parent() {
+  cd -P "$phys" 2>/dev/null || die 4 "cannot enter the worktree"
+  _at=$root
+  _rest=$parent
+  while [ -n "$_rest" ]; do
+    _seg=${_rest%%/*}
+    case $_rest in
+      */*) _rest=${_rest#*/} ;;
+      *) _rest='' ;;
+    esac
+    _at=$_at/$_seg
+    if [ ! -e "$_seg" ] && [ ! -L "$_seg" ]; then
+      mkdir -- "$_seg" 2>/dev/null || [ -e "$_seg" ] || [ -L "$_seg" ] || die 4 "cannot create ${_at#"$root"/}"
+    fi
+    if [ -L "$_seg" ] || ! cd -P -- "$_seg" 2>/dev/null || [ "$(pwd -P)" != "$_at" ]; then
+      die 3 "${_at#"$root"/} became a symlink or not a directory during land; the record is written inside the checkout only; nothing was written"
+    fi
+  done
 }
 
-# create_record — link a filled temp file to the record's name: link(2) fails
-# when the name exists, a dangling symlink included, so this creates the record
-# only when it is absent, without the window a check-then-write leaves.
-create_record() {
-  _t=$(mktemp ".$base.XXXXXX") || exit 4
-  trap 'rm -f "$_t"' EXIT
-  cat "$work/record.md" >"$_t" || exit 4
-  chmod "$(printf '%o' $((0666 & ~$(umask))))" "$_t" || exit 4
-  ln -- "$_t" "$base" 2>/dev/null || exit 3
+# inode <path> — the inode number of <path> itself, never a symlink's target.
+# One known name, and POSIX has no stat, so SC2012's find does not apply.
+# shellcheck disable=SC2012
+inode() {
+  ls -di -- "$1" 2>/dev/null | awk '{ print $1 }'
 }
 
-# is_render — the record on disk is a regular file holding this run's render.
-is_render() {
-  [ -f "$base" ] && [ ! -L "$base" ] && cmp -s "$work/record.md" "$base"
+# is_mine — the record's name holds the regular file this run created, by
+# identity rather than content, so a hook that edits it in place leaves it
+# this run's.
+is_mine() {
+  [ -n "$rino" ] && [ -f "$base" ] && [ ! -L "$base" ] && [ "$(inode "$base")" = "$rino" ]
 }
 
-# remove_mine — delete the record only while it is the one this run wrote.
-remove_mine() {
-  is_render && rm -f -- "$base"
+# matches_head — HEAD holds the record exactly as this run renders it,
+# compared through git so line-ending conversion does not matter.
+matches_head() {
+  _hb=$(git -C "$repo_root" rev-parse -q --verify "HEAD:$rel" 2>/dev/null) && [ -n "$_hb" ] \
+    && [ "$(git -C "$repo_root" hash-object --path="$rel" -- "$work/record.md" 2>/dev/null)" = "$_hb" ]
 }
 
-# rollback — run on every exit: a record this run created that is not in HEAD
-# leaves the index and the checkout, so a refused commit or an interrupt leaves
-# nothing a re-run would trip over; a record in HEAD, this run's or a
-# concurrent run's, stays.
-created=0
+# rollback — run on every exit, signals ignored so a second one cannot cut it
+# short. The temp file goes, and so does the record when it is this run's file
+# and not in HEAD, so a refused commit or an interrupt leaves nothing a re-run
+# trips over; a record in HEAD, or another run's, stays. The record is deleted
+# only once it is unstaged, never leaving the index adding a missing file.
+tmpname=''
+rino=''
 rollback() {
-  if [ "$created" -eq 1 ] && ! git -C "$repo_root" cat-file -e "HEAD:$rel" 2>/dev/null; then
-    git -C "$repo_root" rm -q --cached --ignore-unmatch -- "$rel" >/dev/null 2>&1 || :
-    in_parent remove_mine || :
+  trap '' INT TERM HUP
+  if [ -n "$tmpname" ]; then
+    rm -f -- "$tmpname"
+    if [ -d "$base" ] && [ "$(inode "$base/$tmpname")" = "$rino" ]; then rm -f -- "$base/$tmpname"; fi
+  fi
+  if is_mine && ! git -C "$repo_root" cat-file -e "HEAD:$rel" 2>/dev/null; then
+    if git -C "$repo_root" rm -q --cached -f --ignore-unmatch -- "$rel" >/dev/null 2>&1; then
+      rm -f -- "$base"
+    else
+      printf '%s: could not unstage %s, so it stays on disk and staged; remove it with: git rm -f -- %s\n' \
+        "$prog" "$rel" "$rel" >&2
+    fi
   fi
   rm -rf "$work"
 }
@@ -871,10 +898,8 @@ fi
 render_to "$work/record.md" || die 4 "cannot write the record"
 if [ -e "$repo_root/$rel" ] || [ -L "$repo_root/$rel" ] \
   || git -C "$repo_root" cat-file -e "HEAD:$rel" 2>/dev/null; then
-  # A re-run whose record is already committed, and on disk, as this render.
-  if git -C "$repo_root" cat-file blob "HEAD:$rel" >"$work/head.md" 2>/dev/null \
-    && cmp -s "$work/head.md" "$work/record.md" \
-    && in_parent is_render; then
+  # A re-run whose record is already committed, and checked out, as this render.
+  if matches_head && git -C "$repo_root" diff --quiet HEAD -- "$rel" 2>/dev/null; then
     report
     exit 0
   fi
@@ -888,21 +913,31 @@ case $_drc in
   *) die 4 "cannot read the index" ;;
 esac
 
-[ -z "$parent" ] || mkdir -p "$repo_root/$parent" || die 4 "cannot create $parent"
-if _bad=$(bad_dir); then
-  die 3 "$_bad became a symlink or not a directory during land; the record is written inside the checkout only; nothing was written"
+enter_parent
+# The record is linked from a filled temp file beside it: link(2) fails when
+# the name exists, a dangling symlink included, so it is created only when
+# absent. A directory at the name would take the link inside it instead, so
+# the result is checked to be the temp file itself.
+tmpname=$(mktemp ".$base.XXXXXX") || die 4 "cannot write $rel"
+cat "$work/record.md" >"$tmpname" || die 4 "cannot write $rel"
+chmod "$(printf '%o' $((0666 & ~$(umask))))" "$tmpname" || die 4 "cannot write $rel"
+rino=$(inode "$tmpname")
+[ -n "$rino" ] || die 4 "cannot read the record's inode"
+if ! ln -- "$tmpname" "$base" 2>/dev/null; then
+  [ ! -e "$base" ] && [ ! -L "$base" ] && die 4 "cannot write $rel"
+  die 3 "$rel appeared while land ran: one flight, one record; nothing was written"
 fi
-_crc=0
-in_parent create_record || _crc=$?
-case $_crc in
-  0) created=1 ;;
-  3) die 3 "$rel appeared while land ran: one flight, one record; nothing was written" ;;
-  5) die 3 "${parent:-the worktree} moved while land ran; the record is written inside the checkout only; nothing was written" ;;
-  *) die 4 "cannot write $rel" ;;
-esac
+is_mine || die 3 "$rel appeared while land ran: one flight, one record; nothing was written"
+rm -f -- "$tmpname"
+tmpname=''
 if ! git -C "$repo_root" add -- "$rel" >/dev/null 2>"$work/git.err" \
   || ! git -C "$repo_root" commit -q -m "docs(flight): record flight $flight_id" -- "$rel" >>"$work/git.err" 2>&1; then
+  # A concurrent run that committed this same render has landed the record.
+  if matches_head; then
+    report
+    exit 0
+  fi
   sed 's/^/  /' "$work/git.err" | tr -d '\000-\010\013-\037\177' >&2
-  die 4 "could not commit $rel; an uncommitted record is removed"
+  die 4 "could not commit $rel; an uncommitted record this run wrote is removed"
 fi
 report

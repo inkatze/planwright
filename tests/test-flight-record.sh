@@ -883,28 +883,31 @@ run_land --flight-id "$HOOK"
 rm -f "$repo/.git/hooks/pre-commit"
 rm -rf "$repo/specs"
 
-# Races, interleaved deterministically: a `git` stub first on PATH runs a
-# case's action once, at the first git call whose arguments match the case's
-# pattern, then hands every call to the real git unless the action fails,
-# which fails that call instead. The action sees land's pid as STUB_LAND_PID.
-# `diff --cached` falls after land's checks and before its write; `add` and
-# `commit` after its write.
+# Races, interleaved deterministically: `git` and `ln` stubs first on PATH run
+# a case's action once, at the first call of the case's tool (git unless
+# STUB_TOOL says otherwise) whose arguments match the case's pattern, then
+# hand every call to the real tool unless the action fails, which fails that
+# call instead. The action sees land's pid as STUB_LAND_PID. `diff --cached`
+# falls after land's checks and before its write; `ln` is the write; `add`
+# and `commit` come after it, and `rm` is the rollback's.
 REAL_GIT=$(command -v git)
 stub="$tmp/stub"
 mkdir -p "$stub"
-cat >"$stub/git" <<EOF
+for _tool in git ln; do
+  cat >"$stub/$_tool" <<EOF
 #!/bin/sh
-case " \$* " in
-  *" \$STUB_ON "*)
+case "\${STUB_TOOL:-git}: \$* " in
+  "$_tool:"*" \$STUB_ON "*)
     if [ ! -e "\$STUB_DONE" ]; then
       : >"\$STUB_DONE"
       STUB_LAND_PID=\$PPID /bin/sh "\$STUB_ACTION" || exit \$?
     fi
     ;;
 esac
-exec "$REAL_GIT" "\$@"
+exec "$(command -v "$_tool")" "\$@"
 EOF
-chmod +x "$stub/git"
+  chmod +x "$stub/$_tool"
+done
 # run_land_stub <pattern> <action-script> [overrides...]
 run_land_stub() {
   _on=$1
@@ -954,6 +957,10 @@ EOF
 run_land_stub 'add' "$tmp/act-commit-mine.sh" --flight-id "$RACE2"
 git -C "$repo" cat-file -e "HEAD:specs/_flights/$RACE2.md" 2>/dev/null \
   || fail "the race fixture must have committed the record"
+# The concurrent commit carried this run's own render, so the record landed.
+[ "$RC" -eq 0 ] || fail "a record landed identically by a concurrent run must report success (got $RC: $ERR)"
+printf '%s\n' "$OUT" | grep -qx "commit	$(git -C "$repo" log -1 --format=%H -- "specs/_flights/$RACE2.md")" \
+  || fail "a concurrently landed record must report its commit: $OUT"
 [ -f "$repo/specs/_flights/$RACE2.md" ] || fail "a raced rollback must not delete a committed record"
 [ -z "$(git -C "$repo" status --porcelain)" ] \
   || fail "a raced rollback must leave no staged deletion: $(git -C "$repo" status --porcelain)"
@@ -991,6 +998,116 @@ run_land_stub 'diff --cached' "$tmp/act-swap.sh" --flight-id "$SWAP"
 [ "$RC" -eq 3 ] || fail "a symlink swapped in after the checks must be refused with 3 (got $RC: $ERR)"
 printf '%s\n' "$ERR" | grep -q 'symlink' || fail "the swapped-symlink refusal must name the symlink: $ERR"
 [ -z "$(ls -A "$tmp/swap-out")" ] || fail "a swapped-in symlink carried the write outside the checkout"
+rm -rf "$repo/specs"
+
+# A symlink swapped onto an earlier component of a path land still has to
+# create makes nothing outside the checkout: directories are made one at a
+# time, each checked.
+MKD=mkdirswap-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$MKD" main
+rm -rf "$tmp/mkdir-out"
+mkdir -p "$tmp/mkdir-out" "$repo/specs"
+cat >"$tmp/act-mkdir.sh" <<EOF
+rm -rf "$repo/specs"
+ln -s "$tmp/mkdir-out" "$repo/specs"
+EOF
+run_land_stub 'diff --cached' "$tmp/act-mkdir.sh" --flight-id "$MKD"
+[ "$RC" -eq 3 ] || fail "a symlink swapped onto a path land creates must be refused with 3 (got $RC: $ERR)"
+[ -z "$(ls -A "$tmp/mkdir-out")" ] || fail "land created directories through a swapped-in symlink: $(ls -A "$tmp/mkdir-out")"
+rm -rf "$repo/specs"
+
+# A directory, or a symlink to one, that appears at the record's own name
+# after the checks is refused: the link must not land inside it.
+for kind in dir link; do
+  APP=appear$kind-0a1b2c3d
+  gitc "$repo" checkout -q -b "planwright/flight/$APP" main
+  rm -rf "$tmp/appear-out"
+  mkdir -p "$tmp/appear-out" "$repo/specs/_flights"
+  if [ "$kind" = dir ]; then
+    printf 'mkdir "%s"\n' "$repo/specs/_flights/$APP.md" >"$tmp/act-appear.sh"
+  else
+    printf 'ln -s "%s" "%s"\n' "$tmp/appear-out" "$repo/specs/_flights/$APP.md" >"$tmp/act-appear.sh"
+  fi
+  appear_head=$(git -C "$repo" rev-parse HEAD)
+  run_land_stub 'diff --cached' "$tmp/act-appear.sh" --flight-id "$APP"
+  [ "$RC" -eq 3 ] || fail "a $kind appearing at the record's name must be refused with 3 (got $RC: $ERR)"
+  [ "$(git -C "$repo" rev-parse HEAD)" = "$appear_head" ] || fail "a $kind at the record's name must commit nothing"
+  [ -z "$(ls -A "$tmp/appear-out")" ] || fail "a $kind at the record's name received the record: $(ls -A "$tmp/appear-out")"
+  [ "$kind" = link ] || [ -z "$(ls -A "$repo/specs/_flights/$APP.md")" ] \
+    || fail "a directory at the record's name received the record: $(ls -A "$repo/specs/_flights/$APP.md")"
+  [ "$(ls -A "$repo/specs/_flights")" = "$APP.md" ] \
+    || fail "a $kind at the record's name must leave no temp file: $(ls -A "$repo/specs/_flights")"
+  rm -rf "$repo/specs"
+done
+
+# An interrupt during the record's creation rolls back what it made, so no
+# record or temp file is left for a re-run to trip over.
+export STUB_TOOL=ln
+CRE=create-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$CRE" main
+printf 'kill -TERM "$STUB_LAND_PID"\n' >"$tmp/act-interrupt-ln.sh"
+run_land_stub '--' "$tmp/act-interrupt-ln.sh" --flight-id "$CRE"
+[ "$RC" -ne 0 ] || fail "a land interrupted at its write must not report success"
+[ -z "$(ls -A "$repo/specs/_flights" 2>/dev/null)" ] \
+  || fail "a land interrupted at its write must leave no record or temp file: $(ls -A "$repo/specs/_flights")"
+[ -z "$(git -C "$repo" status --porcelain)" ] || fail "a land interrupted at its write must leave the tree clean"
+git -C "$repo" reset -q
+rm -rf "$repo/specs"
+# A link that fails for any reason but an existing name is an environment
+# failure, not a record that appeared.
+printf 'exit 1\n' >"$tmp/act-ln-fail.sh"
+run_land_stub '--' "$tmp/act-ln-fail.sh" --flight-id "$CRE"
+[ "$RC" -eq 4 ] || fail "a failed link with no record at the name must fail with 4 (got $RC: $ERR)"
+printf '%s\n' "$ERR" | grep -q 'appeared' && fail "a failed link must not be reported as a record that appeared: $ERR"
+[ -z "$(ls -A "$repo/specs/_flights" 2>/dev/null)" ] || fail "a failed link must leave no temp file"
+unset STUB_TOOL
+rm -rf "$repo/specs"
+
+# A pre-commit hook that rewrites the record and then refuses the commit
+# leaves nothing behind: the record is still this run's file.
+REW=rewrite-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$REW" main
+printf '#!/bin/sh\nprintf "tampered\\n" >>"specs/_flights/%s.md"\nexit 1\n' "$REW" >"$repo/.git/hooks/pre-commit"
+chmod +x "$repo/.git/hooks/pre-commit"
+run_land --flight-id "$REW"
+[ "$RC" -eq 4 ] || fail "a rewriting, refusing hook must fail with 4 (got $RC: $ERR)"
+[ -e "$repo/specs/_flights/$REW.md" ] && fail "a record a hook rewrote must still be removed"
+[ -z "$(git -C "$repo" status --porcelain)" ] \
+  || fail "a record a hook rewrote must leave nothing staged: $(git -C "$repo" status --porcelain)"
+git -C "$repo" reset -q
+rm -rf "$repo/specs"
+# A second signal during the rollback does not cut it short.
+printf '#!/bin/sh\nexit 1\n' >"$repo/.git/hooks/pre-commit"
+printf 'kill -TERM "$STUB_LAND_PID"\n' >"$tmp/act-rollback-signal.sh"
+run_land_stub 'rm' "$tmp/act-rollback-signal.sh" --flight-id "$REW"
+[ -e "$repo/specs/_flights/$REW.md" ] && fail "a signal during rollback left the record behind"
+[ -z "$(git -C "$repo" status --porcelain)" ] \
+  || fail "a signal during rollback left the tree dirty: $(git -C "$repo" status --porcelain)"
+git -C "$repo" reset -q
+rm -rf "$repo/specs"
+# A rollback that cannot unstage the record keeps the file and says so,
+# rather than deleting a file the index still adds.
+printf 'exit 1\n' >"$tmp/act-rm-fail.sh"
+run_land_stub 'rm' "$tmp/act-rm-fail.sh" --flight-id "$REW"
+[ -f "$repo/specs/_flights/$REW.md" ] || fail "a rollback that could not unstage must keep the file"
+printf '%s\n' "$ERR" | grep -q 'unstage' || fail "a rollback that could not unstage must say so: $ERR"
+rm -f "$repo/.git/hooks/pre-commit"
+git -C "$repo" reset -q
+rm -rf "$repo/specs"
+
+# A matching re-run is recognized through git, so a checkout whose line
+# endings git converts still matches its committed record.
+CRLF=crlf-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$CRLF" main
+printf '*.md text eol=crlf\n' >"$repo/.git/info/attributes"
+run_land --flight-id "$CRLF"
+[ "$RC" -eq 0 ] || fail "land under CRLF attributes exited $RC: $ERR"
+rm -f "$repo/specs/_flights/$CRLF.md"
+gitc "$repo" checkout -q -- "specs/_flights/$CRLF.md"
+grep -q "$(printf '\r')" "$repo/specs/_flights/$CRLF.md" || fail "the CRLF fixture must check the record out with CRLF"
+run_land --flight-id "$CRLF"
+[ "$RC" -eq 0 ] || fail "a matching re-run under CRLF attributes must succeed (got $RC: $ERR)"
+rm -f "$repo/.git/info/attributes"
 rm -rf "$repo/specs"
 
 gitc "$repo" checkout -q main
