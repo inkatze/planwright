@@ -27,6 +27,10 @@ assert_contains() {
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/rcost.XXXXXX")
 trap 'rm -rf "$T"' EXIT
+# Never fall back to the machine's own transcripts, fleet home, or spec root.
+export HOME="$T/home"
+unset CLAUDE_PLUGIN_DATA
+mkdir -p "$HOME"
 
 # --- transcripts: two sessions, one polish run ended by PR creation, one
 # self-review run ended by a human message ---
