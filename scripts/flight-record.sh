@@ -298,11 +298,15 @@ personal_data() {
         hit("personal-data-contact")
       }
       # An international number: `+`, a country digit, 8 to 15 digits, and
-      # single separators.
+      # single separators. A word or more digits running on after it end the
+      # number at an earlier group (`... 0958 24h`).
       off = 0
       while (each("[+][1-9][0-9 .()-]*[0-9]")) {
-        if (pre ~ /[A-Za-z0-9_+]/ || post ~ /[A-Za-z0-9_]/ || m ~ /[ .-][ .-]/) continue
-        n = length(digits(m))
+        if (pre ~ /[A-Za-z0-9_+]/) continue
+        t = m
+        while ((post ~ /[A-Za-z0-9_]/ || length(digits(t)) > 15) && sub(/[ .()-]+[0-9]+$/, "", t)) post = " "
+        if (post ~ /[A-Za-z0-9_]/ || t ~ /[ .-][ .-]/) continue
+        n = length(digits(t))
         if (n >= 8 && n <= 15) hit("personal-data-contact")
       }
       # A card: 13 to 19 digits unseparated, or a standard group layout

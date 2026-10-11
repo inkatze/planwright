@@ -438,7 +438,7 @@ for case in "identity|is |$SSN|, thanks." "identity|is |078 05 ""1120|." \
   "account|is order 12 |$CARD| now." "account|is |3782 822463 ""10005|." \
   "contact|is |$INTL|." "contact|is |$NANP|, thanks." "contact|is |555-234-""5678|." \
   "contact|is |555.234.""5678|, thanks." "contact|is |(555)234-""5678|." \
-  "contact|is |1-555-234-""5678|." "contact|is |(555)-234-""5678|."; do
+  "contact|is |1-555-234-""5678|." "contact|is |(555)-234-""5678|." "contact|is |$INTL| 24h support."; do
   rule=personal-data-${case%%|*}
   rest=${case#*|}
   before=${rest%%|*}
