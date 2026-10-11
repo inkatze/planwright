@@ -133,7 +133,12 @@ export LC_ALL
 # substitution (house pattern).
 unset CDPATH
 
-script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+# The directory part of $0 without forking dirname: this runs on every config read.
+case $0 in
+  */*) script_dir=${0%/*}/ ;;
+  *) script_dir=./ ;;
+esac
+script_dir=$(cd "$script_dir" && pwd) || exit 2
 
 # The canonical echo-discipline sanitizer (doctrine/security-posture.md):
 # refused caller argv and config-file values are stripped of control bytes
@@ -302,12 +307,29 @@ elif [ "$fallback_set" -ne 1 ]; then
   exit 2
 fi
 
+# trim_ws <value>: set _tw to the value trimmed of surrounding whitespace.
+# Every knob read passes through here several times, so a one-line value is
+# trimmed without a fork; a multi-line one keeps sed, which trims each line.
+trim_ws() {
+  case $1 in
+    *"
+"*)
+      _tw=$(printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+      ;;
+    *)
+      _tw=${1#"${1%%[![:space:]]*}"}
+      _tw=${_tw%"${_tw##*[![:space:]]}"}
+      ;;
+  esac
+}
+
 # valid_value <value>: 0 when the trimmed value is legal for the declared
 # type — a pure predicate, the sibling resolvers' shape. config-get already
 # strips a trailing `# comment` and a surrounding quote pair; the trim here
 # is defensive against surrounding whitespace so `  true  ` validates.
 valid_value() {
-  _vv=$(printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+  trim_ws "$1"
+  _vv=$_tw
   case "$ktype" in
     enum)
       for _m in $kvalues; do
@@ -390,8 +412,17 @@ valid_value() {
 # prefixed by its layer under --explain.
 emit_trimmed() {
   [ "$explain" -eq 0 ] || printf '%s\t' "${2:-default}"
-  printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
-  printf '\n'
+  case $1 in
+    *"
+"*)
+      printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+      printf '\n'
+      ;;
+    *)
+      trim_ws "$1"
+      printf '%s\n' "$_tw"
+      ;;
+  esac
 }
 
 if [ "$fallback_set" -eq 1 ] && ! valid_value "$fallback"; then
@@ -439,7 +470,8 @@ resolve_path() {
     esac
     rp_layer=${rp_line%%"$TAB"*}
     rp_value=${rp_line#*"$TAB"}
-    rp_trim=$(printf '%s' "$rp_value" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+    trim_ws "$rp_value"
+    rp_trim=$_tw
     if [ -z "$rp_trim" ]; then
       emit_trimmed "$fallback" "$rp_layer"
       exit 0
