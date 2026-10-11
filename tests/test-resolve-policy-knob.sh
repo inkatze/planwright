@@ -89,8 +89,7 @@ merge_class_exclude_paths|docs/* vendor/*.lock *|docs/*|*|a,b
 merge_class_strategy|sole-allowed squash merge rebase|squash|sole-allowed|fast-forward
 worker_base_merge|allow deny|allow|deny|yes
 worker_merge_conflict_policy|halt resolve|resolve|halt|merge
-unpushed_rewrite|allow deny|allow|deny|sometimes
-ready_guard_behind_base|refuse conflict-only|conflict-only|refuse|lenient'
+unpushed_rewrite|allow deny|allow|deny|sometimes'
 
 # A stubbed reader <knob> <permissive value>: it allows the act only on the
 # permissive value and refuses on anything else, a resolver failure included,
@@ -171,6 +170,45 @@ printf '%s\n' "$KNOBS" | while IFS='|' read -r knob legal permissive strict malf
   grep -q warning "$tmp/err" || fail "$knob: an unset key fell back without a warning"
 done
 echo "ok: each gate knob resolves through all four layers and degrades to its strict target"
+
+# The ready-guard's behind-base knob reads only the core and adopter layers,
+# the two outside every checkout, so a session cannot relax its own guard by
+# editing a repo-side file: those values are ignored, never degraded.
+printf 'ready_guard_behind_base: refuse\n' >"$core_cfg"
+for v in refuse conflict-only; do
+  reset_layers
+  printf 'ready_guard_behind_base: %s\n' "$v" >"$core_cfg"
+  got=$(rpk ready_guard_behind_base) || fail "ready_guard_behind_base: core '$v' did not resolve"
+  [ "$got" = "$v" ] || fail "ready_guard_behind_base: core '$v' resolved to '$got'"
+done
+printf 'ready_guard_behind_base: refuse\n' >"$core_cfg"
+reset_layers
+printf 'ready_guard_behind_base: conflict-only\n' >"$adopter_cfg"
+[ "$(rpk ready_guard_behind_base)" = conflict-only ] || fail "ready_guard_behind_base: the adopter value was not read"
+for layer_cfg in "$tracked_cfg" "$mlocal_cfg"; do
+  for body in 'ready_guard_behind_base: conflict-only' 'ready_guard_behind_base: lenient'; do
+    reset_layers
+    printf '%s\n' "$body" >"$layer_cfg"
+    got=$(rpk ready_guard_behind_base 2>/dev/null) || fail "ready_guard_behind_base: '$body' in $layer_cfg failed the read"
+    [ "$got" = refuse ] || fail "ready_guard_behind_base: '$body' in $layer_cfg resolved to '$got', expected the core refuse"
+  done
+done
+reset_layers
+printf 'ready_guard_behind_base: conflict-only\n' >"$tmp/local-override.yml"
+got=$(PATH="$tmp/bin:$PATH" PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="$tmp/local-override.yml" \
+  /bin/sh "$RPK" ready_guard_behind_base) || fail "ready_guard_behind_base: a PLANWRIGHT_LOCAL_CONFIG override failed the read"
+[ "$got" = refuse ] || fail "ready_guard_behind_base: a PLANWRIGHT_LOCAL_CONFIG override resolved to '$got', expected refuse"
+printf 'ready_guard_behind_base: conflict-only\n' >"$core_cfg"
+printf 'ready_guard_behind_base: lenient\n' >"$adopter_cfg"
+got=$(rpk ready_guard_behind_base 2>"$tmp/err") || fail "ready_guard_behind_base: a malformed adopter value failed the read"
+[ "$got" = refuse ] || fail "ready_guard_behind_base: a malformed adopter value resolved to '$got', expected refuse"
+grep -q warning "$tmp/err" || fail "ready_guard_behind_base: a malformed adopter value degraded without a warning"
+reset_layers
+: >"$core_cfg"
+got=$(rpk ready_guard_behind_base 2>/dev/null) || fail "ready_guard_behind_base: an unset key did not resolve"
+[ "$got" = refuse ] || fail "ready_guard_behind_base: an unset key resolved to '$got', expected refuse"
+echo "ok: ready_guard_behind_base reads only the core and adopter layers"
 
 # YAML reads `key : v` as the key, and a repeated key as its last value, while
 # the flat reader skips the first and takes the first of the second: either
