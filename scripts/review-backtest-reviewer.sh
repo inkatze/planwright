@@ -65,14 +65,26 @@ End your reply with every finding, one per line, in exactly this form:
 FINDING<TAB><repository-relative path><TAB><line number in HEAD><TAB><lens><TAB><one-line summary>
 using a real tab character between fields. Print nothing after the last one."
 
-out=$("$claude_bin" -p "$prompt" --model "$BACKTEST_MODEL" \
+# The session runs in the background so a TERM sent to this script (the
+# harness stopping a row) ends the session too instead of orphaning it.
+outf=$(mktemp "${TMPDIR:-/tmp}/rbt-review.XXXXXX")
+cpid=
+trap 'rm -f "$outf"' EXIT
+trap '[ -z "$cpid" ] || kill "$cpid" 2>/dev/null; exit 143' TERM INT
+"$claude_bin" -p "$prompt" --model "$BACKTEST_MODEL" \
   --output-format json --max-turns "$max_turns" \
   --tools 'Read,Grep,Glob' --allowedTools 'Read' 'Grep' 'Glob' \
   --permission-mode dontAsk --strict-mcp-config --restricted \
-  --add-dir "$root" --add-dir "$rowdir" </dev/null 2>/dev/null) || {
+  --add-dir "$root" --add-dir "$rowdir" </dev/null >"$outf" 2>/dev/null &
+cpid=$!
+crc=0
+wait "$cpid" || crc=$?
+cpid=
+if [ "$crc" -ne 0 ]; then
   printf '%s\n' "$prog: the review session failed" >&2
   exit 1
-}
+fi
+out=$(cat "$outf")
 if [ "$(printf '%s\n' "$out" | jq -r '.is_error // false' 2>/dev/null)" != false ]; then
   printf '%s\n' "$prog: the review session reported an error" >&2
   exit 1

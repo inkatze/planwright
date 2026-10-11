@@ -67,6 +67,7 @@ check_refused "non-integer pr" "pr is not" "r0003	1x	$SHA	scripts/a.sh	4	correct
 check_refused "short commit" "commit" "r0003	12	0123abc	scripts/a.sh	4	correctness	other	yes	fallback	gist text here	-"
 check_refused "absolute path" "path" "r0003	12	$SHA	/etc/passwd	4	correctness	other	yes	fallback	gist text here	-"
 check_refused "dot-dot path" "path" "r0003	12	$SHA	scripts/../x	4	correctness	other	yes	fallback	gist text here	-"
+check_refused "non-ASCII path" "path" "r0003	12	$SHA	scripts/$(printf '\342\200\256')x.sh	4	correctness	other	yes	fallback	gist text here	-"
 check_refused "zero line" "line" "r0003	12	$SHA	scripts/a.sh	0	correctness	other	yes	fallback	gist text here	-"
 check_refused "unknown category" "category" "r0003	12	$SHA	scripts/a.sh	4	vibes	other	yes	fallback	gist text here	-"
 check_refused "unknown reason" "reason" "r0003	12	$SHA	scripts/a.sh	4	correctness	lazy	yes	fallback	gist text here	-"

@@ -105,7 +105,9 @@ The default reviewer, `scripts/review-backtest-reviewer.sh`, is today's pass:
 `/self-review`'s discovery step, lenses walked inline, read from the
 planwright checkout running the replay. A changed reviewer is replayed by
 pointing `--reviewer` at an executable that prints `<path><TAB><line>` per
-finding. `--out` writes the result, which can serve as the next baseline.
+finding. `--out` writes the result, which can serve as the next baseline
+unless it holds error rows: a row whose setup or reviewer failed is recorded
+but left out of its class's counts, and the run exits 4.
 
 ## The metrics and the baselines
 
@@ -117,7 +119,8 @@ mise run eval:review-cost --prs-from <first PR in the window>
 the unit (from the transcripts and fleet events), and the post-convergence
 finding rate over bot-reviewed PRs, median fixed findings, and median review
 rounds (from the PR history and the miss ledger, its archived fragments
-included). It compares the rate and the token median
-against `tests/fixtures/review-backtest/baselines.tsv`, the research seed's
+included). It counts the bot's fixed findings and rounds, the population the
+baselines measured, plus any recorded miss. It compares the rate and the token
+median against `tests/fixtures/review-backtest/baselines.tsv`, the research seed's
 measurements recorded as decided values, and gives a verdict only over a
 window of at least 15 bot-reviewed PRs.

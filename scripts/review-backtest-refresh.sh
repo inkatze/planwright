@@ -112,10 +112,11 @@ die() {
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/rbt-refresh.XXXXXX")
 claimed=
-# A version claimed but never filled is removed, or every later refresh would
-# stop at it.
+apid=
+# A version claimed but never filled is removed; an interrupt also ends a
+# running annotator, which runs in the background so the TERM can reach it.
 trap 'rm -rf "$tmp"; [ -z "$claimed" ] || [ -f "$claimed/corpus.tsv" ] || rm -rf "$claimed"' EXIT
-trap 'exit 130' INT TERM
+trap '[ -z "$apid" ] || kill "$apid" 2>/dev/null; exit 130' INT TERM
 
 history=
 repo=
@@ -274,7 +275,9 @@ jq -R -s -c '[ split("\n")[] | select(length > 0) | split("\t") | {key: "\(.[0])
 # --- the latest earlier version ----------------------------------------------
 
 prev=$(rbt_latest_version "$corpus_root")
-next=$((${prev:-0} + 1))
+# The next version is past every v<N> directory, a filled one or an abandoned
+# empty claim alike, so a refresh that died mid-publish never blocks the next.
+next=$(($(rbt_highest_version_dir "$corpus_root") + 1))
 if [ -n "$prev" ]; then
   jq -R -s -c '[ split("\n")[1:][] | select(length > 0) | split("\t")
     | {key: "\(.[1]):\(.[3]):\(.[4]):\(.[2])", category: .[5], reason: .[6], label_source: .[8], gist: .[9], dismissal: .[10]} ]
@@ -293,7 +296,12 @@ jq -c --slurpfile prev "$tmp/prev.json" --argjson label "$label_reasons" '
 if [ -s "$tmp/requests.jsonl" ]; then
   split -l "$batch" "$tmp/requests.jsonl" "$tmp/batch."
   for b in "$tmp"/batch.*; do
-    "$annotate" <"$b" >"$tmp/answer.part" || die 1 "the annotate command failed"
+    "$annotate" <"$b" >"$tmp/answer.part" &
+    apid=$!
+    arc=0
+    wait "$apid" || arc=$?
+    apid=
+    [ "$arc" -eq 0 ] || die 1 "the annotate command failed"
     # Keep only JSON objects; an annotator's chatter around them is ignored.
     jq -c -R 'fromjson? | select(type == "object" and has("key"))' "$tmp/answer.part" >>"$tmp/answers.jsonl" || true
   done

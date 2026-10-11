@@ -123,6 +123,19 @@ rbt_read_ledger() {
   done
 }
 
+# rbt_highest_version_dir <corpus-root> — print the highest N of any v<N>
+# directory, filled or not, or 0 when none exists.
+rbt_highest_version_dir() {
+  _rhv_max=0
+  for _rhv_d in "$1"/v*; do
+    [ -d "$_rhv_d" ] || continue
+    _rhv_n=${_rhv_d##*/v}
+    rbt_is_uint "$_rhv_n" || continue
+    [ "$_rhv_n" -le "$_rhv_max" ] || _rhv_max=$_rhv_n
+  done
+  printf '%s\n' "$_rhv_max"
+}
+
 # rbt_latest_version <corpus-root> — print the highest N of a v<N> directory
 # holding a corpus.tsv, or nothing when none exists.
 rbt_latest_version() {

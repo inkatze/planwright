@@ -93,6 +93,7 @@ history() {
    {"path":"h2.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"BADCATEGORY thing","replies":[{"author":"owner","body":"Fixed in 6666667"}]},
    {"path":"h3.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"BADREASON thing","replies":[{"author":"owner","body":"Fixed in 6666668"}]},
    {"path":"bs.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"BACKSLASH thing","replies":[{"author":"owner","body":"Fixed in 6666669"}]},
+   {"path":"bidi\u202esh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"a hidden path","replies":[{"author":"owner","body":"Fixed in 6666670"}]},
    {"path":"i.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"LOGINGIST thing","replies":[{"author":"owner","body":"Fixed in 7777777"}]},
    {"path":"k.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"BADDISMISS thing","replies":[{"author":"owner","body":"Fixed in 8888888"}]}
   ]},
@@ -198,6 +199,7 @@ assert_lacks "no reviewer login reaches the corpus" "helper-bot" "$(cat "$c1")"
 assert_contains "reports the fallback count (a.sh, b.sh, g.sh, k.sh, h3.sh, bs.sh)" "fallback other: 6" "$out"
 assert_contains "reports the unreplayable count (b.sh, g.sh, and three rows on a PR with no head ref)" "unreplayable: 5" "$out"
 assert_contains "reports the verbatim drops, a short comment copied whole included" "dropped verbatim: 2" "$out"
+assert_contains "a path outside printable ASCII is skipped" "skipped malformed location: 1" "$out"
 assert_contains "a non-string gist and a substring category are each dropped, not fatal" "dropped unannotated: 2" "$out"
 assert_contains "a gist naming a login from the history is dropped" "dropped naming a login: 1" "$out"
 assert_lacks "the login-naming gist never reaches the corpus" "i.sh" "$(cat "$c1")"
@@ -210,7 +212,7 @@ assert_lacks "never echoes a PR body or comment" "never exits" "$out"
 # --- a second refresh writes v2, carries labels, leaves v1 untouched ---
 bs1=$(awk -F '\t' '$4 == "bs.sh"' "$c1")
 assert_contains "a backslash in a gist is written once" 'printf %s\n lost' "$bs1"
-awk -F '\t' 'BEGIN { OFS = "\t" } $4 == "f.sh" { $10 = "as helper-bot put it, the flag is GNU-only" } { print }' "$c1" >"$T/c1.tampered"
+awk -F '\t' 'BEGIN { OFS = "\t" } $4 == "f.sh" { $10 = "as helper-bot put it, the flag is GNU-only" } $4 == "g.sh" { $10 = "an unrelated-history finding" } { print }' "$c1" >"$T/c1.tampered"
 cat "$T/c1.tampered" >"$c1"
 sum1=$(cksum <"$c1")
 printf '%s\n' "- 2026-09-06 [planwright] review-miss(correctness, declined): #7 a.sh: declined before the fix" >"$ledger/2026-09-06-review-miss-0000eeee.md"
@@ -221,8 +223,9 @@ if [ -f "$croot/v2/corpus.tsv" ]; then ok "v2 corpus written"; else fail "v2 cor
 if [ "$(cksum <"$c1")" = "$sum1" ]; then ok "v1 is unchanged by a later refresh"; else fail "v1 changed"; fi
 carried=$(grep -c '"path":"a.sh"' "$ANNOTATE_LOG.all")
 if [ "$carried" -eq 0 ]; then ok "a carried row is not re-annotated"; else fail "carried row re-annotated ($carried)"; fi
-assert_contains "reports the carried rows" "carried: 7" "$out"
+assert_contains "reports the carried rows" "carried: 6" "$out"
 assert_contains "a carried gist naming a login is dropped too" "dropped naming a login: 2" "$out"
+assert_contains "a carried gist copying its comment is dropped too" "dropped verbatim: 3" "$out"
 if [ "$(awk -F '\t' '$4 == "bs.sh"' "$croot/v2/corpus.tsv" | cut -f2-)" = "$(printf '%s\n' "$bs1" | cut -f2-)" ]; then ok "a carried backslash survives a refresh unchanged"; else fail "a carried backslash changed"; fi
 r=$(awk -F '\t' '$2 == 7 && $4 == "a.sh"' "$croot/v2/corpus.tsv")
 assert_contains "a new ledger entry relabels a carried row" "	declined	yes	ledger	" "$r"
@@ -238,12 +241,13 @@ assert_contains "a model-labelled row records its label source" "	runtime-tracin
 r=$(awk -F '\t' '$4 == "h3.sh"' "$croot/v1/corpus.tsv")
 assert_contains "a reason that only contains a class name falls back to other" "	other	no	fallback	" "$r"
 
-# --- an existing version is refused and left alone ---
+# --- an abandoned empty version directory never blocks the next refresh ---
 mkdir "$croot/v2"
 run_refresh --names "$names" >/dev/null 2>&1
-assert_exit "a version that already exists is refused" 1 $?
-if [ -d "$croot/v2" ]; then ok "a refused claim leaves the existing directory"; else fail "a refused claim removed a directory it did not create"; fi
-rmdir "$croot/v2"
+assert_exit "a refresh past an abandoned empty claim succeeds" 0 $?
+if [ -f "$croot/v3/corpus.tsv" ]; then ok "it writes the version after the abandoned one"; else fail "the abandoned claim blocked the refresh"; fi
+if [ -d "$croot/v2" ] && [ ! -e "$croot/v2/corpus.tsv" ]; then ok "the abandoned directory is left as it was"; else fail "the abandoned directory was touched"; fi
+rm -rf "$croot/v2" "$croot/v3"
 "$REFRESH" --fetch-only --dump-history "$T/x.json" --history "$hist" >/dev/null 2>&1
 assert_exit "--fetch-only refuses --history" 2 $?
 

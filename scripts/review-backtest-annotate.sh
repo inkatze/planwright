@@ -87,10 +87,21 @@ $reason_lines"
 set -- --output-format json --max-turns 1 --tools '' --permission-mode dontAsk \
   --strict-mcp-config --restricted
 [ -z "${PLANWRIGHT_BACKTEST_MODEL:-}" ] || set -- "$@" --model "$PLANWRIGHT_BACKTEST_MODEL"
-out=$(printf '%s\n' "$batch" | "$claude_bin" -p "$prompt" "$@" 2>/dev/null) || {
+# In the background so a TERM sent to this script ends the call too.
+outf=$(mktemp "${TMPDIR:-/tmp}/rbt-annotate.XXXXXX")
+cpid=
+trap 'rm -f "$outf"' EXIT
+trap '[ -z "$cpid" ] || kill "$cpid" 2>/dev/null; exit 143' TERM INT
+printf '%s\n' "$batch" | "$claude_bin" -p "$prompt" "$@" >"$outf" 2>/dev/null &
+cpid=$!
+crc=0
+wait "$cpid" || crc=$?
+cpid=
+if [ "$crc" -ne 0 ]; then
   printf '%s\n' "$prog: the model call failed" >&2
   exit 1
-}
+fi
+out=$(cat "$outf")
 if [ "$(printf '%s\n' "$out" | jq -r '.is_error // false' 2>/dev/null)" != false ]; then
   printf '%s\n' "$prog: the model call reported an error" >&2
   exit 1

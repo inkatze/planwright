@@ -81,7 +81,7 @@ assert_exit "the annotator succeeds on a normal result" 0 $?
 assert_contains "prints the answer object" '"key":"7:a.sh:1:x"' "$out"
 assert_lacks "drops the chatter around it" "here you go" "$out"
 argv=$(cat "$T/argv")
-assert_contains "the annotator's call has no tools" "--tools" "$argv"
+if printf '%s\n' "$argv" | awk 'prev == "--tools" && $0 == "" { found = 1 } { prev = $0 } END { exit !found }'; then ok "the annotator's call has no tools"; else fail "the annotator's call was given tools"; fi
 assert_contains "the annotator's call runs restricted" "--restricted" "$argv"
 assert_contains "the prompt offers every class but declined" "spec-conflict:" "$argv"
 assert_lacks "the prompt never offers declined as a class" "  declined:" "$argv"
@@ -90,6 +90,38 @@ printf '%s\n' "$req" | "$ANNOTATE" >/dev/null 2>&1
 assert_exit "an annotator error result is a failure" 1 $?
 : | "$ANNOTATE" >/dev/null 2>&1
 assert_exit "an empty batch is a no-op" 0 $?
+
+# --- a TERM to either helper ends its session, never orphans it ---
+cat >"$T/slow-claude" <<EOF
+#!/bin/sh
+cat >/dev/null &
+: >"$T/session.started"
+sleep 4
+: >"$T/session.finished"
+EOF
+chmod +x "$T/slow-claude"
+term_check() {
+  # term_check <label> <command>... — start the helper, TERM it once its
+  # session runs, and require that the session never finishes.
+  label=$1
+  shift
+  rm -f "$T/session.started" "$T/session.finished"
+  "$@" >/dev/null 2>&1 &
+  hpid=$!
+  n=0
+  until [ -e "$T/session.started" ] || [ "$n" -ge 200 ]; do
+    sleep 0.1
+    n=$((n + 1))
+  done
+  kill -TERM "$hpid"
+  wait "$hpid" 2>/dev/null
+  sleep 5
+  if [ -e "$T/session.started" ] && [ ! -e "$T/session.finished" ]; then ok "$label"; else fail "$label"; fi
+}
+(cd "$T/row/copy" && PLANWRIGHT_BACKTEST_CLAUDE="$T/slow-claude" term_check "a TERM to the reviewer ends its session" "$REVIEWER")
+printf '%s\n' "$req" >"$T/req.jsonl"
+# shellcheck disable=SC2016 # the inner shell expands its own positionals
+PLANWRIGHT_BACKTEST_CLAUDE="$T/slow-claude" term_check "a TERM to the annotator ends its call" sh -c 'exec "$0" <"$1"' "$ANNOTATE" "$T/req.jsonl"
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
