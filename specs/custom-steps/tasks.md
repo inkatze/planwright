@@ -528,13 +528,6 @@ deferred until every flipper posts.
   host, since its own units run the installed plugin (REQ-I1.13); clear
   this bullet when that release is installed.
 - **Task 11** — pending ready-flip: ready-guard failed on d021e74a28bd
-- **Task 12** — full local gate failed (classified logic, not retried):
-  `tests/test-fleet-stop-sj.sh` case c20, "the worker never reached its
-  hold loop", while every other test file passed; the file passes alone
-  twice on the same head and exercises neither changed script. Decide
-  whether to treat it as a load-sensitive race and re-run the gate, then
-  resume the unit at convergence.
-
 ## Deferred
 
 - **Orchestrator-side and pipeline-side points.** `spec-drafted`,
