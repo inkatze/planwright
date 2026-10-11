@@ -688,6 +688,36 @@ for pos in store vendor hold ledger; do
 done
 pass "status refuses a symlink in the store, as the writers do"
 
+# prune and resume refuse a link even where they would have nothing to do.
+new_home symlink-prune-store
+mkdir -p "$home/fleet" "$tmp/prune-store-link/sample-cli"
+ln -s "$tmp/prune-store-link" "$home/fleet/quota"
+rc=0
+run prune --now "$NOW" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 6 ] || fail "symlink: prune over a linked store exited $rc, not 6"
+new_home prune-unsearchable
+mkdir -p "$home/fleet/quota/sample-cli"
+chmod 000 "$home/fleet/quota"
+rc=0
+run prune --now "$NOW" >/dev/null 2>&1 || rc=$?
+chmod 700 "$home/fleet/quota"
+[ "$rc" = 6 ] || fail "prune over an unsearchable store exited $rc, not 6"
+for pos in vendor hold; do
+  new_home "symlink-resume-$pos"
+  mkdir -p "$home/fleet/quota" "$tmp/resume-link-$pos"
+  case $pos in
+    vendor) ln -s "$tmp/resume-link-$pos" "$home/fleet/quota/sample-cli" ;;
+    hold)
+      mkdir -p "$home/fleet/quota/sample-cli"
+      ln -s "$tmp/resume-link-$pos/absent" "$home/fleet/quota/sample-cli/hold.tsv"
+      ;;
+  esac
+  rc=0
+  run resume --vendor sample-cli --now "$NOW" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 6 ] || fail "symlink: resume through a planted $pos link exited $rc, not 6"
+done
+pass "prune and resume refuse a symlink in the store"
+
 # --- 7. The vendor view in fleet-stats.sh render ---------------------------
 # The render reads the real clock, so this fixture is stamped relative to it.
 new_home stats

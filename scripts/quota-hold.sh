@@ -444,6 +444,7 @@ case $verb in
     else
       REASON="operator resume"
     fi
+    refuse_links "$vendor"
     # A directory that cannot be searched hides the hold file it holds.
     for d in "$store" "$store/$vendor"; do
       [ ! -d "$d" ] || [ -x "$d" ] || die 6 "cannot search the vendor's store"
@@ -542,7 +543,14 @@ case $verb in
   prune)
     days=$(retention_days) || exit $?
     cutoff=$((now - days * 86400))
+    [ ! -L "$store" ] || die 6 "refusing a symlink in the vendor's store"
+    # As in status: a store that cannot be searched or listed hides ledgers.
+    if [ -d "$store" ] && { [ ! -x "$store" ] || { [ "$vendor_set" != 1 ] && [ ! -r "$store" ]; }; }; then
+      die 6 "cannot read the quota store"
+    fi
     for v in $(list_vendors); do
+      refuse_links "$v"
+      [ ! -d "$store/$v" ] || [ -x "$store/$v" ] || die 6 "cannot search the store of $v"
       [ -f "$store/$v/ledger.tsv" ] || continue
       dir=$(vendor_dir "$v") || exit 6
       lock_vendor "$dir"
