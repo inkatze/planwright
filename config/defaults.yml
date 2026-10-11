@@ -846,7 +846,7 @@ tower_reknock_age: 30m
 #                                 ladder value; an unknown value reads absent.
 # messaging_cross_machine         the documented cue to relax the
 #                                 isolatePeerMachines setting both shipped
-#                                 settings profiles carry; no script reads it,
+#                                 settings profiles must carry; no script reads it,
 #                                 the harness's approval prompt being the gate.
 # messaging_heal_cadence_seconds  the healing sweep's cadence, in seconds,
 #                                 wherever push is live, one value for every

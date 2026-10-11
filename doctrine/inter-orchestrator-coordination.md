@@ -11,7 +11,8 @@ enforces the relay's mechanics and delegates every messaging post to
 Citations: orchestration-fleet REQ-D1.2 (division of labor), orchestration-fleet
 REQ-D1.3 (attributed, non-impersonating relay), orchestration-fleet REQ-B1.7
 (relay/spawn security bounds), orchestration-fleet REQ-A1.6 (fleet-artifact data
-hygiene) · orchestration-fleet D-7, tower-comms D-12.
+hygiene) · orchestration-fleet D-7, tower-comms D-12 · fleet-messaging REQ-G1.4,
+REQ-G1.7, D-13, D-14.
 
 ## Division of labor
 
@@ -85,10 +86,13 @@ to send to one. Nobody types or pastes into a pane by hand.
 A steer or a decision answer reaches an eligible worker as a message first:
 `fleet-messaging.sh send --to-worker <handle>`, called by the relay's messaging
 arm and by `fleet-decision.sh`, so the harness delivers it attributed and
-nothing touches the input box. When the sending session's probe reads absent,
-the worker has no recorded inbox, or the post is refused or fails, delivery
-falls back to the rung's attributed steer delivery, the fallback ladder in the
-messaging-transport doctrine's per-path table.
+nothing touches the input box. The messaging-transport doctrine's per-path
+table governs each rung: a `stream-json-persistent` decision answer is always
+the supervisor's control response, and a `headless-oneshot` worker receives no
+downward delivery. When the sending session's probe reads absent, the worker
+has no recorded inbox, or the post is refused or fails, delivery falls back to
+the rung's attributed steer delivery, that table's fallback ladder; a held post
+is not a failure and is never descended.
 
 That fallback is a **buffer-paste** mechanism (under tmux,
 `load-buffer` then `paste-buffer`; the backend's steer-in-flight equivalent
@@ -114,8 +118,7 @@ paste would answer it, a paste placeholder is staged, or an earlier relay sits
 unsubmitted in the input box; afterwards it
 confirms delivery by the paste's fresh tag showing in the pane, never assumes
 it (exit 4 when it never shows: observe before re-sending). The handle is
-explicit (operator-named, or from a live peer's presence record), never the
-active pane. `relay-command stream-json`
+explicit (operator-named), never the active pane. `relay-command stream-json`
 instead emits `fleet-streamjson.sh steer`: a user turn on the worker's own
 stdin, a real submit with a receipt row — the unattended path.
 
@@ -162,7 +165,7 @@ documents, PR bodies — carries no secrets, credentials, internal hostnames, or
 sensitive operational detail (orchestration-fleet REQ-A1.6). The artifact
 data-hygiene rule of the [Security Posture](security-posture.md) applies, and the
 secret-scan guard covers committed fleet artifacts. Relay *messages* are
-transient (buffer-pasted, not committed), but any relay content that lands in a
+transient (messaged or buffer-pasted, not committed), but any relay content that lands in a
 committed log or a PR body is subject to the same rule.
 
 ## How this relates

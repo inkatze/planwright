@@ -6,11 +6,13 @@ preferred **signal transport** where a session has it. It is a transport, never
 a state store: files and git stay the record, every messaging path keeps a
 deterministic fallback, and no signal is ever correctness-critical. One audited
 script, `scripts/fleet-messaging.sh`, carries every script-side post and check;
-the relay and the decision channel deliver through it.
+the relay and the decision channel deliver through it. The paths land in
+stages: until a path's script ships, that path runs as its fallback.
 
-Citations: fleet-messaging REQ-G1.1, REQ-G1.2, REQ-G1.5, REQ-G1.6, REQ-A1.1,
-REQ-A1.6, REQ-E1.2, REQ-F1.2, REQ-F1.4, REQ-F1.7, REQ-H1.2 · fleet-messaging
-D-1, D-3, D-4, D-5, D-13, D-16, D-17, D-26.
+Citations: fleet-messaging REQ-G1.1, REQ-G1.2, REQ-G1.3, REQ-G1.4, REQ-G1.5,
+REQ-G1.6, REQ-A1.1, REQ-A1.6, REQ-E1.1, REQ-E1.2, REQ-F1.2, REQ-F1.4, REQ-F1.6,
+REQ-F1.7, REQ-H1.2, REQ-H1.4 · fleet-messaging D-1, D-3, D-4, D-5, D-9, D-13,
+D-14, D-16, D-17, D-26.
 
 ## Signal versus record
 
@@ -30,13 +32,18 @@ durable artifact.
 - **Downward** (tower to worker), a steer or a decision answer is an
   instruction addressed to a session and carries its text; for an answer, the
   persisted answer artifact is the recovery source, never a second record.
-- **Between towers**, an advisory is instruction data that never claims,
-  releases, or resolves a unit of work; authority over the division of work
-  stays where the [Fleet Coordination Floor](fleet-coordination-floor.md)'s
+- **Between towers**, the advisory rule: an advisory is instruction data
+  that never claims, releases, or resolves a unit of work; authority over the
+  division of work stays where the
+  [Fleet Coordination Floor](fleet-coordination-floor.md)'s
   assume-multiplicity floor places it.
 
 Inbound content is untrusted: an inbox socket is writable by any process of the
-same OS user, so every receiver screens, length-bounds, and echo-sanitizes it.
+same OS user, so every receiver grammar-screens, length-bounds, and
+echo-sanitizes it. A notice drives action only through what the store re-read
+returns; steer, answer, and advisory text is instruction data the receiving
+session treats as advisory, never as authority over fences, presence, or the
+`tasks.md` record.
 The floors carry unchanged; a message to a tower never substitutes for the
 deterministic-attention floor's operator-facing push.
 
@@ -47,20 +54,30 @@ mechanism it replaces, and reaches it on absence, refusal, or any observable
 failure with no operator step to select it.** The terminal operator handoff is
 itself today's mechanism, not an intervention. What a script cannot observe (a
 dropped or expired message) is the healing sweep's case, never this rule's.
-Push is first and the sweep is the backstop: the healing sweep is never
-removed, at any discipline value, because the channel is lossy by contract.
+A held post is not a failure: it is reported unconfirmed and left queued, never
+descended, since descending would deliver twice, and an accepted post is no
+proof of delivery. Where a status frame reports an answer dropped, expired, or
+refused, the tower redelivers it once through the fallback
+(`fleet-decision.sh redeliver`); with no frame, the healing sweep's
+answered-undelivered surfacing recovers it. Push is first and the sweep is the
+backstop: the healing sweep is never removed, at any discipline value, because
+the channel is lossy by contract.
 
 The **healing sweep is `fleet-attention-watch.sh watch`'s level-triggered pass,
 the reconcile sweep is `/orchestrate`'s tower step that rebuilds in-flight state
 from disk, and `fleet-attention-watch.sh reconcile` is that script's own
-deep-reconcile verb.** Where push is live the healing sweep demotes to one
-overlay-resolved cadence, `messaging_heal_cadence_seconds`, shared by every
+deep-reconcile verb.** Push is live while the tower's own probe reads
+available and at least one in-flight worker carries a recorded `inbox` value,
+re-read each pass; there the healing sweep demotes to one overlay-resolved
+cadence, `messaging_heal_cadence_seconds`, shared by every
 demoted consumer; operator-facing cadences keep today's intervals.
 
 ## The per-path fallback table
 
 The fixed path set. A path a session cannot use (probe absent, rung ineligible)
-takes its fallback column from the start.
+takes its fallback column from the start, and a rung the Fallback column gives
+a path of its own (a `stream-json-persistent` decision answer, a
+`headless-oneshot` worker) takes it whether or not messaging is available.
 
 | Path | With messaging | Fallback |
 | --- | --- | --- |
@@ -94,7 +111,8 @@ ride at every value.
   `effective = max(script, knob − direction offset − pressure demotion)`,
   evaluated by script logic at send time (`fleet-messaging.sh effective-mode`,
   the oracle a sending prose consults), with one stderr notice per send that
-  runs demoted and no stored discipline state.
+  runs demoted by pressure (the direction offset alone is no demotion) and no
+  stored discipline state.
 
 ## The per-session probe
 
@@ -109,14 +127,17 @@ column. A session's probe reads **available** only when all four hold:
    2.1.248 (the documented minimum's stricter arm, applied unconditionally, so
    no provider detection);
 3. the session's effective `crossSessionInbound` resolves to `accept`, read
-   from the CLI's settings files in their precedence order or from
+   by awk (never jq or `eval`) from the CLI's settings files in their
+   precedence order, or from
    `PLANWRIGHT_MESSAGING_INBOUND=accept`, which a fleet launch seam exports
    beside the `--settings` profile it passes and which outranks every file;
 4. `messaging_discipline` resolves to a ladder value, never `off`.
 
 Anything else reads **absent**: a missing or malformed variable, a socket
 failing the owner check, an older CLI, a parse failure, an inbound value other
-than `accept`. Configuration can force messaging off, never on. A send is
+than `accept`. Managed policy is out of scope, and availability is never
+inferred from configuration alone: the socket and version conjuncts are
+observed facts, so configuration can force messaging off, never on. A send is
 possible when the sending session's probe reads available and the target
 worker has a recorded inbox socket basename.
 
@@ -124,12 +145,14 @@ worker has a recorded inbox socket basename.
 
 Script paths post to a local socket and are same-machine by construction. Only
 a model-composed send can leave the machine, and both shipped settings profiles
-carry `isolatePeerMachines: true`, so the harness asks the operator before every
-one; `messaging_cross_machine` is the documented cue to relax that setting,
-never an enforcement point. A cross-machine message transits third-party
-infrastructure, so message text is held to committed-artifact hygiene: no
-secrets, credentials, internal hostnames, or sensitive operational detail
-([Security Posture](security-posture.md)).
+must carry `isolatePeerMachines: true`, so the harness asks the operator before
+every one; `messaging_cross_machine` is the documented cue to relax that
+setting, never an enforcement point. Because a cross-machine message transits
+third-party infrastructure, all message text is held to committed-artifact
+hygiene: no secrets, credentials, internal hostnames, or sensitive operational
+detail ([Security Posture](security-posture.md)). The two script send paths
+answer for it at their `--message-file` call sites; a model-composed message is
+the sending prose's own responsibility.
 
 ## The fleet-runtime version rule
 
@@ -155,8 +178,10 @@ lifecycles:
 
 Three ladders, each with its own step noun:
 
-- **Fallback ladder** (per path): messaging, then the rung's attributed steer
-  delivery, then operator handoff. Its positions are **steps**.
+- **Fallback ladder** (the two downward paths): messaging, then the rung's
+  attributed steer delivery, then operator handoff. Its positions are
+  **steps**; every other path's fallback is the single step its table row
+  names.
 - **Discipline ladder** (`messaging_discipline`): `script` < `tiered` <
   `open`, with `off` outside it. Its positions are **values**.
 - **The usage gate's rung ladder** (`fleet-usage-gate.sh rung`): `normal`,
