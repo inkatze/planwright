@@ -34,10 +34,11 @@
 # MUTATION. `shell-mutation` when the script `eval`s an argument holding an
 # expansion, or sources (`.`/`source`) a path whose file name holds one. A
 # literal eval and a source of a named library are not flagged, and neither is
-# a source of `"$var"` when every value the script assigns to `var` ends in a
-# literal file name. A path whose file name comes from `${VAR:-default}` is
-# not literal: the environment can replace it. Its default still names a
-# caller, since it is what runs when the variable is unset.
+# a source of `"$var"` when the script assigns `var` at least once and every
+# value it assigns ends in a literal file name. A path whose file name comes
+# from `${VAR:-default}` is not literal: the environment can replace it. Its
+# default still names a caller, since it is what runs when the variable is
+# unset.
 #
 # PROFILE. Every command word the script runs that is not a POSIX shell builtin
 # (special built-ins, intrinsic utilities, and echo, printf and test), a
@@ -52,8 +53,9 @@
 # UNRESOLVED. A command word, sourced path, or script handed to sh or bash
 # whose file name is built from an expansion (`"$dir/$name.sh"`), so no
 # literal script name can be read from it. It is reported, never counted as a
-# caller. A bare `"$var"` is resolved, as for MUTATION, when every value the
-# script assigns to `var` ends in a literal file name.
+# caller. A bare `"$var"` is resolved, as for MUTATION, when the script
+# assigns `var` at least once and every value it assigns ends in a literal
+# file name.
 #
 # KNOWN LIMITS. The scanner is a tokenizer, not a shell parser: a script name
 # in a live line that does not run it (an echo, a message string) still counts
@@ -378,6 +380,10 @@ function endword(  x, e, q, b) {
       return
     }
     if (wrap[cf] == "env" && x ~ /^[A-Za-z_][A-Za-z0-9_]*=/) return
+    # An unquoted expansion after env holds options or assignments; the first
+    # operand of timeout is its duration, spelt literally or not.
+    if (wrap[cf] == "env" && e && !q) return
+    if (wrap[cf] == "timeout" && !wdur[cf]) { wdur[cf] = 1; return }
     if (wrap[cf] ~ /^(timeout|nice|xargs)$/ && x ~ /^[0-9][0-9.]*[smhd]?$/) return
     wrap[cf] = ""
   } else if (x ~ assignre) { assign(x); return }
@@ -398,7 +404,7 @@ function endword(  x, e, q, b) {
   b = x; sub(/.*\//, "", b)
   out("C", b)
   lastc[cf] = b; lastcn[cf] = nw[cf]
-  if (x ~ /^(command|exec|builtin|nohup|nice|env|xargs|timeout|sudo|time)$/) { wrap[cf] = x; cmdpos[cf] = 1 }
+  if (x ~ /^(command|exec|builtin|nohup|nice|env|xargs|timeout|sudo|time)$/) { wrap[cf] = x; wdur[cf] = 0; cmdpos[cf] = 1 }
   else if (x == "eval") ev[cf] = 1
   else if (x == "." || x == "source") src[cf] = 1
   else if (x ~ /^(local|export|readonly|declare|typeset)$/) decl[cf] = 1

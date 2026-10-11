@@ -186,7 +186,8 @@ exit 0
 EOF
 
 # Interpreter options that take a value, a slashless built name, wrapper
-# options that take a value (sudo -u, exec -a, time -p), `name ()` with a
+# options that take a value (sudo -u, exec -a, time -p, a timeout duration
+# held in a variable, env options in an unquoted expansion), `name ()` with a
 # space, a `name()` line inside a quoted string, a slashless built name, and
 # a variable run as a command: unresolved unless it holds a literal path.
 put scripts/interp.sh <<'EOF'
@@ -207,6 +208,10 @@ L="$d/x1.sh"
 "$L" go
 tool=$(pick "$1")
 "$tool" go
+gh_t=$(pick)
+timeout "$gh_t" gh pr view
+opts=""
+env $opts /bin/sh x
 exec -a myname curl x
 EOF
 
@@ -340,7 +345,7 @@ expect scripts/no-suffix tests-only no-live-caller - - shopt -
 expect scripts/name.sh tests-only no-live-caller - - - -
 expect scripts/glued.sh tests-only no-live-caller - - - -
 # shellcheck disable=SC2016 # the literal text the partition reports
-expect scripts/interp.sh tests-only no-live-caller - - bash,curl,date,gzip,make,pick,sh,sudo '$d/$n,$name.sh,$tool,${variant}.sh'
+expect scripts/interp.sh tests-only no-live-caller - - bash,curl,date,env,gh,gzip,make,pick,sh,sudo,timeout '$d/$n,$name.sh,$tool,${variant}.sh'
 # A symlink is in the layer as the file it names.
 expect scripts/linked.sh tests-only no-live-caller - - cb_fn,grep -
 echo "ok: p4 no caller, a library reachable only from a flagged script, a test-only helper, and a docs-only script are flagged"
