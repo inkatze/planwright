@@ -290,7 +290,7 @@ personal_data() {
       # A NANP number, optionally 1-prefixed: area and exchange start 2 to 9,
       # and an unparenthesized area uses the exchange'"'"'s separator.
       off = 0
-      while (each("(1[ .-])?([(][2-9][0-9][0-9][)] ?|[2-9][0-9][0-9][ .-])[2-9][0-9][0-9][ .-][0-9][0-9][0-9][0-9]")) {
+      while (each("(1[ .-])?([(][2-9][0-9][0-9][)][ .-]?|[2-9][0-9][0-9][ .-])[2-9][0-9][0-9][ .-][0-9][0-9][0-9][0-9]")) {
         if (!alone()) continue
         c = m
         if (c ~ /^1[ .-]/) c = substr(c, 3)
