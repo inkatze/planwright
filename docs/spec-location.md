@@ -39,7 +39,7 @@ commit trailers stay in the work repository in every posture.
 | Push and spec PR | the work repository | the holder | skipped |
 | Spec PR ready flip | per `mark_spec_pr_ready_on_kickoff` | the same, on the holder's PR | skipped |
 | Spec guards (CI, hooks) | the work repository's | the holder's, if wired | none |
-| `/spec-walkthrough` suggestion | made | skipped for a Draft, which lives only on the spec branch | made |
+| `/spec-walkthrough` suggestion | made | skipped until the spec PR merges: until then the bundle's changes live only on the spec branch | made |
 
 **`separate-repo`.** The session stays in the work repository and works on
 the holder by path. `scripts/spec-store-worktree.sh <spec>` opens the spec
@@ -48,7 +48,11 @@ it reuses one already there, recreates one from a surviving branch (local,
 else origin's, then tracking it), or creates both from the holder's
 `origin/HEAD`, else from the branch the holder's primary checkout has out.
 It prints three tab-separated lines, `worktree`, `bundle`, and `branch`, and
-exits 3 when the root is not in a holder. A Draft lives only on the spec
+exits 3 when the root is not in a holder. It exits 4 when it refuses, among
+other reasons when the spec branch or its worktree already holds another
+project's bundle of the same identifier (one holder can serve several
+projects, so an identifier must be unique across them) or a symlink sits on
+the bundle path. A Draft lives only on the spec
 branch, so the skills read, validate, and anchor it through the printed
 `bundle` path, never the holder's primary checkout; `/spec-walkthrough`
 reads the root's primary view, so it shows a holder bundle only once its
