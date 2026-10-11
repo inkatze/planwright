@@ -96,18 +96,24 @@ jobs:
       # under that parser, its misparse fixtures proving the step can fail.
       # git stays outside the container, which has none; the checkout is
       # mounted read-only with no network. It runs even when the gate above
-      # failed, so one push reports both. `shell: bash` is what sets pipefail,
-      # so a failed `git ls-files` fails the step instead of feeding it a
-      # short list.
+      # failed, so one push reports both, and the test runs even when the
+      # parse failed: each status is kept and the step fails if either did.
+      # `shell: bash` is what sets pipefail, so a failed `git ls-files` fails
+      # the parse instead of feeding it a short list.
       - if: ${{ !cancelled() }}
         shell: bash
         run: |
+          parse_rc=0
+          test_rc=0
           git -c core.quotepath=off ls-files \
             | docker run --rm -i --network none -v "$PWD:/src:ro" -w /src "$BASH32_IMAGE" \
-              bash scripts/check-bash32.sh parse --files-from - --expect-version 3.2
+              bash scripts/check-bash32.sh parse --files-from - --expect-version 3.2 \
+            || parse_rc=$?
           docker run --rm --network none -v "$PWD:/src:ro" -w /src \
             -e PLANWRIGHT_TEST_REQUIRE_BASH32=1 "$BASH32_IMAGE" \
-            bash tests/test-check-bash32.sh
+            bash tests/test-check-bash32.sh \
+            || test_rc=$?
+          [ "$parse_rc" -eq 0 ] && [ "$test_rc" -eq 0 ]
 
       # Conventional-commit lint over exactly the PR's commits. The local task
       # skips quietly when there is nothing ahead of origin/main; on a PR an
