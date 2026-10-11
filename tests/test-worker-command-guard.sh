@@ -1194,6 +1194,8 @@ first_half() {
   assert_defer "REQ-E1.5: git ls-remote -u" "git ls-remote -u x origin"
   assert_defer "REQ-E1.5: git ls-remote naming an existing path" "git ls-remote sub"
   assert_defer "REQ-E1.5: git ls-remote with no remote" "git ls-remote"
+  assert_defer "REQ-E1.5: --version of a verb outside the allowlist" "rm --version"
+  assert_defer "REQ-E1.5: --version with another operand" "git --version x"
 
   echo "### REQ-E1.6 — other processes' environments stay unread"
   assert_defer "REQ-E1.6: another process's environ" "cat /proc/1234/environ"
@@ -1231,8 +1233,6 @@ first_half() {
   assert_allow "REQ-E1.6: a glob in the worktree" "cat *.md; grep -n x scripts/*"
   assert_allow "REQ-E1.6: a last component only starting with environ" "cat environment.md"
   assert_allow "REQ-E1.6: a plain redirect source" "wc -l < README.md"
-  assert_defer "REQ-E1.5: --version of a verb outside the allowlist" "rm --version"
-  assert_defer "REQ-E1.5: --version with another operand" "git --version x"
 
   echo "### REQ-A1.9 — grammar-conservative deferral"
   assert_defer "env-assignment prefix BASH_ENV" "BASH_ENV=/tmp/x bash scripts/ok.sh"

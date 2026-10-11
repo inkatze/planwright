@@ -835,8 +835,6 @@ assert_defer "symlinked plugin script escapes" "bash $PLUGIN_ROOT/scripts/evilli
 assert_defer "arbitrary absolute script outside repo/plugin" "/tmp/evil/scripts/x.sh"
 assert_defer "plugin tests dir is not a script dir" "bash $PLUGIN_ROOT/tests/x.sh"
 
-# Each bypass row was approved before the fix; regression-only rows already
-# deferred and pin that they still do.
 echo "### worker-permission-ergonomics REQ-E1.6 — other processes' environments stay unread"
 assert_defer "REQ-E1.6: another process's environ" "cat /proc/1234/environ"
 assert_defer "REQ-E1.6: a redirect source naming one" "grep -a x < /proc/1234/environ"
@@ -848,6 +846,8 @@ assert_allow "REQ-E1.6: the reading process's own environ" "cat /proc/self/envir
 assert_allow "REQ-E1.6: an opaque operand of a non-reader" "echo \$X"
 assert_allow "REQ-E1.6: a loop variable reaching a reader" "for f in README.md; do cat \$f; done"
 
+# Each bypass row was approved before the fix; regression-only rows already
+# deferred and pin that they still do.
 echo "### REQ-E1.1 — an unresolved \$ in a screened position defers"
 assert_defer "bypass: a loop head word smuggles find flags" \
   "for d in \"-maxdepth 0 -exec id ;\"; do find . \$d; done"
