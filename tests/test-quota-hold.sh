@@ -805,12 +805,31 @@ printf '%s\n' "$st" | grep -q "^vendor${TAB}sample-cli${TAB}held${TAB}${NOW}${TA
 pass "a stated reset of 0 reads the same in status as in the push"
 
 # --- 8. The fleet home is outside the repository's tracked tree -------------
+# The default resolution, with every override unset: a write lands under the
+# user's Claude directory, never under the repository.
+user_home="$tmp/default-user"
+mkdir -p "$user_home/.claude/planwright"
+printf '{"name": "planwright"}\n' >"$user_home/.claude/planwright/plugin.json"
+default_run() {
+  env -u PLANWRIGHT_FLEET_STATE_DIR -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR HOME="$user_home" \
+    PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="$local_cfg" "$@"
+}
+default_home=$(default_run /bin/sh "$repo_root/scripts/fleet-state.sh" root) || fail "cannot resolve the default fleet home"
+case $default_home/ in
+  "$repo_root"/*) fail "the default fleet home sits inside the repository: $default_home" ;;
+  "$user_home"/*) ;;
+  *) fail "the default fleet home is not under the user's home: $default_home" ;;
+esac
+default_run /bin/sh "$QH" record --vendor sample-cli --event request --now "$NOW" || fail "a record under the default home failed"
+[ -f "$default_home/quota/sample-cli/ledger.tsv" ] || fail "the default-home record did not land under $default_home"
 inherited_home=$(fleet_home_inherited)
-if [ -n "$inherited_home" ]; then
-  case $inherited_home/ in
-    "$repo_root"/*) fail "the fleet home sits inside the repository: $inherited_home" ;;
+for h in "$default_home" "$inherited_home"; do
+  [ -n "$h" ] || continue
+  case $h/ in
+    "$repo_root"/*) fail "the fleet home sits inside the repository: $h" ;;
   esac
-fi
+done
 tracked=$(git -C "$repo_root" ls-files -- "*quota*/ledger.tsv" "*quota*/hold.tsv")
 [ -z "$tracked" ] || fail "a ledger or hold file is tracked: $tracked"
 pass "the ledger lives outside the repository's tracked tree"
