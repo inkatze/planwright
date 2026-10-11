@@ -570,9 +570,9 @@ fleet_throttle_default_hold: 300
 # How many days the per-vendor usage ledger keeps its lines (quota-handling
 # D-13, REQ-E1.1). Long enough to cover most PRs' review-request history;
 # a PR open longer than this loses its earliest requests to pruning and the
-# status counts, so a later request on it can read as a first review. Read by scripts/quota-hold.sh through the shared knob resolver; a
-# positive integer under the customization-overlay REQ-E1.4 by-layer
-# malformed policy.
+# status counts, so a later request on it can read as a first review. Read
+# by scripts/quota-hold.sh through the shared knob resolver; a positive
+# integer under the customization-overlay REQ-E1.4 by-layer malformed policy.
 quota_ledger_retention_days: 90
 
 # The proactive, shared-aware `/usage` budget gate and its restriction ladder
