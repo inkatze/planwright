@@ -1004,19 +1004,36 @@ first_half() {
   # Each against the control: the same carry through an ordinary name allows.
   assert_allow "REQ-E1.2: control, an ordinary name carries a flag across ;" "f=-name; find . \$f a.sh"
   assert_defer "REQ-E1.2: zsh's read-only history is refused" "history=-name; find . \$history a.sh"
-  for n in TERM TERMINFO TERMINFO_DIRS WORDCHARS KEYBOARD_HACK ZLE_RPROMPT_INDENT POSTEDIT RPS1 RPS2 \
-    RPROMPT RPROMPT2 SPROMPT prompt PROMPT PROMPT2 PROMPT3 PROMPT4 PSVAR psvar fignore mailpath \
-    TIMEFMT HOST LOGNAME CPUTYPE MACHTYPE OSTYPE TTY VENDOR signals dis_functions functions_source \
-    dis_functions_source funcsourcetrace builtins dis_builtins reswords dis_reswords patchars \
-    dis_patchars modules dirstack historywords jobtexts jobdirs jobstates nameddirs userdirs \
-    usergroups dis_aliases galiases dis_galiases saliases dis_saliases epochtime zgdbm_tied \
-    langinfo mapfile errnos sysparams termcap terminfo WATCH watch widgets keymaps \
-    zsh_scheduled_events; do
-    # Unset for the hook: an exported name (TERM, LOGNAME) is refused anyway.
+  # A few names through the hook, each unset for it: an exported name (TERM,
+  # LOGNAME) is refused through the environment snapshot anyway.
+  for n in TERM mapfile signals PROMPT; do
     HOOK_ENV=(/usr/bin/env -u "$n")
     assert_defer "REQ-E1.2: zsh's $n is refused" "$n=-name; find . \$$n a.sh"
   done
   HOOK_ENV=()
+  # The whole list in-process against an empty environment snapshot, so no
+  # host export can answer for a missing name.
+  zsh_missed=$(
+    eval "$(sed -n '/^assign_name_ok() {$/,/^}$/p' "$HOOK")"
+    NL=$'\n'
+    HOOK_ENV_NAMES=$NL
+    for n in TERM TERMINFO TERMINFO_DIRS WORDCHARS KEYBOARD_HACK ZLE_RPROMPT_INDENT POSTEDIT RPS1 \
+      RPS2 RPROMPT RPROMPT2 SPROMPT prompt PROMPT PROMPT2 PROMPT3 PROMPT4 PSVAR psvar fignore \
+      mailpath TIMEFMT HOST LOGNAME CPUTYPE MACHTYPE OSTYPE TTY VENDOR signals dis_functions \
+      functions_source dis_functions_source funcsourcetrace builtins dis_builtins reswords \
+      dis_reswords patchars dis_patchars modules dirstack history historywords jobtexts jobdirs \
+      jobstates nameddirs userdirs usergroups dis_aliases galiases dis_galiases saliases \
+      dis_saliases epochtime zgdbm_tied langinfo mapfile errnos sysparams termcap terminfo WATCH \
+      watch widgets keymaps zsh_scheduled_events; do
+      assign_name_ok "$n" && printf '%s ' "$n"
+    done
+    assign_name_ok f || printf 'control:f '
+  )
+  if [ -z "$zsh_missed" ]; then
+    pass "REQ-E1.2: every zsh special, startup-set, and module name is refused"
+  else
+    fail "REQ-E1.2: assign_name_ok admits zsh names: $zsh_missed"
+  fi
   # zsh expands a bare = leading the value, or after a :, as =cmd.
   assert_allow "REQ-E1.2: control, a value with no zsh = expansion" "f=a.sh && find . -name \$f"
   assert_defer "REQ-E1.2: a leading = is expanded by zsh" "f==a.sh && find . -name \$f"
