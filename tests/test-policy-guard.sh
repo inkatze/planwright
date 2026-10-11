@@ -78,16 +78,17 @@ reason_has 'ready_flip_policy is human' "[worker] the human-flip deny names the 
 pg worker 'gh pr ready 42 --undo=false'
 expect deny "[worker] human: --undo=false is a flip, and denies"
 for v in unit-owner human; do
-  set_knobs "ready_flip_policy: $v"
+  set_knobs "ready_flip_policy: $v" 'merge_policy: policy-class'
   pg tower 'gh pr ready 42'
   expect deny "[tower] $v: gh pr ready denies"
   reads none "[tower] $v: the tower's flip deny reads no knob"
   # The merge helper flips inside its own process, below the hook, so the
-  # hook only ever sees the helper's invocation: that must not be refused
-  # under either value, while the direct flip beside it follows the value.
+  # hook only ever sees the helper's invocation: under policy-class that must
+  # not be refused under either flip value, while the direct flip beside it
+  # follows the value.
   pg worker "$REAL_SCRIPTS/merge-admitted.sh 42"
   expect defer "[worker] $v: the merge helper's invocation is not refused (its own flip runs below the hook)"
-  reads none "[worker] $v: the merge helper's invocation reads no flip knob"
+  reads merge_policy "[worker] $v: the merge helper's invocation reads merge_policy alone, no flip knob"
   pg worker 'gh pr ready 42'
   if [ "$v" = human ]; then
     expect deny "[worker] human: beside it, the direct flip is refused (the value is live)"
@@ -95,6 +96,32 @@ for v in unit-owner human; do
     expect defer "[worker] unit-owner: beside it, the direct flip defers (the value is live)"
   fi
 done
+
+echo "# the merge helper (REQ-D1.4, REQ-D1.5)"
+for v in human on-approval; do
+  set_knobs "merge_policy: $v"
+  pg worker "$REAL_SCRIPTS/merge-admitted.sh --spec specs/demo --task 1"
+  expect deny "[worker] $v: the merge helper is refused"
+  reason_has "merge_policy is $v" "[worker] $v: the refusal names the knob"
+  reads merge_policy "[worker] $v: the helper's refusal reads merge_policy alone"
+done
+set_knobs 'merge_policy: policy-class'
+pg tower "$REAL_SCRIPTS/merge-admitted.sh --spec specs/demo --task 1"
+expect deny "[tower] policy-class: the merge helper is refused at the tower"
+reads none "[tower] the tower's helper deny reads no knob"
+# shellcheck disable=SC2016 # the unexpanded root is the spelling under test
+pg worker '"$ROOT/scripts/merge-admitted.sh" --spec specs/demo --task 1'
+expect defer "[worker] policy-class: a variable-rooted helper path is read as the helper"
+reads merge_policy "[worker] a variable-rooted helper path reads merge_policy"
+set_knobs 'merge_policy: human'
+# shellcheck disable=SC2016
+pg worker '"$ROOT/scripts/merge-admitted.sh" --spec specs/demo --task 1'
+expect deny "[worker] human: a variable-rooted helper path is refused"
+pg worker "x=\$(echo 1) && $REAL_SCRIPTS/merge-admitted.sh"
+expect deny "[worker] an unanalyzable command naming the helper is refused"
+pg worker "grep -n merge_policy $REAL_SCRIPTS/merge-admitted.sh"
+expect defer "[worker] reading the helper's text is not running it"
+set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: allow' 'unpushed_rewrite: allow'
 
 echo "# the MCP flip surface"
 mcp() { # <draft-json-or-absent>

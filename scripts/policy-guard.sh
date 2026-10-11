@@ -43,6 +43,12 @@
 #   undo        `gh pr ready --undo` and the MCP ready->draft transition: deny,
 #               the corrective helper being the only sanctioned re-draft.
 #   pr-merge    `gh pr merge`: deny; the merge helper is the only agent path.
+#   merge-helper  running scripts/merge-admitted.sh, by any path, directly or
+#               as a shell's script argument. tower: deny. worker:
+#               merge_policy (policy-class defers; the helper evaluates the
+#               class and re-reads the policy itself). Its own gh calls run
+#               below this hook, so the invocation is what the guard sees; a
+#               wrapper or an unanalyzable command naming it denies.
 #   base-merge  `git merge`, `git pull` in merge mode. tower: deny. worker:
 #               worker_base_merge, then the current branch must be the session's
 #               unit branch outside the protected set and every source the PR
@@ -146,13 +152,14 @@ RE_GIT_ACT="${RE_GIT_HEAD}(merge|pull|rebase|push)([^[:alnum:]_-]|\$)"
 RE_GIT_REWRITE="${RE_GIT_HEAD}commit([[:space:]].*)?[[:space:]]--(am|sq|fix)"
 # A substitution after `git commit` could produce --amend at run time.
 RE_GIT_COMMIT_SUBST="${RE_GIT_HEAD}"'commit([^[:alnum:]_-].*)?(\$\(|`)'
+RE_MERGE_HELPER='(^|[^[:alnum:]_.-])merge-admitted\.sh([^[:alnum:]_.-]|$)'
 
 raw_evidence_one() {
   local t=$1 rc=1
   # Case-insensitive: a case-insensitive filesystem runs `git REBASE`.
   shopt -s nocasematch
   if [[ $t =~ $RE_GH_API ]] || [[ $t =~ $RE_GH_PR ]] || [[ $t =~ $RE_GIT_ACT ]] \
-    || [[ $t =~ $RE_GIT_REWRITE ]] || [[ $t =~ $RE_GIT_COMMIT_SUBST ]]; then
+    || [[ $t =~ $RE_GIT_REWRITE ]] || [[ $t =~ $RE_GIT_COMMIT_SUBST ]] || [[ $t =~ $RE_MERGE_HELPER ]]; then
     rc=0
   fi
   shopt -u nocasematch
@@ -217,7 +224,7 @@ heredoc_substitution_at() {
 }
 
 deny_unanalyzable() {
-  emit_deny "$1 and its text names a reserved act (a gh api request, a pull-request flip or merge, or a git merge, pull, rebase, push, or history rewrite) - refusing (fail closed). Issue that command on its own as a plain simple command."
+  emit_deny "$1 and its text names a reserved act (a gh api request, a pull-request flip or merge, the merge helper, or a git merge, pull, rebase, push, or history rewrite) - refusing (fail closed). Issue that command on its own as a plain simple command."
 }
 
 # --------------------------------------------------------------------------
@@ -1001,6 +1008,9 @@ classify_segments() {
       # The command word is an expansion, so what runs cannot be read: only a
       # variable root followed by a literal script path is let through, and
       # even that not when a reserved subcommand follows.
+      case $verb in
+        */merge-admitted.sh) queue_merge_helper "$eff" "$eff_ok" ;;
+      esac
       [[ $verb =~ $RE_ROOTED_SCRIPT ]] \
         || deny_now "this command's name is an expansion the guard cannot read ($(sanitize_printable "$verb" 'unprintable')), so it could be git or gh - refusing (fail closed). Write the command name literally, or as \"\$ROOT/path/to/script\"."
       for w in "${SW[@]}"; do
@@ -1014,6 +1024,23 @@ classify_segments() {
       raw_evidence "$cur_text" \
         && deny_now "this command runs through a wrapper whose options the guard does not read, and its text names a reserved act - refusing (fail closed). Issue the command directly."
     else
+      local helper=0
+      case $base_verb in
+        merge-admitted.sh) helper=1 ;;
+        bash | sh | zsh | dash | ksh | mksh)
+          # A shell running the helper as its script, the plain form the
+          # plugin-script convention allows; any option first is a wrapper.
+          case ${SW[1]:-} in
+            */merge-admitted.sh | merge-admitted.sh) [ "${SWL[1]}" != 1 ] || helper=1 ;;
+          esac
+          ;;
+      esac
+      if [ "$helper" = 1 ]; then
+        queue_merge_helper "$eff" "$eff_ok"
+        prev_text=$cur_text
+        si=$((si + 1))
+        continue
+      fi
       case $base_verb in
         export | declare | typeset | readonly | local | let | printf)
           case " ${SW[*]} " in
@@ -1193,6 +1220,19 @@ queue_flip() {
       return 0
     }
   PENDING[${#PENDING[@]}]="flip$TAB$1"
+}
+
+queue_merge_helper() {
+  if [ "$TIER" = tower ]; then
+    deny_now 'the tower never runs the merge helper (scripts/merge-admitted.sh), under every merge_policy value; the skill that owns the unit branch runs it.'
+    return 0
+  fi
+  [ "$2" = 1 ] \
+    || {
+      deny_now 'this merge-helper run follows a directory change the guard cannot follow, so it cannot read merge_policy for that repository - refusing (fail closed). Run the helper on its own.'
+      return 0
+    }
+  PENDING[${#PENDING[@]}]="merge-helper$TAB$1"
 }
 
 # gh api ------------------------------------------------------------------
@@ -2380,6 +2420,7 @@ eval_pending() {
         check_unprotected "$dir" "$what" ${rest#*"$TAB"}
         ;;
       merge) eval_merge "$rest" ;;
+      merge-helper) eval_merge_helper "$rest" ;;
       pull) eval_pull "$rest" ;;
       rebase) eval_rebase "$rest" ;;
       commit) eval_commit "$rest" ;;
@@ -2396,6 +2437,12 @@ eval_flip() {
     unit-owner) return 0 ;;
     *) emit_deny 'ready_flip_policy is human, so only a person marks a task pull request ready; leave it a draft and name it in your handoff.' ;;
   esac
+}
+
+eval_merge_helper() {
+  read_knob merge_policy "$1" human on-approval policy-class
+  [ "$KNOB_VAL" = policy-class ] \
+    || emit_deny "merge_policy is $KNOB_VAL, so no agent session runs the merge helper: the operator's approval act merges this PR. Leave it for the operator and name it in your handoff."
 }
 
 base_merge_allowed() { # <dir> <what>
@@ -2726,7 +2773,7 @@ handle_bash() {
   local bare=${cmd//[\"\'\\]/} hit=0
   shopt -s nocasematch
   case $bare in
-    *git* | *gh*) hit=1 ;;
+    *git* | *gh* | *merge-admitted*) hit=1 ;;
     *'$'* | *'`'*)
       case $bare in
         *merge* | *pull* | *rebase* | *push* | *commit* | *ready* | *api*) hit=1 ;;
