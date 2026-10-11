@@ -1,8 +1,8 @@
 #!/bin/sh
 # quota-hold.sh — the per-vendor hold store and usage ledger. A vendor that
-# refused with a quota, usage, or rate limit is held host-wide: every unit that
-# meets the hold waits in this store, never in tasks.md, until the operator (or
-# an evidence sweep) resumes the vendor. Beside the holds, each vendor keeps an
+# refused with a quota, usage, or rate limit is held host-wide: each unit holding
+# it is recorded in this store, never in tasks.md, until a resume releases the
+# vendor. Beside the holds, each vendor keeps an
 # append-only ledger of the requests sent to it, its answers and refusals, and
 # the holds and resumes. docs/quota.md describes the operator surface.
 #

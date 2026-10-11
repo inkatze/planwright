@@ -14,7 +14,7 @@
 # and writes nothing. That is the design-level no-new-file floor (REQ-F1.1),
 # enforced structurally: fleet-stats.sh never resolves the fleet home itself.
 #
-# THE THREE DERIVED STATS (tasks.md Task 8 Deliverables):
+# THE DERIVED STATS (tasks.md Task 8 Deliverables):
 #   last cleanup    — the most recent reclaim in the shared audit trail
 #                     (scripts/fleet-audit.sh): the newest row whose action is
 #                     `cleanup` (fleet-cleanup.sh's window-cleanup,

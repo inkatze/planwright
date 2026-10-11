@@ -44,7 +44,7 @@
 #   scripts/orchestrate-lock.sh   the per-spec orchestration lock
 #   scripts/fleet-state.sh        the fleet state registry and its counters
 #   scripts/allocation-ledger.sh  the per-unit allocation ledgers
-#   scripts/quota-hold.sh  the per-vendor hold store and usage ledger
+#   scripts/quota-hold.sh         the per-vendor hold store and usage ledger
 #   scripts/fleet-streamjson.sh   the supervisor's journal/launch/recover locks
 #   scripts/observation-carry.sh  the observation carry's push+PR section
 #   scripts/flight-lifecycle.sh   the one-time crash and relaunch claims

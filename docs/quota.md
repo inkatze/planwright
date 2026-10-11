@@ -92,10 +92,10 @@ lines, the reset-time rules, and the exit codes.
 
 ## Holds and the usage ledger
 
-A held vendor is held for the whole host: every unit that meets the limit
-waits in the vendor's hold store under the fleet home, never in `tasks.md`,
-and recording a hold pushes one attention event naming the vendor, the reason,
-the stated reset time (or that none was stated), and the resume command.
+A held vendor is held for the whole host: each unit holding it is recorded in
+the vendor's hold store under the fleet home, never in `tasks.md`, and
+recording a hold pushes one attention event naming the vendor, the reason, the
+stated reset time (or that none was stated), and the resume command.
 
 To resume a held vendor yourself, at any time:
 
@@ -109,8 +109,9 @@ Each vendor also keeps a usage ledger of requests sent, answers, refusals,
 holds, and resumes, with the PR and head where the event has them. It lives
 only under the fleet home, is never committed, and drops lines older than
 `quota_ledger_retention_days` (90 days unless you set it;
-[Options reference](options-reference.md)) when
-`scripts/quota-hold.sh prune` runs. To see each vendor's hold state and its
+[Options reference](options-reference.md)) when you run
+`scripts/quota-hold.sh prune`; nothing runs it on a schedule, and until it
+runs the period still bounds what the counts include. To see each vendor's hold state and its
 counts over that period, run `scripts/fleet-stats.sh render`, or
 `scripts/quota-hold.sh status` for the machine-readable form. The script's
 header pins the store layout, the field grammars, and the exit codes.
