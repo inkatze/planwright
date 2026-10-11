@@ -314,8 +314,9 @@ unlock_vendor() {
 
 # ledger_append <dir> <event> <unit> <pr> <head> <recognizer> <reason>
 ledger_append() {
-  # A write cut short leaves no newline, and the next line would join it.
-  if [ -s "$1/ledger.tsv" ] && [ -n "$(tail -c 1 "$1/ledger.tsv")" ]; then
+  # A write cut short leaves no newline, and the next line would join it. The
+  # newline is counted, not compared: a substitution drops a NUL tail.
+  if [ -s "$1/ledger.tsv" ] && [ "$(tail -c 1 "$1/ledger.tsv" | wc -l | tr -d ' ')" = 0 ]; then
     printf '\n' >>"$1/ledger.tsv" || die 6 "cannot append to the vendor's ledger"
   fi
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\tend\n' "$now" "$2" "$3" "$4" "$5" "$6" "$7" \

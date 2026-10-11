@@ -477,8 +477,15 @@ new_home torn
 run record --vendor sample-cli --event request --now "$NOW" || fail "torn fixture: record failed"
 printf '%s\trequest\t-\t-' "$NOW" >>"$(ledger sample-cli)"
 run record --vendor sample-cli --event refusal --now "$NOW" || fail "torn: the record after a torn line failed"
-run status --vendor sample-cli --now "$NOW" | grep -q "^count${TAB}sample-cli${TAB}refusal${TAB}1$" \
+st=$(run status --vendor sample-cli --now "$NOW")
+printf '%s\n' "$st" | grep -q "^count${TAB}sample-cli${TAB}refusal${TAB}1$" \
   || fail "torn: the line appended after a torn one was lost"
+# A crash can leave the tail as NUL bytes rather than a cut line.
+printf '%s\trequest\t-\t-\t-\t-\t-\te\000\000' "$NOW" >>"$(ledger sample-cli)"
+run record --vendor sample-cli --event answer --now "$NOW" || fail "torn: the record after a NUL tail failed"
+st=$(run status --vendor sample-cli --now "$NOW")
+printf '%s\n' "$st" | grep -q "^count${TAB}sample-cli${TAB}answer${TAB}1$" \
+  || fail "torn: the line appended after a NUL tail was lost"
 pass "a torn ledger line never swallows the next append"
 
 # A planted symlink in the store is never written through.
