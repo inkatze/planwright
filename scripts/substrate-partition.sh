@@ -3,10 +3,12 @@
 # invokes each script, derived from the call graph on every run.
 #
 # THE LAYER. Every file under scripts/ with a `.sh` suffix or a shell shebang,
-# plus every file under githooks/ (the tracked git hooks).
+# plus every file directly under githooks/ (the git hooks this repo tracks);
+# a symlink counts as the file it names.
 #
 # CALLERS. A script is named by a caller when a caller's text holds its path
-# (`scripts/<name>`, `<anything>/<name>`, or a bare `<name>.sh`). The callers,
+# (`scripts/<name>`, `<anything>/<name>`, or a bare `<name>.sh`), except
+# under `tests/` or `tests/lib/`, which name a test file. The callers,
 # by kind:
 #   git       the script is itself a tracked git hook
 #   githook   named in a tracked git hook's code
@@ -34,7 +36,8 @@
 # literal eval and a source of a named library are not flagged, and neither is
 # a source of `"$var"` when every value the script assigns to `var` ends in a
 # literal file name. A path whose file name comes from `${VAR:-default}` is
-# not literal: the environment can replace it.
+# not literal: the environment can replace it. Its default still names a
+# caller, since it is what runs when the variable is unset.
 #
 # PROFILE. Every command word the script runs that is not a POSIX shell builtin
 # (special built-ins, intrinsic utilities, and echo, printf and test), a
@@ -65,8 +68,8 @@
 # 5 fail-closed (an input that would make the partition vacuous or wrong: no
 # layer; a missing, unreadable, or empty hook registration, skills or
 # workflows directory; an unreadable file in the layer or among its callers;
-# a task file mise will not list, untrusted included; a duplicate script
-# file name; or a missing jq or mise).
+# a task file mise will not list, as it will not an untrusted one holding
+# templates; a duplicate script file name; or a missing jq or mise).
 #
 # POSIX sh on the macOS + Linux support bar. All input is data.
 set -uf
@@ -83,6 +86,10 @@ while [ "$#" -gt 0 ]; do
   case $1 in
     --repo-root)
       [ "$#" -ge 2 ] || {
+        printf '%s\n' "$me: --repo-root needs a directory" >&2
+        exit 2
+      }
+      [ -n "$2" ] || {
         printf '%s\n' "$me: --repo-root needs a directory" >&2
         exit 2
       }
@@ -144,7 +151,10 @@ trap 'exit 1' HUP INT TERM
 list_files() {
   lf_out=$1
   shift
-  find "$@" >"$lf_out.raw" 2>"$work/find.err" || fail_closed "find could not read part of $1"
+  find "$@" >"$lf_out.raw" 2>"$work/find.err" || {
+    sed 's/[^ -~]/?/g' "$work/find.err" >&2
+    fail_closed "find could not read part of $1"
+  }
   sort "$lf_out.raw" >"$lf_out"
 }
 
@@ -177,13 +187,19 @@ scan_files() {
   ' "$2"
 }
 
-list_files "$work/scripts.list" "$repo_root/scripts" -type f
+# scan_failed <why>: name the file a scan could not read, then fail closed.
+scan_failed() {
+  sed 's/[^ -~]/?/g' "$work/scan.err" >&2
+  fail_closed "$1"
+}
+
+list_files "$work/scripts.list" "$repo_root/scripts" \( -type f -o -type l \)
 scan_files layer "$work/scripts.list" 1 >"$work/layer.raw" 2>"$work/scan.err" \
-  || fail_closed "a file under scripts/ is unreadable"
+  || scan_failed "a file under scripts/ is unreadable"
 if [ -d "$repo_root/githooks" ]; then
-  list_files "$work/githooks.list" "$repo_root/githooks" -maxdepth 1 -type f
+  list_files "$work/githooks.list" "$repo_root/githooks" -maxdepth 1 \( -type f -o -type l \)
   scan_files layer "$work/githooks.list" 0 >>"$work/layer.raw" 2>"$work/scan.err" \
-    || fail_closed "a file under githooks/ is unreadable"
+    || scan_failed "a file under githooks/ is unreadable"
 fi
 sort "$work/layer.raw" >"$work/layer"
 [ -s "$work/layer" ] || fail_closed "found no script in the layer"
@@ -200,26 +216,27 @@ done
 [ -s "$work/hookcmds" ] || fail_closed "the hook registrations hold no command"
 awk '{ gsub(/\t/, " "); print "T\thook\t" $0 }' "$work/hookcmds" >"$work/facts"
 
-list_files "$work/skills.list" "$repo_root/skills" -type f -name SKILL.md
+list_files "$work/skills.list" "$repo_root/skills" \( -type f -o -type l \) -name SKILL.md
 [ -s "$work/skills.list" ] || fail_closed "skills/ holds no SKILL.md"
 scan_files skill "$work/skills.list" 0 >>"$work/facts" 2>"$work/scan.err" \
-  || fail_closed "a skill body is unreadable"
+  || scan_failed "a skill body is unreadable"
 
-list_files "$work/workflows.list" "$repo_root/.github/workflows" -type f \( -name '*.yml' -o -name '*.yaml' \)
+list_files "$work/workflows.list" "$repo_root/.github/workflows" \( -type f -o -type l \) \( -name '*.yml' -o -name '*.yaml' \)
 [ -s "$work/workflows.list" ] || fail_closed ".github/workflows/ holds no workflow"
 scan_files workflow "$work/workflows.list" 0 >>"$work/facts" 2>"$work/scan.err" \
-  || fail_closed "a workflow is unreadable"
+  || scan_failed "a workflow is unreadable"
 
 if [ -d "$repo_root/tests" ]; then
-  list_files "$work/tests.list" "$repo_root/tests" -type f
+  list_files "$work/tests.list" "$repo_root/tests" \( -type f -o -type l \)
   scan_files test "$work/tests.list" 1 >>"$work/facts" 2>"$work/scan.err" \
-    || fail_closed "a file under tests/ is unreadable"
+    || scan_failed "a file under tests/ is unreadable"
 fi
 
 # The tasks mise.toml itself defines, as mise renders them, so TOML quoting is
 # mise's business: each run body and each `file` task's path. Descriptions are
 # prose and never read. No trust is granted here: mise evaluates a config's
-# templates even to list its tasks, so an untrusted tree is refused, not read.
+# templates even to list its tasks, so it refuses an untrusted config that
+# holds any, and this script grants no trust that would override it.
 graph=$(cd "$repo_root" && mise tasks --json --hidden 2>/dev/null) || graph=''
 [ -n "$graph" ] || fail_closed "'mise tasks --json --hidden' produced nothing (is the tree's mise.toml trusted?)"
 printf '%s' "$graph" | jq -r --arg src "$repo_root/mise.toml" '
@@ -263,7 +280,7 @@ function out(kind, text) {
 function initframe(i, purpose) {
   ctx[i] = "c"; fr[i] = purpose; cmdpos[i] = 1; mode[i] = ""; wrap[i] = ""
   skip[i] = 0; wrapskip[i] = 0; ev[i] = 0; src[i] = 0; decl[i] = 0; interp[i] = 0
-  w[i] = ""; wexp[i] = 0; wq[i] = 0; wany[i] = 0; nw[i] = 0
+  w[i] = ""; wexp[i] = 0; wq[i] = 0; wany[i] = 0; nw[i] = 0; lastc[i] = ""; lastcn[i] = -1
 }
 function findcf(  k) {
   for (k = d; k >= 1; k--) if (ctx[k] == "c") return k
@@ -323,9 +340,14 @@ function endword(  x, e, q, b) {
     return
   }
   if (interp[cf]) {
-    if (!e && x ~ /^-/) { if (x == "-c") interp[cf] = 0; return }
+    if (interp[cf] == 2) { interp[cf] = 1; return }
+    if (!e && x ~ /^[-+]/) {
+      if (x == "-c") interp[cf] = 0
+      else if (x ~ /^[-+][oO]$/) interp[cf] = 2
+      return
+    }
     interp[cf] = 0
-    if (e && x ~ /\// && dynbase(x)) out("U", x)
+    if (e && dynbase(x)) out("U", x)
     return
   }
   if (decl[cf] && x ~ assignre) { assign(x); return }
@@ -335,6 +357,7 @@ function endword(  x, e, q, b) {
     if (!e && x ~ /^-/) {
       if (wrap[cf] == "command" && x ~ /^-[A-Za-z]*[vV]/) { wrap[cf] = ""; cmdpos[cf] = 0 }
       else if ((wrap[cf] == "env" && x ~ /^-[uCS]$/) || (wrap[cf] == "timeout" && x ~ /^-[sk]$/) \
+        || (wrap[cf] == "sudo" && x ~ /^-[ugCDhprtU]$/) || (x ~ /^--[a-z-]+$/ && x !~ /^--(preserve-status|foreground|null|verbose|no-run-if-empty)$/) \
         || (wrap[cf] == "nice" && x == "-n") || (wrap[cf] == "xargs" && x ~ /^-[IinPLsdE]$/)) wrapskip[cf] = 1
       return
     }
@@ -357,6 +380,7 @@ function endword(  x, e, q, b) {
   }
   b = x; sub(/.*\//, "", b)
   out("C", b)
+  lastc[cf] = b; lastcn[cf] = nw[cf]
   if (x ~ /^(command|exec|builtin|nohup|nice|env|xargs|timeout|sudo|time)$/) { wrap[cf] = x; cmdpos[cf] = 1 }
   else if (x == "eval") ev[cf] = 1
   else if (x == "." || x == "source") src[cf] = 1
@@ -469,6 +493,10 @@ function lex(s,   i, n, c, c2, t) {
     }
     if (c == "(") {
       if (mode[cf] == "pat" || mode[cf] == "chead" || mode[cf] == "dbl") { endword(); i++; continue }
+      # `name ()`: the command word just read was a function name.
+      if (!wany[cf] && lastc[cf] != "" && lastcn[cf] == nw[cf] && substr(s, i + 1, 1) == ")") {
+        out("F", lastc[cf]); cmdpos[cf] = 1; i += 2; continue
+      }
       # `name()` anywhere a command may start defines a function, not a call.
       if (wany[cf] && cmdpos[cf] && !wq[cf] && !wexp[cf] && mode[cf] == "" && wrap[cf] == "" \
         && substr(s, i + 1, 1) == ")") {
@@ -534,6 +562,7 @@ awk -F'\t' '
 # The layer scripts a text names. A file name built from an expansion
 # (`$name.sh`) names none: it is unresolved, never a caller.
 function refs(text,   n, i, m, j, c, res, toks, comps) {
+  gsub(/\$\{[A-Za-z_][A-Za-z0-9_]*\}[A-Za-z0-9_.-]*/, "$", text)
   gsub(/[^A-Za-z0-9_.\/$-]/, " ", text)
   n = split(text, toks, " ")
   res = ""
@@ -665,10 +694,10 @@ END {
       if (x !~ /^[A-Za-z0-9_][A-Za-z0-9_.+-]*$/) continue
       prof = prof "\n" x
     }
-    # The path and the unresolved text are read from files; a control byte in
-    # either never reaches the terminal.
-    shown = p; gsub(/[[:cntrl:]]/, "?", shown)
-    unresolved = sorted(ulist[p]); gsub(/[[:cntrl:]]/, "?", unresolved)
+    # The path and the unresolved text are read from files; a byte outside
+    # printable ASCII in either never reaches the terminal.
+    shown = p; gsub(/[^ -~]/, "?", shown)
+    unresolved = sorted(ulist[p]); gsub(/[^ -~]/, "?", unresolved)
     print shown "\t" tier "\t" ((p in live) ? "-" : "no-live-caller") "\t" (callers == "" ? "-" : callers) "\t" ((p in mut) ? "shell-mutation" : "-") "\t" sorted(prof) "\t" unresolved
   }
 }

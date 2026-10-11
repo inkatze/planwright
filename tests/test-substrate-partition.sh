@@ -168,6 +168,7 @@ esac
 a() { :; }; b() { wc -l; }
 b
 /bin/sh "$here/$rung" stop
+"$here/${pre}glued.sh" run
 cat <<EOT \
   | tr a b
 body-cmd
@@ -184,7 +185,23 @@ put scripts/filetask.sh <<'EOF'
 exit 0
 EOF
 
-# Named only through hook-and-skill.sh's `$name.sh`: not a caller.
+# Interpreter options that take a value, a slashless built name, wrapper
+# options that take a value, and `name ()` with a space.
+put scripts/interp.sh <<'EOF'
+#!/bin/sh
+bash -o pipefail "$d/$n"
+sh "$name.sh"
+sudo -u root make
+x=1; bar () { :; }
+bar
+EOF
+
+# Named only through a built name (`$name.sh`, `${pre}glued.sh`): not callers.
+put scripts/glued.sh <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+
 put scripts/name.sh <<'EOF'
 #!/bin/sh
 exit 0
@@ -214,6 +231,7 @@ put scripts/no-suffix <<'EOF'
 #!/usr/bin/env bash
 shopt -s nullglob
 EOF
+ln -s lib.sh "$fx/scripts/linked.sh"
 put scripts/notes.txt <<'EOF'
 not a script
 EOF
@@ -244,8 +262,9 @@ expect() {
   || fail "p0: header is $(head -n 1 "$tmp/out1")"
 want_paths=$(printf '%s\n' githooks/pre-commit scripts/both.sh scripts/commented.sh \
   scripts/deadlib.sh scripts/described.sh scripts/devtool.sh scripts/doconly.sh \
-  scripts/filetask.sh scripts/gitcalled.sh scripts/heredoc-only.sh scripts/hook-and-skill.sh \
-  scripts/hooked.sh scripts/lib.sh scripts/name.sh scripts/no-suffix scripts/noone.sh scripts/skilled.sh \
+  scripts/filetask.sh scripts/gitcalled.sh scripts/glued.sh scripts/heredoc-only.sh \
+  scripts/hook-and-skill.sh scripts/hooked.sh scripts/interp.sh scripts/lib.sh scripts/linked.sh \
+  scripts/name.sh scripts/no-suffix scripts/noone.sh scripts/skilled.sh \
   scripts/testhelper.sh scripts/wfonly.sh)
 got_paths=$(tail -n +2 "$tmp/out1" | cut -f1)
 [ "$got_paths" = "$want_paths" ] || fail "p0: the layer is
@@ -264,7 +283,7 @@ expect scripts/hooked.sh hook - hook - awk,cat,dirname,env,git,jq,tr,wc '$here/$
 expect scripts/skilled.sh skill-called - skill shell-mutation - -
 expect scripts/lib.sh library - script - grep -
 # shellcheck disable=SC2016 # the literal text the partition reports
-expect scripts/devtool.sh dev-check - task - cat,curl,dirname,sh,tr,wc '$here/$rung'
+expect scripts/devtool.sh dev-check - task - cat,curl,dirname,sh,tr,wc '$here/$rung,$here/${pre}glued.sh'
 expect scripts/filetask.sh dev-check - task - - -
 # shellcheck disable=SC2016 # the literal text the partition reports
 expect scripts/wfonly.sh dev-check - workflow shell-mutation - '${LIB:-$d/lib.sh}'
@@ -305,6 +324,11 @@ expect scripts/commented.sh tests-only no-live-caller - - - -
 expect scripts/heredoc-only.sh tests-only no-live-caller - - - -
 expect scripts/no-suffix tests-only no-live-caller - - shopt -
 expect scripts/name.sh tests-only no-live-caller - - - -
+expect scripts/glued.sh tests-only no-live-caller - - - -
+# shellcheck disable=SC2016 # the literal text the partition reports
+expect scripts/interp.sh tests-only no-live-caller - - bash,make,sh,sudo '$d/$n,$name.sh'
+# A symlink is in the layer as the file it names.
+expect scripts/linked.sh tests-only no-live-caller - - cb_fn,grep -
 echo "ok: p4 no caller, a library reachable only from a flagged script, a test-only helper, and a docs-only script are flagged"
 
 # ---------------------------------------------------------------------------
@@ -358,7 +382,21 @@ if [ "$(id -u)" != 0 ]; then
   chmod 644 "$tmp/fx7/skills/demo/SKILL.md"
   [ "$rc" = 5 ] || fail "p7: an unreadable skill body exited $rc, want 5"
 fi
-echo "ok: p7 fails closed on a missing task file, an unreadable or empty hook registration, and an unreadable skill body"
+rc=0
+/bin/sh "$SP" --repo-root "" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "p7: an empty --repo-root exited $rc, want 2"
+cp -R "$fx" "$tmp/fx8"
+mkdir -p "$tmp/fx8/scripts/sub"
+cp "$fx/scripts/devtool.sh" "$tmp/fx8/scripts/sub/devtool.sh"
+rc=0
+run_sp "$tmp/fx8" >/dev/null || rc=$?
+[ "$rc" = 5 ] || fail "p7: a duplicate script file name exited $rc, want 5"
+cp -R "$fx" "$tmp/fx9"
+rm "$tmp/fx9/.github/workflows/ci.yml"
+rc=0
+run_sp "$tmp/fx9" >/dev/null || rc=$?
+[ "$rc" = 5 ] || fail "p7: a workflows directory with no workflow exited $rc, want 5"
+echo "ok: p7 fails closed on a missing task file, an unreadable or empty hook registration, an unreadable skill body, a duplicate name, no workflow, and an empty root"
 
 # ---------------------------------------------------------------------------
 # p8: the repository's own partition runs, and places the script itself in
