@@ -1796,16 +1796,57 @@ case $RUNNER_LINE in
   "PLANWRIGHT_STEP_SPEC='custom-steps' "*) pass "the runner's line carries the context prefix" ;;
   *) fail "the runner's line lost its context prefix: $RUNNER_LINE" ;;
 esac
-# ctx_prefix <unit-kind> <task-ids> <pr> <point>: the ten context assignments
-# in the resolver's order, with the given values for the validated fields.
+# ctx_prefix <unit-kind> <task-ids> <pr> <point> [<prev-head> <new-head>]: the
+# twelve context assignments in the resolver's order, with the given values
+# for the validated fields.
 ctx_prefix() {
-  printf "PLANWRIGHT_STEP_SPEC='s' PLANWRIGHT_STEP_TASK_IDS='%s' PLANWRIGHT_STEP_UNIT_KIND='%s' PLANWRIGHT_STEP_BRANCH='b' PLANWRIGHT_STEP_BASE_BRANCH='main' PLANWRIGHT_STEP_WORKTREE='%s' PLANWRIGHT_STEP_PR_NUMBER='%s' PLANWRIGHT_STEP_POINT='%s' PLANWRIGHT_STEP_ID='declared' PLANWRIGHT_STEP_PREV_RECORD=''" \
-    "$2" "$1" "$FXC" "$3" "$4"
+  printf "PLANWRIGHT_STEP_SPEC='s' PLANWRIGHT_STEP_TASK_IDS='%s' PLANWRIGHT_STEP_UNIT_KIND='%s' PLANWRIGHT_STEP_BRANCH='b' PLANWRIGHT_STEP_BASE_BRANCH='main' PLANWRIGHT_STEP_WORKTREE='%s' PLANWRIGHT_STEP_PR_NUMBER='%s' PLANWRIGHT_STEP_POINT='%s' PLANWRIGHT_STEP_ID='declared' PLANWRIGHT_STEP_PREV_RECORD='' PLANWRIGHT_STEP_PREV_HEAD='%s' PLANWRIGHT_STEP_NEW_HEAD='%s'" \
+    "$2" "$1" "$FXC" "$3" "$4" "${5:-}" "${6:-}"
 }
 assert_allow "hand-written full context prefix approved" \
   "$(ctx_prefix task '7 8.1' 12 pre-ci) $DECLARED --mode strict" Bash "$FXC"
 assert_allow "full context prefix with double-quoted and bare values approved" \
-  "PLANWRIGHT_STEP_SPEC=\"s\" PLANWRIGHT_STEP_TASK_IDS= PLANWRIGHT_STEP_UNIT_KIND= PLANWRIGHT_STEP_BRANCH=b PLANWRIGHT_STEP_BASE_BRANCH=main PLANWRIGHT_STEP_WORKTREE=/w PLANWRIGHT_STEP_PR_NUMBER= PLANWRIGHT_STEP_POINT=pre-ci PLANWRIGHT_STEP_ID=x PLANWRIGHT_STEP_PREV_RECORD= $DECLARED --mode strict" Bash "$FXC"
+  "PLANWRIGHT_STEP_SPEC=\"s\" PLANWRIGHT_STEP_TASK_IDS= PLANWRIGHT_STEP_UNIT_KIND= PLANWRIGHT_STEP_BRANCH=b PLANWRIGHT_STEP_BASE_BRANCH=main PLANWRIGHT_STEP_WORKTREE=/w PLANWRIGHT_STEP_PR_NUMBER= PLANWRIGHT_STEP_POINT=pre-ci PLANWRIGHT_STEP_ID=x PLANWRIGHT_STEP_PREV_RECORD= PLANWRIGHT_STEP_PREV_HEAD= PLANWRIGHT_STEP_NEW_HEAD= $DECLARED --mode strict" Bash "$FXC"
+# The head fields carry a full commit id (40 or 64 lowercase hex) or nothing.
+H40=0123456789abcdef0123456789abcdef01234567
+H64=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+assert_allow "a context prefix carrying both head fields approved" \
+  "$(ctx_prefix task 7 12 post-pr "$H40" "$H64") $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a context prefix with a short head deferred" \
+  "$(ctx_prefix task 7 12 post-pr "${H40%?}" "$H40") $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a context prefix with an uppercase head deferred" \
+  "$(ctx_prefix task 7 12 post-pr "$H40" "$(printf '%s' "$H40" | tr a-f A-F)") $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a context prefix with a non-hex head deferred" \
+  "$(ctx_prefix task 7 12 post-pr "$(printf 'g%.0s' $(seq 1 40))" '') $DECLARED --mode strict" Bash "$FXC"
+assert_defer "the ten-field prefix without the head fields deferred" \
+  "$(ctx_prefix task 7 12 pre-ci | sed "s/ PLANWRIGHT_STEP_PREV_HEAD='' PLANWRIGHT_STEP_NEW_HEAD=''//") $DECLARED --mode strict" Bash "$FXC"
+# The hold mark: one optional trailing assignment after the twelve, as the
+# resolver renders it for a pooled step.
+POOLED_LINE="$(env PLANWRIGHT_STEP_SPEC=custom-steps PLANWRIGHT_STEP_TASK_IDS=7 \
+  PLANWRIGHT_STEP_UNIT_KIND=task PLANWRIGHT_STEP_BRANCH=planwright/custom-steps/task-7 \
+  PLANWRIGHT_STEP_BASE_BRANCH=main PLANWRIGHT_STEP_WORKTREE="$FXC" PLANWRIGHT_STEP_PR_NUMBER= \
+  PLANWRIGHT_STEP_ID=declared PLANWRIGHT_STEP_PREV_RECORD= PLANWRIGHT_STEP_PREV_HEAD= PLANWRIGHT_STEP_NEW_HEAD= \
+  /bin/bash "$REPO_ROOT/scripts/resolve-steps.sh" pre-ci --pool host-gate --owner 4242 --line "$DECLARED" --mode strict)"
+case $POOLED_LINE in
+  *" PLANWRIGHT_STEP_POOL_HOLD='host-gate:4242' '$DECLARED' "*) pass "the runner's pooled line carries the hold mark before the location" ;;
+  *) fail "the runner's pooled line lost its hold mark: $POOLED_LINE" ;;
+esac
+assert_allow "REQ-I1.2: a declared line under the twelve-field prefix and the hold mark approved" "$POOLED_LINE" Bash "$FXC"
+assert_allow "REQ-I1.2: a hand-written prefix with an unquoted hold mark approved" \
+  "$(ctx_prefix task 7 '' pre-ci) PLANWRIGHT_STEP_POOL_HOLD=gate:1 $DECLARED --mode strict" Bash "$FXC"
+# shellcheck disable=SC2016 # the last mark carries a literal, unexpanded $PPID
+for m in 'gate:abc' 'Gate:12' 'gate:' ':12' 'gate:0' 'gate:012' 'gate' 'gate:1:2' 'ga.te:12' 'gate:12345678901' 'gate:$PPID'; do
+  assert_defer "REQ-I1.2: a hold mark '$m' deferred" \
+    "$(ctx_prefix task 7 '' pre-ci) PLANWRIGHT_STEP_POOL_HOLD='$m' $DECLARED --mode strict" Bash "$FXC"
+done
+assert_defer "a hold mark before the twelve fields deferred" \
+  "PLANWRIGHT_STEP_POOL_HOLD=gate:12 $(ctx_prefix task 7 '' pre-ci) $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a hold mark with no context prefix deferred" \
+  "PLANWRIGHT_STEP_POOL_HOLD=gate:12 $DECLARED --mode strict" Bash "$FXC"
+assert_defer "two hold marks deferred" \
+  "$(ctx_prefix task 7 '' pre-ci) PLANWRIGHT_STEP_POOL_HOLD=gate:12 PLANWRIGHT_STEP_POOL_HOLD=gate:12 $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a hold mark with the quote at the equals sign deferred" \
+  "$(ctx_prefix task 7 '' pre-ci) PLANWRIGHT_STEP_POOL_HOLD\"=gate:12\" $DECLARED --mode strict" Bash "$FXC"
 assert_defer "a partial context prefix deferred" \
   "PLANWRIGHT_STEP_SPEC=x $DECLARED --mode strict" Bash "$FXC"
 assert_defer "a reordered context prefix deferred" \
@@ -1858,7 +1899,7 @@ stub_root() {
   cat >"$root/scripts/resolve-steps.sh" <<STUB
 #!/bin/bash
 case " \$* " in *" pre-ci "*) ;; *) exit 0 ;; esac
-printf 'run\tx\tpre-ci\trepo-tracked\trepo-tracked\t%s\tin-session\tcommand\t-\thalt\t-\t-\t%s\n' '$target' '$location'
+printf 'run\tx\tpre-ci\trepo-tracked\trepo-tracked\t%s\tin-session\tcommand\t-\thalt\t-\t-\t%s\t-\t-\t-\n' '$target' '$location'
 STUB
 }
 REAL_HOOK=$HOOK
@@ -1901,7 +1942,7 @@ stub_line() {
 #!/bin/bash
 echo "\$*" >>'$root/calls'
 case " \$* " in *" pre-ci "*) ;; *) exit 0 ;; esac
-printf '%s\tx\tpre-ci\trepo-tracked\trepo-tracked\t%s\tin-session\t%s\t-\thalt\t-\t-\t%s\n' '$dec' '$DECLARED' '$kind' '$DECLARED'
+printf '%s\tx\tpre-ci\trepo-tracked\trepo-tracked\t%s\tin-session\t%s\t-\thalt\t-\t-\t%s\tgate\t. tests\tpost-pr\n' '$dec' '$DECLARED' '$kind' '$DECLARED'
 exit $rc
 STUB
   HOOK="$root/scripts/worker-command-guard.sh"
@@ -2127,7 +2168,7 @@ stub_scripts "$FX/stub-partial"
 cat >"$FX/stub-partial/scripts/resolve-steps.sh" <<STUB
 #!/bin/bash
 echo \$\$ >'$FX/stub-partial/self'
-printf 'run\tx\tpre-ci\trepo-tracked\trepo-tracked\t%s\tin-session\tcommand\t--mode strict\thalt\t-\t-\t%s\n' '$DECLARED' '$DECLARED'
+printf 'run\tx\tpre-ci\trepo-tracked\trepo-tracked\t%s\tin-session\tcommand\t--mode strict\thalt\t-\t-\t%s\t-\t-\t-\n' '$DECLARED' '$DECLARED'
 sleep 30 &
 echo \$! >'$FX/stub-partial/child'
 wait
@@ -2149,7 +2190,7 @@ stub_scripts "$FX/stub-straggler"
 cat >"$FX/stub-straggler/scripts/resolve-steps.sh" <<STUB
 #!/bin/bash
 echo \$\$ >'$FX/stub-straggler/self'
-printf 'run\tx\tpre-ci\trepo-tracked\trepo-tracked\t%s\tin-session\tcommand\t--mode strict\thalt\t-\t-\t%s\n' '$DECLARED' '$DECLARED'
+printf 'run\tx\tpre-ci\trepo-tracked\trepo-tracked\t%s\tin-session\tcommand\t--mode strict\thalt\t-\t-\t%s\t-\t-\t-\n' '$DECLARED' '$DECLARED'
 sleep 30 </dev/null >/dev/null 2>&1 &
 echo \$! >'$FX/stub-straggler/child'
 exit 0

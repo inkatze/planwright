@@ -2871,11 +2871,11 @@ DECL_PGID=''
 
 # The context names in the order resolve-steps.sh's CONTEXT_FIELDS renders
 # them in --prefix; the lists change together.
-readonly STEP_CONTEXT_FIELDS='SPEC TASK_IDS UNIT_KIND BRANCH BASE_BRANCH WORKTREE PR_NUMBER POINT ID PREV_RECORD'
+readonly STEP_CONTEXT_FIELDS='SPEC TASK_IDS UNIT_KIND BRANCH BASE_BRANCH WORKTREE PR_NUMBER POINT ID PREV_RECORD PREV_HEAD NEW_HEAD'
 
 # step_context_value_ok <field> <value>: a value the resolver would render,
-# refusing what it refuses (a control byte; a unit kind, task ids, or PR number
-# outside their grammar; a point outside the wired ones) plus any `$`.
+# refusing what it refuses (a control byte; a unit kind, task ids, PR number,
+# or head outside their grammar; a point outside the wired ones) plus any `$`.
 step_context_value_ok() {
   local f=$1 v=$2 id
   case $v in
@@ -2904,6 +2904,15 @@ step_context_value_ok() {
         *[!0-9]*) return 1 ;;
       esac
       ;;
+    PREV_HEAD | NEW_HEAD)
+      case $v in
+        *[!0-9a-f]*) return 1 ;;
+      esac
+      case ${#v} in
+        0 | 40 | 64) ;;
+        *) return 1 ;;
+      esac
+      ;;
     POINT)
       case $v in
         *' '*) return 1 ;;
@@ -2915,6 +2924,24 @@ step_context_value_ok() {
       ;;
   esac
   return 0
+}
+
+# step_pool_hold_ok <value>: the resolver's hold mark, `<pool>:<pid>`, the pool
+# in the step-id charset (at most 64 bytes) and the pid decimal with no
+# leading zero (at most ten digits), as scripts/step-pool.sh reads it.
+step_pool_hold_ok() {
+  local pool=${1%%:*} pid=${1#*:}
+  case $1 in
+    *:*) ;;
+    *) return 1 ;;
+  esac
+  case $pool in
+    '' | [!a-z]* | *[!a-z0-9-]*) return 1 ;;
+  esac
+  case $pid in
+    '' | [!1-9]* | *[!0-9]*) return 1 ;;
+  esac
+  [ "${#pool}" -le 64 ] && [ "${#pid}" -le 10 ]
 }
 
 # step_arg_ok <word>: the resolver's args charset.
@@ -3040,7 +3067,7 @@ resolve_declared() {
   # either leaves the other points' rows as their own runs print them.
   # The --explain columns resolve-steps.sh documents; it prints `-` for an
   # empty field, which a tab IFS would otherwise collapse.
-  while IFS=$TAB read -r dec _ _ _ _ target _ kind args _ _ _ loc; do
+  while IFS=$TAB read -r dec _ _ _ _ target _ kind args _ _ _ loc _; do
     [ "$dec" = run ] && [ "$kind" = command ] || continue
     step_location_ok "$loc" "$target" || continue
     key=$loc
@@ -3085,6 +3112,18 @@ declared_line_ok() {
         step_context_value_ok "$f" "${w#*=}" || return 1
         i=$((i + 1))
       done
+      # A pooled step's hold mark, the one optional assignment after the
+      # context fields.
+      name=PLANWRIGHT_STEP_POOL_HOLD
+      case ${sw[i]-} in
+        "$name="*)
+          if [ "${swq[i]}" -ge 0 ] && [ "${swq[i]}" -le "${#name}" ]; then
+            return 1
+          fi
+          step_pool_hold_ok "${sw[i]#*=}" || return 1
+          i=$((i + 1))
+          ;;
+      esac
       ;;
   esac
   [ "$i" -lt "$swn" ] || return 1

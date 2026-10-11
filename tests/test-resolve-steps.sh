@@ -122,7 +122,7 @@ cat_entry() {
 # run <args...>: the resolver under the fixture environment, the host's own
 # PLANWRIGHT_STEP_* exports cleared so the suite is hermetic even when it
 # runs inside a planwright step (the context cases set them through ctx_run).
-STEP_UNSETS="-u PLANWRIGHT_STEP_SPEC -u PLANWRIGHT_STEP_TASK_IDS -u PLANWRIGHT_STEP_UNIT_KIND -u PLANWRIGHT_STEP_BRANCH -u PLANWRIGHT_STEP_BASE_BRANCH -u PLANWRIGHT_STEP_WORKTREE -u PLANWRIGHT_STEP_PR_NUMBER -u PLANWRIGHT_STEP_POINT -u PLANWRIGHT_STEP_ID -u PLANWRIGHT_STEP_PREV_RECORD"
+STEP_UNSETS="-u PLANWRIGHT_STEP_SPEC -u PLANWRIGHT_STEP_TASK_IDS -u PLANWRIGHT_STEP_UNIT_KIND -u PLANWRIGHT_STEP_BRANCH -u PLANWRIGHT_STEP_BASE_BRANCH -u PLANWRIGHT_STEP_WORKTREE -u PLANWRIGHT_STEP_PR_NUMBER -u PLANWRIGHT_STEP_POINT -u PLANWRIGHT_STEP_ID -u PLANWRIGHT_STEP_PREV_RECORD -u PLANWRIGHT_STEP_PREV_HEAD -u PLANWRIGHT_STEP_NEW_HEAD -u PLANWRIGHT_STEP_POOL_HOLD"
 # run [VAR=value ...] <args...>: a leading VAR=value sets a variable the
 # hermetic environment would otherwise clear (the jq override, for one).
 run() {
@@ -346,7 +346,8 @@ malformed_case() {
   cat_entry "$tracked_cat" bad-one "$@"
   printf 'steps_pre_ci: [bad-one]\n' >"$tracked_cfg"
   capture pre-ci --unattended
-  if [ "$RC" = 4 ] && printf '%s' "$ERR" | grep -q 'repo-tracked'; then
+  if [ "$RC" = 4 ] && printf '%s' "$ERR" | grep -q 'repo-tracked' \
+    && { [ -z "${want_reason:-}" ] || printf '%s' "$ERR" | grep -q -- "$want_reason"; }; then
     ok "REQ-B1.2/REQ-C1.5: $label is malformed in repo-tracked (exit 4, layer named)"
   else
     fail "REQ-B1.2: $label in repo-tracked: rc=$RC (want 4) err='$ERR'"
@@ -394,6 +395,37 @@ malformed_case "an empty args" "kind: command" "target: fixture-tool" "args:"
 malformed_case "an empty requires" "kind: prompt" "target: p" "requires:"
 malformed_case "a block indicator as args" "kind: skill" "target: polish" "args: |"
 malformed_case "an indented block indicator as target" "kind: prompt" "target: |2-"
+# The expensive-check fields (REQ-I1.11): each refusal is malformed for its
+# layer, the diagnostic naming the field's fault.
+want_reason='pool name'
+malformed_case "a pool name outside the id charset" "kind: command" "target: fixture-tool" "pool: Gate"
+malformed_case "a pool name over 64 bytes" "kind: command" "target: fixture-tool" "pool: $(printf 'p%.0s' $(seq 1 65))"
+want_reason='empty pool'
+malformed_case "an empty pool" "kind: command" "target: fixture-tool" "pool:"
+want_reason='paths word'
+malformed_case "an absolute paths word" "kind: command" "target: fixture-tool" "paths: src /etc"
+malformed_case "a dash-led paths word" "kind: command" "target: fixture-tool" "paths: -x"
+malformed_case "a paths word with a .. segment" "kind: command" "target: fixture-tool" "paths: src/../etc"
+malformed_case "a bare .. paths word" "kind: command" "target: fixture-tool" "paths: .."
+malformed_case "a paths word outside the charset" "kind: command" "target: fixture-tool" "paths: src/*.sh"
+want_reason='empty paths'
+malformed_case "an empty paths" "kind: command" "target: fixture-tool" "paths:"
+want_reason='refire value'
+malformed_case "a refire value other than post-pr" "kind: command" "target: fixture-tool" "paths: ." "refire: pre-pr"
+want_reason='refire without paths'
+malformed_case "refire without paths" "kind: command" "target: fixture-tool" "refire: post-pr"
+want_reason='refire with hosting continue'
+malformed_case "refire with hosting continue" "kind: command" "target: fixture-tool" "paths: ." "refire: post-pr" "hosting: continue"
+want_reason='command steps only'
+malformed_case "pool on a skill step" "kind: skill" "target: polish" "pool: gate"
+malformed_case "paths on a prompt step" "kind: prompt" "target: p" "paths: ."
+malformed_case "refire on a skill step" "kind: skill" "target: polish" "paths: ." "refire: post-pr"
+# quota-handling's fields are known, held only to the single-line scalar rule.
+want_reason='single-line'
+malformed_case "a block indicator as a quota-handling field" "kind: prompt" "target: p" "on-limit: >"
+want_reason='empty vendor'
+malformed_case "an empty quota-handling field" "kind: prompt" "target: p" "vendor:"
+want_reason=''
 # An id left with an edge blank once its quote pair is stripped: the catalog
 # reader skips it as malformed, and the skip takes the by-layer policy.
 reset_layers
@@ -724,7 +756,7 @@ RC=$?
 ERR=$(cat "$tmp/err")
 [ "$RC" = 0 ] || fail "REQ-C1.3: every target kind on the host: rc=$RC out='$OUT' err='$ERR'"
 check_loc() {
-  printf '%s\n' "$OUT" | grep -q "^run${TAB}$1${TAB}.*${TAB}$2\$" \
+  printf '%s\n' "$OUT" | grep -q "^run${TAB}$1${TAB}.*${TAB}$2${TAB}-${TAB}-${TAB}-\$" \
     || fail "REQ-C1.3: step '$1' did not resolve to '$2': $(printf '%s\n' "$OUT" | grep "${TAB}$1${TAB}")"
 }
 check_loc s-bare "$core/skills/polish/SKILL.md"
@@ -1242,6 +1274,8 @@ reset_layers
 # fields set to the fixture values, the host's own exports cleared first, and
 # any leading VAR=value overriding a fixture value.
 prev_fixture="it's here"
+head40=$(printf '0123456789abcdef%.0s' 1 2 3 | cut -c1-40)
+head64=$(printf '0123456789abcdef%.0s' 1 2 3 4)
 ctx_run() {
   overrides=()
   while [ $# -gt 0 ] && [ "$1" != -- ]; do
@@ -1257,6 +1291,7 @@ ctx_run() {
     PLANWRIGHT_STEP_BASE_BRANCH=main PLANWRIGHT_STEP_WORKTREE="$tmp/wt" \
     PLANWRIGHT_STEP_PR_NUMBER= PLANWRIGHT_STEP_POINT=wrong PLANWRIGHT_STEP_ID=polish \
     PLANWRIGHT_STEP_PREV_RECORD="$prev_fixture" \
+    PLANWRIGHT_STEP_PREV_HEAD="$head40" PLANWRIGHT_STEP_NEW_HEAD="$head64" \
     ${overrides[@]+"${overrides[@]}"} \
     PLANWRIGHT_ROOT="$core" PLANWRIGHT_CONFIG_DEFAULTS="$core/config/defaults.yml" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" PLANWRIGHT_REPO_ROOT="$repo" \
@@ -1278,15 +1313,17 @@ expected=$(printf '%s\n' \
   'PLANWRIGHT_STEP_POINT=pre-pr' \
   'PLANWRIGHT_STEP_ID=polish' \
   "PLANWRIGHT_STEP_PREV_RECORD=it's here" \
+  "PLANWRIGHT_STEP_PREV_HEAD=$head40" \
+  "PLANWRIGHT_STEP_NEW_HEAD=$head64" \
   'planwright-step-context-end')
 [ "$OUT" = "$expected" ]
-verdict "REQ-A1.4: --preamble renders exactly the ten fields, one per line, between whole-line delimiters, the point from the argument" "REQ-A1.4: preamble mismatch:
+verdict "REQ-A1.6: --preamble renders exactly the twelve fields, one per line, between whole-line delimiters, the point from the argument" "REQ-A1.6: preamble mismatch:
 $OUT"
 OUT=$(ctx_run -- pre-pr --prefix 2>"$tmp/err")
 RC=$?
-expected="PLANWRIGHT_STEP_SPEC='custom-steps' PLANWRIGHT_STEP_TASK_IDS='2 3.5' PLANWRIGHT_STEP_UNIT_KIND='task' PLANWRIGHT_STEP_BRANCH='planwright/custom-steps/task-2' PLANWRIGHT_STEP_BASE_BRANCH='main' PLANWRIGHT_STEP_WORKTREE='$tmp/wt' PLANWRIGHT_STEP_PR_NUMBER='' PLANWRIGHT_STEP_POINT='pre-pr' PLANWRIGHT_STEP_ID='polish' PLANWRIGHT_STEP_PREV_RECORD='it'\\''s here'"
+expected="PLANWRIGHT_STEP_SPEC='custom-steps' PLANWRIGHT_STEP_TASK_IDS='2 3.5' PLANWRIGHT_STEP_UNIT_KIND='task' PLANWRIGHT_STEP_BRANCH='planwright/custom-steps/task-2' PLANWRIGHT_STEP_BASE_BRANCH='main' PLANWRIGHT_STEP_WORKTREE='$tmp/wt' PLANWRIGHT_STEP_PR_NUMBER='' PLANWRIGHT_STEP_POINT='pre-pr' PLANWRIGHT_STEP_ID='polish' PLANWRIGHT_STEP_PREV_RECORD='it'\\''s here' PLANWRIGHT_STEP_PREV_HEAD='$head40' PLANWRIGHT_STEP_NEW_HEAD='$head64'"
 [ "$RC" = 0 ] && [ "$OUT" = "$expected" ]
-verdict "REQ-D1.3: --prefix renders the ten assignments POSIX single-quoted, a quote escaped as '\\''" "--prefix mismatch: rc=$RC
+verdict "REQ-D1.3: --prefix renders the twelve assignments POSIX single-quoted, a quote escaped as '\\''" "--prefix mismatch: rc=$RC
 $OUT"
 # The prefix round-trips through a shell: evaluating it reproduces the values.
 got=$(eval "$OUT sh -c 'printf %s \"\$PLANWRIGHT_STEP_PREV_RECORD\"'")
@@ -1298,8 +1335,62 @@ OUT=$(run pre-spec-ready-flip --preamble 2>/dev/null)
 printf '%s\n' "$OUT" | grep -qx 'PLANWRIGHT_STEP_PR_NUMBER=' \
   && printf '%s\n' "$OUT" | grep -qx 'PLANWRIGHT_STEP_TASK_IDS=' \
   && printf '%s\n' "$OUT" | grep -qx 'PLANWRIGHT_STEP_POINT=pre-spec-ready-flip' \
-  && [ "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" = 12 ]
-verdict "REQ-A1.4: an absent context value renders as the empty string" "absent context value: $OUT"
+  && printf '%s\n' "$OUT" | grep -qx 'PLANWRIGHT_STEP_PREV_HEAD=' \
+  && printf '%s\n' "$OUT" | grep -qx 'PLANWRIGHT_STEP_NEW_HEAD=' \
+  && [ "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" = 14 ]
+verdict "REQ-A1.6: an absent context value renders as the empty string" "absent context value: $OUT"
+# The head fields carry a full commit id or nothing: 40 or 64 lowercase hex.
+for bad in "${head40%?}" "${head40}0" "$(printf '%s' "$head40" | tr a-f A-F)" \
+  "$(printf 'g%.0s' $(seq 1 40))" "${head64}0" "$head40 "; do
+  for f in PREV_HEAD NEW_HEAD; do
+    for mode in --preamble --prefix "--line /bin/true"; do
+      rc=0
+      # shellcheck disable=SC2086 # the --line mode carries its operand
+      err=$(ctx_run "PLANWRIGHT_STEP_$f=$bad" -- pre-pr $mode 2>&1 >/dev/null) || rc=$?
+      { [ "$rc" = 6 ] && printf '%s' "$err" | grep -q "PLANWRIGHT_STEP_$f"; } \
+        || fail "REQ-A1.6: $f='$bad' on $mode: rc=$rc (want 6 naming the field) err='$err'"
+    done
+  done
+done
+ok "REQ-A1.6: a head field that is neither empty nor a full commit id is refused (exit 6) on every channel"
+# The hold mark: one trailing assignment after the twelve, only when given
+# the pool and the owner's pid, never from an inherited mark.
+base=$(ctx_run -- pre-pr --prefix 2>/dev/null)
+OUT=$(ctx_run -- pre-pr --pool host-gate --owner 4242 --prefix 2>"$tmp/err")
+RC=$?
+[ "$RC" = 0 ] && [ "$OUT" = "$base PLANWRIGHT_STEP_POOL_HOLD='host-gate:4242'" ]
+verdict "REQ-A1.6: --prefix renders the hold mark as one trailing assignment when given a pool and an owner pid" "--prefix hold mark: rc=$RC out='$OUT' err='$(cat "$tmp/err")'"
+OUT=$(ctx_run -- pre-pr --pool host-gate --owner 4242 --line /bin/echo hi 2>"$tmp/err")
+RC=$?
+[ "$RC" = 0 ] && [ "$OUT" = "$base PLANWRIGHT_STEP_POOL_HOLD='host-gate:4242' '/bin/echo' 'hi'" ]
+verdict "REQ-A1.6: --line renders the hold mark after the twelve fields and before the location" "--line hold mark: rc=$RC out='$OUT' err='$(cat "$tmp/err")'"
+got=$(eval "$base PLANWRIGHT_STEP_POOL_HOLD='host-gate:4242' sh -c 'printf %s \"\$PLANWRIGHT_STEP_POOL_HOLD\"'")
+[ "$got" = "host-gate:4242" ]
+verdict "the rendered hold mark reaches the check's environment" "hold mark round-trip: got '$got'"
+for mode in --prefix "--line /bin/true"; do
+  # shellcheck disable=SC2086 # the --line mode carries its operand
+  OUT=$(ctx_run PLANWRIGHT_STEP_POOL_HOLD=host-gate:4242 -- pre-pr $mode 2>/dev/null)
+  case "$OUT" in
+    *POOL_HOLD*) fail "REQ-A1.6: an inherited mark rendered on $mode with no pool given: '$OUT'" ;;
+  esac
+done
+ok "REQ-A1.6: no mark renders without a pool and an owner, an inherited one included"
+for pair in "Gate 4242" "host-gate 0" "host-gate 042" "host-gate 12a" "host-gate 12345678901" "a:b 4242"; do
+  rc=0
+  # shellcheck disable=SC2086 # the pair is two operands
+  err=$(set -- $pair && ctx_run -- pre-pr --pool "$1" --owner "$2" --prefix 2>&1 >/dev/null) || rc=$?
+  { [ "$rc" = 6 ] && printf '%s' "$err" | grep -q PLANWRIGHT_STEP_POOL_HOLD; } \
+    || fail "a hold mark from '$pair': rc=$rc (want 6 naming the field) err='$err'"
+done
+ok "REQ-I1.2: a pool outside the id charset or an owner that is not a decimal pid is refused (exit 6)"
+for bad in "--pool host-gate --prefix" "--owner 4242 --prefix" "--pool host-gate --owner 4242 --preamble" \
+  "--pool host-gate --owner 4242 --explain --unattended" "--pool host-gate --owner 4242 --pool x --prefix" "--prefix --pool"; do
+  rc=0
+  # shellcheck disable=SC2086 # the flags are meant to word-split
+  ctx_run -- pre-pr $bad >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "hold-mark flags '$bad': rc=$rc (want 2)"
+done
+ok "the hold-mark flags come as a pair, once, with --prefix or --line only"
 # A value carrying a newline or a control byte is refused on the preamble and
 # prefix channels (the line channel in 13b), the diagnostic naming the field
 # and never the value.
@@ -1472,10 +1563,10 @@ b=$(run pre-pr --unattended --explain 2>/dev/null)
 [ "$a" = "$b" ]
 verdict "resolution is deterministic across runs" "non-deterministic output"
 cols=$(printf '%s\n' "$a" | head -1 | awk -F '\t' '{ print NF }')
-[ "$cols" = 13 ]
-verdict "REQ-C1.2: --explain lines carry the pinned thirteen tab-separated columns" "explain columns: got $cols"
+[ "$cols" = 16 ]
+verdict "REQ-C1.2: --explain lines carry the pinned sixteen tab-separated columns" "explain columns: got $cols"
 row=$(printf '%s\n' "$a" | head -1)
-printf '%s\n' "$row" | grep -q "^run${TAB}polish${TAB}pre-pr${TAB}repo-tracked${TAB}core${TAB}polish${TAB}isolated${TAB}skill${TAB}--nested${TAB}halt${TAB}-${TAB}-${TAB}$core/skills/polish/SKILL.md\$"
+printf '%s\n' "$row" | grep -q "^run${TAB}polish${TAB}pre-pr${TAB}repo-tracked${TAB}core${TAB}polish${TAB}isolated${TAB}skill${TAB}--nested${TAB}halt${TAB}-${TAB}-${TAB}$core/skills/polish/SKILL.md${TAB}-${TAB}-${TAB}-\$"
 verdict "REQ-C1.2: provenance carries point, id, list layer, entry layer, target, and hosting" "explain row: $row"
 
 # =============================================================================
@@ -1742,7 +1833,7 @@ gate_skill "$gated" 'disable-model-invocation: true'
 cat_entry "$tracked_cat" s-gated "kind: skill" "target: gated"
 printf 'steps_pre_pr: [s-gated, polish]\n' >"$tracked_cfg"
 capture pre-pr --explain --unattended
-[ "$RC" = 1 ] && printf '%s\n' "$OUT" | grep -q "^refuse${TAB}s-gated${TAB}pre-pr${TAB}repo-tracked${TAB}repo-tracked${TAB}gated${TAB}.*${TAB}$gated\$" \
+[ "$RC" = 1 ] && printf '%s\n' "$OUT" | grep -q "^refuse${TAB}s-gated${TAB}pre-pr${TAB}repo-tracked${TAB}repo-tracked${TAB}gated${TAB}.*${TAB}$gated${TAB}-${TAB}-${TAB}-\$" \
   && printf '%s\n' "$OUT" | grep -q "^park${TAB}polish${TAB}"
 verdict "a skill step whose target sets disable-model-invocation prints a refuse row carrying the file, the point parking" "refused skill row: rc=$RC out='$OUT' err='$ERR'"
 case $ERR in
@@ -1862,7 +1953,7 @@ cat_entry "$tracked_cat" s-pw-ctl "kind: skill" "target: planwright:gated"
 printf 'steps_pre_pr: [s-pw-ctl]\n' >"$tracked_cfg"
 capture PLANWRIGHT_SKILLS_ROOT="$skroot" pre-pr --explain --unattended
 [ "$RC" = 1 ] && printf '%s\n' "$OUT" | grep -q "^park${TAB}s-pw-ctl${TAB}" \
-  && [ "$(printf '%s\n' "$OUT" | awk -F"$TAB" '{ print NF }')" = 13 ]
+  && [ "$(printf '%s\n' "$OUT" | awk -F"$TAB" '{ print NF }')" = 16 ]
 verdict "a flagged skill under a control-byte root never prints that root in a refused row" "control-byte refusal: rc=$RC out='$OUT' err='$ERR'"
 rm -f "$tracked_cfg"
 # A lookup root the screen passes over is a root the host could not search,
@@ -1900,6 +1991,63 @@ rm -f "$mlocal_cfg"
 capture pre-implementation pre-ci convergence pre-pr post-pr --explain --check --unattended
 [ "$RC" = 0 ]
 verdict "a several-point check passes when every point resolves" "several-point clean check: rc=$RC out='$OUT' err='$ERR'"
+reset_layers
+
+# =============================================================================
+# 16. The expensive-check fields and quota-handling's fields (REQ-B1.7,
+#     REQ-I1.11, REQ-J1.3).
+# =============================================================================
+# A command step declaring pool, paths, and refire resolves in both lists that
+# may carry a re-fire step, and --explain prints the three after the location.
+reset_layers
+cat_entry "$tracked_cat" gate "kind: command" "target: fixture-tool" "pool: host-gate" \
+  "paths: . scripts/a_b.sh tests/" "refire: post-pr"
+cat_entry "$tracked_cat" lint "kind: command" "target: fixture-tool" "pool: host-gate"
+printf 'steps_pre_ci: [gate, lint]\nsteps_pre_pr: [gate]\n' >"$tracked_cfg"
+capture pre-ci pre-pr --explain --check --unattended
+{ [ "$RC" = 0 ] \
+  && printf '%s\n' "$OUT" | grep -qx "run${TAB}gate${TAB}pre-ci${TAB}.*${TAB}$bin/fixture-tool${TAB}host-gate${TAB}. scripts/a_b.sh tests/${TAB}post-pr" \
+  && printf '%s\n' "$OUT" | grep -qx "run${TAB}gate${TAB}pre-pr${TAB}.*${TAB}$bin/fixture-tool${TAB}host-gate${TAB}. scripts/a_b.sh tests/${TAB}post-pr" \
+  && printf '%s\n' "$OUT" | grep -qx "run${TAB}lint${TAB}pre-ci${TAB}.*${TAB}$bin/fixture-tool${TAB}host-gate${TAB}-${TAB}-"; }
+verdict "REQ-I1.11: a pooled, path-declaring re-fire step resolves at pre-ci and pre-pr, --explain printing pool, paths, and re-fire" "re-fire step at pre-ci/pre-pr: rc=$RC out='$OUT' err='$ERR'"
+# Every other list refuses it, the flip-point lists included, by the layer
+# that placed it.
+for p in pre-implementation convergence post-pr pre-ready-flip pre-spec-ready-flip; do
+  printf 'steps_%s: [gate]\n' "${p//-/_}" >"$tracked_cfg"
+  capture "$p" --unattended
+  { [ "$RC" = 4 ] && printf '%s' "$ERR" | grep -q "re-fire step is listed only in steps_pre_ci or steps_pre_pr"; } \
+    || fail "REQ-I1.11: a re-fire step in steps_${p//-/_}: rc=$RC (want 4) err='$ERR'"
+done
+ok "REQ-I1.11: a re-fire step in any list but steps_pre_ci or steps_pre_pr is malformed (exit 4 in repo-tracked)"
+# A personal list that misplaces a shared re-fire step degrades to the core
+# list; a shared list that places a personal re-fire step drops that entry for
+# the list.
+rm -f "$tracked_cfg"
+printf 'steps_post_pr: [gate]\n' >"$mlocal_cfg"
+capture post-pr --unattended
+{ [ "$RC" = 0 ] && [ -z "$OUT" ] && printf '%s' "$ERR" | grep 'malformed' | grep -q 'machine-local'; }
+verdict "REQ-C1.5: a machine-local list misplacing a re-fire step degrades to the core default" "machine-local misplaced re-fire: rc=$RC out='$OUT' err='$ERR'"
+capture post-pr --check --unattended
+[ "$RC" = 1 ]
+verdict "REQ-H1.3: the degraded list fails check mode" "machine-local misplaced re-fire check: rc=$RC"
+rm -f "$mlocal_cfg" "$tracked_cat"
+cat_entry "$adopter_cat" gate "kind: command" "target: fixture-tool" "paths: ." "refire: post-pr"
+printf 'steps_post_pr: [gate]\n' >"$tracked_cfg"
+capture post-pr --unattended
+{ [ "$RC" = 1 ] && [ "$OUT" = "park${TAB}gate" ] && printf '%s' "$ERR" | grep 'where this list places it' | grep -q adopter; }
+verdict "REQ-C1.5: a shared list placing an adopter re-fire step drops the entry for that list" "adopter re-fire entry misplaced: rc=$RC out='$OUT' err='$ERR'"
+# Each quota-handling field is a known field, its value unjudged here.
+reset_layers
+cat_entry "$tracked_cat" q-vendor "kind: prompt" "target: p" "vendor: cubic"
+cat_entry "$tracked_cat" q-control "kind: prompt" "target: p" "control: anything at all"
+cat_entry "$tracked_cat" q-limit "kind: prompt" "target: p" "on-limit: alternate q-vendor"
+cat_entry "$tracked_cat" q-moves "kind: command" "target: fixture-tool" "moves-head: true"
+cat_entry "$tracked_cat" q-final "kind: skill" "target: polish" "final-head: true"
+cat_entry "$tracked_cat" q-drains "kind: command" "target: fixture-tool" "drains: q-final"
+printf 'steps_post_pr: [q-vendor, q-control, q-limit, q-moves, q-final, q-drains]\n' >"$tracked_cfg"
+capture post-pr --check --unattended
+[ "$RC" = 0 ] && [ "$(printf '%s\n' "$OUT" | grep -c "^run${TAB}q-")" = 6 ]
+verdict "REQ-J1.3: each quota-handling field is accepted as a known field" "quota-handling fields: rc=$RC out='$OUT' err='$ERR'"
 reset_layers
 
 # A broken install whose echo-safety.sh is a directory: bash would source it,

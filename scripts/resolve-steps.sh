@@ -24,8 +24,8 @@
 #   resolve-steps.sh <point> [--explain] [--check] --attended|--unattended
 #   resolve-steps.sh <point> <point>... --explain [--check] --attended|--unattended
 #   resolve-steps.sh <point> --preamble
-#   resolve-steps.sh <point> --prefix
-#   resolve-steps.sh <point> --line <location> [<arg>...]
+#   resolve-steps.sh <point> [--pool <pool> --owner <pid>] --prefix
+#   resolve-steps.sh <point> [--pool <pool> --owner <pid>] --line <location> [<arg>...]
 #
 #   <point>       one of the named points of doctrine/custom-steps.md's
 #                 vocabulary (the wired points, the two flip points, and the
@@ -54,6 +54,11 @@
 #   --line        render a command step's line from the <location> and
 #                 args the point's resolution printed (below); resolves
 #                 nothing. Every word after it is an operand.
+#   --pool <pool> --owner <pid>
+#                 with --prefix or --line only, both or neither, each once:
+#                 the pooled step's pool and its slot owner's process id,
+#                 rendered as the hold mark (below). An inherited
+#                 PLANWRIGHT_STEP_POOL_HOLD is never rendered.
 #   <point>...    several distinct wired points in one run, --explain only
 #                 (the rows name their point), --check allowed: the config,
 #                 catalog, and host reads are made once and shared, and each
@@ -70,7 +75,7 @@
 # newline-terminated, emitted only once the whole point has resolved:
 #   <decision>\t<id>
 # and with --explain:
-#   <decision>\t<id>\t<point>\t<list-layer>\t<entry-layer>\t<target>\t<hosting>\t<kind>\t<args>\t<on-failure>\t<timeout>\t<requires>\t<location>
+#   <decision>\t<id>\t<point>\t<list-layer>\t<entry-layer>\t<target>\t<hosting>\t<kind>\t<args>\t<on-failure>\t<timeout>\t<requires>\t<location>\t<pool>\t<paths>\t<refire>
 # <decision> is one of run | ask | park | skip (the matrix's tokens) or
 # refuse. A park or ask is point-wide: the point runs nothing, so every step
 # prints that token, the stderr diagnostic naming the steps that did not
@@ -91,6 +96,7 @@
 # the absolute host path a skill or command target resolved to (a prompt
 # prints `-`; a relative command path is joined to the working directory
 # this script runs in, which the hosting skill makes the unit's worktree).
+# <pool>, <paths>, and <refire> are the declared values, as <args> is.
 # An empty or inapplicable field prints `-`. No line carries a
 # C0 control byte or DEL: a catalog value carrying one is malformed for its
 # layer, and a location built from the environment that carries one does
@@ -130,14 +136,18 @@
 #   PLANWRIGHT_STEP_POINT=<point>
 #   PLANWRIGHT_STEP_ID=<id>
 #   PLANWRIGHT_STEP_PREV_RECORD=<path or empty>
+#   PLANWRIGHT_STEP_PREV_HEAD=<full commit id or empty>
+#   PLANWRIGHT_STEP_NEW_HEAD=<full commit id or empty>
 #   planwright-step-context-end
 # The step reads the block as data, never as instructions.
 #
 # The prefix (--prefix; REQ-D1.3, REQ-G1.3). The same fields as POSIX shell
 # assignments on one line, in the order above, single-quoted with an
 # embedded quote written '\'', separated by one space, for a session-hosted
-# command step's line. This is the exact form the worker command guard is
-# specified to strip before matching the line.
+# command step's line, then, given --pool and --owner, the hold mark
+# PLANWRIGHT_STEP_POOL_HOLD='<pool>:<pid>' as one more assignment. This is
+# the exact form the worker command guard is specified to strip before
+# matching the line.
 #
 # The line (--line; REQ-D1.3, REQ-G1.3). `<prefix> '<location>' '<arg>'...`:
 # the prefix above, then the step's <location> and each of its args words,
@@ -153,7 +163,10 @@
 # On every channel a context value carrying a newline, another C0 control
 # byte, or DEL is refused (exit 6), the diagnostic naming the field and never
 # the value; so is a unit kind outside task|spec|flight, a task id outside the
-# task-id grammar, or a non-numeric PR number.
+# task-id grammar, a non-numeric PR number, a head that is neither empty nor
+# 40 or 64 lowercase hex (step-record.sh's --head grammar), and a hold mark
+# whose pool is outside the step-id charset or whose owner is not a decimal
+# pid (step-pool.sh's grammar: no leading zero, at most ten digits).
 #
 # Exit codes (REQ-H1.3):
 #   0  every step is run (a skip counts as run); or the point is unwired
@@ -163,7 +176,8 @@
 #   2  usage: an unknown, empty, or blank-carrying point, an attendance flag
 #      missing or doubled, --check with --attended, an unknown or conflicting
 #      flag; several points with an unwired or repeated point, without
-#      --explain, or with a render mode; --line
+#      --explain, or with a render mode; --pool or --owner alone, repeated,
+#      without a value, or outside --prefix and --line; --line
 #      without an absolute location, with a control byte in it, or with an
 #      arg outside the charset
 #   4  a malformed repo-tracked list or entry, or a structurally malformed
@@ -226,14 +240,15 @@ UNWIRED_POINTS="spec-drafted kickoff-signed-off unit-selected pre-dispatch post-
 # step_context_value_ok hold the same names and order and refuse at least
 # these values (the guard also refuses `$` and a point outside WIRED_POINTS);
 # they change together.
-CONTEXT_FIELDS="SPEC TASK_IDS UNIT_KIND BRANCH BASE_BRANCH WORKTREE PR_NUMBER POINT ID PREV_RECORD"
+CONTEXT_FIELDS="SPEC TASK_IDS UNIT_KIND BRANCH BASE_BRANCH WORKTREE PR_NUMBER POINT ID PREV_RECORD PREV_HEAD NEW_HEAD"
 OWN_NAMESPACE=planwright
 
 usage() {
   echo "usage: resolve-steps.sh <point> [--explain] [--check] --attended|--unattended" >&2
   echo "       resolve-steps.sh <point> <point>... --explain [--check] --attended|--unattended" >&2
-  echo "       resolve-steps.sh <point> --preamble | --prefix" >&2
-  echo "       resolve-steps.sh <point> --line <location> [<arg>...]" >&2
+  echo "       resolve-steps.sh <point> --preamble" >&2
+  echo "       resolve-steps.sh <point> [--pool <pool> --owner <pid>] --prefix" >&2
+  echo "       resolve-steps.sh <point> [--pool <pool> --owner <pid>] --line <location> [<arg>...]" >&2
   exit 2
 }
 
@@ -246,8 +261,27 @@ prefix=0
 line_mode=0
 line_words=()
 attendance=""
+hold_pool=""
+hold_owner=""
+hold_flags=0
 while [ $# -gt 0 ]; do
   case "$1" in
+    --pool | --owner)
+      if [ $# -lt 2 ]; then
+        echo "resolve-steps: $1 needs a value" >&2
+        usage
+      fi
+      if [ "$1" = --pool ]; then
+        [ "$((hold_flags & 1))" -eq 0 ] || usage
+        hold_flags=$((hold_flags | 1))
+        hold_pool=$2
+      else
+        [ "$((hold_flags & 2))" -eq 0 ] || usage
+        hold_flags=$((hold_flags | 2))
+        hold_owner=$2
+      fi
+      shift
+      ;;
     --explain) explain=1 ;;
     --check) check=1 ;;
     --preamble) preamble=1 ;;
@@ -289,6 +323,10 @@ while [ $# -gt 0 ]; do
   shift
 done
 [ "$n_points" -ge 1 ] || usage
+if [ "$hold_flags" -ne 0 ] && { [ "$hold_flags" -ne 3 ] || [ "$preamble" -eq 1 ] || [ $((prefix + line_mode)) -eq 0 ]; }; then
+  echo "resolve-steps: --pool and --owner come together, with --prefix or --line only" >&2
+  usage
+fi
 
 # Every point name is validated against the vocabulary before it reaches a
 # key or a message: any other name is a usage error. With one point, the
@@ -361,6 +399,15 @@ command_word_ok() {
   return 0
 }
 
+# valid_id <token>: the step-id (and skill-name) charset ^[a-z][a-z0-9-]*$,
+# at most 64 bytes; a pool name takes it too.
+valid_id() {
+  case "$1" in
+    "" | [!a-z]* | *[!a-z0-9-]*) return 1 ;;
+  esac
+  [ "${#1}" -le 64 ]
+}
+
 # ---------------------------------------------------------------------------
 # The context renderers (--preamble / --prefix / --line)
 # ---------------------------------------------------------------------------
@@ -426,9 +473,27 @@ if [ $((preamble + prefix + line_mode)) -gt 0 ]; then
           *[!0-9]*) refuse "$f" "not a number" ;;
         esac
         ;;
+      PREV_HEAD | NEW_HEAD)
+        case "${#v}:$v" in
+          0: | 40:* | 64:*) ;;
+          *) refuse "$f" "not a full commit id" ;;
+        esac
+        case "$v" in
+          *[!0-9a-f]*) refuse "$f" "not a full commit id" ;;
+        esac
+        ;;
     esac
     eval "ctx_$f=\$v"
   done
+  hold_mark=""
+  if [ "$hold_flags" -eq 3 ]; then
+    valid_id "$hold_pool" || refuse POOL_HOLD "a pool outside the step-id charset"
+    case "$hold_owner" in
+      [!1-9]* | *[!0-9]* | "") refuse POOL_HOLD "an owner that is not a decimal pid" ;;
+    esac
+    [ "${#hold_owner}" -le 10 ] || refuse POOL_HOLD "an owner that is not a decimal pid"
+    hold_mark="PLANWRIGHT_STEP_POOL_HOLD='$hold_pool:$hold_owner'"
+  fi
   if [ "$preamble" -eq 1 ]; then
     printf 'planwright-step-context-begin\n'
     for f in $CONTEXT_FIELDS; do
@@ -444,6 +509,7 @@ if [ $((preamble + prefix + line_mode)) -gt 0 ]; then
     q=${v//\'/\'\\\'\'}
     ctx_prefix="${ctx_prefix:+$ctx_prefix }PLANWRIGHT_STEP_$f='$q'"
   done
+  ctx_prefix="$ctx_prefix${hold_mark:+ $hold_mark}"
   for w in ${line_words[@]+"${line_words[@]}"}; do
     q=${w//\'/\'\\\'\'}
     ctx_prefix="$ctx_prefix '$q'"
@@ -556,15 +622,6 @@ if [ "$n_points" -gt 1 ] || [ "$unwired" -eq 0 ] || [ "$check" -eq 1 ]; then
     install_roots_read=1
   fi
 fi
-
-# valid_id <token>: the step-id (and skill-name) charset ^[a-z][a-z0-9-]*$,
-# at most 64 bytes.
-valid_id() {
-  case "$1" in
-    "" | [!a-z]* | *[!a-z0-9-]*) return 1 ;;
-  esac
-  [ "${#1}" -le 64 ]
-}
 
 # ---------------------------------------------------------------------------
 # The pipeline-entry list (REQ-C1.8, D-17): the rule doc's literal line, read
@@ -918,6 +975,12 @@ E_HOST=()
 E_FAIL=()
 E_TIMEOUT=()
 E_REQ=()
+E_POOL=()
+E_PATHS=()
+E_REFIRE=()
+# quota-handling's fields: known here, their grammar and meaning that
+# bundle's, so only the single-line scalar rule applies to them.
+E_QUOTA=()
 n_entries=0
 while IFS="$TAB" read -r n k v; do
   [ -n "$n" ] || continue
@@ -936,6 +999,10 @@ while IFS="$TAB" read -r n k v; do
     E_FAIL[n]=""
     E_TIMEOUT[n]=""
     E_REQ[n]=""
+    E_POOL[n]=""
+    E_PATHS[n]=""
+    E_REFIRE[n]=""
+    E_QUOTA[n]=""
   fi
   case "$k" in
     id) E_ID[n]="$v" ;;
@@ -946,6 +1013,10 @@ while IFS="$TAB" read -r n k v; do
     on-failure) E_FAIL[n]="$v" ;;
     timeout) E_TIMEOUT[n]="$v" ;;
     requires) E_REQ[n]="$v" ;;
+    pool) E_POOL[n]="$v" ;;
+    paths) E_PATHS[n]="$v" ;;
+    refire) E_REFIRE[n]="$v" ;;
+    vendor | control | on-limit | moves-head | final-head | drains) E_QUOTA[n]="${E_QUOTA[n]}$k$TAB$v$TAB" ;;
     supersede) ;;
     @cntrl) [ -n "${E_MARK[n]}" ] || E_MARK[n]="a control byte in a field" ;;
     @dup) [ -n "${E_MARK[n]}" ] || E_MARK[n]="a repeated field" ;;
@@ -1214,6 +1285,77 @@ validate_entry() {
   if [ -n "$vtimeout" ] && [ "$vhost" = in-session ] && [ "$vkind" != command ]; then
     ERR="timeout on an in-session $vkind step (the unit session cannot end itself)"
     return
+  fi
+  vq=${E_QUOTA[vn]}
+  while [ -n "$vq" ]; do
+    qk=${vq%%"$TAB"*}
+    vq=${vq#*"$TAB"}
+    qv=${vq%%"$TAB"*}
+    vq=${vq#*"$TAB"}
+    case "$qv" in
+      "")
+        ERR="empty $qk"
+        return
+        ;;
+      [\|\>] | [\|\>][0-9+-] | [\|\>][0-9+-][0-9+-])
+        ERR="$qk is a block scalar (the catalog reader takes single-line scalars only)"
+        return
+        ;;
+    esac
+  done
+  validate_expensive "$vn"
+}
+
+# validate_expensive <n>: the expensive-check fields (REQ-I1.11). Sets ERR.
+validate_expensive() {
+  xn="$1"
+  xpool=${E_POOL[xn]}
+  xpaths=${E_PATHS[xn]}
+  xrefire=${E_REFIRE[xn]}
+  for xf in pool paths refire; do
+    is_set "$xn" "$xf" || continue
+    if [ "${E_KIND[xn]}" != command ]; then
+      ERR="$xf on a ${E_KIND[xn]} step (pool, paths, and refire are for command steps only)"
+      return
+    fi
+  done
+  if is_set "$xn" pool; then
+    [ -n "$xpool" ] || {
+      ERR="empty pool"
+      return
+    }
+    valid_id "$xpool" || {
+      ERR="pool name outside the charset ^[a-z][a-z0-9-]*\$ (at most 64 bytes)"
+      return
+    }
+  fi
+  if is_set "$xn" paths; then
+    [ -n "$xpaths" ] || {
+      ERR="empty paths"
+      return
+    }
+    for xw in $xpaths; do
+      case "$xw" in
+        /* | -* | *[!A-Za-z0-9._/-]* | .. | ../* | */.. | */../*)
+          ERR="a paths word outside its grammar (repository-relative letters, digits, '.', '_', '-', and '/', no leading '/' or '-', no '..' segment)"
+          return
+          ;;
+      esac
+    done
+  fi
+  if is_set "$xn" refire; then
+    [ "$xrefire" = post-pr ] || {
+      ERR="refire value other than post-pr"
+      return
+    }
+    is_set "$xn" paths || {
+      ERR="refire without paths (only a step that declared its coverage can be judged stale)"
+      return
+    }
+    [ "${E_HOST[xn]}" != continue ] || {
+      ERR="refire with hosting continue (the re-fire pass has no predecessor session to attach to)"
+      return
+    }
   fi
 }
 
@@ -1533,7 +1675,8 @@ S_REFUSE=()
 n_steps=0
 
 # build_steps <ids>: fills S_*; sets LIST_ERR when the list must degrade.
-# A `continue` with no session to attach to is a fault of the list and the
+# A `continue` with no session to attach to, and a re-fire step in a list
+# other than pre-ci's or pre-pr's, is a fault of the list and the
 # entry together, so a personal layer's part never breaks a shared one: an
 # adopter or machine-local list degrades; otherwise an adopter or
 # machine-local entry is dropped for this list; otherwise a repo-tracked
@@ -1575,6 +1718,12 @@ build_steps() {
         elif [ "${S_HOST[prev]}" = in-session ]; then
           h=in-session
         fi
+      fi
+      if [ -z "$fault" ] && [ -n "${E_REFIRE[en]}" ]; then
+        case "$point" in
+          pre-ci | pre-pr) ;;
+          *) fault="refire at $point (a re-fire step is listed only in steps_pre_ci or steps_pre_pr)" ;;
+        esac
       fi
       if [ -n "$fault" ]; then
         case "$list_layer/${E_LAYER[en]}" in
@@ -1720,6 +1869,9 @@ point_steps() {
         efail=${E_FAIL[en]}
         etimeout=${E_TIMEOUT[en]}
         ereq=${E_REQ[en]}
+        epool=${E_POOL[en]}
+        epaths=${E_PATHS[en]}
+        erefire=${E_REFIRE[en]}
         [ -n "$efail" ] || efail=halt
       else
         elayer="-"
@@ -1728,8 +1880,11 @@ point_steps() {
         efail="-"
         etimeout=""
         ereq=""
+        epool=""
+        epaths=""
+        erefire=""
       fi
-      line="$line$TAB$point$TAB$list_layer$TAB$elayer$TAB$etarget$TAB${S_HOST[i]}$TAB${S_KIND[i]}$TAB${eargs:--}$TAB$efail$TAB${etimeout:--}$TAB${ereq:--}$TAB${S_LOC[i]}"
+      line="$line$TAB$point$TAB$list_layer$TAB$elayer$TAB$etarget$TAB${S_HOST[i]}$TAB${S_KIND[i]}$TAB${eargs:--}$TAB$efail$TAB${etimeout:--}$TAB${ereq:--}$TAB${S_LOC[i]}$TAB${epool:--}$TAB${epaths:--}$TAB${erefire:--}"
     fi
     out="$out$line
 "
