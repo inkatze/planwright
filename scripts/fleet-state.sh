@@ -200,7 +200,12 @@ LC_ALL=C
 export LC_ALL
 unset CDPATH
 
-script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+# The directory part of $0 without forking dirname: this script is on hot paths.
+case $0 in
+  */*) script_dir=${0%/*}/ ;;
+  *) script_dir=./ ;;
+esac
+script_dir=$(cd "$script_dir" && pwd) || exit 2
 
 # The canonical echo-discipline sanitizer (doctrine/security-posture.md): every
 # untrusted value (a caller's argv, a parsed manifest name) is stripped of C0/DEL

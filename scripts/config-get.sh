@@ -149,7 +149,12 @@ for key in "$@"; do
   esac
 done
 
-script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+# The directory part of $0 without forking dirname: this runs on every config read.
+case $0 in
+  */*) script_dir=${0%/*}/ ;;
+  *) script_dir=./ ;;
+esac
+script_dir=$(cd "$script_dir" && pwd) || exit 2
 
 # Resolve the tracked defaults (core) file: an explicit override, else the
 # first arm of the core root chain holding one. The resolver's warnings (a
