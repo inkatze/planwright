@@ -16,8 +16,9 @@
 # Every structural line (the markers, the headings, the collapse tags, the
 # fences) sits at column zero. The ask and the grounds are operator text: each
 # is stripped of control and invisible characters, its token-shaped secrets
-# redacted a whole line at a time, and it is quoted inside a fence longer than
-# any backtick run it holds with every non-blank line indented two spaces, so
+# redacted a whole line (a private key its whole block) at a time, and it is
+# quoted inside a fence longer than any backtick run it holds with every
+# non-blank line indented two spaces, so
 # no fence, tag, heading, or marker it carries renders, closes the collapse, or
 # reaches column zero where a line-anchored reader would take it for
 # structure. Worker-authored inputs are stripped the same way and normalized
@@ -220,13 +221,27 @@ operator_text() {
 }
 
 # redact <name> <out> — the cleaned text with each line the screen flagged
-# replaced whole; REDACTED is 1 when any was.
+# replaced whole; REDACTED is 1 when any was. The screen flags only a key
+# block's BEGIN line, so a flagged private-key-block also takes every line
+# through its END line, or to the end of the text when there is none.
 redact() {
   REDACTED=0
   if hits_for "$1.clean" "$work/$1.hits"; then
     awk -F '\t' '
-      NR == FNR { r[$1] = (r[$1] == "" ? $2 : r[$1] ", " $2); next }
-      FNR in r { print "[redacted: " r[FNR] ", a token-shaped secret]"; next }
+      NR == FNR {
+        r[$1] = (r[$1] == "" ? $2 : r[$1] ", " $2)
+        if ($2 == "private-key-block") k[$1] = 1
+        next
+      }
+      inkey {
+        if ($0 ~ /-----END ([A-Z]+ )?PRIVATE KEY-----/) inkey = 0
+        next
+      }
+      FNR in r {
+        print "[redacted: " r[FNR] ", a token-shaped secret]"
+        if (FNR in k && $0 !~ /-----END ([A-Z]+ )?PRIVATE KEY-----/) inkey = 1
+        next
+      }
       { print }' "$work/$1.hits" "$work/$1.clean" >"$2" || die 4 "cannot redact --$1"
     REDACTED=1
   else

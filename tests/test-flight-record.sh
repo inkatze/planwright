@@ -317,6 +317,31 @@ run_render pr --ask-file "$in/ask-upper.txt"
 case $OUT in *"$UPPER_VAL"*) fail "an uppercase key assignment reached the record" ;; esac
 printf '%s\n' "$OUT" | grep -q 'redacted: opaque-assignment' || fail "an uppercase key assignment must be redacted"
 
+# A pasted private key is redacted from its BEGIN line through its END line,
+# or to the end of the ask when it has none. Assembled at run time so this
+# file carries no key block for a scanner to trip over.
+KEY_BEGIN="-----BEGIN RSA PRIVATE ""KEY-----"
+KEY_END="-----END RSA PRIVATE ""KEY-----"
+KEY_BODY1="MIIEowIBAAKCAQEAkeybodyLineOne"
+KEY_BODY2="kEyBoDyLiNeTwOzzzzzzzzzzzzzzzz"
+printf 'Use this key:\n%s\n%s\n%s\n%s\nThen rerun the deploy.\n' \
+  "$KEY_BEGIN" "$KEY_BODY1" "$KEY_BODY2" "$KEY_END" >"$in/ask-key.txt"
+run_render pr --ask-file "$in/ask-key.txt"
+[ "$RC" -eq 0 ] || fail "render of an ask with a key block exited $RC: $ERR"
+for part in "$KEY_BODY1" "$KEY_BODY2" "$KEY_END" "$KEY_BEGIN"; do
+  case $OUT in *"$part"*) fail "a pasted key block leaked a line: ${part:0:12}" ;; esac
+done
+printf '%s\n' "$OUT" | grep -q 'redacted: private-key-block' || fail "a key block redaction must be marked"
+printf '%s\n' "$OUT" | grep -qx '  Use this key:' || fail "the line before a key block must survive"
+printf '%s\n' "$OUT" | grep -qx '  Then rerun the deploy.' || fail "the line after a key block's END must survive"
+printf 'Use this key:\n%s\n%s\n%s\n' "$KEY_BEGIN" "$KEY_BODY1" "$KEY_BODY2" >"$in/ask-key-open.txt"
+run_render pr --ask-file "$in/ask-key-open.txt"
+[ "$RC" -eq 0 ] || fail "render of an ask with an unterminated key block exited $RC: $ERR"
+for part in "$KEY_BODY1" "$KEY_BODY2"; do
+  case $OUT in *"$part"*) fail "an unterminated key block leaked a line: ${part:0:12}" ;; esac
+done
+printf '%s\n' "$OUT" | grep -qx '  Use this key:' || fail "the line before an unterminated key block must survive"
+
 # A non-ASCII temp directory neither lets a finding pass nor misplaces its
 # redaction: the screen reads fixed ASCII names, not the work directory's path.
 EMDASH=$(printf '\342\200\224')
