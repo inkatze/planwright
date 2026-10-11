@@ -257,6 +257,44 @@ out=$(run hold --vendor sample-reviewer --unit spec-a:task-1 --step bot-review -
 [ -z "$(ls -A "$vdir/hold.tsv")" ] || fail "hold-not-file: the hold wrote inside the directory"
 pass "a hold store that is not a regular file is refused"
 
+# The other store files are held to the same rule, and status never blocks
+# on a FIFO where a store file belongs.
+bg_status() {
+  run status --vendor sample-reviewer --now "$NOW" >/dev/null 2>&1 &
+  st_pid=$!
+  (
+    sleep 20
+    kill "$st_pid" 2>/dev/null
+  ) &
+  dog=$!
+  st_rc=0
+  wait "$st_pid" || st_rc=$?
+  kill "$dog" 2>/dev/null || :
+  wait "$dog" 2>/dev/null || :
+}
+for f in hold.tsv ledger.tsv; do
+  new_home "fifo-$f"
+  vdir="$home/fleet/quota/sample-reviewer"
+  mkdir -p "$vdir"
+  mkfifo "$vdir/$f"
+  bg_status
+  [ "$st_rc" = 6 ] || fail "non-regular: status over a FIFO $f exited $st_rc, not 6"
+done
+new_home resume-not-file
+vdir="$home/fleet/quota/sample-reviewer"
+mkdir -p "$vdir/hold.tsv"
+rc=0
+run resume --vendor sample-reviewer --now "$NOW" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 6 ] || fail "non-regular: a resume over a hold store that is a directory exited $rc, not 6"
+new_home pushed-not-file
+vdir="$home/fleet/quota/sample-reviewer"
+mkdir -p "$vdir/pushed"
+rc=0
+run hold --vendor sample-reviewer --unit spec-a:task-1 --step bot-review --reason "quota" --now "$NOW" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 6 ] || fail "non-regular: a hold over a push record that is a directory exited $rc, not 6"
+[ ! -e "$vdir/hold.tsv" ] || fail "non-regular: a hold refused over its push record still held"
+pass "status, resume, and hold refuse store files that are not regular files"
+
 # --- 4. The ledger, its counts, and retention pruning -----------------------
 new_home ledger
 run record --vendor sample-reviewer --event request --unit spec-a:task-1 --pr 42 --head "$HEAD40" --now $((NOW - 100 * DAY)) || fail "record request (old) failed"

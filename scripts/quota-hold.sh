@@ -356,6 +356,8 @@ case $verb in
     hf="$dir/hold.tsv"
     # mv onto a directory would land the store inside it and report a hold.
     [ ! -e "$hf" ] || [ -f "$hf" ] || die 6 "the vendor's hold store is not a regular file"
+    pf="$dir/pushed"
+    [ ! -e "$pf" ] || [ -f "$pf" ] || die 6 "the vendor's push record is not a regular file"
     src=/dev/null
     [ ! -f "$hf" ] || src=$hf
     CUR_TMP=$(mktemp "$dir/.hold.XXXXXX") || die 6 "cannot create a write temp"
@@ -392,7 +394,6 @@ case $verb in
     fi
     # The notify key dedupes only while its push is pending, so a unit joining
     # after the push was relayed would push the same hold again.
-    pf="$dir/pushed"
     if [ -f "$pf" ] && [ "$(cat "$pf" 2>/dev/null)" = "$since" ]; then
       exit 0
     fi
@@ -414,21 +415,22 @@ case $verb in
     else
       REASON="operator resume"
     fi
-    [ -f "$store/$vendor/hold.tsv" ] || exit 0
+    [ -e "$store/$vendor/hold.tsv" ] || exit 0
     dir=$(vendor_dir "$vendor") || exit 6
     lock_vendor "$dir"
     hf="$dir/hold.tsv"
-    if [ ! -f "$hf" ]; then
+    if [ ! -e "$hf" ]; then
       unlock_vendor "$dir"
       exit 0
     fi
+    [ -f "$hf" ] || die 6 "the vendor's hold store is not a regular file"
     released=$(awk -F "$TAB" -v v="$vendor" "$AWK_GRAMMAR"'
       hold_ok() { printf "released\t%s\t%s\n", $2, $3 }' "$hf") || die 6 "cannot read the hold store"
     # The ledger line goes first, so a failed write releases nobody and the
     # resume can be retried.
     [ -z "$released" ] || ledger_append "$dir" resume - - - - "$REASON"
+    rm -f "$dir/pushed" || die 6 "cannot clear the vendor's push record"
     rm -f "$hf" || die 6 "cannot clear the hold store"
-    rm -f "$dir/pushed"
     [ -z "$released" ] || printf '%s\n' "$released"
     unlock_vendor "$dir"
     exit 0
@@ -457,6 +459,12 @@ case $verb in
     for v in $vendors; do
       hf="$store/$v/hold.tsv"
       lf="$store/$v/ledger.tsv"
+      # A FIFO or a directory here would hang or skip the read.
+      for f in "$hf" "$lf"; do
+        if [ -e "$f" ] && [ ! -f "$f" ] && [ -e "$f" ]; then
+          die 6 "a store file of $v is not a regular file"
+        fi
+      done
       # This read takes no lock, and resume removes the hold file under its
       # own: read a copy, and a file gone between the test and the copy as
       # no holder.
