@@ -1651,6 +1651,16 @@ yq_expression_safe() {
   n=${#s}
   i=0
   while [ "$i" -lt "$n" ]; do
+    # The load family (`load`, `load_str`, `load_xml`, …) reads any path
+    # named in the expression, /proc/<pid>/environ included.
+    if [ "${s:i:4}" = load ]; then
+      p=''
+      [ "$i" -gt 0 ] && p=${s:i-1:1}
+      case $p in
+        [A-Za-z0-9_.\$]) ;;
+        *) return 1 ;;
+      esac
+    fi
     for w in env eval; do
       [ "${s:i:${#w}}" = "$w" ] || continue
       p=''
