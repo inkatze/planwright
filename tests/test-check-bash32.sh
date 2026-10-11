@@ -222,8 +222,12 @@ esac
 # ---------------------------------------------------------------------------
 out="$(/bin/sh "$CHECKER" lint --root "$FIXTURES" --files-from "$tmp/fixture-list" 2>&1)"
 assert_exit "the lint rejects the fixture directory" 1 $?
-assert_contains "the lint flags the heredoc fixture" "$out" "heredoc-in-substitution.sh:6: a heredoc inside a \$( )"
-assert_contains "the lint flags the case fixture" "$out" "case-in-substitution.sh:7: a case pattern without its leading ("
+heredoc_line=$(grep -n '<<' "$FIXTURES/heredoc-in-substitution.sh" | cut -d: -f1)
+case_line=$(grep -n ' in \.\*)' "$FIXTURES/case-in-substitution.sh" | cut -d: -f1)
+assert_contains "the lint flags the heredoc fixture" "$out" \
+  "heredoc-in-substitution.sh:$heredoc_line: a heredoc inside a \$( )"
+assert_contains "the lint flags the case fixture" "$out" \
+  "case-in-substitution.sh:$case_line: a case pattern without its leading ("
 
 mkdir -p "$tmp/l" || exit 1
 lint_one() {
