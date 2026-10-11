@@ -70,7 +70,8 @@ using a real tab character between fields. Print nothing after the last one."
 outf=$(mktemp "${TMPDIR:-/tmp}/rbt-review.XXXXXX")
 cpid=
 trap 'rm -f "$outf"' EXIT
-trap '[ -z "$cpid" ] || kill "$cpid" 2>/dev/null; exit 143' TERM INT
+trap '[ -z "$cpid" ] || kill "$cpid" 2>/dev/null; exit 143' TERM
+trap '[ -z "$cpid" ] || kill "$cpid" 2>/dev/null; exit 130' INT
 "$claude_bin" -p "$prompt" --model "$BACKTEST_MODEL" \
   --output-format json --max-turns "$max_turns" \
   --tools 'Read,Grep,Glob' --allowedTools 'Read' 'Grep' 'Glob' \

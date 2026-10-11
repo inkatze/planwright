@@ -88,8 +88,14 @@ mkdir -p "$T/archive"
 printf '%s\n' "- 2026-10-05 [planwright] review-miss(correctness, bogus): #11 b.sh: a reason outside the vocabulary" >"$ledger/2026-10-05-review-miss-0000bbbb.md"
 printf '%s\n' "- 2026-10-05 [planwright] review-miss(correctness, runtime-tracing): #13 b.sh: a fix the pass missed" >"$T/archive/2026-10-05-review-miss-0000aaaa.md"
 cp "$T/archive/2026-10-05-review-miss-0000aaaa.md" "$ledger/"
-printf '%s\n' "- 2026-10-05 [planwright] review-miss(correctness, pruned): #10 c.sh: unreadable" >"$ledger/2026-10-05-review-miss-0000cccc.md"
-chmod 000 "$ledger/2026-10-05-review-miss-0000cccc.md"
+# An unreadable fragment counts as malformed; root reads it anyway, so the
+# case only exists for an ordinary user.
+unreadable=0
+if [ "$(id -u)" -ne 0 ]; then
+  printf '%s\n' "- 2026-10-05 [planwright] review-miss(correctness, pruned): #10 c.sh: unreadable" >"$ledger/2026-10-05-review-miss-0000cccc.md"
+  chmod 000 "$ledger/2026-10-05-review-miss-0000cccc.md"
+  unreadable=1
+fi
 
 base="$T/baselines.tsv"
 printf 'post_convergence_finding_rate\t0.889\tfixture\nmedian_tokens_per_convergence_run\t17000000\tfixture\n' >"$base"
@@ -110,7 +116,7 @@ assert_contains "computes the finding rate" "post-convergence finding rate: 0.66
 assert_contains "computes the median fixed findings" "fixed findings per such PR (median): 1.5" "$out"
 assert_contains "computes the median review rounds" "review rounds per such PR (median): 1.5" "$out"
 assert_contains "counts the miss-ledger entries" "miss-ledger entries in window: 1" "$out"
-assert_contains "warns about the malformed and the unreadable ledger fragments" "warning: 2 malformed review-miss" "$out"
+assert_contains "warns about the malformed and any unreadable ledger fragment" "warning: $((1 + unreadable)) malformed review-miss" "$out"
 assert_contains "refuses a verdict on a window under the closeout minimum" "verdict: window too small (3 < 15)" "$out"
 
 out=$(run --prs-from 11 2>&1)

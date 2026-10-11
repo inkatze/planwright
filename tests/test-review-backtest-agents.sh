@@ -118,7 +118,8 @@ term_check() {
   sleep 5
   if [ -e "$T/session.started" ] && [ ! -e "$T/session.finished" ]; then ok "$label"; else fail "$label"; fi
 }
-(cd "$T/row/copy" && PLANWRIGHT_BACKTEST_CLAUDE="$T/slow-claude" term_check "a TERM to the reviewer ends its session" "$REVIEWER")
+# shellcheck disable=SC2016 # the inner shell expands its own positionals
+PLANWRIGHT_BACKTEST_CLAUDE="$T/slow-claude" term_check "a TERM to the reviewer ends its session" sh -c 'cd "$1" && exec "$2"' _ "$T/row/copy" "$REVIEWER"
 printf '%s\n' "$req" >"$T/req.jsonl"
 # shellcheck disable=SC2016 # the inner shell expands its own positionals
 PLANWRIGHT_BACKTEST_CLAUDE="$T/slow-claude" term_check "a TERM to the annotator ends its call" sh -c 'exec "$0" <"$1"' "$ANNOTATE" "$T/req.jsonl"

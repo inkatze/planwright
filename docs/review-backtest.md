@@ -57,7 +57,9 @@ mise run eval:backtest-refresh
 `scripts/review-backtest-refresh.sh` fetches the merged PRs and their review
 threads with `gh api graphql`, keeps each thread opened by someone other than
 the PR's author and answered by the author with a fix reply, fetches every
-PR's head ref to set the replayable flag, and writes the next `v<N>`.
+PR's head ref to set the replayable flag, and writes the next `v<N>`,
+numbered past every version directory, an empty one left by an interrupted
+refresh included.
 Labels come from a `review-miss` ledger fragment for the same PR and path
 (read from the observation entries and archive), else from the same row in
 the previous version, else from the annotator's

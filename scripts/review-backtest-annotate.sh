@@ -91,7 +91,8 @@ set -- --output-format json --max-turns 1 --tools '' --permission-mode dontAsk \
 outf=$(mktemp "${TMPDIR:-/tmp}/rbt-annotate.XXXXXX")
 cpid=
 trap 'rm -f "$outf"' EXIT
-trap '[ -z "$cpid" ] || kill "$cpid" 2>/dev/null; exit 143' TERM INT
+trap '[ -z "$cpid" ] || kill "$cpid" 2>/dev/null; exit 143' TERM
+trap '[ -z "$cpid" ] || kill "$cpid" 2>/dev/null; exit 130' INT
 printf '%s\n' "$batch" | "$claude_bin" -p "$prompt" "$@" >"$outf" 2>/dev/null &
 cpid=$!
 crc=0

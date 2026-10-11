@@ -248,6 +248,36 @@ assert_exit "a refresh past an abandoned empty claim succeeds" 0 $?
 if [ -f "$croot/v3/corpus.tsv" ]; then ok "it writes the version after the abandoned one"; else fail "the abandoned claim blocked the refresh"; fi
 if [ -d "$croot/v2" ] && [ ! -e "$croot/v2/corpus.tsv" ]; then ok "the abandoned directory is left as it was"; else fail "the abandoned directory was touched"; fi
 rm -rf "$croot/v2" "$croot/v3"
+: >"$croot/v2"
+run_refresh --names "$names" >/dev/null 2>&1
+assert_exit "a version that cannot be claimed is refused" 1 $?
+if [ -f "$croot/v2" ]; then ok "a refused claim leaves what held the name"; else fail "a refused claim removed what it did not create"; fi
+rm -f "$croot/v2"
+
+# --- an interrupted refresh ends its running annotator ---
+cat >"$T/slow-annotate.sh" <<EOF
+#!/bin/sh
+cat >/dev/null
+: >"$T/annotate.started"
+sleep 4
+: >"$T/annotate.finished"
+EOF
+chmod +x "$T/slow-annotate.sh"
+rm -f "$T/annotate.started" "$T/annotate.finished"
+mkdir -p "$T/croot2"
+"$REFRESH" --history "$hist" --remote "$remote" --corpus-root "$T/croot2" --ledger-dir "$ledger" \
+  --annotate-cmd "$T/slow-annotate.sh" --names "$names" >/dev/null 2>&1 &
+rpid=$!
+n=0
+until [ -e "$T/annotate.started" ] || [ "$n" -ge 200 ]; do
+  sleep 0.1
+  n=$((n + 1))
+done
+kill -TERM "$rpid"
+wait "$rpid" 2>/dev/null
+sleep 5
+if [ -e "$T/annotate.started" ] && [ ! -e "$T/annotate.finished" ]; then ok "a TERM to the refresh ends its annotator"; else fail "the annotator outlived the refresh"; fi
+if [ ! -e "$T/croot2/v1" ]; then ok "an interrupted refresh writes no version"; else fail "an interrupted refresh left a version"; fi
 "$REFRESH" --fetch-only --dump-history "$T/x.json" --history "$hist" >/dev/null 2>&1
 assert_exit "--fetch-only refuses --history" 2 $?
 

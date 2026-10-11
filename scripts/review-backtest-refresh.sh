@@ -80,8 +80,9 @@
 #   --batch         annotation requests per annotator call, default 20
 #
 # Exit codes: 0 a new version written (or, with --fetch-only, the history
-#   dumped); 1 gh, a git fetch, or the annotator failed, the target version
-#   already exists, or the screened rows still fail the screen; 2 usage, a
+#   dumped); 1 gh, a git fetch, or the annotator failed, another refresh
+#   claimed the same version first, or the screened rows still fail the
+#   screen; 2 usage, a
 #   missing name list, an unreadable or malformed history (a non-integer PR
 #   number included), or a refresh that would write zero rows.
 set -eu
@@ -116,7 +117,8 @@ apid=
 # A version claimed but never filled is removed; an interrupt also ends a
 # running annotator, which runs in the background so the TERM can reach it.
 trap 'rm -rf "$tmp"; [ -z "$claimed" ] || [ -f "$claimed/corpus.tsv" ] || rm -rf "$claimed"' EXIT
-trap '[ -z "$apid" ] || kill "$apid" 2>/dev/null; exit 130' INT TERM
+trap '[ -z "$apid" ] || kill "$apid" 2>/dev/null; exit 130' INT
+trap '[ -z "$apid" ] || kill "$apid" 2>/dev/null; exit 143' TERM
 
 history=
 repo=
