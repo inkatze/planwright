@@ -718,6 +718,16 @@ for pos in vendor hold; do
 done
 pass "prune and resume refuse a symlink in the store"
 
+# A linked push record could carry the hold's own time and silence its push.
+new_home symlink-pushed
+mkdir -p "$home/fleet/quota/sample-cli"
+printf '%s\n' "$NOW" >"$tmp/pushed-target"
+ln -s "$tmp/pushed-target" "$home/fleet/quota/sample-cli/pushed"
+rc=0
+run hold --vendor sample-cli --unit spec-a:task-1 --step panel --reason r --now "$NOW" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 6 ] || fail "symlink: a hold beside a linked push record exited $rc, not 6"
+pass "a hold refuses a linked push record"
+
 # --- 7. The vendor view in fleet-stats.sh render ---------------------------
 # The render reads the real clock, so this fixture is stamped relative to it.
 new_home stats

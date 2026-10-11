@@ -301,7 +301,7 @@ clean_reason() {
 # refuse_links <vendor>: an append follows a symlink, and a read through one
 # reports a store that is not this one, so no verb goes through a planted link.
 refuse_links() {
-  for rl_p in "$store" "$store/$1" "$store/$1/ledger.tsv" "$store/$1/hold.tsv"; do
+  for rl_p in "$store" "$store/$1" "$store/$1/ledger.tsv" "$store/$1/hold.tsv" "$store/$1/pushed"; do
     [ ! -L "$rl_p" ] || die 6 "refusing a symlink in the vendor's store"
   done
 }
