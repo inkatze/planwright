@@ -162,6 +162,16 @@ else
 fi
 rm "$H2/.claude"
 
+# A .claude that is not a directory is refused before git creates a branch.
+printf 'not a dir\n' >"$H2/.claude"
+sw "$W2" demo
+if [ "$rc" -eq 4 ] && ! hermetic git -C "$H2" show-ref --verify --quiet refs/heads/planwright/demo/spec; then
+  ok "a non-directory .claude is refused, leaving no stray branch"
+else
+  fail "non-directory .claude: rc=$rc err=$err"
+fi
+rm "$H2/.claude"
+
 # A holder with no remote branches from its own HEAD branch.
 H3="$tmp/holder3"
 W3="$tmp/work3"

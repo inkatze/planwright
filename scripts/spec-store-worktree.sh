@@ -88,6 +88,11 @@ for d in "$holder/.claude" "$holder/.claude/worktrees"; do
     say "refused: $d is a symlink"
     exit 4
   }
+  # Refused up front: git would create the new branch before failing here.
+  [ ! -e "$d" ] || [ -d "$d" ] || {
+    say "refused: $d is not a directory"
+    exit 4
+  }
 done
 
 branch="planwright/$id/spec"
