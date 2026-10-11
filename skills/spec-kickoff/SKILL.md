@@ -116,7 +116,9 @@ Superseded are terminal: refuse — no skill-driven transition leaves them.
 
 ## Pre-flight
 
-1. **Parse `$ARGUMENTS`.** Expect a bare `<spec>` (alias `specs/<spec>`, one
+1. **Parse `$ARGUMENTS`.** Resolve `<root>` and its posture per
+   `docs/spec-location.md`; outside `same-repo`, its table governs every git
+   step and `<root>/<spec>`. Expect a bare `<spec>` (alias `specs/<spec>`, one
    trailing slash allowed). Validate the mapped identifier against the anchored, full-string
    pattern `^[a-z0-9][a-z0-9-]*$`, maximum length 64 (REQ-A1.8), **before** it
    appears in any path, branch name, or command; a failing identifier is never
@@ -131,8 +133,8 @@ Superseded are terminal: refuse — no skill-driven transition leaves them.
      brief; a reopened-bundle delta kickoff when the brief is complete
      and signed (per the Modes section).
    - **Ready or Active with a signed brief** → run the freshness comparison:
-     parse the brief's most recent anchor entry, recompute the anchor with the
-     command it records, and compare. **Mismatch** → delta re-walkthrough;
+     parse the brief's most recent anchor entry, recompute the anchor over
+     `<root>/<spec>` with the command it records, and compare. **Mismatch** → delta re-walkthrough;
      derive the delta from the four spec files' git history since the entry plus
      any uncommitted changes, and confirm scope with the human first. **Match**
      → nothing is stale; ask what the human brings (a re-walk on request, or —
@@ -166,8 +168,6 @@ Superseded are terminal: refuse — no skill-driven transition leaves them.
    `mark_spec_pr_ready_on_kickoff` gates the terminal ready-flip and
    `kickoff_ready_ci_wait` bounds its CI wait (sign-off step 8).
 5. **Resolve the working location** (D-44, graceful in every starting state).
-   Resolve `<root>` and its posture per `docs/spec-location.md`; outside
-   `same-repo`, its table governs every git step.
    The spec branch is `planwright/<spec>/spec` (the namespace `tasks-pr-sync`
    no-ops on); the spec worktree is `<repo>/.claude/worktrees/<spec>-spec` (D-37).
    - **Already in the spec worktree:** proceed; on dirty/diverged state, surface

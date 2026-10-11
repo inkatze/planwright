@@ -34,7 +34,7 @@ commit trailers stay in the work repository in every posture.
 | Step | `same-repo` | `separate-repo` | `plain` |
 | --- | --- | --- | --- |
 | Spec branch and worktree | `planwright/<spec>/spec` in the work repository, worktree via the native mechanism | in the holder: `scripts/spec-store-worktree.sh <spec>` | none, anywhere |
-| Where the bundle is written | `<root>/<spec>/` in the spec worktree | the `bundle` path the script prints | `<root>/<spec>/` |
+| What the skills' `<root>/<spec>` names (bundle reads, validator, anchor, writes) | `<root>/<spec>/` in the spec worktree | the `bundle` path the script prints | `<root>/<spec>/` |
 | Draft, consume, and kickoff commits | on the spec branch | on the spec branch, `git -C <worktree>` | skipped |
 | Push and spec PR | the work repository | the holder | skipped |
 | Spec PR ready flip | per `mark_spec_pr_ready_on_kickoff` | the same, on the holder's PR | skipped |
@@ -43,10 +43,15 @@ commit trailers stay in the work repository in every posture.
 **`separate-repo`.** The session stays in the work repository and works on
 the holder by path. `scripts/spec-store-worktree.sh <spec>` opens the spec
 worktree at `<holder>/.claude/worktrees/<spec>-spec` on `planwright/<spec>/spec`:
-it reuses one already there, recreates one from a surviving branch, or
-creates both from the holder's default branch. It prints three
-tab-separated lines, `worktree`, `bundle`, and `branch`, and exits 3 when the
-root is not in a holder. Before writing, check `git -C <worktree> status
+it reuses one already there, recreates one from a surviving branch (local,
+else origin's, then tracking it), or creates both from the holder's
+`origin/HEAD`, else from the branch the holder's primary checkout has out.
+It prints three tab-separated lines, `worktree`, `bundle`, and `branch`, and
+exits 3 when the root is not in a holder. A Draft lives only on the spec
+branch, so the skills read, validate, and anchor it through the printed
+`bundle` path, never the holder's primary checkout; `/spec-walkthrough`
+reads the root's primary view, so it shows a holder bundle only once its
+spec PR has merged. Before writing, check `git -C <worktree> status
 --porcelain` and ask on a dirty tree, as in the work repository. Commit with
 `git -C <worktree>`, push with `git -C <worktree> push -u origin
 planwright/<spec>/spec`, and give `gh` the holder with `-R` (`gh pr create -R
@@ -67,7 +72,8 @@ and the anchor tool still run from the session, since they read files.
 path) and record it in the namespace form `scripts/spec-anchor.sh
 specs/<spec>`: the execution gate reads that form as naming the bundle, and
 finds the bundle through the resolver itself, so no machine path enters the
-brief.
+brief. A kickoff recomputing a recorded entry runs it over the bundle
+directory the same way, never over the literal `specs/<spec>`.
 
 **Halts while authoring.** A kickoff that degrades to an Awaiting-input
 note writes it on the spec branch in `same-repo` and `separate-repo`, as any
