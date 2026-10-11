@@ -149,7 +149,12 @@ for key in "$@"; do
   esac
 done
 
-script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+# The directory part of $0 without forking dirname: this runs on every config read.
+case $0 in
+  */*) script_dir=${0%/*}/ ;;
+  *) script_dir=./ ;;
+esac
+script_dir=$(cd "$script_dir" && pwd) || exit 2
 
 # Resolve the tracked defaults (core) file: an explicit override, else the
 # first arm of the core root chain holding one. The resolver's warnings (a
@@ -197,10 +202,13 @@ fi
 # identifier degrades the adopter layer with a stderr warning). The upfront -x
 # guard above means a missing/non-executable resolver is reported once, not once
 # per call; a blanket 2>/dev/null would instead swallow the legitimate warnings,
-# defeating this reader's "never fails opaquely" contract.
+# defeating this reader's "never fails opaquely" contract. It runs through bash,
+# the interpreter its `env bash` shebang finds on PATH, rather than through the
+# shebang: on every config read, the extra env exec and PATH walk doubled the
+# cost of the call.
 overlay_root() {
   [ "$overlay_resolver_ok" -eq 1 ] || return 0
-  "$overlay_resolver" "$1"
+  bash "$overlay_resolver" "$1"
 }
 
 # Adopter and repo-tracked config files (kind-native names under each layer

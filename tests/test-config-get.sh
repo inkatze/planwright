@@ -791,4 +791,14 @@ echo "ok: a worktree reads the primary checkout's machine-local overlay, never i
 echo "ok: a root helper without its execute bit still locates the core defaults"
 echo "ok: a copy without the root helper names the broken install and exits 3"
 
+# Run by a bare file name from its own directory ($0 carries no slash), the
+# reader still finds its sibling overlay resolver: the adopter value wins.
+mkdir -p "$tmp/bare-adopter"
+printf 'dispatch_backend: from-adopter\n' >"$tmp/bare-adopter/planwright.yml"
+got=$(cd "$here/../scripts" && PLANWRIGHT_CONFIG_DEFAULTS="$defaults" PLANWRIGHT_LOCAL_CONFIG="" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$tmp/bare-adopter" PLANWRIGHT_REPO_ROOT=none \
+  /bin/sh config-get.sh dispatch_backend 2>&1) || got="exit $? $got"
+[ "$got" = from-adopter ] || fail "run by a bare file name, the reader lost its siblings (got '$got')"
+echo "ok: run by a bare file name, the reader still locates its sibling scripts"
+
 echo "PASS: config-get"

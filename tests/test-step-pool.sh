@@ -700,6 +700,31 @@ dead=$(owner)
 kill_owner "$dead"
 sp -- take p "$dead" >/dev/null 2>&1
 check $(($? == 2 ? 0 : 1)) "a take for an owner that is not running is refused" "a dead owner was given a slot"
+# A failed `kill -0` prints an error the shell prefixes with the running
+# script's path, so run from a path naming permission a dead owner must still
+# read dead.
+perm_root="$tmp/worker-permission-ergonomics-not-permitted"
+mkdir -p "$perm_root"
+cp -R "$repo_root/scripts" "$repo_root/config" "$perm_root/"
+sp_saved=$SP
+SP="$perm_root/scripts/step-pool.sh"
+dead=$(owner)
+kill_owner "$dead"
+sp -- take p "$dead" >/dev/null 2>"$tmp/err"
+rc=$?
+SP=$sp_saved
+[ "$rc" -eq 2 ] && grep -q "owner $dead is not running" "$tmp/err"
+verdict "a dead owner is refused from a path naming permission" "dead owner from a permission path: rc=$rc" "$tmp/err"
+# With ps failing, only kill's own message keeps pid 1 running: as another
+# user's process it answers EPERM, and as root kill -0 succeeds outright.
+stubps="$tmp/stubps"
+mkdir -p "$stubps"
+printf '#!/bin/sh\nexit 1\n' >"$stubps/ps"
+chmod +x "$stubps/ps"
+sp "PATH=$stubps:$PATH" -- take p 1 >/dev/null 2>"$tmp/err"
+! grep -q 'owner 1 is not running' "$tmp/err"
+verdict "another user's owner reads as running from kill's message alone" "pid 1 read as not running" "$tmp/err"
+sp -- release p 1 >/dev/null 2>&1
 [ ! -e "$marker" ]
 verdict "no fixture command ran" "the marker exists"
 

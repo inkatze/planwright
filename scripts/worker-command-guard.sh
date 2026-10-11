@@ -1651,6 +1651,16 @@ yq_expression_safe() {
   n=${#s}
   i=0
   while [ "$i" -lt "$n" ]; do
+    # The load family (`load`, `load_str`, `load_xml`, …) reads any path
+    # named in the expression, /proc/<pid>/environ included.
+    if [ "${s:i:4}" = load ]; then
+      p=''
+      [ "$i" -gt 0 ] && p=${s:i-1:1}
+      case $p in
+        [A-Za-z0-9_.\$]) ;;
+        *) return 1 ;;
+      esac
+    fi
     for w in env eval; do
       [ "${s:i:${#w}}" = "$w" ] || continue
       p=''
@@ -2290,8 +2300,9 @@ ls_remote_url_ok() {
 #     command: an assignment PREFIX before a verb still defers (REQ-A1.9);
 #   * the VALUE is any literal of a plain character set (see
 #     assign_value_literal), bare or quoted as a whole from its first
-#     character; one carrying an expansion, any other character, or a quote
-#     that starts mid-value is assigned all the same, but leaves the variable
+#     character; one carrying an expansion, any other character, a quote
+#     that starts mid-value, or a bare `=` zsh expands (leading the value,
+#     or after a `:`) is assigned all the same, but leaves the variable
 #     OPAQUE: a later `$NAME` stays unresolved,
 #     so it may only reach a position whose approval does not read it;
 #   * the assignment is unconditional and at the top level of the command:
@@ -2340,6 +2351,23 @@ assign_name_ok() {
       options | commands | functions | aliases | parameters | argv | match | MATCH | mbegin | \
       mend | reply) return 1 ;;
   esac
+  # The rest of zsh's own tables, read from its source rather than a list:
+  # the special parameters it types or ties (params.c's special_params), the
+  # names it sets at startup, and every parameter a module defines, read-only
+  # or autoloaded on first use (zsh/parameter's, the other modules'
+  # autofeatures, and zsh/system's sysparams).
+  case $name in
+    TERM | TERMINFO | TERMINFO_DIRS | WORDCHARS | KEYBOARD_HACK | ZLE_RPROMPT_INDENT | POSTEDIT | \
+      RPS1 | RPS2 | RPROMPT | RPROMPT2 | SPROMPT | prompt | PROMPT | PROMPT2 | PROMPT3 | PROMPT4 | \
+      PSVAR | psvar | fignore | mailpath | TIMEFMT | HOST | LOGNAME | CPUTYPE | MACHTYPE | OSTYPE | \
+      TTY | VENDOR | signals | \
+      dis_functions | functions_source | dis_functions_source | funcsourcetrace | builtins | \
+      dis_builtins | reswords | dis_reswords | patchars | dis_patchars | modules | dirstack | \
+      history | historywords | jobtexts | jobdirs | jobstates | nameddirs | userdirs | usergroups | \
+      dis_aliases | galiases | dis_galiases | saliases | dis_saliases | \
+      epochtime | zgdbm_tied | langinfo | mapfile | errnos | sysparams | termcap | terminfo | \
+      WATCH | watch | widgets | keymaps | zsh_scheduled_events) return 1 ;;
+  esac
   # Membership in the hook's own ENVIRONMENT, snapshotted at startup: an
   # exported name the command re-points reaches every child it runs. The
   # snapshot is what is tested, NOT `${!name+x}` — an indirect read also sees
@@ -2383,6 +2411,13 @@ assign_value_literal() {
   case $1 in
     *[!A-Za-z0-9._/:=@%,+\ -]*) return 1 ;;
   esac
+  # zsh expands a bare `=` leading an assignment value, or following a `:`,
+  # as `=cmd` (the command's path); bash keeps it literal.
+  if [ "$2" = -1 ]; then
+    case $1 in
+      =* | *:=*) return 1 ;;
+    esac
+  fi
   return 0
 }
 
@@ -2578,7 +2613,9 @@ shift_words() {
 # tilde) can hold any value at run time: `find . $_` after a printf of
 # `-exec id ;` runs id. Such a word may only reach a verb whose approval does
 # not read that word (arg_independent_verb); anywhere else, and always in the
-# verb position, it defers.
+# verb position, it defers. One exception: a verb that opens its operands
+# (opens_operands) could be pointed at another process's environment, so an
+# unknown `$` value there defers too (opener_word_risky).
 
 # word_unresolved <word> <expands> <globs> <literal-dollar>: 0 when the word,
 # after tracked substitution, still carries an expansion the analyzer did not
@@ -2594,14 +2631,223 @@ word_unresolved() {
 }
 
 # arg_independent_verb <verb>: the verbs whose approval reads no operand value,
-# so an opaque operand is equivalent to some literal they already approve.
-# printf qualifies past its format only (guard_printf).
+# so an opaque operand is equivalent to some literal they already approve,
+# short of the environ rule (opens_operands). printf qualifies past its
+# format only (guard_printf).
 arg_independent_verb() {
   case $1 in
     cat | head | tail | wc | cut | comm | cmp | basename | dirname | realpath | pwd | echo | seq | true | false | od | tr | stat | grep | ls | diff) return 0 ;;
     printenv | readlink | nl | paste | column | md5sum | sha1sum | sha256sum | sha512sum | cksum | shellcheck | yamllint) return 0 ;;
   esac
   return 1
+}
+
+# opens_operands <verb>: the verbs that open a file operand and print what
+# it holds, part of it, or a digest of it. Only their words and the
+# redirects meet the environ test below, so `grep environ f` and
+# `git log --grep environ` stay approvable. An unresolved word reaching one
+# of them that is also argument-independent could name another process's
+# environment, `$_` after an `echo` of that path included, so it defers.
+opens_operands() {
+  case $1 in
+    cat | head | tail | wc | cut | comm | cmp | od | grep | diff | nl | paste | column) return 0 ;;
+    md5sum | sha1sum | sha256sum | sha512sum | cksum | shellcheck | yamllint) return 0 ;;
+    sort | uniq | file | sed | awk | jq | yq | rg | shfmt | markdownlint | markdownlint-cli2) return 0 ;;
+  esac
+  return 1
+}
+
+# opener_word_risky <word> <literal-dollar> <globs>: 0 when an operand of
+# an opens_operands verb, still unresolved after substitution, could name
+# another process's environ file. A `$` with no tracked literal behind it
+# could be any path. A tracked value kept unresolved only for its spaces is
+# known, so each word bash or zsh could make of it is checked instead, as
+# the glob the word's own pattern characters make it.
+opener_word_risky() {
+  local piece
+  local -a pieces
+  case $1 in
+    *'$'*) ;;
+    *) return 1 ;;
+  esac
+  [ "$2" = 0 ] || return 0
+  expand_word "$1" whole
+  case $EXPANDED in
+    *'$'*) return 0 ;;
+  esac
+  environ_word_risky "$EXPANDED" "$3" && return 0
+  IFS=' ' read -r -a pieces <<<"$EXPANDED"
+  for piece in ${pieces[@]+"${pieces[@]}"}; do
+    environ_word_risky "$piece" "$3" && return 0
+  done
+  return 1
+}
+
+# Other processes' environments. /proc/<pid>/environ holds another
+# process's environment (credentials included), and /proc/<pid>/mem its
+# memory; only the reading process's own environ, through /proc/self or
+# /proc/thread-self, stays readable. A redirect source, or a word of a verb
+# that opens its operands, whose last component is `environ` or `mem`
+# defers, since a `..`, /dev/fd, or a symlink can reach /proc from any
+# directory. So does a glob whose last component could match either, unless
+# its directory exists and canonicalizes outside /proc.
+
+# environ_word_risky <word> <globs>: 0 when the word could name another
+# process's environ or mem file.
+environ_word_risky() {
+  local w=$1 last dir canon
+  # `//proc` names /proc to the kernel, and bash's `cd -P` keeps the two
+  # slashes, so neither test below would see /proc in it.
+  while [ "${w#*//}" != "$w" ]; do
+    w=${w//\/\//\/}
+  done
+  if [ "$2" = 0 ]; then
+    case $w in
+      /proc/self/environ | /proc/thread-self/environ) return 1 ;;
+    esac
+  fi
+  last=${w##*/}
+  # `mem` holds the whole process's memory, its environment included.
+  case $last in
+    environ | mem) return 0 ;;
+  esac
+  [ "$2" = 1 ] || return 1
+  # Pattern syntax beyond `*`, `?`, and `[…]` (braces, zsh's extended
+  # characters, a backslash) is not matched here, only assumed to match.
+  case $last in
+    *[{}\\~^#\<\>\|]*) ;;
+    *)
+      # shellcheck disable=SC2053 # the operand is the pattern under test
+      [[ environ == $last || mem == $last ]] || return 1
+      ;;
+  esac
+  # fish's `**` descends into subdirectories, through symlinks too, so no
+  # directory test can bound where it matches.
+  case $last in
+    *'**'*) return 0 ;;
+  esac
+  case $w in
+    */*)
+      dir=${w%/*}
+      [ -n "$dir" ] || dir=/
+      ;;
+    *) dir=. ;;
+  esac
+  # A process directory can appear between this check and the run, so a
+  # path through any `proc` component (`/./proc`, `../../proc`) defers
+  # whether or not it exists now.
+  case $dir in
+    *[*?[{}~\$]* | proc | proc/* | */proc | */proc/*) return 0 ;;
+  esac
+  case $dir in
+    /*) ;;
+    *) dir=$HOOK_CWD/$dir ;;
+  esac
+  # The guard resolves the directory in its own process, so one it cannot
+  # enter may still resolve for the command (`/dev/fd/0` with a /proc
+  # directory on the command's stdin), and defers.
+  canon_dir_cached "$dir"
+  canon=$CANON
+  [ -n "$canon" ] || return 0
+  case $canon in
+    /proc | /proc/*) return 0 ;;
+  esac
+  return 1
+}
+
+# canon_dir_cached <absolute-dir>: the directory's canonical path in CANON,
+# empty when it cannot be entered. Each lookup forks, and a loop re-walks
+# its body once per head word, so results are kept for the hook's run.
+canon_dir_cached() {
+  local k n=${CANON_N:-0}
+  for ((k = 0; k < n; k++)); do
+    if [ "${CANON_D[k]}" = "$1" ]; then
+      CANON=${CANON_P[k]}
+      return 0
+    fi
+  done
+  CANON=$(cd -P -- "$1" 2>/dev/null && pwd) || CANON=''
+  if [ "$n" -lt 64 ]; then
+    CANON_D[n]=$1
+    CANON_P[n]=$CANON
+    CANON_N=$((n + 1))
+  fi
+  return 0
+}
+
+# environ_words_ok: no word of the current simple command could name
+# another process's environ file. grep and rg read their first operand as
+# the pattern unless a flag anywhere supplies one (GNU grep permutes its
+# arguments); any short cluster holding `e` or `f` is taken to, so the
+# pattern is skipped only when it surely is one.
+environ_words_ok() {
+  local i pi=0 opts=1 given=0 g
+  case ${cw[0]} in
+    grep | rg)
+      for ((i = 1; i < cwn; i++)); do
+        if [ "$opts" = 1 ]; then
+          case ${cw[i]} in
+            --)
+              opts=0
+              continue
+              ;;
+            --regexp* | --file*)
+              given=1
+              continue
+              ;;
+            --*) continue ;;
+            -?*)
+              case ${cw[i]} in
+                -*[ef]*) given=1 ;;
+              esac
+              continue
+              ;;
+          esac
+        fi
+        [ "$pi" -gt 0 ] || pi=$i
+      done
+      [ "$given" = 0 ] || pi=0
+      # A pattern that can expand into several words (a glob, a brace, an
+      # expansion) hands grep its later words as files, so it is checked.
+      if [ "$pi" -gt 0 ]; then
+        [ "${cglob[pi]}" = 0 ] && [ "${cdyn[pi]}" = 0 ] && [ "${cz[pi]-0}" = 0 ] || pi=0
+      fi
+      ;;
+  esac
+  for ((i = 0; i < cwn; i++)); do
+    [ "$i" -eq "$pi" ] && [ "$pi" -gt 0 ] && continue
+    # A character zsh's EXTENDED_GLOB makes an operator (`#`, `^`, a
+    # mid-word `~`) is flagged apart from globs, but matches like one.
+    g=${cglob[i]}
+    [ "${cz[i]-0}" = 0 ] || g=1
+    environ_word_risky "${cw[i]}" "$g" && return 1
+  done
+  return 0
+}
+
+# environ_redirect_ok <operand>: the same test for a redirect operand, which
+# the guard never expands, so any `$` in it could name anything. Any other
+# path under /proc defers too: a process directory on stdin lets a later
+# `/dev/fd/0/…` reach into it, out of the guard's sight.
+environ_redirect_ok() {
+  local g=0 w=$1
+  case $w in
+    *'$'*) return 1 ;;
+    *[*?[\{~#^]*) g=1 ;;
+  esac
+  while [ "${w#*//}" != "$w" ]; do
+    w=${w//\/\//\/}
+  done
+  if [ "$g" = 0 ]; then
+    case $w in
+      /proc/self/environ | /proc/thread-self/environ) return 0 ;;
+    esac
+  fi
+  case $w in
+    proc | proc/* | */proc | */proc/*) return 1 ;;
+  esac
+  environ_word_risky "$w" "$g" && return 1
+  return 0
 }
 
 # guard_test: `test`/`[` evaluate a `-v` operand as an array subscript, which
@@ -2628,10 +2874,11 @@ guard_printf() {
 # opaque_words_ok: the current simple command (`cw` and its flag arrays, by
 # dynamic scope) places every unresolved word where its value cannot change
 # the verdict: never the verb, and otherwise only an operand of an
-# argument-independent verb, printf past its format, or a test shape
-# test_opaque_ok admits.
+# argument-independent verb (one that opens its operands only when
+# opener_word_risky clears the word), printf past its format, or a test
+# shape test_opaque_ok admits.
 opaque_words_ok() {
-  local i verb=${cw[0]} fmt=1
+  local i verb=${cw[0]} fmt=1 g
   word_unresolved "$verb" "${cdyn[0]}" "${cglob[0]}" "${cx[0]}" && return 1
   case $verb in
     test | '[')
@@ -2644,6 +2891,11 @@ opaque_words_ok() {
     word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" || continue
     [ "$verb" = printf ] && [ "$i" -gt "$fmt" ] && continue
     arg_independent_verb "$verb" || return 1
+    if opens_operands "$verb" && [ "${cdyn[i]}" != 0 ]; then
+      g=${cglob[i]}
+      [ "${cz[i]-0}" = 0 ] || g=1
+      opener_word_risky "${cw[i]}" "${cx[i]}" "$g" && return 1
+    fi
   done
   return 0
 }
@@ -3282,6 +3534,7 @@ verify_known_simple() {
   # redirect with no command too, e.g. `> f cat x`).
   for ((i = 0; i < rn; i++)); do
     classify_redirect "${ro[i]}" "${rt[i]}" || spec_zone_redirect "${ro[i]}" "${rt[i]}" || return 1
+    environ_redirect_ok "${rt[i]}" || return 1
   done
   # A command with redirects but no words (pure `> file`) already handled;
   # an empty simple command (e.g. a trailing separator) is a no-op.
@@ -3304,6 +3557,9 @@ verify_known_simple() {
   if [ "$verb" = cd ]; then
     cd_target_ok
     return
+  fi
+  if opens_operands "$verb"; then
+    environ_words_ok || return 1
   fi
   opaque_words_ok || return 1
   # Inline environment-assignment prefix (REQ-A1.9): VAR=value [cmd].

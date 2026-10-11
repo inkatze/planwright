@@ -1,0 +1,2 @@
+- 2026-10-10 [planwright] tests/test-fleet-stop-sj.sh case c20 ("the worker never reached its hold loop") failed in two unrelated full local gates on 2026-10-11 (custom-steps task-12, quota-handling task-3) while 3-4 workers loaded the host, and passed when run alone. Neither branch touches fleet-stop or streamjson code. A fixed wait for the hold loop is likely too short under load; poll for the loop marker with a longer deadline instead.
+Consumed-by: specs/fleet-lifecycle-closure (2026-10-11)
