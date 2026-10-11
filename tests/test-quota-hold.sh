@@ -7,7 +7,8 @@
 #   - two units holding one vendor concurrently both land as holders, with a
 #     ledger line each (the lock library serializes the writers);
 #   - a hold pushes one attention event naming the vendor, the reason, the
-#     stated reset time, and the operator's resume command;
+#     stated reset time, and the operator's resume command, once per hold
+#     whoever joins or renews it;
 #   - resume releases every holder and records the resume;
 #   - prune drops ledger lines older than the retention knob (90 days when
 #     unset) and keeps the rest byte for byte;
@@ -15,8 +16,12 @@
 #     and fleet-stats.sh render shows the same through its vendor view;
 #   - hostile vendor, unit, step, and recognizer ids, PR numbers, heads, and
 #     reset times are refused before any path or ledger use;
-#   - a forged ledger or hold line (an embedded newline in a reason) is skipped
-#     on read, and a reason given with a newline is stored flattened;
+#   - a forged ledger or hold line (an embedded newline in a reason, or any one
+#     field out of grammar) is skipped on read and dropped by prune, a reason
+#     given with a newline is stored flattened, and a torn line never swallows
+#     the next append;
+#   - a failed ledger write leaves the hold store unchanged, and status over an
+#     unreadable store fails closed (the render says unknown);
 #   - the default fleet home resolves outside the repository's tracked tree.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
@@ -168,6 +173,21 @@ case $marker in
 esac
 pass "a hold with no stated reset time says so in its event"
 
+# A hold whose push fails is still recorded, exits 3, and is pushed by the
+# next unit that joins it.
+new_home push-fails
+mkdir -p "$home/fleet/attention"
+: >"$home/fleet/attention/push"
+rc=0
+out=$(run hold --vendor sample-cli --unit spec-a:task-1 --step panel --reason "quota" --now "$NOW" 2>/dev/null) || rc=$?
+rm -f "$home/fleet/attention/push"
+[ "$rc" = 3 ] || fail "push-fails: a hold whose push failed exited $rc, not 3"
+[ "$out" = "held${TAB}sample-cli${TAB}${NOW}" ] || fail "push-fails: the hold did not print its held line: $out"
+grep -q "${TAB}spec-a:task-1${TAB}" "$(holdfile sample-cli)" || fail "push-fails: the hold was not recorded"
+run hold --vendor sample-cli --unit spec-b:task-1 --step panel --reason "quota" --now "$NOW" >/dev/null 2>&1 || fail "push-fails: the joining hold failed"
+[ -n "$(ls -A "$home/fleet/attention/push")" ] || fail "push-fails: the joining unit did not push the unpushed hold"
+pass "a failed push exits 3 with the hold recorded, and the next joiner pushes it"
+
 # A writer waits on the vendor's lock: with a live process holding it, the
 # hold lands nothing until that process is gone.
 new_home locked
@@ -255,6 +275,16 @@ done
 printf '%s\n' "$status" | grep -q "^retention${TAB}90$" || fail "status: the default retention is not 90 days: $status"
 pass "status counts each event over the retention period (90 days by default)"
 
+# Each line carries the PR, head, unit, and recognizer it was given, and `-`
+# where it was given none.
+lf=$(ledger sample-reviewer)
+grep -q "${TAB}request${TAB}spec-a:task-1${TAB}42${TAB}${HEAD40}${TAB}-${TAB}-${TAB}end$" "$lf" \
+  || fail "ledger: a request line lost its unit, PR, or head: $(cat "$lf")"
+grep -q "${TAB}answer${TAB}-${TAB}42${TAB}${HEAD40}${TAB}-${TAB}-${TAB}end$" "$lf" \
+  || fail "ledger: an answer given no unit, recognizer, or reason did not record dashes: $(cat "$lf")"
+grep -q "${TAB}hold${TAB}spec-a:task-1${TAB}42${TAB}${HEAD40}${TAB}sample-reviewer.quota${TAB}quota used up${TAB}end$" "$lf" \
+  || fail "ledger: a hold line lost its PR, head, or recognizer: $(cat "$lf")"
+
 lf=$(ledger sample-reviewer)
 tail -n +2 "$lf" >"$tmp/kept"
 run prune --now "$NOW" || fail "prune exited non-zero"
@@ -269,6 +299,54 @@ run prune --now $((NOW + 2 * DAY)) || fail "prune past the window exited non-zer
 : >"$local_cfg"
 pass "the retention knob governs pruning"
 
+new_home ledger-fields
+HEAD64=$HEAD40$(printf '%s' "$HEAD40" | cut -c 1-24)
+run hold --vendor sample-reviewer --unit spec-a:task-1 --step bot-review --reason "quota" \
+  --recognizer sample-reviewer.quota --pr 42 --head "$HEAD64" --now "$NOW" >/dev/null 2>&1 || fail "hold with a 64-hex head failed"
+grep -q "^${NOW}${TAB}hold${TAB}spec-a:task-1${TAB}42${TAB}${HEAD64}${TAB}sample-reviewer.quota${TAB}quota${TAB}end$" "$(ledger sample-reviewer)" \
+  || fail "ledger: a hold line lost its PR, 64-hex head, or recognizer: $(cat "$(ledger sample-reviewer)")"
+long=$(printf '%0600d' 0 | tr 0 x)
+run record --vendor sample-reviewer --event refusal --reason "$long" --now "$NOW" || fail "record with a long reason failed"
+got=$(tail -n 1 "$(ledger sample-reviewer)" | cut -f 7)
+[ "${#got}" = 512 ] || fail "ledger: a long reason was stored at ${#got} bytes, not cut to 512"
+pass "ledger lines carry the PR, head, and recognizer given, and a reason is cut to 512 bytes"
+
+# A renewal takes the new step and reason; the vendor line reads the earliest
+# holder's since and reason and the latest stated reset.
+new_home renewal
+run hold --vendor sample-reviewer --unit spec-a:task-1 --step bot-review --reason "first" --reset $((NOW + 100)) --now "$NOW" >/dev/null 2>&1 || fail "renewal fixture: hold a failed"
+run hold --vendor sample-reviewer --unit spec-b:task-1 --step panel --reason "second" --reset $((NOW + 900)) --now $((NOW + 10)) >/dev/null 2>&1 || fail "renewal fixture: hold b failed"
+run hold --vendor sample-reviewer --unit spec-c:task-1 --step panel --reason "third" --reset $((NOW + 500)) --now $((NOW + 20)) >/dev/null 2>&1 || fail "renewal fixture: hold c failed"
+run hold --vendor sample-reviewer --unit spec-b:task-1 --step bot-review --reason "renewed" --now $((NOW + 30)) >/dev/null 2>&1 || fail "renewal fixture: renew b failed"
+[ "$(grep -c "${TAB}spec-b:task-1${TAB}" "$(holdfile sample-reviewer)")" = 1 ] || fail "renewal: the unit was written twice"
+grep -q "^$((NOW + 10))${TAB}spec-b:task-1${TAB}bot-review${TAB}-${TAB}-${TAB}renewed${TAB}end$" "$(holdfile sample-reviewer)" \
+  || fail "renewal: the renewed line did not take the new step and reason: $(cat "$(holdfile sample-reviewer)")"
+run status --vendor sample-reviewer --now $((NOW + 30)) | grep -q "^vendor${TAB}sample-reviewer${TAB}held${TAB}${NOW}${TAB}$((NOW + 500))${TAB}3${TAB}first$" \
+  || fail "status: the vendor line is not the earliest since and reason with the latest reset"
+pass "a renewal takes the new step and reason, and the vendor line aggregates its holders"
+
+# Retention edges: a line exactly at the cutoff counts and survives prune, a
+# value above 36500 reads as 36500, prune --vendor touches only that vendor,
+# and a resume reason reaches the ledger.
+new_home retention
+run record --vendor sample-reviewer --event request --now $((NOW - 90 * DAY)) || fail "retention fixture: record at the cutoff failed"
+run record --vendor sample-reviewer --event request --now $((NOW - 90 * DAY - 1)) || fail "retention fixture: record past the cutoff failed"
+run record --vendor sample-cli --event request --now $((NOW - 200 * DAY)) || fail "retention fixture: other vendor record failed"
+run status --vendor sample-reviewer --now "$NOW" | grep -q "^count${TAB}sample-reviewer${TAB}request${TAB}1$" \
+  || fail "retention: a line exactly at the cutoff was not counted (or one past it was)"
+run prune --vendor sample-reviewer --now "$NOW" || fail "prune --vendor failed"
+[ "$(wc -l <"$(ledger sample-reviewer)" | tr -d ' ')" = 1 ] || fail "retention: prune did not keep exactly the line at the cutoff"
+[ "$(wc -l <"$(ledger sample-cli)" | tr -d ' ')" = 1 ] || fail "retention: prune --vendor touched another vendor"
+printf 'quota_ledger_retention_days: 99999\n' >"$local_cfg"
+run status --vendor sample-reviewer --now "$NOW" | grep -q "^retention${TAB}36500$" || fail "retention: a value above 36500 did not read as 36500"
+: >"$local_cfg"
+mkdir -p "$home/fleet/quota/Not-A-Vendor"
+! run status --now "$NOW" | grep -q "Not-A-Vendor" || fail "status listed a store directory outside the vendor grammar"
+run hold --vendor sample-cli --unit spec-a:task-1 --step panel --reason "quota" --now "$NOW" >/dev/null 2>&1 || fail "retention fixture: hold failed"
+run resume --vendor sample-cli --reason "window reset seen" --now "$NOW" >/dev/null || fail "resume with a reason failed"
+grep -q "${TAB}resume${TAB}-${TAB}-${TAB}-${TAB}-${TAB}window reset seen${TAB}end$" "$(ledger sample-cli)" || fail "retention: the resume reason did not reach the ledger"
+pass "retention edges: the cutoff, the clamp, a scoped prune, and the resume reason"
+
 # --- 5. Hostile input is refused before any path or ledger use --------------
 new_home hostile
 refuse() {
@@ -280,7 +358,7 @@ refuse() {
   if [ -d "$home/fleet/quota" ] && [ -n "$(ls -A "$home/fleet/quota")" ]; then
     fail "hostile $label: something was written under the store: $(ls -AR "$home/fleet/quota")"
   fi
-  if [ -e "$tmp/escape" ]; then
+  if [ -e "$tmp/escape" ] || [ -e "$home/escape" ]; then
     fail "hostile $label: a path escaped the store"
   fi
 }
@@ -303,6 +381,13 @@ refuse "reset non-epoch" hold --vendor v --unit u1 --step s --reason r --reset t
 refuse "event unknown" record --vendor v --event spend --now "$NOW"
 refuse "hold event via record" record --vendor v --event hold --now "$NOW"
 refuse "reason missing" hold --vendor v --unit u1 --step s --now "$NOW"
+refuse "reason empty" hold --vendor v --unit u1 --step s --reason "" --now "$NOW"
+refuse "now non-epoch" record --vendor v --event request --now "1e9"
+refuse "recognizer of another vendor" record --vendor v --event refusal --recognizer other.quota --now "$NOW"
+refuse "flag the verb does not take" resume --vendor v --unit u1 --now "$NOW"
+refuse "vendor too long" record --vendor "v$(printf '%064d' 0 | tr 0 a)" --event request --now "$NOW"
+refuse "unit too long" hold --vendor v --unit "u$(printf '%0128d' 0)" --step s --reason r --now "$NOW"
+refuse "pr too long" record --vendor v --event request --pr 12345678901 --now "$NOW"
 pass "hostile ids, PR numbers, heads, and reset times are refused before any write"
 
 # --- 6. Forged lines are skipped on read; written reasons stay one line -----
@@ -327,6 +412,28 @@ status=$(run status --vendor sample-cli --now "$NOW")
 printf '%s\n' "$status" | grep -q "^vendor${TAB}sample-cli${TAB}clear${TAB}" || fail "forged: a hostile hold line was trusted: $status"
 pass "forged ledger and hold lines are skipped on read"
 
+# Each read rule on its own: a full eight-field line ending in `end` that
+# breaks exactly one field is never counted, and prune drops it.
+new_home forged-fields
+lf=$(ledger sample-cli)
+run record --vendor sample-cli --event answer --now "$NOW" || fail "forged-fields fixture: record failed"
+esc=$(printf '\033')
+{
+  printf '%s\trequest\t-\t-\t-\tother.quota\tr\tend\n' "$NOW"
+  printf '%s\trequest\t-\t042\t-\t-\tr\tend\n' "$NOW"
+  printf '%s\trequest\t-\t-\t%s\t-\tr\tend\n' "$NOW" "$(printf '%s' "$HEAD40" | tr a-f A-F)"
+  printf 'soon\trequest\t-\t-\t-\t-\tr\tend\n'
+  printf '%s\tspend\t-\t-\t-\t-\tr\tend\n' "$NOW"
+  printf '%s\trequest\t-\t-\t-\t-\tbad%sbyte\tend\n' "$NOW" "$esc"
+  printf '%s\trequest\t-\t-\t-\t-\tr\tnot-end\n' "$NOW"
+} >>"$lf"
+status=$(run status --vendor sample-cli --now "$NOW")
+printf '%s\n' "$status" | grep -q "^count${TAB}sample-cli${TAB}request${TAB}0$" || fail "forged-fields: a line breaking one field was counted: $status"
+printf '%s\n' "$status" | grep -q "^count${TAB}sample-cli${TAB}answer${TAB}1$" || fail "forged-fields: the valid line was not counted: $status"
+run prune --now "$NOW" || fail "forged-fields: prune failed"
+[ "$(wc -l <"$lf" | tr -d ' ')" = 1 ] || fail "forged-fields: prune kept a line failing the grammar: $(cat "$lf")"
+pass "every read rule skips its own forged line, and prune drops them"
+
 # An append that was cut short (a full disk) never swallows the next line.
 new_home torn
 run record --vendor sample-cli --event request --now "$NOW" || fail "torn fixture: record failed"
@@ -345,6 +452,36 @@ rc=0
 run record --vendor sample-cli --event request --now "$NOW" 2>/dev/null || rc=$?
 [ "$rc" = 6 ] || fail "symlink: a record through a planted ledger link exited $rc, not 6"
 [ ! -s "$tmp/link-target" ] || fail "symlink: the record wrote through the planted link"
+for pos in vendor hold store; do
+  new_home "symlink-$pos"
+  mkdir -p "$tmp/link-dir-$pos"
+  case $pos in
+    vendor)
+      mkdir -p "$home/fleet/quota"
+      ln -s "$tmp/link-dir-$pos" "$home/fleet/quota/sample-cli"
+      ;;
+    hold)
+      mkdir -p "$home/fleet/quota/sample-cli"
+      ln -s "$tmp/link-dir-$pos/hold.tsv" "$home/fleet/quota/sample-cli/hold.tsv"
+      ;;
+    store)
+      mkdir -p "$home/fleet"
+      ln -s "$tmp/link-dir-$pos" "$home/fleet/quota"
+      ;;
+  esac
+  rc=0
+  run hold --vendor sample-cli --unit spec-a:task-1 --step panel --reason r --now "$NOW" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 6 ] || fail "symlink: a hold through a planted $pos link exited $rc, not 6"
+  [ -z "$(ls -A "$tmp/link-dir-$pos")" ] || fail "symlink: a hold wrote through a planted $pos link"
+done
+new_home symlink-prune
+mkdir -p "$home/fleet/quota/sample-cli"
+printf '%s\trequest\t-\t-\t-\t-\t-\tend\n' 1 >"$tmp/prune-target"
+ln -s "$tmp/prune-target" "$home/fleet/quota/sample-cli/ledger.tsv"
+rc=0
+run prune --now "$NOW" 2>/dev/null || rc=$?
+[ "$rc" = 6 ] || fail "symlink: a prune through a planted ledger link exited $rc, not 6"
+[ -s "$tmp/prune-target" ] || fail "symlink: the prune rewrote the planted link's target"
 pass "a planted symlink in the store is refused"
 
 # --- 7. The vendor view in fleet-stats.sh render ---------------------------
@@ -361,7 +498,7 @@ render=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$ado
   PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
   /bin/sh "$FSTATS" render 2>/dev/null) || fail "fleet-stats render exited non-zero"
 printf '%s\n' "$render" | grep -q '^  vendors:' || fail "render: no vendor view: $render"
-printf '%s\n' "$render" | grep -q "^    sample-reviewer: held since .*1 unit.*reset $real_reset_iso.*quota used up" \
+printf '%s\n' "$render" | grep -q "^    sample-reviewer: held since .* (1 unit), reset $real_reset_iso; reason: quota used up$" \
   || fail "render: the held vendor's line is missing its state, reset, or reason: $render"
 printf '%s\n' "$render" | grep -q '^    sample-cli: clear' || fail "render: the clear vendor's line is missing: $render"
 printf '%s\n' "$render" | grep -q 'over 90d: 1 request, 0 answers, 0 refusals, 1 hold, 0 resumes' \
@@ -374,6 +511,21 @@ render=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$ado
   /bin/sh "$FSTATS" render 2>/dev/null) || fail "fleet-stats render (empty) exited non-zero"
 printf '%s\n' "$render" | grep -q '^  vendors:        none recorded$' || fail "render: an empty store does not say none recorded: $render"
 pass "an empty store renders as none recorded"
+
+new_home stats-noreset
+real=$(date +%s)
+run hold --vendor sample-cli --unit spec-a:task-1 --step panel --reason "quota" --now $((real - 10)) >/dev/null 2>&1 || fail "stats-noreset fixture: hold failed"
+run hold --vendor sample-cli --unit spec-b:task-1 --step panel --reason "quota" --now $((real - 5)) >/dev/null 2>&1 || fail "stats-noreset fixture: hold failed"
+printf 'quota_ledger_retention_days: 30\n' >"$local_cfg"
+render=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
+  /bin/sh "$FSTATS" render 2>/dev/null) || fail "fleet-stats render (no reset) exited non-zero"
+: >"$local_cfg"
+printf '%s\n' "$render" | grep -q "^    sample-cli: held since .* (2 units), no stated reset; reason: quota$" \
+  || fail "render: a held vendor with no stated reset does not say so: $render"
+printf '%s\n' "$render" | grep -q "over 30d: 0 requests, 0 answers, 0 refusals, 2 holds, 0 resumes" \
+  || fail "render: the counts do not name the configured retention: $render"
+pass "the render names a missing reset, plural units, and the configured retention"
 
 # A store status cannot read fails closed: never a held vendor rendered clear
 # or missing.
