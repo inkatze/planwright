@@ -205,3 +205,16 @@ raise|instruction_budget_closure_error|23967|Raised twice, each time by the meas
 # /self-review's own ratchet rather than widening it, so the spend here is the
 # one that had nowhere else to go.
 declared-exception|start-load:polish|margin=772|Below the 2x start-load restoration target after operator-dialogue Task 9 landed the loop-end handoff repair: D-16's .claude/polish-audit.md artifact with its lifecycle and storage class, the turn-side projection, and the nested return contract. The start-load floor is intact, so this is a below-target shortfall, not a floor-breach. The margin field is the figure this entry is held to and the guard compares it every run, so a later widening fails the check instead of passing quietly. Diet back to target deferred to instruction-headroom relief; fund whatever lands next with its own compensating trim rather than editing this number upward. Do not pay for it by trimming /polish's handoff contract or gate-wiring's loop-end rule: both are the surfaces this task exists to state.
+
+# Standing below-target exceptions for two doctrine docs fleet-messaging Task 1
+# amended (instruction-headroom D-11, REQ-D1.6). REQ-G1.6 adds the inbox socket
+# to the fleet-coordination-floor's lifecycle-closure contract as one row and
+# one column, with no other change to that file permitted, and D-17 adds the
+# messaging-eligibility derivation rule to the backend-capability-contract and
+# nothing else. Both additions are the contract text those requirements name,
+# and neither file may take a compensating trim in the same change, so each
+# surface sits below its 2x restoration target with the per-file floor intact:
+# a below-target shortfall, never a floor-breach. Diet back to target deferred
+# to instruction-headroom relief.
+declared-exception|doctrine/fleet-coordination-floor.md|margin=422|Below the 2x per-file restoration target with the per-file floor intact; the margin field is the figure this entry is held to, the guard comparing it every run. fleet-messaging REQ-G1.6 adds exactly one resource class (the inbox socket) to the lifecycle-closure contract, one row and one column with every cell filled, and permits no other change to the file, so the growth cannot be funded by an in-file trim in the same change. Diet back to target deferred to instruction-headroom relief.
+declared-exception|doctrine/backend-capability-contract.md|margin=439|Below the 2x per-file restoration target with the per-file floor intact; the margin field is the figure this entry is held to, the guard comparing it every run. fleet-messaging D-17 adds the messaging-eligibility derivation rule (read from the Session-grade column, distinct from dispatch eligibility) to the contract and nothing else, so the growth cannot be funded by an in-file trim in the same change. Diet back to target deferred to instruction-headroom relief.
