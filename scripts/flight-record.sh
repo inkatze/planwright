@@ -218,12 +218,15 @@ screen_all() {
 # matches: a US social security number (personal-data-identity), a payment
 # card that passes its Luhn check or an uppercase IBAN that passes its mod-97
 # check (personal-data-account), and a NANP or `+`-prefixed international
-# phone number (personal-data-contact). Separators and sentence punctuation
-# around a number are accepted widely; the shapes are strict (issued SSN
-# ranges, NANP area and exchange digits, card issuer digits and group
+# phone number (personal-data-contact). Sentence punctuation around a number
+# and its neighbours' separators are accepted; the shapes are strict (issued
+# SSN ranges, NANP area and exchange digits, card issuer digits and group
 # layouts, the checksums), which keeps version strings, dates, PR numbers,
-# timestamps, and hashes out. awk without interval expressions, which POSIX
-# awk does not promise.
+# timestamps, and hashes out. Deliberately missed: a card separated by
+# anything but spaces or dashes (a dotted card), an unseparated card glued to
+# another number by a separator, a NANP exchange starting with 0 or 1, and a
+# lowercase IBAN. awk without interval expressions, which POSIX awk does not
+# promise.
 personal_data() {
   awk -v name="$1" '
     function digits(s) { gsub(/[^0-9]/, "", s); return s }
