@@ -1808,6 +1808,19 @@ assign_name_ok() {
       options | commands | functions | aliases | parameters | argv | match | MATCH | mbegin | \
       mend | reply) return 1 ;;
   esac
+  # The rest of zsh's own tables; see the worker guard's copy for the sources.
+  case $name in
+    TERM | TERMINFO | TERMINFO_DIRS | WORDCHARS | KEYBOARD_HACK | ZLE_RPROMPT_INDENT | POSTEDIT | \
+      RPS1 | RPS2 | RPROMPT | RPROMPT2 | SPROMPT | prompt | PROMPT | PROMPT2 | PROMPT3 | PROMPT4 | \
+      PSVAR | psvar | fignore | mailpath | TIMEFMT | HOST | LOGNAME | CPUTYPE | MACHTYPE | OSTYPE | \
+      TTY | VENDOR | signals | \
+      dis_functions | functions_source | dis_functions_source | funcsourcetrace | builtins | \
+      dis_builtins | reswords | dis_reswords | patchars | dis_patchars | modules | dirstack | \
+      history | historywords | jobtexts | jobdirs | jobstates | nameddirs | userdirs | usergroups | \
+      dis_aliases | galiases | dis_galiases | saliases | dis_saliases | \
+      epochtime | zgdbm_tied | langinfo | mapfile | errnos | sysparams | termcap | terminfo | \
+      WATCH | watch | widgets | keymaps | zsh_scheduled_events) return 1 ;;
+  esac
   # Membership in the hook's own ENVIRONMENT, snapshotted at startup: an
   # exported name the command re-points reaches every child it runs. The
   # snapshot is what is tested, NOT `${!name+x}` — an indirect read also sees
@@ -1941,7 +1954,96 @@ opaque_words_ok() {
     word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" || continue
     [ "$verb" = printf ] && [ "$i" -gt "$fmt" ] && continue
     arg_independent_verb "$verb" || return 1
+    if opens_operands "$verb" && [ "${cdyn[i]}" != 0 ]; then
+      opener_word_risky "${cw[i]}" "${cx[i]}" && return 1
+    fi
   done
+  return 0
+}
+
+# Other processes' environments (REQ-E1.6 of worker-permission-ergonomics):
+# the worker guard's rule, shared; see its copy for the reasons.
+opens_operands() {
+  case $1 in
+    cat | head | tail | wc | cut | comm | cmp | od | grep | diff | nl | paste | column) return 0 ;;
+    md5sum | sha1sum | sha256sum | sha512sum | cksum | shellcheck | yamllint) return 0 ;;
+  esac
+  return 1
+}
+
+opener_word_risky() {
+  local piece
+  local -a pieces
+  case $1 in
+    *'$'*) ;;
+    *) return 1 ;;
+  esac
+  [ "$2" = 0 ] || return 0
+  expand_word "$1" whole
+  case $EXPANDED in
+    *'$'*) return 0 ;;
+  esac
+  environ_word_risky "$EXPANDED" 0 && return 0
+  IFS=' ' read -r -a pieces <<<"$EXPANDED"
+  for piece in ${pieces[@]+"${pieces[@]}"}; do
+    environ_word_risky "$piece" 0 && return 0
+  done
+  return 1
+}
+
+environ_word_risky() {
+  local w=$1 last dir canon
+  if [ "$2" = 0 ]; then
+    case $w in
+      /proc/self/environ | /proc/thread-self/environ) return 1 ;;
+    esac
+  fi
+  last=${w##*/}
+  [ "$last" = environ ] && return 0
+  [ "$2" = 1 ] || return 1
+  case $last in
+    *[{}\\~^#\<\>\|]*) ;;
+    *)
+      # shellcheck disable=SC2053 # the operand is the pattern under test
+      [[ environ == $last ]] || return 1
+      ;;
+  esac
+  case $w in
+    */*)
+      dir=${w%/*}
+      [ -n "$dir" ] || dir=/
+      ;;
+    *) dir=. ;;
+  esac
+  case $dir in
+    *[*?[{}~\$]* | /proc | /proc/*) return 0 ;;
+  esac
+  case $dir in
+    /*) ;;
+    *) dir=$HOOK_CWD/$dir ;;
+  esac
+  canon=$(cd -P -- "$dir" 2>/dev/null && pwd) || return 1
+  case $canon in
+    /proc | /proc/*) return 0 ;;
+  esac
+  return 1
+}
+
+environ_words_ok() {
+  local i
+  for ((i = 0; i < cwn; i++)); do
+    environ_word_risky "${cw[i]}" "${cglob[i]}" && return 1
+  done
+  return 0
+}
+
+environ_redirect_ok() {
+  local g=0
+  case $1 in
+    *'$'*) return 1 ;;
+    *[*?[{~]*) g=1 ;;
+  esac
+  environ_word_risky "$1" "$g" && return 1
   return 0
 }
 
@@ -2121,6 +2223,7 @@ verify_simple() {
   [ "$SIMPLE_N" -le "$MAX_SIMPLE_CMDS" ] || return 1
   for ((i = 0; i < rn; i++)); do
     classify_redirect "${ro[i]}" "${rt[i]}" || return 1
+    environ_redirect_ok "${rt[i]}" || return 1
   done
   [ "$cwn" -ge 1 ] || return 0
   # Substitute the loop variables in scope, then refuse an unresolved word
@@ -2138,6 +2241,7 @@ verify_simple() {
     done
   fi
   verb=${cw[0]}
+  environ_words_ok || return 1
   opaque_words_ok || return 1
   # Inline environment-assignment prefix: VAR=value [cmd].
   case $verb in

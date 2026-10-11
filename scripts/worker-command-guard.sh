@@ -2640,6 +2640,31 @@ opens_operands() {
   return 1
 }
 
+# opener_word_risky <word> <literal-dollar>: 0 when an operand of an
+# opens_operands verb, still unresolved after substitution, could name
+# another process's environ file. A `$` with no tracked literal behind it
+# could be any path. A tracked value kept unresolved only for its spaces is
+# known, so each word bash or zsh could make of it is checked instead.
+opener_word_risky() {
+  local piece
+  local -a pieces
+  case $1 in
+    *'$'*) ;;
+    *) return 1 ;;
+  esac
+  [ "$2" = 0 ] || return 0
+  expand_word "$1" whole
+  case $EXPANDED in
+    *'$'*) return 0 ;;
+  esac
+  environ_word_risky "$EXPANDED" 0 && return 0
+  IFS=' ' read -r -a pieces <<<"$EXPANDED"
+  for piece in ${pieces[@]+"${pieces[@]}"}; do
+    environ_word_risky "$piece" 0 && return 0
+  done
+  return 1
+}
+
 # Other processes' environments. /proc/<pid>/environ holds another
 # process's environment (credentials included); only the reading process's
 # own, through /proc/self or /proc/thread-self, stays readable. Any word or
@@ -2756,9 +2781,7 @@ opaque_words_ok() {
     [ "$verb" = printf ] && [ "$i" -gt "$fmt" ] && continue
     arg_independent_verb "$verb" || return 1
     if opens_operands "$verb" && [ "${cdyn[i]}" != 0 ]; then
-      case ${cw[i]} in
-        *'$'*) return 1 ;;
-      esac
+      opener_word_risky "${cw[i]}" "${cx[i]}" && return 1
     fi
   done
   return 0
