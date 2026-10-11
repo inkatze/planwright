@@ -42,14 +42,17 @@
 #       commit that one file on the flight's own branch, reporting
 #       `record<TAB><repo-relative path>` and `commit<TAB><sha>`. Refused
 #       (exit 3, nothing written) off the branch
-#       `planwright/flight/<flight-id>`, when the record already exists, when
-#       a directory on the record path is a symlink or not a directory (checked
-#       again after land creates them), or when the index holds other staged
-#       changes. A re-run whose record matches its render, both committed and
-#       in the checkout, reports that record and succeeds. The record is created only if absent, so a
-#       concurrent run's record is never overwritten. A commit git or its hooks
-#       refuse (exit 4), or an interrupt, takes a record this run wrote back
-#       out of the index and the worktree unless it is already in HEAD.
+#       `planwright/flight/<flight-id>`, when the record already exists or
+#       appears while land runs, when a directory on the record path is a
+#       symlink or not a directory (checked again, one component at a time, as
+#       land creates them), or when the index holds other staged changes. A
+#       re-run whose record matches its render, both committed and in the
+#       checkout (compared through git), reports that record and succeeds, as
+#       does a run whose commit finds a concurrent run already committed the
+#       same render. The record is created only if absent, so a concurrent
+#       run's record is never overwritten. A commit git or its hooks refuse
+#       (exit 4), or an interrupt, takes the record this run wrote back out of
+#       the index and the worktree unless it is already in HEAD.
 #
 #   The caller chooses the record path (flight-dispatch.sh computes it), so
 #   this script composes no spec-home path of its own. It is repo-relative,
