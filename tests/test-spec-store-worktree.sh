@@ -402,6 +402,46 @@ else
 fi
 sw "$WA" shared
 if [ "$rc" -eq 0 ]; then ok "the owning project still recreates from origin"; else fail "owner origin: rc=$rc err=$err"; fi
+# A draft not yet committed is owned all the same.
+sw "$WA" fresh
+wtf="$HM/.claude/worktrees/fresh-spec"
+mkdir -p "$wtf/projects/a/fresh"
+printf '# a\n' >"$wtf/projects/a/fresh/requirements.md"
+sw "$WB" fresh
+if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'projects/a/fresh'; then
+  ok "another project's uncommitted draft in the worktree is refused"
+else
+  fail "uncommitted cross-project reuse: rc=$rc out=$out err=$err"
+fi
+sw "$WA" fresh
+if [ "$rc" -eq 0 ]; then ok "the owner reuses its worktree holding an uncommitted draft"; else fail "owner uncommitted: rc=$rc err=$err"; fi
+# The root's own content other than the bundle never reads as foreign, even
+# when the identifier names a directory on its path or under it.
+for own_id in projects archive; do
+  sw "$WA" "$own_id"
+  wto="$HM/.claude/worktrees/$own_id-spec"
+  mkdir -p "$wto/projects/a/$own_id" "$wto/projects/a/_observations/archive"
+  printf '# a\n' >"$wto/projects/a/$own_id/requirements.md"
+  printf 'n\n' >"$wto/projects/a/$own_id/note \"q\".md"
+  printf 'obs\n' >"$wto/projects/a/_observations/archive/x.md"
+  gitq -C "$wto" add -A && gitq -C "$wto" commit -q -m "draft $own_id"
+  sw "$WA" "$own_id"
+  if [ "$rc" -eq 0 ]; then
+    ok "the owner's own branch is not foreign: id $own_id"
+  else
+    fail "own branch refused: id $own_id rc=$rc err=$err"
+  fi
+done
+# A spec branch sharing no history with the default branch names git's reason.
+gitq -C "$HM" switch -q --orphan planwright/orph/spec
+printf 'o\n' >"$HM/o" && gitq -C "$HM" add o && gitq -C "$HM" commit -q -m orphan
+gitq -C "$HM" switch -q -f main
+sw "$WA" orph
+if [ "$rc" -eq 4 ] && printf '%s' "$err" | grep -qi 'merge base'; then
+  ok "a spec branch with no merge base is refused with git's reason"
+else
+  fail "orphan spec branch: rc=$rc err=$err"
+fi
 
 # --- other postures and bad identifiers are refused -----------------------
 W4="$tmp/work4"

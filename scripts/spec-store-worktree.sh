@@ -24,9 +24,9 @@
 #
 # One holder may serve several projects, each with its own root, while the
 # branch and worktree are named by the identifier alone: an existing spec
-# branch that already carries another root's bundle of the same identifier
-# belongs to that project and is refused, so spec identifiers stay unique
-# per holder in practice.
+# branch that already carries another root's bundle of the same identifier,
+# committed or still uncommitted in its worktree, belongs to that project and
+# is refused, so spec identifiers stay unique per holder in practice.
 #
 # Exit: 0 ready; 2 usage or a refused identifier; 3 the root is not in a
 # holder (same-repo and plain keep their own paths); 4 the root did not
@@ -143,31 +143,45 @@ default_base() {
     base=''
   fi
 }
+# Another root's bundle of this identifier: a bundle file in a directory
+# named for it anywhere in the holder, outside this root's own bundle. Only
+# bundle files count, so the root's other content (its observations, its
+# marker) never reads as foreign, whatever directory names it passes through.
+# foreign <git-command...> — run it limited to those files.
+foreign() {
+  g=":(top,glob)**/$id"
+  "$@" -- ":(top,literal,exclude)${rel:+$rel/}$id/" "$g/requirements.md" "$g/design.md" \
+    "$g/tasks.md" "$g/test-spec.md" "$g/kickoff-brief.md"
+}
+# refuse_foreign <listing> — refuse when the listing names a foreign path.
+refuse_foreign() {
+  [ -z "$1" ] && return 0
+  p=$(printf '%s\n' "$1" | sed -n '1{s/^"//;s/"$//;p;}')
+  say "refused: $branch carries another project's bundle at ${p%/*}; spec identifiers must be unique per holder"
+  exit 4
+}
 # own_spec <ref> — refuse when <ref> changed, since leaving the default
-# branch, a bundle of this identifier under a root other than this one.
+# branch, another root's bundle of this identifier.
 own_spec() {
   [ -n "$base" ] || {
     say "refused: the holder has no default branch to tell which project owns $branch"
     exit 4
   }
-  own=${rel:+$rel/}$id/
-  changed=$(hg -c core.quotePath=false diff --name-only "$base...$1" 2>/dev/null) || {
-    say "git could not compare $branch with the holder's default branch"
+  changed=$(foreign hg diff --no-renames --name-only "$base...$1" 2>/dev/null) || {
+    why=$(foreign hg diff --no-renames --name-only "$base...$1" 2>&1 >/dev/null)
+    say "git could not compare $branch with the holder's default branch: $why"
     exit 4
   }
-  foreign=$(printf '%s\n' "$changed" | while IFS= read -r p; do
-    case $p in
-      "$own"*) ;;
-      */"$id"/* | "$id"/*)
-        printf '%s\n' "${p%/*}"
-        break
-        ;;
-    esac
-  done)
-  [ -z "$foreign" ] || {
-    say "refused: $branch carries another project's bundle at $foreign; spec identifiers must be unique per holder"
+  refuse_foreign "$changed"
+}
+# own_wt — the same refusal over the worktree's uncommitted files, where a
+# draft not yet committed (or never, under commit_on_draft: false) lives.
+own_wt() {
+  pending=$(foreign git -C "$wt" status --porcelain --untracked-files=all 2>/dev/null) || {
+    say "git could not read the status of $wt"
     exit 4
   }
+  refuse_foreign "$(printf '%s\n' "$pending" | cut -c4-)"
 }
 
 default_base
@@ -191,6 +205,7 @@ else
   }
   add_wt "create $wt on a new $branch" --no-track -b "$branch" "$wt" "$base"
 fi
+own_wt
 
 # The skills write through the printed path, so no component of it below the
 # worktree may be a symlink: one committed on the spec branch or the default
