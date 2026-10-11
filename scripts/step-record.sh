@@ -205,7 +205,10 @@
 #       manifest is present); for a shared commit, a commit undoing its part
 #       carrying `Planwright-Sign-Off-Rejected: <id>`; for a merge commit, a
 #       later commit's `Planwright-Sign-Off-Rejected: <id>` trailer
-#       (`git revert -m 1 <sha7>` for a legacy one, which no trailer can name)
+#       (`git revert -m 1 <sha7>` for a legacy one, which no trailer can name);
+#       for a merge whose body carries `Base-merge resolution: <paths>` (the
+#       sync's `resolve` commit), a flag line naming the paths, then a re-run
+#       of the sync under `halt` whose hand resolution carries that trailer
 # An empty checklist renders `- none`. A <base> or <head> that does not
 # resolve, or a range git cannot read, fails by name.
 #
@@ -980,6 +983,7 @@ cmd_regenerate() {
           if (length(s) >= 7) { nr[n]++; R[n, nr[n]] = s }
         }
         if (!(n in route) && substr($0, 1, 14) == "Route reason: ") route[n] = substr($0, 15)
+        if (!(n in res) && substr($0, 1, 23) == "Base-merge resolution: ") res[n] = substr($0, 24)
         if ($0 ~ /^- / && index($0, "before:")) { man[n]++; M[n, man[n]] = substr($0, 3); inman = 1 }
         else if (inman && $0 ~ /^[ \t]+[^ \t]/ && man[n]) { s = $0; sub(/^[ \t]+/, "", s); M[n, man[n]] = M[n, man[n]] " " s }
         else inman = 0
@@ -1052,7 +1056,14 @@ cmd_regenerate() {
           else printf "  - Shared commit: also carries %s\n", s
         }
         for (j = 1; j <= man[i]; j++) printf "  - %s\n", safe(M[i, j])
-        if (shared[i] != "" && !merge[i]) printf "  - Reject with: a commit undoing its part, carrying `Planwright-Sign-Off-Rejected: %s`\n", eid[a]
+        # A base-merge resolution the sync committed under `resolve`: the
+        # resolution, not the merged base, is what awaits sign-off, and a
+        # revert would restore the conflict.
+        if (merge[i] && (i in res) && eid[a] != "legacy") {
+          printf "  - Base-merge resolution: %s; the agent resolved these conflicts, so review the resolution\n", safe(res[i])
+          printf "  - Reject with: re-run `scripts/converge-sync-main.sh` under `worker_merge_conflict_policy: halt` and land the hand resolution in a commit carrying `Planwright-Sign-Off-Rejected: %s`, never a revert\n", eid[a]
+        }
+        else if (shared[i] != "" && !merge[i]) printf "  - Reject with: a commit undoing its part, carrying `Planwright-Sign-Off-Rejected: %s`\n", eid[a]
         else if (merge[i] && eid[a] != "legacy") printf "  - Reject with: a later commit carrying `Planwright-Sign-Off-Rejected: %s`\n", eid[a]
         else if (merge[i]) printf "  - Reject with: `git revert -m 1 %s`\n", short[i]
         else if (man[i]) printf "  - Reject with: `git revert %s`; rejecting one sub-item is a hand edit the manifest guides\n", short[i]

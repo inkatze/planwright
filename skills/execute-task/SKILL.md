@@ -328,8 +328,8 @@ captured output (it prints `transient` or `logic`; unknown patterns default to
 After CI passes, resolve the `convergence` point (*Points* step 1), then **sync
 `main`** once (merge-currency-guard REQ-B1.1, REQ-B1.4, D-4), an empty list
 included: run `scripts/converge-sync-main.sh` (under the resolved planwright
-root); a non-zero exit halts the unit to Awaiting input with the reason it
-printed. The sync changes the head a later ready-flip lands on, never who flips.
+root); a `park` record halts the unit with its text; `repair` and `resolve`
+name remedies. The sync changes the head a later ready-flip lands on, never who flips.
 
 **Run the convergence steps** (*Points* steps 2–5); `steps_convergence` is the
 unit's convergence phase, core's default being `polish` with `--nested`. A
