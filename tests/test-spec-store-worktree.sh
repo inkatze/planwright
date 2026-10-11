@@ -342,15 +342,18 @@ else
   fail "symlinked bundle: rc=$rc out=$out err=$err"
 fi
 
-# A root path with a space and a glob byte is walked component by component.
-H6="$tmp/holder6"
-W6="$tmp/work6"
-work_repo "$W6"
-holder "$H6" main 'spec roots/a*'
-mkdir -p "$H6/spec roots/ab"
-point "$W6" "$H6/spec roots/a*"
-sw "$W6" demo
-if [ "$rc" -eq 0 ] && [ "$(field bundle)" = "$H6/.claude/worktrees/demo-spec/spec roots/a*/demo" ]; then
+# A root path with a space and a glob byte is walked component by component:
+# a committed symlink the glob would match must not be what gets checked.
+H12="$tmp/holder12"
+W12="$tmp/work12"
+work_repo "$W12"
+holder "$H12" main 'spec roots/a*'
+ln -s "$tmp/outside" "$H12/spec roots/ab"
+gitq -C "$H12" add -A && gitq -C "$H12" commit -q -m decoy && gitq -C "$H12" push -q origin main
+point "$W12" "$H12/spec roots/a*"
+sw "$W12" demo
+if [ "$rc" -eq 0 ] && [ -L "$H12/.claude/worktrees/demo-spec/spec roots/ab" ] \
+  && [ "$(field bundle)" = "$H12/.claude/worktrees/demo-spec/spec roots/a*/demo" ]; then
   ok "a root path with a space and a glob byte is printed as it is"
 else
   fail "spaced root: rc=$rc out=$out err=$err"
