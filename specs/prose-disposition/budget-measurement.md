@@ -551,8 +551,8 @@ filter bullet, which names the doc.
 
 | Surface | Pin | Before | After |
 | --- | --- | --- | --- |
-| `start-load:polish` | `margin=772` | 775 (9225 words) | **1112** (8888 words) |
-| `skills/polish/SKILL.md` (per-file) | none | 2422 (1828 words) | 2337 (1913 words) |
+| `start-load:polish` | `margin=772` | 775 (9225 words) | **1111** (8889 words) |
+| `skills/polish/SKILL.md` (per-file) | none | 2422 (1828 words) | 2336 (1914 words) |
 
 The surface now sits above its restoration target, so no below-target warning
 fires and no new `declared-exception` entry is needed; one added there would
