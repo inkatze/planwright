@@ -224,6 +224,21 @@ else
 fi
 rm -f "$H6/.git/hooks/post-checkout"
 
+# A spec branch that survives only on origin is picked up, not restarted.
+gitq -C "$H6" switch -q -c planwright/remote/spec trunk
+printf 'pushed\n' >"$H6/r/pushed" && gitq -C "$H6" add r/pushed && gitq -C "$H6" commit -q -m pushed
+gitq -C "$H6" push -q origin planwright/remote/spec
+pushed=$(hermetic git -C "$H6" rev-parse HEAD)
+gitq -C "$H6" switch -q trunk
+gitq -C "$H6" branch -q -D planwright/remote/spec
+sw "$W6" remote
+if [ "$rc" -eq 0 ] && [ "$(hermetic git -C "$H6/.claude/worktrees/remote-spec" rev-parse HEAD 2>/dev/null)" = "$pushed" ] \
+  && [ "$(hermetic git -C "$H6" config --get branch.planwright/remote/spec.remote 2>/dev/null)" = origin ]; then
+  ok "a spec branch only on origin is checked out tracking it"
+else
+  fail "remote-only branch: rc=$rc err=$err"
+fi
+
 # --- other postures and bad identifiers are refused -----------------------
 W4="$tmp/work4"
 work_repo "$W4"

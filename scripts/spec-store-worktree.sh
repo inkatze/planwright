@@ -9,8 +9,9 @@
 # never to the work repository the session runs in. Claude Code's native
 # worktree mechanism only reaches the session's own repository, so this
 # script is the holder's equivalent: it reuses the worktree when it is
-# already there on the spec branch, recreates it from a surviving branch,
-# or creates both, the branch starting at the holder's default branch
+# already there on the spec branch, recreates it from a surviving branch
+# (local, else origin's, then tracking it), or creates both, the branch
+# starting at the holder's default branch
 # (origin/HEAD when recorded, else the holder's HEAD branch) with no
 # upstream until the first push. It fetches nothing, commits nothing, and
 # never touches the work repository.
@@ -130,6 +131,9 @@ if [ -e "$wt" ] || [ -L "$wt" ]; then
   }
 elif hg show-ref --verify --quiet "refs/heads/$branch"; then
   add_wt "recreate $wt from $branch" "$wt" "$branch"
+elif hg show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+  # Pushed from elsewhere: starting afresh would diverge from the spec PR.
+  add_wt "recreate $wt from origin/$branch" --track -b "$branch" "$wt" "refs/remotes/origin/$branch"
 else
   base=$(hg symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null) || base=''
   # A recorded origin/HEAD can outlive the branch it names (renamed, pruned).
