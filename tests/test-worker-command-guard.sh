@@ -1008,8 +1008,11 @@ first_half() {
     usergroups dis_aliases galiases dis_galiases saliases dis_saliases epochtime zgdbm_tied \
     langinfo mapfile errnos sysparams termcap terminfo WATCH watch widgets keymaps \
     zsh_scheduled_events; do
+    # Unset for the hook: an exported name (TERM, LOGNAME) is refused anyway.
+    HOOK_ENV=(/usr/bin/env -u "$n")
     assert_defer "REQ-E1.2: zsh's $n is refused" "$n=-name; find . \$$n a.sh"
   done
+  HOOK_ENV=()
   # zsh expands a bare = leading the value, or after a :, as =cmd.
   assert_allow "REQ-E1.2: control, a value with no zsh = expansion" "f=a.sh && find . -name \$f"
   assert_defer "REQ-E1.2: a leading = is expanded by zsh" "f==a.sh && find . -name \$f"
