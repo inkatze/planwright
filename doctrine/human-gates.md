@@ -38,6 +38,7 @@ cannot be named does not ship.
 | Rewriting main, a protected branch, or a spec branch | Human gate | Irreversible arm; no tier under any value |
 | Executing an authorized merge | Policy | `merge_policy`, default `human`; `on-approval` lets the host merge once the human enables auto-merge, `policy-class` admits a declared class |
 | The draft→ready flip of a unit PR | Policy | `ready_flip_policy`, default `unit-owner`; `human` reserves it, except the merge helper's own flip of a PR its class admits |
+| Refusing the draft→ready flip of a PR behind its base | Policy | `ready_guard_behind_base`, default `refuse`; `conflict-only` lets a behind PR through when GitHub reports it mergeable, read from the core and adopter layers only |
 | The draft→ready flip of a spec PR | Policy | `mark_spec_pr_ready_on_kickoff`, default `true` |
 | Merging the PR base into the owned branch | Policy | `worker_base_merge`, default `allow`; conflicts by `worker_merge_conflict_policy`, default `halt` |
 | Reshaping never-pushed commits on the owned unit branch | Policy | `unpushed_rewrite`, default `allow` |
