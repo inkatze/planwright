@@ -528,6 +528,15 @@ deferred until every flipper posts.
   host, since its own units run the installed plugin (REQ-I1.13); clear
   this bullet when that release is installed.
 - **Task 11** — pending ready-flip: ready-guard failed on d021e74a28bd
+- **Task 12** — convergence paused at the hard-disqualifier zone screen
+  (the worker command guard): the guard approves a hold mark naming any
+  pool on any declared command line, an unpooled step included, so a
+  worker naming a live holder's pid lets a check inside that step skip the
+  pool's wait. Recommended: tie the mark to the step's declared pool (the
+  resolver's pool column kept with each declared line; a mark on an
+  unpooled or other-pool step deferred). Alternative: keep the signed
+  shape-only check and record the residual. Direct one, then resume at
+  convergence; the record is at `.claude/polish-audit.md`.
 
 ## Deferred
 
