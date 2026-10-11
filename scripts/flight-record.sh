@@ -321,17 +321,21 @@ personal_data() {
           if (length(m) >= 13 && length(m) <= 19 && card(m)) hit("personal-data-account")
           continue
         }
-        # g[j] is the j-th group, sp[j] the separator before it.
-        ng = 0
-        t = m
-        while (match(t, /[0-9]+/)) {
-          ng++
-          g[ng] = substr(t, RSTART, RLENGTH)
-          sp[ng] = RSTART > 1 ? substr(t, RSTART - 1, 1) : ""
-          t = substr(t, RSTART + RLENGTH)
+        # g[j] is the j-th group, sp[j] the single separator before it. Every
+        # layout opens with four digits, so only such a group starts a
+        # window, and a run is scanned for its first 64 windows: a longer run
+        # of digit groups is a table or a dump, not prose.
+        ng = split(m, g, "[ -]")
+        pos = 1
+        for (j = 1; j <= ng; j++) {
+          sp[j] = j > 1 ? substr(m, pos - 1, 1) : ""
+          pos += length(g[j]) + 1
         }
-        for (i = 1; i <= ng && !("personal-data-account" in seen); i++) {
-          nl = split("4 4 4 4 3|4 4 4 4|4 6 5|4 6 4", lay, "|")
+        nl = split("4 4 4 4 3|4 4 4 4|4 6 5|4 6 4", lay, "|")
+        tried = 0
+        for (i = 1; i <= ng && tried < 64 && !("personal-data-account" in seen); i++) {
+          if (length(g[i]) != 4) continue
+          tried++
           for (l = 1; l <= nl; l++) {
             k = split(lay[l], w, " ")
             if (i + k - 1 > ng) continue

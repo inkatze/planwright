@@ -497,6 +497,21 @@ printf '%s\n' "$OUT" | grep -q 'personal data were redacted whole' || fail "a mi
 run_render pr --ask-file "$in/ask-numbers.txt"
 [ "$RC" -eq 0 ] || fail "render of an ask with ordinary numbers exited $RC: $ERR"
 printf '%s\n' "$OUT" | grep -q 'redacted' && fail "ordinary numbers must not be redacted: $(printf '%s\n' "$OUT" | grep redacted)"
+# A long line of digit groups costs about what a line of words its size
+# does: the card scan is bounded. Compared in CPU time within one run, so
+# host load moves both sides together.
+cpu_render() {
+  defaults
+  TIMEFORMAT=%3U
+  { time /bin/sh "$SCRIPT" render --home pr "${args[@]}" --ask-file "$1" >/dev/null 2>&1; } 2>"$tmp/cpu"
+  cat "$tmp/cpu"
+}
+awk 'BEGIN { while (length(s) < 65000) s = s "4111 "; print s }' >"$in/ask-groups.txt"
+awk 'BEGIN { while (length(s) < 65000) s = s "abcd "; print s }' >"$in/ask-words.txt"
+groups_cpu=$(cpu_render "$in/ask-groups.txt")
+words_cpu=$(cpu_render "$in/ask-words.txt")
+awk -v g="$groups_cpu" -v w="$words_cpu" 'BEGIN { exit !(g <= 1.5 * w + 0.05) }' \
+  || fail "a long line of digit groups must scan in bounded time (${groups_cpu}s CPU against ${words_cpu}s for words)"
 
 # A non-ASCII temp directory neither lets a finding pass nor misplaces its
 # redaction: the screen reads fixed ASCII names, not the work directory's path.
