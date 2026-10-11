@@ -324,8 +324,8 @@ else
 fi
 gitq -C "$H" worktree remove --force "$symwt"
 sw "$W" sym
-if [ "$rc" -eq 4 ] && [ -z "$out" ]; then
-  ok "a symlinked root path on a recreated worktree is refused"
+if [ "$rc" -eq 4 ] && [ -z "$out" ] && [ ! -e "$symwt" ]; then
+  ok "a symlinked root path on the spec branch is refused before any worktree opens"
 else
   fail "symlinked root on recreate: rc=$rc out=$out err=$err"
 fi
@@ -380,6 +380,27 @@ if [ "$rc" -eq 0 ] && [ -L "$H12/.claude/worktrees/demo-spec/spec roots/ab" ] \
 else
   fail "spaced root: rc=$rc out=$out err=$err"
 fi
+
+# Checked in the start commit's tree before git opens anything, so a refused
+# run leaves no branch or worktree to clean up.
+gitq -C "$H" worktree remove --force "$fsymwt"
+sw "$W" fsym
+if [ "$rc" -eq 4 ] && [ -z "$out" ] && [ ! -e "$fsymwt" ]; then
+  ok "a symlinked bundle file on the spec branch is refused before the worktree opens"
+else
+  fail "symlinked bundle file on recreate: rc=$rc out=$out err=$err"
+fi
+ln -s "$tmp/outside" "$H/projects/demo-root/pre"
+gitq -C "$H" add -A && gitq -C "$H" commit -q -m "link pre" && gitq -C "$H" push -q origin trunk
+sw "$W" pre
+if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'symlink' \
+  && [ ! -e "$H/.claude/worktrees/pre-spec" ] \
+  && ! hermetic git -C "$H" show-ref --verify --quiet refs/heads/planwright/pre/spec; then
+  ok "a symlink on the default branch's bundle path creates no branch or worktree"
+else
+  fail "default-branch symlink: rc=$rc out=$out err=$err"
+fi
+gitq -C "$H" rm -q "projects/demo-root/pre" && gitq -C "$H" commit -q -m "unlink pre" && gitq -C "$H" push -q origin trunk
 
 # --- one holder, two projects: a spec id is not shared across them ----------
 HM="$tmp/multi"

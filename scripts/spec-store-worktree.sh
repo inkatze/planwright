@@ -186,6 +186,42 @@ own_wt() {
   refuse_foreign "$(printf '%s\n' "$pending" | cut -c4-)"
 }
 
+# tree_safe <ref> — the containment check below, run on <ref>'s tree before
+# git opens anything from it, so a refusal leaves no branch or worktree
+# behind: no component of the bundle path, and nothing inside the bundle,
+# may be a symlink there. Entries are matched by exact name, never as a
+# pattern.
+tree_safe() {
+  t_dir='' t_rest=${rel:+$rel/}$id
+  while [ -n "$t_rest" ]; do
+    t_name=${t_rest%%/*}
+    case $t_rest in
+      */*) t_rest=${t_rest#*/} ;;
+      *) t_rest='' ;;
+    esac
+    t_modes=$(hg -c core.quotePath=false ls-tree "$1:$t_dir" 2>/dev/null \
+      | N=$t_name awk -F '\t' '$2 == ENVIRON["N"] { split($1, f, " "); print f[1] }')
+    case $t_modes in
+      '') return 0 ;;
+      *120000*)
+        say "refused: $t_dir$t_name is a symlink on $1"
+        exit 4
+        ;;
+      040000) ;;
+      *)
+        say "refused: $t_dir$t_name is not a directory on $1"
+        exit 4
+        ;;
+    esac
+    t_dir=$t_dir$t_name/
+  done
+  t_link=$(hg -c core.quotePath=false ls-tree -r "$1:$t_dir" 2>/dev/null | awk -F '\t' '$1 ~ /^120000 / { print $2; exit }')
+  [ -z "$t_link" ] || {
+    say "refused: $t_dir$t_link is a symlink on $1"
+    exit 4
+  }
+}
+
 default_base
 if [ -e "$wt" ] || [ -L "$wt" ]; then
   is_spec_wt || {
@@ -195,9 +231,11 @@ if [ -e "$wt" ] || [ -L "$wt" ]; then
   own_spec "refs/heads/$branch"
 elif hg show-ref --verify --quiet "refs/heads/$branch"; then
   own_spec "refs/heads/$branch"
+  tree_safe "refs/heads/$branch"
   add_wt "recreate $wt from $branch" "$wt" "$branch"
 elif hg show-ref --verify --quiet "refs/remotes/origin/$branch"; then
   own_spec "refs/remotes/origin/$branch"
+  tree_safe "refs/remotes/origin/$branch"
   # Pushed from elsewhere: starting afresh would diverge from the spec PR.
   add_wt "recreate $wt from origin/$branch" --track -b "$branch" "$wt" "refs/remotes/origin/$branch"
 else
@@ -205,6 +243,7 @@ else
     say "the holder has no default branch to start $branch from"
     exit 4
   }
+  tree_safe "$base"
   add_wt "create $wt on a new $branch" --no-track -b "$branch" "$wt" "$base"
 fi
 own_wt
