@@ -838,9 +838,12 @@ enter_parent() {
     if [ ! -e "$_seg" ] && [ ! -L "$_seg" ]; then
       mkdir -- "$_seg" 2>/dev/null || [ -e "$_seg" ] || [ -L "$_seg" ] || die 4 "cannot create ${_at#"$root"/}"
     fi
-    if [ -L "$_seg" ] || ! cd -P -- "$_seg" 2>/dev/null || [ "$(pwd -P)" != "$_at" ]; then
+    if [ -L "$_seg" ] || [ ! -d "$_seg" ]; then
       die 3 "${_at#"$root"/} became a symlink or not a directory during land; the record is written inside the checkout only; nothing was written"
     fi
+    cd -P -- "$_seg" 2>/dev/null || die 4 "cannot enter ${_at#"$root"/}"
+    [ "$(pwd -P)" = "$_at" ] \
+      || die 3 "${_at#"$root"/} became a symlink or not a directory during land; the record is written inside the checkout only; nothing was written"
   done
 }
 

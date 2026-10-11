@@ -1092,6 +1092,17 @@ printf '%s\n' "$ERR" | grep -q 'simulated link failure' || fail "a failed link m
 unset STUB_TOOL
 rm -rf "$repo/specs"
 
+# A real directory on the record path that cannot be entered is an
+# environment failure, not a symlink.
+NOX=noenter-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$NOX" main
+mkdir -p "$repo/specs"
+chmod 000 "$repo/specs"
+run_land --flight-id "$NOX"
+chmod 755 "$repo/specs"
+[ "$RC" -eq 4 ] || fail "a directory land cannot enter must fail with 4 (got $RC: $ERR)"
+printf '%s\n' "$ERR" | grep -q 'symlink' && fail "a directory land cannot enter is not a symlink: $ERR"
+rm -rf "$repo/specs"
 
 # A pre-commit hook that rewrites the record and then refuses the commit
 # leaves nothing behind: the record is still this run's file.
