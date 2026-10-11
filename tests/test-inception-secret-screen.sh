@@ -116,6 +116,17 @@ out="$(PLANWRIGHT_SECRET_SCREEN_TOOL=none "$SCREEN" "$tmp/uprefix.md" 2>&1)"
 rc=$?
 assert_eq "uppercase provider prefix: exit 0" "0" "$rc"
 
+# A key type of several words, or with a digit in it, is a private-key header
+# too.
+mk pemwords "-----BEGIN ENCRYPTED RSA PRIVATE KEY""-----"
+mk pemdigit "-----BEGIN SM2 PRIVATE KEY""-----"
+for case in pemwords pemdigit; do
+  out="$(PLANWRIGHT_SECRET_SCREEN_TOOL=none "$SCREEN" "$tmp/$case.md" 2>&1)"
+  rc=$?
+  assert_eq "$case: exit 1" "1" "$rc"
+  assert_contains "$case: names the rule" "$case.md:1: private-key-block" "$out"
+done
+
 # Echo discipline (doctrine/security-posture.md): a file NAME is repo-controlled
 # input, so an escape sequence in one must not reach the terminal raw and drive
 # it. The finding is still reported; only the bytes are neutralized.

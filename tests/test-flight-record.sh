@@ -15,12 +15,14 @@
 #      restates the ask is refused; the pending-sign-off IDs surface in the
 #      lead as well as in the collapsed checklist.
 #   3. The ask is sanitized and markup-neutralized: control and invisible
-#      characters stripped, token-shaped secrets redacted (a pasted private
-#      key from its BEGIN line through its END line, or to the end), personal
-#      data in the ask and grounds redacted and noted while ordinary numbers
-#      pass, and an ask carrying a fence, a closing tag, a heading, or a
-#      record marker cannot close the collapse, forge a marker, or break a
-#      column-zero parse; a non-ASCII temp directory changes none of it.
+#      characters stripped, token-shaped secrets redacted (a pasted PEM, PGP,
+#      SSH2, or PuTTY private key from its first line through its own last
+#      line, or to the end, a line ending one key and beginning the next
+#      decided by its last marker), personal data in the ask and grounds
+#      redacted and noted while ordinary numbers pass, and an ask carrying a
+#      fence, a closing tag, a heading, or a record marker cannot close the
+#      collapse, forge a marker, or break a column-zero parse; a non-ASCII or
+#      relative temp directory changes none of it.
 #   4. Worker-authored inputs are screened: a structural line or a
 #      token-shaped secret is refused, an audit missing a contract element
 #      is refused naming it, and a screen finding naming no input is refused
@@ -34,11 +36,16 @@
 #      missing or malformed path, a second record that differs, the wrong
 #      branch, a symlinked directory on the path, a root other than the
 #      worktree's top level, or an index holding other changes; a commit the
-#      hooks refuse leaves nothing behind. A matching re-run succeeds, and
-#      races interleaved between land's checks and its write leave neither a
-#      committed-but-deleted record nor a stuck file, and write nothing
-#      through a symlink swapped in. The file home's render names the passed
-#      path.
+#      hooks refuse leaves nothing behind, even when a hook rewrote the
+#      record in place, and a record it cannot unstage stays on disk and is reported.
+#      A matching re-run succeeds (a CRLF checkout included), as does a run
+#      whose commit finds a concurrent run committed the same render. Races
+#      interleaved between land's checks and its write (a directory or a
+#      symlink appearing at the record's name or on its path, a second
+#      signal during rollback) leave neither a committed-but-deleted record
+#      nor a stuck file, and write nothing outside the checkout; a link that
+#      fails for another reason exits 4. The file home's render names the
+#      passed path.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -u
@@ -342,6 +349,8 @@ done
 printf '%s\n' "$OUT" | grep -q 'redacted: private-key-block' || fail "a key block redaction must be marked"
 printf '%s\n' "$OUT" | grep -qx '  Use this key:' || fail "the line before a key block must survive"
 printf '%s\n' "$OUT" | grep -qx '  Then rerun the deploy.' || fail "the line after a key block's END must survive"
+printf '%s\n' "$OUT" | grep -q 'personal data were redacted' \
+  && fail "a secret-only redaction must not be noted as personal data"
 printf 'Use this key:\n%s\n%s\n%s\n' "$KEY_BEGIN" "$KEY_BODY1" "$KEY_BODY2" >"$in/ask-key-open.txt"
 run_render pr --ask-file "$in/ask-key-open.txt"
 [ "$RC" -eq 0 ] || fail "render of an ask with an unterminated key block exited $RC: $ERR"
@@ -359,14 +368,27 @@ for part in "$KEY_BODY1" "$KEY_BODY2"; do
   case $OUT in *"$part"*) fail "back-to-back keys leaked a body line: ${part:0:12}" ;; esac
 done
 printf '%s\n' "$OUT" | grep -qx '  Done.' || fail "the line after back-to-back keys must survive"
-# PGP, SSH2, and PuTTY private keys are blocks too, through their own end.
+# A key whose BEGIN and END share one line opens no block: its END is the
+# line's last marker.
+printf 'One line:\n%s %s %s\nDone.\n' "$KEY_BEGIN" "$KEY_BODY1" "$KEY_END" >"$in/ask-key-line.txt"
+run_render pr --ask-file "$in/ask-key-line.txt"
+[ "$RC" -eq 0 ] || fail "render of an ask with a one-line key exited $RC: $ERR"
+case $OUT in *"$KEY_BODY1"*) fail "a one-line key leaked its body" ;; esac
+printf '%s\n' "$OUT" | grep -qx '  Done.' || fail "the line after a one-line key must survive"
+# PGP, SSH2, and PuTTY private keys are blocks too, through their own end, as
+# are PEM key types of several words or with a digit.
 PGP_BEGIN="-----BEGIN PGP PRIVATE KEY ""BLOCK-----"
 PGP_END="-----END PGP PRIVATE KEY ""BLOCK-----"
 SSH2_BEGIN="---- BEGIN SSH2 ENCRYPTED PRIVATE ""KEY ----"
 SSH2_END="---- END SSH2 ENCRYPTED PRIVATE ""KEY ----"
 PUTTY_BEGIN="PuTTY-User-Key-""File-3: ssh-ed25519"
 PUTTY_END="Private-""MAC: 0f1e2d3c4b5a69788796a5b4c3d2e1f0"
-for fmt in "PGP|$PGP_BEGIN|$PGP_END" "SSH2|$SSH2_BEGIN|$SSH2_END" "PuTTY|$PUTTY_BEGIN|$PUTTY_END"; do
+WORDS_BEGIN="-----BEGIN ENCRYPTED RSA PRIVATE ""KEY-----"
+WORDS_END="-----END ENCRYPTED RSA PRIVATE ""KEY-----"
+DIGIT_BEGIN="-----BEGIN SM2 PRIVATE ""KEY-----"
+DIGIT_END="-----END SM2 PRIVATE ""KEY-----"
+for fmt in "PGP|$PGP_BEGIN|$PGP_END" "SSH2|$SSH2_BEGIN|$SSH2_END" "PuTTY|$PUTTY_BEGIN|$PUTTY_END" \
+  "multi-word PEM|$WORDS_BEGIN|$WORDS_END" "digit PEM|$DIGIT_BEGIN|$DIGIT_END"; do
   name=${fmt%%|*}
   rest=${fmt#*|}
   printf 'Use this key:\n%s\n%s\n%s\n%s\nThen rerun the deploy.\n' \
@@ -432,8 +454,11 @@ printf '%s\n' "$OUT" | grep -q '^  \[redacted: .*personal-data-contact.*, a toke
 printf '%s\n' "$OUT" | grep -q 'token-shaped secret were redacted whole' || fail "a mixed line must note the secret"
 printf '%s\n' "$OUT" | grep -q 'personal data were redacted whole' || fail "a mixed line must note the personal data"
 # Near-misses, one per guard: a failed checksum, a digit run inside a hash, a
-# `+` glued to a word, a short international number, an SSN inside a longer
-# dashed run, and a dotted number with a leading country digit.
+# `+` glued to a word, a short international number or one with a doubled
+# separator, an SSN inside a longer dashed run, with mixed separators, or in
+# a range the SSA never issues, a NANP exchange starting with 1 or separators
+# that differ, a card issuer digit outside 2 to 6, and groups no card layout
+# has.
 {
   printf 'Fix PR #646 before 2026-10-11 and bump v0.56.0 to v0.57.0.\n'
   printf 'The race is in test-fleet-stop-sj.sh c20 at line 1234, run 1791679375.\n'
@@ -444,6 +469,8 @@ printf '%s\n' "$OUT" | grep -q 'personal data were redacted whole' || fail "a mi
   printf 'Ranges 10-078-05-1120-3 and 1.555.123.4567 stay.\n'
   printf 'Exchange 555-123-4567, area 900-12-3456, sizes 128 256 1024 4096.\n'
   printf 'At 1791679375009 the job ended; 4111 1111 1111 ran short.\n'
+  printf 'Moved +15000 -3200 and ids 078-05 1120, 078-00-1120, 078-05-0000, 000-12-3456, 666-12-3456.\n'
+  printf 'Dialed 555-234.5678; zeros 0000 0000 0000 0000 and 0000000000000000; ports 640 641 642 643 644.\n'
 } >"$in/ask-numbers.txt"
 run_render pr --ask-file "$in/ask-numbers.txt"
 [ "$RC" -eq 0 ] || fail "render of an ask with ordinary numbers exited $RC: $ERR"
