@@ -34,8 +34,9 @@
 # refused (a foreign directory at the worktree path, a symlinked or
 # non-directory .claude or .claude/worktrees, another project's spec branch,
 # a symlink or non-directory on the bundle path or a symlink inside the
-# bundle, in the start commit or the worktree, no default branch, a git
-# failure).
+# bundle, in the start commit or the worktree, a multiply-linked file inside
+# the bundle or a bundle the worktree scan cannot read, no default branch, a
+# git failure).
 set -u
 LC_ALL=C
 export LC_ALL
@@ -270,8 +271,8 @@ while [ -n "$rest" ]; do
     exit 4
   }
 done
-# Nor may anything inside the bundle, committed or not: the skills write
-# each bundle file in place.
+# Nor may anything inside the bundle, committed or not, be a symlink or a
+# multiply-linked file: the skills write each bundle file in place.
 # The scan fails closed: a directory it cannot read could hide a link.
 if [ -d "$bundle" ]; then
   why=$(find "$bundle" -mindepth 1 -type l 2>&1 >/dev/null) && [ -z "$why" ] || {
@@ -281,6 +282,12 @@ if [ -d "$bundle" ]; then
   link=$(find "$bundle" -mindepth 1 -type l -print 2>/dev/null | sed -n 1p)
   [ -z "$link" ] || {
     say "refused: $link is a symlink"
+    exit 4
+  }
+  # A hard link reaches outside as surely as a symlink; git never makes one.
+  link=$(find "$bundle" -mindepth 1 -type f -links +1 -print 2>/dev/null | sed -n 1p)
+  [ -z "$link" ] || {
+    say "refused: $link has more than one link"
     exit 4
   }
 fi

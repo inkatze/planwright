@@ -419,6 +419,18 @@ else
   ok "skipped as root: an unreadable directory inside the bundle"
 fi
 chmod 755 "$unrdir"
+# A bundle file hardlinked to a file outside the holder.
+sw "$W" hl
+hldir="$H/.claude/worktrees/hl-spec/projects/demo-root/hl"
+mkdir -p "$hldir" "$tmp/outside5"
+printf 'outside\n' >"$tmp/outside5/requirements.md"
+ln "$tmp/outside5/requirements.md" "$hldir/requirements.md"
+sw "$W" hl
+if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'requirements.md has more than one link'; then
+  ok "a multiply-linked bundle file is refused, naming it"
+else
+  fail "hardlinked bundle file: rc=$rc out=$out err=$err"
+fi
 # A symlink nested below the bundle's top level, on reuse and on recreate.
 sw "$W" nest
 nestwt="$H/.claude/worktrees/nest-spec"
