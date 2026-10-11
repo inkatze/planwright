@@ -1,0 +1,1 @@
+- 2026-10-10 [planwright] tests/test-fleet-stop-hl.sh [hl] c43 failed "the worker never reached its hold loop" in a loaded local gate (942s wall-clock, three gates queued on the host lock) on the test-throughput Task 4 branch, whose diff touches no fleet code. obs:e5277d5d saw the same message on [sj] c43 and [hl] c20; the headless rung c43 flaps too.
