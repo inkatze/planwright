@@ -317,6 +317,38 @@ run_render pr --ask-file "$in/ask-upper.txt"
 case $OUT in *"$UPPER_VAL"*) fail "an uppercase key assignment reached the record" ;; esac
 printf '%s\n' "$OUT" | grep -q 'redacted: opaque-assignment' || fail "an uppercase key assignment must be redacted"
 
+# A non-ASCII temp directory neither lets a finding pass nor misplaces its
+# redaction: the screen reads fixed ASCII names, not the work directory's path.
+EMDASH=$(printf '\342\200\224')
+mkdir -p "$tmp/t${EMDASH}mp"
+OUT=$(TMPDIR="$tmp/t${EMDASH}mp" /bin/sh "$SCRIPT" render --home pr --flight-id "$FID" \
+  --ask-file "$in/ask.txt" --grounds-file "$in/grounds.txt" --summary-file "$in/summary.md" \
+  --verification-file "$in/verification.md" --audit-file "$in/audit.md" --handle "$HANDLE" 2>"$tmp/err")
+RC=$?
+ERR=$(cat "$tmp/err")
+[ "$RC" -eq 0 ] || fail "render under a non-ASCII TMPDIR exited $RC: $ERR"
+case $OUT in *"$TOKEN"*) fail "under a non-ASCII TMPDIR a token-shaped secret reached the record" ;; esac
+printf '%s\n' "$OUT" | grep -q 'redacted: github-token' || fail "under a non-ASCII TMPDIR the redaction must be marked"
+printf '%s\n' "$OUT" | grep -q 'hiddenjoin' || fail "under a non-ASCII TMPDIR an unflagged line must survive"
+printf 'Rotated the key %s.\n' "$TOKEN" >"$in/secret-tmp.md"
+OUT=$(TMPDIR="$tmp/t${EMDASH}mp" /bin/sh "$SCRIPT" render --home pr --flight-id "$FID" \
+  --ask-file "$in/ask.txt" --grounds-file "$in/grounds.txt" --summary-file "$in/secret-tmp.md" \
+  --verification-file "$in/verification.md" --audit-file "$in/audit.md" --handle "$HANDLE" 2>"$tmp/err")
+RC=$?
+[ "$RC" -eq 2 ] || fail "under a non-ASCII TMPDIR a secret in the summary must be refused with 2 (got $RC)"
+
+# A finding that names no input is refused, never passed: a screen whose
+# report this script cannot place has not cleared anything.
+mkdir -p "$tmp/foreign/scripts"
+cp "$ROOT/scripts/flight-record.sh" "$ROOT/scripts/flight-text.sh" "$ROOT/scripts/flight-id.sh" \
+  "$tmp/foreign/scripts/"
+printf '#!/bin/sh\nprintf "elsewhere.txt:1: github-token (value redacted)\\n" >&2\nexit 1\n' \
+  >"$tmp/foreign/scripts/inception-secret-screen.sh"
+defaults
+/bin/sh "$tmp/foreign/scripts/flight-record.sh" render --home pr "${args[@]}" >/dev/null 2>"$tmp/err"
+RC=$?
+[ "$RC" -eq 4 ] || fail "a finding naming no input must fail with 4 (got $RC: $(cat "$tmp/err"))"
+
 # CR line endings stay line breaks, and a CRLF ask is not flagged as stripped.
 printf 'first line\r\nsecond line\rthird line\r\n' >"$in/ask-cr.txt"
 run_render pr --ask-file "$in/ask-cr.txt"

@@ -163,34 +163,48 @@ blank() {
   [ -z "$(tr -d ' \t\n\r' <"$1")" ]
 }
 
-# screen_all <file>... — run the repository's secret screen once over every
-# input (its built-in pattern set, so the verdict does not vary with the
-# host's tools) and write `<path><TAB><line><TAB><rule>` per finding to
-# $work/hits. An unusable screen exits 4. The screen never prints the matched
-# text, and neither does anything here.
+# screen_all <name>... — run the repository's secret screen once over every
+# input, named relative to $work (its built-in pattern set, so the verdict
+# does not vary with the host's tools), and write `<name><TAB><line><TAB><rule>`
+# per finding to $work/hits. The screen runs inside $work on those fixed ASCII
+# names because it strips bytes from the paths it reports, so a work directory
+# under a non-ASCII TMPDIR would report paths no input matches. A finding
+# naming anything but an input, or an unusable screen, exits 4. The screen
+# never prints the matched text, and neither does anything here.
 screen_all() {
   _src=0
-  PLANWRIGHT_SECRET_SCREEN_TOOL=none /bin/sh "$SCREEN" -- "$@" >/dev/null 2>"$work/screen.err" </dev/null || _src=$?
+  (cd "$work" && PLANWRIGHT_SECRET_SCREEN_TOOL=none exec /bin/sh "$SCREEN" -- "$@") \
+    >/dev/null 2>"$work/screen.err" </dev/null || _src=$?
   : >"$work/hits" || die 4 "cannot write the screen's findings"
   case $_src in
     0) return 0 ;;
     1) ;;
     *) die 4 "the secret screen could not run (exit $_src)" ;;
   esac
-  awk '
+  _inputs=''
+  for _n in "$@"; do _inputs="$_inputs$_n$LF"; done
+  awk -v inputs="$_inputs" '
+    BEGIN { n = split(inputs, a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") ok[a[i]] = 1 }
     match($0, /:[0-9]+: [a-z0-9-]+ \(value redacted\)$/) {
       path = substr($0, 1, RSTART - 1)
       rest = substr($0, RSTART + 1)
       n = index(rest, ": ")
       rule = substr(rest, n + 2)
       sub(/ \(value redacted\)$/, "", rule)
+      if (!(path in ok)) { stray = 1; exit }
       print path "\t" substr(rest, 1, n - 1) "\t" rule
-    }' "$work/screen.err" >"$work/hits" || die 4 "cannot read the secret screen's report"
+    }
+    END { exit stray ? 3 : 0 }' "$work/screen.err" >"$work/hits"
+  case $? in
+    0) ;;
+    3) die 4 "the secret screen reported a finding in no input this script screened; refusing to pass the inputs" ;;
+    *) die 4 "cannot read the secret screen's report" ;;
+  esac
   [ -s "$work/hits" ] || die 4 "the secret screen reported a finding this script could not place"
 }
 
-# hits_for <file> <out> — the screen's `<line><TAB><rule>` findings in <file>;
-# true when there are any.
+# hits_for <name> <out> — the screen's `<line><TAB><rule>` findings in the
+# input <name>; true when there are any.
 hits_for() {
   awk -F '\t' -v p="$1" '$1 == p { print $2 "\t" $3 }' "$work/hits" >"$2" || die 4 "cannot read the screen's findings"
   [ -s "$2" ]
@@ -209,7 +223,7 @@ operator_text() {
 # replaced whole; REDACTED is 1 when any was.
 redact() {
   REDACTED=0
-  if hits_for "$work/$1.clean" "$work/$1.hits"; then
+  if hits_for "$1.clean" "$work/$1.hits"; then
     awk -F '\t' '
       NR == FNR { r[$1] = (r[$1] == "" ? $2 : r[$1] ", " $2); next }
       FNR in r { print "[redacted: " r[FNR] ", a token-shaped secret]"; next }
@@ -297,8 +311,8 @@ worker_text() {
   [ -z "$_why" ] || die 2 "--$1 carries $_why, which would alter the record's structure; remove it and render again"
 }
 
-# refuse_secrets <name> <file> — refuse a worker input the screen flagged,
-# naming the rules and never the text.
+# refuse_secrets <flag> <name> — refuse the worker input <name> the screen
+# flagged, naming the rules and never the text.
 refuse_secrets() {
   if hits_for "$2" "$work/$1.hits"; then
     die 2 "--$1 carries a token-shaped secret ($(cut -f2 "$work/$1.hits" | sort -u | tr '\n' ' ' | sed 's/ $//')); remove it and render again"
@@ -522,14 +536,14 @@ grounds_stripped=$CLEAN_STRIPPED
 worker_text summary-file "$summary_file" "$work/summary"
 worker_text verification-file "$verification_file" "$work/verification"
 worker_text audit-file "$audit_file" "$work/audit" audit
-set -- "$work/ask-file.clean" "$work/grounds-file.clean" "$work/summary" "$work/verification" "$work/audit"
+set -- ask-file.clean grounds-file.clean summary verification audit
 if [ -n "$scoping_file" ]; then
   worker_text scoping-file "$scoping_file" "$work/scoping"
-  set -- "$@" "$work/scoping"
+  set -- "$@" scoping
 fi
 if [ -n "$revert_file" ]; then
   worker_text revert-file "$revert_file" "$work/revert"
-  set -- "$@" "$work/revert"
+  set -- "$@" revert
 fi
 
 screen_all "$@"
@@ -537,11 +551,11 @@ redact ask-file "$work/ask"
 ask_redacted=$REDACTED
 redact grounds-file "$work/grounds"
 grounds_redacted=$REDACTED
-refuse_secrets summary-file "$work/summary"
-refuse_secrets verification-file "$work/verification"
-refuse_secrets audit-file "$work/audit"
-[ -z "$scoping_file" ] || refuse_secrets scoping-file "$work/scoping"
-[ -z "$revert_file" ] || refuse_secrets revert-file "$work/revert"
+refuse_secrets summary-file summary
+refuse_secrets verification-file verification
+refuse_secrets audit-file audit
+[ -z "$scoping_file" ] || refuse_secrets scoping-file scoping
+[ -z "$revert_file" ] || refuse_secrets revert-file revert
 
 _missing=''
 _old_ifs=$IFS
