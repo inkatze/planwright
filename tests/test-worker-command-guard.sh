@@ -1016,6 +1016,7 @@ first_half() {
   zsh_missed=$(
     eval "$(sed -n '/^assign_name_ok() {$/,/^}$/p' "$HOOK")"
     NL=$'\n'
+    # shellcheck disable=SC2034 # read by the eval'd assign_name_ok
     HOOK_ENV_NAMES=$NL
     for n in TERM TERMINFO TERMINFO_DIRS WORDCHARS KEYBOARD_HACK ZLE_RPROMPT_INDENT POSTEDIT RPS1 \
       RPS2 RPROMPT RPROMPT2 SPROMPT prompt PROMPT PROMPT2 PROMPT3 PROMPT4 PSVAR psvar fignore \
@@ -1249,6 +1250,7 @@ first_half() {
   if (
     eval "$(sed -n '/^canon_dir_cached() {$/,/^}$/p' "$HOOK")"
     want=$(cd -P "$SANDBOX" && pwd)
+    # shellcheck disable=SC2329 # called by the eval'd canon_dir_cached
     cd() {
       echo x >>"$SANDBOX/cd-calls"
       builtin cd "$@"
