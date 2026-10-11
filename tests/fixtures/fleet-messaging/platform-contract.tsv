@@ -1,0 +1,30 @@
+# The messaging platform contract scripts/fleet-messaging.sh consumes, frozen
+# as last observed (doctrine/messaging-transport.md), read by
+# tests/test-fleet-messaging-contract.sh. Raise last_verified_pin to each newly
+# observed CLI version, never lower it. A behavior not yet observed live reads
+# `unrecorded`; replace it with the observed outcome. Columns: key<TAB>value.
+last_verified_pin	2.1.296
+documented_minimum	2.1.224
+probe_minimum	2.1.248
+env_socket	CLAUDE_CODE_MESSAGING_SOCKET
+env_token	CLAUDE_CODE_MESSAGING_TOKEN
+post_argv	nc -N -w 5 -U
+frame_keys	type message from msg_id
+frame_type	user
+message_keys	role content
+reply_address_prefix	uds:
+post_response	none
+status_frame_type	control
+status_frame_action	peer_message_status
+status_frame_keys	action status reason from orig_msg_id
+status_values	held denied expired delivered refused dropped
+session_record_keys	pid sessionId cwd startedAt procStart version peerProtocol peerFeatures kind entrypoint pidDomain messagingSocketPath name nameSource nameSince status updatedAt statusUpdatedAt
+session_record_name_key	name
+session_record_socket_key	messagingSocketPath
+behavior_notice_gated_by_hold	unrecorded
+behavior_notice_gated_by_refuse	unrecorded
+behavior_second_notify_when_idle	unrecorded
+behavior_name_beside_worktree_tmux	unrecorded
+behavior_claude_pid_in_session_start_hook	unrecorded
+behavior_held_released_on_accept	unrecorded
+behavior_scheduled_wakeup_by_session_type	unrecorded
