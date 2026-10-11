@@ -1224,6 +1224,16 @@ first_half() {
   assert_defer "REQ-E1.6: an opaque operand of a reader" "cat \$X"
   assert_defer "REQ-E1.6: an opaque word in a reader's path" "grep -n x src/\$X"
   assert_defer "REQ-E1.6: an unexpanded redirect source" "grep x < \$f"
+  assert_defer "REQ-E1.6: a redirect source glob" "grep x < /proc/1234/env*"
+  if [ -d /proc/1 ]; then
+    assert_defer "REQ-E1.6: a glob whose directory resolves into /proc" "cat /dev/fd/../../1/env*"
+  fi
+  for v in tail wc cut od nl paste column md5sum sha1sum sha256sum sha512sum cksum shellcheck yamllint; do
+    assert_defer "REQ-E1.6: an opaque operand of $v" "$v \$X"
+  done
+  for v in comm cmp diff; do
+    assert_defer "REQ-E1.6: an opaque second operand of $v" "$v a \$X"
+  done
   assert_defer "REQ-E1.6: a glob directory with a matching last component" "cat */*"
   assert_defer "REQ-E1.6: inside fish -c" "fish -c 'cat /proc/1234/environ'"
   assert_defer "REQ-E1.6: past a time prefix" "time cat /proc/1234/environ"

@@ -840,6 +840,11 @@ assert_defer "REQ-E1.6: another process's environ" "cat /proc/1234/environ"
 assert_defer "REQ-E1.6: a redirect source naming one" "grep -a x < /proc/1234/environ"
 assert_defer "REQ-E1.6: a glob over every process" "cat /proc/*/environ"
 assert_defer "REQ-E1.6: a glob in the last component" "cat /proc/1234/env*"
+assert_defer "REQ-E1.6: a redirect source glob" "grep x < /proc/1234/env*"
+assert_defer "REQ-E1.6: an unexpanded redirect source" "grep x < \$f"
+if [ -d /proc/1 ]; then
+  assert_defer "REQ-E1.6: a glob whose directory resolves into /proc" "cat /dev/fd/../../1/env*"
+fi
 assert_defer "REQ-E1.6: \$_ reaching a reader" "echo a; cat \$_"
 assert_defer "REQ-E1.6: a loop head naming one" "for f in /proc/1234/environ; do cat \$f; done"
 assert_allow "REQ-E1.6: the reading process's own environ" "cat /proc/self/environ"
