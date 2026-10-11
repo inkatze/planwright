@@ -25,6 +25,10 @@ set -eu
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# Every reason goes through the secret screen; the real scanner costs seconds a
+# call and is covered by the screen's own tests.
+PLANWRIGHT_SECRET_SCREEN_TOOL=none
+export PLANWRIGHT_SECRET_SCREEN_TOOL
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
