@@ -320,6 +320,23 @@ render=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$ado
 printf '%s\n' "$render" | grep -q '^  vendors:        none recorded$' || fail "render: an empty store does not say none recorded: $render"
 pass "an empty store renders as none recorded"
 
+# A store status cannot read fails closed: never a held vendor rendered clear
+# or missing.
+new_home stats-unreadable
+run hold --vendor sample-reviewer --unit spec-a:task-1 --step bot-review --reason "quota" --now "$NOW" >/dev/null 2>&1 || fail "unreadable fixture: hold failed"
+for f in hold.tsv ledger.tsv; do
+  chmod 000 "$home/fleet/quota/sample-reviewer/$f"
+  rc=0
+  run status --now "$NOW" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 6 ] || fail "status over an unreadable $f exited $rc, not 6"
+  render=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
+    /bin/sh "$FSTATS" render 2>/dev/null) || fail "fleet-stats render (unreadable) exited non-zero"
+  printf '%s\n' "$render" | grep -q '^  vendors:        unknown$' || fail "render over an unreadable $f is not unknown: $render"
+  chmod 600 "$home/fleet/quota/sample-reviewer/$f"
+done
+pass "status fails closed over an unreadable store, and the render says unknown"
+
 # --- 8. The fleet home is outside the repository's tracked tree -------------
 inherited_home=$(fleet_home_inherited)
 if [ -n "$inherited_home" ]; then

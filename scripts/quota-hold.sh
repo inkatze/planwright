@@ -424,12 +424,27 @@ case $verb in
   status)
     days=$(retention_days) || exit $?
     cutoff=$((now - days * 86400))
+    if [ "$vendor_set" != 1 ] && [ -e "$store" ] && { [ ! -r "$store" ] || [ ! -x "$store" ]; }; then
+      die 6 "cannot read the quota store"
+    fi
+    vendors=$(list_vendors)
+    [ -n "$work" ] || work=$(mktemp -d "${TMPDIR:-/tmp}/quota-hold.XXXXXX") || die 6 "cannot create a temporary directory"
     printf 'retention\t%s\n' "$days"
-    list_vendors | while IFS= read -r v; do
+    for v in $vendors; do
       hf="$store/$v/hold.tsv"
       lf="$store/$v/ledger.tsv"
-      [ -f "$hf" ] || hf=/dev/null
-      [ -f "$lf" ] || lf=/dev/null
+      # This read takes no lock, and resume removes the hold file under its
+      # own: read a copy, and a file gone between the test and the copy as
+      # no holder.
+      hsnap=/dev/null
+      if [ -e "$hf" ]; then
+        if cp "$hf" "$work/hold" 2>/dev/null; then
+          hsnap="$work/hold"
+        elif [ -e "$hf" ]; then
+          die 6 "cannot read the hold store of $v"
+        fi
+      fi
+      [ -e "$lf" ] || lf=/dev/null
       awk -F "$TAB" -v v="$v" -v cutoff="$cutoff" "$AWK_GRAMMAR"'
         FILENAME == ARGV[1] {
           if (!hold_ok()) next
@@ -447,7 +462,8 @@ case $verb in
           split("request answer refusal hold resume", ev, " ")
           for (i = 1; i <= 5; i++) printf "count\t%s\t%s\t%d\n", v, ev[i], c[ev[i]] + 0
         }
-      ' "$hf" "$lf" </dev/null | tr -d '\000-\010\013-\037\177\200-\237' || exit 6
+      ' "$hsnap" "$lf" </dev/null >"$work/status" || die 6 "cannot read the store of $v"
+      tr -d '\000-\010\013-\037\177\200-\237' <"$work/status" || die 6 "cannot render the status of $v"
     done
     exit 0
     ;;
