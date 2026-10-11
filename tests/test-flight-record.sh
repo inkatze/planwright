@@ -309,6 +309,14 @@ run_render pr --grounds-file "$in/grounds-invis.txt"
 collapsed_of "$OUT" | awk '/^### Route and grounds$/ {on=1} /^### Record home$/ {on=0} on' \
   | grep -q 'were stripped' || fail "the grounds section must note a strip"
 
+# An uppercase key assignment in the ask is caught and redacted.
+UPPER_VAL="Zq9$(printf 'x%.0s' $(seq 1 24))"
+printf 'Use the new one.\nAPI_KEY=%s\n' "$UPPER_VAL" >"$in/ask-upper.txt"
+run_render pr --ask-file "$in/ask-upper.txt"
+[ "$RC" -eq 0 ] || fail "render of an ask with an uppercase key assignment exited $RC: $ERR"
+case $OUT in *"$UPPER_VAL"*) fail "an uppercase key assignment reached the record" ;; esac
+printf '%s\n' "$OUT" | grep -q 'redacted: opaque-assignment' || fail "an uppercase key assignment must be redacted"
+
 # CR line endings stay line breaks, and a CRLF ask is not flagged as stripped.
 printf 'first line\r\nsecond line\rthird line\r\n' >"$in/ask-cr.txt"
 run_render pr --ask-file "$in/ask-cr.txt"

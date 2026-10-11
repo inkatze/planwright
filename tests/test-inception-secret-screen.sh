@@ -94,6 +94,17 @@ assert_not_contains "aws: the matched value is redacted" "IOSFODNN7EXAMPLE" "$ou
 out="$("$SCREEN" "$tmp/generic.md" 2>&1)"
 assert_not_contains "generic: the matched value is redacted" "s3cr3tVALUE" "$out"
 
+# The assignment keyword matches in any case: an environment-style name is the
+# common spelling.
+mk upper "API_KEY=""s3cr3tVALUE0123456789abcdefXYZ"
+mk mixed "Password: ""s3cr3tVALUE0123456789abcdefXYZ"
+for case in upper mixed; do
+  out="$(PLANWRIGHT_SECRET_SCREEN_TOOL=none "$SCREEN" "$tmp/$case.md" 2>&1)"
+  rc=$?
+  assert_eq "$case-case assignment: exit 1" "1" "$rc"
+  assert_contains "$case-case assignment: names the rule" "$case.md:1: opaque-assignment" "$out"
+done
+
 # Echo discipline (doctrine/security-posture.md): a file NAME is repo-controlled
 # input, so an escape sequence in one must not reach the terminal raw and drive
 # it. The finding is still reported; only the bytes are neutralized.
