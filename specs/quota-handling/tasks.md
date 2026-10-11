@@ -256,6 +256,7 @@ by `scripts/run-tests.sh`.
   now states it (any run in the flipping worktree's record cache, retired
   by a later same-head pass); and REQ-B1.6's skip rule reads as
   custom-steps REQ-J1.1's leading prefix of same-head steps.
+- **Task 3** — pending ready-flip: ready-guard failed on b4731bb904b1
 
 ## Deferred
 
