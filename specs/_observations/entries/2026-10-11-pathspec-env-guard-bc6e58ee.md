@@ -1,0 +1,1 @@
+- 2026-10-11 [planwright] check-launch-shape.sh and check-script-modes.sh read git pathspec magic but leave GIT_LITERAL_PATHSPECS and its siblings inherited, so an operator shell exporting one turns their pathspecs literal and the checks pass on nothing; spec-store-worktree.sh clears them since its ownership check hit the same fail-open
