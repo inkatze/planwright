@@ -279,7 +279,9 @@ personal_data() {
       split("", seen)
       s = " " $0 " "
       # A social security number: one separator, dash or space, and an area,
-      # group, and serial the SSA issues.
+      # group, and serial the SSA issues. Known false positive, kept by the
+      # operator: a spaced triple of the same shape, such as ports or sizes
+      # (`443 80 8080`), is redacted too.
       off = 0
       while (each("[0-9][0-9][0-9][ -][0-9][0-9][ -][0-9][0-9][0-9][0-9]")) {
         if (!alone() || substr(m, 4, 1) != substr(m, 7, 1)) continue

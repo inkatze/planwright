@@ -497,6 +497,14 @@ printf '%s\n' "$OUT" | grep -q 'personal data were redacted whole' || fail "a mi
 run_render pr --ask-file "$in/ask-numbers.txt"
 [ "$RC" -eq 0 ] || fail "render of an ask with ordinary numbers exited $RC: $ERR"
 printf '%s\n' "$OUT" | grep -q 'redacted' && fail "ordinary numbers must not be redacted: $(printf '%s\n' "$OUT" | grep redacted)"
+# Known false positive, kept by operator decision: a spaced triple shaped
+# like an SSN is redacted as one.
+printf 'Reach the customer.\nOpen ports 443 80 8080 on the host.\n' >"$in/ask-ports.txt"
+run_render pr --ask-file "$in/ask-ports.txt"
+[ "$RC" -eq 0 ] || fail "render of an ask with a port triple exited $RC: $ERR"
+printf '%s\n' "$OUT" | grep -qF '[redacted: personal-data-identity, personal data]' \
+  || fail "a port triple shaped like a spaced SSN is a documented false positive and must stay redacted"
+
 # A long line of digit groups costs about what a line of words its size
 # does: the card scan is bounded. Compared in CPU time within one run, so
 # host load moves both sides together.
