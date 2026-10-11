@@ -191,6 +191,25 @@ again=$(run resume --vendor sample-reviewer --now $((NOW + 20))) || fail "resume
 [ "$(grep -c "${TAB}resume${TAB}" "$(ledger sample-reviewer)")" = 1 ] || fail "resume of a clear vendor wrote a ledger line"
 pass "resume releases every holder once and records it"
 
+# A ledger write that fails leaves the hold store as it was: a hold that exits
+# 6 held nothing, and a resume that exits 6 released nothing.
+new_home ledger-fails
+vdir="$home/fleet/quota/sample-reviewer"
+mkdir -p "$vdir/ledger.tsv"
+rc=0
+run hold --vendor sample-reviewer --unit spec-a:task-1 --step bot-review --reason "quota" --now "$NOW" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 6 ] || fail "ledger-fails: a hold whose ledger append failed exited $rc, not 6"
+[ ! -s "$vdir/hold.tsv" ] || fail "ledger-fails: a hold that exited 6 left a holder: $(cat "$vdir/hold.tsv")"
+rmdir "$vdir/ledger.tsv"
+run hold --vendor sample-reviewer --unit spec-a:task-1 --step bot-review --reason "quota" --now "$NOW" >/dev/null 2>&1 || fail "ledger-fails: the hold failed once the ledger was writable"
+rm -f "$vdir/ledger.tsv"
+mkdir "$vdir/ledger.tsv"
+rc=0
+run resume --vendor sample-reviewer --now "$NOW" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 6 ] || fail "ledger-fails: a resume whose ledger append failed exited $rc, not 6"
+grep -q "${TAB}spec-a:task-1${TAB}" "$vdir/hold.tsv" || fail "ledger-fails: a resume that exited 6 released its holders"
+pass "a failed ledger write leaves the hold store unchanged"
+
 # --- 4. The ledger, its counts, and retention pruning -----------------------
 new_home ledger
 run record --vendor sample-reviewer --event request --unit spec-a:task-1 --pr 42 --head "$HEAD40" --now $((NOW - 100 * DAY)) || fail "record request (old) failed"

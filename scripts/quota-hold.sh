@@ -362,10 +362,11 @@ case $verb in
       { print }
       END { if (!found) print now, u, ENVIRON["QH_STEP"], ENVIRON["QH_RESET"], ENVIRON["QH_REC"], ENVIRON["QH_REASON"], "end" }
     ' "$src" >"$CUR_TMP" || die 6 "cannot rewrite the hold store"
+    since=$(awk -F "$TAB" '{ if (m == "" || $1 + 0 < m + 0) m = $1 } END { print m }' "$CUR_TMP")
+    # The ledger line goes first, so a failed write leaves nothing held.
+    ledger_append "$dir" hold "$unit" "$(none "$pr")" "$(none "$head")" "$(none "$recognizer")" "$REASON"
     mv -f "$CUR_TMP" "$hf" || die 6 "cannot commit the hold store"
     CUR_TMP=""
-    since=$(awk -F "$TAB" '{ if (m == "" || $1 + 0 < m + 0) m = $1 } END { print m }' "$hf")
-    ledger_append "$dir" hold "$unit" "$(none "$pr")" "$(none "$head")" "$(none "$recognizer")" "$REASON"
     unlock_vendor "$dir"
 
     if [ -n "$reset" ]; then
@@ -403,10 +404,12 @@ case $verb in
     fi
     released=$(awk -F "$TAB" -v v="$vendor" "$AWK_GRAMMAR"'
       hold_ok() { printf "released\t%s\t%s\n", $2, $3 }' "$hf") || die 6 "cannot read the hold store"
-    rm -f "$hf" || die 6 "cannot clear the hold store"
+    # The ledger line goes first, so a failed write releases nobody and the
+    # resume can be retried.
     [ -z "$released" ] || ledger_append "$dir" resume - - - - "$REASON"
-    unlock_vendor "$dir"
+    rm -f "$hf" || die 6 "cannot clear the hold store"
     [ -z "$released" ] || printf '%s\n' "$released"
+    unlock_vendor "$dir"
     exit 0
     ;;
 
