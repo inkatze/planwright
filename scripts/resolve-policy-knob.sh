@@ -1,8 +1,8 @@
 #!/bin/sh
 # resolve-policy-knob.sh — resolve one human-gates policy knob through the
 # shared resolver with its legal values and its strict degrade target, so every
-# reader (the policy guard, the ready-flip and merge helpers, the base sync)
-# gets the same answer from one table.
+# reader (the policy guard, the ready-guard, the ready-flip and merge helpers,
+# the base sync) gets the same answer from one table.
 #
 # Usage: resolve-policy-knob.sh <knob>
 #

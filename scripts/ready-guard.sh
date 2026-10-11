@@ -39,14 +39,16 @@
 #
 # Security contract:
 #   * No LLM and no model/API call in the decision path (REQ-C1.2, REQ-D1.4);
-#     purely deterministic shell over two GitHub reads.
+#     purely deterministic shell over two GitHub reads, plus, for a PR behind
+#     its base, one bounded local config read (behind_base_policy).
 #   * The intercepted command / tool payload is strictly INERT DATA (REQ-C1.5):
 #     never eval-ed, re-expanded, glob-expanded, or executed. Selectors are
 #     grammar-validated and passed to gh as separate argv arguments, never
 #     interpolated into a command string (REQ-C1.9).
 #   * No local git state at all (D-5): no ref, no object, no `is-ancestor`, no
 #     `git fetch`. Both signals are server-computed against the PR's real base,
-#     so the decision is identical for every flipper and every base branch.
+#     so for a given ready_guard_behind_base value the decision is identical
+#     for every flipper and every base branch.
 #   * Every remote call is wall-clock bounded (REQ-C1.3). No bounding binary on
 #     PATH is itself a DENY: a hung PreToolUse hook that produces no output is a
 #     silent fail-OPEN, which is the one outcome this guard may never have.
@@ -1010,8 +1012,9 @@ evaluate_predicate() {
 
 # behind_base_policy — ready_guard_behind_base from the core and adopter layers
 # only. The repo-side layers sit inside a checkout the flipping session can
-# edit, and finding the primary checkout's takes the local git D-5 rules out,
-# so PLANWRIGHT_REPO_ROOT=none and an empty legacy local-config path drop them.
+# edit, and locating the primary checkout's layers takes the local git D-5
+# rules out, so PLANWRIGHT_REPO_ROOT=none and an empty legacy local-config path
+# drop them.
 # Read only for a PR that is behind, so a current PR pays nothing. A missing
 # resolver, a timeout, a failed read, or any answer but conflict-only is
 # refuse: no failure here can relax the check.

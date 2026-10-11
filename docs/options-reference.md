@@ -27,7 +27,10 @@ the worker's own worktree or an inherited `PLANWRIGHT_REPO_ROOT`: an edit a
 worker makes to its worktree's `.claude/planwright.yml` or
 `.claude/planwright.local.yml` governs nothing until it merges. A repository
 whose primary checkout cannot be found (a bare repository's worktree, or no
-repository at all) refuses the act.
+repository at all) refuses the act. `ready_guard_behind_base` is the
+exception to that read: the ready-guard, not the policy guard, reads it, from
+the core and adopter layers only, so no repo-tracked or machine-local value
+governs it, merged or not.
 
 Format constraints the checker relies on: each row's first table cell must
 contain only the backticked option name (annotations go in the Effect

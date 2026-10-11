@@ -165,7 +165,9 @@ adopter or machine-local value or file degrades each to its strict value, and
 `protected_branches` refuses the act at every layer. For these knobs, a key
 written with a space before its colon (`merge_policy : human`) or set twice in
 one file is malformed in that layer rather than skipped or read once. Each row names its
-target. `ready_flip_ci_wait` is the exception: it is a bound, not a gate, so a
+target. `ready_guard_behind_base` reads only the core and adopter layers, so
+its repo-tracked and machine-local values are ignored rather than degraded.
+`ready_flip_ci_wait` is the exception: it is a bound, not a gate, so a
 malformed value degrades to its core default and a malformed file is skipped
 as above.
 
