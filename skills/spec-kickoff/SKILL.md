@@ -118,7 +118,7 @@ Superseded are terminal: refuse — no skill-driven transition leaves them.
 
 1. **Parse `$ARGUMENTS`.** Resolve `<root>` and its posture per
    `docs/spec-location.md`; outside `same-repo`, its table governs every git
-   step and `<root>/<spec>`. Expect a bare `<spec>` (alias `specs/<spec>`, one
+   step, `<root>/<spec>`, and walkthrough suggestion. Expect a bare `<spec>` (alias `specs/<spec>`, one
    trailing slash allowed). Validate the mapped identifier against the anchored, full-string
    pattern `^[a-z0-9][a-z0-9-]*$`, maximum length 64 (REQ-A1.8), **before** it
    appears in any path, branch name, or command; a failing identifier is never

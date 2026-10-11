@@ -89,7 +89,7 @@ Doctrine: point-of-use decision-domains (the design-phase catalog walk)
    elicitation starts.
 2. **Detect the git state.** Resolve `<root>` and its posture per
    `docs/spec-location.md`; outside `same-repo`, its table governs
-   `<root>/<spec>` and the branch, worktree, commit steps below. Not a git repository: degrade
+   `<root>/<spec>`, the git steps and walkthrough suggestion below. Not a git repository: degrade
    per REQ-K1.7 — say so up front, elicit and write the bundle in place, and
    skip every branch/worktree/commit step below, surfacing at the end what
    was skipped and why. No remote configured: irrelevant here; note it only

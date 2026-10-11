@@ -39,6 +39,7 @@ commit trailers stay in the work repository in every posture.
 | Push and spec PR | the work repository | the holder | skipped |
 | Spec PR ready flip | per `mark_spec_pr_ready_on_kickoff` | the same, on the holder's PR | skipped |
 | Spec guards (CI, hooks) | the work repository's | the holder's, if wired | none |
+| `/spec-walkthrough` suggestion | made | skipped for a Draft, which lives only on the spec branch | made |
 
 **`separate-repo`.** The session stays in the work repository and works on
 the holder by path. `scripts/spec-store-worktree.sh <spec>` opens the spec
