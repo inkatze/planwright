@@ -700,6 +700,21 @@ dead=$(owner)
 kill_owner "$dead"
 sp -- take p "$dead" >/dev/null 2>&1
 check $(($? == 2 ? 0 : 1)) "a take for an owner that is not running is refused" "a dead owner was given a slot"
+# A failed `kill -0` prints an error the shell prefixes with the running
+# script's path, so run from a path naming permission a dead owner must still
+# read dead.
+perm_root="$tmp/worker-permission-ergonomics-not-permitted"
+mkdir -p "$perm_root"
+cp -R "$repo_root/scripts" "$repo_root/config" "$perm_root/"
+sp_saved=$SP
+SP="$perm_root/scripts/step-pool.sh"
+dead=$(owner)
+kill_owner "$dead"
+sp -- take p "$dead" >/dev/null 2>"$tmp/err"
+rc=$?
+SP=$sp_saved
+[ "$rc" -eq 2 ] && grep -q "owner $dead is not running" "$tmp/err"
+verdict "a dead owner is refused from a path naming permission" "dead owner from a permission path: rc=$rc" "$tmp/err"
 [ ! -e "$marker" ]
 verdict "no fixture command ran" "the marker exists"
 
