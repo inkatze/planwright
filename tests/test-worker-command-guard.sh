@@ -1314,6 +1314,9 @@ first_half() {
   assert_defer "REQ-E1.6: a later -e makes the first operand a file" "grep environ -e x"
   assert_defer "REQ-E1.6: -f in a cluster makes the first operand a file" "grep -nf p environ"
   assert_defer "REQ-E1.6: --regexp makes the first operand a file" "rg --regexp=x environ"
+  assert_defer "REQ-E1.6: a glob pattern operand expands into files grep reads" "grep /proc/*/environ"
+  assert_defer "REQ-E1.6: a brace pattern operand expands into files" "grep {x,/proc/1234/environ}"
+  assert_allow "REQ-E1.6: a quoted glob pattern stays one word" "grep -n 'env*ron' README.md"
   assert_allow "REQ-E1.6: environ as an echo operand" "echo environ"
   assert_allow "REQ-E1.6: environ as a git log pattern" "git log --grep environ"
   for v in "sed -n p" sort uniq file "jq -R ." "rg x" "awk 1" shfmt; do

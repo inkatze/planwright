@@ -2081,6 +2081,11 @@ environ_words_ok() {
         [ "$pi" -gt 0 ] || pi=$i
       done
       [ "$given" = 0 ] || pi=0
+      # A pattern that can expand into several words (a glob, a brace, an
+      # expansion) hands grep its later words as files, so it is checked.
+      if [ "$pi" -gt 0 ]; then
+        [ "${cglob[pi]}" = 0 ] && [ "${cdyn[pi]}" = 0 ] && [ "${cz[pi]-0}" = 0 ] || pi=0
+      fi
       ;;
   esac
   for ((i = 0; i < cwn; i++)); do

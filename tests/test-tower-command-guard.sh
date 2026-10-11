@@ -860,6 +860,7 @@ assert_allow "REQ-E1.6: environ as a grep pattern" "grep environ README.md"
 assert_allow "REQ-E1.6: environ as an echo operand" "echo environ"
 assert_defer "REQ-E1.6: sed reads another process's environ" "sed -n p /proc/1234/environ"
 assert_defer "REQ-E1.6: sort reads another process's environ" "sort /proc/1234/environ"
+assert_defer "REQ-E1.6: a glob pattern operand expands into files grep reads" "grep /proc/*/environ"
 
 # Each bypass row was approved before the fix; regression-only rows already
 # deferred and pin that they still do.
