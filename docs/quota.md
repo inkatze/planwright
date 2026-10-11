@@ -90,6 +90,31 @@ within the throttle's hold ceiling. No match exits 1 and prints nothing, so an u
 failure keeps its ordinary outcome. The script's header pins the output
 lines, the reset-time rules, and the exit codes.
 
+## Holds and the usage ledger
+
+A held vendor is held for the whole host: every unit that meets the limit
+waits in the vendor's hold store under the fleet home, never in `tasks.md`,
+and recording a hold pushes one attention event naming the vendor, the reason,
+the stated reset time (or that none was stated), and the resume command.
+
+To resume a held vendor yourself, at any time:
+
+```sh
+scripts/quota-hold.sh resume --vendor <id>
+```
+
+It releases every unit holding the vendor and prints each one it released.
+
+Each vendor also keeps a usage ledger of requests sent, answers, refusals,
+holds, and resumes, with the PR and head where the event has them. It lives
+only under the fleet home, is never committed, and drops lines older than
+`quota_ledger_retention_days` (90 days unless you set it;
+[Options reference](options-reference.md)) when
+`scripts/quota-hold.sh prune` runs. To see each vendor's hold state and its
+counts over that period, run `scripts/fleet-stats.sh render`, or
+`scripts/quota-hold.sh status` for the machine-readable form. The script's
+header pins the store layout, the field grammars, and the exit codes.
+
 ## Examples
 
 A PR-comment review bot, as an operator would declare it in

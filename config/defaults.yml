@@ -567,6 +567,14 @@ allocation_feedback_threshold: 2
 # customization-overlay REQ-E1.4 by-layer malformed policy.
 fleet_throttle_default_hold: 300
 
+# How many days the per-vendor usage ledger keeps its lines (quota-handling
+# D-13, REQ-E1.1). Long enough that a live PR's review-request history
+# outlives the PR, so pruning never makes a later request look like a first
+# review. Read by scripts/quota-hold.sh through the shared knob resolver; a
+# positive integer under the customization-overlay REQ-E1.4 by-layer
+# malformed policy.
+quota_ledger_retention_days: 90
+
 # The proactive, shared-aware `/usage` budget gate and its restriction ladder
 # (fleet-autonomy Task 9, D-23/D-28; REQ-E1.5, REQ-E1.6). scripts/fleet-usage-gate.sh
 # reads Claude Code's own `/usage` render, parses BOTH windows (session ~5-hour,

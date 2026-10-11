@@ -42,6 +42,10 @@
 #                     never a stale audit row: the audit trail records the
 #                     engage/clear EVENTS, but the current state is the throttle
 #                     store, so a cleared throttle reads idle immediately.
+#   vendors         — each metered vendor's hold state (since when, how many
+#                     units, the stated reset time, the reason) and its ledger
+#                     counts over the retention period, read through
+#                     scripts/quota-hold.sh status (quota-handling REQ-E1.2).
 #
 # COMPOSES WITH fleet-attention.sh (D-14) AND tower-queue.sh (tower-comms
 # D-17). `line` folds the worker decision-queue length (fleet-attention.sh
@@ -69,7 +73,7 @@
 # Usage:
 #   fleet-stats.sh render
 #       The multi-line human-facing stats block (last cleanup, watchdog trips,
-#       throttle state).
+#       throttle state, allocation, vendors).
 #   fleet-stats.sh line
 #       The compact single-line render for a statusLine, folding in the worker
 #       decision-queue length and, while a tower is live, the operator queue's
@@ -107,6 +111,7 @@ THROTTLE="$script_dir/fleet-throttle.sh"
 ATTN="$script_dir/fleet-attention.sh"
 LEDGER="$script_dir/allocation-ledger.sh"
 TOWER_QUEUE="$script_dir/tower-queue.sh"
+QUOTA="$script_dir/quota-hold.sh"
 TAB=$(printf '\t')
 
 # utc_iso <epoch>: best-effort UTC rendering, byte-identical to
@@ -266,6 +271,59 @@ derive_allocation() {
   ALLOC_STAT="$da_u units, $da_r rows, $da_b B, derive ${da_ms}ms"
 }
 
+# derive_vendors — each vendor's hold state and ledger counts, read through
+# scripts/quota-hold.sh's own `status` verb so this script still never resolves
+# the fleet home. Sets VENDOR_VIEW to the rendered lines, or leaves it empty
+# with VENDOR_STATE `none recorded`, `none` (no hold store installed), or
+# `unknown` (a read failure).
+VENDOR_VIEW=""
+VENDOR_STATE=""
+derive_vendors() {
+  if [ ! -x "$QUOTA" ]; then
+    VENDOR_STATE="none"
+    return 0
+  fi
+  dv_rc=0
+  dv_out=$("$QUOTA" status 2>/dev/null) || dv_rc=$?
+  if [ "$dv_rc" != 0 ]; then
+    printf '%s\n' "fleet-stats: could not read the vendor hold store (quota-hold status exit $dv_rc); vendor view degraded to unknown" >&2
+    VENDOR_STATE="unknown"
+    return 0
+  fi
+  dv_days=$(printf '%s\n' "$dv_out" | awk -F "$TAB" '$1 == "retention" { print $2; exit }')
+  case $dv_days in "" | *[!0-9]*) dv_days="?" ;; esac
+  dv_vendors=$(printf '%s\n' "$dv_out" | awk -F "$TAB" '$1 == "vendor" { print $2 }')
+  if [ -z "$dv_vendors" ]; then
+    VENDOR_STATE="none recorded"
+    return 0
+  fi
+  for dv_v in $dv_vendors; do
+    dv_line=$(printf '%s\n' "$dv_out" | awk -F "$TAB" -v v="$dv_v" '$1 == "vendor" && $2 == v { print; exit }')
+    dv_state=$(printf '%s' "$dv_line" | cut -f 3)
+    if [ "$dv_state" = held ]; then
+      dv_since=$(printf '%s' "$dv_line" | cut -f 4)
+      dv_reset=$(printf '%s' "$dv_line" | cut -f 5)
+      dv_n=$(printf '%s' "$dv_line" | cut -f 6)
+      dv_reason=$(printf '%s' "$dv_line" | cut -f 7)
+      dv_units="$dv_n units"
+      [ "$dv_n" != 1 ] || dv_units="1 unit"
+      case $dv_reset in
+        "" | - | *[!0-9]*) dv_when="no stated reset" ;;
+        *) dv_when="reset $(utc_iso "$dv_reset")" ;;
+      esac
+      dv_head="held since $(utc_iso "$dv_since") ($dv_units), $dv_when; reason: $dv_reason"
+    else
+      dv_head="clear"
+    fi
+    dv_counts=$(printf '%s\n' "$dv_out" | awk -F "$TAB" -v v="$dv_v" '
+      $1 == "count" && $2 == v { n = $4 + 0; s = s (s == "" ? "" : ", ") n " " $3 (n == 1 ? "" : "s") }
+      END { print s }')
+    VENDOR_VIEW="$VENDOR_VIEW    $(sanitize_printable "$dv_v" "?"): $(sanitize_printable "$dv_head" "?")
+      over ${dv_days}d: $(sanitize_printable "$dv_counts" "?")
+"
+  done
+}
+
 # queue_count — the decision-queue length via fleet-attention.sh (composition,
 # D-14). Three outcomes, kept distinct:
 #   `deferred` — a healthy exit-0 with EMPTY stdout: a backend advertises
@@ -409,6 +467,7 @@ case $cmd in
     derive_from_audit
     derive_throttle
     derive_allocation
+    derive_vendors
     s_cleanup=$(sanitize_printable "$LAST_CLEANUP" "?")
     s_trips=$(sanitize_printable "$WATCHDOG_TRIPS" "?")
     s_throttle=$(sanitize_printable "$THROTTLE_STATE" "?")
@@ -418,6 +477,11 @@ case $cmd in
     printf '  watchdog trips: %s\n' "$s_trips"
     printf '  throttle:       %s\n' "$s_throttle"
     printf '  allocation:     %s\n' "$s_alloc"
+    if [ -n "$VENDOR_VIEW" ]; then
+      printf '  vendors:\n%s' "$VENDOR_VIEW"
+    else
+      printf '  vendors:        %s\n' "$VENDOR_STATE"
+    fi
     exit 0
     ;;
 
