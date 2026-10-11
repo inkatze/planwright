@@ -410,13 +410,13 @@ ln -s "$tmp/outside" "$unrdir/escape"
 chmod 000 "$unrdir"
 if [ "$(id -u)" -ne 0 ]; then
   sw "$W" unr
-  if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'could not scan'; then
+  if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'could not scan.*Permission denied'; then
     ok "an unreadable directory inside the bundle is refused, with find's reason"
   else
     fail "unreadable bundle dir: rc=$rc out=$out err=$err"
   fi
 else
-  ok "skipped as root: an unreadable directory inside the bundle"
+  echo "skip: an unreadable directory inside the bundle (running as root)"
 fi
 chmod 755 "$unrdir"
 # A bundle file hardlinked to a file outside the holder.
@@ -430,6 +430,17 @@ if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'requirement
   ok "a multiply-linked bundle file is refused, naming it"
 else
   fail "hardlinked bundle file: rc=$rc out=$out err=$err"
+fi
+# A hardlink nested below the bundle's top level.
+sw "$W" hn
+hndir="$H/.claude/worktrees/hn-spec/projects/demo-root/hn/sub"
+mkdir -p "$hndir"
+ln "$tmp/outside5/requirements.md" "$hndir/x.md"
+sw "$W" hn
+if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'sub/x.md has more than one link'; then
+  ok "a nested multiply-linked file inside the bundle is refused"
+else
+  fail "nested hardlinked file: rc=$rc out=$out err=$err"
 fi
 # A symlink nested below the bundle's top level, on reuse and on recreate.
 sw "$W" nest
