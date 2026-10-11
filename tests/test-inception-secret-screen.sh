@@ -98,12 +98,20 @@ assert_not_contains "generic: the matched value is redacted" "s3cr3tVALUE" "$out
 # common spelling.
 mk upper "API_KEY=""s3cr3tVALUE0123456789abcdefXYZ"
 mk mixed "Password: ""s3cr3tVALUE0123456789abcdefXYZ"
-for case in upper mixed; do
+mk utoken "TOKEN=""s3cr3tVALUE0123456789abcdefXYZ"
+mk usecret "Secret: ""s3cr3tVALUE0123456789abcdefXYZ"
+mk upasswd "PASSWD=""s3cr3tVALUE0123456789abcdefXYZ"
+for case in upper mixed utoken usecret upasswd; do
   out="$(PLANWRIGHT_SECRET_SCREEN_TOOL=none "$SCREEN" "$tmp/$case.md" 2>&1)"
   rc=$?
   assert_eq "$case-case assignment: exit 1" "1" "$rc"
   assert_contains "$case-case assignment: names the rule" "$case.md:1: opaque-assignment" "$out"
 done
+# Only the assignment keyword is case-blind: a provider prefix stays case-exact.
+mk uprefix "see GHP_""0123456789abcdefghijklmnopqrstuvwxyz"
+out="$(PLANWRIGHT_SECRET_SCREEN_TOOL=none "$SCREEN" "$tmp/uprefix.md" 2>&1)"
+rc=$?
+assert_eq "uppercase provider prefix: exit 0" "0" "$rc"
 
 # Echo discipline (doctrine/security-posture.md): a file NAME is repo-controlled
 # input, so an escape sequence in one must not reach the terminal raw and drive
