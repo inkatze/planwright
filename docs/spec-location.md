@@ -52,7 +52,7 @@ exits 3 when the root is not in a holder. It exits 4 when it refuses, among
 other reasons when the spec branch or its worktree already holds another
 project's bundle of the same identifier (one holder can serve several
 projects, so an identifier must be unique across them) or a symlink sits on
-the bundle path. A Draft lives only on the spec
+the bundle path or inside the bundle. A Draft lives only on the spec
 branch, so the skills read, validate, and anchor it through the printed
 `bundle` path, never the holder's primary checkout; `/spec-walkthrough`
 reads the root's primary view, so it shows a holder bundle only once its

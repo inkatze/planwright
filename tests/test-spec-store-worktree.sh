@@ -341,6 +341,28 @@ if [ "$rc" -eq 4 ] && [ -z "$out" ] && [ -z "$(ls -A "$tmp/outside2")" ]; then
 else
   fail "symlinked bundle: rc=$rc out=$out err=$err"
 fi
+# A bundle file committed as a symlink, and one left uncommitted.
+sw "$W" fsym
+fsymwt="$H/.claude/worktrees/fsym-spec"
+mkdir -p "$tmp/outside3" "$fsymwt/projects/demo-root/fsym"
+ln -s "$tmp/outside3/requirements.md" "$fsymwt/projects/demo-root/fsym/requirements.md"
+gitq -C "$fsymwt" add -A && gitq -C "$fsymwt" commit -q -m "link a file"
+sw "$W" fsym
+if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'requirements.md'; then
+  ok "a committed symlinked bundle file is refused, naming it"
+else
+  fail "symlinked bundle file: rc=$rc out=$out err=$err"
+fi
+sw "$W" usym
+usymwt="$H/.claude/worktrees/usym-spec"
+mkdir -p "$usymwt/projects/demo-root/usym"
+ln -s "$tmp/outside3/design.md" "$usymwt/projects/demo-root/usym/design.md"
+sw "$W" usym
+if [ "$rc" -eq 4 ] && [ -z "$out" ] && [ ! -e "$tmp/outside3/design.md" ]; then
+  ok "an uncommitted symlinked bundle file is refused"
+else
+  fail "uncommitted symlinked bundle file: rc=$rc out=$out err=$err"
+fi
 
 # A root path with a space and a glob byte is walked component by component:
 # a committed symlink the glob would match must not be what gets checked.

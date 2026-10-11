@@ -32,7 +32,8 @@
 # holder (same-repo and plain keep their own paths); 4 the root did not
 # resolve, or the holder refused (a foreign directory at the worktree path,
 # a symlinked .claude, another project's spec branch, a symlink on the
-# bundle path inside the worktree, no default branch, a git failure).
+# bundle path inside the worktree or inside the bundle, no default branch, a
+# git failure).
 set -u
 LC_ALL=C
 export LC_ALL
@@ -228,4 +229,13 @@ while [ -n "$rest" ]; do
     exit 4
   }
 done
+# Nor may anything inside the bundle, committed or not: the skills write
+# each bundle file in place.
+if [ -d "$bundle" ]; then
+  link=$(find "$bundle" -mindepth 1 -type l -print 2>/dev/null | sed -n 1p)
+  [ -z "$link" ] || {
+    say "refused: $link is a symlink"
+    exit 4
+  }
+fi
 printf 'worktree\t%s\nbundle\t%s\nbranch\t%s\n' "$wt" "$bundle" "$branch"
