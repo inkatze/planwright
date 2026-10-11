@@ -455,6 +455,17 @@ router has not demonstrated (REQ-B1.6).
 
 ## Awaiting input
 
+- **Task 19** — parked before any code change for the operator's five
+  decisions (hard pause: every fix edits the record renderer's secret
+  handling or its file writes). All five problems were re-confirmed
+  against the current `scripts/flight-record.sh` on 2026-10-10. Reply
+  per item, using the numbering of the Task 6 bullet below: 1, 2, 3 and
+  5 take the recommended fix as stated, a variant, or no change; 4
+  takes one of (a) personal-data patterns added to the ask's screen,
+  (b) the tower confirms the ask with the operator before it is quoted
+  (a tower-skill clause plus an eval fixture), or (c) both. Agent
+  recommendation: the stated fix for 1, 2, 3 and 5, and (a) for 4,
+  because it is testable in CI and needs no tower change.
 - **Task 6** — scheduled as Task 19, which lands these fixes and removes
   this bullet; the record below is that task's decision input. The
   convergence review of the flight record renderer
