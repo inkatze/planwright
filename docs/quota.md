@@ -113,8 +113,9 @@ only under the fleet home, is never committed, and drops lines older than
 `scripts/quota-hold.sh prune`; nothing runs it on a schedule, and until it
 runs the period still bounds what the counts include. To see each vendor's hold state and its
 counts over that period, run `scripts/fleet-stats.sh render`, or
-`scripts/quota-hold.sh status` for the machine-readable form. The script's
-header pins the store layout, the field grammars, and the exit codes.
+`scripts/quota-hold.sh status` for the machine-readable form. The header of
+`scripts/quota-hold.sh` pins the store layout, the field grammars, and the exit
+codes.
 
 ## Examples
 
