@@ -17,11 +17,8 @@ argument-hint: "[<spec>] [--fleet] [--meta [<spec>...]] [--watch] [--bookkeeping
 The orchestration layer of the planwright pipeline (REQ-F1.1–REQ-F1.10): a
 **stateless step machine** (D-7) advancing a Ready or Active spec one unit per
 step (read `tasks.md`, select, record the dispatch, dispatch `/execute-task`,
-exit). The step — not the session — is the unit of crash-safety (D-8): progress
-state is a **derived projection** (D-1) rebuilt from durable evidence, so a step
-may die mid-flight without losing work, and the committed `tasks.md` sections
-are a discardable snapshot the reconcile sweep rebuilds. The tower is
-**disposable** (D-38): no in-memory state beyond the current step, safe under
+exit). The step is the unit of crash-safety (D-8); progress state is a
+**derived projection** (D-1), so the tower is **disposable** (D-38), safe under
 headless cron and concurrent towers on one spec.
 
 ## Doctrine
@@ -43,7 +40,7 @@ Doctrine: point-of-use accumulator-taxonomy (--bookkeeping / gate drain)
 Doctrine: point-of-use context-budget-autoheal (the --watch long-running loop)
 Doctrine: point-of-use inter-orchestrator-coordination (worker relay / merged-window cleanup)
 Doctrine: point-of-use orchestration-concurrency (dispatch record + reconcile sweep)
-Doctrine: point-of-use orchestration-modes (--meta / --fleet / degradation & failover)
+Doctrine: point-of-use orchestration-modes (--meta / --fleet / --bookkeeping / degradation & failover)
 Doctrine: point-of-use tower-comms (how the loop's turns speak to the operator)
 
 On a **dispatch path** (selecting and dispatching a unit), a missing core doc
@@ -58,14 +55,11 @@ Selected from `$ARGUMENTS` at pre-flight:
 - **Step** (default). Advance exactly one ready unit, then exit.
 - **`--watch`.** Repeat the step until no ready unit remains or a halt fires.
   Event-driven under the subagent backend, a polling metronome under tmux (D-38).
-- **`--bookkeeping`.** The out-of-session drain pass (D-31). Dispatches nothing;
-  its passes are enumerated below.
-- **`--meta`.** The **meta-tower** (D-6): one unit across several Ready/Active
-  specs per step, under a fleet-level bound. Composes with `--watch` and the
-  backend/`--unattended` flags.
-- **`--fleet`.** The **one obvious entry command** for fleet operation (D-9,
-  REQ-E1.2): `--meta --watch` with the attention surface as the default watch
-  surface. Both arms are defined in `orchestration-modes`; read it when taken.
+- **`--bookkeeping`.** The out-of-session drain pass (D-31), below.
+- **`--meta`** (the meta-tower, D-6: one unit across several Ready/Active specs
+  per step, under a fleet-level bound) and **`--fleet`** (the one fleet entry
+  command, D-9: `--meta --watch` with the attention surface). Both are defined
+  in `orchestration-modes`; read it when taken.
 
 Flags: `--backend <name|full-session>` overrides `dispatch_backend`;
 `--unattended` selects headless mode (skip confirms, route every
@@ -168,9 +162,7 @@ law is `orchestration-concurrency` (read here). Ordered steps:
      `dispatch_fetch_ttl`, coalesced with the reconcile-sweep fetch, **no
      local-`main` advance**) and prints the anchor of the bundle's primary view.
      Exit **0**, or **3** (`no-remote`, offline) → gate against it; any other
-     nonzero → park to Awaiting input. On the exit-0 paths, the fetched
-     `origin/main` backs merge detection (`orchestrate-state.sh`'s union scan,
-     REQ-D1.2), so a task merged only on `origin` isn't re-dispatched.
+     nonzero → park to Awaiting input.
    - **Validate the entry** (brief's most recent, from the primary view; formats:
      `spec-format`): a **sanctioned command form**, a **sanctioned writer** (a
      `/spec-kickoff` sign-off or the marked `Class: expression-only` ritual), and
@@ -253,8 +245,7 @@ just-written markers), do not dispatch another; report the cap and exit.
 Division of labor: `inter-orchestrator-coordination` (D-7); read
 it when relaying to or cleaning up after a worker.
 
-- **stream-json-persistent** (the shipped default's usual rung: what
-  `full-session` resolves to wherever `claude` is installed). A
+- **stream-json-persistent** (`full-session`'s usual rung). A
   supervisor-owned persistent worker driven through
   `scripts/fleet-streamjson.sh`; dispatch, receipts, recovery in
   `orchestration-modes`.
@@ -315,17 +306,10 @@ The prompt-submit hook writes the attention marker the hand-over reads; it
 needs a `--session-id` presence record.
 
 **Context-budget auto-heal (`continue-as-new`, D-4, REQ-C1.1, REQ-C1.2,
-REQ-C1.4).** A `--watch` tower can silently fill its context window. Each
-iteration, before selecting new work, run `scripts/context-budget-monitor.sh
-<steps-completed>` (the loop's iteration count). On `ok` or `disabled`, proceed;
-on `near-limit`, hand over per `context-budget-autoheal` (read here — it owns
-the handover, including the rule against retiring into a zero-tower gap), then
-**stop**. Auto-heal is inert for a single-step run and when
-`context_budget_threshold` is `off`.
-
-## Meta-tower and fleet entry (`--meta` / `--fleet`)
-
-Rare mode arms, defined in `orchestration-modes` (read when the arm is taken).
+REQ-C1.4).** Each iteration, before selecting new work, run
+`scripts/context-budget-monitor.sh <steps-completed>` (the loop's iteration
+count): `ok` or `disabled` proceeds; `near-limit` hands over per
+`context-budget-autoheal` (read here; it owns the handover), then **stops**.
 
 ## Reconcile sweep (REQ-F1.1, the tightened predicate)
 
@@ -334,12 +318,9 @@ arms read the declared `Format-version:`; unparseable fails closed, never the v1
 write (D-7). The sweep:
 
 1. **Refresh the remote view (best-effort).** `scripts/dispatch-fetch.sh
-   --best-effort <primary-checkout>` — the same bounded fetch the gate uses (D-9),
-   coalesced with it onto one TTL-stamped fetch. `--best-effort` is one
-   attempt; a reconcile tolerates staleness. Remote-tracking refs only;
-   **no local-`main` advance**. Any nonzero exit (`3` no-remote, `4`
-   stale-transient, `2` internal) → continue on last-known refs (the gate
-   blocks on `4`).
+   --best-effort <primary-checkout>`: one attempt, coalesced with the gate's
+   fetch (D-9), **no local-`main` advance**. Any nonzero exit → continue on
+   last-known refs (the gate blocks on `4`).
 2. **Rebuild** from `tasks.md`, `gh`, and the process/window list; for each
    in-flight unit (v1: its `## In progress` entry; v2: the derivation's in-progress
    set — no committed placement exists), **reconcile PR state first**: merged →
@@ -373,39 +354,12 @@ a relaunch.
 
 ## --bookkeeping (REQ-H1.4, D-31)
 
-The out-of-session drain pass. Dispatches nothing; it:
-
-1. **Reconciles merged PRs** into `tasks.md` (the merged → Completed move the
-   `tasks-pr-sync` hook performs in-session, for events it dropped on a busy lock).
-   V1 bundles only: a v2 bundle has no placement to reconcile (completion is
-   derived, invariant-tasks D-6).
-2. **Evaluates open gates** with `scripts/drain-gates.sh <root>/` — the shared
-   evaluator `/drain` also uses. **Nothing is auto-resolved or auto-dropped**
-   (REQ-H1.4): a satisfied gate is **re-surfaced** for a human, not closed. Read
-   `accumulator-taxonomy` before interpreting the lanes.
-3. **Surfaces observation staleness**: report the accumulator's unmined count and
-   oldest-entry age as the evaluator derives them — live fragments under
-   `specs/_observations/entries/` plus the frozen legacy file's unconsumed lines,
-   naming both, flagging stuck consumes and skipped invalid fragments.
-4. **Reports a pending release** (autopilot-reflex REQ-F1.2, D-7, D-8): runs
-   `scripts/release-bookkeeping.sh` over the shared comparator (`release-pending.sh`,
-   the one definition of "pending" the untagged-window lock also reads, REQ-D1.8).
-   In the untagged window it prints the pending version and publish command; else
-   silence. On comparator trouble it degrades to a silent no-op (diagnostic on
-   stderr), always exits 0, and never blocks the pass.
-5. **Carries stranded tower observations toward `main`** (fleet-hardening Task 9,
-   D-9, REQ-D1.3): runs `scripts/observation-carry.sh <repo-root>` in the tower's
-   checkout — pushes the current `HEAD` (tower-branch) observation fragments absent
-   from `origin/main` onto ONE chore branch (`planwright/chore/observations`) and
-   opens or reuses ONE **draft** chore PR, so learnings are not stranded unpushed.
-   Idempotent (deduped against `origin/main` and the chore branch — a repeat opens
-   no second PR), concurrency-safe (a per-repo lock), git-plumbing-built so local
-   `main` is never touched; never merges, marks ready, or force-pushes; a degrade
-   (no remote/`gh`, rejected push/PR) **names** the stranded observations and exits
-   non-zero; no LLM (REQ-E1.3). See the script header.
-
-On `--bookkeeping`, missing prerequisites degrade with a message (not a dispatch
-path); it never merges and never advances local `main`.
+The out-of-session drain pass, a rare mode arm: its passes are
+`orchestration-modes` (read when taken), its gate lanes `accumulator-taxonomy`.
+It dispatches nothing, re-surfaces a
+satisfied gate rather than closing it, reconciles placement on v1 bundles only
+(a v2 bundle has no placement to reconcile), never merges, and never advances
+local `main`.
 
 ## Step report
 
@@ -482,12 +436,8 @@ These hold at every step:
   anchor-excluded by construction.
 - **Never** hold the per-spec lock across execution; only across the
   freshness-gate-plus-marker window (D-10).
-- **Never** loosen any invariant at the meta tier (`--meta`, D-6): never-merge and
-  never-ready hold across every tier (REQ-A1.2); the fleet lock is held only across
-  the meta decision window, not the dispatch; the fleet bound
-  (`fleet_max_parallel_units`) caps fleet-wide in-flight units, distinct from
-  per-spec `max_parallel_units` (REQ-D1.5); and the meta-tower never edits another
-  tower's or a worker's branch state (REQ-D1.2).
+- **Never** loosen any invariant at the meta tier (`--meta`, D-6; its fleet lock
+  and fleet bound are `orchestration-modes`').
 
 ## Observations
 
