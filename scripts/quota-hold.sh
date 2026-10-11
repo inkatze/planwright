@@ -451,7 +451,7 @@ case $verb in
           n++
           hu[n] = $2; hs[n] = $3; hsince[n] = $1
           if (since == "" || $1 + 0 < since + 0) { since = $1; reason = $6 }
-          if ($4 != "-" && $4 + 0 > reset + 0) reset = $4
+          if ($4 != "-" && (reset == "" || $4 + 0 > reset + 0)) reset = $4
           next
         }
         ledger_ok() && $1 + 0 >= cutoff + 0 { c[$2]++ }

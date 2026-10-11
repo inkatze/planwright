@@ -337,6 +337,13 @@ for f in hold.tsv ledger.tsv; do
 done
 pass "status fails closed over an unreadable store, and the render says unknown"
 
+# A stated reset of 0 is still a stated reset in the status view.
+new_home reset-zero
+run hold --vendor sample-cli --unit spec-a:task-1 --step panel --reason "quota" --reset 0 --now "$NOW" >/dev/null 2>&1 || fail "reset-zero fixture: hold failed"
+run status --vendor sample-cli --now "$NOW" | grep -q "^vendor${TAB}sample-cli${TAB}held${TAB}${NOW}${TAB}0${TAB}1${TAB}" \
+  || fail "status dropped a stated reset of 0"
+pass "a stated reset of 0 reads the same in status as in the push"
+
 # --- 8. The fleet home is outside the repository's tracked tree -------------
 inherited_home=$(fleet_home_inherited)
 if [ -n "$inherited_home" ]; then
