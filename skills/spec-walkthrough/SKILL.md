@@ -53,7 +53,7 @@ Doctrine: run-start security-posture
 
 Run from inside the work repository: the scaffold reads the bundle under the
 spec root `scripts/resolve-root.sh spec` resolves there, in any posture
-(`docs/spec-location.md`), and reads only:
+(`docs/spec-location.md`), and only reads. Invoke it as:
 
 ```sh
 scripts/spec-walkthrough.sh [--scope <selector>] [--reveal] <spec>
