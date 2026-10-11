@@ -715,6 +715,16 @@ rc=$?
 SP=$sp_saved
 [ "$rc" -eq 2 ] && grep -q "owner $dead is not running" "$tmp/err"
 verdict "a dead owner is refused from a path naming permission" "dead owner from a permission path: rc=$rc" "$tmp/err"
+# With ps failing, only kill's own message keeps pid 1 running: as another
+# user's process it answers EPERM, and as root kill -0 succeeds outright.
+stubps="$tmp/stubps"
+mkdir -p "$stubps"
+printf '#!/bin/sh\nexit 1\n' >"$stubps/ps"
+chmod +x "$stubps/ps"
+sp "PATH=$stubps:$PATH" -- take p 1 >/dev/null 2>"$tmp/err"
+! grep -q 'owner 1 is not running' "$tmp/err"
+verdict "another user's owner reads as running from kill's message alone" "pid 1 read as not running" "$tmp/err"
+sp -- release p 1 >/dev/null 2>&1
 [ ! -e "$marker" ]
 verdict "no fixture command ran" "the marker exists"
 
