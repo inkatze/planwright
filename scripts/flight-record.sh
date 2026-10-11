@@ -935,8 +935,11 @@ cat "$work/record.md" >"$tmpname" || die 4 "cannot write $rel"
 chmod "$(printf '%o' $((0666 & ~$(umask))))" "$tmpname" || die 4 "cannot write $rel"
 rino=$(inode "$tmpname")
 [ -n "$rino" ] || die 4 "cannot read the record's inode"
-if ! ln -- "$tmpname" "$base" 2>/dev/null; then
-  [ ! -e "$base" ] && [ ! -L "$base" ] && die 4 "cannot write $rel"
+if ! ln -- "$tmpname" "$base" 2>"$work/ln.err"; then
+  if [ ! -e "$base" ] && [ ! -L "$base" ]; then
+    sed 's/^/  /' "$work/ln.err" | tr -d '\000-\010\013-\037\177' >&2
+    die 4 "cannot write $rel"
+  fi
   die 3 "$rel appeared while land ran: one flight, one record; nothing was written"
 fi
 is_mine || die 3 "$rel appeared while land ran: one flight, one record; nothing was written"

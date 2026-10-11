@@ -1082,14 +1082,16 @@ run_land_stub '--' "$tmp/act-interrupt-ln.sh" --flight-id "$CRE"
 git -C "$repo" reset -q
 rm -rf "$repo/specs"
 # A link that fails for any reason but an existing name is an environment
-# failure, not a record that appeared.
-printf 'exit 1\n' >"$tmp/act-ln-fail.sh"
+# failure, not a record that appeared, and ln's own error is shown.
+printf 'echo "ln: simulated link failure" >&2\nexit 1\n' >"$tmp/act-ln-fail.sh"
 run_land_stub '--' "$tmp/act-ln-fail.sh" --flight-id "$CRE"
 [ "$RC" -eq 4 ] || fail "a failed link with no record at the name must fail with 4 (got $RC: $ERR)"
 printf '%s\n' "$ERR" | grep -q 'appeared' && fail "a failed link must not be reported as a record that appeared: $ERR"
+printf '%s\n' "$ERR" | grep -q 'simulated link failure' || fail "a failed link must show ln's error: $ERR"
 [ -z "$(ls -A "$repo/specs/_flights" 2>/dev/null)" ] || fail "a failed link must leave no temp file"
 unset STUB_TOOL
 rm -rf "$repo/specs"
+
 
 # A pre-commit hook that rewrites the record and then refuses the commit
 # leaves nothing behind: the record is still this run's file.
