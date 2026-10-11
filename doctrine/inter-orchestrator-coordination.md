@@ -94,9 +94,9 @@ has no recorded inbox, or the post is refused or fails, delivery falls back to
 the rung's attributed steer delivery, that table's fallback ladder; a held post
 is not a failure and is never descended.
 
-That fallback is a **buffer-paste** mechanism (under tmux,
-`load-buffer` then `paste-buffer`; the backend's steer-in-flight equivalent
-elsewhere), clearly **marked as tower-originated** so the worker can tell a
+On `tmux` that fallback is a **buffer-paste** mechanism (`load-buffer` then
+`paste-buffer`); every other rung takes the fallback its table row names. The
+paste is clearly **marked as tower-originated** so the worker can tell a
 relayed instruction from its own reasoning or the human's. The relay **never**
 uses `send-keys`-style impersonation — typing into a worker's input line as if
 the human typed it: an authorization decision made by screen-scraping with no

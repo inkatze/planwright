@@ -190,12 +190,14 @@ case "$header" in
   *) fail "the rungs-by-classes table's last column is not the inbox socket" ;;
 esac
 want_cols=$(printf '%s\n' "$header" | awk -F'|' '{ print NF }')
+# The Inbox socket field's position, read off the header rather than assumed.
+inbox_col=$(printf '%s\n' "$header" | awk -F'|' '{ for (i = 1; i <= NF; i++) { c = $i; gsub(/^[ \t]+|[ \t]+$/, "", c); if (c == "Inbox socket") { print i; exit } } }')
 rung_rows=$(printf '%s\n' "$rungs" | sed '1,2d')
 blank=0
 while IFS= read -r r; do
   [ -n "$r" ] || continue
   n=$(printf '%s\n' "$r" | awk -F'|' '{ print NF }')
-  cell=$(printf '%s\n' "$r" | awk -F'|' '{ c = $(NF - 1); gsub(/^[ \t]+|[ \t]+$/, "", c); print c }')
+  cell=$(printf '%s\n' "$r" | awk -F'|' -v k="${inbox_col:-0}" '{ c = (k > 0) ? $k : ""; gsub(/^[ \t]+|[ \t]+$/, "", c); print c }')
   if [ "$n" != "$want_cols" ] || [ -z "$cell" ]; then blank=$((blank + 1)); fi
 done <<EOF
 $rung_rows
