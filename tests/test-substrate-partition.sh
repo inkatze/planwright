@@ -320,3 +320,14 @@ run_sp "$REPO_ROOT" >"$tmp/real" || fail "p8: the real partition failed: $(cat "
 self=$(awk -F'\t' '$1 == "scripts/substrate-partition.sh" { print $2 "\t" $3 }' "$tmp/real")
 [ "$self" = "$(printf 'dev-check\t-')" ] || fail "p8: the script's own row is '$self'"
 echo "ok: p8 the repository partitions and the script sits in the dev-check tier"
+
+# ---------------------------------------------------------------------------
+# p9: a control byte in an unresolved invocation never reaches the output.
+# ---------------------------------------------------------------------------
+cp -R "$fx" "$tmp/fx5"
+# shellcheck disable=SC2016 # the planted script text, not an expansion
+printf '#!/bin/sh\n"$(dirname "$0")/$x\033[2J.sh"\n' >"$tmp/fx5/scripts/ctl.sh"
+run_sp "$tmp/fx5" >"$tmp/out5" || fail "p9: the partition failed: $(cat "$tmp/err")"
+LC_ALL=C grep -q "$(printf '\033')" "$tmp/out5" && fail "p9: a control byte reached the output"
+grep -q 'scripts/ctl.sh' "$tmp/out5" || fail "p9: the planted script has no row"
+echo "ok: p9 control bytes in file-derived text are replaced"

@@ -574,7 +574,11 @@ END {
       if (x !~ /^[A-Za-z0-9_][A-Za-z0-9_.+-]*$/) continue
       prof = prof "\n" x
     }
-    print p "\t" tier "\t" ((p in live) ? "-" : "no-live-caller") "\t" (callers == "" ? "-" : callers) "\t" ((p in mut) ? "shell-mutation" : "-") "\t" sorted(prof) "\t" sorted(ulist[p])
+    # The path and the unresolved text are read from files; a control byte in
+    # either never reaches the terminal.
+    shown = p; gsub(/[[:cntrl:]]/, "?", shown)
+    unresolved = sorted(ulist[p]); gsub(/[[:cntrl:]]/, "?", unresolved)
+    print shown "\t" tier "\t" ((p in live) ? "-" : "no-live-caller") "\t" (callers == "" ? "-" : callers) "\t" ((p in mut) ? "shell-mutation" : "-") "\t" sorted(prof) "\t" unresolved
   }
 }
 ' "$work/layer" "$work/facts" >"$work/rows" || fail_closed "could not assemble the partition"
