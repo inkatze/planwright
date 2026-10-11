@@ -2720,8 +2720,10 @@ environ_word_risky() {
     /*) ;;
     *) dir=$HOOK_CWD/$dir ;;
   esac
-  # Any other directory that does not exist holds nothing to match.
-  canon=$(cd -P -- "$dir" 2>/dev/null && pwd) || return 1
+  # The guard resolves the directory in its own process, so one it cannot
+  # enter may still resolve for the command (`/dev/fd/0` with a /proc
+  # directory on the command's stdin), and defers.
+  canon=$(cd -P -- "$dir" 2>/dev/null && pwd) || return 0
   case $canon in
     /proc | /proc/*) return 0 ;;
   esac
@@ -2770,14 +2772,27 @@ environ_words_ok() {
 }
 
 # environ_redirect_ok <operand>: the same test for a redirect operand, which
-# the guard never expands, so any `$` in it could name anything.
+# the guard never expands, so any `$` in it could name anything. Any other
+# path under /proc defers too: a process directory on stdin lets a later
+# `/dev/fd/0/…` reach into it, out of the guard's sight.
 environ_redirect_ok() {
-  local g=0
-  case $1 in
+  local g=0 w=$1
+  case $w in
     *'$'*) return 1 ;;
     *[*?[\{~]*) g=1 ;;
   esac
-  environ_word_risky "$1" "$g" && return 1
+  while [ "${w#*//}" != "$w" ]; do
+    w=${w//\/\//\/}
+  done
+  if [ "$g" = 0 ]; then
+    case $w in
+      /proc/self/environ | /proc/thread-self/environ) return 0 ;;
+    esac
+  fi
+  case $w in
+    proc | proc/* | */proc | */proc/*) return 1 ;;
+  esac
+  environ_word_risky "$w" "$g" && return 1
   return 0
 }
 

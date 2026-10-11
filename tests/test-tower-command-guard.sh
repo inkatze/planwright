@@ -842,6 +842,8 @@ assert_defer "REQ-E1.6: a glob over every process" "cat /proc/*/environ"
 assert_defer "REQ-E1.6: a glob in the last component" "cat /proc/1234/env*"
 assert_defer "REQ-E1.6: a doubled leading slash" "cat //proc/1234/env*"
 assert_defer "REQ-E1.6: a . component before proc" "cat /./proc/1234/env*"
+assert_defer "REQ-E1.6: /dev/fd/0 into a process directory on a loop's stdin" "for f in a; do cat /dev/fd/0/env*; done </proc/1"
+assert_defer "REQ-E1.6: a glob directory the guard cannot enter" "cat nodir/envir?n"
 assert_defer "REQ-E1.6: a redirect source glob" "grep x < /proc/1234/env*"
 assert_defer "REQ-E1.6: an unexpanded redirect source" "grep x < \$f"
 if [ -d /proc/1 ]; then
