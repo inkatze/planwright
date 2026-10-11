@@ -1938,8 +1938,9 @@ guard_printf() {
 # opaque_words_ok: the current simple command (`cw` and its flag arrays, by
 # dynamic scope) places every unresolved word where its value cannot change
 # the verdict: never the verb, and otherwise only an operand of an
-# argument-independent verb, printf past its format, or a test shape
-# test_opaque_ok admits.
+# argument-independent verb (one that opens its operands only when
+# opener_word_risky clears the word), printf past its format, or a test
+# shape test_opaque_ok admits.
 opaque_words_ok() {
   local i verb=${cw[0]} fmt=1
   word_unresolved "$verb" "${cdyn[0]}" "${cglob[0]}" "${cx[0]}" && return 1
@@ -1961,8 +1962,8 @@ opaque_words_ok() {
   return 0
 }
 
-# Other processes' environments (REQ-E1.6 of worker-permission-ergonomics):
-# the worker guard's rule, shared; see its copy for the reasons.
+# Other processes' environments and memory: the worker guard's rule,
+# shared; see its copy for the reasons.
 opens_operands() {
   case $1 in
     cat | head | tail | wc | cut | comm | cmp | od | grep | diff | nl | paste | column) return 0 ;;

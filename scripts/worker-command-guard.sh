@@ -2300,8 +2300,9 @@ ls_remote_url_ok() {
 #     command: an assignment PREFIX before a verb still defers (REQ-A1.9);
 #   * the VALUE is any literal of a plain character set (see
 #     assign_value_literal), bare or quoted as a whole from its first
-#     character; one carrying an expansion, any other character, or a quote
-#     that starts mid-value is assigned all the same, but leaves the variable
+#     character; one carrying an expansion, any other character, a quote
+#     that starts mid-value, or a bare `=` zsh expands (leading the value,
+#     or after a `:`) is assigned all the same, but leaves the variable
 #     OPAQUE: a later `$NAME` stays unresolved,
 #     so it may only reach a position whose approval does not read it;
 #   * the assignment is unconditional and at the top level of the command:
@@ -2612,7 +2613,9 @@ shift_words() {
 # tilde) can hold any value at run time: `find . $_` after a printf of
 # `-exec id ;` runs id. Such a word may only reach a verb whose approval does
 # not read that word (arg_independent_verb); anywhere else, and always in the
-# verb position, it defers.
+# verb position, it defers. One exception: a verb that opens its operands
+# (opens_operands) could be pointed at another process's environment, so an
+# unknown `$` value there defers too (opener_word_risky).
 
 # word_unresolved <word> <expands> <globs> <literal-dollar>: 0 when the word,
 # after tracked substitution, still carries an expansion the analyzer did not
@@ -2628,8 +2631,9 @@ word_unresolved() {
 }
 
 # arg_independent_verb <verb>: the verbs whose approval reads no operand value,
-# so an opaque operand is equivalent to some literal they already approve.
-# printf qualifies past its format only (guard_printf).
+# so an opaque operand is equivalent to some literal they already approve,
+# short of the environ rule (opens_operands). printf qualifies past its
+# format only (guard_printf).
 arg_independent_verb() {
   case $1 in
     cat | head | tail | wc | cut | comm | cmp | basename | dirname | realpath | pwd | echo | seq | true | false | od | tr | stat | grep | ls | diff) return 0 ;;
@@ -2680,15 +2684,16 @@ opener_word_risky() {
 }
 
 # Other processes' environments. /proc/<pid>/environ holds another
-# process's environment (credentials included); only the reading process's
-# own, through /proc/self or /proc/thread-self, stays readable. Any word or
-# redirect source whose last component is `environ` defers, since a `..`,
-# /dev/fd, or a symlink can reach /proc from any directory, and so does a
-# glob whose last component could match `environ` unless its directory
-# canonicalizes outside /proc.
+# process's environment (credentials included), and /proc/<pid>/mem its
+# memory; only the reading process's own environ, through /proc/self or
+# /proc/thread-self, stays readable. A redirect source, or a word of a verb
+# that opens its operands, whose last component is `environ` or `mem`
+# defers, since a `..`, /dev/fd, or a symlink can reach /proc from any
+# directory. So does a glob whose last component could match either, unless
+# its directory exists and canonicalizes outside /proc.
 
 # environ_word_risky <word> <globs>: 0 when the word could name another
-# process's environ file.
+# process's environ or mem file.
 environ_word_risky() {
   local w=$1 last dir canon
   # `//proc` names /proc to the kernel, and bash's `cd -P` keeps the two
@@ -2860,8 +2865,9 @@ guard_printf() {
 # opaque_words_ok: the current simple command (`cw` and its flag arrays, by
 # dynamic scope) places every unresolved word where its value cannot change
 # the verdict: never the verb, and otherwise only an operand of an
-# argument-independent verb, printf past its format, or a test shape
-# test_opaque_ok admits.
+# argument-independent verb (one that opens its operands only when
+# opener_word_risky clears the word), printf past its format, or a test
+# shape test_opaque_ok admits.
 opaque_words_ok() {
   local i verb=${cw[0]} fmt=1
   word_unresolved "$verb" "${cdyn[0]}" "${cglob[0]}" "${cx[0]}" && return 1
