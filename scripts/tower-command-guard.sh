@@ -1994,6 +1994,11 @@ opener_word_risky() {
 
 environ_word_risky() {
   local w=$1 last dir canon
+  # `//proc` names /proc to the kernel, and bash's `cd -P` keeps the two
+  # slashes, so neither test below would see /proc in it.
+  while [ "${w#*//}" != "$w" ]; do
+    w=${w//\/\//\/}
+  done
   if [ "$2" = 0 ]; then
     case $w in
       /proc/self/environ | /proc/thread-self/environ) return 1 ;;
@@ -2002,6 +2007,8 @@ environ_word_risky() {
   last=${w##*/}
   [ "$last" = environ ] && return 0
   [ "$2" = 1 ] || return 1
+  # Pattern syntax beyond `*`, `?`, and `[…]` (braces, zsh's extended
+  # characters, a backslash) is not matched here, only assumed to match.
   case $last in
     *[{}\\~^#\<\>\|]*) ;;
     *)
@@ -2016,13 +2023,17 @@ environ_word_risky() {
       ;;
     *) dir=. ;;
   esac
+  # A process directory can appear between this check and the run, so a
+  # path through any `proc` component (`/./proc`, `../../proc`) defers
+  # whether or not it exists now.
   case $dir in
-    *[*?[{}~\$]* | /proc | /proc/*) return 0 ;;
+    *[*?[{}~\$]* | proc | proc/* | */proc | */proc/*) return 0 ;;
   esac
   case $dir in
     /*) ;;
     *) dir=$HOOK_CWD/$dir ;;
   esac
+  # Any other directory that does not exist holds nothing to match.
   canon=$(cd -P -- "$dir" 2>/dev/null && pwd) || return 1
   case $canon in
     /proc | /proc/*) return 0 ;;

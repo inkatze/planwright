@@ -2681,6 +2681,11 @@ opener_word_risky() {
 # process's environ file.
 environ_word_risky() {
   local w=$1 last dir canon
+  # `//proc` names /proc to the kernel, and bash's `cd -P` keeps the two
+  # slashes, so neither test below would see /proc in it.
+  while [ "${w#*//}" != "$w" ]; do
+    w=${w//\/\//\/}
+  done
   if [ "$2" = 0 ]; then
     case $w in
       /proc/self/environ | /proc/thread-self/environ) return 1 ;;
@@ -2706,9 +2711,10 @@ environ_word_risky() {
     *) dir=. ;;
   esac
   # A process directory can appear between this check and the run, so a
-  # /proc path defers whether or not it exists now.
+  # path through any `proc` component (`/./proc`, `../../proc`) defers
+  # whether or not it exists now.
   case $dir in
-    *[*?[{}~\$]* | /proc | /proc/*) return 0 ;;
+    *[*?[{}~\$]* | proc | proc/* | */proc | */proc/*) return 0 ;;
   esac
   case $dir in
     /*) ;;
