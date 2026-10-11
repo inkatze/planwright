@@ -190,7 +190,12 @@ if [ -z "$layer" ]; then
   exit 2
 fi
 
-script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+# The directory part of $0 without forking dirname: this runs on every config read.
+case $0 in
+  */*) script_dir=${0%/*}/ ;;
+  *) script_dir=./ ;;
+esac
+script_dir=$(cd "$script_dir" && pwd) || exit 2
 root_helper="$script_dir/resolve-root.sh"
 
 # Writer-mode claude dir: derivable only when CLAUDE_DIR or HOME is present.
