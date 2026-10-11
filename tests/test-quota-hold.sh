@@ -141,6 +141,23 @@ case $marker in
 esac
 pass "a hold pushes one event naming the vendor, reason, reset time, and resume command"
 
+# Once the pending push is relayed (the marker consumed), a unit joining the
+# same hold or renewing it pushes nothing; a hold after a resume pushes anew.
+rm -f "$push_dir"/*
+run hold --vendor sample-reviewer --unit spec-z:task-1 --step bot-review \
+  --reason "review quota used up" --now $((NOW + 30)) >/dev/null 2>&1 || fail "a joining hold exited non-zero"
+run hold --vendor sample-reviewer --unit spec-a:task-1 --step bot-review \
+  --reason "review quota used up" --now $((NOW + 31)) >/dev/null 2>&1 || fail "a renewing hold exited non-zero"
+[ -z "$(ls -A "$push_dir")" ] || fail "push: a unit joining a relayed hold pushed it again: $(cat "$push_dir"/*)"
+run resume --vendor sample-reviewer --now $((NOW + 40)) >/dev/null || fail "resume before a re-hold failed"
+run hold --vendor sample-reviewer --unit spec-a:task-1 --step bot-review \
+  --reason "refused again" --now $((NOW + 50)) >/dev/null 2>&1 || fail "a hold after a resume exited non-zero"
+case $(cat "$push_dir"/* 2>/dev/null) in
+  *"refused again"*) ;;
+  *) fail "push: a hold after a resume pushed nothing" ;;
+esac
+pass "a joined or renewed hold is never pushed twice, and a new hold after a resume is"
+
 new_home noreset
 run hold --vendor sample-cli --unit spec-a:task-1 --step panel \
   --reason "monthly allowance exhausted" --now "$NOW" >/dev/null 2>&1 || fail "hold without a reset exited non-zero"

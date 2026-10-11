@@ -12,6 +12,8 @@
 #               since  unit  step  reset  recognizer  reason  end
 #   ledger.tsv  one appended line per event, rewritten only by prune:
 #               time  event  unit  pr  head  recognizer  reason  end
+#   pushed      the since of the hold whose attention event was last pushed,
+#               rewritten whole after the push and removed by resume
 #   lock        the vendor's lock, taken through scripts/lock-lib.sh for every
 #               write, since several units on a host can meet one limit at once
 # An absent optional field is `-`. The trailing `end` field is what lets a line
@@ -38,7 +40,8 @@
 #     renewed in place and keeps the time it first held. Appends a `hold` ledger
 #     line, then pushes the attention event (vendor, reason, stated reset time,
 #     resume command) through scripts/fleet-attention.sh notify, keyed on the
-#     time the vendor's hold began so one hold is one push whoever joins it.
+#     time the vendor's hold began and skipped once `pushed` names that time,
+#     so one hold is one push whoever joins it.
 #     Prints `held<TAB><vendor><TAB><since>`. Whatever the caller, holding and
 #     pushing are one act of this verb. A hold records no refusal: a caller
 #     whose request the vendor refused records that with `record` first.
@@ -387,10 +390,21 @@ case $verb in
       printf '%s\n' "$prog: the hold on $vendor is recorded, but the attention helper is missing (broken install)" >&2
       exit 3
     fi
+    # The notify key dedupes only while its push is pending, so a unit joining
+    # after the push was relayed would push the same hold again.
+    pf="$dir/pushed"
+    if [ -f "$pf" ] && [ "$(cat "$pf" 2>/dev/null)" = "$since" ]; then
+      exit 0
+    fi
     "$ATTN" notify "$summary" --key "quota-hold-$vendor-$since" >/dev/null || {
       printf '%s\n' "$prog: the hold on $vendor is recorded, but its attention push failed" >&2
       exit 3
     }
+    if CUR_TMP=$(mktemp "$dir/.pushed.XXXXXX") && printf '%s\n' "$since" >"$CUR_TMP" && mv -f "$CUR_TMP" "$pf"; then
+      CUR_TMP=""
+    else
+      printf '%s\n' "$prog: the hold on $vendor is pushed, but the push was not recorded; a unit joining it may push again" >&2
+    fi
     exit 0
     ;;
 
@@ -414,6 +428,7 @@ case $verb in
     # resume can be retried.
     [ -z "$released" ] || ledger_append "$dir" resume - - - - "$REASON"
     rm -f "$hf" || die 6 "cannot clear the hold store"
+    rm -f "$dir/pushed"
     [ -z "$released" ] || printf '%s\n' "$released"
     unlock_vendor "$dir"
     exit 0
