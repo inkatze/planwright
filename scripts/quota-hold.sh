@@ -183,7 +183,7 @@ function unit_ok(s) { return s ~ /^[A-Za-z0-9._=@:-]+$/ && s != "." && s != ".."
 function rec_ok(s) { return substr(s, 1, length(v) + 1) == v "." && sid(substr(s, length(v) + 2)) }
 function pr_ok(s) { return s ~ /^[1-9][0-9]*$/ && length(s) <= 10 }
 function head_ok(s) { return s ~ /^[0-9a-f]+$/ && (length(s) == 40 || length(s) == 64) }
-function text_ok(s) { return s != "" && s !~ /[[:cntrl:]]/ && length(s) <= 512 }
+function text_ok(s) { return s != "" && s !~ /[[:cntrl:]]/ && length(s) <= '"$REASON_MAX"' }
 function hold_ok() {
   return NF == 7 && $7 == "end" && digits($1, 15) && unit_ok($2) && sid($3) &&
     ($4 == "-" || digits($4, 15)) && ($5 == "-" || rec_ok($5)) && text_ok($6)
