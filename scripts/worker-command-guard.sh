@@ -2340,6 +2340,23 @@ assign_name_ok() {
       options | commands | functions | aliases | parameters | argv | match | MATCH | mbegin | \
       mend | reply) return 1 ;;
   esac
+  # The rest of zsh's own tables, read from its source rather than a list:
+  # the special parameters it types or ties (params.c's special_params), the
+  # names it sets at startup, and every parameter a module defines, read-only
+  # or autoloaded on first use (zsh/parameter's, the other modules'
+  # autofeatures, and zsh/system's sysparams).
+  case $name in
+    TERM | TERMINFO | TERMINFO_DIRS | WORDCHARS | KEYBOARD_HACK | ZLE_RPROMPT_INDENT | POSTEDIT | \
+      RPS1 | RPS2 | RPROMPT | RPROMPT2 | SPROMPT | prompt | PROMPT | PROMPT2 | PROMPT3 | PROMPT4 | \
+      PSVAR | psvar | fignore | mailpath | TIMEFMT | HOST | LOGNAME | CPUTYPE | MACHTYPE | OSTYPE | \
+      TTY | VENDOR | signals | \
+      dis_functions | functions_source | dis_functions_source | funcsourcetrace | builtins | \
+      dis_builtins | reswords | dis_reswords | patchars | dis_patchars | modules | dirstack | \
+      history | historywords | jobtexts | jobdirs | jobstates | nameddirs | userdirs | usergroups | \
+      dis_aliases | galiases | dis_galiases | saliases | dis_saliases | \
+      epochtime | zgdbm_tied | langinfo | mapfile | errnos | sysparams | termcap | terminfo | \
+      WATCH | watch | widgets | keymaps | zsh_scheduled_events) return 1 ;;
+  esac
   # Membership in the hook's own ENVIRONMENT, snapshotted at startup: an
   # exported name the command re-points reaches every child it runs. The
   # snapshot is what is tested, NOT `${!name+x}` — an indirect read also sees
@@ -2383,6 +2400,13 @@ assign_value_literal() {
   case $1 in
     *[!A-Za-z0-9._/:=@%,+\ -]*) return 1 ;;
   esac
+  # zsh expands a bare `=` leading an assignment value, or following a `:`,
+  # as `=cmd` (the command's path); bash keeps it literal.
+  if [ "$2" = -1 ]; then
+    case $1 in
+      =* | *:=*) return 1 ;;
+    esac
+  fi
   return 0
 }
 
@@ -2604,6 +2628,93 @@ arg_independent_verb() {
   return 1
 }
 
+# opens_operands <verb>: the argument-independent verbs that open a file
+# operand and print what it holds (or a digest of it). An unresolved word
+# reaching one could name another process's environment, `$_` after an
+# `echo` of that path included, so it defers there.
+opens_operands() {
+  case $1 in
+    cat | head | tail | wc | cut | comm | cmp | od | grep | diff | nl | paste | column) return 0 ;;
+    md5sum | sha1sum | sha256sum | sha512sum | cksum | shellcheck | yamllint) return 0 ;;
+  esac
+  return 1
+}
+
+# Other processes' environments. /proc/<pid>/environ holds another
+# process's environment (credentials included); only the reading process's
+# own, through /proc/self or /proc/thread-self, stays readable. Any word or
+# redirect source whose last component is `environ` defers, since a `..`,
+# /dev/fd, or a symlink can reach /proc from any directory, and so does a
+# glob whose last component could match `environ` unless its directory
+# canonicalizes outside /proc.
+
+# environ_word_risky <word> <globs>: 0 when the word could name another
+# process's environ file.
+environ_word_risky() {
+  local w=$1 last dir canon
+  if [ "$2" = 0 ]; then
+    case $w in
+      /proc/self/environ | /proc/thread-self/environ) return 1 ;;
+    esac
+  fi
+  last=${w##*/}
+  [ "$last" = environ ] && return 0
+  [ "$2" = 1 ] || return 1
+  # Pattern syntax beyond `*`, `?`, and `[…]` (braces, zsh's extended
+  # characters, a backslash) is not matched here, only assumed to match.
+  case $last in
+    *[{}\\~^#\<\>\|]*) ;;
+    *)
+      # shellcheck disable=SC2053 # the operand is the pattern under test
+      [[ environ == $last ]] || return 1
+      ;;
+  esac
+  case $w in
+    */*)
+      dir=${w%/*}
+      [ -n "$dir" ] || dir=/
+      ;;
+    *) dir=. ;;
+  esac
+  # A process directory can appear between this check and the run, so a
+  # /proc path defers whether or not it exists now.
+  case $dir in
+    *[*?[{}~\$]* | /proc | /proc/*) return 0 ;;
+  esac
+  case $dir in
+    /*) ;;
+    *) dir=$HOOK_CWD/$dir ;;
+  esac
+  # Any other directory that does not exist holds nothing to match.
+  canon=$(cd -P -- "$dir" 2>/dev/null && pwd) || return 1
+  case $canon in
+    /proc | /proc/*) return 0 ;;
+  esac
+  return 1
+}
+
+# environ_words_ok: no word of the current simple command could name
+# another process's environ file.
+environ_words_ok() {
+  local i
+  for ((i = 0; i < cwn; i++)); do
+    environ_word_risky "${cw[i]}" "${cglob[i]}" && return 1
+  done
+  return 0
+}
+
+# environ_redirect_ok <operand>: the same test for a redirect operand, which
+# the guard never expands, so any `$` in it could name anything.
+environ_redirect_ok() {
+  local g=0
+  case $1 in
+    *'$'*) return 1 ;;
+    *[*?[{~]*) g=1 ;;
+  esac
+  environ_word_risky "$1" "$g" && return 1
+  return 0
+}
+
 # guard_test: `test`/`[` evaluate a `-v` operand as an array subscript, which
 # runs any `$(…)` inside it even when the word was single-quoted.
 guard_test() {
@@ -2644,6 +2755,11 @@ opaque_words_ok() {
     word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" || continue
     [ "$verb" = printf ] && [ "$i" -gt "$fmt" ] && continue
     arg_independent_verb "$verb" || return 1
+    if opens_operands "$verb" && [ "${cdyn[i]}" != 0 ]; then
+      case ${cw[i]} in
+        *'$'*) return 1 ;;
+      esac
+    fi
   done
   return 0
 }
@@ -3282,6 +3398,7 @@ verify_known_simple() {
   # redirect with no command too, e.g. `> f cat x`).
   for ((i = 0; i < rn; i++)); do
     classify_redirect "${ro[i]}" "${rt[i]}" || spec_zone_redirect "${ro[i]}" "${rt[i]}" || return 1
+    environ_redirect_ok "${rt[i]}" || return 1
   done
   # A command with redirects but no words (pure `> file`) already handled;
   # an empty simple command (e.g. a trailing separator) is a no-op.
@@ -3299,6 +3416,7 @@ verify_known_simple() {
   # the words the shell will run. Words carrying a literal `$` are left alone.
   [ "$VAR_C" -eq 0 ] || expand_words
   [ "$cwn" -ge 1 ] || return 0
+  environ_words_ok || return 1
   strip_prefixes || return 1
   verb=${cw[0]}
   if [ "$verb" = cd ]; then

@@ -846,7 +846,7 @@ first_half() {
     "for f in -name -delete; do find . \$f; done"
   assert_allow "nested loops resolve both variables" \
     "for a in x y; do for b in p q; do find . -name \$a\$b; done; done"
-  assert_allow "an opaque operand of an argument-independent verb" "cat \$X; echo \"\$Y\"; printf '%s\\n' \"\$Z\""
+  assert_allow "an opaque operand of an argument-independent verb" "ls \$X; echo \"\$Y\"; printf '%s\\n' \"\$Z\""
   assert_allow "a quoted glob is a literal" "find . -name '*.sh' -type f"
 
   LOOP9='a b c d e f g h i'
@@ -945,6 +945,9 @@ first_half() {
   assert_defer "REQ-A1.12: cd followed by ;" "cd sub; ls" Bash "$WT"
   assert_defer "REQ-A1.12: a failed cd before ; leaves the old directory" "cd missing; rm -r ../x" Bash "$WT"
   assert_defer "REQ-A1.12: cd followed by ||" "cd sub || ls" Bash "$WT"
+  assert_defer "REQ-A1.12: cd followed by a newline and a reader" "cd sub"$'\n'"ls" Bash "$WT"
+  assert_defer "REQ-A1.12: a ; while a cd is in force, past an assignment" "cd sub && f=x; ls" Bash "$WT"
+  assert_defer "REQ-A1.12: cd in a pipeline before a writer" "cd sub | rm -r ../x" Bash "$WT"
   assert_defer "REQ-A1.12: cd in a pipeline" "cd sub | cat" Bash "$WT"
   assert_defer "REQ-A1.12: cd backgrounded" "cd sub & ls" Bash "$WT"
   assert_defer "REQ-A1.12: cd after a real command is conditional" "ls && cd sub && ls" Bash "$WT"
@@ -994,6 +997,25 @@ first_half() {
   assert_defer "REQ-E1.2: zsh's funcstack is refused" "funcstack=scripts/ok.sh && bash \$funcstack"
   assert_defer "REQ-E1.2: zsh's options hash is refused" "options=scripts/ok.sh && bash \$options"
   assert_defer "REQ-E1.2: zsh's argv is refused" "argv=scripts/ok.sh && bash \$argv"
+  # Each against the control: the same carry through an ordinary name allows.
+  assert_allow "REQ-E1.2: control, an ordinary name carries a flag across ;" "f=-name; find . \$f a.sh"
+  assert_defer "REQ-E1.2: zsh's read-only history is refused" "history=-name; find . \$history a.sh"
+  for n in TERM TERMINFO TERMINFO_DIRS WORDCHARS KEYBOARD_HACK ZLE_RPROMPT_INDENT POSTEDIT RPS1 RPS2 \
+    RPROMPT RPROMPT2 SPROMPT prompt PROMPT PROMPT2 PROMPT3 PROMPT4 PSVAR psvar fignore mailpath \
+    TIMEFMT HOST LOGNAME CPUTYPE MACHTYPE OSTYPE TTY VENDOR signals dis_functions functions_source \
+    dis_functions_source funcsourcetrace builtins dis_builtins reswords dis_reswords patchars \
+    dis_patchars modules dirstack historywords jobtexts jobdirs jobstates nameddirs userdirs \
+    usergroups dis_aliases galiases dis_galiases saliases dis_saliases epochtime zgdbm_tied \
+    langinfo mapfile errnos sysparams termcap terminfo WATCH watch widgets keymaps \
+    zsh_scheduled_events; do
+    assert_defer "REQ-E1.2: zsh's $n is refused" "$n=-name; find . \$$n a.sh"
+  done
+  # zsh expands a bare = leading the value, or after a :, as =cmd.
+  assert_allow "REQ-E1.2: control, a value with no zsh = expansion" "f=a.sh && find . -name \$f"
+  assert_defer "REQ-E1.2: a leading = is expanded by zsh" "f==a.sh && find . -name \$f"
+  assert_defer "REQ-E1.2: = after a : is expanded by zsh" "f=a:=b && find . -name \$f"
+  assert_allow "REQ-E1.2: a quoted leading = stays literal" "f='=a.sh' && find . -name \$f"
+  assert_allow "REQ-E1.2: = inside the value elsewhere stays literal" "f=a=b && find . -name \$f"
   assert_defer "REQ-E1.2: UID is readonly, so the model would be wrong" "UID=-delete && find . \$UID"
   assert_defer "REQ-E1.2: a conditional assignment before a use" "false && f=x; grep -n x \$f"
   assert_defer "REQ-E1.2: an assignment after a real command is conditional" "ls && f=-delete && find . \$f"
@@ -1022,6 +1044,15 @@ first_half() {
   assert_defer "REQ-A1.12: read makes the variable opaque" "read f; find . \$f"
   assert_defer "REQ-A1.12: printf -v makes the variable opaque" "printf -v f x && find . \$f"
   assert_defer "REQ-A1.12: mapfile makes the variable opaque" "mapfile -t a < f; find . \${a[0]}"
+  # The carry rows use a flag that allows only when its value carries.
+  assert_defer "REQ-A1.12: control, the flag alone is unresolved" "find . \$f a.sh"
+  assert_allow "REQ-A1.12: an assignment carries across ;" "f=-name; find . \$f a.sh"
+  assert_allow "REQ-A1.12: an assignment carries across a newline" "f=-name"$'\n'"find . \$f a.sh"
+  assert_allow "REQ-A1.12: an assignment carries across ||" "f=-name || find . \$f a.sh"
+  assert_allow "REQ-A1.12: an assignment opened by && after a carrying one" "f=-name && g=a.sh; find . \$f \$g"
+  assert_allow "REQ-A1.12: control, both assignments unconditional" "f=a; g=-name; find . \$g a.sh"
+  assert_defer "REQ-A1.12: an assignment after || is conditional" "f=a || g=-name; find . \$g a.sh"
+  assert_defer "REQ-A1.12: an assignment after a real command's && is conditional" "true && f=-name; find . \$f a.sh"
 
   echo "### REQ-A1.13 — time and timeout are transparent prefixes"
   assert_allow "REQ-A1.13: time" "time git status"
@@ -1030,7 +1061,7 @@ first_half() {
   assert_allow "REQ-A1.13: timeout <minutes>" "timeout 5m git log --oneline -3"
   assert_allow "REQ-A1.13: timeout <fraction>" "timeout 1.5 grep -n x f"
   assert_allow "REQ-A1.13: time around timeout" "time timeout 30 git status"
-  assert_allow "REQ-A1.13: the wrapped command is verified as if alone" "timeout 30 cat \$X"
+  assert_allow "REQ-A1.13: the wrapped command is verified as if alone" "timeout 30 echo \$X"
   assert_defer "REQ-A1.13: timeout around a writer" "timeout 30 rm -rf x"
   assert_defer "REQ-A1.13: timeout with a flag" "timeout -k 5 30 git status"
   assert_defer "REQ-A1.13: time around bash -c" "time bash -c x"
@@ -1144,6 +1175,12 @@ first_half() {
   assert_defer "REQ-E1.5: a format naming env" "ps -o pid,env"
   assert_defer "REQ-E1.5: a format naming environ" "ps --format=pid,environ"
   assert_defer "REQ-E1.5: an -O format naming env" "ps -O env"
+  assert_defer "REQ-E1.5: e inside a dash cluster" "ps -Ae"
+  assert_defer "REQ-E1.5: -e after another flag" "ps -A -e"
+  assert_defer "REQ-E1.5: -e after a format" "ps -o pid,args -e"
+  assert_defer "REQ-E1.5: BSD e after a dash flag" "ps -A e"
+  assert_defer "REQ-E1.5: -o env" "ps -o env"
+  assert_defer "REQ-E1.5: -o environ" "ps -o environ"
   assert_defer "REQ-E1.5: uptime with an unrecognized flag" "uptime --bogus"
   assert_defer "REQ-E1.5: command runs its operand" "command ls"
   assert_defer "REQ-E1.5: command -p runs its operand" "command -p ls"
@@ -1157,6 +1194,40 @@ first_half() {
   assert_defer "REQ-E1.5: git ls-remote -u" "git ls-remote -u x origin"
   assert_defer "REQ-E1.5: git ls-remote naming an existing path" "git ls-remote sub"
   assert_defer "REQ-E1.5: git ls-remote with no remote" "git ls-remote"
+
+  echo "### REQ-E1.6 — other processes' environments stay unread"
+  assert_defer "REQ-E1.6: another process's environ" "cat /proc/1234/environ"
+  assert_defer "REQ-E1.6: a redirect source naming one" "grep -a x < /proc/1234/environ"
+  assert_defer "REQ-E1.6: a thread's environ" "cat /proc/1234/task/1234/environ"
+  assert_defer "REQ-E1.6: a glob over every process" "cat /proc/*/environ"
+  assert_defer "REQ-E1.6: a glob in the last component" "cat /proc/1234/env*"
+  assert_defer "REQ-E1.6: every file of a process" "head /proc/1234/*"
+  assert_defer "REQ-E1.6: a bracket glob matching environ" "cat /proc/1234/[e]nviron"
+  assert_defer "REQ-E1.6: a brace expansion in the last component" "cat /proc/1234/{environ,status}"
+  assert_defer "REQ-E1.6: reached through .. from /proc/self" "cat /proc/self/../1234/environ"
+  assert_defer "REQ-E1.6: reached through /dev/fd" "cat /dev/fd/../../1234/environ"
+  assert_defer "REQ-E1.6: reached by a relative path" "cat ../../../../../../../../proc/1234/environ"
+  assert_defer "REQ-E1.6: an option's attached file operand" "grep --file=/proc/1234/environ x"
+  assert_defer "REQ-E1.6: a tracked value naming one" "f=/proc/1234/environ; cat \$f"
+  assert_defer "REQ-E1.6: a loop head naming one" "for f in /proc/1234/environ; do cat \$f; done"
+  assert_defer "REQ-E1.6: \$_ after an echo of the path" "echo /proc/1234/environ; cat \$_"
+  assert_defer "REQ-E1.6: \$_ alone" "echo a; cat \$_"
+  assert_defer "REQ-E1.6: a double-quoted opaque operand of a reader" "cat \"\$X\""
+  assert_defer "REQ-E1.6: an opaque operand of a reader" "cat \$X"
+  assert_defer "REQ-E1.6: an opaque word in a reader's path" "grep -n x src/\$X"
+  assert_defer "REQ-E1.6: an unexpanded redirect source" "grep x < \$f"
+  assert_defer "REQ-E1.6: a glob directory with a matching last component" "cat */*"
+  assert_defer "REQ-E1.6: inside fish -c" "fish -c 'cat /proc/1234/environ'"
+  assert_defer "REQ-E1.6: past a time prefix" "time cat /proc/1234/environ"
+  assert_allow "REQ-E1.6: the reading process's own environ" "cat /proc/self/environ"
+  assert_allow "REQ-E1.6: the reading thread's own environ" "cat /proc/thread-self/environ"
+  assert_allow "REQ-E1.6: its own environ as a redirect source" "tr '\\0' '\\n' < /proc/self/environ"
+  assert_allow "REQ-E1.6: env" "env"
+  assert_allow "REQ-E1.6: printenv" "printenv"
+  assert_allow "REQ-E1.6: an opaque operand of a non-reader" "echo \$X; ls \$X"
+  assert_allow "REQ-E1.6: a glob in the worktree" "cat *.md; grep -n x scripts/*"
+  assert_allow "REQ-E1.6: a last component only starting with environ" "cat environment.md"
+  assert_allow "REQ-E1.6: a plain redirect source" "wc -l < README.md"
   assert_defer "REQ-E1.5: --version of a verb outside the allowlist" "rm --version"
   assert_defer "REQ-E1.5: --version with another operand" "git --version x"
 
