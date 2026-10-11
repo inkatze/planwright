@@ -1225,6 +1225,8 @@ first_half() {
   assert_allow "REQ-E1.6: a known spaced value reaching a reader unquoted" "F='a b' && grep -n \$F README.md"
   assert_defer "REQ-E1.6: a known spaced value bash splits into a path" "F='/proc/1234/environ x' && cat \$F"
   assert_defer "REQ-E1.6: a known spaced value joined to a path" "F='environ x' && cat /proc/1234/\$F"
+  assert_defer "REQ-E1.6: a known spaced value joined to a glob" "F='a /proc/1234/env'; cat \$F*"
+  assert_allow "REQ-E1.6: a known spaced value joined to a glob that cannot match" "F='a b' && grep -n x \$F*.md"
   assert_defer "REQ-E1.6: an opaque operand of a reader" "cat \$X"
   assert_defer "REQ-E1.6: an opaque word in a reader's path" "grep -n x src/\$X"
   assert_defer "REQ-E1.6: an unexpanded redirect source" "grep x < \$f"

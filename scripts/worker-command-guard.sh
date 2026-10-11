@@ -2643,11 +2643,12 @@ opens_operands() {
   return 1
 }
 
-# opener_word_risky <word> <literal-dollar>: 0 when an operand of an
-# opens_operands verb, still unresolved after substitution, could name
+# opener_word_risky <word> <literal-dollar> <globs>: 0 when an operand of
+# an opens_operands verb, still unresolved after substitution, could name
 # another process's environ file. A `$` with no tracked literal behind it
 # could be any path. A tracked value kept unresolved only for its spaces is
-# known, so each word bash or zsh could make of it is checked instead.
+# known, so each word bash or zsh could make of it is checked instead, as
+# the glob the word's own pattern characters make it.
 opener_word_risky() {
   local piece
   local -a pieces
@@ -2660,10 +2661,10 @@ opener_word_risky() {
   case $EXPANDED in
     *'$'*) return 0 ;;
   esac
-  environ_word_risky "$EXPANDED" 0 && return 0
+  environ_word_risky "$EXPANDED" "$3" && return 0
   IFS=' ' read -r -a pieces <<<"$EXPANDED"
   for piece in ${pieces[@]+"${pieces[@]}"}; do
-    environ_word_risky "$piece" 0 && return 0
+    environ_word_risky "$piece" "$3" && return 0
   done
   return 1
 }
@@ -2815,7 +2816,7 @@ opaque_words_ok() {
     [ "$verb" = printf ] && [ "$i" -gt "$fmt" ] && continue
     arg_independent_verb "$verb" || return 1
     if opens_operands "$verb" && [ "${cdyn[i]}" != 0 ]; then
-      opener_word_risky "${cw[i]}" "${cx[i]}" && return 1
+      opener_word_risky "${cw[i]}" "${cx[i]}" "${cglob[i]}" && return 1
     fi
   done
   return 0
