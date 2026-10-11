@@ -214,10 +214,12 @@ screen_all() {
 # matches: a US social security number (personal-data-identity), a payment
 # card that passes its Luhn check or an uppercase IBAN that passes its mod-97
 # check (personal-data-account), and a NANP or `+`-prefixed international
-# phone number (personal-data-contact). The checksums and the separator
-# shapes keep version strings, dates, PR numbers, and hashes out; a card or
-# an IBAN run on into following digits is missed rather than guessed at.
-# awk without interval expressions, which POSIX awk does not promise.
+# phone number (personal-data-contact). Separators and sentence punctuation
+# around a number are accepted widely; the shapes are strict (issued SSN
+# ranges, NANP area and exchange digits, card issuer digits and group
+# layouts, the checksums), which keeps version strings, dates, PR numbers,
+# timestamps, and hashes out. awk without interval expressions, which POSIX
+# awk does not promise.
 personal_data() {
   awk -v name="$1" '
     function digits(s) { gsub(/[^0-9]/, "", s); return s }
@@ -258,31 +260,87 @@ personal_data() {
       off = st + RLENGTH - 1
       return 1
     }
+    # alone — the match is not part of a longer number or a word: no digit,
+    # letter, or underscore beside it, and no `.` or `-` joining another digit.
+    # A trailing `.` or `,` that ends the sentence is fine.
+    function alone() {
+      if (pre ~ /[A-Za-z0-9_]/ || post ~ /[A-Za-z0-9_]/) return 0
+      if (pre ~ /[.-]/ && substr(s, st - 2, 1) ~ /[0-9]/) return 0
+      if (post ~ /[.-]/ && substr(s, st + length(m) + 1, 1) ~ /[0-9]/) return 0
+      return 1
+    }
+    # card(d) — a payment card: an issuer digit (2 to 6) and a valid Luhn sum.
+    function card(d) { return d ~ /^[2-6]/ && luhn(d) }
     {
       split("", seen)
       s = " " $0 " "
-      if (s ~ /[^0-9-][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9][^0-9-]/) hit("personal-data-identity")
-      if (s ~ /[^0-9.-][(]?[0-9][0-9][0-9][)]?[ .-][0-9][0-9][0-9][ .-][0-9][0-9][0-9][0-9][^0-9.-]/) hit("personal-data-contact")
+      # A social security number: one separator, dash or space, and an area,
+      # group, and serial the SSA issues.
       off = 0
-      while (each("[+][0-9][0-9 .()-]*[0-9]")) {
-        if (pre ~ /[A-Za-z0-9_]/) continue
+      while (each("[0-9][0-9][0-9][ -][0-9][0-9][ -][0-9][0-9][0-9][0-9]")) {
+        if (!alone() || substr(m, 4, 1) != substr(m, 7, 1)) continue
+        a = substr(m, 1, 3)
+        if (a == "000" || a == "666" || a ~ /^9/ || substr(m, 5, 2) == "00" || substr(m, 8, 4) == "0000") continue
+        hit("personal-data-identity")
+      }
+      # A NANP number, optionally 1-prefixed: area and exchange start 2 to 9,
+      # and an unparenthesized area uses the exchange'"'"'s separator.
+      off = 0
+      while (each("(1[ .-])?([(][2-9][0-9][0-9][)] ?|[2-9][0-9][0-9][ .-])[2-9][0-9][0-9][ .-][0-9][0-9][0-9][0-9]")) {
+        if (!alone()) continue
+        c = m
+        if (c ~ /^1[ .-]/) c = substr(c, 3)
+        if (c !~ /^[(]/ && substr(c, 4, 1) != substr(c, 8, 1)) continue
+        hit("personal-data-contact")
+      }
+      # An international number: `+`, a country digit, 8 to 15 digits, and
+      # single separators.
+      off = 0
+      while (each("[+][1-9][0-9 .()-]*[0-9]")) {
+        if (pre ~ /[A-Za-z0-9_+]/ || post ~ /[A-Za-z0-9_]/ || m ~ /[ .-][ .-]/) continue
         n = length(digits(m))
         if (n >= 8 && n <= 15) hit("personal-data-contact")
       }
+      # A card: 13 to 19 digits unseparated, or a standard group layout
+      # (4-4-4-4, 4-4-4-4-3, 4-6-5, 4-6-4) under one separator, found
+      # anywhere in a run of groups so a number before it does not hide it.
       off = 0
       while (each("[0-9]+([ -][0-9]+)*")) {
         if (pre ~ /[A-Za-z_]/ || post ~ /[A-Za-z_]/) continue
-        d = digits(m)
-        if (length(d) >= 13 && length(d) <= 19 && luhn(d)) hit("personal-data-account")
+        if (pre == "." && substr(s, st - 2, 1) ~ /[0-9]/) continue
+        if (m !~ /[ -]/) {
+          if (length(m) >= 13 && length(m) <= 19 && card(m)) hit("personal-data-account")
+          continue
+        }
+        if (index(m, " ") && index(m, "-")) continue
+        ng = split(m, g, "[ -]")
+        for (i = 1; i <= ng && !("personal-data-account" in seen); i++) {
+          nl = split("4 4 4 4 3|4 4 4 4|4 6 5|4 6 4", lay, "|")
+          for (l = 1; l <= nl; l++) {
+            k = split(lay[l], w, " ")
+            if (i + k - 1 > ng) continue
+            d = ""
+            for (j = 1; j <= k && length(g[i + j - 1]) == w[j]; j++) d = d g[i + j - 1]
+            if (j > k && card(d)) { hit("personal-data-account"); break }
+          }
+        }
       }
+      # An IBAN, unseparated or in groups of four, the last shorter; the
+      # groups stop at 34 characters so a long uppercase run costs little.
       off = 0
       while (each("[A-Z][A-Z][0-9][0-9]( ?[A-Z0-9])+")) {
         if (pre ~ /[A-Za-z0-9_]/) continue
-        c = ""
         ng = split(m, g, " ")
-        for (j = 1; j <= ng; j++) {
+        if (length(g[1]) > 4) {
+          if (length(g[1]) >= 15 && length(g[1]) <= 34 && (ng > 1 || post !~ /[a-z_]/) && iban(g[1])) hit("personal-data-account")
+          continue
+        }
+        c = g[1]
+        for (j = 2; j <= ng && length(g[j]) <= 4; j++) {
           c = c g[j]
-          if (length(c) >= 15 && length(c) <= 34 && iban(c)) { hit("personal-data-account"); break }
+          if (length(c) > 34) break
+          if (length(c) >= 15 && iban(c)) { hit("personal-data-account"); break }
+          if (length(g[j]) < 4) break
         }
       }
     }' "$work/$1" >>"$work/hits" || die 4 "cannot screen --${1%.clean} for personal data"

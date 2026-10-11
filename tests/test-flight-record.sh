@@ -386,13 +386,23 @@ SSN="078-05-""1120"
 CARD="4111 1111 ""1111 1111"
 IBAN="GB82 WEST ""1234 5698 7654 32"
 INTL="+44 20 ""7946 0958"
-NANP="(555) ""123-4567"
-for case in "identity:$SSN" "account:$CARD" "account:$IBAN" "contact:$INTL" "contact:$NANP" \
-  "account:4111111111""111111" "account:4111-1111-""1111-1111" "account:GB82WEST1234""5698765432" \
-  "contact:555-123-""4567" "contact:555.123.""4567"; do
-  rule=personal-data-${case%%:*}
-  value=${case#*:}
-  printf 'Reach the customer.\nTheir number is %s, thanks.\n' "$value" >"$in/ask-pii.txt"
+NANP="(555) ""234-5678"
+# Each case is <rule>|<text before>|<value>|<text after>: the value in prose,
+# ended by a comma or a period, or set after another number.
+for case in "identity|is |$SSN|, thanks." "identity|is |078 05 ""1120|." \
+  "account|is |$CARD|, thanks." "account|is |$IBAN|." "account|is |4111111111""111111|, thanks." \
+  "account|is |4111-1111-""1111-1111|." "account|is |GB82WEST1234""5698765432|, thanks." \
+  "account|is order 12 |$CARD| now." "account|is |3782 822463 ""10005|." \
+  "contact|is |$INTL|." "contact|is |$NANP|, thanks." "contact|is |555-234-""5678|." \
+  "contact|is |555.234.""5678|, thanks." "contact|is |(555)234-""5678|." \
+  "contact|is |1-555-234-""5678|."; do
+  rule=personal-data-${case%%|*}
+  rest=${case#*|}
+  before=${rest%%|*}
+  rest=${rest#*|}
+  value=${rest%%|*}
+  after=${rest#*|}
+  printf 'Reach the customer.\nTheir number %s%s%s\n' "$before" "$value" "$after" >"$in/ask-pii.txt"
   run_render pr --ask-file "$in/ask-pii.txt"
   [ "$RC" -eq 0 ] || fail "render of an ask with $rule exited $RC: $ERR"
   case $OUT in *"$value"*) fail "$rule ($value) reached the record" ;; esac
@@ -432,6 +442,8 @@ printf '%s\n' "$OUT" | grep -q 'personal data were redacted whole' || fail "a mi
   printf 'Not an IBAN: GB82 WEST 1234 5698 7654 33.\n'
   printf 'Blob deadbeef4111111111111111cafe and x+44 20 7946 0958 and call +12 345.\n'
   printf 'Ranges 10-078-05-1120-3 and 1.555.123.4567 stay.\n'
+  printf 'Exchange 555-123-4567, area 900-12-3456, sizes 128 256 1024 4096.\n'
+  printf 'At 1791679375009 the job ended; 4111 1111 1111 ran short.\n'
 } >"$in/ask-numbers.txt"
 run_render pr --ask-file "$in/ask-numbers.txt"
 [ "$RC" -eq 0 ] || fail "render of an ask with ordinary numbers exited $RC: $ERR"
