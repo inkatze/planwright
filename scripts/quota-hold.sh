@@ -56,8 +56,9 @@
 #     Append one ledger line for a request sent, an answer received, or a
 #     limit refusal.
 #   quota-hold.sh status [--vendor <id>] [--now <epoch>]
-#     Read-only and lockless, and all or nothing: a store it cannot read fails
-#     the whole call with exit 6, never a vendor read as clear. Prints `retention<TAB><days>`, then for the vendor
+#     Read-only and lockless. A store it cannot read fails the call with exit
+#     6, never a vendor read as clear; lines printed before the failure are no
+#     verdict. Prints `retention<TAB><days>`, then for the vendor
 #     (or every vendor with a store directory):
 #       vendor<TAB><id><TAB>held|clear<TAB><since|-><TAB><reset|-><TAB><units><TAB><reason|->
 #       holder<TAB><id><TAB><unit><TAB><step><TAB><since>   one per holding unit
