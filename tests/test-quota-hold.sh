@@ -748,6 +748,24 @@ for pos in store vendor; do
     [ "$rc" = 6 ] || fail "non-directory: $verb over a file at the $pos path exited $rc, not 6"
   done
 done
+for pos in store vendor; do
+  for verb in status prune; do
+    new_home "nondir-all-$pos-$verb"
+    case $pos in
+      store)
+        mkdir -p "$home/fleet"
+        : >"$home/fleet/quota"
+        ;;
+      vendor)
+        mkdir -p "$home/fleet/quota"
+        : >"$home/fleet/quota/sample-cli"
+        ;;
+    esac
+    rc=0
+    run "$verb" --now "$NOW" >/dev/null 2>&1 || rc=$?
+    [ "$rc" = 6 ] || fail "non-directory: $verb (every vendor) over a file at the $pos path exited $rc, not 6"
+  done
+done
 pass "a file at the store or vendor path is refused"
 
 # A ledger that is not a regular file is never skipped as though absent.

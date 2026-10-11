@@ -355,8 +355,9 @@ list_vendors() {
     return 0
   fi
   [ -d "$store" ] || return 0
-  # A linked vendor directory is listed so the reader refuses it.
-  find "$store" -mindepth 1 -maxdepth 1 \( -type d -o -type l \) | while IFS= read -r lv_p; do
+  # Every entry is listed, a link or a file included, so the reader refuses
+  # what is not a vendor directory instead of skipping it.
+  find "$store" -mindepth 1 -maxdepth 1 | while IFS= read -r lv_p; do
     lv_n=${lv_p##*/}
     valid_id "$lv_n" && printf '%s\n' "$lv_n"
   done | sort
@@ -486,6 +487,7 @@ case $verb in
     days=$(retention_days) || exit $?
     cutoff=$((now - days * 86400))
     [ ! -L "$store" ] || die 6 "refusing a symlink in the vendor's store"
+    [ ! -e "$store" ] || [ -d "$store" ] || die 6 "the vendor's store path is not a directory"
     # A directory that cannot be searched hides its files, and one that
     # cannot be listed hides its vendors: neither reads as clear.
     if [ -d "$store" ] && { [ ! -x "$store" ] || { [ "$vendor_set" != 1 ] && [ ! -r "$store" ]; }; }; then
@@ -545,6 +547,7 @@ case $verb in
     days=$(retention_days) || exit $?
     cutoff=$((now - days * 86400))
     [ ! -L "$store" ] || die 6 "refusing a symlink in the vendor's store"
+    [ ! -e "$store" ] || [ -d "$store" ] || die 6 "the vendor's store path is not a directory"
     # As in status: a store that cannot be searched or listed hides ledgers.
     if [ -d "$store" ] && { [ ! -x "$store" ] || { [ "$vendor_set" != 1 ] && [ ! -r "$store" ]; }; }; then
       die 6 "cannot read the quota store"
