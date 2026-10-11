@@ -202,10 +202,13 @@ fi
 # identifier degrades the adopter layer with a stderr warning). The upfront -x
 # guard above means a missing/non-executable resolver is reported once, not once
 # per call; a blanket 2>/dev/null would instead swallow the legitimate warnings,
-# defeating this reader's "never fails opaquely" contract.
+# defeating this reader's "never fails opaquely" contract. It runs through bash,
+# the interpreter its `env bash` shebang finds on PATH, rather than through the
+# shebang: on every config read, the extra env exec and PATH walk doubled the
+# cost of the call.
 overlay_root() {
   [ "$overlay_resolver_ok" -eq 1 ] || return 0
-  "$overlay_resolver" "$1"
+  bash "$overlay_resolver" "$1"
 }
 
 # Adopter and repo-tracked config files (kind-native names under each layer
