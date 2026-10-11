@@ -205,6 +205,8 @@ else
 fi
 [ -n "$present" ] || die 2 "the corpus holds no rows"
 
+# Read before any row runs: the checkout may move while a long replay is going.
+plugin_commit=$(git -C "$repo_root" rev-parse HEAD 2>/dev/null) || plugin_commit=unknown
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/rbt-replay.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
@@ -330,7 +332,6 @@ done
 
 # --- score, record, gate ------------------------------------------------------
 
-plugin_commit=$(git -C "$repo_root" rev-parse HEAD 2>/dev/null) || plugin_commit=unknown
 {
   printf 'review-backtest\t1\n'
   printf 'corpus\t%s\n' "$version"

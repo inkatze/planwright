@@ -221,6 +221,24 @@ assert_exit "a row with no merge base on main makes the run exit 4" 4 $?
 assert_contains "names the missing merge base" "no merge base" "$out"
 if [ ! -s "$REVIEWER_LOG" ]; then ok "the reviewer is not run without a base"; else fail "the reviewer ran without a base"; fi
 
+# --- the plugin commit is the one the run started from ---
+pw="$T/pw"
+mkdir -p "$pw/scripts"
+cp "$REPO_ROOT"/scripts/review-backtest.sh "$REPO_ROOT"/scripts/review-backtest-lib.sh "$REPO_ROOT"/scripts/review-corpus-screen.sh "$pw/scripts/"
+git -C "$pw" init -q
+git -C "$pw" add scripts
+git -C "$pw" commit -qm start
+pw_start=$(git -C "$pw" rev-parse HEAD)
+cat >"$T/moving.sh" <<EOF
+#!/bin/sh
+git -C "$pw" commit -q --allow-empty -m moved
+printf 'a.sh\t50\n'
+EOF
+chmod +x "$T/moving.sh"
+"$pw/scripts/review-backtest.sh" --corpus "$corpus_dir" --remote "$remote" --reviewer "$T/moving.sh" \
+  --model m --seed 7 --classes claim-vs-code --out "$T/moving.tsv" >/dev/null 2>&1
+if grep -q "^plugin_commit	$pw_start\$" "$T/moving.tsv"; then ok "the recorded plugin commit is the run's starting head"; else fail "plugin commit moved with the checkout"; fi
+
 # --- usage refusals ---
 "$HARNESS" --corpus "$corpus_dir" --remote "$remote" --reviewer-stub "$stub" >/dev/null 2>&1
 assert_exit "a replay without --model is refused" 2 $?
