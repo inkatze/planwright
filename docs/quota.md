@@ -76,6 +76,31 @@ CLI arguments are argv entries.
 
 Adding an evidence kind is a core change.
 
+### Claude's readings
+
+The stream-json supervisor keeps each worker's newest rate-limit reading beside
+its other runtime state under the fleet home, and the reading outlives the
+worker. `scripts/claude-frames.sh read` shows the session and weekly
+utilization those readings give: for each window, a reading whose reset time
+has passed is ignored, and of the rest the one with the furthest-future reset
+is taken, whichever worker sent it. `scripts/fleet-stats.sh render` shows the
+same as its `claude usage` line.
+
+These readings are **account-wide**: every session on the Claude account counts
+toward them, not only the fleet's workers, so they are a ceiling to respect,
+never the fleet's own spend, and every rendering says so. A fleet whose workers
+run only on backends that emit no readings (headless or subagent workers), or
+whose readings are all past their reset, reads **unmeasured**, never as
+headroom.
+
+A Claude hold counts as cleared only when each window has a reading received
+after the hold began that is below the window's lowest restriction threshold,
+its usage-gate `downshift` knob (`fleet_usage_session_downshift`,
+`fleet_usage_weekly_downshift`; [Options reference](options-reference.md)).
+`scripts/claude-frames.sh clearance --since <epoch>` answers that for a hold
+that began at `<epoch>`. A stated reset time passing is not evidence. The usage
+gate's own signal is its `/usage` read; these readings never change it.
+
 ## Classifying a refusal
 
 `scripts/classify-limit.sh --vendor <id> [--input <file>]` reads captured

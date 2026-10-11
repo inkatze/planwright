@@ -46,6 +46,10 @@
 #                     units, the stated reset time, the reason) and its ledger
 #                     counts over the retention period, read through
 #                     scripts/quota-hold.sh status (quota-handling REQ-E1.2).
+#   claude usage    — Claude's session and weekly utilization from the workers'
+#                     rate-limit frames, read through scripts/claude-frames.sh
+#                     and labelled account-wide: every session on the account
+#                     counts toward it, so it is never the fleet's own spend.
 #
 # COMPOSES WITH fleet-attention.sh (D-14) AND tower-queue.sh (tower-comms
 # D-17). `line` folds the worker decision-queue length (fleet-attention.sh
@@ -73,7 +77,7 @@
 # Usage:
 #   fleet-stats.sh render
 #       The multi-line human-facing stats block (last cleanup, watchdog trips,
-#       throttle state, allocation, vendors).
+#       throttle state, allocation, vendors, claude usage).
 #   fleet-stats.sh line
 #       The compact single-line render for a statusLine, folding in the worker
 #       decision-queue length and, while a tower is live, the operator queue's
@@ -112,6 +116,7 @@ ATTN="$script_dir/fleet-attention.sh"
 LEDGER="$script_dir/allocation-ledger.sh"
 TOWER_QUEUE="$script_dir/tower-queue.sh"
 QUOTA="$script_dir/quota-hold.sh"
+FRAMES="$script_dir/claude-frames.sh"
 TAB=$(printf '\t')
 
 # utc_iso <epoch>: best-effort UTC rendering, byte-identical to
@@ -324,6 +329,47 @@ derive_vendors() {
   done
 }
 
+# derive_claude_usage — the Claude reading through scripts/claude-frames.sh
+# read, so the label and the staleness rule stay that script's. Sets
+# CLAUDE_USAGE, `unknown` on a read failure.
+CLAUDE_USAGE=""
+derive_claude_usage() {
+  if [ ! -x "$FRAMES" ]; then
+    CLAUDE_USAGE="none"
+    return 0
+  fi
+  dc_rc=0
+  dc_out=$("$FRAMES" read 2>/dev/null) || dc_rc=$?
+  if [ "$dc_rc" != 0 ]; then
+    printf '%s\n' "fleet-stats: could not read the Claude rate-limit frames (claude-frames read exit $dc_rc); claude usage degraded to unknown" >&2
+    CLAUDE_USAGE="unknown"
+    return 0
+  fi
+  case $(printf '%s\n' "$dc_out" | awk -F "$TAB" '$1 == "verdict" { print $2; exit }') in
+    measured) ;;
+    unmeasured)
+      CLAUDE_USAGE="account-wide; unmeasured (no live rate-limit frame)"
+      return 0
+      ;;
+    *)
+      CLAUDE_USAGE="unknown"
+      return 0
+      ;;
+  esac
+  dc_text=""
+  for dc_w in session weekly; do
+    dc_line=$(printf '%s\n' "$dc_out" | awk -F "$TAB" -v w="$dc_w" '$1 == "window" && $2 == w { print; exit }')
+    dc_pct=$(printf '%s' "$dc_line" | cut -f 3)
+    dc_reset=$(printf '%s' "$dc_line" | cut -f 4)
+    case $dc_reset in
+      "" | - | *[!0-9]*) dc_part="$dc_w unmeasured" ;;
+      *) dc_part="$dc_w $dc_pct% (resets $(utc_iso "$dc_reset"))" ;;
+    esac
+    dc_text="${dc_text:+$dc_text, }$dc_part"
+  done
+  CLAUDE_USAGE="account-wide; $dc_text"
+}
+
 # queue_count — the decision-queue length via fleet-attention.sh (composition,
 # D-14). Three outcomes, kept distinct:
 #   `deferred` — a healthy exit-0 with EMPTY stdout: a backend advertises
@@ -468,6 +514,7 @@ case $cmd in
     derive_throttle
     derive_allocation
     derive_vendors
+    derive_claude_usage
     s_cleanup=$(sanitize_printable "$LAST_CLEANUP" "?")
     s_trips=$(sanitize_printable "$WATCHDOG_TRIPS" "?")
     s_throttle=$(sanitize_printable "$THROTTLE_STATE" "?")
@@ -482,6 +529,7 @@ case $cmd in
     else
       printf '  vendors:        %s\n' "$VENDOR_STATE"
     fi
+    printf '  claude usage:   %s\n' "$(sanitize_printable "$CLAUDE_USAGE" "?")"
     exit 0
     ;;
 
