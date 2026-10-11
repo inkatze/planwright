@@ -2016,6 +2016,11 @@ environ_word_risky() {
       [[ environ == $last ]] || return 1
       ;;
   esac
+  # fish's `**` descends into subdirectories, through symlinks too, so no
+  # directory test can bound where it matches.
+  case $last in
+    *'**'*) return 0 ;;
+  esac
   case $w in
     */*)
       dir=${w%/*}
