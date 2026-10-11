@@ -210,22 +210,23 @@ QH_GO="$tmp/go-now" srun hold --vendor sample-cli --unit spec-c:task-1 --step pa
   || fail "late-push: the live hold was pushed again after a late push recorded the old one: $(cat "$tmp/late-pushes")"
 pass "a push record follows the live hold, never an older one"
 
-# A push whose record cannot be checked says so rather than going quiet.
+# A failed push whose reservation cannot be released says so rather than
+# leaving joiners silently unpushed.
 if [ "$(id -u)" != 0 ]; then
-  new_home unrecorded
+  new_home unreleased
   cat >"$stub/fleet-attention.sh" <<'STUB'
 #!/bin/sh
-chmod 000 "$QH_HOLDFILE"
+chmod 500 "$QH_VENDORDIR"
+exit 1
 STUB
   rc=0
-  QH_HOLDFILE="$(holdfile sample-cli)" srun hold --vendor sample-cli --unit spec-a:task-1 --step panel \
-    --reason "quota" --now "$NOW" >/dev/null 2>"$tmp/unrecorded-err" || rc=$?
-  chmod 600 "$(holdfile sample-cli)"
-  [ "$rc" = 0 ] || fail "unrecorded: a pushed hold whose record could not be checked exited $rc"
-  grep -q "the push was not recorded (the hold store could not be read)" "$tmp/unrecorded-err" \
-    || fail "unrecorded: no warning that the push went unrecorded: $(cat "$tmp/unrecorded-err")"
-  [ ! -e "$home/fleet/quota/sample-cli/pushed" ] || fail "unrecorded: a push record was written anyway"
-  pass "a push whose record cannot be checked warns that it went unrecorded"
+  QH_VENDORDIR="$home/fleet/quota/sample-cli" srun hold --vendor sample-cli --unit spec-a:task-1 --step panel \
+    --reason "quota" --now "$NOW" >/dev/null 2>"$tmp/unreleased-err" || rc=$?
+  chmod 700 "$home/fleet/quota/sample-cli"
+  [ "$rc" = 3 ] || fail "unreleased: a hold whose push failed exited $rc, not 3"
+  grep -q "the push stays reserved" "$tmp/unreleased-err" \
+    || fail "unreleased: no warning that the push stayed reserved: $(cat "$tmp/unreleased-err")"
+  pass "a failed push whose reservation cannot be released says so"
 fi
 
 new_home noreset
@@ -762,6 +763,50 @@ rc=0
 run prune --vendor sample-cli --now "$NOW" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 6 ] || fail "prune over a FIFO at ledger.tsv exited $rc, not 6"
 pass "prune refuses a ledger that is not a regular file"
+
+# The push is reserved under the vendor's lock, so joiners racing a relay that
+# drains the first marker still push one hold once.
+new_home push-race
+relayed="$tmp/push-race-relayed"
+: >"$relayed"
+(
+  while [ ! -e "$tmp/push-race-done" ]; do
+    PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+      PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
+      /bin/sh "$repo_root/scripts/fleet-attention.sh" relay >>"$relayed" 2>/dev/null || :
+  done
+) &
+relay_pid=$!
+pids=""
+for u in $units; do
+  run hold --vendor sample-reviewer --unit "$u" --step bot-review --reason quota --now "$NOW" >/dev/null 2>&1 &
+  pids="$pids $!"
+done
+for p in $pids; do
+  wait "$p" || :
+done
+: >"$tmp/push-race-done"
+wait "$relay_pid" || :
+PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
+  /bin/sh "$repo_root/scripts/fleet-attention.sh" relay >>"$relayed" 2>/dev/null || :
+n=$(grep -c "quota-hold-sample-reviewer-$NOW" "$relayed" || :)
+[ "$n" = 1 ] || fail "push race: one hold was pushed $n times"
+pass "joiners racing a relay push one hold once"
+
+# A push that fails releases its reservation, so the next joiner pushes.
+new_home push-fail
+good_cfg=$core_cfg
+core_cfg="$tmp/push-fail-core.yml"
+printf 'notification_channel: not-a-channel\nquota_ledger_retention_days: 90\n' >"$core_cfg"
+rc=0
+run hold --vendor sample-cli --unit spec-a:task-1 --step panel --reason r --now "$NOW" >/dev/null 2>&1 || rc=$?
+core_cfg=$good_cfg
+[ "$rc" = 3 ] || fail "push fail: a hold whose push failed exited $rc, not 3"
+[ ! -e "$home/fleet/quota/sample-cli/pushed" ] || fail "push fail: the failed push left its reservation"
+run hold --vendor sample-cli --unit spec-b:task-2 --step panel --reason r --now "$NOW" >/dev/null 2>&1 || fail "push fail: the next hold failed"
+[ -n "$(ls -A "$home/fleet/attention/push" 2>/dev/null)" ] || fail "push fail: the next joiner did not push"
+pass "a failed push releases its reservation"
 
 # --- 7. The vendor view in fleet-stats.sh render ---------------------------
 # The render reads the real clock, so this fixture is stamped relative to it.

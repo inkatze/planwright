@@ -12,9 +12,9 @@
 #               since  unit  step  reset  recognizer  reason  end
 #   ledger.tsv  one appended line per event, rewritten only by prune:
 #               time  event  unit  pr  head  recognizer  reason  end
-#   pushed      the since of the hold whose attention event was last pushed,
-#               rewritten whole under the lock while that hold is still the
-#               vendor's, and removed by resume
+#   pushed      the since of the hold whose attention event is pushed or
+#               being pushed, reserved under the lock before the push, removed
+#               again if the push fails, and removed by resume
 #   lock        the vendor's lock, taken through scripts/lock-lib.sh for every
 #               write, since several units on a host can meet one limit at once
 # An absent optional field is `-`. The trailing `end` field is what lets a line
@@ -41,8 +41,8 @@
 #     renewed in place and keeps the time it first held. Appends a `hold` ledger
 #     line, then pushes the attention event (vendor, reason, stated reset time,
 #     resume command) through scripts/fleet-attention.sh notify, keyed on the
-#     time the vendor's hold began and skipped once `pushed` names that time,
-#     so one hold is one push whoever joins it.
+#     time the vendor's hold began and reserved in `pushed` under the lock
+#     first, so one hold is one push whoever joins it.
 #     Prints `held<TAB><vendor><TAB><since>`. Whatever the caller, holding and
 #     pushing are one act of this verb. A hold records no refusal: a caller
 #     whose request the vendor refused records that with `record` first.
@@ -394,6 +394,16 @@ case $verb in
     ledger_append "$dir" hold "$unit" "$(none "$pr")" "$(none "$head")" "$(none "$recognizer")" "$REASON"
     mv -f "$CUR_TMP" "$hf" || die 6 "cannot commit the hold store"
     CUR_TMP=""
+    # The push is reserved here, under the lock, so two joiners can never both
+    # find it unmade; the notify key alone dedupes only while a push is pending.
+    reserved=0
+    if [ ! -f "$pf" ] || [ "$(cat "$pf" 2>/dev/null)" != "$since" ]; then
+      CUR_TMP=$(mktemp "$dir/.pushed.XXXXXX") || die 6 "cannot create a write temp"
+      printf '%s\n' "$since" >"$CUR_TMP" || die 6 "cannot write the vendor's push record"
+      mv -f "$CUR_TMP" "$pf" || die 6 "cannot commit the vendor's push record"
+      CUR_TMP=""
+      reserved=1
+    fi
     unlock_vendor "$dir"
 
     if [ -n "$reset" ]; then
@@ -404,42 +414,29 @@ case $verb in
     short=$(printf '%s' "$REASON" | cut -c 1-200)
     summary="quota hold: $vendor is held ($short); $when; resume with scripts/quota-hold.sh resume --vendor $vendor"
     printf 'held\t%s\t%s\n' "$vendor" "$since"
+    [ "$reserved" = 1 ] || exit 0
+    push_failed=""
     if [ ! -x "$ATTN" ]; then
-      printf '%s\n' "$prog: the hold on $vendor is recorded, but the attention helper is missing (broken install)" >&2
-      exit 3
+      push_failed="the attention helper is missing (broken install)"
+    elif ! "$ATTN" notify "$summary" --key "quota-hold-$vendor-$since" >/dev/null; then
+      push_failed="its attention push failed"
     fi
-    # The notify key dedupes only while its push is pending, so a unit joining
-    # after the push was relayed would push the same hold again.
-    if [ -f "$pf" ] && [ "$(cat "$pf" 2>/dev/null)" = "$since" ]; then
-      exit 0
-    fi
-    "$ATTN" notify "$summary" --key "quota-hold-$vendor-$since" >/dev/null || {
-      printf '%s\n' "$prog: the hold on $vendor is recorded, but its attention push failed" >&2
-      exit 3
-    }
-    # Recorded under the lock and only while this hold is still the vendor's:
-    # a late write for a hold a resume already ended would silence the next.
-    unrecorded=""
+    [ -n "$push_failed" ] || exit 0
+    # Release the reservation, while it is still this hold's, so the next
+    # joiner pushes instead.
+    unreleased=""
     if pw_lock_acquire "$dir/lock"; then
-      cur="" cur_rc=0
-      [ ! -f "$hf" ] || cur=$(awk -F "$TAB" -v v="$vendor" "$AWK_GRAMMAR"'
-        hold_ok() && (m == "" || $1 + 0 < m + 0) { m = $1 } END { print m }' "$hf") || cur_rc=$?
-      if [ "$cur_rc" != 0 ]; then
-        unrecorded="the hold store could not be read"
-      elif [ "$cur" = "$since" ]; then
-        if CUR_TMP=$(mktemp "$dir/.pushed.XXXXXX") && printf '%s\n' "$since" >"$CUR_TMP" && mv -f "$CUR_TMP" "$pf"; then
-          CUR_TMP=""
-        else
-          unrecorded="the record could not be written"
-        fi
+      if [ -f "$pf" ] && [ "$(cat "$pf" 2>/dev/null)" = "$since" ]; then
+        rm -f "$pf" || unreleased="the reservation could not be removed"
       fi
       pw_lock_release "$dir/lock" \
-        || printf '%s\n' "$prog: the hold on $vendor is pushed, but the vendor's lock could not be released (retried on exit)" >&2
+        || printf '%s\n' "$prog: the vendor's lock could not be released (retried on exit)" >&2
     else
-      unrecorded="the vendor's lock could not be taken"
+      unreleased="the vendor's lock could not be taken"
     fi
-    [ -z "$unrecorded" ] || printf '%s\n' "$prog: the hold on $vendor is pushed, but the push was not recorded ($unrecorded); a unit joining it may push again" >&2
-    exit 0
+    printf '%s\n' "$prog: the hold on $vendor is recorded, but $push_failed" >&2
+    [ -z "$unreleased" ] || printf '%s\n' "$prog: the push stays reserved ($unreleased); a unit joining this hold will not push it" >&2
+    exit 3
     ;;
 
   resume)
