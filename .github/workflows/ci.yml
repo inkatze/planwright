@@ -113,6 +113,29 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: /bin/sh scripts/check-purged-identifiers.sh --commit-range "origin/${BASE_REF}..HEAD"
 
+  # macOS ships bash 3.2 as /bin/bash and /bin/sh, and its parser rejects
+  # constructs every later bash accepts, so this job parses every tracked
+  # shell file in its declared dialect under the real 3.2 from Docker's
+  # official image, pinned by digest (tests/test-check-bash32.sh checks the
+  # pin). The same test then runs under that parser, its misparse fixtures
+  # proving the step can fail. git stays outside the container, which has
+  # none; the checkout is mounted read-only with no network.
+  bash32-parse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BASH32_IMAGE: bash:3.2@sha256:0fd7cb8499c63a3c9345e7088a9cd83bb69f6e895e83833859aff838a0312091
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - shell: bash
+        run: |
+          git -c core.quotepath=off ls-files \
+            | docker run --rm -i --network none -v "$PWD:/src:ro" -w /src "$BASH32_IMAGE" \
+              bash scripts/check-bash32.sh parse --files-from - --expect-version 3.2
+          docker run --rm --network none -v "$PWD:/src:ro" -w /src \
+            -e PLANWRIGHT_TEST_REQUIRE_BASH32=1 "$BASH32_IMAGE" \
+            bash tests/test-check-bash32.sh
+
   # The macOS userland the scripts actually run on for most operators: its
   # /usr/bin/awk is one-true-awk, which rejects a newline inside a -v value
   # where the ubuntu runner's awk accepts it, so that class of bug passes the
