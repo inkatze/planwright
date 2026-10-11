@@ -33,6 +33,9 @@ done
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-substrate-partition.XXXXXX") || fail "mktemp -d failed"
 [ -n "$tmp" ] && [ -d "$tmp" ] || fail "mktemp -d produced no directory"
 trap 'rm -rf "$tmp"' EXIT
+# The physical path, as mise reports task sources (macOS's $TMPDIR sits
+# behind a symlink).
+tmp=$(cd "$tmp" && pwd -P) || fail "cannot resolve the temp directory"
 
 # put <relative-path>: write stdin to a file in the fixture tree.
 put() {
@@ -73,6 +76,9 @@ run = '''
 # /bin/sh scripts/described.sh
 true
 '''
+
+[tasks.filetask]
+file = "scripts/filetask.sh"
 EOF
 
 put .github/workflows/ci.yml <<'EOF'
@@ -150,12 +156,36 @@ name=$1
 . "$(dirname "$0")/$name.sh"
 EOF
 
+# A `;;` ends the arm's pending eval; functions defined mid-line are not
+# commands; a script handed to sh by a built name is unresolved; a heredoc
+# opened on a continued line starts after the continuation.
 put scripts/devtool.sh <<'EOF'
+#!/bin/sh
+here=$(dirname "$0")
+case $1 in
+  a) eval ;; b) curl "$x" ;;
+esac
+a() { :; }; b() { wc -l; }
+b
+/bin/sh "$here/$rung" stop
+cat <<EOT \
+  | tr a b
+body-cmd
+EOT
+EOF
+
+put scripts/wfonly.sh <<'EOF'
+#!/bin/sh
+. "${LIB:-$d/lib.sh}"
+EOF
+
+put scripts/filetask.sh <<'EOF'
 #!/bin/sh
 exit 0
 EOF
 
-put scripts/wfonly.sh <<'EOF'
+# Named only through hook-and-skill.sh's `$name.sh`: not a caller.
+put scripts/name.sh <<'EOF'
 #!/bin/sh
 exit 0
 EOF
@@ -182,13 +212,14 @@ done
 # A shell script without the suffix is in the layer; a non-shell file is not.
 put scripts/no-suffix <<'EOF'
 #!/usr/bin/env bash
-exit 0
+shopt -s nullglob
 EOF
 put scripts/notes.txt <<'EOF'
 not a script
 EOF
 
-export MISE_TRUSTED_CONFIG_PATHS="$tmp"
+# The script grants mise no trust itself, so the test trusts its own trees.
+export MISE_TRUSTED_CONFIG_PATHS="$tmp:$REPO_ROOT"
 
 run_sp() { /bin/sh "$SP" --repo-root "$1" 2>"$tmp/err"; }
 
@@ -213,8 +244,8 @@ expect() {
   || fail "p0: header is $(head -n 1 "$tmp/out1")"
 want_paths=$(printf '%s\n' githooks/pre-commit scripts/both.sh scripts/commented.sh \
   scripts/deadlib.sh scripts/described.sh scripts/devtool.sh scripts/doconly.sh \
-  scripts/gitcalled.sh scripts/heredoc-only.sh scripts/hook-and-skill.sh scripts/hooked.sh \
-  scripts/lib.sh scripts/no-suffix scripts/noone.sh scripts/skilled.sh \
+  scripts/filetask.sh scripts/gitcalled.sh scripts/heredoc-only.sh scripts/hook-and-skill.sh \
+  scripts/hooked.sh scripts/lib.sh scripts/name.sh scripts/no-suffix scripts/noone.sh scripts/skilled.sh \
   scripts/testhelper.sh scripts/wfonly.sh)
 got_paths=$(tail -n +2 "$tmp/out1" | cut -f1)
 [ "$got_paths" = "$want_paths" ] || fail "p0: the layer is
@@ -232,8 +263,11 @@ expect scripts/gitcalled.sh hook - githook - - -
 expect scripts/hooked.sh hook - hook - awk,cat,dirname,env,git,jq,tr,wc '$here/$1-plugin.sh'
 expect scripts/skilled.sh skill-called - skill shell-mutation - -
 expect scripts/lib.sh library - script - grep -
-expect scripts/devtool.sh dev-check - task - - -
-expect scripts/wfonly.sh dev-check - workflow - - -
+# shellcheck disable=SC2016 # the literal text the partition reports
+expect scripts/devtool.sh dev-check - task - cat,curl,dirname,sh,tr,wc '$here/$rung'
+expect scripts/filetask.sh dev-check - task - - -
+# shellcheck disable=SC2016 # the literal text the partition reports
+expect scripts/wfonly.sh dev-check - workflow shell-mutation - '${LIB:-$d/lib.sh}'
 expect scripts/testhelper.sh tests-only no-live-caller test - - -
 echo "ok: p1 one script lands in each tier"
 
@@ -269,7 +303,8 @@ expect scripts/doconly.sh tests-only no-live-caller - - - -
 expect scripts/described.sh tests-only no-live-caller - - - -
 expect scripts/commented.sh tests-only no-live-caller - - - -
 expect scripts/heredoc-only.sh tests-only no-live-caller - - - -
-expect scripts/no-suffix tests-only no-live-caller - - - -
+expect scripts/no-suffix tests-only no-live-caller - - shopt -
+expect scripts/name.sh tests-only no-live-caller - - - -
 echo "ok: p4 no caller, a library reachable only from a flagged script, a test-only helper, and a docs-only script are flagged"
 
 # ---------------------------------------------------------------------------
@@ -310,7 +345,20 @@ run_sp "$tmp/fx4" >/dev/null || rc=$?
 rc=0
 /bin/sh "$SP" --bogus >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "p7: an unknown argument exited $rc, want 2"
-echo "ok: p7 fails closed on a missing task file or an unreadable hook registration"
+cp -R "$fx" "$tmp/fx6"
+printf '{}\n' >"$tmp/fx6/hooks/hooks.json"
+rc=0
+run_sp "$tmp/fx6" >/dev/null || rc=$?
+[ "$rc" = 5 ] || fail "p7: a hook registration with no command exited $rc, want 5"
+if [ "$(id -u)" != 0 ]; then
+  cp -R "$fx" "$tmp/fx7"
+  chmod 000 "$tmp/fx7/skills/demo/SKILL.md"
+  rc=0
+  run_sp "$tmp/fx7" >/dev/null || rc=$?
+  chmod 644 "$tmp/fx7/skills/demo/SKILL.md"
+  [ "$rc" = 5 ] || fail "p7: an unreadable skill body exited $rc, want 5"
+fi
+echo "ok: p7 fails closed on a missing task file, an unreadable or empty hook registration, and an unreadable skill body"
 
 # ---------------------------------------------------------------------------
 # p8: the repository's own partition runs, and places the script itself in
@@ -331,3 +379,11 @@ run_sp "$tmp/fx5" >"$tmp/out5" || fail "p9: the partition failed: $(cat "$tmp/er
 LC_ALL=C grep -q "$(printf '\033')" "$tmp/out5" && fail "p9: a control byte reached the output"
 grep -q 'scripts/ctl.sh' "$tmp/out5" || fail "p9: the planted script has no row"
 echo "ok: p9 control bytes in file-derived text are replaced"
+
+# ---------------------------------------------------------------------------
+# p10: a root reached through a symlink partitions the same as its real path.
+# ---------------------------------------------------------------------------
+ln -s "$fx" "$tmp/link"
+run_sp "$tmp/link" >"$tmp/out6" || fail "p10: a symlinked root failed: $(cat "$tmp/err")"
+cmp -s "$tmp/out1" "$tmp/out6" || fail "p10: a symlinked root partitions differently"
+echo "ok: p10 a symlinked root gives the same partition"

@@ -14,7 +14,7 @@
 #             worker and tower settings fragments under config/)
 #   skill     named anywhere in a skill body (skills/**/SKILL.md)
 #   script    named in another layer script's code
-#   task      named in the run body of a task in mise.toml
+#   task      named in the run body of a task in mise.toml, or its `file`
 #   workflow  named in a .github/workflows file
 #   test      named in a shell file under tests/
 # A description, a whole-line comment, a script comment, a heredoc body, and
@@ -33,9 +33,11 @@
 # expansion, or sources (`.`/`source`) a path whose file name holds one. A
 # literal eval and a source of a named library are not flagged, and neither is
 # a source of `"$var"` when every value the script assigns to `var` ends in a
-# literal file name.
+# literal file name. A path whose file name comes from `${VAR:-default}` is
+# not literal: the environment can replace it.
 #
-# PROFILE. Every command word the script runs that is not a shell builtin, a
+# PROFILE. Every command word the script runs that is not a POSIX shell builtin
+# (special built-ins, intrinsic utilities, and echo, printf and test), a
 # function defined by the script, by a script it calls (a sourced library), or
 # by a direct caller (a callback), or a layer script: the external processes
 # it drives.
@@ -43,9 +45,10 @@
 # `time`, `timeout`, or `xargs` counts; `command -v`'s operand is a lookup and
 # does not.
 #
-# UNRESOLVED. A command word or sourced path whose file name is built from an
-# expansion (`"$dir/$name.sh"`), so no literal script name can be read from it.
-# It is reported, never counted as a caller.
+# UNRESOLVED. A command word, sourced path, or script handed to sh or bash
+# whose file name is built from an expansion (`"$dir/$name.sh"`), so no
+# literal script name can be read from it. It is reported, never counted as a
+# caller.
 #
 # KNOWN LIMITS. The scanner is a tokenizer, not a shell parser: a script name
 # in a live line that does not run it (an echo, a message string) still counts
@@ -58,10 +61,12 @@
 # an empty field, list fields are comma-separated.
 #
 # Usage: substrate-partition.sh [--repo-root <dir>]
-# Exit codes: 0 partition written; 2 usage error; 5 fail-closed (an input that
-# would make the partition vacuous or wrong: no layer, a missing or unreadable
-# hook registration, task file, skills or workflows directory, a duplicate
-# script file name, or a missing jq or mise).
+# Exit codes: 0 partition written; 1 interrupted by a signal; 2 usage error;
+# 5 fail-closed (an input that would make the partition vacuous or wrong: no
+# layer; a missing, unreadable, or empty hook registration, skills or
+# workflows directory; an unreadable file in the layer or among its callers;
+# a task file mise will not list, untrusted included; a duplicate script
+# file name; or a missing jq or mise).
 #
 # POSIX sh on the macOS + Linux support bar. All input is data.
 set -uf
@@ -71,8 +76,8 @@ export LC_ALL
 unset CDPATH
 
 me=substrate-partition
-script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
-repo_root=$(cd "$script_dir/.." && pwd) || exit 2
+script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
+repo_root=$(cd "$script_dir/.." && pwd -P) || exit 2
 
 while [ "$#" -gt 0 ]; do
   case $1 in
@@ -95,10 +100,17 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-repo_root=$(cd "$repo_root" 2>/dev/null && pwd) || {
+# Physical, not logical: mise reports each task's source by its real path, so
+# a root reached through a symlink (macOS's /tmp and $TMPDIR are) would match
+# no task.
+repo_root=$(cd "$repo_root" 2>/dev/null && pwd -P) || {
   printf '%s\n' "$me: repo root is not a readable directory" >&2
   exit 5
 }
+# Read by the awk programs through the environment: `awk -v` would turn a
+# backslash in the path into an escape and shift every relative path.
+SP_ROOT=$repo_root
+export SP_ROOT
 
 fail_closed() {
   printf '%s\n' "$me: $1 — failing closed rather than writing a partition" >&2
@@ -126,86 +138,132 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/substrate-partition.XXXXXX") || fail_closed "m
 trap 'rm -rf "$work"' EXIT
 trap 'exit 1' HUP INT TERM
 
-is_shell_file() {
-  case $1 in
-    *.sh) return 0 ;;
-  esac
-  head -n 1 "$1" 2>/dev/null | grep -Eq '^#![[:space:]]*[^[:space:]]*(/|env[[:space:]]+)(ba|da|k|z|a)?sh([[:space:]]|$)'
+# list_files <out> <find args>: a sorted file list, failing closed when find
+# cannot read part of the tree, since a skipped directory drops its scripts or
+# callers without a trace.
+list_files() {
+  lf_out=$1
+  shift
+  find "$@" >"$lf_out.raw" 2>"$work/find.err" || fail_closed "find could not read part of $1"
+  sort "$lf_out.raw" >"$lf_out"
 }
 
-{
-  find "$repo_root/scripts" -type f | while IFS= read -r f; do
-    is_shell_file "$f" && printf '%s\n' "${f#"$repo_root"/}"
-  done
-  if [ -d "$repo_root/githooks" ]; then
-    find "$repo_root/githooks" -maxdepth 1 -type f | while IFS= read -r f; do
-      printf '%s\n' "${f#"$repo_root"/}"
-    done
-  fi
-} | sort >"$work/layer"
+# scan_files <kind> <list> <shell-only>: every line of every listed file as a
+# `T<tab>kind<tab>line` caller record. Shell-only keeps a file only when it has
+# a .sh suffix or a shell shebang; with kind `layer` the kept paths are printed
+# instead. Workflow whole-line comments are dropped. An unreadable file fails
+# the scan rather than vanishing from it.
+scan_files() {
+  awk -v k="$1" -v shellonly="$3" '
+    BEGIN { root = ENVIRON["SP_ROOT"] }
+    {
+      f = $0; keep = (shellonly == 0 || f ~ /\.sh$/); first = 1
+      while ((r = (getline line < f)) > 0) {
+        if (first) {
+          first = 0
+          if (!keep && line ~ /^#![ \t]*[^ \t]*(\/|env[ \t]+)(ba|da|k|z|a)?sh([ \t]|$)/) keep = 1
+          if (!keep) break
+          if (k == "layer") { print substr(f, length(root) + 2); break }
+        }
+        if (k == "workflow" && line ~ /^[ \t]*#/) continue
+        gsub(/\t/, " ", line)
+        print "T\t" k "\t" line
+      }
+      if (r < 0) { print f > "/dev/stderr"; bad = 1; exit }
+      if (first && keep && k == "layer") print substr(f, length(root) + 2)
+      close(f)
+    }
+    END { exit bad ? 3 : 0 }
+  ' "$2"
+}
+
+list_files "$work/scripts.list" "$repo_root/scripts" -type f
+scan_files layer "$work/scripts.list" 1 >"$work/layer.raw" 2>"$work/scan.err" \
+  || fail_closed "a file under scripts/ is unreadable"
+if [ -d "$repo_root/githooks" ]; then
+  list_files "$work/githooks.list" "$repo_root/githooks" -maxdepth 1 -type f
+  scan_files layer "$work/githooks.list" 0 >>"$work/layer.raw" 2>"$work/scan.err" \
+    || fail_closed "a file under githooks/ is unreadable"
+fi
+sort "$work/layer.raw" >"$work/layer"
 [ -s "$work/layer" ] || fail_closed "found no script in the layer"
 
 dups=$(awk '/^scripts\// { b = $0; sub(/.*\//, "", b); print b }' "$work/layer" | sort | uniq -d)
 [ -z "$dups" ] || fail_closed "two layer scripts share a file name, so a call to one cannot be told from the other"
 
-# Caller texts, one `T<tab>kind<tab>line` record per line.
-caller_lines() {
-  awk -v k="$1" '{ gsub(/\t/, " "); print "T\t" k "\t" $0 }'
-}
-
+: >"$work/hookcmds"
 for f in hooks/hooks.json config/worker-settings.json config/tower-settings.json; do
   [ -e "$repo_root/$f" ] || continue
   jq -r '.hooks // {} | [.. | objects | .command? // empty | strings] | .[]' "$repo_root/$f" \
-    >"$work/hookcmds" 2>/dev/null || fail_closed "$f is not readable JSON"
-  caller_lines hook <"$work/hookcmds" >>"$work/facts"
+    >>"$work/hookcmds" 2>/dev/null || fail_closed "$f is not readable JSON"
 done
+[ -s "$work/hookcmds" ] || fail_closed "the hook registrations hold no command"
+awk '{ gsub(/\t/, " "); print "T\thook\t" $0 }' "$work/hookcmds" >"$work/facts"
 
-find "$repo_root/skills" -type f -name SKILL.md | sort | while IFS= read -r f; do
-  caller_lines skill <"$f"
-done >>"$work/facts"
+list_files "$work/skills.list" "$repo_root/skills" -type f -name SKILL.md
+[ -s "$work/skills.list" ] || fail_closed "skills/ holds no SKILL.md"
+scan_files skill "$work/skills.list" 0 >>"$work/facts" 2>"$work/scan.err" \
+  || fail_closed "a skill body is unreadable"
 
-find "$repo_root/.github/workflows" -type f \( -name '*.yml' -o -name '*.yaml' \) | sort | while IFS= read -r f; do
-  grep -v '^[[:space:]]*#' "$f" | caller_lines workflow
-done >>"$work/facts"
+list_files "$work/workflows.list" "$repo_root/.github/workflows" -type f \( -name '*.yml' -o -name '*.yaml' \)
+[ -s "$work/workflows.list" ] || fail_closed ".github/workflows/ holds no workflow"
+scan_files workflow "$work/workflows.list" 0 >>"$work/facts" 2>"$work/scan.err" \
+  || fail_closed "a workflow is unreadable"
 
 if [ -d "$repo_root/tests" ]; then
-  find "$repo_root/tests" -type f | sort | while IFS= read -r f; do
-    is_shell_file "$f" && caller_lines test <"$f"
-  done >>"$work/facts"
+  list_files "$work/tests.list" "$repo_root/tests" -type f
+  scan_files test "$work/tests.list" 1 >>"$work/facts" 2>"$work/scan.err" \
+    || fail_closed "a file under tests/ is unreadable"
 fi
 
-# The run bodies of the tasks mise.toml itself defines, as mise renders them,
-# so TOML quoting is mise's business. Descriptions are prose and never read.
-# MISE_TRUSTED_CONFIG_PATHS keeps a fixture tree from stopping on the trust
-# prompt; this only lists tasks, never runs one.
-graph=$(cd "$repo_root" && MISE_TRUSTED_CONFIG_PATHS="$repo_root" mise tasks --json --hidden 2>/dev/null) || graph=''
-[ -n "$graph" ] || fail_closed "'mise tasks --json --hidden' produced nothing"
+# The tasks mise.toml itself defines, as mise renders them, so TOML quoting is
+# mise's business: each run body and each `file` task's path. Descriptions are
+# prose and never read. No trust is granted here: mise evaluates a config's
+# templates even to list its tasks, so an untrusted tree is refused, not read.
+graph=$(cd "$repo_root" && mise tasks --json --hidden 2>/dev/null) || graph=''
+[ -n "$graph" ] || fail_closed "'mise tasks --json --hidden' produced nothing (is the tree's mise.toml trusted?)"
 printf '%s' "$graph" | jq -r --arg src "$repo_root/mise.toml" '
   [ .[] | select(.source == $src) ]
   | if length == 0 then "NOTASKS" else
-      .[] | (.run // []) | map(select(type == "string")) | join("\n")
+      .[] | (((.run // []) | map(select(type == "string")) | join("\n")), (.file // empty | strings))
     end
 ' >"$work/runs" 2>/dev/null || fail_closed "could not read the task graph"
 [ "$(head -n 1 "$work/runs")" != NOTASKS ] || fail_closed "the task graph holds no task from this repo's mise.toml"
-grep -v '^[[:space:]]*#' "$work/runs" | caller_lines task >>"$work/facts"
+grep -v '^[[:space:]]*#' "$work/runs" | awk '{ gsub(/\t/, " "); print "T\ttask\t" $0 }' >>"$work/facts"
 
-# The layer's own code, through the tokenizer: W (every word), C (a command
-# word), F (a function it defines), M (a non-literal eval or source), U (an
-# unresolved invocation).
+# The layer's own code, through the tokenizer below. Its records:
+#   W  a word naming a path (`/` or `.sh`), the raw material of script edges
+#   C  a command word          F  a function the script defines
+#   M  a non-literal eval or source
+#   U  an unresolved invocation
+#   A  an assignment: name and whether its value ends in a literal file name
+#   S  a source of a bare `$name`, resolved against the A records
 set --
 while IFS= read -r p; do
   set -- "$@" "$repo_root/$p"
 done <"$work/layer"
 
+# State key. A stack of contexts, depth d: c (code, which owns a frame and
+# the word being built), q '...', e $'...', d "...", p ${...}, a $((...)) or
+# ((...)). cf is always the innermost c, so a quote or ${...} appends to the
+# word of the code around it. A frame's purpose says what closes it: top,
+# cs $(...), bq `...`, ps <(...), sub (...), arr an array assignment's (...).
+# Per frame: cmdpos (the next word is a command word); mode (pat a case
+# pattern, chead between `case` and `in`, forskip a for/select head, dbl
+# inside [[ ]], fname after `function`); skip (1 a redirect target, 2 a
+# heredoc delimiter); and the pending operand roles of wrap (a wrapper such
+# as env), ev (eval), src (a source), decl (local and kin), interp (sh and
+# kin).
 # shellcheck disable=SC2016 # an awk program: the $ names are awk's
-awk -v root="$repo_root" '
+awk '
 function out(kind, text) {
   gsub(/\t/, " ", text)
   print kind "\t" path "\t" text
 }
 function initframe(i, purpose) {
   ctx[i] = "c"; fr[i] = purpose; cmdpos[i] = 1; mode[i] = ""; wrap[i] = ""
-  skip[i] = 0; wrapskip[i] = 0; ev[i] = 0; src[i] = 0; decl[i] = 0; w[i] = ""; wexp[i] = 0; wq[i] = 0; wany[i] = 0; nw[i] = 0
+  skip[i] = 0; wrapskip[i] = 0; ev[i] = 0; src[i] = 0; decl[i] = 0; interp[i] = 0
+  w[i] = ""; wexp[i] = 0; wq[i] = 0; wany[i] = 0; nw[i] = 0
 }
 function findcf(  k) {
   for (k = d; k >= 1; k--) if (ctx[k] == "c") return k
@@ -231,11 +289,18 @@ function app(s, isexp) {
   if (isexp) wexp[cf] = 1
 }
 function mut() { out("M", "") }
+# Whether a path names its file only through an expansion. A `}` in the file
+# name means the last slash sat inside ${...}, as in ${LIB:-$dir/lib.sh},
+# whose file the environment can replace.
+function dynbase(x,   b) {
+  b = x; sub(/.*\//, "", b)
+  return b == "" || b ~ /[$}]/
+}
 function endword(  x, e, q, b) {
   if (!wany[cf]) return
   x = w[cf]; e = wexp[cf]; q = wq[cf]
   w[cf] = ""; wexp[cf] = 0; wq[cf] = 0; wany[cf] = 0; nw[cf]++
-  out("W", x)
+  if (x ~ /\/|\.sh/) out("W", x)
   if (skip[cf] == 1) { skip[cf] = 0; return }
   if (skip[cf] == 2) { skip[cf] = 0; hd_n++; hdd[hd_n] = x; hds[hd_n] = hdstrip; return }
   if (fr[cf] == "arr") return
@@ -254,8 +319,13 @@ function endword(  x, e, q, b) {
       b = x; gsub(/[${}]/, "", b); out("S", b)
       return
     }
-    b = x; sub(/.*\//, "", b)
-    if (b ~ /\$/ || b == "") { mut(); out("U", x) }
+    if (dynbase(x)) { mut(); out("U", x) }
+    return
+  }
+  if (interp[cf]) {
+    if (!e && x ~ /^-/) { if (x == "-c") interp[cf] = 0; return }
+    interp[cf] = 0
+    if (e && x ~ /\// && dynbase(x)) out("U", x)
     return
   }
   if (decl[cf] && x ~ assignre) { assign(x); return }
@@ -264,7 +334,8 @@ function endword(  x, e, q, b) {
     if (wrapskip[cf]) { wrapskip[cf] = 0; return }
     if (!e && x ~ /^-/) {
       if (wrap[cf] == "command" && x ~ /^-[A-Za-z]*[vV]/) { wrap[cf] = ""; cmdpos[cf] = 0 }
-      else if (wrap[cf] == "env" && x ~ /^-[uCS]$/ || wrap[cf] == "timeout" && x ~ /^-[sk]$/ || wrap[cf] == "nice" && x == "-n" || wrap[cf] == "xargs" && x ~ /^-[IinPLsdE]$/) wrapskip[cf] = 1
+      else if ((wrap[cf] == "env" && x ~ /^-[uCS]$/) || (wrap[cf] == "timeout" && x ~ /^-[sk]$/) \
+        || (wrap[cf] == "nice" && x == "-n") || (wrap[cf] == "xargs" && x ~ /^-[IinPLsdE]$/)) wrapskip[cf] = 1
       return
     }
     if (wrap[cf] == "env" && x ~ /^[A-Za-z_][A-Za-z0-9_]*=/) return
@@ -281,7 +352,7 @@ function endword(  x, e, q, b) {
   }
   cmdpos[cf] = 0
   if (e) {
-    if (x ~ /\//) { b = x; sub(/.*\//, "", b); if (b ~ /\$/) out("U", x) }
+    if (x ~ /\// && dynbase(x)) out("U", x)
     return
   }
   b = x; sub(/.*\//, "", b)
@@ -290,21 +361,22 @@ function endword(  x, e, q, b) {
   else if (x == "eval") ev[cf] = 1
   else if (x == "." || x == "source") src[cf] = 1
   else if (x ~ /^(local|export|readonly|declare|typeset)$/) decl[cf] = 1
+  else if (b ~ /^(ba|da|k|z|a)?sh$/) interp[cf] = 1
 }
 # A sourced `$name` resolves when every value the script assigns to `name`
 # ends in a literal file name; the A records let the assembly stage judge.
-function assign(x,   name, v, b) {
-  name = x; sub(/[+[=].*/, "", name)
+function assign(x,   name, v) {
+  name = x; sub(/[+=[].*/, "", name)
   v = x; sub(/^[^=]*=/, "", v)
   if (v == "") return
-  b = v; sub(/.*\//, "", b)
-  out("A", name " " ((b ~ /\$/) ? 0 : 1))
+  out("A", name " " (dynbase(v) ? 0 : 1))
 }
 function sep() {
   endword()
   if (mode[cf] == "pat" || mode[cf] == "chead" || mode[cf] == "dbl") return
   if (mode[cf] == "forskip" || mode[cf] == "fname") mode[cf] = ""
-  cmdpos[cf] = 1; wrap[cf] = ""; wrapskip[cf] = 0; ev[cf] = 0; src[cf] = 0; skip[cf] = 0; decl[cf] = 0
+  cmdpos[cf] = 1; wrap[cf] = ""; wrapskip[cf] = 0; ev[cf] = 0; src[cf] = 0; skip[cf] = 0
+  decl[cf] = 0; interp[cf] = 0
 }
 function dollar(s, i,   c2) {
   c2 = substr(s, i + 1, 1)
@@ -360,6 +432,7 @@ function lex(s,   i, n, c, c2, t) {
     if (c == ";") {
       endword(); c2 = substr(s, i + 1, 1)
       if (c2 == ";" || c2 == "&") {
+        sep()
         i += 2; if (substr(s, i, 1) == "&") i++
         mode[cf] = "pat"; cmdpos[cf] = 0; continue
       }
@@ -396,6 +469,12 @@ function lex(s,   i, n, c, c2, t) {
     }
     if (c == "(") {
       if (mode[cf] == "pat" || mode[cf] == "chead" || mode[cf] == "dbl") { endword(); i++; continue }
+      # `name()` anywhere a command may start defines a function, not a call.
+      if (wany[cf] && cmdpos[cf] && !wq[cf] && !wexp[cf] && mode[cf] == "" && wrap[cf] == "" \
+        && substr(s, i + 1, 1) == ")") {
+        out("F", w[cf]); w[cf] = ""; wany[cf] = 0; nw[cf]++
+        i += 2; continue
+      }
       if (wany[cf] && !wq[cf] && w[cf] ~ /=$/) { endword(); pushframe("arr"); i++; continue }
       endword()
       if ((cmdpos[cf] || mode[cf] == "forskip") && substr(s, i + 1, 1) == "(") {
@@ -418,7 +497,10 @@ function eol() {
   if (ctx[d] == "c") sep()
   else if (ctx[d] == "d" || ctx[d] == "q" || ctx[d] == "e") app(" ", 0)
 }
-BEGIN { assignre = "^[A-Za-z_][A-Za-z0-9_]*(\\[[^=]*\\])?\\+?=" }
+BEGIN {
+  root = ENVIRON["SP_ROOT"]
+  assignre = "^[A-Za-z_][A-Za-z0-9_]*(\\[[^=]*\\])?\\+?="
+}
 FNR == 1 {
   if (NR > 1) endword()
   reset()
@@ -438,23 +520,28 @@ FNR == 1 {
     out("F", fn)
   }
   lex(line)
+  # A heredoc body starts after the command line ends, which a trailing
+  # backslash postpones.
+  continued = cont
   eol()
-  if (hd_n > 0 && !inhd) { inhd = 1; hd_i = 1 }
+  if (hd_n > 0 && !inhd && !continued) { inhd = 1; hd_i = 1 }
 }
 END { if (NR > 0) endword() }
 ' "$@" >>"$work/facts" || fail_closed "the tokenizer failed over the layer"
 
 # shellcheck disable=SC2016 # an awk program: the $ names are awk's
 awk -F'\t' '
+# The layer scripts a text names. A file name built from an expansion
+# (`$name.sh`) names none: it is unresolved, never a caller.
 function refs(text,   n, i, m, j, c, res, toks, comps) {
-  gsub(/[^A-Za-z0-9_.\/-]/, " ", text)
+  gsub(/[^A-Za-z0-9_.\/$-]/, " ", text)
   n = split(text, toks, " ")
   res = ""
   for (i = 1; i <= n; i++) {
     m = split(toks[i], comps, "/")
     for (j = 1; j <= m; j++) {
       c = comps[j]
-      if (!(c in byname)) continue
+      if (c ~ /\$/ || !(c in byname)) continue
       if (j == 1 && c !~ /\.sh$/) continue
       if (j > 1 && comps[j - 1] == "tests") continue
       if (j > 2 && comps[j - 1] == "lib" && comps[j - 2] == "tests") continue
@@ -467,7 +554,7 @@ function sorted(list,   n, a, i, j, x, res) {
   n = split(list, a, "\n")
   for (i = 2; i <= n; i++) {
     x = a[i]
-    for (j = i - 1; j >= 1 && a[j] > x; j--) a[j + 1] = a[j]
+    for (j = i - 1; j >= 1 && (a[j] "") > (x ""); j--) a[j + 1] = a[j]
     a[j + 1] = x
   }
   res = ""
@@ -475,7 +562,11 @@ function sorted(list,   n, a, i, j, x, res) {
   return res == "" ? "-" : res
 }
 BEGIN {
-  nb = split(": . [ alias bg break builtin caller cd command compgen complete continue declare dirs disown echo enable eval exec exit export false fc fg getopts hash help history jobs kill let local logout mapfile popd printf pushd pwd read readarray readonly return set shift shopt source suspend test times trap true type typeset ulimit umask unalias unset wait", bl, " ")
+  # POSIX special built-ins and intrinsic utilities, plus echo, printf and
+  # test, which every shell on the support matrix builds in. A bash-only
+  # builtin (local, shopt, declare, source...) stays in the profile: it is a
+  # coupling to the shell that runs the script.
+  nb = split(": . [ alias bg break cd command continue echo eval exec exit export false fc fg getopts hash jobs kill newgrp printf pwd read readonly return set shift test times trap true type ulimit umask unalias unset wait", bl, " ")
   for (i = 1; i <= nb; i++) builtin[bl[i]] = 1
   nk = split("git githook hook skill script task workflow test", kinds, " ")
 }
