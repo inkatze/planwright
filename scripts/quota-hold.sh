@@ -13,7 +13,8 @@
 #   ledger.tsv  one appended line per event, rewritten only by prune:
 #               time  event  unit  pr  head  recognizer  reason  end
 #   pushed      the since of the hold whose attention event was last pushed,
-#               rewritten whole after the push and removed by resume
+#               rewritten whole under the lock while that hold is still the
+#               vendor's, and removed by resume
 #   lock        the vendor's lock, taken through scripts/lock-lib.sh for every
 #               write, since several units on a host can meet one limit at once
 # An absent optional field is `-`. The trailing `end` field is what lets a line
@@ -55,7 +56,8 @@
 #     Append one ledger line for a request sent, an answer received, or a
 #     limit refusal.
 #   quota-hold.sh status [--vendor <id>] [--now <epoch>]
-#     Read-only and lockless. Prints `retention<TAB><days>`, then for the vendor
+#     Read-only and lockless, and all or nothing: a store it cannot read fails
+#     the whole call with exit 6, never a vendor read as clear. Prints `retention<TAB><days>`, then for the vendor
 #     (or every vendor with a store directory):
 #       vendor<TAB><id><TAB>held|clear<TAB><since|-><TAB><reset|-><TAB><units><TAB><reason|->
 #       holder<TAB><id><TAB><unit><TAB><step><TAB><since>   one per holding unit
@@ -73,7 +75,8 @@
 #
 # Exit: 0 success · 2 usage, or a refused field · 3 the hold is recorded but its
 # attention push failed (named on stderr) · 4/5 propagated from the knob
-# resolver · 6 a runtime failure (no fleet home, the lock, a write, no clock).
+# resolver · 6 a runtime failure (no fleet home, the lock, a write, no clock, a
+# store file or directory that is unreadable or not a regular file).
 #
 # POSIX sh + awk on the bash 3.2 / BSD tooling floor. No eval. Every stored and
 # read value is data.
@@ -484,7 +487,8 @@ case $verb in
       [ ! -d "$store/$v" ] || [ -x "$store/$v" ] || die 6 "cannot search the store of $v"
       hf="$store/$v/hold.tsv"
       lf="$store/$v/ledger.tsv"
-      # A FIFO or a directory here would hang or skip the read.
+      # A FIFO or a directory here would hang or skip the read. The second
+      # test spares a hold file a resume removed between the first two.
       for f in "$hf" "$lf"; do
         if [ -e "$f" ] && [ ! -f "$f" ] && [ -e "$f" ]; then
           die 6 "a store file of $v is not a regular file"
