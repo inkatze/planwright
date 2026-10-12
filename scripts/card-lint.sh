@@ -289,14 +289,18 @@ END {
 
   # --- Frameworks: a numbered sequence, each with a Misuse caveat ----------
   if ("Frameworks" in filled) {
-    fi_n = 0; bulleted = 0
+    fi_n = 0; bulleted = 0; fw_stray = 0
     for (j = 1; j <= body_n["Frameworks"]; j++) {
       line = B["Frameworks", j]
       if (line ~ /^[0-9]+\. /) { fi_n++; FW[fi_n] = line; continue }
       if (line ~ /^[-*+] /) { bulleted = 1; continue }
-      if (fi_n > 0 && line ~ /^[ \t]+[^ \t]/) FW[fi_n] = FW[fi_n] " " trim(line)
+      if (fi_n > 0 && line ~ /^[ \t]+[^ \t]/) { FW[fi_n] = FW[fi_n] " " trim(line); continue }
+      if (line !~ /^[ \t]*$/) fw_stray++
     }
     if (fi_n == 0 || bulleted) emit("FRAMEWORK-SEQUENCE", "the frameworks must be a numbered list, its order the working sequence")
+    # An unnumbered paragraph would otherwise name a framework that escapes
+    # the Misuse check.
+    if (fw_stray) emit("FRAMEWORK-SEQUENCE", "the frameworks have " fw_stray " line(s) outside their numbered items; indent a continuation line")
     for (j = 1; j <= fi_n; j++) {
       if (index(FW[j], "Misuse:") == 0) {
         num = trim(FW[j]); sub(/\..*$/, "", num)

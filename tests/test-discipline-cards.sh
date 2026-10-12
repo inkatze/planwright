@@ -166,6 +166,8 @@ seed MANDATE-GENERIC 1 '/^1\. Which problem/ { print "1. Which of the frameworks
 seed MANDATE-FORM 1 '/^1\. Which problem/ { print "1. Name the problem in the frame this venture solves first."; next } { print }'
 seed MANDATE-FORM 1 '/^3\. Which constraint/ { print; print "- Who is the target customer?"; print "- How big is the market?"; next } { print }'
 seed FRAMEWORK-SEQUENCE 1 '{ sub(/^1\. \*\*First method/, "- **First method"); print }'
+# An unnumbered paragraph would otherwise add a framework with no caveat.
+seed FRAMEWORK-SEQUENCE 1 '/^   Misuse: skipping/ { print; print "Then run a SWOT pass when time allows."; next } { print }'
 seed FRAMEWORK-MISUSE 1 '!/^   Misuse: skipping/'
 
 # Grounding and the artifact template.
