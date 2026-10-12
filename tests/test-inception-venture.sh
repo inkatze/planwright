@@ -91,6 +91,8 @@ export PLANWRIGHT_INCEPTION_TODAY=2026-08-20
 # token through (the scaffold suite pins it the same way).
 export PLANWRIGHT_SECRET_SCREEN_TOOL=none
 unset CLAUDE_CODE_REMOTE PLANWRIGHT_INCEPTION_EPHEMERAL
+unset XDG_CONFIG_HOME GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_DIR GIT_WORK_TREE
+export GIT_CONFIG_GLOBAL="$HOME/.gitconfig"
 
 # Config layers: a fixture core default plus a git-toplevel "repo" whose
 # tracked and machine-local layers each test writes as needed.
@@ -146,7 +148,16 @@ cat >"$stubs/gh-noauth/gh" <<'EOF'
 #!/bin/sh
 exit 1
 EOF
-chmod +x "$stubs/nogit/git" "$stubs/gh-ok/gh" "$stubs/gh-noauth/gh"
+mkdir -p "$stubs/gh-fail"
+cat >"$stubs/gh-fail/gh" <<'EOF'
+#!/bin/sh
+# Signed in, but repository creation fails.
+case "$1 $2" in
+  "auth status") exit 0 ;;
+esac
+exit 1
+EOF
+chmod +x "$stubs/nogit/git" "$stubs/gh-ok/gh" "$stubs/gh-noauth/gh" "$stubs/gh-fail/gh"
 
 # venture <args...> — run the helper; stdout+stderr in $out, exit in $rc.
 venture() {
@@ -283,6 +294,9 @@ assert_contains "A1.5 the operator override wins over detection" "$(printf 'ephe
 PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_INCEPTION_EPHEMERAL=1 venture detect
 assert_contains "A1.5 the override can force ephemeral" "$(printf 'local\tsession-only')" "$out"
 
+PATH="$stubs/gh-ok:$PATH" CLAUDE_CODE_REMOTE=false venture detect
+assert_contains "A1.5 only CLAUDE_CODE_REMOTE=true reads as a cloud session" "$(printf 'ephemeral\tno')" "$out"
+
 PATH="$stubs/nogit:$PATH" PLANWRIGHT_INCEPTION_EPHEMERAL=1 venture detect
 assert_contains "H1.1 no git and ephemeral is still session-only" "$(printf 'local\tsession-only')" "$out"
 
@@ -300,6 +314,27 @@ venture create --home local --root "$tmp/v-guard" taken
 assert_eq "A1.7 an existing target is refused, never overwritten (exit 5)" 5 "$rc"
 assert_eq "A1.7 the existing directory is untouched" keep "$(cat "$tmp/v-guard/taken/notes.md")"
 
+ln -s "$tmp/nowhere" "$tmp/v-guard/dangling"
+venture create --home local --root "$tmp/v-guard" dangling
+assert_eq "A1.7 a symlink at the target is refused (exit 5)" 5 "$rc"
+assert_eq "A1.7 the symlink is untouched" "$tmp/nowhere" "$(readlink "$tmp/v-guard/dangling")"
+
+PATH="$stubs/gh-fail:$PATH" venture create --home remote --root "$tmp/v-guard" gamma
+assert_eq "A1.4 a failed private-repo creation exits 7" 7 "$rc"
+assert_absent "A1.4 a failed private-repo creation keeps nothing local" "$tmp/v-guard/gamma"
+
+venture create --home local --root "$tmp/v-guard" --owner 'bad/owner' delta
+assert_eq "create refuses a malformed GitHub owner (exit 2)" 2 "$rc"
+assert_absent "a refused owner creates nothing" "$tmp/v-guard/delta"
+
+PATH="$stubs/gh-ok:$PATH" venture create --home remote --root "$tmp/v-guard" --owner acme epsilon
+assert_eq "create on the remote home with an owner succeeds" 0 "$rc"
+assert_contains "the owner prefixes the private repository's name" "repo create acme/epsilon" "$(cat "$tmp/gh-calls.log")"
+
+PATH="$stubs/gh-ok:$PATH" venture create --home local default-root
+assert_eq "A1.3 create without --root uses ventures_root (exit)" 0 "$rc"
+assert_exists "A1.3 create without --root lands under ~/ventures" "$HOME/ventures/default-root/.git"
+
 venture create --home sideways --root "$tmp/v-guard" beta
 assert_eq "create rejects an unknown home (usage exit 2)" 2 "$rc"
 
@@ -316,6 +351,10 @@ for f in brief.md disciplines.md assumptions.md decisions.md plan.md; do
 done
 /bin/sh "$VALIDATE" --version-check "$rp" >/dev/null 2>&1
 assert_eq "C1.7 skeleton passes the version gate" 0 "$?"
+/bin/sh "$VALIDATE" "$rp" >/dev/null 2>&1
+skeleton_rc=$?
+case $skeleton_rc in 0 | 1) skeleton_rc=readable ;; esac
+assert_eq "C1.7 the full validator reads the skeleton (findings at most, never a refusal)" readable "$skeleton_rc"
 
 venture bundle-init --title "Again" "$rp"
 assert_eq "bundle-init never overwrites an existing bundle (exit 5)" 5 "$rc"
@@ -436,8 +475,9 @@ assert_not_contains "H1.2 wrapped save hides git vocabulary" "commit" "$out"
 # Elicitation fills the bundle; the golden fixture stands in for the answers.
 inception_fixture_write "$lv"
 venture mark-phase "$lv" finalize
-venture save "$lv" "Record the elicited bundle"
+venture save --expert "$lv" "Record the elicited bundle"
 assert_eq "dry run (local): the filled bundle saves" 0 "$rc"
+assert_eq "H1.2 expert save shows the commit" "$(git -C "$lv" log -1 --format='%h %s')" "$out"
 /bin/sh "$VALIDATE" "$lv" >/dev/null 2>&1
 assert_eq "dry run (local): the bundle is validator-clean" 0 "$?"
 assert_eq "dry run (local): the export rode the save" exports/venture.html "$(git -C "$lv" ls-files exports/venture.html)"
@@ -445,6 +485,7 @@ assert_eq "dry run (local): two saves landed" 2 "$(git -C "$lv" rev-list --count
 
 venture save --expert "$lv" "Expert-mode save with nothing to save"
 assert_eq "H1.2 expert save with nothing staged is not an error" 0 "$rc"
+assert_contains "H1.2 a save with nothing staged says so" "Nothing new to save." "$out"
 
 venture save "$lv" '   '
 assert_eq "H1.2 a blank save message is refused as usage (exit 2)" 2 "$rc"
@@ -453,10 +494,9 @@ venture save --push "$lv" "Try to push"
 assert_eq "A1.4 the local arm refuses to push (exit 6)" 6 "$rc"
 assert_contains "A1.4 the refusal says nothing leaves the machine" "nothing leaves this machine" "$out"
 
-PATH="$stubs/gh-ok:$PATH" venture handoff "$lv"
+PATH="$stubs/gh-noauth:$PATH" venture handoff "$lv"
 assert_contains "handoff names the rung" "$(printf 'rung\tgit')" "$out"
 assert_contains "handoff names the validator result" "$(printf 'bundle\tclean')" "$out"
-PATH="$stubs/gh-noauth:$PATH" venture handoff "$lv"
 assert_contains "H1.5 remote-home degradation repeated at handoff" "private-remote home is unavailable" "$out"
 
 # REQ-H1.3 — the local-only venture gains a remote later: same repo, history kept.
@@ -466,8 +506,10 @@ assert_eq "H1.3 add-remote succeeds" 0 "$rc"
 assert_eq "H1.3 nothing re-initialized: history preserved" "$before" "$(git -C "$lv" rev-parse HEAD)"
 assert_eq "H1.3 the remote is wired" origin "$(git -C "$lv" remote)"
 assert_exists "H1.3 the CI guard joins on the remote rung" "$lv/.github/workflows/venture-guard.yml"
-assert_exists "H1.3 the repo was created private" "$tmp/remotes/northwind-signals.git"
+assert_exists "H1.3 the remote repository was created" "$tmp/remotes/northwind-signals.git"
 assert_contains "H1.3 gh was asked for a private repo" "--private" "$(cat "$tmp/gh-calls.log")"
+PATH="$stubs/gh-ok:$PATH" venture add-remote "$lv"
+assert_eq "H1.3 add-remote on a venture that has a remote is refused (exit 5)" 5 "$rc"
 
 # =========================================================================
 # Scripted dry run — private-remote arm
@@ -522,6 +564,16 @@ assert_eq "H1.1 plain rung: save still files the bundle" 0 "$rc"
 assert_contains "H1.1 plain rung: save names the missing history" "no history" "$out"
 /bin/sh "$VALIDATE" "$pv" >/dev/null 2>&1
 assert_eq "H1.1 plain rung: the bundle is validator-clean" 0 "$?"
+assert_exists "H1.1 plain rung: the save regenerated the export" "$pv/exports/venture.html"
+PATH="$stubs/nogit:$PATH" venture save --push "$pv" "Share a plain folder"
+assert_eq "H1.1 plain rung: a push is refused (exit 6)" 6 "$rc"
+PATH="$stubs/gh-ok:$PATH" venture add-remote "$pv"
+assert_eq "H1.3 a plain folder cannot gain a remote (exit 6)" 6 "$rc"
+printf 'token: %s\n' "ghp_""0123456789abcdefghijklmnopqrstuvwxyz" >"$pv/leak.md"
+PATH="$stubs/nogit:$PATH" venture save "$pv" "Leak attempt"
+assert_eq "A1.9 plain rung: a credential is flagged (exit 1)" 1 "$rc"
+assert_contains "A1.9 plain rung: the flag says why in plain words" "credential" "$out"
+rm -f "$pv/leak.md"
 PATH="$stubs/nogit:$PATH" venture handoff "$pv"
 assert_contains "H1.5 plain rung degradation repeated at handoff" "git unavailable" "$out"
 PATH="$stubs/gh-ok:$PATH" venture handoff "$pv"
@@ -540,8 +592,8 @@ printf 'token: %s\n' "ghp_""0123456789abcdefghijklmnopqrstuvwxyz" >"$lv/leak.md"
 venture save "$lv" "Leak attempt"
 assert_eq "A1.9 a save carrying a credential is refused (exit 1)" 1 "$rc"
 assert_contains "A1.9 the refusal says why in plain words" "credential" "$out"
+assert_eq "A1.9 a refused save leaves nothing staged" "" "$(git -C "$lv" diff --cached --name-only)"
 rm -f "$lv/leak.md"
-git -C "$lv" reset -q
 
 # A host with no git identity is told so, never that the guard stopped it.
 printf 'note\n' >"$lv/identity-probe.md"
