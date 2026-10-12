@@ -136,8 +136,17 @@ ok "probe compares the CLI version numerically per component against 2.1.248"
 # The socket conjunct.
 probe_reads absent "variable unset" --nosock -- probe --cli-version 2.1.248 --socket-type socket
 probe_reads absent "variable empty" --nosock CLAUDE_CODE_MESSAGING_SOCKET= -- probe --cli-version 2.1.248 --socket-type socket
+# The grammar negatives name files that exist, so only the path grammar can
+# refuse them.
+long_sock="$socks/$(printf 'x%.0s' $(seq 1 110)).sock"
+: >"$proj/rel.sock"
+: >"$socks/a b.sock"
+: >"$long_sock"
 probe_reads absent "variable relative" --nosock CLAUDE_CODE_MESSAGING_SOCKET=rel.sock -- probe --cli-version 2.1.248 --socket-type socket
 probe_reads absent "variable malformed" --nosock "CLAUDE_CODE_MESSAGING_SOCKET=$socks/a b.sock" -- probe --cli-version 2.1.248 --socket-type socket
+probe_reads absent "variable over the socket path bound" --nosock "CLAUDE_CODE_MESSAGING_SOCKET=$long_sock" -- probe --cli-version 2.1.248 --socket-type socket
+ln -s "$own_sock" "$socks/link.sock"
+probe_reads absent "a symlink to a socket" --nosock "CLAUDE_CODE_MESSAGING_SOCKET=$socks/link.sock" -- probe --cli-version 2.1.248 --socket-type socket
 probe_reads absent "path missing" --nosock "CLAUDE_CODE_MESSAGING_SOCKET=$socks/missing.sock" -- probe --cli-version 2.1.248 --socket-type socket
 ln -s "$socks/nowhere.sock" "$socks/dangling.sock"
 probe_reads absent "path dangling" --nosock "CLAUDE_CODE_MESSAGING_SOCKET=$socks/dangling.sock" -- probe --cli-version 2.1.248 --socket-type socket
@@ -294,18 +303,12 @@ expect_mode() {
     errf="$tmp/em.err"
     got=$(em "$d" 2>"$errf") || fail "effective-mode: knob $1 $d exited non-zero"
     [ "$got" = "$want" ] || fail "effective-mode: knob $1 $d: expected $want, got $got"
-    if [ "$5" = demoted ] && [ "$want" != "$6" ]; then
-      :
-    fi
-    lines=$(grep -c . "$errf" || true)
-    case $5 in
-      quiet) [ "$lines" = 0 ] || fail "effective-mode: knob $1 $d wrote a notice without pressure" ;;
-    esac
+    [ "$(grep -c . "$errf" || true)" = 0 ] || fail "effective-mode: knob $1 $d wrote a notice without pressure"
   done
 }
-expect_mode script script script script quiet
-expect_mode tiered tiered script tiered quiet
-expect_mode open open tiered open quiet
+expect_mode script script script script
+expect_mode tiered tiered script tiered
+expect_mode open open tiered open
 ok "effective-mode resolves each direction at the knob, tower-to-worker one stricter, saturating at script"
 
 rc=0
@@ -349,7 +352,6 @@ pressure_case() {
 set_rung downshift
 pressure_case open tower-to-worker tiered 0
 pressure_case tiered worker-to-tower tiered 0
-listing_before=$(cd "$fleet" && find . -path ./usage -prune -o -print | LC_ALL=C sort)
 set_rung reduce-concurrency
 listing_before=$(cd "$fleet" && find . -path ./usage -prune -o -print | LC_ALL=C sort)
 sums_before=$(cd "$fleet" && find . -path ./usage -prune -o -type f -print | LC_ALL=C sort | xargs cksum)
@@ -359,6 +361,10 @@ pressure_case open tower-to-worker script 1
 pressure_case tiered worker-to-tower script 1
 pressure_case tiered tower-to-worker script 0
 pressure_case script tower-to-tower script 0
+listing_after=$(cd "$fleet" && find . -path ./usage -prune -o -print | LC_ALL=C sort)
+sums_after=$(cd "$fleet" && find . -path ./usage -prune -o -type f -print | LC_ALL=C sort | xargs cksum)
+[ "$listing_before" = "$listing_after" ] || fail "effective-mode's demoted sends changed the fleet state directory listing"
+[ "$sums_before" = "$sums_after" ] || fail "effective-mode's demoted sends wrote into the fleet state directory"
 set_rung defer-all
 listing_before=$(cd "$fleet" && find . -path ./usage -prune -o -print | LC_ALL=C sort)
 sums_before=$(cd "$fleet" && find . -path ./usage -prune -o -type f -print | LC_ALL=C sort | xargs cksum)
@@ -548,6 +554,8 @@ fa() {
 }
 fa heartbeat w1 spec:1 working || fail "heartbeat w1"
 fa heartbeat w-last spec:2 idle || fail "heartbeat w-last"
+# A worker whose name extends w1's, so a prefix match shows as a second row.
+fa heartbeat w10 spec:5 working || fail "heartbeat w10"
 fa park w-nobox spec:3 "notification:${esc}]0;owned${esc}\\ waiting" 2>/dev/null || :
 got=$(fa render --worker w1) || fail "render --worker w1 failed"
 case $got in
@@ -567,7 +575,9 @@ ok "fleet-attention.sh render --worker returns the named worker's row and no oth
 
 got=$(fm -- notice-read fleet-w1) || fail "notice-read fleet-w1 failed"
 want=$(fa render --worker w1)
-[ "$got" = "$want" ] || fail "notice-read did not return the store row for the named worker"
+# The trailing age is in seconds and may tick between the two renders.
+no_age() { printf '%s\n' "$1" | sed 's/  ([^)]*)$//'; }
+[ "$(no_age "$got")" = "$(no_age "$want")" ] || fail "notice-read did not return the store row for the named worker"
 case $got in
   *w-last*) fail "notice-read returned another worker's row" ;;
 esac
@@ -580,6 +590,7 @@ got=$(fm -- notice-read fleet-quiet) || fail "notice-read on a store-less worker
 ok "notice-read on a named worker with no store row prints nothing"
 
 hostile_name() {
+  # hostile_name <label> <name> [<phrase the refusal must carry>]
   hn_label=$1
   shift
   rc=0
@@ -588,13 +599,27 @@ hostile_name() {
   [ -z "$out" ] || fail "notice-read: $hn_label: read a store row"
   LC_ALL=C grep -q "[$(printf '\001-\010\013-\037\177')]" "$tmp/nr.err" \
     && fail "notice-read: $hn_label: the diagnostic carries a control byte"
+  [ -z "${2:-}" ] || grep -q "$2" "$tmp/nr.err" || fail "notice-read: $hn_label: not refused by the screen"
   return 0
 }
-hostile_name "control bytes" "fleet-w1${esc}[2J"
-hostile_name "over-length" "$(printf 'n%.0s' $(seq 1 129))"
-hostile_name "path separator" "fleet/w1"
+# Each name the screen refuses is also a registry row with a store row, so
+# only the screen stands between it and a read.
+name_ctl="fleet-w1${esc}[2J"
+name_long=$(printf 'n%.0s' $(seq 1 129))
+{
+  row9 114 w-ctl "$name_ctl" ctl.sock
+  row9 115 w-long "$name_long" long.sock
+  row9 116 w-sep "fleet/w1" sep.sock
+  row9 117 w-colon "sess:win/x" colon.sock
+} >>"$reg"
+for w in w-ctl w-long w-sep w-colon; do
+  fa heartbeat "$w" spec:6 working || fail "heartbeat $w"
+done
+hostile_name "control bytes" "$name_ctl" "fails the screen"
+hostile_name "over-length" "$name_long" "fails the screen"
+hostile_name "path separator" "fleet/w1" "fails the screen"
 hostile_name "no matching row" "fleet-nobody"
-hostile_name "accepted by validate-handle, refused by the screen" "sess:win/x"
+hostile_name "accepted by validate-handle, refused by the screen" "sess:win/x" "fails the screen"
 "$root/scripts/orchestrate-relay.sh" validate-handle tmux "sess:win/x" \
   || fail "fixture drift: validate-handle no longer accepts the name this case relies on"
 row9 110 w-twin-a "fleet-twin" a.sock >>"$reg"
