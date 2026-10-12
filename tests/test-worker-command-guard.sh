@@ -2370,6 +2370,26 @@ if [ "$CODE" -eq 0 ] && is_empty && [ "$elapsed" -le 2 ]; then
 else
   fail "over-cap command — code=$CODE empty=$(is_empty && echo y || echo n) secs=$elapsed"
 fi
+# A loop re-walks its body once per head word, so a long word in the body (a
+# command substitution's text, or plain words) multiplies the walk: the scan
+# budget defers such a command quickly instead of outrunning the hook timeout.
+long_words="$(for i in $(seq 1150); do printf 'ab%d ' "$i"; done)"
+for shape in subst nested plain; do
+  case $shape in
+    subst) c="for f in $(seq -s ' ' 16); do echo \$(echo $long_words); done" ;;
+    nested) c="for a in $(seq -s ' ' 7); do for b in $(seq -s ' ' 8); do echo \$(echo $long_words); done; done" ;;
+    plain) c="for f in $(seq -s ' ' 16); do echo $long_words; done" ;;
+  esac
+  SECONDS=0
+  run_hook "$c"
+  elapsed=$SECONDS
+  if [ "$CODE" -eq 0 ] && is_empty && [ "$elapsed" -le 8 ]; then
+    pass "a $shape loop over long words defers quickly (scan budget)"
+  else
+    fail "$shape loop over long words — code=$CODE empty=$(is_empty && echo y || echo n) secs=$elapsed"
+  fi
+done
+assert_allow "one long command substitution still allows within the scan budget" "echo \$(echo $long_words)"
 # The same bound with the fixture catalog present: the declared steps are
 # consulted only for a segment not already known-safe, and an over-cap
 # command never reaches a segment.

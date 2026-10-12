@@ -94,14 +94,19 @@ export LC_ALL
 # over the command — a ~40 KiB command takes ~8 s. MAX_CMD_LEN caps that at a
 # fraction of a second (~0.5 s) PER analyze_command entry so the hook can never
 # hang a worker's tool call; a longer command simply defers (never worse than
-# the normal prompt). Because `fish -c "<inner>"` re-enters analyze_command on
-# the inner string (each entry independently re-checked against MAX_CMD_LEN),
-# the end-to-end worst case is that per-entry cost multiplied by the number of
-# levels — up to MAX_DEPTH+1 entries, i.e. ~2 s worst case, not ~0.5 s, plus
-# STEPS_DEADLINE when a segment reaches the declared-step fallback. 8 KiB is
-# far above any real worker command shape. MAX_DEPTH caps `fish -c` recursion so
-# a nested-`fish -c` bomb can never spin.
+# the normal prompt). Two routes re-enter analyze_command on text inside the
+# command, a `fish -c "<inner>"` string and a command substitution's inner
+# text, and a loop body is walked once per head word, each walk costing in
+# proportion to its words' length. So MAX_SCANNED caps the text one hook call
+# may tokenize and walk together, every entry and loop pass counted: past it
+# the command defers, which keeps the end-to-end cost near that of a few
+# full-length entries, plus STEPS_DEADLINE when a segment reaches the
+# declared-step fallback. A substitution's verdict is kept per working
+# directory, so a loop pass does not analyse it again. 8 KiB is far above any
+# real worker command shape. MAX_DEPTH caps `fish -c` recursion so a
+# nested-`fish -c` bomb can never spin.
 readonly MAX_CMD_LEN=8192
+readonly MAX_SCANNED=$((MAX_CMD_LEN * 4))
 readonly MAX_DEPTH=3
 # A `for` loop is verified once per head word (loop_header), so its cost
 # multiplies the body's: past MAX_LOOP_WORDS head words the whole loop
@@ -2509,7 +2514,9 @@ track_assignment() {
   assign_value_literal "$value" "$vq" "${cqm[0]}" "${cdyn[0]}" "${cglob[0]}" "${cx[0]}" \
     || PENDING_ASSIGN_O=1
   PENDING_ASSIGN_S=0
-  word_tainted 0 && PENDING_ASSIGN_S=$((TAINT_WEAK + 1))
+  if [ "$SUB_N" -gt 0 ] && word_tainted 0; then
+    PENDING_ASSIGN_S=$((TAINT_WEAK + 1))
+  fi
   PENDING_ASSIGN_N=$name
   PENDING_ASSIGN_V=$value
   return 0
@@ -3033,6 +3040,11 @@ subst_inner_ok() {
 # local, so the screens after this one still read the words as written.
 subst_words_ok() {
   local i rc
+  # Without a substitution in this command, or around it, nothing is tainted.
+  if [ "$SUB_N" -eq 0 ] && [ "$IN_SUBST" = 0 ]; then
+    opaque_words_ok
+    return
+  fi
   local -a cw=(${cw[@]+"${cw[@]}"}) cdyn=(${cdyn[@]+"${cdyn[@]}"}) cglob=(${cglob[@]+"${cglob[@]}"})
   local -a cx=(${cx[@]+"${cx[@]}"}) cz=(${cz[@]+"${cz[@]}"})
   for ((i = 0; i < cwn; i++)); do
@@ -3548,6 +3560,10 @@ verify_simple() {
   local i swn=$cwn
   SIMPLE_N=$((SIMPLE_N + 1))
   [ "$SIMPLE_N" -le "$MAX_SIMPLE_CMDS" ] || return 1
+  for ((i = 0; i < cwn; i++)); do
+    SCANNED=$((SCANNED + ${#cw[i]}))
+  done
+  [ "$SCANNED" -le "$MAX_SCANNED" ] || return 1
   local -a sw=() swq=()
   for ((i = 0; i < cwn; i++)); do
     sw[i]=${cw[i]}
@@ -3721,12 +3737,15 @@ verify_known_simple() {
   local i verb si
   # Each substitution's own command runs whatever the words around it are,
   # so it must pass first, against the working directory it will run in.
-  for ((i = 0; i < cwn; i++)); do
-    for si in ${csub[i]-}; do
-      subst_inner_ok "${SUB_TXT[si]}" || return 1
-      SUB_SEEN=1
+  if [ "$SUB_N" -gt 0 ]; then
+    for ((i = 0; i < cwn; i++)); do
+      for si in ${csub[i]-}; do
+        [ "${SUB_OKD[si]-}" = "d:$HOOK_CWD" ] && continue
+        subst_inner_ok "${SUB_TXT[si]}" || return 1
+        SUB_OKD[si]=d:$HOOK_CWD
+      done
     done
-  done
+  fi
   # Redirects first: a write to a real file defers regardless of the verb,
   # unless its target is in the spec-root write zone (covers a leading
   # redirect with no command too, e.g. `> f cat x`).
@@ -4068,10 +4087,14 @@ analyze_command() {
   local cmd=$1 depth=$2 t seg lead
   [ "$depth" -le "$MAX_DEPTH" ] || return 1
   [ "${#cmd}" -le "$MAX_CMD_LEN" ] || return 1
+  SCANNED=$((SCANNED + ${#cmd}))
+  [ "$SCANNED" -le "$MAX_SCANNED" ] || return 1
   local -a TOK_TYPE=() TOK_VAL=() TOK_QUOTED=() TOK_NOEXP=() TOK_QPOS=() TOK_DYN=() TOK_GLOB=() TOK_ZOPT=() TOK_QMIX=() TOK_SUBS=()
   local TOK_N=0
-  # The substitutions' inner texts, and whether one has run yet (word_tainted).
-  local -a SUB_TXT=()
+  # The command substitutions' inner texts, the working directory each last
+  # passed in (SUB_OKD, `d:`-prefixed), and whether the command holds one
+  # (word_tainted); subst_scan returns its results in SUBST_IDX / SUBST_END.
+  local -a SUB_TXT=() SUB_OKD=()
   local SUB_N=0 SUB_SEEN=0 SUBST_IDX=0 SUBST_END=0
   local HOOK_DEPTH=$depth
   # The substitution table (tracked assignments and loop variables, VAR_L
@@ -4164,6 +4187,7 @@ main() {
   SIMPLE_N=0
   # 1 while subst_inner_ok analyses a substitution's inner text.
   IN_SUBST=0
+  SCANNED=0
 
   analyze_command "$cmd" 0 || return 0
   emit_allow
