@@ -1232,6 +1232,19 @@ rm -f "$repo/.git/hooks/pre-commit"
 git -C "$repo" reset -q
 rm -rf "$repo/specs"
 
+# When the add itself fails (the index locked) and so does the unstage,
+# rollback does not call an untracked record staged: it says to remove the
+# file.
+LOCK=locked-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$LOCK" main
+printf ': >"%s/.git/index.lock"\n' "$repo" >"$tmp/act-lock.sh"
+run_land_stub 'add' "$tmp/act-lock.sh" --flight-id "$LOCK"
+rm -f "$repo/.git/index.lock"
+[ "$RC" -eq 4 ] || fail "a land whose add fails must fail with 4 (got $RC: $ERR)"
+printf '%s\n' "$ERR" | grep -q 'and staged' && fail "an untracked record must not be reported staged: $ERR"
+printf '%s\n' "$ERR" | grep -qF "rm -- specs/_flights/$LOCK.md" || fail "rollback must say how to remove the untracked record: $ERR"
+rm -rf "$repo/specs"
+
 # A matching re-run is recognized through git, so a checkout whose line
 # endings git converts still matches its committed record.
 CRLF=crlf-0a1b2c3d

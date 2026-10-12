@@ -973,8 +973,13 @@ rollback() {
   fi
   if [ -n "$rino" ] && ! git -C "$repo_root" cat-file -e "HEAD:$rel" 2>/dev/null; then
     if [ "$staged" -eq 1 ] && ! git -C "$repo_root" rm -q --cached -f --ignore-unmatch -- "$rel" >/dev/null 2>&1; then
-      printf '%s: could not unstage %s, so it stays on disk and staged; remove it with: git rm -f -- %s\n' \
-        "$prog" "$rel" "$rel" >&2
+      if git -C "$repo_root" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1; then
+        printf '%s: could not unstage %s, so it stays on disk and staged; remove it with: git rm -f -- %s\n' \
+          "$prog" "$rel" "$rel" >&2
+      else
+        printf '%s: could not roll back %s, which is not staged; remove it with: rm -- %s\n' \
+          "$prog" "$rel" "$rel" >&2
+      fi
     elif is_mine; then
       rm -f -- "$base" && printf '%s: the uncommitted record was removed\n' "$prog" >&2
     elif [ "$staged" -eq 1 ] && { [ -e "$base" ] || [ -L "$base" ]; }; then
