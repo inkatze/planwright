@@ -82,7 +82,7 @@ trap 'exit 143' TERM
 trap 'exit 129' HUP
 
 usage() {
-  printf '%s\n' "usage: claude-frames.sh persist --dir <dir> | read | clearance --since <epoch> | label [--now <epoch>]" >&2
+  printf '%s\n' "usage: claude-frames.sh persist --dir <dir> [--now <epoch>] | read [--now <epoch>] | clearance --since <epoch> [--now <epoch>] | label" >&2
   exit 2
 }
 die() {
