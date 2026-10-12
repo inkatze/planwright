@@ -85,6 +85,7 @@ mkdir -p "$LOOKALIKE/scripts"
 mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests" "$SANDBOX/sub"
 : >"$SANDBOX/.git" # worktree-style .git file marker
 : >"$SANDBOX/scripts/ok.sh"
+: >"$SANDBOX/scripts/tower-force-push.sh"
 : >"$SANDBOX/tests/ok.sh"
 : >"$SANDBOX/tests/ok.bats"
 # Symlinked final components pointing OUTSIDE the repo (containment escape).
@@ -93,6 +94,7 @@ mkdir -p "$PLUGIN_ROOT/scripts"
 : >"$PLUGIN_ROOT/scripts/orchestrate-select.sh"
 : >"$PLUGIN_ROOT/scripts/fleet-streamjson.sh"
 : >"$PLUGIN_ROOT/scripts/orchestrate-relay.sh"
+: >"$PLUGIN_ROOT/scripts/tower-force-push.sh"
 ln -sf /etc/hosts "$PLUGIN_ROOT/scripts/evillink.sh"
 
 # run_hook <command> [tool_name] [cwd] -> sets OUT and CODE. CLAUDE_PLUGIN_ROOT
@@ -216,6 +218,15 @@ assert_allow "repo script direct" "scripts/ok.sh"
 assert_allow "repo script bash-prefixed" "bash scripts/ok.sh arg1"
 assert_allow "plugin script absolute path direct" "$PLUGIN_ROOT/scripts/orchestrate-select.sh specs/x"
 assert_allow "plugin script bash-prefixed" "bash $PLUGIN_ROOT/scripts/orchestrate-select.sh"
+
+# The force-push path always reaches the operator's permission prompt: it is
+# run on the operator's request in the same turn, so no allow layer answers it
+# (human-gates REQ-F1.2).
+echo "### the force-push path is never auto-approved"
+assert_defer "force-push helper, repo push" "scripts/tower-force-push.sh push --branch b --to abc --lease def"
+assert_defer "force-push helper, repo bash-prefixed" "bash scripts/tower-force-push.sh confirm --branch b --to abc"
+assert_defer "force-push helper, plugin push" "$PLUGIN_ROOT/scripts/tower-force-push.sh push --branch b --to abc --lease def"
+assert_defer "force-push helper, plugin purge" "$PLUGIN_ROOT/scripts/tower-force-push.sh purge --path x"
 
 # The pending-request read: the shipped profile approves it through this guard
 # rather than a static allow entry, so it works out of the box as long as the

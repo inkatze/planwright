@@ -66,6 +66,9 @@
 #               an --input body, a non-literal endpoint, method, or query on a
 #               write, a rename with no literal new name, an unknown flag)
 #               denies before any read; anything else defers.
+#   force-push helper  running scripts/tower-force-push.sh. worker: deny,
+#               with no read. tower: defer, so it reaches the permission
+#               prompt (the tower's command guard never approves it).
 # Every segment of a compound command is classified and the strictest verdict
 # wins.
 #
@@ -973,6 +976,22 @@ lc() {
   esac
 }
 
+# runs_force_push_helper <lowercased command name> — 0 when the segment runs
+# the tower's force-push helper, directly or as a shell's script operand.
+runs_force_push_helper() {
+  local w
+  [ "$1" = tower-force-push.sh ] && return 0
+  case $1 in
+    bash | sh | zsh | dash | ksh | mksh | busybox | env | nohup | nice | timeout | gtimeout | exec | command) ;;
+    *) return 1 ;;
+  esac
+  for w in "${SW[@]:1}"; do
+    lc "${w##*/}"
+    [ "$LC" = tower-force-push.sh ] && return 0
+  done
+  return 1
+}
+
 classify_segments() {
   local si=0 eff=$PAYLOAD_CWD eff_ok=1 verb base_verb prev_text='' cur_text w
   [ -d "$eff" ] || eff_ok=0
@@ -997,6 +1016,8 @@ classify_segments() {
     verb=${SW[0]}
     lc "${verb##*/}"
     base_verb=$LC
+    [ "$TIER" != worker ] || ! runs_force_push_helper "$base_verb" \
+      || deny_now 'this command runs scripts/tower-force-push.sh; the force-push path is the tower'"'"'s, run on the operator'"'"'s request, never a worker'"'"'s. Name the reword or force-push in your handoff for the operator instead.'
     if [ "${SWL[0]}" != 1 ]; then
       # The command word is an expansion, so what runs cannot be read: only a
       # variable root followed by a literal script path is let through, and
@@ -2720,13 +2741,13 @@ handle_bash() {
     raw_evidence "$1" && emit_deny 'this Bash payload carries no readable command string and its raw content names a reserved act - refusing (fail closed).'
     return 0
   fi
-  # No git and no gh anywhere, even with quotes and escapes removed, and no
-  # expansion beside a reserved subcommand: nothing this guard classifies, so
-  # no parse and no read.
+  # No git, no gh, and no force-push helper anywhere, even with quotes and
+  # escapes removed, and no expansion beside a reserved subcommand: nothing
+  # this guard classifies, so no parse and no read.
   local bare=${cmd//[\"\'\\]/} hit=0
   shopt -s nocasematch
   case $bare in
-    *git* | *gh*) hit=1 ;;
+    *git* | *gh* | *tower-force-push*) hit=1 ;;
     *'$'* | *'`'*)
       case $bare in
         *merge* | *pull* | *rebase* | *push* | *commit* | *ready* | *api*) hit=1 ;;

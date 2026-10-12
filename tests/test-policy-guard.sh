@@ -96,6 +96,23 @@ for v in unit-owner human; do
   fi
 done
 
+echo "# the force-push path is the tower's (REQ-F1.2)"
+for cmd in "$REAL_SCRIPTS/tower-force-push.sh push --branch planwright/demo/task-1 --to HEAD --lease HEAD" \
+  "$REAL_SCRIPTS/tower-force-push.sh reword --branch planwright/demo/task-1 --commit HEAD --message-file m" \
+  'scripts/tower-force-push.sh confirm --branch b --to HEAD' 'bash scripts/tower-force-push.sh push --branch b' \
+  'git status && sh scripts/tower-force-push.sh push --branch b'; do
+  pg worker "$cmd"
+  expect deny "[worker] the force-push helper denies: $cmd"
+  reads none "[worker] the force-push helper deny reads no knob: $cmd"
+  pg tower "$cmd"
+  expect defer "[tower] the force-push helper defers to the operator's prompt: $cmd"
+done
+pg worker '"$ROOT/scripts/tower-force-push.sh" confirm --branch b'
+expect deny "[worker] the force-push helper by a rooted path denies"
+for cmd in 'grep -n tower-force-push skills/tower/SKILL.md' 'tests/test-tower-force-push.sh'; do
+  pg worker "$cmd"
+  expect defer "[worker] naming the helper without running it defers: $cmd"
+done
 echo "# the MCP flip surface"
 mcp() { # <draft-json-or-absent>
   if [ "$1" = absent ]; then

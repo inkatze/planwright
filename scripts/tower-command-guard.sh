@@ -565,6 +565,9 @@ canon_under() {
 is_planwright_script() {
   local p=$1 cwd=$2 root proot full rel
   case $p in
+    # The force-push path runs on the operator's request in the same turn, so
+    # its every verb reaches the permission prompt (doctrine/human-gates.md).
+    tower-force-push.sh | */tower-force-push.sh) return 1 ;;
     *.sh) ;;
     *) return 1 ;;
   esac
