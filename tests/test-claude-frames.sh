@@ -305,19 +305,16 @@ pass "a threshold set the usage gate refuses is refused"
 
 # Two workers storing a frame in the same second see the same reset; the
 # higher reading wins whichever directory find lists first, so the tie can
-# never grant clearance. Both creation orders, since listing order follows it.
-for order in "hi lo" "lo hi"; do
-  new_home "tie-${order% *}"
-  for who in $order; do
-    case $who in
-      hi) put hi $((NOW - 60)) 0.51 $((NOW + HOUR)) 0.10 $((NOW + 86400)) ;;
-      lo) put lo $((NOW - 60)) 0.49 $((NOW + HOUR)) 0.10 $((NOW + 86400)) ;;
-    esac
-  done
+# never grant clearance. The readings swap between the same two names, so
+# whatever order the filesystem lists them in, one pass meets the lower first.
+for pair in "0.51 0.49" "0.49 0.51"; do
+  new_home "tie-${pair% *}"
+  put a $((NOW - 60)) "${pair% *}" $((NOW + HOUR)) 0.10 $((NOW + 86400))
+  put b $((NOW - 60)) "${pair#* }" $((NOW + HOUR)) 0.10 $((NOW + 86400))
   rc=0
   out=$(cf clearance --since "$SINCE" --now "$NOW") || rc=$?
-  [ "$rc" = 1 ] || fail "tie ($order): the lower of two same-second readings cleared: $out"
-  win "$out" session | grep -q "^window${TAB}session${TAB}51${TAB}" || fail "tie ($order): the higher reading did not win: $out"
+  [ "$rc" = 1 ] || fail "tie (a b = $pair): the lower of two same-second readings cleared: $out"
+  win "$out" session | grep -q "^window${TAB}session${TAB}51${TAB}" || fail "tie (a b = $pair): the higher reading did not win: $out"
 done
 pass "a same-second, same-reset tie takes the higher reading"
 
@@ -400,7 +397,7 @@ printf '%s\n' "$render" | grep -q '^  Claude usage:   account-wide; unmeasured' 
 printf 'fleet_usage_session_downshift: 90\n' >"$local_cfg"
 render=$(cfenv /bin/sh "$FSTATS" render 2>/dev/null) || fail "fleet-stats render (failed read) exited non-zero"
 : >"$local_cfg"
-printf '%s\n' "$render" | grep -q '^  Claude usage:   account-wide; unknown' \
+printf '%s\n' "$render" | grep -q '^  Claude usage:   account-wide; unknown (the frame reader failed, exit 4)' \
   || fail "render: a failed read does not render unknown with its label: $render"
 pass "the read and fleet-stats.sh render carry the account-wide label"
 

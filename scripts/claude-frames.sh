@@ -41,9 +41,9 @@
 #     after --now, is skipped. The threshold is the window's lowest-rung
 #     descend threshold, its usage-gate downshift knob
 #     (`fleet_usage_session_downshift`, `fleet_usage_weekly_downshift`), and a
-#     reading is below it when its percentage is strictly less. A state is `unmeasured` (no reading),
-#     `above`, `pre-hold` (clearance only: received no later than --since),
-#     or `below`. The read verdict is `measured` or `unmeasured`; the
+#     reading is below it when its percentage is strictly less. A state is
+#     `unmeasured` (no reading), `above`, `pre-hold` (clearance only: received
+#     no later than --since), or `below`. The read verdict is `measured` or `unmeasured`; the
 #     clearance verdict is `cleared` only when both windows are `below`,
 #     `unmeasured` when neither has a reading, and `held` otherwise. A
 #     backend that emits no frames leaves no file, so a fleet running only
