@@ -146,6 +146,41 @@ if [ "$rc" = 0 ] && [ -n "$SOLO_NEW" ] && ! g merge-base --is-ancestor "$SOLO_RO
 else
   fail "reword of a root commit kept the old root (exit $rc: $(cat "$tmp/err"))"
 fi
+# log.showSignature prints a signed commit's verification into git log's
+# stdout, where it would read as extra commits and authors.
+cat >"$tmp/gpg" <<'EOF'
+#!/bin/sh
+case " $* " in
+  *' --verify '*)
+    echo 'gpg: Good signature from "Stub"' >&2
+    echo '[GNUPG:] GOODSIG 0 Stub'
+    ;;
+  *)
+    cat >/dev/null
+    echo '[GNUPG:] SIG_CREATED ' >&2
+    printf -- '-----BEGIN PGP SIGNATURE-----\nstub\n-----END PGP SIGNATURE-----\n'
+    ;;
+esac
+EOF
+chmod +x "$tmp/gpg"
+g config gpg.program "$tmp/gpg"
+g checkout -q -b signed main
+g commit -q -S --allow-empty -m 'Bad signed subject'
+SIGNED_BAD=$(g rev-parse HEAD)
+g commit -q -S --allow-empty -m 'feat: signed follow-up'
+g push -q origin signed
+g config log.showSignature true
+rc=$(rc_of fp reword --branch signed --commit "$SIGNED_BAD" --message-file "$tmp/msg")
+SIGNED_NEW=$(awk -F '\t' '$1 == "to" { print $2 }' "$tmp/out")
+rc2=$(rc_of fp confirm --branch signed --to "${SIGNED_NEW:-HEAD}")
+if [ "$rc" = 0 ] && [ "$rc2" = 0 ] && [ "$(jq '.dropped | length' "$tmp/out")" = 2 ] \
+  && [ "$(g log --no-show-signature -1 --format=%an "$SIGNED_NEW")" = Author ]; then
+  ok "log.showSignature reaches neither the replayed authors nor the dropped list"
+else
+  fail "log.showSignature polluted the helper (reword $rc, confirm $rc2: $(cat "$tmp/out" "$tmp/err"))"
+fi
+g config --unset log.showSignature
+g config --unset gpg.program
 g checkout -q "$BR"
 printf ' \n\t\n' >"$tmp/blank"
 rc=$(rc_of fp reword --branch "$BR" --commit "$BAD" --message-file "$tmp/blank")

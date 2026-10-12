@@ -205,19 +205,19 @@ refresh() {
 # dropped <from> <to> — `<sha>TAB<subject>` per commit the tip <from> reaches
 # and <to> does not, newest first.
 dropped() {
-  git log --format='%H%x09%s' "$2..$1" -- 2>/dev/null
+  git log --no-show-signature --format='%H%x09%s' "$2..$1" -- 2>/dev/null
 }
 
 # legacy_lines <range> — `<sha>TAB<author ident and date>` per legacy commit.
 legacy_lines() {
   local sha subj
-  git log --format='%H%x09%s' "$1" -- 2>/dev/null | while IFS="$TAB" read -r sha subj; do
+  git log --no-show-signature --format='%H%x09%s' "$1" -- 2>/dev/null | while IFS="$TAB" read -r sha subj; do
     case $subj in
       *"$LEGACY_SUFFIX") ;;
       *) continue ;;
     esac
-    [ -z "$(git log -1 --format='%(trailers:key=Planwright-Sign-Off,valueonly)' "$sha" | tr -d '[:space:]')" ] || continue
-    printf '%s\t%s\n' "$sha" "$(git log -1 --format='%an <%ae> %ad' --date=raw "$sha")"
+    [ -z "$(git log --no-show-signature -1 --format='%(trailers:key=Planwright-Sign-Off,valueonly)' "$sha" | tr -d '[:space:]')" ] || continue
+    printf '%s\t%s\n' "$sha" "$(git log --no-show-signature -1 --format='%an <%ae> %ad' --date=raw "$sha")"
   done
 }
 
@@ -364,9 +364,9 @@ reword() {
     fi
     # shellcheck disable=SC2086 # $parents is a list of -p <oid> pairs
     new=$(
-      GIT_AUTHOR_NAME=$(git log -1 --format=%an "$c") \
-      GIT_AUTHOR_EMAIL=$(git log -1 --format=%ae "$c") \
-      GIT_AUTHOR_DATE=$(git log -1 --format=%ad --date=raw "$c") \
+      GIT_AUTHOR_NAME=$(git log --no-show-signature -1 --format=%an "$c") \
+      GIT_AUTHOR_EMAIL=$(git log --no-show-signature -1 --format=%ae "$c") \
+      GIT_AUTHOR_DATE=$(git log --no-show-signature -1 --format=%ad --date=raw "$c") \
         git commit-tree "$tree" $parents -F "$work/msg"
     ) || broken "replaying $(printf '%s' "$c" | cut -c1-7) failed"
     printf '%s %s\n' "$c" "$new" >>"$map"
