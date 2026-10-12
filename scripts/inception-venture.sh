@@ -89,10 +89,12 @@ today() {
   esac
 }
 
-# single_line <text> — true when the text is non-empty and free of control
-# bytes (a newline included), so it can sit on one markdown or commit line.
+# single_line <text> — true when the text has a non-blank character and no
+# control bytes (a newline included), so it can sit on one markdown or commit
+# line.
 single_line() {
-  [ -n "$1" ] && [ "$1" = "$(printf '%s' "$1" | tr -d '\000-\037\177')" ]
+  case $1 in *[![:space:]]*) ;; *) return 1 ;; esac
+  [ "$1" = "$(printf '%s' "$1" | tr -d '\000-\037\177')" ]
 }
 
 # --- identifiers -----------------------------------------------------------

@@ -320,6 +320,13 @@ assert_eq "C1.7 skeleton passes the version gate" 0 "$?"
 venture bundle-init --title "Again" "$rp"
 assert_eq "bundle-init never overwrites an existing bundle (exit 5)" 5 "$rc"
 
+mkdir -p "$tmp/titles"
+for bad in '' '   ' "$(printf 'two\nlines')"; do
+  venture bundle-init --title "$bad" "$tmp/titles"
+  assert_eq "bundle-init refuses a blank or multi-line title ($(printf '%s' "$bad" | tr '\n' '?'))" 2 "$rc"
+done
+assert_absent "a refused title writes no bundle" "$tmp/titles/brief.md"
+
 venture resume-point "$rp"
 assert_contains "B1.7 a fresh skeleton resumes at the first phase" "$(printf 'next\tseed')" "$out"
 assert_contains "B1.7 a fresh skeleton has no completed phase" "$(printf 'done\tnone')" "$out"
@@ -381,6 +388,9 @@ assert_eq "dry run (local): two saves landed" 2 "$(git -C "$lv" rev-list --count
 
 venture save --expert "$lv" "Expert-mode save with nothing to save"
 assert_eq "H1.2 expert save with nothing staged is not an error" 0 "$rc"
+
+venture save "$lv" '   '
+assert_eq "H1.2 a blank save message is refused as usage (exit 2)" 2 "$rc"
 
 venture save --push "$lv" "Try to push"
 assert_eq "A1.4 the local arm refuses to push (exit 6)" 6 "$rc"
