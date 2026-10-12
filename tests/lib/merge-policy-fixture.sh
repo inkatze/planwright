@@ -35,7 +35,13 @@ case "$1 $2" in
         n=0
         [ ! -f "$GHS/rollup_n" ] || n=$(cat "$GHS/rollup_n")
         echo "$((n + 1))" >"$GHS/rollup_n"
-        case $(cat "$GHS/ci") in
+        ci=$(cat "$GHS/ci")
+        # ci_seq holds one state per read; past its end the last one holds.
+        if [ -f "$GHS/ci_seq" ]; then
+          ci=$(sed -n "$((n + 1))p" "$GHS/ci_seq")
+          [ -n "$ci" ] || ci=$(tail -1 "$GHS/ci_seq")
+        fi
+        case $ci in
           green) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"}]' ;;
           failing) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
           *) roll='[{"__typename":"CheckRun","name":"test","status":"IN_PROGRESS","conclusion":""}]' ;;
@@ -60,17 +66,19 @@ case "$1 $2" in
           echo "no pull requests found for branch \"$GHS_BRANCH\"" >&2
           exit 1
         fi
-        # head_after_eval reports another head from the nth lookup on: a
-        # commit landed between evaluation and the merge call.
+        # lookup_fail_from fails every lookup from the nth on.
         l=0
         [ ! -f "$GHS/lookup_n" ] || l=$(cat "$GHS/lookup_n")
         l=$((l + 1))
         echo "$l" >"$GHS/lookup_n"
-        if [ -f "$GHS/head_after_eval" ] && [ "$l" -ge "$(cat "$GHS/head_after_eval_from")" ]; then
-          head=$(cat "$GHS/head_after_eval")
+        if [ -f "$GHS/lookup_fail_from" ] && [ "$l" -ge "$(cat "$GHS/lookup_fail_from")" ]; then
+          echo 'HTTP 502: Bad Gateway' >&2
+          exit 1
         fi
-        printf '{"number":42,"isDraft":%s,"state":"OPEN","baseRefName":"main","headRefName":"%s","headRefOid":"%s","isCrossRepository":%s}\n' \
-          "$draft" "$hname" "$head" "$fork"
+        state=OPEN
+        [ ! -f "$GHS/merged" ] || state=MERGED
+        printf '{"number":42,"isDraft":%s,"state":"%s","baseRefName":"main","headRefName":"%s","headRefOid":"%s","isCrossRepository":%s}\n' \
+          "$draft" "$state" "$hname" "$head" "$fork"
         ;;
     esac
     ;;
@@ -116,8 +124,13 @@ case "$1 $2" in
     exit "$rc"
     ;;
   'pr merge')
+    # merge_rc is the exit; the PR merges on 0 unless merge_queued, and on a
+    # failure too when merge_lands.
     rc=0
     [ ! -f "$GHS/merge_rc" ] || rc=$(cat "$GHS/merge_rc")
+    if { [ "$rc" = 0 ] && [ ! -f "$GHS/merge_queued" ]; } || [ -f "$GHS/merge_lands" ]; then
+      : >"$GHS/merged"
+    fi
     exit "$rc"
     ;;
   *) exit 3 ;;

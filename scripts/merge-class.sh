@@ -57,8 +57,10 @@
 #   pred<TAB><name><TAB>pass|fail|skip<TAB><evidence>
 #
 # Exit: 0 admitted; 2 usage; 3 skipped (no gh, no open PR); 4 not admitted,
-# the record names why; 5 refused before a record (a wrong branch, an
-# unreadable base, a reconcile that failed).
+# the record names why; 5 refused before a record (a checkout off the unit's
+# own branch, spec, or tasks; an unreadable PR or base; a reconcile, push, or
+# flip-precondition evaluation that could not run). A head outside the branch
+# set records the PR's own head and skips every other predicate.
 #
 # No model in the decision path: every predicate is a comparison.
 set -u
@@ -74,15 +76,17 @@ fi
 # shellcheck source=scripts/echo-safety.sh
 . "$SCRIPTS/echo-safety.sh" || exit 2
 
-# planwright's own enforcement surface, plus the files a repository keeps its
-# policy, CI, and dependency pins in.
-readonly CORE_ZONE='hooks/* githooks/* config/*-settings.json .claude/settings.json .claude/settings.local.json .claude/planwright.yml scripts/*guard*.sh scripts/resolve-policy-knob.sh scripts/resolve-config-knob.sh scripts/protected-branch.sh scripts/ready-flip.sh scripts/merge-class.sh scripts/merge-admitted.sh .github/workflows/* doctrine/human-gates.md tests/fixtures/reserved-control-spellings *package-lock.json *npm-shrinkwrap.json *pnpm-lock.yaml *.lock *go.sum'
+# planwright's own enforcement surface (its profiles, hooks, guards, the
+# scripts the class and its records are computed by, its policy defaults),
+# plus the files a repository keeps its policy, CI definition, and dependency
+# pins in.
+readonly CORE_ZONE='hooks/* githooks/* config/*-settings.json config/defaults.yml config/steps.yaml .claude/settings.json .claude/settings.local.json .claude/planwright.yml .claude-plugin/* scripts/*guard*.sh scripts/resolve-policy-knob.sh scripts/resolve-config-knob.sh scripts/config-get.sh scripts/protected-branch.sh scripts/ready-flip.sh scripts/merge-class.sh scripts/merge-admitted.sh scripts/step-record.sh scripts/spec-parse.sh scripts/echo-safety.sh scripts/planwright-commit-trailers.sh .github/* mise.toml lefthook.yml doctrine/human-gates.md tests/fixtures/reserved-control-spellings *package-lock.json *npm-shrinkwrap.json *pnpm-lock.yaml *.lock *go.sum'
 readonly TASK_BRANCH_RE='^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$'
 
 say() { printf 'merge-class: %s\n' "$*"; }
 usage() {
   printf 'merge-class: %s\n' "$1" >&2
-  echo 'usage: merge-class.sh evaluate --spec <dir> --task <id>... [--pr <n>] [--worktree <dir>] [--out <file>] | identity [--pr <n>]' >&2
+  echo 'usage: merge-class.sh evaluate --spec <dir> --task <id>... [--pr <n>] [--worktree <dir>] [--out <file>] | identity [--pr <n>] [--worktree <dir>]' >&2
   exit 2
 }
 refuse() {
@@ -159,8 +163,19 @@ fi
 # --- evaluate ------------------------------------------------------------------
 
 [[ $BRANCH =~ $TASK_BRANCH_RE ]] || refuse 'the checkout is not on a planwright task branch'
+# The unit is the branch's: its spec, and its task id or id range.
+B_SEG=${BRANCH#planwright/}
+B_SPEC=${B_SEG%%/*}
+B_IDS=${B_SEG##*/task-}
+[ "${SPEC##*/}" = "$B_SPEC" ] || refuse "--spec names ${SPEC##*/}, but the checkout is on $B_SPEC's task branch"
 TASK_ARGS=()
-for id in "${IDS[@]}"; do TASK_ARGS+=(--task "$id"); done
+for id in "${IDS[@]}"; do
+  case $B_IDS in
+    *-*) awk -v i="$id" -v lo="${B_IDS%-*}" -v hi="${B_IDS#*-}" 'BEGIN { exit !(i + 0 >= lo + 0 && i + 0 <= hi + 0) }' ;;
+    *) [ "$id" = "$B_IDS" ] ;;
+  esac || refuse "task $id is not the unit the branch names (task-$B_IDS)"
+  TASK_ARGS+=(--task "$id")
+done
 REMOTE=$(git config "branch.$BRANCH.remote" 2>/dev/null) || REMOTE=origin
 [[ $REMOTE =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || refuse 'the branch remote is not a plain remote name'
 
@@ -195,6 +210,7 @@ PR=$(printf '%s' "$raw" | jq -r '.number // empty' 2>/dev/null)
 state=$(printf '%s' "$raw" | jq -r '.state // empty' 2>/dev/null)
 BASE=$(printf '%s' "$raw" | jq -r '.baseRefName // empty' 2>/dev/null)
 HEAD_NAME=$(printf '%s' "$raw" | jq -r '.headRefName // empty' 2>/dev/null)
+HOST_HEAD=$(printf '%s' "$raw" | jq -r '.headRefOid // empty' 2>/dev/null)
 fork=$(printf '%s' "$raw" | jq -r '.isCrossRepository' 2>/dev/null)
 [[ $PR =~ ^[1-9][0-9]{0,9}$ ]] || refuse 'the pull request number could not be read'
 if ! [[ $BASE =~ ^[A-Za-z0-9_][A-Za-z0-9._/-]*$ ]] || ! git check-ref-format --branch "$BASE" >/dev/null 2>&1; then
@@ -215,16 +231,44 @@ else
   set_pred branch pass "$HEAD_NAME from the base repository"
 fi
 
+print_record() {
+  local i=0
+  printf 'head\t%s\nbase\t%s\t%s\npr\t%s\nstrategy\t%s\n' "$HEAD_SHA" "$BASE" "$BASE_OID" "$PR" "$METHOD"
+  while [ "$i" -lt "${#P_NAME[@]}" ]; do
+    printf 'pred\t%s\t%s\t%s\n' "${P_NAME[$i]}" "${P_RES[$i]}" "${P_EVD[$i]}"
+    i=$((i + 1))
+  done
+}
+emit_record() {
+  if [ -n "$OUTF" ]; then
+    print_record >"$OUTF" || refuse 'the record could not be written'
+  else
+    print_record
+  fi
+}
+
+METHOD=-
+git fetch -q "$REMOTE" "+refs/heads/$BASE:refs/remotes/$REMOTE/$BASE" >/dev/null 2>&1 \
+  || refuse "the base $REMOTE/$BASE could not be fetched"
+BASE_OID=$(git rev-parse --verify -q "refs/remotes/$REMOTE/$BASE^{commit}") || refuse "the base $REMOTE/$BASE could not be fetched"
+
+# A head outside the branch set is the PR's own, not this checkout's: the
+# record names the host's head and judges nothing else.
+if any_failed; then
+  [[ $HOST_HEAD =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || refuse "PR #$PR's head could not be read"
+  HEAD_SHA=$HOST_HEAD
+  for p in sign-off core-zone excluded-paths max-lines strategy awaiting-input review-converged ci-rollup ready-guard; do
+    set_pred "$p" skip 'not evaluated: the head is outside the branch set'
+  done
+  emit_record
+  exit 4
+fi
+
 # Settle the Awaiting-input section first, so every predicate reads the head
 # the flip would read.
-if ! any_failed; then
-  /bin/bash "$SCRIPTS/ready-flip.sh" reconcile --spec "$SPEC" "${TASK_ARGS[@]}" >/dev/null 2>&1 \
-    || refuse 'the Awaiting-input section could not be reconciled and pushed'
-fi
+/bin/bash "$SCRIPTS/ready-flip.sh" reconcile --spec "$SPEC" "${TASK_ARGS[@]}" >/dev/null 2>&1 \
+  || refuse 'the Awaiting-input section could not be reconciled and pushed'
 HEAD_SHA=$(git rev-parse HEAD) || refuse 'HEAD does not resolve'
-
-git fetch -q "$REMOTE" "+refs/heads/$BASE:refs/remotes/$REMOTE/$BASE" >/dev/null 2>&1
-BASE_OID=$(git rev-parse --verify -q "refs/remotes/$REMOTE/$BASE^{commit}") || refuse "the base $REMOTE/$BASE could not be fetched"
 MB=$(git merge-base "$BASE_OID" "$HEAD_SHA" 2>/dev/null) || refuse "the head shares no history with $REMOTE/$BASE"
 
 # sign-off: a raw scan of the range.
@@ -305,7 +349,6 @@ else
 fi
 
 # strategy.
-METHOD=-
 if ! want=$(knob merge_class_strategy); then
   set_pred strategy fail 'merge_class_strategy could not be resolved'
 elif ! methods=$(gh repo view --json mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed 2>/dev/null \
@@ -352,23 +395,12 @@ else
       esac
     done
   else
-    why=$(tail -1 "$SCRATCH/flip.out" 2>/dev/null)
-    for p in $FLIP_PREDS; do set_pred "$p" fail "the ready-flip preconditions could not be evaluated on ${HEAD_SHA:0:12}: ${why:-exit $rc}"; done
+    # Not a predicate verdict (an unreadable PR, a failed reconcile or push):
+    # this run cannot say, so it refuses rather than report a fall-through.
+    refuse "the ready-flip preconditions could not be evaluated on ${HEAD_SHA:0:12}: $(sanitize_printable "$(tail -1 "$SCRATCH/flip.out" 2>/dev/null)" "exit $rc")"
   fi
 fi
 
-print_record() {
-  local i=0
-  printf 'head\t%s\nbase\t%s\t%s\npr\t%s\nstrategy\t%s\n' "$HEAD_SHA" "$BASE" "$BASE_OID" "$PR" "$METHOD"
-  while [ "$i" -lt "${#P_NAME[@]}" ]; do
-    printf 'pred\t%s\t%s\t%s\n' "${P_NAME[$i]}" "${P_RES[$i]}" "${P_EVD[$i]}"
-    i=$((i + 1))
-  done
-}
-if [ -n "$OUTF" ]; then
-  print_record >"$OUTF" || refuse 'the record could not be written'
-else
-  print_record
-fi
+emit_record
 any_failed && exit 4
 exit 0

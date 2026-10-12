@@ -99,6 +99,14 @@ evaluate
 check "a fork falls to on-approval (exit 4)" [ "$CODE" = 4 ]
 check "a fork fails the branch predicate" pred branch fail
 check "the evidence names the fork" grep -q 'branch	fail	.*another repository' "$REC"
+admitted_fixture
+printf 'release-please--branches--main\n' >"$GHS/head_name"
+echo 0123456789abcdef0123456789abcdef01234567 >"$GHS/head_override"
+evaluate
+check "a failed branch predicate records the PR's own head, not the checkout's" grep -q '^head	0123456789abcdef0123456789abcdef01234567$' "$REC"
+for p in sign-off core-zone excluded-paths max-lines strategy awaiting-input; do
+  check "a failed branch predicate skips $p rather than judge the checkout" pred "$p" skip
+done
 
 scenario 'sign-off - a trailer in the range, reverted'
 admitted_fixture
@@ -126,6 +134,11 @@ mp_commit 'fix: a finding [pending-sign-off]' fix.txt one
 evaluate
 check "a legacy suffix refuses (exit 4)" [ "$CODE" = 4 ]
 check "the legacy suffix fails the sign-off predicate" pred sign-off fail
+gitf revert --no-edit HEAD >/dev/null 2>&1
+gitf push -q origin "$MP_BRANCH" 2>/dev/null
+mp_record_review
+evaluate
+check "a reverted legacy commit still refuses" pred sign-off fail
 admitted_fixture
 mp_commit 'fix: mention [pending-sign-off] in the middle' fix.txt one
 evaluate
@@ -134,7 +147,7 @@ check "the marker mid-subject is not a legacy commit" pred sign-off pass
 scenario 'core-zone - a path the core zone holds'
 for p in hooks/hooks.json config/worker-settings.json scripts/policy-guard.sh scripts/merge-admitted.sh \
   .github/workflows/ci.yml doctrine/human-gates.md tests/fixtures/reserved-control-spellings \
-  package-lock.json web/yarn.lock .claude/planwright.yml; do
+  package-lock.json web/yarn.lock .claude/planwright.yml mise.toml config/defaults.yml; do
   admitted_fixture
   mp_commit 'chore: touch the zone' "$p" x
   evaluate
@@ -166,7 +179,15 @@ admitted_fixture
 mp_policy 'merge_policy: policy-class'
 evaluate
 check "the default bound of 0 admits nothing" pred max-lines fail
-check "the evidence says the class is closed" grep -q 'max-lines	fail	.*0' "$REC"
+check "the evidence says the class is closed" grep -q 'max-lines	fail	merge_class_max_lines is 0, so the class admits nothing' "$REC"
+admitted_fixture
+mp_policy 'merge_policy: policy-class'
+chmod +x "$F/wt/feature.txt"
+gitf commit -q -am 'chore: a mode change, no lines'
+gitf push -q origin "$MP_BRANCH" 2>/dev/null
+mp_record_review
+evaluate
+check "a change of zero lines is still refused at the bound of 0" pred max-lines fail
 
 scenario 'strategy - no single allowed method'
 admitted_fixture
@@ -248,6 +269,22 @@ check "a checkout off a task branch is refused (exit 5)" [ "$CODE" = 5 ]
 admitted_fixture
 mp_run "$CLASS" evaluate --spec specs/demo --task '1;x'
 check "a malformed task id is a usage error (exit 2)" [ "$CODE" = 2 ]
+admitted_fixture
+mp_run "$CLASS" evaluate --spec specs/demo --task 2
+check "a task the branch does not name is refused (exit 5)" [ "$CODE" = 5 ]
+mkdir -p "$F/wt/specs/other"
+cp "$F/wt/$MP_TASKS" "$F/wt/specs/other/tasks.md"
+mp_run "$CLASS" evaluate --spec specs/other --task 1
+check "a spec the branch does not name is refused (exit 5)" [ "$CODE" = 5 ]
+admitted_fixture
+echo 2 >"$GHS/lookup_fail_from"
+evaluate
+check "a ready-flip evaluation that refuses is a refusal, never a fall-through (exit 5)" [ "$CODE" = 5 ]
+check "a refusal writes no record" [ ! -s "$REC" ]
+admitted_fixture
+gitf remote set-url origin "$F/nowhere.git"
+evaluate
+check "a base that cannot be fetched refuses (exit 5), never a stale ref" [ "$CODE" = 5 ]
 
 echo "# identity: detected, never required"
 admitted_fixture
@@ -264,6 +301,9 @@ echo "# no model in the decision path"
 check "the evaluator calls no model or dispatch backend" not grep -Eq '(^|[^[:alnum:]_./-])(claude|anthropic|offload-dispatch)([^[:alnum:]_-]|$)' "$CLASS"
 
 echo "# every scenario of the feature file ran"
+titles=$(sed -n 's/^  Scenario: //p' "$FEATURE" | wc -l | tr -d ' ')
+check "the feature file names scenarios, so the loop below checks something" [ "$titles" -gt 0 ]
+check "every scenario run is in the feature file, and the counts agree" [ "$titles" = "$(printf '%s' "$RAN" | tr -cd '<' | wc -c | tr -d ' ')" ]
 while IFS= read -r title; do
   case $RAN in
     *"<$title>"*) pass "scenario ran: $title" ;;
