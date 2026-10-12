@@ -149,6 +149,20 @@ rc=$(rc_of fp confirm --branch "$BR" --to "$TIP")
 # --- push: only on the confirmed lease ----------------------------------------
 rc=$(rc_of fp push --branch "$BR" --to "$NEW")
 [ "$rc" = 2 ] || fail "push without --lease was not a usage error (exit $rc)"
+# A --to that is not a commit is a usage error before any push: an empty
+# source would push `:<branch>`, which deletes the remote branch.
+for verb in push confirm; do
+  if [ "$verb" = push ]; then
+    rc=$(rc_of fp push --branch "$BR" --to no-such-rev --lease "$TIP")
+  else
+    rc=$(rc_of fp confirm --branch "$BR" --to no-such-rev)
+  fi
+  [ "$rc" = 2 ] && [ "$(git -C "$tmp/origin.git" rev-parse --verify -q "refs/heads/$BR")" = "$TIP" ] \
+    || fail "$verb with a --to that is not a commit exited $rc or moved the remote branch"
+done
+rc=$(rc_of fp reword --branch "$BR" --commit no-such-rev --message-file "$tmp/msg")
+[ "$rc" = 2 ] || fail "reword of a --commit that is not a commit was not a usage error (exit $rc)"
+[ "$failures" = 0 ] && ok "a --to or --commit that is not a commit is refused before anything runs"
 git clone -q -b "$BR" "$tmp/origin.git" "$tmp/other" 2>/dev/null
 git -C "$tmp/other" config commit.gpgsign false
 git -C "$tmp/other" commit -q --allow-empty -m 'feat: someone else pushed'

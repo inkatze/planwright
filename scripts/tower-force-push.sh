@@ -174,7 +174,9 @@ parse() { # <verb> <args>...
   git remote | grep -qxF -- "$REMOTE" || refuse "no remote named '$(safe "$REMOTE")'"
 }
 
-# commit_of <rev> — the full commit id, or exit 2.
+# commit_of <rev> — the full commit id, or exit 2. It runs in a command
+# substitution, so every caller must propagate that exit: an empty id leaves
+# the push with no source, and a push of `:<branch>` deletes the branch.
 commit_of() {
   local oid
   oid=$(git rev-parse --verify --quiet "$1^{commit}" 2>/dev/null) || usage "'$(safe "$1")' is not a commit"
@@ -269,7 +271,7 @@ confirm() {
   parse confirm "$@"
   [ -n "$TO" ] || usage "confirm needs --to"
   protected_or_refuse "$BRANCH"
-  TO=$(commit_of "$TO")
+  TO=$(commit_of "$TO") || exit 2
   refresh
   not_a_force_or_refuse "$TO" "$LEASE_NOW"
   local drops legacy doc
@@ -287,7 +289,7 @@ push() {
   [ -n "$TO" ] || usage "push needs --to"
   [ -n "$LEASE" ] || usage "push needs --lease (the tip the confirmation named)"
   protected_or_refuse "$BRANCH"
-  TO=$(commit_of "$TO")
+  TO=$(commit_of "$TO") || exit 2
   case $LEASE in
     *[!0-9a-f]*) usage "--lease must be the full commit id the confirmation printed" ;;
   esac
@@ -299,6 +301,7 @@ push() {
   local drops legacy
   drops=$(dropped "$LEASE" "$TO")
   legacy=$(legacy_changes "$LEASE" "$TO")
+  [ -n "$TO" ] || usage "push has no commit to push"
   git push --quiet --force-with-lease="refs/heads/$BRANCH:$LEASE" --force-if-includes \
     "$REMOTE" "$TO:refs/heads/$BRANCH" \
     || broken "the push failed; $(safe "$REMOTE")/$(safe "$BRANCH") is unchanged unless the remote says otherwise"
@@ -322,7 +325,7 @@ reword() {
   [ -f "$MSG_FILE" ] && [ -r "$MSG_FILE" ] || usage "the message file is not a readable file"
   [ -n "$(grep -v '^[[:space:]]*$' "$MSG_FILE" | head -1)" ] || usage "the message file is empty"
   protected_or_refuse "$BRANCH"
-  COMMIT=$(commit_of "$COMMIT")
+  COMMIT=$(commit_of "$COMMIT") || exit 2
   refresh
   git merge-base --is-ancestor "$COMMIT" "$LEASE_NOW" 2>/dev/null \
     || refuse "that commit is not on $(safe "$REMOTE")/$(safe "$BRANCH")"
