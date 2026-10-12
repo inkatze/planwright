@@ -97,7 +97,10 @@ The body is a closed set of H2 sections, written in this order:
 6. **`## Artifact template`.** A fenced markdown template of the seat's
    output, whose final section is `Decisions I cannot make` (decision, tier and
    reason, owning role, evidence needed; REQ-P1.5), followed outside the fence
-   by a `**Done when:**` line stating when the artifact is complete.
+   by a `**Done when:**` line stating when the artifact is complete. When the
+   section holds more than one fence, the last one is the template: an
+   illustrative fence goes before it, and the `**Done when:**` line comes
+   after it.
 7. **`## Capability boundary`.** Three bullets: `**Per-activity exceptions:**`
    with one sub-bullet per activity, each `<tier>: <activity>`;
    `**One-way doors:**` stating `human-authority` (one-way-door decisions are

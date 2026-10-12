@@ -90,7 +90,7 @@ FRAMEWORK-SEQUENCE the frameworks are not a numbered working sequence
 FRAMEWORK-MISUSE a framework carries no Misuse caveat
 GROUNDING-REFUSE the grounding names no Refuse-without gate
 TEMPLATE-FORM the artifact template is not fenced or does not end in Decisions I cannot make
-TEMPLATE-DONE the artifact template has no Done-when line
+TEMPLATE-DONE no Done-when line follows the last fence in the section, the template
 BOUNDARY-EXCEPTIONS per-activity exceptions are absent or name an unknown tier
 BOUNDARY-ONEWAY the one-way-doors line is absent or not human-authority
 BOUNDARY-OUTSCOPE the out-of-scope line is absent or empty
@@ -329,7 +329,7 @@ END {
     if (!fenced) emit("TEMPLATE-FORM", "the artifact template is not a fenced block")
     else if (lasth != "Decisions I cannot make")
       emit("TEMPLATE-FORM", "the artifact template must end with a Decisions I cannot make section")
-    if (!done_ok) emit("TEMPLATE-DONE", "no **Done when:** line follows the artifact template")
+    if (!done_ok) emit("TEMPLATE-DONE", "no **Done when:** line follows the last fence in the section, the artifact template")
   }
 
   # --- Capability boundary --------------------------------------------------
