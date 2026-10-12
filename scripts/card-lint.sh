@@ -133,16 +133,6 @@ function real_date(s,    y, m, d, dim) {
 END {
   n = NR
 
-  # --- Fence map (column-0 backtick fences, doctrine/spec-format.md) -------
-  # Not the spec-parse.sh lexer: that one drops fenced lines, and the
-  # artifact-template check reads them (a named exemption in
-  # tests/test-spec-parse-corpus.sh).
-  open = 0
-  for (i = 1; i <= n; i++) {
-    if (L[i] ~ /^```/) { F[i] = 1; open = !open } else F[i] = open
-  }
-  if (open) { emit("FENCE-UNBALANCED", "a code fence opened in this card is never closed"); exit }
-
   # --- Header block: the leading run of the H1, key lines, and blanks ------
   nh = 0
   for (i = 1; i <= n; i++) {
@@ -165,6 +155,16 @@ END {
   if (H["Card-format"] + 0 != major) {
     emit("FMT-UNSUPPORTED", "Card-format: " H["Card-format"] " is not supported (this linter reads " major ")"); exit
   }
+
+  # --- Fence map (column-0 backtick fences, doctrine/spec-format.md) -------
+  # Not the spec-parse.sh lexer: that one drops fenced lines, and the
+  # artifact-template check reads them (a named exemption in
+  # tests/test-spec-parse-corpus.sh).
+  open = 0
+  for (i = 1; i <= n; i++) {
+    if (L[i] ~ /^```/) { F[i] = 1; open = !open } else F[i] = open
+  }
+  if (open) { emit("FENCE-UNBALANCED", "a code fence opened in this card is never closed"); exit }
 
   # --- Header keys ---------------------------------------------------------
   id = ("Card-id" in H) ? H["Card-id"] : ""

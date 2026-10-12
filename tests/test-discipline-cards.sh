@@ -109,6 +109,10 @@ seed() {
 seed FMT-MISSING 3 '!/^\*\*Card-format:\*\*/'
 seed FMT-UNSUPPORTED 3 '{ sub(/^\*\*Card-format:\*\* 1$/, "**Card-format:** 2"); print }'
 seed FENCE-UNBALANCED 3 '{ print } END { print "```" }'
+# The format gate comes before anything else, the fence check included: a
+# future major may fence differently.
+# shellcheck disable=SC2016 # an awk program printing a literal fence
+seed FMT-UNSUPPORTED 3 '{ sub(/^\*\*Card-format:\*\* 1$/, "**Card-format:** 2"); print } END { print "```" }'
 
 # Header block.
 seed HDR-ID 1 '{ sub(/^\*\*Card-id:\*\* .*/, "**Card-id:** other-discipline"); print }'
@@ -218,8 +222,15 @@ assert_eq "no arguments: exit 2" "2" "$?"
 assert_eq "missing file: exit 2" "2" "$?"
 
 # Several files: every file is linted, and the exit is the worst outcome.
-out="$("$LINT" "$tmp/golden/fixture-discipline.md" "$tmp/seed-1/fixture-discipline.md" \
-  "$tmp/seed-4/fixture-discipline.md" 2>&1)"
+d="$tmp/multi"
+write_golden_card "$d/refused"
+awk '!/^\*\*Card-format:\*\*/' "$d/refused/fixture-discipline.md" >"$d/m" \
+  && mv "$d/m" "$d/refused/fixture-discipline.md"
+write_golden_card "$d/findings"
+awk '{ sub(/^\*\*Card-id:\*\* .*/, "**Card-id:** other-discipline"); print }' \
+  "$d/findings/fixture-discipline.md" >"$d/m" && mv "$d/m" "$d/findings/fixture-discipline.md"
+out="$("$LINT" "$tmp/golden/fixture-discipline.md" "$d/refused/fixture-discipline.md" \
+  "$d/findings/fixture-discipline.md" 2>&1)"
 rc=$?
 assert_eq "several files: worst outcome wins (refusal)" "3" "$rc"
 assert_contains "several files: the later file is still linted" "[HDR-ID]" "$out"
