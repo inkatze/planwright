@@ -761,7 +761,7 @@ REF_EXEMPT=" migrate-format-version.sh "
 #                            is checked, and the lib lexer drops fenced
 #                            lines by design. A permanent exemption; it keeps
 #                            the lib's column-0 backtick toggle semantics.
-#   drain-gates.sh          its GATE-entry parse. Its reference-bullet parse
+#   drain-gates.sh           its GATE-entry parse. Its reference-bullet parse
 #                            already comes from the lib (Task 2); the gate
 #                            grammar is not a lib family yet.
 #

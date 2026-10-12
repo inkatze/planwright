@@ -10,8 +10,8 @@ raises uncritical human acceptance (inception D-3). This doc is the card
 format's normative home; `scripts/card-lint.sh` is its mechanical shadow, and
 the authoring method lives in [card-authoring.md](card-authoring.md).
 
-Citations: inception REQ-P1.1, REQ-P1.2, REQ-P1.5, REQ-P1.10 · inception D-3,
-D-4, D-17.
+Citations: inception REQ-P1.1, REQ-P1.2, REQ-P1.5, REQ-P1.9, REQ-P1.10,
+REQ-C1.7 · inception D-3, D-4, D-6, D-7, D-17, D-18.
 
 ## Where cards live
 
@@ -39,7 +39,8 @@ lives in the card, so the two never disagree.
 ## Format
 
 A card opens with an H1 title, `# <Discipline> — discipline card`, and a header
-block of bolded key lines. The keys:
+block of bolded key lines. The title is the card's name and `## Role` its
+description; the card carries no separate description field. The keys:
 
 | Key | Value | Required |
 | --- | --- | --- |
@@ -66,8 +67,8 @@ line refuses the card. Only blank lines separate the header block from
 
 The body is a closed set of H2 sections, written in this order:
 
-1. **`## Role`.** One operational sentence: what the seat does for this
-   venture, phrased as work, never as who the seat is.
+1. **`## Role`.** One operational sentence, ending in a period: what the
+   seat does for this venture, phrased as work, never as who the seat is.
 2. **`## Mandate`.** Three to seven numbered first questions, each ending in
    `?`. No silent pruning: a card that needs an eighth question splits or
    benches, it does not drop one. Every question is **frame-anchored**: it
@@ -121,7 +122,7 @@ The body is a closed set of H2 sections, written in this order:
 A section outside this set is a lint finding: identity content arrives most
 often as an extra section (`## Backstory`, `## About`), and a closed set is
 what keeps it out. For the same reason the title is the card's only H1 and
-every section heading is an ATX `## ` heading: a later H1 or a setext heading
+every section heading is an ATX H2 (`## <name>`): a later H1 or a setext heading
 is a finding too. An optional key or section joins its set in the same change
 as the linter that accepts it, within the current major (see *Versioning*).
 

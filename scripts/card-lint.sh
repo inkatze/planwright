@@ -33,7 +33,7 @@
 #   unreadable file) · 3 fail-closed refusal (missing, unparseable, or
 #   unsupported `Card-format:`, or an unbalanced code fence) — the card was not
 #   linted at all. With several files every file is linted and the exit is the
-#   worst outcome, refusal ranking above findings.
+#   highest code any file reached (3 above 2 above 1).
 #
 # Portable POSIX sh + awk; bash 3.2 / BSD tooling floor (REQ-K1.5).
 set -u

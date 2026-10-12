@@ -54,9 +54,9 @@ human to choose between.
    challenge, and goals mistaken for strategy as the marks of bad strategy.
 5. **The four big risks** (Cagan, "The Four Big Risks", SVPG, 2017) — tag every load-bearing
    assumption the steps above produced as value, usability, feasibility, or business
-   viability risk, the same tags the venture's assumption register carries. Misuse: covering
-   customer value and glossing over business viability, which Cagan calls the most
-   under-estimated of the four.
+   viability (`viability`) risk, the same tags the venture's assumption register carries.
+   Misuse: covering customer value and glossing over business viability, which Cagan says
+   product managers too often under-estimate or avoid.
 6. **Assumption mapping and the test card** (Bland & Osterwalder, *Testing Business Ideas*,
    2020; Osterwalder's test card, 2015) — rank the tagged assumptions by importance against
    existing evidence, and cast the important, weakly evidenced ones as believe, verify,
@@ -89,7 +89,8 @@ human to choose between.
 
 - `brief.md`: `## Opportunity`, `## Success metric`, `## Existing alternatives`,
   `## Business viability`, and `## Strategy fit`.
-- `assumptions.md`: every entry tagged value or viability.
+- `assumptions.md`: every entry, so the seat can tag across all four risks
+  without restating an existing assumption as new.
 - `decisions.md`: open or deferred entries whose discipline is product strategy.
 
 ## Artifact template

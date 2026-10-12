@@ -115,7 +115,10 @@ The growable catalogs are **decision-domains** (the catalog behind the
 drift triggers), the builder's **guard catalog**, **steps** (the step
 definitions the attachment points run, §8), and **vendors** (the adapters
 that recognize a metered service's limit refusals; see
-[Vendor quotas](quota.md)).
+[Vendor quotas](quota.md)), and **discipline-cards** (the persona-seat card
+catalog; each entry's card file sits beside its layer's catalog, under
+`cards/` or `cards.local/`; see
+[Discipline Cards](../doctrine/discipline-cards.md)).
 
 ## 3. How each kind merges
 
@@ -244,14 +247,15 @@ The machine-local layer is only uncommitted if your repo's `.gitignore` says so.
 planwright's own repo ignores both the machine-local **config** files
 (`.claude/*.local.yml`, `.claude/*.local.json`) and the machine-local **doctrine**
 and **catalog** overlay directories (`.claude/*.local/`, which covers
-`.claude/doctrine.local/` and `.claude/catalogs.local/`). But a repo that adopts
-planwright as a plugin does not inherit those ignore rules, so if you place
-machine-local doctrine or catalog overlays, add those directories to your repo's
-`.gitignore` yourself:
+`.claude/doctrine.local/`, `.claude/catalogs.local/`, and `.claude/cards.local/`).
+But a repo that adopts planwright as a plugin does not inherit those ignore
+rules, so if you place machine-local doctrine, catalog, or card overlays, add
+those directories to your repo's `.gitignore` yourself:
 
 ```gitignore
 .claude/doctrine.local/
 .claude/catalogs.local/
+.claude/cards.local/
 ```
 
 Otherwise those "machine-local" overlays get committed — sharing a per-machine

@@ -36,7 +36,8 @@ honest.
 2. **Distill the first questions.** Ask what a senior practitioner asks first
    when handed a fuzzy idea in this discipline, before any method runs. Keep
    three to seven, each answerable only against the venture's frame, so each
-   names the frame or the venture (`this venture`, `the frame`). When more than
+   names the frame or the venture (`this venture`, `the venture's`, or
+   `the frame`). When more than
    seven survive, the discipline is two cards or one card and a bench card;
    never silently drop a question. Write these as `## Mandate`.
 3. **Order the frameworks into a working sequence.** Pick the few methods
@@ -80,7 +81,10 @@ honest.
     phrases.
 11. **Lint and register.** Run `scripts/card-lint.sh` on the card until it is
     clean, then add the card's entry to its layer's `discipline-cards` catalog
-    and confirm `scripts/resolve-card.sh <card-id>` returns the file.
+    and confirm `scripts/resolve-card.sh <card-id>` returns the file. A core
+    card resolves against the install root, so in a planwright checkout run
+    the check with `PLANWRIGHT_ROOT` pointing at that checkout, or an
+    installed plugin answers instead and reports the card as not listed.
 
 ## Keeping a card current
 
