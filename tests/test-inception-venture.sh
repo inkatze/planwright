@@ -70,6 +70,13 @@ assert_absent() {
   fi
 }
 
+# stray_temps <dir> — the helper's temp files left in <dir>, one per line.
+stray_temps() {
+  for st in "$1"/.inception-venture.*; do
+    [ -e "$st" ] && printf '%s\n' "${st##*/}"
+  done
+}
+
 if [ ! -x "$VENTURE" ]; then
   echo "FAIL: $VENTURE is missing or not executable" >&2
   exit 1
@@ -93,6 +100,9 @@ export PLANWRIGHT_SECRET_SCREEN_TOOL=none
 unset CLAUDE_CODE_REMOTE PLANWRIGHT_INCEPTION_EPHEMERAL
 unset XDG_CONFIG_HOME GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_DIR GIT_WORK_TREE
 export GIT_CONFIG_GLOBAL="$HOME/.gitconfig"
+# Identity comes only from the GIT_* variables below, never guessed from the
+# host name, so the no-identity case fails the same way on every host.
+printf '[user]\n\tuseConfigOnly = true\n' >"$GIT_CONFIG_GLOBAL"
 
 # Config layers: a fixture core default plus a git-toplevel "repo" whose
 # tracked and machine-local layers each test writes as needed.
@@ -359,6 +369,17 @@ assert_eq "C1.7 the full validator reads the skeleton (findings at most, never a
 venture bundle-init --title "Again" "$rp"
 assert_eq "bundle-init never overwrites an existing bundle (exit 5)" 5 "$rc"
 
+# A failed write leaves no partial bundle, so a retry succeeds.
+mkdir -p "$stubs/cat-fail" "$tmp/write-fail"
+printf '#!/bin/sh\nexit 1\n' >"$stubs/cat-fail/cat"
+chmod +x "$stubs/cat-fail/cat"
+PATH="$stubs/cat-fail:$PATH" venture bundle-init --title "Write Fail" "$tmp/write-fail"
+assert_eq "a failed bundle-init write exits 2" 2 "$rc"
+assert_absent "a failed bundle-init write leaves no partial bundle" "$tmp/write-fail/brief.md"
+assert_eq "a failed bundle-init write leaves no temp files" "" "$(stray_temps "$tmp/write-fail")"
+venture bundle-init --title "Write Fail" "$tmp/write-fail"
+assert_eq "bundle-init succeeds on retry after a failed write" 0 "$rc"
+
 lp="$tmp/link-probe"
 mkdir -p "$lp"
 ln -s "$tmp/nowhere" "$lp/brief.md"
@@ -391,19 +412,15 @@ dp="$tmp/date-pin"
 mkdir -p "$dp"
 for bad in 2026-19-01 2026-12-39 2026-00-10 2026-02-00; do
   PLANWRIGHT_INCEPTION_TODAY=$bad venture bundle-init --title "Date Pin" "$dp"
+  assert_eq "an impossible pinned date ($bad) still writes the skeleton" 0 "$rc"
   assert_not_contains "an impossible pinned date ($bad) is never written" "$bad" "$(cat "$dp/brief.md")"
+  assert_contains "an impossible pinned date ($bad) falls back to the system date" "$(date +%Y-%m-%d)" "$(cat "$dp/brief.md")"
   rm -f "$dp"/*.md
 done
 
 venture mark-phase "$rp" bogus
 assert_eq "mark-phase rejects an unknown phase (exit 2)" 2 "$rc"
 
-# stray_temps <dir> — the helper's temp files left in <dir>, one per line.
-stray_temps() {
-  for st in "$1"/.inception-venture.*; do
-    [ -e "$st" ] && printf '%s\n' "${st##*/}"
-  done
-}
 assert_eq "bundle-init and mark-phase leave no temp files behind" "" "$(stray_temps "$rp")"
 
 # An interrupted phase write leaves neither a torn brief.md nor a stray temp
@@ -589,6 +606,8 @@ PATH="$stubs/nogit:$PATH" venture handoff "$pv"
 assert_contains "H1.5 plain rung degradation repeated at handoff" "git unavailable" "$out"
 PATH="$stubs/gh-ok:$PATH" venture handoff "$pv"
 assert_contains "H1.5 a plain venture names its missing history even where git now works" "plain folder" "$out"
+PATH="$stubs/gh-noauth:$PATH" venture handoff "$pv"
+assert_not_contains "H1.5 a plain venture is not warned the remote home is unavailable" "private-remote home is unavailable" "$out"
 
 PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_INCEPTION_EPHEMERAL=1 venture create --home local --root "$vroot" session-probe
 assert_eq "A1.5 session-only: create proceeds, warned" 0 "$rc"
