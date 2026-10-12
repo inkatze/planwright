@@ -133,6 +133,9 @@ END {
   n = NR
 
   # --- Fence map (column-0 backtick fences, doctrine/spec-format.md) -------
+  # Not the spec-parse.sh lexer: that one drops fenced lines, and the
+  # artifact-template check reads them (a named exemption in
+  # tests/test-spec-parse-corpus.sh).
   open = 0
   for (i = 1; i <= n; i++) {
     if (L[i] ~ /^```/) { F[i] = 1; open = !open } else F[i] = open
