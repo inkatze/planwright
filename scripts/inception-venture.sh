@@ -96,10 +96,18 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 today() {
-  case ${PLANWRIGHT_INCEPTION_TODAY:-} in
-    [0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]) printf '%s\n' "$PLANWRIGHT_INCEPTION_TODAY" ;;
-    *) date +%Y-%m-%d ;;
+  td=${PLANWRIGHT_INCEPTION_TODAY:-}
+  case $td in
+    [0-9][0-9][0-9][0-9]-0[1-9]-[0-3][0-9] | [0-9][0-9][0-9][0-9]-1[0-2]-[0-3][0-9])
+      case ${td##*-} in
+        0[1-9] | [12][0-9] | 3[01])
+          printf '%s\n' "$td"
+          return 0
+          ;;
+      esac
+      ;;
   esac
+  date +%Y-%m-%d
 }
 
 # single_line <text> — true when the text has a non-blank character and no

@@ -339,6 +339,14 @@ assert_contains "B1.7 resume picks up after the last completed phase" "$(printf 
 assert_contains "B1.7 resume names the last completed phase" "$(printf 'done\topportunity')" "$out"
 assert_eq "B1.7 the phase log lands in the Changelog section" 2 "$(sed -n '/^## Changelog/,$p' "$rp/brief.md" | grep -c 'Elicitation:')"
 
+dp="$tmp/date-pin"
+mkdir -p "$dp"
+for bad in 2026-19-01 2026-12-39 2026-00-10 2026-02-00; do
+  PLANWRIGHT_INCEPTION_TODAY=$bad venture bundle-init --title "Date Pin" "$dp"
+  assert_not_contains "an impossible pinned date ($bad) is never written" "$bad" "$(cat "$dp/brief.md")"
+  rm -f "$dp"/*.md
+done
+
 venture mark-phase "$rp" bogus
 assert_eq "mark-phase rejects an unknown phase (exit 2)" 2 "$rc"
 
