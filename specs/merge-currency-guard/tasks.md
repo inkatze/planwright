@@ -1,17 +1,18 @@
 # Merge Currency Guard — Tasks
 
-**Status:** Ready
-**Last reviewed:** 2026-07-24
+**Status:** Draft
+**Last reviewed:** 2026-10-11
 **Format-version:** 2
 **Execution:** derived — see the status render
 
-Four tasks. Task 1 (the invariant statement plus the altitude record) is
+Task 1 (the invariant statement plus the altitude record) is
 foundational: the guard and the loop-sync both cite it, so it dispatches
 first. Task 2 (the `ready-guard` hook) is guard infrastructure that protects
 the ready-flip on every unit, so per the guard-infrastructure-first selection
 rule it outranks the critical path once Task 1 lands. Task 3 (the in-loop `main`-sync) is independent of
 Task 2 and can run in parallel after Task 1. Task 4 (the adversarial + sync
-test suite) gates both mechanisms and dispatches last.
+test suite) gates both mechanisms. Task 5 (the `ready_guard_behind_base`
+knob) changes the guard and extends its suite, so it follows Tasks 2 and 4.
 
 ## Tasks
 
@@ -121,6 +122,38 @@ test suite) gates both mechanisms and dispatches last.
 - **Citations:** REQ-D1.1 · REQ-D1.2 · REQ-D1.3 · REQ-D1.4 · REQ-C1.4 · D-6 ·
   obs:4dda9fe1
 - **Estimated effort:** 1.5 days
+
+### Task 5 — `ready_guard_behind_base` knob: land PR #650
+
+- **Deliverables:** PR #650's implementation, landed conformant with this
+  extension: the `ready_guard_behind_base` knob declared in
+  `config/defaults.yml` with `refuse` as the shipped default, documented in
+  `docs/options-reference.md` and `docs/overlays.md`, and listed as a policy
+  in `doctrine/human-gates.md` (REQ-C1.12); the shared resolver's table entry
+  reading it from the core and adopter layers only, with `refuse` as its
+  fallback and degrade (REQ-C1.12, REQ-C1.13); `scripts/ready-guard.sh`
+  reading it only for a `MERGEABLE` PR with a readable `behind_by` above zero,
+  bounded by its query timeout, with the same two layers dropped and every
+  failure applying `refuse`, the compare call kept under both values
+  (REQ-C1.11, REQ-C1.13, D-11); the knob cases of REQ-D1.5 in
+  `tests/test-ready-guard.sh`, the expected-cell manifest, and the resolver
+  tests; the guard's header and predicate comments citing REQ-C1.11 and
+  REQ-A1.5 rather than the superseded IDs.
+- **Done when:** every REQ-D1.5 case is asserted and green, including the
+  `conflict-only` pass case and the `refuse` behind case on both surfaces and
+  in the REQ-D1.1 expected-cell manifest; the `conflict-only` pass case fails
+  against the guard on main and the repo-side case fails with the layer
+  restriction removed; every pre-existing REQ-D1.1 matrix cell still passes
+  under the default; no knob case runs git; a fixture (a stub resolver that
+  leaves a marker when run) proves a current PR (`behind_by 0`) never reads
+  the knob; `scripts/ready-guard.sh`'s comments cite REQ-C1.11 and REQ-A1.5,
+  with no remaining REQ-C1.1 or REQ-A1.1 reference describing the live
+  predicate; `scripts/spec-validate.sh` passes
+  over this bundle and `mise run check` passes.
+- **Dependencies:** 2, 4
+- **Citations:** REQ-A1.5 · REQ-C1.11 · REQ-C1.12 · REQ-C1.13 · REQ-D1.5 ·
+  REQ-K1.1 · D-10 · D-11 · PR #650
+- **Estimated effort:** 0.5 day
 
 ## Awaiting input
 
