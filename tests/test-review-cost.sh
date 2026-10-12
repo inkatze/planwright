@@ -71,11 +71,12 @@ cat >"$hist" <<'EOF'
   "threads":[
    {"path":"a.sh","line":1,"commit":"0123456789abcdef0123456789abcdef01234567","author":"helper-bot","bot":true,"body":"x","replies":[{"author":"owner","body":"Fixed in abc1234"}]},
    {"path":"a.sh","line":9,"commit":"0123456789abcdef0123456789abcdef01234567","author":"helper-bot","bot":true,"body":"y","replies":[{"author":"owner","body":"Addressed in abc1234"}]},
+   {"path":"a.sh","line":9,"commit":"0123456789abcdef0123456789abcdef01234567","author":"other-bot","bot":true,"body":"y again","replies":[{"author":"owner","body":"Addressed in abc1234"}]},
    {"path":"a.sh","line":20,"commit":"0123456789abcdef0123456789abcdef01234567","author":"a-human","bot":false,"body":"h","replies":[{"author":"owner","body":"Fixed in abc1234"}]}]},
  {"number":11,"author":"owner","merged_at":"2026-10-02T00:00:00Z","body":"",
   "reviews":[{"author":"helper-bot","bot":true}],"threads":[]},
  {"number":12,"author":"owner","merged_at":"2026-10-03T00:00:00Z","body":"","reviews":[],"threads":[]},
- {"number":13,"author":"owner","merged_at":"2026-10-04T00:00:00Z","body":"",
+ {"number":13,"author":"owner","merged_at":"2026-10-04T00:00:00Z","body":"","truncated":true,
   "reviews":[{"author":"helper-bot","bot":true}],"threads":[]},
  {"number":14,"author":"owner","merged_at":"2026-10-05T00:00:00Z","body":"",
   "reviews":[{"author":"a-human","bot":false}],
@@ -117,6 +118,7 @@ assert_contains "computes the finding rate" "post-convergence finding rate: 0.66
 assert_contains "computes the median fixed findings" "fixed findings per such PR (median): 1.5" "$out"
 assert_contains "computes the median review rounds" "review rounds per such PR (median): 1.5" "$out"
 assert_contains "counts the miss-ledger entries" "miss-ledger entries in window: 2" "$out"
+assert_contains "warns about a PR whose threads overflowed the fetch page" "warning: 1 PR(s) in the window had more" "$out"
 assert_contains "warns about the malformed and any unreadable ledger fragment" "warning: $((1 + unreadable)) malformed review-miss" "$out"
 assert_contains "refuses a verdict on a window under the closeout minimum" "verdict: window too small (3 < 15)" "$out"
 
@@ -172,6 +174,10 @@ assert_contains "the fetched history feeds the finding rate" "post-convergence f
 assert_exit "an unreadable history is a usage error" 2 $?
 "$COST" --history "$hist" --transcripts "$proj" --prs-from x >/dev/null 2>&1
 assert_exit "a non-integer window bound is refused" 2 $?
+"$COST" --history "$hist" --transcripts "$proj" --prs-to 0 >/dev/null 2>&1
+assert_exit "a zero --prs-to is refused" 2 $?
+"$COST" --history "$hist" --transcripts "$proj" --prs-from 12 --prs-to 11 >/dev/null 2>&1
+assert_exit "a --prs-to below --prs-from is refused" 2 $?
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2

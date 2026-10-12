@@ -61,7 +61,8 @@
 #                  "bot", "body", "replies": [{"author", "body"}]}]}]}
 # A thread on the base side of the diff (side LEFT) points at a line HEAD no
 # longer has, so it is skipped with the malformed locations; a PR whose
-# threads or comments exceeded the fetch's page is counted as truncated.
+# reviews, threads, or comments exceeded the fetch's page is counted as
+# truncated.
 # Every PR number must be a positive integer, or the run is refused. A dump
 # holds raw review text and logins: keep it outside the repository.
 # --fetch-only stops after the fetch and the dump, writing no corpus and
@@ -199,7 +200,7 @@ fetch_history() {
       pageInfo { hasNextPage endCursor }
       nodes {
         number mergedAt body author { login }
-        reviews(first: 60) { nodes { author { login __typename } submittedAt } }
+        reviews(first: 60) { totalCount nodes { author { login __typename } submittedAt } }
         reviewThreads(first: 100) { totalCount nodes { path originalLine diffSide
           comments(first: 40) { totalCount nodes { author { login __typename } body originalCommit { oid } } } } }
       }
@@ -213,7 +214,8 @@ fetch_history() {
     { repo: $repo,
       prs: [ .[].data.repository.pullRequests.nodes[] | {
         number, author: who, merged_at: .mergedAt, body: (.body // ""),
-        truncated: ((.reviewThreads.totalCount // 0) > (.reviewThreads.nodes | length)
+        truncated: ((.reviews.totalCount // 0) > (.reviews.nodes | length)
+          or (.reviewThreads.totalCount // 0) > (.reviewThreads.nodes | length)
           or any(.reviewThreads.nodes[]; (.comments.totalCount // 0) > (.comments.nodes | length))),
         reviews: [ .reviews.nodes[] | { author: who, bot: (.author.__typename == "Bot"), submitted_at: .submittedAt } ],
         threads: [ .reviewThreads.nodes[] | select((.comments.nodes | length) > 0) | {
@@ -462,7 +464,7 @@ printf '%s\n' "  dropped by screen: $screened"
 printf '%s\n' "  skipped malformed location: $malformed_loc"
 printf '%s\n' "  merged duplicate threads: $duplicates"
 if [ "$truncated" -gt 0 ]; then
-  printf '%s\n' "$prog: warning: $truncated PR(s) had more threads or comments than one fetch page holds; their extra findings are missing" >&2
+  printf '%s\n' "$prog: warning: $truncated PR(s) had more reviews, threads, or comments than one fetch page holds; their extra findings are missing" >&2
 fi
 if [ "$malformed_miss" -gt 0 ]; then
   printf '%s\n' "$prog: warning: $malformed_miss malformed review-miss fragment(s) ignored (grammar: review-miss(<lens>, <reason>): #<pr> <path>: ...)" >&2

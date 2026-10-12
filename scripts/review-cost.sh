@@ -85,7 +85,7 @@ history=
 : >"$tmp/ldirs"
 baselines=$repo_root/tests/fixtures/review-backtest/baselines.tsv
 prs_from=1
-prs_to=0
+prs_to=
 merged_after=
 min_window=15
 while [ $# -gt 0 ]; do
@@ -109,7 +109,10 @@ while [ $# -gt 0 ]; do
   esac
 done
 rbt_is_uint "$prs_from" || die 2 "--prs-from must be a positive integer"
-[ "$prs_to" = 0 ] || rbt_is_uint "$prs_to" || die 2 "--prs-to must be a positive integer"
+if [ -n "$prs_to" ]; then
+  rbt_is_uint "$prs_to" || die 2 "--prs-to must be a positive integer"
+  [ "$prs_to" -ge "$prs_from" ] || die 2 "--prs-to is below --prs-from"
+fi
 rbt_is_uint "$min_window" || die 2 "--min-window must be a positive integer"
 case $merged_after in
   '' | [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
@@ -210,7 +213,8 @@ median='{ v[NR] = $1 } END {
   print m
 }'
 # --merged-after windows the runs too: a run counts when it started that day
-# or later, so both halves of the bar read the same window.
+# or later. A closeout window passes it so the token median reads the same
+# window as the rate; the PR bounds cannot window runs, which name no PR.
 if [ -n "$merged_after" ]; then
   awk -F '\t' -v a="$merged_after" '$2 >= a' "$tmp/runs.tsv" >"$tmp/runs.win"
   mv "$tmp/runs.win" "$tmp/runs.tsv"
@@ -241,22 +245,27 @@ if [ "$RBT_LEDGER_MALFORMED" -gt 0 ]; then
 fi
 jq -R -s -c '[split("\n")[] | select(length > 0) | split("\t") | {pr: (.[0] | tonumber), path: .[1]}]' "$tmp/ledger.tsv" >"$tmp/ledger.json"
 
-jq -r --slurpfile led "$tmp/ledger.json" --argjson from "$prs_from" --argjson to "$prs_to" --arg after "$merged_after" "$RBT_JQ_DEFS"'
+jq -r --slurpfile led "$tmp/ledger.json" --argjson from "$prs_from" --argjson to "${prs_to:-0}" --arg after "$merged_after" "$RBT_JQ_DEFS"'
   [ .prs[] | select(.number >= $from and ($to == 0 or .number <= $to)) | select($after == "" or ((.merged_at // "") >= $after))
     | . as $p
     | { n: .number, ext: rbt_bot_reviewed,
-        fixed: ([.threads[]? | select(.bot == true and rbt_fixed_external($p.author)) | .path] as $ft
+        fixed: (([.threads[]? | select(.bot == true and rbt_fixed_external($p.author))]
+                  | unique_by([.path, .line, .commit]) | map(.path)) as $ft
                 | ($ft | length)
                   + ([$led[0][] | select(.pr == $p.number and (.path as $q | $ft | index([$q]) | not))] | length)),
         rounds: ([.reviews[]? | select(.bot == true)] | length),
-        ledger: ([$led[0][] | select(.pr == $p.number)] | length) } ] as $w
+        ledger: ([$led[0][] | select(.pr == $p.number)] | length),
+        truncated: (.truncated == true) } ] as $w
   | ($w | map(select(.ext))) as $ext
   | ($ext | map(select(.fixed > 0))) as $hit
-  | [($w | length), ($ext | length), ($hit | length), ($w | map(.ledger) | add // 0),
+  | [($w | length), ($ext | length), ($hit | length), ($w | map(.ledger) | add // 0), ($w | map(select(.truncated)) | length),
      ($hit | map(.fixed) | map(tostring) | join(",")), ($hit | map(.rounds) | map(tostring) | join(","))]
   | map(tostring) | join("\t")
 ' "$history" >"$tmp/rate.tsv" || die 2 "could not read the PR history"
-IFS='	' read -r n_window n_ext n_hit n_ledger fixed_list rounds_list <"$tmp/rate.tsv" || true
+IFS='	' read -r n_window n_ext n_hit n_ledger n_trunc fixed_list rounds_list <"$tmp/rate.tsv" || true
+if [ "${n_trunc:-0}" -gt 0 ]; then
+  printf '%s\n' "$prog: warning: $n_trunc PR(s) in the window had more reviews, threads, or comments than one fetch page holds; their counts are low" >&2
+fi
 rate=$(awk -v h="$n_hit" -v e="$n_ext" 'BEGIN { if (e > 0) printf "%.3f", h / e; else print "n/a" }')
 med_fixed=$(printf '%s\n' "$fixed_list" | tr ',' '\n' | awk 'NF' | sort -n | awk "$median")
 med_rounds=$(printf '%s\n' "$rounds_list" | tr ',' '\n' | awk 'NF' | sort -n | awk "$median")

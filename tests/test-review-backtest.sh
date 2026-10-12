@@ -289,7 +289,9 @@ until [ -e "$T/slow.started" ] || [ "$n" -ge 200 ]; do
   n=$((n + 1))
 done
 kill -TERM "$hpid"
-wait "$hpid" 2>/dev/null
+hrc=0
+wait "$hpid" 2>/dev/null || hrc=$?
+assert_exit "the harness exits 143 on TERM" 143 "$hrc"
 sleep 5
 if [ -e "$T/slow.started" ] && [ ! -e "$T/slow.finished" ]; then ok "TERM to the harness ends the running reviewer"; else fail "the reviewer outlived the harness"; fi
 

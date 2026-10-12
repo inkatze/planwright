@@ -312,7 +312,7 @@ replay_row() {
   rdir=$tmp/rows/$id
   mkdir -p "$rdir"
   if [ -n "$stub" ]; then
-    awk -F '\t' -v id="$id" 'BEGIN { OFS = "\t" } $1 == id { print $2, $3 }' "$stub" >"$rdir/findings.tsv"
+    awk -F '\t' -v id="$id" 'BEGIN { OFS = "\t" } $1 == id { p = $2; sub(/^\.\//, "", p); print p, $3 }' "$stub" >"$rdir/findings.tsv"
   else
     if ! git clone -q --shared "$mirror" "$rdir/copy" 2>/dev/null \
       || ! git -C "$rdir/copy" remote remove origin \

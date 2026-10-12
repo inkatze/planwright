@@ -56,10 +56,13 @@ mise run eval:backtest-refresh
 
 `scripts/review-backtest-refresh.sh` fetches the merged PRs and their review
 threads with `gh api graphql`, keeps each thread opened by someone other than
-the PR's author and answered by the author with a fix reply, fetches every
-PR's head ref to set the replayable flag, and writes the next `v<N>`,
+the PR's author and answered by the author with a fix reply (two threads on
+one line of one commit become one row, and a thread on the base side of the
+diff is skipped), fetches every PR's head ref to set the replayable flag, and writes the next `v<N>`,
 numbered past every version directory, an empty one left by an interrupted
 refresh included.
+A PR whose reviews, threads, or comments overflow one fetch page is counted
+in a warning, since its extra findings are missing.
 Labels come from a `review-miss` ledger fragment for the same PR and path
 (read from the observation entries and archive), else from the same row in
 the previous version, else from the annotator's
@@ -105,7 +108,8 @@ re-run with a new seed without the operator.
 
 The default reviewer, `scripts/review-backtest-reviewer.sh`, is today's pass:
 `/self-review`'s discovery step, lenses walked inline, read from the
-planwright checkout running the replay. A changed reviewer is replayed by
+planwright checkout running the replay. `--model` takes the full model id, never an
+alias, since a baseline is only comparable on the model it ran on. A changed reviewer is replayed by
 pointing `--reviewer` at an executable that prints `<path><TAB><line>` per
 finding. `--out` writes the result, which can serve as the next baseline
 unless it holds error rows: a row whose setup or reviewer failed is recorded
@@ -114,7 +118,7 @@ but left out of its class's counts, and the run exits 4.
 ## The metrics and the baselines
 
 ```sh
-mise run eval:review-cost --prs-from <first PR in the window>
+mise run eval:review-cost --prs-from <first PR> --merged-after <its merge date>
 ```
 
 `scripts/review-cost.sh` reports tokens per convergence run and its share of
@@ -127,3 +131,6 @@ median against `tests/fixtures/review-backtest/baselines.tsv`, the research seed
 measurements recorded as decided values (the finding rate re-measured over
 the seed's PR range under this metric's fixed-finding definition), and gives a verdict only over a
 window of at least 15 bot-reviewed PRs.
+`--prs-from` and `--prs-to` bound the PRs by number; `--merged-after` bounds
+the PRs by merge date and the convergence runs by start date, so a closeout
+passes it for both halves of the bar to read one window.

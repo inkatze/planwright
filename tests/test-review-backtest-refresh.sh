@@ -77,6 +77,8 @@ history() {
    {"path":"a.sh","line":1,"commit":"$A","author":"other-bot","bot":true,"body":"the same line again","replies":[{"author":"owner","body":"Fixed in abc1234"}]},
    {"path":"l.sh","line":3,"side":"LEFT","commit":"$A","author":"helper-bot","bot":true,"body":"on a deleted line","replies":[{"author":"owner","body":"Fixed in abc1234"}]},
    {"path":"a.sh","line":7,"commit":"$A","author":"helper-bot","bot":true,"body":"a declined one","replies":[{"author":"owner","body":"Addressed: this is a false positive, declining."}]},
+   {"path":"a.sh","line":8,"commit":"$A","author":"helper-bot","bot":true,"body":"a deferred one","replies":[{"author":"owner","body":"Not fixed in 1234567; deferring to a follow-up"}]},
+   {"path":"a.sh","line":9,"commit":"$A","author":"helper-bot","bot":true,"body":"a real one","replies":[{"author":"owner","body":"Fixed, not a false positive after all"}]},
    {"path":"lib/c.sh","line":9,"commit":"$A","author":"helper-bot","bot":true,"body":"a sibling site keeps the bug","replies":[{"author":"owner","body":"Addressed in def5678"}]},
    {"path":"a.sh","line":3,"commit":"$A","author":"helper-bot","bot":true,"body":"style nit nobody fixed","replies":[{"author":"owner","body":"Declined: by design"}]},
    {"path":"a.sh","line":5,"commit":"$A","author":"owner","bot":false,"body":"note to self","replies":[{"author":"owner","body":"Fixed in 1234567"}]}
@@ -199,14 +201,16 @@ assert_lacks "the author's own thread is not a row" "	a.sh	5	" "$(cat "$c1")"
 assert_lacks "a verbatim gist is dropped" "VERBATIM" "$(cat "$c1")"
 assert_lacks "a row naming a listed product is dropped" "e.sh" "$(cat "$c1")"
 assert_lacks "no reviewer login reaches the corpus" "helper-bot" "$(cat "$c1")"
-assert_contains "reports the fallback count (a.sh, b.sh, g.sh, k.sh, h3.sh, bs.sh)" "fallback other: 6" "$out"
+assert_contains "reports the fallback count (a.sh twice, b.sh, g.sh, k.sh, h3.sh, bs.sh)" "fallback other: 7" "$out"
 assert_contains "reports the unreplayable count (b.sh, g.sh, and three rows on a PR with no head ref)" "unreplayable: 5" "$out"
 assert_contains "reports the verbatim drops, a short comment copied whole included" "dropped verbatim: 2" "$out"
 assert_contains "a path outside printable ASCII and a base-side thread are skipped" "skipped malformed location: 2" "$out"
 assert_contains "two threads on one line of one commit are one row" "merged duplicate threads: 1" "$out"
 if [ "$(awk -F '\t' '$2 == 7 && $4 == "a.sh" && $5 == 1' "$c1" | wc -l | tr -d ' ')" -eq 1 ]; then ok "the duplicate thread writes a single row"; else fail "the duplicate thread wrote two rows"; fi
 assert_lacks "a reply that declines is not a fix, whatever its first word" "	a.sh	7	" "$(cat "$c1")"
-assert_contains "warns about a PR whose threads overflowed the fetch page" "warning: 1 PR(s) had more threads" "$out"
+assert_lacks "\"not fixed in <sha>\" is not a fix" "	a.sh	8	" "$(cat "$c1")"
+assert_contains "\"not a false positive\" does not veto a fix" "	a.sh	9	" "$(cat "$c1")"
+assert_contains "warns about a PR whose threads overflowed the fetch page" "warning: 1 PR(s) had more reviews, threads, or comments" "$out"
 assert_contains "a non-string gist and a substring category are each dropped, not fatal" "dropped unannotated: 2" "$out"
 assert_contains "a gist naming a login from the history is dropped" "dropped naming a login: 1" "$out"
 assert_lacks "the login-naming gist never reaches the corpus" "i.sh" "$(cat "$c1")"
@@ -230,7 +234,7 @@ if [ -f "$croot/v2/corpus.tsv" ]; then ok "v2 corpus written"; else fail "v2 cor
 if [ "$(cksum <"$c1")" = "$sum1" ]; then ok "v1 is unchanged by a later refresh"; else fail "v1 changed"; fi
 carried=$(grep -c '"path":"a.sh"' "$ANNOTATE_LOG.all")
 if [ "$carried" -eq 0 ]; then ok "a carried row is not re-annotated"; else fail "carried row re-annotated ($carried)"; fi
-assert_contains "reports the carried rows" "carried: 6" "$out"
+assert_contains "reports the carried rows" "carried: 7" "$out"
 assert_contains "a carried gist naming a login is dropped too" "dropped naming a login: 2" "$out"
 assert_contains "a carried gist copying its comment is dropped too" "dropped verbatim: 3" "$out"
 if [ "$(awk -F '\t' '$4 == "bs.sh"' "$croot/v2/corpus.tsv" | cut -f2-)" = "$(printf '%s\n' "$bs1" | cut -f2-)" ]; then ok "a carried backslash survives a refresh unchanged"; else fail "a carried backslash changed"; fi
@@ -299,7 +303,7 @@ case "$1 $2" in
 {"data":{"repository":{"pullRequests":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
  {"number":12,"mergedAt":"2026-09-01T00:00:00Z","body":"b","author":{"login":"owner"},
   "reviews":{"nodes":[{"author":{"login":"helper-bot","__typename":"Bot"},"submittedAt":"2026-09-01T00:00:00Z"}]},
-  "reviewThreads":{"nodes":[{"path":"a.sh","originalLine":4,"comments":{"nodes":[
+  "reviewThreads":{"totalCount":150,"nodes":[{"path":"a.sh","originalLine":4,"diffSide":"LEFT","comments":{"nodes":[
     {"author":{"login":"helper-bot","__typename":"Bot"},"body":"x","originalCommit":{"oid":"0123456789abcdef0123456789abcdef01234567"}},
     {"author":null,"body":"Fixed in abc1234","originalCommit":{"oid":"0123456789abcdef0123456789abcdef01234567"}}]}}]}}
 ]}}}}
@@ -311,8 +315,8 @@ EOF
 chmod +x "$T/bin/gh"
 out=$(PATH="$T/bin:$PATH" CLAUDE_PLUGIN_DATA="$T/nostate" "$REFRESH" --fetch-only --dump-history "$T/fetched.json" 2>&1)
 assert_exit "--fetch-only runs without the name list or an annotator" 0 $?
-norm=$(jq -c '.prs[0] | [.number, .author, .reviews[0].bot, .threads[0].line, .threads[0].commit[0:7], .threads[0].replies[0].author]' "$T/fetched.json" 2>&1)
-assert_contains "--fetch-only writes the normalized history" '[12,"owner",true,4,"0123456","ghost"]' "$norm"
+norm=$(jq -c '.prs[0] | [.number, .author, .reviews[0].bot, .threads[0].line, .threads[0].commit[0:7], .threads[0].replies[0].author, .threads[0].side, .truncated]' "$T/fetched.json" 2>&1)
+assert_contains "--fetch-only writes the normalized history, side and truncation included" '[12,"owner",true,4,"0123456","ghost","LEFT",true]' "$norm"
 if [ -d "$croot/v2" ]; then fail "--fetch-only wrote a corpus version"; else ok "--fetch-only writes no corpus"; fi
 "$REFRESH" --fetch-only >/dev/null 2>&1
 assert_exit "--fetch-only without --dump-history is a usage error" 2 $?
