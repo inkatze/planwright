@@ -452,7 +452,7 @@ ln "$tmp/outside5/hlr" "$hlrdir/requirements.md"
 chmod 400 "$hlrdir"
 if [ "$(id -u)" -ne 0 ]; then
   sw "$W" hlr
-  if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'could not scan'; then
+  if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'could not scan.*Permission denied'; then
     ok "a hard link inside a non-traversable directory is refused, with find's reason"
   else
     fail "hard link in a non-traversable dir: rc=$rc out=$out err=$err"
@@ -471,6 +471,17 @@ if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'tasks.md is
   ok "a FIFO inside the bundle is refused, naming it"
 else
   fail "fifo in bundle: rc=$rc out=$out err=$err"
+fi
+# The same below the bundle's top level.
+sw "$W" fifon
+fifondir="$H/.claude/worktrees/fifon-spec/projects/demo-root/fifon/sub"
+mkdir -p "$fifondir"
+mkfifo "$fifondir/x.md"
+sw "$W" fifon
+if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'sub/x.md is neither a directory nor a regular file'; then
+  ok "a nested FIFO inside the bundle is refused, naming it"
+else
+  fail "nested fifo in bundle: rc=$rc out=$out err=$err"
 fi
 # A symlink nested below the bundle's top level, on reuse and on recreate.
 sw "$W" nest
