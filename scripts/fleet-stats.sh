@@ -343,7 +343,7 @@ derive_claude_usage() {
   dc_rc=0
   dc_out=$("$FRAMES" read 2>/dev/null) || dc_rc=$?
   if [ "$dc_rc" != 0 ]; then
-    printf '%s\n' "fleet-stats: claude-frames.sh read exited $dc_rc (run it to see why: a bad usage threshold set or a broken install); Claude usage degraded to unknown" >&2
+    printf '%s\n' "fleet-stats: claude-frames.sh read exited $dc_rc (run it to see why); Claude usage degraded to unknown" >&2
     CLAUDE_USAGE="account-wide; unknown (the frame reader failed, exit $dc_rc)"
     return 0
   fi
