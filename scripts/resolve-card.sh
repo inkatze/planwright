@@ -89,10 +89,19 @@ card_path() {
     printf '%s\n' "resolve-card: $1: the $2 layer lists it but has no card file at $rel" >&2
     return 1
   fi
-  /bin/sh "$overlay_root" --contain "$root" "$rel" || {
+  contained=$(/bin/sh "$overlay_root" --contain "$root" "$rel") || {
     printf '%s\n' "resolve-card: $1: the $2 card file escapes its layer root; refused" >&2
     return 1
   }
+  # The canonical path follows symlinks, so a contained target's name can
+  # still carry terminal control bytes; such a path is never printed.
+  case $contained in
+    *[[:cntrl:]]*)
+      printf '%s\n' "resolve-card: $1: the $2 card file's canonical path carries a control byte; refused" >&2
+      return 1
+      ;;
+  esac
+  printf '%s\n' "$contained"
 }
 
 tab=$(printf '\t')

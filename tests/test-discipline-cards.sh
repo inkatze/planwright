@@ -444,6 +444,24 @@ assert_eq "symlink escaping the layer root: exit 1" "1" "$?"
 assert_eq "symlink escaping the layer root: no path printed" "" "$out"
 assert_contains "symlink escaping the layer root: says so" "escapes its layer root" "$(cat "$err")"
 
+# A contained card whose canonical path carries a control byte (here through a
+# symlink target's name) is refused, never printed to the terminal.
+ctl="$tmp/control"
+mkdir -p "$ctl/catalogs" "$ctl/cards"
+esc_byte=$(printf '\033')
+write_golden_card "$ctl/cards" ctl-card
+mv "$ctl/cards/ctl-card.md" "$ctl/cards/real${esc_byte}name.md"
+ln -s "real${esc_byte}name.md" "$ctl/cards/ctl-card.md"
+cat >"$ctl/catalogs/discipline-cards.yaml" <<'YAML'
+cards:
+  - id: ctl-card
+    discipline: "Control"
+YAML
+out="$(base "$core_env" PLANWRIGHT_ADOPTER_OVERLAY="$ctl" PLANWRIGHT_REPO_ROOT=none \
+  /bin/bash "$RESOLVE" ctl-card 2>/dev/null)"
+assert_eq "control byte in the canonical path: exit 1" "1" "$?"
+assert_eq "control byte in the canonical path: nothing printed" "" "$out"
+
 # The repo-tracked and machine-local layers each supply their own card from
 # their own card home.
 repo="$tmp/repo"
