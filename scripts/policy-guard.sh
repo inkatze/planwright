@@ -158,6 +158,8 @@ raw_evidence_one() {
     || [[ $t =~ $RE_GIT_REWRITE ]] || [[ $t =~ $RE_GIT_COMMIT_SUBST ]]; then
     rc=0
   fi
+  # A worker's wrapped or substituted call of the force-push helper.
+  [ "$TIER" != worker ] || [[ $t != *tower-force-push* ]] || rc=0
   shopt -u nocasematch
   [ "$rc" = 1 ] || return 0
   case $t in *"$MCP_TOOL"*) return 0 ;; esac

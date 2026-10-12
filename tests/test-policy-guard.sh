@@ -109,6 +109,14 @@ for cmd in "$REAL_SCRIPTS/tower-force-push.sh push --branch planwright/demo/task
 done
 pg worker '"$ROOT/scripts/tower-force-push.sh" confirm --branch b'
 expect deny "[worker] the force-push helper by a rooted path denies"
+for cmd in 'bash -c "scripts/tower-force-push.sh push --branch b"' '. scripts/tower-force-push.sh push --branch b' \
+  'source scripts/tower-force-push.sh push' 'echo b | xargs scripts/tower-force-push.sh push --branch' \
+  'sudo scripts/tower-force-push.sh push --branch b' 'eval "scripts/tower-force-push.sh push --branch b"' \
+  'echo "$(scripts/tower-force-push.sh push --branch b)"' 'scripts/Tower-Force-Push.sh push --branch b' \
+  'command -p scripts/tower-force-push.sh push --branch b'; do
+  pg worker "$cmd"
+  expect deny "[worker] the force-push helper behind a wrapper denies: $cmd"
+done
 for cmd in 'grep -n tower-force-push skills/tower/SKILL.md' 'tests/test-tower-force-push.sh'; do
   pg worker "$cmd"
   expect defer "[worker] naming the helper without running it defers: $cmd"
