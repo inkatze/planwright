@@ -334,6 +334,7 @@ cmd_create() {
     valid_owner "$owner" || die 2 "invalid GitHub owner name"
   fi
   [ -n "$root" ] || root=$(resolve_root) || exit $?
+  clean_path "$root" || die 2 "the ventures root carries a control character; refused"
 
   target=$root/$id
   if [ -e "$target" ] || [ -L "$target" ]; then
@@ -377,7 +378,14 @@ cmd_create() {
 # --- the bundle skeleton ---------------------------------------------------
 
 require_dir() {
+  clean_path "$1" || die 2 "the venture path carries a control character; refused"
   [ -d "$1" ] || die 2 "not a directory: the venture path"
+}
+
+# clean_path <path> — true when the path has no control bytes. Paths are
+# printed into key<TAB>value output, where a newline or tab would forge lines.
+clean_path() {
+  [ "$1" = "$(printf '%s' "$1" | tr -d '\000-\037\177')" ]
 }
 
 cmd_bundle_init() {

@@ -747,6 +747,24 @@ venture bundle-init --title "Mode Probe" "$mp2"
 assert_eq "Z4 a private umask still yields owner-only files" "$mp2/brief.md" "$(find "$mp2/brief.md" -perm 0600)"
 umask "$old_umask"
 
+# =========================================================================
+# Z5 — a path carrying a control byte is refused before it reaches output
+# =========================================================================
+
+nl_dir="$tmp/forged$(printf '\nrung\tsession')"
+mkdir -p "$nl_dir"
+for sub in handoff resume-point; do
+  venture "$sub" "$nl_dir"
+  assert_eq "Z5 $sub refuses a path with a control byte (exit 2)" 2 "$rc"
+  assert_not_contains "Z5 $sub forges no key line" "$(printf 'rung\tsession')" "$out"
+done
+venture bundle-init --title "Forged" "$nl_dir"
+assert_eq "Z5 bundle-init refuses a path with a control byte (exit 2)" 2 "$rc"
+assert_absent "Z5 bundle-init writes nothing there" "$nl_dir/brief.md"
+venture create --home local --root "$tmp/bad$(printf '\nroot')" zeta
+assert_eq "Z5 create refuses a root with a control byte (exit 2)" 2 "$rc"
+assert_absent "Z5 create makes nothing under such a root" "$tmp/bad$(printf '\nroot')"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
