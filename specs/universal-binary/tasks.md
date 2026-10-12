@@ -536,7 +536,7 @@
 
 ## Awaiting input
 
-(none yet)
+- **Task 2** — post-pr step `cubic-pr` halted; record `.claude/steps/000001/010-step-post-pr.rec`
 
 ## Deferred
 
