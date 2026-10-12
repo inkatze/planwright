@@ -81,7 +81,7 @@ HDR-UNKNOWN a header key outside the card key set, or one given twice
 SEC-MISSING a required section is absent
 SEC-UNKNOWN a section outside the closed card section set, or content outside any section
 SEC-ORDER sections are out of the schema order, or one appears twice
-SEC-EMPTY a present section has no content
+SEC-EMPTY a present section has no content outside fences (a fence-only section is empty)
 ROLE-FORM the role is not exactly one sentence
 MANDATE-SIZE the mandate is not three to seven numbered questions
 MANDATE-FORM a mandate item is not phrased as a question, or a mandate line sits outside the numbered questions

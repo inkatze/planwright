@@ -134,7 +134,10 @@ every section heading is an ATX H2 (`## <name>`): a later H1 or a setext heading
 is a finding too. The setext check is the plain one: a `---` or `===` line
 directly under any non-blank line that is not a list item, table row, heading,
 or quote reads as an underline, so a thematic break after an indented
-continuation line is flagged; put a blank line before it. An optional key or section joins its set in the same change
+continuation line is flagged; put a blank line before it. Fenced lines are
+illustration everywhere but the artifact template: they never parse as card
+structure and never count as a section's content, so a section holding only a
+fence is empty. An optional key or section joins its set in the same change
 as the linter that accepts it, within the current major (see *Versioning*).
 
 ## Capability tiers
