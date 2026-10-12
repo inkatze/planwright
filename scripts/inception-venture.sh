@@ -58,6 +58,9 @@ set -u
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# Every git call names its venture with -C; an inherited redirection would
+# send it to another repository instead.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
 
 self_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 

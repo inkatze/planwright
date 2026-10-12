@@ -637,6 +637,22 @@ assert_not_contains "H1.2 the no-identity refusal is not blamed on the guard" "g
 assert_eq "H1.2 the no-identity refusal leaves nothing staged" "" "$(git -C "$lv" diff --cached --name-only)"
 rm -f "$lv/identity-probe.md"
 
+# =========================================================================
+# Z2 — an inherited git redirection never steers the helper's git calls
+# =========================================================================
+
+other="$tmp/other-repo"
+git init -q "$other"
+git -C "$other" commit -q --allow-empty -m "other repository root"
+other_before=$(git -C "$other" rev-list --count HEAD)
+lv_before=$(git -C "$lv" rev-list --count HEAD)
+printf 'redirect probe\n' >"$lv/redirect-probe.md"
+GIT_DIR="$other/.git" GIT_WORK_TREE="$other" GIT_INDEX_FILE="$other/.git/index" \
+  venture save "$lv" "Save despite an inherited redirection"
+assert_eq "Z2 a save under an inherited GIT_DIR succeeds" 0 "$rc"
+assert_eq "Z2 the unrelated repository gains no commit" "$other_before" "$(git -C "$other" rev-list --count HEAD)"
+assert_eq "Z2 the venture gains the commit" "$((lv_before + 1))" "$(git -C "$lv" rev-list --count HEAD)"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
