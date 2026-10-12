@@ -65,11 +65,12 @@
 #        converge-sync-main.sh --commit-resolution <spec>/<id>
 #          [--commit-resolution <spec>/<id> ...] [<repo-dir>]
 #
-# Output: tagged TSV records on stdout, the message last and meant for a
-# human:
+# Output: tagged TSV records on stdout, a record's message (where it has one)
+# last and meant for a human:
 #   sync<TAB><up-to-date|fast-forward|merged|denied><TAB><head-sha>
 #   park<TAB><reason><TAB><message>     the unit parks under Awaiting input
-#                                       with this message (exits 3-6, 9, 11)
+#                                       with this message (exits 3-6 and 9,
+#                                       and exit 11 for a quoted name)
 #   repair<TAB>abort-failed<TAB><msg>   no park: the tree needs hand repair
 #   resolve<TAB><target-sha><TAB><msg>  the conflict is left for the worker;
 #                                       the message names the paths and step
