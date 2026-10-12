@@ -141,7 +141,7 @@ for k in post_convergence_finding_rate median_fixed_findings_per_pr median_revie
   if grep -q "^$k	" "$B"; then ok "baseline records $k"; else fail "baseline lacks $k"; fi
 done
 out=$("$COST" --transcripts "$proj" --events "$events" --history "$hist" --ledger-dir "$ledger" --ledger-dir "$T/archive" 2>&1)
-assert_contains "the committed baselines are the default comparison" "baseline: rate 0.889" "$out"
+assert_contains "the committed baselines are the default comparison" "baseline: rate 0.742" "$out"
 
 # --- without --history the metric fetches through the refresh's --fetch-only ---
 mkdir -p "$T/bin"

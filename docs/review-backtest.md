@@ -124,5 +124,6 @@ rounds (from the PR history and the miss ledger, its archived fragments
 included). It counts the bot's fixed findings and rounds, the population the
 baselines measured, plus any recorded miss. It compares the rate and the token
 median against `tests/fixtures/review-backtest/baselines.tsv`, the research seed's
-measurements recorded as decided values, and gives a verdict only over a
+measurements recorded as decided values (the finding rate re-measured over
+the seed's PR range under this metric's fixed-finding definition), and gives a verdict only over a
 window of at least 15 bot-reviewed PRs.
