@@ -635,6 +635,21 @@ if [ "$rc" -eq 4 ] && printf '%s' "$err" | grep -qi 'merge base'; then
 else
   fail "orphan spec branch: rc=$rc err=$err"
 fi
+# A bundle of the identifier another project already merged into the default
+# branch makes the identifier taken: no new spec branch starts from it.
+mkdir -p "$HM/projects/a/merged"
+printf '# a\n' >"$HM/projects/a/merged/requirements.md"
+gitq -C "$HM" add -A && gitq -C "$HM" commit -q -m "merge a's bundle" && gitq -C "$HM" push -q origin main
+sw "$WB" merged
+if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'projects/a/merged' \
+  && [ ! -e "$HM/.claude/worktrees/merged-spec" ] \
+  && ! hermetic git -C "$HM" show-ref --verify --quiet refs/heads/planwright/merged/spec; then
+  ok "another project's merged bundle of the id refuses a new spec branch, creating nothing"
+else
+  fail "merged cross-project bundle: rc=$rc out=$out err=$err"
+fi
+sw "$WA" merged
+if [ "$rc" -eq 0 ]; then ok "the owner opens a spec branch over its own merged bundle"; else fail "owner merged: rc=$rc err=$err"; fi
 
 # --- other postures and bad identifiers are refused -----------------------
 W4="$tmp/work4"
