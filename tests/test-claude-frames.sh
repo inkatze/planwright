@@ -242,6 +242,20 @@ win "$out" session | grep -q "${TAB}57${TAB}above$" || fail "boundary: the sessi
 win "$out" weekly | grep -q "${TAB}29${TAB}above$" || fail "boundary: the weekly reading at 29 is not above 29: $out"
 pass "a reading exactly at its threshold is above it"
 
+# A threshold set the usage gate refuses as malformed (out of range, or not
+# strictly ascending up its ladder) never clears a hold either.
+new_home malformed
+put a $((NOW - 60)) 0.80 $((NOW + HOUR)) 0.10 $((NOW + 86400))
+for bad in 'fleet_usage_session_downshift: 90' 'fleet_usage_weekly_downshift: 150' \
+  'fleet_usage_weekly_defer_all: 80'; do
+  printf '%s\n' "$bad" >"$local_cfg"
+  rc=0
+  out=$(cf clearance --since "$SINCE" --now "$NOW" 2>/dev/null) || rc=$?
+  : >"$local_cfg"
+  [ "$rc" = 4 ] || fail "malformed: '$bad' exited $rc, not 4: $out"
+done
+pass "a threshold set the usage gate refuses is refused"
+
 # Two workers storing a frame in the same second see the same reset; the
 # higher reading wins whichever directory find lists first, so the tie can
 # never grant clearance. Both creation orders, since listing order follows it.
