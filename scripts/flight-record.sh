@@ -930,6 +930,7 @@ enter_parent() {
     esac
     _at=$_at/$_seg
     if [ ! -e "$_seg" ] && [ ! -L "$_seg" ]; then
+      # not-a-lock: one path component created on the way to the record; a concurrent creator is fine
       mkdir -- "$_seg" 2>/dev/null || [ -e "$_seg" ] || [ -L "$_seg" ] || die 4 "cannot create ${_at#"$root"/}"
     fi
     if [ -L "$_seg" ] || [ ! -d "$_seg" ]; then
