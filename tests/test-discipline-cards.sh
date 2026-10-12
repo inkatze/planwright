@@ -269,6 +269,16 @@ awk '{ print } /^   Misuse: skipping/ || /^  - human-authority:/ { print "---" }
 out="$("$LINT" "$d/fixture-discipline.md" 2>&1)"
 assert_eq "thematic break after a list continuation: no findings" "" "$out"
 
+# The Done-when line follows the template fence, not an earlier example fence.
+d="$tmp/done-order"
+write_golden_card "$d"
+awk '/^\*\*Done when:\*\*/ { next }
+  /^## Artifact template$/ { print; print ""; print "```text"; print "an example"; print "```"; print "";
+    print "**Done when:** every question has an answer."; next } { print }' \
+  "$d/fixture-discipline.md" >"$d/m" && mv "$d/m" "$d/fixture-discipline.md"
+out="$("$LINT" "$d/fixture-discipline.md" 2>&1)"
+assert_contains "Done-when between an example fence and the template: flagged" "[TEMPLATE-DONE]" "$out"
+
 # Usage and environment errors.
 "$LINT" >/dev/null 2>&1
 assert_eq "no arguments: exit 2" "2" "$?"

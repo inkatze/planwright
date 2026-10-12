@@ -322,7 +322,8 @@ END {
     for (j = 1; j <= body_n["Artifact template"]; j++) {
       line = B["Artifact template", j]
       if (BF["Artifact template", j]) {
-        fenced = 1
+        # The Done-when line must follow the last fence: the template.
+        fenced = 1; done_ok = 0
         if (line ~ /^#+ /) { h = line; sub(/^#+ /, "", h); lasth = trim(h) }
         continue
       }
