@@ -232,7 +232,6 @@ screen_all() {
 # promise.
 personal_data() {
   awk -v name="$1" '
-    function digits(s) { gsub(/[^0-9]/, "", s); return s }
     function luhn(d,   i, x, s, alt) {
       s = 0
       alt = 0
@@ -325,10 +324,22 @@ personal_data() {
       off = 0
       while (each("[+][1-9][0-9 .()-]*[0-9]")) {
         if (pre ~ /[A-Za-z0-9_+]/) continue
-        t = m
-        while ((post ~ /[A-Za-z0-9_]/ || length(digits(t)) > 15) && sub(/[ .()-]+[0-9]+$/, "", t)) post = " "
-        if (post ~ /[A-Za-z0-9_]/ || t ~ /[ .-][ .-]/) continue
-        n = length(digits(t))
+        # One forward pass: dg[i] is the i-th digit group, sep[i + 1] the
+        # separator after it. A word right after drops the last group; the
+        # number then ends at the last group boundary within 15 digits.
+        ng = split(m, dg, "[ .()-]+")
+        split(m, sep, "[0-9]+")
+        if (post ~ /[A-Za-z0-9_]/) {
+          if (ng < 2) continue
+          ng--
+        }
+        n = 0
+        for (i = 1; i <= ng; i++) {
+          d = length(dg[i]) - (i == 1)
+          if (n + d > 15) break
+          if (i > 1 && sep[i] ~ /[ .-][ .-]/) { n = 0; break }
+          n += d
+        }
         if (n >= 8 && n <= 15) hit("personal-data-contact")
       }
       # A card: 13 to 19 digits unseparated, or a standard group layout

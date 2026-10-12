@@ -525,6 +525,8 @@ bounded() {
 }
 awk 'BEGIN { while (length(s) < 65000) s = s "AB12 "; print s }' >"$in/ask-ibanish.txt"
 bounded 'IBAN-shaped tokens' "$in/ask-ibanish.txt"
+awk 'BEGIN { s = "+1"; while (length(s) < 65000) s = s " 2"; print s }' >"$in/ask-plusrun.txt"
+bounded 'digit groups after a +' "$in/ask-plusrun.txt"
 
 # The card scan is bounded: a run of digit groups is searched for a card in
 # its first 64 four-digit windows only, so a card that is the 64th window is
