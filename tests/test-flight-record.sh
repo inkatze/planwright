@@ -411,6 +411,19 @@ for part in Private-Lines "$KEY_BODY2" "$PUTTY_END"; do
   case $OUT in *"$part"*) fail "a foreign end marker published a key line: ${part:0:16}" ;; esac
 done
 printf '%s\n' "$OUT" | grep -qx '  Then rerun the deploy.' || fail "the line after the key's own end must survive"
+# A key's own end marker inside its Comment header does not end it either:
+# PuTTY and SSH2 ends count only at the start of a line, and a PEM or PGP end
+# never on a Comment line.
+for fmt in "PuTTY|$PUTTY_BEGIN|$PUTTY_END" "SSH2|$SSH2_BEGIN|$SSH2_END" "PGP|$PGP_BEGIN|$PGP_END"; do
+  name=${fmt%%|*}
+  rest=${fmt#*|}
+  printf 'Use this key:\n%s\nComment: %s\n%s\n%s\nThen rerun the deploy.\n' \
+    "${rest%%|*}" "${rest#*|}" "$KEY_BODY2" "${rest#*|}" >"$in/ask-key-own.txt"
+  run_render pr --ask-file "$in/ask-key-own.txt"
+  [ "$RC" -eq 0 ] || fail "render of a $name key with its end marker in a comment exited $RC: $ERR"
+  case $OUT in *"$KEY_BODY2"*) fail "a $name key's own end marker in its comment published the key" ;; esac
+  printf '%s\n' "$OUT" | grep -qx '  Then rerun the deploy.' || fail "the line after a $name key's real end must survive"
+done
 # A line inside a key block that the screens also flag is dropped with the
 # block: one marker for the key, and no personal-data note from its comment.
 printf 'Use this key:\n%s\nComment: call %s\n%s\n%s\nThen rerun the deploy.\n' \

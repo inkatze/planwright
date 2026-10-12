@@ -415,10 +415,11 @@ operator_text() {
 
 # The private-key block markers, one begin and end pair per format (PEM and
 # PGP, SSH2, PuTTY): the begins together match what the screen's
-# private-key-block rule flags, and each end is its own format's last line.
+# private-key-block rule flags, and each end is its own format's last line,
+# the SSH2 and PuTTY ends only at the start of a line.
 KEY_FORMATS='-----BEGIN ([A-Z0-9]+ )*PRIVATE KEY( BLOCK)?-----	-----END ([A-Z0-9]+ )*PRIVATE KEY( BLOCK)?-----
----- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----	---- END SSH2 ENCRYPTED PRIVATE KEY ----
-PuTTY-User-Key-File-[0-9]+:	Private-MAC:'
+---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----	^---- END SSH2 ENCRYPTED PRIVATE KEY ----
+PuTTY-User-Key-File-[0-9]+:	^Private-MAC:'
 
 # redact <name> <out> — the cleaned text with each line the screen flagged
 # replaced whole; REDACTED is 1 when a secret was, REDACTED_PERSONAL when
@@ -440,8 +441,10 @@ redact() {
         }
       }
       # at(s, re, from) — where re first matches s at or after from, its
-      # length in RL; 0 when it does not.
+      # length in RL; 0 when it does not. An re anchored with ^ matches only
+      # at the start of the line.
       function at(s, re, from,   t) {
+        if (re ~ /^\^/ && from > 1) return 0
         t = substr(s, from)
         if (!match(t, re)) return 0
         RL = RLENGTH
@@ -458,6 +461,8 @@ redact() {
           pos = 1
           while (1) {
             if (inkey) {
+              # A PEM or PGP Comment header is free text, never the end.
+              if (kind == 1 && $0 ~ /^Comment:/) break
               p = at($0, ke[kind], pos)
               if (!p) break
               inkey = 0
