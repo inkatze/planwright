@@ -356,6 +356,13 @@ sums_after=$(cd "$fleet" && find . -path ./usage -prune -o -type f -print | LC_A
 [ "$sums_before" = "$sums_after" ] || fail "effective-mode wrote into the fleet state directory"
 set_rung normal
 pressure_case open tower-to-tower open 0
+# A trail the gate refuses to read is never no pressure.
+set_rung not-a-rung
+rc=0
+got=$(em worker-to-tower 2>"$tmp/em.err") || rc=$?
+[ "$rc" = 4 ] || fail "effective-mode: an unreadable usage-gate rung was not refused (exit $rc, printed '$got')"
+grep -q 'usage gate' "$tmp/em.err" || fail "effective-mode: the unreadable-rung refusal does not name the usage gate"
+set_rung normal
 clear_knob
 grep -q 'context-budget' "$FM" && fail "effective-mode consults the context-budget monitor"
 ok "pressure at or above reduce-concurrency demotes one value with one notice; nothing is stored"

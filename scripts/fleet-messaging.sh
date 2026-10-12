@@ -32,7 +32,9 @@
 #       tower-to-worker offset being one and the pressure demotion one while
 #       the usage gate's rung is at or above reduce-concurrency. One stderr
 #       notice when pressure demoted the value. A knob at `off` is refused
-#       (exit 3): it sits outside the ladder, so no offset applies to it.
+#       (exit 3): it sits outside the ladder, so no offset applies to it. A
+#       knob or a usage-gate rung that cannot be resolved is refused (exit 4),
+#       never read as no pressure.
 #   fleet-messaging.sh send (--to <socket path> | --to-worker <worker>) --message-file <path>
 #           [--cli-version <v>] [--owner-uid <uid>] [--socket-type <socket|other>]
 #       Post the file's text to a worker's inbox as data, the tower-to-worker
@@ -808,7 +810,10 @@ cmd_effective_mode() {
   esac
   em_level=$((em_level - em_offset))
   [ "$em_level" -ge 0 ] || em_level=0
-  em_rung=$("$UG" rung 2>/dev/null) || em_rung=""
+  em_rung=$("$UG" rung 2>/dev/null) || {
+    printf '%s\n' "$me: effective-mode: the usage gate's rung cannot be read, so the pressure demotion is unknown; refusing" >&2
+    exit 4
+  }
   case $em_rung in
     reduce-concurrency | defer-heavy | defer-all)
       if [ "$em_level" -gt 0 ]; then
