@@ -23,9 +23,9 @@
 #   purge    print a history-purge command and the rotation checklist. It
 #            runs nothing.
 #
-# Every verb but purge refuses where a dispatch exported a worker identity
-# (PLANWRIGHT_WORKER_HANDLE or PLANWRIGHT_WORKER_SCOPE) and a branch in the
-# protected set (scripts/protected-branch.sh: main, master, a
+# Every verb but purge refuses inside a dispatched worker (a dispatch that
+# exported PLANWRIGHT_WORKER_HANDLE or PLANWRIGHT_WORKER_SCOPE), refuses any
+# branch in the protected set (scripts/protected-branch.sh: main, master, a
 # spec branch, and the protected_branches additions), and refreshes <r>/<b>
 # (default remote `origin`) first. confirm and push refuse a <c> whose tip
 # contains the remote tip (nothing would be dropped: a plain push suffices).

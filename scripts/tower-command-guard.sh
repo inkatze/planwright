@@ -566,7 +566,8 @@ is_force_push_file() {
   return 1
 }
 
-# is_planwright_script <path> <cwd>: 0 when <path> is a `.sh` under a `scripts/`
+# is_planwright_script <path> <cwd>: 0 when <path> is a `.sh`, other than the
+# force-push helper, under a `scripts/`
 # directory that canonicalizes inside EITHER the repo checkout (self-hosting
 # dev) OR the installed plugin root (the core root chain's CLAUDE_PLUGIN_ROOT
 # arm, hook_plugin_root below — the tower's resolved literal path under a
