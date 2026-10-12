@@ -41,6 +41,7 @@ commit trailers stay in the work repository in every posture.
 | Spec guards (CI, hooks) | the work repository's | the holder's, if wired | none |
 | `/spec-walkthrough` suggestion | made | skipped until the spec PR merges: until then the bundle's changes live only on the spec branch | made |
 | Status render (Ready or Active) | `scripts/spec-status.sh <root>/<spec>` | the same, `<root>` as `resolve-root.sh spec` prints it, never the worktree's `bundle` path, which would derive state from the holder; no bundle sits there before its first spec PR merges, and until then it is Ready, since the execution skills find bundles in the root's primary view | the same |
+| `/spec-draft` fold-detection scan | every bundle under `<root>` | every bundle under `<root>`, plus the Draft in each open holder spec worktree (`<holder>/.claude/worktrees/<id>-spec`, at the root's place inside it), since a Draft lives only there until its spec PR merges | every bundle under `<root>` |
 
 **`separate-repo`.** The session stays in the work repository and works on
 the holder by path. `scripts/spec-store-worktree.sh <spec>` opens the spec
