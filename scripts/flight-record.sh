@@ -1,10 +1,11 @@
 #!/bin/sh
 # flight-record.sh — render and land a visual flight's audit record
-# (tower-front-door Task 6; D-6 · REQ-E1.1, REQ-E1.2, REQ-E1.4, REQ-E1.5).
+# (tower-front-door Tasks 6 and 14; D-6, D-18 · REQ-E1.2, REQ-E1.4, REQ-E1.5,
+# REQ-E1.6, REQ-C1.11).
 #
 # The flight worker authors the record's human parts (what changed and why,
-# how it was verified) and hands over the convergence audit its review
-# sequence produced; this script assembles them with the operator's ask and
+# how it was verified) and hands over the review audit and the step tables of
+# the points it fired; this script assembles them with the operator's ask and
 # the route's grounds into the one record layout both homes share, per
 # flight-rules' *The audit record* and gate-wiring's *PR-body assembly*:
 #
@@ -62,9 +63,16 @@
 #     --audit-file <file>         the review sequence's audit record: a heading
 #                                 for each of Lens coverage, Auto-applicable,
 #                                 Agent-resolvable, Needs sign-off, Needs human
-#                                 judgment, Declined log, Pending sign-off, and
-#                                 Convergence steps (the record nests them
-#                                 under its own `###` heading, so `####`)
+#                                 judgment, Declined log, and Pending sign-off,
+#                                 then the step table of every point fired so
+#                                 far, headed `Steps at `<point>`` as
+#                                 step-record.sh renders it: pre-implementation,
+#                                 pre-ci, convergence, and pre-pr always, and
+#                                 post-pr on the pr home once it has fired (the
+#                                 re-emit). The file home refuses a post-pr
+#                                 table and writes that point's not-fired row
+#                                 itself. The record nests them under its own
+#                                 `###` heading, so `####`.
 #     --handle <handle>           the worker handle
 #     --scoping-file <file>       optional: the rigor scoping applied; absent
 #                                 means none was
@@ -140,7 +148,10 @@ EOF
   exit 2
 }
 
-# AUDIT_ELEMENTS — the headings the audit input must carry, one per line.
+# AUDIT_ELEMENTS — the headings the audit input must carry, one per line: the
+# review audit, then the step table of each in-run point that fires before
+# the record's first render, headed as scripts/step-record.sh renders it.
+# shellcheck disable=SC2016 # the backticks are Markdown code spans
 AUDIT_ELEMENTS='Lens coverage
 Auto-applicable
 Agent-resolvable
@@ -148,7 +159,12 @@ Needs sign-off
 Needs human judgment
 Declined log
 Pending sign-off
-Convergence steps'
+Steps at `pre-implementation`
+Steps at `pre-ci`
+Steps at `convergence`
+Steps at `pre-pr`'
+# shellcheck disable=SC2016 # the backticks are Markdown code spans
+POST_PR_HEADING='Steps at `post-pr`'
 
 # read_capped <name> <file> <cap> <out> — copy a readable regular file of at
 # most <cap> bytes to <out>, read once so every later check sees one copy.
@@ -416,8 +432,16 @@ render_to() {
     else
       printf 'Leave `%s` unmerged to discard the flight. After a merge, `git revert` the flight'"'"'s commits: the record rides the same branch, so one revert undoes record and work together.\n' "$branch"
     fi
-    printf '\n### Convergence audit\n\n'
+    printf '\n### Review and step audit\n\n'
     cat "$work/audit" || return 1
+    if [ "$home" = file ]; then
+      # step-record.sh has no not-fired outcome, so the row is written here,
+      # in the columns its tables carry.
+      printf '\n#### %s\n\n' "$POST_PR_HEADING"
+      printf '| # | Step | Kind | Target | Hosting | Backend | Session | Head | Start | End | Outcome | Excerpt | Output |\n'
+      printf '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n'
+      printf '| not fired | | | | | | | | | | not fired: the file home opens no PR, and the point fires only once a draft PR exists | | |\n'
+    fi
     printf '\n</details>\n\n<!-- planwright:flight-record-end -->\n'
   } >"$1" || die 4 "cannot write the record"
 }
@@ -551,6 +575,9 @@ for _el in $AUDIT_ELEMENTS; do
 done
 IFS=$_old_ifs
 [ -z "$_missing" ] || die 2 "--audit-file is missing the contract's $_missing (each under its own heading)"
+if [ "$home" = file ] && grep -Eiq "^#{1,6}[[:space:]]+$POST_PR_HEADING" "$work/audit"; then
+  die 2 "--audit-file carries a post-pr step table, but post-pr never fires on the file home (no PR exists); remove it, the record states it was not fired"
+fi
 
 ! restates_ask || die 2 "the summary or verification restates the ask; say what changed, why, and how it was verified in your own words (the ask is quoted in the collapsed record)"
 

@@ -18,10 +18,10 @@
 #      the dispatch, and reports the launch, the record home, the brief, the
 #      base, the launch tier, and the plugin-root pair.
 #   4. The worker brief carries the doctrine load (the /execute-task manifest
-#      set plus flight-rules), the convergence point's steps in order, each
-#      skill with its declared args, resolved under the script's own root, a
-#      command or prompt step refused with nothing placed (REQ-C1.3;
-#      custom-steps REQ-F1.5), the audit-record contract, draft-only
+#      set plus flight-rules), the in-run points, whose resolved steps the
+#      report names point by point, checked under the pinned root (the
+#      points themselves are tests/test-flight-dispatch-points.sh's), the
+#      audit-record contract, draft-only
 #      landing with no ready flip or merge (REQ-C1.4), and the gate-wiring hard
 #      pause whatever the grounds said (REQ-B1.5). A hostile ask stays quoted.
 #      The worker renders its record through scripts/flight-record.sh from
@@ -358,10 +358,8 @@ docs=$(grep -E '^Doctrine: (run-start|point-of-use) ' "$ROOT/skills/execute-task
 for doc in $docs flight-rules; do
   printf '%s\n' "$b" | grep -q -- "^- $doc\$" || fail "brief does not load doctrine '$doc'"
 done
-printf '%s\n' "$b" | grep -q -- "/planwright:polish --nested" \
-  || fail "brief does not carry the convergence point's default step (polish --nested)"
-[ "$(field "$OUT" steps_convergence)" = polish ] \
-  || fail "the dispatch report must name the convergence steps, got '$(field "$OUT" steps_convergence)'"
+printf '%s\n' "$OUT" | grep -qx "steps${TAB}convergence${TAB}polish" \
+  || fail "the dispatch report must name the convergence point's default step (out: $OUT)"
 printf '%s\n' "$b" | grep -q "^> Fix the typo in the README heading.\$" \
   || fail "brief does not carry the ask, quoted"
 printf '%s\n' "$b" | grep -q "^> visual flight: a one-line wording change, one revert from undone\$" \
@@ -401,11 +399,12 @@ printf '%s\n' "$b" | grep -Fq -- "--revert-file '$(dirname "$brief")/record/reve
 printf '%s\n' "$b" | grep -Fq "git push -u origin planwright/flight/$fid && gh pr create --draft" \
   || fail "a pr-home brief must open the PR only after the push"
 for heading in 'Lens coverage' 'Auto-applicable' 'Agent-resolvable' 'Needs sign-off' \
-  'Needs human judgment' 'Declined log' 'Pending sign-off' 'Convergence steps'; do
+  'Needs human judgment' 'Declined log' 'Pending sign-off' 'Steps at'; do
   printf '%s\n' "$b" | grep -Fq "$heading" || fail "the brief must name the audit heading '$heading'"
 done
 printf '%s\n' "$b" | grep -q "an operator override included" || fail "brief does not keep the gate-wiring hard pauses"
-printf '%s\n' "$b" | grep -q "steps_convergence" || fail "brief does not name the flight convergence point"
+# shellcheck disable=SC2016 # backticks are Markdown code spans
+printf '%s\n' "$b" | grep -q '^3\. `convergence`' || fail "brief does not name the flight convergence point"
 printf '%s\n' "$b" | grep -q 'issue .git. and reads there without' \
   || fail "REQ-E1.4: the brief must tell the worker to issue git without a cd"
 printf '%s\n' "$b" | grep -q 'prompts on a .cd. before a .git. call' \
@@ -453,11 +452,8 @@ case $ERR in *NOTE:*) ;; *) fail "the primitive's degraded-base NOTE must reach 
 [ "$(field "$OUT" base)" = "$(gitc "$c/primary" rev-parse main)" ] \
   || fail "with no remote the base must be local main"
 b=$(cat "$(field "$OUT" brief)")
-seq=$(printf '%s\n' "$b" | grep -Eo '/planwright:[a-z-]+ --nested' | tr '\n' ' ')
-[ "$seq" = "/planwright:polish --nested /planwright:self-review --nested " ] \
-  || fail "brief convergence steps are not the configured order: '$seq'"
-[ "$(field "$OUT" steps_convergence)" = "polish self-review" ] \
-  || fail "the report must list the configured steps in order, got '$(field "$OUT" steps_convergence)'"
+printf '%s\n' "$OUT" | grep -qx "steps${TAB}convergence${TAB}polish self-review" \
+  || fail "the report must list the configured steps in order (out: $OUT)"
 printf '%s\n' "$b" | grep -q "specs/_flights/$fid.md" || fail "file-home brief must name the record file"
 printf '%s\n' "$b" | grep -qi "do not push" || fail "file-home brief must not push"
 printf '%s\n' "$b" | grep -Fq "flight-record.sh' land --flight-id $fid" \
@@ -471,8 +467,10 @@ printf '%s\n' "$b" | grep -Fq "flight-lifecycle.sh' push completion $fid --handl
 rd="$(dirname "$(field "$OUT" brief)")/record"
 printf 'Fixed the heading.\n' >"$rd/summary.md"
 printf 'Ran the suite.\n' >"$rd/verification.md"
+# shellcheck disable=SC2016 # backticks are Markdown code spans
 for h in 'Lens coverage' 'Auto-applicable' 'Agent-resolvable' 'Needs sign-off' 'Needs human judgment' \
-  'Declined log' 'Pending sign-off' 'Convergence steps'; do
+  'Declined log' 'Pending sign-off' 'Steps at `pre-implementation`' 'Steps at `pre-ci`' \
+  'Steps at `convergence`' 'Steps at `pre-pr`'; do
   printf '#### %s\n\nnone\n\n' "$h"
 done >"$rd/audit.md"
 # shellcheck disable=SC2016 # strips the Markdown code span's backticks
@@ -520,15 +518,18 @@ case $(field "$OUT" launch) in
 esac
 
 # --- 4f. a degraded overlay is surfaced, never silent -------------------------
+# It fails /execute-task's point check, so it refuses a flight as it would stop
+# a task unit (REQ-C1.9), naming the degrade.
 new_case
 mkdir -p "$c/primary/.claude"
 printf 'max_parallel_units:\n  nested: 1\n' >"$c/primary/.claude/planwright.local.yml"
 dispatch_print
-[ "$RC" -eq 0 ] || fail "a malformed machine-local overlay must degrade, not fail (rc $RC: $ERR)"
+[ "$RC" -eq 4 ] || fail "a malformed machine-local overlay must refuse as the point check does (rc $RC: $ERR)"
 case $ERR in
   *"planwright.local.yml"*degraded*) ;;
   *) fail "a degraded machine-local overlay must be warned about on stderr: $ERR" ;;
 esac
+[ "$(flight_branches)" -eq 0 ] || fail "a malformed machine-local overlay placed a flight"
 
 # --- 4g. the launch tier's non-happy branches, against a stubbed resolver ---
 # A copy of the plugin whose allocation-apply.sh answers per ALLOC_STUB.
@@ -574,7 +575,9 @@ for stub in withheld unreachable off-roster no-row; do
 done
 
 # --- 4h. the convergence point's steps beyond planwright's own skills --------
-# A per-user catalog declares a user command; the brief names it bare.
+# A per-user catalog declares a user command; the check resolves it and the
+# report names it. The brief lists points, never pre-resolved steps: every
+# step kind is the in-run points suite's (tests/test-flight-dispatch-points.sh).
 new_case
 mkdir -p "$c/adopter/catalogs" "$c/claude/commands" "$c/primary/.claude"
 printf '# panel\n' >"$c/claude/commands/panel-review.md"
@@ -589,43 +592,13 @@ printf 'steps_convergence: [polish, no-such-step, panel]\n' >"$c/primary/.claude
 dispatch_print
 [ "$RC" -eq 0 ] || fail "a catalog-declared convergence list must dispatch (rc $RC: $ERR)"
 case $ERR in *no-such-step*) ;; *) fail "a skipped step must be named on stderr: $ERR" ;; esac
-b=$(cat "$(field "$OUT" brief)")
-printf '%s\n' "$b" | grep -Fxq "1. \`/planwright:polish --nested\`" || fail "a planwright skill step must be namespaced: $b"
-printf '%s\n' "$b" | grep -Fxq "2. \`/panel-review --nested\`" || fail "a user command step must be named bare: $b"
-[ "$(field "$OUT" steps_convergence)" = "polish panel" ] \
-  || fail "the report must list every step, got '$(field "$OUT" steps_convergence)'"
-# The brief lists the steps once; it never also sends the worker to re-resolve them.
-if printf '%s\n' "$b" | grep -Eiq 'read the convergence point.s step list|resolve-steps|resolve-review-sequence'; then
-  fail "the brief must not both list the steps and tell the worker to re-read them: $b"
-fi
+printf '%s\n' "$OUT" | grep -qx "steps${TAB}convergence${TAB}polish panel" \
+  || fail "the report must list every step that runs (out: $OUT)"
+printf '%s\n' "$OUT" | grep -qx "skipped${TAB}convergence${TAB}no-such-step" \
+  || fail "the report must name the skipped step (out: $OUT)"
 
-# A flight runs skill steps only: a command or a prompt step is refused by
-# name, and nothing is placed.
-for kind in command prompt; do
-  new_case
-  mkdir -p "$c/adopter/catalogs" "$c/primary/.claude"
-  printf '#!/bin/sh\nexit 0\n' >"$c/lint"
-  chmod +x "$c/lint"
-  if [ "$kind" = command ]; then
-    printf 'steps:\n  - id: extra\n    kind: command\n    target: %s\n    args: --quiet\n' "$c/lint" \
-      >"$c/adopter/catalogs/steps.yaml"
-  else
-    printf 'steps:\n  - id: extra\n    kind: prompt\n    target: Re-read the diff once more.\n' \
-      >"$c/adopter/catalogs/steps.yaml"
-  fi
-  printf 'steps_convergence: [polish, extra, self-review]\n' >"$c/primary/.claude/planwright.local.yml"
-  dispatch_print
-  [ "$RC" -eq 4 ] || fail "a $kind step on a flight must fail closed with exit 4 (rc $RC: $ERR)"
-  case $ERR in *"'extra'"*"$kind step"*"skill steps only"*) ;;
-  *) fail "the $kind-step refusal must name the step, its kind, and the skill-only rule: $ERR" ;;
-  esac
-  [ "$(flight_branches)" -eq 0 ] || fail "a $kind step placed a flight"
-  [ "$(briefs)" -eq 0 ] || fail "a $kind step left a brief"
-  [ "$(gitc "$c/primary" worktree list | grep -c .)" -eq 1 ] || fail "a $kind step placed a worktree"
-done
-
-# The core list and catalog come from this script's own root, the root the
-# skills are checked under, whatever planwright root the environment names.
+# The core list and catalog come from the pinned root (this script's own when
+# no plugin is installed), whatever planwright root the environment names.
 new_case
 mkdir -p "$c/otherroot"
 cp -R "$ROOT/config" "$c/otherroot/"
@@ -633,12 +606,12 @@ sed 's/^steps_convergence:.*/steps_convergence: [self-review]/' "$ROOT/config/de
   >"$c/otherroot/config/defaults.yml"
 PLANWRIGHT_ROOT="$c/otherroot" CLAUDE_PLUGIN_ROOT="$c/otherroot" dispatch_print
 [ "$RC" -eq 0 ] || fail "a foreign planwright root in the environment must not break dispatch (rc $RC: $ERR)"
-[ "$(field "$OUT" steps_convergence)" = polish ] \
-  || fail "the core list must come from the script's own root, got '$(field "$OUT" steps_convergence)'"
+printf '%s\n' "$OUT" | grep -qx "steps${TAB}convergence${TAB}polish" \
+  || fail "the core list must come from the pinned root (out: $OUT)"
 PLANWRIGHT_CONFIG_DEFAULTS="$c/otherroot/config/defaults.yml" dispatch_print
 [ "$RC" -eq 0 ] || fail "a foreign core defaults file in the environment must not break dispatch (rc $RC: $ERR)"
-[ "$(field "$OUT" steps_convergence)" = polish ] \
-  || fail "an environment core defaults file must not replace the core list, got '$(field "$OUT" steps_convergence)'"
+printf '%s\n' "$OUT" | grep -qx "steps${TAB}convergence${TAB}polish" \
+  || fail "an environment core defaults file must not replace the core list (out: $OUT)"
 
 # An empty list is valid and runs no step.
 new_case
@@ -646,21 +619,20 @@ mkdir -p "$c/primary/.claude"
 printf 'steps_convergence: []\n' >"$c/primary/.claude/planwright.local.yml"
 dispatch_print
 [ "$RC" -eq 0 ] || fail "an empty convergence list must dispatch (rc $RC: $ERR)"
-grep -q "^The list is empty: the convergence point runs no step" "$(field "$OUT" brief)" \
-  || fail "an empty convergence list must say it runs no step"
-printf '%s\n' "$OUT" | grep -qx "steps_convergence$TAB" || fail "an empty list must report no steps: $OUT"
+printf '%s\n' "$OUT" | grep -qx "steps${TAB}convergence${TAB}" || fail "an empty list must report no steps: $OUT"
+# shellcheck disable=SC2016 # backticks are Markdown code spans
+grep -q '^3\. `convergence`' "$(field "$OUT" brief)" || fail "an empty list still fires its point"
 
-# A list whose every step was skipped on this host is not an empty list.
+# A list whose every step was skipped on this host names each skip.
 new_case
 mkdir -p "$c/primary/.claude"
 printf 'steps_convergence: [no-such-step]\n' >"$c/primary/.claude/planwright.local.yml"
 dispatch_print
 [ "$RC" -eq 0 ] || fail "an all-skipped machine-local list must dispatch (rc $RC: $ERR)"
 case $ERR in *no-such-step*) ;; *) fail "an all-skipped list must name the skipped step on stderr: $ERR" ;; esac
-b=$(cat "$(field "$OUT" brief)")
-case $b in *"The list is empty"*) fail "an all-skipped list must not be called empty: $b" ;; esac
-printf '%s\n' "$b" | grep -qi "every configured step was skipped on this host" \
-  || fail "an all-skipped list must say its steps were skipped: $b"
+# shellcheck disable=SC2016 # backticks are Markdown code spans
+grep -qx -- '- `convergence`: `no-such-step`' "$(field "$OUT" brief)" \
+  || fail "an all-skipped list must name its skipped step in the brief"
 
 # A step the repo-tracked list names but no catalog declares places nothing.
 new_case
@@ -668,8 +640,7 @@ mkdir -p "$c/primary/.claude"
 printf 'steps_convergence: [no-such-step]\n' >"$c/primary/.claude/planwright.yml"
 dispatch_print
 [ "$RC" -eq 4 ] || fail "an unresolvable repo-tracked step must fail closed with exit 4 (rc $RC: $ERR)"
-case $ERR in *steps_convergence*) ;; *) fail "the refusal must name steps_convergence: $ERR" ;; esac
-case $ERR in *no-such-step*) ;; *) fail "the refusal must name the step that did not resolve: $ERR" ;; esac
+case $ERR in *"convergence: step 'no-such-step'"*) ;; *) fail "the refusal must name the point and the step: $ERR" ;; esac
 [ "$(flight_branches)" -eq 0 ] || fail "an unresolvable convergence list placed a flight"
 [ "$(briefs)" -eq 0 ] || fail "an unresolvable convergence list left a brief"
 
