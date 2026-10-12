@@ -600,6 +600,11 @@ set_rung defer-heavy
 knob open
 em worker-to-tower >/dev/null 2>"$tmp/s3"
 clean "$tmp/s3" || fail "sanitize: the demotion notice"
+rc=0
+fm -- send "flag${esc}]0;x${esc}\\" >/dev/null 2>"$tmp/s5" || rc=$?
+[ "$rc" = 2 ] || fail "send: a lone unknown flag was not refused (exit $rc)"
+clean "$tmp/s5" || fail "sanitize: send's diagnostic for a lone unknown flag"
+grep -q 'unknown flag' "$tmp/s5" || fail "send: a lone unknown flag was not reported as unknown"
 set_rung normal
 clear_knob
 row9 112 w-dirty "fleet-dirty" dirty.sock >>"$reg"

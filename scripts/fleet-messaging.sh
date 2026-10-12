@@ -520,6 +520,10 @@ cmd_send() {
   sd_worker=""
   sd_file=""
   while [ "$#" -gt 0 ]; do
+    case $1 in
+      --to | --to-worker | --message-file | --cli-version | --owner-uid | --socket-type) ;;
+      *) die_usage "send: unknown flag '$(sanitize_printable "$1" "(unprintable flag)")'" ;;
+    esac
     [ "$#" -ge 2 ] || die_usage "send: $1 needs a value"
     case $1 in
       --to)
@@ -532,7 +536,6 @@ cmd_send() {
         ;;
       --message-file) sd_file=$2 ;;
       --cli-version | --owner-uid | --socket-type) take_seam "$1" "$2" ;;
-      *) die_usage "send: unknown flag '$(sanitize_printable "$1" "(unprintable flag)")'" ;;
     esac
     shift 2
   done
