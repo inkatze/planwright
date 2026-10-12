@@ -330,19 +330,21 @@ derive_vendors() {
 }
 
 # derive_claude_usage — the Claude reading through scripts/claude-frames.sh
-# read, so the label and the staleness rule stay that script's. Sets
-# CLAUDE_USAGE, `unknown` on a read failure.
+# read, so the staleness rule stays that script's. Sets CLAUDE_USAGE, always
+# prefixed `account-wide;`: `unknown (...)` when the helper is missing or its
+# read fails, since a bare `none` would read as no usage.
 CLAUDE_USAGE=""
 derive_claude_usage() {
   if [ ! -x "$FRAMES" ]; then
-    CLAUDE_USAGE="none"
+    printf '%s\n' "fleet-stats: scripts/claude-frames.sh is missing or not executable; Claude usage degraded to unknown" >&2
+    CLAUDE_USAGE="account-wide; unknown (the frame reader is missing)"
     return 0
   fi
   dc_rc=0
   dc_out=$("$FRAMES" read 2>/dev/null) || dc_rc=$?
   if [ "$dc_rc" != 0 ]; then
     printf '%s\n' "fleet-stats: could not read the rate-limit frames (claude-frames.sh read exit $dc_rc); Claude usage degraded to unknown" >&2
-    CLAUDE_USAGE="unknown"
+    CLAUDE_USAGE="account-wide; unknown (the frames could not be read)"
     return 0
   fi
   case $(printf '%s\n' "$dc_out" | awk -F "$TAB" '$1 == "verdict" { print $2; exit }') in
@@ -352,7 +354,8 @@ derive_claude_usage() {
       return 0
       ;;
     *)
-      CLAUDE_USAGE="unknown"
+      printf '%s\n' "fleet-stats: claude-frames.sh read gave no verdict; Claude usage degraded to unknown" >&2
+      CLAUDE_USAGE="account-wide; unknown (the frames could not be read)"
       return 0
       ;;
   esac

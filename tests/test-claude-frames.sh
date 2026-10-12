@@ -348,6 +348,13 @@ new_home render-empty
 render=$(cfenv /bin/sh "$FSTATS" render 2>/dev/null) || fail "fleet-stats render (empty) exited non-zero"
 printf '%s\n' "$render" | grep -q '^  Claude usage:   account-wide; unmeasured' \
   || fail "render: a frameless fleet does not render unmeasured with its label: $render"
+# A read that fails still renders the label, never a bare value that could
+# read as no usage.
+printf 'fleet_usage_session_downshift: 90\n' >"$local_cfg"
+render=$(cfenv /bin/sh "$FSTATS" render 2>/dev/null) || fail "fleet-stats render (failed read) exited non-zero"
+: >"$local_cfg"
+printf '%s\n' "$render" | grep -q '^  Claude usage:   account-wide; unknown' \
+  || fail "render: a failed read does not render unknown with its label: $render"
 pass "the read and fleet-stats.sh render carry the account-wide label"
 
 new_home push
