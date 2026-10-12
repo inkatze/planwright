@@ -224,7 +224,7 @@ legacy_lines() {
 # legacy_changes <old tip> <new tip> — `PS-legacy-<old>TAB<PS-legacy-new or ->`
 # per legacy commit the rewrite drops.
 legacy_changes() {
-  local old new o_sha o_id n_sha n_id hit
+  local old new o_sha o_id hit
   old=$(legacy_lines "$2..$1")
   [ -n "$old" ] || return 0
   new=$(legacy_lines "$1..$2")
@@ -234,6 +234,7 @@ legacy_changes() {
   done | sed "s/$TAB\$/$TAB-/"
 }
 
+# shellcheck disable=SC2016 # a jq program: the $ names are jq's
 CONFIRM_JQ='
       def short: .[0:7];
       def names: map((.commit | short) + " " + .subject) | join("; ");
