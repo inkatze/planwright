@@ -145,12 +145,14 @@ the first question, and repeated in the handoff (REQ-H1.5).
 
 1. **Gate the version, find the position.** An identifier argument passes
    `check-id`, then names `<root>/<id>` under the resolved ventures root.
-   `inception-venture.sh resume-point <venture-dir>`. Exit 2 names an
-   incomplete bundle (a missing file): say which and stop. Exit 3 is the
-   format-version refusal
-   (REQ-C1.7): relay its plain-language message, say this planwright cannot
-   read that bundle safely, and stop; never parse around it. Otherwise
-   `done` names the last completed phase and `next` the one to resume.
+   `inception-venture.sh resume-point <venture-dir>`. Exit 2 is an
+   environment problem, an incomplete bundle (the missing file named) among
+   them: relay the message and stop. Exit 3 is the validator's fail-closed
+   refusal (REQ-C1.7): relay its plain-language message and stop, never
+   parsing around it; only for an unsupported format-version say this
+   planwright cannot read that bundle safely, since an unclosed code fence
+   or an unparseable header is the operator's to repair. Otherwise `done`
+   names the last completed phase and `next` the one to resume.
 2. **Confirm settled ground, one line per completed phase**, from the
    bundle itself, never a replay; then continue at `next`. When `next` is
    `complete`, the operator is re-entering a finished elicitation: offer to
@@ -270,7 +272,8 @@ Run `inception-venture.sh handoff <venture-dir>` and emit at the operator, in
 plain words: where the venture lives and on which home and rung, whether the
 bundle is clean (`pending` means markers remain; `findings` means the
 validator still reports some; `incomplete` means a file is missing;
-`refused` or `unchecked` means the validator could not read it), where the elicitation stands, and every
+`refused` means the validator would not read it; `unchecked` means the
+check could not run here), where the elicitation stands, and every
 `degraded` line again. Then the human's next moves, as information rather
 than a verdict: run the validation tasks, resume with
 `/inception <venture-id>`, or, once a track is ready, take it to
