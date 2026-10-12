@@ -176,6 +176,16 @@ Open questions: none — all resolved to decisions or accepted risks.
 
 Signed off: 2026-07-13
 
+### Execution findings: Task 12 (2026-10-12)
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| T12-F1 | Research and security (untrusted bundle text into HTML). The OWASP XSS Prevention Cheat Sheet (current) asks for entity-encoding `&`, `<`, `>`, `"` and `'` in element bodies and quoted attributes, and says no encoding makes a `<script>`, `<style>`, comment, or tag/attribute-name context safe. Depth: OWASP plus the in-repo precedent (`spec-assemble.sh`); the change is low-stake and one revert from undone. | The renderer prints bundle text only into element bodies; attribute values and class names come from closed sets, and no page carries a script. The two inline forms it renders (code spans, bold) add fixed tags around text that is already escaped. The escaper moved to `scripts/html-escape.sh`, which `spec-assemble.sh` now shares. `fleet-dashboard.sh` keeps its byte-equivalent copy, because its tests sandbox a fixed subset of scripts; consolidating it is left to whoever next touches that renderer. |
+| T12-F2 | Decision (config / data-storage, low stake, reversible; D-9 leaves the knob's home open). The auto-republish knob and the record of a confirmed first publish could live in a tracked file or a machine-local one. | Machine-local `.planwright-publish.local`, gitignored by the scaffold and read as data, never sourced. A tracked knob could be flipped by any commit, a stakeholder's web-UI edit included (the REQ-G1.5 channel), and that would switch on off-machine publishing that nobody confirmed (REQ-G1.9). Consequence: the knob is per machine as well as per venture, so a second machine starts at off and offers the first publish again. |
+| T12-F3 | REQ-G1.3 asks for audience-selectable modes, but only the dashboard was regenerated on commit, so a committed pitch page would go stale. | With no `--mode`, the renderer writes both pages, and the scaffolded pre-commit step screens and stages each one. It acts only on a page the render actually produced, so a venture hook running an older planwright, which writes only the dashboard, does not refuse every commit. |
+| T12-F4 | The publish helper decides and never publishes. The Artifact publish itself belongs to the `/inception` skill, which does not exist yet, so REQ-G1.9's `[manual]` dogfood cannot run until it does. | The contract the skill must follow is in the helper's header: run `offer`, ask the operator whenever the answer is `offer`, then run `record --confirmed` after a confirmed publish. The owners are the skill tasks and the Task 17 dogfood. |
+| T12-F5 | Portability. An awk `match()` inside a called function resets `RSTART`/`RLENGTH`, and under mawk a loop that advanced on the reset values hung. | The match position is now copied before the nested call. The output was verified byte-identical under mawk and busybox awk. BSD awk was not available locally; CI is the remaining check. |
+
 ## 8. Sign-off
 
 **Mode / scope:** first activation, resumed at §3; full-bundle walkthrough; the consolidated
