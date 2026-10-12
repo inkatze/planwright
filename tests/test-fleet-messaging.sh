@@ -448,6 +448,10 @@ refuse_case "hostile worker handle" 2 "${P[@]}" send --to-worker 'w1/../x' --mes
 refuse_case "missing message file" 2 "${P[@]}" send --to-worker w1 --message-file "$tmp/nope" "${SEND_SEAMS[@]}"
 : >"$tmp/empty.txt"
 refuse_case "empty message file" 2 "${P[@]}" send --to-worker w1 --message-file "$tmp/empty.txt" "${SEND_SEAMS[@]}"
+printf 'ab\000cd\n' >"$tmp/nul.txt"
+refuse_case "a NUL byte in the body" 2 "${P[@]}" send --to-worker w1 --message-file "$tmp/nul.txt" "${SEND_SEAMS[@]}"
+printf 'ab\377cd\n' >"$tmp/latin.txt"
+refuse_case "a body that is not UTF-8" 2 "${P[@]}" send --to-worker w1 --message-file "$tmp/latin.txt" "${SEND_SEAMS[@]}"
 knob off
 refuse_case "kill switch off" 6 "${P[@]}" send --to-worker w1 --message-file "$msg" "${SEND_SEAMS[@]}"
 clear_knob

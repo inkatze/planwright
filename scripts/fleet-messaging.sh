@@ -558,6 +558,16 @@ cmd_send() {
     "" | *[!0-9]* | 0) die_usage "send: the message file is empty or unreadable" ;;
   esac
   [ "$sd_size" -le "$MESSAGE_MAX_BYTES" ] || die_usage "send: the message file exceeds $MESSAGE_MAX_BYTES bytes"
+  # The frame is a JSON string, which holds UTF-8 text and no NUL; awk passes
+  # neither defect through faithfully, so the receiver would drop the frame
+  # while the post still reads as written.
+  sd_nonul=$(tr -d '\000' <"$sd_file" | wc -c | tr -d ' ')
+  [ "$sd_nonul" = "$sd_size" ] || die_usage "send: the message file carries a NUL byte"
+  if ! command -v iconv >/dev/null 2>&1; then
+    printf '%s\n' "$me: send: iconv is missing, so the message cannot be checked as UTF-8 text; take the fallback" >&2
+    exit 6
+  fi
+  iconv -f UTF-8 -t UTF-8 <"$sd_file" >/dev/null 2>&1 || die_usage "send: the message file is not UTF-8 text"
 
   sd_reason=$(probe_reason)
   if [ -n "$sd_reason" ]; then
