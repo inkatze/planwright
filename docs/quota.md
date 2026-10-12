@@ -82,21 +82,22 @@ The stream-json supervisor keeps each worker's newest rate-limit reading beside
 its other runtime state under the fleet home, and the reading outlives the
 worker. `scripts/claude-frames.sh read` shows the session and weekly
 utilization those readings give: for each window, a reading whose reset time
-has passed is ignored, and of the rest the one with the furthest-future reset
-is taken, whichever worker sent it. `scripts/fleet-stats.sh render` shows the
+has passed, or lies beyond the throttle's hold ceiling, is ignored, and of the
+rest the one with the furthest-future reset is taken, whichever worker sent
+it. `scripts/fleet-stats.sh render` shows the
 same as its `Claude usage` line.
 
 These readings are **account-wide**: every session on the Claude account counts
 toward them, not only the fleet's workers, so they are a ceiling to respect,
 never the fleet's own spend, and every rendering says so. A fleet whose workers
 run only on backends that emit no readings (headless or subagent workers), or
-whose readings are all past their reset, reads **unmeasured**, never as
-headroom.
+whose readings are all ignored, reads **unmeasured**, never as headroom.
 
 A Claude hold counts as cleared only when each window has a reading received
 after the hold began that is below the window's lowest restriction threshold,
 its usage-gate `downshift` knob (`fleet_usage_session_downshift`,
-`fleet_usage_weekly_downshift`; [Options reference](options-reference.md)).
+`fleet_usage_weekly_downshift`; [Options reference](options-reference.md)). A
+threshold set the usage gate refuses as malformed clears nothing either.
 `scripts/claude-frames.sh clearance --since <epoch>` answers that for a hold
 that began at `<epoch>`. A stated reset time passing is not evidence. The usage
 gate's own signal is its `/usage` read; these readings never change it.
@@ -120,7 +121,8 @@ lines, the reset-time rules, and the exit codes.
 A held vendor is held for the whole host: each unit holding it is recorded in
 the vendor's hold store under the fleet home, never in `tasks.md`, and
 recording a hold pushes one attention event naming the vendor, the reason, the
-stated reset time (or that none was stated), and the resume command.
+stated reset time (or that none was stated), and the resume command; a `claude`
+hold's event also says its usage is account-wide.
 
 To resume a held vendor yourself, at any time:
 
