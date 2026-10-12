@@ -59,6 +59,11 @@ the same card at opposite poles decorrelate without inventing a second
 identity. A model override is a request, honoured only where the backend
 advertises per-seat model choice (inception D-7).
 
+The key set is closed the way the section set below is: a key outside the
+table, or a key given twice, is a lint finding, and a second `Card-format:`
+line refuses the card. Only blank lines separate the header block from
+`## Role`.
+
 The body is a closed set of H2 sections, written in this order:
 
 1. **`## Role`.** One operational sentence: what the seat does for this
@@ -115,8 +120,10 @@ The body is a closed set of H2 sections, written in this order:
 
 A section outside this set is a lint finding: identity content arrives most
 often as an extra section (`## Backstory`, `## About`), and a closed set is
-what keeps it out. An optional section joins the set in the same change as the
-linter that accepts it, within the current major (see *Versioning*).
+what keeps it out. For the same reason the title is the card's only H1 and
+every section heading is an ATX `## ` heading: a later H1 or a setext heading
+is a finding too. An optional key or section joins its set in the same change
+as the linter that accepts it, within the current major (see *Versioning*).
 
 ## Capability tiers
 

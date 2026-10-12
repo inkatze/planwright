@@ -5,7 +5,7 @@
 # doctrine/discipline-cards.md is the normative source for every rule below;
 # this script is its mechanical shadow. It checks one or more card files
 # against the card format: the fail-closed `Card-format:` gate first, then the
-# header keys, the closed section set and its order, and the per-section
+# closed header key set, the closed section set and its order, and the per-section
 # shapes (one-sentence role, three to seven frame-anchored mandate questions, a
 # numbered framework sequence with misuse caveats, a refuse-without grounding
 # gate, a fenced artifact template ending in `Decisions I cannot make`, the
@@ -66,7 +66,7 @@ usage() {
 # fixture expects a code that is not here.
 print_rules() {
   cat <<'RULES'
-FMT-MISSING the card declares no parseable Card-format
+FMT-MISSING the card declares no single parseable Card-format
 FMT-UNSUPPORTED the declared Card-format major is not supported by this linter
 FENCE-UNBALANCED a column-0 code fence is left open at end of file
 HDR-ID Card-id is missing, outside the identifier charset, or not the file name's stem
@@ -77,8 +77,9 @@ HDR-RAPID RAPID is missing, names a letter outside R, A, P, I, or names D
 HDR-BENCH Bench is missing or not yes or no
 HDR-STANCE Stance-axis is present but neither none nor <pole>-<pole>
 HDR-MODEL Model-override is present but neither none nor a single model token
+HDR-UNKNOWN a header key outside the card key set, or one given twice
 SEC-MISSING a required section is absent
-SEC-UNKNOWN a section outside the closed card section set
+SEC-UNKNOWN a section outside the closed card section set, or content outside any section
 SEC-ORDER sections are out of the schema order, or one appears twice
 SEC-EMPTY a present section has no content
 ROLE-FORM the role is not exactly one sentence
@@ -143,6 +144,7 @@ END {
   if (open) { emit("FENCE-UNBALANCED", "a code fence opened in this card is never closed"); exit }
 
   # --- Header block: the leading run of the H1, key lines, and blanks ------
+  nh = 0
   for (i = 1; i <= n; i++) {
     if (L[i] ~ /^# / && i == 1) continue
     if (L[i] ~ /^[ \t]*$/) continue
@@ -150,13 +152,15 @@ END {
       k = L[i]; sub(/^\*\*/, "", k); sub(/:\*\*.*$/, "", k)
       v = L[i]; sub(/^\*\*[A-Za-z][A-Za-z-]*:\*\*/, "", v); v = trim(v)
       if (!(k in H)) H[k] = v
+      KN[k]++; nh++; HK[nh] = k; HL[nh] = i
       continue
     }
     break
   }
+  header_end = i
 
-  if (!("Card-format" in H) || H["Card-format"] !~ /^[0-9]+$/) {
-    emit("FMT-MISSING", "no parseable Card-format: line in the header block"); exit
+  if (!("Card-format" in H) || H["Card-format"] !~ /^[0-9]+$/ || KN["Card-format"] > 1) {
+    emit("FMT-MISSING", "no single parseable Card-format: line in the header block"); exit
   }
   if (H["Card-format"] + 0 != major) {
     emit("FMT-UNSUPPORTED", "Card-format: " H["Card-format"] " is not supported (this linter reads " major ")"); exit
@@ -195,13 +199,32 @@ END {
   if (("Model-override" in H) && H["Model-override"] != "none" &&
       H["Model-override"] !~ /^[A-Za-z0-9][A-Za-z0-9._-]*(\/[a-z]+)?$/)
     emit("HDR-MODEL", "Model-override: must be none or one model or model/effort token")
+  nk = split("Card-format Card-id Reviewed Rot-rate Default-tier RAPID Bench Stance-axis Model-override", KS, " ")
+  for (j = 1; j <= nk; j++) is_key[KS[j]] = 1
+  for (j = 1; j <= nh; j++) {
+    k = HK[j]
+    if (!(k in is_key)) emit("HDR-UNKNOWN", "line " HL[j] ": header key " k " is outside the card key set")
+    else if ((k in key_seen) && k != "Card-format") emit("HDR-UNKNOWN", "line " HL[j] ": header key " k " is given more than once")
+    key_seen[k] = 1
+  }
 
   # --- Section set, order, and bodies --------------------------------------
   ns = split("Role|Mandate|Frameworks|Grounding|Input subscription|Artifact template|Capability boundary|Escalation contract|Register rules|Anti-patterns|Blind spots|Conflict and deference|Independence|Pull-in triggers|Sources", S, "|")
   for (j = 1; j <= ns; j++) rank[S[j]] = j
-  last_rank = 0; order_bad = 0; cur = ""
-  for (i = 1; i <= n; i++) {
+  last_rank = 0; order_bad = 0; cur = ""; any_sec = 0; preamble = 0
+  for (i = header_end; i <= n; i++) {
+    # Identity content most often arrives outside the closed section set:
+    # prose before the first section, an extra H1, or a setext heading.
+    if (!any_sec && !preamble && L[i] !~ /^[ \t]*$/ && (F[i] || L[i] !~ /^## /)) {
+      emit("SEC-UNKNOWN", "line " i ": content before the first section; only blank lines may follow the header block"); preamble = 1
+    }
+    if (any_sec && !F[i] && L[i] ~ /^# /)
+      emit("SEC-UNKNOWN", "line " i ": an H1 after the title; card sections are ## headings")
+    if (!F[i] && i > header_end && L[i] ~ /^(=+|-+)[ \t]*$/ && !F[i - 1] &&
+        L[i - 1] !~ /^[ \t]*$/ && L[i - 1] !~ /^([-*+][ \t]|[0-9]+\.[ \t]|[|#>])/)
+      emit("SEC-UNKNOWN", "line " i ": a setext heading; card sections are ## headings")
     if (!F[i] && L[i] ~ /^## /) {
+      any_sec = 1
       name = trim(substr(L[i], 4))
       cur = ""
       if (!(name in rank)) { emit("SEC-UNKNOWN", "section \"" name "\" is outside the card section set"); continue }

@@ -122,10 +122,16 @@ seed HDR-RAPID 1 '{ sub(/^\*\*RAPID:\*\* .*/, "**RAPID:** X"); print }'
 seed HDR-BENCH 1 '{ sub(/^\*\*Bench:\*\* .*/, "**Bench:** maybe"); print }'
 seed HDR-STANCE 1 '{ sub(/^\*\*Stance-axis:\*\* .*/, "**Stance-axis:** skeptical"); print }'
 seed HDR-MODEL 1 '/^\*\*Stance-axis:\*\*/ { print; print "**Model-override:** two words"; next } { print }'
+seed HDR-UNKNOWN 1 '/^\*\*Stance-axis:\*\*/ { print; print "**Backstory:** A long career in consulting."; next } { print }'
+seed HDR-UNKNOWN 1 '/^\*\*Bench:\*\*/ { print; print "**Bench:** no"; next } { print }'
+seed FMT-MISSING 3 '/^\*\*Bench:\*\*/ { print; print "**Card-format:** 7"; next } { print }'
 
 # Section set.
 seed SEC-MISSING 1 '/^## Blind spots$/ { skip = 1; next } skip && /^## / { skip = 0 } !skip'
 seed SEC-UNKNOWN 1 '/^## Sources$/ { print "## Backstory"; print ""; print "A long career."; print "" } { print }'
+seed SEC-UNKNOWN 1 '/^## Role$/ { print "Shaped by a long career in consulting."; print "" } { print }'
+seed SEC-UNKNOWN 1 '/^## Sources$/ { print "# Backstory"; print ""; print "A long career."; print "" } { print }'
+seed SEC-UNKNOWN 1 '/^## Sources$/ { print "Backstory"; print "---------"; print ""; print "A long career."; print "" } { print }'
 seed SEC-EMPTY 1 '/^## Anti-patterns$/ { print; print ""; skip = 1; next } skip && /^## / { skip = 0 } !skip'
 # Moves the Role section to after the Mandate section.
 # shellcheck disable=SC2016 # an awk program: $0 is awk's, not the shell's
