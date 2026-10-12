@@ -55,7 +55,8 @@
 #     branch of every classifier is defer, so "zero false-allows" is guaranteed
 #     by construction, not merely across the test corpus (REQ-C1.3).
 #
-# Analysis model (inherited from the worker guard): the command string exactly
+# Analysis model (shared with the worker guard, which alone admits a narrow
+# command substitution form): the command string exactly
 # as written — Claude Code hands a hook the raw `tool_input.command`, with
 # `$VAR` references unexpanded (measured on CLI 2.1.270) — is split —
 # quote- and operator-aware — into segments on the control operators `;` `&&`

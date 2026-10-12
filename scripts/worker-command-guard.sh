@@ -49,10 +49,10 @@
 # below, (b) its flags/args designate no output/target file and enable no write
 # or arbitrary execution (REQ-A1.8), the spec-root write zone excepted, and (c)
 # it uses no construct the analyzer cannot confidently parse — process
-# substitution, a command substitution outside the narrow form subst_reach_ok
-# admits, here-docs, subshell or brace grouping, env-assignment prefixes,
-# path-prefixed verbs, escaped operators, ANSI-C quoting, shell comments,
-# named-fd redirects — all of which defer (REQ-A1.9). The segments are read in
+# substitution, a command substitution outside the narrow form verify_known_simple
+# and subst_words_ok admit, here-docs, subshell or brace grouping,
+# env-assignment prefixes, path-prefixed verbs, escaped operators, ANSI-C
+# quoting, shell comments, named-fd redirects — all of which defer (REQ-A1.9). The segments are read in
 # run order, so the state one sets applies to those after it: a `cd` into the
 # session's own worktree moves the working directory later segments are
 # checked against (see cd_target_ok), and the time/timeout prefixes are looked
@@ -163,7 +163,7 @@ emit_allow() {
 # zsh_opt_word_ok). The ninth records that the quoting is mixed: a second
 # quoted run, or an unquoted character after quoting began, so a value quoted
 # from its first character is wholly quoted only when this is 0. The tenth
-# lists, space-separated, the SUB_TXT indexes of the `$(…)` substitutions the
+# lists, space-separated, the SUBST_TXT indexes of the `$(…)` substitutions the
 # word holds (see subst_scan).
 tok_push() {
   TOK_TYPE[TOK_N]=$1
@@ -243,7 +243,7 @@ dollar_form_ok() {
 # first `)` and holds no `(` and no backtick, so it nests nothing, and a `)`
 # the shell would read as quoted or escaped cuts the text inside that quote
 # or escape, which then fails to tokenize when verify_known_simple analyses
-# it. Records the inner text in SUB_TXT, its index in SUBST_IDX, and the
+# it. Records the inner text in SUBST_TXT, its index in SUBST_IDX, and the
 # index past the `)` in SUBST_END. `$((` arithmetic, and any substitution
 # inside a `fish -c` string (fish splits its output on newlines alone),
 # defer.
@@ -259,9 +259,9 @@ subst_scan() {
     p=$((p + 1))
   done
   [ "$p" -lt "${#s}" ] || return 1
-  SUB_TXT[SUB_N]=${s:$2+2:p-$2-2}
-  SUBST_IDX=$SUB_N
-  SUB_N=$((SUB_N + 1))
+  SUBST_TXT[SUBST_N]=${s:$2+2:p-$2-2}
+  SUBST_IDX=$SUBST_N
+  SUBST_N=$((SUBST_N + 1))
   SUBST_END=$((p + 1))
 }
 
@@ -2514,7 +2514,7 @@ track_assignment() {
   assign_value_literal "$value" "$vq" "${cqm[0]}" "${cdyn[0]}" "${cglob[0]}" "${cx[0]}" \
     || PENDING_ASSIGN_O=1
   PENDING_ASSIGN_S=0
-  if [ "$SUB_N" -gt 0 ] && word_tainted 0; then
+  if [ "$SUBST_N" -gt 0 ] && word_tainted 0; then
     PENDING_ASSIGN_S=$((TAINT_WEAK + 1))
   fi
   PENDING_ASSIGN_N=$name
@@ -2946,7 +2946,8 @@ guard_printf() {
 # unknown text is equivalent to some literal the guard already approves. That
 # set is narrower than arg_independent_verb's: a verb that opens its operands
 # could be handed another process's environ path, and the rest are left out
-# rather than argued one by one.
+# rather than argued one by one. In these comments a bare "substitution" is
+# a command substitution, never the table of tracked variables (VAR_*).
 
 # word_tainted <i>: 0 when word <i> of the current simple command carries
 # substitution output, with TAINT_WEAK saying how the guard knows. Known
@@ -2989,7 +2990,7 @@ word_tainted() {
         break
       fi
     done
-    [ "$found" = 1 ] || [ "$SUB_SEEN" = 0 ] || weak=1
+    [ "$found" = 1 ] || [ "$SUBST_SEEN" = 0 ] || weak=1
   done
   [ "$weak" = 1 ] || return 1
   TAINT_WEAK=1
@@ -3041,7 +3042,7 @@ subst_inner_ok() {
 subst_words_ok() {
   local i rc
   # Without a substitution in this command, or around it, nothing is tainted.
-  if [ "$SUB_N" -eq 0 ] && [ "$IN_SUBST" = 0 ]; then
+  if [ "$SUBST_N" -eq 0 ] && [ "$IN_SUBST" = 0 ]; then
     opaque_words_ok
     return
   fi
@@ -3737,12 +3738,12 @@ verify_known_simple() {
   local i verb si
   # Each substitution's own command runs whatever the words around it are,
   # so it must pass first, against the working directory it will run in.
-  if [ "$SUB_N" -gt 0 ]; then
+  if [ "$SUBST_N" -gt 0 ]; then
     for ((i = 0; i < cwn; i++)); do
       for si in ${csub[i]-}; do
-        [ "${SUB_OKD[si]-}" = "d:$HOOK_CWD" ] && continue
-        subst_inner_ok "${SUB_TXT[si]}" || return 1
-        SUB_OKD[si]=d:$HOOK_CWD
+        [ "${SUBST_OKD[si]-}" = "d:$HOOK_CWD" ] && continue
+        subst_inner_ok "${SUBST_TXT[si]}" || return 1
+        SUBST_OKD[si]=d:$HOOK_CWD
       done
     done
   fi
@@ -4092,10 +4093,10 @@ analyze_command() {
   local -a TOK_TYPE=() TOK_VAL=() TOK_QUOTED=() TOK_NOEXP=() TOK_QPOS=() TOK_DYN=() TOK_GLOB=() TOK_ZOPT=() TOK_QMIX=() TOK_SUBS=()
   local TOK_N=0
   # The command substitutions' inner texts, the working directory each last
-  # passed in (SUB_OKD, `d:`-prefixed), and whether the command holds one
+  # passed in (SUBST_OKD, `d:`-prefixed), and whether the command holds one
   # (word_tainted); subst_scan returns its results in SUBST_IDX / SUBST_END.
-  local -a SUB_TXT=() SUB_OKD=()
-  local SUB_N=0 SUB_SEEN=0 SUBST_IDX=0 SUBST_END=0
+  local -a SUBST_TXT=() SUBST_OKD=()
+  local SUBST_N=0 SUBST_SEEN=0 SUBST_IDX=0 SUBST_END=0
   local HOOK_DEPTH=$depth
   # The substitution table (tracked assignments and loop variables, VAR_L
   # marking the latter and VAR_O an opaque value; track_assignment /
@@ -4110,7 +4111,7 @@ analyze_command() {
   # A loop runs words the walk has already passed again after a later
   # substitution (a `while` head reads the body's last `$_`), so `$_` counts
   # as carrying substitution output wherever the command holds one.
-  [ "$SUB_N" -eq 0 ] || SUB_SEEN=1
+  [ "$SUBST_N" -eq 0 ] || SUBST_SEEN=1
   # Each `|`-separated segment holds a command or a redirect, and its first
   # word is no reserved word: anything else is not a pipeline.
   if [ "${3-}" = pipeline ]; then
