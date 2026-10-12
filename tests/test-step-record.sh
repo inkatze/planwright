@@ -2488,14 +2488,27 @@ rm -f "$wlm/.claude/steps/000001/001-step-pre-ready-flip.rec.bak"
 lstate "$HX_A"
 [ "$ST_RC" -eq 0 ] && gh_arg state=failure
 verdict "a step record with a garbled type fails the flip" "rc=$ST_RC"
-for garble in "outcome${TAB}FAILED" ""; do
+for garble in "s/^outcome${TAB}.*/outcome${TAB}FAILED/" "/^outcome${TAB}/d"; do
   lim_wt
   flip "$HX_A" failed
-  sed -i.bak "s/^outcome${TAB}.*/$garble/" "$wlm/.claude/steps/000001/001-step-pre-ready-flip.rec"
+  sed -i.bak "$garble" "$wlm/.claude/steps/000001/001-step-pre-ready-flip.rec"
   rm -f "$wlm/.claude/steps/000001/001-step-pre-ready-flip.rec.bak"
   lstate "$HX_A"
   [ "$ST_RC" -eq 0 ] && gh_arg state=failure
-  verdict "an attempt record whose outcome reads '$garble' fails the flip" "rc=$ST_RC"
+  verdict "an attempt record edited by '$garble' fails the flip" "rc=$ST_RC"
+done
+# A newer completion with a garbled or missing head fails closed too.
+for garble in "s/^head${TAB}.*/head${TAB}deadbeef/" "/^head${TAB}/d"; do
+  lim_wt
+  flip "$HX_A" passed
+  f2=$(srl new-run)
+  lrec "$f2" pre-ready-flip gate halted "$HX_A"
+  srl write --completion --run "$f2" --point pre-ready-flip --head "$HX_A" >/dev/null
+  sed -i.bak "$garble" "$wlm/.claude/steps/$f2/002-done-pre-ready-flip.rec"
+  rm -f "$wlm/.claude/steps/$f2/002-done-pre-ready-flip.rec.bak"
+  lstate "$HX_A"
+  [ "$ST_RC" -eq 0 ] && gh_arg state=failure
+  verdict "a newer completion edited by '$garble' fails the flip" "rc=$ST_RC"
 done
 # A newer completion that cannot be read fails closed rather than handing the
 # verdict to an older passing attempt.

@@ -1651,7 +1651,7 @@ cmd_status() {
         if (R_POINT != P) next
         if (!bad && F["head"] == H && R_RUN + 0 > A + 0) A = R_RUN
         # A malformed completion names no head it can be trusted on.
-        if (bad && R_RUN + 0 > B + 0) B = R_RUN
+        if ((bad || !hex(F["head"])) && R_RUN + 0 > B + 0) B = R_RUN
         next
       }
       if (R_KIND != "step") next
