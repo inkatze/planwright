@@ -114,8 +114,8 @@ r1() {
 # ---------------------------------------------------------------------------
 # REQ-E1.2, REQ-B1.2, REQ-B1.3: under resolve the conflict is left for the
 # worker, whose resolution commit carries the sign-off trailer; the checklist
-# flags it and names the halt re-run with the rejected trailer, never a
-# revert.
+# flags it, and its recipe sets halt and lands a hand resolution with the
+# rejected trailer, never a revert.
 # ---------------------------------------------------------------------------
 r2() {
   fixture r2
@@ -182,14 +182,14 @@ r2() {
   recipe=$(printf '%s\n' "$cl" | grep '^  - Reject with:') || fail "r2: no recipe: $cl"
   case $recipe in
     *'worker_merge_conflict_policy: halt'*'Planwright-Sign-Off-Rejected: PS-1'*) ;;
-    *) fail "r2: the recipe does not name the halt re-run with the rejected trailer: $recipe" ;;
+    *) fail "r2: the recipe does not name setting halt with the rejected trailer: $recipe" ;;
   esac
   case $recipe in *'`git revert'*) fail "r2: the recipe offers a revert: $recipe" ;; esac
 
   # A second commit attempt finds no resolve-mode merge in progress.
   run_sync --commit-resolution demo/1 "$T/worker"
   [ "$RC" -eq 11 ] || fail "r2: a resolution commit with no merge in progress should exit 11, got $RC"
-  echo "ok r2: resolve leaves the conflict, commits a trailered resolution, and the checklist names the halt re-run"
+  echo "ok r2: resolve leaves the conflict, commits a trailered resolution, and the checklist names setting halt and the rejected trailer"
 }
 
 # ---------------------------------------------------------------------------
@@ -393,6 +393,11 @@ r7() {
   gitc "$T/worker" add -A
   run_sync --commit-resolution demo/1 "$T/worker"
   [ "$RC" -eq 11 ] || fail "r7: markers left in a non-ASCII path should exit 11, got $RC: $ERR"
+  case $ERR in *"conflict marker"*) ;; *) fail "r7: the non-ASCII path was not marker-checked: $ERR" ;; esac
+  printf 'resolved\n' >"$T/worker/$name"
+  gitc "$T/worker" add -A
+  run_sync --commit-resolution demo/1 "$T/worker"
+  [ "$RC" -eq 0 ] || fail "r7: a clean resolution of a non-ASCII path should commit, got $RC: $ERR"
 
   run_sync --commit-resolution 'Not A Ref' "$T/worker"
   [ "$RC" -eq 2 ] || fail "r7: a malformed task ref should exit 2, got $RC: $ERR"

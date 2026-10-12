@@ -99,9 +99,11 @@
 #   10 off-branch — a detached HEAD, a branch that is not a unit branch or is
 #      protected, or one that is not the session's; nothing is touched
 #   11 resolution-refused — --commit-resolution with no resolve-mode merge of
-#      this script's in progress, either knob no longer allowing it, an
-#      unmerged path, a leftover conflict marker, or a staged change outside
-#      the conflicted paths; nothing is committed
+#      this script's in progress, a recorded source origin/main does not
+#      contain, either knob no longer allowing it, an unmerged path, a leftover
+#      conflict marker, or a staged change outside the conflicted paths;
+#      nothing is committed. A conflicted name git still quotes is refused
+#      with a park record, since only a human can resolve it
 #   12 resolution-failed — stamping or committing the resolution failed; the
 #      merge is left in progress
 #
@@ -315,8 +317,9 @@ if [ "$mode" = commit ]; then
   names=$(sed 1d "$resolve_state")
   # git still quotes a name holding a quote, backslash, or control byte, and
   # a quoted name cannot be passed back as a pathspec.
+  # A hand commit would carry no sign-off trailer, so this one goes to a human.
   if printf '%s\n' "$names" | grep -q '^"'; then
-    die 11 resolution-refused "a conflicted path name needs quoting, which this script does not check; commit the resolution by hand and name it in the handoff"
+    park 11 resolution-refused "a conflicted path name needs quoting, which this script does not check; a human resolves this merge, stamping its commit through planwright-commit-trailers.sh --sign-off"
   fi
   rpaths=()
   while IFS= read -r p; do
@@ -329,7 +332,7 @@ EOF
     die 11 resolution-refused "a resolved path still carries a conflict marker; finish the resolution and stage it"
   fi
   merged_entries "$resolve_state" | cmp -s - "$resolve_state.index" \
-    || die 11 resolution-refused "the index changes paths outside the conflicted ones, which a resolution commit may not carry; unstage those changes (they belong in their own commit after the merge)"
+    || die 11 resolution-refused "the index changes paths outside the conflicted ones, which a resolution commit may not carry; unstage those changes (they belong in their own commit after the merge), and a directory/file conflict whose resolution moves a path elsewhere needs a human under halt"
   shown=$(path_list "$names")
   msg=$(mktemp) || die 12 resolution-failed "a scratch file could not be created"
   stamped=$(mktemp) || {
