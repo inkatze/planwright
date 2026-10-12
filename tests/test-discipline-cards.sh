@@ -150,6 +150,9 @@ seed SEC-UNKNOWN 1 '/^## Sources$/ { print "# Backstory"; print ""; print "A lon
 seed SEC-UNKNOWN 1 '/^## Sources$/ { print "Backstory"; print "---------"; print ""; print "A long career."; print "" } { print }'
 seed SEC-UNKNOWN 1 '/^## Sources$/ { print "Backstory"; print "   ---"; print ""; print "A long career."; print "" } { print }'
 seed SEC-EMPTY 1 '/^## Anti-patterns$/ { print; print ""; skip = 1; next } skip && /^## / { skip = 0 } !skip'
+# A section holding only a fence holds no card content.
+# shellcheck disable=SC2016 # an awk program printing a literal fence
+seed SEC-EMPTY 1 '/^Implementation cost;/ { print "```text"; print "Implementation cost."; print "```"; next } { print }'
 # Moves the Role section to after the Mandate section.
 # shellcheck disable=SC2016 # an awk program: $0 is awk's, not the shell's
 seed SEC-ORDER 1 '/^## Role$/ { held = 1 } held && /^## / && !/^## Role$/ { held = 0 } held { buf = buf $0 "\n"; next } /^## Frameworks$/ { printf "%s", buf } { print }'
