@@ -45,7 +45,9 @@ gate concept it maps to; nothing here is a new permission.
   [Finding Categorization](finding-categorization.md) Auto-applicable
   predicate).
 - **Agent-resolvable** — resolve the finding and record the evidence row: a
-  failing-then-passing regression test, a passing project CI, and a
+  failing-then-passing regression test, a passing project CI (a green full
+  local suite after the fix, or a green CI run on a pushed head containing
+  the fix, reported resolved only once that run is green), and a
   brief-alignment citation. The tower may land this autonomously because the
   proof, not the tower's judgment, is what backs it (the Agent-resolvable
   predicate).
