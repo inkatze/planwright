@@ -528,6 +528,13 @@ deferred until every flipper posts.
   host, since its own units run the installed plugin (REQ-I1.13); clear
   this bullet when that release is installed.
 - **Task 11** — pending ready-flip: ready-guard failed on d021e74a28bd
+- **Task 12** — post-pr step cubic-pr halted on two cubic findings on PR
+  #656 that need the operator: the guard matching a pool-hold mark by the
+  command line rather than by the declaring step (a fork: keep the line
+  match, or defer a mark when declarations sharing the line disagree on
+  the pool), and a request for unwired-list re-fire tests (recommended
+  decline). Drafted replies are in the handoff; the record is at
+  `.claude/steps/000001/009-step-post-pr.rec`.
 
 ## Deferred
 
