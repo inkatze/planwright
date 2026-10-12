@@ -87,7 +87,7 @@ shq() {
 }
 
 purge() {
-  local args='' n=0
+  local args='' n=0 paths=0
   while [ "$#" -gt 0 ]; do
     case $1 in
       --path | --replace-text)
@@ -98,6 +98,7 @@ purge() {
         [ "$(safe "$2")" = "$2" ] || usage "$1 carries a control character"
         if [ "$1" = --path ]; then
           args="$args --path $(shq "$2")"
+          paths=$((paths + 1))
         else
           args="$args --replace-text $(shq "$2")"
         fi
@@ -108,9 +109,7 @@ purge() {
     esac
   done
   [ "$n" -gt 0 ] || usage "purge needs at least one --path or --replace-text"
-  case $args in
-    *--path*) args=" --invert-paths$args" ;;
-  esac
+  [ "$paths" = 0 ] || args=" --invert-paths$args"
   cat <<EOF
 Prepared only: the purge is the operator's to run; nothing here was executed.
 

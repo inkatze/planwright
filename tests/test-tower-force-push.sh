@@ -304,6 +304,14 @@ else
 fi
 rc=$(rc_of "$FP" purge)
 [ "$rc" = 2 ] || fail "purge with nothing to purge was not a usage error (exit $rc)"
+# --invert-paths keeps only what no --path names, so it follows a --path
+# argument, never a replace-text file whose name happens to contain one.
+rc=$(rc_of "$FP" purge --replace-text 'leak--paths.txt')
+if [ "$rc" = 0 ] && grep -qF "git filter-repo --sensitive-data-removal --replace-text 'leak--paths.txt'" "$tmp/out"; then
+  ok "purge adds --invert-paths only for a --path argument"
+else
+  fail "purge printed a wrong command for a replace-text file: $(cat "$tmp/out")"
+fi
 rc=$(rc_of "$FP" purge --path "$(printf 'a\033[31mb')")
 [ "$rc" = 2 ] || fail "purge took a path carrying a control character (exit $rc)"
 
