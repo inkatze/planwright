@@ -109,13 +109,23 @@ card_path() {
 tab=$(printf '\t')
 rc=0
 found=0
-# A malformed merged entry fails --list; a single-id lookup answers for its
-# own id only.
-while IFS="$tab" read -r id layer; do
+# A malformed merged entry (an id outside the charset, a field more than
+# <id> and <layer>, an unknown layer) fails --list; a single-id lookup answers
+# for its own id only.
+while IFS="$tab" read -r id layer extra; do
   [ -n "$id" ] || continue
-  if ! valid_id "$id"; then
+  malformed=
+  valid_id "$id" || malformed="an id outside the charset"
+  [ -z "$malformed" ] && [ -n "$extra" ] && malformed="a field too many"
+  if [ -z "$malformed" ]; then
+    case $layer in
+      core | adopter | repo-tracked | machine-local) ;;
+      *) malformed="an unknown layer" ;;
+    esac
+  fi
+  if [ -n "$malformed" ]; then
     if [ "$want" = "--list" ]; then
-      echo "resolve-card: skipping a catalog entry whose id is outside the charset" >&2
+      printf '%s\n' "resolve-card: skipping a catalog entry with $malformed" >&2
       rc=1
     fi
     continue
@@ -129,6 +139,7 @@ while IFS="$tab" read -r id layer; do
   elif [ "$id" = "$want" ]; then
     found=1
     card_path "$id" "$layer" || rc=1
+    break
   fi
 done <<EOF
 $explain

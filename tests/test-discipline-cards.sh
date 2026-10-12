@@ -485,6 +485,25 @@ base "$core_env" PLANWRIGHT_ADOPTER_OVERLAY="$mixed" PLANWRIGHT_REPO_ROOT=none \
   /bin/bash "$RESOLVE" --list >/dev/null 2>&1
 assert_eq "unrelated malformed entry: --list still reports it (exit 1)" "1" "$?"
 
+# An id carrying a tab splits into an extra field in the merged listing; that
+# entry is malformed and never matches, so the real id prints exactly once.
+tabbed="$tmp/tabbed"
+mkdir -p "$tabbed/catalogs"
+write_golden_card "$tabbed/cards" good-card
+tab_byte=$(printf '\t')
+cat >"$tabbed/catalogs/discipline-cards.yaml" <<YAML
+cards:
+  - id: "good-card${tab_byte}core"
+    discipline: "Tabbed"
+  - id: good-card
+    discipline: "Good"
+YAML
+out="$(base "$core_env" PLANWRIGHT_ADOPTER_OVERLAY="$tabbed" PLANWRIGHT_REPO_ROOT=none \
+  /bin/bash "$RESOLVE" good-card 2>/dev/null)"
+assert_eq "tab in an id: the real id resolves (exit 0)" "0" "$?"
+assert_eq "tab in an id: the real id prints exactly once" \
+  "$tabbed/cards/good-card.md" "$out"
+
 # The repo-tracked and machine-local layers each supply their own card from
 # their own card home.
 repo="$tmp/repo"
