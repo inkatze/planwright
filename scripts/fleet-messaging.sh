@@ -698,7 +698,8 @@ cmd_notice_read() {
       for (i = 1; i <= n; i++) {
         nf = split(last[order[i]], f, "\t")
         if (f[nf] == "closed" && (nf == 8 || nf == 10)) continue
-        if (nf >= 9 && f[8] == ENVIRON["NR_NAME"]) { hits++; w = order[i] }
+        # `-` is the sentinel a row holds until its session registers a name.
+        if (nf >= 9 && f[8] != "-" && f[8] == ENVIRON["NR_NAME"]) { hits++; w = order[i] }
       }
       if (hits == 1) print "one\t" w
       else if (hits > 1) print "many"

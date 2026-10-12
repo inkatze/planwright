@@ -571,6 +571,10 @@ hostile_name "accepted by validate-handle, refused by the screen" "sess:win/x"
 row9 110 w-twin-a "fleet-twin" a.sock >>"$reg"
 row9 111 w-twin-b "fleet-twin" b.sock >>"$reg"
 hostile_name "ambiguous name" "fleet-twin"
+# The `-` sentinel a row carries before its session registers is no name.
+row9 113 w-unnamed - - >>"$reg"
+fa heartbeat w-unnamed spec:4 working || fail "heartbeat w-unnamed"
+hostile_name "the unregistered-name sentinel" "-"
 long_ok=$(printf 'n%.0s' $(seq 1 128))
 rc=0
 fm -- notice-read "$long_ok" >/dev/null 2>&1 || rc=$?
