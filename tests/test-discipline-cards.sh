@@ -443,6 +443,8 @@ out="$(base "$core_env" PLANWRIGHT_ADOPTER_OVERLAY="$esc" PLANWRIGHT_REPO_ROOT=n
 assert_eq "symlink escaping the layer root: exit 1" "1" "$?"
 assert_eq "symlink escaping the layer root: no path printed" "" "$out"
 assert_contains "symlink escaping the layer root: says so" "escapes its layer root" "$(cat "$err")"
+assert_not_contains "symlink escaping the layer root: the helper's own text stays silent" \
+  "$tmp/outside" "$(cat "$err")"
 
 # A contained card whose canonical path carries a control byte (here through a
 # symlink target's name) is refused, never printed to the terminal.

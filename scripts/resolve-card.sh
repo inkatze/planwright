@@ -89,7 +89,9 @@ card_path() {
     printf '%s\n' "resolve-card: $1: the $2 layer lists it but has no card file at $rel" >&2
     return 1
   fi
-  contained=$(/bin/sh "$overlay_root" --contain "$root" "$rel") || {
+  # The helper's own refusal text stays silent: it can carry an unsanitized
+  # path, and the message below names the card.
+  contained=$(/bin/sh "$overlay_root" --contain "$root" "$rel" 2>/dev/null) || {
     printf '%s\n' "resolve-card: $1: the $2 card file escapes its layer root; refused" >&2
     return 1
   }
