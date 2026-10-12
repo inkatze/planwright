@@ -45,7 +45,7 @@
 #   refuses to read the bundle (an unsupported or unparseable
 #   format-version, an unbalanced code fence; passed through) · 4 a
 #   malformed repo-tracked ventures_root · 5 the target or a bundle file
-#   already exists, or the venture already has a remote (never overwritten)
+#   already exists (never overwritten)
 #   · 6 the requested home or push is unavailable · 7 the remote step failed.
 #
 # Environment: PLANWRIGHT_INCEPTION_TODAY (YYYY-MM-DD) pins today's date;
@@ -865,13 +865,19 @@ cmd_add_remote() {
   name=$(basename "$dir")
   cmd_check_id "$name" || exit 1
   is_repo_root "$dir" || die 6 "this venture has no git history to move; a plain folder cannot gain a remote"
-  git -C "$dir" remote get-url origin >/dev/null 2>&1 && die 5 "this venture already has a remote"
-  probe
-  [ "$remote_state" = available ] || die 6 "the private-remote home is unavailable ($remote_reason)"
-  make_private_remote "$dir" "${owner:+$owner/}$name" \
-    || remote_failed "${owner:+$owner/}$name" "the venture stays local-only"
+  # With origin already set this is a retry (say, after a scaffold failure):
+  # the repository exists, so only the setup below runs again.
+  if ! git -C "$dir" remote get-url origin >/dev/null 2>&1; then
+    probe
+    [ "$remote_state" = available ] || die 6 "the private-remote home is unavailable ($remote_reason)"
+    make_private_remote "$dir" "${owner:+$owner/}$name" \
+      || remote_failed "${owner:+$owner/}$name" "the venture stays local-only"
+  fi
+  # The scaffold keeps every existing file, so the notes file, which still
+  # describes the local rung, is the one file removed for it to rewrite.
+  rm -f "$dir/hygiene-wiring.md"
   /bin/sh "$self_dir/inception-scaffold.sh" --rung remote "$dir" >/dev/null \
-    || die 2 "the remote-rung scaffold failed"
+    || die 2 "the remote-rung scaffold failed; run add-remote again to retry it"
   printf 'venture\t%s\n' "$dir"
   printf 'home\tremote\n'
 }

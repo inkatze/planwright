@@ -537,8 +537,20 @@ assert_eq "H1.3 the remote is wired" origin "$(git -C "$lv" remote)"
 assert_exists "H1.3 the CI guard joins on the remote rung" "$lv/.github/workflows/venture-guard.yml"
 assert_exists "H1.3 the remote repository was created" "$tmp/remotes/northwind-signals.git"
 assert_contains "H1.3 gh was asked for a private repo" "--private" "$(cat "$tmp/gh-calls.log")"
+assert_contains "F2 add-remote rewrites the notes for the remote rung" "**remote** rung" "$(cat "$lv/hygiene-wiring.md")"
+
+# A retry with origin already set re-runs the setup instead of refusing: the
+# notes file is rewritten, missing guards return, everything else is kept.
+creates_before=$(grep -c 'repo create' "$tmp/gh-calls.log")
+printf 'stale local-rung notes\n' >"$lv/hygiene-wiring.md"
+rm -f "$lv/.github/workflows/venture-guard.yml"
+printf 'custom-ignore\n' >>"$lv/.gitignore"
 PATH="$stubs/gh-ok:$PATH" venture add-remote "$lv"
-assert_eq "H1.3 add-remote on a venture that has a remote is refused (exit 5)" 5 "$rc"
+assert_eq "F2 add-remote retried with origin set succeeds" 0 "$rc"
+assert_contains "F2 the retry rewrites the notes file" "**remote** rung" "$(cat "$lv/hygiene-wiring.md")"
+assert_exists "F2 the retry restores a missing guard" "$lv/.github/workflows/venture-guard.yml"
+assert_contains "F2 the retry keeps the operator's other files" "custom-ignore" "$(cat "$lv/.gitignore")"
+assert_eq "F2 the retry creates no second repository" "$creates_before" "$(grep -c 'repo create' "$tmp/gh-calls.log")"
 
 # =========================================================================
 # Scripted dry run — private-remote arm
