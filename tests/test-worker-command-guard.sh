@@ -56,6 +56,7 @@ trap '[ -z "${first_half_pid:-}" ] || kill "$first_half_pid" 2>/dev/null; rm -rf
 mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests" "$SANDBOX/sub"
 : >"$SANDBOX/.git" # worktree-style .git file marker
 : >"$SANDBOX/scripts/ok.sh"
+: >"$SANDBOX/scripts/tower-force-push.sh"
 : >"$SANDBOX/tests/ok.bats"
 # Symlinked final components pointing OUTSIDE the repo (containment escape).
 ln -sf /etc/hosts "$SANDBOX/scripts/evillink.sh"
@@ -233,6 +234,9 @@ first_half() {
   assert_allow "direct repo script" "scripts/ok.sh"
   assert_allow "bash repo script" "bash scripts/ok.sh"
   assert_allow "sh repo script with args" "sh scripts/ok.sh arg1 arg2"
+  assert_defer "the force-push helper is the tower's" "scripts/tower-force-push.sh push --branch b --to a --lease c"
+  assert_defer "the force-push helper bash-prefixed" "bash scripts/tower-force-push.sh confirm --branch b --to a"
+  assert_defer "the force-push helper in another casing" "scripts/Tower-Force-Push.SH push --branch b"
   assert_allow "bats repo test" "bats tests/ok.bats"
   assert_allow "bats safe flag --tap" "bats --tap tests/ok.bats"
   assert_defer "bats --formatter=path exec/containment escape" "bats --formatter=/tmp/evil.sh tests/ok.bats"

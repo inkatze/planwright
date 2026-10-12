@@ -725,6 +725,11 @@ EOF
 # is_trusted_script <path> <cwd>: the trusted-script union — repo checkout code
 # (scripts/ or tests/) or an installed planwright root's scripts/.
 is_trusted_script() {
+  # The force-push path is the tower's (doctrine/human-gates.md): never
+  # approved for a worker, under any casing a case-insensitive filesystem runs.
+  case ${1##*/} in
+    [Tt][Oo][Ww][Ee][Rr]-[Ff][Oo][Rr][Cc][Ee]-[Pp][Uu][Ss][Hh].[Ss][Hh]) return 1 ;;
+  esac
   is_repo_script "$1" "$2" || is_planwright_script "$1" "$2"
 }
 
