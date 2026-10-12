@@ -127,6 +127,13 @@ valid_id() {
   [ "${#1}" -le 64 ]
 }
 
+valid_owner() {
+  case $1 in
+    '' | -* | *[!A-Za-z0-9-]*) return 1 ;;
+  esac
+  [ "${#1}" -le 39 ]
+}
+
 cmd_id() {
   [ $# -eq 1 ] || usage
   # ASCII ranges on purpose: under LC_ALL=C every non-ASCII byte folds to a
@@ -228,6 +235,19 @@ probe() {
   fi
 }
 
+# ladder_rung <git-usable yes|no> <home> — the venture's rung on the ladder:
+# git, else a plain folder, and session-only for a local home on an ephemeral
+# host. Reads the probe's ephemeral flag.
+ladder_rung() {
+  if [ "$2" = local ] && [ "$ephemeral" = yes ]; then
+    printf 'session\n'
+  elif [ "$1" = yes ]; then
+    printf 'git\n'
+  else
+    printf 'plain\n'
+  fi
+}
+
 # print_degraded [<home> <rung>] — one `degraded` line per missing capability
 # after a probe. With no arguments it names the environment's; given a
 # venture's home and rung it names only what that venture lacks, so a remote
@@ -252,7 +272,10 @@ print_degraded() {
 cmd_detect() {
   [ $# -eq 0 ] || usage
   probe
-  printf 'git\t%s\n' "$has_git" | sed 's/yes$/present/; s/no$/absent/'
+  case $has_git in
+    yes) printf 'git\tpresent\n' ;;
+    *) printf 'git\tabsent\n' ;;
+  esac
   printf 'ephemeral\t%s\n' "$ephemeral"
   printf 'remote\t%s\n' "$remote_state"
   printf 'local\t%s\n' "$local_state"
@@ -315,12 +338,7 @@ cmd_create() {
     die 6 "the private-remote home is unavailable ($remote_reason); nothing was created"
   fi
 
-  if [ "$has_git" = no ]; then
-    rung=plain
-  else
-    rung=git
-  fi
-  [ "$home" = local ] && [ "$ephemeral" = yes ] && rung=session
+  rung=$(ladder_rung "$has_git" "$home")
 
   mkdir -p "$root" || die 2 "cannot create the ventures root"
   # not-a-lock: plain mkdir so a directory that appeared since the check above is refused, never adopted.
@@ -349,16 +367,9 @@ cmd_create() {
   print_degraded "$home" "$rung"
 }
 
-valid_owner() {
-  case $1 in
-    '' | -* | *[!A-Za-z0-9-]*) return 1 ;;
-  esac
-  [ "${#1}" -le 39 ]
-}
-
 # --- the bundle skeleton ---------------------------------------------------
 
-venture_dir() {
+require_dir() {
   [ -d "$1" ] || die 2 "not a directory: the venture path"
 }
 
@@ -382,7 +393,7 @@ cmd_bundle_init() {
   done
   [ -n "$dir" ] || usage
   single_line "$title" || die 2 "--title must be one non-empty line"
-  venture_dir "$dir"
+  require_dir "$dir"
   for f in $FILES; do
     [ -e "$dir/$f" ] && die 5 "a bundle file already exists here; nothing was written"
   done
@@ -531,7 +542,7 @@ version_gate() {
 
 cmd_mark_phase() {
   [ $# -eq 2 ] || usage
-  venture_dir "$1"
+  require_dir "$1"
   phase_index "$2" >/dev/null || die 2 "unknown phase (one of: $PHASES)"
   [ -f "$1/brief.md" ] || die 2 "no brief.md in the venture directory"
   version_gate "$1"
@@ -556,8 +567,14 @@ cmd_mark_phase() {
 
 cmd_resume_point() {
   [ $# -eq 1 ] || usage
-  venture_dir "$1"
+  require_dir "$1"
   version_gate "$1"
+  resume_state "$1"
+}
+
+# resume_state <venture-dir> — the done/next/pending lines, for a bundle the
+# caller has already gated.
+resume_state() {
   best=0
   phases_seen=$(sed -n 's/^- [0-9-]* — Elicitation: \([a-z]*\) phase complete\.$/\1/p' "$1/brief.md")
   while IFS= read -r p; do
@@ -621,7 +638,7 @@ cmd_save() {
   done
   [ -n "$dir" ] || usage
   single_line "$msg" || die 2 "the save message must be one non-empty line"
-  venture_dir "$dir"
+  require_dir "$dir"
 
   if ! is_repo_root "$dir" || ! git --version >/dev/null 2>&1; then
     [ "$push" -eq 1 ] && die 6 "this venture has no remote; nothing leaves this machine"
@@ -712,7 +729,7 @@ cmd_add_remote() {
     esac
   done
   [ -n "$dir" ] || usage
-  venture_dir "$dir"
+  require_dir "$dir"
   if [ -n "$owner" ]; then
     valid_owner "$owner" || die 2 "invalid GitHub owner name"
   fi
@@ -734,16 +751,15 @@ cmd_add_remote() {
 
 cmd_handoff() {
   [ $# -eq 1 ] || usage
-  venture_dir "$1"
+  require_dir "$1"
   probe
   home=local
+  git_usable=no
   if is_repo_root "$1" && [ "$has_git" = yes ]; then
-    rung=git
+    git_usable=yes
     git -C "$1" remote get-url origin >/dev/null 2>&1 && home=remote
-  else
-    rung=plain
   fi
-  [ "$home" = local ] && [ "$ephemeral" = yes ] && rung=session
+  rung=$(ladder_rung "$git_usable" "$home")
 
   v_rc=0
   if missing_file "$1" >/dev/null; then
@@ -760,7 +776,7 @@ cmd_handoff() {
   esac
   next=unknown
   if [ "$bundle" = clean ] || [ "$bundle" = findings ]; then
-    rp=$(cmd_resume_point "$1" 2>/dev/null) || rp=
+    rp=$(resume_state "$1" 2>/dev/null) || rp=
     next=$(printf '%s\n' "$rp" | sed -n 's/^next	//p')
     p=$(printf '%s\n' "$rp" | sed -n 's/^pending	//p')
     [ "$bundle" = clean ] && [ "${p:-0}" -gt 0 ] && bundle=pending
