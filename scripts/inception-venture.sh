@@ -466,15 +466,21 @@ EOF
 | Discipline | Touches | Undecided decisions |
 | --- | --- | --- |
 
+$PENDING
+
 ## Staffing table
 
 | Discipline | Staffing | Card / person |
 | --- | --- | --- |
 
+$PENDING
+
 ## Stakeholder map
 
 | Decision area | Decides | Aligned | Informed |
 | --- | --- | --- | --- |
+
+$PENDING
 EOF
 
   for pair in 'assumptions.md:Assumptions' 'decisions.md:Decisions' 'plan.md:Plan'; do

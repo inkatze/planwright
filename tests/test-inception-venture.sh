@@ -330,6 +330,8 @@ assert_absent "a refused title writes no bundle" "$tmp/titles/brief.md"
 venture resume-point "$rp"
 assert_contains "B1.7 a fresh skeleton resumes at the first phase" "$(printf 'next\tseed')" "$out"
 assert_contains "B1.7 a fresh skeleton has no completed phase" "$(printf 'done\tnone')" "$out"
+assert_eq "B1.7 every unfilled disciplines.md table carries the pending marker" 3 "$(grep -cF '_Pending: not yet elicited._' "$rp/disciplines.md")"
+assert_eq "B1.7 the pending count covers every file's markers" 17 "$(printf '%s\n' "$out" | sed -n 's/^pending	//p')"
 
 venture mark-phase "$rp" seed
 assert_eq "B1.7 mark-phase records a phase (exit)" 0 "$rc"
