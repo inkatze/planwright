@@ -364,7 +364,11 @@ replays the backtest rows in the classes it targets before it lands (D-9).
 
 ## Awaiting input
 
-(none yet)
+- **Task 1** — point `convergence`, step `polish`, outcome `failed` (the
+  iteration cap: the tenth iteration still applied one fix); record
+  `.claude/steps/000001/004-step-convergence.rec`. Decide whether to allow
+  one more confirming iteration, and choose the baseline reviewer's lens
+  walk (inline or fanned out); the baseline replay is re-run after that.
 
 ## Deferred
 
