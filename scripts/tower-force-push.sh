@@ -12,7 +12,8 @@
 #
 #   reword   build the branch's history with <c>'s message replaced by <f>,
 #            every later commit replayed onto it with its tree, author, and
-#            message unchanged, and print `to <new tip>`. It writes commit
+#            message unchanged, and print tab-separated `reworded <c> <new c>`,
+#            `lease <remote tip>`, and `to <new tip>` lines. It writes commit
 #            objects only: no ref, index, or working tree changes.
 #   confirm  print the confirmation (below) for replacing <r>/<b> with <c>.
 #   push     force-push <c> to <r>/<b>, only while <r>/<b> still sits at
@@ -21,11 +22,12 @@
 #   purge    print a history-purge command and the rotation checklist. It
 #            runs nothing.
 #
-# Every verb but purge refreshes <r>/<b> (default remote `origin`) first and
-# refuses a branch in the protected set (scripts/protected-branch.sh: main,
-# master, a spec branch, and the protected_branches additions), and a <c>
-# whose tip contains the remote tip (nothing would be dropped: a plain push
-# suffices). reword also refuses a commit another protected remote branch
+# Every verb but purge refuses inside a dispatched worker's environment and a
+# branch in the protected set (scripts/protected-branch.sh: main, master, a
+# spec branch, and the protected_branches additions), and refreshes <r>/<b>
+# (default remote `origin`) first. confirm and push refuse a <c> whose tip
+# contains the remote tip (nothing would be dropped: a plain push suffices).
+# reword refreshes every remote branch and refuses a commit a protected one
 # contains, since rewording it would fork that history.
 #
 # The confirmation is one JSON object that scripts/check-confirmation.sh
@@ -42,8 +44,9 @@
 # by author identity and date (which reword keeps), or with nothing. A
 # Planwright-Sign-Off-Rejected trailer naming an old id must be re-stamped.
 #
-# Exit: 0 done; 1 refused (protected, moved since the confirmation, nothing
-# dropped, not on the branch); 2 usage; 3 a git or remote failure.
+# Exit: 0 done; 1 refused (a dispatched worker, protected, moved since the
+# confirmation, nothing dropped, not on the branch); 2 usage; 3 a git or
+# remote failure.
 #
 # Untrusted text (subjects, names) reaches the terminal only through
 # sanitize_printable or as jq-encoded JSON. Portable bash 3.2.
