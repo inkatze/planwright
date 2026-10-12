@@ -22,7 +22,7 @@ fail() {
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/spec-store-wt.XXXXXX") || exit 1
 tmp=$(cd "$tmp" && pwd -P) || exit 1
-trap 'rm -rf "$tmp"' EXIT
+trap 'chmod -R u+rwX "$tmp" 2>/dev/null || :; rm -rf "$tmp"' EXIT
 
 inherited_unsets=$(env | sed -n 's/^\(PLANWRIGHT_[A-Za-z0-9_]*\)=.*/-u \1/p')
 mkdir -p "$tmp/home"
@@ -140,7 +140,8 @@ fi
 mkdir -p "$H/.claude/worktrees/other-spec"
 printf 'stray\n' >"$H/.claude/worktrees/other-spec/stray"
 sw "$W" other
-if [ "$rc" -eq 4 ] && [ -f "$H/.claude/worktrees/other-spec/stray" ]; then
+if [ "$rc" -eq 4 ] && [ -f "$H/.claude/worktrees/other-spec/stray" ] \
+  && printf '%s' "$err" | grep -q 'exists and is not the holder'; then
   ok "a foreign directory at the worktree path is refused, left untouched"
 else
   fail "foreign dir: rc=$rc err=$err"
