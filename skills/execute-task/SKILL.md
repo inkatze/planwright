@@ -321,18 +321,15 @@ captured output (it prints `transient` or `logic`; unknown patterns default to
 - **`logic`** (assertion mismatches, type/compile/syntax errors, lint/format
   violations, test-runner failures): escalate immediately, never retried. Record
   the failure with the full CI output to `tasks.md` Awaiting input and halt
-  (attended: surface and wait). A commit-range lint failure on a pushed
-  commit is repaired only by a reword through the tower's force-push path
-  (`scripts/tower-force-push.sh`, run on the operator's request): name that
-  path as the reason in the entry and the handoff, and add no commit for it.
+  (attended: surface and wait).
 
 ## Convergence (REQ-E1.4, D-39; custom-steps REQ-E1.1)
 
 After CI passes, resolve the `convergence` point (*Points* step 1), then **sync
 `main`** once (merge-currency-guard REQ-B1.1, REQ-B1.4, D-4), an empty list
-included: run `scripts/converge-sync-main.sh` (under the resolved planwright
-root); a non-zero exit halts the unit to Awaiting input with the reason it
-printed. The sync changes the head a later ready-flip lands on, never who flips.
+included: run `scripts/converge-sync-main.sh`; a non-zero exit halts the
+unit, parking a `park` record's text; a `resolve` or `repair` record's text
+overrides. The sync changes the head a later ready-flip lands on, never who flips.
 
 **Run the convergence steps** (*Points* steps 2–5); `steps_convergence` is the
 unit's convergence phase, core's default being `polish` with `--nested`. A

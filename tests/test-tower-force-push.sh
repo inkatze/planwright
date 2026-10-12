@@ -213,18 +213,20 @@ for cmd in "scripts/tower-force-push.sh push --branch $BR --to $NEW --lease $TIP
 done
 [ "$failures" = 0 ] && ok "a standing decision covering scripts/ never answers the force-push path"
 
-# --- the reporting skill names the path (REQ-F1.3, the CI grep half) -----------
+# --- the gate-failure handoff names the path (REQ-F1.3, the CI grep half) -------
 # flat <file> [<from heading> <to heading>] — the section collapsed to one
 # line, lowercased, so a statement matches however the markdown wraps it.
 flat() {
   awk -v a="${2:-}" -v b="${3:-}" 'a == "" || index($0, a) == 1 { on = 1 } on && b != "" && index($0, b) == 1 { on = 0 } on' "$1" \
     | tr '\n\t' '  ' | tr -s ' ' | tr '[:upper:]' '[:lower:]'
 }
-REWORD='a commit-range lint failure on a pushed commit is repaired only by a reword through the tower'"'"'s force-push path (`scripts/tower-force-push.sh`, run on the operator'"'"'s request): name that path as the reason in the entry and the handoff, and add no commit for it.'
-section=$(flat "$here/../skills/execute-task/SKILL.md" '### Adaptive CI-failure handling' '## Convergence')
+REWORD='such a commit is reworded only through the tower'"'"'s force-push path (`scripts/tower-force-push.sh`, on the operator'"'"'s request, [human gates](human-gates.md)), so name that path as the reason and add no commit for it.'
+# /execute-task halts a logic CI failure through gate-wiring's pause protocol,
+# which it loads at that point, so the rule lives there.
+section=$(flat "$here/../doctrine/gate-wiring.md" '## Pause protocol' '## Loop-end handoff')
 case $section in
-  *"$(printf '%s' "$REWORD" | tr '[:upper:]' '[:lower:]')"*) ok "/execute-task's gate-failure handoff names the tower reword path" ;;
-  *) fail "/execute-task's CI-failure handling does not name the tower reword path" ;;
+  *"$(printf '%s' "$REWORD" | tr '[:upper:]' '[:lower:]')"*) ok "the gate-failure handoff rule names the tower reword path" ;;
+  *) fail "gate-wiring's pause protocol does not name the tower reword path" ;;
 esac
 tower=$(flat "$here/../skills/tower/SKILL.md" '## Refusals' '## Survival')
 for want in 'scripts/tower-force-push.sh confirm' 'never from a standing decision' 'run its `push` line only on the yes, in the same turn' 'its `purge` prints; the operator runs it'; do
