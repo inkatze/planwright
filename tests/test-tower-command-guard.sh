@@ -988,6 +988,14 @@ if ! is_allow && worker_is_allow; then
 else
   fail "distinctness — bats: tower=$(is_allow && echo allow || echo defer) worker=$(worker_is_allow && echo allow || echo defer)"
 fi
+# Only the worker guard admits the narrow command substitution form.
+run_hook "echo \"\$(git rev-parse HEAD)\""
+run_worker_hook "echo \"\$(git rev-parse HEAD)\""
+if ! is_allow && worker_is_allow; then
+  pass "an argument-independent command substitution is worker-allowed and tower-deferred (worker-only)"
+else
+  fail "distinctness — command substitution: tower=$(is_allow && echo allow || echo defer) worker=$(worker_is_allow && echo allow || echo defer)"
+fi
 
 echo "### Shared-engine parity — the duplicated sed/awk screens must agree in BOTH guards"
 # obs command-guard-engine-dup: the ~600-line tokenizer/verify engine (including
@@ -1047,7 +1055,9 @@ done
 # expand_word differs because only the worker guard substitutes tracked
 # assignments, whose values can hold a space or be opaque; the tower guard
 # substitutes only `for` loop variables, whose plain-literal head words never
-# hold a space or come out empty.
+# hold a space or come out empty. tokenize, tok_push, verify_simple,
+# verify_tokens and analyze_command also differ because only the worker guard
+# admits a narrow command substitution; the tower guard defers every one.
 DISTINCT_FNS="analyze_command canon_under classify_verb expand_word guard_bashsh \
 guard_gh guard_git guard_mise is_planwright_script main tokenize tok_push \
 verify_simple verify_tokens"

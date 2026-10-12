@@ -83,6 +83,9 @@ SUBST_POSITION_FIXTURES=(
   "f=\$(cat f) && printf \"\$f\" x"
   "echo \$(git ls-files) && ls \$_"
   "x=\$(git ls-files) && ls \"\$x\""
+  "x=\$(git ls-files) && ls \${x}"
+  "x=\$(git ls-files) && ls \$=x"
+  "printf -- \"\$(cat f)\" x"
 )
 # Symlinked final components pointing OUTSIDE the repo (containment escape).
 ln -sf /etc/hosts "$SANDBOX/scripts/evillink.sh"
@@ -914,71 +917,6 @@ first_half() {
   assert_defer "a quoted \"\$@\" still splits into test operands" "[ -n \"\$@\" ]"
   assert_defer "an opaque test operator position" "[ \"\$a\" \"\$op\" b ]"
   assert_defer "a four-word test with an opaque operand" "[ \"\$a\" = b -o c ]"
-
-  echo "### REQ-E1.3 — argument-independent command substitution"
-  HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
-  assert_allow "REQ-E1.3: a plugin script fed a substitution" \
-    "$PLUGIN_ROOT/scripts/plug.sh write --head \$(git rev-parse HEAD)" Bash "$PLUGIN_CWD"
-  HOOK_ENV=()
-  assert_allow "REQ-E1.3: a quoted substitution as a test operand in a wait" \
-    "until [ -z \"\$(git status --porcelain)\" ]; do sleep 5; done" Bash "$SUBST_CWD"
-  assert_allow "REQ-E1.3: a repo script fed a substitution" "scripts/ok.sh --head \$(git rev-parse HEAD)" Bash "$SUBST_CWD"
-  assert_allow "REQ-E1.3: bash <script> fed a substitution" "bash scripts/ok.sh \$(git rev-parse HEAD)" Bash "$SUBST_CWD"
-  assert_allow "REQ-E1.3: echo of a quoted substitution" "echo \"head=\$(git rev-parse HEAD)\"" Bash "$SUBST_CWD"
-  assert_allow "REQ-E1.3: printf past a literal format" "printf '%s\\n' \"\$(git log -1 --format=%h)\"" Bash "$SUBST_CWD"
-  assert_allow "REQ-E1.3: a substitution assigned, then echoed" "h=\$(git rev-parse HEAD) && echo \"\$h\"" Bash "$SUBST_CWD"
-  assert_allow "REQ-E1.3: a substitution assigned, then handed to a script" \
-    "h=\$(git rev-parse HEAD); scripts/ok.sh --head \"\$h\"" Bash "$SUBST_CWD"
-  assert_allow "REQ-E1.3: a read-only pipeline inside" "echo \"\$(git log --oneline | head -1)\"" Bash "$SUBST_CWD"
-  assert_allow "REQ-E1.3: quotes inside the substitution" "echo \$(git log --format='%h %s' -1)" Bash "$SUBST_CWD"
-  assert_allow "REQ-E1.3: double quotes nested in a quoted substitution" \
-    "echo \"\$(git log --format=\"%h\" -1)\"" Bash "$SUBST_CWD"
-  assert_allow "REQ-E1.3: two quoted substitutions around a binary test" \
-    "[ \"\$(git rev-parse HEAD)\" = \"\$(git rev-parse origin/main)\" ] && echo same" Bash "$SUBST_CWD"
-  for c in "${SUBST_POSITION_FIXTURES[@]}"; do
-    assert_defer "REQ-E1.3: output reaching a position that reads it: $c" "$c" Bash "$SUBST_CWD"
-  done
-  assert_defer "REQ-E1.3: the -v operand form" "test -v \"\$(cat f)\"" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: a -v operand through a variable" "v=\$(cat f) && test -v \"\$v\"" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: an escaped -exec terminator inside" "find . \$(echo -maxdepth 0 -exec id \\;)" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: a substitution in the verb position" "\$(echo ls) f" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: a substitution as the script path" "bash \$(echo scripts/ok.sh)" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: an environment prefix from a substitution" "x=\$(git log -1) git status" Bash "$SUBST_CWD"
-  # An assignment holding a substitution exits with the inner command's
-  # status, so an assignment after its `&&` may never run.
-  assert_defer "REQ-E1.3: a re-assignment after && may not run" \
-    "x=\$(cat f g) && x=README.md; cat \$x" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: an assignment after a substitution's && is not modelled" \
-    "x=\$(git rev-parse HEAD) && y=-name; find . \$y a.sh" Bash "$SUBST_CWD"
-  assert_allow "REQ-E1.3: a substitution assignment carries across ;" \
-    "x=\$(git rev-parse HEAD); y=a; echo \"\$x\" \$y" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: an inner command that is not read-only" "echo \$(rm -rf build)" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: an inner write redirect" "echo \$(cat f > g)" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: an inner list, not a pipeline" "echo \$(git status; git log -1)" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: an inner && list" "echo \$(git status && git log -1)" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: an inner newline" "echo \"\$(git status
-git log -1)\"" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: an inner background job" "echo \$(git status & git log -1)" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: an inner cd" "echo \$(cd scripts)" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: an inner assignment" "echo \$(x=1)" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: an inner loop" "echo \$(for f in a; do echo \$f; done)" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: an unclosed substitution" "echo \$(git status" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: a substitution in a case head" "case \$(git rev-parse HEAD) in a) echo x ;; esac" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: a substitution in a case pattern" "case a in \$(git log -1)) echo x ;; esac" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: a substitution in a loop head" "for f in \$(git ls-files); do echo \$f; done" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: a substitution as a read redirect source" "cat < \$(echo f)" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: a substitution as a write redirect target" "echo x > \$(echo f)" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: a substitution inside fish -c" "fish -c 'echo \$(git status)'" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: a substitution reaching fish -c" "fish -c \"echo \$(git status)\"" Bash "$SUBST_CWD"
-  # Regression-only: these defer by the scan, not the argument-independence check.
-  assert_defer "REQ-E1.3: a nested substitution" "echo \$(echo \$(id))" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: a backtick inside a substitution" "echo \$(echo \`id\`)" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: a backtick" "echo \`id\`" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: a closing parenthesis inside a quote" "echo \"\$(grep ')' f)\"" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: an opening parenthesis inside a quote" "echo \"\$(grep '(' f)\"" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: an escaped closing parenthesis" "echo \$(echo a\\))" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: arithmetic expansion" "echo \$((1 + 2))" Bash "$SUBST_CWD"
-  assert_defer "REQ-E1.3: an inner subshell" "echo \$( (id) )" Bash "$SUBST_CWD"
 
   # Run-order analysis: the state a segment sets (the working directory, a
   # variable's value) applies to what follows it, carried only across `&&`
@@ -2260,6 +2198,86 @@ rmdir "$FX/repo/.claude/catalogs.local"
 mv "$FX/adopter-steps.saved" "$FX/adopter/catalogs/steps.yaml"
 HOOK=$REAL_HOOK
 HOOK_ENV=()
+
+echo "### REQ-E1.3 — argument-independent command substitution"
+HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
+assert_allow "REQ-E1.3: a plugin script fed a substitution" \
+  "$PLUGIN_ROOT/scripts/plug.sh write --head \$(git rev-parse HEAD)" Bash "$PLUGIN_CWD"
+HOOK_ENV=()
+assert_allow "REQ-E1.3: a quoted substitution as a test operand in a wait" \
+  "until [ -z \"\$(git status --porcelain)\" ]; do sleep 5; done" Bash "$SUBST_CWD"
+assert_allow "REQ-E1.3: a repo script fed a substitution" "scripts/ok.sh --head \$(git rev-parse HEAD)" Bash "$SUBST_CWD"
+assert_allow "REQ-E1.3: bash <script> fed a substitution" "bash scripts/ok.sh \$(git rev-parse HEAD)" Bash "$SUBST_CWD"
+assert_allow "REQ-E1.3: echo of a quoted substitution" "echo \"head=\$(git rev-parse HEAD)\"" Bash "$SUBST_CWD"
+assert_allow "REQ-E1.3: printf past a literal format" "printf '%s\\n' \"\$(git log -1 --format=%h)\"" Bash "$SUBST_CWD"
+assert_allow "REQ-E1.3: a substitution assigned, then echoed" "h=\$(git rev-parse HEAD) && echo \"\$h\"" Bash "$SUBST_CWD"
+assert_allow "REQ-E1.3: a substitution assigned, then handed to a script" \
+  "h=\$(git rev-parse HEAD); scripts/ok.sh --head \"\$h\"" Bash "$SUBST_CWD"
+assert_allow "REQ-E1.3: a read-only pipeline inside" "echo \"\$(git log --oneline | head -1)\"" Bash "$SUBST_CWD"
+assert_allow "REQ-E1.3: quotes inside the substitution" "echo \$(git log --format='%h %s' -1)" Bash "$SUBST_CWD"
+assert_allow "REQ-E1.3: double quotes nested in a quoted substitution" \
+  "echo \"\$(git log --format=\"%h\" -1)\"" Bash "$SUBST_CWD"
+assert_allow "REQ-E1.3: two quoted substitutions around a binary test" \
+  "[ \"\$(git rev-parse HEAD)\" = \"\$(git rev-parse origin/main)\" ] && echo same" Bash "$SUBST_CWD"
+for c in "${SUBST_POSITION_FIXTURES[@]}"; do
+  assert_defer "REQ-E1.3: output reaching a position that reads it: $c" "$c" Bash "$SUBST_CWD"
+done
+assert_defer "REQ-E1.3: the -v operand form" "test -v \"\$(cat f)\"" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: a -v operand through a variable" "v=\$(cat f) && test -v \"\$v\"" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an escaped -exec terminator inside" "find . \$(echo -maxdepth 0 -exec id \\;)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: a substitution in the verb position" "\$(echo ls) f" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: a substitution as the script path" "bash \$(echo scripts/ok.sh)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an environment prefix from a substitution" "x=\$(git log -1) git status" Bash "$SUBST_CWD"
+# An assignment holding a substitution exits with the inner command's
+# status, so an assignment after its `&&` may never run.
+assert_defer "REQ-E1.3: a re-assignment after && may not run" \
+  "x=\$(cat f g) && x=README.md; cat \$x" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an assignment after a substitution's && is not modelled" \
+  "x=\$(git rev-parse HEAD) && y=-name; find . \$y a.sh" Bash "$SUBST_CWD"
+assert_allow "REQ-E1.3: a substitution assignment carries across ;" \
+  "x=\$(git rev-parse HEAD); y=a; echo \"\$x\" \$y" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an inner command that is not read-only" "echo \$(rm -rf build)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an inner write redirect" "echo \$(cat f > g)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an inner list, not a pipeline" "echo \$(git status; git log -1)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an inner && list" "echo \$(git status && git log -1)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an inner newline" "echo \"\$(git status
+git log -1)\"" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an inner background job" "echo \$(git status & git log -1)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an inner assignment" "echo \$(x=1)" Bash "$SUBST_CWD"
+# A `cd` is approvable only in a real repository at its canonical path, so the
+# inner-cd fixtures run in one; a carried inner cd would move the directory
+# the later script path is checked against.
+SUBST_REPO="$(cd "$SANDBOX" && pwd -P)/substrepo"
+mkdir -p "$SUBST_REPO/scripts"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$SUBST_REPO"
+: >"$SUBST_REPO/scripts/ok.sh"
+HOOK_ENV=("GIT_CONFIG_GLOBAL=/dev/null" "GIT_CONFIG_NOSYSTEM=1")
+assert_allow "REQ-E1.3: the inner-cd repository approves a plain cd" "cd scripts && ls" Bash "$SUBST_REPO"
+assert_defer "REQ-E1.3: an inner cd" "echo \$(cd scripts)" Bash "$SUBST_REPO"
+assert_defer "REQ-E1.3: an inner cd never carries past &&" "echo \$(cd scripts) && bash ok.sh" Bash "$SUBST_REPO"
+assert_defer "REQ-E1.3: an inner cd never carries past ;" "echo \$(cd scripts); bash ok.sh" Bash "$SUBST_REPO"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
+assert_defer "REQ-E1.3: a declared step inside a substitution" "echo \$($DECLARED --mode strict)" Bash "$FXC"
+HOOK_ENV=()
+assert_defer "REQ-E1.3: an inner loop" "echo \$(for f in a; do echo \$f; done)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an unclosed substitution" "echo \$(git status" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: a substitution in a case head" "case \$(git rev-parse HEAD) in a) echo x ;; esac" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: a substitution in a case pattern" "case a in \$(git log -1)) echo x ;; esac" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: a substitution in a loop head" "for f in \$(git ls-files); do echo \$f; done" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: a substitution inside fish -c" "fish -c 'echo \$(git status)'" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: a substitution reaching fish -c" "fish -c \"echo \$(git status)\"" Bash "$SUBST_CWD"
+# Regression-only: these defer by the scan or the redirect rules, not the
+# argument-independence check.
+assert_defer "REQ-E1.3: a substitution as a read redirect source" "cat < \$(echo f)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: a substitution as a write redirect target" "echo x > \$(echo f)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: a nested substitution" "echo \$(echo \$(id))" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: a backtick inside a substitution" "echo \$(echo \`id\`)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: a backtick" "echo \`id\`" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: a closing parenthesis inside a quote" "echo \"\$(grep ')' f)\"" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an opening parenthesis inside a quote" "echo \"\$(grep '(' f)\"" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an escaped closing parenthesis" "echo \$(echo a\\))" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: arithmetic expansion" "echo \$((1 + 2))" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an inner subshell" "echo \$( (id) )" Bash "$SUBST_CWD"
 
 echo "### REQ-E1.3 — the position fixtures discriminate against an over-broad variant"
 # The variant admits a substitution wherever its inner text passes the
