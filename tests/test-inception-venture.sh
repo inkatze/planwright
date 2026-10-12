@@ -916,6 +916,30 @@ assert_eq "Z8 a credential in an outgoing commit message blocks the push (exit 1
 assert_eq "Z8 the refused push leaves the remote untouched" "$remote_before" "$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)"
 git -C "$rv" reset -q --hard "$rv_base"
 
+# =========================================================================
+# Z7 — the pre-push screen reads file contents, not the readable diff
+# =========================================================================
+
+for shape in attribute nul; do
+  rv_base=$(git -C "$rv" rev-parse HEAD)
+  remote_before=$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)
+  if [ "$shape" = attribute ]; then
+    printf '*.dat -diff\n' >"$rv/.gitattributes"
+    token_line >"$rv/leak.dat"
+  else
+    {
+      printf 'bin\000ary\n'
+      token_line
+    } >"$rv/leak.dat"
+  fi
+  git -C "$rv" add -A
+  git -C "$rv" -c core.hooksPath=/dev/null commit -q --no-verify -m "outside binary commit"
+  PATH="$stubs/gh-ok:$PATH" venture save --push "$rv" "Share a $shape file"
+  assert_eq "Z7 a credential in a file git diffs as binary ($shape) blocks the push (exit 1)" 1 "$rc"
+  assert_eq "Z7 the refused push ($shape) leaves the remote untouched" "$remote_before" "$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)"
+  git -C "$rv" reset -q --hard "$rv_base"
+done
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

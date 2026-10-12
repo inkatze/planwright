@@ -819,9 +819,12 @@ screen_outgoing() {
   # What origin lacks, not what the upstream lacks: a branch tracking a local
   # branch would otherwise hide commits the push still sends.
   tmp_path=$(mktemp "${TMPDIR:-/tmp}/inception-venture.XXXXXX") || die 2 "cannot create a temporary file"
-  # %B: commit messages leave with the push, so they are screened with it.
-  git -C "$1" log -p --format=%B --no-color --no-ext-diff HEAD --not --remotes=origin >"$tmp_path" 2>/dev/null \
+  # Every commit message and every file version the push sends, read as raw
+  # contents: a diff hides files git treats as binary (an attribute, a NUL
+  # byte) and files that arrive only through a merge.
+  git -C "$1" log --format=%B HEAD --not --remotes=origin >"$tmp_path" 2>/dev/null \
     || die 2 "cannot read the history a push would send"
+  outgoing_blobs "$1" >>"$tmp_path" || die 2 "cannot read the files a push would send"
   sd_rc=0
   /bin/sh "$self_dir/inception-secret-screen.sh" -- "$tmp_path" >/dev/null 2>&1 || sd_rc=$?
   rm -f "$tmp_path"
@@ -829,6 +832,17 @@ screen_outgoing() {
   [ "$sd_rc" -eq 0 ] && return 0
   [ "$sd_rc" -eq 1 ] && die 1 "not shared: the history waiting to be sent looks like it carries a credential (a password, key, or token); nothing was sent"
   die 2 "not shared: the secret screen could not run (exit $sd_rc)"
+}
+
+# outgoing_blobs <venture-dir> — the contents of every blob reachable from
+# HEAD that origin lacks, one after another.
+outgoing_blobs() {
+  ob_list=$(git -C "$1" rev-list --objects HEAD --not --remotes=origin | cut -d' ' -f1 \
+    | git -C "$1" cat-file --batch-check='%(objecttype) %(objectname)') || return 1
+  printf '%s\n' "$ob_list" | sed -n 's/^blob //p' | while IFS= read -r ob; do
+    git -C "$1" cat-file blob "$ob" || exit 1
+    printf '\n'
+  done
 }
 
 save_plain() {
