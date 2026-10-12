@@ -455,6 +455,25 @@ router has not demonstrated (REQ-B1.6).
 
 ## Awaiting input
 
+- **Task 19** — every third-review ruling is applied (PS-33 to PS-36),
+  but the fourth convergence review (point `convergence`, step `polish`,
+  outcome `halted`, record `.claude/steps/000004/001-step-convergence.rec`)
+  found two low-severity problems introduced by the key-comment fix
+  (`14ed5c97`); nothing below is applied and no PR is open. Both fail
+  safe (the key stays hidden) but drop the operator's text after the key
+  from the record. Two older gaps went to observations instead, per the
+  operator's rule. Agent recommendation: the recommended fix for both.
+  1. An indented or `>`-quoted PuTTY or SSH2 key never ends, so every
+     line after it is dropped (confirmed). Fix: allow leading spaces, tabs,
+     and `>` before the SSH2 and PuTTY end markers and before `Comment:`,
+     with an indented and a quoted test per format; this also closes the
+     quoted-PGP observation.
+  2. Markers on a block's opening line never end it: an SSH2 or PuTTY
+     begin and end on one line of prose, or a one-line PEM key on a line
+     starting with `Comment:`. Fix: apply the line-start anchor and the
+     Comment check only to lines that began inside the block, with a test
+     for each shape.
+
 ## Deferred
 
 - **Tower floor bypass paths from the skill core's review.** The deny
