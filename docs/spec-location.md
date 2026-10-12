@@ -48,9 +48,10 @@ worktree at `<holder>/.claude/worktrees/<spec>-spec` on `planwright/<spec>/spec`
 it reuses one already there, recreates one from a surviving branch (local,
 else origin's, then tracking it), or creates both from the holder's
 `origin/HEAD`, else from the branch the holder's primary checkout has out.
-It prints three tab-separated lines, `worktree`, `bundle`, and `branch`, and
-exits 3 when the root is not in a holder. It exits 4 when it refuses, among
-other reasons when the spec branch or its worktree already holds another
+It prints three lines, each a name, a tab, and a value: `worktree`, `bundle`,
+and `branch`. It exits 3 when the root is not in a holder. It exits 4 when
+it refuses, among other reasons when the spec branch or its worktree already
+holds another
 project's bundle of the same identifier (one holder can serve several
 projects, so an identifier must be unique across them), a symlink sits on
 the bundle path or inside the bundle, a file inside the bundle has more than
