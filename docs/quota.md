@@ -85,7 +85,8 @@ utilization those readings give: for each window, a reading whose reset time
 has passed, or lies beyond the throttle's hold ceiling, is ignored, and of the
 rest the one with the furthest-future reset is taken, whichever worker sent
 it. `scripts/fleet-stats.sh render` shows the
-same as its `Claude usage` line.
+same as its `Claude usage` line. The header of `scripts/claude-frames.sh` pins
+the stored frame, the output lines, and the exit codes.
 
 These readings are **account-wide**: every session on the Claude account counts
 toward them, not only the fleet's workers, so they are a ceiling to respect,
