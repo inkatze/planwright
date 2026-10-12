@@ -36,14 +36,18 @@ RBT_DEFAULT_CAP=5
 # reply; the same predicate feeds the corpus and the finding-rate metric.
 # shellcheck disable=SC2016 # jq program text, expanded by jq, not the shell
 RBT_JQ_DEFS='
-# An explicit "<verb> in <sha>" (not "not fixed in", "never fixed in", "not
-# yet fixed in") is a fix even beside a
-# partial decline; any other fix wording counts only when the reply does not
-# also decline ("not a false positive" is no decline).
-def rbt_fix_reply: gsub("\\s+"; " ") | test("(?<!not )(?<!n.t )(?<!never )(?<!yet )\\b(fixed|addressed|applied|corrected|reworded|changed|wrapped|done) in `?[0-9a-f]{7,40}`?\\b"; "i")
+# An explicit "<verb> in <sha>" is a fix unless a negation governs that very
+# phrase (not, never, or a negative contraction up to two words before the
+# verb, as in "has not been fixed in"), even beside a partial decline; any
+# other fix wording counts only when the reply neither declines nor negates a
+# fix verb ("not a false positive" is no decline).
+def rbt_negation: "((^|[^a-z])(not|never)|n.t)( [a-z]+){0,2} ";
+def rbt_fix_verbs: "(fixed|addressed|applied|corrected|reworded|changed|wrapped|done)";
+def rbt_fix_reply: gsub("\\s+"; " ") | (test("\\b" + rbt_fix_verbs + " in `?[0-9a-f]{7,40}`?\\b"; "i")
+    and (test(rbt_negation + rbt_fix_verbs + " in `?[0-9a-f]{7,40}`?\\b"; "i") | not))
   or ((test("^\\W*(fixed|addressed|applied|corrected|reworded)\\b"; "i")
        or test("\\b(fixed|addressed|applied)\\b"; "i") or test("\\bin `?[0-9a-f]{7,40}`?\\b"))
-      and (test("\\b(declin|won.t fix|deferr)|\\b(not|never)( yet)? fixed|n.t( yet)? (been )?fixed|(?<!not a )false positive"; "i") | not));
+      and (test("\\b(declin|won.t fix|deferr)|(?<!not a )false positive"; "i") | not) and (test(rbt_negation + "(fixed|addressed|applied)\\b"; "i") | not));
 def rbt_fixed_external($author): (.author // "") != $author
   and any(.replies[]?; (.author // "") == $author and ((.body // "") | rbt_fix_reply));
 def rbt_bot_reviewed: any(.reviews[]?; .bot == true) or any(.threads[]?; .bot == true);

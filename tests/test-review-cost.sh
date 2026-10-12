@@ -145,6 +145,18 @@ done
 out=$("$COST" --transcripts "$proj" --events "$events" --history "$hist" --ledger-dir "$ledger" --ledger-dir "$T/archive" 2>&1)
 assert_contains "the committed baselines are the default comparison" "baseline: rate 0.742" "$out"
 
+# --- separate file-level bot threads on one file are separate findings ---
+cat >"$T/filelevel.json" <<'EOF'
+{"repo":"example/repo","prs":[
+ {"number":20,"author":"owner","merged_at":"2026-10-01T00:00:00Z","body":"","reviews":[{"author":"helper-bot","bot":true}],
+  "threads":[
+   {"path":"z.md","line":null,"commit":"0123456789abcdef0123456789abcdef01234567","author":"helper-bot","bot":true,"body":"one","replies":[{"author":"owner","body":"Fixed in abc1234"}]},
+   {"path":"z.md","line":null,"commit":"0123456789abcdef0123456789abcdef01234567","author":"helper-bot","bot":true,"body":"two","replies":[{"author":"owner","body":"Fixed in abc1234"}]}]}
+]}
+EOF
+out=$("$COST" --transcripts "$proj" --history "$T/filelevel.json" --ledger-dir "$T/empty-ledger" 2>&1)
+assert_contains "two file-level threads on one file count twice" "fixed findings per such PR (median): 2" "$out"
+
 # --- without --history the metric fetches through the refresh's --fetch-only ---
 mkdir -p "$T/bin"
 cat >"$T/bin/gh" <<'EOF'

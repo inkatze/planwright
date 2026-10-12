@@ -79,6 +79,8 @@ history() {
    {"path":"a.sh","line":7,"commit":"$A","author":"helper-bot","bot":true,"body":"a declined one","replies":[{"author":"owner","body":"Addressed: this is a false positive, declining."}]},
    {"path":"a.sh","line":8,"commit":"$A","author":"helper-bot","bot":true,"body":"a deferred one","replies":[{"author":"owner","body":"Not fixed in 1234567; deferring to a follow-up"}]},
    {"path":"a.sh","line":10,"commit":"$A","author":"helper-bot","bot":true,"body":"another deferred one","replies":[{"author":"owner","body":"Not yet fixed in 1234567"}]},
+   {"path":"a.sh","line":11,"commit":"$A","author":"helper-bot","bot":true,"body":"split negation","replies":[{"author":"owner","body":"Not\\nfixed in 1234567"}]},
+   {"path":"a.sh","line":12,"commit":"$A","author":"helper-bot","bot":true,"body":"long negation","replies":[{"author":"owner","body":"This has not been fixed in 1234567"}]},
    {"path":"a.sh","line":9,"commit":"$A","author":"helper-bot","bot":true,"body":"a real one","replies":[{"author":"owner","body":"Fixed, not a false positive after all"}]},
    {"path":"lib/c.sh","line":9,"commit":"$A","author":"helper-bot","bot":true,"body":"a sibling site keeps the bug","replies":[{"author":"owner","body":"Addressed in def5678"}]},
    {"path":"a.sh","line":3,"commit":"$A","author":"helper-bot","bot":true,"body":"style nit nobody fixed","replies":[{"author":"owner","body":"Declined: by design"}]},
@@ -211,6 +213,8 @@ if [ "$(awk -F '\t' '$2 == 7 && $4 == "a.sh" && $5 == 1' "$c1" | wc -l | tr -d '
 assert_lacks "a reply that declines is not a fix, whatever its first word" "	a.sh	7	" "$(cat "$c1")"
 assert_lacks "\"not fixed in <sha>\" is not a fix" "	a.sh	8	" "$(cat "$c1")"
 assert_lacks "\"not yet fixed in <sha>\" is not a fix" "	a.sh	10	" "$(cat "$c1")"
+assert_lacks "a negation split by a newline is still a negation" "	a.sh	11	" "$(cat "$c1")"
+assert_lacks "\"has not been fixed in <sha>\" is not a fix" "	a.sh	12	" "$(cat "$c1")"
 assert_contains "\"not a false positive\" does not veto a fix" "	a.sh	9	" "$(cat "$c1")"
 assert_contains "warns about a PR whose threads overflowed the fetch page" "warning: 1 PR(s) had more reviews, threads, or comments" "$out"
 assert_contains "a non-string gist and a substring category are each dropped, not fatal" "dropped unannotated: 2" "$out"
