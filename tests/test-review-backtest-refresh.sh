@@ -81,6 +81,8 @@ history() {
    {"path":"a.sh","line":10,"commit":"$A","author":"helper-bot","bot":true,"body":"another deferred one","replies":[{"author":"owner","body":"Not yet fixed in 1234567"}]},
    {"path":"a.sh","line":11,"commit":"$A","author":"helper-bot","bot":true,"body":"split negation","replies":[{"author":"owner","body":"Not\\nfixed in 1234567"}]},
    {"path":"a.sh","line":12,"commit":"$A","author":"helper-bot","bot":true,"body":"long negation","replies":[{"author":"owner","body":"This has not been fixed in 1234567"}]},
+   {"path":"a.sh","line":13,"commit":"$A","author":"helper-bot","bot":true,"body":"negated other verb","replies":[{"author":"owner","body":"Not changed in 1234567; keeping it"}]},
+   {"path":"a.sh","line":14,"commit":"$A","author":"helper-bot","bot":true,"body":"unit word","replies":[{"author":"owner","body":"Unit tests fixed in 1234567"}]},
    {"path":"a.sh","line":9,"commit":"$A","author":"helper-bot","bot":true,"body":"a real one","replies":[{"author":"owner","body":"Fixed, not a false positive after all"}]},
    {"path":"lib/c.sh","line":9,"commit":"$A","author":"helper-bot","bot":true,"body":"a sibling site keeps the bug","replies":[{"author":"owner","body":"Addressed in def5678"}]},
    {"path":"a.sh","line":3,"commit":"$A","author":"helper-bot","bot":true,"body":"style nit nobody fixed","replies":[{"author":"owner","body":"Declined: by design"}]},
@@ -204,7 +206,7 @@ assert_lacks "the author's own thread is not a row" "	a.sh	5	" "$(cat "$c1")"
 assert_lacks "a verbatim gist is dropped" "VERBATIM" "$(cat "$c1")"
 assert_lacks "a row naming a listed product is dropped" "e.sh" "$(cat "$c1")"
 assert_lacks "no reviewer login reaches the corpus" "helper-bot" "$(cat "$c1")"
-assert_contains "reports the fallback count (a.sh twice, b.sh, g.sh, k.sh, h3.sh, bs.sh)" "fallback other: 7" "$out"
+assert_contains "reports the fallback count (a.sh three times, b.sh, g.sh, k.sh, h3.sh, bs.sh)" "fallback other: 8" "$out"
 assert_contains "reports the unreplayable count (b.sh, g.sh, and three rows on a PR with no head ref)" "unreplayable: 5" "$out"
 assert_contains "reports the verbatim drops, a short comment copied whole included" "dropped verbatim: 2" "$out"
 assert_contains "a path outside printable ASCII and a base-side thread are skipped" "skipped malformed location: 2" "$out"
@@ -215,6 +217,8 @@ assert_lacks "\"not fixed in <sha>\" is not a fix" "	a.sh	8	" "$(cat "$c1")"
 assert_lacks "\"not yet fixed in <sha>\" is not a fix" "	a.sh	10	" "$(cat "$c1")"
 assert_lacks "a negation split by a newline is still a negation" "	a.sh	11	" "$(cat "$c1")"
 assert_lacks "\"has not been fixed in <sha>\" is not a fix" "	a.sh	12	" "$(cat "$c1")"
+assert_lacks "a negated verb other than fixed is not a fix" "	a.sh	13	" "$(cat "$c1")"
+assert_contains "a word ending in n-t (unit) is no negation" "	a.sh	14	" "$(cat "$c1")"
 assert_contains "\"not a false positive\" does not veto a fix" "	a.sh	9	" "$(cat "$c1")"
 assert_contains "warns about a PR whose threads overflowed the fetch page" "warning: 1 PR(s) had more reviews, threads, or comments" "$out"
 assert_contains "a non-string gist and a substring category are each dropped, not fatal" "dropped unannotated: 2" "$out"
@@ -240,7 +244,7 @@ if [ -f "$croot/v2/corpus.tsv" ]; then ok "v2 corpus written"; else fail "v2 cor
 if [ "$(cksum <"$c1")" = "$sum1" ]; then ok "v1 is unchanged by a later refresh"; else fail "v1 changed"; fi
 carried=$(grep -c '"path":"a.sh"' "$ANNOTATE_LOG.all")
 if [ "$carried" -eq 0 ]; then ok "a carried row is not re-annotated"; else fail "carried row re-annotated ($carried)"; fi
-assert_contains "reports the carried rows" "carried: 7" "$out"
+assert_contains "reports the carried rows" "carried: 8" "$out"
 assert_contains "a carried gist naming a login is dropped too" "dropped naming a login: 2" "$out"
 assert_contains "a carried gist copying its comment is dropped too" "dropped verbatim: 3" "$out"
 if [ "$(awk -F '\t' '$4 == "bs.sh"' "$croot/v2/corpus.tsv" | cut -f2-)" = "$(printf '%s\n' "$bs1" | cut -f2-)" ]; then ok "a carried backslash survives a refresh unchanged"; else fail "a carried backslash changed"; fi
