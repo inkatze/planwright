@@ -315,9 +315,17 @@ nollm_check
 # Each exemption must still match, so a stale one fails here.
 launchers='fleet-dispatch-headless.sh fleet-dispatch-worktree.sh fleet-tower-signpost.sh fleet-tower-watchdog.sh'
 client='(^|[^A-Za-z0-9_./-])(claude|anthropic|curl|wget)([[:space:]]|$|")|api\.anthropic'
+# The messaging probe reads the CLI's version, which reaches no model; that one
+# read is all fleet-messaging.sh may carry, and it must still be there.
+version_read='claude --version 2>/dev/null \|'
 for p in "$S"/fleet-*.sh "$S/lock-lib.sh"; do
   f=${p##*/}
   hits=$(strip "$p" | grep -nE "$client" || :)
+  if [ "$f" = fleet-messaging.sh ]; then
+    [ "$(printf '%s\n' "$hits" | grep -cE "$version_read" || :)" = 1 ] \
+      || fail "no-LLM audit: fleet-messaging.sh no longer carries exactly one CLI version read; drop the allowance"
+    hits=$(printf '%s\n' "$hits" | grep -vE "$version_read" || :)
+  fi
   case " $launchers " in
     *" $f "*)
       [ -n "$hits" ] || fail "no-LLM audit: $f is exempt as a launcher but launches nothing; drop the exemption"
