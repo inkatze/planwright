@@ -123,6 +123,9 @@ seed HDR-ROT 1 '{ sub(/^\*\*Rot-rate:\*\* .*/, "**Rot-rate:** sometimes"); print
 seed HDR-TIER 1 '{ sub(/^\*\*Default-tier:\*\* .*/, "**Default-tier:** senior"); print }'
 seed HDR-RAPID 1 '{ sub(/^\*\*RAPID:\*\* .*/, "**RAPID:** I, D"); print }'
 seed HDR-RAPID 1 '{ sub(/^\*\*RAPID:\*\* .*/, "**RAPID:** X"); print }'
+seed HDR-RAPID 1 '{ sub(/^\*\*RAPID:\*\* .*/, "**RAPID:** I, I"); print }'
+long_id=$(printf 'a%.0s' $(seq 1 65))
+seed HDR-ID 1 "{ sub(/^\\*\\*Card-id:\\*\\* .*/, \"**Card-id:** $long_id\"); print }"
 seed HDR-BENCH 1 '{ sub(/^\*\*Bench:\*\* .*/, "**Bench:** maybe"); print }'
 seed HDR-STANCE 1 '{ sub(/^\*\*Stance-axis:\*\* .*/, "**Stance-axis:** skeptical"); print }'
 seed HDR-MODEL 1 '/^\*\*Stance-axis:\*\*/ { print; print "**Model-override:** two words"; next } { print }'
@@ -131,7 +134,16 @@ seed HDR-UNKNOWN 1 '/^\*\*Bench:\*\*/ { print; print "**Bench:** no"; next } { p
 seed FMT-MISSING 3 '/^\*\*Bench:\*\*/ { print; print "**Card-format:** 7"; next } { print }'
 
 # Section set.
-seed SEC-MISSING 1 '/^## Blind spots$/ { skip = 1; next } skip && /^## / { skip = 0 } !skip'
+# Every required section, one at a time (Pull-in triggers is the bench-only
+# exception, covered by BENCH-TRIGGERS).
+required="Role|Mandate|Frameworks|Grounding|Input subscription|Artifact template|Capability boundary|Escalation contract|Register rules|Anti-patterns|Blind spots|Conflict and deference|Independence|Sources"
+old_ifs=$IFS
+IFS='|'
+for sec in $required; do
+  IFS=$old_ifs
+  seed SEC-MISSING 1 "/^\`\`\`/ { f = !f } /^## $sec\$/ { skip = 1; next } skip && !f && /^## / { skip = 0 } !skip"
+done
+IFS=$old_ifs
 seed SEC-UNKNOWN 1 '/^## Sources$/ { print "## Backstory"; print ""; print "A long career."; print "" } { print }'
 seed SEC-UNKNOWN 1 '/^## Role$/ { print "Shaped by a long career in consulting."; print "" } { print }'
 seed SEC-UNKNOWN 1 '/^## Sources$/ { print "# Backstory"; print ""; print "A long career."; print "" } { print }'
@@ -143,6 +155,8 @@ seed SEC-ORDER 1 '/^## Role$/ { held = 1 } held && /^## / && !/^## Role$/ { held
 
 # Role, mandate, frameworks.
 seed ROLE-FORM 1 '/^Frames the fixture/ { print "Frames options for this venture. It also ranks them."; next } { print }'
+seed ROLE-FORM 1 '/^Frames the fixture/ { print "Frames options for this venture"; next } { print }'
+seed SEC-ORDER 1 '{ print } END { print ""; print "## Sources"; print ""; print "- Another source."; }'
 seed MANDATE-SIZE 1 '/^3\. Which constraint/ { next } { print }'
 seed MANDATE-SIZE 1 '/^3\. Which constraint/ { print; for (i = 4; i <= 8; i++) print i ". Which risk in the frame matters most?"; next } { print }'
 seed MANDATE-GENERIC 1 '/^1\. Which problem/ { print "1. Who is the target customer?"; next } { print }'
@@ -164,10 +178,12 @@ seed BOUNDARY-EXCEPTIONS 1 '{ sub(/^  - agent-senior:/, "  - senior:"); print }'
 seed BOUNDARY-EXCEPTIONS 1 '/^- \*\*Per-activity exceptions:\*\*/ { next } /^  - (agent-senior|human-authority):/ { next } { print }'
 seed BOUNDARY-ONEWAY 1 '{ sub(/^- \*\*One-way doors:\*\* human-authority/, "- **One-way doors:** structure-only"); print }'
 seed BOUNDARY-OUTSCOPE 1 '!/^- \*\*Out of scope:\*\*/'
+seed BOUNDARY-OUTSCOPE 1 '{ sub(/^- \*\*Out of scope:\*\* .*/, "- **Out of scope:**"); print }'
 
 # Escalation contract (REQ-P1.5's typed triggers, carried by the card).
 seed ESC-TYPED 1 '/^- \*\*irreversibility\*\*/ { print; print "- **gut-feel** (powers: halt): it feels risky."; next } { print }'
 seed ESC-TYPED 1 '{ sub(/\(powers: disregard\)/, "(powers: ignore)"); print }'
+seed ESC-TYPED 1 '{ sub(/^- \*\*irreversibility\*\* \(powers: halt, override\):/, "- **irreversibility** halt:"); print }'
 seed ESC-TYPED 1 '/^- \*\*irreversibility\*\*/ { print; print "- **irreversibility** (powers: halt): the call is a one-way door."; next } { print }'
 seed ESC-COVERAGE 1 '!/^- \*\*contract-policy-change\*\*/'
 # A fenced line is illustration, never structure.
@@ -180,6 +196,12 @@ seed GROUNDING-REFUSE 1 '/^- \*\*Refuse without:\*\*/ { print "```text"; print; 
 seed BENCH-TRIGGERS 1 '{ sub(/^\*\*Bench:\*\* no$/, "**Bench:** yes"); print }'
 seed BENCH-TRIGGERS 1 '/^## Sources$/ { print "## Pull-in triggers"; print ""; print "- The frame names a regulator."; print "" } { print }'
 seed STYLE-IDENTITY 1 '/^A recommendation with no cited evidence\.$/ { print "You are a seasoned strategist with 20 years of experience."; next } { print }'
+# Each identity pattern on its own, credentials included (REQ-P1.1).
+for line in "You are an analyst for this venture." "Brings ten years of experience." \
+  "A world-class analysis." "Answers as a senior partner would." "Written with PhD rigor."; do
+  seed STYLE-IDENTITY 1 "/^A recommendation with no cited evidence\\.\$/ { print \"$line\"; next } { print }"
+done
+seed STYLE-IDENTITY 1 '/^\*\*Bench:\*\*/ { print; print "**Credentials:** PhD, award-winning"; next } { print }'
 
 # A bench card with its pull-in triggers is clean (the positive arm of
 # BENCH-TRIGGERS), and so is a card that omits both optional keys.
@@ -199,6 +221,15 @@ awk '!/^\*\*Stance-axis:\*\*/' "$d/fixture-discipline.md" >"$d/m" \
 out="$("$LINT" "$d/fixture-discipline.md" 2>&1)"
 assert_eq "card without optional keys: exit 0" "0" "$?"
 
+for model in none opus/high; do
+  d="$tmp/model-${model%%/*}"
+  write_golden_card "$d"
+  awk -v m="$model" '/^\*\*Stance-axis:\*\*/ { print; print "**Model-override:** " m; next } { print }' \
+    "$d/fixture-discipline.md" >"$d/m" && mv "$d/m" "$d/fixture-discipline.md"
+  out="$("$LINT" "$d/fixture-discipline.md" 2>&1)"
+  assert_eq "Model-override $model: lints clean" "" "$out"
+done
+
 # The frame anchor accepts the frame's possessive and a typographic apostrophe.
 d="$tmp/anchors"
 write_golden_card "$d"
@@ -207,6 +238,12 @@ awk '/^1\. Which problem/ { print "1. Which problem in the frame'"'"'s scope com
   { print }' "$d/fixture-discipline.md" >"$d/m" && mv "$d/m" "$d/fixture-discipline.md"
 out="$("$LINT" "$d/fixture-discipline.md" 2>&1)"
 assert_eq "frame anchors: possessive and typographic apostrophe accepted" "" "$out"
+d="$tmp/anchor-venture"
+write_golden_card "$d"
+awk '/^1\. Which problem/ { print "1. Which problem does the venture'"'"'s first segment feel?"; next } { print }' \
+  "$d/fixture-discipline.md" >"$d/m" && mv "$d/m" "$d/fixture-discipline.md"
+out="$("$LINT" "$d/fixture-discipline.md" 2>&1)"
+assert_eq "frame anchors: the venture's possessive accepted" "" "$out"
 
 # A fenced example is never parsed as card structure: a `## Backstory` inside
 # the artifact template is template text, not a section.
@@ -215,7 +252,9 @@ write_golden_card "$d"
 awk '/^## Findings$/ { print "## Backstory"; print "" } { print }' \
   "$d/fixture-discipline.md" >"$d/m" && mv "$d/m" "$d/fixture-discipline.md"
 out="$("$LINT" "$d/fixture-discipline.md" 2>&1)"
+assert_eq "fenced heading is not a section: exit 0" "0" "$?"
 assert_not_contains "fenced heading is not a section" "[SEC-UNKNOWN]" "$out"
+assert_eq "fenced heading is not a section: no findings" "" "$out"
 
 # Usage and environment errors.
 "$LINT" >/dev/null 2>&1
@@ -335,8 +374,19 @@ assert_eq "supersede: the id resolves to the overlay's card" \
 # is never returned.
 base "$core_env" PLANWRIGHT_REPO_ROOT=none /bin/bash "$RESOLVE" ../etc/passwd >/dev/null 2>&1
 assert_eq "bad id: exit 2" "2" "$?"
-base "$core_env" PLANWRIGHT_REPO_ROOT=none /bin/bash "$RESOLVE" no-such-card >/dev/null 2>&1
+base "$core_env" PLANWRIGHT_REPO_ROOT=none /bin/bash "$RESOLVE" Product-Strategy >/dev/null 2>&1
+assert_eq "uppercase id: exit 2" "2" "$?"
+base "$core_env" PLANWRIGHT_REPO_ROOT=none /bin/bash "$RESOLVE" "$long_id" >/dev/null 2>&1
+assert_eq "65-character id: exit 2" "2" "$?"
+base "$core_env" PLANWRIGHT_REPO_ROOT=none /bin/bash "$RESOLVE" >/dev/null 2>&1
+assert_eq "resolver, no argument: exit 2" "2" "$?"
+base "$core_env" PLANWRIGHT_REPO_ROOT=none /bin/bash "$RESOLVE" a b >/dev/null 2>&1
+assert_eq "resolver, two arguments: exit 2" "2" "$?"
+base "$core_env" PLANWRIGHT_REPO_ROOT=none /bin/bash "$RESOLVE" -x >/dev/null 2>&1
+assert_eq "resolver, unknown flag: exit 2" "2" "$?"
+out="$(base "$core_env" PLANWRIGHT_REPO_ROOT=none /bin/bash "$RESOLVE" no-such-card 2>&1)"
 assert_eq "unknown id: exit 1" "1" "$?"
+assert_contains "unknown id: says so" "not in the merged discipline-cards catalog" "$out"
 
 nc="$tmp/no-card"
 mkdir -p "$nc/catalogs"
@@ -359,10 +409,38 @@ cards:
   - id: escapee
     discipline: "Escapee"
 YAML
+err="$tmp/escape.err"
 out="$(base "$core_env" PLANWRIGHT_ADOPTER_OVERLAY="$esc" PLANWRIGHT_REPO_ROOT=none \
-  /bin/bash "$RESOLVE" escapee 2>/dev/null)"
+  /bin/bash "$RESOLVE" escapee 2>"$err")"
 assert_eq "symlink escaping the layer root: exit 1" "1" "$?"
 assert_eq "symlink escaping the layer root: no path printed" "" "$out"
+assert_contains "symlink escaping the layer root: says so" "escapes its layer root" "$(cat "$err")"
+
+# The repo-tracked and machine-local layers each supply their own card from
+# their own card home.
+repo="$tmp/repo"
+mkdir -p "$repo"
+git -C "$repo" init -q
+mkdir -p "$repo/.claude/catalogs" "$repo/.claude/catalogs.local"
+write_golden_card "$repo/.claude/cards" team-discipline
+write_golden_card "$repo/.claude/cards.local" local-discipline
+cat >"$repo/.claude/catalogs/discipline-cards.yaml" <<'YAML'
+cards:
+  - id: team-discipline
+    discipline: "Team discipline"
+YAML
+cat >"$repo/.claude/catalogs.local/discipline-cards.yaml" <<'YAML'
+cards:
+  - id: local-discipline
+    discipline: "Local discipline"
+YAML
+repo_c="$(cd "$repo" && pwd -P)"
+out="$(base "$core_env" PLANWRIGHT_REPO_ROOT="$repo" /bin/bash "$RESOLVE" team-discipline 2>&1)"
+assert_eq "repo-tracked: the team card resolves to .claude/cards" \
+  "$repo_c/.claude/cards/team-discipline.md" "$out"
+out="$(base "$core_env" PLANWRIGHT_REPO_ROOT="$repo" /bin/bash "$RESOLVE" local-discipline 2>&1)"
+assert_eq "machine-local: the local card resolves to .claude/cards.local" \
+  "$repo_c/.claude/cards.local/local-discipline.md" "$out"
 
 # ---------------------------------------------------------------------------
 # 5. Task Done-when — the schema and recipe docs resolve via the rule-doc
