@@ -424,9 +424,9 @@ for fmt in "PuTTY|$PUTTY_BEGIN|$PUTTY_END" "SSH2|$SSH2_BEGIN|$SSH2_END" "PGP|$PG
   case $OUT in *"$KEY_BODY2"*) fail "a $name key's own end marker in its comment published the key" ;; esac
   printf '%s\n' "$OUT" | grep -qx '  Then rerun the deploy.' || fail "the line after a $name key's real end must survive"
 done
-# An indented or quoted key ends at its own prefixed end marker, and its
-# prefixed Comment header still ends nothing.
-for pfx in '    ' '> '; do
+# An indented (spaces or a tab) or quoted key ends at its own prefixed end
+# marker, and its prefixed Comment header still ends nothing.
+for pfx in '    ' "$(printf '\t')" '> '; do
   for fmt in "PuTTY|$PUTTY_BEGIN|$PUTTY_END" "SSH2|$SSH2_BEGIN|$SSH2_END" "PGP|$PGP_BEGIN|$PGP_END"; do
     name=${fmt%%|*}
     rest=${fmt#*|}
