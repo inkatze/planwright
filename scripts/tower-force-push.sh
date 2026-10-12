@@ -14,7 +14,8 @@
 #            every later commit replayed onto it with its tree, author, and
 #            message unchanged, and print tab-separated `reworded <c> <new c>`,
 #            `lease <remote tip>`, and `to <new tip>` lines. It writes commit
-#            objects only: no ref, index, or working tree changes.
+#            objects and refreshes remote-tracking refs only: no branch,
+#            index, or working tree changes.
 #   confirm  print the confirmation (below) for replacing <r>/<b> with <c>.
 #   push     force-push <c> to <r>/<b>, only while <r>/<b> still sits at
 #            <lease>, the tip the confirmation named; then print what it
@@ -22,8 +23,9 @@
 #   purge    print a history-purge command and the rotation checklist. It
 #            runs nothing.
 #
-# Every verb but purge refuses inside a dispatched worker's environment and a
-# branch in the protected set (scripts/protected-branch.sh: main, master, a
+# Every verb but purge refuses where a dispatch exported a worker identity
+# (PLANWRIGHT_WORKER_HANDLE or PLANWRIGHT_WORKER_SCOPE) and a branch in the
+# protected set (scripts/protected-branch.sh: main, master, a
 # spec branch, and the protected_branches additions), and refreshes <r>/<b>
 # (default remote `origin`) first. confirm and push refuse a <c> whose tip
 # contains the remote tip (nothing would be dropped: a plain push suffices).
@@ -405,8 +407,9 @@ verb=$1
 shift
 case $verb in
   confirm | push | reword)
-    # The helper's own last line behind the worker deny: a wrapper or copy the
-    # policy guard cannot read still runs in a dispatched worker's environment.
+    # The helper's own last line behind the worker deny, for a wrapper or copy
+    # the policy guard cannot read. It reaches only workers launched with an
+    # identity; a launch that exports none (stream-json, a flight) is not seen.
     [ -z "${PLANWRIGHT_WORKER_HANDLE:-}" ] && [ -z "${PLANWRIGHT_WORKER_SCOPE:-}" ] \
       || refuse "a dispatched worker runs no verb of the force-push path; it is the tower's, on the operator's request. Name the reword or force-push in your handoff instead."
     command -v jq >/dev/null 2>&1 || broken "jq is required"
