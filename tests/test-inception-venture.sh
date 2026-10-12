@@ -878,6 +878,32 @@ PATH="$stubs/gh-ok:$PATH" venture save --push "$lr" "Record the minimum core"
 assert_eq "F5 the save after the core phase pushes" 0 "$rc"
 assert_eq "F5 the push reaches the remote once core is recorded" "$(git -C "$lr" rev-parse HEAD)" "$(git -C "$tmp/remotes/lambda-early.git" rev-parse refs/heads/main)"
 
+# =========================================================================
+# Z9 — the pre-push screen covers everything origin lacks
+# =========================================================================
+
+# leak_and_hide <venture> — commit a token and remove it again, outside the
+# helper, so only the screen of the outgoing history can catch it.
+leak_and_hide() {
+  token_line >"$1/outside-leak.md"
+  git -C "$1" add outside-leak.md
+  git -C "$1" -c core.hooksPath=/dev/null commit -q --no-verify -m "outside commit"
+  git -C "$1" rm -q outside-leak.md
+  git -C "$1" -c core.hooksPath=/dev/null commit -q --no-verify -m "remove it again"
+}
+
+rv_base=$(git -C "$rv" rev-parse HEAD)
+remote_before=$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)
+leak_and_hide "$rv"
+git -C "$rv" branch -q -f side HEAD
+git -C "$rv" branch -q -u side
+PATH="$stubs/gh-ok:$PATH" venture save --push "$rv" "Share past a local upstream"
+assert_eq "Z9 commits origin lacks are screened even behind a local upstream (exit 1)" 1 "$rc"
+assert_eq "Z9 the refused push leaves the remote untouched" "$remote_before" "$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)"
+git -C "$rv" branch -q -u origin/main
+git -C "$rv" reset -q --hard "$rv_base"
+git -C "$rv" branch -q -D side
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

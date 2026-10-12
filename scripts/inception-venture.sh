@@ -816,12 +816,10 @@ screen_or_die() {
 # intermediate commits included, so a credential committed outside the helper
 # and removed again still never leaves the machine.
 screen_outgoing() {
-  range=HEAD
-  if git -C "$1" rev-parse -q --verify '@{upstream}' >/dev/null 2>&1; then
-    range='@{upstream}..HEAD'
-  fi
+  # What origin lacks, not what the upstream lacks: a branch tracking a local
+  # branch would otherwise hide commits the push still sends.
   tmp_path=$(mktemp "${TMPDIR:-/tmp}/inception-venture.XXXXXX") || die 2 "cannot create a temporary file"
-  git -C "$1" log -p --format= --no-color --no-ext-diff "$range" >"$tmp_path" 2>/dev/null \
+  git -C "$1" log -p --format= --no-color --no-ext-diff HEAD --not --remotes=origin >"$tmp_path" 2>/dev/null \
     || die 2 "cannot read the history a push would send"
   sd_rc=0
   /bin/sh "$self_dir/inception-secret-screen.sh" -- "$tmp_path" >/dev/null 2>&1 || sd_rc=$?
