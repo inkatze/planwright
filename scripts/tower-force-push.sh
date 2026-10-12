@@ -307,12 +307,22 @@ push() {
   [ -n "$TO" ] || usage "push has no commit to push"
   if ! git push --quiet --force-with-lease="refs/heads/$BRANCH:$LEASE" --force-if-includes \
     "$REMOTE" "$TO:refs/heads/$BRANCH"; then
-    # A lease lost to a push that landed in between is a refusal, not a
-    # failure to retry: someone else works from the branch now.
-    refresh
-    [ "$LEASE_NOW" = "$LEASE" ] \
-      || refuse "$(safe "$REMOTE")/$(safe "$BRANCH") moved while pushing ($(printf '%s' "$LEASE" | cut -c1-7) -> $(printf '%s' "$LEASE_NOW" | cut -c1-7)); someone else works from it, so treat it as shared and do not retry"
-    broken "the push failed; $(safe "$REMOTE")/$(safe "$BRANCH") is unchanged unless the remote says otherwise"
+    # A lease lost to a push or a deletion that landed in between is a
+    # refusal, not a failure to retry: someone else works from the branch now.
+    # A remote already at <to> took this push and only the report was lost.
+    local now
+    now=$(git ls-remote --heads "$REMOTE" "refs/heads/$BRANCH" 2>/dev/null) \
+      || broken "the push failed and $(safe "$REMOTE")/$(safe "$BRANCH") could not be read; its tip is unknown"
+    now=$(printf '%s\n' "$now" | awk -v r="refs/heads/$BRANCH" '$2 == r { print $1; exit }')
+    if [ "$now" = "$TO" ]; then
+      echo "note	the push reported a failure, but $(safe "$REMOTE")/$(safe "$BRANCH") holds the new tip"
+    elif [ -z "$now" ]; then
+      refuse "$(safe "$REMOTE")/$(safe "$BRANCH") was deleted while pushing; someone else works from it, so treat it as shared and do not retry"
+    elif [ "$now" != "$LEASE" ]; then
+      refuse "$(safe "$REMOTE")/$(safe "$BRANCH") moved while pushing ($(printf '%s' "$LEASE" | cut -c1-7) -> $(printf '%s' "$now" | cut -c1-7)); someone else works from it, so treat it as shared and do not retry"
+    else
+      broken "the push failed; $(safe "$REMOTE")/$(safe "$BRANCH") is unchanged"
+    fi
   fi
   printf 'pushed\t%s\t%s\t%s\t%s\n' "$(safe "$REMOTE")" "$(safe "$BRANCH")" "$LEASE" "$TO"
   printf '%s\n' "$drops" | while IFS="$TAB" read -r sha subj; do

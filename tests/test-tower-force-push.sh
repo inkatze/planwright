@@ -302,6 +302,25 @@ if [ "$rc" = 1 ] && grep -q 'moved while pushing' "$tmp/err" \
 else
   fail "a lease lost mid-push was not refused (exit $rc: $(cat "$tmp/err"))"
 fi
+printf '#!/bin/sh\ngit --git-dir="%s" update-ref -d "refs/heads/%s"\n' "$tmp/origin.git" "$BR" >"$W/.git/hooks/pre-push"
+git -C "$tmp/origin.git" update-ref "refs/heads/$BR" "$TIP"
+rc=$(rc_of fp push --branch "$BR" --to "$NEW" --lease "$TIP")
+if [ "$rc" = 1 ] && grep -q 'deleted while pushing' "$tmp/err" \
+  && ! git -C "$tmp/origin.git" rev-parse -q --verify "refs/heads/$BR" >/dev/null; then
+  ok "push refuses a branch deleted mid-push"
+else
+  fail "a branch deleted mid-push was not refused (exit $rc: $(cat "$tmp/err"))"
+fi
+# The remote took the new tip but the push still reported a failure: the
+# handoff stands, never a refusal that calls the branch shared.
+printf '#!/bin/sh\ngit --git-dir="%s" update-ref "refs/heads/%s" "%s"\nexit 1\n' "$tmp/origin.git" "$BR" "$NEW" >"$W/.git/hooks/pre-push"
+git -C "$tmp/origin.git" update-ref "refs/heads/$BR" "$TIP"
+rc=$(rc_of fp push --branch "$BR" --to "$NEW" --lease "$TIP")
+if [ "$rc" = 0 ] && grep -q 'holds the new tip' "$tmp/out" && grep -q '^pushed' "$tmp/out"; then
+  ok "push reports a landed push whose report failed as landed"
+else
+  fail "a landed push with a failed report was misreported (exit $rc: $(cat "$tmp/out" "$tmp/err"))"
+fi
 rm -f "$W/.git/hooks/pre-push"
 git -C "$tmp/origin.git" update-ref "refs/heads/$BR" "$TIP"
 
