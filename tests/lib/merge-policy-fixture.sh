@@ -7,6 +7,7 @@
 # would. Nothing here reaches a real host.
 #
 # The sourcing suite defines pass/fail and sets REPO_ROOT and SANDBOX first.
+unset CDPATH
 
 MP_STEP_RECORD="$REPO_ROOT/scripts/step-record.sh"
 MP_STUBBIN="$SANDBOX/bin"
