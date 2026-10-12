@@ -904,6 +904,18 @@ git -C "$rv" branch -q -u origin/main
 git -C "$rv" reset -q --hard "$rv_base"
 git -C "$rv" branch -q -D side
 
+# =========================================================================
+# Z8 — outgoing commit messages are screened too
+# =========================================================================
+
+rv_base=$(git -C "$rv" rev-parse HEAD)
+remote_before=$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)
+git -C "$rv" -c core.hooksPath=/dev/null commit -q --no-verify --allow-empty -m "$(token_line)"
+PATH="$stubs/gh-ok:$PATH" venture save --push "$rv" "Share a commit whose message leaks"
+assert_eq "Z8 a credential in an outgoing commit message blocks the push (exit 1)" 1 "$rc"
+assert_eq "Z8 the refused push leaves the remote untouched" "$remote_before" "$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)"
+git -C "$rv" reset -q --hard "$rv_base"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
