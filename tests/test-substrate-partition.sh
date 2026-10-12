@@ -61,6 +61,12 @@ top=$(git rev-parse --show-toplevel) || exit 1
 exec /bin/sh "$top/scripts/gitcalled.sh" "$@"
 EOF
 
+# A file below a githooks/ subdirectory is not a git hook.
+put githooks/lib/common.sh <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+
 put skills/demo/SKILL.md <<'EOF'
 # demo
 
@@ -475,7 +481,10 @@ echo "ok: p9 control bytes in file-derived text are replaced"
 ln -s "$fx" "$tmp/link" || fail "symlink failed"
 run_sp "$tmp/link" >"$tmp/out6" || fail "p10: a symlinked root failed: $(cat "$tmp/err")"
 cmp -s "$tmp/out1" "$tmp/out6" || fail "p10: a symlinked root partitions differently"
-echo "ok: p10 a symlinked root gives the same partition"
+cp -R "$fx" "$tmp/br[a]ck" || fail "fixture copy failed"
+run_sp "$tmp/br[a]ck" >"$tmp/out7" || fail "p10: a root holding a glob character failed: $(cat "$tmp/err")"
+cmp -s "$tmp/out1" "$tmp/out7" || fail "p10: a root holding a glob character partitions differently"
+echo "ok: p10 a symlinked root and one holding a glob character give the same partition"
 
 # ---------------------------------------------------------------------------
 # p11: a machine-local mise overlay redefining a task does not hide the

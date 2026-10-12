@@ -208,7 +208,12 @@ list_files "$work/scripts.list" "$repo_root/scripts" \( -type f -o -type l \)
 scan_files layer "$work/scripts.list" 1 >"$work/layer.raw" 2>"$work/scan.err" \
   || scan_failed "a file under scripts/ is unreadable"
 if [ -d "$repo_root/githooks" ]; then
-  list_files "$work/githooks.list" "$repo_root/githooks" -maxdepth 1 \( -type f -o -type l \)
+  # Direct children only, in POSIX find (no -maxdepth): start at `githooks/.`
+  # and prune every entry but the start, then drop the `/.` it adds to paths.
+  # Matching the start by -path instead would glob on the checkout path.
+  list_files "$work/githooks.raw" "$repo_root/githooks/." ! -name . -prune \( -type f -o -type l \)
+  sed 's|/githooks/\./|/githooks/|' "$work/githooks.raw" >"$work/githooks.list" \
+    || fail_closed "could not list githooks/"
   scan_files layer "$work/githooks.list" 0 >>"$work/layer.raw" 2>"$work/scan.err" \
     || scan_failed "a file under githooks/ is unreadable"
 fi
