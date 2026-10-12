@@ -109,11 +109,15 @@ card_path() {
 tab=$(printf '\t')
 rc=0
 found=0
+# A malformed merged entry fails --list; a single-id lookup answers for its
+# own id only.
 while IFS="$tab" read -r id layer; do
   [ -n "$id" ] || continue
   if ! valid_id "$id"; then
-    echo "resolve-card: skipping a catalog entry whose id is outside the charset" >&2
-    rc=1
+    if [ "$want" = "--list" ]; then
+      echo "resolve-card: skipping a catalog entry whose id is outside the charset" >&2
+      rc=1
+    fi
     continue
   fi
   if [ "$want" = "--list" ]; then

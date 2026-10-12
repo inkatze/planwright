@@ -464,6 +464,27 @@ out="$(base "$core_env" PLANWRIGHT_ADOPTER_OVERLAY="$ctl" PLANWRIGHT_REPO_ROOT=n
 assert_eq "control byte in the canonical path: exit 1" "1" "$?"
 assert_eq "control byte in the canonical path: nothing printed" "" "$out"
 
+# A single-id lookup's exit answers for the requested id only: an unrelated
+# malformed entry never fails it, while --list still reports it.
+mixed="$tmp/mixed"
+mkdir -p "$mixed/catalogs"
+write_golden_card "$mixed/cards" good-card
+cat >"$mixed/catalogs/discipline-cards.yaml" <<'YAML'
+cards:
+  - id: Bad_Id
+    discipline: "Bad"
+  - id: good-card
+    discipline: "Good"
+YAML
+out="$(base "$core_env" PLANWRIGHT_ADOPTER_OVERLAY="$mixed" PLANWRIGHT_REPO_ROOT=none \
+  /bin/bash "$RESOLVE" good-card 2>/dev/null)"
+assert_eq "unrelated malformed entry: the requested id still resolves (exit 0)" "0" "$?"
+assert_eq "unrelated malformed entry: the requested id's path" \
+  "$mixed/cards/good-card.md" "$out"
+base "$core_env" PLANWRIGHT_ADOPTER_OVERLAY="$mixed" PLANWRIGHT_REPO_ROOT=none \
+  /bin/bash "$RESOLVE" --list >/dev/null 2>&1
+assert_eq "unrelated malformed entry: --list still reports it (exit 1)" "1" "$?"
+
 # The repo-tracked and machine-local layers each supply their own card from
 # their own card home.
 repo="$tmp/repo"
