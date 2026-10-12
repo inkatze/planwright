@@ -74,6 +74,12 @@ RESOLVER="$script_dir/resolve-config-knob.sh"
 TAB=$(printf '\t')
 LABEL="account-wide (every session on the Claude account counts toward it)"
 LINE_MAX=65536
+# The stored reading's grammar, shared by persist (which writes it) and the
+# readers (which skip anything outside it), so the two cannot drift apart.
+GRAMMAR='
+  function util_ok(s) { return s ~ /^[0-9]+(\.[0-9]+)?$/ && length(s) <= 16 && s + 0 <= 1 }
+  function reset_ok(s) { return s ~ /^[1-9][0-9]*$/ && length(s) <= 15 }
+'
 
 CUR_TMP=""
 trap '[ -z "$CUR_TMP" ] || rm -f "$CUR_TMP"' EXIT
@@ -150,9 +156,7 @@ if [ "$verb" = persist ]; then
   [ ! -L "$rf" ] || die 6 "refusing a symlink where the frame goes"
   [ ! -e "$rf" ] || [ -f "$rf" ] || die 6 "the frame file is not a regular file"
   # The supervisor hands over the line unbounded.
-  stored=$(head -c "$LINE_MAX" | awk -v now="$now" '
-    function util_ok(s) { return s ~ /^[0-9]+(\.[0-9]+)?$/ && length(s) <= 16 && s + 0 <= 1 }
-    function reset_ok(s) { return s ~ /^[1-9][0-9]*$/ && length(s) <= 15 }
+  stored=$(head -c "$LINE_MAX" | awk -v now="$now" "$GRAMMAR"'
     # The object a key opens inside obj, without its braces; the window
     # objects are flat, so the first closing brace ends one.
     function window(obj, key,   p, body, e, u, r) {
@@ -249,9 +253,7 @@ if [ -d "$sj" ] && [ ! -L "$sj" ]; then
 fi
 
 printf '%s\n' "$frames" | awk -F "$TAB" -v now="$now" -v ceiling="$ceiling" \
-  -v since="$since" -v verb="$verb" -v sthr="$s_thr" -v wthr="$w_thr" -v label="$LABEL" '
-  function util_ok(s) { return s ~ /^[0-9]+(\.[0-9]+)?$/ && length(s) <= 16 && s + 0 <= 1 }
-  function reset_ok(s) { return s ~ /^[1-9][0-9]*$/ && length(s) <= 15 }
+  -v since="$since" -v verb="$verb" -v sthr="$s_thr" -v wthr="$w_thr" -v label="$LABEL" "$GRAMMAR"'
   function take(k, u, r, t) {
     if (u == "-" && r == "-") return
     if (r + 0 <= now + 0 || r + 0 > now + ceiling) return
