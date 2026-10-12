@@ -408,8 +408,8 @@ classify the edit on the amendment axis:
    origin/<branch> --checklist-only`) and re-emit the handoff; verify the PR is still a draft,
    else park naming the post-pr steps (custom-steps REQ-E1.2). Earlier points
    never re-run. When `ready_flip_policy` resolves `unit-owner`, run
-   `scripts/ready-flip.sh`'s header sequence; under `merge_policy:
-   policy-class`, then `scripts/merge-admitted.sh`'s.
+   `scripts/ready-flip.sh`'s header sequence. Under `merge_policy:
+   policy-class`, `scripts/merge-admitted.sh`'s follows.
 3. **Annotate the unit (v1 bundles only).** On a format-version 2 bundle no
    annotation exists to write — skip this step. Update only the task
    block's `- **Last activity:** <today>` annotation; write **no** `Status`
