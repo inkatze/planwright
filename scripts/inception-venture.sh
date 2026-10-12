@@ -38,7 +38,8 @@
 # operator's override in either direction, for hosts the probe misreads.
 #
 # Exit: 0 success · 1 refused identifier (check-id, create, add-remote), a
-#   proposed variant (id), a save the venture's guard stopped, or a
+#   proposed variant (id), a save the venture's guard stopped, a push whose
+#   outgoing history the screen flagged (saved here, not shared), or a
 #   plain-folder save whose screen flagged a credential (the files are
 #   written regardless) · 2 usage or environment error (a broken install, an
 #   incomplete bundle, a name id can derive nothing from) · 3 the validator
@@ -46,7 +47,8 @@
 #   format-version, an unbalanced code fence; passed through) · 4 a
 #   malformed repo-tracked ventures_root · 5 the target or a bundle file
 #   already exists (never overwritten)
-#   · 6 the requested home or push is unavailable · 7 the remote step failed.
+#   · 6 the requested home or push is unavailable (a push: no remote, nothing
+#   saved, or the remote not confirmed private) · 7 the remote step failed.
 #
 # Environment: PLANWRIGHT_INCEPTION_TODAY (YYYY-MM-DD) pins today's date;
 #   the config overrides resolve-config-knob.sh honors apply to `root` and
@@ -639,7 +641,7 @@ cmd_resume_point() {
 # caller has already gated.
 resume_state() {
   # The first phase in order with no completion line is next, so a phase the
-  # skill skipped or reopened is never jumped over; done is the one before it.
+  # skill skipped is never jumped over; done is the one before it.
   done_p=none
   next_p=complete
   for p in $PHASES; do

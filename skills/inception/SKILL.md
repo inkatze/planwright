@@ -102,7 +102,7 @@ the first question, and repeated in the handoff (REQ-H1.5).
    selector, asked exactly once per venture and never re-asked:
    - **Private remote repository**: offered only when `detect` says
      `remote available`; the option names the repository (`<id>`, private)
-     and says that each save is then shared to it.
+     and says that saves are shared to it once the minimum core is recorded.
    - **Local-only repository**: nothing leaves this machine. On an
      ephemeral environment the option is labelled session-only and says the
      work is lost when the session ends (REQ-A1.5); with no git it is a plain
@@ -133,9 +133,7 @@ the first question, and repeated in the handoff (REQ-H1.5).
 5. **Write the skeleton and save it.** `inception-venture.sh bundle-init
    --title "<title>" <venture-dir>`, then `inception-venture.sh save
    <venture-dir> "Start the <title> venture"` (add `--push` on the remote
-   home, where saves stay on this machine until the core phase is recorded,
-   since the venture's CI guard fails without the minimum core; `--expert`
-   in expert mode). Unfilled content carries the
+   home; `--expert` in expert mode). Unfilled content carries the
    `_Pending: not yet elicited._` marker until its phase replaces it. The
    marker and the `Elicitation: <phase> phase complete.` Changelog lines are
    this skill's own convention, not part of `inception-format`: the
@@ -144,8 +142,8 @@ the first question, and repeated in the handoff (REQ-H1.5).
    Every save reads its exit the same way: 1 means the venture's guard
    stopped it (a credential, say), so relay why and resolve it with the
    operator before going on; 2 names an environment gap such as no git name
-   and email; 7 on the remote home means saved here but not shared, said
-   plainly.
+   and email; 7, or a refusal saying `not shared`, means saved here but not
+   shared, said plainly.
 
 **Resume arm** (REQ-B1.7).
 
