@@ -34,7 +34,7 @@ unset CDPATH
 # reach the fixtures, whose own checkouts carry no overlay.
 PLANWRIGHT_ADOPTER_OVERLAY=/nonexistent/planwright-adopter
 export PLANWRIGHT_ADOPTER_OVERLAY
-unset PLANWRIGHT_LOCAL_CONFIG PLANWRIGHT_REPO_ROOT CLAUDE_PROJECT_DIR
+unset PLANWRIGHT_LOCAL_CONFIG PLANWRIGHT_REPO_ROOT CLAUDE_PROJECT_DIR PLANWRIGHT_CONFIG_DEFAULTS PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT
 LC_ALL=C
 export LC_ALL
 # The sync fixtures run the real git. An inherited repository override (a
