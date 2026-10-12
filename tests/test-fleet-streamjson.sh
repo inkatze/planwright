@@ -293,6 +293,32 @@ esac
 echo "ok: c1 can_use_tool receipt -> one journal row + one queue item, dedup, capture, completion (REQ-E1.1, REQ-A1.3)"
 
 # ---------------------------------------------------------------------------
+# c1f (quota-handling REQ-E1.3): the supervisor keeps the worker's newest
+#    rate-limit frame beside its other runtime state, and a malformed one
+#    neither replaces it nor stops the capture. Its own variables: c2 reads
+#    c1's home and worker directory.
+# ---------------------------------------------------------------------------
+h1f="$tmp/h1f"
+r1f="$tmp/r1f"
+mkdir -p "$r1f"
+rl() {
+  printf '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":{"five_hour":{"utilization":%s,"resetsAt":1900000000},"seven_day":{"utilization":%s,"resetsAt":1900500000}}},"session_id":"%s"}' "$1" "$2" "$sid"
+}
+printf '%s\n%s\n%s\n%s\n%s\n' "$line_init" "$(rl 0.2 0.4)" "$(rl 0.25 0.45)" \
+  '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"}}' "$line_result" >"$tmp/ev1f"
+printf 'frames\n' >"$tmp/prompt1f"
+senv "$h1f" "$r1f" SHIM_EVENTS="$tmp/ev1f" -- \
+  launch sjw1f execution-backends:4 --prompt-file "$tmp/prompt1f" --foreground \
+  || fail "c1f: foreground launch exited non-zero"
+rlf="$h1f/streamjson/sjw1f/ratelimit"
+[ -f "$rlf" ] || fail "c1f: no rate-limit frame stored beside the worker's state"
+awk -F "$tab" '$1 == "frame" && $3 == "0.25" && $4 == "1900000000" && $5 == "0.45" && $6 == "1900500000" && $7 == "end"' "$rlf" \
+  | grep -q . || fail "c1f: the stored frame is not the newest well-formed one: $(cat "$rlf")"
+[ "$(senv "$h1f" "$r1f" -- status sjw1f)" = "status sjw1f completed result=success" ] \
+  || fail "c1f: a malformed frame disturbed the capture"
+echo "ok: c1f the supervisor stores the newest rate-limit frame (quota-handling REQ-E1.3)"
+
+# ---------------------------------------------------------------------------
 # c2 (REQ-E1.1): the pending-age alarm fires past the threshold (escalation
 #    only), and stays quiet below it.
 # ---------------------------------------------------------------------------
@@ -2021,7 +2047,10 @@ else
   printf '%s\n%s\n' "$(date +%s)" "$line_q" >"$wdir38f/deferred-$req_q"
   wait_until 100 grep -q "^$req_q$tab.*${tab}pending" "$wdir38f/journal" \
     || fail "c38f: the re-spooled receipt was not journaled once the journal was writable"
-  [ ! -e "$wdir38f/undrained-$req_q" ] || fail "c38f: a set-aside receipt outlived its journaled request"
+  # The drain removes the set-aside copy after the journal row lands, inside
+  # the lock hold this lock-free read does not take, so it is waited for.
+  wait_until 100 test ! -e "$wdir38f/undrained-$req_q" \
+    || fail "c38f: a set-aside receipt outlived its journaled request"
   : >"$wdir38f/undrained-$req_q"
   senv "$home" "$rec" -- stop sjw38f --grace 2 >/dev/null || fail "c38f: stop exited non-zero"
   [ ! -e "$wdir38f/undrained-$req_q" ] || fail "c38f: a close left the set-aside receipt behind"

@@ -57,6 +57,10 @@ run = "scripts/spec-status.sh"
 description = "Print the tower-comms scorecard from the event log under the fleet home (tower-comms D-14, REQ-G1.2): the operator's load per hour of fleet work against items settled without them, with the secondary measures. On demand only, never wired into check or CI (REQ-G1.5); scripts/tower-queue.sh report takes --log, --now, --window and --tick-gap-max for a fixture or a narrower run"
 run = "scripts/tower-queue.sh report"
 
+[tasks."substrate:partition"]
+description = "Print the script layer's tier partition (hook, skill-called, library, dev-check, tests-only), derived from the call graph on every run: per script its tier, the no-live-caller flag, its caller kinds, the shell-mutation flag, its coupling profile, and any invocation it cannot resolve. On demand only, never wired into check or CI; scripts/substrate-partition.sh's header documents each column"
+run = "/bin/sh scripts/substrate-partition.sh"
+
 [tasks."lint:shell"]
 description = "shellcheck on scripts, tests, sourced test libraries under tests/lib/, and the extensionless githooks/ hooks (whole-directory glob: everything in githooks/ must be shell; the tools read the shebang)"
 run = "shellcheck scripts/*.sh tests/*.sh tests/lib/*.sh githooks/*"

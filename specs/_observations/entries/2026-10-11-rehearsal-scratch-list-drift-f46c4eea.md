@@ -1,0 +1,1 @@
+- 2026-10-11 [planwright] tests/rehearsal-lifecycle.sh held_classes hand-copies fleet-streamjson.sh scratch_patterns and already lacks .deferred.* (the frame temp was added on quota-handling task 6); a third copy lives in tests/test-fleet-streamjson-steer.sh, so the lists drift silently with each new staging temp

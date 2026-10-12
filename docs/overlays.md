@@ -520,9 +520,12 @@ resolver prints it on that host followed by the step's `args`. The prefix is
 optional, and when present it is the twelve `PLANWRIGHT_STEP_*` assignments
 in the order `resolve-steps.sh --prefix` renders them, followed for a pooled
 step by the one optional `PLANWRIGHT_STEP_POOL_HOLD=<pool>:<pid>`
-assignment, each value one the
-resolver would render (no control byte, and the unit kind, task ids, and PR
-number inside their grammars), naming a wired point, and carrying no `$`. The location must be absolute
+assignment, approved only when `<pool>` is the pool that step declares,
+each value one the
+resolver would render (no control byte; the unit kind, task ids, and PR
+number inside their grammars; each head empty or a full commit id; the hold
+mark's pool in the step-id charset and its pid a decimal process id),
+naming a wired point, and carrying no `$`. The location must be absolute
 and plain (letters, digits, `/`, `.`, `_`, `-`), and a path target's
 location must carry no `.`, `..`, or empty segment and name an existing
 executable file. A segment that shares only the first word, spells the bare
