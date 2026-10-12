@@ -229,6 +229,19 @@ out=$(cf clearance --since "$SINCE" --now "$NOW") || rc=$?
 win "$out" session | grep -q "${TAB}35${TAB}.*${TAB}30${TAB}above$" || fail "knob: the configured threshold was not used: $out"
 pass "each window's threshold is its configured downshift rung"
 
+# A reading exactly at its threshold is not below it, including the two-decimal
+# fractions whose product with 100 rounds just under the integer.
+new_home boundary
+put a $((NOW - 60)) 0.57 $((NOW + HOUR)) 0.29 $((NOW + 86400))
+printf 'fleet_usage_session_downshift: 57\nfleet_usage_weekly_downshift: 29\n' >"$local_cfg"
+rc=0
+out=$(cf clearance --since "$SINCE" --now "$NOW") || rc=$?
+: >"$local_cfg"
+[ "$rc" = 1 ] || fail "boundary: readings exactly at their thresholds cleared: $out"
+win "$out" session | grep -q "${TAB}57${TAB}above$" || fail "boundary: the session reading at 57 is not above 57: $out"
+win "$out" weekly | grep -q "${TAB}29${TAB}above$" || fail "boundary: the weekly reading at 29 is not above 29: $out"
+pass "a reading exactly at its threshold is above it"
+
 # --- 4. Unmeasured ----------------------------------------------------------
 new_home subagent-only
 # A fleet whose workers run on frameless backends leaves no frame file.

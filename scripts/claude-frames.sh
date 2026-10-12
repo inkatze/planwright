@@ -240,7 +240,9 @@ printf '%s\n' "$frames" | awk -F "$TAB" -v now="$now" -v ceiling="$ceiling" \
   }
   function state(k, thr) {
     if (!(k in reset)) return "unmeasured"
-    if (util[k] * 100 >= thr + 0) return "above"
+    # Against the threshold as a fraction: util * 100 rounds 0.57 to just
+    # under 57, which would clear a reading sitting exactly at it.
+    if (util[k] + 0 >= thr / 100) return "above"
     if (verb == "clearance" && recv[k] + 0 <= since + 0) return "pre-hold"
     return "below"
   }
