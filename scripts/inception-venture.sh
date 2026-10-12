@@ -769,6 +769,12 @@ cmd_save() {
   if [ "$push" -eq 1 ]; then
     git -C "$dir" rev-parse -q --verify HEAD >/dev/null \
       || die 6 "nothing has been saved yet, so there is nothing to share"
+    # Before the minimum core exists the venture's CI guard can only fail, so
+    # sharing waits until the core phase is recorded.
+    if [ ! -f "$dir/brief.md" ] || ! phase_marked "$dir" core; then
+      printf 'Kept on this machine for now: it is shared once the minimum core is recorded.\n'
+      return 0
+    fi
     confirm_private "$dir"
     screen_outgoing "$dir"
     if ! git -C "$dir" push -q -u origin HEAD >/dev/null 2>&1; then

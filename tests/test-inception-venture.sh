@@ -565,6 +565,7 @@ assert_eq "dry run (remote): origin wired" origin "$(git -C "$rv" remote)"
 
 venture bundle-init --title "Harbor Ledger" "$rv"
 inception_fixture_write "$rv"
+for p in seed opportunity disciplines reframe core; do venture mark-phase "$rv" "$p"; done
 PATH="$stubs/gh-ok:$PATH" venture save --push "$rv" "Record the elicited bundle"
 assert_eq "dry run (remote): save and push succeed" 0 "$rc"
 /bin/sh "$VALIDATE" "$rv" >/dev/null 2>&1
@@ -853,6 +854,22 @@ assert_contains "F3 done names the phase before it" "$(printf 'done\tseed')" "$o
 venture mark-phase "$gp" seed
 assert_eq "F3 re-marking a phase succeeds" 0 "$rc"
 assert_eq "F3 re-marking a phase adds no duplicate line" 1 "$(grep -c 'Elicitation: seed phase complete' "$gp/brief.md")"
+
+# =========================================================================
+# Fork 5 — on the remote home, sharing starts once the core phase is recorded
+# =========================================================================
+
+PATH="$stubs/gh-ok:$PATH" venture create --home remote --root "$vroot" lambda-early
+lr="$vroot/lambda-early"
+venture bundle-init --title "Lambda Early" "$lr"
+PATH="$stubs/gh-ok:$PATH" venture save --push "$lr" "Start the Lambda Early venture"
+assert_eq "F5 an early save on the remote home succeeds" 0 "$rc"
+assert_contains "F5 the early save says sharing waits for the minimum core" "minimum core" "$out"
+assert_eq "F5 nothing reaches the remote before the core phase" "" "$(git -C "$tmp/remotes/lambda-early.git" rev-parse -q --verify refs/heads/main)"
+for p in seed opportunity disciplines reframe core; do venture mark-phase "$lr" "$p"; done
+PATH="$stubs/gh-ok:$PATH" venture save --push "$lr" "Record the minimum core"
+assert_eq "F5 the save after the core phase pushes" 0 "$rc"
+assert_eq "F5 the push reaches the remote once core is recorded" "$(git -C "$lr" rev-parse HEAD)" "$(git -C "$tmp/remotes/lambda-early.git" rev-parse refs/heads/main)"
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2

@@ -133,7 +133,9 @@ the first question, and repeated in the handoff (REQ-H1.5).
 5. **Write the skeleton and save it.** `inception-venture.sh bundle-init
    --title "<title>" <venture-dir>`, then `inception-venture.sh save
    <venture-dir> "Start the <title> venture"` (add `--push` on the remote
-   home; `--expert` in expert mode). Unfilled content carries the
+   home, where saves stay on this machine until the core phase is recorded,
+   since the venture's CI guard fails without the minimum core; `--expert`
+   in expert mode). Unfilled content carries the
    `_Pending: not yet elicited._` marker until its phase replaces it.
    Every save reads its exit the same way: 1 means the venture's guard
    stopped it (a credential, say), so relay why and resolve it with the
