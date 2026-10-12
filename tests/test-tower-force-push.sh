@@ -134,6 +134,18 @@ if [ "$rc" = 1 ]; then
 else
   fail "an off-branch commit was not refused (exit $rc)"
 fi
+g checkout -q --orphan solo
+g commit -q --allow-empty -m 'Bad root subject'
+SOLO_ROOT=$(g rev-parse HEAD)
+g commit -q --allow-empty -m 'feat: on the root'
+g push -q origin solo
+rc=$(rc_of fp reword --branch solo --commit "$SOLO_ROOT" --message-file "$tmp/msg")
+SOLO_NEW=$(awk -F '\t' '$1 == "to" { print $2 }' "$tmp/out")
+if [ "$rc" = 0 ] && [ -n "$SOLO_NEW" ] && ! g merge-base --is-ancestor "$SOLO_ROOT" "$SOLO_NEW" 2>/dev/null; then
+  ok "reword of a root commit leaves the old root out of the new history"
+else
+  fail "reword of a root commit kept the old root (exit $rc: $(cat "$tmp/err"))"
+fi
 g checkout -q "$BR"
 printf ' \n\t\n' >"$tmp/blank"
 rc=$(rc_of fp reword --branch "$BR" --commit "$BAD" --message-file "$tmp/blank")

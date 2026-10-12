@@ -353,7 +353,7 @@ reword() {
   while read -r c; do
     tree=$(git rev-parse "$c^{tree}") || broken "a tree did not resolve"
     parents=''
-    for p in $(git rev-list --parents -n 1 "$c" | cut -d' ' -f2-); do
+    for p in $(git rev-list --parents -n 1 "$c" | cut -s -d' ' -f2-); do
       np=$(awk -v k="$p" '$1 == k { print $2; exit }' "$map")
       parents="$parents -p ${np:-$p}"
     done
