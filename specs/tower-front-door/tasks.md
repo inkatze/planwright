@@ -455,6 +455,19 @@ router has not demonstrated (REQ-B1.6).
 
 ## Awaiting input
 
+- **Task 19** — both fourth-review rulings are applied (PS-38, PS-39) and
+  the fifth polish round converged, but the Gemini panel step (point
+  `convergence`, step `panel-gemini`, outcome `halted`, record
+  `.claude/steps/000005/002-step-convergence.rec`) found one problem in
+  the same security-sensitive code, introduced by this unit's IBAN
+  commits; it is not applied and no PR is open. Nit, failing safe: a
+  grouped IBAN with lowercase letters glued to its end (`... 32abc`) is
+  still redacted, while the unseparated form is not, unlike every other
+  personal-data rule (confirmed). Recommended fix: accept the grouped
+  form's last group only when no lowercase letter or underscore runs on,
+  as the unseparated form does, with a test pairing a glued and a plain
+  grouped IBAN. Agent recommendation: the recommended fix.
+
 ## Deferred
 
 - **Tower floor bypass paths from the skill core's review.** The deny
