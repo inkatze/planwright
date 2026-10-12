@@ -97,11 +97,13 @@ for b in main master planwright/demo/spec refs/heads/main release/v1; do
 done
 [ "$failures" = 0 ] && ok "every verb refuses main, master, a spec branch, and a protected_branches addition"
 for var in PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE; do
-  # Run in the fixture, so a refusal that slipped past a fetch reaches only it.
-  rc=$(cd "$W" && rc_of env "$var=w" "$FP" push --branch "$BR" --to "$TIP" --lease "$TIP")
-  if ! { [ "$rc" = 1 ] && grep -q 'dispatched worker' "$tmp/err"; }; then
-    fail "push under $var was not refused (exit $rc: $(cat "$tmp/err"))"
-  fi
+  for verb in push confirm reword; do
+    # Run in the fixture, so a refusal that slipped past a fetch reaches only it.
+    rc=$(cd "$W" && rc_of env "$var=w" "$FP" "$verb" --branch "$BR" --to "$TIP" --lease "$TIP")
+    if ! { [ "$rc" = 1 ] && grep -q 'dispatched worker' "$tmp/err"; }; then
+      fail "$verb under $var was not refused (exit $rc: $(cat "$tmp/err"))"
+    fi
+  done
 done
 [ "$failures" = 0 ] && ok "the helper refuses inside a dispatched worker's environment"
 rm -f "$W/.claude/planwright.yml"
@@ -231,10 +233,18 @@ for c in "$BAD" "$LEGACY" "$TIP"; do
   esac
 done
 # A branch author's subject is quoted, so it cannot read as the question's own words.
-case $q in
-  *"$(printf '%s' "$TIP" | cut -c1-7) \"feat: the last commit\""*) ok "the question quotes each dropped subject" ;;
-  *) fail "the question does not quote the dropped subjects: $q" ;;
-esac
+quoted=1
+for c in "$BAD" "$LEGACY" "$TIP"; do
+  case $q in
+    *"$(printf '%s' "$c" | cut -c1-7) \"$(g log -1 --format=%s "$c")\""*) ;;
+    *) quoted=0 ;;
+  esac
+done
+if [ "$quoted" = 1 ]; then
+  ok "the question quotes each dropped subject"
+else
+  fail "the question does not quote the dropped subjects: $q"
+fi
 if [ "$(jq '.dropped | length' "$tmp/confirm.json")" = 3 ]; then
   ok "the confirmation names every remote commit the push drops"
 else
@@ -243,7 +253,7 @@ fi
 NEWLEG=$(g log --format=%H --grep='legacy finding' "main..$NEW")
 want_from="PS-legacy-$(printf '%s' "$LEGACY" | cut -c1-7)"
 want_to="PS-legacy-$(printf '%s' "$NEWLEG" | cut -c1-7)"
-if [ "$(jq -r '.legacy[0].from + " " + .legacy[0].to' "$tmp/confirm.json")" = "$want_from $want_to" ]; then
+if [ "$(jq -r '(.legacy | length | tostring) + " " + .legacy[0].from + " " + .legacy[0].to' "$tmp/confirm.json")" = "1 $want_from $want_to" ]; then
   ok "the confirmation pairs the changed legacy id with its replacement"
 else
   fail "the legacy id change is wrong: $(jq -c .legacy "$tmp/confirm.json")"
@@ -366,12 +376,14 @@ if grep -q 'Revoke or rotate' "$tmp/out" && grep -q 'nothing here was executed' 
 else
   fail "purge printed no rotation checklist"
 fi
-rc=$(rc_of "$FP" purge)
+# Every purge call runs against the stubs, so a regression that executed the
+# command would reach them, never a real filter-repo.
+rc=$(rc_of env PATH="$tmp/stub:$PATH" "$FP" purge)
 [ "$rc" = 2 ] || fail "purge with nothing to purge was not a usage error (exit $rc)"
 # --invert-paths keeps only what no --path names, so it follows a --path
 # argument, never a replace-text file whose name happens to contain one.
-rc=$(rc_of "$FP" purge --replace-text 'leak--paths.txt')
-if [ "$rc" = 0 ] && grep -qF "git filter-repo --sensitive-data-removal --replace-text 'leak--paths.txt'" "$tmp/out"; then
+rc=$(rc_of env PATH="$tmp/stub:$PATH" "$FP" purge --replace-text 'leak--paths.txt')
+if [ "$rc" = 0 ] && [ ! -s "$tmp/calls" ] && grep -qF "git filter-repo --sensitive-data-removal --replace-text 'leak--paths.txt'" "$tmp/out"; then
   ok "purge adds --invert-paths only for a --path argument"
 else
   fail "purge printed a wrong command for a replace-text file: $(cat "$tmp/out")"
@@ -388,7 +400,7 @@ for val in '' -y; do
   fi
 done
 [ "$failures" = 0 ] && ok "a usage error prints no raw control character from its arguments"
-rc=$(rc_of "$FP" purge --path "$(printf 'a\033[31mb')")
+rc=$(rc_of env PATH="$tmp/stub:$PATH" "$FP" purge --path "$(printf 'a\033[31mb')")
 [ "$rc" = 2 ] || fail "purge took a path carrying a control character (exit $rc)"
 
 # --- the tower queue: no standing decision runs it ------------------------------
