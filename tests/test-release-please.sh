@@ -227,6 +227,7 @@ fi
 
 HELPER="$REPO_ROOT/scripts/merge-admitted.sh"
 class_at=$(grep -n 'merge-class.sh" evaluate' "$HELPER" | head -1 | cut -d: -f1)
+# shellcheck disable=SC2016 # the helper's literal $failed is the text to find
 fall_at=$(grep -n 'outside the class (\$failed); the reason is on PR' "$HELPER" | head -1 | cut -d: -f1)
 merge_at=$(grep -n '^gh pr merge ' "$HELPER" | head -1 | cut -d: -f1)
 if [ -n "$class_at" ] && [ -n "$fall_at" ] && [ -n "$merge_at" ] \
