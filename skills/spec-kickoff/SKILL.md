@@ -15,7 +15,7 @@ argument-hint: "<spec>"
 
 The comprehension layer of the planwright pipeline (REQ-B2.4, REQ-B2.2):
 a section-by-section walkthrough of a spec bundle until human and agent
-hold the same understanding, recorded as `specs/<spec>/kickoff-brief.md` —
+hold the same understanding, recorded as `<root>/<spec>/kickoff-brief.md` —
 the durable contract (two-brief model, D-3). Downstream skills
 (`/execute-task`, `/orchestrate`) operate from the brief, not the spec; what
 this walkthrough gets wrong, execution gets wrong.
@@ -34,8 +34,7 @@ docs via the rule-doc resolution convention
 (`scripts/resolve-rule-doc.sh <doc-name>` under the resolved planwright
 root); their definitions govern wherever this skill names a concept:
 
-- `security-posture` — artifact data-hygiene: the brief and risk register are
-  committed.
+- `security-posture` — artifact data-hygiene.
 
 **Invoking plugin scripts (REQ-D1.1, D-7).** Call `scripts/<name>.sh` by the
 **resolved literal absolute path**, never `$VAR/scripts/<name>.sh` —
@@ -117,11 +116,13 @@ Superseded are terminal: refuse — no skill-driven transition leaves them.
 
 ## Pre-flight
 
-1. **Parse `$ARGUMENTS`.** Expect a bare `<spec>` (alias `specs/<spec>`, one
+1. **Parse `$ARGUMENTS`.** Resolve `<root>` and its posture per
+   `docs/spec-location.md`; outside `same-repo`, its table governs every git
+   step, `<root>/<spec>`, and walkthrough suggestion. Expect a bare `<spec>` (alias `specs/<spec>`, one
    trailing slash allowed). Validate the mapped identifier against the anchored, full-string
    pattern `^[a-z0-9][a-z0-9-]*$`, maximum length 64 (REQ-A1.8), **before** it
    appears in any path, branch name, or command; a failing identifier is never
-   interpolated. No argument: list the bundles under `specs/`
+   interpolated. No argument: list the bundles under `<root>`
    (underscore-prefixed accumulators are not bundles) and ask.
 2. **Verify the bundle and select the mode.** All four files must exist
    (`requirements.md`, `design.md`, `tasks.md`, `test-spec.md`). A missing file
@@ -132,22 +133,23 @@ Superseded are terminal: refuse — no skill-driven transition leaves them.
      brief; a reopened-bundle delta kickoff when the brief is complete
      and signed (per the Modes section).
    - **Ready or Active with a signed brief** → run the freshness comparison:
-     parse the brief's most recent anchor entry, recompute the anchor with the
-     command it records, and compare. **Mismatch** → delta re-walkthrough;
+     parse the brief's most recent anchor entry, recompute the anchor over
+     `<root>/<spec>` with the command it records, and compare. **Mismatch** → delta re-walkthrough;
      derive the delta from the four spec files' git history since the entry plus
      any uncommitted changes, and confirm scope with the human first. **Match**
      → nothing is stale; ask what the human brings (a re-walk on request, or —
      on an Active bundle — an amendment, always human-declared; a Ready bundle's
      pre-merge change is the delta re-walk path, REQ-D1.4). On a format-version 2
      bundle the stored header rests at Ready, so distinguish
-     Ready from Active via the render (`mise run status specs/<spec>`), never a
+     Ready from Active via the render (`scripts/spec-status.sh`, path per the
+     guide), never a
      stored `Active`. **Brief or anchor entry absent, unparseable, or
      non-sanctioned** → the sign-off record needs creating or repairing; this
      skill's sign-off flow is the repair REQ-F1.9 names: walk it as a
      whole-bundle delta re-walkthrough (a missing brief gets the full
      first-activation structure minus the already-done flip).
    - **Done / Retired / Superseded** → per the Modes section.
-3. **Run the validator.** `scripts/spec-validate.sh specs/<spec>` when present
+3. **Run the validator.** `scripts/spec-validate.sh <root>/<spec>` when present
    and executable. Draft findings are warnings: surface them, fix structural
    ones with the human before walking, and record the outcome for the brief
    header. Ready or Active findings are errors (status-aware — Ready blocks on
@@ -193,7 +195,7 @@ Superseded are terminal: refuse — no skill-driven transition leaves them.
 7. **Surface the optional independent walkthrough (suggest only).** Recommend
    `/spec-walkthrough specs/<spec>` for an unaided cold read — a complement,
    never a dependency (REQ-F1.1, REQ-F1.2, D-11; comprehend-first stays in-band
-   per `kickoff-dialogue`). This skill never performs it.
+   per `kickoff-dialogue`).
 
 ## The walkthrough
 
@@ -346,8 +348,8 @@ most recent anchor entry never describes spec content that was not walked.
    as an appended amendment-log entry (everything later) — sections above the
    amendment log are append-only after first sign-off. Carry `Class:`,
    `Lens-pass:` (meaning-class only), and **the anchor line last** (the
-   fail-closed ordering). Compute the anchor
-   with `scripts/spec-anchor.sh specs/<spec>` after every spec-file edit of this
+   fail-closed ordering). Compute the anchor with `scripts/spec-anchor.sh
+   <root>/<spec>`, recorded as `specs/<spec>`, after every spec-file edit of this
    run (flip, `Last reviewed:`, applied findings) is on disk; it fails closed on
    a defective bundle — surface its stderr and stop with no anchor line, never
    hand-roll it. Absent that script, descend `spec-format`'s sanctioned-form
