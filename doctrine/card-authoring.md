@@ -73,9 +73,10 @@ honest.
    deference rules on shared turf, and the independence note naming who or
    what can validate this discipline's claims, since the seat cannot. Write
    these as the five sections `## Register rules` through `## Independence`.
-9. **Set the identity and metadata.** Write the H1 title and `## Role`, the
-   one operational sentence of what the seat does. Then the header block:
-   `Card-format:`, `Card-id:` (the file name's stem), `Reviewed:` (step 1's
+9. **Set the identity and metadata.** In file order: the H1 title, then the
+   header block directly below it, then `## Role`, the one operational
+   sentence of what the seat does, as the first section. The header block
+   holds `Card-format:`, `Card-id:` (the file name's stem), `Reviewed:` (step 1's
    re-verification date), step 6's `Default-tier:`; `Rot-rate:` from how fast
    the sources decay (the format doc's *Staleness*); `RAPID:` letters, never
    `D`; `Bench:` and, for a bench card, its `## Pull-in triggers` section; a
