@@ -47,18 +47,28 @@
 #   fleet-messaging.sh notice-read <session name>
 #       Screen a session name read from an idle notice, match it against the
 #       registry's `name` column, and print that worker's attention row
-#       (fleet-attention.sh render --worker). Nothing from the notice itself
-#       is ever printed or acted on.
+#       (fleet-attention.sh render --worker). The name is only a match key:
+#       it reaches output solely sanitized, in a refusal diagnostic, and
+#       nothing else from the notice is read. Exit 2 on a refusal (the name
+#       fails the screen, matches no row or several, or the registry is
+#       unreadable); a matched worker with no attention row prints nothing.
 #   fleet-messaging.sh self-name
-#       Print this session's observed name from its per-session record.
+#       Print this session's observed name from its per-session record. Exit
+#       1 when CLAUDE_PID names no record, or the record does not parse,
+#       carries no name, or carries one failing the session-name screen.
 #   fleet-messaging.sh self-register
 #       From a worker session's own SessionStart hook: record its observed
 #       name and inbox socket basename in its registry row through
 #       `fleet-state.sh amend`. A session without the worker identity
-#       environment (a tower) writes nothing.
+#       environment (a tower) writes nothing. Exit 0 with one stderr notice
+#       when CLAUDE_PID names no record; exit 2 on a malformed handle or a
+#       record whose name or socket path fails its screen; otherwise the
+#       amend's own exit.
 #   fleet-messaging.sh socket-ok <path> [--owner-uid <uid>] [--socket-type <socket|other>]
-#       Exit 0 when <path> is an absolute path naming an existing socket (not
-#       a symlink) owned by the invoking user, else 1.
+#       Exit 0 when <path> is a local socket path (absolute, only
+#       A-Za-z0-9._/- characters, no `..` segment or `//`, within the
+#       107-byte socket address bound) naming an existing socket, not a
+#       symlink, owned by the invoking user, else 1.
 #
 # Test-only seams, each refused unless PLANWRIGHT_TEST_SEAM=1: --cli-version
 # (the version the probe compares), --owner-uid and --socket-type (what the
@@ -75,7 +85,9 @@
 #
 # POSIX sh on the macOS + Linux support bar. Every settings and session-record
 # read is awk; no jq, no eval. All input is data; anything a message, notice,
-# or session record carries is sanitized before it is echoed.
+# or session record carries is sanitized before it is echoed. A variable
+# holding such a value is named `md_*`: the test suite's echo audit finds
+# unsanitized sites by that prefix, so a new one keeps it.
 set -uf
 
 LC_ALL=C

@@ -1,7 +1,7 @@
 #!/bin/bash
 # The frozen comparands messaging must not move (REQ-A1.5): with messaging
 # absent, the signal paths' one-shot outputs equal what the same scripts
-# produced at the base commit fleet-messaging Task 2 recorded, and
+# produced at each comparand's recorded base commit, and
 # fleet-attention.sh's four signal write verbs are byte-identical to their text
 # there. Each comparand's base commit is read from its own one-line file under
 # tests/fixtures/fleet-messaging/, and the base content comes from git, never
