@@ -191,6 +191,19 @@ else
 fi
 g config --unset log.showSignature
 g config --unset gpg.program
+# main moved on the remote to hold a branch commit, and this clone's
+# origin/main never heard: the containment check reads the remote, not the
+# stale tracking ref.
+MAIN_WAS=$(git -C "$tmp/origin.git" rev-parse refs/heads/main)
+git -C "$tmp/origin.git" update-ref refs/heads/main "$SOLO_ROOT"
+rc=$(rc_of fp reword --branch solo --commit "$SOLO_ROOT" --message-file "$tmp/msg")
+if [ "$rc" = 1 ] && grep -q 'which is protected' "$tmp/err"; then
+  ok "reword refuses a commit the remote's main holds behind a stale tracking ref"
+else
+  fail "reword trusted a stale origin/main (exit $rc: $(cat "$tmp/err"))"
+fi
+git -C "$tmp/origin.git" update-ref refs/heads/main "$MAIN_WAS"
+g fetch -q origin "+refs/heads/main:refs/remotes/origin/main"
 g checkout -q "$BR"
 printf ' \n\t\n' >"$tmp/blank"
 rc=$(rc_of fp reword --branch "$BR" --commit "$BAD" --message-file "$tmp/blank")

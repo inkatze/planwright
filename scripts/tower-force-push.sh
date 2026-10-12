@@ -335,6 +335,10 @@ reword() {
   refresh
   git merge-base --is-ancestor "$COMMIT" "$LEASE_NOW" 2>/dev/null \
     || refuse "that commit is not on $(safe "$REMOTE")/$(safe "$BRANCH")"
+  # Every remote branch, refreshed: a stale or missing tracking ref would read
+  # a commit main now holds as safe to reword.
+  git fetch --quiet --no-tags "$REMOTE" "+refs/heads/*:refs/remotes/$REMOTE/*" 2>/dev/null \
+    || broken "fetching $(safe "$REMOTE")'s branches failed; which protected branches hold the commit is unknown"
   local ref name rc
   for ref in $(git for-each-ref --format='%(refname)' --contains "$COMMIT" "refs/remotes/$REMOTE/"); do
     name=${ref#refs/remotes/"$REMOTE"/}
