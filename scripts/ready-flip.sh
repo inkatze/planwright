@@ -1,13 +1,14 @@
 #!/bin/bash
 # ready-flip.sh — mark a unit's draft PR ready under `ready_flip_policy:
-# unit-owner`, or park the pending flip when a precondition fails
+# unit-owner` (or, with --for-merge, as the merge helper's flip of a PR its
+# class admitted), or park the pending flip when a precondition fails
 # (doctrine/human-gates.md; the policy and its preconditions are the
 # human-gates spec's REQ-C1.2 to REQ-C1.4).
 #
 # Usage:
 #   ready-flip.sh reconcile --spec <dir> --task <id>... [--worktree <dir>]
 #   ready-flip.sh evaluate  --spec <dir> --task <id>... [--pr <n>]
-#       [--worktree <dir>] [--out <file>]
+#       [--worktree <dir>] [--out <file>] [--for-merge]
 #   ready-flip.sh flip      --spec <dir> --task <id>... [--pr <n>]
 #       [--worktree <dir>] [--expect-head <sha>] [--preconditions <file>]
 #       [--for-merge]
@@ -61,7 +62,9 @@
 # doctrine/custom-steps.md (*The flip points*), a halted or failed step or a
 # failed post ending the attempt with no flip; then
 # `flip --expect-head <the head the point ended on>`; the handoff reports the
-# exit below. Under human it is never called, and a standalone review-skill
+# exit below. Under human /execute-task never calls it for the unit's own
+# flip (the merge helper's --for-merge flip is that helper's, under
+# merge_policy: policy-class), and a standalone review-skill
 # run never calls it.
 #
 # Preconditions, all on the pinned head:
@@ -105,7 +108,8 @@
 #   pred<TAB><name><TAB>pass|fail|skip<TAB><evidence>
 #
 # Exit: 0 reconciled / all preconditions hold / flipped; 2 usage; 3 skipped
-# cleanly (no PR, no gh, PR not open or already ready, policy not unit-owner);
+# cleanly (no PR, no gh, PR not open or already ready, policy not unit-owner,
+# or with --for-merge merge_policy not policy-class);
 # 4 not flipped, park written and pushed (for evaluate and awaiting, which
 # never park: a precondition failed; for park, parked); 5 not flipped and no
 # park pushed (the park could not
@@ -603,7 +607,7 @@ lookup_pr() {
   head=$(printf '%s' "$raw" | jq -r '.headRefName // empty' 2>/dev/null)
   fork=$(printf '%s' "$raw" | jq -r '.isCrossRepository' 2>/dev/null)
   # The class evaluates a PR the unit already flipped; a flip still skips it.
-  [ "$MODE$FOR_MERGE" != evaluate1 ] || [ "$draft" != false ] || draft=true
+  if [ "$MODE" = evaluate ] && [ "$FOR_MERGE" = 1 ]; then draft=true; fi
   [[ $num =~ ^[1-9][0-9]{0,9}$ ]] || return 1
   [ "$head" = "$BRANCH" ] || refuse "PR #$num is not this checkout's branch"
   [ "$fork" = false ] || refuse "PR #$num is not from this repository's own branch"
@@ -1022,7 +1026,11 @@ if [ "$MODE" = flip ]; then
   POLICY=$(/bin/sh "$SCRIPTS/resolve-policy-knob.sh" "$KNOB" 2>/dev/null) \
     || refuse "$KNOB could not be resolved, so the flip is refused"
   if [ "$POLICY" != "$WANT" ]; then
-    say "skipped: $KNOB is $(sanitize_printable "$POLICY" '?'), so a person marks this PR ready"
+    if [ "$FOR_MERGE" = 1 ]; then
+      say "skipped: merge_policy is $(sanitize_printable "$POLICY" '?'), so no merge-helper flip runs; the operator's approval act merges this PR"
+    else
+      say "skipped: ready_flip_policy is $(sanitize_printable "$POLICY" '?'), so a person marks this PR ready"
+    fi
     exit 3
   fi
 fi
