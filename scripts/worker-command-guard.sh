@@ -4061,6 +4061,10 @@ analyze_command() {
   local LH_NAME='' LH_START=0 LH_COUNT=0 LH_NEXT=0
   local PENDING_ASSIGN_N='' PENDING_ASSIGN_V='' PENDING_ASSIGN_O=0 PENDING_ASSIGN_S=0 PENDING_CD='' PREFIXED=0
   tokenize "$cmd" || return 1
+  # A loop runs words the walk has already passed again after a later
+  # substitution (a `while` head reads the body's last `$_`), so `$_` counts
+  # as carrying substitution output wherever the command holds one.
+  [ "$SUB_N" -eq 0 ] || SUB_SEEN=1
   if [ "${3-}" = pipeline ]; then
     [ "$TOK_N" -ge 1 ] && [ "${TOK_TYPE[0]}" != O ] || return 1
     for ((t = 0; t < TOK_N; t++)); do
