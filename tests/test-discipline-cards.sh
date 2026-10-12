@@ -223,6 +223,18 @@ assert_eq "no arguments: exit 2" "2" "$?"
 "$LINT" "$tmp/does-not-exist.md" >/dev/null 2>&1
 assert_eq "missing file: exit 2" "2" "$?"
 
+# A file name is never reinterpreted: `-` is a file, not stdin, and the stem
+# reaches the Card-id check byte for byte (no awk escape processing).
+d="$tmp/names"
+write_golden_card "$d"
+cp "$d/fixture-discipline.md" "$d/-"
+out="$(cd "$d" && "$LINT" fixture-discipline.md - </dev/null 2>&1)"
+assert_eq "a file named -: linted as a file (findings, not a refusal)" "1" "$?"
+assert_contains "a file named -: its Card-id is checked against its stem" "[HDR-ID]" "$out"
+cp "$d/fixture-discipline.md" "$d/fixture\\055discipline.md"
+out="$("$LINT" "$d/fixture\\055discipline.md" 2>&1)"
+assert_contains "a backslash in the file name is not an escape" "[HDR-ID]" "$out"
+
 # Several files: every file is linted, and the exit is the worst outcome.
 d="$tmp/multi"
 write_golden_card "$d/refused"

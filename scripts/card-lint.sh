@@ -132,6 +132,7 @@ function real_date(s,    y, m, d, dim) {
 { L[NR] = $0 }
 END {
   n = NR
+  stem = ENVIRON["CARD_LINT_STEM"]
 
   # --- Header block: the leading run of the H1, key lines, and blanks ------
   nh = 0
@@ -412,7 +413,10 @@ for file in "$@"; do
   base=${file##*/}
   stem=${base%.md}
   [ "$stem" = "$base" ] && stem=
-  findings=$(awk -v stem="$stem" -v major="$SUPPORTED_MAJOR" "$lint_awk" "$file") || {
+  # The card arrives on stdin and the stem through the environment: an awk
+  # operand shaped `name=value` or `-` is not read as a file, and `-v`
+  # expands backslash escapes in the stem.
+  findings=$(CARD_LINT_STEM=$stem awk -v major="$SUPPORTED_MAJOR" "$lint_awk" <"$file") || {
     printf 'card-lint: %s: awk failed\n' "$(sanitize_printable "$file" '(unprintable path)')" >&2
     [ "$rc" -lt 2 ] && rc=2
     continue
