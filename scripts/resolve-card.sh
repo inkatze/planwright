@@ -62,7 +62,7 @@ catalog="$script_dir/resolve-catalog.sh"
 overlay_root="$script_dir/resolve-overlay-root.sh"
 for helper in "$catalog" "$overlay_root"; do
   if [ ! -r "$helper" ]; then
-    echo "resolve-card: helper not found or unreadable at $helper (broken install)" >&2
+    printf '%s\n' "resolve-card: helper not found or unreadable at $helper (broken install)" >&2
     exit 1
   fi
 done
@@ -76,21 +76,21 @@ card_path() {
     core | adopter | repo-tracked) rel="cards/$1.md" ;;
     machine-local) rel="cards.local/$1.md" ;;
     *)
-      echo "resolve-card: $1: unknown layer '$2' from the catalog merge" >&2
+      printf '%s\n' "resolve-card: $1: unknown layer from the catalog merge" >&2
       return 1
       ;;
   esac
   root=$(/bin/sh "$overlay_root" "$2") || return 1
   if [ -z "$root" ]; then
-    echo "resolve-card: $1: the $2 layer is absent" >&2
+    printf '%s\n' "resolve-card: $1: the $2 layer is absent" >&2
     return 1
   fi
   if [ ! -f "$root/$rel" ]; then
-    echo "resolve-card: $1: the $2 layer lists it but has no card file at $rel" >&2
+    printf '%s\n' "resolve-card: $1: the $2 layer lists it but has no card file at $rel" >&2
     return 1
   fi
   /bin/sh "$overlay_root" --contain "$root" "$rel" || {
-    echo "resolve-card: $1: the $2 card file escapes its layer root; refused" >&2
+    printf '%s\n' "resolve-card: $1: the $2 card file escapes its layer root; refused" >&2
     return 1
   }
 }
@@ -120,7 +120,7 @@ $explain
 EOF
 
 if [ "$want" != "--list" ] && [ "$found" -eq 0 ]; then
-  echo "resolve-card: $want: not in the merged discipline-cards catalog" >&2
+  printf '%s\n' "resolve-card: $want: not in the merged discipline-cards catalog" >&2
   exit 1
 fi
 exit "$rc"
