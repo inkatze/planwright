@@ -455,33 +455,6 @@ router has not demonstrated (REQ-B1.6).
 
 ## Awaiting input
 
-- **Task 19** — every second-review ruling is applied (PS-17 to PS-31),
-  but the third convergence review (point `convergence`, step `polish`,
-  outcome `halted`, record `.claude/steps/000003/001-step-convergence.rec`)
-  found four problems in the same security-sensitive code; nothing below
-  is applied and no PR is open. Reply per item or for all at once: the
-  recommended fix, a variant, or no change. Agent recommendation: the
-  recommended fix for every item.
-  1. Medium, introduced by the IBAN-restart fix: after a failed IBAN
-     candidate the search re-matches the rest of the line, so a 64 KB
-     line of repeated `AB12` tokens takes about a minute of CPU (confirmed). Fix: keep
-     the search position at the candidate's end and retry from its later
-     IBAN-shaped groups, with a cap like the card scan's.
-  2. Medium, introduced by the international-number trim: dropping one
-     group per pass and recounting every digit is quadratic on a long run
-     of digit groups after a `+`. Fix: one forward pass summing digits,
-     dropping the last group once when a word follows, then cutting at the
-     last group boundary within 15 digits.
-  3. Low, predates these fixes: a key's own end marker inside its
-     `Comment:` line (PuTTY `Private-MAC:`, an SSH2 END line) still ends
-     the block early and publishes the private lines. Fix: accept the
-     PuTTY and SSH2 ends only at the start of a line, and ignore a PEM or
-     PGP END on a `Comment:` header line, with a test for each.
-  4. Low, predates these fixes: when `git add` itself fails, rollback
-     says the record is staged and suggests `git rm -f`, which fails on
-     the untracked file. Fix: say staged only when git lists the file, and
-     otherwise suggest removing it.
-
 ## Deferred
 
 - **Tower floor bypass paths from the skill core's review.** The deny
