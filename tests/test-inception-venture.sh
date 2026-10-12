@@ -838,6 +838,22 @@ assert_contains "F1 without git the session home is still the session rung" "$(p
 PATH="$stubs/nogit:$PATH" venture handoff "$scratch/kappa"
 assert_contains "F1 handoff without git keeps the session home" "$(printf 'home\tsession')" "$out"
 
+# =========================================================================
+# Fork 3 — resume at the first phase with no completion line
+# =========================================================================
+
+gp="$tmp/gap-probe"
+mkdir -p "$gp"
+venture bundle-init --title "Gap Probe" "$gp"
+venture mark-phase "$gp" seed
+venture mark-phase "$gp" disciplines
+venture resume-point "$gp"
+assert_contains "F3 resume picks the first unmarked phase, not the one after the highest" "$(printf 'next\topportunity')" "$out"
+assert_contains "F3 done names the phase before it" "$(printf 'done\tseed')" "$out"
+venture mark-phase "$gp" seed
+assert_eq "F3 re-marking a phase succeeds" 0 "$rc"
+assert_eq "F3 re-marking a phase adds no duplicate line" 1 "$(grep -c 'Elicitation: seed phase complete' "$gp/brief.md")"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

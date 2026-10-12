@@ -151,8 +151,9 @@ the first question, and repeated in the handoff (REQ-H1.5).
    refusal (REQ-C1.7): relay its plain-language message and stop, never
    parsing around it; only for an unsupported format-version say this
    planwright cannot read that bundle safely, since an unclosed code fence
-   or an unparseable header is the operator's to repair. Otherwise `done`
-   names the last completed phase and `next` the one to resume.
+   or an unparseable header is the operator's to repair. Otherwise `next`
+   is the first phase, in order, with no completion line, and `done` the one
+   before it.
 2. **Confirm settled ground, one line per completed phase**, from the
    bundle itself, never a replay; then continue at `next`. When `next` is
    `complete`, the operator is re-entering a finished elicitation: offer to

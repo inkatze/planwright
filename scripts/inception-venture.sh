@@ -601,6 +601,8 @@ cmd_mark_phase() {
   phase_index "$2" >/dev/null || die 2 "unknown phase (one of: $PHASES)"
   [ -f "$1/brief.md" ] || die 2 "no brief.md in the venture directory"
   version_gate "$1"
+  # Recorded once: a retried phase close adds no second line.
+  phase_marked "$1" "$2" && return 0
   line="- $(today) — Elicitation: $2 phase complete."
   tmp_path=$(mktemp "$1/.inception-venture.XXXXXX") || die 2 "cannot write in the venture directory"
   awk -v line="$line" '
@@ -621,6 +623,11 @@ cmd_mark_phase() {
   tmp_path=
 }
 
+# phase_marked <venture-dir> <phase> — true when brief.md records the phase.
+phase_marked() {
+  grep -q "^- [0-9-]* — Elicitation: $2 phase complete\.\$" "$1/brief.md"
+}
+
 cmd_resume_point() {
   [ $# -eq 1 ] || usage
   require_dir "$1"
@@ -631,21 +638,16 @@ cmd_resume_point() {
 # resume_state <venture-dir> — the done/next/pending lines, for a bundle the
 # caller has already gated.
 resume_state() {
-  best=0
-  phases_seen=$(sed -n 's/^- [0-9-]* — Elicitation: \([a-z]*\) phase complete\.$/\1/p' "$1/brief.md")
-  while IFS= read -r p; do
-    n=$(phase_index "$p") || continue
-    [ "$n" -gt "$best" ] && best=$n
-  done <<EOF_PHASES
-$phases_seen
-EOF_PHASES
+  # The first phase in order with no completion line is next, so a phase the
+  # skill skipped or reopened is never jumped over; done is the one before it.
   done_p=none
   next_p=complete
-  i=0
   for p in $PHASES; do
-    i=$((i + 1))
-    [ "$i" -eq "$best" ] && done_p=$p
-    if [ "$i" -eq $((best + 1)) ]; then next_p=$p; fi
+    if ! phase_marked "$1" "$p"; then
+      next_p=$p
+      break
+    fi
+    done_p=$p
   done
   pending=0
   for f in $FILES; do
