@@ -86,6 +86,9 @@ SUBST_POSITION_FIXTURES=(
   "x=\$(git ls-files) && ls \${x}"
   "x=\$(git ls-files) && ls \$=x"
   "printf -- \"\$(cat f)\" x"
+  "x=\$(cat f); echo \$(stat \$x)"
+  "echo \$(git ls-files); echo \$(ls \$_)"
+  "x=\$(git ls-files); echo \"\$(ls \"\$x\")\""
 )
 # Symlinked final components pointing OUTSIDE the repo (containment escape).
 ln -sf /etc/hosts "$SANDBOX/scripts/evillink.sh"

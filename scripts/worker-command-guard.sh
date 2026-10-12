@@ -2955,6 +2955,9 @@ word_tainted() {
     case $w in [=^+#]*) w=${w#?} ;; esac
     name=${w%%[!A-Za-z0-9_]*}
     [ -n "$name" ] || continue
+    # The inner text of a substitution starts with an empty table, yet its
+    # subshell inherits every outer variable and `$_`, tainted ones included.
+    [ "$IN_SUBST" = 0 ] || return 0
     [ "$name" = _ ] && [ "$SUB_SEEN" = 1 ] && return 0
     for ((v = VAR_C - 1; v >= 0; v--)); do
       if [ "${VAR_N[v]}" = "$name" ]; then
