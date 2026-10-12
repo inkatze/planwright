@@ -49,7 +49,7 @@ chmod +x "$GRADER"
 E2E="$TMP/e2e"
 mkdir -p "$E2E/wb" "$E2E/rec" "$E2E/state"
 e2eout="$(BEHAVIORAL_EVAL_TMUX="$STUB" BEHAVIORAL_EVAL_TMUX_STATE="$E2E/state" \
-  BEHAVIORAL_EVAL_WORKBASE="$E2E/wb" BEHAVIORAL_EVAL_POLL_SLEEP=0 \
+  BEHAVIORAL_EVAL_WORKBASE="$E2E/wb" BEHAVIORAL_EVAL_POLL_SLEEP=0 BEHAVIORAL_EVAL_DRIVER_ID=planwright-eval-driver \
   /bin/sh "$RUNNER" --record "$E2E/rec" --grader "$GRADER" --grader-id ext-panel "$FIXTURE" 2>&1)"
 e2erc=$?
 if [ "$e2erc" -eq 0 ]; then
