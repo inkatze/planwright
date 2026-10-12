@@ -322,6 +322,9 @@ assert_contains "the baseline's cap is reused" "cap: 1" "$out"
 assert_contains "the reused cap bounds the sample" "sampled: 1" "$out"
 
 # --- findings written as ./path are still caught ---
+printf 'r0003\t./b.sh\t20\nr0003\tb.sh\tabc\n' >"$T/stub-dot.tsv"
+out=$(run --reviewer-stub "$T/stub-dot.tsv" --model m-1 --seed 7 --classes claim-vs-code 2>&1)
+assert_contains "a ./-prefixed stub finding catches its row" "claim-vs-code: 1/1" "$out"
 cat >"$T/dotslash.sh" <<'EOF'
 #!/bin/sh
 printf './b.sh\t20\n'

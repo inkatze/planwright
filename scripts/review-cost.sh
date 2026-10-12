@@ -250,7 +250,8 @@ jq -r --slurpfile led "$tmp/ledger.json" --argjson from "$prs_from" --argjson to
     | . as $p
     | { n: .number, ext: rbt_bot_reviewed,
         fixed: (([.threads[]? | select(.bot == true and rbt_fixed_external($p.author))]
-                  | unique_by([.path, .line, .commit]) | map(.path)) as $ft
+                  | map(select(.line == null)) + (map(select(.line != null)) | unique_by([.path, .line, .commit]))
+                  | map(.path)) as $ft
                 | ($ft | length)
                   + ([$led[0][] | select(.pr == $p.number and (.path as $q | $ft | index([$q]) | not))] | length)),
         rounds: ([.reviews[]? | select(.bot == true)] | length),

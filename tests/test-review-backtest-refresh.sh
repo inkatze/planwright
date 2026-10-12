@@ -78,6 +78,7 @@ history() {
    {"path":"l.sh","line":3,"side":"LEFT","commit":"$A","author":"helper-bot","bot":true,"body":"on a deleted line","replies":[{"author":"owner","body":"Fixed in abc1234"}]},
    {"path":"a.sh","line":7,"commit":"$A","author":"helper-bot","bot":true,"body":"a declined one","replies":[{"author":"owner","body":"Addressed: this is a false positive, declining."}]},
    {"path":"a.sh","line":8,"commit":"$A","author":"helper-bot","bot":true,"body":"a deferred one","replies":[{"author":"owner","body":"Not fixed in 1234567; deferring to a follow-up"}]},
+   {"path":"a.sh","line":10,"commit":"$A","author":"helper-bot","bot":true,"body":"another deferred one","replies":[{"author":"owner","body":"Not yet fixed in 1234567"}]},
    {"path":"a.sh","line":9,"commit":"$A","author":"helper-bot","bot":true,"body":"a real one","replies":[{"author":"owner","body":"Fixed, not a false positive after all"}]},
    {"path":"lib/c.sh","line":9,"commit":"$A","author":"helper-bot","bot":true,"body":"a sibling site keeps the bug","replies":[{"author":"owner","body":"Addressed in def5678"}]},
    {"path":"a.sh","line":3,"commit":"$A","author":"helper-bot","bot":true,"body":"style nit nobody fixed","replies":[{"author":"owner","body":"Declined: by design"}]},
@@ -209,6 +210,7 @@ assert_contains "two threads on one line of one commit are one row" "merged dupl
 if [ "$(awk -F '\t' '$2 == 7 && $4 == "a.sh" && $5 == 1' "$c1" | wc -l | tr -d ' ')" -eq 1 ]; then ok "the duplicate thread writes a single row"; else fail "the duplicate thread wrote two rows"; fi
 assert_lacks "a reply that declines is not a fix, whatever its first word" "	a.sh	7	" "$(cat "$c1")"
 assert_lacks "\"not fixed in <sha>\" is not a fix" "	a.sh	8	" "$(cat "$c1")"
+assert_lacks "\"not yet fixed in <sha>\" is not a fix" "	a.sh	10	" "$(cat "$c1")"
 assert_contains "\"not a false positive\" does not veto a fix" "	a.sh	9	" "$(cat "$c1")"
 assert_contains "warns about a PR whose threads overflowed the fetch page" "warning: 1 PR(s) had more reviews, threads, or comments" "$out"
 assert_contains "a non-string gist and a substring category are each dropped, not fatal" "dropped unannotated: 2" "$out"
@@ -305,7 +307,9 @@ case "$1 $2" in
   "reviews":{"nodes":[{"author":{"login":"helper-bot","__typename":"Bot"},"submittedAt":"2026-09-01T00:00:00Z"}]},
   "reviewThreads":{"totalCount":150,"nodes":[{"path":"a.sh","originalLine":4,"diffSide":"LEFT","comments":{"nodes":[
     {"author":{"login":"helper-bot","__typename":"Bot"},"body":"x","originalCommit":{"oid":"0123456789abcdef0123456789abcdef01234567"}},
-    {"author":null,"body":"Fixed in abc1234","originalCommit":{"oid":"0123456789abcdef0123456789abcdef01234567"}}]}}]}}
+    {"author":null,"body":"Fixed in abc1234","originalCommit":{"oid":"0123456789abcdef0123456789abcdef01234567"}}]}}]}},
+ {"number":13,"mergedAt":"2026-09-02T00:00:00Z","body":"","author":{"login":"owner"},
+  "reviews":{"totalCount":70,"nodes":[]},"reviewThreads":{"totalCount":0,"nodes":[]}}
 ]}}}}
 JSON
     ;;
@@ -317,6 +321,7 @@ out=$(PATH="$T/bin:$PATH" CLAUDE_PLUGIN_DATA="$T/nostate" "$REFRESH" --fetch-onl
 assert_exit "--fetch-only runs without the name list or an annotator" 0 $?
 norm=$(jq -c '.prs[0] | [.number, .author, .reviews[0].bot, .threads[0].line, .threads[0].commit[0:7], .threads[0].replies[0].author, .threads[0].side, .truncated]' "$T/fetched.json" 2>&1)
 assert_contains "--fetch-only writes the normalized history, side and truncation included" '[12,"owner",true,4,"0123456","ghost","LEFT",true]' "$norm"
+assert_contains "a PR whose reviews overflow the page is truncated" "true" "$(jq -c '.prs[1].truncated' "$T/fetched.json")"
 if [ -d "$croot/v2" ]; then fail "--fetch-only wrote a corpus version"; else ok "--fetch-only writes no corpus"; fi
 "$REFRESH" --fetch-only >/dev/null 2>&1
 assert_exit "--fetch-only without --dump-history is a usage error" 2 $?
