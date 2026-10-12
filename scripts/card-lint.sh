@@ -94,7 +94,7 @@ TEMPLATE-DONE the artifact template has no Done-when line
 BOUNDARY-EXCEPTIONS per-activity exceptions are absent or name an unknown tier
 BOUNDARY-ONEWAY the one-way-doors line is absent or not human-authority
 BOUNDARY-OUTSCOPE the out-of-scope line is absent or empty
-ESC-TYPED an escalation line is not a typed trigger with known powers
+ESC-TYPED an escalation line is not a typed trigger with known powers, or repeats a trigger
 ESC-COVERAGE a trigger class of the escalation taxonomy is not declared
 BENCH-TRIGGERS a bench card lacks pull-in triggers, or a non-bench card has them
 STYLE-IDENTITY a line carries identity or authority styling
@@ -370,6 +370,7 @@ END {
       tr = line; sub(/^- \*\*/, "", tr); sub(/\*\*.*$/, "", tr)
       pw = line; sub(/^[^(]*\(powers: /, "", pw); sub(/\).*$/, "", pw)
       if (!(tr in is_trigger)) { emit("ESC-TYPED", "escalation trigger \"" tr "\" is not in the taxonomy"); continue }
+      if (tr in declared) emit("ESC-TYPED", "escalation trigger " tr " is declared more than once")
       declared[tr] = 1
       m = split(pw, pp, ",")
       for (k = 1; k <= m; k++) {

@@ -168,6 +168,7 @@ seed BOUNDARY-OUTSCOPE 1 '!/^- \*\*Out of scope:\*\*/'
 # Escalation contract (REQ-P1.5's typed triggers, carried by the card).
 seed ESC-TYPED 1 '/^- \*\*irreversibility\*\*/ { print; print "- **gut-feel** (powers: halt): it feels risky."; next } { print }'
 seed ESC-TYPED 1 '{ sub(/\(powers: disregard\)/, "(powers: ignore)"); print }'
+seed ESC-TYPED 1 '/^- \*\*irreversibility\*\*/ { print; print "- **irreversibility** (powers: halt): the call is a one-way door."; next } { print }'
 seed ESC-COVERAGE 1 '!/^- \*\*contract-policy-change\*\*/'
 # A fenced line is illustration, never structure.
 # shellcheck disable=SC2016 # an awk program printing a literal fence
