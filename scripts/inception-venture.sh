@@ -38,7 +38,7 @@
 # operator's override in either direction, for hosts the probe misreads.
 #
 # Exit: 0 success · 1 refused identifier, or a save the secret screen stopped
-#   · 2 usage or environment error · 3 the bundle's format-version is
+#   · 2 usage or environment error (a broken install included) · 3 the bundle's format-version is
 #   unsupported (the validator's refusal, passed through) · 4 a malformed
 #   repo-tracked ventures_root · 5 the target already exists (never
 #   overwritten) · 6 the requested home or push is unavailable · 7 the remote
@@ -134,8 +134,14 @@ resolve_root() {
   default="$HOME/ventures"
   # The literal tilde is the configured form; it is expanded below.
   # shellcheck disable=SC2088
+  # The resolver's own exit 5 (broken install) folds into 2: callers read 5 as
+  # "the venture path is taken".
   got=$(/bin/sh "$self_dir/resolve-config-knob.sh" --key ventures_root --type path \
-    --fallback '~/ventures' --explain) || exit $?
+    --fallback '~/ventures' --explain) || {
+    rr_rc=$?
+    [ "$rr_rc" -eq 4 ] && exit 4
+    exit 2
+  }
   layer=${got%%"	"*}
   value=${got#*"	"}
   # shellcheck disable=SC2088
@@ -146,7 +152,7 @@ resolve_root() {
     *)
       case $layer in
         repo-tracked) die 4 "ventures_root in the repo-tracked config must be an absolute or ~/ path" ;;
-        core) die 5 "the core ventures_root default is malformed (broken install)" ;;
+        core) die 2 "the core ventures_root default is malformed (broken install)" ;;
       esac
       printf 'inception-venture: warning: ventures_root from the %s layer is not an absolute or ~/ path; using %s\n' "$layer" "$default" >&2
       r=$default

@@ -236,6 +236,20 @@ venture root
 assert_eq "A1.3 malformed repo-tracked value hard-fails (exit 4)" 4 "$rc"
 rm -f "$cfg_repo/.claude/planwright.yml"
 
+# A broken install is an environment error, never exit 5, which the skill
+# reads as "the venture path is taken".
+printf 'ventures_root: relative/core\n' >"$tmp/bad-core.yml"
+PLANWRIGHT_CONFIG_DEFAULTS="$tmp/bad-core.yml" venture root
+assert_eq "A1.3 a malformed core default is a broken install (exit 2)" 2 "$rc"
+PLANWRIGHT_CONFIG_DEFAULTS="$tmp/bad-core.yml" venture create --home local broken-install
+assert_eq "A1.3 create on a broken install exits 2, not 5" 2 "$rc"
+printf 'ventures_root: /a\001b\n' >"$tmp/ctl-core.yml"
+PLANWRIGHT_CONFIG_DEFAULTS="$tmp/ctl-core.yml" venture create --home local broken-install
+assert_eq "A1.3 the resolver's broken-install exit folds into 2" 2 "$rc"
+
+PLANWRIGHT_CONFIG_DEFAULTS="$REPO_ROOT/config/defaults.yml" venture root
+assert_eq "A1.3 the shipped default resolves to ~/ventures" "$HOME/ventures" "$out"
+
 # =========================================================================
 # REQ-H1.1 / REQ-A1.5 / REQ-H1.5 — capability detection and the ladder
 # =========================================================================
