@@ -321,7 +321,10 @@ captured output (it prints `transient` or `logic`; unknown patterns default to
 - **`logic`** (assertion mismatches, type/compile/syntax errors, lint/format
   violations, test-runner failures): escalate immediately, never retried. Record
   the failure with the full CI output to `tasks.md` Awaiting input and halt
-  (attended: surface and wait).
+  (attended: surface and wait). A commit-range lint failure on a pushed
+  commit is repaired only by a reword through the tower's force-push path
+  (`scripts/tower-force-push.sh`, run on the operator's request): name that
+  path as the reason in the entry and the handoff, and add no commit for it.
 
 ## Convergence (REQ-E1.4, D-39; custom-steps REQ-E1.1)
 
