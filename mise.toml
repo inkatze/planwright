@@ -224,6 +224,10 @@ run = "/bin/sh scripts/check-task-registration.sh"
 description = "retired-mkdir guard over advisory locking: fail on any shell file under scripts/, tests/, or githooks/ that reads a `mkdir`'s exit status as a lock-acquisition signal, the primitive that was measured losing mutual exclusion in the ordinary acquire/read-modify-write/release cycle; scripts/lock-lib.sh is the one acquisition primitive now, and a site that consumes mkdir's status for something else (a mode-pinned bootstrap where EEXIST is success, a best-effort creation, a deliberate atomicity probe) says so with a `# not-a-lock: <reason>` annotation; enumerates by shebang or .sh suffix so the extensionless hooks and the sourced libraries are covered, and fails closed on anything that would narrow the scan (universal-binary Task 1, D-11, REQ-E1.5)"
 run = "/bin/bash scripts/check-lock-primitive.sh"
 
+[tasks."check:bash32"]
+description = "bash 3.2 construct lint over every tracked shell file outside tests/fixtures/bash32/: flag the constructs macOS's bash 3.2 misparses inside a $( ) command substitution (a heredoc whose body it lexes unbalanced, a case pattern without its leading (, an unbalanced comment in a double-quoted one, a ) inside ${ }), a heredoc, quote, or $( ) that never closes, and any tracked .sh file declaring no dialect (neither a shebang nor a `# shellcheck shell=` directive); the real 3.2 parse of every file runs as a step of CI's check job (test-throughput REQ-E1.6, REQ-E1.7, D-11)"
+run = "/bin/sh scripts/check-bash32.sh lint"
+
 [tasks."check:test-time"]
 description = "test wall-clock budget gate: reads the per-file timing report scripts/run-tests.sh persisted (never re-runs the suite; the depends edge orders it after `test`) and compares it against config/test-time-budget.yml; measured >= budget trips, hard-failing on GitHub Actions and warning loudly elsewhere; fails closed on a missing, empty, malformed, or stale report, or a discovered test file with no entry (guard-coverage Task 7, REQ-E1.1, REQ-H1.3, D-8)"
 depends = ["test"]
@@ -284,6 +288,7 @@ depends = [
   "check:spec-literals",
   "check:task-registration",
   "check:lock-primitive",
+  "check:bash32",
   "check:guard-wiring",
   "check:sidedness",
   "check:backend-capability-drift",

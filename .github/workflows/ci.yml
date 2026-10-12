@@ -2,7 +2,8 @@
 # planwright self-hosting CI (Task 2, REQ-G1.7): every guard the repo
 # prescribes runs on every PR. The single `mise run check` step is the same
 # aggregate gate contributors run locally, with tool versions pinned in
-# mise.toml (contributor/CI parity by construction). Actions are pinned to
+# mise.toml (contributor/CI parity by construction); the bash 3.2 parse step
+# after it needs Docker, so it runs here only. Actions are pinned to
 # full commit SHAs (supply-chain discipline per the security posture).
 #
 # "on" is quoted so yamllint's truthy rule (which this repo runs on
@@ -30,6 +31,9 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # The bash 3.2 parse step's image.
+    env:
+      BASH32_IMAGE: bash:3.2@sha256:0fd7cb8499c63a3c9345e7088a9cd83bb69f6e895e83833859aff838a0312091
     steps:
       # Full history: gitleaks scans all commits and the commit lint walks
       # the PR range.
@@ -84,6 +88,33 @@ jobs:
       # strict PR-range lint is the dedicated step below.
       - run: mise run check
 
+      # macOS ships bash 3.2 as /bin/bash and /bin/sh, and its parser rejects
+      # constructs every later bash accepts, so every tracked shell file
+      # outside tests/fixtures/bash32/ is parsed in its declared dialect under
+      # the real 3.2 from Docker's official image, pinned by digest
+      # (tests/test-check-bash32.sh checks the pin). The same test then runs
+      # under that parser, its misparse fixtures proving the step can fail.
+      # git stays outside the container, which has none; the checkout is
+      # mounted read-only with no network. It runs even when the gate above
+      # failed, so one push reports both, and the test runs even when the
+      # parse failed: each status is kept and the step fails if either did.
+      # `shell: bash` is what sets pipefail, so a failed `git ls-files` fails
+      # the parse instead of feeding it a short list.
+      - if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          parse_rc=0
+          test_rc=0
+          git -c core.quotepath=off ls-files \
+            | docker run --rm -i --network none -v "$PWD:/src:ro" -w /src "$BASH32_IMAGE" \
+              bash scripts/check-bash32.sh parse --files-from - --expect-version 3.2 \
+            || parse_rc=$?
+          docker run --rm --network none -v "$PWD:/src:ro" -w /src \
+            -e PLANWRIGHT_TEST_REQUIRE_BASH32=1 "$BASH32_IMAGE" \
+            bash tests/test-check-bash32.sh \
+            || test_rc=$?
+          [ "$parse_rc" -eq 0 ] && [ "$test_rc" -eq 0 ]
+
       # Conventional-commit lint over exactly the PR's commits. The local task
       # skips quietly when there is nothing ahead of origin/main; on a PR an
       # empty or malformed range must fail instead.
@@ -92,7 +123,7 @@ jobs:
       # rewrites history, so a violation in either would be permanently
       # unfixable and the pull request permanently red. Both are reported here
       # and enforced where the subject is still editable — githooks/commit-msg
-      # at write time, and the PR title in the step above, which is the
+      # at write time, and the PR title in pr-title.yml, which is the
       # squash-merge subject and therefore the only one that reaches main.
       # base_ref is the target branch, passed via env per script-injection
       # hardening practice.
@@ -116,7 +147,7 @@ jobs:
   # The macOS userland the scripts actually run on for most operators: its
   # /usr/bin/awk is one-true-awk, which rejects a newline inside a -v value
   # where the ubuntu runner's awk accepts it, so that class of bug passes the
-  # job above and breaks every Mac. Deliberately narrow (the awk-sensitive
+  # check job and breaks every Mac. Deliberately narrow (the awk-sensitive
   # suites, no mise, no tool installs) until the full suite is green under the
   # macOS /bin/bash; REQUIRE_BSD_AWK makes a runner image without that awk fail
   # instead of skipping green.
