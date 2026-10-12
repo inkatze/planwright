@@ -83,6 +83,7 @@ history() {
    {"path":"a.sh","line":12,"commit":"$A","author":"helper-bot","bot":true,"body":"long negation","replies":[{"author":"owner","body":"This has not been fixed in 1234567"}]},
    {"path":"a.sh","line":13,"commit":"$A","author":"helper-bot","bot":true,"body":"negated other verb","replies":[{"author":"owner","body":"Not changed in 1234567; keeping it"}]},
    {"path":"a.sh","line":14,"commit":"$A","author":"helper-bot","bot":true,"body":"unit word","replies":[{"author":"owner","body":"Unit tests fixed in 1234567"}]},
+   {"path":"a.sh","line":15,"commit":"$A","author":"helper-bot","bot":true,"body":"cannot","replies":[{"author":"owner","body":"This cannot be addressed in 1234567; it is upstream"}]},
    {"path":"a.sh","line":9,"commit":"$A","author":"helper-bot","bot":true,"body":"a real one","replies":[{"author":"owner","body":"Fixed, not a false positive after all"}]},
    {"path":"lib/c.sh","line":9,"commit":"$A","author":"helper-bot","bot":true,"body":"a sibling site keeps the bug","replies":[{"author":"owner","body":"Addressed in def5678"}]},
    {"path":"a.sh","line":3,"commit":"$A","author":"helper-bot","bot":true,"body":"style nit nobody fixed","replies":[{"author":"owner","body":"Declined: by design"}]},
@@ -219,6 +220,7 @@ assert_lacks "a negation split by a newline is still a negation" "	a.sh	11	" "$(
 assert_lacks "\"has not been fixed in <sha>\" is not a fix" "	a.sh	12	" "$(cat "$c1")"
 assert_lacks "a negated verb other than fixed is not a fix" "	a.sh	13	" "$(cat "$c1")"
 assert_contains "a word ending in n-t (unit) is no negation" "	a.sh	14	" "$(cat "$c1")"
+assert_lacks "\"cannot\" is a negation" "	a.sh	15	" "$(cat "$c1")"
 assert_contains "\"not a false positive\" does not veto a fix" "	a.sh	9	" "$(cat "$c1")"
 assert_contains "warns about a PR whose threads overflowed the fetch page" "warning: 1 PR(s) had more reviews, threads, or comments" "$out"
 assert_contains "a non-string gist and a substring category are each dropped, not fatal" "dropped unannotated: 2" "$out"

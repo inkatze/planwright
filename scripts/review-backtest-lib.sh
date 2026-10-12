@@ -37,11 +37,12 @@ RBT_DEFAULT_CAP=5
 # shellcheck disable=SC2016 # jq program text, expanded by jq, not the shell
 RBT_JQ_DEFS='
 # An explicit "<verb> in <sha>" is a fix, even beside a partial decline, unless
-# the reply also negates such a phrase anywhere (not, never, or a negative
-# contraction up to two words before the verb, as in "has not been fixed in");
+# the reply also negates such a phrase anywhere (not, never, cannot, or a
+# negative contraction up to two words before the verb, as in "has not been
+# fixed in");
 # any other fix wording counts only when the reply neither declines nor negates
 # a fix verb ("not a false positive" is no decline).
-def rbt_negation: "((^|[^a-z])(not|never)|[a-z]n[\\x27\u2019]t)( [a-z]+){0,2} ";
+def rbt_negation: "((^|[^a-z])(not|never|cannot)|[a-z]n[\\x27\u2019]t)( [a-z]+){0,2} ";
 def rbt_fix_verbs: "(fixed|addressed|applied|corrected|reworded|changed|wrapped|done)";
 def rbt_fix_reply: gsub("\\s+"; " ") | (test("\\b" + rbt_fix_verbs + " in `?[0-9a-f]{7,40}`?\\b"; "i")
     and (test(rbt_negation + rbt_fix_verbs + " in `?[0-9a-f]{7,40}`?\\b"; "i") | not))
