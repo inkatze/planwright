@@ -2366,6 +2366,158 @@ if [ -w /dev/full ]; then
   verdict "fingerprint fails when it cannot print" "a failed print exited non-1"
 fi
 
+# --- iteration-two edges: the loader's checks, the attempt, and holders ---------------
+wld="$tmp/wld"
+fresh "$wld"
+srd2() { PATH="$stub:$PATH" "$SR" --worktree "$wld" "$@"; }
+l1=$(srd2 new-run)
+lgood() {
+  # lgood <file> <run> [<line>]...: a well-formed passed chk record, plus lines.
+  _gf=$1 _gr=$2
+  shift 2
+  legacy_rec "$_gf" "$_gr" pre-ci chk passed "$HX_A" "end-head${TAB}$HX_A" \
+    "fingerprint${TAB}$FP_1" "args-digest${TAB}$DIG_ABC" "$@"
+}
+rlook() { srd2 lookup reuse --step chk --target t --args-digest "$DIG_ABC" --fingerprint "$FP_1" >/dev/null 2>&1; }
+n=0
+for bad in seq point dup-key no-tab hosting end-head type; do
+  n=$((n + 1))
+  f="$wld/.claude/steps/$l1/00$n-step-pre-ci.rec"
+  lgood "$f" "$l1"
+  case $bad in
+    seq) sed -i.bak "s/^seq${TAB}.*/seq${TAB}099/" "$f" ;;
+    point) sed -i.bak "s/^point${TAB}.*/point${TAB}pre-pr/" "$f" ;;
+    dup-key) printf 'outcome\tpassed\n' >>"$f" ;;
+    no-tab) printf 'stray line\n' >>"$f" ;;
+    hosting) sed -i.bak "s/^hosting${TAB}.*/hosting${TAB}EVIL/" "$f" ;;
+    end-head) sed -i.bak "s/^end-head${TAB}.*/end-head${TAB}zzz/" "$f" ;;
+    type) sed -i.bak "s/^type${TAB}.*/type${TAB}stepx/" "$f" ;;
+  esac
+  rm -f "$f.bak"
+  rlook
+  [ $? -eq 3 ]
+  verdict "reuse never stands on a record with a bad $bad" "a bad $bad matched"
+  rm -f "$f"
+done
+# A withheld target matches nothing, even when the caller passes its placeholder.
+srd2 write --run "$l1" --point pre-ci --step chk --kind command --target "run $tok" --hosting isolated \
+  --backend runner --start 2026-10-06T16:00:00Z --end 2026-10-06T16:00:01Z --outcome passed \
+  --fingerprint "$FP_1" --args-digest "$DIG_ABC" >/dev/null
+for tgt in "run $tok" "[withheld: the secret screen flagged this value]"; do
+  srd2 lookup reuse --step chk --target "$tgt" --args-digest "$DIG_ABC" --fingerprint "$FP_1" >/dev/null 2>&1
+  [ $? -eq 3 ]
+  verdict "a withheld target never matches a reuse lookup" "a withheld target matched"
+done
+# The lookup reads record paths from its own list, never from stdin.
+mkdir -p "$tmp/outside/999999"
+lgood "$tmp/outside/999999/001-step-pre-ci.rec" 999999
+l2=$(srd2 new-run)
+out=$(printf '%s\n' "$tmp/outside/999999/001-step-pre-ci.rec" | srd2 lookup reuse --step chk --target t \
+  --args-digest "$DIG_ABC" --fingerprint "$FP_1" 2>/dev/null)
+[ $? -eq 3 ] && [ -z "$out" ]
+verdict "a reuse lookup never reads record paths from stdin" "out=$out"
+# Holders pass the secret screen, in order, on step and full-suite records.
+rec=$(srd2 write --run "$l2" --point pre-ci --step h --kind command --target t --hosting isolated \
+  --backend runner --start 2026-10-06T16:00:00Z --end 2026-10-06T16:00:01Z --outcome passed \
+  --pool suite --wait 1 --holder "pid 1 $tok" --holder "pid 2 plain")
+recf=$(srd2 write --full-suite --run "$l2" --pool suite --wait 1 --wait-outcome taken \
+  --holder "pid 1 $tok" --holder "pid 2 plain" --start 2026-10-06T16:00:00Z --end 2026-10-06T16:00:01Z)
+for r in "$rec" "$recf"; do
+  [ "$(sed -n "s/^holder${TAB}//p" "$r" | tr '\n' '|')" = "[withheld: the secret screen flagged this value]|pid 2 plain|" ] \
+    && ! grep -Fq "$tok" "$r"
+  verdict "a token holder is withheld and the next holder kept in order" "holders: $(grep '^holder' "$r" | tr '\n' ' ')"
+done
+# Stands-on refusals for a resume skip and a record from before end heads.
+legacy_rec "$wld/.claude/steps/$l2/009-step-pre-ci.rec" "$l2" pre-ci old passed "$HX_A"
+for case_ in "resume:sk-s:$rref:pre-ci:001" "resume:sk-f:$rref:pre-ci:003" "reuse:old:$l2:pre-ci:009"; do
+  code=${case_%%:*} rest=${case_#*:}
+  st=${rest%%:*} ref=${rest#*:}
+  srd2 write --run "$l2" --point pre-pr --step "$st" --kind command --target t --hosting isolated \
+    --backend runner --start 2026-10-06T16:00:00Z --end 2026-10-06T16:00:01Z --outcome skipped \
+    --skip-code "$code" --stands-on "$ref" >/dev/null 2>&1
+  [ $? -eq 2 ]
+  verdict "a $code skip of $st refuses to stand on $ref" "accepted"
+done
+# Every new flag refuses an empty value by name.
+for fl in --skip-code --stands-on --pool --wait --fingerprint --args-digest --refire-of --wait-outcome; do
+  err=$(srd2 write --run "$l2" --full-suite "$fl" "" 2>&1 >/dev/null)
+  printf '%s' "$err" | grep -Fq -- "$fl: given empty"
+  verdict "an empty $fl is refused as given empty" "err=$err"
+done
+# Resume reads every run, refusing a cache holding an unreadable record.
+l3=$(srd2 new-run)
+ln -s /etc/hostname "$wld/.claude/steps/$l3/001-step-pre-ci.rec"
+srd2 lookup resume --run "$l2" --point pre-pr --head "$HX_A" >/dev/null 2>&1
+[ $? -eq 1 ]
+verdict "a resume lookup refuses a cache holding a symlinked record" "not exit 1"
+rm -f "$wld/.claude/steps/$l3/001-step-pre-ci.rec"
+# A resume skip standing on another step's record ends the prefix.
+l4=$(srd2 new-run)
+legacy_rec "$wld/.claude/steps/$l4/001-step-pre-pr.rec" "$l4" pre-pr one skipped "$HX_A" "end-head${TAB}$HX_A" \
+  "skip-code${TAB}resume" "stands-on${TAB}$l4:pre-pr:002"
+legacy_rec "$wld/.claude/steps/$l4/002-step-pre-pr.rec" "$l4" pre-pr two passed "$HX_A" "end-head${TAB}$HX_A"
+out=$(srd2 lookup resume --run "$l4" --point pre-pr --head "$HX_A")
+[ $? -eq 3 ] && [ -z "$out" ]
+verdict "a resume skip standing on another step's record ends the prefix" "out=$out"
+# Status: the attempt is the highest well-formed completion; a malformed
+# record in it, or a malformed limited record anywhere, fails the flip.
+lim_wt
+flip "$HX_A" failed
+f2=$(srl new-run)
+cp "$wlm/.claude/steps/000001/002-done-pre-ready-flip.rec" "$wlm/.claude/steps/$f2/001-done-pre-ready-flip.rec"
+lstate "$HX_A"
+[ "$ST_RC" -eq 0 ] && gh_arg state=failure
+verdict "a completion copied into a newer run is not the attempt" "rc=$ST_RC"
+lim_wt
+flip "$HX_A" passed
+printf 'outcome\tpassed\n' >>"$wlm/.claude/steps/000001/001-step-pre-ready-flip.rec"
+lstate "$HX_A"
+[ "$ST_RC" -eq 0 ] && gh_arg state=failure
+verdict "a malformed step record in the attempt fails the flip" "rc=$ST_RC"
+lim_wt
+flip "$HX_A" halted
+sed -i.bak "s/^type${TAB}.*/type${TAB}stepx/" "$wlm/.claude/steps/000001/001-step-pre-ready-flip.rec"
+rm -f "$wlm/.claude/steps/000001/001-step-pre-ready-flip.rec.bak"
+lstate "$HX_A"
+[ "$ST_RC" -eq 0 ] && gh_arg state=failure
+verdict "a halted step record with a garbled type still fails the flip" "rc=$ST_RC"
+lim_wt
+u=$(srl new-run)
+lrec "$u" post-pr review limited "$HX_A"
+sed -i.bak "s/^point${TAB}.*/point${TAB}pre-pr/" "$wlm/.claude/steps/$u/001-step-post-pr.rec"
+rm -f "$wlm/.claude/steps/$u/001-step-post-pr.rec.bak"
+v=$(srl new-run)
+lrec "$v" post-pr review passed "$HX_A"
+flip "$HX_A" passed
+lstate "$HX_A"
+[ "$ST_RC" -eq 0 ] && gh_arg state=failure
+verdict "a malformed limited record is never retired" "rc=$ST_RC"
+# Fingerprint: a foreign index changes nothing, an ignored path absent at HEAD
+# keeps its marker, and a dirty submodule leaves no fingerprint whatever its
+# ignore setting.
+fpa=$(fp a)
+git -C "$wfp" read-tree --index-output="$tmp/foreign.idx" --empty
+[ "$(GIT_INDEX_FILE="$tmp/foreign.idx" fp a)" = "$fpa" ]
+verdict "fingerprint ignores an inherited GIT_INDEX_FILE" "a foreign index changed it"
+mkdir -p "$wfp/build" && : >"$wfp/build/out"
+fb=$(fp build)
+[ "$fb" != none ]
+verdict "an ignored path absent at HEAD keeps its absent marker" "build: $fb"
+wsub="$tmp/wsub"
+fresh "$wsub"
+printf 'x\n' >"$wsub/f" && git -C "$wsub" add f && git -C "$wsub" commit -q -m "chore: sub"
+git -C "$wfp" -c protocol.file.allow=always submodule -q add "$wsub" lib >/dev/null 2>&1 \
+  && git -C "$wfp" config -f .gitmodules submodule.lib.ignore all \
+  && git -C "$wfp" add .gitmodules && git -C "$wfp" commit -q -m "chore: submodule"
+if [ -f "$wfp/lib/f" ]; then
+  fl=$(fp lib)
+  printf 'changed\n' >"$wfp/lib/f"
+  [ "$fl" != none ] && [ "$(fp lib)" = none ]
+  verdict "a dirty submodule leaves no fingerprint despite ignore = all" "lib stayed fingerprinted"
+else
+  fail "fixture: cannot add the submodule"
+fi
+
 # --- /execute-task's missing-matrix skip carries its code -----------------------------
 # shellcheck disable=SC2016 # literal backticks of the skill text
 grep -Fq 'a `skip` line records `skipped`, code `missing`' "$repo_root/skills/execute-task/SKILL.md"

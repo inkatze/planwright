@@ -90,7 +90,8 @@
 #                 `posted<TAB><context><TAB><state><TAB><head>`. The point is
 #                 pre-ready-flip or pre-spec-ready-flip, the context
 #                 `planwright/<point>`. The latest attempt is the highest run
-#                 holding a completion record of that point naming --head; a
+#                 holding a well-formed completion record of that point
+#                 naming --head; a
 #                 head with none is refused (exit 1) with no post. The state
 #                 is `failure` when any of that run's step records at the
 #                 point is halted, failed, or limited, whatever head it
@@ -102,8 +103,9 @@
 #                 them, a run's order taken from its directory: a malformed
 #                 record retires nothing and, recording limited (or, in the
 #                 attempt, anything), counts against the flip. Otherwise
-#                 `success` (an empty list included). The description is `<point>: no step halted or
-#                 failed (run <id>)`, or in its place `a step halted or
+#                 `success` (an empty list included). The description is
+#                 `<point>: no step halted or failed (run <id>)`, or in its
+#                 place `a step halted or
 #                 failed`, or else `a step stayed limited`; the status
 #                 carries no target URL, excerpt, or path. The post is
 #                 `gh api --method POST repos/<repo>/statuses/<head>`; a
@@ -116,8 +118,11 @@
 #                 below) at the worktree's HEAD, or `none` when a tracked file
 #                 under a word differs from HEAD (staged or not), an
 #                 untracked file git does not ignore lies under one, a file
-#                 under one is marked skip-worktree or assume-unchanged, or a
-#                 word reaches through a symbolic link. The fingerprint is
+#                 under one is marked skip-worktree or assume-unchanged, a
+#                 submodule under one has changes (whatever its ignore
+#                 setting), a word reaches through a symbolic link, or a
+#                 word absent at HEAD names a path present here and not
+#                 ignored (a spelling the file system folds). The fingerprint is
 #                 git's object id (`git hash-object`) of one
 #                 `<word><TAB><object id>` line per word in the order given,
 #                 the object id the word's blob or tree at HEAD (read with
@@ -485,14 +490,19 @@ git_wt() {
 
 # read_worktree_head: sets WT_HEAD to the worktree's own HEAD commit; returns
 # 1 when the worktree is not the top of a git work tree, 2 when it has no
-# commit. A --worktree that is a plain directory inside another repository
+# commit, 3 when git cannot read HEAD. A --worktree that is a plain directory inside another repository
 # would resolve that repository, so it is refused rather than reading a commit
 # from elsewhere.
 read_worktree_head() {
   command -v git >/dev/null 2>&1 || die 1 "git is not on PATH"
   _top=$(git_wt rev-parse --show-toplevel 2>/dev/null) \
     && _top=$(cd -P -- "$_top" 2>/dev/null && pwd -P) && [ "$_top" = "$worktree" ] || return 1
-  WT_HEAD=$(git_wt rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null) || return 2
+  WT_HEAD=$(git_wt rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null) && return 0
+  # Unborn: HEAD names a branch that does not exist yet. Anything else is a
+  # git failure.
+  _ref=$(git_wt symbolic-ref -q HEAD 2>/dev/null) && ! git_wt rev-parse --verify --quiet "$_ref" >/dev/null 2>&1 \
+    && return 2
+  return 3
 }
 
 # worktree_head <flag>: read_worktree_head, a failure refusing <flag>.
@@ -501,7 +511,8 @@ worktree_head() {
   case $? in
     0) ;;
     1) bad "$1" "not given and the worktree is not the top of a git work tree to default from" ;;
-    *) bad "$1" "not given and the worktree has no commit to default to" ;;
+    2) bad "$1" "not given and the worktree has no commit to default to" ;;
+    *) die 1 "git cannot read the worktree's HEAD" ;;
   esac
 }
 
@@ -815,6 +826,7 @@ claim() {
 check_end() {
   if [ "$end_given" -eq 0 ]; then
     end=$(date -u +%Y-%m-%dT%H:%M:%SZ) || die 1 "cannot read the clock"
+    is_ts "$end" || die 1 "the clock printed no UTC stamp"
   fi
   is_ts "$end" || bad --end "not YYYY-MM-DDTHH:MM:SSZ"
   # Same-width UTC stamps: the digits compare as numbers.
@@ -1233,8 +1245,9 @@ function safe(s,    out, i, n, c, z, lead) {
 # never from its contents (R_RUN, R_SEQ, R_KIND, R_POINT), and returns 0 for a
 # path that names no record. It sets bad when a single-valued key repeats, a
 # line carries no tab, or the stored run, seq, or point disagrees with the
-# path. A read error sets err and exits 2, unless the record was optional (a
-# --stands-on target), which then just returns 0. ok_step() holds when F is a
+# path, or its stored type disagrees with the path's kind. A read error sets
+# err and exits 2, unless the record was optional (a resume skip's chained
+# target, which then just does not qualify), which returns 0. ok_step() holds when F is a
 # step record whose step id, heads, hosting, and session meet the write
 # grammar, so a withheld placeholder or a record written before end heads
 # never qualifies. ref() is the lookup line for the loaded record.
@@ -1257,7 +1270,8 @@ function load(p, optional,    line, r, t, k, n, parts, b) {
   }
   close(p)
   if (r < 0) { if (optional) return 0; err = 1; exit 2 }
-  if (F["run"] != R_RUN || F["seq"] != R_SEQ || F["point"] != R_POINT) bad = 1
+  if (F["run"] != R_RUN || F["seq"] != R_SEQ || F["point"] != R_POINT \
+    || F["type"] != (R_KIND == "done" ? "completion" : R_KIND == "suite" ? "full-suite" : "step")) bad = 1
   return 1
 }
 function hex(h) { return h ~ /^[0-9a-f]+$/ && (length(h) == 40 || length(h) == 64) }
@@ -1616,43 +1630,40 @@ cmd_status() {
   is_head "$head" || bad --head "not a full commit id"
   is_repo "$repo" || bad --repo "not an <owner>/<name> repository"
 
-  attempt=''
-  for r in $(run_ids | sort -r); do
-    check_run "$r"
-    for f in $(glob_names "$cache/$r" "[0-9][0-9][0-9]-done-$point.rec"); do
-      if grep -Fxq "head$TAB$head" "$cache/$r/$f"; then
-        attempt=$r
-        break 2
-      fi
-    done
-  done
-  [ -n "$attempt" ] || die 1 "no completion record of $point names $head; refusing to post a status"
-
-  # One pass over every run's records: the attempt's outcomes at the point,
-  # and any unretired limited record ending on the head, whatever run or point
-  # holds it.
+  # One pass over every run's records: the latest attempt (the highest run
+  # holding a well-formed completion of the point naming the head), each run's
+  # outcomes at the point, and any unretired limited record ending on the
+  # head, whatever run or point holds it.
   all_records
-  verdict=$(awk -v TAB="$TAB" -v H="$head" -v A="$attempt" -v P="$point" "$AWK_RECORD"'
+  result=$(awk -v TAB="$TAB" -v H="$head" -v P="$point" "$AWK_RECORD"'
     {
       if (!load($0)) next
-      if (R_RUN == A && F["type"] == "step" && R_POINT == P) {
-        if (bad || F["outcome"] == "halted" || F["outcome"] == "failed") hf = 1
-        else if (F["outcome"] == "limited") lim = 1
+      if (R_KIND == "done") {
+        if (!bad && R_POINT == P && F["head"] == H && R_RUN + 0 > A + 0) A = R_RUN
+        next
+      }
+      if (R_KIND != "step") next
+      if (R_POINT == P) {
+        if (bad || F["outcome"] == "halted" || F["outcome"] == "failed") HF[R_RUN] = 1
+        else if (F["outcome"] == "limited") LIM[R_RUN] = 1
       }
       if (F["end-head"] != H) next
-      if (F["outcome"] == "limited" && (bad || F["type"] == "step")) {
-        n++; LR[n] = R_RUN + 0; LS[n] = (bad || !ok_step()) ? "" : F["step"]
-      } else if (!bad && ok_step() && (F["outcome"] == "passed" || F["outcome"] == "applied" \
+      if (F["outcome"] == "limited") {
+        n++; LR[n] = R_RUN + 0; LS[n] = ok_step() ? F["step"] : ""
+      } else if (ok_step() && (F["outcome"] == "passed" || F["outcome"] == "applied" \
         || (F["outcome"] == "skipped" && F["skip-code"] == "resume"))) {
         if (!(F["step"] in last) || R_RUN + 0 > last[F["step"]]) last[F["step"]] = R_RUN + 0
       }
     }
     END {
       if (err) exit 2
+      if (A == "") { print "none"; exit }
       c = 0
       for (i = 1; i <= n; i++) if (LS[i] == "" || !(LS[i] in last) || last[LS[i]] <= LR[i]) c++
-      print (hf ? "halted-or-failed" : (lim || c) ? "limited" : "clean")
+      print ((A in HF) ? "halted-or-failed" : ((A in LIM) || c) ? "limited" : "clean") " " A
     }' "$work/records") || die 1 "cannot read the record cache"
+  verdict=${result% *} attempt=${result##* }
+  [ "$verdict" != none ] || die 1 "no completion record of $point names $head; refusing to post a status"
   context="planwright/$point"
   case $verdict in
     halted-or-failed)
@@ -1663,10 +1674,11 @@ cmd_status() {
       state=failure
       description="$point: a step stayed limited (run $attempt)"
       ;;
-    *)
+    clean)
       state=success
       description="$point: no step halted or failed (run $attempt)"
       ;;
+    *) die 1 "cannot read the record cache" ;;
   esac
 
   command -v gh >/dev/null 2>&1 || die 1 "gh is not on PATH; cannot post the $context status"
@@ -1697,13 +1709,14 @@ cmd_fingerprint() {
   case $? in
     0) ;;
     1) die 1 "the worktree is not the top of a git work tree; cannot fingerprint" ;;
-    *) die 1 "the worktree has no commit to fingerprint at" ;;
+    2) die 1 "the worktree has no commit to fingerprint at" ;;
+    *) die 1 "git cannot read the worktree's HEAD" ;;
   esac
   scratch
   # No fingerprint when anything under a word differs from HEAD, including a
   # file git is told to stop looking at (skip-worktree, or assume-unchanged,
   # whose ls-files tag is lowercase), which status would not report.
-  git_wt status --porcelain --untracked-files=all -- "$@" >"$work/status" 2>/dev/null \
+  git_wt status --porcelain --untracked-files=all --ignore-submodules=none -- "$@" >"$work/status" 2>/dev/null \
     || die 1 "git cannot read the work tree's status"
   git_wt ls-files -v -- "$@" >"$work/tags" 2>/dev/null || die 1 "git cannot read the index"
   if [ -s "$work/status" ] || grep -q '^[a-zS]' "$work/tags"; then
@@ -1738,7 +1751,23 @@ cmd_fingerprint() {
       oid=$(awk -v n="$norm" -v TAB="$TAB" '
         { t = index($0, TAB); if (substr($0, t + 1) == n) { split(substr($0, 1, t - 1), m, " "); print m[3] } }' \
         "$work/entry") || die 1 "cannot read a declared path's entry"
-      [ -n "$oid" ] || oid=-
+      if [ -z "$oid" ]; then
+        # Absent at HEAD yet present here and not ignored: a spelling the
+        # file system folds onto another path, whose content the absent
+        # marker would not track.
+        if [ -e "$worktree/$norm" ] || [ -L "$worktree/$norm" ]; then
+          git_wt check-ignore -q -- "$norm" 2>/dev/null
+          case $? in
+            0) ;;
+            1)
+              printf 'none\n' || die 1 "cannot print the fingerprint"
+              return 0
+              ;;
+            *) die 1 "git cannot read the ignore rules" ;;
+          esac
+        fi
+        oid=-
+      fi
     fi
     printf '%s\t%s\n' "$w" "$oid" >>"$work/fp" || die 1 "cannot write a temporary file"
   done
@@ -1788,13 +1817,13 @@ lookup_reuse() {
   [ "$fingerprint" = none ] || is_oid "$fingerprint" || bad --fingerprint "not none or a fingerprint"
   [ "$fingerprint" != none ] || exit 3
   # The target as write stores it; one the screen withheld was stored as its
-  # placeholder, which no cleaned target equals, so it matches nothing.
+  # placeholder, and a record holding a placeholder matches nothing.
   clean_value "$target"
   all_records
   hit=$(LOOKUP_TARGET=$CLEANED awk -v TAB="$TAB" -v S="$step" -v D="$args_digest" \
     -v FP="$fingerprint" "$AWK_RECORD"'
     {
-      if (!load($0) || !ok_step()) next
+      if (!load($0) || !ok_step() || index(F["target"], "[withheld: ") == 1) next
       if (F["outcome"] == "passed" && F["step"] == S && F["target"] == ENVIRON["LOOKUP_TARGET"] \
         && F["args-digest"] == D && F["fingerprint"] == FP) hit = ref()
     }
