@@ -69,7 +69,7 @@
 # human:
 #   sync<TAB><up-to-date|fast-forward|merged|denied><TAB><head-sha>
 #   park<TAB><reason><TAB><message>     the unit parks under Awaiting input
-#                                       with this message (exits 3-6, 9)
+#                                       with this message (exits 3-6, 9, 11)
 #   repair<TAB>abort-failed<TAB><msg>   no park: the tree needs hand repair
 #   resolve<TAB><target-sha><TAB><msg>  the conflict is left for the worker;
 #                                       the message names the paths and step
@@ -298,7 +298,7 @@ merged_entries() {
 # --- --commit-resolution: commit the merge a resolve-mode sync left ---------
 
 if [ "$mode" = commit ]; then
-  git -C "$repo" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 && [ -f "$resolve_state" ] \
+  git -C "$repo" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 && [ -f "$resolve_state" ] && [ -f "$resolve_state.index" ] \
     || die 11 resolution-refused "no merge left by a resolve-mode sync is in progress; run the sync first"
   merge_target=$(sed -n 1p "$resolve_state")
   [ "$(git -C "$repo" rev-parse -q --verify MERGE_HEAD 2>/dev/null)" = "$merge_target" ] \

@@ -206,6 +206,7 @@ r3() {
   gitc "$T/worker" add shared.txt
   run_sync --commit-resolution demo/1 "$T/worker"
   [ "$RC" -eq 11 ] || fail "r3: a merge the sync did not leave should exit 11, got $RC: $ERR"
+  case $ERR in *"no merge left by a resolve-mode sync"*) ;; *) fail "r3: the refusal does not name the missing record: $ERR" ;; esac
   [ -n "$(gitc "$T/worker" rev-parse -q --verify MERGE_HEAD)" ] \
     || fail "r3: the refusal disturbed the worker's merge"
   gitc "$T/worker" merge --abort
@@ -218,12 +219,13 @@ r3() {
   gitc "$T/worker" merge -q side >/dev/null 2>&1 || true
   st=$(gitc "$T/worker" rev-parse --path-format=absolute --git-path planwright-sync-resolve)
   printf '%s\nshared.txt\n' "$(gitc "$T/worker" rev-parse MERGE_HEAD)" >"$st"
+  : >"$st.index"
   printf 'resolved\n' >"$T/worker/shared.txt"
   gitc "$T/worker" add shared.txt
   run_sync --commit-resolution demo/1 "$T/worker"
   [ "$RC" -eq 11 ] || fail "r3: a forged record for a non-base merge should exit 11, got $RC: $ERR"
   case $ERR in *"does not merge origin/main"*) ;; *) fail "r3: the refusal does not name the non-base source: $ERR" ;; esac
-  rm -f "$st"
+  rm -f "$st" "$st.index"
 
   # A policy turned back to halt refuses the commit too.
   gitc "$T/worker" merge --abort
