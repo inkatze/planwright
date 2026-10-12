@@ -1753,7 +1753,8 @@ cmd_fingerprint() {
     done
     IFS=$LF
     p=$norm
-    while case $p in */*) true ;; *) false ;; esac; do
+    while :; do
+      case $p in */*) ;; *) break ;; esac
       p=${p%/*}
       if [ -L "$worktree/$p" ]; then
         printf 'none\n' || die 1 "cannot print the fingerprint"
