@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.59.0](https://github.com/inkatze/planwright/compare/v0.58.0...v0.59.0) (2026-10-11)
+
+
+### Features
+
+* **doctrine:** add the messaging-transport doctrine and its knobs ([#648](https://github.com/inkatze/planwright/issues/648)) ([e3d4ef8](https://github.com/inkatze/planwright/commit/e3d4ef8424b9af53d6c0af3cbf4b65ac786f4b22))
+* **quota:** add the per-vendor hold store and usage ledger ([#647](https://github.com/inkatze/planwright/issues/647)) ([a588589](https://github.com/inkatze/planwright/commit/a58858983017e7516e88f2107f3eae60d300787f))
+* **step-record:** default --head and --end so workers need no substitution ([#640](https://github.com/inkatze/planwright/issues/640)) ([94de3eb](https://github.com/inkatze/planwright/commit/94de3eba458ec346d50f2ba40172b250f2a8dea1))
+* **worker-guard:** close the zsh model and other-process environment gaps ([#645](https://github.com/inkatze/planwright/issues/645)) ([ff50687](https://github.com/inkatze/planwright/commit/ff50687f6c76152d6ef1175ce8fea13907e782e0))
+* **worker-guard:** read segments in run order, model cd and plain assignments ([#637](https://github.com/inkatze/planwright/issues/637)) ([1d5421b](https://github.com/inkatze/planwright/commit/1d5421bf5562abd5a4d8cc0f8c25e24ad9acb7ad))
+
+
+### Bug Fixes
+
+* **quota:** let a higher layer override a conflicting vendors catalog entry ([#638](https://github.com/inkatze/planwright/issues/638)) ([c834946](https://github.com/inkatze/planwright/commit/c8349467b614ea3e736dadd536cdc6f1e15d355b))
+
+
+### Performance Improvements
+
+* cut config-read process spawns so the test suite fits its time budget ([#644](https://github.com/inkatze/planwright/issues/644)) ([898bb06](https://github.com/inkatze/planwright/commit/898bb06ccbe5c36107fc5ae9c67695d713266f49))
+
 ## [0.58.0](https://github.com/inkatze/planwright/compare/v0.57.0...v0.58.0) (2026-10-09)
 
 
