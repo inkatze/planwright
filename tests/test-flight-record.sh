@@ -439,6 +439,18 @@ for pfx in '    ' '> '; do
       || fail "the line after a $name key prefixed '$pfx' must survive"
   done
 done
+# A key that begins and ends on one line ends there: the start-of-line rule
+# and the Comment check apply only to lines after the one that opened it.
+for shape in "SSH2|Paste: $SSH2_BEGIN $KEY_BODY1 $SSH2_END done" \
+  "PuTTY|Paste: $PUTTY_BEGIN $KEY_BODY1 $PUTTY_END" \
+  "PEM on a Comment line|Comment: $KEY_BEGIN $KEY_BODY1 $KEY_END"; do
+  name=${shape%%|*}
+  printf 'Use this key:\n%s\nThen rerun the deploy.\n' "${shape#*|}" >"$in/ask-key-oneline.txt"
+  run_render pr --ask-file "$in/ask-key-oneline.txt"
+  [ "$RC" -eq 0 ] || fail "render of a one-line $name key exited $RC: $ERR"
+  case $OUT in *"$KEY_BODY1"*) fail "a one-line $name key published its body" ;; esac
+  printf '%s\n' "$OUT" | grep -qx '  Then rerun the deploy.' || fail "the line after a one-line $name key must survive"
+done
 # A line inside a key block that the screens also flag is dropped with the
 # block: one marker for the key, and no personal-data note from its comment.
 printf 'Use this key:\n%s\nComment: call %s\n%s\n%s\nThen rerun the deploy.\n' \

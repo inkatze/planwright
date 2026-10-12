@@ -439,6 +439,9 @@ redact() {
           split(f[k], pair, "\t")
           kb[k] = pair[1]
           ke[k] = pair[2]
+          # The same end anywhere on a line, for the line that opened the block.
+          kf[k] = ke[k]
+          sub(/^\^\[\[:blank:\]>\]\*/, "", kf[k])
         }
       }
       # at(s, re, from) — where re first matches s at or after from, its
@@ -460,11 +463,14 @@ redact() {
         was = inkey
         if (was || FNR in r) {
           pos = 1
+          opened = 0
           while (1) {
             if (inkey) {
-              # A PEM or PGP Comment header is free text, never the end.
-              if (kind == 1 && $0 ~ /^[[:blank:]>]*Comment:/) break
-              p = at($0, ke[kind], pos)
+              # On lines after the one that opened the block, a PEM or PGP
+              # Comment header is free text, never the end, and the SSH2
+              # and PuTTY ends count only at the start of the line.
+              if (!opened && kind == 1 && $0 ~ /^[[:blank:]>]*Comment:/) break
+              p = at($0, opened ? kf[kind] : ke[kind], pos)
               if (!p) break
               inkey = 0
               pos = p + RL
@@ -477,6 +483,7 @@ redact() {
               if (!best) break
               inkey = 1
               kind = bk
+              opened = 1
               pos = best + bl
             }
           }
