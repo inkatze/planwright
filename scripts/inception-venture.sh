@@ -94,8 +94,12 @@ die() {
 # exit so an interrupted write never leaves a stray file the next save's
 # `git add -A` would commit.
 tmp_path=
+# The venture directory a create made in this run, removed if the create
+# fails partway so a half-built venture never blocks the name.
+made_target=
 cleanup_tmp() {
   if [ -n "$tmp_path" ]; then rm -rf "$tmp_path"; fi
+  if [ -n "$made_target" ]; then rm -rf "$made_target"; fi
 }
 trap cleanup_tmp EXIT
 trap 'exit 129' HUP
@@ -293,9 +297,18 @@ cmd_detect() {
 
 # make_private_remote <dir> <name> — create the private repository and wire it
 # as origin. Nothing is pushed here; the first push is a save the operator
-# asked for.
+# asked for. On failure gh_reason holds gh's own message, control bytes
+# stripped and cut short.
 make_private_remote() {
-  gh repo create "$2" --private --source "$1" --remote origin >/dev/null 2>&1
+  gh_reason=$(gh repo create "$2" --private --source "$1" --remote origin 2>&1 >/dev/null) && return 0
+  gh_reason=$(printf '%s' "$gh_reason" | tr '\000-\037\177' ' ' | cut -c1-200)
+  return 1
+}
+
+# remote_failed <name> <consequence> — exit 7 naming the repository, which
+# GitHub may have created before the failure, and gh's reason.
+remote_failed() {
+  die 7 "the private repository $1 could not be set up (gh said: ${gh_reason:-nothing}); it may exist on GitHub anyway, so check there and delete it if so; $2"
 }
 
 cmd_create() {
@@ -351,16 +364,14 @@ cmd_create() {
   mkdir -p "$root" || die 2 "cannot create the ventures root"
   # not-a-lock: plain mkdir so a directory that appeared since the check above is refused, never adopted.
   mkdir "$target" 2>/dev/null || die 5 "a directory already exists at the venture path; nothing was changed"
+  made_target=$target
 
   if [ "$has_git" = yes ]; then
     git init -q "$target" || die 2 "git init failed"
     git -C "$target" symbolic-ref HEAD refs/heads/main || die 2 "cannot name the main branch"
     if [ "$home" = remote ]; then
-      if ! make_private_remote "$target" "${owner:+$owner/}$id"; then
-        # Only this command's own, still-empty repository is removed.
-        rm -rf "$target"
-        die 7 "the private repository could not be created; nothing was kept"
-      fi
+      make_private_remote "$target" "${owner:+$owner/}$id" \
+        || remote_failed "${owner:+$owner/}$id" "no local venture was left behind"
       scaffold_rung=remote
     else
       scaffold_rung=local
@@ -369,6 +380,7 @@ cmd_create() {
       || die 2 "the hygiene scaffold failed"
   fi
 
+  made_target=
   printf 'venture\t%s\n' "$target"
   printf 'home\t%s\n' "$home"
   printf 'rung\t%s\n' "$rung"
@@ -843,7 +855,8 @@ cmd_add_remote() {
   git -C "$dir" remote get-url origin >/dev/null 2>&1 && die 5 "this venture already has a remote"
   probe
   [ "$remote_state" = available ] || die 6 "the private-remote home is unavailable ($remote_reason)"
-  make_private_remote "$dir" "${owner:+$owner/}$name" || die 7 "the private repository could not be created; the venture stays local-only"
+  make_private_remote "$dir" "${owner:+$owner/}$name" \
+    || remote_failed "${owner:+$owner/}$name" "the venture stays local-only"
   /bin/sh "$self_dir/inception-scaffold.sh" --rung remote "$dir" >/dev/null \
     || die 2 "the remote-rung scaffold failed"
   printf 'venture\t%s\n' "$dir"

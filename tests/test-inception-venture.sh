@@ -765,6 +765,43 @@ venture create --home local --root "$tmp/bad$(printf '\nroot')" zeta
 assert_eq "Z5 create refuses a root with a control byte (exit 2)" 2 "$rc"
 assert_absent "Z5 create makes nothing under such a root" "$tmp/bad$(printf '\nroot')"
 
+# =========================================================================
+# Z6 — a failed create leaves nothing behind and names what it cannot undo
+# =========================================================================
+
+real_git=$(command -v git)
+mkdir -p "$stubs/git-noinit" "$stubs/gh-502"
+cat >"$stubs/git-noinit/git" <<EOF
+#!/bin/sh
+[ "\$1" = init ] && exit 1
+exec "$real_git" "\$@"
+EOF
+cat >"$stubs/gh-502/gh" <<'EOF'
+#!/bin/sh
+case "$1 $2" in
+  "auth status") exit 0 ;;
+  "repo create")
+    printf 'HTTP 502: upstream timed out\n' >&2
+    exit 1
+    ;;
+esac
+exit 1
+EOF
+chmod +x "$stubs/git-noinit/git" "$stubs/gh-502/gh"
+
+PATH="$stubs/git-noinit:$stubs/gh-ok:$PATH" venture create --home local --root "$tmp/z6" eta
+assert_eq "Z6 a failed git init exits 2" 2 "$rc"
+assert_absent "Z6 a failed git init leaves no half-built venture" "$tmp/z6/eta"
+PATH="$stubs/gh-ok:$PATH" venture create --home local --root "$tmp/z6" eta
+assert_eq "Z6 the name is free again after a failed create" 0 "$rc"
+
+PATH="$stubs/gh-502:$PATH" venture create --home remote --root "$tmp/z6" --owner acme theta
+assert_eq "Z6 a failed private-repo creation exits 7" 7 "$rc"
+assert_absent "Z6 a failed private-repo creation keeps nothing local" "$tmp/z6/theta"
+assert_contains "Z6 the failure names the repository that may exist" "acme/theta" "$out"
+assert_contains "Z6 the failure passes on gh's reason" "HTTP 502: upstream timed out" "$out"
+assert_not_contains "Z6 the failure no longer claims nothing was kept" "nothing was kept" "$out"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
