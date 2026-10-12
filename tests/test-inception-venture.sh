@@ -653,6 +653,53 @@ assert_eq "Z2 a save under an inherited GIT_DIR succeeds" 0 "$rc"
 assert_eq "Z2 the unrelated repository gains no commit" "$other_before" "$(git -C "$other" rev-list --count HEAD)"
 assert_eq "Z2 the venture gains the commit" "$((lv_before + 1))" "$(git -C "$lv" rev-list --count HEAD)"
 
+# =========================================================================
+# Z1 — save screens for secrets itself, not only through the venture's hook
+# =========================================================================
+
+token_line() { printf 'token: %s\n' "ghp_""0123456789abcdefghijklmnopqrstuvwxyz"; }
+
+# An unwired hook no longer means an unscreened save.
+git -C "$lv" config --unset core.hooksPath
+lv_before=$(git -C "$lv" rev-list --count HEAD)
+token_line >"$lv/unwired-leak.md"
+venture save "$lv" "Leak with the hook unwired"
+assert_eq "Z1 a credential is refused even with the hook unwired (exit 1)" 1 "$rc"
+assert_contains "Z1 the unwired refusal says why" "credential" "$out"
+assert_eq "Z1 the unwired refusal commits nothing" "$lv_before" "$(git -C "$lv" rev-list --count HEAD)"
+assert_eq "Z1 the unwired refusal leaves nothing staged" "" "$(git -C "$lv" diff --cached --name-only)"
+rm -f "$lv/unwired-leak.md"
+git -C "$lv" config core.hooksPath githooks
+
+# The save message is screened too.
+printf 'note\n' >"$lv/message-probe.md"
+venture save "$lv" "$(token_line)"
+assert_eq "Z1 a credential in the save message is refused (exit 1)" 1 "$rc"
+assert_eq "Z1 a refused message commits nothing" "$lv_before" "$(git -C "$lv" rev-list --count HEAD)"
+assert_not_contains "Z1 the refused message is never echoed" "0123456789abcdefghijklmnopqrstuvwxyz" "$out"
+rm -f "$lv/message-probe.md"
+
+# Hook warnings reach the operator instead of being thrown away.
+printf 'hook warning probe\n' >"$lv/hook-warning.md"
+PLANWRIGHT_ROOT="$tmp/no-planwright" CLAUDE_PLUGIN_ROOT='' venture save "$lv" "Save with the hook unable to find planwright"
+assert_eq "Z1 a save whose hook only warned succeeds" 0 "$rc"
+assert_contains "Z1 the hook's warning is shown" "planwright not found" "$out"
+
+# Commits made outside the helper are screened before they leave the machine.
+for p in seed opportunity disciplines reframe core; do venture mark-phase "$rv" "$p"; done
+PATH="$stubs/gh-ok:$PATH" venture save --push "$rv" "Record the core phases"
+remote_before=$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)
+token_line >"$rv/outside-leak.md"
+git -C "$rv" add outside-leak.md
+git -C "$rv" -c core.hooksPath=/dev/null commit -q --no-verify -m "outside commit"
+git -C "$rv" rm -q outside-leak.md
+git -C "$rv" -c core.hooksPath=/dev/null commit -q --no-verify -m "remove it again"
+PATH="$stubs/gh-ok:$PATH" venture save --push "$rv" "Share the outside commits"
+assert_eq "Z1 a push whose outgoing history carries a credential is refused (exit 1)" 1 "$rc"
+assert_contains "Z1 the push refusal says why" "credential" "$out"
+assert_eq "Z1 the refused push leaves the remote untouched" "$remote_before" "$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)"
+git -C "$rv" reset -q --hard HEAD~2
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

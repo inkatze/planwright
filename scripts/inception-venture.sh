@@ -665,6 +665,13 @@ cmd_save() {
     die 6 "this venture is local-only; nothing leaves this machine (add a private remote first)"
   fi
 
+  # The message is screened like the content: it lands in history too.
+  tmp_path=$(mktemp "${TMPDIR:-/tmp}/inception-venture.XXXXXX") || die 2 "cannot create a temporary file"
+  printf '%s\n' "$msg" >"$tmp_path"
+  screen_or_die "$tmp_path" "the save message looks like it carries a credential (a password, key, or token); write it without one"
+  rm -f "$tmp_path"
+  tmp_path=
+
   git -C "$dir" add -A || die 2 "cannot stage the venture's changes"
   if git -C "$dir" diff --cached --quiet; then
     printf 'Nothing new to save.\n'
@@ -675,6 +682,15 @@ cmd_save() {
       || ! git -C "$dir" var GIT_COMMITTER_IDENT >/dev/null 2>&1; then
       git -C "$dir" reset -q
       die 2 "not saved: no name and email are set for saving on this machine (git config user.name and user.email); set them and save again"
+    fi
+    # Screened here, not only by the venture's hook: an unwired or broken hook
+    # must never mean an unscreened save.
+    ss_rc=0
+    (cd "$dir" && /bin/sh "$self_dir/inception-secret-screen.sh" --staged) >/dev/null 2>&1 || ss_rc=$?
+    if [ "$ss_rc" -ne 0 ]; then
+      git -C "$dir" reset -q
+      [ "$ss_rc" -eq 1 ] && die 1 "not saved: the changes look like they carry a credential (a password, key, or token); remove it and save again"
+      die 2 "not saved: the secret screen could not run (exit $ss_rc)"
     fi
     c_out=$(git -C "$dir" commit -q -m "$msg" 2>&1)
     c_rc=$?
@@ -688,6 +704,18 @@ cmd_save() {
       esac
       die 1 "not saved: the venture's guard stopped the save (run with --expert to see why)"
     fi
+    # The hook may warn and still let the save through; pass its own warnings
+    # on (not the validator dump it prints, which the skill reads itself, nor
+    # the routine findings note mid-elicitation), in plain words when wrapped.
+    hook_warn=$(printf '%s\n' "$c_out" | tr -d '\000-\010\013-\037\177' \
+      | sed -n 's/^venture pre-commit: //p' | grep -v '^bundle findings above')
+    if [ -n "$hook_warn" ]; then
+      if [ "$expert" -eq 1 ]; then
+        printf '%s\n' "$hook_warn" | sed 's/^/venture pre-commit: /' >&2
+      else
+        printf '%s\n' "$hook_warn" | sed 's/committing/saving/g; s/commit/save/g; s/^/inception-venture: warning: /' >&2
+      fi
+    fi
     if [ "$expert" -eq 1 ]; then
       git -C "$dir" log -1 --format='%h %s' | tr -d '\000-\010\013-\037\177'
     else
@@ -698,6 +726,7 @@ cmd_save() {
   if [ "$push" -eq 1 ]; then
     git -C "$dir" rev-parse -q --verify HEAD >/dev/null \
       || die 6 "nothing has been saved yet, so there is nothing to share"
+    screen_outgoing "$dir"
     if ! git -C "$dir" push -q -u origin HEAD >/dev/null 2>&1; then
       die 7 "saved here, but not shared: the push to the private repository failed (check the connection, then save again)"
     fi
@@ -707,6 +736,36 @@ cmd_save() {
       printf 'Shared to your private repository.\n'
     fi
   fi
+}
+
+# screen_or_die <file> <refusal> — run the secret screen over one file; a
+# finding exits 1 with the refusal, a screen that cannot run exits 2.
+screen_or_die() {
+  sd_rc=0
+  /bin/sh "$self_dir/inception-secret-screen.sh" -- "$1" >/dev/null 2>&1 || sd_rc=$?
+  [ "$sd_rc" -eq 0 ] && return 0
+  [ "$sd_rc" -eq 1 ] && die 1 "not saved: $2"
+  die 2 "the secret screen could not run (exit $sd_rc)"
+}
+
+# screen_outgoing <venture-dir> — screen every change a push would send,
+# intermediate commits included, so a credential committed outside the helper
+# and removed again still never leaves the machine.
+screen_outgoing() {
+  range=HEAD
+  if git -C "$1" rev-parse -q --verify '@{upstream}' >/dev/null 2>&1; then
+    range='@{upstream}..HEAD'
+  fi
+  tmp_path=$(mktemp "${TMPDIR:-/tmp}/inception-venture.XXXXXX") || die 2 "cannot create a temporary file"
+  git -C "$1" log -p --format= --no-color --no-ext-diff "$range" >"$tmp_path" 2>/dev/null \
+    || die 2 "cannot read the history a push would send"
+  sd_rc=0
+  /bin/sh "$self_dir/inception-secret-screen.sh" -- "$tmp_path" >/dev/null 2>&1 || sd_rc=$?
+  rm -f "$tmp_path"
+  tmp_path=
+  [ "$sd_rc" -eq 0 ] && return 0
+  [ "$sd_rc" -eq 1 ] && die 1 "not shared: the history waiting to be sent looks like it carries a credential (a password, key, or token); nothing was sent"
+  die 2 "not shared: the secret screen could not run (exit $sd_rc)"
 }
 
 save_plain() {
