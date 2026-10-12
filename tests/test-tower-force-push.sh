@@ -216,6 +216,11 @@ for c in "$BAD" "$LEGACY" "$TIP"; do
     *) fail "the question does not name the dropped commit $(printf '%s' "$c" | cut -c1-7)" ;;
   esac
 done
+# A branch author's subject is quoted, so it cannot read as the question's own words.
+case $q in
+  *"$(printf '%s' "$TIP" | cut -c1-7) \"feat: the last commit\""*) ok "the question quotes each dropped subject" ;;
+  *) fail "the question does not quote the dropped subjects: $q" ;;
+esac
 if [ "$(jq '.dropped | length' "$tmp/confirm.json")" = 3 ]; then
   ok "the confirmation names every remote commit the push drops"
 else

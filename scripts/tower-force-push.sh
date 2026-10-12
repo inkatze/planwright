@@ -236,7 +236,7 @@ legacy_changes() {
 # shellcheck disable=SC2016 # a jq program: the $ names are jq's
 CONFIRM_JQ='
       def short: .[0:7];
-      def names: map((.commit | short) + " " + .subject) | join("; ");
+      def names: map((.commit | short) + " " + (.subject | tojson)) | join("; ");
       . as $d
       | ($leg | split("\n") | map(select(length > 0) | split("\t") | {from: .[0], to: (if .[1] == "-" then null else .[1] end)})) as $lg
       | {
