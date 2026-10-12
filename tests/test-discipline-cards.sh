@@ -142,6 +142,7 @@ seed ROLE-FORM 1 '/^Frames the fixture/ { print "Frames options for this venture
 seed MANDATE-SIZE 1 '/^3\. Which constraint/ { next } { print }'
 seed MANDATE-SIZE 1 '/^3\. Which constraint/ { print; for (i = 4; i <= 8; i++) print i ". Which risk in the frame matters most?"; next } { print }'
 seed MANDATE-GENERIC 1 '/^1\. Which problem/ { print "1. Who is the target customer?"; next } { print }'
+seed MANDATE-GENERIC 1 '/^1\. Which problem/ { print "1. Which of the frameworks below applies first?"; next } { print }'
 seed MANDATE-FORM 1 '/^1\. Which problem/ { print "1. Name the problem in the frame this venture solves first."; next } { print }'
 seed FRAMEWORK-SEQUENCE 1 '{ sub(/^1\. \*\*First method/, "- **First method"); print }'
 seed FRAMEWORK-MISUSE 1 '!/^   Misuse: skipping/'
@@ -185,6 +186,15 @@ awk '!/^\*\*Stance-axis:\*\*/' "$d/fixture-discipline.md" >"$d/m" \
   && mv "$d/m" "$d/fixture-discipline.md"
 out="$("$LINT" "$d/fixture-discipline.md" 2>&1)"
 assert_eq "card without optional keys: exit 0" "0" "$?"
+
+# The frame anchor accepts the frame's possessive and a typographic apostrophe.
+d="$tmp/anchors"
+write_golden_card "$d"
+awk '/^1\. Which problem/ { print "1. Which problem in the frame'"'"'s scope comes first?"; next }
+  /^3\. Which constraint/ { print "3. Which constraint does the venture\342\200\231s appetite impose?"; next }
+  { print }' "$d/fixture-discipline.md" >"$d/m" && mv "$d/m" "$d/fixture-discipline.md"
+out="$("$LINT" "$d/fixture-discipline.md" 2>&1)"
+assert_eq "frame anchors: possessive and typographic apostrophe accepted" "" "$out"
 
 # A fenced example is never parsed as card structure: a `## Backstory` inside
 # the artifact template is template text, not a section.

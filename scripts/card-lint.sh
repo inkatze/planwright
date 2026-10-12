@@ -270,7 +270,10 @@ END {
       q = trim(Q[j]); num = q; sub(/\..*$/, "", num)
       if (q !~ /\?$/) emit("MANDATE-FORM", "mandate item " num " is not a question ending in ?")
       lq = tolower(q)
-      if (index(lq, "this venture") == 0 && index(lq, "the venture'"'"'s") == 0 && index(lq, "the frame") == 0)
+      # "the frame" must end at a word boundary, or "the frameworks" would
+      # anchor; the typographic apostrophe is the same possessive.
+      if (index(lq, "this venture") == 0 && index(lq, "the venture'"'"'s") == 0 &&
+          index(lq, "the venture\342\200\231s") == 0 && lq !~ /the frame([^a-z]|$)/)
         emit("MANDATE-GENERIC", "mandate question " num " names neither the frame nor this venture, so it is answerable generically")
     }
   }
