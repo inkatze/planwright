@@ -936,7 +936,8 @@ LOST_LINE_IDS=$(awk '
 # ordinal in merged order. Markers: `@cntrl` (a control byte in the key or
 # value; the value is never emitted), `@dup` (a repeated field, the item's
 # own id included), `@bad` (an indented line that is not a field, which the
-# catalog reader already warns about and drops, so a backstop). Every
+# catalog reader already warns about and drops, so a backstop), `@quoted`
+# (the named field's value was double-quoted, its quotes stripped). Every
 # item is kept: a core or repo-tracked entry the catalog reader skipped has
 # already ended the run through its warning, and an adopter or machine-local
 # one is degraded with its warning and absent from the merged view.
@@ -958,11 +959,13 @@ FIELDS=$(printf '%s\n' "$merged" | awk '
     if (raw ~ /:/) { key = raw; sub(/:.*/, "", key); val = raw; sub(/^[^:]*:[ \t]*/, "", val) }
     else { key = raw; val = "" }
     sub(/[ \t]*$/, "", val)
-    if (val ~ /^".*"$/ && length(val) >= 2) val = substr(val, 2, length(val) - 2)
+    quoted = 0
+    if (val ~ /^".*"$/ && length(val) >= 2) { val = substr(val, 2, length(val) - 2); quoted = 1 }
     if (key ~ /[[:cntrl:]]/ || val ~ /[[:cntrl:]]/) { print n "\t@cntrl\t"; next }
     if ((n, key) in fseen) { print n "\t@dup\t" key; next }
     fseen[n, key] = 1
     print n "\t" key "\t" val
+    if (quoted) print n "\t@quoted\t" key
     next
   }
   have { print n "\t@bad\t"; next }
@@ -992,6 +995,9 @@ E_REFIRE=()
 # quota-handling's fields: known here, their grammar and meaning that
 # bundle's, so only the single-line scalar rule applies to them.
 E_QUOTA=()
+# E_QUOTED: the fields whose value was double-quoted (`|name|` tokens), so a
+# quoted `>` or `|` is read as the plain scalar it is.
+E_QUOTED=()
 n_entries=0
 while IFS="$TAB" read -r n k v; do
   [ -n "$n" ] || continue
@@ -1014,6 +1020,7 @@ while IFS="$TAB" read -r n k v; do
     E_PATHS[n]=""
     E_REFIRE[n]=""
     E_QUOTA[n]=""
+    E_QUOTED[n]="|"
   fi
   case "$k" in
     id) E_ID[n]="$v" ;;
@@ -1029,6 +1036,7 @@ while IFS="$TAB" read -r n k v; do
     refire) E_REFIRE[n]="$v" ;;
     vendor | control | on-limit | moves-head | final-head | drains) E_QUOTA[n]="${E_QUOTA[n]}$k$TAB$v$TAB" ;;
     supersede) ;;
+    @quoted) E_QUOTED[n]="${E_QUOTED[n]}$v|" ;;
     @cntrl) [ -n "${E_MARK[n]}" ] || E_MARK[n]="a control byte in a field" ;;
     @dup) [ -n "${E_MARK[n]}" ] || E_MARK[n]="a repeated field" ;;
     @bad) [ -n "${E_MARK[n]}" ] || E_MARK[n]="an indented line that is not a field" ;;
@@ -1154,6 +1162,21 @@ split_skill_target() {
   valid_id "$SNAME"
 }
 
+# is_block_indicator <n> <field> <value>: 0 when the field's unquoted value is
+# a YAML block indicator (`|` or `>`, an optional chomping or indentation
+# suffix, an optional comment). The constrained reader takes single-line
+# scalars only, so such a declaration lost its body and is never a value; a
+# double-quoted `>` is a plain scalar.
+is_block_indicator() {
+  case "${E_QUOTED[$1]}" in
+    *"|$2|"*) return 1 ;;
+  esac
+  case "${3%%[[:space:]]#*}" in
+    [\|\>] | [\|\>][0-9+-] | [\|\>][0-9+-][0-9+-]) return 0 ;;
+  esac
+  return 1
+}
+
 # validate_entry <n>: the entry-level rules (REQ-B1.2, REQ-B1.6, REQ-C1.8).
 # Sets ERR to the first fault; empty when the entry is well-formed.
 validate_entry() {
@@ -1187,17 +1210,10 @@ validate_entry() {
     return
   }
   vargs=${E_ARGS[vn]}
-  # The constrained reader takes single-line scalars only, so a YAML block
-  # indicator (with its chomping or indentation suffix) is a declaration
-  # whose body was dropped, never a value.
-  for scalar in "$vtarget" "$vargs"; do
-    case "$scalar" in
-      [\|\>] | [\|\>][0-9+-] | [\|\>][0-9+-][0-9+-])
-        ERR="a block scalar (the catalog reader takes single-line scalars only)"
-        return
-        ;;
-    esac
-  done
+  if is_block_indicator "$vn" target "$vtarget" || is_block_indicator "$vn" args "$vargs"; then
+    ERR="a block scalar (the catalog reader takes single-line scalars only)"
+    return
+  fi
   vhost=${E_HOST[vn]}
   case "$vhost" in
     isolated | continue | in-session) ;;
@@ -1303,16 +1319,14 @@ validate_entry() {
     vq=${vq#*"$TAB"}
     qv=${vq%%"$TAB"*}
     vq=${vq#*"$TAB"}
-    case "$qv" in
-      "")
-        ERR="empty $qk"
-        return
-        ;;
-      [\|\>] | [\|\>][0-9+-] | [\|\>][0-9+-][0-9+-])
-        ERR="$qk is a block scalar (the catalog reader takes single-line scalars only)"
-        return
-        ;;
-    esac
+    [ -n "$qv" ] || {
+      ERR="empty $qk"
+      return
+    }
+    if is_block_indicator "$vn" "$qk" "$qv"; then
+      ERR="$qk is a block scalar (the catalog reader takes single-line scalars only)"
+      return
+    fi
   done
   validate_expensive "$vn"
 }

@@ -444,6 +444,16 @@ malformed_tracked "refire on a skill step" 'command steps only' "kind: skill" "t
 malformed_tracked "refire on a prompt step" 'command steps only' "kind: prompt" "target: p" "paths: ." "refire: post-pr"
 # quota-handling's fields are known, held only to the single-line scalar rule.
 malformed_tracked "an empty quota-handling field" 'empty vendor' "kind: prompt" "target: p" "vendor:"
+# A block indicator stays one with a trailing comment; a quoted one is a
+# plain scalar.
+malformed_tracked "a block indicator with a comment as a quota-handling field" 'block scalar' "kind: prompt" "target: p" "on-limit: > # note"
+malformed_tracked "a block indicator with a comment as a target" 'block scalar' "kind: prompt" "target: |- # note"
+reset_layers
+cat_entry "$tracked_cat" quoted-gt "kind: prompt" 'target: ">"' 'on-limit: ">"'
+printf 'steps_post_pr: [quoted-gt]\n' >"$tracked_cfg"
+capture post-pr --unattended
+[ "$RC" = 0 ] && [ "$OUT" = "run${TAB}quoted-gt" ]
+verdict "REQ-B1.7: a quoted '>' is a single-line scalar, not a block indicator" "quoted block-indicator character: rc=$RC out='$OUT' err='$ERR'"
 # An id left with an edge blank once its quote pair is stripped: the catalog
 # reader skips it as malformed, and the skip takes the by-layer policy.
 reset_layers
