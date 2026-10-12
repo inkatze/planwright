@@ -44,16 +44,19 @@
 #               the corrective helper being the only sanctioned re-draft.
 #   pr-merge    `gh pr merge`: deny; the merge helper is the only agent path.
 #   merge-helper  running scripts/merge-admitted.sh: a command word, or a
-#               shell's script argument, naming its `merge-ad` stem (a glob or
-#               expansion included), or a shell whose script is an expansion
-#               or stdin in a command naming the stem. tower: deny. worker:
-#               merge_policy (policy-class defers; the helper evaluates the
-#               class and re-reads the policy itself). Its own gh calls run
-#               below this hook, so the invocation is what the guard sees; a
-#               wrapper or an unanalyzable command naming it denies. A renamed
-#               copy or a link under another name is the accepted residual.
-#               An agent's own `--for-merge` (scripts/ready-flip.sh's flag for
-#               the helper's flip) denies at every tier with no read.
+#               shell's script argument, whose file name starts with the
+#               `merge-ad` stem, matches merge-admitted.sh as a glob, or
+#               carries an expansion or brace; or a shell whose script is a
+#               bare expansion or stdin in a command naming the stem. tower:
+#               deny. worker: merge_policy (policy-class defers; the helper
+#               evaluates the class and re-reads the policy itself). Its own gh
+#               calls run below this hook, so the invocation is what the guard
+#               sees; a wrapper or an unanalyzable command naming the stem
+#               denies. A name assembled by a command substitution or ANSI-C
+#               quoting outside the stem, a renamed copy, or a link under
+#               another name is the accepted residual. Running
+#               scripts/ready-flip.sh with `--for-merge` (its flag for the
+#               helper's own flip) denies at every tier with no read.
 #   base-merge  `git merge`, `git pull` in merge mode. tower: deny. worker:
 #               worker_base_merge, then the current branch must be the session's
 #               unit branch outside the protected set and every source the PR
@@ -1015,10 +1018,8 @@ classify_segments() {
       # The command word is an expansion, so what runs cannot be read: only a
       # variable root followed by a literal script path is let through, and
       # even that not when a reserved subcommand follows.
-      lc "$verb"
-      case $LC in
-        *merge-ad*) queue_merge_helper "$eff" "$eff_ok" ;;
-      esac
+      for_merge_check 0
+      ! names_helper "$verb" || queue_merge_helper "$eff" "$eff_ok"
       [[ $verb =~ $RE_ROOTED_SCRIPT ]] \
         || deny_now "this command's name is an expansion the guard cannot read ($(sanitize_printable "$verb" 'unprintable')), so it could be git or gh - refusing (fail closed). Write the command name literally, or as \"\$ROOT/path/to/script\"."
       for w in "${SW[@]}"; do
@@ -1032,34 +1033,30 @@ classify_segments() {
       raw_evidence "$cur_text" \
         && deny_now "this command runs through a wrapper whose options the guard does not read, and its text names a reserved act - refusing (fail closed). Issue the command directly."
     else
-      local helper=0 a1
-      case " ${SW[*]} " in
-        *' --for-merge '* | *' --for-merge='*)
-          deny_now 'the --for-merge flag of scripts/ready-flip.sh is the merge helper'"'"'s own flip of a PR its class admitted; no agent session issues it. Run scripts/merge-admitted.sh under merge_policy: policy-class, or leave the PR for the operator.'
-          ;;
-      esac
-      lc "$verb"
-      case $LC in *merge-ad*) helper=1 ;; esac
+      local helper=0 a1 shell=0
+      ! names_helper "$verb" || helper=1
       case $base_verb in
         bash | sh | zsh | dash | ksh | mksh)
+          shell=1
           # A shell running the helper as its script, the plain form the
           # plugin-script convention allows; any option first is a wrapper.
-          # A script argument that is an expansion, or none (stdin), counts
-          # as the helper when the command names its stem anywhere.
+          # A script argument that is a bare expansion, or none (stdin),
+          # counts as the helper when the command names its stem.
           a1=${SW[1]:-}
-          lc "$a1"
-          case $LC in
+          case $a1 in
             -*) ;;
-            *merge-ad*) helper=1 ;;
             *)
-              if [ -z "$a1" ] || [ "${SWL[1]}" != 1 ]; then
+              if names_helper "$a1"; then
+                helper=1
+              elif [ -z "$a1" ] || [ "${SWL[1]}" != 1 ]; then
                 lc "$P_CMD"
-                case $LC in *merge-ad*) helper=1 ;; esac
+                [[ ! $LC =~ $RE_MERGE_HELPER ]] || helper=1
               fi
               ;;
           esac
           ;;
       esac
+      for_merge_check "$shell"
       if [ "$helper" = 1 ]; then
         queue_merge_helper "$eff" "$eff_ok"
         prev_text=$cur_text
@@ -1245,6 +1242,69 @@ queue_flip() {
       return 0
     }
   PENDING[${#PENDING[@]}]="flip$TAB$1"
+}
+
+# names_helper <word> — 0 when the word, as a command or a shell's script,
+# could name the merge helper: its file name starts with the stem, matches
+# merge-admitted.sh as a glob, or carries an expansion or brace the guard
+# cannot resolve (fail closed). A bare expansion with no file name of its own
+# is left to the caller.
+names_helper() {
+  local b
+  lc "${1##*/}"
+  b=$LC
+  case $b in merge-ad*) return 0 ;; esac
+  # A bare expansion, with no path of its own, names nothing here.
+  case $1 in
+    */*) ;;
+    \$* | \"\$*) return 1 ;;
+  esac
+  case $b in
+    *'$'* | *'`'* | *'{'*) return 0 ;;
+    *'*'* | *'?'* | *'['*)
+      # shellcheck disable=SC2053 # the word is the pattern
+      [[ merge-admitted.sh == $b ]]
+      return
+      ;;
+  esac
+  return 1
+}
+
+# for_merge_check <shell 0|1> — deny an agent's own run of scripts/ready-flip.sh
+# with --for-merge, the merge helper's flag: the command word (or, for a
+# shell, its script argument) names ready-flip.sh and a later word is the
+# flag, or an expansion that could spell it.
+for_merge_check() {
+  local k=1 n=${#SW[@]} w script=${SW[0]}
+  if [ "$1" = 1 ]; then
+    script=${SW[1]:-}
+    k=2
+  fi
+  lc "${script##*/}"
+  case $LC in
+    ready-flip.sh | *'*'* | *'?'* | *'['*)
+      # shellcheck disable=SC2053 # the word is the pattern
+      [[ ready-flip.sh == $LC ]] || return 0
+      ;;
+    *) return 0 ;;
+  esac
+  while [ "$k" -lt "$n" ]; do
+    w=${SW[$k]}
+    lc "$w"
+    case $LC in
+      --for-merge | --for-merge=* | --for-merg | --for-mer | --for-me | --for-m) ;;
+      --for*) [ "${SWL[$k]}" != 1 ] || {
+        k=$((k + 1))
+        continue
+      } ;;
+      *)
+        k=$((k + 1))
+        continue
+        ;;
+    esac
+    deny_now 'the --for-merge flag of scripts/ready-flip.sh is the merge helper'"'"'s own flip of a PR its class admitted; no agent session issues it. Run scripts/merge-admitted.sh under merge_policy: policy-class, or leave the PR for the operator.'
+    return 0
+  done
 }
 
 queue_merge_helper() {
@@ -2792,13 +2852,16 @@ handle_bash() {
     raw_evidence "$1" && emit_deny 'this Bash payload carries no readable command string and its raw content names a reserved act - refusing (fail closed).'
     return 0
   fi
-  # No git and no gh anywhere, even with quotes and escapes removed, and no
+  # No git, no gh, and no merge-helper or glob spelling anywhere, even with
+  # quotes and escapes removed, and no
   # expansion beside a reserved subcommand: nothing this guard classifies, so
   # no parse and no read.
   local bare=${cmd//[\"\'\\]/} hit=0
   shopt -s nocasematch
   case $bare in
     *git* | *gh* | *merge-ad* | *--for-merge*) hit=1 ;;
+    # A glob or brace word could still name the merge helper.
+    *admitted* | *'*'* | *'?'* | *'['* | *'{'*) hit=1 ;;
     *'$'* | *'`'*)
       case $bare in
         *merge* | *pull* | *rebase* | *push* | *commit* | *ready* | *api*) hit=1 ;;

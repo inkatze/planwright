@@ -149,6 +149,24 @@ done
 set_knobs 'ready_flip_policy: unit-owner'
 pg worker "$REAL_SCRIPTS/ready-flip.sh flip --spec specs/demo --task 1"
 expect defer "[worker] a plain ready-flip run is not the merge helper's act"
+set_knobs 'merge_policy: policy-class' 'ready_flip_policy: human'
+# shellcheck disable=SC2016 # the unexpanded root is the spelling under test
+for tier in worker tower; do
+  pg "$tier" '"$ROOT/scripts/ready-flip.sh" flip --for-merge --spec specs/demo --task 1'
+  expect deny "[$tier] a variable-rooted ready-flip --for-merge is refused too"
+done
+for spell in 'bash scripts/*-admitted.sh --spec specs/demo --task 1' 'bash scripts/merge-a[d]mitted.sh' \
+  'bash scripts/merge-?dmitted.sh' 'scripts/*-admitted.sh --spec specs/demo --task 1' 'bash scripts/merge-a{d,}mitted.sh'; do
+  pg tower "$spell"
+  expect deny "[tower] a glob or brace spelling that could name the helper is refused: $spell"
+done
+set_knobs 'merge_policy: human' 'ready_flip_policy: unit-owner'
+for spell in 'bash tests/test-merge-admitted.sh' 'shellcheck scripts/merge-admitted.sh && bash tests/test-merge-admitted.sh' \
+  'git commit -m "docs: explain the --for-merge flag"' 'rg -n -- --for-merge scripts/' 'bash tests/test-*.sh'; do
+  pg worker "$spell"
+  expect defer "[worker] naming the helper or its flag without running them is not the act: $spell"
+done
+set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: allow' 'unpushed_rewrite: allow'
 set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: allow' 'unpushed_rewrite: allow'
 
 echo "# the MCP flip surface"
