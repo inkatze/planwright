@@ -505,21 +505,23 @@ run_render pr --ask-file "$in/ask-ports.txt"
 printf '%s\n' "$OUT" | grep -qF '[redacted: personal-data-identity, personal data]' \
   || fail "a port triple shaped like a spaced SSN is a documented false positive and must stay redacted"
 
-# A long line of digit groups costs about what a line of words its size
-# does: the card scan is bounded. Compared in CPU time within one run, so
-# host load moves both sides together.
-cpu_render() {
-  defaults
-  TIMEFORMAT=%3U
-  { time /bin/sh "$SCRIPT" render --home pr "${args[@]}" --ask-file "$1" >/dev/null 2>&1; } 2>"$tmp/cpu"
-  cat "$tmp/cpu"
-}
-awk 'BEGIN { while (length(s) < 65000) s = s "4111 "; print s }' >"$in/ask-groups.txt"
-awk 'BEGIN { while (length(s) < 65000) s = s "abcd "; print s }' >"$in/ask-words.txt"
-groups_cpu=$(cpu_render "$in/ask-groups.txt")
-words_cpu=$(cpu_render "$in/ask-words.txt")
-awk -v g="$groups_cpu" -v w="$words_cpu" 'BEGIN { exit !(g <= 1.5 * w + 0.05) }' \
-  || fail "a long line of digit groups must scan in bounded time (${groups_cpu}s CPU against ${words_cpu}s for words)"
+# The card scan is bounded: a run of digit groups is searched for a card in
+# its first 64 four-digit windows only, so a card that is the 64th window is
+# found and one that would be the 65th is not. Pinned by count, not by CPU
+# time, which host load skews.
+for n in 63 64; do
+  awk -v n="$n" -v card="$CARD" 'BEGIN { print "Reach the customer."; for (i = 0; i < n; i++) s = s "1234 "; print "Rows " s card "." }' \
+    >"$in/ask-groups.txt"
+  run_render pr --ask-file "$in/ask-groups.txt"
+  [ "$RC" -eq 0 ] || fail "render of $n digit groups before a card exited $RC: $ERR"
+  if [ "$n" -eq 63 ]; then
+    printf '%s\n' "$OUT" | grep -qF '[redacted: personal-data-account, personal data]' \
+      || fail "a card in the 64th window of a run must be found"
+  else
+    printf '%s\n' "$OUT" | grep -q 'redacted' \
+      && fail "the card scan must stop after 64 windows: $(printf '%s\n' "$OUT" | grep redacted)"
+  fi
+done
 
 # A non-ASCII temp directory neither lets a finding pass nor misplaces its
 # redaction: the screen reads fixed ASCII names, not the work directory's path.
