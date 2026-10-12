@@ -479,6 +479,12 @@ Recorded by the executing task after sign-off; no row above is changed.
   dismissal; a ledger entry for its PR and path that now exists replaces only
   the class. A drained ledger therefore never relabels it `other`; the `other` fallback applies to
   findings new to the refresh with no ledger entry.
+- **The baseline reviewer walks the lenses inline** (operator decision,
+  2026-10-12). Task 1's deliverable and D-7 say "its lens fan-out"; the
+  default reviewer walks every lens in one session instead, because that is
+  how most measured nested convergence runs walked them and it costs about a
+  ninth of the tokens. A reviewer change that fans out is replayed through its
+  own reviewer command against the same corpus.
 - **Replay cost, measured** (row 6): one row of today's pass costs from a
   few hundred thousand to over a million tokens and a minute or several; the
   baseline result records the run's total.
