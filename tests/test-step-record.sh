@@ -2429,15 +2429,22 @@ for r in "$rec" "$recf"; do
 done
 # Stands-on refusals for a resume skip and a record from before end heads.
 legacy_rec "$wld/.claude/steps/$l2/009-step-pre-ci.rec" "$l2" pre-ci old passed "$HX_A"
-for case_ in "resume:sk-s:$rref:pre-ci:001" "resume:sk-f:$rref:pre-ci:003" "reuse:old:$l2:pre-ci:009"; do
+# The rref records live in wx: sk-r passed, sk-s applied ending on HX_B, sk-f
+# failed. Each refusal names --stands-on.
+for case_ in "resume:sk-f:$rref:pre-ci:003" "resume:sk-r:$rref:pre-ci:002"; do
   code=${case_%%:*} rest=${case_#*:}
   st=${rest%%:*} ref=${rest#*:}
-  srd2 write --run "$l2" --point pre-pr --step "$st" --kind command --target t --hosting isolated \
-    --backend runner --start 2026-10-06T16:00:00Z --end 2026-10-06T16:00:01Z --outcome skipped \
-    --skip-code "$code" --stands-on "$ref" >/dev/null 2>&1
-  [ $? -eq 2 ]
-  verdict "a $code skip of $st refuses to stand on $ref" "accepted"
+  err=$(srx write --run "$rx" --point convergence --step "$st" --kind command --target t \
+    --hosting isolated --backend runner --start 2026-10-06T16:00:00Z --end 2026-10-06T16:00:01Z \
+    --end-head "$HX_B" --outcome skipped --skip-code "$code" --stands-on "$ref" 2>&1 >/dev/null)
+  [ $? -eq 2 ] && printf '%s' "$err" | grep -Fq -- "--stands-on: names no $code-qualifying record"
+  verdict "a $code skip of $st refuses to stand on $ref" "err=$err"
 done
+srd2 write --run "$l2" --point pre-pr --step old --kind command --target t --hosting isolated \
+  --backend runner --start 2026-10-06T16:00:00Z --end 2026-10-06T16:00:01Z --outcome skipped \
+  --skip-code reuse --stands-on "$l2:pre-ci:009" >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "a reuse skip refuses to stand on a record from before end heads" "accepted"
 # Every new flag refuses an empty value by name.
 for fl in --skip-code --stands-on --pool --wait --fingerprint --args-digest --refire-of --wait-outcome; do
   err=$(srd2 write --run "$l2" --full-suite "$fl" "" 2>&1 >/dev/null)
@@ -2475,12 +2482,33 @@ lstate "$HX_A"
 [ "$ST_RC" -eq 0 ] && gh_arg state=failure
 verdict "a malformed step record in the attempt fails the flip" "rc=$ST_RC"
 lim_wt
-flip "$HX_A" halted
+flip "$HX_A" passed
 sed -i.bak "s/^type${TAB}.*/type${TAB}stepx/" "$wlm/.claude/steps/000001/001-step-pre-ready-flip.rec"
 rm -f "$wlm/.claude/steps/000001/001-step-pre-ready-flip.rec.bak"
 lstate "$HX_A"
 [ "$ST_RC" -eq 0 ] && gh_arg state=failure
-verdict "a halted step record with a garbled type still fails the flip" "rc=$ST_RC"
+verdict "a step record with a garbled type fails the flip" "rc=$ST_RC"
+for garble in "outcome${TAB}FAILED" ""; do
+  lim_wt
+  flip "$HX_A" failed
+  sed -i.bak "s/^outcome${TAB}.*/$garble/" "$wlm/.claude/steps/000001/001-step-pre-ready-flip.rec"
+  rm -f "$wlm/.claude/steps/000001/001-step-pre-ready-flip.rec.bak"
+  lstate "$HX_A"
+  [ "$ST_RC" -eq 0 ] && gh_arg state=failure
+  verdict "an attempt record whose outcome reads '$garble' fails the flip" "rc=$ST_RC"
+done
+# A newer completion that cannot be read fails closed rather than handing the
+# verdict to an older passing attempt.
+lim_wt
+flip "$HX_A" passed
+f2=$(srl new-run)
+lrec "$f2" pre-ready-flip gate halted "$HX_A"
+srl write --completion --run "$f2" --point pre-ready-flip --head "$HX_A" >/dev/null
+printf 'stray line\n' >>"$wlm/.claude/steps/$f2/002-done-pre-ready-flip.rec"
+lstate "$HX_A"
+[ "$ST_RC" -eq 0 ] && gh_arg state=failure \
+  && grep -Fxq "description=pre-ready-flip: a later completion record is malformed (run $f2)" "$GH_STUB_LOG"
+verdict_of $? "a malformed newer completion fails the flip" "rc=$ST_RC $(grep '^description=' "$GH_STUB_LOG")"
 lim_wt
 u=$(srl new-run)
 lrec "$u" post-pr review limited "$HX_A"
@@ -2501,8 +2529,16 @@ git -C "$wfp" read-tree --index-output="$tmp/foreign.idx" --empty
 verdict "fingerprint ignores an inherited GIT_INDEX_FILE" "a foreign index changed it"
 mkdir -p "$wfp/build" && : >"$wfp/build/out"
 fb=$(fp build)
-[ "$fb" != none ]
-verdict "an ignored path absent at HEAD keeps its absent marker" "build: $fb"
+printf '%s\n' "$fb" | grep -Eq '^([0-9a-f]{40}|[0-9a-f]{64})$'
+verdict "an ignored path absent at HEAD keeps its absent marker" "build: '$fb'"
+mkdir -p "$wfp/fresh"
+[ "$(fp fresh)" = none ]
+verdict "an unignored path absent at HEAD but present here leaves no fingerprint" "fresh: $(fp fresh)"
+rmdir "$wfp/fresh"
+git -C "$wfp" config core.ignorecase true
+[ "$(fp build)" = none ]
+verdict "on a case-insensitive checkout a present path absent at HEAD leaves no fingerprint" "build stayed"
+git -C "$wfp" config core.ignorecase false
 wsub="$tmp/wsub"
 fresh "$wsub"
 printf 'x\n' >"$wsub/f" && git -C "$wsub" add f && git -C "$wsub" commit -q -m "chore: sub"
@@ -2512,11 +2548,32 @@ git -C "$wfp" -c protocol.file.allow=always submodule -q add "$wsub" lib >/dev/n
 if [ -f "$wfp/lib/f" ]; then
   fl=$(fp lib)
   printf 'changed\n' >"$wfp/lib/f"
-  [ "$fl" != none ] && [ "$(fp lib)" = none ]
+  printf '%s\n' "$fl" | grep -Eq '^([0-9a-f]{40}|[0-9a-f]{64})$' && [ "$(fp lib)" = none ]
   verdict "a dirty submodule leaves no fingerprint despite ignore = all" "lib stayed fingerprinted"
 else
   fail "fixture: cannot add the submodule"
 fi
+
+# An unreadable HEAD is a runtime failure, never an unborn one; so is a clock
+# that prints no stamp.
+wbh="$tmp/wbh"
+fresh "$wbh"
+printf '%s\n' 0123456789abcdef0123456789abcdef01234567 >"$wbh/.git/refs/heads/main"
+err=$("$SR" --worktree "$wbh" fingerprint --paths . 2>&1 >/dev/null)
+[ $? -eq 1 ] && printf '%s' "$err" | grep -Fq "cannot read the worktree's HEAD"
+verdict "fingerprint over an unreadable HEAD exits 1" "err=$err"
+"$SR" --worktree "$wbh" new-run >/dev/null
+"$SR" --worktree "$wbh" write --completion --run 000001 --point pre-ci >/dev/null 2>&1
+[ $? -eq 1 ]
+verdict "a defaulted head over an unreadable HEAD exits 1" "not exit 1"
+mkdir -p "$tmp/datestub"
+printf '#!/bin/sh\necho junk\n' >"$tmp/datestub/date"
+chmod +x "$tmp/datestub/date"
+err=$(PATH="$tmp/datestub:$PATH" "$SR" --worktree "$wx" write --run "$rx" --point convergence --step clk \
+  --kind command --target t --hosting isolated --backend runner --start 2026-10-06T10:00:00Z \
+  --outcome passed 2>&1 >/dev/null)
+[ $? -eq 1 ] && printf '%s' "$err" | grep -Fq "the clock printed no UTC stamp"
+verdict "a clock that prints no stamp exits 1" "err=$err"
 
 # --- /execute-task's missing-matrix skip carries its code -----------------------------
 # shellcheck disable=SC2016 # literal backticks of the skill text

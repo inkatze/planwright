@@ -102,7 +102,10 @@
 #                 step id ending there. Records are read as lookup reads
 #                 them, a run's order taken from its directory: a malformed
 #                 record retires nothing and, recording limited (or, in the
-#                 attempt, anything), counts against the flip. Otherwise
+#                 attempt, anything; or any outcome but passed, applied,
+#                 skipped, or limited), counts against the flip, as does a
+#                 malformed completion of the point in a run above the
+#                 attempt (`a later completion record is malformed`). Otherwise
 #                 `success` (an empty list included). The description is
 #                 `<point>: no step halted or failed (run <id>)`, or in its
 #                 place `a step halted or
@@ -121,8 +124,9 @@
 #                 under one is marked skip-worktree or assume-unchanged, a
 #                 submodule under one has changes (whatever its ignore
 #                 setting), a word reaches through a symbolic link, or a
-#                 word absent at HEAD names a path present here and not
-#                 ignored (a spelling the file system folds). The fingerprint is
+#                 word absent at HEAD names a path present here that is not
+#                 ignored, or any present path on a case-insensitive checkout
+#                 (a spelling the file system may fold). The fingerprint is
 #                 git's object id (`git hash-object`) of one
 #                 `<word><TAB><object id>` line per word in the order given,
 #                 the object id the word's blob or tree at HEAD (read with
@@ -136,9 +140,9 @@
 #                 <TAB><end head><TAB><hosting><TAB><session><TAB><path>`
 #                 (the second field the --stands-on value, the path
 #                 worktree-relative), or exit 3 when none qualifies. A record
-#                 is read as untrusted: its run, sequence, and point come from
-#                 its path, and it qualifies only when its stored run, seq,
-#                 and point agree, no single-valued key repeats, and its step
+#                 is read as untrusted: its run, sequence, point, and kind come
+#                 from its path, and it qualifies only when its stored run,
+#                 seq, point, and type agree, no single-valued key repeats, and its step
 #                 id, both heads, hosting, and session meet the write grammar,
 #                 so a record with no end head (one written before end
 #                 heads) or a withheld value never qualifies. `reuse` prints
@@ -475,15 +479,20 @@ set_head_from_worktree() {
 
 # git_wt <args>: git in the worktree with every inherited variable that would
 # point it at another repository, index, object store, or pathspec reading
-# cleared; pathspecs are literal.
+# cleared; pathspecs are literal unless GW_LITERAL is 0 (check-ignore refuses
+# literal pathspecs; the --paths grammar admits no pathspec magic anyway).
 git_wt() {
   (
     unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
       GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_NAMESPACE \
       GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_GLOB_PATHSPECS \
       GIT_NOGLOB_PATHSPECS GIT_ICASE_PATHSPECS
-    GIT_LITERAL_PATHSPECS=1
-    export GIT_LITERAL_PATHSPECS
+    if [ "${GW_LITERAL:-1}" = 1 ]; then
+      GIT_LITERAL_PATHSPECS=1
+      export GIT_LITERAL_PATHSPECS
+    else
+      unset GIT_LITERAL_PATHSPECS
+    fi
     git -C "$worktree" "$@"
   )
 }
@@ -1639,13 +1648,16 @@ cmd_status() {
     {
       if (!load($0)) next
       if (R_KIND == "done") {
-        if (!bad && R_POINT == P && F["head"] == H && R_RUN + 0 > A + 0) A = R_RUN
+        if (R_POINT != P) next
+        if (!bad && F["head"] == H && R_RUN + 0 > A + 0) A = R_RUN
+        # A malformed completion names no head it can be trusted on.
+        if (bad && R_RUN + 0 > B + 0) B = R_RUN
         next
       }
       if (R_KIND != "step") next
       if (R_POINT == P) {
-        if (bad || F["outcome"] == "halted" || F["outcome"] == "failed") HF[R_RUN] = 1
-        else if (F["outcome"] == "limited") LIM[R_RUN] = 1
+        if (F["outcome"] == "limited" && !bad) LIM[R_RUN] = 1
+        else if (bad || F["outcome"] !~ /^(passed|applied|skipped)$/) HF[R_RUN] = 1
       }
       if (F["end-head"] != H) next
       if (F["outcome"] == "limited") {
@@ -1658,6 +1670,7 @@ cmd_status() {
     END {
       if (err) exit 2
       if (A == "") { print "none"; exit }
+      if (B + 0 > A + 0) { print "malformed " B; exit }
       c = 0
       for (i = 1; i <= n; i++) if (LS[i] == "" || !(LS[i] in last) || last[LS[i]] <= LR[i]) c++
       print ((A in HF) ? "halted-or-failed" : ((A in LIM) || c) ? "limited" : "clean") " " A
@@ -1673,6 +1686,10 @@ cmd_status() {
     limited)
       state=failure
       description="$point: a step stayed limited (run $attempt)"
+      ;;
+    malformed)
+      state=failure
+      description="$point: a later completion record is malformed (run $attempt)"
       ;;
     clean)
       state=success
@@ -1752,12 +1769,18 @@ cmd_fingerprint() {
         { t = index($0, TAB); if (substr($0, t + 1) == n) { split(substr($0, 1, t - 1), m, " "); print m[3] } }' \
         "$work/entry") || die 1 "cannot read a declared path's entry"
       if [ -z "$oid" ]; then
-        # Absent at HEAD yet present here and not ignored: a spelling the
-        # file system folds onto another path, whose content the absent
-        # marker would not track.
+        # Absent at HEAD yet present here and not ignored, or on a
+        # case-insensitive checkout at all: a spelling the file system may
+        # fold onto another path, whose content the absent marker would not
+        # track.
         if [ -e "$worktree/$norm" ] || [ -L "$worktree/$norm" ]; then
-          git_wt check-ignore -q -- "$norm" 2>/dev/null
-          case $? in
+          if [ "$(git_wt config --bool core.ignorecase 2>/dev/null)" = true ]; then
+            _ign=1
+          else
+            GW_LITERAL=0 git_wt check-ignore -q -- "$norm" 2>/dev/null
+            _ign=$?
+          fi
+          case $_ign in
             0) ;;
             1)
               printf 'none\n' || die 1 "cannot print the fingerprint"
