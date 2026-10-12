@@ -162,7 +162,8 @@
 #                 print the same records. The first record that does not
 #                 qualify ends the prefix. --run and --point are validated
 #                 before any record is read. A record that cannot be read
-#                 exits 1.
+#                 exits 1; a resume skip naming a record that does not exist
+#                 ends the prefix, as any record that does not qualify does.
 #   args-digest   print the SHA-256 of <args> exactly as given (no newline
 #                 added), the --args-digest value; no worktree is read; a
 #                 failed print exits 1.

@@ -1886,6 +1886,10 @@ xrefuse "an args digest with no fingerprint" --fingerprint --point pre-pr --step
   --args-digest "$DIG_ABC"
 xrefuse "a short args digest" --args-digest --point pre-pr --step s --outcome passed \
   --fingerprint "$FP_1" --args-digest "abc"
+xrefuse "a non-hex args digest" --args-digest --point pre-pr --step s --outcome passed \
+  --fingerprint "$FP_1" --args-digest "EVIL${DIG_ABC#????}"
+xrefuse "an empty holder" --holder --point pre-pr --step s --outcome passed --pool suite --wait 1 \
+  --holder ""
 xrefuse "a re-fire record outside post-pr" --refire-of --point pre-pr --step s --outcome passed \
   --refire-of pre-ci
 xrefuse "a re-fire naming another point" --refire-of --point post-pr --step s --outcome passed \
@@ -1939,7 +1943,8 @@ verdict "full-suite records open no point table" "render: $tbl"
 ! srx render --run "$rf" --point pre-ci | grep -Fq "Full-suite"
 verdict "a render of named points leaves the full-suite rows out" "full-suite rows under a named point"
 for bad in "--pool EVIL! --wait 1 --wait-outcome taken" "--pool suite --wait 1 --wait-outcome EVIL" \
-  "--pool suite --wait-outcome taken" "--pool suite --wait 1 --wait-outcome taken --point pre-ci"; do
+  "--pool suite --wait-outcome taken" "--pool suite --wait 1 --wait-outcome taken --point pre-ci" \
+  "--pool suite --wait 1"; do
   # shellcheck disable=SC2086 # fixed word lists
   srx write --full-suite --run "$rf" $bad --start 2026-10-06T11:00:00Z --end 2026-10-06T11:00:01Z >/dev/null 2>&1
   [ $? -eq 2 ]
