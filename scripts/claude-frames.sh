@@ -36,9 +36,9 @@
 #     Per window, a reading whose reset has passed, or lies further out than
 #     the throttle's hold ceiling (`fleet-throttle.sh ceiling`), is ignored,
 #     and of the rest the one with the furthest-future reset is taken (the
-#     later receipt on a tie), whichever worker sent it, a dead one's
-#     included. A frame line out of grammar, or received after --now, is
-#     skipped. The threshold is the window's lowest-rung descend threshold,
+#     later receipt on a tie, then the higher reading), whichever worker sent
+#     it, a dead one's included. A frame line out of grammar, or received
+#     after --now, is skipped. The threshold is the window's lowest-rung descend threshold,
 #     its usage-gate downshift knob (`fleet_usage_session_downshift`,
 #     `fleet_usage_weekly_downshift`), and a reading is below it when its
 #     percentage is strictly less. A state is `unmeasured` (no reading),
@@ -234,7 +234,9 @@ printf '%s\n' "$frames" | awk -F "$TAB" -v now="$now" -v ceiling="$ceiling" \
   function take(k, u, r, t) {
     if (u == "-" && r == "-") return
     if (r + 0 <= now + 0 || r + 0 > now + ceiling) return
-    if (!(k in reset) || r + 0 > reset[k] + 0 || (r + 0 == reset[k] + 0 && t + 0 > recv[k] + 0)) {
+    # A full tie (two workers, one second) takes the higher reading, so the
+    # order find lists the files in can never grant clearance.
+    if (!(k in reset) || r + 0 > reset[k] + 0 || (r + 0 == reset[k] + 0 && (t + 0 > recv[k] + 0 || (t + 0 == recv[k] + 0 && u + 0 > util[k] + 0)))) {
       reset[k] = r; util[k] = u; recv[k] = t
     }
   }

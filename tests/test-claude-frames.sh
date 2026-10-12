@@ -242,6 +242,24 @@ win "$out" session | grep -q "${TAB}57${TAB}above$" || fail "boundary: the sessi
 win "$out" weekly | grep -q "${TAB}29${TAB}above$" || fail "boundary: the weekly reading at 29 is not above 29: $out"
 pass "a reading exactly at its threshold is above it"
 
+# Two workers storing a frame in the same second see the same reset; the
+# higher reading wins whichever directory find lists first, so the tie can
+# never grant clearance. Both creation orders, since listing order follows it.
+for order in "hi lo" "lo hi"; do
+  new_home "tie-${order% *}"
+  for who in $order; do
+    case $who in
+      hi) put hi $((NOW - 60)) 0.51 $((NOW + HOUR)) 0.10 $((NOW + 86400)) ;;
+      lo) put lo $((NOW - 60)) 0.49 $((NOW + HOUR)) 0.10 $((NOW + 86400)) ;;
+    esac
+  done
+  rc=0
+  out=$(cf clearance --since "$SINCE" --now "$NOW") || rc=$?
+  [ "$rc" = 1 ] || fail "tie ($order): the lower of two same-second readings cleared: $out"
+  win "$out" session | grep -q "^window${TAB}session${TAB}51${TAB}" || fail "tie ($order): the higher reading did not win: $out"
+done
+pass "a same-second, same-reset tie takes the higher reading"
+
 # --- 4. Unmeasured ----------------------------------------------------------
 new_home subagent-only
 # A fleet whose workers run on frameless backends leaves no frame file.
