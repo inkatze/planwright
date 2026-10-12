@@ -42,7 +42,8 @@ honest.
    never silently drop a question. Write these as `## Mandate`.
 3. **Order the frameworks into a working sequence.** Pick the few methods
    that answer the mandate, and order them the way a practitioner runs them,
-   each consuming what the one before produced. For each, write its misuse
+   each consuming what the one before produced. Name each with its primary
+   source, and write its misuse
    caveat, from the author's own warning wherever the author gives one. Write
    these as `## Frameworks`.
 4. **Name the grounding and the refusals.** List the evidence the seat must
@@ -55,12 +56,14 @@ honest.
    `## Input subscription`.
 5. **Draft the artifact template.** The seat's output, fenced, ending with the
    `Decisions I cannot make` section, and a done-when line a reader can check.
-6. **Place the tiers.** Choose the default tier, then walk the discipline's
+6. **Place the tiers.** Choose the default tier, which step 9 records as
+   `Default-tier:`, then walk the discipline's
    activities and place each one whose answer differs: the capability frontier
    is jagged inside a discipline, so a single label is never the whole
    boundary. One-way doors are `human-authority` whatever the default. Name
    the out-of-scope line: what this seat must not opine on, usually the
-   neighbouring discipline's turf. Write these as `## Capability boundary`.
+   neighbouring discipline's turf. Write the exceptions, one-way doors and
+   out-of-scope line as `## Capability boundary`.
 7. **Type the escalations.** For each of the four trigger classes, say how it
    fires in this discipline and which powers the human holds over it. Write
    these as `## Escalation contract`.
@@ -68,11 +71,16 @@ honest.
    what form), the anti-patterns the synthesis writer should discount, the
    discipline's blind spots and which other seat covers each, the conflict and
    deference rules on shared turf, and the independence note naming who or
-   what can validate this discipline's claims, since the seat cannot.
-9. **Set the metadata.** `Rot-rate:` from how fast the sources decay (the
-   format doc's *Staleness*); `RAPID:` letters, never `D`; `Bench:` and, for a
-   bench card, its pull-in triggers; a stance axis only where two opposed
-   readings of the same evidence are both useful.
+   what can validate this discipline's claims, since the seat cannot. Write
+   these as the five sections `## Register rules` through `## Independence`.
+9. **Set the identity and metadata.** Write the H1 title and `## Role`, the
+   one operational sentence of what the seat does. Then the header block:
+   `Card-format:`, `Card-id:` (the file name's stem), `Reviewed:` (step 1's
+   re-verification date), step 6's `Default-tier:`; `Rot-rate:` from how fast
+   the sources decay (the format doc's *Staleness*); `RAPID:` letters, never
+   `D`; `Bench:` and, for a bench card, its `## Pull-in triggers` section; a
+   stance axis only where two opposed readings of the same evidence are both
+   useful.
 10. **Run the styling pass.** Read the card for identity, the whole of it
     including the template. Remove every line that says who the seat is,
     claims experience or credentials, borrows prestige, or expresses the seat's
