@@ -1,7 +1,7 @@
 # Merge Currency Guard — Tasks
 
-**Status:** Draft
-**Last reviewed:** 2026-10-11
+**Status:** Ready
+**Last reviewed:** 2026-10-12
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -136,20 +136,31 @@ knob) changes the guard and extends its suite, so it follows Tasks 2 and 4.
   bounded by its query timeout, with the same two layers dropped and every
   failure applying `refuse`, the compare call kept under both values
   (REQ-C1.11, REQ-C1.13, D-11); the knob cases of REQ-D1.5 in
-  `tests/test-ready-guard.sh`, the expected-cell manifest, and the resolver
-  tests; the guard's header and predicate comments citing REQ-C1.11 and
-  REQ-A1.5 rather than the superseded IDs.
+  `tests/test-ready-guard.sh`, the knob cells in the expected-cell manifest
+  `tests/test-merge-currency-matrix.sh`, and the resolver tests in
+  `tests/test-resolve-policy-knob.sh`; every reference PR #650 makes to the
+  invariant or the predicate (the guard's header and predicate comments, the
+  options-reference row, the overlays paragraph, the defaults comment, the
+  human-gates row) citing REQ-A1.5, REQ-C1.11 or REQ-C1.12 rather than the
+  superseded IDs.
 - **Done when:** every REQ-D1.5 case is asserted and green, including the
-  `conflict-only` pass case and the `refuse` behind case on both surfaces and
-  in the REQ-D1.1 expected-cell manifest; the `conflict-only` pass case fails
-  against the guard on main and the repo-side case fails with the layer
-  restriction removed; every pre-existing REQ-D1.1 matrix cell still passes
-  under the default; no knob case runs git; a fixture (a stub resolver that
-  leaves a marker when run) proves a current PR (`behind_by 0`) never reads
-  the knob; `scripts/ready-guard.sh`'s comments cite REQ-C1.11 and REQ-A1.5,
-  with no remaining REQ-C1.1 or REQ-A1.1 reference describing the live
-  predicate; `scripts/spec-validate.sh` passes
-  over this bundle and `mise run check` passes.
+  `conflict-only` defer case and the explicit `refuse` behind case on both
+  surfaces as cells of `tests/test-merge-currency-matrix.sh`; the
+  `conflict-only` defer case fails against `scripts/ready-guard.sh` as it
+  stood before this task, recorded in the task PR; the resolver tests pin
+  its table entry and the guard-copy stub resolver pins the guard's own layer
+  drop (defers with that drop removed), each on its own; the three
+  REQ-C1.13 no-other-refusal fixtures run with `conflict-only` set; every pre-existing
+  REQ-D1.1 matrix cell still passes under the default; the marker-writing
+  stub resolver leaves no marker for a current PR (`behind_by 0`) and leaves
+  one for a behind PR; a logging pass-through git records no call in the
+  repo-side case and no sentinel git runs in any other knob case;
+  `grep -nE 'REQ-(A1\.1|C1\.1)\b'` over `scripts/ready-guard.sh`,
+  `docs/options-reference.md`, `docs/overlays.md`, `config/defaults.yml` and
+  `doctrine/human-gates.md` returns no line about the knob or the live
+  predicate that lacks the superseding ID; `scripts/check-options-reference.sh`
+  passes with the knob's row present; `scripts/spec-validate.sh` passes over
+  this bundle and `mise run check` passes.
 - **Dependencies:** 2, 4
 - **Citations:** REQ-A1.5 · REQ-C1.11 · REQ-C1.12 · REQ-C1.13 · REQ-D1.5 ·
   REQ-K1.1 · D-10 · D-11 · PR #650

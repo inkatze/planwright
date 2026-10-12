@@ -1,7 +1,7 @@
 # Merge Currency Guard — Design
 
-**Status:** Draft
-**Last reviewed:** 2026-10-11
+**Status:** Ready
+**Last reviewed:** 2026-10-12
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -16,8 +16,9 @@ must have been CI-and-review-verified on its head and be mergeable, and, under
 the shipped default, that head must be current with its base branch.** The
 paragraph above is narrative; the invariant is stated **normatively** once, in
 `requirements.md` as **REQ-A1.5** (its single home, superseding REQ-A1.1), and
-the decisions that carry it (D-1 through D-4, D-10, D-11) cite it rather than
-restating it normatively. Its currency clause is an adopter policy with a
+the decisions that carry it (D-1 through D-4, D-9, D-10, D-11) cite it, or
+REQ-A1.1 through its supersede pointer, rather than restating it
+normatively. Its currency clause is an adopter policy with a
 `refuse` default (D-10); its mergeability clause holds under every value. Two
 mechanisms carry it —
 one that keeps the verified head current (D-4), and one that refuses a flip
@@ -343,6 +344,11 @@ in-session, and a human at a raw shell is exercising a reserved control.
 and global wiring is the only placement that governs every in-session flipper;
 the bare-shell residual is stated honestly rather than papered over.
 
+**Superseded-by: D-10** (2026-10-12), in part — the "universally wrong
+transition" premise now covers the clauses no value relaxes (mergeability
+and the fail-closed refusals); a behind-but-mergeable flip is refused only
+under `refuse`. The global wiring stands.
+
 ### D-8: Cover the two in-session ready surfaces — Bash `gh pr ready` and the MCP tool; the graphql mutation is a residual (N)
 
 **Decision:** The guard applies the D-3 predicate to the two draft→ready surfaces
@@ -409,21 +415,26 @@ value-in-overlay split `customization-boundary` prescribes.
 
 **Superseded-by: D-10** (2026-10-11), in part — the capability now lands a
 current head only under the `refuse` default; whether behind-but-mergeable is
-acceptable joins who-flips as an adopter value.
+acceptable becomes a human-gates policy with a core default (D-10).
 
 ### D-10: The currency clause becomes a policy knob in core, default `refuse` (N, `customization-boundary`)
 
 **Decision:** The behind-base refusal is governed by one core config knob,
 `ready_guard_behind_base`: `refuse` (the shipped default, today's predicate)
-or `conflict-only` (a behind PR that GitHub reports `MERGEABLE` passes). The
+or `conflict-only` (a behind PR that GitHub reports `MERGEABLE` defers). The
 invariant is restated as REQ-A1.5 and the predicate as REQ-C1.11. Only the
 currency clause moves: mergeability, every fail-closed path, the `isDraft`
 gating, the selector rules, and the no-git rule hold under both values. Under
 the human-gates gate test (`human-gates` REQ-A1.1) refusing a flip is neither
 irreversible for other people nor the approval act, so the currency clause is
-a policy with a core default, listed beside `ready_flip_policy`; the
-mergeability clause is the floor no value removes. The deny text under
-`refuse` does not name the knob, so a refused session is pointed at the merge
+a policy with a core default, listed beside `ready_flip_policy`, read from a
+narrower set of layers than the human-gates doctrine's other policies (D-11);
+the mergeability clause is unconditional. The "hard invariant" label stays
+(operator, drafting session 2026-10-11): it names the invariant as a whole,
+whose mergeability clause no value removes, and the family it joined
+(bootstrap REQ-J1.1 and REQ-J1.4) has itself become the human-gates list of
+gates and policies, where the currency clause now sits as a policy. The deny
+text under `refuse` does not name the knob, so a refused session is pointed at the merge
 remedy rather than at a setting that would relax its own guard. This
 reverses the kickoff risk register's row 4 (no adopter opt-out; overlay
 hook-shadowing as the escape if friction ever demanded one): the friction
@@ -444,7 +455,7 @@ arrived, in the observations cited below.
   base that no longer existed); an adopter who wants the relaxed posture sets
   it.
 - Overlay hook-shadowing (risk row 4's suggested escape): an adopter replaces
-  the guard wholesale. Rejected because: it discards the mergeability floor
+  the guard wholesale. Rejected because: it discards the mergeability clause
   and the fail-closed contract along with the currency leg, and needs no core
   seam to do it; a knob relaxes exactly one clause.
 - A threshold (refuse when behind by more than some number of commits) or a
@@ -463,7 +474,9 @@ their overlay — the split `customization-boundary` prescribes, on the
 config-knob seam the human-gates policies already use (decision-domains
 *Existing-seam reuse*). The cost of the opt-in is stated rather than hidden:
 under `conflict-only` a ready PR may have been verified against an older base,
-and GitHub's merge-time conflict block remains the floor beneath it.
+and GitHub's merge-time conflict block remains beneath it. "MERGEABLE" here is
+GitHub's answer at the time of the view query, which can predate the compare
+call (the residual D-11 accepts).
 *(Cites: REQ-A1.5 · REQ-C1.11 · REQ-C1.12 · drafting-session decision
 (2026-10-11) · PR #650 fork F1 · obs:ac31e13a · obs:75c25c5d · obs:14a2af4e.)*
 
@@ -475,8 +488,9 @@ and machine-local layers are never read for it, rather than read and degraded.
 The guard calls the resolver with the same two layers dropped, so the
 restriction holds whether the guard or another reader asks. The guard reads
 the knob only after it has a `MERGEABLE` answer and a readable `behind_by`
-above zero, bounded by its existing query timeout, and applies `refuse` on a
-missing resolver, a timeout, a non-zero exit, a malformed value, or any answer
+above zero, under its existing query timeout, and applies `refuse` on a
+missing resolver, a read that fails or is killed at that limit, a non-zero
+exit, a malformed value, or any answer
 other than exactly `conflict-only` (REQ-C1.13). The compare call still runs
 under `conflict-only`, so its failure modes stay fail-closed. The read touches
 config files, never git state, so D-5's no-git rule holds.
@@ -500,13 +514,22 @@ config files, never git state, so D-5's no-git rule holds.
   decides. Rejected because: keeping it keeps every failure mode the signed
   guard denies on denying under both values.
 
-**Chosen because:** the core and adopter layers are the two the operator owns
-outside every checkout, so the opt-in is the operator's and never a session's;
+**Chosen because:** the core and adopter layers are the two that sit outside
+every checkout, so no edit inside a checkout a session can write sets the
+opt-in;
 the degrade direction means no failure can relax the check; and reading only
-for a behind PR keeps a current PR's cost unchanged. Accepted residual: under
+for a behind PR keeps a current PR's cost unchanged. Accepted residuals
+(operator, 2026-10-12): those two layers are located through environment
+overrides and the plugin-data directory, which are outside every checkout
+but not proven outside every session's reach; and the read adds a fourth
+timed call to the hook, whose child processes can outlive the limit on
+hosts whose `timeout` kills only the direct child (PR #650's observation on
+the hook time bound, obs:2497969c, on that PR's branch), so `refuse` can
+arrive late, never relaxed. Also accepted: under
 `conflict-only` the `mergeable` answer is read before the compare call, so a
 base push between them can pass a newly conflicting PR; that is GitHub's own
 mergeability lag, no further client query removes it, and GitHub still blocks
 merging a conflicting PR.
-*(Cites: REQ-C1.12 · REQ-C1.13 · D-5 · drafting-session decision (2026-10-11)
-· PR #650 (its flight record's declined finding D1 and panel finding P1).)*
+*(Cites: REQ-A1.5 · REQ-C1.12 · REQ-C1.13 · D-5 · drafting-session decision (2026-10-11)
+· PR #650 (its flight record's declined finding D1 and panel finding P1) ·
+delta re-walkthrough (2026-10-12).)*

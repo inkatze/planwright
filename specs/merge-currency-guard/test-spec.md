@@ -1,7 +1,7 @@
 # Merge Currency Guard — Test Spec
 
-**Status:** Draft
-**Last reviewed:** 2026-10-11
+**Status:** Ready
+**Last reviewed:** 2026-10-12
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -20,7 +20,7 @@ capability-vs-policy boundary (REQ-A1.4).
 
 ## REQ-A — The ready-currency invariant
 
-### REQ-A1.1 — Invariant stated once and cited [design-level]
+### REQ-A1.1 — Invariant stated once and cited [design-level] (superseded by REQ-A1.5)
 
 Review confirms the hard-invariant statement ("a PR is flipped ready only on a
 head current with its base branch, and mergeable, having been
@@ -38,15 +38,21 @@ fails this entry. Run under Task 1 review and kickoff.
 
 ### REQ-A1.5 — Invariant with a policy-governed currency clause [design-level + test]
 
-`[design-level]`: review confirms REQ-A1.5 is the sole normative statement of
-the invariant (REQ-A1.1 carries only its supersede pointer), that the Goal,
-the In-scope summary, and the design preamble summarize it and point at it,
-that the mergeability clause is stated as holding under every knob value, and
-that D-10 records the gate-test classification of the currency clause as a
-policy. `[test]`: the REQ-C1.11 and REQ-D1.5 fixtures are the mechanical form
-of the two clauses (a behind `MERGEABLE` PR denied under `refuse` and passed
-under `conflict-only`; a `CONFLICTING` PR denied under both). Run at the delta
-re-walkthrough and in Task 5's suite.
+`[design-level]`: review confirms REQ-A1.5 is the sole live normative
+statement of the invariant (REQ-A1.1 keeps its frozen body and carries the
+supersede pointer; no other live record restates the invariant in SHALL
+form), that the Goal, the In-scope summary, and the design preamble summarize
+it and point at it, that the mergeability clause is stated as holding under
+every knob value, and that D-10 records the gate-test classification of the
+currency clause as a policy and the "hard invariant" label decision. Because
+no linter verifies intra-bundle citation claims, the review spot-checks that
+the carrying-record list the Goal, the In-scope bullet and the design
+preamble share is identical in all three and that each record named cites
+REQ-A1.5 or REQ-A1.1 (reaching REQ-A1.5 through the pointer); a named record
+citing neither fails this entry. `[test]`: the REQ-C1.11 and REQ-D1.5
+fixtures are the mechanical form of the two clauses (a behind `MERGEABLE` PR
+denied under `refuse` and deferred under `conflict-only`; a `CONFLICTING` PR
+denied under both). Run at the delta re-walkthrough and in Task 5's suite.
 
 ### REQ-A1.2 — Enforced by construction, not prose [test]
 
@@ -124,7 +130,7 @@ the sync is a single-line script call rather than inline prose.
 
 ## REQ-C — The ready-guard
 
-### REQ-C1.1 — Predicate: compare `behind_by == 0` AND `mergeable == MERGEABLE` [test]
+### REQ-C1.1 — Predicate: compare `behind_by == 0` AND `mergeable == MERGEABLE` [test] (superseded by REQ-C1.11)
 
 A fixture matrix over `ready-guard.sh`, each stubbing a `gh pr view` JSON
 response and a compare response: `behind_by 0` + `mergeable MERGEABLE` → defer
@@ -149,34 +155,42 @@ of `conflict-only`: `behind_by > 0` + `mergeable MERGEABLE` → defer on both
 surfaces, with an assertion that the compare call still ran; `behind_by 0` +
 `MERGEABLE` → defer; `mergeable CONFLICTING`, `UNKNOWN` after the re-query, or
 an unrecognized value → deny; a failing compare call or an unreadable
-`behind_by` → deny. A no-git sentinel is asserted absent in every knob case.
+`behind_by` → deny. The guard invokes no git in any knob case (REQ-D1.5).
 
 ### REQ-C1.12 — The knob: default, documentation, and core-and-adopter-only read [test]
 
 Resolver tests (`tests/test-resolve-policy-knob.sh`): with no value set the
 knob resolves to `refuse`; an adopter value of `conflict-only` resolves to
 `conflict-only`; a repo-tracked or machine-local `conflict-only`, and a
-machine-local override path, are ignored (the answer stays the adopter's or
-the default). A guard fixture runs the hook from inside a real repository
+`PLANWRIGHT_LOCAL_CONFIG` override path, are ignored (the answer stays the
+adopter's or the default). A guard fixture runs the hook from inside a real repository
 whose repo-tracked and machine-local files say `conflict-only`, with a
 working git on PATH and no adopter value, and asserts a behind `MERGEABLE`
-PR is denied; the fixture fails when the guard's layer restriction is
+PR is denied. Each place the restriction lives is pinned on its own: the
+resolver tests above pin the table entry, and a stub resolver beside a copy
+of the guard, answering `conflict-only` only when the repo-side layers were
+not dropped, denies with the guard's drop in place and defers with it
 removed. Structural assertions: the knob is declared in `config/defaults.yml`
 with its default, has an options-reference row, and appears in the
-human-gates list (the human-gates doctrine test names it). A fixture asserts
-a current PR (`behind_by 0`) defers without the knob being read.
+human-gates list (the human-gates doctrine test names it). A stub resolver
+beside a copy of the guard writes a marker when run: with `behind_by 0` the
+PR defers and no marker exists, and with `behind_by > 0` the marker exists
+(the positive control that keeps the negative from passing vacuously).
 
 ### REQ-C1.13 — Fail-closed degrade; no other refusal relaxed [test]
 
 With an adopter value of `conflict-only` and a behind `MERGEABLE` PR, each
 degrade case denies with the behind-base reason: no resolver beside the
-guard; a stub resolver that exceeds the guard's bound; one that exits
+guard; a resolver present but unreadable; a stub resolver killed at the
+guard's bound; one that exits
 non-zero; one that answers a value only beginning with `conflict-only`, or
 with it on a later line; and a malformed adopter value. A positive control
 (a stub answering exactly `conflict-only` on a zero exit) proves the stub is
-reached. The no-other-refusal half is the REQ-C1.11 `conflict-only` deny
-fixtures plus the existing REQ-C1.3, REQ-C1.8 and REQ-C1.9 fixtures run with
-the adopter value set.
+reached. The behind-base denial under `refuse` is asserted not to contain the
+string `ready_guard_behind_base`. The no-other-refusal half is the
+REQ-C1.11 `conflict-only` deny fixtures plus three fixtures run with an
+adopter value of `conflict-only`: an invalid selector → deny, an
+already-ready PR → defer, and a missing `gh` → deny.
 
 ### REQ-C1.2 — Deny-emitting, deterministic, no LLM [test]
 
@@ -305,11 +319,14 @@ model/API call in their decision paths (grep-level and behavioral).
 The REQ-C1.11, REQ-C1.12 and REQ-C1.13 fixtures above, in
 `tests/test-ready-guard.sh` and `tests/test-resolve-policy-knob.sh`, green in
 CI. Completeness is mechanical for the cells REQ-D1.5 names: the
-`conflict-only` pass case and the `refuse` behind case on both surfaces are
-expected-cell manifest entries, so a missing one turns the suite red. Each
-added fixture's failing-first evidence (the pass case against the guard on
-main, the repo-side case with the restriction removed) is recorded in the
-task PR.
+`conflict-only` defer case and the explicit-`refuse` behind case on both
+surfaces are cells of the expected-cell manifest in
+`tests/test-merge-currency-matrix.sh`, so a missing one turns the suite red.
+The repo-side case puts a logging pass-through git on PATH and asserts it
+logged no call; every other knob case asserts the sentinel git absent. Each
+added fixture's failing-first evidence (the defer case against the guard as
+it stood before Task 5, the guard-copy stub with the guard's drop removed)
+is recorded in the task PR.
 
 ## REQ-K — Graceful degradation and data hygiene
 
