@@ -526,6 +526,7 @@ printf '%s\n' "$OUT" | grep -q 'personal data were redacted whole' || fail "a mi
   printf 'Commit 2b6eb007c0ffee1234567890abcdef1234567890 and card 4111 1111 1111 1112.\n'
   printf 'Pin AB12 to issue 555-12-345 and 10.20.30.40, port 8080, +5 lines.\n'
   printf 'Not an IBAN: GB82 WEST 1234 5698 7654 33.\n'
+  printf 'Glued GB82 WEST 1234 5698 7654 32abc and GB82WEST12345698765432abc are no IBAN.\n'
   printf 'Blob deadbeef4111111111111111cafe and x+44 20 7946 0958 and call +12 345.\n'
   printf 'Ranges 10-078-05-1120-3 and 1.555.123.4567 stay.\n'
   printf 'Exchange 555-123-4567, area 900-12-3456, sizes 128 256 1024 4096.\n'

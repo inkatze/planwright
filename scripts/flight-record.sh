@@ -287,7 +287,7 @@ personal_data() {
       for (q = j + 1; q <= ng && length(g[q]) <= 4; q++) {
         c = c g[q]
         if (length(c) > 34) return 0
-        if (length(c) >= 15 && iban(c)) return 1
+        if (length(c) >= 15 && (q < ng || post !~ /[a-z_]/) && iban(c)) return 1
         if (length(g[q]) < 4) return 0
       }
       return 0
