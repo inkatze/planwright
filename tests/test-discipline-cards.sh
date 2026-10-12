@@ -147,7 +147,6 @@ seed SEC-UNKNOWN 1 '/^## Sources$/ { print "## Backstory"; print ""; print "A lo
 seed SEC-UNKNOWN 1 '/^## Role$/ { print "Shaped by a long career in consulting."; print "" } { print }'
 seed SEC-UNKNOWN 1 '/^## Sources$/ { print "# Backstory"; print ""; print "A long career."; print "" } { print }'
 seed SEC-UNKNOWN 1 '/^## Sources$/ { print "Backstory"; print "---------"; print ""; print "A long career."; print "" } { print }'
-seed SEC-UNKNOWN 1 '/^## Sources$/ { print "Backstory"; print "   ---"; print ""; print "A long career."; print "" } { print }'
 seed SEC-EMPTY 1 '/^## Anti-patterns$/ { print; print ""; skip = 1; next } skip && /^## / { skip = 0 } !skip'
 # A section holding only a fence holds no card content.
 # shellcheck disable=SC2016 # an awk program printing a literal fence
@@ -258,15 +257,6 @@ out="$("$LINT" "$d/fixture-discipline.md" 2>&1)"
 assert_eq "fenced heading is not a section: exit 0" "0" "$?"
 assert_not_contains "fenced heading is not a section" "[SEC-UNKNOWN]" "$out"
 assert_eq "fenced heading is not a section: no findings" "" "$out"
-
-# Thematic breaks after an indented list continuation or a nested bullet are
-# not setext headings.
-d="$tmp/breaks"
-write_golden_card "$d"
-awk '{ print } /^   Misuse: skipping/ || /^  - human-authority:/ { print "---" }' \
-  "$d/fixture-discipline.md" >"$d/m" && mv "$d/m" "$d/fixture-discipline.md"
-out="$("$LINT" "$d/fixture-discipline.md" 2>&1)"
-assert_eq "thematic break after a list continuation: no findings" "" "$out"
 
 # The Done-when line follows the template fence, not an earlier example fence.
 d="$tmp/done-order"

@@ -128,7 +128,10 @@ A section outside this set is a lint finding: identity content arrives most
 often as an extra section (`## Backstory`, `## About`), and a closed set is
 what keeps it out. For the same reason the title is the card's only H1 and
 every section heading is an ATX H2 (`## <name>`): a later H1 or a setext heading
-is a finding too. An optional key or section joins its set in the same change
+is a finding too. The setext check is the plain one: a `---` or `===` line
+directly under any non-blank line that is not a list item, table row, heading,
+or quote reads as an underline, so a thematic break after an indented
+continuation line is flagged; put a blank line before it. An optional key or section joins its set in the same change
 as the linter that accepts it, within the current major (see *Versioning*).
 
 ## Capability tiers

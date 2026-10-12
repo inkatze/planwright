@@ -221,11 +221,8 @@ END {
     }
     if (any_sec && !F[i] && L[i] ~ /^# /)
       emit("SEC-UNKNOWN", "line " i ": an H1 after the title; card sections are ## headings")
-    # A setext underline may be indented up to three spaces; after a list
-    # item, its indented continuation, a table row, or a quote it is a
-    # thematic break instead.
-    if (!F[i] && i > header_end && L[i] ~ /^( |  |   )?(=+|-+)[ \t]*$/ && !F[i - 1] &&
-        L[i - 1] !~ /^[ \t]*$/ && L[i - 1] !~ /^([ \t]|[-*+][ \t]|[0-9]+\.[ \t]|[|#>])/)
+    if (!F[i] && i > header_end && L[i] ~ /^(=+|-+)[ \t]*$/ && !F[i - 1] &&
+        L[i - 1] !~ /^[ \t]*$/ && L[i - 1] !~ /^([-*+][ \t]|[0-9]+\.[ \t]|[|#>])/)
       emit("SEC-UNKNOWN", "line " i ": a setext heading; card sections are ## headings")
     if (!F[i] && L[i] ~ /^## /) {
       any_sec = 1
