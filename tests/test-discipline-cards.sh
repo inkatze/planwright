@@ -125,7 +125,6 @@ seed HDR-RAPID 1 '{ sub(/^\*\*RAPID:\*\* .*/, "**RAPID:** I, D"); print }'
 seed HDR-RAPID 1 '{ sub(/^\*\*RAPID:\*\* .*/, "**RAPID:** X"); print }'
 seed HDR-RAPID 1 '{ sub(/^\*\*RAPID:\*\* .*/, "**RAPID:** I, I"); print }'
 long_id=$(printf 'a%.0s' $(seq 1 65))
-seed HDR-ID 1 "{ sub(/^\\*\\*Card-id:\\*\\* .*/, \"**Card-id:** $long_id\"); print }"
 seed HDR-BENCH 1 '{ sub(/^\*\*Bench:\*\* .*/, "**Bench:** maybe"); print }'
 seed HDR-STANCE 1 '{ sub(/^\*\*Stance-axis:\*\* .*/, "**Stance-axis:** skeptical"); print }'
 seed HDR-MODEL 1 '/^\*\*Stance-axis:\*\*/ { print; print "**Model-override:** two words"; next } { print }'
@@ -159,7 +158,7 @@ seed SEC-ORDER 1 '/^## Role$/ { held = 1 } held && /^## / && !/^## Role$/ { held
 
 # Role, mandate, frameworks.
 seed ROLE-FORM 1 '/^Frames the fixture/ { print "Frames options for this venture. It also ranks them."; next } { print }'
-seed ROLE-FORM 1 '/^Frames the fixture/ { print "Frames options for this venture"; next } { print }'
+seed ROLE-FORM 1 '/^Frames the fixture/ { print "Frames options for this venture?"; next } { print }'
 seed SEC-ORDER 1 '{ print } END { print ""; print "## Sources"; print ""; print "- Another source."; }'
 seed MANDATE-SIZE 1 '/^3\. Which constraint/ { next } { print }'
 seed MANDATE-SIZE 1 '/^3\. Which constraint/ { print; for (i = 4; i <= 8; i++) print i ". Which risk in the frame matters most?"; next } { print }'
@@ -278,6 +277,12 @@ awk '/^\*\*Done when:\*\*/ { next }
   "$d/fixture-discipline.md" >"$d/m" && mv "$d/m" "$d/fixture-discipline.md"
 out="$("$LINT" "$d/fixture-discipline.md" 2>&1)"
 assert_contains "Done-when between an example fence and the template: flagged" "[TEMPLATE-DONE]" "$out"
+
+# The Card-id length limit, on a card whose file name matches its id.
+d="$tmp/long-id"
+write_golden_card "$d" "$long_id"
+out="$("$LINT" "$d/$long_id.md" 2>&1)"
+assert_contains "65-character Card-id: the length rule fires" "max 64" "$out"
 
 # Usage and environment errors.
 "$LINT" >/dev/null 2>&1
