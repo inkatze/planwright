@@ -169,7 +169,9 @@ frame - - 0.3 $((NOW + 86400)) | cf persist --dir "$w" --now $((NOW + 360)) \
   || fail "persist: a window the frame left out was read from another window: $(cat "$w/ratelimit")"
 pass "persist stores whole-number readings and reads windows by exact name inside unifiedWindows"
 
-ln -s "$tmp/elsewhere" "$home/fleet/streamjson/w2" 2>/dev/null || :
+# The link's target is a real directory, so only the link check can refuse it.
+mkdir -p "$tmp/elsewhere"
+ln -s "$tmp/elsewhere" "$home/fleet/streamjson/w2"
 mkdir -p "$home/fleet/streamjson/w3"
 ln -s "$tmp/planted" "$home/fleet/streamjson/w3/ratelimit"
 rc=0
@@ -179,6 +181,7 @@ frame 0.1 $((NOW + HOUR)) 0.1 $((NOW + HOUR)) | cf persist --dir "$home/fleet/st
 rc=0
 frame 0.1 $((NOW + HOUR)) 0.1 $((NOW + HOUR)) | cf persist --dir "$home/fleet/streamjson/w2" --now "$NOW" 2>/dev/null || rc=$?
 [ "$rc" = 6 ] || fail "persist: a symlinked worker directory was not refused (exit $rc)"
+[ -z "$(ls -A "$tmp/elsewhere")" ] || fail "persist: wrote through a symlinked worker directory"
 rc=0
 cf persist --dir "$home/fleet/streamjson/w1" --now nope </dev/null 2>/dev/null || rc=$?
 [ "$rc" = 2 ] || fail "persist: a malformed --now exited $rc, not 2"
