@@ -74,6 +74,8 @@ check_refused "unknown reason" "reason" "r0003	12	$SHA	scripts/a.sh	4	correctnes
 check_refused "bad replayable flag" "replayable" "r0003	12	$SHA	scripts/a.sh	4	correctness	other	maybe	fallback	gist text here	-"
 check_refused "unknown label source" "label_source" "r0003	12	$SHA	scripts/a.sh	4	correctness	other	yes	guess	gist text here	-"
 check_refused "fallback row not other" "fallback" "r0003	12	$SHA	scripts/a.sh	4	correctness	pruned	yes	fallback	gist text here	-"
+check_refused "declined-log row not declined" "declined-log" "r0003	12	$SHA	scripts/a.sh	4	correctness	pruned	yes	declined-log	gist text here	-"
+check_refused "overlong dismissal" "dismissal is longer" "r0003	12	$SHA	scripts/a.sh	4	correctness	declined	yes	declined-log	gist text here	$(printf 'word %.0s' $(seq 1 60))"
 check_refused "empty gist" "gist" "r0003	12	$SHA	scripts/a.sh	4	correctness	other	yes	fallback		-"
 check_refused "declined row without dismissal" "dismissal" "r0003	12	$SHA	scripts/a.sh	4	correctness	declined	yes	declined-log	gist text here	-"
 check_refused "dismissal on a non-declined row" "dismissal" "r0003	12	$SHA	scripts/a.sh	4	correctness	other	yes	fallback	gist text here	a stray dismissal"

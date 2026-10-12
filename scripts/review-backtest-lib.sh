@@ -36,9 +36,11 @@ RBT_DEFAULT_CAP=5
 # reply; the same predicate feeds the corpus and the finding-rate metric.
 # shellcheck disable=SC2016 # jq program text, expanded by jq, not the shell
 RBT_JQ_DEFS='
-def rbt_fix_reply: test("^\\W*(fixed|addressed|applied|corrected|reworded)\\b"; "i")
-  or test("\\b(fixed|addressed|applied|corrected|reworded|changed|wrapped|done) in `?[0-9a-f]{7,40}`?\\b"; "i")
-  or ((test("\\b(fixed|addressed|applied)\\b"; "i") or test("\\bin `?[0-9a-f]{7,40}`?\\b"))
+# An explicit "<verb> in <sha>" is a fix even beside a partial decline; any
+# other fix wording counts only when the reply does not also decline.
+def rbt_fix_reply: test("\\b(fixed|addressed|applied|corrected|reworded|changed|wrapped|done) in `?[0-9a-f]{7,40}`?\\b"; "i")
+  or ((test("^\\W*(fixed|addressed|applied|corrected|reworded)\\b"; "i")
+       or test("\\b(fixed|addressed|applied)\\b"; "i") or test("\\bin `?[0-9a-f]{7,40}`?\\b"))
       and (test("\\b(declin|not fixed|won.t fix|false positive|deferr)"; "i") | not));
 def rbt_fixed_external($author): (.author // "") != $author
   and any(.replies[]?; (.author // "") == $author and ((.body // "") | rbt_fix_reply));

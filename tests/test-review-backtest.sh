@@ -88,7 +88,7 @@ run() {
 }
 
 # --- a stub replay over the full sample ---
-out=$(run --reviewer-stub "$stub" --model stub-model --seed 7 --classes runtime-tracing,claim-vs-code,declined --out "$T/base.tsv" 2>&1)
+out=$(run --reviewer-stub "$stub" --model stub-model-1 --seed 7 --classes runtime-tracing,claim-vs-code,declined --out "$T/base.tsv" 2>&1)
 rc=$?
 assert_exit "a stub replay over targeted classes succeeds" 0 "$rc"
 assert_contains "prints the cap it used" "cap: 5" "$out"
@@ -96,49 +96,49 @@ assert_contains "prints the seed it used" "seed: 7" "$out"
 assert_contains "reports recall per class (10 lines away is caught, 11 is missed)" "runtime-tracing: 1/2" "$out"
 assert_contains "a finding in another file misses" "claim-vs-code: 0/1" "$out"
 assert_contains "the declined row is caught" "declined: 1/1" "$out"
-if grep -q '^model	stub-model$' "$T/base.tsv"; then ok "the result records its model"; else fail "result lacks the model"; fi
+if grep -q '^model	stub-model-1$' "$T/base.tsv"; then ok "the result records its model"; else fail "result lacks the model"; fi
 if grep -q '^corpus	v1$' "$T/base.tsv"; then ok "the result records its corpus version"; else fail "result lacks the corpus version"; fi
 if grep -q '^plugin_commit	[0-9a-f]\{40\}$' "$T/base.tsv"; then ok "the result records the plugin commit"; else fail "result lacks the plugin commit"; fi
 if grep -q '^row	r0001	runtime-tracing	caught$' "$T/base.tsv"; then ok "a row 10 lines away is caught"; else fail "r0001 not caught"; fi
 if grep -q '^row	r0002	runtime-tracing	missed$' "$T/base.tsv"; then ok "a row 11 lines away is missed"; else fail "r0002 not missed"; fi
 
 # --- unreplayable rows are excluded and counted ---
-out=$(run --reviewer-stub "$stub" --model stub-model --seed 7 --out "$T/full.tsv" 2>&1)
+out=$(run --reviewer-stub "$stub" --model stub-model-1 --seed 7 --out "$T/full.tsv" 2>&1)
 assert_contains "reports the excluded unreplayable count" "excluded unreplayable: 2" "$out"
 assert_lacks "an unreplayable row is never replayed" "r0005" "$(grep '^row' "$T/full.tsv")"
 assert_contains "a class with only unreplayable rows is reported, not sampled" "class lintable has no replayable rows" "$out"
 
 # --- the zero-row refusals, after exclusion ---
-out=$(run --reviewer-stub "$stub" --model stub-model --seed 7 --classes lintable 2>&1)
+out=$(run --reviewer-stub "$stub" --model stub-model-1 --seed 7 --classes lintable 2>&1)
 assert_exit "a targeted class with zero replayable rows is refused" 2 $?
 assert_contains "names the empty class" "lintable" "$out"
 mkdir -p "$T/corpus/v2"
 awk -F '\t' 'BEGIN { OFS = "\t" } NR == 1 { print; next } { $8 = "no"; print }' "$corpus_dir/corpus.tsv" >"$T/corpus/v2/corpus.tsv"
-out=$("$HARNESS" --corpus "$T/corpus/v2" --remote "$remote" --reviewer-stub "$stub" --model stub-model --seed 7 2>&1)
+out=$("$HARNESS" --corpus "$T/corpus/v2" --remote "$remote" --reviewer-stub "$stub" --model stub-model-1 --seed 7 2>&1)
 assert_exit "a sample with zero replayable rows overall is refused" 2 $?
 assert_contains "names the zero-row refusal" "zero replayable rows" "$out"
 
 # --- the gate against a baseline, reusing its seed and cap ---
-out=$(run --reviewer-stub "$stub" --model stub-model --baseline "$T/base.tsv" --classes runtime-tracing 2>&1)
+out=$(run --reviewer-stub "$stub" --model stub-model-1 --baseline "$T/base.tsv" --classes runtime-tracing 2>&1)
 assert_exit "matching the baseline passes the gate" 0 $?
 assert_contains "reuses the baseline's seed" "seed: 7" "$out"
 printf 'r0002\ta.sh\t39\n' >"$T/worse.tsv"
-out=$(run --reviewer-stub "$T/worse.tsv" --model stub-model --baseline "$T/base.tsv" --classes runtime-tracing 2>&1)
+out=$(run --reviewer-stub "$T/worse.tsv" --model stub-model-1 --baseline "$T/base.tsv" --classes runtime-tracing 2>&1)
 assert_exit "a targeted class catching fewer rows than the baseline fails" 1 $?
 assert_contains "names the dropped class" "runtime-tracing caught 0 < baseline 1" "$out"
-out=$(run --reviewer-stub "$stub" --model other-model --baseline "$T/base.tsv" 2>&1)
+out=$(run --reviewer-stub "$stub" --model other-model-2 --baseline "$T/base.tsv" 2>&1)
 assert_exit "a baseline from another model is refused" 3 $?
 assert_contains "names the model mismatch" "another model" "$out"
 cp "$corpus_dir/corpus.tsv" "$T/corpus/v2/corpus.tsv"
-out=$("$HARNESS" --corpus "$T/corpus/v2" --remote "$remote" --reviewer-stub "$stub" --model stub-model --baseline "$T/base.tsv" 2>&1)
+out=$("$HARNESS" --corpus "$T/corpus/v2" --remote "$remote" --reviewer-stub "$stub" --model stub-model-1 --baseline "$T/base.tsv" 2>&1)
 assert_exit "a baseline from another corpus version is refused" 3 $?
-out=$(run --reviewer-stub "$stub" --model stub-model --baseline "$T/base.tsv" --seed 8 2>&1)
+out=$(run --reviewer-stub "$stub" --model stub-model-1 --baseline "$T/base.tsv" --seed 8 2>&1)
 assert_exit "a new seed against a baseline is refused" 2 $?
 
 # --- the sample is seeded and per-class: same seed, same rows ---
 printf 'r0001\ta.sh\t50\nr0002\ta.sh\t50\n' >"$T/all.tsv"
-a=$(run --reviewer-stub "$T/all.tsv" --model m --seed 3 --cap 1 --classes runtime-tracing --out "$T/s1.tsv" >/dev/null 2>&1 && grep '^row' "$T/s1.tsv")
-b=$(run --reviewer-stub "$T/all.tsv" --model m --seed 3 --cap 1 --out "$T/s2.tsv" >/dev/null 2>&1 && grep '^row	[^	]*	runtime-tracing' "$T/s2.tsv")
+a=$(run --reviewer-stub "$T/all.tsv" --model m-1 --seed 3 --cap 1 --classes runtime-tracing --out "$T/s1.tsv" >/dev/null 2>&1 && grep '^row' "$T/s1.tsv")
+b=$(run --reviewer-stub "$T/all.tsv" --model m-1 --seed 3 --cap 1 --out "$T/s2.tsv" >/dev/null 2>&1 && grep '^row	[^	]*	runtime-tracing' "$T/s2.tsv")
 if [ -n "$a" ] && [ "$a" = "$b" ]; then ok "a class's sample does not depend on the other classes targeted"; else fail "per-class sample differs ($a vs $b)"; fi
 if grep -c '^row	[^	]*	runtime-tracing' "$T/s2.tsv" | grep -qx 1; then ok "the cap bounds each class"; else fail "cap not applied"; fi
 
@@ -164,7 +164,7 @@ EOF
 chmod +x "$rev"
 export REVIEWER_LOG="$T/reviewer.log"
 before=$(git -C "$REPO_ROOT" status --porcelain | cksum)
-run --reviewer "$rev" --model m --seed 7 --classes runtime-tracing,declined >/dev/null 2>&1
+run --reviewer "$rev" --model m-1 --seed 7 --classes runtime-tracing,declined >/dev/null 2>&1
 assert_exit "a replay through a reviewer command succeeds" 0 $?
 log=$(cat "$REVIEWER_LOG")
 assert_lacks "the reviewer never runs in the live checkout" "pwd=$REPO_ROOT" "$log"
@@ -190,7 +190,7 @@ echo x >>"$REVIEWER_LOG.broken"
 exit 3
 EOF
 chmod +x "$T/broken.sh"
-out=$(run --reviewer "$T/broken.sh" --model m --seed 7 --classes claim-vs-code 2>&1)
+out=$(run --reviewer "$T/broken.sh" --model m-1 --seed 7 --classes claim-vs-code 2>&1)
 assert_exit "a reviewer failing twice makes the run exit 4" 4 $?
 if [ "$(wc -l <"$REVIEWER_LOG.broken" | tr -d ' ')" -eq 2 ]; then ok "a failing reviewer is retried once"; else fail "retry count wrong"; fi
 
@@ -201,7 +201,7 @@ mkdir -p "$T/corpus/v3"
   printf 'r0001\t1\t--upload-pack=x\ta.sh\t50\tcorrectness\truntime-tracing\tyes\tmodel\ta hostile commit field\t-\n'
 } >"$T/corpus/v3/corpus.tsv"
 : >"$REVIEWER_LOG"
-out=$("$HARNESS" --corpus "$T/corpus/v3" --remote "$remote" --reviewer "$rev" --model m --seed 7 2>&1)
+out=$("$HARNESS" --corpus "$T/corpus/v3" --remote "$remote" --reviewer "$rev" --model m-1 --seed 7 2>&1)
 assert_exit "a corpus failing the screen is refused" 2 $?
 assert_contains "names the screen refusal" "screen" "$out"
 if [ ! -s "$REVIEWER_LOG" ]; then ok "no row of a refused corpus is replayed"; else fail "a refused corpus reached the reviewer"; fi
@@ -221,7 +221,7 @@ mkdir -p "$T/corpus/v4"
   printf 'r0001\t3\t%s\tc.sh\t1\tcorrectness\truntime-tracing\tyes\tmodel\tan unrelated-history row\t-\n' "$P3"
 } >"$T/corpus/v4/corpus.tsv"
 : >"$REVIEWER_LOG"
-out=$("$HARNESS" --corpus "$T/corpus/v4" --remote "$remote" --reviewer "$rev" --model m --seed 7 2>&1)
+out=$("$HARNESS" --corpus "$T/corpus/v4" --remote "$remote" --reviewer "$rev" --model m-1 --seed 7 2>&1)
 assert_exit "a row with no merge base on main makes the run exit 4" 4 $?
 assert_contains "names the missing merge base" "no merge base" "$out"
 if [ ! -s "$REVIEWER_LOG" ]; then ok "the reviewer is not run without a base"; else fail "the reviewer ran without a base"; fi
@@ -241,20 +241,20 @@ printf 'a.sh\t50\n'
 EOF
 chmod +x "$T/moving.sh"
 "$pw/scripts/review-backtest.sh" --corpus "$corpus_dir" --remote "$remote" --reviewer "$T/moving.sh" \
-  --model m --seed 7 --classes claim-vs-code --out "$T/moving.tsv" >/dev/null 2>&1
+  --model m-1 --seed 7 --classes claim-vs-code --out "$T/moving.tsv" >/dev/null 2>&1
 if grep -q "^plugin_commit	$pw_start\$" "$T/moving.tsv"; then ok "the recorded plugin commit is the run's starting head"; else fail "plugin commit moved with the checkout"; fi
 
 # --- the replay holds under concurrency, a relative reviewer, and any default branch ---
 : >"$REVIEWER_LOG"
-run --reviewer "$rev" --model m --seed 7 --classes runtime-tracing,declined --jobs 2 --out "$T/jobs2.tsv" >/dev/null 2>&1
+run --reviewer "$rev" --model m-1 --seed 7 --classes runtime-tracing,declined --jobs 2 --out "$T/jobs2.tsv" >/dev/null 2>&1
 assert_exit "a replay with --jobs 2 succeeds" 0 $?
 if [ "$(grep -c '^row	' "$T/jobs2.tsv")" -eq 3 ]; then ok "--jobs 2 scores every sampled row"; else fail "--jobs 2 lost a row"; fi
 cp "$rev" "$T/tmp/rel-reviewer.sh"
-(cd "$T/tmp" && "$HARNESS" --corpus "$corpus_dir" --remote "$remote" --reviewer ./rel-reviewer.sh --model m --seed 7 --classes claim-vs-code >/dev/null 2>&1)
+(cd "$T/tmp" && "$HARNESS" --corpus "$corpus_dir" --remote "$remote" --reviewer ./rel-reviewer.sh --model m-1 --seed 7 --classes claim-vs-code >/dev/null 2>&1)
 assert_exit "a relative --reviewer path resolves from the caller, not the copy" 0 $?
 git config --global init.defaultBranch master
 : >"$REVIEWER_LOG"
-run --reviewer "$rev" --model m --seed 7 --classes claim-vs-code >/dev/null 2>&1
+run --reviewer "$rev" --model m-1 --seed 7 --classes claim-vs-code >/dev/null 2>&1
 assert_exit "a host whose default branch is not main still replays" 0 $?
 git config --global init.defaultBranch main
 
@@ -264,12 +264,12 @@ cat >"$T/dying.sh" <<'EOF'
 kill -9 $PPID
 EOF
 chmod +x "$T/dying.sh"
-run --reviewer "$T/dying.sh" --model m --seed 7 --classes claim-vs-code --out "$T/dying.tsv" >/dev/null 2>&1
+run --reviewer "$T/dying.sh" --model m-1 --seed 7 --classes claim-vs-code --out "$T/dying.tsv" >/dev/null 2>&1
 assert_exit "a row whose replay job dies makes the run exit 4" 4 $?
 if grep -q '^row	r0003	claim-vs-code	error$' "$T/dying.tsv"; then ok "the dead row is recorded as an error"; else fail "the dead row vanished"; fi
 
 if grep -q '^class	claim-vs-code	0	0$' "$T/dying.tsv"; then ok "an error row stays out of its class's counts"; else fail "an error row was scored"; fi
-run --reviewer-stub "$stub" --model m --baseline "$T/dying.tsv" >/dev/null 2>&1
+run --reviewer-stub "$stub" --model m-1 --baseline "$T/dying.tsv" >/dev/null 2>&1
 assert_exit "a baseline holding error rows is refused" 2 $?
 
 # --- stopping the harness stops the reviewer it started ---
@@ -281,7 +281,7 @@ sleep 4
 EOF
 chmod +x "$T/slow.sh"
 rm -f "$T/slow.started" "$T/slow.finished"
-"$HARNESS" --corpus "$corpus_dir" --remote "$remote" --reviewer "$T/slow.sh" --model m --seed 7 --classes claim-vs-code >/dev/null 2>&1 &
+"$HARNESS" --corpus "$corpus_dir" --remote "$remote" --reviewer "$T/slow.sh" --model m-1 --seed 7 --classes claim-vs-code >/dev/null 2>&1 &
 hpid=$!
 n=0
 until [ -e "$T/slow.started" ] || [ "$n" -ge 200 ]; do
@@ -294,31 +294,59 @@ sleep 5
 if [ -e "$T/slow.started" ] && [ ! -e "$T/slow.finished" ]; then ok "TERM to the harness ends the running reviewer"; else fail "the reviewer outlived the harness"; fi
 
 # --- refusals that would otherwise let a gate pass on nothing ---
-run --reviewer-stub "$stub" --model stub-model --seed 7 --classes , >/dev/null 2>&1
+run --reviewer-stub "$stub" --model stub-model-1 --seed 7 --classes , >/dev/null 2>&1
 assert_exit "an empty --classes is refused" 2 $?
-run --reviewer-stub "$stub" --model stub-model --seed 7 --classes claim-vs-code,claim-vs-code --out "$T/dup.tsv" >/dev/null 2>&1
+run --reviewer-stub "$stub" --model stub-model-1 --seed 7 --classes claim-vs-code,claim-vs-code --out "$T/dup.tsv" >/dev/null 2>&1
 if [ "$(grep -c '^class	claim-vs-code	' "$T/dup.tsv")" -eq 1 ]; then ok "a repeated class is sampled once"; else fail "a repeated class was sampled twice"; fi
 grep -v '^seed	' "$T/base.tsv" >"$T/noseed.tsv"
-run --reviewer-stub "$stub" --model stub-model --baseline "$T/noseed.tsv" >/dev/null 2>&1
+run --reviewer-stub "$stub" --model stub-model-1 --baseline "$T/noseed.tsv" >/dev/null 2>&1
 assert_exit "a baseline without its seed is refused, never re-rolled" 2 $?
 sed 's/^class	runtime-tracing	2	1$/class	runtime-tracing	2	1x/' "$T/base.tsv" >"$T/badcount.tsv"
-run --reviewer-stub "$stub" --model stub-model --baseline "$T/badcount.tsv" >/dev/null 2>&1
+run --reviewer-stub "$stub" --model stub-model-1 --baseline "$T/badcount.tsv" >/dev/null 2>&1
 assert_exit "a baseline with a non-integer count is refused" 2 $?
 cp "$T/base.tsv" "$T/same.tsv"
-run --reviewer-stub "$T/worse.tsv" --model stub-model --baseline "$T/same.tsv" --out "$T/same.tsv" --classes runtime-tracing >/dev/null 2>&1
+run --reviewer-stub "$T/worse.tsv" --model stub-model-1 --baseline "$T/same.tsv" --out "$T/same.tsv" --classes runtime-tracing >/dev/null 2>&1
 assert_exit "a worse run fails the gate even when --out is the baseline file" 1 $?
-out=$(run --reviewer-stub "$stub" --model stub-model --seed 7 --out "$T/absent-dir/r.tsv" 2>&1)
+out=$(run --reviewer-stub "$stub" --model stub-model-1 --seed 7 --out "$T/absent-dir/r.tsv" 2>&1)
 assert_exit "an unwritable --out is a usage error, not a gate failure" 2 $?
 assert_lacks "an unwritable --out is refused before any row replays" "sampled:" "$out"
-run --reviewer-stub "$stub" --model stub-model --baseline "$T/base.tsv" --cap 3 >/dev/null 2>&1
+run --reviewer-stub "$stub" --model stub-model-1 --baseline "$T/base.tsv" --cap 3 >/dev/null 2>&1
 assert_exit "a new cap against a baseline is refused" 2 $?
 
+# --- a baseline's cap is reused, not the default ---
+sed 's/^cap	5$/cap	1/' "$T/base.tsv" | awk -F '\t' 'BEGIN { OFS = "\t" } $1 == "class" { $3 = ($3 > 1 ? 1 : $3); if ($4 > $3) $4 = $3 } { print }' >"$T/cap1.tsv"
+out=$(run --reviewer-stub "$stub" --model stub-model-1 --baseline "$T/cap1.tsv" --classes runtime-tracing 2>&1)
+assert_contains "the baseline's cap is reused" "cap: 1" "$out"
+assert_contains "the reused cap bounds the sample" "sampled: 1" "$out"
+
+# --- findings written as ./path are still caught ---
+cat >"$T/dotslash.sh" <<'EOF'
+#!/bin/sh
+printf './b.sh\t20\n'
+EOF
+chmod +x "$T/dotslash.sh"
+out=$(run --reviewer "$T/dotslash.sh" --model m-1 --seed 7 --classes claim-vs-code 2>&1)
+assert_contains "a ./-prefixed finding path catches its row" "claim-vs-code: 1/1" "$out"
+
+# --- a PR head the remote lacks is a row error, not a stopped replay ---
+mkdir -p "$T/corpus/v5"
+{
+  printf '%s\n' "$HDR"
+  printf 'r0001\t1\t%s\ta.sh\t50\tcorrectness\truntime-tracing\tyes\tmodel\tpresent\t-\n' "$P1"
+  printf 'r0002\t99\t%s\ta.sh\t50\tcorrectness\truntime-tracing\tyes\tmodel\tits PR head is gone\t-\n' "$(printf 'e%.0s' $(seq 1 40))"
+} >"$T/corpus/v5/corpus.tsv"
+"$HARNESS" --corpus "$T/corpus/v5" --remote "$remote" --reviewer "$rev" --model m-1 --seed 7 --out "$T/v5.tsv" >/dev/null 2>&1
+assert_exit "a sampled PR the remote lacks makes the run exit 4, not 2" 4 $?
+if grep -q '^row	r0001	runtime-tracing	caught$' "$T/v5.tsv"; then ok "the other rows still replay"; else fail "a missing PR head stopped the other rows"; fi
+
 # --- usage refusals ---
+run --reviewer-stub "$stub" --model opus >/dev/null 2>&1
+assert_exit "a model alias is refused" 2 $?
 "$HARNESS" --corpus "$corpus_dir" --remote "$remote" --reviewer-stub "$stub" >/dev/null 2>&1
 assert_exit "a replay without --model is refused" 2 $?
-"$HARNESS" --corpus "$T/corpus" --remote "$remote" --reviewer-stub "$stub" --model m >/dev/null 2>&1
+"$HARNESS" --corpus "$T/corpus" --remote "$remote" --reviewer-stub "$stub" --model m-1 >/dev/null 2>&1
 assert_exit "a corpus directory not named v<N> is refused" 2 $?
-run --reviewer-stub "$stub" --model m --classes nonsense >/dev/null 2>&1
+run --reviewer-stub "$stub" --model m-1 --classes nonsense >/dev/null 2>&1
 assert_exit "an unknown class is refused" 2 $?
 
 if [ "$failures" -ne 0 ]; then

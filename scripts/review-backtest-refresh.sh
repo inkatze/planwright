@@ -57,8 +57,11 @@
 # shape this script writes with --dump-history:
 #   {"repo": "<owner>/<name>", "prs": [{"number", "author", "merged_at", "body",
 #     "reviews": [{"author", "bot", "submitted_at"}],
-#     "threads": [{"path", "line", "commit", "author", "bot", "body",
-#                  "replies": [{"author", "body"}]}]}]}
+#     "truncated", "threads": [{"path", "line", "side", "commit", "author",
+#                  "bot", "body", "replies": [{"author", "body"}]}]}]}
+# A thread on the base side of the diff (side LEFT) points at a line HEAD no
+# longer has, so it is skipped with the malformed locations; a PR whose
+# threads or comments exceeded the fetch's page is counted as truncated.
 # Every PR number must be a positive integer, or the run is refused. A dump
 # holds raw review text and logins: keep it outside the repository.
 # --fetch-only stops after the fetch and the dump, writing no corpus and
@@ -197,8 +200,8 @@ fetch_history() {
       nodes {
         number mergedAt body author { login }
         reviews(first: 60) { nodes { author { login __typename } submittedAt } }
-        reviewThreads(first: 100) { nodes { path originalLine
-          comments(first: 40) { nodes { author { login __typename } body originalCommit { oid } } } } }
+        reviewThreads(first: 100) { totalCount nodes { path originalLine diffSide
+          comments(first: 40) { totalCount nodes { author { login __typename } body originalCommit { oid } } } } }
       }
     }
   }
@@ -210,9 +213,11 @@ fetch_history() {
     { repo: $repo,
       prs: [ .[].data.repository.pullRequests.nodes[] | {
         number, author: who, merged_at: .mergedAt, body: (.body // ""),
+        truncated: ((.reviewThreads.totalCount // 0) > (.reviewThreads.nodes | length)
+          or any(.reviewThreads.nodes[]; (.comments.totalCount // 0) > (.comments.nodes | length))),
         reviews: [ .reviews.nodes[] | { author: who, bot: (.author.__typename == "Bot"), submitted_at: .submittedAt } ],
         threads: [ .reviewThreads.nodes[] | select((.comments.nodes | length) > 0) | {
-          path, line: .originalLine,
+          path, line: .originalLine, side: (.diffSide // "RIGHT"),
           commit: (.comments.nodes[0].originalCommit.oid // null),
           author: (.comments.nodes[0] | who),
           bot: (.comments.nodes[0].author.__typename == "Bot"),
@@ -248,6 +253,7 @@ jq -c "$RBT_JQ_DEFS"'
     if ($l | test("^\\s*(#{1,6}\\s|\\*\\*[^*]+\\*\\*:?\\s*$)")) then .in = ($l | test("declin"; "i"))
     elif .in then .out += [$l] else . end) | .out;
   def wellformed: (.commit | type == "string" and test("^[0-9a-f]{40}$"))
+    and ((.side // "RIGHT") != "LEFT")
     and (.line | type == "number" and . == floor and . >= 1)
     and (.path | type == "string" and length > 0 and (test("^[/~-]") | not)
          and (test("(^|/)\\.\\.(/|$)") | not) and (test("[^ -~]") | not));
@@ -259,7 +265,13 @@ jq -c "$RBT_JQ_DEFS"'
         | [ $dl[] | select($base != "" and index($base)) | .[0:300] ][0:5]),
       ok: wellformed }
 ' "$tmp/history.json" >"$tmp/cand-all.jsonl" || die 2 "could not read the PR history"
-jq -c 'select(.ok) | del(.ok) | .key = "\(.pr):\(.path):\(.line):\(.commit)"' "$tmp/cand-all.jsonl" >"$tmp/cand.jsonl"
+jq -c 'select(.ok) | del(.ok) | .key = "\(.pr):\(.path):\(.line):\(.commit)"' "$tmp/cand-all.jsonl" >"$tmp/cand-dup.jsonl"
+# Two reviewers flagging one line of one commit are one finding to replay; the
+# first thread stands for both.
+jq -c -s 'reduce .[] as $c ({seen: {}, out: []}; if .seen[$c.key] then . else .seen[$c.key] = true | .out += [$c] end) | .out[]' \
+  "$tmp/cand-dup.jsonl" >"$tmp/cand.jsonl"
+duplicates=$(($(wc -l <"$tmp/cand-dup.jsonl") - $(wc -l <"$tmp/cand.jsonl")))
+truncated=$(jq '[.prs[] | select(.truncated == true)] | length' "$tmp/history.json")
 malformed_loc=$(jq -c 'select(.ok | not)' "$tmp/cand-all.jsonl" | wc -l | tr -d ' ')
 jq -c '[ .prs[] | .author, (.reviews[]?.author), (.threads[]? | .author, (.replies[]?.author)) ]
   | map(select(type == "string") | ascii_downcase | sub("\\[bot\\]$"; "") | select(length >= 3 and . != "ghost")) | unique' \
@@ -448,6 +460,10 @@ printf '%s\n' "  dropped verbatim: $(count verbatim)"
 printf '%s\n' "  dropped naming a login: $(count login)"
 printf '%s\n' "  dropped by screen: $screened"
 printf '%s\n' "  skipped malformed location: $malformed_loc"
+printf '%s\n' "  merged duplicate threads: $duplicates"
+if [ "$truncated" -gt 0 ]; then
+  printf '%s\n' "$prog: warning: $truncated PR(s) had more threads or comments than one fetch page holds; their extra findings are missing" >&2
+fi
 if [ "$malformed_miss" -gt 0 ]; then
   printf '%s\n' "$prog: warning: $malformed_miss malformed review-miss fragment(s) ignored (grammar: review-miss(<lens>, <reason>): #<pr> <path>: ...)" >&2
 fi

@@ -13,7 +13,8 @@
 #
 # The session reads historical, untrusted content, so it gets read-only file
 # tools and nothing else: no shell (even read-only git can write a file through
-# --output), no MCP servers, no settings files (restricted mode), and no
+# --output), no MCP servers, no settings files (restricted mode), no CLAUDE.md
+# or other customization (safe mode), no saved session, and no
 # permission prompts that an auto mode could approve. It reads the diff
 # review-backtest.sh wrote (BACKTEST_DIFF), the copy (its working directory),
 # and the planwright checkout. A declined row's coordinator ledger
@@ -75,7 +76,7 @@ trap '[ -z "$cpid" ] || kill "$cpid" 2>/dev/null; exit 130' INT
 "$claude_bin" -p "$prompt" --model "$BACKTEST_MODEL" \
   --output-format json --max-turns "$max_turns" \
   --tools 'Read,Grep,Glob' --allowedTools 'Read' 'Grep' 'Glob' \
-  --permission-mode dontAsk --strict-mcp-config --restricted \
+  --permission-mode dontAsk --strict-mcp-config --restricted --safe-mode --no-session-persistence \
   --add-dir "$root" --add-dir "$rowdir" </dev/null >"$outf" 2>/dev/null &
 cpid=$!
 crc=0

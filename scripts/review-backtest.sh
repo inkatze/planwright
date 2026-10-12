@@ -59,8 +59,10 @@
 # must equal this run's, or the comparison is refused (exit 3) and the baseline
 # must be re-run; its seed and cap are reused, and a different --seed or --cap
 # is refused, since a failed gate is never re-rolled. A baseline whose seed,
-# cap, or class counts are malformed is refused. The run exits 1 when any
-# targeted class catches fewer sampled rows than the baseline did.
+# cap, class counts, or rows are malformed, or that holds an error row, is
+# refused. The run exits 1 when any targeted class catches fewer sampled rows
+# than the baseline did; a targeted class the baseline has no line for is
+# named on stderr and not compared, since there is nothing to fall below.
 #
 # THE RESULT (--out) is tab-separated key lines: `review-backtest 1`, `corpus`,
 # `model`, `seed`, `cap`, `plugin_commit`, `classes`, `excluded_unreplayable`,
@@ -144,6 +146,8 @@ done
 [ -n "$model" ] || die 2 "--model is required: a recall figure means nothing without the model that produced it"
 case $model in
   *[!A-Za-z0-9._:-]*) die 2 "--model may hold only letters, digits, and . _ : -" ;;
+  *[0-9]*) ;;
+  *) die 2 "--model must be the full model id, never an alias a later model could answer to" ;;
 esac
 corpus=${corpus%/}
 version=${corpus##*/}
@@ -242,7 +246,9 @@ pids=
 # directory they work in is removed.
 trap 'rm -rf "$tmp"' EXIT
 # shellcheck disable=SC2086 # pids is a list of integers
-trap '[ -z "$pids" ] || kill $pids 2>/dev/null; exit 130' INT TERM
+trap '[ -z "$pids" ] || { kill $pids 2>/dev/null; wait; }; exit 130' INT
+# shellcheck disable=SC2086 # pids is a list of integers
+trap '[ -z "$pids" ] || { kill $pids 2>/dev/null; wait; }; exit 143' TERM
 
 excluded=$(awk -F '\t' 'NR > 1 && $8 == "no"' "$corpus/corpus.tsv" | wc -l | tr -d ' ')
 replayable=$(awk -F '\t' 'NR > 1 && $8 == "yes"' "$corpus/corpus.tsv" | wc -l | tr -d ' ')
@@ -278,13 +284,19 @@ if [ -z "$stub" ]; then
   git init -q --bare "$mirror"
   # A clone then checks out main whatever the host's init.defaultBranch is.
   git -C "$mirror" symbolic-ref HEAD refs/heads/main
-  refspecs="+refs/heads/main:refs/heads/main"
+  git -C "$mirror" fetch -q --no-tags "$remote" "+refs/heads/main:refs/heads/main" \
+    || die 2 "could not fetch main from the remote"
+  # A PR head the remote no longer has leaves its rows to fail their checkout
+  # as error rows rather than stopping the whole replay.
+  git ls-remote "$remote" 'refs/pull/*/head' >"$tmp/heads.txt" 2>/dev/null || die 2 "git ls-remote failed against the remote"
   cut -f2 "$tmp/sample.tsv" | sort -un >"$tmp/prs.txt"
-  while IFS= read -r n; do
-    refspecs="$refspecs +refs/pull/$n/head:refs/backtest/pr/$n"
-  done <"$tmp/prs.txt"
-  # shellcheck disable=SC2086 # refspecs are built from integers and fixed text
-  git -C "$mirror" fetch -q --no-tags "$remote" $refspecs || die 2 "could not fetch main and the sampled PR heads from the remote"
+  refspecs=$(awk -F '\t' 'FILENAME == ARGV[1] { want[$1] = 1; next }
+    { n = $2; sub(/^refs\/pull\//, "", n); sub(/\/head$/, "", n); if (n in want) printf "+refs/pull/%s/head:refs/backtest/pr/%s ", n, n }' \
+    "$tmp/prs.txt" "$tmp/heads.txt")
+  if [ -n "$refspecs" ]; then
+    # shellcheck disable=SC2086 # refspecs are built from integers and fixed text
+    git -C "$mirror" fetch -q --no-tags "$remote" $refspecs || die 2 "could not fetch the sampled PR heads from the remote"
+  fi
 fi
 
 # --- replay -------------------------------------------------------------------
@@ -349,7 +361,7 @@ replay_row() {
       printf '%s\t%s\terror\t%s\n' "$id" "$class" "$tokens"
       return 0
     fi
-    awk -F '\t' 'BEGIN { OFS = "\t" } $2 ~ /^[1-9][0-9]*$/ { print $1, $2 }' "$rdir/findings.raw" >"$rdir/findings.tsv"
+    awk -F '\t' 'BEGIN { OFS = "\t" } $2 ~ /^[1-9][0-9]*$/ { p = $1; sub(/^\.\//, "", p); print p, $2 }' "$rdir/findings.raw" >"$rdir/findings.tsv"
   fi
   verdict=$(awk -F '\t' -v p="$path" -v l="$line" -v k="$RBT_CATCH_LINES" '
     $1 == p { d = $2 - l; if (d < 0) d = -d; if (d <= k) hit = 1 }

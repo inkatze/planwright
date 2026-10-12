@@ -82,10 +82,11 @@ missed this defect, one of:
 $reason_lines"
 
 # The input is untrusted review text: the call gets no tools, no MCP servers,
-# no settings files (restricted mode), and no permission prompt an auto mode
-# could approve.
+# no settings files (restricted mode), no CLAUDE.md or other customization
+# (safe mode), no saved session holding the raw text, and no permission prompt
+# an auto mode could approve.
 set -- --output-format json --max-turns 1 --tools '' --permission-mode dontAsk \
-  --strict-mcp-config --restricted
+  --strict-mcp-config --restricted --safe-mode --no-session-persistence
 [ -z "${PLANWRIGHT_BACKTEST_MODEL:-}" ] || set -- "$@" --model "$PLANWRIGHT_BACKTEST_MODEL"
 # In the background so a TERM sent to this script ends the call too.
 outf=$(mktemp "${TMPDIR:-/tmp}/rbt-annotate.XXXXXX")

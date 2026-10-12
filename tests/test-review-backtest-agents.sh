@@ -61,10 +61,15 @@ argv=$(cat "$T/argv")
 assert_contains "the session gets read-only file tools only" "Read,Grep,Glob" "$argv"
 assert_contains "the session never prompts for a permission" "dontAsk" "$argv"
 assert_contains "the session runs restricted" "--restricted" "$argv"
+assert_contains "the session loads no CLAUDE.md or customization" "--safe-mode" "$argv"
+assert_contains "the session is not saved to disk" "--no-session-persistence" "$argv"
 assert_contains "the session loads no MCP servers" "--strict-mcp-config" "$argv"
 assert_lacks "the session is never handed a shell" "Bash" "$argv"
 assert_contains "the prompt names the diff file" "$T/row/change.diff" "$argv"
 
+printf 'status\tpath\tline\treason\ndeclined\ta.sh\t3\twas judged fine\n' >"$T/row/ledger.tsv"
+(cd "$T/row/copy" && BACKTEST_LEDGER="$T/row/ledger.tsv" "$REVIEWER" >/dev/null 2>&1)
+assert_contains "a declined row's ledger reaches the session's prompt" "$T/row/ledger.tsv" "$(cat "$T/argv")"
 export STUB_REPLY='{"is_error":true,"result":"API Error: rate limited"}'
 (cd "$T/row/copy" && "$REVIEWER" >/dev/null 2>&1)
 assert_exit "an error result is a failure, never zero findings" 1 $?
@@ -83,6 +88,8 @@ assert_lacks "drops the chatter around it" "here you go" "$out"
 argv=$(cat "$T/argv")
 if printf '%s\n' "$argv" | awk 'prev == "--tools" && $0 == "" { found = 1 } { prev = $0 } END { exit !found }'; then ok "the annotator's call has no tools"; else fail "the annotator's call was given tools"; fi
 assert_contains "the annotator's call runs restricted" "--restricted" "$argv"
+assert_contains "the annotator's call runs in safe mode" "--safe-mode" "$argv"
+assert_contains "the annotator's call keeps no raw text on disk" "--no-session-persistence" "$argv"
 assert_contains "the prompt offers every class but declined" "spec-conflict:" "$argv"
 assert_lacks "the prompt never offers declined as a class" "  declined:" "$argv"
 export STUB_REPLY='{"is_error":true,"result":"API Error"}'

@@ -22,7 +22,8 @@
 # Of the bot-reviewed PRs in the window (a review or thread by a bot account,
 # the population the baselines measured), the share with a fixed bot finding:
 # a bot's thread the author answered with a fix reply (review-backtest-lib.sh's
-# predicate), or a `review-miss` ledger entry naming the PR. Also reported:
+# predicate), or a `review-miss` ledger entry naming the PR (one for a path a
+# fixed bot thread already counts is not counted again). Also reported:
 # the median fixed findings and bot review rounds per such PR. Malformed
 # ledger fragments are counted on stderr, never read.
 #
@@ -33,7 +34,8 @@
 # Usage:
 #   review-cost.sh [--transcripts <dir>]... [--events <file>]...
 #       [--history <file>] [--ledger-dir <dir>]... [--baselines <file>]
-#       [--prs-from <N>] [--merged-after <YYYY-MM-DD>] [--min-window <N>]
+#       [--prs-from <N>] [--prs-to <N>] [--merged-after <YYYY-MM-DD>]
+#       [--min-window <N>]
 #
 #   --transcripts  a Claude Code project directory (<session>.jsonl files and
 #                  <session>/subagents/); default every project directory of
@@ -44,7 +46,9 @@
 #                  writes; default a fresh fetch through it
 #   --ledger-dir   repeatable; default the observation entries and archive
 #                  under the spec root (a drained miss is still a miss)
-#   --merged-after PRs merged on or after this date (UTC)
+#   --merged-after PRs merged, and convergence runs started, on or after this
+#                  date (UTC)
+#   --prs-to       the last PR number in the window (default: no bound)
 #   --baselines    default tests/fixtures/review-backtest/baselines.tsv
 #
 # Exit codes: 0 report printed; 2 usage or an unreadable input.
@@ -63,7 +67,7 @@ usage() {
   cat >&2 <<EOF
 usage: $prog [--transcripts <dir>]... [--events <file>]... [--history <file>]
          [--ledger-dir <dir>]... [--baselines <file>] [--prs-from <N>]
-         [--merged-after <YYYY-MM-DD>] [--min-window <N>]
+         [--prs-to <N>] [--merged-after <YYYY-MM-DD>] [--min-window <N>]
 EOF
   exit 2
 }
@@ -81,11 +85,12 @@ history=
 : >"$tmp/ldirs"
 baselines=$repo_root/tests/fixtures/review-backtest/baselines.tsv
 prs_from=1
+prs_to=0
 merged_after=
 min_window=15
 while [ $# -gt 0 ]; do
   case $1 in
-    --transcripts | --events | --history | --ledger-dir | --baselines | --prs-from | --merged-after | --min-window)
+    --transcripts | --events | --history | --ledger-dir | --baselines | --prs-from | --prs-to | --merged-after | --min-window)
       [ $# -ge 2 ] || usage
       case $1 in
         --transcripts) printf '%s\n' "$2" >>"$tmp/tdirs" ;;
@@ -94,6 +99,7 @@ while [ $# -gt 0 ]; do
         --ledger-dir) printf '%s\n' "$2" >>"$tmp/ldirs" ;;
         --baselines) baselines=$2 ;;
         --prs-from) prs_from=$2 ;;
+        --prs-to) prs_to=$2 ;;
         --merged-after) merged_after=$2 ;;
         --min-window) min_window=$2 ;;
       esac
@@ -103,6 +109,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 rbt_is_uint "$prs_from" || die 2 "--prs-from must be a positive integer"
+[ "$prs_to" = 0 ] || rbt_is_uint "$prs_to" || die 2 "--prs-to must be a positive integer"
 rbt_is_uint "$min_window" || die 2 "--min-window must be a positive integer"
 case $merged_after in
   '' | [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
@@ -202,6 +209,12 @@ median='{ v[NR] = $1 } END {
   m = (NR % 2) ? v[(NR + 1) / 2] : (v[NR / 2] + v[NR / 2 + 1]) / 2
   print m
 }'
+# --merged-after windows the runs too: a run counts when it started that day
+# or later, so both halves of the bar read the same window.
+if [ -n "$merged_after" ]; then
+  awk -F '\t' -v a="$merged_after" '$2 >= a' "$tmp/runs.tsv" >"$tmp/runs.win"
+  mv "$tmp/runs.win" "$tmp/runs.tsv"
+fi
 runs=$(wc -l <"$tmp/runs.tsv" | tr -d ' ')
 med_tokens=$(cut -f4 "$tmp/runs.tsv" | sort -n | awk "$median")
 med_share=$(awk -F '\t' '
@@ -226,16 +239,17 @@ rbt_read_ledger "$tmp/ledger.tsv" "$@"
 if [ "$RBT_LEDGER_MALFORMED" -gt 0 ]; then
   printf '%s\n' "$prog: warning: $RBT_LEDGER_MALFORMED malformed review-miss fragment(s) ignored" >&2
 fi
-jq -R -s -c '[split("\n")[] | select(length > 0) | split("\t")[0] | tonumber]' "$tmp/ledger.tsv" >"$tmp/ledger.json"
+jq -R -s -c '[split("\n")[] | select(length > 0) | split("\t") | {pr: (.[0] | tonumber), path: .[1]}]' "$tmp/ledger.tsv" >"$tmp/ledger.json"
 
-jq -r --slurpfile led "$tmp/ledger.json" --argjson from "$prs_from" --arg after "$merged_after" "$RBT_JQ_DEFS"'
-  [ .prs[] | select(.number >= $from) | select($after == "" or ((.merged_at // "") >= $after))
+jq -r --slurpfile led "$tmp/ledger.json" --argjson from "$prs_from" --argjson to "$prs_to" --arg after "$merged_after" "$RBT_JQ_DEFS"'
+  [ .prs[] | select(.number >= $from and ($to == 0 or .number <= $to)) | select($after == "" or ((.merged_at // "") >= $after))
     | . as $p
     | { n: .number, ext: rbt_bot_reviewed,
-        fixed: (([.threads[]? | select(.bot == true and rbt_fixed_external($p.author))] | length)
-                + ([$led[0][] | select(. == $p.number)] | length)),
+        fixed: ([.threads[]? | select(.bot == true and rbt_fixed_external($p.author)) | .path] as $ft
+                | ($ft | length)
+                  + ([$led[0][] | select(.pr == $p.number and (.path as $q | $ft | index([$q]) | not))] | length)),
         rounds: ([.reviews[]? | select(.bot == true)] | length),
-        ledger: ([$led[0][] | select(. == $p.number)] | length) } ] as $w
+        ledger: ([$led[0][] | select(.pr == $p.number)] | length) } ] as $w
   | ($w | map(select(.ext))) as $ext
   | ($ext | map(select(.fixed > 0))) as $hit
   | [($w | length), ($ext | length), ($hit | length), ($w | map(.ledger) | add // 0),

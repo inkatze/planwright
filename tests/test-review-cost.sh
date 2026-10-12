@@ -88,6 +88,7 @@ mkdir -p "$T/archive"
 printf '%s\n' "- 2026-10-05 [planwright] review-miss(correctness, bogus): #11 b.sh: a reason outside the vocabulary" >"$ledger/2026-10-05-review-miss-0000bbbb.md"
 printf '%s\n' "- 2026-10-05 [planwright] review-miss(correctness, runtime-tracing): #13 b.sh: a fix the pass missed" >"$T/archive/2026-10-05-review-miss-0000aaaa.md"
 cp "$T/archive/2026-10-05-review-miss-0000aaaa.md" "$ledger/"
+printf '%s\n' "- 2026-10-05 [planwright] review-miss(correctness, runtime-tracing): #10 a.sh: the same fix a bot thread already records" >"$ledger/2026-10-05-review-miss-0000dddd.md"
 # An unreadable fragment counts as malformed; root reads it anyway, so the
 # case only exists for an ordinary user.
 unreadable=0
@@ -115,10 +116,15 @@ assert_contains "an archived ledger entry counts, one with a bad reason does not
 assert_contains "computes the finding rate" "post-convergence finding rate: 0.667" "$out"
 assert_contains "computes the median fixed findings" "fixed findings per such PR (median): 1.5" "$out"
 assert_contains "computes the median review rounds" "review rounds per such PR (median): 1.5" "$out"
-assert_contains "counts the miss-ledger entries" "miss-ledger entries in window: 1" "$out"
+assert_contains "counts the miss-ledger entries" "miss-ledger entries in window: 2" "$out"
 assert_contains "warns about the malformed and any unreadable ledger fragment" "warning: $((1 + unreadable)) malformed review-miss" "$out"
 assert_contains "refuses a verdict on a window under the closeout minimum" "verdict: window too small (3 < 15)" "$out"
 
+out=$(run --prs-from 10 --prs-to 11 2>&1)
+assert_contains "--prs-to closes the PR window" "bot-reviewed PRs: 2" "$out"
+out=$(run --merged-after 2026-10-02 2>&1)
+assert_contains "--merged-after windows the PRs" "post-convergence finding rate: 0.500" "$out"
+assert_contains "--merged-after windows the runs" "convergence runs: 1" "$out"
 out=$(run --prs-from 11 2>&1)
 assert_contains "the PR window narrows the rate" "post-convergence finding rate: 0.500" "$out"
 

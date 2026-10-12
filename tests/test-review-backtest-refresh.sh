@@ -74,6 +74,9 @@ history() {
   "reviews":[{"author":"helper-bot","bot":true,"submitted_at":"2026-09-01T00:00:00Z"}],
   "threads":[
    {"path":"a.sh","line":1,"commit":"$A","author":"helper-bot","bot":true,"body":"the loop never exits on error","replies":[{"author":"owner","body":"Fixed in abc1234"}]},
+   {"path":"a.sh","line":1,"commit":"$A","author":"other-bot","bot":true,"body":"the same line again","replies":[{"author":"owner","body":"Fixed in abc1234"}]},
+   {"path":"l.sh","line":3,"side":"LEFT","commit":"$A","author":"helper-bot","bot":true,"body":"on a deleted line","replies":[{"author":"owner","body":"Fixed in abc1234"}]},
+   {"path":"a.sh","line":7,"commit":"$A","author":"helper-bot","bot":true,"body":"a declined one","replies":[{"author":"owner","body":"Addressed: this is a false positive, declining."}]},
    {"path":"lib/c.sh","line":9,"commit":"$A","author":"helper-bot","bot":true,"body":"a sibling site keeps the bug","replies":[{"author":"owner","body":"Addressed in def5678"}]},
    {"path":"a.sh","line":3,"commit":"$A","author":"helper-bot","bot":true,"body":"style nit nobody fixed","replies":[{"author":"owner","body":"Declined: by design"}]},
    {"path":"a.sh","line":5,"commit":"$A","author":"owner","bot":false,"body":"note to self","replies":[{"author":"owner","body":"Fixed in 1234567"}]}
@@ -102,7 +105,7 @@ history() {
   "threads":[
    {"path":"f.sh","line":12,"commit":"$A","author":"helper-bot","bot":true,"body":"GNU-only flag","replies":[{"author":"owner","body":"Fixed in 3333333"}]}
   ]},
- {"number":5,"author":"owner","merged_at":"2026-09-05T00:00:00Z","body":"",
+ {"number":5,"author":"owner","merged_at":"2026-09-05T00:00:00Z","body":"","truncated":true,
   "reviews":[],
   "threads":[
    {"path":"g.sh","line":1,"commit":"$C","author":"helper-bot","bot":true,"body":"an unrelated-history finding","replies":[{"author":"owner","body":"Fixed in 4444444"}]}
@@ -199,7 +202,11 @@ assert_lacks "no reviewer login reaches the corpus" "helper-bot" "$(cat "$c1")"
 assert_contains "reports the fallback count (a.sh, b.sh, g.sh, k.sh, h3.sh, bs.sh)" "fallback other: 6" "$out"
 assert_contains "reports the unreplayable count (b.sh, g.sh, and three rows on a PR with no head ref)" "unreplayable: 5" "$out"
 assert_contains "reports the verbatim drops, a short comment copied whole included" "dropped verbatim: 2" "$out"
-assert_contains "a path outside printable ASCII is skipped" "skipped malformed location: 1" "$out"
+assert_contains "a path outside printable ASCII and a base-side thread are skipped" "skipped malformed location: 2" "$out"
+assert_contains "two threads on one line of one commit are one row" "merged duplicate threads: 1" "$out"
+if [ "$(awk -F '\t' '$2 == 7 && $4 == "a.sh" && $5 == 1' "$c1" | wc -l | tr -d ' ')" -eq 1 ]; then ok "the duplicate thread writes a single row"; else fail "the duplicate thread wrote two rows"; fi
+assert_lacks "a reply that declines is not a fix, whatever its first word" "	a.sh	7	" "$(cat "$c1")"
+assert_contains "warns about a PR whose threads overflowed the fetch page" "warning: 1 PR(s) had more threads" "$out"
 assert_contains "a non-string gist and a substring category are each dropped, not fatal" "dropped unannotated: 2" "$out"
 assert_contains "a gist naming a login from the history is dropped" "dropped naming a login: 1" "$out"
 assert_lacks "the login-naming gist never reaches the corpus" "i.sh" "$(cat "$c1")"
