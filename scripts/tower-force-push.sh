@@ -306,6 +306,7 @@ push() {
   not_a_force_or_refuse "$TO" "$LEASE"
   local drops legacy landed_note=''
   drops=$(dropped "$LEASE" "$TO")
+  [ -n "$drops" ] || broken "no dropped commit could be listed; nothing was pushed"
   legacy=$(legacy_changes "$LEASE" "$TO")
   [ -n "$TO" ] || usage "push has no commit to push"
   if ! git push --quiet --force-with-lease="refs/heads/$BRANCH:$LEASE" --force-if-includes \
@@ -388,9 +389,13 @@ reword() {
       parents="$parents -p ${np:-$p}"
     done
     if [ "$c" = "$COMMIT" ]; then
-      cp "$MSG_FILE" "$work/msg"
+      cp "$MSG_FILE" "$work/msg" || broken "the message file could not be read"
     else
-      git cat-file commit "$c" | sed '1,/^$/d' >"$work/msg"
+      # Read to a file first: in a pipe, a failed read would replay the commit
+      # with an empty message.
+      git cat-file commit "$c" >"$work/raw" \
+        || broken "reading $(printf '%s' "$c" | cut -c1-7) failed"
+      sed '1,/^$/d' "$work/raw" >"$work/msg"
     fi
     # shellcheck disable=SC2086 # $parents is a list of -p <oid> pairs
     new=$(
