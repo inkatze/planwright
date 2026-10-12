@@ -156,7 +156,7 @@ assumption with a risk tag and a threshold.
 - **confidence-floor** (powers: override, halt): the segment or the competitive alternative
   rests on opinion-grade evidence or weaker, while the option built on it is proposed as the
   lead.
-- **contract-policy-change** (powers: halt, reverse): an option would change a commitment the
+- **contract-policy-change** (powers: halt, override): an option would change a commitment the
   venture or its parent already holds with customers or partners, such as narrowing a served
   segment or dropping a promised use.
 
