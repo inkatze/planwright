@@ -43,12 +43,17 @@
 #   undo        `gh pr ready --undo` and the MCP ready->draft transition: deny,
 #               the corrective helper being the only sanctioned re-draft.
 #   pr-merge    `gh pr merge`: deny; the merge helper is the only agent path.
-#   merge-helper  running scripts/merge-admitted.sh, by any path, directly or
-#               as a shell's script argument. tower: deny. worker:
+#   merge-helper  running scripts/merge-admitted.sh: a command word, or a
+#               shell's script argument, naming its `merge-ad` stem (a glob or
+#               expansion included), or a shell whose script is an expansion
+#               or stdin in a command naming the stem. tower: deny. worker:
 #               merge_policy (policy-class defers; the helper evaluates the
 #               class and re-reads the policy itself). Its own gh calls run
 #               below this hook, so the invocation is what the guard sees; a
-#               wrapper or an unanalyzable command naming it denies.
+#               wrapper or an unanalyzable command naming it denies. A renamed
+#               copy or a link under another name is the accepted residual.
+#               An agent's own `--for-merge` (scripts/ready-flip.sh's flag for
+#               the helper's flip) denies at every tier with no read.
 #   base-merge  `git merge`, `git pull` in merge mode. tower: deny. worker:
 #               worker_base_merge, then the current branch must be the session's
 #               unit branch outside the protected set and every source the PR
@@ -152,14 +157,16 @@ RE_GIT_ACT="${RE_GIT_HEAD}(merge|pull|rebase|push)([^[:alnum:]_-]|\$)"
 RE_GIT_REWRITE="${RE_GIT_HEAD}commit([[:space:]].*)?[[:space:]]--(am|sq|fix)"
 # A substitution after `git commit` could produce --amend at run time.
 RE_GIT_COMMIT_SUBST="${RE_GIT_HEAD}"'commit([^[:alnum:]_-].*)?(\$\(|`)'
-RE_MERGE_HELPER='(^|[^[:alnum:]_.-])merge-admitted\.sh([^[:alnum:]_.-]|$)'
+RE_MERGE_HELPER='(^|[^[:alnum:]_.-])merge-ad'
+RE_FOR_MERGE='(^|[[:space:]])--for-merge([[:space:]=]|$)'
 
 raw_evidence_one() {
   local t=$1 rc=1
   # Case-insensitive: a case-insensitive filesystem runs `git REBASE`.
   shopt -s nocasematch
   if [[ $t =~ $RE_GH_API ]] || [[ $t =~ $RE_GH_PR ]] || [[ $t =~ $RE_GIT_ACT ]] \
-    || [[ $t =~ $RE_GIT_REWRITE ]] || [[ $t =~ $RE_GIT_COMMIT_SUBST ]] || [[ $t =~ $RE_MERGE_HELPER ]]; then
+    || [[ $t =~ $RE_GIT_REWRITE ]] || [[ $t =~ $RE_GIT_COMMIT_SUBST ]] || [[ $t =~ $RE_MERGE_HELPER ]] \
+    || [[ $t =~ $RE_FOR_MERGE ]]; then
     rc=0
   fi
   shopt -u nocasematch
@@ -1008,8 +1015,9 @@ classify_segments() {
       # The command word is an expansion, so what runs cannot be read: only a
       # variable root followed by a literal script path is let through, and
       # even that not when a reserved subcommand follows.
-      case $verb in
-        */merge-admitted.sh) queue_merge_helper "$eff" "$eff_ok" ;;
+      lc "$verb"
+      case $LC in
+        *merge-ad*) queue_merge_helper "$eff" "$eff_ok" ;;
       esac
       [[ $verb =~ $RE_ROOTED_SCRIPT ]] \
         || deny_now "this command's name is an expansion the guard cannot read ($(sanitize_printable "$verb" 'unprintable')), so it could be git or gh - refusing (fail closed). Write the command name literally, or as \"\$ROOT/path/to/script\"."
@@ -1024,14 +1032,31 @@ classify_segments() {
       raw_evidence "$cur_text" \
         && deny_now "this command runs through a wrapper whose options the guard does not read, and its text names a reserved act - refusing (fail closed). Issue the command directly."
     else
-      local helper=0
+      local helper=0 a1
+      case " ${SW[*]} " in
+        *' --for-merge '* | *' --for-merge='*)
+          deny_now 'the --for-merge flag of scripts/ready-flip.sh is the merge helper'"'"'s own flip of a PR its class admitted; no agent session issues it. Run scripts/merge-admitted.sh under merge_policy: policy-class, or leave the PR for the operator.'
+          ;;
+      esac
+      lc "$verb"
+      case $LC in *merge-ad*) helper=1 ;; esac
       case $base_verb in
-        merge-admitted.sh) helper=1 ;;
         bash | sh | zsh | dash | ksh | mksh)
           # A shell running the helper as its script, the plain form the
           # plugin-script convention allows; any option first is a wrapper.
-          case ${SW[1]:-} in
-            */merge-admitted.sh | merge-admitted.sh) [ "${SWL[1]}" != 1 ] || helper=1 ;;
+          # A script argument that is an expansion, or none (stdin), counts
+          # as the helper when the command names its stem anywhere.
+          a1=${SW[1]:-}
+          lc "$a1"
+          case $LC in
+            -*) ;;
+            *merge-ad*) helper=1 ;;
+            *)
+              if [ -z "$a1" ] || [ "${SWL[1]}" != 1 ]; then
+                lc "$P_CMD"
+                case $LC in *merge-ad*) helper=1 ;; esac
+              fi
+              ;;
           esac
           ;;
       esac
@@ -2773,7 +2798,7 @@ handle_bash() {
   local bare=${cmd//[\"\'\\]/} hit=0
   shopt -s nocasematch
   case $bare in
-    *git* | *gh* | *merge-admitted*) hit=1 ;;
+    *git* | *gh* | *merge-ad* | *--for-merge*) hit=1 ;;
     *'$'* | *'`'*)
       case $bare in
         *merge* | *pull* | *rebase* | *push* | *commit* | *ready* | *api*) hit=1 ;;

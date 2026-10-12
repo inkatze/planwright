@@ -38,6 +38,13 @@ pr-merge         worker merge_policy=human        n/a    defer  defer  n/a    de
 pr-merge         worker merge_policy=on-approval  n/a    defer  defer  n/a    deny   deny   n/a    gh pr merge 42
 pr-merge         worker merge_policy=on-approval  n/a    defer  defer  n/a    deny   deny   n/a    gh pr merge --auto --squash 42
 pr-merge         worker merge_policy=policy-class n/a    defer  defer  n/a    deny   deny   n/a    gh pr merge 42
+pr-merge         worker merge_policy=policy-class n/a    defer  defer  n/a    deny   deny   n/a    gh pr merge 42 --squash --delete-branch
+pr-merge         worker merge_policy=on-approval  n/a    defer  defer  n/a    deny   prompt n/a    gh api -X PUT repos/acme/widgets/pulls/42/merge
+pr-merge         worker merge_policy=policy-class n/a    defer  defer  n/a    deny   prompt n/a    gh api -X PUT repos/acme/widgets/pulls/42/merge
+pr-merge         worker merge_policy=on-approval  n/a    defer  defer  n/a    deny   prompt n/a    gh api graphql -f query='mutation{enablePullRequestAutoMerge(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+pr-merge         worker merge_policy=policy-class n/a    defer  defer  n/a    deny   prompt n/a    gh api graphql -f query='mutation{mergePullRequest(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+pr-merge         worker merge_policy=policy-class n/a    defer  defer  n/a    deny   prompt n/a    gh api graphql -f query='mutation{enqueuePullRequest(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+pr-merge         any    merge_policy=policy-class n/a    n/a    n/a    n/a    n/a    deny   deny   mcp__github__merge_pull_request
 
 # The merge helper: under policy-class a worker may run it (it evaluates the
 # class and re-reads the policy itself); under every other value, and at the

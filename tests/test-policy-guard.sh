@@ -121,6 +121,34 @@ pg worker "x=\$(echo 1) && $REAL_SCRIPTS/merge-admitted.sh"
 expect deny "[worker] an unanalyzable command naming the helper is refused"
 pg worker "grep -n merge_policy $REAL_SCRIPTS/merge-admitted.sh"
 expect defer "[worker] reading the helper's text is not running it"
+set_knobs 'merge_policy: policy-class'
+# shellcheck disable=SC2016 # the unexpanded forms are the spellings under test
+pg worker 'bash "$ROOT/scripts/merge-admitted.sh" --spec specs/demo --task 1'
+expect defer "[worker] policy-class: a shell running the variable-rooted helper is read as the helper"
+# shellcheck disable=SC2016
+for spell in 'bash scripts/merge-admit*.sh --spec specs/demo --task 1' \
+  'X=sh; bash $R/merge-admitted.$X --spec specs/demo --task 1' \
+  'f=$R/merge-admitted.sh; bash $f --spec specs/demo --task 1' \
+  'bash < scripts/merge-admitted.sh' \
+  'scripts/merge-admi??ed.sh --spec specs/demo --task 1'; do
+  pg tower "$spell"
+  expect deny "[tower] policy-class: an obfuscated helper spelling is refused: $spell"
+done
+set_knobs 'merge_policy: human'
+pg worker 'bash scripts/merge-admit*.sh --spec specs/demo --task 1'
+expect deny "[worker] human: a globbed helper spelling is read as the helper and refused"
+for tier in worker tower; do
+  for v in human policy-class; do
+    set_knobs "merge_policy: $v" 'ready_flip_policy: unit-owner'
+    pg "$tier" "$REAL_SCRIPTS/ready-flip.sh flip --for-merge --spec specs/demo --task 1"
+    expect deny "[$tier] $v: an agent's own ready-flip --for-merge is refused (only the merge helper issues it)"
+    pg "$tier" "bash $REAL_SCRIPTS/ready-flip.sh evaluate --for-merge --spec specs/demo --task 1"
+    expect deny "[$tier] $v: an agent's own ready-flip evaluate --for-merge is refused"
+  done
+done
+set_knobs 'ready_flip_policy: unit-owner'
+pg worker "$REAL_SCRIPTS/ready-flip.sh flip --spec specs/demo --task 1"
+expect defer "[worker] a plain ready-flip run is not the merge helper's act"
 set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: allow' 'unpushed_rewrite: allow'
 
 echo "# the MCP flip surface"

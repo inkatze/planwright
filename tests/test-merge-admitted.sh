@@ -253,6 +253,7 @@ admit
 mp_policy 'merge_policy: policy-class' 'merge_class_max_lines: 100' 'merge_class_exclude_paths: docs/*'
 mp_commit 'docs: a page' 'docs/@team <!--x.md' x
 run
+# shellcheck disable=SC2016 # literal backticks of the markdown code span
 check "an evidence cell is a code span, so a path cannot mention a team" grep -q '`[^`]*@team[^`]*`' "$GHS/comment.1"
 check "an evidence cell cannot open an HTML comment" not grep -q '^[^`]*<!--x' <(grep '^| excluded-paths' "$GHS/comment.1")
 
