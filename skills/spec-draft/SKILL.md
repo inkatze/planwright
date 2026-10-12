@@ -80,16 +80,17 @@ Doctrine: point-of-use decision-domains (the design-phase catalog walk)
    When the feature name is not already a conforming identifier, propose a
    conforming kebab-case variant and ask; nothing non-conforming is ever
    interpolated. No name given: elicit the idea first (seed gathering
-   below) and propose a name from it. When `--extend <spec>` is present,
+   below) and propose a name from it. Resolve `<root>` and its posture per
+   `docs/spec-location.md`; outside `same-repo`, its table governs
+   `<root>/<spec>`, the git steps and walkthrough suggestion below. When
+   `--extend <spec>` is present,
    additionally
    verify the target: `<root>/<spec>/requirements.md` must exist and its
    Status must be non-terminal. A nonexistent target gets a clear message
    listing the specs that do exist; a Retired or Superseded target is
    refused per the extend-mode terminal rule, up front rather than after
    elicitation starts.
-2. **Detect the git state.** Resolve `<root>` and its posture per
-   `docs/spec-location.md`; outside `same-repo`, its table governs
-   `<root>/<spec>`, the git steps and walkthrough suggestion below. Not a git repository: degrade
+2. **Detect the git state.** Not a git repository: degrade
    per REQ-K1.7 — say so up front, elicit and write the bundle in place, and
    skip every branch/worktree/commit step below, surfacing at the end what
    was skipped and why. No remote configured: irrelevant here; note it only
