@@ -730,7 +730,29 @@ is_trusted_script() {
   case ${1##*/} in
     [Tt][Oo][Ww][Ee][Rr]-[Ff][Oo][Rr][Cc][Ee]-[Pp][Uu][Ss][Hh].[Ss][Hh]) return 1 ;;
   esac
+  is_force_push_file "$1" "$2" && return 1
   is_repo_script "$1" "$2" || is_planwright_script "$1" "$2"
+}
+
+# is_force_push_file <path> <cwd>: 0 when <path> is the same file as the repo's
+# or a trusted root's force-push helper under another name (a hardlink).
+is_force_push_file() {
+  local f=$1 root
+  case $f in
+    /*) ;;
+    *) f="$2/$f" ;;
+  esac
+  [ -e "$f" ] || return 1
+  if root=$(repo_root_of "$2") && [ "$f" -ef "$root/scripts/tower-force-push.sh" ]; then
+    return 0
+  fi
+  cache_roots
+  while IFS= read -r root; do
+    [ -n "$root" ] && [ "$f" -ef "$root/scripts/tower-force-push.sh" ] && return 0
+  done <<EOF
+$PW_ROOTS
+EOF
+  return 1
 }
 
 # is_contained_file <path> <cwd>: 0 when <path> canonicalizes inside the repo
