@@ -207,8 +207,8 @@
 #       later commit's `Planwright-Sign-Off-Rejected: <id>` trailer
 #       (`git revert -m 1 <sha7>` for a legacy one, which no trailer can name);
 #       for a merge whose body carries `Base-merge resolution: <paths>` (the
-#       sync's `resolve` commit), a flag line naming the paths, then a re-run
-#       of the sync under `halt` whose hand resolution carries that trailer
+#       sync's `resolve` commit), a flag line naming the paths, then the
+#       policy set to `halt` and a hand resolution carrying that trailer
 # An empty checklist renders `- none`. A <base> or <head> that does not
 # resolve, or a range git cannot read, fails by name.
 #
@@ -1061,7 +1061,7 @@ cmd_regenerate() {
         # revert would restore the conflict.
         if (merge[i] && (i in res) && eid[a] != "legacy") {
           printf "  - Base-merge resolution: %s; the agent resolved these conflicts, so review the resolution\n", safe(res[i])
-          printf "  - Reject with: re-run `scripts/converge-sync-main.sh` under `worker_merge_conflict_policy: halt` and land the hand resolution in a commit carrying `Planwright-Sign-Off-Rejected: %s`, never a revert\n", eid[a]
+          printf "  - Reject with: set `worker_merge_conflict_policy: halt`, so a re-run of `scripts/converge-sync-main.sh` parks instead of resolving, and land your own resolution of those paths in a commit carrying `Planwright-Sign-Off-Rejected: %s`, never a revert\n", eid[a]
         }
         else if (shared[i] != "" && !merge[i]) printf "  - Reject with: a commit undoing its part, carrying `Planwright-Sign-Off-Rejected: %s`\n", eid[a]
         else if (merge[i] && eid[a] != "legacy") printf "  - Reject with: a later commit carrying `Planwright-Sign-Off-Rejected: %s`\n", eid[a]

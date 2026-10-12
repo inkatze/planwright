@@ -130,16 +130,36 @@ r2() {
     *) fail "r2: the resolve record does not name the conflicting path: $OUT" ;;
   esac
   [ -z "$(rec "$OUT" park)" ] || fail "r2: a resolve exit wrote a park record: $OUT"
+  before=$(gitc "$T/worker" rev-parse HEAD)
+
+  # A retry finds the merge it left and answers the same, rather than parking.
+  run_sync "$T/worker"
+  [ "$RC" -eq 8 ] && [ -n "$(rec "$OUT" resolve)" ] && [ -z "$(rec "$OUT" park)" ] \
+    || fail "r2: a retry over the left merge should re-emit the resolve record, got $RC: $OUT"
 
   # Refused while a conflict stands, and nothing is committed.
   run_sync --commit-resolution demo/1 "$T/worker"
   [ "$RC" -eq 11 ] || fail "r2: committing with an unresolved path should exit 11, got $RC: $ERR"
   case $ERR in *shared.txt*) ;; *) fail "r2: the refusal does not name the unresolved path: $ERR" ;; esac
+  [ "$(gitc "$T/worker" rev-parse HEAD)" = "$before" ] \
+    && [ -n "$(gitc "$T/worker" rev-parse -q --verify MERGE_HEAD)" ] \
+    || fail "r2: a refused resolution moved the head or ended the merge"
 
   # Refused when a staged file still carries conflict markers.
   gitc "$T/worker" add shared.txt
   run_sync --commit-resolution demo/1 "$T/worker"
   [ "$RC" -eq 11 ] || fail "r2: committing leftover conflict markers should exit 11, got $RC: $ERR"
+  case $ERR in *"conflict marker"*) ;; *) fail "r2: the refusal does not name the marker: $ERR" ;; esac
+
+  # Refused when the index carries a change outside the conflicted paths.
+  printf 'resolved\n' >"$T/worker/shared.txt"
+  printf 'smuggled\n' >"$T/worker/extra.sh"
+  gitc "$T/worker" add shared.txt extra.sh
+  run_sync --commit-resolution demo/1 "$T/worker"
+  [ "$RC" -eq 11 ] || fail "r2: a staged change outside the conflict should exit 11, got $RC: $ERR"
+  gitc "$T/worker" rm -q --cached extra.sh
+  rm -f "$T/worker/extra.sh"
+  [ "$(gitc "$T/worker" rev-parse HEAD)" = "$before" ] || fail "r2: a refused resolution moved the head"
 
   printf 'resolved\n' >"$T/worker/shared.txt"
   gitc "$T/worker" add shared.txt
@@ -188,6 +208,22 @@ r3() {
   [ "$RC" -eq 11 ] || fail "r3: a merge the sync did not leave should exit 11, got $RC: $ERR"
   [ -n "$(gitc "$T/worker" rev-parse -q --verify MERGE_HEAD)" ] \
     || fail "r3: the refusal disturbed the worker's merge"
+  gitc "$T/worker" merge --abort
+
+  # A record forged for a merge of something other than the base is refused.
+  gitc "$T/worker" checkout -q -b side HEAD~1
+  printf 'side\n' >"$T/worker/shared.txt"
+  gitc "$T/worker" commit -q -am "side edits shared.txt"
+  gitc "$T/worker" checkout -q planwright/demo/task-1
+  gitc "$T/worker" merge -q side >/dev/null 2>&1 || true
+  st=$(gitc "$T/worker" rev-parse --path-format=absolute --git-path planwright-sync-resolve)
+  printf '%s\nshared.txt\n' "$(gitc "$T/worker" rev-parse MERGE_HEAD)" >"$st"
+  printf 'resolved\n' >"$T/worker/shared.txt"
+  gitc "$T/worker" add shared.txt
+  run_sync --commit-resolution demo/1 "$T/worker"
+  [ "$RC" -eq 11 ] || fail "r3: a forged record for a non-base merge should exit 11, got $RC: $ERR"
+  case $ERR in *"does not merge origin/main"*) ;; *) fail "r3: the refusal does not name the non-base source: $ERR" ;; esac
+  rm -f "$st"
 
   # A policy turned back to halt refuses the commit too.
   gitc "$T/worker" merge --abort
@@ -244,15 +280,16 @@ STUB
   [ -z "$(rec "$OUT" park)" ] || fail "r4: a failed abort wrote a park record: $OUT"
   [ "$(rec "$OUT" repair)" = abort-failed ] || fail "r4: a failed abort printed no repair record: $OUT"
   case $(rec_text "$OUT" repair) in
-    *"by hand"*) ;;
+    *"hand repair"*) ;;
     *) fail "r4: the repair record does not name hand repair: $OUT" ;;
   esac
   echo "ok r4: each failure exit parks naming its class, and a failed abort names hand repair instead"
 }
 
 # ---------------------------------------------------------------------------
-# REQ-E1.1: worker_base_merge: deny skips the merge; a malformed repo-tracked
-# value refuses it and parks.
+# REQ-E1.1: worker_base_merge: deny skips the merge, but never reports a merge
+# left in progress as synced, and refuses to commit one; a malformed value in
+# the repo-tracked layer's file refuses the sync and parks.
 # ---------------------------------------------------------------------------
 r5() {
   fixture r5
@@ -263,6 +300,20 @@ r5() {
   [ "$RC" -eq 0 ] && [ "$(rec "$OUT" sync)" = denied ] \
     || fail "r5: worker_base_merge: deny should skip with sync=denied, got $RC: $OUT $ERR"
   [ "$(gitc "$T/worker" rev-parse HEAD)" = "$before" ] || fail "r5: a denied sync moved the head"
+
+  advance_main shared.txt "main side"
+  set_knobs 'worker_merge_conflict_policy: resolve'
+  run_sync "$T/worker"
+  [ "$RC" -eq 8 ] || fail "r5: expected exit 8 under resolve, got $RC: $ERR"
+  printf 'resolved\n' >"$T/worker/shared.txt"
+  gitc "$T/worker" add shared.txt
+  set_knobs 'worker_merge_conflict_policy: resolve' 'worker_base_merge: deny'
+  run_sync "$T/worker"
+  [ "$RC" -eq 3 ] && [ "$(rec "$OUT" park)" = dirty-tree ] \
+    || fail "r5: deny over a merge in progress should park dirty-tree, got $RC: $OUT"
+  run_sync --commit-resolution demo/1 "$T/worker"
+  [ "$RC" -eq 11 ] || fail "r5: a resolution under deny should exit 11, got $RC: $ERR"
+  gitc "$T/worker" merge --abort
 
   set_knobs
   mkdir -p "$T/worker/.claude"
@@ -296,21 +347,69 @@ r6() {
   [ "$RC" -eq 10 ] || fail "r6: a sync into another unit's worktree should exit 10, got $RC: $ERR"
   [ "$(gitc "$T/sibling" rev-parse HEAD)" = "$before" ] || fail "r6: a refused sync moved the sibling"
 
+  # A Bash command carries no CLAUDE_PROJECT_DIR: the caller's own directory
+  # names the session's branch.
   RC=0
-  CLAUDE_PROJECT_DIR="$T/worker" "$SYNC" "$T/worker" >/dev/null 2>&1 || RC=$?
-  [ "$RC" -eq 0 ] || fail "r6: a sync in the session's own worktree should succeed, got $RC"
+  ERR=$(cd "$T/worker" && "$SYNC" "$T/sibling" 2>&1 >/dev/null) || RC=$?
+  [ "$RC" -eq 10 ] || fail "r6: a sync from the worker's directory into the sibling should exit 10, got $RC: $ERR"
+  [ "$(gitc "$T/sibling" rev-parse HEAD)" = "$before" ] || fail "r6: a refused sync moved the sibling"
+
+  for b in planwright/demo/spec scratch; do
+    gitc "$T/worker" checkout -q -b "$b" planwright/demo/task-1
+    run_sync "$T/worker"
+    [ "$RC" -eq 10 ] || fail "r6: a sync on $b should exit 10, got $RC: $ERR"
+    gitc "$T/worker" checkout -q planwright/demo/task-1
+  done
+  gitc "$T/worker" checkout -q --detach
+  run_sync "$T/worker"
+  [ "$RC" -eq 10 ] || fail "r6: a sync on a detached HEAD should exit 10, got $RC: $ERR"
+  gitc "$T/worker" checkout -q planwright/demo/task-1
+
+  # Run by a relative path from another directory, the siblings still resolve.
+  RC=0
+  (cd "$here/.." && CLAUDE_PROJECT_DIR="$T/worker" scripts/converge-sync-main.sh "$T/worker" >/dev/null 2>&1) || RC=$?
+  [ "$RC" -eq 0 ] || fail "r6: a sync in the session's own worktree, run by a relative path, should succeed, got $RC"
   echo "ok r6: a sync off the session's unit branch is refused"
 }
 
 # ---------------------------------------------------------------------------
-# Wiring: /execute-task routes the park, repair, and resolve records.
+# REQ-E1.2: a conflicted name git would quote still has its markers checked;
+# a malformed task ref is a usage error.
+# ---------------------------------------------------------------------------
+r7() {
+  fixture r7
+  set_knobs 'worker_merge_conflict_policy: resolve'
+  name=$(printf 'caf\303\251.txt')
+  printf 'base\n' >"$T/seed/$name"
+  gitc "$T/seed" add -A
+  gitc "$T/seed" commit -q -m "add $name"
+  gitc "$T/seed" push -q origin main
+  gitc "$T/worker" pull -q --no-rebase origin main 2>/dev/null
+  printf 'worker\n' >"$T/worker/$name"
+  gitc "$T/worker" commit -q -am "worker edits $name"
+  advance_main "$name" "main side"
+  run_sync "$T/worker"
+  [ "$RC" -eq 8 ] || fail "r7: expected exit 8, got $RC: $ERR"
+  gitc "$T/worker" add -A
+  run_sync --commit-resolution demo/1 "$T/worker"
+  [ "$RC" -eq 11 ] || fail "r7: markers left in a non-ASCII path should exit 11, got $RC: $ERR"
+
+  run_sync --commit-resolution 'Not A Ref' "$T/worker"
+  [ "$RC" -eq 2 ] || fail "r7: a malformed task ref should exit 2, got $RC: $ERR"
+  echo "ok r7: a non-ASCII conflicted path keeps its marker check, and a bad task ref is a usage error"
+}
+
+# ---------------------------------------------------------------------------
+# Wiring: /execute-task halts on a non-zero sync exit, parks a park record's
+# text, and defers to a resolve or repair record's.
 # ---------------------------------------------------------------------------
 w1() {
-  flat=$(tr '\n' ' ' <"$SKILL")
+  flat=$(tr '\n' ' ' <"$SKILL" | tr -s ' ')
   # shellcheck disable=SC2016 # literal backticks of the skill's markdown
-  for want in '`park`' '`repair`' '`resolve`'; do
-    case $flat in *"$want"*) ;; *) fail "w1: SKILL.md does not route the sync's $want record" ;; esac
-  done
+  case $flat in
+    *'converge-sync-main.sh`; a non-zero exit halts the unit, parking a `park` record'"'"'s text; a `resolve` or `repair` record'"'"'s text overrides.'*) ;;
+    *) fail "w1: SKILL.md no longer routes the sync's exits and records" ;;
+  esac
   echo "ok w1: /execute-task routes the sync's park, repair, and resolve outcomes"
 }
 
@@ -320,6 +419,7 @@ r3
 r4
 r5
 r6
+r7
 w1
 
 echo "PASS: test-converge-sync-resolve.sh"

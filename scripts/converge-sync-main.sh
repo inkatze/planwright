@@ -43,30 +43,36 @@
 #
 # POLICY (human-gates D-7; REQ-E1.1, REQ-E1.2). The script is a spelling of
 # the base-merge act the policy guard governs on `git merge` and `git pull`,
-# which the guard cannot see inside a script, so it applies the same rules
-# itself: the knobs are read from the repository's primary checkout (a
-# worker's edit to its own overlay governs nothing until it merges), a branch
-# in the protected set or one that is not the session's (CLAUDE_PROJECT_DIR's
-# branch, when that directory belongs to the same repository) is refused, and
-# `worker_base_merge: deny` skips the merge, the operator syncing instead.
-# Being behind the base is not itself a reason to halt a unit, so the skip is
-# a success. `worker_merge_conflict_policy` decides a conflict: `halt` aborts
-# as below; `resolve` leaves the conflicted merge for the worker, and
-# `--commit-resolution` then commits it stamped with the sign-off trailer and a
-# `Base-merge resolution:` body line the checklist renders as the PR-body flag.
-# Only the merge this script left, still under `resolve`, is committed: the
-# fetched commit is recorded in the git dir and must still be MERGE_HEAD.
+# which the guard cannot see inside a script, so it makes these checks itself:
+# the knobs are read from the repository's primary checkout (a worker's edit to
+# its own overlay governs nothing until it merges); the target must be on a
+# unit branch outside the protected set; and that branch must be the session's
+# (the branch at CLAUDE_PROJECT_DIR, else at the caller's own directory, when
+# that directory belongs to the same repository). Unlike the guard, which
+# takes the remote's default branch as the base, the source stays the literal
+# `origin main` (see the fetch below). `worker_base_merge: deny` skips the
+# merge, the operator syncing instead; being behind the base is not itself a
+# reason to halt a unit, so the skip is a success. `worker_merge_conflict_policy`
+# decides a conflict: `halt` aborts as below; `resolve` leaves the conflicted
+# merge for the worker, and `--commit-resolution` then commits it stamped with
+# the sign-off trailer and a `Base-merge resolution:` body line the checklist
+# renders as the PR-body flag. Only the merge this script left is committed,
+# while both knobs still allow it, and only with conflicted paths changed: the
+# fetched commit and the index's other merged entries are recorded in the git
+# dir at the conflict and checked again at the commit.
 #
 # Usage: converge-sync-main.sh [<repo-dir>]      (default: the current directory)
 #        converge-sync-main.sh --commit-resolution <spec>/<id>
 #          [--commit-resolution <spec>/<id> ...] [<repo-dir>]
 #
-# Output: tagged TSV records on stdout:
+# Output: tagged TSV records on stdout, the message last and meant for a
+# human:
 #   sync<TAB><up-to-date|fast-forward|merged|denied><TAB><head-sha>
 #   park<TAB><reason><TAB><message>     the unit parks under Awaiting input
 #                                       with this message (exits 3-6, 9)
 #   repair<TAB>abort-failed<TAB><msg>   no park: the tree needs hand repair
-#   resolve<TAB><target-sha><TAB><paths> the conflict is left for the worker
+#   resolve<TAB><target-sha><TAB><msg>  the conflict is left for the worker;
+#                                       the message names the paths and step
 #   resolution<TAB><head-sha><TAB><PS-id>
 # Failures also print `converge-sync-main: <reason>: <message>` on stderr.
 #
@@ -90,11 +96,12 @@
 #      the worker to resolve and commit with --commit-resolution
 #   9  policy-unreadable — a knob or the protected set could not be read; no
 #      fetch is attempted
-#   10 off-branch — a detached HEAD, a protected branch, or a branch that is
-#      not the session's unit branch; nothing is touched
+#   10 off-branch — a detached HEAD, a branch that is not a unit branch or is
+#      protected, or one that is not the session's; nothing is touched
 #   11 resolution-refused — --commit-resolution with no resolve-mode merge of
-#      this script's in progress, the policy no longer `resolve`, an unmerged
-#      path, or a leftover conflict marker; nothing is committed
+#      this script's in progress, either knob no longer allowing it, an
+#      unmerged path, a leftover conflict marker, or a staged change outside
+#      the conflicted paths; nothing is committed
 #   12 resolution-failed — stamping or committing the resolution failed; the
 #      merge is left in progress
 #
@@ -144,13 +151,13 @@ scrub() {
 
 USAGE='usage: converge-sync-main.sh [--commit-resolution <spec>/<id> ...] [<repo-dir>]'
 mode=sync
-refs=()
+task_refs=()
 while [ "$#" -gt 0 ]; do
   case $1 in
     --commit-resolution)
       [ "$#" -ge 2 ] || die 2 usage "--commit-resolution needs a <spec>/<id>; $USAGE"
       mode=commit
-      refs[${#refs[@]}]=$2
+      task_refs[${#task_refs[@]}]=$2
       shift 2
       ;;
     --)
@@ -192,13 +199,18 @@ inside=$(git -C "$repo" rev-parse --is-inside-work-tree 2>/dev/null || true)
 
 # --- policy: the branch and the knobs, before anything is fetched -----------
 
-case $0 in
-  */*) script_dir=${0%/*} ;;
-  *) script_dir=. ;;
-esac
+# Absolute, because the siblings run after a `cd` into another checkout, where
+# a relative path would name that checkout's copies.
+script_dir=$(cd -- "$(dirname -- "$0")" 2>/dev/null && pwd -P) \
+  || die 2 environment "the directory holding this script could not be resolved"
 for sib in resolve-policy-knob.sh protected-branch.sh planwright-commit-trailers.sh; do
   [ -f "$script_dir/$sib" ] && [ -r "$script_dir/$sib" ] \
     || die 2 environment "$sib is missing beside this script (broken install)"
+done
+
+for ref in ${task_refs[@]+"${task_refs[@]}"}; do
+  printf '%s\n' "$ref" | grep -Eq '^(specs/)?[a-z0-9][a-z0-9-]{0,63}/[0-9]+(\.[0-9]+)?$' \
+    || die 2 usage "--commit-resolution takes <spec>/<id>, and this one is malformed; $USAGE"
 done
 
 common_dir() { # <dir> — the absolute git common dir, or empty
@@ -225,10 +237,29 @@ read_knob() {
   park 9 policy-unreadable "the policy knob $k resolved to a value this script does not recognize; set it to one of: $*"
 }
 
+# path_list <names> — newline-separated names as one scrubbed line ending in a
+# space, ten at most.
+path_list() {
+  local n
+  n=$(printf '%s\n' "$1" | grep -c . || true)
+  printf '%s\n' "$1" | head -10 | tr '\n' ' ' | scrub
+  [ "$n" -le 10 ] || printf '(and %s more) ' "$((n - 10))"
+}
+
+# The unit-branch grammar the policy guard admits.
+is_unit_branch() {
+  local re_task='^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$'
+  local re_flight='^planwright/flight/[a-z0-9][a-z0-9-]*-[0-9a-f]{8}$'
+  case $1 in planwright/flight/task-*) return 1 ;; esac
+  [[ $1 =~ $re_task ]] || [[ $1 =~ $re_flight ]]
+}
+
 branch=$(git -C "$repo" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
 [ -n "$branch" ] \
   || die 10 off-branch "no branch is checked out (a detached HEAD), so there is no unit branch to sync"
 branch_shown=$(printf '%s' "$branch" | scrub)
+is_unit_branch "$branch" \
+  || die 10 off-branch "$branch_shown is not a unit branch (planwright/<spec>/task-<id> or planwright/flight/<id>); the sync merges only into one"
 prc=0
 (cd -- "$policy_root" && PLANWRIGHT_REPO_ROOT=$policy_root /bin/sh "$script_dir/protected-branch.sh" "$branch" </dev/null >/dev/null 2>&1) || prc=$?
 case $prc in
@@ -236,44 +267,70 @@ case $prc in
   1) die 10 off-branch "$branch_shown is in the protected set; an agent session merges only into its own unit branch" ;;
   *) park 9 policy-unreadable "the protected set could not be read (exit $prc), so the base sync does not run" ;;
 esac
-# The session's unit branch is the one its project directory has checked out.
-# A project directory in another repository says nothing about this one.
-pdir=${CLAUDE_PROJECT_DIR:-}
-if [ -n "$pdir" ] && [ -d "$pdir" ] && [ "$(common_dir "$pdir")" = "$common" ]; then
+# The session's unit branch is the one its project directory has checked out:
+# CLAUDE_PROJECT_DIR where the caller has it (hooks do; a Bash tool command
+# does not), else the caller's own directory. A directory in another
+# repository says nothing about this one.
+pdir=${CLAUDE_PROJECT_DIR:-$PWD}
+if [ -d "$pdir" ] && [ "$(common_dir "$pdir")" = "$common" ]; then
   pbranch=$(git -C "$pdir" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
   [ "$pbranch" = "$branch" ] \
     || die 10 off-branch "$branch_shown is not this session's unit branch ($(printf '%s' "${pbranch:-none}" | scrub)); run the sync in your own worktree"
 fi
 
+# The resolve record: the fetched commit's sha, then the conflicted names; and
+# beside it the index's merged entries outside them, as the conflict left
+# them, so the resolution commit can carry nothing else.
 resolve_state=$(git -C "$repo" rev-parse --path-format=absolute --git-path planwright-sync-resolve 2>/dev/null || true)
 [ -n "$resolve_state" ] || die 2 environment "the git dir of $repo_shown could not be read"
+
+# merged_entries <names-file> — the index's stage-0 entries outside the names
+# the file lists after its first line.
+merged_entries() {
+  git -C "$repo" -c core.quotePath=false ls-files -s 2>/dev/null \
+    | awk -F '\t' -v st="$1" '
+      BEGIN { while ((getline l < st) > 0) if (++i > 1) skip[l] = 1 }
+      { split($1, a, " "); if (a[3] == 0 && !($2 in skip)) print }'
+}
 
 # --- --commit-resolution: commit the merge a resolve-mode sync left ---------
 
 if [ "$mode" = commit ]; then
   git -C "$repo" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 && [ -f "$resolve_state" ] \
     || die 11 resolution-refused "no merge left by a resolve-mode sync is in progress; run the sync first"
-  want=$(sed -n 1p "$resolve_state")
-  [ "$(git -C "$repo" rev-parse -q --verify MERGE_HEAD 2>/dev/null)" = "$want" ] \
+  merge_target=$(sed -n 1p "$resolve_state")
+  [ "$(git -C "$repo" rev-parse -q --verify MERGE_HEAD 2>/dev/null)" = "$merge_target" ] \
     || die 11 resolution-refused "the merge in progress is not the one the resolve-mode sync left; abort it and re-run the sync"
+  git -C "$repo" merge-base --is-ancestor "$merge_target" refs/remotes/origin/main 2>/dev/null \
+    || die 11 resolution-refused "the merge in progress does not merge origin/main; abort it and re-run the sync"
+  read_knob worker_base_merge allow deny
+  [ "$KNOB" = allow ] \
+    || die 11 resolution-refused "worker_base_merge is deny, so the resolution is not committed; abort the merge (git merge --abort), and the operator syncs this branch"
   read_knob worker_merge_conflict_policy halt resolve
   [ "$KNOB" = resolve ] \
     || die 11 resolution-refused "worker_merge_conflict_policy is $KNOB, so the resolution is not committed; abort the merge (git merge --abort) and re-run the sync"
-  unmerged=$(git -C "$repo" diff --name-only --diff-filter=U 2>/dev/null)
+  unmerged=$(git -C "$repo" -c core.quotePath=false diff --name-only --diff-filter=U 2>/dev/null)
   [ -z "$unmerged" ] \
-    || die 11 resolution-refused "unresolved paths remain: $(printf '%s\n' "$unmerged" | head -10 | tr '\n' ' ' | scrub)— resolve and stage them first"
+    || die 11 resolution-refused "unresolved paths remain: $(path_list "$unmerged")— resolve and stage them first"
+  names=$(sed 1d "$resolve_state")
+  # git still quotes a name holding a quote, backslash, or control byte, and
+  # a quoted name cannot be passed back as a pathspec.
+  if printf '%s\n' "$names" | grep -q '^"'; then
+    die 11 resolution-refused "a conflicted path name needs quoting, which this script does not check; commit the resolution by hand and name it in the handoff"
+  fi
   rpaths=()
   while IFS= read -r p; do
     [ -n "$p" ] && rpaths[${#rpaths[@]}]=$p
   done <<EOF
-$(sed 1d "$resolve_state")
+$names
 EOF
   if [ "${#rpaths[@]}" -gt 0 ] \
-    && git -C "$repo" diff --cached --check -- "${rpaths[@]}" 2>/dev/null | grep -q 'leftover conflict marker'; then
+    && git -C "$repo" --literal-pathspecs diff --cached --check -- "${rpaths[@]}" 2>/dev/null | grep -q 'leftover conflict marker'; then
     die 11 resolution-refused "a resolved path still carries a conflict marker; finish the resolution and stage it"
   fi
-  shown=$(printf '%s\n' ${rpaths[@]+"${rpaths[@]}"} | head -10 | tr '\n' ' ' | scrub)
-  [ "${#rpaths[@]}" -le 10 ] || shown="$shown(and $((${#rpaths[@]} - 10)) more) "
+  merged_entries "$resolve_state" | cmp -s - "$resolve_state.index" \
+    || die 11 resolution-refused "the index changes paths outside the conflicted ones, which a resolution commit may not carry; unstage those changes (they belong in their own commit after the merge)"
+  shown=$(path_list "$names")
   msg=$(mktemp) || die 12 resolution-failed "a scratch file could not be created"
   stamped=$(mktemp) || {
     rm -f "$msg"
@@ -282,7 +339,7 @@ EOF
   printf '%s\n' "Merge origin/main, resolving conflicts" "" \
     "Base-merge resolution: ${shown% }" \
     "Route reason: worker_merge_conflict_policy is resolve, so the agent resolved this base merge's conflicts; the resolution awaits the approval act." >"$msg"
-  if ! (cd -- "$repo" && /bin/sh "$script_dir/planwright-commit-trailers.sh" "${refs[@]}" --base "$want" --sign-off <"$msg" >"$stamped"); then
+  if ! (cd -- "$repo" && /bin/sh "$script_dir/planwright-commit-trailers.sh" "${task_refs[@]}" --base "$merge_target" --sign-off <"$msg" >"$stamped"); then
     rm -f "$msg" "$stamped"
     die 12 resolution-failed "the sign-off trailer could not be stamped; the merge is still in progress"
   fi
@@ -290,7 +347,7 @@ EOF
     rm -f "$msg" "$stamped"
     die 12 resolution-failed "git commit refused the resolution, and the merge is still in progress: $(printf '%s' "$commit_err" | tr '\n' ' ' | scrub)"
   fi
-  rm -f "$msg" "$stamped" "$resolve_state"
+  rm -f "$msg" "$stamped" "$resolve_state" "$resolve_state.index"
   head=$(git -C "$repo" rev-parse HEAD)
   ps=$(git -C "$repo" log -1 --format='%(trailers:key=Planwright-Sign-Off,valueonly)' | tr -d '\n')
   printf 'resolution\t%s\t%s\n' "$head" "$ps"
@@ -298,15 +355,10 @@ EOF
 fi
 
 read_knob worker_base_merge allow deny
-if [ "$KNOB" = deny ]; then
-  printf 'converge-sync-main: note: worker_base_merge is deny, so the base is not merged; the operator syncs this branch\n' >&2
-  printf 'sync\tdenied\t%s\n' "$(git -C "$repo" rev-parse HEAD)"
-  exit 0
-fi
-read_knob worker_merge_conflict_policy halt resolve
-conflict_policy=$KNOB
+base_merge=$KNOB
 # A record whose merge is gone (aborted by hand) describes nothing.
-git -C "$repo" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 || rm -f "$resolve_state"
+git -C "$repo" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 \
+  || rm -f "$resolve_state" "$resolve_state.index"
 
 # ssh prompts on its own channel, which `GIT_TERMINAL_PROMPT` does not reach:
 # an unverified host key or a passphrase-protected key would block the fetch
@@ -397,11 +449,34 @@ unset _ssh_cmd _ssh_bin _ssh_src _ssh_pre _ssh_rest _ssh_ws
 # rediscover that, and never reports a fetch failure for a run it was going to
 # refuse anyway.
 
+# resolve_left <target> <names> — print the resolve record and exit 8.
+resolve_left() {
+  local msg
+  msg="origin/main conflicts with this branch on: $(path_list "$2")— worker_merge_conflict_policy is resolve, so the merge is left in progress: resolve and stage those paths, then run converge-sync-main.sh --commit-resolution <spec>/<id>"
+  printf 'resolve\t%s\t%s\n' "$1" "$msg"
+  die 8 merge-conflict-left "$msg"
+}
+
 for op in MERGE_HEAD REBASE_HEAD CHERRY_PICK_HEAD REVERT_HEAD; do
   if git -C "$repo" rev-parse -q --verify "$op" >/dev/null 2>&1; then
+    # A retry finding the merge this script left under `resolve` gets the
+    # same answer again, not a park.
+    if [ "$op" = MERGE_HEAD ] && [ "$base_merge" = allow ] && [ -f "$resolve_state" ] \
+      && [ "$(git -C "$repo" rev-parse -q --verify MERGE_HEAD 2>/dev/null)" = "$(sed -n 1p "$resolve_state")" ]; then
+      read_knob worker_merge_conflict_policy halt resolve
+      [ "$KNOB" != resolve ] || resolve_left "$(sed -n 1p "$resolve_state")" "$(sed 1d "$resolve_state")"
+    fi
     park 3 dirty-tree "an operation is already in progress ($op exists) — finish or abort it before the sync can merge origin/main"
   fi
 done
+
+if [ "$base_merge" = deny ]; then
+  printf 'converge-sync-main: note: worker_base_merge is deny, so the base is not merged; the operator syncs this branch\n' >&2
+  printf 'sync\tdenied\t%s\n' "$(git -C "$repo" rev-parse HEAD)"
+  exit 0
+fi
+read_knob worker_merge_conflict_policy halt resolve
+conflict_policy=$KNOB
 
 # Untracked files are deliberately excluded: they cannot make a merge ambiguous
 # on paths the merge does not touch, and a worker's scratch output is not a
@@ -455,35 +530,32 @@ merge_err=$(git -C "$repo" -c merge.ff=true merge --no-edit FETCH_HEAD 2>&1 >/de
   # line already deduplicated across the three stages, so a path containing a
   # space survives into the message intact instead of being cut at the first
   # field.
-  unmerged=$(git -C "$repo" diff --name-only --diff-filter=U 2>/dev/null)
+  unmerged=$(git -C "$repo" -c core.quotePath=false diff --name-only --diff-filter=U 2>/dev/null)
+
+  # Under `resolve` a conflict is the worker's to settle, so the merge stays.
+  unrecorded=''
+  if [ "$conflict_policy" = resolve ] && [ -n "$unmerged" ] \
+    && [ "$(git -C "$repo" rev-parse -q --verify MERGE_HEAD 2>/dev/null)" = "$target" ]; then
+    if printf '%s\n%s\n' "$target" "$unmerged" >"$resolve_state" 2>/dev/null \
+      && merged_entries "$resolve_state" >"$resolve_state.index" 2>/dev/null; then
+      resolve_left "$target" "$unmerged"
+    fi
+    rm -f "$resolve_state" "$resolve_state.index"
+    unrecorded=' (worker_merge_conflict_policy is resolve, but the record of the merge could not be written in the git dir, so it was aborted)'
+  fi
 
   # Abort whatever the merge left behind, before reporting. A conflict that is
   # not aborted leaves MERGE_HEAD in place and the NEXT sync fails on the stale
   # merge instead of the real cause (REQ-B1.3).
-  # Under `resolve` a conflict is the worker's to settle, so the merge stays.
-  if [ "$conflict_policy" = resolve ] && [ -n "$unmerged" ] \
-    && [ "$(git -C "$repo" rev-parse -q --verify MERGE_HEAD 2>/dev/null)" = "$target" ]; then
-    if printf '%s\n%s\n' "$target" "$unmerged" >"$resolve_state" 2>/dev/null; then
-      printf 'resolve\t%s\t%s\n' "$target" "$(printf '%s\n' "$unmerged" | tr '\t\n' '  ' | scrub)"
-      die 8 merge-conflict-left "origin/main conflicts with this branch on: $(printf '%s\n' "$unmerged" | head -10 | tr '\n' ' ' | scrub)— worker_merge_conflict_policy is resolve, so the merge is left in progress: resolve and stage those paths, then run converge-sync-main.sh --commit-resolution <spec>/<id>"
-    fi
-    rm -f "$resolve_state"
-  fi
-
   if git -C "$repo" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
     if ! git -C "$repo" merge --abort >/dev/null 2>&1; then
-      printf 'repair\tabort-failed\t%s\n' "the origin/main merge failed and git merge --abort could not undo it; repair the working tree by hand, then resume the unit"
+      printf 'repair\tabort-failed\t%s\n' "no park: the origin/main merge failed and git merge --abort could not undo it; halt, and name this hand repair of the working tree in the handoff"
       die 7 abort-failed "the origin/main merge failed AND git merge --abort could not undo it — the working tree is NOT clean and must be repaired by hand before this unit resumes"
     fi
   fi
 
   if [ -n "$unmerged" ]; then
-    paths=$(printf '%s\n' "$unmerged" | head -10 | tr '\n' ' ' | scrub)
-    more=$(printf '%s\n' "$unmerged" | grep -c '' || true)
-    if [ "$more" -gt 10 ]; then
-      paths="$paths(and $((more - 10)) more) "
-    fi
-    park 5 merge-conflict "origin/main conflicts with this branch on: ${paths}— the merge was aborted and the tree is clean; land origin/main's changes here (or resolve upstream) before convergence resumes"
+    park 5 merge-conflict "origin/main conflicts with this branch on: $(path_list "$unmerged")— the merge was aborted and the tree is clean$unrecorded; land origin/main's changes here (or resolve upstream) before convergence resumes"
   fi
 
   park 6 merge-failed "the origin/main merge was refused for a non-conflict reason: $(printf '%s' "$merge_err" | tr '\n' ' ' | scrub)"

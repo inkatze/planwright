@@ -751,7 +751,7 @@ sync_fixture() {
   gitq "$1/seed" push -q origin main
   git clone -q -c user.name=test -c user.email=test@example.invalid -c commit.gpgsign=false \
     "$1/origin.git" "$1/worker" 2>/dev/null
-  gitq "$1/worker" checkout -q -b task
+  gitq "$1/worker" checkout -q -b planwright/demo/task-1
 }
 
 # advance_main <root> <file> <content> — land a commit on origin/main.
