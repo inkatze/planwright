@@ -65,7 +65,12 @@ quota_ledger_retention_days: 90
 fleet_usage_read_cadence_seconds: 300
 fleet_usage_signal_ttl_seconds: 900
 fleet_usage_session_downshift: 50
+fleet_usage_session_reduce_concurrency: 70
+fleet_usage_session_defer_heavy: 85
 fleet_usage_weekly_downshift: 60
+fleet_usage_weekly_reduce_concurrency: 75
+fleet_usage_weekly_defer_heavy: 85
+fleet_usage_weekly_defer_all: 95
 EOF
 local_cfg="$tmp/local.yml"
 : >"$local_cfg"
@@ -141,6 +146,20 @@ frame 0.2 $((NOW + HOUR)) 7 $((NOW + HOUR)) | cf persist --dir "$w" --now $((NOW
   || fail "persist: the out-of-range window was not dropped: $(cat "$w/ratelimit")"
 pass "persist refuses lines that carry no usable reading and drops a window out of range"
 
+# Whole-number utilizations are what the CLI sends at the extremes, 1 being
+# the limited case.
+frame 0 $((NOW + HOUR)) 1 $((NOW + 86400)) | cf persist --dir "$w" --now $((NOW + 240)) \
+  || fail "persist: whole-number utilizations were refused"
+[ "$(cat "$w/ratelimit")" = "frame${TAB}$((NOW + 240))${TAB}0${TAB}$((NOW + HOUR))${TAB}1${TAB}$((NOW + 86400))${TAB}end" ] \
+  || fail "persist: whole-number utilizations were not stored: $(cat "$w/ratelimit")"
+# The window keys are read inside unifiedWindows only, and by their exact
+# name: a decoy before the object and the overage window ahead of seven_day.
+printf '%s\n' "{\"type\":\"rate_limit_event\",\"decoy\":{\"five_hour\":{\"utilization\":0.99,\"resetsAt\":$((NOW + HOUR))}},\"rate_limit_info\":{\"unifiedWindows\":{\"seven_day_overage_included\":{\"utilization\":0.98,\"resetsAt\":$((NOW + 86400))},\"five_hour\":{\"utilization\":0.11,\"resetsAt\":$((NOW + HOUR))},\"seven_day\":{\"utilization\":0.22,\"resetsAt\":$((NOW + 86400))}}}}" \
+  | cf persist --dir "$w" --now $((NOW + 300)) || fail "persist: the reordered frame was refused"
+[ "$(cat "$w/ratelimit")" = "frame${TAB}$((NOW + 300))${TAB}0.11${TAB}$((NOW + HOUR))${TAB}0.22${TAB}$((NOW + 86400))${TAB}end" ] \
+  || fail "persist: a decoy or the overage window was read as a window: $(cat "$w/ratelimit")"
+pass "persist stores whole-number readings and reads windows by exact name inside unifiedWindows"
+
 ln -s "$tmp/elsewhere" "$home/fleet/streamjson/w2" 2>/dev/null || :
 mkdir -p "$home/fleet/streamjson/w3"
 ln -s "$tmp/planted" "$home/fleet/streamjson/w3/ratelimit"
@@ -169,6 +188,15 @@ win "$out" session | grep -q "^window${TAB}session${TAB}70${TAB}$((NOW + HOUR))$
 win "$out" weekly | grep -q "^window${TAB}weekly${TAB}10${TAB}$((NOW + 3 * 86400))${TAB}$((NOW - 7200))${TAB}60${TAB}below$" \
   || fail "furthest-future: the weekly window did not take the furthest reset: $out"
 pass "a past-reset reading is ignored, and each window takes its furthest-future reset"
+
+# With no live reading to outrank it, a dead worker's past-reset reading
+# leaves its window unmeasured rather than standing in for one.
+new_home stale-alone
+put dead $((NOW - 7200)) 0.05 $((NOW - 60)) 0.10 $((NOW + 3 * 86400))
+out=$(cf read --now "$NOW") || fail "read (stale alone) exited non-zero"
+win "$out" session | grep -q "^window${TAB}session${TAB}-${TAB}-${TAB}-${TAB}50${TAB}unmeasured$" \
+  || fail "staleness: a lone past-reset session reading was used: $out"
+pass "a lone past-reset reading leaves its window unmeasured"
 
 # A reset further out than the throttle's ceiling is not a reading.
 new_home ceiling
@@ -216,6 +244,25 @@ rc=0
 out=$(cf clearance --since "$SINCE" --now "$NOW") || rc=$?
 [ "$rc" = 1 ] || fail "clearance: readings from before the hold cleared it (exit $rc): $out"
 pass "clearance refused on pre-hold readings alone, however low"
+
+new_home same-second
+# A reading received in the second the hold began does not postdate it.
+put a "$SINCE" 0.01 $((NOW + HOUR)) 0.01 $((NOW + 86400))
+rc=0
+out=$(cf clearance --since "$SINCE" --now "$NOW") || rc=$?
+[ "$rc" = 1 ] || fail "clearance: a reading received at the hold's start cleared it: $out"
+win "$out" session | grep -q "${TAB}pre-hold$" || fail "clearance: a reading at the hold's start is not pre-hold: $out"
+pass "clearance refused on a reading received in the hold's first second"
+
+new_home one-window
+# Frames carrying only the session window leave the weekly with no reading.
+put a $((NOW - 60)) 0.10 $((NOW + HOUR)) - -
+rc=0
+out=$(cf clearance --since "$SINCE" --now "$NOW") || rc=$?
+[ "$rc" = 1 ] || fail "clearance: a weekly window with no reading cleared: $out"
+[ "$(verdict "$out")" = held ] || fail "clearance: one unmeasured window is not held: $out"
+win "$out" weekly | grep -q "${TAB}unmeasured$" || fail "clearance: the weekly window is not reported unmeasured: $out"
+pass "clearance refused when a window has no reading at all"
 
 # A threshold the operator set: the session window's descend threshold is its
 # downshift rung.
