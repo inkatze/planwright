@@ -25,7 +25,8 @@ or `/orchestrate`: graduation, like sign-off and merge, is a human act.
 ## Doctrine
 
 Resolve every rule doc through `scripts/resolve-rule-doc.sh <doc-name>` under
-the resolved planwright root; their definitions govern wherever this skill
+the resolved planwright root (`PLANWRIGHT_ROOT` → `CLAUDE_PLUGIN_ROOT` →
+`<claude-dir>/planwright`); their definitions govern wherever this skill
 names a concept. `inception-format` is the normative bundle format every write
 below conforms to; `interaction-style` governs every attended turn. At their
 named steps: seed intake reads `security-posture` (artifact data-hygiene and
@@ -48,10 +49,12 @@ Doctrine: point-of-use proportionality (every skipped prompt)
 
 **The helper.** Everything mechanical runs through
 `scripts/inception-venture.sh`, called by its resolved literal absolute path,
-one plain command per call (`doctrine/plugin-script-invocation.md`). Its
-subcommands print `key<TAB>value` lines; a `degraded` line names a missing
-capability in plain words. Never compose venture paths, git commands, or
-remote creation by hand where a subcommand exists.
+one plain command per call (`doctrine/plugin-script-invocation.md`). Output a
+caller parses is `key<TAB>value` lines; a `degraded` line names a missing
+capability in plain words. Its header lists the exit codes: an exit this skill
+does not name below is relayed in plain words and stops that step. Never
+compose venture paths, git commands, or remote creation by hand where a
+subcommand exists.
 
 ## Modes (inception D-19)
 
@@ -80,8 +83,8 @@ the first question, and repeated in the handoff (REQ-H1.5).
    loses the bundle: it degrades capability and says which.
 2. **Resolve the ventures root.** `inception-venture.sh root` reads
    `ventures_root` through the config layers (default `~/ventures`). A warning
-   it prints is a degradation; exit 4 (a malformed team-shared value) halts,
-   naming the option.
+   it prints is a degradation; any non-zero exit halts, naming the option
+   (exit 4 is a malformed team-shared value).
 3. **Overlap scan.** The venture registry has not shipped, so the
    cross-venture overlap scan is skipped: say so in one line as a degradation
    and proceed (REQ-H1.6). Never block creation on it.
@@ -121,7 +124,8 @@ the first question, and repeated in the handoff (REQ-H1.5).
    holds a bundle, offer to resume it; otherwise offer another name. Never
    overwrite, never adopt silently. Exit 6 means the chosen home is not
    available after all: re-present the home question with that arm marked
-   unavailable (this is the same one question, not a second). The output
+   unavailable (this is the same one question, not a second); exit 7 means
+   the private repository could not be created, so the same applies. The output
    names the rung (`git`, `plain`, `session`); creation scaffolds the hygiene
    guards scaled to it (REQ-A1.9): a `.gitignore`, the pre-commit secret
    screen, bundle validation and export regeneration, and on the remote rung
@@ -131,11 +135,19 @@ the first question, and repeated in the handoff (REQ-H1.5).
    <venture-dir> "Start the <title> venture"` (add `--push` on the remote
    home; `--expert` in expert mode). Unfilled content carries the
    `_Pending: not yet elicited._` marker until its phase replaces it.
+   Every save reads its exit the same way: 1 means the venture's guard
+   stopped it (a credential, say), so relay why and resolve it with the
+   operator before going on; 2 names an environment gap such as no git name
+   and email; 7 on the remote home means saved here but not shared, said
+   plainly.
 
 **Resume arm** (REQ-B1.7).
 
-1. **Gate the version, find the position.** `inception-venture.sh
-   resume-point <venture-dir>`. Exit 3 is the format-version refusal
+1. **Gate the version, find the position.** An identifier argument passes
+   `check-id`, then names `<root>/<id>` under the resolved ventures root.
+   `inception-venture.sh resume-point <venture-dir>`. Exit 2 names an
+   incomplete bundle (a missing file): say which and stop. Exit 3 is the
+   format-version refusal
    (REQ-C1.7): relay its plain-language message, say this planwright cannot
    read that bundle safely, and stop; never parse around it. Otherwise
    `done` names the last completed phase and `next` the one to resume.
@@ -257,7 +269,8 @@ stays `Exploring`. Save (on the remote home with `--push`).
 Run `inception-venture.sh handoff <venture-dir>` and emit at the operator, in
 plain words: where the venture lives and on which home and rung, whether the
 bundle is clean (`pending` means markers remain; `findings` means the
-validator still reports some), where the elicitation stands, and every
+validator still reports some; `incomplete` means a file is missing;
+`refused` or `unchecked` means the validator could not read it), where the elicitation stands, and every
 `degraded` line again. Then the human's next moves, as information rather
 than a verdict: run the validation tasks, resume with
 `/inception <venture-id>`, or, once a track is ready, take it to

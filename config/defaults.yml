@@ -913,6 +913,7 @@ unpushed_rewrite: allow
 protected_branches:
 
 # Where /inception creates venture repositories (inception REQ-A1.3, D-5):
-# an absolute path or a ~/ path. A malformed adopter or machine-local value
-# warns and falls back to ~/ventures; a malformed repo-tracked value fails.
+# an absolute path or a ~/ path. A relative or ~user adopter or machine-local
+# value warns and falls back to ~/ventures (a control byte passes to the next
+# lower layer); a malformed repo-tracked value fails.
 ventures_root: ~/ventures
