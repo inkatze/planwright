@@ -870,6 +870,7 @@ cmd_add_remote() {
     valid_owner "$owner" || die 2 "invalid GitHub owner name"
   fi
   dir=$(cd "$dir" && pwd -P) || exit 2
+  clean_path "$dir" || die 2 "the venture path resolves through a control character; refused"
   name=$(basename "$dir")
   cmd_check_id "$name" || exit 1
   is_repo_root "$dir" || die 6 "this venture has no git history to move; a plain folder cannot gain a remote"

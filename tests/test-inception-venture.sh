@@ -777,6 +777,13 @@ assert_absent "Z5 bundle-init writes nothing there" "$nl_dir/brief.md"
 venture create --home local --root "$tmp/bad$(printf '\nroot')" zeta
 assert_eq "Z5 create refuses a root with a control byte (exit 2)" 2 "$rc"
 assert_absent "Z5 create makes nothing under such a root" "$tmp/bad$(printf '\nroot')"
+# A clean path whose resolved form carries the control byte is refused too.
+git init -q "$nl_dir/linked-venture"
+ln -s "$nl_dir/linked-venture" "$tmp/linked-venture"
+PATH="$stubs/gh-ok:$PATH" venture add-remote "$tmp/linked-venture"
+assert_eq "Z5 add-remote refuses a resolved path with a control byte (exit 2)" 2 "$rc"
+assert_not_contains "Z5 add-remote forges no key line" "$(printf 'rung\tsession')" "$out"
+assert_absent "Z5 add-remote creates no repository for it" "$tmp/remotes/linked-venture.git"
 
 # =========================================================================
 # Z6 — a failed create leaves nothing behind and names what it cannot undo
