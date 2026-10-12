@@ -113,7 +113,7 @@ The repo-side pair shares `<repo>/.claude/` and is distinguished by the
 
 The growable catalogs are **decision-domains** (the catalog behind the
 drift triggers), the builder's **guard catalog**, **steps** (the step
-definitions the attachment points run, §8), and **vendors** (the adapters
+definitions the attachment points run, §8), **vendors** (the adapters
 that recognize a metered service's limit refusals; see
 [Vendor quotas](quota.md)), and **discipline-cards** (the persona-seat card
 catalog; each entry's card file sits beside its layer's catalog, under
