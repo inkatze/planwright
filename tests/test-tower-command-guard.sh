@@ -86,6 +86,7 @@ mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests" "$SANDBOX/sub"
 : >"$SANDBOX/.git" # worktree-style .git file marker
 : >"$SANDBOX/scripts/ok.sh"
 : >"$SANDBOX/scripts/tower-force-push.sh"
+ln -sf tower-force-push.sh "$SANDBOX/scripts/fp-alias.sh"
 : >"$SANDBOX/tests/ok.sh"
 : >"$SANDBOX/tests/ok.bats"
 # Symlinked final components pointing OUTSIDE the repo (containment escape).
@@ -227,6 +228,9 @@ assert_defer "force-push helper, repo push" "scripts/tower-force-push.sh push --
 assert_defer "force-push helper, repo bash-prefixed" "bash scripts/tower-force-push.sh confirm --branch b --to abc"
 assert_defer "force-push helper, plugin push" "$PLUGIN_ROOT/scripts/tower-force-push.sh push --branch b --to abc --lease def"
 assert_defer "force-push helper, plugin purge" "$PLUGIN_ROOT/scripts/tower-force-push.sh purge --path x"
+assert_defer "force-push helper through a symlink alias" "scripts/fp-alias.sh push --branch b --to abc --lease def"
+# A case-insensitive filesystem (macOS) runs the helper under any casing.
+assert_defer "force-push helper in another casing" "scripts/Tower-Force-Push.sh push --branch b --to abc --lease def"
 
 # The pending-request read: the shipped profile approves it through this guard
 # rather than a static allow entry, so it works out of the box as long as the

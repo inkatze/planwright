@@ -564,10 +564,13 @@ canon_under() {
 # tower set stays distinct from and tighter than the worker set (REQ-C1.2).
 is_planwright_script() {
   local p=$1 cwd=$2 root proot full rel
+  # The force-push path runs on the operator's request in the same turn, so
+  # its every verb reaches the permission prompt (doctrine/human-gates.md).
+  # Folded, since a case-insensitive filesystem runs it under any casing.
+  case $(printf '%s' "${p##*/}" | tr '[:upper:]' '[:lower:]') in
+    tower-force-push.sh) return 1 ;;
+  esac
   case $p in
-    # The force-push path runs on the operator's request in the same turn, so
-    # its every verb reaches the permission prompt (doctrine/human-gates.md).
-    tower-force-push.sh | */tower-force-push.sh) return 1 ;;
     *.sh) ;;
     *) return 1 ;;
   esac
