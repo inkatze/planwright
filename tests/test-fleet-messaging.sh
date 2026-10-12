@@ -745,7 +745,7 @@ for f in "$root"/scripts/*.sh; do
   fi
 done
 grep -qE 'SendMessage|ListAgents' "$FM" && fail "fleet-messaging.sh names SendMessage or ListAgents"
-invocations=$(grep -v '^[[:space:]]*#' "$FM" | grep -cE '(^|[[:space:];&|(`$])claude[[:space:]]' || true)
+invocations=$(grep -v '^[[:space:]]*#' "$FM" | grep -oE '(^|[[:space:];&|(`$])claude[[:space:]]' | wc -l | tr -d ' ')
 [ "$invocations" = 1 ] || fail "fleet-messaging.sh invokes claude $invocations times; exactly one (the probe's version read) is allowed"
 grep -v '^[[:space:]]*#' "$FM" | grep -E '(^|[[:space:];&|(`$])claude[[:space:]]' | grep -q -- '--version' \
   || fail "fleet-messaging.sh's one claude invocation is not the version read"

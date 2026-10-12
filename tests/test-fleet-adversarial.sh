@@ -316,15 +316,18 @@ nollm_check
 launchers='fleet-dispatch-headless.sh fleet-dispatch-worktree.sh fleet-tower-signpost.sh fleet-tower-watchdog.sh'
 client='(^|[^A-Za-z0-9_./-])(claude|anthropic|curl|wget)([[:space:]]|$|")|api\.anthropic'
 # The messaging probe reads the CLI's version, which reaches no model; that one
-# read is all fleet-messaging.sh may carry, and it must still be there.
-version_read='claude --version 2>/dev/null \|'
+# read is all fleet-messaging.sh may carry, and it must still be there. The
+# allowance is the whole line, so nothing can ride along on it.
+# shellcheck disable=SC2016 # the allowed line's text, never expanded here
+version_read='pr_ver=$(claude --version 2>/dev/null | awk '\''NR == 1 { print $1 }'\'') || pr_ver=""'
 for p in "$S"/fleet-*.sh "$S/lock-lib.sh"; do
   f=${p##*/}
   hits=$(strip "$p" | grep -nE "$client" || :)
   if [ "$f" = fleet-messaging.sh ]; then
-    [ "$(printf '%s\n' "$hits" | grep -cE "$version_read" || :)" = 1 ] \
-      || fail "no-LLM audit: fleet-messaging.sh no longer carries exactly one CLI version read; drop the allowance"
-    hits=$(printf '%s\n' "$hits" | grep -vE "$version_read" || :)
+    allowed=$(printf '%s\n' "$hits" | VR=$version_read awk '{ sub(/^[0-9]+:[[:space:]]*/, "") } $0 == ENVIRON["VR"] { c++ } END { print c + 0 }')
+    [ "$allowed" = 1 ] \
+      || fail "no-LLM audit: fleet-messaging.sh no longer carries exactly one CLI version read, alone on its line; update or drop the allowance"
+    hits=$(printf '%s\n' "$hits" | VR=$version_read awk '{ l = $0; sub(/^[0-9]+:[[:space:]]*/, "", l) } $0 != "" && l != ENVIRON["VR"]')
   fi
   case " $launchers " in
     *" $f "*)
