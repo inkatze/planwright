@@ -309,7 +309,7 @@ policy and the altitude split behind it live in the doctrine.
 
 Merge (step 2) and publish (step 4) are the two irreversible, externally-visible
 acts; both are always conscious human steps. planwright automates everything up
-to them and nothing through them — no auto-merge, no background auto-sign, no
+to them and nothing through them — no agent merge, no background auto-sign, no
 bypass flag.
 
 ### The publish command

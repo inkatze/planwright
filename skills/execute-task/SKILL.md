@@ -7,7 +7,7 @@ description: >
   via the steps_convergence list (default /polish --nested), then open a
   draft PR referencing the brief, tasks, REQs, and tests. The execution
   workhorse of the planwright pipeline. Assumes the worktree already exists;
-  never creates worktrees, never merges, readies its PR only per ready_flip_policy.
+  never creates worktrees; merges or readies only through its helpers.
 argument-hint: "<task-id> [<task-id> …] [<spec>]"
 ---
 
@@ -409,7 +409,7 @@ classify the edit on the amendment axis:
    else park naming the post-pr steps (custom-steps REQ-E1.2). Earlier points
    never re-run. When `ready_flip_policy` resolves `unit-owner`, run
    `scripts/ready-flip.sh`'s header sequence; under `merge_policy:
-   policy-class`, then `scripts/merge-admitted.sh`.
+   policy-class`, then `scripts/merge-admitted.sh`'s.
 3. **Annotate the unit (v1 bundles only).** On a format-version 2 bundle no
    annotation exists to write — skip this step. Update only the task
    block's `- **Last activity:** <today>` annotation; write **no** `Status`
@@ -448,8 +448,8 @@ These hold at every step:
   **never** bypass the execution freshness gate that composes with it — no
   bypass flag for either (REQ-C1.1, superseding REQ-J1.2, D-33; D-2, D-3,
   REQ-F1.9, REQ-C1.3).
-- **Never** create a non-draft PR, merge outside `scripts/merge-admitted.sh`,
-  or flip one ready outside the `unit-owner` path above (D-21; human-gates REQ-C1.5).
+- **Never** create a non-draft PR, or merge or flip one ready outside the two
+  header sequences above (D-21; human-gates REQ-C1.5, REQ-D1.4).
 - **Never** create a worktree; this skill runs inside one (D-37, D-44).
 - **Never** let a step push before `post-pr`, merge, mark ready, or rewrite
   history: this skill owns push and PR creation (D-39; custom-steps REQ-D1.6).
