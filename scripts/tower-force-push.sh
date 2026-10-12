@@ -302,9 +302,15 @@ push() {
   drops=$(dropped "$LEASE" "$TO")
   legacy=$(legacy_changes "$LEASE" "$TO")
   [ -n "$TO" ] || usage "push has no commit to push"
-  git push --quiet --force-with-lease="refs/heads/$BRANCH:$LEASE" --force-if-includes \
-    "$REMOTE" "$TO:refs/heads/$BRANCH" \
-    || broken "the push failed; $(safe "$REMOTE")/$(safe "$BRANCH") is unchanged unless the remote says otherwise"
+  if ! git push --quiet --force-with-lease="refs/heads/$BRANCH:$LEASE" --force-if-includes \
+    "$REMOTE" "$TO:refs/heads/$BRANCH"; then
+    # A lease lost to a push that landed in between is a refusal, not a
+    # failure to retry: someone else works from the branch now.
+    refresh
+    [ "$LEASE_NOW" = "$LEASE" ] \
+      || refuse "$(safe "$REMOTE")/$(safe "$BRANCH") moved while pushing ($(printf '%s' "$LEASE" | cut -c1-7) -> $(printf '%s' "$LEASE_NOW" | cut -c1-7)); someone else works from it, so treat it as shared and do not retry"
+    broken "the push failed; $(safe "$REMOTE")/$(safe "$BRANCH") is unchanged unless the remote says otherwise"
+  fi
   printf 'pushed\t%s\t%s\t%s\t%s\n' "$(safe "$REMOTE")" "$(safe "$BRANCH")" "$LEASE" "$TO"
   printf '%s\n' "$drops" | while IFS="$TAB" read -r sha subj; do
     printf 'dropped\t%s\t%s\n' "$sha" "$(safe "$subj")"

@@ -277,6 +277,20 @@ else
   fail "a push over a moved remote was not refused (exit $rc)"
 fi
 git -C "$tmp/origin.git" update-ref "refs/heads/$BR" "$TIP"
+# A push landing between the helper's refresh and its own push loses the
+# lease: that is the refusal (exit 1), never a failure to retry.
+mkdir -p "$W/.git/hooks"
+printf '#!/bin/sh\ngit --git-dir="%s" update-ref "refs/heads/%s" "%s"\n' "$tmp/origin.git" "$BR" "$MOVED" >"$W/.git/hooks/pre-push"
+chmod +x "$W/.git/hooks/pre-push"
+rc=$(rc_of fp push --branch "$BR" --to "$NEW" --lease "$TIP")
+if [ "$rc" = 1 ] && grep -q 'moved while pushing' "$tmp/err" \
+  && [ "$(git -C "$tmp/origin.git" rev-parse "refs/heads/$BR")" = "$MOVED" ]; then
+  ok "push refuses a lease lost mid-push and leaves the remote alone"
+else
+  fail "a lease lost mid-push was not refused (exit $rc: $(cat "$tmp/err"))"
+fi
+rm -f "$W/.git/hooks/pre-push"
+git -C "$tmp/origin.git" update-ref "refs/heads/$BR" "$TIP"
 
 rc=$(rc_of fp push --branch "$BR" --to "$NEW" --lease "$TIP")
 [ "$rc" = 0 ] || fail "the confirmed push failed (exit $rc: $(cat "$tmp/err"))"
