@@ -542,6 +542,24 @@ else
   fail "reused worktree file: rc=$rc out=$out err=$err"
 fi
 
+# A root folder whose name git would C-quote still gets the pre-creation
+# walk: a symlink at the bundle path on the default branch creates nothing.
+HQ="$tmp/holderq"
+WQ="$tmp/workq"
+work_repo "$WQ"
+holder "$HQ" main 'q"r\s'
+ln -s "$tmp/outside" "$HQ/q\"r\\s/qid"
+gitq -C "$HQ" add -A && gitq -C "$HQ" commit -q -m "link qid" && gitq -C "$HQ" push -q origin main
+point "$WQ" "$HQ/q\"r\\s"
+sw "$WQ" qid
+if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'symlink on' \
+  && [ ! -e "$HQ/.claude/worktrees/qid-spec" ] \
+  && ! hermetic git -C "$HQ" show-ref --verify --quiet refs/heads/planwright/qid/spec; then
+  ok "a quoted root folder name is walked before creation, creating nothing"
+else
+  fail "quoted root folder: rc=$rc out=$out err=$err"
+fi
+
 # --- one holder, two projects: a spec id is not shared across them ----------
 HM="$tmp/multi"
 WA="$tmp/work-a"

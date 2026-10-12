@@ -208,7 +208,8 @@ own_wt() {
 # git opens anything from it, so a refusal leaves no branch or worktree
 # behind: no component of the bundle path, and nothing inside the bundle,
 # may be a symlink there. Entries are matched by exact name, never as a
-# pattern.
+# pattern, read NUL-separated so git quotes none of them. A name holding a
+# newline splits across lines, which can only add a match, never hide one.
 tree_safe() {
   t_dir='' t_rest=${rel:+$rel/}$id
   while [ -n "$t_rest" ]; do
@@ -217,7 +218,7 @@ tree_safe() {
       */*) t_rest=${t_rest#*/} ;;
       *) t_rest='' ;;
     esac
-    t_modes=$(hg -c core.quotePath=false ls-tree "$1:$t_dir" 2>/dev/null \
+    t_modes=$(hg ls-tree -z "$1:$t_dir" 2>/dev/null | tr '\000' '\n' \
       | N=$t_name awk -F '\t' '$2 == ENVIRON["N"] { split($1, f, " "); print f[1] }')
     case $t_modes in
       '') return 0 ;;
@@ -233,7 +234,7 @@ tree_safe() {
     esac
     t_dir=$t_dir$t_name/
   done
-  t_link=$(hg -c core.quotePath=false ls-tree -r "$1:$t_dir" 2>/dev/null | awk -F '\t' '$1 ~ /^120000 / { print $2; exit }')
+  t_link=$(hg ls-tree -r -z "$1:$t_dir" 2>/dev/null | tr '\000' '\n' | awk -F '\t' '$1 ~ /^120000 / { print $2; exit }')
   [ -z "$t_link" ] || {
     say "refused: $t_dir$t_link is a symlink on $1"
     exit 4
