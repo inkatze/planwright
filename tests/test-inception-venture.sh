@@ -541,6 +541,10 @@ PATH="$stubs/gh-noauth:$PATH" venture handoff "$rv"
 assert_contains "H1.5 handoff on the remote home names it" "$(printf 'home\tremote')" "$out"
 assert_not_contains "H1.5 a remote venture is not warned the remote home is unavailable" "private-remote home is unavailable" "$out"
 
+PATH="$stubs/nogit:$PATH" PLANWRIGHT_INCEPTION_EPHEMERAL=1 venture handoff "$rv"
+assert_contains "H1.5 without git a remote venture still reads as remote" "$(printf 'home\tremote')" "$out"
+assert_not_contains "H1.5 without git a remote venture is not told to choose the remote home" "choose the private-remote home" "$out"
+
 PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_INCEPTION_EPHEMERAL=1 venture create --home remote --root "$vroot" cloud-remote
 assert_contains "A1.5 an ephemeral host keeps the remote home on the git rung" "$(printf 'rung\tgit')" "$out"
 assert_not_contains "A1.5 a remote venture is not warned it does not persist" "does not persist" "$out"

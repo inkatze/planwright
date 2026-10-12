@@ -768,6 +768,10 @@ cmd_handoff() {
   if is_repo_root "$1" && [ "$has_git" = yes ]; then
     git_usable=yes
     git -C "$1" remote get-url origin >/dev/null 2>&1 && home=remote
+  elif [ -f "$1/.git/config" ] && grep -q '^\[remote "origin"\]' "$1/.git/config"; then
+    # Without git the home is read from the repository's own config, so a
+    # remote venture is not warned to choose the home it already has.
+    home=remote
   fi
   rung=$(ladder_rung "$git_usable" "$home")
 
