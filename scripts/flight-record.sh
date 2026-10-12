@@ -279,6 +279,20 @@ personal_data() {
       if (post ~ /[.-]/ && substr(s, st + length(m) + 1, 1) ~ /[0-9]/) return 0
       return 1
     }
+    # ibanat(j) — the groups of the IBAN candidate g[] from group j form an
+    # IBAN: unseparated, or in groups of four with the last shorter.
+    function ibanat(j,   c, q) {
+      if (length(g[j]) > 4)
+        return length(g[j]) >= 15 && length(g[j]) <= 34 && (j < ng || post !~ /[a-z_]/) && iban(g[j])
+      c = g[j]
+      for (q = j + 1; q <= ng && length(g[q]) <= 4; q++) {
+        c = c g[q]
+        if (length(c) > 34) return 0
+        if (length(c) >= 15 && iban(c)) return 1
+        if (length(g[q]) < 4) return 0
+      }
+      return 0
+    }
     # card(d) — a payment card: an issuer digit (2 to 6) and a valid Luhn sum.
     function card(d) { return d ~ /^[2-6]/ && luhn(d) }
     {
@@ -356,25 +370,18 @@ personal_data() {
       # An IBAN, unseparated or in groups of four, the last shorter; the
       # groups stop at 34 characters so a long uppercase run costs little.
       off = 0
-      # A candidate that is no IBAN resumes the search after its first
-      # group, so an IBAN-shaped token before an IBAN does not hide it.
+      # A candidate that is no IBAN is retried from its later IBAN-shaped
+      # groups, so a token like `AB12` before an IBAN does not hide it; at
+      # most 64 retries per candidate, each bounded at 34 characters.
       while (each("[A-Z][A-Z][0-9][0-9]( ?[A-Z0-9])+")) {
         ng = split(m, g, " ")
-        found = 0
-        if (pre ~ /[A-Za-z0-9_]/) found = 0
-        else if (length(g[1]) > 4) {
-          found = length(g[1]) >= 15 && length(g[1]) <= 34 && (ng > 1 || post !~ /[a-z_]/) && iban(g[1])
-        } else {
-          c = g[1]
-          for (j = 2; j <= ng && length(g[j]) <= 4; j++) {
-            c = c g[j]
-            if (length(c) > 34) break
-            if (length(c) >= 15 && iban(c)) { found = 1; break }
-            if (length(g[j]) < 4) break
-          }
+        if (pre !~ /[A-Za-z0-9_]/ && ibanat(1)) { hit("personal-data-account"); continue }
+        tried = 0
+        for (i = 2; i <= ng && tried < 64; i++) {
+          if (g[i] !~ /^[A-Z][A-Z][0-9][0-9]/) continue
+          tried++
+          if (ibanat(i)) { hit("personal-data-account"); break }
         }
-        if (found) hit("personal-data-account")
-        else off = st + length(g[1]) - 1
       }
     }' "$work/$1" >>"$work/hits" || die 4 "cannot screen --${1%.clean} for personal data"
 }

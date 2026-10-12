@@ -505,6 +505,27 @@ run_render pr --ask-file "$in/ask-ports.txt"
 printf '%s\n' "$OUT" | grep -qF '[redacted: personal-data-identity, personal data]' \
   || fail "a port triple shaped like a spaced SSN is a documented false positive and must stay redacted"
 
+# A long line of IBAN-shaped tokens scans in bounded time. Unbounded, it
+# costs a minute of CPU or more, so the margin here (five times a line of
+# words its size, plus a second) is far outside what host load moves.
+cpu_render() {
+  defaults
+  TIMEFORMAT=%3U
+  { time /bin/sh "$SCRIPT" render --home pr "${args[@]}" --ask-file "$1" >/dev/null 2>&1; } 2>"$tmp/cpu"
+  cat "$tmp/cpu"
+}
+awk 'BEGIN { while (length(s) < 65000) s = s "abcd "; print s }' >"$in/ask-words.txt"
+words_cpu=$(cpu_render "$in/ask-words.txt")
+# bounded <what> <ask-file> — fail unless rendering <ask-file> stays within
+# the margin of the words line.
+bounded() {
+  _cpu=$(cpu_render "$2")
+  awk -v g="$_cpu" -v w="$words_cpu" 'BEGIN { exit !(g <= 5 * w + 1) }' \
+    || fail "a long line of $1 must scan in bounded time (${_cpu}s CPU against ${words_cpu}s for words)"
+}
+awk 'BEGIN { while (length(s) < 65000) s = s "AB12 "; print s }' >"$in/ask-ibanish.txt"
+bounded 'IBAN-shaped tokens' "$in/ask-ibanish.txt"
+
 # The card scan is bounded: a run of digit groups is searched for a card in
 # its first 64 four-digit windows only, so a card that is the 64th window is
 # found and one that would be the 65th is not. Pinned by count, not by CPU
