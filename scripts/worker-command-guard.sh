@@ -2958,7 +2958,8 @@ word_tainted() {
     [ "$name" = _ ] && [ "$SUB_SEEN" = 1 ] && return 0
     for ((v = VAR_C - 1; v >= 0; v--)); do
       if [ "${VAR_N[v]}" = "$name" ]; then
-        [ "${VAR_S[v]}" = 1 ] && return 0
+        # A loop variable's slot never carries a VAR_S of its own.
+        [ "${VAR_L[v]}" = 0 ] && [ "${VAR_S[v]-0}" = 1 ] && return 0
         break
       fi
     done
@@ -3000,28 +3001,43 @@ subst_inner_ok() {
   return "$rc"
 }
 
+# subst_words_ok: the current simple command's words carrying substitution
+# output each sit where subst_reach_ok admits them, and then every other
+# unresolved word passes opaque_words_ok, which sees each admitted word as a
+# plain literal. The neutral copy is local, so the screens after this one
+# still read the words as written.
+subst_words_ok() {
+  local i rc
+  local -a cw=(${cw[@]+"${cw[@]}"}) cdyn=(${cdyn[@]+"${cdyn[@]}"}) cglob=(${cglob[@]+"${cglob[@]}"})
+  local -a cx=(${cx[@]+"${cx[@]}"}) cz=(${cz[@]+"${cz[@]}"})
+  for ((i = 0; i < cwn; i++)); do
+    word_tainted "$i" || continue
+    subst_reach_ok "$i"
+    rc=$?
+    case $rc in
+      0)
+        cw[i]=x
+        cdyn[i]=0
+        cglob[i]=0
+        cx[i]=0
+        cz[i]=0
+        ;;
+      2) ;;
+      *) return 1 ;;
+    esac
+  done
+  opaque_words_ok
+}
+
 # opaque_words_ok: the current simple command (`cw` and its flag arrays, by
 # dynamic scope) places every unresolved word where its value cannot change
-# the verdict: a word carrying substitution output where subst_reach_ok
-# admits it, never the verb, and otherwise only an operand of an
+# the verdict: never the verb, and otherwise only an operand of an
 # argument-independent verb (one that opens its operands only when
 # opener_word_risky clears the word), printf past its format, or a test
 # shape test_opaque_ok admits.
 opaque_words_ok() {
   local i verb=${cw[0]} fmt=1 g
-  # Words subst_reach_ok admitted, which the rules below then pass over.
-  local -a cok=()
-  for ((i = 0; i < cwn; i++)); do
-    cok[i]=0
-    word_tainted "$i" || continue
-    subst_reach_ok "$i"
-    case $? in
-      0) cok[i]=1 ;;
-      2) ;;
-      *) return 1 ;;
-    esac
-  done
-  [ "${cok[0]}" = 1 ] || ! word_unresolved "$verb" "${cdyn[0]}" "${cglob[0]}" "${cx[0]}" || return 1
+  word_unresolved "$verb" "${cdyn[0]}" "${cglob[0]}" "${cx[0]}" && return 1
   case $verb in
     test | '[')
       test_opaque_ok
@@ -3030,7 +3046,6 @@ opaque_words_ok() {
   esac
   [ "${cw[1]-}" = -- ] && fmt=2
   for ((i = 1; i < cwn; i++)); do
-    [ "${cok[i]}" = 0 ] || continue
     word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" || continue
     [ "$verb" = printf ] && [ "$i" -gt "$fmt" ] && continue
     arg_independent_verb "$verb" || return 1
@@ -3053,7 +3068,6 @@ test_opaque_ok() {
   local i n=$cwn opaque=0
   [ "${cw[0]}" = '[' ] && [ "${cw[cwn - 1]}" = ']' ] && n=$((cwn - 1))
   for ((i = 1; i < cwn; i++)); do
-    [ "${cok[i]-0}" = 0 ] || continue
     word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" || continue
     [ "$i" -lt "$n" ] && [ "${cdyn[i]}" = 1 ] && [ "${cglob[i]}" = 0 ] || return 1
     opaque=1
@@ -3141,7 +3155,6 @@ loop_enter() {
   VAR_V[VAR_C]=${LW[LH_START]}
   VAR_L[VAR_C]=1
   VAR_O[VAR_C]=0
-  VAR_S[VAR_C]=0
   VAR_C=$((VAR_C + 1))
   idx=$LH_NEXT
   return 0
@@ -3720,7 +3733,7 @@ verify_known_simple() {
   if opens_operands "$verb"; then
     environ_words_ok || return 1
   fi
-  opaque_words_ok || return 1
+  subst_words_ok || return 1
   # Inline environment-assignment prefix (REQ-A1.9): VAR=value [cmd].
   case $verb in
     [A-Za-z_]*=*)
