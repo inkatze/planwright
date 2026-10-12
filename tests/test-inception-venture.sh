@@ -411,9 +411,11 @@ venture save --push "$lv" "Try to push"
 assert_eq "A1.4 the local arm refuses to push (exit 6)" 6 "$rc"
 assert_contains "A1.4 the refusal says nothing leaves the machine" "nothing leaves this machine" "$out"
 
-venture handoff "$lv"
+PATH="$stubs/gh-ok:$PATH" venture handoff "$lv"
 assert_contains "handoff names the rung" "$(printf 'rung\tgit')" "$out"
 assert_contains "handoff names the validator result" "$(printf 'bundle\tclean')" "$out"
+PATH="$stubs/gh-noauth:$PATH" venture handoff "$lv"
+assert_contains "H1.5 remote-home degradation repeated at handoff" "private-remote home is unavailable" "$out"
 
 # REQ-H1.3 — the local-only venture gains a remote later: same repo, history kept.
 before=$(git -C "$lv" rev-parse HEAD)
@@ -444,6 +446,13 @@ assert_eq "dry run (remote): save and push succeed" 0 "$rc"
 assert_eq "dry run (remote): the bundle is validator-clean" 0 "$?"
 assert_eq "dry run (remote): the push reached the private remote" \
   "$(git -C "$rv" rev-parse HEAD)" "$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)"
+PATH="$stubs/gh-noauth:$PATH" venture handoff "$rv"
+assert_contains "H1.5 handoff on the remote home names it" "$(printf 'home\tremote')" "$out"
+assert_not_contains "H1.5 a remote venture is not warned the remote home is unavailable" "private-remote home is unavailable" "$out"
+
+PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_INCEPTION_EPHEMERAL=1 venture create --home remote --root "$vroot" cloud-remote
+assert_contains "A1.5 an ephemeral host keeps the remote home on the git rung" "$(printf 'rung\tgit')" "$out"
+assert_not_contains "A1.5 a remote venture is not warned it does not persist" "does not persist" "$out"
 
 # A push with nothing ever saved is not blamed on the connection.
 ev="$tmp/empty-remote"
@@ -473,6 +482,8 @@ assert_contains "H1.1 plain rung: save names the missing history" "no history" "
 assert_eq "H1.1 plain rung: the bundle is validator-clean" 0 "$?"
 PATH="$stubs/nogit:$PATH" venture handoff "$pv"
 assert_contains "H1.5 plain rung degradation repeated at handoff" "git unavailable" "$out"
+PATH="$stubs/gh-ok:$PATH" venture handoff "$pv"
+assert_contains "H1.5 a plain venture names its missing history even where git now works" "plain folder" "$out"
 
 PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_INCEPTION_EPHEMERAL=1 venture create --home local --root "$vroot" session-probe
 assert_eq "A1.5 session-only: create proceeds, warned" 0 "$rc"

@@ -172,8 +172,7 @@ cmd_root() {
 
 # --- capability detection --------------------------------------------------
 
-# probe — set has_git, ephemeral, remote_state, remote_reason, local_state,
-# and the newline-separated degradation list.
+# probe — set has_git, ephemeral, remote_state, remote_reason, local_state.
 probe() {
   has_git=no
   git --version >/dev/null 2>&1 && has_git=yes
@@ -207,26 +206,27 @@ probe() {
   else
     local_state=durable
   fi
-
-  degraded=
-  if [ "$has_git" = no ]; then
-    degraded="${degraded}git unavailable: the venture is kept as a plain folder, with no history, no hygiene hooks, and no remote home
-"
-  fi
-  if [ "$ephemeral" = yes ]; then
-    degraded="${degraded}ephemeral environment: a local-only venture does not persist past this session; choose the private-remote home to keep it
-"
-  fi
-  if [ "$has_git" = yes ] && [ "$remote_state" = unavailable ]; then
-    degraded="${degraded}the private-remote home is unavailable ($remote_reason)
-"
-  fi
 }
 
+# print_degraded [<home> <rung>] — one `degraded` line per missing capability
+# after a probe. With no arguments it names the environment's; given a
+# venture's home and rung it names only what that venture lacks, so a remote
+# venture is not warned about the arms it did not take.
 print_degraded() {
-  printf '%s' "$degraded" | while IFS= read -r line; do
-    [ -n "$line" ] && printf 'degraded\t%s\n' "$line"
-  done
+  pd_home=${1:-}
+  pd_rung=${2:-}
+  if [ "$has_git" = no ]; then
+    printf 'degraded\t%s\n' 'git unavailable: the venture is kept as a plain folder, with no history, no hygiene hooks, and no remote home'
+  elif [ "$pd_rung" = plain ]; then
+    printf 'degraded\t%s\n' 'this venture is a plain folder, with no history, no hygiene hooks, and no remote home'
+  fi
+  if [ "$ephemeral" = yes ] && [ "$pd_home" != remote ]; then
+    printf 'degraded\t%s\n' 'ephemeral environment: a local-only venture does not persist past this session; choose the private-remote home to keep it'
+  fi
+  if [ "$has_git" = yes ] && [ "$remote_state" = unavailable ] \
+    && [ "$pd_home" != remote ] && [ "$pd_rung" != plain ]; then
+    printf 'degraded\tthe private-remote home is unavailable (%s)\n' "$remote_reason"
+  fi
 }
 
 cmd_detect() {
@@ -326,7 +326,7 @@ cmd_create() {
   printf 'venture\t%s\n' "$target"
   printf 'home\t%s\n' "$home"
   printf 'rung\t%s\n' "$rung"
-  print_degraded
+  print_degraded "$home" "$rung"
 }
 
 valid_owner() {
@@ -752,7 +752,7 @@ cmd_handoff() {
   printf 'rung\t%s\n' "$rung"
   printf 'bundle\t%s\n' "$bundle"
   printf 'next\t%s\n' "${next:-unknown}"
-  print_degraded
+  print_degraded "$home" "$rung"
 }
 
 # --- dispatch --------------------------------------------------------------
