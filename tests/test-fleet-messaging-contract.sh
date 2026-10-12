@@ -85,7 +85,7 @@ check_contract() {
   smin=$(awk -F= '/^PROBE_MIN_VERSION=/ { print $2; exit }' "$cs")
   [ "$smin" = "$pmin" ] || echo "probe_minimum: the script compares against '$smin', the contract freezes '$pmin'"
   envs=$(value "$cf" env_socket)
-  [ -n "$envs" ] && grep -q "$envs" "$cs" || echo "env_socket: the script does not read '$envs'"
+  [ -n "$envs" ] && grep -v '^[[:space:]]*#' "$cs" | grep -q "$envs" || echo "env_socket: the script does not read '$envs'"
   envt=$(value "$cf" env_token)
   [ -n "$envt" ] || echo "env_token: absent"
   if [ -n "$envt" ] && grep -v '^[[:space:]]*#' "$cs" | grep -q "$envt"; then
@@ -112,14 +112,23 @@ cat >>"$PLANWRIGHT_MESSAGING_POST_LOG"
 EOF
   chmod +x "$tmp/seam"
   : >"$tmp/post.log"
-  (cd "$tmp" && env -u PLANWRIGHT_MESSAGING_INBOUND -u CLAUDE_CONFIG_DIR -u CLAUDE_PLUGIN_ROOT -u PLANWRIGHT_ROOT \
+  post_rc=0
+  sent=$(cd "$tmp" && env -u PLANWRIGHT_MESSAGING_INBOUND -u CLAUDE_CONFIG_DIR -u CLAUDE_PLUGIN_ROOT -u PLANWRIGHT_ROOT \
     HOME="$home" PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet" CLAUDE_PLUGIN_DATA="$tmp/pd" CLAUDE_DIR="$tmp/cd" \
     PLANWRIGHT_CONFIG_DEFAULTS="$root/config/defaults.yml" PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter" \
     PLANWRIGHT_REPO_ROOT="$tmp/repo" PLANWRIGHT_LOCAL_CONFIG="" PLANWRIGHT_TEST_SEAM=1 \
     PLANWRIGHT_MESSAGING_POST="$tmp/seam" PLANWRIGHT_MESSAGING_POST_LOG="$tmp/post.log" \
     CLAUDE_CODE_MESSAGING_SOCKET="$tmp/socks/own.sock" \
     /bin/sh "$cs" send --to "$tmp/socks/peer.sock" --message-file "$tmp/msg" --cli-version "$pin" --socket-type socket \
-    >/dev/null 2>&1) || echo "post: the script could not post a frame through the seam"
+    2>/dev/null) || post_rc=$?
+  # The seam answers nothing, the response the wire step observed.
+  case $(value "$cf" post_response) in
+    none)
+      [ "$post_rc" = 0 ] && [ -n "$sent" ] \
+        || echo "post_response: the frozen response is none, and an empty response with a clean write did not read as accepted (exit $post_rc)"
+      ;;
+    *) echo "post_response: '$(value "$cf" post_response)' is not a response this guard checks; extend it to the observed line" ;;
+  esac
   argv=$(sed -n '1p' "$tmp/post.log")
   frame=$(sed -n '2p' "$tmp/post.log")
   want_argv="$(value "$cf" post_argv) $tmp/socks/peer.sock"
@@ -129,10 +138,15 @@ EOF
     *'"type":"'"$(value "$cf" frame_type)"'"'*) ;;
     *) echo "frame_type: the frame is not of type '$(value "$cf" frame_type)'" ;;
   esac
-  case $frame in
-    *'"message":{"role":"user","content":'*) ;;
-    *) echo "message_keys: the frame's message is not {$(value "$cf" message_keys)}" ;;
-  esac
+  # The message object's keys in the frozen order, every one but the last
+  # holding a string.
+  msg_re=$(value "$cf" message_keys | awk '{
+    r = ""
+    for (i = 1; i < NF; i++) r = r "\"" $i "\":\"[^\"]*\","
+    print r "\"" $NF "\":"
+  }')
+  printf '%s\n' "$frame" | grep -q "\"message\":{$msg_re" \
+    || echo "message_keys: the frame's message is not {$(value "$cf" message_keys)}"
   case $frame in
     *'"from":"'"$(value "$cf" reply_address_prefix)$tmp/socks/own.sock"'"'*) ;;
     *) echo "reply_address_prefix: the frame's reply address is not the sender's own socket under '$(value "$cf" reply_address_prefix)'" ;;
@@ -154,6 +168,19 @@ EOF
     }' >"$rec"
   got=$(env -u CLAUDE_CONFIG_DIR HOME="$home" CLAUDE_PID=777 /bin/sh "$cs" self-name 2>/dev/null) || got=""
   [ "$got" = fleet-contract ] || echo "session_record_keys: self-name cannot read the name from a record of the frozen shape"
+  # self-register reads the socket key too; its amend lands on a recorder
+  # beside a copy of the script, which reaches its siblings by its own path.
+  sr="$tmp/sr"
+  rm -rf "$sr"
+  mkdir -p "$sr"
+  cp "$cs" "$sr/fleet-messaging.sh"
+  cp "$root/scripts/echo-safety.sh" "$sr/"
+  printf '#!/bin/sh\nprintf "%%s " "$@"\n' >"$sr/fleet-state.sh"
+  chmod +x "$sr/fleet-state.sh"
+  got=$(env -u CLAUDE_CONFIG_DIR HOME="$home" CLAUDE_PID=777 PLANWRIGHT_WORKER_HANDLE=w1 \
+    PLANWRIGHT_WORKER_SCOPE=spec:1 /bin/sh "$sr/fleet-messaging.sh" self-register 2>/dev/null) || got=""
+  [ "$got" = "amend w1 --name fleet-contract --inbox 777.sock " ] \
+    || echo "session_record_socket_key: self-register cannot read the socket path from a record of the frozen shape"
   return 0
 }
 
@@ -192,6 +219,11 @@ expect_violation "a changed probe minimum" probe_minimum sed -i.bak 's/^PROBE_MI
 expect_violation "a changed post argv" post_argv sed -i.bak 's/nc -N -w 5 -U/nc -U/g' "$tmp/s.sh"
 expect_violation "a dropped reply address" frame_keys sed -i.bak 's/,\\"from\\":\\"%s\\"//; s/esc(b), esc(from), id/esc(b), id/' "$tmp/s.sh"
 expect_violation "a changed record name key" session_record_keys sed -i.bak 's/^session_record_name_key	.*/session_record_name_key	sessionName/' "$tmp/f.tsv"
+expect_violation "a renamed record socket key" session_record_socket_key sed -i.bak 's/messagingSocketPath/socketPathRenamed/g' "$tmp/s.sh"
+expect_violation "a renamed socket variable" env_socket sed -i.bak '/^[[:space:]]*#/!s/CLAUDE_CODE_MESSAGING_SOCKET/CLAUDE_CODE_MSG_SOCKET/g' "$tmp/s.sh"
+expect_violation "a renamed message key" message_keys sed -i.bak 's/\\"content\\"/\\"text\\"/' "$tmp/s.sh"
+expect_violation "an empty response no longer accepted" post_response sed -i.bak 's/"" | accepted)/accepted)/' "$tmp/s.sh"
+expect_violation "an unchecked response" post_response sed -i.bak 's/^post_response	.*/post_response	ok-line/' "$tmp/f.tsv"
 # shellcheck disable=SC2016 # sed text planted in the copy, not expanded here
 expect_violation "an auth line" env_token sed -i.bak 's/^MESSAGE_MAX_BYTES=65536$/MESSAGE_MAX_BYTES=65536 # CLAUDE_CODE_MESSAGING_TOKEN/; s/^JSON_MAX_BYTES=1048576$/JSON_MAX_BYTES=1048576; : "$CLAUDE_CODE_MESSAGING_TOKEN"/' "$tmp/s.sh"
 expect_violation "a dropped behavior" behavior_held_released_on_accept drop behavior_held_released_on_accept
