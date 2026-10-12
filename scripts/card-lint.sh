@@ -321,7 +321,7 @@ END {
         if (line ~ /^#+ /) { h = line; sub(/^#+ /, "", h); lasth = trim(h) }
         continue
       }
-      if (line ~ /^\*\*Done when:\*\* *[^ ]/) done_ok = 1
+      if (fenced && line ~ /^\*\*Done when:\*\* *[^ ]/) done_ok = 1
     }
     if (!fenced) emit("TEMPLATE-FORM", "the artifact template is not a fenced block")
     else if (lasth != "Decisions I cannot make")

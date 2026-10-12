@@ -157,6 +157,7 @@ seed GROUNDING-REFUSE 1 '!/^- \*\*Refuse without:\*\*/'
 seed TEMPLATE-FORM 1 '{ sub(/^## Decisions I cannot make$/, "## Open questions"); print }'
 seed TEMPLATE-FORM 1 '/^```/ { next } { print }'
 seed TEMPLATE-DONE 1 '!/^\*\*Done when:\*\*/'
+seed TEMPLATE-DONE 1 '/^\*\*Done when:\*\*/ { next } /^## Artifact template$/ { print; print ""; print "**Done when:** every question has an answer."; next } { print }'
 
 # Capability boundary (REQ-P1.2).
 seed BOUNDARY-EXCEPTIONS 1 '{ sub(/^  - agent-senior:/, "  - senior:"); print }'
