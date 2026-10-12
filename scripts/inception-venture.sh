@@ -83,6 +83,18 @@ die() {
   exit "$1"
 }
 
+# The temp file or staging directory a write has in flight, removed on any
+# exit so an interrupted write never leaves a stray file the next save's
+# `git add -A` would commit.
+tmp_path=
+cleanup_tmp() {
+  if [ -n "$tmp_path" ]; then rm -rf "$tmp_path"; fi
+}
+trap cleanup_tmp EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 today() {
   case ${PLANWRIGHT_INCEPTION_TODAY:-} in
     [0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]) printf '%s\n' "$PLANWRIGHT_INCEPTION_TODAY" ;;
@@ -367,8 +379,12 @@ cmd_bundle_init() {
     [ -e "$dir/$f" ] && die 5 "a bundle file already exists here; nothing was written"
   done
   d=$(today)
+  # All five are written to a staging directory and moved in only once every
+  # write succeeded, so a failed write never leaves a partial bundle that the
+  # no-overwrite check above then blocks for good.
+  tmp_path=$(mktemp -d "$dir/.inception-venture.XXXXXX") || die 2 "cannot write in the venture directory"
 
-  write_file "$dir/brief.md" <<EOF
+  stage_file brief.md <<EOF
 # $title — Brief
 
 **Status:** Exploring
@@ -419,7 +435,7 @@ No gate has run yet.
 - $d — Venture opened at Exploring.
 EOF
 
-  write_file "$dir/disciplines.md" <<EOF
+  stage_file disciplines.md <<EOF
 # $title — Disciplines
 
 **Status:** Exploring
@@ -443,7 +459,7 @@ EOF
 EOF
 
   for pair in 'assumptions.md:Assumptions' 'decisions.md:Decisions' 'plan.md:Plan'; do
-    write_file "$dir/${pair%%:*}" <<EOF
+    stage_file "${pair%%:*}" <<EOF
 # $title — ${pair#*:}
 
 **Status:** Exploring
@@ -453,16 +469,16 @@ EOF
 $PENDING
 EOF
   done
+
+  for f in $FILES; do
+    mv "$tmp_path/$f" "$dir/$f" || die 2 "cannot write a bundle file"
+  done
 }
 
-# write_file <path> — stdin to <path> through a same-directory temp file and
-# a rename, so an interrupted write never leaves a torn bundle file.
-write_file() {
-  wf_tmp=$(mktemp "$(dirname "$1")/.inception-venture.XXXXXX") || die 2 "cannot write in the venture directory"
-  if ! cat >"$wf_tmp" || ! mv "$wf_tmp" "$1"; then
-    rm -f "$wf_tmp"
-    die 2 "cannot write a bundle file"
-  fi
+# stage_file <name> — stdin to <name> in the bundle-init staging directory,
+# owner-only as the files have always been written.
+stage_file() {
+  (umask 077 && cat >"$tmp_path/$1") || die 2 "cannot write a bundle file"
 }
 
 # --- elicitation phases and the resume point -------------------------------
@@ -512,8 +528,8 @@ cmd_mark_phase() {
   [ -f "$1/brief.md" ] || die 2 "no brief.md in the venture directory"
   version_gate "$1"
   line="- $(today) — Elicitation: $2 phase complete."
-  mp_tmp=$(mktemp "$1/.inception-venture.XXXXXX") || die 2 "cannot write in the venture directory"
-  if ! awk -v line="$line" '
+  tmp_path=$(mktemp "$1/.inception-venture.XXXXXX") || die 2 "cannot write in the venture directory"
+  awk -v line="$line" '
     { buf[NR] = $0 }
     /^## Changelog[[:space:]]*$/ { inlog = 1; last = NR; next }
     inlog && /^## / { inlog = 0 }
@@ -525,14 +541,9 @@ cmd_mark_phase() {
         if (i == last) print line
       }
     }
-  ' "$1/brief.md" >"$mp_tmp"; then
-    rm -f "$mp_tmp"
-    die 2 "brief.md has no Changelog section to record the phase in"
-  fi
-  mv "$mp_tmp" "$1/brief.md" || {
-    rm -f "$mp_tmp"
-    die 2 "cannot update brief.md"
-  }
+  ' "$1/brief.md" >"$tmp_path" || die 2 "brief.md has no Changelog section to record the phase in"
+  mv "$tmp_path" "$1/brief.md" || die 2 "cannot update brief.md"
+  tmp_path=
 }
 
 cmd_resume_point() {

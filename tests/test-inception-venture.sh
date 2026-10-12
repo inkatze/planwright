@@ -342,6 +342,38 @@ assert_eq "B1.7 the phase log lands in the Changelog section" 2 "$(sed -n '/^## 
 venture mark-phase "$rp" bogus
 assert_eq "mark-phase rejects an unknown phase (exit 2)" 2 "$rc"
 
+# stray_temps <dir> — the helper's temp files left in <dir>, one per line.
+stray_temps() {
+  for st in "$1"/.inception-venture.*; do
+    [ -e "$st" ] && printf '%s\n' "${st##*/}"
+  done
+}
+assert_eq "bundle-init and mark-phase leave no temp files behind" "" "$(stray_temps "$rp")"
+
+# An interrupted phase write leaves neither a torn brief.md nor a stray temp
+# file the next save would commit. The awk stub writes half a file, then
+# signals the helper mid-write.
+real_awk=$(command -v awk)
+mkdir -p "$stubs/awk-interrupt"
+cat >"$stubs/awk-interrupt/awk" <<EOF
+#!/bin/sh
+case "\$*" in
+  *Elicitation:*)
+    printf 'torn'
+    kill -TERM \$PPID
+    sleep 1
+    exit 0
+    ;;
+esac
+exec "$real_awk" "\$@"
+EOF
+chmod +x "$stubs/awk-interrupt/awk"
+cp "$rp/brief.md" "$tmp/brief-before-interrupt.md"
+PATH="$stubs/awk-interrupt:$PATH" venture mark-phase "$rp" disciplines
+assert_eq "an interrupted mark-phase exits on the signal" 143 "$rc"
+assert_eq "an interrupted mark-phase leaves brief.md untouched" "" "$(cmp "$tmp/brief-before-interrupt.md" "$rp/brief.md" 2>&1)"
+assert_eq "an interrupted mark-phase leaves no temp file" "" "$(stray_temps "$rp")"
+
 for p in disciplines reframe core registers finalize; do
   venture mark-phase "$rp" "$p"
 done
