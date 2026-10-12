@@ -4062,7 +4062,7 @@ verify_tokens() {
 # (guard_fish or subst_inner_ok -> analyze_command) gets a fresh, shadowing
 # token stream and never corrupts an outer walk.
 analyze_command() {
-  local cmd=$1 depth=$2 t
+  local cmd=$1 depth=$2 t seg lead
   [ "$depth" -le "$MAX_DEPTH" ] || return 1
   [ "${#cmd}" -le "$MAX_CMD_LEN" ] || return 1
   local -a TOK_TYPE=() TOK_VAL=() TOK_QUOTED=() TOK_NOEXP=() TOK_QPOS=() TOK_DYN=() TOK_GLOB=() TOK_ZOPT=() TOK_QMIX=() TOK_SUBS=()
@@ -4085,11 +4085,27 @@ analyze_command() {
   # substitution (a `while` head reads the body's last `$_`), so `$_` counts
   # as carrying substitution output wherever the command holds one.
   [ "$SUB_N" -eq 0 ] || SUB_SEEN=1
+  # Each `|`-separated segment holds a command or a redirect, and its first
+  # word is no reserved word: anything else is not a pipeline.
   if [ "${3-}" = pipeline ]; then
-    [ "$TOK_N" -ge 1 ] && [ "${TOK_TYPE[0]}" != O ] || return 1
+    seg=0 lead=1
     for ((t = 0; t < TOK_N; t++)); do
-      [ "${TOK_TYPE[t]}" != O ] || [ "${TOK_VAL[t]}" = '|' ] || return 1
+      case ${TOK_TYPE[t]} in
+        O)
+          [ "${TOK_VAL[t]}" = '|' ] && [ "$seg" = 1 ] || return 1
+          seg=0 lead=1
+          ;;
+        R)
+          seg=1
+          t=$((t + 1))
+          ;;
+        *)
+          [ "$lead" = 0 ] || ! is_reserved "${TOK_VAL[t]}" || return 1
+          seg=1 lead=0
+          ;;
+      esac
     done
+    [ "$seg" = 1 ] || return 1
   fi
   verify_tokens "$depth"
 }

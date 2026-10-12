@@ -2249,6 +2249,11 @@ assert_defer "REQ-E1.3: an inner && list" "echo \$(git status && git log -1)" Ba
 assert_defer "REQ-E1.3: an inner newline" "echo \"\$(git status
 git log -1)\"" Bash "$SUBST_CWD"
 assert_defer "REQ-E1.3: an inner background job" "echo \$(git status & git log -1)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an inner reserved word in command position" "echo \$(then cat f)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an inner do in command position" "echo \$(do cat f)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an inner trailing pipe" "echo \$(cat f |)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an inner empty pipeline segment" "echo \$(cat f | | cat)" Bash "$SUBST_CWD"
+assert_allow "REQ-E1.3: an inner read redirect alone" "echo \$(<f)" Bash "$SUBST_CWD"
 assert_defer "REQ-E1.3: an inner assignment" "echo \$(x=1)" Bash "$SUBST_CWD"
 # A name only inferred to carry output (an outer name inside a substitution,
 # `$_`, an untracked name) gains no position a plain opaque value lacks.
