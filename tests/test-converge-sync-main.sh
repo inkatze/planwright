@@ -1146,9 +1146,9 @@ w2() {
     && fail "w2: SKILL.md gained a direct ready-flip call — the flip goes only through scripts/ready-flip.sh"
   grep -q 'gh pr create --draft' "$SKILL" \
     || fail "w2: SKILL.md lost its draft-only PR creation instruction"
-  grep -q 'Never merge.' "$SKILL" \
-    || fail "w2: SKILL.md lost the PR-creation never-merge contract"
-  grep -Eq '^- \*\*Never\*\* create a non-draft PR or merge' "$SKILL" \
+  tr '\n' ' ' <"$SKILL" | grep -q 'merge outside `scripts/merge-admitted.sh`' \
+    || fail "w2: SKILL.md lost the never-merge contract outside the policy-class helper"
+  grep -Eq '^- \*\*Never\*\* create a non-draft PR, merge outside' "$SKILL" \
     || fail "w2: SKILL.md lost the never-merge invariant"
   # shellcheck disable=SC2016 # literal backticks of the skill's markdown
   tr '\n' ' ' <"$SKILL" | grep -Eq 'flip one +ready outside the `unit-owner` path' \

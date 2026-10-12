@@ -449,7 +449,7 @@ These hold at every step:
   bypass flag for either (REQ-C1.1, superseding REQ-J1.2, D-33; D-2, D-3,
   REQ-F1.9, REQ-C1.3).
 - **Never** create a non-draft PR, merge outside `scripts/merge-admitted.sh`,
-  or flip ready outside the `unit-owner` path above (D-21; human-gates REQ-C1.5).
+  or flip one ready outside the `unit-owner` path above (D-21; human-gates REQ-C1.5).
 - **Never** create a worktree; this skill runs inside one (D-37, D-44).
 - **Never** let a step push before `post-pr`, merge, mark ready, or rewrite
   history: this skill owns push and PR creation (D-39; custom-steps REQ-D1.6).
