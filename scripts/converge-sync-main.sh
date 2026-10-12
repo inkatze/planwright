@@ -211,10 +211,12 @@ for sib in resolve-policy-knob.sh protected-branch.sh planwright-commit-trailers
     || die 2 environment "$sib is missing beside this script (broken install)"
 done
 
-for ref in ${task_refs[@]+"${task_refs[@]}"}; do
-  printf '%s\n' "$ref" | grep -Eq '^(specs/)?[a-z0-9][a-z0-9-]{0,63}/[0-9]+(\.[0-9]+)?$' \
-    || die 2 usage "--commit-resolution takes <spec>/<id>, and this one is malformed; $USAGE"
-done
+# The trailer helper owns the task-ref grammar; a dry stamp checks it before
+# anything else runs.
+if [ "${#task_refs[@]}" -gt 0 ]; then
+  printf 'probe\n' | /bin/sh "$script_dir/planwright-commit-trailers.sh" "${task_refs[@]}" >/dev/null 2>&1 \
+    || die 2 usage "--commit-resolution takes <spec>/<id>, and one given is malformed; $USAGE"
+fi
 
 common_dir() { # <dir> — the absolute git common dir, or empty
   git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true
