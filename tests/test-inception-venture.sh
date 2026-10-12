@@ -445,6 +445,15 @@ assert_eq "dry run (remote): the bundle is validator-clean" 0 "$?"
 assert_eq "dry run (remote): the push reached the private remote" \
   "$(git -C "$rv" rev-parse HEAD)" "$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)"
 
+# A push with nothing ever saved is not blamed on the connection.
+ev="$tmp/empty-remote"
+git init -q "$ev"
+git init -q --bare "$tmp/remotes/empty.git"
+git -C "$ev" remote add origin "$tmp/remotes/empty.git"
+venture save --push "$ev" "Share nothing"
+assert_eq "A1.4 a push with no saved history is refused (exit 6)" 6 "$rc"
+assert_contains "A1.4 the empty-push refusal says nothing was saved" "nothing has been saved yet" "$out"
+
 # =========================================================================
 # Degraded rungs: plain folder and session-only (REQ-H1.1, REQ-H1.5, REQ-A1.5)
 # =========================================================================

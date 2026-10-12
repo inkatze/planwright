@@ -645,6 +645,8 @@ cmd_save() {
   fi
 
   if [ "$push" -eq 1 ]; then
+    git -C "$dir" rev-parse -q --verify HEAD >/dev/null \
+      || die 6 "nothing has been saved yet, so there is nothing to share"
     if ! git -C "$dir" push -q -u origin HEAD >/dev/null 2>&1; then
       die 7 "saved here, but not shared: the push to the private repository failed (check the connection, then save again)"
     fi
