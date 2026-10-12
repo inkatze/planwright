@@ -1,7 +1,9 @@
 #!/bin/sh
-# step-record.sh — write, list, and render custom-steps records, and
-# regenerate the pending-sign-off checklist (custom-steps Task 4; REQ-D1.5,
-# REQ-E1.2, REQ-H1.3; D-12, D-16).
+# step-record.sh — write, list, look up, and render custom-steps records,
+# fingerprint declared paths, and regenerate the pending-sign-off checklist
+# (custom-steps Tasks 4 and 13; REQ-D1.5, REQ-D1.10, REQ-D1.12, REQ-E1.2,
+# REQ-E1.6, REQ-H1.3, REQ-I1.5, REQ-I1.7–I1.10, REQ-J1.1, REQ-J1.2; D-12, D-16,
+# D-25–D-27, D-31, D-32).
 # doctrine/custom-steps.md (*Records*) is the normative home of what a record
 # holds and where it folds; doctrine/gate-wiring.md owns the checklist format.
 # This header pins what those docs delegate here: the verbs, the storage
@@ -11,17 +13,29 @@
 #   step-record.sh [--worktree <dir>] new-run
 #   step-record.sh [--worktree <dir>] write --run <id> --point <point>
 #       --step <id> --kind <kind> --target <target> --hosting <hosting>
-#       --backend <name> [--head <sha>] --start <ts> [--end <ts>]
-#       --outcome <outcome> [--session <id>] [--excerpt-file <file>]
-#       [--output <path>] [--skip-reason <text>]
+#       --backend <name> [--head <sha>] [--end-head <sha>] --start <ts>
+#       [--end <ts>] --outcome <outcome> [--session <id>]
+#       [--excerpt-file <file>] [--output <path>] [--skip-code <code>]
+#       [--skip-reason <text>] [--stands-on <run>:<point>:<seq>]
+#       [--pool <pool> --wait <seconds> [--holder <text>]... [--unpooled]]
+#       [--fingerprint <fp> --args-digest <digest>] [--refire-of <point>]
 #   step-record.sh [--worktree <dir>] write --completion --run <id>
 #       --point <point> [--head <sha>] [--warning <text>]...
+#   step-record.sh [--worktree <dir>] write --full-suite --run <id>
+#       --pool <pool> --wait <seconds> --wait-outcome <outcome>
+#       [--holder <text>]... --start <ts> [--end <ts>]
 #   step-record.sh [--worktree <dir>] list [--run <id>] [--point <point>]
 #   step-record.sh [--worktree <dir>] render [--run <id>] [--point <point>]...
 #   step-record.sh [--worktree <dir>] regenerate --base <rev> --head <rev>
 #       [--run <id>] [--checklist-only]
 #   step-record.sh [--worktree <dir>] status --point <flip-point>
 #       [--head <sha>] --repo <owner>/<name>
+#   step-record.sh [--worktree <dir>] fingerprint --paths <words>
+#   step-record.sh [--worktree <dir>] lookup reuse --step <id>
+#       --target <target> --args-digest <digest> --fingerprint <fp>
+#   step-record.sh [--worktree <dir>] lookup resume --run <id>
+#       --point <point> [--head <sha>]
+#   step-record.sh args-digest <args>
 #   step-record.sh excerpt <file>
 #
 #   --worktree    the unit's worktree; default the enclosing git top level.
@@ -37,8 +51,13 @@
 #   write         validate every field, then write one record and print its
 #                 absolute path (the value a later step's
 #                 PLANWRIGHT_STEP_PREV_RECORD carries). --completion writes
-#                 the point-completion record instead; --warning repeats. A
-#                 point fires once per run: its completion is claimed
+#                 the point-completion record instead; --warning repeats.
+#                 --full-suite writes a full-suite record instead: one full
+#                 local suite attempt's pool wait, tied to no point (it
+#                 neither needs nor claims a completion). A re-fire record
+#                 (--refire-of) is a post-pr step record, so it lands before
+#                 post-pr's completion. A point fires once per run: its
+#                 completion is claimed
 #                 atomically, and a step or completion record for a point the
 #                 run already completed is refused. A repeated write is a
 #                 second record; retrying is the caller's call. A write that
@@ -57,7 +76,8 @@
 #   render        print one markdown table per point of the run (default the
 #                 latest run), in the order the points first recorded, or
 #                 the named points in the order given, each once; a named
-#                 point with no record renders nothing.
+#                 point with no record renders nothing. Given no point, the
+#                 run's full-suite records follow as one full-suite table.
 #   regenerate    print the pending-sign-off checklist rebuilt from the
 #                 marked commits of <base>..<head>, then, unless
 #                 --checklist-only, when the run (default the latest run)
@@ -74,16 +94,55 @@
 #                 holding a completion record of that point naming --head; a
 #                 head with none is refused (exit 1) with no post. The state
 #                 is `failure` when any of that run's step records at the
-#                 point is halted or failed, whatever head it started on,
-#                 else `success` (an empty list included). The description
-#                 is `<point>: no step halted or failed (run <id>)`, or `a
-#                 step halted or failed` in its place; the status carries no
-#                 target URL, excerpt, or path. The post is
+#                 point is halted, failed, or limited, whatever head it
+#                 started on, or when an unretired limited record ends on
+#                 --head: a limited step record, of any run and point, whose
+#                 end head is --head, retired once a higher run holds a
+#                 passed, applied, or `resume`-skipped record of the same
+#                 step id ending there. Otherwise `success` (an empty list
+#                 included). The description is `<point>: no step halted or
+#                 failed (run <id>)`, or in its place `a step halted or
+#                 failed`, or else `a step stayed limited`; the status
+#                 carries no target URL, excerpt, or path. The post is
 #                 `gh api --method POST repos/<repo>/statuses/<head>`; a
 #                 later post on the same head and context replaces the
 #                 earlier one. A failed post exits 1 naming the repository
 #                 and the permission the login needs; an exit 1 after the
 #                 post (a failed print) leaves the status in place.
+#   fingerprint   print the fingerprint of the declared path words (one
+#                 argument, words split on spaces, in the --paths grammar
+#                 below) at the worktree's HEAD, or `none` when a tracked file
+#                 under a word differs from HEAD (staged or not) or an
+#                 untracked file git does not ignore lies under one. The
+#                 fingerprint is git's object id (`git hash-object`) of one
+#                 `<word><TAB><object id>` line per word in the order given,
+#                 the object id the word's blob or tree at HEAD (`.` the root
+#                 tree) or `-` for a path absent there; nothing is written to
+#                 the object store.
+#   lookup        print the records a step would stand on, one line each,
+#                 `record<TAB><run>:<point>:<seq><TAB><step><TAB><head>
+#                 <TAB><end head><TAB><hosting><TAB><session><TAB><path>`
+#                 (the second field the --stands-on value, the path
+#                 worktree-relative), or exit 3 when none qualifies. A record
+#                 with no end head (one written before end heads) never
+#                 qualifies. `reuse` prints the newest step record of any run
+#                 and point, re-fires included, that is passed and carries
+#                 the same step id, target (as write would store it; a value
+#                 the screen withholds matches nothing), args digest, and
+#                 fingerprint; --fingerprint none matches nothing. `resume`
+#                 reads the named run's step records at --point (one of the
+#                 in-run points pre-implementation, pre-ci, convergence,
+#                 pre-pr, post-pr) in write order and prints the leading
+#                 prefix that are passed or applied with their end head on
+#                 --head (default the worktree's HEAD); a `resume` skip there
+#                 ending on --head stands for the record it names, which is
+#                 printed in its place when it is a passed or applied record
+#                 of the same step id ending on --head, so chained resumes
+#                 print the same records. The first record that does not
+#                 qualify ends the prefix. --run and --point are validated
+#                 before any record is read.
+#   args-digest   print the SHA-256 of <args> exactly as given (no newline
+#                 added), the --args-digest value; no worktree is read.
 #   excerpt       print <file> as write would store it as a record excerpt
 #                 (cleaned, screened, and bounded, or its placeholder line),
 #                 with no record cache or work tree involved; the excerpt a
@@ -108,21 +167,44 @@
 #                  started on, so a step that may commit passes that head;
 #                  the default fits a completion, status, and a step that
 #                  leaves HEAD where it found it.
+#   --end-head     a full commit id, the head at the step's end; omitted, the
+#                  worktree's HEAD commit when the record is written, given
+#                  (even empty) never defaulted, as --head. A step record
+#                  only; a completion's --head is already its end.
 #   --start/--end  YYYY-MM-DDTHH:MM:SSZ; an omitted write --end is the UTC
 #                  time the record is written, refused if earlier than
 #                  --start
-#   --outcome      passed | applied | halted | failed | skipped; skipped
-#                  requires --skip-reason, and --skip-reason requires skipped
-#   --target, --skip-reason, --warning
+#   --outcome      passed | applied | halted | failed | skipped | limited
+#   --skip-code    missing | reuse | resume | answered; a skipped record
+#                  carries exactly one, and only a skipped record carries one
+#   --skip-reason  free-text detail of a skip; optional, skipped only
+#   --stands-on    <run>:<point>:<seq>, naming an existing step record of
+#                  the cache: required for a `reuse` or `resume` skip, refused
+#                  on every other record
+#   --pool         a pool name, ^[a-z][a-z0-9-]*$, at most 64 bytes; with it
+#                  --wait (whole seconds, at most nine digits) is required,
+#                  and --wait, --holder (repeats), and --unpooled (a flag)
+#                  are refused without it
+#   --fingerprint  `none` or a full commit id (the fingerprint verb's output);
+#                  it and --args-digest (64 lowercase hex digits) come
+#                  together or not at all
+#   --refire-of    pre-ci | pre-pr; a post-pr record only
+#   --wait-outcome taken | expired | unpooled | nested (--full-suite only; the
+#                  stored unpooled flag reads yes exactly for unpooled)
+#   --target, --skip-reason, --warning, --holder
 #                  single-line text, no C0 control byte or DEL, at most 1024
 #                  bytes, non-empty before and after the text cleaning below
+#   --paths        (fingerprint) space-separated words of letters, digits,
+#                  `.`, `_`, `-`, and `/`, none opening with `/` or `-` or
+#                  holding a `..` segment, `.` the whole tree; at least one
 #   --output       an existing regular file under the cache, absolute or
 #                  relative to the worktree, a path of the text grammar above
 #                  that the text cleaning leaves unchanged; stored
 #                  worktree-relative
 #   --excerpt-file a readable regular file
 #
-# Storage: <cache>/<run>/<seq>-step-<point>.rec and
+# Storage: <cache>/<run>/<seq>-step-<point>.rec,
+# <cache>/<run>/<seq>-suite.rec (a full-suite record), and
 # <cache>/<run>/<seq>-done-<point>.rec (a name never carries a step id, which
 # the screen may withhold), <seq> three digits unique within the run and
 # increasing in write order, at most 999 records a run. Issuing a run id and
@@ -132,7 +214,10 @@
 # and `.done-<point>` directories; they still count as a claimed number and a
 # completed point. A record is `<key><TAB><value>` lines: type, run, seq, then
 # the fields above under their flag names (`excerpt` for --excerpt-file), an
-# empty optional field stored empty; `excerpt` and `warning` lines repeat.
+# empty optional field stored empty; `excerpt`, `warning`, and `holder` lines
+# repeat; `unpooled` stores yes, no, or (with no pool) empty. A record from
+# before end heads lacks the `end-head` line and the extension's other
+# fields; its skip reason renders as written.
 # Records are mode 0600. Its form is unstable to anything but this helper.
 #
 # Text cleaning, applied to every stored text value, the excerpt, and the
@@ -148,7 +233,7 @@
 # action: on a hit the excerpt is withheld and stored as one placeholder
 # line; a screen that cannot run withholds it the same way, never passing it
 # unscreened. The step, target, backend, session, output, and skip-reason
-# values, and each warning, pass the same screen, a hit storing a
+# values, and each warning and holder, pass the same screen, a hit storing a
 # placeholder in the value's place. The full captured output stays where
 # --output names, unscreened.
 #
@@ -157,11 +242,22 @@
 # then a table with the columns
 #   # | Step | Kind | Target | Hosting | Backend | Session | Head | Start |
 #   End | Outcome | Excerpt | Output
-# one row per step record (Outcome reads `skipped: <reason>` for a skip; the
-# excerpt's lines join with ` / `; Head shows 12 characters), or a single
-# `none` row when the point has only its completion record; then an
-# "Ended on" line naming the head's first 12 characters when a completion
-# record exists, and one `- Warning: <text>` line per warning.
+# one row per step record (Outcome reads `skipped: <code>`, then ` on
+# <run>:<point>:<seq>` for a record it stands on and ` (<detail>)` for its
+# free-text detail, a record without a code `skipped: <detail>`; the
+# excerpt's lines join with ` / `; Head shows 12 characters, `<start> to
+# <end>` when the step moved the head), or a single `none` row when the point
+# has only its completion record; then, after a blank line, one
+# `- Row <n>: <details>` line per row carrying pool, paths, or re-fire
+# fields, the details joined with `; ` (pool `<pool>`; waited <n> s;
+# holders: <holder / holder>; ran unpooled; fingerprint `<12>` or none; args
+# digest `<12>`; re-fire of `<point>`); then an "Ended on" line naming the
+# head's first 12 characters when a completion record exists, and one
+# `- Warning: <text>` line per warning. With no point named, a run's
+# full-suite records follow as
+#   ## Full-suite runs (run `<id>`)
+# then a table with the columns
+#   # | Pool | Wait outcome | Waited (s) | Holders | Unpooled | Start | End
 #
 # Neutralizing, applied to every rendered cell, warning, and checklist text:
 # C0 control bytes, DEL, and C1 controls are dropped again (a record is read
@@ -217,7 +313,8 @@
 # Exit: 0 success · 1 a runtime failure (an unresolvable or unreadable range,
 # a cache that cannot be read or written, an exhausted counter, a cache lock
 # another writer held past the wait, a status with no attempt to post or a
-# post that failed) · 2 a usage or field-validation error.
+# post that failed, no SHA-256 tool for args-digest) · 2 a usage or
+# field-validation error · 3 lookup found no record to stand on.
 #
 # Portable POSIX sh + awk + iconv; bash 3.2 / BSD tooling floor.
 set -u
@@ -336,12 +433,62 @@ is_ts() {
 # a plain directory inside another repository would resolve that repository, so
 # both are refused rather than recording a commit from elsewhere.
 set_head_from_worktree() {
+  worktree_head --head
+  head=$WT_HEAD
+}
+
+# worktree_head <flag>: sets WT_HEAD to the worktree's own HEAD commit, a
+# refusal naming <flag>.
+worktree_head() {
   command -v git >/dev/null 2>&1 || die 1 "git is not on PATH"
   _top=$(unset GIT_DIR GIT_WORK_TREE && git -C "$worktree" rev-parse --show-toplevel 2>/dev/null) \
     && _top=$(cd -P -- "$_top" 2>/dev/null && pwd -P) && [ "$_top" = "$worktree" ] \
-    || bad --head "not given and the worktree is not the top of a git work tree to default from"
-  head=$(unset GIT_DIR GIT_WORK_TREE && git -C "$worktree" rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null) \
-    || bad --head "not given and the worktree has no commit to default to"
+    || bad "$1" "not given and the worktree is not the top of a git work tree to default from"
+  WT_HEAD=$(unset GIT_DIR GIT_WORK_TREE && git -C "$worktree" rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null) \
+    || bad "$1" "not given and the worktree has no commit to default to"
+}
+
+is_pool() {
+  case $1 in '' | [!a-z]* | *[!a-z0-9-]*) return 1 ;; esac
+  [ "${#1}" -le 64 ]
+}
+
+is_sha256() {
+  case $1 in *[!0-9a-f]*) return 1 ;; esac
+  [ "${#1}" -eq 64 ]
+}
+
+is_seconds() {
+  case $1 in '' | *[!0-9]*) return 1 ;; esac
+  [ "${#1}" -le 9 ]
+}
+
+# is_ref <run>:<point>:<seq>: the --stands-on grammar; sets REF_RUN,
+# REF_POINT, and REF_SEQ.
+is_ref() {
+  case $1 in *:*:*:*) return 1 ;; *:*:*) ;; *) return 1 ;; esac
+  REF_RUN=${1%%:*} REF_SEQ=${1##*:}
+  REF_POINT=${1#*:}
+  REF_POINT=${REF_POINT%:*}
+  is_run_id "$REF_RUN" && is_point "$REF_POINT" || return 1
+  case $REF_SEQ in [0-9][0-9][0-9]) return 0 ;; esac
+  return 1
+}
+
+# sha256 <file>: print the file's SHA-256 in hex.
+sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    _d=$(sha256sum <"$1")
+  elif command -v shasum >/dev/null 2>&1; then
+    _d=$(shasum -a 256 <"$1")
+  elif command -v openssl >/dev/null 2>&1; then
+    _d=$(openssl dgst -sha256 -r <"$1")
+  else
+    die 1 "no SHA-256 tool (sha256sum, shasum, or openssl) is on PATH"
+  fi
+  _d=${_d%%[!0-9a-f]*}
+  is_sha256 "$_d" || die 1 "the SHA-256 tool printed no digest"
+  printf '%s\n' "$_d"
 }
 
 is_run_id() {
@@ -466,6 +613,13 @@ if [ "$verb" = excerpt ]; then
   cat "$work/excerpt" || die 1 "cannot print the excerpt"
   exit 0
 fi
+if [ "$verb" = args-digest ]; then
+  [ $# -eq 1 ] && [ -z "$worktree" ] || usage
+  scratch
+  printf '%s' "$1" >"$work/args" || die 1 "cannot write a temporary file"
+  sha256 "$work/args"
+  exit 0
+fi
 
 if [ -z "$worktree" ]; then
   command -v git >/dev/null 2>&1 || die 1 "git is not on PATH"
@@ -575,13 +729,13 @@ put() {
   printf '%s\t%s\n' "$1" "$2" || die 1 "cannot write a temporary file"
 }
 
-# claim <run> <stem> <type> <body-file> <point>: under the cache lock, refuse
+# claim <run> <stem> <type> <body-file> [<point>]: under the cache lock, refuse
 # once the point is completed, then write the record under the run's next
 # sequence number and print its absolute path.
 claim() {
   dir="$cache/$1"
   lock_cache
-  point_done "$1" "$5" && bad --point "already completed in this run"
+  [ -z "${5:-}" ] || ! point_done "$1" "$5" || bad --point "already completed in this run"
   last=$({
     glob_names "$dir" '.seq-[0-9][0-9][0-9]' | sed 's/^\.seq-//'
     glob_names "$dir" '[0-9][0-9][0-9]-*.rec' | cut -c1-3
@@ -601,19 +755,27 @@ claim() {
 }
 
 cmd_write() {
-  completion=0 run='' point='' step='' kind='' target='' hosting='' backend=''
-  session='' head='' start='' end='' outcome='' excerpt_file='' output=''
-  skip_reason='' warnings='' head_given=0 end_given=0
+  completion=0 full_suite=0 run='' point='' step='' kind='' target='' hosting=''
+  backend='' session='' head='' end_head='' start='' end='' outcome='' excerpt_file=''
+  output='' skip_reason='' skip_code='' skip_codes=0 stands_on='' pool='' wait=''
+  holders='' unpooled=0 fingerprint='' args_digest='' refire_of='' wait_outcome=''
+  warnings='' head_given=0 end_head_given=0 end_given=0 pool_given=0 wait_given=0
   while [ $# -gt 0 ]; do
     case $1 in
-      --completion)
-        completion=1
+      --completion | --full-suite | --unpooled)
+        case $1 in
+          --completion) completion=1 ;;
+          --full-suite) full_suite=1 ;;
+          --unpooled) unpooled=1 ;;
+        esac
         shift
         continue
         ;;
       --run | --point | --step | --kind | --target | --hosting | --backend | \
-        --session | --head | --start | --end | --outcome | --excerpt-file | \
-        --output | --skip-reason | --warning)
+        --session | --head | --end-head | --start | --end | --outcome | \
+        --excerpt-file | --output | --skip-reason | --skip-code | --stands-on | \
+        --pool | --wait | --holder | --fingerprint | --args-digest | --refire-of | \
+        --wait-outcome | --warning)
         [ $# -ge 2 ] || usage
         ;;
       *) usage ;;
@@ -631,6 +793,10 @@ cmd_write() {
         head=$2
         head_given=1
         ;;
+      --end-head)
+        end_head=$2
+        end_head_given=1
+        ;;
       --start) start=$2 ;;
       --end)
         end=$2
@@ -640,6 +806,27 @@ cmd_write() {
       --excerpt-file) excerpt_file=$2 ;;
       --output) output=$2 ;;
       --skip-reason) skip_reason=$2 ;;
+      --skip-code)
+        skip_code=$2
+        skip_codes=$((skip_codes + 1))
+        ;;
+      --stands-on) stands_on=$2 ;;
+      --pool)
+        pool=$2
+        pool_given=1
+        ;;
+      --wait)
+        wait=$2
+        wait_given=1
+        ;;
+      --holder)
+        is_text "$2" || bad --holder "must be non-empty single-line text of at most $TEXT_MAX bytes"
+        holders="$holders$2$LF"
+        ;;
+      --fingerprint) fingerprint=$2 ;;
+      --args-digest) args_digest=$2 ;;
+      --refire-of) refire_of=$2 ;;
+      --wait-outcome) wait_outcome=$2 ;;
       --warning)
         is_text "$2" || bad --warning "must be non-empty single-line text of at most $TEXT_MAX bytes"
         warnings="$warnings$2$LF"
@@ -650,6 +837,11 @@ cmd_write() {
 
   [ -n "$run" ] || bad --run "required"
   valid_run "$run"
+  if [ "$full_suite" -eq 1 ]; then
+    write_full_suite
+    return
+  fi
+  [ -z "$wait_outcome" ] || bad --wait-outcome "belongs to write --full-suite"
   is_point "$point" || bad --point "not a point of the vocabulary"
   # An explicit --head, even an empty one, is never defaulted: an empty value
   # is more likely a failed substitution than a request for HEAD.
@@ -659,9 +851,13 @@ cmd_write() {
 
   if [ "$completion" -eq 1 ]; then
     for f in "$step" "$kind" "$target" "$hosting" "$backend" "$session" \
-      "$start" "$end" "$outcome" "$excerpt_file" "$output" "$skip_reason"; do
+      "$start" "$end" "$outcome" "$excerpt_file" "$output" "$skip_reason" \
+      "$skip_code" "$stands_on" "$pool" "$wait" "$holders" "$fingerprint" \
+      "$args_digest" "$refire_of"; do
       [ -z "$f" ] || bad --completion "takes only --run, --point, --head, and --warning"
     done
+    [ "$end_head_given" -eq 0 ] && [ "$unpooled" -eq 0 ] && [ "$pool_given" -eq 0 ] \
+      && [ "$wait_given" -eq 0 ] || bad --completion "takes only --run, --point, --head, and --warning"
     scratch
     cleaned=''
     for w in $warnings; do
@@ -690,19 +886,47 @@ cmd_write() {
   case $hosting in isolated | continue | in-session) ;; *) bad --hosting "not isolated, continue, or in-session" ;; esac
   is_backend "$backend" || bad --backend "not a backend name"
   [ -z "$session" ] || is_session "$session" || bad --session "not a session id"
-  is_ts "$start" || bad --start "not YYYY-MM-DDTHH:MM:SSZ"
-  if [ "$end_given" -eq 0 ]; then
-    end=$(date -u +%Y-%m-%dT%H:%M:%SZ) || die 1 "cannot read the clock"
-    # Same-width UTC stamps: the digits compare as numbers.
-    [ "$(printf '%s' "$end" | tr -d -- '-:TZ')" -ge "$(printf '%s' "$start" | tr -d -- '-:TZ')" ] \
-      || bad --end "not given, and the clock now reads earlier than --start"
+  if [ "$end_head_given" -eq 0 ]; then
+    worktree_head --end-head
+    end_head=$WT_HEAD
   fi
+  is_head "$end_head" || bad --end-head "not a full commit id"
+  is_ts "$start" || bad --start "not YYYY-MM-DDTHH:MM:SSZ"
+  default_end
   is_ts "$end" || bad --end "not YYYY-MM-DDTHH:MM:SSZ"
-  case $outcome in passed | applied | halted | failed | skipped) ;; *) bad --outcome "not passed, applied, halted, failed, or skipped" ;; esac
+  case $outcome in
+    passed | applied | halted | failed | skipped | limited) ;;
+    *) bad --outcome "not passed, applied, halted, failed, skipped, or limited" ;;
+  esac
   if [ "$outcome" = skipped ]; then
-    is_text "$skip_reason" || bad --skip-reason "required for a skipped step, as single-line text of at most $TEXT_MAX bytes"
-  elif [ -n "$skip_reason" ]; then
-    bad --skip-reason "only a skipped step carries one"
+    [ "$skip_codes" -eq 1 ] || bad --skip-code "a skipped step carries exactly one"
+    case $skip_code in missing | reuse | resume | answered) ;; *) bad --skip-code "not missing, reuse, resume, or answered" ;; esac
+    [ -z "$skip_reason" ] || is_text "$skip_reason" \
+      || bad --skip-reason "must be single-line text of at most $TEXT_MAX bytes"
+  else
+    [ "$skip_codes" -eq 0 ] || bad --skip-code "only a skipped step carries one"
+    [ -z "$skip_reason" ] || bad --skip-reason "only a skipped step carries one"
+  fi
+  case $skip_code in
+    reuse | resume)
+      [ -n "$stands_on" ] || bad --stands-on "required for a $skip_code skip"
+      is_ref "$stands_on" || bad --stands-on "not <run>:<point>:<seq>"
+      _ref="$cache/$REF_RUN/$REF_SEQ-step-$REF_POINT.rec"
+      [ -d "$cache/$REF_RUN" ] && [ ! -L "$cache/$REF_RUN" ] && [ -f "$_ref" ] && [ ! -L "$_ref" ] \
+        || bad --stands-on "names no step record in the cache"
+      ;;
+    *) [ -z "$stands_on" ] || bad --stands-on "only a reuse or resume skip stands on a record" ;;
+  esac
+  check_pool_fields
+  if [ -n "$fingerprint" ] || [ -n "$args_digest" ]; then
+    [ -n "$args_digest" ] || bad --args-digest "required with --fingerprint"
+    [ -n "$fingerprint" ] || bad --fingerprint "required with --args-digest"
+    [ "$fingerprint" = none ] || is_head "$fingerprint" || bad --fingerprint "not none or a fingerprint"
+    is_sha256 "$args_digest" || bad --args-digest "not a SHA-256 digest"
+  fi
+  if [ -n "$refire_of" ]; then
+    case $refire_of in pre-ci | pre-pr) ;; *) bad --refire-of "not pre-ci or pre-pr" ;; esac
+    [ "$point" = post-pr ] || bad --refire-of "only a post-pr record carries one"
   fi
   rel_output=''
   if [ -n "$output" ]; then
@@ -733,6 +957,7 @@ cmd_write() {
     clean_value "$rel_output"
     [ "$CLEANED" = "$rel_output" ] || bad --output "carries control or invisible characters"
   fi
+  screen_holders
   # The unpacking below reads these back by position; the two lists change
   # together.
   screen_values value "$step" "$target" "$backend" "$session" "$rel_output" "$skip_reason"
@@ -752,6 +977,11 @@ cmd_write() {
   : >"$work/excerpt"
   [ -z "$excerpt_file" ] || build_excerpt "$excerpt_file" "$work/excerpt"
 
+  s_unpooled=''
+  if [ -n "$pool" ]; then
+    s_unpooled=no
+    [ "$unpooled" -eq 0 ] || s_unpooled=yes
+  fi
   {
     put point "$point"
     put step "$s_step"
@@ -761,16 +991,105 @@ cmd_write() {
     put backend "$s_backend"
     put session "$s_session"
     put head "$head"
+    put end-head "$end_head"
     put start "$start"
     put end "$end"
     put outcome "$outcome"
     put output "$s_output"
+    put skip-code "$skip_code"
     put skip-reason "$s_skip"
+    put stands-on "$stands_on"
+    put pool "$pool"
+    put wait "$wait"
+    put unpooled "$s_unpooled"
+    while IFS= read -r h; do
+      put holder "$h"
+    done <"$work/holders"
+    put fingerprint "$fingerprint"
+    put args-digest "$args_digest"
+    put refire-of "$refire_of"
     while IFS= read -r line || [ -n "$line" ]; do
       put excerpt "$line"
     done <"$work/excerpt"
   } >"$work/body" || die 1 "cannot write a temporary file"
   claim "$run" "step-$point" step "$work/body" "$point"
+}
+
+# default_end: an omitted --end is the clock now, never earlier than --start.
+default_end() {
+  [ "$end_given" -eq 0 ] || return 0
+  end=$(date -u +%Y-%m-%dT%H:%M:%SZ) || die 1 "cannot read the clock"
+  # Same-width UTC stamps: the digits compare as numbers.
+  [ "$(printf '%s' "$end" | tr -d -- '-:TZ')" -ge "$(printf '%s' "$start" | tr -d -- '-:TZ')" ] \
+    || bad --end "not given, and the clock now reads earlier than --start"
+}
+
+# check_pool_fields: --pool with its --wait, and the other pool fields only
+# beside a pool.
+check_pool_fields() {
+  if [ "$pool_given" -eq 1 ]; then
+    is_pool "$pool" || bad --pool "not a pool name"
+    [ "$wait_given" -eq 1 ] || bad --wait "required with --pool"
+    is_seconds "$wait" || bad --wait "not whole seconds"
+  elif [ "$wait_given" -eq 1 ] || [ -n "$holders" ] || [ "$unpooled" -eq 1 ]; then
+    bad --pool "required with --wait, --holder, or --unpooled"
+  fi
+}
+
+# screen_holders: the holders cleaned and screened into $work/holders, one a
+# line (empty when none).
+screen_holders() {
+  scratch
+  cleaned=''
+  for h in $holders; do
+    clean_value "$h"
+    [ -n "$CLEANED" ] || bad --holder "empty once cleaned"
+    cleaned="$cleaned$CLEANED$LF"
+  done
+  if [ -z "$cleaned" ]; then
+    : >"$work/holders" || die 1 "cannot write a temporary file"
+    return 0
+  fi
+  # shellcheck disable=SC2086 # split on newlines by design (IFS)
+  screen_values value $cleaned
+  mv "$work/screened" "$work/holders" || die 1 "cannot write a temporary file"
+}
+
+# write_full_suite: the full-suite record, its flags checked against the
+# ones it takes.
+write_full_suite() {
+  for f in "$point" "$step" "$kind" "$target" "$hosting" "$backend" "$session" \
+    "$outcome" "$excerpt_file" "$output" "$skip_reason" "$skip_code" "$stands_on" \
+    "$fingerprint" "$args_digest" "$refire_of" "$warnings"; do
+    [ -z "$f" ] || bad --full-suite "takes only --run, --pool, --wait, --wait-outcome, --holder, --start, and --end"
+  done
+  [ "$completion" -eq 0 ] && [ "$head_given" -eq 0 ] && [ "$end_head_given" -eq 0 ] \
+    && [ "$unpooled" -eq 0 ] \
+    || bad --full-suite "takes only --run, --pool, --wait, --wait-outcome, --holder, --start, and --end"
+  [ "$pool_given" -eq 1 ] || bad --pool "required"
+  check_pool_fields
+  case $wait_outcome in
+    taken | expired | unpooled | nested) ;;
+    *) bad --wait-outcome "not taken, expired, unpooled, or nested" ;;
+  esac
+  is_ts "$start" || bad --start "not YYYY-MM-DDTHH:MM:SSZ"
+  default_end
+  is_ts "$end" || bad --end "not YYYY-MM-DDTHH:MM:SSZ"
+  screen_holders
+  s_unpooled=no
+  [ "$wait_outcome" != unpooled ] || s_unpooled=yes
+  {
+    put pool "$pool"
+    put wait "$wait"
+    put wait-outcome "$wait_outcome"
+    put unpooled "$s_unpooled"
+    while IFS= read -r h; do
+      put holder "$h"
+    done <"$work/holders"
+    put start "$start"
+    put end "$end"
+  } >"$work/body" || die 1 "cannot write a temporary file"
+  claim "$run" suite full-suite "$work/body"
 }
 
 # --- list -----------------------------------------------------------------------
@@ -839,48 +1158,98 @@ render_run() {
   for _w in "$@"; do want="$want $_w"; done
   # shellcheck disable=SC2086 # split on newlines by design (IFS)
   awk -v run="$r" -v want="$want" -v TAB="$TAB" "$AWK_SAFE"'
+    function short(h) { return substr(h, 1, 12) }
+    # details(i): the pool, paths, and re-fire fields of record i, joined.
+    function details(i,    d, j, hs) {
+      d = ""
+      if (F[i, "pool"] != "") {
+        d = "pool `" safe(F[i, "pool"]) "`; waited " safe(F[i, "wait"]) " s"
+        if (nh[i]) {
+          hs = ""
+          for (j = 1; j <= nh[i]; j++) hs = hs (j > 1 ? " / " : "") safe(H[i, j])
+          d = d "; holders: " hs
+        }
+        if (F[i, "unpooled"] == "yes") d = d "; ran unpooled"
+      }
+      if (F[i, "fingerprint"] != "") {
+        d = d (d == "" ? "" : "; ") "fingerprint " (F[i, "fingerprint"] == "none" ? "none" : "`" safe(short(F[i, "fingerprint"])) "`")
+        d = d "; args digest `" safe(short(F[i, "args-digest"])) "`"
+      }
+      if (F[i, "refire-of"] != "") d = d (d == "" ? "" : "; ") "re-fire of `" safe(F[i, "refire-of"]) "`"
+      return d
+    }
     FNR == 1 { k++ }
     {
       t = index($0, TAB); key = substr($0, 1, t - 1); val = substr($0, t + 1)
       if (key == "excerpt") ex[k] = ex[k] (nx[k]++ ? " / " : "") safe(val)
       else if (key == "warning") { nw[k]++; W[k, nw[k]] = val }
+      else if (key == "holder") { nh[k]++; H[k, nh[k]] = val }
       else F[k, key] = val
     }
     END {
       m = split(want, Q, " "); np = 0
       for (i = 1; i <= m; i++) if (!(Q[i] in named)) { named[Q[i]] = 1; P[++np] = Q[i] }
       if (np == 0) {
-        for (i = 1; i <= k; i++) if (!(F[i, "point"] in seen)) { seen[F[i, "point"]] = 1; P[++np] = F[i, "point"] }
+        for (i = 1; i <= k; i++) {
+          if (F[i, "type"] == "full-suite" || (F[i, "point"] in seen)) continue
+          seen[F[i, "point"]] = 1; P[++np] = F[i, "point"]
+        }
       }
       first = 1
       for (p = 1; p <= np; p++) {
         pt = P[p]; any = 0
-        for (i = 1; i <= k; i++) if (F[i, "point"] == pt) any = 1
+        for (i = 1; i <= k; i++) if (F[i, "type"] != "full-suite" && F[i, "point"] == pt) any = 1
         if (!any) continue
         if (!first) print ""
         first = 0
         printf "## Steps at `%s` (run `%s`)\n\n", safe(pt), safe(run)
         print "| # | Step | Kind | Target | Hosting | Backend | Session | Head | Start | End | Outcome | Excerpt | Output |"
         print "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
-        rows = 0; done = 0
+        rows = 0; done = 0; nd = 0
         for (i = 1; i <= k; i++) {
-          if (F[i, "point"] != pt) continue
+          if (F[i, "type"] == "full-suite" || F[i, "point"] != pt) continue
           if (F[i, "type"] == "completion") { done = i; continue }
           rows++
           outc = F[i, "outcome"]
-          if (outc == "skipped") outc = outc ": " F[i, "skip-reason"]
+          if (outc == "skipped" && F[i, "skip-code"] != "") {
+            outc = outc ": " F[i, "skip-code"]
+            if (F[i, "stands-on"] != "") outc = outc " on " F[i, "stands-on"]
+            if (F[i, "skip-reason"] != "") outc = outc " (" F[i, "skip-reason"] ")"
+          } else if (outc == "skipped") outc = outc ": " F[i, "skip-reason"]
+          hd = short(F[i, "head"])
+          if (F[i, "end-head"] != "" && F[i, "end-head"] != F[i, "head"]) hd = hd " to " short(F[i, "end-head"])
           printf "| %d | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", rows,
             safe(F[i, "step"]), safe(F[i, "kind"]), safe(F[i, "target"]),
             safe(F[i, "hosting"]), safe(F[i, "backend"]), safe(F[i, "session"]),
-            safe(substr(F[i, "head"], 1, 12)), safe(F[i, "start"]), safe(F[i, "end"]),
+            safe(hd), safe(F[i, "start"]), safe(F[i, "end"]),
             safe(outc), ex[i], safe(F[i, "output"])
+          d = details(i)
+          if (d != "") D[++nd] = "- Row " rows ": " d
         }
         if (rows == 0) print "| none | | | | | | | | | | | | |"
+        if (nd) print ""
+        for (j = 1; j <= nd; j++) print D[j]
         if (done) {
-          printf "\nEnded on `%s`.\n", safe(substr(F[done, "head"], 1, 12))
+          printf "\nEnded on `%s`.\n", safe(short(F[done, "head"]))
           if (nw[done]) print ""
           for (j = 1; j <= nw[done]; j++) printf "- Warning: %s\n", safe(W[done, j])
         }
+      }
+      if (m) exit
+      rows = 0
+      for (i = 1; i <= k; i++) {
+        if (F[i, "type"] != "full-suite") continue
+        if (!rows++) {
+          if (!first) print ""
+          printf "## Full-suite runs (run `%s`)\n\n", safe(run)
+          print "| # | Pool | Wait outcome | Waited (s) | Holders | Unpooled | Start | End |"
+          print "| --- | --- | --- | --- | --- | --- | --- | --- |"
+        }
+        hs = ""
+        for (j = 1; j <= nh[i]; j++) hs = hs (j > 1 ? " / " : "") safe(H[i, j])
+        printf "| %d | %s | %s | %s | %s | %s | %s | %s |\n", rows, safe(F[i, "pool"]),
+          safe(F[i, "wait-outcome"]), safe(F[i, "wait"]), hs, safe(F[i, "unpooled"]),
+          safe(F[i, "start"]), safe(F[i, "end"])
       }
     }' $files || die 1 "cannot render the records"
 }
@@ -1113,17 +1482,49 @@ cmd_status() {
   [ -n "$attempt" ] || die 1 "no completion record of $point names $head; refusing to post a status"
 
   state=success
+  limited=0
   for f in $(record_files "$attempt"); do
     { grep -Fxq "type${TAB}step" "$f" && grep -Fxq "point$TAB$point" "$f"; } || continue
     if grep -Fxq "outcome${TAB}halted" "$f" || grep -Fxq "outcome${TAB}failed" "$f"; then
       state=failure
+    elif grep -Fxq "outcome${TAB}limited" "$f"; then
+      limited=1
     fi
   done
+  # Every run's records: an unretired limited record ending on the head
+  # counts whatever run or point holds it.
+  files=''
+  for r in $(run_ids); do
+    check_run "$r"
+    files="$files$(record_files "$r")$LF"
+  done
+  # shellcheck disable=SC2086 # split on newlines by design (IFS)
+  unretired=$(awk -v TAB="$TAB" -v H="$head" '
+    function judge() {
+      if (F["type"] != "step" || F["end-head"] != H) return
+      if (F["outcome"] == "limited") { n++; LR[n] = F["run"] + 0; LS[n] = F["step"] }
+      else if (F["outcome"] == "passed" || F["outcome"] == "applied" \
+        || (F["outcome"] == "skipped" && F["skip-code"] == "resume")) {
+        if (!(F["step"] in last) || F["run"] + 0 > last[F["step"]]) last[F["step"]] = F["run"] + 0
+      }
+    }
+    FNR == 1 { if (NR > 1) judge(); split("", F) }
+    { t = index($0, TAB); F[substr($0, 1, t - 1)] = substr($0, t + 1) }
+    END {
+      if (NR) judge()
+      c = 0
+      for (i = 1; i <= n; i++) if (!(LS[i] in last) || last[LS[i]] <= LR[i]) c++
+      print c + 0
+    }' $files) || die 1 "cannot read the record cache"
+  [ "$unretired" = 0 ] || limited=1
   context="planwright/$point"
-  if [ "$state" = success ]; then
-    description="$point: no step halted or failed (run $attempt)"
-  else
+  if [ "$state" = failure ]; then
     description="$point: a step halted or failed (run $attempt)"
+  elif [ "$limited" -eq 1 ]; then
+    state=failure
+    description="$point: a step stayed limited (run $attempt)"
+  else
+    description="$point: no step halted or failed (run $attempt)"
   fi
 
   command -v gh >/dev/null 2>&1 || die 1 "gh is not on PATH; cannot post the $context status"
@@ -1135,6 +1536,160 @@ cmd_status() {
     die 1 "cannot post the $context status on $head in $repo ($why); if the cause is a missing permission, the login needs commit-status write access: repo:status on a classic token, or Commit statuses write on a fine-grained token or app"
   fi
   printf 'posted\t%s\t%s\t%s\n' "$context" "$state" "$head" || die 1 "cannot print the posted status"
+}
+
+# --- fingerprint ------------------------------------------------------------------
+cmd_fingerprint() {
+  [ $# -eq 2 ] && [ "$1" = --paths ] || usage
+  words=$2
+  set --
+  IFS=' '
+  for w in $words; do set -- "$@" "$w"; done
+  IFS=$LF
+  [ $# -ge 1 ] || bad --paths "names no path word"
+  for w in "$@"; do
+    case $w in /* | -* | *[!A-Za-z0-9._/-]*) bad --paths "a word outside the path grammar" ;; esac
+    case /$w/ in */../*) bad --paths "a word holding a .. segment" ;; esac
+  done
+  worktree_head --paths
+  # Literal pathspecs, so no word is read as a glob or pathspec magic.
+  dirty=$(unset GIT_DIR GIT_WORK_TREE && GIT_LITERAL_PATHSPECS=1 git -C "$worktree" status \
+    --porcelain --untracked-files=all -- "$@" 2>/dev/null) \
+    || die 1 "git cannot read the work tree's status"
+  if [ -n "$dirty" ]; then
+    printf 'none\n'
+    return 0
+  fi
+  scratch
+  : >"$work/fp" || die 1 "cannot write a temporary file"
+  for w in "$@"; do
+    if [ "$w" = . ]; then _spec="$WT_HEAD:"; else _spec="$WT_HEAD:$w"; fi
+    _oid=$(unset GIT_DIR GIT_WORK_TREE && git -C "$worktree" rev-parse --verify --quiet "$_spec" 2>/dev/null) \
+      || _oid=-
+    printf '%s\t%s\n' "$w" "$_oid" >>"$work/fp" || die 1 "cannot write a temporary file"
+  done
+  (unset GIT_DIR GIT_WORK_TREE && git -C "$worktree" hash-object --stdin <"$work/fp") \
+    || die 1 "git cannot hash the fingerprint"
+}
+
+# --- lookup -------------------------------------------------------------------------
+# field <file> <key>: a record's first value for the key.
+field() {
+  sed -n "s/^$2$TAB//p" "$1" | head -n 1
+}
+
+# ref_line <file>: the lookup line for a step record.
+ref_line() {
+  printf 'record\t%s:%s:%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(field "$1" run)" "$(field "$1" point)" \
+    "$(field "$1" seq)" "$(field "$1" step)" "$(field "$1" head)" "$(field "$1" end-head)" \
+    "$(field "$1" hosting)" "$(field "$1" session)" "${1#"$worktree"/}" \
+    || die 1 "cannot print the lookup"
+}
+
+cmd_lookup() {
+  [ $# -ge 1 ] || usage
+  kind=$1
+  shift
+  case $kind in
+    reuse) lookup_reuse "$@" ;;
+    resume) lookup_resume "$@" ;;
+    *) usage ;;
+  esac
+}
+
+lookup_reuse() {
+  step='' target='' args_digest='' fingerprint=''
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --step | --target | --args-digest | --fingerprint) [ $# -ge 2 ] || usage ;;
+      *) usage ;;
+    esac
+    case $1 in
+      --step) step=$2 ;;
+      --target) target=$2 ;;
+      --args-digest) args_digest=$2 ;;
+      --fingerprint) fingerprint=$2 ;;
+    esac
+    shift 2
+  done
+  is_step_id "$step" || bad --step "not a step id"
+  is_text "$target" || bad --target "must be non-empty single-line text of at most $TEXT_MAX bytes"
+  is_sha256 "$args_digest" || bad --args-digest "not a SHA-256 digest"
+  [ "$fingerprint" = none ] || is_head "$fingerprint" || bad --fingerprint "not none or a fingerprint"
+  [ "$fingerprint" != none ] || exit 3
+  # The target as write would store it; a withheld one matches nothing.
+  clean_value "$target"
+  screen_values value "$CLEANED"
+  [ "$(cat "$work/screened")" = "$CLEANED" ] || exit 3
+  files=''
+  for r in $(run_ids); do
+    check_run "$r"
+    files="$files$(record_files "$r")$LF"
+  done
+  [ -n "$files" ] || exit 3
+  # shellcheck disable=SC2086 # split on newlines by design (IFS)
+  hit=$(LOOKUP_TARGET=$CLEANED awk -v TAB="$TAB" -v S="$step" -v D="$args_digest" -v FP="$fingerprint" '
+    function judge() {
+      if (F["type"] == "step" && F["end-head"] != "" && F["outcome"] == "passed" && F["step"] == S \
+        && F["target"] == ENVIRON["LOOKUP_TARGET"] && F["args-digest"] == D && F["fingerprint"] == FP) hit = prev
+    }
+    FNR == 1 { if (NR > 1) judge(); split("", F); prev = FILENAME }
+    { t = index($0, TAB); F[substr($0, 1, t - 1)] = substr($0, t + 1) }
+    END { if (NR) judge(); print hit }' $files) || die 1 "cannot read the record cache"
+  [ -n "$hit" ] || exit 3
+  ref_line "$hit"
+}
+
+lookup_resume() {
+  run='' point='' head='' head_given=0
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --run | --point | --head) [ $# -ge 2 ] || usage ;;
+      *) usage ;;
+    esac
+    case $1 in
+      --run) run=$2 ;;
+      --point) point=$2 ;;
+      --head)
+        head=$2
+        head_given=1
+        ;;
+    esac
+    shift 2
+  done
+  is_run_id "$run" || bad --run "not a run id"
+  case $point in
+    pre-implementation | pre-ci | convergence | pre-pr | post-pr) ;;
+    *) bad --point "not an in-run point" ;;
+  esac
+  [ -d "$cache/$run" ] || bad --run "no such run in the cache"
+  [ "$head_given" -eq 1 ] || set_head_from_worktree
+  is_head "$head" || bad --head "not a full commit id"
+  check_run "$run"
+  found=0
+  for f in $(record_files "$run"); do
+    [ "$(field "$f" type)" = step ] && [ "$(field "$f" point)" = "$point" ] || continue
+    [ "$(field "$f" end-head)" = "$head" ] || break
+    src=$f
+    case $(field "$f" outcome) in
+      passed | applied) ;;
+      skipped)
+        if [ "$(field "$f" skip-code)" != resume ] || ! is_ref "$(field "$f" stands-on)" \
+          || [ ! -d "$cache/$REF_RUN" ]; then
+          break
+        fi
+        check_run "$REF_RUN"
+        src="$cache/$REF_RUN/$REF_SEQ-step-$REF_POINT.rec"
+        [ -f "$src" ] && [ "$(field "$src" step)" = "$(field "$f" step)" ] \
+          && [ "$(field "$src" end-head)" = "$head" ] || break
+        case $(field "$src" outcome) in passed | applied) ;; *) break ;; esac
+        ;;
+      *) break ;;
+    esac
+    ref_line "$src"
+    found=1
+  done
+  [ "$found" -eq 1 ] || exit 3
 }
 
 command -v iconv >/dev/null 2>&1 || die 1 "iconv is not on PATH"
@@ -1152,5 +1707,7 @@ case $verb in
   list) cmd_list "$@" ;;
   render) cmd_render "$@" ;;
   regenerate) cmd_regenerate "$@" ;;
+  fingerprint) cmd_fingerprint "$@" ;;
+  lookup) cmd_lookup "$@" ;;
   *) usage ;;
 esac

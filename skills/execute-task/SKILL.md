@@ -184,9 +184,9 @@ PR number whenever one exists):
    Past its `timeout`, a runner-owned step is ended, a session-owned one
    stopped through the seam or no longer waited on (recording which), outcome
    `failed`; an `in-session` command's goes to the shell tool.
-3. **Record** each outcome (a command's exit code; a session step classified
-   from its handoff) through `step-record.sh write`, the printed path being
-   the next step's `PREV_RECORD`; a `skip` line records `skipped`.
+3. **Record** each outcome (a command's exit code; a session step's from
+   its handoff) through `step-record.sh write`, its printed path the next
+   step's `PREV_RECORD`; a `skip` line records `skipped`, code `missing`.
 4. **Posture:** a `halted` or `failed` step under `on-failure: halt` ends the
    point and the unit through the pause protocol, the entry naming only the
    point, step id, outcome, and worktree-relative record path; `continue`
