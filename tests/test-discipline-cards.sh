@@ -163,6 +163,11 @@ seed BOUNDARY-OUTSCOPE 1 '!/^- \*\*Out of scope:\*\*/'
 seed ESC-TYPED 1 '/^- \*\*irreversibility\*\*/ { print; print "- **gut-feel** (powers: halt): it feels risky."; next } { print }'
 seed ESC-TYPED 1 '{ sub(/\(powers: disregard\)/, "(powers: ignore)"); print }'
 seed ESC-COVERAGE 1 '!/^- \*\*contract-policy-change\*\*/'
+# A fenced line is illustration, never structure.
+# shellcheck disable=SC2016 # an awk program printing a literal fence
+seed ESC-COVERAGE 1 '/^## Escalation contract$/ { print; print ""; print "```text"; skip = 1; next } skip && /^## / { print "```"; print ""; skip = 0 } { print }'
+# shellcheck disable=SC2016 # an awk program printing a literal fence
+seed GROUNDING-REFUSE 1 '/^- \*\*Refuse without:\*\*/ { print "```text"; print; print "```"; next } { print }'
 
 # Bench and styling.
 seed BENCH-TRIGGERS 1 '{ sub(/^\*\*Bench:\*\* no$/, "**Bench:** yes"); print }'

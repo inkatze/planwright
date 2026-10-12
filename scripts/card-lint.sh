@@ -237,8 +237,11 @@ END {
       continue
     }
     if (cur != "" && !(F[i] == 0 && L[i] ~ /^# /)) {
-      body_n[cur]++; B[cur, body_n[cur]] = L[i]; BF[cur, body_n[cur]] = F[i]
       if (L[i] !~ /^[ \t]*$/) filled[cur] = 1
+      # A fenced line is illustration, never structure: only the artifact
+      # template, which IS a fence, reads one.
+      if (F[i] && cur != "Artifact template") continue
+      body_n[cur]++; B[cur, body_n[cur]] = L[i]; BF[cur, body_n[cur]] = F[i]
     }
   }
   for (j = 1; j <= ns; j++) {
