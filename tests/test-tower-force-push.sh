@@ -318,7 +318,8 @@ fi
 printf '#!/bin/sh\ngit --git-dir="%s" update-ref "refs/heads/%s" "%s"\nexit 1\n' "$tmp/origin.git" "$BR" "$NEW" >"$W/.git/hooks/pre-push"
 git -C "$tmp/origin.git" update-ref "refs/heads/$BR" "$TIP"
 rc=$(rc_of fp push --branch "$BR" --to "$NEW" --lease "$TIP")
-if [ "$rc" = 0 ] && grep -q 'holds the new tip' "$tmp/out" && grep -q '^pushed' "$tmp/out"; then
+if [ "$rc" = 0 ] && [ "$(head -1 "$tmp/out" | cut -f1)" = pushed ] && grep -q 'holds the new tip' "$tmp/out" \
+  && [ "$(g rev-parse "refs/remotes/origin/$BR")" = "$NEW" ]; then
   ok "push reports a landed push whose report failed as landed"
 else
   fail "a landed push with a failed report was misreported (exit $rc: $(cat "$tmp/out" "$tmp/err"))"

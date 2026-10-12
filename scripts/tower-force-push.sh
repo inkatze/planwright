@@ -46,9 +46,10 @@
 # by author identity and date (which reword keeps), or with nothing. A
 # Planwright-Sign-Off-Rejected trailer naming an old id must be re-stamped.
 #
-# Exit: 0 done; 1 refused (a dispatched worker, protected, moved since the
-# confirmation, nothing dropped, not on the branch); 2 usage; 3 a git or
-# remote failure.
+# Exit: 0 done (a push the remote took though it reported a failure
+# included, with a note); 1 refused (a dispatched worker, protected, moved
+# since the confirmation or deleted or moved while pushing, nothing dropped,
+# not on the branch); 2 usage; 3 a git or remote failure.
 #
 # Untrusted text (subjects, names) reaches the terminal only through
 # sanitize_printable or as jq-encoded JSON. Portable bash 3.2.
@@ -303,7 +304,7 @@ push() {
   [ "$LEASE_NOW" = "$LEASE" ] \
     || refuse "$(safe "$REMOTE")/$(safe "$BRANCH") moved since the confirmation ($(printf '%s' "$LEASE" | cut -c1-7) -> $(printf '%s' "$LEASE_NOW" | cut -c1-7)); confirm again"
   not_a_force_or_refuse "$TO" "$LEASE"
-  local drops legacy
+  local drops legacy landed_note=''
   drops=$(dropped "$LEASE" "$TO")
   legacy=$(legacy_changes "$LEASE" "$TO")
   [ -n "$TO" ] || usage "push has no commit to push"
@@ -317,16 +318,21 @@ push() {
       || broken "the push failed and $(safe "$REMOTE")/$(safe "$BRANCH") could not be read; its tip is unknown"
     now=$(printf '%s\n' "$now" | awk -v r="refs/heads/$BRANCH" '$2 == r { print $1; exit }')
     if [ "$now" = "$TO" ]; then
-      echo "note	the push reported a failure, but $(safe "$REMOTE")/$(safe "$BRANCH") holds the new tip"
+      # The failed push left the tracking ref at the old tip, which the reset
+      # note below points a checkout at.
+      git update-ref "refs/remotes/$REMOTE/$BRANCH" "$TO" 2>/dev/null \
+        || broken "$(safe "$REMOTE")/$(safe "$BRANCH") holds the new tip, but its tracking ref could not be updated"
+      landed_note="note	the push reported a failure, but $(safe "$REMOTE")/$(safe "$BRANCH") holds the new tip"
     elif [ -z "$now" ]; then
       refuse "$(safe "$REMOTE")/$(safe "$BRANCH") was deleted while pushing; someone else works from it, so treat it as shared and do not retry"
     elif [ "$now" != "$LEASE" ]; then
       refuse "$(safe "$REMOTE")/$(safe "$BRANCH") moved while pushing ($(printf '%s' "$LEASE" | cut -c1-7) -> $(printf '%s' "$now" | cut -c1-7)); someone else works from it, so treat it as shared and do not retry"
     else
-      broken "the push failed; $(safe "$REMOTE")/$(safe "$BRANCH") is unchanged"
+      broken "the push failed; $(safe "$REMOTE")/$(safe "$BRANCH") reads unchanged, unless its push URL differs from the one read"
     fi
   fi
   printf 'pushed\t%s\t%s\t%s\t%s\n' "$(safe "$REMOTE")" "$(safe "$BRANCH")" "$LEASE" "$TO"
+  [ -z "$landed_note" ] || printf '%s\n' "$landed_note"
   printf '%s\n' "$drops" | while IFS="$TAB" read -r sha subj; do
     printf 'dropped\t%s\t%s\n' "$sha" "$(safe "$subj")"
   done
