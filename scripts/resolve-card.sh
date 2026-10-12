@@ -89,10 +89,14 @@ card_path() {
     printf '%s\n' "resolve-card: $1: the $2 layer lists it but has no card file at $rel" >&2
     return 1
   fi
+  if [ ! -r "$root/$rel" ]; then
+    printf '%s\n' "resolve-card: $1: the $2 card file is unreadable; refused" >&2
+    return 1
+  fi
   # The helper's own refusal text stays silent: it can carry an unsanitized
   # path, and the message below names the card.
   contained=$(/bin/sh "$overlay_root" --contain "$root" "$rel" 2>/dev/null) || {
-    printf '%s\n' "resolve-card: $1: the $2 card file escapes its layer root; refused" >&2
+    printf '%s\n' "resolve-card: $1: the $2 card file does not resolve inside its layer root; refused" >&2
     return 1
   }
   # The canonical path follows symlinks, so a contained target's name can

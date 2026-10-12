@@ -442,7 +442,7 @@ out="$(base "$core_env" PLANWRIGHT_ADOPTER_OVERLAY="$esc" PLANWRIGHT_REPO_ROOT=n
   /bin/bash "$RESOLVE" escapee 2>"$err")"
 assert_eq "symlink escaping the layer root: exit 1" "1" "$?"
 assert_eq "symlink escaping the layer root: no path printed" "" "$out"
-assert_contains "symlink escaping the layer root: says so" "escapes its layer root" "$(cat "$err")"
+assert_contains "symlink escaping the layer root: says so" "does not resolve inside its layer root" "$(cat "$err")"
 assert_not_contains "symlink escaping the layer root: the helper's own text stays silent" \
   "$tmp/outside" "$(cat "$err")"
 
@@ -503,6 +503,28 @@ out="$(base "$core_env" PLANWRIGHT_ADOPTER_OVERLAY="$tabbed" PLANWRIGHT_REPO_ROO
 assert_eq "tab in an id: the real id resolves (exit 0)" "0" "$?"
 assert_eq "tab in an id: the real id prints exactly once" \
   "$tabbed/cards/good-card.md" "$out"
+
+# An unreadable card file is refused, not returned.
+unr="$tmp/unreadable"
+mkdir -p "$unr/catalogs"
+write_golden_card "$unr/cards" locked-card
+chmod 000 "$unr/cards/locked-card.md"
+cat >"$unr/catalogs/discipline-cards.yaml" <<'YAML'
+cards:
+  - id: locked-card
+    discipline: "Locked"
+YAML
+if [ -r "$unr/cards/locked-card.md" ]; then
+  echo "ok: unreadable card skipped (running with read-anything privileges)"
+else
+  err="$tmp/unreadable.err"
+  out="$(base "$core_env" PLANWRIGHT_ADOPTER_OVERLAY="$unr" PLANWRIGHT_REPO_ROOT=none \
+    /bin/bash "$RESOLVE" locked-card 2>"$err")"
+  assert_eq "unreadable card file: exit 1" "1" "$?"
+  assert_eq "unreadable card file: nothing printed" "" "$out"
+  assert_contains "unreadable card file: says so" "unreadable" "$(cat "$err")"
+fi
+chmod 644 "$unr/cards/locked-card.md"
 
 # The repo-tracked and machine-local layers each supply their own card from
 # their own card home.
