@@ -87,6 +87,7 @@ mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests" "$SANDBOX/sub"
 : >"$SANDBOX/scripts/ok.sh"
 : >"$SANDBOX/scripts/tower-force-push.sh"
 ln -sf tower-force-push.sh "$SANDBOX/scripts/fp-alias.sh"
+ln -f "$SANDBOX/scripts/tower-force-push.sh" "$SANDBOX/scripts/fp-hard.sh"
 : >"$SANDBOX/tests/ok.sh"
 : >"$SANDBOX/tests/ok.bats"
 # Symlinked final components pointing OUTSIDE the repo (containment escape).
@@ -96,6 +97,7 @@ mkdir -p "$PLUGIN_ROOT/scripts"
 : >"$PLUGIN_ROOT/scripts/fleet-streamjson.sh"
 : >"$PLUGIN_ROOT/scripts/orchestrate-relay.sh"
 : >"$PLUGIN_ROOT/scripts/tower-force-push.sh"
+ln -f "$PLUGIN_ROOT/scripts/tower-force-push.sh" "$PLUGIN_ROOT/scripts/fp-hard.sh"
 ln -sf /etc/hosts "$PLUGIN_ROOT/scripts/evillink.sh"
 
 # run_hook <command> [tool_name] [cwd] -> sets OUT and CODE. CLAUDE_PLUGIN_ROOT
@@ -229,6 +231,10 @@ assert_defer "force-push helper, repo bash-prefixed" "bash scripts/tower-force-p
 assert_defer "force-push helper, plugin push" "$PLUGIN_ROOT/scripts/tower-force-push.sh push --branch b --to abc --lease def"
 assert_defer "force-push helper, plugin purge" "$PLUGIN_ROOT/scripts/tower-force-push.sh purge --path x"
 assert_defer "force-push helper through a symlink alias" "scripts/fp-alias.sh push --branch b --to abc --lease def"
+# A hardlink is the same file under another name, so the name check alone
+# would approve it.
+assert_defer "force-push helper through a repo hardlink" "scripts/fp-hard.sh push --branch b --to abc --lease def"
+assert_defer "force-push helper through a plugin hardlink" "bash $PLUGIN_ROOT/scripts/fp-hard.sh confirm --branch b --to abc"
 # A case-insensitive filesystem (macOS) runs the helper under any casing.
 assert_defer "force-push helper in another casing" "scripts/Tower-Force-Push.sh push --branch b --to abc --lease def"
 

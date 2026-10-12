@@ -554,6 +554,18 @@ canon_under() {
   esac
 }
 
+# is_force_push_file <canonical path> <root>...: 0 when the path is the same
+# file as a root's force-push helper under any name: a hardlink, or another
+# spelling a case- or Unicode-folding filesystem resolves to it.
+is_force_push_file() {
+  local f=$1 r
+  shift
+  for r in "$@"; do
+    [ -n "$r" ] && [ "$f" -ef "$r/scripts/tower-force-push.sh" ] && return 0
+  done
+  return 1
+}
+
 # is_planwright_script <path> <cwd>: 0 when <path> is a `.sh` under a `scripts/`
 # directory that canonicalizes inside EITHER the repo checkout (self-hosting
 # dev) OR the installed plugin root (the core root chain's CLAUDE_PLUGIN_ROOT
@@ -574,9 +586,12 @@ is_planwright_script() {
     *.sh) ;;
     *) return 1 ;;
   esac
+  cache_plugin_root
+  proot=$PLUGIN_ROOT_CACHED
   # (a) under the repo checkout's scripts/ dir.
   if root=$(repo_root_of "$cwd"); then
     if full=$(canon_under "$p" "$cwd" "$root"); then
+      is_force_push_file "$full" "$root" "$proot" && return 1
       rel=${full#"$root"/}
       case $rel in
         scripts/*) return 0 ;;
@@ -584,10 +599,9 @@ is_planwright_script() {
     fi
   fi
   # (b) under the installed plugin's scripts/ dir (resolved literal path).
-  cache_plugin_root
-  proot=$PLUGIN_ROOT_CACHED
   if [ -n "$proot" ]; then
     if full=$(canon_under "$p" "$cwd" "$proot"); then
+      is_force_push_file "$full" "$proot" "${root:-}" && return 1
       rel=${full#"$proot"/}
       case $rel in
         scripts/*) return 0 ;;
