@@ -91,9 +91,9 @@ purge() {
   while [ "$#" -gt 0 ]; do
     case $1 in
       --path | --replace-text)
-        [ "$#" -ge 2 ] || usage "$1 needs a value"
+        [ "$#" -ge 2 ] || usage "$(safe "$1") needs a value"
         case $2 in
-          '' | -*) usage "$1 needs a value that does not start with a dash" ;;
+          '' | -*) usage "$(safe "$1") needs a value that does not start with a dash" ;;
         esac
         [ "$(safe "$2")" = "$2" ] || usage "$1 carries a control character"
         if [ "$1" = --path ]; then
@@ -146,9 +146,9 @@ parse() { # <verb> <args>...
   local verb=$1
   shift
   while [ "$#" -gt 0 ]; do
-    [ "$#" -ge 2 ] || usage "$1 needs a value"
+    [ "$#" -ge 2 ] || usage "$(safe "$1") needs a value"
     case $2 in
-      '' | -*) usage "$1 needs a value that does not start with a dash" ;;
+      '' | -*) usage "$(safe "$1") needs a value that does not start with a dash" ;;
     esac
     case "$verb:$1" in
       *:--remote) REMOTE=$2 ;;

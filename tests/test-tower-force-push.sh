@@ -322,6 +322,12 @@ if [ "$rc" = 0 ] && grep -qF "git filter-repo --sensitive-data-removal --replace
 else
   fail "purge printed a wrong command for a replace-text file: $(cat "$tmp/out")"
 fi
+rc=$(rc_of "$FP" confirm "$(printf '\033[31mx')")
+if [ "$rc" = 2 ] && ! grep -q "$(printf '\033')" "$tmp/err"; then
+  ok "a usage error prints no raw control character from its arguments"
+else
+  fail "a usage error echoed a raw control character (exit $rc)"
+fi
 rc=$(rc_of "$FP" purge --path "$(printf 'a\033[31mb')")
 [ "$rc" = 2 ] || fail "purge took a path carrying a control character (exit $rc)"
 
