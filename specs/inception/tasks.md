@@ -240,7 +240,8 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 
 ## Awaiting input
 
-(none yet)
+- **Task 7** — convergence point, step polish, outcome failed (safety stop on loop detection with
+  hard-disqualifier-zone findings unresolved); record `.claude/steps/000002/004-step-convergence.rec`.
 
 ## Deferred
 
