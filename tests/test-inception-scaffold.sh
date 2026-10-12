@@ -101,11 +101,13 @@ fi
 ignore="$(cat "$v/.gitignore")"
 assert_contains ".gitignore: machine-local env file" ".planwright-local.sh" "$ignore"
 assert_contains ".gitignore: editor and OS droppings" ".DS_Store" "$ignore"
+assert_contains ".gitignore: machine-local publish state" ".planwright-publish.local" "$ignore"
 
 hook="$(cat "$v/githooks/pre-commit")"
 assert_contains "hook: screens staged content for secrets" "inception-secret-screen.sh" "$hook"
 assert_contains "hook: regenerates the export" "inception-render.sh" "$hook"
 assert_contains "hook: stages the regenerated export" "git add" "$hook"
+assert_contains "hook: covers the pitch export too" "for page in venture pitch" "$hook"
 assert_contains "hook: runs the validator" "inception-validate.sh" "$hook"
 assert_not_contains "hook: bakes in no machine-specific plugin path" "$REPO_ROOT" "$hook"
 
@@ -113,6 +115,8 @@ notes="$(cat "$v/hygiene-wiring.md")"
 assert_contains "notes: name the rung" "local" "$notes"
 assert_contains "notes: give the wiring command" "core.hooksPath githooks" "$notes"
 assert_contains "notes: name the bypass" "--no-verify" "$notes"
+assert_contains "notes: name both exports" "exports/pitch.html" "$notes"
+assert_contains "notes: publishing is offered, never automatic" "auto-republish" "$notes"
 # The hook stages the export it regenerates, which git's partial-commit path
 # leaves showing as modified afterwards. Surprising, harmless, and worth saying
 # once in the notes rather than letting every operator rediscover it.
@@ -218,6 +222,8 @@ assert_eq "hook: a clean bundle commit succeeds" "0" "$rc"
 assert_file "hook: the export was regenerated" "$venture/exports/venture.html"
 tracked="$(cd "$venture" && git ls-files exports/venture.html)"
 assert_eq "hook: the regenerated export was staged into the commit" "exports/venture.html" "$tracked"
+tracked="$(cd "$venture" && git ls-files exports/pitch.html)"
+assert_eq "hook: the regenerated pitch was staged into the commit" "exports/pitch.html" "$tracked"
 
 # A bundle edit regenerates the export inside the same commit.
 sed 's|^Median incident-handover time drops below ten minutes within one quarter of adoption.$|Median incident-handover time drops below eight minutes.|' \
@@ -228,6 +234,8 @@ assert_eq "hook: a bundle edit commits cleanly" "0" "$rc"
 assert_contains "hook: the export followed the edit" "eight minutes" "$(cat "$venture/exports/venture.html")"
 changed="$(cd "$venture" && git show --name-only --format= HEAD)"
 assert_contains "hook: the export rode the same commit" "exports/venture.html" "$changed"
+assert_contains "hook: the pitch followed the edit" "eight minutes" "$(cat "$venture/exports/pitch.html")"
+assert_contains "hook: the pitch rode the same commit" "exports/pitch.html" "$changed"
 
 # A staged secret blocks the commit.
 printf 'token: %s\n' "ghp_""0123456789abcdefghijklmnopqrstuvwxyz" >"$venture/spikes-note.md"
@@ -254,7 +262,25 @@ assert_not_contains "hook: no commit carried the secret into the export" "IOSFOD
 (
   cd "$venture" || exit 1
   git reset -q HEAD . >/dev/null 2>&1
-  git checkout -q -- brief.md plan.md exports/venture.html
+  git checkout -q -- brief.md plan.md exports/venture.html exports/pitch.html
+) >/dev/null 2>&1
+
+# The same walk-around through a field only the pitch renders: each export is
+# screened on its own, so a credential that never reaches the dashboard still
+# cannot ride the pitch into a commit.
+sed 's|^Rides the incident-tooling consolidation|Rides aws_key = AKIA'"IOSFODNN7EXAMPLE"' the incident-tooling consolidation|' \
+  "$venture/brief.md" >"$venture/brief.new" && mv "$venture/brief.new" "$venture/brief.md"
+printf '\nAnother planning note.\n' >>"$venture/plan.md"
+out="$(cd "$venture" && git add plan.md && git commit -qm "another plan note" 2>&1)"
+rc=$?
+assert_eq "hook: an unstaged secret reaching only the pitch blocks the commit" "1" "$rc"
+assert_not_contains "hook: the pitch's blocked secret is not echoed" "IOSFODNN7EXAMPLE" "$out"
+committed="$(cd "$venture" && git show HEAD:exports/pitch.html 2>/dev/null)"
+assert_not_contains "hook: no commit carried the secret into the pitch" "IOSFODNN7EXAMPLE" "$committed"
+(
+  cd "$venture" || exit 1
+  git reset -q HEAD . >/dev/null 2>&1
+  git checkout -q -- brief.md plan.md exports/venture.html exports/pitch.html
 ) >/dev/null 2>&1
 
 # REQ-A1.9: a render failure warns and lets the commit through. An unsupported
@@ -358,7 +384,7 @@ fi
 noexec_pw="$tmp/pw-noexec"
 mkdir -p "$noexec_pw/scripts"
 cp "$REPO_ROOT/scripts/"inception-*.sh "$noexec_pw/scripts/" || exit 1
-cp "$REPO_ROOT/scripts/echo-safety.sh" "$REPO_ROOT/scripts/spec-parse.sh" "$noexec_pw/scripts/" || exit 1
+cp "$REPO_ROOT/scripts/echo-safety.sh" "$REPO_ROOT/scripts/spec-parse.sh" "$REPO_ROOT/scripts/html-escape.sh" "$noexec_pw/scripts/" || exit 1
 chmod -x "$noexec_pw/scripts/"*.sh
 nx_v="$tmp/venture-noexec"
 mkdir -p "$nx_v"

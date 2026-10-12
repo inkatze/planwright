@@ -138,6 +138,11 @@ cat >"$stage" <<'GITIGNORE'
 # machine. The pre-commit hook sources it when present. Never secrets.
 .planwright-local.sh
 
+# Machine-local publish state: whether this machine's operator confirmed a
+# publish of the exports, and the auto-republish knob. Kept off the forge so no
+# commit can switch publishing on for someone else.
+.planwright-publish.local
+
 # Editor and OS
 .DS_Store
 Thumbs.db
@@ -168,13 +173,13 @@ cat >"$stage" <<'HOOK'
 #      that refuses every half-finished elicitation is a hook the operator
 #      disables. Set PLANWRIGHT_VENTURE_STRICT=1 to make findings block; on a
 #      repo with a remote, CI blocks regardless.
-#   3. Export regeneration, staged into this same commit so the published HTML
-#      never lags the bundle. Warns and lets the commit through when the render
-#      or the staging fails (REQ-A1.9): neither may dead-end a commit, and
-#      neither may fail in silence, or the export drifts unnoticed. The
-#      export is screened before it is staged, though, and that screen blocks:
-#      it is rendered from the working tree, so it can carry bundle text step 1
-#      never saw.
+#   3. Export regeneration (the dashboard and the pitch), staged into this same
+#      commit so the published HTML never lags the bundle. Warns and lets the
+#      commit through when the render or the staging fails (REQ-A1.9): neither
+#      may dead-end a commit, and neither may fail in silence, or the exports
+#      drift unnoticed. Each export is screened before it is staged, though,
+#      and that screen blocks: they are rendered from the working tree, so
+#      they can carry bundle text step 1 never saw.
 #
 # Bypass the whole hook with `git commit --no-verify`.
 set -u
@@ -273,36 +278,48 @@ if ! /bin/sh "$pw/scripts/inception-validate.sh" "$top"; then
 fi
 
 if /bin/sh "$pw/scripts/inception-render.sh" "$top" >/dev/null 2>&1; then
-  # The export is rendered from the WORKING TREE, so it can carry bundle text
-  # the step-1 screen never saw — an edit that is not staged still reaches the
-  # HTML. Screen it BEFORE staging it, or step 3 quietly walks around the hard
-  # stop in step 1 and commits the credential itself.
-  src=0
-  /bin/sh "$pw/scripts/inception-secret-screen.sh" -- "$top/exports/venture.html" || src=$?
-  # 1 and 2 both block, but they are different facts and get different words:
-  # saying "carries a credential" when the screen could not run sends the
-  # operator hunting through their bundle for something that is not there.
-  if [ "$src" -eq 1 ]; then
-    echo "venture pre-commit: the regenerated export looks like it carries a credential; commit refused." >&2
-    echo "venture pre-commit: it came from the bundle in your working tree — fix it there, then commit." >&2
-    exit 1
-  elif [ "$src" -ne 0 ]; then
-    echo "venture pre-commit: the secret screen could not check the regenerated export (exit $src); commit refused." >&2
-    echo "venture pre-commit: this is an environment problem, not a finding — see the output above." >&2
-    exit 1
-  fi
+  # The exports are rendered from the WORKING TREE, so they can carry bundle
+  # text the step-1 screen never saw — an edit that is not staged still reaches
+  # the HTML. Screen each BEFORE staging it, or step 3 quietly walks around the
+  # hard stop in step 1 and commits the credential itself. Only an export the
+  # render actually produced is screened and staged: a planwright copy older
+  # than the pitch mode writes the dashboard alone, and screening a page that
+  # does not exist would refuse every commit for an environment reason.
+  for page in venture pitch; do
+    export_path="$top/exports/$page.html"
+    [ -f "$export_path" ] || continue
+    src=0
+    /bin/sh "$pw/scripts/inception-secret-screen.sh" -- "$export_path" || src=$?
+    # 1 and 2 both block, but they are different facts and get different words:
+    # saying "carries a credential" when the screen could not run sends the
+    # operator hunting through their bundle for something that is not there.
+    if [ "$src" -eq 1 ]; then
+      echo "venture pre-commit: the regenerated exports/$page.html looks like it carries a credential; commit refused." >&2
+      echo "venture pre-commit: it came from the bundle in your working tree — fix it there, then commit." >&2
+      exit 1
+    elif [ "$src" -ne 0 ]; then
+      echo "venture pre-commit: the secret screen could not check the regenerated exports/$page.html (exit $src); commit refused." >&2
+      echo "venture pre-commit: this is an environment problem, not a finding — see the output above." >&2
+      exit 1
+    fi
+  done
   # Staging failure warns, like a failed render: step 3 never dead-ends a commit.
   # It must not be SILENT, though. The contract this step exists to keep is that
-  # the export rides the same commit, and a swallowed `git add` (an ignored
+  # the exports ride the same commit, and a swallowed `git add` (an ignored
   # exports/, a locked index) breaks that contract while the commit still reads
   # as clean. git's own message goes to stderr unredirected, so the reason is
-  # visible without this hook re-echoing repo-controlled text.
-  if ! git add "$top/exports/venture.html"; then
-    echo "venture pre-commit: the regenerated export could not be staged, so this commit carries a stale or absent export." >&2
-    echo "venture pre-commit: committing anyway — see git's message above." >&2
-  fi
+  # visible without this hook re-echoing repo-controlled text. Only the export
+  # paths are staged, never the tree, so a partial commit stays partial.
+  for page in venture pitch; do
+    export_path="$top/exports/$page.html"
+    [ -f "$export_path" ] || continue
+    if ! git add "$export_path"; then
+      echo "venture pre-commit: the regenerated exports/$page.html could not be staged, so this commit carries a stale or absent export." >&2
+      echo "venture pre-commit: committing anyway — see git's message above." >&2
+    fi
+  done
 else
-  echo "venture pre-commit: the export was not regenerated; it may now lag the bundle." >&2
+  echo "venture pre-commit: the exports were not regenerated; they may now lag the bundle." >&2
   echo "venture pre-commit: committing anyway — a broken render never blocks a commit." >&2
 fi
 
@@ -439,20 +456,41 @@ this venture repo runs it once.
      every half-finished elicitation is a hook you would turn off. Set
      \`PLANWRIGHT_VENTURE_STRICT=1\` to make findings block.
   3. **Export regeneration**, staged into the same commit, so the HTML stakeholders read never
-     lags the bundle. **Warns and lets the commit through** if the render fails, or if the export
+     lags the bundle. **Warns and lets the commit through** if the render fails, or if an export
      cannot be staged — neither may dead-end a commit, and you are told either way, because a
      silent staging failure is how a published export starts drifting from the bundle without
-     anyone noticing. The regenerated export is screened for secrets before it is
+     anyone noticing. Each regenerated export is screened for secrets before it is
      staged, and *that* **blocks**: it is rendered from your working tree, so it can carry bundle
      text step 1 never looked at (an edit you had not staged).
 $rung_ci
 
+## The exports
+
+Two pages, both derived from the bundle and regenerated by every commit that changes it. Never
+edit them by hand.
+
+- \`exports/venture.html\` — the dashboard: where the venture stands (gate readiness, blocking
+  assumptions, kill criteria, open forks, blockers), then the whole bundle.
+- \`exports/pitch.html\` — the pitch narrative: the problem, the idea, what has to be true, how
+  it will be tested, and what would stop it, for someone deciding whether to back the venture.
+
+Render one by hand with \`inception-render.sh --mode dashboard\` or \`--mode pitch\`.
+
+## Publishing
+
+Publishing a page as an Artifact sends it off this machine, so it is always offered and never
+automatic, and the first publish of each page is always confirmed. A venture may opt into
+auto-republish (off by default): once a page has had a confirmed first publish, a refreshed copy
+then replaces it without asking again. The knob and the publish record live in
+\`.planwright-publish.local\`, which is gitignored: it is this machine's operator's call, and no
+commit can switch it on. Set it with \`inception-publish.sh auto on\` (or \`off\`).
+
 ## One thing that looks wrong and is not
 
 After a **partial** commit — \`git commit <path>\` or \`git commit --only <path>\`, where you name
-the files instead of staging them — \`git status\` shows \`exports/venture.html\` as modified. The
-export did make it into the commit. Git builds a temporary index for a partial commit and restores
-your real one afterwards, and the hook's staging of the regenerated export lives in the temporary
+the files instead of staging them — \`git status\` shows the exports as modified. They did make
+it into the commit. Git builds a temporary index for a partial commit and restores
+your real one afterwards, and the hook's staging of the regenerated exports lives in the temporary
 one. The next \`git add\` clears it. Staging your changes first (\`git add\` then \`git commit\`)
 avoids it entirely.
 
