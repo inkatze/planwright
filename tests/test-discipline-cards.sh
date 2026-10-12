@@ -115,6 +115,9 @@ seed FENCE-UNBALANCED 3 '{ print } END { print "```" }'
 seed FMT-UNSUPPORTED 3 '{ sub(/^\*\*Card-format:\*\* 1$/, "**Card-format:** 2"); print } END { print "```" }'
 
 # Header block.
+# The opening H1: absent, or not in the `# <Discipline> — discipline card` form.
+seed HDR-TITLE 1 'NR == 1 { next } { print }'
+seed HDR-TITLE 1 'NR == 1 { print "# Fixture discipline"; next } { print }'
 seed HDR-ID 1 '{ sub(/^\*\*Card-id:\*\* .*/, "**Card-id:** other-discipline"); print }'
 seed HDR-ID 1 '{ sub(/^\*\*Card-id:\*\* .*/, "**Card-id:** Bad_Id"); print }'
 seed HDR-REVIEWED 1 '{ sub(/^\*\*Reviewed:\*\* .*/, "**Reviewed:** 2026-02-30"); print }'

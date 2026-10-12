@@ -69,6 +69,7 @@ print_rules() {
 FMT-MISSING the card declares no single parseable Card-format
 FMT-UNSUPPORTED the declared Card-format major is not supported by this linter
 FENCE-UNBALANCED a column-0 code fence is left open at end of file
+HDR-TITLE line 1 is not the title # <Discipline> — discipline card
 HDR-ID Card-id is missing, outside the identifier charset, or not the file name's stem
 HDR-REVIEWED Reviewed is missing or not a real calendar date
 HDR-ROT Rot-rate is missing or not slow, medium, or fast
@@ -167,7 +168,9 @@ END {
   }
   if (open) { emit("FENCE-UNBALANCED", "a code fence opened in this card is never closed"); exit }
 
-  # --- Header keys ---------------------------------------------------------
+  # --- Title and header keys -----------------------------------------------
+  if (L[1] !~ /^# [^ ].* — discipline card$/)
+    emit("HDR-TITLE", "line 1 is not the title `# <Discipline> — discipline card`")
   id = ("Card-id" in H) ? H["Card-id"] : ""
   if (id == "") emit("HDR-ID", "Card-id: is missing")
   else if (id !~ /^[a-z0-9][a-z0-9-]*$/ || length(id) > 64)
