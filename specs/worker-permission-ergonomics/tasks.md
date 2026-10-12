@@ -364,7 +364,7 @@ below; `scripts/spec-graph.sh` renders it on demand.
 
 ## Awaiting input
 
-- **Task 7** — convergence point, step `polish`, outcome `halted` (hard-disqualifier zone pause); record `.claude/steps/000001/004-step-convergence.rec`
+(none yet)
 
 ## Deferred
 
