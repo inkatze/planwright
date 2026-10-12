@@ -481,10 +481,20 @@ echo "ok: p9 control bytes in file-derived text are replaced"
 ln -s "$fx" "$tmp/link" || fail "symlink failed"
 run_sp "$tmp/link" >"$tmp/out6" || fail "p10: a symlinked root failed: $(cat "$tmp/err")"
 cmp -s "$tmp/out1" "$tmp/out6" || fail "p10: a symlinked root partitions differently"
+# Older mise (CI's pinned 2026.6.1) globs during config discovery and lists no
+# task under such a root; the script must then fail closed, never partition.
 cp -R "$fx" "$tmp/br[a]ck" || fail "fixture copy failed"
-run_sp "$tmp/br[a]ck" >"$tmp/out7" || fail "p10: a root holding a glob character failed: $(cat "$tmp/err")"
-cmp -s "$tmp/out1" "$tmp/out7" || fail "p10: a root holding a glob character partitions differently"
-echo "ok: p10 a symlinked root and one holding a glob character give the same partition"
+rc=0
+run_sp "$tmp/br[a]ck" >"$tmp/out7" || rc=$?
+if [ "$rc" = 0 ]; then
+  cmp -s "$tmp/out1" "$tmp/out7" || fail "p10: a root holding a glob character partitions differently"
+  echo "ok: p10 a symlinked root and one holding a glob character give the same partition"
+else
+  if [ "$rc" != 5 ] || ! grep -q 'holds no task' "$tmp/err"; then
+    fail "p10: a root holding a glob character exited $rc: $(cat "$tmp/err")"
+  fi
+  echo "ok: p10 a symlinked root gives the same partition; this mise lists no task under a glob-named root, and the script fails closed there"
+fi
 
 # ---------------------------------------------------------------------------
 # p11: a machine-local mise overlay redefining a task does not hide the
