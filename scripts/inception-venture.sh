@@ -726,6 +726,7 @@ cmd_save() {
   if [ "$push" -eq 1 ]; then
     git -C "$dir" rev-parse -q --verify HEAD >/dev/null \
       || die 6 "nothing has been saved yet, so there is nothing to share"
+    confirm_private "$dir"
     screen_outgoing "$dir"
     if ! git -C "$dir" push -q -u origin HEAD >/dev/null 2>&1; then
       die 7 "saved here, but not shared: the push to the private repository failed (check the connection, then save again)"
@@ -736,6 +737,18 @@ cmd_save() {
       printf 'Shared to your private repository.\n'
     fi
   fi
+}
+
+# confirm_private <venture-dir> — the remote must still be private at push
+# time: a repository made public since creation, or one whose visibility
+# cannot be read, is never pushed to.
+confirm_private() {
+  cp_vis=$( (cd "$1" && gh repo view --json visibility --jq .visibility) 2>/dev/null) || cp_vis=
+  case $cp_vis in
+    PRIVATE) return 0 ;;
+    '') die 6 "not shared: cannot confirm the remote repository is still private (is the GitHub CLI installed and signed in?); nothing was sent" ;;
+  esac
+  die 6 "not shared: the remote repository is not private; nothing was sent"
 }
 
 # screen_or_die <file> <refusal> — run the secret screen over one file; a

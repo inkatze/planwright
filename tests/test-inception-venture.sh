@@ -132,6 +132,11 @@ cat >"$stubs/gh-ok/gh" <<EOF
 printf '%s\n' "\$*" >>"$tmp/gh-calls.log"
 case "\$1 \$2" in
   "auth status") exit 0 ;;
+  "repo view")
+    # Visibility is whatever the test last wrote, PRIVATE by default.
+    if [ -f "$tmp/gh-visibility" ]; then cat "$tmp/gh-visibility"; else echo PRIVATE; fi
+    exit 0
+    ;;
   "repo create")
     name=\$3
     shift 3
@@ -699,6 +704,28 @@ assert_eq "Z1 a push whose outgoing history carries a credential is refused (exi
 assert_contains "Z1 the push refusal says why" "credential" "$out"
 assert_eq "Z1 the refused push leaves the remote untouched" "$remote_before" "$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)"
 git -C "$rv" reset -q --hard HEAD~2
+
+# =========================================================================
+# Z3 — a push goes only to a remote confirmed private at push time
+# =========================================================================
+
+remote_before=$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)
+printf 'visibility probe\n' >"$rv/visibility-probe.md"
+printf 'PUBLIC\n' >"$tmp/gh-visibility"
+PATH="$stubs/gh-ok:$PATH" venture save --push "$rv" "Share after the repository went public"
+assert_eq "Z3 a push to a remote no longer private is refused (exit 6)" 6 "$rc"
+assert_contains "Z3 the refusal names the visibility" "not private" "$out"
+assert_eq "Z3 the refused push leaves the remote untouched" "$remote_before" "$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)"
+rm -f "$tmp/gh-visibility"
+
+PATH="$stubs/gh-noauth:$PATH" venture save --push "$rv" "Share with no way to check"
+assert_eq "Z3 a push whose visibility cannot be confirmed is refused (exit 6)" 6 "$rc"
+assert_contains "Z3 the unconfirmed refusal says so" "cannot confirm" "$out"
+assert_eq "Z3 the unconfirmed push leaves the remote untouched" "$remote_before" "$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)"
+
+PATH="$stubs/gh-ok:$PATH" venture save --push "$rv" "Share once confirmed private"
+assert_eq "Z3 a push to a confirmed-private remote succeeds" 0 "$rc"
+assert_eq "Z3 the confirmed push reaches the remote" "$(git -C "$rv" rev-parse HEAD)" "$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)"
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
