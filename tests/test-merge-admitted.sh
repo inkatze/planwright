@@ -181,6 +181,81 @@ run
 check "a park landing on the base yields no merge call" [ "$(mp_calls 'pr merge')" = 0 ]
 check "the park is said on the PR" grep -qi 'awaiting' "$GHS/comment.2"
 
+echo "# the flip takes the class's precondition record: one CI wait in total"
+admit
+printf 'green\npending\ngreen\n' >"$GHS/ci_seq"
+run
+check "the flip reads the rollup once without waiting, so a check turning pending stops it (exit 4)" [ "$CODE" = 4 ]
+check "no merge after a flip that did not go through" [ "$(mp_calls 'pr merge')" = 0 ]
+check "the flip never re-evaluated afresh" [ "$(rollups)" = 2 ]
+check "a flip that did not go through is said on the PR" grep -qi 'flip.*did not go through' "$GHS/comment.$(cat "$GHS/comments" 2>/dev/null || echo 0)"
+
+echo "# a PR someone flips ready meanwhile still merges"
+admit
+echo 4 >"$GHS/ready_from_lookup"
+run
+check "a flip skipped because the PR went ready meanwhile still merges (exit 0)" [ "$CODE" = 0 ]
+check "the merge ran" [ "$(mp_calls 'pr merge')" = 1 ]
+
+echo "# --expect-head: the flip runs only on the head the pre-ready-flip point ended on"
+admit
+run --expect-head 0000000000000000000000000000000000000000
+check "a draft whose evaluated head is not the expected one is refused (exit 5)" [ "$CODE" = 5 ]
+check "no flip on an unexpected head" [ "$(mp_calls 'pr ready')" = 0 ]
+check "no merge on an unexpected head" [ "$(mp_calls 'pr merge')" = 0 ]
+admit
+run --expect-head "$(mp_origin_head)"
+check "the expected head flips and merges (exit 0)" [ "$CODE" = 0 ]
+
+echo "# the merge call's outcome is read from the host"
+admit
+: >"$GHS/ready"
+: >"$GHS/merge_queued"
+run
+check "a merge the host queued is not reported as merged" grep -q 'not merged yet' <<<"$OUT"
+check "a queued merge parks nothing" [ "$(mp_calls 'pr comment')" = 1 ]
+admit
+: >"$GHS/ready"
+echo 1 >"$GHS/merge_rc"
+: >"$GHS/merge_lands"
+before=$(mp_origin_head)
+run
+check "a merge that landed despite a failing call is reported merged (exit 0)" [ "$CODE" = 0 ]
+check "a landed merge gets no park" [ "$(mp_origin_head)" = "$before" ]
+admit
+: >"$GHS/ready"
+echo 1 >"$GHS/merge_rc"
+: >"$GHS/merge_moves"
+before=$(mp_origin_head)
+run
+check "a merge refused because the head moved writes no park" [ "$(mp_origin_head)" = "$before" ]
+check "a merge refused because the head moved leaves no local commit" [ "$(gitf rev-parse HEAD)" = "$before" ]
+check "the moved head is said on the PR" grep -qi 'head.*moved' "$GHS/comment.2"
+
+echo "# the policy is re-read before the merge call"
+admit
+: >"$GHS/ready"
+printf "printf 'merge_policy: human\\\\n' >'%s/wt/.claude/planwright.local.yml'\n" "$F" >"$GHS/on_comment.1"
+run
+check "a policy changed after evaluation refuses the merge" [ "$(mp_calls 'pr merge')" = 0 ]
+check "the policy change is said on the PR" grep -q 'merge_policy' "$GHS/comment.2"
+
+echo "# a refusal whose comment cannot be written exits 5"
+admit
+: >"$GHS/ready"
+on_comment 1 "$MP_BRANCH" late.txt late
+echo 2 >"$GHS/comment_rc_at"
+run
+check "an unrecorded refusal exits 5" [ "$CODE" = 5 ]
+
+echo "# host text reaches a comment inert"
+admit
+mp_policy 'merge_policy: policy-class' 'merge_class_max_lines: 100' 'merge_class_exclude_paths: docs/*'
+mp_commit 'docs: a page' 'docs/@team <!--x.md' x
+run
+check "an evidence cell is a code span, so a path cannot mention a team" grep -q '`[^`]*@team[^`]*`' "$GHS/comment.1"
+check "an evidence cell cannot open an HTML comment" not grep -q '^[^`]*<!--x' <(grep '^| excluded-paths' "$GHS/comment.1")
+
 echo "# skips"
 admit
 : >"$GHS/nopr"

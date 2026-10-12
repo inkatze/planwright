@@ -77,6 +77,9 @@ case "$1 $2" in
         fi
         state=OPEN
         [ ! -f "$GHS/merged" ] || state=MERGED
+        # ready_from_lookup reports the PR ready from the nth lookup on: a
+        # person flipped it meanwhile.
+        [ ! -f "$GHS/ready_from_lookup" ] || [ "$l" -lt "$(cat "$GHS/ready_from_lookup")" ] || draft=false
         printf '{"number":42,"isDraft":%s,"state":"%s","baseRefName":"main","headRefName":"%s","headRefOid":"%s","isCrossRepository":%s}\n' \
           "$draft" "$state" "$hname" "$head" "$fork"
         ;;
@@ -131,6 +134,9 @@ case "$1 $2" in
     if { [ "$rc" = 0 ] && [ ! -f "$GHS/merge_queued" ]; } || [ -f "$GHS/merge_lands" ]; then
       : >"$GHS/merged"
     fi
+    # merge_moves: someone pushed during the call, so the host reports
+    # another head from here on.
+    [ ! -f "$GHS/merge_moves" ] || echo fedcba9876543210fedcba9876543210fedcba98 >"$GHS/head_override"
     exit "$rc"
     ;;
   *) exit 3 ;;
