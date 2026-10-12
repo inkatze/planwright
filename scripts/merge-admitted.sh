@@ -203,8 +203,15 @@ pr_state() { # sets S_HEAD, S_DRAFT, S_STATE; 1 when unreadable
 # 3. The flip of an admitted draft.
 pr_state || refuse "PR #$PR could not be read after evaluation"
 if [ "$S_DRAFT" = true ]; then
-  [ -z "$EXPECT" ] || [ "$EXPECT" = "$HEAD_SHA" ] \
-    || refuse "the evaluated head ${HEAD_SHA:0:12} is not the head the pre-ready-flip point ended on (${EXPECT:0:12}), so the draft is not flipped"
+  if [ -n "$EXPECT" ] && [ "$EXPECT" != "$HEAD_SHA" ]; then
+    # shellcheck disable=SC2016 # markdown backticks for the comment
+    printf '**Merge not attempted.** The class evaluated head `%s`, not the head the pre-ready-flip point ran on, so PR #%s stays a draft and was not merged; re-run the sequence.\n' \
+      "$HEAD_SHA" "$PR" >"$SCRATCH/expect.md"
+    comment "$SCRATCH/expect.md" \
+      || refuse "the evaluated head ${HEAD_SHA:0:12} is not the head the pre-ready-flip point ran on, and the PR comment could not be written"
+    say "not merged: the evaluated head ${HEAD_SHA:0:12} is not the head the pre-ready-flip point ran on (${EXPECT:0:12})"
+    exit 4
+  fi
   grep -E '^(head|pred)	' "$REC" >"$SCRATCH/handin"
   /bin/bash "$SCRIPTS/ready-flip.sh" flip --for-merge --spec "$SPEC" "${UNIT[@]}" --pr "$PR" \
     --preconditions "$SCRATCH/handin" --expect-head "$HEAD_SHA" >"$SCRATCH/flip.out" 2>&1
@@ -283,8 +290,12 @@ mrc=$?
 S_STATE='' S_HEAD=''
 pr_state || S_STATE=''
 if [ "$S_STATE" = MERGED ]; then
-  say "merged PR #$PR at $HEAD_SHA by $METHOD under merge_policy: policy-class"
-  exit 0
+  if [ "$S_HEAD" = "$HEAD_SHA" ]; then
+    say "merged PR #$PR at $HEAD_SHA by $METHOD under merge_policy: policy-class"
+    exit 0
+  fi
+  say "not merged by this run: PR #$PR merged at another head ($(hex "${S_HEAD:0:12}")) than the recorded ${HEAD_SHA:0:12}, so the record above does not describe it"
+  exit 4
 fi
 if [ "$mrc" = 0 ]; then
   say "PR #$PR at $HEAD_SHA was handed to the host by $METHOD and is not merged yet (a merge queue or auto-merge holds it, or its state could not be read)"

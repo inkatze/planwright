@@ -200,12 +200,21 @@ check "the merge ran" [ "$(mp_calls 'pr merge')" = 1 ]
 echo "# --expect-head: the flip runs only on the head the pre-ready-flip point ended on"
 admit
 run --expect-head 0000000000000000000000000000000000000000
-check "a draft whose evaluated head is not the expected one is refused (exit 5)" [ "$CODE" = 5 ]
+check "a draft whose evaluated head is not the expected one is refused (exit 4)" [ "$CODE" = 4 ]
 check "no flip on an unexpected head" [ "$(mp_calls 'pr ready')" = 0 ]
 check "no merge on an unexpected head" [ "$(mp_calls 'pr merge')" = 0 ]
+check "an unexpected head is said on the PR (exit 4 once said)" grep -qi 'pre-ready-flip point' "$GHS/comment.1"
 admit
 run --expect-head "$(mp_origin_head)"
 check "the expected head flips and merges (exit 0)" [ "$CODE" = 0 ]
+admit
+: >"$GHS/ready"
+echo 1 >"$GHS/merge_rc"
+: >"$GHS/merge_lands"
+: >"$GHS/merge_moves"
+run
+check "a PR merged at another head than the recorded one is not claimed as this merge (exit 4)" [ "$CODE" = 4 ]
+check "a merge at another head is said as such" grep -qi 'another head' <<<"$OUT"
 
 echo "# the merge call's outcome is read from the host"
 admit

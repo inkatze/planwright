@@ -277,6 +277,16 @@ cp "$F/wt/$MP_TASKS" "$F/wt/specs/other/tasks.md"
 mp_run "$CLASS" evaluate --spec specs/other --task 1
 check "a spec the branch does not name is refused (exit 5)" [ "$CODE" = 5 ]
 admitted_fixture
+gitf checkout -q -b planwright/demo/task-3.2-3.10
+for ok in 3.5 3.10 3.2; do
+  mp_run "$CLASS" evaluate --spec specs/demo --task "$ok"
+  check "task $ok is inside the bundle range 3.2-3.10" not grep -q 'is not the unit the branch names' <<<"$OUT"
+done
+for bad in 3.25 4 3.1 3.11; do
+  mp_run "$CLASS" evaluate --spec specs/demo --task "$bad"
+  check "task $bad is outside the bundle range 3.2-3.10" grep -q 'is not the unit the branch names' <<<"$OUT"
+done
+admitted_fixture
 echo 2 >"$GHS/lookup_fail_from"
 evaluate
 check "a ready-flip evaluation that refuses is a refusal, never a fall-through (exit 5)" [ "$CODE" = 5 ]

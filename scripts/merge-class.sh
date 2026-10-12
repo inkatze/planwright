@@ -80,7 +80,7 @@ fi
 # scripts the class and its records are computed by, its policy defaults),
 # plus the files a repository keeps its policy, CI definition, and dependency
 # pins in.
-readonly CORE_ZONE='hooks/* githooks/* config/*-settings.json config/defaults.yml config/steps.yaml .claude/settings.json .claude/settings.local.json .claude/planwright.yml .claude-plugin/* scripts/*guard*.sh scripts/resolve-policy-knob.sh scripts/resolve-config-knob.sh scripts/config-get.sh scripts/protected-branch.sh scripts/ready-flip.sh scripts/merge-class.sh scripts/merge-admitted.sh scripts/step-record.sh scripts/spec-parse.sh scripts/echo-safety.sh scripts/planwright-commit-trailers.sh .github/* mise.toml lefthook.yml doctrine/human-gates.md tests/fixtures/reserved-control-spellings *package-lock.json *npm-shrinkwrap.json *pnpm-lock.yaml *.lock *go.sum'
+readonly CORE_ZONE='hooks/* githooks/* config/*-settings.json config/defaults.yml config/steps.yaml .claude/settings.json .claude/settings.local.json .claude/planwright.yml .claude-plugin/* scripts/*guard*.sh scripts/resolve-policy-knob.sh scripts/resolve-config-knob.sh scripts/config-get.sh scripts/protected-branch.sh scripts/ready-flip.sh scripts/merge-class.sh scripts/merge-admitted.sh scripts/step-record.sh scripts/spec-parse.sh scripts/echo-safety.sh scripts/planwright-commit-trailers.sh scripts/resolve-overlay-root.sh scripts/lock-lib.sh .github/* mise.toml .mise.toml .config/mise.toml .config/mise/* mise/* .mise/* mise-tasks/* lefthook.yml .lefthook.yml doctrine/human-gates.md tests/fixtures/reserved-control-spellings *package-lock.json *npm-shrinkwrap.json *pnpm-lock.yaml *.lock *go.sum'
 readonly TASK_BRANCH_RE='^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$'
 
 say() { printf 'merge-class: %s\n' "$*"; }
@@ -171,7 +171,10 @@ B_IDS=${B_SEG##*/task-}
 TASK_ARGS=()
 for id in "${IDS[@]}"; do
   case $B_IDS in
-    *-*) awk -v i="$id" -v lo="${B_IDS%-*}" -v hi="${B_IDS#*-}" 'BEGIN { exit !(i + 0 >= lo + 0 && i + 0 <= hi + 0) }' ;;
+    # Ids compare by major then minor as integers: 3.10 follows 3.9.
+    *-*) awk -v i="$id" -v lo="${B_IDS%-*}" -v hi="${B_IDS#*-}" '
+      function key(v, p) { split(v, p, "."); return p[1] * 1000000000 + p[2] }
+      BEGIN { exit !(key(i) >= key(lo) && key(i) <= key(hi)) }' ;;
     *) [ "$id" = "$B_IDS" ] ;;
   esac || refuse "task $id is not the unit the branch names (task-$B_IDS)"
   TASK_ARGS+=(--task "$id")
