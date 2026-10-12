@@ -352,6 +352,21 @@ sed 's/^\*\*Format-version:\*\* 1\.0$/**Format-version:** 9.0/' "$rp/plan.md" >"
 venture resume-point "$rp"
 assert_eq "C1.7 resume refuses an unsupported format-version (exit 3)" 3 "$rc"
 assert_contains "C1.7 the refusal is the validator's plain-language message" "unsupported format-version" "$out"
+cp "$rp/brief.md" "$tmp/brief-before-gate.md"
+venture mark-phase "$rp" core
+assert_eq "C1.7 mark-phase refuses an unsupported format-version (exit 3)" 3 "$rc"
+assert_eq "C1.7 a refused mark-phase leaves brief.md untouched" "" "$(cmp "$tmp/brief-before-gate.md" "$rp/brief.md" 2>&1)"
+
+# An incomplete bundle is told apart from an unreadable one.
+ip="$tmp/incomplete"
+mkdir -p "$ip"
+venture bundle-init --title "Incomplete Probe" "$ip"
+rm -f "$ip/plan.md"
+venture resume-point "$ip"
+assert_eq "B1.7 resume on an incomplete bundle is an environment error (exit 2)" 2 "$rc"
+assert_contains "B1.7 the incomplete-bundle message names the missing file" "plan.md is missing" "$out"
+PATH="$stubs/gh-ok:$PATH" venture handoff "$ip"
+assert_contains "H1.5 handoff reports an incomplete bundle as incomplete" "$(printf 'bundle\tincomplete')" "$out"
 
 # =========================================================================
 # Scripted dry run — local-only arm (REQ-A1.4, REQ-A1.9, REQ-H1.2, REQ-H1.5)

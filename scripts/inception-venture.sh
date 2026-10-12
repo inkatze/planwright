@@ -38,9 +38,10 @@
 # operator's override in either direction, for hosts the probe misreads.
 #
 # Exit: 0 success · 1 refused identifier, or a save the secret screen stopped
-#   · 2 usage or environment error (a broken install included) · 3 the bundle's format-version is
-#   unsupported (the validator's refusal, passed through) · 4 a malformed
-#   repo-tracked ventures_root · 5 the target already exists (never
+#   · 2 usage or environment error (a broken install, an incomplete bundle
+#   included) · 3 the validator refuses to read the bundle (an unsupported or
+#   unparseable format-version, an unbalanced code fence; passed through)
+#   · 4 a malformed repo-tracked ventures_root · 5 the target already exists (never
 #   overwritten) · 6 the requested home or push is unavailable · 7 the remote
 #   step failed.
 #
@@ -478,7 +479,24 @@ phase_index() {
   return 1
 }
 
+# missing_file <venture-dir> — print the first bundle file absent from the
+# directory; false when all five are present. The validator refuses a missing
+# file with the same exit 3 as an unsupported format-version, so this is
+# checked first to keep "incomplete" apart from "unreadable".
+missing_file() {
+  for mf in $FILES; do
+    [ -f "$1/$mf" ] || {
+      printf '%s\n' "$mf"
+      return 0
+    }
+  done
+  return 1
+}
+
 version_gate() {
+  if vg_missing=$(missing_file "$1"); then
+    die 2 "the bundle is incomplete: $vg_missing is missing from the venture directory"
+  fi
   vg_out=$(/bin/sh "$self_dir/inception-validate.sh" --version-check "$1" 2>&1)
   vg_rc=$?
   [ "$vg_rc" -eq 0 ] && return 0
@@ -707,15 +725,20 @@ cmd_handoff() {
   [ "$home" = local ] && [ "$ephemeral" = yes ] && rung=session
 
   v_rc=0
-  /bin/sh "$self_dir/inception-validate.sh" "$1" >/dev/null 2>&1 || v_rc=$?
+  if missing_file "$1" >/dev/null; then
+    v_rc=incomplete
+  else
+    /bin/sh "$self_dir/inception-validate.sh" "$1" >/dev/null 2>&1 || v_rc=$?
+  fi
   case $v_rc in
+    incomplete) bundle=incomplete ;;
     0) bundle=clean ;;
     1) bundle=findings ;;
     3) bundle=refused ;;
     *) bundle=unchecked ;;
   esac
   next=unknown
-  if [ "$bundle" != refused ] && [ "$bundle" != unchecked ]; then
+  if [ "$bundle" = clean ] || [ "$bundle" = findings ]; then
     rp=$(cmd_resume_point "$1" 2>/dev/null) || rp=
     next=$(printf '%s\n' "$rp" | sed -n 's/^next	//p')
     p=$(printf '%s\n' "$rp" | sed -n 's/^pending	//p')
