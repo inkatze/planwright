@@ -81,11 +81,18 @@ for b in main master planwright/demo/spec refs/heads/main release/v1; do
     else
       rc=$(rc_of fp push --branch "$b" --to "$TIP" --lease "$TIP")
     fi
-    [ "$rc" = 1 ] && grep -q 'protected' "$tmp/err" \
-      || fail "$verb on '$b' was not refused as protected (exit $rc: $(cat "$tmp/err"))"
+    # The refusal names the protected set, not a failure to read it: a broken
+    # overlay also exits 1, with "the protected set could not be read".
+    if ! { [ "$rc" = 1 ] && grep -q 'no tier rewrites it' "$tmp/err"; }; then
+      fail "$verb on '$b' was not refused as protected (exit $rc: $(cat "$tmp/err"))"
+    fi
   done
+  rc=$(rc_of fp reword --branch "$b" --commit "$TIP" --message-file "$W/a")
+  if ! { [ "$rc" = 1 ] && grep -q 'no tier rewrites it' "$tmp/err"; }; then
+    fail "reword on '$b' was not refused as protected (exit $rc: $(cat "$tmp/err"))"
+  fi
 done
-[ "$failures" = 0 ] && ok "confirm and push refuse main, master, a spec branch, and a protected_branches addition"
+[ "$failures" = 0 ] && ok "every verb refuses main, master, a spec branch, and a protected_branches addition"
 rm -f "$W/.claude/planwright.yml"
 
 # --- reword: objects only ----------------------------------------------------
@@ -96,33 +103,55 @@ rc=$(rc_of fp reword --branch "$BR" --commit "$BAD" --message-file "$tmp/msg")
 [ "$rc" = 0 ] || fail "reword failed (exit $rc: $(cat "$tmp/err"))"
 NEW=$(awk -F '\t' '$1 == "to" { print $2 }' "$tmp/out")
 [ "$(awk -F '\t' '$1 == "lease" { print $2 }' "$tmp/out")" = "$TIP" ] || fail "reword did not report the remote tip as the lease"
-[ -n "$NEW" ] && [ "$NEW" != "$TIP" ] || fail "reword printed no new tip"
-[ "$(g show-ref)" = "$refs_before" ] && [ "$(g status --porcelain)" = "$status_before" ] \
-  && ok "reword changes no ref and no working tree" || fail "reword moved a ref or the working tree"
+if [ -z "$NEW" ] || [ "$NEW" = "$TIP" ]; then fail "reword printed no new tip"; fi
+if [ "$(g show-ref)" = "$refs_before" ] && [ "$(g status --porcelain)" = "$status_before" ]; then
+  ok "reword changes no ref and no working tree"
+else
+  fail "reword moved a ref or the working tree"
+fi
 [ "$(g rev-parse "$NEW^{tree}")" = "$(g rev-parse "$TIP^{tree}")" ] || fail "reword changed the tip's tree"
 [ "$(g log --format=%s "main..$NEW" | tail -1)" = 'feat: a subject that passes the range lint' ] \
   || fail "the reworded commit does not carry the new message"
 [ "$(g log --format='%an %ad' --date=raw "main..$NEW")" = "$(g log --format='%an %ad' --date=raw "main..$TIP")" ] \
   || fail "reword did not keep each commit's author and date"
-[ "$(g log --format=%s "main..$NEW" | sed -n 1,2p)" = "$(g log --format=%s "main..$TIP" | sed -n 1,2p)" ] \
-  && ok "reword replaces one message and replays the rest with tree, author, and message kept" \
-  || fail "reword changed a later commit's message"
+if [ "$(g log --format=%s "main..$NEW" | sed -n 1,2p)" = "$(g log --format=%s "main..$TIP" | sed -n 1,2p)" ]; then
+  ok "reword replaces one message and replays the rest with tree, author, and message kept"
+else
+  fail "reword changed a later commit's message"
+fi
 
 rc=$(rc_of fp reword --branch "$BR" --commit "$(g rev-parse main)" --message-file "$tmp/msg")
-[ "$rc" = 1 ] && grep -q 'protected' "$tmp/err" && ok "reword refuses a commit a protected branch contains" \
-  || fail "reword of a commit on main was not refused (exit $rc)"
+if [ "$rc" = 1 ] && grep -q 'which is protected' "$tmp/err"; then
+  ok "reword refuses a commit a protected branch contains"
+else
+  fail "reword of a commit on main was not refused (exit $rc)"
+fi
 g checkout -q -b elsewhere main
 g commit -q --allow-empty -m 'chore: elsewhere'
 rc=$(rc_of fp reword --branch "$BR" --commit "$(g rev-parse HEAD)" --message-file "$tmp/msg")
-[ "$rc" = 1 ] && ok "reword refuses a commit that is not on the branch" || fail "an off-branch commit was not refused (exit $rc)"
+if [ "$rc" = 1 ]; then
+  ok "reword refuses a commit that is not on the branch"
+else
+  fail "an off-branch commit was not refused (exit $rc)"
+fi
 g checkout -q "$BR"
+printf ' \n\t\n' >"$tmp/blank"
+rc=$(rc_of fp reword --branch "$BR" --commit "$BAD" --message-file "$tmp/blank")
+if [ "$rc" = 2 ]; then
+  ok "reword refuses an empty message file"
+else
+  fail "a blank message file was not a usage error (exit $rc)"
+fi
 
 # --- confirm: the shape, the dropped commits, the legacy ids -----------------
 rc=$(rc_of fp confirm --branch "$BR" --to "$NEW")
 [ "$rc" = 0 ] || fail "confirm failed (exit $rc: $(cat "$tmp/err"))"
 cp "$tmp/out" "$tmp/confirm.json"
-"$CC" "$tmp/confirm.json" >/dev/null 2>&1 && ok "the confirmation passes check-confirmation.sh" \
-  || fail "the confirmation fails check-confirmation.sh"
+if "$CC" "$tmp/confirm.json" >/dev/null 2>&1; then
+  ok "the confirmation passes check-confirmation.sh"
+else
+  fail "the confirmation fails check-confirmation.sh"
+fi
 q=$(jq -r .question "$tmp/confirm.json")
 for c in "$BAD" "$LEGACY" "$TIP"; do
   case $q in
@@ -130,21 +159,31 @@ for c in "$BAD" "$LEGACY" "$TIP"; do
     *) fail "the question does not name the dropped commit $(printf '%s' "$c" | cut -c1-7)" ;;
   esac
 done
-[ "$(jq '.dropped | length' "$tmp/confirm.json")" = 3 ] && ok "the confirmation names every remote commit the push drops" \
-  || fail "the confirmation's dropped list is wrong"
+if [ "$(jq '.dropped | length' "$tmp/confirm.json")" = 3 ]; then
+  ok "the confirmation names every remote commit the push drops"
+else
+  fail "the confirmation's dropped list is wrong"
+fi
 NEWLEG=$(g log --format=%H --grep='legacy finding' "main..$NEW")
 want_from="PS-legacy-$(printf '%s' "$LEGACY" | cut -c1-7)"
 want_to="PS-legacy-$(printf '%s' "$NEWLEG" | cut -c1-7)"
-[ "$(jq -r '.legacy[0].from + " " + .legacy[0].to' "$tmp/confirm.json")" = "$want_from $want_to" ] \
-  && ok "the confirmation pairs the changed legacy id with its replacement" \
-  || fail "the legacy id change is wrong: $(jq -c .legacy "$tmp/confirm.json")"
+if [ "$(jq -r '.legacy[0].from + " " + .legacy[0].to' "$tmp/confirm.json")" = "$want_from $want_to" ]; then
+  ok "the confirmation pairs the changed legacy id with its replacement"
+else
+  fail "the legacy id change is wrong: $(jq -c .legacy "$tmp/confirm.json")"
+fi
 [ "$(jq -r '.push | .[1:] | join(" ")' "$tmp/confirm.json")" = "push --remote origin --branch $BR --to $NEW --lease $TIP" ] \
   || fail "the push argv does not carry this confirmation's lease"
 [ "$(jq '[.options[] | select(.reject == true)] | length' "$tmp/confirm.json")" = 1 ] \
   || fail "the confirmation has no single reject option"
 
 rc=$(rc_of fp confirm --branch "$BR" --to "$TIP")
-[ "$rc" = 1 ] && ok "confirm refuses a tip that drops nothing" || fail "a no-op force was not refused (exit $rc)"
+rc2=$(rc_of fp push --branch "$BR" --to "$TIP" --lease "$TIP")
+if [ "$rc" = 1 ] && [ "$rc2" = 1 ] && grep -q 'nothing is dropped' "$tmp/err"; then
+  ok "confirm and push refuse a tip that drops nothing"
+else
+  fail "a no-op force was not refused (confirm exit $rc, push exit $rc2)"
+fi
 
 # --- push: only on the confirmed lease ----------------------------------------
 rc=$(rc_of fp push --branch "$BR" --to "$NEW")
@@ -169,20 +208,27 @@ git -C "$tmp/other" commit -q --allow-empty -m 'feat: someone else pushed'
 git -C "$tmp/other" push -q origin "$BR"
 MOVED=$(git -C "$tmp/other" rev-parse HEAD)
 rc=$(rc_of fp push --branch "$BR" --to "$NEW" --lease "$TIP")
-[ "$rc" = 1 ] && grep -q 'moved since the confirmation' "$tmp/err" \
-  && [ "$(git -C "$tmp/origin.git" rev-parse "refs/heads/$BR")" = "$MOVED" ] \
-  && ok "push refuses when the remote moved since the confirmation, and leaves it alone" \
-  || fail "a push over a moved remote was not refused (exit $rc)"
+if [ "$rc" = 1 ] && grep -q 'moved since the confirmation' "$tmp/err" \
+  && [ "$(git -C "$tmp/origin.git" rev-parse "refs/heads/$BR")" = "$MOVED" ]; then
+  ok "push refuses when the remote moved since the confirmation, and leaves it alone"
+else
+  fail "a push over a moved remote was not refused (exit $rc)"
+fi
 git -C "$tmp/origin.git" update-ref "refs/heads/$BR" "$TIP"
 
 rc=$(rc_of fp push --branch "$BR" --to "$NEW" --lease "$TIP")
 [ "$rc" = 0 ] || fail "the confirmed push failed (exit $rc: $(cat "$tmp/err"))"
-[ "$(git -C "$tmp/origin.git" rev-parse "refs/heads/$BR")" = "$NEW" ] && ok "the confirmed push lands the new tip" \
-  || fail "the remote is not at the new tip"
+if [ "$(git -C "$tmp/origin.git" rev-parse "refs/heads/$BR")" = "$NEW" ]; then
+  ok "the confirmed push lands the new tip"
+else
+  fail "the remote is not at the new tip"
+fi
 [ "$(grep -c '^dropped' "$tmp/out")" = 3 ] || fail "the push handoff does not list the dropped commits"
-grep -q "^legacy	$want_from	$want_to\$" "$tmp/out" && grep -q 're-stamp' "$tmp/out" \
-  && ok "the push handoff names the changed legacy id for re-stamping" \
-  || fail "the push handoff does not name the legacy id change: $(cat "$tmp/out")"
+if grep -q "^legacy	$want_from	$want_to\$" "$tmp/out" && grep -q 're-stamp' "$tmp/out"; then
+  ok "the push handoff names the changed legacy id for re-stamping"
+else
+  fail "the push handoff does not name the legacy id change: $(cat "$tmp/out")"
+fi
 
 # --- purge: printed, never run -------------------------------------------------
 mkdir -p "$tmp/stub"
@@ -194,13 +240,25 @@ done
 rc=0
 PATH="$tmp/stub:$PATH" "$FP" purge --path 'config/secrets.env' --replace-text "it's.txt" >"$tmp/out" 2>"$tmp/err" || rc=$?
 [ "$rc" = 0 ] || fail "purge failed (exit $rc)"
-[ ! -s "$tmp/calls" ] && ok "purge runs no git, filter-repo, or host command" || fail "purge ran: $(cat "$tmp/calls")"
-grep -qF "git filter-repo --sensitive-data-removal --invert-paths --path 'config/secrets.env' --replace-text 'it'\\''s.txt'" "$tmp/out" \
-  && ok "purge prints the quoted command" || fail "purge printed no usable command: $(cat "$tmp/out")"
-grep -q 'Revoke or rotate' "$tmp/out" && grep -q 'nothing here was executed' "$tmp/out" \
-  && ok "purge prints the rotation checklist and says it ran nothing" || fail "purge printed no rotation checklist"
+if [ ! -s "$tmp/calls" ]; then
+  ok "purge runs no git, filter-repo, or host command"
+else
+  fail "purge ran: $(cat "$tmp/calls")"
+fi
+if grep -qF "git filter-repo --sensitive-data-removal --invert-paths --path 'config/secrets.env' --replace-text 'it'\\''s.txt'" "$tmp/out"; then
+  ok "purge prints the quoted command"
+else
+  fail "purge printed no usable command: $(cat "$tmp/out")"
+fi
+if grep -q 'Revoke or rotate' "$tmp/out" && grep -q 'nothing here was executed' "$tmp/out"; then
+  ok "purge prints the rotation checklist and says it ran nothing"
+else
+  fail "purge printed no rotation checklist"
+fi
 rc=$(rc_of "$FP" purge)
 [ "$rc" = 2 ] || fail "purge with nothing to purge was not a usage error (exit $rc)"
+rc=$(rc_of "$FP" purge --path "$(printf 'a\033[31mb')")
+[ "$rc" = 2 ] || fail "purge took a path carrying a control character (exit $rc)"
 
 # --- the tower queue: no standing decision runs it ------------------------------
 qhome="$tmp/qhome"
@@ -234,6 +292,7 @@ flat() {
   awk -v a="${2:-}" -v b="${3:-}" 'a == "" || index($0, a) == 1 { on = 1 } on && b != "" && index($0, b) == 1 { on = 0 } on' "$1" \
     | tr '\n\t' '  ' | tr -s ' ' | tr '[:upper:]' '[:lower:]'
 }
+# shellcheck disable=SC2016 # the backticks are markdown, matched literally
 REWORD='such a commit is reworded only through the tower'"'"'s force-push path (`scripts/tower-force-push.sh`, on the operator'"'"'s request, [human gates](human-gates.md)), so name that path as the reason and add no commit for it.'
 # /execute-task halts a logic CI failure through gate-wiring's pause protocol,
 # which it loads at that point, so the rule lives there.
@@ -243,6 +302,7 @@ case $section in
   *) fail "gate-wiring's pause protocol does not name the tower reword path" ;;
 esac
 tower=$(flat "$here/../skills/tower/SKILL.md" '## Refusals' '## Survival')
+# shellcheck disable=SC2016 # the backticks are markdown, matched literally
 for want in 'scripts/tower-force-push.sh confirm' 'never from a standing decision' 'run its `push` line only on the yes, in the same turn' 'its `purge` prints; the operator runs it'; do
   case $tower in
     *"$want"*) ;;
