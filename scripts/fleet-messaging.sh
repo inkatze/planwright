@@ -80,8 +80,8 @@
 # counts as accepted, never as delivered); 2 usage or a refused input;
 # 3 refused by the receiver; 4 the post failed or answered with an unknown
 # line; 5 held at the receiver, which keeps it queued (never re-send it);
-# 6 a precondition unmet (probe absent, target unaddressable, or failing the
-# predicate), nothing posted.
+# 6 a precondition unmet (probe absent, target unaddressable or failing the
+# predicate, or no iconv to check the body), nothing posted.
 #
 # POSIX sh on the macOS + Linux support bar. Every settings and session-record
 # read is awk; no jq, no eval. All input is data; anything a message, notice,
