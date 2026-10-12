@@ -116,9 +116,10 @@ discipline (loop-level writes, such as observation fragment writes, take
 their own chore commit at the iteration boundary). A fix editing only prose
 is classed on `finding-categorization`'s *Prose findings* axis first:
 expression-only when no normative statement changes meaning, meaning-class
-otherwise. A behaviour-changing Needs-sign-off fix commits alone; prose-only
-ones batch into one commit per iteration carrying the wiring doc's manifest,
-so one checklist entry carries a sub-item per fix. Attended or unattended, a
+otherwise. A behaviour-changing Needs-sign-off fix commits alone unless the
+wiring doc's shared-commit exception applies; prose-only ones batch into one
+commit per iteration carrying the wiring doc's manifest, so one checklist
+entry carries a sub-item per fix. Attended or unattended, a
 Needs-sign-off fix is committed on the branch, never asked about first. Each
 iteration's commits stand as the per-iteration audit trail.
 
