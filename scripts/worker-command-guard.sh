@@ -2475,8 +2475,8 @@ assign_value_literal() {
 # track_assignment: 0 when the current one-word simple command (`cw` and its
 # flag arrays, by dynamic scope, before any substitution) is a standalone
 # assignment the rules admit, leaving its halves in PENDING_ASSIGN_N / _V and
-# PENDING_ASSIGN_O (1: opaque) and PENDING_ASSIGN_S (1: carries substitution
-# output) for verify_tokens to commit once it knows the segment's placement.
+# PENDING_ASSIGN_O (1: opaque) and PENDING_ASSIGN_S (the VAR_S value, see
+# word_tainted) for verify_tokens to commit once it knows the segment's placement.
 track_assignment() {
   local w=${cw[0]} qpos=${cqp[0]} name value eqpos v vq
   # fish has no `NAME=value` statement, so inside `fish -c` the word is not one.
@@ -2506,7 +2506,7 @@ track_assignment() {
   assign_value_literal "$value" "$vq" "${cqm[0]}" "${cdyn[0]}" "${cglob[0]}" "${cx[0]}" \
     || PENDING_ASSIGN_O=1
   PENDING_ASSIGN_S=0
-  word_tainted 0 && PENDING_ASSIGN_S=1
+  word_tainted 0 && PENDING_ASSIGN_S=$((TAINT_WEAK + 1))
   PENDING_ASSIGN_N=$name
   PENDING_ASSIGN_V=$value
   return 0
@@ -2939,34 +2939,51 @@ guard_printf() {
 # rather than argued one by one.
 
 # word_tainted <i>: 0 when word <i> of the current simple command carries
-# substitution output: it holds a `$(…)`, or names a variable the table marks
-# as assigned from one (VAR_S), or `$_` once a substitution has run, since
-# the shell sets `$_` to the previous command's last argument. Every `$`
-# spelling is read, a literal one too, which can only narrow a verdict.
+# substitution output, with TAINT_WEAK saying how the guard knows. Known
+# (TAINT_WEAK=0): the word holds a `$(…)` or names a variable the table marks
+# as assigned from one (VAR_S 1). Inferred (TAINT_WEAK=1): the name may hold
+# output the table cannot see, since `$_` is the previous command's last
+# argument, a name the table does not track may have been set by a zsh
+# pipeline's last `read`, and the inner text of a substitution starts with an
+# empty table while its subshell inherits every outer variable (VAR_S 2 marks
+# a variable assigned from such a word). Every `$` spelling is read, a literal
+# one too, which can only narrow a verdict.
 word_tainted() {
-  local w=${cw[$1]} name v
+  local w=${cw[$1]} name v found weak=0
+  TAINT_WEAK=0
   [ -z "${csub[$1]-}" ] || return 0
   while :; do
     case $w in
       *'$'*) w=${w#*'$'} ;;
-      *) return 1 ;;
+      *) break ;;
     esac
     w=${w#'{'}
     case $w in [=^+#]*) w=${w#?} ;; esac
     name=${w%%[!A-Za-z0-9_]*}
     [ -n "$name" ] || continue
-    # The inner text of a substitution starts with an empty table, yet its
-    # subshell inherits every outer variable and `$_`, tainted ones included.
-    [ "$IN_SUBST" = 0 ] || return 0
-    [ "$name" = _ ] && [ "$SUB_SEEN" = 1 ] && return 0
+    if [ "$IN_SUBST" = 1 ]; then
+      weak=1
+      continue
+    fi
+    found=0
     for ((v = VAR_C - 1; v >= 0; v--)); do
       if [ "${VAR_N[v]}" = "$name" ]; then
+        found=1
         # A loop variable's slot never carries a VAR_S of its own.
-        [ "${VAR_L[v]}" = 0 ] && [ "${VAR_S[v]-0}" = 1 ] && return 0
+        if [ "${VAR_L[v]}" = 0 ]; then
+          case ${VAR_S[v]-0} in
+            1) return 0 ;;
+            2) weak=1 ;;
+          esac
+        fi
         break
       fi
     done
+    [ "$found" = 1 ] || [ "$SUB_SEEN" = 0 ] || weak=1
   done
+  [ "$weak" = 1 ] || return 1
+  TAINT_WEAK=1
+  return 0
 }
 
 # subst_reach_ok <i>: whether word <i>, which carries substitution output,
@@ -3006,9 +3023,11 @@ subst_inner_ok() {
 
 # subst_words_ok: the current simple command's words carrying substitution
 # output each sit where subst_reach_ok admits them, and then every other
-# unresolved word passes opaque_words_ok, which sees each admitted word as a
-# plain literal. The neutral copy is local, so the screens after this one
-# still read the words as written.
+# unresolved word passes opaque_words_ok, which sees each admitted word known
+# to carry output as a plain literal. A word only inferred to carry it is
+# left as it is, so it must pass both checks and a name that may be an
+# ordinary opaque value gains no position it lacked. The neutral copy is
+# local, so the screens after this one still read the words as written.
 subst_words_ok() {
   local i rc
   local -a cw=(${cw[@]+"${cw[@]}"}) cdyn=(${cdyn[@]+"${cdyn[@]}"}) cglob=(${cglob[@]+"${cglob[@]}"})
@@ -3017,6 +3036,7 @@ subst_words_ok() {
     word_tainted "$i" || continue
     subst_reach_ok "$i"
     rc=$?
+    [ "$rc" = 0 ] && [ "$TAINT_WEAK" = 1 ] && rc=2
     case $rc in
       0)
         cw[i]=x

@@ -91,6 +91,7 @@ SUBST_POSITION_FIXTURES=(
   "x=\$(git ls-files); echo \"\$(ls \"\$x\")\""
   "while ls \$_; do echo \$(git ls-files); done"
   "until stat \$_; do echo \$(git ls-files); done"
+  "echo \$(cat f) | read -r y; stat \$y"
 )
 # Symlinked final components pointing OUTSIDE the repo (containment escape).
 ln -sf /etc/hosts "$SANDBOX/scripts/evillink.sh"
@@ -2249,6 +2250,15 @@ assert_defer "REQ-E1.3: an inner newline" "echo \"\$(git status
 git log -1)\"" Bash "$SUBST_CWD"
 assert_defer "REQ-E1.3: an inner background job" "echo \$(git status & git log -1)" Bash "$SUBST_CWD"
 assert_defer "REQ-E1.3: an inner assignment" "echo \$(x=1)" Bash "$SUBST_CWD"
+# A name only inferred to carry output (an outer name inside a substitution,
+# `$_`, an untracked name) gains no position a plain opaque value lacks.
+assert_defer "REQ-E1.3: an outer name inside a substitution reaching a script" "echo \$(scripts/ok.sh \$HOME)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: \$_ after a substitution reaching a script" "echo \$(git log -1); scripts/ok.sh \$_" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an untracked name reaching a script beside a substitution" \
+  "scripts/ok.sh \"\$HOME\" \$(git log -1)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: a name assigned from \$_ reaching a script" \
+  "echo \$(git log -1); y=\$_; scripts/ok.sh \$y" Bash "$SUBST_CWD"
+assert_allow "REQ-E1.3: an untracked name echoed beside a substitution" "echo \"\$HOME\" \"\$(git log -1)\"" Bash "$SUBST_CWD"
 # A `cd` is approvable only in a real repository at its canonical path, so the
 # inner-cd fixtures run in one; a carried inner cd would move the directory
 # the later script path is checked against.
