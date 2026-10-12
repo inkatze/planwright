@@ -747,6 +747,11 @@ first_half() {
   assert_defer "defer form: a tracked assignment to zsh's path" "path=$SANDBOX && cat README.md" Bash "$SANDBOX"
   assert_defer "defer form: a modifier on a tracked variable" "P=$SANDBOX && find . -name \$P:t" Bash "$SANDBOX"
   assert_defer "defer form: a subscript on a tracked variable" "P=$SANDBOX && find . -name \"\$P[1]\"" Bash "$SANDBOX"
+  # zsh evaluates an unbraced subscript as arithmetic, so it can re-point a
+  # variable the guard has modelled before a later script path reads it.
+  assert_defer "bypass: a zsh subscript re-points a modelled script path" "v=scripts/ok.sh; ls \$q[v=7]; bash \$v" Bash "$SANDBOX"
+  assert_defer "bypass: a quoted zsh subscript re-points a script operand" "v=scripts/ok.sh; echo \"\$q[v=7]\"; scripts/ok.sh \$v" Bash "$SANDBOX"
+  assert_defer "defer form: an unbraced subscript on an unknown name" "echo \$q[1]" Bash "$SANDBOX"
   assert_allow "parity: a braced tracked variable before a colon is still its value" "P=$SANDBOX && cat \${P}/README.md:x" Bash "$SANDBOX"
   assert_allow "tracked: a lone assignment runs nothing" "P=$PLUGIN_ROOT" Bash "$PLUGIN_CWD"
   # NEGATIVES: every way the substitution could differ from what the shell does,
