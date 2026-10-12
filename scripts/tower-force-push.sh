@@ -382,6 +382,10 @@ verb=$1
 shift
 case $verb in
   confirm | push | reword)
+    # The helper's own last line behind the worker deny: a wrapper or copy the
+    # policy guard cannot read still runs in a dispatched worker's environment.
+    [ -z "${PLANWRIGHT_WORKER_HANDLE:-}" ] && [ -z "${PLANWRIGHT_WORKER_SCOPE:-}" ] \
+      || refuse "a dispatched worker runs no verb of the force-push path; it is the tower's, on the operator's request. Name the reword or force-push in your handoff instead."
     command -v jq >/dev/null 2>&1 || broken "jq is required"
     "$verb" "$@"
     ;;

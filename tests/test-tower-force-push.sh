@@ -37,6 +37,9 @@ export GIT_AUTHOR_NAME=Author GIT_AUTHOR_EMAIL=author@example.com
 export GIT_COMMITTER_NAME=Committer GIT_COMMITTER_EMAIL=committer@example.com
 export PLANWRIGHT_CONFIG_DEFAULTS="$tmp/core.yml" PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter"
 export PLANWRIGHT_LOCAL_CONFIG=""
+# A dispatched worker running this suite carries these; the helper refuses
+# under them, which one check below sets on purpose.
+unset PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE
 printf 'protected_branches:\n' >"$tmp/core.yml"
 mkdir -p "$tmp/adopter"
 
@@ -93,6 +96,13 @@ for b in main master planwright/demo/spec refs/heads/main release/v1; do
   fi
 done
 [ "$failures" = 0 ] && ok "every verb refuses main, master, a spec branch, and a protected_branches addition"
+for var in PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE; do
+  rc=$(rc_of env "$var=w" "$FP" push --branch "$BR" --to "$TIP" --lease "$TIP")
+  if ! { [ "$rc" = 1 ] && grep -q 'dispatched worker' "$tmp/err"; }; then
+    fail "push under $var was not refused (exit $rc: $(cat "$tmp/err"))"
+  fi
+done
+[ "$failures" = 0 ] && ok "the helper refuses inside a dispatched worker's environment"
 rm -f "$W/.claude/planwright.yml"
 
 # --- reword: objects only ----------------------------------------------------
