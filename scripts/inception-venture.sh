@@ -509,10 +509,17 @@ EOF
   done
 }
 
-# stage_file <name> — stdin to <name> in the bundle-init staging directory,
-# owner-only as the files have always been written.
+# stage_file <name> — stdin to <name> in the bundle-init staging directory.
+# The file takes the umask's mode, like the directories and scaffold files.
 stage_file() {
-  (umask 077 && cat >"$tmp_path/$1") || die 2 "cannot write a bundle file"
+  cat >"$tmp_path/$1" || die 2 "cannot write a bundle file"
+}
+
+# umask_mode — the octal mode a new regular file gets under the current umask.
+# mktemp creates 0600 regardless, so a file built in one is set to this before
+# it replaces a bundle file.
+umask_mode() {
+  printf '%o\n' $((0666 & ~0$(umask)))
 }
 
 # --- elicitation phases and the resume point -------------------------------
@@ -576,6 +583,7 @@ cmd_mark_phase() {
       }
     }
   ' "$1/brief.md" >"$tmp_path" || die 2 "brief.md has no Changelog section to record the phase in"
+  chmod "$(umask_mode)" "$tmp_path" || die 2 "cannot update brief.md"
   mv "$tmp_path" "$1/brief.md" || die 2 "cannot update brief.md"
   tmp_path=
 }

@@ -727,6 +727,26 @@ PATH="$stubs/gh-ok:$PATH" venture save --push "$rv" "Share once confirmed privat
 assert_eq "Z3 a push to a confirmed-private remote succeeds" 0 "$rc"
 assert_eq "Z3 the confirmed push reaches the remote" "$(git -C "$rv" rev-parse HEAD)" "$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)"
 
+# =========================================================================
+# Z4 — bundle files follow the umask, like every other file the helper makes
+# =========================================================================
+
+old_umask=$(umask)
+umask 022
+mp="$tmp/mode-probe"
+mkdir -p "$mp"
+venture bundle-init --title "Mode Probe" "$mp"
+venture mark-phase "$mp" seed
+for f in brief.md disciplines.md assumptions.md decisions.md plan.md; do
+  assert_eq "Z4 $f follows the umask (0644 under 022)" "$mp/$f" "$(find "$mp/$f" -perm 0644)"
+done
+umask 077
+mp2="$tmp/mode-probe-private"
+mkdir -p "$mp2"
+venture bundle-init --title "Mode Probe" "$mp2"
+assert_eq "Z4 a private umask still yields owner-only files" "$mp2/brief.md" "$(find "$mp2/brief.md" -perm 0600)"
+umask "$old_umask"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
