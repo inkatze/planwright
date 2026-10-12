@@ -1,14 +1,13 @@
 #!/bin/bash
-# Tests for the dashboard-fields-only stub renderer (inception Task 2;
-# REQ-G1.1, REQ-C1.7 · D-9, D-12).
+# Tests for the inception renderer: the dashboard and pitch-narrative exports
+# (REQ-G1.1, REQ-G1.2, REQ-G1.3, REQ-C1.7 · D-9).
 #
-# Task 2 ships this renderer only so the scaffolded pre-commit
-# export-regeneration step has something real to call; Task 12 replaces it with
-# the full dashboard + pitch-narrative renderer. The assertions below therefore
-# pin the stub contract and nothing beyond it: it regenerates deterministically,
-# it escapes bundle content, it refuses a bundle whose format-version this
-# plugin does not support (deferring to the validator rather than duplicating
-# the check), and it renders the dashboard fields REQ-G1.2 names.
+# What is pinned: both modes regenerate deterministically, bundle content is
+# escaped everywhere it lands (the dashboard's register detail and the pitch's
+# prose alike), mode selection is honored, the dashboard opens with the status
+# view REQ-G1.2 names and reflects the fixture registers, and a bundle whose
+# format-version this plugin does not support is refused rather than rendered
+# (deferring to the validator rather than duplicating the check).
 #
 # Plain bash 3.2, inline asserts (sibling convention).
 set -u
@@ -49,6 +48,33 @@ assert_not_contains() {
     *) echo "ok: $1" ;;
   esac
 }
+# assert_before <label> <first> <second> <haystack> — both present, first
+# occurring earlier. Ordering is the property REQ-G1.2 states ("opens with").
+assert_before() {
+  case "$4" in
+    *"$2"*"$3"*) echo "ok: $1" ;;
+    *)
+      echo "FAIL: $1 (expected '$2' before '$3')" >&2
+      failures=$((failures + 1))
+      ;;
+  esac
+}
+assert_file() {
+  if [ -f "$2" ]; then
+    echo "ok: $1"
+  else
+    echo "FAIL: $1 ($2 was not written)" >&2
+    failures=$((failures + 1))
+  fi
+}
+assert_no_file() {
+  if [ -e "$2" ]; then
+    echo "FAIL: $1 ($2 exists)" >&2
+    failures=$((failures + 1))
+  else
+    echo "ok: $1"
+  fi
+}
 
 if [ ! -x "$RENDER" ]; then
   echo "FAIL: renderer missing or not executable at $RENDER" >&2
@@ -70,26 +96,36 @@ sed_i() { sed "$2" "$1" >"$1.new" && mv "$1.new" "$1"; }
 export PLANWRIGHT_INCEPTION_TODAY=2026-08-26
 
 # ---------------------------------------------------------------------------
-# 1. It renders, to the conventional derived-content path.
+# 1. It renders both exports, to the conventional derived-content paths
+#    (REQ-G1.1, REQ-G1.3).
 # ---------------------------------------------------------------------------
 v="$(fresh)"
 out="$("$RENDER" "$v" 2>&1)"
 rc=$?
 assert_eq "render: exit 0" "0" "$rc"
-if [ -f "$v/exports/venture.html" ]; then
-  echo "ok: render: writes exports/venture.html"
-else
-  echo "FAIL: render: exports/venture.html was not written" >&2
-  failures=$((failures + 1))
-fi
+assert_file "render: writes exports/venture.html" "$v/exports/venture.html"
+assert_file "render: writes exports/pitch.html" "$v/exports/pitch.html"
+assert_contains "render: reports the dashboard path" "exports/venture.html" "$out"
+assert_contains "render: reports the pitch path" "exports/pitch.html" "$out"
 html="$(cat "$v/exports/venture.html")"
+pitch="$(cat "$v/exports/pitch.html")"
 
-assert_contains "render: declares utf-8" 'charset="utf-8"' "$html"
-assert_contains "render: names the venture" "Northwind Signals" "$html"
-assert_contains "render: shows the lifecycle status" "Exploring" "$html"
-assert_contains "render: shows the success metric" "ten minutes" "$html"
+for mode_html in "$html" "$pitch"; do
+  assert_contains "render: declares utf-8" 'charset="utf-8"' "$mode_html"
+  assert_contains "render: names the venture" "Northwind Signals" "$mode_html"
+  assert_contains "render: shows the lifecycle status" "Exploring" "$mode_html"
+  # Self-contained: no network fetch, no sidecar asset, no script (REQ-G1.1).
+  assert_not_contains "render: no external http reference" "http://" "$mode_html"
+  assert_not_contains "render: no external https reference" "https://" "$mode_html"
+  assert_not_contains "render: no linked stylesheet" "<link" "$mode_html"
+  assert_not_contains "render: no script element" "<script" "$mode_html"
+done
 
-# REQ-G1.2 dashboard fields.
+# ---------------------------------------------------------------------------
+# 2. The dashboard opens with the status view and reflects the registers
+#    (REQ-G1.2).
+# ---------------------------------------------------------------------------
+assert_contains "dashboard: shows the success metric" "ten minutes" "$html"
 assert_contains "dashboard: gate readiness" "Gate readiness" "$html"
 assert_contains "dashboard: blocking assumptions" "Blocking assumptions" "$html"
 assert_contains "dashboard: kill criteria" "Kill criteria" "$html"
@@ -97,40 +133,166 @@ assert_contains "dashboard: open forks" "Open forks" "$html"
 assert_contains "dashboard: blockers" "Blockers" "$html"
 assert_contains "dashboard: lists the blocking assumptions" "A-2" "$html"
 assert_contains "dashboard: lists the open fork" "DEC-1" "$html"
-assert_not_contains "dashboard: omits the decided fork" "DEC-2" "$html"
+assert_contains "dashboard: counts the blocking assumptions" \
+  "2 blocking, 2 unresolved" "$html"
+assert_contains "dashboard: names the gate decider" "Gate decider: Dana Reyes" "$html"
+assert_contains "dashboard: shows the latest gate outcome" \
+  "Gate 1 — 2026-08-18 — Recycle" "$html"
+assert_before "dashboard: gate readiness leads" "<h2>Gate readiness</h2>" \
+  "<h2>Blocking assumptions</h2>" "$html"
+assert_before "dashboard: kill criteria precede the open forks" \
+  "<h2>Kill criteria</h2>" "<h2>Open forks</h2>" "$html"
+assert_before "dashboard: the status view precedes the register detail" \
+  "<h2>Blockers</h2>" "<h2>Assumption register</h2>" "$html"
+
+# The register detail below the status view: the whole bundle, live entries.
+assert_contains "dashboard detail: assumption statements" \
+  "believe ops leads will file once instead of three times" "$html"
+assert_contains "dashboard detail: the validation plan" "T-2" "$html"
+assert_contains "dashboard detail: the decided decision" "DEC-2" "$html"
+assert_contains "dashboard detail: the decision outcome" "reuse the existing relay" "$html"
+assert_contains "dashboard detail: decision options as a list" \
+  "<li>direct writes to each sink — fewer hops, three integrations to own</li>" "$html"
+assert_contains "dashboard detail: the stakeholder map" "integration seam" "$html"
+assert_contains "dashboard detail: the staffing table" "Kim Alvarez" "$html"
+assert_contains "dashboard detail: a held-out source says so" "held out" "$html"
+assert_contains "dashboard detail: code spans render as code" \
+  "<code>sources/workflow-audit.md</code>" "$html"
+assert_contains "dashboard detail: the gate rationale" \
+  "re-scope the plan and return" "$html"
 assert_not_contains "dashboard: omits the superseded assumption" "A-3" "$html"
-
-# Self-contained: no network fetch, no sidecar asset (REQ-G1.1).
-assert_not_contains "render: no external http reference" "http://" "$html"
-assert_not_contains "render: no external https reference" "https://" "$html"
-assert_not_contains "render: no linked stylesheet" "<link" "$html"
+assert_not_contains "dashboard: the decided fork is not listed as open" \
+  "existing relay — decided, one-way door" "$html"
+assert_not_contains "dashboard: no table separator rows leak" "<td>---</td>" "$html"
 
 # ---------------------------------------------------------------------------
-# 2. Determinism: same bundle, same bytes.
+# 3. The pitch narrative (REQ-G1.3): prose order, a status strip first.
 # ---------------------------------------------------------------------------
-cp "$v/exports/venture.html" "$tmp/first.html"
+assert_contains "pitch: is labelled as the pitch" "Pitch narrative" "$pitch"
+assert_contains "pitch: the problem framing" "re-key the same incident summary" "$pitch"
+assert_contains "pitch: who hurts" "closing an incident at end of shift" "$pitch"
+assert_contains "pitch: the sketch" "one capture surface that" "$pitch"
+assert_contains "pitch: the chain" "handover time drops" "$pitch"
+assert_contains "pitch: the success metric" "ten minutes" "$pitch"
+assert_contains "pitch: the landscape" "Runbook macros" "$pitch"
+assert_contains "pitch: strategy fit" "incident-tooling consolidation" "$pitch"
+assert_contains "pitch: a skipped prompt states its reason" \
+  "internal tool with no external market" "$pitch"
+assert_not_contains "pitch: the skip marker is not shown raw" "_Skipped:" "$pitch"
+assert_contains "pitch: what has to be true, from the believe clause" \
+  "ops leads will file once instead of three times" "$pitch"
+assert_not_contains "pitch: the believe clause stops at verify" \
+  "verify with a two-week" "$pitch"
+assert_contains "pitch: how we will find out" "two-week shadow run" "$pitch"
+assert_contains "pitch: what would stop us" "KC-1" "$pitch"
+assert_contains "pitch: open questions" "which handover moment the capture surface owns" "$pitch"
+assert_not_contains "pitch: omits the superseded assumption" "chat-first" "$pitch"
+assert_before "pitch: the status strip opens the page" "Where it stands" \
+  "<h2>The problem</h2>" "$pitch"
+assert_before "pitch: the problem precedes what has to be true" \
+  "<h2>The problem</h2>" "<h2>What has to be true</h2>" "$pitch"
+assert_not_contains "pitch: carries no register detail tables" "<table" "$pitch"
+
+if [ "$html" = "$pitch" ]; then
+  echo "FAIL: modes: dashboard and pitch rendered identical pages" >&2
+  failures=$((failures + 1))
+else
+  echo "ok: modes: dashboard and pitch differ"
+fi
+
+# ---------------------------------------------------------------------------
+# 4. Mode selection is honored (REQ-G1.3).
+# ---------------------------------------------------------------------------
+v="$(fresh)"
+"$RENDER" --mode pitch "$v" >/dev/null 2>&1
+rc=$?
+assert_eq "mode pitch: exit 0" "0" "$rc"
+assert_file "mode pitch: writes the pitch" "$v/exports/pitch.html"
+assert_no_file "mode pitch: leaves the dashboard alone" "$v/exports/venture.html"
+
+v="$(fresh)"
+"$RENDER" --mode dashboard "$v" >/dev/null 2>&1
+assert_file "mode dashboard: writes the dashboard" "$v/exports/venture.html"
+assert_no_file "mode dashboard: leaves the pitch alone" "$v/exports/pitch.html"
+
+v="$(fresh)"
+"$RENDER" --mode pitch --output "$tmp/custom.html" "$v" >/dev/null 2>&1
+assert_contains "mode pitch with --output: writes the pitch there" \
+  "Pitch narrative" "$(cat "$tmp/custom.html" 2>/dev/null)"
+
+out="$("$RENDER" --mode slides "$v" 2>&1)"
+rc=$?
+assert_eq "unknown mode: exit 2" "2" "$rc"
+assert_contains "unknown mode: names the modes" "dashboard" "$out"
+
+# Two pages cannot share one --output path.
+out="$("$RENDER" --output "$tmp/both.html" "$v" 2>&1)"
+rc=$?
+assert_eq "--output without a single mode: exit 2" "2" "$rc"
+assert_no_file "--output without a single mode: writes nothing" "$tmp/both.html"
+
+# ---------------------------------------------------------------------------
+# 5. Determinism: same bundle, same bytes, in both modes (REQ-G1.1).
+# ---------------------------------------------------------------------------
+v="$(fresh)"
 "$RENDER" "$v" >/dev/null 2>&1
-if cmp -s "$tmp/first.html" "$v/exports/venture.html"; then
+cp "$v/exports/venture.html" "$tmp/first.html"
+cp "$v/exports/pitch.html" "$tmp/first-pitch.html"
+"$RENDER" "$v" >/dev/null 2>&1
+if cmp -s "$tmp/first.html" "$v/exports/venture.html" \
+  && cmp -s "$tmp/first-pitch.html" "$v/exports/pitch.html"; then
   echo "ok: render: byte-identical on a repeated run"
 else
   echo "FAIL: render: repeated run produced different bytes" >&2
   failures=$((failures + 1))
 fi
 
+v="$(fresh tracked)"
+"$RENDER" "$v" >/dev/null 2>&1
+cp "$v/exports/venture.html" "$tmp/tracked.html"
+"$RENDER" "$v" >/dev/null 2>&1
+if cmp -s "$tmp/tracked.html" "$v/exports/venture.html"; then
+  echo "ok: render: byte-identical on a repeated run (tracked venture)"
+else
+  echo "FAIL: render: tracked venture rendered different bytes on a repeat" >&2
+  failures=$((failures + 1))
+fi
+assert_contains "tracked venture: lists the declared tracks" \
+  "the handover-time measurement pipeline" "$(cat "$v/exports/venture.html")"
+
 # ---------------------------------------------------------------------------
-# 3. Escaping: bundle content is data, never markup.
+# 6. Escaping: bundle content is data, never markup, in every mode and every
+#    place it lands.
 # ---------------------------------------------------------------------------
 v="$(fresh)"
 sed_i "$v/brief.md" 's|^Median incident-handover time drops below ten minutes within one quarter of adoption.$|Cut <script>alert("x")</script> handover \& re-keying time.|'
+sed_i "$v/brief.md" 's|^- \*\*Framing:\*\* Ops leads|- **Framing:** <img src=x onerror=alert(1)> Ops leads|'
+sed_i "$v/assumptions.md" "s|^- \*\*Risk-if-wrong:\*\* the fan-out saves no time|- **Risk-if-wrong:** it's </td><b>bold</b> the fan-out saves no time|"
+sed_i "$v/disciplines.md" 's#^| integration seam | Kim Alvarez |#| <i>integration</i> seam | Kim Alvarez |#'
+# shellcheck disable=SC2016 # literal backticks: a markdown code span
+sed_i "$v/brief.md" 's|^Runbook macros|`<u>code</u>` and **<s>strong</s>** Runbook macros|'
 "$RENDER" "$v" >/dev/null 2>&1
 html="$(cat "$v/exports/venture.html")"
-assert_not_contains "escaping: no raw script tag" "<script>" "$html"
-assert_contains "escaping: angle brackets escaped" "&lt;script&gt;" "$html"
-assert_contains "escaping: ampersand escaped" "&amp;" "$html"
-assert_contains "escaping: double quote escaped" "&quot;" "$html"
+pitch="$(cat "$v/exports/pitch.html")"
+for mode_html in "$html" "$pitch"; do
+  assert_not_contains "escaping: no raw script tag" "<script>" "$mode_html"
+  assert_not_contains "escaping: no raw img tag" "<img" "$mode_html"
+  assert_contains "escaping: angle brackets escaped" "&lt;script&gt;" "$mode_html"
+  assert_contains "escaping: ampersand escaped" "&amp;" "$mode_html"
+  assert_contains "escaping: double quote escaped" "&quot;" "$mode_html"
+  assert_not_contains "escaping: no raw u tag inside a code span" "<u>" "$mode_html"
+  assert_not_contains "escaping: no raw s tag inside a strong span" "<s>" "$mode_html"
+done
+assert_contains "escaping: the framing is escaped in the pitch" "&lt;img src=x" "$pitch"
+assert_contains "escaping: register detail escaped" "&lt;/td&gt;&lt;b&gt;" "$html"
+assert_contains "escaping: apostrophe escaped" "it&#39;s" "$html"
+assert_not_contains "escaping: no raw b tag from the register" "<b>bold" "$html"
+assert_contains "escaping: table cells escaped" "&lt;i&gt;integration&lt;/i&gt;" "$html"
+assert_contains "escaping: markup inside a code span is escaped" \
+  "<code>&lt;u&gt;code&lt;/u&gt;</code>" "$pitch"
 
 # ---------------------------------------------------------------------------
-# 4. Kill-date classification, as a function of the pinned today.
+# 7. Kill-date classification, as a function of the pinned today.
 # ---------------------------------------------------------------------------
 v="$(fresh)"
 PLANWRIGHT_INCEPTION_TODAY=2026-09-20 "$RENDER" "$v" >/dev/null 2>&1
@@ -138,6 +300,8 @@ html="$(cat "$v/exports/venture.html")"
 assert_contains "kill dates: a past date is tripped" "KC-2</span> — tripped" "$html"
 assert_contains "kill dates: a date inside 30 days is approaching" "KC-1</span> — approaching" "$html"
 assert_contains "kill dates: a tripped criterion is a blocker" "KC-2</span> kill criterion is tripped" "$html"
+assert_contains "kill dates: the pitch says so too" "KC-2</span> — tripped" \
+  "$(cat "$v/exports/pitch.html")"
 
 v="$(fresh)"
 PLANWRIGHT_INCEPTION_TODAY=2026-01-01 "$RENDER" "$v" >/dev/null 2>&1
@@ -146,12 +310,13 @@ assert_contains "kill dates: a distant date is clear" "KC-1</span> — clear" "$
 assert_contains "kill dates: the other distant date is clear" "KC-2</span> — clear" "$html"
 
 # ---------------------------------------------------------------------------
-# 5. Version gating: refuse rather than render (REQ-C1.7). The renderer defers
+# 8. Version gating: refuse rather than render (REQ-C1.7). The renderer defers
 #    to the validator check instead of re-implementing it.
 # ---------------------------------------------------------------------------
 v="$(fresh)"
 "$RENDER" "$v" >/dev/null 2>&1
 cp "$v/exports/venture.html" "$tmp/before.html"
+cp "$v/exports/pitch.html" "$tmp/before-pitch.html"
 for f in brief disciplines assumptions decisions plan; do
   sed_i "$v/$f.md" 's|^\*\*Format-version:\*\* 1\.0$|**Format-version:** 7.0|'
 done
@@ -159,12 +324,16 @@ out="$("$RENDER" "$v" 2>&1)"
 rc=$?
 assert_eq "unsupported version: exit 3" "3" "$rc"
 assert_contains "unsupported version: plain-language refusal" "unsupported" "$out"
-if cmp -s "$tmp/before.html" "$v/exports/venture.html"; then
-  echo "ok: unsupported version: the previous export is left untouched"
+if cmp -s "$tmp/before.html" "$v/exports/venture.html" \
+  && cmp -s "$tmp/before-pitch.html" "$v/exports/pitch.html"; then
+  echo "ok: unsupported version: the previous exports are left untouched"
 else
-  echo "FAIL: unsupported version: the export was overwritten anyway" >&2
+  echo "FAIL: unsupported version: an export was overwritten anyway" >&2
   failures=$((failures + 1))
 fi
+out="$("$RENDER" --mode pitch "$v" 2>&1)"
+rc=$?
+assert_eq "unsupported version, pitch mode: exit 3" "3" "$rc"
 
 # Structural completeness and a tripped criterion are different facts, and the
 # page says both rather than folding them into one ready/not-ready line: a
@@ -181,6 +350,7 @@ assert_contains "readiness: the trip is named as its own outcome" \
   "a kill criterion has tripped" "$html"
 assert_not_contains "readiness: blockers are not equated with incompleteness" \
   "Not ready: see the blockers below" "$html"
+assert_contains "readiness: zero blocking assumptions counted" "0 blocking, 0 unresolved" "$html"
 
 # The validator fails closed for three different reasons and the renderer sees
 # only one exit code, so it must not name a cause it has not established. A
@@ -217,7 +387,7 @@ assert_not_contains "unreadable kill date: is not classified as tripped" "KC-1</
 assert_contains "unreadable kill date: says the date is unreadable" "KC-1</span> — date unreadable" "$html"
 assert_contains "unreadable kill date: is surfaced as a blocker" "KC-1</span> has no readable date" "$html"
 
-# The export is what stakeholders read off the forge, so it carries the same
+# The exports are what stakeholders read off the forge, so they carry the same
 # explicit mode the scaffolded files do rather than whatever the temp file was
 # created with.
 v="$(fresh)"
@@ -225,8 +395,11 @@ v="$(fresh)"
 # `find -perm -044` rather than parsing `ls` or reaching for `stat`, whose flags
 # differ between GNU and BSD (REQ-K1.5). The property under test is that the
 # export is readable beyond its owner, not its exact octal mode.
-readable="$(find "$v/exports" -name venture.html -perm -044 2>/dev/null)"
-assert_eq "export: is group- and world-readable" "$v/exports/venture.html" "$readable"
+readable="$(find "$v/exports" -name '*.html' -perm -044 2>/dev/null | sort | tr '\n' ' ')"
+assert_eq "exports: are group- and world-readable" \
+  "$v/exports/pitch.html $v/exports/venture.html " "$readable"
+leftover="$(find "$v/exports" -name '.*' -type f 2>/dev/null)"
+assert_eq "exports: no temp file is left behind" "" "$leftover"
 
 # A missing bundle is an environment error.
 out="$("$RENDER" "$tmp/nope" 2>&1)"
@@ -263,7 +436,7 @@ assert_not_contains "leap day 2028-02-29: is a real date, not unreadable" \
   "date unreadable" "$(cat "$v/exports/venture.html")"
 
 if [ "$failures" -ne 0 ]; then
-  echo "test-inception-render-stub: $failures assertion(s) failed" >&2
+  echo "test-inception-render: $failures assertion(s) failed" >&2
   exit 1
 fi
-echo "test-inception-render-stub: all assertions passed"
+echo "test-inception-render: all assertions passed"

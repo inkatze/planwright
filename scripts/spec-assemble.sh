@@ -319,39 +319,23 @@ if [ -z "$commit" ]; then
   commit=$(git -C "$spec_dir" rev-parse --short HEAD 2>/dev/null || echo unknown)
 fi
 
-# esc_val <string> — HTML-escape a single-line shell value (spec, status,
-# commit) for safe interpolation into the document head and provenance stamp.
-# The ampersand is escaped first so the entities it introduces are not
-# re-escaped. \047 is the apostrophe (kept out of the single-quoted awk source).
-esc_val() {
-  printf '%s' "$1" | awk '
-    {
-      gsub(/&/, "\\&amp;")
-      gsub(/</, "\\&lt;")
-      gsub(/>/, "\\&gt;")
-      gsub(/"/, "\\&quot;")
-      gsub(/\047/, "\\&#39;")
-      printf "%s", $0
-    }'
-}
+# The shared HTML escaper (scripts/html-escape.sh): $html_escape_awk defines the
+# esc() every view program below splices in, and html_escape_value escapes the
+# single-line shell values (spec, status, commit) the document head and
+# provenance stamp interpolate.
+if [ ! -f "$(dirname "$0")/html-escape.sh" ] || [ ! -r "$(dirname "$0")/html-escape.sh" ]; then
+  printf '%s\n' "spec-assemble.sh: html-escape.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
+# shellcheck source=scripts/html-escape.sh
+. "$(dirname "$0")/html-escape.sh"
+esc_val() { html_escape_value "$1"; }
 
 spec_e=$(esc_val "$spec")
 status_e=$(esc_val "$status")
 commit_e=$(esc_val "$commit")
 
-# The shared awk HTML-escaper, hoisted once so all six view programs concatenate
-# a single definition instead of carrying byte-identical inline copies (REQ-E1.7).
-# The value is spliced into each *_prog string verbatim, so the generated awk is
-# byte-for-byte what the inline copies produced. No shell-expandable content here.
-esc_fn='
-  function esc(s) {
-    gsub(/&/, "\\&amp;", s)
-    gsub(/</, "\\&lt;", s)
-    gsub(/>/, "\\&gt;", s)
-    gsub(/"/, "\\&quot;", s)
-    gsub(/\047/, "\\&#39;", s)
-    return s
-  }'
+esc_fn=$html_escape_awk
 
 # The one-pager section fragment. The same esc() guards every bundle field; the
 # plain rendering is default-visible, the back-pointer and verbatim source live
