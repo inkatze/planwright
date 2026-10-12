@@ -97,7 +97,8 @@ for b in main master planwright/demo/spec refs/heads/main release/v1; do
 done
 [ "$failures" = 0 ] && ok "every verb refuses main, master, a spec branch, and a protected_branches addition"
 for var in PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE; do
-  rc=$(rc_of env "$var=w" "$FP" push --branch "$BR" --to "$TIP" --lease "$TIP")
+  # Run in the fixture, so a refusal that slipped past a fetch reaches only it.
+  rc=$(cd "$W" && rc_of env "$var=w" "$FP" push --branch "$BR" --to "$TIP" --lease "$TIP")
   if ! { [ "$rc" = 1 ] && grep -q 'dispatched worker' "$tmp/err"; }; then
     fail "push under $var was not refused (exit $rc: $(cat "$tmp/err"))"
   fi
@@ -253,6 +254,7 @@ fi
   || fail "the confirmation has no single reject option"
 
 rc=$(rc_of fp confirm --branch "$BR" --to "$TIP")
+grep -q 'nothing is dropped' "$tmp/err" || rc="$rc (no reason)"
 rc2=$(rc_of fp push --branch "$BR" --to "$TIP" --lease "$TIP")
 if [ "$rc" = 1 ] && [ "$rc2" = 1 ] && grep -q 'nothing is dropped' "$tmp/err"; then
   ok "confirm and push refuse a tip that drops nothing"
@@ -373,12 +375,18 @@ if [ "$rc" = 0 ] && grep -qF "git filter-repo --sensitive-data-removal --replace
 else
   fail "purge printed a wrong command for a replace-text file: $(cat "$tmp/out")"
 fi
-rc=$(rc_of "$FP" confirm "$(printf '\033[31mx')")
-if [ "$rc" = 2 ] && ! grep -q "$(printf '\033')" "$tmp/err"; then
-  ok "a usage error prints no raw control character from its arguments"
-else
-  fail "a usage error echoed a raw control character (exit $rc)"
-fi
+# Both "needs a value" arms: a lone flag, and a flag whose value is a dash.
+for val in '' -y; do
+  if [ -n "$val" ]; then
+    rc=$(rc_of "$FP" confirm "$(printf '\033[31mx')" "$val")
+  else
+    rc=$(rc_of "$FP" confirm "$(printf '\033[31mx')")
+  fi
+  if [ "$rc" != 2 ] || grep -q "$(printf '\033')" "$tmp/err"; then
+    fail "a usage error echoed a raw control character (exit $rc, value '$val')"
+  fi
+done
+[ "$failures" = 0 ] && ok "a usage error prints no raw control character from its arguments"
 rc=$(rc_of "$FP" purge --path "$(printf 'a\033[31mb')")
 [ "$rc" = 2 ] || fail "purge took a path carrying a control character (exit $rc)"
 
