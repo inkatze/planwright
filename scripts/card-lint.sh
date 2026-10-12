@@ -84,7 +84,7 @@ SEC-ORDER sections are out of the schema order, or one appears twice
 SEC-EMPTY a present section has no content
 ROLE-FORM the role is not exactly one sentence
 MANDATE-SIZE the mandate is not three to seven numbered questions
-MANDATE-FORM a mandate item is not phrased as a question
+MANDATE-FORM a mandate item is not phrased as a question, or a mandate line sits outside the numbered questions
 MANDATE-GENERIC a mandate question does not anchor on the frame or the venture
 FRAMEWORK-SEQUENCE the frameworks are not a numbered working sequence
 FRAMEWORK-MISUSE a framework carries no Misuse caveat
@@ -262,13 +262,17 @@ END {
 
   # --- Mandate: 3-7 numbered, frame-anchored questions ---------------------
   if ("Mandate" in filled) {
-    mi = 0
+    mi = 0; stray = 0
     for (j = 1; j <= body_n["Mandate"]; j++) {
       line = B["Mandate", j]
       if (line ~ /^[0-9]+\. /) { mi++; Q[mi] = line; continue }
-      if (mi > 0 && line ~ /^[ \t]+[^ \t]/) Q[mi] = Q[mi] " " trim(line)
+      if (mi > 0 && line ~ /^[ \t]+[^ \t]/) { Q[mi] = Q[mi] " " trim(line); continue }
+      if (line !~ /^[ \t]*$/) stray++
     }
     if (mi < 3 || mi > 7) emit("MANDATE-SIZE", "the mandate has " mi " numbered questions; it needs three to seven")
+    # Unnumbered lines would otherwise escape both the size cap and the
+    # frame anchor.
+    if (stray) emit("MANDATE-FORM", "the mandate has " stray " line(s) outside its numbered questions; indent a continuation line")
     for (j = 1; j <= mi; j++) {
       q = trim(Q[j]); num = q; sub(/\..*$/, "", num)
       if (q !~ /\?$/) emit("MANDATE-FORM", "mandate item " num " is not a question ending in ?")

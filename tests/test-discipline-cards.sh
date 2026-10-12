@@ -144,6 +144,7 @@ seed MANDATE-SIZE 1 '/^3\. Which constraint/ { print; for (i = 4; i <= 8; i++) p
 seed MANDATE-GENERIC 1 '/^1\. Which problem/ { print "1. Who is the target customer?"; next } { print }'
 seed MANDATE-GENERIC 1 '/^1\. Which problem/ { print "1. Which of the frameworks below applies first?"; next } { print }'
 seed MANDATE-FORM 1 '/^1\. Which problem/ { print "1. Name the problem in the frame this venture solves first."; next } { print }'
+seed MANDATE-FORM 1 '/^3\. Which constraint/ { print; print "- Who is the target customer?"; print "- How big is the market?"; next } { print }'
 seed FRAMEWORK-SEQUENCE 1 '{ sub(/^1\. \*\*First method/, "- **First method"); print }'
 seed FRAMEWORK-MISUSE 1 '!/^   Misuse: skipping/'
 
