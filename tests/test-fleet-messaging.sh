@@ -658,6 +658,11 @@ printf '{"pid":4244,"messagingSocketPath":"/run/x.sock"}\n' >"$sessions/4244.jso
 rc=0
 fm CLAUDE_PID=4244 -- self-name >/dev/null 2>&1 || rc=$?
 [ "$rc" != 0 ] || fail "self-name succeeded on a record with no name"
+printf '{"pid":4246,"name":"fleet-w1"\n' >"$sessions/4246.json"
+rc=0
+fm CLAUDE_PID=4246 -- self-name >/dev/null 2>"$tmp/sn.err" || rc=$?
+[ "$rc" != 0 ] || fail "self-name succeeded on a record that does not parse"
+grep -q 'does not parse' "$tmp/sn.err" || fail "self-name reported an unparseable record as something else"
 rc=0
 fm -- self-name >/dev/null 2>&1 || rc=$?
 [ "$rc" != 0 ] || fail "self-name succeeded with CLAUDE_PID unset"

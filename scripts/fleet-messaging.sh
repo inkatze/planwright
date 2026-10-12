@@ -677,10 +677,19 @@ cmd_self_name() {
     printf '%s\n' "$me: self-name: no per-session record for this session" >&2
     exit 1
   }
-  md_name=$(json_top_string "$sn_f" name) || {
-    printf '%s\n' "$me: self-name: the per-session record carries no name" >&2
-    exit 1
-  }
+  sn_rc=0
+  md_name=$(json_top_string "$sn_f" name) || sn_rc=$?
+  case $sn_rc in
+    0) ;;
+    1)
+      printf '%s\n' "$me: self-name: the per-session record carries no name" >&2
+      exit 1
+      ;;
+    *)
+      printf '%s\n' "$me: self-name: the per-session record does not parse" >&2
+      exit 1
+      ;;
+  esac
   if ! valid_session_name "$md_name"; then
     printf '%s\n' "$me: self-name: the recorded name fails the session-name screen: '$(sanitize_printable "$md_name" "(unprintable)")'" >&2
     exit 1
