@@ -10,7 +10,7 @@
 #   check-id <id>         re-validate an identifier at consumption (REQ-A1.8)
 #   root                  resolve ventures_root through the config layers
 #   detect                probe the environment and name the ladder rung
-#   create [--home local|remote] [--root <dir>] [--owner <o>] <id>
+#   create [--home local|remote|session] [--root <dir>] [--owner <o>] <id>
 #                         make the venture home and scaffold its guards
 #   bundle-init --title <title> <venture-dir>
 #                         write the five-file skeleton elicitation fills in
@@ -66,6 +66,7 @@ self_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 
 PHASES='seed opportunity disciplines reframe core registers finalize'
 PENDING='_Pending: not yet elicited._'
+SESSION_MARKER=.inception-session
 FILES='brief.md disciplines.md assumptions.md decisions.md plan.md'
 
 usage() {
@@ -74,7 +75,7 @@ usage: inception-venture.sh id <text>
        inception-venture.sh check-id <id>
        inception-venture.sh root
        inception-venture.sh detect
-       inception-venture.sh create [--home local|remote] [--root <dir>] [--owner <owner>] <id>
+       inception-venture.sh create [--home local|remote|session] [--root <dir>] [--owner <owner>] <id>
        inception-venture.sh bundle-init --title <title> <venture-dir>
        inception-venture.sh mark-phase <venture-dir> <phase>
        inception-venture.sh resume-point <venture-dir>
@@ -247,10 +248,10 @@ probe() {
 }
 
 # ladder_rung <git-usable yes|no> <home> — the venture's rung on the ladder:
-# git, else a plain folder, and session-only for a local home on an ephemeral
-# host. Reads the probe's ephemeral flag.
+# git, else a plain folder, and session-only for the session home or a local
+# home on an ephemeral host. Reads the probe's ephemeral flag.
 ladder_rung() {
-  if [ "$2" = local ] && [ "$ephemeral" = yes ]; then
+  if [ "$2" = session ] || { [ "$2" = local ] && [ "$ephemeral" = yes ]; }; then
     printf 'session\n'
   elif [ "$1" = yes ]; then
     printf 'git\n'
@@ -271,7 +272,9 @@ print_degraded() {
   elif [ "$pd_rung" = plain ]; then
     printf 'degraded\t%s\n' 'this venture is a plain folder, with no history, no hygiene hooks, and no remote home'
   fi
-  if [ "$ephemeral" = yes ] && [ "$pd_home" != remote ]; then
+  if [ "$pd_home" = session ]; then
+    printf 'degraded\t%s\n' 'no durable home: this venture lives in a session scratch directory and does not persist past this session'
+  elif [ "$ephemeral" = yes ] && [ "$pd_home" != remote ]; then
     printf 'degraded\t%s\n' 'ephemeral environment: a local-only venture does not persist past this session; choose the private-remote home to keep it'
   fi
   if [ "$has_git" = yes ] && [ "$remote_state" = unavailable ] \
@@ -341,7 +344,7 @@ cmd_create() {
         ;;
     esac
   done
-  case $home in local | remote) ;; *) usage ;; esac
+  case $home in local | remote | session) ;; *) usage ;; esac
   cmd_check_id "$id" || exit 1
   if [ -n "$owner" ]; then
     valid_owner "$owner" || die 2 "invalid GitHub owner name"
@@ -378,6 +381,16 @@ cmd_create() {
     fi
     /bin/sh "$self_dir/inception-scaffold.sh" --rung "$scaffold_rung" --wire "$target" >/dev/null \
       || die 2 "the hygiene scaffold failed"
+  fi
+  # The session home is recorded where the venture's own files are not, so a
+  # later handoff still reports it: git's local config, or a marker file in a
+  # folder git does not track.
+  if [ "$home" = session ]; then
+    if [ "$has_git" = yes ]; then
+      git -C "$target" config inception.home session || die 2 "cannot record the session home"
+    else
+      : >"$target/$SESSION_MARKER" || die 2 "cannot record the session home"
+    fi
   fi
 
   made_target=
@@ -874,10 +887,13 @@ cmd_handoff() {
   if is_repo_root "$1" && [ "$has_git" = yes ]; then
     git_usable=yes
     git -C "$1" remote get-url origin >/dev/null 2>&1 && home=remote
+    [ "$(git -C "$1" config inception.home 2>/dev/null)" = session ] && home=session
   elif [ -f "$1/.git/config" ] && grep -q '^\[remote "origin"\]' "$1/.git/config"; then
     # Without git the home is read from the repository's own config, so a
     # remote venture is not warned to choose the home it already has.
     home=remote
+  elif [ -f "$1/$SESSION_MARKER" ]; then
+    home=session
   fi
   rung=$(ladder_rung "$git_usable" "$home")
 

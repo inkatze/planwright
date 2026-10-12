@@ -802,6 +802,30 @@ assert_contains "Z6 the failure names the repository that may exist" "acme/theta
 assert_contains "Z6 the failure passes on gh's reason" "HTTP 502: upstream timed out" "$out"
 assert_not_contains "Z6 the failure no longer claims nothing was kept" "nothing was kept" "$out"
 
+# =========================================================================
+# Fork 1 — the no-durable-home arm is reported and warned as session-only
+# =========================================================================
+
+scratch="$tmp/session-scratch"
+PATH="$stubs/gh-ok:$PATH" venture create --home session --root "$scratch" iota
+assert_eq "F1 create --home session succeeds on a durable host" 0 "$rc"
+assert_contains "F1 the session home is reported" "$(printf 'home\tsession')" "$out"
+assert_contains "F1 the session home sits on the session rung" "$(printf 'rung\tsession')" "$out"
+assert_contains "F1 the session home is warned as not persisting" "does not persist" "$out"
+PATH="$stubs/gh-ok:$PATH" venture handoff "$scratch/iota"
+assert_contains "F1 handoff keeps the session home" "$(printf 'home\tsession')" "$out"
+assert_contains "F1 handoff keeps the session rung" "$(printf 'rung\tsession')" "$out"
+assert_contains "F1 handoff repeats the session warning" "does not persist" "$out"
+venture bundle-init --title "Iota" "$scratch/iota"
+PATH="$stubs/gh-ok:$PATH" venture save --push "$scratch/iota" "Try to share a session venture"
+assert_eq "F1 a session venture never pushes (exit 6)" 6 "$rc"
+
+PATH="$stubs/nogit:$PATH" venture create --home session --root "$scratch" kappa
+assert_eq "F1 the session home works without git" 0 "$rc"
+assert_contains "F1 without git the session home is still the session rung" "$(printf 'rung\tsession')" "$out"
+PATH="$stubs/nogit:$PATH" venture handoff "$scratch/kappa"
+assert_contains "F1 handoff without git keeps the session home" "$(printf 'home\tsession')" "$out"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

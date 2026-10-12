@@ -107,9 +107,9 @@ the first question, and repeated in the handoff (REQ-H1.5).
      ephemeral environment the option is labelled session-only and says the
      work is lost when the session ends (REQ-A1.5); with no git it is a plain
      folder without history.
-   - **No durable home for now**: the bundle is written to a session scratch
-     directory (your own `mktemp -d`, passed as `--root`), warned as not
-     persisting.
+   - **No durable home for now**: the session home, in a scratch directory
+     (your own `mktemp -d`, passed as `--root`), reported and warned as
+     session-only.
 
    No option is pre-selected. Choosing the private remote is the operator's
    explicit confirmation for creating that repository and for saves reaching
@@ -119,7 +119,7 @@ the first question, and repeated in the handoff (REQ-H1.5).
    "saved" reports, no git vocabulary in any turn) or **standard git**
    (expert mode: the save subcommand's `--expert` output, and the operator
    may use git directly). Both work on the same repository.
-4. **Create.** `inception-venture.sh create --home <local|remote> --root
+4. **Create.** `inception-venture.sh create --home <local|remote|session> --root
    <root> <id>`. Exit 5 means a directory already holds that name: if it
    holds a bundle, offer to resume it; otherwise offer another name. Never
    overwrite, never adopt silently. Exit 6 means the chosen home is not
