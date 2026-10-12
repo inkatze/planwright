@@ -428,6 +428,21 @@ out="$(base "$core_env" PLANWRIGHT_ADOPTER_OVERLAY="$nc" PLANWRIGHT_REPO_ROOT=no
 assert_eq "listed id with no card file: exit 1" "1" "$?"
 assert_contains "listed id with no card file: says so" "no card file" "$out"
 
+# No fallback: an overlay that supersedes a core entry but ships no card file
+# fails the lookup rather than handing back the core card.
+nf="$tmp/no-fallback"
+mkdir -p "$nf/catalogs"
+cat >"$nf/catalogs/discipline-cards.yaml" <<'YAML'
+cards:
+  - id: product-strategy
+    discipline: "Product strategy (company edition)"
+    supersede: true
+YAML
+out="$(base "$core_env" PLANWRIGHT_ADOPTER_OVERLAY="$nf" PLANWRIGHT_REPO_ROOT=none \
+  /bin/bash "$RESOLVE" product-strategy 2>/dev/null)"
+assert_eq "supersede with no card file: exit 1" "1" "$?"
+assert_eq "supersede with no card file: no fallback to the core card" "" "$out"
+
 esc="$tmp/escape"
 mkdir -p "$esc/catalogs" "$esc/cards" "$tmp/outside"
 write_golden_card "$tmp/outside" escapee

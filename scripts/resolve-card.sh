@@ -22,6 +22,11 @@
 # goes through resolve-overlay-root.sh --contain, so a card symlinked out of
 # its layer root is never returned.
 #
+# A layer that lists an id but holds no usable card file fails the lookup in
+# every layer, never falling back to a lower layer's card: unlike the catalog
+# merge's by-layer degrade, a fallback would hand back a card other than the
+# one the merged catalog names (doctrine/discipline-cards.md).
+#
 # Exit: 0 resolved (for --list: every entry resolved) · 1 not found, no card
 #   file, a refused path, or a catalog hard-fail · 2 usage or invalid id.
 #

@@ -31,7 +31,12 @@ card file sits beside its layer's catalog:
 The layer that supplies a catalog entry supplies its card: an overlay that
 supersedes a core entry by id ships its own card file, and
 `scripts/resolve-card.sh` resolves an id to exactly one file, confined under
-that layer's root. A catalog entry carries `id` (the card id, in the anchored
+that layer's root. A layer that lists an id but holds no usable card file
+for it (absent, unreadable, or resolving outside the layer root) fails that
+lookup in every layer. This deliberately departs from the catalog merge's
+by-layer policy, under which an adopter or machine-local fault degrades to the
+lower layer: falling back to the lower layer's card would staff the seat with a
+card other than the one the merged catalog names. A catalog entry carries `id` (the card id, in the anchored
 identifier charset `^[a-z0-9][a-z0-9-]*$`, at most 64 characters) and
 `discipline` (the display name the staffing table shows). Everything else
 lives in the card, so the two never disagree.
