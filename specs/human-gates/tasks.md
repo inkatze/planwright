@@ -383,7 +383,17 @@ every surface it restates exists.
 
 ## Awaiting input
 
-(none yet)
+- **Task 11** — the work is implemented and committed locally (not pushed,
+  no PR), but `check:instructions` fails on it: `/execute-task`'s declared
+  exception allows no growth at all (its granted margin equals its current
+  margin), and REQ-F1.3 needs that skill's gate-failure handoff to name the
+  tower's reword path, which costs about 25 words. No in-file duplicate is
+  left to fund it, and a shortening trim was refused as dropping a rule.
+  Recommended: put the sentence in `doctrine/gate-wiring.md` (which
+  `/execute-task` loads at point of use and which has room) and point the
+  REQ-F1.3 grep fixture there, keeping `/execute-task` word-neutral; the
+  alternatives are a governed budget relief for `/execute-task`, or an
+  operator-chosen trim elsewhere in it.
 
 ## Deferred
 
