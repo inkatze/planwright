@@ -95,10 +95,15 @@ HOUR=3600
 
 # frame <session-util> <session-reset> <weekly-util> <weekly-reset>: one
 # rate_limit_event line in the shape the CLI emits, the overage window
-# included so a key-prefix match would read the wrong window.
+# included so a key-prefix match would read the wrong window. A window given
+# as `- -` is left out of the frame, as the CLI leaves out a window it does not
+# report.
 frame() {
-  printf '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":%s,"rateLimitType":"five_hour","unifiedWindows":{"five_hour":{"utilization":%s,"resetsAt":%s},"seven_day":{"utilization":%s,"resetsAt":%s},"seven_day_overage_included":{"utilization":0.99,"resetsAt":%s}}},"uuid":"u","session_id":"s"}\n' \
-    "$2" "$1" "$2" "$3" "$4" "$4"
+  f_s="" f_w=""
+  { [ "$1" = - ] && [ "$2" = - ]; } || f_s=$(printf '"five_hour":{"utilization":%s,"resetsAt":%s},' "$1" "$2")
+  { [ "$3" = - ] && [ "$4" = - ]; } || f_w=$(printf '"seven_day":{"utilization":%s,"resetsAt":%s},' "$3" "$4")
+  printf '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":%s,"rateLimitType":"five_hour","unifiedWindows":{%s%s"seven_day_overage_included":{"utilization":0.99,"resetsAt":%s}}},"uuid":"u","session_id":"s"}\n' \
+    "$((NOW + HOUR))" "$f_s" "$f_w" "$((NOW + 86400))"
 }
 
 # put <worker> <received> <frame args...>: persist a frame for a worker.
@@ -158,6 +163,10 @@ printf '%s\n' "{\"type\":\"rate_limit_event\",\"decoy\":{\"five_hour\":{\"utiliz
   | cf persist --dir "$w" --now $((NOW + 300)) || fail "persist: the reordered frame was refused"
 [ "$(cat "$w/ratelimit")" = "frame${TAB}$((NOW + 300))${TAB}0.11${TAB}$((NOW + HOUR))${TAB}0.22${TAB}$((NOW + 86400))${TAB}end" ] \
   || fail "persist: a decoy or the overage window was read as a window: $(cat "$w/ratelimit")"
+frame - - 0.3 $((NOW + 86400)) | cf persist --dir "$w" --now $((NOW + 360)) \
+  || fail "persist: a frame without a five-hour window was refused"
+[ "$(cat "$w/ratelimit")" = "frame${TAB}$((NOW + 360))${TAB}-${TAB}-${TAB}0.3${TAB}$((NOW + 86400))${TAB}end" ] \
+  || fail "persist: a window the frame left out was read from another window: $(cat "$w/ratelimit")"
 pass "persist stores whole-number readings and reads windows by exact name inside unifiedWindows"
 
 ln -s "$tmp/elsewhere" "$home/fleet/streamjson/w2" 2>/dev/null || :
@@ -196,7 +205,13 @@ put dead $((NOW - 7200)) 0.05 $((NOW - 60)) 0.10 $((NOW + 3 * 86400))
 out=$(cf read --now "$NOW") || fail "read (stale alone) exited non-zero"
 win "$out" session | grep -q "^window${TAB}session${TAB}-${TAB}-${TAB}-${TAB}50${TAB}unmeasured$" \
   || fail "staleness: a lone past-reset session reading was used: $out"
-pass "a lone past-reset reading leaves its window unmeasured"
+# A window whose reset is this second has reset: its reading is spent.
+new_home stale-now
+put edge $((NOW - 60)) 0.05 "$NOW" 0.10 $((NOW + 86400))
+out=$(cf read --now "$NOW") || fail "read (reset now) exited non-zero"
+win "$out" session | grep -q "^window${TAB}session${TAB}-${TAB}-${TAB}-${TAB}50${TAB}unmeasured$" \
+  || fail "staleness: a reading whose reset is now was used: $out"
+pass "a lone past-reset reading, or one resetting this second, leaves its window unmeasured"
 
 # A reset further out than the throttle's ceiling is not a reading.
 new_home ceiling
