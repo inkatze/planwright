@@ -252,7 +252,7 @@ Signed off: 2026-07-18
 
 ### Execution research: Task 7 command substitution (2026-10-11)
 
-Scoping: targeted (one security-touching parser change; bash manual
+An execution-time append, not part of the signed contract. Scoping: targeted (one security-touching parser change; bash manual
 sections on command substitution and simple-command expansion, checked by
 running bash 5 on the review host; no zsh there, so the zsh rows below rest
 on the zsh manual).
@@ -273,7 +273,7 @@ on the zsh manual).
 
 | # | Risk | Mitigation / early signal |
 |---|---|---|
-| R20 | **zsh `GLOB_SUBST` on unquoted substitution output.** With that non-default option on, zsh reads an unquoted substitution's output as a glob, and a glob qualifier can run a command. The guard admits unquoted output for `echo`, `printf`, and script operands, as the test-spec's own `step-record.sh --head $(…)` fixture requires, the same exposure an unquoted opaque `$VAR` operand already has. | Accepted residual alongside R17; a shell snapshot carrying `setopt globsubst` is the trigger. Early signal: a zsh host whose snapshot sets it. |
+| R20 | **zsh `GLOB_SUBST` on unquoted substitution output.** With that non-default option on, zsh reads an unquoted substitution's output as a glob, and a glob qualifier can run a command. The guard admits unquoted output for `echo`, `printf`, and script operands, as the test-spec's own `step-record.sh --head $(…)` fixture requires, the same exposure an unquoted opaque `$VAR` operand already has. | Proposed as a residual alongside R17, pending operator acceptance at the Task 7 PR review; a shell snapshot carrying `setopt globsubst` is the trigger. Early signal: a zsh host whose snapshot sets it. |
 
 ## 8. Sign-off
 
