@@ -257,6 +257,8 @@ by `scripts/run-tests.sh`.
   by a later same-head pass); and REQ-B1.6's skip rule reads as
   custom-steps REQ-J1.1's leading prefix of same-head steps.
 - **Task 3** — pending ready-flip: ready-guard failed on b4731bb904b1
+- **Task 6** — convergence point halted: step `panel-gemini` outcome
+  `failed` (timeout), record `.claude/steps/000001/005-step-convergence.rec`
 
 ## Deferred
 
