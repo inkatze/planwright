@@ -598,6 +598,13 @@ cmd_save() {
   if git -C "$dir" diff --cached --quiet; then
     printf 'Nothing new to save.\n'
   else
+    # A missing identity fails the commit too; told apart here so it is never
+    # blamed on the guard.
+    if ! git -C "$dir" var GIT_AUTHOR_IDENT >/dev/null 2>&1 \
+      || ! git -C "$dir" var GIT_COMMITTER_IDENT >/dev/null 2>&1; then
+      git -C "$dir" reset -q
+      die 2 "not saved: no name and email are set for saving on this machine (git config user.name and user.email); set them and save again"
+    fi
     c_out=$(git -C "$dir" commit -q -m "$msg" 2>&1)
     c_rc=$?
     if [ "$c_rc" -ne 0 ]; then

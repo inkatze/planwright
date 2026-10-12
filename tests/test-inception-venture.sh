@@ -456,6 +456,18 @@ assert_contains "A1.9 the refusal says why in plain words" "credential" "$out"
 rm -f "$lv/leak.md"
 git -C "$lv" reset -q
 
+# A host with no git identity is told so, never that the guard stopped it.
+printf 'note\n' >"$lv/identity-probe.md"
+env -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL -u EMAIL \
+  /bin/sh "$VENTURE" save "$lv" "No identity" >"$tmp/id.out" 2>&1
+rc=$?
+out=$(cat "$tmp/id.out")
+assert_eq "H1.2 a save with no git identity is an environment error (exit 2)" 2 "$rc"
+assert_contains "H1.2 the no-identity refusal names the missing name and email" "name and email" "$out"
+assert_not_contains "H1.2 the no-identity refusal is not blamed on the guard" "guard" "$out"
+assert_eq "H1.2 the no-identity refusal leaves nothing staged" "" "$(git -C "$lv" diff --cached --name-only)"
+rm -f "$lv/identity-probe.md"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
