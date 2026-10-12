@@ -672,6 +672,17 @@ done
 sw "$W"
 if [ "$rc" -eq 2 ]; then ok "a missing argument is a usage error"; else fail "no argument: rc=$rc"; fi
 
+# A worktree whose status git cannot read is refused with git's own reason.
+sw "$W" badidx
+badwt="$H/.claude/worktrees/badidx-spec"
+printf 'not an index\n' >"$(hermetic git -C "$badwt" rev-parse --path-format=absolute --git-path index)"
+sw "$W" badidx
+if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'could not read the status of.*: .*index'; then
+  ok "an unreadable worktree status is refused with git's reason"
+else
+  fail "unreadable status: rc=$rc out=$out err=$err"
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "FAIL: test-spec-store-worktree.sh ($failures failure(s))" >&2
   exit 1

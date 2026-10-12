@@ -183,7 +183,8 @@ own_spec() {
 # draft not yet committed (or never, under commit_on_draft: false) lives.
 own_wt() {
   pending=$(foreign git -C "$wt" -c core.quotePath=false status --porcelain --untracked-files=all 2>/dev/null) || {
-    say "git could not read the status of $wt"
+    why=$(foreign git -C "$wt" status --porcelain --untracked-files=all 2>&1 >/dev/null)
+    say "git could not read the status of $wt: $why"
     exit 4
   }
   refuse_foreign "$(printf '%s\n' "$pending" | cut -c4-)"
