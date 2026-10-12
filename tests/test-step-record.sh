@@ -1,6 +1,8 @@
 #!/bin/sh
 # Tests for scripts/step-record.sh — the custom-steps record helper
-# (custom-steps Task 4; REQ-D1.5, REQ-E1.2, REQ-H1.3; D-12, D-16).
+# (custom-steps Tasks 4 and 13; REQ-D1.5, REQ-D1.10, REQ-D1.12, REQ-E1.2,
+# REQ-E1.6, REQ-H1.3, REQ-I1.5, REQ-I1.7–I1.10, REQ-J1.1, REQ-J1.2; D-12,
+# D-16, D-25–D-27, D-31, D-32).
 #
 # Every fixture lives under a temporary directory: a fixture worktree (a git
 # repository, so `regenerate` has a range to read) holding the record cache.
@@ -381,7 +383,7 @@ refuse "an over-long target" "--target" --run "$run2" --point pre-ci --step s --
 refuse "a skip reason on a step that ran" "--skip-reason" --run "$run2" --point pre-ci --step s \
   --kind command --target t --hosting isolated --backend runner --head "$HEAD_SHA" \
   --start 2026-09-28T11:00:00Z --end 2026-09-28T11:00:00Z --outcome passed --skip-reason "EVIL"
-refuse "a skipped step with no reason" "--skip-code" --run "$run2" --point pre-ci --step s \
+refuse "a skipped step with no code" "--skip-code" --run "$run2" --point pre-ci --step s \
   --kind command --target t --hosting isolated --backend runner --head "$HEAD_SHA" \
   --start 2026-09-28T11:00:00Z --end 2026-09-28T11:00:00Z --outcome skipped
 refuse "a missing excerpt file" "--excerpt-file" --run "$run2" --point pre-ci --step s \
@@ -1713,6 +1715,21 @@ verdict "excerpt with --worktree is a usage error" "excerpt ran with --worktree"
 wx="$tmp/wx"
 fresh "$wx"
 srx() { "$SR" --worktree "$wx" "$@"; }
+# legacy_rec <file> <run> <point> <step> <outcome> <head> [<line>]...: a
+# hand-written record in the form written before end heads, its sequence the
+# file name's, plus any extra key<TAB>value lines.
+legacy_rec() {
+  _lf=$1 _lr=$2 _lp=$3 _ls=$4 _lo=$5 _lh=$6
+  shift 6
+  _lq=${_lf##*/}
+  {
+    printf 'type\tstep\nrun\t%s\nseq\t%s\npoint\t%s\nstep\t%s\nkind\tcommand\ntarget\tt\n' \
+      "$_lr" "${_lq%%-*}" "$_lp" "$_ls"
+    printf 'hosting\tisolated\nbackend\trunner\nsession\t\nhead\t%s\n' "$_lh"
+    printf 'start\t2026-09-28T09:00:00Z\nend\t2026-09-28T09:00:01Z\noutcome\t%s\noutput\t\nskip-reason\t\n' "$_lo"
+    for _ll in "$@"; do printf '%s\n' "$_ll"; done
+  } >"$_lf" || fail "fixture: cannot write $_lf"
+}
 X_HEAD=$(git -C "$wx" rev-parse HEAD)
 HX_A=4444444444444444444444444444444444444444
 HX_B=5555555555555555555555555555555555555555
@@ -1758,7 +1775,14 @@ verdict "an outcome outside the six is refused" "a seventh outcome accepted"
 
 # Skip codes: exactly one, the detail optional, a standing-on reference for
 # reuse and resume only.
-base_seq=$(sed -n "s/^seq${TAB}//p" "$rec")
+# The records the skips stand on, in a run of their own.
+rref=$(srx new-run)
+# shellcheck disable=SC2086
+srx write --run "$rref" --point pre-ci --step sk-r $xbase --outcome passed >/dev/null
+# shellcheck disable=SC2086
+srx write --run "$rref" --point pre-ci --step sk-s $xbase --head "$HX_A" --end-head "$HX_B" --outcome applied >/dev/null
+# shellcheck disable=SC2086
+srx write --run "$rref" --point pre-ci --step sk-f $xbase --outcome failed >/dev/null
 # shellcheck disable=SC2086
 rec=$(srx write --run "$rx" --point pre-pr --step sk-m $xbase --outcome skipped --skip-code missing)
 grep -Fxq "skip-code${TAB}missing" "$rec" && grep -Fxq "skip-reason${TAB}" "$rec"
@@ -1767,17 +1791,17 @@ srx render --run "$rx" --point pre-pr | grep '^| 1 |' | grep -Fq '| skipped: mis
 verdict "a coded skip renders its code" "coded skip not rendered"
 # shellcheck disable=SC2086
 rec=$(srx write --run "$rx" --point pre-pr --step sk-r $xbase --outcome skipped --skip-code reuse \
-  --stands-on "$rx:pre-ci:$base_seq" --skip-reason "same fingerprint | twice")
-grep -Fxq "stands-on${TAB}$rx:pre-ci:$base_seq" "$rec" && grep -Fxq "skip-code${TAB}reuse" "$rec"
+  --stands-on "$rref:pre-ci:001" --skip-reason "same fingerprint | twice")
+grep -Fxq "stands-on${TAB}$rref:pre-ci:001" "$rec" && grep -Fxq "skip-code${TAB}reuse" "$rec"
 verdict "a reuse skip round-trips the run, point, and sequence it stands on" "stands-on not stored"
 srx render --run "$rx" --point pre-pr | grep '^| 2 |' \
-  | grep -Fq "| skipped: reuse on $rx:pre-ci:$base_seq \\(same fingerprint \\| twice\\) |"
-verdict "a reuse skip renders its code, its record, and its detail table-safe" \
+  | grep -Fq "| skipped: reuse on $rref:pre-ci:001 \\(same fingerprint \\| twice\\) |"
+verdict_of $? "a reuse skip renders its code, its record, and its detail table-safe" \
   "row: $(srx render --run "$rx" --point pre-pr | grep '^| 2 |')"
 # shellcheck disable=SC2086
 rec=$(srx write --run "$rx" --point pre-pr --step sk-s $xbase --outcome skipped --skip-code resume \
-  --stands-on "$rx:pre-ci:001" --head "$HX_A" --end-head "$HX_B")
-grep -Fxq "stands-on${TAB}$rx:pre-ci:001" "$rec" && grep -Fxq "end-head${TAB}$HX_B" "$rec"
+  --stands-on "$rref:pre-ci:002" --head "$HX_A" --end-head "$HX_B")
+grep -Fxq "stands-on${TAB}$rref:pre-ci:002" "$rec" && grep -Fxq "end-head${TAB}$HX_B" "$rec"
 verdict "a resume skip round-trips its reference and copied heads" "resume skip misstored"
 # shellcheck disable=SC2086
 srx write --run "$rx" --point pre-pr --step sk-a $xbase --outcome skipped --skip-code answered >/dev/null
@@ -1812,6 +1836,21 @@ xrefuse "a reference to no record" --stands-on --point pre-pr --step s --outcome
   --skip-code resume --stands-on "$rx:pre-ci:099"
 xrefuse "a reference naming the wrong point" --stands-on --point pre-pr --step s --outcome skipped \
   --skip-code resume --stands-on "$rx:convergence:001"
+xrefuse "a reuse skip standing on another step's record" --stands-on --point pre-pr --step sk-s \
+  --outcome skipped --skip-code reuse --stands-on "$rref:pre-ci:001"
+xrefuse "a reuse skip standing on a failed record" --stands-on --point pre-pr --step sk-f \
+  --outcome skipped --skip-code reuse --stands-on "$rref:pre-ci:003"
+xrefuse "a reuse skip standing on an applied record" --stands-on --point pre-pr --step sk-s \
+  --outcome skipped --skip-code reuse --stands-on "$rref:pre-ci:002"
+xrefuse "a resume skip ending on another head than its record" --stands-on --point pre-pr \
+  --step sk-s --outcome skipped --skip-code resume --stands-on "$rref:pre-ci:002" --end-head "$HX_A"
+for f in --skip-code --stands-on --pool --wait --fingerprint --args-digest --refire-of; do
+  xrefuse "an empty $f" "$f" --point post-pr --step s --outcome passed "$f" ""
+done
+xrefuse "an end earlier than the start" --end --point pre-pr --step s --outcome passed \
+  --start 2026-10-06T10:00:00Z --end 2026-10-06T09:00:00Z
+xrefuse "a re-fire record with no fingerprint" --fingerprint --point post-pr --step s \
+  --outcome passed --refire-of pre-pr
 
 # Pool, paths, and re-fire fields round-trip and render table-safe.
 holder="pid 4242 step suite-long | @someone #12"
@@ -1831,9 +1870,9 @@ grep -Fxq "fingerprint${TAB}none" "$rec" && grep -Fxq "pool${TAB}" "$rec" && gre
 verdict "a record round-trips an absent fingerprint, unpooled" "absent fingerprint misstored"
 tbl=$(srx render --run "$rx" --point pre-pr)
 printf '%s\n' "$tbl" | grep -Fq -- "- Row 5: pool \`suite\`; waited 37 s; holders: pid 4242 step suite-long \\| @&#8203;someone #&#8203;12 / pid 7 \\(full-suite\\); ran unpooled; fingerprint \`666666666666\`; args digest \`ba7816bf8f01\`"
-verdict "the pool and paths fields render table-safe below the table" "detail: $(printf '%s\n' "$tbl" | grep -- '- Row 5')"
+verdict_of $? "the pool and paths fields render table-safe below the table" "detail: $(printf '%s\n' "$tbl" | grep -- '- Row 5')"
 printf '%s\n' "$tbl" | grep -Fq -- "- Row 6: fingerprint none; args digest \`ba7816bf8f01\`"
-verdict "an absent fingerprint renders as none" "detail: $(printf '%s\n' "$tbl" | grep -- '- Row 6')"
+verdict_of $? "an absent fingerprint renders as none" "detail: $(printf '%s\n' "$tbl" | grep -- '- Row 6')"
 xrefuse "a malformed pool" --pool --point pre-pr --step s --outcome passed --pool "EVIL pool" --wait 1
 xrefuse "a pool with no wait" --wait --point pre-pr --step s --outcome passed --pool suite
 xrefuse "a wait with no pool" --pool --point pre-pr --step s --outcome passed --wait 3
@@ -1863,9 +1902,9 @@ srx write --completion --run "$rx" --point post-pr >/dev/null
 verdict "the post-pr completion follows the re-fire pass" "completion refused after re-fire"
 tbl=$(srx render --run "$rx" --point post-pr)
 printf '%s\n' "$tbl" | grep '^| 1 |' | grep -Fq "| 444444444444 to 555555555555 |"
-verdict "a step that moved the head renders both heads" "row: $(printf '%s\n' "$tbl" | grep '^| 1 |')"
+verdict_of $? "a step that moved the head renders both heads" "row: $(printf '%s\n' "$tbl" | grep '^| 1 |')"
 printf '%s\n' "$tbl" | grep -Fq -- "- Row 2: fingerprint \`666666666666\`; args digest \`ba7816bf8f01\`; re-fire of \`pre-pr\`"
-verdict "a re-fire record renders its declaring point" "detail: $(printf '%s\n' "$tbl" | grep -- '- Row 2')"
+verdict_of $? "a re-fire record renders its declaring point" "detail: $(printf '%s\n' "$tbl" | grep -- '- Row 2')"
 # shellcheck disable=SC2086
 srx write --run "$rx" --point post-pr --step late $xbase --outcome passed --refire-of pre-pr \
   >/dev/null 2>&1
@@ -1968,8 +2007,10 @@ reuse >/dev/null
 [ $? -eq 3 ]
 verdict "reuse never stands on a failed record" "a failed record was reusable"
 # A legacy record carrying the fields but no end head matches nothing.
-printf 'type\tstep\nrun\t%s\nseq\t002\npoint\tpre-ci\nstep\tchk\nkind\tcommand\ntarget\tsuite run\nhosting\tisolated\nbackend\trunner\nsession\t\nhead\t%s\nstart\t2026-09-28T09:00:00Z\nend\t2026-09-28T09:00:01Z\noutcome\tpassed\noutput\t\nskip-reason\t\nfingerprint\t%s\nargs-digest\t%s\n' \
-  "$k1" "$HX_A" "$FP_1" "$DIG_ABC" >"$wlk/.claude/steps/$k1/002-step-pre-ci.rec"
+legacy_rec "$wlk/.claude/steps/$k1/002-step-pre-ci.rec" "$k1" pre-ci chk passed "$HX_A" \
+  "fingerprint${TAB}$FP_1" "args-digest${TAB}$DIG_ABC"
+sed -i.bak "s/^target${TAB}t\$/target${TAB}suite run/" "$wlk/.claude/steps/$k1/002-step-pre-ci.rec" \
+  && rm -f "$wlk/.claude/steps/$k1/002-step-pre-ci.rec.bak"
 reuse >/dev/null
 [ $? -eq 3 ]
 verdict "a record written before the extension matches no reuse lookup" "a legacy record was reusable"
@@ -2062,8 +2103,7 @@ out=$(srs lookup resume --run "$i3" --point post-pr --head "$HX_B") && [ "$out" 
 verdict "a chained resume stands on the original records" "out=$out"
 # A legacy record (no end head) leads nothing.
 i4=$(srs new-run)
-printf 'type\tstep\nrun\t%s\nseq\t001\npoint\tpre-ci\nstep\tone\nkind\tcommand\ntarget\tt\nhosting\tisolated\nbackend\trunner\nsession\t\nhead\t%s\nstart\t2026-09-28T09:00:00Z\nend\t2026-09-28T09:00:01Z\noutcome\tpassed\noutput\t\nskip-reason\t\n' \
-  "$i4" "$HX_B" >"$wrs/.claude/steps/$i4/001-step-pre-ci.rec"
+legacy_rec "$wrs/.claude/steps/$i4/001-step-pre-ci.rec" "$i4" pre-ci one passed "$HX_B"
 srs lookup resume --run "$i4" --point pre-ci --head "$HX_B" >/dev/null
 [ $? -eq 3 ]
 verdict "a record written before the extension matches no resume lookup" "a legacy record resumed"
@@ -2108,7 +2148,7 @@ lim_wt
 flip "$HX_A" limited
 lstate "$HX_A"
 [ "$ST_RC" -eq 0 ] && gh_arg state=failure
-verdict "an attempt holding a limited record derives failure" "rc=$ST_RC $(cat "$tmp/st.err")"
+verdict_of $? "an attempt holding a limited record derives failure" "rc=$ST_RC $(cat "$tmp/st.err")"
 grep -Eq "^description=pre-ready-flip: a step stayed limited \(run [0-9]{6}\)$" "$GH_STUB_LOG"
 verdict_of $? "a limited failure says so in the description" "description: $(grep '^description=' "$GH_STUB_LOG")"
 lim_wt
@@ -2144,12 +2184,13 @@ lstate "$HX_A"
 verdict "an earlier flip attempt's failed record is still ignored" "rc=$ST_RC"
 for ret in passed applied resume; do
   lim_wt
+  u0=$(srl new-run)
+  lrec "$u0" post-pr review2 passed "$HX_A"
   u=$(srl new-run)
-  lrec "$u" post-pr review passed "$HX_A"
   lrec "$u" post-pr review2 limited "$HX_A"
   v=$(srl new-run)
   if [ "$ret" = resume ]; then
-    lrec "$v" post-pr review2 skipped "$HX_A" --skip-code resume --stands-on "$u:post-pr:001"
+    lrec "$v" post-pr review2 skipped "$HX_A" --skip-code resume --stands-on "$u0:post-pr:001"
   else
     lrec "$v" post-pr review2 "$ret" "$HX_A"
   fi
@@ -2158,6 +2199,42 @@ for ret in passed applied resume; do
   [ "$ST_RC" -eq 0 ] && gh_arg state=success
   verdict "a later run's $ret record of the step on the head retires the limited one" "rc=$ST_RC"
 done
+lim_wt
+u0=$(srl new-run)
+lrec "$u0" post-pr review2 passed "$HX_A"
+u=$(srl new-run)
+lrec "$u" post-pr review2 limited "$HX_A"
+flip "$HX_A" passed
+lstate "$HX_A"
+[ "$ST_RC" -eq 0 ] && gh_arg state=failure
+verdict "an earlier run's pass of the step retires nothing" "rc=$ST_RC"
+v=$(srl new-run)
+lrec "$v" post-pr review2 passed "$HX_B"
+flip "$HX_A" passed
+lstate "$HX_A"
+[ "$ST_RC" -eq 0 ] && gh_arg state=failure
+verdict "a later pass ending on another head retires nothing" "rc=$ST_RC"
+# A record claiming a higher run than its directory, or carrying a withheld
+# step id, retires nothing.
+w=$(srl new-run)
+legacy_rec "$wlm/.claude/steps/$w/001-step-post-pr.rec" 999999 post-pr review2 passed "$HX_A" "end-head${TAB}$HX_A"
+flip "$HX_A" passed
+lstate "$HX_A"
+[ "$ST_RC" -eq 0 ] && gh_arg state=failure
+verdict "a record whose stored run disagrees with its path retires nothing" "rc=$ST_RC"
+lim_wt
+u=$(srl new-run)
+v=$(srl new-run)
+PLANWRIGHT_SECRET_SCREEN_TOOL=broken srl write --run "$v" --point post-pr --step other --kind command \
+  --target t --hosting in-session --backend terminal --head "$HX_A" --end-head "$HX_A" \
+  --start 2026-10-06T14:00:00Z --end 2026-10-06T14:00:01Z --outcome passed >/dev/null
+PLANWRIGHT_SECRET_SCREEN_TOOL=broken srl write --run "$u" --point post-pr --step review3 --kind command \
+  --target t --hosting in-session --backend terminal --head "$HX_A" --end-head "$HX_A" \
+  --start 2026-10-06T14:00:00Z --end 2026-10-06T14:00:01Z --outcome limited >/dev/null
+flip "$HX_A" passed
+lstate "$HX_A"
+[ "$ST_RC" -eq 0 ] && gh_arg state=failure
+verdict "withheld step ids never retire one another" "rc=$ST_RC"
 lim_wt
 u=$(srl new-run)
 lrec "$u" post-pr review limited "$HX_A"
@@ -2171,12 +2248,123 @@ verdict "another step's pass, or a non-resume skip, retires nothing" "rc=$ST_RC"
 lim_wt
 u=$(srl new-run)
 mkdir -p "$wlm/.claude/steps/$u"
-printf 'type\tstep\nrun\t%s\nseq\t001\npoint\tpost-pr\nstep\treview\nkind\tcommand\ntarget\tt\nhosting\tisolated\nbackend\trunner\nsession\t\nhead\t%s\nstart\t2026-09-28T09:00:00Z\nend\t2026-09-28T09:00:01Z\noutcome\tlimited\noutput\t\nskip-reason\t\n' \
-  "$u" "$HX_A" >"$wlm/.claude/steps/$u/001-step-post-pr.rec"
+legacy_rec "$wlm/.claude/steps/$u/001-step-post-pr.rec" "$u" post-pr review limited "$HX_A"
 flip "$HX_A" passed
 lstate "$HX_A"
 [ "$ST_RC" -eq 0 ] && gh_arg state=success
 verdict "a record with no end head never counts toward the limited scan" "rc=$ST_RC"
+
+# --- readers: untrusted records, empty caches, and the edges of each lookup ----------
+wed="$tmp/wed"
+fresh "$wed"
+sre() { "$SR" --worktree "$wed" "$@"; }
+e1=$(sre new-run)
+out=$(printf 'type\tstep\nend-head\t%s\noutcome\tpassed\nstep\tchk\ntarget\tt\nargs-digest\t%s\nfingerprint\t%s\n' \
+  "$HX_A" "$DIG_ABC" "$FP_1" | sre lookup reuse --step chk --target t \
+  --args-digest "$DIG_ABC" --fingerprint "$FP_1" 2>/dev/null)
+rc=$?
+[ "$rc" -eq 3 ] && [ -z "$out" ]
+verdict "a reuse lookup over runs holding no record finds nothing and reads no stdin" "rc=$rc out=$out"
+ebase="--kind command --target t --hosting isolated --backend runner --start 2026-10-06T15:00:00Z --end 2026-10-06T15:00:01Z --fingerprint $FP_1 --args-digest $DIG_ABC"
+for o in applied limited failed; do
+  # shellcheck disable=SC2086 # ebase is a fixed word list
+  sre write --run "$e1" --point pre-ci --step chk $ebase --outcome "$o" >/dev/null
+done
+# shellcheck disable=SC2086
+sre write --run "$e1" --point pre-ci --step base $ebase --outcome passed >/dev/null
+sre lookup reuse --step chk --target t --args-digest "$DIG_ABC" --fingerprint "$FP_1" >/dev/null
+[ $? -eq 3 ]
+verdict "reuse stands only on a passed record, never applied, limited, or failed" "matched"
+e1s="$wed/.claude/steps/$e1/005-step-pre-ci.rec"
+legacy_rec "$e1s" "$e1" pre-ci chk skipped "$HX_A" "end-head${TAB}$HX_A" "skip-code${TAB}reuse" \
+  "stands-on${TAB}$e1:pre-ci:004" "fingerprint${TAB}$FP_1" "args-digest${TAB}$DIG_ABC"
+sre lookup reuse --step chk --target t --args-digest "$DIG_ABC" --fingerprint "$FP_1" >/dev/null
+[ $? -eq 3 ]
+verdict "reuse never stands on a skipped record" "a skip matched"
+# A planted record whose stored run disagrees with its directory, or whose
+# session carries a tab, is never printed.
+e2=$(sre new-run)
+legacy_rec "$wed/.claude/steps/$e2/001-step-pre-ci.rec" 000001 pre-ci chk passed "$HX_A" \
+  "end-head${TAB}$HX_A" "fingerprint${TAB}$FP_1" "args-digest${TAB}$DIG_ABC"
+sre lookup reuse --step chk --target t --args-digest "$DIG_ABC" --fingerprint "$FP_1" >/dev/null
+[ $? -eq 3 ]
+verdict "reuse never stands on a record whose stored run disagrees with its path" "forged run matched"
+legacy_rec "$wed/.claude/steps/$e2/002-step-pre-ci.rec" "$e2" pre-ci chk passed "$HX_A" \
+  "end-head${TAB}$HX_A" "fingerprint${TAB}$FP_1" "args-digest${TAB}$DIG_ABC"
+sed -i.bak "s/^session${TAB}\$/session${TAB}s-1${TAB}EXTRA/" "$wed/.claude/steps/$e2/002-step-pre-ci.rec" \
+  && rm -f "$wed/.claude/steps/$e2/002-step-pre-ci.rec.bak"
+out=$(sre lookup reuse --step chk --target t --args-digest "$DIG_ABC" --fingerprint "$FP_1")
+[ $? -eq 3 ] && [ -z "$out" ]
+verdict "reuse never prints a record whose session breaks its grammar" "out=$out"
+# Resume: a leading record that does not qualify ends the prefix.
+for lead in failed halted reuse resume-on-failed resume-on-other-head; do
+  e3=$(sre new-run)
+  f1="$wed/.claude/steps/$e3/001-step-pre-pr.rec"
+  case $lead in
+    failed | halted) legacy_rec "$f1" "$e3" pre-pr one "$lead" "$HX_A" "end-head${TAB}$HX_A" ;;
+    reuse)
+      legacy_rec "$f1" "$e3" pre-pr one skipped "$HX_A" "end-head${TAB}$HX_A" \
+        "skip-code${TAB}reuse" "stands-on${TAB}$e3:pre-pr:003"
+      ;;
+    resume-on-failed)
+      legacy_rec "$f1" "$e3" pre-pr one skipped "$HX_A" "end-head${TAB}$HX_A" \
+        "skip-code${TAB}resume" "stands-on${TAB}$e3:pre-pr:004"
+      ;;
+    resume-on-other-head)
+      legacy_rec "$f1" "$e3" pre-pr one skipped "$HX_A" "end-head${TAB}$HX_A" \
+        "skip-code${TAB}resume" "stands-on${TAB}$e3:pre-pr:003"
+      ;;
+  esac
+  legacy_rec "$wed/.claude/steps/$e3/002-step-pre-pr.rec" "$e3" pre-pr two passed "$HX_A" "end-head${TAB}$HX_A"
+  legacy_rec "$wed/.claude/steps/$e3/003-step-pre-pr.rec" "$e3" pre-pr one passed "$HX_B" "end-head${TAB}$HX_B"
+  legacy_rec "$wed/.claude/steps/$e3/004-step-pre-pr.rec" "$e3" pre-pr one failed "$HX_A" "end-head${TAB}$HX_A"
+  out=$(sre lookup resume --run "$e3" --point pre-pr --head "$HX_A")
+  [ $? -eq 3 ] && [ -z "$out" ]
+  verdict "a leading $lead record ends the resume prefix" "out=$out"
+done
+# A skipped record from before skip codes renders its free text as written.
+e4=$(sre new-run)
+legacy_rec "$wed/.claude/steps/$e4/001-step-pre-ci.rec" "$e4" pre-ci old skipped "$HX_A"
+sed -i.bak "s/^skip-reason${TAB}\$/skip-reason${TAB}needs gitleaks | on PATH/" "$wed/.claude/steps/$e4/001-step-pre-ci.rec" \
+  && rm -f "$wed/.claude/steps/$e4/001-step-pre-ci.rec.bak"
+sre render --run "$e4" | grep '^| 1 |' | grep -Fq '| skipped: needs gitleaks \| on PATH |'
+verdict_of $? "a skip from before skip codes renders its reason as written" "row: $(sre render --run "$e4" | grep '^| 1 |')"
+
+# Fingerprint edges: spellings git normalizes, files git stops looking at,
+# words reaching through a symbolic link, and a worktree with no commit.
+for w in "a//x" "a/./x" "./a/x"; do
+  fw=$(fp "$w")
+  printf 'five\n' >"$wfp/a/x" && git -C "$wfp" commit -q -am "chore: touch a/x"
+  [ "$(fp "$w")" != "$fw" ] && [ "$fw" != none ]
+  verdict "the spelling '$w' still tracks its content" "'$w' fingerprint did not move"
+  printf 'four\n' >"$wfp/a/x" && git -C "$wfp" commit -q -am "chore: restore a/x"
+done
+git -C "$wfp" update-index --skip-worktree a/x
+printf 'hidden\n' >"$wfp/a/x"
+[ "$(fp a)" = none ]
+verdict "a skip-worktree file under a word leaves no fingerprint" "skip-worktree change fingerprinted"
+git -C "$wfp" update-index --no-skip-worktree a/x
+git -C "$wfp" checkout -q -- a/x
+git -C "$wfp" update-index --assume-unchanged a/x
+[ "$(fp a)" = none ]
+verdict "an assume-unchanged file under a word leaves no fingerprint" "assume-unchanged fingerprinted"
+git -C "$wfp" update-index --no-assume-unchanged a/x
+ln -s a "$wfp/al" && git -C "$wfp" add al && git -C "$wfp" commit -q -m "chore: link"
+[ "$(fp al/x)" = none ] && [ "$(fp al)" != none ]
+verdict "a word reaching through a symbolic link leaves no fingerprint" "al/x did not refuse"
+wun="$tmp/wun"
+mkdir -p "$wun" && git -C "$wun" init -q -b main
+"$SR" --worktree "$wun" fingerprint --paths a >/dev/null 2>&1
+[ $? -eq 1 ]
+verdict "fingerprint in a worktree with no commit is a runtime failure" "not exit 1"
+if [ -w /dev/full ]; then
+  "$SR" args-digest abc >/dev/full 2>/dev/null
+  [ $? -eq 1 ]
+  verdict "args-digest fails when it cannot print" "a failed print exited non-1"
+  "$SR" --worktree "$wfp" fingerprint --paths . >/dev/full 2>/dev/null
+  [ $? -eq 1 ]
+  verdict "fingerprint fails when it cannot print" "a failed print exited non-1"
+fi
 
 # --- /execute-task's missing-matrix skip carries its code -----------------------------
 # shellcheck disable=SC2016 # literal backticks of the skill text
