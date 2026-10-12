@@ -359,6 +359,13 @@ assert_eq "C1.7 the full validator reads the skeleton (findings at most, never a
 venture bundle-init --title "Again" "$rp"
 assert_eq "bundle-init never overwrites an existing bundle (exit 5)" 5 "$rc"
 
+lp="$tmp/link-probe"
+mkdir -p "$lp"
+ln -s "$tmp/nowhere" "$lp/brief.md"
+venture bundle-init --title "Link Probe" "$lp"
+assert_eq "bundle-init refuses a dangling symlink at a bundle file (exit 5)" 5 "$rc"
+assert_eq "bundle-init leaves the symlink untouched" "$tmp/nowhere" "$(readlink "$lp/brief.md")"
+
 mkdir -p "$tmp/titles"
 for bad in '' '   ' "$(printf 'two\nlines')"; do
   venture bundle-init --title "$bad" "$tmp/titles"

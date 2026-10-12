@@ -397,7 +397,9 @@ cmd_bundle_init() {
   single_line "$title" || die 2 "--title must be one non-empty line"
   require_dir "$dir"
   for f in $FILES; do
-    [ -e "$dir/$f" ] && die 5 "a bundle file already exists here; nothing was written"
+    if [ -e "$dir/$f" ] || [ -L "$dir/$f" ]; then
+      die 5 "a bundle file already exists here; nothing was written"
+    fi
   done
   d=$(today)
   # All five are written to a staging directory and moved in only once every
