@@ -559,6 +559,23 @@ for n in 63 64; do
   fi
 done
 
+# The IBAN retry is bounded the same way: a candidate that is no IBAN is
+# retried from at most 64 of its later IBAN-shaped groups, so an IBAN that is
+# the 64th retry is found and one that would be the 65th is not.
+for n in 64 65; do
+  awk -v n="$n" -v iban="$IBAN" 'BEGIN { for (i = 0; i < n; i++) s = s "AB12 "; print "Pay ref " s iban "." }' \
+    >"$in/ask-ibanrun.txt"
+  run_render pr --ask-file "$in/ask-ibanrun.txt"
+  [ "$RC" -eq 0 ] || fail "render of $n IBAN-shaped tokens before an IBAN exited $RC: $ERR"
+  if [ "$n" -eq 64 ]; then
+    printf '%s\n' "$OUT" | grep -qF '[redacted: personal-data-account, personal data]' \
+      || fail "an IBAN that is the 64th retry of a candidate must be found"
+  else
+    printf '%s\n' "$OUT" | grep -q 'redacted' \
+      && fail "the IBAN retry must stop after 64 groups: $(printf '%s\n' "$OUT" | grep redacted)"
+  fi
+done
+
 # A non-ASCII temp directory neither lets a finding pass nor misplaces its
 # redaction: the screen reads fixed ASCII names, not the work directory's path.
 EMDASH=$(printf '\342\200\224')
