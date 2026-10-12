@@ -136,7 +136,11 @@ the first question, and repeated in the handoff (REQ-H1.5).
    home, where saves stay on this machine until the core phase is recorded,
    since the venture's CI guard fails without the minimum core; `--expert`
    in expert mode). Unfilled content carries the
-   `_Pending: not yet elicited._` marker until its phase replaces it.
+   `_Pending: not yet elicited._` marker until its phase replaces it. The
+   marker and the `Elicitation: <phase> phase complete.` Changelog lines are
+   this skill's own convention, not part of `inception-format`: the
+   validator does not read them, so a leftover marker is caught by the
+   handoff's `pending` count, never by validation.
    Every save reads its exit the same way: 1 means the venture's guard
    stopped it (a credential, say), so relay why and resolve it with the
    operator before going on; 2 names an environment gap such as no git name
