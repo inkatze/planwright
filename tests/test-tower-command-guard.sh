@@ -1068,10 +1068,11 @@ done
 # expand_word differs because only the worker guard substitutes tracked
 # assignments, whose values can hold a space or be opaque; the tower guard
 # substitutes only `for` loop variables, whose plain-literal head words never
-# hold a space or come out empty.
+# hold a space or come out empty. is_force_push_file differs because each
+# guard checks the helper against its own trusted roots.
 DISTINCT_FNS="analyze_command canon_under classify_verb expand_word guard_bashsh \
-guard_gh guard_git guard_mise is_planwright_script main tokenize tok_push \
-verify_simple verify_tokens"
+guard_gh guard_git guard_mise is_force_push_file is_planwright_script main \
+tokenize tok_push verify_simple verify_tokens"
 
 fn_names() { grep -oE '^[a-z_][a-z0-9_]*\(\)' "$1" | tr -d '()' | sort -u; }
 undeclared=''
