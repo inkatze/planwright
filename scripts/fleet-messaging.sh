@@ -106,6 +106,9 @@ SOCKET_PATH_MAX=107
 # Settings files and session records are small; anything larger is refused
 # before the character-walking parse rather than walked.
 JSON_MAX_BYTES=1048576
+# Every value read from those files is a short screened token; a longer one is
+# never decoded.
+JSON_VALUE_MAX=4096
 MESSAGE_MAX_BYTES=65536
 
 TAB=$(printf '\t')
@@ -259,8 +262,10 @@ socket_ok() {
 # --- JSON top-level string read (awk, no jq) ---------------------------------
 
 # json_top_string <file> <key> — print the value of a top-level string key.
-# Exit 0 found, 1 absent, 3 the file is not one well-formed object or the key
-# holds a non-string value: the caller reads 3 as a parse failure. A \u escape
+# Exit 0 found, 1 absent, 3 the file fails the walk's structural checks (one
+# top-level object, balanced brackets, closed strings, known escapes; it is
+# not a full JSON validator) or the key holds a non-string value: the caller
+# reads 3 as a parse failure. A \u escape
 # decodes to a control byte, so a value carrying one fails every screen here.
 json_top_string() {
   jt_size=$(wc -c <"$1" 2>/dev/null) || return 3
@@ -269,41 +274,69 @@ json_top_string() {
     "" | *[!0-9]*) return 3 ;;
   esac
   [ "$jt_size" -le "$JSON_MAX_BYTES" ] || return 3
-  awk -v key="$2" '
-    { s = s $0 "\n" }
+  # The walk stays linear in the file size, so the cap above is a time bound
+  # too: awk copies a string it grows, so the file is read as one record (a
+  # raw \001 never appears in valid JSON; a second record is a parse failure)
+  # and a string is only located while walking. It is decoded, a character at
+  # a time, only where it matters and only while short: a key whose raw form
+  # could still equal the wanted one, and the wanted value up to
+  # JSON_VALUE_MAX bytes, a longer one reading as a control byte that fails
+  # every screen.
+  awk -v key="$2" -v vmax="$JSON_VALUE_MAX" '
+    function dec(t,   o, p, m, ch, e) {
+      o = ""; m = length(t)
+      for (p = 1; p <= m; p++) {
+        ch = substr(t, p, 1)
+        if (ch != "\\") { o = o ch; continue }
+        e = substr(t, ++p, 1)
+        if (e == "n") o = o "\n"
+        else if (e == "t") o = o "\t"
+        else if (e == "r") o = o "\r"
+        else if (e == "b") o = o "\b"
+        else if (e == "f") o = o "\f"
+        else if (e == "u") { o = o "\001"; p += 4 }
+        else o = o e
+      }
+      return o
+    }
+    BEGIN { RS = "\001" }
+    NR == 1 { s = $0 }
+    NR > 1 { multi = 1 }
     END {
-      n = length(s); i = 1; depth = 0; started = 0; bad = 0
+      n = length(s); i = 1; depth = 0; started = 0; bad = multi
       found = 0; val = ""; want = 0
-      while (i <= n) {
+      while (!bad && i <= n) {
         c = substr(s, i, 1)
         if (c == "\"") {
           if (!started) { bad = 1; break }
-          j = i + 1; str = ""; closed = 0
+          j = i + 1; escaped = 0; closed = 0
           while (j <= n) {
             d = substr(s, j, 1)
             if (d == "\\") {
               e = substr(s, j + 1, 1)
-              if (e == "\"" || e == "\\" || e == "/") str = str e
-              else if (e == "n") str = str "\n"
-              else if (e == "t") str = str "\t"
-              else if (e == "r") str = str "\r"
-              else if (e == "b") str = str "\b"
-              else if (e == "f") str = str "\f"
-              else if (e == "u") { str = str "\001"; j += 4 }
+              if (e == "u") j += 6
+              else if (e != "" && index("\"\\/ntrbf", e)) j += 2
               else { bad = 1; break }
-              j += 2
+              escaped = 1
               continue
             }
             if (d == "\"") { closed = 1; break }
-            str = str d
             j++
           }
-          if (bad || !closed) { bad = 1; break }
+          if (bad || !closed || j > n) { bad = 1; break }
+          raw = substr(s, i + 1, j - i - 1)
           i = j + 1
-          if (want) { val = str; found = 1; want = 0; continue }
+          if (want) {
+            if (length(raw) > vmax + 0) val = "\001"
+            else val = escaped ? dec(raw) : raw
+            found = 1; want = 0
+            continue
+          }
           if (depth == 1) {
             k = i
             while (k <= n && substr(s, k, 1) ~ /[ \t\r\n]/) k++
+            str = raw
+            if (escaped) str = (length(raw) <= 6 * length(key)) ? dec(raw) : ""
             if (substr(s, k, 1) == ":" && str == key) {
               k++
               while (k <= n && substr(s, k, 1) ~ /[ \t\r\n]/) k++

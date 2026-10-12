@@ -196,6 +196,24 @@ user_set '{
   "hooks": {"SessionStart": [{"crossSessionInbound": "refuse"}]}
 }'
 probe_reads available "a multi-line object with decoys in strings and nested objects" "${AVAIL[@]}"
+# A file just under the size cap is walked in bounded time, many lines and one
+# long string alike: the cap bounds the cost only while the walk is linear.
+awk 'BEGIN {
+  print "{"
+  for (i = 0; i < 2000; i++) printf "  \"k%05d\": \"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\",\n", i
+  printf "  \"pad\": \""
+  for (i = 0; i < 17000; i++) printf "pppppppppppppppppppppppppppppppppppppppppppppppppp"
+  print "\","
+  print "  \"crossSessionInbound\": \"accept\""
+  print "}"
+}' >"$home/.claude/settings.json"
+big_size=$(wc -c <"$home/.claude/settings.json" | tr -d ' ')
+[ "$big_size" -gt 900000 ] && [ "$big_size" -le 1048576 ] || fail "fixture drift: the near-cap settings file is $big_size bytes"
+big_start=$(date +%s)
+probe_reads available "a near-cap settings file" "${AVAIL[@]}"
+big_took=$(($(date +%s) - big_start))
+[ "$big_took" -le 10 ] || fail "probe: a near-cap settings file took ${big_took}s to parse"
+user_set '{"crossSessionInbound":"accept"}'
 ok "probe reads only the top-level string key and reads absent on a parse failure"
 
 # The discipline conjunct: off is the kill switch; the ladder values read
