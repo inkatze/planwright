@@ -765,6 +765,8 @@ first_half() {
   assert_defer "bypass: a zsh subscript on \$* re-points a script path" "v=scripts/ok.sh; echo \"\$*[v=7]\"; bash \$v" Bash "$SANDBOX"
   assert_defer "defer form: a zsh subscript on \$@" "echo \$@[v=7]" Bash "$SANDBOX"
   assert_defer "defer form: a zsh subscript on \$?" "echo \$?[1]" Bash "$SANDBOX"
+  assert_defer "defer form: a zsh subscript on a positional parameter" "echo \$1[v=7]" Bash "$SANDBOX"
+  assert_defer "defer form: a zsh subscript on \$_" "echo \$_[v=7]" Bash "$SANDBOX"
   assert_allow "parity: a special parameter with no subscript still allows" "echo \"\$?:\$!\" \$*" Bash "$SANDBOX"
   assert_allow "parity: a braced tracked variable before a colon is still its value" "P=$SANDBOX && cat \${P}/README.md:x" Bash "$SANDBOX"
   assert_allow "tracked: a lone assignment runs nothing" "P=$PLUGIN_ROOT" Bash "$PLUGIN_CWD"
