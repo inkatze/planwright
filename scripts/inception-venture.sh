@@ -864,6 +864,8 @@ outgoing_blobs() {
   ob_types=$(cut -d' ' -f1 "$tmp_list" \
     | git -C "$1" cat-file --batch-check='%(objecttype) %(objectname)' 2>/dev/null) || return 1
   case $ob_types in *missing*) return 1 ;; esac
+  # Path names travel with the trees, so they are screened like contents.
+  cut -s -d' ' -f2- "$tmp_list"
   rm -f "$tmp_list"
   tmp_list=
   printf '%s\n' "$ob_types" | sed -n 's/^blob //p' | while IFS= read -r ob; do

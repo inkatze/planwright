@@ -1053,6 +1053,21 @@ PATH="$stubs/gh-ok:$PATH" venture save --push "$xm" "Share with an object missin
 assert_eq "Z25 a missing object stops the push before it starts (exit 2)" 2 "$rc"
 assert_contains "Z25 the refusal says the outgoing files could not be read" "cannot read the files a push would send" "$out"
 
+# =========================================================================
+# Z15 — outgoing path names are screened as well as contents
+# =========================================================================
+
+rv_base=$(git -C "$rv" rev-parse HEAD)
+remote_before=$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)
+leak_name="notes-ghp_""0123456789abcdefghijklmnopqrstuvwxyz.md"
+printf 'harmless\n' >"$rv/$leak_name"
+git -C "$rv" add -A
+git -C "$rv" -c core.hooksPath=/dev/null commit -q --no-verify -m "outside commit with a leaky name"
+PATH="$stubs/gh-ok:$PATH" venture save --push "$rv" "Share a file whose name leaks"
+assert_eq "Z15 a credential in an outgoing file name blocks the push (exit 1)" 1 "$rc"
+assert_eq "Z15 the refused push leaves the remote untouched" "$remote_before" "$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)"
+git -C "$rv" reset -q --hard "$rv_base"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
