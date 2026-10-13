@@ -150,6 +150,66 @@ RE_GIT_REWRITE="${RE_GIT_HEAD}commit([[:space:]].*)?[[:space:]]--(am|sq|fix)"
 # A substitution after `git commit` could produce --amend at run time.
 RE_GIT_COMMIT_SUBST="${RE_GIT_HEAD}"'commit([^[:alnum:]_-].*)?(\$\(|`)'
 
+# raw_force_push_call <text> — 0 when the text runs the force-push helper as a
+# command: a command's first word, or any word after a wrapper (a shell, sudo,
+# env, xargs, an interpreter, ...), where a shell's -c text and eval's text
+# start a command of their own. The name anywhere else (a grep pattern, a
+# test file's name) runs nothing. Called with nocasematch on: a
+# case-insensitive filesystem runs Tower-Force-Push.sh.
+raw_force_push_call() {
+  local t=$1 w cmd=1 wrapped=0 skip=0
+  local -a words
+  t=${t//$'\n'/ ; }
+  t=${t//;/ ; }
+  t=${t//&/ ; }
+  t=${t//|/ ; }
+  t=${t//(/ ; }
+  t=${t//)/ ; }
+  t=${t//\`/ ; }
+  t=${t//[\"\']/ }
+  t=${t//\\/}
+  read -r -a words <<<"$t"
+  for w in ${words[@]+"${words[@]}"}; do
+    if [ "$w" = ';' ]; then
+      cmd=1 wrapped=0 skip=0
+      continue
+    fi
+    if [ "$skip" = 1 ]; then
+      skip=0
+      continue
+    fi
+    [ "$cmd" = 1 ] || [ "$wrapped" != 0 ] || continue
+    [[ ${w##*/} != tower-force-push* ]] || return 0
+    case $w in
+      '>' | '>>' | '<' | '<<' | [0-9]'>' | [0-9]'>>' | [0-9]'<')
+        skip=1
+        continue
+        ;;
+      [0-9]'>'* | '>'* | '<'*) continue ;;
+    esac
+    if [ "$wrapped" = 2 ] && [[ $w == -*c ]]; then
+      cmd=1 wrapped=0
+      continue
+    fi
+    if [[ ${w##*/} == eval ]]; then
+      cmd=1 wrapped=0
+      continue
+    fi
+    if [[ ${w##*/} =~ ^(bash|sh|zsh|dash|ksh|mksh|fish|busybox|su|runuser)$ ]]; then
+      cmd=0 wrapped=2
+    elif [[ ${w##*/} =~ ^(env|sudo|doas|xargs|nohup|nice|ionice|timeout|gtimeout|stdbuf|setsid|chronic|exec|command|builtin|time|watch|flock|unbuffer|caffeinate|strace|ltrace|chroot|unshare|systemd-run|fakeroot|parallel|find|script|ssh|tmux|screen|source|\.|make|python.*|perl|ruby|node|awk|gawk|mawk|nawk|trap|alias)$ ]]; then
+      [ "$wrapped" = 2 ] || wrapped=1
+      cmd=0
+    elif [ "$cmd" = 1 ]; then
+      case $w in
+        -* | *=* | '{' | '}' | '!' | if | then | elif | else | do | while | until) ;;
+        *) cmd=0 ;;
+      esac
+    fi
+  done
+  return 1
+}
+
 raw_evidence_one() {
   local t=$1 rc=1
   # Case-insensitive: a case-insensitive filesystem runs `git REBASE`.
@@ -159,7 +219,7 @@ raw_evidence_one() {
     rc=0
   fi
   # A worker's wrapped or substituted call of the force-push helper.
-  [ "$TIER" != worker ] || [[ $t != *tower-force-push* ]] || rc=0
+  [ "$TIER" != worker ] || [[ $t != *tower-force-push* ]] || ! raw_force_push_call "$t" || rc=0
   shopt -u nocasematch
   [ "$rc" = 1 ] || return 0
   case $t in *"$MCP_TOOL"*) return 0 ;; esac

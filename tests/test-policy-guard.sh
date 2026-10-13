@@ -113,11 +113,18 @@ for cmd in 'bash -c "scripts/tower-force-push.sh push --branch b"' '. scripts/to
   'source scripts/tower-force-push.sh push' 'echo b | xargs scripts/tower-force-push.sh push --branch' \
   'sudo scripts/tower-force-push.sh push --branch b' 'eval "scripts/tower-force-push.sh push --branch b"' \
   'echo "$(scripts/tower-force-push.sh push --branch b)"' 'scripts/Tower-Force-Push.sh push --branch b' \
-  'command -p scripts/tower-force-push.sh push --branch b'; do
+  'command -p scripts/tower-force-push.sh push --branch b' 'sudo -u bob scripts/tower-force-push.sh push' \
+  'timeout 5 scripts/tower-force-push.sh push' 'env A=1 bash scripts/tower-force-push.sh push' \
+  'bash -c "cd x && scripts/tower-force-push.sh push"' '{ scripts/tower-force-push.sh push; }' \
+  'bash -c "\"${ROOT}/scripts/tower-force-push.sh\" push"' 'echo `scripts/tower-force-push.sh push`'; do
   pg worker "$cmd"
   expect deny "[worker] the force-push helper behind a wrapper denies: $cmd"
 done
-for cmd in 'grep -n tower-force-push skills/tower/SKILL.md' 'tests/test-tower-force-push.sh'; do
+# The helper's name outside command position runs nothing.
+for cmd in 'grep -n tower-force-push skills/tower/SKILL.md' 'tests/test-tower-force-push.sh' \
+  'bash tests/test-tower-force-push.sh' 'sh tests/test-tower-force-push.sh' 'grep tower-force-push file' \
+  'bash -c "grep -n tower-force-push skills/tower/SKILL.md"' 'eval "grep tower-force-push file"' \
+  'grep "tower-force-push" file' 'rg -l tower-force-push.sh scripts tests'; do
   pg worker "$cmd"
   expect defer "[worker] naming the helper without running it defers: $cmd"
 done
