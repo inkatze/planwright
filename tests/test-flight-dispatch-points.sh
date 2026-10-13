@@ -130,8 +130,10 @@ printf '%s\n' "$b" | grep -qF "launch tier takes the unit \`flight:$fid\`" \
 # the launch pins the root instead.
 printf '%s\n' "$b" | grep -q 'PLANWRIGHT_ROOT=\|PLANWRIGHT_SKILLS_ROOT=' \
   && fail "the brief must not prefix a command with a root assignment"
-flat "$b" | grep -q 'A relaunched worker fires, in order, each point no run of this flight completed without a halted or failed step (`step-record.sh list` across every run), running its whole list again; it skips no step within a point' \
-  || fail "a relaunched worker must re-fire every point no run completed cleanly"
+flat "$b" | grep -q 'Relaunch: issue one run id per worker launch. A relaunched worker fires, each at its moment below, every point no run of this flight completed without a halted, failed, or limited step (`step-record.sh list` across every run), running its whole list again; it skips no step within a point, and never fires a point this home never fires' \
+  || fail "a relaunched worker must re-fire, at its moment, every point no run completed cleanly"
+flat "$b" | grep -q 'If this branch already carries commits of yours, or `step-record.sh list` shows a run of this flight, you are a relaunched worker' \
+  || fail "the brief must define a relaunch once, by the evidence its rules use"
 printf '%s\n' "$b" | grep -qi 'resume' && fail "the brief must not promise a resume the tooling lacks"
 flat "$b" | grep -q 'each from the latest run holding that point.s completion record' \
   || fail "each step table must render from the latest run that completed its point"
@@ -180,10 +182,15 @@ printf '%s\n' "$b" | grep -qF -- "> '$record_dir/pr-url.tmp' && mv '$record_dir/
   || fail "a failed create must never empty pr-url"
 flat "$b" | grep -q 'A non-zero exit from the push or the create parks the flight' \
   || fail "a failed push or create must park the flight"
-printf '%s\n' "$b" | grep -qF "gh pr list --repo github.com/acme/widgets --head planwright/flight/$fid --state open" \
-  || fail "a relaunched worker must look for the flight's PR on the remote"
-flat "$b" | grep -q 'it runs none of the push and create line and carries on below with that PR, firing `post-pr` only if the relaunch rule says it is still due' \
-  || fail "a relaunched worker must not push and create the PR again, nor re-fire a completed post-pr"
+printf '%s\n' "$b" | grep -qF -- "gh pr list --repo github.com/acme/widgets --head planwright/flight/$fid --state open --json url,isCrossRepository,headRefOid --jq '.[] | select(.isCrossRepository | not) | .headRefOid + \" \" + .url' > '$record_dir/pr-url.found'" \
+  || fail "a relaunched worker must look for the flight's own same-repository PR"
+flat "$b" | grep -q 'A line whose sha equals `git rev-parse HEAD` is the flight.s own PR; more than one such line parks the flight' \
+  || fail "only a PR at this branch's tip is the flight's own, and an ambiguous match parks"
+lookup_line=$(printf '%s\n' "$b" | grep -n 'gh pr list --repo' | head -n 1 | cut -d: -f1)
+[ -n "$lookup_line" ] && [ "$lookup_line" -lt "$pr_line" ] \
+  || fail "the relaunch lookup must come before the push and create line"
+flat "$b" | grep -q 'carries on below with its PR, firing `post-pr` only if \*Work and the points\*. Relaunch bullet says it is still due, and runs the sequence after it (re-emit, draft check, completion) either way' \
+  || fail "a relaunched worker must not re-fire a completed post-pr, yet must still re-emit and check the draft"
 flat "$post" | grep -q 'replace its Pending sign-off section with the regenerated checklist' \
   || fail "a moved head must carry the regenerated checklist into the re-emit"
 printf '%s\n' "$post" | grep -qF 'isDraft' || fail "the brief must verify the PR is still a draft"
@@ -206,10 +213,11 @@ flat "$b" | grep -q '`post-pr`: never fires on this flight' \
   || fail "the file home must say post-pr never fires"
 printf '%s\n' "$b" | grep -q 'not-fired `post-pr` row' || fail "the file home must leave the not-fired row to the renderer"
 printf '%s\n' "$b" | grep -q 'gh pr' && fail "the file home must carry no gh pr command"
-flat "$b" | grep -q 'A relaunched worker whose record is already committed on this branch skips the land' \
-  || fail "a relaunched file-home worker must not land the record twice"
-flat "$b" | grep -q "a record at that path that is not committed is an interrupted land's leftover" \
-  || fail "a relaunched file-home worker must clear an interrupted land's leftover"
+fid=$(field "$OUT" flight)
+flat "$b" | grep -qF "relaunched worker whose record is committed on this branch (\`git cat-file -e HEAD:specs/_flights/$fid.md\` succeeds) skips the land" \
+  || fail "a relaunched file-home worker must test the record against HEAD, not the index"
+printf '%s\n' "$b" | grep -qF "git rm -q --cached --ignore-unmatch -- 'specs/_flights/$fid.md' && rm -f -- 'specs/_flights/$fid.md' 'specs/_flights'/.$fid.md.*" \
+  || fail "a relaunched file-home worker must clear an interrupted land's record and temp link"
 [ "$(brief_points "$(field "$OUT" brief)")" = "$want" ] || fail "the file home must still name every in-run point"
 
 # --- 5. degrade like a task, refuse like a task -------------------------------
@@ -229,6 +237,12 @@ for layer in adopter machine-local; do
     || fail "$layer: the brief must name the skipped step and its point"
   case $ERR in *"pre-ci: skip: step 'no-such-step'"*) ;; *) fail "$layer: the resolver's skip warning must be relayed: $ERR" ;; esac
 done
+
+# reason — the refusal's reason: its text between the exit code and the
+# pointer to the relayed diagnostics.
+reason() {
+  printf '%s\n' "$ERR" | grep '^flight-dispatch: ' | sed -n 's/.*(resolve-steps exit [0-9]*): \(.*\); the diagnostics above say why.*/\1/p'
+}
 
 # refused <expected-text> — the dispatch, described by the caller's $label, was
 # refused with nothing placed, its own refusal line carrying <expected-text>.
@@ -312,6 +326,8 @@ printf 'steps:\n  - kind: skill\n    target: polish\n' >"$c/primary/.claude/cata
 dispatch_print
 label="a repo-tracked catalog entry with no id"
 refused "the repo-tracked config or catalog is malformed (at pre-implementation, pre-ci, convergence, pre-pr, post-pr)"
+[ "$(reason)" = "the repo-tracked config or catalog is malformed (at pre-implementation, pre-ci, convergence, pre-pr, post-pr)" ] \
+  || fail "$label: the refusal must name the catalog alone, got '$(reason)'"
 # An entry id outside the id charset keeps its layer and id.
 new_case
 mkdir -p "$c/primary/.claude/catalogs"
@@ -363,13 +379,13 @@ dispatch_print
 [ "$(field "$OUT" root-skew)" = yes ] || fail "the fixture must read as skewed (out: $OUT)"
 printf '%s\n' "$OUT" | grep -qx "steps${TAB}convergence${TAB}self-review" \
   || fail "the check must resolve the pinned root's core list, not the tower's (out: $OUT)"
-grep -qF "\`'$inst/scripts/resolve-steps.sh' <point> --explain --unattended\`" "$(field "$OUT" brief)" \
+skew_brief=$(field "$OUT" brief)
+grep -qF "\`'$inst/scripts/resolve-steps.sh' <point> --explain --unattended\`" "$skew_brief" \
   || fail "the brief must call the worker root's resolver"
 case $(field "$OUT" launch) in
   *"'--root' '$inst' 'claude'"*) ;;
   *) fail "the print launch must pin the worker's root: $(field "$OUT" launch)" ;;
 esac
-skew_brief=$(field "$OUT" brief)
 grep -qF "\`$inst/skills/execute-task/SKILL.md\`" "$skew_brief" \
   || fail "the brief must read the procedure from the worker's root, not the tower's"
 grep -qF "'$inst/scripts/converge-sync-main.sh'" "$skew_brief" \
@@ -392,6 +408,7 @@ printf 'steps_pre_ci: [Bad_Id]\n' >"$c/primary/.claude/planwright.local.yml"
 dispatch_print
 label="a degraded list beside a parked point"
 refused "the machine-local steps_pre_ci list is malformed (at pre-ci)"
+refused "pre-ci: step 'ghost-core'"
 # A malformed core list is a broken install, named with the point it reached.
 new_case
 inst="$c/claude/plugins/cache/mk/planwright/0.0.1-skew"
@@ -400,7 +417,7 @@ sed 's/^steps_pre_pr:.*/steps_pre_pr: [Bad_Id]/' "$ROOT/config/defaults.yml" >"$
 dispatch_print
 label="a malformed core list"
 refused "the planwright install at $inst is broken"
-printf '%s\n' "$ERR" | grep '^flight-dispatch: ' | grep -q 'pre-pr' \
+printf '%s\n' "$ERR" | grep '^flight-dispatch: ' | grep -qF '(at pre-pr)' \
   || fail "$label: the refusal must name the point the core list reached: $ERR"
 # A malformed entry in the pinned root's core catalog is a broken install.
 new_case

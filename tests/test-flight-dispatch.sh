@@ -334,7 +334,7 @@ case $brief in
   "$c/fleet/"*) ;;
   *) fail "the brief must live under the fleet home, never in the checkout: $brief" ;;
 esac
-[ -z "$(find "$(dirname "$brief")" -mindepth 1 ! -name brief.md ! -name checkout ! -name ask.txt ! -name grounds.txt ! -name record)" ] \
+[ -z "$(find "$(dirname "$brief")" -mindepth 1 ! -name brief.md ! -name checkout ! -name ask.txt ! -name grounds.txt ! -name record ! -name root)" ] \
   || fail "a successful dispatch left scratch files beside the brief"
 # The record renderer quotes the ask and the grounds from dispatch's copies,
 # so the worker never re-types the operator's words.
@@ -344,6 +344,8 @@ cmp -s "$(dirname "$brief")/ask.txt" "$c/ask.txt" || fail "the brief directory m
 [ -d "$(dirname "$brief")/record" ] || fail "the brief directory must hold the record inputs' directory"
 [ "$(cat "$(dirname "$brief")/checkout")" = "$c/primary" ] \
   || fail "the brief directory must record its checkout"
+[ "$(cat "$(dirname "$brief")/root")" = "$ROOT" ] \
+  || fail "the brief directory must record the root the crash sweep's relaunch pins"
 [ -z "$(git -C "$wt" status --porcelain)" ] || fail "the flight worktree is dirty after dispatch"
 printf '%s\n' "$OUT" | grep -q "^root${TAB}tower${TAB}$ROOT${TAB}" \
   || fail "report must surface the tower's resolved plugin root (out: $OUT)"
@@ -416,7 +418,7 @@ printf '%s\n' "$b" | grep -q "carries no single quote" \
   || fail "the pause push line must keep the reason free of single quotes"
 printf '%s\n' "$b" | grep -Fq "flight-lifecycle.sh' push completion $fid --handle print-flight-$fid --landing \"pr:" \
   || fail "a pr-home brief must push the completion with the PR link"
-printf '%s\n' "$b" | grep -q "a crashed" || fail "the brief must tell a relaunched worker to carry on from its commits"
+printf '%s\n' "$b" | grep -q "you are a relaunched worker" || fail "the brief must tell a relaunched worker to carry on from its commits"
 r=$(awk -F "$TAB" -v w="print-flight-$fid" '$1 == w' "$c/fleet/attention/state" 2>/dev/null)
 [ "$(printf '%s\n' "$r" | cut -f2)" = "flight:$fid" ] && [ "$(printf '%s\n' "$r" | cut -f3)" = idle ] \
   || fail "the dispatch must push its lifecycle event into the attention store (got: $r)"

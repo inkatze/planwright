@@ -18,8 +18,10 @@
 #   4. A killed flight worker follows the fleet crash-loop policy (REQ-F1.5):
 #      each positively-dead worker is counted once, the relaunch waits out the
 #      backoff, the relaunch resumes the flight's own worktree and branch with
-#      its own brief and re-registers the worker, and at the disable threshold
-#      no relaunch happens and the disable surfaces in the decision queue.
+#      its own brief and re-registers the worker, pinned to the planwright
+#      root dispatch recorded (a recorded root that is gone refuses the
+#      relaunch), and at the disable threshold no relaunch happens and the
+#      disable surfaces in the decision queue.
 #   5. Liveness that cannot be proven dead is never a crash: a live worker, a
 #      print-rung flight, and a landed one are left alone; the operator
 #      kill-switch holds the relaunch without losing the count.
@@ -284,12 +286,22 @@ out=$(supervise "$((t + 35))")
 [ "$(launches)" = 1 ] || fail "one death is relaunched once, however many sweeps observe it (got: $out)"
 [ "$(cut -d' ' -f1 "$tmp/fleet/liveness/crash/$HC")" = 1 ] || fail "a relaunched death is not counted again"
 
+# The relaunch pins the new worker to the root dispatch recorded beside the
+# brief, not the sweep's own.
+pinned="$tmp/pinned-root"
+mkdir -p "$pinned"
+cp -R "$ROOT/scripts" "$ROOT/doctrine" "$pinned/"
+printf '%s\n' "$pinned" >"$tmp/fleet/flights/$C/root"
 die_as 2
 out=$(supervise "$((t + 40))")
 [ "$(field "$(line "$out")" 1)" = backoff ] || fail "a second death backs off again (got: $out)"
 out=$(supervise "$((t + 40 + 61))")
 [ "$(field "$(line "$out")" 1)" = relaunched ] || fail "the doubled backoff passes and the worker relaunches (got: $out)"
 [ "$(launches)" = 2 ] || fail "two relaunches so far"
+tlh_wait_workers 2 10 || fail "the pinned relaunch's worker did not start"
+[ "$(tlh_worker_env "$(tlh_last_worker_record)" PLANWRIGHT_ROOT)" = "$pinned" ] \
+  || fail "the relaunch must pin the worker to the recorded root (got: $(tlh_worker_env "$(tlh_last_worker_record)" PLANWRIGHT_ROOT))"
+rm -f "$tmp/fleet/flights/$C/root"
 
 die_as 3
 out=$(supervise "$((t + 500))")
@@ -453,6 +465,25 @@ out=$(cd "$tmp" && "$SCRIPT" supervise --repo-root "$repo" --now "$((t + 500031)
 rm -f "$repo/.claude/planwright.yml"
 [ "$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$U" '$2 == id { print $1 }')" = backoff ] \
   || fail "the checkout's own backoff knob governs its flights from any working directory (got: $out)"
+
+# A recorded root that is no longer an install refuses the relaunch rather
+# than pinning whichever root resolves next.
+R=gone-aaaaaaa9
+HR="tmux-flight-$R"
+gitc "$repo" worktree add -q -b "planwright/flight/$R" "$repo/.claude/worktrees/flight-$R" HEAD
+brief_dir "$R"
+printf '%s\n' "$tmp/no-such-root" >"$tmp/fleet/flights/$R/root"
+/bin/sh "$STATE" register "$HR" "flight:$R" --backend tmux --state-dir "$repo/.claude/worktrees/flight-$R" \
+  --death-handle "process $(dead_pid 9)" >/dev/null || fail "fixture: could not register a dead worker"
+supervise "$((t + 900000))" >/dev/null
+out=$(supervise "$((t + 900000 + 31))")
+g=$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$R" '$2 == id')
+[ "$(field "$g" 1)" = failed ] || fail "a gone recorded root must fail the relaunch (got: $out)"
+case $(field "$g" 3) in
+  *"recorded planwright root"*) ;;
+  *) fail "the failed relaunch must say the recorded root is gone (got: $g)" ;;
+esac
+calls_matching new-session | grep -q "flight-$R" && fail "a gone recorded root must launch nothing"
 
 if [ "$fails" -gt 0 ]; then
   echo "test-flight-lifecycle: $fails failure(s)" >&2

@@ -347,10 +347,37 @@ crash_count() {
 # guarded launch, which also registers the new worker. Startup is not waited
 # for: a sweep pass must not hold on one flight. On failure RELAUNCH_WHY holds
 # the primitive's last diagnostic, one printable line, so the operator sees why.
+#
+# The new worker is pinned to the planwright root dispatch recorded beside the
+# brief, the one its brief and point check name; a flight placed before that
+# record existed takes the launcher's own root, as it always did. A recorded
+# root that is no longer an install refuses the relaunch rather than pinning
+# whichever root resolves next.
 relaunch() {
   RELAUNCH_WHY=''
-  _rl_err=$( (cd "$repo_root" && /bin/sh "$WORKTREE" dispatch --flight "$1" --brief "$FDIR/brief.md" \
-    --relaunch --launch-only --repo-root "$repo_root" </dev/null 2>&1 >/dev/null)) \
+  _rl_root=''
+  if [ -e "$FDIR/root" ] || [ -L "$FDIR/root" ]; then
+    if [ -f "$FDIR/root" ] && [ ! -L "$FDIR/root" ]; then
+      _rl_root=$(head -n 1 "$FDIR/root" 2>/dev/null) || _rl_root=''
+    fi
+    case $_rl_root in
+      /*) ;;
+      *) _rl_root='' ;;
+    esac
+    if [ -z "$_rl_root" ] || has_ctl "$_rl_root" || [ ! -d "$_rl_root/scripts" ]; then
+      RELAUNCH_WHY="the flight's recorded planwright root is not an install any more; dispatch the ask again"
+      return 1
+    fi
+  fi
+  _rl_err=$( (
+    cd "$repo_root" || exit 2
+    if [ -n "$_rl_root" ]; then
+      PLANWRIGHT_ROOT=$_rl_root
+      export PLANWRIGHT_ROOT
+    fi
+    /bin/sh "$WORKTREE" dispatch --flight "$1" --brief "$FDIR/brief.md" \
+      --relaunch --launch-only --repo-root "$repo_root" </dev/null 2>&1 >/dev/null
+  )) \
     && return 0
   _rl_err=$(printf '%s\n' "$_rl_err" | awk 'NF { l = $0 } END { print l }')
   RELAUNCH_WHY=$(sanitize_printable "$_rl_err" | cut -c1-200)
