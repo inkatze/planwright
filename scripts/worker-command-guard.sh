@@ -617,8 +617,10 @@ is_repo_script() {
     *.sh) ;;
     *) return 1 ;;
   esac
-  full=$(canon_contained "$p" "$cwd") || return 1
   root=$(repo_root_of "$cwd") || return 1
+  full=$(canon_under "$p" "$cwd" "$root") || return 1
+  # The force-push helper under another name (a hardlink) is still the tower's.
+  [ ! "$full" -ef "$root/scripts/tower-force-push.sh" ] || return 1
   rel=${full#"$root"/}
   case $rel in
     scripts/* | tests/* | */scripts/* | */tests/*) return 0 ;;
@@ -712,6 +714,7 @@ is_planwright_script() {
   while IFS= read -r root; do
     [ -n "$root" ] || continue
     full=$(canon_under "$p" "$cwd" "$root") || continue
+    [ ! "$full" -ef "$root/scripts/tower-force-push.sh" ] || return 1
     rel=${full#"$root"/}
     case $rel in
       scripts/*) return 0 ;;
@@ -725,6 +728,13 @@ EOF
 # is_trusted_script <path> <cwd>: the trusted-script union — repo checkout code
 # (scripts/ or tests/) or an installed planwright root's scripts/.
 is_trusted_script() {
+  # The force-push path is the tower's (doctrine/human-gates.md): never
+  # approved for a worker, under any casing a case-insensitive filesystem runs.
+  case ${1##*/} in
+    [Tt][Oo][Ww][Ee][Rr]-[Ff][Oo][Rr][Cc][Ee]-[Pp][Uu][Ss][Hh].[Ss][Hh]) return 1 ;;
+  esac
+  # A hardlink of the helper is refused by each arm, against the root the path
+  # resolves under.
   is_repo_script "$1" "$2" || is_planwright_script "$1" "$2"
 }
 

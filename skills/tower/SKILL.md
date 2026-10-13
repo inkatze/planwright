@@ -335,8 +335,16 @@ handed back — never silently.
   specless path has no shadow sign-off, and no bypass flag exists for the
   non-signed-spec refusal (REQ-G1.2); a worker's hard pauses and
   pending-sign-off checklist are not one.
-- **Force-push, amend, squash, rebase.** New commits only, on both rules
-  (REQ-G1.3). The tower never runs them, posture or no posture.
+- **Amend, squash, rebase.** New commits only, on both rules (REQ-G1.3).
+  The tower never runs them, posture or no posture.
+- **Force-push.** Only when the operator asks for it in this turn, never
+  from a standing decision or a relayed item, and never to main, a protected
+  branch, or a spec branch (`doctrine/human-gates.md`). Run
+  `scripts/tower-force-push.sh confirm` (after its `reword` for a
+  commit-range lint failure), put its question and options to the operator
+  as they stand, and run its `push` line only on the yes, in the same turn;
+  report the dropped commits and every legacy checklist id it names. For a
+  leaked secret, hand over what its `purge` prints; the operator runs it.
 - **"Just edit it here."** The tower does not author: a mutation is a flight,
   routed like any other.
 

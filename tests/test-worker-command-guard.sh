@@ -56,6 +56,9 @@ trap '[ -z "${first_half_pid:-}" ] || kill "$first_half_pid" 2>/dev/null; rm -rf
 mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests" "$SANDBOX/sub"
 : >"$SANDBOX/.git" # worktree-style .git file marker
 : >"$SANDBOX/scripts/ok.sh"
+: >"$SANDBOX/scripts/tower-force-push.sh"
+ln -f "$SANDBOX/scripts/tower-force-push.sh" "$SANDBOX/scripts/fph.sh"
+: >"$SANDBOX/scripts/Tower-Force-Push.sh"
 : >"$SANDBOX/tests/ok.bats"
 # Symlinked final components pointing OUTSIDE the repo (containment escape).
 ln -sf /etc/hosts "$SANDBOX/scripts/evillink.sh"
@@ -73,6 +76,8 @@ mkdir -p "$PLUGIN_ROOT/scripts" "$PLUGIN_ROOT/tests" "$PLUGIN_DECOY/scripts" \
   "$PLUGIN_CWD" "$SANDBOX/install/outside"
 : >"$PLUGIN_CWD/.git"
 : >"$PLUGIN_ROOT/scripts/plug.sh"
+: >"$PLUGIN_ROOT/scripts/tower-force-push.sh"
+ln -f "$PLUGIN_ROOT/scripts/tower-force-push.sh" "$PLUGIN_ROOT/scripts/plug-fph.sh"
 : >"$PLUGIN_ROOT/scripts/plug.py"
 : >"$PLUGIN_ROOT/tests/plug.sh"
 : >"$PLUGIN_ROOT/notscripts.sh"
@@ -233,6 +238,10 @@ first_half() {
   assert_allow "direct repo script" "scripts/ok.sh"
   assert_allow "bash repo script" "bash scripts/ok.sh"
   assert_allow "sh repo script with args" "sh scripts/ok.sh arg1 arg2"
+  assert_defer "the force-push helper is the tower's" "scripts/tower-force-push.sh push --branch b --to a --lease c"
+  assert_defer "the force-push helper bash-prefixed" "bash scripts/tower-force-push.sh confirm --branch b --to a"
+  assert_defer "the force-push helper in another casing" "scripts/Tower-Force-Push.sh push --branch b"
+  assert_defer "the force-push helper through a hardlink" "bash scripts/fph.sh confirm --branch b --to a"
   assert_allow "bats repo test" "bats tests/ok.bats"
   assert_allow "bats safe flag --tap" "bats --tap tests/ok.bats"
   assert_defer "bats --formatter=path exec/containment escape" "bats --formatter=/tmp/evil.sh tests/ok.bats"
@@ -625,6 +634,7 @@ first_half() {
   assert_defer "bats on a plugin script stays repo-scoped" "bats $PLUGIN_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
   assert_defer "env-assignment prefix on a plugin script" "BASH_ENV=/tmp/x $PLUGIN_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
   assert_defer "plugin script writing a file still defers" "$PLUGIN_ROOT/scripts/plug.sh > out.txt" Bash "$PLUGIN_CWD"
+  assert_defer "the plugin root's force-push helper through a hardlink" "bash $PLUGIN_ROOT/scripts/plug-fph.sh confirm --branch b" Bash "$PLUGIN_CWD"
   HOOK_ENV=("PLANWRIGHT_ROOT=$SANDBOX/install/does-not-exist")
   assert_defer "unresolvable root arm allows nothing" "$PLUGIN_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
   HOOK_ENV=()
