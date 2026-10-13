@@ -249,6 +249,18 @@ run = "/bin/sh scripts/behavioral-eval.sh --suite tests/behavioral-evals/fixture
 description = "on-demand turn-shape eval (never in CI or `check`): the behavioral harness over the turn-shape fixtures, grading each run's turn records against the invariants its fixture names (tests/behavioral-evals/README.md lists them); needs tmux + jq (operator-dialogue REQ-M1.1, REQ-M1.4, D-19)"
 run = "/bin/sh scripts/behavioral-eval.sh --suite tests/behavioral-evals/turn-shape"
 
+[tasks."eval:backtest"]
+description = "on-demand review backtest replay (never in CI or `check`): one review pass per sampled corpus row in an isolated clone, recall per class, and the no-drop gate against a baseline; spends model tokens through the operator's claude login. Usage: mise run eval:backtest --corpus tests/fixtures/review-backtest/v<N> --model <id> [--classes ...] [--baseline <file>] (docs/review-backtest.md)"
+run = "/bin/sh scripts/review-backtest.sh"
+
+[tasks."eval:backtest-refresh"]
+description = "operator-local rebuild of the review backtest corpus into a new version from the PR history and the miss ledger (never in CI or `check`): uses the operator's GitHub login and a model annotator, and refuses to run without the machine-local product-name list (docs/review-backtest.md)"
+run = "/bin/sh scripts/review-backtest-refresh.sh"
+
+[tasks."eval:review-cost"]
+description = "on-demand review metrics (never in CI or `check`): tokens per convergence run from the session transcripts and fleet events, and the post-convergence finding rate from the PR history and the miss ledger, against the recorded baselines (docs/review-backtest.md)"
+run = "/bin/sh scripts/review-cost.sh"
+
 [tasks."obs:log"]
 description = "render the observations chronological view on demand (derived, never committed; --archived to include consumed history; REQ-C1.4, D-4)"
 run = "/bin/sh scripts/obs-render.sh"
