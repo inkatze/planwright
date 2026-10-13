@@ -240,7 +240,7 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 
 ## Awaiting input
 
-- **Task 12** — one cubic finding on PR #670 sits in a hard-disqualifier zone (the hook checks exports/ for a symbolic link before rendering but not again at the final write); recommended fix and alternative are in the PR #670 handoff; awaiting operator direction.
+(none yet)
 
 ## Deferred
 
