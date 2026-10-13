@@ -354,12 +354,40 @@ fi
 # without this hook re-echoing repo-controlled text. Only the export paths are
 # staged, never the tree, so a partial commit stays partial. update-index does
 # not consult .gitignore, so an ignored page is refused here, as `git add` would.
+#
+# Each page is hashed through its path's filters, as `git add` would, and that
+# filtered blob is screened before anything is staged: a clean filter can add
+# bytes the screen of the unfiltered page never saw.
+blob_venture=
+blob_pitch=
+set --
 for page in venture pitch; do
   rel="exports/$page.html"
+  git check-ignore -q "$rel" && continue
+  if b=$(git hash-object -w --path="$rel" "$priv/$page.html") &&
+    git cat-file blob "$b" >"$priv/$page.staged"; then
+    if [ "$page" = pitch ]; then blob_pitch=$b; else blob_venture=$b; fi
+    set -- "$@" "$priv/$page.staged"
+  fi
+done
+if [ $# -gt 0 ]; then
+  src=0
+  /bin/sh "$pw/scripts/inception-secret-screen.sh" -- "$@" || src=$?
+  if [ "$src" -eq 1 ]; then
+    echo "venture pre-commit: a regenerated page, as its path's clean filter stages it, looks like it carries a credential; commit refused." >&2
+    echo "venture pre-commit: check the filter configured for exports/ in .gitattributes and your git config." >&2
+    exit 1
+  elif [ "$src" -ne 0 ]; then
+    echo "venture pre-commit: the secret screen could not check the pages as they would be staged (exit $src); commit refused." >&2
+    exit 1
+  fi
+fi
+for page in venture pitch; do
+  rel="exports/$page.html"
+  if [ "$page" = pitch ]; then blob=$blob_pitch; else blob=$blob_venture; fi
   if git check-ignore -q "$rel"; then
     echo "venture pre-commit: the regenerated $rel could not be staged (it is gitignored), so this commit carries a stale or absent export." >&2
-  elif ! blob=$(git hash-object -w --path="$rel" "$priv/$page.html") ||
-    ! git update-index --add --cacheinfo "100644,$blob,$rel"; then
+  elif [ -z "$blob" ] || ! git update-index --add --cacheinfo "100644,$blob,$rel"; then
     echo "venture pre-commit: the regenerated $rel could not be staged, so this commit carries a stale or absent export." >&2
     echo "venture pre-commit: committing anyway — see git's message above." >&2
   fi

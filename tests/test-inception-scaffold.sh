@@ -743,6 +743,30 @@ assert_eq "render-to-screen race: the hook still refuses the commit" "1" "$rc"
 assert_not_contains "render-to-screen race: no commit carried the credential" "AbCdEfGh" \
   "$(cd "$snap_v" && git show HEAD:exports/venture.html 2>/dev/null)"
 
+# The blob staged is the one the path's clean filter produces, so that blob is
+# what gets screened: a filter that adds bytes must not slip them past the
+# screen that checked the page before filtering.
+filt_v="$tmp/venture-filter"
+mkdir -p "$filt_v"
+inception_fixture_write "$filt_v" >/dev/null 2>&1 || exit 1
+cred="api_key = AbCdEfGh""IjKlMnOpQrStUvWx12"
+(
+  cd "$filt_v" || exit 1
+  git init -q .
+  git config user.email fixture@example.invalid
+  git config user.name Fixture
+  git config commit.gpgsign false
+  git config filter.inject.clean "sed 's/Northwind/$cred/'"
+  git config filter.inject.smudge cat
+) >/dev/null 2>&1 || exit 1
+printf 'exports/*.html filter=inject\n' >"$filt_v/.gitattributes"
+"$SCAFFOLD" --rung local --wire "$filt_v" >/dev/null 2>&1
+out="$(cd "$filt_v" && git add -A && git commit -qm "filter adds a credential" 2>&1)"
+rc=$?
+assert_eq "clean filter: a credential it adds is refused" "1" "$rc"
+assert_not_contains "clean filter: nothing was committed with it" "AbCdEfGh" \
+  "$(cd "$filt_v" && git show HEAD:exports/venture.html 2>/dev/null)"
+
 # The repo's own `lint:yaml` covers tracked config, not what this script
 # generates, so the emitted workflow is linted here or nowhere.
 if command -v yamllint >/dev/null 2>&1; then
