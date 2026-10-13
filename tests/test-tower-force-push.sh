@@ -510,7 +510,9 @@ for val in '' -y; do
 done
 [ "$failures" = 0 ] && ok "a usage error prints no raw control character from its arguments"
 rc=$(rc_of env PATH="$tmp/stub:$PATH" "$FP" purge --path "$(printf 'a\033[31mb')")
-[ "$rc" = 2 ] || fail "purge took a path carrying a control character (exit $rc)"
+if [ "$rc" != 2 ] || grep -q "$(printf '\033')" "$tmp/err"; then
+  fail "purge took or echoed a path carrying a control character (exit $rc)"
+fi
 
 # --- the tower queue: no standing decision runs it ------------------------------
 qhome="$tmp/qhome"
