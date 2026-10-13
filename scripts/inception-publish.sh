@@ -52,8 +52,9 @@
 # auto-republish-on), artifact (the recorded id, or none) — and the plain-language instruction on stderr.
 #
 # Environment:
-#   PLANWRIGHT_PUBLISH_LOCK_TRIES   seconds a writer waits for the state lock
-#                                   before refusing; a whole number, default 10.
+#   PLANWRIGHT_PUBLISH_LOCK_TRIES   attempts a writer makes at the state lock,
+#                                   one second apart, before refusing; a whole
+#                                   number, default 10.
 #
 # Exit: 0 done · 1 the rendered page looks like it carries a credential, so it
 #   is not offered at all · 2 usage or environment error · 3 the renderer
