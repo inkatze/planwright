@@ -35,5 +35,12 @@
 # slower runner the same day, 666.3s (254 files), with files that branch did
 # not touch slower by a similar share, so runner variance is near 10%. 780s
 # is the quieter 600.7s plus 30% headroom.
+#
+# Suite total raised 2026-10-13 for runner variance alone. On one branch
+# (306 files) the reference runner measured 540s to 800s across six heads,
+# and two heads with identical test code ran 679s and 800s; main measured
+# 763s the same day. Variance is near 50%, past the 30% the old headroom
+# assumed, so 780s failed green code. 1000s is the slowest of those runs,
+# 800s, plus 25%.
 per_file_seconds: 120
-suite_total_seconds: 780
+suite_total_seconds: 1000
