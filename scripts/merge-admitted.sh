@@ -47,7 +47,8 @@
 #      refuses a head that moves after the re-read too. The branch is never
 #      deleted. The outcome is read back from the host: a merge a queue or
 #      auto-merge holds is reported as not merged yet. A failed call whose
-#      merge landed anyway is reported merged; otherwise it gets a follow-up
+#      merge landed anyway is reported merged (or, merged at another head,
+#      corrected on the PR as not this run's merge); otherwise it gets a follow-up
 #      comment, since the record already claims the merge, and parks the unit
 #      under `## Awaiting input` (ready-flip.sh park), unless the head moved,
 #      where a park could not be pushed on top.
@@ -294,8 +295,13 @@ if [ "$S_STATE" = MERGED ]; then
     say "merged PR #$PR at $HEAD_SHA by $METHOD under merge_policy: policy-class"
     exit 0
   fi
-  say "not merged by this run: PR #$PR merged at another head ($(hex "${S_HEAD:0:12}")) than the recorded ${HEAD_SHA:0:12}, so the record above does not describe it"
-  exit 4
+  # shellcheck disable=SC2016 # markdown backticks for the comment
+  printf '**Merge follow-up.** PR #%s merged at another head (`%s`) than the recorded `%s`, so the record above does not describe that merge; this run did not make it.\n' \
+    "$PR" "$(hex "$S_HEAD")" "$HEAD_SHA" >"$SCRATCH/other.md"
+  say "not merged by this run: PR #$PR merged at another head ($(hex "${S_HEAD:0:12}")) than the recorded ${HEAD_SHA:0:12}"
+  comment "$SCRATCH/other.md" && exit 4
+  say 'the follow-up comment could not be written'
+  exit 5
 fi
 if [ "$mrc" = 0 ]; then
   say "PR #$PR at $HEAD_SHA was handed to the host by $METHOD and is not merged yet (a merge queue or auto-merge holds it, or its state could not be read)"
