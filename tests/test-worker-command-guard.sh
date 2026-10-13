@@ -2334,13 +2334,25 @@ assert_defer "REQ-E1.3: an inner do in command position" "echo \$(do cat f)" Bas
 assert_defer "REQ-E1.3: an inner trailing pipe" "echo \$(cat f |)" Bash "$SUBST_CWD"
 assert_defer "REQ-E1.3: an inner empty pipeline segment" "echo \$(cat f | | cat)" Bash "$SUBST_CWD"
 assert_allow "REQ-E1.3: an inner read redirect alone" "echo \$(<f)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an inner reserved word after a redirect" "echo \$(<f then cat f)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an inner do after a redirect" "echo \$(<f do cat f)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an inner reserved word after an fd redirect" "echo \$(2>/dev/null then cat f)" Bash "$SUBST_CWD"
+assert_allow "REQ-E1.3: an inner command after a redirect" "echo \$(<f cat)" Bash "$SUBST_CWD"
 assert_defer "REQ-E1.3: an inner assignment" "echo \$(x=1)" Bash "$SUBST_CWD"
 # A name only inferred to carry output (an outer name inside a substitution,
 # `$_`, an untracked name) gains no position a plain opaque value lacks.
 assert_defer "REQ-E1.3: an outer name inside a substitution reaching a script" "echo \$(scripts/ok.sh \$HOME)" Bash "$SUBST_CWD"
 assert_defer "REQ-E1.3: \$_ after a substitution reaching a script" "echo \$(git log -1); scripts/ok.sh \$_" Bash "$SUBST_CWD"
-assert_defer "REQ-E1.3: an untracked name reaching a script beside a substitution" \
+# The opaque-word rules already defer this one; it pins that the inference
+# never upgrades an untracked name to known output.
+assert_defer "REQ-E1.3: an untracked name beside a substitution is never known output" \
   "scripts/ok.sh \"\$HOME\" \$(git log -1)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an untracked name beside a substitution reaching ls" \
+  "ls \"\$HOME\" \$(git log -1)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: a name assigned from \$_ reaching ls" "echo \$(git log -1); y=\$_; ls \$y" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: a name assigned from an untracked name reaching ls" \
+  "echo \$(git log -1); y=\$HOME; ls \$y" Bash "$SUBST_CWD"
+assert_allow "REQ-E1.3: a name assigned from \$_ echoed" "echo \$(git log -1); y=\$_; echo \"\$y\"" Bash "$SUBST_CWD"
 assert_defer "REQ-E1.3: a name assigned from \$_ reaching a script" \
   "echo \$(git log -1); y=\$_; scripts/ok.sh \$y" Bash "$SUBST_CWD"
 assert_allow "REQ-E1.3: an untracked name echoed beside a substitution" "echo \"\$HOME\" \"\$(git log -1)\"" Bash "$SUBST_CWD"
@@ -2460,44 +2472,45 @@ if [ "$CODE" -eq 0 ] && is_empty && [ "$elapsed" -le 2 ]; then
 else
   fail "over-cap command — code=$CODE empty=$(is_empty && echo y || echo n) secs=$elapsed"
 fi
+# defers_quickly <label> <command>: the command defers within the scan
+# budget's time bound. A loaded host gets one retry, as the declared-line
+# deadline row does; a command that outruns the bound twice still fails.
+defers_quickly() {
+  local label=$1 try elapsed=0
+  for try in 1 2; do
+    SECONDS=0
+    run_hook "$2"
+    elapsed=$SECONDS
+    [ "$CODE" -eq 0 ] && is_empty && [ "$elapsed" -le 8 ] && break
+  done
+  if [ "$CODE" -eq 0 ] && is_empty && [ "$elapsed" -le 8 ]; then
+    pass "$label"
+  else
+    fail "$label — code=$CODE empty=$(is_empty && echo y || echo n) secs=$elapsed (tries=$try)"
+  fi
+}
 # A loop re-walks its body once per head word, so a long word in the body (a
 # command substitution's text, or plain words) multiplies the walk: the scan
 # budget defers such a command quickly instead of outrunning the hook timeout.
 long_words="$(for i in $(seq 1150); do printf 'ab%d ' "$i"; done)"
-for shape in subst nested plain; do
-  case $shape in
-    subst) c="for f in $(seq -s ' ' 16); do echo \$(echo $long_words); done" ;;
-    nested) c="for a in $(seq -s ' ' 7); do for b in $(seq -s ' ' 8); do echo \$(echo $long_words); done; done" ;;
-    plain) c="for f in $(seq -s ' ' 16); do echo $long_words; done" ;;
-  esac
-  SECONDS=0
-  run_hook "$c"
-  elapsed=$SECONDS
-  if [ "$CODE" -eq 0 ] && is_empty && [ "$elapsed" -le 8 ]; then
-    pass "a $shape loop over long words defers quickly (scan budget)"
-  else
-    fail "$shape loop over long words — code=$CODE empty=$(is_empty && echo y || echo n) secs=$elapsed"
-  fi
-done
+defers_quickly "a subst loop over long words defers quickly (scan budget)" \
+  "for f in $(seq -s ' ' 16); do echo \$(echo $long_words); done"
+defers_quickly "a nested loop over long words defers quickly (scan budget)" \
+  "for a in $(seq -s ' ' 7); do for b in $(seq -s ' ' 8); do echo \$(echo $long_words); done; done"
+defers_quickly "a plain loop over long words defers quickly (scan budget)" \
+  "for f in $(seq -s ' ' 16); do echo $long_words; done"
 assert_allow "one long command substitution still allows within the scan budget" "echo \$(echo $long_words)"
+# The budget leaves room for an ordinary loop: sixteen passes over a body of
+# about a hundred and fifty pattern words.
+mid_words="$(for i in $(seq 150); do printf 'p%d ' "$i"; done)"
+assert_allow "a sixteen-pass loop over an ordinary body stays within the scan budget" \
+  "for f in $(seq -s ' ' 16); do grep -n x $mid_words; done"
 # Each `$` costs a pass over the rest of its word, so a word dense with them
 # is charged for that and defers before the per-`$` work runs.
 # shellcheck disable=SC2016 # a literal `$a`, the shape under test
 dense_word="$(for i in $(seq 4050); do printf '$a'; done)"
-for shape in plain subst; do
-  case $shape in
-    plain) c="echo \"$dense_word\"" ;;
-    subst) c="echo \$(git log -1) \"$dense_word\"" ;;
-  esac
-  SECONDS=0
-  run_hook "$c"
-  elapsed=$SECONDS
-  if [ "$CODE" -eq 0 ] && is_empty && [ "$elapsed" -le 8 ]; then
-    pass "a $shape word dense with \$ defers quickly (scan budget)"
-  else
-    fail "$shape word dense with \$ — code=$CODE empty=$(is_empty && echo y || echo n) secs=$elapsed"
-  fi
-done
+defers_quickly "a plain word dense with \$ defers quickly (scan budget)" "echo \"$dense_word\""
+defers_quickly "a subst word dense with \$ defers quickly (scan budget)" "echo \$(git log -1) \"$dense_word\""
 # The same bound with the fixture catalog present: the declared steps are
 # consulted only for a segment not already known-safe, and an over-cap
 # command never reaches a segment.

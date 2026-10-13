@@ -96,12 +96,14 @@ before defer, in code the two guards share:
   `module_path` and `MODULE_PATH` (where zsh loads a module from) defer as
   `for` loop variables, and in the worker guard also as `read` and tracked
   assignment names.
-- **zsh's parameter forms.** `$~NAME`, `$=NAME`, `$^NAME` and `$+NAME`, and a
-  subscript or modifier after an unbraced name (`$f[2,4]`, `$f:e`), read as
-  unresolved, so a verb whose verdict rests on the value defers: zsh expands
-  them where bash leaves text. `$~NAME` defers wherever it appears, an
-  argument-independent verb's operand included: zsh reads its value as a glob
-  pattern, and a glob qualifier in that value can run a command.
+- **zsh's parameter forms.** `$=NAME`, `$^NAME` and `$+NAME`, and a modifier
+  after an unbraced name (`$f:e`), read as unresolved, so a verb whose verdict
+  rests on the value defers: zsh expands them where bash leaves text. Two
+  forms defer wherever they appear, an argument-independent verb's operand
+  included: `$~NAME`, since zsh reads its value as a glob pattern and a glob
+  qualifier in that value can run a command, and a subscript after an
+  unbraced name or a special parameter (`$f[2,4]`, `$*[1]`), since zsh
+  evaluates the subscript as arithmetic, which can assign a variable.
 - **A NUL byte in the command.** The hook's command substitution drops it, so
   the guard would screen other text than the shell runs.
 - **A named-fd redirect.** A `{name}` brace word written directly before a
