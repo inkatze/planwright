@@ -138,11 +138,6 @@ cat >"$stage" <<'GITIGNORE'
 # machine. The pre-commit hook sources it when present. Never secrets.
 .planwright-local.sh
 
-# Machine-local publish state: whether this machine's operator confirmed a
-# publish of the exports, and the auto-republish knob. Kept off the forge so no
-# commit can switch publishing on for someone else.
-.planwright-publish.local
-
 # Editor and OS
 .DS_Store
 Thumbs.db
@@ -494,9 +489,10 @@ Publishing a page as an Artifact sends it off this machine, so a first publish i
 each page's first publish is offered and confirmed. After that, this machine may opt into
 auto-republish (off by default), and a refreshed copy then replaces the published page without
 asking again. The opt-in is per machine, so every other machine starts at off. The knob and the
-publish record live in \`.planwright-publish.local\`, which is gitignored: it is this machine's
-operator's call, and no commit can switch it on. Set it from the venture root with
-\`<planwright>/scripts/inception-publish.sh auto on .\` (or \`off\`).
+publish record live in the clone's git directory (\`.git/planwright-publish.local\`), outside the
+work tree: it is this machine's operator's call, and nothing a commit carries can switch it on. Set
+it from the venture root with \`<planwright>/scripts/inception-publish.sh auto on .\` (or
+\`off\`).
 
 ## One thing that looks wrong and is not
 

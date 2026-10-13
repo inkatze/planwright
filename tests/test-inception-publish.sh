@@ -60,14 +60,17 @@ trap 'rm -rf "$tmp"' EXIT
 fresh() {
   d="$(mktemp -d "$tmp/vXXXXXX")" || exit 1
   inception_fixture_write "$d" || exit 1
+  git -C "$d" init -q . >/dev/null 2>&1 || exit 1
   printf '%s' "$d"
 }
+# state_of <venture> — where the publish state lives: the clone's git
+# directory, which no commit can write.
+state_of() { printf '%s/planwright-publish.local' "$(git -C "$1" rev-parse --absolute-git-dir)"; }
 # field <name> <tsv> — the value of one `name<TAB>value` line.
 field() { printf '%s\n' "$2" | awk -F'\t' -v k="$1" '$1 == k { print $2; exit }'; }
 
 export PLANWRIGHT_INCEPTION_TODAY=2026-08-26
 export PLANWRIGHT_SECRET_SCREEN_TOOL=none
-STATE=.planwright-publish.local
 
 # ---------------------------------------------------------------------------
 # 1. A scripted run on a fresh venture is offer-only (REQ-G1.4).
@@ -90,7 +93,7 @@ else
   echo "FAIL: fresh offer: the export was not rendered" >&2
   failures=$((failures + 1))
 fi
-if [ -e "$v/$STATE" ]; then
+if [ -e "$(state_of "$v")" ]; then
   echo "FAIL: fresh offer: an offer wrote publish state" >&2
   failures=$((failures + 1))
 else
@@ -120,7 +123,7 @@ out="$("$PUBLISH" record --artifact art-123 "$v" 2>&1)"
 rc=$?
 assert_eq "record without --confirmed: exit 2" "2" "$rc"
 assert_contains "record without --confirmed: says why" "confirmed" "$out"
-if [ -e "$v/$STATE" ]; then
+if [ -e "$(state_of "$v")" ]; then
   echo "FAIL: record without --confirmed: state was written" >&2
   failures=$((failures + 1))
 else
@@ -134,8 +137,9 @@ assert_eq "record with a malformed artifact id: exit 2" "2" "$rc"
 "$PUBLISH" record --confirmed --artifact art-123 "$v" >/dev/null 2>&1
 rc=$?
 assert_eq "record: exit 0" "0" "$rc"
-private="$(find "$v" -maxdepth 1 -name "$STATE" ! -perm -004 2>/dev/null)"
-assert_eq "record: the state file is not world-readable" "$v/$STATE" "$private"
+st="$(state_of "$v")"
+private="$(find "$st" ! -perm -004 2>/dev/null)"
+assert_eq "record: the state file is not world-readable" "$st" "$private"
 
 out="$("$PUBLISH" offer "$v" 2>/dev/null)"
 assert_eq "published, knob default: an offer" "offer" "$(field decision "$out")"
@@ -172,7 +176,7 @@ v="$(fresh)"
   # shellcheck disable=SC2016 # the substitution must stay literal: it is the payload
   printf '%s\n' 'published-dashboard=$(touch '"$tmp"'/pwned)'
   printf '%s\n' "touch $tmp/pwned2"
-} >"$v/$STATE"
+} >"$(state_of "$v")"
 out="$("$PUBLISH" offer "$v" 2>"$tmp/err")"
 rc=$?
 assert_eq "malformed state: exit 0" "0" "$rc"
@@ -188,7 +192,7 @@ else
 fi
 
 # Knob on plus a malformed record still offers.
-printf '%s\n' 'auto-republish=on' 'published-dashboard=bad id' >"$v/$STATE"
+printf '%s\n' 'auto-republish=on' 'published-dashboard=bad id' >"$(state_of "$v")"
 out="$("$PUBLISH" offer "$v" 2>/dev/null)"
 assert_eq "knob on, malformed record: an offer" "offer" "$(field decision "$out")"
 
@@ -237,6 +241,52 @@ if grep -Eq '(^|[^a-z])(curl|wget|nc|ssh|scp|gh) ' "$PUBLISH"; then
 else
   echo "ok: the publish helper invokes no network client"
 fi
+
+# ---------------------------------------------------------------------------
+# 8. The state lives where no commit can write it, behind a lock.
+# ---------------------------------------------------------------------------
+
+# A state file committed into the work tree (a web-UI create, a forced add)
+# arrives with every pull. It must switch nothing on.
+v="$(fresh)"
+printf '%s\n' 'auto-republish=on' 'published-dashboard=attacker-artifact' >"$v/.planwright-publish.local"
+git -C "$v" add -f .planwright-publish.local >/dev/null 2>&1
+out="$("$PUBLISH" offer "$v" 2>/dev/null)"
+assert_eq "committed state file: still an offer" "offer" "$(field decision "$out")"
+assert_eq "committed state file: read as never published" "first-publish" "$(field reason "$out")"
+assert_eq "committed state file: its artifact is not offered" "none" "$(field artifact "$out")"
+
+v="$(fresh)"
+"$PUBLISH" auto on "$v" >/dev/null 2>&1
+if [ -e "$v/.planwright-publish.local" ]; then
+  echo "FAIL: state location: written into the work tree" >&2
+  failures=$((failures + 1))
+else
+  echo "ok: state location: nothing is written into the work tree"
+fi
+assert_contains "state location: the knob lands in the git directory" "auto-republish=on" \
+  "$(cat "$(state_of "$v")" 2>/dev/null)"
+
+# A writer that cannot take the lock refuses rather than racing the holder.
+mkdir "$(git -C "$v" rev-parse --absolute-git-dir)/planwright-publish.lock"
+out="$(PLANWRIGHT_PUBLISH_LOCK_TRIES=1 "$PUBLISH" auto off "$v" 2>&1)"
+rc=$?
+assert_eq "held lock: the write is refused" "2" "$rc"
+assert_contains "held lock: says the state is busy" "busy" "$out"
+assert_contains "held lock: the knob is unchanged" "auto-republish=on" "$(cat "$(state_of "$v")")"
+rmdir "$(git -C "$v" rev-parse --absolute-git-dir)/planwright-publish.lock"
+
+# Outside a git repository there is nowhere safe to keep the state: offers
+# still work, as first publishes, and nothing is recorded.
+nogit="$(mktemp -d "$tmp/nogitXXXXXX")"
+inception_fixture_write "$nogit" || exit 1
+out="$("$PUBLISH" record --confirmed --artifact art-1 "$nogit" 2>&1)"
+rc=$?
+assert_eq "no git: record is refused" "2" "$rc"
+assert_contains "no git: says why" "git repository" "$out"
+out="$("$PUBLISH" offer "$nogit" 2>/dev/null)"
+assert_eq "no git: offers still work" "offer" "$(field decision "$out")"
+assert_eq "no git: always a first publish" "first-publish" "$(field reason "$out")"
 
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-publish: $failures assertion(s) failed" >&2

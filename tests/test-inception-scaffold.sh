@@ -101,7 +101,6 @@ fi
 ignore="$(cat "$v/.gitignore")"
 assert_contains ".gitignore: machine-local env file" ".planwright-local.sh" "$ignore"
 assert_contains ".gitignore: editor and OS droppings" ".DS_Store" "$ignore"
-assert_contains ".gitignore: machine-local publish state" ".planwright-publish.local" "$ignore"
 
 hook="$(cat "$v/githooks/pre-commit")"
 assert_contains "hook: screens staged content for secrets" "inception-secret-screen.sh" "$hook"
@@ -116,6 +115,10 @@ assert_contains "notes: give the wiring command" "core.hooksPath githooks" "$not
 assert_contains "notes: name the bypass" "--no-verify" "$notes"
 assert_contains "notes: name both exports" "exports/pitch.html" "$notes"
 assert_contains "notes: publishing is offered, never automatic" "auto-republish" "$notes"
+assert_contains "notes: the publish state lives outside the work tree" \
+  "the clone's git directory" "$notes"
+assert_not_contains "notes: no stale gitignore claim for the publish state" \
+  "which is gitignored" "$notes"
 # The hook stages the export it regenerates, which git's partial-commit path
 # leaves showing as modified afterwards. Surprising, harmless, and worth saying
 # once in the notes rather than letting every operator rediscover it.

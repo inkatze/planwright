@@ -22,12 +22,16 @@
 #            guess.
 #   auto     set the per-venture auto-republish knob, on or off.
 #
-# State lives in <venture>/.planwright-publish.local, gitignored by the venture
-# scaffold: whether to publish to the operator's own account is the operator's
-# call on this machine, and a tracked knob would let any commit (a stakeholder's
-# web-UI edit included) switch on publishing that nobody confirmed. The file is
-# read as data, never sourced; a value that does not parse reads as unset, which
-# always lands on `offer`.
+# State lives in the clone's git directory, as planwright-publish.local beside
+# HEAD: whether to publish to the operator's own account is the operator's call
+# on this machine, and anything in the work tree arrives with a pull, so a
+# stakeholder's commit could otherwise switch on publishing nobody confirmed. A
+# file of that name in the work tree is never read. Writes take a lock
+# (planwright-publish.lock, a directory) so two writers cannot lose each
+# other's change. The file is read as data, never sourced; a value that does
+# not parse reads as unset, which always lands on `offer`. Outside a git
+# repository there is no such place: offers still work, as first publishes,
+# and record and auto refuse.
 #
 # Usage:
 #   inception-publish.sh offer [--mode dashboard|pitch] <venture-dir>
@@ -54,7 +58,7 @@ export LC_ALL
 unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
-STATE_NAME=.planwright-publish.local
+STATE_NAME=planwright-publish.local
 
 usage() {
   cat >&2 <<'EOF'
@@ -131,7 +135,13 @@ while [ "$target" != "${target%/}" ]; do target=${target%/}; done
   exit 2
 }
 
-state="$target/$STATE_NAME"
+git_dir=$(git -C "$target" rev-parse --absolute-git-dir 2>/dev/null) || git_dir=
+state=
+lock=
+if [ -n "$git_dir" ]; then
+  state="$git_dir/$STATE_NAME"
+  lock="$git_dir/planwright-publish.lock"
+fi
 
 # An artifact id is echoed back to the publishing session and written to the
 # state file, so it is held to a plain token: nothing a shell, a markdown
@@ -143,35 +153,65 @@ id_ok() {
   [ "${#1}" -le 128 ]
 }
 
-# read_state <key> — the value recorded for <key>, last line winning, or empty.
-# Data only: the file is never sourced or evaluated.
-read_state() {
-  [ -f "$state" ] || return 0
-  awk -v k="$1" '
-    index($0, k "=") == 1 { v = substr($0, length(k) + 2) }
-    END { if (v != "") print v }
-  ' "$state"
+# load_state — read the whole file once into s_auto, s_dash and s_pitch, last
+# line winning per key. Data only: the file is never sourced or evaluated.
+load_state() {
+  s_auto=
+  s_dash=
+  s_pitch=
+  [ -n "$state" ] && [ -f "$state" ] || return 0
+  s_all=$(awk '
+    index($0, "auto-republish=") == 1 { a = substr($0, 16) }
+    index($0, "published-dashboard=") == 1 { d = substr($0, 21) }
+    index($0, "published-pitch=") == 1 { p = substr($0, 17) }
+    END { printf "%s\n%s\n%s\n", a, d, p }
+  ' "$state") || exit 2
+  s_auto=$(printf '%s\n' "$s_all" | sed -n 1p)
+  s_dash=$(printf '%s\n' "$s_all" | sed -n 2p)
+  s_pitch=$(printf '%s\n' "$s_all" | sed -n 3p)
 }
 
-# write_state <key> <value> — replace <key>, keep every other known key. The
-# file is rewritten through a temp file beside it, so a crash never leaves it
-# half-written, and is private to the operator.
+# take_lock / drop_lock — one writer at a time. mkdir is the portable atomic
+# test-and-set; a lock left by a killed writer is the operator's to remove,
+# and the refusal names it.
+take_lock() {
+  tries=${PLANWRIGHT_PUBLISH_LOCK_TRIES:-10}
+  while ! mkdir "$lock" 2>/dev/null; do
+    tries=$((tries - 1))
+    if [ "$tries" -le 0 ]; then
+      printf '%s\n' "inception-publish: the publish state is busy (another writer holds $lock); try again, or remove the directory if no writer is running" >&2
+      exit 2
+    fi
+    sleep 1
+  done
+  trap 'rmdir "$lock" 2>/dev/null' EXIT
+  trap 'rmdir "$lock" 2>/dev/null; exit 129' HUP
+  trap 'rmdir "$lock" 2>/dev/null; exit 130' INT
+  trap 'rmdir "$lock" 2>/dev/null; exit 143' TERM
+}
+
+# write_state <key> <value> — under the lock: read once, replace <key>, keep
+# every other key, and rewrite through a temp file beside the state, so a crash
+# never leaves it half-written. Private to the operator.
 write_state() {
-  w_auto=$(read_state auto-republish)
-  w_dash=$(read_state published-dashboard)
-  w_pitch=$(read_state published-pitch)
+  if [ -z "$state" ]; then
+    echo "inception-publish: publish state is kept in the venture's git directory, and this venture is not a git repository; nothing is recorded" >&2
+    exit 2
+  fi
+  take_lock
+  load_state
   case $1 in
-    auto-republish) w_auto=$2 ;;
-    published-dashboard) w_dash=$2 ;;
-    published-pitch) w_pitch=$2 ;;
+    auto-republish) s_auto=$2 ;;
+    published-dashboard) s_dash=$2 ;;
+    published-pitch) s_pitch=$2 ;;
   esac
-  w_tmp=$(mktemp "$target/.planwright-publish.XXXXXX") || exit 2
+  w_tmp=$(mktemp "$state.XXXXXX") || exit 2
   {
     echo "# Machine-local publish state for this venture, written by planwright's"
-    echo "# inception-publish.sh. Not tracked; never edit by hand while a publish runs."
-    [ -z "$w_auto" ] || printf 'auto-republish=%s\n' "$w_auto"
-    [ -z "$w_dash" ] || printf 'published-dashboard=%s\n' "$w_dash"
-    [ -z "$w_pitch" ] || printf 'published-pitch=%s\n' "$w_pitch"
+    echo "# inception-publish.sh. Never edit by hand while a publish runs."
+    [ -z "$s_auto" ] || printf 'auto-republish=%s\n' "$s_auto"
+    [ -z "$s_dash" ] || printf 'published-dashboard=%s\n' "$s_dash"
+    [ -z "$s_pitch" ] || printf 'published-pitch=%s\n' "$s_pitch"
   } >"$w_tmp" || {
     rm -f "$w_tmp"
     exit 2
@@ -234,7 +274,8 @@ elif [ "$src" -ne 0 ]; then
   exit 2
 fi
 
-auto=$(read_state auto-republish)
+load_state
+auto=$s_auto
 case $auto in
   '' | off) auto=off ;;
   on) ;;
@@ -243,7 +284,7 @@ case $auto in
     auto=off
     ;;
 esac
-published=$(read_state "published-$mode")
+if [ "$mode" = pitch ]; then published=$s_pitch; else published=$s_dash; fi
 if [ -n "$published" ] && [ "$published" != yes ] && ! id_ok "$published"; then
   printf '%s\n' "inception-publish: ignoring an unreadable published-$mode record in $STATE_NAME; treating the page as never published" >&2
   published=
