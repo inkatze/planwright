@@ -63,6 +63,9 @@ unset CDPATH
 # Every git call names its venture with -C; an inherited redirection would
 # send it to another repository instead.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
+# Inherited config the same way: a pushurl passed in the environment would
+# send a push somewhere other than the remote checked as private.
+unset GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_NAMESPACE
 
 self_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 

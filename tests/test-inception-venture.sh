@@ -940,6 +940,22 @@ for shape in attribute nul; do
   git -C "$rv" reset -q --hard "$rv_base"
 done
 
+# =========================================================================
+# Z10 — inherited git config never redirects a push
+# =========================================================================
+
+git init -q --bare "$tmp/remotes/decoy.git"
+printf 'config redirect probe\n' >"$rv/config-redirect.md"
+GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.pushurl GIT_CONFIG_VALUE_0="$tmp/remotes/decoy.git" \
+  PATH="$stubs/gh-ok:$PATH" venture save --push "$rv" "Share despite inherited config"
+assert_eq "Z10 a save under inherited git config succeeds" 0 "$rc"
+assert_eq "Z10 the decoy repository receives nothing" "" "$(git -C "$tmp/remotes/decoy.git" rev-parse -q --verify refs/heads/main)"
+assert_eq "Z10 the push reaches the checked remote" "$(git -C "$rv" rev-parse HEAD)" "$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)"
+printf 'parameters probe\n' >"$rv/config-parameters.md"
+GIT_CONFIG_PARAMETERS="'remote.origin.pushurl'='$tmp/remotes/decoy.git'" \
+  PATH="$stubs/gh-ok:$PATH" venture save --push "$rv" "Share despite inherited parameters"
+assert_eq "Z10 inherited GIT_CONFIG_PARAMETERS redirect nothing" "" "$(git -C "$tmp/remotes/decoy.git" rev-parse -q --verify refs/heads/main)"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
