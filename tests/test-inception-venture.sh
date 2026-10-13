@@ -1108,6 +1108,18 @@ if command -v gitleaks >/dev/null 2>&1; then
   git -C "$rv" reset -q --hard "$rv_base"
 fi
 
+# =========================================================================
+# Z27 — add-remote keeps an operator's own hooks path
+# =========================================================================
+
+PATH="$stubs/gh-ok:$PATH" venture create --home local --root "$vroot" omicron-hooks
+oh="$vroot/omicron-hooks"
+git -C "$oh" config core.hooksPath my-hooks
+PATH="$stubs/gh-ok:$PATH" venture add-remote "$oh"
+assert_eq "Z27 add-remote succeeds beside a custom hooks path" 0 "$rc"
+assert_eq "Z27 the operator's hooks path is kept" my-hooks "$(git -C "$oh" config core.hooksPath)"
+assert_contains "Z27 add-remote warns that the venture guards are not wired" "not wired" "$out"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

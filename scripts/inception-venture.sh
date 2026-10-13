@@ -933,7 +933,19 @@ cmd_add_remote() {
   # The scaffold keeps every existing file, so the notes file, which still
   # describes the local rung, is the one file removed for it to rewrite.
   rm -f "$dir/hygiene-wiring.md"
-  /bin/sh "$self_dir/inception-scaffold.sh" --rung remote --wire "$dir" >/dev/null \
+  # Wired only where nothing else is: an operator's own hooks path is kept,
+  # and the gap is said.
+  ar_hooks=$(git -C "$dir" config core.hooksPath 2>/dev/null) || ar_hooks=
+  ar_wire=--wire
+  case $ar_hooks in
+    '' | githooks) ;;
+    *)
+      ar_wire=
+      printf 'inception-venture: warning: this venture uses its own hooks path, so the venture guards are not wired; see hygiene-wiring.md\n' >&2
+      ;;
+  esac
+  # shellcheck disable=SC2086 # ar_wire is empty or the one fixed flag
+  /bin/sh "$self_dir/inception-scaffold.sh" --rung remote $ar_wire "$dir" >/dev/null \
     || die 2 "the remote-rung scaffold failed; run add-remote again to retry it"
   # A session venture is durable once it has a remote; drop the session mark
   # so handoff reports the home it now has.
