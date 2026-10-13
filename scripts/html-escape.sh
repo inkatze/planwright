@@ -1,6 +1,7 @@
 # shellcheck shell=sh
-# html-escape.sh — the shared HTML escaper for planwright's self-contained HTML
-# renderers (sourced, never executed).
+# html-escape.sh — the shared HTML escaper that spec-assemble.sh and
+# inception-render.sh splice in (sourced, never executed). fleet-dashboard.sh
+# still carries a byte-equivalent copy of its own.
 #
 #   $html_escape_awk     awk source defining esc(s), spliced into a renderer's
 #                        program so every page escapes bundle text the same way

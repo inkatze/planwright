@@ -35,6 +35,9 @@
 #                               [--artifact <id>] <venture-dir>
 #   inception-publish.sh auto on|off <venture-dir>
 #
+# --mode defaults to dashboard: each call offers one page, so the pitch is
+# offered by its own call.
+#
 # offer prints `<key><TAB><value>` lines on stdout — mode, export, decision,
 # reason (first-publish | auto-republish-off | auto-republish-on), artifact (the
 # recorded id, or none) — and the plain-language instruction on stderr.

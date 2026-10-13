@@ -1,7 +1,7 @@
 #!/bin/bash
-# Tests for the shared HTML escaper (scripts/html-escape.sh), the one escaper
-# the HTML renderers splice in rather than each carrying a copy (inception D-9;
-# spec-comprehension REQ-E1.7).
+# Tests for the shared HTML escaper (scripts/html-escape.sh), which
+# spec-assemble.sh and inception-render.sh splice in rather than each carrying a
+# copy (inception D-9; spec-comprehension REQ-E1.7).
 #
 # Plain bash 3.2, inline asserts (sibling convention).
 set -u
