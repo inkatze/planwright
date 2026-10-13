@@ -465,6 +465,13 @@ out="$("$PUBLISH" record --confirmed --artifact yes "$v" 2>&1)"
 rc=$?
 assert_eq "artifact id yes: refused" "2" "$rc"
 
+# `none` is what status and offer print for "no artifact on record", so it is
+# never accepted as an id: a republish would otherwise target nothing.
+v="$(fresh)"
+out="$("$PUBLISH" record --confirmed --artifact none "$v" 2>&1)"
+rc=$?
+assert_eq "artifact id none: refused" "2" "$rc"
+
 # The lock-tries knob is a count; anything else is refused, not computed on.
 v="$(fresh)"
 out="$(PLANWRIGHT_PUBLISH_LOCK_TRIES=many "$PUBLISH" auto on "$v" 2>&1)"

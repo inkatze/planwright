@@ -167,9 +167,11 @@ fi
 # An artifact id is echoed back to the publishing session and written to the
 # state file, so it is held to a plain token: nothing a shell, a markdown
 # renderer or a terminal would read as anything but text.
+# `none` is reserved: it is what status and offer print for "no artifact on
+# record", so a recorded `none` would send a republish at nothing.
 id_ok() {
   case $1 in
-    '' | *[!A-Za-z0-9._:-]*) return 1 ;;
+    '' | none | *[!A-Za-z0-9._:-]*) return 1 ;;
   esac
   [ "${#1}" -le 128 ]
 }
