@@ -474,6 +474,27 @@ out="$(base "$core_env" PLANWRIGHT_ADOPTER_OVERLAY="$ctl" PLANWRIGHT_REPO_ROOT=n
 assert_eq "control byte in the canonical path: exit 1" "1" "$?"
 assert_eq "control byte in the canonical path: nothing printed" "" "$out"
 
+# A canonical path ending in a newline is refused too: command substitution
+# would strip it and hand back a different file's path (here real.md, a
+# sibling that also exists).
+nl="$tmp/trailing-newline"
+mkdir -p "$nl/catalogs" "$nl/cards"
+write_golden_card "$nl/cards" nl-card
+mv "$nl/cards/nl-card.md" "$nl/cards/real.md
+"
+write_golden_card "$nl/cards" real
+ln -s "real.md
+" "$nl/cards/nl-card.md"
+cat >"$nl/catalogs/discipline-cards.yaml" <<'YAML'
+cards:
+  - id: nl-card
+    discipline: "Newline"
+YAML
+out="$(base "$core_env" PLANWRIGHT_ADOPTER_OVERLAY="$nl" PLANWRIGHT_REPO_ROOT=none \
+  /bin/bash "$RESOLVE" nl-card 2>/dev/null)"
+assert_eq "trailing newline in the canonical path: exit 1" "1" "$?"
+assert_eq "trailing newline in the canonical path: no other file's path printed" "" "$out"
+
 # A single-id lookup's exit answers for the requested id only: an unrelated
 # malformed entry never fails it, while --list still reports it.
 mixed="$tmp/mixed"

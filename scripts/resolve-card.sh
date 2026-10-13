@@ -100,10 +100,14 @@ card_path() {
   fi
   # The helper's own refusal text stays silent: it can carry an unsanitized
   # path, and the message below names the card.
-  contained=$(/bin/sh "$overlay_root" --contain "$root" "$rel" 2>/dev/null) || {
+  # The sentinel keeps command substitution from stripping a trailing newline
+  # that belongs to the path itself; only the helper's own newline is removed.
+  contained=$(/bin/sh "$overlay_root" --contain "$root" "$rel" 2>/dev/null && printf '.') || {
     printf '%s\n' "resolve-card: $1: the $2 card file does not resolve inside its layer root; refused" >&2
     return 1
   }
+  contained=${contained%.}
+  contained=${contained%"$newline"}
   # The canonical path follows symlinks, so a contained target's name can
   # still carry terminal control bytes; such a path is never printed.
   case $contained in
@@ -112,10 +116,19 @@ card_path() {
       return 1
       ;;
   esac
+  # The helper's own symlink walk runs readlink through command substitution,
+  # which drops a trailing newline from a target name before the sentinel above
+  # can keep it, so the printed path must still name the very file requested.
+  if [ ! "$root/$rel" -ef "$contained" ]; then
+    printf '%s\n' "resolve-card: $1: the $2 card file's canonical path names a different file; refused" >&2
+    return 1
+  fi
   printf '%s\n' "$contained"
 }
 
 tab=$(printf '\t')
+newline='
+'
 rc=0
 found=0
 # A malformed merged entry (an id outside the charset, a field more than
