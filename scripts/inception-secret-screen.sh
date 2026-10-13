@@ -140,6 +140,8 @@ if [ "$tool" != none ] && command -v gitleaks >/dev/null 2>&1; then
   else
     gl_git="protect"
     gl_dir_cmd="detect"
+    # Before 8.19 `detect` reads its source as a git repository and finds
+    # nothing in a plain file; the calls below pass --no-git with it.
     gl_dir_flag="--source"
   fi
 
@@ -196,7 +198,7 @@ if [ "$tool" != none ] && command -v gitleaks >/dev/null 2>&1; then
     "MIIEowIBAAKCAQEA7Zx2Lm""9Rt4Wb8Nc1Yv6Ha3Pd5Sj0Ug2EfKq" "-----END RSA PRIVATE KEY""-----" >"$canary"
   crc=0
   if [ -n "$gl_dir_flag" ]; then
-    gitleaks_run "$gl_dir_cmd" "$gl_dir_flag" "$canary" --no-banner --redact 2>/dev/null || crc=$?
+    gitleaks_run "$gl_dir_cmd" --no-git "$gl_dir_flag" "$canary" --no-banner --redact 2>/dev/null || crc=$?
   else
     gitleaks_run "$gl_dir_cmd" "$canary" --no-banner --redact 2>/dev/null || crc=$?
   fi
@@ -239,7 +241,7 @@ if [ "$tool" != none ] && command -v gitleaks >/dev/null 2>&1; then
     # leak across several arguments would read as several.
     prc=0
     if [ -n "$gl_dir_flag" ]; then
-      gitleaks_run "$gl_dir_cmd" "$gl_dir_flag" "$p" --no-banner --redact || prc=$?
+      gitleaks_run "$gl_dir_cmd" --no-git "$gl_dir_flag" "$p" --no-banner --redact || prc=$?
     else
       gitleaks_run "$gl_dir_cmd" "$p" --no-banner --redact || prc=$?
     fi

@@ -512,6 +512,31 @@ rc=$?
 assert_eq "gitleaks with no rules: the canary refuses the screen (exit 2)" "2" "$rc"
 assert_contains "gitleaks with no rules: says it is screening with no rules" "no rules" "$out"
 
+# A gitleaks older than 8.19 has only `detect`, which scans a path as a git
+# repository unless told --no-git, and then finds nothing. The stub models
+# that: without --no-git it reports clean; with it, the canary and the leak
+# file are found.
+oldgl="$tmp/oldgl"
+mkdir -p "$oldgl"
+cat >"$oldgl/gitleaks" <<'OLDGL'
+#!/bin/sh
+[ "$1" = git ] && exit 1
+case "$*" in *--help*) echo "  --exit-code int  exit code when leaks have been encountered"; exit 0 ;; esac
+[ "$1" = detect ] || exit 1
+case "$*" in *--no-git*) ;; *) echo "no leaks found"; exit 0 ;; esac
+case "$*" in *planwright-canary* | *old-leak*) exit 7 ;; esac
+exit 0
+OLDGL
+chmod 755 "$oldgl/gitleaks"
+printf 'nothing to see here\n' >"$tmp/old-clean.md"
+printf 'pretend leak\n' >"$tmp/old-leak.md"
+PATH="$oldgl:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$tmp/old-clean.md" >/dev/null 2>&1
+rc=$?
+assert_eq "gitleaks before 8.19: a clean file passes the self-check and the scan" "0" "$rc"
+PATH="$oldgl:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$tmp/old-leak.md" >/dev/null 2>&1
+rc=$?
+assert_eq "gitleaks before 8.19: a leak is found, not missed" "1" "$rc"
+
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-secret-screen: $failures assertion(s) failed" >&2
   exit 1
