@@ -36,8 +36,9 @@
 #       Print the record. --post-pr marks the pr home's re-emit after the
 #       post-pr point and requires its step table. A `pr` record larger than
 #       GitHub's PR-body limit is refused (exit 3) and nothing is printed: a
-#       truncated record would drop the contract's tail. The `file` home requires --record-path, the
-#       repo-relative path the record names as its home; `pr` refuses it.
+#       truncated record would drop the contract's tail. The `file` home
+#       requires --record-path, the repo-relative path the record names as
+#       its home; `pr` refuses it.
 #   flight-record.sh land <inputs> --record-path <path> [--repo-root <dir>]
 #       The no-remote arm, run in the flight's worktree (or at its top level
 #       via --repo-root): write the `file` record to the record path and
