@@ -192,10 +192,12 @@ grep -q 'no private flight directory' "$tmp/err" || fail "a fleet home others ca
 [ "$rc" -eq 4 ] || fail "a completion that cannot keep its landing reference exits 4 (got $rc)"
 V=keepfail-aaaaaab8
 brief_dir "$V"
-chmod 500 "$tmp/fleet/flights/$V"
+# A directory where the temporary landing file goes fails the write for any
+# user, root included.
+mkdir "$tmp/fleet/flights/$V/landing.tmp"
 "$SCRIPT" push completion "$V" --handle "tmux-flight-$V" --landing "record:specs/_flights/$V.md" 2>"$tmp/err"
 rc=$?
-chmod 700 "$tmp/fleet/flights/$V"
+rmdir "$tmp/fleet/flights/$V/landing.tmp"
 [ "$rc" -eq 4 ] || fail "a landing reference that cannot be written fails the completion push with 4 (got $rc)"
 grep -q 'could not keep the landing reference' "$tmp/err" || fail "the failed landing write is named (got: $(cat "$tmp/err"))"
 
@@ -438,15 +440,18 @@ else
   esac
   [ ! -e "$tmp/fleet/liveness/crash/tmux-flight-$P" ] || fail "a parked flight must never be counted over an unreadable queue"
 fi
+# fail_reads <tool> <pattern> — a stub <tool> first on PATH that exits 2 on
+# any call whose arguments carry <pattern> and runs the real one otherwise.
+fail_reads() {
+  _fr_real=$(command -v "$1")
+  printf '#!/bin/sh\ncase "$*" in *"%s"*) exit 2 ;; esac\nexec %s "$@"\n' "$2" "'$_fr_real'" >"$tmp/bin/$1"
+  chmod +x "$tmp/bin/$1"
+}
 # The same for a store read that fails partway, which a permission check
-# cannot see: a stub awk fails only the queue read.
-real_awk=$(command -v awk)
-cat >"$tmp/bin/awk" <<EOF
-#!/bin/sh
-case "\$*" in *awaiting-input*) exit 2 ;; esac
-exec '$real_awk' "\$@"
-EOF
-chmod +x "$tmp/bin/awk"
+# cannot see: a stub awk fails every decision-queue read, the sweep's and the
+# lifecycle's; a landed render does not depend on the sweep's, so the
+# lifecycle's is the one reported.
+fail_reads awk awaiting-input
 out=$(supervise "$((t + 99999 + 41))")
 rm -f "$tmp/bin/awk"
 case $(printf '%s\n' "$out" | awk -F "$TAB" -v id="$P" '$2 == id') in
@@ -458,13 +463,7 @@ esac
 X=unreadbrief-aaaaab3b
 landed_flight "$X" record checked
 /bin/sh "$STATE" register "tmux-flight-$X" "flight:$X" --backend tmux --death-handle "process $(dead_pid 27)" >/dev/null
-real_grep=$(command -v grep)
-cat >"$tmp/bin/grep" <<EOF
-#!/bin/sh
-case "\$*" in *"runs this landed check"*) exit 2 ;; esac
-exec '$real_grep' "\$@"
-EOF
-chmod +x "$tmp/bin/grep"
+fail_reads grep 'runs this landed check'
 out=$(supervise "$((t + 99999 + 51))")
 rm -f "$tmp/bin/grep"
 case $(printf '%s\n' "$out" | awk -F "$TAB" -v id="$X" '$2 == id') in
@@ -472,6 +471,9 @@ case $(printf '%s\n' "$out" | awk -F "$TAB" -v id="$X" '$2 == id') in
   *) fail "a failed brief read must be reported, never skipped (got: $out)" ;;
 esac
 [ ! -e "$tmp/fleet/liveness/crash/tmux-flight-$X" ] || fail "a flight whose brief read failed must never be counted"
+
+# With the reads restored, the unfinished landed flight relaunches past its
+# backoff: each stub above failed its reads too, so no earlier pass could.
 out=$(supervise "$((t + 99999 + 61))")
 [ "$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$I" '$2 == id { print $1 }')" = relaunched ] \
   || fail "a landed flight that never pushed its completion is relaunched past the backoff (got: $out)"
@@ -595,8 +597,8 @@ rm -f "$repo/.claude/planwright.yml"
 # A root record the relaunch cannot pin to refuses it, rather than pinning
 # whichever root resolves next: a recorded root that is no longer an install,
 # named as the install's fault, and a record that is not a regular file
-# holding one printable absolute path, named as the record's. Every case dies at once
-# and one pair of sweeps handles them all.
+# holding one printable absolute path, named as the record's. Every case dies
+# at once and one pair of sweeps handles them all.
 bad_records='gone relative empty symlink ctl multiline'
 n_case=0
 # shellcheck disable=SC2086 # the record shapes are split on purpose
