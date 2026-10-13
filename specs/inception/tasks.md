@@ -240,7 +240,7 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 
 ## Awaiting input
 
-- **Task 12** — convergence (polish) hard-paused on hard-disqualifier-zone findings in the export secret screen, publish-state trust and bundle path containment; recommended fixes are recorded in the worktree's `.claude/polish-audit.md` and in the handoff; awaiting operator direction before they are applied.
+(none yet)
 
 ## Deferred
 
