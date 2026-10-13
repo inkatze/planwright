@@ -88,11 +88,15 @@ assert_eq "fresh offer: the first publish is the reason" "first-publish" "$(fiel
 assert_eq "fresh offer: the dashboard is the default mode" "dashboard" "$(field mode "$out")"
 offered="$(field export "$out")"
 case $offered in
-  "$v"/*) echo "FAIL: fresh offer: the offered page sits in the work tree ($offered)" >&2
-    failures=$((failures + 1)) ;;
+  "$v"/*)
+    echo "FAIL: fresh offer: the offered page sits in the work tree ($offered)" >&2
+    failures=$((failures + 1))
+    ;;
   */venture.html) echo "ok: fresh offer: names a private copy of the dashboard" ;;
-  *) echo "FAIL: fresh offer: unexpected export path ($offered)" >&2
-    failures=$((failures + 1)) ;;
+  *)
+    echo "FAIL: fresh offer: unexpected export path ($offered)" >&2
+    failures=$((failures + 1))
+    ;;
 esac
 assert_eq "fresh offer: no artifact on record" "none" "$(field artifact "$out")"
 assert_contains "fresh offer: tells the caller to ask first" "ask the operator" "$err"
@@ -113,8 +117,10 @@ fi
 out="$("$PUBLISH" offer --mode pitch "$v" 2>/dev/null)"
 case $(field export "$out") in
   */pitch.html) echo "ok: pitch offer: names a private copy of the pitch" ;;
-  *) echo "FAIL: pitch offer: unexpected export path" >&2
-    failures=$((failures + 1)) ;;
+  *)
+    echo "FAIL: pitch offer: unexpected export path" >&2
+    failures=$((failures + 1))
+    ;;
 esac
 assert_eq "pitch offer: is an offer" "offer" "$(field decision "$out")"
 
@@ -248,7 +254,6 @@ out="$("$PUBLISH" offer "$tmp/nope" 2>&1)"
 rc=$?
 assert_eq "missing venture: exit 2" "2" "$rc"
 
-
 # ---------------------------------------------------------------------------
 # 8. The state lives where no commit can write it, behind a lock.
 # ---------------------------------------------------------------------------
@@ -348,6 +353,7 @@ chmod 600 "$(state_of "$v")"
 v="$(fresh)"
 stub="$tmp/killmv"
 mkdir -p "$stub"
+# shellcheck disable=SC2016 # $PPID belongs to the stub, expanded when it runs
 printf '%s\n' '#!/bin/sh' 'kill -TERM "$PPID"' 'exit 1' >"$stub/mv"
 chmod +x "$stub/mv"
 PATH="$stub:$PATH" "$PUBLISH" auto on "$v" >/dev/null 2>&1

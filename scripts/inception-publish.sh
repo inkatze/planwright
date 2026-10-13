@@ -199,6 +199,7 @@ take_lock() {
   trap 'release; exit 143' TERM
 }
 w_tmp=
+# shellcheck disable=SC2329 # invoked from the traps take_lock installs
 release() {
   [ -z "$w_tmp" ] || rm -f "$w_tmp"
   rmdir "$lock" 2>/dev/null
