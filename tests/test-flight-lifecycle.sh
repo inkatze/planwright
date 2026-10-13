@@ -23,8 +23,10 @@
 #      relaunch), and at the disable threshold no relaunch happens and the
 #      disable surfaces in the decision queue.
 #   5. Liveness that cannot be proven dead is never a crash: a live worker, a
-#      print-rung flight, and a landed one are left alone; the operator
-#      kill-switch holds the relaunch without losing the count.
+#      print-rung flight, and a landed one whose completion was pushed are left
+#      alone, while a landed one whose dead worker never pushed its completion
+#      is counted and relaunched; the operator kill-switch holds the relaunch
+#      without losing the count.
 #   6. The fleet sweep runs the crash policy as one of its passes, so a dead
 #      flight worker is handled with no tower session in the loop.
 #
@@ -342,13 +344,31 @@ printf '# record\n' >"$repo/.claude/worktrees/flight-$L/specs/_flights/$L.md"
 gitc "$repo/.claude/worktrees/flight-$L" add -A
 gitc "$repo/.claude/worktrees/flight-$L" commit -q -m "chore(flight): land the record"
 brief_dir "$L"
+# Its completion was pushed: the landing reference sits beside the brief.
+printf 'record:specs/_flights/%s.md\n' "$L" >"$tmp/fleet/flights/$L/landing"
 /bin/sh "$STATE" register "tmux-flight-$L" "flight:$L" --backend tmux --death-handle "process $(dead_pid 9)" >/dev/null
+# A landed flight whose worker died before it pushed its completion (no
+# landing reference beside the brief) is a crash: its relaunch finishes the
+# after-landing work through the brief's landed check.
+I=unfinished-aaaaaaa3
+gitc "$repo" worktree add -q -b "planwright/flight/$I" "$repo/.claude/worktrees/flight-$I" HEAD
+mkdir -p "$repo/.claude/worktrees/flight-$I/specs/_flights"
+printf '# record\n' >"$repo/.claude/worktrees/flight-$I/specs/_flights/$I.md"
+gitc "$repo/.claude/worktrees/flight-$I" add -A
+gitc "$repo/.claude/worktrees/flight-$I" commit -q -m "chore(flight): land the record"
+brief_dir "$I"
+/bin/sh "$STATE" register "tmux-flight-$I" "flight:$I" --backend tmux --death-handle "process $(dead_pid 13)" >/dev/null
 out=$(supervise "$((t + 99999))")
 for id in "$A" "$Q" "$L"; do
   [ -z "$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$id" '$2 == id')" ] \
     || fail "flight $id is not a provable crash and must be left alone (got: $out)"
   [ ! -e "$tmp/fleet/liveness/crash/tmux-flight-$id" ] || fail "flight $id must not be counted as a crash"
 done
+[ "$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$I" '$2 == id { print $1 }')" = backoff ] \
+  || fail "a landed flight that never pushed its completion is a crash, counted and backed off (got: $out)"
+out=$(supervise "$((t + 99999 + 31))")
+[ "$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$I" '$2 == id { print $1 }')" = relaunched ] \
+  || fail "a landed flight that never pushed its completion is relaunched past the backoff (got: $out)"
 
 K=paused-aaaaaaa9
 gitc "$repo" worktree add -q -b "planwright/flight/$K" "$repo/.claude/worktrees/flight-$K" HEAD
@@ -471,7 +491,7 @@ rm -f "$repo/.claude/planwright.yml"
 # named as the install's fault, and a record that is not a regular file
 # holding one printable absolute path, named as the record's. Every case dies at once
 # and one pair of sweeps handles them all.
-bad_records='gone relative empty symlink ctl'
+bad_records='gone relative empty symlink ctl multiline'
 n_case=0
 # shellcheck disable=SC2086 # the record shapes are split on purpose
 for bad in $bad_records; do
@@ -488,6 +508,7 @@ for bad in $bad_records; do
       ln -s "$tmp/pinned-root.record" "$tmp/fleet/flights/$B/root"
       ;;
     ctl) printf '%s\001\n' "$pinned" >"$tmp/fleet/flights/$B/root" ;;
+    multiline) printf '%s\n%s\n' "$pinned" "$pinned" >"$tmp/fleet/flights/$B/root" ;;
   esac
   /bin/sh "$STATE" register "tmux-flight-$B" "flight:$B" --backend tmux --state-dir "$repo/.claude/worktrees/flight-$B" \
     --death-handle "process $(dead_pid "$((20 + n_case))")" >/dev/null || fail "fixture: could not register a dead worker"

@@ -29,8 +29,11 @@
 # CRASH POLICY. `supervise` is one pass of the fleet crash-loop policy over a
 # checkout's flights; the fleet sweep runs it every cycle. It reads the shared
 # flight sweep, so a worker is a crash only on positive evidence of death with
-# no landing: an unknown liveness, a print-rung flight, and a landed or queued
-# one are never crashes. For each dead flight it counts the death once, keyed
+# no landing, or with a landing whose completion was never pushed (no landing
+# reference beside the brief), since that worker still owed the work after
+# landing: an unknown liveness, a print-rung flight, a queued one, and a
+# landed one whose completion was pushed are never crashes. For each dead
+# flight it counts the death once, keyed
 # by the registry's death handle and claimed atomically beside the brief,
 # through scripts/fleet-liveness.sh crash-record under the fleet knobs
 # (fleet_crash_backoff_base_seconds, fleet_crash_disable_threshold); then
@@ -44,8 +47,8 @@
 # root, and a record that is not a regular file holding one printable
 # absolute path, or that names a root no longer installed, refuses the
 # relaunch, which counts as another crash. That relaunch is claimed once per
-# death too, so two sweeps racing on one death start one worker. crash-check consults the operator
-# kill-switch and crash-record does not, but the fleet sweep skips its whole
+# death too, so two sweeps racing on one death start one worker. crash-check
+# consults the operator kill-switch and crash-record does not, but the fleet sweep skips its whole
 # cycle while the switch is set, so under the sweep a paused death is counted
 # once the switch is cleared. The death is claimed BEFORE
 # crash-record runs, because crash-record is not idempotent, and no pass
@@ -365,7 +368,9 @@ relaunch() {
   _rl_root=''
   if [ -e "$FDIR/root" ] || [ -L "$FDIR/root" ]; then
     if [ -f "$FDIR/root" ] && [ ! -L "$FDIR/root" ]; then
-      _rl_root=$(head -n 1 "$FDIR/root" 2>/dev/null) || _rl_root=''
+      # Read whole: a second line is a newline inside the value, which the
+      # control-byte check below refuses.
+      _rl_root=$(cat -- "$FDIR/root" 2>/dev/null) || _rl_root=''
     fi
     case $_rl_root in
       /*) ;;
@@ -521,14 +526,21 @@ cmd_supervise() {
   # never is.
   render=$(/bin/sh "$SWEEP" sweep --repo-root "$repo_root" --no-forge --no-write 2>/dev/null </dev/null) \
     || die 4 "the flight sweep could not be read; nothing was supervised"
-  printf '%s\n' "$render" | awk -F "$TAB" '$1 == "flight" && $5 == "dead" && ($3 == "dead" || $3 == "unknown") { f = 1 } END { exit !f }' \
+  printf '%s\n' "$render" | awk -F "$TAB" '$1 == "flight" && $5 == "dead" && ($3 == "dead" || $3 == "unknown" || $3 == "landed") { f = 1 } END { exit !f }' \
     || return 0
   render=$(/bin/sh "$SWEEP" sweep --repo-root "$repo_root" --no-write 2>/dev/null </dev/null) \
     || die 4 "the flight sweep could not be read; nothing was supervised"
-  dead=$(printf '%s\n' "$render" | awk -F "$TAB" '$1 == "flight" && $3 == "dead" && $5 == "dead" { print $2 "\t" $6 }')
+  dead=$(printf '%s\n' "$render" | awk -F "$TAB" '$1 == "flight" && ($3 == "dead" || $3 == "landed") && $5 == "dead" { print $2 "\t" $6 "\t" $3 }')
   [ -n "$dead" ] || return 0
-  printf '%s\n' "$dead" | while IFS="$TAB" read -r _id _handle; do
+  printf '%s\n' "$dead" | while IFS="$TAB" read -r _id _handle _state; do
     valid_id "$_id" || continue
+    # A landed flight is done once its completion is pushed, which leaves the
+    # landing reference beside the brief; a worker that died before that still
+    # owes the work after landing (post-pr, the re-emit, the draft check).
+    if [ "$_state" = landed ]; then
+      flight_dir "$_id" || continue
+      [ ! -e "$FDIR/landing" ] && [ ! -L "$FDIR/landing" ] || continue
+    fi
     supervise_one "$_id" "$_handle"
   done
 }

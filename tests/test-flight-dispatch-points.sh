@@ -130,11 +130,11 @@ printf '%s\n' "$b" | grep -qF "launch tier takes the unit \`flight:$fid\`" \
 # the launch pins the root instead.
 printf '%s\n' "$b" | grep -q 'PLANWRIGHT_ROOT=\|PLANWRIGHT_SKILLS_ROOT=' \
   && fail "the brief must not prefix a command with a root assignment"
-flat "$b" | grep -q "Relaunch: issue one run id per worker launch. A relaunched worker fires again, each at its moment below, every point no run of this flight completed without a halted, failed, or limited step (\`step-record.sh list\` across every run), running its whole list; it takes no \`resume\` skip within a point (custom-steps' \`reuse\` skip and re-fire pass apply as in any run), and never fires a point this home never fires" \
+flat "$b" | grep -q "Relaunch: issue one run id per worker launch. A relaunched worker fires again, each at its moment below, every point no run of this flight completed without a halted, failed, or limited step (\`step-record.sh list\` across every run), running its whole list; it takes no \`resume\` skip within a point. Any \`reuse\` skip or re-fire pass the \*Points\* procedure runs applies as in any run, a re-fire pass taking the \`pre-ci\` and \`pre-pr\` lists as this launch resolves them, fired or not. It never fires a point this home never fires" \
   || fail "a relaunched worker must re-fire, at its moment, every point no run completed cleanly"
 flat "$b" | grep -q 'If this branch already carries commits of yours, or `step-record.sh list` shows a run of this flight, you are a relaunched worker' \
   || fail "the brief must define a relaunch once, by the evidence its rules use"
-printf '%s\n' "$b" | grep -qi 'resumes\|resume continuation\|--resume' && fail "the brief must not promise a resume the tooling lacks"
+flat "$b" | sed 's/takes no `resume` skip//' | grep -qi 'resum' && fail "the brief must not promise a resume the tooling lacks"
 flat "$b" | grep -q 'each from the latest run holding that point.s completion record' \
   || fail "each step table must render from the latest run that completed its point"
 case $(field "$OUT" launch) in
@@ -180,7 +180,7 @@ flat "$post" | grep -q 'its `## Pending sign-off` heading demoted to `####`' \
   || fail "the regenerated checklist's heading must be demoted under the record's"
 printf '%s\n' "$b" | grep -qF -- "> '$record_dir/pr-url.tmp' && mv '$record_dir/pr-url.tmp' '$record_dir/pr-url'" \
   || fail "a failed create must never empty pr-url"
-flat "$b" | grep -q "It first runs \*Landing\*'s landed check; a flight that has landed fires no point again whose moment comes before landing, since such a point's commits could never reach the landed PR or record" \
+flat "$b" | grep -q "It first runs \*Landing\*'s landed check; a flight that has landed fires again no point whose moment comes before landing, since such a point's commits could never reach the landed PR or record" \
   || fail "a relaunch must check landing first, and a landed flight must not re-fire a pre-landing point"
 flat "$b" | grep -q 'A non-zero exit from the push or the create parks the flight' \
   || fail "a failed push or create must park the flight"
@@ -188,15 +188,21 @@ printf '%s\n' "$b" | grep -qF -- "gh pr list --repo github.com/acme/widgets --he
   || fail "a relaunched worker must look for the flight's own same-repository PR"
 flat "$b" | grep -q 'A relaunched worker runs this landed check before it fires any point' \
   || fail "a relaunched pr-home worker must check landing before it fires any point"
-flat "$b" | grep -q 'A non-zero exit from the list or the view parks the flight: a failed lookup is never "no PR" or "not open"' \
+flat "$b" | grep -q 'A non-zero exit from the view or the list parks the flight: a failed lookup is never "no PR" or "not open"' \
   || fail "a failed PR lookup must park, never read as no PR"
-flat "$b" | grep -q 'Then, in this order: more than one line whose sha equals `git rev-parse HEAD` parks the flight; exactly one is the flight.s PR, and it has landed. Otherwise, when `record/pr-url` names a PR,' \
-  || fail "the lookup at this branch's tip must decide first, an ambiguous match parking"
-flat "$b" | grep -q 'must print `OPEN` for the flight to have landed, and anything else parks it. With neither, it has not landed: it fires its points and lands as above' \
-  || fail "a recorded PR lands the flight only while open, and no PR means not landed"
+flat "$b" | grep -q 'in this order. When `record/pr-url` exists, it is the flight.s own record of its PR:' \
+  || fail "the flight's own recorded PR must decide first"
+flat "$b" | grep -q 'must print `OPEN` for the flight to have landed, and anything else parks it. Otherwise it lists the open same-repository PRs on this branch' \
+  || fail "a recorded PR lands the flight only while open; the lookup decides only without one"
+flat "$b" | grep -q 'More than one line whose sha equals `git rev-parse HEAD` parks the flight; exactly one is the flight.s PR, and it has landed' \
+  || fail "an ambiguous match at this branch's tip must park"
+printf '%s\n' "$b" | grep -qF -- "awk -v h=\"\$(git rev-parse HEAD)\" '\$1 == h { print \$2 }' '$record_dir/pr-url.found' > '$record_dir/pr-url.tmp' && mv '$record_dir/pr-url.tmp' '$record_dir/pr-url'" \
+  || fail "a found PR's URL must be recorded alone, through a temporary file"
+flat "$b" | grep -q "With none, it has not landed: it fires the points \*Work and the points\*' Relaunch bullet says are still due and lands as above" \
+  || fail "a relaunch that has not landed fires only the points still due"
 printf '%s\n' "$b" | grep -qF "gh pr view <url> --repo github.com/acme/widgets --json state --jq .state" \
   || fail "a recorded PR must be checked open before it counts"
-flat "$b" | grep -q 'A landed relaunch writes that PR.s URL to `record/pr-url`, skips the push-and-create line, fires `post-pr` only if \*Work and the points\*. Relaunch bullet says it is still due, and runs the sequence after it (re-emit, draft check, completion) either way' \
+flat "$b" | grep -q 'A landed relaunch skips the push-and-create line, fires `post-pr` only if the Relaunch bullet says it is still due, and runs the sequence after it (re-emit, draft check, completion) either way' \
   || fail "a landed relaunch must skip the push and create, not re-fire a completed post-pr, yet still re-emit and check the draft"
 flat "$post" | grep -q 'replace its Pending sign-off section with the regenerated checklist' \
   || fail "a moved head must carry the regenerated checklist into the re-emit"
@@ -225,7 +231,7 @@ flat "$b" | grep -qF "A relaunched worker runs this landed check before it fires
   || fail "a relaunched file-home worker must test the record against HEAD, before any point"
 flat "$b" | grep -q "an interrupted land's leftover, which it clears at once, before any point can commit it" \
   || fail "an interrupted land's leftover must be cleared before a re-fired point can commit it"
-flat "$b" | grep -q 'A non-zero exit from it parks the flight, naming what it printed' \
+flat "$b" | grep -q 'A non-zero exit from that line parks the flight, naming what the line printed' \
   || fail "a failed leftover cleanup must park the flight"
 printf '%s\n' "$b" | grep -qF "git rm -q --cached --ignore-unmatch -- 'specs/_flights/$fid.md' && rm -f -- 'specs/_flights/$fid.md' 'specs/_flights'/.$fid.md.*" \
   || fail "a relaunched file-home worker must clear an interrupted land's record and temp link"

@@ -1739,7 +1739,10 @@ dispatch records they read are already settled.
 
 **Flight workers under the crash policy.** `scripts/flight-lifecycle.sh
 supervise` is the last pass. A visual flight's worker is a crash only when the
-shared flight sweep reads it `dead`: positive death evidence and no landing.
+shared flight sweep reads it `dead` (positive death evidence and no landing),
+or reads it landed with a dead worker that never pushed its completion, which
+leaves no landing reference beside the brief: that worker still owed the work
+after landing, which its relaunch finishes.
 Each death is counted once and relaunched at most once (both claimed
 atomically, keyed by the registry's death handle, so two sweeps racing on one
 death start one worker, and none relaunches it before its count is recorded;
