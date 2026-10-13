@@ -455,6 +455,9 @@ router has not demonstrated (REQ-B1.6).
 
 ## Awaiting input
 
+- **Task 14** — point `convergence`, step `polish`, outcome `failed`;
+  record `.claude/steps/000002/001-step-convergence.rec`.
+
 ## Deferred
 
 - **Tower floor bypass paths from the skill core's review.** The deny
