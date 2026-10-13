@@ -7,7 +7,7 @@ description: >
   via the steps_convergence list (default /polish --nested), then open a
   draft PR referencing the brief, tasks, REQs, and tests. The execution
   workhorse of the planwright pipeline. Assumes the worktree already exists;
-  never creates worktrees, never merges, readies its PR only per ready_flip_policy.
+  never creates worktrees; merges or readies only through its helpers.
 argument-hint: "<task-id> [<task-id> …] [<spec>]"
 ---
 
@@ -184,9 +184,9 @@ PR number whenever one exists):
    Past its `timeout`, a runner-owned step is ended, a session-owned one
    stopped through the seam or no longer waited on (recording which), outcome
    `failed`; an `in-session` command's goes to the shell tool.
-3. **Record** each outcome (a command's exit code; a session step classified
-   from its handoff) through `step-record.sh write`, the printed path being
-   the next step's `PREV_RECORD`; a `skip` line records `skipped`.
+3. **Record** each outcome (a command's exit code; a session step's outcome
+   from its handoff) through `step-record.sh write`, which prints the next
+   step's `PREV_RECORD`; a `skip` line records `skipped`, code `missing`.
 4. **Posture:** a `halted` or `failed` step under `on-failure: halt` ends the
    point and the unit through the pause protocol, the entry naming only the
    point, step id, outcome, and worktree-relative record path; `continue`
@@ -327,9 +327,9 @@ captured output (it prints `transient` or `logic`; unknown patterns default to
 
 After CI passes, resolve the `convergence` point (*Points* step 1), then **sync
 `main`** once (merge-currency-guard REQ-B1.1, REQ-B1.4, D-4), an empty list
-included: run `scripts/converge-sync-main.sh` (under the resolved planwright
-root); a non-zero exit halts the unit to Awaiting input with the reason it
-printed. The sync changes the head a later ready-flip lands on, never who flips.
+included: run `scripts/converge-sync-main.sh`; a non-zero exit halts the
+unit, parking a `park` record's text; a `resolve` or `repair` record's text
+overrides. The sync changes the head a later ready-flip lands on, never who flips.
 
 **Run the convergence steps** (*Points* steps 2–5); `steps_convergence` is the
 unit's convergence phase, core's default being `polish` with `--nested`. A
@@ -401,14 +401,15 @@ classify the edit on the amendment axis:
    ready flip, signs off pending-sign-off items; reject one before it by its
    printed recipe.
 
-   Never merge. Then run the
+   Then run the
    `post-pr` point, the PR number now in its context; after its list, re-emit
    the tables into the body, and if the PR head moved fetch and regenerate the
    checklist (`step-record.sh regenerate --base origin/<base> --head
    origin/<branch> --checklist-only`) and re-emit the handoff; verify the PR is still a draft,
    else park naming the post-pr steps (custom-steps REQ-E1.2). Earlier points
    never re-run. When `ready_flip_policy` resolves `unit-owner`, run
-   `scripts/ready-flip.sh`'s header sequence.
+   `scripts/ready-flip.sh`'s header sequence. Under `merge_policy:
+   policy-class`, `scripts/merge-admitted.sh`'s follows.
 3. **Annotate the unit (v1 bundles only).** On a format-version 2 bundle no
    annotation exists to write — skip this step. Update only the task
    block's `- **Last activity:** <today>` annotation; write **no** `Status`
@@ -447,8 +448,8 @@ These hold at every step:
   **never** bypass the execution freshness gate that composes with it — no
   bypass flag for either (REQ-C1.1, superseding REQ-J1.2, D-33; D-2, D-3,
   REQ-F1.9, REQ-C1.3).
-- **Never** create a non-draft PR or merge (merge is the human's), nor flip one
-  ready outside the `unit-owner` path above (D-21; human-gates REQ-C1.5).
+- **Never** create a non-draft PR, or merge or flip one ready outside the two
+  header sequences above (D-21; human-gates REQ-C1.5, REQ-D1.4).
 - **Never** create a worktree; this skill runs inside one (D-37, D-44).
 - **Never** let a step push before `post-pr`, merge, mark ready, or rewrite
   history: this skill owns push and PR creation (D-39; custom-steps REQ-D1.6).

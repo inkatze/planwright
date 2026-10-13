@@ -38,6 +38,16 @@ file in the store, the holder gained no commit, branch, or push, and the
 handoff names the file. `tests/test-behavioral-eval-holder-halt.sh` drives it
 hermetically.
 
+The **`authoring-posture` fixture** is the on-demand scenario pair for
+`/spec-draft` with its spec root outside the work repository
+(custom-spec-location REQ-E1.2, REQ-E1.3): a holder persona, whose bundle the
+stand-in commits on the holder's spec branch in the worktree
+`scripts/spec-store-worktree.sh` opens, and a plain persona, whose bundle is
+files alone. The grade asserts the work repository gains no commit, branch,
+or worktree, and, for the plain store, that no spec branch exists and the
+handoff names every skipped step and the absence of spec guards.
+`tests/test-behavioral-eval-authoring-posture.sh` drives it hermetically.
+
 ## Layout
 
 ```text
@@ -76,7 +86,8 @@ The real-tmux path needs `tmux` and `jq` on `PATH`. The hermetic branch coverage
 (`tests/test-behavioral-eval.sh` for the harness, `tests/test-behavioral-eval-kickoff.sh`
 for the kickoff acceptance layer, `tests/test-behavioral-eval-tower.sh` for the
 tower routing fixture, `tests/test-behavioral-eval-holder-halt.sh` for the
-holder halt fixture, and `tests/test-rubric-instrument.sh` for the rubric
+holder halt fixture, `tests/test-behavioral-eval-authoring-posture.sh` for the
+authoring posture fixture, and `tests/test-rubric-instrument.sh` for the rubric
 grader/self-audit — all run by `mise run test`) uses the shared **stub
 tmux** (`lib/tmux-stub.sh`) that replays the driver's answers through the real
 fixture skill, so CI needs no tmux, model, or API key.

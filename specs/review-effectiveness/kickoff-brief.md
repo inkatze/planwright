@@ -456,6 +456,39 @@ REQ-E1.6). Product strategy and packaging do not apply.
 
 Signed off: 2026-09-24
 
+### Execution notes: Task 1 (2026-10-11)
+
+Recorded by the executing task after sign-off; no row above is changed.
+
+- **The research seed's datasets were gone.** They lived only in the
+  drafting session's scratchpad. Corpus v1 was rebuilt from this public
+  repository's PR review threads (`gh api graphql`) by the refresh script,
+  with `--label-reasons` standing in for the seed's labels: the category,
+  class, and paraphrased gist come from a model annotator, recorded as label
+  source `model`. This is the label noise row 16 anticipates, not a new risk;
+  the catch rule still reads only file and line.
+- **Pull requests from before the history rewrite are unreplayable.** Their
+  commits share no history with today's main, so a replay has no base to
+  diff against; the refresh marks them unreplayable and the replay excludes
+  them.
+- **`declined` and `lintable` rows are scarce** (row 17): the declined-log
+  match found few rows, so a targeted replay of either class is a small
+  sample. The zero-row refusal still applies.
+- **A refresh carries labels forward.** A row the previous version already
+  holds (same PR, path, line, and commit) keeps its category, gist, class, and
+  dismissal; a ledger entry for its PR and path that now exists replaces only
+  the class. A drained ledger therefore never relabels it `other`; the `other` fallback applies to
+  findings new to the refresh with no ledger entry.
+- **The baseline reviewer walks the lenses inline** (operator decision,
+  2026-10-12). Task 1's deliverable and D-7 say "its lens fan-out"; the
+  default reviewer walks every lens in one session instead, because that is
+  how most measured nested convergence runs walked them and it costs about a
+  ninth of the tokens. A reviewer change that fans out is replayed through its
+  own reviewer command against the same corpus.
+- **Replay cost, measured** (row 6): one row of today's pass costs from a
+  few hundred thousand to over a million tokens and a minute or several; the
+  baseline result records the run's total.
+
 ## 8. Sign-off
 
 ### Lens review pass (full bundle, first activation)

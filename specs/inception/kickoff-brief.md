@@ -176,11 +176,21 @@ Open questions: none — all resolved to decisions or accepted risks.
 
 Signed off: 2026-07-13
 
+### Execution research — Task 4 (2026-10-11)
+
+Appended by `/execute-task`; no row above is changed.
+
+| # | Finding | Tradeoff / handling |
+| --- | --- | --- |
+| R9 | The product-strategy card's "worked example" is operator-side research material not reachable from a worker; the card was re-authored from primary sources re-verified on 2026-10-11 (Christensen et al. HBR 2016, Dunford 2019, Moore 3rd ed. 2014, Rumelt 2011/2022, Cagan SVPG 2017, Bland & Osterwalder 2020, Amplitude 2019, NN/g 2024 on synthetic users) | Dunford and Rumelt were confirmed only through publisher and secondary material; the card's `## Sources` says so per entry, and the operator can diff it against the worked example at review |
+| R10 | Card storage minted a home: `cards/<id>.md` in core, `cards/` / `cards.local/` beside each overlay layer's `catalogs/`. A card is class 1 (framework config) in `doctrine/storage-classes.md`'s terms, layered on the overlay chain, so no class is new; the nearest existing homes within class 1: `doctrine/` (rule docs, whole-doc shadow, index bijection; a card is data, not a rule) and `config/` catalogs (the constrained reader takes single-line scalars only; a card is a multi-section document) | The `discipline-cards` catalog stays the merge seam (append/union, supersede-by-id) and carries only id and display name; `scripts/resolve-card.sh` maps an id to the supplying layer's card with charset validation and canonicalize-then-contain, so an overlay card symlinked out of its layer root is refused |
+| R11 | The linter's frame-anchor check (a mandate question must name the frame or the venture) and its identity-phrase list are lexical floors, not quality judgments | Stated as deliberate non-enforcement in the linter header and as the recipe's review and styling steps; a generic question rephrased to mention the frame passes the lint and is the recipe reviewer's to catch |
+
 ### Execution research — Task 7 (2026-10-11)
 
 | # | Risk | Mitigation / early signal |
 | --- | --- | --- |
-| R9 | Ephemeral-environment detection rests on a platform claim: Claude Code's env-var reference documents `CLAUDE_CODE_REMOTE` as set to `true` in a cloud session (source: code.claude.com/docs/en/env-vars, read 2026-10-11). Other ephemeral hosts (Cowork, third-party sandboxes) set nothing the helper reads. | The helper reads the documented variable and takes `PLANWRIGHT_INCEPTION_EPHEMERAL=1\|0` as the operator's override either way; Task 14's detection and build-time re-verification own the wider host set (R5). Early signal: a dogfood run on a cloud session that reports the local arm as durable. |
+| R12 | Ephemeral-environment detection rests on a platform claim: Claude Code's env-var reference documents `CLAUDE_CODE_REMOTE` as set to `true` in a cloud session (source: code.claude.com/docs/en/env-vars, read 2026-10-11). Other ephemeral hosts (Cowork, third-party sandboxes) set nothing the helper reads. | The helper reads the documented variable and takes `PLANWRIGHT_INCEPTION_EPHEMERAL=1\|0` as the operator's override either way; Task 14's detection and build-time re-verification own the wider host set (R5). Early signal: a dogfood run on a cloud session that reports the local arm as durable. |
 
 ## 8. Sign-off
 

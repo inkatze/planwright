@@ -23,9 +23,10 @@ Knob values, overlay doctrine, overlay catalogs.
 `<repo>/.claude/planwright.local.yml` (machine-local, gitignored),
 `<repo>/.claude/planwright.yml` (repo-tracked, committed), the adopter
 overlay's `planwright.yml`, and the core defaults in
-[`config/defaults.yml`](../config/defaults.yml). Doctrine and catalog overlays
-follow the same layering under `doctrine/`, `doctrine.local/`, `catalogs/`,
-and `catalogs.local/`.
+[`config/defaults.yml`](../config/defaults.yml). Doctrine, catalog, and
+discipline-card overlays follow the same layering under `doctrine/`,
+`doctrine.local/`, `catalogs/`, `catalogs.local/`, `cards/`, and
+`cards.local/`.
 
 Everything except the machine-local layer is committed and reviewed. Config
 never holds derived values (that is class 2) and never holds secrets (see

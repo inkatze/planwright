@@ -262,14 +262,16 @@ fi
 # One `<rule><TAB><ERE>` line per shape. grep -E is the engine because POSIX
 # requires interval expressions there and not in awk, and because grep -n gives
 # the line number without ever handing the matched text back to the caller.
+# Case-insensitivity is spelled per rule in bracket pairs, not with grep -i,
+# which would loosen the provider prefixes that are case-exact.
 rules=$(
   cat <<'RULES'
-private-key-block	-----BEGIN ([A-Z]+ )?PRIVATE KEY-----
+private-key-block	-----BEGIN ([A-Z0-9]+ )*PRIVATE KEY( BLOCK)?-----|---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----|PuTTY-User-Key-File-[0-9]+:
 aws-access-key-id	(AKIA|ASIA)[0-9A-Z]{16}
 github-token	gh[pousr]_[A-Za-z0-9]{36,}
 slack-token	xox[abpsr]-[A-Za-z0-9-]{16,}
 provider-api-key	sk-[A-Za-z0-9_-]{24,}
-opaque-assignment	(api[_-]?key|secret|token|password|passwd)['\"]?[ 	]*[:=][ 	]*['\"]?[A-Za-z0-9/+=_-]{20,}
+opaque-assignment	([Aa][Pp][Ii][_-]?[Kk][Ee][Yy]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Tt][Oo][Kk][Ee][Nn]|[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Pp][Aa][Ss][Ss][Ww][Dd])['\"]?[ 	]*[:=][ 	]*['\"]?[A-Za-z0-9/+=_-]{20,}
 RULES
 )
 

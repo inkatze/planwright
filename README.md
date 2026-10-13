@@ -208,6 +208,8 @@ delivered while you keep sign-off and merge, that is planwright.
 - [Customizing with overlays](docs/overlays.md) — the four-layer model and
   per-kind merge rules.
 - [Conventions](docs/conventions.md) — branch, worktree, and repo conventions.
+- [Spec location](docs/spec-location.md) — where bundles live, the spec root's
+  postures, and how authoring works in each.
 - [Orchestration state](docs/orchestration-state.md) — how progress is derived
   from git/GitHub evidence rather than kept in a mutable ledger.
 - [Fleet operation](docs/fleet.md) — the approachable path: the one entry
