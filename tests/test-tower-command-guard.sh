@@ -237,6 +237,7 @@ assert_defer "force-push helper through a repo hardlink" "scripts/fp-hard.sh pus
 assert_defer "force-push helper through a plugin hardlink" "bash $PLUGIN_ROOT/scripts/fp-hard.sh confirm --branch b --to abc"
 # A case-insensitive filesystem (macOS) runs the helper under any casing.
 assert_defer "force-push helper in another casing" "scripts/Tower-Force-Push.sh push --branch b --to abc --lease def"
+assert_defer "force-push helper in upper case" "scripts/TOWER-FORCE-PUSH.sh confirm --branch b --to abc"
 
 # The pending-request read: the shipped profile approves it through this guard
 # rather than a static allow entry, so it works out of the box as long as the

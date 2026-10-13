@@ -579,9 +579,9 @@ is_planwright_script() {
   local p=$1 cwd=$2 root proot full rel
   # The force-push path runs on the operator's request in the same turn, so
   # its every verb reaches the permission prompt (doctrine/human-gates.md).
-  # Folded, since a case-insensitive filesystem runs it under any casing.
-  case $(printf '%s' "${p##*/}" | tr '[:upper:]' '[:lower:]') in
-    tower-force-push.sh) return 1 ;;
+  # Any casing, since a case-insensitive filesystem runs it under any.
+  case ${p##*/} in
+    [Tt][Oo][Ww][Ee][Rr]-[Ff][Oo][Rr][Cc][Ee]-[Pp][Uu][Ss][Hh].[Ss][Hh]) return 1 ;;
   esac
   case $p in
     *.sh) ;;
