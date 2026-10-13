@@ -1068,6 +1068,46 @@ assert_eq "Z15 a credential in an outgoing file name blocks the push (exit 1)" 1
 assert_eq "Z15 the refused push leaves the remote untouched" "$remote_before" "$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)"
 git -C "$rv" reset -q --hard "$rv_base"
 
+# =========================================================================
+# Z16 — the screened push file never opens with bytes that look like a
+# binary format, which gitleaks' directory mode skips
+# =========================================================================
+
+mkdir -p "$stubs/gl-head"
+cat >"$stubs/gl-head/gitleaks" <<EOF
+#!/bin/sh
+# Record the first bytes of each scanned path; report clean.
+case "\$*" in *--help*) echo '--exit-code'; exit 0 ;; esac
+[ "\$1" = dir ] && head -c 8 "\$2" >>"$tmp/gl-head.log" && printf '\n' >>"$tmp/gl-head.log"
+exit 0
+EOF
+chmod +x "$stubs/gl-head/gitleaks"
+rv_base=$(git -C "$rv" rev-parse HEAD)
+git -C "$rv" -c core.hooksPath=/dev/null commit -q --no-verify --allow-empty -m '%PDF-1.4 looks like a document'
+: >"$tmp/gl-head.log"
+PATH="$stubs/gl-head:$stubs/gh-ok:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks \
+  venture save --push "$rv" "Share a commit whose message opens like a PDF"
+assert_not_contains "Z16 the screened push file does not open with the commit message" "%PDF" "$(cat "$tmp/gl-head.log")"
+git -C "$rv" reset -q --hard "$rv_base"
+# The stub reports clean, so that push went through; put both refs back.
+git -C "$tmp/remotes/harbor-ledger.git" update-ref refs/heads/main "$rv_base"
+git -C "$rv" update-ref refs/remotes/origin/main "$rv_base"
+
+if command -v gitleaks >/dev/null 2>&1; then
+  remote_before=$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)
+  # A key block, which gitleaks' default rules flag (the low-entropy fixture
+  # token is allowlisted there). Split literals keep scanners off this file.
+  printf -- '%s\n%s\n%s\n' "-----BEGIN RSA PRIVATE KEY""-----" \
+    "MIIEowIBAAKCAQEA7Zx2Lm""9Rt4Wb8Nc1Yv6Ha3Pd5Sj0Ug2EfKq" "-----END RSA PRIVATE KEY""-----" >"$rv/pdf-leak.md"
+  git -C "$rv" add -A
+  git -C "$rv" -c core.hooksPath=/dev/null commit -q --no-verify -m '%PDF-1.4 looks like a document'
+  PATH="$stubs/gh-ok:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks \
+    venture save --push "$rv" "Share a leak behind a PDF-looking message"
+  assert_eq "Z16 real gitleaks still screens a push opening like a PDF (exit 1)" 1 "$rc"
+  assert_eq "Z16 the refused push leaves the remote untouched" "$remote_before" "$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)"
+  git -C "$rv" reset -q --hard "$rv_base"
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

@@ -840,7 +840,11 @@ screen_outgoing() {
   # Every commit message and every file version the push sends, read as raw
   # contents: a diff hides files git treats as binary (an attribute, a NUL
   # byte) and files that arrive only through a merge.
-  git -C "$1" log --format=%B HEAD --not --remotes=origin >"$tmp_path" 2>/dev/null \
+  # A fixed plain-text first line: gitleaks' directory mode skips a file whose
+  # opening bytes look like a binary format (%PDF, a zip header), and the
+  # newest commit message would otherwise choose those bytes.
+  printf 'planwright venture push screen\n' >"$tmp_path"
+  git -C "$1" log --format=%B HEAD --not --remotes=origin >>"$tmp_path" 2>/dev/null \
     || die 2 "cannot read the history a push would send"
   outgoing_blobs "$1" >>"$tmp_path" || die 2 "cannot read the files a push would send"
   sd_rc=0
