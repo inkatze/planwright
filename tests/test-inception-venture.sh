@@ -1184,6 +1184,18 @@ PATH="$stubs/gh-ok:$PATH" venture save --push "$ph" "Share to another host"
 assert_eq "Z23 a host the GitHub CLI is not signed in to is refused (exit 6)" 6 "$rc"
 assert_contains "Z23 the refusal names the unsigned host" "not signed in to" "$out"
 
+# =========================================================================
+# Fork F7 — resume-point names the venture's home, so a resumed venture
+# saves the way its home calls for
+# =========================================================================
+
+venture resume-point "$rv"
+assert_contains "F7 resume-point names a remote home" "$(printf 'home\tremote')" "$out"
+venture resume-point "$gp"
+assert_contains "F7 resume-point names a local home" "$(printf 'home\tlocal')" "$out"
+venture resume-point "$scratch/iota"
+assert_contains "F7 resume-point names a session home" "$(printf 'home\tsession')" "$out"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

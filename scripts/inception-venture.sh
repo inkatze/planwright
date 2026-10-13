@@ -17,7 +17,7 @@
 #   mark-phase <venture-dir> <phase>
 #                         record a completed elicitation phase (resume point)
 #   resume-point <venture-dir>
-#                         version-gate the bundle and name the next phase
+#                         version-gate the bundle; name the next phase and the home
 #   save [--push] [--expert] <venture-dir> <message>
 #                         the wrapped save: commit (git rungs), screen, push;
 #                         --expert reports in git's terms, not plain words
@@ -645,11 +645,29 @@ phase_marked() {
   grep -q "^- [0-9-]* — Elicitation: $2 phase complete\.\$" "$1/brief.md"
 }
 
+# venture_home <venture-dir> — local, remote, or session, read from the venture
+# itself. Without git the home is read from the repository's own config, so a
+# remote venture is not warned to choose the home it already has.
+venture_home() {
+  vh=local
+  if is_repo_root "$1" && git --version >/dev/null 2>&1; then
+    git -C "$1" remote get-url origin >/dev/null 2>&1 && vh=remote
+    [ "$(git -C "$1" config inception.home 2>/dev/null)" = session ] && vh=session
+  elif [ -f "$1/.git/config" ] && grep -q '^\[remote "origin"\]' "$1/.git/config"; then
+    vh=remote
+  elif [ -f "$1/$SESSION_MARKER" ]; then
+    vh=session
+  fi
+  printf '%s\n' "$vh"
+}
+
 cmd_resume_point() {
   [ $# -eq 1 ] || usage
   require_dir "$1"
   version_gate "$1"
   resume_state "$1"
+  # The home tells a resumed run whether its saves are shared (--push).
+  printf 'home\t%s\n' "$(venture_home "$1")"
 }
 
 # resume_state <venture-dir> — the done/next/pending lines, for a bundle the
@@ -1027,19 +1045,9 @@ cmd_handoff() {
   [ $# -eq 1 ] || usage
   require_dir "$1"
   probe
-  home=local
   git_usable=no
-  if is_repo_root "$1" && [ "$has_git" = yes ]; then
-    git_usable=yes
-    git -C "$1" remote get-url origin >/dev/null 2>&1 && home=remote
-    [ "$(git -C "$1" config inception.home 2>/dev/null)" = session ] && home=session
-  elif [ -f "$1/.git/config" ] && grep -q '^\[remote "origin"\]' "$1/.git/config"; then
-    # Without git the home is read from the repository's own config, so a
-    # remote venture is not warned to choose the home it already has.
-    home=remote
-  elif [ -f "$1/$SESSION_MARKER" ]; then
-    home=session
-  fi
+  if is_repo_root "$1" && [ "$has_git" = yes ]; then git_usable=yes; fi
+  home=$(venture_home "$1")
   rung=$(ladder_rung "$git_usable" "$home")
 
   v_rc=0
