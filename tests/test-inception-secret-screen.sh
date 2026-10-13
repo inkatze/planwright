@@ -456,6 +456,37 @@ else
   assert_eq "same subdirectory readable: found, as a control" "1" "$rc"
 fi
 
+# A venture's own gitleaks config must not decide what the screen looks for:
+# every gitleaks run names planwright's config. The stub records its argv, so
+# this holds on hosts without gitleaks too.
+cfgstub="$tmp/cfgstub"
+mkdir -p "$cfgstub"
+cat >"$cfgstub/gitleaks" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >>"$tmp/gl-args.log"
+exit 0
+EOF
+chmod +x "$cfgstub/gitleaks"
+: >"$tmp/gl-args.log"
+PATH="$cfgstub:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$tmp/clean.md" >/dev/null 2>&1
+(cd "$repo" && PATH="$cfgstub:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" --staged) >/dev/null 2>&1
+scans=$(grep -c -e '--no-banner' "$tmp/gl-args.log")
+named=$(grep -e '--no-banner' "$tmp/gl-args.log" | grep -c -F -e "--config $REPO_ROOT/config/inception-gitleaks.toml")
+assert_eq "gitleaks config: both scans ran" "2" "$scans"
+assert_eq "gitleaks config: every scan names planwright's config" "$scans" "$named"
+
+if command -v gitleaks >/dev/null 2>&1; then
+  # The real thing: a repo-local config with no rules would pass any key.
+  cfgrepo="$tmp/cfg-repo"
+  git init -q "$cfgrepo"
+  printf 'title = "no rules"\n' >"$cfgrepo/.gitleaks.toml"
+  cp "$tmp/key.pem" "$cfgrepo/key.pem"
+  (cd "$cfgrepo" && git add .gitleaks.toml key.pem)
+  (cd "$cfgrepo" && PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" --staged) >/dev/null 2>&1
+  rc=$?
+  assert_eq "gitleaks config: a venture's rule-free .gitleaks.toml does not wave a key through" "1" "$rc"
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-secret-screen: $failures assertion(s) failed" >&2
   exit 1

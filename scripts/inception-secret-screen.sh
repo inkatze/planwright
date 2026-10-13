@@ -149,6 +149,14 @@ if [ "$tool" != none ] && command -v gitleaks >/dev/null 2>&1; then
   # Probe for it rather than assume, and say so when it is missing, because a
   # screen that cannot tell those apart should not pretend it can.
   GL_LEAK_RC=7
+  # gitleaks prefers a repo's own .gitleaks.toml over its defaults, so a
+  # venture could otherwise ship a rule-free config and pass any credential.
+  # Every run names planwright's config instead; a missing one refuses.
+  gl_config="$(cd "$script_dir/.." && pwd)/config/inception-gitleaks.toml"
+  if [ ! -r "$gl_config" ]; then
+    echo "inception-secret-screen: planwright's gitleaks config is missing; refusing to screen with a repository's own rules" >&2
+    exit 2
+  fi
   if gitleaks "$gl_dir_cmd" --help 2>/dev/null | grep -q -- '--exit-code'; then
     gl_exit_flag=1
   else
@@ -161,9 +169,9 @@ if [ "$tool" != none ] && command -v gitleaks >/dev/null 2>&1; then
   gitleaks_run() {
     grc=0
     if [ "$gl_exit_flag" -eq 1 ]; then
-      gitleaks "$@" --exit-code "$GL_LEAK_RC" >"$work/gl.out" 2>&1 || grc=$?
+      gitleaks "$@" --config "$gl_config" --exit-code "$GL_LEAK_RC" >"$work/gl.out" 2>&1 || grc=$?
     else
-      gitleaks "$@" >"$work/gl.out" 2>&1 || grc=$?
+      gitleaks "$@" --config "$gl_config" >"$work/gl.out" 2>&1 || grc=$?
     fi
     [ "$grc" -eq 0 ] && return 0
     cat "$work/gl.out" >&2
