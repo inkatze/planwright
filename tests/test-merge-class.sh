@@ -148,7 +148,8 @@ check "the marker mid-subject is not a legacy commit" pred sign-off pass
 scenario 'core-zone - a path the core zone holds'
 for p in hooks/hooks.json config/worker-settings.json scripts/policy-guard.sh scripts/merge-admitted.sh \
   .github/workflows/ci.yml doctrine/human-gates.md tests/fixtures/reserved-control-spellings \
-  package-lock.json web/yarn.lock .claude/planwright.yml mise.toml config/defaults.yml scripts/resolve-root.sh; do
+  package-lock.json web/yarn.lock .claude/planwright.yml mise.toml config/defaults.yml scripts/resolve-root.sh \
+  skills/execute-task/SKILL.md; do
   admitted_fixture
   mp_commit 'chore: touch the zone' "$p" x
   evaluate
