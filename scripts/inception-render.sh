@@ -130,6 +130,17 @@ case $target in
   *) target="./$target" ;;
 esac
 
+# A bundle arrives through commits other people push. A symbolic link at
+# exports/ would send the pages anywhere the link points, and one at a bundle
+# file would pull content from outside the repo into a page that may be
+# published, so neither is followed.
+for entry in exports brief.md disciplines.md assumptions.md decisions.md plan.md; do
+  if [ -h "$target/$entry" ]; then
+    printf '%s\n' "inception-render: $entry is a symbolic link; refusing to render through it" >&2
+    exit 2
+  fi
+done
+
 # Readable, not executable, and run through /bin/sh: whatever copies a plugin
 # tree onto a venture host may drop the +x bit without dropping the file, and
 # refusing to render because of a file mode would take the export regeneration

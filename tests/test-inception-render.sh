@@ -621,6 +621,29 @@ rc=$?
 assert_eq "impossible today: exit 2" "2" "$rc"
 assert_no_file "impossible today: nothing is written" "$v/exports/venture.html"
 
+# A symlink in the bundle is refused: a pushed link at exports/ would redirect
+# the pages outside the repo, and one at a bundle file would pull outside
+# content into a page that may be published.
+v="$(fresh)"
+mkdir -p "$tmp/outside-exports"
+ln -s "$tmp/outside-exports" "$v/exports"
+out="$("$RENDER" "$v" 2>&1)"
+rc=$?
+assert_eq "symlinked exports/: exit 2" "2" "$rc"
+assert_contains "symlinked exports/: says why" "symbolic link" "$out"
+leftover="$(find "$tmp/outside-exports" -type f 2>/dev/null)"
+assert_eq "symlinked exports/: nothing is written through it" "" "$leftover"
+
+v="$(fresh)"
+printf '| leaked | from | outside |\n' >"$tmp/outside-notes.md"
+mv "$v/disciplines.md" "$tmp/real-disciplines.md"
+cat "$tmp/real-disciplines.md" "$tmp/outside-notes.md" >"$tmp/linked-disciplines.md"
+ln -s "$tmp/linked-disciplines.md" "$v/disciplines.md"
+out="$("$RENDER" "$v" 2>&1)"
+rc=$?
+assert_eq "symlinked bundle file: exit 2" "2" "$rc"
+assert_no_file "symlinked bundle file: no page is written" "$v/exports/venture.html"
+
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-render: $failures assertion(s) failed" >&2
   exit 1
