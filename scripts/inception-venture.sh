@@ -914,6 +914,11 @@ cmd_add_remote() {
   rm -f "$dir/hygiene-wiring.md"
   /bin/sh "$self_dir/inception-scaffold.sh" --rung remote --wire "$dir" >/dev/null \
     || die 2 "the remote-rung scaffold failed; run add-remote again to retry it"
+  # A session venture is durable once it has a remote; drop the session mark
+  # so handoff reports the home it now has.
+  if [ -n "$(git -C "$dir" config inception.home 2>/dev/null)" ]; then
+    git -C "$dir" config --unset inception.home || die 2 "cannot clear the session home"
+  fi
   printf 'venture\t%s\n' "$dir"
   printf 'home\tremote\n'
 }

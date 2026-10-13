@@ -999,6 +999,20 @@ assert_eq "Z14 add-remote finishes the setup" 0 "$rc"
 assert_exists "Z14 the retry lays down the CI guard" "$tmp/z14/mu/.github/workflows/venture-guard.yml"
 assert_eq "Z14 the retry wires the hooks" githooks "$(git -C "$tmp/z14/mu" config core.hooksPath)"
 
+# =========================================================================
+# Fork F6 — a session venture moved onto a remote stops reading as session
+# =========================================================================
+
+PATH="$stubs/gh-ok:$PATH" venture create --home session --root "$scratch" nu
+venture bundle-init --title "Nu" "$scratch/nu"
+venture save "$scratch/nu" "Start the Nu venture"
+PATH="$stubs/gh-ok:$PATH" venture add-remote "$scratch/nu"
+assert_eq "F6 add-remote on a session venture succeeds" 0 "$rc"
+PATH="$stubs/gh-ok:$PATH" venture handoff "$scratch/nu"
+assert_contains "F6 handoff reports the remote home" "$(printf 'home\tremote')" "$out"
+assert_contains "F6 handoff reports the git rung" "$(printf 'rung\tgit')" "$out"
+assert_not_contains "F6 handoff drops the session warning" "does not persist" "$out"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
