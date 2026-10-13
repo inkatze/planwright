@@ -1,7 +1,7 @@
 # The messaging platform contract scripts/fleet-messaging.sh consumes, frozen
 # as last observed (doctrine/messaging-transport.md), read by
 # tests/test-fleet-messaging-contract.sh. Raise last_verified_pin to each newly
-# observed CLI version, never lower it. A behavior not yet observed live reads
+# observed CLI version, never lower it. A value not yet observed live reads
 # `unrecorded`; replace it with the observed outcome. Columns: key<TAB>value.
 last_verified_pin	2.1.296
 documented_minimum	2.1.224
@@ -14,10 +14,10 @@ frame_type	user
 message_keys	role content
 reply_address_prefix	uds:
 post_response	none
-status_frame_type	control
-status_frame_action	peer_message_status
-status_frame_keys	action status reason from orig_msg_id
-status_values	held denied expired delivered refused dropped
+status_frame_type	unrecorded
+status_frame_action	unrecorded
+status_frame_keys	unrecorded
+status_values	unrecorded
 session_record_keys	pid sessionId cwd startedAt procStart version peerProtocol peerFeatures kind entrypoint pidDomain messagingSocketPath name nameSource nameSince status updatedAt statusUpdatedAt
 session_record_name_key	name
 session_record_socket_key	messagingSocketPath

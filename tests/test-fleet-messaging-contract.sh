@@ -138,12 +138,12 @@ EOF
     *'"type":"'"$(value "$cf" frame_type)"'"'*) ;;
     *) echo "frame_type: the frame is not of type '$(value "$cf" frame_type)'" ;;
   esac
-  # The message object's keys in the frozen order, every one but the last
+  # The message object's keys in the frozen order, each one
   # holding a string.
   msg_re=$(value "$cf" message_keys | awk '{
     r = ""
     for (i = 1; i < NF; i++) r = r "\"" $i "\":\"[^\"]*\","
-    print r "\"" $NF "\":"
+    print r "\"" $NF "\":\""
   }')
   printf '%s\n' "$frame" | grep -q "\"message\":{$msg_re" \
     || echo "message_keys: the frame's message is not {$(value "$cf" message_keys)}"
@@ -192,9 +192,9 @@ if [ -n "$violations" ]; then
 fi
 echo "ok: fleet-messaging.sh matches the frozen platform contract"
 
-unrecorded=$(awk -F '\t' '$1 ~ /^behavior_/ && $2 == "unrecorded" { print $1 }' "$FIXTURE")
+unrecorded=$(awk -F '\t' '$2 == "unrecorded" { print $1 }' "$FIXTURE")
 if [ -n "$unrecorded" ]; then
-  printf '%s\n' "$unrecorded" | sed 's/^/note: behavior still unrecorded live: /'
+  printf '%s\n' "$unrecorded" | sed 's/^/note: still unrecorded live: /'
 fi
 
 # The guard fails, naming the assumption, when one is violated.

@@ -123,7 +123,7 @@ dashboard_scenario() {
 
 watch_scenario() {
   seed_store "$2"
-  henv "$2" /bin/sh "$1/scripts/fleet-attention-watch.sh" watch --once >"$3/stdout" 2>"$3/stderr"
+  henv "$2" /bin/sh "$1/scripts/fleet-attention-watch.sh" watch --once >"$3/stdout" 2>"$3/stderr" || return
   cp "$2/attention/watch.sig" "$3/watch.sig"
 }
 
