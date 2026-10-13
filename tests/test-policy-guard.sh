@@ -174,6 +174,20 @@ for spell in 'bash -e < scripts/merge-admitted.sh' 'bash -s -- --spec x < script
   pg tower "$spell"
   expect deny "[tower] a shell with an option reading the helper on stdin is refused: $spell"
 done
+set_knobs 'merge_policy: policy-class' 'ready_flip_policy: human'
+for opts in '-x' '-ex' '-o pipefail' '-euo pipefail' '-eO extglob' '--norc' '--' '-e --'; do
+  pg worker "bash $opts $REAL_SCRIPTS/merge-admitted.sh --spec specs/demo --task 1"
+  expect defer "[worker] policy-class: bash $opts before the helper is parsed as the shell's options"
+  reads merge_policy "[worker] bash $opts before the helper reads merge_policy"
+done
+# shellcheck disable=SC2016 # the unexpanded forms are the spellings under test
+for spell in 'F=$ROOT/scripts/ready-flip.sh; bash "$F" flip --spec x --for-merge # merge-admitted' \
+  'bash -s flip --spec x --for-merge < $ROOT/scripts/ready-flip.sh # merge-admitted'; do
+  for tier in worker tower; do
+    pg "$tier" "$spell"
+    expect deny "[$tier] a stem elsewhere in the command does not carry a --for-merge past the guard: $spell"
+  done
+done
 set_knobs 'merge_policy: human' 'ready_flip_policy: unit-owner'
 for spell in 'bash tests/test-merge-admitted.sh' 'shellcheck scripts/merge-admitted.sh && bash tests/test-merge-admitted.sh' \
   'git commit -m "docs: explain the --for-merge flag"' 'rg -n -- --for-merge scripts/' 'bash tests/test-*.sh' \

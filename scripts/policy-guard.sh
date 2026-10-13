@@ -1057,7 +1057,9 @@ classify_segments() {
               [-+]*)
                 case ${SW[$k]} in *c*) opt_c=1 ;; esac
                 case ${SW[$k]} in *s*) opt_s=1 ;; esac
-                k=$((k + 1))
+                # A cluster's o or O takes the next word as its value.
+                a1=${SW[$k]//[!oO]/}
+                k=$((k + 1 + ${#a1}))
                 ;;
               *) break ;;
             esac
@@ -1068,8 +1070,15 @@ classify_segments() {
             if [ "$opt_s" = 0 ] && [ -n "$a1" ] && names_helper "$a1"; then
               helper=1
             elif [ "$opt_s" = 1 ] || [ -z "$a1" ] || [ "${SWL[$k]}" != 1 ]; then
+              # Inferred from the command's text, not this segment's own
+              # words, so the flag check below cannot be told apart from it:
+              # the flag anywhere in the command refuses.
               lc "$P_CMD"
-              [[ ! $LC =~ $RE_MERGE_HELPER ]] || helper=1
+              if [[ $LC =~ $RE_MERGE_HELPER ]]; then
+                helper=1
+                [[ ! $LC =~ $RE_FOR_MERGE ]] \
+                  || deny_now 'this shell runs a script the guard cannot name, in a command naming the merge helper and the --for-merge flag of scripts/ready-flip.sh - refusing (fail closed). Run the helper by its path on its own.'
+              fi
             fi
           fi
           ;;
