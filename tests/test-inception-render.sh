@@ -644,6 +644,15 @@ rc=$?
 assert_eq "symlinked bundle file: exit 2" "2" "$rc"
 assert_no_file "symlinked bundle file: no page is written" "$v/exports/venture.html"
 
+# A success metric written over two paragraphs shows both on the dashboard.
+v="$(fresh)"
+sed_i "$v/brief.md" 's|^Median incident-handover time drops below ten minutes within one quarter of adoption.$|&\
+\
+Measured from the incident-close event to the handover report.|'
+"$RENDER" --mode dashboard "$v" >/dev/null 2>&1
+assert_contains "dashboard: a second metric paragraph is kept" \
+  "Measured from the incident-close event" "$(cat "$v/exports/venture.html")"
+
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-render: $failures assertion(s) failed" >&2
   exit 1

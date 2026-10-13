@@ -632,7 +632,8 @@ function dashboard(   i, a, d, j, nb, ngf, gf) {
   print "</ul>"
 
   print "<h2>Success metric</h2>"
-  print "<p>" (METRIC == "" ? "not named" : inl(METRIC)) "</p>"
+  if (METRIC == "") print "<p>not named</p>"
+  else paras(PROSE["Success metric"])
 
   # --- the bundle in full, below the status view ---
 
