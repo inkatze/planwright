@@ -19,7 +19,8 @@
 #   resume-point <venture-dir>
 #                         version-gate the bundle and name the next phase
 #   save [--push] [--expert] <venture-dir> <message>
-#                         the wrapped save: commit (git rungs), screen, push
+#                         the wrapped save: commit (git rungs), screen, push;
+#                         --expert reports in git's terms, not plain words
 #   add-remote [--owner <o>] <venture-dir>
 #                         move a local-only venture onto a private remote
 #   handoff <venture-dir> the end-of-run state, degradations repeated
