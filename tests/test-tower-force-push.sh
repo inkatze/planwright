@@ -193,6 +193,40 @@ else
   fail "log.showSignature polluted the helper (reword $rc, confirm $rc2: $(cat "$tmp/out" "$tmp/err"))"
 fi
 g config --unset log.showSignature
+# commit.gpgSign on: every replayed commit is signed, or the reword refuses.
+unsigned=0
+for c in $(g rev-list "main..$NEW"); do
+  g cat-file commit "$c" | grep -q '^gpgsig' && unsigned=1
+done
+[ "$unsigned" = 0 ] || fail "reword signed a replay with commit.gpgSign off"
+g config commit.gpgSign true
+rc=$(rc_of fp reword --branch signed --commit "$SIGNED_BAD" --message-file "$tmp/msg")
+SIGNED_NEW=$(awk -F '\t' '$1 == "to" { print $2 }' "$tmp/out")
+signed=0
+if [ "$rc" = 0 ] && [ -n "$SIGNED_NEW" ]; then
+  signed=1
+  for c in $(g rev-list "main..$SIGNED_NEW"); do
+    g cat-file commit "$c" | grep -q '^gpgsig' || signed=0
+  done
+fi
+if [ "$signed" = 1 ]; then
+  ok "reword signs every replayed commit when commit.gpgSign is on"
+else
+  fail "reword did not sign the replay under commit.gpgSign (exit $rc: $(cat "$tmp/err"))"
+fi
+printf '#!/bin/sh\ncat >/dev/null\necho "gpg: signing failed: No secret key" >&2\nexit 2\n' >"$tmp/gpg-fail"
+chmod +x "$tmp/gpg-fail"
+g config gpg.program "$tmp/gpg-fail"
+refs_before=$(g show-ref)
+remote_before=$(git -C "$tmp/origin.git" rev-parse refs/heads/signed)
+rc=$(rc_of fp reword --branch signed --commit "$SIGNED_BAD" --message-file "$tmp/msg")
+if [ "$rc" = 3 ] && ! grep -q '^to' "$tmp/out" && [ "$(g show-ref)" = "$refs_before" ] \
+  && [ "$(git -C "$tmp/origin.git" rev-parse refs/heads/signed)" = "$remote_before" ]; then
+  ok "reword refuses when signing fails, and leaves the branch alone"
+else
+  fail "a failed signature did not refuse the reword (exit $rc: $(cat "$tmp/out" "$tmp/err"))"
+fi
+g config --unset commit.gpgSign
 g config --unset gpg.program
 # main moved on the remote to hold a branch commit, and this clone's
 # origin/main never heard: the containment check reads the remote, not the

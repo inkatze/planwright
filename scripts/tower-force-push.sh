@@ -12,7 +12,8 @@
 #
 #   reword   build the branch's history with <c>'s message replaced by <f>,
 #            every later commit replayed onto it with its tree, author, and
-#            message unchanged, and print tab-separated `reworded <c> <new c>`,
+#            message unchanged (each signed when commit.gpgSign is on, or a
+#            refusal), and print tab-separated `reworded <c> <new c>`,
 #            `lease <remote tip>`, and `to <new tip>` lines. It writes commit
 #            objects and refreshes remote-tracking refs only: no branch,
 #            index, or working tree changes.
@@ -370,7 +371,15 @@ reword() {
     [ "$rc" = 0 ] || refuse "that commit is also on $(safe "$REMOTE")/$(safe "$name"), which is protected; rewording it would fork that history"
   done
 
-  local map work c p parents np new tree
+  local map work c p parents np new tree sign='' gpgsign rc=0
+  # commit-tree ignores commit.gpgSign, so a signing repository's replay would
+  # come out unsigned without -S.
+  gpgsign=$(git config --bool commit.gpgSign 2>/dev/null) || rc=$?
+  case $rc in
+    0) [ "$gpgsign" != true ] || sign=-S ;;
+    1) ;;
+    *) broken "commit.gpgSign could not be read; whether to sign the replay is unknown" ;;
+  esac
   work=$(mktemp -d) || broken "mktemp failed"
   # shellcheck disable=SC2064 # the path is fixed now
   trap "rm -rf '$work'" EXIT
@@ -397,13 +406,16 @@ reword() {
         || broken "reading $(printf '%s' "$c" | cut -c1-7) failed"
       sed '1,/^$/d' "$work/raw" >"$work/msg"
     fi
-    # shellcheck disable=SC2086 # $parents is a list of -p <oid> pairs
+    # shellcheck disable=SC2086 # $parents is a list of -p <oid> pairs; $sign is -S or nothing
     new=$(
       GIT_AUTHOR_NAME=$(git log --no-show-signature -1 --format=%an "$c") \
       GIT_AUTHOR_EMAIL=$(git log --no-show-signature -1 --format=%ae "$c") \
       GIT_AUTHOR_DATE=$(git log --no-show-signature -1 --format=%ad --date=raw "$c") \
-        git commit-tree "$tree" $parents -F "$work/msg"
-    ) || broken "replaying $(printf '%s' "$c" | cut -c1-7) failed"
+        git commit-tree $sign "$tree" $parents -F "$work/msg"
+    ) || {
+      [ -z "$sign" ] || broken "signing the replay of $(printf '%s' "$c" | cut -c1-7) failed (commit.gpgSign is on); nothing was changed"
+      broken "replaying $(printf '%s' "$c" | cut -c1-7) failed"
+    }
     printf '%s %s\n' "$c" "$new" >>"$map"
   done <"$work/list"
   new=$(awk -v k="$LEASE_NOW" '$1 == k { print $2; exit }' "$map")
