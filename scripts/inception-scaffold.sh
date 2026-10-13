@@ -303,9 +303,26 @@ trap 'rm -rf "$priv"' EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
+# One snapshot of the bundle is both rendered and screened, so an edit to the
+# work tree in between cannot clean the sources the screen reads while the
+# escaped page still carries the credential. Links are refused before the
+# copy, which would follow them, and so is a linked exports/.
+if [ -h "$top/exports" ]; then
+  echo "venture pre-commit: exports/ is a symbolic link; refusing to write the pages through it." >&2
+  not_regenerated
+fi
+snap="$priv/bundle"
+mkdir "$snap" || not_regenerated
+for f in brief.md disciplines.md assumptions.md decisions.md plan.md; do
+  if [ -h "$top/$f" ]; then
+    echo "venture pre-commit: $f is a symbolic link; refusing to render through it." >&2
+    not_regenerated
+  fi
+  [ ! -e "$top/$f" ] || cp "$top/$f" "$snap/$f" || not_regenerated
+done
 for page in venture pitch; do
   if [ "$page" = pitch ]; then mode=pitch; else mode=dashboard; fi
-  /bin/sh "$pw/scripts/inception-render.sh" --mode "$mode" --output "$priv/$page.html" "$top" >/dev/null ||
+  /bin/sh "$pw/scripts/inception-render.sh" --mode "$mode" --output "$priv/$page.html" "$snap" >/dev/null ||
     not_regenerated
 done
 
@@ -314,8 +331,8 @@ done
 # pattern matches, so the pages alone can hide what their source shows.
 src=0
 /bin/sh "$pw/scripts/inception-secret-screen.sh" -- \
-  "$top/brief.md" "$top/disciplines.md" "$top/assumptions.md" \
-  "$top/decisions.md" "$top/plan.md" "$priv/venture.html" "$priv/pitch.html" || src=$?
+  "$snap/brief.md" "$snap/disciplines.md" "$snap/assumptions.md" \
+  "$snap/decisions.md" "$snap/plan.md" "$priv/venture.html" "$priv/pitch.html" || src=$?
 # 1 and 2 both block, but they are different facts and get different words:
 # saying "carries a credential" when the screen could not run sends the
 # operator hunting through their bundle for something that is not there.

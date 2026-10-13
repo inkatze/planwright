@@ -508,6 +508,31 @@ TMPDIR="$offers" /bin/sh "$sand/scripts/inception-publish.sh" offer "$v" >/dev/n
 leftover="$(find "$offers" -mindepth 1 -maxdepth 1 2>/dev/null)"
 assert_eq "interrupted offer: no private directory is left" "" "$leftover"
 
+# ---------------------------------------------------------------------------
+# 13. One snapshot is rendered and screened: an edit to the work tree between
+#     the render and the screen cannot clean the sources the screen reads
+#     while the escaped page still carries the credential.
+# ---------------------------------------------------------------------------
+race="$tmp/pw-race"
+mkdir -p "$race/scripts"
+cp "$REPO_ROOT/scripts/"inception-*.sh "$REPO_ROOT/scripts/echo-safety.sh" \
+  "$REPO_ROOT/scripts/spec-parse.sh" "$REPO_ROOT/scripts/html-escape.sh" \
+  "$REPO_ROOT/scripts/lock-lib.sh" "$race/scripts/" || exit 1
+mv "$race/scripts/inception-secret-screen.sh" "$race/scripts/inception-secret-screen.real.sh"
+cat >"$race/scripts/inception-secret-screen.sh" <<'RACESCREEN'
+#!/bin/sh
+sed 's|api_key=[^ ]*||' "$RACE_VENTURE/assumptions.md" >"$RACE_VENTURE/assumptions.new" &&
+  mv "$RACE_VENTURE/assumptions.new" "$RACE_VENTURE/assumptions.md"
+exec /bin/sh "$(dirname "$0")/inception-secret-screen.real.sh" "$@"
+RACESCREEN
+v="$(fresh)"
+sed 's|^- \*\*Risk-if-wrong:\*\* the fan-out saves no time|- **Risk-if-wrong:** api_key="AbCdEfGh''IjKlMnOpQrStUvWx12" the fan-out saves no time|' \
+  "$v/assumptions.md" >"$v/assumptions.new" && mv "$v/assumptions.new" "$v/assumptions.md"
+out="$(RACE_VENTURE="$v" /bin/sh "$race/scripts/inception-publish.sh" offer "$v" 2>/dev/null)"
+rc=$?
+assert_eq "render-to-screen race: the credential is still caught" "1" "$rc"
+assert_not_contains "render-to-screen race: no decision" "decision" "$out"
+
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-publish: $failures assertion(s) failed" >&2
   exit 1

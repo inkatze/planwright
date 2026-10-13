@@ -704,6 +704,45 @@ dash_state="$(cd "$day_v" && git show HEAD:exports/venture.html 2>/dev/null | gr
 pitch_state="$(cd "$day_v" && git show HEAD:exports/pitch.html 2>/dev/null | grep -o 'KC-2</span> — [a-z]*' | head -1)"
 assert_eq "midnight: both pages classify KC-2 against the same day" "$dash_state" "$pitch_state"
 
+# The hook renders and screens one snapshot of the bundle, so an edit to the
+# work tree between the render and the screen cannot clean the sources the
+# screen reads while the escaped page still carries the credential.
+snap_pw="$tmp/pw-snap"
+mkdir -p "$snap_pw/scripts"
+cp "$REPO_ROOT/scripts/"inception-*.sh "$REPO_ROOT/scripts/echo-safety.sh" \
+  "$REPO_ROOT/scripts/spec-parse.sh" "$REPO_ROOT/scripts/html-escape.sh" "$snap_pw/scripts/" || exit 1
+mv "$snap_pw/scripts/inception-secret-screen.sh" "$snap_pw/scripts/inception-secret-screen.real.sh"
+cat >"$snap_pw/scripts/inception-secret-screen.sh" <<'SNAPSCREEN'
+#!/bin/sh
+if [ "$1" != --staged ]; then
+  top=$(git rev-parse --show-toplevel)
+  sed 's|api_key=[^ ]*||' "$top/assumptions.md" >"$top/assumptions.new" && mv "$top/assumptions.new" "$top/assumptions.md"
+fi
+exec /bin/sh "$(dirname "$0")/inception-secret-screen.real.sh" "$@"
+SNAPSCREEN
+snap_v="$tmp/venture-snap"
+mkdir -p "$snap_v"
+inception_fixture_write "$snap_v" >/dev/null 2>&1 || exit 1
+(
+  cd "$snap_v" || exit 1
+  git init -q .
+  git config user.email fixture@example.invalid
+  git config user.name Fixture
+  git config commit.gpgsign false
+) >/dev/null 2>&1 || exit 1
+"$SCAFFOLD" --rung local --wire "$snap_v" >/dev/null 2>&1
+(cd "$snap_v" && git add -A && PLANWRIGHT_ROOT="$snap_pw" PLANWRIGHT_SECRET_SCREEN_TOOL=none \
+  git commit -qm "clean start" >/dev/null 2>&1)
+sed 's|^- \*\*Risk-if-wrong:\*\* the fan-out saves no time|- **Risk-if-wrong:** api_key="AbCdEfGh''IjKlMnOpQrStUvWx12" the fan-out saves no time|' \
+  "$snap_v/assumptions.md" >"$snap_v/assumptions.new" && mv "$snap_v/assumptions.new" "$snap_v/assumptions.md"
+printf '\nA snapshot note.\n' >>"$snap_v/plan.md"
+out="$(cd "$snap_v" && git add plan.md && PLANWRIGHT_ROOT="$snap_pw" PLANWRIGHT_SECRET_SCREEN_TOOL=none \
+  git commit -qm "race the screen" 2>&1)"
+rc=$?
+assert_eq "render-to-screen race: the hook still refuses the commit" "1" "$rc"
+assert_not_contains "render-to-screen race: no commit carried the credential" "AbCdEfGh" \
+  "$(cd "$snap_v" && git show HEAD:exports/venture.html 2>/dev/null)"
+
 # The repo's own `lint:yaml` covers tracked config, not what this script
 # generates, so the emitted workflow is linted here or nowhere.
 if command -v yamllint >/dev/null 2>&1; then

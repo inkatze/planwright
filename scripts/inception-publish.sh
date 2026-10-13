@@ -317,8 +317,21 @@ if [ "$cmd" = offer ]; then
   trap 'exit 143' TERM
   chmod 700 "$priv" || exit 2
   export_path="$priv/$page.html"
+  # One snapshot of the bundle is both rendered and screened. Rendering the
+  # work tree and screening it again later let an edit in between clean the
+  # sources the screen reads while the escaped page still carried the
+  # credential. A link is refused before the copy, which would follow it.
+  snap="$priv/bundle"
+  mkdir "$snap" || exit 2
+  for f in brief.md disciplines.md assumptions.md decisions.md plan.md; do
+    if [ -h "$target/$f" ]; then
+      printf '%s\n' "inception-publish: $f is a symbolic link; refusing to offer through it" >&2
+      exit 2
+    fi
+    [ ! -e "$target/$f" ] || cp "$target/$f" "$snap/$f" || exit 2
+  done
   rrc=0
-  /bin/sh "$script_dir/inception-render.sh" --mode "$mode" --output "$export_path" "$target" >/dev/null || rrc=$?
+  /bin/sh "$script_dir/inception-render.sh" --mode "$mode" --output "$export_path" "$snap" >/dev/null || rrc=$?
   if [ "$rrc" -eq 3 ]; then
     exit 3
   elif [ "$rrc" -ne 0 ]; then
@@ -332,8 +345,8 @@ if [ "$cmd" = offer ]; then
   # assignment's quotes into entities no credential pattern matches.
   src=0
   /bin/sh "$script_dir/inception-secret-screen.sh" -- "$export_path" \
-    "$target/brief.md" "$target/disciplines.md" "$target/assumptions.md" \
-    "$target/decisions.md" "$target/plan.md" || src=$?
+    "$snap/brief.md" "$snap/disciplines.md" "$snap/assumptions.md" \
+    "$snap/decisions.md" "$snap/plan.md" || src=$?
   if [ "$src" -eq 1 ]; then
     printf '%s\n' "inception-publish: the $mode export looks like it carries a credential; it is not offered for publishing." >&2
     echo "inception-publish: fix the bundle text it came from, then offer again." >&2
