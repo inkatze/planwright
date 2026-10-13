@@ -2482,6 +2482,7 @@ done
 assert_allow "one long command substitution still allows within the scan budget" "echo \$(echo $long_words)"
 # Each `$` costs a pass over the rest of its word, so a word dense with them
 # is charged for that and defers before the per-`$` work runs.
+# shellcheck disable=SC2016 # a literal `$a`, the shape under test
 dense_word="$(for i in $(seq 4050); do printf '$a'; done)"
 for shape in plain subst; do
   case $shape in
