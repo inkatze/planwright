@@ -937,6 +937,10 @@ first_half() {
   assert_defer "bypass: an opaque operand of a * printf width" "printf '%*s' \"\$HOME\" x" Bash "$SANDBOX"
   assert_defer "bypass: an opaque operand of a printf time conversion" "printf '%(%Y)T' \"\$HOME\"" Bash "$SANDBOX"
   assert_allow "a numeric printf conversion of literal operands still allows" "printf '%5.2f\\n' 3" Bash "$SANDBOX"
+  assert_defer "bypass: a literal numeric printf operand assigns a modelled script path" \
+    "v=scripts/ok.sh; printf %d v=7; bash \$v" Bash "$SANDBOX"
+  assert_defer "bypass: a literal non-number operand of a numeric printf conversion" "printf %d v=7" Bash "$SANDBOX"
+  assert_allow "a literal * outside a conversion keeps a text format inert" "printf 'a * b %s\\n' \"\$HOME\"" Bash "$SANDBOX"
   assert_allow "text conversions of an opaque operand still allow" "printf '%-10s|%c %%\\n' \"\$HOME\" x" Bash "$SANDBOX"
   assert_allow "test without -v still allows" "[ -f file ] && test -n x"
   # A double-quoted opaque operand is one word in a position bash cannot read

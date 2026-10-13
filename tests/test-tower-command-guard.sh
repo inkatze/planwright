@@ -972,6 +972,8 @@ assert_allow "parity: a special parameter with no subscript still allows" "echo 
 assert_defer "defer form: an opaque operand of a numeric printf conversion" "printf %d \"\$HOME\""
 assert_defer "defer form: an opaque operand of a * printf width" "printf '%*s' \"\$HOME\" x"
 assert_allow "parity: text conversions of an opaque operand still allow" "printf '%-10s|%c %%\\n' \"\$HOME\" x"
+assert_defer "defer form: a literal non-number operand of a numeric printf conversion" "printf %d v=7"
+assert_allow "parity: a literal * outside a conversion keeps a text format inert" "printf 'a * b %s\\n' \"\$HOME\""
 assert_defer "defer form: a zsh modifier on an unbraced loop variable" "for f in a.b; do find . -name \$f:e; done"
 assert_defer "defer form: a zsh modifier on a quoted loop variable" "for f in A; do find . -name \"\$f:l\"; done"
 assert_defer "defer form: a zsh substitution modifier on a loop variable" "for f in a; do find . -name \$f:s/a/b/; done"

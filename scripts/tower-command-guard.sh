@@ -1984,9 +1984,6 @@ guard_test() {
 # conversion or a `*` consumes as arithmetic, which can assign a variable.
 printf_format_inert() {
   local f=$1
-  case $f in
-    *'*'*) return 1 ;;
-  esac
   while :; do
     case $f in
       *%*) f=${f#*%} ;;
@@ -1995,6 +1992,7 @@ printf_format_inert() {
     while :; do
       case ${f:0:1} in
         - | + | ' ' | '#' | "'" | . | [0-9]) f=${f#?} ;;
+        '*') return 1 ;;
         *) break ;;
       esac
     done
@@ -2006,7 +2004,7 @@ printf_format_inert() {
 }
 
 guard_printf() {
-  local fmt=1 i
+  local fmt=1 i re='^[-+]?[0-9]+(\.[0-9]+)?$'
   case ${cw[1]-} in
     --) fmt=2 ;;
     -*) return 1 ;;
@@ -2014,6 +2012,7 @@ guard_printf() {
   printf_format_inert "${cw[fmt]-}" && return 0
   for ((i = fmt + 1; i < cwn; i++)); do
     word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" && return 1
+    [[ ${cw[i]} =~ $re ]] || return 1
   done
   return 0
 }
