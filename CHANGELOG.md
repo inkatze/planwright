@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.60.0](https://github.com/inkatze/planwright/compare/v0.59.0...v0.60.0) (2026-10-12)
+
+
+### Features
+
+* **ci:** parse every shell file under bash 3.2 and lint its misparses ([#651](https://github.com/inkatze/planwright/issues/651)) ([c71b102](https://github.com/inkatze/planwright/commit/c71b1022490e35d8f699f4cb404d66efce72d691))
+* **custom-steps:** resolver admits the expensive-check and quota-handling step fields ([#656](https://github.com/inkatze/planwright/issues/656)) ([d6d305c](https://github.com/inkatze/planwright/commit/d6d305c11f39f469a6dd1f3ba38b24d38473057b))
+* **doctrine:** accept green CI on a pushed head as Agent-resolvable proof ([#653](https://github.com/inkatze/planwright/issues/653)) ([c9d74ea](https://github.com/inkatze/planwright/commit/c9d74ea56ce909d86292a725e000d997b3ab2a21))
+* **quota:** read Claude clearance evidence from worker rate-limit frames ([#659](https://github.com/inkatze/planwright/issues/659)) ([1f201fa](https://github.com/inkatze/planwright/commit/1f201fa4060805ade2f9f52091f2f4142d6da009))
+* **skills:** authoring skills follow the spec root's posture ([#657](https://github.com/inkatze/planwright/issues/657)) ([44255d0](https://github.com/inkatze/planwright/commit/44255d0c4c289f45c83c8a45eb2720e558dc0440))
+* **substrate:** derive the script layer's tier partition from the call graph ([#658](https://github.com/inkatze/planwright/issues/658)) ([e61d526](https://github.com/inkatze/planwright/commit/e61d526243b83b62353c35e04e34e207901533a9))
+* **sync:** apply the base-merge policy and a resolve mode to the base sync ([#655](https://github.com/inkatze/planwright/issues/655)) ([abe5f97](https://github.com/inkatze/planwright/commit/abe5f978ef0b7c62e2dfa3d0982d4ad4b3551d7e))
+
+## [0.59.0](https://github.com/inkatze/planwright/compare/v0.58.0...v0.59.0) (2026-10-11)
+
+
+### Features
+
+* **doctrine:** add the messaging-transport doctrine and its knobs ([#648](https://github.com/inkatze/planwright/issues/648)) ([e3d4ef8](https://github.com/inkatze/planwright/commit/e3d4ef8424b9af53d6c0af3cbf4b65ac786f4b22))
+* **quota:** add the per-vendor hold store and usage ledger ([#647](https://github.com/inkatze/planwright/issues/647)) ([a588589](https://github.com/inkatze/planwright/commit/a58858983017e7516e88f2107f3eae60d300787f))
+* **step-record:** default --head and --end so workers need no substitution ([#640](https://github.com/inkatze/planwright/issues/640)) ([94de3eb](https://github.com/inkatze/planwright/commit/94de3eba458ec346d50f2ba40172b250f2a8dea1))
+* **worker-guard:** close the zsh model and other-process environment gaps ([#645](https://github.com/inkatze/planwright/issues/645)) ([ff50687](https://github.com/inkatze/planwright/commit/ff50687f6c76152d6ef1175ce8fea13907e782e0))
+* **worker-guard:** read segments in run order, model cd and plain assignments ([#637](https://github.com/inkatze/planwright/issues/637)) ([1d5421b](https://github.com/inkatze/planwright/commit/1d5421bf5562abd5a4d8cc0f8c25e24ad9acb7ad))
+
+
+### Bug Fixes
+
+* **quota:** let a higher layer override a conflicting vendors catalog entry ([#638](https://github.com/inkatze/planwright/issues/638)) ([c834946](https://github.com/inkatze/planwright/commit/c8349467b614ea3e736dadd536cdc6f1e15d355b))
+
+
+### Performance Improvements
+
+* cut config-read process spawns so the test suite fits its time budget ([#644](https://github.com/inkatze/planwright/issues/644)) ([898bb06](https://github.com/inkatze/planwright/commit/898bb06ccbe5c36107fc5ae9c67695d713266f49))
+
 ## [0.58.0](https://github.com/inkatze/planwright/compare/v0.57.0...v0.58.0) (2026-10-09)
 
 

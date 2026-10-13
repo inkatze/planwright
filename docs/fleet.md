@@ -770,10 +770,11 @@ its children (SIGTERM, then SIGKILL after the grace, since children do not
 reliably die with a parent SIGTERM) and releases the locks, scratch temp, and
 attention record the worker held. `--grace` takes a whole number of seconds
 within the bounds the script declares; run `stop` with an out-of-range value to
-have it name them. The event capture, the persisted session, and the receipt
-journal survive a stop: they are the durable record, not runtime. The journal
-survives as a file but not untouched — the close marks its still-`pending`
-receipts `undeliverable` and discards any spooled receipt, because a close
+have it name them. The event capture, the persisted session, the rate-limit
+reading, and the receipt journal survive a stop: they are the durable record,
+not runtime. The journal survives as a file but not untouched — the close
+marks its still-`pending` receipts `undeliverable` and discards any spooled
+receipt, because a close
 makes them undeliverable by definition and a receipt left pending is what
 `alarm-scan` re-queues a decision item from. A stop never touches the worktree,
 the branch, or the unit's fence: the release set is exactly the reproducible
@@ -867,7 +868,8 @@ written.
 
 **Where the capture lives, and the secret-scan surface.** Each worker's
 event-stream capture (`events.jsonl`, plus its stderr log, session id,
-receipt journal, and request envelopes) is written under the cross-spec
+receipt journal, request envelopes, and newest rate-limit reading, which
+[docs/quota.md](quota.md) describes) is written under the cross-spec
 fleet home at `<fleet-home>/streamjson/<worker>/` — outside every checkout,
 so it can never be committed, force-added, or pushed. The capture holds
 worker-authored conversation content and tool traffic: treat it as
@@ -2332,6 +2334,9 @@ are in the [options reference](options-reference.md).
 | `tower_log_rotate_age` | Event-log rotation, floored at the report window | How long the log keeps its lines | `30d` — well past the report window, so the scorecard never reads a rotated-out stretch |
 | `tower_report_window` | The window the scorecard reads | How far back the scorecard looks | `7d` — a week of sessions |
 | `tower_hook_lock_wait` | The fleet-lock wait for every queue write and the reply hook's log line (the reads take no lock); at expiry the hook drops its log line rather than delay your prompt | How much a busy lock may cost your prompt | `2s` — bounded; the attention stamp is written without the lock, so a dropped log line never loses the attention stamp |
+| `messaging_discipline` | Cross-session messaging as the signal transport, with a fallback on every path ([messaging-transport doctrine](../doctrine/messaging-transport.md)) | Which model-composed messages your sessions send: `off`, `script`, `tiered`, or `open` | `tiered` — model-composed messages only on the doctrine's named paths, one value stricter toward workers; `off` sits outside the ladder as the per-fleet kill switch, every consumer then taking today's path |
+| `messaging_cross_machine` | The harness's approval prompt on every cross-machine message (`isolatePeerMachines: true`, which both shipped profiles must carry) | Whether you have decided to relax that setting for a fleet | `false` — a cue, not a gate: with that setting in place, nothing leaves the machine without the harness asking |
+| `messaging_heal_cadence_seconds` | The healing sweep, kept at every setting because messages are lossy | How often the tower-facing sweep runs where push is live | `300` — slow enough to cut store reads, and never past the watcher's liveness window |
 
 Style values never gate capability: every knob's default keeps the full
 pipeline functional, and raising richness (a richer backend, a push channel,

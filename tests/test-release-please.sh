@@ -195,15 +195,19 @@ fi
 POLICY_FILES="config/worker-settings.json config/tower-settings.json"
 # The policy guard names the merge spellings to REFUSE them, like the
 # permissions files; it is excluded by path the same way and proven below to
-# deny them.
+# deny them. The policy-class merge helper is the one agent merge call site
+# (human-gates REQ-D1.4); it is excluded by path and proven below never to
+# reach a release PR: it merges only what scripts/merge-class.sh admits, and
+# the class admits only task branches (human-gates REQ-D1.9).
 GUARD_FILES="scripts/policy-guard.sh"
+HELPER_FILES="scripts/merge-admitted.sh"
 # Fixed-string exclusion, not ERE: a path like config/worker-settings.json carries
 # a regex metacharacter (the "." before json). Under grep -E that "." is a wildcard,
 # so the exclusion would also swallow look-alike paths (config/worker-settingsXjson)
 # and could hide a real merge invocation in such a file. Build one -e fixed pattern
 # per policy file and match with grep -vF so only the exact paths are excluded.
 policy_exclude_args=()
-for pf in $POLICY_FILES $GUARD_FILES; do
+for pf in $POLICY_FILES $GUARD_FILES $HELPER_FILES; do
   policy_exclude_args+=(-e "/${pf}:")
 done
 merge_hits="$(
@@ -219,6 +223,25 @@ if [ -z "$merge_hits" ]; then
 else
   fail "C1.4 found a merge invocation:"
   printf '%s\n' "$merge_hits" >&2
+fi
+
+HELPER="$REPO_ROOT/scripts/merge-admitted.sh"
+class_at=$(grep -n 'merge-class.sh" evaluate' "$HELPER" | head -1 | cut -d: -f1)
+# shellcheck disable=SC2016 # the helper's literal $failed is the text to find
+fall_at=$(grep -n 'outside the class (\$failed); the reason is on PR' "$HELPER" | head -1 | cut -d: -f1)
+merge_at=$(grep -n '^gh pr merge ' "$HELPER" | head -1 | cut -d: -f1)
+if [ -n "$class_at" ] && [ -n "$fall_at" ] && [ -n "$merge_at" ] \
+  && [ "$class_at" -lt "$fall_at" ] && [ "$fall_at" -lt "$merge_at" ] \
+  && sed -n "$((fall_at + 1))p" "$HELPER" | grep -qx '    exit 4' \
+  && [ "$(grep -c '^gh pr merge ' "$HELPER")" = 1 ]; then
+  pass "C1.4 the merge helper's one merge call follows the class evaluation and its fall-through exit"
+else
+  fail "C1.4 the merge helper's merge call is not gated by the class evaluation; re-verify the exclusion"
+fi
+if grep -q "^readonly TASK_BRANCH_RE='^planwright/\[a-z0-9\]\[a-z0-9-\]\*/task-" "$REPO_ROOT/scripts/merge-class.sh"; then
+  pass "C1.4 the class admits only task branches, so the helper never reaches a release PR"
+else
+  fail "C1.4 the class evaluator's task-branch rule is gone; re-verify the merge helper's exclusion"
 fi
 
 # Each excluded file must actually DENY merging, not allow it: prove the

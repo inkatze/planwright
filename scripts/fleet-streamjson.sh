@@ -47,6 +47,8 @@
 #                    undeliverable (the REQ-E1.5 durable receipt)
 #   req-<id>.json    the raw control_request envelope (answer composition)
 #   in.fifo/out.fifo the stdio channels the supervisor owns
+#   ratelimit        the newest rate-limit frame's readings, as
+#                    scripts/claude-frames.sh persist stores them
 #   result           the run outcome, one tab-separated row:
 #                    result <subtype> <epoch> [is_error] | exit <rc> <epoch>
 #                    is_error ∈ true|false, absent on records written before
@@ -56,8 +58,8 @@
 #   supervisor.pid / worker.pid / recover.lock / journal.lock / launch.lock
 #   scope            the dispatch scope, when the launch supplied one
 #   supervisor.log   the detached supervisor's own stderr
-#   .init.* / .frame.* / .journal.* / .session.* / .pid.*  mktemp-beside-target
-#                    staging
+#   .init.* / .frame.* / .journal.* / .session.* / .pid.* / .ratelimit.*
+#                    mktemp-beside-target staging
 #   deferred-<id>    a receipt the journal lock refused, until it is journaled
 #   .deferred.*      its staging temp
 #   undrained-<id>   a spooled receipt whose journal write failed, set aside
@@ -358,6 +360,7 @@ fi
 FS="$script_dir/fleet-state.sh"
 FA="$script_dir/fleet-attention.sh"
 FDE="$script_dir/fleet-death-evidence.sh"
+FRAMES="$script_dir/claude-frames.sh"
 
 # The worker binary. Tests point this at a shim; the default is the
 # installed CLI (D-4: the installed `claude` CLI is the only driver, never
@@ -1175,6 +1178,12 @@ handle_line() {
           "receipt journaling failed for worker $hl_worker request $(printf '%s' "$hl_id" | cut -c1-8) - investigate the journal lock"
       fi
       ;;
+    '{"type":"rate_limit_event",'*)
+      # Claude's own usage reading, the claude-frames evidence kind's input. A
+      # frame that cannot be stored leaves the previous reading, stamped with
+      # its own receipt time, and never stops the capture.
+      printf '%s\n' "$hl_line" | /bin/sh "$FRAMES" persist --dir "$hl_dir" >/dev/null 2>&1 || :
+      ;;
     *'"type":"system"'*'"subtype":"init"'*)
       hl_sid=$(json_field "$hl_line" session_id)
       if valid_reqid "$hl_sid"; then
@@ -1580,9 +1589,9 @@ stop_pidfiles='supervisor.pid worker.pid'
 # Scratch is the stdio fifos the supervisor owns, the staging files this
 # script's writers create beside their targets, and the residue of a broken
 # lock. Everything else in the state directory is the durable record a close
-# keeps: the capture, the journal, the session, the stored envelopes, and the
-# result.
-scratch_patterns='in.fifo out.fifo .init.* .frame.* .journal.* .session.* .pid.* .deferred.* *.lock#* *.broken.*'
+# keeps: the capture, the journal, the session, the stored envelopes, the
+# result, and the rate-limit frame, whose reading outlives its worker.
+scratch_patterns='in.fifo out.fifo .init.* .frame.* .journal.* .session.* .pid.* .ratelimit.* .deferred.* *.lock#* *.broken.*'
 
 # stop_match <worker> <dir> — the argv the supervisor re-execs itself with.
 # The handle and the directory together are what keep a sibling whose handle

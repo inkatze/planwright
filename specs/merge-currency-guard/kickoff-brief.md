@@ -407,3 +407,192 @@ moves on the edited files.
 Class: expression-only
 Anchor: `357529848c3227de226e031b72e849d254f9cd74` — computed as
 `scripts/spec-anchor.sh specs/merge-currency-guard`
+
+### Amendment 3 — reopened-bundle delta kickoff: configurable currency check (2026-10-12)
+
+**Header.** Mode: reopened-bundle delta kickoff (stored Status Draft, signed
+brief; the 2026-10-11 `/spec-draft --extend`). Spec commit at walk start:
+`590b74ee` on `planwright/merge-currency-guard/spec`. Delta: the extension
+commit `06f6b07e` alone (no bundle edit between the 2026-09-03 re-anchor's
+commit and it); the recorded anchor mismatches, as a reopened delta must.
+Validator at pre-flight: 0 errors, 0 warnings (also with `--baseline HEAD`).
+Config: `commit_on_kickoff: true`, `mark_spec_pr_ready_on_kickoff: true`,
+`kickoff_ready_ci_wait: 10m` (core defaults; no local override). Working
+location: the spec worktree. The operator is reached through the tower;
+this entry's walk was relayed, and the operator's rulings and approval
+(2026-10-12) came back through it.
+
+**Goal restatement (delta).** The ready signal stays trustworthy, but what
+"trustworthy" demands becomes an adopter's choice on one axis: by default a
+PR still may not go ready while its base has commits it lacks; an adopter
+may set `ready_guard_behind_base: conflict-only` to accept a behind PR that
+GitHub reports conflict-free. Nothing else loosens: mergeability, every
+fail-closed refusal, and the no-git rule hold under both values, and the
+setting can be made only where the operator, not a session, owns the file.
+Rules out: a behind-limit or relatedness test (deferred alternatives in
+D-10), a skip rule for the convergence sync (out of scope), rewording the
+sibling bundles that restate the old check (routed by observation).
+Assumes: CI on the merge ref makes a mergeable behind branch test the same
+tree; GitHub's `mergeable` is current enough at flip time. Terms surfaced:
+*currency clause* and *mergeability clause* (REQ-A1.5's two halves);
+*defer* keeps its §2 meaning (the guard emits nothing); *repo-side layers*
+(repo-tracked and machine-local); *floor* stays the guard's own role, the
+mergeability clause being called *unconditional*.
+
+**Requirements walk (per group).**
+
+- REQ-A: REQ-A1.5 supersedes REQ-A1.1. The "hard invariant" label stays
+  (operator answer, drafting session 2026-10-11), recorded in D-10.
+  REQ-A1.3 keeps its text; REQ-A1.2 and REQ-A1.4 take in-part pointers to
+  REQ-A1.5 (operator ruling 1).
+- REQ-B: unchanged; the sync still runs every iteration under either value.
+- REQ-C: REQ-C1.11 supersedes REQ-C1.1; REQ-C1.12 (the knob, core and
+  adopter only) and REQ-C1.13 (degrade to `refuse`, nothing else relaxed,
+  the denial names the remedy and not the knob) added.
+- REQ-D: REQ-D1.5 added; REQ-D1.1 takes an in-part pointer to REQ-D1.5
+  (operator ruling 1).
+- REQ-K: unchanged.
+
+**Design ledger.** D-10 (new, currency clause as a core opt-in policy knob)
+and D-11 (new, core-and-adopter-only read, fail closed to `refuse`):
+confirmed as drafted with the lens-pass amendments in the 2026-10-12
+changelog entry. D-1, D-2, D-3, D-5, D-9: superseded in part (pointer lines;
+bodies frozen). D-4, D-6, D-8: confirmed, unaffected. D-7: global wiring
+confirmed; its "universally wrong transition" premise takes an in-part
+pointer to D-10 (operator ruling 1).
+
+**Verification approach.** The coverage mix stays predominantly `[test]`;
+REQ-A1.5 is `[design-level + test]`. The superseded REQ-A1.1 and REQ-C1.1
+entries are marked superseded and not re-run as live checks. Ownership:
+`mise run check` in CI runs the knob fixtures (`tests/test-ready-guard.sh`,
+`tests/test-resolve-policy-knob.sh`, the manifest in
+`tests/test-merge-currency-matrix.sh`); the `[design-level]` checks run at
+this re-walk. Dead paths found by the lens pass are dispositioned below,
+the two that needed judgment by operator rulings 2 and 3.
+
+**Task graph.** Tasks 1 to 4 derive Completed. Task 5 depends on 2 and 4 and
+is the only remaining unit, so it is both the parallelism frontier and the
+critical path (see `tasks.md` for its effort). Deliberate non-edge: Task 5
+does not depend on Task 3, since the knob does not touch the sync; Task 3 is
+reached transitively through Task 4 anyway.
+
+**Risk register additions** (appended; earlier rows stand as signed):
+
+| # | Risk | Mitigation / early signal |
+| --- | --- | --- |
+| 9 | Row 4 re-recorded: an adopter opt-out knob now exists (D-10 reverses row 4's "no core knob"). Under `conflict-only` a ready PR may have been verified against an older base | Opt-in only, default `refuse`; mergeability and every fail-closed refusal unconditional; GitHub's merge-time conflict block beneath. Early signal: post-merge CI failures on PRs flipped behind under `conflict-only` |
+| 10 | GitHub's `mergeable` answer is read before the compare call, so under `conflict-only` a base push between them can let a newly conflicting PR defer (D-11) | Accepted residual: no further client query removes GitHub's own mergeability lag; merging a conflicting PR stays blocked. Early signal: a PR flipped ready that GitHub reports conflicting minutes later |
+| 11 | A `conflict-only` defer leaves no trace, and a misconfigured value (typo, set in a repo-side layer) degrades silently to `refuse` | Accepted (operator ruling 4). Early signal: an adopter asking why a behind PR went ready, or why their setting had no effect |
+| 12 | The knob read adds a fourth bounded call to the hook's worst case, and a grandchild of the read can outlive the bound (PR #650's observation on the hook time bound) | Accepted residual (operator ruling 5): a read that fails or is killed at the limit applies `refuse`, which can arrive late but never relaxes the check; tracked by PR #650's hook time-bound observation |
+| 13 | The adopter and core layers are located through environment and plugin-data paths that sit outside every checkout but are not proven outside a session's reach | Accepted residual (operator ruling 6): D-11 claims only "outside every checkout" |
+| 14 | Sibling surfaces keep describing the always-refuse check until their owners amend them | Routed: obs:2b0ceaef, obs:f02cd82a. Early signal: a review citing human-gates REQ-C1.2 or the custom-steps doctrine against a `conflict-only` flip |
+
+**Decision-domains gap check.** Walked the core seed catalog; the merged
+path (`scripts/resolve-catalog.sh decision-domains`) added no overlay
+domains. Decided by the delta: secrets and configuration (safe default,
+documentation, degrade), existing-seam reuse, API surface (the enum and its
+deferred extensions), human comprehension (deny text), per-repo variance
+(deferred in D-11), and versioning (not crossed). Touched but undecided:
+observability (row 11), authorization trust boundary (row 13), and the
+concurrency and wall-clock bound (rows 10 and 12).
+
+**Sign-off lens review.** Path: delta-scoped fan-out, one read-only lens
+agent per lens of the **spec** artifact class (`artifact-lenses`), plus the
+altitude and ship-gate check items inline. Findings were merged and deduped
+(several reported by up to five lenses), then validated: pass 1 re-read as
+each consumer (implementer of Task 5, reviewer, orchestrator) and against
+PR #650's diff and the tests on main; pass 2 searched every place each
+claim is expressed in the bundle and siblings; pass 3 checked outside
+sources (`scripts/ready-guard.sh`, `tests/test-merge-currency-matrix.sh`,
+`scripts/resolve-overlay-root.sh`, human-gates and custom-steps bundles, `gh`'s
+current-branch lookup). Adversarial sweep: no kept finding refuted; the
+decline set (below) re-read once, none resurrected.
+
+Lens-coverage table (artifact class: spec):
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 8 | double layer restriction makes a mutation check unsatisfiable; no-git clause over-reached `gh`'s bare-selector lookup; still-live REQ-A1.4, D-7 premises; timeout wording vs grandchild; stale ID in docs |
+| Ambiguity and interpretation forks | 10 | carrying-record lists differ; "carries only its pointer" false; label vs policy; REQ-A1.2/A1.4/D1.1 read alone; MERGEABLE timing; deny-text rule unpinned; D-9 pointer wording |
+| Citation and coverage integrity | 7 | superseded test-spec entries live; D-11 lacks REQ-A1.5; D-7 pointer; obs:2b0ceaef uncited; consumption date; flight-record D1/P1 unresolvable |
+| Dead verification paths | 6 | manifest file misnamed; mutation check unsatisfiable; real git vs sentinel; re-run-with-knob mechanism absent; current-PR fixture needs a positive control |
+| Decision-domain gaps | 5 | observability (two), trust boundary, wall-clock bound, superseded ID in docs |
+| Testability (Done when) | 9 | manifest file; mutation check; git assertion; current-PR fixture; explicit `refuse` on MCP; judgment-bound citation clause; unreadable-resolver case; docs unchecked; moving "main" reference |
+| Cross-file consistency | 7 | carrying lists; superseded test-spec entries; Task 1-3 "single home" history; options-reference row; obs uncited; old premises; pending note line |
+| Documentation and glossary drift | 9 | "floor" overloaded; label decided only in changelog; policy-layer definition; carrying lists; changelog list wrong; sibling list incomplete; docs cite old ID; pass vs defer; undefined override path |
+| Rendered-content safety | n/a | the bundle is rendered as plain Markdown, not into an executing context; data hygiene checked clean by the glossary lens |
+| Performance, concurrency/state, error handling (code lenses) | n/a | not applicable to the spec class (`artifact-lenses`); their spec-shaped residue (rows 10, 12) is under decision-domain gaps |
+
+Altitude check: the bundle's pinned seed claim fired the gate at first
+activation (D-1); the delta keeps the altitude (D-1's in-part pointer says
+so) and adds only a mechanism task, matching it. Mid-flow capability-vs-style
+call fired during drafting and is recorded in D-10. Pass.
+
+Ship-gate check: the out-of-band items the delta names (sibling rewording,
+the graphql-mutation pointer obs:b14af9aa asks for, the convergence-sync
+skip rule) are other owners' or later amendments' work, each held by a live
+observation or the pending note; none is a fix this bundle promises to
+ship. The operator ruled the observations sufficient (ruling 7).
+
+**Dispositions.** Applied as in-place Draft edits (mechanical, recorded in
+the 2026-10-12 `requirements.md` changelog entry): carrying-record lists
+unified and D-11 cites REQ-A1.5; the REQ-A1.5 test-spec wording and
+spot-check; the REQ-A1.1 and REQ-C1.1 test-spec entries marked superseded;
+"floor" and "passes" wording; the no-git clause scoped to the guard's own
+invocations; the deny-text rule in REQ-C1.13; REQ-D1.5 and Task 5 gain the
+manifest file, explicit `refuse` cells, the logging git, the
+current-PR-no-read pair, the unreadable-resolver case, the docs' citation
+grep, and a fixed pre-task reference; sibling bullet as a rule citing
+obs:2b0ceaef and obs:f02cd82a (new); D-9 pointer wording; D-10 label,
+layer, and mergeability-timing statements; Sources gain the flight-record
+findings and the new observations; changelog list made a rule and the
+consumption date aligned. Declined: rewriting Task 1 to 3 citations of
+"REQ-A1.1 (single home)" (completed task definitions; the supersede pointer
+carries the lineage); the pending note's stale line (an accumulator outside
+the bundle, read as of its capture date); a fixture for the CONFLICTING and
+UNKNOWN halves of "read only for a behind MERGEABLE PR" (true by the
+guard's code order, which denies before the read).
+
+**Operator rulings (2026-10-12, relayed by the tower; all as recommended).**
+1. In-part supersede pointers on REQ-A1.2 and REQ-A1.4 (to REQ-A1.5),
+   REQ-D1.1 (to REQ-D1.5), and D-7 (to D-10). 2. Each place the layer
+   restriction lives is pinned on its own (resolver tests for the table, a
+   stub resolver for the guard's copy), in REQ-D1.5 and Task 5. 3. The
+   REQ-C1.13 re-run is narrowed to the `conflict-only` refusal cases plus an
+   invalid selector, an already-ready PR, and a missing `gh`. 4. The silent
+   `conflict-only` defer is accepted as risk row 11. 5. A read that fails or
+   is killed at the limit applies `refuse`; the overrun is an accepted
+   residual. 6. D-11 narrowed to "outside every checkout"; the rest is an
+   accepted residual. 7. The observations suffice as the ship record for the
+   out-of-band follow-ups. All applied, recorded in the 2026-10-12
+   `requirements.md` changelog entries; every lens finding is dispositioned.
+
+**Pre-flip verification.** Post-lens stale-reference sweep run over the
+minted and re-scoped IDs and the changed wording (no stragglers in the four
+spec files; earlier brief sections keep their as-signed wording, this entry
+redirecting). Lint: markdownlint clean over the four spec files and this
+brief. Recorded-claim re-derivation: this entry transcribes no bundle
+figure; the lens-table counts are the pass's own results. Enumeration
+cross-check: the `tasks.md` intro count was converted to a rule at
+drafting, the changelog's list of unchanged records to a rule at this pass;
+the remaining lists in REQ-C1.13 and REQ-D1.5 are decided case lists owned
+by those requirements. `spec-validate` 0 errors, 0 warnings, before and
+after the flip.
+
+**Approval.** The operator read the shared-understanding approval summary
+(what is approved: the currency check becomes the `ready_guard_behind_base`
+policy with a `refuse` default, everything else unconditional, D-10, D-11,
+risk rows 9 to 14, Task 5; what changes downstream: Draft→Ready, the spec PR
+readied for the operator's merge, Task 5 dispatchable after it, no flip
+behaving differently until the adopter overlay changes) and approved the
+sign-off (2026-10-12). Status flipped Draft→Ready and `Last reviewed:`
+bumped on all four spec files.
+
+Class: meaning
+Lens-pass: the delta-scoped spec-class Discovery-Rigor fan-out recorded in
+this amendment (lens-coverage table above; all findings dispositioned,
+seven by operator ruling)
+Anchor: `5fd4ea7e1341901d0417fde0948349dbd6f06495` — computed as
+`scripts/spec-anchor.sh specs/merge-currency-guard`
+
+Signed off: 2026-10-12

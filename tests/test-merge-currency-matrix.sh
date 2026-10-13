@@ -30,6 +30,11 @@
 #   DEFER <=> exit 0 AND empty stdout.
 set -u
 unset CDPATH
+# The sync reads the base-merge policy; an operator's adopter overlay must not
+# reach the fixtures, whose own checkouts carry no overlay.
+PLANWRIGHT_ADOPTER_OVERLAY=/nonexistent/planwright-adopter
+export PLANWRIGHT_ADOPTER_OVERLAY
+unset PLANWRIGHT_LOCAL_CONFIG PLANWRIGHT_REPO_ROOT CLAUDE_PROJECT_DIR PLANWRIGHT_CONFIG_DEFAULTS PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT
 LC_ALL=C
 export LC_ALL
 # The sync fixtures run the real git. An inherited repository override (a
@@ -746,7 +751,7 @@ sync_fixture() {
   gitq "$1/seed" push -q origin main
   git clone -q -c user.name=test -c user.email=test@example.invalid -c commit.gpgsign=false \
     "$1/origin.git" "$1/worker" 2>/dev/null
-  gitq "$1/worker" checkout -q -b task
+  gitq "$1/worker" checkout -q -b planwright/demo/task-1
 }
 
 # advance_main <root> <file> <content> — land a commit on origin/main.

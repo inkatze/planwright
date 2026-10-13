@@ -7,8 +7,9 @@ a copy that diverges from it is a defect.
 
 Citations: human-gates REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5,
 REQ-B1.1, REQ-C1.1, REQ-C1.5, REQ-C1.6, REQ-D1.1, REQ-D1.2, REQ-D1.4, REQ-D1.5,
-REQ-D1.6, REQ-D1.7, REQ-E1.1, REQ-E1.2, REQ-F1.1, REQ-F1.2, REQ-F1.4, REQ-F1.5 ·
-human-gates D-1, D-2, D-3, D-4, D-6, D-7, D-8, D-9, D-10, D-14 · supersedes
+REQ-D1.6, REQ-D1.7, REQ-D1.9, REQ-E1.1, REQ-E1.2, REQ-F1.1, REQ-F1.2, REQ-F1.4,
+REQ-F1.5 · human-gates D-1, D-2, D-3, D-4, D-6, D-7, D-8, D-9, D-10, D-14,
+D-15 · supersedes
 bootstrap D-26 (scoped), bootstrap REQ-J1.1, bootstrap REQ-J1.4.
 
 ## The gate test
@@ -36,7 +37,7 @@ cannot be named does not ship.
 | Force-pushing a branch outside the protected set | Human gate | Irreversible arm; only on the operator's explicit request in the same turn, never from a standing decision, executed by the tower after naming the remote commits it drops |
 | Purging a leaked secret from history | Human gate | Irreversible arm; human-run, the tower may prepare the command and a rotation checklist |
 | Rewriting main, a protected branch, or a spec branch | Human gate | Irreversible arm; no tier under any value |
-| Executing an authorized merge | Policy | `merge_policy`, default `human`; `on-approval` lets the host merge once the human enables auto-merge, `policy-class` admits a declared class |
+| Executing an authorized merge | Policy | `merge_policy`, default `human`; `on-approval` lets the host merge once the human enables auto-merge, `policy-class` admits a declared class of task-branch PRs from the base repository, merged only through `scripts/merge-admitted.sh`; a release PR is never a class admission, so its merge stays a human approval act under every value |
 | The draft→ready flip of a unit PR | Policy | `ready_flip_policy`, default `unit-owner`; `human` reserves it, except the merge helper's own flip of a PR its class admits |
 | Refusing the draft→ready flip of a PR behind its base | Policy | `ready_guard_behind_base`, default `refuse`; `conflict-only` lets a behind PR through when GitHub reports it mergeable, read from the core and adopter layers only |
 | The draft→ready flip of a spec PR | Policy | `mark_spec_pr_ready_on_kickoff`, default `true` |

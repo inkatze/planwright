@@ -122,7 +122,7 @@ Every step receives exactly these twelve fields:
 | `PLANWRIGHT_STEP_POINT` | the point name |
 | `PLANWRIGHT_STEP_ID` | the step id |
 | `PLANWRIGHT_STEP_PREV_RECORD` | the record path of the preceding step in the same point's list; empty for that list's first step |
-| `PLANWRIGHT_STEP_PREV_HEAD` | the start head of the latest head move by an earlier step at the same point in the run, a `resume` skip carrying its record's move; empty when none |
+| `PLANWRIGHT_STEP_PREV_HEAD` | the start head (a full commit id, as both heads are) of the latest head move by an earlier step at the same point in the run, a `resume` skip carrying its record's move; empty when none |
 | `PLANWRIGHT_STEP_NEW_HEAD` | that move's end head; empty when none |
 
 Among steps, a pooled step alone also carries the **hold mark**
