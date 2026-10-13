@@ -241,6 +241,28 @@ else
 fi
 git -C "$tmp/origin.git" update-ref refs/heads/main "$MAIN_WAS"
 g fetch -q origin "+refs/heads/main:refs/remotes/origin/main"
+# A protected branch deleted on the remote, and a deleted branch whose name
+# is now a directory there: neither stale tracking ref refuses or fails.
+git -C "$tmp/origin.git" update-ref refs/heads/planwright/demo/spec "$BAD"
+git -C "$tmp/origin.git" update-ref refs/heads/gone "$BAD"
+g fetch -q origin "+refs/heads/*:refs/remotes/origin/*"
+git -C "$tmp/origin.git" update-ref -d refs/heads/planwright/demo/spec
+rc=$(rc_of fp reword --branch "$BR" --commit "$BAD" --message-file "$tmp/msg")
+if [ "$rc" = 0 ]; then
+  ok "reword prunes the tracking ref of a protected branch the remote deleted"
+else
+  fail "a deleted protected branch's stale tracking ref refused the reword (exit $rc: $(cat "$tmp/err"))"
+fi
+git -C "$tmp/origin.git" update-ref -d refs/heads/gone
+git -C "$tmp/origin.git" update-ref refs/heads/gone/child "$BAD"
+rc=$(rc_of fp reword --branch "$BR" --commit "$BAD" --message-file "$tmp/msg")
+if [ "$rc" = 0 ]; then
+  ok "reword prunes a deleted branch whose name is now a directory on the remote"
+else
+  fail "a stale tracking ref in the way of a new remote branch failed the reword (exit $rc: $(cat "$tmp/err"))"
+fi
+git -C "$tmp/origin.git" update-ref -d refs/heads/gone/child
+g fetch -q --prune origin "+refs/heads/*:refs/remotes/origin/*"
 g checkout -q "$BR"
 printf ' \n\t\n' >"$tmp/blank"
 rc=$(rc_of fp reword --branch "$BR" --commit "$BAD" --message-file "$tmp/blank")

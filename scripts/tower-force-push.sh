@@ -15,7 +15,7 @@
 #            message unchanged (each signed when commit.gpgSign is on, or a
 #            refusal), and print tab-separated `reworded <c> <new c>`,
 #            `lease <remote tip>`, and `to <new tip>` lines. It writes commit
-#            objects and refreshes remote-tracking refs only: no branch,
+#            objects and refreshes (and prunes) remote-tracking refs only: no branch,
 #            index, or working tree changes.
 #   confirm  print the confirmation (below) for replacing <r>/<b> with <c>.
 #   push     force-push <c> to <r>/<b>, only while <r>/<b> still sits at
@@ -377,8 +377,9 @@ reword() {
   git merge-base --is-ancestor "$COMMIT" "$LEASE_NOW" 2>/dev/null \
     || refuse "that commit is not on $(safe "$REMOTE")/$(safe "$BRANCH")"
   # Every remote branch, refreshed: a stale or missing tracking ref would read
-  # a commit main now holds as safe to reword.
-  git fetch --quiet --no-tags "$REMOTE" "+refs/heads/*:refs/remotes/$REMOTE/*" 2>/dev/null \
+  # a commit main now holds as safe to reword. Pruned, so a branch the remote
+  # deleted neither refuses the reword nor blocks a new branch's fetch.
+  git fetch --quiet --prune --no-tags "$REMOTE" "+refs/heads/*:refs/remotes/$REMOTE/*" 2>/dev/null \
     || broken "fetching $(safe "$REMOTE")'s branches failed; which protected branches hold the commit is unknown"
   local ref name rc
   for ref in $(git for-each-ref --format='%(refname)' --contains "$COMMIT" "refs/remotes/$REMOTE/"); do
