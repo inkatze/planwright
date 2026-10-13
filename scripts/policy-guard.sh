@@ -43,6 +43,26 @@
 #   undo        `gh pr ready --undo` and the MCP ready->draft transition: deny,
 #               the corrective helper being the only sanctioned re-draft.
 #   pr-merge    `gh pr merge`: deny; the merge helper is the only agent path.
+#   merge-helper  running scripts/merge-admitted.sh: a command word, or a
+#               shell's script argument, whose file name starts with the
+#               `merge-ad` stem, matches merge-admitted.sh as a glob, or
+#               carries an expansion or brace; or a shell whose script is a
+#               bare expansion or stdin in a command naming the stem. tower:
+#               deny. worker: merge_policy (policy-class defers; the helper
+#               evaluates the class and re-reads the policy itself). Its own gh
+#               calls run below this hook, so the invocation is what the guard
+#               sees; a wrapper or an unanalyzable command naming the stem
+#               denies. A name assembled by a command substitution or ANSI-C
+#               quoting outside the stem, a renamed copy, or a link under
+#               another name is the accepted residual. Running
+#               scripts/ready-flip.sh with `--for-merge` (its flag for the
+#               helper's own flip), or with a word that could expand into it
+#               (a brace, or an expansion that is not the value of one of its
+#               value-taking options), denies at every tier with no read, as
+#               does the flag after a script name the guard cannot resolve; a
+#               renamed copy of ready-flip.sh, and a flag carried only in an
+#               expansion after a script name that is itself an expansion,
+#               are the same residual.
 #   base-merge  `git merge`, `git pull` in merge mode. tower: deny. worker:
 #               worker_base_merge, then the current branch must be the session's
 #               unit branch outside the protected set and every source the PR
@@ -66,6 +86,9 @@
 #               an --input body, a non-literal endpoint, method, or query on a
 #               write, a rename with no literal new name, an unknown flag)
 #               denies before any read; anything else defers.
+#   force-push helper  running scripts/tower-force-push.sh. worker: deny,
+#               with no read. tower: defer, so it reaches the permission
+#               prompt (the tower's command guard never approves it).
 # Every segment of a compound command is classified and the strictest verdict
 # wins.
 #
@@ -146,15 +169,80 @@ RE_GIT_ACT="${RE_GIT_HEAD}(merge|pull|rebase|push)([^[:alnum:]_-]|\$)"
 RE_GIT_REWRITE="${RE_GIT_HEAD}commit([[:space:]].*)?[[:space:]]--(am|sq|fix)"
 # A substitution after `git commit` could produce --amend at run time.
 RE_GIT_COMMIT_SUBST="${RE_GIT_HEAD}"'commit([^[:alnum:]_-].*)?(\$\(|`)'
+RE_MERGE_HELPER='(^|[^[:alnum:]_.-])merge-ad'
+RE_FOR_MERGE='(^|[^[:alnum:]_-])--for-merge([^[:alnum:]_-]|$)'
+
+# raw_force_push_call <text> — 0 when the text runs the force-push helper as a
+# command: a command's first word, or any word after a wrapper (a shell, sudo,
+# env, xargs, an interpreter, ...), where a shell's -c text and eval's text
+# start a command of their own. The name anywhere else (a grep pattern, a
+# test file's name) runs nothing. Called with nocasematch on: a
+# case-insensitive filesystem runs Tower-Force-Push.sh.
+raw_force_push_call() {
+  local t=$1 w cmd=1 wrapped=0 skip=0
+  local -a words
+  t=${t//$'\n'/ ; }
+  t=${t//;/ ; }
+  t=${t//&/ ; }
+  t=${t//|/ ; }
+  t=${t//(/ ; }
+  t=${t//)/ ; }
+  t=${t//\`/ ; }
+  t=${t//[\"\']/ }
+  t=${t//\\/}
+  read -r -a words <<<"$t"
+  for w in ${words[@]+"${words[@]}"}; do
+    if [ "$w" = ';' ]; then
+      cmd=1 wrapped=0 skip=0
+      continue
+    fi
+    if [ "$skip" = 1 ]; then
+      skip=0
+      continue
+    fi
+    [ "$cmd" = 1 ] || [ "$wrapped" != 0 ] || continue
+    [[ ${w##*/} != tower-force-push* ]] || return 0
+    case $w in
+      '>' | '>>' | '<' | '<<' | [0-9]'>' | [0-9]'>>' | [0-9]'<')
+        skip=1
+        continue
+        ;;
+      [0-9]'>'* | '>'* | '<'*) continue ;;
+    esac
+    if [ "$wrapped" = 2 ] && [[ $w == -*c ]]; then
+      cmd=1 wrapped=0
+      continue
+    fi
+    if [[ ${w##*/} == eval ]]; then
+      cmd=1 wrapped=0
+      continue
+    fi
+    if [[ ${w##*/} =~ ^(bash|sh|zsh|dash|ksh|mksh|fish|busybox|su|runuser)$ ]]; then
+      cmd=0 wrapped=2
+    elif [[ ${w##*/} =~ ^(env|sudo|doas|xargs|nohup|nice|ionice|timeout|gtimeout|stdbuf|setsid|chronic|exec|command|builtin|time|watch|flock|unbuffer|caffeinate|strace|ltrace|chroot|unshare|systemd-run|fakeroot|parallel|find|script|ssh|tmux|screen|source|\.|make|python.*|perl|ruby|node|awk|gawk|mawk|nawk|trap|alias)$ ]]; then
+      [ "$wrapped" = 2 ] || wrapped=1
+      cmd=0
+    elif [ "$cmd" = 1 ]; then
+      case $w in
+        -* | *=* | '{' | '}' | '!' | if | then | elif | else | do | while | until) ;;
+        *) cmd=0 ;;
+      esac
+    fi
+  done
+  return 1
+}
 
 raw_evidence_one() {
   local t=$1 rc=1
   # Case-insensitive: a case-insensitive filesystem runs `git REBASE`.
   shopt -s nocasematch
   if [[ $t =~ $RE_GH_API ]] || [[ $t =~ $RE_GH_PR ]] || [[ $t =~ $RE_GIT_ACT ]] \
-    || [[ $t =~ $RE_GIT_REWRITE ]] || [[ $t =~ $RE_GIT_COMMIT_SUBST ]]; then
+    || [[ $t =~ $RE_GIT_REWRITE ]] || [[ $t =~ $RE_GIT_COMMIT_SUBST ]] || [[ $t =~ $RE_MERGE_HELPER ]] \
+    || [[ $t =~ $RE_FOR_MERGE ]]; then
     rc=0
   fi
+  # A worker's wrapped or substituted call of the force-push helper.
+  [ "$TIER" != worker ] || [[ $t != *tower-force-push* ]] || ! raw_force_push_call "$t" || rc=0
   shopt -u nocasematch
   [ "$rc" = 1 ] || return 0
   case $t in *"$MCP_TOOL"*) return 0 ;; esac
@@ -217,7 +305,7 @@ heredoc_substitution_at() {
 }
 
 deny_unanalyzable() {
-  emit_deny "$1 and its text names a reserved act (a gh api request, a pull-request flip or merge, or a git merge, pull, rebase, push, or history rewrite) - refusing (fail closed). Issue that command on its own as a plain simple command."
+  emit_deny "$1 and its text names a reserved act (a gh api request, a pull-request flip or merge, the merge helper, or a git merge, pull, rebase, push, or history rewrite) - refusing (fail closed). Issue that command on its own as a plain simple command."
 }
 
 # --------------------------------------------------------------------------
@@ -973,6 +1061,22 @@ lc() {
   esac
 }
 
+# runs_force_push_helper <lowercased command name> — 0 when the segment runs
+# the tower's force-push helper, directly or as a shell's script operand.
+runs_force_push_helper() {
+  local w
+  [ "$1" = tower-force-push.sh ] && return 0
+  case $1 in
+    bash | sh | zsh | dash | ksh | mksh | busybox | env | nohup | nice | timeout | gtimeout | exec | command) ;;
+    *) return 1 ;;
+  esac
+  for w in "${SW[@]:1}"; do
+    lc "${w##*/}"
+    [ "$LC" = tower-force-push.sh ] && return 0
+  done
+  return 1
+}
+
 classify_segments() {
   local si=0 eff=$PAYLOAD_CWD eff_ok=1 verb base_verb prev_text='' cur_text w
   [ -d "$eff" ] || eff_ok=0
@@ -997,10 +1101,14 @@ classify_segments() {
     verb=${SW[0]}
     lc "${verb##*/}"
     base_verb=$LC
+    [ "$TIER" != worker ] || ! runs_force_push_helper "$base_verb" \
+      || deny_now 'this command runs scripts/tower-force-push.sh; the force-push path is the tower'"'"'s, run on the operator'"'"'s request, never a worker'"'"'s. Name the reword or force-push in your handoff for the operator instead.'
     if [ "${SWL[0]}" != 1 ]; then
       # The command word is an expansion, so what runs cannot be read: only a
       # variable root followed by a literal script path is let through, and
       # even that not when a reserved subcommand follows.
+      for_merge_check 0
+      ! names_helper "$verb" || queue_merge_helper "$eff" "$eff_ok"
       [[ $verb =~ $RE_ROOTED_SCRIPT ]] \
         || deny_now "this command's name is an expansion the guard cannot read ($(sanitize_printable "$verb" 'unprintable')), so it could be git or gh - refusing (fail closed). Write the command name literally, or as \"\$ROOT/path/to/script\"."
       for w in "${SW[@]}"; do
@@ -1014,6 +1122,61 @@ classify_segments() {
       raw_evidence "$cur_text" \
         && deny_now "this command runs through a wrapper whose options the guard does not read, and its text names a reserved act - refusing (fail closed). Issue the command directly."
     else
+      local helper=0 a1 script_at=0 k opt_c=0 opt_s=0
+      ! names_helper "$verb" || helper=1
+      case $base_verb in
+        bash | sh | zsh | dash | ksh | mksh)
+          # A shell running the helper as its script, the plain form the
+          # plugin-script convention allows. Its own options come first, up
+          # to `--` or the first operand: -c hands a command string over (the
+          # wrapper screen below reads it), and -s, or no operand, reads the
+          # script from stdin, which counts as the helper when the command
+          # names its stem; so does an operand that is a bare expansion.
+          k=1
+          while [ "$k" -lt "${#SW[@]}" ]; do
+            case ${SW[$k]} in
+              --)
+                k=$((k + 1))
+                break
+                ;;
+              -o | +o | -O | +O | --rcfile | --init-file) k=$((k + 2)) ;;
+              --*) k=$((k + 1)) ;;
+              [-+]*)
+                case ${SW[$k]} in *c*) opt_c=1 ;; esac
+                case ${SW[$k]} in *s*) opt_s=1 ;; esac
+                # A cluster's o or O takes the next word as its value.
+                a1=${SW[$k]//[!oO]/}
+                k=$((k + 1 + ${#a1}))
+                ;;
+              *) break ;;
+            esac
+          done
+          a1=${SW[$k]:-}
+          if [ "$opt_c" = 0 ]; then
+            script_at=$k
+            if [ "$opt_s" = 0 ] && [ -n "$a1" ] && names_helper "$a1"; then
+              helper=1
+            elif [ "$opt_s" = 1 ] || [ -z "$a1" ] || [ "${SWL[$k]}" != 1 ]; then
+              # Inferred from the command's text, not this segment's own
+              # words, so the flag check below cannot be told apart from it:
+              # the flag anywhere in the command refuses.
+              lc "$P_CMD"
+              if [[ $LC =~ $RE_MERGE_HELPER ]]; then
+                helper=1
+                [[ ! $LC =~ $RE_FOR_MERGE ]] \
+                  || deny_now 'this shell runs a script the guard cannot name, in a command naming the merge helper and the --for-merge flag of scripts/ready-flip.sh - refusing (fail closed). Run the helper by its path on its own.'
+              fi
+            fi
+          fi
+          ;;
+      esac
+      for_merge_check "$script_at"
+      if [ "$helper" = 1 ]; then
+        queue_merge_helper "$eff" "$eff_ok"
+        prev_text=$cur_text
+        si=$((si + 1))
+        continue
+      fi
       case $base_verb in
         export | declare | typeset | readonly | local | let | printf)
           case " ${SW[*]} " in
@@ -1193,6 +1356,107 @@ queue_flip() {
       return 0
     }
   PENDING[${#PENDING[@]}]="flip$TAB$1"
+}
+
+# names_helper <word> — 0 when the word, as a command or a shell's script,
+# could name the merge helper: its file name starts with the stem, matches
+# merge-admitted.sh as a glob, or carries an expansion or brace the guard
+# cannot resolve (fail closed). A bare expansion with no file name of its own
+# is left to the caller.
+names_helper() {
+  local b
+  lc "${1##*/}"
+  b=$LC
+  case $b in merge-ad*) return 0 ;; esac
+  # A bare expansion, with no path of its own, names nothing here.
+  case $1 in
+    */*) ;;
+    \$* | \"\$*) return 1 ;;
+  esac
+  case $b in
+    *'$'* | *'`'* | *'{'*) return 0 ;;
+    *'*'* | *'?'* | *'['*)
+      # shellcheck disable=SC2053 # the word is the pattern
+      [[ merge-admitted.sh == $b ]]
+      return
+      ;;
+  esac
+  return 1
+}
+
+# for_merge_check <index> — deny an agent's own run of scripts/ready-flip.sh
+# with --for-merge, the merge helper's flag: the word at <index> (the command
+# word, 0, or a shell's script operand) names ready-flip.sh and a later word
+# is the flag, or a word that could expand into it (an unquoted brace, an
+# expansion that is not the value of one of its value-taking options).
+for_merge_check() {
+  local k=$(($1 + 1)) n=${#SW[@]} w script=${SW[$1]:-}
+  lc "${script##*/}"
+  case $LC in
+    *'{'* | *'$'* | *'`'*)
+      # A script name the guard cannot resolve could be ready-flip.sh: only
+      # the flag itself refuses, so an ordinary run with expansions defers.
+      while [ "$k" -lt "$n" ]; do
+        lc "${SW[$k]}"
+        case $LC in
+          *for-merge*)
+            deny_now 'this run'"'"'s script name is an expansion or brace the guard cannot resolve, and it carries the --for-merge flag of scripts/ready-flip.sh, the merge helper'"'"'s own flip - refusing (fail closed). Run scripts/merge-admitted.sh by its path, or leave the PR for the operator.'
+            return 0
+            ;;
+        esac
+        k=$((k + 1))
+      done
+      return 0
+      ;;
+    ready-flip.sh | *'*'* | *'?'* | *'['*)
+      # shellcheck disable=SC2053 # the word is the pattern
+      [[ ready-flip.sh == $LC ]] || return 0
+      ;;
+    *) return 0 ;;
+  esac
+  local prev=''
+  while [ "$k" -lt "$n" ]; do
+    w=${SW[$k]}
+    lc "$w"
+    case $LC in
+      --for-merge | --for-merge=*) ;;
+      *)
+        if [ "${SWL[$k]}" = 1 ]; then
+          prev=$LC
+          k=$((k + 1))
+          continue
+        fi
+        case $LC in *'{'*) prev='' ;; esac
+        case $prev in
+          --spec | --task | --pr | --worktree | --out | --preconditions | --expect-head | --base | --reason)
+            case $LC in
+              -*) ;;
+              *)
+                prev=''
+                k=$((k + 1))
+                continue
+                ;;
+            esac
+            ;;
+        esac
+        ;;
+    esac
+    deny_now 'the --for-merge flag of scripts/ready-flip.sh is the merge helper'"'"'s own flip of a PR its class admitted, and this run carries it or a word that could expand into it; no agent session issues it. Run scripts/merge-admitted.sh under merge_policy: policy-class, write ready-flip.sh'"'"'s options literally, or leave the PR for the operator.'
+    return 0
+  done
+}
+
+queue_merge_helper() {
+  if [ "$TIER" = tower ]; then
+    deny_now 'the tower never runs the merge helper (scripts/merge-admitted.sh), under every merge_policy value; the skill that owns the unit branch runs it.'
+    return 0
+  fi
+  [ "$2" = 1 ] \
+    || {
+      deny_now 'this merge-helper run follows a directory change the guard cannot follow, so it cannot read merge_policy for that repository - refusing (fail closed). Run the helper on its own.'
+      return 0
+    }
+  PENDING[${#PENDING[@]}]="merge-helper$TAB$1"
 }
 
 # gh api ------------------------------------------------------------------
@@ -2380,6 +2644,7 @@ eval_pending() {
         check_unprotected "$dir" "$what" ${rest#*"$TAB"}
         ;;
       merge) eval_merge "$rest" ;;
+      merge-helper) eval_merge_helper "$rest" ;;
       pull) eval_pull "$rest" ;;
       rebase) eval_rebase "$rest" ;;
       commit) eval_commit "$rest" ;;
@@ -2396,6 +2661,12 @@ eval_flip() {
     unit-owner) return 0 ;;
     *) emit_deny 'ready_flip_policy is human, so only a person marks a task pull request ready; leave it a draft and name it in your handoff.' ;;
   esac
+}
+
+eval_merge_helper() {
+  read_knob merge_policy "$1" human on-approval policy-class
+  [ "$KNOB_VAL" = policy-class ] \
+    || emit_deny "merge_policy is $KNOB_VAL, so no agent session runs the merge helper: the operator's approval act merges this PR. Leave it for the operator and name it in your handoff."
 }
 
 base_merge_allowed() { # <dir> <what>
@@ -2720,13 +2991,16 @@ handle_bash() {
     raw_evidence "$1" && emit_deny 'this Bash payload carries no readable command string and its raw content names a reserved act - refusing (fail closed).'
     return 0
   fi
-  # No git and no gh anywhere, even with quotes and escapes removed, and no
-  # expansion beside a reserved subcommand: nothing this guard classifies, so
-  # no parse and no read.
+  # No git, no gh, no merge-helper, force-push-helper, or glob spelling
+  # anywhere, even with quotes and escapes removed, and no expansion beside
+  # a reserved subcommand: nothing this guard classifies, so no parse and no
+  # read.
   local bare=${cmd//[\"\'\\]/} hit=0
   shopt -s nocasematch
   case $bare in
-    *git* | *gh*) hit=1 ;;
+    *git* | *gh* | *merge-ad* | *--for-merge* | *tower-force-push*) hit=1 ;;
+    # A glob or brace word could still name the merge helper.
+    *admitted* | *'*'* | *'?'* | *'['* | *'{'*) hit=1 ;;
     *'$'* | *'`'*)
       case $bare in
         *merge* | *pull* | *rebase* | *push* | *commit* | *ready* | *api*) hit=1 ;;

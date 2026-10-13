@@ -248,6 +248,39 @@ else
   fail "the allow-set carries a static Bash allow that could bypass the guard's --dangerously-*/--permission-*/send-keys pins (REQ-C1.2)"
 fi
 
+# --- the force-push helper always reaches the prompt ---------------------------
+# An adopter's literal-path `scripts/*` allow (the optional entry _about
+# describes) would otherwise approve the helper's push verb unseen; an ask rule
+# is evaluated before any allow, so it keeps the operator's prompt.
+if jq -e '.permissions.ask // [] | index("Bash(*tower-force-push*)") != null' "$tower_settings" >/dev/null 2>&1; then
+  ok "the ask list carries Bash(*tower-force-push*)"
+else
+  fail "the ask list does not carry Bash(*tower-force-push*)"
+fi
+# shellcheck source=tests/lib/permission-matcher.sh
+. "$REPO_ROOT/tests/lib/permission-matcher.sh"
+fp_rc=0
+pm_load_rules "$(jq -r '.permissions.deny // [] | .[]' "$tower_settings")" \
+  "$(jq -r '.permissions.ask // [] | .[]' "$tower_settings")" \
+  "Bash(/opt/planwright/scripts/*)
+Bash(scripts/*)
+Bash(bash:*)" || fp_rc=$?
+if [ "$fp_rc" != 0 ]; then
+  fail "the tower profile's rules did not load into the matcher model (exit $fp_rc)"
+else
+  for fp_cmd in \
+    "/opt/planwright/scripts/tower-force-push.sh push --branch feature --to abc --lease def" \
+    "scripts/tower-force-push.sh confirm --branch feature --to HEAD" \
+    "bash scripts/tower-force-push.sh reword --branch feature --commit HEAD --message-file m"; do
+    fp_got=$(pm_decide "$fp_cmd")
+    if [ "$fp_got" = ask ]; then
+      ok "a scripts/* allow does not approve the helper: $fp_cmd"
+    else
+      fail "the helper is not held at the prompt under a scripts/* allow ($fp_got): $fp_cmd"
+    fi
+  done
+fi
+
 # --- REQ-C1.2: the tower safe set DIFFERS from the worker set -----------------
 # The two allow lists are not identical: the tower's non-Bash-tool allow set and
 # the worker's permission allow set differ (the worker statically allows git
@@ -331,6 +364,8 @@ else
   # variable operand, so a claim that variables arrive expanded misstates it.
   require_phrase "_about states the hook receives \$VAR references unexpanded" \
     "unexpanded"
+  require_phrase "_about states the force-push helper always reaches the prompt" \
+    "always reaches the prompt"
   if printf '%s' "$about" | grep -qiF "already expanded"; then
     fail "_about claims variables arrive already expanded, which the guard's model contradicts"
   else

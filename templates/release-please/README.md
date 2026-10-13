@@ -26,7 +26,9 @@ is configuration). Nothing here runs until you copy it in.
 - One standing release PR that is the detection surface (it appears when
   releasable commits land), the correction surface (edit it), the cancellation
   surface (close it), and the approval gate (**merging it is the release
-  approval, and stays a human act**).
+  approval, and stays a human act**: planwright's `policy-class` merge admits
+  only its own task branches, so a release PR is never a class admission under
+  any `merge_policy` value).
 - A version bump to your version source of truth and an updated `CHANGELOG.md`.
 - A PR body that states the full flow — merge approves the release, then run
   the publish command to sign and publish the tag — with the notes preview,
@@ -121,5 +123,6 @@ check runs and the requirement becomes satisfiable.
 
 - **CI never tags.** `skip-github-release: true` keeps release-please to the
   proposal PR. The signed tag comes only from the human-gated publish step.
-- **Merge is the human's.** No path in this template merges the release PR.
+- **Merge is the human's.** No path in this template merges the release PR,
+  and a release PR is never a class admission under any `merge_policy` value.
 - **Least privilege, no secrets.** Default `GITHUB_TOKEN`, two scopes.

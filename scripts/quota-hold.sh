@@ -41,9 +41,10 @@
 #     Record <unit> as held at <step>. A unit already holding the vendor is
 #     renewed in place and keeps the time it first held. Appends a `hold` ledger
 #     line, then pushes the attention event (vendor, reason, stated reset time,
-#     resume command) through scripts/fleet-attention.sh notify, keyed on the
-#     time the vendor's hold began and reserved in `pushed` under the lock
-#     first, so one hold is one push whoever joins it.
+#     resume command, and for `claude` the account-wide label
+#     scripts/claude-frames.sh prints) through scripts/fleet-attention.sh
+#     notify, keyed on the time the vendor's hold began and reserved in
+#     `pushed` under the lock first, so one hold is one push whoever joins it.
 #     Prints `held<TAB><vendor><TAB><since>`. Whatever the caller, holding and
 #     pushing are one act of this verb. A hold records no refusal: a caller
 #     whose request the vendor refused records that with `record` first.
@@ -107,6 +108,7 @@ FS="$script_dir/fleet-state.sh"
 ATTN="$script_dir/fleet-attention.sh"
 RESOLVER="$script_dir/resolve-config-knob.sh"
 SR="$script_dir/step-record.sh"
+FRAMES="$script_dir/claude-frames.sh"
 TAB=$(printf '\t')
 REASON_MAX=512
 RETENTION_MAX=36500
@@ -450,7 +452,14 @@ case $verb in
       when="no stated reset time"
     fi
     short=$(printf '%s' "$REASON" | cut -c 1-200)
-    summary="quota hold: $vendor is held ($short); $when; resume with scripts/quota-hold.sh resume --vendor $vendor"
+    scope=""
+    if [ "$vendor" = claude ]; then
+      # Claude's limits count every session on the account, not only the
+      # fleet's, so the event must not read as the fleet's own spend.
+      scope=$(/bin/sh "$FRAMES" label 2>/dev/null) || scope="account-wide"
+      scope="; usage is $scope"
+    fi
+    summary="quota hold: $vendor is held ($short)$scope; $when; resume with scripts/quota-hold.sh resume --vendor $vendor"
     printf 'held\t%s\t%s\n' "$vendor" "$since"
     [ "$reserved" = 1 ] || exit 0
     push_failed=""

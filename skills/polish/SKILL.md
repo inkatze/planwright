@@ -38,7 +38,7 @@ Doctrine: run-start validation-rigor
 Doctrine: run-start finding-categorization
 Doctrine: run-start gate-wiring
 Doctrine: point-of-use research-rigor (the nested /self-review pass's finding-validation)
-Doctrine: run-start refactor-instinct
+Doctrine: point-of-use refactor-instinct (the nested /self-review pass's refactor filter)
 Doctrine: run-start security-posture
 Doctrine: run-start proportionality
 
@@ -81,7 +81,11 @@ Each iteration:
 1. **Run a `/self-review` pass, nested.** Invoke `/self-review --nested`
    in-session. The pass does its own discovery, validation, routing, and
    dispositions per the gate wiring, and returns the audit record; its
-   finding-validation is where `research-rigor` loads point-of-use. Pass the
+   finding-validation is where `research-rigor` loads point-of-use, and its
+   Discovery refactor filter where `refactor-instinct` does. Its
+   Documentation lens holds to `discovery-rigor`'s four defect classes, so
+   merely improvable prose is not a finding and never holds off
+   convergence. Pass the
    loop ledger in: findings already dispositioned in a previous iteration are
    not re-routed (a declined finding stays declined; a queued fork stays
    queued), with one deliberate exception: a re-discovered finding whose
@@ -109,7 +113,13 @@ Each iteration:
 
 Finding fixes commit inside the pass per the `gate-wiring` commit
 discipline (loop-level writes, such as observation fragment writes, take
-their own chore commit at the iteration boundary). Attended or unattended, a
+their own chore commit at the iteration boundary). A fix editing only prose
+is classed on `finding-categorization`'s *Prose findings* axis first:
+expression-only when no normative statement changes meaning, meaning-class
+otherwise. A behaviour-changing Needs-sign-off fix commits alone unless the
+wiring doc's shared-commit exception applies; prose-only ones batch into one
+commit per iteration carrying the wiring doc's manifest, so one checklist
+entry carries a sub-item per fix. Attended or unattended, a
 Needs-sign-off fix is committed on the branch, never asked about first. Each
 iteration's commits stand as the per-iteration audit trail.
 

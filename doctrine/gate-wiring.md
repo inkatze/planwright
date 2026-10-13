@@ -39,9 +39,9 @@ bucket.
    upward.
 3. **Disposition by bucket:**
    - *Auto-applicable* → apply now, audit row with the rule citation.
-   - *Agent-resolvable* → resolve with the evidence row (failing-then-passing
-     test, CI result, and a brief-alignment citation naming the brief section
-     or REQ/D-ID it aligns with).
+   - *Agent-resolvable* → resolve with the evidence row the predicate
+     requires, its brief-alignment citation naming the brief section or
+     REQ/D-ID it aligns with.
    - *Needs sign-off* → apply on the branch per the commit discipline below,
      add a pending-sign-off checklist entry.
    - *Needs-human-judgment candidate* → climb the resolution ladder (see
@@ -227,6 +227,12 @@ attendance (interactive asks, headless parks), never a loop trigger.
   stashes, or rewrites prior dispositions. The pause content respects artifact
   data-hygiene ([Security Posture](security-posture.md)): describe the
   finding without reproducing secrets or sensitive operational detail.
+
+A gate failure on a pushed commit failing the commit-range lint names its
+repair in the entry and the handoff: such a commit is reworded only through
+the tower's force-push path (`scripts/tower-force-push.sh`, on the operator's
+request, [Human Gates](human-gates.md)), so name that path as the reason and
+add no commit for it.
 
 The human's direction is the finding's disposition: the finding does not
 re-enter the routing order and the zone screen does not fire again. The agent

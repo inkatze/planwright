@@ -770,10 +770,11 @@ its children (SIGTERM, then SIGKILL after the grace, since children do not
 reliably die with a parent SIGTERM) and releases the locks, scratch temp, and
 attention record the worker held. `--grace` takes a whole number of seconds
 within the bounds the script declares; run `stop` with an out-of-range value to
-have it name them. The event capture, the persisted session, and the receipt
-journal survive a stop: they are the durable record, not runtime. The journal
-survives as a file but not untouched — the close marks its still-`pending`
-receipts `undeliverable` and discards any spooled receipt, because a close
+have it name them. The event capture, the persisted session, the rate-limit
+reading, and the receipt journal survive a stop: they are the durable record,
+not runtime. The journal survives as a file but not untouched — the close
+marks its still-`pending` receipts `undeliverable` and discards any spooled
+receipt, because a close
 makes them undeliverable by definition and a receipt left pending is what
 `alarm-scan` re-queues a decision item from. A stop never touches the worktree,
 the branch, or the unit's fence: the release set is exactly the reproducible
@@ -867,7 +868,8 @@ written.
 
 **Where the capture lives, and the secret-scan surface.** Each worker's
 event-stream capture (`events.jsonl`, plus its stderr log, session id,
-receipt journal, and request envelopes) is written under the cross-spec
+receipt journal, request envelopes, and newest rate-limit reading, which
+[docs/quota.md](quota.md) describes) is written under the cross-spec
 fleet home at `<fleet-home>/streamjson/<worker>/` — outside every checkout,
 so it can never be committed, force-added, or pushed. The capture holds
 worker-authored conversation content and tool traffic: treat it as
