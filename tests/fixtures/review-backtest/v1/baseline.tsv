@@ -1,0 +1,53 @@
+review-backtest	1
+corpus	v1
+model	claude-opus-5-5
+seed	20261011
+cap	5
+plugin_commit	4659c7e3eddbcaa4cb9460f31618a600c3308f8f
+classes	claim-vs-code,declined,lintable,other,outside-diff,pruned,runtime-tracing,spec-conflict
+excluded_unreplayable	228
+tokens_total	40199360
+class	claim-vs-code	5	1
+class	declined	2	1
+class	lintable	4	3
+class	other	5	3
+class	outside-diff	5	3
+class	pruned	5	4
+class	runtime-tracing	5	3
+class	spec-conflict	5	1
+row	r0393	claim-vs-code	missed
+row	r0681	claim-vs-code	missed
+row	r0987	claim-vs-code	missed
+row	r0826	claim-vs-code	missed
+row	r0232	claim-vs-code	caught
+row	r0525	declined	caught
+row	r0495	declined	missed
+row	r0881	lintable	caught
+row	r0666	lintable	caught
+row	r0317	lintable	caught
+row	r0791	lintable	missed
+row	r0691	other	caught
+row	r1074	other	missed
+row	r0522	other	missed
+row	r0841	other	caught
+row	r0479	other	caught
+row	r0720	outside-diff	caught
+row	r0876	outside-diff	missed
+row	r0262	outside-diff	caught
+row	r0947	outside-diff	caught
+row	r0353	outside-diff	missed
+row	r0710	pruned	caught
+row	r0816	pruned	caught
+row	r0700	pruned	caught
+row	r0836	pruned	missed
+row	r1099	pruned	caught
+row	r0997	runtime-tracing	caught
+row	r0806	runtime-tracing	missed
+row	r0383	runtime-tracing	caught
+row	r1128	runtime-tracing	missed
+row	r1108	runtime-tracing	caught
+row	r0846	spec-conflict	missed
+row	r0740	spec-conflict	caught
+row	r0957	spec-conflict	missed
+row	r1059	spec-conflict	missed
+row	r1054	spec-conflict	missed

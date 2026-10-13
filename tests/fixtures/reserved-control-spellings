@@ -140,6 +140,7 @@ base-merge       worker floor-guard                  n/a    defer  defer  n/a   
 base-merge       tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api -X PUT repos/acme/widgets/pulls/42/update-branch
 force-push       worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api -X PATCH repos/acme/widgets/git/refs/heads/feature -f sha=abc -F force=true
 force-push       tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api -X PATCH repos/acme/widgets/git/refs/heads/feature -f sha=abc -F force=true
+force-push       worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    bash scripts/tower-force-push.sh confirm --branch feature --to HEAD
 protected-push   worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api -X PATCH repos/acme/widgets/git/refs/heads/main -f sha=abc
 protected-push   tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api -X PATCH repos/acme/widgets/git/refs/heads/main -f sha=abc
 protected-push   worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api -X PUT repos/acme/widgets/contents/README.md -f message=m -f content=eA== -f branch=main

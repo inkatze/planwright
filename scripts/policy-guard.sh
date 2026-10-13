@@ -86,6 +86,9 @@
 #               an --input body, a non-literal endpoint, method, or query on a
 #               write, a rename with no literal new name, an unknown flag)
 #               denies before any read; anything else defers.
+#   force-push helper  running scripts/tower-force-push.sh. worker: deny,
+#               with no read. tower: defer, so it reaches the permission
+#               prompt (the tower's command guard never approves it).
 # Every segment of a compound command is classified and the strictest verdict
 # wins.
 #
@@ -169,6 +172,66 @@ RE_GIT_COMMIT_SUBST="${RE_GIT_HEAD}"'commit([^[:alnum:]_-].*)?(\$\(|`)'
 RE_MERGE_HELPER='(^|[^[:alnum:]_.-])merge-ad'
 RE_FOR_MERGE='(^|[^[:alnum:]_-])--for-merge([^[:alnum:]_-]|$)'
 
+# raw_force_push_call <text> — 0 when the text runs the force-push helper as a
+# command: a command's first word, or any word after a wrapper (a shell, sudo,
+# env, xargs, an interpreter, ...), where a shell's -c text and eval's text
+# start a command of their own. The name anywhere else (a grep pattern, a
+# test file's name) runs nothing. Called with nocasematch on: a
+# case-insensitive filesystem runs Tower-Force-Push.sh.
+raw_force_push_call() {
+  local t=$1 w cmd=1 wrapped=0 skip=0
+  local -a words
+  t=${t//$'\n'/ ; }
+  t=${t//;/ ; }
+  t=${t//&/ ; }
+  t=${t//|/ ; }
+  t=${t//(/ ; }
+  t=${t//)/ ; }
+  t=${t//\`/ ; }
+  t=${t//[\"\']/ }
+  t=${t//\\/}
+  read -r -a words <<<"$t"
+  for w in ${words[@]+"${words[@]}"}; do
+    if [ "$w" = ';' ]; then
+      cmd=1 wrapped=0 skip=0
+      continue
+    fi
+    if [ "$skip" = 1 ]; then
+      skip=0
+      continue
+    fi
+    [ "$cmd" = 1 ] || [ "$wrapped" != 0 ] || continue
+    [[ ${w##*/} != tower-force-push* ]] || return 0
+    case $w in
+      '>' | '>>' | '<' | '<<' | [0-9]'>' | [0-9]'>>' | [0-9]'<')
+        skip=1
+        continue
+        ;;
+      [0-9]'>'* | '>'* | '<'*) continue ;;
+    esac
+    if [ "$wrapped" = 2 ] && [[ $w == -*c ]]; then
+      cmd=1 wrapped=0
+      continue
+    fi
+    if [[ ${w##*/} == eval ]]; then
+      cmd=1 wrapped=0
+      continue
+    fi
+    if [[ ${w##*/} =~ ^(bash|sh|zsh|dash|ksh|mksh|fish|busybox|su|runuser)$ ]]; then
+      cmd=0 wrapped=2
+    elif [[ ${w##*/} =~ ^(env|sudo|doas|xargs|nohup|nice|ionice|timeout|gtimeout|stdbuf|setsid|chronic|exec|command|builtin|time|watch|flock|unbuffer|caffeinate|strace|ltrace|chroot|unshare|systemd-run|fakeroot|parallel|find|script|ssh|tmux|screen|source|\.|make|python.*|perl|ruby|node|awk|gawk|mawk|nawk|trap|alias)$ ]]; then
+      [ "$wrapped" = 2 ] || wrapped=1
+      cmd=0
+    elif [ "$cmd" = 1 ]; then
+      case $w in
+        -* | *=* | '{' | '}' | '!' | if | then | elif | else | do | while | until) ;;
+        *) cmd=0 ;;
+      esac
+    fi
+  done
+  return 1
+}
+
 raw_evidence_one() {
   local t=$1 rc=1
   # Case-insensitive: a case-insensitive filesystem runs `git REBASE`.
@@ -178,6 +241,8 @@ raw_evidence_one() {
     || [[ $t =~ $RE_FOR_MERGE ]]; then
     rc=0
   fi
+  # A worker's wrapped or substituted call of the force-push helper.
+  [ "$TIER" != worker ] || [[ $t != *tower-force-push* ]] || ! raw_force_push_call "$t" || rc=0
   shopt -u nocasematch
   [ "$rc" = 1 ] || return 0
   case $t in *"$MCP_TOOL"*) return 0 ;; esac
@@ -996,6 +1061,22 @@ lc() {
   esac
 }
 
+# runs_force_push_helper <lowercased command name> — 0 when the segment runs
+# the tower's force-push helper, directly or as a shell's script operand.
+runs_force_push_helper() {
+  local w
+  [ "$1" = tower-force-push.sh ] && return 0
+  case $1 in
+    bash | sh | zsh | dash | ksh | mksh | busybox | env | nohup | nice | timeout | gtimeout | exec | command) ;;
+    *) return 1 ;;
+  esac
+  for w in "${SW[@]:1}"; do
+    lc "${w##*/}"
+    [ "$LC" = tower-force-push.sh ] && return 0
+  done
+  return 1
+}
+
 classify_segments() {
   local si=0 eff=$PAYLOAD_CWD eff_ok=1 verb base_verb prev_text='' cur_text w
   [ -d "$eff" ] || eff_ok=0
@@ -1020,6 +1101,8 @@ classify_segments() {
     verb=${SW[0]}
     lc "${verb##*/}"
     base_verb=$LC
+    [ "$TIER" != worker ] || ! runs_force_push_helper "$base_verb" \
+      || deny_now 'this command runs scripts/tower-force-push.sh; the force-push path is the tower'"'"'s, run on the operator'"'"'s request, never a worker'"'"'s. Name the reword or force-push in your handoff for the operator instead.'
     if [ "${SWL[0]}" != 1 ]; then
       # The command word is an expansion, so what runs cannot be read: only a
       # variable root followed by a literal script path is let through, and
@@ -2908,14 +2991,14 @@ handle_bash() {
     raw_evidence "$1" && emit_deny 'this Bash payload carries no readable command string and its raw content names a reserved act - refusing (fail closed).'
     return 0
   fi
-  # No git, no gh, and no merge-helper or glob spelling anywhere, even with
-  # quotes and escapes removed, and no
-  # expansion beside a reserved subcommand: nothing this guard classifies, so
-  # no parse and no read.
+  # No git, no gh, no merge-helper, force-push-helper, or glob spelling
+  # anywhere, even with quotes and escapes removed, and no expansion beside
+  # a reserved subcommand: nothing this guard classifies, so no parse and no
+  # read.
   local bare=${cmd//[\"\'\\]/} hit=0
   shopt -s nocasematch
   case $bare in
-    *git* | *gh* | *merge-ad* | *--for-merge*) hit=1 ;;
+    *git* | *gh* | *merge-ad* | *--for-merge* | *tower-force-push*) hit=1 ;;
     # A glob or brace word could still name the merge helper.
     *admitted* | *'*'* | *'?'* | *'['* | *'{'*) hit=1 ;;
     *'$'* | *'`'*)
