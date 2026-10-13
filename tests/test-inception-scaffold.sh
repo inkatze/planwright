@@ -271,8 +271,10 @@ assert_not_contains "hook: no commit carried the secret into the export" "IOSFOD
 # credential existing ONLY in the rendered page: its key and value sit on two
 # source lines, which no per-line pattern matches, and the pitch joins the
 # paragraph into one. Only screening the pitch page itself can catch it.
-sed 's|^Rides the incident-tooling consolidation already funded for the year.$|Rides the consolidation; api_key =\
-AbCdEfGh''IjKlMnOpQrStUvWx12 is the relay credential.|' \
+split_key='api_key ='
+split_val='AbCdEfGh''IjKlMnOpQrStUvWx12'
+sed "s|^Rides the incident-tooling consolidation already funded for the year\\.\$|Rides the consolidation; $split_key\\
+$split_val is the relay credential.|" \
   "$venture/brief.md" >"$venture/brief.new" && mv "$venture/brief.new" "$venture/brief.md"
 printf '\nAnother planning note.\n' >>"$venture/plan.md"
 out="$(cd "$venture" && git add plan.md && git commit -qm "another plan note" 2>&1)"
