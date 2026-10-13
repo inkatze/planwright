@@ -371,6 +371,10 @@ assert_exists "A1.3 create without --root lands under ~/ventures" "$HOME/venture
 venture create --home sideways --root "$tmp/v-guard" beta
 assert_eq "create rejects an unknown home (usage exit 2)" 2 "$rc"
 
+venture create --home local --root "$tmp/v-guard"
+assert_eq "create without an identifier is a usage error (exit 2)" 2 "$rc"
+assert_contains "create without an identifier prints the usage" "usage:" "$out"
+
 # =========================================================================
 # Resume point and version refusal (REQ-B1.7, REQ-C1.7)
 # =========================================================================

@@ -355,6 +355,7 @@ cmd_create() {
         ;;
     esac
   done
+  [ -n "$id" ] || usage
   case $home in local | remote | session) ;; *) usage ;; esac
   cmd_check_id "$id" || exit 1
   if [ -n "$owner" ]; then
