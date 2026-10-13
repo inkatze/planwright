@@ -488,10 +488,11 @@ fi
 # The force-push is the human-gates exception: the operator's same-turn
 # request only, through the helper's confirmation, never to a protected ref.
 if has_phrase 'only when the operator asks for it in this turn' && has_phrase 'never from a standing decision' \
-  && has_phrase 'scripts/tower-force-push.sh confirm' && has_phrase 'only on the yes, in the same turn'; then
-  ok "a force-push runs only on the operator's same-turn request, through the helper (human-gates REQ-F1.2)"
+  && has_phrase 'scripts/tower-force-push.sh confirm' && has_phrase 'only on the yes, in the same turn' \
+  && has_phrase 'never to main, a protected branch, or a spec branch'; then
+  ok "a force-push runs only on the operator's same-turn request, through the helper, never to a protected ref (human-gates REQ-F1.2)"
 else
-  fail "skill does not limit a force-push to the operator's same-turn request through the helper (human-gates REQ-F1.2)"
+  fail "skill does not limit a force-push to the operator's same-turn request through the helper, off protected refs (human-gates REQ-F1.2)"
 fi
 
 if has_phrase 'never\** edit the repository from the tower' && has_phrase 'never edits the repository itself'; then
