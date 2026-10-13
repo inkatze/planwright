@@ -15,22 +15,37 @@
 #      restates the ask is refused; the pending-sign-off IDs surface in the
 #      lead as well as in the collapsed checklist.
 #   3. The ask is sanitized and markup-neutralized: control and invisible
-#      characters stripped, token-shaped secrets redacted, and an ask carrying
-#      a fence, a closing tag, a heading, or a record marker cannot close the
-#      collapse, forge a marker, or break a column-zero parse.
+#      characters stripped, token-shaped secrets redacted (a pasted PEM, PGP,
+#      SSH2, or PuTTY private key from its first line through its own last
+#      line, or to the end, a line ending one key and beginning the next
+#      decided by its last marker), personal data in the ask and grounds
+#      redacted and noted while ordinary numbers pass, and an ask carrying a
+#      fence, a closing tag, a heading, or a record marker cannot close the
+#      collapse, forge a marker, or break a column-zero parse; a non-ASCII or
+#      relative temp directory changes none of it.
 #   4. Worker-authored inputs are screened: a structural line or a
-#      token-shaped secret is refused, and an audit missing a contract element
-#      is refused naming it.
+#      token-shaped secret is refused, an audit missing a contract element
+#      is refused naming it, and a screen finding naming no input is refused
+#      (exit 4).
 #   5. A PR-home record over GitHub's body limit is refused, not truncated.
 #   6. The no-remote arm (`land`) commits exactly one record file, at the
 #      path its caller passes (`--record-path`, required: repo-relative or
 #      absolute inside the worktree, named `<id>.md`, only [A-Za-z0-9._/-],
 #      no empty, `.`, `..`, `.git`, or dash-led segment, no trailing slash,
 #      at most 1024 bytes), on the flight's own branch, and refuses a
-#      missing or malformed path, a second record, the wrong branch, a
-#      symlinked directory on the path, a root other than the worktree's top
-#      level, or an index holding other changes; a commit the hooks refuse
-#      leaves nothing behind. The file home's render names the passed path.
+#      missing or malformed path, a second record that differs, the wrong
+#      branch, a symlinked directory on the path, a root other than the
+#      worktree's top level, or an index holding other changes; a commit the
+#      hooks refuse leaves nothing behind, even when a hook rewrote the
+#      record in place, and a record it cannot unstage stays on disk and is reported.
+#      A matching re-run succeeds (a CRLF checkout included), as does a run
+#      whose commit finds a concurrent run committed the same render. Races
+#      interleaved between land's checks and its write (a directory or a
+#      symlink appearing at the record's name or on its path, a second
+#      signal during rollback) leave neither a committed-but-deleted record
+#      nor a stuck file, and write nothing outside the checkout; a link that
+#      fails for another reason exits 4. The file home's render names the
+#      passed path.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -u
@@ -309,6 +324,338 @@ run_render pr --grounds-file "$in/grounds-invis.txt"
 collapsed_of "$OUT" | awk '/^### Route and grounds$/ {on=1} /^### Record home$/ {on=0} on' \
   | grep -q 'were stripped' || fail "the grounds section must note a strip"
 
+# An uppercase key assignment in the ask is caught and redacted.
+UPPER_VAL="Zq9$(printf 'x%.0s' $(seq 1 24))"
+printf 'Use the new one.\nAPI_KEY=%s\n' "$UPPER_VAL" >"$in/ask-upper.txt"
+run_render pr --ask-file "$in/ask-upper.txt"
+[ "$RC" -eq 0 ] || fail "render of an ask with an uppercase key assignment exited $RC: $ERR"
+case $OUT in *"$UPPER_VAL"*) fail "an uppercase key assignment reached the record" ;; esac
+printf '%s\n' "$OUT" | grep -q 'redacted: opaque-assignment' || fail "an uppercase key assignment must be redacted"
+
+# A pasted private key is redacted from its BEGIN line through its END line,
+# or to the end of the ask when it has none. Assembled at run time so this
+# file carries no key block for a scanner to trip over.
+KEY_BEGIN="-----BEGIN RSA PRIVATE ""KEY-----"
+KEY_END="-----END RSA PRIVATE ""KEY-----"
+KEY_BODY1="MIIEowIBAAKCAQEAkeybodyLineOne"
+KEY_BODY2="kEyBoDyLiNeTwOzzzzzzzzzzzzzzzz"
+printf 'Use this key:\n%s\n%s\n%s\n%s\nThen rerun the deploy.\n' \
+  "$KEY_BEGIN" "$KEY_BODY1" "$KEY_BODY2" "$KEY_END" >"$in/ask-key.txt"
+run_render pr --ask-file "$in/ask-key.txt"
+[ "$RC" -eq 0 ] || fail "render of an ask with a key block exited $RC: $ERR"
+for part in "$KEY_BODY1" "$KEY_BODY2" "$KEY_END" "$KEY_BEGIN"; do
+  case $OUT in *"$part"*) fail "a pasted key block leaked a line: ${part:0:12}" ;; esac
+done
+printf '%s\n' "$OUT" | grep -q 'redacted: private-key-block' || fail "a key block redaction must be marked"
+printf '%s\n' "$OUT" | grep -qx '  Use this key:' || fail "the line before a key block must survive"
+printf '%s\n' "$OUT" | grep -qx '  Then rerun the deploy.' || fail "the line after a key block's END must survive"
+printf '%s\n' "$OUT" | grep -q 'personal data were redacted' \
+  && fail "a secret-only redaction must not be noted as personal data"
+printf 'Use this key:\n%s\n%s\n%s\n' "$KEY_BEGIN" "$KEY_BODY1" "$KEY_BODY2" >"$in/ask-key-open.txt"
+run_render pr --ask-file "$in/ask-key-open.txt"
+[ "$RC" -eq 0 ] || fail "render of an ask with an unterminated key block exited $RC: $ERR"
+for part in "$KEY_BODY1" "$KEY_BODY2"; do
+  case $OUT in *"$part"*) fail "an unterminated key block leaked a line: ${part:0:12}" ;; esac
+done
+printf '%s\n' "$OUT" | grep -qx '  Use this key:' || fail "the line before an unterminated key block must survive"
+# A line that ends one key and begins the next keeps the second key's body
+# out: the line's last marker decides.
+printf 'Two keys:\n%s\n%s\n%s %s\n%s\n%s\nDone.\n' "$KEY_BEGIN" "$KEY_BODY1" "$KEY_END" "$KEY_BEGIN" \
+  "$KEY_BODY2" "$KEY_END" >"$in/ask-key-two.txt"
+run_render pr --ask-file "$in/ask-key-two.txt"
+[ "$RC" -eq 0 ] || fail "render of an ask with back-to-back keys exited $RC: $ERR"
+for part in "$KEY_BODY1" "$KEY_BODY2"; do
+  case $OUT in *"$part"*) fail "back-to-back keys leaked a body line: ${part:0:12}" ;; esac
+done
+printf '%s\n' "$OUT" | grep -qx '  Done.' || fail "the line after back-to-back keys must survive"
+# A key whose BEGIN and END share one line opens no block: its END is the
+# line's last marker.
+printf 'One line:\n%s %s %s\nDone.\n' "$KEY_BEGIN" "$KEY_BODY1" "$KEY_END" >"$in/ask-key-line.txt"
+run_render pr --ask-file "$in/ask-key-line.txt"
+[ "$RC" -eq 0 ] || fail "render of an ask with a one-line key exited $RC: $ERR"
+case $OUT in *"$KEY_BODY1"*) fail "a one-line key leaked its body" ;; esac
+printf '%s\n' "$OUT" | grep -qx '  Done.' || fail "the line after a one-line key must survive"
+# PGP, SSH2, and PuTTY private keys are blocks too, through their own end, as
+# are PEM key types of several words or with a digit.
+PGP_BEGIN="-----BEGIN PGP PRIVATE KEY ""BLOCK-----"
+PGP_END="-----END PGP PRIVATE KEY ""BLOCK-----"
+SSH2_BEGIN="---- BEGIN SSH2 ENCRYPTED PRIVATE ""KEY ----"
+SSH2_END="---- END SSH2 ENCRYPTED PRIVATE ""KEY ----"
+PUTTY_BEGIN="PuTTY-User-Key-""File-3: ssh-ed25519"
+PUTTY_END="Private-""MAC: 0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+NANP_IN_KEY="(555) ""234-5678"
+WORDS_BEGIN="-----BEGIN ENCRYPTED RSA PRIVATE ""KEY-----"
+WORDS_END="-----END ENCRYPTED RSA PRIVATE ""KEY-----"
+DIGIT_BEGIN="-----BEGIN SM2 PRIVATE ""KEY-----"
+DIGIT_END="-----END SM2 PRIVATE ""KEY-----"
+for fmt in "PGP|$PGP_BEGIN|$PGP_END" "SSH2|$SSH2_BEGIN|$SSH2_END" "PuTTY|$PUTTY_BEGIN|$PUTTY_END" \
+  "multi-word PEM|$WORDS_BEGIN|$WORDS_END" "digit PEM|$DIGIT_BEGIN|$DIGIT_END"; do
+  name=${fmt%%|*}
+  rest=${fmt#*|}
+  printf 'Use this key:\n%s\n%s\n%s\n%s\nThen rerun the deploy.\n' \
+    "${rest%%|*}" "$KEY_BODY1" "$KEY_BODY2" "${rest#*|}" >"$in/ask-key-fmt.txt"
+  run_render pr --ask-file "$in/ask-key-fmt.txt"
+  [ "$RC" -eq 0 ] || fail "render of an ask with a $name key exited $RC: $ERR"
+  for part in "${rest%%|*}" "$KEY_BODY1" "$KEY_BODY2" "${rest#*|}"; do
+    case $OUT in *"$part"*) fail "a $name key leaked a line: ${part:0:16}" ;; esac
+  done
+  printf '%s\n' "$OUT" | grep -qx '  Then rerun the deploy.' || fail "the line after a $name key's end must survive"
+done
+# A block ends only at its own format's end: another format's end marker in
+# a key's free-text comment does not publish the rest of the key.
+printf 'Use this key:\n%s\nEncryption: none\nComment: %s\nPrivate-Lines: 1\n%s\n%s\nThen rerun the deploy.\n' \
+  "$PUTTY_BEGIN" "$KEY_END" "$KEY_BODY2" "$PUTTY_END" >"$in/ask-key-foreign.txt"
+run_render pr --ask-file "$in/ask-key-foreign.txt"
+[ "$RC" -eq 0 ] || fail "render of a key with a foreign end marker exited $RC: $ERR"
+for part in Private-Lines "$KEY_BODY2" "$PUTTY_END"; do
+  case $OUT in *"$part"*) fail "a foreign end marker published a key line: ${part:0:16}" ;; esac
+done
+printf '%s\n' "$OUT" | grep -qx '  Then rerun the deploy.' || fail "the line after the key's own end must survive"
+# A key's own end marker inside its Comment header does not end it either:
+# PuTTY and SSH2 ends count only at the start of a line, and a PEM or PGP end
+# never on a Comment line.
+for fmt in "PuTTY|$PUTTY_BEGIN|$PUTTY_END" "SSH2|$SSH2_BEGIN|$SSH2_END" "PGP|$PGP_BEGIN|$PGP_END"; do
+  name=${fmt%%|*}
+  rest=${fmt#*|}
+  printf 'Use this key:\n%s\nComment: %s\n%s\n%s\nThen rerun the deploy.\n' \
+    "${rest%%|*}" "${rest#*|}" "$KEY_BODY2" "${rest#*|}" >"$in/ask-key-own.txt"
+  run_render pr --ask-file "$in/ask-key-own.txt"
+  [ "$RC" -eq 0 ] || fail "render of a $name key with its end marker in a comment exited $RC: $ERR"
+  case $OUT in *"$KEY_BODY2"*) fail "a $name key's own end marker in its comment published the key" ;; esac
+  printf '%s\n' "$OUT" | grep -qx '  Then rerun the deploy.' || fail "the line after a $name key's real end must survive"
+done
+# An indented (spaces or a tab) or quoted key ends at its own prefixed end
+# marker, and its prefixed Comment header still ends nothing.
+for pfx in '    ' "$(printf '\t')" '> '; do
+  for fmt in "PuTTY|$PUTTY_BEGIN|$PUTTY_END" "SSH2|$SSH2_BEGIN|$SSH2_END" "PGP|$PGP_BEGIN|$PGP_END"; do
+    name=${fmt%%|*}
+    rest=${fmt#*|}
+    printf 'Use this key:\n%s%s\n%sComment: %s\n%s%s\n%s%s\nThen rerun the deploy.\n' \
+      "$pfx" "${rest%%|*}" "$pfx" "${rest#*|}" "$pfx" "$KEY_BODY2" "$pfx" "${rest#*|}" >"$in/ask-key-pfx.txt"
+    run_render pr --ask-file "$in/ask-key-pfx.txt"
+    [ "$RC" -eq 0 ] || fail "render of a prefixed $name key exited $RC: $ERR"
+    case $OUT in *"$KEY_BODY2"*) fail "a $name key prefixed '$pfx' published its body" ;; esac
+    printf '%s\n' "$OUT" | grep -qx '  Then rerun the deploy.' \
+      || fail "the line after a $name key prefixed '$pfx' must survive"
+  done
+done
+# A PEM or PGP block ends only at the END line of its own key type: another
+# type's END inside it does not publish the rest of the key.
+OTHER_END="-----END OPENSSH PRIVATE ""KEY-----"
+printf 'Use this key:\n%s\n%s\n%s\n%s\nThen rerun the deploy.\n' \
+  "$KEY_BEGIN" "$OTHER_END" "$KEY_BODY2" "$KEY_END" >"$in/ask-key-type.txt"
+run_render pr --ask-file "$in/ask-key-type.txt"
+[ "$RC" -eq 0 ] || fail "render of a key with another type's END exited $RC: $ERR"
+case $OUT in *"$KEY_BODY2"*) fail "another key type's END line published the key body" ;; esac
+printf '%s\n' "$OUT" | grep -qx '  Then rerun the deploy.' || fail "the line after the key's own END must survive"
+# A key that begins and ends on one line ends there: the start-of-line rule
+# and the Comment check apply only to lines after the one that opened it.
+for shape in "SSH2|Paste: $SSH2_BEGIN $KEY_BODY1 $SSH2_END done" \
+  "PuTTY|Paste: $PUTTY_BEGIN $KEY_BODY1 $PUTTY_END" \
+  "PEM on a Comment line|Comment: $KEY_BEGIN $KEY_BODY1 $KEY_END"; do
+  name=${shape%%|*}
+  printf 'Use this key:\n%s\nThen rerun the deploy.\n' "${shape#*|}" >"$in/ask-key-oneline.txt"
+  run_render pr --ask-file "$in/ask-key-oneline.txt"
+  [ "$RC" -eq 0 ] || fail "render of a one-line $name key exited $RC: $ERR"
+  case $OUT in *"$KEY_BODY1"*) fail "a one-line $name key published its body" ;; esac
+  printf '%s\n' "$OUT" | grep -qx '  Then rerun the deploy.' || fail "the line after a one-line $name key must survive"
+done
+# A line inside a key block that the screens also flag is dropped with the
+# block: one marker for the key, and no personal-data note from its comment.
+printf 'Use this key:\n%s\nComment: call %s\n%s\n%s\nThen rerun the deploy.\n' \
+  "$PGP_BEGIN" "$NANP_IN_KEY" "$KEY_BODY1" "$PGP_END" >"$in/ask-key-pii.txt"
+run_render pr --ask-file "$in/ask-key-pii.txt"
+[ "$RC" -eq 0 ] || fail "render of a key with personal data in its comment exited $RC: $ERR"
+[ "$(printf '%s\n' "$OUT" | grep -c '^  \[redacted: ')" -eq 1 ] \
+  || fail "a key block must carry one redaction marker: $(printf '%s\n' "$OUT" | grep redacted)"
+printf '%s\n' "$OUT" | grep -q 'personal data were redacted' \
+  && fail "a key's comment must not raise the personal-data note"
+
+# Personal data in the ask (identity, account, and contact numbers) is
+# redacted a whole line at a time and noted; ordinary numbers in an ask are
+# not. Fixtures are assembled at run time.
+SSN="078-05-""1120"
+CARD="4111 1111 ""1111 1111"
+IBAN="GB82 WEST ""1234 5698 7654 32"
+INTL="+44 20 ""7946 0958"
+NANP="(555) ""234-5678"
+# Each case is <rule>|<text before>|<value>|<text after>: the value in prose,
+# ended by a comma or a period, or set after another number.
+for case in "identity|is |$SSN|, thanks." "identity|is |078 05 ""1120|." \
+  "account|is |$CARD|, thanks." "account|is |$IBAN|." "account|is |4111111111""111111|, thanks." \
+  "account|is |4111-1111-""1111-1111|." "account|is |GB82WEST1234""5698765432|, thanks." \
+  "account|is order 12 |$CARD| now." "account|is |3782 822463 ""10005|." \
+  "contact|is |$INTL|." "contact|is |$NANP|, thanks." "contact|is |555-234-""5678|." \
+  "contact|is |555.234.""5678|, thanks." "contact|is |(555)234-""5678|." \
+  "contact|is |1-555-234-""5678|." "contact|is |(555)-234-""5678|." "contact|is |$INTL| 24h support." "account|is ref AB12 |$IBAN|." "account|is |4111-1111-""1111-1111| 12 27." "account|is 2026-10-11 |$CARD|."; do
+  rule=personal-data-${case%%|*}
+  rest=${case#*|}
+  before=${rest%%|*}
+  rest=${rest#*|}
+  value=${rest%%|*}
+  after=${rest#*|}
+  printf 'Reach the customer.\nTheir number %s%s%s\n' "$before" "$value" "$after" >"$in/ask-pii.txt"
+  run_render pr --ask-file "$in/ask-pii.txt"
+  [ "$RC" -eq 0 ] || fail "render of an ask with $rule exited $RC: $ERR"
+  case $OUT in *"$value"*) fail "$rule ($value) reached the record" ;; esac
+  printf '%s\n' "$OUT" | grep -qF "[redacted: $rule, personal data]" || fail "$rule must be redacted and marked: $(printf '%s\n' "$OUT" | grep redacted)"
+  printf '%s\n' "$OUT" | grep -qx '  Reach the customer.' || fail "$rule: an unflagged line must survive"
+  collapsed_of "$OUT" | awk '/^### The ask$/ {on=1} /^### Route and grounds$/ {on=0} on' \
+    | grep -q 'personal data were redacted whole' || fail "$rule: the ask section must note the personal-data redaction"
+  printf '%s\n' "$OUT" | grep -q 'token-shaped secret were redacted' \
+    && fail "$rule: a personal-data redaction must not be noted as a secret"
+done
+printf 'automatic: callback on %s\n' "$NANP" >"$in/grounds-pii.txt"
+run_render pr --grounds-file "$in/grounds-pii.txt"
+[ "$RC" -eq 0 ] || fail "render with personal data in the grounds exited $RC: $ERR"
+case $OUT in *"$NANP"*) fail "personal data in the grounds reached the record" ;; esac
+printf '%s\n' "$OUT" | grep -qF '[redacted: personal-data-contact, personal data]' \
+  || fail "personal data in the grounds must be marked: $(printf '%s\n' "$OUT" | grep redacted)"
+collapsed_of "$OUT" | awk '/^### Route and grounds$/ {on=1} /^### Record home$/ {on=0} on' \
+  | grep -q 'Personal data in them was redacted whole' || fail "the grounds section must note the personal-data redaction"
+# A line carrying both a secret and personal data is marked as a secret, and
+# both notes appear.
+printf 'Reach the customer.\nKey %s for %s today\n' "$TOKEN" "$NANP" >"$in/ask-mixed.txt"
+run_render pr --ask-file "$in/ask-mixed.txt"
+[ "$RC" -eq 0 ] || fail "render of an ask with a secret and personal data on one line exited $RC: $ERR"
+case $OUT in *"$TOKEN"* | *"$NANP"*) fail "a mixed line reached the record" ;; esac
+printf '%s\n' "$OUT" | grep -q '^  \[redacted: .*personal-data-contact.*, a token-shaped secret\]$' \
+  || fail "a mixed line must be marked as a secret naming both rules: $(printf '%s\n' "$OUT" | grep redacted)"
+printf '%s\n' "$OUT" | grep -q 'token-shaped secret were redacted whole' || fail "a mixed line must note the secret"
+printf '%s\n' "$OUT" | grep -q 'personal data were redacted whole' || fail "a mixed line must note the personal data"
+# Near-misses, one per guard: a failed checksum, a digit run inside a hash, a
+# `+` glued to a word, a short international number or one with a doubled
+# separator, an SSN inside a longer dashed run, with mixed separators, or in
+# a range the SSA never issues, a NANP exchange starting with 1 or separators
+# that differ, a card issuer digit outside 2 to 6, and groups no card layout
+# has.
+{
+  printf 'Fix PR #646 before 2026-10-11 and bump v0.56.0 to v0.57.0.\n'
+  printf 'The race is in test-fleet-stop-sj.sh c20 at line 1234, run 1791679375.\n'
+  printf 'Commit 2b6eb007c0ffee1234567890abcdef1234567890 and card 4111 1111 1111 1112.\n'
+  printf 'Pin AB12 to issue 555-12-345 and 10.20.30.40, port 8080, +5 lines.\n'
+  printf 'Not an IBAN: GB82 WEST 1234 5698 7654 33.\n'
+  printf 'Glued GB82 WEST 1234 5698 7654 32abc and GB82WEST12345698765432abc are no IBAN.\n'
+  printf 'Blob deadbeef4111111111111111cafe and x+44 20 7946 0958 and call +12 345.\n'
+  printf 'Ranges 10-078-05-1120-3 and 1.555.123.4567 stay.\n'
+  printf 'Exchange 555-123-4567, area 900-12-3456, sizes 128 256 1024 4096.\n'
+  printf 'At 1791679375009 the job ended; 4111 1111 1111 ran short.\n'
+  printf 'Mixed 4111-1111 1111-1111 is no card layout.\n'
+  printf 'Moved +15000 -3200 and ids 078-05 1120, 078-00-1120, 078-05-0000, 000-12-3456, 666-12-3456.\n'
+  printf 'Dialed 555-234.5678; zeros 0000 0000 0000 0000 and 0000000000000000; ports 640 641 642 643 644.\n'
+} >"$in/ask-numbers.txt"
+run_render pr --ask-file "$in/ask-numbers.txt"
+[ "$RC" -eq 0 ] || fail "render of an ask with ordinary numbers exited $RC: $ERR"
+printf '%s\n' "$OUT" | grep -q 'redacted' && fail "ordinary numbers must not be redacted: $(printf '%s\n' "$OUT" | grep redacted)"
+# Known false positive, kept by operator decision: a spaced triple shaped
+# like an SSN is redacted as one.
+printf 'Reach the customer.\nOpen ports 443 80 8080 on the host.\n' >"$in/ask-ports.txt"
+run_render pr --ask-file "$in/ask-ports.txt"
+[ "$RC" -eq 0 ] || fail "render of an ask with a port triple exited $RC: $ERR"
+printf '%s\n' "$OUT" | grep -qF '[redacted: personal-data-identity, personal data]' \
+  || fail "a port triple shaped like a spaced SSN is a documented false positive and must stay redacted"
+
+# A long line of IBAN-shaped tokens scans in bounded time. Unbounded, it
+# costs a minute of CPU or more, so the margin here (five times a line of
+# words its size, plus a second) is far outside what host load moves.
+cpu_render() {
+  defaults
+  TIMEFORMAT=%3U
+  { time /bin/sh "$SCRIPT" render --home pr "${args[@]}" --ask-file "$1" >/dev/null 2>&1; } 2>"$tmp/cpu"
+  cat "$tmp/cpu"
+}
+awk 'BEGIN { while (length(s) < 65000) s = s "abcd "; print s }' >"$in/ask-words.txt"
+words_cpu=$(cpu_render "$in/ask-words.txt")
+# bounded <what> <ask-file> — fail unless rendering <ask-file> stays within
+# the margin of the words line.
+bounded() {
+  _cpu=$(cpu_render "$2")
+  awk -v g="$_cpu" -v w="$words_cpu" 'BEGIN { exit !(g <= 5 * w + 1) }' \
+    || fail "a long line of $1 must scan in bounded time (${_cpu}s CPU against ${words_cpu}s for words)"
+}
+awk 'BEGIN { while (length(s) < 65000) s = s "AB12 "; print s }' >"$in/ask-ibanish.txt"
+bounded 'IBAN-shaped tokens' "$in/ask-ibanish.txt"
+awk 'BEGIN { s = "+1"; while (length(s) < 65000) s = s " 2"; print s }' >"$in/ask-plusrun.txt"
+bounded 'digit groups after a +' "$in/ask-plusrun.txt"
+
+# The card scan is bounded: a run of digit groups is searched for a card in
+# its first 64 four-digit windows only, so a card that is the 64th window is
+# found and one that would be the 65th is not. Pinned by count, not by CPU
+# time, which host load skews.
+for n in 63 64; do
+  awk -v n="$n" -v card="$CARD" 'BEGIN { print "Reach the customer."; for (i = 0; i < n; i++) s = s "1234 "; print "Rows " s card "." }' \
+    >"$in/ask-groups.txt"
+  run_render pr --ask-file "$in/ask-groups.txt"
+  [ "$RC" -eq 0 ] || fail "render of $n digit groups before a card exited $RC: $ERR"
+  if [ "$n" -eq 63 ]; then
+    printf '%s\n' "$OUT" | grep -qF '[redacted: personal-data-account, personal data]' \
+      || fail "a card in the 64th window of a run must be found"
+  else
+    printf '%s\n' "$OUT" | grep -q 'redacted' \
+      && fail "the card scan must stop after 64 windows: $(printf '%s\n' "$OUT" | grep redacted)"
+  fi
+done
+
+# The IBAN retry is bounded the same way: a candidate that is no IBAN is
+# retried from at most 64 of its later IBAN-shaped groups, so an IBAN that is
+# the 64th retry is found and one that would be the 65th is not.
+for n in 64 65; do
+  awk -v n="$n" -v iban="$IBAN" 'BEGIN { for (i = 0; i < n; i++) s = s "AB12 "; print "Pay ref " s iban "." }' \
+    >"$in/ask-ibanrun.txt"
+  run_render pr --ask-file "$in/ask-ibanrun.txt"
+  [ "$RC" -eq 0 ] || fail "render of $n IBAN-shaped tokens before an IBAN exited $RC: $ERR"
+  if [ "$n" -eq 64 ]; then
+    printf '%s\n' "$OUT" | grep -qF '[redacted: personal-data-account, personal data]' \
+      || fail "an IBAN that is the 64th retry of a candidate must be found"
+  else
+    printf '%s\n' "$OUT" | grep -q 'redacted' \
+      && fail "the IBAN retry must stop after 64 groups: $(printf '%s\n' "$OUT" | grep redacted)"
+  fi
+done
+
+# A non-ASCII temp directory neither lets a finding pass nor misplaces its
+# redaction: the screen reads fixed ASCII names, not the work directory's path.
+EMDASH=$(printf '\342\200\224')
+mkdir -p "$tmp/t${EMDASH}mp"
+defaults
+OUT=$(TMPDIR="$tmp/t${EMDASH}mp" /bin/sh "$SCRIPT" render --home pr "${args[@]}" 2>"$tmp/err")
+RC=$?
+ERR=$(cat "$tmp/err")
+[ "$RC" -eq 0 ] || fail "render under a non-ASCII TMPDIR exited $RC: $ERR"
+case $OUT in *"$TOKEN"*) fail "under a non-ASCII TMPDIR a token-shaped secret reached the record" ;; esac
+printf '%s\n' "$OUT" | grep -q 'redacted: github-token' || fail "under a non-ASCII TMPDIR the redaction must be marked"
+printf '%s\n' "$OUT" | grep -q 'hiddenjoin' || fail "under a non-ASCII TMPDIR an unflagged line must survive"
+printf 'Rotated the key %s.\n' "$TOKEN" >"$in/secret-tmp.md"
+OUT=$(TMPDIR="$tmp/t${EMDASH}mp" /bin/sh "$SCRIPT" render --home pr "${args[@]}" \
+  --summary-file "$in/secret-tmp.md" 2>"$tmp/err")
+RC=$?
+[ "$RC" -eq 2 ] || fail "under a non-ASCII TMPDIR a secret in the summary must be refused with 2 (got $RC)"
+
+# A relative TMPDIR still screens: the work directory is made absolute before
+# the screen runs inside it.
+mkdir -p "$tmp/reltmp"
+defaults
+OUT=$(cd "$tmp" && TMPDIR=reltmp /bin/sh "$SCRIPT" render --home pr "${args[@]}" 2>"$tmp/err")
+RC=$?
+ERR=$(cat "$tmp/err")
+[ "$RC" -eq 0 ] || fail "render under a relative TMPDIR exited $RC: $ERR"
+case $OUT in *"$TOKEN"*) fail "under a relative TMPDIR a token-shaped secret reached the record" ;; esac
+printf '%s\n' "$OUT" | grep -q 'redacted: github-token' || fail "under a relative TMPDIR the redaction must be marked"
+
+# A finding that names no input is refused, never passed: a screen whose
+# report this script cannot place has not cleared anything.
+mkdir -p "$tmp/foreign/scripts"
+cp "$ROOT/scripts/flight-record.sh" "$ROOT/scripts/flight-text.sh" "$ROOT/scripts/flight-id.sh" \
+  "$tmp/foreign/scripts/"
+printf '#!/bin/sh\nprintf "elsewhere.txt:1: github-token (value redacted)\\n" >&2\nexit 1\n' \
+  >"$tmp/foreign/scripts/inception-secret-screen.sh"
+defaults
+/bin/sh "$tmp/foreign/scripts/flight-record.sh" render --home pr "${args[@]}" >/dev/null 2>"$tmp/err"
+RC=$?
+[ "$RC" -eq 4 ] || fail "a finding naming no input must fail with 4 (got $RC: $(cat "$tmp/err"))"
+grep -q 'no input this script screened' "$tmp/err" \
+  || fail "a finding naming no input must be refused as unplaced: $(cat "$tmp/err")"
+
 # CR line endings stay line breaks, and a CRLF ask is not flagged as stripped.
 printf 'first line\r\nsecond line\rthird line\r\n' >"$in/ask-cr.txt"
 run_render pr --ask-file "$in/ask-cr.txt"
@@ -578,8 +925,27 @@ printf '%s\n' "$landed" | grep -qx "commit	$(git -C "$repo" rev-parse HEAD)" || 
 
 before=$(git -C "$repo" rev-parse HEAD)
 run_land
-[ "$RC" -eq 3 ] || fail "a second record for one flight must be refused with 3 (got $RC)"
+[ "$RC" -eq 0 ] || fail "a re-run whose committed record matches must succeed (got $RC: $ERR)"
+[ "$(git -C "$repo" rev-parse HEAD)" = "$before" ] || fail "a matching re-run must commit nothing"
+printf '%s\n' "$OUT" | grep -qx "commit	$before" || fail "a matching re-run must report the record's commit: $OUT"
+printf '%s\n' "$OUT" | grep -qx "record	specs/_flights/$FID.md" || fail "a matching re-run must report the record path: $OUT"
+printf 'A different account of the change.\n' >"$in/summary-other.md"
+run_land --summary-file "$in/summary-other.md"
+[ "$RC" -eq 3 ] || fail "a second record for one flight that differs must be refused with 3 (got $RC)"
 [ "$(git -C "$repo" rev-parse HEAD)" = "$before" ] || fail "a refused land must commit nothing"
+# A re-run matches only when the checkout still holds the committed record:
+# a deleted or edited copy is refused, and left as it was.
+rm -f "$repo/specs/_flights/$FID.md"
+run_land
+[ "$RC" -eq 3 ] || fail "a re-run whose record was deleted from the checkout must be refused with 3 (got $RC: $ERR)"
+[ ! -e "$repo/specs/_flights/$FID.md" ] || fail "a refused re-run must not restore the record"
+git -C "$repo" checkout -q -- "specs/_flights/$FID.md"
+printf 'edited\n' >>"$repo/specs/_flights/$FID.md"
+run_land
+[ "$RC" -eq 3 ] || fail "a re-run whose record was edited in the checkout must be refused with 3 (got $RC: $ERR)"
+[ "$(tail -n 1 "$repo/specs/_flights/$FID.md")" = edited ] || fail "a refused re-run must leave the edited record alone"
+git -C "$repo" checkout -q -- "specs/_flights/$FID.md"
+[ "$(git -C "$repo" rev-parse HEAD)" = "$before" ] || fail "a refused re-run must commit nothing"
 
 run_land --home pr
 [ "$RC" -eq 2 ] || fail "land is the file home only: --home must be refused with 2 (got $RC)"
@@ -675,10 +1041,277 @@ chmod +x "$repo/.git/hooks/pre-commit"
 hook_head=$(git -C "$repo" rev-parse HEAD)
 run_land --flight-id "$HOOK"
 [ "$RC" -eq 4 ] || fail "a refused commit must fail with 4 (got $RC)"
+printf '%s\n' "$ERR" | grep -q 'the uncommitted record was removed' || fail "rollback must report removing the record: $ERR"
 [ -e "$repo/specs/_flights/$HOOK.md" ] && fail "a refused commit must leave no record file"
 [ -z "$(git -C "$repo" diff --cached --name-only)" ] || fail "a refused commit must leave nothing staged"
 [ "$(git -C "$repo" rev-parse HEAD)" = "$hook_head" ] || fail "a refused commit must not move HEAD"
 rm -f "$repo/.git/hooks/pre-commit"
+rm -rf "$repo/specs"
+
+# Races, interleaved deterministically: `git` and `ln` stubs first on PATH run
+# a case's action once, at the first call of the case's tool (git unless
+# STUB_TOOL says otherwise) whose arguments match the case's pattern, then
+# hand every call to the real tool unless the action fails, which fails that
+# call instead. The action sees land's pid as STUB_LAND_PID. `diff --cached`
+# falls after land's checks and before its write; `ln` is the write; `add`
+# and `commit` come after it, and `rm` is the rollback's.
+REAL_GIT=$(command -v git)
+stub="$tmp/stub"
+mkdir -p "$stub"
+for _tool in git ln; do
+  cat >"$stub/$_tool" <<EOF
+#!/bin/sh
+case "\${STUB_TOOL:-git}: \$* " in
+  "$_tool:"*" \$STUB_ON "*)
+    if [ ! -e "\$STUB_DONE" ]; then
+      : >"\$STUB_DONE"
+      STUB_LAND_PID=\$PPID /bin/sh "\$STUB_ACTION" || exit \$?
+    fi
+    ;;
+esac
+exec "$(command -v "$_tool")" "\$@"
+EOF
+  chmod +x "$stub/$_tool"
+done
+# run_land_stub <pattern> <action-script> [overrides...]
+run_land_stub() {
+  _on=$1
+  _act=$2
+  shift 2
+  rm -f "$tmp/stub.done"
+  defaults
+  with_record_path "$@"
+  OUT=$(cd "$repo" && PATH="$stub:$PATH" STUB_ON="$_on" STUB_ACTION="$_act" STUB_DONE="$tmp/stub.done" \
+    GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid \
+    GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.invalid \
+    /bin/sh "$SCRIPT" land "${args[@]}" "$@" 2>"$tmp/err")
+  RC=$?
+  ERR=$(cat "$tmp/err")
+}
+
+# Another run commits the record between this run's checks and its write:
+# this run leaves the committed record in place, on disk and in the index.
+RACE1=raceone-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$RACE1" main
+cat >"$tmp/act-commit-first.sh" <<EOF
+mkdir -p "$repo/specs/_flights"
+printf 'the other run\n' >"$repo/specs/_flights/$RACE1.md"
+"$REAL_GIT" -C "$repo" add -- "specs/_flights/$RACE1.md"
+"$REAL_GIT" -C "$repo" -c user.name=test -c user.email=test@example.invalid -c commit.gpgsign=false \
+  commit -q --no-verify -m other -- "specs/_flights/$RACE1.md"
+EOF
+run_land_stub 'diff --cached' "$tmp/act-commit-first.sh" --flight-id "$RACE1"
+[ "$RC" -eq 3 ] || fail "a record committed after land's checks must be refused with 3 (got $RC: $ERR)"
+printf '%s\n' "$ERR" | grep -q 'appeared while land ran' \
+  || fail "a record committed after land's checks must be refused as appearing: $ERR"
+[ "$(cat "$repo/specs/_flights/$RACE1.md" 2>/dev/null)" = 'the other run' ] \
+  || fail "a raced land must leave the other run's committed record on disk"
+[ -z "$(git -C "$repo" status --porcelain)" ] || fail "a raced land must leave no staged deletion: $(git -C "$repo" status --porcelain)"
+git -C "$repo" reset -q
+rm -rf "$repo/specs"
+
+# Another run commits the record after this run wrote it, so this run's commit
+# finds nothing to commit: its rollback leaves the committed record alone.
+RACE2=racetwo-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$RACE2" main
+cat >"$tmp/act-commit-mine.sh" <<EOF
+"$REAL_GIT" -C "$repo" add -- "specs/_flights/$RACE2.md"
+"$REAL_GIT" -C "$repo" -c user.name=test -c user.email=test@example.invalid -c commit.gpgsign=false \
+  commit -q --no-verify -m other -- "specs/_flights/$RACE2.md"
+EOF
+run_land_stub 'add' "$tmp/act-commit-mine.sh" --flight-id "$RACE2"
+git -C "$repo" cat-file -e "HEAD:specs/_flights/$RACE2.md" 2>/dev/null \
+  || fail "the race fixture must have committed the record"
+# The concurrent commit carried this run's own render, so the record landed.
+[ "$RC" -eq 0 ] || fail "a record landed identically by a concurrent run must report success (got $RC: $ERR)"
+printf '%s\n' "$OUT" | grep -qx "commit	$(git -C "$repo" log -1 --format=%H -- "specs/_flights/$RACE2.md")" \
+  || fail "a concurrently landed record must report its commit: $OUT"
+[ -f "$repo/specs/_flights/$RACE2.md" ] || fail "a raced rollback must not delete a committed record"
+[ -z "$(git -C "$repo" status --porcelain)" ] \
+  || fail "a raced rollback must leave no staged deletion: $(git -C "$repo" status --porcelain)"
+git -C "$repo" reset -q
+rm -rf "$repo/specs"
+
+# An interrupt during the commit rolls the uncommitted record back, so a
+# re-run is not refused over a stuck file. The action fails the commit call,
+# so the record never reaches HEAD.
+INTR=interrupt-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$INTR" main
+printf 'kill -TERM "$STUB_LAND_PID"\nexit 1\n' >"$tmp/act-interrupt.sh"
+intr_head=$(git -C "$repo" rev-parse HEAD)
+run_land_stub 'commit' "$tmp/act-interrupt.sh" --flight-id "$INTR"
+[ "$RC" -ne 0 ] || fail "an interrupted land must not report success"
+[ "$(git -C "$repo" rev-parse HEAD)" = "$intr_head" ] || fail "an interrupted land must not move HEAD"
+[ -z "$(git -C "$repo" status --porcelain)" ] \
+  || fail "an interrupted land must leave no record, temp file, or staged entry: $(git -C "$repo" status --porcelain)"
+run_land --flight-id "$INTR"
+[ "$RC" -eq 0 ] || fail "a re-run after an interrupted land must succeed (got $RC: $ERR)"
+git -C "$repo" reset -q
+rm -rf "$repo/specs"
+
+# A symlink swapped in for a directory after land's checks is refused before
+# the write, and nothing lands outside the checkout.
+SWAP=swapped-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$SWAP" main
+rm -rf "$tmp/swap-out"
+mkdir -p "$tmp/swap-out" "$repo/specs/_flights"
+cat >"$tmp/act-swap.sh" <<EOF
+rm -rf "$repo/specs/_flights"
+ln -s "$tmp/swap-out" "$repo/specs/_flights"
+EOF
+run_land_stub 'diff --cached' "$tmp/act-swap.sh" --flight-id "$SWAP"
+[ "$RC" -eq 3 ] || fail "a symlink swapped in after the checks must be refused with 3 (got $RC: $ERR)"
+printf '%s\n' "$ERR" | grep -q 'symlink' || fail "the swapped-symlink refusal must name the symlink: $ERR"
+[ -z "$(ls -A "$tmp/swap-out")" ] || fail "a swapped-in symlink carried the write outside the checkout"
+rm -rf "$repo/specs"
+
+# A symlink swapped onto an earlier component of a path land still has to
+# create makes nothing outside the checkout: directories are made one at a
+# time, each checked.
+MKD=mkdirswap-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$MKD" main
+rm -rf "$tmp/mkdir-out"
+mkdir -p "$tmp/mkdir-out" "$repo/specs"
+cat >"$tmp/act-mkdir.sh" <<EOF
+rm -rf "$repo/specs"
+ln -s "$tmp/mkdir-out" "$repo/specs"
+EOF
+run_land_stub 'diff --cached' "$tmp/act-mkdir.sh" --flight-id "$MKD"
+[ "$RC" -eq 3 ] || fail "a symlink swapped onto a path land creates must be refused with 3 (got $RC: $ERR)"
+[ -z "$(ls -A "$tmp/mkdir-out")" ] || fail "land created directories through a swapped-in symlink: $(ls -A "$tmp/mkdir-out")"
+rm -rf "$repo/specs"
+
+# A directory, or a symlink to one, that appears at the record's own name
+# after the checks is refused: the link must not land inside it.
+for kind in dir link; do
+  APP=appear$kind-0a1b2c3d
+  gitc "$repo" checkout -q -b "planwright/flight/$APP" main
+  rm -rf "$tmp/appear-out"
+  mkdir -p "$tmp/appear-out" "$repo/specs/_flights"
+  if [ "$kind" = dir ]; then
+    printf 'mkdir "%s"\n' "$repo/specs/_flights/$APP.md" >"$tmp/act-appear.sh"
+  else
+    printf 'ln -s "%s" "%s"\n' "$tmp/appear-out" "$repo/specs/_flights/$APP.md" >"$tmp/act-appear.sh"
+  fi
+  appear_head=$(git -C "$repo" rev-parse HEAD)
+  run_land_stub 'diff --cached' "$tmp/act-appear.sh" --flight-id "$APP"
+  [ "$RC" -eq 3 ] || fail "a $kind appearing at the record's name must be refused with 3 (got $RC: $ERR)"
+  [ "$(git -C "$repo" rev-parse HEAD)" = "$appear_head" ] || fail "a $kind at the record's name must commit nothing"
+  [ -z "$(ls -A "$tmp/appear-out")" ] || fail "a $kind at the record's name received the record: $(ls -A "$tmp/appear-out")"
+  [ "$kind" = link ] || [ -z "$(ls -A "$repo/specs/_flights/$APP.md")" ] \
+    || fail "a directory at the record's name received the record: $(ls -A "$repo/specs/_flights/$APP.md")"
+  [ "$(ls -A "$repo/specs/_flights")" = "$APP.md" ] \
+    || fail "a $kind at the record's name must leave no temp file: $(ls -A "$repo/specs/_flights")"
+  rm -rf "$repo/specs"
+done
+
+# An interrupt during the record's creation rolls back what it made, so no
+# record or temp file is left for a re-run to trip over.
+export STUB_TOOL=ln
+CRE=create-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$CRE" main
+printf 'kill -TERM "$STUB_LAND_PID"\n' >"$tmp/act-interrupt-ln.sh"
+run_land_stub '--' "$tmp/act-interrupt-ln.sh" --flight-id "$CRE"
+[ "$RC" -ne 0 ] || fail "a land interrupted at its write must not report success"
+[ -z "$(ls -A "$repo/specs/_flights" 2>/dev/null)" ] \
+  || fail "a land interrupted at its write must leave no record or temp file: $(ls -A "$repo/specs/_flights")"
+[ -z "$(git -C "$repo" status --porcelain)" ] || fail "a land interrupted at its write must leave the tree clean"
+git -C "$repo" reset -q
+rm -rf "$repo/specs"
+# A link that fails for any reason but an existing name is an environment
+# failure, not a record that appeared, and ln's own error is shown.
+printf 'echo "ln: simulated link failure" >&2\nexit 1\n' >"$tmp/act-ln-fail.sh"
+run_land_stub '--' "$tmp/act-ln-fail.sh" --flight-id "$CRE"
+[ "$RC" -eq 4 ] || fail "a failed link with no record at the name must fail with 4 (got $RC: $ERR)"
+printf '%s\n' "$ERR" | grep -q 'appeared' && fail "a failed link must not be reported as a record that appeared: $ERR"
+printf '%s\n' "$ERR" | grep -q 'simulated link failure' || fail "a failed link must show ln's error: $ERR"
+[ -z "$(ls -A "$repo/specs/_flights" 2>/dev/null)" ] || fail "a failed link must leave no temp file"
+unset STUB_TOOL
+rm -rf "$repo/specs"
+
+# A real directory on the record path that cannot be entered is an
+# environment failure, not a symlink.
+NOX=noenter-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$NOX" main
+mkdir -p "$repo/specs"
+chmod 000 "$repo/specs"
+run_land --flight-id "$NOX"
+chmod 755 "$repo/specs"
+[ "$RC" -eq 4 ] || fail "a directory land cannot enter must fail with 4 (got $RC: $ERR)"
+printf '%s\n' "$ERR" | grep -q 'symlink' && fail "a directory land cannot enter is not a symlink: $ERR"
+rm -rf "$repo/specs"
+
+# A pre-commit hook that rewrites the record and then refuses the commit
+# leaves nothing behind: the record is still this run's file.
+REW=rewrite-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$REW" main
+printf '#!/bin/sh\nprintf "tampered\\n" >>"specs/_flights/%s.md"\nexit 1\n' "$REW" >"$repo/.git/hooks/pre-commit"
+chmod +x "$repo/.git/hooks/pre-commit"
+run_land --flight-id "$REW"
+[ "$RC" -eq 4 ] || fail "a rewriting, refusing hook must fail with 4 (got $RC: $ERR)"
+[ -e "$repo/specs/_flights/$REW.md" ] && fail "a record a hook rewrote must still be removed"
+[ -z "$(git -C "$repo" status --porcelain)" ] \
+  || fail "a record a hook rewrote must leave nothing staged: $(git -C "$repo" status --porcelain)"
+git -C "$repo" reset -q
+rm -rf "$repo/specs"
+# A hook that renames a new file over the record and refuses the commit
+# leaves nothing staged; the replaced file is not this run's, so it stays and
+# land says so.
+printf '#!/bin/sh\nprintf "replaced\\n" >.git/new.md && mv .git/new.md "specs/_flights/%s.md"\nexit 1\n' "$REW" \
+  >"$repo/.git/hooks/pre-commit"
+run_land --flight-id "$REW"
+[ "$RC" -eq 4 ] || fail "a replacing, refusing hook must fail with 4 (got $RC: $ERR)"
+[ -z "$(git -C "$repo" diff --cached --name-only)" ] \
+  || fail "a record a hook replaced must be unstaged: $(git -C "$repo" status --porcelain)"
+printf '%s\n' "$ERR" | grep -q 'replaced' || fail "land must say a hook replaced the record: $ERR"
+git -C "$repo" reset -q
+rm -rf "$repo/specs"
+# A second signal during the rollback does not cut it short.
+printf '#!/bin/sh\nexit 1\n' >"$repo/.git/hooks/pre-commit"
+printf 'kill -TERM "$STUB_LAND_PID"\n' >"$tmp/act-rollback-signal.sh"
+run_land_stub 'rm' "$tmp/act-rollback-signal.sh" --flight-id "$REW"
+[ -e "$repo/specs/_flights/$REW.md" ] && fail "a signal during rollback left the record behind"
+[ -z "$(git -C "$repo" status --porcelain)" ] \
+  || fail "a signal during rollback left the tree dirty: $(git -C "$repo" status --porcelain)"
+git -C "$repo" reset -q
+rm -rf "$repo/specs"
+# A rollback that cannot unstage the record keeps the file and says so,
+# rather than deleting a file the index still adds.
+printf 'exit 1\n' >"$tmp/act-rm-fail.sh"
+run_land_stub 'rm' "$tmp/act-rm-fail.sh" --flight-id "$REW"
+[ -f "$repo/specs/_flights/$REW.md" ] || fail "a rollback that could not unstage must keep the file"
+printf '%s\n' "$ERR" | grep -q 'unstage' || fail "a rollback that could not unstage must say so: $ERR"
+printf '%s\n' "$ERR" | grep -q 'removed' && fail "a rollback that kept the record must not report it removed: $ERR"
+rm -f "$repo/.git/hooks/pre-commit"
+git -C "$repo" reset -q
+rm -rf "$repo/specs"
+
+# When the add itself fails (the index locked) and so does the unstage,
+# rollback does not call an untracked record staged: it says to remove the
+# file.
+LOCK=locked-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$LOCK" main
+printf ': >"%s/.git/index.lock"\n' "$repo" >"$tmp/act-lock.sh"
+run_land_stub 'add' "$tmp/act-lock.sh" --flight-id "$LOCK"
+rm -f "$repo/.git/index.lock"
+[ "$RC" -eq 4 ] || fail "a land whose add fails must fail with 4 (got $RC: $ERR)"
+printf '%s\n' "$ERR" | grep -q 'and staged' && fail "an untracked record must not be reported staged: $ERR"
+printf '%s\n' "$ERR" | grep -qF "rm -- specs/_flights/$LOCK.md" || fail "rollback must say how to remove the untracked record: $ERR"
+rm -rf "$repo/specs"
+
+# A matching re-run is recognized through git, so a checkout whose line
+# endings git converts still matches its committed record.
+CRLF=crlf-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$CRLF" main
+printf '*.md text eol=crlf\n' >"$repo/.git/info/attributes"
+run_land --flight-id "$CRLF"
+[ "$RC" -eq 0 ] || fail "land under CRLF attributes exited $RC: $ERR"
+rm -f "$repo/specs/_flights/$CRLF.md"
+gitc "$repo" checkout -q -- "specs/_flights/$CRLF.md"
+grep -q "$(printf '\r')" "$repo/specs/_flights/$CRLF.md" || fail "the CRLF fixture must check the record out with CRLF"
+run_land --flight-id "$CRLF"
+[ "$RC" -eq 0 ] || fail "a matching re-run under CRLF attributes must succeed (got $RC: $ERR)"
+rm -f "$repo/.git/info/attributes"
 rm -rf "$repo/specs"
 
 gitc "$repo" checkout -q main
@@ -777,6 +1410,16 @@ if [ -n "$ML" ] && (cd "$lr" && "$ML" --version) >/dev/null 2>&1; then
 else
   echo "test-flight-record: markdownlint-cli2 unavailable; record lint check skipped" >&2
 fi
+
+# A relative --repo-root names the same worktree from wherever land works.
+RELR=relroot-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$RELR" main
+run_land --flight-id "$RELR" --repo-root .
+[ "$RC" -eq 0 ] || fail "land with --repo-root . exited $RC: $ERR"
+git -C "$repo" cat-file -e "HEAD:specs/_flights/$RELR.md" 2>/dev/null || fail "land with --repo-root . must commit the record"
+[ -z "$(git -C "$repo" status --porcelain)" ] || fail "land with --repo-root . must leave the tree clean"
+rm -rf "$repo/specs"
+gitc "$repo" checkout -q main
 
 # land runs at the worktree's top level, inside a git worktree.
 mkdir -p "$repo/sub"
