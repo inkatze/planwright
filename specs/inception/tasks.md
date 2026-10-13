@@ -240,7 +240,8 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 
 ## Awaiting input
 
-(none yet)
+- **Task 7** — post-pr point, step cubic-pr, outcome halted (two cubic findings on PR #673 await
+  operator direction); record `.claude/steps/000007/008-step-post-pr.rec`.
 
 ## Deferred
 
