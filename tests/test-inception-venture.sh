@@ -950,6 +950,27 @@ for shape in attribute nul; do
   git -C "$rv" reset -q --hard "$rv_base"
 done
 
+# A file that exists only in a merge's resolution shows in no commit's diff.
+rv_base=$(git -C "$rv" rev-parse HEAD)
+remote_before=$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)
+git -C "$rv" checkout -q -b z7-side
+printf 'side\n' >"$rv/z7-side.md"
+git -C "$rv" add z7-side.md
+git -C "$rv" -c core.hooksPath=/dev/null commit -q --no-verify -m "side change"
+git -C "$rv" checkout -q main
+printf 'main\n' >"$rv/z7-main.md"
+git -C "$rv" add z7-main.md
+git -C "$rv" -c core.hooksPath=/dev/null commit -q --no-verify -m "main change"
+git -C "$rv" -c core.hooksPath=/dev/null merge -q --no-ff --no-commit z7-side >/dev/null 2>&1
+token_line >"$rv/merge-only.md"
+git -C "$rv" add merge-only.md
+git -C "$rv" -c core.hooksPath=/dev/null commit -q --no-verify -m "merge side"
+PATH="$stubs/gh-ok:$PATH" venture save --push "$rv" "Share a merge-only file"
+assert_eq "Z7 a credential added only in a merge resolution blocks the push (exit 1)" 1 "$rc"
+assert_eq "Z7 the refused push (merge) leaves the remote untouched" "$remote_before" "$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)"
+git -C "$rv" reset -q --hard "$rv_base"
+git -C "$rv" branch -q -D z7-side
+
 # =========================================================================
 # Z10 — inherited git config never redirects a push
 # =========================================================================
@@ -973,12 +994,16 @@ assert_eq "Z10 inherited GIT_CONFIG_PARAMETERS redirect nothing" "" "$(git -C "$
 remote_before=$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)
 git init -q --bare "$tmp/remotes/upstream.git"
 git -C "$rv" remote add upstream "$tmp/remotes/upstream.git"
+# The push URL is spelled apart from the fetch URL, so only a check of the
+# push URL reads public.
+git -C "$rv" config remote.origin.pushurl "$tmp/remotes/./harbor-ledger.git"
 git -C "$rv" remote get-url --push origin >"$tmp/gh-public-repos"
 printf 'visibility target probe\n' >"$rv/visibility-target.md"
 PATH="$stubs/gh-ok:$PATH" venture save --push "$rv" "Share to a public origin beside a private upstream"
 assert_eq "Z11 a public origin is refused whatever other remotes read (exit 6)" 6 "$rc"
 assert_eq "Z11 the refused push leaves origin untouched" "$remote_before" "$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)"
 rm -f "$tmp/gh-public-repos"
+git -C "$rv" config --unset remote.origin.pushurl
 git -C "$rv" remote remove upstream
 
 # =========================================================================

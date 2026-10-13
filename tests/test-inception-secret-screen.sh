@@ -475,6 +475,17 @@ named=$(grep -e '--no-banner' "$tmp/gl-args.log" | grep -c -F -e "--config $REPO
 assert_eq "gitleaks config: both scans ran" "2" "$scans"
 assert_eq "gitleaks config: every scan names planwright's config" "$scans" "$named"
 
+# An install whose config is gone refuses rather than letting gitleaks fall
+# back to a repository's own rules. The stub passes everything, so only the
+# refusal can make this exit 2.
+noconf="$tmp/noconf/scripts"
+mkdir -p "$noconf"
+cp "$SCREEN" "$REPO_ROOT/scripts/echo-safety.sh" "$noconf/"
+out="$(PATH="$cfgstub:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks /bin/sh "$noconf/inception-secret-screen.sh" "$tmp/clean.md" 2>&1)"
+rc=$?
+assert_eq "gitleaks config: a missing planwright config refuses (exit 2)" "2" "$rc"
+assert_contains "gitleaks config: the refusal names the missing config" "gitleaks config is missing" "$out"
+
 if command -v gitleaks >/dev/null 2>&1; then
   # The real thing: a repo-local config with no rules would pass any key.
   cfgrepo="$tmp/cfg-repo"
