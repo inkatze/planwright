@@ -101,8 +101,9 @@ recorded seed, capped per class (`--cap`, its default in the script's header), a
 unreplayable rows; it refuses a sample with no replayable row overall or in a
 targeted class. Each row is one review pass, no fixes and no loop, run by
 the reviewer command in a fresh clone at the row's pre-fix commit, with no
-remote to push to and a redirected home and state home for the commands it
-runs, when the reviewer is one that runs commands. The default reviewer runs
+remote to push to. A reviewer that runs commands is handed a home and a state
+home inside the copy to run them under (`BACKTEST_HOME`,
+`BACKTEST_STATE_HOME`); the harness does not enforce their use. The default reviewer runs
 none: it reads the change from a diff file beside the clone with read-only
 file tools in restricted mode. A reviewer that exits non-zero is retried once,
 after `PLANWRIGHT_BACKTEST_RETRY_WAIT` seconds (30 by default). A `declined` row's dismissal is seeded

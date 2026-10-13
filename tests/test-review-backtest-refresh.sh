@@ -47,10 +47,17 @@ git init -q "$src"
 printf 'one\n' >"$src/a.sh"
 git -C "$src" add a.sh
 git -C "$src" commit -qm base
+BASE=$(git -C "$src" rev-parse HEAD)
+# The PR commits sit on a side branch, as an unmerged or squash-merged PR's do;
+# main stays at the base.
+git -C "$src" checkout -qb pr
+printf 'change\n' >>"$src/a.sh"
+git -C "$src" commit -qam change
 A=$(git -C "$src" rev-parse HEAD)
 printf 'two\n' >>"$src/a.sh"
 git -C "$src" commit -qam fix
 B=$(git -C "$src" rev-parse HEAD)
+git -C "$src" checkout -q main
 git -C "$src" checkout -q --orphan other
 printf 'x\n' >"$src/b.sh"
 git -C "$src" add b.sh
@@ -104,6 +111,7 @@ history() {
    {"path":"h2.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"BADCATEGORY thing","replies":[{"author":"owner","body":"Fixed in 6666667"}]},
    {"path":"h3.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"BADREASON thing","replies":[{"author":"owner","body":"Fixed in 6666668"}]},
    {"path":"bs.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"BACKSLASH thing","replies":[{"author":"owner","body":"Fixed in 6666669"}]},
+   {"path":"twoword.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"VERBATIM nit","replies":[{"author":"owner","body":"Fixed in 6666673"}]},
    {"path":"ok.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"OBJECTKEY thing","replies":[{"author":"owner","body":"Fixed in 6666671"}]},
    {"path":"arr.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":["not","a","string"],"replies":[{"author":"owner","body":["Fixed in 6666672"]}]},
    {"path":"bidi\u202esh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"a hidden path","replies":[{"author":"owner","body":"Fixed in 6666670"}]},
@@ -118,6 +126,7 @@ history() {
  {"number":5,"author":"owner","merged_at":"2026-09-05T00:00:00Z","body":"","truncated":true,
   "reviews":[],
   "threads":[
+   {"path":"onmain.sh","line":1,"commit":"$BASE","author":"helper-bot","bot":true,"body":"a commit already on main","replies":[{"author":"owner","body":"Fixed in 4444445"}]},
    {"path":"g.sh","line":1,"commit":"$C","author":"helper-bot","bot":true,"body":"an unrelated-history finding","replies":[{"author":"owner","body":"Fixed in 4444444"}]}
   ]}
 ]}
@@ -203,6 +212,8 @@ assert_contains "a commit absent from the head ref marks the row unreplayable" "
 r=$(row 4 f.sh)
 assert_contains "a declined-log match becomes a declined row" "	declined	yes	declined-log	" "$r"
 assert_contains "the declined row carries its paraphrased dismissal" "portable enough" "$r"
+r=$(row 5 onmain.sh)
+assert_contains "a commit already on main marks the row unreplayable" "	no	" "$r"
 r=$(row 5 g.sh)
 assert_contains "a commit with no merge base on main marks the row unreplayable" "	no	" "$r"
 assert_lacks "an unfixed thread is not a row" "	a.sh	3	" "$(cat "$c1")"
@@ -210,9 +221,9 @@ assert_lacks "the author's own thread is not a row" "	a.sh	5	" "$(cat "$c1")"
 assert_lacks "a verbatim gist is dropped" "VERBATIM" "$(cat "$c1")"
 assert_lacks "a row naming a listed product is dropped" "e.sh" "$(cat "$c1")"
 assert_lacks "no reviewer login reaches the corpus" "helper-bot" "$(cat "$c1")"
-assert_contains "reports the fallback count (a.sh three times, b.sh, g.sh, k.sh, h3.sh, bs.sh)" "fallback other: 8" "$out"
-assert_contains "reports the unreplayable count (b.sh, g.sh, and three rows on a PR with no head ref)" "unreplayable: 5" "$out"
-assert_contains "reports the verbatim drops, a short comment copied whole included" "dropped verbatim: 2" "$out"
+assert_contains "reports the fallback count (a.sh three times, b.sh, g.sh, onmain.sh, k.sh, h3.sh, bs.sh)" "fallback other: 9" "$out"
+assert_contains "reports the unreplayable count (b.sh, g.sh, onmain.sh, and three rows on a PR with no head ref)" "unreplayable: 6" "$out"
+assert_contains "reports the verbatim drops, short comments copied whole included" "dropped verbatim: 3" "$out"
 assert_contains "a path outside printable ASCII and a base-side thread are skipped" "skipped malformed location: 2" "$out"
 assert_contains "two threads on one line of one commit are one row" "merged duplicate threads: 1" "$out"
 if [ "$(awk -F '\t' '$2 == 7 && $4 == "a.sh" && $5 == 1' "$c1" | wc -l | tr -d ' ')" -eq 1 ]; then ok "the duplicate thread writes a single row"; else fail "the duplicate thread wrote two rows"; fi
@@ -250,9 +261,9 @@ if [ -f "$croot/v2/corpus.tsv" ]; then ok "v2 corpus written"; else fail "v2 cor
 if [ "$(cksum <"$c1")" = "$sum1" ]; then ok "v1 is unchanged by a later refresh"; else fail "v1 changed"; fi
 carried=$(grep -c '"path":"a.sh"' "$ANNOTATE_LOG.all")
 if [ "$carried" -eq 0 ]; then ok "a carried row is not re-annotated"; else fail "carried row re-annotated ($carried)"; fi
-assert_contains "reports the carried rows" "carried: 8" "$out"
+assert_contains "reports the carried rows" "carried: 9" "$out"
 assert_contains "a carried gist naming a login is dropped too" "dropped naming a login: 2" "$out"
-assert_contains "a carried gist copying its comment is dropped too" "dropped verbatim: 3" "$out"
+assert_contains "a carried gist copying its comment is dropped too" "dropped verbatim: 4" "$out"
 if [ "$(awk -F '\t' '$4 == "bs.sh"' "$croot/v2/corpus.tsv" | cut -f2-)" = "$(printf '%s\n' "$bs1" | cut -f2-)" ]; then ok "a carried backslash survives a refresh unchanged"; else fail "a carried backslash changed"; fi
 r=$(awk -F '\t' '$2 == 7 && $4 == "a.sh"' "$croot/v2/corpus.tsv")
 assert_contains "a new ledger entry relabels a carried row" "	declined	yes	ledger	" "$r"
@@ -334,7 +345,7 @@ JSON
 esac
 EOF
 chmod +x "$T/bin/gh"
-out=$(PATH="$T/bin:$PATH" CLAUDE_PLUGIN_DATA="$T/nostate" "$REFRESH" --fetch-only --dump-history "$T/fetched.json" 2>&1)
+out=$(PATH="$T/bin:$PATH" CLAUDE_PLUGIN_DATA="$T/nostate" "$REFRESH" --fetch-only --annotate-cmd "$T/absent-annotator" --dump-history "$T/fetched.json" 2>&1)
 assert_exit "--fetch-only runs without the name list or an annotator" 0 $?
 norm=$(jq -c '.prs[0] | [.number, .author, .reviews[0].bot, .threads[0].line, .threads[0].commit[0:7], .threads[0].replies[0].author, .threads[0].side, .truncated]' "$T/fetched.json" 2>&1)
 assert_contains "--fetch-only writes the normalized history, side and truncation included" '[12,"owner",true,4,"0123456","ghost","LEFT",true]' "$norm"

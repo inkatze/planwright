@@ -347,6 +347,19 @@ mkdir -p "$T/corpus/v5"
 assert_exit "a sampled PR the remote lacks makes the run exit 4, not 2" 4 $?
 if grep -q '^row	r0001	runtime-tracing	caught$' "$T/v5.tsv"; then ok "the other rows still replay"; else fail "a missing PR head stopped the other rows"; fi
 
+# --- a row whose commit is already on main has no change to replay ---
+BASE_MAIN=$(git -C "$src" rev-parse main)
+mkdir -p "$T/corpus/v7"
+{
+  printf '%s\n' "$HDR"
+  printf 'r0001\t1\t%s\ta.sh\t1\tcorrectness\truntime-tracing\tyes\tmodel\talready merged\t-\n' "$BASE_MAIN"
+} >"$T/corpus/v7/corpus.tsv"
+: >"$REVIEWER_LOG"
+out=$("$HARNESS" --corpus "$T/corpus/v7" --remote "$remote" --reviewer "$rev" --model m-1 --seed 7 2>&1)
+assert_exit "a row already on main makes the run exit 4" 4 $?
+assert_contains "names the empty change" "already on main" "$out"
+if [ ! -s "$REVIEWER_LOG" ]; then ok "the reviewer is not run on an empty change"; else fail "the reviewer ran on an empty change"; fi
+
 # --- usage refusals ---
 run --reviewer-stub "$stub" --model opus >/dev/null 2>&1
 assert_exit "a model alias is refused" 2 $?

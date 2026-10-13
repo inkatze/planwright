@@ -173,11 +173,12 @@ while IFS= read -r d; do
   for f in "$d"/*.jsonl; do
     [ -f "$f" ] || continue
     sid=$(basename "$f" .jsonl)
-    jq -R -r "$events_jq" "$f" >"$tmp/ev.tsv" 2>/dev/null || : >"$tmp/ev.tsv"
+    jq -R -r "$events_jq" "$f" >"$tmp/ev.tsv" 2>/dev/null || die 2 "a transcript could not be read"
     : >"$tmp/sub.tsv"
     for s in "$d/$sid"/subagents/*.jsonl; do
       [ -f "$s" ] || continue
-      jq -R -r "$events_jq" "$s" 2>/dev/null | awk -F '\t' '$1 == "T"' >>"$tmp/sub.tsv" || true
+      jq -R -r "$events_jq" "$s" >"$tmp/sub.one" 2>/dev/null || die 2 "a sub-agent transcript could not be read"
+      awk -F '\t' '$1 == "T"' "$tmp/sub.one" >>"$tmp/sub.tsv"
     done
     # Runs of this session: sid, start, end, main-transcript tokens.
     awk -F '\t' -v sid="$sid" '
@@ -202,7 +203,7 @@ while IFS= read -r e; do
   [ -f "$e" ] || die 2 "an events file is not readable"
   jq -R -r 'fromjson? | select(type == "object" and .type == "result" and (.session_id | type) == "string")
     | [.session_id, ((.usage // {}) | [.input_tokens, .cache_creation_input_tokens, .cache_read_input_tokens, .output_tokens] | map(. // 0) | add)]
-    | map(tostring) | join("\t")' "$e" >>"$tmp/fleet.tsv" 2>/dev/null || true
+    | map(tostring) | join("\t")' "$e" >>"$tmp/fleet.tsv" 2>/dev/null || die 2 "an events file could not be read"
 done <"$tmp/efiles"
 
 # shellcheck disable=SC2016 # awk program text

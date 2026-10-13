@@ -184,6 +184,13 @@ assert_contains "the fetched history feeds the finding rate" "post-convergence f
 
 "$COST" --history "$hist" --transcripts "$proj" --events "$T/absent-events.jsonl" >/dev/null 2>&1
 assert_exit "a named events file that is missing is refused" 2 $?
+if [ "$(id -u)" -ne 0 ]; then
+  mkdir -p "$T/badproj"
+  printf '%s\n' '{}' >"$T/badproj/locked.jsonl"
+  chmod 000 "$T/badproj/locked.jsonl"
+  "$COST" --history "$hist" --transcripts "$T/badproj" --ledger-dir "$ledger" >/dev/null 2>&1
+  assert_exit "an unreadable transcript is refused, never undercounted" 2 $?
+fi
 "$COST" --history "$T/absent.json" --transcripts "$proj" >/dev/null 2>&1
 assert_exit "an unreadable history is a usage error" 2 $?
 "$COST" --history "$hist" --transcripts "$proj" --prs-from x >/dev/null 2>&1

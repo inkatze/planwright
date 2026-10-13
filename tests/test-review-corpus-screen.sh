@@ -62,6 +62,8 @@ check_refused() {
   rc=$?
   assert_exit "$1: refused" 1 "$rc"
   assert_contains "$1: names the rule" "$2" "$out"
+  id=${3%%"	"*}
+  assert_contains "$1: names the row" "$id" "$out"
 }
 check_refused "non-integer pr" "pr is not" "r0003	1x	$SHA	scripts/a.sh	4	correctness	other	yes	fallback	gist text here	-"
 check_refused "short commit" "commit" "r0003	12	0123abc	scripts/a.sh	4	correctness	other	yes	fallback	gist text here	-"
@@ -97,7 +99,8 @@ f=$(corpus named "$good_row" "r0003	12	$SHA	scripts/a.sh	4	correctness	other	yes
 out=$("$SCREEN" --names "$names" "$f" 2>&1)
 assert_exit "a row naming a listed product is refused" 1 $?
 assert_contains "product refusal names the row" "r0003" "$out"
-assert_lacks "product refusal never prints the name" "cmereview" "$out"
+out_lc=$(printf '%s' "$out" | LC_ALL=C tr '[:upper:]' '[:lower:]')
+assert_lacks "product refusal never prints the name, in any case" "acmereview" "$out_lc"
 f=$(corpus unnamed "$good_row")
 out=$("$SCREEN" --names "$names" "$f" 2>&1)
 assert_exit "a clean corpus passes the product screen" 0 $?
@@ -110,6 +113,9 @@ f=$(corpus repeated "r0003	12	$SHA	scripts/a.sh	4	correctness	other	yes	fallback
 assert_exit "a name repeated inside one word is not a match" 0 $?
 
 # --- refusals of the screen itself ---
+printf '# only a comment\n\n' >"$T/empty-names.txt"
+"$SCREEN" --names "$T/empty-names.txt" --require-names "$f" >/dev/null 2>&1
+assert_exit "a list holding no names is refused, never a pass" 2 $?
 "$SCREEN" --names "$T/absent.txt" "$f" >/dev/null 2>&1
 assert_exit "a named but missing list is a usage error" 2 $?
 "$SCREEN" --require-names "$f" >/dev/null 2>&1

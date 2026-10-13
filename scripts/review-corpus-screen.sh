@@ -17,7 +17,8 @@
 # screen runs and the product check is announced as skipped, which is how CI,
 # holding no list, runs it. A list is one name per line; blank lines and lines
 # starting with `#` are ignored; matching is case-insensitive and whole-word.
-# A refusal names the row and the rule, never the matched text.
+# A list with no names is refused like a missing one. A refusal names the row
+# and the rule, never the matched text.
 #
 # What this screen cannot see: whether a gist reproduces reviewer text. That
 # needs the original comment, which only the refresh holds, so the refresh
@@ -94,6 +95,14 @@ if [ "$rows" -eq 0 ]; then
   exit 2
 fi
 
+if [ -n "$names" ]; then
+  usable=$(awk '{ sub(/^[ \t]+/, ""); sub(/[ \t\r]+$/, "") } $0 != "" && substr($0, 1, 1) != "#" { n++ } END { print n + 0 }' "$names")
+  # An empty list would pass every row while claiming the product check ran.
+  [ "$usable" -gt 0 ] || {
+    printf '%s\n' "$prog: the product-name list holds no names" >&2
+    exit 2
+  }
+fi
 if [ -z "$names" ]; then
   printf '%s\n' "$prog: product-name screen skipped (no name list; the refresh requires one)" >&2
 fi

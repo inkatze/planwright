@@ -28,8 +28,9 @@
 # other row has one.
 #
 # A ROW ENDS IN ERROR, and the run exits 4, when its setup fails (the clone,
-# the checkout, or a commit sharing no history with main, which leaves no base
-# to diff against; the refresh marks such rows unreplayable) or when the
+# the checkout, a commit sharing no history with main, which leaves no base to
+# diff against, or a commit already on main, which leaves an empty one; the
+# refresh marks both unreplayable) or when the
 # reviewer exits non-zero twice, the retry waiting PLANWRIGHT_BACKTEST_RETRY_WAIT
 # seconds (default 30) first. An error row is recorded as a row but left out of
 # its class's counts, never scored as a miss and never dropped, and a result
@@ -325,6 +326,11 @@ replay_row() {
     base=$(git -C "$rdir/copy" merge-base "$commit" main 2>/dev/null) || base=
     if [ -z "$base" ]; then
       printf '%s\n' "$prog: row $id: no merge base with main, so no change to review; mark it unreplayable" >&2
+      printf '%s\t%s\terror\t0\n' "$id" "$class"
+      return 0
+    fi
+    if [ "$base" = "$commit" ]; then
+      printf '%s\n' "$prog: row $id: its commit is already on main, so the change under review is empty; mark it unreplayable" >&2
       printf '%s\t%s\terror\t0\n' "$id" "$class"
       return 0
     fi

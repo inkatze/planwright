@@ -43,7 +43,8 @@
 # remote into a temporary bare mirror; a row whose pre-fix commit is not in
 # that ref's history, whose PR has no head ref, or whose commit shares no
 # history with the remote's main (a PR from before a history rewrite, which
-# leaves no base to diff against) is marked unreplayable.
+# leaves no base to diff against), or that is already on main (a PR merged with
+# its commits, which leaves an empty change) is marked unreplayable.
 #
 # THE ANNOTATOR is an executable reading JSON lines on stdin, one request per
 # row: {key, pr, path, line, finding, reply, declined_log, label_reason}. It
@@ -346,7 +347,8 @@ jq -r '[.key, (.pr | tostring), .commit] | join("\t")' "$tmp/cand.jsonl" | while
   flag=no
   if git -C "$mirror" rev-parse -q --verify "refs/backtest/pr/$n" >/dev/null 2>&1 \
     && git -C "$mirror" merge-base --is-ancestor "$commit" "refs/backtest/pr/$n" 2>/dev/null \
-    && git -C "$mirror" merge-base "$commit" main >/dev/null 2>&1; then
+    && git -C "$mirror" merge-base "$commit" main >/dev/null 2>&1 \
+    && ! git -C "$mirror" merge-base --is-ancestor "$commit" main 2>/dev/null; then
     flag=yes
   fi
   printf '%s\t%s\n' "$key" "$flag"
@@ -365,7 +367,8 @@ jq -c \
   def shingles: . as $w | [range(0; ($w | length) - 7) | $w[.:(. + 8)] | join(" ")];
   def copies($src): ($src | words) as $sw | (. | words) as $gw
     | (($gw | shingles) - (($gw | shingles) - ($sw | shingles)) | length > 0)
-      or (($sw | length) >= 3 and (($gw | join(" ")) | contains($sw | join(" "))));
+      or (($sw | length) >= 3 and (($gw | join(" ")) | contains($sw | join(" "))))
+      or (($sw | length) > 0 and $gw == $sw);
   def verbatim($c): copies($c.finding) or copies($c.reply);
   def names_login: (ascii_downcase | [scan("[a-z0-9][a-z0-9_-]*")]) as $t | any($logins[0][]; . as $l | $t | index([$l]) != null);
   def text: type == "string" and length > 0;
