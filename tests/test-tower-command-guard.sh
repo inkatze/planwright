@@ -25,7 +25,8 @@
 #   ALLOW  <=> exit 0 AND stdout carries a well-formed
 #              "permissionDecision": "allow" object.
 #   DEFER  <=> exit 0 AND stdout is empty/whitespace (no decision).
-#   The hook NEVER exits non-zero and NEVER emits deny/ask (allow-only).
+#   ASK    <=> the fixed force-push-helper ask, the one non-allow answer.
+#   The hook NEVER exits non-zero and NEVER emits deny (allow-only, bar that ask).
 set -u
 unset CDPATH
 LC_ALL=C
@@ -85,6 +86,11 @@ mkdir -p "$LOOKALIKE/scripts"
 mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests" "$SANDBOX/sub"
 : >"$SANDBOX/.git" # worktree-style .git file marker
 : >"$SANDBOX/scripts/ok.sh"
+: >"$SANDBOX/scripts/tower-force-push.sh"
+ln -sf tower-force-push.sh "$SANDBOX/scripts/fp-alias.sh"
+ln -f "$SANDBOX/scripts/tower-force-push.sh" "$SANDBOX/scripts/fp-hard.sh"
+ln -f "$SANDBOX/scripts/tower-force-push.sh" "$SANDBOX/scripts/fp-hard"
+ln -sf tower-force-push.sh "$SANDBOX/scripts/fp-alias"
 : >"$SANDBOX/tests/ok.sh"
 : >"$SANDBOX/tests/ok.bats"
 # Symlinked final components pointing OUTSIDE the repo (containment escape).
@@ -93,6 +99,9 @@ mkdir -p "$PLUGIN_ROOT/scripts"
 : >"$PLUGIN_ROOT/scripts/orchestrate-select.sh"
 : >"$PLUGIN_ROOT/scripts/fleet-streamjson.sh"
 : >"$PLUGIN_ROOT/scripts/orchestrate-relay.sh"
+: >"$PLUGIN_ROOT/scripts/tower-force-push.sh"
+ln -f "$PLUGIN_ROOT/scripts/tower-force-push.sh" "$PLUGIN_ROOT/scripts/fp-hard.sh"
+ln -f "$PLUGIN_ROOT/scripts/tower-force-push.sh" "$PLUGIN_ROOT/scripts/fp-hard"
 ln -sf /etc/hosts "$PLUGIN_ROOT/scripts/evillink.sh"
 
 # run_hook <command> [tool_name] [cwd] -> sets OUT and CODE. CLAUDE_PLUGIN_ROOT
@@ -165,6 +174,33 @@ assert_allow() {
   fi
 }
 
+# assert_ask <label> <command>: the one non-allow answer the guard gives, the
+# fixed force-push ask, and nothing else in its output.
+assert_ask() {
+  local label="$1"
+  run_hook "$2" Bash "$SANDBOX"
+  if [ "$CODE" -ne 0 ]; then
+    fail "$label — exit was $CODE, must be 0"
+  elif printf '%s' "$OUT" | jq -e '.hookSpecificOutput.permissionDecision == "ask" and (.hookSpecificOutput.permissionDecisionReason | test("force-push helper"))' >/dev/null 2>&1; then
+    pass "$label"
+  else
+    fail "$label — expected ASK, got: $OUT"
+  fi
+}
+
+# assert_not_ask <label> <command>: any answer but ask (allow or defer).
+assert_not_ask() {
+  local label="$1"
+  run_hook "$2" Bash "$SANDBOX"
+  if [ "$CODE" -ne 0 ]; then
+    fail "$label — exit was $CODE, must be 0"
+  elif printf '%s' "$OUT" | grep -Eq '"permissionDecision"[[:space:]]*:[[:space:]]*"(ask|deny)"'; then
+    fail "$label — expected no ask or deny, got: $OUT"
+  else
+    pass "$label"
+  fi
+}
+
 # assert_defer <label> <command> [tool] [cwd]
 assert_defer() {
   local label="$1"
@@ -216,6 +252,34 @@ assert_allow "repo script direct" "scripts/ok.sh"
 assert_allow "repo script bash-prefixed" "bash scripts/ok.sh arg1"
 assert_allow "plugin script absolute path direct" "$PLUGIN_ROOT/scripts/orchestrate-select.sh specs/x"
 assert_allow "plugin script bash-prefixed" "bash $PLUGIN_ROOT/scripts/orchestrate-select.sh"
+
+# The force-push path always reaches the operator's permission prompt: it is
+# run on the operator's request in the same turn, so the guard answers ask for
+# every name the helper goes by, which a settings glob cannot see (a hardlink, a
+# symlink, another casing). The classifier may still deny; it cannot approve.
+echo "### the force-push path always asks"
+assert_ask "force-push helper, repo push" "scripts/tower-force-push.sh push --branch b --to abc --lease def"
+assert_ask "force-push helper, repo bash-prefixed" "bash scripts/tower-force-push.sh confirm --branch b --to abc"
+assert_ask "force-push helper, plugin push" "$PLUGIN_ROOT/scripts/tower-force-push.sh push --branch b --to abc --lease def"
+assert_ask "force-push helper, plugin purge" "$PLUGIN_ROOT/scripts/tower-force-push.sh purge --path x"
+assert_ask "force-push helper through a symlink alias" "scripts/fp-alias.sh push --branch b --to abc --lease def"
+assert_ask "force-push helper through a repo hardlink" "scripts/fp-hard.sh push --branch b --to abc --lease def"
+assert_ask "force-push helper through a plugin hardlink" "bash $PLUGIN_ROOT/scripts/fp-hard.sh confirm --branch b --to abc"
+# An alias needs no .sh extension to run the helper.
+assert_ask "force-push helper through an extensionless repo hardlink, bash-prefixed" "bash scripts/fp-hard confirm --branch b --to abc"
+assert_ask "force-push helper through an extensionless repo hardlink" "scripts/fp-hard push --branch b --to abc --lease def"
+assert_ask "force-push helper through an extensionless symlink" "scripts/fp-alias push --branch b --to abc --lease def"
+assert_ask "force-push helper through an extensionless plugin hardlink" "bash $PLUGIN_ROOT/scripts/fp-hard confirm --branch b --to abc"
+# A case-insensitive filesystem (macOS) runs the helper under any casing.
+assert_ask "force-push helper in another casing" "scripts/Tower-Force-Push.sh push --branch b --to abc --lease def"
+assert_ask "force-push helper in upper case" "scripts/TOWER-FORCE-PUSH.sh confirm --branch b --to abc"
+assert_ask "force-push helper after a safe command" "git status && scripts/tower-force-push.sh confirm --branch b --to abc"
+# Naming the helper without running it is not the helper.
+assert_not_ask "the helper named as a read-only argument" "cat scripts/tower-force-push.sh"
+assert_not_ask "another planwright script" "scripts/ok.sh"
+# Any file by the helper's name asks, inside the roots or not: asking is the
+# safe direction when the guard cannot tell which copy it is.
+assert_ask "a file by the helper's name outside the roots" "$LOOKALIKE/scripts/tower-force-push.sh push --branch b"
 
 # The pending-request read: the shipped profile approves it through this guard
 # rather than a static allow entry, so it works out of the box as long as the
@@ -1062,8 +1126,8 @@ done
 # verify_tokens and analyze_command also differ because only the worker guard
 # admits a narrow command substitution; the tower guard defers every one.
 DISTINCT_FNS="analyze_command canon_under classify_verb expand_word guard_bashsh \
-guard_gh guard_git guard_mise is_planwright_script main tokenize tok_push \
-verify_simple verify_tokens"
+guard_gh guard_git guard_mise is_planwright_script main \
+tokenize tok_push verify_simple verify_tokens"
 
 fn_names() { grep -oE '^[a-z_][a-z0-9_]*\(\)' "$1" | tr -d '()' | sort -u; }
 undeclared=''

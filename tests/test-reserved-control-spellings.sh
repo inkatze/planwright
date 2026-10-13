@@ -45,10 +45,10 @@ for f in "$FIXTURE" "$TQ" "$WORKER_GUARD" "$TOWER_GUARD" "$POLICY_GUARD" "$WORKE
   fi
 done
 
-RC_ACTS="pr-merge flip undo-flip force-push protected-push base-merge amend squash fixup rebase opaque other"
+RC_ACTS="pr-merge merge-helper flip undo-flip force-push protected-push base-merge amend squash fixup rebase opaque other"
 RC_COPIES="queue ready wguard tguard pguard wprof tprof"
 # The knobs a policy line may name, each with its legal values.
-RC_KNOBS="ready_flip_policy=human,unit-owner worker_base_merge=allow,deny unpushed_rewrite=allow,deny"
+RC_KNOBS="ready_flip_policy=human,unit-owner merge_policy=human,on-approval,policy-class worker_base_merge=allow,deny unpushed_rewrite=allow,deny"
 
 # rc_parse_line <line> — split a fixture line into RC_ACT, RC_TIER, RC_POLICY,
 # RC_VERDICTS (seven words, in RC_COPIES order) and RC_SPELL, and check every
@@ -107,13 +107,28 @@ EOF
   esac
   for v in $q $r $wg $tg $pg $wp $tp; do
     case "$v" in
-      deny | defer | prompt | n/a) ;;
+      deny | defer | prompt | allow | n/a) ;;
       *)
-        RC_ERR="verdict '$v' is not deny, defer, prompt, or n/a (a column is missing or misplaced)"
+        RC_ERR="verdict '$v' is not deny, defer, prompt, allow, or n/a (a column is missing or misplaced)"
         return 1
         ;;
     esac
   done
+  for v in $q $r $pg $wp $tp; do
+    if [ "$v" = allow ]; then
+      RC_ERR="only an allow-only command guard column can expect allow"
+      return 1
+    fi
+  done
+  if { [ "$wg" = allow ] || [ "$tg" = allow ]; } \
+    && { [ "$RC_ACT" != merge-helper ] || [[ $RC_SPELL != *merge-admitted.sh* ]]; }; then
+    RC_ERR="a command guard allows only the merge helper among the reserved acts, spelled as the helper"
+    return 1
+  fi
+  if [ "$RC_ACT" = merge-helper ] && [[ $RC_SPELL != *merge-admitted.sh* ]]; then
+    RC_ERR="a merge-helper line must spell scripts/merge-admitted.sh"
+    return 1
+  fi
   for v in $q $r $wg $tg $pg; do
     if [ "$v" = prompt ]; then
       RC_ERR="only a profile column can expect prompt"
@@ -121,9 +136,9 @@ EOF
     fi
   done
   case "$RC_SPELL" in
-    'git '* | 'gh '* | 'bash '* | 'env '* | mcp__*) ;;
+    'git '* | 'gh '* | 'bash '* | 'env '* | 'scripts/merge-admitted.sh '* | mcp__*) ;;
     *)
-      RC_ERR="spelling '$RC_SPELL' is not a git, gh, wrapped gh, or MCP call (a column is missing or misplaced)"
+      RC_ERR="spelling '$RC_SPELL' is not a git, gh, wrapped gh, merge-helper, or MCP call (a column is missing or misplaced)"
       return 1
       ;;
   esac
@@ -275,10 +290,13 @@ a floor line a profile defers|pr-merge any floor deny defer defer defer deny def
 a floor line the queue defers|pr-merge any floor defer defer defer defer deny deny deny gh pr merge 42
 a floor line the policy guard defers|pr-merge any floor deny defer defer defer defer deny deny gh pr merge 42
 a floor line scoped to one tier|pr-merge worker floor n/a defer defer n/a deny deny n/a gh pr merge 42
-a knob the guard does not read|base-merge worker merge_policy=human n/a defer defer n/a deny defer n/a git merge origin/main
+a knob the guard does not read|base-merge worker merge_class_strategy=squash n/a defer defer n/a deny defer n/a git merge origin/main
 a value the knob does not take|base-merge worker worker_base_merge=unresolved n/a defer defer n/a deny defer n/a git merge origin/main
 the retired prompt token|flip tower gh_api_write=prompt deny defer n/a defer deny n/a prompt gh api graphql -F query=@q.graphql
 a prompt verdict outside a profile column|flip tower floor-guard prompt defer n/a defer deny n/a prompt gh api graphql -F query=@q.graphql
+an allow verdict in the policy-guard column|merge-helper worker merge_policy=human n/a defer allow n/a allow defer n/a scripts/merge-admitted.sh --spec specs/demo --task 1
+a merge-helper line that runs something else|merge-helper worker merge_policy=human n/a defer allow n/a deny defer n/a git status
+a command guard allowing a reserved act|pr-merge worker merge_policy=human n/a defer allow n/a deny deny n/a gh pr merge 42
 a prompt verdict in the policy-guard column|flip tower floor-guard deny defer n/a defer prompt n/a prompt gh api graphql -F query=@q.graphql
 a floor-guard line a profile only defers|flip tower floor-guard deny defer n/a defer deny n/a defer gh api graphql -F query=@q.graphql
 a floor-guard line a profile denies|flip worker floor-guard n/a defer defer n/a deny deny n/a gh api graphql -F query=@q.graphql
@@ -450,8 +468,10 @@ guard_verdict() {
   hook_verdict "$out"
 }
 
-# Every fixture line expects the allow-only guards to defer, and a guard that
-# never ran defers too; a known-safe command must come back allowed first.
+# Every fixture line but the merge helper's expects the allow-only guards to
+# defer, and a guard that never ran defers too; a known-safe command must come
+# back allowed first. The helper is a repository script both guards allow, so
+# the policy guard is the layer that refuses it.
 for hook in "$WORKER_GUARD" "$TOWER_GUARD"; do
   got=$(guard_verdict "$hook" 'git status')
   if [ "$got" = allow ]; then

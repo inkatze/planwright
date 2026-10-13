@@ -676,8 +676,10 @@ is_repo_script() {
     *.sh) ;;
     *) return 1 ;;
   esac
-  full=$(canon_contained "$p" "$cwd") || return 1
   root=$(repo_root_of "$cwd") || return 1
+  full=$(canon_under "$p" "$cwd" "$root") || return 1
+  # The force-push helper under another name (a hardlink) is still the tower's.
+  [ ! "$full" -ef "$root/scripts/tower-force-push.sh" ] || return 1
   rel=${full#"$root"/}
   case $rel in
     scripts/* | tests/* | */scripts/* | */tests/*) return 0 ;;
@@ -771,6 +773,7 @@ is_planwright_script() {
   while IFS= read -r root; do
     [ -n "$root" ] || continue
     full=$(canon_under "$p" "$cwd" "$root") || continue
+    [ ! "$full" -ef "$root/scripts/tower-force-push.sh" ] || return 1
     rel=${full#"$root"/}
     case $rel in
       scripts/*) return 0 ;;
@@ -784,6 +787,13 @@ EOF
 # is_trusted_script <path> <cwd>: the trusted-script union — repo checkout code
 # (scripts/ or tests/) or an installed planwright root's scripts/.
 is_trusted_script() {
+  # The force-push path is the tower's (doctrine/human-gates.md): never
+  # approved for a worker, under any casing a case-insensitive filesystem runs.
+  case ${1##*/} in
+    [Tt][Oo][Ww][Ee][Rr]-[Ff][Oo][Rr][Cc][Ee]-[Pp][Uu][Ss][Hh].[Ss][Hh]) return 1 ;;
+  esac
+  # A hardlink of the helper is refused by each arm, against the root the path
+  # resolves under.
   is_repo_script "$1" "$2" || is_planwright_script "$1" "$2"
 }
 
@@ -3320,11 +3330,11 @@ DECL_PGID=''
 
 # The context names in the order resolve-steps.sh's CONTEXT_FIELDS renders
 # them in --prefix; the lists change together.
-readonly STEP_CONTEXT_FIELDS='SPEC TASK_IDS UNIT_KIND BRANCH BASE_BRANCH WORKTREE PR_NUMBER POINT ID PREV_RECORD'
+readonly STEP_CONTEXT_FIELDS='SPEC TASK_IDS UNIT_KIND BRANCH BASE_BRANCH WORKTREE PR_NUMBER POINT ID PREV_RECORD PREV_HEAD NEW_HEAD'
 
 # step_context_value_ok <field> <value>: a value the resolver would render,
-# refusing what it refuses (a control byte; a unit kind, task ids, or PR number
-# outside their grammar; a point outside the wired ones) plus any `$`.
+# refusing what it refuses (a control byte; a unit kind, task ids, PR number,
+# or head outside their grammar; a point outside the wired ones) plus any `$`.
 step_context_value_ok() {
   local f=$1 v=$2 id
   case $v in
@@ -3353,6 +3363,15 @@ step_context_value_ok() {
         *[!0-9]*) return 1 ;;
       esac
       ;;
+    PREV_HEAD | NEW_HEAD)
+      case $v in
+        *[!0-9a-f]*) return 1 ;;
+      esac
+      case ${#v} in
+        0 | 40 | 64) ;;
+        *) return 1 ;;
+      esac
+      ;;
     POINT)
       case $v in
         *' '*) return 1 ;;
@@ -3364,6 +3383,24 @@ step_context_value_ok() {
       ;;
   esac
   return 0
+}
+
+# step_pool_hold_ok <value>: the resolver's hold mark, `<pool>:<pid>`, the pool
+# in the step-id charset (at most 64 bytes) and the pid decimal with no
+# leading zero (at most ten digits), as scripts/step-pool.sh reads it.
+step_pool_hold_ok() {
+  local pool=${1%%:*} pid=${1#*:}
+  case $1 in
+    *:*) ;;
+    *) return 1 ;;
+  esac
+  case $pool in
+    '' | [!a-z]* | *[!a-z0-9-]*) return 1 ;;
+  esac
+  case $pid in
+    '' | [!1-9]* | *[!0-9]*) return 1 ;;
+  esac
+  [ "${#pool}" -le 64 ] && [ "${#pid}" -le 10 ]
 }
 
 # step_arg_ok <word>: the resolver's args charset.
@@ -3430,7 +3467,8 @@ step_name_cataloged() {
 }
 
 # resolve_declared <location>: fill DECL_LINES with one `<location> <arg>...`
-# line per declared command step that resolves to `run`, when <location>'s
+# line, then a tab and the step's declared pool (`-` for none), per declared
+# command step that resolves to `run`, when <location>'s
 # file name is cataloged, by one multi-point resolver run from HOOK_CWD. Runs
 # once per hook call: a miss defers its segment, which ends the analysis. The
 # check and the run share one job in its own process group, bounded by
@@ -3438,7 +3476,7 @@ step_name_cataloged() {
 # it started outlives the call.
 resolve_declared() {
   local rs deadline ticks pid killed=0
-  local dec target kind args loc key w _
+  local dec target kind args loc pool key w _
   DECL_RESOLVED=1
   [ -n "${HOOK_SELF_ROOT:-}" ] || return 0
   rs="$HOOK_SELF_ROOT/scripts/resolve-steps.sh"
@@ -3489,7 +3527,7 @@ resolve_declared() {
   # either leaves the other points' rows as their own runs print them.
   # The --explain columns resolve-steps.sh documents; it prints `-` for an
   # empty field, which a tab IFS would otherwise collapse.
-  while IFS=$TAB read -r dec _ _ _ _ target _ kind args _ _ _ loc; do
+  while IFS=$TAB read -r dec _ _ _ _ target _ kind args _ _ _ loc pool _; do
     [ "$dec" = run ] && [ "$kind" = command ] || continue
     step_location_ok "$loc" "$target" || continue
     key=$loc
@@ -3503,7 +3541,7 @@ resolve_declared() {
         key="$key $w"
       done
     fi
-    DECL_LINES="$DECL_LINES$key$NL"
+    DECL_LINES="$DECL_LINES$key$TAB${pool:--}$NL"
   done <"$DECL_TMP/out"
   return 0
 }
@@ -3512,7 +3550,7 @@ resolve_declared() {
 # `swq` / `swn` from verify_simple, before any tracked-assignment
 # substitution), is a declared step's line. Reads `rn` via dynamic scope.
 declared_line_ok() {
-  local i=0 i0 f w name key
+  local i=0 i0 f w name key mark_pool=''
   [ "$rn" -eq 0 ] || return 1
   # The declarations resolve from the payload cwd: after a `cd`, a declared
   # line's relative args would name other files than the declared ones.
@@ -3534,6 +3572,20 @@ declared_line_ok() {
         step_context_value_ok "$f" "${w#*=}" || return 1
         i=$((i + 1))
       done
+      # A pooled step's hold mark, the one optional assignment after the
+      # context fields.
+      name=PLANWRIGHT_STEP_POOL_HOLD
+      case ${sw[i]-} in
+        "$name="*)
+          if [ "${swq[i]}" -ge 0 ] && [ "${swq[i]}" -le "${#name}" ]; then
+            return 1
+          fi
+          step_pool_hold_ok "${sw[i]#*=}" || return 1
+          mark_pool=${sw[i]#*=}
+          mark_pool=${mark_pool%%:*}
+          i=$((i + 1))
+          ;;
+      esac
       ;;
   esac
   [ "$i" -lt "$swn" ] || return 1
@@ -3547,8 +3599,16 @@ declared_line_ok() {
     i=$((i + 1))
   done
   [ "$DECL_RESOLVED" = 1 ] || resolve_declared "${sw[i0]}" 2>/dev/null
+  # A mark is approved only on a step that declares the pool it names, so a
+  # line can never claim a pool hold its step was not given.
+  if [ -n "$mark_pool" ]; then
+    case $NL$DECL_LINES in
+      *"$NL$key$TAB$mark_pool$NL"*) return 0 ;;
+    esac
+    return 1
+  fi
   case $NL$DECL_LINES in
-    *"$NL$key$NL"*) return 0 ;;
+    *"$NL$key$TAB"*) return 0 ;;
   esac
   return 1
 }
