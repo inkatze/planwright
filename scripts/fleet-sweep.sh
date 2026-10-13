@@ -91,9 +91,10 @@
 #
 # 7. FLIGHT CRASH POLICY. flight-lifecycle.sh supervise runs one pass of the
 #    fleet crash-loop policy over the checkout's flights: a flight worker with
-#    positive death evidence and no landing is counted, relaunched into its
-#    own worktree once its backoff has passed, and surfaced as a decision at
-#    the disable threshold. Each relaunch and disable is audited; a failed or
+#    positive death evidence and no landing, or a landed one whose dead worker
+#    never pushed its completion (flight-lifecycle.sh's header says when), is
+#    counted, relaunched into its own worktree once its backoff has passed,
+#    and surfaced as a decision at the disable threshold. Each relaunch and disable is audited; a failed or
 #    waiting flight is warned and left for the next cycle. It runs last, after the
 #    registry reconcile and the residue pass, so it reads this cycle's records.
 #

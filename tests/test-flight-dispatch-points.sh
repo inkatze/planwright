@@ -186,6 +186,11 @@ flat "$b" | grep -q 'A non-zero exit from the push or the create parks the fligh
   || fail "a failed push or create must park the flight"
 printf '%s\n' "$b" | grep -qF -- "gh pr list --repo github.com/acme/widgets --head planwright/flight/$fid --state open --json url,isCrossRepository,headRefOid --jq '.[] | select(.isCrossRepository | not) | .headRefOid + \" \" + .url' > '$record_dir/pr-url.found'" \
   || fail "a relaunched worker must look for the flight's own same-repository PR"
+# flight-lifecycle.sh relaunches a landed flight only under a brief carrying
+# this check, found by the phrase it greps for.
+marker=$(sed -n "s/.*grep -q '\\(runs this landed check\\)'.*/\\1/p" "$ROOT/scripts/flight-lifecycle.sh")
+[ "$marker" = "runs this landed check" ] || fail "flight-lifecycle.sh must recognize the landed-check brief by its phrase"
+printf '%s\n' "$b" | grep -q "$marker" || fail "the brief must carry the phrase flight-lifecycle.sh recognizes"
 flat "$b" | grep -q 'A relaunched worker runs this landed check before it fires any point' \
   || fail "a relaunched pr-home worker must check landing before it fires any point"
 flat "$b" | grep -q 'A non-zero exit from the view or the list parks the flight: a failed lookup is never "no PR" or "not open"' \

@@ -30,7 +30,8 @@
 # checkout's flights; the fleet sweep runs it every cycle. It reads the shared
 # flight sweep, so a worker is a crash only on positive evidence of death with
 # no landing, or with a landing whose completion was never pushed (no landing
-# reference beside the brief), since that worker still owed the work after
+# reference beside the brief) and no decision queued, under a brief that
+# carries the landed check, since that worker still owed the work after
 # landing: an unknown liveness, a print-rung flight, a queued one, and a
 # landed one whose completion was pushed are never crashes. For each dead
 # flight it counts the death once, keyed
@@ -252,11 +253,19 @@ cmd_push() {
       # that refuses the row still gets them before this exits.
       _stored=1
       /bin/sh "$ATTN" heartbeat "$handle" "$scope" "$state" --unless-awaiting </dev/null || _stored=0
+      # The crash sweep reads a landed flight without this reference as one
+      # whose worker still owes its completion, so a reference that cannot be
+      # kept fails the push rather than inviting a relaunch of a finished flight.
+      _kept=1
       if flight_dir "$id"; then
         (umask 077 && printf '%s\n' "$landing" >"$FDIR/landing.tmp" && mv -f "$FDIR/landing.tmp" "$FDIR/landing") \
-          || printf '%s: could not keep the landing reference beside the brief; the sweep still derives it\n' "$prog" >&2
+          || {
+            printf '%s: could not keep the landing reference beside the brief\n' "$prog" >&2
+            _kept=0
+          }
       else
-        printf '%s: no private flight directory under the fleet home; the landing reference is kept by the sweep only\n' "$prog" >&2
+        printf '%s: no private flight directory under the fleet home to keep the landing reference in\n' "$prog" >&2
+        _kept=0
       fi
       # A record landing has no link to follow, so its reference is the record
       # path and the branch that carries it.
@@ -267,6 +276,7 @@ cmd_push() {
       /bin/sh "$ATTN" notify "flight $id landed: $_ref" --key "flight-landed-$id" </dev/null \
         || printf '%s: the landing notification was not sent; the store row and the sweep carry it\n' "$prog" >&2
       [ "$_stored" -eq 1 ] || die 4 "the completion push did not reach the attention store"
+      [ "$_kept" -eq 1 ] || die 4 "the landing reference could not be kept beside the brief; the crash sweep would read this flight as unfinished"
       ;;
   esac
 }
@@ -494,6 +504,42 @@ supervise_one() {
   esac
 }
 
+# owes_completion <id> <handle> — whether a landed flight's dead worker still
+# owes the work after landing, so its relaunch can finish it: its completion
+# was never pushed (no landing reference beside the brief), it waits on no
+# queued decision (a park after landing is the operator's to rule on), and its
+# brief carries the landed check (an older brief's relaunch would fire every
+# point again onto the landing). Returns 0 when it owes, 1 when it does not or
+# a read it needs fails, and 2 when its flight directory cannot be judged, which
+# supervise_one then reports.
+owes_completion() {
+  flight_dir "$1" || return 2
+  [ ! -e "$FDIR/landing" ] && [ ! -L "$FDIR/landing" ] || return 1
+  [ -f "$FDIR/brief.md" ] && [ ! -L "$FDIR/brief.md" ] || return 1
+  grep -q 'runs this landed check' "$FDIR/brief.md" 2>/dev/null || return 1
+  _oc_attn=${FDIR%/flights/*}/attention
+  _oc_store=$_oc_attn/state
+  if [ -e "$_oc_store" ] || [ -L "$_oc_store" ] || [ -L "$_oc_attn" ]; then
+    [ ! -L "$_oc_attn" ] && [ -f "$_oc_store" ] && [ ! -L "$_oc_store" ] && [ -r "$_oc_store" ] || return 1
+    ! awk -F "$TAB" -v h="$2" '$1 == h && $3 == "awaiting-input" { f = 1 } END { exit !f }' "$_oc_store" \
+      || return 1
+  fi
+  return 0
+}
+
+# landed_owing <render> — the `<id><TAB><handle>` of each landed flight in a
+# sweep render whose dead worker owes its completion, or whose flight directory
+# cannot be judged.
+landed_owing() {
+  printf '%s\n' "$1" | awk -F "$TAB" '$1 == "flight" && $3 == "landed" && $5 == "dead" { print $2 "\t" $6 }' \
+    | while IFS="$TAB" read -r _lo_id _lo_handle; do
+      valid_id "$_lo_id" || continue
+      _lo_rc=0
+      owes_completion "$_lo_id" "$_lo_handle" || _lo_rc=$?
+      [ "$_lo_rc" -eq 1 ] || printf '%s\t%s\n' "$_lo_id" "$_lo_handle"
+    done
+}
+
 cmd_supervise() {
   repo_root=''
   now=''
@@ -526,21 +572,23 @@ cmd_supervise() {
   # never is.
   render=$(/bin/sh "$SWEEP" sweep --repo-root "$repo_root" --no-forge --no-write 2>/dev/null </dev/null) \
     || die 4 "the flight sweep could not be read; nothing was supervised"
-  printf '%s\n' "$render" | awk -F "$TAB" '$1 == "flight" && $5 == "dead" && ($3 == "dead" || $3 == "unknown" || $3 == "landed") { f = 1 } END { exit !f }' \
-    || return 0
+  # A finished flight (landed, its worker gone, its landing reference kept) is
+  # the normal end state until its worktree is removed, so only a landed one
+  # that still owes its completion wakes the forge read.
+  if ! printf '%s\n' "$render" | awk -F "$TAB" '$1 == "flight" && $5 == "dead" && ($3 == "dead" || $3 == "unknown") { f = 1 } END { exit !f }' \
+    && [ -z "$(landed_owing "$render")" ]; then
+    return 0
+  fi
   render=$(/bin/sh "$SWEEP" sweep --repo-root "$repo_root" --no-write 2>/dev/null </dev/null) \
     || die 4 "the flight sweep could not be read; nothing was supervised"
-  dead=$(printf '%s\n' "$render" | awk -F "$TAB" '$1 == "flight" && ($3 == "dead" || $3 == "landed") && $5 == "dead" { print $2 "\t" $6 "\t" $3 }')
+  # A landed flight is done once its completion is pushed; a worker that died
+  # before that still owes the work after landing (at least the completion
+  # push, and on the PR home post-pr, the re-emit, and the draft check).
+  dead=$(printf '%s\n' "$render" | awk -F "$TAB" '$1 == "flight" && $3 == "dead" && $5 == "dead" { print $2 "\t" $6 }')
+  dead=$(printf '%s\n%s\n' "$dead" "$(landed_owing "$render")" | awk 'NF')
   [ -n "$dead" ] || return 0
-  printf '%s\n' "$dead" | while IFS="$TAB" read -r _id _handle _state; do
+  printf '%s\n' "$dead" | while IFS="$TAB" read -r _id _handle; do
     valid_id "$_id" || continue
-    # A landed flight is done once its completion is pushed, which leaves the
-    # landing reference beside the brief; a worker that died before that still
-    # owes the work after landing (post-pr, the re-emit, the draft check).
-    if [ "$_state" = landed ]; then
-      flight_dir "$_id" || continue
-      [ ! -e "$FDIR/landing" ] && [ ! -L "$FDIR/landing" ] || continue
-    fi
     supervise_one "$_id" "$_handle"
   done
 }
