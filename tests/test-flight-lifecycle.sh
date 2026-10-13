@@ -24,11 +24,12 @@
 #      disable surfaces in the decision queue.
 #   5. Liveness that cannot be proven dead is never a crash: a live worker, a
 #      print-rung flight, and any flight whose completion was pushed (whatever
-#      the sweep reads its landing as) are left alone, while a landed one whose dead worker never pushed its completion,
-#      queued no decision, and ran under a brief carrying the landed check is
-#      counted and relaunched; one whose directory, brief, or queue cannot be
-#      read is reported; the operator kill-switch holds the relaunch without losing
-#      the count. A completion that cannot keep its landing reference exits 4.
+#      the sweep reads its landing as) are left alone, while a landed one
+#      whose dead worker never pushed its completion, queued no decision, and
+#      ran under a brief carrying the landed check is counted and relaunched;
+#      one whose directory, brief, or queue cannot be read is reported; the
+#      operator kill-switch holds the relaunch without losing the count. A
+#      completion that cannot keep its landing reference exits 4.
 #   6. The fleet sweep runs the crash policy as one of its passes, so a dead
 #      flight worker is handled with no tower session in the loop.
 #
@@ -423,36 +424,55 @@ case $(printf '%s\n' "$out" | awk -F "$TAB" -v id="$U2" '$2 == id') in
   *) fail "a landed flight whose directory cannot be judged must be reported (got: $out)" ;;
 esac
 # A decision queue that cannot be looked into is unread, never absent: the
-# parked flight is reported, not relaunched over its decision.
-chmod 600 "$tmp/fleet/attention"
-out=$(supervise "$((t + 99999 + 31))")
-chmod 700 "$tmp/fleet/attention"
-case $(printf '%s\n' "$out" | awk -F "$TAB" -v id="$P" '$2 == id') in
-  failed*"decision queue could not be read"*) ;;
-  *) fail "an unreadable decision queue must be reported, never read as no decision (got: $out)" ;;
-esac
-[ ! -e "$tmp/fleet/liveness/crash/tmux-flight-$P" ] || fail "a parked flight must never be counted over an unreadable queue"
-# The same for a store file it cannot read.
-chmod 000 "$tmp/fleet/attention/state"
+# parked flight is reported, not relaunched over its decision. Root reads
+# through any mode, so the permission case runs only for other users.
+if [ "$(id -u)" = 0 ]; then
+  echo "skip: running as root, an unsearchable attention directory cannot be staged" >&2
+else
+  chmod 600 "$tmp/fleet/attention"
+  out=$(supervise "$((t + 99999 + 31))")
+  chmod 700 "$tmp/fleet/attention"
+  case $(printf '%s\n' "$out" | awk -F "$TAB" -v id="$P" '$2 == id') in
+    failed*"decision queue could not be read"*) ;;
+    *) fail "an unreadable decision queue must be reported, never read as no decision (got: $out)" ;;
+  esac
+  [ ! -e "$tmp/fleet/liveness/crash/tmux-flight-$P" ] || fail "a parked flight must never be counted over an unreadable queue"
+fi
+# The same for a store read that fails partway, which a permission check
+# cannot see: a stub awk fails only the queue read.
+real_awk=$(command -v awk)
+cat >"$tmp/bin/awk" <<EOF
+#!/bin/sh
+case "\$*" in *awaiting-input*) exit 2 ;; esac
+exec '$real_awk' "\$@"
+EOF
+chmod +x "$tmp/bin/awk"
 out=$(supervise "$((t + 99999 + 41))")
-chmod 600 "$tmp/fleet/attention/state"
+rm -f "$tmp/bin/awk"
 case $(printf '%s\n' "$out" | awk -F "$TAB" -v id="$P" '$2 == id') in
   failed*"decision queue could not be read"*) ;;
-  *) fail "an unreadable decision store must be reported, never read as no decision (got: $out)" ;;
+  *) fail "a failed decision-queue read must be reported, never read as no decision (got: $out)" ;;
 esac
-[ ! -e "$tmp/fleet/liveness/crash/tmux-flight-$P" ] || fail "a parked flight must never be counted over an unreadable store"
-# A brief it cannot read is reported, never taken for an older brief.
+[ ! -e "$tmp/fleet/liveness/crash/tmux-flight-$P" ] || fail "a parked flight must never be counted over a failed queue read"
+# A brief read that fails is reported, never taken for an older brief.
 X=unreadbrief-aaaaab3b
 landed_flight "$X" record checked
 /bin/sh "$STATE" register "tmux-flight-$X" "flight:$X" --backend tmux --death-handle "process $(dead_pid 27)" >/dev/null
-chmod 000 "$tmp/fleet/flights/$X/brief.md"
+real_grep=$(command -v grep)
+cat >"$tmp/bin/grep" <<EOF
+#!/bin/sh
+case "\$*" in *"runs this landed check"*) exit 2 ;; esac
+exec '$real_grep' "\$@"
+EOF
+chmod +x "$tmp/bin/grep"
 out=$(supervise "$((t + 99999 + 51))")
-chmod 600 "$tmp/fleet/flights/$X/brief.md"
+rm -f "$tmp/bin/grep"
 case $(printf '%s\n' "$out" | awk -F "$TAB" -v id="$X" '$2 == id') in
   failed*"brief could not be read"*) ;;
-  *) fail "an unreadable brief must be reported, never skipped (got: $out)" ;;
+  *) fail "a failed brief read must be reported, never skipped (got: $out)" ;;
 esac
-[ ! -e "$tmp/fleet/liveness/crash/tmux-flight-$X" ] || fail "a flight with an unreadable brief must never be counted"
+[ ! -e "$tmp/fleet/liveness/crash/tmux-flight-$X" ] || fail "a flight whose brief read failed must never be counted"
+out=$(supervise "$((t + 99999 + 61))")
 [ "$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$I" '$2 == id { print $1 }')" = relaunched ] \
   || fail "a landed flight that never pushed its completion is relaunched past the backoff (got: $out)"
 

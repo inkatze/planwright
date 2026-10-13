@@ -114,27 +114,28 @@
 # ask over.
 #
 # Report: TAB-separated `key<TAB>value` lines, after any `retired` lines the
-# dispatch's sweep printed — flight, branch, worktree,
-# base, home, origin, record, points (the in-run points the check covered, in
-# order, space-separated; on the file home `post-pr` is checked but never
-# fires), one `steps<TAB><point><TAB><ids>` per point (the step ids the check
-# resolved to run there, space-separated, empty for none), one
-# `skipped<TAB><point><TAB><id>` per step the check skipped, model, effort, brief, `sanitized`
-# (ask or grounds, one line each, only when invisible or bidi-control
-# characters were stripped from that text), backend, handle, outcome (tmux:
-# started, started-unconfirmed, or failed-at-startup), observe and attach (the session the
-# launch's report line named), launch (print), the primitive's `attach-plan` lines
-# (--attach-dry-run), `root<TAB>tower|worker<TAB><path><TAB><version>` and
-# root-skew (yes|no|unknown): the resolved plugin-root pair, so a tower and its
-# worker running different planwright versions is visible at dispatch. A
-# decline is `declined<TAB><live><TAB><bound>` plus a `reask` line, after any
-# `retired` lines the sweep printed. A print-rung flight whose pinned launch
-# cannot be built reports through `backend`, then `failed` and a `reask` line
-# saying the placed worktree holds a slot, and nothing after. A failed
-# placement is `failed<TAB><reason>` plus the flight, branch, and the worktree
-# and brief left behind, if any; a worktree left behind adds a `reask` line
-# saying it holds a slot. When the worktree list cannot be read, the worktree
-# is reported `unknown` and the brief is kept. A repo root or fleet home whose
+# dispatch's sweep printed — flight, branch, worktree, base, home, origin,
+# record, points (the in-run points the check covered, in order,
+# space-separated; on the file home `post-pr` is checked but never fires), one
+# `steps<TAB><point><TAB><ids>` per point (the step ids the check resolved to
+# run there, space-separated, empty for none), one
+# `skipped<TAB><point><TAB><id>` per step the check skipped, model, effort,
+# brief, `sanitized` (ask or grounds, one line each, only when invisible or
+# bidi-control characters were stripped from that text), backend, handle,
+# outcome (tmux: started, started-unconfirmed, or failed-at-startup), observe
+# and attach (the session the launch's report line named), launch (print), the
+# primitive's `attach-plan` lines (--attach-dry-run),
+# `root<TAB>tower|worker<TAB><path><TAB><version>` and root-skew
+# (yes|no|unknown): the resolved plugin-root pair, so a tower and its worker
+# running different planwright versions is visible at dispatch. A decline is
+# `declined<TAB><live><TAB><bound>` plus a `reask` line, after any `retired`
+# lines the sweep printed. A print-rung flight whose pinned launch cannot be
+# built reports through `backend`, then `failed` and a `reask` line saying the
+# placed worktree holds a slot, and nothing after. A failed placement is
+# `failed<TAB><reason>` plus the flight, branch, and the worktree and brief
+# left behind, if any; a worktree left behind adds a `reask` line saying it
+# holds a slot. When the worktree list cannot be read, the worktree is
+# reported `unknown` and the brief is kept. A repo root or fleet home whose
 # path, given or canonical, carries a control byte is refused up front, so no
 # report line splits; so is a fleet home that is not private to the user or
 # whose canonical path falls outside the brief path charset, before the lock.
@@ -885,12 +886,13 @@ order. When \`record/pr-url\` exists, it is the flight's own record of its PR:
 it lists the same-repository PRs on this branch in every state, one
 \`<state> <head-sha> <url>\` line each:
 \`gh pr list --repo $HOME_DEST --head $branch --state all --json url,state,isCrossRepository,headRefOid --jq '.[] | select(.isCrossRepository | not) | .state + \" \" + .headRefOid + \" \" + .url' > $(sh_quote "$_rd/pr-url.found")\`
-No line at all means it has not landed. Exactly one line, \`OPEN\` at
-\`git rev-parse HEAD\`, is the flight's PR, and it has landed, its URL recorded with
+No line at all means it has not landed: it fires the points *Work and the
+points*' Relaunch bullet says are still due and lands as above. Exactly one
+line, \`OPEN\` at \`git rev-parse HEAD\`, is the flight's PR, and it has landed,
+its URL recorded with
 \`awk '{ print \$3 }' $(sh_quote "$_rd/pr-url.found") > $(sh_quote "$_rd/pr-url.tmp") && mv $(sh_quote "$_rd/pr-url.tmp") $(sh_quote "$_rd/pr-url")\`.
 Anything else (more than one line, a PR not open, or one not at this
-branch's tip) parks the flight. With no line, it fires the points *Work and the points*'
-Relaunch bullet says are still due and lands as above. A non-zero exit from the
+branch's tip) parks the flight. A non-zero exit from the
 view or the list parks the flight: a failed lookup is never \"no PR\" or \"not
 open\". A landed relaunch skips the push-and-create line, fires \`post-pr\`
 only if the Relaunch bullet says it is still due, and runs the sequence after

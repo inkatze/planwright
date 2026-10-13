@@ -45,14 +45,13 @@
 # guarded launch, creating nothing), which registers the new worker. The
 # relaunched worker is pinned to the planwright root dispatch recorded beside
 # the brief; a flight placed before that record existed takes the launcher's
-# root, and a record that is not a regular file holding one printable
-# absolute path, or that names a root no longer installed, refuses the
-# relaunch, which counts as another crash. That relaunch is claimed once per
-# death too, so two sweeps racing on one death start one worker. crash-check
-# consults the operator kill-switch and crash-record does not, but the fleet
-# sweep skips its whole cycle while the switch is set, so under the sweep a
-# paused death is counted once the switch is cleared. The death is claimed
-# BEFORE
+# root, and a record that is not a regular file holding one printable absolute
+# path, or that names a root no longer installed, refuses the relaunch, which
+# counts as another crash. That relaunch is claimed once per death too, so two
+# sweeps racing on one death start one worker. crash-check consults the
+# operator kill-switch and crash-record does not, but the fleet sweep skips
+# its whole cycle while the switch is set, so under the sweep a paused death
+# is counted once the switch is cleared. The death is claimed BEFORE
 # crash-record runs, because crash-record is not idempotent, and no pass
 # relaunches a death until its count is recorded beside the claim. A
 # crash-record that counted nothing releases its claim for the next pass; a
@@ -559,9 +558,9 @@ finished() {
 }
 
 # landed_owing <render> — for each landed flight in a sweep render with a dead
-# worker, `owe<TAB><id><TAB><handle>` when it owes its completion or its
-# directory cannot be judged (supervise_one reports that), and
-# `failed<TAB><id><TAB><why>` when a read it needs failed.
+# worker, `supervise<TAB><id><TAB><handle>` when it goes to supervise_one (it
+# owes its completion, or its directory cannot be judged, which supervise_one
+# reports), and `failed<TAB><id><TAB><why>` when a read it needs failed.
 landed_owing() {
   printf '%s\n' "$1" | awk -F "$TAB" '$1 == "flight" && $3 == "landed" && $5 == "dead" { print $2 "\t" $6 }' \
     | while IFS="$TAB" read -r _lo_id _lo_handle; do
@@ -571,7 +570,7 @@ landed_owing() {
       case $_lo_rc in
         1) ;;
         3) printf 'failed\t%s\t%s\n' "$_lo_id" "$OC_WHY" ;;
-        *) printf 'owe\t%s\t%s\n' "$_lo_id" "$_lo_handle" ;;
+        *) printf 'supervise\t%s\t%s\n' "$_lo_id" "$_lo_handle" ;;
       esac
     done
 }
@@ -631,14 +630,14 @@ cmd_supervise() {
   # A landed flight is done once its completion is pushed; a worker that died
   # before that still owes the work after landing (at least the completion
   # push, and on the PR home post-pr, the re-emit, and the draft check).
-  dead=$(unfinished_dead "$render" dead | awk -F "$TAB" '{ print "owe\t" $1 "\t" $2 }')
+  dead=$(unfinished_dead "$render" dead | awk -F "$TAB" '{ print "supervise\t" $1 "\t" $2 }')
   dead=$(printf '%s\n%s\n' "$dead" "$(landed_owing "$render")" | awk 'NF')
   [ -n "$dead" ] || return 0
-  printf '%s\n' "$dead" | while IFS="$TAB" read -r _kind _id _rest; do
+  printf '%s\n' "$dead" | while IFS="$TAB" read -r _kind _id _detail; do
     valid_id "$_id" || continue
     case $_kind in
-      failed) printf 'failed\t%s\t%s\n' "$_id" "$_rest" ;;
-      owe) supervise_one "$_id" "$_rest" ;;
+      failed) printf 'failed\t%s\t%s\n' "$_id" "$_detail" ;;
+      supervise) supervise_one "$_id" "$_detail" ;;
     esac
   done
 }
