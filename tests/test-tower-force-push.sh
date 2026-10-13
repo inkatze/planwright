@@ -419,6 +419,20 @@ if [ "$rc" = 0 ] && [ "$(head -1 "$tmp/out" | cut -f1)" = pushed ] && grep -q 'h
 else
   fail "a landed push with a failed report was misreported (exit $rc: $(cat "$tmp/out" "$tmp/err"))"
 fi
+# The same, with a push URL apart from the fetch URL: the landed tip is read
+# where the push went.
+git -C "$tmp/origin.git" update-ref "refs/heads/$BR" "$TIP"
+git clone -q --bare "$tmp/origin.git" "$tmp/pushdst.git"
+g config remote.origin.pushurl "$tmp/pushdst.git"
+printf '#!/bin/sh\ngit --git-dir="%s" update-ref "refs/heads/%s" "%s"\nexit 1\n' "$tmp/pushdst.git" "$BR" "$NEW" >"$W/.git/hooks/pre-push"
+rc=$(rc_of fp push --branch "$BR" --to "$NEW" --lease "$TIP")
+if [ "$rc" = 0 ] && grep -q 'holds the new tip' "$tmp/out"; then
+  ok "push reads a failed report's outcome at the push URL, not the fetch URL"
+else
+  fail "a landed push to a separate push URL was misreported (exit $rc: $(cat "$tmp/out" "$tmp/err"))"
+fi
+g config --unset remote.origin.pushurl
+rm -rf "$tmp/pushdst.git"
 rm -f "$W/.git/hooks/pre-push"
 git -C "$tmp/origin.git" update-ref "refs/heads/$BR" "$TIP"
 

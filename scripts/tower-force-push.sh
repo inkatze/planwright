@@ -333,22 +333,40 @@ push() {
     # A lease lost to a push or a deletion that landed in between is a
     # refusal, not a failure to retry: someone else works from the branch now.
     # A remote already at <to> took this push and only the report was lost.
-    local now
-    now=$(git ls-remote --heads "$REMOTE" "refs/heads/$BRANCH" 2>/dev/null) \
-      || broken "the push failed and $(safe "$REMOTE")/$(safe "$BRANCH") could not be read; its tip is unknown"
-    now=$(printf '%s\n' "$now" | awk -v r="refs/heads/$BRANCH" '$2 == r { print $1; exit }')
-    if [ "$now" = "$TO" ]; then
+    # The tip is read where the push went: every push URL, which may differ
+    # from the fetch URL the lease was read from.
+    local urls url now landed=0 unchanged=0
+    urls=$(git remote get-url --push --all "$REMOTE" 2>/dev/null) && [ -n "$urls" ] \
+      || broken "the push failed and $(safe "$REMOTE")'s push URL could not be read; the branch's tip is unknown"
+    while IFS= read -r url; do
+      case $url in
+        '' | -*) broken "the push failed and $(safe "$REMOTE") has a push URL that cannot be read safely; the branch's tip is unknown" ;;
+      esac
+      now=$(git ls-remote --heads "$url" "refs/heads/$BRANCH" 2>/dev/null) \
+        || broken "the push failed and $(safe "$REMOTE")/$(safe "$BRANCH") could not be read at its push URL; its tip is unknown"
+      now=$(printf '%s\n' "$now" | awk -v r="refs/heads/$BRANCH" '$2 == r { print $1; exit }')
+      if [ "$now" = "$TO" ]; then
+        landed=1
+      elif [ -z "$now" ]; then
+        refuse "$(safe "$REMOTE")/$(safe "$BRANCH") was deleted while pushing; someone else works from it, so treat it as shared and do not retry"
+      elif [ "$now" != "$LEASE" ]; then
+        refuse "$(safe "$REMOTE")/$(safe "$BRANCH") moved while pushing ($(printf '%s' "$LEASE" | cut -c1-7) -> $(printf '%s' "$now" | cut -c1-7)); someone else works from it, so treat it as shared and do not retry"
+      else
+        unchanged=1
+      fi
+    done <<EOF
+$urls
+EOF
+    if [ "$landed" = 1 ] && [ "$unchanged" = 0 ]; then
       # The failed push left the tracking ref at the old tip, which the reset
       # note below points a checkout at.
       git update-ref "refs/remotes/$REMOTE/$BRANCH" "$TO" 2>/dev/null \
         || broken "$(safe "$REMOTE")/$(safe "$BRANCH") holds the new tip, but its tracking ref could not be updated"
       landed_note="note	the push reported a failure, but $(safe "$REMOTE")/$(safe "$BRANCH") holds the new tip"
-    elif [ -z "$now" ]; then
-      refuse "$(safe "$REMOTE")/$(safe "$BRANCH") was deleted while pushing; someone else works from it, so treat it as shared and do not retry"
-    elif [ "$now" != "$LEASE" ]; then
-      refuse "$(safe "$REMOTE")/$(safe "$BRANCH") moved while pushing ($(printf '%s' "$LEASE" | cut -c1-7) -> $(printf '%s' "$now" | cut -c1-7)); someone else works from it, so treat it as shared and do not retry"
+    elif [ "$landed" = 1 ]; then
+      broken "the push failed part-way: some of $(safe "$REMOTE")'s push URLs hold the new tip and some still hold $(printf '%s' "$LEASE" | cut -c1-7); report it to the operator rather than retrying"
     else
-      broken "the push failed; $(safe "$REMOTE")/$(safe "$BRANCH") reads unchanged, unless its push URL differs from the one read"
+      broken "the push failed; $(safe "$REMOTE")/$(safe "$BRANCH") reads unchanged at its push URL"
     fi
   fi
   printf 'pushed\t%s\t%s\t%s\t%s\n' "$(safe "$REMOTE")" "$(safe "$BRANCH")" "$LEASE" "$TO"
