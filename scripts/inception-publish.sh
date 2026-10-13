@@ -322,6 +322,7 @@ if [ "$cmd" = offer ]; then
   # sources the screen reads while the escaped page still carried the
   # credential. A link is refused before the copy, which would follow it.
   snap="$priv/bundle"
+  # not-a-lock: a fresh directory inside the private one mktemp just made
   mkdir "$snap" || exit 2
   for f in brief.md disciplines.md assumptions.md decisions.md plan.md; do
     if [ -h "$target/$f" ]; then
