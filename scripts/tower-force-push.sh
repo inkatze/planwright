@@ -268,8 +268,8 @@ CONFIRM_JQ='
           question: "Force-push \($b) on \($r), replacing \($l | short) with \($t | short) and dropping \($d | length) remote commit(s): \($d | names)?",
           options: [
             {label: "Force-push \($b)",
-             description: "Rewrites \($r)/\($b) from \($l | short) to \($t | short); the remote loses \($d | map(.commit | short) | join(", ")), and every clone holding them must reset to the new tip."
-               + (if ($lg | length) > 0 then " Legacy checklist ids change: " + ($lg | map(.from + " -> " + (.to // "none")) | join(", ")) + "." else "" end)},
+             description: ("Rewrites \($r)/\($b) from \($l | short) to \($t | short); the remote loses \($d | map(.commit | short) | join(", ")), and every clone holding them must reset to the new tip."
+               + (if ($lg | length) > 0 then " Legacy checklist ids change: " + ($lg | map(.from + " -> " + (.to // "none")) | join(", ")) + "." else "" end))},
             {label: "Keep \($b) as it is", reject: true,
              description: "Pushes nothing; \($r)/\($b) stays at \($l | short) with every commit it has."}
           ],
