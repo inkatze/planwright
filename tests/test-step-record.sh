@@ -2227,6 +2227,22 @@ flip "$HX_A" passed
 lstate "$HX_A"
 [ "$ST_RC" -eq 0 ] && gh_arg state=failure
 verdict "a record whose stored run disagrees with its path retires nothing" "rc=$ST_RC"
+# A resume skip whose named record is missing or another step's retires nothing.
+# Each fresh worktree numbers its runs from 000001: u0, u, v, then the flip.
+for target in 000001:post-pr:009 000002:post-pr:001; do
+  lim_wt
+  u0=$(srl new-run)
+  lrec "$u0" post-pr review2 passed "$HX_A"
+  u=$(srl new-run)
+  lrec "$u" post-pr review2 limited "$HX_A"
+  v=$(srl new-run)
+  legacy_rec "$wlm/.claude/steps/$v/001-step-post-pr.rec" "$v" post-pr review2 skipped "$HX_A" \
+    "end-head${TAB}$HX_A" "skip-code${TAB}resume" "stands-on${TAB}$target"
+  flip "$HX_A" passed
+  lstate "$HX_A"
+  [ "$ST_RC" -eq 0 ] && gh_arg state=failure
+  verdict "a resume skip standing on $target retires nothing" "rc=$ST_RC"
+done
 lim_wt
 u=$(srl new-run)
 v=$(srl new-run)

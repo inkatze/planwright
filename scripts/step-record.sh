@@ -99,7 +99,8 @@
 #                 --head: a limited step record, of any run and point, whose
 #                 end head is --head, retired once a higher run holds a
 #                 passed, applied, or `resume`-skipped record of the same
-#                 step id ending there. Records are read as lookup reads
+#                 step id ending there (a skip only when the record it names
+#                 would qualify for lookup resume). Records are read as lookup reads
 #                 them, a run's order taken from its directory: a malformed
 #                 record retires nothing and, recording limited (or, in the
 #                 attempt, anything; or any outcome but passed, applied,
@@ -1645,7 +1646,8 @@ cmd_status() {
   # outcomes at the point, and any unretired limited record ending on the
   # head, whatever run or point holds it.
   all_records
-  result=$(awk -v TAB="$TAB" -v H="$head" -v P="$point" "$AWK_RECORD"'
+  result=$(CACHE_DIR=$cache awk -v TAB="$TAB" -v H="$head" -v P="$point" "$AWK_RECORD"'
+    function retire(s, r) { if (!(s in last) || r > last[s]) last[s] = r }
     {
       if (!load($0)) next
       if (R_KIND == "done") {
@@ -1663,9 +1665,16 @@ cmd_status() {
       if (F["end-head"] != H) next
       if (F["outcome"] == "limited") {
         n++; LR[n] = R_RUN + 0; LS[n] = ok_step() ? F["step"] : ""
-      } else if (ok_step() && (F["outcome"] == "passed" || F["outcome"] == "applied" \
-        || (F["outcome"] == "skipped" && F["skip-code"] == "resume"))) {
-        if (!(F["step"] in last) || R_RUN + 0 > last[F["step"]]) last[F["step"]] = R_RUN + 0
+      } else if (ok_step() && (F["outcome"] == "passed" || F["outcome"] == "applied")) {
+        retire(F["step"], R_RUN + 0)
+      } else if (ok_step() && F["outcome"] == "skipped" && F["skip-code"] == "resume" \
+        && F["stands-on"] ~ /^[0-9][0-9][0-9][0-9][0-9][0-9]:[a-z][a-z-]*:[0-9][0-9][0-9]$/) {
+        # A resume skip retires only when the record it names would qualify
+        # for lookup resume: the same step, passed or applied, on this head.
+        s = F["step"]; r = R_RUN + 0; split(F["stands-on"], q, ":")
+        if (load(ENVIRON["CACHE_DIR"] "/" q[1] "/" q[3] "-step-" q[2] ".rec", 1) && ok_step() \
+          && F["step"] == s && F["end-head"] == H && (F["outcome"] == "passed" || F["outcome"] == "applied"))
+          retire(s, r)
       }
     }
     END {
