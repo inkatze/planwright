@@ -240,7 +240,8 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 
 ## Awaiting input
 
-(none yet)
+- **Task 7** — convergence point, step panel-gemini, outcome halted (a normal-flow security-zone
+  regression awaits direction); record `.claude/steps/000005/002-step-convergence.rec`.
 
 ## Deferred
 
