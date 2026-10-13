@@ -981,6 +981,24 @@ assert_eq "Z11 the refused push leaves origin untouched" "$remote_before" "$(git
 rm -f "$tmp/gh-public-repos"
 git -C "$rv" remote remove upstream
 
+# =========================================================================
+# Z14 — once the private repository exists, a failed setup keeps the venture
+# =========================================================================
+
+mkdir -p "$stubs/chmod-fail"
+printf '#!/bin/sh\nexit 1\n' >"$stubs/chmod-fail/chmod"
+/bin/chmod +x "$stubs/chmod-fail/chmod"
+PATH="$stubs/chmod-fail:$stubs/gh-ok:$PATH" venture create --home remote --root "$tmp/z14" --owner acme mu
+assert_eq "Z14 a scaffold failure after the repository exists exits 7" 7 "$rc"
+assert_exists "Z14 the local venture is kept, not orphaning the repository" "$tmp/z14/mu/.git"
+assert_eq "Z14 the kept venture is wired to the repository" origin "$(git -C "$tmp/z14/mu" remote)"
+assert_contains "Z14 the failure names the repository" "acme/mu" "$out"
+assert_contains "Z14 the failure points to the add-remote retry" "add-remote" "$out"
+PATH="$stubs/gh-ok:$PATH" venture add-remote "$tmp/z14/mu"
+assert_eq "Z14 add-remote finishes the setup" 0 "$rc"
+assert_exists "Z14 the retry lays down the CI guard" "$tmp/z14/mu/.github/workflows/venture-guard.yml"
+assert_eq "Z14 the retry wires the hooks" githooks "$(git -C "$tmp/z14/mu" config core.hooksPath)"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

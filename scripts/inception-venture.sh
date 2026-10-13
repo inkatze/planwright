@@ -380,12 +380,16 @@ cmd_create() {
     if [ "$home" = remote ]; then
       make_private_remote "$target" "${owner:+$owner/}$id" \
         || remote_failed "${owner:+$owner/}$id" "no local venture was left behind"
-      scaffold_rung=remote
+      # The repository exists now, so the local venture is kept from here on:
+      # removing it would orphan the repository, and add-remote can finish it.
+      made_target=
+      if ! /bin/sh "$self_dir/inception-scaffold.sh" --rung remote --wire "$target" >/dev/null; then
+        die 7 "the private repository ${owner:+$owner/}$id exists and the venture is kept at $target, but its guards could not be set up; run add-remote on it to finish"
+      fi
     else
-      scaffold_rung=local
+      /bin/sh "$self_dir/inception-scaffold.sh" --rung local --wire "$target" >/dev/null \
+        || die 2 "the hygiene scaffold failed"
     fi
-    /bin/sh "$self_dir/inception-scaffold.sh" --rung "$scaffold_rung" --wire "$target" >/dev/null \
-      || die 2 "the hygiene scaffold failed"
   fi
   # The session home is recorded where the venture's own files are not, so a
   # later handoff still reports it: git's local config, or a marker file in a
@@ -908,7 +912,7 @@ cmd_add_remote() {
   # The scaffold keeps every existing file, so the notes file, which still
   # describes the local rung, is the one file removed for it to rewrite.
   rm -f "$dir/hygiene-wiring.md"
-  /bin/sh "$self_dir/inception-scaffold.sh" --rung remote "$dir" >/dev/null \
+  /bin/sh "$self_dir/inception-scaffold.sh" --rung remote --wire "$dir" >/dev/null \
     || die 2 "the remote-rung scaffold failed; run add-remote again to retry it"
   printf 'venture\t%s\n' "$dir"
   printf 'home\tremote\n'
