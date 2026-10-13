@@ -293,7 +293,11 @@ not_regenerated() {
 }
 git_dir=$(git rev-parse --absolute-git-dir 2>/dev/null) || not_regenerated
 priv=$(mktemp -d "$git_dir/planwright-render.XXXXXX") || not_regenerated
+# dash runs no EXIT trap when a signal kills it, so each signal exits through it.
 trap 'rm -rf "$priv"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 for page in venture pitch; do
   if [ "$page" = pitch ]; then mode=pitch; else mode=dashboard; fi
   /bin/sh "$pw/scripts/inception-render.sh" --mode "$mode" --output "$priv/$page.html" "$top" >/dev/null ||
@@ -332,7 +336,7 @@ for page in venture pitch; do
   rel="exports/$page.html"
   if git check-ignore -q "$rel"; then
     echo "venture pre-commit: the regenerated $rel could not be staged (it is gitignored), so this commit carries a stale or absent export." >&2
-  elif ! blob=$(git hash-object -w "$priv/$page.html") ||
+  elif ! blob=$(git hash-object -w --path="$rel" "$priv/$page.html") ||
     ! git update-index --add --cacheinfo "100644,$blob,$rel"; then
     echo "venture pre-commit: the regenerated $rel could not be staged, so this commit carries a stale or absent export." >&2
     echo "venture pre-commit: committing anyway — see git's message above." >&2

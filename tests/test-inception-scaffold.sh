@@ -618,6 +618,56 @@ assert_contains "screen-to-stage race: the screened page is committed" "Northwin
 assert_eq "screen-to-stage race: the work tree holds the committed page" \
   "$race_committed" "$(cat "$race_v/exports/venture.html")"
 
+# The screened page is staged the way `git add` would stage it: through the
+# path's .gitattributes filters, not as raw bytes.
+attr_v="$tmp/venture-attr"
+mkdir -p "$attr_v"
+inception_fixture_write "$attr_v" >/dev/null 2>&1 || exit 1
+(
+  cd "$attr_v" || exit 1
+  git init -q .
+  git config user.email fixture@example.invalid
+  git config user.name Fixture
+  git config commit.gpgsign false
+  git config filter.marker.clean "sed s/Northwind/CLEANED/"
+  git config filter.marker.smudge cat
+) >/dev/null 2>&1 || exit 1
+printf 'exports/*.html filter=marker\n' >"$attr_v/.gitattributes"
+"$SCAFFOLD" --rung local --wire "$attr_v" >/dev/null 2>&1
+out="$(cd "$attr_v" && git add -A && git commit -qm "with attributes" 2>&1)"
+rc=$?
+assert_eq "gitattributes: the commit succeeds" "0" "$rc"
+assert_contains "gitattributes: the page went through the clean filter" "CLEANED" \
+  "$(cd "$attr_v" && git show HEAD:exports/venture.html 2>/dev/null)"
+
+# A hook interrupted mid-screen leaves no private render directory in .git.
+int_pw="$tmp/pw-int"
+mkdir -p "$int_pw/scripts"
+cp "$REPO_ROOT/scripts/"inception-*.sh "$REPO_ROOT/scripts/echo-safety.sh" \
+  "$REPO_ROOT/scripts/spec-parse.sh" "$REPO_ROOT/scripts/html-escape.sh" "$int_pw/scripts/" || exit 1
+mv "$int_pw/scripts/inception-secret-screen.sh" "$int_pw/scripts/inception-secret-screen.real.sh"
+cat >"$int_pw/scripts/inception-secret-screen.sh" <<'INTSCREEN'
+#!/bin/sh
+[ "$1" = --staged ] && exec /bin/sh "$(dirname "$0")/inception-secret-screen.real.sh" "$@"
+kill -TERM "$PPID"
+exit 2
+INTSCREEN
+int_v="$tmp/venture-int"
+mkdir -p "$int_v"
+inception_fixture_write "$int_v" >/dev/null 2>&1 || exit 1
+(
+  cd "$int_v" || exit 1
+  git init -q .
+  git config user.email fixture@example.invalid
+  git config user.name Fixture
+  git config commit.gpgsign false
+) >/dev/null 2>&1 || exit 1
+"$SCAFFOLD" --rung local --wire "$int_v" >/dev/null 2>&1
+(cd "$int_v" && git add -A && PLANWRIGHT_ROOT="$int_pw" PLANWRIGHT_SECRET_SCREEN_TOOL=none \
+  git commit -qm "interrupted" >/dev/null 2>&1)
+leftover="$(find "$int_v/.git" -maxdepth 1 -name 'planwright-render.*' 2>/dev/null)"
+assert_eq "interrupted hook: no private render directory is left" "" "$leftover"
+
 # The repo's own `lint:yaml` covers tracked config, not what this script
 # generates, so the emitted workflow is linted here or nowhere.
 if command -v yamllint >/dev/null 2>&1; then
