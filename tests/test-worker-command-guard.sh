@@ -76,6 +76,8 @@ mkdir -p "$PLUGIN_ROOT/scripts" "$PLUGIN_ROOT/tests" "$PLUGIN_DECOY/scripts" \
   "$PLUGIN_CWD" "$SANDBOX/install/outside"
 : >"$PLUGIN_CWD/.git"
 : >"$PLUGIN_ROOT/scripts/plug.sh"
+: >"$PLUGIN_ROOT/scripts/tower-force-push.sh"
+ln -f "$PLUGIN_ROOT/scripts/tower-force-push.sh" "$PLUGIN_ROOT/scripts/plug-fph.sh"
 : >"$PLUGIN_ROOT/scripts/plug.py"
 : >"$PLUGIN_ROOT/tests/plug.sh"
 : >"$PLUGIN_ROOT/notscripts.sh"
@@ -632,6 +634,7 @@ first_half() {
   assert_defer "bats on a plugin script stays repo-scoped" "bats $PLUGIN_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
   assert_defer "env-assignment prefix on a plugin script" "BASH_ENV=/tmp/x $PLUGIN_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
   assert_defer "plugin script writing a file still defers" "$PLUGIN_ROOT/scripts/plug.sh > out.txt" Bash "$PLUGIN_CWD"
+  assert_defer "the plugin root's force-push helper through a hardlink" "bash $PLUGIN_ROOT/scripts/plug-fph.sh confirm --branch b" Bash "$PLUGIN_CWD"
   HOOK_ENV=("PLANWRIGHT_ROOT=$SANDBOX/install/does-not-exist")
   assert_defer "unresolvable root arm allows nothing" "$PLUGIN_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
   HOOK_ENV=()
