@@ -184,6 +184,10 @@ assert_contains "the fetched history feeds the finding rate" "post-convergence f
 
 "$COST" --history "$hist" --transcripts "$proj" --events "$T/absent-events.jsonl" >/dev/null 2>&1
 assert_exit "a named events file that is missing is refused" 2 $?
+mkdir -p "$T/oddproj"
+printf '%s\n' '{"type":"assistant","message":"x"}' '{"type":"assistant","timestamp":"t","message":{"id":"m","usage":{"input_tokens":5},"content":[{"type":"tool_use","name":"Bash","input":{"command":7}}]}}' >"$T/oddproj/odd.jsonl"
+"$COST" --history "$hist" --transcripts "$T/oddproj" --ledger-dir "$ledger" >/dev/null 2>&1
+assert_exit "a transcript line of an unexpected shape is skipped, not fatal" 0 $?
 if [ "$(id -u)" -ne 0 ]; then
   mkdir -p "$T/badproj"
   printf '%s\n' '{}' >"$T/badproj/locked.jsonl"

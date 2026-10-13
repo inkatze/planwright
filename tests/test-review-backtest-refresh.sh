@@ -91,6 +91,7 @@ history() {
    {"path":"a.sh","line":13,"commit":"$A","author":"helper-bot","bot":true,"body":"negated other verb","replies":[{"author":"owner","body":"Not changed in 1234567; keeping it"}]},
    {"path":"a.sh","line":14,"commit":"$A","author":"helper-bot","bot":true,"body":"unit word","replies":[{"author":"owner","body":"Unit tests fixed in 1234567"}]},
    {"path":"a.sh","line":15,"commit":"$A","author":"helper-bot","bot":true,"body":"cannot","replies":[{"author":"owner","body":"This cannot be addressed in 1234567; it is upstream"}]},
+   {"path":"onmain.sh","line":1,"commit":"$BASE","author":"helper-bot","bot":true,"body":"a commit already on main","replies":[{"author":"owner","body":"Fixed in 4444445"}]},
    {"path":"a.sh","line":9,"commit":"$A","author":"helper-bot","bot":true,"body":"a real one","replies":[{"author":"owner","body":"Fixed, not a false positive after all"}]},
    {"path":"lib/c.sh","line":9,"commit":"$A","author":"helper-bot","bot":true,"body":"a sibling site keeps the bug","replies":[{"author":"owner","body":"Addressed in def5678"}]},
    {"path":"a.sh","line":3,"commit":"$A","author":"helper-bot","bot":true,"body":"style nit nobody fixed","replies":[{"author":"owner","body":"Declined: by design"}]},
@@ -126,7 +127,6 @@ history() {
  {"number":5,"author":"owner","merged_at":"2026-09-05T00:00:00Z","body":"","truncated":true,
   "reviews":[],
   "threads":[
-   {"path":"onmain.sh","line":1,"commit":"$BASE","author":"helper-bot","bot":true,"body":"a commit already on main","replies":[{"author":"owner","body":"Fixed in 4444445"}]},
    {"path":"g.sh","line":1,"commit":"$C","author":"helper-bot","bot":true,"body":"an unrelated-history finding","replies":[{"author":"owner","body":"Fixed in 4444444"}]}
   ]}
 ]}
@@ -212,7 +212,7 @@ assert_contains "a commit absent from the head ref marks the row unreplayable" "
 r=$(row 4 f.sh)
 assert_contains "a declined-log match becomes a declined row" "	declined	yes	declined-log	" "$r"
 assert_contains "the declined row carries its paraphrased dismissal" "portable enough" "$r"
-r=$(row 5 onmain.sh)
+r=$(row 7 onmain.sh)
 assert_contains "a commit already on main marks the row unreplayable" "	no	" "$r"
 r=$(row 5 g.sh)
 assert_contains "a commit with no merge base on main marks the row unreplayable" "	no	" "$r"

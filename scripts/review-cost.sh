@@ -148,7 +148,8 @@ def tok: (.message.usage // {}) | [.input_tokens, .cache_creation_input_tokens, 
 def text: if (.message.content | type) == "string" then .message.content
   else ([.message.content[]? | select(.type == "text") | .text] | join("\n")) end;
 def is_result: (.message.content | type) == "array" and any(.message.content[]; .type == "tool_result");
-fromjson? | select(type == "object") | (.timestamp // "") as $ts
+# A line of an unexpected shape is skipped (try), never fatal to the file.
+fromjson? | select(type == "object") | try ((.timestamp // "") as $ts
 | if .type == "assistant" then
     ([.message.content[]? | select(.type == "tool_use")]) as $tu
     | ([$tu[] | select(.name == "Skill") | (.input.skill // "")]) as $sk
@@ -164,7 +165,7 @@ fromjson? | select(type == "object") | (.timestamp // "") as $ts
       elif ($t | length) > 0 and ($t | test("^\\s*<") | not) then ["E", $ts]
       else empty end
   else empty end
-| map(tostring) | join("\t")'
+| map(tostring) | join("\t")) catch empty'
 
 : >"$tmp/runs.tsv"
 : >"$tmp/units.tsv"
