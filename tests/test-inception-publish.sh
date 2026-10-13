@@ -234,13 +234,6 @@ out="$("$PUBLISH" offer "$tmp/nope" 2>&1)"
 rc=$?
 assert_eq "missing venture: exit 2" "2" "$rc"
 
-# The helper decides; it never reaches the network itself.
-if grep -Eq '(^|[^a-z])(curl|wget|nc|ssh|scp|gh) ' "$PUBLISH"; then
-  echo "FAIL: the publish helper invokes a network client" >&2
-  failures=$((failures + 1))
-else
-  echo "ok: the publish helper invokes no network client"
-fi
 
 # ---------------------------------------------------------------------------
 # 8. The state lives where no commit can write it, behind a lock.
@@ -287,6 +280,102 @@ assert_contains "no git: says why" "git repository" "$out"
 out="$("$PUBLISH" offer "$nogit" 2>/dev/null)"
 assert_eq "no git: offers still work" "offer" "$(field decision "$out")"
 assert_eq "no git: always a first publish" "first-publish" "$(field reason "$out")"
+
+# ---------------------------------------------------------------------------
+# 9. Bookkeeping: the record keeps what a republish needs.
+# ---------------------------------------------------------------------------
+
+# A later confirmed record without --artifact keeps the id already on record.
+v="$(fresh)"
+"$PUBLISH" record --confirmed --artifact art-123 "$v" >/dev/null 2>&1
+"$PUBLISH" record --confirmed "$v" >/dev/null 2>&1
+"$PUBLISH" auto on "$v" >/dev/null 2>&1
+out="$("$PUBLISH" offer "$v" 2>/dev/null)"
+assert_eq "re-record without --artifact: the id survives" "art-123" "$(field artifact "$out")"
+assert_eq "re-record without --artifact: still a republish" "republish" "$(field decision "$out")"
+
+# A republish needs a target: with no artifact id on record, ask instead.
+v="$(fresh)"
+"$PUBLISH" record --confirmed "$v" >/dev/null 2>&1
+"$PUBLISH" auto on "$v" >/dev/null 2>&1
+out="$("$PUBLISH" offer "$v" 2>/dev/null)"
+assert_eq "no artifact on record: an offer, not a republish" "offer" "$(field decision "$out")"
+assert_eq "no artifact on record: says why" "no-artifact-recorded" "$(field reason "$out")"
+assert_eq "no artifact on record: no artifact offered" "none" "$(field artifact "$out")"
+
+# Each page keeps its own record.
+v="$(fresh)"
+"$PUBLISH" record --confirmed --mode dashboard --artifact dash-1 "$v" >/dev/null 2>&1
+"$PUBLISH" record --confirmed --mode pitch --artifact pitch-1 "$v" >/dev/null 2>&1
+assert_eq "both pages: the dashboard record" "dash-1" "$(field artifact "$("$PUBLISH" offer "$v" 2>/dev/null)")"
+assert_eq "both pages: the pitch record" "pitch-1" \
+  "$(field artifact "$("$PUBLISH" offer --mode pitch "$v" 2>/dev/null)")"
+
+# An unreadable state is an environment error, never silently rebuilt.
+v="$(fresh)"
+"$PUBLISH" record --confirmed --artifact art-9 "$v" >/dev/null 2>&1
+chmod 000 "$(state_of "$v")"
+if [ -r "$(state_of "$v")" ]; then
+  echo "ok: unreadable state: skipped (running as a user who can read mode 000)"
+else
+  out="$("$PUBLISH" offer "$v" 2>&1)"
+  rc=$?
+  assert_eq "unreadable state: offer refuses" "2" "$rc"
+  assert_contains "unreadable state: says it cannot read the state" "cannot read" "$out"
+  out="$("$PUBLISH" auto on "$v" 2>&1)"
+  rc=$?
+  assert_eq "unreadable state: a write refuses" "2" "$rc"
+fi
+chmod 600 "$(state_of "$v")"
+
+# A writer killed mid-write leaves no temp state behind. The stub mv signals
+# the writer while the temp file exists and then fails, so only the signal
+# path can clean up.
+v="$(fresh)"
+stub="$tmp/killmv"
+mkdir -p "$stub"
+printf '%s\n' '#!/bin/sh' 'kill -TERM "$PPID"' 'exit 1' >"$stub/mv"
+chmod +x "$stub/mv"
+PATH="$stub:$PATH" "$PUBLISH" auto on "$v" >/dev/null 2>&1
+gd="$(git -C "$v" rev-parse --absolute-git-dir)"
+leftover="$(find "$gd" -maxdepth 1 -name 'planwright-publish.local.*' 2>/dev/null)"
+assert_eq "killed writer: no temp state is left" "" "$leftover"
+if [ -d "$gd/planwright-publish.lock" ]; then
+  echo "FAIL: killed writer: the lock was left behind" >&2
+  failures=$((failures + 1))
+else
+  echo "ok: killed writer: the lock is released"
+fi
+
+# --- coverage the helper's contract leans on ---
+
+# The offered page is rendered fresh, not taken from disk.
+v="$(fresh)"
+mkdir -p "$v/exports"
+printf 'STALE-MARKER\n' >"$v/exports/venture.html"
+out="$("$PUBLISH" offer "$v" 2>/dev/null)"
+assert_not_contains "fresh render: the stale page is not offered" "STALE-MARKER" \
+  "$(cat "$(field export "$out")")"
+
+# A screen that cannot run offers nothing.
+v="$(fresh)"
+out="$(PLANWRIGHT_SECRET_SCREEN_TOOL=not-a-tool "$PUBLISH" offer "$v" 2>&1)"
+rc=$?
+assert_eq "screen cannot run: exit 2" "2" "$rc"
+assert_not_contains "screen cannot run: no decision" "decision" "$out"
+
+# No network client is reached, whatever the helper calls into.
+v="$(fresh)"
+netstub="$tmp/netstub"
+mkdir -p "$netstub"
+for c in curl wget gh nc ssh scp; do
+  printf '%s\n' '#!/bin/sh' "echo $c >>\"$tmp/net-calls\"" 'exit 1' >"$netstub/$c"
+  chmod +x "$netstub/$c"
+done
+PATH="$netstub:$PATH" "$PUBLISH" offer "$v" >/dev/null 2>&1
+PATH="$netstub:$PATH" "$PUBLISH" record --confirmed --artifact a-1 "$v" >/dev/null 2>&1
+PATH="$netstub:$PATH" "$PUBLISH" auto on "$v" >/dev/null 2>&1
+assert_eq "no network: no client was invoked" "" "$(cat "$tmp/net-calls" 2>/dev/null)"
 
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-publish: $failures assertion(s) failed" >&2

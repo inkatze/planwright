@@ -13,13 +13,16 @@
 #                         for a first publish, and whenever the venture's
 #                         auto-republish knob is off (its default).
 #              republish  the operator confirmed a first publish of this page
-#                         earlier and opted this venture into auto-republish,
-#                         so the refreshed page may replace the published one
-#                         without asking again.
+#                         earlier, its artifact id is on record, and this
+#                         machine opted into auto-republish, so the refreshed
+#                         page may replace that artifact without asking again.
+#            Run it immediately before publishing: the decision describes the
+#            state at that moment, and a knob switched off afterwards is not
+#            seen by a session acting on an older answer.
 #   record   note a publish the operator has just confirmed, with the artifact
 #            it landed at. Refuses without --confirmed: a record is what later
 #            lets a republish skip the question, so it is never written on a
-#            guess.
+#            guess. Without --artifact, an id already on record is kept.
 #   auto     set the per-venture auto-republish knob, on or off.
 #
 # State lives in the clone's git directory, as planwright-publish.local beside
@@ -43,8 +46,8 @@
 # offered by its own call.
 #
 # offer prints `<key><TAB><value>` lines on stdout — mode, export, decision,
-# reason (first-publish | auto-republish-off | auto-republish-on), artifact (the
-# recorded id, or none) — and the plain-language instruction on stderr.
+# reason (first-publish | auto-republish-off | no-artifact-recorded |
+# auto-republish-on), artifact (the recorded id, or none) — and the plain-language instruction on stderr.
 #
 # Exit: 0 done · 1 the rendered page looks like it carries a credential, so it
 #   is not offered at all · 2 usage or environment error · 3 the renderer
@@ -160,6 +163,10 @@ load_state() {
   s_dash=
   s_pitch=
   [ -n "$state" ] && [ -f "$state" ] || return 0
+  if [ ! -r "$state" ]; then
+    printf '%s\n' "inception-publish: cannot read the publish state at $state; fix its permissions rather than lose the record" >&2
+    exit 2
+  fi
   s_all=$(awk '
     index($0, "auto-republish=") == 1 { a = substr($0, 16) }
     index($0, "published-dashboard=") == 1 { d = substr($0, 21) }
@@ -184,10 +191,15 @@ take_lock() {
     fi
     sleep 1
   done
-  trap 'rmdir "$lock" 2>/dev/null' EXIT
-  trap 'rmdir "$lock" 2>/dev/null; exit 129' HUP
-  trap 'rmdir "$lock" 2>/dev/null; exit 130' INT
-  trap 'rmdir "$lock" 2>/dev/null; exit 143' TERM
+  trap release EXIT
+  trap 'release; exit 129' HUP
+  trap 'release; exit 130' INT
+  trap 'release; exit 143' TERM
+}
+w_tmp=
+release() {
+  [ -z "$w_tmp" ] || rm -f "$w_tmp"
+  rmdir "$lock" 2>/dev/null
 }
 
 # write_state <key> <value> — under the lock: read once, replace <key>, keep
@@ -200,10 +212,12 @@ write_state() {
   fi
   take_lock
   load_state
+  # A published-* write with no value records the publish and keeps any
+  # artifact id already on record: the id is what a later republish targets.
   case $1 in
     auto-republish) s_auto=$2 ;;
-    published-dashboard) s_dash=$2 ;;
-    published-pitch) s_pitch=$2 ;;
+    published-dashboard) s_dash=${2:-${s_dash:-yes}} ;;
+    published-pitch) s_pitch=${2:-${s_pitch:-yes}} ;;
   esac
   w_tmp=$(mktemp "$state.XXXXXX") || exit 2
   {
@@ -220,6 +234,7 @@ write_state() {
     rm -f "$w_tmp"
     exit 2
   fi
+  w_tmp=
 }
 
 case $cmd in
@@ -237,7 +252,7 @@ case $cmd in
       echo "inception-publish: --artifact must be a plain id (letters, digits, . _ : -; at most 128)" >&2
       exit 2
     fi
-    write_state "published-$mode" "${artifact:-yes}"
+    write_state "published-$mode" "$artifact"
     printf 'inception-publish: recorded the confirmed %s publish\n' "$mode" >&2
     exit 0
     ;;
@@ -293,12 +308,17 @@ fi
 if [ -z "$published" ]; then
   decision=offer
   reason='first-publish'
-elif [ "$auto" = on ]; then
-  decision=republish
-  reason='auto-republish-on'
-else
+elif [ "$auto" != on ]; then
   decision=offer
   reason='auto-republish-off'
+elif [ "$published" = yes ]; then
+  # A republish replaces a recorded artifact; with none on record it would
+  # create a new one, which is a first publish by another name.
+  decision=offer
+  reason='no-artifact-recorded'
+else
+  decision=republish
+  reason='auto-republish-on'
 fi
 case $published in
   '' | yes) artifact_out=none ;;
