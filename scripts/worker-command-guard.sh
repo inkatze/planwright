@@ -49,11 +49,11 @@
 # below, (b) its flags/args designate no output/target file and enable no write
 # or arbitrary execution (REQ-A1.8), the spec-root write zone excepted, and (c)
 # it uses no construct the analyzer cannot confidently parse — process
-# substitution, a command substitution outside the narrow form verify_known_simple
-# and subst_words_ok admit, here-docs, subshell or brace grouping,
-# env-assignment prefixes, path-prefixed verbs, escaped operators, ANSI-C
-# quoting, shell comments, named-fd redirects — all of which defer (REQ-A1.9). The segments are read in
-# run order, so the state one sets applies to those after it: a `cd` into the
+# substitution, a command substitution outside the narrow form
+# verify_known_simple and subst_words_ok admit, here-docs, subshell or brace
+# grouping, env-assignment prefixes, path-prefixed verbs, escaped operators,
+# ANSI-C quoting, shell comments, named-fd redirects — all of which defer
+# (REQ-A1.9). The segments are read in run order, so the state one sets applies to those after it: a `cd` into the
 # session's own worktree moves the working directory later segments are
 # checked against (see cd_target_ok), and the time/timeout prefixes are looked
 # through to the command they wrap (see strip_prefixes); fin decides where
@@ -101,8 +101,8 @@ export LC_ALL
 # may tokenize and walk together, every entry and loop pass counted: past it
 # the command defers, which keeps the end-to-end cost near that of a few
 # full-length entries, plus STEPS_DEADLINE when a segment reaches the
-# declared-step fallback. A substitution's verdict is kept per working
-# directory, so a loop pass does not analyse it again. 8 KiB is far above any
+# declared-step fallback. A substitution's verdict is kept for the working
+# directory it last passed in, so a loop pass there does not analyse it again. 8 KiB is far above any
 # real worker command shape. MAX_DEPTH caps `fish -c` recursion so a
 # nested-`fish -c` bomb can never spin.
 readonly MAX_CMD_LEN=8192
@@ -2992,18 +2992,21 @@ guard_printf() {
 # unknown text is equivalent to some literal the guard already approves. That
 # set is narrower than arg_independent_verb's: a verb that opens its operands
 # could be handed another process's environ path, and the rest are left out
-# rather than argued one by one. In these comments a bare "substitution" is
-# a command substitution, never the table of tracked variables (VAR_*).
+# rather than argued one by one. In the comments of this section, a bare
+# "substitution" is a command substitution, never the table of tracked
+# variables (VAR_*).
 
 # word_tainted <i>: 0 when word <i> of the current simple command carries
 # substitution output, with TAINT_WEAK saying how the guard knows. Known
 # (TAINT_WEAK=0): the word holds a `$(…)` or names a variable the table marks
 # as assigned from one (VAR_S 1). Inferred (TAINT_WEAK=1): the name may hold
-# output the table cannot see, since `$_` is the previous command's last
-# argument, a name the table does not track may have been set by a zsh
-# pipeline's last `read`, and the inner text of a substitution starts with an
-# empty table while its subshell inherits every outer variable (VAR_S 2 marks
-# a variable assigned from such a word). A word mixing both is inferred: its
+# output the table cannot see. Callers ask only about a command holding a
+# substitution, where any name the table does not track may: `$_` is the
+# previous command's last argument (and a loop's head reads it again after
+# the body's substitution), a zsh pipeline's last `read` sets a name in the
+# current shell, and the inner text of a substitution starts with an empty
+# table while its subshell inherits every outer variable (VAR_S 2 marks a
+# variable assigned from such a word). A word mixing both is inferred: its
 # known part says nothing about the rest. Every `$` spelling is read, a
 # literal one too, which can only narrow a verdict.
 word_tainted() {
@@ -3044,7 +3047,7 @@ word_tainted() {
         break
       fi
     done
-    [ "$found" = 1 ] || [ "$SUBST_SEEN" = 0 ] || weak=1
+    [ "$found" = 1 ] || weak=1
   done
   if [ "$weak" = 1 ]; then
     TAINT_WEAK=1
@@ -4201,11 +4204,12 @@ analyze_command() {
   [ "$SCANNED" -le "$MAX_SCANNED" ] || return 1
   local -a TOK_TYPE=() TOK_VAL=() TOK_QUOTED=() TOK_NOEXP=() TOK_QPOS=() TOK_DYN=() TOK_GLOB=() TOK_ZOPT=() TOK_QMIX=() TOK_SUBS=()
   local TOK_N=0
-  # The command substitutions' inner texts, the working directory each last
-  # passed in (SUBST_OKD, `d:`-prefixed), and whether the command holds one
-  # (word_tainted); subst_scan returns its results in SUBST_IDX / SUBST_END.
+  # The command substitutions' inner texts and the working directory each
+  # last passed in (SUBST_OKD, `d:`-prefixed; a cd cannot move inside a loop
+  # today, so no loop re-checks one in another directory yet);
+  # subst_scan returns its results in SUBST_IDX / SUBST_END.
   local -a SUBST_TXT=() SUBST_OKD=()
-  local SUBST_N=0 SUBST_SEEN=0 SUBST_IDX=0 SUBST_END=0
+  local SUBST_N=0 SUBST_IDX=0 SUBST_END=0
   local HOOK_DEPTH=$depth
   # The substitution table (tracked assignments and loop variables, VAR_L
   # marking the latter and VAR_O an opaque value; track_assignment /
@@ -4217,10 +4221,6 @@ analyze_command() {
   local LH_NAME='' LH_START=0 LH_COUNT=0 LH_NEXT=0
   local PENDING_ASSIGN_N='' PENDING_ASSIGN_V='' PENDING_ASSIGN_O=0 PENDING_ASSIGN_S=0 PENDING_CD='' PREFIXED=0
   tokenize "$cmd" || return 1
-  # A loop runs words the walk has already passed again after a later
-  # substitution (a `while` head reads the body's last `$_`), so `$_` counts
-  # as carrying substitution output wherever the command holds one.
-  [ "$SUBST_N" -eq 0 ] || SUBST_SEEN=1
   # Each `|`-separated segment holds a command or a redirect, and its first
   # word is no reserved word: anything else is not a pipeline.
   if [ "${3-}" = pipeline ]; then
