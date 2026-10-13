@@ -89,6 +89,8 @@ mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests" "$SANDBOX/sub"
 : >"$SANDBOX/scripts/tower-force-push.sh"
 ln -sf tower-force-push.sh "$SANDBOX/scripts/fp-alias.sh"
 ln -f "$SANDBOX/scripts/tower-force-push.sh" "$SANDBOX/scripts/fp-hard.sh"
+ln -f "$SANDBOX/scripts/tower-force-push.sh" "$SANDBOX/scripts/fp-hard"
+ln -sf tower-force-push.sh "$SANDBOX/scripts/fp-alias"
 : >"$SANDBOX/tests/ok.sh"
 : >"$SANDBOX/tests/ok.bats"
 # Symlinked final components pointing OUTSIDE the repo (containment escape).
@@ -99,6 +101,7 @@ mkdir -p "$PLUGIN_ROOT/scripts"
 : >"$PLUGIN_ROOT/scripts/orchestrate-relay.sh"
 : >"$PLUGIN_ROOT/scripts/tower-force-push.sh"
 ln -f "$PLUGIN_ROOT/scripts/tower-force-push.sh" "$PLUGIN_ROOT/scripts/fp-hard.sh"
+ln -f "$PLUGIN_ROOT/scripts/tower-force-push.sh" "$PLUGIN_ROOT/scripts/fp-hard"
 ln -sf /etc/hosts "$PLUGIN_ROOT/scripts/evillink.sh"
 
 # run_hook <command> [tool_name] [cwd] -> sets OUT and CODE. CLAUDE_PLUGIN_ROOT
@@ -260,6 +263,11 @@ assert_ask "force-push helper, plugin purge" "$PLUGIN_ROOT/scripts/tower-force-p
 assert_ask "force-push helper through a symlink alias" "scripts/fp-alias.sh push --branch b --to abc --lease def"
 assert_ask "force-push helper through a repo hardlink" "scripts/fp-hard.sh push --branch b --to abc --lease def"
 assert_ask "force-push helper through a plugin hardlink" "bash $PLUGIN_ROOT/scripts/fp-hard.sh confirm --branch b --to abc"
+# An alias needs no .sh extension to run the helper.
+assert_ask "force-push helper through an extensionless repo hardlink, bash-prefixed" "bash scripts/fp-hard confirm --branch b --to abc"
+assert_ask "force-push helper through an extensionless repo hardlink" "scripts/fp-hard push --branch b --to abc --lease def"
+assert_ask "force-push helper through an extensionless symlink" "scripts/fp-alias push --branch b --to abc --lease def"
+assert_ask "force-push helper through an extensionless plugin hardlink" "bash $PLUGIN_ROOT/scripts/fp-hard confirm --branch b --to abc"
 # A case-insensitive filesystem (macOS) runs the helper under any casing.
 assert_ask "force-push helper in another casing" "scripts/Tower-Force-Push.sh push --branch b --to abc --lease def"
 assert_ask "force-push helper in upper case" "scripts/TOWER-FORCE-PUSH.sh confirm --branch b --to abc"

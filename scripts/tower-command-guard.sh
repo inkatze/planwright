@@ -597,15 +597,12 @@ is_planwright_script() {
       return 1
       ;;
   esac
-  case $p in
-    *.sh) ;;
-    *) return 1 ;;
-  esac
   cache_plugin_root
   proot=$PLUGIN_ROOT_CACHED
   root=$(repo_root_of "$cwd") || root=''
-  # A symlink or hardlink to either root's helper, before the containment
-  # check below refuses the symlink without naming it.
+  # A symlink or hardlink to either root's helper, under any name and with or
+  # without an extension, before the `.sh` gate and the containment check below
+  # turn it away without naming it.
   case $p in
     /*) full=$p ;;
     *) full=$cwd/$p ;;
@@ -614,6 +611,10 @@ is_planwright_script() {
     FP_SEEN=1
     return 1
   fi
+  case $p in
+    *.sh) ;;
+    *) return 1 ;;
+  esac
   # (a) under the repo checkout's scripts/ dir.
   if [ -n "$root" ]; then
     if full=$(canon_under "$p" "$cwd" "$root"); then
