@@ -146,7 +146,8 @@
 # a resolver, the fleet home, the worktree list, or the flight lock could not
 # be read or taken, the in-run points' check failed (or the pinned root has no
 # resolver to run it), the fleet home or the brief directory was refused (not
-# private to the user, a symlinked flights directory, or already present),
+# private to the user, a symlinked flights directory, or already present) or
+# its records (checkout, root, placing) could not be written,
 # the brief sweep refused to run, or the base could not be fetched fresh (nothing placed, unless a
 # `failed` report names a worktree left behind); 5 the id could not be minted,
 # the brief could not be written, or the placement failed (the `failed` report
@@ -740,7 +741,7 @@ check_points() {
     function add(s) { if (!(s in seen)) { seen[s] = 1; out = out (out == "" ? "" : "; ") s } }
     function quoted_id(s) { match(s, /'\''[a-z0-9-]+'\''/); return substr(s, RSTART, RLENGTH) }
     function safe(t) { gsub(/[^A-Za-z0-9._#-]/, "?", t); return t }
-    BEGIN { entry_at = "steps catalog entry "; entry_end = " is malformed" }
+    BEGIN { entry_prefix = "steps catalog entry "; entry_suffix = " is malformed" }
     !/^resolve-steps: [a-z,-]+: / {
       # A config reader the resolver runs reports a repo-tracked hard-fail
       # under its own name, with no point. A catalog hard-fail is left to the
@@ -761,9 +762,9 @@ check_points() {
     rest ~ /places '\''[a-z0-9-]+'\'' malformed/ {
       add(pts ": step " quoted_id(rest)); next
     }
-    index(rest, entry_at) && index(rest, entry_end) {
-      id = substr(rest, index(rest, entry_at) + length(entry_at))
-      id = substr(id, 1, index(id, entry_end) - 1)
+    index(rest, entry_prefix) && index(rest, entry_suffix) {
+      id = substr(rest, index(rest, entry_prefix) + length(entry_prefix))
+      id = substr(id, 1, index(id, entry_suffix) - 1)
       add("malformed entry " q safe(id) q " (at " pts ")"); next
     }
     match(rest, /^warning: the (adopter|machine-local) layer sets [a-z_]+ to a malformed value/) {
@@ -875,12 +876,13 @@ same-repository PRs on this branch, one \`<head-sha> <url>\` line each:
 \`gh pr list --repo $HOME_DEST --head $branch --state open --json url,isCrossRepository,headRefOid --jq '.[] | select(.isCrossRepository | not) | .headRefOid + \" \" + .url' > $(sh_quote "$_rd/pr-url.found")\`
 A line whose sha equals \`git rev-parse HEAD\` is the flight's own PR; more than
 one such line parks the flight. When \`record/pr-url\` names the PR, or exactly
-one line matched (write its URL to \`record/pr-url\`), it skips the next line:
+one line matched (write its URL to \`record/pr-url\`), it runs none of this push
+and create command:
 \`$_recorder render --home pr $_inputs > $_body && git push -u origin $branch && gh pr create --draft --repo $HOME_DEST --title '<conventional title>' --body-file $_body > $(sh_quote "$_rd/pr-url.tmp") && mv $(sh_quote "$_rd/pr-url.tmp") $(sh_quote "$_rd/pr-url")\`
 Add $_optional to the render only when you wrote them. The record is the PR
 body. Never mark it ready and never merge: the draft-to-ready flip and the
 merge are the human's. A non-zero exit from the push or the create parks the
-flight. A relaunched worker that skipped that line carries on below with its
+flight. A relaunched worker that skipped the push and create carries on below with its
 PR, firing \`post-pr\` only if *Work and the points*' Relaunch bullet says it is
 still due, and runs the sequence after it (re-emit, draft check, completion)
 either way.
@@ -909,7 +911,7 @@ file on this branch:
 \`$_recorder land $_inputs --record-path $(sh_quote "$record")\`
 Add $_optional only when you wrote them. Do not push and open no PR. A
 relaunched worker whose record is committed on this branch
-(\`git cat-file -e HEAD:$record\` succeeds) skips the land; otherwise a record at
+(\`git cat-file -e $(sh_quote "HEAD:$record")\` succeeds) skips the land; otherwise a record at
 that path is an interrupted land's leftover, so it runs
 \`git rm -q --cached --ignore-unmatch -- $(sh_quote "$record") && rm -f -- $(sh_quote "$record") $(sh_quote "${record%/*}")/.$flight_id.md.*\`
 and then lands. The committed record is the landing reference; push the
@@ -965,7 +967,9 @@ completion with it:
     printf '%s\n' "  each at its moment below, every point no run of this flight completed"
     printf '%s\n' "  without a halted, failed, or limited step (\`step-record.sh list\` across"
     printf '%s\n' "  every run), running its whole list again; it skips no step within a point,"
-    printf '%s\n' "  and never fires a point this home never fires."
+    printf '%s\n' "  and never fires a point this home never fires. A flight that has already"
+    printf '%s\n' "  landed (*Landing* finds its PR or committed record) re-fires no point whose"
+    printf '%s\n' "  moment comes before landing: their commits could never reach it."
     printf '%s\n' "- Wherever the procedure ends, parks, or stops the unit (the pause protocol"
     printf '%s\n' "  or a stop condition), park the flight instead (*Hard pauses*): write"
     printf '%s\n' "  nothing to any \`tasks.md\` or other spec state."

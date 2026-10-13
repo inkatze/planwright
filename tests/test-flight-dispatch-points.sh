@@ -180,6 +180,10 @@ flat "$post" | grep -q 'its `## Pending sign-off` heading demoted to `####`' \
   || fail "the regenerated checklist's heading must be demoted under the record's"
 printf '%s\n' "$b" | grep -qF -- "> '$record_dir/pr-url.tmp' && mv '$record_dir/pr-url.tmp' '$record_dir/pr-url'" \
   || fail "a failed create must never empty pr-url"
+flat "$b" | grep -q 'it runs none of this push and create command:' \
+  || fail "a relaunched worker that found its PR must run none of the push and create command"
+flat "$b" | grep -q 'A flight that has already landed (\*Landing\* finds its PR or committed record) re-fires no point whose moment comes before landing' \
+  || fail "a landed flight must not re-fire a point whose commits could never reach the landing"
 flat "$b" | grep -q 'A non-zero exit from the push or the create parks the flight' \
   || fail "a failed push or create must park the flight"
 printf '%s\n' "$b" | grep -qF -- "gh pr list --repo github.com/acme/widgets --head planwright/flight/$fid --state open --json url,isCrossRepository,headRefOid --jq '.[] | select(.isCrossRepository | not) | .headRefOid + \" \" + .url' > '$record_dir/pr-url.found'" \
@@ -189,7 +193,7 @@ flat "$b" | grep -q 'A line whose sha equals `git rev-parse HEAD` is the flight.
 lookup_line=$(printf '%s\n' "$b" | grep -n 'gh pr list --repo' | head -n 1 | cut -d: -f1)
 [ -n "$lookup_line" ] && [ "$lookup_line" -lt "$pr_line" ] \
   || fail "the relaunch lookup must come before the push and create line"
-flat "$b" | grep -q 'carries on below with its PR, firing `post-pr` only if \*Work and the points\*. Relaunch bullet says it is still due, and runs the sequence after it (re-emit, draft check, completion) either way' \
+flat "$b" | grep -q 'skipped the push and create carries on below with its PR, firing `post-pr` only if \*Work and the points\*. Relaunch bullet says it is still due, and runs the sequence after it (re-emit, draft check, completion) either way' \
   || fail "a relaunched worker must not re-fire a completed post-pr, yet must still re-emit and check the draft"
 flat "$post" | grep -q 'replace its Pending sign-off section with the regenerated checklist' \
   || fail "a moved head must carry the regenerated checklist into the re-emit"
@@ -214,7 +218,7 @@ flat "$b" | grep -q '`post-pr`: never fires on this flight' \
 printf '%s\n' "$b" | grep -q 'not-fired `post-pr` row' || fail "the file home must leave the not-fired row to the renderer"
 printf '%s\n' "$b" | grep -q 'gh pr' && fail "the file home must carry no gh pr command"
 fid=$(field "$OUT" flight)
-flat "$b" | grep -qF "relaunched worker whose record is committed on this branch (\`git cat-file -e HEAD:specs/_flights/$fid.md\` succeeds) skips the land" \
+flat "$b" | grep -qF "relaunched worker whose record is committed on this branch (\`git cat-file -e 'HEAD:specs/_flights/$fid.md'\` succeeds) skips the land" \
   || fail "a relaunched file-home worker must test the record against HEAD, not the index"
 printf '%s\n' "$b" | grep -qF "git rm -q --cached --ignore-unmatch -- 'specs/_flights/$fid.md' && rm -f -- 'specs/_flights/$fid.md' 'specs/_flights'/.$fid.md.*" \
   || fail "a relaunched file-home worker must clear an interrupted land's record and temp link"
@@ -380,6 +384,8 @@ dispatch_print
 printf '%s\n' "$OUT" | grep -qx "steps${TAB}convergence${TAB}self-review" \
   || fail "the check must resolve the pinned root's core list, not the tower's (out: $OUT)"
 skew_brief=$(field "$OUT" brief)
+[ "$(cat "$(dirname "$skew_brief")/root")" = "$inst" ] \
+  || fail "the brief directory must record the worker's pinned root, not the tower's"
 grep -qF "\`'$inst/scripts/resolve-steps.sh' <point> --explain --unattended\`" "$skew_brief" \
   || fail "the brief must call the worker root's resolver"
 case $(field "$OUT" launch) in

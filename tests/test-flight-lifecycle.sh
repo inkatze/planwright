@@ -480,9 +480,37 @@ out=$(supervise "$((t + 900000 + 31))")
 g=$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$R" '$2 == id')
 [ "$(field "$g" 1)" = failed ] || fail "a gone recorded root must fail the relaunch (got: $out)"
 case $(field "$g" 3) in
-  *"recorded planwright root"*) ;;
-  *) fail "the failed relaunch must say the recorded root is gone (got: $g)" ;;
+  *"recorded planwright root is not an install any more"*"git worktree remove"*) ;;
+  *) fail "the failed relaunch must say the recorded root is gone and how to recover (got: $g)" ;;
 esac
+# A record that is not a regular file holding an absolute path refuses too,
+# named as the record's fault, not the install's.
+n_case=0
+for bad in relative empty symlink; do
+  n_case=$((n_case + 1))
+  B="rec$n_case-aaaaaac$n_case"
+  HB="tmux-flight-$B"
+  gitc "$repo" worktree add -q -b "planwright/flight/$B" "$repo/.claude/worktrees/flight-$B" HEAD
+  brief_dir "$B"
+  case $bad in
+    relative) printf 'pinned-root\n' >"$tmp/fleet/flights/$B/root" ;;
+    empty) : >"$tmp/fleet/flights/$B/root" ;;
+    symlink)
+      printf '%s\n' "$pinned" >"$tmp/pinned-root.record"
+      ln -s "$tmp/pinned-root.record" "$tmp/fleet/flights/$B/root"
+      ;;
+  esac
+  /bin/sh "$STATE" register "$HB" "flight:$B" --backend tmux --state-dir "$repo/.claude/worktrees/flight-$B" \
+    --death-handle "process $(dead_pid "$((20 + n_case))")" >/dev/null || fail "fixture: could not register a dead worker"
+  supervise "$((t + 900000 + n_case * 100000))" >/dev/null
+  out=$(supervise "$((t + 900000 + n_case * 100000 + 31))")
+  g=$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$B" '$2 == id')
+  case $(field "$g" 3) in
+    *"root record is unreadable or malformed"*) ;;
+    *) fail "a $bad root record must refuse the relaunch as the record's fault (got: $out)" ;;
+  esac
+  calls_matching new-session | grep -q "flight-$B" && fail "a $bad root record must launch nothing"
+done
 calls_matching new-session | grep -q "flight-$R" && fail "a gone recorded root must launch nothing"
 
 if [ "$fails" -gt 0 ]; then
