@@ -160,6 +160,19 @@ for spell in 'bash scripts/*-admitted.sh --spec specs/demo --task 1' 'bash scrip
   pg tower "$spell"
   expect deny "[tower] a glob or brace spelling that could name the helper is refused: $spell"
 done
+# shellcheck disable=SC2016 # the unexpanded forms are the spellings under test
+for spell in "$REAL_SCRIPTS/ready-flip.sh flip --spec specs/demo --{for-merge,task} 1" \
+  "$REAL_SCRIPTS/ready-flip.sh flip --spec specs/demo \$'--for-merge' --task 1" \
+  "$REAL_SCRIPTS/ready-flip.sh flip --spec specs/demo --fo\$X --task 1"; do
+  for tier in worker tower; do
+    pg "$tier" "$spell"
+    expect deny "[$tier] an assembled --for-merge spelling is refused: $spell"
+  done
+done
+for spell in 'bash -e < scripts/merge-admitted.sh' 'bash -s -- --spec x < scripts/merge-admitted.sh'; do
+  pg tower "$spell"
+  expect deny "[tower] a shell with an option reading the helper on stdin is refused: $spell"
+done
 set_knobs 'merge_policy: human' 'ready_flip_policy: unit-owner'
 for spell in 'bash tests/test-merge-admitted.sh' 'shellcheck scripts/merge-admitted.sh && bash tests/test-merge-admitted.sh' \
   'git commit -m "docs: explain the --for-merge flag"' 'rg -n -- --for-merge scripts/' 'bash tests/test-*.sh'; do

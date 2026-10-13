@@ -56,7 +56,9 @@
 #               quoting outside the stem, a renamed copy, or a link under
 #               another name is the accepted residual. Running
 #               scripts/ready-flip.sh with `--for-merge` (its flag for the
-#               helper's own flip) denies at every tier with no read.
+#               helper's own flip), or with an option or value the guard
+#               cannot read (an expansion, a brace), denies at every tier with
+#               no read; a renamed copy of ready-flip.sh is the same residual.
 #   base-merge  `git merge`, `git pull` in merge mode. tower: deny. worker:
 #               worker_base_merge, then the current branch must be the session's
 #               unit branch outside the protected set and every source the PR
@@ -161,7 +163,7 @@ RE_GIT_REWRITE="${RE_GIT_HEAD}commit([[:space:]].*)?[[:space:]]--(am|sq|fix)"
 # A substitution after `git commit` could produce --amend at run time.
 RE_GIT_COMMIT_SUBST="${RE_GIT_HEAD}"'commit([^[:alnum:]_-].*)?(\$\(|`)'
 RE_MERGE_HELPER='(^|[^[:alnum:]_.-])merge-ad'
-RE_FOR_MERGE='(^|[[:space:]])--for-merge([[:space:]=]|$)'
+RE_FOR_MERGE='(^|[^[:alnum:]_-])--for-merge([^[:alnum:]_-]|$)'
 
 raw_evidence_one() {
   local t=$1 rc=1
@@ -1044,7 +1046,11 @@ classify_segments() {
           # counts as the helper when the command names its stem.
           a1=${SW[1]:-}
           case $a1 in
-            -*) ;;
+            -*)
+              # Options first: a script on stdin is still the helper.
+              lc "$P_CMD"
+              [[ ! $LC =~ $RE_MERGE_HELPER ]] || [[ " ${SW[*]} " == *' -c '* ]] || helper=1
+              ;;
             *)
               if names_helper "$a1"; then
                 helper=1
@@ -1273,7 +1279,8 @@ names_helper() {
 # for_merge_check <shell 0|1> — deny an agent's own run of scripts/ready-flip.sh
 # with --for-merge, the merge helper's flag: the command word (or, for a
 # shell, its script argument) names ready-flip.sh and a later word is the
-# flag, or an expansion that could spell it.
+# flag, or a word that could expand into it (a brace, an expansion that is
+# not the value of one of its value-taking options).
 for_merge_check() {
   local k=1 n=${#SW[@]} w script=${SW[0]}
   if [ "$1" = 1 ]; then
@@ -1288,21 +1295,34 @@ for_merge_check() {
       ;;
     *) return 0 ;;
   esac
+  local prev=''
   while [ "$k" -lt "$n" ]; do
     w=${SW[$k]}
     lc "$w"
     case $LC in
-      --for-merge | --for-merge=* | --for-merg | --for-mer | --for-me | --for-m) ;;
-      --for*) [ "${SWL[$k]}" != 1 ] || {
-        k=$((k + 1))
-        continue
-      } ;;
+      --for-merge | --for-merge=*) ;;
+      *'{'*) ;;
       *)
-        k=$((k + 1))
-        continue
+        if [ "${SWL[$k]}" = 1 ]; then
+          prev=$LC
+          k=$((k + 1))
+          continue
+        fi
+        case $prev in
+          --spec | --task | --pr | --worktree | --out | --preconditions | --expect-head | --base | --reason)
+            case $LC in
+              -*) ;;
+              *)
+                prev=''
+                k=$((k + 1))
+                continue
+                ;;
+            esac
+            ;;
+        esac
         ;;
     esac
-    deny_now 'the --for-merge flag of scripts/ready-flip.sh is the merge helper'"'"'s own flip of a PR its class admitted; no agent session issues it. Run scripts/merge-admitted.sh under merge_policy: policy-class, or leave the PR for the operator.'
+    deny_now 'the --for-merge flag of scripts/ready-flip.sh is the merge helper'"'"'s own flip of a PR its class admitted, and this run carries it or a word that could expand into it; no agent session issues it. Run scripts/merge-admitted.sh under merge_policy: policy-class, write ready-flip.sh'"'"'s options literally, or leave the PR for the operator.'
     return 0
   done
 }
