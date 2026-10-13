@@ -48,7 +48,9 @@
 #   malformed repo-tracked ventures_root · 5 the target or a bundle file
 #   already exists (never overwritten)
 #   · 6 the requested home or push is unavailable (a push: no remote, nothing
-#   saved, or the remote not confirmed private) · 7 the remote step failed.
+#   saved, or the remote not confirmed private) · 7 the remote step failed
+#   (from create, once the private repository exists the venture is kept and
+#   the message names it: add-remote on that venture finishes the setup).
 #
 # Environment: PLANWRIGHT_INCEPTION_TODAY (YYYY-MM-DD) pins today's date;
 #   the config overrides resolve-config-knob.sh honors apply to `root` and

@@ -124,8 +124,8 @@ the first question, and repeated in the handoff (REQ-H1.5).
    holds a bundle, offer to resume it; otherwise offer another name. Never
    overwrite, never adopt silently. Exit 6 means the chosen home is not
    available after all: re-present the home question with that arm marked
-   unavailable (this is the same one question, not a second); exit 7 means
-   the private repository could not be created, so the same applies. The output
+   unavailable (this is the same one question, not a second); exit 7
+   likewise, unless it names a kept venture: run add-remote on it. The output
    names the rung (`git`, `plain`, `session`); creation scaffolds the hygiene
    guards scaled to it (REQ-A1.9): a `.gitignore`, the pre-commit secret
    screen, bundle validation and export regeneration, and on the remote rung

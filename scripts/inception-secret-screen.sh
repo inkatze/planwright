@@ -9,7 +9,9 @@
 # that are unambiguous on sight (key blocks, provider-prefixed tokens, long
 # opaque assignments), not at catching everything. A venture repo that needs
 # real coverage installs gitleaks and gets it automatically; the built-in
-# screen is the floor, not the ceiling.
+# screen is the floor, not the ceiling. gitleaks always runs with this
+# install's config/inception-gitleaks.toml, never a repository's own config or
+# GITLEAKS_CONFIG; with that file missing the screen exits 2.
 #
 # It reports `<file>:<line>: <rule>` and NEVER the matched text. A hook that
 # echoes the secret it caught has moved the secret from the diff into terminal
