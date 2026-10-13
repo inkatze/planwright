@@ -247,6 +247,7 @@ if [ -z "$remote" ]; then
     *) die 2 "no --remote and the history names no repository" ;;
   esac
 fi
+case $remote in -*) die 2 "--remote may not begin with a dash" ;; esac
 
 # --- candidates: every fixed external finding with a well-formed location ----
 
@@ -261,8 +262,8 @@ jq -c "$RBT_JQ_DEFS"'
          and (test("(^|/)\\.\\.(/|$)") | not) and (test("[^ -~]") | not));
   .prs[] | . as $pr | ($pr.body | declined_lines) as $dl
   | $pr.threads[] | select(rbt_fixed_external($pr.author))
-  | { pr: $pr.number, path, line, commit, finding: (.body // ""),
-      reply: ([ .replies[] | select(.author == $pr.author and (.body | rbt_fix_reply)) | .body ][0] // ""),
+  | { pr: $pr.number, path, line, commit, finding: (.body | if type == "string" then . else "" end),
+      reply: ([ .replies[] | select(.author == $pr.author and (.body | type == "string") and (.body | rbt_fix_reply)) | .body ][0] // ""),
       declined_log: ((.path // "") as $p | ($p | split("/") | last) as $base
         | [ $dl[] | select($base != "" and index($base)) | .[0:300] ][0:5]),
       ok: wellformed }
@@ -319,7 +320,7 @@ if [ -s "$tmp/requests.jsonl" ]; then
     apid=
     [ "$arc" -eq 0 ] || die 1 "the annotate command failed"
     # Keep only JSON objects; an annotator's chatter around them is ignored.
-    jq -c -R 'fromjson? | select(type == "object" and has("key"))' "$tmp/answer.part" >>"$tmp/answers.jsonl" || true
+    jq -c -R 'fromjson? | select(type == "object" and (.key | type) == "string")' "$tmp/answer.part" >>"$tmp/answers.jsonl" || true
   done
 fi
 

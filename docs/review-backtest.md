@@ -80,6 +80,14 @@ history carrying a PR number that is not a positive integer.
 included, so keep that file outside the repository; `--fetch-only` stops
 there, writing no corpus.
 
+## Environment
+
+- `PLANWRIGHT_BACKTEST_CLAUDE`: the `claude` binary the default reviewer and
+  annotator run (default `claude`).
+- `PLANWRIGHT_BACKTEST_MODEL`: the annotator's model (default: the CLI's).
+- `PLANWRIGHT_BACKTEST_MAX_TURNS`: the default reviewer's turn cap.
+- `PLANWRIGHT_BACKTEST_RETRY_WAIT`: seconds before a failed reviewer's retry.
+
 ## Replaying it
 
 ```sh

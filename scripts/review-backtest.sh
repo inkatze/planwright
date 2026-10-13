@@ -280,6 +280,7 @@ if [ -z "$stub" ]; then
   if [ -z "$remote" ]; then
     remote=$(git -C "$repo_root" remote get-url origin 2>/dev/null) || die 2 "no --remote and no origin in this checkout"
   fi
+  case $remote in -*) die 2 "--remote may not begin with a dash" ;; esac
   mirror=$tmp/mirror.git
   git init -q --bare "$mirror"
   # A clone then checks out main whatever the host's init.defaultBranch is.

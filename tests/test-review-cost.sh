@@ -182,6 +182,8 @@ out=$(PATH="$T/bin:$PATH" "$COST" --transcripts "$proj" --ledger-dir "$ledger" 2
 assert_exit "the metric fetches the history itself when none is given" 0 $?
 assert_contains "the fetched history feeds the finding rate" "post-convergence finding rate: 1.000" "$out"
 
+"$COST" --history "$hist" --transcripts "$proj" --events "$T/absent-events.jsonl" >/dev/null 2>&1
+assert_exit "a named events file that is missing is refused" 2 $?
 "$COST" --history "$T/absent.json" --transcripts "$proj" >/dev/null 2>&1
 assert_exit "an unreadable history is a usage error" 2 $?
 "$COST" --history "$hist" --transcripts "$proj" --prs-from x >/dev/null 2>&1

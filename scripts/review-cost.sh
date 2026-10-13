@@ -182,7 +182,7 @@ while IFS= read -r d; do
     # Runs of this session: sid, start, end, main-transcript tokens.
     awk -F '\t' -v sid="$sid" '
       function close_run(end_ts) { if (inrun) printf "%s\t%s\t%s\t%d\n", sid, start, end_ts, tok; inrun = 0 }
-      $1 == "S" { if (!inrun) { inrun = 1; start = $2; tok = 0; delete seen } next }
+      $1 == "S" { if (!inrun) { inrun = 1; start = $2; tok = 0; split("", seen) } next }
       $1 == "E" { close_run($2); next }
       $1 == "T" { if (inrun && !($3 in seen)) { seen[$3] = 1; tok += $4 } last = $2 }
       END { close_run(last "~") }
@@ -199,7 +199,7 @@ done <"$tmp/tdirs"
 
 : >"$tmp/fleet.tsv"
 while IFS= read -r e; do
-  [ -f "$e" ] || continue
+  [ -f "$e" ] || die 2 "an events file is not readable"
   jq -R -r 'fromjson? | select(type == "object" and .type == "result" and (.session_id | type) == "string")
     | [.session_id, ((.usage // {}) | [.input_tokens, .cache_creation_input_tokens, .cache_read_input_tokens, .output_tokens] | map(. // 0) | add)]
     | map(tostring) | join("\t")' "$e" >>"$tmp/fleet.tsv" 2>/dev/null || true

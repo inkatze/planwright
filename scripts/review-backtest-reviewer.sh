@@ -100,4 +100,4 @@ if [ -n "${BACKTEST_USAGE_FILE:-}" ]; then
   printf '%s\n' "$out" | jq -r '.usage // {} | [.input_tokens, .cache_creation_input_tokens, .cache_read_input_tokens, .output_tokens] | map(. // 0) | add' \
     >"$BACKTEST_USAGE_FILE" 2>/dev/null || true
 fi
-printf '%s\n' "$result" | awk -F '\t' 'BEGIN { OFS = "\t" } $1 == "FINDING" && $3 ~ /^[1-9][0-9]*$/ { print $2, $3, $4, $5 }'
+printf '%s\n' "$result" | awk -F '\t' 'BEGIN { OFS = "\t" } $1 == "FINDING" && $2 != "" && $3 ~ /^[1-9][0-9]*$/ { print $2, $3, $4, $5 }'

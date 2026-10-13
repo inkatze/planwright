@@ -110,7 +110,7 @@ function refuse(rule) {
   printf "%s: %s: %s\n", prog, where, rule > "/dev/stderr"
   bad++
 }
-function hygiene(field, text,    t, i, n, nm, pre, post, s) {
+function hygiene(field, text,    t, i, n, nm, pre, post, s, off, at) {
   if (text ~ /(^|[^A-Za-z0-9_.-])@[A-Za-z0-9][A-Za-z0-9-]*/ || text ~ /\[bot\]/)
     refuse(field " carries a reviewer login or bot marker")
   if (text ~ /[A-Za-z][A-Za-z0-9+.-]*:\/\//)
@@ -121,14 +121,17 @@ function hygiene(field, text,    t, i, n, nm, pre, post, s) {
   for (i = 1; i <= nnames; i++) {
     nm = name[i]
     s = t
+    off = 0
     while ((n = index(s, nm)) > 0) {
-      pre = (n == 1) ? "" : substr(s, n - 1, 1)
-      post = substr(s, n + length(nm), 1)
+      at = off + n
+      pre = (at == 1) ? "" : substr(t, at - 1, 1)
+      post = substr(t, at + length(nm), 1)
       if (pre !~ /[a-z0-9]/ && post !~ /[a-z0-9]/) {
         refuse(field " names a listed product")
         return
       }
-      s = substr(s, n + length(nm))
+      off = at
+      s = substr(t, off + 1)
     }
   }
 }

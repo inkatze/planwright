@@ -104,6 +104,8 @@ history() {
    {"path":"h2.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"BADCATEGORY thing","replies":[{"author":"owner","body":"Fixed in 6666667"}]},
    {"path":"h3.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"BADREASON thing","replies":[{"author":"owner","body":"Fixed in 6666668"}]},
    {"path":"bs.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"BACKSLASH thing","replies":[{"author":"owner","body":"Fixed in 6666669"}]},
+   {"path":"ok.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"OBJECTKEY thing","replies":[{"author":"owner","body":"Fixed in 6666671"}]},
+   {"path":"arr.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":["not","a","string"],"replies":[{"author":"owner","body":["Fixed in 6666672"]}]},
    {"path":"bidi\u202esh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"a hidden path","replies":[{"author":"owner","body":"Fixed in 6666670"}]},
    {"path":"i.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"LOGINGIST thing","replies":[{"author":"owner","body":"Fixed in 7777777"}]},
    {"path":"k.sh","line":2,"commit":"$A","author":"a-human","bot":false,"body":"BADDISMISS thing","replies":[{"author":"owner","body":"Fixed in 8888888"}]}
@@ -129,6 +131,7 @@ batch=$(cat)
 printf '%s\n' "$batch" >>"$ANNOTATE_LOG.all"
 printf '%s\n' "$batch" | jq -c '
   if (.finding | test("BADANSWER")) then {key, category: "correctness", gist: 5}
+  elif (.finding | test("OBJECTKEY")) then {key: {"x": 1}, category: "correctness", gist: "a key that is an object"}
   elif (.finding | test("BADCATEGORY")) then {key, category: "o", gist: "a category that is only a substring"}
   elif (.finding | test("BADREASON")) then {key, category: "correctness", gist: "a reason that is only a substring", reason: "tracing", declined: false}
   elif (.finding | test("BACKSLASH")) then {key, category: "correctness", gist: "the format string printf %s\\n lost its newline", declined: false}
@@ -223,7 +226,8 @@ assert_contains "a word ending in n-t (unit) is no negation" "	a.sh	14	" "$(cat 
 assert_lacks "\"cannot\" is a negation" "	a.sh	15	" "$(cat "$c1")"
 assert_contains "\"not a false positive\" does not veto a fix" "	a.sh	9	" "$(cat "$c1")"
 assert_contains "warns about a PR whose threads overflowed the fetch page" "warning: 1 PR(s) had more reviews, threads, or comments" "$out"
-assert_contains "a non-string gist and a substring category are each dropped, not fatal" "dropped unannotated: 2" "$out"
+assert_lacks "a non-string comment body never becomes a row" "arr.sh" "$(cat "$c1")"
+assert_contains "a non-string gist and a substring category are each dropped, not fatal" "dropped unannotated: 3" "$out"
 assert_contains "a gist naming a login from the history is dropped" "dropped naming a login: 1" "$out"
 assert_lacks "the login-naming gist never reaches the corpus" "i.sh" "$(cat "$c1")"
 r=$(row 3 k.sh)
@@ -303,6 +307,9 @@ if [ -e "$T/annotate.started" ] && [ ! -e "$T/annotate.finished" ]; then ok "a T
 if [ ! -e "$T/croot2/v1" ]; then ok "an interrupted refresh writes no version"; else fail "an interrupted refresh left a version"; fi
 "$REFRESH" --fetch-only --dump-history "$T/x.json" --history "$hist" >/dev/null 2>&1
 assert_exit "--fetch-only refuses --history" 2 $?
+
+"$REFRESH" --history "$hist" --remote "--upload-pack=x" --corpus-root "$T/croot3" --ledger-dir "$ledger" --annotate-cmd "$T/annotate.sh" --names "$names" >/dev/null 2>&1
+assert_exit "a remote beginning with a dash is refused" 2 $?
 
 # --- --fetch-only normalizes the fetched history, needing no list or annotator ---
 mkdir -p "$T/bin"

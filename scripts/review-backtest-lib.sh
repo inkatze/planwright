@@ -50,7 +50,7 @@ def rbt_fix_reply: gsub("\\s+"; " ") | (test("\\b" + rbt_fix_verbs + " in `?[0-9
        or test("\\b(fixed|addressed|applied)\\b"; "i") or test("\\bin `?[0-9a-f]{7,40}`?\\b"))
       and (test("\\b(declin|won.t fix|deferr)|(?<!not a )false positive"; "i") | not) and (test(rbt_negation + rbt_fix_verbs + "\\b"; "i") | not));
 def rbt_fixed_external($author): (.author // "") != $author
-  and any(.replies[]?; (.author // "") == $author and ((.body // "") | rbt_fix_reply));
+  and any(.replies[]?; (.author // "") == $author and (.body | type == "string") and (.body | rbt_fix_reply));
 def rbt_bot_reviewed: any(.reviews[]?; .bot == true) or any(.threads[]?; .bot == true);
 '
 

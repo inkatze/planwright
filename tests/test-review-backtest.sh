@@ -350,6 +350,8 @@ if grep -q '^row	r0001	runtime-tracing	caught$' "$T/v5.tsv"; then ok "the other 
 # --- usage refusals ---
 run --reviewer-stub "$stub" --model opus >/dev/null 2>&1
 assert_exit "a model alias is refused" 2 $?
+"$HARNESS" --corpus "$corpus_dir" --remote "--upload-pack=x" --reviewer "$rev" --model m-1 --seed 7 >/dev/null 2>&1
+assert_exit "a remote beginning with a dash is refused" 2 $?
 "$HARNESS" --corpus "$corpus_dir" --remote "$remote" --reviewer-stub "$stub" >/dev/null 2>&1
 assert_exit "a replay without --model is refused" 2 $?
 "$HARNESS" --corpus "$T/corpus" --remote "$remote" --reviewer-stub "$stub" --model m-1 >/dev/null 2>&1

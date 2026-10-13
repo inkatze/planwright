@@ -50,11 +50,12 @@ mkdir -p "$T/row/copy"
 : >"$T/row/change.diff"
 export BACKTEST_BASE=0123456789abcdef0123456789abcdef01234567 BACKTEST_DIFF="$T/row/change.diff" \
   BACKTEST_PLANWRIGHT_ROOT="$REPO_ROOT" BACKTEST_MODEL=stub-model BACKTEST_USAGE_FILE="$T/usage"
-export STUB_REPLY='{"is_error":false,"result":"walked the lenses\nFINDING\ta.sh\t12\tcorrectness\tthe loop spins\nFINDING\tb.sh\tx\tdocs\tno line\nnot a finding","usage":{"input_tokens":10,"cache_creation_input_tokens":20,"cache_read_input_tokens":30,"output_tokens":40}}'
+export STUB_REPLY='{"is_error":false,"result":"walked the lenses\nFINDING\ta.sh\t12\tcorrectness\tthe loop spins\nFINDING\tb.sh\tx\tdocs\tno line\nFINDING\t\t99\tdocs\tno path\nnot a finding","usage":{"input_tokens":10,"cache_creation_input_tokens":20,"cache_read_input_tokens":30,"output_tokens":40}}'
 out=$(cd "$T/row/copy" && "$REVIEWER" 2>&1)
 assert_exit "the reviewer succeeds on a normal result" 0 $?
 assert_contains "prints a well-formed finding" "a.sh	12	correctness	the loop spins" "$out"
 assert_lacks "drops a finding without a line number" "b.sh" "$out"
+assert_lacks "drops a finding with an empty path" "	99	" "$out"
 assert_lacks "drops the session's prose" "walked the lenses" "$out"
 if [ "$(cat "$T/usage")" = 100 ]; then ok "writes the session's token total"; else fail "token total wrong"; fi
 argv=$(cat "$T/argv")

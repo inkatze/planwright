@@ -105,6 +105,9 @@ assert_lacks "a supplied list is not reported skipped" "skipped" "$out"
 f=$(corpus inword "r0003	12	$SHA	scripts/a.sh	4	correctness	other	yes	fallback	the acmereviewer field is unset	-")
 "$SCREEN" --names "$names" "$f" >/dev/null 2>&1
 assert_exit "a name inside a longer word is not a match" 0 $?
+f=$(corpus repeated "r0003	12	$SHA	scripts/a.sh	4	correctness	other	yes	fallback	the acmereviewacmereview field is unset	-")
+"$SCREEN" --names "$names" "$f" >/dev/null 2>&1
+assert_exit "a name repeated inside one word is not a match" 0 $?
 
 # --- refusals of the screen itself ---
 "$SCREEN" --names "$T/absent.txt" "$f" >/dev/null 2>&1

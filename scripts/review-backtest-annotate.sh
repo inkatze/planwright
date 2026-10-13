@@ -113,4 +113,4 @@ if [ -z "$result" ]; then
   printf '%s\n' "$prog: the model call returned no result" >&2
   exit 1
 fi
-printf '%s\n' "$result" | jq -c -R 'fromjson? | select(type == "object" and has("key"))'
+printf '%s\n' "$result" | jq -c -R 'fromjson? | select(type == "object" and (.key | type) == "string")'
