@@ -107,6 +107,7 @@ export LC_ALL
 # nested-`fish -c` bomb can never spin.
 readonly MAX_CMD_LEN=8192
 readonly MAX_SCANNED=$((MAX_CMD_LEN * 4))
+readonly DOLLAR_COST=8
 readonly MAX_DEPTH=3
 # A `for` loop is verified once per head word (loop_header), so its cost
 # multiplies the body's: past MAX_LOOP_WORDS head words the whole loop
@@ -3006,9 +3007,16 @@ guard_printf() {
 # known part says nothing about the rest. Every `$` spelling is read, a
 # literal one too, which can only narrow a verdict.
 word_tainted() {
-  local w=${cw[$1]} name v found weak=0 known=0
+  local w=${cw[$1]} name v found weak=0 known=0 dollars
   TAINT_WEAK=0
   [ -z "${csub[$1]-}" ] || known=1
+  # Each `$` below copies the rest of the word, so a word holding more than
+  # a handful is taken as inferred rather than read name by name.
+  dollars=${w//[!\$]/}
+  if [ "${#dollars}" -gt 64 ]; then
+    TAINT_WEAK=1
+    return 0
+  fi
   while :; do
     case $w in
       *'$'*) w=${w#*'$'} ;;
@@ -3020,7 +3028,7 @@ word_tainted() {
     [ -n "$name" ] || continue
     if [ "$IN_SUBST" = 1 ]; then
       weak=1
-      continue
+      break
     fi
     found=0
     for ((v = VAR_C - 1; v >= 0; v--)); do
@@ -3656,11 +3664,14 @@ declared_line_ok() {
 # / count `cwn` and the redirect arrays `ro` (ops) / `rt` (targets) / `rn`
 # from the caller via dynamic scope. Returns 0 (safe) or non-zero (DEFER).
 verify_simple() {
-  local i swn=$cwn
+  local i swn=$cwn dollars
   SIMPLE_N=$((SIMPLE_N + 1))
   [ "$SIMPLE_N" -le "$MAX_SIMPLE_CMDS" ] || return 1
+  # Each `$` costs a pass over the rest of its word (expand_word,
+  # word_tainted), so it is charged DOLLAR_COST on top of the word's length.
   for ((i = 0; i < cwn; i++)); do
-    SCANNED=$((SCANNED + ${#cw[i]}))
+    dollars=${cw[i]//[!\$]/}
+    SCANNED=$((SCANNED + ${#cw[i]} + ${#dollars} * DOLLAR_COST))
   done
   [ "$SCANNED" -le "$MAX_SCANNED" ] || return 1
   local -a sw=() swq=()

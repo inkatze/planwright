@@ -2480,6 +2480,23 @@ for shape in subst nested plain; do
   fi
 done
 assert_allow "one long command substitution still allows within the scan budget" "echo \$(echo $long_words)"
+# Each `$` costs a pass over the rest of its word, so a word dense with them
+# is charged for that and defers before the per-`$` work runs.
+dense_word="$(for i in $(seq 4050); do printf '$a'; done)"
+for shape in plain subst; do
+  case $shape in
+    plain) c="echo \"$dense_word\"" ;;
+    subst) c="echo \$(git log -1) \"$dense_word\"" ;;
+  esac
+  SECONDS=0
+  run_hook "$c"
+  elapsed=$SECONDS
+  if [ "$CODE" -eq 0 ] && is_empty && [ "$elapsed" -le 8 ]; then
+    pass "a $shape word dense with \$ defers quickly (scan budget)"
+  else
+    fail "$shape word dense with \$ — code=$CODE empty=$(is_empty && echo y || echo n) secs=$elapsed"
+  fi
+done
 # The same bound with the fixture catalog present: the declared steps are
 # consulted only for a segment not already known-safe, and an over-cap
 # command never reaches a segment.
