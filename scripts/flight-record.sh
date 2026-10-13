@@ -31,11 +31,12 @@
 # footnote definition; markup_hazard below is the full rule).
 #
 # Usage:
-#   flight-record.sh render --home pr <inputs>
+#   flight-record.sh render --home pr <inputs> [--post-pr]
 #   flight-record.sh render --home file <inputs> --record-path <path>
-#       Print the record. A `pr` record larger than GitHub's PR-body limit is
-#       refused (exit 3) and nothing is printed: a truncated record would drop
-#       the contract's tail. The `file` home requires --record-path, the
+#       Print the record. --post-pr marks the pr home's re-emit after the
+#       post-pr point and requires its step table. A `pr` record larger than
+#       GitHub's PR-body limit is refused (exit 3) and nothing is printed: a
+#       truncated record would drop the contract's tail. The `file` home requires --record-path, the
 #       repo-relative path the record names as its home; `pr` refuses it.
 #   flight-record.sh land <inputs> --record-path <path> [--repo-root <dir>]
 #       The no-remote arm, run in the flight's worktree (or at its top level
@@ -151,7 +152,7 @@ die() {
 
 usage() {
   cat >&2 <<'EOF'
-usage: flight-record.sh render --home pr <inputs>
+usage: flight-record.sh render --home pr <inputs> [--post-pr]
        flight-record.sh render --home file <inputs> --record-path <path>
        flight-record.sh land <inputs> --record-path <path> [--repo-root <dir>]
 inputs: --flight-id <id> --ask-file <f> --grounds-file <f> --summary-file <f>
@@ -768,7 +769,13 @@ revert_file=''
 repo_root=''
 record_path=''
 record_given=0
+post_pr=0
 while [ $# -gt 0 ]; do
+  if [ "$1" = --post-pr ]; then
+    post_pr=1
+    shift
+    continue
+  fi
   [ $# -ge 2 ] || usage
   case $1 in
     --flight-id) flight_id=$2 ;;
@@ -808,6 +815,9 @@ if [ "$home" = file ]; then
   [ -n "$record_path" ] || die 2 "--record-path is required for the file home: the caller chooses where the record lands"
 else
   [ "$record_given" -eq 0 ] || die 2 "--record-path names the file home's record; a pr record lives in the PR body"
+fi
+if [ "$post_pr" -eq 1 ] && { [ "$cmd" != render ] || [ "$home" != pr ]; }; then
+  die 2 "--post-pr marks the pr home's re-emit after the post-pr point; the file home never fires it"
 fi
 for _req in flight-id:"$flight_id" ask-file:"$ask_file" grounds-file:"$grounds_file" \
   summary-file:"$summary_file" verification-file:"$verification_file" \
@@ -881,6 +891,9 @@ for _el in $AUDIT_ELEMENTS; do
 done
 IFS=$_old_ifs
 [ -z "$_missing" ] || die 2 "--audit-file is missing the contract's $_missing (each under its own heading)"
+if [ "$post_pr" -eq 1 ] && ! grep -Eiq "^#{1,6}[[:space:]]+$POST_PR_HEADING" "$work/audit"; then
+  die 2 "--audit-file is missing the post-pr step table the re-emit after post-pr must carry (its own heading)"
+fi
 if [ "$home" = file ] && grep -Eiq "^#{1,6}[[:space:]]+$POST_PR_HEADING" "$work/audit"; then
   die 2 "--audit-file carries a post-pr step table, but post-pr never fires on the file home (no PR exists); remove it, the record states it was not fired"
 fi

@@ -908,7 +908,7 @@ checklist, its \`## Pending sign-off\` heading demoted to \`####\`. Re-emit the
 record only through the renderer, with the same inputs,
 never by editing the PR body by hand, and never by re-running the
 push-and-create line:
-\`$_recorder render --home pr $_inputs > $_body_new && gh pr edit <number> --repo $HOME_DEST --body-file $_body_new\`
+\`$_recorder render --home pr $_inputs --post-pr > $_body_new && gh pr edit <number> --repo $HOME_DEST --body-file $_body_new\`
 A refusal of your own inputs is fixed and the re-emit re-run (*The audit record*);
 any other non-zero exit from the render, or from the edit, parks the flight.
 Verify the PR is still a draft:

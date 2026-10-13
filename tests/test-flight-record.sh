@@ -780,6 +780,15 @@ printf '%s\n' "$OUT" | grep -q '^| 1 | step-post-pr |' || fail "pr: the fired po
 run_render file --audit-file "$in/audit-post-pr.md"
 [ "$RC" -eq 2 ] || fail "file: an audit carrying a post-pr table must be refused with 2 (got $RC)"
 printf '%s\n' "$ERR" | grep -q 'post-pr' || fail "file: the post-pr refusal must name the point: $ERR"
+# The re-emit after post-pr renders with --post-pr, which requires that
+# table, so a re-emit that forgot it is refused rather than published.
+run_render pr --post-pr --audit-file "$in/audit-post-pr.md"
+[ "$RC" -eq 0 ] || fail "pr: a post-pr re-emit carrying the table must render (got $RC: $ERR)"
+run_render pr --post-pr
+[ "$RC" -eq 2 ] || fail "pr: a post-pr re-emit without the post-pr table must be refused with 2 (got $RC)"
+printf '%s\n' "$ERR" | grep -q 'post-pr' || fail "pr: the missing post-pr table must be named: $ERR"
+run_render file --post-pr
+[ "$RC" -eq 2 ] || fail "file: --post-pr is a pr-home option and must be refused (got $RC)"
 
 for tag in '</details>' '<details>' '  <summary>x</summary>' '<!-- planwright:flight-record-end -->'; do
   {

@@ -166,8 +166,8 @@ flat "$post" | grep -q 'less the unit-PR ready flip' \
 record_dir="$(dirname "$(field "$OUT" brief)")/record"
 printf '%s\n' "$post" | grep -qF "flight-record.sh' render --home pr --flight-id $fid " \
   || fail "the re-emit must go only through flight-record.sh render"
-printf '%s\n' "$post" | grep -qF -- "> '$record_dir/body.new.md' && gh pr edit <number> --repo github.com/acme/widgets --body-file '$record_dir/body.new.md'" \
-  || fail "the re-emit must render to its own file and only then replace the PR body"
+printf '%s\n' "$post" | grep -qF -- " --post-pr > '$record_dir/body.new.md' && gh pr edit <number> --repo github.com/acme/widgets --body-file '$record_dir/body.new.md'" \
+  || fail "the re-emit must render with --post-pr to its own file and only then replace the PR body"
 printf '%s\n' "$post" | grep -F 'gh pr edit' | grep -q 'git push\|gh pr create\|pr-url' \
   && fail "the re-emit line must not push, create a PR, or touch pr-url again"
 flat "$post" | grep -q 'with the same inputs, never by editing the PR body by hand' \
