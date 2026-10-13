@@ -931,6 +931,13 @@ first_half() {
   assert_defer "an opaque printf format" "printf \"\$F\" x"
   assert_defer "an opaque printf format after --" "printf -- \"\$F\" x"
   assert_allow "printf -- ends the options" "printf -- '%s\\n' a \"\$X\""
+  # zsh evaluates an operand a numeric conversion or a `*` consumes as
+  # arithmetic, which can assign a variable.
+  assert_defer "bypass: an opaque operand of a numeric printf conversion" "printf %d \"\$HOME\"" Bash "$SANDBOX"
+  assert_defer "bypass: an opaque operand of a * printf width" "printf '%*s' \"\$HOME\" x" Bash "$SANDBOX"
+  assert_defer "bypass: an opaque operand of a printf time conversion" "printf '%(%Y)T' \"\$HOME\"" Bash "$SANDBOX"
+  assert_allow "a numeric printf conversion of literal operands still allows" "printf '%5.2f\\n' 3" Bash "$SANDBOX"
+  assert_allow "text conversions of an opaque operand still allow" "printf '%-10s|%c %%\\n' \"\$HOME\" x" Bash "$SANDBOX"
   assert_allow "test without -v still allows" "[ -f file ] && test -n x"
   # A double-quoted opaque operand is one word in a position bash cannot read
   # as an operator; anywhere else it could become `-v`.
@@ -2337,6 +2344,9 @@ assert_defer "REQ-E1.3: an untracked name reaching a script beside a substitutio
 assert_defer "REQ-E1.3: a name assigned from \$_ reaching a script" \
   "echo \$(git log -1); y=\$_; scripts/ok.sh \$y" Bash "$SUBST_CWD"
 assert_allow "REQ-E1.3: an untracked name echoed beside a substitution" "echo \"\$HOME\" \"\$(git log -1)\"" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: substitution output in a numeric printf conversion" "printf %d \"\$(cat f)\"" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: substitution output in a * printf width" "printf -- '%*s' \"\$(cat f)\" x" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: a tainted variable in a numeric printf conversion" "x=\$(cat f); printf %u \"\$x\"" Bash "$SUBST_CWD"
 # A word joining known output to an inferred name is only as trusted as the
 # inferred part.
 assert_defer "REQ-E1.3: a substitution joined to an untracked name reaching a script" \

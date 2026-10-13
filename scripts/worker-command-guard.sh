@@ -2940,14 +2940,47 @@ guard_test() {
   return 0
 }
 
+# printf_format_inert <format>: 0 when every conversion in the literal
+# format reads its operand as text (`%s`, `%b`, `%q`, `%c`, or `%%`) and none
+# takes a `*` width or precision. zsh evaluates an operand a numeric
+# conversion or a `*` consumes as arithmetic, which can assign a variable.
+printf_format_inert() {
+  local f=$1
+  case $f in
+    *'*'*) return 1 ;;
+  esac
+  while :; do
+    case $f in
+      *%*) f=${f#*%} ;;
+      *) return 0 ;;
+    esac
+    while :; do
+      case ${f:0:1} in
+        - | + | ' ' | '#' | "'" | . | [0-9]) f=${f#?} ;;
+        *) break ;;
+      esac
+    done
+    case ${f:0:1} in
+      s | b | q | c | %) f=${f#?} ;;
+      *) return 1 ;;
+    esac
+  done
+}
+
 # guard_printf: `printf -v NAME` assigns a variable (PATH included) and
 # evaluates a subscript in NAME the way `test -v` does; bash also takes the
-# bundled `-vNAME`. A first word that is any option other than `--` defers.
+# bundled `-vNAME`. A first word that is any option other than `--` defers,
+# and so does an unresolved operand a non-text conversion would consume.
 guard_printf() {
-  [ "${cw[1]-}" = -- ] && return 0
+  local fmt=1 i
   case ${cw[1]-} in
+    --) fmt=2 ;;
     -*) return 1 ;;
   esac
+  printf_format_inert "${cw[fmt]-}" && return 0
+  for ((i = fmt + 1; i < cwn; i++)); do
+    word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" && return 1
+  done
   return 0
 }
 

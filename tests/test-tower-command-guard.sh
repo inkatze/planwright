@@ -969,6 +969,9 @@ assert_defer "defer form: a zsh subscript on a loop variable echoed" "for f in a
 assert_defer "defer form: a zsh subscript that assigns, on \$*" "echo \"\$*[v=7]\""
 assert_defer "defer form: a zsh subscript on \$@" "echo \$@[v=7]"
 assert_allow "parity: a special parameter with no subscript still allows" "echo \"\$?:\$!\" \$*"
+assert_defer "defer form: an opaque operand of a numeric printf conversion" "printf %d \"\$HOME\""
+assert_defer "defer form: an opaque operand of a * printf width" "printf '%*s' \"\$HOME\" x"
+assert_allow "parity: text conversions of an opaque operand still allow" "printf '%-10s|%c %%\\n' \"\$HOME\" x"
 assert_defer "defer form: a zsh modifier on an unbraced loop variable" "for f in a.b; do find . -name \$f:e; done"
 assert_defer "defer form: a zsh modifier on a quoted loop variable" "for f in A; do find . -name \"\$f:l\"; done"
 assert_defer "defer form: a zsh substitution modifier on a loop variable" "for f in a; do find . -name \$f:s/a/b/; done"
@@ -1088,7 +1091,7 @@ SHARED_FNS="awk_program_safe awk_assignment_ok guard_awk sed_script_safe \
 sed_bracket_end sed_delim_ok sed_scan_literal sed_scan_regex guard_sed \
 short_flag_hit guard_sort guard_uniq guard_find guard_file guard_date \
 classify_redirect is_reserved repo_root_of emit_allow dollar_expands \
-word_unresolved arg_independent_verb guard_test guard_printf loop_header \
+word_unresolved arg_independent_verb guard_test guard_printf printf_format_inert loop_header \
 assign_name_ok plugin_root_unlinked dollar_form_ok loop_enter \
 loop_next opaque_words_ok test_opaque_ok jq_program_safe jq_home_safe guard_jq zsh_opt_word_ok \
 opens_operands opener_word_risky environ_word_risky environ_words_ok environ_redirect_ok \
