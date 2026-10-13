@@ -277,9 +277,13 @@ else
 fi
 
 # The page leaves the machine, so it gets the same screen a commit does. The
-# screen names the rule it matched and never the matched text.
+# screen names the rule it matched and never the matched text. The bundle files
+# it was rendered from are screened alongside it: escaping turns a quoted
+# assignment's quotes into entities no credential pattern matches.
 src=0
-/bin/sh "$script_dir/inception-secret-screen.sh" -- "$export_path" || src=$?
+/bin/sh "$script_dir/inception-secret-screen.sh" -- "$export_path" \
+  "$target/brief.md" "$target/disciplines.md" "$target/assumptions.md" \
+  "$target/decisions.md" "$target/plan.md" || src=$?
 if [ "$src" -eq 1 ]; then
   printf '%s\n' "inception-publish: the $mode export looks like it carries a credential; it is not offered for publishing." >&2
   echo "inception-publish: fix the bundle text it came from, then offer again." >&2

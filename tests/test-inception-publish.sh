@@ -377,6 +377,18 @@ PATH="$netstub:$PATH" "$PUBLISH" record --confirmed --artifact a-1 "$v" >/dev/nu
 PATH="$netstub:$PATH" "$PUBLISH" auto on "$v" >/dev/null 2>&1
 assert_eq "no network: no client was invoked" "" "$(cat "$tmp/net-calls" 2>/dev/null)"
 
+# ---------------------------------------------------------------------------
+# 10. A quoted credential is caught in the bundle, where escaping cannot hide it.
+# ---------------------------------------------------------------------------
+v="$(fresh)"
+sed 's|^- \*\*Risk-if-wrong:\*\* the fan-out saves no time|- **Risk-if-wrong:** api_key="AbCdEfGhIjKlMnOpQrStUvWx12" the fan-out saves no time|' \
+  "$v/assumptions.md" >"$v/assumptions.new" && mv "$v/assumptions.new" "$v/assumptions.md"
+out="$("$PUBLISH" offer "$v" 2>"$tmp/err")"
+rc=$?
+assert_eq "quoted credential: not offered" "1" "$rc"
+assert_not_contains "quoted credential: no decision" "decision" "$out"
+assert_not_contains "quoted credential: never echoed" "AbCdEfGhIjKlMnOpQrStUvWx12" "$(cat "$tmp/err")"
+
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-publish: $failures assertion(s) failed" >&2
   exit 1

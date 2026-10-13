@@ -287,24 +287,28 @@ if /bin/sh "$pw/scripts/inception-render.sh" "$top" >/dev/null; then
   # writes the dashboard alone, and screening a page that does not exist would
   # refuse every commit for an environment reason. Under such a copy, a pitch
   # left on disk by an earlier render is restaged unchanged, so it can lag.
+  # The working-tree bundle files are screened with the pages, in one call:
+  # escaping turns a quoted assignment's quotes into entities no credential
+  # pattern matches, so the pages alone can hide what their source shows.
+  set -- "$top/brief.md" "$top/disciplines.md" "$top/assumptions.md" \
+    "$top/decisions.md" "$top/plan.md"
   for page in venture pitch; do
-    export_path="$top/exports/$page.html"
-    [ -f "$export_path" ] || continue
-    src=0
-    /bin/sh "$pw/scripts/inception-secret-screen.sh" -- "$export_path" || src=$?
-    # 1 and 2 both block, but they are different facts and get different words:
-    # saying "carries a credential" when the screen could not run sends the
-    # operator hunting through their bundle for something that is not there.
-    if [ "$src" -eq 1 ]; then
-      echo "venture pre-commit: the regenerated exports/$page.html looks like it carries a credential; commit refused." >&2
-      echo "venture pre-commit: it came from the bundle in your working tree — fix it there, then commit." >&2
-      exit 1
-    elif [ "$src" -ne 0 ]; then
-      echo "venture pre-commit: the secret screen could not check the regenerated exports/$page.html (exit $src); commit refused." >&2
-      echo "venture pre-commit: this is an environment problem, not a finding — see the output above." >&2
-      exit 1
-    fi
+    [ -f "$top/exports/$page.html" ] && set -- "$@" "$top/exports/$page.html"
   done
+  src=0
+  /bin/sh "$pw/scripts/inception-secret-screen.sh" -- "$@" || src=$?
+  # 1 and 2 both block, but they are different facts and get different words:
+  # saying "carries a credential" when the screen could not run sends the
+  # operator hunting through their bundle for something that is not there.
+  if [ "$src" -eq 1 ]; then
+    echo "venture pre-commit: the bundle in your working tree, or a page regenerated from it, looks like it carries a credential; commit refused." >&2
+    echo "venture pre-commit: fix it in the bundle file the screen names above, then commit." >&2
+    exit 1
+  elif [ "$src" -ne 0 ]; then
+    echo "venture pre-commit: the secret screen could not check the bundle and its regenerated pages (exit $src); commit refused." >&2
+    echo "venture pre-commit: this is an environment problem, not a finding — see the output above." >&2
+    exit 1
+  fi
   # Staging failure warns, like a failed render: step 3 never dead-ends a commit.
   # It must not be SILENT, though. The contract this step exists to keep is that
   # the exports ride the same commit, and a swallowed `git add` (an ignored
