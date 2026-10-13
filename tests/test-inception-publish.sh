@@ -535,13 +535,20 @@ assert_not_contains "render-to-screen race: no decision" "decision" "$out"
 
 # A bundle path that is not a regular file (a FIFO here) is refused before the
 # copy, which would otherwise block waiting for a writer.
-v="$(fresh)"
-rm -f "$v/assumptions.md"
-mkfifo "$v/assumptions.md"
-out="$(timeout 10 "$PUBLISH" offer "$v" 2>&1)"
-rc=$?
-assert_eq "fifo bundle file: refused, not hung" "2" "$rc"
-rm -f "$v/assumptions.md"
+# Bounded by timeout (GNU) or gtimeout (Homebrew); stock macOS has neither,
+# and the case is skipped there rather than left to hang.
+timeout_bin=$(command -v timeout || command -v gtimeout || true)
+if [ -z "$timeout_bin" ]; then
+  echo "ok: fifo bundle file: skipped (neither timeout nor gtimeout on this host)"
+else
+  v="$(fresh)"
+  rm -f "$v/assumptions.md"
+  mkfifo "$v/assumptions.md"
+  out="$("$timeout_bin" 10 "$PUBLISH" offer "$v" 2>&1)"
+  rc=$?
+  assert_eq "fifo bundle file: refused, not hung" "2" "$rc"
+  rm -f "$v/assumptions.md"
+fi
 
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-publish: $failures assertion(s) failed" >&2
