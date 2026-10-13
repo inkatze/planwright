@@ -180,8 +180,9 @@ in the format `inception-format` defines.
 validator over the bundle (`scripts/inception-validate.sh <venture-dir>`;
 findings in later phases' sections are expected until the end), record the
 phase with `inception-venture.sh mark-phase <venture-dir> <phase>`, save with
-a plain one-line message, and give the running summary: decisions taken this
-phase with one-line rationale, what remains open, and any open captures. A
+a plain one-line message (with `--push` on the remote home), and give the
+running summary: decisions taken this phase with one-line rationale, what
+remains open, and any open captures. A
 changed earlier answer reopens the phases that depended on it, never leaving
 a stale answer standing.
 
