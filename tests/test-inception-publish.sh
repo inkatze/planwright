@@ -409,13 +409,13 @@ assert_eq "no network: no client was invoked" "" "$(cat "$tmp/net-calls" 2>/dev/
 # 10. A quoted credential is caught in the bundle, where escaping cannot hide it.
 # ---------------------------------------------------------------------------
 v="$(fresh)"
-sed 's|^- \*\*Risk-if-wrong:\*\* the fan-out saves no time|- **Risk-if-wrong:** api_key="AbCdEfGhIjKlMnOpQrStUvWx12" the fan-out saves no time|' \
+sed 's|^- \*\*Risk-if-wrong:\*\* the fan-out saves no time|- **Risk-if-wrong:** api_key="AbCdEfGh''IjKlMnOpQrStUvWx12" the fan-out saves no time|' \
   "$v/assumptions.md" >"$v/assumptions.new" && mv "$v/assumptions.new" "$v/assumptions.md"
 out="$("$PUBLISH" offer "$v" 2>"$tmp/err")"
 rc=$?
 assert_eq "quoted credential: not offered" "1" "$rc"
 assert_not_contains "quoted credential: no decision" "decision" "$out"
-assert_not_contains "quoted credential: never echoed" "AbCdEfGhIjKlMnOpQrStUvWx12" "$(cat "$tmp/err")"
+assert_not_contains "quoted credential: never echoed" "AbCdEfGh""IjKlMnOpQrStUvWx12" "$(cat "$tmp/err")"
 
 # ---------------------------------------------------------------------------
 # 11. The page offered is the page screened: a later render of the work tree

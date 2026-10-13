@@ -288,13 +288,13 @@ assert_not_contains "hook: no commit carried the secret into the pitch" "IOSFODN
 # HTML escaping turns a quoted assignment's quotes into entities, which no
 # credential pattern matches, so the regenerated pages alone are not enough to
 # screen: the bundle files they were rendered from are screened too.
-sed 's|^- \*\*Risk-if-wrong:\*\* the fan-out saves no time|- **Risk-if-wrong:** api_key="AbCdEfGhIjKlMnOpQrStUvWx12" the fan-out saves no time|' \
+sed 's|^- \*\*Risk-if-wrong:\*\* the fan-out saves no time|- **Risk-if-wrong:** api_key="AbCdEfGh''IjKlMnOpQrStUvWx12" the fan-out saves no time|' \
   "$venture/assumptions.md" >"$venture/assumptions.new" && mv "$venture/assumptions.new" "$venture/assumptions.md"
 printf '\nA third planning note.\n' >>"$venture/plan.md"
 out="$(cd "$venture" && git add plan.md && git commit -qm "a third plan note" 2>&1)"
 rc=$?
 assert_eq "hook: an unstaged quoted credential blocks the commit" "1" "$rc"
-assert_not_contains "hook: the quoted credential is not echoed" "AbCdEfGhIjKlMnOpQrStUvWx12" "$out"
+assert_not_contains "hook: the quoted credential is not echoed" "AbCdEfGh""IjKlMnOpQrStUvWx12" "$out"
 committed="$(cd "$venture" && git show HEAD:exports/venture.html 2>/dev/null)"
 assert_not_contains "hook: no commit carried the quoted credential" "AbCdEfGh" "$committed"
 (
