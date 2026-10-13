@@ -1,7 +1,7 @@
 # Merge Currency Guard — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-03
+**Last reviewed:** 2026-10-12
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -26,16 +26,20 @@ the top of each convergence iteration, so the final CI + review verification
 runs on a head that was `main`-current as of that iteration's fetch and merge
 drift stays tiny — and it enforces the invariant's currency and mergeability
 clauses at the flip point with a deterministic, deny-emitting `ready-guard`
-PreToolUse hook that refuses a ready-flip unless the PR is provably current
-with its base branch and mergeable. Within a Claude Code session the guard is
+PreToolUse hook that refuses a ready-flip unless the PR is provably mergeable
+and, under the shipped default, provably current with its base branch (an
+adopter may opt out of the currency clause alone, D-10). Within a Claude Code
+session the guard is
 unbypassable by construction (the out-of-session and indirect-form residuals
 stay as D-7 and REQ-C1.10 state them), matching planwright's existing guard
 philosophy (the sibling
 `worker-command-guard.sh` / `tower-command-guard.sh` guard family, which this
 guard joins by inverting their allow-only modality — D-2, REQ-C1.2). The
 hard invariant both mechanisms carry is stated normatively once, as
-**REQ-A1.1** — its single home — and cited from the records that carry it
-(REQ-B, REQ-C, D-1 through D-4, D-9). The
+**REQ-A1.5** — its single home since it superseded REQ-A1.1 — and cited from
+the records that carry it (REQ-B, REQ-C, D-1 through D-4, D-9, D-10, D-11;
+those written before the supersede cite REQ-A1.1 and reach REQ-A1.5 through
+its pointer). The
 deliverable's altitude split — one carried hard-invariant statement on top of
 two mechanisms — is recorded in D-1 (cites the pinned seed claim in Sources).
 
@@ -47,16 +51,19 @@ ready PR means what the fleet and the human both assume it means.
 
 ### In scope
 
-- A hard invariant, stated once and cited. **REQ-A1.1 is its single normative
-  home**; this bullet only summarizes it: a PR is flipped from draft to ready
-  only when it has been CI-and-review-verified on a head that is current with
-  its base branch (in the fleet's normal case, `origin/main`) and is mergeable,
-  with the currency and mergeability clauses enforced by a deterministic guard
-  rather than by skill prose or reviewer vigilance (the CI-and-review clause
-  stays party-attested — REQ-A1.2). The records that carry the invariant — the guard
-  deliverable (REQ-C), the loop-sync deliverable (REQ-B), and the design
-  decisions behind them (D-1 through D-4) — cite REQ-A1.1 rather than restating
-  it normatively.
+- A hard invariant, stated once and cited. **REQ-A1.5 is its single normative
+  home** (it superseded REQ-A1.1); this bullet only summarizes it: a PR is
+  flipped from draft to ready only when it has been CI-and-review-verified on
+  its head and is mergeable, and, under the shipped default, that head is
+  current with its base branch (in the fleet's normal case, `origin/main`);
+  the currency clause is a policy an adopter may relax to conflict-only
+  (REQ-C1.12), the mergeability clause holds under every value. Both are
+  enforced by a deterministic guard rather than by skill prose or reviewer
+  vigilance (the CI-and-review clause stays party-attested — REQ-A1.2). The
+  records that carry the invariant — the guard deliverable (REQ-C), the
+  loop-sync deliverable (REQ-B), and the design decisions behind them (D-1
+  through D-4, D-9, D-10, D-11) — cite it, or REQ-A1.1 through its supersede
+  pointer, rather than restating it normatively.
 - `/execute-task` syncing `origin/main` into the worker branch at the top of
   each `review_sequence` convergence iteration, via an explicit fetch + merge
   (never `pull`, never rebase), so the final CI + review verification runs on a
@@ -64,10 +71,12 @@ ready PR means what the fleet and the human both assume it means.
   halts to `Awaiting input` (the existing convergence stop condition; no new
   halt mechanism).
 - A deterministic, deny-emitting `ready-guard` PreToolUse hook that intercepts
-  a draft→ready transition and DENIES it unless the PR is current with its base
-  (GitHub's compare `behind_by == 0`) and its `mergeable` field is `MERGEABLE`
-  (non-conflicting) — both server-computed against the PR's real base (no local
-  ref, OID, fetch, or `mergeStateStatus` / branch-protection dependence), the
+  a draft→ready transition and DENIES it unless its `mergeable` field is
+  `MERGEABLE` (non-conflicting) and the PR is current with its base (GitHub's
+  compare `behind_by == 0`), the currency leg waived only under the
+  `conflict-only` opt-in (REQ-C1.11) — both server-computed against the PR's
+  real base (no local ref, OID, fetch, or `mergeStateStatus` /
+  branch-protection dependence), the
   target resolved from the intercepted call's own validated selector — covering
   the `gh pr ready` Bash surface and the `mcp__github__update_pull_request` MCP
   surface (a Bash-string guard does not intercept MCP calls), each gated only
@@ -79,6 +88,11 @@ ready PR means what the fleet and the human both assume it means.
 - Global wiring of the guard in `hooks/hooks.json` so it governs every
   planwright session that attempts a ready-flip, regardless of the settings
   profile in force.
+- The `ready_guard_behind_base` policy knob (`refuse`, the shipped default, or
+  `conflict-only`), read from the core and adopter config layers only and
+  degrading to `refuse` on any read failure, so the currency clause is an
+  adopter's opt-out while every other refusal stays unconditional (REQ-C1.12,
+  REQ-C1.13, D-10, D-11).
 
 ### Out of scope
 
@@ -114,6 +128,18 @@ ready PR means what the fleet and the human both assume it means.
 - Reopening the `guard-coverage` or `fleet-hardening` bundles. Their artifacts
   (the guard family, the fetch-before-gate primitive) are consumed and cited as
   Sources, never edited.
+- Making the convergence-loop sync (REQ-B1.1) follow the
+  `ready_guard_behind_base` knob or any other skip rule. The sync still runs
+  every iteration under either value; whether it should become skippable is a
+  separate amendment (the currency-posture pending note, item 2 (Sources)).
+- Rewording sibling bundles and doctrine that restate the always-refuse
+  currency check, wherever they do (among them human-gates D-9 naming the
+  ready-guard as a session's floor, human-gates REQ-C1.2 and its design's
+  "the ready-guard already is one", the custom-steps doctrine's reliance on
+  the guard's currency check, and the human-gates doctrine's definition of a
+  policy as read through every layer). Their owners amend them, routed by
+  obs:2b0ceaef and obs:f02cd82a; this bundle states the predicate they
+  cite.
 
 ## REQ-A — The ready-currency invariant
 
@@ -125,6 +151,22 @@ ready PR means what the fleet and the human both assume it means.
   never-merge/force-push/amend hard-invariant family by citation, not by
   duplication.
   *(Cites: obs:921b93c9 · `bootstrap` REQ-J1.1 (never auto-merge) and REQ-J1.4 (never force-push/amend/squash/rebase) — the invariant family this joins · kickoff §4 lens (2026-07-22).)*
+  **Superseded-by: REQ-A1.5** (2026-10-11) — the currency clause becomes a
+  policy with a `refuse` default; the mergeability clause is unchanged.
+- **REQ-A1.5** (supersedes REQ-A1.1) A PR SHALL be transitioned from draft to
+  ready only when it has been CI-and-review-verified on its head and is
+  mergeable (`mergeable == MERGEABLE`, not `CONFLICTING`), and, while the
+  `ready_guard_behind_base` policy (REQ-C1.12) resolves to `refuse`, only when
+  that head is also current with its base branch (the base has no commit the
+  head lacks — GitHub's compare `behind_by == 0`). Under `conflict-only` the
+  currency clause is waived and the mergeability clause is not; no value
+  waives mergeability or any fail-closed refusal (REQ-C1.13). The currency
+  clause is a policy under the human-gates gate test, since refusing a flip is
+  neither irreversible for other people nor the approval act; the mergeability
+  clause is unconditional. This requirement is the single stated
+  home of the invariant (this bullet); REQ-A1.2 through REQ-A1.4 and every
+  record citing REQ-A1.1 read against it.
+  *(Cites: D-10 · REQ-A1.1 (lineage) · `human-gates` REQ-A1.1 (the gate test) · drafting-session decision (2026-10-11) (the operator's ruling on PR #650 fork F1, Sources) · obs:ac31e13a.)*
 - **REQ-A1.2** The invariant's currency and mergeability clauses SHALL be
   enforced by construction — a deterministic guard that refuses a
   non-conforming flip — not by skill prose, a checklist, or reviewer
@@ -132,6 +174,9 @@ ready PR means what the fleet and the human both assume it means.
   flipping party's convergence discipline; the guard reads no check or review
   state (only currency and conflict) and is never read as certifying it.
   *(Cites: obs:921b93c9 · `guard-coverage` guard philosophy · kickoff §3 (2026-07-21) · kickoff §4 panel (2026-07-22).)*
+  **Superseded-by: REQ-A1.5** (2026-10-12), in part — the currency clause
+  is enforced as `ready_guard_behind_base` resolves; under `conflict-only`
+  only the mergeability clause is.
 - **REQ-A1.3** Enforcement SHALL be agnostic to which party issues the flip
   (a `/execute-task` worker, the gauntlet, a tower under an adopter overlay, or
   a human acting inside a Claude Code session): the guard fires wherever a
@@ -142,6 +187,9 @@ ready PR means what the fleet and the human both assume it means.
   whatever flip occurs and leaves the who-flips policy to the settings/overlay
   layer.
   *(Cites: drafting-session decision (2026-07-20) · D-9.)*
+  **Superseded-by: REQ-A1.5** (2026-10-12), in part — it enforces the
+  REQ-A1.5 invariant as its policy resolves, the currency clause only under
+  `refuse`.
 
 ## REQ-B — Convergence-loop main-currency
 
@@ -213,6 +261,32 @@ ready PR means what the fleet and the human both assume it means.
   currency and mergeability clauses; the guard is that invariant's enforcement
   floor (REQ-A1.2) and reads no check or review state.
   *(Cites: REQ-A1.1 · obs:921b93c9 · kickoff §4 (2026-07-21) · kickoff §4 panel (2026-07-22).)*
+  **Superseded-by: REQ-C1.11** (2026-10-11) — the `behind_by` leg denies only
+  while `ready_guard_behind_base` resolves to `refuse`.
+- **REQ-C1.11** (supersedes REQ-C1.1) A deterministic PreToolUse guard SHALL
+  intercept a draft→ready transition and emit a DENY decision unless the PR's
+  `mergeable` field is `MERGEABLE` (not `CONFLICTING`) and, while
+  `ready_guard_behind_base` resolves to `refuse` (REQ-C1.12), the PR is also
+  current with its base branch — GitHub's compare of
+  `<baseRefName>...<headRefOid>` reports `behind_by == 0`. Under
+  `conflict-only` a readable `behind_by` above zero does not by itself deny.
+  `baseRefName`/`headRefOid`/`mergeable` come from one `gh pr view`,
+  `behind_by` from the compare endpoint, and the compare call SHALL run, and
+  its failure or unreadable answer SHALL deny, under both values. The guard
+  SHALL NOT key currency on `mergeStateStatus` (which reports `BEHIND` only
+  under the base's "require up to date" branch protection, so a behind PR on
+  an unprotected base reads `CLEAN`). The guard SHALL read no local git ref,
+  object, or `is-ancestor` result and SHALL itself invoke no git command,
+  `git fetch` included (the current-branch lookup `gh` performs for a bare
+  selector under REQ-C1.9 is `gh`'s, not the guard's), so for a given
+  resolved knob value the decision is identical for
+  every flipper and every base branch. `mergeable` reported `UNKNOWN`, or a
+  compare/query failure, SHALL resolve to DENY naming a wait-and-retry
+  remedy. This predicate is the machine-checkable form of the REQ-A1.5
+  invariant's currency and mergeability clauses; the guard is that
+  invariant's enforcement floor (REQ-A1.2) and reads no check or review
+  state.
+  *(Cites: REQ-A1.5 · REQ-C1.1 (lineage) · D-3 · D-10 · drafting-session decision (2026-10-11) · PR #650 (Sources).)*
 - **REQ-C1.2** The guard SHALL be deny-emitting — a new modality relative to the
   allow-only `worker-command-guard.sh` / `tower-command-guard.sh` — with no LLM
   in the decision path and purely deterministic shell logic.
@@ -282,6 +356,31 @@ ready PR means what the fleet and the human both assume it means.
   use `gh pr ready` and the MCP tool, not the raw mutation. Closing the mutation
   surface is a documented follow-up, not a first-cut requirement.
   *(Cites: `fleet-hardening` tower-guard surface enumeration · kickoff §4 lens (2026-07-22) · kickoff §4 panel (2026-07-22).)*
+- **REQ-C1.12** The currency clause SHALL be governed by one policy knob,
+  `ready_guard_behind_base`, with the values `refuse` (a PR any number of
+  commits behind its base is refused) and `conflict-only` (a behind PR that
+  GitHub reports `MERGEABLE` defers), and the shipped default SHALL be
+  `refuse`. The knob SHALL be declared in the core defaults, documented in the
+  options reference, and listed as a policy in the human-gates list, and SHALL
+  resolve through the shared policy-knob resolver from the **core and adopter
+  layers only**: the repo-tracked and machine-local layers SHALL never be read
+  for it, whatever their value, in the resolver's own table and in the
+  guard's call alike, so no reader of the knob and no edit inside a checkout a
+  session can write relaxes the guard. The guard SHALL read the knob only for
+  a draft PR found `MERGEABLE` with a readable `behind_by` above zero, so a
+  current PR costs no read.
+  *(Cites: D-10 · D-11 · D-5 · `human-gates` REQ-A1.1 · drafting-session decision (2026-10-11) · PR #650 (Sources).)*
+- **REQ-C1.13** The knob read SHALL fail closed to `refuse`: a missing or
+  unreadable resolver, a read that fails or is killed at the guard's query
+  bound, a non-zero resolver exit, a malformed value, and any answer other than
+  exactly `conflict-only` SHALL each apply `refuse`, so no failure in the read
+  can relax the check. No value of the knob SHALL relax any other refusal:
+  `CONFLICTING`, `UNKNOWN`, or unrecognized mergeability, a failed or
+  unreadable compare call, an invalid or ambiguous selector, and every
+  REQ-C1.3 fail-closed path deny exactly as under `refuse`, and the
+  `isDraft` gating (REQ-C1.8) is unchanged. The behind-base denial SHALL
+  name the merge remedy (REQ-K1.1) and SHALL NOT name the knob (D-10).
+  *(Cites: D-10 · D-11 · REQ-C1.3 · REQ-K1.1 · drafting-session decision (2026-10-11) · PR #650 (Sources).)*
 
 ## REQ-D — Verification
 
@@ -294,6 +393,8 @@ ready PR means what the fleet and the human both assume it means.
   missing `gh`/`jq`, malformed payload, or an invalid/ambiguous target selector
   → denied (fail-closed); across the Bash and MCP surfaces.
   *(Cites: `worker-permission-ergonomics` adversarial-suite precedent · kickoff §4 lens (2026-07-22) · kickoff §4 panel (2026-07-22).)*
+  **Superseded-by: REQ-D1.5** (2026-10-12), in part — the `behind_by > 0` →
+  denied cell holds under `refuse`; the knob's cells are REQ-D1.5's.
 - **REQ-D1.2** A test SHALL assert the deny-over-allow OUTCOME against a payload
   that the `config/worker-settings.json` `gh pr ready` allow entry would
   otherwise pass.
@@ -306,6 +407,30 @@ ready PR means what the fleet and the human both assume it means.
 - **REQ-D1.4** Negative assertions SHALL confirm no model/API call appears in
   the guard's or the sync script's decision path.
   *(Cites: `fleet-autonomy` D-18 · REQ-C1.2.)*
+- **REQ-D1.5** The adversarial suite SHALL cover the knob: under
+  `conflict-only`, a behind `MERGEABLE` draft PR → defers, and a behind PR
+  whose mergeability is `CONFLICTING`, `UNKNOWN`, or unrecognized, or whose
+  compare call fails or answers unreadably, → denied; under an adopter value
+  of `refuse`, a behind `MERGEABLE` PR → denied, with a denial that does not
+  name the knob; a `conflict-only` value set only in a repo-tracked or
+  machine-local layer, with the hook run from inside a real repository and a
+  working git on PATH, → denied; every REQ-C1.13 degrade case, an unreadable
+  resolver included, → `refuse`; a current PR (`behind_by 0`) → the knob is
+  not read, proven by a marker-writing stub resolver paired with the same stub
+  leaving its marker for a behind PR; and the guard invokes no git in any knob
+  case, the repo-side case proving it through a logging pass-through git that
+  records no call. The `conflict-only` defer case and the explicit `refuse`
+  behind case SHALL be asserted on both surfaces and SHALL join the REQ-D1.1
+  expected-cell manifest. The defer case SHALL fail against the guard as it
+  stood before the knob. Each place the layer restriction lives SHALL be
+  pinned on its own: the resolver's own tests pin its table entry (repo-side
+  layers ignored, the shipped default, the strict degrade), and a stub
+  resolver beside a copy of the guard, answering `conflict-only` only when
+  the repo-side layers were not dropped, pins the guard's own copy. The
+  no-other-refusal half of REQ-C1.13 SHALL be shown by the `conflict-only`
+  refusal cases above plus an invalid selector, an already-ready PR, and a
+  missing `gh`, each run with an adopter value of `conflict-only`.
+  *(Cites: REQ-C1.11 · REQ-C1.12 · REQ-C1.13 · D-11 · PR #650 (Sources).)*
 
 ## REQ-K — Graceful degradation and data hygiene
 
@@ -420,6 +545,66 @@ ready PR means what the fleet and the human both assume it means.
   REQ-D1.3) on its all-bundle rollout (format-grammar D-9); no requirement or
   decision changes meaning.
 
+- 2026-10-11 — Extension (`/spec-draft --extend`, meaning-class; reopen cycle,
+  stored Status Ready→Draft on all four files): the currency clause of the
+  invariant becomes an adopter policy so PR #650's `conflict-only` opt-in is
+  conformant, per the operator's ruling on that PR's fork F1. **REQ-A1.1
+  superseded by REQ-A1.5** (the invariant, currency clause governed by
+  `ready_guard_behind_base` with a `refuse` default, mergeability unchanged)
+  and **REQ-C1.1 superseded by REQ-C1.11** (the guard predicate with the
+  knob; the compare call still runs and fails closed under both values). New
+  **REQ-C1.12** (the knob, its default, and its core-and-adopter-only read),
+  **REQ-C1.13** (fail-closed degrade to `refuse`; no other refusal relaxed),
+  **REQ-D1.5** (knob verification). New **D-10** (the currency clause is a
+  policy knob in core, default-preserving) and **D-11** (where and how the
+  guard reads it); D-1, D-2, D-3, D-5 and D-9 marked superseded in part by
+  them, bodies untouched. Goal, Scope (an in-scope bullet and two
+  out-of-scope bullets added, the invariant and guard summaries re-pointed),
+  the design preamble, and the `tasks.md` intro (its task count replaced by a
+  decided rule) edited in place. Task 5 added (land PR #650). Every record
+  not marked superseded keeps its text; where one names REQ-A1.1 or REQ-C1.1,
+  the name resolves through the supersede pointer.
+  Kickoff risk-register row 4 (no adopter opt-out knob) is reversed by D-10,
+  for the delta re-walkthrough to re-record. Operator answers in the drafting
+  session (cited as `drafting-session decision (2026-10-11)`): the "hard
+  invariant" label stays, its mergeability clause being unconditional; no
+  behind-limit, kept as a deferred alternative in D-10; the knob is read from
+  the core and adopter layers only (D-11); the capability is a core opt-in
+  knob (D-10); the sibling restatements (human-gates D-9, the custom-steps
+  doctrine) go to their owners through obs:2b0ceaef, and the
+  graphql-mutation pointer obs:b14af9aa asks for waits for a later amendment.
+  Seeds consumed (2026-10-12): obs:ac31e13a, obs:75c25c5d, obs:14a2af4e.
+
+- 2026-10-12 — Reopened-bundle delta kickoff, sign-off lens pass edits
+  (Draft, in place, within the 2026-10-11 extension): the carrying-record
+  lists in the Goal, In-scope and design preamble made identical and D-11
+  made to cite REQ-A1.5; "floor" kept for the guard only, the mergeability
+  clause called unconditional; "passes" replaced by "defers" in new
+  normative text; REQ-C1.11's no-git clause scoped to what the guard itself
+  invokes (`gh`'s current-branch lookup for a bare selector is `gh`'s, as it
+  was under REQ-C1.1); REQ-C1.13 gains the rule that the behind-base denial
+  names the merge remedy and not the knob (decided in D-10); REQ-D1.5 gains
+  the unreadable-resolver, current-PR-no-read, logging-git, and explicit
+  `refuse` cases; the sibling-restatement bullet becomes a rule and cites
+  obs:2b0ceaef and obs:f02cd82a; D-9's pointer re-worded to the policy
+  classification and D-10 gains the label and mergeability-lag statements;
+  the superseded REQ-A1.1 and REQ-C1.1 test-spec entries marked superseded;
+  Task 5 names the manifest file and covers the docs' citations.
+
+- 2026-10-12 — Delta kickoff operator rulings (meaning-class, applied before
+  sign-off): **REQ-A1.2 and REQ-A1.4 superseded in part by REQ-A1.5**,
+  **REQ-D1.1 superseded in part by REQ-D1.5**, and **D-7 superseded in part
+  by D-10** (pointer lines only, bodies frozen); REQ-D1.5, Task 5 and the
+  test-spec pin each place the layer restriction lives on its own (the
+  resolver table by its tests, the guard's copy by a stub resolver); the
+  REQ-C1.13 no-other-refusal re-run narrowed to the `conflict-only` refusal
+  cases plus an invalid selector, an already-ready PR, and a missing `gh`;
+  REQ-C1.13 and D-11 say a read that fails or is killed at the limit applies
+  `refuse`, the overrun accepted as a residual; D-11's claim narrowed to
+  "outside every checkout", the environment and plugin-data reach accepted
+  as a residual; the silent `conflict-only` defer accepted as risk row 11;
+  the out-of-band follow-ups stay tracked by their observations.
+
 ## Sources
 
 - `obs:921b93c9` — the seed observation (recorded 2026-07-20,
@@ -457,3 +642,36 @@ ready PR means what the fleet and the human both assume it means.
   turns a bare `git pull` into a forbidden rebase, which is why REQ-B1.2
   mandates explicit fetch + merge. (Origin: recurring planwright worker-pull
   strandings; verified against planwright #248.)
+- PR #650 (`feat(ready-guard): make the behind-base refusal configurable`,
+  draft) — the implementation this extension makes conformant: the
+  `ready_guard_behind_base` knob, its resolver-table entry pinned to the core
+  and adopter layers, the guard's bounded read, and its tests (completed under
+  Task 5 to what REQ-D1.5 requires). Its flight record (in the PR body) also
+  holds the declined finding D1 (the `mergeable` answer read before the
+  compare call, a base push between them; D-11's residual) and the panel
+  finding P1 (the layer restriction moved into the resolver table). Its flight
+  record's fork **F1** found the opt-in contradicts REQ-A1.1, REQ-A1.2,
+  REQ-C1.1, D-3 and D-5 as signed (and human-gates D-9 and the custom-steps
+  doctrine outside this bundle), offering amend, carry as a deviation, or drop.
+- Operator ruling on fork F1 (2026-10-11, cited as `drafting-session decision
+  (2026-10-11)`): amend this bundle through a `/spec-kickoff` delta
+  re-walkthrough so the opt-in becomes conformant; PR #650 keeps `refuse` as
+  the shipped default and stays a draft until the delta merges.
+- `obs:ac31e13a` — the operator's 2026-09-25 policy (sync only when a PR needs
+  something from its base or would break) and PR 510 refused while green,
+  `MERGEABLE`, and five behind; proposes the knob this extension adopts.
+- `obs:75c25c5d` — the counter-evidence: a refusal for one commit behind
+  caught review rounds run against a base that no longer existed. Why the
+  default stays `refuse` (D-10).
+- `obs:14a2af4e` — a refused flip parks a bullet that outlives a manual merge
+  (PR 589, eight behind): a cost of the always-refuse posture.
+- `specs/_pending/currency-posture-and-drifts.md` item 1 — the same request
+  from the operator's instruction audit: where CI runs on the merge ref, a
+  mergeable behind branch tests the same tree synced or not. Item 2 (a skip
+  rule for the convergence sync) stays out of scope.
+- `obs:2b0ceaef` and `obs:f02cd82a` — recorded by this extension (live, not
+  consumed): the sibling surfaces outside this bundle that restate the
+  always-refuse currency check, routed to their owners.
+- `human-gates` REQ-A1.1 and the human-gates doctrine's list — the gate test
+  under which refusing a flip is a policy rather than a human gate, and the
+  policy-knob resolver this knob joins.

@@ -202,6 +202,13 @@ that hosts a separate worker satisfies them; the backends that do not (`print`
 and `in-session`) are the manual/synchronous escape hatch called out in their
 rows below.
 
+**Messaging eligibility reads the `Session-grade` column** (a pluggable
+backend's advertised `session_grade`), adding none: a `yes` rung launched
+non-`--bare` (the pin below) is eligible; `no`, `deferred`, and an unknown value
+are not. It is distinct from dispatch eligibility, the ladder's candidate set,
+though both read this column. Whether a session can send is the
+[Messaging Transport](messaging-transport.md) doctrine's per-session probe.
+
 - **`tmux`.** The richest backend: an interactive worker in a detached tmux
   session or window. `capture-pane` provides observe-in-flight; attributed
   `load-buffer`/`paste-buffer` provides steer-in-flight (never `send-keys`

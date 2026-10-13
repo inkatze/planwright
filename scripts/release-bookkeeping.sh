@@ -19,8 +19,9 @@
 #   - on any comparator trouble (absent, non-executable, or a non-zero exit on a
 #     malformed version-of-truth) degrades with a diagnostic on stderr and exits
 #     0, printing nothing on stdout. Belt-and-suspenders is a redundant reminder,
-#     never a gate, so it must not fail an --bookkeeping pass (the skill's
-#     "missing prerequisites degrade with a message" contract).
+#     never a gate, so it must not fail an --bookkeeping pass (the drain
+#     pass's "missing prerequisites degrade with a message" contract,
+#     doctrine/orchestration-modes.md).
 #
 # Output (stdout): a single report line when a release is pending; empty otherwise.
 # Exit: 0 always (a report or a silent/degraded no-op); this surface never blocks.

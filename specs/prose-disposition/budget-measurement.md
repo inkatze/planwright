@@ -508,3 +508,54 @@ warning. The entry was dropped: `/execute-task` never runs the lens, it reads
 the Documentation row a review skill produced, and that skill loads
 `discovery-rigor` at run start. The citation names the doc without the skill
 loading it, which the use-site check does not flag in that direction.
+
+## Task 11 — `/polish`'s funding
+
+Measured at `e3d4ef8` (`origin/main` at dispatch), branch
+`planwright/prose-disposition/task-11`, with the same guard and the same rule
+that no figure is hand-counted.
+
+### The premise that no longer held
+
+Task 11's `Deliverables:` expected the gist to put `start-load:polish` under
+its restoration target at warn level only, answered by a new
+`declared-exception` entry. By dispatch the surface already carried one:
+operator-dialogue Task 9 had landed `declared-exception|start-load:polish|margin=772`,
+and the baseline margin-to-error was 775. That entry is a ratchet, so the gist
+(about 85 words) would have been a fail-closed widening, not a warning, and the
+entry's own reason says to fund the next addition rather than edit its margin.
+The surface therefore needed relief, the same position Task 12's surfaces were
+in.
+
+### The rung: a manifest change, the one Task 12 took
+
+Rung 1 cannot cover it. The surveys above did not measure `/polish` as a
+surface, since it was warn-level then, but the one safe candidate they found
+that reaches it, E2 (about 45 words in `finding-categorization`), is short of
+the gist, and the `/polish` entry's own comment records every in-file
+candidate as the last copy of a live rule. Rung 2 applied: `doctrine/refactor-instinct.md` moved from
+`run-start` to `point-of-use` in `/polish`'s manifest, the reclassification
+Task 12 made in `/self-review`'s. `/polish`'s body never reads that doc; the
+manifest carried it only because the skill resolves "the same rule docs as
+`/self-review`", and the nested `/self-review` pass already loads it
+point-of-use at its Discovery refactor filter. The iteration loop's first step
+now names that read site, which the reverse use-site check requires.
+
+No prose was deleted or moved, so the manifest check has no candidate to run
+on. The safety-floor reading is Task 12's row for refactor-flag scoping,
+unchanged: unread, the doc over-reports rather than permitting a forbidden
+action, and the only site that emits a refactor finding is the nested pass's
+filter bullet, which names the doc.
+
+### `/polish` before and after
+
+| Surface | Pin | Before | After |
+| --- | --- | --- | --- |
+| `start-load:polish` | `margin=772` | 775 (9225 words) | **1104** (8896 words) |
+| `skills/polish/SKILL.md` (per-file) | none | 2422 (1828 words) | 2329 (1921 words) |
+
+The surface now sits above its restoration target, so no below-target warning
+fires and no new `declared-exception` entry is needed; one added there would
+be reported stale. The existing entry stays: the guard marks it used while it
+holds the surface to its granted margin, and dropping it would remove the
+ratchet, not a suppression. No `raise` entry was added.
