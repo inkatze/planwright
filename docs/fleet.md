@@ -1751,12 +1751,12 @@ cycle) through
 authorizes it, the worker relaunches into the flight's own worktree and branch
 with its own brief (`fleet-dispatch-worktree.sh dispatch --flight <id>
 --relaunch`, the same guarded launch every dispatch passes, which creates
-nothing and registers the new worker), pinned to the planwright root dispatch
-recorded beside the brief (a flight placed before that record existed takes
-the launcher's root, and a record that is unreadable or names a root no longer
-installed refuses the relaunch, which counts as another crash), and at the
-disable threshold nothing
-relaunches and the disable is a decision-queue entry. Each relaunch and
+nothing and registers the new worker), and at the disable threshold nothing
+relaunches and the disable is a decision-queue entry. The relaunched worker is
+pinned to the planwright root dispatch recorded beside the brief; a flight
+placed before that record existed takes the launcher's root, and a record that
+is not a regular file holding an absolute path, or that names a root no longer
+installed, refuses the relaunch, which counts as another crash. Each relaunch and
 disable is audited. The guarantee is bounded or surfaced: a worker whose death cannot be proven (a print-rung
 flight, an unreachable tmux server, a relaunch whose window could not be
 matched) is never relaunched and reads `unknown` in the sweep's render.

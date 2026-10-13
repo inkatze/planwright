@@ -871,21 +871,25 @@ write_brief() {
 It must report home \`pr\` and origin \`$HOME_DEST\`; on anything else, or if it
 cannot run, push nothing and park the flight with what it reported. Then render
 the record and, only on a clean render, push the branch and open the PR as a
-draft on the checked repository. A relaunched worker first lists the
-same-repository PRs on this branch, one \`<head-sha> <url>\` line each:
-\`gh pr list --repo $HOME_DEST --head $branch --state open --json url,isCrossRepository,headRefOid --jq '.[] | select(.isCrossRepository | not) | .headRefOid + \" \" + .url' > $(sh_quote "$_rd/pr-url.found")\`
-A line whose sha equals \`git rev-parse HEAD\` is the flight's own PR; more than
-one such line parks the flight. When \`record/pr-url\` names the PR, or exactly
-one line matched (write its URL to \`record/pr-url\`), it runs none of this push
-and create command:
+draft on the checked repository with the push-and-create line:
 \`$_recorder render --home pr $_inputs > $_body && git push -u origin $branch && gh pr create --draft --repo $HOME_DEST --title '<conventional title>' --body-file $_body > $(sh_quote "$_rd/pr-url.tmp") && mv $(sh_quote "$_rd/pr-url.tmp") $(sh_quote "$_rd/pr-url")\`
 Add $_optional to the render only when you wrote them. The record is the PR
 body. Never mark it ready and never merge: the draft-to-ready flip and the
 merge are the human's. A non-zero exit from the push or the create parks the
-flight. A relaunched worker that skipped the push and create carries on below with its
-PR, firing \`post-pr\` only if *Work and the points*' Relaunch bullet says it is
-still due, and runs the sequence after it (re-emit, draft check, completion)
-either way.
+flight.
+
+A relaunched worker runs this landed check before it fires any point. It lists
+the open same-repository PRs on this branch, one \`<head-sha> <url>\` line each:
+\`gh pr list --repo $HOME_DEST --head $branch --state open --json url,isCrossRepository,headRefOid --jq '.[] | select(.isCrossRepository | not) | .headRefOid + \" \" + .url' > $(sh_quote "$_rd/pr-url.found")\`
+A non-zero exit parks the flight: a failed lookup is never \"no PR\". The flight
+has landed when exactly one line's sha equals \`git rev-parse HEAD\`, or when
+\`record/pr-url\` names a PR that
+\`gh pr view <url> --repo $HOME_DEST --json state --jq .state\` reports \`OPEN\`;
+more than one matching line, or a \`record/pr-url\` PR that is not open, parks
+the flight. A landed relaunch writes the PR's URL to \`record/pr-url\`, skips the
+push-and-create line, fires \`post-pr\` only if *Work and the points*' Relaunch
+bullet says it is still due, and runs the sequence after it (re-emit, draft
+check, completion) either way.
 
 Now the draft PR exists: fire \`post-pr\` (*Work and the points*) with the PR's
 number as \`PLANWRIGHT_STEP_PR_NUMBER\`. After its list, run the sequence
@@ -895,10 +899,10 @@ performs, with these mappings. Add the \`post-pr\` table to \`audit.md\`, and wh
 the PR head moved, replace its Pending sign-off section with the regenerated
 checklist, its \`## Pending sign-off\` heading demoted to \`####\`. Re-emit the
 record only through the renderer, with the same inputs,
-never by editing the PR body by hand, and never by re-running the push and
-create line above:
+never by editing the PR body by hand, and never by re-running the
+push-and-create line:
 \`$_recorder render --home pr $_inputs > $_body_new && gh pr edit <number> --repo $HOME_DEST --body-file $_body_new\`
-A refusal of your own inputs is fixed and the line re-run (*The audit record*);
+A refusal of your own inputs is fixed and the re-emit re-run (*The audit record*);
 any other non-zero exit from the render, or from the edit, parks the flight.
 Verify the PR is still a draft:
 \`gh pr view <number> --repo $HOME_DEST --json isDraft --jq .isDraft\` must print
@@ -909,14 +913,16 @@ PR link as the landing reference:
     _landing="Land the record, which writes \`$record\` and commits exactly that one
 file on this branch:
 \`$_recorder land $_inputs --record-path $(sh_quote "$record")\`
-Add $_optional only when you wrote them. Do not push and open no PR. A
-relaunched worker whose record is committed on this branch
-(\`git cat-file -e $(sh_quote "HEAD:$record")\` succeeds) skips the land; otherwise a record at
-that path is an interrupted land's leftover, so it runs
-\`git rm -q --cached --ignore-unmatch -- $(sh_quote "$record") && rm -f -- $(sh_quote "$record") $(sh_quote "${record%/*}")/.$flight_id.md.*\`
-and then lands. The committed record is the landing reference; push the
-completion with it:
-\`$_push completion $_pushid --landing $(sh_quote "record:$record")\`"
+Add $_optional only when you wrote them. Do not push and open no PR. The
+committed record is the landing reference; push the completion with it:
+\`$_push completion $_pushid --landing $(sh_quote "record:$record")\`
+
+A relaunched worker runs this landed check before it fires any point. The
+flight has landed when \`git cat-file -e $(sh_quote "HEAD:$record")\` succeeds: it
+skips the land and pushes the completion. Otherwise a record at that path is
+an interrupted land's leftover, which it clears at once, before any point can
+commit it:
+\`git rm -q --cached --ignore-unmatch -- $(sh_quote "$record") && rm -f -- $(sh_quote "$record") $(sh_quote "${record%/*}")/.$flight_id.md.*\`"
   fi
 
   {
@@ -967,9 +973,10 @@ completion with it:
     printf '%s\n' "  each at its moment below, every point no run of this flight completed"
     printf '%s\n' "  without a halted, failed, or limited step (\`step-record.sh list\` across"
     printf '%s\n' "  every run), running its whole list again; it skips no step within a point,"
-    printf '%s\n' "  and never fires a point this home never fires. A flight that has already"
-    printf '%s\n' "  landed (*Landing* finds its PR or committed record) re-fires no point whose"
-    printf '%s\n' "  moment comes before landing: their commits could never reach it."
+    printf '%s\n' "  and never fires a point this home never fires. It first runs *Landing*'s"
+    printf '%s\n' "  landed check; a flight that has landed re-fires no point whose moment"
+    printf '%s\n' "  comes before landing, since such a point's commits could never reach the"
+    printf '%s\n' "  landed PR or record."
     printf '%s\n' "- Wherever the procedure ends, parks, or stops the unit (the pause protocol"
     printf '%s\n' "  or a stop condition), park the flight instead (*Hard pauses*): write"
     printf '%s\n' "  nothing to any \`tasks.md\` or other spec state."

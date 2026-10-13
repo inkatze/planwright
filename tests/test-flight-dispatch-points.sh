@@ -172,7 +172,7 @@ printf '%s\n' "$post" | grep -F 'gh pr edit' | grep -q 'git push\|gh pr create\|
   && fail "the re-emit line must not push, create a PR, or touch pr-url again"
 flat "$post" | grep -q 'with the same inputs, never by editing the PR body by hand' \
   || fail "the re-emit must keep the first render's inputs"
-flat "$post" | grep -q 'A refusal of your own inputs is fixed and the line re-run' \
+flat "$post" | grep -q 'A refusal of your own inputs is fixed and the re-emit re-run' \
   || fail "a refusal of the worker's own inputs must be fixed and re-run, not parked"
 flat "$post" | grep -q 'any other non-zero exit from the render, or from the edit, parks the flight' \
   || fail "any other failed re-render or edit must park the flight"
@@ -180,21 +180,24 @@ flat "$post" | grep -q 'its `## Pending sign-off` heading demoted to `####`' \
   || fail "the regenerated checklist's heading must be demoted under the record's"
 printf '%s\n' "$b" | grep -qF -- "> '$record_dir/pr-url.tmp' && mv '$record_dir/pr-url.tmp' '$record_dir/pr-url'" \
   || fail "a failed create must never empty pr-url"
-flat "$b" | grep -q 'it runs none of this push and create command:' \
-  || fail "a relaunched worker that found its PR must run none of the push and create command"
-flat "$b" | grep -q 'A flight that has already landed (\*Landing\* finds its PR or committed record) re-fires no point whose moment comes before landing' \
-  || fail "a landed flight must not re-fire a point whose commits could never reach the landing"
+flat "$b" | grep -q "It first runs \*Landing\*'s landed check; a flight that has landed re-fires no point whose moment comes before landing, since such a point's commits could never reach the landed PR or record" \
+  || fail "a relaunch must check landing first, and a landed flight must not re-fire a pre-landing point"
 flat "$b" | grep -q 'A non-zero exit from the push or the create parks the flight' \
   || fail "a failed push or create must park the flight"
 printf '%s\n' "$b" | grep -qF -- "gh pr list --repo github.com/acme/widgets --head planwright/flight/$fid --state open --json url,isCrossRepository,headRefOid --jq '.[] | select(.isCrossRepository | not) | .headRefOid + \" \" + .url' > '$record_dir/pr-url.found'" \
   || fail "a relaunched worker must look for the flight's own same-repository PR"
-flat "$b" | grep -q 'A line whose sha equals `git rev-parse HEAD` is the flight.s own PR; more than one such line parks the flight' \
-  || fail "only a PR at this branch's tip is the flight's own, and an ambiguous match parks"
-lookup_line=$(printf '%s\n' "$b" | grep -n 'gh pr list --repo' | head -n 1 | cut -d: -f1)
-[ -n "$lookup_line" ] && [ "$lookup_line" -lt "$pr_line" ] \
-  || fail "the relaunch lookup must come before the push and create line"
-flat "$b" | grep -q 'skipped the push and create carries on below with its PR, firing `post-pr` only if \*Work and the points\*. Relaunch bullet says it is still due, and runs the sequence after it (re-emit, draft check, completion) either way' \
-  || fail "a relaunched worker must not re-fire a completed post-pr, yet must still re-emit and check the draft"
+flat "$b" | grep -q 'A relaunched worker runs this landed check before it fires any point' \
+  || fail "a relaunched pr-home worker must check landing before it fires any point"
+flat "$b" | grep -q 'A non-zero exit parks the flight: a failed lookup is never "no PR"' \
+  || fail "a failed PR lookup must park, never read as no PR"
+flat "$b" | grep -q 'The flight has landed when exactly one line.s sha equals `git rev-parse HEAD`, or when `record/pr-url` names a PR that' \
+  || fail "only a PR at this branch's tip, or a recorded one, lands the flight"
+printf '%s\n' "$b" | grep -qF "gh pr view <url> --repo github.com/acme/widgets --json state --jq .state" \
+  || fail "a recorded PR must be checked open before it counts"
+flat "$b" | grep -q 'more than one matching line, or a `record/pr-url` PR that is not open, parks the flight' \
+  || fail "an ambiguous match or a closed recorded PR must park"
+flat "$b" | grep -q 'A landed relaunch writes the PR.s URL to `record/pr-url`, skips the push-and-create line, fires `post-pr` only if \*Work and the points\*. Relaunch bullet says it is still due, and runs the sequence after it (re-emit, draft check, completion) either way' \
+  || fail "a landed relaunch must skip the push and create, not re-fire a completed post-pr, yet still re-emit and check the draft"
 flat "$post" | grep -q 'replace its Pending sign-off section with the regenerated checklist' \
   || fail "a moved head must carry the regenerated checklist into the re-emit"
 printf '%s\n' "$post" | grep -qF 'isDraft' || fail "the brief must verify the PR is still a draft"
@@ -218,8 +221,10 @@ flat "$b" | grep -q '`post-pr`: never fires on this flight' \
 printf '%s\n' "$b" | grep -q 'not-fired `post-pr` row' || fail "the file home must leave the not-fired row to the renderer"
 printf '%s\n' "$b" | grep -q 'gh pr' && fail "the file home must carry no gh pr command"
 fid=$(field "$OUT" flight)
-flat "$b" | grep -qF "relaunched worker whose record is committed on this branch (\`git cat-file -e 'HEAD:specs/_flights/$fid.md'\` succeeds) skips the land" \
-  || fail "a relaunched file-home worker must test the record against HEAD, not the index"
+flat "$b" | grep -qF "A relaunched worker runs this landed check before it fires any point. The flight has landed when \`git cat-file -e 'HEAD:specs/_flights/$fid.md'\` succeeds: it skips the land" \
+  || fail "a relaunched file-home worker must test the record against HEAD, before any point"
+flat "$b" | grep -q "an interrupted land's leftover, which it clears at once, before any point can commit it" \
+  || fail "an interrupted land's leftover must be cleared before a re-fired point can commit it"
 printf '%s\n' "$b" | grep -qF "git rm -q --cached --ignore-unmatch -- 'specs/_flights/$fid.md' && rm -f -- 'specs/_flights/$fid.md' 'specs/_flights'/.$fid.md.*" \
   || fail "a relaunched file-home worker must clear an interrupted land's record and temp link"
 [ "$(brief_points "$(field "$OUT" brief)")" = "$want" ] || fail "the file home must still name every in-run point"

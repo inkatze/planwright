@@ -466,52 +466,49 @@ rm -f "$repo/.claude/planwright.yml"
 [ "$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$U" '$2 == id { print $1 }')" = backoff ] \
   || fail "the checkout's own backoff knob governs its flights from any working directory (got: $out)"
 
-# A recorded root that is no longer an install refuses the relaunch rather
-# than pinning whichever root resolves next.
-R=gone-aaaaaaa9
-HR="tmux-flight-$R"
-gitc "$repo" worktree add -q -b "planwright/flight/$R" "$repo/.claude/worktrees/flight-$R" HEAD
-brief_dir "$R"
-printf '%s\n' "$tmp/no-such-root" >"$tmp/fleet/flights/$R/root"
-/bin/sh "$STATE" register "$HR" "flight:$R" --backend tmux --state-dir "$repo/.claude/worktrees/flight-$R" \
-  --death-handle "process $(dead_pid 9)" >/dev/null || fail "fixture: could not register a dead worker"
-supervise "$((t + 900000))" >/dev/null
-out=$(supervise "$((t + 900000 + 31))")
-g=$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$R" '$2 == id')
-[ "$(field "$g" 1)" = failed ] || fail "a gone recorded root must fail the relaunch (got: $out)"
-case $(field "$g" 3) in
-  *"recorded planwright root is not an install any more"*"git worktree remove"*) ;;
-  *) fail "the failed relaunch must say the recorded root is gone and how to recover (got: $g)" ;;
-esac
-# A record that is not a regular file holding an absolute path refuses too,
-# named as the record's fault, not the install's.
+# A root record the relaunch cannot pin to refuses it, rather than pinning
+# whichever root resolves next: a recorded root that is no longer an install,
+# named as the install's fault, and a record that is not a regular file
+# holding an absolute path, named as the record's. Every case dies at once
+# and one pair of sweeps handles them all.
 n_case=0
-for bad in relative empty symlink; do
+for bad in gone relative empty symlink ctl; do
   n_case=$((n_case + 1))
   B="rec$n_case-aaaaaac$n_case"
-  HB="tmux-flight-$B"
   gitc "$repo" worktree add -q -b "planwright/flight/$B" "$repo/.claude/worktrees/flight-$B" HEAD
   brief_dir "$B"
   case $bad in
+    gone) printf '%s\n' "$tmp/no-such-root" >"$tmp/fleet/flights/$B/root" ;;
     relative) printf 'pinned-root\n' >"$tmp/fleet/flights/$B/root" ;;
     empty) : >"$tmp/fleet/flights/$B/root" ;;
     symlink)
       printf '%s\n' "$pinned" >"$tmp/pinned-root.record"
       ln -s "$tmp/pinned-root.record" "$tmp/fleet/flights/$B/root"
       ;;
+    ctl) printf '%s\001\n' "$pinned" >"$tmp/fleet/flights/$B/root" ;;
   esac
-  /bin/sh "$STATE" register "$HB" "flight:$B" --backend tmux --state-dir "$repo/.claude/worktrees/flight-$B" \
+  /bin/sh "$STATE" register "tmux-flight-$B" "flight:$B" --backend tmux --state-dir "$repo/.claude/worktrees/flight-$B" \
     --death-handle "process $(dead_pid "$((20 + n_case))")" >/dev/null || fail "fixture: could not register a dead worker"
-  supervise "$((t + 900000 + n_case * 100000))" >/dev/null
-  out=$(supervise "$((t + 900000 + n_case * 100000 + 31))")
+done
+supervise "$((t + 900000))" >/dev/null
+out=$(supervise "$((t + 900000 + 31))")
+n_case=0
+for bad in gone relative empty symlink ctl; do
+  n_case=$((n_case + 1))
+  B="rec$n_case-aaaaaac$n_case"
   g=$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$B" '$2 == id')
+  [ "$(field "$g" 1)" = failed ] || fail "a $bad root record must fail the relaunch (got: $out)"
+  if [ "$bad" = gone ]; then
+    want="recorded planwright root is not an install any more"
+  else
+    want="root record is unreadable or malformed"
+  fi
   case $(field "$g" 3) in
-    *"root record is unreadable or malformed"*) ;;
-    *) fail "a $bad root record must refuse the relaunch as the record's fault (got: $out)" ;;
+    *"$want"*"git worktree remove"*) ;;
+    *) fail "a $bad root record must refuse with '$want' and the recovery (got: $g)" ;;
   esac
   calls_matching new-session | grep -q "flight-$B" && fail "a $bad root record must launch nothing"
 done
-calls_matching new-session | grep -q "flight-$R" && fail "a gone recorded root must launch nothing"
 
 if [ "$fails" -gt 0 ]; then
   echo "test-flight-lifecycle: $fails failure(s)" >&2

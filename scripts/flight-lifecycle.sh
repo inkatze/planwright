@@ -38,11 +38,12 @@
 # the disable is already a decision-queue entry and nothing relaunches, and
 # otherwise the worker relaunches into the flight's own worktree and branch
 # with its own brief (fleet-dispatch-worktree.sh dispatch --relaunch, the
-# guarded launch, creating nothing), pinned to the planwright root dispatch
-# recorded beside the brief (a flight placed before that record existed takes
-# the launcher's root; a record that is unreadable or names a root that is no
-# longer an install refuses the relaunch, which counts as another crash),
-# which registers the new worker; that relaunch is claimed once per death too, so two sweeps
+# guarded launch, creating nothing), which registers the new worker. The
+# relaunched worker is pinned to the planwright root dispatch recorded beside
+# the brief; a flight placed before that record existed takes the launcher's
+# root, and a record that is not a regular file holding an absolute path, or
+# that names a root no longer installed, refuses the relaunch, which counts
+# as another crash. That relaunch is claimed once per death too, so two sweeps
 # racing on one death start one worker. crash-check consults the operator
 # kill-switch and crash-record does not, but the fleet sweep skips its whole
 # cycle while the switch is set, so under the sweep a paused death is counted
@@ -350,7 +351,8 @@ crash_count() {
 # with its own brief, through the dispatch primitive's relaunch arm, the one
 # guarded launch, which also registers the new worker. Startup is not waited
 # for: a sweep pass must not hold on one flight. On failure RELAUNCH_WHY holds
-# the primitive's last diagnostic, one printable line, so the operator sees why.
+# the reason, one printable line, so the operator sees why: the root record's
+# refusal, or else the primitive's last diagnostic.
 #
 # The new worker is pinned to the planwright root dispatch recorded beside the
 # brief, the one its brief and point check name; a flight placed before that
