@@ -103,6 +103,10 @@ export GIT_CONFIG_GLOBAL="$HOME/.gitconfig"
 # Identity comes only from the GIT_* variables below, never guessed from the
 # host name, so the no-identity case fails the same way on every host.
 printf '[user]\n\tuseConfigOnly = true\n' >"$GIT_CONFIG_GLOBAL"
+# Remotes read as GitHub URLs, as a real venture's do; git carries them to the
+# local bare repositories the gh stub creates.
+mkdir -p "$tmp/remotes"
+printf '[url "%s/"]\n\tinsteadOf = https://github.com/\n' "$tmp/remotes" >>"$GIT_CONFIG_GLOBAL"
 
 # Config layers: a fixture core default plus a git-toplevel "repo" whose
 # tracked and machine-local layers each test writes as needed.
@@ -127,11 +131,14 @@ exit 127
 EOF
 cat >"$stubs/gh-ok/gh" <<EOF
 #!/bin/sh
-# Fake gh: auth succeeds; repo create makes a bare repo and wires it as the
-# remote, recording the arguments it was given.
+# Fake gh: signed in to github.com; repo create makes a bare repo and wires
+# its GitHub URL as the remote, recording the arguments it was given.
 printf '%s\n' "\$*" >>"$tmp/gh-calls.log"
 case "\$1 \$2" in
-  "auth status") exit 0 ;;
+  "auth status")
+    echo "  Logged in to github.com account fixture (keyring)"
+    exit 0
+    ;;
   "repo view")
     # A repository named in gh-public-repos reads PUBLIC; otherwise the
     # visibility is whatever the test last wrote, PRIVATE by default.
@@ -161,9 +168,10 @@ case "\$1 \$2" in
         *) shift ;;
       esac
     done
-    bare="$tmp/remotes/\$(printf '%s' "\$name" | tr / _).git"
+    bare="$tmp/remotes/\$name.git"
+    mkdir -p "\$(dirname "\$bare")" || exit 1
     git init -q --bare "\$bare" || exit 1
-    git -C "\$src" remote add "\$remote" "\$bare" || exit 1
+    git -C "\$src" remote add "\$remote" "https://github.com/\$name.git" || exit 1
     exit 0
     ;;
 esac
@@ -997,7 +1005,7 @@ git -C "$rv" remote add upstream "$tmp/remotes/upstream.git"
 # The push URL is spelled apart from the fetch URL, so only a check of the
 # push URL reads public.
 git -C "$rv" config remote.origin.pushurl "$tmp/remotes/./harbor-ledger.git"
-git -C "$rv" remote get-url --push origin >"$tmp/gh-public-repos"
+git -C "$rv" config remote.origin.url >"$tmp/gh-public-repos"
 printf 'visibility target probe\n' >"$rv/visibility-target.md"
 PATH="$stubs/gh-ok:$PATH" venture save --push "$rv" "Share to a public origin beside a private upstream"
 assert_eq "Z11 a public origin is refused whatever other remotes read (exit 6)" 6 "$rc"
@@ -1126,10 +1134,10 @@ assert_contains "Z27 add-remote warns that the venture guards are not wired" "no
 
 remote_before=$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)
 git init -q --bare "$tmp/remotes/public-mirror.git"
-first_push=$(git -C "$rv" remote get-url --push origin)
+first_push=$(git -C "$rv" config remote.origin.url)
 git -C "$rv" config --add remote.origin.pushurl "$first_push"
-git -C "$rv" config --add remote.origin.pushurl "$tmp/remotes/public-mirror.git"
-printf '%s\n' "$tmp/remotes/public-mirror.git" >"$tmp/gh-public-repos"
+git -C "$rv" config --add remote.origin.pushurl "https://github.com/public-mirror.git"
+printf '%s\n' "https://github.com/public-mirror.git" >"$tmp/gh-public-repos"
 printf 'second pushurl probe\n' >"$rv/second-pushurl.md"
 PATH="$stubs/gh-ok:$PATH" venture save --push "$rv" "Share with a public second push URL"
 assert_eq "Z17 a public second push URL refuses the push (exit 6)" 6 "$rc"
@@ -1151,6 +1159,26 @@ assert_eq "Z20 commits behind a stale origin ref are still screened (exit 1)" 1 
 assert_eq "Z20 the refused push leaves the remote untouched" "$remote_before" "$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)"
 git -C "$rv" update-ref -d refs/remotes/origin/stale
 git -C "$rv" reset -q --hard "$rv_base"
+
+# =========================================================================
+# Z23 — only a GitHub host the CLI is signed in to can be checked or pushed to
+# =========================================================================
+
+PATH="$stubs/gh-ok:$PATH" venture create --home local --root "$vroot" pi-hosts
+ph="$vroot/pi-hosts"
+venture bundle-init --title "Pi Hosts" "$ph"
+for p in seed opportunity disciplines reframe core; do venture mark-phase "$ph" "$p"; done
+venture save "$ph" "Record the core"
+git init -q --bare "$tmp/remotes/local-path.git"
+git -C "$ph" remote add origin "$tmp/remotes/local-path.git"
+PATH="$stubs/gh-ok:$PATH" venture save --push "$ph" "Share to a local path"
+assert_eq "Z23 a push URL that is not a GitHub remote is refused (exit 6)" 6 "$rc"
+assert_contains "Z23 the refusal names a non-GitHub remote" "not a GitHub" "$out"
+assert_eq "Z23 the local path receives nothing" "" "$(git -C "$tmp/remotes/local-path.git" rev-parse -q --verify refs/heads/main)"
+git -C "$ph" remote set-url origin "https://git.example.invalid/acme/pi-hosts.git"
+PATH="$stubs/gh-ok:$PATH" venture save --push "$ph" "Share to another host"
+assert_eq "Z23 a host the GitHub CLI is not signed in to is refused (exit 6)" 6 "$rc"
+assert_contains "Z23 the refusal names the unsigned host" "not signed in to" "$out"
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2

@@ -793,7 +793,7 @@ cmd_save() {
     confirm_private "$dir"
     # Each push URL gets its own screen: what one remote already holds says
     # nothing about another.
-    so_urls=$(git -C "$dir" remote get-url --push --all origin 2>/dev/null) || so_urls=
+    so_urls=$(push_urls "$dir")
     so_ifs=$IFS
     IFS='
 '
@@ -824,10 +824,18 @@ cmd_save() {
 confirm_private() {
   # Named explicitly: a bare `gh repo view` prefers an `upstream` remote, so a
   # private upstream would vouch for a public origin. `git push origin` sends
-  # to every push URL, so every one is checked, not only the first.
-  cp_urls=$(git -C "$1" remote get-url --push --all origin 2>/dev/null) || cp_urls=
+  # to every push URL, so every one is checked, not only the first. Only a
+  # GitHub host the CLI is signed in to can answer for its visibility.
+  cp_urls=$(push_urls "$1")
   [ -n "$cp_urls" ] || die 6 "not shared: this venture has no remote to check; nothing was sent"
+  cp_hosts=$(gh auth status 2>&1 | sed -n 's/.*Logged in to \([^ ]*\).*/\1/p') || cp_hosts=
+  [ -n "$cp_hosts" ] || die 6 "not shared: cannot confirm the remote repository is still private (is the GitHub CLI installed and signed in?); nothing was sent"
   printf '%s\n' "$cp_urls" | while IFS= read -r cp_url; do
+    cp_host=$(url_host "$cp_url")
+    [ -n "$cp_host" ] || die 6 "not shared: a push URL is not a GitHub remote (a local path or file URL); nothing was sent"
+    if ! printf '%s\n' "$cp_hosts" | grep -qxF -- "$cp_host"; then
+      die 6 "not shared: a push URL names a host the GitHub CLI is not signed in to, so its visibility cannot be checked; nothing was sent"
+    fi
     cp_vis=$( (cd "$1" && gh repo view "$cp_url" --json visibility --jq .visibility) 2>/dev/null) || cp_vis=
     case $cp_vis in
       PRIVATE) ;;
@@ -835,6 +843,32 @@ confirm_private() {
       *) die 6 "not shared: a remote repository is not private; nothing was sent" ;;
     esac
   done || exit $?
+}
+
+# push_urls <venture-dir> — origin's push URLs as configured, one per line:
+# every pushurl, else every url, which is where `git push origin` sends.
+push_urls() {
+  git -C "$1" config --get-all remote.origin.pushurl 2>/dev/null \
+    || git -C "$1" config --get-all remote.origin.url 2>/dev/null
+}
+
+# url_host <url> — the host of a network git URL (https, ssh, git, or the
+# scp-like user@host:path form); empty for a local path or a file URL.
+url_host() {
+  case $1 in
+    file://* | /* | ./* | ../*) return 0 ;;
+    *://*)
+      uh=${1#*://}
+      uh=${uh%%/*}
+      uh=${uh##*@}
+      printf '%s\n' "${uh%%:*}"
+      ;;
+    *:*)
+      uh=${1%%:*}
+      case $uh in */*) return 0 ;; esac
+      printf '%s\n' "${uh##*@}"
+      ;;
+  esac
 }
 
 # screen_or_die <file> <refusal> — run the secret screen over one file; a
