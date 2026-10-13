@@ -54,7 +54,9 @@
 #               no commit: the merge helper's re-read before its merge call.
 #   park        park the unit with `<name> failed` on the current head, the
 #               segment composed with the bullets the fetched <branch> carries
-#               for the unit. The merge helper's park after a failed merge.
+#               for the unit; a <branch> that cannot be fetched or read refuses
+#               (exit 5) rather than park without them. The merge helper's park
+#               after a failed merge.
 #
 # The unit-PR flip, as /execute-task runs it after its post-pr point when
 # ready_flip_policy resolves unit-owner: `reconcile`; then the pre-ready-flip
@@ -573,6 +575,7 @@ nap() { [ "$POLL" = 0 ] || sleep "$POLL"; }
 
 PR_BASE=''
 BASE_BULLETS=''
+BASE_UNREAD=0
 # The lookup retries a few times rather than for the whole CI wait: an
 # unauthenticated or unauthorized gh fails the same way every time.
 readonly LOOKUP_ATTEMPTS=3
@@ -664,16 +667,19 @@ pred_awaiting() {
   # cannot leave a stale base ref behind.
   if ! git fetch -q "$REMOTE" "+refs/heads/$PR_BASE:refs/remotes/$REMOTE/$PR_BASE" >/dev/null 2>&1 \
     || ! git rev-parse --verify -q "refs/remotes/$REMOTE/$PR_BASE" >/dev/null; then
+    BASE_UNREAD=1
     set_pred awaiting-input fail "the base ref $REMOTE/$PR_BASE could not be fetched"
     return
   fi
   if git cat-file -e "refs/remotes/$REMOTE/$PR_BASE:$TASKS" 2>/dev/null; then
     git show "refs/remotes/$REMOTE/$PR_BASE:$TASKS" >"$SCRATCH/base.tasks" 2>/dev/null || {
+      BASE_UNREAD=1
       set_pred awaiting-input fail "tasks.md on $REMOTE/$PR_BASE could not be read"
       return
     }
     unit_refs "$SCRATCH/base.tasks" >"$BASE_BULLETS" || {
       : >"$BASE_BULLETS"
+      BASE_UNREAD=1
       set_pred awaiting-input fail "tasks.md on $REMOTE/$PR_BASE could not be parsed"
       return
     }
@@ -1010,8 +1016,10 @@ if [ "$MODE" = awaiting ] || [ "$MODE" = park ]; then
     [ -z "$(failed_preds)" ] || exit 4
     exit 0
   fi
-  # Only for the base's bullets, which the park composes with.
+  # Only for the base's bullets, which the park composes with: a base that
+  # cannot be read would let the park drop a bullet the base carries.
   pred_awaiting
+  [ "$BASE_UNREAD" = 0 ] || refuse "the base $BASE_ARG could not be read, so a park could not compose with its Awaiting-input bullets"
   park "$REASON" || {
     say "not parked: $COMMIT_ERR"
     exit 5

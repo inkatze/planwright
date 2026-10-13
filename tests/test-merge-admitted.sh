@@ -304,6 +304,16 @@ check "the parked segment opens with the fixed lead" grep -q '^- \*\*Task 1\*\* 
 mp_run "$FLIP" park --spec specs/demo --task 1 --reason 'Bad Reason'
 check "a malformed park reason is a usage error" [ "$CODE" = 2 ]
 mp_fixture
+before=$(mp_origin_head)
+mp_run "$FLIP" park --spec specs/demo --task 1 --reason merge-call --base no-such-base
+check "a park whose base cannot be read is refused (exit 5)" [ "$CODE" = 5 ]
+check "a refused park pushes nothing" [ "$(mp_origin_head)" = "$before" ]
+check "a refused park leaves no local commit" [ "$(gitf rev-parse HEAD)" = "$before" ]
+mp_fixture '- **Task 1** — which way should the flag go?'
+mp_run "$FLIP" park --spec specs/demo --task 1 --reason merge-call --base main
+check "a live base entry still lets the park compose with it (exit 4)" [ "$CODE" = 4 ]
+check "the composed park keeps the base's segment" grep -q '^- \*\*Task 1\*\* — which way should the flag go?; pending ready-flip: merge-call' <<<"$(mp_origin_tasks)"
+mp_fixture
 mp_policy 'merge_policy: human' 'ready_flip_policy: unit-owner'
 mp_run "$FLIP" flip --for-merge --spec specs/demo --task 1
 check "flip --for-merge refuses unless merge_policy is policy-class (exit 3)" [ "$CODE" = 3 ]
