@@ -216,6 +216,15 @@ run
 check "a PR merged at another head than the recorded one is not claimed as this merge (exit 4)" [ "$CODE" = 4 ]
 check "a merge at another head is said as such" grep -qi 'another head' <<<"$OUT"
 check "a merge at another head is said on the PR after the record" grep -qi 'another head' "$GHS/comment.2"
+admit
+: >"$GHS/ready"
+echo 1 >"$GHS/merge_rc"
+: >"$GHS/merge_lands"
+: >"$GHS/merge_moves"
+echo 2 >"$GHS/comment_rc_at"
+run
+check "a merge at another head whose correction cannot be written exits 5" [ "$CODE" = 5 ]
+check "the unwritten correction is named" grep -q 'could not be written' <<<"$OUT"
 
 echo "# the merge call's outcome is read from the host"
 admit

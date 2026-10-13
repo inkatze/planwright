@@ -169,13 +169,16 @@ for spell in "$REAL_SCRIPTS/ready-flip.sh flip --spec specs/demo --{for-merge,ta
     expect deny "[$tier] an assembled --for-merge spelling is refused: $spell"
   done
 done
-for spell in 'bash -e < scripts/merge-admitted.sh' 'bash -s -- --spec x < scripts/merge-admitted.sh'; do
+for spell in 'bash -e < scripts/merge-admitted.sh' 'bash -s -- --spec x < scripts/merge-admitted.sh' \
+  'bash -s -- -c < scripts/merge-admitted.sh' 'bash -x scripts/merge-admitted.sh --spec x'; do
   pg tower "$spell"
   expect deny "[tower] a shell with an option reading the helper on stdin is refused: $spell"
 done
 set_knobs 'merge_policy: human' 'ready_flip_policy: unit-owner'
 for spell in 'bash tests/test-merge-admitted.sh' 'shellcheck scripts/merge-admitted.sh && bash tests/test-merge-admitted.sh' \
-  'git commit -m "docs: explain the --for-merge flag"' 'rg -n -- --for-merge scripts/' 'bash tests/test-*.sh'; do
+  'git commit -m "docs: explain the --for-merge flag"' 'rg -n -- --for-merge scripts/' 'bash tests/test-*.sh' \
+  'bash -x tests/test-policy-guard.sh 2>&1 | grep merge-admitted' 'bash -e tests/run.sh && rg -n foo scripts/merge-admitted.sh' \
+  "$REAL_SCRIPTS/ready-flip.sh park --spec specs/demo --task 1 --reason 'waiting on {operator}'"; do
   pg worker "$spell"
   expect defer "[worker] naming the helper or its flag without running them is not the act: $spell"
 done

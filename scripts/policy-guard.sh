@@ -1035,34 +1035,46 @@ classify_segments() {
       raw_evidence "$cur_text" \
         && deny_now "this command runs through a wrapper whose options the guard does not read, and its text names a reserved act - refusing (fail closed). Issue the command directly."
     else
-      local helper=0 a1 shell=0
+      local helper=0 a1 script_at=0 k opt_c=0 opt_s=0
       ! names_helper "$verb" || helper=1
       case $base_verb in
         bash | sh | zsh | dash | ksh | mksh)
-          shell=1
           # A shell running the helper as its script, the plain form the
-          # plugin-script convention allows; any option first is a wrapper.
-          # A script argument that is a bare expansion, or none (stdin),
-          # counts as the helper when the command names its stem.
-          a1=${SW[1]:-}
-          case $a1 in
-            -*)
-              # Options first: a script on stdin is still the helper.
+          # plugin-script convention allows. Its own options come first, up
+          # to `--` or the first operand: -c hands a command string over (the
+          # wrapper screen below reads it), and -s, or no operand, reads the
+          # script from stdin, which counts as the helper when the command
+          # names its stem; so does an operand that is a bare expansion.
+          k=1
+          while [ "$k" -lt "${#SW[@]}" ]; do
+            case ${SW[$k]} in
+              --)
+                k=$((k + 1))
+                break
+                ;;
+              -o | +o | -O | +O | --rcfile | --init-file) k=$((k + 2)) ;;
+              --*) k=$((k + 1)) ;;
+              [-+]*)
+                case ${SW[$k]} in *c*) opt_c=1 ;; esac
+                case ${SW[$k]} in *s*) opt_s=1 ;; esac
+                k=$((k + 1))
+                ;;
+              *) break ;;
+            esac
+          done
+          a1=${SW[$k]:-}
+          if [ "$opt_c" = 0 ]; then
+            script_at=$k
+            if [ "$opt_s" = 0 ] && [ -n "$a1" ] && names_helper "$a1"; then
+              helper=1
+            elif [ "$opt_s" = 1 ] || [ -z "$a1" ] || [ "${SWL[$k]}" != 1 ]; then
               lc "$P_CMD"
-              [[ ! $LC =~ $RE_MERGE_HELPER ]] || [[ " ${SW[*]} " == *' -c '* ]] || helper=1
-              ;;
-            *)
-              if names_helper "$a1"; then
-                helper=1
-              elif [ -z "$a1" ] || [ "${SWL[1]}" != 1 ]; then
-                lc "$P_CMD"
-                [[ ! $LC =~ $RE_MERGE_HELPER ]] || helper=1
-              fi
-              ;;
-          esac
+              [[ ! $LC =~ $RE_MERGE_HELPER ]] || helper=1
+            fi
+          fi
           ;;
       esac
-      for_merge_check "$shell"
+      for_merge_check "$script_at"
       if [ "$helper" = 1 ]; then
         queue_merge_helper "$eff" "$eff_ok"
         prev_text=$cur_text
@@ -1276,17 +1288,13 @@ names_helper() {
   return 1
 }
 
-# for_merge_check <shell 0|1> — deny an agent's own run of scripts/ready-flip.sh
-# with --for-merge, the merge helper's flag: the command word (or, for a
-# shell, its script argument) names ready-flip.sh and a later word is the
-# flag, or a word that could expand into it (a brace, an expansion that is
-# not the value of one of its value-taking options).
+# for_merge_check <index> — deny an agent's own run of scripts/ready-flip.sh
+# with --for-merge, the merge helper's flag: the word at <index> (the command
+# word, 0, or a shell's script operand) names ready-flip.sh and a later word
+# is the flag, or a word that could expand into it (an unquoted brace, an
+# expansion that is not the value of one of its value-taking options).
 for_merge_check() {
-  local k=1 n=${#SW[@]} w script=${SW[0]}
-  if [ "$1" = 1 ]; then
-    script=${SW[1]:-}
-    k=2
-  fi
+  local k=$(($1 + 1)) n=${#SW[@]} w script=${SW[$1]:-}
   lc "${script##*/}"
   case $LC in
     ready-flip.sh | *'*'* | *'?'* | *'['*)
@@ -1301,13 +1309,13 @@ for_merge_check() {
     lc "$w"
     case $LC in
       --for-merge | --for-merge=*) ;;
-      *'{'*) ;;
       *)
         if [ "${SWL[$k]}" = 1 ]; then
           prev=$LC
           k=$((k + 1))
           continue
         fi
+        case $LC in *'{'*) prev='' ;; esac
         case $prev in
           --spec | --task | --pr | --worktree | --out | --preconditions | --expect-head | --base | --reason)
             case $LC in
