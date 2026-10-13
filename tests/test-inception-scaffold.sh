@@ -771,6 +771,29 @@ assert_eq "clean filter: a credential it adds is refused" "1" "$rc"
 assert_not_contains "clean filter: nothing was committed with it" "AbCdEfGh" \
   "$(cd "$filt_v" && git show HEAD:exports/venture.html 2>/dev/null)"
 
+# A bundle path that is not a regular file is refused before the hook copies
+# it, rather than blocking the commit on a FIFO.
+fifo_v="$tmp/venture-fifo"
+mkdir -p "$fifo_v"
+inception_fixture_write "$fifo_v" >/dev/null 2>&1 || exit 1
+(
+  cd "$fifo_v" || exit 1
+  git init -q .
+  git config user.email fixture@example.invalid
+  git config user.name Fixture
+  git config commit.gpgsign false
+) >/dev/null 2>&1 || exit 1
+"$SCAFFOLD" --rung local --wire "$fifo_v" >/dev/null 2>&1
+(cd "$fifo_v" && git add -A && git commit -qm "start" >/dev/null 2>&1)
+rm -f "$fifo_v/plan.md"
+mkfifo "$fifo_v/plan.md"
+printf '\nnote\n' >>"$fifo_v/brief.md"
+out="$(cd "$fifo_v" && git add brief.md && timeout 20 git commit -qm "fifo" 2>&1)"
+rc=$?
+assert_eq "fifo bundle file: the hook warns and commits, never hangs" "0" "$rc"
+assert_contains "fifo bundle file: says the exports were not regenerated" "were not regenerated" "$out"
+rm -f "$fifo_v/plan.md"
+
 # The repo's own `lint:yaml` covers tracked config, not what this script
 # generates, so the emitted workflow is linted here or nowhere.
 if command -v yamllint >/dev/null 2>&1; then

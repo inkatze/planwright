@@ -318,6 +318,11 @@ for f in brief.md disciplines.md assumptions.md decisions.md plan.md; do
     echo "venture pre-commit: $f is a symbolic link; refusing to render through it." >&2
     not_regenerated
   fi
+  # Only a regular file is copied: a FIFO would block cp waiting for a writer.
+  if [ -e "$top/$f" ] && [ ! -f "$top/$f" ]; then
+    echo "venture pre-commit: $f is not a regular file; refusing to render from it." >&2
+    not_regenerated
+  fi
   [ ! -e "$top/$f" ] || cp "$top/$f" "$snap/$f" || not_regenerated
 done
 for page in venture pitch; do

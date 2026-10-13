@@ -329,6 +329,11 @@ if [ "$cmd" = offer ]; then
       printf '%s\n' "inception-publish: $f is a symbolic link; refusing to offer through it" >&2
       exit 2
     fi
+    # Only a regular file is copied: a FIFO would block cp waiting for a writer.
+    if [ -e "$target/$f" ] && [ ! -f "$target/$f" ]; then
+      printf '%s\n' "inception-publish: $f is not a regular file; refusing to offer from it" >&2
+      exit 2
+    fi
     [ ! -e "$target/$f" ] || cp "$target/$f" "$snap/$f" || exit 2
   done
   rrc=0
