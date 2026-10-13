@@ -22,11 +22,12 @@
 #     `flight`, under the planwright root the brief pins for the worker
 #     (D-16, D-17; REQ-C1.7–C1.9): dispatch refuses exactly where that check
 #     stops a task unit, naming the step and its point, the malformed entry
-#     or layer and the points it reached, or the points a malformed overlay
-#     failed, and names every step the check skipped. Every step kind runs; the worker resolves each point
-#     at its moment by `/execute-task`'s *Points* procedure under that root,
-#     so the brief lists the points, never a pre-resolved step (no second
-#     list, no knob);
+#     or layer and the points it reached, the points a malformed overlay
+#     failed, or a broken or too-old pinned install, and names every step the
+#     check skipped. Every step kind runs; the worker resolves each point at
+#     its moment by `/execute-task`'s *Points* procedure under that root, to
+#     which the worker's launch is pinned, so the brief lists the points,
+#     never a pre-resolved step (no second list, no knob);
 #   - the concurrency bound is the existing `max_parallel_units` (REQ-C1.5),
 #     serialized by scripts/fleet-state.sh's lock under a per-checkout home.
 #
@@ -711,6 +712,7 @@ POINTS_HEADING=Points
 # documents the rest). Where the check fails, as it would stop a task unit,
 # nothing is placed: the refusal names what the resolver's diagnostics say
 # stopped it (never the rows: a parked point prints every one of its steps),
+# plus the pinned install when the exit code says it is broken or too old,
 # and the diagnostics are relayed whole.
 point_rows=''
 check_points() {
@@ -734,7 +736,18 @@ check_points() {
   _cp_detail=$(awk -v q="'" '
     function add(s) { if (!(s in seen)) { seen[s] = 1; out = out (out == "" ? "" : "; ") s } }
     function quoted_id(s) { match(s, /'\''[a-z0-9-]+'\''/); return substr(s, RSTART, RLENGTH) }
-    !/^resolve-steps: [a-z,-]+: / { next }
+    function safe(t) { gsub(/[^A-Za-z0-9._#-]/, "?", t); return t }
+    !/^resolve-steps: [a-z,-]+: / {
+      # A sibling reader the resolver runs reports a repo-tracked hard-fail
+      # under its own name, with no point.
+      if ($0 ~ /repo-tracked/ && $0 ~ /malformed/) {
+        if (match($0, /sets [a-z_]+ to a malformed value/)) {
+          k = substr($0, RSTART, RLENGTH); sub(/^sets /, "", k); sub(/ to a malformed value$/, "", k)
+          add("the repo-tracked config sets " k " to a malformed value")
+        } else add("the repo-tracked config is malformed")
+      }
+      next
+    }
     {
       pts = $0; sub(/^resolve-steps: /, "", pts)
       rest = pts; sub(/^[a-z,-]+: /, "", rest)
@@ -745,10 +758,15 @@ check_points() {
     rest ~ /places '\''[a-z0-9-]+'\'' malformed/ {
       add(pts ": step " quoted_id(rest)); next
     }
-    match(rest, /steps catalog entry [A-Za-z0-9._#-]+ is malformed/) {
-      id = substr(rest, RSTART, RLENGTH)
-      sub(/^steps catalog entry /, "", id); sub(/ is malformed$/, "", id)
-      add("malformed entry " q id q " (at " pts ")"); next
+    index(rest, "steps catalog entry ") && index(rest, " is malformed") {
+      id = substr(rest, index(rest, "steps catalog entry ") + 20)
+      id = substr(id, 1, index(id, " is malformed") - 1)
+      add("malformed entry " q safe(id) q " (at " pts ")"); next
+    }
+    match(rest, /^warning: the (adopter|machine-local) layer sets [a-z_]+ to a malformed value/) {
+      w = substr(rest, RSTART, RLENGTH); sub(/^warning: the /, "", w); sub(/ to a malformed value$/, "", w)
+      sub(/ layer sets /, " ", w)
+      add("the " w " list is malformed (at " pts ")"); next
     }
     rest ~ /^check mode: / { failed = failed (failed == "" ? "" : ", ") pts; next }
     rest ~ /^the repo-tracked / && rest ~ /malformed/ { add("the repo-tracked config or catalog is malformed (at " pts ")"); next }
@@ -762,7 +780,7 @@ check_points() {
   case $_cp_rc in
     2) _cp_why="the pinned root's resolver refused the several-point check, as an install that predates it does; update the planwright install at $brief_root" ;;
     5) _cp_why="the planwright install at $brief_root is broken" ;;
-    1 | 4) _cp_why="a malformed list or config the resolver named above" ;;
+    1 | 4) _cp_why="a malformed list or config" ;;
     *) _cp_why="the check did not complete" ;;
   esac
   case $_cp_rc in
@@ -816,7 +834,7 @@ write_brief() {
   _lifecycle="$(sh_quote "$brief_root/scripts/flight-lifecycle.sh")"
   _push="$_lifecycle push"
   _pushid="$flight_id --handle $brief_handle"
-  _resolver="PLANWRIGHT_ROOT=$(sh_quote "$brief_root") PLANWRIGHT_SKILLS_ROOT=$(sh_quote "$brief_root/skills") $(sh_quote "$brief_root/scripts/resolve-steps.sh")"
+  _resolver=$(sh_quote "$brief_root/scripts/resolve-steps.sh")
 
   # The convergence point keeps its merge-currency `main` sync wherever the
   # flight has a remote to sync from.
@@ -853,8 +871,13 @@ draft on the checked repository:
 \`$_recorder render --home pr $_inputs > $_body && git push -u origin $branch && gh pr create --draft --repo $HOME_DEST --title '<conventional title>' --body-file $_body > $(sh_quote "$_rd/pr-url.tmp") && mv $(sh_quote "$_rd/pr-url.tmp") $(sh_quote "$_rd/pr-url")\`
 Add $_optional to the render only when you wrote them. The record is the PR
 body. Never mark it ready and never merge: the draft-to-ready flip and the
-merge are the human's. A relaunched worker whose \`record/pr-url\` already names
-the PR runs none of this line and carries on below with that PR.
+merge are the human's. A non-zero exit from the push or the create parks the
+flight. A relaunched worker first looks for the flight's PR:
+\`gh pr list --repo $HOME_DEST --head $branch --state open --json url --jq '.[0].url // empty' > $(sh_quote "$_rd/pr-url.found")\`
+When \`record/pr-url\` names the PR, or that wrote a URL (move it to
+\`record/pr-url\`), it runs none of the push and create line and carries on
+below with that PR, firing \`post-pr\` only if the relaunch rule says it is
+still due.
 
 Now the draft PR exists: fire \`post-pr\` (*Work and the points*) with the PR's
 number as \`PLANWRIGHT_STEP_PR_NUMBER\`. After its list, run the sequence
@@ -880,8 +903,11 @@ file on this branch:
 \`$_recorder land $_inputs --record-path $(sh_quote "$record")\`
 Add $_optional only when you wrote them. Do not push and open no PR. A
 relaunched worker whose record is already committed on this branch skips the
-land. The committed record is the landing reference; push the completion with
-it:
+land; a record at that path that is not committed is an interrupted land's
+leftover, so it runs
+\`git rm -q --cached --ignore-unmatch -- $(sh_quote "$record") && rm -f -- $(sh_quote "$record")\`
+and then lands. The committed record is the landing reference; push the
+completion with it:
 \`$_push completion $_pushid --landing $(sh_quote "record:$record")\`"
   fi
 
@@ -921,16 +947,17 @@ it:
     printf '\n'
     printf '%s\n' "- Resolve every point \`--unattended\`, never \`--attended\`: a flight never"
     printf '%s\n' "  blocks on a question."
-    printf '%s\n' "- Pin the resolver to the planwright root \`$brief_root\`:"
+    printf '%s\n' "- Your launch pins the planwright root to \`$brief_root\`, the root dispatch"
+    printf '%s\n' "  checked under: call the resolver as"
     printf '%s\n' "  \`$_resolver <point> --explain --unattended\`,"
-    printf '%s\n' "  and call every other script the procedure names under that root's \`scripts/\`."
+    printf '%s\n' "  and every other script the procedure names under that root's \`scripts/\`."
     printf '%s\n' "- Export the step context with \`PLANWRIGHT_STEP_UNIT_KIND=flight\`, an empty"
     printf '%s\n' "  spec and task ids, branch \`$branch\`, base branch \`main\`, and this worktree;"
     printf '%s\n' "  an isolated step's launch tier takes the unit \`flight:$flight_id\`."
-    printf '%s\n' "- Issue one run id per worker launch. A relaunched worker whose worktree"
-    printf '%s\n' "  already holds a run resumes the latest one as custom-steps *Resume"
-    printf '%s\n' "  continuation* defines (a new run): it starts at the first point that run"
-    printf '%s\n' "  did not complete without a halt, skipping the steps that resume skips."
+    printf '%s\n' "- Issue one run id per worker launch. A relaunched worker fires, in order,"
+    printf '%s\n' "  each point no run of this flight completed without a halted or failed step"
+    printf '%s\n' "  (\`step-record.sh list\` across every run), running its whole list again;"
+    printf '%s\n' "  it skips no step within a point."
     printf '%s\n' "- Wherever the procedure ends, parks, or stops the unit (the pause protocol"
     printf '%s\n' "  or a stop condition), park the flight instead (*Hard pauses*): write"
     printf '%s\n' "  nothing to any \`tasks.md\` or other spec state."
@@ -985,7 +1012,8 @@ it:
     printf '%s\n' "  Agent-resolvable, Needs sign-off, Needs human judgment, Declined log,"
     printf '%s\n' "  Pending sign-off; then each fired point's step table as"
     printf '%s\n' "  \`$(sh_quote "$brief_root/scripts/step-record.sh") render --run <id> --point <point>\`"
-    printf '%s\n' "  prints it, its \`## Steps at\` heading demoted to \`####\`;"
+    printf '%s\n' "  prints it, its \`## Steps at\` heading demoted to \`####\`, each from the"
+    printf '%s\n' "  latest run holding that point's completion record;"
     printf '%s\n' "- \`scoping.md\`, only when you scoped rigor; and"
     printf '%s\n' "- \`revert.md\`, only when the default revert path does not fit."
     printf '\n%s\n' "Outside a fence, no input may carry a \`<\` directly before a letter, \`/\`,"
@@ -1301,12 +1329,15 @@ cmd_dispatch() {
   # The primitive's output goes to a file, not a pipe: a launched process that
   # inherited its stdout would hold a pipe open past the primitive's exit.
   _out="$brief_dir/dispatch.out"
+  # The primitive pins the worker's launch to the root it resolves, so it is
+  # handed the brief's: the worker's resolver and command guard then read the
+  # install dispatch checked the points under.
   if [ "$backend" = tmux ]; then
     if [ "$dry" -eq 1 ]; then
-      /bin/sh "$WORKTREE" dispatch --flight "$flight_id" --brief "$brief" \
+      PLANWRIGHT_ROOT=$brief_root /bin/sh "$WORKTREE" dispatch --flight "$flight_id" --brief "$brief" \
         --repo-root "$primary_root" --attach-dry-run "$@" </dev/null >"$_out" 2>"$brief_dir/dispatch.err"
     else
-      /bin/sh "$WORKTREE" dispatch --flight "$flight_id" --brief "$brief" \
+      PLANWRIGHT_ROOT=$brief_root /bin/sh "$WORKTREE" dispatch --flight "$flight_id" --brief "$brief" \
         --repo-root "$primary_root" --launch-only "$@" </dev/null >"$_out" 2>"$brief_dir/dispatch.err"
     fi
   else
@@ -1418,7 +1449,8 @@ cmd_dispatch() {
     # The printed launch runs through the dispatch environment pin, as every
     # fleet launch does, and the wrapper quotes each word. It is an operator's
     # hand-launch (the label scripts/check-launch-shape.sh looks for here).
-    set -- claude --worktree "$suffix"
+    # --root pins it to the brief's root, as the tmux rung's launch is.
+    set -- --root "$brief_root" claude --worktree "$suffix"
     [ "$TIER_MODEL" = inherit ] || set -- "$@" --model "$TIER_MODEL"
     [ "$TIER_EFFORT" = inherit ] || set -- "$@" --effort "$TIER_EFFORT"
     if ! _launch=$(/bin/sh "$ENVWRAP" --emit-launch "$@" -- "Read $brief and follow it exactly." </dev/null); then

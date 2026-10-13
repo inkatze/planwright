@@ -10,14 +10,18 @@
 #      (REQ-C1.7); the report names them and the steps each will run.
 #   2. Lists carrying skill, prompt, and command steps at every in-run point
 #      place the flight (REQ-C1.8); the brief points at the *Points*
-#      procedure under the pinned root, pins the resolver there, states
-#      --unattended, and maps the pause protocol to the flight park.
+#      procedure under the pinned root with no root-assignment prefix,
+#      states --unattended, maps the pause protocol and the stop conditions
+#      to the flight park, and re-fires on relaunch each point no run
+#      completed cleanly, rendering each table from the run that did.
 #   3. The convergence point keeps its main sync where the flight has a
 #      remote and records it not run, with the reason, where it has none.
 #   4. post-pr fires after the draft PR with the PR number in context, then
 #      /execute-task's after-post-pr sequence by reference, less the ready
 #      flip, re-emitting only through flight-record.sh render and parking on
 #      a non-draft PR (REQ-C1.11, REQ-C1.12); the file home never fires it.
+#      A relaunched worker finds an existing PR or committed record and never
+#      pushes, creates, or lands twice.
 #   5. Degrade like a task, refuse like a task (REQ-C1.9): an adopter or
 #      machine-local list naming an undefined step places the flight with
 #      that step named as skipped in the report and the brief; a malformed
@@ -26,7 +30,8 @@
 #      too-old pinned install refuses and places nothing, naming the step and
 #      its point, the malformed entry or layer and its points, the points a
 #      malformed overlay failed, or the install, and never a step that passed.
-#   6. Under root skew the check runs against the root the brief pins.
+#   6. Under root skew the check runs against the root the brief pins, and
+#      both rungs' launches pin the worker to that root.
 #   7. The pin-check: the *Points* heading the brief names exists in
 #      /execute-task's skill, and the check fails once it is renamed.
 #
@@ -112,7 +117,7 @@ b=$(cat "$(field "$OUT" brief)")
 printf '%s\n' "$b" | grep -qF "*Points*" || fail "the brief must name /execute-task's *Points* procedure"
 printf '%s\n' "$b" | grep -qF "\`$ROOT/skills/execute-task/SKILL.md\`" \
   || fail "the brief must read the procedure from the pinned root's skill"
-printf '%s\n' "$b" | grep -qF "PLANWRIGHT_ROOT='$ROOT' PLANWRIGHT_SKILLS_ROOT='$ROOT/skills' '$ROOT/scripts/resolve-steps.sh' <point> --explain --unattended" \
+printf '%s\n' "$b" | grep -qF "\`'$ROOT/scripts/resolve-steps.sh' <point> --explain --unattended\`" \
   || fail "the brief must pin the resolver to the root it names"
 printf '%s\n' "$b" | grep -q 'never `--attended`' || fail "the brief must resolve every point unattended"
 printf '%s\n' "$b" | grep -qF 'PLANWRIGHT_STEP_UNIT_KIND=flight' || fail "the brief must set unit kind flight"
@@ -121,10 +126,19 @@ flat "$b" | grep -q 'ends, parks, or stops the unit (the pause protocol or a sto
 fid=$(field "$OUT" flight)
 printf '%s\n' "$b" | grep -qF "launch tier takes the unit \`flight:$fid\`" \
   || fail "an isolated step's launch tier must take the flight's own unit"
-flat "$b" | grep -q 'A relaunched worker whose worktree already holds a run resumes the latest one as custom-steps \*Resume continuation\* defines (a new run)' \
-  || fail "a relaunched worker must resume as custom-steps defines"
-flat "$b" | grep -q 'starts at the first point that run did not complete without a halt' \
-  || fail "a resume must not skip a halted point"
+# The guard defers an environment-assignment prefix, so the brief carries none:
+# the launch pins the root instead.
+printf '%s\n' "$b" | grep -q 'PLANWRIGHT_ROOT=\|PLANWRIGHT_SKILLS_ROOT=' \
+  && fail "the brief must not prefix a command with a root assignment"
+flat "$b" | grep -q 'A relaunched worker fires, in order, each point no run of this flight completed without a halted or failed step (`step-record.sh list` across every run), running its whole list again; it skips no step within a point' \
+  || fail "a relaunched worker must re-fire every point no run completed cleanly"
+printf '%s\n' "$b" | grep -qi 'resume' && fail "the brief must not promise a resume the tooling lacks"
+flat "$b" | grep -q 'each from the latest run holding that point.s completion record' \
+  || fail "each step table must render from the latest run that completed its point"
+case $(field "$OUT" launch) in
+  *"fleet-dispatch-env.sh' '--root' '$ROOT' 'claude' '--worktree'"*) ;;
+  *) fail "the print launch must pin the brief's root: $(field "$OUT" launch)" ;;
+esac
 flat "$b" | grep -q 'write nothing to any `tasks.md`' || fail "the flight park must write no spec state"
 # The worker resolves at point time: the brief lists no pre-resolved step.
 printf '%s\n' "$b" | grep -q '/planwright:polish' && fail "the brief must not pre-render a resolved step"
@@ -164,8 +178,12 @@ flat "$post" | grep -q 'its `## Pending sign-off` heading demoted to `####`' \
   || fail "the regenerated checklist's heading must be demoted under the record's"
 printf '%s\n' "$b" | grep -qF -- "> '$record_dir/pr-url.tmp' && mv '$record_dir/pr-url.tmp' '$record_dir/pr-url'" \
   || fail "a failed create must never empty pr-url"
-flat "$b" | grep -q 'A relaunched worker whose `record/pr-url` already names the PR runs none of this line' \
-  || fail "a relaunched worker must not push and create the PR again"
+flat "$b" | grep -q 'A non-zero exit from the push or the create parks the flight' \
+  || fail "a failed push or create must park the flight"
+printf '%s\n' "$b" | grep -qF "gh pr list --repo github.com/acme/widgets --head planwright/flight/$fid --state open" \
+  || fail "a relaunched worker must look for the flight's PR on the remote"
+flat "$b" | grep -q 'it runs none of the push and create line and carries on below with that PR, firing `post-pr` only if the relaunch rule says it is still due' \
+  || fail "a relaunched worker must not push and create the PR again, nor re-fire a completed post-pr"
 flat "$post" | grep -q 'replace its Pending sign-off section with the regenerated checklist' \
   || fail "a moved head must carry the regenerated checklist into the re-emit"
 printf '%s\n' "$post" | grep -qF 'isDraft' || fail "the brief must verify the PR is still a draft"
@@ -190,6 +208,8 @@ printf '%s\n' "$b" | grep -q 'not-fired `post-pr` row' || fail "the file home mu
 printf '%s\n' "$b" | grep -q 'gh pr' && fail "the file home must carry no gh pr command"
 flat "$b" | grep -q 'A relaunched worker whose record is already committed on this branch skips the land' \
   || fail "a relaunched file-home worker must not land the record twice"
+flat "$b" | grep -q "a record at that path that is not committed is an interrupted land's leftover" \
+  || fail "a relaunched file-home worker must clear an interrupted land's leftover"
 [ "$(brief_points "$(field "$OUT" brief)")" = "$want" ] || fail "the file home must still name every in-run point"
 
 # --- 5. degrade like a task, refuse like a task -------------------------------
@@ -291,9 +311,30 @@ mkdir -p "$c/primary/.claude/catalogs"
 printf 'steps:\n  - kind: skill\n    target: polish\n' >"$c/primary/.claude/catalogs/steps.yaml"
 dispatch_print
 label="a repo-tracked catalog entry with no id"
-refused "(at pre-implementation, pre-ci, convergence, pre-pr, post-pr)"
-printf '%s\n' "$ERR" | grep '^flight-dispatch: ' | grep -q 'did not name' \
-  && fail "$label: the refusal must not deny naming points the resolver named: $ERR"
+refused "the repo-tracked config or catalog is malformed (at pre-implementation, pre-ci, convergence, pre-pr, post-pr)"
+# An entry id outside the id charset keeps its layer and id.
+new_case
+mkdir -p "$c/primary/.claude/catalogs"
+printf 'steps:\n  - id: Foo!x\n    kind: skill\n    target: polish\n' >"$c/primary/.claude/catalogs/steps.yaml"
+dispatch_print
+label="a repo-tracked entry id outside the charset"
+refused "malformed entry 'Foo?x' (at pre-implementation, pre-ci, convergence, pre-pr, post-pr)"
+# A list or entry the resolver places malformed names its step.
+new_case
+mkdir -p "$c/primary/.claude/catalogs"
+printf 'steps:\n  - id: rx\n    kind: command\n    target: scripts/x.sh\n    paths: src\n    refire: post-pr\n' \
+  >"$c/primary/.claude/catalogs/steps.yaml"
+printf 'steps_convergence: [rx]\n' >"$c/primary/.claude/planwright.yml"
+dispatch_print
+label="a step placed malformed"
+refused "convergence: step 'rx'"
+# A sibling reader's repo-tracked hard-fail is named by its key.
+new_case
+mkdir -p "$c/primary/.claude"
+printf 'dispatch_isolation: weird\n' >"$c/primary/.claude/planwright.yml"
+dispatch_print
+label="a sibling reader's repo-tracked hard-fail"
+refused "the repo-tracked config sets dispatch_isolation to a malformed value"
 # A parked point prints every one of its steps; only the broken one is named.
 new_case
 mkdir -p "$c/adopter/catalogs" "$c/primary/.claude"
@@ -322,12 +363,45 @@ dispatch_print
 [ "$(field "$OUT" root-skew)" = yes ] || fail "the fixture must read as skewed (out: $OUT)"
 printf '%s\n' "$OUT" | grep -qx "steps${TAB}convergence${TAB}self-review" \
   || fail "the check must resolve the pinned root's core list, not the tower's (out: $OUT)"
-grep -qF "PLANWRIGHT_ROOT='$inst' PLANWRIGHT_SKILLS_ROOT='$inst/skills' '$inst/scripts/resolve-steps.sh'" "$(field "$OUT" brief)" \
-  || fail "the brief must pin the worker's root for the resolver"
-grep -qF "\`$inst/skills/execute-task/SKILL.md\`" "$(field "$OUT" brief)" \
+grep -qF "\`'$inst/scripts/resolve-steps.sh' <point> --explain --unattended\`" "$(field "$OUT" brief)" \
+  || fail "the brief must call the worker root's resolver"
+case $(field "$OUT" launch) in
+  *"'--root' '$inst' 'claude'"*) ;;
+  *) fail "the print launch must pin the worker's root: $(field "$OUT" launch)" ;;
+esac
+skew_brief=$(field "$OUT" brief)
+grep -qF "\`$inst/skills/execute-task/SKILL.md\`" "$skew_brief" \
   || fail "the brief must read the procedure from the worker's root, not the tower's"
-grep -qF "'$inst/scripts/converge-sync-main.sh'" "$(field "$OUT" brief)" \
+grep -qF "'$inst/scripts/converge-sync-main.sh'" "$skew_brief" \
   || fail "the brief must run the main sync from the worker's root"
+run dispatch readme-typo --backend tmux --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" \
+  --repo-root "$c/primary" --attach-dry-run
+[ "$RC" -eq 0 ] || fail "a skewed tmux dry run must place the flight (rc $RC: $ERR)"
+plan=$(printf '%s\n' "$OUT" | awk -F"$TAB" '$1=="attach-plan" && $2=="launch"')
+case $plan in
+  *"fleet-dispatch-env.sh${TAB}"*"--root${TAB}$inst${TAB}"*) ;;
+  *) fail "the tmux launch must pin the worker's root: $plan" ;;
+esac
+# A degraded list beside a parked point is named, not only the park.
+new_case
+inst="$c/claude/plugins/cache/mk/planwright/0.0.1-skew"
+install_plugin_copy "$inst" 0.0.1-skew
+sed 's/^steps_pre_ci:.*/steps_pre_ci: [ghost-core]/' "$ROOT/config/defaults.yml" >"$inst/config/defaults.yml"
+mkdir -p "$c/primary/.claude"
+printf 'steps_pre_ci: [Bad_Id]\n' >"$c/primary/.claude/planwright.local.yml"
+dispatch_print
+label="a degraded list beside a parked point"
+refused "the machine-local steps_pre_ci list is malformed (at pre-ci)"
+# A malformed core list is a broken install, named with the point it reached.
+new_case
+inst="$c/claude/plugins/cache/mk/planwright/0.0.1-skew"
+install_plugin_copy "$inst" 0.0.1-skew
+sed 's/^steps_pre_pr:.*/steps_pre_pr: [Bad_Id]/' "$ROOT/config/defaults.yml" >"$inst/config/defaults.yml"
+dispatch_print
+label="a malformed core list"
+refused "the planwright install at $inst is broken"
+printf '%s\n' "$ERR" | grep '^flight-dispatch: ' | grep -q 'pre-pr' \
+  || fail "$label: the refusal must name the point the core list reached: $ERR"
 # A malformed entry in the pinned root's core catalog is a broken install.
 new_case
 inst="$c/claude/plugins/cache/mk/planwright/0.0.1-skew"
