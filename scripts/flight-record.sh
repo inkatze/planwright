@@ -17,11 +17,12 @@
 # Every structural line (the markers, the headings, the collapse tags, the
 # fences) sits at column zero. The ask and the grounds are operator text: each
 # is stripped of control and invisible characters, its token-shaped secrets
-# redacted a whole line at a time, and it is quoted inside a fence longer than
-# any backtick run it holds with every non-blank line indented two spaces, so
-# no fence, tag, heading, or marker it carries renders, closes the collapse, or
-# reaches column zero where a line-anchored reader would take it for
-# structure. Worker-authored inputs are stripped the same way and normalized
+# and personal data (identity, account, and contact numbers) redacted a whole
+# line (a private key its whole block) at a time, and it is quoted inside a
+# fence longer than any backtick run it holds with every non-blank line
+# indented two spaces, so no fence, tag, heading, or marker it carries
+# renders, closes the collapse, or reaches column zero where a line-anchored
+# reader would take it for structure. Worker-authored inputs are stripped the same way and normalized
 # for the markdown lint (trailing whitespace, blank-line runs, edge blank
 # lines), and refused, never otherwise rewritten, when they carry a
 # token-shaped secret or markup that would reshape the record around them (raw
@@ -42,10 +43,18 @@
 #       commit that one file on the flight's own branch, reporting
 #       `record<TAB><repo-relative path>` and `commit<TAB><sha>`. Refused
 #       (exit 3, nothing written) off the branch
-#       `planwright/flight/<flight-id>`, when the record already exists, when
-#       a directory on the record path is a symlink or not a directory, or
-#       when the index holds other staged changes. A commit git or its hooks refuse takes the record back out of
-#       the index and the worktree (exit 4).
+#       `planwright/flight/<flight-id>`, when the record already exists or
+#       appears while land runs, when a directory on the record path is a
+#       symlink or not a directory (checked again, one component at a time, as
+#       land creates them), or when the index holds other staged changes. A
+#       re-run whose record matches its render, both committed and in the
+#       checkout (compared through git), reports that record and succeeds, as
+#       does a run whose commit finds a concurrent run already committed the
+#       same render. The record is created only if absent, so a concurrent
+#       run's record is never overwritten. A commit git or its hooks refuse
+#       (exit 4), or an interrupt, rolls back while HEAD lacks the record: it
+#       unstages it and deletes it when it is still the file this run wrote,
+#       reporting on stderr what it removed, kept, or could not unstage.
 #
 #   The caller chooses the record path (flight-dispatch.sh computes it), so
 #   this script composes no spec-home path of its own. It is repo-relative,
@@ -85,10 +94,14 @@
 # and spacing, is refused (exit 2).
 #
 # Exit codes: 0 rendered or landed · 2 usage or an input refused · 3 refused
-# by state (over the PR-body limit; for land, the branch, an existing record,
-# a symlink or non-directory on the record path, or a staged index) · 4 an
-# environment failure (a missing helper, a sanitizer, the secret screen, or git
-# could not run, or refused the record commit).
+# by state (over the PR-body limit; for land, the branch, an existing record
+# other than a matching re-run, a record that appeared while land ran, a
+# symlink or non-directory on the record path, or a staged index) · 4 an
+# environment failure (a missing helper, a sanitizer, the secret screen, or
+# git could not run, or refused the record commit; the screen reported a
+# finding in no input it was given; or the work directory, the record, or a
+# directory on its path could not be resolved, created, entered, or
+# written).
 #
 # Portable POSIX sh (the bash 3.2 floor); no eval; pathname expansion off.
 set -uf
@@ -179,34 +192,229 @@ blank() {
   [ -z "$(tr -d ' \t\n\r' <"$1")" ]
 }
 
-# screen_all <file>... — run the repository's secret screen once over every
-# input (its built-in pattern set, so the verdict does not vary with the
-# host's tools) and write `<path><TAB><line><TAB><rule>` per finding to
-# $work/hits. An unusable screen exits 4. The screen never prints the matched
-# text, and neither does anything here.
+# screen_all <name>... — run the repository's secret screen once over every
+# input, named relative to $work (its built-in pattern set, so the verdict
+# does not vary with the host's tools), and write `<name><TAB><line><TAB><rule>`
+# per finding to $work/hits. The screen runs inside $work on those fixed ASCII
+# names because it strips bytes from the paths it reports, so a work directory
+# under a non-ASCII TMPDIR would report paths no input matches. A finding
+# naming anything but an input, or an unusable screen, exits 4. The screen
+# never prints the matched text, and neither does anything here.
 screen_all() {
   _src=0
-  PLANWRIGHT_SECRET_SCREEN_TOOL=none /bin/sh "$SCREEN" -- "$@" >/dev/null 2>"$work/screen.err" </dev/null || _src=$?
+  (cd "$work" && TMPDIR=$work PLANWRIGHT_SECRET_SCREEN_TOOL=none exec /bin/sh "$SCREEN" -- "$@") \
+    >/dev/null 2>"$work/screen.err" </dev/null || _src=$?
   : >"$work/hits" || die 4 "cannot write the screen's findings"
   case $_src in
     0) return 0 ;;
     1) ;;
     *) die 4 "the secret screen could not run (exit $_src)" ;;
   esac
-  awk '
+  _inputs=''
+  for _n in "$@"; do _inputs="$_inputs$_n$LF"; done
+  awk -v inputs="$_inputs" '
+    BEGIN { n = split(inputs, a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") ok[a[i]] = 1 }
     match($0, /:[0-9]+: [a-z0-9-]+ \(value redacted\)$/) {
       path = substr($0, 1, RSTART - 1)
       rest = substr($0, RSTART + 1)
       n = index(rest, ": ")
       rule = substr(rest, n + 2)
       sub(/ \(value redacted\)$/, "", rule)
+      if (!(path in ok)) { stray = 1; exit }
       print path "\t" substr(rest, 1, n - 1) "\t" rule
-    }' "$work/screen.err" >"$work/hits" || die 4 "cannot read the secret screen's report"
+    }
+    END { exit stray ? 3 : 0 }' "$work/screen.err" >"$work/hits"
+  case $? in
+    0) ;;
+    3) die 4 "the secret screen reported a finding in no input this script screened; refusing to pass the inputs" ;;
+    *) die 4 "cannot read the secret screen's report" ;;
+  esac
   [ -s "$work/hits" ] || die 4 "the secret screen reported a finding this script could not place"
 }
 
-# hits_for <file> <out> — the screen's `<line><TAB><rule>` findings in <file>;
-# true when there are any.
+# personal_data <name> — append to $work/hits a `<name><TAB><line><TAB><rule>`
+# finding for each personal-data rule a line of the operator text <name>
+# matches: a US social security number (personal-data-identity), a payment
+# card that passes its Luhn check or an uppercase IBAN that passes its mod-97
+# check (personal-data-account), and a NANP or `+`-prefixed international
+# phone number (personal-data-contact). Sentence punctuation around a number
+# and its neighbours' separators are accepted; the shapes are strict (issued
+# SSN ranges, NANP area and exchange digits, card issuer digits and group
+# layouts, the checksums), which keeps version strings, dates, PR numbers,
+# timestamps, and hashes out. Deliberately missed: a card separated by
+# anything but spaces or dashes (a dotted card), an unseparated card glued to
+# another number by a separator, a NANP exchange starting with 0 or 1, and a
+# lowercase IBAN. awk without interval expressions, which POSIX awk does not
+# promise.
+personal_data() {
+  awk -v name="$1" '
+    function luhn(d,   i, x, s, alt) {
+      s = 0
+      alt = 0
+      for (i = length(d); i >= 1; i--) {
+        x = substr(d, i, 1) + 0
+        if (alt) { x *= 2; if (x > 9) x -= 9 }
+        s += x
+        alt = !alt
+      }
+      return s % 10 == 0
+    }
+    function iban(s,   r, i, c) {
+      s = substr(s, 5) substr(s, 1, 4)
+      r = 0
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (c ~ /[0-9]/) r = (r * 10 + c) % 97
+        else r = (r * 100 + index("ABCDEFGHIJKLMNOPQRSTUVWXYZ", c) + 9) % 97
+      }
+      return r == 1
+    }
+    function hit(rule) {
+      if (!(rule in seen)) print name "\t" FNR "\t" rule
+      seen[rule] = 1
+    }
+    # each(re) — the matches of re in s, one per call, with the byte before
+    # and after each; false when there are no more.
+    function each(re,   t) {
+      t = substr(s, off + 1)
+      if (!match(t, re)) return 0
+      st = off + RSTART
+      m = substr(s, st, RLENGTH)
+      pre = substr(s, st - 1, 1)
+      post = substr(s, st + RLENGTH, 1)
+      off = st + RLENGTH - 1
+      return 1
+    }
+    # alone — the match is not part of a longer number or a word: no digit,
+    # letter, or underscore beside it, and no `.` or `-` joining another digit.
+    # A trailing `.` or `,` that ends the sentence is fine.
+    function alone() {
+      if (pre ~ /[A-Za-z0-9_]/ || post ~ /[A-Za-z0-9_]/) return 0
+      if (pre ~ /[.-]/ && substr(s, st - 2, 1) ~ /[0-9]/) return 0
+      if (post ~ /[.-]/ && substr(s, st + length(m) + 1, 1) ~ /[0-9]/) return 0
+      return 1
+    }
+    # ibanat(j) — the groups of the IBAN candidate g[] from group j form an
+    # IBAN: unseparated, or in groups of four with the last shorter.
+    function ibanat(j,   c, q) {
+      if (length(g[j]) > 4)
+        return length(g[j]) >= 15 && length(g[j]) <= 34 && (j < ng || post !~ /[a-z_]/) && iban(g[j])
+      c = g[j]
+      for (q = j + 1; q <= ng && length(g[q]) <= 4; q++) {
+        c = c g[q]
+        if (length(c) > 34) return 0
+        if (length(c) >= 15 && (q < ng || post !~ /[a-z_]/) && iban(c)) return 1
+        if (length(g[q]) < 4) return 0
+      }
+      return 0
+    }
+    # card(d) — a payment card: an issuer digit (2 to 6) and a valid Luhn sum.
+    function card(d) { return d ~ /^[2-6]/ && luhn(d) }
+    {
+      split("", seen)
+      s = " " $0 " "
+      # A social security number: one separator, dash or space, and an area,
+      # group, and serial the SSA issues. Known false positive, kept by the
+      # operator: a spaced triple of the same shape, such as ports or sizes
+      # (`443 80 8080`), is redacted too.
+      off = 0
+      while (each("[0-9][0-9][0-9][ -][0-9][0-9][ -][0-9][0-9][0-9][0-9]")) {
+        if (!alone() || substr(m, 4, 1) != substr(m, 7, 1)) continue
+        a = substr(m, 1, 3)
+        if (a == "000" || a == "666" || a ~ /^9/ || substr(m, 5, 2) == "00" || substr(m, 8, 4) == "0000") continue
+        hit("personal-data-identity")
+      }
+      # A NANP number, optionally 1-prefixed: area and exchange start 2 to 9,
+      # and an unparenthesized area uses the exchange'"'"'s separator.
+      off = 0
+      while (each("(1[ .-])?([(][2-9][0-9][0-9][)][ .-]?|[2-9][0-9][0-9][ .-])[2-9][0-9][0-9][ .-][0-9][0-9][0-9][0-9]")) {
+        if (!alone()) continue
+        c = m
+        if (c ~ /^1[ .-]/) c = substr(c, 3)
+        if (c !~ /^[(]/ && substr(c, 4, 1) != substr(c, 8, 1)) continue
+        hit("personal-data-contact")
+      }
+      # An international number: `+`, a country digit, 8 to 15 digits, and
+      # single separators. A word or more digits running on after it end the
+      # number at an earlier group (`... 0958 24h`).
+      off = 0
+      while (each("[+][1-9][0-9 .()-]*[0-9]")) {
+        if (pre ~ /[A-Za-z0-9_+]/) continue
+        # One forward pass: dg[i] is the i-th digit group, sep[i + 1] the
+        # separator after it. A word right after drops the last group; the
+        # number then ends at the last group boundary within 15 digits.
+        ng = split(m, dg, "[ .()-]+")
+        split(m, sep, "[0-9]+")
+        if (post ~ /[A-Za-z0-9_]/) {
+          if (ng < 2) continue
+          ng--
+        }
+        n = 0
+        for (i = 1; i <= ng; i++) {
+          d = length(dg[i]) - (i == 1)
+          if (n + d > 15) break
+          if (i > 1 && sep[i] ~ /[ .-][ .-]/) { n = 0; break }
+          n += d
+        }
+        if (n >= 8 && n <= 15) hit("personal-data-contact")
+      }
+      # A card: 13 to 19 digits unseparated, or a standard group layout
+      # (4-4-4-4, 4-4-4-4-3, 4-6-5, 4-6-4) under one separator, found
+      # anywhere in a run of groups, whatever separates its neighbours, so a
+      # date or an expiry beside it does not hide it.
+      off = 0
+      while (each("[0-9]+([ -][0-9]+)*")) {
+        if (pre ~ /[A-Za-z_]/ || post ~ /[A-Za-z_]/) continue
+        if (pre == "." && substr(s, st - 2, 1) ~ /[0-9]/) continue
+        if (m !~ /[ -]/) {
+          if (length(m) >= 13 && length(m) <= 19 && card(m)) hit("personal-data-account")
+          continue
+        }
+        # g[j] is the j-th group, sp[j] the single separator before it. Every
+        # layout opens with four digits, so only such a group starts a
+        # window, and a run is scanned for its first 64 windows: a longer run
+        # of digit groups is a table or a dump, not prose.
+        ng = split(m, g, "[ -]")
+        pos = 1
+        for (j = 1; j <= ng; j++) {
+          sp[j] = j > 1 ? substr(m, pos - 1, 1) : ""
+          pos += length(g[j]) + 1
+        }
+        nl = split("4 4 4 4 3|4 4 4 4|4 6 5|4 6 4", lay, "|")
+        tried = 0
+        for (i = 1; i <= ng && tried < 64 && !("personal-data-account" in seen); i++) {
+          if (length(g[i]) != 4) continue
+          tried++
+          for (l = 1; l <= nl; l++) {
+            k = split(lay[l], w, " ")
+            if (i + k - 1 > ng) continue
+            d = ""
+            for (j = 1; j <= k && length(g[i + j - 1]) == w[j] && (j < 3 || sp[i + j - 1] == sp[i + 1]); j++) d = d g[i + j - 1]
+            if (j > k && card(d)) { hit("personal-data-account"); break }
+          }
+        }
+      }
+      # An IBAN, unseparated or in groups of four, the last shorter; the
+      # groups stop at 34 characters so a long uppercase run costs little.
+      off = 0
+      # A candidate that is no IBAN is retried from its later IBAN-shaped
+      # groups, so a token like `AB12` before an IBAN does not hide it; at
+      # most 64 retries per candidate, each bounded at 34 characters.
+      while (each("[A-Z][A-Z][0-9][0-9]( ?[A-Z0-9])+")) {
+        ng = split(m, g, " ")
+        if (pre !~ /[A-Za-z0-9_]/ && ibanat(1)) { hit("personal-data-account"); continue }
+        tried = 0
+        for (i = 2; i <= ng && tried < 64; i++) {
+          if (g[i] !~ /^[A-Z][A-Z][0-9][0-9]/) continue
+          tried++
+          if (ibanat(i)) { hit("personal-data-account"); break }
+        }
+      }
+    }' "$work/$1" >>"$work/hits" || die 4 "cannot screen --${1%.clean} for personal data"
+}
+
+# hits_for <name> <out> — the `<line><TAB><rule>` findings, the screen's and
+# the personal-data pass's, in the input <name>; true when there are any.
 hits_for() {
   awk -F '\t' -v p="$1" '$1 == p { print $2 "\t" $3 }' "$work/hits" >"$2" || die 4 "cannot read the screen's findings"
   [ -s "$2" ]
@@ -221,16 +429,105 @@ operator_text() {
   ! blank "$work/$1.clean" || die 2 "--$1 is empty once sanitized"
 }
 
+# The private-key block markers, one begin and end pair per format (PEM and
+# PGP, SSH2, PuTTY): the begins together match what the screen's
+# private-key-block rule flags, and each end is its own format's last line,
+# the SSH2 and PuTTY ends only at the start of a line (after any indent or
+# `>` quoting). A PEM or PGP block ends only at the END line naming its own
+# key type, derived from its BEGIN line; the PEM end here documents the shape.
+KEY_FORMATS='-----BEGIN ([A-Z0-9]+ )*PRIVATE KEY( BLOCK)?-----	-----END ([A-Z0-9]+ )*PRIVATE KEY( BLOCK)?-----
+---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----	^[[:blank:]>]*---- END SSH2 ENCRYPTED PRIVATE KEY ----
+PuTTY-User-Key-File-[0-9]+:	^[[:blank:]>]*Private-MAC:'
+
 # redact <name> <out> — the cleaned text with each line the screen flagged
-# replaced whole; REDACTED is 1 when any was.
+# replaced whole; REDACTED is 1 when a secret was, REDACTED_PERSONAL when
+# personal data was. The screen flags only a key block's BEGIN line, so every
+# line after it is dropped through that format's own END line, or to the end
+# of the text when there is none; a line is read marker by marker, so the
+# last one on it decides, and another format's end inside a key ends nothing.
 redact() {
   REDACTED=0
-  if hits_for "$work/$1.clean" "$work/$1.hits"; then
-    awk -F '\t' '
-      NR == FNR { r[$1] = (r[$1] == "" ? $2 : r[$1] ", " $2); next }
-      FNR in r { print "[redacted: " r[FNR] ", a token-shaped secret]"; next }
-      { print }' "$work/$1.hits" "$work/$1.clean" >"$2" || die 4 "cannot redact --$1"
-    REDACTED=1
+  REDACTED_PERSONAL=0
+  if hits_for "$1.clean" "$work/$1.hits"; then
+    awk -F '\t' -v formats="$KEY_FORMATS" '
+      BEGIN {
+        nk = split(formats, f, "\n")
+        for (k = 1; k <= nk; k++) {
+          split(f[k], pair, "\t")
+          kb[k] = pair[1]
+          ke[k] = pair[2]
+          # The same end anywhere on a line, for the line that opened the block.
+          kf[k] = ke[k]
+          sub(/^\^\[\[:blank:\]>\]\*/, "", kf[k])
+        }
+      }
+      # at(s, re, from) — where re first matches s at or after from, its
+      # length in RL; 0 when it does not. An re anchored with ^ matches only
+      # at the start of the line.
+      function at(s, re, from,   t) {
+        if (re ~ /^\^/ && from > 1) return 0
+        t = substr(s, from)
+        if (!match(t, re)) return 0
+        RL = RLENGTH
+        return from + RSTART - 1
+      }
+      NR == FNR {
+        r[$1] = (r[$1] == "" ? $2 : r[$1] ", " $2)
+        if ($2 !~ /^personal-data-/) secret[$1] = 1
+        next
+      }
+      {
+        was = inkey
+        if (was || FNR in r) {
+          pos = 1
+          opened = 0
+          while (1) {
+            if (inkey) {
+              # On lines after the one that opened the block, a PEM or PGP
+              # Comment header is free text, never the end, and the SSH2
+              # and PuTTY ends count only at the start of the line.
+              if (!opened && kind == 1 && $0 ~ /^[[:blank:]>]*Comment:/) break
+              if (kind == 1) {
+                # A PEM or PGP block ends only at the END line of its own
+                # key type, found as literal text.
+                p = index(substr($0, pos), pemend)
+                if (p) { p += pos - 1; RL = length(pemend) }
+              } else p = at($0, opened ? kf[kind] : ke[kind], pos)
+              if (!p) break
+              inkey = 0
+              pos = p + RL
+            } else {
+              best = 0
+              for (k = 1; k <= nk; k++) {
+                p = at($0, kb[k], pos)
+                if (p && (!best || p < best)) { best = p; bk = k; bl = RL }
+              }
+              if (!best) break
+              inkey = 1
+              kind = bk
+              opened = 1
+              if (kind == 1) {
+                pemend = substr($0, best, bl)
+                sub(/-----BEGIN /, "-----END ", pemend)
+              }
+              pos = best + bl
+            }
+          }
+        }
+        # A line inside a block goes with the block, unmarked: its key is
+        # already marked, and its findings raise no note of their own.
+        if (was) next
+        if (FNR in r) {
+          print "[redacted: " r[FNR] ((FNR in secret) ? ", a token-shaped secret]" : ", personal data]")
+          if (r[FNR] ~ /personal-data-/) personal = 1
+          if (FNR in secret) sec = 1
+        } else print
+      }
+      END { print sec + 2 * personal >flags }' flags="$work/$1.flags" "$work/$1.hits" "$work/$1.clean" >"$2" \
+      || die 4 "cannot redact --$1"
+    _flags=$(cat "$work/$1.flags") || die 4 "cannot redact --$1"
+    REDACTED=$((_flags % 2))
+    REDACTED_PERSONAL=$((_flags / 2))
   else
     cp "$work/$1.clean" "$2" || die 4 "cannot copy --$1"
   fi
@@ -313,8 +610,8 @@ worker_text() {
   [ -z "$_why" ] || die 2 "--$1 carries $_why, which would alter the record's structure; remove it and render again"
 }
 
-# refuse_secrets <name> <file> — refuse a worker input the screen flagged,
-# naming the rules and never the text.
+# refuse_secrets <flag> <name> — refuse the worker input <name> the screen
+# flagged, naming the rules and never the text.
 refuse_secrets() {
   if hits_for "$2" "$work/$1.hits"; then
     die 2 "--$1 carries a token-shaped secret ($(cut -f2 "$work/$1.hits" | sort -u | tr '\n' ' ' | sed 's/ $//')); remove it and render again"
@@ -403,12 +700,14 @@ render_to() {
     printf 'Quoted as the operator gave it, fenced so its markup stays inert.\n'
     [ "$ask_stripped" -eq 0 ] || printf 'Invisible or bidi-control characters were stripped from it.\n'
     [ "$ask_redacted" -eq 0 ] || printf 'Lines carrying a token-shaped secret were redacted whole.\n'
+    [ "$ask_personal" -eq 0 ] || printf 'Lines carrying personal data were redacted whole.\n'
     printf '\n'
     fenced "$work/ask" || return 1
     printf '\n### Route and grounds\n\n'
     printf 'Visual flight. Grounds as the tower stated them:\n'
     [ "$grounds_stripped" -eq 0 ] || printf 'Invisible or bidi-control characters were stripped from them.\n'
     [ "$grounds_redacted" -eq 0 ] || printf 'A token-shaped secret in them was redacted whole.\n'
+    [ "$grounds_personal" -eq 0 ] || printf 'Personal data in them was redacted whole.\n'
     printf '\n'
     fenced "$work/grounds" || return 1
     printf '\n### Record home\n\n'
@@ -533,6 +832,9 @@ esac
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/flight-record.XXXXXX") || die 4 "cannot create a work directory"
 trap 'rm -rf "$work"' EXIT
+# Absolute, so the screen run from inside it, and its own temp files under
+# TMPDIR, resolve whatever TMPDIR was.
+work=$(cd "$work" && pwd -P) || die 4 "cannot resolve the work directory"
 trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
@@ -546,26 +848,30 @@ grounds_stripped=$CLEAN_STRIPPED
 worker_text summary-file "$summary_file" "$work/summary"
 worker_text verification-file "$verification_file" "$work/verification"
 worker_text audit-file "$audit_file" "$work/audit" audit
-set -- "$work/ask-file.clean" "$work/grounds-file.clean" "$work/summary" "$work/verification" "$work/audit"
+set -- ask-file.clean grounds-file.clean summary verification audit
 if [ -n "$scoping_file" ]; then
   worker_text scoping-file "$scoping_file" "$work/scoping"
-  set -- "$@" "$work/scoping"
+  set -- "$@" scoping
 fi
 if [ -n "$revert_file" ]; then
   worker_text revert-file "$revert_file" "$work/revert"
-  set -- "$@" "$work/revert"
+  set -- "$@" revert
 fi
 
 screen_all "$@"
+personal_data ask-file.clean
+personal_data grounds-file.clean
 redact ask-file "$work/ask"
 ask_redacted=$REDACTED
+ask_personal=$REDACTED_PERSONAL
 redact grounds-file "$work/grounds"
 grounds_redacted=$REDACTED
-refuse_secrets summary-file "$work/summary"
-refuse_secrets verification-file "$work/verification"
-refuse_secrets audit-file "$work/audit"
-[ -z "$scoping_file" ] || refuse_secrets scoping-file "$work/scoping"
-[ -z "$revert_file" ] || refuse_secrets revert-file "$work/revert"
+grounds_personal=$REDACTED_PERSONAL
+refuse_secrets summary-file summary
+refuse_secrets verification-file verification
+refuse_secrets audit-file audit
+[ -z "$scoping_file" ] || refuse_secrets scoping-file scoping
+[ -z "$revert_file" ] || refuse_secrets revert-file revert
 
 _missing=''
 _old_ifs=$IFS
@@ -604,7 +910,7 @@ case $record_path in
   /*)
     _phys=$(cd "$repo_root" && pwd -P) || die 4 "cannot resolve --repo-root"
     case $record_path in
-      "$_phys"/*) record_rel=${record_path#"$_phys"/} ;;
+      "${_phys%/}"/*) record_rel=${record_path#"${_phys%/}"/} ;;
       "$repo_root"/*) record_rel=${record_path#"$repo_root"/} ;;
       *) die 2 "refusing --record-path: it is outside the worktree ($_phys)" ;;
     esac
@@ -615,22 +921,140 @@ _head=$(git -C "$repo_root" symbolic-ref -q HEAD 2>/dev/null) || _head=''
 [ "$_head" = "refs/heads/$branch" ] \
   || die 3 "land runs on the flight's own branch, $branch; nothing was written"
 rel=$record_rel
-_dir=''
-_rest=${rel%/*}
-[ "$_rest" != "$rel" ] || _rest=''
-while [ -n "$_rest" ]; do
-  _seg=${_rest%%/*}
-  _dir=${_dir:+$_dir/}$_seg
-  if [ -L "$repo_root/$_dir" ] || { [ -e "$repo_root/$_dir" ] && [ ! -d "$repo_root/$_dir" ]; }; then
-    die 3 "$_dir is a symlink or not a directory; the record is written inside the checkout only; nothing was written"
+parent=${rel%/*}
+[ "$parent" != "$rel" ] || parent=''
+base=${rel##*/}
+phys=$(cd "$repo_root" && pwd -P) || die 4 "cannot resolve --repo-root"
+# Absolute from here on: land changes its working directory below.
+repo_root=$phys
+# Without its trailing slash, so a worktree at / composes as /<path>.
+root=${phys%/}
+
+# bad_dir — print the first directory on the record path that is a symlink or
+# not a directory; false when there is none.
+bad_dir() {
+  _dir=''
+  _rest=$parent
+  while [ -n "$_rest" ]; do
+    _dir=${_dir:+$_dir/}${_rest%%/*}
+    if [ -L "$repo_root/$_dir" ] || { [ -e "$repo_root/$_dir" ] && [ ! -d "$repo_root/$_dir" ]; }; then
+      printf '%s' "$_dir"
+      return 0
+    fi
+    case $_rest in
+      */*) _rest=${_rest#*/} ;;
+      *) _rest='' ;;
+    esac
+  done
+  return 1
+}
+
+# enter_parent — make the record's parent the working directory, one
+# component at a time from the physical root: each is created when absent,
+# refused when it is a symlink or not a directory, entered physically, and
+# checked to be the one inside the checkout. A symlink swapped onto any
+# component can then neither redirect the record nor make a directory outside
+# the checkout, and every later step on the record runs from here.
+enter_parent() {
+  cd -P "$phys" 2>/dev/null || die 4 "cannot enter the worktree"
+  _at=$root
+  _rest=$parent
+  while [ -n "$_rest" ]; do
+    _seg=${_rest%%/*}
+    case $_rest in
+      */*) _rest=${_rest#*/} ;;
+      *) _rest='' ;;
+    esac
+    _at=$_at/$_seg
+    if [ ! -e "$_seg" ] && [ ! -L "$_seg" ]; then
+      # not-a-lock: one path component created on the way to the record; a concurrent creator is fine
+      mkdir -- "$_seg" 2>/dev/null || [ -e "$_seg" ] || [ -L "$_seg" ] || die 4 "cannot create ${_at#"$root"/}"
+    fi
+    if [ -L "$_seg" ] || [ ! -d "$_seg" ]; then
+      die 3 "${_at#"$root"/} became a symlink or not a directory during land; the record is written inside the checkout only; nothing was written"
+    fi
+    cd -P -- "$_seg" 2>/dev/null || die 4 "cannot enter ${_at#"$root"/}"
+    [ "$(pwd -P)" = "$_at" ] \
+      || die 3 "${_at#"$root"/} became a symlink or not a directory during land; the record is written inside the checkout only; nothing was written"
+  done
+}
+
+# inode <path> — the inode number of <path> itself, never a symlink's target.
+# One known name, and POSIX has no stat, so SC2012's find does not apply.
+# shellcheck disable=SC2012
+inode() {
+  ls -di -- "$1" 2>/dev/null | awk '{ print $1 }'
+}
+
+# is_mine — the record's name holds the regular file this run created, by
+# identity rather than content, so a hook that edits it in place leaves it
+# this run's.
+is_mine() {
+  [ -n "$rino" ] && [ -f "$base" ] && [ ! -L "$base" ] && [ "$(inode "$base")" = "$rino" ]
+}
+
+# matches_head — HEAD holds the record exactly as this run renders it,
+# compared through git so line-ending conversion does not matter.
+matches_head() {
+  _hb=$(git -C "$repo_root" rev-parse -q --verify "HEAD:$rel" 2>/dev/null) && [ -n "$_hb" ] \
+    && [ "$(git -C "$repo_root" hash-object --path="$rel" -- "$work/record.md" 2>/dev/null)" = "$_hb" ]
+}
+
+# rollback — run on every exit, signals ignored so a second one cannot cut it
+# short. The temp file goes. While HEAD lacks the record, a record this run
+# staged is unstaged (the index held nothing else when land began), and the
+# file is deleted when it is still this run's, so a refused commit or an
+# interrupt leaves nothing a re-run trips over; a record in HEAD stays, and a
+# file a hook put in the record's place is left on disk and named. The file is
+# deleted only once it is unstaged, never leaving the index adding a missing
+# file.
+tmpname=''
+rino=''
+staged=0
+rollback() {
+  trap '' INT TERM HUP
+  if [ -n "$tmpname" ]; then
+    rm -f -- "$tmpname"
+    if [ -d "$base" ] && [ "$(inode "$base/$tmpname")" = "$rino" ]; then rm -f -- "$base/$tmpname"; fi
   fi
-  case $_rest in
-    */*) _rest=${_rest#*/} ;;
-    *) _rest='' ;;
-  esac
-done
+  if [ -n "$rino" ] && ! git -C "$repo_root" cat-file -e "HEAD:$rel" 2>/dev/null; then
+    if [ "$staged" -eq 1 ] && ! git -C "$repo_root" rm -q --cached -f --ignore-unmatch -- "$rel" >/dev/null 2>&1; then
+      if git -C "$repo_root" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1; then
+        printf '%s: could not unstage %s, so it stays on disk and staged; remove it with: git rm -f -- %s\n' \
+          "$prog" "$rel" "$rel" >&2
+      else
+        printf '%s: could not roll back %s, which is not staged; remove it with: rm -- %s\n' \
+          "$prog" "$rel" "$rel" >&2
+      fi
+    elif is_mine; then
+      rm -f -- "$base" && printf '%s: the uncommitted record was removed\n' "$prog" >&2
+    elif [ "$staged" -eq 1 ] && { [ -e "$base" ] || [ -L "$base" ]; }; then
+      printf '%s: a hook replaced %s, so it is unstaged and left on disk\n' "$prog" "$rel" >&2
+    fi
+  fi
+  rm -rf "$work"
+}
+trap rollback EXIT
+
+report() {
+  # The commit that added the record, not HEAD: a post-commit hook may commit again.
+  _sha=$(git -C "$repo_root" log -1 --format=%H -- "$rel" 2>/dev/null) && [ -n "$_sha" ] \
+    || die 4 "cannot read the record commit"
+  printf 'record\t%s\n' "$rel"
+  printf 'commit\t%s\n' "$_sha"
+}
+
+if _bad=$(bad_dir); then
+  die 3 "$_bad is a symlink or not a directory; the record is written inside the checkout only; nothing was written"
+fi
+render_to "$work/record.md" || die 4 "cannot write the record"
 if [ -e "$repo_root/$rel" ] || [ -L "$repo_root/$rel" ] \
   || git -C "$repo_root" cat-file -e "HEAD:$rel" 2>/dev/null; then
+  # A re-run whose record is already committed, and checked out, as this render.
+  if matches_head && git -C "$repo_root" diff --quiet HEAD -- "$rel" 2>/dev/null; then
+    report
+    exit 0
+  fi
   die 3 "$rel already exists: one flight, one record; nothing was written"
 fi
 _drc=0
@@ -641,20 +1065,35 @@ case $_drc in
   *) die 4 "cannot read the index" ;;
 esac
 
-render_to "$work/record.md" || die 4 "cannot write the record"
-case $rel in
-  */*) mkdir -p "$repo_root/${rel%/*}" || die 4 "cannot create ${rel%/*}" ;;
-esac
-cp "$work/record.md" "$repo_root/$rel" || die 4 "cannot write $rel"
+enter_parent
+# The record is linked from a filled temp file beside it: link(2) fails when
+# the name exists, a dangling symlink included, so it is created only when
+# absent. A directory at the name would take the link inside it instead, so
+# the result is checked to be the temp file itself.
+tmpname=$(mktemp ".$base.XXXXXX") || die 4 "cannot write $rel"
+cat "$work/record.md" >"$tmpname" || die 4 "cannot write $rel"
+chmod "$(printf '%o' $((0666 & ~$(umask))))" "$tmpname" || die 4 "cannot write $rel"
+rino=$(inode "$tmpname")
+[ -n "$rino" ] || die 4 "cannot read the record's inode"
+if ! ln -- "$tmpname" "$base" 2>"$work/ln.err"; then
+  if [ ! -e "$base" ] && [ ! -L "$base" ]; then
+    sed 's/^/  /' "$work/ln.err" | tr -d '\000-\010\013-\037\177' >&2
+    die 4 "cannot write $rel"
+  fi
+  die 3 "$rel appeared while land ran: one flight, one record; nothing was written"
+fi
+is_mine || die 3 "$rel appeared while land ran: one flight, one record; nothing was written"
+rm -f -- "$tmpname"
+tmpname=''
+staged=1
 if ! git -C "$repo_root" add -- "$rel" >/dev/null 2>"$work/git.err" \
   || ! git -C "$repo_root" commit -q -m "docs(flight): record flight $flight_id" -- "$rel" >>"$work/git.err" 2>&1; then
-  git -C "$repo_root" rm -q --cached --ignore-unmatch -- "$rel" >/dev/null 2>&1 || :
-  rm -f "$repo_root/$rel"
+  # A concurrent run that committed this same render has landed the record.
+  if matches_head; then
+    report
+    exit 0
+  fi
   sed 's/^/  /' "$work/git.err" | tr -d '\000-\010\013-\037\177' >&2
-  die 4 "could not commit $rel; the record was removed"
+  die 4 "could not commit $rel"
 fi
-# The commit that added the record, not HEAD: a post-commit hook may commit again.
-_sha=$(git -C "$repo_root" log -1 --format=%H -- "$rel" 2>/dev/null) && [ -n "$_sha" ] \
-  || die 4 "cannot read the record commit"
-printf 'record\t%s\n' "$rel"
-printf 'commit\t%s\n' "$_sha"
+report
