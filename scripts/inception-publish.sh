@@ -23,6 +23,8 @@
 #            it landed at. Refuses without --confirmed: a record is what later
 #            lets a republish skip the question, so it is never written on a
 #            guess. Without --artifact, an id already on record is kept.
+#   status   print the decision an offer would make now, without rendering or
+#            screening anything: a cheap look at the state before an offer.
 #   auto     set the per-venture auto-republish knob, on or off.
 #
 # State lives in the clone's git directory, as planwright-publish.local beside
@@ -38,6 +40,7 @@
 #
 # Usage:
 #   inception-publish.sh offer [--mode dashboard|pitch] <venture-dir>
+#   inception-publish.sh status [--mode dashboard|pitch] <venture-dir>
 #   inception-publish.sh record --confirmed [--mode dashboard|pitch]
 #                               [--artifact <id>] <venture-dir>
 #   inception-publish.sh auto on|off <venture-dir>
@@ -80,6 +83,7 @@ fi
 usage() {
   cat >&2 <<'EOF'
 usage: inception-publish.sh offer [--mode dashboard|pitch] <venture-dir>
+       inception-publish.sh status [--mode dashboard|pitch] <venture-dir>
        inception-publish.sh record --confirmed [--mode dashboard|pitch] [--artifact <id>] <venture-dir>
        inception-publish.sh auto on|off <venture-dir>
 EOF
@@ -90,7 +94,7 @@ EOF
 cmd=$1
 shift
 case $cmd in
-  offer | record | auto) ;;
+  offer | status | record | auto) ;;
   *) usage ;;
 esac
 
@@ -290,46 +294,48 @@ case $cmd in
     ;;
 esac
 
-# --- offer ------------------------------------------------------------------
+# --- offer and status --------------------------------------------------------
 
 # Rendered fresh, never taken from disk as found: the page published is the
 # bundle as it stands now, not whatever the last commit happened to leave. It is
 # rendered into a private directory of its own, never the work tree's exports/,
 # so the bytes screened below are the bytes the session publishes: a render of
 # the work tree (a commit's hook, another offer) cannot swap a page in under it.
-if [ "$mode" = pitch ]; then page=pitch; else page=venture; fi
-priv=$(mktemp -d "${TMPDIR:-/tmp}/inception-offer.XXXXXX") || exit 2
-offer_done=0
-trap '[ "$offer_done" -eq 1 ] || rm -rf "$priv"' EXIT
-trap 'exit 129' HUP
-trap 'exit 130' INT
-trap 'exit 143' TERM
-chmod 700 "$priv" || exit 2
-export_path="$priv/$page.html"
-rrc=0
-/bin/sh "$script_dir/inception-render.sh" --mode "$mode" --output "$export_path" "$target" >/dev/null || rrc=$?
-if [ "$rrc" -eq 3 ]; then
-  exit 3
-elif [ "$rrc" -ne 0 ]; then
-  printf '%s\n' "inception-publish: the $mode export could not be rendered; nothing to offer" >&2
-  exit 2
-fi
+if [ "$cmd" = offer ]; then
+  if [ "$mode" = pitch ]; then page=pitch; else page=venture; fi
+  priv=$(mktemp -d "${TMPDIR:-/tmp}/inception-offer.XXXXXX") || exit 2
+  offer_done=0
+  trap '[ "$offer_done" -eq 1 ] || rm -rf "$priv"' EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  chmod 700 "$priv" || exit 2
+  export_path="$priv/$page.html"
+  rrc=0
+  /bin/sh "$script_dir/inception-render.sh" --mode "$mode" --output "$export_path" "$target" >/dev/null || rrc=$?
+  if [ "$rrc" -eq 3 ]; then
+    exit 3
+  elif [ "$rrc" -ne 0 ]; then
+    printf '%s\n' "inception-publish: the $mode export could not be rendered; nothing to offer" >&2
+    exit 2
+  fi
 
-# The page leaves the machine, so it gets the same screen a commit does. The
-# screen names the rule it matched and never the matched text. The bundle files
-# it was rendered from are screened alongside it: escaping turns a quoted
-# assignment's quotes into entities no credential pattern matches.
-src=0
-/bin/sh "$script_dir/inception-secret-screen.sh" -- "$export_path" \
-  "$target/brief.md" "$target/disciplines.md" "$target/assumptions.md" \
-  "$target/decisions.md" "$target/plan.md" || src=$?
-if [ "$src" -eq 1 ]; then
-  printf '%s\n' "inception-publish: the $mode export looks like it carries a credential; it is not offered for publishing." >&2
-  echo "inception-publish: fix the bundle text it came from, then offer again." >&2
-  exit 1
-elif [ "$src" -ne 0 ]; then
-  printf '%s\n' "inception-publish: the secret screen could not check the $mode export (exit $src); nothing is offered." >&2
-  exit 2
+  # The page leaves the machine, so it gets the same screen a commit does. The
+  # screen names the rule it matched and never the matched text. The bundle files
+  # it was rendered from are screened alongside it: escaping turns a quoted
+  # assignment's quotes into entities no credential pattern matches.
+  src=0
+  /bin/sh "$script_dir/inception-secret-screen.sh" -- "$export_path" \
+    "$target/brief.md" "$target/disciplines.md" "$target/assumptions.md" \
+    "$target/decisions.md" "$target/plan.md" || src=$?
+  if [ "$src" -eq 1 ]; then
+    printf '%s\n' "inception-publish: the $mode export looks like it carries a credential; it is not offered for publishing." >&2
+    echo "inception-publish: fix the bundle text it came from, then offer again." >&2
+    exit 1
+  elif [ "$src" -ne 0 ]; then
+    printf '%s\n' "inception-publish: the secret screen could not check the $mode export (exit $src); nothing is offered." >&2
+    exit 2
+  fi
 fi
 
 load_state
@@ -368,8 +374,14 @@ case $published in
   *) artifact_out=$published ;;
 esac
 
-offer_done=1
 printf 'mode\t%s\n' "$mode"
+if [ "$cmd" = status ]; then
+  printf 'decision\t%s\n' "$decision"
+  printf 'reason\t%s\n' "$reason"
+  printf 'artifact\t%s\n' "$artifact_out"
+  exit 0
+fi
+offer_done=1
 printf 'export\t%s\n' "$export_path"
 printf 'decision\t%s\n' "$decision"
 printf 'reason\t%s\n' "$reason"

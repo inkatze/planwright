@@ -124,6 +124,24 @@ case $(field export "$out") in
 esac
 assert_eq "pitch offer: is an offer" "offer" "$(field decision "$out")"
 
+# status answers with the decision an offer would make, and renders nothing.
+v="$(fresh)"
+out="$("$PUBLISH" status "$v" 2>/dev/null)"
+rc=$?
+assert_eq "status: exit 0" "0" "$rc"
+assert_eq "status: the same decision as an offer" "offer" "$(field decision "$out")"
+assert_eq "status: the same reason" "first-publish" "$(field reason "$out")"
+assert_eq "status: names no export" "" "$(field export "$out")"
+assert_no_dir_entries() {
+  if [ -e "$2" ]; then
+    echo "FAIL: $1 ($2 exists)" >&2
+    failures=$((failures + 1))
+  else
+    echo "ok: $1"
+  fi
+}
+assert_no_dir_entries "status: renders nothing" "$v/exports"
+
 # ---------------------------------------------------------------------------
 # 2. The knob defaults off, and never covers a first publish.
 # ---------------------------------------------------------------------------
@@ -131,7 +149,7 @@ v="$(fresh)"
 "$PUBLISH" auto on "$v" >/dev/null 2>&1
 rc=$?
 assert_eq "auto on: exit 0" "0" "$rc"
-out="$("$PUBLISH" offer "$v" 2>/dev/null)"
+out="$("$PUBLISH" status "$v" 2>/dev/null)"
 assert_eq "knob on, never published: still an offer" "offer" "$(field decision "$out")"
 assert_eq "knob on, never published: first publish is the reason" "first-publish" "$(field reason "$out")"
 
@@ -161,7 +179,7 @@ st="$(state_of "$v")"
 private="$(find "$st" ! -perm -004 2>/dev/null)"
 assert_eq "record: the state file is not world-readable" "$st" "$private"
 
-out="$("$PUBLISH" offer "$v" 2>/dev/null)"
+out="$("$PUBLISH" status "$v" 2>/dev/null)"
 assert_eq "published, knob default: an offer" "offer" "$(field decision "$out")"
 assert_eq "published, knob default: the knob is the reason" "auto-republish-off" "$(field reason "$out")"
 assert_eq "published: the artifact on record" "art-123" "$(field artifact "$out")"
@@ -170,17 +188,17 @@ assert_eq "published: the artifact on record" "art-123" "$(field artifact "$out"
 # 4. Knob on after a confirmed first publish: a republish, per mode.
 # ---------------------------------------------------------------------------
 "$PUBLISH" auto on "$v" >/dev/null 2>&1
-out="$("$PUBLISH" offer "$v" 2>"$tmp/err")"
+out="$("$PUBLISH" status "$v" 2>"$tmp/err")"
 assert_eq "published, knob on: a republish" "republish" "$(field decision "$out")"
 assert_eq "published, knob on: the knob is the reason" "auto-republish-on" "$(field reason "$out")"
 assert_eq "published, knob on: the artifact survives the knob write" "art-123" "$(field artifact "$out")"
 
-out="$("$PUBLISH" offer --mode pitch "$v" 2>/dev/null)"
+out="$("$PUBLISH" status --mode pitch "$v" 2>/dev/null)"
 assert_eq "knob on, pitch never published: an offer" "offer" "$(field decision "$out")"
 assert_eq "knob on, pitch never published: first publish" "first-publish" "$(field reason "$out")"
 
 "$PUBLISH" auto off "$v" >/dev/null 2>&1
-out="$("$PUBLISH" offer "$v" 2>/dev/null)"
+out="$("$PUBLISH" status "$v" 2>/dev/null)"
 assert_eq "knob back off: an offer again" "offer" "$(field decision "$out")"
 
 out="$("$PUBLISH" auto maybe "$v" 2>&1)"
@@ -197,7 +215,7 @@ v="$(fresh)"
   printf '%s\n' 'published-dashboard=$(touch '"$tmp"'/pwned)'
   printf '%s\n' "touch $tmp/pwned2"
 } >"$(state_of "$v")"
-out="$("$PUBLISH" offer "$v" 2>"$tmp/err")"
+out="$("$PUBLISH" status "$v" 2>"$tmp/err")"
 rc=$?
 assert_eq "malformed state: exit 0" "0" "$rc"
 assert_eq "malformed state: fails safe to an offer" "offer" "$(field decision "$out")"
@@ -213,7 +231,7 @@ fi
 
 # Knob on plus a malformed record still offers.
 printf '%s\n' 'auto-republish=on' 'published-dashboard=bad id' >"$(state_of "$v")"
-out="$("$PUBLISH" offer "$v" 2>/dev/null)"
+out="$("$PUBLISH" status "$v" 2>/dev/null)"
 assert_eq "knob on, malformed record: an offer" "offer" "$(field decision "$out")"
 
 # ---------------------------------------------------------------------------
@@ -263,7 +281,7 @@ assert_eq "missing venture: exit 2" "2" "$rc"
 v="$(fresh)"
 printf '%s\n' 'auto-republish=on' 'published-dashboard=attacker-artifact' >"$v/.planwright-publish.local"
 git -C "$v" add -f .planwright-publish.local >/dev/null 2>&1
-out="$("$PUBLISH" offer "$v" 2>/dev/null)"
+out="$("$PUBLISH" status "$v" 2>/dev/null)"
 assert_eq "committed state file: still an offer" "offer" "$(field decision "$out")"
 assert_eq "committed state file: read as never published" "first-publish" "$(field reason "$out")"
 assert_eq "committed state file: its artifact is not offered" "none" "$(field artifact "$out")"
@@ -303,7 +321,7 @@ out="$("$PUBLISH" record --confirmed --artifact art-1 "$nogit" 2>&1)"
 rc=$?
 assert_eq "no git: record is refused" "2" "$rc"
 assert_contains "no git: says why" "git repository" "$out"
-out="$("$PUBLISH" offer "$nogit" 2>/dev/null)"
+out="$("$PUBLISH" status "$nogit" 2>/dev/null)"
 assert_eq "no git: offers still work" "offer" "$(field decision "$out")"
 assert_eq "no git: always a first publish" "first-publish" "$(field reason "$out")"
 
@@ -316,7 +334,7 @@ v="$(fresh)"
 "$PUBLISH" record --confirmed --artifact art-123 "$v" >/dev/null 2>&1
 "$PUBLISH" record --confirmed "$v" >/dev/null 2>&1
 "$PUBLISH" auto on "$v" >/dev/null 2>&1
-out="$("$PUBLISH" offer "$v" 2>/dev/null)"
+out="$("$PUBLISH" status "$v" 2>/dev/null)"
 assert_eq "re-record without --artifact: the id survives" "art-123" "$(field artifact "$out")"
 assert_eq "re-record without --artifact: still a republish" "republish" "$(field decision "$out")"
 
@@ -324,7 +342,7 @@ assert_eq "re-record without --artifact: still a republish" "republish" "$(field
 v="$(fresh)"
 "$PUBLISH" record --confirmed "$v" >/dev/null 2>&1
 "$PUBLISH" auto on "$v" >/dev/null 2>&1
-out="$("$PUBLISH" offer "$v" 2>/dev/null)"
+out="$("$PUBLISH" status "$v" 2>/dev/null)"
 assert_eq "no artifact on record: an offer, not a republish" "offer" "$(field decision "$out")"
 assert_eq "no artifact on record: says why" "no-artifact-recorded" "$(field reason "$out")"
 assert_eq "no artifact on record: no artifact offered" "none" "$(field artifact "$out")"
@@ -333,9 +351,9 @@ assert_eq "no artifact on record: no artifact offered" "none" "$(field artifact 
 v="$(fresh)"
 "$PUBLISH" record --confirmed --mode dashboard --artifact dash-1 "$v" >/dev/null 2>&1
 "$PUBLISH" record --confirmed --mode pitch --artifact pitch-1 "$v" >/dev/null 2>&1
-assert_eq "both pages: the dashboard record" "dash-1" "$(field artifact "$("$PUBLISH" offer "$v" 2>/dev/null)")"
+assert_eq "both pages: the dashboard record" "dash-1" "$(field artifact "$("$PUBLISH" status "$v" 2>/dev/null)")"
 assert_eq "both pages: the pitch record" "pitch-1" \
-  "$(field artifact "$("$PUBLISH" offer --mode pitch "$v" 2>/dev/null)")"
+  "$(field artifact "$("$PUBLISH" status --mode pitch "$v" 2>/dev/null)")"
 
 # An unreadable state is an environment error, never silently rebuilt.
 v="$(fresh)"
