@@ -396,6 +396,13 @@ for page in venture pitch; do
     echo "venture pre-commit: the regenerated $rel could not be staged, so this commit carries a stale or absent export." >&2
     echo "venture pre-commit: committing anyway — see git's message above." >&2
   fi
+  # Checked again at the write itself, not only before rendering: exports/
+  # swapped for a link in between would send the page outside the checkout.
+  # This narrows the window; no portable primitive closes it.
+  if [ -h "$top/exports" ]; then
+    echo "venture pre-commit: exports/ became a symbolic link; $rel is not written to the work tree, though the commit still carries it." >&2
+    continue
+  fi
   if ! mkdir -p "$top/exports" || ! mv -f "$priv/$page.html" "$top/$rel"; then
     echo "venture pre-commit: the regenerated $rel could not be written to the work tree; the commit still carries it." >&2
   fi

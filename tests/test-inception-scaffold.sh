@@ -801,6 +801,40 @@ else
   rm -f "$fifo_v/plan.md"
 fi
 
+# exports/ is checked for a symbolic link again at each final write, not only
+# before rendering: a screen wrapper stands in for a swap that lands between
+# the two, replacing exports/ with a link to a directory outside the checkout.
+swap_pw="$tmp/pw-swap"
+mkdir -p "$swap_pw/scripts"
+cp "$REPO_ROOT/scripts/"inception-*.sh "$REPO_ROOT/scripts/echo-safety.sh" \
+  "$REPO_ROOT/scripts/spec-parse.sh" "$REPO_ROOT/scripts/html-escape.sh" "$swap_pw/scripts/" || exit 1
+mv "$swap_pw/scripts/inception-secret-screen.sh" "$swap_pw/scripts/inception-secret-screen.real.sh"
+cat >"$swap_pw/scripts/inception-secret-screen.sh" <<'SWAPSCREEN'
+#!/bin/sh
+if [ "$1" != --staged ] && [ -n "${SWAP_OUTSIDE:-}" ]; then
+  top=$(git rev-parse --show-toplevel)
+  rm -rf "$top/exports" && ln -s "$SWAP_OUTSIDE" "$top/exports"
+fi
+exec /bin/sh "$(dirname "$0")/inception-secret-screen.real.sh" "$@"
+SWAPSCREEN
+swap_v="$tmp/venture-swap"
+swap_out="$tmp/swap-outside"
+mkdir -p "$swap_v" "$swap_out"
+inception_fixture_write "$swap_v" >/dev/null 2>&1 || exit 1
+(
+  cd "$swap_v" || exit 1
+  git init -q .
+  git config user.email fixture@example.invalid
+  git config user.name Fixture
+  git config commit.gpgsign false
+) >/dev/null 2>&1 || exit 1
+"$SCAFFOLD" --rung local --wire "$swap_v" >/dev/null 2>&1
+out="$(cd "$swap_v" && git add -A && SWAP_OUTSIDE="$swap_out" PLANWRIGHT_ROOT="$swap_pw" \
+  PLANWRIGHT_SECRET_SCREEN_TOOL=none git commit -qm "swap exports" 2>&1)"
+leftover="$(find "$swap_out" -type f 2>/dev/null)"
+assert_eq "exports swapped for a link mid-hook: nothing is written through it" "" "$leftover"
+assert_contains "exports swapped for a link mid-hook: the hook says so" "symbolic link" "$out"
+
 # The repo's own `lint:yaml` covers tracked config, not what this script
 # generates, so the emitted workflow is linted here or nowhere.
 if command -v yamllint >/dev/null 2>&1; then
