@@ -192,7 +192,9 @@ assert_ask() {
 assert_not_ask() {
   local label="$1"
   run_hook "$2" Bash "$SANDBOX"
-  if printf '%s' "$OUT" | grep -Eq '"permissionDecision"[[:space:]]*:[[:space:]]*"(ask|deny)"'; then
+  if [ "$CODE" -ne 0 ]; then
+    fail "$label — exit was $CODE, must be 0"
+  elif printf '%s' "$OUT" | grep -Eq '"permissionDecision"[[:space:]]*:[[:space:]]*"(ask|deny)"'; then
     fail "$label — expected no ask or deny, got: $OUT"
   else
     pass "$label"
