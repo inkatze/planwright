@@ -186,6 +186,7 @@ for spell in 'F=$ROOT/scripts/ready-flip.sh; bash "$F" flip --spec x --for-merge
   for tier in worker tower; do
     pg "$tier" "$spell"
     expect deny "[$tier] a stem elsewhere in the command does not carry a --for-merge past the guard: $spell"
+    [ "$tier" = tower ] || reason_has 'cannot name' "[worker] the deny is the flag check, not another refusal: $spell"
   done
 done
 set_knobs 'merge_policy: human' 'ready_flip_policy: unit-owner'
