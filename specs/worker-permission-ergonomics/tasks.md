@@ -364,7 +364,7 @@ below; `scripts/spec-graph.sh` renders it on demand.
 
 ## Awaiting input
 
-- **Task 7** — post-pr point, step `cubic-pr`, outcome `halted` (bot findings queued for the operator); record `.claude/steps/000001/010-step-post-pr.rec`
+(none yet)
 
 ## Deferred
 
