@@ -912,7 +912,9 @@ Verify the PR is still a draft:
 \`gh pr view <number> --repo $HOME_DEST --json isDraft --jq .isDraft\` must print
 \`true\`; on anything else, park the flight. Then push the completion, with the
 PR link as the landing reference:
-\`$_push completion $_pushid --landing \"pr:\$(tail -n 1 $(sh_quote "$_rd/pr-url"))\"\`"
+\`$_push completion $_pushid --landing \"pr:\$(tail -n 1 $(sh_quote "$_rd/pr-url"))\"\`
+A non-zero exit from the completion push parks the flight, naming what it
+printed."
   else
     _landing="Land the record, which writes \`$record\` and commits exactly that one
 file on this branch:
@@ -920,6 +922,8 @@ file on this branch:
 Add $_optional only when you wrote them. Do not push and open no PR. The
 committed record is the landing reference; push the completion with it:
 \`$_push completion $_pushid --landing $(sh_quote "record:$record")\`
+A non-zero exit from the completion push parks the flight, naming what it
+printed.
 
 A relaunched worker runs this landed check before it fires any point. The
 flight has landed when \`git cat-file -e $(sh_quote "HEAD:$record")\` succeeds: it

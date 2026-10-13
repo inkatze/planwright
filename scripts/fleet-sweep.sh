@@ -94,9 +94,10 @@
 #    positive death evidence and no landing, or a landed one whose dead worker
 #    never pushed its completion (flight-lifecycle.sh's header says when), is
 #    counted, relaunched into its own worktree once its backoff has passed,
-#    and surfaced as a decision at the disable threshold. Each relaunch and disable is audited; a failed or
-#    waiting flight is warned and left for the next cycle. It runs last, after the
-#    registry reconcile and the residue pass, so it reads this cycle's records.
+#    and surfaced as a decision at the disable threshold. Each relaunch and
+#    disable is audited; a failed or waiting flight is warned and left for the
+#    next cycle. It runs last, after the registry reconcile and the residue
+#    pass, so it reads this cycle's records.
 #
 # KILL-SWITCH + AUDIT. The cycle gates through fleet-daemon-gate.sh at entry
 # (a set fleet_daemon_pause pauses the whole cycle; the reap actuator also

@@ -1743,9 +1743,11 @@ shared flight sweep reads it `dead` (positive death evidence and no landing),
 or reads it landed with a dead worker that never pushed its completion (no
 landing reference beside the brief), queued no decision, and ran under a brief
 carrying the landed check: that worker still owed the work after landing,
-which its relaunch finishes while the PR is open and parks for the operator
-otherwise. A completion push that cannot keep its landing reference fails, so a
-finished flight is never mistaken for an unfinished one.
+which its relaunch finishes (on the PR home only while its PR is open, parking
+for the operator otherwise; on the file home by pushing the completion). A
+completion push that cannot keep its landing reference fails, and the brief
+parks the flight on that failure, so its queued decision keeps the sweep from
+relaunching a finished flight.
 Each death is counted once and relaunched at most once (both claimed
 atomically, keyed by the registry's death handle, so two sweeps racing on one
 death start one worker, and none relaunches it before its count is recorded;
