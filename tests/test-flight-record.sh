@@ -439,6 +439,15 @@ for pfx in '    ' "$(printf '\t')" '> '; do
       || fail "the line after a $name key prefixed '$pfx' must survive"
   done
 done
+# A PEM or PGP block ends only at the END line of its own key type: another
+# type's END inside it does not publish the rest of the key.
+OTHER_END="-----END OPENSSH PRIVATE ""KEY-----"
+printf 'Use this key:\n%s\n%s\n%s\n%s\nThen rerun the deploy.\n' \
+  "$KEY_BEGIN" "$OTHER_END" "$KEY_BODY2" "$KEY_END" >"$in/ask-key-type.txt"
+run_render pr --ask-file "$in/ask-key-type.txt"
+[ "$RC" -eq 0 ] || fail "render of a key with another type's END exited $RC: $ERR"
+case $OUT in *"$KEY_BODY2"*) fail "another key type's END line published the key body" ;; esac
+printf '%s\n' "$OUT" | grep -qx '  Then rerun the deploy.' || fail "the line after the key's own END must survive"
 # A key that begins and ends on one line ends there: the start-of-line rule
 # and the Comment check apply only to lines after the one that opened it.
 for shape in "SSH2|Paste: $SSH2_BEGIN $KEY_BODY1 $SSH2_END done" \

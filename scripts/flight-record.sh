@@ -417,7 +417,8 @@ operator_text() {
 # PGP, SSH2, PuTTY): the begins together match what the screen's
 # private-key-block rule flags, and each end is its own format's last line,
 # the SSH2 and PuTTY ends only at the start of a line (after any indent or
-# `>` quoting).
+# `>` quoting). A PEM or PGP block ends only at the END line naming its own
+# key type, derived from its BEGIN line; the PEM end here documents the shape.
 KEY_FORMATS='-----BEGIN ([A-Z0-9]+ )*PRIVATE KEY( BLOCK)?-----	-----END ([A-Z0-9]+ )*PRIVATE KEY( BLOCK)?-----
 ---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----	^[[:blank:]>]*---- END SSH2 ENCRYPTED PRIVATE KEY ----
 PuTTY-User-Key-File-[0-9]+:	^[[:blank:]>]*Private-MAC:'
@@ -470,7 +471,12 @@ redact() {
               # Comment header is free text, never the end, and the SSH2
               # and PuTTY ends count only at the start of the line.
               if (!opened && kind == 1 && $0 ~ /^[[:blank:]>]*Comment:/) break
-              p = at($0, opened ? kf[kind] : ke[kind], pos)
+              if (kind == 1) {
+                # A PEM or PGP block ends only at the END line of its own
+                # key type, found as literal text.
+                p = index(substr($0, pos), pemend)
+                if (p) { p += pos - 1; RL = length(pemend) }
+              } else p = at($0, opened ? kf[kind] : ke[kind], pos)
               if (!p) break
               inkey = 0
               pos = p + RL
@@ -484,6 +490,10 @@ redact() {
               inkey = 1
               kind = bk
               opened = 1
+              if (kind == 1) {
+                pemend = substr($0, best, bl)
+                sub(/-----BEGIN /, "-----END ", pemend)
+              }
               pos = best + bl
             }
           }
