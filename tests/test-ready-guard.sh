@@ -1025,6 +1025,7 @@ run_stubbed_resolver "a resolver that answers only after the query bound applies
   deny "sleep 5; printf 'conflict-only\n'"
 # The guard's own layer drop, pinned apart from the resolver table's: this
 # stub relaxes only when the repo-side layers reach it.
+# shellcheck disable=SC2016 # expanded by the stub resolver, not here
 run_stubbed_resolver "the guard drops the repo-side layers before calling the resolver" \
   deny 'if [ "${PLANWRIGHT_REPO_ROOT-}" = none ] && [ -z "${PLANWRIGHT_LOCAL_CONFIG-}" ]; then echo refuse; else echo conflict-only; fi'
 
