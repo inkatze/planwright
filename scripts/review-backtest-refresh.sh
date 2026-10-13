@@ -443,6 +443,7 @@ kept=$(($(wc -l <"$tmp/corpus.tsv") - 1))
 # renamed within the same filesystem, so a reader never sees a partial corpus.
 dest=$corpus_root/v$next
 mkdir -p "$corpus_root"
+# not-a-lock: claims the new version directory once; it is never released or waited on
 mkdir "$dest" 2>/dev/null || die 1 "could not create corpus version v$next (it exists, or the corpus root is not writable); nothing written"
 claimed=$dest
 cp "$tmp/corpus.tsv" "$dest/.corpus.tsv.partial"
