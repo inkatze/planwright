@@ -4198,10 +4198,13 @@ verify_tokens() {
 # (guard_fish or subst_inner_ok -> analyze_command) gets a fresh, shadowing
 # token stream and never corrupts an outer walk.
 analyze_command() {
-  local cmd=$1 depth=$2 t seg lead
+  local cmd=$1 depth=$2 t seg lead dollars
   [ "$depth" -le "$MAX_DEPTH" ] || return 1
   [ "${#cmd}" -le "$MAX_CMD_LEN" ] || return 1
-  SCANNED=$((SCANNED + ${#cmd}))
+  # The tokenizer screens each `$` against the rest of the command, so the
+  # `$` are charged before it runs, not only when the words are walked.
+  dollars=${cmd//[!\$]/}
+  SCANNED=$((SCANNED + ${#cmd} + ${#dollars} * DOLLAR_COST))
   [ "$SCANNED" -le "$MAX_SCANNED" ] || return 1
   local -a TOK_TYPE=() TOK_VAL=() TOK_QUOTED=() TOK_NOEXP=() TOK_QPOS=() TOK_DYN=() TOK_GLOB=() TOK_ZOPT=() TOK_QMIX=() TOK_SUBS=()
   local TOK_N=0
