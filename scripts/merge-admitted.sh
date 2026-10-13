@@ -165,6 +165,7 @@ field() { awk -F '\t' -v k="$1" -v n="$2" '$1 == k { print $n; exit }' "$REC"; }
 HEAD_SHA=$(field head 2) BASE=$(field base 2) BASE_OID=$(field base 3) PR=$(field pr 2) METHOD=$(field strategy 2)
 [[ $HEAD_SHA =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] && [[ $BASE_OID =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] \
   && [[ $PR =~ ^[1-9][0-9]{0,9}$ ]] && [[ $BASE =~ ^[A-Za-z0-9_][A-Za-z0-9._/-]*$ ]] \
+  && [[ $METHOD =~ ^(squash|merge|rebase|-)$ ]] \
   || refuse 'the class record is malformed'
 
 # The backticks below are markdown for the PR comments, never expansions.

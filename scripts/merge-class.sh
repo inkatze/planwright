@@ -150,7 +150,7 @@ command -v jq >/dev/null 2>&1 || refuse 'jq is required to read the host answers
 
 if [ "$MODE" = identity ]; then
   agent=$(gh api user --jq .login 2>/dev/null) || agent=''
-  author=$(gh pr view ${PR:+"$PR"} --json author --jq .author.login 2>/dev/null) || author=''
+  author=$(gh pr view ${PR:+"$PR"} --json author --jq '.author.login // empty' 2>/dev/null) || author=''
   printf 'act\tenable-auto-merge\n'
   login_re='^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}(\[bot\])?$'
   if [[ $agent =~ $login_re ]] && [[ $author =~ $login_re ]] \
@@ -202,7 +202,7 @@ while [ "$i" -lt 3 ]; do
   raw=$(gh pr view "${PR:-$BRANCH}" --json number,state,baseRefName,headRefName,headRefOid,isCrossRepository 2>"$SCRATCH/err") && [ -n "$raw" ] && break
   case $(cat "$SCRATCH/err") in
     *'no pull requests found'* | *'Could not resolve to a PullRequest'* | *'no open pull requests'*)
-      say "skipped: no pull request for $BRANCH"
+      say "skipped: no pull request for ${PR:+PR #}${PR:-$BRANCH}"
       exit 3
       ;;
   esac
