@@ -33,8 +33,9 @@ stall the extension removes.
 
 ## The allow delta
 
-All of it lives in `scripts/tower-command-guard.sh`, the allow-only hook; no
-static `allow` entry is added.
+All of it lives in `scripts/tower-command-guard.sh`, the allow-only hook (its
+one other answer is an `ask` for the force-push helper); no static `allow`
+entry is added.
 
 - **`jq` with an inline filter.** The screen is the worker guard's, carried
   over byte-identical (the tower guard's suite diffs the two copies). jq has no
