@@ -289,6 +289,8 @@ case $1 in
     exit 1
     ;;
 esac
+# The screen's self-check canary is the one file this stub flags.
+case "$*" in *planwright-canary*) exit 1 ;; esac
 exit 0
 STUB
 chmod 755 "$stub/gitleaks"
@@ -393,6 +395,8 @@ write_gl() {
 for a in "\$@"; do
   [ "\$a" = "--help" ] && { echo "  --exit-code int  exit code when leaks have been encountered"; exit 0; }
 done
+# The screen's self-check canary is flagged unless the case says otherwise.
+case "\$*" in *planwright-canary*) ${2:-exit 7} ;; esac
 $1
 GLSTUB
   chmod 755 "$glstub/gitleaks"
@@ -464,15 +468,17 @@ mkdir -p "$cfgstub"
 cat >"$cfgstub/gitleaks" <<EOF
 #!/bin/sh
 printf '%s\n' "\$*" >>"$tmp/gl-args.log"
+case "\$*" in *planwright-canary*) exit 1 ;; esac
 exit 0
 EOF
 chmod +x "$cfgstub/gitleaks"
 : >"$tmp/gl-args.log"
 PATH="$cfgstub:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$tmp/clean.md" >/dev/null 2>&1
 (cd "$repo" && PATH="$cfgstub:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" --staged) >/dev/null 2>&1
-scans=$(grep -c -e '--no-banner' "$tmp/gl-args.log")
+scans=$(grep -e '--no-banner' "$tmp/gl-args.log" | grep -c -v planwright-canary)
 named=$(grep -e '--no-banner' "$tmp/gl-args.log" | grep -c -F -e "--config $REPO_ROOT/config/inception-gitleaks.toml")
 assert_eq "gitleaks config: both scans ran" "2" "$scans"
+scans=$(grep -c -e '--no-banner' "$tmp/gl-args.log")
 assert_eq "gitleaks config: every scan names planwright's config" "$scans" "$named"
 
 # An install whose config is gone refuses rather than letting gitleaks fall
@@ -497,6 +503,14 @@ if command -v gitleaks >/dev/null 2>&1; then
   rc=$?
   assert_eq "gitleaks config: a venture's rule-free .gitleaks.toml does not wave a key through" "1" "$rc"
 fi
+
+# A gitleaks that flags nothing, not even the self-check canary, is screening
+# with no rules (an older build ignoring the config's [extend], say): refuse.
+write_gl 'exit 0' 'exit 0'
+out="$(PATH="$glstub:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$gltree" 2>&1)"
+rc=$?
+assert_eq "gitleaks with no rules: the canary refuses the screen (exit 2)" "2" "$rc"
+assert_contains "gitleaks with no rules: says it is screening with no rules" "no rules" "$out"
 
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-secret-screen: $failures assertion(s) failed" >&2

@@ -187,6 +187,31 @@ if [ "$tool" != none ] && command -v gitleaks >/dev/null 2>&1; then
     return 2
   }
 
+  # The canary: a key block every rule set worth the name flags. A gitleaks
+  # that loads no rules from the config (one too old for its `[extend]`, say)
+  # would pass everything, so a canary it does not flag refuses the screen.
+  # Split literals keep scanners from flagging this file itself.
+  canary="$work/planwright-canary.pem"
+  printf -- '%s\n%s\n%s\n' "-----BEGIN RSA PRIVATE KEY""-----" \
+    "MIIEowIBAAKCAQEA7Zx2Lm""9Rt4Wb8Nc1Yv6Ha3Pd5Sj0Ug2EfKq" "-----END RSA PRIVATE KEY""-----" >"$canary"
+  crc=0
+  if [ -n "$gl_dir_flag" ]; then
+    gitleaks_run "$gl_dir_cmd" "$gl_dir_flag" "$canary" --no-banner --redact 2>/dev/null || crc=$?
+  else
+    gitleaks_run "$gl_dir_cmd" "$canary" --no-banner --redact 2>/dev/null || crc=$?
+  fi
+  case $crc in
+    1) ;;
+    0)
+      echo "inception-secret-screen: gitleaks flagged nothing in a known credential under planwright's config, so it is screening with no rules; refusing" >&2
+      exit 2
+      ;;
+    *)
+      echo "inception-secret-screen: gitleaks could not run its self-check; refusing to screen with it" >&2
+      exit 2
+      ;;
+  esac
+
   if [ "$staged" -eq 1 ]; then
     if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
       echo "inception-secret-screen: --staged needs a git work tree" >&2

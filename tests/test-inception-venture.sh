@@ -1077,7 +1077,7 @@ mkdir -p "$stubs/gl-head"
 cat >"$stubs/gl-head/gitleaks" <<EOF
 #!/bin/sh
 # Record the first bytes of each scanned path; report clean.
-case "\$*" in *--help*) echo '--exit-code'; exit 0 ;; esac
+case "\$*" in *--help*) echo '--exit-code'; exit 0 ;; *planwright-canary*) exit 7 ;; esac
 [ "\$1" = dir ] && head -c 8 "\$2" >>"$tmp/gl-head.log" && printf '\n' >>"$tmp/gl-head.log"
 exit 0
 EOF
