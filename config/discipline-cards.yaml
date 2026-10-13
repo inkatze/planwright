@@ -1,0 +1,17 @@
+---
+# planwright discipline-cards catalog — the core seed (inception Task 4;
+# REQ-P1.10, D-17).
+#
+# doctrine/discipline-cards.md is the normative home: the card format, where
+# cards live per overlay layer, and what an entry carries. Each entry lists one
+# card shipped at cards/<id>.md; scripts/resolve-catalog.sh merges this seed
+# with the adopter / repo-tracked / machine-local overlay catalogs
+# (append/union, supersede-by-id), and scripts/resolve-card.sh maps a merged id
+# to its card file. Company-specific cards are overlay content, never entries
+# here. The reader is a constrained parser, not full YAML: list items at
+# two-space and fields at four-space indentation, single-line values unquoted or
+# double-quoted.
+
+cards:
+  - id: product-strategy
+    discipline: "Product strategy"

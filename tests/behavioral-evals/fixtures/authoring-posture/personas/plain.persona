@@ -1,0 +1,5 @@
+# plain.persona — /spec-draft completes a bundle with the spec root in a
+# plain directory, in no repository (REQ-E1.3).
+expertise=expert
+answer.1=plain
+answer.2=demo

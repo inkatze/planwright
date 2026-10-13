@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.60.0](https://github.com/inkatze/planwright/compare/v0.59.0...v0.60.0) (2026-10-12)
+
+
+### Features
+
+* **ci:** parse every shell file under bash 3.2 and lint its misparses ([#651](https://github.com/inkatze/planwright/issues/651)) ([c71b102](https://github.com/inkatze/planwright/commit/c71b1022490e35d8f699f4cb404d66efce72d691))
+* **custom-steps:** resolver admits the expensive-check and quota-handling step fields ([#656](https://github.com/inkatze/planwright/issues/656)) ([d6d305c](https://github.com/inkatze/planwright/commit/d6d305c11f39f469a6dd1f3ba38b24d38473057b))
+* **doctrine:** accept green CI on a pushed head as Agent-resolvable proof ([#653](https://github.com/inkatze/planwright/issues/653)) ([c9d74ea](https://github.com/inkatze/planwright/commit/c9d74ea56ce909d86292a725e000d997b3ab2a21))
+* **quota:** read Claude clearance evidence from worker rate-limit frames ([#659](https://github.com/inkatze/planwright/issues/659)) ([1f201fa](https://github.com/inkatze/planwright/commit/1f201fa4060805ade2f9f52091f2f4142d6da009))
+* **skills:** authoring skills follow the spec root's posture ([#657](https://github.com/inkatze/planwright/issues/657)) ([44255d0](https://github.com/inkatze/planwright/commit/44255d0c4c289f45c83c8a45eb2720e558dc0440))
+* **substrate:** derive the script layer's tier partition from the call graph ([#658](https://github.com/inkatze/planwright/issues/658)) ([e61d526](https://github.com/inkatze/planwright/commit/e61d526243b83b62353c35e04e34e207901533a9))
+* **sync:** apply the base-merge policy and a resolve mode to the base sync ([#655](https://github.com/inkatze/planwright/issues/655)) ([abe5f97](https://github.com/inkatze/planwright/commit/abe5f978ef0b7c62e2dfa3d0982d4ad4b3551d7e))
+
 ## [0.59.0](https://github.com/inkatze/planwright/compare/v0.58.0...v0.59.0) (2026-10-11)
 
 

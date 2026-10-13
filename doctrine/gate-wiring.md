@@ -228,6 +228,12 @@ attendance (interactive asks, headless parks), never a loop trigger.
   data-hygiene ([Security Posture](security-posture.md)): describe the
   finding without reproducing secrets or sensitive operational detail.
 
+A gate failure on a pushed commit failing the commit-range lint names its
+repair in the entry and the handoff: such a commit is reworded only through
+the tower's force-push path (`scripts/tower-force-push.sh`, on the operator's
+request, [Human Gates](human-gates.md)), so name that path as the reason and
+add no commit for it.
+
 The human's direction is the finding's disposition: the finding does not
 re-enter the routing order and the zone screen does not fire again. The agent
 carries it out with the directed disposition's mechanics and records it in
