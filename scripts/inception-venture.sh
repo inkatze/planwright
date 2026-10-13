@@ -797,7 +797,12 @@ cmd_save() {
 # time: a repository made public since creation, or one whose visibility
 # cannot be read, is never pushed to.
 confirm_private() {
-  cp_vis=$( (cd "$1" && gh repo view --json visibility --jq .visibility) 2>/dev/null) || cp_vis=
+  # Named explicitly: a bare `gh repo view` prefers an `upstream` remote, so a
+  # private upstream would vouch for a public origin. The push URL is the one
+  # the push below uses.
+  cp_url=$(git -C "$1" remote get-url --push origin 2>/dev/null) || cp_url=
+  [ -n "$cp_url" ] || die 6 "not shared: this venture has no remote to check; nothing was sent"
+  cp_vis=$( (cd "$1" && gh repo view "$cp_url" --json visibility --jq .visibility) 2>/dev/null) || cp_vis=
   case $cp_vis in
     PRIVATE) return 0 ;;
     '') die 6 "not shared: cannot confirm the remote repository is still private (is the GitHub CLI installed and signed in?); nothing was sent" ;;

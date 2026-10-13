@@ -133,7 +133,17 @@ printf '%s\n' "\$*" >>"$tmp/gh-calls.log"
 case "\$1 \$2" in
   "auth status") exit 0 ;;
   "repo view")
-    # Visibility is whatever the test last wrote, PRIVATE by default.
+    # A repository named in gh-public-repos reads PUBLIC; otherwise the
+    # visibility is whatever the test last wrote, PRIVATE by default.
+    case "\$3" in
+      -* | '') ;;
+      *)
+        if [ -f "$tmp/gh-public-repos" ] && grep -qxF -- "\$3" "$tmp/gh-public-repos"; then
+          echo PUBLIC
+          exit 0
+        fi
+        ;;
+    esac
     if [ -f "$tmp/gh-visibility" ]; then cat "$tmp/gh-visibility"; else echo PRIVATE; fi
     exit 0
     ;;
@@ -955,6 +965,21 @@ printf 'parameters probe\n' >"$rv/config-parameters.md"
 GIT_CONFIG_PARAMETERS="'remote.origin.pushurl'='$tmp/remotes/decoy.git'" \
   PATH="$stubs/gh-ok:$PATH" venture save --push "$rv" "Share despite inherited parameters"
 assert_eq "Z10 inherited GIT_CONFIG_PARAMETERS redirect nothing" "" "$(git -C "$tmp/remotes/decoy.git" rev-parse -q --verify refs/heads/main)"
+
+# =========================================================================
+# Z11 — the visibility checked is origin's, the remote the push goes to
+# =========================================================================
+
+remote_before=$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)
+git init -q --bare "$tmp/remotes/upstream.git"
+git -C "$rv" remote add upstream "$tmp/remotes/upstream.git"
+git -C "$rv" remote get-url --push origin >"$tmp/gh-public-repos"
+printf 'visibility target probe\n' >"$rv/visibility-target.md"
+PATH="$stubs/gh-ok:$PATH" venture save --push "$rv" "Share to a public origin beside a private upstream"
+assert_eq "Z11 a public origin is refused whatever other remotes read (exit 6)" 6 "$rc"
+assert_eq "Z11 the refused push leaves origin untouched" "$remote_before" "$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)"
+rm -f "$tmp/gh-public-repos"
+git -C "$rv" remote remove upstream
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
