@@ -176,9 +176,10 @@ cat >"$stage" <<'HOOK'
 #      commit so the published HTML never lags the bundle. Warns and lets the
 #      commit through when the render or the staging fails (REQ-A1.9): neither
 #      may dead-end a commit, and neither may fail in silence, or the exports
-#      drift unnoticed. Each export is screened before it is staged, though,
-#      and that screen blocks: they are rendered from the working tree, so
-#      they can carry bundle text step 1 never saw.
+#      drift unnoticed. The pages and the bundle files they come from are
+#      screened before anything is staged, though, and that screen blocks:
+#      they are rendered from the working tree, so they can carry bundle text
+#      step 1 never saw.
 #
 # Bypass the whole hook with `git commit --no-verify`.
 set -u
@@ -276,59 +277,70 @@ if ! /bin/sh "$pw/scripts/inception-validate.sh" "$top"; then
   echo "venture pre-commit: bundle findings above (not blocking; set PLANWRIGHT_VENTURE_STRICT=1 to block)." >&2
 fi
 
-# The renderer's stderr stays visible: its refusal names the cause, which the
-# warning below cannot.
-if /bin/sh "$pw/scripts/inception-render.sh" "$top" >/dev/null; then
-  # The exports are rendered from the WORKING TREE, so they can carry bundle
-  # text the step-1 screen never saw — an edit that is not staged still reaches
-  # the HTML. Screen each BEFORE staging it, or step 3 quietly walks around the
-  # hard stop in step 1 and commits the credential itself. Only an export that
-  # exists is screened and staged: a planwright copy older than the pitch mode
-  # writes the dashboard alone, and screening a page that does not exist would
-  # refuse every commit for an environment reason. Under such a copy, a pitch
-  # left on disk by an earlier render is restaged unchanged, so it can lag.
-  # The working-tree bundle files are screened with the pages, in one call:
-  # escaping turns a quoted assignment's quotes into entities no credential
-  # pattern matches, so the pages alone can hide what their source shows.
-  set -- "$top/brief.md" "$top/disciplines.md" "$top/assumptions.md" \
-    "$top/decisions.md" "$top/plan.md"
-  for page in venture pitch; do
-    [ -f "$top/exports/$page.html" ] && set -- "$@" "$top/exports/$page.html"
-  done
-  src=0
-  /bin/sh "$pw/scripts/inception-secret-screen.sh" -- "$@" || src=$?
-  # 1 and 2 both block, but they are different facts and get different words:
-  # saying "carries a credential" when the screen could not run sends the
-  # operator hunting through their bundle for something that is not there.
-  if [ "$src" -eq 1 ]; then
-    echo "venture pre-commit: the bundle in your working tree, or a page regenerated from it, looks like it carries a credential; commit refused." >&2
-    echo "venture pre-commit: fix it in the bundle file the screen names above, then commit." >&2
-    exit 1
-  elif [ "$src" -ne 0 ]; then
-    echo "venture pre-commit: the secret screen could not check the bundle and its regenerated pages (exit $src); commit refused." >&2
-    echo "venture pre-commit: this is an environment problem, not a finding — see the output above." >&2
-    exit 1
-  fi
-  # Staging failure warns, like a failed render: step 3 never dead-ends a commit.
-  # It must not be SILENT, though. The contract this step exists to keep is that
-  # the exports ride the same commit, and a swallowed `git add` (an ignored
-  # exports/, a locked index) breaks that contract while the commit still reads
-  # as clean. git's own message goes to stderr unredirected, so the reason is
-  # visible without this hook re-echoing repo-controlled text. Only the export
-  # paths are staged, never the tree, so a partial commit stays partial. A
-  # separate pass from the screen, so nothing is staged until every page passed.
-  for page in venture pitch; do
-    export_path="$top/exports/$page.html"
-    [ -f "$export_path" ] || continue
-    if ! git add "$export_path"; then
-      echo "venture pre-commit: the regenerated exports/$page.html could not be staged, so this commit carries a stale or absent export." >&2
-      echo "venture pre-commit: committing anyway — see git's message above." >&2
-    fi
-  done
-else
+# 3. Export regeneration.
+#
+# Each page is rendered into a private directory inside the git directory, not
+# straight into exports/: the bytes screened are then the bytes staged, and a
+# render of the work tree running meanwhile (another commit, a publish offer)
+# cannot swap a page in between the screen and the stage. The screened page is
+# staged by its blob, then moved into exports/ so the work tree matches the
+# commit. The renderer's stderr stays visible: its refusal names the cause,
+# which the warning below cannot.
+not_regenerated() {
   echo "venture pre-commit: the exports were not regenerated; they may now lag the bundle." >&2
   echo "venture pre-commit: committing anyway — a broken render never blocks a commit." >&2
+  exit 0
+}
+git_dir=$(git rev-parse --absolute-git-dir 2>/dev/null) || not_regenerated
+priv=$(mktemp -d "$git_dir/planwright-render.XXXXXX") || not_regenerated
+trap 'rm -rf "$priv"' EXIT
+for page in venture pitch; do
+  if [ "$page" = pitch ]; then mode=pitch; else mode=dashboard; fi
+  /bin/sh "$pw/scripts/inception-render.sh" --mode "$mode" --output "$priv/$page.html" "$top" >/dev/null ||
+    not_regenerated
+done
+
+# The working-tree bundle files are screened with the pages, in one call:
+# escaping turns a quoted assignment's quotes into entities no credential
+# pattern matches, so the pages alone can hide what their source shows.
+src=0
+/bin/sh "$pw/scripts/inception-secret-screen.sh" -- \
+  "$top/brief.md" "$top/disciplines.md" "$top/assumptions.md" \
+  "$top/decisions.md" "$top/plan.md" "$priv/venture.html" "$priv/pitch.html" || src=$?
+# 1 and 2 both block, but they are different facts and get different words:
+# saying "carries a credential" when the screen could not run sends the
+# operator hunting through their bundle for something that is not there.
+if [ "$src" -eq 1 ]; then
+  echo "venture pre-commit: the bundle in your working tree, or a page regenerated from it, looks like it carries a credential; commit refused." >&2
+  echo "venture pre-commit: fix it in the bundle file the screen names above, then commit." >&2
+  exit 1
+elif [ "$src" -ne 0 ]; then
+  echo "venture pre-commit: the secret screen could not check the bundle and its regenerated pages (exit $src); commit refused." >&2
+  echo "venture pre-commit: this is an environment problem, not a finding — see the output above." >&2
+  exit 1
 fi
+
+# Staging failure warns, like a failed render: step 3 never dead-ends a commit.
+# It must not be SILENT, though. The contract this step exists to keep is that
+# the exports ride the same commit, and a swallowed stage (an ignored exports/,
+# a locked index) breaks that contract while the commit still reads as clean.
+# git's own message goes to stderr unredirected, so the reason is visible
+# without this hook re-echoing repo-controlled text. Only the export paths are
+# staged, never the tree, so a partial commit stays partial. update-index does
+# not consult .gitignore, so an ignored page is refused here, as `git add` would.
+for page in venture pitch; do
+  rel="exports/$page.html"
+  if git check-ignore -q "$rel"; then
+    echo "venture pre-commit: the regenerated $rel could not be staged (it is gitignored), so this commit carries a stale or absent export." >&2
+  elif ! blob=$(git hash-object -w "$priv/$page.html") ||
+    ! git update-index --add --cacheinfo "100644,$blob,$rel"; then
+    echo "venture pre-commit: the regenerated $rel could not be staged, so this commit carries a stale or absent export." >&2
+    echo "venture pre-commit: committing anyway — see git's message above." >&2
+  fi
+  if ! mkdir -p "$top/exports" || ! mv -f "$priv/$page.html" "$top/$rel"; then
+    echo "venture pre-commit: the regenerated $rel could not be written to the work tree; the commit still carries it." >&2
+  fi
+done
 
 exit 0
 HOOK
@@ -466,9 +478,10 @@ this venture repo runs it once.
      lags the bundle. **Warns and lets the commit through** if the render fails, or if an export
      cannot be staged — neither may dead-end a commit, and you are told either way, because a
      silent staging failure is how a published export starts drifting from the bundle without
-     anyone noticing. Each regenerated export is screened for secrets before it is
-     staged, and *that* **blocks**: it is rendered from your working tree, so it can carry bundle
-     text step 1 never looked at (an edit you had not staged).
+     anyone noticing. Each regenerated export, with the bundle files it comes from, is screened
+     for secrets before it is staged, and *that* **blocks**: it is rendered from your working
+     tree, so it can carry bundle text step 1 never looked at (an edit you had not staged). The
+     page staged is exactly the page screened.
 $rung_ci
 
 ## The exports

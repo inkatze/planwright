@@ -552,15 +552,16 @@ assert_contains "unexported pin: the pinned copy rendered and staged the dashboa
 assert_contains "unexported pin: the pinned copy rendered and staged the pitch" \
   "exports/pitch.html" "$pin_staged"
 
-# A planwright copy older than the pitch mode renders the dashboard alone. The
-# hook must stage what was rendered and not refuse the commit over the page
-# that does not exist.
+# A planwright copy whose renderer predates --mode and --output cannot render
+# the pages the hook asks for. That is a failed render: it warns and the commit
+# goes through, never refused for an environment reason.
 old_pw="$tmp/pw-old-renderer"
 mkdir -p "$old_pw/scripts"
 cp "$REPO_ROOT/scripts/"inception-*.sh "$REPO_ROOT/scripts/echo-safety.sh" \
   "$REPO_ROOT/scripts/spec-parse.sh" "$old_pw/scripts/" || exit 1
 cat >"$old_pw/scripts/inception-render.sh" <<'OLDRENDER'
 #!/bin/sh
+case $1 in -*) echo "usage: inception-render.sh <venture-dir>" >&2; exit 2 ;; esac
 mkdir -p "$1/exports" && printf '<!DOCTYPE html><p>dashboard only</p>\n' >"$1/exports/venture.html"
 OLDRENDER
 old_v="$tmp/venture-old-renderer"
@@ -579,9 +580,43 @@ out="$(cd "$old_v" && git add -A \
     git commit -qm "older planwright" 2>&1)"
 rc=$?
 assert_eq "older renderer: the commit succeeds" "0" "$rc"
-old_staged="$(cd "$old_v" && git show --name-only --format= HEAD)"
-assert_contains "older renderer: the dashboard is staged" "exports/venture.html" "$old_staged"
-assert_not_contains "older renderer: no pitch is invented" "exports/pitch.html" "$old_staged"
+assert_contains "older renderer: it says the exports were not regenerated" "were not regenerated" "$out"
+
+# The bytes staged are the bytes screened. A screen wrapper stands in for a
+# concurrent render: while the hook screens, it writes a different page into
+# the work tree. The commit must carry the screened page, not the swapped one.
+race_pw="$tmp/pw-race"
+mkdir -p "$race_pw/scripts"
+cp "$REPO_ROOT/scripts/"inception-*.sh "$REPO_ROOT/scripts/echo-safety.sh" \
+  "$REPO_ROOT/scripts/spec-parse.sh" "$REPO_ROOT/scripts/html-escape.sh" "$race_pw/scripts/" || exit 1
+mv "$race_pw/scripts/inception-secret-screen.sh" "$race_pw/scripts/inception-secret-screen.real.sh"
+cat >"$race_pw/scripts/inception-secret-screen.sh" <<'RACESCREEN'
+#!/bin/sh
+top=$(git rev-parse --show-toplevel)
+mkdir -p "$top/exports" && printf 'SWAPPED-IN\n' >"$top/exports/venture.html"
+exec /bin/sh "$(dirname "$0")/inception-secret-screen.real.sh" "$@"
+RACESCREEN
+race_v="$tmp/venture-race"
+mkdir -p "$race_v"
+inception_fixture_write "$race_v" >/dev/null 2>&1 || exit 1
+(
+  cd "$race_v" || exit 1
+  git init -q .
+  git config user.email fixture@example.invalid
+  git config user.name Fixture
+  git config commit.gpgsign false
+) >/dev/null 2>&1 || exit 1
+"$SCAFFOLD" --rung local --wire "$race_v" >/dev/null 2>&1
+out="$(cd "$race_v" && git add -A \
+  && PLANWRIGHT_ROOT="$race_pw" PLANWRIGHT_SECRET_SCREEN_TOOL=none \
+    git commit -qm "race" 2>&1)"
+rc=$?
+assert_eq "screen-to-stage race: the commit succeeds" "0" "$rc"
+race_committed="$(cd "$race_v" && git show HEAD:exports/venture.html 2>/dev/null)"
+assert_not_contains "screen-to-stage race: the swapped page is not committed" "SWAPPED-IN" "$race_committed"
+assert_contains "screen-to-stage race: the screened page is committed" "Northwind Signals" "$race_committed"
+assert_eq "screen-to-stage race: the work tree holds the committed page" \
+  "$race_committed" "$(cat "$race_v/exports/venture.html")"
 
 # The repo's own `lint:yaml` covers tracked config, not what this script
 # generates, so the emitted workflow is linted here or nowhere.

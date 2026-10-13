@@ -45,7 +45,9 @@
 # --mode defaults to dashboard: each call offers one page, so the pitch is
 # offered by its own call.
 #
-# offer prints `<key><TAB><value>` lines on stdout — mode, export, decision,
+# offer prints `<key><TAB><value>` lines on stdout — mode, export (a private
+# copy, in a directory of its own the caller removes once the page is
+# published or declined), decision,
 # reason (first-publish | auto-republish-off | no-artifact-recorded |
 # auto-republish-on), artifact (the recorded id, or none) — and the plain-language instruction on stderr.
 #
@@ -261,19 +263,23 @@ esac
 # --- offer ------------------------------------------------------------------
 
 # Rendered fresh, never taken from disk as found: the page published is the
-# bundle as it stands now, not whatever the last commit happened to leave.
+# bundle as it stands now, not whatever the last commit happened to leave. It is
+# rendered into a private directory of its own, never the work tree's exports/,
+# so the bytes screened below are the bytes the session publishes: a render of
+# the work tree (a commit's hook, another offer) cannot swap a page in under it.
+if [ "$mode" = pitch ]; then page=pitch; else page=venture; fi
+priv=$(mktemp -d "${TMPDIR:-/tmp}/inception-offer.XXXXXX") || exit 2
+offer_done=0
+trap '[ "$offer_done" -eq 1 ] || rm -rf "$priv"' EXIT
+chmod 700 "$priv" || exit 2
+export_path="$priv/$page.html"
 rrc=0
-/bin/sh "$script_dir/inception-render.sh" --mode "$mode" "$target" >/dev/null || rrc=$?
+/bin/sh "$script_dir/inception-render.sh" --mode "$mode" --output "$export_path" "$target" >/dev/null || rrc=$?
 if [ "$rrc" -eq 3 ]; then
   exit 3
 elif [ "$rrc" -ne 0 ]; then
   printf '%s\n' "inception-publish: the $mode export could not be rendered; nothing to offer" >&2
   exit 2
-fi
-if [ "$mode" = pitch ]; then
-  export_path="$target/exports/pitch.html"
-else
-  export_path="$target/exports/venture.html"
 fi
 
 # The page leaves the machine, so it gets the same screen a commit does. The
@@ -329,6 +335,7 @@ case $published in
   *) artifact_out=$published ;;
 esac
 
+offer_done=1
 printf 'mode\t%s\n' "$mode"
 printf 'export\t%s\n' "$export_path"
 printf 'decision\t%s\n' "$decision"

@@ -56,6 +56,9 @@ fi
 
 tmp="$(cd "$(mktemp -d)" && pwd -P)" || exit 1
 trap 'rm -rf "$tmp"' EXIT
+# Offers leave their private copies under TMPDIR for the caller to remove;
+# keep them inside this run's scratch directory.
+export TMPDIR="$tmp"
 
 fresh() {
   d="$(mktemp -d "$tmp/vXXXXXX")" || exit 1
@@ -83,11 +86,18 @@ assert_eq "fresh offer: exit 0" "0" "$rc"
 assert_eq "fresh offer: the decision is an offer" "offer" "$(field decision "$out")"
 assert_eq "fresh offer: the first publish is the reason" "first-publish" "$(field reason "$out")"
 assert_eq "fresh offer: the dashboard is the default mode" "dashboard" "$(field mode "$out")"
-assert_eq "fresh offer: names the rendered export" "$v/exports/venture.html" "$(field export "$out")"
+offered="$(field export "$out")"
+case $offered in
+  "$v"/*) echo "FAIL: fresh offer: the offered page sits in the work tree ($offered)" >&2
+    failures=$((failures + 1)) ;;
+  */venture.html) echo "ok: fresh offer: names a private copy of the dashboard" ;;
+  *) echo "FAIL: fresh offer: unexpected export path ($offered)" >&2
+    failures=$((failures + 1)) ;;
+esac
 assert_eq "fresh offer: no artifact on record" "none" "$(field artifact "$out")"
 assert_contains "fresh offer: tells the caller to ask first" "ask the operator" "$err"
 assert_contains "fresh offer: says the page leaves this machine" "off this machine" "$err"
-if [ -f "$v/exports/venture.html" ]; then
+if [ -f "$offered" ]; then
   echo "ok: fresh offer: renders the export it offers"
 else
   echo "FAIL: fresh offer: the export was not rendered" >&2
@@ -101,7 +111,11 @@ else
 fi
 
 out="$("$PUBLISH" offer --mode pitch "$v" 2>/dev/null)"
-assert_eq "pitch offer: names the pitch export" "$v/exports/pitch.html" "$(field export "$out")"
+case $(field export "$out") in
+  */pitch.html) echo "ok: pitch offer: names a private copy of the pitch" ;;
+  *) echo "FAIL: pitch offer: unexpected export path" >&2
+    failures=$((failures + 1)) ;;
+esac
 assert_eq "pitch offer: is an offer" "offer" "$(field decision "$out")"
 
 # ---------------------------------------------------------------------------
@@ -388,6 +402,26 @@ rc=$?
 assert_eq "quoted credential: not offered" "1" "$rc"
 assert_not_contains "quoted credential: no decision" "decision" "$out"
 assert_not_contains "quoted credential: never echoed" "AbCdEfGhIjKlMnOpQrStUvWx12" "$(cat "$tmp/err")"
+
+# ---------------------------------------------------------------------------
+# 11. The page offered is the page screened: a later render of the work tree
+#     cannot swap different bytes in under the offer.
+# ---------------------------------------------------------------------------
+v="$(fresh)"
+out="$("$PUBLISH" offer "$v" 2>/dev/null)"
+offered="$(field export "$out")"
+cp "$offered" "$tmp/screened.html"
+sed 's|ten minutes|SWAPPED-IN minutes|' "$v/brief.md" >"$v/brief.new" && mv "$v/brief.new" "$v/brief.md"
+"$REPO_ROOT/scripts/inception-render.sh" "$v" >/dev/null 2>&1
+if cmp -s "$tmp/screened.html" "$offered"; then
+  echo "ok: private copy: a later work-tree render leaves the offered page alone"
+else
+  echo "FAIL: private copy: the offered page changed after it was screened" >&2
+  failures=$((failures + 1))
+fi
+private_dir="$(dirname "$offered")"
+leaky="$(find "$private_dir" -maxdepth 0 -perm -004 2>/dev/null)"
+assert_eq "private copy: its directory is not world-readable" "" "$leaky"
 
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-publish: $failures assertion(s) failed" >&2
