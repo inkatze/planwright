@@ -1300,7 +1300,7 @@
 
 ## Awaiting input
 
-- **Task 2** — post-pr step `cubic-pr` halted (Needs sign-off: two drafted cubic rejections await the operator, see PR #669); record `.claude/steps/000001/009-step-post-pr.rec`
+(none yet)
 
 ## Deferred
 
