@@ -60,7 +60,9 @@
 #               (a brace, or an expansion that is not the value of one of its
 #               value-taking options), denies at every tier with no read, as
 #               does the flag after a script name the guard cannot resolve; a
-#               renamed copy of ready-flip.sh is the same residual.
+#               renamed copy of ready-flip.sh, and a flag carried only in an
+#               expansion after a script name that is itself an expansion,
+#               are the same residual.
 #   base-merge  `git merge`, `git pull` in merge mode. tower: deny. worker:
 #               worker_base_merge, then the current branch must be the session's
 #               unit branch outside the protected set and every source the PR
