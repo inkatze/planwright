@@ -264,6 +264,16 @@ fi
 git -C "$tmp/origin.git" update-ref -d refs/heads/gone/child
 g fetch -q --prune origin "+refs/heads/*:refs/remotes/origin/*"
 g checkout -q "$BR"
+# The scratch directory's path, a quote in TMPDIR included, never becomes
+# shell source in the cleanup trap.
+qdir="$tmp/q'd"
+mkdir "$qdir"
+rc=$(TMPDIR="$qdir" rc_of fp reword --branch "$BR" --commit "$BAD" --message-file "$tmp/msg")
+if [ "$rc" = 0 ] && [ -z "$(ls -A "$qdir")" ]; then
+  ok "reword removes its scratch directory under a TMPDIR holding a quote"
+else
+  fail "reword left its scratch directory under a quoted TMPDIR (exit $rc: $(ls -A "$qdir") $(cat "$tmp/err"))"
+fi
 printf ' \n\t\n' >"$tmp/blank"
 rc=$(rc_of fp reword --branch "$BR" --commit "$BAD" --message-file "$tmp/blank")
 if [ "$rc" = 2 ]; then

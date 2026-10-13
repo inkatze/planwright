@@ -418,8 +418,8 @@ reword() {
     *) broken "commit.gpgSign could not be read; whether to sign the replay is unknown" ;;
   esac
   work=$(mktemp -d) || broken "mktemp failed"
-  # shellcheck disable=SC2064 # the path is fixed now
-  trap "rm -rf '$work'" EXIT
+  # shellcheck disable=SC2064 # the path is fixed now, and shell-quoted
+  trap "rm -rf $(shq "$work")" EXIT
   map="$work/map"
   : >"$map"
   {
