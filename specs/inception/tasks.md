@@ -240,7 +240,8 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 
 ## Awaiting input
 
-(none yet)
+- **Task 7** — convergence point, step polish, outcome halted (security-zone defects introduced by
+  the second ruled fix round await direction); record `.claude/steps/000004/001-step-convergence.rec`.
 
 ## Deferred
 
