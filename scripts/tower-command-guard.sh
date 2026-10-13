@@ -29,8 +29,9 @@
 # Security contract (identical to the worker guard's — the whole point):
 #   * No LLM in the decision path (REQ-E1.3); purely deterministic shell. The
 #     analyzed command is inert DATA — never eval-ed, re-expanded, or executed.
-#   * Allow-only: it emits `allow` or nothing. It NEVER emits deny/ask and
-#     NEVER exits non-zero — approval is upgrade-only; blocking stays with
+#   * Allow-only, with one exception: it emits `allow` or nothing, except
+#     `ask` for a command that runs the force-push helper (emit_ask). It NEVER
+#     emits deny and NEVER exits non-zero — approval is upgrade-only; blocking stays with
 #     permissions.deny (REQ-C1.2). A hook `allow` therefore never needs to (and
 #     by design never does) auto-approve a deny-listed command: the allowlist is
 #     tower-safe shapes with zero overlap with the tower deny block, and the
@@ -114,6 +115,16 @@ readonly ALLOW_REASON='planwright tower-command-guard: enumerated known-safe tow
 # is never a partially-written allow.
 emit_allow() {
   printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"'"$ALLOW_REASON"'"}}'
+}
+
+# The one other answer: a command that runs the force-push helper, under any
+# name the guard recognizes (another casing, a symlink, a hardlink), asks the
+# operator. A settings ask glob cannot see a hardlink or symlink, and a hook
+# ask holds in auto mode: the classifier may deny the call but not approve it.
+readonly ASK_REASON='planwright tower-command-guard: this runs the force-push helper, which runs only on the operator'"'"'s request in this turn (doctrine/human-gates.md)'
+FP_SEEN=0
+emit_ask() {
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"'"$ASK_REASON"'"}}'
 }
 
 # --------------------------------------------------------------------------
@@ -581,18 +592,32 @@ is_planwright_script() {
   # its every verb reaches the permission prompt (doctrine/human-gates.md).
   # Any casing, since a case-insensitive filesystem runs it under any.
   case ${p##*/} in
-    [Tt][Oo][Ww][Ee][Rr]-[Ff][Oo][Rr][Cc][Ee]-[Pp][Uu][Ss][Hh].[Ss][Hh]) return 1 ;;
+    [Tt][Oo][Ww][Ee][Rr]-[Ff][Oo][Rr][Cc][Ee]-[Pp][Uu][Ss][Hh].[Ss][Hh])
+      FP_SEEN=1
+      return 1
+      ;;
   esac
+  cache_plugin_root
+  proot=$PLUGIN_ROOT_CACHED
+  root=$(repo_root_of "$cwd") || root=''
+  # A symlink or hardlink to either root's helper, under any name and with or
+  # without an extension, before the `.sh` gate and the containment check below
+  # turn it away without naming it.
+  case $p in
+    /*) full=$p ;;
+    *) full=$cwd/$p ;;
+  esac
+  if is_force_push_file "$full" "$root" "$proot"; then
+    FP_SEEN=1
+    return 1
+  fi
   case $p in
     *.sh) ;;
     *) return 1 ;;
   esac
-  cache_plugin_root
-  proot=$PLUGIN_ROOT_CACHED
   # (a) under the repo checkout's scripts/ dir.
-  if root=$(repo_root_of "$cwd"); then
+  if [ -n "$root" ]; then
     if full=$(canon_under "$p" "$cwd" "$root"); then
-      is_force_push_file "$full" "$root" "$proot" && return 1
       rel=${full#"$root"/}
       case $rel in
         scripts/*) return 0 ;;
@@ -602,7 +627,6 @@ is_planwright_script() {
   # (b) under the installed plugin's scripts/ dir (resolved literal path).
   if [ -n "$proot" ]; then
     if full=$(canon_under "$p" "$cwd" "$proot"); then
-      is_force_push_file "$full" "$proot" "${root:-}" && return 1
       rel=${full#"$proot"/}
       case $rel in
         scripts/*) return 0 ;;
@@ -2622,7 +2646,10 @@ main() {
   LOOP_PASSES=0
   SIMPLE_N=0
 
-  analyze_command "$cmd" 0 || return 0
+  if ! analyze_command "$cmd" 0; then
+    [ "$FP_SEEN" = 0 ] || emit_ask
+    return 0
+  fi
   emit_allow
   return 0
 }
