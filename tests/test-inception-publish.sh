@@ -429,6 +429,37 @@ private_dir="$(dirname "$offered")"
 leaky="$(find "$private_dir" -maxdepth 0 -perm -004 2>/dev/null)"
 assert_eq "private copy: its directory is not world-readable" "" "$leaky"
 
+# ---------------------------------------------------------------------------
+# 12. Panel-review edges.
+# ---------------------------------------------------------------------------
+
+# `yes` is the record's own word for "published, no id": not an artifact id.
+v="$(fresh)"
+out="$("$PUBLISH" record --confirmed --artifact yes "$v" 2>&1)"
+rc=$?
+assert_eq "artifact id yes: refused" "2" "$rc"
+
+# The lock-tries knob is a count; anything else is refused, not computed on.
+v="$(fresh)"
+out="$(PLANWRIGHT_PUBLISH_LOCK_TRIES=many "$PUBLISH" auto on "$v" 2>&1)"
+rc=$?
+assert_eq "lock tries not a number: refused" "2" "$rc"
+assert_contains "lock tries not a number: names the knob" "PLANWRIGHT_PUBLISH_LOCK_TRIES" "$out"
+
+# An offer interrupted mid-screen leaves no private directory behind.
+sand="$tmp/pw-sand"
+mkdir -p "$sand/scripts"
+cp "$REPO_ROOT/scripts/"inception-*.sh "$REPO_ROOT/scripts/echo-safety.sh" \
+  "$REPO_ROOT/scripts/spec-parse.sh" "$REPO_ROOT/scripts/html-escape.sh" "$sand/scripts/" || exit 1
+# shellcheck disable=SC2016 # $PPID belongs to the stub, expanded when it runs
+printf '%s\n' '#!/bin/sh' 'kill -TERM "$PPID"' 'exit 2' >"$sand/scripts/inception-secret-screen.sh"
+v="$(fresh)"
+offers="$tmp/offers-int"
+mkdir -p "$offers"
+TMPDIR="$offers" /bin/sh "$sand/scripts/inception-publish.sh" offer "$v" >/dev/null 2>&1
+leftover="$(find "$offers" -mindepth 1 -maxdepth 1 2>/dev/null)"
+assert_eq "interrupted offer: no private directory is left" "" "$leftover"
+
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-publish: $failures assertion(s) failed" >&2
   exit 1

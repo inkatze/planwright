@@ -51,6 +51,10 @@
 # reason (first-publish | auto-republish-off | no-artifact-recorded |
 # auto-republish-on), artifact (the recorded id, or none) — and the plain-language instruction on stderr.
 #
+# Environment:
+#   PLANWRIGHT_PUBLISH_LOCK_TRIES   seconds a writer waits for the state lock
+#                                   before refusing; a whole number, default 10.
+#
 # Exit: 0 done · 1 the rendered page looks like it carries a credential, so it
 #   is not offered at all · 2 usage or environment error · 3 the renderer
 #   refused the bundle (passed through).
@@ -185,6 +189,12 @@ load_state() {
 # and the refusal names it.
 take_lock() {
   tries=${PLANWRIGHT_PUBLISH_LOCK_TRIES:-10}
+  case $tries in
+    '' | *[!0-9]*)
+      echo "inception-publish: PLANWRIGHT_PUBLISH_LOCK_TRIES must be a whole number" >&2
+      exit 2
+      ;;
+  esac
   while ! mkdir "$lock" 2>/dev/null; do
     tries=$((tries - 1))
     if [ "$tries" -le 0 ]; then
@@ -193,15 +203,23 @@ take_lock() {
     fi
     sleep 1
   done
+  lock_held=1
   trap release EXIT
   trap 'release; exit 129' HUP
   trap 'release; exit 130' INT
   trap 'release; exit 143' TERM
 }
 w_tmp=
+lock_held=0
+# A signal trap's `exit` runs the EXIT trap too, so release runs twice there;
+# the flag keeps the second run from removing a lock another writer has taken
+# in between.
 # shellcheck disable=SC2329 # invoked from the traps take_lock installs
 release() {
   [ -z "$w_tmp" ] || rm -f "$w_tmp"
+  w_tmp=
+  [ "$lock_held" -eq 1 ] || return 0
+  lock_held=0
   rmdir "$lock" 2>/dev/null
 }
 
@@ -251,6 +269,11 @@ case $cmd in
       echo "inception-publish: record only a publish the operator confirmed; pass --confirmed once they have" >&2
       exit 2
     fi
+    # `yes` is the record's own marker for a publish with no id on record.
+    if [ "$artifact" = yes ]; then
+      echo "inception-publish: --artifact yes is reserved; pass the artifact's real id, or none" >&2
+      exit 2
+    fi
     if [ -n "$artifact" ] && ! id_ok "$artifact"; then
       echo "inception-publish: --artifact must be a plain id (letters, digits, . _ : -; at most 128)" >&2
       exit 2
@@ -272,6 +295,9 @@ if [ "$mode" = pitch ]; then page=pitch; else page=venture; fi
 priv=$(mktemp -d "${TMPDIR:-/tmp}/inception-offer.XXXXXX") || exit 2
 offer_done=0
 trap '[ "$offer_done" -eq 1 ] || rm -rf "$priv"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 chmod 700 "$priv" || exit 2
 export_path="$priv/$page.html"
 rrc=0
