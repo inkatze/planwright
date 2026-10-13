@@ -791,7 +791,22 @@ cmd_save() {
       return 0
     fi
     confirm_private "$dir"
-    screen_outgoing "$dir"
+    # Each push URL gets its own screen: what one remote already holds says
+    # nothing about another.
+    so_urls=$(git -C "$dir" remote get-url --push --all origin 2>/dev/null) || so_urls=
+    so_ifs=$IFS
+    IFS='
+'
+    set -f
+    for so_url in $so_urls; do
+      # Back to the default for the screen, whose own splitting expects it.
+      IFS=$so_ifs
+      screen_outgoing "$dir" "$so_url"
+      IFS='
+'
+    done
+    set +f
+    IFS=$so_ifs
     if ! git -C "$dir" push -q -u origin HEAD >/dev/null 2>&1; then
       die 7 "saved here, but not shared: the push to the private repository failed (check the connection, then save again)"
     fi
@@ -832,12 +847,22 @@ screen_or_die() {
   die 2 "the secret screen could not run (exit $sd_rc)"
 }
 
-# screen_outgoing <venture-dir> — screen every change a push would send,
-# intermediate commits included, so a credential committed outside the helper
-# and removed again still never leaves the machine.
+# screen_outgoing <venture-dir> <push-url> — screen every change a push to
+# that URL would send, intermediate commits included, so a credential
+# committed outside the helper and removed again still never leaves the
+# machine.
 screen_outgoing() {
-  # What origin lacks, not what the upstream lacks: a branch tracking a local
-  # branch would otherwise hide commits the push still sends.
+  # What that remote lacks, read from the remote itself: neither the upstream
+  # (a branch tracking a local branch) nor the local origin/* refs (stale, or
+  # fetched from another URL) can say what the push will send.
+  so_tips=$(git -C "$1" ls-remote "$2" 2>/dev/null) || die 2 "not shared: cannot read what the remote repository already holds"
+  screen_excl=
+  for so_tip in $(printf '%s\n' "$so_tips" | cut -f1); do
+    case $so_tip in *[!0-9a-f]* | '') continue ;; esac
+    if git -C "$1" cat-file -e "$so_tip^{commit}" 2>/dev/null; then
+      screen_excl="$screen_excl $so_tip"
+    fi
+  done
   tmp_path=$(mktemp "${TMPDIR:-/tmp}/inception-venture.XXXXXX") || die 2 "cannot create a temporary file"
   # Every commit message and every file version the push sends, read as raw
   # contents: a diff hides files git treats as binary (an attribute, a NUL
@@ -846,7 +871,8 @@ screen_outgoing() {
   # opening bytes look like a binary format (%PDF, a zip header), and the
   # newest commit message would otherwise choose those bytes.
   printf 'planwright venture push screen\n' >"$tmp_path"
-  git -C "$1" log --format=%B HEAD --not --remotes=origin >>"$tmp_path" 2>/dev/null \
+  # shellcheck disable=SC2086 # screen_excl is hex object ids, split on purpose
+  git -C "$1" log --format=%B HEAD --not $screen_excl >>"$tmp_path" 2>/dev/null \
     || die 2 "cannot read the history a push would send"
   outgoing_blobs "$1" >>"$tmp_path" || die 2 "cannot read the files a push would send"
   sd_rc=0
@@ -859,14 +885,15 @@ screen_outgoing() {
 }
 
 # outgoing_blobs <venture-dir> — the contents of every blob reachable from
-# HEAD that origin lacks, one after another.
+# HEAD and not from the screen's exclusion set, one after another.
 #
 # Each stage is checked on its own: a pipeline reports only its last command,
 # so a failed listing would otherwise yield a partial list and a screen that
 # passes. A missing object is a failure too, never a line to drop.
 outgoing_blobs() {
   tmp_list=$(mktemp "${TMPDIR:-/tmp}/inception-venture.XXXXXX") || return 1
-  git -C "$1" rev-list --objects HEAD --not --remotes=origin >"$tmp_list" 2>/dev/null || return 1
+  # shellcheck disable=SC2086 # screen_excl is hex object ids, split on purpose
+  git -C "$1" rev-list --objects HEAD --not $screen_excl >"$tmp_list" 2>/dev/null || return 1
   ob_types=$(cut -d' ' -f1 "$tmp_list" \
     | git -C "$1" cat-file --batch-check='%(objecttype) %(objectname)' 2>/dev/null) || return 1
   case $ob_types in *missing*) return 1 ;; esac

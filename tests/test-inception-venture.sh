@@ -1138,6 +1138,20 @@ assert_eq "Z17 the private remote is untouched too" "$remote_before" "$(git -C "
 rm -f "$tmp/gh-public-repos"
 git -C "$rv" config --unset-all remote.origin.pushurl
 
+# =========================================================================
+# Z20 — a stale origin/* ref never hides commits from the push screen
+# =========================================================================
+
+rv_base=$(git -C "$rv" rev-parse HEAD)
+remote_before=$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)
+leak_and_hide "$rv"
+git -C "$rv" update-ref refs/remotes/origin/stale HEAD
+PATH="$stubs/gh-ok:$PATH" venture save --push "$rv" "Share past a stale remote-tracking ref"
+assert_eq "Z20 commits behind a stale origin ref are still screened (exit 1)" 1 "$rc"
+assert_eq "Z20 the refused push leaves the remote untouched" "$remote_before" "$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)"
+git -C "$rv" update-ref -d refs/remotes/origin/stale
+git -C "$rv" reset -q --hard "$rv_base"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
