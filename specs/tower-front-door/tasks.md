@@ -455,24 +455,6 @@ router has not demonstrated (REQ-B1.6).
 
 ## Awaiting input
 
-- **Task 19** — draft PR #662 is open with the local gate and CI green
-  on `ab430c24`; its cubic review (point `post-pr`, step `cubic-pr`,
-  outcome `halted`, record `.claude/steps/000006/005-step-post-pr.rec`)
-  raised two findings that each need the operator. Nothing was posted or
-  applied; agent recommendation: fix P1 and reject P2.
-  1. P1 (confirmed, security-sensitive code): a PEM or PGP END line of
-     another key type closes an open PEM or PGP block, so the key body
-     after a foreign END line reaches the record. The directed fix said
-     "through the matching END line"; the block logic accepts any.
-     Recommended fix: capture the opener's key type and accept only the
-     END with the same type, with a test.
-  2. P2 (proposed rejection, test-only): cubic says the rollback-signal
-     test's stub fires on the temp-file cleanup instead of rollback. It
-     does not: the stubs replace only `git` and `ln`, the cleanup is a
-     plain `rm`, the only `git rm` is rollback's unstage, and the test
-     failed on the pre-fix script for exactly the signal-during-rollback
-     reason. Draft reply states that evidence and resolves the thread.
-
 ## Deferred
 
 - **Tower floor bypass paths from the skill core's review.** The deny
