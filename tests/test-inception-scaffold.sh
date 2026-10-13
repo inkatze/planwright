@@ -107,7 +107,6 @@ hook="$(cat "$v/githooks/pre-commit")"
 assert_contains "hook: screens staged content for secrets" "inception-secret-screen.sh" "$hook"
 assert_contains "hook: regenerates the export" "inception-render.sh" "$hook"
 assert_contains "hook: stages the regenerated export" "git add" "$hook"
-assert_contains "hook: covers the pitch export too" "for page in venture pitch" "$hook"
 assert_contains "hook: runs the validator" "inception-validate.sh" "$hook"
 assert_not_contains "hook: bakes in no machine-specific plugin path" "$REPO_ROOT" "$hook"
 
@@ -292,7 +291,9 @@ done
 out="$(cd "$venture" && git add -A && git commit -qm "bundle from a newer plugin" 2>&1)"
 rc=$?
 assert_eq "hook: a render failure does not block the commit" "0" "$rc"
-assert_contains "hook: it says the export was not regenerated" "export" "$out"
+assert_contains "hook: it says the exports were not regenerated" "were not regenerated" "$out"
+assert_contains "hook: the renderer's own reason reaches the operator" \
+  "inception-render: refusing to render" "$out"
 
 # A staging failure is the other half of step 3, and the one that used to pass
 # in silence: the render succeeds, so the operator is told nothing, but the
@@ -315,6 +316,9 @@ assert_eq "hook: a staging failure does not block the commit" "0" "$rc"
 assert_contains "hook: a staging failure is reported, not swallowed" \
   "could not be staged" "$out"
 assert_file "hook: the export was still rendered on disk" "$staged_v/exports/venture.html"
+assert_file "hook: the pitch was still rendered on disk" "$staged_v/exports/pitch.html"
+assert_contains "hook: the pitch's staging failure is named" \
+  "exports/pitch.html could not be staged" "$out"
 
 # Step 1 refuses the commit whether the screen found something or could not run,
 # but it must not describe the second as the first: telling an operator their
@@ -464,6 +468,7 @@ sp_home="$tmp/spaced home"
 mkdir -p "$sp_home/.claude/plugins/cache/planwright/planwright/pw/scripts"
 cp "$REPO_ROOT/scripts/"inception-*.sh "$sp_home/.claude/plugins/cache/planwright/planwright/pw/scripts/" || exit 1
 cp "$REPO_ROOT/scripts/echo-safety.sh" "$REPO_ROOT/scripts/spec-parse.sh" \
+  "$REPO_ROOT/scripts/html-escape.sh" \
   "$sp_home/.claude/plugins/cache/planwright/planwright/pw/scripts/" || exit 1
 sp_v="$tmp/venture-spaced-home"
 mkdir -p "$sp_v"
@@ -495,7 +500,8 @@ assert_eq "HOME with a space: nothing was committed" "0" "$sp_commits"
 pin_pw="$tmp/pw-pinned"
 mkdir -p "$pin_pw/scripts"
 cp "$REPO_ROOT/scripts/"inception-*.sh "$REPO_ROOT/scripts/resolve-root.sh" \
-  "$REPO_ROOT/scripts/echo-safety.sh" "$REPO_ROOT/scripts/spec-parse.sh" "$pin_pw/scripts/" || exit 1
+  "$REPO_ROOT/scripts/echo-safety.sh" "$REPO_ROOT/scripts/spec-parse.sh" \
+  "$REPO_ROOT/scripts/html-escape.sh" "$pin_pw/scripts/" || exit 1
 pin_claude="$tmp/pin-claude"
 mkdir -p "$pin_claude/planwright/scripts"
 for s in "$REPO_ROOT/scripts/"inception-*.sh; do
@@ -519,6 +525,42 @@ out="$(cd "$pin_v" && git add -A \
 rc=$?
 assert_not_contains "unexported pin: the writer-delivery copy does not run" "WRONG-COPY" "$out"
 assert_eq "unexported pin: the pinned copy's guards pass the clean bundle" "0" "$rc"
+pin_staged="$(cd "$pin_v" && git show --name-only --format= HEAD)"
+assert_contains "unexported pin: the pinned copy rendered and staged the dashboard" \
+  "exports/venture.html" "$pin_staged"
+assert_contains "unexported pin: the pinned copy rendered and staged the pitch" \
+  "exports/pitch.html" "$pin_staged"
+
+# A planwright copy older than the pitch mode renders the dashboard alone. The
+# hook must stage what was rendered and not refuse the commit over the page
+# that does not exist.
+old_pw="$tmp/pw-old-renderer"
+mkdir -p "$old_pw/scripts"
+cp "$REPO_ROOT/scripts/"inception-*.sh "$REPO_ROOT/scripts/echo-safety.sh" \
+  "$REPO_ROOT/scripts/spec-parse.sh" "$old_pw/scripts/" || exit 1
+cat >"$old_pw/scripts/inception-render.sh" <<'OLDRENDER'
+#!/bin/sh
+mkdir -p "$1/exports" && printf '<!DOCTYPE html><p>dashboard only</p>\n' >"$1/exports/venture.html"
+OLDRENDER
+old_v="$tmp/venture-old-renderer"
+mkdir -p "$old_v"
+inception_fixture_write "$old_v" >/dev/null 2>&1 || exit 1
+(
+  cd "$old_v" || exit 1
+  git init -q .
+  git config user.email fixture@example.invalid
+  git config user.name Fixture
+  git config commit.gpgsign false
+) >/dev/null 2>&1 || exit 1
+"$SCAFFOLD" --rung local --wire "$old_v" >/dev/null 2>&1
+out="$(cd "$old_v" && git add -A \
+  && PLANWRIGHT_ROOT="$old_pw" PLANWRIGHT_SECRET_SCREEN_TOOL=none \
+    git commit -qm "older planwright" 2>&1)"
+rc=$?
+assert_eq "older renderer: the commit succeeds" "0" "$rc"
+old_staged="$(cd "$old_v" && git show --name-only --format= HEAD)"
+assert_contains "older renderer: the dashboard is staged" "exports/venture.html" "$old_staged"
+assert_not_contains "older renderer: no pitch is invented" "exports/pitch.html" "$old_staged"
 
 # The repo's own `lint:yaml` covers tracked config, not what this script
 # generates, so the emitted workflow is linted here or nowhere.
