@@ -120,8 +120,13 @@ EOF
       return 1
     fi
   done
-  if [ "$RC_ACT" != merge-helper ] && { [ "$wg" = allow ] || [ "$tg" = allow ]; }; then
-    RC_ERR="a command guard allows only the merge helper among the reserved acts"
+  if { [ "$wg" = allow ] || [ "$tg" = allow ]; } \
+    && { [ "$RC_ACT" != merge-helper ] || [[ $RC_SPELL != *merge-admitted.sh* ]]; }; then
+    RC_ERR="a command guard allows only the merge helper among the reserved acts, spelled as the helper"
+    return 1
+  fi
+  if [ "$RC_ACT" = merge-helper ] && [[ $RC_SPELL != *merge-admitted.sh* ]]; then
+    RC_ERR="a merge-helper line must spell scripts/merge-admitted.sh"
     return 1
   fi
   for v in $q $r $wg $tg $pg; do
@@ -290,6 +295,7 @@ a value the knob does not take|base-merge worker worker_base_merge=unresolved n/
 the retired prompt token|flip tower gh_api_write=prompt deny defer n/a defer deny n/a prompt gh api graphql -F query=@q.graphql
 a prompt verdict outside a profile column|flip tower floor-guard prompt defer n/a defer deny n/a prompt gh api graphql -F query=@q.graphql
 an allow verdict in the policy-guard column|merge-helper worker merge_policy=human n/a defer allow n/a allow defer n/a scripts/merge-admitted.sh --spec specs/demo --task 1
+a merge-helper line that runs something else|merge-helper worker merge_policy=human n/a defer allow n/a deny defer n/a git status
 a command guard allowing a reserved act|pr-merge worker merge_policy=human n/a defer allow n/a deny deny n/a gh pr merge 42
 a prompt verdict in the policy-guard column|flip tower floor-guard deny defer n/a defer prompt n/a prompt gh api graphql -F query=@q.graphql
 a floor-guard line a profile only defers|flip tower floor-guard deny defer n/a defer deny n/a defer gh api graphql -F query=@q.graphql

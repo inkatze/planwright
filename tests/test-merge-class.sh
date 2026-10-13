@@ -6,8 +6,9 @@
 #
 # Hermetic: tests/lib/merge-policy-fixture.sh builds a throwaway origin and a
 # unit clone, and a stub gh answers from files. Nothing reaches a real host.
-unset CDPATH
+unset CDPATH PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+export PLANWRIGHT_CONFIG_DEFAULTS="$REPO_ROOT/config/defaults.yml"
 CLASS="$REPO_ROOT/scripts/merge-class.sh"
 FEATURE="$REPO_ROOT/tests/fixtures/merge-class.feature"
 
@@ -278,14 +279,19 @@ mp_run "$CLASS" evaluate --spec specs/other --task 1
 check "a spec the branch does not name is refused (exit 5)" [ "$CODE" = 5 ]
 admitted_fixture
 gitf checkout -q -b planwright/demo/task-3.2-3.10
+gitf push -q -u origin planwright/demo/task-3.2-3.10 2>/dev/null
+mp_record_review
+saved_branch=$MP_BRANCH
+MP_BRANCH=planwright/demo/task-3.2-3.10
 for ok in 3.5 3.10 3.2; do
   mp_run "$CLASS" evaluate --spec specs/demo --task "$ok"
-  check "task $ok is inside the bundle range 3.2-3.10" not grep -q 'is not the unit the branch names' <<<"$OUT"
+  check "task $ok is inside the bundle range 3.2-3.10, so the evaluation runs (exit 0 or 4)" [ "$CODE" = 0 -o "$CODE" = 4 ]
 done
 for bad in 3.25 4 3.1 3.11; do
   mp_run "$CLASS" evaluate --spec specs/demo --task "$bad"
   check "task $bad is outside the bundle range 3.2-3.10" grep -q 'is not the unit the branch names' <<<"$OUT"
 done
+MP_BRANCH=$saved_branch
 admitted_fixture
 echo 2 >"$GHS/lookup_fail_from"
 evaluate

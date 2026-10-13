@@ -10,8 +10,9 @@
 #
 # Hermetic: tests/lib/merge-policy-fixture.sh builds a throwaway origin and a
 # unit clone, and a stub gh answers from files. Nothing reaches a real host.
-unset CDPATH
+unset CDPATH PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+export PLANWRIGHT_CONFIG_DEFAULTS="$REPO_ROOT/config/defaults.yml"
 HELPER="$REPO_ROOT/scripts/merge-admitted.sh"
 FLIP="$REPO_ROOT/scripts/ready-flip.sh"
 

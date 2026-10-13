@@ -232,6 +232,7 @@ fall_at=$(grep -n 'outside the class (\$failed); the reason is on PR' "$HELPER" 
 merge_at=$(grep -n '^gh pr merge ' "$HELPER" | head -1 | cut -d: -f1)
 if [ -n "$class_at" ] && [ -n "$fall_at" ] && [ -n "$merge_at" ] \
   && [ "$class_at" -lt "$fall_at" ] && [ "$fall_at" -lt "$merge_at" ] \
+  && sed -n "$((fall_at + 1))p" "$HELPER" | grep -qx '    exit 4' \
   && [ "$(grep -c '^gh pr merge ' "$HELPER")" = 1 ]; then
   pass "C1.4 the merge helper's one merge call follows the class evaluation and its fall-through exit"
 else
