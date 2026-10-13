@@ -105,8 +105,12 @@ tmp_path=
 # The venture directory a create made in this run, removed if the create
 # fails partway so a half-built venture never blocks the name.
 made_target=
+# A second temp file, for the object list the push screen builds alongside the
+# screened file.
+tmp_list=
 cleanup_tmp() {
   if [ -n "$tmp_path" ]; then rm -rf "$tmp_path"; fi
+  if [ -n "$tmp_list" ]; then rm -f "$tmp_list"; fi
   if [ -n "$made_target" ]; then rm -rf "$made_target"; fi
 }
 trap cleanup_tmp EXIT
@@ -850,10 +854,19 @@ screen_outgoing() {
 
 # outgoing_blobs <venture-dir> — the contents of every blob reachable from
 # HEAD that origin lacks, one after another.
+#
+# Each stage is checked on its own: a pipeline reports only its last command,
+# so a failed listing would otherwise yield a partial list and a screen that
+# passes. A missing object is a failure too, never a line to drop.
 outgoing_blobs() {
-  ob_list=$(git -C "$1" rev-list --objects HEAD --not --remotes=origin | cut -d' ' -f1 \
-    | git -C "$1" cat-file --batch-check='%(objecttype) %(objectname)') || return 1
-  printf '%s\n' "$ob_list" | sed -n 's/^blob //p' | while IFS= read -r ob; do
+  tmp_list=$(mktemp "${TMPDIR:-/tmp}/inception-venture.XXXXXX") || return 1
+  git -C "$1" rev-list --objects HEAD --not --remotes=origin >"$tmp_list" 2>/dev/null || return 1
+  ob_types=$(cut -d' ' -f1 "$tmp_list" \
+    | git -C "$1" cat-file --batch-check='%(objecttype) %(objectname)' 2>/dev/null) || return 1
+  case $ob_types in *missing*) return 1 ;; esac
+  rm -f "$tmp_list"
+  tmp_list=
+  printf '%s\n' "$ob_types" | sed -n 's/^blob //p' | while IFS= read -r ob; do
     git -C "$1" cat-file blob "$ob" || exit 1
     printf '\n'
   done

@@ -1038,6 +1038,21 @@ assert_contains "F6 handoff reports the remote home" "$(printf 'home\tremote')" 
 assert_contains "F6 handoff reports the git rung" "$(printf 'rung\tgit')" "$out"
 assert_not_contains "F6 handoff drops the session warning" "does not persist" "$out"
 
+# =========================================================================
+# Z25 — the push screen fails closed when it cannot list what is sent
+# =========================================================================
+
+PATH="$stubs/gh-ok:$PATH" venture create --home remote --root "$vroot" xi-missing
+xm="$vroot/xi-missing"
+venture bundle-init --title "Xi Missing" "$xm"
+for p in seed opportunity disciplines reframe core; do venture mark-phase "$xm" "$p"; done
+venture save "$xm" "Record the core"
+lost=$(git -C "$xm" rev-parse HEAD:plan.md)
+rm -f "$xm/.git/objects/$(printf '%s' "$lost" | cut -c1-2)/$(printf '%s' "$lost" | cut -c3-)"
+PATH="$stubs/gh-ok:$PATH" venture save --push "$xm" "Share with an object missing"
+assert_eq "Z25 a missing object stops the push before it starts (exit 2)" 2 "$rc"
+assert_contains "Z25 the refusal says the outgoing files could not be read" "cannot read the files a push would send" "$out"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
