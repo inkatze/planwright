@@ -78,16 +78,17 @@ reason_has 'ready_flip_policy is human' "[worker] the human-flip deny names the 
 pg worker 'gh pr ready 42 --undo=false'
 expect deny "[worker] human: --undo=false is a flip, and denies"
 for v in unit-owner human; do
-  set_knobs "ready_flip_policy: $v"
+  set_knobs "ready_flip_policy: $v" 'merge_policy: policy-class'
   pg tower 'gh pr ready 42'
   expect deny "[tower] $v: gh pr ready denies"
   reads none "[tower] $v: the tower's flip deny reads no knob"
   # The merge helper flips inside its own process, below the hook, so the
-  # hook only ever sees the helper's invocation: that must not be refused
-  # under either value, while the direct flip beside it follows the value.
+  # hook only ever sees the helper's invocation: under policy-class that must
+  # not be refused under either flip value, while the direct flip beside it
+  # follows the value.
   pg worker "$REAL_SCRIPTS/merge-admitted.sh 42"
   expect defer "[worker] $v: the merge helper's invocation is not refused (its own flip runs below the hook)"
-  reads none "[worker] $v: the merge helper's invocation reads no flip knob"
+  reads merge_policy "[worker] $v: the merge helper's invocation reads merge_policy alone, no flip knob"
   pg worker 'gh pr ready 42'
   if [ "$v" = human ]; then
     expect deny "[worker] human: beside it, the direct flip is refused (the value is live)"
@@ -95,6 +96,117 @@ for v in unit-owner human; do
     expect defer "[worker] unit-owner: beside it, the direct flip defers (the value is live)"
   fi
 done
+
+echo "# the merge helper (REQ-D1.4, REQ-D1.5)"
+for v in human on-approval; do
+  set_knobs "merge_policy: $v"
+  pg worker "$REAL_SCRIPTS/merge-admitted.sh --spec specs/demo --task 1"
+  expect deny "[worker] $v: the merge helper is refused"
+  reason_has "merge_policy is $v" "[worker] $v: the refusal names the knob"
+  reads merge_policy "[worker] $v: the helper's refusal reads merge_policy alone"
+done
+set_knobs 'merge_policy: policy-class'
+pg tower "$REAL_SCRIPTS/merge-admitted.sh --spec specs/demo --task 1"
+expect deny "[tower] policy-class: the merge helper is refused at the tower"
+reads none "[tower] the tower's helper deny reads no knob"
+# shellcheck disable=SC2016 # the unexpanded root is the spelling under test
+pg worker '"$ROOT/scripts/merge-admitted.sh" --spec specs/demo --task 1'
+expect defer "[worker] policy-class: a variable-rooted helper path is read as the helper"
+reads merge_policy "[worker] a variable-rooted helper path reads merge_policy"
+set_knobs 'merge_policy: human'
+# shellcheck disable=SC2016
+pg worker '"$ROOT/scripts/merge-admitted.sh" --spec specs/demo --task 1'
+expect deny "[worker] human: a variable-rooted helper path is refused"
+pg worker "x=\$(echo 1) && $REAL_SCRIPTS/merge-admitted.sh"
+expect deny "[worker] an unanalyzable command naming the helper is refused"
+pg worker "grep -n merge_policy $REAL_SCRIPTS/merge-admitted.sh"
+expect defer "[worker] reading the helper's text is not running it"
+set_knobs 'merge_policy: policy-class'
+# shellcheck disable=SC2016 # the unexpanded forms are the spellings under test
+pg worker 'bash "$ROOT/scripts/merge-admitted.sh" --spec specs/demo --task 1'
+expect defer "[worker] policy-class: a shell running the variable-rooted helper is read as the helper"
+# shellcheck disable=SC2016
+for spell in 'bash scripts/merge-admit*.sh --spec specs/demo --task 1' \
+  'X=sh; bash $R/merge-admitted.$X --spec specs/demo --task 1' \
+  'f=$R/merge-admitted.sh; bash $f --spec specs/demo --task 1' \
+  'bash < scripts/merge-admitted.sh' \
+  'scripts/merge-admi??ed.sh --spec specs/demo --task 1'; do
+  pg tower "$spell"
+  expect deny "[tower] policy-class: an obfuscated helper spelling is refused: $spell"
+done
+set_knobs 'merge_policy: human'
+pg worker 'bash scripts/merge-admit*.sh --spec specs/demo --task 1'
+expect deny "[worker] human: a globbed helper spelling is read as the helper and refused"
+for tier in worker tower; do
+  for v in human policy-class; do
+    set_knobs "merge_policy: $v" 'ready_flip_policy: unit-owner'
+    pg "$tier" "$REAL_SCRIPTS/ready-flip.sh flip --for-merge --spec specs/demo --task 1"
+    expect deny "[$tier] $v: an agent's own ready-flip --for-merge is refused (only the merge helper issues it)"
+    pg "$tier" "bash $REAL_SCRIPTS/ready-flip.sh evaluate --for-merge --spec specs/demo --task 1"
+    expect deny "[$tier] $v: an agent's own ready-flip evaluate --for-merge is refused"
+  done
+done
+set_knobs 'ready_flip_policy: unit-owner'
+pg worker "$REAL_SCRIPTS/ready-flip.sh flip --spec specs/demo --task 1"
+expect defer "[worker] a plain ready-flip run is not the merge helper's act"
+set_knobs 'merge_policy: policy-class' 'ready_flip_policy: human'
+# shellcheck disable=SC2016 # the unexpanded root is the spelling under test
+for tier in worker tower; do
+  pg "$tier" '"$ROOT/scripts/ready-flip.sh" flip --for-merge --spec specs/demo --task 1'
+  expect deny "[$tier] a variable-rooted ready-flip --for-merge is refused too"
+done
+for spell in 'bash scripts/*-admitted.sh --spec specs/demo --task 1' 'bash scripts/merge-a[d]mitted.sh' \
+  'bash scripts/merge-?dmitted.sh' 'scripts/*-admitted.sh --spec specs/demo --task 1' 'bash scripts/merge-a{d,}mitted.sh'; do
+  pg tower "$spell"
+  expect deny "[tower] a glob or brace spelling that could name the helper is refused: $spell"
+done
+# shellcheck disable=SC2016 # the unexpanded forms are the spellings under test
+for spell in "$REAL_SCRIPTS/ready-flip.sh flip --spec specs/demo --{for-merge,task} 1" \
+  "$REAL_SCRIPTS/ready-flip.sh flip --spec specs/demo \$'--for-merge' --task 1" \
+  "$REAL_SCRIPTS/ready-flip.sh flip --spec specs/demo --fo\$X --task 1"; do
+  for tier in worker tower; do
+    pg "$tier" "$spell"
+    expect deny "[$tier] an assembled --for-merge spelling is refused: $spell"
+  done
+done
+for spell in 'bash -e < scripts/merge-admitted.sh' 'bash -s -- --spec x < scripts/merge-admitted.sh' \
+  'bash -s -- -c < scripts/merge-admitted.sh' 'bash -x scripts/merge-admitted.sh --spec x'; do
+  pg tower "$spell"
+  expect deny "[tower] a shell with an option reading the helper on stdin is refused: $spell"
+done
+set_knobs 'merge_policy: policy-class' 'ready_flip_policy: human'
+for opts in '-x' '-ex' '-o pipefail' '-euo pipefail' '-eO extglob' '--norc' '--' '-e --'; do
+  pg worker "bash $opts $REAL_SCRIPTS/merge-admitted.sh --spec specs/demo --task 1"
+  expect defer "[worker] policy-class: bash $opts before the helper is parsed as the shell's options"
+  reads merge_policy "[worker] bash $opts before the helper reads merge_policy"
+done
+# shellcheck disable=SC2016 # the unexpanded forms are the spellings under test
+for spell in 'F=$ROOT/scripts/ready-flip.sh; bash "$F" flip --spec x --for-merge # merge-admitted' \
+  'bash -s flip --spec x --for-merge < $ROOT/scripts/ready-flip.sh # merge-admitted'; do
+  for tier in worker tower; do
+    pg "$tier" "$spell"
+    expect deny "[$tier] a stem elsewhere in the command does not carry a --for-merge past the guard: $spell"
+    [ "$tier" = tower ] || reason_has 'cannot name' "[worker] the deny is the flag check, not another refusal: $spell"
+  done
+done
+# shellcheck disable=SC2016 # the unexpanded forms are the spellings under test
+for spell in 'bash scripts/ready-{flip.sh,x} --for-merge' 'bash scripts/$RF --for-merge --spec x'; do
+  pg worker "$spell"
+  expect deny "[worker] a script name the guard cannot resolve, carrying --for-merge, is refused: $spell"
+done
+set_knobs 'merge_policy: human' 'ready_flip_policy: unit-owner'
+# shellcheck disable=SC2016
+pg worker 'bash "$S" --flag "$V"'
+expect defer "[worker] an unresolvable script name with no --for-merge is not the flag's act"
+for spell in 'bash tests/test-merge-admitted.sh' 'shellcheck scripts/merge-admitted.sh && bash tests/test-merge-admitted.sh' \
+  'git commit -m "docs: explain the --for-merge flag"' 'rg -n -- --for-merge scripts/' 'bash tests/test-*.sh' \
+  'bash -x tests/test-policy-guard.sh 2>&1 | grep merge-admitted' 'bash -e tests/run.sh && rg -n foo scripts/merge-admitted.sh' \
+  "$REAL_SCRIPTS/ready-flip.sh park --spec specs/demo --task 1 --reason 'waiting on {operator}'"; do
+  pg worker "$spell"
+  expect defer "[worker] naming the helper or its flag without running them is not the act: $spell"
+done
+set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: allow' 'unpushed_rewrite: allow'
+set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: allow' 'unpushed_rewrite: allow'
 
 echo "# the force-push path is the tower's (REQ-F1.2)"
 for cmd in "$REAL_SCRIPTS/tower-force-push.sh push --branch planwright/demo/task-1 --to HEAD --lease HEAD" \

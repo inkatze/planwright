@@ -15,7 +15,8 @@
 # wired for the tool, and by the tower queue where it screens the call. A
 # floor-guard line expects prompt from every profile that sees it and deny
 # from the policy guard, except an `other` line, which the guard defers.
-# Verdicts: deny, defer, or n/a (outside the copy's jurisdiction: another
+# Verdicts: deny, defer, allow (a command guard's, for the merge helper
+# only), or n/a (outside the copy's jurisdiction: another
 # tier, or a tool the copy is not wired for); the test derives n/a from the
 # wiring and fails a line that claims it anywhere else. A profile column may
 # also say prompt: no rule denies or allows the call. The ready-guard runs
@@ -33,6 +34,31 @@ pr-merge         any    floor                        deny   defer  defer  defer 
 pr-merge         any    floor                        deny   defer  defer  defer  deny   deny   deny   gh pr merge 42 --squash --delete-branch
 pr-merge         any    floor                        deny   defer  defer  defer  deny   deny   deny   gh pr merge --auto --squash 42
 pr-merge         any    floor                        n/a    n/a    n/a    n/a    n/a    deny   deny   mcp__github__merge_pull_request
+pr-merge         worker merge_policy=human        n/a    defer  defer  n/a    deny   deny   n/a    gh pr merge 42
+pr-merge         worker merge_policy=on-approval  n/a    defer  defer  n/a    deny   deny   n/a    gh pr merge 42
+pr-merge         worker merge_policy=on-approval  n/a    defer  defer  n/a    deny   deny   n/a    gh pr merge --auto --squash 42
+pr-merge         worker merge_policy=policy-class n/a    defer  defer  n/a    deny   deny   n/a    gh pr merge 42
+pr-merge         worker merge_policy=policy-class n/a    defer  defer  n/a    deny   deny   n/a    gh pr merge 42 --squash --delete-branch
+pr-merge         worker merge_policy=on-approval  n/a    defer  defer  n/a    deny   prompt n/a    gh api -X PUT repos/acme/widgets/pulls/42/merge
+pr-merge         worker merge_policy=policy-class n/a    defer  defer  n/a    deny   prompt n/a    gh api -X PUT repos/acme/widgets/pulls/42/merge
+pr-merge         worker merge_policy=on-approval  n/a    defer  defer  n/a    deny   prompt n/a    gh api graphql -f query='mutation{enablePullRequestAutoMerge(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+pr-merge         worker merge_policy=policy-class n/a    defer  defer  n/a    deny   prompt n/a    gh api graphql -f query='mutation{mergePullRequest(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+pr-merge         worker merge_policy=policy-class n/a    defer  defer  n/a    deny   prompt n/a    gh api graphql -f query='mutation{enqueuePullRequest(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+pr-merge         any    merge_policy=policy-class n/a    n/a    n/a    n/a    n/a    deny   deny   mcp__github__merge_pull_request
+
+# The merge helper: under policy-class a worker may run it (it evaluates the
+# class and re-reads the policy itself); under every other value, and at the
+# tower under every value, the policy guard refuses it. Both command guards
+# allow it as a repository script, and the tower queue never answers it. A
+# wrapper naming it denies whatever the value.
+merge-helper     worker merge_policy=policy-class n/a    defer  allow  n/a    defer  defer  n/a    scripts/merge-admitted.sh --spec specs/demo --task 1
+merge-helper     worker merge_policy=policy-class n/a    defer  allow  n/a    defer  defer  n/a    bash scripts/merge-admitted.sh --spec specs/demo --task 1
+merge-helper     worker merge_policy=policy-class n/a    defer  defer  n/a    deny   defer  n/a    env FOO=1 scripts/merge-admitted.sh --spec specs/demo --task 1
+merge-helper     worker merge_policy=human        n/a    defer  allow  n/a    deny   defer  n/a    scripts/merge-admitted.sh --spec specs/demo --task 1
+merge-helper     worker merge_policy=human        n/a    defer  allow  n/a    deny   defer  n/a    bash scripts/merge-admitted.sh --spec specs/demo --task 1
+merge-helper     worker merge_policy=on-approval  n/a    defer  allow  n/a    deny   defer  n/a    scripts/merge-admitted.sh --spec specs/demo --task 1
+merge-helper     tower  merge_policy=policy-class deny   defer  n/a    allow  deny   n/a    defer  scripts/merge-admitted.sh --spec specs/demo --task 1
+merge-helper     tower  merge_policy=policy-class deny   defer  n/a    allow  deny   n/a    defer  bash scripts/merge-admitted.sh --spec specs/demo --task 1
 
 undo-flip        any    floor                        deny   defer  defer  defer  deny   deny   deny   gh pr ready 42 --undo
 undo-flip        any    floor                        deny   defer  defer  defer  deny   deny   deny   gh pr ready --undo 42
