@@ -44,7 +44,8 @@
 # A legacy checklist item (a subject ending in ` [pending-sign-off]` with no
 # Planwright-Sign-Off trailer) takes its id from its own hash, so a rewrite
 # changes it: `legacy` pairs each dropped legacy commit with its replacement
-# by author identity and date (which reword keeps), or with nothing. A
+# by author identity and date (which reword keeps), each replacement used
+# once and in commit order, or with nothing. A
 # Planwright-Sign-Off-Rejected trailer naming an old id must be re-stamped.
 #
 # Exit: 0 done (a push the remote took though it reported a failure
@@ -228,16 +229,33 @@ legacy_lines() {
 }
 
 # legacy_changes <old tip> <new tip> — `PS-legacy-<old>TAB<PS-legacy-new or ->`
-# per legacy commit the rewrite drops.
+# per legacy commit the rewrite drops. Both lists run in the same commit
+# order, so the n-th old commit of an identity pairs with the n-th new one:
+# twins (one author, one second) each keep their own replacement. The lists
+# reach awk through ENVIRON, since -v would read a backslash in a name as an
+# escape.
 legacy_changes() {
-  local old new o_sha o_id hit
+  local old new
   old=$(legacy_lines "$2..$1")
   [ -n "$old" ] || return 0
   new=$(legacy_lines "$1..$2")
-  printf '%s\n' "$old" | while IFS="$TAB" read -r o_sha o_id; do
-    hit=$(printf '%s\n' "$new" | awk -F '\t' -v id="$o_id" '$2 == id { print substr($1, 1, 7); exit }')
-    printf 'PS-legacy-%s\t%s\n' "$(printf '%s' "$o_sha" | cut -c1-7)" "${hit:+PS-legacy-$hit}"
-  done | sed "s/$TAB\$/$TAB-/"
+  FP_OLD=$old FP_NEW=$new awk '
+    function id_of(line) { return substr(line, index(line, "\t") + 1) }
+    BEGIN {
+      n = split(ENVIRON["FP_NEW"], nl, "\n")
+      for (i = 1; i <= n; i++) {
+        if (nl[i] == "") continue
+        id = id_of(nl[i])
+        q[id, ++have[id]] = substr(nl[i], 1, 7)
+      }
+      m = split(ENVIRON["FP_OLD"], ol, "\n")
+      for (i = 1; i <= m; i++) {
+        if (ol[i] == "") continue
+        id = id_of(ol[i])
+        k = ++used[id]
+        printf "PS-legacy-%s\t%s\n", substr(ol[i], 1, 7), (k <= have[id] ? "PS-legacy-" q[id, k] : "-")
+      }
+    }'
 }
 
 # shellcheck disable=SC2016 # a jq program: the $ names are jq's

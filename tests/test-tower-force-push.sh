@@ -297,6 +297,35 @@ fi
 [ "$(jq '[.options[] | select(.reject == true)] | length' "$tmp/confirm.json")" = 1 ] \
   || fail "the confirmation has no single reject option"
 
+# Legacy ids pair one to one in commit order: two legacy commits by one author
+# in one second, and an author whose name carries a backslash.
+g checkout -q -b legacy-pairs main
+GIT_AUTHOR_DATE='1700001000 +0000' g commit -q --allow-empty -m 'Bad pairing subject'
+PAIR_BAD=$(g rev-parse HEAD)
+GIT_AUTHOR_DATE='1700001100 +0000' g commit -q --allow-empty -m 'fix: first twin [pending-sign-off]'
+GIT_AUTHOR_DATE='1700001100 +0000' g commit -q --allow-empty -m 'fix: second twin [pending-sign-off]'
+GIT_AUTHOR_NAME='Back\tslash' GIT_AUTHOR_DATE='1700001200 +0000' g commit -q --allow-empty -m 'fix: escaped author [pending-sign-off]'
+g push -q origin legacy-pairs
+g checkout -q "$BR"
+rc=$(rc_of fp reword --branch legacy-pairs --commit "$PAIR_BAD" --message-file "$tmp/msg")
+PAIR_NEW=$(awk -F '\t' '$1 == "to" { print $2 }' "$tmp/out")
+rc2=$(rc_of fp confirm --branch legacy-pairs --to "${PAIR_NEW:-HEAD}")
+paired=0
+if [ "$rc" = 0 ] && [ "$rc2" = 0 ] && [ "$(jq '.legacy | length' "$tmp/out")" = 3 ] \
+  && [ "$(jq '[.legacy[].to] | unique | length' "$tmp/out")" = 3 ]; then
+  paired=1
+  for pair in $(jq -r '.legacy[] | .from + ":" + (.to // "none")' "$tmp/out"); do
+    from=${pair%%:*}
+    to=${pair#*:}
+    [ "$(g log -1 --format=%s "${from#PS-legacy-}")" = "$(g log -1 --format=%s "${to#PS-legacy-}" 2>/dev/null)" ] || paired=0
+  done
+fi
+if [ "$paired" = 1 ]; then
+  ok "each legacy commit pairs with its own replacement, twins and an escaped author name included"
+else
+  fail "legacy ids paired wrongly (reword $rc, confirm $rc2): $(jq -c .legacy "$tmp/out" 2>/dev/null)"
+fi
+
 rc=$(rc_of fp confirm --branch "$BR" --to "$TIP")
 grep -q 'nothing is dropped' "$tmp/err" || rc="$rc (no reason)"
 rc2=$(rc_of fp push --branch "$BR" --to "$TIP" --lease "$TIP")
