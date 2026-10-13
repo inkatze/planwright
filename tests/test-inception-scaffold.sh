@@ -267,18 +267,20 @@ assert_not_contains "hook: no commit carried the secret into the export" "IOSFOD
   git checkout -q -- brief.md plan.md exports/venture.html exports/pitch.html
 ) >/dev/null 2>&1
 
-# The same walk-around through a field only the pitch renders: each export is
-# screened on its own, so a credential that never reaches the dashboard still
-# cannot ride the pitch into a commit.
-sed 's|^Rides the incident-tooling consolidation|Rides aws_key = AKIA'"IOSFODNN7EXAMPLE"' the incident-tooling consolidation|' \
+# The same walk-around through a field only the pitch renders, with the
+# credential existing ONLY in the rendered page: its key and value sit on two
+# source lines, which no per-line pattern matches, and the pitch joins the
+# paragraph into one. Only screening the pitch page itself can catch it.
+sed 's|^Rides the incident-tooling consolidation already funded for the year.$|Rides the consolidation; api_key =\
+AbCdEfGh''IjKlMnOpQrStUvWx12 is the relay credential.|' \
   "$venture/brief.md" >"$venture/brief.new" && mv "$venture/brief.new" "$venture/brief.md"
 printf '\nAnother planning note.\n' >>"$venture/plan.md"
 out="$(cd "$venture" && git add plan.md && git commit -qm "another plan note" 2>&1)"
 rc=$?
-assert_eq "hook: an unstaged secret reaching only the pitch blocks the commit" "1" "$rc"
-assert_not_contains "hook: the pitch's blocked secret is not echoed" "IOSFODNN7EXAMPLE" "$out"
+assert_eq "hook: a secret existing only in the rendered pitch blocks the commit" "1" "$rc"
+assert_not_contains "hook: the pitch's blocked secret is not echoed" "AbCdEfGh""IjKl" "$out"
 committed="$(cd "$venture" && git show HEAD:exports/pitch.html 2>/dev/null)"
-assert_not_contains "hook: no commit carried the secret into the pitch" "IOSFODNN7EXAMPLE" "$committed"
+assert_not_contains "hook: no commit carried the secret into the pitch" "AbCdEfGh" "$committed"
 (
   cd "$venture" || exit 1
   git reset -q HEAD . >/dev/null 2>&1
