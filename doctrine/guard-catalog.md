@@ -16,7 +16,7 @@ builder applies on its own and what it must escalate. The machine view is
 builder skill (`skills/builder/SKILL.md`) drives that script and layers
 judgment on top.
 
-Citations: REQ-G1.2, REQ-G1.5, REQ-G1.7 · D-15, D-16, D-32 · human-gates REQ-D1.6.
+Citations: REQ-G1.2, REQ-G1.5, REQ-G1.7 · D-15, D-16, D-32 · human-gates REQ-D1.6, REQ-D1.9.
 
 ## Guard categories
 
@@ -123,9 +123,9 @@ has two facets:
     signer-agnostic step that cuts the signed annotated tag on the observed
     release-merge commit.
 
-The policy the scaffold realizes — detection and proposal automated,
-approval is the human merge, publish human-gated and signed, the window
-locked, merge and publish never crossed on the machine's own judgment — is
+The policy the scaffold realizes — proposal automated, approval the human
+merge under every `merge_policy` value (a release PR is never a class
+admission), publish human-gated and signed, the window locked — is
 [release-tagging.md](release-tagging.md);
 this entry is the builder-facing consent surface that doc's mechanism row
 (capability in core, mechanism as opt-in template, value as config) points at.

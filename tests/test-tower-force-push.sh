@@ -1,0 +1,572 @@
+#!/bin/bash
+# The tower's operator-requested force-push path and the purge preparation:
+# scripts/tower-force-push.sh against a fixture origin, and the tower queue's
+# refusal of a standing decision that would run it.
+#
+# Verifies human-gates REQ-F1.2 (the refusal arms and the confirmation shape;
+# the live run is the [manual] half), REQ-F1.4, and the legacy-id handoff of
+# D-16.
+#
+# Runs standalone under /bin/bash (the bash 3.2 floor).
+set -u
+LC_ALL=C
+export LC_ALL
+unset CDPATH
+
+here=$(cd "$(dirname "$0")" && pwd)
+FP="$here/../scripts/tower-force-push.sh"
+CC="$here/../scripts/check-confirmation.sh"
+TQ="$here/../scripts/tower-queue.sh"
+failures=0
+
+fail() {
+  echo "FAIL: $1" >&2
+  failures=$((failures + 1))
+}
+ok() { echo "ok: $1"; }
+
+[ -x "$FP" ] || {
+  echo "FAIL: scripts/tower-force-push.sh missing or not executable" >&2
+  exit 1
+}
+
+tmp=$(mktemp -d)
+trap 'chmod -R u+rwx "$tmp" 2>/dev/null; rm -rf "$tmp"' EXIT
+export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null HOME="$tmp"
+export GIT_AUTHOR_NAME=Author GIT_AUTHOR_EMAIL=author@example.com
+export GIT_COMMITTER_NAME=Committer GIT_COMMITTER_EMAIL=committer@example.com
+export PLANWRIGHT_CONFIG_DEFAULTS="$tmp/core.yml" PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter"
+export PLANWRIGHT_LOCAL_CONFIG=""
+# A dispatched worker running this suite carries these; the helper refuses
+# under them, which one check below sets on purpose.
+unset PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE
+printf 'protected_branches:\n' >"$tmp/core.yml"
+mkdir -p "$tmp/adopter"
+
+BR=planwright/demo/task-1
+git init -q --bare -b main "$tmp/origin.git"
+git clone -q "$tmp/origin.git" "$tmp/w" 2>/dev/null
+W="$tmp/w"
+export PLANWRIGHT_REPO_ROOT="$W"
+g() { git -C "$W" "$@"; }
+g config commit.gpgsign false
+g commit -q --allow-empty -m 'chore: root'
+g push -q origin main
+g checkout -q -b "$BR"
+echo one >"$W/a"
+g add a
+GIT_AUTHOR_DATE='1700000000 +0000' g commit -q -m 'Bad subject that fails the range lint'
+BAD=$(g rev-parse HEAD)
+echo two >"$W/b"
+g add b
+GIT_AUTHOR_DATE='1700000100 +0000' g commit -q -m 'fix: a legacy finding [pending-sign-off]'
+LEGACY=$(g rev-parse HEAD)
+echo three >"$W/c"
+g add c
+GIT_AUTHOR_DATE='1700000200 +0000' g commit -q -m 'feat: the last commit'
+g push -q -u origin "$BR"
+TIP=$(g rev-parse HEAD)
+
+fp() { (cd "$W" && "$FP" "$@"); }
+rc_of() {
+  _rc=0
+  "$@" >"$tmp/out" 2>"$tmp/err" || _rc=$?
+  echo "$_rc"
+}
+
+# --- refusals: main, protected, spec ----------------------------------------
+mkdir -p "$W/.claude"
+printf 'protected_branches: release/*\n' >"$W/.claude/planwright.yml"
+for b in main master planwright/demo/spec refs/heads/main release/v1; do
+  for verb in confirm push; do
+    if [ "$verb" = confirm ]; then
+      rc=$(rc_of fp confirm --branch "$b" --to "$TIP")
+    else
+      rc=$(rc_of fp push --branch "$b" --to "$TIP" --lease "$TIP")
+    fi
+    # The refusal names the protected set, not a failure to read it: a broken
+    # overlay also exits 1, with "the protected set could not be read".
+    if ! { [ "$rc" = 1 ] && grep -q 'no tier rewrites it' "$tmp/err"; }; then
+      fail "$verb on '$b' was not refused as protected (exit $rc: $(cat "$tmp/err"))"
+    fi
+  done
+  rc=$(rc_of fp reword --branch "$b" --commit "$TIP" --message-file "$W/a")
+  if ! { [ "$rc" = 1 ] && grep -q 'no tier rewrites it' "$tmp/err"; }; then
+    fail "reword on '$b' was not refused as protected (exit $rc: $(cat "$tmp/err"))"
+  fi
+done
+[ "$failures" = 0 ] && ok "every verb refuses main, master, a spec branch, and a protected_branches addition"
+for var in PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE; do
+  for verb in push confirm reword; do
+    # Run in the fixture, so a refusal that slipped past a fetch reaches only it.
+    rc=$(cd "$W" && rc_of env "$var=w" "$FP" "$verb" --branch "$BR" --to "$TIP" --lease "$TIP")
+    if ! { [ "$rc" = 1 ] && grep -q 'dispatched worker' "$tmp/err"; }; then
+      fail "$verb under $var was not refused (exit $rc: $(cat "$tmp/err"))"
+    fi
+  done
+done
+[ "$failures" = 0 ] && ok "the helper refuses inside a dispatched worker's environment"
+rm -f "$W/.claude/planwright.yml"
+
+# --- reword: objects only ----------------------------------------------------
+refs_before=$(g show-ref)
+status_before=$(g status --porcelain)
+printf 'feat: a subject that passes the range lint\n' >"$tmp/msg"
+rc=$(rc_of fp reword --branch "$BR" --commit "$BAD" --message-file "$tmp/msg")
+[ "$rc" = 0 ] || fail "reword failed (exit $rc: $(cat "$tmp/err"))"
+NEW=$(awk -F '\t' '$1 == "to" { print $2 }' "$tmp/out")
+[ "$(awk -F '\t' '$1 == "lease" { print $2 }' "$tmp/out")" = "$TIP" ] || fail "reword did not report the remote tip as the lease"
+if [ -z "$NEW" ] || [ "$NEW" = "$TIP" ]; then fail "reword printed no new tip"; fi
+if [ "$(g show-ref)" = "$refs_before" ] && [ "$(g status --porcelain)" = "$status_before" ]; then
+  ok "reword changes no ref and no working tree"
+else
+  fail "reword moved a ref or the working tree"
+fi
+[ "$(g rev-parse "$NEW^{tree}")" = "$(g rev-parse "$TIP^{tree}")" ] || fail "reword changed the tip's tree"
+[ "$(g log --format=%s "main..$NEW" | tail -1)" = 'feat: a subject that passes the range lint' ] \
+  || fail "the reworded commit does not carry the new message"
+[ "$(g log --format='%an %ad' --date=raw "main..$NEW")" = "$(g log --format='%an %ad' --date=raw "main..$TIP")" ] \
+  || fail "reword did not keep each commit's author and date"
+if [ "$(g log --format=%s "main..$NEW" | sed -n 1,2p)" = "$(g log --format=%s "main..$TIP" | sed -n 1,2p)" ]; then
+  ok "reword replaces one message and replays the rest with tree, author, and message kept"
+else
+  fail "reword changed a later commit's message"
+fi
+
+rc=$(rc_of fp reword --branch "$BR" --commit "$(g rev-parse main)" --message-file "$tmp/msg")
+if [ "$rc" = 1 ] && grep -q 'which is protected' "$tmp/err"; then
+  ok "reword refuses a commit a protected branch contains"
+else
+  fail "reword of a commit on main was not refused (exit $rc)"
+fi
+g checkout -q -b elsewhere main
+g commit -q --allow-empty -m 'chore: elsewhere'
+rc=$(rc_of fp reword --branch "$BR" --commit "$(g rev-parse HEAD)" --message-file "$tmp/msg")
+if [ "$rc" = 1 ]; then
+  ok "reword refuses a commit that is not on the branch"
+else
+  fail "an off-branch commit was not refused (exit $rc)"
+fi
+g checkout -q --orphan solo
+g commit -q --allow-empty -m 'Bad root subject'
+SOLO_ROOT=$(g rev-parse HEAD)
+g commit -q --allow-empty -m 'feat: on the root'
+g push -q origin solo
+rc=$(rc_of fp reword --branch solo --commit "$SOLO_ROOT" --message-file "$tmp/msg")
+SOLO_NEW=$(awk -F '\t' '$1 == "to" { print $2 }' "$tmp/out")
+if [ "$rc" = 0 ] && [ -n "$SOLO_NEW" ] && ! g merge-base --is-ancestor "$SOLO_ROOT" "$SOLO_NEW" 2>/dev/null; then
+  ok "reword of a root commit leaves the old root out of the new history"
+else
+  fail "reword of a root commit kept the old root (exit $rc: $(cat "$tmp/err"))"
+fi
+# log.showSignature prints a signed commit's verification into git log's
+# stdout, where it would read as extra commits and authors.
+cat >"$tmp/gpg" <<'EOF'
+#!/bin/sh
+case " $* " in
+  *' --verify '*)
+    echo 'gpg: Good signature from "Stub"' >&2
+    echo '[GNUPG:] GOODSIG 0 Stub'
+    ;;
+  *)
+    cat >/dev/null
+    echo '[GNUPG:] SIG_CREATED ' >&2
+    printf -- '-----BEGIN PGP SIGNATURE-----\nstub\n-----END PGP SIGNATURE-----\n'
+    ;;
+esac
+EOF
+chmod +x "$tmp/gpg"
+g config gpg.program "$tmp/gpg"
+g checkout -q -b signed main
+g commit -q -S --allow-empty -m 'Bad signed subject'
+SIGNED_BAD=$(g rev-parse HEAD)
+g commit -q -S --allow-empty -m 'feat: signed follow-up'
+g push -q origin signed
+g config log.showSignature true
+rc=$(rc_of fp reword --branch signed --commit "$SIGNED_BAD" --message-file "$tmp/msg")
+SIGNED_NEW=$(awk -F '\t' '$1 == "to" { print $2 }' "$tmp/out")
+rc2=$(rc_of fp confirm --branch signed --to "${SIGNED_NEW:-HEAD}")
+if [ "$rc" = 0 ] && [ "$rc2" = 0 ] && [ "$(jq '.dropped | length' "$tmp/out")" = 2 ] \
+  && [ "$(g log --no-show-signature -1 --format=%an "$SIGNED_NEW")" = Author ]; then
+  ok "log.showSignature reaches neither the replayed authors nor the dropped list"
+else
+  fail "log.showSignature polluted the helper (reword $rc, confirm $rc2: $(cat "$tmp/out" "$tmp/err"))"
+fi
+g config --unset log.showSignature
+# commit.gpgSign on: every replayed commit is signed, or the reword refuses.
+unsigned=0
+for c in $(g rev-list "main..$NEW"); do
+  g cat-file commit "$c" | grep -q '^gpgsig' && unsigned=1
+done
+[ "$unsigned" = 0 ] || fail "reword signed a replay with commit.gpgSign off"
+g config commit.gpgSign true
+rc=$(rc_of fp reword --branch signed --commit "$SIGNED_BAD" --message-file "$tmp/msg")
+SIGNED_NEW=$(awk -F '\t' '$1 == "to" { print $2 }' "$tmp/out")
+signed=0
+if [ "$rc" = 0 ] && [ -n "$SIGNED_NEW" ]; then
+  signed=1
+  for c in $(g rev-list "main..$SIGNED_NEW"); do
+    g cat-file commit "$c" | grep -q '^gpgsig' || signed=0
+  done
+fi
+if [ "$signed" = 1 ]; then
+  ok "reword signs every replayed commit when commit.gpgSign is on"
+else
+  fail "reword did not sign the replay under commit.gpgSign (exit $rc: $(cat "$tmp/err"))"
+fi
+printf '#!/bin/sh\ncat >/dev/null\necho "gpg: signing failed: No secret key" >&2\nexit 2\n' >"$tmp/gpg-fail"
+chmod +x "$tmp/gpg-fail"
+g config gpg.program "$tmp/gpg-fail"
+refs_before=$(g show-ref)
+remote_before=$(git -C "$tmp/origin.git" rev-parse refs/heads/signed)
+rc=$(rc_of fp reword --branch signed --commit "$SIGNED_BAD" --message-file "$tmp/msg")
+if [ "$rc" = 3 ] && ! grep -q '^to' "$tmp/out" && [ "$(g show-ref)" = "$refs_before" ] \
+  && [ "$(git -C "$tmp/origin.git" rev-parse refs/heads/signed)" = "$remote_before" ]; then
+  ok "reword refuses when signing fails, and leaves the branch alone"
+else
+  fail "a failed signature did not refuse the reword (exit $rc: $(cat "$tmp/out" "$tmp/err"))"
+fi
+g config --unset commit.gpgSign
+g config --unset gpg.program
+# main moved on the remote to hold a branch commit, and this clone's
+# origin/main never heard: the containment check reads the remote, not the
+# stale tracking ref.
+MAIN_WAS=$(git -C "$tmp/origin.git" rev-parse refs/heads/main)
+git -C "$tmp/origin.git" update-ref refs/heads/main "$SOLO_ROOT"
+rc=$(rc_of fp reword --branch solo --commit "$SOLO_ROOT" --message-file "$tmp/msg")
+if [ "$rc" = 1 ] && grep -q 'which is protected' "$tmp/err"; then
+  ok "reword refuses a commit the remote's main holds behind a stale tracking ref"
+else
+  fail "reword trusted a stale origin/main (exit $rc: $(cat "$tmp/err"))"
+fi
+git -C "$tmp/origin.git" update-ref refs/heads/main "$MAIN_WAS"
+g fetch -q origin "+refs/heads/main:refs/remotes/origin/main"
+# A protected branch deleted on the remote, and a deleted branch whose name
+# is now a directory there: neither stale tracking ref refuses or fails.
+git -C "$tmp/origin.git" update-ref refs/heads/planwright/demo/spec "$BAD"
+git -C "$tmp/origin.git" update-ref refs/heads/gone "$BAD"
+g fetch -q origin "+refs/heads/*:refs/remotes/origin/*"
+git -C "$tmp/origin.git" update-ref -d refs/heads/planwright/demo/spec
+rc=$(rc_of fp reword --branch "$BR" --commit "$BAD" --message-file "$tmp/msg")
+if [ "$rc" = 0 ]; then
+  ok "reword prunes the tracking ref of a protected branch the remote deleted"
+else
+  fail "a deleted protected branch's stale tracking ref refused the reword (exit $rc: $(cat "$tmp/err"))"
+fi
+git -C "$tmp/origin.git" update-ref -d refs/heads/gone
+git -C "$tmp/origin.git" update-ref refs/heads/gone/child "$BAD"
+rc=$(rc_of fp reword --branch "$BR" --commit "$BAD" --message-file "$tmp/msg")
+if [ "$rc" = 0 ]; then
+  ok "reword prunes a deleted branch whose name is now a directory on the remote"
+else
+  fail "a stale tracking ref in the way of a new remote branch failed the reword (exit $rc: $(cat "$tmp/err"))"
+fi
+git -C "$tmp/origin.git" update-ref -d refs/heads/gone/child
+g fetch -q --prune origin "+refs/heads/*:refs/remotes/origin/*"
+g checkout -q "$BR"
+# The scratch directory's path, a quote in TMPDIR included, never becomes
+# shell source in the cleanup trap.
+qdir="$tmp/q'd"
+mkdir "$qdir"
+rc=$(TMPDIR="$qdir" rc_of fp reword --branch "$BR" --commit "$BAD" --message-file "$tmp/msg")
+if [ "$rc" = 0 ] && [ -z "$(ls -A "$qdir")" ]; then
+  ok "reword removes its scratch directory under a TMPDIR holding a quote"
+else
+  fail "reword left its scratch directory under a quoted TMPDIR (exit $rc: $(ls -A "$qdir") $(cat "$tmp/err"))"
+fi
+printf ' \n\t\n' >"$tmp/blank"
+rc=$(rc_of fp reword --branch "$BR" --commit "$BAD" --message-file "$tmp/blank")
+if [ "$rc" = 2 ]; then
+  ok "reword refuses an empty message file"
+else
+  fail "a blank message file was not a usage error (exit $rc)"
+fi
+
+# --- confirm: the shape, the dropped commits, the legacy ids -----------------
+rc=$(rc_of fp confirm --branch "$BR" --to "$NEW")
+[ "$rc" = 0 ] || fail "confirm failed (exit $rc: $(cat "$tmp/err"))"
+cp "$tmp/out" "$tmp/confirm.json"
+if "$CC" "$tmp/confirm.json" >/dev/null 2>&1; then
+  ok "the confirmation passes check-confirmation.sh"
+else
+  fail "the confirmation fails check-confirmation.sh"
+fi
+q=$(jq -r .question "$tmp/confirm.json")
+for c in "$BAD" "$LEGACY" "$TIP"; do
+  case $q in
+    *"$(printf '%s' "$c" | cut -c1-7)"*) ;;
+    *) fail "the question does not name the dropped commit $(printf '%s' "$c" | cut -c1-7)" ;;
+  esac
+done
+# A branch author's subject is quoted, so it cannot read as the question's own words.
+quoted=1
+for c in "$BAD" "$LEGACY" "$TIP"; do
+  case $q in
+    *"$(printf '%s' "$c" | cut -c1-7) \"$(g log -1 --format=%s "$c")\""*) ;;
+    *) quoted=0 ;;
+  esac
+done
+if [ "$quoted" = 1 ]; then
+  ok "the question quotes each dropped subject"
+else
+  fail "the question does not quote the dropped subjects: $q"
+fi
+if [ "$(jq '.dropped | length' "$tmp/confirm.json")" = 3 ]; then
+  ok "the confirmation names every remote commit the push drops"
+else
+  fail "the confirmation's dropped list is wrong"
+fi
+NEWLEG=$(g log --format=%H --grep='legacy finding' "main..$NEW")
+want_from="PS-legacy-$(printf '%s' "$LEGACY" | cut -c1-7)"
+want_to="PS-legacy-$(printf '%s' "$NEWLEG" | cut -c1-7)"
+if [ "$(jq -r '(.legacy | length | tostring) + " " + .legacy[0].from + " " + .legacy[0].to' "$tmp/confirm.json")" = "1 $want_from $want_to" ]; then
+  ok "the confirmation pairs the changed legacy id with its replacement"
+else
+  fail "the legacy id change is wrong: $(jq -c .legacy "$tmp/confirm.json")"
+fi
+[ "$(jq -r '.push | .[1:] | join(" ")' "$tmp/confirm.json")" = "push --remote origin --branch $BR --to $NEW --lease $TIP" ] \
+  || fail "the push argv does not carry this confirmation's lease"
+[ "$(jq '[.options[] | select(.reject == true)] | length' "$tmp/confirm.json")" = 1 ] \
+  || fail "the confirmation has no single reject option"
+
+# Legacy ids pair one to one in commit order: two legacy commits by one author
+# in one second, and an author whose name carries a backslash.
+g checkout -q -b legacy-pairs main
+GIT_AUTHOR_DATE='1700001000 +0000' g commit -q --allow-empty -m 'Bad pairing subject'
+PAIR_BAD=$(g rev-parse HEAD)
+GIT_AUTHOR_DATE='1700001100 +0000' g commit -q --allow-empty -m 'fix: first twin [pending-sign-off]'
+GIT_AUTHOR_DATE='1700001100 +0000' g commit -q --allow-empty -m 'fix: second twin [pending-sign-off]'
+GIT_AUTHOR_NAME='Back\tslash' GIT_AUTHOR_DATE='1700001200 +0000' g commit -q --allow-empty -m 'fix: escaped author [pending-sign-off]'
+g push -q origin legacy-pairs
+g checkout -q "$BR"
+rc=$(rc_of fp reword --branch legacy-pairs --commit "$PAIR_BAD" --message-file "$tmp/msg")
+PAIR_NEW=$(awk -F '\t' '$1 == "to" { print $2 }' "$tmp/out")
+rc2=$(rc_of fp confirm --branch legacy-pairs --to "${PAIR_NEW:-HEAD}")
+paired=0
+if [ "$rc" = 0 ] && [ "$rc2" = 0 ] && [ "$(jq '.legacy | length' "$tmp/out")" = 3 ] \
+  && [ "$(jq '[.legacy[].to] | unique | length' "$tmp/out")" = 3 ]; then
+  paired=1
+  for pair in $(jq -r '.legacy[] | .from + ":" + (.to // "none")' "$tmp/out"); do
+    from=${pair%%:*}
+    to=${pair#*:}
+    [ "$(g log -1 --format=%s "${from#PS-legacy-}")" = "$(g log -1 --format=%s "${to#PS-legacy-}" 2>/dev/null)" ] || paired=0
+  done
+fi
+if [ "$paired" = 1 ]; then
+  ok "each legacy commit pairs with its own replacement, twins and an escaped author name included"
+else
+  fail "legacy ids paired wrongly (reword $rc, confirm $rc2): $(jq -c .legacy "$tmp/out" 2>/dev/null)"
+fi
+
+rc=$(rc_of fp confirm --branch "$BR" --to "$TIP")
+grep -q 'nothing is dropped' "$tmp/err" || rc="$rc (no reason)"
+rc2=$(rc_of fp push --branch "$BR" --to "$TIP" --lease "$TIP")
+if [ "$rc" = 1 ] && [ "$rc2" = 1 ] && grep -q 'nothing is dropped' "$tmp/err"; then
+  ok "confirm and push refuse a tip that drops nothing"
+else
+  fail "a no-op force was not refused (confirm exit $rc, push exit $rc2)"
+fi
+
+# --- push: only on the confirmed lease ----------------------------------------
+rc=$(rc_of fp push --branch "$BR" --to "$NEW")
+[ "$rc" = 2 ] || fail "push without --lease was not a usage error (exit $rc)"
+# A --to that is not a commit is a usage error before any push: an empty
+# source would push `:<branch>`, which deletes the remote branch.
+for verb in push confirm; do
+  if [ "$verb" = push ]; then
+    rc=$(rc_of fp push --branch "$BR" --to no-such-rev --lease "$TIP")
+  else
+    rc=$(rc_of fp confirm --branch "$BR" --to no-such-rev)
+  fi
+  [ "$rc" = 2 ] && [ "$(git -C "$tmp/origin.git" rev-parse --verify -q "refs/heads/$BR")" = "$TIP" ] \
+    || fail "$verb with a --to that is not a commit exited $rc or moved the remote branch"
+done
+rc=$(rc_of fp reword --branch "$BR" --commit no-such-rev --message-file "$tmp/msg")
+[ "$rc" = 2 ] || fail "reword of a --commit that is not a commit was not a usage error (exit $rc)"
+[ "$failures" = 0 ] && ok "a --to or --commit that is not a commit is refused before anything runs"
+git clone -q -b "$BR" "$tmp/origin.git" "$tmp/other" 2>/dev/null
+git -C "$tmp/other" config commit.gpgsign false
+git -C "$tmp/other" commit -q --allow-empty -m 'feat: someone else pushed'
+git -C "$tmp/other" push -q origin "$BR"
+MOVED=$(git -C "$tmp/other" rev-parse HEAD)
+rc=$(rc_of fp push --branch "$BR" --to "$NEW" --lease "$TIP")
+if [ "$rc" = 1 ] && grep -q 'moved since the confirmation' "$tmp/err" \
+  && [ "$(git -C "$tmp/origin.git" rev-parse "refs/heads/$BR")" = "$MOVED" ]; then
+  ok "push refuses when the remote moved since the confirmation, and leaves it alone"
+else
+  fail "a push over a moved remote was not refused (exit $rc)"
+fi
+git -C "$tmp/origin.git" update-ref "refs/heads/$BR" "$TIP"
+# A push landing between the helper's refresh and its own push loses the
+# lease: that is the refusal (exit 1), never a failure to retry.
+mkdir -p "$W/.git/hooks"
+printf '#!/bin/sh\ngit --git-dir="%s" update-ref "refs/heads/%s" "%s"\n' "$tmp/origin.git" "$BR" "$MOVED" >"$W/.git/hooks/pre-push"
+chmod +x "$W/.git/hooks/pre-push"
+rc=$(rc_of fp push --branch "$BR" --to "$NEW" --lease "$TIP")
+if [ "$rc" = 1 ] && grep -q 'moved while pushing' "$tmp/err" \
+  && [ "$(git -C "$tmp/origin.git" rev-parse "refs/heads/$BR")" = "$MOVED" ]; then
+  ok "push refuses a lease lost mid-push and leaves the remote alone"
+else
+  fail "a lease lost mid-push was not refused (exit $rc: $(cat "$tmp/err"))"
+fi
+printf '#!/bin/sh\ngit --git-dir="%s" update-ref -d "refs/heads/%s"\n' "$tmp/origin.git" "$BR" >"$W/.git/hooks/pre-push"
+git -C "$tmp/origin.git" update-ref "refs/heads/$BR" "$TIP"
+rc=$(rc_of fp push --branch "$BR" --to "$NEW" --lease "$TIP")
+if [ "$rc" = 1 ] && grep -q 'deleted while pushing' "$tmp/err" \
+  && ! git -C "$tmp/origin.git" rev-parse -q --verify "refs/heads/$BR" >/dev/null; then
+  ok "push refuses a branch deleted mid-push"
+else
+  fail "a branch deleted mid-push was not refused (exit $rc: $(cat "$tmp/err"))"
+fi
+# The remote took the new tip but the push still reported a failure: the
+# handoff stands, never a refusal that calls the branch shared.
+printf '#!/bin/sh\ngit --git-dir="%s" update-ref "refs/heads/%s" "%s"\nexit 1\n' "$tmp/origin.git" "$BR" "$NEW" >"$W/.git/hooks/pre-push"
+git -C "$tmp/origin.git" update-ref "refs/heads/$BR" "$TIP"
+rc=$(rc_of fp push --branch "$BR" --to "$NEW" --lease "$TIP")
+if [ "$rc" = 0 ] && [ "$(head -1 "$tmp/out" | cut -f1)" = pushed ] && grep -q 'holds the new tip' "$tmp/out" \
+  && [ "$(g rev-parse "refs/remotes/origin/$BR")" = "$NEW" ]; then
+  ok "push reports a landed push whose report failed as landed"
+else
+  fail "a landed push with a failed report was misreported (exit $rc: $(cat "$tmp/out" "$tmp/err"))"
+fi
+# The same, with a push URL apart from the fetch URL: the landed tip is read
+# where the push went.
+git -C "$tmp/origin.git" update-ref "refs/heads/$BR" "$TIP"
+git clone -q --bare "$tmp/origin.git" "$tmp/pushdst.git"
+g config remote.origin.pushurl "$tmp/pushdst.git"
+printf '#!/bin/sh\ngit --git-dir="%s" update-ref "refs/heads/%s" "%s"\nexit 1\n' "$tmp/pushdst.git" "$BR" "$NEW" >"$W/.git/hooks/pre-push"
+rc=$(rc_of fp push --branch "$BR" --to "$NEW" --lease "$TIP")
+if [ "$rc" = 0 ] && grep -q 'holds the new tip' "$tmp/out"; then
+  ok "push reads a failed report's outcome at the push URL, not the fetch URL"
+else
+  fail "a landed push to a separate push URL was misreported (exit $rc: $(cat "$tmp/out" "$tmp/err"))"
+fi
+g config --unset remote.origin.pushurl
+rm -rf "$tmp/pushdst.git"
+rm -f "$W/.git/hooks/pre-push"
+git -C "$tmp/origin.git" update-ref "refs/heads/$BR" "$TIP"
+
+rc=$(rc_of fp push --branch "$BR" --to "$NEW" --lease "$TIP")
+[ "$rc" = 0 ] || fail "the confirmed push failed (exit $rc: $(cat "$tmp/err"))"
+if [ "$(git -C "$tmp/origin.git" rev-parse "refs/heads/$BR")" = "$NEW" ]; then
+  ok "the confirmed push lands the new tip"
+else
+  fail "the remote is not at the new tip"
+fi
+[ "$(grep -c '^dropped' "$tmp/out")" = 3 ] || fail "the push handoff does not list the dropped commits"
+if grep -q "^legacy	$want_from	$want_to\$" "$tmp/out" && grep -q 're-stamp' "$tmp/out"; then
+  ok "the push handoff names the changed legacy id for re-stamping"
+else
+  fail "the push handoff does not name the legacy id change: $(cat "$tmp/out")"
+fi
+
+# --- purge: printed, never run -------------------------------------------------
+mkdir -p "$tmp/stub"
+for t in git git-filter-repo gh; do
+  printf '#!/bin/sh\necho "%s $*" >>"%s/calls"\nexit 0\n' "$t" "$tmp" >"$tmp/stub/$t"
+  chmod +x "$tmp/stub/$t"
+done
+: >"$tmp/calls"
+rc=0
+PATH="$tmp/stub:$PATH" "$FP" purge --path 'config/secrets.env' --replace-text "it's.txt" >"$tmp/out" 2>"$tmp/err" || rc=$?
+[ "$rc" = 0 ] || fail "purge failed (exit $rc)"
+if [ ! -s "$tmp/calls" ]; then
+  ok "purge runs no git, filter-repo, or host command"
+else
+  fail "purge ran: $(cat "$tmp/calls")"
+fi
+if grep -qF "git filter-repo --sensitive-data-removal --invert-paths --path 'config/secrets.env' --replace-text 'it'\\''s.txt'" "$tmp/out"; then
+  ok "purge prints the quoted command"
+else
+  fail "purge printed no usable command: $(cat "$tmp/out")"
+fi
+if grep -q 'Revoke or rotate' "$tmp/out" && grep -q 'nothing here was executed' "$tmp/out"; then
+  ok "purge prints the rotation checklist and says it ran nothing"
+else
+  fail "purge printed no rotation checklist"
+fi
+# Every purge call runs against the stubs, so a regression that executed the
+# command would reach them, never a real filter-repo.
+rc=$(rc_of env PATH="$tmp/stub:$PATH" "$FP" purge)
+[ "$rc" = 2 ] || fail "purge with nothing to purge was not a usage error (exit $rc)"
+# --invert-paths keeps only what no --path names, so it follows a --path
+# argument, never a replace-text file whose name happens to contain one.
+rc=$(rc_of env PATH="$tmp/stub:$PATH" "$FP" purge --replace-text 'leak--paths.txt')
+if [ "$rc" = 0 ] && [ ! -s "$tmp/calls" ] && grep -qF "git filter-repo --sensitive-data-removal --replace-text 'leak--paths.txt'" "$tmp/out"; then
+  ok "purge adds --invert-paths only for a --path argument"
+else
+  fail "purge printed a wrong command for a replace-text file: $(cat "$tmp/out")"
+fi
+# Both "needs a value" arms: a lone flag, and a flag whose value is a dash.
+for val in '' -y; do
+  if [ -n "$val" ]; then
+    rc=$(rc_of "$FP" confirm "$(printf '\033[31mx')" "$val")
+  else
+    rc=$(rc_of "$FP" confirm "$(printf '\033[31mx')")
+  fi
+  if [ "$rc" != 2 ] || grep -q "$(printf '\033')" "$tmp/err"; then
+    fail "a usage error echoed a raw control character (exit $rc, value '$val')"
+  fi
+done
+[ "$failures" = 0 ] && ok "a usage error prints no raw control character from its arguments"
+rc=$(rc_of env PATH="$tmp/stub:$PATH" "$FP" purge --path "$(printf 'a\033[31mb')")
+if [ "$rc" != 2 ] || grep -q "$(printf '\033')" "$tmp/err"; then
+  fail "purge took or echoed a path carrying a control character (exit $rc)"
+fi
+
+# --- the tower queue: no standing decision runs it ------------------------------
+qhome="$tmp/qhome"
+mkdir -m 0700 "$qhome"
+: >"$tmp/local.yml"
+tq() {
+  PLANWRIGHT_FLEET_STATE_DIR="$qhome" PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter" \
+    PLANWRIGHT_REPO_ROOT=none PLANWRIGHT_LOCAL_CONFIG="$tmp/local.yml" /bin/sh "$TQ" "$@"
+}
+for cov in 'scripts/tower-force-push.sh push' 'scripts/tower-force-push.sh'; do
+  rc=0
+  tq capture --kind standing --text 'force-push my branch whenever it fails the lint' \
+    --covers-command "$cov" --now 1000 >/dev/null 2>"$tmp/err" || rc=$?
+  [ "$rc" = 2 ] || fail "a standing decision covering '$cov' was captured (exit $rc)"
+done
+[ "$failures" = 0 ] && ok "a standing decision covering the force-push path is refused at capture"
+rule=$(tq capture --kind standing --text 'let the tower run its own scripts' --covers-command 'scripts/' --now 1010 2>/dev/null \
+  | awk -F '\t' '{ print $2 }')
+for cmd in "scripts/tower-force-push.sh push --branch $BR --to $NEW --lease $TIP" \
+  "scripts/tower-force-push.sh confirm --branch $BR --to $NEW"; do
+  rc=0
+  out=$(tq match --decision "$rule" --command "$cmd" 2>/dev/null) || rc=$?
+  [ "$rc" = 1 ] && [ "$out" = reserved ] || fail "a covering rule matched '$cmd' (exit $rc, '$out')"
+done
+[ "$failures" = 0 ] && ok "a standing decision covering scripts/ never answers the force-push path"
+
+# --- the gate-failure handoff names the path (REQ-F1.3, the CI grep half) -------
+# flat <file> [<from heading> <to heading>] — the section collapsed to one
+# line, lowercased, so a statement matches however the markdown wraps it.
+flat() {
+  awk -v a="${2:-}" -v b="${3:-}" 'a == "" || index($0, a) == 1 { on = 1 } on && b != "" && index($0, b) == 1 { on = 0 } on' "$1" \
+    | tr '\n\t' '  ' | tr -s ' ' | tr '[:upper:]' '[:lower:]'
+}
+# shellcheck disable=SC2016 # the backticks are markdown, matched literally
+REWORD='such a commit is reworded only through the tower'"'"'s force-push path (`scripts/tower-force-push.sh`, on the operator'"'"'s request, [human gates](human-gates.md)), so name that path as the reason and add no commit for it.'
+# /execute-task halts a logic CI failure through gate-wiring's pause protocol,
+# which it loads at that point, so the rule lives there.
+section=$(flat "$here/../doctrine/gate-wiring.md" '## Pause protocol' '## Loop-end handoff')
+case $section in
+  *"$(printf '%s' "$REWORD" | tr '[:upper:]' '[:lower:]')"*) ok "the gate-failure handoff rule names the tower reword path" ;;
+  *) fail "gate-wiring's pause protocol does not name the tower reword path" ;;
+esac
+tower=$(flat "$here/../skills/tower/SKILL.md" '## Refusals' '## Survival')
+# shellcheck disable=SC2016 # the backticks are markdown, matched literally
+for want in 'scripts/tower-force-push.sh confirm' 'never from a standing decision' 'run its `push` line only on the yes, in the same turn' 'its `purge` prints; the operator runs it'; do
+  case $tower in
+    *"$want"*) ;;
+    *) fail "the tower's refusals do not carry: $want" ;;
+  esac
+done
+[ "$failures" = 0 ] && ok "the tower's refusals carry the force-push path and its limits"
+
+if [ "$failures" -gt 0 ]; then
+  echo "$failures failure(s)" >&2
+  exit 1
+fi
+echo "all tower-force-push checks passed"

@@ -202,6 +202,32 @@ rc=$?
 assert_exit "direct sh scripts/prompt-eval.sh is caught" 1 "$rc"
 assert_contains "names the direct-runner offender" "direct/ci.yml" "$out"
 
+# ---- the review backtest runners are eval harnesses too ----
+for runner in review-backtest review-backtest-refresh review-backtest-reviewer review-backtest-annotate review-cost; do
+  mkdir -p "$TMP/direct-$runner"
+  cat >"$TMP/direct-$runner/ci.yml" <<EOF
+name: ci
+"on": [push]
+jobs:
+  check:
+    steps:
+      - run: ./scripts/$runner.sh --help
+EOF
+  text_only "$TMP/direct-$runner" >/dev/null 2>&1
+  assert_exit "direct scripts/$runner.sh is caught" 1 $?
+done
+mkdir -p "$TMP/direct-backtest-test"
+cat >"$TMP/direct-backtest-test/ci.yml" <<'EOF'
+name: ci
+"on": [push]
+jobs:
+  check:
+    steps:
+      - run: bash tests/test-review-backtest.sh && bash tests/test-review-cost.sh
+EOF
+text_only "$TMP/direct-backtest-test" >/dev/null 2>&1
+assert_exit "the backtest TEST scripts are not flagged as runners" 0 $?
+
 # ---- the behavioral-eval harness is covered too (not only prompt-eval) ----
 mkdir -p "$TMP/behav-task"
 cat >"$TMP/behav-task/ci.yml" <<'EOF'

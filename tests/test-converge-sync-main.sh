@@ -1148,13 +1148,11 @@ w2() {
     && fail "w2: SKILL.md gained a direct ready-flip call — the flip goes only through scripts/ready-flip.sh"
   grep -q 'gh pr create --draft' "$SKILL" \
     || fail "w2: SKILL.md lost its draft-only PR creation instruction"
-  grep -q 'Never merge.' "$SKILL" \
-    || fail "w2: SKILL.md lost the PR-creation never-merge contract"
-  grep -Eq '^- \*\*Never\*\* create a non-draft PR or merge' "$SKILL" \
+  grep -Eq '^- \*\*Never\*\* create a non-draft PR, or merge or flip one ready outside the two' "$SKILL" \
     || fail "w2: SKILL.md lost the never-merge invariant"
   # shellcheck disable=SC2016 # literal backticks of the skill's markdown
-  tr '\n' ' ' <"$SKILL" | grep -Eq 'flip one +ready outside the `unit-owner` path' \
-    || fail "w2: SKILL.md lost the invariant confining the flip to the unit-owner path"
+  tr '\n' ' ' <"$SKILL" | grep -Eq "unit-owner\`, run +\`scripts/ready-flip\\.sh\`'s header sequence\\. Under \`merge_policy: +policy-class\`, \`scripts/merge-admitted\\.sh\`'s follows\\." \
+    || fail "w2: SKILL.md lost the two header sequences the invariant confines the flip and merge to"
   echo "ok w2: /execute-task opens a draft PR and flips only through the unit-owner path"
 }
 
