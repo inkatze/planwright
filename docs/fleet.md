@@ -1738,9 +1738,11 @@ retired in the same one, and the flight passes follow the reconcile so the
 dispatch records they read are already settled.
 
 **Flight workers under the crash policy.** `scripts/flight-lifecycle.sh
-supervise` is the last pass. A visual flight's worker is a crash only when the
-shared flight sweep reads it `dead` (positive death evidence and no landing),
-or reads it landed with a dead worker that never pushed its completion (no
+supervise` is the last pass. A visual flight whose completion was pushed (its
+landing reference beside the brief) is never a crash, whatever the sweep reads
+its landing as. Otherwise its worker is a crash only when the shared flight
+sweep reads it `dead` (positive death evidence and no landing), or reads it
+landed with a dead worker that never pushed its completion (no
 landing reference beside the brief), queued no decision, and ran under a brief
 carrying the landed check: that worker still owed the work after landing,
 which its relaunch finishes (on the PR home only while its PR is open, parking

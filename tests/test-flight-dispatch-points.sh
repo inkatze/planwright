@@ -184,7 +184,7 @@ flat "$b" | grep -q "It first runs \*Landing\*'s landed check; a flight that has
   || fail "a relaunch must check landing first, and a landed flight must not re-fire a pre-landing point"
 flat "$b" | grep -q 'A non-zero exit from the push or the create parks the flight' \
   || fail "a failed push or create must park the flight"
-printf '%s\n' "$b" | grep -qF -- "gh pr list --repo github.com/acme/widgets --head planwright/flight/$fid --state open --json url,isCrossRepository,headRefOid --jq '.[] | select(.isCrossRepository | not) | .headRefOid + \" \" + .url' > '$record_dir/pr-url.found'" \
+printf '%s\n' "$b" | grep -qF -- "gh pr list --repo github.com/acme/widgets --head planwright/flight/$fid --state all --json url,state,isCrossRepository,headRefOid --jq '.[] | select(.isCrossRepository | not) | .state + \" \" + .headRefOid + \" \" + .url' > '$record_dir/pr-url.found'" \
   || fail "a relaunched worker must look for the flight's own same-repository PR"
 # flight-lifecycle.sh relaunches a landed flight only under a brief carrying
 # this check, found by the phrase it greps for.
@@ -200,13 +200,15 @@ flat "$b" | grep -q 'A non-zero exit from the view or the list parks the flight:
   || fail "a failed PR lookup must park, never read as no PR"
 flat "$b" | grep -q 'in this order. When `record/pr-url` exists, it is the flight.s own record of its PR:' \
   || fail "the flight's own recorded PR must decide first"
-flat "$b" | grep -q 'must print `OPEN` for the flight to have landed, and anything else parks it. Otherwise it lists the open same-repository PRs on this branch' \
+flat "$b" | grep -q 'must print `OPEN` for the flight to have landed, and anything else parks it. Otherwise it lists the same-repository PRs on this branch in every state' \
   || fail "a recorded PR lands the flight only while open; the lookup decides only without one"
-flat "$b" | grep -q 'More than one line whose sha equals `git rev-parse HEAD` parks the flight; exactly one is the flight.s PR, and it has landed' \
-  || fail "an ambiguous match at this branch's tip must park"
-printf '%s\n' "$b" | grep -qF -- "awk -v h=\"\$(git rev-parse HEAD)\" '\$1 == h { print \$2 }' '$record_dir/pr-url.found' > '$record_dir/pr-url.tmp' && mv '$record_dir/pr-url.tmp' '$record_dir/pr-url'" \
+flat "$b" | grep -q 'No line at all means it has not landed. Exactly one line, `OPEN` at `git rev-parse HEAD`, is the flight.s PR, and it has landed' \
+  || fail "only one open PR at this branch's tip lands the flight"
+flat "$b" | grep -q 'Anything else (more than one line, a PR not open, or one not at this branch.s tip) parks the flight' \
+  || fail "an ambiguous, closed, or stale PR must park, never read as not landed"
+printf '%s\n' "$b" | grep -qF -- "awk '{ print \$3 }' '$record_dir/pr-url.found' > '$record_dir/pr-url.tmp' && mv '$record_dir/pr-url.tmp' '$record_dir/pr-url'" \
   || fail "a found PR's URL must be recorded alone, through a temporary file"
-flat "$b" | grep -q "With none, it has not landed: it fires the points \*Work and the points\*' Relaunch bullet says are still due and lands as above" \
+flat "$b" | grep -q "With no line, it fires the points \*Work and the points\*' Relaunch bullet says are still due and lands as above" \
   || fail "a relaunch that has not landed fires only the points still due"
 printf '%s\n' "$b" | grep -qF "gh pr view <url> --repo github.com/acme/widgets --json state --jq .state" \
   || fail "a recorded PR must be checked open before it counts"

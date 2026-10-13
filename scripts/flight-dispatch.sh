@@ -882,13 +882,14 @@ A relaunched worker runs this landed check before it fires any point, in this
 order. When \`record/pr-url\` exists, it is the flight's own record of its PR:
 \`gh pr view <url> --repo $HOME_DEST --json state --jq .state\` must print
 \`OPEN\` for the flight to have landed, and anything else parks it. Otherwise
-it lists the open same-repository PRs on this branch, one \`<head-sha> <url>\`
-line each:
-\`gh pr list --repo $HOME_DEST --head $branch --state open --json url,isCrossRepository,headRefOid --jq '.[] | select(.isCrossRepository | not) | .headRefOid + \" \" + .url' > $(sh_quote "$_rd/pr-url.found")\`
-More than one line whose sha equals \`git rev-parse HEAD\` parks the flight;
-exactly one is the flight's PR, and it has landed, its URL recorded with
-\`awk -v h=\"\$(git rev-parse HEAD)\" '\$1 == h { print \$2 }' $(sh_quote "$_rd/pr-url.found") > $(sh_quote "$_rd/pr-url.tmp") && mv $(sh_quote "$_rd/pr-url.tmp") $(sh_quote "$_rd/pr-url")\`.
-With none, it has not landed: it fires the points *Work and the points*'
+it lists the same-repository PRs on this branch in every state, one
+\`<state> <head-sha> <url>\` line each:
+\`gh pr list --repo $HOME_DEST --head $branch --state all --json url,state,isCrossRepository,headRefOid --jq '.[] | select(.isCrossRepository | not) | .state + \" \" + .headRefOid + \" \" + .url' > $(sh_quote "$_rd/pr-url.found")\`
+No line at all means it has not landed. Exactly one line, \`OPEN\` at
+\`git rev-parse HEAD\`, is the flight's PR, and it has landed, its URL recorded with
+\`awk '{ print \$3 }' $(sh_quote "$_rd/pr-url.found") > $(sh_quote "$_rd/pr-url.tmp") && mv $(sh_quote "$_rd/pr-url.tmp") $(sh_quote "$_rd/pr-url")\`.
+Anything else (more than one line, a PR not open, or one not at this
+branch's tip) parks the flight. With no line, it fires the points *Work and the points*'
 Relaunch bullet says are still due and lands as above. A non-zero exit from the
 view or the list parks the flight: a failed lookup is never \"no PR\" or \"not
 open\". A landed relaunch skips the push-and-create line, fires \`post-pr\`

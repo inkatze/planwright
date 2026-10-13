@@ -23,11 +23,11 @@
 #      relaunch), and at the disable threshold no relaunch happens and the
 #      disable surfaces in the decision queue.
 #   5. Liveness that cannot be proven dead is never a crash: a live worker, a
-#      print-rung flight, and a landed one whose completion was pushed are left
-#      alone, while a landed one whose dead worker never pushed its completion,
+#      print-rung flight, and any flight whose completion was pushed (whatever
+#      the sweep reads its landing as) are left alone, while a landed one whose dead worker never pushed its completion,
 #      queued no decision, and ran under a brief carrying the landed check is
-#      counted and relaunched; one whose directory or queue cannot be read is
-#      reported; the operator kill-switch holds the relaunch without losing
+#      counted and relaunched; one whose directory, brief, or queue cannot be
+#      read is reported; the operator kill-switch holds the relaunch without losing
 #      the count. A completion that cannot keep its landing reference exits 4.
 #   6. The fleet sweep runs the crash policy as one of its passes, so a dead
 #      flight worker is handled with no tower session in the loop.
@@ -432,7 +432,27 @@ case $(printf '%s\n' "$out" | awk -F "$TAB" -v id="$P" '$2 == id') in
   *) fail "an unreadable decision queue must be reported, never read as no decision (got: $out)" ;;
 esac
 [ ! -e "$tmp/fleet/liveness/crash/tmux-flight-$P" ] || fail "a parked flight must never be counted over an unreadable queue"
-out=$(supervise "$((t + 99999 + 62))")
+# The same for a store file it cannot read.
+chmod 000 "$tmp/fleet/attention/state"
+out=$(supervise "$((t + 99999 + 41))")
+chmod 600 "$tmp/fleet/attention/state"
+case $(printf '%s\n' "$out" | awk -F "$TAB" -v id="$P" '$2 == id') in
+  failed*"decision queue could not be read"*) ;;
+  *) fail "an unreadable decision store must be reported, never read as no decision (got: $out)" ;;
+esac
+[ ! -e "$tmp/fleet/liveness/crash/tmux-flight-$P" ] || fail "a parked flight must never be counted over an unreadable store"
+# A brief it cannot read is reported, never taken for an older brief.
+X=unreadbrief-aaaaab3b
+landed_flight "$X" record checked
+/bin/sh "$STATE" register "tmux-flight-$X" "flight:$X" --backend tmux --death-handle "process $(dead_pid 27)" >/dev/null
+chmod 000 "$tmp/fleet/flights/$X/brief.md"
+out=$(supervise "$((t + 99999 + 51))")
+chmod 600 "$tmp/fleet/flights/$X/brief.md"
+case $(printf '%s\n' "$out" | awk -F "$TAB" -v id="$X" '$2 == id') in
+  failed*"brief could not be read"*) ;;
+  *) fail "an unreadable brief must be reported, never skipped (got: $out)" ;;
+esac
+[ ! -e "$tmp/fleet/liveness/crash/tmux-flight-$X" ] || fail "a flight with an unreadable brief must never be counted"
 [ "$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$I" '$2 == id { print $1 }')" = relaunched ] \
   || fail "a landed flight that never pushed its completion is relaunched past the backoff (got: $out)"
 
