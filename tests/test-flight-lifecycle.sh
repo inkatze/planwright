@@ -469,10 +469,12 @@ rm -f "$repo/.claude/planwright.yml"
 # A root record the relaunch cannot pin to refuses it, rather than pinning
 # whichever root resolves next: a recorded root that is no longer an install,
 # named as the install's fault, and a record that is not a regular file
-# holding an absolute path, named as the record's. Every case dies at once
+# holding one printable absolute path, named as the record's. Every case dies at once
 # and one pair of sweeps handles them all.
+bad_records='gone relative empty symlink ctl'
 n_case=0
-for bad in gone relative empty symlink ctl; do
+# shellcheck disable=SC2086 # the record shapes are split on purpose
+for bad in $bad_records; do
   n_case=$((n_case + 1))
   B="rec$n_case-aaaaaac$n_case"
   gitc "$repo" worktree add -q -b "planwright/flight/$B" "$repo/.claude/worktrees/flight-$B" HEAD
@@ -493,7 +495,8 @@ done
 supervise "$((t + 900000))" >/dev/null
 out=$(supervise "$((t + 900000 + 31))")
 n_case=0
-for bad in gone relative empty symlink ctl; do
+# shellcheck disable=SC2086 # the record shapes are split on purpose
+for bad in $bad_records; do
   n_case=$((n_case + 1))
   B="rec$n_case-aaaaaac$n_case"
   g=$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$B" '$2 == id')

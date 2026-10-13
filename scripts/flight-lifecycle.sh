@@ -41,10 +41,10 @@
 # guarded launch, creating nothing), which registers the new worker. The
 # relaunched worker is pinned to the planwright root dispatch recorded beside
 # the brief; a flight placed before that record existed takes the launcher's
-# root, and a record that is not a regular file holding an absolute path, or
-# that names a root no longer installed, refuses the relaunch, which counts
-# as another crash. That relaunch is claimed once per death too, so two sweeps
-# racing on one death start one worker. crash-check consults the operator
+# root, and a record that is not a regular file holding one printable
+# absolute path, or that names a root no longer installed, refuses the
+# relaunch, which counts as another crash. That relaunch is claimed once per
+# death too, so two sweeps racing on one death start one worker. crash-check consults the operator
 # kill-switch and crash-record does not, but the fleet sweep skips its whole
 # cycle while the switch is set, so under the sweep a paused death is counted
 # once the switch is cleared. The death is claimed BEFORE
@@ -358,8 +358,8 @@ crash_count() {
 # brief, the one its brief and point check name; a flight placed before that
 # record existed takes the launcher's own root, as it always did. A recorded
 # root that is no longer an install, or a record that is not a regular file
-# holding an absolute path, refuses the relaunch rather than pinning whichever
-# root resolves next.
+# holding one printable absolute path, refuses the relaunch rather than
+# pinning whichever root resolves next.
 relaunch() {
   RELAUNCH_WHY=''
   _rl_root=''

@@ -1755,8 +1755,8 @@ nothing and registers the new worker), and at the disable threshold nothing
 relaunches and the disable is a decision-queue entry. The relaunched worker is
 pinned to the planwright root dispatch recorded beside the brief; a flight
 placed before that record existed takes the launcher's root, and a record that
-is not a regular file holding an absolute path, or that names a root no longer
-installed, refuses the relaunch, which counts as another crash. Each relaunch and
+is not a regular file holding one printable absolute path, or that names a root
+no longer installed, refuses the relaunch, which counts as another crash. Each relaunch and
 disable is audited. The guarantee is bounded or surfaced: a worker whose death cannot be proven (a print-rung
 flight, an unreachable tmux server, a relaunch whose window could not be
 matched) is never relaunched and reads `unknown` in the sweep's render.

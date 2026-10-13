@@ -881,12 +881,14 @@ flight.
 A relaunched worker runs this landed check before it fires any point. It lists
 the open same-repository PRs on this branch, one \`<head-sha> <url>\` line each:
 \`gh pr list --repo $HOME_DEST --head $branch --state open --json url,isCrossRepository,headRefOid --jq '.[] | select(.isCrossRepository | not) | .headRefOid + \" \" + .url' > $(sh_quote "$_rd/pr-url.found")\`
-A non-zero exit parks the flight: a failed lookup is never \"no PR\". The flight
-has landed when exactly one line's sha equals \`git rev-parse HEAD\`, or when
-\`record/pr-url\` names a PR that
-\`gh pr view <url> --repo $HOME_DEST --json state --jq .state\` reports \`OPEN\`;
-more than one matching line, or a \`record/pr-url\` PR that is not open, parks
-the flight. A landed relaunch writes the PR's URL to \`record/pr-url\`, skips the
+Then, in this order: more than one line whose sha equals \`git rev-parse HEAD\`
+parks the flight; exactly one is the flight's PR, and it has landed. Otherwise,
+when \`record/pr-url\` names a PR,
+\`gh pr view <url> --repo $HOME_DEST --json state --jq .state\` must print
+\`OPEN\` for the flight to have landed, and anything else parks it. With neither,
+it has not landed: it fires its points and lands as above. A non-zero exit
+from the list or the view parks the flight: a failed lookup is never \"no PR\"
+or \"not open\". A landed relaunch writes that PR's URL to \`record/pr-url\`, skips the
 push-and-create line, fires \`post-pr\` only if *Work and the points*' Relaunch
 bullet says it is still due, and runs the sequence after it (re-emit, draft
 check, completion) either way.
@@ -922,7 +924,8 @@ flight has landed when \`git cat-file -e $(sh_quote "HEAD:$record")\` succeeds: 
 skips the land and pushes the completion. Otherwise a record at that path is
 an interrupted land's leftover, which it clears at once, before any point can
 commit it:
-\`git rm -q --cached --ignore-unmatch -- $(sh_quote "$record") && rm -f -- $(sh_quote "$record") $(sh_quote "${record%/*}")/.$flight_id.md.*\`"
+\`git rm -q --cached --ignore-unmatch -- $(sh_quote "$record") && rm -f -- $(sh_quote "$record") $(sh_quote "${record%/*}")/.$flight_id.md.*\`
+A non-zero exit from it parks the flight, naming what it printed."
   fi
 
   {
@@ -969,12 +972,13 @@ commit it:
     printf '%s\n' "- Export the step context with \`PLANWRIGHT_STEP_UNIT_KIND=flight\`, an empty"
     printf '%s\n' "  spec and task ids, branch \`$branch\`, base branch \`main\`, and this worktree;"
     printf '%s\n' "  an isolated step's launch tier takes the unit \`flight:$flight_id\`."
-    printf '%s\n' "- Relaunch: issue one run id per worker launch. A relaunched worker fires,"
-    printf '%s\n' "  each at its moment below, every point no run of this flight completed"
+    printf '%s\n' "- Relaunch: issue one run id per worker launch. A relaunched worker fires"
+    printf '%s\n' "  again, each at its moment below, every point no run of this flight completed"
     printf '%s\n' "  without a halted, failed, or limited step (\`step-record.sh list\` across"
-    printf '%s\n' "  every run), running its whole list again; it skips no step within a point,"
+    printf '%s\n' "  every run), running its whole list; it takes no \`resume\` skip within a"
+    printf '%s\n' "  point (custom-steps' \`reuse\` skip and re-fire pass apply as in any run),"
     printf '%s\n' "  and never fires a point this home never fires. It first runs *Landing*'s"
-    printf '%s\n' "  landed check; a flight that has landed re-fires no point whose moment"
+    printf '%s\n' "  landed check; a flight that has landed fires no point again whose moment"
     printf '%s\n' "  comes before landing, since such a point's commits could never reach the"
     printf '%s\n' "  landed PR or record."
     printf '%s\n' "- Wherever the procedure ends, parks, or stops the unit (the pause protocol"
