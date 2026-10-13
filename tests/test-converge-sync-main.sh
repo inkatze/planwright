@@ -30,18 +30,20 @@
 #   - `/execute-task` invokes the script once at the top of the convergence
 #     sequence and still opens only a draft PR (REQ-B1.1, REQ-B1.4, REQ-B1.5).
 #
-# Output stream is a tagged TSV on stdout, one record per line:
-#   sync<TAB><up-to-date|fast-forward|merged><TAB><head-sha>
-# Failures print `converge-sync-main: <reason>: <message>` on stderr.
-# Exit: 0 synced; 2 usage / not a git work tree; 3 dirty-tree; 4 fetch-failed;
-#   5 merge-conflict (aborted, tree clean); 6 merge-failed (a non-conflict
-#   merge refusal); 7 abort-failed (the one state that is NOT resume-clean).
+# The output records and exit codes are the script's usage header's; the
+# policy arms (the knobs, the park and repair records, the resolve mode, the
+# branch refusals) are tests/test-converge-sync-resolve.sh's.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -eu
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# The sync reads the base-merge policy; an operator's adopter overlay must not
+# reach the fixtures, whose own checkouts carry no overlay.
+PLANWRIGHT_ADOPTER_OVERLAY=/nonexistent/planwright-adopter
+export PLANWRIGHT_ADOPTER_OVERLAY
+unset PLANWRIGHT_LOCAL_CONFIG PLANWRIGHT_REPO_ROOT CLAUDE_PROJECT_DIR PLANWRIGHT_CONFIG_DEFAULTS PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT
 
 here=$(cd "$(dirname "$0")" && pwd)
 SYNC="$here/../scripts/converge-sync-main.sh"
@@ -96,7 +98,7 @@ new_origin() {
 new_clone() {
   root="$1"
   name="$2"
-  branch="${3:-task}"
+  branch="${3:-planwright/demo/task-1}"
   git clone -q "$root/origin.git" "$root/$name" 2>/dev/null
   git -C "$root/$name" config user.name test
   git -C "$root/$name" config user.email test@example.invalid
