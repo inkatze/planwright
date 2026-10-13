@@ -156,6 +156,10 @@ while [ "$target" != "${target%/}" ]; do target=${target%/}; done
   exit 2
 }
 
+# The venture's own repository, never one an inherited override names: a
+# caller inside a hook runs with GIT_DIR set, and following it would write this
+# venture's publish state into another repository and read that one's back.
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR
 git_dir=$(git -C "$target" rev-parse --absolute-git-dir 2>/dev/null) || git_dir=
 state=
 lock=

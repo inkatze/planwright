@@ -472,6 +472,20 @@ out="$("$PUBLISH" record --confirmed --artifact none "$v" 2>&1)"
 rc=$?
 assert_eq "artifact id none: refused" "2" "$rc"
 
+# A Git override inherited from the caller (a hook runs with GIT_DIR set)
+# must not redirect the state into another repository.
+v="$(fresh)"
+other="$(fresh)"
+GIT_DIR="$other/.git" GIT_WORK_TREE="$other" "$PUBLISH" auto on "$v" >/dev/null 2>&1
+if [ -e "$(state_of "$other")" ]; then
+  echo "FAIL: inherited GIT_DIR: the state went to another repository" >&2
+  failures=$((failures + 1))
+else
+  echo "ok: inherited GIT_DIR: no state is written to another repository"
+fi
+assert_contains "inherited GIT_DIR: the venture's own state is written" "auto-republish=on" \
+  "$(cat "$(state_of "$v")" 2>/dev/null)"
+
 # The lock-tries knob is a count; anything else is refused, not computed on.
 v="$(fresh)"
 out="$(PLANWRIGHT_PUBLISH_LOCK_TRIES=many "$PUBLISH" auto on "$v" 2>&1)"
