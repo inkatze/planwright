@@ -498,6 +498,8 @@ router has not demonstrated (REQ-B1.6).
   this branch, and `main`'s own CI fails the same way. Decide how to clear
   it (fix that fixture on its branch, or record the hit in a gitleaks ignore
   on `main`); then re-run this PR's CI, which has not yet reached its tests.
+- **Task 14** — point `convergence`, step `polish`, outcome `failed`;
+  record `.claude/steps/000001/004-step-convergence.rec`.
 
 ## Deferred
 
