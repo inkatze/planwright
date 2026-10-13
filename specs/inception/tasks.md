@@ -240,7 +240,7 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 
 ## Awaiting input
 
-(none yet)
+- **Task 12** — post-pr step cubic-pr halted on a CI test-time budget failure (suite total over budget; every test passes) and five cubic findings in hard-disqualifier zones await direction; recommendations are in the PR #670 handoff.
 
 ## Deferred
 
