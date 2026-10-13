@@ -176,7 +176,8 @@ dollar_expands() {
 # name before that byte and keeps the byte as literal text. zsh's `$~NAME`
 # defers wherever it appears: it reads the value as a glob pattern, and a
 # glob qualifier in that value can run a command during the expansion. So
-# does a NAME directly followed by `[`, quoted or not: zsh reads that as a
+# does a NAME or a one-character special parameter (`$*`, `$@`, `$?`)
+# directly followed by `[`, quoted or not: zsh reads that as a
 # subscript and evaluates it as arithmetic, which can assign a variable.
 dollar_form_ok() {
   local s=$1 i=$2 j body
@@ -205,6 +206,7 @@ dollar_form_ok() {
       done
       case ${s:j:1} in
         '[') return 1 ;;
+        '*' | '@' | '?' | '!' | '-' | '$') [ "$j" -ne $((i + 1)) ] || [ "${s:j+1:1}" != '[' ] || return 1 ;;
         '' | [[:print:][:cntrl:]]) ;;
         *) return 1 ;;
       esac
