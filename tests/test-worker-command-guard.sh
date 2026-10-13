@@ -2333,6 +2333,18 @@ assert_defer "REQ-E1.3: an untracked name reaching a script beside a substitutio
 assert_defer "REQ-E1.3: a name assigned from \$_ reaching a script" \
   "echo \$(git log -1); y=\$_; scripts/ok.sh \$y" Bash "$SUBST_CWD"
 assert_allow "REQ-E1.3: an untracked name echoed beside a substitution" "echo \"\$HOME\" \"\$(git log -1)\"" Bash "$SUBST_CWD"
+# A word joining known output to an inferred name is only as trusted as the
+# inferred part.
+assert_defer "REQ-E1.3: a substitution joined to an untracked name reaching a script" \
+  "scripts/ok.sh \"\$(git log -1)\$HOME\"" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: a tainted variable joined to an untracked name reaching a script" \
+  "x=\$(git log -1); scripts/ok.sh \$HOME\$x" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: \$_ joined to a substitution reaching a script" \
+  "echo \$(git log -1); scripts/ok.sh \$_\$(git log -1)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: a mixed value assigned, then handed to a script" \
+  "x=\$(git log -1); y=\$HOME\$x; scripts/ok.sh \$y" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: a quoted mixed value assigned, then handed to a script" \
+  "y=\"\$(git log -1)\$HOME\"; scripts/ok.sh \$y" Bash "$SUBST_CWD"
 # A `cd` is approvable only in a real repository at its canonical path, so the
 # inner-cd fixtures run in one; a carried inner cd would move the directory
 # the later script path is checked against.

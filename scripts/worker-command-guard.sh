@@ -2967,12 +2967,13 @@ guard_printf() {
 # argument, a name the table does not track may have been set by a zsh
 # pipeline's last `read`, and the inner text of a substitution starts with an
 # empty table while its subshell inherits every outer variable (VAR_S 2 marks
-# a variable assigned from such a word). Every `$` spelling is read, a literal
-# one too, which can only narrow a verdict.
+# a variable assigned from such a word). A word mixing both is inferred: its
+# known part says nothing about the rest. Every `$` spelling is read, a
+# literal one too, which can only narrow a verdict.
 word_tainted() {
-  local w=${cw[$1]} name v found weak=0
+  local w=${cw[$1]} name v found weak=0 known=0
   TAINT_WEAK=0
-  [ -z "${csub[$1]-}" ] || return 0
+  [ -z "${csub[$1]-}" ] || known=1
   while :; do
     case $w in
       *'$'*) w=${w#*'$'} ;;
@@ -2993,7 +2994,7 @@ word_tainted() {
         # A loop variable's slot never carries a VAR_S of its own.
         if [ "${VAR_L[v]}" = 0 ]; then
           case ${VAR_S[v]-0} in
-            1) return 0 ;;
+            1) known=1 ;;
             2) weak=1 ;;
           esac
         fi
@@ -3002,9 +3003,11 @@ word_tainted() {
     done
     [ "$found" = 1 ] || [ "$SUBST_SEEN" = 0 ] || weak=1
   done
-  [ "$weak" = 1 ] || return 1
-  TAINT_WEAK=1
-  return 0
+  if [ "$weak" = 1 ]; then
+    TAINT_WEAK=1
+    return 0
+  fi
+  [ "$known" = 1 ]
 }
 
 # subst_reach_ok <i>: whether word <i>, which carries substitution output,
