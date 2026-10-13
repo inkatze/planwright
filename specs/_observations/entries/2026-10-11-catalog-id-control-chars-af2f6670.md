@@ -1,0 +1,1 @@
+- 2026-10-11 [planwright] scripts/resolve-catalog.sh accepts a quoted catalog id containing a tab or other control character (it rejects only edge whitespace and unpaired quotes), so its --explain output (id TAB layer) mis-splits in every reader; resolve-card.sh and any future id-to-file resolver would need the charset check at the merge, not per reader

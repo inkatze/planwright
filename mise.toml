@@ -74,7 +74,7 @@ description = "markdownlint on prose (the spec root, from scripts/resolve-root.s
 run = '''
 root=$(/bin/sh scripts/resolve-root.sh spec) || exit 1
 case $root in "$(pwd -P)"/*) root=${root#"$(pwd -P)"/} ;; esac
-markdownlint-cli2 README.md 'doctrine/*.md' 'docs/*.md' 'skills/**/*.md' "$root/**/*.md" 'templates/**/*.md' "!$root/_observations/**"
+markdownlint-cli2 README.md 'doctrine/*.md' 'docs/*.md' 'cards/*.md' 'skills/**/*.md' "$root/**/*.md" 'templates/**/*.md' "!$root/_observations/**"
 '''
 
 [tasks."lint:yaml"]
