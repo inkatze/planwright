@@ -137,13 +137,16 @@ incidental — an operator can open any worktree placed there by hand-launch,
 `claude --worktree <name>`, whichever backend created it.
 
 On the tmux and headless rungs and for a visual flight, the worktree is created
-by `scripts/fleet-dispatch-worktree.sh`, the one sanctioned `git worktree add`
+by `scripts/fleet-dispatch-worktree.sh`, the one sanctioned `git worktree add` in a work repository
 (fleet-hardening D-7); on the tmux rung that script then starts the worker in
 a detached tmux session of its own, never attaching or switching a client
-(fleet-hardening D-10). Other worktrees, a subagent unit's included, go
-through Claude Code's native mechanisms (`EnterWorktree`, the Agent tool's
-worktree isolation, or the hand-launch above). `.claude/worktrees/` is
-gitignored (working copies, not source).
+(fleet-hardening D-10). A spec worktree in a holder repository, which the
+native mechanisms cannot reach, is opened by `scripts/spec-store-worktree.sh`
+([Spec location](spec-location.md)). Other worktrees, a subagent unit's
+included, go through Claude Code's native mechanisms (`EnterWorktree`, the
+Agent tool's worktree isolation, or the hand-launch above).
+`.claude/worktrees/` is gitignored in a work repository (working copies, not
+source).
 
 ## Commit trailer (D-2, REQ-C1.4)
 

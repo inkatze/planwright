@@ -1,0 +1,1 @@
+- 2026-10-11 [planwright] scripts/tower-queue.sh redact() replaces only a private key's BEGIN marker, so a multi-line value keeps the key body; flight-record.sh now redacts a pasted key from its BEGIN line through its END line, and the queue log's mirror has no block-level equivalent. Sibling of the mirror's lowercase-only assignment gap.

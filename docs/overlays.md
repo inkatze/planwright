@@ -113,9 +113,12 @@ The repo-side pair shares `<repo>/.claude/` and is distinguished by the
 
 The growable catalogs are **decision-domains** (the catalog behind the
 drift triggers), the builder's **guard catalog**, **steps** (the step
-definitions the attachment points run, §8), and **vendors** (the adapters
+definitions the attachment points run, §8), **vendors** (the adapters
 that recognize a metered service's limit refusals; see
-[Vendor quotas](quota.md)).
+[Vendor quotas](quota.md)), and **discipline-cards** (the persona-seat card
+catalog; each entry's card file sits beside its layer's catalog, under
+`cards/` or `cards.local/`; see
+[Discipline Cards](../doctrine/discipline-cards.md)).
 
 ## 3. How each kind merges
 
@@ -244,14 +247,15 @@ The machine-local layer is only uncommitted if your repo's `.gitignore` says so.
 planwright's own repo ignores both the machine-local **config** files
 (`.claude/*.local.yml`, `.claude/*.local.json`) and the machine-local **doctrine**
 and **catalog** overlay directories (`.claude/*.local/`, which covers
-`.claude/doctrine.local/` and `.claude/catalogs.local/`). But a repo that adopts
-planwright as a plugin does not inherit those ignore rules, so if you place
-machine-local doctrine or catalog overlays, add those directories to your repo's
-`.gitignore` yourself:
+`.claude/doctrine.local/`, `.claude/catalogs.local/`, and `.claude/cards.local/`).
+But a repo that adopts planwright as a plugin does not inherit those ignore
+rules, so if you place machine-local doctrine, catalog, or card overlays, add
+those directories to your repo's `.gitignore` yourself:
 
 ```gitignore
 .claude/doctrine.local/
 .claude/catalogs.local/
+.claude/cards.local/
 ```
 
 Otherwise those "machine-local" overlays get committed — sharing a per-machine
@@ -516,9 +520,12 @@ resolver prints it on that host followed by the step's `args`. The prefix is
 optional, and when present it is the twelve `PLANWRIGHT_STEP_*` assignments
 in the order `resolve-steps.sh --prefix` renders them, followed for a pooled
 step by the one optional `PLANWRIGHT_STEP_POOL_HOLD=<pool>:<pid>`
-assignment, each value one the
-resolver would render (no control byte, and the unit kind, task ids, and PR
-number inside their grammars), naming a wired point, and carrying no `$`. The location must be absolute
+assignment, approved only when `<pool>` is the pool that step declares,
+each value one the
+resolver would render (no control byte; the unit kind, task ids, and PR
+number inside their grammars; each head empty or a full commit id; the hold
+mark's pool in the step-id charset and its pid a decimal process id),
+naming a wired point, and carrying no `$`. The location must be absolute
 and plain (letters, digits, `/`, `.`, `_`, `-`), and a path target's
 location must carry no `.`, `..`, or empty segment and name an existing
 executable file. A segment that shares only the first word, spells the bare

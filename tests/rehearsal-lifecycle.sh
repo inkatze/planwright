@@ -865,7 +865,7 @@ held_classes() {
       [ -e "$hc_d/$hc_l" ] && hc_out="$hc_out locks:$hc_l"
     done
     for hc_f in "$hc_d"/in.fifo "$hc_d"/out.fifo "$hc_d"/.init.* "$hc_d"/.frame.* \
-      "$hc_d"/.journal.* "$hc_d"/.session.* "$hc_d"/.pid.* "$hc_d"/*.broken.*; do
+      "$hc_d"/.journal.* "$hc_d"/.session.* "$hc_d"/.pid.* "$hc_d"/.ratelimit.* "$hc_d"/*.broken.*; do
       [ -e "$hc_f" ] || [ -p "$hc_f" ] && hc_out="$hc_out scratch:${hc_f##*/}"
     done
   else

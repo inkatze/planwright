@@ -51,8 +51,9 @@ Doctrine: run-start security-posture
 
 ## Invocation
 
-Run from the repository root (the scaffold resolves `specs/` relative to the
-working directory, the same contract as the validator):
+Run from inside the work repository: the scaffold reads the bundle under the
+spec root `scripts/resolve-root.sh spec` resolves there, in any posture
+(`docs/spec-location.md`), and only reads. Invoke it as:
 
 ```sh
 scripts/spec-walkthrough.sh [--scope <selector>] [--reveal] <spec>
@@ -62,7 +63,7 @@ scripts/spec-walkthrough.sh [--scope <selector>] [--reveal] <spec>
   without one trailing slash. The identifier is charset-validated against
   `^[a-z0-9][a-z0-9-]*$` (max 64) and the resolved path is containment-checked
   **before any read** (REQ-A1.6). A hostile or malformed identifier or a path
-  that escapes `specs/` is a clean refusal that never becomes a path and never
+  that escapes the spec root is a clean refusal that never becomes a path and never
   echoes the candidate back.
 - **`--scope <selector>`** — which part to render (REQ-A1.2, REQ-B1.2). Default
   is the whole bundle. Selectors: `whole`; `file:<name>` (one of

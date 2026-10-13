@@ -184,9 +184,9 @@ PR number whenever one exists):
    Past its `timeout`, a runner-owned step is ended, a session-owned one
    stopped through the seam or no longer waited on (recording which), outcome
    `failed`; an `in-session` command's goes to the shell tool.
-3. **Record** each outcome (a command's exit code; a session step classified
-   from its handoff) through `step-record.sh write`, the printed path being
-   the next step's `PREV_RECORD`; a `skip` line records `skipped`.
+3. **Record** each outcome (a command's exit code; a session step's outcome
+   from its handoff) through `step-record.sh write`, which prints the next
+   step's `PREV_RECORD`; a `skip` line records `skipped`, code `missing`.
 4. **Posture:** a `halted` or `failed` step under `on-failure: halt` ends the
    point and the unit through the pause protocol, the entry naming only the
    point, step id, outcome, and worktree-relative record path; `continue`
@@ -327,9 +327,9 @@ captured output (it prints `transient` or `logic`; unknown patterns default to
 
 After CI passes, resolve the `convergence` point (*Points* step 1), then **sync
 `main`** once (merge-currency-guard REQ-B1.1, REQ-B1.4, D-4), an empty list
-included: run `scripts/converge-sync-main.sh` (under the resolved planwright
-root); a non-zero exit halts the unit to Awaiting input with the reason it
-printed. The sync changes the head a later ready-flip lands on, never who flips.
+included: run `scripts/converge-sync-main.sh`; a non-zero exit halts the
+unit, parking a `park` record's text; a `resolve` or `repair` record's text
+overrides. The sync changes the head a later ready-flip lands on, never who flips.
 
 **Run the convergence steps** (*Points* steps 2–5); `steps_convergence` is the
 unit's convergence phase, core's default being `polish` with `--nested`. A
