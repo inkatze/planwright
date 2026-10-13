@@ -131,6 +131,12 @@ field() {
   printf '%s\n' "$1" | awk -F"$TAB" -v k="$2" '$1==k {print $2; exit}'
 }
 
+# flat <text> — the text on one line, spaces squeezed, so a match survives the
+# brief's line wrapping.
+flat() {
+  printf '%s\n' "$1" | tr '\n' ' ' | tr -s ' '
+}
+
 flight_branches() {
   gitc "$c/primary" for-each-ref --format='%(refname)' 'refs/heads/planwright/flight/' | grep -c . || true
 }

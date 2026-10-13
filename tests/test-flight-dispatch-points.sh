@@ -21,8 +21,11 @@
 #   5. Degrade like a task, refuse like a task (REQ-C1.9): an adopter or
 #      machine-local list naming an undefined step places the flight with
 #      that step named as skipped in the report and the brief; a malformed
-#      entry at any layer, a malformed overlay, or an unresolvable skill
-#      target refuses, naming the point and step id, and places nothing.
+#      entry or list at any layer, a malformed overlay, a repo-tracked list
+#      naming an undefined step, an unresolvable skill target, or a broken or
+#      too-old pinned install refuses and places nothing, naming the step and
+#      its point, the malformed entry or layer and its points, the points a
+#      malformed overlay failed, or the install, and never a step that passed.
 #   6. Under root skew the check runs against the root the brief pins.
 #   7. The pin-check: the *Points* heading the brief names exists in
 #      /execute-task's skill, and the check fails once it is renamed.
@@ -113,14 +116,16 @@ printf '%s\n' "$b" | grep -qF "PLANWRIGHT_ROOT='$ROOT' PLANWRIGHT_SKILLS_ROOT='$
   || fail "the brief must pin the resolver to the root it names"
 printf '%s\n' "$b" | grep -q 'never `--attended`' || fail "the brief must resolve every point unattended"
 printf '%s\n' "$b" | grep -qF 'PLANWRIGHT_STEP_UNIT_KIND=flight' || fail "the brief must set unit kind flight"
-printf '%s\n' "$b" | tr '\n' ' ' | tr -s ' ' | grep -q 'ends, parks, or stops the unit (the pause protocol or a stop condition), park the flight instead' \
+flat "$b" | grep -q 'ends, parks, or stops the unit (the pause protocol or a stop condition), park the flight instead' \
   || fail "the brief must map the pause protocol and the stop conditions to the flight park"
 fid=$(field "$OUT" flight)
 printf '%s\n' "$b" | grep -qF "launch tier takes the unit \`flight:$fid\`" \
   || fail "an isolated step's launch tier must take the flight's own unit"
-printf '%s\n' "$b" | tr '\n' ' ' | tr -s ' ' | grep -q 'A relaunched worker issues none: it carries on in the latest run, skipping each point that run completed' \
-  || fail "a relaunched worker must carry on in the latest step-record run"
-printf '%s\n' "$b" | tr '\n' ' ' | tr -s ' ' | grep -q 'write nothing to any `tasks.md`' || fail "the flight park must write no spec state"
+flat "$b" | grep -q 'A relaunched worker whose worktree already holds a run resumes the latest one as custom-steps \*Resume continuation\* defines (a new run)' \
+  || fail "a relaunched worker must resume as custom-steps defines"
+flat "$b" | grep -q 'starts at the first point that run did not complete without a halt' \
+  || fail "a resume must not skip a halted point"
+flat "$b" | grep -q 'write nothing to any `tasks.md`' || fail "the flight park must write no spec state"
 # The worker resolves at point time: the brief lists no pre-resolved step.
 printf '%s\n' "$b" | grep -q '/planwright:polish' && fail "the brief must not pre-render a resolved step"
 printf '%s\n' "$b" | grep -q 'skill steps only' && fail "the brief must not keep the skill-only rule"
@@ -138,25 +143,33 @@ post_line=$(printf '%s\n' "$b" | grep -n '^Now the draft PR exists: fire `post-p
 [ -n "$pr_line" ] && [ -n "$post_line" ] && [ "$pr_line" -lt "$post_line" ] \
   || fail "post-pr must fire after the draft PR is opened"
 printf '%s\n' "$post" | grep -qF 'PLANWRIGHT_STEP_PR_NUMBER' || fail "post-pr must carry the PR number in its context"
-printf '%s\n' "$post" | tr '\n' ' ' | grep -q 'run the sequence `/execute-task` runs after its own `post-pr` list' \
+flat "$post" | grep -q 'run the sequence `/execute-task` runs after its own `post-pr` list' \
   || fail "the brief must reference /execute-task's after-post-pr sequence"
-printf '%s\n' "$post" | tr '\n' ' ' | grep -q 'less the unit-PR ready flip' \
+flat "$post" | grep -q 'less the unit-PR ready flip' \
   || fail "the after-post-pr sequence must drop the unit-PR ready flip"
-rd2="$(dirname "$(field "$OUT" brief)")/record"
+record_dir="$(dirname "$(field "$OUT" brief)")/record"
 printf '%s\n' "$post" | grep -qF "flight-record.sh' render --home pr --flight-id $fid " \
   || fail "the re-emit must go only through flight-record.sh render"
-printf '%s\n' "$post" | grep -qF -- "> '$rd2/body.new.md' && gh pr edit <number> --repo github.com/acme/widgets --body-file '$rd2/body.new.md'" \
+printf '%s\n' "$post" | grep -qF -- "> '$record_dir/body.new.md' && gh pr edit <number> --repo github.com/acme/widgets --body-file '$record_dir/body.new.md'" \
   || fail "the re-emit must render to its own file and only then replace the PR body"
 printf '%s\n' "$post" | grep -F 'gh pr edit' | grep -q 'git push\|gh pr create\|pr-url' \
   && fail "the re-emit line must not push, create a PR, or touch pr-url again"
-printf '%s\n' "$post" | tr '\n' ' ' | tr -s ' ' | grep -q 'with the same inputs, never by editing the PR body by hand' \
+flat "$post" | grep -q 'with the same inputs, never by editing the PR body by hand' \
   || fail "the re-emit must keep the first render's inputs"
-printf '%s\n' "$post" | grep -q 'A non-zero exit from either parks the flight' \
-  || fail "a failed re-render or edit must park the flight"
-printf '%s\n' "$post" | tr '\n' ' ' | tr -s ' ' | grep -q 'replace its Pending sign-off section with the regenerated checklist' \
+flat "$post" | grep -q 'A refusal of your own inputs is fixed and the line re-run' \
+  || fail "a refusal of the worker's own inputs must be fixed and re-run, not parked"
+flat "$post" | grep -q 'any other non-zero exit from the render, or from the edit, parks the flight' \
+  || fail "any other failed re-render or edit must park the flight"
+flat "$post" | grep -q 'its `## Pending sign-off` heading demoted to `####`' \
+  || fail "the regenerated checklist's heading must be demoted under the record's"
+printf '%s\n' "$b" | grep -qF -- "> '$record_dir/pr-url.tmp' && mv '$record_dir/pr-url.tmp' '$record_dir/pr-url'" \
+  || fail "a failed create must never empty pr-url"
+flat "$b" | grep -q 'A relaunched worker whose `record/pr-url` already names the PR runs none of this line' \
+  || fail "a relaunched worker must not push and create the PR again"
+flat "$post" | grep -q 'replace its Pending sign-off section with the regenerated checklist' \
   || fail "a moved head must carry the regenerated checklist into the re-emit"
 printf '%s\n' "$post" | grep -qF 'isDraft' || fail "the brief must verify the PR is still a draft"
-printf '%s\n' "$post" | tr '\n' ' ' | grep -q 'on anything else, park the flight' \
+flat "$post" | grep -q 'on anything else, park the flight' \
   || fail "a PR no longer a draft must park the flight"
 for phrase in 'Steps at' 'render --run <id> --point <point>' 'demoted to `####`'; do
   printf '%s\n' "$b" | grep -qF "$phrase" || fail "the brief's audit inputs must name the step tables ('$phrase')"
@@ -169,12 +182,14 @@ dispatch_print
 [ "$RC" -eq 0 ] || fail "a no-remote dispatch exited $RC: $ERR"
 b=$(cat "$(field "$OUT" brief)")
 printf '%s\n' "$b" | grep -q 'converge-sync-main' && fail "a flight with no remote must not run the main sync"
-printf '%s\n' "$b" | tr '\n' ' ' | tr -s ' ' | grep -q "\`--warning 'main sync not run: the flight has no origin remote'\`" \
+flat "$b" | grep -q "\`--warning 'main sync not run: the flight has no origin remote'\`" \
   || fail "a flight with no remote must record the main sync as not run, with the reason"
-printf '%s\n' "$b" | tr '\n' ' ' | tr -s ' ' | grep -q '`post-pr`: never fires on this flight' \
+flat "$b" | grep -q '`post-pr`: never fires on this flight' \
   || fail "the file home must say post-pr never fires"
 printf '%s\n' "$b" | grep -q 'not-fired `post-pr` row' || fail "the file home must leave the not-fired row to the renderer"
 printf '%s\n' "$b" | grep -q 'gh pr' && fail "the file home must carry no gh pr command"
+flat "$b" | grep -q 'A relaunched worker whose record is already committed on this branch skips the land' \
+  || fail "a relaunched file-home worker must not land the record twice"
 [ "$(brief_points "$(field "$OUT" brief)")" = "$want" ] || fail "the file home must still name every in-run point"
 
 # --- 5. degrade like a task, refuse like a task -------------------------------
@@ -231,13 +246,13 @@ mkdir -p "$c/primary/.claude"
 printf 'steps_pre_ci:\n  nested: 1\n' >"$c/primary/.claude/planwright.local.yml"
 dispatch_print
 label="a malformed machine-local overlay"
-refused "the check failed at pre-implementation, pre-ci"
+refused "the check failed at pre-implementation, pre-ci, convergence, pre-pr, post-pr"
 # The same from the adopter layer.
 new_case
 printf 'steps_pre_ci:\n  nested: 1\n' >>"$c/adopter/planwright.yml"
 dispatch_print
 label="a malformed adopter overlay"
-refused "the check failed at pre-implementation, pre-ci"
+refused "the check failed at pre-implementation, pre-ci, convergence, pre-pr, post-pr"
 # A skip that passes on its own is never blamed for a refusal.
 new_case
 mkdir -p "$c/primary/.claude"
@@ -245,7 +260,7 @@ printf 'steps_pre_ci: [no-such-step]\n' >>"$c/adopter/planwright.yml"
 printf 'steps_convergence:\n  nested: 1\n' >"$c/primary/.claude/planwright.local.yml"
 dispatch_print
 label="a legal skip beside a malformed overlay"
-refused "the check failed at"
+refused "the check failed at pre-implementation, pre-ci, convergence, pre-pr, post-pr"
 printf '%s\n' "$ERR" | grep '^flight-dispatch: ' | grep -q 'no-such-step' \
   && fail "a passing skip must not be named in the refusal: $ERR"
 # An unresolvable skill target is a step no worker can run.
@@ -256,6 +271,29 @@ printf 'steps_post_pr: [ghost]\n' >"$c/primary/.claude/planwright.local.yml"
 dispatch_print
 label="an unresolvable skill target"
 refused "post-pr: step 'ghost'"
+# A repo-tracked list naming an undefined step parks, so it refuses.
+new_case
+mkdir -p "$c/primary/.claude"
+printf 'steps_pre_ci: [no-such-step]\n' >"$c/primary/.claude/planwright.yml"
+dispatch_print
+label="a repo-tracked list naming an undefined step"
+refused "pre-ci: step 'no-such-step'"
+# A malformed repo-tracked list, and a repo-tracked catalog malformed as a
+# whole, name where they reached.
+new_case
+mkdir -p "$c/primary/.claude"
+printf 'steps_pre_ci: [Bad_Id]\n' >"$c/primary/.claude/planwright.yml"
+dispatch_print
+label="a malformed repo-tracked list"
+refused "the repo-tracked config or catalog is malformed (at pre-ci)"
+new_case
+mkdir -p "$c/primary/.claude/catalogs"
+printf 'steps:\n  - kind: skill\n    target: polish\n' >"$c/primary/.claude/catalogs/steps.yaml"
+dispatch_print
+label="a repo-tracked catalog entry with no id"
+refused "(at pre-implementation, pre-ci, convergence, pre-pr, post-pr)"
+printf '%s\n' "$ERR" | grep '^flight-dispatch: ' | grep -q 'did not name' \
+  && fail "$label: the refusal must not deny naming points the resolver named: $ERR"
 # A parked point prints every one of its steps; only the broken one is named.
 new_case
 mkdir -p "$c/adopter/catalogs" "$c/primary/.claude"
@@ -297,7 +335,7 @@ install_plugin_copy "$inst" 0.0.1-skew
 printf '  - id: bad\n    kind: skill\n    target: polish\n    bogus: 1\n' >>"$inst/config/steps.yaml"
 dispatch_print
 label="a malformed core catalog entry"
-refused "malformed entry 'bad'"
+refused "malformed entry 'bad' (at pre-implementation, pre-ci, convergence, pre-pr, post-pr); the planwright install at $inst is broken"
 # A pinned root whose resolver predates the several-point check.
 new_case
 inst="$c/claude/plugins/cache/mk/planwright/0.0.1-old"

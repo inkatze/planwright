@@ -21,8 +21,9 @@
 #     them (scripts/resolve-steps.sh check mode, unattended), with unit kind
 #     `flight`, under the planwright root the brief pins for the worker
 #     (D-16, D-17; REQ-C1.7–C1.9): dispatch refuses exactly where that check
-#     stops a task unit, naming the point and step id, and names every step
-#     the check skipped. Every step kind runs; the worker resolves each point
+#     stops a task unit, naming the step and its point, the malformed entry
+#     or layer and the points it reached, or the points a malformed overlay
+#     failed, and names every step the check skipped. Every step kind runs; the worker resolves each point
 #     at its moment by `/execute-task`'s *Points* procedure under that root,
 #     so the brief lists the points, never a pre-resolved step (no second
 #     list, no knob);
@@ -708,8 +709,9 @@ POINTS_HEADING=Points
 # planwright root the environment names. Sets `point_rows` to the --explain
 # lines (fields by position: 1 decision, 2 id, 3 point; resolve-steps.sh
 # documents the rest). Where the check fails, as it would stop a task unit,
-# nothing is placed: the refusal names each point and step id the rows or the
-# resolver's diagnostics carry, which are relayed whole.
+# nothing is placed: the refusal names what the resolver's diagnostics say
+# stopped it (never the rows: a parked point prints every one of its steps),
+# and the diagnostics are relayed whole.
 point_rows=''
 check_points() {
   _cp_steps="$brief_root/scripts/resolve-steps.sh"
@@ -726,38 +728,47 @@ check_points() {
   # Only what stopped the check is named: a park or ask prints every step of
   # its point, and an adopter or machine-local skip passes on its own, so the
   # rows alone would blame healthy steps. The resolver's diagnostics say which
-  # step parked, asked, was refused, or was dropped as malformed, and which
-  # points failed the check on a degraded malformation.
+  # step parked, asked, was refused, or was dropped or placed as malformed,
+  # which entry or layer was malformed, and which points failed the check on a
+  # degraded malformation.
   _cp_detail=$(awk -v q="'" '
     function add(s) { if (!(s in seen)) { seen[s] = 1; out = out (out == "" ? "" : "; ") s } }
+    function quoted_id(s) { match(s, /'\''[a-z0-9-]+'\''/); return substr(s, RSTART, RLENGTH) }
     !/^resolve-steps: [a-z,-]+: / { next }
     {
-      pts = substr($0, 16); pts = substr(pts, 1, index(pts, ": ") - 1)
-      rest = substr($0, 16 + length(pts) + 2)
+      pts = $0; sub(/^resolve-steps: /, "", pts)
+      rest = pts; sub(/^[a-z,-]+: /, "", rest)
+      sub(/: .*/, "", pts); gsub(/,/, ", ", pts)
     }
-    match(rest, /^(park|ask|refuse): step '\''[a-z0-9-]+'\''/) ||
-    (rest ~ /dropped as malformed/ && match(rest, /^skip: step '\''[a-z0-9-]+'\''/)) {
-      id = substr(rest, RSTART, RLENGTH); sub(/^[a-z]+: step /, "", id)
-      add(pts ": step " id); next
+    rest ~ /^(park|ask|refuse): step '\''[a-z0-9-]+'\''/ ||
+    (rest ~ /^skip: step '\''[a-z0-9-]+'\''/ && rest ~ /dropped as malformed/) ||
+    rest ~ /places '\''[a-z0-9-]+'\'' malformed/ {
+      add(pts ": step " quoted_id(rest)); next
     }
-    match(rest, /steps catalog entry [A-Za-z0-9._-]+ is malformed/) {
-      id = substr(rest, RSTART + 20, RLENGTH - 33)
-      gsub(/,/, ", ", pts)
+    match(rest, /steps catalog entry [A-Za-z0-9._#-]+ is malformed/) {
+      id = substr(rest, RSTART, RLENGTH)
+      sub(/^steps catalog entry /, "", id); sub(/ is malformed$/, "", id)
       add("malformed entry " q id q " (at " pts ")"); next
     }
-    rest ~ /^check mode: / { failed = failed (failed == "" ? "" : ", ") pts }
+    rest ~ /^check mode: / { failed = failed (failed == "" ? "" : ", ") pts; next }
+    rest ~ /^the repo-tracked / && rest ~ /malformed/ { add("the repo-tracked config or catalog is malformed (at " pts ")"); next }
+    rest !~ /^(warning|skip): / && rest ~ /malformed/ { add("a malformed list or config (at " pts ")") }
     END {
       if (failed != "") add("the check failed at " failed)
       print out
     }' "$work/points.err")
-  if [ -z "$_cp_detail" ]; then
-    case $_cp_rc in
-      2) _cp_detail="the pinned root's resolver refused the several-point check, which an install older than the multi-point check does; update the planwright install at $brief_root" ;;
-      5) _cp_detail="the planwright install at $brief_root is broken" ;;
-      1 | 4) _cp_detail="a malformed list or config at a point the resolver did not name" ;;
-      *) _cp_detail="the check did not complete" ;;
-    esac
-  fi
+  # A broken or too-old pinned install is named whatever else the check named:
+  # fixing the other causes alone would only be refused again.
+  case $_cp_rc in
+    2) _cp_why="the pinned root's resolver refused the several-point check, as an install that predates it does; update the planwright install at $brief_root" ;;
+    5) _cp_why="the planwright install at $brief_root is broken" ;;
+    1 | 4) _cp_why="a malformed list or config the resolver named above" ;;
+    *) _cp_why="the check did not complete" ;;
+  esac
+  case $_cp_rc in
+    2 | 5) _cp_detail="${_cp_detail:+$_cp_detail; }$_cp_why" ;;
+    *) [ -n "$_cp_detail" ] || _cp_detail=$_cp_why ;;
+  esac
   die 4 "the in-run points' check would stop a task unit here, so it stops this flight (resolve-steps exit $_cp_rc): $_cp_detail; the diagnostics above say why; nothing was placed"
 }
 
@@ -839,10 +850,11 @@ It must report home \`pr\` and origin \`$HOME_DEST\`; on anything else, or if it
 cannot run, push nothing and park the flight with what it reported. Then render
 the record and, only on a clean render, push the branch and open the PR as a
 draft on the checked repository:
-\`$_recorder render --home pr $_inputs > $_body && git push -u origin $branch && gh pr create --draft --repo $HOME_DEST --title '<conventional title>' --body-file $_body > $(sh_quote "$_rd/pr-url")\`
+\`$_recorder render --home pr $_inputs > $_body && git push -u origin $branch && gh pr create --draft --repo $HOME_DEST --title '<conventional title>' --body-file $_body > $(sh_quote "$_rd/pr-url.tmp") && mv $(sh_quote "$_rd/pr-url.tmp") $(sh_quote "$_rd/pr-url")\`
 Add $_optional to the render only when you wrote them. The record is the PR
 body. Never mark it ready and never merge: the draft-to-ready flip and the
-merge are the human's.
+merge are the human's. A relaunched worker whose \`record/pr-url\` already names
+the PR runs none of this line and carries on below with that PR.
 
 Now the draft PR exists: fire \`post-pr\` (*Work and the points*) with the PR's
 number as \`PLANWRIGHT_STEP_PR_NUMBER\`. After its list, run the sequence
@@ -850,11 +862,14 @@ number as \`PLANWRIGHT_STEP_PR_NUMBER\`. After its list, run the sequence
 read from that skill), less the unit-PR ready flip, which a flight never
 performs, with these mappings. Add the \`post-pr\` table to \`audit.md\`, and when
 the PR head moved, replace its Pending sign-off section with the regenerated
-checklist. Re-emit the record only through the renderer, with the same inputs,
+checklist, its \`## Pending sign-off\` heading demoted to \`####\`. Re-emit the
+record only through the renderer, with the same inputs,
 never by editing the PR body by hand, and never by re-running the push and
 create line above:
 \`$_recorder render --home pr $_inputs > $_body_new && gh pr edit <number> --repo $HOME_DEST --body-file $_body_new\`
-A non-zero exit from either parks the flight. Verify the PR is still a draft:
+A refusal of your own inputs is fixed and the line re-run (*The audit record*);
+any other non-zero exit from the render, or from the edit, parks the flight.
+Verify the PR is still a draft:
 \`gh pr view <number> --repo $HOME_DEST --json isDraft --jq .isDraft\` must print
 \`true\`; on anything else, park the flight. Then push the completion, with the
 PR link as the landing reference:
@@ -863,8 +878,10 @@ PR link as the landing reference:
     _landing="Land the record, which writes \`$record\` and commits exactly that one
 file on this branch:
 \`$_recorder land $_inputs --record-path $(sh_quote "$record")\`
-Add $_optional only when you wrote them. Do not push and open no PR. The
-committed record is the landing reference; push the completion with it:
+Add $_optional only when you wrote them. Do not push and open no PR. A
+relaunched worker whose record is already committed on this branch skips the
+land. The committed record is the landing reference; push the completion with
+it:
 \`$_push completion $_pushid --landing $(sh_quote "record:$record")\`"
   fi
 
@@ -910,9 +927,10 @@ committed record is the landing reference; push the completion with it:
     printf '%s\n' "- Export the step context with \`PLANWRIGHT_STEP_UNIT_KIND=flight\`, an empty"
     printf '%s\n' "  spec and task ids, branch \`$branch\`, base branch \`main\`, and this worktree;"
     printf '%s\n' "  an isolated step's launch tier takes the unit \`flight:$flight_id\`."
-    printf '%s\n' "- Issue one run id for the flight. A relaunched worker issues none: it"
-    printf '%s\n' "  carries on in the latest run, skipping each point that run completed and"
-    printf '%s\n' "  firing the interrupted one afresh."
+    printf '%s\n' "- Issue one run id per worker launch. A relaunched worker whose worktree"
+    printf '%s\n' "  already holds a run resumes the latest one as custom-steps *Resume"
+    printf '%s\n' "  continuation* defines (a new run): it starts at the first point that run"
+    printf '%s\n' "  did not complete without a halt, skipping the steps that resume skips."
     printf '%s\n' "- Wherever the procedure ends, parks, or stops the unit (the pause protocol"
     printf '%s\n' "  or a stop condition), park the flight instead (*Hard pauses*): write"
     printf '%s\n' "  nothing to any \`tasks.md\` or other spec state."
@@ -933,8 +951,8 @@ committed record is the landing reference; push the completion with it:
     printf '\n## Hard pauses\n\n'
     printf '%s\n' "The gate-wiring hard pauses stay in force whatever the route or its grounds,"
     printf '%s\n' "an operator override included: a hard-disqualifier-zone finding, or scope"
-    printf '%s\n' "outgrowing this route, parks the flight, as does a point the procedure ends"
-    printf '%s\n' "or parks and a PR no longer a draft. Stop, commit nothing further, push"
+    printf '%s\n' "outgrowing this route, parks the flight, as does a point the procedure ends,"
+    printf '%s\n' "parks, or stops, and a PR no longer a draft. Stop, commit nothing further, push"
     printf '%s\n' "the pause to the operator's decision queue with a one-line, plain-ASCII reason that"
     printf '%s\n' "carries no single quote (the line runs in your shell; never paste quoted"
     printf '%s\n' "content into it), \`$_push awaiting-decision $_pushid --reason '<reason>'\`,"
