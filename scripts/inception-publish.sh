@@ -30,8 +30,8 @@
 # on this machine, and anything in the work tree arrives with a pull, so a
 # stakeholder's commit could otherwise switch on publishing nobody confirmed. A
 # file of that name in the work tree is never read. Writes take a lock
-# (planwright-publish.lock, a directory) so two writers cannot lose each
-# other's change. The file is read as data, never sourced; a value that does
+# (planwright-publish.lock, through scripts/lock-lib.sh) so two writers cannot
+# lose each other's change. The file is read as data, never sourced; a value that does
 # not parse reads as unset, which always lands on `offer`. Outside a git
 # repository there is no such place: offers still work, as first publishes,
 # and record and auto refuse.
@@ -52,9 +52,9 @@
 # auto-republish-on), artifact (the recorded id, or none) — and the plain-language instruction on stderr.
 #
 # Environment:
-#   PLANWRIGHT_PUBLISH_LOCK_TRIES   attempts a writer makes at the state lock,
-#                                   one second apart, before refusing; a whole
-#                                   number, default 10.
+#   PLANWRIGHT_PUBLISH_LOCK_TRIES   attempts a writer makes at the state lock
+#                                   before refusing (lock-lib spins about fifty
+#                                   a second); a whole number, default 500.
 #
 # Exit: 0 done · 1 the rendered page looks like it carries a credential, so it
 #   is not offered at all · 2 usage or environment error · 3 the renderer
@@ -69,6 +69,13 @@ unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 STATE_NAME=planwright-publish.local
+
+if [ ! -f "$script_dir/lock-lib.sh" ] || [ ! -r "$script_dir/lock-lib.sh" ]; then
+  printf '%s\n' "inception-publish: required helper $script_dir/lock-lib.sh missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/lock-lib.sh
+. "$script_dir/lock-lib.sh" || exit 2
 
 usage() {
   cat >&2 <<'EOF'
@@ -185,43 +192,41 @@ load_state() {
   s_pitch=$(printf '%s\n' "$s_all" | sed -n 3p)
 }
 
-# take_lock / drop_lock — one writer at a time. mkdir is the portable atomic
-# test-and-set; a lock left by a killed writer is the operator's to remove,
-# and the refusal names it.
+# take_lock — one writer at a time, through the tree's one lock primitive
+# (scripts/lock-lib.sh): the lock is a symbolic link whose target is the
+# owner's token, so a release can prove the lock is still its own and a lock
+# left by a killed writer is recognised as stale.
+w_tmp=
+# shellcheck disable=SC2329 # invoked from the traps take_lock installs
+release() {
+  [ -z "$w_tmp" ] || rm -f "$w_tmp"
+  w_tmp=
+  pw_lock_release_all
+}
 take_lock() {
-  tries=${PLANWRIGHT_PUBLISH_LOCK_TRIES:-10}
+  tries=${PLANWRIGHT_PUBLISH_LOCK_TRIES:-500}
   case $tries in
     '' | *[!0-9]*)
       echo "inception-publish: PLANWRIGHT_PUBLISH_LOCK_TRIES must be a whole number" >&2
       exit 2
       ;;
   esac
-  while ! mkdir "$lock" 2>/dev/null; do
-    tries=$((tries - 1))
-    if [ "$tries" -le 0 ]; then
-      printf '%s\n' "inception-publish: the publish state is busy (another writer holds $lock); try again, or remove the directory if no writer is running" >&2
-      exit 2
-    fi
-    sleep 1
-  done
-  lock_held=1
   trap release EXIT
   trap 'release; exit 129' HUP
   trap 'release; exit 130' INT
   trap 'release; exit 143' TERM
-}
-w_tmp=
-lock_held=0
-# A signal trap's `exit` runs the EXIT trap too, so release runs twice there;
-# the flag keeps the second run from removing a lock another writer has taken
-# in between.
-# shellcheck disable=SC2329 # invoked from the traps take_lock installs
-release() {
-  [ -z "$w_tmp" ] || rm -f "$w_tmp"
-  w_tmp=
-  [ "$lock_held" -eq 1 ] || return 0
-  lock_held=0
-  rmdir "$lock" 2>/dev/null
+  pw_lock_acquire "$lock" "$tries"
+  case $? in
+    0) ;;
+    1)
+      printf '%s\n' "inception-publish: the publish state is busy (another writer holds $lock); try again" >&2
+      exit 2
+      ;;
+    *)
+      printf '%s\n' "inception-publish: cannot lock the publish state at $lock" >&2
+      exit 2
+      ;;
+  esac
 }
 
 # write_state <key> <value> — under the lock: read once, replace <key>, keep

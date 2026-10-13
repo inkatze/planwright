@@ -280,13 +280,20 @@ assert_contains "state location: the knob lands in the git directory" "auto-repu
   "$(cat "$(state_of "$v")" 2>/dev/null)"
 
 # A writer that cannot take the lock refuses rather than racing the holder.
-mkdir "$(git -C "$v" rev-parse --absolute-git-dir)/planwright-publish.lock"
-out="$(PLANWRIGHT_PUBLISH_LOCK_TRIES=1 "$PUBLISH" auto off "$v" 2>&1)"
-rc=$?
-assert_eq "held lock: the write is refused" "2" "$rc"
-assert_contains "held lock: says the state is busy" "busy" "$out"
+# This test shell is the live holder, through the same lock primitive.
+lockp="$(git -C "$v" rev-parse --absolute-git-dir)/planwright-publish.lock"
+(
+  # shellcheck source=scripts/lock-lib.sh
+  . "$REPO_ROOT/scripts/lock-lib.sh"
+  pw_lock_acquire "$lockp" 1 || exit 1
+  out="$(PLANWRIGHT_PUBLISH_LOCK_TRIES=1 "$PUBLISH" auto off "$v" 2>&1)"
+  printf '%s\n' "rc=$?" "$out" >"$tmp/held-lock.out"
+  pw_lock_release "$lockp"
+)
+held="$(cat "$tmp/held-lock.out" 2>/dev/null)"
+assert_contains "held lock: the write is refused" "rc=2" "$held"
+assert_contains "held lock: says the state is busy" "busy" "$held"
 assert_contains "held lock: the knob is unchanged" "auto-republish=on" "$(cat "$(state_of "$v")")"
-rmdir "$(git -C "$v" rev-parse --absolute-git-dir)/planwright-publish.lock"
 
 # Outside a git repository there is nowhere safe to keep the state: offers
 # still work, as first publishes, and nothing is recorded.
@@ -353,14 +360,15 @@ chmod 600 "$(state_of "$v")"
 v="$(fresh)"
 stub="$tmp/killmv"
 mkdir -p "$stub"
-# shellcheck disable=SC2016 # $PPID belongs to the stub, expanded when it runs
-printf '%s\n' '#!/bin/sh' 'kill -TERM "$PPID"' 'exit 1' >"$stub/mv"
+real_mv="$(command -v mv)"
+# shellcheck disable=SC2016 # $2 and $PPID belong to the stub, expanded when it runs
+printf '%s\n' '#!/bin/sh' 'case "$2" in' '  */planwright-publish.local) kill -TERM "$PPID"; exit 1 ;;' 'esac' "exec $real_mv \"\$@\"" >"$stub/mv"
 chmod +x "$stub/mv"
 PATH="$stub:$PATH" "$PUBLISH" auto on "$v" >/dev/null 2>&1
 gd="$(git -C "$v" rev-parse --absolute-git-dir)"
 leftover="$(find "$gd" -maxdepth 1 -name 'planwright-publish.local.*' 2>/dev/null)"
 assert_eq "killed writer: no temp state is left" "" "$leftover"
-if [ -d "$gd/planwright-publish.lock" ]; then
+if [ -e "$gd/planwright-publish.lock" ] || [ -L "$gd/planwright-publish.lock" ]; then
   echo "FAIL: killed writer: the lock was left behind" >&2
   failures=$((failures + 1))
 else
@@ -450,7 +458,8 @@ assert_contains "lock tries not a number: names the knob" "PLANWRIGHT_PUBLISH_LO
 sand="$tmp/pw-sand"
 mkdir -p "$sand/scripts"
 cp "$REPO_ROOT/scripts/"inception-*.sh "$REPO_ROOT/scripts/echo-safety.sh" \
-  "$REPO_ROOT/scripts/spec-parse.sh" "$REPO_ROOT/scripts/html-escape.sh" "$sand/scripts/" || exit 1
+  "$REPO_ROOT/scripts/spec-parse.sh" "$REPO_ROOT/scripts/html-escape.sh" \
+  "$REPO_ROOT/scripts/lock-lib.sh" "$sand/scripts/" || exit 1
 # shellcheck disable=SC2016 # $PPID belongs to the stub, expanded when it runs
 printf '%s\n' '#!/bin/sh' 'kill -TERM "$PPID"' 'exit 2' >"$sand/scripts/inception-secret-screen.sh"
 v="$(fresh)"
