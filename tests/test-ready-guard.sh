@@ -902,7 +902,38 @@ knob_adopter refuse
 STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
 run_hook "$(bash_payload 'gh pr ready 42')"
 assert_deny_because "refuse: a conflict-free PR 7 commits behind denies" '7 commit'
+assert_reason_lacks "refuse: the behind denial names the merge remedy, not the knob" 'ready_guard_behind_base|conflict-only'
 assert_no_sentinels "refuse: reading the knob runs no git/curl/claude"
+
+reset_stub_env
+knob_adopter refuse
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
+RG_SURFACE=mcp run_hook "$(mcp_payload acme widgets 42 false)"
+assert_deny_because "refuse: the MCP surface denies a conflict-free behind PR" '7 commit'
+
+# conflict-only relaxes the behind-base check and nothing else.
+reset_stub_env
+knob_adopter conflict-only
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
+run_hook "$(bash_payload "gh pr ready '1 --repo attacker/clean'")"
+assert_deny "conflict-only: an invalid selector still denies"
+if [ "$(gh_calls)" = 0 ]; then
+  pass "conflict-only: the invalid selector is refused before any gh call"
+else
+  fail "conflict-only: the guard queried gh with an invalid selector (saw $(gh_calls) calls)"
+fi
+
+reset_stub_env
+knob_adopter conflict-only
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
+run_hook "$(bash_payload 'gh pr ready 42')" gh
+assert_deny_because "conflict-only: a missing gh binary still denies" 'gh CLI is not on PATH'
+
+reset_stub_env
+knob_adopter conflict-only
+STUB_VIEW_JSON=$VIEW_ALREADY_READY STUB_COMPARE_OUT=9
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_defer "conflict-only: an already-ready PR defers, ungated as under refuse"
 
 reset_stub_env
 knob_adopter lenient
@@ -919,8 +950,18 @@ GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$REPO_SIDE"
 mkdir -p "$REPO_SIDE/.claude"
 printf 'ready_guard_behind_base: conflict-only\n' >"$REPO_SIDE/.claude/planwright.yml"
 printf 'ready_guard_behind_base: conflict-only\n' >"$REPO_SIDE/.claude/planwright.local.yml"
+# The git on PATH is a logging pass-through, so any git the guard or its
+# resolver ran would both work and leave a line.
+GIT_LOG="$SANDBOX/git-calls.log"
+rm -f "$GIT_LOG"
 cp "$BIN/git" "$SANDBOX/git.sentinel"
-ln -sf "$(command -v git)" "$BIN/git"
+rm -f "$BIN/git"
+cat >"$BIN/git" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >>'$GIT_LOG'
+exec '$(command -v git)' "\$@"
+EOF
+chmod +x "$BIN/git"
 reset_stub_env
 STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
 cd "$REPO_SIDE" || exit 1
@@ -929,6 +970,11 @@ cd "$REPO_ROOT" || exit 1
 rm -f "$BIN/git"
 cp "$SANDBOX/git.sentinel" "$BIN/git"
 assert_deny_because "repo-tracked and machine-local conflict-only do not relax the guard" '7 commit'
+if [ -s "$GIT_LOG" ]; then
+  fail "the repo-side case ran git: $(cat "$GIT_LOG")"
+else
+  pass "the repo-side case ran no git through the logging pass-through"
+fi
 
 # The resolver missing beside the guard is a refusal, never a pass.
 LONE="$SANDBOX/lone"
@@ -977,6 +1023,38 @@ run_stubbed_resolver "conflict-only printed before a non-zero exit applies refus
   deny "printf 'conflict-only\n'; exit 1"
 run_stubbed_resolver "a resolver that answers only after the query bound applies refuse" \
   deny "sleep 5; printf 'conflict-only\n'"
+# The guard's own layer drop, pinned apart from the resolver table's: this
+# stub relaxes only when the repo-side layers reach it.
+run_stubbed_resolver "the guard drops the repo-side layers before calling the resolver" \
+  deny 'if [ "${PLANWRIGHT_REPO_ROOT-}" = none ] && [ -z "${PLANWRIGHT_LOCAL_CONFIG-}" ]; then echo refuse; else echo conflict-only; fi'
+
+# The knob is read only for a behind PR: a marker-writing stub resolver leaves
+# no marker for a current PR and leaves one for a behind PR.
+KNOB_MARKER="$SANDBOX/knob-read"
+printf ": >'%s'; echo conflict-only\n" "$KNOB_MARKER" >"$STUBBED/resolve-policy-knob.sh"
+SAVED_HOOK=$HOOK
+HOOK="$STUBBED/ready-guard.sh"
+reset_stub_env
+rm -f "$KNOB_MARKER"
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_defer "a current PR defers with the marker-writing resolver beside the guard"
+if [ -e "$KNOB_MARKER" ]; then
+  fail "the guard read the knob for a current PR (behind_by 0)"
+else
+  pass "a current PR (behind_by 0) costs no knob read"
+fi
+reset_stub_env
+rm -f "$KNOB_MARKER"
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7
+run_hook "$(bash_payload 'gh pr ready 42')"
+HOOK=$SAVED_HOOK
+assert_defer "a behind PR defers through the marker-writing resolver"
+if [ -e "$KNOB_MARKER" ]; then
+  pass "positive control: a behind PR reads the knob and leaves the marker"
+else
+  fail "the marker-writing resolver left no marker for a behind PR"
+fi
 
 # An inherited machine-local file path is dropped like the derived one.
 reset_stub_env
