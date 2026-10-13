@@ -240,7 +240,8 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 
 ## Awaiting input
 
-(none yet)
+- **Task 7** — forward-merging main conflicts on the kickoff brief (both sides append an execution
+  research section, and both number a risk row R9); `worker_merge_conflict_policy` is halt.
 
 ## Deferred
 
