@@ -1058,7 +1058,7 @@ fi
 # A worker-only command: ALLOWED by the worker guard, DEFERRED by the tower guard.
 run_hook "bats tests/ok.bats"
 run_worker_hook "bats tests/ok.bats"
-if ! is_allow && worker_is_allow; then
+if [ "$CODE" -eq 0 ] && is_empty && worker_is_allow; then
   pass "bats is worker-allowed and tower-deferred (worker-only)"
 else
   fail "distinctness — bats: tower=$(is_allow && echo allow || echo defer) worker=$(worker_is_allow && echo allow || echo defer)"
@@ -1066,7 +1066,7 @@ fi
 # Only the worker guard admits the narrow command substitution form.
 run_hook "echo \"\$(git rev-parse HEAD)\""
 run_worker_hook "echo \"\$(git rev-parse HEAD)\""
-if ! is_allow && worker_is_allow; then
+if [ "$CODE" -eq 0 ] && is_empty && worker_is_allow; then
   pass "an argument-independent command substitution is worker-allowed and tower-deferred (worker-only)"
 else
   fail "distinctness — command substitution: tower=$(is_allow && echo allow || echo defer) worker=$(worker_is_allow && echo allow || echo defer)"
