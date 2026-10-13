@@ -900,7 +900,8 @@ messaging_heal_cadence_seconds: 300
 #                               flip of a PR behind its base: refuse (any
 #                               commit behind), or conflict-only (only a PR
 #                               GitHub does not report MERGEABLE). Read from
-#                               the core and adopter layers only.
+#                               the core and adopter layers only
+#                               (merge-currency-guard REQ-C1.12).
 # protected_branches            branch names or globs added to the protected
 #                               floor (main, master, planwright/*/spec), space
 #                               separated on one line; every layer's list

@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # ready-guard.sh — deterministic, DENY-EMITTING PreToolUse hook that refuses a
-# draft->ready pull-request transition unless the PR is provably current with
-# its base branch and mergeable (merge-currency-guard Task 2; REQ-A1.1,
-# REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.5, REQ-C1.6, REQ-C1.7, REQ-C1.8,
-# REQ-C1.9, REQ-C1.10, REQ-K1.1, REQ-K1.3; D-2, D-3, D-5, D-7, D-8).
+# draft->ready pull-request transition unless the PR is provably mergeable
+# and, under the shipped `ready_guard_behind_base: refuse`, current with its
+# base branch (merge-currency-guard Tasks 2 and 5; REQ-A1.5, REQ-C1.11,
+# REQ-C1.2, REQ-C1.3, REQ-C1.5, REQ-C1.6, REQ-C1.7, REQ-C1.8, REQ-C1.9,
+# REQ-C1.10, REQ-C1.12, REQ-C1.13, REQ-K1.1, REQ-K1.3; D-2, D-3, D-5, D-7, D-8,
+# D-10, D-11).
 #
 # THE MODALITY INVERSION (D-2, REQ-C1.2). The sibling guards
 # (worker-command-guard.sh, tower-command-guard.sh) are ALLOW-ONLY: they emit
@@ -56,7 +58,7 @@
 #     stripped of non-printable bytes before emission (REQ-K1.3), and the
 #     decision JSON is built by jq so no value can break out of its string.
 #
-# Predicate (D-3, REQ-C1.1). From ONE `gh pr view` of the target PR:
+# Predicate (D-3, REQ-C1.11). From ONE `gh pr view` of the target PR:
 # `baseRefName`, `headRefOid`, `mergeable`, `isDraft`, `url`. From the compare
 # endpoint `repos/<owner>/<repo>/compare/<baseRefName>...<headRefOid>`:
 # `behind_by`. DEFER only when `behind_by == 0` AND `mergeable == MERGEABLE`,
@@ -904,7 +906,7 @@ handle_mcp() {
 }
 
 # --------------------------------------------------------------------------
-# The predicate (D-3, REQ-C1.1, REQ-C1.3). Reads RG_PR (may be empty: resolve
+# The predicate (D-3, REQ-C1.11, REQ-C1.3). Reads RG_PR (may be empty: resolve
 # the cwd branch's PR) and RG_REPO (may be empty: resolve from cwd).
 
 # gh_pr_view <cwd> — one `gh pr view` for every field the predicate needs.
@@ -1011,7 +1013,7 @@ evaluate_predicate() {
 }
 
 # behind_base_policy — ready_guard_behind_base from the core and adopter layers
-# only. The repo-side layers sit inside a checkout the flipping session can
+# only (REQ-C1.12, REQ-C1.13, D-11). The repo-side layers sit inside a checkout the flipping session can
 # edit, and locating the primary checkout's layers takes the local git D-5
 # rules out, so PLANWRIGHT_REPO_ROOT=none and an empty legacy local-config path
 # drop them.
