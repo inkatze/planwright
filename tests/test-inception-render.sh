@@ -131,10 +131,27 @@ assert_contains "dashboard: blocking assumptions" "Blocking assumptions" "$html"
 assert_contains "dashboard: kill criteria" "Kill criteria" "$html"
 assert_contains "dashboard: open forks" "Open forks" "$html"
 assert_contains "dashboard: blockers" "Blockers" "$html"
-assert_contains "dashboard: lists the blocking assumptions" "A-2" "$html"
-assert_contains "dashboard: lists the open fork" "DEC-1" "$html"
+assert_contains "dashboard: lists the blocking assumptions" \
+  "A-2</span> the three sinks accept writes from one surface — open, evidence none</li>" "$html"
+assert_contains "dashboard: lists the open fork" \
+  "DEC-1</span> which handover moment the capture surface owns — open, two-way door</li>" "$html"
 assert_contains "dashboard: counts the blocking assumptions" \
   "2 blocking, 2 unresolved" "$html"
+# The minimum core is structural (doctrine/inception-format.md, The minimum
+# core): enumerated, not resolved. Unresolved blocking assumptions and open
+# forks are what stands between the venture and graduation, said separately.
+assert_contains "dashboard: the fixture meets the minimum core" \
+  "Minimum core is structurally met" "$html"
+assert_contains "dashboard: graduation blockers are their own fact" \
+  "Graduation is blocked: 2 blocking assumption(s) unresolved." "$html"
+assert_contains "dashboard: open forks are counted" "1 open fork(s) still to decide." "$html"
+assert_not_contains "dashboard: nothing has tripped at the pinned date" \
+  "a kill criterion has tripped" "$html"
+assert_contains "dashboard: blockers name the unresolved assumption" \
+  "A-1</span> blocking assumption is unresolved" "$html"
+assert_contains "dashboard: the approaching criterion is classified" \
+  "KC-2</span> — approaching" "$html"
+assert_contains "dashboard: the distant criterion is classified" "KC-1</span> — clear" "$html"
 assert_contains "dashboard: names the gate decider" "Gate decider: Dana Reyes" "$html"
 assert_contains "dashboard: shows the latest gate outcome" \
   "Gate 1 — 2026-08-18 — Recycle" "$html"
@@ -187,6 +204,12 @@ assert_contains "pitch: how we will find out" "two-week shadow run" "$pitch"
 assert_contains "pitch: what would stop us" "KC-1" "$pitch"
 assert_contains "pitch: open questions" "which handover moment the capture surface owns" "$pitch"
 assert_not_contains "pitch: omits the superseded assumption" "chat-first" "$pitch"
+assert_contains "pitch: the status strip carries the counts" \
+  "Where it stands:</strong> Minimum core is structurally met; the gate decider judges completeness. Graduation is blocked: 2 blocking assumption(s) unresolved. 1 open fork(s) still to decide. Kill criteria: 0 tripped, 1 approaching. Last gate: Gate 1 — 2026-08-18 — Recycle.</p>" "$pitch"
+assert_not_contains "pitch: the decided fork is not an open question" "DEC-2" "$pitch"
+assert_not_contains "pitch: a non-blocking assumption is not a must-be-true" "A-4" "$pitch"
+assert_contains "pitch: non-blocking assumptions are counted" \
+  "1 further assumption(s) are tracked without blocking graduation." "$pitch"
 assert_before "pitch: the status strip opens the page" "Where it stands" \
   "<h2>The problem</h2>" "$pitch"
 assert_before "pitch: the problem precedes what has to be true" \
@@ -203,22 +226,55 @@ fi
 # ---------------------------------------------------------------------------
 # 4. Mode selection is honored (REQ-G1.3).
 # ---------------------------------------------------------------------------
+both="$(fresh)"
+"$RENDER" "$both" >/dev/null 2>&1
+
 v="$(fresh)"
 "$RENDER" --mode pitch "$v" >/dev/null 2>&1
 rc=$?
 assert_eq "mode pitch: exit 0" "0" "$rc"
 assert_file "mode pitch: writes the pitch" "$v/exports/pitch.html"
 assert_no_file "mode pitch: leaves the dashboard alone" "$v/exports/venture.html"
+if cmp -s "$both/exports/pitch.html" "$v/exports/pitch.html"; then
+  echo "ok: mode pitch: the same page a both-mode run writes"
+else
+  echo "FAIL: mode pitch: differs from the both-mode pitch" >&2
+  failures=$((failures + 1))
+fi
 
 v="$(fresh)"
 "$RENDER" --mode dashboard "$v" >/dev/null 2>&1
 assert_file "mode dashboard: writes the dashboard" "$v/exports/venture.html"
 assert_no_file "mode dashboard: leaves the pitch alone" "$v/exports/pitch.html"
+if cmp -s "$both/exports/venture.html" "$v/exports/venture.html"; then
+  echo "ok: mode dashboard: the same page a both-mode run writes"
+else
+  echo "FAIL: mode dashboard: differs from the both-mode dashboard" >&2
+  failures=$((failures + 1))
+fi
 
 v="$(fresh)"
 "$RENDER" --mode pitch --output "$tmp/custom.html" "$v" >/dev/null 2>&1
 assert_contains "mode pitch with --output: writes the pitch there" \
   "Pitch narrative" "$(cat "$tmp/custom.html" 2>/dev/null)"
+"$RENDER" --mode dashboard --output "$tmp/custom-dash.html" "$v" >/dev/null 2>&1
+assert_contains "mode dashboard with --output: writes the dashboard there" \
+  "Venture dashboard" "$(cat "$tmp/custom-dash.html" 2>/dev/null)"
+assert_no_file "--output: the default paths are left alone" "$v/exports/venture.html"
+
+# A destination that is a directory is refused, never filled with a temp file.
+mkdir -p "$tmp/adir"
+out="$("$RENDER" --mode pitch --output "$tmp/adir" "$v" 2>&1)"
+rc=$?
+assert_eq "--output naming a directory: exit 2" "2" "$rc"
+leftover="$(find "$tmp/adir" -type f 2>/dev/null)"
+assert_eq "--output naming a directory: nothing is written into it" "" "$leftover"
+v="$(fresh)"
+mkdir -p "$v/exports/pitch.html"
+out="$("$RENDER" "$v" 2>&1)"
+rc=$?
+assert_eq "a directory at a default export path: exit 2" "2" "$rc"
+assert_no_file "a directory at a default export path: no page is moved" "$v/exports/venture.html"
 
 out="$("$RENDER" --mode slides "$v" 2>&1)"
 rc=$?
@@ -278,7 +334,7 @@ for mode_html in "$html" "$pitch"; do
   assert_not_contains "escaping: no raw script tag" "<script>" "$mode_html"
   assert_not_contains "escaping: no raw img tag" "<img" "$mode_html"
   assert_contains "escaping: angle brackets escaped" "&lt;script&gt;" "$mode_html"
-  assert_contains "escaping: ampersand escaped" "&amp;" "$mode_html"
+  assert_contains "escaping: ampersand escaped" "handover &amp; re-keying" "$mode_html"
   assert_contains "escaping: double quote escaped" "&quot;" "$mode_html"
   assert_not_contains "escaping: no raw u tag inside a code span" "<u>" "$mode_html"
   assert_not_contains "escaping: no raw s tag inside a strong span" "<s>" "$mode_html"
@@ -348,8 +404,9 @@ assert_contains "readiness: structural completeness is still reported" \
   "Minimum core is structurally met" "$html"
 assert_contains "readiness: the trip is named as its own outcome" \
   "a kill criterion has tripped" "$html"
-assert_not_contains "readiness: blockers are not equated with incompleteness" \
-  "Not ready: see the blockers below" "$html"
+assert_not_contains "readiness: a met core is not reported as unmet" \
+  "Minimum core is not met yet" "$html"
+assert_not_contains "readiness: nothing blocks graduation" "Graduation is blocked" "$html"
 assert_contains "readiness: zero blocking assumptions counted" "0 blocking, 0 unresolved" "$html"
 
 # The validator fails closed for three different reasons and the renderer sees
@@ -434,6 +491,135 @@ sed_i "$v/brief.md" 's|^\(- \*\*KC-1:\*\*.*by \)[0-9-]*$|\12028-02-29|'
 PLANWRIGHT_INCEPTION_TODAY=2026-08-26 "$RENDER" "$v" >/dev/null 2>&1
 assert_not_contains "leap day 2028-02-29: is a real date, not unreadable" \
   "date unreadable" "$(cat "$v/exports/venture.html")"
+
+# ---------------------------------------------------------------------------
+# 9. Register edge cases the dashboard and pitch must reflect (REQ-G1.2).
+# ---------------------------------------------------------------------------
+
+# A missing kill criterion is a minimum-core gap.
+v="$(fresh)"
+sed_i "$v/brief.md" '/^- \*\*KC-[12]:\*\*/d'
+"$RENDER" "$v" >/dev/null 2>&1
+html="$(cat "$v/exports/venture.html")"
+assert_contains "core: no kill criterion means the core is unmet" \
+  "Minimum core is not met yet" "$html"
+assert_contains "core: the missing criterion is a blocker" \
+  "no kill criterion is set (minimum core)" "$html"
+
+# A resolved blocking assumption still counts as blocking, not as unresolved.
+v="$(fresh)"
+sed_i "$v/assumptions.md" 's|^- \*\*Status:\*\* testing$|- **Status:** validated|'
+"$RENDER" --mode dashboard "$v" >/dev/null 2>&1
+html="$(cat "$v/exports/venture.html")"
+assert_contains "resolved blocking: counted once" "2 blocking, 1 unresolved" "$html"
+assert_not_contains "resolved blocking: not a blocker" \
+  "A-1</span> blocking assumption is unresolved" "$html"
+
+# A deferred decision is still an open fork (un-taken, per the frame).
+v="$(fresh)"
+sed_i "$v/decisions.md" 's|^- \*\*Status:\*\* open$|- **Status:** deferred|'
+"$RENDER" --mode dashboard "$v" >/dev/null 2>&1
+assert_contains "deferred fork: still listed as open" \
+  "DEC-1</span> which handover moment the capture surface owns — deferred, two-way door" \
+  "$(cat "$v/exports/venture.html")"
+
+# The approaching window: due today and 30 days out approach, 31 days out is clear.
+for case in "2026-09-15 approaching" "2026-08-16 approaching" "2026-08-15 clear"; do
+  d=${case% *}
+  want=${case#* }
+  v="$(fresh)"
+  PLANWRIGHT_INCEPTION_TODAY=$d "$RENDER" --mode dashboard "$v" >/dev/null 2>&1
+  assert_contains "kill-date window: KC-2 on $d is $want" "KC-2</span> — $want" \
+    "$(cat "$v/exports/venture.html")"
+done
+
+# A pitch whose every task is superseded says so rather than listing nothing.
+v="$(fresh)"
+for st in planned running; do
+  sed_i "$v/plan.md" "s|^- \\*\\*Status:\\*\\* $st\$|- **Status:** $st\\
+- **Superseded-by:** T-9 (2026-08-20)|"
+done
+"$RENDER" --mode pitch "$v" >/dev/null 2>&1
+assert_contains "pitch: no live task says so" "No validation task is planned yet." \
+  "$(cat "$v/exports/pitch.html")"
+
+# A skipped Opportunity field shows its reason on the dashboard, not the marker.
+v="$(fresh)"
+sed_i "$v/brief.md" 's|^- \*\*Who hurts:\*\* .*$|- **Who hurts:** _Skipped: covered by the portfolio brief._|'
+"$RENDER" --mode dashboard "$v" >/dev/null 2>&1
+html="$(cat "$v/exports/venture.html")"
+assert_contains "dashboard: a skipped field states its reason" "covered by the portfolio brief" "$html"
+assert_not_contains "dashboard: the skip marker is not shown raw" "_Skipped:" "$html"
+
+# A continuation indented deeper than two spaces still belongs to its field.
+v="$(fresh)"
+sed_i "$v/decisions.md" 's|^  - end-of-shift handover only — narrowest surface, clearest metric$|  - end-of-shift handover only — narrowest surface,\
+    clearest metric|'
+"$RENDER" --mode dashboard "$v" >/dev/null 2>&1
+assert_contains "deep continuation: joins its sub-bullet" \
+  "<li>end-of-shift handover only — narrowest surface, clearest metric</li>" \
+  "$(cat "$v/exports/venture.html")"
+
+# A criterion whose text itself says "— by" keeps all of it.
+v="$(fresh)"
+sed_i "$v/brief.md" 's|^- \*\*KC-1:\*\* three ops leads|- **KC-1:** sign-off — by the ops team, and three ops leads|'
+"$RENDER" --mode dashboard "$v" >/dev/null 2>&1
+assert_contains "kill criterion: an inner — by stays in the text" \
+  "KC-1</span> — clear — by 2026-10-01 — sign-off — by the ops team, and three ops leads" \
+  "$(cat "$v/exports/venture.html")"
+
+# The rationale runs to the end of the block: a later line shaped like a field
+# is rationale text, not a replacement for that field.
+v="$(fresh)"
+sed_i "$v/brief.md" 's|^Rationale: The capture-surface spike has not run yet; re-scope the plan and return.$|Rationale: The capture-surface spike has not run yet;\
+Outcome: Kill was argued for and rejected.\
+Evidence: re-read at the meeting.|'
+"$RENDER" --mode dashboard "$v" >/dev/null 2>&1
+html="$(cat "$v/exports/venture.html")"
+assert_contains "gate rationale: a field-shaped line stays rationale" \
+  "Evidence: re-read at the meeting." "$html"
+assert_contains "gate rationale: the real outcome survives" "Gate 1 — 2026-08-18 — Recycle" "$html"
+assert_contains "gate rationale: the real evidence survives" "A-1 (stated-intent)" "$html"
+
+# Date: is authoritative over the heading date.
+v="$(fresh)"
+sed_i "$v/brief.md" 's|^Date: 2026-08-18$|Date: 2026-08-19|'
+"$RENDER" --mode dashboard "$v" >/dev/null 2>&1
+assert_contains "gate date: the Date: field wins" "Last gate: Gate 1 — 2026-08-19 — Recycle." \
+  "$(cat "$v/exports/venture.html")"
+
+# Escaping reaches every place bundle text lands, not only the prose.
+v="$(fresh)"
+sed_i "$v/brief.md" 's|^# Northwind Signals — Brief$|# North<b1>wind — Brief|'
+sed_i "$v/brief.md" 's|^\*\*Gate decider:\*\* Dana Reyes$|**Gate decider:** Dana <b2>|'
+sed_i "$v/brief.md" 's|^\(- \*\*KC-1:\*\*\) three ops leads|\1 <b3> three ops leads|'
+sed_i "$v/brief.md" 's|re-scope the plan and return|re-scope <b4> and return|'
+sed_i "$v/brief.md" 's|^- \*\*workflow audit\*\*|- **workflow <b5> audit**|'
+sed_i "$v/decisions.md" 's|^  - every incident close|  - every <b6> incident close|'
+sed_i "$v/decisions.md" 's|^### DEC-1 — which handover|### DEC-1 — which <b7> handover|'
+"$RENDER" "$v" >/dev/null 2>&1
+both_pages="$(cat "$v/exports/venture.html" "$v/exports/pitch.html")"
+for n in 1 2 3 4 5 6 7; do
+  assert_not_contains "escaping breadth: raw <b$n> never lands" "<b$n>" "$both_pages"
+done
+assert_contains "escaping breadth: the title is escaped" "North&lt;b1&gt;wind" "$both_pages"
+assert_contains "escaping breadth: an entry name is escaped" "which &lt;b7&gt; handover" "$both_pages"
+
+# --- invocation edges ---
+
+# A relative venture path shaped like an awk assignment is still a path.
+v="$(fresh)"
+mkdir -p "$tmp/rel" && cp "$v"/*.md "$tmp/rel/" && mv "$tmp/rel" "$tmp/v=1"
+(cd "$tmp" && "$RENDER" --mode dashboard "v=1") >/dev/null 2>&1
+assert_contains "relative path with =: the bundle is read" "Northwind Signals" \
+  "$(cat "$tmp/v=1/exports/venture.html" 2>/dev/null)"
+
+# A calendar-impossible today is refused, never differenced.
+v="$(fresh)"
+out="$(PLANWRIGHT_INCEPTION_TODAY=2026-13-40 "$RENDER" "$v" 2>&1)"
+rc=$?
+assert_eq "impossible today: exit 2" "2" "$rc"
+assert_no_file "impossible today: nothing is written" "$v/exports/venture.html"
 
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-render: $failures assertion(s) failed" >&2

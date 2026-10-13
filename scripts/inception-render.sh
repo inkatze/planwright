@@ -7,8 +7,9 @@
 #
 #   dashboard  exports/venture.html. Opens with the status view REQ-G1.2 names
 #              (gate readiness, blocking assumptions, kill criteria, open forks,
-#              blockers), then the bundle in full: opportunity, registers,
-#              plan, discipline and stakeholder tables, sources, gate log.
+#              blockers), then the record behind it: opportunity, registers,
+#              plan, discipline and stakeholder tables, sources, gate log. The
+#              appetite and landscape prose is the pitch's.
 #   pitch      exports/pitch.html. The narrative read for someone deciding
 #              whether to back the venture: a one-paragraph status strip, then
 #              problem, idea, metric, landscape, what has to be true, how it
@@ -122,6 +123,12 @@ while [ "$target" != "${target%/}" ]; do target=${target%/}; done
   printf '%s\n' "inception-render: not a directory: $target" >&2
   exit 2
 }
+# awk reads an operand shaped name=value as a variable assignment, not a file,
+# so a relative venture path such as `v=1` would render an empty page.
+case $target in
+  /*) ;;
+  *) target="./$target" ;;
+esac
 
 # Readable, not executable, and run through /bin/sh: whatever copies a plugin
 # tree onto a venture host may drop the +x bit without dropping the file, and
@@ -230,7 +237,7 @@ function flush_field(   key) {
   F[key] = val; SEEN[key] = 1
   fld = ""
 }
-function f(k, i, name) { return F[k SUBSEP i SUBSEP name] }
+function field(k, i, name) { return F[k SUBSEP i SUBSEP name] }
 function live(k, i) { return !SEEN[k SUBSEP i SUBSEP "Superseded-by"] }
 
 function isprose(s) {
@@ -250,14 +257,16 @@ function value_html(v,   n, parts, i, out) {
   }
   return out
 }
-function dpair(label, v) {
+function dpair(label, v,   r) {
   if (v == "") return
+  r = skipped(v)
+  if (r != "") { print "<dt>" esc(label) "</dt><dd class=\"skip\">Skipped: " inl(r) "</dd>"; return }
   print "<dt>" esc(label) "</dt><dd>" value_html(v) "</dd>"
 }
 function dl(k, i, names,   n, nm, j) {
   n = split(names, nm, ",")
   print "<dl>"
-  for (j = 1; j <= n; j++) dpair(nm[j], f(k, i, nm[j]))
+  for (j = 1; j <= n; j++) dpair(nm[j], field(k, i, nm[j]))
   print "</dl>"
 }
 function paras(s,   n, p, i, r) {
@@ -271,7 +280,7 @@ function paras(s,   n, p, i, r) {
 }
 # An Opportunity field, which may carry the skip form as its value.
 function opp(label, name, lead,   v, r) {
-  v = f("OPP", "opp", name)
+  v = field("OPP", "opp", name)
   if (v == "") return
   r = skipped(v)
   if (r != "") { print "<p class=\"skip\">" esc(label) " skipped: " inl(r) "</p>"; return }
@@ -295,9 +304,31 @@ function kc_line(k) {
   return "<li><span class=\"tag\">" esc(k) "</span> — " KCSTATE[k] \
     " — by " esc(KCDATE[k]) " — " inl(KCTEXT[k]) "</li>"
 }
-function last_gate() {
+function kc_list(empty,   i) {
+  if (DECIDER != "") print "<p>Gate decider: " esc(DECIDER) "</p>"
+  print "<ul>"
+  for (i = 1; i <= nk; i++) print kc_line(KCN[i])
+  if (nk == 0) print "<li>" empty "</li>"
+  print "</ul>"
+}
+# Date: is authoritative over the heading date (doctrine: Gate records).
+function last_gate(   d) {
   if (ng == 0) return "No gate has run yet."
-  return "Last gate: " esc(GHEAD[ng]) " — " esc(GOUT[ng]) "."
+  d = G[ng SUBSEP "Date"]
+  if (d == "") d = GHEADDATE[ng]
+  return "Last gate: Gate " esc(GNUM[ng]) " — " esc(d) " — " esc(G[ng SUBSEP "Outcome"]) "."
+}
+# One register as H3 entries: live ones only, an empty message when none is.
+function register(k, ids, n, names, empty,   i, j, id) {
+  j = 0
+  for (i = 1; i <= n; i++) {
+    id = ids[i]
+    if (!live(k, id)) continue
+    j++
+    print "<h3><span class=\"tag\">" esc(id) "</span> " inl(NAME[id]) "</h3>"
+    dl(k, id, names)
+  }
+  if (j == 0) print "<p>" empty "</p>"
 }
 
 function page_head(suffix) {
@@ -326,7 +357,14 @@ function page_foot() {
   print "</body></html>"
 }
 
-BEGIN { STATUS = ENVIRON["INC_STATUS"] }
+BEGIN {
+  STATUS = ENVIRON["INC_STATUS"]
+  if (!date_ok(today)) {
+    print "inception-render: PLANWRIGHT_INCEPTION_TODAY is not a calendar date" > "/dev/stderr"
+    bad_today = 1
+    exit 2
+  }
+}
 
 FNR == 1 {
   flush_field()
@@ -369,8 +407,10 @@ file == "brief.md" && sect == "Kill criteria" && /^- \*\*KC-[^:*]*:\*\* / {
   k = $0; sub(/^- \*\*/, "", k); sub(/:\*\*.*$/, "", k)
   rest = $0; sub(/^- \*\*KC-[^:*]*:\*\*[ \t]*/, "", rest)
   if (rest ~ / — \*\*Superseded-by:\*\* /) next
-  d = rest; sub(/^.* — by /, "", d); d = trim(d)
-  sub(/ — by .*$/, "", rest)
+  last = 0; off = 0; s = rest
+  while ((i = index(s, " — by ")) > 0) { last = off + i; off += i; s = substr(s, i + 1) }
+  if (last > 0) { d = trim(substr(rest, last + length(" — by "))); rest = substr(rest, 1, last - 1) }
+  else d = trim(rest)
   KCN[++nk] = k; KCTEXT[k] = trim(rest); KCDATE[k] = d
   next
 }
@@ -382,7 +422,7 @@ file == "brief.md" && (sect == "Sources" || sect == "Tracks") && /^- \*\*[^*]+\*
   else { TRN[++ntr] = nm; TRREST[ntr] = trim(rest); listto = "TR" }
   next
 }
-file == "brief.md" && listto != "" && /^  [^ ]/ {
+file == "brief.md" && listto != "" && /^  +[^ ]/ {
   if (listto == "S") SRCREST[ns] = SRCREST[ns] " " trim($0)
   else TRREST[ntr] = TRREST[ntr] " " trim($0)
   next
@@ -391,16 +431,22 @@ file == "brief.md" && listto != "" && /^[ \t]*$/ { listto = ""; next }
 
 file == "brief.md" && sect == "Gate log" && /^### / {
   h = $0; sub(/^### /, "", h); ng++; GHEAD[ng] = trim(h); gfld = ""
+  GNUM[ng] = GHEAD[ng]; sub(/^Gate /, "", GNUM[ng]); sub(/ —.*$/, "", GNUM[ng])
+  GHEADDATE[ng] = GHEAD[ng]; sub(/^[^—]*— */, "", GHEADDATE[ng])
   next
 }
+# Rationale is always last and runs to the end of the block, so once it opens
+# every further line is rationale text, even one shaped like a field. Before
+# it, the first value of a field is the one kept, as the validator reads it.
 file == "brief.md" && sect == "Gate log" && ng > 0 {
-  if (match($0, /^(Outcome|Date|Decider|Evidence|Thresholds|Kill-criteria|Tracks|Rationale):/)) {
-    gfld = substr($0, 1, RLENGTH - 1)
-    G[ng SUBSEP gfld] = trim(substr($0, RLENGTH + 1))
-    if (gfld == "Outcome") GOUT[ng] = G[ng SUBSEP gfld]
+  if (gfld == "Rationale") {
+    if (/[^ \t]/) G[ng SUBSEP "Rationale"] = G[ng SUBSEP "Rationale"] " " trim($0)
     next
   }
-  if (gfld == "Rationale" && /[^ \t]/) G[ng SUBSEP "Rationale"] = G[ng SUBSEP "Rationale"] " " trim($0)
+  if (match($0, /^(Outcome|Date|Decider|Evidence|Thresholds|Kill-criteria|Tracks|Rationale):/)) {
+    gfld = substr($0, 1, RLENGTH - 1)
+    if (!((ng SUBSEP gfld) in G)) G[ng SUBSEP gfld] = trim(substr($0, RLENGTH + 1))
+  }
   next
 }
 
@@ -446,7 +492,7 @@ file == "disciplines.md" && /^\|/ {
   fld = name; val = trim(v)
   next
 }
-/^  [^ ]/ {
+/^  +[^ ]/ {
   if (kind != "" && fld != "") {
     c = trim($0)
     if (c ~ /^- /) { sub(/^- /, "", c); val = val "\n" c }
@@ -456,6 +502,7 @@ file == "disciplines.md" && /^\|/ {
 }
 
 END {
+  if (bad_today) exit 2
   flush_field()
 
   # --- classification, shared by both pages ---
@@ -463,9 +510,10 @@ END {
   nblock = 0; nunresolved = 0
   for (i = 1; i <= na; i++) {
     a = AN[i]
-    if (!live("A", a) || f("A", a, "Blocking") != "yes") continue
+    if (!live("A", a) || field("A", a, "Blocking") != "yes") continue
     nblock++
-    st = f("A", a, "Status"); sub(/ —.*$/, "", st); ASTATE[a] = st
+    st = field("A", a, "Status"); sub(/ —.*$/, "", st); ASTATE[a] = st
+    ev = field("A", a, "Evidence"); sub(/ —.*$/, "", ev); AEV[a] = ev
     if (st == "open" || st == "testing") { nunresolved++; UNRES[nunresolved] = a }
   }
 
@@ -491,7 +539,7 @@ END {
   for (i = 1; i <= nd; i++) {
     d = DN[i]
     if (!live("DEC", d)) continue
-    st = f("DEC", d, "Status")
+    st = field("DEC", d, "Status")
     if (st == "open" || st == "deferred") OPEN[++nopen] = d
   }
 
@@ -499,24 +547,30 @@ END {
   nmp = split(PROSE["Success metric"], mp, "\n")
   for (i = 1; i <= nmp && METRIC == ""; i++) if (skipped(mp[i]) == "") METRIC = mp[i]
 
-  # Two separate facts, said separately. Minimum core is structural: whether the
-  # bundle carries the pieces a gate needs. A tripped criterion is an OUTCOME
-  # the gate will reach, not a piece that is missing — a venture can be complete
-  # and still be one the gate kills. Collapsing them into one ready/not-ready
-  # line made the page assert readiness while listing blockers underneath it.
-  ready = (nunresolved == 0 && nopen == 0 && nk > 0 && METRIC != "")
+  # Separate facts, said separately. The minimum core is structural: blocking
+  # assumptions and open forks enumerated (any status), a kill criterion, a
+  # metric. The registers being present is all a page can check of the first
+  # two, so the core here is the last two. What still stands between the
+  # venture and graduation is a different fact, and so is a tripped criterion,
+  # an OUTCOME the gate will reach: a venture can meet the core and still be
+  # blocked, or be one the gate kills.
+  ready = (nk > 0 && METRIC != "")
   READY = ready ? "Minimum core is structurally met; the gate decider judges completeness." \
     : "Minimum core is not met yet; see the blockers below."
+  BLOCKED = ""
+  if (nunresolved > 0) BLOCKED = "Graduation is blocked: " nunresolved " blocking assumption(s) unresolved."
+  if (nopen > 0) BLOCKED = BLOCKED (BLOCKED == "" ? "" : " ") nopen " open fork(s) still to decide."
 
   if (mode == "pitch") pitch(); else dashboard()
 }
 
-function dashboard(   i, a, k, d, t, j, st, ev, nb) {
+function dashboard(   i, a, d, j, nb, ngf, gf) {
   page_head("venture dashboard")
   print "<p class=\"meta\">Venture dashboard · Status: <span class=\"tag\">" esc(STATUS) "</span></p>"
 
   print "<h2>Gate readiness</h2>"
   print "<p>" READY "</p>"
+  if (BLOCKED != "") print "<p>" BLOCKED "</p>"
   if (ntripped > 0)
     print "<p>Separately, a kill criterion has tripped: the gate prompts kill-or-re-scope regardless of the core.</p>"
   print "<p>" last_gate() "</p>"
@@ -528,25 +582,20 @@ function dashboard(   i, a, k, d, t, j, st, ev, nb) {
   for (i = 1; i <= na; i++) {
     a = AN[i]
     if (!(a in ASTATE)) continue
-    ev = f("A", a, "Evidence"); sub(/ —.*$/, "", ev)
     print "<li><span class=\"tag\">" esc(a) "</span> " inl(NAME[a]) \
-      " — " esc(ASTATE[a]) ", evidence " esc(ev) "</li>"
+      " — " esc(ASTATE[a]) ", evidence " esc(AEV[a]) "</li>"
   }
   if (nblock == 0) print "<li>none</li>"
   print "</ul>"
 
   print "<h2>Kill criteria</h2>"
-  if (DECIDER != "") print "<p>Gate decider: " esc(DECIDER) "</p>"
-  print "<ul>"
-  for (i = 1; i <= nk; i++) print kc_line(KCN[i])
-  if (nk == 0) print "<li>none set</li>"
-  print "</ul>"
+  kc_list("none set")
 
   print "<h2>Open forks</h2><ul>"
   for (i = 1; i <= nopen; i++) {
     d = OPEN[i]
     print "<li><span class=\"tag\">" esc(d) "</span> " inl(NAME[d]) \
-      " — " esc(f("DEC", d, "Status")) ", " esc(f("DEC", d, "Door")) " door</li>"
+      " — " esc(field("DEC", d, "Status")) ", " esc(field("DEC", d, "Door")) " door</li>"
   }
   if (nopen == 0) print "<li>none</li>"
   print "</ul>"
@@ -587,38 +636,14 @@ function dashboard(   i, a, k, d, t, j, st, ev, nb) {
   }
 
   print "<h2>Assumption register</h2>"
-  j = 0
-  for (i = 1; i <= na; i++) {
-    a = AN[i]
-    if (!live("A", a)) continue
-    j++
-    print "<h3><span class=\"tag\">" esc(a) "</span> " inl(NAME[a]) "</h3>"
-    dl("A", a, "Statement,Risk-if-wrong,Risk-tag,Threshold,Evidence,Blocking,Tasks,Status,Track")
-  }
-  if (j == 0) print "<p>No assumptions recorded.</p>"
+  register("A", AN, na, "Statement,Risk-if-wrong,Risk-tag,Threshold,Evidence,Blocking,Tasks,Status,Track", "No assumptions recorded.")
 
   print "<h2>Decision backlog</h2>"
-  j = 0
-  for (i = 1; i <= nd; i++) {
-    d = DN[i]
-    if (!live("DEC", d)) continue
-    j++
-    print "<h3><span class=\"tag\">" esc(d) "</span> " inl(NAME[d]) "</h3>"
-    dl("DEC", d, "Status,Door,Discipline,Deciders,Options,Outcome,Consequences,Feed-forward,Track")
-  }
-  if (j == 0) print "<p>No decisions recorded.</p>"
+  register("DEC", DN, nd, "Status,Door,Discipline,Deciders,Options,Outcome,Consequences,Feed-forward,Track", "No decisions recorded.")
 
   print "<h2>Validation plan</h2>"
   if (LIMIT != "") print "<p>Limiting constraint: <span class=\"tag\">" esc(LIMIT) "</span></p>"
-  j = 0
-  for (i = 1; i <= nt; i++) {
-    t = TN[i]
-    if (!live("T", t)) continue
-    j++
-    print "<h3><span class=\"tag\">" esc(t) "</span> " inl(NAME[t]) "</h3>"
-    dl("T", t, "Kind,Tests,Target,Done when,Cap,Status,Track")
-  }
-  if (j == 0) print "<p>No validation tasks recorded.</p>"
+  register("T", TN, nt, "Kind,Tests,Target,Done when,Cap,Status,Track", "No validation tasks recorded.")
 
   print "<h2>Disciplines and stakeholders</h2>"
   for (i = 1; i <= nts; i++) table(TSN[i])
@@ -631,23 +656,23 @@ function dashboard(   i, a, k, d, t, j, st, ev, nb) {
 
   print "<h2>Gate log</h2>"
   if (ng == 0) print "<p>No gate has run yet.</p>"
+  ngf = split("Outcome,Date,Decider,Evidence,Thresholds,Kill-criteria,Tracks,Rationale", gf, ",")
   for (i = 1; i <= ng; i++) {
     print "<h3>" esc(GHEAD[i]) "</h3><dl>"
-    split("Outcome,Decider,Evidence,Thresholds,Kill-criteria,Tracks,Rationale", gf, ",")
-    for (j = 1; j <= 7; j++) dpair(gf[j], G[i SUBSEP gf[j]])
+    for (j = 1; j <= ngf; j++) dpair(gf[j], G[i SUBSEP gf[j]])
     print "</dl>"
   }
 
   page_foot()
 }
 
-function pitch(   i, a, t, d, k, claim, st, ev, nother) {
+function pitch(   i, a, t, d, claim, nother, nlive) {
   page_head("pitch")
   print "<p class=\"meta\">Pitch narrative · Status: <span class=\"tag\">" esc(STATUS) "</span></p>"
 
   print "<p class=\"strip\"><strong>Where it stands:</strong> " READY " " \
-    nunresolved " of " nblock " blocking assumption(s) unresolved; " \
-    nopen " open fork(s); kill criteria: " ntripped " tripped, " napproaching " approaching. " \
+    (BLOCKED == "" ? "" : BLOCKED " ") \
+    "Kill criteria: " ntripped " tripped, " napproaching " approaching. " \
     last_gate() "</p>"
 
   print "<h2>The problem</h2>"
@@ -672,11 +697,10 @@ function pitch(   i, a, t, d, k, claim, st, ev, nother) {
   for (i = 1; i <= na; i++) {
     a = AN[i]
     if (!(a in ASTATE)) continue
-    claim = f("A", a, "Statement")
+    claim = field("A", a, "Statement")
     if (claim ~ /^believe /) { sub(/^believe /, "", claim); sub(/; verify .*$/, "", claim); claim = "We believe " claim "." }
-    ev = f("A", a, "Evidence"); sub(/ —.*$/, "", ev)
     print "<li><span class=\"tag\">" esc(a) "</span> " inl(claim) " <em>(" esc(ASTATE[a]) \
-      "; evidence " esc(ev) ")</em></li>"
+      "; evidence " esc(AEV[a]) ")</em></li>"
   }
   if (nblock == 0) print "<li>No assumption is marked blocking.</li>"
   print "</ul>"
@@ -685,27 +709,25 @@ function pitch(   i, a, t, d, k, claim, st, ev, nother) {
   if (nother > 0) print "<p>" nother " further assumption(s) are tracked without blocking graduation.</p>"
 
   print "<h2>How we will find out</h2><ul>"
+  nlive = 0
   for (i = 1; i <= nt; i++) {
     t = TN[i]
     if (!live("T", t)) continue
-    print "<li><span class=\"tag\">" esc(t) "</span> " inl(NAME[t]) " — " esc(f("T", t, "Kind")) \
-      ", capped at " inl(f("T", t, "Cap")) "; " esc(f("T", t, "Status")) "</li>"
+    nlive++
+    print "<li><span class=\"tag\">" esc(t) "</span> " inl(NAME[t]) " — " esc(field("T", t, "Kind")) \
+      ", capped at " inl(field("T", t, "Cap")) "; " esc(field("T", t, "Status")) "</li>"
   }
-  if (nt == 0) print "<li>No validation task is planned yet.</li>"
+  if (nlive == 0) print "<li>No validation task is planned yet.</li>"
   print "</ul>"
 
   print "<h2>What would stop us</h2>"
   print "<h3>Appetite</h3>"; paras(PROSE["Appetite"])
-  if (DECIDER != "") print "<p>Gate decider: " esc(DECIDER) "</p>"
-  print "<ul>"
-  for (i = 1; i <= nk; i++) print kc_line(KCN[i])
-  if (nk == 0) print "<li>No kill criterion is set.</li>"
-  print "</ul>"
+  kc_list("No kill criterion is set.")
 
   print "<h2>Open questions</h2><ul>"
   for (i = 1; i <= nopen; i++) {
     d = OPEN[i]
-    print "<li><span class=\"tag\">" esc(d) "</span> " inl(NAME[d]) " — " esc(f("DEC", d, "Door")) " door</li>"
+    print "<li><span class=\"tag\">" esc(d) "</span> " inl(NAME[d]) " — " esc(field("DEC", d, "Door")) " door</li>"
   }
   if (nopen == 0) print "<li>none</li>"
   print "</ul>"
@@ -727,6 +749,19 @@ if [ -n "$mode" ]; then
 else
   modes="dashboard pitch"
 fi
+dest_dashboard=${output:-$target/exports/venture.html}
+dest_pitch=${output:-$target/exports/pitch.html}
+
+for m in $modes; do
+  case $m in
+    pitch) dest=$dest_pitch ;;
+    *) dest=$dest_dashboard ;;
+  esac
+  if [ -d "$dest" ]; then
+    printf '%s\n' "inception-render: $dest is a directory, not a page; nothing was rendered" >&2
+    exit 2
+  fi
+done
 
 # Each page goes to a temp file beside its destination, not in $TMPDIR: the
 # rename below is only atomic within one filesystem, and /tmp is routinely a
@@ -734,37 +769,45 @@ fi
 # guarantee into a copy. Landing the temp file beside the destination also keeps
 # mktemp's 0600 from becoming the mode of the published export — stakeholders
 # read these files, so they get the same explicit mode the scaffolded files get.
-# Every page is rendered before any is moved, so a failure leaves all of them as
-# they were.
+# A render failure leaves every page as it was, since all are rendered before
+# any is moved. The moves are separate renames, so one failing partway can
+# leave an earlier page replaced; the `wrote` lines name the pages that were.
+# The signal traps matter under dash, whose EXIT trap does not run when a
+# signal kills the shell: a Ctrl-C mid-commit would strand the temp files.
 tmp_dashboard=
 tmp_pitch=
-trap 'rm -f ${tmp_dashboard:+"$tmp_dashboard"} ${tmp_pitch:+"$tmp_pitch"}' EXIT
-
-dest_of() {
-  if [ -n "$output" ]; then
-    printf '%s' "$output"
-  elif [ "$1" = pitch ]; then
-    printf '%s' "$target/exports/pitch.html"
-  else
-    printf '%s' "$target/exports/venture.html"
-  fi
-}
+cleanup() { rm -f ${tmp_dashboard:+"$tmp_dashboard"} ${tmp_pitch:+"$tmp_pitch"}; }
+trap cleanup EXIT
+trap 'cleanup; exit 129' HUP
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
 
 for m in $modes; do
-  dest=$(dest_of "$m")
+  case $m in
+    pitch) dest=$dest_pitch ;;
+    *) dest=$dest_dashboard ;;
+  esac
   outdir=$(dirname "$dest")
   mkdir -p "$outdir" || exit 2
   t=$(mktemp "$outdir/.$m.html.XXXXXX") || exit 2
-  if [ "$m" = pitch ]; then tmp_pitch=$t; else tmp_dashboard=$t; fi
+  case $m in
+    pitch) tmp_pitch=$t ;;
+    *) tmp_dashboard=$t ;;
+  esac
   render "$m" "$t" || exit 2
   chmod 644 "$t" || exit 2
 done
 
 for m in $modes; do
-  dest=$(dest_of "$m")
-  if [ "$m" = pitch ]; then t=$tmp_pitch; else t=$tmp_dashboard; fi
+  case $m in
+    pitch) t=$tmp_pitch dest=$dest_pitch ;;
+    *) t=$tmp_dashboard dest=$dest_dashboard ;;
+  esac
   mv "$t" "$dest" || exit 2
-  if [ "$m" = pitch ]; then tmp_pitch=; else tmp_dashboard=; fi
+  case $m in
+    pitch) tmp_pitch= ;;
+    *) tmp_dashboard= ;;
+  esac
   printf 'inception-render: wrote %s\n' "$dest"
 done
-trap - EXIT
+trap - EXIT HUP INT TERM
