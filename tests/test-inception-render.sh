@@ -653,6 +653,22 @@ Measured from the incident-close event to the handover report.|'
 assert_contains "dashboard: a second metric paragraph is kept" \
   "Measured from the incident-close event" "$(cat "$v/exports/venture.html")"
 
+# An unknown section is ignored, per the format's additive-within-major rule,
+# even one in disciplines.md that carries pipe rows.
+v="$(fresh)"
+printf '\n## Vendor shortlist\n\n| Vendor | Note |\n| --- | --- |\n| UNKNOWN-SECTION-ROW | x |\n' >>"$v/disciplines.md"
+"$RENDER" --mode dashboard "$v" >/dev/null 2>&1
+assert_not_contains "unknown section: its table is not rendered" "UNKNOWN-SECTION-ROW" \
+  "$(cat "$v/exports/venture.html")"
+
+# A kill criterion counts toward the minimum core only as a state-plus-date
+# pair: one whose date is unreadable does not.
+v="$(fresh)"
+sed_i "$v/brief.md" 's|^\(- \*\*KC-[12]:\*\* .*\) — by .*$|\1|'
+"$RENDER" --mode dashboard "$v" >/dev/null 2>&1
+assert_contains "undated criteria only: the core is not met" "Minimum core is not met yet" \
+  "$(cat "$v/exports/venture.html")"
+
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-render: $failures assertion(s) failed" >&2
   exit 1

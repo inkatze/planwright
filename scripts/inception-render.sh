@@ -394,7 +394,9 @@ FNR == 1 {
   flush_field(); kind = ""; listto = ""
   sect = $0; sub(/^## /, "", sect); sect = trim(sect)
   if (file == "brief.md" && sect == "Opportunity") { kind = "OPP"; id = "opp" }
-  if (file == "disciplines.md" && TR[sect] == 0) TSN[++nts] = sect
+  # Only the three tables the format defines: an unknown section is ignored.
+  if (file == "disciplines.md" && TR[sect] == 0 &&
+    (sect == "Discipline map" || sect == "Staffing table" || sect == "Stakeholder map")) TSN[++nts] = sect
   next
 }
 
@@ -470,7 +472,7 @@ file == "plan.md" && /^\*\*Limiting constraint:\*\*/ {
 
 # --- disciplines.md: the three tables, separator rows dropped ---
 
-file == "disciplines.md" && /^\|/ {
+file == "disciplines.md" && /^\|/ && (sect == "Discipline map" || sect == "Staffing table" || sect == "Stakeholder map") {
   row = $0; sub(/^\|/, "", row); sub(/\|[ \t]*$/, "", row)
   nc = split(row, cells, "|")
   sep = 1
@@ -565,7 +567,9 @@ END {
   # venture and graduation is a different fact, and so is a tripped criterion,
   # an OUTCOME the gate will reach: a venture can meet the core and still be
   # blocked, or be one the gate kills.
-  ready = (nk > 0 && METRIC != "")
+  # A criterion counts only as a state-plus-date pair, so one with an
+  # unreadable date does not.
+  ready = (nk > nundated && METRIC != "")
   READY = ready ? "Minimum core is structurally met; the gate decider judges completeness." \
     : "Minimum core is not met yet; see the blockers below."
   BLOCKED = ""

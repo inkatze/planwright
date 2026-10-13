@@ -668,6 +668,42 @@ inception_fixture_write "$int_v" >/dev/null 2>&1 || exit 1
 leftover="$(find "$int_v/.git" -maxdepth 1 -name 'planwright-render.*' 2>/dev/null)"
 assert_eq "interrupted hook: no private render directory is left" "" "$leftover"
 
+# The two pages are rendered by separate processes, so the hook fixes "today"
+# once: a commit that crosses midnight must not give the dashboard and the
+# pitch different kill-criterion states. A date stub answers each call with
+# the next day.
+day_v="$tmp/venture-midnight"
+mkdir -p "$day_v"
+inception_fixture_write "$day_v" >/dev/null 2>&1 || exit 1
+(
+  cd "$day_v" || exit 1
+  git init -q .
+  git config user.email fixture@example.invalid
+  git config user.name Fixture
+  git config commit.gpgsign false
+) >/dev/null 2>&1 || exit 1
+"$SCAFFOLD" --rung local --wire "$day_v" >/dev/null 2>&1
+datestub="$tmp/datestub"
+mkdir -p "$datestub"
+real_date="$(command -v date)"
+cat >"$datestub/date" <<DATESTUB
+#!/bin/sh
+case "\$1" in
+  +%Y-%m-%d)
+    n=\$(cat "$datestub/n" 2>/dev/null || echo 0)
+    echo \$((n + 1)) >"$datestub/n"
+    if [ "\$n" -eq 0 ]; then echo 2026-09-14; else echo 2026-09-16; fi
+    ;;
+  *) exec $real_date "\$@" ;;
+esac
+DATESTUB
+chmod +x "$datestub/date"
+(cd "$day_v" && git add -A && env -u PLANWRIGHT_INCEPTION_TODAY PATH="$datestub:$PATH" \
+  git commit -qm "across midnight" >/dev/null 2>&1)
+dash_state="$(cd "$day_v" && git show HEAD:exports/venture.html 2>/dev/null | grep -o 'KC-2</span> — [a-z]*' | head -1)"
+pitch_state="$(cd "$day_v" && git show HEAD:exports/pitch.html 2>/dev/null | grep -o 'KC-2</span> — [a-z]*' | head -1)"
+assert_eq "midnight: both pages classify KC-2 against the same day" "$dash_state" "$pitch_state"
+
 # The repo's own `lint:yaml` covers tracked config, not what this script
 # generates, so the emitted workflow is linted here or nowhere.
 if command -v yamllint >/dev/null 2>&1; then

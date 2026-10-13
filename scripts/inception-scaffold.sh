@@ -292,6 +292,11 @@ not_regenerated() {
   exit 0
 }
 git_dir=$(git rev-parse --absolute-git-dir 2>/dev/null) || not_regenerated
+# The pages are rendered by separate processes, so "today" is fixed once: a
+# commit that crosses midnight must not classify kill criteria differently on
+# each page.
+PLANWRIGHT_INCEPTION_TODAY=${PLANWRIGHT_INCEPTION_TODAY:-$(date +%Y-%m-%d)}
+export PLANWRIGHT_INCEPTION_TODAY
 priv=$(mktemp -d "$git_dir/planwright-render.XXXXXX") || not_regenerated
 # dash runs no EXIT trap when a signal kills it, so each signal exits through it.
 trap 'rm -rf "$priv"' EXIT
