@@ -808,16 +808,18 @@ cmd_save() {
 # cannot be read, is never pushed to.
 confirm_private() {
   # Named explicitly: a bare `gh repo view` prefers an `upstream` remote, so a
-  # private upstream would vouch for a public origin. The push URL is the one
-  # the push below uses.
-  cp_url=$(git -C "$1" remote get-url --push origin 2>/dev/null) || cp_url=
-  [ -n "$cp_url" ] || die 6 "not shared: this venture has no remote to check; nothing was sent"
-  cp_vis=$( (cd "$1" && gh repo view "$cp_url" --json visibility --jq .visibility) 2>/dev/null) || cp_vis=
-  case $cp_vis in
-    PRIVATE) return 0 ;;
-    '') die 6 "not shared: cannot confirm the remote repository is still private (is the GitHub CLI installed and signed in?); nothing was sent" ;;
-  esac
-  die 6 "not shared: the remote repository is not private; nothing was sent"
+  # private upstream would vouch for a public origin. `git push origin` sends
+  # to every push URL, so every one is checked, not only the first.
+  cp_urls=$(git -C "$1" remote get-url --push --all origin 2>/dev/null) || cp_urls=
+  [ -n "$cp_urls" ] || die 6 "not shared: this venture has no remote to check; nothing was sent"
+  printf '%s\n' "$cp_urls" | while IFS= read -r cp_url; do
+    cp_vis=$( (cd "$1" && gh repo view "$cp_url" --json visibility --jq .visibility) 2>/dev/null) || cp_vis=
+    case $cp_vis in
+      PRIVATE) ;;
+      '') die 6 "not shared: cannot confirm a remote repository is still private (is the GitHub CLI installed and signed in?); nothing was sent" ;;
+      *) die 6 "not shared: a remote repository is not private; nothing was sent" ;;
+    esac
+  done || exit $?
 }
 
 # screen_or_die <file> <refusal> — run the secret screen over one file; a

@@ -1120,6 +1120,24 @@ assert_eq "Z27 add-remote succeeds beside a custom hooks path" 0 "$rc"
 assert_eq "Z27 the operator's hooks path is kept" my-hooks "$(git -C "$oh" config core.hooksPath)"
 assert_contains "Z27 add-remote warns that the venture guards are not wired" "not wired" "$out"
 
+# =========================================================================
+# Z17 — every URL a push goes to must read private, not only the first
+# =========================================================================
+
+remote_before=$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)
+git init -q --bare "$tmp/remotes/public-mirror.git"
+first_push=$(git -C "$rv" remote get-url --push origin)
+git -C "$rv" config --add remote.origin.pushurl "$first_push"
+git -C "$rv" config --add remote.origin.pushurl "$tmp/remotes/public-mirror.git"
+printf '%s\n' "$tmp/remotes/public-mirror.git" >"$tmp/gh-public-repos"
+printf 'second pushurl probe\n' >"$rv/second-pushurl.md"
+PATH="$stubs/gh-ok:$PATH" venture save --push "$rv" "Share with a public second push URL"
+assert_eq "Z17 a public second push URL refuses the push (exit 6)" 6 "$rc"
+assert_eq "Z17 the public mirror receives nothing" "" "$(git -C "$tmp/remotes/public-mirror.git" rev-parse -q --verify refs/heads/main)"
+assert_eq "Z17 the private remote is untouched too" "$remote_before" "$(git -C "$tmp/remotes/harbor-ledger.git" rev-parse refs/heads/main)"
+rm -f "$tmp/gh-public-repos"
+git -C "$rv" config --unset-all remote.origin.pushurl
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
