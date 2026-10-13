@@ -56,9 +56,11 @@
 #               quoting outside the stem, a renamed copy, or a link under
 #               another name is the accepted residual. Running
 #               scripts/ready-flip.sh with `--for-merge` (its flag for the
-#               helper's own flip), or with an option or value the guard
-#               cannot read (an expansion, a brace), denies at every tier with
-#               no read; a renamed copy of ready-flip.sh is the same residual.
+#               helper's own flip), or with a word that could expand into it
+#               (a brace, or an expansion that is not the value of one of its
+#               value-taking options), denies at every tier with no read, as
+#               does the flag after a script name the guard cannot resolve; a
+#               renamed copy of ready-flip.sh is the same residual.
 #   base-merge  `git merge`, `git pull` in merge mode. tower: deny. worker:
 #               worker_base_merge, then the current branch must be the session's
 #               unit branch outside the protected set and every source the PR
@@ -1306,6 +1308,21 @@ for_merge_check() {
   local k=$(($1 + 1)) n=${#SW[@]} w script=${SW[$1]:-}
   lc "${script##*/}"
   case $LC in
+    *'{'* | *'$'* | *'`'*)
+      # A script name the guard cannot resolve could be ready-flip.sh: only
+      # the flag itself refuses, so an ordinary run with expansions defers.
+      while [ "$k" -lt "$n" ]; do
+        lc "${SW[$k]}"
+        case $LC in
+          *for-merge*)
+            deny_now 'this run'"'"'s script name is an expansion or brace the guard cannot resolve, and it carries the --for-merge flag of scripts/ready-flip.sh, the merge helper'"'"'s own flip - refusing (fail closed). Run scripts/merge-admitted.sh by its path, or leave the PR for the operator.'
+            return 0
+            ;;
+        esac
+        k=$((k + 1))
+      done
+      return 0
+      ;;
     ready-flip.sh | *'*'* | *'?'* | *'['*)
       # shellcheck disable=SC2053 # the word is the pattern
       [[ ready-flip.sh == $LC ]] || return 0

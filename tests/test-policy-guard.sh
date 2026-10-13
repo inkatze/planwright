@@ -189,7 +189,15 @@ for spell in 'F=$ROOT/scripts/ready-flip.sh; bash "$F" flip --spec x --for-merge
     [ "$tier" = tower ] || reason_has 'cannot name' "[worker] the deny is the flag check, not another refusal: $spell"
   done
 done
+# shellcheck disable=SC2016 # the unexpanded forms are the spellings under test
+for spell in 'bash scripts/ready-{flip.sh,x} --for-merge' 'bash scripts/$RF --for-merge --spec x'; do
+  pg worker "$spell"
+  expect deny "[worker] a script name the guard cannot resolve, carrying --for-merge, is refused: $spell"
+done
 set_knobs 'merge_policy: human' 'ready_flip_policy: unit-owner'
+# shellcheck disable=SC2016
+pg worker 'bash "$S" --flag "$V"'
+expect defer "[worker] an unresolvable script name with no --for-merge is not the flag's act"
 for spell in 'bash tests/test-merge-admitted.sh' 'shellcheck scripts/merge-admitted.sh && bash tests/test-merge-admitted.sh' \
   'git commit -m "docs: explain the --for-merge flag"' 'rg -n -- --for-merge scripts/' 'bash tests/test-*.sh' \
   'bash -x tests/test-policy-guard.sh 2>&1 | grep merge-admitted' 'bash -e tests/run.sh && rg -n foo scripts/merge-admitted.sh' \
