@@ -145,6 +145,15 @@ age() {
   touch -t 202001010000 "$@"
 }
 
+# install_plugin_copy <dir> <version> — a runnable installed copy of this
+# plugin at <dir>, which the worker root resolves to when it sits under
+# $CLAUDE_DIR's plugin cache: dispatch checks the in-run points under it.
+install_plugin_copy() {
+  mkdir -p "$1"
+  cp -R "$ROOT/scripts" "$ROOT/skills" "$ROOT/config" "$ROOT/doctrine" "$ROOT/.claude-plugin" "$1/"
+  printf '{"name":"planwright","version":"%s"}\n' "$2" >"$1/.claude-plugin/plugin.json"
+}
+
 dispatch_print() {
   run dispatch readme-typo --backend print --ask-file "$c/ask.txt" \
     --grounds-file "$c/grounds.txt" --repo-root "$c/primary"

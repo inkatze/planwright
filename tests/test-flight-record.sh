@@ -144,6 +144,15 @@ Steps at `pre-pr`'
   printf '| 1 | step-post-pr | prompt | passed |\n'
 } >"$in/audit-post-pr.md"
 
+# SR_HEADER — the header row of the step tables scripts/step-record.sh renders,
+# which the file home's not-fired post-pr table must match.
+git init -q "$tmp/sr"
+sr_run=$("$ROOT/scripts/step-record.sh" --worktree "$tmp/sr" new-run)
+"$ROOT/scripts/step-record.sh" --worktree "$tmp/sr" write --completion --run "$sr_run" --point pre-pr \
+  --head 0123456789abcdef0123456789abcdef01234567 >/dev/null
+SR_HEADER=$("$ROOT/scripts/step-record.sh" --worktree "$tmp/sr" render --run "$sr_run" | grep '^| # |')
+[ -n "$SR_HEADER" ] || fail "fixture: step-record.sh rendered no table header"
+
 # run_render <home|none> [overrides...], and run_land [overrides...] below,
 # set OUT, ERR, RC. A later flag overrides an earlier one, so a case names only
 # what it changes. The file home gets the default record path for the flight
@@ -235,6 +244,8 @@ EOF
     [ -n "$post" ] || fail "file: the record must carry the post-pr table"
     printf '%s\n' "$post" | grep -q '^| not fired |' || fail "file: the post-pr table must carry a not-fired row: $post"
     printf '%s\n' "$post" | grep -q 'no PR' || fail "file: the not-fired row must say why: $post"
+    [ "$(printf '%s\n' "$post" | grep '^| # |')" = "$SR_HEADER" ] \
+      || fail "file: the not-fired table must carry step-record.sh's columns (got: $(printf '%s\n' "$post" | grep '^| # |'))"
   fi
   printf '%s\n' "$body" | grep -q 'Plawnright' || fail "$home: the collapsed record must quote the ask"
   if [ "$home" = pr ]; then

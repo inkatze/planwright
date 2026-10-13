@@ -21,8 +21,7 @@
 #      set plus flight-rules), the in-run points, whose resolved steps the
 #      report names point by point, checked under the pinned root (the
 #      points themselves are tests/test-flight-dispatch-points.sh's), the
-#      audit-record contract, draft-only
-#      landing with no ready flip or merge (REQ-C1.4), and the gate-wiring hard
+#      audit-record contract, draft-only landing with no ready flip or merge (REQ-C1.4), and the gate-wiring hard
 #      pause whatever the grounds said (REQ-B1.5). A hostile ask stays quoted.
 #      The worker renders its record through scripts/flight-record.sh from
 #      the ask and grounds dispatch leaves beside the brief, and the land line

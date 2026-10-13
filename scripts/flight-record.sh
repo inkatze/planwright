@@ -65,7 +65,7 @@
 #                                 Agent-resolvable, Needs sign-off, Needs human
 #                                 judgment, Declined log, and Pending sign-off,
 #                                 then the step table of every point fired so
-#                                 far, headed `Steps at `<point>`` as
+#                                 far, headed "Steps at `<point>`" as
 #                                 step-record.sh renders it: pre-implementation,
 #                                 pre-ci, convergence, and pre-pr always, and
 #                                 post-pr on the pr home once it has fired (the

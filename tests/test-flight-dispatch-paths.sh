@@ -494,19 +494,12 @@ run retire --repo-root "$c/primary"
 [ "$RC" -eq 0 ] && [ ! -e "$c/fleet/flights/$fr" ] || fail "retire must remove the brief once it can (rc $RC: $ERR)"
 
 # --- 10. plugin-root pair with an installed plugin ---------------------------
-# install_copy <dir> — a runnable installed copy of this plugin: dispatch checks
-# the in-run points under the worker's root.
-install_copy() {
-  mkdir -p "$1"
-  cp -R "$ROOT/scripts" "$ROOT/skills" "$ROOT/config" "$ROOT/doctrine" "$ROOT/.claude-plugin" "$1/"
-}
 tower_v=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT/.claude-plugin/plugin.json" | head -n 1)
 for want in same skewed; do
   new_case
   if [ "$want" = same ]; then v=$tower_v; else v=0.0.1-skew; fi
   inst="$c/claude/plugins/cache/mk/planwright/$v"
-  install_copy "$inst"
-  printf '{"name":"planwright","version":"%s"}\n' "$v" >"$inst/.claude-plugin/plugin.json"
+  install_plugin_copy "$inst" "$v"
   dispatch_print
   printf '%s\n' "$OUT" | grep -q "^root${TAB}worker${TAB}$inst${TAB}$v$" \
     || fail "report must name the installed worker root and version (out: $OUT)"
@@ -522,7 +515,7 @@ done
 # report: /bin/sh's echo expands backslash sequences.
 new_case
 inst="$c/claude/plugins/cache/mk/planwright/9.9.9"
-install_copy "$inst"
+install_plugin_copy "$inst" 9.9.9
 printf '{"name":"planwright","version":"9.9\\033[31m"}\n' >"$inst/.claude-plugin/plugin.json"
 dispatch_print
 [ "$RC" -eq 0 ] || fail "escape-text version fixture did not dispatch (rc $RC: $ERR)"

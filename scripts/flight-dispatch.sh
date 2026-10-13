@@ -113,9 +113,10 @@
 #
 # Report: TAB-separated `key<TAB>value` lines, after any `retired` lines the
 # dispatch's sweep printed — flight, branch, worktree,
-# base, home, origin, record, points (the in-run points the brief fires, in
-# order, space-separated), one `steps<TAB><point><TAB><ids>` per point (the step
-# ids the check resolved to run there, space-separated, empty for none), one
+# base, home, origin, record, points (the in-run points the check covered, in
+# order, space-separated; on the file home `post-pr` is checked but never
+# fires), one `steps<TAB><point><TAB><ids>` per point (the step ids the check
+# resolved to run there, space-separated, empty for none), one
 # `skipped<TAB><point><TAB><id>` per step the check skipped, model, effort, brief, `sanitized`
 # (ask or grounds, one line each, only when invisible or bidi-control
 # characters were stripped from that text), backend, handle, outcome (tmux:
@@ -692,9 +693,11 @@ sweep_briefs() {
 }
 
 # The in-run points custom-steps wires in /execute-task, in firing order: the
-# points its pre-flight check names, less the conditional flip point. The
-# brief sends the worker to the skill section POINTS_HEADING names, which
-# tests/test-flight-dispatch-points.sh pins against the skill.
+# points its pre-flight check names, less the conditional flip point.
+# write_brief's numbered list states each one's moment, so a point added here
+# is added there too. The brief sends the worker to the skill section
+# POINTS_HEADING names, which tests/test-flight-dispatch-points.sh pins against
+# the skill.
 IN_RUN_POINTS='pre-implementation pre-ci convergence pre-pr post-pr'
 POINTS_HEADING=Points
 
@@ -720,15 +723,41 @@ check_points() {
       bash "$_cp_steps" $IN_RUN_POINTS --explain --check --unattended </dev/null 2>"$work/points.err") || _cp_rc=$?
   tr -d '\000-\010\013-\037\177' <"$work/points.err" >&2
   [ "$_cp_rc" -ne 0 ] || return 0
-  _cp_named=$(printf '%s\n' "$point_rows" | awk -F"$TAB" -v q="'" '
-    NF >= 3 && $1 != "run" { printf "%s%s: step %s%s%s", sep, $3, q, $2, q; sep = "; " }')
-  _cp_pts=$(sed -n 's/^resolve-steps: \([a-z,-]*\): .*/\1/p' "$work/points.err" | tr ',' '\n' \
-    | awk 'NF && !seen[$0]++ { printf "%s%s", sep, $0; sep = ", " }')
-  _cp_ents=$(sed -n 's/.* steps catalog entry \([A-Za-z0-9._-]*\) is malformed.*/\1/p' "$work/points.err" \
-    | awk -v q="'" -v pts="$_cp_pts" '!seen[$0]++ { printf "%smalformed entry %s%s%s (at %s)", sep, q, $0, q, pts; sep = "; " }')
-  _cp_detail=$_cp_named
-  [ -z "$_cp_ents" ] || _cp_detail="${_cp_detail:+$_cp_detail; }$_cp_ents"
-  [ -n "$_cp_detail" ] || _cp_detail="a malformed list or config at ${_cp_pts:-a point the resolver did not name}"
+  # Only what stopped the check is named: a park or ask prints every step of
+  # its point, and an adopter or machine-local skip passes on its own, so the
+  # rows alone would blame healthy steps. The resolver's diagnostics say which
+  # step parked, asked, was refused, or was dropped as malformed, and which
+  # points failed the check on a degraded malformation.
+  _cp_detail=$(awk -v q="'" '
+    function add(s) { if (!(s in seen)) { seen[s] = 1; out = out (out == "" ? "" : "; ") s } }
+    !/^resolve-steps: [a-z,-]+: / { next }
+    {
+      pts = substr($0, 16); pts = substr(pts, 1, index(pts, ": ") - 1)
+      rest = substr($0, 16 + length(pts) + 2)
+    }
+    match(rest, /^(park|ask|refuse): step '\''[a-z0-9-]+'\''/) ||
+    (rest ~ /dropped as malformed/ && match(rest, /^skip: step '\''[a-z0-9-]+'\''/)) {
+      id = substr(rest, RSTART, RLENGTH); sub(/^[a-z]+: step /, "", id)
+      add(pts ": step " id); next
+    }
+    match(rest, /steps catalog entry [A-Za-z0-9._-]+ is malformed/) {
+      id = substr(rest, RSTART + 20, RLENGTH - 33)
+      gsub(/,/, ", ", pts)
+      add("malformed entry " q id q " (at " pts ")"); next
+    }
+    rest ~ /^check mode: / { failed = failed (failed == "" ? "" : ", ") pts }
+    END {
+      if (failed != "") add("the check failed at " failed)
+      print out
+    }' "$work/points.err")
+  if [ -z "$_cp_detail" ]; then
+    case $_cp_rc in
+      2) _cp_detail="the pinned root's resolver refused the several-point check, which an install older than the multi-point check does; update the planwright install at $brief_root" ;;
+      5) _cp_detail="the planwright install at $brief_root is broken" ;;
+      1 | 4) _cp_detail="a malformed list or config at a point the resolver did not name" ;;
+      *) _cp_detail="the check did not complete" ;;
+    esac
+  fi
   die 4 "the in-run points' check would stop a task unit here, so it stops this flight (resolve-steps exit $_cp_rc): $_cp_detail; the diagnostics above say why; nothing was placed"
 }
 
@@ -772,6 +801,7 @@ write_brief() {
   _optional="\`--scoping-file $(sh_quote "$_rd/scoping.md")\` and \`--revert-file $(sh_quote "$_rd/revert.md")\`"
   _recorder=$(sh_quote "$brief_root/scripts/flight-record.sh")
   _body=$(sh_quote "$_rd/body.md")
+  _body_new=$(sh_quote "$_rd/body.new.md")
   _lifecycle="$(sh_quote "$brief_root/scripts/flight-lifecycle.sh")"
   _push="$_lifecycle push"
   _pushid="$flight_id --handle $brief_handle"
@@ -782,8 +812,9 @@ write_brief() {
   if [ "$HOME_DEST" != none ]; then
     _conv_item="3. \`convergence\`: after CI is green. Resolve the point, then sync \`main\`
    once, \`$(sh_quote "$brief_root/scripts/converge-sync-main.sh")\`, before its first step;
-   a non-zero exit parks the flight with the reason it printed. Its steps are
-   the flight's convergence."
+   any non-zero exit parks the flight with the reason it printed, naming a
+   merge it left in progress for the operator to finish or abort. Its steps
+   are the flight's convergence."
   else
     _conv_item="3. \`convergence\`: after CI is green. Resolve the point. This flight has no
    \`origin\` remote, so the \`main\` sync is not run: complete the point with
@@ -817,10 +848,13 @@ Now the draft PR exists: fire \`post-pr\` (*Work and the points*) with the PR's
 number as \`PLANWRIGHT_STEP_PR_NUMBER\`. After its list, run the sequence
 \`/execute-task\` runs after its own \`post-pr\` list (its *PR creation* section,
 read from that skill), less the unit-PR ready flip, which a flight never
-performs, with these mappings. Re-emit the step tables only by adding the
-\`post-pr\` table to \`audit.md\` and re-running the render line above, with the
-same inputs, then \`gh pr edit <number> --repo $HOME_DEST --body-file $_body\`; never
-edit the PR body by hand. Verify the PR is still a draft:
+performs, with these mappings. Add the \`post-pr\` table to \`audit.md\`, and when
+the PR head moved, replace its Pending sign-off section with the regenerated
+checklist. Re-emit the record only through the renderer, with the same inputs,
+never by editing the PR body by hand, and never by re-running the push and
+create line above:
+\`$_recorder render --home pr $_inputs > $_body_new && gh pr edit <number> --repo $HOME_DEST --body-file $_body_new\`
+A non-zero exit from either parks the flight. Verify the PR is still a draft:
 \`gh pr view <number> --repo $HOME_DEST --json isDraft --jq .isDraft\` must print
 \`true\`; on anything else, park the flight. Then push the completion, with the
 PR link as the landing reference:
@@ -874,10 +908,14 @@ committed record is the landing reference; push the completion with it:
     printf '%s\n' "  \`$_resolver <point> --explain --unattended\`,"
     printf '%s\n' "  and call every other script the procedure names under that root's \`scripts/\`."
     printf '%s\n' "- Export the step context with \`PLANWRIGHT_STEP_UNIT_KIND=flight\`, an empty"
-    printf '%s\n' "  spec and task ids, branch \`$branch\`, base branch \`main\`, and this worktree."
-    printf '%s\n' "- Wherever the procedure ends or parks the unit through the pause protocol,"
-    printf '%s\n' "  park the flight instead (*Hard pauses*): write nothing to any \`tasks.md\` or"
-    printf '%s\n' "  other spec state."
+    printf '%s\n' "  spec and task ids, branch \`$branch\`, base branch \`main\`, and this worktree;"
+    printf '%s\n' "  an isolated step's launch tier takes the unit \`flight:$flight_id\`."
+    printf '%s\n' "- Issue one run id for the flight. A relaunched worker issues none: it"
+    printf '%s\n' "  carries on in the latest run, skipping each point that run completed and"
+    printf '%s\n' "  firing the interrupted one afresh."
+    printf '%s\n' "- Wherever the procedure ends, parks, or stops the unit (the pause protocol"
+    printf '%s\n' "  or a stop condition), park the flight instead (*Hard pauses*): write"
+    printf '%s\n' "  nothing to any \`tasks.md\` or other spec state."
     printf '\n%s\n' "The points, in order:"
     printf '\n'
     printf '%s\n' "1. \`pre-implementation\`: before your first implementation commit."
