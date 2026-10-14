@@ -180,7 +180,7 @@ dollar_expands() {
 # directly followed by `[`, quoted or not: zsh reads that as a
 # subscript and evaluates it as arithmetic, which can assign a variable.
 dollar_form_ok() {
-  local s=$1 i=$2 j body
+  local s=$1 i=$2 j k body
   case ${s:i+1:1} in
     '[' | '~') return 1 ;;
     '{')
@@ -198,6 +198,7 @@ dollar_form_ok() {
     *)
       j=$((i + 1))
       case ${s:j:1} in [=^+#]) j=$((j + 1)) ;; esac
+      k=$j
       while [ "$j" -lt "${#s}" ]; do
         case ${s:j:1} in
           [A-Za-z0-9_]) j=$((j + 1)) ;;
@@ -206,7 +207,7 @@ dollar_form_ok() {
       done
       case ${s:j:1} in
         '[') return 1 ;;
-        '*' | '@' | '?' | '!' | '-' | '$') [ "$j" -ne $((i + 1)) ] || [ "${s:j+1:1}" != '[' ] || return 1 ;;
+        '*' | '@' | '?' | '!' | '-' | '$' | '#') [ "$j" -ne "$k" ] || [ "${s:j+1:1}" != '[' ] || return 1 ;;
         '' | [[:print:][:cntrl:]]) ;;
         *) return 1 ;;
       esac
