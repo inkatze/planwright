@@ -3081,8 +3081,8 @@ subst_reach_ok() {
 
 # subst_inner_ok <text>: the inner text of a `$(…)` is one simple command or
 # pipeline that passes the read-only analysis alone, in a subshell: no
-# assignment or `cd` is modelled there, and neither a declared step nor a
-# spec-root write counts as read-only.
+# assignment or `cd` is modelled there, and neither trusted repo code, a
+# declared step, nor a spec-root write counts as read-only.
 subst_inner_ok() {
   local saved=$IN_SUBST rc
   IN_SUBST=1
@@ -3885,6 +3885,13 @@ verify_known_simple() {
   [ "$cwn" -ge 1 ] || return 0
   strip_prefixes || return 1
   verb=${cw[0]}
+  # A substitution's command must be read-only, and trusted repo code (a
+  # script, `bash`/`sh` running one, `mise`, `lefthook`, `bats`) may write.
+  if [ "$IN_SUBST" = 1 ]; then
+    case $verb in
+      */* | bash | sh | mise | lefthook | bats) return 1 ;;
+    esac
+  fi
   if [ "$verb" = cd ]; then
     cd_target_ok
     return

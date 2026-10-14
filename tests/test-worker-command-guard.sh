@@ -66,6 +66,8 @@ SUBST_CWD="$SANDBOX/subst"
 mkdir -p "$SUBST_CWD/scripts"
 : >"$SUBST_CWD/.git"
 : >"$SUBST_CWD/scripts/ok.sh"
+mkdir -p "$SUBST_CWD/tests"
+: >"$SUBST_CWD/tests/ok.bats"
 : >"$SUBST_CWD/scripts/\$(echo ok).sh"
 
 # The REQ-E1.3 fixtures that depend on the argument-independence check: each
@@ -2345,6 +2347,16 @@ assert_defer "REQ-E1.3: an inner do after a redirect" "echo \$(<f do cat f)" Bas
 assert_defer "REQ-E1.3: an inner reserved word after an fd redirect" "echo \$(2>/dev/null then cat f)" Bash "$SUBST_CWD"
 assert_allow "REQ-E1.3: an inner command after a redirect" "echo \$(<f cat)" Bash "$SUBST_CWD"
 assert_defer "REQ-E1.3: an inner assignment" "echo \$(x=1)" Bash "$SUBST_CWD"
+# Trusted repo code may write, so it is approvable on its own but never as a
+# substitution's read-only command.
+assert_defer "REQ-E1.3: an inner repo script" "echo \$(scripts/ok.sh)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an inner ./ repo script" "echo \$(./scripts/ok.sh)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an inner bash <script>" "echo \$(bash scripts/ok.sh)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an inner mise run" "echo \$(mise run check)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an inner lefthook run" "echo \$(lefthook run pre-commit)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an inner bats run" "echo \$(bats tests/ok.bats)" Bash "$SUBST_CWD"
+assert_defer "REQ-E1.3: an inner fish -c running a script" "echo \$(fish -c 'scripts/ok.sh')" Bash "$SUBST_CWD"
+assert_allow "REQ-E1.3: the same script runs on its own" "scripts/ok.sh" Bash "$SUBST_CWD"
 # A name only inferred to carry output (an outer name inside a substitution,
 # `$_`, an untracked name) gains no position a plain opaque value lacks.
 assert_defer "REQ-E1.3: an outer name inside a substitution reaching a script" "echo \$(scripts/ok.sh \$HOME)" Bash "$SUBST_CWD"
