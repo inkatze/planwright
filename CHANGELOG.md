@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.62.0](https://github.com/inkatze/planwright/compare/v0.61.0...v0.62.0) (2026-10-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* **tower:** run the tower profile's hooks under --settings ([#680](https://github.com/inkatze/planwright/issues/680))
+
+### Features
+
+* **tower:** run the tower profile's hooks under --settings ([#680](https://github.com/inkatze/planwright/issues/680)) ([8d7b477](https://github.com/inkatze/planwright/commit/8d7b477595e65306de74f9ac48ac28fe1f90f089))
+* **worker-guard:** admit argument-independent command substitution ([#675](https://github.com/inkatze/planwright/issues/675)) ([4bbf663](https://github.com/inkatze/planwright/commit/4bbf663f1f3f18860f720b09e9721d088d1b3d5f))
+
 ## [0.61.0](https://github.com/inkatze/planwright/compare/v0.60.0...v0.61.0) (2026-10-17)
 
 
