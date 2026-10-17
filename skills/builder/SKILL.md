@@ -133,7 +133,7 @@ the catalog names recorded. Domains overlapping the hard-disqualifier zones
 (auth, secrets, migrations) always escalate. A decision in a domain the
 catalog does not cover yet records an observation fragment through the
 shared helper (`scripts/obs-record.sh`; the fragment lands under
-`specs/_observations/entries/` — the catalog grows through the drain loop).
+`<root>/_observations/entries/` — the catalog grows through the drain loop).
 This is the rule that keeps the builder from flattening a load-bearing
 decision into a checkbox.
 

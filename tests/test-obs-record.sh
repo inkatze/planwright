@@ -58,8 +58,10 @@
 #      content refusal (exit 1); an unusable observations dir exits 1;
 #      -h/--help prints usage and exits 0; the default-date path (no --today)
 #      mints the system date into the fragment name; and the default --obs-dir
-#      (no flag) roots the store at ./specs/_observations with a matching
-#      relative stdout path.
+#      (no flag), run from the top of a repository on the default root, roots
+#      the store at ./specs/_observations with a matching relative stdout path,
+#      while outside any repository there is no default and the helper refuses
+#      (custom-spec-location D-17).
 #
 # Exit codes asserted throughout: 1 refusal/fs-error, 2 usage, 3 collision
 # exhaustion, 4 entropy failure — the header contract of scripts/obs-record.sh.
@@ -671,13 +673,16 @@ case "$defbase" in
   *) fail "11: default-date fragment [$defbase] lacks the system date ($d1/$d2)" ;;
 esac
 
-# Default --obs-dir: omitting the flag roots the store at ./specs/_observations
-# (relative to cwd) and reports the fragment in that same relative frame — a
+# Default --obs-dir: omitting the flag roots the store at the spec root's
+# _observations, ./specs/_observations from the top of a repository with
+# spec_root unset, and reports the fragment in that same relative frame — a
 # documented CLI contract every other check bypasses by passing --obs-dir. Run
-# in a subshell from a scratch cwd so the default resolves there, with a stubbed
-# od for a deterministic UID; assert both the store location and the stdout shape.
+# in a subshell from the top of a scratch repository so the default resolves
+# there, with a stubbed od for a deterministic UID; assert both the store
+# location and the stdout shape.
 odef="$tmp/o11def"
 mkdir -p "$odef/specs/_observations/entries"
+git init -q "$odef" || fail "11: cannot create the default-store repository"
 make_od_stub "$tmp/od11def" abcd1234
 defout=$(
   cd "$odef" \
@@ -688,6 +693,18 @@ defout=$(
   || fail "11: default --obs-dir stdout [$defout] is not the expected relative path"
 [ -f "$odef/specs/_observations/entries/2026-07-09-topic-abcd1234.md" ] \
   || fail "11: default --obs-dir did not write under ./specs/_observations/entries"
+# Outside any repository the spec root does not resolve: a refusal, with no
+# store composed in the working directory.
+onorepo="$tmp/o11norepo"
+mkdir -p "$onorepo"
+_rc=0
+(
+  cd "$onorepo" \
+    && GIT_CEILING_DIRECTORIES="$tmp" "$REC" --slug topic --scope planwright \
+      --text 'no store' --today 2026-07-09 >/dev/null 2>&1
+) || _rc=$?
+[ "$_rc" -eq 1 ] || fail "11: no default store outside a repository expected exit 1, got $_rc"
+[ ! -e "$onorepo/specs" ] || fail "11: a store was composed outside any repository"
 
 # -h/--help prints the usage synopsis and exits 0 — the sole exit-0 non-record
 # path; a regression flipping it to a usage error (exit 2) would be invisible.

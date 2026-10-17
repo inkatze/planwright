@@ -5,6 +5,7 @@
 #   resolve-root.sh [--explain] install [--all]
 #   resolve-root.sh [--explain] repo --primary | --checkout
 #   resolve-root.sh [--explain] spec [--primary] [--posture] [--init]
+#   resolve-root.sh [--explain] marker <dir>
 #   (flags may appear anywhere among the arguments)
 #
 # install   which planwright copy runs: the first surviving arm of the core
@@ -67,6 +68,11 @@
 #               only when it resolves inside the primary checkout. The
 #               default root needs no marker and is left untouched.
 #   --explain takes precedence over --posture.
+# marker    whether <dir> is a marked spec root by shape: an existing
+#           directory carrying the valid planwright-spec-root.yml marker the
+#           spec kind requires of a root other than the default. Prints the
+#           canonical directory; reads no config and no repository, so a
+#           caller can vet a root that belongs to another checkout.
 #
 # --explain prints "<source>\t<path>": the arm (PLANWRIGHT_ROOT,
 # CLAUDE_PLUGIN_ROOT, writer-mode, self-location) or the repo source
@@ -89,7 +95,8 @@
 #   or invalid marker, a ~ value without an absolute HOME, a control byte or
 #   tab in the canonical path; --init could not derive a project identifier
 #   or write, or was given a repo-tracked value outside the primary
-#   checkout) · 6 spec_root unreadable (a malformed repo-tracked config
+#   checkout; for marker, no such directory or no valid marker) · 6
+#   spec_root unreadable (a malformed repo-tracked config
 #   file, or a repo-tracked value carrying a control byte; or a broken
 #   install).
 #   Callers treat 3 as "no repository" and degrade; they never compose a
@@ -116,7 +123,7 @@ say() {
 }
 
 usage() {
-  say "usage: resolve-root.sh [--explain] install [--all] | repo --primary|--checkout | spec [--primary] [--posture] [--init]"
+  say "usage: resolve-root.sh [--explain] install [--all] | repo --primary|--checkout | spec [--primary] [--posture] [--init] | marker <dir>"
   exit 2
 }
 
@@ -126,6 +133,7 @@ explain=0
 posture_only=0
 init=0
 all=0
+marker_dir=""
 for arg in "$@"; do
   case $arg in
     --explain) explain=1 ;;
@@ -138,8 +146,13 @@ for arg in "$@"; do
       ;;
     -* | "") usage ;;
     *)
-      [ -z "$kind" ] || usage
-      kind=$arg
+      if [ -z "$kind" ]; then
+        kind=$arg
+      elif [ "$kind" = marker ] && [ -z "$marker_dir" ]; then
+        marker_dir=$arg
+      else
+        usage
+      fi
       ;;
   esac
 done
@@ -461,26 +474,34 @@ project_id() {
     | sed -e 's/^-*//' | cut -c1-64
 }
 
+# refuse_marker <reason>: the refusal check_marker raises, worded for the
+# kind that asked.
+refuse_marker() {
+  [ "$kind" = marker ] || refuse_spec "$1"
+  say "refusing '$marker_dir' as a spec root: $1"
+  exit 5
+}
+
 # check_marker: refuse unless the root's marker is a regular file, not a
 # symlink, whose project field matches the identifier grammar and whose
 # layout is 1.
 check_marker() {
   cm_file=$sr_primary/planwright-spec-root.yml
-  [ ! -L "$cm_file" ] || refuse_spec "$cm_file is a symlink; the marker must be a regular file"
+  [ ! -L "$cm_file" ] || refuse_marker "$cm_file is a symlink; the marker must be a regular file"
   [ -e "$cm_file" ] \
-    || refuse_spec "$sr_primary carries no planwright-spec-root.yml marker (a root other than the default needs one; resolve-root.sh spec --init writes it)"
-  [ -f "$cm_file" ] || refuse_spec "$cm_file exists and is not a regular file"
-  [ -r "$cm_file" ] || refuse_spec "$cm_file cannot be read"
+    || refuse_marker "$sr_primary carries no planwright-spec-root.yml marker (a root other than the default needs one; resolve-root.sh spec --init writes it)"
+  [ -f "$cm_file" ] || refuse_marker "$cm_file exists and is not a regular file"
+  [ -r "$cm_file" ] || refuse_marker "$cm_file cannot be read"
   cm_project=$(sed -n 's/^project:[[:space:]]*//p' "$cm_file" | head -1 | sed 's/[[:space:]]*$//')
   cm_layout=$(sed -n 's/^layout:[[:space:]]*//p' "$cm_file" | head -1 | sed 's/[[:space:]]*$//')
   case $cm_project in
     "" | *[!a-z0-9-]* | [!a-z0-9]*)
-      refuse_spec "$cm_file has no valid project field (the ^[a-z0-9][a-z0-9-]*\$ identifier grammar, at most 64 characters)"
+      refuse_marker "$cm_file has no valid project field (the ^[a-z0-9][a-z0-9-]*\$ identifier grammar, at most 64 characters)"
       ;;
   esac
   [ "${#cm_project}" -le 64 ] \
-    || refuse_spec "$cm_file has no valid project field (the ^[a-z0-9][a-z0-9-]*\$ identifier grammar, at most 64 characters)"
-  [ "$cm_layout" = 1 ] || refuse_spec "$cm_file does not carry layout: 1"
+    || refuse_marker "$cm_file has no valid project field (the ^[a-z0-9][a-z0-9-]*\$ identifier grammar, at most 64 characters)"
+  [ "$cm_layout" = 1 ] || refuse_marker "$cm_file does not carry layout: 1"
 }
 
 # init_spec_root: write the marker and, in a git repository, the ignore
@@ -618,7 +639,7 @@ esac
 
 [ "$all" -eq 0 ] || [ "$kind" = install ] || usage
 case $kind in
-  install | repo)
+  install | repo | marker)
     [ "$posture_only" -eq 0 ] && [ "$init" -eq 0 ] || usage
     ;;
   spec)
@@ -630,6 +651,13 @@ case $kind in
   install)
     [ -z "$view" ] || usage
     resolve_install
+    ;;
+  marker)
+    [ -z "$view" ] && [ -n "$marker_dir" ] || usage
+    [ -d "$marker_dir" ] || refuse_marker "it is not a directory"
+    sr_primary=$(canon "$marker_dir") || refuse_marker "the directory cannot be entered"
+    check_marker
+    emit marker "$sr_primary"
     ;;
   repo | spec)
     unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \

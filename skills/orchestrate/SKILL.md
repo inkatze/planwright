@@ -344,7 +344,7 @@ surface the failure and carry on.
 
 ```sh
 scripts/fleet-fence.sh gc --checkout <absolute-primary-checkout> --spec <spec> <unit-id>... --alloc-key execution --obs-scope <repo-name>
-scripts/fleet-liveness.sh crash-record <worker-handle> <worker-scope> --alloc-unit <spec>:task-<unit-id> --alloc-key execution --obs-scope <repo-name> --obs-dir <absolute-primary-checkout>/specs/_observations
+scripts/fleet-liveness.sh crash-record <worker-handle> <worker-scope> --alloc-unit <spec>:task-<unit-id> --alloc-key execution --obs-scope <repo-name> --obs-dir <root>/_observations
 ```
 
 The first over the units step 2 resolves as merged, which also retires any fence

@@ -132,7 +132,7 @@ question; seeds answer questions the human would otherwise repeat.
 2. **Pending notes** — files under `<root>/_pending/`. Read them; ask which
    apply if more than one plausibly does.
 3. **The observations accumulator** — the live fragments under
-   `specs/_observations/entries/` plus the frozen legacy
+   `<root>/_observations/entries/` plus the frozen legacy
    `opportunities.md`'s unconsumed lines, read as **one candidate set** and
    mined as a first-class seed source (D-23; this skill is its canonical
    reader, REQ-H1.6; `mise run obs:log` renders the chronological view). An
