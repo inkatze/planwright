@@ -134,8 +134,9 @@ fi
 # --- REQ-C1.12: a root that does not hold runnable guards ---------------------
 mkdir -p "$tmp/empty-root" "$tmp/noexec-root/scripts"
 for g in policy-guard.sh tower-command-guard.sh; do
-  cp "$REPO_ROOT/scripts/$g" "$tmp/noexec-root/scripts/$g"
-  chmod 644 "$tmp/noexec-root/scripts/$g"
+  # A failed copy would leave the guard missing, a different case than this one.
+  cp "$REPO_ROOT/scripts/$g" "$tmp/noexec-root/scripts/$g" || exit 2
+  chmod 644 "$tmp/noexec-root/scripts/$g" || exit 2
 done
 
 for mode in unset '=' "=$tmp/empty-root" "=$tmp/noexec-root"; do
