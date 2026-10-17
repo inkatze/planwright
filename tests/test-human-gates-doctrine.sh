@@ -103,7 +103,8 @@ kind_rows() {
 # Each knob sits in a Policy row, not merely somewhere in the table.
 policy_rows=$(kind_rows Policy)
 for knob in ready_flip_policy mark_spec_pr_ready_on_kickoff merge_policy \
-  worker_base_merge worker_merge_conflict_policy unpushed_rewrite protected_branches; do
+  worker_base_merge worker_merge_conflict_policy unpushed_rewrite protected_branches \
+  ready_guard_behind_base; do
   if printf '%s\n' "$policy_rows" | grep -q "\`$knob\`"; then
     ok "$knob is a policy row"
   else

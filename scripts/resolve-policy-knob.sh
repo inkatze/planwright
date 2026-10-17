@@ -1,8 +1,8 @@
 #!/bin/sh
 # resolve-policy-knob.sh — resolve one human-gates policy knob through the
 # shared resolver with its legal values and its strict degrade target, so every
-# reader (the policy guard, the ready-flip and merge helpers, the base sync)
-# gets the same answer from one table.
+# reader (the policy guard, the ready-guard, the ready-flip and merge helpers,
+# the base sync) gets the same answer from one table.
 #
 # Usage: resolve-policy-knob.sh <knob>
 #
@@ -17,7 +17,10 @@
 # entry. `protected_branches` degrades nowhere: a
 # malformed value in any overlay is a read failure, and on success the output
 # is the whole protected set, the core floor first, so no reader can drop the
-# floor by forgetting to add it.
+# floor by forgetting to add it. `ready_guard_behind_base` reads only the core
+# and adopter layers, the two outside every checkout, so a session cannot relax
+# the ready-guard by editing a repo-side file: those layers are never read for
+# it, whatever their value, rather than refused or degraded.
 #
 # Exit: 0 value printed; 2 usage error; 4 malformed value (repo-tracked, or any
 # overlay for protected_branches); 5 broken install.
@@ -78,6 +81,11 @@ case "$knob" in
   worker_base_merge | unpushed_rewrite)
     exec /bin/sh "$rck" --key "$knob" --type enum --values 'allow deny' \
       --fallback deny --degrade deny
+    ;;
+  ready_guard_behind_base)
+    PLANWRIGHT_REPO_ROOT=none PLANWRIGHT_LOCAL_CONFIG='' \
+      exec /bin/sh "$rck" --key "$knob" --type enum --values 'refuse conflict-only' \
+      --fallback refuse --degrade refuse
     ;;
   worker_merge_conflict_policy)
     exec /bin/sh "$rck" --key "$knob" --type enum --values 'halt resolve' \

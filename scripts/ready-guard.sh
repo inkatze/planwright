@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # ready-guard.sh — deterministic, DENY-EMITTING PreToolUse hook that refuses a
-# draft->ready pull-request transition unless the PR is provably current with
-# its base branch and mergeable (merge-currency-guard Task 2; REQ-A1.1,
-# REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.5, REQ-C1.6, REQ-C1.7, REQ-C1.8,
-# REQ-C1.9, REQ-C1.10, REQ-K1.1, REQ-K1.3; D-2, D-3, D-5, D-7, D-8).
+# draft->ready pull-request transition unless the PR is provably mergeable
+# and, under the shipped `ready_guard_behind_base: refuse`, current with its
+# base branch (merge-currency-guard Tasks 2 and 5; REQ-A1.5, REQ-C1.11,
+# REQ-C1.2, REQ-C1.3, REQ-C1.5, REQ-C1.6, REQ-C1.7, REQ-C1.8, REQ-C1.9,
+# REQ-C1.10, REQ-C1.12, REQ-C1.13, REQ-K1.1, REQ-K1.3; D-2, D-3, D-5, D-7, D-8,
+# D-10, D-11).
 #
 # THE MODALITY INVERSION (D-2, REQ-C1.2). The sibling guards
 # (worker-command-guard.sh, tower-command-guard.sh) are ALLOW-ONLY: they emit
@@ -39,14 +41,16 @@
 #
 # Security contract:
 #   * No LLM and no model/API call in the decision path (REQ-C1.2, REQ-D1.4);
-#     purely deterministic shell over two GitHub reads.
+#     purely deterministic shell over two GitHub reads, plus, for a PR behind
+#     its base, one bounded local config read (behind_base_policy).
 #   * The intercepted command / tool payload is strictly INERT DATA (REQ-C1.5):
 #     never eval-ed, re-expanded, glob-expanded, or executed. Selectors are
 #     grammar-validated and passed to gh as separate argv arguments, never
 #     interpolated into a command string (REQ-C1.9).
 #   * No local git state at all (D-5): no ref, no object, no `is-ancestor`, no
 #     `git fetch`. Both signals are server-computed against the PR's real base,
-#     so the decision is identical for every flipper and every base branch.
+#     so for a given ready_guard_behind_base value the decision is identical
+#     for every flipper and every base branch.
 #   * Every remote call is wall-clock bounded (REQ-C1.3). No bounding binary on
 #     PATH is itself a DENY: a hung PreToolUse hook that produces no output is a
 #     silent fail-OPEN, which is the one outcome this guard may never have.
@@ -54,10 +58,12 @@
 #     stripped of non-printable bytes before emission (REQ-K1.3), and the
 #     decision JSON is built by jq so no value can break out of its string.
 #
-# Predicate (D-3, REQ-C1.1). From ONE `gh pr view` of the target PR:
+# Predicate (D-3, REQ-C1.11). From ONE `gh pr view` of the target PR:
 # `baseRefName`, `headRefOid`, `mergeable`, `isDraft`, `url`. From the compare
 # endpoint `repos/<owner>/<repo>/compare/<baseRefName>...<headRefOid>`:
-# `behind_by`. DEFER only when `behind_by == 0` AND `mergeable == MERGEABLE`.
+# `behind_by`. DEFER only when `behind_by == 0` AND `mergeable == MERGEABLE`,
+# unless the adopter sets `ready_guard_behind_base: conflict-only`, under which
+# a MERGEABLE PR behind its base defers too (see behind_base_policy).
 # Currency is deliberately NOT keyed on `mergeStateStatus`, which reports
 # `BEHIND` only under the base's "require up to date" branch protection — on an
 # unprotected base (planwright's own `main`) a stale PR reads `CLEAN`, which is
@@ -900,7 +906,7 @@ handle_mcp() {
 }
 
 # --------------------------------------------------------------------------
-# The predicate (D-3, REQ-C1.1, REQ-C1.3). Reads RG_PR (may be empty: resolve
+# The predicate (D-3, REQ-C1.11, REQ-C1.3). Reads RG_PR (may be empty: resolve
 # the cwd branch's PR) and RG_REPO (may be empty: resolve from cwd).
 
 # gh_pr_view <cwd> — one `gh pr view` for every field the predicate needs.
@@ -997,13 +1003,34 @@ evaluate_predicate() {
   valid_count "$behind" \
     || emit_deny "GitHub's compare endpoint returned no readable \`behind_by\` for this pull request, so its currency with its base branch could not be confirmed - refusing (fail closed). Wait and retry."
 
-  if [ "$behind" != 0 ]; then
+  if [ "$behind" != 0 ] && [ "$(behind_base_policy)" != conflict-only ]; then
     emit_deny "this pull request is $behind commit(s) behind its base branch $(sanitize_printable "$base" 'its base'), so it has NOT been verified on a current head - refusing the draft->ready flip. Merge the base branch into it ('git fetch origin && git merge FETCH_HEAD'), let CI and review re-run, then retry."
   fi
 
-  # behind_by == 0 AND mergeable == MERGEABLE: the only conforming outcome.
-  # Emit nothing and let the flip proceed.
+  # mergeable == MERGEABLE and either behind_by == 0 or conflict-only: emit
+  # nothing and let the flip proceed.
   return 0
+}
+
+# behind_base_policy — ready_guard_behind_base from the core and adopter layers
+# only (REQ-C1.12, REQ-C1.13, D-11). The repo-side layers sit inside a checkout the flipping session can
+# edit, and locating the primary checkout's layers takes the local git D-5
+# rules out, so PLANWRIGHT_REPO_ROOT=none and an empty legacy local-config path
+# drop them.
+# Read only for a PR that is behind, so a current PR pays nothing. A missing
+# resolver, a timeout, a failed read, or any answer but conflict-only is
+# refuse: no failure here can relax the check.
+behind_base_policy() {
+  local v=''
+  if [ -n "$GUARD_DIR" ] && [ -r "$GUARD_DIR/resolve-policy-knob.sh" ]; then
+    v=$(PLANWRIGHT_REPO_ROOT=none PLANWRIGHT_LOCAL_CONFIG='' \
+      "$RG_TIMEOUT_BIN" -k 2 "$RG_GH_T" /bin/sh "$GUARD_DIR/resolve-policy-knob.sh" \
+      ready_guard_behind_base 2>/dev/null </dev/null) || v=''
+  fi
+  case $v in
+    conflict-only) printf 'conflict-only' ;;
+    *) printf 'refuse' ;;
+  esac
 }
 
 # read_view_fields — pull the predicate's fields out of the query answer into
