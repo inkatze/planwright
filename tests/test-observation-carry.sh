@@ -44,6 +44,14 @@ here=$(cd "$(dirname "$0")" && pwd)
 CARRY="$here/../scripts/observation-carry.sh"
 TAB=$(printf '\t')
 
+# The carry's default store comes from the spec root the fixture repository
+# resolves, so no inherited overlay may relocate it.
+carry_adopter=$(mktemp -d "${TMPDIR:-/tmp}/obs-carry.adopter.XXXXXX") || exit 1
+trap 'rm -rf "$carry_adopter"' EXIT
+PLANWRIGHT_ADOPTER_OVERLAY=$carry_adopter
+export PLANWRIGHT_ADOPTER_OVERLAY
+unset PLANWRIGHT_REPO_ROOT PLANWRIGHT_LOCAL_CONFIG
+
 fail() {
   echo "FAIL: $1" >&2
   exit 1

@@ -684,9 +684,12 @@ odef="$tmp/o11def"
 mkdir -p "$odef/specs/_observations/entries"
 git init -q "$odef" || fail "11: cannot create the default-store repository"
 make_od_stub "$tmp/od11def" abcd1234
+mkdir -p "$tmp/o11home" "$tmp/o11adopter"
 defout=$(
   cd "$odef" \
-    && PATH="$tmp/od11def:$PATH" "$REC" --slug topic --scope planwright \
+    && env -u PLANWRIGHT_REPO_ROOT -u PLANWRIGHT_LOCAL_CONFIG -u CLAUDE_PLUGIN_DATA \
+      HOME="$tmp/o11home" PLANWRIGHT_ADOPTER_OVERLAY="$tmp/o11adopter" \
+      GIT_CONFIG_GLOBAL=/dev/null PATH="$tmp/od11def:$PATH" "$REC" --slug topic --scope planwright \
       --text 'default store' --today 2026-07-09
 ) || fail "11: default --obs-dir invocation failed"
 [ "$defout" = "specs/_observations/entries/2026-07-09-topic-abcd1234.md" ] \

@@ -126,9 +126,21 @@ else
 fi
 rm -f "$w/store/_observations/entries/not-a-fragment.md"
 
+# A relocated in-repo root carries from its own path in the work repository.
+at "$w" "$rec" --text 'to carry'
+gitq -C "$w" checkout -q -b notes
+gitq -C "$w" add -A && gitq -C "$w" commit -q -m notes
+at "$w" "$S/observation-carry.sh" --dry-run "$w"
+if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qx "stranded${TAB}1"; then
+  ok "carry: --dry-run counts a relocated in-repo root's stranded fragment"
+else
+  fail "carry dry run on an in-repo root (rc=$rc): $out $err"
+fi
+
+primary_before=$(count "$w/store/_observations/entries")
 at "$wt" "$rec" --text 'from a worktree'
 if [ "$rc" -eq 0 ] && [ "$(count "$wt/store/_observations/entries")" -eq 1 ] \
-  && [ "$(count "$w/store/_observations/entries")" -eq 0 ]; then
+  && [ "$(count "$w/store/_observations/entries")" -eq "$primary_before" ]; then
   ok "record: a worktree writes its own checkout-local copy"
 else
   fail "record from a worktree (rc=$rc): $out $err"
@@ -177,6 +189,12 @@ if [ "$rc" -ne 0 ] && [ ! -e "$b/specs" ]; then
 else
   fail "record with a refused spec_root (rc=$rc): $out"
 fi
+at "$b" "$S/observation-carry.sh" --dry-run "$b"
+if [ "$rc" -eq 2 ]; then
+  ok "carry: a refused spec_root is an error, not a carry"
+else
+  fail "carry with a refused spec_root (rc=$rc): $out"
+fi
 
 # --- REQ-F1.1, REQ-F1.5: separate-repo (a holder) ---------------------------
 
@@ -203,10 +221,11 @@ fi
 gitq -C "$h" checkout -q -b notes
 gitq -C "$h" add -A && gitq -C "$h" commit -q -m notes
 at "$hw" "$S/observation-carry.sh" --dry-run "$hw"
-case $out in
-  *"stranded${TAB}1"*) ok "carry: --dry-run counts the holder's stranded fragment" ;;
-  *) fail "carry dry run in a holder (rc=$rc): $out $err" ;;
-esac
+if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qx "stranded${TAB}1"; then
+  ok "carry: --dry-run counts the holder's stranded fragment"
+else
+  fail "carry dry run in a holder (rc=$rc): $out $err"
+fi
 mkdir -p "$tmp/ghbin" "$tmp/ghstate"
 cat >"$tmp/ghbin/gh" <<'EOF'
 #!/bin/sh
@@ -228,6 +247,21 @@ if [ -z "$(hermetic git -C "$hw" for-each-ref --format='%(refname)' refs/heads/p
   ok "carry: the work repository gains no branch"
 else
   fail "carry: a branch appeared in the work repository"
+fi
+at "$hw" env GH_STATE="$tmp/ghstate" PATH="$tmp/ghbin:$PATH" \
+  PLANWRIGHT_OBSERVATION_CARRY_STATE_DIR="$tmp/carry-state" "$S/observation-carry.sh" "$hw"
+if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qx "carry${TAB}noop"; then
+  ok "carry: a repeat run in the holder carries nothing"
+else
+  fail "carry repeat in a holder (rc=$rc): $out $err"
+fi
+at "$hw" "$rec" --text 'a second holder note'
+gitq -C "$h" add -A && gitq -C "$h" commit -q -m notes2
+at "$hw" env GH_STATE="$tmp/ghstate" PATH="$tmp/ghbin:$PATH" "$S/observation-carry.sh" "$hw"
+if [ "$rc" -eq 0 ] && [ -d "$h/.claude/orchestrate.local" ] && [ ! -e "$hw/.claude/orchestrate.local" ]; then
+  ok "carry: the holder carry takes its lock in the holder"
+else
+  fail "carry lock in a holder (rc=$rc): $out $err"
 fi
 
 # Per-accumulator identity: one UID, two accumulators.
@@ -328,28 +362,55 @@ if [ "$rc" -eq 0 ] && [ "$(count "$tmp/home/tgt/specs/_observations/entries")" -
 else
   fail "target tilde (rc=$rc): $err"
 fi
-for a in nosuch bare gone rel Bad; do
-  at "$t" "$rec" --target "$a" --text 'refused'
-  if [ "$rc" -eq 1 ]; then
-    ok "target: $a is refused"
-  else
-    fail "target $a (rc=$rc): $out"
-  fi
+# refused <label> <expected stderr fragment> <args...> — obs-record from $t
+# exits 1 naming the expected reason.
+refused() {
+  r_label=$1
+  r_want=$2
+  shift 2
+  at "$t" "$@"
+  case $rc:$err in
+    1:*"$r_want"*) ok "target: $r_label is refused" ;;
+    *) fail "target: $r_label (rc=$rc): $err" ;;
+  esac
+}
+mkdir -p "$t/other/specs" "$tmp/loose/specs" "$o/sub/specs"
+long=$(printf '%065d' 0 | tr 0 a)
+printf 'observation_targets: {other: %s, holder: %s, bare: %s, gone: %s/missing, rel: other/specs, tilde: ~/tgt/specs, tu: ~alice/specs, loose: %s/loose/specs, sub: %s/sub/specs}\n' \
+  "$o/specs" "$z" "$nm" "$tmp" "$tmp" "$o" >"$t/.claude/planwright.local.yml"
+refused "an unknown alias" "no observation target is configured" "$rec" --target nosuch --text x
+refused "an alias outside the grammar" "identifier grammar" "$rec" --target Bad --text x
+refused "an alias over 64 characters" "at most 64" "$rec" --target "$long" --text x
+refused "a marker-less directory" "neither a marked spec root" "$rec" --target bare --text x
+refused "a specs directory outside any repository" "neither a marked spec root" "$rec" --target loose --text x
+refused "a specs directory below a toplevel" "neither a marked spec root" "$rec" --target sub --text x
+refused "a missing directory" "not an existing directory" "$rec" --target gone --text x
+refused "a relative path" "never a relative one" "$rec" --target rel --text x
+refused "a ~user path" "never ~user" "$rec" --target tu --text x
+refused "a ~ path with a relative HOME" "HOME is not absolute" env HOME=relhome "$rec" --target tilde --text x
+for d in "$nm" "$tmp/loose/specs" "$o/sub/specs" "$t/other/specs"; do
+  [ ! -e "$d/_observations" ] || fail "target: a refused target was written into: $d"
 done
-[ ! -e "$nm/_observations" ] || fail "target: the marker-less target was written into"
 at "$t" "$rec" --target other --obs-dir "$tmp/x" --text 'both'
 if [ "$rc" -eq 2 ]; then
   ok "target: --target with --obs-dir is a usage error"
 else
   fail "target with --obs-dir (rc=$rc)"
 fi
-printf 'observation_targets: {other: %s, other: %s}\n' "$o/specs" "$o/specs" >"$t/.claude/planwright.local.yml"
-at "$t" "$rec" --target other --text 'duplicate key'
-if [ "$rc" -eq 1 ]; then
-  ok "target: a malformed map is refused"
+at "$t" "$rec" --text 'no alias' --target
+if [ "$rc" -eq 2 ]; then
+  ok "target: --target without its alias is a usage error"
 else
-  fail "target with a malformed map (rc=$rc)"
+  fail "target without an alias (rc=$rc)"
 fi
+for m in "{other: $o/specs, other: $o/specs}" "{other $o/specs}" "{other: \"$o/specs\"}" \
+  "{other: {a: b}}" "{, other: $o/specs}" "{other: $o/specs,}" "{a: x,, other: $o/specs}" \
+  "{other: }" "$o/specs"; do
+  printf 'observation_targets: %s\n' "$m" >"$t/.claude/planwright.local.yml"
+  refused "the malformed map '$m'" "machine-local layer is not a flat inline" "$rec" --target other --text x
+done
+printf 'observation_targets: {}\n' >"$t/.claude/planwright.local.yml"
+refused "an alias the empty map lacks" "no observation target is configured" "$rec" --target other --text x
 printf 'observation_targets: {other: %s}\n' "$o/specs" >"$t/.claude/planwright.local.yml"
 
 # --- REQ-F1.3: the hygiene screen --------------------------------------------
@@ -413,12 +474,20 @@ done
 exec "$REAL_GIT" "\$@"
 EOF
 chmod +x "$sb/git"
+watched=""
 at "$t" env PATH="$sb:$PATH" "$rec" --target other --text 'routed under watch'
+watched="$watched$rc"
 at "$w" env PATH="$sb:$PATH" "$rec" --text 'local under watch'
-uid=$(find "$w/store/_observations/entries" -name '*-topic-*.md' | head -1 | sed 's/.*-\([0-9a-f]\{8\}\)\.md$/\1/')
+watched="$watched$rc"
+uid=${out##*-}
+uid=${uid%.md}
 at "$w" env PATH="$sb:$PATH" "$S/obs-consume.sh" --uid "$uid" --spec demo
+watched="$watched$rc"
 at "$w" env PATH="$sb:$PATH" "$S/obs-render.sh" --archived
+watched="$watched$rc"
 at "$w" env PATH="$sb:$PATH" "$S/check-obs.sh"
+watched="$watched$rc"
+[ "$watched" = 00000 ] || fail "routing: a watched run failed before it could reach the network (exits $watched)"
 if [ ! -s "$tmp/remote.log" ]; then
   ok "routing: record, consume, render, and check invoke no remote write"
 else
