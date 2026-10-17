@@ -1,0 +1,1 @@
+- 2026-10-10 [planwright] orchestrate-meta-step.sh dispatch passes no tower identity to fleet-register, so every --fleet dispatch registers unknown-owner (fleet-register warns: set $PLANWRIGHT_TOWER_ID or pass --session-id/--pid). The skill resolves the tower id via tower-loop-comms.sh identity but the meta-step has no flag to carry it.
