@@ -210,7 +210,7 @@ test-resolve-work-repo.sh	1.403
 test-resolve-notification-channel.sh	1.217
 test-release-window-check.sh	1.168
 test-check-doctrine-index.sh	1.128
-test-inception-render-stub.sh	1.115
+test-inception-render.sh	1.115
 test-walkthrough-e2e.sh	1.102
 test-human-gates-doctrine.sh	1.059
 test-resolve-context-budget-threshold.sh	1.044
