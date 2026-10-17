@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.61.0](https://github.com/inkatze/planwright/compare/v0.60.0...v0.61.0) (2026-10-17)
+
+
+### Features
+
+* **fleet-messaging:** add the messaging enforcement point and its drift guard ([#669](https://github.com/inkatze/planwright/issues/669)) ([ecda028](https://github.com/inkatze/planwright/commit/ecda028bd3431ad5e41316b6c7ffda686fbad63d))
+* **flight:** fire every in-run point on a visual flight ([#671](https://github.com/inkatze/planwright/issues/671)) ([38430e5](https://github.com/inkatze/planwright/commit/38430e53e75c446331b0df10c3eefc6b8c05163c))
+* **inception:** add the /inception skill walking skeleton ([#673](https://github.com/inkatze/planwright/issues/673)) ([bf9a27b](https://github.com/inkatze/planwright/commit/bf9a27b70768e49d5de773f3e2f7746348bf6bce))
+* **inception:** add the discipline-card format, authoring recipe, and product-strategy card ([#661](https://github.com/inkatze/planwright/issues/661)) ([6666c77](https://github.com/inkatze/planwright/commit/6666c77535ba80ffcc3b08cfe2ef8949af362ed0))
+* **inception:** render dashboard and pitch exports with an offered publish step ([#670](https://github.com/inkatze/planwright/issues/670)) ([fcd257a](https://github.com/inkatze/planwright/commit/fcd257a722f27faa14a13ee54b52a7d3daf6ed46))
+* **merge-policy:** add the policy-class merge evaluator and helper ([#667](https://github.com/inkatze/planwright/issues/667)) ([b571419](https://github.com/inkatze/planwright/commit/b5714190e264089be5d337f4e06a366a09113712))
+* **ready-guard:** make the behind-base refusal configurable ([#650](https://github.com/inkatze/planwright/issues/650)) ([5be89a5](https://github.com/inkatze/planwright/commit/5be89a5826ecc16c96118bec5a1112312d8d5a58))
+* **review:** add the review backtest corpus, replay harness, and cost metric ([#666](https://github.com/inkatze/planwright/issues/666)) ([06a3084](https://github.com/inkatze/planwright/commit/06a3084caa116024f28ba605a297a4ae44d8268e))
+* **step-record:** records, fingerprints, reuse lookup, and limited in the status ([#663](https://github.com/inkatze/planwright/issues/663)) ([02e2447](https://github.com/inkatze/planwright/commit/02e24479ce1131ed35fdf265bdcd4e558771dd33))
+* **tower-guard:** ask for every name the force-push helper goes by ([#668](https://github.com/inkatze/planwright/issues/668)) ([7b596f6](https://github.com/inkatze/planwright/commit/7b596f68c4e20f32a9f20cef5cd49fb6f0e84e91))
+* **tower:** an operator-requested force-push path and purge preparation ([#665](https://github.com/inkatze/planwright/issues/665)) ([914a57f](https://github.com/inkatze/planwright/commit/914a57f816e0e414951b1999f9bc626e9647708c))
+
+
+### Bug Fixes
+
+* **flight-record:** land the record renderer's held security fixes ([#662](https://github.com/inkatze/planwright/issues/662)) ([dbcb0d8](https://github.com/inkatze/planwright/commit/dbcb0d8f851f993e20d7fdb7a32acb93a9a4f9ac))
+
 ## [0.60.0](https://github.com/inkatze/planwright/compare/v0.59.0...v0.60.0) (2026-10-12)
 
 
