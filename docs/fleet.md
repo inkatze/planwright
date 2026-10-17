@@ -1738,8 +1738,18 @@ retired in the same one, and the flight passes follow the reconcile so the
 dispatch records they read are already settled.
 
 **Flight workers under the crash policy.** `scripts/flight-lifecycle.sh
-supervise` is the last pass. A visual flight's worker is a crash only when the
-shared flight sweep reads it `dead`: positive death evidence and no landing.
+supervise` is the last pass. A visual flight whose completion was pushed (its
+landing reference beside the brief) is never a crash, whatever the sweep reads
+its landing as. Otherwise its worker is a crash only when the shared flight
+sweep reads it `dead` (positive death evidence and no landing), or reads it
+landed with a dead worker that never pushed its completion (no
+landing reference beside the brief), queued no decision, and ran under a brief
+carrying the landed check: that worker still owed the work after landing,
+which its relaunch finishes (on the PR home only while its PR is open, parking
+for the operator otherwise; on the file home by pushing the completion). A
+completion push that cannot keep its landing reference fails, and the brief
+parks the flight on that failure, so its queued decision keeps the sweep from
+relaunching a finished flight.
 Each death is counted once and relaunched at most once (both claimed
 atomically, keyed by the registry's death handle, so two sweeps racing on one
 death start one worker, and none relaunches it before its count is recorded;
@@ -1752,7 +1762,11 @@ authorizes it, the worker relaunches into the flight's own worktree and branch
 with its own brief (`fleet-dispatch-worktree.sh dispatch --flight <id>
 --relaunch`, the same guarded launch every dispatch passes, which creates
 nothing and registers the new worker), and at the disable threshold nothing
-relaunches and the disable is a decision-queue entry. Each relaunch and
+relaunches and the disable is a decision-queue entry. The relaunched worker is
+pinned to the planwright root dispatch recorded beside the brief; a flight
+placed before that record existed takes the launcher's root, and a record that
+is not a regular file holding one printable absolute path, or that names a root
+no longer installed, refuses the relaunch, which counts as another crash. Each relaunch and
 disable is audited. The guarantee is bounded or surfaced: a worker whose death cannot be proven (a print-rung
 flight, an unreachable tmux server, a relaunch whose window could not be
 matched) is never relaunched and reads `unknown` in the sweep's render.

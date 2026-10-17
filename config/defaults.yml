@@ -896,6 +896,13 @@ messaging_heal_cadence_seconds: 300
 # unpushed_rewrite              whether a worker may amend, squash, or rebase
 #                               commits no remote holds, on its own unit
 #                               branch: allow or deny.
+# ready_guard_behind_base       whether the ready-guard refuses a draft->ready
+#                               flip of a PR behind its base: refuse (refused
+#                               however few commits behind), or conflict-only
+#                               (let through when GitHub reports it
+#                               MERGEABLE, refused otherwise). Read from
+#                               the core and adopter layers only
+#                               (merge-currency-guard REQ-C1.12).
 # protected_branches            branch names or globs added to the protected
 #                               floor (main, master, planwright/*/spec), space
 #                               separated on one line; every layer's list
@@ -910,6 +917,7 @@ merge_class_strategy: sole-allowed
 worker_base_merge: allow
 worker_merge_conflict_policy: halt
 unpushed_rewrite: allow
+ready_guard_behind_base: refuse
 protected_branches:
 
 # Where /inception creates venture repositories (inception REQ-A1.3, D-5):

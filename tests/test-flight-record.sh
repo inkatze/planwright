@@ -5,11 +5,14 @@
 #
 # Properties verified:
 #   1. Both homes render the full content contract (REQ-E1.1): the quoted ask,
-#      the route and its grounds, the convergence audit (lens coverage, the
-#      four buckets, the declined log, the pending-sign-off checklist, the
-#      convergence step table), the rigor scoping (declared, or stated as none
-#      applied), the worker handle, and the revert path, each home naming
-#      where it lives (REQ-E1.2).
+#      the route and its grounds, the review audit (lens coverage, the four
+#      buckets, the declined log, the pending-sign-off checklist), the step
+#      table of every fired point (REQ-E1.6), the rigor scoping (declared, or
+#      stated as none applied), the worker handle, and the revert path, each
+#      home naming where it lives (REQ-E1.2). The pr home carries a post-pr
+#      table only once that point has fired; the file home, where it never
+#      fires, carries the renderer's not-fired row and refuses a fired one
+#      (REQ-C1.11).
 #   2. Human-first (REQ-E1.5): the summary and verification lead above the
 #      collapsed record, the lead carries no restated prompt, and a lead that
 #      restates the ask is refused; the pending-sign-off IDs surface in the
@@ -137,12 +140,33 @@ cat >"$in/audit.md" <<'EOF'
 - [ ] **PS-1** heading wording · commit `abc1234`
   - Reject with: `git revert abc1234`
 
-#### Convergence steps
-
-| Step | Outcome |
-| --- | --- |
-| polish | converged |
 EOF
+# One step table per in-run point, as step-record.sh renders them with the
+# heading demoted under the record's own.
+for point in pre-implementation pre-ci convergence pre-pr; do
+  printf '\n#### Steps at `%s` (run `000001`)\n\n' "$point"
+  printf '| # | Step | Kind | Outcome |\n| --- | --- | --- | --- |\n'
+  printf '| 1 | step-%s | skill | passed |\n' "$point"
+done >>"$in/audit.md"
+POINT_HEADINGS='Steps at `pre-implementation`
+Steps at `pre-ci`
+Steps at `convergence`
+Steps at `pre-pr`'
+{
+  cat "$in/audit.md"
+  printf '\n#### Steps at `post-pr` (run `000001`)\n\n'
+  printf '| # | Step | Kind | Outcome |\n| --- | --- | --- | --- |\n'
+  printf '| 1 | step-post-pr | prompt | passed |\n'
+} >"$in/audit-post-pr.md"
+
+# SR_HEADER — the header row of the step tables scripts/step-record.sh renders,
+# which the file home's not-fired post-pr table must match.
+git init -q "$tmp/sr"
+sr_run=$("$ROOT/scripts/step-record.sh" --worktree "$tmp/sr" new-run)
+"$ROOT/scripts/step-record.sh" --worktree "$tmp/sr" write --completion --run "$sr_run" --point pre-pr \
+  --head 0123456789abcdef0123456789abcdef01234567 >/dev/null
+SR_HEADER=$("$ROOT/scripts/step-record.sh" --worktree "$tmp/sr" render --run "$sr_run" | grep '^| # |')
+[ -n "$SR_HEADER" ] || fail "fixture: step-record.sh rendered no table header"
 
 # run_render <home|none> [overrides...], and run_land [overrides...] below,
 # set OUT, ERR, RC. A later flag overrides an earlier one, so a case names only
@@ -212,11 +236,32 @@ for home in pr file; do
 
   for el in '### The ask' '### Route and grounds' 'one-file prose fix' '### Record home' \
     '### Rigor scoping' 'None applied' '### Worker handle' "$HANDLE" '### Revert path' \
-    '### Convergence audit' 'Lens coverage' 'Auto-applicable' 'Agent-resolvable' \
+    '### Review and step audit' 'Lens coverage' 'Auto-applicable' 'Agent-resolvable' \
     'Needs sign-off' 'Needs human judgment' 'Declined log' 'Pending sign-off' \
-    'Convergence steps' '- [ ] **PS-1**'; do
+    '- [ ] **PS-1**'; do
     printf '%s\n' "$body" | grep -qF -- "$el" || fail "$home: the collapsed record is missing '$el'"
   done
+  # Every fired point's step table (REQ-E1.6, REQ-C1.7).
+  while IFS= read -r el; do
+    printf '%s\n' "$body" | grep -qF -- "#### $el" || fail "$home: the collapsed record is missing the table '$el'"
+  done <<EOF
+$POINT_HEADINGS
+EOF
+  if [ "$home" = pr ]; then
+    # Before post-pr fires there is no post-pr table, and the pr home never
+    # invents one.
+    printf '%s\n' "$body" | grep -qF 'Steps at `post-pr`' \
+      && fail "pr: a record rendered before post-pr fired must carry no post-pr table"
+  else
+    # REQ-C1.11: the file home opens no PR, so post-pr never fires; the
+    # renderer writes the not-fired row and why.
+    post=$(printf '%s\n' "$body" | awk '/^#### Steps at `post-pr`/ {on=1} on && /^<\/details>$/ {exit} on')
+    [ -n "$post" ] || fail "file: the record must carry the post-pr table"
+    printf '%s\n' "$post" | grep -q '^| not fired |' || fail "file: the post-pr table must carry a not-fired row: $post"
+    printf '%s\n' "$post" | grep -q 'no PR' || fail "file: the not-fired row must say why: $post"
+    [ "$(printf '%s\n' "$post" | grep '^| # |')" = "$SR_HEADER" ] \
+      || fail "file: the not-fired table must carry step-record.sh's columns (got: $(printf '%s\n' "$post" | grep '^| # |'))"
+  fi
   printf '%s\n' "$body" | grep -q 'Plawnright' || fail "$home: the collapsed record must quote the ask"
   if [ "$home" = pr ]; then
     printf '%s\n' "$body" | grep -q 'draft PR body' || fail "pr: the record must name its home"
@@ -709,13 +754,41 @@ run_render pr --summary-file "$in/summary-placeholder.md"
 
 # --- 4: worker inputs are screened -------------------------------------------
 
-for missing in 'Lens coverage' 'Auto-applicable' 'Agent-resolvable' 'Needs sign-off' \
-  'Needs human judgment' 'Declined log' 'Pending sign-off' 'Convergence steps'; do
-  grep -v "^#### $missing\$" "$in/audit.md" >"$in/audit-missing.md"
-  run_render pr --audit-file "$in/audit-missing.md"
-  [ "$RC" -eq 2 ] || fail "an audit missing '$missing' must be refused with 2 (got $RC)"
-  printf '%s\n' "$ERR" | grep -qF "$missing" || fail "the missing-element refusal must name '$missing'"
-done
+while IFS= read -r missing; do
+  grep -vF "#### $missing" "$in/audit.md" >"$in/audit-missing.md"
+  for home in pr file; do
+    run_render "$home" --audit-file "$in/audit-missing.md"
+    [ "$RC" -eq 2 ] || fail "$home: an audit missing '$missing' must be refused with 2 (got $RC)"
+    printf '%s\n' "$ERR" | grep -qF "$missing" || fail "$home: the missing-element refusal must name '$missing'"
+  done
+done <<EOF
+Lens coverage
+Auto-applicable
+Agent-resolvable
+Needs sign-off
+Needs human judgment
+Declined log
+Pending sign-off
+$POINT_HEADINGS
+EOF
+
+# The pr home carries the post-pr table once the point has fired (the re-emit
+# after post-pr); the file home, where it never fires, refuses one.
+run_render pr --audit-file "$in/audit-post-pr.md"
+[ "$RC" -eq 0 ] || fail "pr: an audit carrying the post-pr table must render (got $RC: $ERR)"
+printf '%s\n' "$OUT" | grep -q '^| 1 | step-post-pr |' || fail "pr: the fired post-pr table must reach the record"
+run_render file --audit-file "$in/audit-post-pr.md"
+[ "$RC" -eq 2 ] || fail "file: an audit carrying a post-pr table must be refused with 2 (got $RC)"
+printf '%s\n' "$ERR" | grep -q 'post-pr' || fail "file: the post-pr refusal must name the point: $ERR"
+# The re-emit after post-pr renders with --post-pr, which requires that
+# table, so a re-emit that forgot it is refused rather than published.
+run_render pr --post-pr --audit-file "$in/audit-post-pr.md"
+[ "$RC" -eq 0 ] || fail "pr: a post-pr re-emit carrying the table must render (got $RC: $ERR)"
+run_render pr --post-pr
+[ "$RC" -eq 2 ] || fail "pr: a post-pr re-emit without the post-pr table must be refused with 2 (got $RC)"
+printf '%s\n' "$ERR" | grep -q 'post-pr' || fail "pr: the missing post-pr table must be named: $ERR"
+run_render file --post-pr
+[ "$RC" -eq 2 ] || fail "file: --post-pr is a pr-home option and must be refused (got $RC)"
 
 for tag in '</details>' '<details>' '  <summary>x</summary>' '<!-- planwright:flight-record-end -->'; do
   {

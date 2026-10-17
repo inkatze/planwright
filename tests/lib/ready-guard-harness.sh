@@ -41,6 +41,14 @@
 #   STUB_COMPARE_OUT / STUB_COMPARE_RC the compare endpoint's behind_by / exit
 #   RG_SURFACE                         which matcher fired: bash (default) | mcp
 #                                      (not reset by reset_stub_env)
+#   RG_ADOPTER_OVERLAY                 passed to the guard as
+#                                      PLANWRIGHT_ADOPTER_OVERLAY, the adopter
+#                                      layer ready_guard_behind_base is read
+#                                      from (reset to empty by reset_stub_env)
+#   RG_LOCAL_CONFIG / RG_GH_TIMEOUT    passed to the guard as
+#                                      PLANWRIGHT_LOCAL_CONFIG and
+#                                      PLANWRIGHT_READY_GUARD_GH_TIMEOUT
+#                                      (reset to empty by reset_stub_env)
 unset CDPATH
 
 REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
@@ -89,7 +97,7 @@ mkdir -p "$BIN" "$STATE" "$WORK" "$WORK/sub"
 # A hermetic PATH holding ONLY what the guard may use. Absence fixtures delete
 # one entry from it, so "jq absent" and "gh absent" are genuinely absent rather
 # than shadowed — the ambient PATH is never consulted.
-HERMETIC_TOOLS="head tr sleep dirname cat env sed grep"
+HERMETIC_TOOLS="head tr sleep dirname cat env sed grep bash"
 for t in $HERMETIC_TOOLS; do
   p="$(command -v "$t" 2>/dev/null)" && ln -sf "$p" "$BIN/$t"
 done
@@ -199,6 +207,9 @@ run_hook() {
     | env -i PATH="$path" HOME="$SANDBOX" \
       GH_ARGV_LOG="$STATE/argv.log" GH_STATE="$STATE" \
       PLANWRIGHT_READY_GUARD_RETRY_DELAY=0 \
+      PLANWRIGHT_ADOPTER_OVERLAY="${RG_ADOPTER_OVERLAY:-}" \
+      PLANWRIGHT_LOCAL_CONFIG="${RG_LOCAL_CONFIG:-}" \
+      PLANWRIGHT_READY_GUARD_GH_TIMEOUT="${RG_GH_TIMEOUT:-}" \
       STUB_VIEW_JSON="${STUB_VIEW_JSON:-}" STUB_VIEW_JSON2="${STUB_VIEW_JSON2:-}" \
       STUB_VIEW_RC="${STUB_VIEW_RC:-0}" STUB_VIEW_RC2="${STUB_VIEW_RC2:-}" \
       STUB_COMPARE_OUT="${STUB_COMPARE_OUT:-0}" STUB_COMPARE_RC="${STUB_COMPARE_RC:-0}" \
@@ -351,5 +362,8 @@ reset_stub_env() {
   STUB_VIEW_RC2=''
   STUB_COMPARE_OUT=0
   STUB_COMPARE_RC=0
+  RG_ADOPTER_OVERLAY=''
+  RG_LOCAL_CONFIG=''
+  RG_GH_TIMEOUT=''
 }
 reset_stub_env

@@ -68,7 +68,9 @@ done
 # The expected-cell manifest. One line per cell: <key> <expect>.
 #
 # Guard cells are <state>/<surface>: the D-3 predicate outcomes (conforming,
-# behind, conflicting), the REQ-C1.3 fail-closed causes (unknown, query-error,
+# behind, conflicting), the REQ-C1.12 knob's behind-base cells under an
+# adopter value of each kind (knob-conflict-only-behind, knob-refuse-behind),
+# the REQ-C1.3 fail-closed causes (unknown, query-error,
 # query-timeout, malformed-answer, compare-failure, unreadable-count,
 # no-timeout-binary, missing-gh, missing-jq, malformed-payload), the REQ-C1.9
 # selector refusal (invalid-selector), and the REQ-C1.8 never-gated transitions
@@ -89,6 +91,10 @@ conforming/bash defer
 conforming/mcp defer
 behind/bash deny
 behind/mcp deny
+knob-conflict-only-behind/bash defer
+knob-conflict-only-behind/mcp defer
+knob-refuse-behind/bash deny
+knob-refuse-behind/mcp deny
 conflicting/bash deny
 conflicting/mcp deny
 unknown/bash deny
@@ -279,6 +285,28 @@ assert_reason_matches "mcp: the behind denial names the staleness" 'commit\(s\) 
 assert_no_mergestatestatus "mcp: currency is not keyed on mergeStateStatus"
 assert_no_sentinels "mcp: the behind decision path invoked no git/curl/wget/claude"
 assert_gh_calls "mcp: positive control — the stubbed gh call site was traversed (view + compare)" 2
+
+echo "# knob: a conflict-free PR behind its base under an adopter ready_guard_behind_base"
+KNOB_ADOPTER="$SANDBOX/adopter-overlay"
+mkdir -p "$KNOB_ADOPTER"
+for knob in conflict-only refuse; do
+  printf 'ready_guard_behind_base: %s\n' "$knob" >"$KNOB_ADOPTER/planwright.yml"
+  reset_stub_env
+  RG_ADOPTER_OVERLAY=$KNOB_ADOPTER
+  STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=5
+  run_hook "$(bash_payload "$BASH_FLIP")"
+  assert_cell "knob-$knob-behind/bash" "bash: $knob, a conflict-free behind PR"
+  assert_no_sentinels "bash: $knob, the knob read invoked no git/curl/wget/claude"
+  reset_stub_env
+  RG_ADOPTER_OVERLAY=$KNOB_ADOPTER
+  STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=5
+  run_mcp "$MCP_FLIP"
+  assert_cell "knob-$knob-behind/mcp" "mcp: $knob, a conflict-free behind PR"
+  if [ "$knob" = refuse ]; then
+    assert_reason_matches "mcp: the refuse denial names the staleness" 'commit\(s\) behind'
+    assert_reason_lacks "mcp: the refuse denial does not name the knob" 'ready_guard_behind_base|conflict-only'
+  fi
+done
 
 echo "# conflicting: mergeable CONFLICTING"
 reset_stub_env
