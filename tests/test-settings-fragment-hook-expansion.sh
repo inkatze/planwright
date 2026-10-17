@@ -63,11 +63,22 @@ command -v jq >/dev/null 2>&1 || {
 #
 # check_profiles <dir> — prints one line per offending command; exit 1 on any.
 check_profiles() {
-  local dir=$1 f cmd rest bad=0 found=0
+  local dir=$1 f cmd cmds rest bad=0 found=0
   for f in "$dir"/*.json; do
     [ -f "$f" ] || continue
-    jq -e 'type == "object" and has("hooks")' "$f" >/dev/null 2>&1 || continue
+    jq -e 'type == "object" and has("hooks")' "$f" >/dev/null 2>&1 || {
+      jq -e . "$f" >/dev/null 2>&1 || {
+        echo "$(basename "$f"): not parseable JSON, so its hooks cannot be checked"
+        bad=1
+      }
+      continue
+    }
     found=1
+    cmds=$(jq -r '.hooks | to_entries[] | .value[]? | .hooks[]? | .command // empty' "$f" 2>/dev/null) || {
+      echo "$(basename "$f"): its hooks key is not the settings shape, so its commands cannot be read"
+      bad=1
+      continue
+    }
     while IFS= read -r cmd; do
       rest=${cmd//'"$CLAUDE_PLUGIN_ROOT"/'/}
       case $rest in
@@ -76,7 +87,7 @@ check_profiles() {
           bad=1
           ;;
       esac
-    done < <(jq -r '.hooks | to_entries[] | .value[]? | .hooks[]? | .command // empty' "$f")
+    done <<<"$cmds"
   done
   [ "$found" = 1 ] || {
     echo "no settings profile with a hooks key under $dir"
@@ -128,6 +139,18 @@ for shape in later-hook later-group other-event unquoted default-form second-occ
     fail "the check passes a profile with the $shape shape"
   fi
   echo "ok: the check fails the $shape shape"
+done
+# A file the check cannot read is never passed over as "not a profile".
+mkdir -p "$fx/unparseable" "$fx/hooks-not-object"
+cp "$fx/compliant/profile.json" "$fx/unparseable/"
+printf '%s\n' '{"hooks": ' >"$fx/unparseable/broken.json"
+cp "$fx/compliant/profile.json" "$fx/hooks-not-object/"
+printf '%s\n' '{"hooks": "${CLAUDE_PLUGIN_ROOT}/x"}' >"$fx/hooks-not-object/odd.json"
+for shape in unparseable hooks-not-object; do
+  if check_profiles "$fx/$shape" >/dev/null; then
+    fail "the check passes a directory holding an $shape settings file"
+  fi
+  echo "ok: the check fails an $shape settings file"
 done
 mkdir -p "$fx/none"
 cp "$fx/compliant/not-a-profile.json" "$fx/none/"
