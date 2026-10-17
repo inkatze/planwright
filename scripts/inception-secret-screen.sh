@@ -9,7 +9,9 @@
 # that are unambiguous on sight (key blocks, provider-prefixed tokens, long
 # opaque assignments), not at catching everything. A venture repo that needs
 # real coverage installs gitleaks and gets it automatically; the built-in
-# screen is the floor, not the ceiling.
+# screen is the floor, not the ceiling. gitleaks always runs with this
+# install's config/inception-gitleaks.toml, never a repository's own config or
+# GITLEAKS_CONFIG; with that file missing the screen exits 2.
 #
 # It reports `<file>:<line>: <rule>` and NEVER the matched text. A hook that
 # echoes the secret it caught has moved the secret from the diff into terminal
@@ -138,6 +140,8 @@ if [ "$tool" != none ] && command -v gitleaks >/dev/null 2>&1; then
   else
     gl_git="protect"
     gl_dir_cmd="detect"
+    # Before 8.19 `detect` reads its source as a git repository and finds
+    # nothing in a plain file; the calls below pass --no-git with it.
     gl_dir_flag="--source"
   fi
 
@@ -149,6 +153,14 @@ if [ "$tool" != none ] && command -v gitleaks >/dev/null 2>&1; then
   # Probe for it rather than assume, and say so when it is missing, because a
   # screen that cannot tell those apart should not pretend it can.
   GL_LEAK_RC=7
+  # gitleaks prefers a repo's own .gitleaks.toml over its defaults, so a
+  # venture could otherwise ship a rule-free config and pass any credential.
+  # Every run names planwright's config instead; a missing one refuses.
+  gl_config="$(cd "$script_dir/.." && pwd)/config/inception-gitleaks.toml"
+  if [ ! -r "$gl_config" ]; then
+    echo "inception-secret-screen: planwright's gitleaks config is missing; refusing to screen with a repository's own rules" >&2
+    exit 2
+  fi
   if gitleaks "$gl_dir_cmd" --help 2>/dev/null | grep -q -- '--exit-code'; then
     gl_exit_flag=1
   else
@@ -161,9 +173,9 @@ if [ "$tool" != none ] && command -v gitleaks >/dev/null 2>&1; then
   gitleaks_run() {
     grc=0
     if [ "$gl_exit_flag" -eq 1 ]; then
-      gitleaks "$@" --exit-code "$GL_LEAK_RC" >"$work/gl.out" 2>&1 || grc=$?
+      gitleaks "$@" --config "$gl_config" --exit-code "$GL_LEAK_RC" >"$work/gl.out" 2>&1 || grc=$?
     else
-      gitleaks "$@" >"$work/gl.out" 2>&1 || grc=$?
+      gitleaks "$@" --config "$gl_config" >"$work/gl.out" 2>&1 || grc=$?
     fi
     [ "$grc" -eq 0 ] && return 0
     cat "$work/gl.out" >&2
@@ -176,6 +188,31 @@ if [ "$tool" != none ] && command -v gitleaks >/dev/null 2>&1; then
     [ "$grc" -eq "$GL_LEAK_RC" ] && return 1
     return 2
   }
+
+  # The canary: a key block every rule set worth the name flags. A gitleaks
+  # that loads no rules from the config (one too old for its `[extend]`, say)
+  # would pass everything, so a canary it does not flag refuses the screen.
+  # Split literals keep scanners from flagging this file itself.
+  canary="$work/planwright-canary.pem"
+  printf -- '%s\n%s\n%s\n' "-----BEGIN RSA PRIVATE KEY""-----" \
+    "MIIEowIBAAKCAQEA7Zx2Lm""9Rt4Wb8Nc1Yv6Ha3Pd5Sj0Ug2EfKq" "-----END RSA PRIVATE KEY""-----" >"$canary"
+  crc=0
+  if [ -n "$gl_dir_flag" ]; then
+    gitleaks_run "$gl_dir_cmd" --no-git "$gl_dir_flag" "$canary" --no-banner --redact 2>/dev/null || crc=$?
+  else
+    gitleaks_run "$gl_dir_cmd" "$canary" --no-banner --redact 2>/dev/null || crc=$?
+  fi
+  case $crc in
+    1) ;;
+    0)
+      echo "inception-secret-screen: gitleaks flagged nothing in a known credential under planwright's config, so it is screening with no rules; refusing" >&2
+      exit 2
+      ;;
+    *)
+      echo "inception-secret-screen: gitleaks could not run its self-check; refusing to screen with it" >&2
+      exit 2
+      ;;
+  esac
 
   if [ "$staged" -eq 1 ]; then
     if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
@@ -204,7 +241,7 @@ if [ "$tool" != none ] && command -v gitleaks >/dev/null 2>&1; then
     # leak across several arguments would read as several.
     prc=0
     if [ -n "$gl_dir_flag" ]; then
-      gitleaks_run "$gl_dir_cmd" "$gl_dir_flag" "$p" --no-banner --redact || prc=$?
+      gitleaks_run "$gl_dir_cmd" --no-git "$gl_dir_flag" "$p" --no-banner --redact || prc=$?
     else
       gitleaks_run "$gl_dir_cmd" "$p" --no-banner --redact || prc=$?
     fi

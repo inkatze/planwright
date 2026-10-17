@@ -1,0 +1,7 @@
+# The rules scripts/inception-secret-screen.sh hands gitleaks: its built-in
+# defaults, named explicitly so a .gitleaks.toml committed in a venture repo
+# (or a GITLEAKS_CONFIG in the environment) cannot replace them.
+title = "planwright venture secret screen"
+
+[extend]
+useDefault = true
