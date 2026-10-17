@@ -83,7 +83,8 @@
 # value cancelled it, the view checkout-local or primary. Printed paths are
 # canonical (symlinks resolved), except that the default root is printed as
 # <checkout>/specs whether or not it exists or is a symlink, and a re-based
-# or mapped path is composed, not resolved.
+# or mapped path is composed, not resolved. For marker it prints
+# "marker\t<path>".
 #
 # Exit: 0 printed · 1 no install root resolved · 2 usage · 3 no repository
 #   root (git missing, not inside a working tree, a bare repository, or a
@@ -103,7 +104,7 @@
 #   path from an empty root.
 #
 # POSIX sh with no dependency beyond git and tr, plus, for the spec kind,
-# sed, cut, grep, head, tail, mktemp, ln, rm, and the config resolvers: guards
+# (sed and head also for marker) sed, cut, grep, head, tail, mktemp, ln, rm, and the config resolvers: guards
 # and hooks exec it through /bin/sh, which is dash on Linux.
 set -u
 # Pin the C locale so tr's byte ranges below mean bytes.

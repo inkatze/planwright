@@ -473,7 +473,7 @@ if [ "$have_target" -eq 1 ]; then
   obsdir=$tg_root/_observations
 elif [ "$have_obsdir" -eq 0 ]; then
   obsdir=$(obs_default_store "$script_dir") \
-    || refuse 1 "the spec root did not resolve, so the observation store has no default; name one with --obs-dir"
+    || refuse 1 "the spec root did not resolve, so the observations directory has no default; name one with --obs-dir"
 fi
 
 # --- directory setup + containment ---------------------------------------

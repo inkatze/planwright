@@ -34,7 +34,11 @@
 #
 # Usage: observation-carry.sh [options] <repo-root>
 #   <repo-root>          the checkout whose current branch (HEAD) carries the
-#                        tower observation fragments to carry.
+#                        tower observation fragments to carry. When the default
+#                        store is a holder's (separate-repo, below), the carry
+#                        runs in the holder instead: HEAD, --source, --base,
+#                        --branch, the lock, and the PR are all the holder's,
+#                        and only fragments committed there are carried.
 #   --branch <name>      chore branch name (default planwright/chore/observations).
 #   --base <ref>         base ref the carry lands toward (default origin/main).
 #   --source <ref>       ref whose fragments are carried (default HEAD).
@@ -64,7 +68,8 @@
 #
 # Environment overrides (tests, worktree callers):
 #   PLANWRIGHT_OBSERVATION_CARRY_STATE_DIR  dir holding the advisory lock
-#       (default <repo>/.claude/orchestrate.local, gitignored by `.claude/*.local/`).
+#       (default <repo>/.claude/orchestrate.local, gitignored by `.claude/*.local/`
+#       in planwright's own repositories; a holder ignores it only if told to).
 #
 # Portable POSIX sh + git + gh (bash 3.2 / BSD compatible, no eval; all external
 # input is treated as data). Pathname expansion is disabled (set -f).
