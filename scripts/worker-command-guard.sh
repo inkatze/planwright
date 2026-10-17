@@ -48,11 +48,12 @@
 # command is known-safe only when (a) its verb is on the enumerated allowlist
 # below, (b) its flags/args designate no output/target file and enable no write
 # or arbitrary execution (REQ-A1.8), the spec-root write zone excepted, and (c)
-# it uses no construct the analyzer cannot confidently parse — command/process
-# substitution, here-docs, subshell or brace grouping, env-assignment prefixes,
-# path-prefixed verbs, escaped operators, ANSI-C quoting, shell comments,
-# named-fd redirects — all of which defer (REQ-A1.9). The segments are read in
-# run order, so the state one sets applies to those after it: a `cd` into the
+# it uses no construct the analyzer cannot confidently parse — process
+# substitution, a command substitution outside the narrow form
+# verify_known_simple and subst_words_ok admit, here-docs, subshell or brace
+# grouping, env-assignment prefixes, path-prefixed verbs, escaped operators,
+# ANSI-C quoting, shell comments, named-fd redirects — all of which defer
+# (REQ-A1.9). The segments are read in run order, so the state one sets applies to those after it: a `cd` into the
 # session's own worktree moves the working directory later segments are
 # checked against (see cd_target_ok), and the time/timeout prefixes are looked
 # through to the command they wrap (see strip_prefixes); fin decides where
@@ -93,14 +94,20 @@ export LC_ALL
 # over the command — a ~40 KiB command takes ~8 s. MAX_CMD_LEN caps that at a
 # fraction of a second (~0.5 s) PER analyze_command entry so the hook can never
 # hang a worker's tool call; a longer command simply defers (never worse than
-# the normal prompt). Because `fish -c "<inner>"` re-enters analyze_command on
-# the inner string (each entry independently re-checked against MAX_CMD_LEN),
-# the end-to-end worst case is that per-entry cost multiplied by the number of
-# levels — up to MAX_DEPTH+1 entries, i.e. ~2 s worst case, not ~0.5 s, plus
-# STEPS_DEADLINE when a segment reaches the declared-step fallback. 8 KiB is
-# far above any real worker command shape. MAX_DEPTH caps `fish -c` recursion so
-# a nested-`fish -c` bomb can never spin.
+# the normal prompt). Two routes re-enter analyze_command on text inside the
+# command, a `fish -c "<inner>"` string and a command substitution's inner
+# text, and a loop body is walked once per head word, each walk costing in
+# proportion to its words' length. So MAX_SCANNED caps the text one hook call
+# may tokenize and walk together, every entry and loop pass counted: past it
+# the command defers, which keeps the end-to-end cost near that of a few
+# full-length entries, plus STEPS_DEADLINE when a segment reaches the
+# declared-step fallback. A substitution's verdict is kept for the working
+# directory it last passed in, so a loop pass there does not analyse it again. 8 KiB is far above any
+# real worker command shape. MAX_DEPTH caps `fish -c` recursion so a
+# nested-`fish -c` bomb can never spin.
 readonly MAX_CMD_LEN=8192
+readonly MAX_SCANNED=$((MAX_CMD_LEN * 4))
+readonly DOLLAR_COST=8
 readonly MAX_DEPTH=3
 # A `for` loop is verified once per head word (loop_header), so its cost
 # multiplies the body's: past MAX_LOOP_WORDS head words the whole loop
@@ -134,10 +141,10 @@ emit_allow() {
 # TOK_N via dynamic scope. Token types: W (word), O (control/grouping operator:
 # `;` `;;` `&&` `||` `|` `&` `(` `)`), R (redirect operator, possibly with an
 # fd-number prefix). Returns non-zero (DEFER) the instant it meets a construct
-# it will not analyze: unbalanced quotes, command/process substitution, backtick
-# substitution, ANSI-C `$'…'`, a backslash line-continuation or escaped
-# operator/quote, a shell comment, or a named-fd redirect. It never executes or
-# expands anything it scans.
+# it will not analyze: unbalanced quotes, process substitution, a command
+# substitution subst_scan refuses, backtick substitution, ANSI-C `$'…'`, a
+# backslash line-continuation or escaped operator/quote, a shell comment, or a
+# named-fd redirect. It never executes or expands anything it scans.
 # tok_push <type> <value> [quoted]: the optional third arg records whether a W
 # token was built from any quoting or backslash-escaping (1) or is a bare,
 # unquoted literal (0, the default for operators and plain words). classify of a
@@ -156,7 +163,9 @@ emit_allow() {
 # (see word_unresolved). The eighth is the zsh-option flag (see
 # zsh_opt_word_ok). The ninth records that the quoting is mixed: a second
 # quoted run, or an unquoted character after quoting began, so a value quoted
-# from its first character is wholly quoted only when this is 0.
+# from its first character is wholly quoted only when this is 0. The tenth
+# lists, space-separated, the SUBST_TXT indexes of the `$(…)` substitutions the
+# word holds (see subst_scan).
 tok_push() {
   TOK_TYPE[TOK_N]=$1
   TOK_VAL[TOK_N]=$2
@@ -167,6 +176,7 @@ tok_push() {
   TOK_GLOB[TOK_N]=${7:-0}
   TOK_ZOPT[TOK_N]=${8:-0}
   TOK_QMIX[TOK_N]=${9:-0}
+  TOK_SUBS[TOK_N]=${10:-}
   TOK_N=$((TOK_N + 1))
 }
 
@@ -191,9 +201,12 @@ dollar_expands() {
 # so the shell expands one longer name where this C-locale scan ends the
 # name before that byte and keeps the byte as literal text. zsh's `$~NAME`
 # defers wherever it appears: it reads the value as a glob pattern, and a
-# glob qualifier in that value can run a command during the expansion.
+# glob qualifier in that value can run a command during the expansion. So
+# does a NAME or a one-character special parameter (`$*`, `$@`, `$?`)
+# directly followed by `[`, quoted or not: zsh reads that as a
+# subscript and evaluates it as arithmetic, which can assign a variable.
 dollar_form_ok() {
-  local s=$1 i=$2 j body
+  local s=$1 i=$2 j k body
   case ${s:i+1:1} in
     '[' | '~') return 1 ;;
     '{')
@@ -211,6 +224,7 @@ dollar_form_ok() {
     *)
       j=$((i + 1))
       case ${s:j:1} in [=^+#]) j=$((j + 1)) ;; esac
+      k=$j
       while [ "$j" -lt "${#s}" ]; do
         case ${s:j:1} in
           [A-Za-z0-9_]) j=$((j + 1)) ;;
@@ -218,6 +232,8 @@ dollar_form_ok() {
         esac
       done
       case ${s:j:1} in
+        '[') return 1 ;;
+        '*' | '@' | '?' | '!' | '-' | '$' | '#') [ "$j" -ne "$k" ] || [ "${s:j+1:1}" != '[' ] || return 1 ;;
         '' | [[:print:][:cntrl:]]) ;;
         *) return 1 ;;
       esac
@@ -226,11 +242,38 @@ dollar_form_ok() {
   return 0
 }
 
+# subst_scan <string> <index>: the `$(` at <index> opens a command
+# substitution the narrow rule can judge (REQ-E1.3): its text runs to the
+# first `)` and holds no `(` and no backtick, so it nests nothing, and a `)`
+# the shell would read as quoted or escaped cuts the text inside that quote
+# or escape, which then fails to tokenize when verify_known_simple analyses
+# it. Records the inner text in SUBST_TXT, its index in SUBST_IDX, and the
+# index past the `)` in SUBST_END. `$((` arithmetic, and any substitution
+# inside a `fish -c` string (fish splits its output on newlines alone),
+# defer.
+subst_scan() {
+  local s=$1 p=$(($2 + 2))
+  [ "$HOOK_DEPTH" -eq 0 ] || return 1
+  [ "${s:p:1}" != '(' ] || return 1
+  while [ "$p" -lt "${#s}" ]; do
+    case ${s:p:1} in
+      ')') break ;;
+      '(' | '`') return 1 ;;
+    esac
+    p=$((p + 1))
+  done
+  [ "$p" -lt "${#s}" ] || return 1
+  SUBST_TXT[SUBST_N]=${s:$2+2:p-$2-2}
+  SUBST_IDX=$SUBST_N
+  SUBST_N=$((SUBST_N + 1))
+  SUBST_END=$((p + 1))
+}
+
 tokenize() {
   local s=$1
   local n=${#s}
   local i=0
-  local cur='' have=0 curq=0 curx=0 curqp=-1 curd=0 curg=0 curz=0 curqm=0 brk=0 brc=0 brs=0
+  local cur='' have=0 curq=0 curx=0 curqp=-1 curd=0 curg=0 curz=0 curqm=0 brk=0 brc=0 brs=0 cursub=''
   local c nc j k dc dn fdpfx
 
   # _flush: push the accumulated word (if any) as a W token carrying its
@@ -238,8 +281,9 @@ tokenize() {
   # then reset the accumulator.
   _flush() {
     if [ "$have" = 1 ]; then
-      tok_push W "$cur" "$curq" "$curx" "$curqp" "$curd" "$curg" "$curz" "$curqm"
+      tok_push W "$cur" "$curq" "$curx" "$curqp" "$curd" "$curg" "$curz" "$curqm" "$cursub"
       cur=''
+      cursub=''
       have=0
       curq=0
       curx=0
@@ -316,7 +360,16 @@ tokenize() {
           fi
           if [ "$dc" = '$' ]; then
             dn=${s:j+1:1}
-            [ "$dn" = '(' ] && return 1 # $( command substitution
+            # Its text opens a fresh quoting context, so a `"` in it does
+            # not end this one.
+            if [ "$dn" = '(' ]; then
+              subst_scan "$s" "$j" || return 1
+              cursub="$cursub $SUBST_IDX"
+              [ "$curd" = 2 ] || curd=1
+              k="$k${s:j:SUBST_END-j}"
+              j=$SUBST_END
+              continue
+            fi
             [ "$dn" = "'" ] && return 1 # $' ANSI-C quoting
             dollar_form_ok "$s" "$j" || return 1
             [ "$dn" != '"' ] && dollar_expands "$dn" && { [ "$curd" = 2 ] || curd=1; }
@@ -335,7 +388,16 @@ tokenize() {
       '`') return 1 ;; # backtick substitution
       '$')
         nc=${s:i+1:1}
-        [ "$nc" = '(' ] && return 1 # $( command substitution
+        if [ "$nc" = '(' ]; then
+          subst_scan "$s" "$i" || return 1
+          cursub="$cursub $SUBST_IDX"
+          curd=2
+          [ "$curq" = 1 ] && curqm=1
+          cur="$cur${s:i:SUBST_END-i}"
+          have=1
+          i=$SUBST_END
+          continue
+        fi
         [ "$nc" = "'" ] && return 1 # $' ANSI-C quoting
         dollar_form_ok "$s" "$i" || return 1
         dollar_expands "$nc" && curd=2
@@ -406,10 +468,11 @@ tokenize() {
           # A quoted digit run is a word (bash only reads an UNQUOTED digit run
           # as this redirect's fd number), so an fd prefix is bare digits only.
           case $cur in
-            '' | *[!0-9]*) tok_push W "$cur" "$curq" "$curx" "$curqp" "$curd" "$curg" "$curz" "$curqm" ;;
-            *) [ "$curq" = 1 ] && tok_push W "$cur" "$curq" "$curx" "$curqp" "$curd" "$curg" "$curz" "$curqm" || fdpfx=$cur ;;
+            '' | *[!0-9]*) tok_push W "$cur" "$curq" "$curx" "$curqp" "$curd" "$curg" "$curz" "$curqm" "$cursub" ;;
+            *) [ "$curq" = 1 ] && tok_push W "$cur" "$curq" "$curx" "$curqp" "$curd" "$curg" "$curz" "$curqm" "$cursub" || fdpfx=$cur ;;
           esac
           cur=''
+          cursub=''
           have=0
           curq=0
           curx=0
@@ -765,7 +828,7 @@ is_contained_file() {
 # write cannot travel through a symlink or a hard link to a file outside.
 in_spec_zone() {
   local p=$1 cwd=$2 full rel top
-  [ -n "$SPEC_ZONE" ] || return 1
+  [ -n "$SPEC_ZONE" ] && [ "$IN_SUBST" = 0 ] || return 1
   case $p in
     '' | -* | *[!A-Za-z0-9._/@+-]*) return 1 ;;
   esac
@@ -2434,12 +2497,13 @@ assign_value_literal() {
 # track_assignment: 0 when the current one-word simple command (`cw` and its
 # flag arrays, by dynamic scope, before any substitution) is a standalone
 # assignment the rules admit, leaving its halves in PENDING_ASSIGN_N / _V and
-# PENDING_ASSIGN_O (1: opaque) for verify_tokens to commit once it knows the
-# segment's placement.
+# PENDING_ASSIGN_O (1: opaque) and PENDING_ASSIGN_S (the VAR_S value, see
+# word_tainted) for verify_tokens to commit once it knows the segment's placement.
 track_assignment() {
   local w=${cw[0]} qpos=${cqp[0]} name value eqpos v vq
   # fish has no `NAME=value` statement, so inside `fish -c` the word is not one.
-  [ "$HOOK_DEPTH" -eq 0 ] || return 1
+  # Inside a substitution it would set a subshell's variable, never modelled.
+  [ "$HOOK_DEPTH" -eq 0 ] && [ "$IN_SUBST" = 0 ] || return 1
   case $w in
     [A-Za-z_]*=*) ;;
     *) return 1 ;;
@@ -2463,6 +2527,10 @@ track_assignment() {
   PENDING_ASSIGN_O=0
   assign_value_literal "$value" "$vq" "${cqm[0]}" "${cdyn[0]}" "${cglob[0]}" "${cx[0]}" \
     || PENDING_ASSIGN_O=1
+  PENDING_ASSIGN_S=0
+  if [ "$SUBST_N" -gt 0 ] && word_tainted 0; then
+    PENDING_ASSIGN_S=$((TAINT_WEAK + 1))
+  fi
   PENDING_ASSIGN_N=$name
   PENDING_ASSIGN_V=$value
   return 0
@@ -2552,7 +2620,7 @@ expand_word() {
 # expansions all came out empty is removed, as both shells remove it.
 expand_words() {
   local i mode
-  local -a nw=() nx=() nq=() nd=() ng=() nz=() nm=()
+  local -a nw=() nx=() nq=() nd=() ng=() nz=() nm=() ns=()
   local nn=0
   for ((i = 0; i < cwn; i++)); do
     case ${cw[i]} in
@@ -2581,6 +2649,7 @@ expand_words() {
     ng[nn]=${cglob[i]}
     nz[nn]=${cz[i]-0}
     nm[nn]=${cqm[i]}
+    ns[nn]=${csub[i]-}
     nn=$((nn + 1))
   done
   cw=(${nw[@]+"${nw[@]}"})
@@ -2590,13 +2659,14 @@ expand_words() {
   cglob=(${ng[@]+"${ng[@]}"})
   cz=(${nz[@]+"${nz[@]}"})
   cqm=(${nm[@]+"${nm[@]}"})
+  csub=(${ns[@]+"${ns[@]}"})
   cwn=$nn
 }
 
 # shift_words <n>: drop the first <n> words of the current simple command.
 shift_words() {
   local i n=$1
-  local -a nw=() nx=() nq=() nd=() ng=() nz=() nm=()
+  local -a nw=() nx=() nq=() nd=() ng=() nz=() nm=() ns=()
   for ((i = n; i < cwn; i++)); do
     nw[i - n]=${cw[i]}
     nx[i - n]=${cx[i]}
@@ -2605,6 +2675,7 @@ shift_words() {
     ng[i - n]=${cglob[i]}
     nz[i - n]=${cz[i]-0}
     nm[i - n]=${cqm[i]}
+    ns[i - n]=${csub[i]-}
   done
   cw=(${nw[@]+"${nw[@]}"})
   cx=(${nx[@]+"${nx[@]}"})
@@ -2613,6 +2684,7 @@ shift_words() {
   cglob=(${ng[@]+"${ng[@]}"})
   cz=(${nz[@]+"${nz[@]}"})
   cqm=(${nm[@]+"${nm[@]}"})
+  csub=(${ns[@]+"${ns[@]}"})
   cwn=$((cwn > n ? cwn - n : 0))
 }
 
@@ -2870,15 +2942,191 @@ guard_test() {
   return 0
 }
 
+# printf_format_inert <format>: 0 when every conversion in the literal
+# format reads its operand as text (`%s`, `%b`, `%q`, `%c`, or `%%`) and none
+# takes a `*` width or precision. zsh evaluates an operand a numeric
+# conversion or a `*` consumes as arithmetic, which can assign a variable.
+printf_format_inert() {
+  local f=$1
+  while :; do
+    case $f in
+      *%*) f=${f#*%} ;;
+      *) return 0 ;;
+    esac
+    while :; do
+      case ${f:0:1} in
+        - | + | ' ' | '#' | "'" | . | [0-9]) f=${f#?} ;;
+        '*') return 1 ;;
+        *) break ;;
+      esac
+    done
+    case ${f:0:1} in
+      s | b | q | c | %) f=${f#?} ;;
+      *) return 1 ;;
+    esac
+  done
+}
+
 # guard_printf: `printf -v NAME` assigns a variable (PATH included) and
 # evaluates a subscript in NAME the way `test -v` does; bash also takes the
 # bundled `-vNAME`. A first word that is any option other than `--` defers.
+# After a format with a non-text conversion, every operand must be a plain
+# number, since zsh evaluates such an operand, a literal one too, as
+# arithmetic.
 guard_printf() {
-  [ "${cw[1]-}" = -- ] && return 0
+  local fmt=1 i re='^[-+]?[0-9]+(\.[0-9]+)?$'
   case ${cw[1]-} in
+    --) fmt=2 ;;
     -*) return 1 ;;
   esac
+  printf_format_inert "${cw[fmt]-}" && return 0
+  for ((i = fmt + 1; i < cwn; i++)); do
+    word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" && return 1
+    [[ ${cw[i]} =~ $re ]] || return 1
+  done
   return 0
+}
+
+# Command substitution (REQ-E1.3, D-11). A `$(…)` whose inner text passes the
+# read-only analysis on its own (subst_inner_ok) still prints text the hook
+# never sees, so its output, directly or through a variable assigned from it,
+# may reach only a position whose verdict no value can change: then the
+# unknown text is equivalent to some literal the guard already approves. That
+# set is narrower than arg_independent_verb's: a verb that opens its operands
+# could be handed another process's environ path, and the rest are left out
+# rather than argued one by one. In the comments of this section, a bare
+# "substitution" is a command substitution, never the table of tracked
+# variables (VAR_*).
+
+# word_tainted <i>: 0 when word <i> of the current simple command carries
+# substitution output, with TAINT_WEAK saying how the guard knows. Known
+# (TAINT_WEAK=0): the word holds a `$(…)` or names a variable the table marks
+# as assigned from one (VAR_S 1). Inferred (TAINT_WEAK=1): the name may hold
+# output the table cannot see. Callers ask only about a command holding a
+# substitution, where any name the table does not track may: `$_` is the
+# previous command's last argument (and a loop's head reads it again after
+# the body's substitution), a zsh pipeline's last `read` sets a name in the
+# current shell, and the inner text of a substitution starts with an empty
+# table while its subshell inherits every outer variable (VAR_S 2 marks a
+# variable assigned from such a word). A word mixing both is inferred: its
+# known part says nothing about the rest. Every `$` spelling is read, a
+# literal one too, which can only narrow a verdict.
+word_tainted() {
+  local w=${cw[$1]} name v found weak=0 known=0 dollars
+  TAINT_WEAK=0
+  [ -z "${csub[$1]-}" ] || known=1
+  # Each `$` below copies the rest of the word, so a word holding more than
+  # a handful is taken as inferred rather than read name by name.
+  dollars=${w//[!\$]/}
+  if [ "${#dollars}" -gt 64 ]; then
+    TAINT_WEAK=1
+    return 0
+  fi
+  while :; do
+    case $w in
+      *'$'*) w=${w#*'$'} ;;
+      *) break ;;
+    esac
+    w=${w#'{'}
+    case $w in [=^+#]*) w=${w#?} ;; esac
+    name=${w%%[!A-Za-z0-9_]*}
+    [ -n "$name" ] || continue
+    if [ "$IN_SUBST" = 1 ]; then
+      weak=1
+      break
+    fi
+    found=0
+    for ((v = VAR_C - 1; v >= 0; v--)); do
+      if [ "${VAR_N[v]}" = "$name" ]; then
+        found=1
+        # A loop variable's slot never carries a VAR_S of its own.
+        if [ "${VAR_L[v]}" = 0 ]; then
+          case ${VAR_S[v]-0} in
+            1) known=1 ;;
+            2) weak=1 ;;
+          esac
+        fi
+        break
+      fi
+    done
+    [ "$found" = 1 ] || weak=1
+  done
+  if [ "$weak" = 1 ]; then
+    TAINT_WEAK=1
+    return 0
+  fi
+  [ "$known" = 1 ]
+}
+
+# subst_reach_ok <i>: whether word <i>, which carries substitution output,
+# sits in an argument-independent position: an operand of echo, an operand
+# of printf after its format, an operand after a script path (whether the
+# script is trusted is the verb rules' call), or a test operand. 0 admits the
+# word; 2 leaves it to test_opaque_ok as an opaque word, since test reads
+# its operands as operators by position and `-v` runs a subscript; 1 defers.
+subst_reach_ok() {
+  local i=$1 fmt=1
+  [ "$i" -gt 0 ] || return 1
+  case ${cw[0]} in
+    echo) return 0 ;;
+    printf)
+      [ "${cw[1]-}" = -- ] && fmt=2
+      [ "$i" -gt "$fmt" ] && return 0
+      ;;
+    test | '[') return 2 ;;
+    bash | sh) [ "$i" -ge 2 ] && return 0 ;;
+    */*) return 0 ;;
+  esac
+  return 1
+}
+
+# subst_inner_ok <text>: the inner text of a `$(…)` is one simple command or
+# pipeline that passes the read-only analysis alone, in a subshell: no
+# assignment or `cd` is modelled there, and neither trusted repo code, a
+# declared step, nor a spec-root write counts as read-only.
+subst_inner_ok() {
+  local saved=$IN_SUBST rc
+  IN_SUBST=1
+  analyze_command "$1" "$HOOK_DEPTH" pipeline
+  rc=$?
+  IN_SUBST=$saved
+  return "$rc"
+}
+
+# subst_words_ok: the current simple command's words carrying substitution
+# output each sit where subst_reach_ok admits them, and then every other
+# unresolved word passes opaque_words_ok, which sees each admitted word known
+# to carry output as a plain literal. A word only inferred to carry it is
+# left as it is, so it must pass both checks and a name that may be an
+# ordinary opaque value gains no position it lacked. The neutral copy is
+# local, so the screens after this one still read the words as written.
+subst_words_ok() {
+  local i rc
+  # Without a substitution in this command, or around it, nothing is tainted.
+  if [ "$SUBST_N" -eq 0 ] && [ "$IN_SUBST" = 0 ]; then
+    opaque_words_ok
+    return
+  fi
+  local -a cw=(${cw[@]+"${cw[@]}"}) cdyn=(${cdyn[@]+"${cdyn[@]}"}) cglob=(${cglob[@]+"${cglob[@]}"})
+  local -a cx=(${cx[@]+"${cx[@]}"}) cz=(${cz[@]+"${cz[@]}"})
+  for ((i = 0; i < cwn; i++)); do
+    word_tainted "$i" || continue
+    subst_reach_ok "$i"
+    rc=$?
+    [ "$rc" = 0 ] && [ "$TAINT_WEAK" = 1 ] && rc=2
+    case $rc in
+      0)
+        cw[i]=x
+        cdyn[i]=0
+        cglob[i]=0
+        cx[i]=0
+        cz[i]=0
+        ;;
+      2) ;;
+      *) return 1 ;;
+    esac
+  done
+  opaque_words_ok
 }
 
 # opaque_words_ok: the current simple command (`cw` and its flag arrays, by
@@ -3421,15 +3669,28 @@ declared_line_ok() {
 # / count `cwn` and the redirect arrays `ro` (ops) / `rt` (targets) / `rn`
 # from the caller via dynamic scope. Returns 0 (safe) or non-zero (DEFER).
 verify_simple() {
-  local i swn=$cwn
+  local i swn=$cwn dollars
   SIMPLE_N=$((SIMPLE_N + 1))
   [ "$SIMPLE_N" -le "$MAX_SIMPLE_CMDS" ] || return 1
+  # Each `$` costs a pass over the rest of its word (expand_word,
+  # word_tainted), so it is charged DOLLAR_COST on top of the word's length.
+  for ((i = 0; i < cwn; i++)); do
+    dollars=${cw[i]//[!\$]/}
+    SCANNED=$((SCANNED + ${#cw[i]} + ${#dollars} * DOLLAR_COST))
+  done
+  [ "$SCANNED" -le "$MAX_SCANNED" ] || return 1
   local -a sw=() swq=()
   for ((i = 0; i < cwn; i++)); do
     sw[i]=${cw[i]}
     swq[i]=${cqp[i]}
   done
   verify_known_simple && return 0
+  # A declared step is an operator's exact line, never one around a
+  # substitution, and is not read-only inside one.
+  [ "$IN_SUBST" = 0 ] || return 1
+  for ((i = 0; i < cwn; i++)); do
+    [ -z "${csub[i]-}" ] || return 1
+  done
   declared_line_ok
 }
 
@@ -3509,7 +3770,7 @@ strip_prefixes() {
 cd_target_ok() {
   local t=${cw[1]-} base acc comp canon
   local -a comps=()
-  [ "$cwn" -eq 2 ] && [ "$HOOK_DEPTH" -eq 0 ] && [ "$HOOK_CDPATH_SET" = 0 ] || return 1
+  [ "$cwn" -eq 2 ] && [ "$HOOK_DEPTH" -eq 0 ] && [ "$IN_SUBST" = 0 ] && [ "$HOOK_CDPATH_SET" = 0 ] || return 1
   if [ "$HOOK_WT_RESOLVED" = 0 ]; then
     HOOK_WT_ROOT=$(repo_root_of "$HOOK_PAYLOAD_CWD") || HOOK_WT_ROOT=''
     HOOK_WT_RESOLVED=1
@@ -3588,7 +3849,18 @@ version_tool() {
 
 # verify_known_simple: the enumerated known-safe rules for one simple command.
 verify_known_simple() {
-  local i verb
+  local i verb si
+  # Each substitution's own command runs whatever the words around it are,
+  # so it must pass first, against the working directory it will run in.
+  if [ "$SUBST_N" -gt 0 ]; then
+    for ((i = 0; i < cwn; i++)); do
+      for si in ${csub[i]-}; do
+        [ "${SUBST_OKD[si]-}" = "d:$HOOK_CWD" ] && continue
+        subst_inner_ok "${SUBST_TXT[si]}" || return 1
+        SUBST_OKD[si]=d:$HOOK_CWD
+      done
+    done
+  fi
   # Redirects first: a write to a real file defers regardless of the verb,
   # unless its target is in the spec-root write zone (covers a leading
   # redirect with no command too, e.g. `> f cat x`).
@@ -3614,6 +3886,13 @@ verify_known_simple() {
   [ "$cwn" -ge 1 ] || return 0
   strip_prefixes || return 1
   verb=${cw[0]}
+  # A substitution's command must be read-only, and trusted repo code (a
+  # script, `bash`/`sh` running one, `mise`, `lefthook`, `bats`) may write.
+  if [ "$IN_SUBST" = 1 ]; then
+    case $verb in
+      */* | bash | sh | mise | lefthook | bats) return 1 ;;
+    esac
+  fi
   if [ "$verb" = cd ]; then
     cd_target_ok
     return
@@ -3621,7 +3900,7 @@ verify_known_simple() {
   if opens_operands "$verb"; then
     environ_words_ok || return 1
   fi
-  opaque_words_ok || return 1
+  subst_words_ok || return 1
   # Inline environment-assignment prefix (REQ-A1.9): VAR=value [cmd].
   case $verb in
     [A-Za-z_]*=*)
@@ -3672,8 +3951,9 @@ verify_tokens() {
   local ctl_depth=0 seg_open='' prev_commit=0 cd_live=0
   # Accumulators for the current simple command (dynamic scope: verify_simple
   # reads these): words, their literal-dollar, quote-start, expansion, glob,
-  # zsh-option and mixed-quoting flags, and the redirects. Reset by fin().
-  local -a cw=() cx=() cqp=() cdyn=() cglob=() cz=() cqm=() ro=() rt=()
+  # zsh-option and mixed-quoting flags, substitution indexes, and the
+  # redirects. Reset by fin().
+  local -a cw=() cx=() cqp=() cdyn=() cglob=() cz=() cqm=() csub=() ro=() rt=()
   local cwn=0 rn=0
   # The open `for` loops, innermost last: the loop variable's VAR slot, its
   # head words in LW, the word being verified, the first body token, and the
@@ -3688,7 +3968,7 @@ verify_tokens() {
   # carries from a segment at the top level opened by nothing, `;`, or `&&`
   # straight after another state-carrying segment: anywhere else the segment
   # may run in a subshell or not at all, so the command defers. An assignment
-  # always succeeds, so it may also close with `;` or `||`; a `cd` can fail,
+  # always takes effect, so it may also close with `;` or `||`; a `cd` can fail,
   # so it must close with `&&` or end the command, and once one is carried,
   # every later top-level operator must keep the walk inside its `&&` chain
   # (`&&`, or `|`, which binds tighter), since after `;`, `||`, or `&` the
@@ -3698,6 +3978,7 @@ verify_tokens() {
     PENDING_ASSIGN_N=''
     PENDING_ASSIGN_V=''
     PENDING_ASSIGN_O=0
+    PENDING_ASSIGN_S=0
     PENDING_CD=''
     verify_simple || return 1
     if [ "$cd_live" = 1 ] && [ "$ctl_depth" -eq 0 ]; then
@@ -3734,9 +4015,13 @@ verify_tokens() {
         VAR_V[VAR_C]=$PENDING_ASSIGN_V
         VAR_L[VAR_C]=0
         VAR_O[VAR_C]=$PENDING_ASSIGN_O
+        VAR_S[VAR_C]=$PENDING_ASSIGN_S
         VAR_C=$((VAR_C + 1))
       fi
       prev_commit=1
+      # An assignment holding a substitution exits with its command's
+      # status, so what follows its `&&` may not run.
+      [ -z "${csub[0]-}" ] || prev_commit=0
     else
       prev_commit=0
     fi
@@ -3748,6 +4033,7 @@ verify_tokens() {
     cglob=()
     cz=()
     cqm=()
+    csub=()
     ro=()
     rt=()
     cwn=0
@@ -3759,6 +4045,11 @@ verify_tokens() {
     typ=${TOK_TYPE[idx]}
     val=${TOK_VAL[idx]}
 
+    # The case head and pattern words below are skipped unverified, so a
+    # substitution there would run unanalysed.
+    if [ "$mode" = casehead ] || [ "$mode" = casepat ]; then
+      [ -z "${TOK_SUBS[idx]}" ] || return 1
+    fi
     # case head: skip the matched word up to `in`.
     if [ "$mode" = casehead ]; then
       if [ "$typ" = W ] && [ "$val" = "in" ]; then
@@ -3820,6 +4111,7 @@ verify_tokens() {
       # bash treats it as a real file target (`>&"1\2"` writes a file). Defer
       # rather than let classify_redirect mistake it for a safe fd-dup/null-write.
       [ "${TOK_QUOTED[nxt]}" = 1 ] && return 1
+      [ -z "${TOK_SUBS[nxt]}" ] || return 1
       ro[rn]=$val
       rt[rn]=${TOK_VAL[nxt]}
       rn=$((rn + 1))
@@ -3893,6 +4185,7 @@ verify_tokens() {
     cglob[cwn]=${TOK_GLOB[idx]}
     cz[cwn]=${TOK_ZOPT[idx]}
     cqm[cwn]=${TOK_QMIX[idx]}
+    csub[cwn]=${TOK_SUBS[idx]}
     cwn=$((cwn + 1))
     idx=$((idx + 1))
   done
@@ -3906,27 +4199,62 @@ verify_tokens() {
 }
 
 # --------------------------------------------------------------------------
-# analyze_command <command> <depth>: tokenize then verify. Returns 0 iff the
-# whole command is known-safe. Depth bounds fish -c recursion (REQ-B1.3).
-# TOK_* are declared local here so recursion (guard_fish -> analyze_command)
-# gets a fresh, shadowing token stream and never corrupts an outer walk.
+# analyze_command <command> <depth> [pipeline]: tokenize then verify. Returns
+# 0 iff the whole command is known-safe. Depth bounds fish -c recursion
+# (REQ-B1.3); `pipeline` admits only one simple command or pipeline (a
+# substitution's inner text). TOK_* are declared local here so recursion
+# (guard_fish or subst_inner_ok -> analyze_command) gets a fresh, shadowing
+# token stream and never corrupts an outer walk.
 analyze_command() {
-  local cmd=$1 depth=$2
+  local cmd=$1 depth=$2 t seg lead dollars
   [ "$depth" -le "$MAX_DEPTH" ] || return 1
   [ "${#cmd}" -le "$MAX_CMD_LEN" ] || return 1
-  local -a TOK_TYPE=() TOK_VAL=() TOK_QUOTED=() TOK_NOEXP=() TOK_QPOS=() TOK_DYN=() TOK_GLOB=() TOK_ZOPT=() TOK_QMIX=()
+  # The tokenizer screens each `$` against the rest of the command, so the
+  # `$` are charged before it runs, not only when the words are walked.
+  dollars=${cmd//[!\$]/}
+  SCANNED=$((SCANNED + ${#cmd} + ${#dollars} * DOLLAR_COST))
+  [ "$SCANNED" -le "$MAX_SCANNED" ] || return 1
+  local -a TOK_TYPE=() TOK_VAL=() TOK_QUOTED=() TOK_NOEXP=() TOK_QPOS=() TOK_DYN=() TOK_GLOB=() TOK_ZOPT=() TOK_QMIX=() TOK_SUBS=()
   local TOK_N=0
+  # The command substitutions' inner texts and the working directory each
+  # last passed in (SUBST_OKD, `d:`-prefixed; a cd cannot move inside a loop
+  # today, so no loop re-checks one in another directory yet);
+  # subst_scan returns its results in SUBST_IDX / SUBST_END.
+  local -a SUBST_TXT=() SUBST_OKD=()
+  local SUBST_N=0 SUBST_IDX=0 SUBST_END=0
   local HOOK_DEPTH=$depth
   # The substitution table (tracked assignments and loop variables, VAR_L
   # marking the latter and VAR_O an opaque value; track_assignment /
   # loop_header / expand_word), fresh
   # per entry so a `fish -c` inner string never inherits the outer shell's,
   # and the loop head words it draws from.
-  local -a VAR_N=() VAR_V=() VAR_L=() VAR_O=() LW=()
+  local -a VAR_N=() VAR_V=() VAR_L=() VAR_O=() VAR_S=() LW=()
   local VAR_C=0 LW_N=0
   local LH_NAME='' LH_START=0 LH_COUNT=0 LH_NEXT=0
-  local PENDING_ASSIGN_N='' PENDING_ASSIGN_V='' PENDING_ASSIGN_O=0 PENDING_CD='' PREFIXED=0
+  local PENDING_ASSIGN_N='' PENDING_ASSIGN_V='' PENDING_ASSIGN_O=0 PENDING_ASSIGN_S=0 PENDING_CD='' PREFIXED=0
   tokenize "$cmd" || return 1
+  # Each `|`-separated segment holds a command or a redirect, and its first
+  # word is no reserved word: anything else is not a pipeline.
+  if [ "${3-}" = pipeline ]; then
+    seg=0 lead=1
+    for ((t = 0; t < TOK_N; t++)); do
+      case ${TOK_TYPE[t]} in
+        O)
+          [ "${TOK_VAL[t]}" = '|' ] && [ "$seg" = 1 ] || return 1
+          seg=0 lead=1
+          ;;
+        R)
+          seg=1
+          t=$((t + 1))
+          ;;
+        *)
+          [ "$lead" = 0 ] || ! is_reserved "${TOK_VAL[t]}" || return 1
+          seg=1 lead=0
+          ;;
+      esac
+    done
+    [ "$seg" = 1 ] || return 1
+  fi
   verify_tokens "$depth"
 }
 
@@ -3979,6 +4307,9 @@ main() {
   # Shared across `fish -c` recursion so nesting cannot multiply the bound.
   LOOP_PASSES=0
   SIMPLE_N=0
+  # 1 while subst_inner_ok analyses a substitution's inner text.
+  IN_SUBST=0
+  SCANNED=0
 
   analyze_command "$cmd" 0 || return 0
   emit_allow

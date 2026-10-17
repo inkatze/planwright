@@ -204,6 +204,11 @@ expect defer "$z" "mkdir -m 777 $z/demo/x" "mkdir with a mode"
 expect defer "$z" "mkdir -p $z/_observations/missing/deep" "mkdir under a parent that does not exist"
 expect defer "$z" "rm $z/demo/tasks.md" "a writer verb outside the arm"
 expect defer "$z" "mkdir -p" "mkdir with no operand"
+# A command substitution's inner command must be read-only, so no zone write
+# is approved inside one.
+expect defer "$z" "echo \$(printf x | tee -a $z/demo/tasks.md)" "tee into the root inside a command substitution"
+expect defer "$z" "echo \$(mkdir -p $z/demo/x)" "mkdir in the root inside a command substitution"
+expect defer "$z" "echo \$(printf x > $z/demo/notes.md)" "a redirect into the root inside a command substitution"
 # The zone clears a redirect of a command the guard already approves, never
 # the command itself.
 expect defer "$z" "curl -s https://example.invalid > $z/demo/x" "an unapproved command redirected into the zone"
