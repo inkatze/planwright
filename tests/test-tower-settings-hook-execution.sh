@@ -1,5 +1,5 @@
 #!/bin/bash
-# Runs every config/tower-settings.json hook command through `sh -c`, the way
+# Runs each guard hook in config/tower-settings.json through `sh -c`, the way
 # a `--settings` launch runs it, and judges each guard by its own output rather
 # than by the command's spelling: a spelling test passed while every one of
 # these hooks was dead (tower-placement REQ-C1.13).
