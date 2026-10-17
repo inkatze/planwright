@@ -349,6 +349,7 @@ out=$("$GUARD" --hooks "$TMP/suffixed/outage.json" --fixtures "$FIXTURES" 2>&1)
 rc=$?
 assert_exit "the silence rule still judges a suffixed command's script" 1 "$rc"
 assert_contains "the silence finding names the script" "tracker.sh" "$out"
+assert_contains "the finding is the silence rule's, not a missing script" "silence" "$out"
 
 # -- running a hook must not mutate live fleet state. The guard runs inside
 #    `mise run check`, which runs inside dispatched workers, where

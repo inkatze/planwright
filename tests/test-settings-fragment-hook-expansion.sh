@@ -74,7 +74,7 @@ check_profiles() {
       continue
     }
     found=1
-    cmds=$(jq -r '.hooks | to_entries[] | .value[]? | .hooks[]? | .command // empty' "$f" 2>/dev/null) || {
+    cmds=$(jq -r '.hooks | to_entries[] | .value[] | .hooks[] | .command // empty' "$f" 2>/dev/null) || {
       echo "$(basename "$f"): its hooks key is not the settings shape, so its commands cannot be read"
       bad=1
       continue
@@ -141,12 +141,14 @@ for shape in later-hook later-group other-event unquoted default-form second-occ
   echo "ok: the check fails the $shape shape"
 done
 # A file the check cannot read is never passed over as "not a profile".
-mkdir -p "$fx/unparseable" "$fx/hooks-not-object"
+mkdir -p "$fx/unparseable" "$fx/hooks-not-object" "$fx/event-not-array"
 cp "$fx/compliant/profile.json" "$fx/unparseable/"
 printf '%s\n' '{"hooks": ' >"$fx/unparseable/broken.json"
 cp "$fx/compliant/profile.json" "$fx/hooks-not-object/"
 printf '%s\n' '{"hooks": "${CLAUDE_PLUGIN_ROOT}/x"}' >"$fx/hooks-not-object/odd.json"
-for shape in unparseable hooks-not-object; do
+cp "$fx/compliant/profile.json" "$fx/event-not-array/"
+printf '%s\n' '{"hooks": {"PreToolUse": "${CLAUDE_PLUGIN_ROOT}/x"}}' >"$fx/event-not-array/odd.json"
+for shape in unparseable hooks-not-object event-not-array; do
   if check_profiles "$fx/$shape" >/dev/null; then
     fail "the check passes a directory holding an $shape settings file"
   fi

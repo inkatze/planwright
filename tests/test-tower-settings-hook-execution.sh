@@ -60,6 +60,12 @@ for pair in "command guard (Bash)|$cmd_guard" "policy guard (Bash)|$pg_bash" \
     fail "the profile wires no ${pair%%|*} hook; nothing below would run it"
   fi
 done
+# An empty command runs `sh -c ""`, which exits 0, so every case below would
+# fail for a reason that is not its own.
+[ "$failures" -eq 0 ] || {
+  echo "$failures failure(s)" >&2
+  exit 1
+}
 
 bash_payload() {
   jq -cn --arg c "$1" --arg w "$tmp" '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}'
