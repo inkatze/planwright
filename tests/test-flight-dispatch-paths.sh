@@ -499,8 +499,7 @@ for want in same skewed; do
   new_case
   if [ "$want" = same ]; then v=$tower_v; else v=0.0.1-skew; fi
   inst="$c/claude/plugins/cache/mk/planwright/$v"
-  mkdir -p "$inst/.claude-plugin"
-  printf '{"name":"planwright","version":"%s"}\n' "$v" >"$inst/.claude-plugin/plugin.json"
+  install_plugin_copy "$inst" "$v"
   dispatch_print
   printf '%s\n' "$OUT" | grep -q "^root${TAB}worker${TAB}$inst${TAB}$v$" \
     || fail "report must name the installed worker root and version (out: $OUT)"
@@ -516,7 +515,7 @@ done
 # report: /bin/sh's echo expands backslash sequences.
 new_case
 inst="$c/claude/plugins/cache/mk/planwright/9.9.9"
-mkdir -p "$inst/.claude-plugin"
+install_plugin_copy "$inst" 9.9.9
 printf '{"name":"planwright","version":"9.9\\033[31m"}\n' >"$inst/.claude-plugin/plugin.json"
 dispatch_print
 [ "$RC" -eq 0 ] || fail "escape-text version fixture did not dispatch (rc $RC: $ERR)"

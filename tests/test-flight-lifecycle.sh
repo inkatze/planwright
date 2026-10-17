@@ -18,11 +18,18 @@
 #   4. A killed flight worker follows the fleet crash-loop policy (REQ-F1.5):
 #      each positively-dead worker is counted once, the relaunch waits out the
 #      backoff, the relaunch resumes the flight's own worktree and branch with
-#      its own brief and re-registers the worker, and at the disable threshold
-#      no relaunch happens and the disable surfaces in the decision queue.
+#      its own brief and re-registers the worker, pinned to the planwright
+#      root dispatch recorded (a recorded root that is gone refuses the
+#      relaunch), and at the disable threshold no relaunch happens and the
+#      disable surfaces in the decision queue.
 #   5. Liveness that cannot be proven dead is never a crash: a live worker, a
-#      print-rung flight, and a landed one are left alone; the operator
-#      kill-switch holds the relaunch without losing the count.
+#      print-rung flight, and any flight whose completion was pushed (whatever
+#      the sweep reads its landing as) are left alone, while a landed one
+#      whose dead worker never pushed its completion, queued no decision, and
+#      ran under a brief carrying the landed check is counted and relaunched;
+#      one whose directory, brief, or queue cannot be read is reported; the
+#      operator kill-switch holds the relaunch without losing the count. A
+#      completion that cannot keep its landing reference exits 4.
 #   6. The fleet sweep runs the crash policy as one of its passes, so a dead
 #      flight worker is handled with no tower session in the loop.
 #
@@ -176,9 +183,23 @@ W=home-aaaaaab7
 brief_dir "$W"
 chmod 770 "$tmp/fleet"
 "$SCRIPT" push completion "$W" --handle "tmux-flight-$W" --landing "record:specs/_flights/$W.md" 2>"$tmp/err"
+rc=$?
 chmod 700 "$tmp/fleet"
 [ ! -e "$tmp/fleet/flights/$W/landing" ] || fail "a fleet home others can write must not get a landing reference written under it"
 grep -q 'no private flight directory' "$tmp/err" || fail "a fleet home others can write is named on stderr (got: $(cat "$tmp/err"))"
+# The crash sweep reads a missing landing reference as an unfinished flight,
+# so a completion that cannot keep one fails rather than pass for done.
+[ "$rc" -eq 4 ] || fail "a completion that cannot keep its landing reference exits 4 (got $rc)"
+V=keepfail-aaaaaab8
+brief_dir "$V"
+# A directory where the temporary landing file goes fails the write for any
+# user, root included.
+mkdir "$tmp/fleet/flights/$V/landing.tmp"
+"$SCRIPT" push completion "$V" --handle "tmux-flight-$V" --landing "record:specs/_flights/$V.md" 2>"$tmp/err"
+rc=$?
+rmdir "$tmp/fleet/flights/$V/landing.tmp"
+[ "$rc" -eq 4 ] || fail "a landing reference that cannot be written fails the completion push with 4 (got $rc)"
+grep -q 'could not keep the landing reference' "$tmp/err" || fail "the failed landing write is named (got: $(cat "$tmp/err"))"
 
 # The completion push goes through the notification seam with its landing.
 mkdir -p "$tmp/cfg"
@@ -284,12 +305,22 @@ out=$(supervise "$((t + 35))")
 [ "$(launches)" = 1 ] || fail "one death is relaunched once, however many sweeps observe it (got: $out)"
 [ "$(cut -d' ' -f1 "$tmp/fleet/liveness/crash/$HC")" = 1 ] || fail "a relaunched death is not counted again"
 
+# The relaunch pins the new worker to the root dispatch recorded beside the
+# brief, not the sweep's own.
+pinned="$tmp/pinned-root"
+mkdir -p "$pinned"
+cp -R "$ROOT/scripts" "$ROOT/doctrine" "$pinned/"
+printf '%s\n' "$pinned" >"$tmp/fleet/flights/$C/root"
 die_as 2
 out=$(supervise "$((t + 40))")
 [ "$(field "$(line "$out")" 1)" = backoff ] || fail "a second death backs off again (got: $out)"
 out=$(supervise "$((t + 40 + 61))")
 [ "$(field "$(line "$out")" 1)" = relaunched ] || fail "the doubled backoff passes and the worker relaunches (got: $out)"
 [ "$(launches)" = 2 ] || fail "two relaunches so far"
+tlh_wait_workers 2 10 || fail "the pinned relaunch's worker did not start"
+[ "$(tlh_worker_env "$(tlh_last_worker_record)" PLANWRIGHT_ROOT)" = "$pinned" ] \
+  || fail "the relaunch must pin the worker to the recorded root (got: $(tlh_worker_env "$(tlh_last_worker_record)" PLANWRIGHT_ROOT))"
+rm -f "$tmp/fleet/flights/$C/root"
 
 die_as 3
 out=$(supervise "$((t + 500))")
@@ -308,9 +339,38 @@ exit 0
 EOF
 chmod +x "$tmp/bin/gh"
 export GH_STUB_LOG="$tmp/gh.log"
+# landed_flight <id> [record|pr] [checked] — a flight worktree that has
+# landed: on the file home (record, the default) its record committed on its
+# branch, on the PR home nothing local. `checked` gives its brief the landed
+# check flight-lifecycle.sh relaunches a landed flight under.
+landed_flight() {
+  gitc "$repo" worktree add -q -b "planwright/flight/$1" "$repo/.claude/worktrees/flight-$1" HEAD
+  if [ "${2:-record}" = record ]; then
+    mkdir -p "$repo/.claude/worktrees/flight-$1/specs/_flights"
+    printf '# record\n' >"$repo/.claude/worktrees/flight-$1/specs/_flights/$1.md"
+    gitc "$repo/.claude/worktrees/flight-$1" add -A
+    gitc "$repo/.claude/worktrees/flight-$1" commit -q -m "chore(flight): land the record"
+  fi
+  brief_dir "$1"
+  if [ "${3:-}" = checked ]; then
+    printf 'A relaunched worker runs this landed check before it fires any point.\n' >>"$tmp/fleet/flights/$1/brief.md"
+  fi
+}
+
+# A finished flight (its worker gone, its landing reference kept) is the
+# normal end state until its worktree is removed: on either home it wakes no
+# forge read, though the forge-less read cannot see a PR landing.
+Z=finished-aaaaaab1
+landed_flight "$Z" record checked
+printf 'record:specs/_flights/%s.md\n' "$Z" >"$tmp/fleet/flights/$Z/landing"
+/bin/sh "$STATE" register "tmux-flight-$Z" "flight:$Z" --backend tmux --death-handle "process $(dead_pid 19)" >/dev/null
+Y=finishedpr-aaaaaab2
+landed_flight "$Y" pr checked
+printf 'pr:https://github.com/acme/widgets/pull/9\n' >"$tmp/fleet/flights/$Y/landing"
+/bin/sh "$STATE" register "tmux-flight-$Y" "flight:$Y" --backend tmux --death-handle "process $(dead_pid 23)" >/dev/null
 : >"$GH_STUB_LOG"
 supervise "$((t + 99999))" >/dev/null || fail "supervise over a disabled flight exited non-zero: $(cat "$tmp/err")"
-[ ! -s "$GH_STUB_LOG" ] || fail "a flight waiting on the operator triggers no forge read (got: $(cat "$GH_STUB_LOG"))"
+[ ! -s "$GH_STUB_LOG" ] || fail "a flight waiting on the operator, or a finished one on either home, triggers no forge read (got: $(cat "$GH_STUB_LOG"))"
 rm -f "$tmp/bin/gh"
 gitc "$repo" remote remove origin
 
@@ -323,20 +383,100 @@ Q=print-aaaaaaa7
 gitc "$repo" worktree add -q -b "planwright/flight/$Q" "$repo/.claude/worktrees/flight-$Q" HEAD
 brief_dir "$Q"
 /bin/sh "$STATE" register "print-flight-$Q" "flight:$Q" --backend print --death-handle none >/dev/null
+# Its completion was pushed: the landing reference sits beside the brief, and
+# its brief carries the landed check, so only the reference keeps it alone.
 L=landed-aaaaaaa8
-gitc "$repo" worktree add -q -b "planwright/flight/$L" "$repo/.claude/worktrees/flight-$L" HEAD
-mkdir -p "$repo/.claude/worktrees/flight-$L/specs/_flights"
-printf '# record\n' >"$repo/.claude/worktrees/flight-$L/specs/_flights/$L.md"
-gitc "$repo/.claude/worktrees/flight-$L" add -A
-gitc "$repo/.claude/worktrees/flight-$L" commit -q -m "chore(flight): land the record"
-brief_dir "$L"
+landed_flight "$L" record checked
+printf 'record:specs/_flights/%s.md\n' "$L" >"$tmp/fleet/flights/$L/landing"
 /bin/sh "$STATE" register "tmux-flight-$L" "flight:$L" --backend tmux --death-handle "process $(dead_pid 9)" >/dev/null
+# A landed flight whose worker died before it pushed its completion (no
+# landing reference beside the brief) is a crash: its relaunch finishes the
+# after-landing work through the brief's landed check.
+I=unfinished-aaaaaaa3
+landed_flight "$I" record checked
+/bin/sh "$STATE" register "tmux-flight-$I" "flight:$I" --backend tmux --death-handle "process $(dead_pid 13)" >/dev/null
+# The same, waiting on a decision it queued after landing: the operator rules.
+P=parked-aaaaaab9
+landed_flight "$P" record checked
+"$SCRIPT" push awaiting-decision "$P" --handle "tmux-flight-$P" --reason "the PR is no longer a draft" 2>/dev/null \
+  || fail "fixture: could not queue the parked flight's decision"
+/bin/sh "$STATE" register "tmux-flight-$P" "flight:$P" --backend tmux --death-handle "process $(dead_pid 15)" >/dev/null
+# The same, under a brief written before the landed check existed: its
+# relaunch would fire every point again onto the landing.
+D=oldbrief-aaaaaab0
+landed_flight "$D" record
+/bin/sh "$STATE" register "tmux-flight-$D" "flight:$D" --backend tmux --death-handle "process $(dead_pid 17)" >/dev/null
+# The same, with a flight directory that cannot be judged private: reported,
+# never skipped silently.
+U2=unjudged-aaaaab3a
+landed_flight "$U2" record checked
+/bin/sh "$STATE" register "tmux-flight-$U2" "flight:$U2" --backend tmux --death-handle "process $(dead_pid 25)" >/dev/null
+chmod 770 "$tmp/fleet/flights/$U2"
 out=$(supervise "$((t + 99999))")
-for id in "$A" "$Q" "$L"; do
+chmod 700 "$tmp/fleet/flights/$U2"
+for id in "$A" "$Q" "$L" "$P" "$D" "$Y" "$Z"; do
   [ -z "$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$id" '$2 == id')" ] \
     || fail "flight $id is not a provable crash and must be left alone (got: $out)"
   [ ! -e "$tmp/fleet/liveness/crash/tmux-flight-$id" ] || fail "flight $id must not be counted as a crash"
 done
+[ "$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$I" '$2 == id { print $1 }')" = backoff ] \
+  || fail "a landed flight that never pushed its completion is a crash, counted and backed off (got: $out)"
+case $(printf '%s\n' "$out" | awk -F "$TAB" -v id="$U2" '$2 == id') in
+  failed*"no private flight directory"*) ;;
+  *) fail "a landed flight whose directory cannot be judged must be reported (got: $out)" ;;
+esac
+# A decision queue that cannot be looked into is unread, never absent: the
+# parked flight is reported, not relaunched over its decision. Root reads
+# through any mode, so the permission case runs only for other users.
+if [ "$(id -u)" = 0 ]; then
+  echo "skip: running as root, an unsearchable attention directory cannot be staged" >&2
+else
+  chmod 600 "$tmp/fleet/attention"
+  out=$(supervise "$((t + 99999 + 31))")
+  chmod 700 "$tmp/fleet/attention"
+  case $(printf '%s\n' "$out" | awk -F "$TAB" -v id="$P" '$2 == id') in
+    failed*"decision queue could not be read"*) ;;
+    *) fail "an unreadable decision queue must be reported, never read as no decision (got: $out)" ;;
+  esac
+  [ ! -e "$tmp/fleet/liveness/crash/tmux-flight-$P" ] || fail "a parked flight must never be counted over an unreadable queue"
+fi
+# fail_reads <tool> <pattern> — a stub <tool> first on PATH that exits 2 on
+# any call whose arguments carry <pattern> and runs the real one otherwise.
+fail_reads() {
+  _fr_real=$(command -v "$1")
+  printf '#!/bin/sh\ncase "$*" in *"%s"*) exit 2 ;; esac\nexec %s "$@"\n' "$2" "'$_fr_real'" >"$tmp/bin/$1"
+  chmod +x "$tmp/bin/$1"
+}
+# The same for a store read that fails partway, which a permission check
+# cannot see: a stub awk fails every decision-queue read, the sweep's and the
+# lifecycle's; a landed render does not depend on the sweep's, so the
+# lifecycle's is the one reported.
+fail_reads awk awaiting-input
+out=$(supervise "$((t + 99999 + 41))")
+rm -f "$tmp/bin/awk"
+case $(printf '%s\n' "$out" | awk -F "$TAB" -v id="$P" '$2 == id') in
+  failed*"decision queue could not be read"*) ;;
+  *) fail "a failed decision-queue read must be reported, never read as no decision (got: $out)" ;;
+esac
+[ ! -e "$tmp/fleet/liveness/crash/tmux-flight-$P" ] || fail "a parked flight must never be counted over a failed queue read"
+# A brief read that fails is reported, never taken for an older brief.
+X=unreadbrief-aaaaab3b
+landed_flight "$X" record checked
+/bin/sh "$STATE" register "tmux-flight-$X" "flight:$X" --backend tmux --death-handle "process $(dead_pid 27)" >/dev/null
+fail_reads grep 'runs this landed check'
+out=$(supervise "$((t + 99999 + 51))")
+rm -f "$tmp/bin/grep"
+case $(printf '%s\n' "$out" | awk -F "$TAB" -v id="$X" '$2 == id') in
+  failed*"brief could not be read"*) ;;
+  *) fail "a failed brief read must be reported, never skipped (got: $out)" ;;
+esac
+[ ! -e "$tmp/fleet/liveness/crash/tmux-flight-$X" ] || fail "a flight whose brief read failed must never be counted"
+
+# With the reads restored, the unfinished landed flight relaunches past its
+# backoff: each stub above failed its reads too, so no earlier pass could.
+out=$(supervise "$((t + 99999 + 61))")
+[ "$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$I" '$2 == id { print $1 }')" = relaunched ] \
+  || fail "a landed flight that never pushed its completion is relaunched past the backoff (got: $out)"
 
 K=paused-aaaaaaa9
 gitc "$repo" worktree add -q -b "planwright/flight/$K" "$repo/.claude/worktrees/flight-$K" HEAD
@@ -453,6 +593,54 @@ out=$(cd "$tmp" && "$SCRIPT" supervise --repo-root "$repo" --now "$((t + 500031)
 rm -f "$repo/.claude/planwright.yml"
 [ "$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$U" '$2 == id { print $1 }')" = backoff ] \
   || fail "the checkout's own backoff knob governs its flights from any working directory (got: $out)"
+
+# A root record the relaunch cannot pin to refuses it, rather than pinning
+# whichever root resolves next: a recorded root that is no longer an install,
+# named as the install's fault, and a record that is not a regular file
+# holding one printable absolute path, named as the record's. Every case dies
+# at once and one pair of sweeps handles them all.
+bad_records='gone relative empty symlink ctl multiline'
+n_case=0
+# shellcheck disable=SC2086 # the record shapes are split on purpose
+for bad in $bad_records; do
+  n_case=$((n_case + 1))
+  B="rec$n_case-aaaaaac$n_case"
+  gitc "$repo" worktree add -q -b "planwright/flight/$B" "$repo/.claude/worktrees/flight-$B" HEAD
+  brief_dir "$B"
+  case $bad in
+    gone) printf '%s\n' "$tmp/no-such-root" >"$tmp/fleet/flights/$B/root" ;;
+    relative) printf 'pinned-root\n' >"$tmp/fleet/flights/$B/root" ;;
+    empty) : >"$tmp/fleet/flights/$B/root" ;;
+    symlink)
+      printf '%s\n' "$pinned" >"$tmp/pinned-root.record"
+      ln -s "$tmp/pinned-root.record" "$tmp/fleet/flights/$B/root"
+      ;;
+    ctl) printf '%s\001\n' "$pinned" >"$tmp/fleet/flights/$B/root" ;;
+    multiline) printf '%s\n%s\n' "$pinned" "$pinned" >"$tmp/fleet/flights/$B/root" ;;
+  esac
+  /bin/sh "$STATE" register "tmux-flight-$B" "flight:$B" --backend tmux --state-dir "$repo/.claude/worktrees/flight-$B" \
+    --death-handle "process $(dead_pid "$((20 + n_case))")" >/dev/null || fail "fixture: could not register a dead worker"
+done
+supervise "$((t + 900000))" >/dev/null
+out=$(supervise "$((t + 900000 + 31))")
+n_case=0
+# shellcheck disable=SC2086 # the record shapes are split on purpose
+for bad in $bad_records; do
+  n_case=$((n_case + 1))
+  B="rec$n_case-aaaaaac$n_case"
+  g=$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$B" '$2 == id')
+  [ "$(field "$g" 1)" = failed ] || fail "a $bad root record must fail the relaunch (got: $out)"
+  if [ "$bad" = gone ]; then
+    want="recorded planwright root is not an install any more"
+  else
+    want="root record is unreadable or malformed"
+  fi
+  case $(field "$g" 3) in
+    *"$want"*"git worktree remove"*) ;;
+    *) fail "a $bad root record must refuse with '$want' and the recovery (got: $g)" ;;
+  esac
+  calls_matching new-session | grep -q "flight-$B" && fail "a $bad root record must launch nothing"
+done
 
 if [ "$fails" -gt 0 ]; then
   echo "test-flight-lifecycle: $fails failure(s)" >&2
