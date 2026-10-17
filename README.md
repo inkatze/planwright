@@ -157,6 +157,7 @@ Claude Code.
 
 | Stage | Command | What it does |
 | --- | --- | --- |
+| **Orient** | `/inception` | Turn a product-level idea with no repo yet into a venture repo and its inception bundle. |
 | **Author** | `/spec-draft` | Interactively elicit a four-file spec bundle (Status Draft). |
 | | `/spec-kickoff` | Walk a spec to sign-off and flip it Ready. *(your first control)* |
 | | `/spec-walkthrough` | Render a spec into a plain-language artifact for an unaided cold read. |

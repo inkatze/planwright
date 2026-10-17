@@ -322,6 +322,8 @@ case $1 in
     exit 1
     ;;
 esac
+# The screen's self-check canary is the one file this stub flags.
+case "$*" in *planwright-canary*) exit 1 ;; esac
 exit 0
 STUB
 chmod 755 "$stub/gitleaks"
@@ -426,6 +428,8 @@ write_gl() {
 for a in "\$@"; do
   [ "\$a" = "--help" ] && { echo "  --exit-code int  exit code when leaks have been encountered"; exit 0; }
 done
+# The screen's self-check canary is flagged unless the case says otherwise.
+case "\$*" in *planwright-canary*) ${2:-exit 7} ;; esac
 $1
 GLSTUB
   chmod 755 "$glstub/gitleaks"
@@ -488,6 +492,83 @@ else
   rc=$?
   assert_eq "same subdirectory readable: found, as a control" "1" "$rc"
 fi
+
+# A venture's own gitleaks config must not decide what the screen looks for:
+# every gitleaks run names planwright's config. The stub records its argv, so
+# this holds on hosts without gitleaks too.
+cfgstub="$tmp/cfgstub"
+mkdir -p "$cfgstub"
+cat >"$cfgstub/gitleaks" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >>"$tmp/gl-args.log"
+case "\$*" in *planwright-canary*) exit 1 ;; esac
+exit 0
+EOF
+chmod +x "$cfgstub/gitleaks"
+: >"$tmp/gl-args.log"
+PATH="$cfgstub:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$tmp/clean.md" >/dev/null 2>&1
+(cd "$repo" && PATH="$cfgstub:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" --staged) >/dev/null 2>&1
+scans=$(grep -e '--no-banner' "$tmp/gl-args.log" | grep -c -v planwright-canary)
+named=$(grep -e '--no-banner' "$tmp/gl-args.log" | grep -c -F -e "--config $REPO_ROOT/config/inception-gitleaks.toml")
+assert_eq "gitleaks config: both scans ran" "2" "$scans"
+scans=$(grep -c -e '--no-banner' "$tmp/gl-args.log")
+assert_eq "gitleaks config: every scan names planwright's config" "$scans" "$named"
+
+# An install whose config is gone refuses rather than letting gitleaks fall
+# back to a repository's own rules. The stub passes everything, so only the
+# refusal can make this exit 2.
+noconf="$tmp/noconf/scripts"
+mkdir -p "$noconf"
+cp "$SCREEN" "$REPO_ROOT/scripts/echo-safety.sh" "$noconf/"
+out="$(PATH="$cfgstub:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks /bin/sh "$noconf/inception-secret-screen.sh" "$tmp/clean.md" 2>&1)"
+rc=$?
+assert_eq "gitleaks config: a missing planwright config refuses (exit 2)" "2" "$rc"
+assert_contains "gitleaks config: the refusal names the missing config" "gitleaks config is missing" "$out"
+
+if command -v gitleaks >/dev/null 2>&1; then
+  # The real thing: a repo-local config with no rules would pass any key.
+  cfgrepo="$tmp/cfg-repo"
+  git init -q "$cfgrepo"
+  printf 'title = "no rules"\n' >"$cfgrepo/.gitleaks.toml"
+  cp "$tmp/key.pem" "$cfgrepo/key.pem"
+  (cd "$cfgrepo" && git add .gitleaks.toml key.pem)
+  (cd "$cfgrepo" && PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" --staged) >/dev/null 2>&1
+  rc=$?
+  assert_eq "gitleaks config: a venture's rule-free .gitleaks.toml does not wave a key through" "1" "$rc"
+fi
+
+# A gitleaks that flags nothing, not even the self-check canary, is screening
+# with no rules (an older build ignoring the config's [extend], say): refuse.
+write_gl 'exit 0' 'exit 0'
+out="$(PATH="$glstub:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$gltree" 2>&1)"
+rc=$?
+assert_eq "gitleaks with no rules: the canary refuses the screen (exit 2)" "2" "$rc"
+assert_contains "gitleaks with no rules: says it is screening with no rules" "no rules" "$out"
+
+# A gitleaks older than 8.19 has only `detect`, which scans a path as a git
+# repository unless told --no-git, and then finds nothing. The stub models
+# that: without --no-git it reports clean; with it, the canary and the leak
+# file are found.
+oldgl="$tmp/oldgl"
+mkdir -p "$oldgl"
+cat >"$oldgl/gitleaks" <<'OLDGL'
+#!/bin/sh
+[ "$1" = git ] && exit 1
+case "$*" in *--help*) echo "  --exit-code int  exit code when leaks have been encountered"; exit 0 ;; esac
+[ "$1" = detect ] || exit 1
+case "$*" in *--no-git*) ;; *) echo "no leaks found"; exit 0 ;; esac
+case "$*" in *planwright-canary* | *old-leak*) exit 7 ;; esac
+exit 0
+OLDGL
+chmod 755 "$oldgl/gitleaks"
+printf 'nothing to see here\n' >"$tmp/old-clean.md"
+printf 'pretend leak\n' >"$tmp/old-leak.md"
+PATH="$oldgl:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$tmp/old-clean.md" >/dev/null 2>&1
+rc=$?
+assert_eq "gitleaks before 8.19: a clean file passes the self-check and the scan" "0" "$rc"
+PATH="$oldgl:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$tmp/old-leak.md" >/dev/null 2>&1
+rc=$?
+assert_eq "gitleaks before 8.19: a leak is found, not missed" "1" "$rc"
 
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-secret-screen: $failures assertion(s) failed" >&2
