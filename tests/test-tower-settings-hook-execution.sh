@@ -131,6 +131,15 @@ else
   fail "the MCP policy hook did not deny the draft-to-ready update in the guard's words (rc=$rc, out=$out, err=$err)"
 fi
 
+# A hook that refused everything would pass every case above, so a routine
+# call must come back through the Bash policy hook with no decision at all.
+run_hook "=$REPO_ROOT" "$pg_bash" "$(bash_payload 'git status')"
+if [ "$rc" -eq 0 ] && [ -z "$(decision "$out")" ]; then
+  ok "the Bash policy hook passes a routine call with no decision (REQ-C1.13)"
+else
+  fail "the Bash policy hook did not pass 'git status' (rc=$rc, out=$out, err=$err)"
+fi
+
 # --- REQ-C1.12: a root that does not hold runnable guards ---------------------
 mkdir -p "$tmp/empty-root" "$tmp/noexec-root/scripts"
 for g in policy-guard.sh tower-command-guard.sh; do
