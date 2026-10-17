@@ -314,6 +314,43 @@ rc=$?
 assert_exit "the hook is run with its registered arguments" 0 "$rc"
 assert_not_contains "the argument actually reached the hook" "WRONG-no-args-passed" "$out"
 
+# -- the tower profile's policy hooks end in a fail-closed suffix
+#    (`|| { echo '<reason>' >&2; exit 2; }`). The guard runs the script before
+#    it with that script's own arguments only, so the suffix's words never
+#    reach the hook as arguments, and the existence and silence checks still
+#    judge the script, not the suffix.
+SUFFIX=" || { echo 'guard did not run: export CLAUDE_PLUGIN_ROOT and relaunch' >&2; exit 2; }"
+mkdir -p "$TMP/suffixed"
+cat >"$TMP/suffixed/argcount.sh" <<'SH'
+#!/bin/sh
+cat >/dev/null 2>&1
+if [ "$#" -eq 1 ] && [ "$1" = "expected-arg" ]; then
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse"}}'
+else
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"WRONG-suffix-reached-the-hook"}}'
+fi
+exit 0
+SH
+chmod +x "$TMP/suffixed/argcount.sh"
+write_hooks "$TMP/suffixed/hooks.json" PreToolUse "$TMP/suffixed/argcount.sh expected-arg$SUFFIX"
+out=$("$GUARD" --hooks "$TMP/suffixed/hooks.json" --fixtures "$FIXTURES" 2>&1)
+rc=$?
+assert_exit "a suffixed command runs its script with only its own arguments" 0 "$rc"
+assert_not_contains "the suffix's words never reach the hook" "WRONG-suffix-reached-the-hook" "$out"
+
+write_hooks "$TMP/suffixed/absent.json" PreToolUse "$TMP/suffixed/not-here.sh tower bash$SUFFIX"
+out=$("$GUARD" --hooks "$TMP/suffixed/absent.json" --fixtures "$FIXTURES" 2>&1)
+rc=$?
+assert_exit "a suffixed command whose script is absent is flagged" 1 "$rc"
+assert_contains "the finding names the absent script, not the suffix" "not-here.sh" "$out"
+
+write_hooks "$TMP/suffixed/outage.json" WorktreeCreate "$TMP/outage/tracker.sh$SUFFIX"
+out=$("$GUARD" --hooks "$TMP/suffixed/outage.json" --fixtures "$FIXTURES" 2>&1)
+rc=$?
+assert_exit "the silence rule still judges a suffixed command's script" 1 "$rc"
+assert_contains "the silence finding names the script" "tracker.sh" "$out"
+assert_contains "the finding is the silence rule's, not a missing script" "silence" "$out"
+
 # -- running a hook must not mutate live fleet state. The guard runs inside
 #    `mise run check`, which runs inside dispatched workers, where
 #    PLANWRIGHT_WORKER_HANDLE/SCOPE are set — so an un-neutralised run would
