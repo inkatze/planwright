@@ -67,6 +67,7 @@ fi
 # Pinned to the full command: a `--settings` profile carries no plugin context,
 # so a braced root substitutes empty and the hook never runs, and a pattern
 # that admitted the braced form is what let these hooks ship dead.
+# shellcheck disable=SC2016 # the unexpanded spelling is the subject
 CMD_GUARD_HOOK='"$CLAUDE_PLUGIN_ROOT"/scripts/tower-command-guard.sh'
 if jq -e --arg c "$CMD_GUARD_HOOK" '
   (.hooks.PreToolUse // [])
@@ -377,6 +378,7 @@ else
     "always reaches the prompt"
   # tower-placement REQ-D1.6: the spelling, why it differs from the plugin's
   # own hooks, the export, the refusal, and --settings as the only delivery.
+  # shellcheck disable=SC2016 # the unexpanded spelling is the subject
   require_phrase "_about states the quoted, unbraced spelling (REQ-D1.6)" \
     '"$CLAUDE_PLUGIN_ROOT"/scripts/'
   require_phrase "_about says why the spelling differs from hooks/hooks.json (REQ-D1.6)" \

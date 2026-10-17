@@ -86,14 +86,24 @@ run_hook() {
 decision() {
   printf '%s' "$1" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null
 }
-reason() {
-  printf '%s' "$1" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' 2>/dev/null
+# said_by <guard-prefix> <output> — 0 when the decision's reason is that guard's.
+said_by() {
+  case $(printf '%s' "$2" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' 2>/dev/null) in
+    "$1"*) return 0 ;;
+  esac
+  return 1
+}
+# names_remedy <stderr> — 0 when it names the guard and the remedy.
+names_remedy() {
+  case $1 in
+    *policy-guard*"export CLAUDE_PLUGIN_ROOT"*relaunch*) return 0 ;;
+  esac
+  return 1
 }
 
 # --- REQ-C1.13: each hook runs under a resolved root -------------------------
 run_hook "=$REPO_ROOT" "$cmd_guard" "$(bash_payload 'tmux capture-pane -p -t worker')"
-if [ "$rc" -eq 0 ] && [ "$(decision "$out")" = allow ] \
-  && case $(reason "$out") in "planwright tower-command-guard:"*) true ;; *) false ;; esac; then
+if [ "$rc" -eq 0 ] && [ "$(decision "$out")" = allow ] && said_by "planwright tower-command-guard:" "$out"; then
   ok "the command guard's hook allows a tmux read in its own words (REQ-C1.13)"
 else
   fail "the command guard's hook did not allow a tmux read (rc=$rc, out=$out, err=$err)"
@@ -101,8 +111,7 @@ fi
 
 for act in 'gh pr merge 42' 'git -C . merge feature'; do
   run_hook "=$REPO_ROOT" "$pg_bash" "$(bash_payload "$act")"
-  if [ "$rc" -eq 0 ] && [ "$(decision "$out")" = deny ] \
-    && case $(reason "$out") in "planwright policy-guard:"*) true ;; *) false ;; esac; then
+  if [ "$rc" -eq 0 ] && [ "$(decision "$out")" = deny ] && said_by "planwright policy-guard:" "$out"; then
     ok "the Bash policy hook emits the guard's own deny on '$act' (REQ-C1.13)"
   else
     fail "the Bash policy hook did not deny '$act' in the guard's words (rc=$rc, out=$out, err=$err)"
@@ -110,8 +119,7 @@ for act in 'gh pr merge 42' 'git -C . merge feature'; do
 done
 
 run_hook "=$REPO_ROOT" "$pg_mcp" "$mcp_payload"
-if [ "$rc" -eq 0 ] && [ "$(decision "$out")" = deny ] \
-  && case $(reason "$out") in "planwright policy-guard:"*) true ;; *) false ;; esac; then
+if [ "$rc" -eq 0 ] && [ "$(decision "$out")" = deny ] && said_by "planwright policy-guard:" "$out"; then
   ok "the MCP policy hook emits the guard's own deny on a draft-to-ready update (REQ-C1.13)"
 else
   fail "the MCP policy hook did not deny the draft-to-ready update in the guard's words (rc=$rc, out=$out, err=$err)"
@@ -137,9 +145,7 @@ for mode in unset '=' "=$tmp/empty-root" "=$tmp/noexec-root"; do
     else
       run_hook "$mode" "$pg_mcp" "$mcp_payload"
     fi
-    if [ "$rc" -eq 2 ] \
-      && case $err in *policy-guard*) true ;; *) false ;; esac \
-      && case $err in *"export CLAUDE_PLUGIN_ROOT"*relaunch*) true ;; *) false ;; esac; then
+    if [ "$rc" -eq 2 ] && names_remedy "$err"; then
       ok "root $label: the $surface policy hook blocks with the guard and remedy on stderr (REQ-C1.12)"
     else
       fail "root $label: the $surface policy hook did not block with its reason (rc=$rc, err=$err)"
