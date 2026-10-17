@@ -3,7 +3,9 @@
 # lifted into core paralleling the execution capability (orchestration-fleet
 # Task 12; D-13, REQ-E1.3, REQ-E1.4, REQ-A1.6). It gives every persona a legible
 # default surface without any dotfiles-local mechanism, so a marketplace-install
-# user gets it from core.
+# user gets it from core. Its status render is also the store re-read a
+# messaging idle notice drives (doctrine/messaging-transport.md): a notice is a
+# signal, and this store stays the record.
 #
 # WHAT IT PROVIDES (D-13):
 #   (a) HEARTBEAT/AWARENESS STATE — a per-worker current-state store keyed by
@@ -136,7 +138,12 @@
 #       alone with exit 3. The judge-then-clear primitive for a caller whose
 #       verdict was reached outside the lock (fleet-attention-reconcile.sh).
 #   fleet-attention.sh render [--surface-provided] [--on-change <key> [--liveness <seconds>]]
+#   fleet-attention.sh render --worker <worker>
 #       Status renderer: each worker's scope + state.
+#       --worker renders the named worker's row and no other (nothing when it
+#       has none): the store re-read an idle notice drives, through
+#       fleet-messaging.sh notice-read (doctrine/messaging-transport.md). It
+#       never combines with --on-change.
 #       --on-change renders on a transition only (the watch loop's form; <key>
 #       is the loop's presence identity, so a new conversation starts full; a
 #       bare p<pid> is refused). Ages show as coarse buckets, not seconds, and
@@ -736,13 +743,15 @@ age_bucket() {
   esac
 }
 
-# render_rows <store> <seconds|bucket> — one line per worker, the age as exact
-# seconds or as its age_bucket.
+# render_rows <store> <seconds|bucket> [<worker>] — one line per worker, the
+# age as exact seconds or as its age_bucket; with <worker>, that worker's only.
 render_rows() {
   rr_now=$(now_epoch)
+  rr_only=${3:-}
   # A trailing record without a newline is still emitted (|| [ -n "$w" ]).
   while IFS="$TAB" read -r w scope state ts _prio _q _def _opts || [ -n "$w" ]; do
     [ -n "$w" ] || continue
+    [ -z "$rr_only" ] || [ "$w" = "$rr_only" ] || continue
     age="?"
     case $ts in
       "" | *[!0-9]* | 0?*) ;; # 0?* excludes a leading-zero ts: `$(( ))` would
@@ -1468,9 +1477,22 @@ case $cmd in
     oc_key=""
     oc_live=$LIVENESS_DEFAULT
     oc_live_given=0
+    only_worker=""
     while [ "$#" -gt 0 ]; do
       case $1 in
         --surface-provided) shift ;;
+        --worker)
+          [ "$#" -ge 2 ] || {
+            echo "usage: fleet-attention.sh render --worker <worker>" >&2
+            exit 2
+          }
+          valid_field "$2" || {
+            printf '%s\n' "fleet-attention: render: refusing malformed worker handle '$(sanitize_printable "$2" "(unprintable worker)")'" >&2
+            exit 2
+          }
+          only_worker=$2
+          shift 2
+          ;;
         --on-change | --liveness)
           [ "$#" -ge 2 ] || {
             echo "usage: fleet-attention.sh render [--surface-provided] [--on-change <key> [--liveness <seconds>]]" >&2
@@ -1489,11 +1511,15 @@ case $cmd in
       echo "fleet-attention: render: --liveness applies only with --on-change" >&2
       exit 2
     fi
+    if [ -n "$only_worker" ] && [ -n "$oc_key" ]; then
+      echo "fleet-attention: render: --worker does not combine with --on-change" >&2
+      exit 2
+    fi
     root=$(resolve_home) || exit 2
     store="$root/attention/state"
     [ -f "$store" ] || exit 0
     if [ -z "$oc_key" ]; then
-      render_rows "$store" seconds || exit 2
+      render_rows "$store" seconds "$only_worker" || exit 2
       exit 0
     fi
     # An unreadable store would render as an empty one and then pass for
