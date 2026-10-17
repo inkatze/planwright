@@ -50,6 +50,8 @@
 #   scripts/flight-lifecycle.sh   the one-time crash and relaunch claims
 #   scripts/step-pool.sh   the per-user step pool slots, each held on behalf
 #                          of the process hosting the check's runner
+#   scripts/inception-publish.sh  a venture's publish state, so two writers
+#                          cannot lose each other's change
 #
 # Everything else that takes an advisory lock does so by calling a script on
 # that list, so adopting a listed script adopts the tree under it. The list is
