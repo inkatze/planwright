@@ -62,17 +62,21 @@ else
   exit 1
 fi
 
-# --- REQ-C1.1: a PreToolUse (Bash) hook references the script via
-#     ${CLAUDE_PLUGIN_ROOT} ---------------------------------------------------
-if jq -e '
+# --- REQ-C1.1, tower-placement REQ-C1.10: the PreToolUse (Bash) hook runs the
+#     command guard by the quoted, unbraced root ---------------------------------
+# Pinned to the full command: a `--settings` profile carries no plugin context,
+# so a braced root substitutes empty and the hook never runs, and a pattern
+# that admitted the braced form is what let these hooks ship dead.
+CMD_GUARD_HOOK='"$CLAUDE_PLUGIN_ROOT"/scripts/tower-command-guard.sh'
+if jq -e --arg c "$CMD_GUARD_HOOK" '
   (.hooks.PreToolUse // [])
   | map(select(.matcher == "Bash"))
   | map(.hooks[]? | select(.type == "command") | .command)
-  | any(test("\\$\\{CLAUDE_PLUGIN_ROOT\\}\"?/scripts/tower-command-guard\\.sh"))
+  | any(. == $c)
 ' "$tower_settings" >/dev/null 2>&1; then
-  ok "tower-settings carries a PreToolUse(Bash) hook referencing the script via \${CLAUDE_PLUGIN_ROOT} (REQ-C1.1)"
+  ok "tower-settings runs the command guard as $CMD_GUARD_HOOK on Bash (REQ-C1.1, REQ-C1.10)"
 else
-  fail "tower-settings has no PreToolUse(Bash) command hook referencing \${CLAUDE_PLUGIN_ROOT}/$HOOK_REL (REQ-C1.1)"
+  fail "tower-settings has no PreToolUse(Bash) command hook '$CMD_GUARD_HOOK' (REQ-C1.1, REQ-C1.10)"
 fi
 
 if [ -f "$hook_script" ]; then
@@ -84,19 +88,24 @@ fi
 # --- human-gates REQ-G1.5: the policy guard, wired with the tower tier ------
 # The deny-emitting policy guard learns its tier from this argument, so the
 # tier word is part of the wiring: under the Bash matcher and under the MCP
-# flip tool, in the same spelling as the command guard.
+# flip tool. Each command carries the fail-closed suffix (tower-placement
+# REQ-C1.12): any non-zero exit means the guard did not run, so the hook
+# refuses the call with exit 2 rather than letting a non-blocking error
+# through.
+PG_REFUSAL=" || { echo 'planwright policy-guard.sh did not run, so this call is refused: export CLAUDE_PLUGIN_ROOT as a planwright plugin root holding scripts/policy-guard.sh, then relaunch the tower' >&2; exit 2; }"
 for pg_wire in 'Bash|tower bash' 'mcp__github__update_pull_request|tower mcp'; do
   pg_matcher=${pg_wire%%|*}
   pg_args=${pg_wire#*|}
-  if jq -e --arg m "$pg_matcher" --arg a "$pg_args" '
+  pg_cmd="\"\$CLAUDE_PLUGIN_ROOT\"/scripts/policy-guard.sh $pg_args$PG_REFUSAL"
+  if jq -e --arg m "$pg_matcher" --arg c "$pg_cmd" '
     (.hooks.PreToolUse // [])
     | map(select(.matcher == $m))
     | map(.hooks[]? | select(.type == "command") | .command)
-    | any(. == ("\"${CLAUDE_PLUGIN_ROOT}\"/scripts/policy-guard.sh " + $a))
+    | any(. == $c)
   ' "$tower_settings" >/dev/null 2>&1; then
-    ok "tower-settings wires the policy guard on $pg_matcher as '$pg_args' (human-gates REQ-G1.5)"
+    ok "tower-settings wires the policy guard on $pg_matcher as '$pg_args' with the fail-closed suffix (human-gates REQ-G1.5, REQ-C1.12)"
   else
-    fail "tower-settings does not wire \"\${CLAUDE_PLUGIN_ROOT}\"/scripts/policy-guard.sh $pg_args on $pg_matcher (human-gates REQ-G1.5)"
+    fail "tower-settings does not wire '$pg_cmd' on $pg_matcher (human-gates REQ-G1.5, REQ-C1.12)"
   fi
 done
 
@@ -366,6 +375,28 @@ else
     "unexpanded"
   require_phrase "_about states the force-push helper always reaches the prompt" \
     "always reaches the prompt"
+  # tower-placement REQ-D1.6: the spelling, why it differs from the plugin's
+  # own hooks, the export, the refusal, and --settings as the only delivery.
+  require_phrase "_about states the quoted, unbraced spelling (REQ-D1.6)" \
+    '"$CLAUDE_PLUGIN_ROOT"/scripts/'
+  require_phrase "_about says why the spelling differs from hooks/hooks.json (REQ-D1.6)" \
+    "no plugin context"
+  require_phrase "_about says the braced token substitutes empty under --settings (REQ-D1.6)" \
+    "substitutes empty"
+  require_phrase "_about says the launcher must export the root (REQ-D1.6)" \
+    "must export CLAUDE_PLUGIN_ROOT"
+  require_phrase "_about says the policy hooks refuse every Bash call when the guard does not run (REQ-D1.6)" \
+    "refuse every Bash call"
+  require_phrase "_about names --settings as the only supported delivery (REQ-D1.6)" \
+    "only supported delivery"
+  for dropped in "exactly as the plugin's hooks/hooks.json does" \
+    "resolves under a marketplace install" "merge this into"; do
+    if printf '%s' "$about" | grep -qiF "$dropped"; then
+      fail "_about still says '$dropped', which REQ-D1.6 drops"
+    else
+      ok "_about no longer says '$dropped' (REQ-D1.6)"
+    fi
+  done
   if printf '%s' "$about" | grep -qiF "already expanded"; then
     fail "_about claims variables arrive already expanded, which the guard's model contradicts"
   else
