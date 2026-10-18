@@ -82,7 +82,8 @@ advice.
 ## Input subscription
 
 - `brief.md`: `## Opportunity`, `## Existing alternatives`, `## Strategy fit`, and `## Sources`.
-- `assumptions.md`: entries whose statement names a licence, a right, a dataset, or a name.
+- `assumptions.md`: every entry, since patent, authorship, provenance, and contributor-term
+  exposure can sit under any risk tag.
 - `decisions.md`: open or deferred entries that would publish, license, ingest, or name
   something, whatever their discipline.
 
@@ -213,8 +214,11 @@ this seat or another persona seat agreeing with it.
 - US Copyright Office, *Copyright and Artificial Intelligence, Part 3: Generative AI Training*,
   pre-publication version, 9 May 2025 — re-verified 2026-10-18; no final version found.
 - Regulation (EU) 2024/1689 (AI Act), Article 53, and the European Commission's General-Purpose
-  AI Code of Practice, copyright chapter, 2025 — re-verified 2026-10-18 from law-firm analyses;
-  the Commission's own text not reached.
+  AI Code of Practice, copyright chapter, 10 July 2025,
+  <https://digital-strategy.ec.europa.eu/en/policies/contents-code-gpai> — re-verified
+  2026-10-18: the Commission's page confirms the code is voluntary and that its copyright
+  chapter serves the Article 53 copyright-policy duty; the chapter's detailed commitments
+  (crawling, opt-outs) come from law-firm analyses, the chapter text not reached.
 - European Patent Convention, Article 54 (novelty), and 35 U.S.C. § 102(b)(1) (disclosures
   made one year or less before the effective filing date) — re-verified 2026-10-18, the EPC
   article from the EPO's published text, <https://www.epo.org/en/legal/epc/2020/a54.html>,

@@ -38,8 +38,9 @@ threats to design against), with the options it rejected and why.
    it as a fixed constraint that cuts scope.
 2. **Quality attribute scenarios** (Bass, Clements & Kazman, *Software Architecture in
    Practice*, 4th ed., Addison-Wesley, 2021): state each quality the venture needs as a
-   stimulus, environment, response, and measure, and rank them. Misuse: listing qualities as
-   adjectives ("scalable", "secure") with no measure, which no design can be checked against.
+   scenario of source, stimulus, artifact, environment, response, and response measure, and
+   rank them. Misuse: listing qualities as adjectives ("scalable", "secure") with no measure,
+   which no design can be checked against.
 3. **Context and container views** (Brown, *The C4 model*, c4model.com): draw the system in its
    context of users and external systems, then its separately deployable containers, and stop
    there at inception. Misuse: drawing component and code diagrams for a system that does not
@@ -91,7 +92,7 @@ threats to design against), with the options it rejected and why.
 
 ## Quality attribute scenarios
 
-<ranked scenarios: stimulus, environment, response, measure>
+<ranked scenarios: source, stimulus, artifact, environment, response, response measure>
 
 ## System context and containers
 
@@ -129,8 +130,8 @@ to a proposed `feasibility` assumption.
 ## Capability boundary
 
 - **Per-activity exceptions:**
-  - structure-only: choosing between building, buying, or adopting a platform the venture will
-    depend on, where cost, contract, and lock-in weigh in.
+  - structure-only: comparing building, buying, or adopting a platform the venture will depend
+    on, where cost, contract, and lock-in weigh in; the human picks.
   - structure-only: trading a quality attribute against the appetite, such as accepting lower
     availability to ship sooner.
   - human-authority: accepting a residual security risk the design cannot remove.

@@ -129,9 +129,10 @@ source or a spike, or appears as a proposed `feasibility` assumption.
 ## Capability boundary
 
 - **Per-activity exceptions:**
-  - structure-only: choosing a model vendor or hosting arrangement, where data residency,
-    contract, and lock-in terms weigh in.
-  - structure-only: setting how much autonomy an agent has to act without human review.
+  - structure-only: comparing model vendors or hosting arrangements, where data residency,
+    contract, and lock-in terms weigh in; the human picks.
+  - structure-only: framing how much autonomy an agent could have to act without human review;
+    the human sets it.
   - human-authority: accepting a residual security or privacy risk the design cannot remove.
   - human-authority: sending personal, confidential, or customer data to a third-party model.
 - **One-way doors:** human-authority — sending regulated or customer data to an external model

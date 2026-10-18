@@ -35,8 +35,9 @@ tradeoffs, for the human to choose between.
 1. **Fit and good-design tests** (Goold & Campbell, "Do You Have a Well-Designed
    Organization?", *Harvard Business Review*, March 2002): screen each design option first for
    fit with the strategy, the people available, and the constraints, then refine it against
-   the good-design tests, such as the balance of empowerment and control. Misuse: running the
-   refinement tests before the fit tests, polishing a design that does not serve the strategy.
+   the good-design tests, which the article says address problem areas including the balance
+   between empowerment and control. Misuse: running the refinement tests before the fit tests,
+   polishing a design that does not serve the strategy.
 2. **Star Model** (Galbraith, *Designing Organizations*, 3rd ed., Jossey-Bass, 2014): check that
    strategy, structure, processes, rewards, and people align, and change them together. Misuse:
    redrawing the structure alone; Galbraith's point is that a structure change without the
@@ -75,6 +76,8 @@ tradeoffs, for the human to choose between.
 
 - `brief.md`: `## Opportunity`, `## Appetite`, `## Strategy fit`, and `## Kill criteria`.
 - `disciplines.md`: `## Discipline map`, `## Staffing table`, and `## Stakeholder map`.
+- `assumptions.md`: every entry, so the seat proposes against existing assumptions and never
+  restates one as new.
 - `decisions.md`: open or deferred entries whose discipline is org design, and entries whose
   options assign an owner.
 

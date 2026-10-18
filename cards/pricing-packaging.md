@@ -28,7 +28,7 @@ human to choose between.
 5. Which pricing assumption in the frame would sink the venture's business viability if wrong, and
    what test with a threshold fixed in advance would expose it?
 6. Which existing price, contract, or free offering does this venture or its parent already
-   publish that a new price would change?
+   publish, offer privately, or promise that a new price would change?
 
 ## Frameworks
 

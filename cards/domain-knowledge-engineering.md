@@ -72,7 +72,8 @@ disputed edges for the human and the domain authority to decide.
   seat names that person or flags the gap, and never stands in for them.
 - **Named external standards** — any industry vocabulary, classification, or regulation the
   brief names, at the version the venture would adopt.
-- **Refuse without:** a named domain authority, a person or a published standard; with none,
+- **Refuse without:** a named domain authority, meaning a person the stakeholder map gives
+  authority over that area of the domain or the published standard that governs it; with none,
   the seat returns its mandate questions as open assumptions and names the elicitation task
   that would find one, instead of modelling the domain from general knowledge.
 - **Refuse without:** expert-sourced examples above the synthetic grade for any claim that a
