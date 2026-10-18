@@ -68,9 +68,9 @@ self_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 # Planning figures for the Gate 1 cost line, in tokens. They are estimates the
 # operator weighs before spawning, not a meter.
 SEAT_TOKENS=40000
-SYNTH_TOKENS=40000
-CHALLENGE_TOKENS=20000
-AMEND_TOKENS=40000
+SYNTH_TOKENS=50000
+CHALLENGE_TOKENS=30000
+AMEND_TOKENS=55000
 MAX_SEATS=5
 
 TABLE_HEADER='| Decision | Tier and reason | Owning role | Evidence needed | Trigger | Powers |'

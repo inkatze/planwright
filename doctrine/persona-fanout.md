@@ -89,7 +89,9 @@ own `mktemp -d`, outside the venture, and reuse its literal path in every call.
    Launch one fresh persona-free session from `synthesis-brief` (on the same
    rung; `--deliver-file` where the session hands nothing back), save its answer
    as `synthesis.md`, and run `check-synthesis --run`. A failing synthesis goes
-   back to its writer once with the findings.
+   back once: the same brief with the findings and the failed answer appended,
+   to the writer resumed or to a fresh session; a second failure stops the
+   fan-out for the operator.
 7. **Challenge once.** A second fresh persona-free session from
    `challenge-brief`; save `challenge.md`.
 8. **Amend once.** The synthesis writer (resumed, or a fresh session) answers
