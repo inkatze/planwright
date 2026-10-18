@@ -1,0 +1,1 @@
+- 2026-10-18 [planwright] About 20 tests open with tmp="$(cd "$(mktemp -d)" && pwd -P)" and an rm -rf trap; under bash 3.2 cd "" is a no-op, so a failed mktemp points the trap at the caller directory. Check the mktemp output before the cd suite-wide.
