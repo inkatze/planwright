@@ -65,6 +65,19 @@ unset CDPATH
 
 self_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 
+# The column-0 fence rule is the meta-spec's grammar, which the inception
+# format inherits, so every reader that skips fenced lines takes the shared
+# lexer. The three that must carry fenced lines through (card sections, the
+# anonymized inputs, the attributed table) and the blind-synthesis check, which
+# scans fenced lines for identity too, keep the same toggle inline; see the
+# FENCE_EXEMPT note in tests/test-spec-parse-corpus.sh. Sourced, never run.
+if [ ! -f "$self_dir/spec-parse.sh" ] || [ ! -r "$self_dir/spec-parse.sh" ]; then
+  printf '%s\n' "inception-fanout: required helper $self_dir/spec-parse.sh missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/spec-parse.sh
+. "$self_dir/spec-parse.sh" || exit 2
+
 # Planning figures for the Gate 1 cost line, in tokens. They are estimates the
 # operator weighs before spawning, not a meter.
 SEAT_TOKENS=40000
@@ -264,9 +277,7 @@ cmd_frame() {
   metric=$(section "$venture/brief.md" 'Success metric' | tr '\n' ' ' | sed 's/ *$//')
   sources=$(section "$venture/brief.md" Sources)
   staffing=$(section "$venture/disciplines.md" 'Staffing table')
-  decisions=$(awk '
-    /^```/ { fence = !fence }
-    fence { next }
+  decisions=$(awk "$spec_parse_awk_fence"'
     /^### DEC-[0-9]+ — / { flush(); id = $2; t = $0; sub(/^### DEC-[0-9]+ — /, "", t); st = ""; door = ""; sup = 0; next }
     /^#/ { flush(); id = ""; next }
     id != "" && /^- \*\*Status:\*\* / { st = substr($0, 15) }
@@ -317,9 +328,7 @@ cmd_frame() {
 cmd_triage() {
   [ $# -eq 1 ] || usage
   open_venture "$1"
-  doors=$(awk '
-    /^```/ { fence = !fence }
-    fence { next }
+  doors=$(awk "$spec_parse_awk_fence"'
     /^### DEC-/ { flush(); on = 1; st = ""; door = ""; sup = 0; next }
     /^#/ { flush(); on = 0; next }
     on && /^- \*\*Status:\*\* / { st = substr($0, 15) }
@@ -328,9 +337,7 @@ cmd_triage() {
     function flush() { if (on && !sup && door == "one-way" && (st == "open" || st == "deferred")) n++; on = 0 }
     END { flush(); print n + 0 }
   ' "$venture/decisions.md")
-  weak=$(awk '
-    /^```/ { fence = !fence }
-    fence { next }
+  weak=$(awk "$spec_parse_awk_fence"'
     /^### A-/ { flush(); on = 1; st = ""; ev = ""; bl = ""; sup = 0; next }
     /^#/ { flush(); on = 0; next }
     on && /^- \*\*Status:\*\* / { st = substr($0, 15); sub(/ .*$/, "", st) }
@@ -581,9 +588,7 @@ EOF
 AWK_SEAT='
 function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
 function bad(msg) { gsub(/[\001-\037\177]/, "", msg); print "finding\t" cur "\t" msg; nbad++ }
-FNR == 1 { if (NR > 1) finish(); cur = FILENAME; last = ""; insec = 0; hdr = 0; rows = 0; nonel = 0; fence = 0 }
-/^```/ { fence = !fence; next }
-fence { next }
+FNR == 1 { if (NR > 1) finish(); cur = FILENAME; last = ""; insec = 0; hdr = 0; rows = 0; nonel = 0 }
 {
   low = tolower($0)
   if (low ~ /(^|[^a-z])(i am|i.m|we are|we.re) (very |highly |fairly |quite |reasonably |extremely )?(confident|certain|sure)([^a-z]|$)/ ||
@@ -634,7 +639,7 @@ check_seats() {
       return 1
     }
   done
-  awk -v HEADER="$TABLE_HEADER" "$AWK_SEAT" "$@"
+  awk -v HEADER="$TABLE_HEADER" 'FNR == 1 { spec_parse__fence = 0 }'"$spec_parse_awk_fence$AWK_SEAT" "$@"
 }
 
 cmd_check_seat() {
@@ -835,6 +840,7 @@ take_deliver() {
 delivery() {
   printf '\n## Delivery\n\n'
   if [ -n "$deliver" ]; then
+    # shellcheck disable=SC2016 # the backticks are literal markdown
     printf 'Write the finished %s, and nothing else, to the file `%s`, creating it. Write no other file, then stop.\n' "$2" "$1"
   else
     printf 'Return the finished %s, and nothing else, as the final answer.\n' "$2"
@@ -1014,9 +1020,8 @@ cmd_gate2() {
   check_seats "$@" >&2 || die 1 "a seat artifact fails the check above"
   awk '
     function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
-    FNR == 1 { seat = FILENAME; sub(/^.*\//, "", seat); sub(/\.md$/, "", seat); insec = 0; hdr = 0; fence = 0 }
-    /^```/ { fence = !fence; next }
-    fence { next }
+    FNR == 1 { seat = FILENAME; sub(/^.*\//, "", seat); sub(/\.md$/, "", seat); insec = 0; hdr = 0; spec_parse__fence = 0 }
+'"$spec_parse_awk_fence"'
     /^## / { insec = (substr($0, 4) == "Decisions I cannot make"); hdr = 0; next }
     insec && /^\|/ {
       if (!hdr) { hdr = 1; next }
