@@ -70,7 +70,15 @@ run bash tests/test-gate.sh
 exit 0
 EOF
 
-rv() { (cd "$R" && "$REVERIFY" "$@"); }
+# A private TMPDIR, so the leftover scan below sees only this file's copies,
+# and sentinel state homes, so the redirect is asserted whether or not the
+# caller's environment sets them.
+mkdir "$T/tmp"
+rv() {
+  (cd "$R" && TMPDIR=$T/tmp CLAUDE_PLUGIN_DATA=/sentinel/plugin-data \
+    XDG_CONFIG_HOME=/sentinel/config XDG_STATE_HOME=/sentinel/state \
+    XDG_CACHE_HOME=/sentinel/cache XDG_DATA_HOME=/sentinel/data "$REVERIFY" "$@")
+}
 
 # --- every fix holds ----------------------------------------------------------
 out=$(rv --records "$REC" 2>&1)
@@ -83,7 +91,7 @@ cat >"$T/iso.txt" <<EOF
 review-repro 1
 finding ISO-1
 kind reproduction
-run touch made-in-copy && test -z "\$(git remote)" && test "\$HOME" != "$HOME" && test "\$CLAUDE_PLUGIN_DATA" != "${CLAUDE_PLUGIN_DATA:-unset-in-test}" && printf 'home=%s\n' "\$HOME"
+run touch made-in-copy && test -z "\$(git remote)" && test "\$HOME" != "$HOME" && case "\$CLAUDE_PLUGIN_DATA:\$XDG_CONFIG_HOME:\$XDG_STATE_HOME:\$XDG_CACHE_HOME:\$XDG_DATA_HOME" in *sentinel*) false ;; esac && printf 'home=%s\n' "\$HOME"
 exit 0
 output-contains home=
 EOF
@@ -93,7 +101,7 @@ assert_exit "the copy has no remote and a redirected home and state home" 0 $?
 if [ ! -e "$R/made-in-copy" ]; then ok "the live worktree is untouched"; else fail "the live worktree is untouched"; fi
 if [ "$(git -C "$R" status --porcelain)" = "$before" ]; then ok "live status unchanged"; else fail "live status unchanged"; fi
 assert_contains "the live remote is kept" "example.invalid" "$(git -C "$R" remote -v)"
-leftover=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'review-reverify.*' -newer "$REC" 2>/dev/null | head -1)
+leftover=$(find "$T/tmp" -mindepth 1 -maxdepth 1 2>/dev/null | head -1)
 if [ -z "$leftover" ]; then ok "the copy is removed on exit"; else fail "the copy is removed on exit ($leftover)"; fi
 
 # --- the copy is the committed head, never the dirty worktree -----------------
@@ -146,6 +154,40 @@ printf 'review-repro 1\n' >"$T/empty.txt"
 out=$(rv --records "$T/empty.txt" 2>&1)
 assert_exit "no records is nothing to re-verify" 0 $?
 assert_contains "says so" "no records" "$out"
+: >"$T/zero.txt"
+out=$(rv --records "$T/zero.txt" 2>&1)
+assert_exit "an empty file is malformed, not a pass" 2 $?
+
+# --- indented lines parse like flush ones ---------------------------------------
+printf 'review-repro 1\n  # an indented note\nfinding I\n  kind test\n  run printf indented\n  exit 0\n  output-contains indented\n' >"$T/indent.txt"
+out=$(rv --records "$T/indent.txt" 2>&1)
+assert_exit "indented field lines are read by their field" 0 $?
+assert_contains "the indented record held" "held	I	test" "$out"
+
+# --- a finding id never collides with the script's own files ---------------------
+printf 'review-repro 1\nfinding runs\nkind test\nrun true\nexit 0\nfinding expect\nkind test\nrun true\nexit 0\nfinding z\nkind test\nrun true\nexit 0\n' >"$T/names.txt"
+out=$(rv --records "$T/names.txt" 2>&1)
+assert_exit "ids named like work files all run" 0 $?
+assert_contains "the record after them ran" "held	z	test" "$out"
+
+# --- a read-only leftover is cleaned and never a verdict ---------------------------
+printf 'review-repro 1\nfinding ro\nkind test\nrun mkdir -p ro/x && touch ro/x/f && chmod 555 ro/x\nexit 0\nfinding after\nkind test\nrun true\nexit 0\n' >"$T/ro.txt"
+out=$(rv --records "$T/ro.txt" 2>&1)
+assert_exit "a read-only file in the copy does not end the run" 0 $?
+assert_contains "the next record still ran" "held	after	test" "$out"
+leftover=$(find "$T/tmp" -mindepth 1 -maxdepth 1 2>/dev/null | head -1)
+if [ -z "$leftover" ]; then ok "a read-only copy is still removed"; else fail "a read-only copy is still removed ($leftover)"; fi
+
+# --- --log-dir keeps each record's output; --timeout bounds a record -------------
+mkdir "$T/logs"
+printf 'review-repro 1\nfinding L\nkind test\nrun printf logged-output\nexit 0\n' >"$T/log.txt"
+out=$(rv --records "$T/log.txt" --log-dir "$T/logs" 2>&1)
+assert_contains "the log holds the record's output" "logged-output" "$(cat "$T/logs/L.log" 2>/dev/null)"
+if command -v timeout >/dev/null 2>&1; then
+  printf 'review-repro 1\nfinding slow\nkind test\nrun sleep 5\nexit 0\n' >"$T/slow.txt"
+  out=$(rv --records "$T/slow.txt" --timeout 1 2>&1)
+  assert_contains "a timed-out record reports 124" "regressed	slow	test	exit 124, expected 0" "$out"
+fi
 
 # --- malformed records are refused before anything runs -----------------------
 refused() {
@@ -163,6 +205,8 @@ refused "non-numeric exit" "exit" "$(printf 'finding X\nkind test\nrun true\nexi
 refused "bad finding id" "finding" "$(printf 'finding ../x\nkind test\nrun true\nexit 0')"
 refused "a field before any finding" "before" "$(printf 'kind test\nfinding X\nkind test\nrun true\nexit 0')"
 refused "an unknown field" "unknown" "$(printf 'finding X\nkind test\nrun true\nexit 0\ncolour blue')"
+refused "two kind lines" "kind" "$(printf 'finding X\nkind test\nkind rule\nrun true\nexit 0')"
+refused "two exit lines" "exit" "$(printf 'finding X\nkind test\nrun true\nexit 0\nexit 1')"
 refused "a repeated finding id" "repeated" "$(printf 'finding X\nkind test\nrun true\nexit 0\nfinding X\nkind test\nrun true\nexit 0')"
 printf 'something else\n' >"$T/bad.txt"
 out=$(rv --records "$T/bad.txt" 2>&1)

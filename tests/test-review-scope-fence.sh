@@ -37,9 +37,15 @@ cat >"$T/contract.md" <<'EOF'
 ### Task 2 — Change the status contract
 
 - **Deliverables:** `scripts/lib.sh` returning 2 on failure, run with
-  `--strict <mode>`; the doctrine under `doctrine/status/`; every
-  `tests/test-*.sh` it touches.
-- **Done when:** the callers read the new code.
+  `--strict <mode>` or `--out=.claude/x`; the doctrine under
+  `doctrine/status/`; every `tests/test-*.sh` it touches.
+- **Done when:** the callers read the new code and `README.md` says so.
+
+Prose after the field names `notes/prose.md`, which admits nothing.
+
+```sh
+# a fenced example naming `fenced/example.sh`
+```
 EOF
 printf '%s\n' scripts/lib.sh doctrine/status/codes.md tests/test-lib.sh >"$T/inside.txt"
 
@@ -49,18 +55,39 @@ assert_exit "every file inside the deliverables passes" 0 $?
 if [ -z "$out" ]; then ok "silent when nothing is outside"; else fail "silent when nothing is outside (got: $out)"; fi
 
 # --- outside: one finding per file --------------------------------------------
-printf '%s\n' scripts/lib.sh scripts/other.sh doctrine/statusx.md README.md >"$T/mixed.txt"
+printf '%s\n' scripts/lib.sh scripts/other.sh doctrine/statusx.md README.md \
+  --out=.claude/x notes/prose.md fenced/example.sh >"$T/mixed.txt"
 out=$("$FENCE" --changed "$T/mixed.txt" --contract "$T/contract.md" 2>/dev/null)
 assert_exit "a file outside the deliverables is a finding" 1 $?
 assert_contains "names the outside script" "outside	scripts/other.sh" "$out"
 assert_contains "a directory prefix does not admit a sibling name" "outside	doctrine/statusx.md" "$out"
 assert_contains "names the outside doc" "outside	README.md" "$out"
 assert_lacks "an exact deliverable is not reported" "scripts/lib.sh" "$out"
-assert_lacks "an option in backticks is not a deliverable" "strict" "$out"
+assert_contains "an option in backticks is not a deliverable" "outside	--out=.claude/x" "$out"
+assert_contains "a path in another field is not a deliverable" "outside	README.md" "$out"
+assert_contains "prose after the field admits nothing" "outside	notes/prose.md" "$out"
+assert_contains "a fenced example admits nothing" "outside	fenced/example.sh" "$out"
+
+# --- a fence inside the field neither ends it nor admits ------------
+cat >"$T/fenced-contract.md" <<'EOF'
+### Task 3 — Fenced
+
+- **Deliverables:** `scripts/a.sh`, used as
+```sh
+# not a heading, and `fenced/inside.sh` is no deliverable
+```
+  and `scripts/b.sh`.
+EOF
+printf '%s\n' scripts/a.sh scripts/b.sh fenced/inside.sh >"$T/ab.txt"
+out=$("$FENCE" --changed "$T/ab.txt" --contract "$T/fenced-contract.md" 2>&1)
+assert_exit "a fence inside the field is reported, not admitted" 1 $?
+assert_lacks "a comment line in a fence does not end the field" "scripts/b.sh" "$out"
+assert_contains "a path inside the fence is not a deliverable" "outside	fenced/inside.sh" "$out"
 
 # --- --allow widens the fence; --deliverables replaces the contract -----------
 out=$("$FENCE" --changed "$T/mixed.txt" --contract "$T/contract.md" \
-  --allow scripts/other.sh --allow 'doctrine/*.md' --allow README.md 2>&1)
+  --allow scripts/other.sh --allow 'doctrine/*.md' --allow README.md \
+  --allow '--out=.claude/x' --allow 'notes/*' --allow 'fenced/*' 2>&1)
 assert_exit "allowed entries are inside" 0 $?
 printf '%s\n' 'scripts/' >"$T/deliv.txt"
 out=$("$FENCE" --changed "$T/mixed.txt" --deliverables "$T/deliv.txt" 2>/dev/null)
@@ -74,9 +101,18 @@ mkdir -p "$B"
 printf 'review-handoff\t1\n' >"$B/MANIFEST"
 cp "$T/mixed.txt" "$B/changed-files.txt"
 cp "$T/contract.md" "$B/contract.md"
+printf '%s\n' '"we\"ird.txt"' >"$B/skipped-files.txt"
 out=$("$FENCE" --bundle "$B" 2>/dev/null)
 assert_exit "a bundle's changed files and contract are fenced" 1 $?
 assert_contains "bundle mode names the outside file" "outside	scripts/other.sh" "$out"
+assert_contains "a path the builder refused is outside" 'outside	"we\"ird.txt"' "$out"
+printf '%s\n' scripts/lib.sh >"$B/changed-files.txt"
+out=$("$FENCE" --bundle "$B" 2>/dev/null)
+assert_exit "a refused path alone fails the fence" 1 $?
+rm "$B/skipped-files.txt"
+out=$("$FENCE" --bundle "$B" 2>&1)
+assert_exit "a bundle without skipped-files.txt is refused" 2 $?
+: >"$B/skipped-files.txt"
 
 # --- refused inputs -----------------------------------------------------------
 out=$("$FENCE" --changed "$T/mixed.txt" 2>&1)

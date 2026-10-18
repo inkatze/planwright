@@ -4,19 +4,20 @@
 # caught (review-effectiveness REQ-A1.7, REQ-C1.1, D-14).
 #
 # THE RECORDED-REPRODUCTION FORMAT. A text file whose first line is
-# `review-repro 1`; blank lines and `#` comment lines are ignored. Each record
-# starts at a `finding <id>` line (the id is letters, digits, and . _ -, unique
-# in the file) and holds, one per line:
-#   kind <reproduction|test|rule>  what validated the finding: the real surface
+# `review-repro 1`; blank lines and `#` comment lines are ignored, and leading
+# spaces on any line are. Each record starts at a `finding <id>` line (the id
+# is letters, digits, and . _ -, unique in the file) and holds, one per line:
+#   kind <reproduction|test|rule>  exactly one; what validated the finding: the real surface
 #                                  invoked with the triggering input, the
 #                                  targeted test, or the tool rule
 #   run <command>                  exactly one; a shell command line, run by sh
 #                                  from the copy's root
-#   exit <n>                       the exit code the fixed behaviour gives
+#   exit <n>                       exactly one; the exit code the fixed behaviour gives
 #   output-contains <text>         optional, repeatable: a fixed string the
 #                                  combined stdout and stderr must hold
 #   output-lacks <text>            optional, repeatable: one it must not hold
-# No line may hold a tab. The whole file is validated before anything runs.
+# No line may hold a tab. The whole file is validated before anything runs;
+# an empty file is malformed (it lacks the first line), never "no records".
 #
 # THE COPY. Each record runs in its own fresh isolated copy of the committed
 # head (or --head): a shared clone in a temporary directory with its remote
@@ -40,7 +41,8 @@
 #       [--log-dir <dir>]
 #
 #   --timeout  per record, default 600, applied when timeout(1) exists; a
-#              timed-out command reports its exit code (124)
+#              timed-out command reports its exit code (124), and one that
+#              ignores the signal is killed 10 seconds later
 #
 # Exit codes: 0 every fix held (or no records); 1 one or more regressed; 2
 #   usage or a malformed records file; 4 a copy could not be set up.
@@ -106,7 +108,8 @@ parsed=$(awk '
   }
   NR == 1 { if ($0 != "review-repro 1") bad("the first line must be: review-repro 1"); next }
   /\t/ { bad("a line holds a tab") }
-  /^[ ]*$/ || /^#/ { next }
+  { sub(/^ +/, "") }
+  /^$/ || /^#/ { next }
   {
     field = $1
     value = $0
@@ -116,25 +119,31 @@ parsed=$(awk '
       if (value !~ /^[A-Za-z0-9._-]+$/ || value ~ /^\.+$/) bad("finding ids are letters, digits, and . _ -")
       if (value in seen) bad("finding " value " is repeated")
       seen[value] = 1
-      id = value; kind = ""; runs = 0; run = ""; code = ""; expect = ""
+      id = value; kind = ""; runs = 0; run = ""; code = ""; expect = ""; kinds = 0; codes = 0
       next
     }
     if (id == "") bad("a " field " line before any finding line")
     if (field == "kind") {
       if (value !~ /^(reproduction|test|rule)$/) bad("kind must be reproduction, test, or rule")
+      if (++kinds > 1) bad("finding " id " has more than one kind line")
       kind = value
     } else if (field == "run") {
       if (value == "") bad("an empty run line")
       runs++; run = value
     } else if (field == "exit") {
       if (value !~ /^[0-9]+$/ || value + 0 > 255) bad("exit must be a code from 0 to 255")
+      if (++codes > 1) bad("finding " id " has more than one exit line")
       code = value + 0
     } else if (field == "output-contains" || field == "output-lacks") {
       if (value == "") bad("an empty " field " line")
       expect = expect (field == "output-contains" ? "C" : "L") "\t" id "\t" value "\n"
     } else bad("unknown field: " field)
   }
-  END { if (!failed) close_rec() }' "$records" 2>&1) || die 2 "malformed records file: $parsed"
+  END {
+    if (failed) exit 2
+    if (NR == 0) bad("an empty file: the first line must be: review-repro 1")
+    close_rec()
+  }' "$records" 2>&1) || die 2 "malformed records file: $parsed"
 
 if ! printf '%s\n' "$parsed" | grep -q '^R'; then
   printf 'no records to re-verify\n'
@@ -146,16 +155,26 @@ case $head_rev in -*) die 2 "--head must be a revision, not an option" ;; esac
 head=$(git rev-parse --verify --quiet "$head_rev^{commit}") || die 2 "--head names no commit: $head_rev"
 
 runner=
-if command -v timeout >/dev/null 2>&1; then runner="timeout $timeout_s"; fi
+if command -v timeout >/dev/null 2>&1; then runner="timeout -k 10 $timeout_s"; fi
 
-work=$(mktemp -d "${TMPDIR:-/tmp}/review-reverify.XXXXXX")
-trap 'rm -rf "$work"' EXIT
+# A record may leave read-only files in its copy (a module cache, a chmod);
+# removal makes them writable first, and a cleanup failure is never a verdict.
+scrub() {
+  chmod -R u+w "$1" 2>/dev/null || true
+  rm -rf "$1" 2>/dev/null || true
+}
+work=$(mktemp -d "${TMPDIR:-/tmp}/review-reverify.XXXXXX") || die 4 "could not create a working directory"
+trap 'scrub "$work"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+mkdir "$work/r"
 
 status=0
 printf '%s\n' "$parsed" | grep '^R' >"$work/runs"
 printf '%s\n' "$parsed" | grep -v '^R' >"$work/expect" || true
 while IFS="$TAB" read -r _ id kind code run; do
-  c=$work/$id
+  c=$work/r/$id
   mkdir -p "$c/home" "$c/state"
   {
     git clone -q --shared --no-checkout "$top" "$c/copy" \
@@ -187,6 +206,6 @@ while IFS="$TAB" read -r _ id kind code run; do
     printf 'regressed\t%s\t%s\t%s\n' "$id" "$kind" "$why"
     status=1
   fi
-  rm -rf "$c"
+  scrub "$c"
 done <"$work/runs"
 exit "$status"

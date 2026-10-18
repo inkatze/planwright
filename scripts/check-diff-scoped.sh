@@ -5,14 +5,17 @@
 # D-11).
 #
 # THE CHANGED FILES are the paths given, or with --base <rev> every file that
-# differs from it: committed, uncommitted, and untracked (ignored files
-# excepted).
+# differs from the merge base of <rev> and HEAD: committed, uncommitted, and
+# untracked (ignored files excepted), both sides of a rename. A path git
+# quotes (it holds a control byte, a quote, or a backslash) is reported
+# `skipped path` and checked by nothing.
 #
 # THE TESTS are the files matching --tests (default `tests/test-*.sh`) that
-# are themselves changed, or that name a changed file by its repo path, or by
-# its basename when no other file in the repository shares it. A test reaching
-# a file only through a constructed path is not selected; the full suite
-# covers it.
+# are themselves changed and still exist, or that name a changed file by its
+# repo path, or by its basename when no other file in the repository shares
+# it, either one as a whole word (a top-level file's repo path is its
+# basename, so the sharing rule covers it too). A test reaching a file only
+# through a constructed path is not selected; the full suite covers it.
 #
 # THE LINTERS, per changed file that still exists: shellcheck and `shfmt -d`
 # on shell (`.sh`, `.bash`, or an extensionless file with a shell shebang),
@@ -30,7 +33,7 @@
 #       (--base <rev> | <path>...)
 #
 # Exit codes: 0 no selected check failed (or nothing was selected); a
-#   skipped linter is reported on its own line and does not fail the
+#   skipped linter or path is reported on its own line and does not fail the
 #   check, so a consumer reads the `skipped` lines; 1 a test or linter failed;
 #   2 usage or a refused path.
 set -eu
@@ -89,16 +92,27 @@ fi
 top=$(git rev-parse --show-toplevel 2>/dev/null) || die 2 "not inside a git work tree"
 cd "$top"
 
-work=$(mktemp -d "${TMPDIR:-/tmp}/check-diff-scoped.XXXXXX")
+work=$(mktemp -d "${TMPDIR:-/tmp}/check-diff-scoped.XXXXXX") || die 2 "cannot create a working directory"
 trap 'rm -rf "$work"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 changed=$work/changed
 if [ -n "$base" ]; then
   case $base in -*) die 2 "--base must be a revision, not an option" ;; esac
   sha=$(git rev-parse --verify --quiet "$base^{commit}") || die 2 "--base names no commit: $base"
+  mb=$(git merge-base "$sha" HEAD) || die 2 "--base shares no history with HEAD"
   {
-    git -c core.quotePath=false diff --no-ext-diff --name-only "$sha" --
+    git -c core.quotePath=false diff --no-ext-diff --no-renames --name-only "$mb" --
     git -c core.quotePath=false ls-files --others --exclude-standard
-  } | sort -u >"$changed"
+  } | sort -u >"$work/listed"
+  : >"$changed"
+  while IFS= read -r f; do
+    case $f in
+      '"'*) printf 'skipped\tpath\t%s\n' "$f" ;;
+      *) printf '%s\n' "$f" >>"$changed" ;;
+    esac
+  done <"$work/listed"
 else
   : >"$changed"
   for p in "$@"; do
@@ -123,24 +137,35 @@ fi
 git -c core.quotePath=false ls-files --cached --others --exclude-standard \
   | awk -F/ '{ n[$NF]++ } END { for (b in n) if (n[b] == 1) print b }' >"$work/unique-basenames"
 
+# One pattern per changed file: its repo path when it has a directory, and its
+# basename when no other file shares it. One grep over the existing tests then
+# selects every test naming any of them.
+awk -F/ -v uniq="$work/unique-basenames" '
+  BEGIN { while ((getline b < uniq) > 0) u[b] = 1 }
+  NF > 1 { print }
+  $NF in u { print $NF }' "$changed" | sort -u >"$work/patterns"
 : >"$work/tests"
 : >"$work/lint"
+: >"$work/existing-tests"
+while IFS= read -r t; do
+  [ ! -f "$t" ] || printf '%s\n' "$t" >>"$work/existing-tests"
+done <"$work/all-tests"
+if [ -s "$work/patterns" ] && [ -s "$work/existing-tests" ]; then
+  set --
+  while IFS= read -r t; do set -- "$@" "./$t"; done <"$work/existing-tests"
+  rc=0
+  grep -lwF -f "$work/patterns" "$@" >"$work/selected" || rc=$?
+  [ "$rc" -le 1 ] || die 2 "grep failed (exit $rc) selecting the tests"
+  sed 's#^\./##' "$work/selected" >>"$work/tests"
+fi
 while IFS= read -r f; do
-  grep -Fxq -e "$f" "$work/all-tests" && printf '%s\n' "$f" >>"$work/tests"
-  b=${f##*/}
-  while IFS= read -r t; do
-    [ -f "$t" ] || continue
-    if grep -Fq -e "$f" "$t" \
-      || { grep -Fxq -e "$b" "$work/unique-basenames" && grep -Fq -e "$b" "$t"; }; then
-      printf '%s\n' "$t" >>"$work/tests"
-    fi
-  done <"$work/all-tests"
+  if grep -Fxq -e "$f" "$work/all-tests" && [ -f "$f" ]; then printf '%s\n' "$f" >>"$work/tests"; fi
   [ -f "$f" ] || continue
-  case $f in
+  case ${f##*/} in
     *.sh | *.bash) printf 'shellcheck\t%s\nshfmt\t%s\n' "$f" "$f" >>"$work/lint" ;;
     *.md) printf 'markdownlint-cli2\t%s\n' "$f" >>"$work/lint" ;;
     *.yml | *.yaml) printf 'yamllint\t%s\n' "$f" >>"$work/lint" ;;
-    */*.* | *.*) ;;
+    *.*) ;;
     *)
       if sed -n 1p "$f" | grep -Eq '^#!.*(/|env[[:space:]]+)(ba|da|k|z)?sh([[:space:]]|$)'; then
         printf 'shellcheck\t%s\nshfmt\t%s\n' "$f" "$f" >>"$work/lint"

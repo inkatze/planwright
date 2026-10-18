@@ -13,12 +13,17 @@
 # --deliverables <file> (one entry per line), or are read from a task
 # contract (--contract, or the bundle's contract.md): every backticked token
 # in a `Deliverables:` field that holds a `/` or a `.`, has no whitespace or
-# `<`, and does not start with `-`. Prose naming a file without backticks
+# `<`, and does not start with `-`. The field is read with the shared task
+# grammar (scripts/spec-parse.sh): it runs over its indented continuation
+# lines and ends at a blank line, prose, another bullet, or a heading, and a
+# column-0 code fence admits nothing. Prose naming a file without backticks
 # admits nothing, so the fence errs toward reporting; --allow <entry> adds an
 # entry, repeatable.
 #
-# Prints `outside <path>` per file outside the fence. A contract that yields
-# no entry is refused rather than fencing everything out.
+# Prints `outside <path>` per file outside the fence. With --bundle, every
+# path the builder refused to carry (its skipped-files.txt) is reported
+# outside too, whatever the deliverables say. A contract that yields no entry
+# is refused rather than fencing everything out.
 #
 # Usage:
 #   review-scope-fence.sh (--bundle <dir> | --changed <file>
@@ -34,6 +39,14 @@ unset CDPATH
 prog=review-scope-fence
 NL='
 '
+here=$(cd "$(dirname "$0")" && pwd)
+spec_parse_sh="$here/spec-parse.sh"
+if [ ! -f "$spec_parse_sh" ] || [ ! -r "$spec_parse_sh" ]; then
+  printf '%s\n' "$prog: spec-parse.sh missing or unreadable: $spec_parse_sh" >&2
+  exit 2
+fi
+# shellcheck source=scripts/spec-parse.sh
+. "$spec_parse_sh" || exit 2
 
 usage() {
   cat >&2 <<EOF
@@ -52,6 +65,7 @@ readable() {
 
 bundle=
 changed=
+skipped=
 contract=
 deliverables=
 allow=
@@ -80,6 +94,8 @@ if [ -n "$bundle" ]; then
   [ -f "$bundle/MANIFEST" ] && [ "$(sed -n 1p "$bundle/MANIFEST")" = "$(printf 'review-handoff\t1')" ] \
     || die 2 "not a handoff bundle: $bundle"
   changed=$bundle/changed-files.txt
+  skipped=$bundle/skipped-files.txt
+  [ -f "$skipped" ] || die 2 "the bundle holds no skipped-files.txt; rebuild it with scripts/review-handoff.sh"
   contract=$bundle/contract.md
   [ -f "$contract" ] || die 2 "the bundle holds no contract.md; build it with --tasks-file and --task"
 fi
@@ -90,10 +106,11 @@ readable "the changed-files list" "$changed"
 
 if [ -n "$contract" ]; then
   readable "--contract" "$contract"
-  entries=$(awk '
-    /^- \*\*[^*]+:\*\*/ { on = ($0 ~ /^- \*\*Deliverables:\*\*/) }
-    /^#/ { on = 0 }
-    on { text = text " " $0 }
+  entries=$(awk "$spec_parse_awk_fence$spec_parse_awk_grammar"'
+    /^#/ { on = 0; next }
+    /^- / { on = (spec_parse_task_field($0) == "deliverables"); if (on) text = text " " $0; next }
+    /^[ \t]+[^ \t]/ { if (on) text = text " " $0; next }
+    { on = 0 }
     END {
       while (match(text, /`[^`]*`/)) {
         tok = substr(text, RSTART + 1, RLENGTH - 2)
@@ -136,4 +153,11 @@ EOF
     status=1
   fi
 done <"$changed"
+if [ -n "$skipped" ]; then
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    printf 'outside\t%s\n' "$path"
+    status=1
+  done <"$skipped"
+fi
 exit "$status"

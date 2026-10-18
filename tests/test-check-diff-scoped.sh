@@ -128,6 +128,15 @@ assert_exit "a linter finding fails the check" 1 $?
 assert_contains "names the failing linter" "fail	lint	shellcheck" "$out"
 g checkout -q -- scripts/alpha.sh
 
+out=$(cd "$R" && PATH="$STUB:$PATH" "$CHECK" config/settings.yml docs/README.md 2>&1)
+calls=$(cat "$T/lint-calls")
+assert_contains "yamllint runs strict" "yamllint --strict config/settings.yml" "$calls"
+assert_contains "markdownlint runs on the doc" "markdownlint-cli2 docs/README.md" "$calls"
+printf '#!/bin/bash\n# scripts/alpha.sh\necho distinctive-failure-text\nexit 3\n' >"$R/tests/test-alpha.sh"
+err=$(cd "$R" && PATH="$STUB:$PATH" "$CHECK" scripts/alpha.sh 2>&1 >/dev/null)
+assert_contains "a failing test's output goes to stderr" "distinctive-failure-text" "$err"
+g checkout -q -- tests/test-alpha.sh
+
 # A linter that is not installed is reported, never silently passed.
 nopath=
 IFS=: read -r -a dirs <<<"$PATH"
@@ -137,6 +146,56 @@ out=$(cd "$R" && PATH="$STUB:$nopath" "$CHECK" config/settings.yml 2>&1)
 assert_exit "a missing linter does not fail the check" 0 $?
 assert_contains "a missing linter is reported" "skipped	lint	yamllint	not installed" "$out"
 
+# --- selection edges, in a second fixture --------------------------------------
+R2=$T/repo2
+mkdir -p "$R2/scripts" "$R2/tests" "$R2/docs" "$R2/.husky"
+git init -q "$R2"
+g2() { git -C "$R2" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
+ck2() { (cd "$R2" && "$CHECK" "$@"); }
+printf '#!/bin/sh\nexit 0\n' >"$R2/.husky/pre-commit"
+printf '#!/bin/sh\nexit 0\n' >"$R2/scripts/old-name.sh"
+printf '#!/bin/bash\nsh scripts/old-name.sh\n' >"$R2/tests/test-old.sh"
+printf 'shared\n' >"$R2/notes.txt"
+printf 'shared\n' >"$R2/docs/notes.txt"
+printf '#!/bin/bash\ncat docs/notes.txt\n' >"$R2/tests/test-doc-notes.sh"
+printf '#!/bin/bash\ngrep -q x mainonly.txt 2>/dev/null; exit 0\n' >"$R2/tests/test-names-mainonly.sh"
+printf '#!/bin/bash\nexit 0\n' >"$R2/tests/test-gone.sh"
+g2 add -A
+g2 commit -q -m base
+g2 branch -q trunk
+g2 checkout -q -b feat
+g2 checkout -q trunk
+printf 'x\n' >"$R2/mainonly.txt"
+g2 add mainonly.txt
+g2 commit -q -m "trunk moves on"
+g2 checkout -q feat
+
+out=$(ck2 --list .husky/pre-commit 2>&1)
+assert_contains "an extensionless hook under a dotted directory is shellchecked" "lint	shellcheck	.husky/pre-commit" "$out"
+
+out=$(ck2 --list notes.txt 2>&1)
+assert_lacks "a top-level file sharing its name selects nothing by name" "test-doc-notes.sh" "$out"
+
+out=$(ck2 --list --base trunk 2>&1)
+assert_lacks "base: the merge base, not the base's tip" "test-names-mainonly.sh" "$out"
+
+g2 mv scripts/old-name.sh scripts/new-name.sh
+g2 commit -q -m rename
+out=$(ck2 --list --base trunk 2>&1)
+assert_contains "base: a renamed script's old-path consumers are selected" "test	tests/test-old.sh" "$out"
+
+rm "$R2/tests/test-gone.sh"
+out=$(ck2 --list --base HEAD 2>&1)
+assert_lacks "base: a deleted test is not selected" "test-gone.sh" "$out"
+g2 checkout -q -- tests/test-gone.sh
+
+printf '#!/bin/sh\nexit 0\n' >"$R2/scripts/back\\slash.sh"
+out=$(ck2 --list --base HEAD 2>&1)
+assert_contains "base: a path git quotes is reported skipped" "skipped	path	" "$out"
+rm "$R2/scripts/back\\slash.sh"
+
+out=$(cd "$R2/scripts" && "$CHECK" --list .husky/pre-commit 2>&1)
+assert_contains "paths are read from the repository root" "lint	shellcheck	.husky/pre-commit" "$out"
 # --- refused inputs ------------------------------------------------------------
 out=$(ck 2>&1)
 assert_exit "no files and no base is a usage error" 2 $?
