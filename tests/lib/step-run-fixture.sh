@@ -56,7 +56,7 @@ EOF
 cat >"$bin/edit.sh" <<'EOF'
 #!/bin/sh
 mkdir -p "$1"
-date +%s%N >>"$1/f.txt"
+printf '%s %s\n' "$$" "$(date +%s)" >>"$1/f.txt"
 git add "$1/f.txt" && git commit -q -m "fix: edit $1" || exit 5
 [ "${2:-}" != push ] || git push -q origin HEAD 2>/dev/null || exit 6
 EOF

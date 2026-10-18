@@ -176,7 +176,7 @@ holders() {
     }' "$tdir/out"
   else
     sed -n 's/^step-pool: .* waiting up to [0-9]*s on: //p' "$tdir/err" | tail -n 1 \
-      | awk '{ n = split($0, a, /; pid /); for (i = 1; i <= n; i++) print (i > 1 ? "pid " : "") a[i] }' \
+      | awk '{ n = split($0, a, "; pid "); for (i = 1; i <= n; i++) print (i > 1 ? "pid " : "") a[i] }' \
       | grep -vx 'no live holder found'
   fi >"$tdir/holders"
 }

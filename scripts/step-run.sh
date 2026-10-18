@@ -21,6 +21,7 @@
 #       [--session <id>]
 #   step-run.sh [--worktree <dir>] end --run <id> --point <point>
 #       --step <id> --exit <code> [--timed-out <seconds>] [--output <file>]
+#       [--session <id>]
 #
 #   --worktree  the unit's worktree; default the enclosing git top level.
 #               Every command runs there.
@@ -777,14 +778,15 @@ cmd_end() {
     ROW_POINT=$REFIRE_OF
     ROW_RUN=$(rows_run "$RUN")
   fi
-  row_of "$ROW_RUN" "$ROW_POINT" "$STEP"
-  # The slot is released from the pool begin took, whatever the row says now;
-  # `released` is a retry after an earlier end freed it.
+  # The slot is released from the pool begin took, whatever the row says now
+  # (or if it is gone); `released` is a retry after an earlier end freed it.
   ROW_POOL=$pool
   case $STATE in
     taken) SLOT_HELD=yes ;;
     released) STATE=taken ;;
   esac
+  row_of "$ROW_RUN" "$ROW_POINT" "$STEP"
+  ROW_POOL=$pool
   FP_ARGS=() POOL_ARGS=() REFIRE_ARGS=()
   [ -z "$REFIRE_OF" ] || REFIRE_ARGS=(--refire-of "$REFIRE_OF")
   # The fingerprint the step ran over, as begin took it.
@@ -793,7 +795,9 @@ cmd_end() {
     POOL_ARGS=(--pool "$ROW_POOL" --wait "$WAITED" ${HOLDER_ARGS[@]+"${HOLDER_ARGS[@]}"})
     [ "$STATE" != unpooled ] || POOL_ARGS+=(--unpooled)
   fi
-  case $o in "$DIR"/output-*) [ -f "$o" ] && [ ! -L "$o" ] || o='' ;; *) o='' ;; esac
+  case $o in "$DIR"/output-*) ;; *) o='' ;; esac
+  case ${o#"$DIR"/output-} in */* | '') o='' ;; esac
+  [ -z "$o" ] || { [ -f "$o" ] && [ ! -L "$o" ]; } || o=''
   [ -n "$o" ] || o=$(new_output) || exit $?
   if [ -n "$OUTPUT" ]; then
     cat -- "$OUTPUT" >>"$o" 2>/dev/null || printf 'step-run: the output file could not be read\n' >>"$o"

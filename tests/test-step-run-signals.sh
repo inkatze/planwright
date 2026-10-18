@@ -36,7 +36,7 @@ srun command --run "$r" --point pre-pr --step slow >"$tmp/out" 2>/dev/null
 rc=$?
 t1=$(date +%s)
 [ "$rc" -eq 1 ] && [ $((t1 - t0)) -lt 20 ] && recs "$r" pre-pr | grep -q "^excerpt${TAB}step-run: timed out after 1s" \
-  && [ -z "$(sp report gate)" ] && ! kill -0 "$(cat "$tmp/grand.pid")" 2>/dev/null
+  && [ -z "$(sp report gate)" ] && [ -s "$tmp/grand.pid" ] && ! kill -0 "$(cat "$tmp/grand.pid")" 2>/dev/null
 verdict "a step past its timeout is ended with everything it started, records failed, and frees its slot" \
   "rc=$rc took $((t1 - t0))s: $(recs "$r" pre-pr)"
 
@@ -49,7 +49,7 @@ t0=$(date +%s)
 srun command --run "$r" --point pre-pr --step stub >"$tmp/out" 2>/dev/null
 rc=$?
 t1=$(date +%s)
-[ "$rc" -eq 1 ] && [ $((t1 - t0)) -lt 25 ] && ! kill -0 "$(cat "$tmp/parent.pid")" 2>/dev/null \
+[ "$rc" -eq 1 ] && [ $((t1 - t0)) -lt 25 ] && [ -s "$tmp/parent.pid" ] && ! kill -0 "$(cat "$tmp/parent.pid")" 2>/dev/null \
   && [ -z "$(sp report gate)" ]
 verdict "a check ignoring TERM is killed after the grace, then its slot freed" "rc=$rc took $((t1 - t0))s"
 
@@ -70,7 +70,7 @@ runner=$(pgrep -f "step-run.sh --worktree $wt command" | head -n 1)
 kill -TERM "$runner"
 wait "$bg"
 rc=$?
-[ "$rc" -eq 143 ] && ! kill -0 "$(cat "$tmp/grand.pid")" 2>/dev/null && [ -z "$(sp report gate)" ] \
+[ "$rc" -eq 143 ] && [ -s "$tmp/grand.pid" ] && ! kill -0 "$(cat "$tmp/grand.pid")" 2>/dev/null && [ -z "$(sp report gate)" ] \
   && recs "$r" pre-pr | grep -q "^excerpt${TAB}step-run: stopped by signal 15"
 verdict "a TERM to the runner ends the check's group, records failed, frees the slot, and exits 143" \
   "rc=$rc: $(recs "$r" pre-pr)"
