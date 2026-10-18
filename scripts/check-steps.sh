@@ -84,8 +84,12 @@ defaults="$core/config/defaults.yml"
 core=$(cd "$core" && pwd -P) || die "cannot enter $(sanitize_printable "$core")"
 repo=$(cd "$repo" && pwd -P) || die "cannot enter $(sanitize_printable "$repo")"
 # The overlay resolver refuses a repo root that is not a git toplevel, which
-# would otherwise surface as every point failing check mode.
-toplevel=$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null) \
+# would otherwise surface as every point failing check mode. A git hook
+# exports repository selectors, cleared here as scripts/resolve-root.sh clears
+# them, so the check asks about <repo> itself.
+toplevel=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
+  -u GIT_OBJECT_DIRECTORY -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT \
+  git -C "$repo" rev-parse --show-toplevel 2>/dev/null) \
   && toplevel=$(cd "$toplevel" && pwd -P) && [ "$toplevel" = "$repo" ] \
   || die "not a git toplevel: $(sanitize_printable "$repo")"
 

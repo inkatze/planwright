@@ -144,6 +144,11 @@ reset_fixture
 run_fixture
 expect_rc "a clean fixture passes" 0
 
+# A git hook exports repository selectors; they must not redirect the
+# toplevel check to another tree.
+GIT_DIR="$tmp/nope" GIT_WORK_TREE="$tmp" run_fixture
+expect_rc "inherited GIT_DIR and GIT_WORK_TREE do not reject a valid repository" 0
+
 # REQ-H1.4: an unresolvable step fails, naming the step and the point.
 reset_fixture
 printf 'steps_pre_pr: [no-such-step]\n' >>"$tracked"
