@@ -15,7 +15,7 @@
 #   step-run.sh [--worktree <dir>] resume --run <id> --from <run>:<point>
 #   step-run.sh [--worktree <dir>] refire --run <id>
 #   step-run.sh [--worktree <dir>] command --run <id> --point <point>
-#       --step <id> [--refire-of <point>] [--backend <name>]
+#       --step <id> [--refire-of <point>] [--backend <name>] [--session <id>]
 #   step-run.sh [--worktree <dir>] begin --run <id> --point <point>
 #       --step <id> --owner <pid> [--refire-of <point>] [--backend <name>]
 #       [--session <id>]
@@ -338,7 +338,8 @@ load_record() {
 # refired <run>: the step ids a post-pr record of the run already re-fires.
 refired() {
   sr list --run "$1" --point post-pr >"$work/post" || die 4 "cannot read the run's records"
-  awk -F '\t' '$1 == "step" { s = $2 } $1 == "refire-of" && $2 != "" { print s }' "$work/post" | sort -u
+  awk -F '\t' '$1 == "record" { s = "" } $1 == "step" { s = $2 } $1 == "refire-of" && $2 != "" && s != "" { print s }' \
+    "$work/post" | sort -u
 }
 
 # --- refire -----------------------------------------------------------------

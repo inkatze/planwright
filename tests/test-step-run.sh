@@ -191,14 +191,16 @@ verdict "an expired wait records failed, the holder, and its wait seconds, runni
 config 'steps_pre_pr: [gate]' 'step_pool_wait: 60s'
 r=$(sr new-run)
 srun resolve --run "$r" pre-pr --unattended >/dev/null 2>&1
-srun command --run "$r" --point pre-pr --step gate >"$tmp/out" 2>/dev/null &
+srun command --run "$r" --point pre-pr --step gate >"$tmp/out" 2>"$tmp/wait.err" &
 bg=$!
-# Bounded one-second "calls" while the holder keeps the slot for three.
+# Bounded one-second polls: until the step is waiting, then three more while
+# the holder keeps the slot.
 i=0
-while [ "$i" -lt 3 ]; do
+while ! grep -q 'is full' "$tmp/wait.err" 2>/dev/null && [ "$i" -lt 60 ]; do
   sleep 1
   i=$((i + 1))
 done
+sleep 3
 sp release gate "$h" >/dev/null
 wait "$bg"
 rc=$?
