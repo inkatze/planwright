@@ -61,7 +61,7 @@
 #              (never relative, never ~user) and must name, by shape, a
 #              directory carrying a valid planwright-spec-root.yml marker
 #              (scripts/resolve-root.sh marker) or the default root of a git
-#              checkout (a specs directory at a toplevel). The target's own
+#              checkout (a toplevel's specs, itself or a symlink). The target's own
 #              configuration is never read. A routed fragment then passes the
 #              hygiene screen over its scope and text, which refuses, never
 #              rewrites, anything matching one of three classes: an absolute
@@ -459,16 +459,30 @@ if [ "$have_target" -eq 1 ]; then
   # A symlink can lead a clean configured path onto one that is not.
   [ "$(printf '%s' "$tg_root" | tr -d '\000-\037\177')" = "$tg_root" ] \
     || refuse 1 "the observation target's canonical path carries a control byte or tab"
+  # A checkout's own specs/ passes by shape whether the path names it as
+  # configured or as resolved: one symlinked out of its checkout is still that
+  # checkout's default root, as the resolver takes it.
   tg_shape=0
-  if [ "${tg_root##*/}" = specs ]; then
-    tg_parent=${tg_root%/*}
+  tg_logical=$tg_path
+  while :; do
+    case $tg_logical in
+      */) tg_logical=${tg_logical%/} ;;
+      *) break ;;
+    esac
+  done
+  for tg_cand in "$tg_logical" "$tg_root"; do
+    [ "${tg_cand##*/}" = specs ] || continue
+    tg_parent=$(cd -P -- "${tg_cand%/*}/" 2>/dev/null && pwd -P) || continue
     tg_top=$(
       unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
         GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
-      cd -- "${tg_parent:-/}" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null
+      cd -- "$tg_parent" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null
     ) || tg_top=""
-    [ -n "$tg_top" ] && [ "$tg_top" = "$tg_parent" ] && tg_shape=1
-  fi
+    if [ -n "$tg_top" ] && [ "$tg_top" = "$tg_parent" ]; then
+      tg_shape=1
+      break
+    fi
+  done
   if [ "$tg_shape" -eq 0 ]; then
     /bin/sh "$script_dir/resolve-root.sh" marker "$tg_root" >/dev/null 2>&1 \
       || refuse 1 "the observation target is neither a marked spec root nor the default root of a git checkout"

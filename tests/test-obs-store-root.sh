@@ -478,6 +478,18 @@ ln -s "$ctl/specs" "$tmp/ctl-link"
 printf 'observation_targets: {ctl: %s}\n' "$tmp/ctl-link" >"$t/.claude/planwright.local.yml"
 refused "a target whose canonical path carries a tab" "control byte" "$rec" --target ctl --text x
 [ ! -e "$ctl/specs/_observations" ] || fail "target: the tab-bearing canonical target was written into"
+# A checkout's specs/ may be a symlink out of it; its own resolver takes that
+# as the default root, and so does the shape check.
+new_repo "$tmp/symrepo"
+mkdir -p "$tmp/sym-store"
+ln -s "$tmp/sym-store" "$tmp/symrepo/specs"
+printf 'observation_targets: {sym: %s}\n' "$tmp/symrepo/specs" >"$t/.claude/planwright.local.yml"
+at "$t" "$rec" --target sym --text 'through a symlinked specs'
+if [ "$rc" -eq 0 ] && [ "$(count "$tmp/sym-store/_observations/entries")" -eq 1 ]; then
+  ok "target: a checkout whose specs/ is a symlink is accepted by shape"
+else
+  fail "target through a symlinked specs (rc=$rc): $out $err"
+fi
 printf 'observation_targets: {other: %s}\n' "$o/specs" >"$t/.claude/planwright.local.yml"
 
 # --- REQ-F1.3: the hygiene screen --------------------------------------------
