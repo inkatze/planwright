@@ -3,7 +3,9 @@
 # draft PR un-drafted as a side effect (doctrine/human-gates.md; the
 # human-gates spec's REQ-C1.7, REQ-C1.8). The one sanctioned agent spelling
 # of `gh pr ready --undo`: its re-draft runs only on a PR this run read as a
-# draft before its own request, so it can never send a ready PR back.
+# draft before its own request. A ready flip someone else makes between that
+# read and the check after the request is indistinguishable from the side
+# effect, so that narrow window is re-drafted too.
 #
 # Usage:
 #   request-reviewer.sh --repo <owner/repo> --pr <n> (--copilot | --reviewer <login>)
@@ -28,13 +30,13 @@
 #      checkout, which must be on the PR's head branch; with no unit given, or
 #      a checkout on another branch, it is named in the output alone.
 #
-# The live probe behind this (kickoff brief, risk register) found no
-# un-draft on request; the check stays wired so a host change is caught.
+# The check stays wired whether or not the host un-drafts on request today,
+# so a host change is caught.
 #
 # Exit: 0 requested, the draft state held or restored; 1 the request failed,
 # the draft state held or restored; 2 usage; 3 skipped, no request made; 4 the
-# re-draft failed and the unit is parked; 5 the re-draft failed and nothing
-# was parked.
+# re-draft failed and the unit is parked; 5 the re-draft failed and the park
+# did not complete (the output names why).
 #
 # No model in the decision path: every step is a comparison.
 set -u
