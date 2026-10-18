@@ -81,6 +81,10 @@ would otherwise have to make.
 
 ### D-5: Act-then-review autonomy; the draft→ready flip is the universal gate  (N, rewritten at kickoff 2026-06-10; replaces the pair-flow D-4/D-20 split)
 
+**Superseded-by: human-gates D-3, D-4** (2026-10-18) — scoped to the heading and "the
+draft→ready flip is the single review gate": sign-off is the approval act, and
+the flip is `ready_flip_policy`.
+
 **Decision:** The gate is exception-based and identical in all repos:
 Auto-applicable and Agent-resolvable findings apply with audit/evidence rows;
 Needs-sign-off findings are applied on the branch and listed in a
@@ -771,6 +775,10 @@ completion; the human's merge still activates (a merged `Ready` bundle is what
 `/orchestrate` dispatches against, deriving it `Active` on the first task). The
 two-key model (sign-off + human merge) is preserved.
 
+**Superseded-by: human-gates D-4, D-6** (2026-10-18) — scoped to "the universal gate
+(draft PR + human merge)" in Chosen because: the flip and the merge are
+policies, merge authorization staying a human gate.
+
 **Decision:** `/spec-draft` creates the spec worktree + branch
 (`planwright/<spec>/spec`, a reserved namespace the `tasks-pr-sync` hook
 no-ops on) and commits the Draft bundle locally — no push, no PR. `/spec-kickoff`
@@ -807,6 +815,10 @@ human holds the second key. This decision is itself the first exercise of the
 supersede ritual (REQ-B2.4 supersedes REQ-B2.1).
 
 ### D-45: Pre-execution spec-freshness gate  (N, delta re-walkthrough 2026-06-11)
+
+**Superseded-by: human-gates D-4, D-6** (2026-10-18) — scoped to "the draft-PR-only +
+human-merge invariant backstops it": the backstop is the merge floor and the
+flip preconditions.
 
 **Decision:** Execution skills refuse to dispatch when the spec bundle has changed
 since the kickoff brief's most recent sign-off. Every sign-off, amendment, and

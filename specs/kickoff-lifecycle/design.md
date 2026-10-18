@@ -149,6 +149,10 @@ spun new rather than folded into bootstrap.
 
 ### D-6: Kickoff marks the spec PR ready; a narrow exception to bootstrap D-26's all-drafts rule  (N)
 
+**Superseded-by: human-gates D-4, D-6** (2026-10-18) — scoped to "task PRs stay
+drafts" and "never auto-merge": task PRs follow `ready_flip_policy` and merges
+follow `merge_policy`; the spec-PR flip itself is unchanged.
+
 **Decision:** `/spec-kickoff` marks the **spec PR** ready (un-draft) on clean
 completion. The kickoff walkthrough is the review of the spec bundle, so once the
 bundle is signed off and any configured verification has converged, the spec PR's

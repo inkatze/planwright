@@ -162,6 +162,9 @@ drafting, so D-1 is the altitude record REQ-A1.4 demands.
 - **REQ-C1.4** Merging the release PR SHALL be the release approval and SHALL
   remain a human act. No planwright code path merges the release PR (the
   carried never-auto-merge invariant, unrefined).
+  **Superseded-by: REQ-D1.6, REQ-D1.9 (human-gates)** (2026-10-18) — scoped to the
+  parenthetical: the floor is the merge policy, and a release PR is never a
+  class admission, so its merge stays a human approval act.
   *(Cites: D-5; bootstrap REQ-J1.1-class invariant.)*
 - **REQ-C1.5** Release notes SHALL derive from merged PRs since the last
   release, grouped by conventional-commit type, enriched with spec/task
@@ -341,6 +344,11 @@ drafting, so D-1 is the altitude record REQ-A1.4 demands.
   live at T11"; `kickoff-brief.md` §5 `[test]` sub-count corrected 17 → 18;
   `kickoff-brief.md` §2 stale "0.2.2 / v0.2.1" figure reconciled to the
   verified v0.2.6. See `kickoff-brief.md` §9 amendment log.
+- 2026-10-18 — human-gates Task 12 supersede pointers: REQ-C1.4 superseded-by
+  human-gates REQ-D1.6 and REQ-D1.9 and D-5 by human-gates D-6 and D-15, both
+  scoped to the never-auto-merge clauses. Pointer edits only — no record body,
+  task, or status change; the anchored delta is meaning-class, so the bundle
+  parks for its reopen cycle (`tasks.md` Awaiting input).
 
 ## Sources
 

@@ -220,6 +220,9 @@ second writer of derived state to drift.
   PRs are drafts" SHALL be narrowly superseded to this effect via the
   supersede-pointer ritual, and a config opt-out (`mark_spec_pr_ready_on_kickoff`,
   default true) SHALL gate the flip.
+  **Superseded-by: REQ-C1.1, REQ-C1.6 (human-gates)** (2026-10-18) — task PRs follow
+  `ready_flip_policy`; the spec-PR flip is the same policy kind under its own
+  knob.
   *(Cites: D-5, D-6; bootstrap D-26, REQ-F1.6.)*
 - **REQ-D1.4** `/spec-kickoff` SHALL scale change-handling to what is built
   against the contract. A `Ready` bundle (signed off, no execution work started,
@@ -307,6 +310,11 @@ second writer of derived state to drift.
   as the terminal step after configurable verification; the Ready↔Active
   derivation extends `orchestration-concurrency`'s single reconcile writer as a
   hard cross-spec dependency.
+- 2026-10-18 — human-gates Task 12 supersede pointers: REQ-D1.3 superseded-by
+  human-gates REQ-C1.1 and REQ-C1.6, and D-6 (scoped to its task-PR and merge
+  clauses) by human-gates D-4 and D-6. Pointer edits only — no record body,
+  task, or status change; the anchored delta is meaning-class, so the bundle
+  parks for its reopen cycle (`tasks.md` Awaiting input).
 
 ## Sources
 

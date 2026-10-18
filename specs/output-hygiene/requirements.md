@@ -134,17 +134,25 @@ supersede pointer; bodies are frozen per the stable-ID rule (bootstrap D-20).)*
 - **REQ-C1.1** One canonical marker placement SHALL be defined in the gate-wiring doctrine,
   and it SHALL be a placement that passes the conventional-commit lint (a marker before the
   `type(scope):` prefix is the confirmed unfixable-CI-red trap).
+  **Superseded-by: REQ-B1.2 (human-gates)** (2026-10-18) — the marker is a
+  `Planwright-Sign-Off: PS-<n>` trailer, never a subject suffix.
   *(Cites: observations log 2026-06-29 (marker placement) (Sources); D-3.)*
 - **REQ-C1.2** Every skill that writes the marker SHALL emit the canonical placement.
+  **Superseded-by: REQ-B1.2 (human-gates)** (2026-10-18) — skills stamp the trailer.
   *(Cites: D-3.)*
 - **REQ-C1.3** A guard SHALL catch non-canonical placement at a moment the author can still
   fix it; enforcement SHALL NOT create a new unfixable-red class for commits already made
   (no new placement rule over the CI commit range).
+  **Superseded-by: REQ-B1.4 (human-gates)** (2026-10-18) — the subject-placement
+  guard is retired.
   *(Cites: D-3; drafting-session decision (2026-07-01).)*
 - **REQ-C1.4** The marker SHALL be branch-scoped: it SHALL NOT appear in the PR title (the
   squash-merge subject), and marker-consuming tooling SHALL scan only the PR branch range,
   never merged mainline history, because squash merges relocate branch subjects into the
   merge commit body as relic text.
+  **Superseded-by: REQ-B1.2, REQ-B1.3 (human-gates)** (2026-10-18) — scoped to the
+  marker noun: the trailer replaces it; the title rejection and the branch-range
+  scan stand.
   *(Cites: D-3; observations log 2026-07-01 (trailer squash relocation) (Sources);
   drafting-session decision (2026-07-02).)*
 
@@ -278,6 +286,12 @@ supersede pointer; bodies are frozen per the stable-ID rule (bootstrap D-20).)*
   contract is frozen, so its two links are owed a future Done→Draft reopen + scoped kickoff
   (spec-format), not the expression-only lane; deferral recorded in the observations log
   and `tasks.md`.
+- 2026-10-18 — human-gates Task 12 supersede pointers: REQ-C1.1 and REQ-C1.2
+  superseded-by human-gates REQ-B1.2, REQ-C1.3 by human-gates REQ-B1.4,
+  REQ-C1.4 (scoped to the marker noun) by human-gates REQ-B1.2 and REQ-B1.3,
+  and D-3 by human-gates D-3 and D-8. Pointer edits only — no record body,
+  task, or status change; the anchored delta is meaning-class, so the bundle
+  parks for its reopen cycle (`tasks.md` Awaiting input).
 
 ## Sources
 

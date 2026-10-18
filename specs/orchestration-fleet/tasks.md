@@ -42,7 +42,14 @@ space).
 
 ## Awaiting input
 
-(none yet)
+- **anchor re-review pending** — the human-gates Task 12 sweep (human-gates
+  REQ-H1.4, D-17) added `Superseded-by:` pointers to this bundle's records
+  (2026-10-18; named in its `## Changelog`), and a supersession changes what
+  an accepted record means, so the anchored-content delta is meaning-class. No
+  machine re-anchor entry was written and the freshness gate stays failed
+  closed for this bundle. Remedy: the meta-spec reopen cycle this bundle's
+  `Done` status admits, which re-records the anchor at sign-off and removes
+  this bullet.
 
 ## Completed
 
