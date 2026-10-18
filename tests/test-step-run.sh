@@ -186,9 +186,12 @@ recs "$r" pre-pr >"$tmp/l"
 [ "$rc" -eq 1 ] && grep -qx "outcome${TAB}failed" "$tmp/l" && grep -q "^holder${TAB}pid $h (step other" "$tmp/l" \
   && grep -q "^wait${TAB}[0-9]" "$tmp/l" && [ ! -e "$tmp/check.log" ]
 verdict "an expired wait records failed, the holder, and its wait seconds, running nothing" "$(cat "$tmp/l")"
+sp release gate "$h" >/dev/null
 
 # --- a wait longer than a shell-call cap still admits the step ----------------------------
 config 'steps_pre_pr: [gate]' 'step_pool_wait: 60s'
+h=$(owner)
+sp take gate "$h" --step other --worktree "$tmp/elsewhere" >/dev/null
 r=$(sr new-run)
 srun resolve --run "$r" pre-pr --unattended >/dev/null 2>&1
 srun command --run "$r" --point pre-pr --step gate >"$tmp/out" 2>"$tmp/wait.err" &

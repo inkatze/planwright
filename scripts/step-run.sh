@@ -170,10 +170,13 @@ sr() { /bin/sh "$SR" --worktree "$worktree" "$@"; }
 # A slot taken for an owner is released on every exit until its record is
 # written or, for begin, its pending state hands it to end.
 work='' SLOT_HELD='' SLOT='' ROW_POOL='' OWNER=''
+# The guard clears only once the helper has freed the slot (or found it free),
+# so a failed release is retried on exit; `unpooled` frees nothing.
 release_slot() {
+  local result
   [ -n "$SLOT_HELD" ] || return 0
-  SLOT_HELD=''
-  PLANWRIGHT_STEP_POOL_HOLD='' "$SP" release "$ROW_POOL" "$OWNER" ${SLOT:+--slot "$SLOT"} >/dev/null
+  result=$(PLANWRIGHT_STEP_POOL_HOLD='' "$SP" release "$ROW_POOL" "$OWNER" ${SLOT:+--slot "$SLOT"}) || return 1
+  case $result in released* | none) SLOT_HELD='' ;; *) return 1 ;; esac
 }
 cleanup() {
   release_slot || printf 'step-run: warning: the slot of pool %s could not be released\n' "$ROW_POOL" >&2

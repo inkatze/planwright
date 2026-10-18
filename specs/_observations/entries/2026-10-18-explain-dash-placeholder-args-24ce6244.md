@@ -1,1 +1,0 @@
-- 2026-10-18 [planwright] resolve-steps.sh --explain prints - for an empty field, so a command step whose args are exactly the word - (often read stdin) is hosted with no args by step-run.sh and by the worker guard's matcher alike; either an explicit empty marker in --explain or refusing a lone - arg at resolution would close it (found reviewing custom-steps Task 14)

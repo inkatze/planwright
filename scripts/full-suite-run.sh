@@ -13,9 +13,9 @@
 # the wait outcome (taken, nested, unpooled, or expired), the seconds waited,
 # and the holders (an expired take's holder lines, else the wait report's),
 # its start the take or, for an expired wait, the wait's start
-# (doctrine/custom-steps.md, *Expensive checks*, The full suite). An attempt
-# with no pool to take (none configured, an invalid value, a config read
-# failure, or a failed take) writes none.
+# (doctrine/custom-steps.md, *Expensive checks*, The full suite); a failed
+# take records as unpooled. An attempt with no pool to take (none configured,
+# an invalid value, or a config read failure) writes none.
 #
 # full_suite_pool resolves through scripts/config-get.sh. Empty or set in no
 # layer, the command runs unpooled with no output of this script's own. A
@@ -218,7 +218,8 @@ if [ -n "$pool" ]; then
       ;;
     *)
       warn "the pool helper failed (exit $take_rc)"
-      state=''
+      # Recorded as an unpooled attempt; nothing is held.
+      state="unpooled	-	$waited"
       ;;
   esac
   # A record's start is the take, or the wait's start for an expired one.

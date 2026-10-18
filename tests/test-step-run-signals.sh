@@ -35,12 +35,14 @@ t0=$(date +%s)
 srun command --run "$r" --point pre-pr --step slow >"$tmp/out" 2>/dev/null
 rc=$?
 t1=$(date +%s)
-[ "$rc" -eq 1 ] && [ $((t1 - t0)) -lt 20 ] && recs "$r" pre-pr | grep -q "^excerpt${TAB}step-run: timed out after 1s" \
+recs "$r" pre-pr >"$tmp/l"
+[ "$rc" -eq 1 ] && [ $((t1 - t0)) -lt 20 ] && grep -q "^excerpt${TAB}step-run: timed out after 1s" "$tmp/l" \
   && [ -z "$(sp report gate)" ] && [ -s "$tmp/grand.pid" ] && ! kill -0 "$(cat "$tmp/grand.pid")" 2>/dev/null
 verdict "a step past its timeout is ended with everything it started, records failed, and frees its slot" \
-  "rc=$rc took $((t1 - t0))s: $(recs "$r" pre-pr)"
+  "rc=$rc took $((t1 - t0))s" "$tmp/l"
 
 # --- a check that ignores TERM is killed ten seconds after its timeout ----------------------
+rm -f "$tmp/parent.pid"
 catalog "stub|kind: command|target: $bin/stubborn.sh|pool: gate|timeout: 1"
 config 'steps_pre_pr: [stub]'
 r=$(sr new-run)
@@ -70,10 +72,11 @@ runner=$(pgrep -f "step-run.sh --worktree $wt command" | head -n 1)
 kill -TERM "$runner"
 wait "$bg"
 rc=$?
+recs "$r" pre-pr >"$tmp/l"
 [ "$rc" -eq 143 ] && [ -s "$tmp/grand.pid" ] && ! kill -0 "$(cat "$tmp/grand.pid")" 2>/dev/null && [ -z "$(sp report gate)" ] \
-  && recs "$r" pre-pr | grep -q "^excerpt${TAB}step-run: stopped by signal 15"
+  && grep -q "^excerpt${TAB}step-run: stopped by signal 15" "$tmp/l"
 verdict "a TERM to the runner ends the check's group, records failed, frees the slot, and exits 143" \
-  "rc=$rc: $(recs "$r" pre-pr)"
+  "rc=$rc" "$tmp/l"
 
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2
