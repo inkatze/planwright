@@ -216,9 +216,9 @@ this seat or another persona seat agreeing with it.
   AI Code of Practice, copyright chapter, 2025 — re-verified 2026-10-18 from law-firm analyses;
   the Commission's own text not reached.
 - European Patent Convention, Article 54 (novelty), and 35 U.S.C. § 102(b)(1) (disclosures
-  made one year or less before the effective filing date) — the US provision re-verified
-  2026-10-18 from MPEP-based summaries; the EPC article cited from its text as known at
-  authoring and not re-fetched.
+  made one year or less before the effective filing date) — re-verified 2026-10-18, the EPC
+  article from the EPO's published text, <https://www.epo.org/en/legal/epc/2020/a54.html>,
+  and the US provision from MPEP-based summaries.
 - USPTO, "Likelihood of confusion", <https://www.uspto.gov/trademarks/search/likelihood-confusion>
   — re-verified 2026-10-18.
 - WIPO, *Identifying Inventions in the Public Domain: A Guide for Inventors and Entrepreneurs*,
