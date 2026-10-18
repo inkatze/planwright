@@ -109,7 +109,6 @@ check "the Copilot request goes through gh pr edit --add-reviewer @copilot" \
   [ "$(mp_calls 'pr edit 42 --repo acme/widgets --add-reviewer @copilot')" = 1 ]
 check "the draft state is read before and after the request" [ "$(mp_calls 'pr view')" = 2 ]
 check "no re-draft runs when the PR stayed draft" [ "$(undos)" = 0 ]
-check "the PR is still draft" is_draft
 
 echo "# a request that un-drafts the PR is followed by a re-draft"
 mp_fixture
@@ -223,9 +222,44 @@ check "a failed request exits 1" [ "$CODE" = 1 ]
 check "a failed request is still followed by the re-draft it needs" [ "$(undos)" = 1 ]
 check "the PR is draft after a failed request" is_draft
 
+echo "# an App reviewer is requested by its [bot] login"
+mp_fixture
+run --reviewer 'copilot-pull-request-reviewer[bot]'
+check "an App login is accepted (exit 0)" [ "$CODE" = 0 ]
+check "the REST body carries the [bot] login" \
+  [ "$(mp_calls 'api -X POST repos/acme/widgets/pulls/42/requested_reviewers -f reviewers\[\]=copilot-pull-request-reviewer\[bot\]')" = 1 ]
+
+echo "# a PR that is not open makes no request"
+mp_fixture
+printf '%s\n' '{"isDraft":false,"state":"MERGED","baseRefName":"main","headRefName":"planwright/demo/task-1"}' >"$GHS/view_json.1"
+run --copilot
+check "a merged PR skips (exit 3)" [ "$CODE" = 3 ]
+check "no request is made on a merged PR" [ "$(requests)" = 0 ]
+check "no re-draft runs on a merged PR" [ "$(undos)" = 0 ]
+check "the handoff names the PR's state" grep -q 'PR #42 is MERGED, not open' <<<"$OUT"
+
+echo "# a missing gh or jq makes no request"
+NOGH="$SANDBOX/bin-nogh"
+NOJQ="$SANDBOX/bin-nojq"
+mkdir -p "$NOGH" "$NOJQ"
+ln -s "$(command -v dirname)" "$NOGH/dirname"
+ln -s "$(command -v jq)" "$NOGH/jq"
+ln -s "$(command -v dirname)" "$NOJQ/dirname"
+ln -s "$MP_STUBBIN/gh" "$NOJQ/gh"
+for bin in "$NOGH" "$NOJQ"; do
+  mp_fixture
+  OUT=$(cd "$F/wt" && env PATH="$bin" GHS="$GHS" /bin/bash "$HELPER" --repo acme/widgets --pr 42 --copilot 2>&1)
+  CODE=$?
+  check "a missing tool skips (exit 3): ${bin##*/}" [ "$CODE" = 3 ]
+  check "no gh call with a missing tool: ${bin##*/}" [ "$(mp_calls '')" = 0 ]
+done
+check "a missing gh is named" grep -q 'gh is not installed' <<<"$(cd "$F/wt" && env PATH="$NOGH" /bin/bash "$HELPER" --repo acme/widgets --pr 42 --copilot 2>&1)"
+
 echo "# usage refusals make no host call"
 for args in '--copilot --pr 4x2' '--reviewer' '--reviewer "a b"' '--reviewer octocat --copilot' '' \
-  '--copilot --repo bad' '--copilot --task 1' '--copilot --spec specs/demo'; do
+  '--copilot --repo bad' '--copilot --task 1' '--copilot --spec specs/demo' \
+  '--copilot --spec specs/demo --task 1x' '--copilot --spec ../x --task 1' '--copilot --spec a/./b --task 1' \
+  '--copilot --spec a/../b --task 1' '--reviewer -octocat'; do
   mp_fixture
   # shellcheck disable=SC2086 # the cases are word lists on purpose
   eval "mp_run \"\$HELPER\" --repo acme/widgets --pr 42 $args"

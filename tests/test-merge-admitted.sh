@@ -303,6 +303,14 @@ check "park writes the segment (exit 4)" [ "$CODE" = 4 ]
 check "the parked segment opens with the fixed lead" grep -q '^- \*\*Task 1\*\* — pending ready-flip: merge-call failed on ' <<<"$(mp_origin_tasks)"
 mp_run "$FLIP" park --spec specs/demo --task 1 --reason 'Bad Reason'
 check "a malformed park reason is a usage error" [ "$CODE" = 2 ]
+for reason in 1abc -abc "a$(printf '%040d' 0)"; do
+  mp_run "$FLIP" park --spec specs/demo --task 1 --reason "$reason" --base main
+  check "a park reason outside the grammar is a usage error: $reason" [ "$CODE" = 2 ]
+done
+mp_fixture
+mp_run "$FLIP" park --spec specs/demo --task 1 --reason redraft-pr-42 --base main
+check "a park reason may carry digits after its first letter (exit 4)" [ "$CODE" = 4 ]
+check "the digit-bearing reason is written as given" grep -q 'pending ready-flip: redraft-pr-42 failed on ' <<<"$(mp_origin_tasks)"
 mp_fixture
 before=$(mp_origin_head)
 mp_run "$FLIP" park --spec specs/demo --task 1 --reason merge-call --base no-such-base
