@@ -32,7 +32,14 @@ ok() { echo "ok: $1"; }
   exit 1
 }
 
-tmp="$(cd "$(mktemp -d)" && pwd -P)" || exit 1
+tmp=$(mktemp -d) || exit 1
+# Checked before the cd: bash 3.2 treats `cd ""` as a no-op, which would
+# point the cleanup trap at the caller's directory.
+if [ -z "$tmp" ] || [ ! -d "$tmp" ]; then
+  echo "FAIL: mktemp -d produced no usable directory" >&2
+  exit 1
+fi
+tmp=$(cd "$tmp" && pwd -P) || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
 WIRED=$(sed -n 's/^WIRED_POINTS="\(.*\)"$/\1/p' "$RS")
@@ -48,6 +55,7 @@ UNWIRED=$(sed -n 's/^UNWIRED_POINTS="\(.*\)"$/\1/p' "$RS")
 run_guard() {
   OUT=$(env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
     -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_ADOPTER_OVERLAY -u PLANWRIGHT_LOCAL_CONFIG \
+    -u PLANWRIGHT_REPO_ROOT_CHECKED -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS \
     /bin/bash "$GUARD" "$@" 2>&1)
   RC=$?
 }
@@ -86,10 +94,10 @@ expect_rc "REQ-H1.4: the real repository's configuration passes" 0
 for p in $WIRED $UNWIRED; do
   expect_out "REQ-H1.4: the real run checks point '$p'" " $p"
 done
-if grep -Eq '^steps_[a-z_]+:[[:space:]]*\[[^]]' "$repo_root/.claude/planwright.yml"; then
-  ok "REQ-F1.2: the repository's tracked config carries a non-empty point list the guard resolves"
+if grep -qx 'steps_convergence: \[self-review\]' "$repo_root/.claude/planwright.yml"; then
+  ok "REQ-F1.2: the repository's tracked config carries steps_convergence: [self-review], which the guard resolves"
 else
-  fail "REQ-F1.2: .claude/planwright.yml sets no non-empty point list"
+  fail "REQ-F1.2: .claude/planwright.yml does not set steps_convergence: [self-review]"
 fi
 
 if awk '/^\[/{c=0} /^\[tasks\.check\]/{c=1} c && /"check:steps"/{f=1} END{exit !f}' "$repo_root/mise.toml"; then
@@ -126,71 +134,81 @@ write_core_defaults() { # extra lines on stdin are appended
   } >"$core/config/defaults.yml"
 }
 tracked="$repo/.claude/planwright.yml"
-reset() {
+reset_fixture() {
   write_core_defaults </dev/null
   printf 'steps_convergence: [self-review]\n' >"$tracked"
 }
-fixture() { run_guard --core "$core" --repo "$repo"; }
+run_fixture() { run_guard --core "$core" --repo "$repo"; }
 
-reset
-fixture
+reset_fixture
+run_fixture
 expect_rc "a clean fixture passes" 0
 
 # REQ-H1.4: an unresolvable step fails, naming the step and the point.
-reset
+reset_fixture
 printf 'steps_pre_pr: [no-such-step]\n' >>"$tracked"
-fixture
+run_fixture
 expect_fail "REQ-H1.4: an unresolvable step fails"
 expect_out "REQ-H1.4: the failure names the step" "no-such-step"
 expect_out "REQ-H1.4: the failure names the point" "pre-pr"
 
 # REQ-A1.3: a non-empty list at an unwired point fails, naming the point.
-reset
+reset_fixture
 printf 'steps_post_merge: [self-review]\n' >>"$tracked"
-fixture
+run_fixture
 expect_fail "REQ-A1.3: a non-empty list at an unwired point fails"
 expect_out "REQ-A1.3: the failure names the unwired point" "post-merge"
 
 # REQ-F1.1: the retired key fails in the repo-tracked config, naming the key
 # and the file.
-reset
+reset_fixture
 printf 'review_sequence: [self-review]\n' >>"$tracked"
-fixture
+run_fixture
 expect_fail "REQ-F1.1: review_sequence in the repo-tracked config fails"
-expect_out "REQ-F1.1: the failure names the key" "review_sequence"
-expect_out "REQ-F1.1: the failure names the file" ".claude/planwright.yml"
+expect_out "REQ-F1.1: the sweep names the file and the key" "check-steps: .claude/planwright.yml:2 sets review_sequence"
 
 # REQ-F1.1: and in the core defaults, where no transitional line is allowed.
-reset
+reset_fixture
 printf '# Transitional, added 2026-09-28: kept until the release lands.\nreview_sequence: [polish]\n' | write_core_defaults
-fixture
+run_fixture
 expect_fail "REQ-F1.1: review_sequence in the core defaults fails, dated comment or not"
-expect_out "REQ-F1.1: the failure names the defaults file" "config/defaults.yml"
+expect_out "REQ-F1.1: the sweep names the defaults file and the key" "check-steps: config/defaults.yml:"
 
 # REQ-F1.2: the documented transitional line, a dated comment directly above
 # the key, passes in the repo-tracked config.
-reset
+reset_fixture
 printf '\n# Transitional, added 2026-09-28: this repository runs the installed\n# plugin until the release lands.\nreview_sequence: [self-review]\n' >>"$tracked"
-fixture
+run_fixture
 expect_rc "REQ-F1.2: the dated transitional line in the repo-tracked config passes" 0
+expect_out "REQ-F1.2: the pass notes the transitional line" "transitional review_sequence line at .claude/planwright.yml:5"
+expect_out "REQ-F1.2: the pass does not claim no key is set" "outside a transitional line"
 
 # A dated comment separated from the key by a blank line does not cover it.
-reset
+reset_fixture
 printf '\n# Transitional, added 2026-09-28\n\nreview_sequence: [self-review]\n' >>"$tracked"
-fixture
+run_fixture
 expect_fail "REQ-F1.1: a transitional comment detached from the key does not cover it"
 
-# A comment without the dated marker does not cover the key either.
-reset
-printf '\n# kept for now\nreview_sequence: [self-review]\n' >>"$tracked"
-fixture
-expect_fail "REQ-F1.1: an undated comment does not make the key transitional"
+# A marker without its date does not cover the key either.
+reset_fixture
+printf '\n# Transitional: kept for now\nreview_sequence: [self-review]\n' >>"$tracked"
+run_fixture
+expect_fail "REQ-F1.1: an undated transitional comment does not cover the key"
+expect_out "REQ-F1.1: the sweep flags the undated line" "check-steps: .claude/planwright.yml:4 sets review_sequence"
+
+# A blank before the colon is still the key.
+reset_fixture
+printf 'review_sequence : [self-review]\n' >>"$tracked"
+run_fixture
+expect_fail "REQ-F1.1: review_sequence with a blank before the colon fails"
+expect_out "REQ-F1.1: the sweep flags the spaced key" "check-steps: .claude/planwright.yml:2 sets review_sequence"
 
 # An indented key is still the key.
-reset
+reset_fixture
 printf '  review_sequence: [self-review]\n' >>"$tracked"
-fixture
+run_fixture
 expect_fail "REQ-F1.1: an indented review_sequence still fails"
+expect_out "REQ-F1.1: the sweep itself flags the indented key" "check-steps: .claude/planwright.yml:2 sets review_sequence"
 
 # Usage errors exit 2.
 run_guard --bogus
@@ -199,6 +217,11 @@ run_guard --core
 expect_rc "a flag missing its value is a usage error" 2
 run_guard --core "$tmp/nope" --repo "$repo"
 expect_rc "a core root without config/defaults.yml is a usage error" 2
+run_guard --core "$core" --repo "$tmp/nope"
+expect_rc "a missing repository is a usage error" 2
+mkdir -p "$repo/sub"
+run_guard --core "$core" --repo "$repo/sub"
+expect_rc "a repository path that is not a git toplevel is a usage error" 2
 
 if [ "$failures" -ne 0 ]; then
   echo "test-check-steps: $failures failure(s)" >&2
