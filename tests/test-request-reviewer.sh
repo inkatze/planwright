@@ -149,6 +149,7 @@ mp_fixture
 : >"$GHS/view_fail_at.2"
 echo 1 >"$GHS/undo_rc"
 run --copilot
+check "a failed re-draft after an unreadable check with no unit exits 5" [ "$CODE" = 5 ]
 check "the handoff says the PR may no longer be a draft" grep -q 'PR #42 may no longer be a draft' <<<"$OUT"
 check "the handoff does not state an un-draft as fact" not grep -q 'PR #42 is no longer a draft' <<<"$OUT"
 
@@ -199,7 +200,8 @@ check "no re-draft runs over an unreadable starting state" [ "$(undos)" = 0 ]
 
 echo "# a starting state missing a field is unreadable, not ready"
 for json in '{"state":"OPEN","baseRefName":"main","headRefName":"planwright/demo/task-1"}' '{"isDraft":null,"state":"OPEN","baseRefName":"main","headRefName":"planwright/demo/task-1"}' \
-  '{"isDraft":true,"state":"OPEN","baseRefName":"","headRefName":"planwright/demo/task-1"}' '{"isDraft":true,"baseRefName":"main","headRefName":"planwright/demo/task-1"}'; do
+  '{"isDraft":true,"state":"OPEN","baseRefName":"","headRefName":"planwright/demo/task-1"}' '{"isDraft":true,"baseRefName":"main","headRefName":"planwright/demo/task-1"}' \
+  '{"isDraft":true,"state":"OPEN","baseRefName":"main","headRefName":""}' '{"isDraft":true,'; do
   mp_fixture
   printf '%s\n' "$json" >"$GHS/view_json.1"
   run --copilot
@@ -259,12 +261,19 @@ echo "# usage refusals make no host call"
 for args in '--copilot --pr 4x2' '--reviewer' '--reviewer "a b"' '--reviewer octocat --copilot' '' \
   '--copilot --repo bad' '--copilot --task 1' '--copilot --spec specs/demo' \
   '--copilot --spec specs/demo --task 1x' '--copilot --spec ../x --task 1' '--copilot --spec a/./b --task 1' \
-  '--copilot --spec a/../b --task 1' '--reviewer -octocat'; do
+  '--copilot --spec a/../b --task 1' '--copilot --spec /tmp/demo --task 1' '--reviewer -octocat'; do
   mp_fixture
   # shellcheck disable=SC2086 # the cases are word lists on purpose
   eval "mp_run \"\$HELPER\" --repo acme/widgets --pr 42 $args"
   check "usage refuses (exit 2): $args" [ "$CODE" = 2 ]
   check "no gh call on a usage refusal: $args" [ "$(mp_calls '')" = 0 ]
+done
+for args in '--pr 42 --copilot' '--repo acme/widgets --copilot'; do
+  mp_fixture
+  # shellcheck disable=SC2086 # the cases are word lists on purpose
+  mp_run "$HELPER" $args
+  check "a missing --repo or --pr is refused (exit 2): $args" [ "$CODE" = 2 ]
+  check "no gh call without --repo or --pr: $args" [ "$(mp_calls '')" = 0 ]
 done
 
 echo "# echo discipline"
