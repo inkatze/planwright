@@ -51,7 +51,9 @@
 #              root (D-6: the fragment store is the host repo's even when the
 #              helper resolves plugin-relative). Outside any repository, or
 #              with a refused spec_root, there is no default and the helper
-#              refuses.
+#              refuses; so it does when a root other than specs/ is absent
+#              from this checkout (ignored or untracked here), where a store
+#              would be lost with the checkout.
 #   --target   write into another root's store instead, named by an alias of
 #              the observation_targets option (a flat inline {alias: path}
 #              map; custom-spec-location D-18, REQ-F1.2, REQ-F1.3). The alias
@@ -475,8 +477,13 @@ if [ "$have_target" -eq 1 ]; then
     || refuse 1 "the hygiene screen refuses this routed fragment: it carries a $tg_class (refused, never rewritten; nothing written)"
   obsdir=$tg_root/_observations
 elif [ "$have_obsdir" -eq 0 ]; then
-  obsdir=$(obs_default_store "$script_dir") \
-    || refuse 1 "the spec root did not resolve, so the observations directory has no default; name one with --obs-dir"
+  ods_rc=0
+  obsdir=$(obs_default_store "$script_dir" write) || ods_rc=$?
+  case $ods_rc in
+    0) ;;
+    3) refuse 1 "the observations directory has no default in this checkout; record from the checkout that holds the spec root, or name one with --obs-dir" ;;
+    *) refuse 1 "the spec root did not resolve, so the observations directory has no default; name one with --obs-dir" ;;
+  esac
 fi
 
 # --- directory setup + containment ---------------------------------------

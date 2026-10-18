@@ -146,6 +146,28 @@ else
   fail "record from a worktree (rc=$rc): $out $err"
 fi
 
+# An ignored in-repo root is absent from a fresh worktree; a fragment written
+# there would go with the worktree.
+g=$tmp/ignored
+new_repo "$g"
+mkdir -p "$g/notes" "$g/.claude"
+printf 'notes/\n' >>"$g/.git/info/exclude"
+printf 'spec_root: notes\n' >"$g/.claude/planwright.local.yml"
+at "$g" "$S/resolve-root.sh" spec --init
+[ "$rc" -eq 0 ] || fail "fixture: --init on the ignored root failed: $err"
+gitq -C "$g" worktree add -q "$tmp/ignored-wt" -b wt
+mkdir -p "$tmp/ignored-wt/.claude"
+cp "$g/.claude/planwright.local.yml" "$tmp/ignored-wt/.claude/"
+at "$tmp/ignored-wt" "$rec" --text 'would be stranded'
+if [ "$rc" -eq 1 ] && [ ! -e "$tmp/ignored-wt/notes" ]; then
+  case $err in
+    *"not present in this checkout"*) ok "record: a root missing from the checkout is refused, not created" ;;
+    *) fail "record into a missing root refused without naming why: $err" ;;
+  esac
+else
+  fail "record into a root missing from the worktree (rc=$rc): $out $err"
+fi
+
 # The default root: from the top, the paths printed are the ones they were.
 d=$tmp/default
 new_repo "$d"
