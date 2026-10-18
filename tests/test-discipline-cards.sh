@@ -336,7 +336,9 @@ assert_contains "the product-strategy card ships" "/cards/product-strategy.md" "
 # default tiers inception D-4 places and fast rot on the two cards the task
 # flags high-rot. A card D-4 leaves unplaced is checked for presence only.
 header_value() {
-  awk -v k="**$2:**" 'index($0, k) == 1 { sub(/^[^ ]+ /, ""); print; exit }' "$1"
+  awk -v k="**$2:**" 'index($0, k) == 1 {
+    sub(/^\*\*[A-Za-z][A-Za-z-]*:\*\*/, ""); gsub(/^[ \t]+|[ \t]+$/, ""); print; exit
+  }' "$1"
 }
 while read -r id tier rot; do
   card="$REPO_ROOT/cards/$id.md"
