@@ -188,6 +188,7 @@ reset_fixture
 printf '\n# Transitional, added 2026-09-28\n\nreview_sequence: [self-review]\n' >>"$tracked"
 run_fixture
 expect_fail "REQ-F1.1: a transitional comment detached from the key does not cover it"
+expect_out "REQ-F1.1: the sweep flags the detached line" "check-steps: .claude/planwright.yml:5 sets review_sequence"
 
 # A marker without its date does not cover the key either.
 reset_fixture
@@ -213,15 +214,23 @@ expect_out "REQ-F1.1: the sweep itself flags the indented key" "check-steps: .cl
 # Usage errors exit 2.
 run_guard --bogus
 expect_rc "an unknown flag is a usage error" 2
+expect_out "the unknown flag is named" "check-steps: unknown argument: --bogus"
 run_guard --core
-expect_rc "a flag missing its value is a usage error" 2
+expect_rc "--core missing its value is a usage error" 2
+expect_out "the flag missing its value is named" "check-steps: --core needs a value"
+run_guard --repo
+expect_rc "--repo missing its value is a usage error" 2
+expect_out "the flag missing its value is named" "check-steps: --repo needs a value"
 run_guard --core "$tmp/nope" --repo "$repo"
 expect_rc "a core root without config/defaults.yml is a usage error" 2
+expect_out "the missing defaults file is named" "check-steps: no readable config/defaults.yml under"
 run_guard --core "$core" --repo "$tmp/nope"
 expect_rc "a missing repository is a usage error" 2
+expect_out "the missing repository is named" "check-steps: no repository at"
 mkdir -p "$repo/sub"
 run_guard --core "$core" --repo "$repo/sub"
 expect_rc "a repository path that is not a git toplevel is a usage error" 2
+expect_out "the non-toplevel repository is named" "check-steps: not a git toplevel:"
 
 if [ "$failures" -ne 0 ]; then
   echo "test-check-steps: $failures failure(s)" >&2

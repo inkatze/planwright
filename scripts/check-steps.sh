@@ -38,6 +38,8 @@
 #
 # Portable bash 3.2 / BSD tooling.
 set -u
+# The point lists are word-split below; their words are names, never patterns.
+set -f
 LC_ALL=C
 export LC_ALL
 unset CDPATH
@@ -79,8 +81,8 @@ resolver="$script_dir/resolve-steps.sh"
 defaults="$core/config/defaults.yml"
 [ -f "$defaults" ] && [ -r "$defaults" ] || die "no readable config/defaults.yml under $(sanitize_printable "$core")"
 [ -d "$repo" ] || die "no repository at $(sanitize_printable "$repo")"
-core=$(cd "$core" && pwd -P) || exit 2
-repo=$(cd "$repo" && pwd -P) || exit 2
+core=$(cd "$core" && pwd -P) || die "cannot enter $(sanitize_printable "$core")"
+repo=$(cd "$repo" && pwd -P) || die "cannot enter $(sanitize_printable "$repo")"
 # The overlay resolver refuses a repo root that is not a git toplevel, which
 # would otherwise surface as every point failing check mode.
 toplevel=$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null) \
