@@ -293,6 +293,7 @@ cmd_frame() {
   [ -n "$sources" ] || sources=none
   [ -n "$staffing" ] || staffing=none
 
+  # not-a-lock: creates the derived-output directory on first use
   [ -d "$venture/exports" ] || mkdir "$venture/exports" || die 2 "cannot create exports/"
   {
     printf '# %s — Frame\n\n' "$title"
@@ -1038,8 +1039,10 @@ cmd_record() {
   need_run_file table.md "run \`attribute\` first"
   need_run_file roster.tsv
   t=$(today) || exit 2
+  # not-a-lock: creates the run-record directory on first use
   [ -d "$venture/fanout" ] || mkdir "$venture/fanout" || die 2 "cannot create fanout/"
   n=1
+  # not-a-lock: claims the first unused run number; a lost race takes the next
   until mkdir "$venture/fanout/$t-$n" 2>/dev/null; do
     n=$((n + 1))
     [ "$n" -le 999 ] || die 2 "cannot create a run directory under fanout/"
