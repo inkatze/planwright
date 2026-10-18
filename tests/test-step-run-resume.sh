@@ -211,6 +211,10 @@ refuse "--owner on command" command --run "$r" --point pre-pr --step iso --owner
 refuse "a re-fire at another point" command --run "$r" --point pre-pr --step plain --refire-of pre-pr
 refuse "a re-fire of a step declaring none" command --run "$r" --point post-pr --step plain --refire-of pre-pr
 refuse "a malformed backend" command --run "$r" --point pre-pr --step iso --backend Bad_Name
+cp "$wt/.claude/steps/$r/runner-rows-pre-pr" "$tmp/rows.keep"
+awk -F '\t' -v OFS='\t' '$2 == "iso" { $11 = "x" } { print }' "$tmp/rows.keep" >"$wt/.claude/steps/$r/runner-rows-pre-pr"
+refuse "a row whose timeout is not whole seconds" command --run "$r" --point pre-pr --step iso
+cp "$tmp/rows.keep" "$wt/.claude/steps/$r/runner-rows-pre-pr"
 refuse "end with no begin" end --run "$r" --point pre-pr --step ses --exit 0
 ln -s "$tmp/elsewhere" "$wt/.claude/steps/$r/runner-pending-pre-pr-ses"
 refuse "a symlinked pending state" end --run "$r" --point pre-pr --step ses --exit 0

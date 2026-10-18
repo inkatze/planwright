@@ -387,6 +387,7 @@ row_of() {
   [ "$ROW_KIND" = command ] || die 2 "step $3 is not a command step"
   [ "$ROW_ARGS" != - ] || ROW_ARGS=''
   [ "$ROW_TIMEOUT" != - ] || ROW_TIMEOUT=''
+  [ -z "$ROW_TIMEOUT" ] || [[ $ROW_TIMEOUT =~ ^[1-9][0-9]{0,8}$ ]] || die 2 "step $3's resolved timeout is not whole seconds"
   [ "$ROW_POOL" != - ] || ROW_POOL=''
   [ "$ROW_PATHS" != - ] || ROW_PATHS=''
 }
