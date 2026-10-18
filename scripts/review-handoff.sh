@@ -308,14 +308,12 @@ enclosing() {
       if (lang != "py" && name != "" && s ~ /\{.*\}[ \t;]*$/) cur = ""
     }'
 }
-# hunk_lines <side> <from> <to> <path>... — changed line numbers on one side
-# (old or new) of the diff from <from> to <to>, space-separated.
+# hunk_lines <side> <mb> <head> <path>... — changed line numbers on one side
+# (old or new) of the diff, space-separated.
 hunk_lines() {
   side=$1
-  from=$2
-  to=$3
   shift 3
-  gitd -U0 "$from" "$to" -- "$@" | awk -v side="$side" '
+  gitd -U0 "$mb" "$head" -- "$@" | awk -v side="$side" '
     /^@@ / {
       split($(side == "old" ? 2 : 3), r, ",")
       start = substr(r[1], 2) + 0
@@ -323,8 +321,8 @@ hunk_lines() {
       for (i = 0; i < count; i++) printf "%d ", start + i
     }'
 }
-# add_functions <rev> <path> <lines> <own-path>
 add_functions() {
+  # add_functions <rev> <path> <lines> <own-path>
   [ -n "$3" ] || return 0
   l=$(lang "$1" "$2")
   [ "$l" != none ] || return 0
@@ -332,8 +330,8 @@ add_functions() {
     printf '%s\tfunction\t%s\n' "$fn" "$4" >>"$symbols"
   done
 }
-# add_path <rev> <path> <own-path>
 add_path() {
+  # add_path <rev> <path> <own-path>
   printf '%s\tpath\t%s\n' "$2" "$3" >>"$symbols"
   if script_like "$1" "$2"; then
     printf '%s\tpath\t%s\n' "${2##*/}" "$3" >>"$symbols"
