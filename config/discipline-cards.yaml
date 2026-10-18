@@ -1,5 +1,5 @@
 ---
-# planwright discipline-cards catalog — the core seed (inception Task 4;
+# planwright discipline-cards catalog — the core seed (inception Tasks 4-5;
 # REQ-P1.10, D-17).
 #
 # doctrine/discipline-cards.md is the normative home: the card format, where
@@ -15,3 +15,15 @@
 cards:
   - id: product-strategy
     discipline: "Product strategy"
+  - id: pricing-packaging
+    discipline: "Pricing and packaging"
+  - id: domain-knowledge-engineering
+    discipline: "Domain and knowledge engineering"
+  - id: org-design
+    discipline: "Org design"
+  - id: intellectual-property
+    discipline: "Intellectual property"
+  - id: ai-agent-architecture
+    discipline: "AI and agent architecture"
+  - id: software-engineering
+    discipline: "Software engineering"

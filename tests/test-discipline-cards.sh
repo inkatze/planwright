@@ -332,6 +332,28 @@ for f in $shipped; do
 done
 assert_contains "the product-strategy card ships" "/cards/product-strategy.md" "$shipped"
 
+# The seven researched core cards ship (inception REQ-P1.10, D-17), with the
+# default tiers inception D-4 places and fast rot on the two cards the task
+# flags high-rot. A card D-4 leaves unplaced is checked for presence only.
+header_value() {
+  awk -v k="**$2:**" 'index($0, k) == 1 { sub(/^[^ ]+ /, ""); print; exit }' "$1"
+}
+while read -r id tier rot; do
+  card="$REPO_ROOT/cards/$id.md"
+  assert_contains "core card $id ships" "/cards/$id.md" "$shipped"
+  [ -f "$card" ] || continue
+  [ "$tier" = "-" ] || assert_eq "core card $id: default tier (D-4)" "$tier" "$(header_value "$card" Default-tier)"
+  [ "$rot" = "-" ] || assert_eq "core card $id: rot rate" "$rot" "$(header_value "$card" Rot-rate)"
+done <<'EOF'
+product-strategy structure-only -
+pricing-packaging structure-only -
+domain-knowledge-engineering - -
+org-design structure-only -
+intellectual-property human-authority fast
+ai-agent-architecture agent-senior fast
+software-engineering agent-senior -
+EOF
+
 card_ids="$(for f in $shipped; do
   b=${f##*/}
   echo "${b%.md}"
