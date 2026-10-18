@@ -241,6 +241,10 @@ if [ "$have_obs_dir" -eq 0 ]; then
       exit 0
       ;;
     separate-repo)
+      # An inherited GIT_DIR names the work repository (a hook exports it);
+      # from here on every git call addresses the holder by its path.
+      unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+        GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
       repo_root=$(cd -- "$sr_path" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || {
         printf '%s\n' "observation-carry: the holder of the spec root '$(sanitize_printable "$sr_path")' is not a git work tree" >&2
         exit 2

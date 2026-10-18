@@ -248,6 +248,14 @@ if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qx "stranded${TAB}1"; then
 else
   fail "carry dry run in a holder (rc=$rc): $out $err"
 fi
+# A git hook in the work repository exports GIT_DIR; the holder is still the
+# holder.
+at "$hw" env GIT_DIR="$hw/.git" GIT_WORK_TREE="$hw" "$S/observation-carry.sh" --dry-run "$hw"
+if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qx "stranded${TAB}1"; then
+  ok "carry: an inherited GIT_DIR does not redirect the holder carry"
+else
+  fail "carry dry run in a holder under GIT_DIR (rc=$rc): $out $err"
+fi
 mkdir -p "$tmp/ghbin" "$tmp/ghstate"
 cat >"$tmp/ghbin/gh" <<'EOF'
 #!/bin/sh
@@ -366,6 +374,12 @@ else
   fail "target other (rc=$rc): $out $err"
 fi
 [ ! -e "$t/specs" ] || fail "target: the routed write touched the caller's store"
+at "$t" env GIT_OBJECT_DIRECTORY="$tmp/no-objects" "$rec" --target other --text 'under a stray object directory'
+if [ "$rc" -eq 0 ]; then
+  ok "target: the shape check ignores an inherited GIT_OBJECT_DIRECTORY"
+else
+  fail "target under GIT_OBJECT_DIRECTORY (rc=$rc): $err"
+fi
 at "$o" "$S/check-obs.sh"
 if [ "$rc" -eq 0 ]; then
   ok "target: check-obs passes in the target root"

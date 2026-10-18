@@ -463,7 +463,8 @@ if [ "$have_target" -eq 1 ]; then
   if [ "${tg_root##*/}" = specs ]; then
     tg_parent=${tg_root%/*}
     tg_top=$(
-      unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
+      unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+        GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
       cd -- "${tg_parent:-/}" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null
     ) || tg_top=""
     [ -n "$tg_top" ] && [ "$tg_top" = "$tg_parent" ] && tg_shape=1
