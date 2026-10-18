@@ -163,7 +163,7 @@ protocol's dispatched arm); attended, present and wait.
 
 This skill is the runner at its five in-run points; `custom-steps` owns the
 contract. Issue one run id (`scripts/step-record.sh new-run`) per invocation.
-A `--resume <run>:<point>` run starts there (nothing earlier re-runs), after
+A `--resume <run>:<point>` run starts there, after
 `scripts/step-run.sh resume`, skipping the steps it prints. **Run a point**
 in the worktree, the `PLANWRIGHT_STEP_*` context exported (a PR number
 whenever one exists):
@@ -180,8 +180,8 @@ whenever one exists):
    attaching to the unit's session); `continue` resumes the predecessor's id
    (behind a skip, the one its line names) or records `failed`. Commands run
    through `step-run.sh` (backgrounded, waited in-turn): `isolated` by
-   `command`, session-hosted between `begin --owner <session pid>`, whose
-   printed line the shell tool runs, and `end`. A refused context value
+   `command`, session-hosted between `begin --owner $PPID`, whose printed
+   `run` line the shell tool runs, and `end`. A refused context value
    (exit 6) is `failed`. Past its `timeout`, a session-owned step is stopped
    through the seam or no longer waited on (recording which), outcome
    `failed`; an `in-session` command's goes to the shell tool.
@@ -399,13 +399,13 @@ classify the edit on the amendment axis:
 
    Then run the
    `post-pr` point, the PR number now in its context; after its list and the
-   re-fire pass (`step-run.sh refire`'s lines, hosted with `--refire-of`),
-   re-emit the tables, and if a post-pr record moved the
+   re-fire pass (`step-run.sh refire`'s lines, hosted with `--refire-of`,
+   before post-pr's completion), re-emit the tables, and if a post-pr record moved the
    head fetch and regenerate the
    checklist (`step-record.sh regenerate --base origin/<base> --head
    origin/<branch> --checklist-only`) and re-emit the handoff; verify the PR is still a draft,
    else park naming the post-pr steps (custom-steps REQ-E1.2); a failed
-   re-fire then parks. Earlier points
+   re-fire under `halt` then parks. Earlier points
    never re-run. When `ready_flip_policy` resolves `unit-owner`, run
    `scripts/ready-flip.sh`'s header sequence. Under `merge_policy:
    policy-class`, `scripts/merge-admitted.sh`'s follows.

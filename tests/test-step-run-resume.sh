@@ -216,7 +216,7 @@ verdict "end records a shell-tool timeout with the line's output and frees the s
 # --- /execute-task wires the runner's calls ------------------------------------------------
 skill=$(tr '\n' ' ' <"$repo_root/skills/execute-task/SKILL.md")
 # shellcheck disable=SC2016 # literal backticks of the skill text
-for call in 'step-run.sh resolve --run' 'step-run.sh resume' '`command`' 'begin --owner <session pid>' \
+for call in 'step-run.sh resolve --run' 'step-run.sh resume' '`command`' 'begin --owner $PPID' \
   'step-run.sh refire' 'full-suite-run.sh --run <id>' '--resume <run>:<point>'; do
   printf '%s' "$skill" | grep -Fq -- "$call" || fail "/execute-task does not name '$call'"
 done
