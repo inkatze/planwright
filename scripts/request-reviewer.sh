@@ -34,7 +34,7 @@
 # so a host change is caught.
 #
 # Exit: 0 requested, the draft state held or restored; 1 the request failed,
-# the draft state held or restored; 2 usage; 3 skipped, no request made; 4 the
+# the draft state held or restored; 2 usage, or a broken install; 3 skipped, no request made; 4 the
 # re-draft failed and the unit is parked; 5 the re-draft failed and the park
 # did not complete (the output names why).
 #
