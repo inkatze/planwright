@@ -2614,8 +2614,7 @@ verdict "a clock that prints no stamp exits 1" "err=$err"
 lim_wt
 u=$(srl new-run)
 lrec "$u" post-pr review limited "$HX_A"
-out=$(srl lookup limited --head "$HX_A")
-[ $? -eq 0 ] && printf '%s\n' "$out" | grep -q "${TAB}review$"
+out=$(srl lookup limited --head "$HX_A") && printf '%s\n' "$out" | grep -q "${TAB}review$"
 verdict "lookup limited prints an unretired limited record ending on the head" "out=$out"
 srl lookup limited --head "$HX_B" >/dev/null
 [ $? -eq 3 ]
