@@ -6,7 +6,8 @@
 # obs_default_store <script-dir> — print the store, _observations under the
 # spec root's checkout-local view (scripts/resolve-root.sh spec beside the
 # caller). A store below the working directory is printed relative to it, so
-# a run from the checkout's top names the paths it always named. Returns
+# a run from the checkout's top names the paths it always named; one opening
+# with a hyphen gets a ./ so no caller reads it as an option. Returns
 # non-zero, printing nothing, when the root does not resolve: the resolver has
 # said why on stderr, and the caller refuses rather than compose a path.
 #
@@ -31,6 +32,7 @@ obs_default_store() {
   fi
   ods_here=$(pwd -P) || return 1
   case $ods_root in
+    "$ods_here"/-*) printf './%s/_observations\n' "${ods_root#"$ods_here"/}" ;;
     "$ods_here"/*) printf '%s/_observations\n' "${ods_root#"$ods_here"/}" ;;
     *) printf '%s/_observations\n' "$ods_root" ;;
   esac

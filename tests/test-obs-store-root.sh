@@ -168,6 +168,28 @@ else
   fail "record into a root missing from the worktree (rc=$rc): $out $err"
 fi
 
+# A root whose relative path opens with a hyphen is still a usable store.
+hy=$tmp/hyphen
+new_repo "$hy"
+mkdir -p "$hy/-notes" "$hy/.claude"
+printf 'spec_root: -notes\n' >"$hy/.claude/planwright.local.yml"
+at "$hy" "$S/resolve-root.sh" spec --init
+[ "$rc" -eq 0 ] || fail "fixture: --init on the hyphen-led root failed: $err"
+at "$hy" "$rec" --text 'a hyphen-led root'
+if [ "$rc" -eq 0 ] && [ "$(count "$hy/-notes/_observations/entries")" -eq 1 ]; then
+  ok "record: a hyphen-led relative root takes the fragment"
+else
+  fail "record into a hyphen-led root (rc=$rc): $out $err"
+fi
+for s in check-obs.sh obs-render.sh; do
+  at "$hy" "$S/$s"
+  if [ "$rc" -eq 0 ]; then
+    ok "$s: reads a hyphen-led relative root"
+  else
+    fail "$s on a hyphen-led root (rc=$rc): $err"
+  fi
+done
+
 # The default root: from the top, the paths printed are the ones they were.
 d=$tmp/default
 new_repo "$d"
