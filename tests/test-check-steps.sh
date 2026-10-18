@@ -39,8 +39,8 @@ if [ -z "$tmp" ] || [ ! -d "$tmp" ]; then
   echo "FAIL: mktemp -d produced no usable directory" >&2
   exit 1
 fi
-tmp=$(cd "$tmp" && pwd -P) || exit 1
 trap 'rm -rf "$tmp"' EXIT
+tmp=$(cd "$tmp" && pwd -P) || exit 1
 
 WIRED=$(sed -n 's/^WIRED_POINTS="\(.*\)"$/\1/p' "$RS")
 UNWIRED=$(sed -n 's/^UNWIRED_POINTS="\(.*\)"$/\1/p' "$RS")
