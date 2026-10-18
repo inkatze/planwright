@@ -7,6 +7,7 @@
 #
 # The sourcing suite sets repo_root, RUN, SR, SP, and TAB first.
 # shellcheck disable=SC2034,SC2154 # the suites set repo_root and use wt, GATE, and the helpers
+unset CDPATH
 failures=0
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
