@@ -64,8 +64,18 @@ cat >"$bin/show.sh" <<'EOF'
 #!/bin/sh
 t=$(dirname "$0")/..
 env | grep '^PLANWRIGHT_STEP_' | sort >"$t/show.$PLANWRIGHT_STEP_ID.env"
+printf 'host=%s\n' "${HOST_SENTINEL-<unset>}" >>"$t/show.$PLANWRIGHT_STEP_ID.env"
 EOF
-chmod +x "$bin/check.sh" "$bin/edit.sh" "$bin/show.sh"
+# grand.sh starts a grandchild that would outlive a kill of its parent alone.
+cat >"$bin/grand.sh" <<'EOF'
+#!/bin/sh
+t=$(dirname "$0")/..
+sleep 60 &
+printf '%s\n' "$!" >"$t/grand.pid"
+printf '%s\n' "$$" >"$t/parent.pid"
+sleep 60
+EOF
+chmod +x "$bin/check.sh" "$bin/edit.sh" "$bin/show.sh" "$bin/grand.sh"
 
 n=0
 # fresh: a new fixture worktree ($wt) with a bare origin and one commit.
@@ -84,7 +94,7 @@ fresh() {
   git -C "$wt" add -A && git -C "$wt" commit -q -m "chore: base"
   git -C "$wt" remote add origin "$tmp/origin$n.git"
   git -C "$wt" push -q origin HEAD 2>/dev/null
-  rm -f "$tmp/check.log" "$tmp/fail" "$tmp/slow" "$tmp/nest" "$tmp"/show.*.env
+  rm -f "$tmp/check.log" "$tmp/fail" "$tmp/slow" "$tmp/nest" "$tmp"/show.*.env "$tmp/grand.pid" "$tmp/parent.pid"
 }
 
 # catalog <entry>...: the adopter steps catalog, one `id|field: value|...`
@@ -105,9 +115,9 @@ env_run() {
   PLANWRIGHT_ROOT="$repo_root" PLANWRIGHT_CONFIG_DEFAULTS="$repo_root/config/defaults.yml" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" PLANWRIGHT_REPO_ROOT="$wt" PLANWRIGHT_LOCAL_CONFIG="" \
     PLANWRIGHT_POOL_DIR="$tmp/pools" CLAUDE_DIR="$tmp/claude" HOME="$tmp/home" \
-    SP_UNDER_TEST="$SP" PLANWRIGHT_STEP_SPEC=demo PLANWRIGHT_STEP_TASK_IDS=1 \
+    SP_UNDER_TEST="$SP" HOST_SENTINEL=kept PLANWRIGHT_STEP_SPEC=demo PLANWRIGHT_STEP_TASK_IDS=1 \
     PLANWRIGHT_STEP_UNIT_KIND=task PLANWRIGHT_STEP_BRANCH=planwright/demo/task-1 \
-    PLANWRIGHT_STEP_BASE_BRANCH=main PLANWRIGHT_STEP_WORKTREE="$wt" PLANWRIGHT_STEP_PR_NUMBER=7 \
+    PLANWRIGHT_STEP_BASE_BRANCH=main PLANWRIGHT_STEP_WORKTREE="$wt" PLANWRIGHT_STEP_PR_NUMBER="${PR-7}" \
     "$@"
 }
 srun() { env_run "$RUN" --worktree "$wt" "$@"; }

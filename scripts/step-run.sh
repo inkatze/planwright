@@ -25,12 +25,20 @@
 #   --worktree  the unit's worktree; default the enclosing git top level.
 #               Every command runs there.
 #   --run       a run id step-record.sh issued.
+#   --backend   the record's backend name (default `runner`).
+#   --session   the session id the record carries: the unit session's for a
+#               session-hosted step, so a later `continue` step can attach.
+#   --owner     the slot owner, the unit session's long-lived process (the
+#               shell tool's parent, `$PPID`), never a short-lived shell.
 #
 # resolve   run resolve-steps.sh over the points with --explain and the
 #           attendance flag, pass its stdout, stderr, and exit through, and
 #           keep each point's rows as this run's runner state (a later
-#           resolution of the same point in the run replaces them). The
-#           command, begin, and refire verbs read a step's row from there.
+#           resolution of the same point in the run replaces them, and one
+#           that fails with no rows removes them). The command, begin, end,
+#           and refire verbs read a step's row from there; a re-fire's from
+#           the earliest run of the resume chain that resolved its point.
+#           Its own refusals exit 2, a state write that fails 4.
 # resume    a resume of the run interrupted at <point>: <run> six digits and
 #           <point> an in-run point, both checked before any record is read
 #           (exit 2). Records the run's resume link (its chain's first run is
@@ -43,7 +51,8 @@
 #           prefix of the point's list, then of its re-fire pass.
 # refire    the re-fire plan: nothing when no post-pr step record of the run
 #           moved the head (step-record.sh heads); otherwise, from the
-#           pre-ci then pre-pr rows of the run's chain's first run, each
+#           pre-ci then pre-pr rows of the earliest chain run resolving each
+#           (a point no run resolved warns and plans nothing), each
 #           distinct step id whose first declaring row reads `run` with
 #           refire `post-pr` and that no post-pr record of this run already
 #           re-fires, as `refire<TAB><step><TAB><declaring point><TAB>
@@ -55,19 +64,27 @@
 #           outside the timeout), runs the location and args as argv with
 #           the PLANWRIGHT_STEP_* context and the hold mark in its
 #           environment, stdin /dev/null, output captured under the cache,
-#           ends it at its timeout, releases the slot once it has exited,
-#           and writes the record. A refused context value fails the step
-#           without running it.
+#           in its own process group, and writes the record. At its timeout,
+#           or on a HUP, INT, or TERM to this script (forwarded to the group
+#           and held), the group is ended (TERM, KILL after ten seconds) and
+#           the slot released only once it is gone; a signal then exits
+#           128+n after the record. A refused context value, location, or
+#           args word (resolve-steps.sh --line's checks) fails the step
+#           without running it. A re-fire must name a step whose row
+#           declares refire post-pr that this run has not re-fired.
 # begin     the same up to the run, for a session-hosted (in-session or
 #           continue) command step whose slot the unit session's process
 #           --owner holds: prints `run<TAB><line>`, the line
 #           resolve-steps.sh --line renders (hold mark included when a slot
 #           was taken) for the session's shell tool, and keeps the pending
-#           state for `end`.
-# end       release the slot begin took and write the record from the
-#           session's exit code (--timed-out names a timeout the shell tool
-#           enforced; --output a file of the line's output, copied into the
-#           cache).
+#           state (slot, re-fire, session) for `end`. A `skipped` or `failed`
+#           line instead needs no `end`; a second begin before `end` is
+#           refused. Any failure after the take releases the slot.
+# end       release the slot begin took (by its slot number) and write the
+#           record from the session's exit code (--timed-out names a timeout
+#           the shell tool enforced; --output a file of the line's output,
+#           appended to the cache copy); the pending state goes only once
+#           the record is written.
 #
 # The context: SPEC, TASK_IDS, UNIT_KIND, BRANCH, BASE_BRANCH, WORKTREE, and
 # PR_NUMBER of the PLANWRIGHT_STEP_* fields come from the caller's
@@ -79,17 +96,24 @@
 # <TAB><hosting><TAB><session>`, the record path absolute and, for a reuse
 # skip, the hosting and session those of the record it stands on (`-` when
 # empty), so a following `continue` step can attach to that session. A failed
-# record's excerpt names its cause: the exit code, the timeout, the expired
-# wait and its holders, or the refused context field.
+# record's excerpt names its cause: the exit code, the timeout, the signal,
+# the expired wait and its holders, or the refused field; an unpooled run's
+# cause opens its excerpt. The holders are an expired take's holder lines,
+# else the wait report's.
 #
 # Runner state lives beside the run's records as `runner-*` files, which
-# step-record.sh never reads: runner-rows-<point>, runner-resume, and
-# runner-pending-<point>-<step>.
+# step-record.sh never reads: runner-rows-<point>, runner-resume
+# (`<first run><TAB><point><TAB><chain runs>`), and
+# runner-pending-<point>-<step>, each written through a temporary file and
+# refused as a symbolic link. They are untrusted like the records: a row runs
+# only after resolve-steps.sh --line accepts its location and args.
 #
 # Exit: 0 the step passed or was skipped, or the verb succeeded · 1 the step
 # failed (its record written) · 2 usage, a refused argument, or a row that is
-# not a resolved command step (nothing recorded) · 4 a record or slot
-# operation failed. resolve exits as resolve-steps.sh did.
+# not a resolved command step of the verb's hosting (nothing recorded or
+# taken) · 4 a record, state, or slot operation failed (a release that fails
+# after the record is written included) · 128+n a signal stopped `command`.
+# resolve exits as resolve-steps.sh did, save its own 2 and 4.
 #
 # Portable bash 3.2 / BSD tooling.
 set -u
@@ -138,8 +162,18 @@ cache="$worktree/.claude/steps"
 
 sr() { /bin/sh "$SR" --worktree "$worktree" "$@"; }
 
-work=''
-cleanup() { [ -z "$work" ] || rm -rf "$work"; }
+# A slot taken for an owner is released on every exit until its record is
+# written or, for begin, its pending state hands it to end.
+work='' SLOT_HELD='' SLOT='' ROW_POOL='' OWNER=''
+release_slot() {
+  [ -n "$SLOT_HELD" ] || return 0
+  SLOT_HELD=''
+  PLANWRIGHT_STEP_POOL_HOLD='' "$SP" release "$ROW_POOL" "$OWNER" ${SLOT:+--slot "$SLOT"} >/dev/null
+}
+cleanup() {
+  release_slot || printf 'step-run: warning: the slot of pool %s could not be released\n' "$ROW_POOL" >&2
+  [ -z "$work" ] || rm -rf "$work"
+}
 trap cleanup EXIT
 work=$(mktemp -d "${TMPDIR:-/tmp}/step-run.XXXXXX") || die 4 "cannot create a temporary directory"
 
@@ -153,16 +187,38 @@ run_dir() {
   printf '%s' "$cache/$1"
 }
 
-# chain_first <run>: the first run of the run's resume chain.
-chain_first() {
-  local f="$cache/$1/runner-resume" first
-  if [ -f "$f" ] && [ ! -L "$f" ]; then
-    first=$(head -n 1 "$f" | cut -f 1)
-    if is_run "$first" && [ -d "$cache/$first" ]; then
-      printf '%s' "$first"
+# put_state <path>: write stdin to a runner-state file through a temporary
+# file beside it, refusing a symbolic link at the name.
+put_state() {
+  local tmp
+  [ ! -L "$1" ] || die 4 "runner state ${1##*/} is a symbolic link; refusing it"
+  tmp=$(mktemp "$(dirname "$1")/.runner-XXXXXX") || die 4 "cannot write runner state"
+  if ! { cat >"$tmp" && mv -f "$tmp" "$1"; }; then
+    rm -f "$tmp"
+    die 4 "cannot write runner state"
+  fi
+}
+
+# chain_runs <run>: the runs of the run's resume chain, first run first, the
+# run itself excluded.
+chain_runs() {
+  local f="$cache/$1/runner-resume" r
+  [ -f "$f" ] && [ ! -L "$f" ] || return 0
+  for r in $(head -n 1 "$f" | cut -f 3); do
+    is_run "$r" && [ -d "$cache/$r" ] && printf '%s\n' "$r"
+  done
+}
+
+# rows_run <run> <point>: the earliest run of the chain, the run itself last,
+# that resolved the point.
+rows_run() {
+  local r
+  for r in $(chain_runs "$1") "$1"; do
+    if [ -f "$cache/$r/runner-rows-$2" ] && [ ! -L "$cache/$r/runner-rows-$2" ]; then
+      printf '%s' "$r"
       return
     fi
-  fi
+  done
   printf '%s' "$1"
 }
 
@@ -189,15 +245,17 @@ cmd_resolve() {
   done
   [ ${#points[@]} -ge 1 ] && [ -n "$att" ] || usage
   dir=$(run_dir "$run") || exit $?
-  local opts=(--explain)
-  "$RS" "${points[@]}" ${opts[@]+"${opts[@]}"} "$att" >"$work/rows"
+  "$RS" "${points[@]}" --explain "$att" >"$work/rows"
   rc=$?
   cat "$work/rows"
   for p in "${points[@]}"; do
     is_in_run_point "$p" || continue
     awk -F '\t' -v P="$p" '$3 == P' "$work/rows" >"$work/point-rows"
     if [ -s "$work/point-rows" ] || [ "$rc" -eq 0 ]; then
-      cp "$work/point-rows" "$dir/runner-rows-$p" || die 4 "cannot keep the resolved rows"
+      put_state "$dir/runner-rows-$p" <"$work/point-rows"
+    else
+      # A failed re-resolution leaves no stale rows to host a step from.
+      [ -L "$dir/runner-rows-$p" ] || rm -f "$dir/runner-rows-$p"
     fi
   done
   exit "$rc"
@@ -205,7 +263,7 @@ cmd_resolve() {
 
 # --- resume -----------------------------------------------------------------
 cmd_resume() {
-  local run='' from='' frun fpoint dir head first line ref step rhead rend hosting session path
+  local run='' from='' frun fpoint dir head first chain line ref step rhead rend hosting session path
   while [ $# -gt 0 ]; do
     case $1 in
       --run | --from) [ $# -ge 2 ] || usage ;;
@@ -224,8 +282,10 @@ cmd_resume() {
   dir=$(run_dir "$run") || exit $?
   run_dir "$frun" >/dev/null || exit $?
   [ "$frun" != "$run" ] || die 2 "--from: a run cannot resume itself"
-  first=$(chain_first "$frun")
-  printf '%s\t%s\n' "$first" "$fpoint" >"$dir/runner-resume" || die 4 "cannot keep the resume link"
+  chain=$(chain_runs "$frun" | tr '\n' ' ')
+  chain="$chain$frun"
+  first=${chain%% *}
+  printf '%s\t%s\t%s\n' "$first" "$fpoint" "$chain" | put_state "$dir/runner-resume"
   head=$(git rev-parse --verify -q 'HEAD^{commit}') || die 4 "cannot read the worktree's HEAD"
   sr lookup resume --run "$frun" --point "$fpoint" --head "$head" >"$work/prefix"
   case $? in
@@ -272,32 +332,42 @@ load_record() {
   REC_FP=$(field "$vals" 4) REC_DIGEST=$(field "$vals" 5) REC_REFIRE=$(field "$vals" 6)
 }
 
+# refired <run>: the step ids a post-pr record of the run already re-fires.
+refired() {
+  sr list --run "$1" --point post-pr >"$work/post" || die 4 "cannot read the run's records"
+  awk -F '\t' '$1 == "step" { s = $2 } $1 == "refire-of" && $2 != "" { print s }' "$work/post" | sort -u
+}
+
 # --- refire -----------------------------------------------------------------
 cmd_refire() {
-  local run='' first dir
+  local run='' p r
   [ $# -eq 2 ] && [ "$1" = --run ] || usage
   run=$2
-  dir=$(run_dir "$run") || exit $?
+  run_dir "$run" >/dev/null || exit $?
   sr heads --run "$run" --point post-pr >/dev/null
   case $? in
     0) ;;
     3) return 0 ;;
     *) die 4 "cannot read the run's head moves" ;;
   esac
-  first=$(chain_first "$run")
-  sr list --run "$run" --point post-pr >"$work/post"
-  awk -F '\t' '$1 == "step" { s = $2 } $1 == "refire-of" && $2 != "" { print s }' "$work/post" \
-    | sort -u >"$work/done"
+  refired "$run" >"$work/done"
+  : >"$work/declared"
   for p in pre-ci pre-pr; do
-    [ -f "$cache/$first/runner-rows-$p" ] && cat "$cache/$first/runner-rows-$p"
-  done | awk -F '\t' -v TAB="$TAB" -v DONE="$work/done" '
+    r=$(rows_run "$run" "$p")
+    if [ -f "$cache/$r/runner-rows-$p" ]; then
+      cat "$cache/$r/runner-rows-$p" >>"$work/declared"
+    else
+      printf 'step-run: warning: no run of the chain resolved %s; its steps are not re-fired\n' "$p" >&2
+    fi
+  done
+  awk -F '\t' -v TAB="$TAB" -v DONE="$work/done" '
     BEGIN { while ((getline d < DONE) > 0) done[d] = 1 }
     {
       if ($2 in seen) next
       seen[$2] = 1
       if ($1 == "run" && $16 == "post-pr" && $8 == "command" && !($2 in done))
         print "refire" TAB $2 TAB $3 TAB $7
-    }'
+    }' "$work/declared"
 }
 
 # --- command / begin / end ----------------------------------------------------
@@ -308,7 +378,7 @@ row_of() {
   row=$(awk -F '\t' -v S="$3" '$2 == S { print; exit }' "$f")
   [ -n "$row" ] || die 2 "step $3 is not in the resolved $2 list"
   IFS=$TAB read -r ROW_DECISION _ _ _ _ ROW_TARGET ROW_HOSTING ROW_KIND ROW_ARGS _ ROW_TIMEOUT \
-    _ ROW_LOCATION ROW_POOL ROW_PATHS _ <<<"$row"
+    _ ROW_LOCATION ROW_POOL ROW_PATHS ROW_REFIRE <<<"$row"
   [ "$ROW_DECISION" = run ] || die 2 "step $3 did not resolve to run"
   [ "$ROW_KIND" = command ] || die 2 "step $3 is not a command step"
   [ "$ROW_ARGS" != - ] || ROW_ARGS=''
@@ -343,39 +413,72 @@ parse_step_args() {
   DIR=$(run_dir "$RUN") || exit $?
   is_in_run_point "$POINT" || die 2 "--point: not an in-run point"
   is_step "$STEP" || die 2 "--step: not a step id"
+  [ -z "$BACKEND" ] || { [[ $BACKEND =~ ^[a-z0-9][a-z0-9-]*$ ]] && [ "${#BACKEND}" -le 64 ]; } \
+    || die 2 "--backend: not a backend name"
+  [ -z "$SESSION" ] || [[ $SESSION =~ ^[A-Za-z0-9._:-]{1,128}$ ]] || die 2 "--session: not a session id"
+  [ -z "$OWNER" ] || [[ $OWNER =~ ^[1-9][0-9]{0,9}$ ]] || die 2 "--owner: not a process id"
   CTX_POINT=$POINT
   ROW_RUN=$RUN ROW_POINT=$POINT
   if [ -n "$REFIRE_OF" ]; then
     case $REFIRE_OF in pre-ci | pre-pr) ;; *) die 2 "--refire-of: not pre-ci or pre-pr" ;; esac
     [ "$POINT" = post-pr ] || die 2 "--refire-of: a re-fire runs at post-pr"
-    ROW_RUN=$(chain_first "$RUN") ROW_POINT=$REFIRE_OF
+    ROW_POINT=$REFIRE_OF
+    ROW_RUN=$(rows_run "$RUN" "$REFIRE_OF")
   fi
-  [ -z "$OWNER" ] || [[ $OWNER =~ ^[1-9][0-9]{0,9}$ ]] || die 2 "--owner: not a process id"
   PENDING="$DIR/runner-pending-$CTX_POINT-$STEP"
 }
 
-# context <ctx-point>: export the twelve fields' per-step values.
+# load_row <hosting-test>: the row, refused before anything is recorded or
+# taken when it is not the verb's hosting or, for a re-fire, not a step that
+# declares one or one this run already re-fired.
+load_row() {
+  row_of "$ROW_RUN" "$ROW_POINT" "$STEP"
+  case $1:$ROW_HOSTING in
+    isolated:isolated | session:in-session | session:continue) ;;
+    isolated:*) die 2 "step $STEP is hosted $ROW_HOSTING; use begin and end" ;;
+    *) die 2 "step $STEP is hosted isolated; use command" ;;
+  esac
+  if [ -n "$REFIRE_OF" ]; then
+    [ "$ROW_REFIRE" = post-pr ] || die 2 "step $STEP declares no refire: post-pr"
+    ! refired "$RUN" | grep -Fxq -- "$STEP" || die 2 "step $STEP was already re-fired in run $RUN"
+  fi
+}
+
+# context: export the twelve fields' per-step values.
 context() {
-  local prev moves
-  prev=$(sr list --run "$RUN" --point "$CTX_POINT" | sed -n 's/^record\t\(.*-step-.*\.rec\)$/\1/p' | tail -n 1)
+  local prev moves rc
+  sr list --run "$RUN" --point "$CTX_POINT" >"$work/ctx-list" || die 4 "cannot read the run's records"
+  prev=$(awk -F '\t' '$1 == "record" && $2 ~ /-step-[a-z-]*\.rec$/ { p = $2 } END { print p }' "$work/ctx-list")
   export PLANWRIGHT_STEP_POINT="$CTX_POINT" PLANWRIGHT_STEP_ID="$STEP"
   export PLANWRIGHT_STEP_PREV_RECORD="${prev:+$worktree/$prev}"
-  moves=$(sr heads --run "$RUN" --point "$CTX_POINT" 2>/dev/null) || moves=''
+  moves=$(sr heads --run "$RUN" --point "$CTX_POINT")
+  rc=$?
+  case $rc in
+    0 | 3) ;;
+    *) die 4 "cannot read the run's head moves" ;;
+  esac
   export PLANWRIGHT_STEP_PREV_HEAD="${moves%%"$TAB"*}" PLANWRIGHT_STEP_NEW_HEAD="${moves#*"$TAB"}"
-  [ -n "$moves" ] || PLANWRIGHT_STEP_NEW_HEAD=''
   local v
   for v in SPEC TASK_IDS UNIT_KIND BRANCH BASE_BRANCH WORKTREE PR_NUMBER; do
     export "PLANWRIGHT_STEP_$v=$(printenv "PLANWRIGHT_STEP_$v" || :)"
   done
 }
 
-# holders_of <stderr-file>: one --holder argument pair per holder the take's
-# wait report named, into HOLDER_ARGS.
+# holders_of <take-stdout> <take-stderr>: one --holder pair per holder into
+# HOLDER_ARGS, from an expired take's holder lines, else from the wait report.
 holders_of() {
-  local hl
+  local hl pid st wt
   HOLDER_ARGS=()
-  hl=$(sed -n -e 's/^step-pool: .* waiting up to [0-9]*s on: //p' \
-    -e 's/^step-pool: .* held by: //p' "$1" 2>/dev/null | tail -n 1)
+  if grep -q "^holder$TAB" "$1"; then
+    while IFS=$TAB read -r _ _ pid st wt; do
+      [ "$st" != '(full-suite)' ] || st='the full-suite run'
+      case $st in 'the full-suite run') ;; *) st="step $st" ;; esac
+      HOLDER_ARGS+=(--holder "pid $pid ($st, worktree $wt)")
+    done < <(grep "^holder$TAB" "$1")
+    return
+  fi
+  hl=$(sed -n -e 's/^step-pool: .* waiting up to [0-9]*s on: //p' "$2" 2>/dev/null | tail -n 1)
+  [ "$hl" != 'no live holder found' ] || hl=''
   while [ -n "$hl" ]; do
     case $hl in
       *'; pid '*)
@@ -390,15 +493,15 @@ holders_of() {
   done
 }
 
-# prepare: the reuse check and the take, shared by command and begin. Sets
-# STATE (skipped | expired | taken | nested | unpooled | none), and for a
-# step that will run START, HEAD0, WAITED, and the pool and fingerprint
-# argument lists for its record.
+# prepare: the reuse check and the take, shared by command and begin, after
+# load_row. Sets STATE (skipped | expired | taken | nested | unpooled | none),
+# and for a step that will run START, HEAD0, WAITED, and the pool and
+# fingerprint argument lists for its record.
 prepare() {
   local hit rc out
-  row_of "$ROW_RUN" "$ROW_POINT" "$STEP"
   [ -n "$BACKEND" ] || BACKEND=runner
   FP_ARGS=() POOL_ARGS=() HOLDER_ARGS=() REFIRE_ARGS=()
+  : >"$work/take.err"
   [ -z "$REFIRE_OF" ] || REFIRE_ARGS=(--refire-of "$REFIRE_OF")
   if [ -n "$ROW_PATHS" ]; then
     local fp digest
@@ -424,19 +527,24 @@ prepare() {
   fi
   STATE=none WAITED=0 START=$(stamp)
   if [ -n "$ROW_POOL" ]; then
-    local line
-    line=$(PLANWRIGHT_STEP_POOL_HOLD="${PLANWRIGHT_STEP_POOL_HOLD-}" "$SP" take "$ROW_POOL" "$OWNER" \
-      --step "$STEP" --worktree "$worktree" 2>"$work/take.err")
+    # The wait report reaches stderr as it is made, not after the wait.
+    mkfifo "$work/take.fifo" || die 4 "cannot create a FIFO for the wait report"
+    tee "$work/take.err" <"$work/take.fifo" >&2 &
+    local teep=$!
+    "$SP" take "$ROW_POOL" "$OWNER" --step "$STEP" --worktree "$worktree" \
+      >"$work/take.out" 2>"$work/take.fifo"
     rc=$?
-    cat "$work/take.err" >&2
-    holders_of "$work/take.err"
-    STATE=$(printf '%s\n' "$line" | awk -F '\t' 'NR == 1 { print $1 }')
-    WAITED=$(printf '%s\n' "$line" | awk -F '\t' 'NR == 1 && $3 ~ /^[0-9]+$/ { print $3 }')
+    wait "$teep"
+    STATE=$(awk -F '\t' 'NR == 1 { print $1 }' "$work/take.out")
+    SLOT=$(awk -F '\t' 'NR == 1 && $2 ~ /^[0-9]+$/ { print $2 }' "$work/take.out")
+    WAITED=$(awk -F '\t' 'NR == 1 && $3 ~ /^[0-9]+$/ { print $3 }' "$work/take.out")
     WAITED=${WAITED:-0}
     case $rc:$STATE in
-      0:taken | 0:nested | 0:unpooled | 3:expired) ;;
+      0:taken) SLOT_HELD=yes ;;
+      0:nested | 0:unpooled | 3:expired) ;;
       *) die 4 "the pool helper failed (exit $rc)" ;;
     esac
+    holders_of "$work/take.out" "$work/take.err"
     POOL_ARGS=(--pool "$ROW_POOL" --wait "$WAITED" ${HOLDER_ARGS[@]+"${HOLDER_ARGS[@]}"})
     [ "$STATE" != unpooled ] || POOL_ARGS+=(--unpooled)
     [ "$STATE" = expired ] || START=$(stamp)
@@ -444,14 +552,11 @@ prepare() {
   HEAD0=$(git rev-parse --verify -q 'HEAD^{commit}') || die 4 "cannot read the worktree's HEAD"
 }
 
-# finish <outcome> <output-file>: release a taken slot, then write the record
-# and print the result line.
+# finish <outcome> <output-file> [<exit>]: release a taken slot, then write
+# the record and print the result line; exit 1 unless passed (or <exit>).
 finish() {
-  local outcome=$1 output=$2 end_head out session_args=()
-  if [ "$STATE" = taken ]; then
-    PLANWRIGHT_STEP_POOL_HOLD='' "$SP" release "$ROW_POOL" "$OWNER" >/dev/null \
-      || printf 'step-run: warning: the slot of pool %s could not be released\n' "$ROW_POOL" >&2
-  fi
+  local outcome=$1 output=$2 end_head out session_args=() released=0
+  release_slot || released=1
   end_head=$(git rev-parse --verify -q 'HEAD^{commit}') || die 4 "cannot read the worktree's HEAD"
   [ -z "$SESSION" ] || session_args=(--session "$SESSION")
   out=$(sr write --run "$RUN" --point "$CTX_POINT" --step "$STEP" --kind command \
@@ -459,12 +564,22 @@ finish() {
     --head "$HEAD0" --end-head "$end_head" --start "$START" --outcome "$outcome" \
     --excerpt-file "$output" --output "$output" ${POOL_ARGS[@]+"${POOL_ARGS[@]}"} ${FP_ARGS[@]+"${FP_ARGS[@]}"} \
     ${REFIRE_ARGS[@]+"${REFIRE_ARGS[@]}"}) || die 4 "cannot write the step record"
+  [ ! -f "$PENDING" ] || rm -f "$PENDING"
   printf '%s\t%s\t%s\t%s\n' "$outcome" "$out" "$ROW_HOSTING" "${SESSION:--}"
+  if [ "$released" -ne 0 ]; then
+    die 4 "the slot of pool $ROW_POOL could not be released for pid $OWNER"
+  fi
+  [ -z "${3:-}" ] || exit "$3"
   [ "$outcome" = passed ] || exit 1
 }
 
+# new_output: a fresh output file under the run, opening with any warning the
+# take printed (an unpooled run's cause among them).
 new_output() {
-  mktemp "$DIR/output-XXXXXX" || die 4 "cannot create the output file"
+  local o
+  o=$(mktemp "$DIR/output-XXXXXX") || die 4 "cannot create the output file"
+  grep '^step-pool: warning: ' "$work/take.err" >"$o" 2>/dev/null || :
+  printf '%s' "$o"
 }
 
 expired_output() {
@@ -473,7 +588,7 @@ expired_output() {
   {
     printf 'step-run: the wait for pool %s passed its bound; the step did not run\n' "$ROW_POOL"
     grep '^step-pool: ' "$work/take.err" || :
-  } >"$o"
+  } >>"$o"
   printf '%s' "$o"
 }
 
@@ -483,55 +598,94 @@ mark_args() {
   [ "$STATE" != taken ] || MARK_ARGS=(--pool "$ROW_POOL" --owner "$OWNER")
 }
 
+# render_line <output>: the resolver's --line for the step into LINE, which
+# validates every context value, the location, and the args; a refusal fails
+# the step.
+render_line() {
+  local args=()
+  [ -z "$ROW_ARGS" ] || read -r -a args <<<"$ROW_ARGS"
+  ARGV=("$ROW_LOCATION" ${args[@]+"${args[@]}"})
+  if ! LINE=$("$RS" "$CTX_POINT" ${MARK_ARGS[@]+"${MARK_ARGS[@]}"} --line "${ARGV[@]}" 2>"$work/ctx.err"); then
+    cat "$work/ctx.err" >>"$1"
+    cat "$work/ctx.err" >&2
+    finish failed "$1"
+  fi
+}
+
+# group_gone <pgid>: no process of the group is left.
+group_gone() { ! kill -0 -- "-$1" 2>/dev/null; }
+
+# end_group <pgid>: TERM the group, then KILL what is left after ten seconds,
+# returning once the group is gone.
+end_group() {
+  local k=0
+  kill -TERM -- "-$1" 2>/dev/null
+  while ! group_gone "$1" && [ "$k" -lt 10 ]; do
+    sleep 1
+    k=$((k + 1))
+  done
+  kill -KILL -- "-$1" 2>/dev/null
+  while ! group_gone "$1"; do sleep 1; done
+}
+
+caught='' child=''
+on_signal() {
+  caught=$1
+  [ -z "$child" ] || kill -TERM -- "-$child" 2>/dev/null
+}
+
 cmd_command() {
   parse_step_args "$@"
   [ -z "$OWNER" ] || die 2 "--owner: command's slot owner is its own process"
+  [ -z "$EXIT_CODE$TIMED_OUT$OUTPUT" ] || usage
   OWNER=$$
+  load_row isolated
   prepare
   [ "$STATE" != skipped ] || exit 0
-  local o rc
+  local o rc killer=''
   if [ "$STATE" = expired ]; then
     o=$(expired_output) || exit $?
     finish failed "$o"
   fi
-  [ "$ROW_HOSTING" = isolated ] || die 2 "step $STEP is hosted $ROW_HOSTING; use begin and end"
   context
   mark_args
   o=$(new_output) || exit $?
-  # The resolver validates every context value (exit 6 names the field).
-  if ! "$RS" "$CTX_POINT" ${MARK_ARGS[@]+"${MARK_ARGS[@]}"} --prefix >/dev/null 2>"$work/ctx.err"; then
-    cat "$work/ctx.err" >"$o"
-    cat "$work/ctx.err" >&2
-    finish failed "$o"
-  fi
-  local args=()
-  [ -z "$ROW_ARGS" ] || read -r -a args <<<"$ROW_ARGS"
+  render_line "$o"
+  # The check runs in its own process group, so a timeout or a signal ends
+  # everything it started before the slot is released. A signal reaching this
+  # script is forwarded to the group and held until the group is gone.
+  trap 'on_signal 129' HUP
+  trap 'on_signal 130' INT
+  trap 'on_signal 143' TERM
+  set -m
   (
     [ "$STATE" != taken ] || export PLANWRIGHT_STEP_POOL_HOLD="$ROW_POOL:$OWNER"
-    exec "$ROW_LOCATION" ${args[@]+"${args[@]}"} </dev/null >"$o" 2>&1
+    exec "${ARGV[@]}" </dev/null >>"$o" 2>&1
   ) &
-  local child=$! timed=''
+  child=$!
   if [ -n "$ROW_TIMEOUT" ]; then
-    local n=0
-    while kill -0 "$child" 2>/dev/null; do
-      if [ "$n" -ge "$ROW_TIMEOUT" ]; then
-        timed=yes
-        kill -TERM "$child" 2>/dev/null
-        local k=0
-        while kill -0 "$child" 2>/dev/null && [ "$k" -lt 10 ]; do
-          sleep 1
-          k=$((k + 1))
-        done
-        kill -KILL "$child" 2>/dev/null
-        break
-      fi
-      sleep 1
-      n=$((n + 1))
-    done
+    (
+      sleep "$ROW_TIMEOUT"
+      : >"$work/timed-out"
+      kill -TERM -- "-$child" 2>/dev/null
+    ) &
+    killer=$!
   fi
-  wait "$child"
-  rc=$?
-  if [ -n "$timed" ]; then
+  set +m
+  while :; do
+    wait "$child"
+    rc=$?
+    kill -0 "$child" 2>/dev/null || break
+  done
+  [ -z "$killer" ] || kill -TERM -- "-$killer" 2>/dev/null
+  if [ -n "$caught" ] || [ -e "$work/timed-out" ]; then
+    end_group "$child"
+  fi
+  if [ -n "$caught" ]; then
+    printf 'step-run: stopped by signal %s; ended by the runner\n' "$((caught - 128))" >>"$o"
+    finish failed "$o" "$caught"
+  fi
+  if [ -e "$work/timed-out" ]; then
     printf 'step-run: timed out after %ss; ended by the runner\n' "$ROW_TIMEOUT" >>"$o"
     finish failed "$o"
   fi
@@ -542,6 +696,9 @@ cmd_command() {
 cmd_begin() {
   parse_step_args "$@"
   [ -n "$OWNER" ] || die 2 "--owner: required, the unit session's process"
+  [ -z "$EXIT_CODE$TIMED_OUT$OUTPUT" ] || usage
+  [ ! -e "$PENDING" ] && [ ! -L "$PENDING" ] || die 2 "step $STEP at $CTX_POINT in run $RUN already has a pending begin; run end first"
+  load_row session
   prepare
   [ "$STATE" != skipped ] || exit 0
   local o
@@ -549,25 +706,20 @@ cmd_begin() {
     o=$(expired_output) || exit $?
     finish failed "$o"
   fi
-  [ "$ROW_HOSTING" != isolated ] || die 2 "step $STEP is hosted isolated; use command"
   context
   mark_args
-  local args=() line
-  [ -z "$ROW_ARGS" ] || read -r -a args <<<"$ROW_ARGS"
-  if ! line=$("$RS" "$CTX_POINT" ${MARK_ARGS[@]+"${MARK_ARGS[@]}"} --line "$ROW_LOCATION" ${args[@]+"${args[@]}"} 2>"$work/ctx.err"); then
-    o=$(new_output) || exit $?
-    cat "$work/ctx.err" >"$o"
-    cat "$work/ctx.err" >&2
-    finish failed "$o"
-  fi
+  o=$(new_output) || exit $?
+  render_line "$o"
   {
-    printf 'state\t%s\nowner\t%s\nstart\t%s\nhead\t%s\nwaited\t%s\nbackend\t%s\nsession\t%s\n' \
-      "$STATE" "$OWNER" "$START" "$HEAD0" "$WAITED" "$BACKEND" "$SESSION"
+    printf 'state\t%s\nowner\t%s\nslot\t%s\nstart\t%s\nhead\t%s\nwaited\t%s\nbackend\t%s\nsession\t%s\nrefire-of\t%s\noutput\t%s\n' \
+      "$STATE" "$OWNER" "$SLOT" "$START" "$HEAD0" "$WAITED" "$BACKEND" "$SESSION" "$REFIRE_OF" "$o"
     [ ${#FP_ARGS[@]} -eq 0 ] || printf 'fingerprint\t%s\ndigest\t%s\n' "${FP_ARGS[1]}" "${FP_ARGS[3]}"
     local i
     for ((i = 1; i < ${#HOLDER_ARGS[@]}; i += 2)); do printf 'holder\t%s\n' "${HOLDER_ARGS[$i]}"; done
-  } >"$PENDING" || die 4 "cannot keep the pending state"
-  printf 'run\t%s\n' "$line"
+  } | put_state "$PENDING"
+  # The pending state now carries the slot to end.
+  SLOT_HELD=''
+  printf 'run\t%s\n' "$LINE"
 }
 
 cmd_end() {
@@ -575,24 +727,31 @@ cmd_end() {
   [[ $EXIT_CODE =~ ^[0-9]{1,3}$ ]] || die 2 "--exit: not an exit code"
   [ -z "$TIMED_OUT" ] || [[ $TIMED_OUT =~ ^[1-9][0-9]{0,8}$ ]] || die 2 "--timed-out: not whole seconds"
   [ -f "$PENDING" ] && [ ! -L "$PENDING" ] || die 2 "no pending begin for $STEP at $CTX_POINT in run $RUN"
-  row_of "$ROW_RUN" "$ROW_POINT" "$STEP"
-  local k v fp='' digest=''
+  local k v fp='' digest='' o=''
   HOLDER_ARGS=()
   while IFS=$TAB read -r k v; do
     case $k in
       state) STATE=$v ;;
       owner) OWNER=$v ;;
+      slot) SLOT=$v ;;
       start) START=$v ;;
       head) HEAD0=$v ;;
       waited) WAITED=$v ;;
       backend) BACKEND=$v ;;
       session) [ -n "$SESSION" ] || SESSION=$v ;;
+      refire-of) [ -n "$REFIRE_OF" ] || REFIRE_OF=$v ;;
+      output) o=$v ;;
       holder) HOLDER_ARGS+=(--holder "$v") ;;
       fingerprint) fp=$v ;;
       digest) digest=$v ;;
     esac
   done <"$PENDING"
-  rm -f "$PENDING"
+  if [ -n "$REFIRE_OF" ]; then
+    ROW_POINT=$REFIRE_OF
+    ROW_RUN=$(rows_run "$RUN" "$REFIRE_OF")
+  fi
+  row_of "$ROW_RUN" "$ROW_POINT" "$STEP"
+  [ "$STATE" != taken ] || SLOT_HELD=yes
   FP_ARGS=() POOL_ARGS=() REFIRE_ARGS=()
   [ -z "$REFIRE_OF" ] || REFIRE_ARGS=(--refire-of "$REFIRE_OF")
   # The fingerprint the step ran over, as begin took it.
@@ -601,10 +760,10 @@ cmd_end() {
     POOL_ARGS=(--pool "$ROW_POOL" --wait "$WAITED" ${HOLDER_ARGS[@]+"${HOLDER_ARGS[@]}"})
     [ "$STATE" != unpooled ] || POOL_ARGS+=(--unpooled)
   fi
-  local o
-  o=$(new_output) || exit $?
+  case $o in "$DIR"/output-*) [ -f "$o" ] && [ ! -L "$o" ] || o='' ;; *) o='' ;; esac
+  [ -n "$o" ] || o=$(new_output) || exit $?
   if [ -n "$OUTPUT" ]; then
-    cat -- "$OUTPUT" >"$o" 2>/dev/null || printf 'step-run: the output file could not be read\n' >"$o"
+    cat -- "$OUTPUT" >>"$o" 2>/dev/null || printf 'step-run: the output file could not be read\n' >>"$o"
   fi
   if [ -n "$TIMED_OUT" ]; then
     printf "step-run: timed out after %ss; ended by the session's shell tool\n" "$TIMED_OUT" >>"$o"

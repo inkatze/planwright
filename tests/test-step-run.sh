@@ -80,8 +80,9 @@ verdict "the re-fired check reads point post-pr, the last post-pr record, and th
 grep -q "^PLANWRIGHT_STEP_NEW_HEAD=$(head_of)$" "$tmp/show.show.env" \
   && grep -q '^PLANWRIGHT_STEP_PREV_HEAD=[0-9a-f]\{40\}$' "$tmp/show.show.env" \
   && grep -qx 'PLANWRIGHT_STEP_PR_NUMBER=7' "$tmp/show.show.env" \
-  && [ "$(grep -c '^PLANWRIGHT_STEP_' "$tmp/show.show.env")" -eq 12 ]
-verdict "the step after a push sees exactly the twelve fields, the push's move among them" \
+  && [ "$(grep -c '^PLANWRIGHT_STEP_' "$tmp/show.show.env")" -eq 12 ] \
+  && grep -qx 'host=kept' "$tmp/show.show.env"
+verdict "the step after a push sees exactly the twelve fields, the push's move among them, the host env intact" \
   "env: $(cat "$tmp/show.show.env")"
 
 # --- a second run with no change reuses the passing record (REQ-I1.8) -------------------
@@ -139,6 +140,37 @@ srun refire --run "$r" >"$tmp/plan"
 [ "$(wc -l <"$tmp/plan" | tr -d ' ')" -eq 1 ] && grep -q "^refire${TAB}gate${TAB}pre-ci${TAB}" "$tmp/plan"
 verdict "an id at both lists re-fires once from pre-ci; a missing-skipped one is not planned" \
   "plan: $(cat "$tmp/plan")"
+grep -q "^skip${TAB}ghost${TAB}pre-ci" "$wt/.claude/steps/$r/runner-rows-pre-ci"
+verdict "the unplanned step is the one the matrix skipped as missing" "rows: $(cat "$wt/.claude/steps/$r/runner-rows-pre-ci")"
+
+# --- a step missing at its first declaring list is not re-fired from a later one -----------
+fresh
+catalog "$GATE" "pushfix|kind: command|target: $bin/edit.sh|args: src push"
+config 'steps_pre_ci: [gate]' 'steps_pre_pr: [gate]' 'steps_post_pr: [pushfix]'
+r=$(sr new-run)
+mv "$bin/check.sh" "$bin/check.sh.away"
+point_run "$r" pre-ci
+mv "$bin/check.sh.away" "$bin/check.sh"
+point_done "$r" pre-ci
+point_run "$r" pre-pr
+point_done "$r" pre-pr
+point_run "$r" post-pr
+srun refire --run "$r" >"$tmp/plan"
+[ ! -s "$tmp/plan" ]
+verdict "a step skipped missing at its first declaring list is not re-fired" "plan: $(cat "$tmp/plan")"
+
+# --- the second re-fire reads the pass's previous record (REQ-I1.9) -------------------------
+fresh
+catalog "$GATE" "gate2|kind: command|target: $bin/check.sh|paths: src docs|refire: post-pr" \
+  "pushfix|kind: command|target: $bin/edit.sh|args: src push"
+config 'steps_pre_pr: [gate, gate2]' 'steps_post_pr: [pushfix]'
+r=$(sr new-run)
+: >"$tmp/results"
+unit "$r"
+first_refire=$(sed -n 4p "$tmp/results" | cut -f 2)
+sed -n 4p "$tmp/check.log" | grep -q "^point=post-pr hold= prev=$first_refire "
+verdict "the second re-fire's previous record is the first re-fire's" \
+  "first=$first_refire log: $(sed -n 4p "$tmp/check.log")"
 
 # --- an expired pool wait fails naming the holder (REQ-I1.4) ------------------------------
 fresh
@@ -173,7 +205,7 @@ rc=$?
 recs "$r" pre-pr >"$tmp/l"
 w=$(sed -n "s/^wait${TAB}//p" "$tmp/l")
 [ "$rc" -eq 0 ] && grep -qx "outcome${TAB}passed" "$tmp/l" && [ "${w:-0}" -ge 2 ]
-verdict "a background step outlasting bounded waits is admitted, its wait seconds summed" "rc=$rc wait=$w"
+verdict "a backgrounded step outlasting several bounded polls is admitted, its whole wait recorded" "rc=$rc wait=$w"
 
 # --- a nested take of the same pool under the hold mark does not wait (REQ-I1.2) ---------
 fresh
@@ -217,9 +249,8 @@ rm -f "$tmp/slow"
 
 # --- a runner-owned step past its timeout is ended and fails naming it (REQ-D1.7) ---------
 fresh
-catalog "slow|kind: command|target: $bin/check.sh|pool: gate|timeout: 1"
+catalog "slow|kind: command|target: $bin/grand.sh|pool: gate|timeout: 1"
 config 'steps_pre_pr: [slow]'
-printf '30\n' >"$tmp/slow"
 r=$(sr new-run)
 srun resolve --run "$r" pre-pr --unattended >/dev/null 2>&1
 t0=$(date +%s)
@@ -227,10 +258,31 @@ srun command --run "$r" --point pre-pr --step slow >"$tmp/out" 2>/dev/null
 rc=$?
 t1=$(date +%s)
 [ "$rc" -eq 1 ] && [ $((t1 - t0)) -lt 20 ] && recs "$r" pre-pr | grep -q "^excerpt${TAB}step-run: timed out after 1s" \
-  && [ -z "$(sp report gate)" ]
-verdict "a step past its timeout is ended, records failed naming the timeout, and frees its slot" \
+  && [ -z "$(sp report gate)" ] && ! kill -0 "$(cat "$tmp/grand.pid")" 2>/dev/null
+verdict "a step past its timeout is ended with everything it started, records failed, and frees its slot" \
   "rc=$rc took $((t1 - t0))s: $(recs "$r" pre-pr)"
-rm -f "$tmp/slow"
+
+# --- a signal to the runner ends the check's group before the slot goes -------------------
+rm -f "$tmp/grand.pid"
+catalog "sig|kind: command|target: $bin/grand.sh|pool: gate"
+config 'steps_pre_pr: [sig]'
+r=$(sr new-run)
+srun resolve --run "$r" pre-pr --unattended >/dev/null 2>&1
+srun command --run "$r" --point pre-pr --step sig >"$tmp/out" 2>/dev/null &
+bg=$!
+i=0
+while [ ! -s "$tmp/grand.pid" ] && [ "$i" -lt 100 ]; do
+  sleep 0.1
+  i=$((i + 1))
+done
+runner=$(pgrep -f "step-run.sh --worktree $wt command" | head -n 1)
+kill -TERM "$runner"
+wait "$bg"
+rc=$?
+[ "$rc" -eq 143 ] && ! kill -0 "$(cat "$tmp/grand.pid")" 2>/dev/null && [ -z "$(sp report gate)" ] \
+  && recs "$r" pre-pr | grep -q "^excerpt${TAB}step-run: stopped by signal 15"
+verdict "a TERM to the runner ends the check's group, records failed, frees the slot, and exits 143" \
+  "rc=$rc: $(recs "$r" pre-pr)"
 
 # --- a post-pr commit without a push moves the head for the next step (REQ-D1.12) ---------
 fresh
@@ -249,10 +301,11 @@ fresh
 catalog "show|kind: command|target: $bin/show.sh"
 config 'steps_pre_ci: [show]'
 r=$(sr new-run)
-point_run "$r" pre-ci
-grep -qx 'PLANWRIGHT_STEP_PREV_HEAD=' "$tmp/show.show.env" && grep -qx 'PLANWRIGHT_STEP_NEW_HEAD=' "$tmp/show.show.env" \
+PR='' point_run "$r" pre-ci
+grep -qx 'PLANWRIGHT_STEP_PR_NUMBER=' "$tmp/show.show.env" && grep -qx 'PLANWRIGHT_STEP_PREV_HEAD=' "$tmp/show.show.env" && grep -qx 'PLANWRIGHT_STEP_NEW_HEAD=' "$tmp/show.show.env" \
   && grep -qx 'PLANWRIGHT_STEP_PREV_RECORD=' "$tmp/show.show.env"
-verdict "with no earlier move both head fields are empty strings" "env: $(cat "$tmp/show.show.env")"
+verdict "a first run before any PR sees an empty PR number, and with no earlier move empty head fields" \
+  "env: $(cat "$tmp/show.show.env")"
 
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2

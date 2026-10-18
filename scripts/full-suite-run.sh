@@ -10,9 +10,12 @@
 #
 # --run names the unit run (a step-record.sh run id): each pooled attempt then
 # writes its full-suite record through `step-record.sh write --full-suite`,
-# the wait outcome, the seconds waited, and the holders the wait reported
-# (doctrine/custom-steps.md, *Expensive checks*, The full suite; an expired
-# wait included). An unpooled attempt writes none.
+# the wait outcome (taken, nested, unpooled, or expired), the seconds waited,
+# and the holders (an expired take's holder lines, else the wait report's),
+# its start the take or, for an expired wait, the wait's start
+# (doctrine/custom-steps.md, *Expensive checks*, The full suite). An attempt
+# with no pool to take (none configured, an invalid value, a config read
+# failure, or a failed take) writes none.
 #
 # full_suite_pool resolves through scripts/config-get.sh. Empty or set in no
 # layer, the command runs unpooled with no output of this script's own. A
@@ -145,52 +148,65 @@ if [ -n "$pool" ] && ! valid_pool "$pool"; then
   pool=''
 fi
 
-# record <wait-outcome> <waited> <end>: the attempt's full-suite record under
-# --run, its holders the ones the take's wait report named. A record that
-# cannot be written warns and never changes the attempt's exit.
-take_err=''
+stamp() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+# record <wait-outcome>: the attempt's full-suite record under --run, holders
+# included. A record that cannot be written warns and never changes the
+# attempt's exit.
 record() {
   [ -n "$run_id" ] || return 0
-  set -- "$1" "$2" "$3" --start "$started"
-  [ -z "$3" ] || set -- "$@" --end "$3"
-  if [ -n "$take_err" ] && [ -f "$take_err" ]; then
-    _hl=$(sed -n -e 's/^step-pool: .* waiting up to [0-9]*s on: //p' \
-      -e 's/^step-pool: .* held by: //p' "$take_err" | tail -n 1)
-    while [ -n "$_hl" ]; do
-      case $_hl in
-        *'; pid '*)
-          set -- "$@" --holder "${_hl%%; pid *}"
-          _hl="pid ${_hl#*; pid }"
-          ;;
-        *)
-          set -- "$@" --holder "$_hl"
-          _hl=''
-          ;;
-      esac
-    done
+  set -- --wait-outcome "$1" --start "$started" --end "$(stamp)"
+  if [ -n "$tdir" ] && [ -s "$tdir/holders" ]; then
+    while IFS= read -r _h; do
+      set -- "$@" --holder "$_h"
+    done <"$tdir/holders"
   fi
-  _wo=$1 _wt=$2
-  shift 3
   "$script_dir/step-record.sh" write --full-suite --run "$run_id" --pool "$pool" \
-    --wait "$_wt" --wait-outcome "$_wo" "$@" >/dev/null \
-    || warn_only 'the full-suite record could not be written'
+    --wait "$waited" "$@" >/dev/null \
+    || printf 'full-suite-run: warning: the full-suite record could not be written\n' >&2
 }
-warn_only() {
-  printf 'full-suite-run: warning: %s\n' "$1" >&2
+
+# holders: one line per holder into $tdir/holders, from an expired take's
+# holder lines, else from the wait report step-pool.sh printed at its start.
+holders() {
+  if grep -q '^holder	' "$tdir/out"; then
+    awk -F '\t' '$1 == "holder" {
+      w = ($4 == "(full-suite)") ? "the full-suite run" : "step " $4
+      print "pid " $3 " (" w ", worktree " $5 ")"
+    }' "$tdir/out"
+  else
+    sed -n 's/^step-pool: .* waiting up to [0-9]*s on: //p' "$tdir/err" | tail -n 1 \
+      | awk '{ n = split($0, a, /; pid /); for (i = 1; i <= n; i++) print (i > 1 ? "pid " : "") a[i] }' \
+      | grep -vx 'no live holder found'
+  fi >"$tdir/holders"
 }
-stamp() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 state=''
 waited=0
+tdir=''
 started=$(stamp)
 if [ -n "$pool" ]; then
   owner=$$
-  [ -z "$run_id" ] || take_err=$(mktemp "${TMPDIR:-/tmp}/full-suite-run.XXXXXX") || take_err=''
-  if [ -n "$take_err" ]; then
-    state=$("$script_dir/step-pool.sh" take "$pool" "$owner" 2>"$take_err")
+  if [ -n "$run_id" ]; then
+    tdir=$(mktemp -d "${TMPDIR:-/tmp}/full-suite-run.XXXXXX") || tdir=''
+  fi
+  if [ -n "$tdir" ] && mkfifo "$tdir/fifo"; then
+    # A signal during the take still ends this script at once, the scratch
+    # directory removed.
+    trap 'rm -rf "$tdir"; exit 129' HUP
+    trap 'rm -rf "$tdir"; exit 130' INT
+    trap 'rm -rf "$tdir"; exit 143' TERM
+    # The wait report reaches stderr as it is made, not after the wait.
+    tee "$tdir/err" <"$tdir/fifo" >&2 &
+    teep=$!
+    "$script_dir/step-pool.sh" take "$pool" "$owner" >"$tdir/out" 2>"$tdir/fifo"
     take_rc=$?
-    cat "$take_err" >&2
+    wait "$teep"
+    state=$(cat "$tdir/out")
+    holders
   else
+    [ -z "$tdir" ] || rm -rf "$tdir"
+    tdir=''
     state=$("$script_dir/step-pool.sh" take "$pool" "$owner")
     take_rc=$?
   fi
@@ -201,8 +217,8 @@ if [ -n "$pool" ]; then
     3)
       printf 'full-suite-run: wait expired for pool %s; no suite run; holders on stdout\n' "$pool" >&2
       printf '%s\n' "$state" | sed -n '2,$p'
-      record expired "$waited" "$(stamp)"
-      [ -z "$take_err" ] || rm -f "$take_err"
+      record expired
+      [ -z "$tdir" ] || rm -rf "$tdir"
       exit 75
       ;;
     *)
@@ -210,7 +226,8 @@ if [ -n "$pool" ]; then
       state=''
       ;;
   esac
-  case $state in taken*) started=$(stamp) ;; esac
+  # A record's start is the take, or the wait's start for an expired one.
+  started=$(stamp)
 fi
 
 # Set only now: a signal during the take ends this script at once, and the
@@ -227,9 +244,9 @@ case $state in
   *) run_suite '' "$@" ;;
 esac
 case $state in
-  taken* | nested* | unpooled*) record "${state%%"$(printf '\t')"*}" "$waited" "$(stamp)" ;;
+  taken* | nested* | unpooled*) record "${state%%"$(printf '\t')"*}" ;;
 esac
-[ -z "$take_err" ] || rm -f "$take_err"
+[ -z "$tdir" ] || rm -rf "$tdir"
 
 [ -z "$caught" ] || exit "$caught"
 if [ "$suite_rc" -eq 75 ]; then

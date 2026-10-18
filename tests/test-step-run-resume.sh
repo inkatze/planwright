@@ -44,7 +44,7 @@ srun resume --run "$r2" --from "$r1:post-pr" >"$tmp/skips"
 [ "$(cut -f 2 "$tmp/skips" | tr '\n' ' ')" = "one two " ] \
   && [ "$(recs "$r2" post-pr | grep -c "^skip-code${TAB}resume$")" -eq 2 ] \
   && [ -z "$(recs "$r2" pre-pr)" ]
-verdict "a resume skips the interrupted run's passing prefix, no earlier point firing" "skips: $(cat "$tmp/skips")"
+verdict "a resume skips the interrupted run's passing prefix and records nothing at other points" "skips: $(cat "$tmp/skips")"
 r3=$(sr new-run)
 srun resume --run "$r3" --from "$r2:post-pr" >"$tmp/skips3"
 [ "$(cut -f 2 "$tmp/skips3" | tr '\n' ' ')" = "one two " ] \
@@ -141,6 +141,77 @@ verdict "begin takes the slot for the session's process and renders its hold mar
 srun end --run "$r" --point pre-pr --step sp1 --exit 0 >/dev/null
 [ -z "$(sp report gate)" ] && recs "$r" pre-pr | grep -qx "pool${TAB}gate"
 verdict "end releases the session's slot and records the pool" "still held"
+
+# --- a re-fire after a resume begun before pre-pr reads the resumed run's rows -------------
+fresh
+catalog "$GATE" "pushfix|kind: command|target: $bin/edit.sh|args: src push"
+config 'steps_pre_pr: [gate]' 'steps_post_pr: [pushfix]'
+r1=$(sr new-run)
+srun resolve --run "$r1" pre-ci --unattended >/dev/null 2>&1
+r2=$(sr new-run)
+srun resume --run "$r2" --from "$r1:pre-ci" >/dev/null
+point_run "$r2" pre-pr
+point_done "$r2" pre-pr
+point_run "$r2" post-pr
+srun refire --run "$r2" >"$tmp/plan" 2>/dev/null
+grep -q "^refire${TAB}gate${TAB}pre-pr${TAB}" "$tmp/plan"
+verdict "a chain whose first run never resolved pre-pr re-fires from the run that did" "plan: $(cat "$tmp/plan")"
+
+# --- refusals: nothing recorded, nothing taken ----------------------------------------------
+fresh
+catalog "iso|kind: command|target: $bin/check.sh|pool: gate" \
+  "ses|kind: command|target: $bin/check.sh|pool: gate|hosting: in-session" \
+  "skl|kind: skill|target: polish" \
+  "plain|kind: command|target: $bin/check.sh|paths: src"
+config 'steps_pre_pr: [iso, ses, plain]'
+me=$(owner)
+r=$(sr new-run)
+srun resolve --run "$r" pre-pr --unattended >/dev/null 2>&1
+refuse() {
+  # refuse <label> <args...>: exit 2, no record, no slot.
+  _l=$1
+  shift
+  srun "$@" >/dev/null 2>&1
+  _rc=$?
+  [ "$_rc" -eq 2 ] && [ -z "$(recs "$r")" ] && [ -z "$(sp report gate)" ] || fail "$_l (rc=$_rc)"
+}
+refuse "begin on an isolated step" begin --run "$r" --point pre-pr --step iso --owner "$me"
+refuse "command on a session-hosted step" command --run "$r" --point pre-pr --step ses
+refuse "a step outside the resolved list" command --run "$r" --point pre-pr --step skl
+refuse "a step with no resolved rows" command --run "$r" --point pre-ci --step iso
+refuse "--owner on command" command --run "$r" --point pre-pr --step iso --owner "$me"
+refuse "a re-fire at another point" command --run "$r" --point pre-pr --step plain --refire-of pre-pr
+refuse "a re-fire of a step declaring none" command --run "$r" --point post-pr --step plain --refire-of pre-pr
+refuse "a malformed backend" command --run "$r" --point pre-pr --step iso --backend Bad_Name
+refuse "end with no begin" end --run "$r" --point pre-pr --step ses --exit 0
+ln -s "$tmp/elsewhere" "$wt/.claude/steps/$r/runner-pending-pre-pr-ses"
+refuse "a symlinked pending state" end --run "$r" --point pre-pr --step ses --exit 0
+rm -f "$wt/.claude/steps/$r/runner-pending-pre-pr-ses"
+ok "misrouted, undeclared, malformed, and stateless calls are refused with nothing recorded or taken"
+
+# --- a refused context value fails the step without running it (REQ-A1.6) ------------------
+PR=abc srun command --run "$r" --point pre-pr --step iso >"$tmp/out" 2>/dev/null
+rc=$?
+[ "$rc" -eq 1 ] && [ ! -e "$tmp/check.log" ] && [ -z "$(sp report gate)" ] \
+  && recs "$r" pre-pr | grep -q "^excerpt${TAB}.*PLANWRIGHT_STEP_PR_NUMBER"
+verdict "a refused context value fails the step, names the field, runs nothing, and frees the slot" \
+  "rc=$rc: $(recs "$r" pre-pr)"
+
+# --- begin and end: a second begin, a timeout, an output file, a failing exit --------------
+srun begin --run "$r" --point pre-pr --step ses --owner "$me" >"$tmp/begin"
+srun begin --run "$r" --point pre-pr --step ses --owner "$me" >/dev/null 2>&1
+rc=$?
+held=$(sp report gate | wc -l | tr -d ' ')
+[ "$rc" -eq 2 ] && [ "$held" -eq 1 ]
+verdict "a second begin before end is refused and takes no second slot" "rc=$rc held=$held"
+printf 'line output\n' >"$tmp/line.out"
+srun end --run "$r" --point pre-pr --step ses --exit 124 --timed-out 30 --output "$tmp/line.out" >"$tmp/end"
+rc=$?
+recs "$r" pre-pr >"$tmp/l"
+[ "$rc" -eq 1 ] && grep -q "^failed${TAB}" "$tmp/end" && grep -qx "excerpt${TAB}line output" "$tmp/l" \
+  && grep -q "^excerpt${TAB}step-run: timed out after 30s; ended by the session" "$tmp/l" \
+  && [ -z "$(sp report gate)" ] && [ ! -e "$wt/.claude/steps/$r/runner-pending-pre-pr-ses" ]
+verdict "end records a shell-tool timeout with the line's output and frees the session's slot" "rc=$rc: $(cat "$tmp/l")"
 
 # --- /execute-task wires the runner's calls ------------------------------------------------
 skill=$(tr '\n' ' ' <"$repo_root/skills/execute-task/SKILL.md")

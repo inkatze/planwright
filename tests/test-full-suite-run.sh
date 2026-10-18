@@ -364,6 +364,17 @@ srr list --run "$run" >"$tmp/recs"
 verdict "an expired wait under --run records the expiry and its holders" "expired record: rc=$rc" "$tmp/recs"
 sp release gate "$h" >/dev/null
 reset
+printf 'full_suite_pool: gate\n' >"$tracked"
+h=$(owner)
+sp take gate "$h" >/dev/null
+run=$(srr new-run)
+fsr "PLANWRIGHT_STEP_POOL_HOLD=gate:$h" -- --run "$run" -- "$suite" "$tmp/log" 0 0 >/dev/null 2>"$tmp/err"
+rc=$?
+srr list --run "$run" >"$tmp/recs"
+[ "$rc" -eq 0 ] && grep -qx "wait-outcome${TAB}nested" "$tmp/recs" && ! grep -q "^holder${TAB}" "$tmp/recs"
+verdict "a nested attempt under --run records its nested wait with no holder" "nested record: rc=$rc" "$tmp/recs"
+sp release gate "$h" >/dev/null
+reset
 run=$(srr new-run)
 fsr -- --run "$run" -- "$suite" "$tmp/log" 0 0 >/dev/null 2>"$tmp/err"
 rc=$?
