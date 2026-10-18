@@ -330,6 +330,7 @@ for f in $shipped; do
   assert_eq "shipped card ${f##*/}: lints clean" "0" "$rc"
   [ "$rc" -eq 0 ] || printf '%s\n' "$out" >&2
 done
+
 # The seven researched core cards ship (inception REQ-P1.10, D-17), with the
 # default tiers inception D-4 places and fast rot on the two cards the task
 # flags high-rot. A card D-4 leaves unplaced is checked for presence only.
