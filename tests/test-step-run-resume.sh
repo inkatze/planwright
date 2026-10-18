@@ -142,7 +142,7 @@ srun end --run "$r" --point pre-pr --step sp1 --exit 0 >/dev/null
 [ -z "$(sp report gate)" ] && recs "$r" pre-pr | grep -qx "pool${TAB}gate"
 verdict "end releases the session's slot and records the pool" "still held"
 
-# --- a re-fire after a resume begun before pre-pr reads the resumed run's rows -------------
+# --- a re-fire reads only the chain's first run's lists (REQ-I1.9) ------------------------
 fresh
 catalog "$GATE" "pushfix|kind: command|target: $bin/edit.sh|args: src push"
 config 'steps_pre_pr: [gate]' 'steps_post_pr: [pushfix]'
@@ -153,9 +153,36 @@ srun resume --run "$r2" --from "$r1:pre-ci" >/dev/null
 point_run "$r2" pre-pr
 point_done "$r2" pre-pr
 point_run "$r2" post-pr
-srun refire --run "$r2" >"$tmp/plan" 2>/dev/null
-grep -q "^refire${TAB}gate${TAB}pre-pr${TAB}" "$tmp/plan"
-verdict "a chain whose first run never resolved pre-pr re-fires from the run that did" "plan: $(cat "$tmp/plan")"
+srun refire --run "$r2" >"$tmp/plan" 2>"$tmp/e"
+[ ! -s "$tmp/plan" ] && grep -q "run $r1 resolved no pre-pr list" "$tmp/e"
+verdict "a chain whose first run never resolved pre-pr plans nothing for it, and warns" \
+  "plan: $(cat "$tmp/plan"); err: $(cat "$tmp/e")"
+
+# --- a session-hosted re-fire runs through begin and end, once -------------------------------
+fresh
+catalog "sgate|kind: command|target: $bin/check.sh|pool: gate|paths: src|refire: post-pr|hosting: in-session" \
+  "pushfix|kind: command|target: $bin/edit.sh|args: src push"
+config 'steps_pre_pr: [sgate]' 'steps_post_pr: [pushfix]'
+me=$(owner)
+r=$(sr new-run)
+srun resolve --run "$r" pre-pr --unattended >/dev/null 2>&1
+srun begin --run "$r" --point pre-pr --step sgate --owner "$me" >/dev/null
+srun end --run "$r" --point pre-pr --step sgate --exit 0 >/dev/null
+point_done "$r" pre-pr
+point_run "$r" post-pr
+srun refire --run "$r" >"$tmp/plan"
+srun begin --run "$r" --point post-pr --step sgate --owner "$me" --refire-of pre-pr >"$tmp/begin"
+srun end --run "$r" --point post-pr --step sgate --exit 0 >"$tmp/end"
+recs "$r" post-pr >"$tmp/l"
+grep -q "^refire${TAB}sgate${TAB}pre-pr${TAB}in-session$" "$tmp/plan" && grep -q "^passed${TAB}" "$tmp/end" \
+  && grep -qx "refire-of${TAB}pre-pr" "$tmp/l" && [ -z "$(sp report gate)" ]
+verdict "a session-hosted re-fire runs through begin and end and records its refire-of" "$(cat "$tmp/plan" "$tmp/end")"
+srun begin --run "$r" --point post-pr --step sgate --owner "$me" --refire-of pre-pr >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "a second re-fire of the same step in the run is refused" "not refused"
+srun end --run "$r" --point post-pr --step sgate --exit 0 --refire-of pre-pr >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "end refuses a re-fire flag of its own" "end accepted --refire-of"
 
 # --- refusals: nothing recorded, nothing taken ----------------------------------------------
 fresh
@@ -175,6 +202,7 @@ refuse() {
   _rc=$?
   [ "$_rc" -eq 2 ] && [ -z "$(recs "$r")" ] && [ -z "$(sp report gate)" ] || fail "$_l (rc=$_rc)"
 }
+before_refusals=$failures
 refuse "begin on an isolated step" begin --run "$r" --point pre-pr --step iso --owner "$me"
 refuse "command on a session-hosted step" command --run "$r" --point pre-pr --step ses
 refuse "a step outside the resolved list" command --run "$r" --point pre-pr --step skl
@@ -187,7 +215,17 @@ refuse "end with no begin" end --run "$r" --point pre-pr --step ses --exit 0
 ln -s "$tmp/elsewhere" "$wt/.claude/steps/$r/runner-pending-pre-pr-ses"
 refuse "a symlinked pending state" end --run "$r" --point pre-pr --step ses --exit 0
 rm -f "$wt/.claude/steps/$r/runner-pending-pre-pr-ses"
-ok "misrouted, undeclared, malformed, and stateless calls are refused with nothing recorded or taken"
+[ "$failures" -eq "$before_refusals" ]
+verdict "misrouted, undeclared, malformed, and stateless calls are refused with nothing recorded or taken" \
+  "a refusal case failed (above)"
+
+# --- a failure after the take still releases the session's slot -----------------------------
+chmod 500 "$wt/.claude/steps/$r"
+srun begin --run "$r" --point pre-pr --step ses --owner "$me" >/dev/null 2>&1
+rc=$?
+chmod 700 "$wt/.claude/steps/$r"
+[ "$rc" -eq 4 ] && [ -z "$(sp report gate)" ]
+verdict "a begin failing after its take releases the slot" "rc=$rc held=$(sp report gate)"
 
 # --- a refused context value fails the step without running it (REQ-A1.6) ------------------
 PR=abc srun command --run "$r" --point pre-pr --step iso >"$tmp/out" 2>/dev/null

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Tests for scripts/step-run.sh — /execute-task's command-step runner: pools,
-# reuse, re-fire, timeout, and the head-move context (custom-steps Task 14;
+# reuse, re-fire, and the head-move context (custom-steps Task 14;
 # REQ-A1.6, REQ-D1.11, REQ-D1.12, REQ-I1.1, REQ-I1.2, REQ-I1.4, REQ-I1.8,
 # REQ-I1.9, REQ-J1.1; D-22, D-27, D-28, D-29, D-30).
 #
@@ -246,43 +246,6 @@ e1=$(sed -n 1p "$tmp/iv" | cut -d' ' -f2)
 [ "$(wc -l <"$tmp/iv" | tr -d ' ')" -eq 2 ] && [ "$s2" -ge "$e1" ]
 verdict "two units' pooled steps on a one-slot pool run disjoint" "intervals: $(cat "$tmp/iv")"
 rm -f "$tmp/slow"
-
-# --- a runner-owned step past its timeout is ended and fails naming it (REQ-D1.7) ---------
-fresh
-catalog "slow|kind: command|target: $bin/grand.sh|pool: gate|timeout: 1"
-config 'steps_pre_pr: [slow]'
-r=$(sr new-run)
-srun resolve --run "$r" pre-pr --unattended >/dev/null 2>&1
-t0=$(date +%s)
-srun command --run "$r" --point pre-pr --step slow >"$tmp/out" 2>/dev/null
-rc=$?
-t1=$(date +%s)
-[ "$rc" -eq 1 ] && [ $((t1 - t0)) -lt 20 ] && recs "$r" pre-pr | grep -q "^excerpt${TAB}step-run: timed out after 1s" \
-  && [ -z "$(sp report gate)" ] && ! kill -0 "$(cat "$tmp/grand.pid")" 2>/dev/null
-verdict "a step past its timeout is ended with everything it started, records failed, and frees its slot" \
-  "rc=$rc took $((t1 - t0))s: $(recs "$r" pre-pr)"
-
-# --- a signal to the runner ends the check's group before the slot goes -------------------
-rm -f "$tmp/grand.pid"
-catalog "sig|kind: command|target: $bin/grand.sh|pool: gate"
-config 'steps_pre_pr: [sig]'
-r=$(sr new-run)
-srun resolve --run "$r" pre-pr --unattended >/dev/null 2>&1
-srun command --run "$r" --point pre-pr --step sig >"$tmp/out" 2>/dev/null &
-bg=$!
-i=0
-while [ ! -s "$tmp/grand.pid" ] && [ "$i" -lt 100 ]; do
-  sleep 0.1
-  i=$((i + 1))
-done
-runner=$(pgrep -f "step-run.sh --worktree $wt command" | head -n 1)
-kill -TERM "$runner"
-wait "$bg"
-rc=$?
-[ "$rc" -eq 143 ] && ! kill -0 "$(cat "$tmp/grand.pid")" 2>/dev/null && [ -z "$(sp report gate)" ] \
-  && recs "$r" pre-pr | grep -q "^excerpt${TAB}step-run: stopped by signal 15"
-verdict "a TERM to the runner ends the check's group, records failed, frees the slot, and exits 143" \
-  "rc=$rc: $(recs "$r" pre-pr)"
 
 # --- a post-pr commit without a push moves the head for the next step (REQ-D1.12) ---------
 fresh

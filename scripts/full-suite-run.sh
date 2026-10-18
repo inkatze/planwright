@@ -191,11 +191,6 @@ if [ -n "$pool" ]; then
     tdir=$(mktemp -d "${TMPDIR:-/tmp}/full-suite-run.XXXXXX") || tdir=''
   fi
   if [ -n "$tdir" ] && mkfifo "$tdir/fifo"; then
-    # A signal during the take still ends this script at once, the scratch
-    # directory removed.
-    trap 'rm -rf "$tdir"; exit 129' HUP
-    trap 'rm -rf "$tdir"; exit 130' INT
-    trap 'rm -rf "$tdir"; exit 143' TERM
     # The wait report reaches stderr as it is made, not after the wait.
     tee "$tdir/err" <"$tdir/fifo" >&2 &
     teep=$!

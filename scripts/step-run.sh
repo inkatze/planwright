@@ -37,7 +37,7 @@
 #           resolution of the same point in the run replaces them, and one
 #           that fails with no rows removes them). The command, begin, end,
 #           and refire verbs read a step's row from there; a re-fire's from
-#           the earliest run of the resume chain that resolved its point.
+#           the first run of the resume chain.
 #           Its own refusals exit 2, a state write that fails 4.
 # resume    a resume of the run interrupted at <point>: <run> six digits and
 #           <point> an in-run point, both checked before any record is read
@@ -51,8 +51,8 @@
 #           prefix of the point's list, then of its re-fire pass.
 # refire    the re-fire plan: nothing when no post-pr step record of the run
 #           moved the head (step-record.sh heads); otherwise, from the
-#           pre-ci then pre-pr rows of the earliest chain run resolving each
-#           (a point no run resolved warns and plans nothing), each
+#           pre-ci then pre-pr rows of the run's chain's first run (a list
+#           that run never resolved warns and plans nothing), each
 #           distinct step id whose first declaring row reads `run` with
 #           refire `post-pr` and that no post-pr record of this run already
 #           re-fires, as `refire<TAB><step><TAB><declaring point><TAB>
@@ -71,7 +71,9 @@
 #           128+n after the record. A refused context value, location, or
 #           args word (resolve-steps.sh --line's checks) fails the step
 #           without running it. A re-fire must name a step whose row
-#           declares refire post-pr that this run has not re-fired.
+#           declares refire post-pr that this run has not re-fired. In its
+#           own group the check has no terminal: one that reads /dev/tty
+#           under a controlling terminal stops, as any background job does.
 # begin     the same up to the run, for a session-hosted (in-session or
 #           continue) command step whose slot the unit session's process
 #           --owner holds: prints `run<TAB><line>`, the line
@@ -84,7 +86,9 @@
 #           record from the session's exit code (--timed-out names a timeout
 #           the shell tool enforced; --output a file of the line's output,
 #           appended to the cache copy); the pending state goes only once
-#           the record is written.
+#           the record is written, and a retry after a failed write releases
+#           nothing again. The re-fire, backend, owner, and pool come from
+#           begin; end refuses the flags.
 #
 # The context: SPEC, TASK_IDS, UNIT_KIND, BRANCH, BASE_BRANCH, WORKTREE, and
 # PR_NUMBER of the PLANWRIGHT_STEP_* fields come from the caller's
@@ -209,17 +213,14 @@ chain_runs() {
   done
 }
 
-# rows_run <run> <point>: the earliest run of the chain, the run itself last,
-# that resolved the point.
+# rows_run <run>: the run whose resolved lists a re-fire reads, the first run
+# of the run's resume chain (the run itself when it resumes nothing).
 rows_run() {
   local r
   for r in $(chain_runs "$1") "$1"; do
-    if [ -f "$cache/$r/runner-rows-$2" ] && [ ! -L "$cache/$r/runner-rows-$2" ]; then
-      printf '%s' "$r"
-      return
-    fi
+    printf '%s' "$r"
+    return
   done
-  printf '%s' "$1"
 }
 
 # --- resolve ----------------------------------------------------------------
@@ -285,7 +286,8 @@ cmd_resume() {
   chain=$(chain_runs "$frun" | tr '\n' ' ')
   chain="$chain$frun"
   first=${chain%% *}
-  printf '%s\t%s\t%s\n' "$first" "$fpoint" "$chain" | put_state "$dir/runner-resume"
+  printf '%s\t%s\t%s\n' "$first" "$fpoint" "$chain" >"$work/resume" || die 4 "cannot write runner state"
+  put_state "$dir/runner-resume" <"$work/resume"
   head=$(git rev-parse --verify -q 'HEAD^{commit}') || die 4 "cannot read the worktree's HEAD"
   sr lookup resume --run "$frun" --point "$fpoint" --head "$head" >"$work/prefix"
   case $? in
@@ -353,11 +355,11 @@ cmd_refire() {
   refired "$run" >"$work/done"
   : >"$work/declared"
   for p in pre-ci pre-pr; do
-    r=$(rows_run "$run" "$p")
+    r=$(rows_run "$run")
     if [ -f "$cache/$r/runner-rows-$p" ]; then
       cat "$cache/$r/runner-rows-$p" >>"$work/declared"
     else
-      printf 'step-run: warning: no run of the chain resolved %s; its steps are not re-fired\n' "$p" >&2
+      printf 'step-run: warning: run %s resolved no %s list; its steps are not re-fired\n' "$r" "$p" >&2
     fi
   done
   awk -F '\t' -v TAB="$TAB" -v DONE="$work/done" '
@@ -423,7 +425,7 @@ parse_step_args() {
     case $REFIRE_OF in pre-ci | pre-pr) ;; *) die 2 "--refire-of: not pre-ci or pre-pr" ;; esac
     [ "$POINT" = post-pr ] || die 2 "--refire-of: a re-fire runs at post-pr"
     ROW_POINT=$REFIRE_OF
-    ROW_RUN=$(rows_run "$RUN" "$REFIRE_OF")
+    ROW_RUN=$(rows_run "$RUN")
   fi
   PENDING="$DIR/runner-pending-$CTX_POINT-$STEP"
 }
@@ -440,7 +442,8 @@ load_row() {
   esac
   if [ -n "$REFIRE_OF" ]; then
     [ "$ROW_REFIRE" = post-pr ] || die 2 "step $STEP declares no refire: post-pr"
-    ! refired "$RUN" | grep -Fxq -- "$STEP" || die 2 "step $STEP was already re-fired in run $RUN"
+    refired "$RUN" >"$work/refired"
+    ! grep -Fxq -- "$STEP" "$work/refired" || die 2 "step $STEP was already re-fired in run $RUN"
   fi
 }
 
@@ -555,8 +558,12 @@ prepare() {
 # finish <outcome> <output-file> [<exit>]: release a taken slot, then write
 # the record and print the result line; exit 1 unless passed (or <exit>).
 finish() {
-  local outcome=$1 output=$2 end_head out session_args=() released=0
+  local outcome=$1 output=$2 end_head out session_args=() released=0 was_held=$SLOT_HELD
   release_slot || released=1
+  if [ -n "$was_held" ] && [ "$released" -eq 0 ] && [ -f "$PENDING" ] && [ ! -L "$PENDING" ]; then
+    sed 's/^state\ttaken$/state\treleased/' "$PENDING" >"$work/pending-released" \
+      && put_state "$PENDING" <"$work/pending-released"
+  fi
   end_head=$(git rev-parse --verify -q 'HEAD^{commit}') || die 4 "cannot read the worktree's HEAD"
   [ -z "$SESSION" ] || session_args=(--session "$SESSION")
   out=$(sr write --run "$RUN" --point "$CTX_POINT" --step "$STEP" --kind command \
@@ -628,10 +635,23 @@ end_group() {
   while ! group_gone "$1"; do sleep 1; done
 }
 
-caught='' child=''
+caught='' child='' escalator=''
+# on_signal <128+n>: forward TERM to the check's group and KILL it ten
+# seconds later if it is still there.
 on_signal() {
   caught=$1
-  [ -z "$child" ] || kill -TERM -- "-$child" 2>/dev/null
+  stop_group
+}
+stop_group() {
+  [ -n "$child" ] && [ -z "$escalator" ] || return 0
+  kill -TERM -- "-$child" 2>/dev/null
+  set -m
+  (
+    sleep 10
+    kill -KILL -- "-$child" 2>/dev/null
+  ) &
+  escalator=$!
+  set +m
 }
 
 cmd_command() {
@@ -668,16 +688,20 @@ cmd_command() {
       sleep "$ROW_TIMEOUT"
       : >"$work/timed-out"
       kill -TERM -- "-$child" 2>/dev/null
+      sleep 10
+      kill -KILL -- "-$child" 2>/dev/null
     ) &
     killer=$!
   fi
   set +m
+  [ -z "$caught" ] || stop_group
   while :; do
     wait "$child"
     rc=$?
     kill -0 "$child" 2>/dev/null || break
   done
   [ -z "$killer" ] || kill -TERM -- "-$killer" 2>/dev/null
+  [ -z "$escalator" ] || kill -TERM -- "-$escalator" 2>/dev/null
   if [ -n "$caught" ] || [ -e "$work/timed-out" ]; then
     end_group "$child"
   fi
@@ -711,12 +735,13 @@ cmd_begin() {
   o=$(new_output) || exit $?
   render_line "$o"
   {
-    printf 'state\t%s\nowner\t%s\nslot\t%s\nstart\t%s\nhead\t%s\nwaited\t%s\nbackend\t%s\nsession\t%s\nrefire-of\t%s\noutput\t%s\n' \
-      "$STATE" "$OWNER" "$SLOT" "$START" "$HEAD0" "$WAITED" "$BACKEND" "$SESSION" "$REFIRE_OF" "$o"
+    printf 'state\t%s\nowner\t%s\nslot\t%s\nstart\t%s\nhead\t%s\nwaited\t%s\nbackend\t%s\nsession\t%s\nrefire-of\t%s\noutput\t%s\npool\t%s\n' \
+      "$STATE" "$OWNER" "$SLOT" "$START" "$HEAD0" "$WAITED" "$BACKEND" "$SESSION" "$REFIRE_OF" "$o" "$ROW_POOL"
     [ ${#FP_ARGS[@]} -eq 0 ] || printf 'fingerprint\t%s\ndigest\t%s\n' "${FP_ARGS[1]}" "${FP_ARGS[3]}"
     local i
     for ((i = 1; i < ${#HOLDER_ARGS[@]}; i += 2)); do printf 'holder\t%s\n' "${HOLDER_ARGS[$i]}"; done
-  } | put_state "$PENDING"
+  } >"$work/pending" || die 4 "cannot write runner state"
+  put_state "$PENDING" <"$work/pending"
   # The pending state now carries the slot to end.
   SLOT_HELD=''
   printf 'run\t%s\n' "$LINE"
@@ -726,8 +751,9 @@ cmd_end() {
   parse_step_args "$@"
   [[ $EXIT_CODE =~ ^[0-9]{1,3}$ ]] || die 2 "--exit: not an exit code"
   [ -z "$TIMED_OUT" ] || [[ $TIMED_OUT =~ ^[1-9][0-9]{0,8}$ ]] || die 2 "--timed-out: not whole seconds"
+  [ -z "$REFIRE_OF$BACKEND$OWNER" ] || die 2 "end takes the re-fire, backend, and owner from begin"
   [ -f "$PENDING" ] && [ ! -L "$PENDING" ] || die 2 "no pending begin for $STEP at $CTX_POINT in run $RUN"
-  local k v fp='' digest='' o=''
+  local k v fp='' digest='' o='' pool=''
   HOLDER_ARGS=()
   while IFS=$TAB read -r k v; do
     case $k in
@@ -739,8 +765,9 @@ cmd_end() {
       waited) WAITED=$v ;;
       backend) BACKEND=$v ;;
       session) [ -n "$SESSION" ] || SESSION=$v ;;
-      refire-of) [ -n "$REFIRE_OF" ] || REFIRE_OF=$v ;;
+      refire-of) REFIRE_OF=$v ;;
       output) o=$v ;;
+      pool) pool=$v ;;
       holder) HOLDER_ARGS+=(--holder "$v") ;;
       fingerprint) fp=$v ;;
       digest) digest=$v ;;
@@ -748,10 +775,16 @@ cmd_end() {
   done <"$PENDING"
   if [ -n "$REFIRE_OF" ]; then
     ROW_POINT=$REFIRE_OF
-    ROW_RUN=$(rows_run "$RUN" "$REFIRE_OF")
+    ROW_RUN=$(rows_run "$RUN")
   fi
   row_of "$ROW_RUN" "$ROW_POINT" "$STEP"
-  [ "$STATE" != taken ] || SLOT_HELD=yes
+  # The slot is released from the pool begin took, whatever the row says now;
+  # `released` is a retry after an earlier end freed it.
+  ROW_POOL=$pool
+  case $STATE in
+    taken) SLOT_HELD=yes ;;
+    released) STATE=taken ;;
+  esac
   FP_ARGS=() POOL_ARGS=() REFIRE_ARGS=()
   [ -z "$REFIRE_OF" ] || REFIRE_ARGS=(--refire-of "$REFIRE_OF")
   # The fingerprint the step ran over, as begin took it.

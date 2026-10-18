@@ -75,7 +75,15 @@ printf '%s\n' "$!" >"$t/grand.pid"
 printf '%s\n' "$$" >"$t/parent.pid"
 sleep 60
 EOF
-chmod +x "$bin/check.sh" "$bin/edit.sh" "$bin/show.sh" "$bin/grand.sh"
+# stubborn.sh ignores TERM, so only a KILL ends it.
+cat >"$bin/stubborn.sh" <<'EOF'
+#!/bin/sh
+t=$(dirname "$0")/..
+trap '' TERM
+printf '%s\n' "$$" >"$t/parent.pid"
+sleep 60
+EOF
+chmod +x "$bin/check.sh" "$bin/edit.sh" "$bin/show.sh" "$bin/grand.sh" "$bin/stubborn.sh"
 
 n=0
 # fresh: a new fixture worktree ($wt) with a bare origin and one commit.
