@@ -247,6 +247,8 @@ flight's branch is prior art for Tasks 3 and 4 (D-12).
 
 ## Awaiting input
 
+- **Task 3** — convergence step polish halted at the zone screen: four confirmed guard findings in the permission-boundary zone await direction (a force-moved branch evading the floor through an option value, a crash in a marked session passing the call, an unbounded test pause point, a long /tower prompt left unmarked); recommended fixes in `.claude/polish-audit.md`, record `.claude/steps/000001/`.
+
 ## Deferred
 
 - **Shell-feed and wrapper spellings at both guard tiers.** Commands fed
