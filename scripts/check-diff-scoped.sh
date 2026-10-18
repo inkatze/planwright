@@ -29,8 +29,10 @@
 #   check-diff-scoped.sh [--list] [--tests <pathspec>] [--runner <command>]
 #       (--base <rev> | <path>...)
 #
-# Exit codes: 0 every selected check passed (or nothing was selected); 1 a
-#   test or linter failed; 2 usage or a refused path.
+# Exit codes: 0 no selected check failed (or nothing was selected); a
+#   skipped linter is reported on its own line and does not fail the
+#   check, so a consumer reads the `skipped` lines; 1 a test or linter failed;
+#   2 usage or a refused path.
 set -eu
 LC_ALL=C
 export LC_ALL

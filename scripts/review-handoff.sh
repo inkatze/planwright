@@ -37,7 +37,7 @@
 # directory there is replaced only when it is a bundle (its MANIFEST says so).
 # The bundle is staged beside it and swapped in whole. A changed path that git
 # quotes, is absolute, or holds a `..` component is not written and is noted
-# in caller-search.txt.
+# in caller-search.txt; so is one starting with `-`.
 #
 # Untrusted input: the diff and file contents are branch-controlled. They are
 # copied and searched as data; a symbol reaches git grep only through -F -e
@@ -52,7 +52,9 @@
 #       [--max-callers <n>]
 #
 #   --delta        the previous pass's head; must be an ancestor of HEAD
-#   --out          default .claude/review-handoff, relative to the repo root
+#   --out          a directory inside .claude/, default .claude/review-handoff;
+#                  a relative value resolves against the repo root, unlike the
+#                  other path flags, which resolve against the caller's directory
 #   --max-callers  references listed per symbol, default 200; the rest are
 #                  counted in caller-search.txt
 #
@@ -397,7 +399,7 @@ rm -f "$symbols" "$defs" "$stage/.truncated"
 cat >"$stage/caller-search.txt" <<EOF
 caller search: a whole-word git grep -F over the tracked tree at $head, a heuristic
 symbols: each function enclosing a changed line (both sides of the diff), and each changed path
-paths: a changed path's repo path, plus its basename for a script; a longer name ending in that basename after a non-word character also matches
+paths: a changed path's repo path, plus its basename for a script; a longer name holding it between non-word characters (x-name.sh, name.sh.bak) also matches
 shell: name() and function name definitions; a function ends at a column-0 }
 python: def and class at any indent; a definition runs to the next definition or column-0 statement
 javascript/typescript: function, class, and const/let/var name = function or arrow; methods are not definitions
