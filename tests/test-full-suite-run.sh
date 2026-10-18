@@ -339,6 +339,41 @@ rc=$?
 verdict "a config read failure warns once and the suite runs unpooled" "config: rc=$rc" "$tmp/err"
 
 # --- usage ---------------------------------------------------------------------------
+# --- --run writes each pooled attempt's full-suite record (REQ-I1.5, D-25) -------------
+SR="$repo_root/scripts/step-record.sh"
+srr() { PLANWRIGHT_SECRET_SCREEN_TOOL=none "$SR" --worktree "$repo" "$@"; }
+reset
+printf 'full_suite_pool: gate\n' >"$tracked"
+run=$(srr new-run)
+fsr -- --run "$run" -- "$suite" "$tmp/log" 0 0 >/dev/null 2>"$tmp/err"
+rc=$?
+srr list --run "$run" >"$tmp/recs"
+[ "$rc" -eq 0 ] && grep -qx "type${TAB}full-suite" "$tmp/recs" && grep -qx "pool${TAB}gate" "$tmp/recs" \
+  && grep -qx "wait-outcome${TAB}taken" "$tmp/recs"
+verdict "a pooled attempt under --run writes its full-suite record" "record: rc=$rc" "$tmp/recs"
+reset
+printf 'full_suite_pool: gate\nstep_pool_wait: 1s\n' >"$tracked"
+h=$(owner)
+sp take gate "$h" --step other-unit --worktree "$tmp/elsewhere" >/dev/null
+run=$(srr new-run)
+fsr -- --run "$run" -- "$suite" "$tmp/log" 0 0 >"$tmp/out" 2>"$tmp/err"
+rc=$?
+srr list --run "$run" >"$tmp/recs"
+[ "$rc" -eq 75 ] && [ ! -e "$tmp/log.pid" ] && grep -qx "wait-outcome${TAB}expired" "$tmp/recs" \
+  && grep -q "^holder${TAB}pid $h (step other-unit" "$tmp/recs"
+verdict "an expired wait under --run records the expiry and its holders" "expired record: rc=$rc" "$tmp/recs"
+sp release gate "$h" >/dev/null
+reset
+run=$(srr new-run)
+fsr -- --run "$run" -- "$suite" "$tmp/log" 0 0 >/dev/null 2>"$tmp/err"
+rc=$?
+[ "$rc" -eq 0 ] && [ -z "$(srr list --run "$run")" ]
+verdict "an unpooled attempt under --run writes no record" "unpooled record: rc=$rc"
+fsr -- --run 12 -- touch "$tmp/ran" >/dev/null 2>&1
+rc=$?
+[ "$rc" -eq 2 ] && [ ! -e "$tmp/ran" ]
+verdict "a malformed --run is a usage error that runs nothing" "bad run: rc=$rc"
+
 reset
 fsr -- >/dev/null 2>&1
 rc1=$?

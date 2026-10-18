@@ -2609,6 +2609,59 @@ err=$(PATH="$tmp/datestub:$PATH" "$SR" --worktree "$wx" write --run "$rx" --poin
 [ $? -eq 1 ] && printf '%s' "$err" | grep -Fq "the clock printed no UTC stamp"
 verdict "a clock that prints no stamp exits 1" "err=$err"
 
+# --- lookup limited: the unretired limited records on a head (REQ-J1.2) ---------------
+# The status verb's scan, with no post: scripts/ready-flip.sh reads it.
+lim_wt
+u=$(srl new-run)
+lrec "$u" post-pr review limited "$HX_A"
+out=$(srl lookup limited --head "$HX_A")
+[ $? -eq 0 ] && printf '%s\n' "$out" | grep -q "${TAB}review$"
+verdict "lookup limited prints an unretired limited record ending on the head" "out=$out"
+srl lookup limited --head "$HX_B" >/dev/null
+[ $? -eq 3 ]
+verdict "lookup limited exits 3 for a head no limited record ends on" "not exit 3"
+v=$(srl new-run)
+lrec "$v" pre-pr review passed "$HX_A"
+srl lookup limited --head "$HX_A" >/dev/null
+[ $? -eq 3 ]
+verdict "a later run's pass of the step on the head retires it for lookup limited" "not exit 3"
+srl lookup limited --head nothex >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "lookup limited refuses a malformed head" "not exit 2"
+
+# --- heads: the latest head move at a point of a run (REQ-A1.6, REQ-D1.12) -------------
+lim_wt
+h=$(srl new-run)
+srl heads --run "$h" --point post-pr >/dev/null
+[ $? -eq 3 ]
+verdict "heads exits 3 when no step at the point moved the head" "not exit 3"
+lrec "$h" post-pr a passed "$HX_A"
+srl write --run "$h" --point post-pr --step push --kind command --target t --hosting isolated \
+  --backend runner --head "$HX_A" --end-head "$HX_B" --start 2026-10-06T14:00:00Z \
+  --end 2026-10-06T14:00:01Z --outcome passed >/dev/null
+lrec "$h" post-pr c passed "$HX_B"
+lrec "$h" pre-pr d passed "$HX_A"
+out=$(srl heads --run "$h" --point post-pr)
+[ "$out" = "$HX_A$TAB$HX_B" ]
+verdict "heads prints the start and end head of the point's latest move" "out=$out"
+srl heads --run "$h" --point pre-pr >/dev/null
+[ $? -eq 3 ]
+verdict "heads reads only the named point" "not exit 3"
+h2=$(srl new-run)
+srl write --run "$h2" --point post-pr --step push --kind command --target t --hosting isolated \
+  --backend runner --head "$HX_A" --end-head "$HX_B" --start 2026-10-06T14:00:00Z \
+  --end 2026-10-06T14:00:01Z --outcome skipped --skip-code resume --stands-on "$h:post-pr:002" >/dev/null
+out=$(srl heads --run "$h2" --point post-pr)
+[ "$out" = "$HX_A$TAB$HX_B" ]
+verdict "a resume skip's copied heads count as its move" "out=$out"
+srl heads --run 12 --point post-pr >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "heads refuses a malformed run id" "not exit 2"
+srl heads --run "$h" --point pre-spec-ready-flip >/dev/null 2>&1
+rc=$?
+[ "$rc" -eq 3 ]
+verdict "heads accepts any point of the vocabulary" "refused a flip point"
+
 # --- /execute-task's missing-matrix skip carries its code -----------------------------
 # shellcheck disable=SC2016 # literal backticks of the skill text
 grep -Fq 'a `skip` line records `skipped`, code `missing`' "$repo_root/skills/execute-task/SKILL.md"

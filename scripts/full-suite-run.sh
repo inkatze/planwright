@@ -6,7 +6,13 @@
 # suite command reaches it as argv and runs with no shell or eval in between.
 #
 # Usage:
-#   full-suite-run.sh -- <command> [<arg>...]
+#   full-suite-run.sh [--run <id>] -- <command> [<arg>...]
+#
+# --run names the unit run (a step-record.sh run id): each pooled attempt then
+# writes its full-suite record through `step-record.sh write --full-suite`,
+# the wait outcome, the seconds waited, and the holders the wait reported
+# (doctrine/custom-steps.md, *Expensive checks*, The full suite; an expired
+# wait included). An unpooled attempt writes none.
 #
 # full_suite_pool resolves through scripts/config-get.sh. Empty or set in no
 # layer, the command runs unpooled with no output of this script's own. A
@@ -63,13 +69,22 @@ else
 fi
 
 usage() {
-  printf 'usage: full-suite-run.sh -- <command> [<arg>...]\n' >&2
+  printf 'usage: full-suite-run.sh [--run <id>] -- <command> [<arg>...]\n' >&2
   exit 2
 }
 warn() {
   printf 'full-suite-run: warning: %s; running unpooled\n' "$1" >&2
 }
 
+run_id=''
+if [ "${1:-}" = --run ]; then
+  [ "$#" -ge 2 ] || usage
+  case $2 in
+    [0-9][0-9][0-9][0-9][0-9][0-9]) run_id=$2 ;;
+    *) usage ;;
+  esac
+  shift 2
+fi
 [ "${1:-}" = -- ] || usage
 shift
 [ "$#" -ge 1 ] || usage
@@ -130,16 +145,64 @@ if [ -n "$pool" ] && ! valid_pool "$pool"; then
   pool=''
 fi
 
+# record <wait-outcome> <waited> <end>: the attempt's full-suite record under
+# --run, its holders the ones the take's wait report named. A record that
+# cannot be written warns and never changes the attempt's exit.
+take_err=''
+record() {
+  [ -n "$run_id" ] || return 0
+  set -- "$1" "$2" "$3" --start "$started"
+  [ -z "$3" ] || set -- "$@" --end "$3"
+  if [ -n "$take_err" ] && [ -f "$take_err" ]; then
+    _hl=$(sed -n -e 's/^step-pool: .* waiting up to [0-9]*s on: //p' \
+      -e 's/^step-pool: .* held by: //p' "$take_err" | tail -n 1)
+    while [ -n "$_hl" ]; do
+      case $_hl in
+        *'; pid '*)
+          set -- "$@" --holder "${_hl%%; pid *}"
+          _hl="pid ${_hl#*; pid }"
+          ;;
+        *)
+          set -- "$@" --holder "$_hl"
+          _hl=''
+          ;;
+      esac
+    done
+  fi
+  _wo=$1 _wt=$2
+  shift 3
+  "$script_dir/step-record.sh" write --full-suite --run "$run_id" --pool "$pool" \
+    --wait "$_wt" --wait-outcome "$_wo" "$@" >/dev/null \
+    || warn_only 'the full-suite record could not be written'
+}
+warn_only() {
+  printf 'full-suite-run: warning: %s\n' "$1" >&2
+}
+stamp() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
 state=''
+waited=0
+started=$(stamp)
 if [ -n "$pool" ]; then
   owner=$$
-  state=$("$script_dir/step-pool.sh" take "$pool" "$owner")
-  take_rc=$?
+  [ -z "$run_id" ] || take_err=$(mktemp "${TMPDIR:-/tmp}/full-suite-run.XXXXXX") || take_err=''
+  if [ -n "$take_err" ]; then
+    state=$("$script_dir/step-pool.sh" take "$pool" "$owner" 2>"$take_err")
+    take_rc=$?
+    cat "$take_err" >&2
+  else
+    state=$("$script_dir/step-pool.sh" take "$pool" "$owner")
+    take_rc=$?
+  fi
+  waited=$(printf '%s\n' "$state" | awk -F '\t' 'NR == 1 && $3 ~ /^[0-9]+$/ { print $3 }')
+  waited=${waited:-0}
   case $take_rc in
     0) ;;
     3)
       printf 'full-suite-run: wait expired for pool %s; no suite run; holders on stdout\n' "$pool" >&2
       printf '%s\n' "$state" | sed -n '2,$p'
+      record expired "$waited" "$(stamp)"
+      [ -z "$take_err" ] || rm -f "$take_err"
       exit 75
       ;;
     *)
@@ -147,6 +210,7 @@ if [ -n "$pool" ]; then
       state=''
       ;;
   esac
+  case $state in taken*) started=$(stamp) ;; esac
 fi
 
 # Set only now: a signal during the take ends this script at once, and the
@@ -162,6 +226,10 @@ case $state in
     ;;
   *) run_suite '' "$@" ;;
 esac
+case $state in
+  taken* | nested* | unpooled*) record "${state%%"$(printf '\t')"*}" "$waited" "$(stamp)" ;;
+esac
+[ -z "$take_err" ] || rm -f "$take_err"
 
 [ -z "$caught" ] || exit "$caught"
 if [ "$suite_rc" -eq 75 ]; then

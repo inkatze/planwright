@@ -35,6 +35,8 @@
 #       --target <target> --args-digest <digest> --fingerprint <fp>
 #   step-record.sh [--worktree <dir>] lookup resume --run <id>
 #       --point <point> [--head <sha>]
+#   step-record.sh [--worktree <dir>] lookup limited --head <sha>
+#   step-record.sh [--worktree <dir>] heads --run <id> --point <point>
 #   step-record.sh args-digest <args>
 #   step-record.sh excerpt <file>
 #
@@ -165,6 +167,14 @@
 #                 before any record is read. A record that cannot be read
 #                 exits 1; a resume skip naming a record that does not exist
 #                 ends the prefix, as any record that does not qualify does.
+#                 `limited` prints `record<TAB><run>:<point>:<seq><TAB><step>`
+#                 for each unretired limited record ending on --head, as the
+#                 status verb counts them (<step> `?` for a malformed one).
+#   heads         print `<start head><TAB><end head>` of the run's latest step
+#                 record at the point whose two heads differ (a `resume` skip
+#                 carries its record's), read as lookup reads records, or
+#                 exit 3 when none moved the head: the PLANWRIGHT_STEP_PREV_HEAD
+#                 and PLANWRIGHT_STEP_NEW_HEAD values.
 #   args-digest   print the SHA-256 of <args> exactly as given (no newline
 #                 added), the --args-digest value; no worktree is read; a
 #                 failed print exits 1.
@@ -350,7 +360,8 @@
 # a cache that cannot be read or written, an exhausted counter, a cache lock
 # another writer held past the wait, a status with no attempt to post or a
 # post that failed, no SHA-256 tool for args-digest) · 2 a usage or
-# field-validation error · 3 lookup found no record to stand on.
+# field-validation error · 3 lookup found no record to stand on (or no
+# unretired limited record), or heads found no move.
 #
 # Portable POSIX sh + awk + iconv; bash 3.2 / BSD tooling floor.
 set -u
@@ -684,7 +695,49 @@ shift
 if [ "$verb" = excerpt ]; then
   [ $# -eq 1 ] && [ -z "$worktree" ] || usage
   [ -f "$1" ] && [ -r "$1" ] || bad excerpt "not a readable file"
-  command -v iconv >/dev/null 2>&1 || die 1 "iconv is not on PATH"
+  lookup_limited() {
+  [ $# -eq 2 ] && [ "$1" = --head ] || usage
+  head=$2
+  is_head "$head" || bad --head "not a full commit id"
+  all_records
+  out=$(CACHE_DIR=$cache awk -v TAB="$TAB" -v H="$head" "$AWK_RECORD$AWK_LIMIT"'
+    { if (load($0)) limit_scan() }
+    END {
+      if (err) exit 2
+      for (i = 1; i <= NL; i++) if (limit_open(i)) { print "record" TAB LK[i]; found = 1 }
+      if (!found) exit 3
+    }' "$work/records")
+  lookup_print $? "$out"
+}
+
+# --- heads ----------------------------------------------------------------------
+cmd_heads() {
+  run='' point=''
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --run | --point) [ $# -ge 2 ] || usage ;;
+      *) usage ;;
+    esac
+    case $1 in
+      --run) run=$2 ;;
+      --point) point=$2 ;;
+    esac
+    shift 2
+  done
+  is_point "$point" || bad --point "not a point of the vocabulary"
+  valid_run "$run"
+  scratch
+  record_files "$run" >"$work/run-records" || die 1 "cannot list the record cache"
+  out=$(CACHE_DIR=$cache awk -v TAB="$TAB" -v P="$point" "$AWK_RECORD"'
+    {
+      if (!load($0) || R_KIND != "step" || R_POINT != P || !ok_step()) next
+      if (F["head"] != F["end-head"]) move = F["head"] TAB F["end-head"]
+    }
+    END { if (err) exit 2; if (move == "") exit 3; print move }' "$work/run-records")
+  lookup_print $? "$out"
+}
+
+command -v iconv >/dev/null 2>&1 || die 1 "iconv is not on PATH"
   scratch
   build_excerpt "$1" "$work/excerpt"
   cat "$work/excerpt" || die 1 "cannot print the excerpt"
@@ -1298,6 +1351,33 @@ function ref() {
 }
 '
 
+# AWK_LIMIT: the unretired-limited scan status and lookup limited share, over
+# the step records ending on H. limit_scan() runs once per loaded record, last
+# (a resume skip's check loads the record it names over F); after the pass,
+# limit_open(i) holds for each of the NL limited records still unretired, LK[i]
+# naming it. A malformed limited record counts and retires nothing.
+AWK_LIMIT='
+function retire(s, r) { if (!(s in last) || r > last[s]) last[s] = r }
+function limit_scan(    s, r, q) {
+  if (R_KIND != "step" || F["end-head"] != H) return
+  if (F["outcome"] == "limited") {
+    NL++; LR[NL] = R_RUN + 0; LS[NL] = ok_step() ? F["step"] : ""
+    LK[NL] = R_RUN ":" R_POINT ":" R_SEQ TAB (ok_step() ? F["step"] : "?")
+  } else if (ok_step() && (F["outcome"] == "passed" || F["outcome"] == "applied")) {
+    retire(F["step"], R_RUN + 0)
+  } else if (ok_step() && F["outcome"] == "skipped" && F["skip-code"] == "resume" \
+    && F["stands-on"] ~ /^[0-9][0-9][0-9][0-9][0-9][0-9]:[a-z][a-z-]*:[0-9][0-9][0-9]$/) {
+    # A resume skip retires only when the record it names would qualify for
+    # lookup resume: the same step, passed or applied, on this head.
+    s = F["step"]; r = R_RUN + 0; split(F["stands-on"], q, ":")
+    if (load(ENVIRON["CACHE_DIR"] "/" q[1] "/" q[3] "-step-" q[2] ".rec", 1) && ok_step() \
+      && F["step"] == s && F["end-head"] == H && (F["outcome"] == "passed" || F["outcome"] == "applied"))
+      retire(s, r)
+  }
+}
+function limit_open(i) { return LS[i] == "" || !(LS[i] in last) || last[LS[i]] <= LR[i] }
+'
+
 # all_records: every run's record paths, oldest first, one a line in
 # $work/records, each run checked in the main shell so a refusal ends the
 # script. Readers take the list as a file, never as arguments or stdin, so
@@ -1646,8 +1726,7 @@ cmd_status() {
   # outcomes at the point, and any unretired limited record ending on the
   # head, whatever run or point holds it.
   all_records
-  result=$(CACHE_DIR=$cache awk -v TAB="$TAB" -v H="$head" -v P="$point" "$AWK_RECORD"'
-    function retire(s, r) { if (!(s in last) || r > last[s]) last[s] = r }
+  result=$(CACHE_DIR=$cache awk -v TAB="$TAB" -v H="$head" -v P="$point" "$AWK_RECORD$AWK_LIMIT"'
     {
       if (!load($0)) next
       if (R_KIND == "done") {
@@ -1662,27 +1741,14 @@ cmd_status() {
         if (F["outcome"] == "limited" && !bad) LIM[R_RUN] = 1
         else if (bad || F["outcome"] !~ /^(passed|applied|skipped)$/) HF[R_RUN] = 1
       }
-      if (F["end-head"] != H) next
-      if (F["outcome"] == "limited") {
-        n++; LR[n] = R_RUN + 0; LS[n] = ok_step() ? F["step"] : ""
-      } else if (ok_step() && (F["outcome"] == "passed" || F["outcome"] == "applied")) {
-        retire(F["step"], R_RUN + 0)
-      } else if (ok_step() && F["outcome"] == "skipped" && F["skip-code"] == "resume" \
-        && F["stands-on"] ~ /^[0-9][0-9][0-9][0-9][0-9][0-9]:[a-z][a-z-]*:[0-9][0-9][0-9]$/) {
-        # A resume skip retires only when the record it names would qualify
-        # for lookup resume: the same step, passed or applied, on this head.
-        s = F["step"]; r = R_RUN + 0; split(F["stands-on"], q, ":")
-        if (load(ENVIRON["CACHE_DIR"] "/" q[1] "/" q[3] "-step-" q[2] ".rec", 1) && ok_step() \
-          && F["step"] == s && F["end-head"] == H && (F["outcome"] == "passed" || F["outcome"] == "applied"))
-          retire(s, r)
-      }
+      limit_scan()
     }
     END {
       if (err) exit 2
       if (A == "") { print "none"; exit }
       if (B + 0 > A + 0) { print "malformed " B; exit }
       c = 0
-      for (i = 1; i <= n; i++) if (LS[i] == "" || !(LS[i] in last) || last[LS[i]] <= LR[i]) c++
+      for (i = 1; i <= NL; i++) if (limit_open(i)) c++
       print ((A in HF) ? "halted-or-failed" : ((A in LIM) || c) ? "limited" : "clean") " " A
     }' "$work/records") || die 1 "cannot read the record cache"
   verdict=${result% *} attempt=${result##* }
@@ -1816,6 +1882,7 @@ cmd_lookup() {
   case $mode in
     reuse) lookup_reuse "$@" ;;
     resume) lookup_resume "$@" ;;
+    limited) lookup_limited "$@" ;;
     *) usage ;;
   esac
 }
@@ -1908,6 +1975,48 @@ lookup_resume() {
   lookup_print $? "$out"
 }
 
+lookup_limited() {
+  [ $# -eq 2 ] && [ "$1" = --head ] || usage
+  head=$2
+  is_head "$head" || bad --head "not a full commit id"
+  all_records
+  out=$(CACHE_DIR=$cache awk -v TAB="$TAB" -v H="$head" "$AWK_RECORD$AWK_LIMIT"'
+    { if (load($0)) limit_scan() }
+    END {
+      if (err) exit 2
+      for (i = 1; i <= NL; i++) if (limit_open(i)) { print "record" TAB LK[i]; found = 1 }
+      if (!found) exit 3
+    }' "$work/records")
+  lookup_print $? "$out"
+}
+
+# --- heads ----------------------------------------------------------------------
+cmd_heads() {
+  run='' point=''
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --run | --point) [ $# -ge 2 ] || usage ;;
+      *) usage ;;
+    esac
+    case $1 in
+      --run) run=$2 ;;
+      --point) point=$2 ;;
+    esac
+    shift 2
+  done
+  is_point "$point" || bad --point "not a point of the vocabulary"
+  valid_run "$run"
+  scratch
+  record_files "$run" >"$work/run-records" || die 1 "cannot list the record cache"
+  out=$(CACHE_DIR=$cache awk -v TAB="$TAB" -v P="$point" "$AWK_RECORD"'
+    {
+      if (!load($0) || R_KIND != "step" || R_POINT != P || !ok_step()) next
+      if (F["head"] != F["end-head"]) move = F["head"] TAB F["end-head"]
+    }
+    END { if (err) exit 2; if (move == "") exit 3; print move }' "$work/run-records")
+  lookup_print $? "$out"
+}
+
 command -v iconv >/dev/null 2>&1 || die 1 "iconv is not on PATH"
 check_dir "$worktree/.claude"
 check_dir "$cache"
@@ -1925,5 +2034,6 @@ case $verb in
   regenerate) cmd_regenerate "$@" ;;
   fingerprint) cmd_fingerprint "$@" ;;
   lookup) cmd_lookup "$@" ;;
+  heads) cmd_heads "$@" ;;
   *) usage ;;
 esac
