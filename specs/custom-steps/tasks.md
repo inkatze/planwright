@@ -528,7 +528,6 @@ deferred until every flipper posts.
   host, since its own units run the installed plugin (REQ-I1.13); clear
   this bullet when that release is installed.
 - **Task 11** — pending ready-flip: ready-guard failed on d021e74a28bd
-- **Task 8** — full gate failed on one file outside the diff: `tests/test-fleet-stop-hl.sh` c20 (a `--grace` wall-clock assertion, "1s took 5s and 4s took 6s") during a 1761s run at load average ~20 on a shared host; classified `logic`, so not retried. The file passes alone; every other gate task, `check:steps` included, passed. Proceed to push and the PR, or rerun the gate, on the operator's call.
 
 ## Deferred
 
