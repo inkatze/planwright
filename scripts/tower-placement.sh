@@ -28,6 +28,11 @@ set -u
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# Classify the working directory, as resolve-root.sh does for the knob's
+# layers: a git hook exports these, and honoring them would classify the
+# repository the hook runs for instead.
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+  GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 if [ "$#" -ne 0 ]; then
   echo "usage: tower-placement.sh   (no arguments; classifies the working directory)" >&2

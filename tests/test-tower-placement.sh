@@ -97,6 +97,16 @@ mkdir -p "$linked/sub"
 expect "$linked" "linked${tab}warn" "a linked worktree outside .claude/worktrees classifies as linked"
 expect "$linked/sub" "linked${tab}warn" "a linked worktree's subdirectory classifies as linked"
 
+# A git hook exports GIT_DIR and GIT_WORK_TREE; the classifier reads the
+# working directory, as the knob's layer resolution does.
+rc=0
+out=$(cd "$linked" && GIT_DIR="$repo/.git" GIT_WORK_TREE="$repo" \
+  PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_LOCAL_CONFIG="" /bin/sh "$TP" 2>"$tmp/err") || rc=$?
+[ "$rc" = 0 ] && [ "$out" = "linked${tab}warn" ] \
+  || fail "an inherited GIT_DIR: exit $rc, printed '$out', expected linked"
+echo "ok: an inherited GIT_DIR does not change the classification"
+
 clone="$tmp/clone"
 gitq clone -q "$repo" "$clone"
 expect "$clone" "main${tab}warn" "a separate clone classifies as main"
