@@ -62,8 +62,9 @@ description; the card carries no separate description field. The keys:
 `D` never appears in `RAPID:`: the human always holds the decision
 (REQ-P1.10). The stance axis is orthogonal to the discipline: two seats running
 the same card at opposite poles decorrelate without inventing a second
-identity. A model override is a request, honoured only where the backend
-advertises per-seat model choice (inception D-7).
+identity. A model override is a request, honoured only where the seat launch
+can set a per-seat model ([persona-fanout.md](persona-fanout.md); inception
+D-7).
 
 The key set is closed the way the section set below is: a key outside the
 table, or a key given twice, is a lint finding, and a second `Card-format:`
@@ -96,11 +97,12 @@ The body is a closed set of H2 sections, written in this order:
    subscription and nothing else (inception D-18).
 6. **`## Artifact template`.** A fenced markdown template of the seat's
    output, whose final section is `Decisions I cannot make` (decision, tier and
-   reason, owning role, evidence needed; REQ-P1.5), followed outside the fence
-   by a `**Done when:**` line stating when the artifact is complete. When the
-   section holds more than one fence, the last one is the template: an
-   illustrative fence goes before it, and the `**Done when:**` line comes
-   after it.
+   reason, owning role, evidence needed; REQ-P1.5; a seat brief adds the typed
+   Trigger and Powers columns, so keep that header exact), followed outside
+   the fence by a `**Done when:**` line stating when the artifact is
+   complete. When the section holds more than one fence, the last one is the
+   template: an illustrative fence goes before it, and the `**Done when:**`
+   line comes after it.
 7. **`## Capability boundary`.** Three bullets: `**Per-activity exceptions:**`
    with one sub-bullet per activity, each `<tier>: <activity>`;
    `**One-way doors:**` stating `human-authority` (one-way-door decisions are

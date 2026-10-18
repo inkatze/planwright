@@ -31,7 +31,7 @@ names a concept. `inception-format` is the normative bundle format every write
 below conforms to; `interaction-style` governs every attended turn. At their
 named steps: seed intake reads `security-posture` (artifact data-hygiene and
 the echo rule for seed text), the discipline walk reads `decision-domains`
-(the catalog it walks), the fan-out reads `persona-fanout`, the core phase reads `evidence-quality` (the
+(the catalog it walks), the core phase reads `evidence-quality` (the
 falsifiable skeleton, thresholds, and the evidence ladder), and every skipped
 prompt applies `proportionality`. A doc that does not resolve halts the run
 naming the doc and the chain consulted; `decision-domains` degrades instead,
@@ -44,16 +44,17 @@ Doctrine: run-start inception-format
 Doctrine: run-start interaction-style
 Doctrine: point-of-use security-posture (Phase 1, seed intake)
 Doctrine: point-of-use decision-domains (Phase 3, the discipline walk)
-Doctrine: point-of-use persona-fanout (Phase 3, the fan-out)
+Doctrine: point-of-use persona-fanout (Phase 4, the fan-out)
 Doctrine: point-of-use evidence-quality (Phase 5, the minimum core)
 Doctrine: point-of-use proportionality (every skipped prompt)
 
-**The helper.** Everything mechanical runs through
-`scripts/inception-venture.sh`, called by its resolved literal absolute path,
-one plain command per call (`doctrine/plugin-script-invocation.md`). Output a
-caller parses is `key<TAB>value` lines; a `degraded` line names a missing
-capability in plain words. Its header lists the exit codes: an exit this skill
-does not name below is relayed in plain words and stops that step. Never
+**The helpers.** Everything mechanical runs through
+`scripts/inception-venture.sh` (and `scripts/inception-fanout.sh`), called
+by their resolved literal absolute paths, one plain command per call
+(`doctrine/plugin-script-invocation.md`). Output a caller parses is
+`key<TAB>value` lines; a `degraded` line names a missing capability in plain
+words. Each header lists the exit codes: an exit neither this skill nor
+`persona-fanout` names is relayed in plain words and stops that step. Never
 compose venture paths, git commands, or remote creation by hand where a
 subcommand exists.
 
@@ -223,13 +224,10 @@ the venture touches but has not taken becomes an open `DEC-<n>` entry,
 door-classified, cited from that row (REQ-B1.3). Present the walk in small
 clusters; a domain the venture does not touch is passed with one line.
 
-Then the staffing table: each touched discipline is `agent-persona` (a
-card), `named-human`, or `unstaffed`,
-and `scripts/inception-fanout.sh staff <venture-dir>` files its coverage
-risks. Then the stakeholder map: one row per decision area, exactly one
-person who decides, plus who is aligned and informed. With any
-`agent-persona` row, the phase closes with the fan-out `persona-fanout`
-defines, both gates asked in this conversation.
+Then the staffing table: each touched discipline is `agent-persona` (card
+id), `named-human`, or `unstaffed`, and `inception-fanout.sh staff` files
+coverage risks. Then the stakeholder map: one row per decision
+area, exactly one person who decides, plus who is aligned and informed.
 
 ### Phase 4 — `reframe`: the reframing checkpoint
 
@@ -238,7 +236,8 @@ problem in one or two sentences as the bundle now holds it, then offer
 reframings the evidence supports (a different who-hurts, a narrower or wider
 job, a different chain), at equal weight beside keeping the framing as it
 stands. A chosen reframe rewrites the affected opportunity fields and reopens
-whatever depended on them.
+whatever depended on them. With a persona row, the phase closes with the
+`persona-fanout` fan-out, its gates asked here; a later reframe re-runs it.
 
 ### Phase 5 — `core`: the minimum core
 
@@ -303,4 +302,4 @@ than a verdict: run the validation tasks, resume with
 - Never store seed material verbatim without the operator's per-source
   confirmation, and never let it reach planwright's own artifacts
   un-neutralized.
-- Every degradation is reported at pre-flight and repeated at handoff.
+- Every degradation is reported where found and repeated at handoff.
