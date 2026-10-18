@@ -247,8 +247,6 @@ flight's branch is prior art for Tasks 3 and 4 (D-12).
 
 ## Awaiting input
 
-- **Task 8** — post-pr step cubic-pr halted: cubic's finding that the profile check should require every hook command to start with the plugin root awaits the operator's decision on a drafted decline (PR #680); record `.claude/steps/000001/009-step-post-pr.rec`.
-
 ## Deferred
 
 - **Shell-feed and wrapper spellings at both guard tiers.** Commands fed
