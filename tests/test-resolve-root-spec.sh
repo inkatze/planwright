@@ -662,6 +662,14 @@ mark "$tmp/mk${TAB}tab"
 ln -s "$tmp/mk${TAB}tab" "$tmp/mk-link"
 run base "$SH" "$RESOLVER" marker "$tmp/mk-link"
 assert_eq "marker kind: a canonical path carrying a tab is refused" "5|" "$rc|$out"
+# A trailing newline must survive canonicalization, or the marked sibling
+# without it is the directory vetted.
+nl=$(printf '\nx')
+nl=${nl%x}
+mkdir -p "$tmp/mknl" "$tmp/mknl$nl"
+mark "$tmp/mknl"
+run base "$SH" "$RESOLVER" marker "$tmp/mknl$nl"
+assert_eq "marker kind: a path ending in a newline is not read as its marked sibling" "5|" "$rc|$out"
 for args in "marker" "marker $mk --primary" "marker $mk --posture" "marker $mk $mk"; do
   # shellcheck disable=SC2086 # one argument per word
   run base "$SH" "$RESOLVER" $args

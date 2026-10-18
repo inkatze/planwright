@@ -170,13 +170,23 @@ emit() {
 }
 
 # canon <dir>: the physical path of <dir>. A relative operand gets a ./ so a
-# directory named "-" is never cd's previous-directory shorthand.
+# directory named "-" is never cd's previous-directory shorthand. A path
+# ending in a newline fails: every caller captures the result through a
+# command substitution, which would strip that newline and name a different
+# directory, so the sentinel keeps it visible long enough to refuse.
 canon() {
   case $1 in
     /*) cn_dir=$1 ;;
     *) cn_dir=./$1 ;;
   esac
-  (cd -P -- "$cn_dir" 2>/dev/null && pwd -P)
+  cn_out=$(cd -P -- "$cn_dir" 2>/dev/null && pwd -P && printf x) || return 1
+  cn_out=${cn_out%x}
+  cn_out=${cn_out%?}
+  case $cn_out in
+    *'
+') return 1 ;;
+  esac
+  printf '%s\n' "$cn_out"
 }
 
 # skip_warn <arm> <dir> <reason>: warn about a skipped arm, unless --all has
