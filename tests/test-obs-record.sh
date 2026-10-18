@@ -688,6 +688,7 @@ mkdir -p "$tmp/o11home" "$tmp/o11adopter"
 defout=$(
   cd "$odef" \
     && env -u PLANWRIGHT_REPO_ROOT -u PLANWRIGHT_LOCAL_CONFIG -u CLAUDE_PLUGIN_DATA \
+      -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT \
       HOME="$tmp/o11home" PLANWRIGHT_ADOPTER_OVERLAY="$tmp/o11adopter" \
       GIT_CONFIG_GLOBAL=/dev/null PATH="$tmp/od11def:$PATH" "$REC" --slug topic --scope planwright \
       --text 'default store' --today 2026-07-09
@@ -703,7 +704,7 @@ mkdir -p "$onorepo"
 _rc=0
 (
   cd "$onorepo" \
-    && GIT_CEILING_DIRECTORIES="$tmp" "$REC" --slug topic --scope planwright \
+    && env -u PLANWRIGHT_REPO_ROOT GIT_CEILING_DIRECTORIES="$tmp" "$REC" --slug topic --scope planwright \
       --text 'no store' --today 2026-07-09 >/dev/null 2>&1
 ) || _rc=$?
 [ "$_rc" -eq 1 ] || fail "11: no default store outside a repository expected exit 1, got $_rc"

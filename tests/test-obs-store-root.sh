@@ -105,8 +105,8 @@ else
   fail "check-obs (rc=$rc): $err"
 fi
 at "$w" "$S/obs-render.sh"
-case $out in
-  *"[fixture] a relocated observation"*) ok "render: reads the relocated store" ;;
+case $rc:$out in
+  0:*"[fixture] a relocated observation"*) ok "render: reads the relocated store" ;;
   *) fail "render (rc=$rc): $out $err" ;;
 esac
 uid=$(find "$w/store/_observations/entries" -name '*.md' | sed 's/.*-\([0-9a-f]\{8\}\)\.md$/\1/')
