@@ -1,0 +1,189 @@
+#!/bin/bash
+# Suite for scripts/request-reviewer.sh, the reviewer request that leaves a
+# draft PR draft (human-gates REQ-C1.7, REQ-C1.8): the request, the draft-state
+# check after it, the re-draft when the PR came back ready, a failed check
+# treated as un-drafted, and a failed re-draft parking the unit.
+#
+# Hermetic: tests/lib/merge-policy-fixture.sh builds a throwaway origin and a
+# unit clone; the stub gh below replaces its stub and answers from files.
+# Nothing reaches a real host.
+# shellcheck disable=SC2119 # no case here needs mp_fixture's base parks
+unset CDPATH PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT
+REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+export PLANWRIGHT_CONFIG_DEFAULTS="$REPO_ROOT/config/defaults.yml"
+HELPER="$REPO_ROOT/scripts/request-reviewer.sh"
+
+failures=0
+passes=0
+pass() {
+  echo "ok: $1"
+  passes=$((passes + 1))
+}
+fail() {
+  echo "FAIL: $1" >&2
+  failures=$((failures + 1))
+}
+check() { # <label> <command...>
+  local label=$1
+  shift
+  if "$@"; then pass "$label"; else fail "$label"; fi
+}
+not() { ! "$@"; }
+
+SANDBOX=$(mktemp -d "${TMPDIR:-/tmp}/request-reviewer.XXXXXX") || exit 1
+trap 'rm -rf "$SANDBOX"' EXIT
+# shellcheck source=tests/lib/merge-policy-fixture.sh
+. "$REPO_ROOT/tests/lib/merge-policy-fixture.sh"
+
+if [ ! -f "$HELPER" ]; then
+  fail "the helper exists at scripts/request-reviewer.sh"
+  echo "request-reviewer: $passes passed, $failures failed" >&2
+  exit 1
+fi
+
+# The stub: $GHS/ready marks the PR ready; undraft_on_request flips it ready
+# when a review is requested; view_fail_at.<n> fails the nth view; request_rc
+# and undo_rc are the exits of the request and the re-draft.
+cat >"$MP_STUBBIN/gh" <<'GHSTUB'
+#!/bin/sh
+{
+  printf 'CALL'
+  for a in "$@"; do printf ' %s' "$a"; done
+  printf '\n'
+} >>"$GHS/log"
+case "$1 $2" in
+  'pr view')
+    n=0
+    [ ! -f "$GHS/view_n" ] || n=$(cat "$GHS/view_n")
+    n=$((n + 1))
+    echo "$n" >"$GHS/view_n"
+    if [ -f "$GHS/view_fail_at.$n" ]; then
+      echo 'HTTP 502: Bad Gateway' >&2
+      exit 1
+    fi
+    draft=true
+    [ ! -f "$GHS/ready" ] || draft=false
+    printf '{"isDraft":%s,"state":"OPEN","baseRefName":"main"}\n' "$draft"
+    ;;
+  'pr edit' | 'api -X')
+    rc=0
+    [ ! -f "$GHS/request_rc" ] || rc=$(cat "$GHS/request_rc")
+    [ ! -f "$GHS/undraft_on_request" ] || : >"$GHS/ready"
+    exit "$rc"
+    ;;
+  'pr ready')
+    case " $* " in
+      *' --undo '*) ;;
+      *) exit 3 ;;
+    esac
+    rc=0
+    [ ! -f "$GHS/undo_rc" ] || rc=$(cat "$GHS/undo_rc")
+    [ "$rc" != 0 ] || rm -f "$GHS/ready"
+    exit "$rc"
+    ;;
+  *) exit 3 ;;
+esac
+GHSTUB
+chmod +x "$MP_STUBBIN/gh"
+
+run() { mp_run "$HELPER" --repo acme/widgets --pr 42 "$@"; }
+undos() { mp_calls 'pr ready 42 --repo acme/widgets --undo'; }
+requests() { grep -c '^CALL \(pr edit\|api -X POST\)' "$GHS/log" 2>/dev/null || true; }
+is_draft() { [ ! -f "$GHS/ready" ]; }
+
+mp_fixture
+MP_TEMPLATE=$F
+
+echo "# a draft PR the request leaves draft: no corrective"
+mp_fixture
+run --copilot
+check "a request that leaves the PR draft exits 0" [ "$CODE" = 0 ]
+check "the Copilot request goes through gh pr edit --add-reviewer @copilot" \
+  [ "$(mp_calls 'pr edit 42 --repo acme/widgets --add-reviewer @copilot')" = 1 ]
+check "the draft state is read before and after the request" [ "$(mp_calls 'pr view')" = 2 ]
+check "no re-draft runs when the PR stayed draft" [ "$(undos)" = 0 ]
+check "the PR is still draft" is_draft
+
+echo "# a request that un-drafts the PR is followed by a re-draft"
+mp_fixture
+: >"$GHS/undraft_on_request"
+run --reviewer octocat
+check "the re-drafted request exits 0" [ "$CODE" = 0 ]
+check "a named reviewer is requested over REST" \
+  [ "$(mp_calls 'api -X POST repos/acme/widgets/pulls/42/requested_reviewers -f reviewers\[\]=octocat')" = 1 ]
+check "the re-draft ran once" [ "$(undos)" = 1 ]
+req=$(grep -n '^CALL api -X POST' "$GHS/log" | head -1 | cut -d: -f1)
+chk=$(grep -n '^CALL pr view' "$GHS/log" | sed -n 2p | cut -d: -f1)
+und=$(grep -n '^CALL pr ready' "$GHS/log" | head -1 | cut -d: -f1)
+check "the state check follows the request" [ "${req:-9999}" -lt "${chk:-0}" ]
+check "the re-draft follows the state check" [ "${chk:-9999}" -lt "${und:-0}" ]
+check "the PR is draft again" is_draft
+check "the handoff says the PR was re-drafted" grep -q 're-drafted PR #42' <<<"$OUT"
+
+echo "# a failing state check is treated as un-drafted"
+mp_fixture
+: >"$GHS/view_fail_at.2"
+run --copilot
+check "a failed state check still exits 0 once the corrective ran" [ "$CODE" = 0 ]
+check "a failed state check runs the re-draft" [ "$(undos)" = 1 ]
+check "the handoff names the unreadable state" grep -q 'could not be read' <<<"$OUT"
+
+echo "# a failing re-draft parks the unit, naming the PR"
+mp_fixture
+: >"$GHS/undraft_on_request"
+echo 1 >"$GHS/undo_rc"
+run --copilot --spec specs/demo --task 1
+check "a failed re-draft with a unit parks (exit 4)" [ "$CODE" = 4 ]
+check "the park is pushed under Awaiting input, naming the PR" \
+  grep -q '^- \*\*Task 1\*\* — pending ready-flip: redraft-pr-42 failed on ' <<<"$(mp_origin_tasks)"
+check "the handoff names the un-drafted PR" grep -q 'PR #42 is no longer a draft' <<<"$OUT"
+
+echo "# a failing re-draft with no unit is named, never silent"
+mp_fixture
+: >"$GHS/undraft_on_request"
+echo 1 >"$GHS/undo_rc"
+run --copilot
+check "a failed re-draft with no unit to park exits 5" [ "$CODE" = 5 ]
+check "the handoff names the un-drafted PR" grep -q 'PR #42 is no longer a draft' <<<"$OUT"
+
+echo "# a PR that was ready before the request is left alone"
+mp_fixture
+: >"$GHS/ready"
+run --copilot
+check "a request on a ready PR exits 0" [ "$CODE" = 0 ]
+check "a ready PR is never re-drafted" [ "$(undos)" = 0 ]
+check "a ready PR needs no state check after the request" [ "$(mp_calls 'pr view')" = 1 ]
+
+echo "# an unreadable state before the request makes no request"
+mp_fixture
+: >"$GHS/view_fail_at.1"
+run --copilot
+check "an unreadable starting state skips (exit 3)" [ "$CODE" = 3 ]
+check "no request is made over an unreadable starting state" [ "$(requests)" = 0 ]
+check "no re-draft runs over an unreadable starting state" [ "$(undos)" = 0 ]
+
+echo "# a failed request still checks the draft state"
+mp_fixture
+echo 1 >"$GHS/request_rc"
+: >"$GHS/undraft_on_request"
+run --copilot
+check "a failed request exits 1" [ "$CODE" = 1 ]
+check "a failed request is still followed by the re-draft it needs" [ "$(undos)" = 1 ]
+check "the PR is draft after a failed request" is_draft
+
+echo "# usage refusals make no host call"
+for args in '--copilot --pr 4x2' '--reviewer' '--reviewer "a b"' '--reviewer octocat --copilot' '' \
+  '--copilot --repo bad' '--copilot --task 1' '--copilot --spec specs/demo'; do
+  mp_fixture
+  # shellcheck disable=SC2086 # the cases are word lists on purpose
+  eval "mp_run \"\$HELPER\" --repo acme/widgets --pr 42 $args"
+  check "usage refuses (exit 2): $args" [ "$CODE" = 2 ]
+  check "no gh call on a usage refusal: $args" [ "$(mp_calls '')" = 0 ]
+done
+
+echo "# echo discipline"
+# shellcheck disable=SC2016 # a literal pattern, not an expansion
+check "the helper sources scripts/echo-safety.sh" grep -q '\. "\$SCRIPTS/echo-safety.sh"' "$HELPER"
+
+echo "request-reviewer: $passes passed, $failures failed"
+[ "$failures" = 0 ]

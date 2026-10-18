@@ -295,6 +295,24 @@ for tier in worker tower; do
 done
 pg worker 'gh pr ready 42 --undo'
 reason_has 'corrective helper' "the undo deny names the corrective helper"
+reason_has 'request-reviewer\.sh' "the undo deny names the helper's path"
+
+echo "# the re-draft corrective helper is the one admitted undo"
+for tier in worker tower; do
+  for cmd in 'scripts/request-reviewer.sh --repo acme/widgets --pr 42 --copilot' \
+    'bash scripts/request-reviewer.sh --repo acme/widgets --pr 42 --reviewer octocat --spec specs/demo --task 1'; do
+    pg "$tier" "$cmd"
+    expect defer "[$tier] the corrective helper is admitted: $cmd"
+    reads none "[$tier] the corrective helper reads no knob: $cmd"
+  done
+  for cmd in 'gh -R acme/widgets pr ready 42 --undo' 'gh pr ready 42 --repo acme/widgets --undo' \
+    'gh pr ready 42 --undo=yes' 'env GH_REPO=acme/widgets gh pr ready 42 --undo' \
+    "bash -c 'gh pr ready 42 --undo'" 'scripts/request-reviewer.sh --repo acme/widgets --pr 42 --copilot && gh pr ready 42 --undo' \
+    "gh api graphql -f query='mutation{convertPullRequestToDraft(input:{pullRequestId:\"PR_x\"}){clientMutationId}}'"; do
+    pg "$tier" "$cmd"
+    expect deny "[$tier] no other undo spelling is admitted: $cmd"
+  done
+done
 
 # --- base merge (REQ-E1.1, REQ-E1.3) ----------------------------------------
 

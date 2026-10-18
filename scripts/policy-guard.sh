@@ -42,6 +42,9 @@
 #               the ready-guard's currency check runs next).
 #   undo        `gh pr ready --undo` and the MCP ready->draft transition: deny,
 #               the corrective helper being the only sanctioned re-draft.
+#               Running scripts/request-reviewer.sh performs no act here, so
+#               it defers at every tier: its own re-draft runs below this
+#               hook, only on a PR it read as a draft before its own request.
 #   pr-merge    `gh pr merge`: deny; the merge helper is the only agent path.
 #   merge-helper  running scripts/merge-admitted.sh: a command word, or a
 #               shell's script argument, whose file name starts with the
@@ -1339,7 +1342,7 @@ classify_gh_ready() {
     esac
   done
   if [ "$undo" = 1 ]; then
-    deny_now 'gh pr ready --undo is denied: re-drafting a pull request is reserved to the corrective helper that follows a reviewer request. Ask the operator if a PR needs to go back to draft.'
+    deny_now 'gh pr ready --undo is denied: re-drafting a pull request is reserved to the corrective helper that follows a reviewer request (scripts/request-reviewer.sh). Ask the operator if a PR needs to go back to draft.'
     return 0
   fi
   queue_flip "$eff" "$eff_ok"
@@ -1666,7 +1669,7 @@ classify_gh_api() {
       return 0
       ;;
     *convertPullRequestToDraft*)
-      deny_now 'this gh api request converts a pull request to draft; re-drafting is reserved to the corrective helper. Ask the operator if a PR needs to go back to draft.'
+      deny_now 'this gh api request converts a pull request to draft; re-drafting is reserved to the corrective helper (scripts/request-reviewer.sh). Ask the operator if a PR needs to go back to draft.'
       return 0
       ;;
     *mergePullRequest* | *enablePullRequestAutoMerge* | *enqueuePullRequest*)
@@ -2975,7 +2978,7 @@ handle_mcp() {
   [ -n "$PAYLOAD_CWD" ] || PAYLOAD_CWD=$PWD
   case $shape in
     no-draft) return 0 ;;
-    to-draft) emit_deny 'this update_pull_request call re-drafts a pull request; re-drafting is reserved to the corrective helper. Ask the operator.' ;;
+    to-draft) emit_deny 'this update_pull_request call re-drafts a pull request; re-drafting is reserved to the corrective helper (scripts/request-reviewer.sh). Ask the operator.' ;;
     to-ready)
       queue_flip "$MCP_DIR_SENTINEL" 1
       [ -z "$DENY_NOW" ] || emit_deny "$DENY_NOW"
