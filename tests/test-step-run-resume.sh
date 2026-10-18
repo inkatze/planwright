@@ -220,12 +220,16 @@ verdict "misrouted, undeclared, malformed, and stateless calls are refused with 
   "a refusal case failed (above)"
 
 # --- a failure after the take still releases the session's slot -----------------------------
-chmod 500 "$wt/.claude/steps/$r"
-srun begin --run "$r" --point pre-pr --step ses --owner "$me" >/dev/null 2>&1
-rc=$?
-chmod 700 "$wt/.claude/steps/$r"
-[ "$rc" -eq 4 ] && [ -z "$(sp report gate)" ]
-verdict "a begin failing after its take releases the slot" "rc=$rc held=$(sp report gate)"
+if [ "$(id -u)" -ne 0 ]; then
+  chmod 500 "$wt/.claude/steps/$r"
+  srun begin --run "$r" --point pre-pr --step ses --owner "$me" >/dev/null 2>&1
+  rc=$?
+  chmod 700 "$wt/.claude/steps/$r"
+  [ "$rc" -eq 4 ] && [ -z "$(sp report gate)" ]
+  verdict "a begin failing after its take releases the slot" "rc=$rc held=$(sp report gate)"
+else
+  ok "a begin failing after its take releases the slot (skipped as root: a read-only run directory cannot fail a write)"
+fi
 
 # --- a refused context value fails the step without running it (REQ-A1.6) ------------------
 PR=abc srun command --run "$r" --point pre-pr --step iso >"$tmp/out" 2>/dev/null
@@ -254,8 +258,8 @@ verdict "end records a shell-tool timeout with the line's output and frees the s
 # --- /execute-task wires the runner's calls ------------------------------------------------
 skill=$(tr '\n' ' ' <"$repo_root/skills/execute-task/SKILL.md")
 # shellcheck disable=SC2016 # literal backticks of the skill text
-for call in 'step-run.sh resolve --run' 'step-run.sh resume' '`command`' 'begin --owner $PPID' \
-  'step-run.sh refire' 'full-suite-run.sh --run <id>' '--resume <run>:<point>'; do
+for call in 'step-run.sh resolve --run <run>' 'step-run.sh resume' '`command`' 'begin --owner $PPID' \
+  'step-run.sh refire' 'full-suite-run.sh --run <run>' '--resume <run>:<point>'; do
   printf '%s' "$skill" | grep -Fq -- "$call" || fail "/execute-task does not name '$call'"
 done
 ok "/execute-task names the runner's resolve, resume, command, begin, refire, and full-suite calls"

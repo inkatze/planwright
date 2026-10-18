@@ -168,7 +168,7 @@ A `--resume <run>:<point>` run starts there, after
 in the worktree, the `PLANWRIGHT_STEP_*` context exported (a PR number
 whenever one exists):
 
-1. **Resolve** it whole first: `scripts/step-run.sh resolve --run <id> <point>`,
+1. **Resolve** it whole first: `scripts/step-run.sh resolve --run <run> <point>`,
    `--unattended` exactly when the backend seam's launch record says headless,
    else `--attended`. Exit 1: `ask`, or attended all-`refuse` rows, presents
    and waits for a repair and re-resolve; otherwise park. Exit 2, 4, or 5: a stop condition.
@@ -187,7 +187,7 @@ whenever one exists):
    `failed`; an `in-session` command's goes to the shell tool.
 3. **Record** each session step's outcome from its handoff through
    `step-record.sh write`, which prints the next step's `PREV_RECORD`
-   (`heads` gives the head move); a `skip` line records `skipped`, code `missing`.
+   (`step-record.sh heads`: the head move); a `skip` line records `skipped`, code `missing`.
 4. **Posture:** a `halted` or `failed` step under `on-failure: halt` ends the
    point and the unit through the pause protocol, the entry naming only the
    point, step id, outcome, and worktree-relative record path; `continue`
@@ -300,7 +300,7 @@ judgment.
 ### Run the full project CI (REQ-E1.2)
 
 Run the `pre-ci` point, then pre-flight step 9's command, saved to a `mktemp`
-file, as `scripts/full-suite-run.sh --run <id> -- bash <file>` (each attempt
+file, as `scripts/full-suite-run.sh --run <run> -- bash <file>` (each attempt
 backgrounded, waited in-turn); exit 75 parks naming the holders, unretried. The full suite must pass
 before convergence; capture its output.
 
