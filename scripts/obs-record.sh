@@ -454,6 +454,9 @@ if [ "$have_target" -eq 1 ]; then
   [ -d "$tg_path" ] || refuse 1 "the observation target is not an existing directory"
   tg_root=$(cd -P -- "$tg_path" 2>/dev/null && pwd -P) \
     || refuse 1 "cannot resolve the observation target"
+  # A symlink can lead a clean configured path onto one that is not.
+  [ "$(printf '%s' "$tg_root" | tr -d '\000-\037\177')" = "$tg_root" ] \
+    || refuse 1 "the observation target's canonical path carries a control byte or tab"
   tg_shape=0
   if [ "${tg_root##*/}" = specs ]; then
     tg_parent=${tg_root%/*}

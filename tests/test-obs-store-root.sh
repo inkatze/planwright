@@ -411,6 +411,15 @@ for m in "{other: $o/specs, other: $o/specs}" "{other $o/specs}" "{other: \"$o/s
 done
 printf 'observation_targets: {}\n' >"$t/.claude/planwright.local.yml"
 refused "an alias the empty map lacks" "no observation target is configured" "$rec" --target other --text x
+# A clean configured path can still canonicalize, through a symlink, onto one
+# carrying a tab.
+ctl="$tmp/ctl${TAB}repo"
+new_repo "$ctl"
+mkdir -p "$ctl/specs"
+ln -s "$ctl/specs" "$tmp/ctl-link"
+printf 'observation_targets: {ctl: %s}\n' "$tmp/ctl-link" >"$t/.claude/planwright.local.yml"
+refused "a target whose canonical path carries a tab" "control byte" "$rec" --target ctl --text x
+[ ! -e "$ctl/specs/_observations" ] || fail "target: the tab-bearing canonical target was written into"
 printf 'observation_targets: {other: %s}\n' "$o/specs" >"$t/.claude/planwright.local.yml"
 
 # --- REQ-F1.3: the hygiene screen --------------------------------------------
