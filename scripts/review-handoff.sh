@@ -64,6 +64,14 @@ unset CDPATH
 
 prog=review-handoff
 TAB=$(printf '\t')
+here=$(cd "$(dirname "$0")" && pwd)
+spec_parse_sh="$here/spec-parse.sh"
+if [ ! -f "$spec_parse_sh" ] || [ ! -r "$spec_parse_sh" ]; then
+  printf '%s\n' "$prog: spec-parse.sh missing or unreadable: $spec_parse_sh" >&2
+  exit 2
+fi
+# shellcheck source=scripts/spec-parse.sh
+. "$spec_parse_sh" || exit 2
 NL='
 '
 
@@ -405,9 +413,8 @@ printf '%s' "$truncated$notes" >>"$stage/caller-search.txt"
 if [ -n "$tasks" ]; then
   : >"$stage/contract.md"
   for id in $tasks; do
-    awk -v id="$id" '
-      BEGIN { gsub(/\./, "[.]", id) }
-      $0 ~ "^### Task " id "( |$)" { on = 1; found = 1; print; next }
+    awk -v id="$id" "$spec_parse_awk_grammar"'
+      spec_parse_task_id($0) == id { on = 1; found = 1; print; next }
       on && /^#{1,3} / { on = 0 }
       on { print }
       END { exit !found }' "$tasks_file" >>"$stage/contract.md" \
