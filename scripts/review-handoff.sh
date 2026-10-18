@@ -457,20 +457,19 @@ printf '%s' "$truncated$notes" >>"$stage/caller-search.txt"
 if [ -n "$tasks" ]; then
   : >"$stage/contract.md"
   for id in $tasks; do
-    # Ids compare as strings, so 2.0 or 02 never selects Task 2. A column-0
-    # fence is tracked rather than skipped: the slice carries its lines, and a
-    # heading inside one neither starts nor ends a block.
+    # The block's line range comes from the shared fence lexer, so a heading
+    # inside a column-0 fence neither starts nor ends it, and is then printed
+    # whole, fenced lines included. Ids compare as strings, so 2.0 or 02
+    # never selects Task 2.
     rc=0
-    awk -v id="$id" "$spec_parse_awk_grammar"'
-      /^```/ { fence = !fence; if (on) print; next }
-      fence { if (on) print; next }
-      (spec_parse_task_id($0) "") == (id "") { on = 1; found = 1; print; next }
-      on && /^#{1,3} / { on = 0 }
-      on { print }
-      END { if (!found) exit 3 }' "$tasks_file" >>"$stage/contract.md" || rc=$?
+    range=$(awk -v id="$id" "$spec_parse_awk_fence$spec_parse_awk_grammar"'
+      s && !e && /^#{1,3} / { e = NR - 1 }
+      !s && (spec_parse_task_id($0) "") == (id "") { s = NR }
+      END { spec_parse__fence_eof(); if (!s) exit 5; print s "," (e ? e : NR) }' "$tasks_file") || rc=$?
     case $rc in
-      0) ;;
-      3) die 2 "--tasks-file holds no block for Task $id" ;;
+      0) sed -n "${range}p" "$tasks_file" >>"$stage/contract.md" ;;
+      5) die 2 "--tasks-file holds no block for Task $id" ;;
+      3) die 2 "--tasks-file ends inside an open code fence" ;;
       *) die 2 "reading the task contract from --tasks-file failed (awk exit $rc)" ;;
     esac
   done
