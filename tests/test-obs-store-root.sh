@@ -136,6 +136,15 @@ if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qx "stranded${TAB}1"; then
 else
   fail "carry dry run on an in-repo root (rc=$rc): $out $err"
 fi
+# An inherited GIT_DIR naming some other repository (a hook running there)
+# must not redirect a same-repo carry either.
+new_repo "$tmp/stray"
+at "$w" env GIT_DIR="$tmp/stray/.git" "$S/observation-carry.sh" --dry-run "$w"
+if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qx "stranded${TAB}1"; then
+  ok "carry: an inherited GIT_DIR does not redirect a same-repo carry"
+else
+  fail "carry dry run in-repo under a stray GIT_DIR (rc=$rc): $out $err"
+fi
 
 primary_before=$(count "$w/store/_observations/entries")
 at "$wt" "$rec" --text 'from a worktree'
