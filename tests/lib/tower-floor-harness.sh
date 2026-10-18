@@ -9,6 +9,7 @@
 # tower profile in play.
 # shellcheck disable=SC2016 # the unexpanded $ forms are the inputs under test
 # shellcheck disable=SC2034 # PROFILE and the decide globals are read by the sourcing suites and the shared expect
+unset CDPATH
 # shellcheck source=tests/lib/policy-guard-harness.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/policy-guard-harness.sh"
 # shellcheck source=tests/lib/permission-matcher.sh
