@@ -145,6 +145,14 @@ check "the park is pushed under Awaiting input, naming the PR" \
   grep -q '^- \*\*Task 1\*\* — pending ready-flip: redraft-pr-42 failed on ' <<<"$(mp_origin_tasks)"
 check "the handoff names the un-drafted PR" grep -q 'PR #42 is no longer a draft' <<<"$OUT"
 
+echo "# a failing re-draft after an unreadable check claims no un-draft it never saw"
+mp_fixture
+: >"$GHS/view_fail_at.2"
+echo 1 >"$GHS/undo_rc"
+run --copilot
+check "the handoff says the PR may no longer be a draft" grep -q 'PR #42 may no longer be a draft' <<<"$OUT"
+check "the handoff does not state an un-draft as fact" not grep -q 'PR #42 is no longer a draft' <<<"$OUT"
+
 echo "# a park that cannot be written says why, never silent"
 mp_fixture
 : >"$GHS/undraft_on_request"

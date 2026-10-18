@@ -158,8 +158,10 @@ if after=$(state); then
     'true '*) exit "$outcome" ;;
   esac
   why='came back ready after the request'
+  now='is no longer a draft'
 else
   why='could not be read after the request, so it is treated as un-drafted'
+  now='may no longer be a draft'
 fi
 say "the draft state of PR #$PR $why"
 if gh pr ready "$PR" --repo "$REPO" --undo >/dev/null 2>&1; then
@@ -168,7 +170,7 @@ if gh pr ready "$PR" --repo "$REPO" --undo >/dev/null 2>&1; then
 fi
 
 # 4. The re-draft failed: the PR may be ready with no one having flipped it.
-say "the re-draft failed: PR #$PR is no longer a draft, and no one marked it ready"
+say "the re-draft failed: PR #$PR $now, and no one marked it ready"
 if [ "${#UNIT[@]}" = 0 ]; then
   say 'no unit was named, so nothing was parked; put the PR back to draft by hand'
   exit 5
