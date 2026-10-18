@@ -496,8 +496,9 @@ printf 'observation_targets: {other: %s}\n' "$o/specs" >"$t/.claude/planwright.l
 
 before=$(count "$o/specs/_observations")
 for txt in 'saw it in /home/someone/notes' 'path=/etc/planwright/x' 'see ~/notes/x' \
-  'the ~ dir' '~alice/x holds it' 'ask example.com' 'the box at build.local' \
-  'host ci.internal was down' 'mail ops@example.org' 'url https://github.com/x/y'; do
+  'then cd ~' '~alice/x holds it' 'ask example.com' 'the box at build.local' \
+  'host ci.internal was down' 'mail ops@example.org' 'url https://github.com/x/y' \
+  'open https://example.com' 'naïve /home/someone/x'; do
   at "$t" "$rec" --target other --text "$txt"
   if [ "$rc" -eq 1 ]; then
     case $err in
@@ -520,7 +521,8 @@ else
   fail "screen: a refused fragment left a file"
 fi
 for txt in 'scripts/obs-record.sh and docs/spec-location.md drift' 'run /spec-draft then /polish' \
-  'took ~400s, see ./tests/x.sh' 'D-17/D-18 and v1.2.3, e.g. this'; do
+  'took ~400s, see ./tests/x.sh' 'D-17/D-18 and v1.2.3, e.g. this' \
+  'the .env.local file' 'a ~ b' '~~struck~~ out' 'see café/notes/x'; do
   at "$t" "$rec" --target other --text "$txt"
   if [ "$rc" -eq 0 ]; then
     ok "screen: writes '$txt'"

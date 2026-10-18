@@ -66,13 +66,15 @@
 #              hygiene screen over its scope and text, which refuses, never
 #              rewrites, anything matching one of three classes: an absolute
 #              path (a token opening /<segment>/; a slash command such as
-#              /spec-draft is not one), a ~ path (a ~ opening a token and not
-#              followed by a digit, so ~400s stays prose), and a dotted
-#              hostname whose last label is local, internal, or one of the
-#              public suffixes screen_class lists, which leave out those that
-#              double as common file extensions (sh, md, py, and the like) so
-#              a repo-relative file name is not read as a host. Excludes
-#              --obs-dir.
+#              /spec-draft is not one), a ~ path (a ~ opening a token and
+#              followed by /, a letter, or the end of the text, so ~400s,
+#              a ~ b, and ~~struck~~ stay prose), and a dotted hostname whose
+#              last label is local, internal, or one of the public suffixes
+#              screen_class lists, which leave out those that double as common
+#              file extensions (sh, md, py, and the like) so a repo-relative
+#              file name is not read as a host; nor is a name opening right
+#              after a dot (.env.local) or a relative path's slash. Bytes past
+#              ASCII count as letters. Excludes --obs-dir.
 #
 # On success the created fragment path is printed to stdout and the exit is 0.
 #
@@ -234,8 +236,12 @@ target_entry() {
 # screen_class <line> — print the hygiene screen class the line matches first
 # (absolute path, ~ path, hostname), or nothing when it is clean. The suffix
 # list is fixed here; a name ending in one only counts with a label before it.
+# Bytes past ASCII read as letters, so a word in any script is one token. A
+# lone ~ inside the text is prose, not a path; one ending it is the home
+# directory. A name opening right after a dot (.env.local) or after a slash
+# inside a relative path (dir/file.io) is a filename, not a host.
 screen_class() {
-  printf '%s\n' "$1" | awk '
+  printf '%s\n' "$1" | LC_ALL=C tr '\200-\377' '[a*]' | awk '
     BEGIN {
       n = split("com net org edu gov mil int info biz io ai app dev co me tv cloud " \
         "us uk de fr ca au jp cn ru nl eu ch se no es it br be at dk fi ie nz kr " \
@@ -245,10 +251,17 @@ screen_class() {
     {
       s = " " $0 " "
       if (s ~ /[^A-Za-z0-9._~-]\/[A-Za-z0-9._~-]+\//) { print "absolute path"; exit }
-      if (s ~ /[^A-Za-z0-9._~-]~[^0-9]/) { print "~ path"; exit }
-      while (match(s, /[A-Za-z0-9][A-Za-z0-9.-]*/)) {
-        tok = substr(s, RSTART, RLENGTH)
-        s = substr(s, RSTART + RLENGTH)
+      if (s ~ /[^A-Za-z0-9._~-]~(\/|[A-Za-z]|[ \t]*$)/) { print "~ path"; exit }
+      rest = s
+      off = 0
+      while (match(rest, /[A-Za-z0-9][A-Za-z0-9.-]*/)) {
+        st = off + RSTART
+        tok = substr(rest, RSTART, RLENGTH)
+        off = st + RLENGTH - 1
+        rest = substr(rest, RSTART + RLENGTH)
+        p1 = substr(s, st - 1, 1)
+        p2 = substr(s, st - 2, 1)
+        if (p1 == "." || (p1 == "/" && p2 ~ /[A-Za-z0-9._~-]/)) continue
         sub(/[.-]+$/, "", tok)
         k = split(tok, lab, ".")
         if (k >= 2 && lab[k - 1] != "" && (tolower(lab[k]) in tld)) { print "hostname"; exit }
