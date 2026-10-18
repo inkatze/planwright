@@ -1,0 +1,27 @@
+# Rule phrasings doctrine/human-gates.md retired, refused by
+# scripts/check-retired-phrasings.sh over doctrine/, skills/, docs/, and the
+# README (human-gates REQ-H1.2, D-10). One POSIX ERE per line, lowercase,
+# matched against each paragraph lowercased with its whitespace collapsed, so
+# a phrasing wrapped across lines is still caught.
+#
+# A short phrase that no frozen record carries verbatim belongs in the
+# purged-identifier seed instead (config/purged-identifiers.seed), which also
+# covers specs/ and history; it must not be listed here, because this file is
+# part of the tree that seed scans.
+
+(^|[^-])review gate
+universal gate
+never[- ]auto-merge
+no auto-merge
+never[- ]force-push
+new commits only
+history is never rewritten
+two reserved controls
+autonomous pr-ready marking
+all-drafts
+human-reserved, permanently
+pending-sign-off\]
+bootstrap (d-26|req-j1\.[14])
+(draft→ready|draft-to-ready) flip (is|stays) (the human'?s|yours)
+(ready and merge|flip and (the )?merge) (are|stay) (the human'?s|yours)
+every pr (the framework (creates|opens) )?is a draft
