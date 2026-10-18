@@ -657,6 +657,11 @@ rm -f "$tmp/unmarked/planwright-spec-root.yml"
 ln -s "$mk/planwright-spec-root.yml" "$tmp/unmarked/planwright-spec-root.yml"
 run base "$SH" "$RESOLVER" marker "$tmp/unmarked"
 assert_eq "marker kind: a symlinked marker is refused" 5 "$rc"
+mkdir -p "$tmp/mk${TAB}tab"
+mark "$tmp/mk${TAB}tab"
+ln -s "$tmp/mk${TAB}tab" "$tmp/mk-link"
+run base "$SH" "$RESOLVER" marker "$tmp/mk-link"
+assert_eq "marker kind: a canonical path carrying a tab is refused" "5|" "$rc|$out"
 for args in "marker" "marker $mk --primary" "marker $mk --posture" "marker $mk $mk"; do
   # shellcheck disable=SC2086 # one argument per word
   run base "$SH" "$RESOLVER" $args

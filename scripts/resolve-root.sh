@@ -96,7 +96,8 @@
 #   or invalid marker, a ~ value without an absolute HOME, a control byte or
 #   tab in the canonical path; --init could not derive a project identifier
 #   or write, or was given a repo-tracked value outside the primary
-#   checkout; for marker, no such directory or no valid marker) · 6
+#   checkout; for marker, no such directory, a canonical path carrying a
+#   control byte or tab, or no valid marker) · 6
 #   spec_root unreadable (a malformed repo-tracked config
 #   file, or a repo-tracked value carrying a control byte; or a broken
 #   install).
@@ -657,6 +658,8 @@ case $kind in
     [ -z "$view" ] && [ -n "$marker_dir" ] || usage
     [ -d "$marker_dir" ] || refuse_marker "it is not a directory"
     sr_primary=$(canon "$marker_dir") || refuse_marker "the directory cannot be entered"
+    [ "$(printf '%s' "$sr_primary" | tr -d '\000-\037\177')" = "$sr_primary" ] \
+      || refuse_marker "its canonical path carries a control byte or tab"
     check_marker
     emit marker "$sr_primary"
     ;;
