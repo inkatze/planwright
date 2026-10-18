@@ -42,7 +42,8 @@ if [ ! -f "$HELPER" ]; then
 fi
 
 # The stub: $GHS/ready marks the PR ready; undraft_on_request flips it ready
-# when a review is requested; view_fail_at.<n> fails the nth view; request_rc
+# when a review is requested; view_fail_at.<n> fails the nth view and
+# view_json.<n> answers it verbatim; request_rc
 # and undo_rc are the exits of the request and the re-draft.
 cat >"$MP_STUBBIN/gh" <<'GHSTUB'
 #!/bin/sh
@@ -60,6 +61,10 @@ case "$1 $2" in
     if [ -f "$GHS/view_fail_at.$n" ]; then
       echo 'HTTP 502: Bad Gateway' >&2
       exit 1
+    fi
+    if [ -f "$GHS/view_json.$n" ]; then
+      cat "$GHS/view_json.$n"
+      exit 0
     fi
     draft=true
     [ ! -f "$GHS/ready" ] || draft=false
@@ -161,6 +166,22 @@ run --copilot
 check "an unreadable starting state skips (exit 3)" [ "$CODE" = 3 ]
 check "no request is made over an unreadable starting state" [ "$(requests)" = 0 ]
 check "no re-draft runs over an unreadable starting state" [ "$(undos)" = 0 ]
+
+echo "# a starting state missing a field is unreadable, not ready"
+for json in '{"state":"OPEN","baseRefName":"main"}' '{"isDraft":null,"state":"OPEN","baseRefName":"main"}' \
+  '{"isDraft":true,"state":"OPEN","baseRefName":""}' '{"isDraft":true,"baseRefName":"main"}'; do
+  mp_fixture
+  printf '%s\n' "$json" >"$GHS/view_json.1"
+  run --copilot
+  check "an incomplete starting state skips (exit 3): $json" [ "$CODE" = 3 ]
+  check "no request is made over an incomplete starting state: $json" [ "$(requests)" = 0 ]
+done
+
+echo "# an incomplete state after the request is treated as un-drafted"
+mp_fixture
+printf '%s\n' '{"state":"OPEN","baseRefName":"main"}' >"$GHS/view_json.2"
+run --copilot
+check "an incomplete state after the request runs the re-draft" [ "$(undos)" = 1 ]
 
 echo "# a failed request still checks the draft state"
 mp_fixture

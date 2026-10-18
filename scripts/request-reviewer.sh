@@ -105,11 +105,15 @@ command -v jq >/dev/null 2>&1 || {
   exit 3
 }
 
-# state — print `<isDraft> <state> <base>`; non-zero when unreadable.
+# state — print `<isDraft> <state> <base>`; non-zero when unreadable, which
+# includes an answer missing any of the three (a null draft flag is not "ready").
 state() {
   local j
   j=$(gh pr view "$PR" --repo "$REPO" --json isDraft,state,baseRefName 2>/dev/null) || return 1
-  printf '%s' "$j" | jq -er '"\(.isDraft) \(.state) \(.baseRefName)"' 2>/dev/null
+  printf '%s' "$j" | jq -er 'select((.isDraft | type) == "boolean"
+    and (.state | type) == "string" and (.state | test("^[A-Z_]+$"))
+    and (.baseRefName | type) == "string" and (.baseRefName | length) > 0)
+    | "\(.isDraft) \(.state) \(.baseRefName)"' 2>/dev/null
 }
 
 # 1. Where the PR stands before the request.
