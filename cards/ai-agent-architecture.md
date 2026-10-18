@@ -67,8 +67,8 @@ with the options it rejected and why.
   date, since these change within months.
 - **The assumption register** — existing `feasibility` entries and their thresholds; the seat
   proposes against them.
-- **Spike results under `spikes/`** — what a prototype actually measured, which outranks any
-  vendor claim.
+- **Spike findings in the assumption register** — what a prototype actually measured,
+  graduated into `feasibility` entries as evidence, which outranks any vendor claim.
 - **Refuse without:** a dated source or a measurement for any claim that a model can do a task
   at a quality, cost, or latency; with none, the seat records the claim as a `feasibility`
   assumption and names the spike that would test it.
@@ -83,7 +83,6 @@ with the options it rejected and why.
   source, or a cost.
 - `decisions.md`: open or deferred entries whose discipline is AI or agent architecture or
   software engineering.
-- `spikes/`: findings files from prototype work.
 
 ## Artifact template
 

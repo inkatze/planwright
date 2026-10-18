@@ -66,8 +66,8 @@ threats to design against), with the options it rejected and why.
   its documentation or a measurement, with the version and date.
 - **The assumption register** — existing `feasibility` entries and their thresholds; the seat
   proposes against them.
-- **Spike results under `spikes/`** — what a prototype actually showed, which outranks any
-  estimate.
+- **Spike findings in the assumption register** — what a prototype actually showed,
+  graduated into `feasibility` entries as evidence, which outranks any estimate.
 - **Refuse without:** the appetite in the brief; with none, there is nothing to size scope or a
   spike against, and the seat returns its mandate questions as open assumptions instead of
   proposing a plan.
@@ -81,7 +81,6 @@ threats to design against), with the options it rejected and why.
 - `assumptions.md`: every entry tagged `feasibility`.
 - `decisions.md`: open or deferred entries whose discipline is software engineering or AI or
   agent architecture.
-- `spikes/`: findings files from prototype work.
 
 ## Artifact template
 
