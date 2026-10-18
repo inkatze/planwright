@@ -43,6 +43,10 @@ mise.local.toml
 # side of its loop-end handoff. Same class as the handover brief: per-worktree,
 # overwritten per run, read by the parent skill or /resume, never source.
 .claude/polish-audit.md
+# The review handoff bundle (review-effectiveness D-3): rebuilt per review pass
+# by scripts/review-handoff.sh from the committed head, read by every lens,
+# never source. The builder stages beside it, so its staging dirs match too.
+.claude/review-handoff*/
 # Custom-steps records (custom-steps D-16): per-run step records and captured
 # output written by scripts/step-record.sh, folded into the PR body, never source.
 .claude/steps
