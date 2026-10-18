@@ -18,8 +18,8 @@ interactive elicitation that turns an idea plus its seed material into a
 compliant four-file bundle at `<root>/<spec>/`, Status Draft, committed on the
 spec branch. Drafting ends where comprehension begins: `/spec-kickoff` walks
 the Draft to sign-off and flips it Ready. This skill never pushes, never
-opens a PR, and never flips a status to Ready — sign-off is a reserved human
-control it has no business near.
+opens a PR, and never flips a status to Ready — sign-off is a human gate
+it has no business near.
 
 ## Doctrine
 
@@ -402,8 +402,8 @@ committed prose neutralizes them.
 3. **Commit** (D-41) when `commit_on_draft` is true: one commit on
    `planwright/<spec>/spec` containing the four files and the
    `_observations` consumption writes, message `feat(spec): draft specs/<spec> bundle`
-   (extend mode: `feat(spec): extend specs/<spec> — <summary>`). New commits
-   only — never force-push, amend, squash, or rebase (REQ-J1.4). Opt-out
+   (extend mode: `feat(spec): extend specs/<spec> — <summary>`). Rewriting
+   the spec branch is a human gate (`doctrine/human-gates.md`). Opt-out
    set: leave the work uncommitted and say so explicitly.
 4. **Hand off.** Report: the bundle path and branch, validator outcome,
    seeds consumed (and archived), fold-detection outcome, and the next step —

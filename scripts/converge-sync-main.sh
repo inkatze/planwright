@@ -20,7 +20,7 @@
 # WHAT IT MAY NOT DO. `git pull` is forbidden outright (REQ-B1.2): a global
 # `branch.autosetuprebase=always` silently rewrites it into a rebase, and
 # rebase — like amend, squash, and force-push — rewrites published history and
-# breaks the content anchor (bootstrap REQ-J1.4). So the sync is always an
+# breaks the content anchor (doctrine/human-gates.md). So the sync is always an
 # explicit fetch followed by an explicit merge, and `merge.ff` is pinned to its
 # default at the call site so an ambient `merge.ff=only` cannot turn a routine
 # non-fast-forward sync into a failure that looks like a conflict.

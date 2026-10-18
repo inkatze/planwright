@@ -14,9 +14,9 @@
 #            are editable at the moment they are checked, so a violation FAILS.
 #            The PR title is the squash-merge subject, and squash is this
 #            repo's only merge method, so it is the subject that reaches main.
-#   <range>  commits that already exist. The framework never rewrites history
-#            (REQ-J1.4), so a violation here has no remedy short of the one
-#            thing the framework forbids: it is REPORTED and does not fail.
+#   <range>  commits that already exist. Pushed history stays append-only
+#            (doctrine/human-gates.md), so a violation here has no remedy short
+#            of a rewrite: it is REPORTED and does not fail.
 #
 # Subject LENGTH already worked this way. Conventional FORMAT did not, and the
 # asymmetry had no reasoning behind it — a single `wip:` subject reddened a

@@ -16,10 +16,9 @@
 #   - NEVER advances or touches shared local `main`: the carry is built with git
 #     plumbing (a temp index + `commit-tree`) and pushed straight to the chore
 #     branch ref; no checkout, no local branch, no local-`main` fast-forward.
-#   - NEVER merges the PR and NEVER marks it ready — merge/ready stay the human's
-#     (REQ-E1.4). The PR is always a DRAFT, matching planwright's "the draft→ready
-#     flip is the human's" floor.
-#   - NEVER force-pushes: the chore branch grows by NEW commits only. When it
+#   - NEVER merges the PR and NEVER marks it ready (REQ-E1.4): the PR is always
+#     a DRAFT, and its merge follows merge_policy (doctrine/human-gates.md).
+#   - NEVER force-pushes: the chore branch only fast-forwards. When it
 #     already exists the new commit's parent is its tip (a fast-forward); when it
 #     does not, the parent is `origin/main`.
 #   - IDEMPOTENT: fragments already on `origin/main` OR already on the chore

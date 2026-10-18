@@ -1063,7 +1063,7 @@ A non-zero exit from that line parks the flight, naming what the line printed."
     printf '\n## Landing\n\n'
     printf '%s\n' "$_landing"
     printf '\n## Rules\n\n'
-    printf '%s\n' "- New commits only: no amend, rebase, squash, or force-push."
+    printf '%s\n' "- Pushed history stays append-only: no force-push (doctrine/human-gates.md)."
     printf '%s\n' "- Write no spec state and edit no spec bundle under \`$spec_rel/<spec>/\`; a flight"
     printf '%s\n' "  is specless. The record file under \`$spec_rel/_flights/\` is not a bundle."
     printf '%s\n' "- Unattended: never block on a question. What needs a human parks the flight."

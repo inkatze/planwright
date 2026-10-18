@@ -3,8 +3,8 @@
 planwright can run a **fleet**: several specs advancing at once, each unit
 executed by its own isolated worker, supervised by a meta-orchestrator. This is
 planwright as an **agentic software factory**: standardized inputs (signed
-specs), an automated assembly path, automated quality control, and a human
-review gate at the end of the line. This guide is
+specs), an automated assembly path, automated quality control, and your
+merge at the end of the line. This guide is
 the approachable path into that mode — one command, one surface to watch, no
 multiplexer knowledge required. The approachable path is the *default*
 presentation of fleet operation, not a simplified fallback: full execution
@@ -69,8 +69,10 @@ doctrine covers this in depth):
 
 The seams do not trade off: picking the richest execution backend never forces
 a richer surface on you, and the legible default surface never costs you
-worker quality. One hard invariant is carried at every tier: planwright
-**never auto-merges**; the draft-to-ready flip and the merge stay yours.
+worker quality. One floor is carried at every tier: no agent merges outside
+the merge policy you configured
+([Human Gates](../doctrine/human-gates.md#the-floor)), and the tower profile
+denies the merge and the draft-to-ready flip under every value.
 
 ## What you watch: the decision queue
 
@@ -921,7 +923,8 @@ Two properties hold on every rung:
   is refused — the run aborts rather than trading safety for progress. The
   guards: the worker-settings deny profile (the restricted permission set
   workers run under — reviewed and installed by you, with sign-off, never
-  applied by planwright itself), never-auto-merge, never-force-push, and the
+  applied by planwright itself), the merge floor and append-only pushed
+  history ([Human Gates](../doctrine/human-gates.md#the-floor)), and the
   execution freshness gate (the pre-dispatch check that the spec is unchanged
   since its sign-off).
 - **Never silent.** Every descent is logged and surfaced; you can always tell

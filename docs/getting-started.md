@@ -159,15 +159,17 @@ ready to push and open draft PRs.
 
 ## 3. Operating the pilot-in-command model
 
-You keep two controls, permanently. Everything between them the framework
-handles once a spec is signed off.
+You keep two human gates at every tier. Everything between them the
+framework handles once a spec is signed off.
 
 - **Sign-off (before execution).** A spec executes only after you walk it
   section by section at kickoff and sign the resulting brief. No sign-off, no
   execution — there is no bypass flag.
-- **Merge (after execution).** Every PR the framework opens is a **draft**.
-  Your draft→ready flip is the universal review gate, and merge is always
-  yours. planwright never auto-merges, at any tier.
+- **Merge (after execution).** You authorize every merge. No agent merges
+  outside the `merge_policy` you configured (default `human`: you merge by
+  hand), and no value lets an agent merge a PR that carries a sign-off item
+  ([the floor](../doctrine/human-gates.md#the-floor)). Your merge is also the
+  sign-off of any pending item; marking a PR ready approves nothing.
 
 Between those, the intervention contract has three phases: **sign-off before**
 execution, **rare hard pauses during** it (security-sensitive zones,
@@ -208,10 +210,12 @@ three are read-only.
 
 ### Invariants the framework holds everywhere
 
-Never auto-merge; never act on a spec that is not Ready or Active; never
-force-push, amend, squash, or rebase (new commits only); all framework-created
-PRs are drafts.
-These are constraints, not future capabilities.
+The list of human gates, policies, and skill ownership rules is
+[Human Gates](../doctrine/human-gates.md), each policy with its knob and
+default; its floor section states what no setting changes. Among the gates:
+never act on a spec that is not Ready or Active, and pushed history stays
+append-only outside an operator-requested force-push. These are constraints,
+not future capabilities.
 
 In the planwright repo itself the history invariants are additionally
 backstopped repo-side by tracked git hooks (`githooks/`, wired once per
@@ -384,7 +388,7 @@ you.
 > **Release-tag pushes vs. the worker push guardrails.** planwright's
 > [worker-settings profile](../config/worker-settings.json) denies force pushes
 > and any push whose destination is `main`, `master`, or a spec branch, to keep
-> the never-force-push / never-touch-`main` invariants intact for autonomous workers. A release-tag push
+> pushed history append-only and `main` untouched for autonomous workers. A release-tag push
 > (`git push origin <tag>`, e.g. `git push origin v0.2.1`; the publish step pushes the
 > same tag ref via `git push origin refs/tags/<tag>`) matches none of those deny rules
 > and stays allowed — the guardrails and the human publish path coexist. The publish

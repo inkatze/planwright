@@ -9,15 +9,16 @@
 # REQ-K1.8); scripts/check-options-reference.sh enforces it (CI wiring: Task 2).
 
 # Auto-commit toggles for completed state transitions (D-41). Commit only,
-# never push; push, sign-off, and merge remain human-reserved.
+# never push: the push is a composition contract and sign-off and merge
+# authorization are human gates (doctrine/human-gates.md).
 commit_on_draft: true
 commit_on_kickoff: true
 commit_on_state_move: true
 
 # Whether /spec-kickoff marks the spec PR ready as the terminal step of a clean
-# kickoff completion (D-6, D-7; REQ-D1.2, REQ-D1.3) — the narrow exception to
-# bootstrap D-26's all-drafts rule (only the spec PR here; task PRs follow
-# ready_flip_policy; merge stays human, never auto-merge). false leaves the spec
+# kickoff completion (D-6, D-7; REQ-D1.2, REQ-D1.3): the spec-PR flip policy
+# of doctrine/human-gates.md (only the spec PR here; task PRs follow
+# ready_flip_policy and merge follows merge_policy). false leaves the spec
 # PR draft for the human to un-draft by hand. The flip never fires when sign-off
 # parked on a fork or the pre-flip verification did not converge, regardless of
 # this value.

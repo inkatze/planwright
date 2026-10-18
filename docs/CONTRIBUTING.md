@@ -32,8 +32,9 @@ bounded by spec quality:
    control; there is no bypass.
 3. **`/orchestrate` + `/execute-task`** — the framework advances tasks
    test-first, runs full CI, converges via `/polish`, and opens **draft** PRs.
-4. **Review and merge** — a human reviews the draft PR, flips it to ready, and
-   merges. planwright never auto-merges.
+4. **Review and merge** — a human reviews the PR and authorizes the merge,
+   under the `merge_policy` the repository configured
+   ([Human Gates](../doctrine/human-gates.md#the-floor)).
 
 If you are unsure which size your change is, draft a spec — the cost is low and
 the comprehension pass usually pays for itself.
@@ -322,8 +323,10 @@ one-time self-re-anchor described in `doctrine/spec-format.md`.
 
 - **Conventional commits** (`type(scope): subject`) — enforced on commits ahead
   of `origin/main` and on the PR title.
-- **New commits only.** Never force-push, amend, squash, or rebase a planwright
-  branch (REQ-J1.4); history is append-only.
+- **Pushed history is append-only.** Rewriting `main`, a protected branch, or
+  a spec branch is a human gate; reshaping a unit branch's never-pushed
+  commits is the `unpushed_rewrite` policy
+  ([Human Gates](../doctrine/human-gates.md)).
 - **Branch naming** follows `planwright/<spec>/task-<ids>` so the
   `tasks-pr-sync` hook can map a PR to its task. See
   [conventions.md](conventions.md).

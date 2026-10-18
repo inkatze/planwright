@@ -33,10 +33,11 @@ from a clean machine to running the pipeline end to end.
 - **Specs before code.** Every feature is four files — requirements, design,
   tasks, tests — reviewed and signed off before a line is written. The spec is
   the contract the agent executes against, not an afterthought.
-- **You keep the controls.** Two actions are human-reserved, permanently:
+- **You keep the controls.** Two approvals are human gates at every tier:
   **sign-off** (no spec runs until you have walked it and signed the brief) and
-  **merge** (every PR is a draft; planwright never auto-merges). Everything in
-  between is one revert from undone.
+  **merge** (no agent merges outside a policy you configured). Everything in
+  between is one revert from undone. The full list, and which acts are
+  policies you tune, is in [Human Gates](doctrine/human-gates.md).
 - **Guardrailed autonomy.** Review and execution run in bounded loops —
   iteration caps, convergence criteria, no-progress detection — with hard pauses
   at security-sensitive or irreversible steps.
@@ -76,8 +77,8 @@ controls:
    /spec-draft  →  /spec-kickoff  →  /orchestrate  →  /execute-task  →  review & merge
                         ▲                                                      ▲
                     sign-off                                                 merge
-                  (gate 1: no spec                                    (gate 2: planwright
-                   runs unsigned)                                      never auto-merges)
+                  (gate 1: no spec                                    (gate 2: merges only
+                   runs unsigned)                                      under your policy)
 
    └──── you author ────┘   └──── planwright runs the middle ────┘   └─── you decide ───┘
 ```
@@ -102,8 +103,7 @@ One signed-off spec is autopilot; several at once is a factory floor. Fleet
 mode turns planwright into a small **agentic software factory**: standardized
 inputs (signed specs), an automated assembly path (isolated workers in
 dedicated worktrees), automated quality control (test-first execution, full
-CI, bounded review convergence), and a human review gate at the end of the
-line.
+CI, bounded review convergence), and your merge at the end of the line.
 
 ```text
 /orchestrate --fleet
@@ -115,26 +115,29 @@ dispatch step itself, one isolated worker per task, all under a fleet-wide
 concurrency bound), and renders a single attention surface: a decision queue plus
 per-worker heartbeats. You answer only the questions that are yours. The same
 two controls hold at fleet scale: every unit executes from a spec you signed,
-and every PR lands as a draft for you to merge. See
+and no PR merges outside the merge policy you configured. See
 [Fleet operation](docs/fleet.md).
 
 ## How it works
 
 ### The two controls
 
-planwright is an autopilot, not a replacement crew. Two controls are
-human-reserved, permanently:
+planwright is an autopilot, not a replacement crew. Two controls are human
+gates at every tier:
 
 - **Sign-off** — a spec executes only after you walk it at kickoff and sign the
   resulting brief. There is no bypass flag.
-- **Merge** — every PR the framework creates is a draft; your draft→ready flip is
-  the universal review gate, and merge is always your action.
+- **Merge** — you authorize every merge. Under the default `merge_policy` you
+  merge by hand, and your merge is also the sign-off of any pending item the PR
+  carries. Marking a PR ready is a policy (`ready_flip_policy`) and approves
+  nothing.
 
 Between them, the intervention contract has three phases: sign-off before
 execution, rare hard pauses during it (security-sensitive zones, destructive
-operations, irreducible judgment forks), and review plus merge after. Invariants
-the framework holds everywhere: never auto-merge; never act on a spec that is not
-Ready or Active; never force-push, amend, squash, or rebase (new commits only).
+operations, irreducible judgment forks), and review plus merge after. The
+complete list of human gates, policies, and skill ownership rules, with each
+knob and its default, is [Human Gates](doctrine/human-gates.md); its floor
+section states what no setting can change.
 
 ### The four-file spec
 

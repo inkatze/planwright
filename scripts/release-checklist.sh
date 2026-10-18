@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # release-checklist.sh — the public-release readiness gate (Task 19; REQ-J1.5,
-# REQ-J1.4, D-27). planwright starts private; this checklist is what makes the
+# D-27). planwright starts private; this checklist is what makes the
 # private→public flip a verified decision instead of a remembered one.
 #
 # It VERIFIES; it never PERFORMS. In particular the `reference/` history purge
-# is a human-reserved action (REQ-J1.4: a deliberate history rewrite); this
+# is a human gate (a deliberate rewrite of main, doctrine/human-gates.md); this
 # script only confirms it happened. Nothing here mutates the repository.
 #
 # What it checks:

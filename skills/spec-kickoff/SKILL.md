@@ -359,8 +359,8 @@ most recent anchor entry never describes spec content that was not walked.
 6. **Commit** (D-41) when `commit_on_kickoff` is true: one commit on
    `planwright/<spec>/spec` with the brief, the four spec files, and any
    observation fragment from this run — first activation `feat(spec):
-   <spec> kickoff, brief + Ready flip`; later events `docs(spec): <spec> <event>`. New commits only —
-   never force-push, amend, squash, or rebase (REQ-J1.4). Opt-out: leave the
+   <spec> kickoff, brief + Ready flip`; later events `docs(spec): <spec> <event>`. Rewriting the
+   spec branch is a human gate (`doctrine/human-gates.md`). Opt-out: leave the
    work uncommitted, say so, and skip push/PR.
 7. **Push and draft PR** (REQ-B2.4, D-44). Run the Observations and Maintenance
    steps below first, so their chore commits precede the push (the ready-flip
@@ -396,9 +396,9 @@ most recent anchor entry never describes spec content that was not walked.
    <spec-PR>` **only while it is still a draft**; skip it when the PR is already
    ready or merged/closed (a benign no-op whose non-zero exit must not trip
    the degradation arm below). This is the
-   narrow exception to bootstrap D-26's all-drafts rule: **only the spec PR**,
-   and only this skill, marks a PR ready; **task PRs stay drafts**. Merge stays
-   the human's second key — **never auto-merge**.
+   `mark_spec_pr_ready_on_kickoff` policy (`doctrine/human-gates.md`):
+   **only the spec PR**; task PRs follow `ready_flip_policy`. Merge stays the
+   human's second key, under `merge_policy`.
    - **Do not flip** on an unclean completion: leave
      the PR draft and say so in the handoff.
    - **Opt-out:** `mark_spec_pr_ready_on_kickoff: false` suppresses the flip;

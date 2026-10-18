@@ -8,7 +8,7 @@ says how each is verified, and pairs with an executable verifier
 parts a machine can confirm.
 
 The checklist **verifies; it never performs.** In particular, the `reference/`
-history purge is a human-reserved action (REQ-J1.4): the checklist confirms it
+history purge is a human gate ([Human Gates](../doctrine/human-gates.md)): the checklist confirms it
 happened, it does not carry it out.
 
 ## Scope
@@ -77,7 +77,7 @@ satisfied by the work fork's first real run).
 
 ## Release-blocking gated Deferred entries
 
-### The `reference/` history purge (human-reserved, REQ-J1.4)
+### The `reference/` history purge (a human gate)
 
 - [ ] `reference/` is absent from the working tree.
 - [ ] `reference/` is absent from **all git history** — verified by a history
@@ -93,7 +93,7 @@ commits).
 **Verified by:** the script checks both the working tree and
 `git log --all -- reference`. A delete commit leaves the blobs reachable in
 history and still **BLOCKS** — the gate has teeth beyond a tree check. **The
-checklist never performs the purge** (REQ-J1.4): a human runs the rewrite, the
+checklist never performs the purge**: a human runs the rewrite, the
 checklist confirms it.
 
 ## After publishing a release

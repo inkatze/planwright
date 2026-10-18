@@ -134,7 +134,7 @@ those, never a scraped pane:
 - **The run record**, `sign-off.json` (the harness's completion marker names
   the file): eval-only, non-authoritative, unpublished, and a sign-off of
   nothing (REQ-G1.2) — the routes, dispatches, and refusals, and that no
-  reserved control was performed. It is written once, last, when the operator
+  human gate was performed. It is written once, last, when the operator
   ends the session (`that's all`, not logged as a turn), since its appearance
   is what ends the run.
 

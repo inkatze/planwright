@@ -229,7 +229,7 @@ harness provides, outside the repository, so it touches neither.
 - **Never** modify the working tree of the resumed work: no stash, clean,
   checkout, reset, or commit of in-flight changes. `/resume` only reads it
   (REQ-F2.1); D-30 specifically forbids auto-resolving uncommitted state.
-- **Never** push, create or update a PR, or merge.
+- **Contract** (`doctrine/human-gates.md`): **never** push, open a PR, or merge.
 - **Never** edit `tasks.md`, the brief, or any spec bundle file. The
   observations fragment store under `specs/_observations/` is the carved-out
   drift-log exception above, not a spec file. State moves belong to
