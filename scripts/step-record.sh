@@ -695,49 +695,7 @@ shift
 if [ "$verb" = excerpt ]; then
   [ $# -eq 1 ] && [ -z "$worktree" ] || usage
   [ -f "$1" ] && [ -r "$1" ] || bad excerpt "not a readable file"
-  lookup_limited() {
-  [ $# -eq 2 ] && [ "$1" = --head ] || usage
-  head=$2
-  is_head "$head" || bad --head "not a full commit id"
-  all_records
-  out=$(CACHE_DIR=$cache awk -v TAB="$TAB" -v H="$head" "$AWK_RECORD$AWK_LIMIT"'
-    { if (load($0)) limit_scan() }
-    END {
-      if (err) exit 2
-      for (i = 1; i <= NL; i++) if (limit_open(i)) { print "record" TAB LK[i]; found = 1 }
-      if (!found) exit 3
-    }' "$work/records")
-  lookup_print $? "$out"
-}
-
-# --- heads ----------------------------------------------------------------------
-cmd_heads() {
-  run='' point=''
-  while [ $# -gt 0 ]; do
-    case $1 in
-      --run | --point) [ $# -ge 2 ] || usage ;;
-      *) usage ;;
-    esac
-    case $1 in
-      --run) run=$2 ;;
-      --point) point=$2 ;;
-    esac
-    shift 2
-  done
-  is_point "$point" || bad --point "not a point of the vocabulary"
-  valid_run "$run"
-  scratch
-  record_files "$run" >"$work/run-records" || die 1 "cannot list the record cache"
-  out=$(CACHE_DIR=$cache awk -v TAB="$TAB" -v P="$point" "$AWK_RECORD"'
-    {
-      if (!load($0) || R_KIND != "step" || R_POINT != P || !ok_step()) next
-      if (F["head"] != F["end-head"]) move = F["head"] TAB F["end-head"]
-    }
-    END { if (err) exit 2; if (move == "") exit 3; print move }' "$work/run-records")
-  lookup_print $? "$out"
-}
-
-command -v iconv >/dev/null 2>&1 || die 1 "iconv is not on PATH"
+  command -v iconv >/dev/null 2>&1 || die 1 "iconv is not on PATH"
   scratch
   build_excerpt "$1" "$work/excerpt"
   cat "$work/excerpt" || die 1 "cannot print the excerpt"
