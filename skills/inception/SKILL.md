@@ -31,7 +31,7 @@ names a concept. `inception-format` is the normative bundle format every write
 below conforms to; `interaction-style` governs every attended turn. At their
 named steps: seed intake reads `security-posture` (artifact data-hygiene and
 the echo rule for seed text), the discipline walk reads `decision-domains`
-(the catalog it walks), the core phase reads `evidence-quality` (the
+(the catalog it walks), the fan-out reads `persona-fanout`, the core phase reads `evidence-quality` (the
 falsifiable skeleton, thresholds, and the evidence ladder), and every skipped
 prompt applies `proportionality`. A doc that does not resolve halts the run
 naming the doc and the chain consulted; `decision-domains` degrades instead,
@@ -44,6 +44,7 @@ Doctrine: run-start inception-format
 Doctrine: run-start interaction-style
 Doctrine: point-of-use security-posture (Phase 1, seed intake)
 Doctrine: point-of-use decision-domains (Phase 3, the discipline walk)
+Doctrine: point-of-use persona-fanout (Phase 3, the fan-out)
 Doctrine: point-of-use evidence-quality (Phase 5, the minimum core)
 Doctrine: point-of-use proportionality (every skipped prompt)
 
@@ -222,12 +223,13 @@ the venture touches but has not taken becomes an open `DEC-<n>` entry,
 door-classified, cited from that row (REQ-B1.3). Present the walk in small
 clusters; a domain the venture does not touch is passed with one line.
 
-Then the staffing table: each touched discipline is `named-human` (a person
-the operator names) or `unstaffed`. Persona seats are not in this release, so
-this run is zero-seat: file the single coverage-risk assumption the format
-defines for a zero-seat run, counting the unstaffed disciplines. Then the
-stakeholder map: one row per decision area, exactly one person who decides,
-plus who is aligned and informed.
+Then the staffing table: each touched discipline is `agent-persona` (a
+card), `named-human`, or `unstaffed`,
+and `scripts/inception-fanout.sh staff <venture-dir>` files its coverage
+risks. Then the stakeholder map: one row per decision area, exactly one
+person who decides, plus who is aligned and informed. With any
+`agent-persona` row, the phase closes with the fan-out `persona-fanout`
+defines, both gates asked in this conversation.
 
 ### Phase 4 — `reframe`: the reframing checkpoint
 

@@ -272,6 +272,7 @@ assert_contains "brief: carries the mandate" "Which segment named in the frame f
 assert_contains "brief: carries the grounding gate" "Refuse without:" "$b1"
 assert_contains "brief: carries the escalation contract" "**irreversibility** (powers:" "$b1"
 assert_contains "brief: carries the frame" "# Northwind Signals — Frame" "$b1"
+assert_contains "brief: says where the subscribed files are" "bundle, in \`$v\`" "$b1"
 assert_contains "brief: requires the typed final section" \
   "| Decision | Tier and reason | Owning role | Evidence needed | Trigger | Powers |" "$b1"
 assert_contains "brief: forbids talking to the human" "never ask the human" "$b1"
@@ -282,6 +283,10 @@ assert_not_contains "brief: no other seat's card" "Maps the operating workflow" 
 assert_not_contains "brief: a stance-free seat gets no pole" "## Stance" "$b1"
 b2="$("$FANOUT" brief --run "$run" seat-2 "$v" 2>&1)"
 assert_contains "brief: a pole seat gets its stance" "skeptic" "$b2"
+assert_contains "brief: by default the artifact is the final answer" "as the final answer" "$b1"
+b3="$("$FANOUT" brief --deliver-file --run "$run" seat-3 "$v" 2>&1)"
+assert_contains "brief: --deliver-file names the seat's run file" "to the file \`$run/seat-3.md\`" "$b3"
+assert_not_contains "brief: --deliver-file drops the final-answer form" "as the final answer" "$b3"
 "$FANOUT" brief --run "$run" seat-9 "$v" >/dev/null 2>&1
 assert_eq "brief: an unknown seat is refused" "2" "$?"
 "$FANOUT" brief --run "$run" '../x' "$v" >/dev/null 2>&1
@@ -334,6 +339,10 @@ assert_eq "check-seat: a power outside the four fails" "1" "$?"
 sed 's/| human-authority — a one-way door |/| because it matters |/' "$art" >"$tmp/tier.md"
 "$FANOUT" check-seat "$tmp/tier.md" >/dev/null 2>&1
 assert_eq "check-seat: a reason without its tier fails" "1" "$?"
+
+sed 's/| human-authority — a one-way door |/| human-authority. A one-way door. |/' "$art" >"$tmp/period.md"
+"$FANOUT" check-seat "$tmp/period.md" >/dev/null 2>&1
+assert_eq "check-seat: a tier closed by a full stop passes" "0" "$?"
 
 sed '/^## Decisions I cannot make$/,$d' "$art" >"$tmp/nosection.md"
 "$FANOUT" check-seat "$tmp/nosection.md" >/dev/null 2>&1
@@ -412,6 +421,8 @@ assert_contains "synthesis-brief: names the mandatory table" \
 assert_not_contains "synthesis-brief: no card role line" "Lays out the venture" "$sp"
 assert_not_contains "synthesis-brief: no seat identity" "ops-design" "$sp"
 assert_not_contains "synthesis-brief: no identity framing" "You are" "$sp"
+assert_contains "synthesis-brief: --deliver-file writes synthesis.md" "$run/synthesis.md" \
+  "$("$FANOUT" synthesis-brief --deliver-file --run "$run" "$v" 2>&1)"
 
 cat >"$run/synthesis.md" <<'EOF'
 ## Synthesis

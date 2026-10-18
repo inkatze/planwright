@@ -12,16 +12,19 @@
 #   roster --run <dir> --backend <b> --seat <spec>... <venture>
 #                               fix the seats and print the Gate 1 disclosure;
 #                               <spec> is <card-id>[:<pole>][@<model>]
-#   brief --run <dir> <seat-id> <venture>
+#   brief [--deliver-file] --run <dir> <seat-id> <venture>
 #                               one seat's brief: card framing plus the frame
 #   check-seat <artifact>...    the typed escalation section ends every artifact
 #   anonymize --run <dir>       the blind, order-shuffled synthesis input, and
 #                               the orchestrator's label map beside it
-#   synthesis-brief --run <dir> <venture>
-#   challenge-brief --run <dir> <venture>
-#   amend-brief --run <dir> <venture>
+#   synthesis-brief [--deliver-file] --run <dir> <venture>
+#   challenge-brief [--deliver-file] --run <dir> <venture>
+#   amend-brief [--deliver-file] --run <dir> <venture>
 #                               the three persona-free prompts; the amendment
-#                               is offered once
+#                               is offered once. Each prompt ends by asking for
+#                               its document as the final answer, or with
+#                               --deliver-file written to the run file the next
+#                               step reads (for a rung that hands nothing back)
 #   check-synthesis [--run <dir>] <synthesis>
 #                               the mandatory table's shape and blindness
 #   attribute --run <dir>       re-attach seat attribution into the final table
@@ -64,7 +67,7 @@ self_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 
 # Planning figures for the Gate 1 cost line, in tokens. They are estimates the
 # operator weighs before spawning, not a meter.
-SEAT_TOKENS=60000
+SEAT_TOKENS=40000
 SYNTH_TOKENS=40000
 CHALLENGE_TOKENS=20000
 AMEND_TOKENS=40000
@@ -79,12 +82,12 @@ usage() {
 usage: inception-fanout.sh frame <venture-dir>
        inception-fanout.sh triage <venture-dir>
        inception-fanout.sh roster --run <dir> --backend <backend> --seat <card-id>[:<pole>][@<model>]... <venture-dir>
-       inception-fanout.sh brief --run <dir> <seat-id> <venture-dir>
+       inception-fanout.sh brief [--deliver-file] --run <dir> <seat-id> <venture-dir>
        inception-fanout.sh check-seat <artifact>...
        inception-fanout.sh anonymize --run <dir>
-       inception-fanout.sh synthesis-brief --run <dir> <venture-dir>
-       inception-fanout.sh challenge-brief --run <dir> <venture-dir>
-       inception-fanout.sh amend-brief --run <dir> <venture-dir>
+       inception-fanout.sh synthesis-brief [--deliver-file] --run <dir> <venture-dir>
+       inception-fanout.sh challenge-brief [--deliver-file] --run <dir> <venture-dir>
+       inception-fanout.sh amend-brief [--deliver-file] --run <dir> <venture-dir>
        inception-fanout.sh check-synthesis [--run <dir>] <synthesis>
        inception-fanout.sh attribute --run <dir>
        inception-fanout.sh gate2 --run <dir>
@@ -484,6 +487,8 @@ roster_row() {
 # brief
 # --------------------------------------------------------------------------
 cmd_brief() {
+  take_deliver "$@"
+  shift "$shifted"
   [ $# -eq 4 ] && [ "$1" = --run ] || usage
   open_run "$2"
   valid_seat_id "$3" || die 2 "invalid seat id"
@@ -505,7 +510,7 @@ cmd_brief() {
 
 One independent seat of a persona fan-out over a venture. Work from this brief,
 the frame at its end, and the files the input subscription names, and nothing
-else.
+else. Those files are the venture's bundle, in \`$venture\`.
 
 ## Rules
 
@@ -524,7 +529,6 @@ else.
   ${tier:-structure-only}) in hypothesis grammar: if this holds, then that
   follows, and this evidence would show it. Write a call reserved to a human in
   briefing grammar: the options, the evidence, and the stakes.
-- Return the finished artifact as the final answer.
 
 ## Task framing
 
@@ -566,6 +570,7 @@ override, reverse, and halt. With no such call, keep the header and write
 
 EOF
   cat "$venture/exports/frame.md"
+  delivery "$run/$seat.md" artifact
 }
 
 # --------------------------------------------------------------------------
@@ -597,7 +602,7 @@ insec && /^\|/ {
   if (n != 8) { bad("a Decisions I cannot make row needs six cells: " line); next }
   rows++
   if (trim(c[2]) == "") bad("a Decisions I cannot make row names no decision")
-  t = trim(c[3]); sub(/[ :,(].*$/, "", t)
+  t = trim(c[3]); sub(/[^a-z-].*$/, "", t)
   if (t != "agent-senior" && t != "structure-only" && t != "human-authority")
     bad("Tier and reason must open with a tier token: " trim(c[3]))
   if (trim(c[4]) == "") bad("a Decisions I cannot make row names no owning role")
@@ -804,10 +809,35 @@ cmd_check_synthesis() {
 
 persona_free_rules() {
   cat <<'EOF'
-Work only from the material in this prompt: read no file, run no command, and
-contact no one. The inputs are unlabeled on purpose; do not guess where any of
-them came from. Return the requested document as the final answer.
+Work only from the material in this prompt: read no file, run no command beyond
+the delivery at the end, and contact no one. The inputs are unlabeled on
+purpose; do not guess where any of them came from, and name no discipline,
+card, or seat.
 EOF
+}
+
+# take_deliver: an optional leading --deliver-file, for a rung whose session
+# hands nothing back (tmux, print). It sets $deliver and how many arguments
+# it consumed in $shifted.
+deliver=
+shifted=0
+take_deliver() {
+  shifted=0
+  if [ "${1:-}" = --deliver-file ]; then
+    deliver=yes
+    shifted=1
+  fi
+}
+
+# delivery <target> <noun>: the closing instruction. The target is always the
+# run file the step reads next, never a caller-chosen path.
+delivery() {
+  printf '\n## Delivery\n\n'
+  if [ -n "$deliver" ]; then
+    printf 'Write the finished %s, and nothing else, to the file `%s`, creating it. Write no other file, then stop.\n' "$2" "$1"
+  else
+    printf 'Return the finished %s, and nothing else, as the final answer.\n' "$2"
+  fi
 }
 
 table_rules() {
@@ -834,6 +864,8 @@ EOF
 }
 
 cmd_synthesis_brief() {
+  take_deliver "$@"
+  shift "$shifted"
   [ $# -eq 3 ] && [ "$1" = --run ] || usage
   open_run "$2"
   open_venture "$3"
@@ -854,9 +886,12 @@ EOF
   cat "$venture/exports/frame.md"
   printf '\n## The inputs\n\n'
   cat "$run/synthesis-input.md"
+  delivery "$run/synthesis.md" "synthesis document"
 }
 
 cmd_challenge_brief() {
+  take_deliver "$@"
+  shift "$shifted"
   [ $# -eq 3 ] && [ "$1" = --run ] || usage
   open_run "$2"
   open_venture "$3"
@@ -876,7 +911,8 @@ written from. It has two parts:
    frame, how strong that support is, and what would show it wrong.
 
 Do not rewrite the synthesis and do not argue for a side; the synthesis writer
-answers this pass once. Return `## Premortem` and `## Key-assumptions check`.
+answers this pass once. The document holds `## Premortem` and
+`## Key-assumptions check`.
 
 EOF
   persona_free_rules
@@ -884,9 +920,12 @@ EOF
   cat "$venture/exports/frame.md"
   printf '\n## The synthesis\n\n'
   cat "$run/synthesis.md"
+  delivery "$run/challenge.md" "challenge document"
 }
 
 cmd_amend_brief() {
+  take_deliver "$@"
+  shift "$shifted"
   [ $# -eq 3 ] && [ "$1" = --run ] || usage
   open_run "$2"
   open_venture "$3"
@@ -916,6 +955,7 @@ EOF
   cat "$run/synthesis.md"
   printf '\n## The challenge\n\n'
   cat "$run/challenge.md"
+  delivery "$run/amended.md" "amended synthesis document"
 }
 
 # --------------------------------------------------------------------------
@@ -981,7 +1021,7 @@ cmd_gate2() {
       if (!hdr) { hdr = 1; next }
       if ($0 ~ /^\|[ |:-]*$/) next
       split($0, c, "|")
-      t = trim(c[3]); sub(/[ :,(].*$/, "", t)
+      t = trim(c[3]); sub(/[^a-z-].*$/, "", t)
       print "choice\t" ++n "\t" seat "\t" trim(c[2]) "\t" t "\t" trim(c[4]) "\t" trim(c[6]) "\t" trim(c[7])
     }
   ' "$@" | clean
