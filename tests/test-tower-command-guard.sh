@@ -963,6 +963,20 @@ assert_defer "defer form: zsh's \$+ parameter form" "for f in a; do find . \$+f;
 assert_defer "defer form: zsh's \$~ parameter form in double quotes" "for f in a; do find . \"\$~f\"; done"
 assert_allow "parity: a plain loop variable still resolves for find" "for f in a; do find . -name \$f; done"
 assert_defer "defer form: a zsh subscript on an unbraced loop variable" "for f in abcd; do find . -name \"\$f[2,3]\"; done"
+assert_defer "defer form: a zsh subscript that assigns, on an unknown name" "echo \$q[v=7]"
+assert_defer "defer form: a quoted zsh subscript that assigns" "ls \"\$q[v=7]\""
+assert_defer "defer form: a zsh subscript on a loop variable echoed" "for f in a; do echo \$f[1]; done"
+assert_defer "defer form: a zsh subscript that assigns, on \$*" "echo \"\$*[v=7]\""
+assert_defer "defer form: a zsh subscript on \$@" "echo \$@[v=7]"
+assert_defer "defer form: a zsh flag before a special parameter's subscript" "echo \$=*[v=7]"
+assert_defer "defer form: a zsh = flag before \$#'s subscript" "echo \$=#[1]"
+assert_allow "parity: a flagged parameter with no subscript still allows" "echo \$=x \"\$@\" \$*"
+assert_allow "parity: a special parameter with no subscript still allows" "echo \"\$?:\$!\" \$*"
+assert_defer "defer form: an opaque operand of a numeric printf conversion" "printf %d \"\$HOME\""
+assert_defer "defer form: an opaque operand of a * printf width" "printf '%*s' \"\$HOME\" x"
+assert_allow "parity: text conversions of an opaque operand still allow" "printf '%-10s|%c %%\\n' \"\$HOME\" x"
+assert_defer "defer form: a literal non-number operand of a numeric printf conversion" "printf %d v=7"
+assert_allow "parity: a literal * outside a conversion keeps a text format inert" "printf 'a * b %s\\n' \"\$HOME\""
 assert_defer "defer form: a zsh modifier on an unbraced loop variable" "for f in a.b; do find . -name \$f:e; done"
 assert_defer "defer form: a zsh modifier on a quoted loop variable" "for f in A; do find . -name \"\$f:l\"; done"
 assert_defer "defer form: a zsh substitution modifier on a loop variable" "for f in a; do find . -name \$f:s/a/b/; done"
@@ -1047,10 +1061,18 @@ fi
 # A worker-only command: ALLOWED by the worker guard, DEFERRED by the tower guard.
 run_hook "bats tests/ok.bats"
 run_worker_hook "bats tests/ok.bats"
-if ! is_allow && worker_is_allow; then
+if [ "$CODE" -eq 0 ] && is_empty && worker_is_allow; then
   pass "bats is worker-allowed and tower-deferred (worker-only)"
 else
   fail "distinctness — bats: tower=$(is_allow && echo allow || echo defer) worker=$(worker_is_allow && echo allow || echo defer)"
+fi
+# Only the worker guard admits the narrow command substitution form.
+run_hook "echo \"\$(git rev-parse HEAD)\""
+run_worker_hook "echo \"\$(git rev-parse HEAD)\""
+if [ "$CODE" -eq 0 ] && is_empty && worker_is_allow; then
+  pass "an argument-independent command substitution is worker-allowed and tower-deferred (worker-only)"
+else
+  fail "distinctness — command substitution: tower=$(is_allow && echo allow || echo defer) worker=$(worker_is_allow && echo allow || echo defer)"
 fi
 
 echo "### Shared-engine parity — the duplicated sed/awk screens must agree in BOTH guards"
@@ -1074,7 +1096,7 @@ SHARED_FNS="awk_program_safe awk_assignment_ok guard_awk sed_script_safe \
 sed_bracket_end sed_delim_ok sed_scan_literal sed_scan_regex guard_sed \
 short_flag_hit guard_sort guard_uniq guard_find guard_file guard_date \
 classify_redirect is_reserved repo_root_of emit_allow dollar_expands \
-word_unresolved arg_independent_verb guard_test guard_printf loop_header \
+word_unresolved arg_independent_verb guard_test guard_printf printf_format_inert loop_header \
 assign_name_ok plugin_root_unlinked dollar_form_ok loop_enter \
 loop_next opaque_words_ok test_opaque_ok jq_program_safe jq_home_safe guard_jq zsh_opt_word_ok \
 opens_operands opener_word_risky environ_word_risky environ_words_ok environ_redirect_ok \
@@ -1111,7 +1133,9 @@ done
 # expand_word differs because only the worker guard substitutes tracked
 # assignments, whose values can hold a space or be opaque; the tower guard
 # substitutes only `for` loop variables, whose plain-literal head words never
-# hold a space or come out empty.
+# hold a space or come out empty. tokenize, tok_push, verify_simple,
+# verify_tokens and analyze_command also differ because only the worker guard
+# admits a narrow command substitution; the tower guard defers every one.
 DISTINCT_FNS="analyze_command canon_under classify_verb expand_word guard_bashsh \
 guard_gh guard_git guard_mise is_planwright_script main \
 tokenize tok_push verify_simple verify_tokens"

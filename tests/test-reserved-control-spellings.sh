@@ -514,9 +514,10 @@ else
 fi
 
 # The tier and surface the wiring passes the guard for a tool, as
-# "<tier> <surface>", from the profile that wires it for that tier.
+# "<tier> <surface>", from the profile that wires it for that tier. A
+# fail-closed suffix (` || { … exit 2; }`) after the arguments is not one.
 pg_wiring_args() { # <settings-json> <tool>
-  jq -r --arg t "$2" '[.hooks.PreToolUse[]? | select(.matcher == $t) | .hooks[]?.command // "" | select(contains("policy-guard.sh"))][0] // "" | split("policy-guard.sh ") | .[1] // ""' "$1"
+  jq -r --arg t "$2" '[.hooks.PreToolUse[]? | select(.matcher == $t) | .hooks[]?.command // "" | select(contains("policy-guard.sh"))][0] // "" | split("policy-guard.sh ") | .[1] // "" | split(" || ")[0]' "$1"
 }
 
 # pg_run <tier-args> <spelling> <policy> — one guard verdict.

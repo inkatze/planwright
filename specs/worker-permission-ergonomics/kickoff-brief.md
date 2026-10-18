@@ -250,6 +250,31 @@ operational detail recorded (security-posture artifact hygiene).
 
 Signed off: 2026-07-18
 
+### Execution research: Task 7 command substitution (2026-10-11)
+
+An execution-time append, not part of the signed contract. Scoping: targeted (one security-touching parser change; bash manual
+sections on command substitution and simple-command expansion, checked by
+running bash 5 on the review host; no zsh there, so the zsh rows below rest
+on the zsh manual).
+
+- **An assignment holding a substitution can fail.** Bash gives a command
+  with no command name the exit status of its last substitution
+  (`x=$(false)` exits 1), so an `&&` after it may not run. The guard's
+  carry rule had assumed an assignment always succeeds: without a fix,
+  `x=$(cat f g) && x=README.md; cat $x` modelled `x` as `README.md` while
+  the shell kept the substitution's output. Fixed in the guard (no `&&`
+  carry past a substitution-valued assignment) with fixtures.
+- **`$_` carries substitution output.** The shell sets it to the previous
+  command's last argument, so after any substitution the guard reads `$_`
+  as carrying that output.
+- **Parsing.** A `)` the shell reads as quoted, escaped, or commented cuts
+  the naive first-`)` scan inside that construct, which then fails to
+  tokenize and defers; `(` and backticks in the text defer outright.
+
+| # | Risk | Mitigation / early signal |
+|---|---|---|
+| R20 | **zsh `GLOB_SUBST` on unquoted substitution output.** With that non-default option on, zsh reads an unquoted substitution's output as a glob, and a glob qualifier can run a command. The guard admits unquoted output for `echo`, `printf`, and script operands, as the test-spec's own `step-record.sh --head $(…)` fixture requires, the same exposure an unquoted opaque `$VAR` operand already has. | Proposed as a residual alongside R17, pending operator acceptance at the Task 7 PR review; a shell snapshot carrying `setopt globsubst` is the trigger. Early signal: a zsh host whose snapshot sets it. |
+
 ## 8. Sign-off
 
 **Altitude check (REQ-H1.3).** The bundle is **triggered** — D-1 records a fired

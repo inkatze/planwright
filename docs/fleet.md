@@ -2246,13 +2246,29 @@ script the guard allows wholesale by literal path, so that script holds the
 same pin itself, refusing any launch flag after its `--` that is off its own
 allowlist.
 
+**The profile is delivered only with `--settings`.** Launch the tower with
+`--settings` naming `config/tower-settings.json` and with `CLAUDE_PLUGIN_ROOT`
+exported, pointing at a planwright plugin root that holds the guards. Derive
+that root at launch (the checkout the tower runs, or the install path Claude
+Code records for the enabled plugin version) rather than hard-coding a
+versioned install path, which a plugin update removes. Each hook names its
+guard as `"$CLAUDE_PLUGIN_ROOT"/scripts/…`, which the shell expands from the
+export: the braced `${CLAUDE_PLUGIN_ROOT}` the plugin's own `hooks/hooks.json`
+uses substitutes empty under `--settings`, which carries no plugin context, so
+a hook spelled that way never runs. When the policy guard does not run (the
+root not exported, empty, or naming a directory without an executable guard,
+an update that removed the exported root included), its hooks refuse every
+Bash call, and the GitHub MCP ready-flip, with a reason naming the guard and
+the remedy: export the root and relaunch. A running tower keeps the profile it
+launched with and picks up a changed profile only on relaunch.
+
 The `/tower` front door runs under the same profile. The shapes its sessions
 run routinely (the posture check's `jq` projections, and a flight petition's
 `mktemp` files and their removal) and the deny entries added with them are
 listed, with their limits, in [the front-door delta](tower-posture-delta.md).
-Settings that merged an earlier copy of the profile must merge those appended
-deny entries too: until they do, the front door's bring-up posture check finds
-them missing and holds back repo-mutating routes and relays, unless the
+A tower launched with an earlier copy of the profile lacks those appended deny
+entries until it is relaunched: until then, the front door's bring-up posture
+check finds them missing and holds back repo-mutating routes and relays, unless the
 operator acknowledges running without them.
 
 ## What the fleet decides without you (and what it never does)

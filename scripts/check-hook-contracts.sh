@@ -194,7 +194,14 @@ resolve_command() {
   # an invocation the harness never makes and report clean over a handler never
   # actually checked. Substitution is shell string replacement rather than sed:
   # a repo path may legally contain `&` or a delimiter, which sed reinterprets.
-  rc_s=${1//\$\{CLAUDE_PLUGIN_ROOT\}/$REPO_ROOT}
+  # A fail-closed suffix (`|| { echo '<reason>' >&2; exit 2; }`, which the tower
+  # profile's policy hooks carry) is shell around the hook, not arguments to it,
+  # so it is dropped before the command is split.
+  rc_s=$1
+  case $rc_s in
+    *' || { '*' >&2; exit 2; }') rc_s=${rc_s%% || \{ *} ;;
+  esac
+  rc_s=${rc_s//\$\{CLAUDE_PLUGIN_ROOT\}/$REPO_ROOT}
   rc_s=${rc_s//\$CLAUDE_PLUGIN_ROOT/$REPO_ROOT}
   rc_s=${rc_s//\"/}
   printf '%s' "$rc_s"

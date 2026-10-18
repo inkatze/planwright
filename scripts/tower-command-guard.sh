@@ -56,8 +56,9 @@
 #     branch of every classifier is defer, so "zero false-allows" is guaranteed
 #     by construction, not merely across the test corpus (REQ-C1.3).
 #
-# Analysis model (inherited from the worker guard): the command string exactly
-# as written — Claude Code hands a hook the raw `tool_input.command`, with
+# Analysis model (shared with the worker guard, which alone admits a narrow
+# command substitution form): the command string exactly as written — Claude
+# Code hands a hook the raw `tool_input.command`, with
 # `$VAR` references unexpanded (measured on CLI 2.1.270) — is split —
 # quote- and operator-aware — into segments on the control operators `;` `&&`
 # `||` `|` `&` and newlines; EVERY segment's simple command must be
@@ -174,9 +175,12 @@ dollar_expands() {
 # so the shell expands one longer name where this C-locale scan ends the
 # name before that byte and keeps the byte as literal text. zsh's `$~NAME`
 # defers wherever it appears: it reads the value as a glob pattern, and a
-# glob qualifier in that value can run a command during the expansion.
+# glob qualifier in that value can run a command during the expansion. So
+# does a NAME or a one-character special parameter (`$*`, `$@`, `$?`)
+# directly followed by `[`, quoted or not: zsh reads that as a
+# subscript and evaluates it as arithmetic, which can assign a variable.
 dollar_form_ok() {
-  local s=$1 i=$2 j body
+  local s=$1 i=$2 j k body
   case ${s:i+1:1} in
     '[' | '~') return 1 ;;
     '{')
@@ -194,6 +198,7 @@ dollar_form_ok() {
     *)
       j=$((i + 1))
       case ${s:j:1} in [=^+#]) j=$((j + 1)) ;; esac
+      k=$j
       while [ "$j" -lt "${#s}" ]; do
         case ${s:j:1} in
           [A-Za-z0-9_]) j=$((j + 1)) ;;
@@ -201,6 +206,8 @@ dollar_form_ok() {
         esac
       done
       case ${s:j:1} in
+        '[') return 1 ;;
+        '*' | '@' | '?' | '!' | '-' | '$' | '#') [ "$j" -ne "$k" ] || [ "${s:j+1:1}" != '[' ] || return 1 ;;
         '' | [[:print:][:cntrl:]]) ;;
         *) return 1 ;;
       esac
@@ -1972,11 +1979,42 @@ guard_test() {
   return 0
 }
 
+# printf_format_inert <format>: 0 when every conversion in the literal
+# format reads its operand as text (`%s`, `%b`, `%q`, `%c`, or `%%`) and none
+# takes a `*` width or precision. zsh evaluates an operand a numeric
+# conversion or a `*` consumes as arithmetic, which can assign a variable.
+printf_format_inert() {
+  local f=$1
+  while :; do
+    case $f in
+      *%*) f=${f#*%} ;;
+      *) return 0 ;;
+    esac
+    while :; do
+      case ${f:0:1} in
+        - | + | ' ' | '#' | "'" | . | [0-9]) f=${f#?} ;;
+        '*') return 1 ;;
+        *) break ;;
+      esac
+    done
+    case ${f:0:1} in
+      s | b | q | c | %) f=${f#?} ;;
+      *) return 1 ;;
+    esac
+  done
+}
+
 guard_printf() {
-  [ "${cw[1]-}" = -- ] && return 0
+  local fmt=1 i re='^[-+]?[0-9]+(\.[0-9]+)?$'
   case ${cw[1]-} in
+    --) fmt=2 ;;
     -*) return 1 ;;
   esac
+  printf_format_inert "${cw[fmt]-}" && return 0
+  for ((i = fmt + 1; i < cwn; i++)); do
+    word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" && return 1
+    [[ ${cw[i]} =~ $re ]] || return 1
+  done
   return 0
 }
 
