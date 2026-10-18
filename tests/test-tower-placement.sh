@@ -38,7 +38,8 @@ trap 'rm -rf "$tmp"' EXIT
 tmp=$(cd "$tmp" && pwd -P)
 
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
-unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR PLANWRIGHT_REPO_ROOT
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+  GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT PLANWRIGHT_REPO_ROOT
 # Discovery never climbs out of the scratch directory, so "outside any
 # repository" holds even when the scratch directory sits inside one.
 export GIT_CEILING_DIRECTORIES="$tmp"
