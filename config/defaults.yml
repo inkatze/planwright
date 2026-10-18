@@ -837,6 +837,16 @@ tower_catchup_limit: 20
 tower_shelve_return: 1h
 tower_reknock_age: 30m
 
+# How a tower's bring-up responds to running in a checkout's main tree rather
+# than its own linked worktree. `warn` says so once and continues; `refuse`
+# holds repo-mutating routes and relay until the tower moves or the operator
+# acknowledges; `allow` says nothing, and is how a dedicated tower clone (which
+# git cannot tell from the primary checkout) declares itself, set in that
+# clone's machine-local layer. Read by scripts/tower-placement.sh through the
+# shared knob resolver; a value outside the three is malformed under the
+# by-layer policy.
+tower_placement: warn
+
 # Cross-session messaging, the fleet's signal transport where a session has it
 # (doctrine/messaging-transport.md).
 #
