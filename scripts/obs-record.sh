@@ -51,7 +51,7 @@
 #              root (D-6: the fragment store is the host repo's even when the
 #              helper resolves plugin-relative). Outside any repository, or
 #              with a refused spec_root, there is no default and the helper
-#              refuses; so it does when a root other than specs/ is absent
+#              refuses; so it does when a configured spec_root is absent
 #              from this checkout (ignored or untracked here), where a store
 #              would be lost with the checkout.
 #   --target   write into another root's store instead, named by an alias of
