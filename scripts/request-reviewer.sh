@@ -24,8 +24,9 @@
 #   3. On a PR that was a draft, read the draft state again. A PR reported
 #      ready, or a read that fails, gets `gh pr ready --undo`.
 #   4. A re-draft that fails parks the unit under `## Awaiting input`
-#      (ready-flip.sh park, reason `redraft-pr-<n>`), naming the PR; with no
-#      unit given it is named in the output alone.
+#      (ready-flip.sh park, reason `redraft-pr-<n>`), naming the PR, in this
+#      checkout, which must be on the PR's head branch; with no unit given, or
+#      a checkout on another branch, it is named in the output alone.
 #
 # The live probe behind this (kickoff brief, risk register) found no
 # un-draft on request; the check stays wired so a host change is caught.
@@ -105,15 +106,17 @@ command -v jq >/dev/null 2>&1 || {
   exit 3
 }
 
-# state — print `<isDraft> <state> <base>`; non-zero when unreadable, which
-# includes an answer missing any of the three (a null draft flag is not "ready").
+# state — print `<isDraft> <state> <base> <head branch>`; non-zero when
+# unreadable, which includes an answer missing any of the four (a null draft
+# flag is not "ready").
 state() {
   local j
-  j=$(gh pr view "$PR" --repo "$REPO" --json isDraft,state,baseRefName 2>/dev/null) || return 1
+  j=$(gh pr view "$PR" --repo "$REPO" --json isDraft,state,baseRefName,headRefName 2>/dev/null) || return 1
   printf '%s' "$j" | jq -er 'select((.isDraft | type) == "boolean"
     and (.state | type) == "string" and (.state | test("^[A-Z_]+$"))
-    and (.baseRefName | type) == "string" and (.baseRefName | length) > 0)
-    | "\(.isDraft) \(.state) \(.baseRefName)"' 2>/dev/null
+    and (.baseRefName | type) == "string" and (.baseRefName | length) > 0
+    and (.headRefName | type) == "string" and (.headRefName | length) > 0)
+    | "\(.isDraft) \(.state) \(.baseRefName) \(.headRefName)"' 2>/dev/null
 }
 
 # 1. Where the PR stands before the request.
@@ -121,7 +124,7 @@ if ! before=$(state); then
   say "skipped: the draft state of PR #$PR could not be read, so no review was requested"
   exit 3
 fi
-read -r was_draft pr_state BASE <<EOF
+read -r was_draft pr_state BASE HEAD_REF <<EOF
 $before
 EOF
 if [ "$pr_state" != OPEN ]; then
@@ -168,6 +171,12 @@ fi
 say "the re-draft failed: PR #$PR is no longer a draft, and no one marked it ready"
 if [ "${#UNIT[@]}" = 0 ]; then
   say 'no unit was named, so nothing was parked; put the PR back to draft by hand'
+  exit 5
+fi
+# The park writes to this checkout's branch, so it must be the PR's own.
+here=$(git symbolic-ref --short -q HEAD 2>/dev/null) || here=''
+if [ "$here" != "$HEAD_REF" ]; then
+  say "nothing was parked: this checkout is not on PR #$PR's branch; put the PR back to draft by hand"
   exit 5
 fi
 /bin/bash "$SCRIPTS/ready-flip.sh" park --spec "$SPEC" "${UNIT[@]}" --reason "redraft-pr-$PR" --base "$BASE" >/dev/null 2>&1

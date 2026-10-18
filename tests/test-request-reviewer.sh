@@ -68,7 +68,9 @@ case "$1 $2" in
     fi
     draft=true
     [ ! -f "$GHS/ready" ] || draft=false
-    printf '{"isDraft":%s,"state":"OPEN","baseRefName":"main"}\n' "$draft"
+    head=planwright/demo/task-1
+    [ ! -f "$GHS/head" ] || head=$(cat "$GHS/head")
+    printf '{"isDraft":%s,"state":"OPEN","baseRefName":"main","headRefName":"%s"}\n' "$draft" "$head"
     ;;
   'pr edit' | 'api -X')
     rc=0
@@ -143,6 +145,17 @@ check "the park is pushed under Awaiting input, naming the PR" \
   grep -q '^- \*\*Task 1\*\* — pending ready-flip: redraft-pr-42 failed on ' <<<"$(mp_origin_tasks)"
 check "the handoff names the un-drafted PR" grep -q 'PR #42 is no longer a draft' <<<"$OUT"
 
+echo "# a failing re-draft parks only on the PR's own branch"
+mp_fixture
+: >"$GHS/undraft_on_request"
+echo 1 >"$GHS/undo_rc"
+echo planwright/other/task-2 >"$GHS/head"
+before=$(mp_origin_head)
+run --copilot --spec specs/demo --task 1
+check "a checkout on another branch than the PR's parks nothing (exit 5)" [ "$CODE" = 5 ]
+check "no park is pushed to a branch that is not the PR's" [ "$(mp_origin_head)" = "$before" ]
+check "the handoff says why nothing was parked" grep -q "not on PR #42's branch" <<<"$OUT"
+
 echo "# a failing re-draft with no unit is named, never silent"
 mp_fixture
 : >"$GHS/undraft_on_request"
@@ -168,8 +181,8 @@ check "no request is made over an unreadable starting state" [ "$(requests)" = 0
 check "no re-draft runs over an unreadable starting state" [ "$(undos)" = 0 ]
 
 echo "# a starting state missing a field is unreadable, not ready"
-for json in '{"state":"OPEN","baseRefName":"main"}' '{"isDraft":null,"state":"OPEN","baseRefName":"main"}' \
-  '{"isDraft":true,"state":"OPEN","baseRefName":""}' '{"isDraft":true,"baseRefName":"main"}'; do
+for json in '{"state":"OPEN","baseRefName":"main","headRefName":"planwright/demo/task-1"}' '{"isDraft":null,"state":"OPEN","baseRefName":"main","headRefName":"planwright/demo/task-1"}' \
+  '{"isDraft":true,"state":"OPEN","baseRefName":"","headRefName":"planwright/demo/task-1"}' '{"isDraft":true,"baseRefName":"main","headRefName":"planwright/demo/task-1"}'; do
   mp_fixture
   printf '%s\n' "$json" >"$GHS/view_json.1"
   run --copilot
@@ -179,7 +192,7 @@ done
 
 echo "# an incomplete state after the request is treated as un-drafted"
 mp_fixture
-printf '%s\n' '{"state":"OPEN","baseRefName":"main"}' >"$GHS/view_json.2"
+printf '%s\n' '{"state":"OPEN","baseRefName":"main","headRefName":"planwright/demo/task-1"}' >"$GHS/view_json.2"
 run --copilot
 check "an incomplete state after the request runs the re-draft" [ "$(undos)" = 1 ]
 
