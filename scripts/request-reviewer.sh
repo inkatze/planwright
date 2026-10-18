@@ -179,10 +179,14 @@ if [ "$here" != "$HEAD_REF" ]; then
   say "nothing was parked: this checkout is not on PR #$PR's branch; put the PR back to draft by hand"
   exit 5
 fi
-/bin/bash "$SCRIPTS/ready-flip.sh" park --spec "$SPEC" "${UNIT[@]}" --reason "redraft-pr-$PR" --base "$BASE" >/dev/null 2>&1
-if [ "$?" = 4 ]; then
+park_out=$(/bin/bash "$SCRIPTS/ready-flip.sh" park --spec "$SPEC" "${UNIT[@]}" --reason "redraft-pr-$PR" --base "$BASE" 2>&1)
+park_rc=$?
+if [ "$park_rc" = 4 ]; then
   say 'the unit is parked under ## Awaiting input'
   exit 4
 fi
-say 'the park could not be written either; put the PR back to draft by hand'
+# ready-flip's last line names why: a refusal, or a park committed locally
+# whose push failed, which is not the same as nothing written.
+park_why=$(printf '%s\n' "$park_out" | tail -n 1)
+say "the park did not complete ($(sanitize_printable "${park_why:-ready-flip exit $park_rc}" '?')); put the PR back to draft by hand"
 exit 5

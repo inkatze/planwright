@@ -145,6 +145,16 @@ check "the park is pushed under Awaiting input, naming the PR" \
   grep -q '^- \*\*Task 1\*\* — pending ready-flip: redraft-pr-42 failed on ' <<<"$(mp_origin_tasks)"
 check "the handoff names the un-drafted PR" grep -q 'PR #42 is no longer a draft' <<<"$OUT"
 
+echo "# a park that cannot be written says why, never silent"
+mp_fixture
+: >"$GHS/undraft_on_request"
+echo 1 >"$GHS/undo_rc"
+printf '\n' >>"$F/wt/specs/demo/tasks.md"
+run --copilot --spec specs/demo --task 1
+check "a failed park with a unit exits 5" [ "$CODE" = 5 ]
+check "the handoff relays the park's own reason" grep -q 'uncommitted changes' <<<"$OUT"
+check "the handoff never claims the unit is parked" not grep -q 'the unit is parked' <<<"$OUT"
+
 echo "# a failing re-draft parks only on the PR's own branch"
 mp_fixture
 : >"$GHS/undraft_on_request"
