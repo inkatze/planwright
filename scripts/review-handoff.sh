@@ -84,6 +84,11 @@ set -eu
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# A git hook exports these, and every git command below must act on the
+# repository the caller is in, never the one they point at, under no inherited
+# configuration.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
+  GIT_COMMON_DIR GIT_NAMESPACE GIT_PREFIX GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 # Changed paths come from the branch: as pathspecs they must match only
 # themselves, never as `:(glob)` or other magic.
 GIT_LITERAL_PATHSPECS=1
@@ -94,7 +99,7 @@ TAB=$(printf '\t')
 here=$(cd "$(dirname "$0")" && pwd)
 spec_parse_sh="$here/spec-parse.sh"
 if [ ! -f "$spec_parse_sh" ] || [ ! -r "$spec_parse_sh" ]; then
-  printf '%s\n' "$prog: spec-parse.sh missing or unreadable: $spec_parse_sh" >&2
+  printf '%s\n' "$prog: spec-parse.sh missing or unreadable beside this script" >&2
   exit 2
 fi
 # shellcheck source=scripts/spec-parse.sh
@@ -113,7 +118,7 @@ EOF
   exit 2
 }
 die() {
-  printf '%s\n' "$prog: $2" >&2
+  printf '%s\n' "$prog: $2" | printable >&2
   exit "$1"
 }
 
@@ -433,9 +438,11 @@ while IFS="$TAB" read -r sym kind owns; do
       ;;
   esac
   rc=0
-  git grep -n -I -w -F -e "$sym" "$head" -- . >"$stage/.grep" 2>/dev/null || rc=$?
+  # -z ends the path and the line number with NUL, so a path holding
+  # `:<digits>:` is not split inside itself; the NULs become \001 for awk.
+  git grep -z -n -I -w -F -e "$sym" "$head" -- . >"$stage/.grep" 2>/dev/null || rc=$?
   [ "$rc" -le 1 ] || die 2 "git grep failed (exit $rc) searching for callers of a changed symbol"
-  awk -v head="$head:" -v sym="$sym" \
+  tr '\000' '\001' <"$stage/.grep" | awk -v head="$head:" -v sym="$sym" \
     -v kind="$kind" -v owns="$owns" -v max="$max_callers" -v defs="$defs" -v report="$stage/.truncated" '
     BEGIN {
       FS = "\t"
@@ -445,10 +452,15 @@ while IFS="$TAB" read -r sym kind owns; do
     }
     {
       line = substr($0, length(head) + 1)
-      if (!match(line, /:[0-9]+:/)) next
-      path = substr(line, 1, RSTART - 1)
-      num = substr(line, RSTART + 1, RLENGTH - 2)
-      text = substr(line, RSTART + RLENGTH)
+      s = index(line, "\001")
+      if (!s) next
+      path = substr(line, 1, s - 1)
+      rest = substr(line, s + 1)
+      s = index(rest, "\001")
+      if (!s) next
+      num = substr(rest, 1, s - 1)
+      if (num !~ /^[0-9]+$/) next
+      text = substr(rest, s + 1)
       if (kind == "path" && (path in own)) next
       if (kind == "function" && ((path SUBSEP num) in isdef)) next
       gsub(/[^[:print:]]/, "", text)
@@ -457,7 +469,7 @@ while IFS="$TAB" read -r sym kind owns; do
       total++
       if (total <= max) printf "%s\t%s\t%s:%s\t%s\n", sym, kind, shown, num, substr(text, 1, 200)
     }
-    END { if (total > max) printf "truncated\t%s\t%d\n", sym, total >> report }' "$stage/.grep" >>"$stage/callers.tsv"
+    END { if (total > max) printf "truncated\t%s\t%d\n", sym, total >> report }' >>"$stage/callers.tsv"
 done <"$stage/.symbol-set"
 [ ! -f "$stage/.truncated" ] || cat "$stage/.truncated" >>"$stage/.skipped-symbols"
 truncated=$(cat "$stage/.skipped-symbols")
@@ -500,16 +512,31 @@ slice() {
   done
 }
 # repo_rel <abs-path> — the path below the repository top by its own
-# components, never through a symlink below the top; prints the reason
-# (outside-repo or symlink) instead and fails when there is none.
+# components, `.` and `..` folded away, never through a symlink below the top
+# (every component is checked, so folding matches what the file system
+# resolves); prints the reason (outside-repo or symlink) instead and fails
+# when there is none.
 repo_rel() {
   if [ -L "$1" ]; then
     printf 'symlink\n'
     return 1
   fi
   d=$(dirname "$1")
-  tail=${1##*/}
+  tail=
+  skip=0
+  comp=${1##*/}
   while :; do
+    case $comp in
+      . | '') ;;
+      ..) skip=$((skip + 1)) ;;
+      *)
+        if [ "$skip" -gt 0 ]; then
+          skip=$((skip - 1))
+        else
+          tail=$comp${tail:+/$tail}
+        fi
+        ;;
+    esac
     p=$(cd "$d" 2>/dev/null && pwd -P) || {
       printf 'outside-repo\n'
       return 1
@@ -523,9 +550,13 @@ repo_rel() {
       printf 'symlink\n'
       return 1
     fi
-    tail=${d##*/}/$tail
+    comp=${d##*/}
     d=$(dirname "$d")
   done
+  if [ "$skip" -gt 0 ] || [ -z "$tail" ]; then
+    printf 'outside-repo\n'
+    return 1
+  fi
   printf '%s\n' "$tail"
 }
 # tree_symlink <rev> <path> — 0 when the path or a directory above it is a

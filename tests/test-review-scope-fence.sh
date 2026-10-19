@@ -4,6 +4,8 @@
 # (review-effectiveness REQ-A1.7, D-2).
 set -u
 unset CDPATH
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
+  GIT_COMMON_DIR GIT_NAMESPACE GIT_PREFIX GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FENCE="$REPO_ROOT/scripts/review-scope-fence.sh"
@@ -155,6 +157,14 @@ out=$("$FENCE" --bundle "$B" 2>&1)
 assert_exit "a bundle with no build id is refused" 2 $?
 manifest
 
+# An inherited repository selector never points the HEAD check elsewhere.
+OR=$T/other-repo
+git init -q "$OR"
+git -C "$OR" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m other
+printf '%s\n' scripts/lib.sh >"$B/changed-files.txt"
+out=$(GIT_DIR=$OR/.git "$FENCE" --bundle "$B" 2>&1)
+assert_exit "an inherited GIT_DIR does not make a fresh bundle stale" 0 $?
+
 # --- printed paths carry no control bytes ----------------------------------------
 printf 'docs/a\033[31mb\233m.md\n' >"$T/ctl.txt"
 out=$("$FENCE" --changed "$T/ctl.txt" --contract "$T/contract.md" 2>&1)
@@ -174,6 +184,23 @@ fi
 : >"$B/skipped-files.txt"
 
 # --- refused inputs -----------------------------------------------------------
+ESC=$(printf '\033')
+out=$("$FENCE" --changed "$T/mixed.txt" --contract "$T/no${ESC}[31msuch.md" 2>&1)
+assert_exit "a missing contract is refused" 2 $?
+assert_lacks "a refusal carries no control bytes" "$ESC" "$out"
+mkdir "$T/lone${ESC}[31mdir"
+cp "$FENCE" "$T/lone${ESC}[31mdir/"
+out=$(sh "$T/lone${ESC}[31mdir/review-scope-fence.sh" --changed "$T/mixed.txt" --contract "$T/contract.md" 2>&1)
+assert_exit "a missing spec-parse.sh is refused" 2 $?
+assert_lacks "the missing-helper refusal carries no control bytes" "$ESC" "$out"
+# shellcheck disable=SC2016 # the backticks are literal markdown
+printf -- '- **Deliverables:** `scripts/lib.sh`.\n\0more\n' >"$T/nul-contract.md"
+out=$("$FENCE" --changed "$T/inside.txt" --contract "$T/nul-contract.md" 2>&1)
+assert_exit "a NUL-bearing contract is refused" 2 $?
+# shellcheck disable=SC2016 # the backticks are literal markdown
+printf -- '- **Deliverables:** `scripts/lib.sh`.\n\n```sh\nunclosed\n' >"$T/open-contract.md"
+out=$("$FENCE" --changed "$T/inside.txt" --contract "$T/open-contract.md" 2>&1)
+assert_exit "a contract ending inside a fence is refused" 2 $?
 out=$("$FENCE" --changed "$T/mixed.txt" 2>&1)
 assert_exit "no deliverables source is a usage error" 2 $?
 printf -- '- **Done when:** nothing listed.\n' >"$T/empty-contract.md"

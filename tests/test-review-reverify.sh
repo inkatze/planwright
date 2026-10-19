@@ -212,6 +212,27 @@ if command -v setsid >/dev/null 2>&1; then
     fail "a job in its own process group is ended with its record (pid ${job:-none} alive)"
     [ -z "$job" ] || kill "$job" 2>/dev/null
   fi
+  # The session sweep does not depend on pkill where /proc lists sessions.
+  if [ -d /proc/self ]; then
+    mkdir "$T/nopkill"
+    printf '#!/bin/sh\nexit 1\n' >"$T/nopkill/pkill"
+    chmod +x "$T/nopkill/pkill"
+    rm -f "$T/job.pid"
+    out=$(PATH=$T/nopkill:$PATH rv --records "$T/job.txt" 2>&1)
+    job=$(cat "$T/job.pid" 2>/dev/null)
+    i=0
+    while [ -n "$job" ] && kill -0 "$job" 2>/dev/null && [ "$i" -lt 50 ]; do
+      case $(cut -d' ' -f3 "/proc/$job/stat" 2>/dev/null) in Z) break ;; esac
+      sleep 0.1
+      i=$((i + 1))
+    done
+    if [ -n "$job" ] && { ! kill -0 "$job" 2>/dev/null || [ "$(cut -d' ' -f3 "/proc/$job/stat" 2>/dev/null)" = Z ]; }; then
+      ok "a job is ended with its record without pkill"
+    else
+      fail "a job is ended with its record without pkill (pid ${job:-none} alive)"
+      [ -z "$job" ] || kill "$job" 2>/dev/null
+    fi
+  fi
 else
   echo "skip: setsid is not installed; the backgrounded-process case is not run"
 fi
@@ -347,6 +368,10 @@ out=$(rv --records "$T/bad.txt" 2>&1)
 assert_lacks "a malformed file's message carries no normalized records" "partial-marker" "$out"
 out=$(rv 2>&1)
 assert_exit "no records file is a usage error" 2 $?
+ESC=$(printf '\033')
+out=$(rv --records "$T/no${ESC}[31msuch.txt" 2>&1)
+assert_exit "a missing records file is refused" 2 $?
+assert_lacks "a refusal carries no control bytes" "$ESC" "$out"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

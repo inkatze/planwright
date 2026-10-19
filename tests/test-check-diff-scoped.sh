@@ -4,6 +4,8 @@
 # (review-effectiveness REQ-D1.3, D-11).
 set -u
 unset CDPATH
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
+  GIT_COMMON_DIR GIT_NAMESPACE GIT_PREFIX GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CHECK="$REPO_ROOT/scripts/check-diff-scoped.sh"
@@ -293,7 +295,17 @@ chmod 644 "$R/.git/index"
 assert_exit "a git failure listing the changes is an error, not an empty change set" 2 "$rc"
 assert_lacks "a git failure does not read as nothing changed" "nothing changed" "$out"
 g checkout -q -- docs/README.md
+# An inherited repository selector never points the check at another repository.
+printf '# edit\n' >>"$R/docs/README.md"
+want=$(ck --list --base HEAD 2>&1)
+out=$(cd "$R" && GIT_DIR=$R2/.git "$CHECK" --list --base HEAD 2>&1)
+if [ "$out" = "$want" ]; then ok "an inherited GIT_DIR lists this repository's changes"; else fail "an inherited GIT_DIR lists this repository's changes (got: $out)"; fi
+g checkout -q -- docs/README.md
 # --- refused inputs ------------------------------------------------------------
+ESC=$(printf '\033')
+out=$(ck --base "bad${ESC}[31mrev" 2>&1)
+assert_exit "a bad base with control bytes is refused" 2 $?
+assert_lacks "a refusal carries no control bytes" "$ESC" "$out"
 out=$(ck 2>&1)
 assert_exit "no files and no base is a usage error" 2 $?
 out=$(ck --base nosuchrev 2>&1)

@@ -31,7 +31,9 @@
 # both for the command and for setting the copy up, where no hook runs; no
 # credential or token variable reaches it. Where setsid(1) exists the command
 # runs in its own session, and every process still in that session when it
-# returns is killed; one that leaves the session (setsid, a daemon) escapes.
+# returns is killed (found through /proc, else pkill; with neither, only the
+# command's own process group); one that leaves the session (setsid, a
+# daemon) escapes.
 # The copy isolates the repository and the environment, not the host: a
 # command naming an absolute path outside it still reaches that path.
 #
@@ -76,8 +78,10 @@ usage: $prog --records <file> [--head <rev>] [--timeout <seconds>] [--log-dir <d
 EOF
   exit 2
 }
+# printable — the input without its non-printable bytes, tabs and newlines kept.
+printable() { tr -d '\000-\010\013-\037\177\200-\237'; }
 die() {
-  printf '%s\n' "$prog: $2" >&2
+  printf '%s\n' "$prog: $2" | printable >&2
   exit "$1"
 }
 
@@ -188,12 +192,22 @@ scrub() {
   rm -rf "$1" 2>/dev/null || true
 }
 # reap <pid> — end what a record left running in its session, whose id is the
-# pid of the record's session leader.
+# pid of the record's session leader: the session's members read from /proc
+# where it exists, else through pkill -s, else only the leader's group.
 grp=
 reap() {
   [ -n "$1" ] && [ -n "$session" ] || return 0
   kill -9 "-$1" 2>/dev/null || true
-  if command -v pkill >/dev/null 2>&1; then pkill -9 -s "$1" 2>/dev/null || true; fi
+  if [ -r /proc/self/stat ]; then
+    # A stat line is `<pid> (<comm>) <state> <ppid> <pgrp> <session> ...`; the
+    # command name may hold spaces and parentheses, so fields count from its
+    # last `)`. cat skips a process that exits mid-scan.
+    cat /proc/[0-9]*/stat 2>/dev/null \
+      | awk -v sid="$1" '{ s = $0; sub(/.*\) /, "", s); split(s, f, " "); if (f[4] == sid) print $1 }' \
+      | while IFS= read -r pid; do kill -9 "$pid" 2>/dev/null || true; done
+  elif command -v pkill >/dev/null 2>&1; then
+    pkill -9 -s "$1" 2>/dev/null || true
+  fi
 }
 work=$(mktemp -d "${TMPDIR:-/tmp}/review-reverify.XXXXXX") || die 4 "could not create a working directory"
 trap 'reap "$grp"; scrub "$work"' EXIT

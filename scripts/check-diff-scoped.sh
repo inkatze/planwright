@@ -59,6 +59,11 @@ set -eu
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# A git hook exports these, and every git command below must act on the
+# repository the caller is in, never the one they point at, under no inherited
+# configuration.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
+  GIT_COMMON_DIR GIT_NAMESPACE GIT_PREFIX GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 # --tests is a glob pathspec by contract; an inherited setting must not turn
 # it literal and select nothing.
 unset GIT_LITERAL_PATHSPECS GIT_GLOB_PATHSPECS GIT_NOGLOB_PATHSPECS GIT_ICASE_PATHSPECS
@@ -75,7 +80,7 @@ EOF
   exit 2
 }
 die() {
-  printf '%s\n' "$prog: $2" >&2
+  printf '%s\n' "$prog: $2" | printable >&2
   exit "$1"
 }
 # printable — the input without its non-printable bytes, tabs and newlines kept.

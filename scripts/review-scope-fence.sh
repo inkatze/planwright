@@ -46,6 +46,11 @@ set -eu
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# A git hook exports these, and every git command below must act on the
+# repository the caller is in, never the one they point at, under no inherited
+# configuration.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
+  GIT_COMMON_DIR GIT_NAMESPACE GIT_PREFIX GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 prog=review-scope-fence
 NL='
@@ -53,7 +58,7 @@ NL='
 here=$(cd "$(dirname "$0")" && pwd)
 spec_parse_sh="$here/spec-parse.sh"
 if [ ! -f "$spec_parse_sh" ] || [ ! -r "$spec_parse_sh" ]; then
-  printf '%s\n' "$prog: spec-parse.sh missing or unreadable: $spec_parse_sh" >&2
+  printf '%s\n' "$prog: spec-parse.sh missing or unreadable beside this script" >&2
   exit 2
 fi
 # shellcheck source=scripts/spec-parse.sh
@@ -67,7 +72,7 @@ EOF
   exit 2
 }
 die() {
-  printf '%s\n' "$prog: $2" >&2
+  printf '%s\n' "$prog: $2" | printable >&2
   exit "$1"
 }
 # printable — the input without its non-printable bytes, tabs and newlines kept.
@@ -139,19 +144,21 @@ readable "the changed-files list" "$changed"
 
 if [ -n "$contract" ]; then
   readable "--contract" "$contract"
+  spec_parse__nul_screen "$contract" || die 2 "the contract holds a NUL byte or cannot be read"
   entries=$(awk "$spec_parse_awk_fence$spec_parse_awk_grammar"'
     /^#/ { on = 0; next }
     /^- / { on = (spec_parse_task_field($0) == "deliverables"); if (on) text = text " " $0; next }
     /^[ \t]+[^ \t]/ { if (on) text = text " " $0; next }
     { on = 0 }
     END {
+      spec_parse__fence_eof()
       while (match(text, /`[^`]*`/)) {
         tok = substr(text, RSTART + 1, RLENGTH - 2)
         text = substr(text, RSTART + RLENGTH)
         if (tok ~ /^-/ || tok ~ /[[:space:]<]/ || tok !~ /[\/.]/) continue
         print tok
       }
-    }' "$contract")
+    }' "$contract") || die 2 "the contract ends inside an open code fence or could not be read"
   [ -n "$entries" ] || die 2 "the contract names no deliverable path in backticks; pass --deliverables instead"
 else
   readable "--deliverables" "$deliverables"

@@ -4,6 +4,8 @@
 # D-14).
 set -u
 unset CDPATH
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
+  GIT_COMMON_DIR GIT_NAMESPACE GIT_PREFIX GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="$REPO_ROOT/scripts/review-handoff.sh"
@@ -436,6 +438,12 @@ if LC_ALL=C grep -q "$(printf '[\033\233]')" "$R4/.claude/review-handoff/callers
 else
   ok "caller text carries no control bytes"
 fi
+# A caller path holding :digits: keeps its own path and line.
+printf 'x\nshow here\n' >"$R4/docs/a:12:b.txt"
+g4 add -A
+g4 commit -q -m "a colon path"
+build4 --base "$B4BASE" >/dev/null 2>&1
+assert_contains "a :digits: path is split at its own line number" "show	function	docs/a:12:b.txt:2" "$(cat "$R4/.claude/review-handoff/callers.tsv" 2>/dev/null)"
 # A refused path git prints raw (an 8-bit byte, unquoted) is noted without it.
 B4HEAD=$(g4 rev-parse HEAD)
 printf 'x\n' >"$R4/-$(printf '\233')x.txt"
@@ -551,6 +559,26 @@ assert_contains "a tasks file outside the repository is the recorded reason" "co
 assert_contains "a base file ending in a fence is the recorded reason" "contract_base_absent	open-fence-at-base" "$(cat "$B7/MANIFEST" 2>/dev/null)"
 (cd "$R7" && "$BUILD" --base "$B7BASE" --tasks-file specs/w/tasks.md --task 1 >/dev/null 2>&1)
 if [ -e "$B7/contract-base.md" ]; then ok "a plain spec directory still gets its base contract"; else fail "a plain spec directory still gets its base contract"; fi
+rm -rf "$B7"
+(cd "$R7" && "$BUILD" --base "$B7BASE" --tasks-file specs/w/../w/./tasks.md --task 1 >/dev/null 2>&1)
+assert_exit "a tasks path with . and .. builds" 0 $?
+if [ -e "$B7/contract-base.md" ]; then ok "a tasks path with . and .. still gets its base contract"; else fail "a tasks path with . and .. still gets its base contract"; fi
+
+# An inherited repository selector never sends the bundle to another repository.
+out=$(cd "$R7" && GIT_DIR=$R6/.git "$BUILD" --base "$B7BASE" 2>&1)
+assert_exit "an inherited GIT_DIR still builds this repository's bundle" 0 $?
+assert_contains "the bundle is this repository's" "head	$(g7 rev-parse HEAD)" "$(cat "$B7/MANIFEST" 2>/dev/null)"
+
+# Refusals and the missing-helper message carry no control bytes.
+ESC=$(printf '\033')
+out=$(cd "$R7" && "$BUILD" --base "$B7BASE" --tasks-file "no${ESC}[31msuch.md" --task 1 2>&1)
+assert_exit "a missing tasks file is refused" 2 $?
+assert_lacks "a refusal carries no control bytes" "$ESC" "$out"
+mkdir "$T/lone${ESC}[31mdir"
+cp "$BUILD" "$T/lone${ESC}[31mdir/"
+out=$(cd "$R7" && sh "$T/lone${ESC}[31mdir/review-handoff.sh" --base "$B7BASE" 2>&1)
+assert_exit "a missing spec-parse.sh is refused" 2 $?
+assert_lacks "the missing-helper refusal carries no control bytes" "$ESC" "$out"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
