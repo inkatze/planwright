@@ -178,6 +178,11 @@ while alive "$cmd" && [ "$i" -lt 50 ]; do
 done
 ! alive "$cmd" || fail "terminated runner: its command $cmd outlived it"
 cc=$(cat "$tmp/cmdchild")
+i=0
+while alive "$cc" && [ "$i" -lt 50 ]; do
+  sleep 0.1
+  i=$((i + 1))
+done
 ! alive "$cc" || fail "terminated runner: its command's child $cc outlived it"
 echo "ok: a runner that is terminated ends its command's tree, TERM-ignoring included"
 
