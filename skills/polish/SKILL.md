@@ -4,10 +4,9 @@ description: >
   Autonomous act-then-review convergence loop: iterate /self-review passes,
   draining every action disposition (Auto-applicable and Agent-resolvable
   applied, Needs-sign-off applied on the branch) until only irreducible
-  Needs-human-judgment forks remain, then hand off a projection of the audit
-  record plus the worktree-local file holding it in full. Local-only: never
-  pushes, never creates a PR. Pass --nested when invoked from a parent skill
-  (such as /execute-task) that owns the handoff.
+  Needs-human-judgment forks remain, then hand off. Local-only: never pushes,
+  never creates a PR. Pass --nested when invoked from a parent skill (such as
+  /execute-task) that owns the handoff.
 argument-hint: "[--nested]"
 ---
 
@@ -23,7 +22,7 @@ checklist to the draft PR.
 
 ## Doctrine
 
-Resolve and read the same rule docs as `/self-review`, listed in the manifest
+Resolve the same rule docs as `/self-review`, listed in the manifest
 below, via `scripts/resolve-rule-doc.sh <doc-name>` through the core root
 chain. Their definitions govern wherever this skill names a concept.
 Issue one plain command per Bash call (`doctrine/plugin-script-invocation.md`).
@@ -33,14 +32,14 @@ doc and the chain consulted.
 Doctrine manifest (per `doctrine/instruction-hygiene.md`; `run-start` docs
 load before work begins, `point-of-use` at the named step):
 
-Doctrine: run-start discovery-rigor
-Doctrine: run-start validation-rigor
+Doctrine: point-of-use discovery-rigor (nested pass's Discovery)
+Doctrine: point-of-use validation-rigor (nested pass's Validation)
 Doctrine: run-start finding-categorization
 Doctrine: run-start gate-wiring
 Doctrine: point-of-use research-rigor (the nested /self-review pass's finding-validation)
 Doctrine: point-of-use refactor-instinct (the nested /self-review pass's refactor filter)
 Doctrine: run-start security-posture
-Doctrine: run-start proportionality
+Doctrine: point-of-use proportionality (nested pass's scoping)
 
 ## Invocation modes
 
@@ -80,9 +79,10 @@ Each iteration:
 
 1. **Run a `/self-review` pass, nested.** Invoke `/self-review --nested`
    in-session. The pass does its own discovery, validation, routing, and
-   dispositions per the gate wiring, and returns the audit record; its
-   finding-validation is where `research-rigor` loads point-of-use, and its
-   Discovery refactor filter where `refactor-instinct` does. Its
+   dispositions per the gate wiring, and returns the audit record. Its
+   Discovery loads `discovery-rigor` (and `refactor-instinct` at the
+   refactor filter), its Validation `validation-rigor`, `proportionality`,
+   and `research-rigor`, all point-of-use. Its
    Documentation lens holds to `discovery-rigor`'s four defect classes, so
    merely improvable prose is not a finding and never holds off
    convergence. Pass the
