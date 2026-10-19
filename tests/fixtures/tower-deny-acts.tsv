@@ -129,6 +129,8 @@ spelling	ref-surgery	expansion	git branch "-$d" main HEAD
 spelling	ref-surgery	expansion	git branch -f$dd main HEAD
 spelling	ref-surgery	force-shorthand	git branch -M topic main
 spelling	ref-surgery	force-shorthand	git branch -C topic main
+spelling	ref-surgery	raw-fallback	git branch -M topic main $(true)
+spelling	ref-surgery	raw-fallback	x=$(git branch -M topic main)
 spelling	ref-surgery	case	git RESET --hard HEAD
 spelling	ref-surgery	alias	git hr HEAD
 spelling	ref-surgery	alias	git bf main HEAD
@@ -146,6 +148,7 @@ spelling	worktree	ref-form	git worktree add -b refs/heads/main ../w
 spelling	worktree	ref-form	git worktree add ../main
 spelling	worktree	expansion	git worktree add -- ../w "$BR"
 spelling	worktree	expansion	git worktree add -- "$P"
+spelling	worktree	raw-fallback	git worktree add ../w master $(true)
 spelling	worktree	alias	git wa --force ../w topic
 spelling	push	global-C	git -C . push --force origin topic
 spelling	push	global-c	git -c core.abbrev=12 push origin main
