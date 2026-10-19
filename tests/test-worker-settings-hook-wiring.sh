@@ -197,6 +197,11 @@ else
   fail "the worker deny and allow rules did not load into the matcher model"
 fi
 
+# --- human-gates REQ-C1.8, REQ-G1.5: the re-draft corrective helper ----------
+# shellcheck source=tests/lib/redraft-helper-wiring.sh
+. "$REPO_ROOT/tests/lib/redraft-helper-wiring.sh"
+rh_wiring worker "$worker_settings" "$hook_script"
+
 # --- REQ-C1.2: worker-scoped only — NOT in the plugin-global hooks.json ------
 if jq -e . "$plugin_hooks" >/dev/null 2>&1; then
   plugin_hooks_valid=1

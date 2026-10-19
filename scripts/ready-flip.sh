@@ -56,7 +56,8 @@
 #               segment composed with the bullets the fetched <branch> carries
 #               for the unit; a <branch> that cannot be fetched or read refuses
 #               (exit 5) rather than park without them. The merge helper's park
-#               after a failed merge.
+#               after a failed merge, and scripts/request-reviewer.sh's after a
+#               failed re-draft (`redraft-pr-<n>`).
 #
 # The unit-PR flip, as /execute-task runs it after its post-pr point when
 # ready_flip_policy resolves unit-owner: `reconcile`; then the pre-ready-flip
@@ -211,7 +212,7 @@ case $MODE in
   *) [ "$FOR_MERGE" = 0 ] || usage '--for-merge belongs to evaluate and flip' ;;
 esac
 [ "$MODE" != awaiting ] || [ -n "$BASE_ARG" ] || usage 'awaiting needs --base'
-[ "$MODE" != park ] || [[ $REASON =~ ^[a-z][a-z-]{0,39}$ ]] || usage 'park needs --reason, a lower-case predicate name'
+[ "$MODE" != park ] || [[ $REASON =~ ^[a-z][a-z0-9-]{0,39}$ ]] || usage 'park needs --reason, a lower-case predicate name (digits allowed after the first letter)'
 # The base reaches git as an argument, so no option shape.
 [ -z "$BASE_ARG" ] || { [[ $BASE_ARG =~ ^[A-Za-z0-9_][A-Za-z0-9._/-]*$ ]] && git check-ref-format --branch "$BASE_ARG" >/dev/null 2>&1; } \
   || usage '--base must be a branch name'
