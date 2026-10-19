@@ -281,6 +281,18 @@ recs "$r" pre-pr >"$tmp/l"
   && [ -z "$(sp report gate)" ] && [ ! -e "$wt/.claude/steps/$r/runner-pending-pre-pr-ses" ]
 verdict $? "end records a shell-tool timeout with the line's output and frees the session's slot" "rc=$rc: $(cat "$tmp/l")"
 
+srun begin --run "$r" --point pre-pr --step ses --owner "$me" >/dev/null
+cp "$wt/.claude/steps/$r/runner-rows-pre-pr" "$tmp/rows.keep"
+awk -F '\t' '$2 != "ses"' "$tmp/rows.keep" >"$wt/.claude/steps/$r/runner-rows-pre-pr"
+srun end --run "$r" --point pre-pr --step ses --exit 0 >"$tmp/end" 2>&1
+rc=$?
+cp "$tmp/rows.keep" "$wt/.claude/steps/$r/runner-rows-pre-pr"
+recs "$r" pre-pr >"$tmp/l"
+[ "$rc" -eq 0 ] && [ "$(awk -F '\t' '$1 == "outcome" { o = $2 } END { print o }' "$tmp/l")" = passed ] \
+  && [ "$(awk -F '\t' '$1 == "target" { t = $2 } END { print t }' "$tmp/l")" = "$bin/check.sh" ] \
+  && [ -z "$(sp report gate)" ] && [ ! -e "$wt/.claude/steps/$r/runner-pending-pre-pr-ses" ]
+verdict $? "end records from begin's state when the resolved row is gone since" "rc=$rc: $(cat "$tmp/end" "$tmp/l")"
+
 # --- /execute-task wires the runner's calls ------------------------------------------------
 skill=$(tr '\n' ' ' <"$repo_root/skills/execute-task/SKILL.md")
 # shellcheck disable=SC2016 # literal backticks of the skill text

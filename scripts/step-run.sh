@@ -80,7 +80,7 @@
 #           --owner holds: prints `run<TAB><line>`, the line
 #           resolve-steps.sh --line renders (hold mark included when a slot
 #           was taken) for the session's shell tool, and keeps the pending
-#           state (slot, re-fire, session) for `end`. A `skipped` or `failed`
+#           state (slot, re-fire, session, target, hosting) for `end`. A `skipped` or `failed`
 #           line instead needs no `end`; a second begin before `end` is
 #           refused. Any failure after the take releases the slot.
 # end       release the slot begin took (by its slot number) and write the
@@ -88,8 +88,9 @@
 #           the shell tool enforced; --output a file of the line's output,
 #           appended to the cache copy); the pending state goes only once
 #           the record is written, and a retry after a failed write releases
-#           nothing again. The re-fire, backend, owner, and pool come from
-#           begin; end refuses the flags.
+#           nothing again. The re-fire, backend, owner, pool, target, and
+#           hosting come from begin, never the resolved row; end refuses the
+#           flags.
 #
 # The context: SPEC, TASK_IDS, UNIT_KIND, BRANCH, BASE_BRANCH, WORKTREE, and
 # PR_NUMBER of the PLANWRIGHT_STEP_* fields come from the caller's
@@ -760,8 +761,9 @@ cmd_begin() {
   o=$(new_output) || exit $?
   render_line "$o"
   {
-    printf 'state\t%s\nowner\t%s\nslot\t%s\nstart\t%s\nhead\t%s\nwaited\t%s\nbackend\t%s\nsession\t%s\nrefire-of\t%s\noutput\t%s\npool\t%s\n' \
-      "$STATE" "$OWNER" "$SLOT" "$START" "$HEAD0" "$WAITED" "$BACKEND" "$SESSION" "$REFIRE_OF" "$o" "$ROW_POOL"
+    printf 'state\t%s\nowner\t%s\nslot\t%s\nstart\t%s\nhead\t%s\nwaited\t%s\nbackend\t%s\nsession\t%s\nrefire-of\t%s\noutput\t%s\npool\t%s\ntarget\t%s\nhosting\t%s\n' \
+      "$STATE" "$OWNER" "$SLOT" "$START" "$HEAD0" "$WAITED" "$BACKEND" "$SESSION" "$REFIRE_OF" "$o" "$ROW_POOL" \
+      "$ROW_TARGET" "$ROW_HOSTING"
     [ ${#FP_ARGS[@]} -eq 0 ] || printf 'fingerprint\t%s\ndigest\t%s\n' "${FP_ARGS[1]}" "${FP_ARGS[3]}"
     local i
     for ((i = 1; i < ${#HOLDER_ARGS[@]}; i += 2)); do printf 'holder\t%s\n' "${HOLDER_ARGS[$i]}"; done
@@ -779,6 +781,7 @@ cmd_end() {
   [ -z "$REFIRE_OF$BACKEND$OWNER" ] || die 2 "end takes the re-fire, backend, and owner from begin"
   [ -f "$PENDING" ] && [ ! -L "$PENDING" ] || die 2 "no pending begin for $STEP at $CTX_POINT in run $RUN"
   local k v fp='' digest='' o='' pool=''
+  ROW_TARGET='' ROW_HOSTING=''
   HOLDER_ARGS=()
   while IFS=$TAB read -r k v; do
     case $k in
@@ -793,24 +796,22 @@ cmd_end() {
       refire-of) REFIRE_OF=$v ;;
       output) o=$v ;;
       pool) pool=$v ;;
+      target) ROW_TARGET=$v ;;
+      hosting) ROW_HOSTING=$v ;;
       holder) HOLDER_ARGS+=(--holder "$v") ;;
       fingerprint) fp=$v ;;
       digest) digest=$v ;;
     esac
   done <"$PENDING"
-  if [ -n "$REFIRE_OF" ]; then
-    ROW_POINT=$REFIRE_OF
-    ROW_RUN=$(rows_run "$RUN")
-  fi
-  # The slot is released from the pool begin took, whatever the row says now
-  # (or if it is gone); `released` is a retry after an earlier end freed it.
+  # The record and the slot come from begin's state, whatever the resolved
+  # row says now (or if it is gone); `released` is a retry after an earlier
+  # end freed the slot.
   ROW_POOL=$pool
   case $STATE in
     taken) SLOT_HELD=yes ;;
     released) STATE=taken ;;
   esac
-  row_of "$ROW_RUN" "$ROW_POINT" "$STEP"
-  ROW_POOL=$pool
+  [ -n "$ROW_TARGET" ] && [ -n "$ROW_HOSTING" ] || die 4 "the pending begin for $STEP names no target or hosting"
   FP_ARGS=() POOL_ARGS=() REFIRE_ARGS=()
   [ -z "$REFIRE_OF" ] || REFIRE_ARGS=(--refire-of "$REFIRE_OF")
   # The fingerprint the step ran over, as begin took it.
