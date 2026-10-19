@@ -228,7 +228,9 @@ pid_running() {
   case $(LC_ALL=C kill -0 "$1" 2>&1) in
     *[Pp]ermitted | *[Pp]ermission\ denied) return 0 ;;
   esac
-  ps -p "$1" >/dev/null 2>&1 || [ -d "/proc/$1" ]
+  ps -p "$1" >/dev/null 2>&1 && return 0
+  # procfs only where ps has no -p: elsewhere /proc/<n> also resolves a thread.
+  ! ps -p "$$" >/dev/null 2>&1 && [ -d "/proc/$1" ]
 }
 # owner_uid — print the owner's uid, or nothing when it cannot be read. One
 # ps call, its diagnostics kept: a ps that answers nothing could not read the

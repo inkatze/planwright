@@ -30,8 +30,8 @@
 # Evidence classes:
 #   process <pid>
 #       Queries the pid directly (kill -0, then a targeted `ps -p` for the
-#       EPERM case) — a per-pid syscall-backed query, never a scraped process
-#       LISTING, which is exactly the truncation-prone source the incident
+#       EPERM case, or procfs where ps has no -p) — a per-pid query, never a
+#       scraped process LISTING, which is exactly the truncation-prone source the incident
 #       implicates. <pid> is a positive integer, no leading zero, <=10 digits.
 #   tmux-window <session> <window>
 #       Three probes, all against the caller's tmux server: `ls` (server
@@ -118,9 +118,14 @@ case "$class" in
     ps_rc=0
     ps -p "$pid" >/dev/null 2>&1 || ps_rc=$?
     # busybox ps has no -p and exits 1 on the option alone, the same status
-    # as not-found, so a pid procfs still shows is alive.
-    if [ "$ps_rc" = 1 ] && [ -d "/proc/$pid" ]; then
-      ps_rc=0
+    # as not-found; it rejects this shell's own pid too, which is how it is
+    # told apart. There procfs answers, and with no procfs nothing can.
+    if [ "$ps_rc" = 1 ] && ! ps -p "$$" >/dev/null 2>&1; then
+      if [ -d "/proc/$$" ]; then
+        [ -d "/proc/$pid" ] && ps_rc=0
+      else
+        ps_rc=2
+      fi
     fi
     case "$ps_rc" in
       0) verdict alive ;;

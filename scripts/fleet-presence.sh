@@ -67,7 +67,7 @@
 # c<checkout-path-hash> — never the bare pid (reuse-prone) nor the checkout
 # path alone (two towers on one checkout would collide). The start time is a
 # targeted per-pid `ps -p <pid> -o lstart=` query, never a process-listing
-# scan.
+# scan, or where ps has neither (busybox) the pid's procfs start ticks.
 #
 # DISCOVERY (REQ-A1.1, REQ-A1.3, REQ-A1.6). Scans only the current repo-id
 # sub-surface (each record's repo id re-verified as a defensive cross-check),
@@ -352,12 +352,16 @@ is_tower_id() {
 }
 
 # start_time <pid> — print the pid's start time, or nothing. busybox ps has
-# neither -p nor lstart, so on Linux the start in clock ticks since boot from
-# procfs stands in: as fixed for the process's life as lstart is.
+# neither -p nor lstart, so there the start in clock ticks since boot from
+# procfs stands in, as fixed for the process's life as lstart is. Only there:
+# a host whose ps answers for this shell keeps one format, so a passing ps
+# failure never mints an identity no later read can match.
 start_time() {
-  st_v=$(ps -p "$1" -o lstart= 2>/dev/null) || st_v=''
-  [ -n "$st_v" ] || st_v=$(awk '{ sub(/.*\) /, ""); print "boot+" $20 }' "/proc/$1/stat" 2>/dev/null) || st_v=''
-  printf '%s' "$st_v"
+  if ps -p "$$" -o lstart= >/dev/null 2>&1; then
+    ps -p "$1" -o lstart= 2>/dev/null
+  else
+    awk '{ sub(/.*\) /, ""); print "boot+" $20 }' "/proc/$1/stat" 2>/dev/null
+  fi
 }
 
 # reused_pid_ambiguous <tower-id> <handle> — the recycled-pid discriminator
