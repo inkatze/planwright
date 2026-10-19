@@ -4,9 +4,9 @@
 dispatching skills — `/execute-task`, `/orchestrate`, `/spec-kickoff` — invoke
 plugin scripts (`scripts/<name>.sh`) many times per run. This doc fixes the one
 invocation shape they use, so a dispatched worker does not flood on a permission
-prompt for every such call. Its sections *Invoke by the shebang* and *One
-plain command per Bash call* cover every command any skill issues inside a dispatched worker or a tower
-session, `/polish` and `/self-review` included.
+prompt for every such call. Its sections *Invoke by the shebang* and *One plain
+command per Bash call* cover every command any skill issues inside a dispatched
+worker or a tower session, `/polish` and `/self-review` included.
 
 Citations: REQ-D1.1, D-7; obs:344dd129, obs:885bc3c9 · custom-spec-location
 REQ-G1.4.
@@ -52,16 +52,6 @@ stays approvable. The two
 are complementary — the hook is the primary path, literal-path invocation is
 defense-in-depth independent of it.
 
-## Invoke by the shebang
-
-A script's shebang names its interpreter, so run it by its path, or through
-exactly the interpreter that shebang names. Never run a script whose shebang
-names bash through `sh`: where `/bin/sh` is dash, the script fails on its first
-bashism with an error that names the script rather than the invocation.
-`check:script-invocation` flags such a line in any skill or doctrine doc.
-
-Citations: test-throughput REQ-E1.2 · test-throughput D-12.
-
 ## One plain command per Bash call
 
 A literal path is not enough when the line around it is compound. The hook
@@ -95,6 +85,16 @@ A declared command step's `--line` rendering is not an exception to strip: it
 runs exactly as the resolver prints it, its quoted `PLANWRIGHT_STEP_*`
 assignment prefix included, since that prefix carries the step's context and
 is the form the guard approves ([custom-steps](custom-steps.md)).
+
+## Invoke by the shebang
+
+A script's shebang names its interpreter, so run it by its path, or through
+exactly the interpreter that shebang names. Never run a script whose shebang
+names bash through `sh`: where `/bin/sh` is dash, the script fails on its first
+bashism with an error that names the script rather than the invocation.
+`check:script-invocation` flags such a line in any skill or doctrine doc.
+
+Citations: test-throughput REQ-E1.2 · test-throughput D-12.
 
 ## The adopter allow entry
 
