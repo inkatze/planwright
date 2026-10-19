@@ -92,7 +92,9 @@ the unit:
   once the PR opens.
 
 Each angle is named by its role, never by step id or product name, as ran or
-not run; a blind pass that fell back inline says the blind angle did not run.
+not run; a blind pass that ran inline because no fresh agent could be
+spawned is not context-independent, so the record names the blind angle as
+not run.
 The record never claims an angle that did not run. It renders as a collapsed
 detail block inside the audit section
 ([PR-body assembly](gate-wiring.md#pr-body-assembly)), and it is re-emitted
@@ -112,9 +114,11 @@ review-miss(<lens>, <reason>): #<pr> <path>: <description>
 
 `<pr>` is the PR's positive integer number and `<path>` the file the finding
 cited (for a review thread, the file it is anchored to), in canonical
-repository-relative form with no space, colon, `./`, or empty segment;
-together they are the key the backtest refresh matches a fixed finding on.
-`<description>` is non-blank, and the whole text holds no control character.
+repository-relative form: printable ASCII with no space or colon, not
+beginning with `/`, `~`, or `-`, and no `.`, `..`, or empty segment
+(a trailing `/` included); together they are the key the backtest refresh
+matches a fixed finding on. `<description>` is non-blank, and the whole text
+holds no ASCII control byte.
 `<lens>` is the lens that should have caught it and `<reason>` why it got
 past:
 
@@ -150,9 +154,10 @@ Every planwright flow that applies a post-convergence fix records the miss it
 fixed, in the same run that lands the fix; the post-pr step handling does so
 when a post-pr step's fix lands. A fix made outside planwright has no ledger
 entry, matched on PR number and path: the refresh labels it from the previous
-corpus version's row or the PR's declined log where either holds it, and
-otherwise with reason `other`, counting that fallback so ledger coverage stays
-visible.
+corpus version's row or the PR's declined log where either holds it (or by
+its annotator when a version is bootstrapped, `docs/review-backtest.md`), and
+otherwise with reason
+`other`, counting that fallback so ledger coverage stays visible.
 
 ## Naming
 

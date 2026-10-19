@@ -73,26 +73,42 @@ command -v jq >/dev/null 2>&1 || {
   printf '%s\n' "$prog: jq is required" >&2
   exit 2
 }
+case $inventory in
+  -*) inventory=./$inventory ;;
+esac
+case $result in
+  -*) result=./$result ;;
+esac
 [ -f "$inventory" ] && [ -r "$inventory" ] || {
   printf '%s\n' "$prog: cannot read the prompt inventory" >&2
   exit 2
 }
 
+env_error() {
+  printf '%s\n' "$prog: $1" >&2
+  exit 2
+}
+
 failed() {
-  jq -cn --arg r "$1" '{contract: 1, outcome: "failed", reason: $r}'
+  jq -cn --arg r "$1" '{contract: 1, outcome: "failed", reason: $r}' \
+    || printf '%s\n' '{"contract":1,"outcome":"failed","reason":"the result failed verification"}'
   exit 1
 }
 
-case $result in
-  -*) result=./$result ;;
-esac
 [ -f "$result" ] && [ -r "$result" ] || failed "the step left no readable result"
 grep -q '[^[:space:]]' "$result" || failed "the step returned an empty result"
-jq -s . "$result" >/dev/null 2>&1 || failed "the result is not parseable JSON"
+if ! jq -s . "$result" >/dev/null 2>&1; then
+  # jq's parse-error exit code differs across versions; a jq that still runs
+  # places the fault in the result.
+  jq -n true >/dev/null 2>&1 || env_error "jq could not run"
+  failed "the result is not parseable JSON"
+fi
 
 # shellcheck disable=SC2016 # jq program text, expanded by jq, not the shell
 verify_jq='
 def norm: sub("^(\\./)+"; "");
+def inventory_paths: split("\n") | map(gsub("^\\s+|\\s+$"; "") | norm)
+  | map(select(length > 0 and (startswith("#") | not)));
 def nonblank: type == "string" and (gsub("\\s"; "") | length) > 0;
 def fields_ok($allowed): type == "object" and (keys - $allowed | length) == 0
   and has("path") and has("line") and has("severity") and has("summary")
@@ -106,8 +122,9 @@ def thread_ok: fields_ok(["id", "path", "line", "severity", "summary", "resolved
   and (.resolved | type) == "boolean" and has("resolved_by")
   and ((.resolved == false and .resolved_by == null)
        or (.resolved == true and (.resolved_by | IN("reviewer", "run", "human"))));
-$paths[0] as $paths
-| if length != 1 then {outcome: "failed", reason: "the result holds \(length) JSON values, not one"}
+($inv | inventory_paths) as $paths
+| if ($paths | length) == 0 then {outcome: "no-inventory"}
+  elif length != 1 then {outcome: "failed", reason: "the result holds \(length) JSON values, not one"}
   else .[0]
   | if type != "object" then {outcome: "failed", reason: "the result is not a JSON object"}
     elif .contract != 1 then {outcome: "failed", reason: "the result is not under contract 1"}
@@ -129,24 +146,19 @@ $paths[0] as $paths
 | {contract: 1} + .
 '
 
-env_error() {
-  printf '%s\n' "$prog: $1" >&2
-  exit 2
-}
-
-# shellcheck disable=SC2016 # jq program text, expanded by jq, not the shell
-paths=$(jq -cRs 'split("\n") | map(gsub("^\\s+|\\s+$"; "") | sub("^(\\./)+"; ""))
-  | map(select(length > 0 and (startswith("#") | not)))' "$inventory") \
-  || env_error "jq could not read the prompt inventory"
-[ "$paths" != "[]" ] || env_error "the prompt inventory names no path; record it at dispatch"
-
-out=$(jq -cs --argjson paths "[$paths]" "$verify_jq" "$result") \
+out=$(jq -cs --rawfile inv "$inventory" "$verify_jq" "$result") \
   || env_error "jq could not run the contract check"
+case $out in
+  '{"contract":1,"outcome":"no-inventory"}') env_error "the prompt inventory names no path; record it at dispatch" ;;
+esac
 
-# shellcheck disable=SC2016 # jq program text, expanded by jq, not the shell
-printf '%s\n' "$out" | jq -r '.dropped[]?.path | gsub("[\\r\\n]"; " ")' | while IFS= read -r p; do
-  printf '%s\n' "$prog: dropped a finding citing $(sanitize_printable "$p"): absent from the prompt inventory" >&2
-done
+dropped=$(printf '%s\n' "$out" | jq -r '.dropped[]?.path | gsub("[\\r\\n]"; " ")') \
+  || env_error "jq could not list the dropped findings"
+if [ -n "$dropped" ]; then
+  printf '%s\n' "$dropped" | while IFS= read -r p; do
+    printf '%s\n' "$prog: dropped a finding citing $(sanitize_printable "$p"): absent from the prompt inventory" >&2
+  done
+fi
 printf '%s\n' "$out"
 case $out in
   '{"contract":1,"outcome":"passed",'*) exit 0 ;;

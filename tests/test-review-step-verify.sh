@@ -92,6 +92,13 @@ bad "a thread id outside the id charset is failed" '{"contract":1,"body_findings
 bad "an unresolved thread naming a resolver is failed" '{"contract":1,"body_findings":[],"threads":[{"id":"T1",'"$f"',"resolved":false,"resolved_by":"reviewer"}]}'
 bad "a non-object result is failed" '[]'
 
+bad "a finding without its line key is failed" '{"contract":1,"body_findings":[{"path":"scripts/a.sh","severity":"low","summary":"x"}],"threads":[]}'
+bad "a string line is failed" '{"contract":1,"body_findings":[{"path":"scripts/a.sh","line":"3","severity":"low","summary":"x"}],"threads":[]}'
+bad "a body finding carrying thread keys is failed" '{"contract":1,"body_findings":[{'"$f"',"id":"T1","resolved":false,"resolved_by":null}],"threads":[]}'
+bad "a thread without resolved_by is failed" '{"contract":1,"body_findings":[],"threads":[{"id":"T1",'"$f"',"resolved":false}]}'
+bad "an unknown resolver is failed" '{"contract":1,"body_findings":[],"threads":[{"id":"T1",'"$f"',"resolved":true,"resolved_by":"bot"}]}'
+bad "an empty thread id is failed" '{"contract":1,"body_findings":[],"threads":[{"id":"",'"$f"',"resolved":false,"resolved_by":null}]}'
+
 # --- a clean structured result passes ---
 printf '%s\n' '{"contract":1,"body_findings":[],"threads":[]}' >"$T/clean.json"
 verify "$T/clean.json"
@@ -165,6 +172,28 @@ printf '%s\n' "# nothing recorded" "" >"$T/emptyinv"
 rc=0
 /bin/sh "$VERIFY" --inventory "$T/emptyinv" --result "$T/cite.json" >/dev/null 2>&1 || rc=$?
 assert_exit "an inventory naming no path is an error, never a clean review" 2 "$rc"
+
+# --- option-shaped file names and padded inventory lines ---
+mkdir -p "$T/dash"
+printf '%s\n' "  scripts/a.sh  " >"$T/dash/-inv"
+cp "$T/body.json" "$T/dash/-result.json"
+rc=0
+out=$(cd "$T/dash" && /bin/sh "$VERIFY" --inventory -inv --result -result.json 2>/dev/null) || rc=$?
+assert_exit "option-shaped inventory and result names are read as files" 0 "$rc"
+assert_eq "a padded inventory line still carries its path" 0 "$(field '.dropped | length')"
+
+# --- a jq that cannot run the check is an environment error ---
+mkdir -p "$T/shim"
+real_jq=$(command -v jq)
+cat >"$T/shim/jq" <<EOF
+#!/bin/sh
+case "\$*" in *fields_ok*) exit 3 ;; esac
+exec "$real_jq" "\$@"
+EOF
+chmod +x "$T/shim/jq"
+rc=0
+PATH="$T/shim:$PATH" /bin/sh "$VERIFY" --inventory "$inv" --result "$T/body.json" >/dev/null 2>&1 || rc=$?
+assert_exit "a jq failure in the contract run is exit 2, never a failed review" 2 "$rc"
 
 # --- usage ---
 rc=0

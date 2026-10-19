@@ -89,10 +89,14 @@ assert_exit "refuses a blank description" 1 "$rc"
 run_text "$(printf 'review-miss(other, other): #1 a\tother: forged columns')"
 assert_exit "refuses a tab smuggled into the path" 1 "$rc"
 
-for p in ./a.sh a//b.sh a/./c.sh a/.; do
+for p in ./a.sh a//b.sh a/./c.sh a/. a/b/ .; do
   run_text "review-miss(correctness, pruned): #12 $p: not the canonical path"
   assert_exit "refuses the non-canonical path $p" 1 "$rc"
 done
+
+run_text 'review-miss(security, ): #1 a.sh: no reason'
+assert_exit "refuses an empty reason" 1 "$rc"
+assert_not_contains "blames the grammar, not the valid lens" "lens ''" "$out"
 
 # --- store mode ---
 obs="$T/obs"
@@ -150,12 +154,55 @@ if [ "$(id -u)" -ne 0 ]; then
   chmod 644 "$obs/entries/2026-10-03-review-miss-0000ffff.md"
   rm -f "$obs/entries/2026-10-03-review-miss-0000ffff.md"
 
-  chmod 000 "$obs/archive"
+  printf '%s\n' "- 2026-10-03 [planwright] review-miss(correctness, pruned): #43 a.sh: unreadable" >"$obs/entries/2026-10-03-review-miss-0000ffff.md"
+  chmod 000 "$obs/entries/2026-10-03-review-miss-0000ffff.md"
+  printf '%s\n' "- 2026-10-03 [planwright] review-miss(correctness, pruned): no PR" >"$obs/entries/2026-10-03-review-miss-0000fffe.md"
   rc=0
   out=$(/bin/sh "$CHECK" --obs-dir "$obs" 2>&1) || rc=$?
-  assert_exit "an unreadable store directory is an error, never a pass" 2 "$rc"
-  chmod 755 "$obs/archive"
+  assert_exit "an unreadable fragment keeps exit 2 past a later malformed miss" 2 "$rc"
+  chmod 644 "$obs/entries/2026-10-03-review-miss-0000ffff.md"
+  rm -f "$obs/entries/2026-10-03-review-miss-0000ffff.md" "$obs/entries/2026-10-03-review-miss-0000fffe.md"
+
+  for mode in 000 444; do
+    chmod "$mode" "$obs/archive"
+    rc=0
+    out=$(/bin/sh "$CHECK" --obs-dir "$obs" 2>&1) || rc=$?
+    assert_exit "a store directory at mode $mode is an error, never a pass" 2 "$rc"
+    chmod 755 "$obs/archive"
+  done
+
+  chmod 600 "$obs"
+  rc=0
+  out=$(/bin/sh "$CHECK" --obs-dir "$obs" 2>&1) || rc=$?
+  assert_exit "a store root that cannot be searched is an error, never a pass" 2 "$rc"
+  chmod 755 "$obs"
 fi
+
+: >"$obs/entries/2026-10-03-review-miss-0000eeee.md"
+rc=0
+out=$(/bin/sh "$CHECK" --obs-dir "$obs" 2>&1) || rc=$?
+assert_exit "an empty miss-slug fragment fails" 1 "$rc"
+rm -f "$obs/entries/2026-10-03-review-miss-0000eeee.md"
+
+printf '%s\n' "- 2026-10-03 [planwright] review-miss(correctness, pruned): #44 a.sh: outside the store" >"$T/outside.md"
+ln -s "$T/outside.md" "$obs/entries/2026-10-03-review-miss-0000dddd.md"
+rc=0
+out=$(/bin/sh "$CHECK" --obs-dir "$obs" 2>&1) || rc=$?
+assert_exit "a symlinked miss fragment is refused" 2 "$rc"
+rm -f "$obs/entries/2026-10-03-review-miss-0000dddd.md"
+ln -s "$T/nowhere.md" "$obs/entries/2026-10-03-review-miss-0000cccd.md"
+rc=0
+out=$(/bin/sh "$CHECK" --obs-dir "$obs" 2>&1) || rc=$?
+assert_exit "a dangling miss link is refused, never skipped" 2 "$rc"
+rm -f "$obs/entries/2026-10-03-review-miss-0000cccd.md"
+mkdir -p "$T/linked"
+mv "$obs/archive" "$T/linked/archive"
+ln -s "$T/linked/archive" "$obs/archive"
+rc=0
+out=$(/bin/sh "$CHECK" --obs-dir "$obs" 2>&1) || rc=$?
+assert_exit "a symlinked store directory is refused" 2 "$rc"
+rm -f "$obs/archive"
+mv "$T/linked/archive" "$obs/archive"
 
 rc=0
 out=$(/bin/sh "$CHECK" --obs-dir "$T/absent" 2>&1) || rc=$?
@@ -204,6 +251,28 @@ if [ "$(id -u)" -ne 0 ]; then
   rbt_read_ledger "$T/rows.tsv" "$ledger"
   assert_eq "the reader never counts an unreadable non-miss fragment" 1 "$RBT_LEDGER_MALFORMED"
   chmod 644 "$ledger/2026-10-04-note-00001111.md"
+fi
+
+# --- the reader: a slug mismatch counts, an unreadable miss counts, a copy in
+# both directories is read once, an unlistable directory counts ---
+l2="$T/ledger2"
+mkdir -p "$l2/entries" "$l2/archive"
+printf '%s\n' "- 2026-10-05 [planwright] review-miss(correctness, pruned): #50 a.sh: under another slug" >"$l2/entries/2026-10-05-note-00002222.md"
+printf '%s\n' "- 2026-10-05 [planwright] review-miss(correctness, pruned): #51 a.sh: drained twice" >"$l2/entries/2026-10-05-review-miss-00003333.md"
+cp "$l2/entries/2026-10-05-review-miss-00003333.md" "$l2/archive/"
+rbt_read_ledger "$T/rows2.tsv" "$l2/entries" "$l2/archive"
+assert_eq "the reader counts a miss text under another slug" 1 "$RBT_LEDGER_MALFORMED"
+assert_eq "the reader reads a fragment in both directories once" 1 "$(wc -l <"$T/rows2.tsv" | tr -d ' ')"
+if [ "$(id -u)" -ne 0 ]; then
+  printf '%s\n' "- 2026-10-05 [planwright] review-miss(correctness, pruned): #52 a.sh: unreadable" >"$l2/entries/2026-10-05-review-miss-00004444.md"
+  chmod 000 "$l2/entries/2026-10-05-review-miss-00004444.md"
+  rbt_read_ledger "$T/rows2.tsv" "$l2/entries" "$l2/archive"
+  assert_eq "the reader counts an unreadable miss" 2 "$RBT_LEDGER_MALFORMED"
+  chmod 644 "$l2/entries/2026-10-05-review-miss-00004444.md"
+  chmod 300 "$l2/archive"
+  rbt_read_ledger "$T/rows2.tsv" "$l2/archive"
+  assert_eq "the reader counts a directory it cannot list" 1 "$RBT_LEDGER_MALFORMED"
+  chmod 755 "$l2/archive"
 fi
 
 # --- the doctrine states the vocabulary the scripts enforce ---

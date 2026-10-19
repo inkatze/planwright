@@ -18,7 +18,8 @@
 # once (rbt_miss_fragment, rbt_miss_row), shared with the readers.
 #
 # Exit codes: 0 clean, 1 one or more malformed misses, 2 usage or internal
-# error, an unreadable store directory or fragment included.
+# error, a store directory or fragment that cannot be read safely (unreadable,
+# a symlink, or not a regular file) included.
 set -u
 LC_ALL=C
 export LC_ALL
@@ -97,21 +98,28 @@ case $obsdir in
     ;;
 esac
 
+if [ -e "$obsdir" ] && { [ ! -d "$obsdir" ] || [ ! -x "$obsdir" ]; }; then
+  printf '%s\n' "$prog: cannot search the observations directory" >&2
+  exit 2
+fi
+
 status=0
 for dir in "$obsdir/entries" "$obsdir/archive"; do
-  [ -d "$dir" ] || continue
-  [ -r "$dir" ] && [ -x "$dir" ] || {
-    printf '%s\n' "$prog: ${dir##*/}: cannot read the directory" >&2
+  [ -e "$dir" ] || [ -L "$dir" ] || continue
+  if [ -L "$dir" ] || [ ! -d "$dir" ] || [ ! -r "$dir" ] || [ ! -x "$dir" ]; then
+    printf '%s\n' "$prog: ${dir##*/}: cannot read the directory safely" >&2
     status=2
     continue
-  }
+  fi
+  rbt_miss_prefilter "$dir"
   for f in "$dir"/*.md; do
-    [ -f "$f" ] || continue
+    [ -e "$f" ] || [ -L "$f" ] || continue
     rc=0
     rbt_miss_fragment "$f" || rc=$?
     case $rc in
       1 | 4) continue ;;
-      0) ! rbt_miss_row "$RBT_MISS_TEXT" >/dev/null || continue ;;
+      0) rbt_miss_row "$RBT_MISS_TEXT" >/dev/null && continue ;;
+      2 | 3) ;;
     esac
     printf '%s\n' "$prog: ${dir##*/}/$(sanitize_printable "${f##*/}"): $(sanitize_printable "$RBT_MISS_WHY")" >&2
     if [ "$rc" -eq 3 ]; then
@@ -120,5 +128,6 @@ for dir in "$obsdir/entries" "$obsdir/archive"; do
       status=1
     fi
   done
+  RBT_MISS_PREFILTER=0
 done
 exit "$status"
