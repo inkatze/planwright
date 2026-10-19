@@ -38,6 +38,9 @@
 #       fails the launch, and the undo keeps what a session may be using
 #   r16 with no marker-dir override, a failed launch leaves its marker in none
 #       of the directories the writer may use, the shared home included
+#   r17 a worker profile the planwright root holds unreadable refuses the
+#       launch and its dry run alike, naming the profile, before anything is
+#       placed (fleet-messaging D-19, REQ-F1.1)
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-tmux-launch-refusals.sh
@@ -544,6 +547,38 @@ $dirs
 EOF
 }
 
+# --- r17: an unreadable worker profile ----------------------------------------
+# The injector is the planwright-root override: PLANWRIGHT_ROOT names a copy
+# of the root whose worker profile cannot be read.
+r17() {
+  local bad e before mode
+  bad="$TLH_SANDBOX/badroot"
+  mkdir -p "$bad/config"
+  for e in "$ROOT"/*; do
+    [ "${e##*/}" = config ] && continue
+    ln -sn "$e" "$bad/${e##*/}"
+  done
+  cp "$ROOT/config/worker-settings.json" "$bad/config/"
+  chmod 000 "$bad/config/worker-settings.json"
+  for mode in launch dry-run; do
+    new_case
+    before=$(calls_now)
+    if [ "$mode" = dry-run ]; then
+      PLANWRIGHT_ROOT=$bad tlh_run_bounded "$PRIM" dispatch demo 1 --repo-root "$P" --attach-dry-run
+    else
+      PLANWRIGHT_ROOT=$bad tlh_run_bounded "$PRIM" dispatch demo 1 --repo-root "$P"
+    fi
+    [ "$TLH_RC" -eq 12 ] || fail "r17 [$mode]: an unreadable worker profile must exit 12, got $TLH_RC ($TLH_ERR)"
+    case $TLH_ERR in
+      *"$(cd "$bad" && pwd -P)/config/worker-settings.json"*) ;;
+      *) fail "r17 [$mode]: the refusal does not name the profile: $TLH_ERR" ;;
+    esac
+    [ -z "$(tmux_calls_since "$before" | awk -F"$TAB" '$1 == "new-session"')" ] || fail "r17 [$mode]: new-session was called"
+    nothing_placed "r17 [$mode]" 1
+  done
+  chmod 644 "$bad/config/worker-settings.json"
+}
+
 r1
 r2
 r3
@@ -560,6 +595,7 @@ r13
 r14
 r15
 r16
+r17
 
 [ "$fails" -eq 0 ] || {
   echo "test-tmux-launch-refusals: $fails failure(s)" >&2

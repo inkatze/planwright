@@ -11,8 +11,10 @@
 #       the dispatcher's root and fleet home, the launch token, and the
 #       registry record's handle and scope; the registry's death handle is the
 #       session-creation output; a liveness hook run with the worker's
-#       environment records a transition for its handle (REQ-F1.1-F1.5,
-#       REQ-G1.2, REQ-G1.6, REQ-H1.2)
+#       environment records a transition for its handle; the session is
+#       named after that handle and the worker profile rides --settings with
+#       PLANWRIGHT_MESSAGING_INBOUND=accept beside it (REQ-F1.1-F1.5,
+#       REQ-G1.2, REQ-G1.6, REQ-H1.2; fleet-messaging REQ-B1.1, REQ-F1.1)
 #   l2  a flight dispatch does the same for a flight's identity, names the
 #       session from the launch's report line, treats started-unconfirmed as
 #       placed, and releases its lock: a second dispatch with
@@ -64,6 +66,21 @@ check_worker() {
   case "$argv$TAB" in
     *"$TAB--worktree"* | *"$TAB--tmux"*) fail "$label: the worker argv carries --worktree or --tmux: $argv" ;;
   esac
+  # The session is named after the registry handle, and the worker profile
+  # rides --settings with the inbound layer beside it (fleet-messaging D-8,
+  # D-17, D-19).
+  case "$argv$TAB" in
+    *"$TAB--name$TAB$handle$TAB"*) ;;
+    *) fail "$label: the worker argv does not name the session '$handle': $argv" ;;
+  esac
+  case "$argv$TAB" in
+    *"$TAB--settings$TAB$ROOT/config/worker-settings.json$TAB"*) ;;
+    *) fail "$label: the worker argv does not pass the worker profile: $argv" ;;
+  esac
+  "$ROOT/scripts/orchestrate-relay.sh" validate-handle tmux "$handle" \
+    || fail "$label: the derived name '$handle' fails the tmux handle grammar"
+  v=$(tlh_worker_env "$rec" PLANWRIGHT_MESSAGING_INBOUND) || v='<unset>'
+  [ "$v" = accept ] || fail "$label: the worker's inbound layer is '$v', not accept"
   v=$(tlh_worker_env "$rec" CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION) || v='<unset>'
   [ "$v" = false ] || fail "$label: the ghost-text pin did not reach the worker ($v)"
   v=$(tlh_worker_env "$rec" PLANWRIGHT_ROOT) || v='<unset>'

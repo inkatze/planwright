@@ -697,10 +697,12 @@ note_anomaly() {
 # --- per-worker classification -----------------------------------------------
 
 # read_registry <worker> — sets reg_status, reg_scope, reg_owner, reg_backend,
-# reg_state_dir, reg_handle from the snapshot. Seven columns is the current
-# shape, eight a retired record (`closed`), read the same way so a close can
-# still act on it; three is the pre-owner shape, still parseable; anything
-# else is a torn or hand-edited line.
+# reg_state_dir, reg_handle from the snapshot. Nine columns is the current
+# shape (the session name and inbox appended, which this reader does not
+# use), seven the shape before them, eight a retired record (`closed`), all
+# read for their first seven fields so a close can still act on a retired
+# one; three is the pre-owner shape, still parseable; anything else is a torn
+# or hand-edited line.
 read_registry() {
   reg_status=$registry_status
   reg_scope=""
@@ -715,6 +717,7 @@ read_registry() {
     return 0
   fi
   rr_nf=${rr_fields%%"$NL"*}
+  [ "$rr_nf" != 9 ] || rr_nf=7
   if [ "$rr_nf" = 8 ]; then
     if [ "${rr_fields##*"$NL"}" = closed ]; then
       rr_nf=7
