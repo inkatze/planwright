@@ -116,6 +116,7 @@ printf '%s\n' "$*" >>"$SHIM_RECORD_DIR/argv"
 printf 'ghost=%s\n' "${CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'plugin_root=%s\n' "${CLAUDE_PLUGIN_ROOT-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'spec_root=%s\n' "${PLANWRIGHT_WORKER_SPEC_ROOT-<unset>}" >>"$SHIM_RECORD_DIR/env"
+printf 'record=%s\n' "${PLANWRIGHT_WORKER_SESSION_RECORD-<unset>}" >>"$SHIM_RECORD_DIR/env"
 n=${SHIM_READ_FIRST:-1}
 i=0
 while [ "$i" -lt "$n" ]; do
@@ -737,7 +738,8 @@ launch_c39() {
     for _v in $(env | sed -n 's/^\(PLANWRIGHT_[A-Za-z0-9_]*\)=.*/\1/p'); do
       unset "$_v"
     done
-    export PLANWRIGHT_WORKER_SPEC_ROOT=/stale GIT_CEILING_DIRECTORIES="$tmp" \
+    export PLANWRIGHT_WORKER_SPEC_ROOT=/stale PLANWRIGHT_WORKER_SESSION_RECORD=/stale \
+      GIT_CEILING_DIRECTORIES="$tmp" \
       GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
     senv "$tmp/h39" "$tmp/r39" SHIM_EVENTS="$tmp/ev9" -- \
       launch "$1" execution-backends:4 --prompt-file "$tmp/prompt9" --cwd "$tmp/wt39" --foreground
@@ -758,6 +760,18 @@ got39=$(grep '^spec_root=' "$tmp/r39/env" | tail -n 1)
 [ "${got39#spec_root=}" = "<unset>" ] \
   || fail "c39: an inherited PLANWRIGHT_WORKER_SPEC_ROOT reached a same-repo worker: '${got39#spec_root=}'"
 echo "ok: c39 the worker gets the outside spec root, and an inherited one never stands (REQ-E1.7)"
+# The session record its command guard reads (worker-permission-ergonomics
+# REQ-G1.8): written for the worker's own directory, under the fleet home,
+# and an inherited path never stands.
+rec39=$(grep '^record=' "$tmp/r39/env" | tail -n 1)
+rec39=${rec39#record=}
+case $rec39 in
+  "$(cd "$tmp/h39" 2>/dev/null && pwd -P)"/session-records/*.record) ;;
+  *) fail "c39: the worker got '$rec39' as PLANWRIGHT_WORKER_SESSION_RECORD, expected a record under its fleet home" ;;
+esac
+grep -qx "worktree_root=$(cd "$tmp/wt39" && pwd -P)" "$rec39" 2>/dev/null \
+  || fail "c39: the worker's session record does not name its worktree"
+echo "ok: c39 the worker gets a fresh session record, never an inherited one (REQ-G1.8)"
 
 # ---------------------------------------------------------------------------
 # c10: hostile inputs are refused before any path use.

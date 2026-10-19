@@ -297,6 +297,7 @@ fi
 FETCH="$script_dir/dispatch-fetch.sh"
 ENVWRAP="$script_dir/fleet-dispatch-env.sh"
 LAUNCH_SPEC_ROOT=""
+LAUNCH_RECORD=""
 MARKER="$script_dir/orchestrate-marker.sh"
 TRACK="$script_dir/fleet-worktree-track.sh"
 FLEET_STATE="$script_dir/fleet-state.sh"
@@ -1104,6 +1105,7 @@ tmux_launch() {
   shift 7
   [ -z "$ATTACH_PROMPT" ] || set -- "$@" -- "$ATTACH_PROMPT"
   [ -z "$LAUNCH_SPEC_ROOT" ] || set -- --spec-root "$LAUNCH_SPEC_ROOT" "$@"
+  [ -z "$LAUNCH_RECORD" ] || set -- --session-record "$LAUNCH_RECORD" "$@"
   [ -z "$LAUNCH_HOME" ] || set -- --fleet-home "$LAUNCH_HOME" "$@"
   [ -z "$LAUNCH_ROOT" ] || set -- --root "$LAUNCH_ROOT" "$@"
   [ -z "$tl_token" ] || set -- --launch-token "$tl_token" "$@"
@@ -1697,6 +1699,10 @@ MERR
   case $_since in
     '' | *[!0-9]*) _since=unknown ;;
   esac
+  # The session record the worker's command guard reads its policy and unit
+  # identity from, written once the worktree holds the unit branch; without
+  # one the guard keeps to its read-only arm, so it never blocks a launch.
+  LAUNCH_RECORD=$(/bin/sh "$script_dir/worker-session-record.sh" write "$_worktree" 2>/dev/null </dev/null) || LAUNCH_RECORD=''
   tmux_launch run "$TMUX_BIN" "$_session" "$_worktree" "$_handle" "$_scope" \
     "$_token" "$WORKER_CLI" "$@"
   _ns_rc=$?

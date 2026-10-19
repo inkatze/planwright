@@ -70,6 +70,14 @@
 #                                               the guard ignores a directory
 #                                               without its regular-file
 #                                               planwright-spec-root.yml
+#                                             --session-record <file>
+#                                               an existing regular file by
+#                                               its absolute path, exported as
+#                                               PLANWRIGHT_WORKER_SESSION_RECORD:
+#                                               the record the worker's command
+#                                               guard reads its self-approval
+#                                               policy and unit identity from
+#                                               (scripts/worker-session-record.sh)
 #                                           A malformed or half-supplied option is
 #                                           refused (exit 2) before anything runs.
 #                                           Any launch option also drops the
@@ -81,7 +89,8 @@
 #                                           PLANWRIGHT_REPO_ROOT,
 #                                           PLANWRIGHT_ORCH_STATE_DIR, and an
 #                                           inherited
-#                                           PLANWRIGHT_WORKER_SPEC_ROOT) the tmux
+#                                           PLANWRIGHT_WORKER_SPEC_ROOT or
+#                                           PLANWRIGHT_WORKER_SESSION_RECORD) the tmux
 #                                           server's environment may carry from
 #                                           whichever session started it: a
 #                                           worker is not a tower, and resolves
@@ -147,7 +156,7 @@ usage() {
   echo "usage: fleet-dispatch-env.sh <cmd> [args...]           (exec <cmd> with the hardened dispatch env)" >&2
   echo "       fleet-dispatch-env.sh --print                   (print the KEY=VALUE assignment(s), one per line)" >&2
   echo "       fleet-dispatch-env.sh --emit-launch <argv...>   (print the pin-carrying wrapped launch command line)" >&2
-  echo "       fleet-dispatch-env.sh [--check] [--identity <handle> <scope>] [--launch-token <hex>] [--root <dir>] [--fleet-home <dir>] [--spec-root <dir>] <cmd> [args...]" >&2
+  echo "       fleet-dispatch-env.sh [--check] [--identity <handle> <scope>] [--launch-token <hex>] [--root <dir>] [--fleet-home <dir>] [--spec-root <dir>] [--session-record <file>] <cmd> [args...]" >&2
   exit 2
 }
 
@@ -183,6 +192,7 @@ opt_token=''
 opt_root=''
 opt_home=''
 opt_spec_root=''
+opt_record=''
 while [ "$#" -gt 0 ]; do
   case $1 in
     --check)
@@ -234,11 +244,19 @@ while [ "$#" -gt 0 ]; do
       opt_spec_root=$2
       shift 2
       ;;
+    --session-record)
+      [ -z "$opt_record" ] || refuse_option "--session-record given twice"
+      if [ "$#" -lt 2 ] || ! valid_abs_path "$2" || [ ! -f "$2" ]; then
+        refuse_option "--session-record must name an existing file by its absolute path"
+      fi
+      opt_record=$2
+      shift 2
+      ;;
     *) break ;;
   esac
 done
 opt_any=0
-[ "$opt_check" -eq 0 ] && [ -z "$opt_handle$opt_token$opt_root$opt_home$opt_spec_root" ] || opt_any=1
+[ "$opt_check" -eq 0 ] && [ -z "$opt_handle$opt_token$opt_root$opt_home$opt_spec_root$opt_record" ] || opt_any=1
 if [ "$opt_any" -eq 1 ]; then
   [ "$#" -ge 1 ] || refuse_option "the launch options need a command to run"
   case $1 in
@@ -416,7 +434,7 @@ export "$GHOST_TEXT_KEY=$GHOST_TEXT_VALUE"
 if [ "$opt_any" -eq 1 ]; then
   unset PLANWRIGHT_TOWER_ID PLANWRIGHT_TOWER_SESSION_ID PLANWRIGHT_TOWER_PID \
     PLANWRIGHT_TOWER_CHECKOUT PLANWRIGHT_REPO_ROOT PLANWRIGHT_ORCH_STATE_DIR \
-    PLANWRIGHT_WORKER_SPEC_ROOT
+    PLANWRIGHT_WORKER_SPEC_ROOT PLANWRIGHT_WORKER_SESSION_RECORD
 fi
 if [ -n "$opt_handle" ]; then
   PLANWRIGHT_WORKER_HANDLE=$opt_handle
@@ -441,6 +459,10 @@ fi
 if [ -n "$opt_spec_root" ]; then
   PLANWRIGHT_WORKER_SPEC_ROOT=$opt_spec_root
   export PLANWRIGHT_WORKER_SPEC_ROOT
+fi
+if [ -n "$opt_record" ]; then
+  PLANWRIGHT_WORKER_SESSION_RECORD=$opt_record
+  export PLANWRIGHT_WORKER_SESSION_RECORD
 fi
 export_root_vars
 exec "$@"
