@@ -169,8 +169,9 @@ run "$h" /bin/sh "$SC/fleet-messaging.sh" notice-read n9 >/dev/null 2>"$tmp/err"
 for nm in demo:7 "process $dead" p7.t7.c7; do
   rc=0
   run "$h" /bin/sh "$SC/fleet-messaging.sh" notice-read "$nm" >/dev/null 2>"$tmp/err" || rc=$?
-  [ "$rc" = 2 ] && grep -q "no registry row carries" "$tmp/err" \
-    || fail "a6: notice-read matched '$nm' in a row with no name column (exit $rc)"
+  if [ "$rc" != 2 ] || ! grep -q "no registry row carries" "$tmp/err"; then
+    fail "a6: notice-read matched '$nm' in a row with no name column (exit $rc)"
+  fi
 done
 printf '103\tw9\tdemo:9\tp9.t9.c9\theadless-oneshot\t%s\tprocess %s\t-\t-\n' "$tmp/sd9" "$dead" >>"$h/registry"
 rc=0

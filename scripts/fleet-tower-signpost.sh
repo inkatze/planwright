@@ -143,7 +143,7 @@ for marker in "$towers_dir"/*; do
   esac
   # The name screen fleet-tower-marker.sh records under.
   case "$m_name" in
-    - ) ;;
+    -) ;;
     "" | -* | */* | *\\* | *[!\ -~]*) continue ;;
   esac
   [ "${#m_name}" -le 128 ] || continue
