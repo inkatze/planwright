@@ -205,7 +205,7 @@ proc_table() {
     # shellcheck disable=SC2086 # the fields after the command name, split
     set -- ${pt_st##*) }
     printf '%s\t%s\tboot+%s\t%s\n' "${pt_d#/proc/}" "$2" "${20}" \
-      "$(tr '\000' ' ' <"$pt_d/cmdline" 2>/dev/null)"
+      "$(tr '\000' ' ' 2>/dev/null <"$pt_d/cmdline")"
   done
 }
 

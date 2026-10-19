@@ -186,7 +186,7 @@ stop_proc_rows() {
     { IFS= read -r spr_st <"$spr_root/$spr_p/stat"; } 2>/dev/null || continue
     # shellcheck disable=SC2086 # the fields after the command name, split
     set -- ${spr_st##*) }
-    spr_args=$(tr '\000' ' ' <"$spr_root/$spr_p/cmdline" 2>/dev/null) || continue
+    spr_args=$(tr '\000' ' ' 2>/dev/null <"$spr_root/$spr_p/cmdline") || continue
     printf '%s %s %s\n' "$spr_p" "$2" "$spr_args"
   done
 }
