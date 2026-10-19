@@ -39,7 +39,7 @@ recs "$r" pre-pr >"$tmp/l"
 [ "$rc" -eq 1 ] && [ $((t1 - t0)) -lt 20 ] && grep -q "^excerpt${TAB}step-run: timed out after 1s" "$tmp/l" \
   && [ -z "$(sp report gate)" ] && [ -s "$tmp/grand.pid" ] && ! kill -0 "$(cat "$tmp/grand.pid")" 2>/dev/null
 verdict "a step past its timeout is ended with everything it started, records failed, and frees its slot" \
-  "rc=$rc took $((t1 - t0))s" "$tmp/l"
+  "rc=$rc took $((t1 - t0))s record: $(cat "$tmp/l")"
 
 # --- a check that ignores TERM is killed ten seconds after its timeout ----------------------
 rm -f "$tmp/parent.pid"
@@ -76,7 +76,7 @@ recs "$r" pre-pr >"$tmp/l"
 [ "$rc" -eq 143 ] && [ -s "$tmp/grand.pid" ] && ! kill -0 "$(cat "$tmp/grand.pid")" 2>/dev/null && [ -z "$(sp report gate)" ] \
   && grep -q "^excerpt${TAB}step-run: stopped by signal 15" "$tmp/l"
 verdict "a TERM to the runner ends the check's group, records failed, frees the slot, and exits 143" \
-  "rc=$rc" "$tmp/l"
+  "rc=$rc record: $(cat "$tmp/l")"
 
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2

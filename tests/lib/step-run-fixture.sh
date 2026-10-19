@@ -9,7 +9,8 @@
 # shellcheck disable=SC2034,SC2154 # the suites set repo_root and use wt, GATE, and the helpers
 # Inherited git variables (a hook's) would point the fixture's git calls at the
 # caller's repository.
-unset CDPATH GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
+unset CDPATH GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
+  GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 failures=0
 fail() {
   printf 'FAIL: %s\n' "$1" >&2

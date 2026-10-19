@@ -109,7 +109,7 @@ grep -qx "refire-of${TAB}pre-pr" "$tmp/l" && grep -qx "skip-code${TAB}reuse" "$t
   && [ "$(wc -l <"$tmp/check.log" | tr -d ' ')" -eq 1 ]
 verdict "a push touching no declared path re-fires as a reuse skip" "post-pr: $(cat "$tmp/l")"
 
-# --- a failing re-fire fails, so the runner parks with the PR a draft ---------------------
+# --- a failing re-fire records failed and exits 1 (the skill then parks) ----------------
 fresh
 catalog "$GATE" "pushfix|kind: command|target: $bin/edit.sh|args: src push"
 config 'steps_pre_pr: [gate]' 'steps_post_pr: [pushfix]'
@@ -118,7 +118,6 @@ point_run "$r" pre-pr
 point_done "$r" pre-pr
 point_run "$r" post-pr
 touch "$tmp/fail"
-srun refire --run "$r" >"$tmp/plan"
 srun command --run "$r" --point post-pr --step gate --refire-of pre-pr >"$tmp/out" 2>/dev/null
 rc=$?
 [ "$rc" -eq 1 ] && grep -q "^failed${TAB}" "$tmp/out" && grep -q 'step-run: exited 3' \
