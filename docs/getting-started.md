@@ -159,7 +159,8 @@ ready to push and open draft PRs.
 
 ## 3. Operating the pilot-in-command model
 
-You keep two human gates at every tier. Everything between them the
+Two human gates frame every run, at every tier; the rest of the list is in
+[Human Gates](../doctrine/human-gates.md). Everything between them the
 framework handles once a spec is signed off.
 
 - **Sign-off (before execution).** A spec executes only after you walk it

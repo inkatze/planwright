@@ -287,8 +287,8 @@ than a verdict: run the validation tasks, resume with
 
 ## Invariants
 
-- Contract: never invoke `/spec-draft`, `/spec-kickoff`, or `/orchestrate`.
-  Gate: never merge (REQ-J1.6; `doctrine/human-gates.md`).
+- Contract (`doctrine/human-gates.md`): never invoke `/spec-draft`,
+  `/spec-kickoff`, or `/orchestrate`, nor merge (REQ-J1.6).
 - Never push, create a remote repository, or publish anything off-machine
   without the operator's explicit choice of the private-remote home or a
   later confirmed move to one (`inception-venture.sh add-remote`, which

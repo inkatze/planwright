@@ -135,8 +135,8 @@ those, never a scraped pane:
   the file): eval-only, non-authoritative, unpublished, and a sign-off of
   nothing (REQ-G1.2) — the routes, dispatches, and refusals, and that no
   human gate was performed on the tower's own initiative. It is written once,
-  last, when the operator ends the session (`that's all`, not logged as a turn), since its appearance
-  is what ends the run.
+  last, when the operator ends the session (`that's all`, not logged as a
+  turn), since its appearance is what ends the run.
 
 Values are written as data, escape-safe. Nothing is pushed, opened, or
 flipped, and neither artifact carries a verdict on the work. The full field

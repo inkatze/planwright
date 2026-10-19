@@ -467,7 +467,7 @@ else
   fail "skill does not refuse merge as a human gate the tower profile denies (REQ-G1.1)"
 fi
 
-if has_phrase 'profile denies the flip likewise' && has_phrase 'policy floor:\*\* the merge and flip denies above'; then
+if has_phrase 'profile denies the flip likewise' && has_phrase '\*\*floor:\*\* the merge and flip denies above'; then
   ok "the tower profile denies the draft-to-ready flip under every value (REQ-G1.4)"
 else
   fail "skill does not state the tower profile's flip deny (REQ-G1.4)"

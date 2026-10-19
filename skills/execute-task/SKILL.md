@@ -450,7 +450,7 @@ These hold at every step, each list rule labelled with its
   REQ-J1.2, D-33; D-2, D-3, REQ-F1.9, REQ-C1.3). Merge authorization is the
   human's; pushed history stays append-only.
 - **Policy:** merge only under `merge_policy`, flip only under
-  `ready_flip_policy`, through the two header sequences above (D-21;
+  `ready_flip_policy`, through both header sequences above (D-21;
   human-gates REQ-C1.5, REQ-D1.4); reshape never-pushed commits only per
   `unpushed_rewrite`.
 - **Contract:** this skill owns push and the draft PR; no step pushes before

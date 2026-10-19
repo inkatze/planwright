@@ -359,8 +359,8 @@ most recent anchor entry never describes spec content that was not walked.
 6. **Commit** (D-41) when `commit_on_kickoff` is true: one commit on
    `planwright/<spec>/spec` with the brief, the four spec files, and any
    observation fragment from this run — first activation `feat(spec):
-   <spec> kickoff, brief + Ready flip`; later events `docs(spec): <spec> <event>`. Rewriting the
-   spec branch is a human gate (`doctrine/human-gates.md`). Opt-out: leave the
+   <spec> kickoff, brief + Ready flip`; later events `docs(spec): <spec>
+   <event>`. Rewriting the spec branch is a human gate (`doctrine/human-gates.md`). Opt-out: leave the
    work uncommitted, say so, and skip push/PR.
 7. **Push and draft PR** (REQ-B2.4, D-44). Run the Observations and Maintenance
    steps below first, so their chore commits precede the push (the ready-flip

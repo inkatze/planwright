@@ -367,7 +367,7 @@ directory the session is handed; neither is a sign-off.
 
 ## Invariants
 
-On every route, overridden or not, kinds per `doctrine/human-gates.md`:
+On every route, overridden or not (`doctrine/human-gates.md`):
 
 - **Floor:** the merge and flip denies above (REQ-G1.1, REQ-G1.4).
 - **Gate:** **never** start `/spec-kickoff`, nor self-start orchestration on

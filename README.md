@@ -33,7 +33,7 @@ from a clean machine to running the pipeline end to end.
 - **Specs before code.** Every feature is four files — requirements, design,
   tasks, tests — reviewed and signed off before a line is written. The spec is
   the contract the agent executes against, not an afterthought.
-- **You keep the controls.** Two approvals are human gates at every tier:
+- **You keep the controls.** Two human gates frame every run, at every tier:
   **sign-off** (no spec runs until you have walked it and signed the brief) and
   **merge** (no agent merges outside a policy you configured). Everything in
   between is one revert from undone. The full list, and which acts are
@@ -122,8 +122,8 @@ and no PR merges outside the merge policy you configured. See
 
 ### The two controls
 
-planwright is an autopilot, not a replacement crew. Two controls are human
-gates at every tier:
+planwright is an autopilot, not a replacement crew. Two human gates frame
+every run, at every tier ([the full list](doctrine/human-gates.md)):
 
 - **Sign-off** — a spec executes only after you walk it at kickoff and sign the
   resulting brief. There is no bypass flag.
