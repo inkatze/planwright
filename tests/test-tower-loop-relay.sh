@@ -376,7 +376,8 @@ hook="$tmp/root-hook"
 cat >"$tree/scripts/fleet-state.sh" <<EOF
 #!/bin/sh
 if [ "\${1:-}" = root ] && [ -f "$hook" ]; then
-  case \$(ps -o args= -p "\$PPID" 2>/dev/null) in
+  # procfs where ps has no -p (busybox)
+  case \$({ ps -o args= -p "\$PPID" || tr '\\000' ' ' <"/proc/\$PPID/cmdline"; } 2>/dev/null) in
     *tower-loop-comms.sh*)
       mv "$hook" "$hook.ran"
       /bin/sh "$hook.ran"

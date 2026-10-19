@@ -5,7 +5,7 @@
 #
 # Contract under test:
 #   record <spec> --mode unattended|interactive --pid <pid> --checkout <dir>
-#          [--session-id <uuid>] [--tmux-session <name>]
+#          [--session-id <uuid>] [--tmux-session <name>] [--name <session name>]
 #       Upsert the one marker row for <spec> under the cross-spec fleet home
 #       (fleet-state.sh root), serialized through the fleet lock, written
 #       via temp+rename so lockless readers never see a torn row.
@@ -13,8 +13,9 @@
 #   clear <spec>   remove the marker; idempotent.
 #   Exit codes: 0 success; 1 read-absent; 2 usage / refused hostile input /
 #       unresolvable home / fs error (fail closed).
-#   Row: <spec>\t<mode>\t<pid>\t<session_id>\t<tmux_session>\t<checkout>\t<epoch>
-#       (session_id / tmux_session default to `-` when not provided).
+#   Row: <spec>\t<mode>\t<pid>\t<session_id>\t<tmux_session>\t<checkout>\t<epoch>\t<name>
+#       (session_id / tmux_session / name default to `-` when not provided;
+#       the name is the tower's observed session name, fleet-messaging D-8).
 #
 # Hostile input is refused BEFORE any write (REQ-F1.1 / risk row 22): spec
 # ids against the overlay identifier grammar, pids as bounded positive
@@ -170,9 +171,11 @@ run record my-spec --mode unattended --pid 4242 --checkout "$checkout" \
   --session-id "$uuid" --tmux-session planwright-tower-my-spec \
   || fail "record (full) failed"
 row=$(read_marker my-spec) || fail "read after record failed"
-IFS=$(printf '\t') read -r f_spec f_mode f_pid f_sid f_tmux f_checkout f_epoch <<EOF
+IFS=$(printf '\t') read -r f_spec f_mode f_pid f_sid f_tmux f_checkout f_epoch f_name <<EOF
 $row
 EOF
+[ "$f_name" = - ] || fail "row name '$f_name', expected the sentinel when --name is omitted"
+[ "$(printf '%s\n' "$row" | awk -F'\t' '{ print NF }')" = 8 ] || fail "the marker row is not eight fields: $row"
 [ "$f_spec" = my-spec ] || fail "row spec '$f_spec'"
 [ "$f_mode" = unattended ] || fail "row mode '$f_mode'"
 [ "$f_pid" = 4242 ] || fail "row pid '$f_pid'"
@@ -199,6 +202,45 @@ EOF
 [ "$f_sid" = - ] || fail "minimal row session id '$f_sid', expected '-'"
 [ "$f_tmux" = - ] || fail "minimal row tmux session '$f_tmux', expected '-'"
 echo "ok: optional fields default to '-'"
+
+# --- the observed session name (fleet-messaging D-8) -------------------------
+
+run record named-spec --mode unattended --pid 4243 --checkout "$checkout" \
+  --name "planwright tower (demo)" || fail "record with --name failed"
+row=$(read_marker named-spec) || fail "read of a named marker failed"
+[ "$(printf '%s\n' "$row" | cut -f8)" = "planwright tower (demo)" ] || fail "the name is not field 8: $row"
+[ "$(printf '%s\n' "$row" | cut -f3)" = 4243 ] || fail "the pid moved off field 3: $row"
+echo "ok: --name lands in field 8"
+
+# shellcheck disable=SC2016 # literal hostile values
+for hostile in "" "-" "-x" "a/b" 'a\b' "$(printf 'a\tb')" "$(printf 'a\nb')" \
+  "$(printf 'a\033[2Jb')" "$(printf 'caf\303\251')" "$(printf '%0129d' 0)"; do
+  rc=0
+  run record hostile-spec --mode unattended --pid 4244 --checkout "$checkout" \
+    --name "$hostile" >/dev/null 2>"$tmp/err" || rc=$?
+  [ "$rc" = 2 ] || fail "record accepted the hostile name [$hostile] (exit $rc)"
+  if grep -q "$(printf '\033')" "$tmp/err"; then fail "a name refusal echoed a raw escape byte"; fi
+done
+rc=0
+read_marker hostile-spec >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "a refused --name still wrote a marker (read exit $rc)"
+echo "ok: hostile names are refused at --name and nothing is written"
+
+# read accepts the seven-field rows written before the name field, and refuses
+# a hostile name planted in field 8.
+towers="$home/towers"
+printf 'old-spec\tunattended\t4245\t-\t-\t%s\t100\n' "$checkout" >"$towers/old-spec"
+row=$(read_marker old-spec) || fail "read of a seven-field marker failed"
+[ "$(printf '%s\n' "$row" | cut -f3)" = 4245 ] || fail "a seven-field marker read wrong: $row"
+printf 'bad-spec\tunattended\t4246\t-\t-\t%s\t100\ta/b\n' "$checkout" >"$towers/bad-spec"
+rc=0
+read_marker bad-spec >/dev/null 2>"$tmp/err" || rc=$?
+[ "$rc" = 2 ] || fail "read accepted a planted hostile name (exit $rc)"
+printf 'empty-spec\tunattended\t4247\t-\t-\t%s\t100\t\n' "$checkout" >"$towers/empty-spec"
+rc=0
+read_marker empty-spec >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "read accepted an eighth field left empty (exit $rc)"
+echo "ok: read takes seven- and eight-field rows and refuses a hostile or empty name"
 
 # --- record is an upsert (one row per spec) -----------------------------------
 
@@ -238,5 +280,24 @@ PLANWRIGHT_FLEET_STATE_DIR="" CLAUDE_PLUGIN_DATA="" CLAUDE_DIR="$tmp/blockfile" 
   --checkout "$checkout" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "unwritable home record: exit $rc, expected 2"
 echo "ok: unwritable home fails closed"
+
+# The /orchestrate watch-loop step records the marker with the observed
+# session name from self-name and clears it on graceful exit (fleet-messaging
+# D-8); a single step records none.
+skill="$here/../skills/orchestrate/SKILL.md"
+step=$(awk '/^\*\*Tower marker/,/^$/' "$skill" | tr '\n' ' ')
+case $step in
+  *"At watch-loop start record the marker"*) ;;
+  *) fail "the /orchestrate marker step no longer records at watch-loop start" ;;
+esac
+case $step in
+  *"fleet-tower-marker.sh record"*"--name <name>"*"fleet-messaging.sh self-name"*) ;;
+  *) fail "the /orchestrate marker step does not record --name from self-name: $step" ;;
+esac
+case $step in
+  *"clear it on graceful exit"*) ;;
+  *) fail "the /orchestrate marker step does not clear the marker on graceful exit" ;;
+esac
+echo "ok: the /orchestrate watch loop records the named marker and clears it on exit"
 
 echo "ALL PASS: fleet-tower-marker"

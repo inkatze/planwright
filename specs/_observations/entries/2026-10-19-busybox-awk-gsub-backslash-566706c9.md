@@ -1,0 +1,1 @@
+- 2026-10-19 [planwright] Alpine (universal-binary Task 4): busybox awk collapses a doubled backslash in a gsub replacement to one, so fleet-streamjson json_escape emitted invalid JSON for any message holding a backslash. Fixed with the POSIX & form. Any future awk JSON escaper should use & rather than a backslash run in the replacement.

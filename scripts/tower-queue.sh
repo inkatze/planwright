@@ -2427,9 +2427,16 @@ resolve_tower() {
       _tp=$PPID
     fi
     if [ -z "$tower" ]; then
-      _tl=$(ps -p "$_tp" -o lstart= 2>/dev/null | tr -d ' ') || _tl=""
+      # busybox ps has neither -p nor lstart, so there procfs's start in clock
+      # ticks since boot, as fixed for the process's life, stands in. Only
+      # there, so one host never mints identities in two formats.
+      if ps -p "$$" -o lstart= >/dev/null 2>&1; then
+        _tl=$(ps -p "$_tp" -o lstart= 2>/dev/null | tr -d ' ') || _tl=""
+      else
+        _tl=$(awk '{ sub(/.*\) /, ""); print "boot+" $20 }' "/proc/$_tp/stat" 2>/dev/null) || _tl=""
+      fi
       [ -n "$_tl" ] || {
-        err "cannot mint a fallback tower identity: ps reports no start time for pid $_tp"
+        err "cannot mint a fallback tower identity: no start time is readable for pid $_tp"
         exit 6
       }
       _th=$(printf '%s' "$_tl" | cksum | cut -d' ' -f1)
@@ -4824,8 +4831,8 @@ cmd_ack() {
 
 cmd_shelve() {
   parse_item_args shelve "$@"
-  resolve_tower "$tower_flag"
   [ -z "$span" ] || is_duration "$span" || refuse "refusing --for '$(sanitize_printable "$span" "(unprintable span)")': a positive span such as 30m or 2h"
+  resolve_tower "$tower_flag"
   enter_store
   if [ -n "$span" ]; then
     shelve_s=$(duration_seconds "$span")

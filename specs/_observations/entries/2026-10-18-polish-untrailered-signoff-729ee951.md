@@ -1,0 +1,1 @@
+- 2026-10-18 [planwright] The polish loop has no ledger home for a Needs-sign-off edit that first landed untrailered inside an Agent-resolvable fix batch; the only repair under new-commits-only is a split-out commit plus a re-land commit carrying the sign-off trailer, which doubles the history for one behaviour-neutral change.

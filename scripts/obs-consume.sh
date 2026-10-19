@@ -51,7 +51,10 @@
 #              `Consumed-by: specs/<spec> (<date>)` annotation
 #   --today    pin the consume date (tests); defaults to the system date
 #   --obs-dir  the observations dir holding entries/ + archive/ + the frozen
-#              legacy files; defaults to specs/_observations under the repo cwd
+#              legacy files; defaults to _observations under the spec root's
+#              checkout-local view (scripts/resolve-root.sh spec, from the
+#              working directory); with no root resolving there is no
+#              default, which is a refusal (exit 1)
 #
 # Exit codes: 0 success or clean no-op; 1 refusal (grammar, containment,
 #   content, symlink, or an internal filesystem error); 2 usage error; 3 not
@@ -77,6 +80,8 @@ prog=obs-consume
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # shellcheck source=scripts/spec-id-lib.sh
 . "$script_dir/spec-id-lib.sh"
+# shellcheck source=scripts/obs-store-lib.sh
+. "$script_dir/obs-store-lib.sh"
 
 # Tracks the current temp file so the EXIT trap removes it if a refusal or a
 # signal fires between mktemp and the publishing rename (mirrors obs-record.sh /
@@ -157,7 +162,8 @@ uid=""
 spec=""
 line=""
 today=""
-obsdir="specs/_observations"
+obsdir=""
+have_obsdir=0
 legacy=0
 have_uid=0
 have_line=0
@@ -208,6 +214,7 @@ while [ $# -gt 0 ]; do
         exit 2
       }
       obsdir=$2
+      have_obsdir=1
       shift 2
       ;;
     -h | --help)
@@ -294,6 +301,11 @@ esac
 valid_calendar_date "$today" || refuse 1 "date is not a real calendar date"
 
 # --- observations directory containment ----------------------------------
+
+if [ "$have_obsdir" -eq 0 ]; then
+  obsdir=$(obs_default_store "$script_dir") \
+    || refuse 1 "the spec root did not resolve, so the observations directory has no default; name one with --obs-dir"
+fi
 
 # A leading '-' is refused before any path use (validate, contain, refuse; D-7):
 # a bare '-' makes `cd "$obsdir"` a `cd -` that switches to $OLDPWD, silently

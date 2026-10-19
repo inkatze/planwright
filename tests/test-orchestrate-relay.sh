@@ -114,6 +114,34 @@ done
 echo "ok: validate-handle subagent enforces its stricter identifier grammar"
 
 # ---------------------------------------------------------------------------
+# 3b. validate-handle for the two session-grade rungs whose launch names a
+#     session after its worker handle: stream-json-persistent and
+#     headless-oneshot each own a grammar, so every derived session name has
+#     one (fleet-messaging REQ-B1.1, D-8).
+# ---------------------------------------------------------------------------
+for h in "sj-demo-task-4" "fg-task-7" "w.1" "w@host"; do
+  rc_of 0 "validate-handle stream-json-persistent should accept '$h'" -- \
+    "$RELAY" validate-handle stream-json-persistent "$h"
+done
+for h in "headless-demo-task-4" "headless-demo-task-2.5" "planwright-tower-demo-1700000000"; do
+  rc_of 0 "validate-handle headless-oneshot should accept '$h'" -- \
+    "$RELAY" validate-handle headless-oneshot "$h"
+done
+# shellcheck disable=SC2016 # literal hostile handles, not expansions
+for h in "" "." ".." "-x" "a b" "a;b" 'a$(id)' 'a`id`' "a/b" "a:b" "a=b" "a|b" \
+  "$(printf 'a\nb')" "$(printf 'a\tb')" "$(printf '%0129d' 0)"; do
+  rc_of 2 "validate-handle stream-json-persistent must reject [$h]" -- \
+    "$RELAY" validate-handle stream-json-persistent "$h"
+  rc_of 2 "validate-handle headless-oneshot must reject [$h]" -- \
+    "$RELAY" validate-handle headless-oneshot "$h"
+done
+for h in "a@b" "%5"; do
+  rc_of 2 "validate-handle headless-oneshot must reject '$h'" -- \
+    "$RELAY" validate-handle headless-oneshot "$h"
+done
+echo "ok: validate-handle carries the stream-json-persistent and headless-oneshot grammars"
+
+# ---------------------------------------------------------------------------
 # 4. validate-handle: an unknown backend cannot be validated (fail closed).
 # ---------------------------------------------------------------------------
 rc_of 2 "validate-handle must reject an unknown backend" -- \

@@ -7,9 +7,10 @@
 # leaves no process behind. tests/test-tmux-launch-harness.sh is its
 # self-test. Safe under `set -e` and `set -u`.
 #
-# Inputs read before sourcing: TLH_LAUNCH_BOUND_SECONDS (default 30) and
+# Inputs read before sourcing: TLH_LAUNCH_BOUND_SECONDS (default 180) and
 # TLH_CONFIRM_CAP_SECONDS (default 2), whole seconds; TLH_SYMLINKED_TMP;
-# TLH_PLUGIN_ROOT.
+# TLH_PLUGIN_ROOT. The launch bound only has to stay under the stub worker's
+# 600s block, so it is set for a heavily loaded host, not a quiet one.
 #
 # Sourcing runs setup. It exits the sourcing suite (status 1) when the suite
 # has not defined a `fail` function (every assertion here reports through it),
@@ -32,7 +33,8 @@
 #     or loses its own exit status.
 #
 # The stubs are tests/lib/tmux-launch-stub-tmux.sh and
-# tests/lib/tmux-launch-stub-worker.sh, over tests/lib/tmux-launch-stub-common.sh;
+# tests/lib/tmux-launch-stub-worker.sh, over tests/lib/tmux-launch-stub-common.sh
+# (the tmux stub also sources tests/lib/poll-until.sh beside it);
 # their headers own what each one does and which knobs it reads. The worker
 # stub's confirmation hook resolves under TLH_PLUGIN_ROOT (default: this
 # checkout), which a fixture may point at a recording stand-in before sourcing.
@@ -58,7 +60,8 @@
 #                                 tab-separated argv per line
 #   tlh_worker_records            every stub worker record path, oldest first
 #   tlh_worker_count / tlh_last_worker_record
-#   tlh_wait_workers <n> [<s>]    wait (bounded) until n worker records exist
+#   tlh_wait_workers <n>          wait until n worker records exist, for
+#                                 poll_until's default deadline
 #   tlh_record_field <record> <key>   the first <key> line's value
 #   tlh_worker_env <record> <VAR>     the worker's value of VAR; status 1 when
 #                                     VAR was not in its environment
@@ -89,7 +92,7 @@ TLH_LIB=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 TLH_REPO_ROOT=$(cd "$TLH_LIB/../.." && pwd -P)
 TLH_PLUGIN_ROOT=${TLH_PLUGIN_ROOT:-$TLH_REPO_ROOT}
 TLH_CONFIRM_CAP_SECONDS=${TLH_CONFIRM_CAP_SECONDS:-2}
-TLH_LAUNCH_BOUND_SECONDS=${TLH_LAUNCH_BOUND_SECONDS:-30}
+TLH_LAUNCH_BOUND_SECONDS=${TLH_LAUNCH_BOUND_SECONDS:-180}
 case "$TLH_CONFIRM_CAP_SECONDS$TLH_LAUNCH_BOUND_SECONDS" in
   *[!0-9]*)
     echo "FAIL: tmux-launch-harness: the launch bound and the confirm cap must be whole seconds" >&2
@@ -103,6 +106,8 @@ fi
 
 # shellcheck source=tests/lib/tmux-launch-stub-common.sh
 . "$TLH_LIB/tmux-launch-stub-common.sh"
+# shellcheck source=tests/lib/poll-until.sh
+. "$TLH_LIB/poll-until.sh"
 
 _tlh_base=''
 STUB_STATE=''
@@ -116,6 +121,10 @@ tlh_stub_pids_alive() {
     if stub_pid_ours "$p"; then printf '%s\n' "$p"; fi
   done
   return 0
+}
+
+_tlh_none_alive() {
+  [ -z "$(tlh_stub_pids_alive)" ]
 }
 
 tlh_reap() {
@@ -134,13 +143,9 @@ tlh_reap() {
   # descendant whose parent obeyed is no longer under any recorded pid.
   # shellcheck disable=SC2086
   stub_kill_tree KILL $left $members
-  t=0
+  # SIGKILL cannot be refused, so only reaping lags; a survivor is reported below.
+  poll_until --deadline 5 --what 'the stub processes to die after SIGKILL' -- _tlh_none_alive || :
   left=$(tlh_stub_pids_alive)
-  while [ -n "$left" ] && [ "$t" -lt 5 ]; do
-    sleep 0.1
-    t=$((t + 1))
-    left=$(tlh_stub_pids_alive)
-  done
   [ -z "$left" ] && return 0
   printf '%s\n' "tlh_reap: stub-started process(es) still running: $(printf '%s\n' "$left" | tr '\n' ' ')" >&2
   return 1
@@ -393,25 +398,20 @@ tlh_last_worker_record() {
   tlh_worker_records | tail -n 1
 }
 
+_tlh_has_workers() {
+  [ "$(tlh_worker_count)" -ge "$1" ]
+}
+
 tlh_wait_workers() {
-  local want=$1 bound=${2:-$TLH_LAUNCH_BOUND_SECONDS} start=$SECONDS
+  local want=$1
   case $want in '' | *[!0-9]*)
     fail "tlh_wait_workers: '$want' is not a record count"
     return 1
     ;;
   esac
-  _tlh_whole_seconds "$bound" || {
-    fail "tlh_wait_workers: the bound must be a positive whole number of seconds, got '$bound'"
-    return 1
-  }
-  while [ "$(tlh_worker_count)" -lt "$want" ]; do
-    if [ $((SECONDS - start)) -ge "$bound" ]; then
-      fail "tlh_wait_workers: $want worker record(s) did not appear within ${bound}s"
-      return 1
-    fi
-    sleep 0.1
-  done
-  return 0
+  poll_until --what "$want worker record(s)" -- _tlh_has_workers "$want" && return 0
+  fail "tlh_wait_workers: $want worker record(s) did not appear within ${POLL_UNTIL_DEFAULT_DEADLINE}s (waited ${POLL_UNTIL_ELAPSED}s)"
+  return 1
 }
 
 tlh_record_field() {

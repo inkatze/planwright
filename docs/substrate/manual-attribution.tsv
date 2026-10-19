@@ -1,0 +1,117 @@
+# The manual attribution pass (universal-binary REQ-A1.2): every item of the
+# mined set that names no layer script, attributed to tiers by reading it.
+# Read by scripts/substrate-attribute.sh, which fails on an item naming no
+# script without a row here, and on a row for an item that names one.
+# Rule applied: a script the text names without its .sh suffix, or a mechanism
+# identifiable as one script, takes that script's partition tier; skill prose
+# and instruction headroom take skill-called; guards, lint, tests and CI take
+# dev-check; hook registrations and settings fragments take hook; shared
+# primitives take library.
+#
+# id	tiers	reason
+legacy:2026-06-11:locale-range-globs	library,hook	Calls for a shared shell prelude that pins LC_ALL=C, plus the charset checks inside the hook scripts.
+legacy:2026-06-11:plugin-data	library	Durable runtime state home resolved by shared helpers such as fleet-state.sh and lock-lib.sh.
+legacy:2026-06-11:shfmt-absent	hook,dev-check	tool-discovery.sh hook could flag the shfmt gap that the lint:fmt mise task and CI depend on.
+legacy:2026-06-11:writer-ghost	tests-only	The ~/.claude/ writer is install.sh.
+legacy:2026-06-15:coexistence	hook,skill-called	Plugin-name collision hits the hook registrations and the skill-named scripts installed under one namespace.
+legacy:2026-06-16:worktree-invariant	skill-called	/orchestrate worktree creation, proposed as a helper like fleet-dispatch-worktree.sh, which the skill calls.
+obs:00dccd4e	skill-called	The /panel-review pre-flight profile resolution is skill procedure that a dispatched worker runs.
+obs:025baab3	dev-check	The check-glob-allow-rules.sh scan in the check aggregate can fail open on reformatted JSON.
+obs:026930ca	hook	awk screen in worker-command-guard.sh and tower-command-guard.sh, both PreToolUse hook guards.
+obs:039d2ebb	skill-called	orchestrate SKILL.md instruction headroom; relocating procedure means moving it into skill-called scripts.
+obs:06c9b767	skill-called,dev-check	Unaccounted skill runtime reads evade check-instructions.sh, the dev-check closure budget.
+obs:081b8ba9	skill-called	orchestrate SKILL.md carries too much procedure for its budget; diet candidates are skill-called scripts.
+obs:0fa6e03b	dev-check	Fixture config-mirroring guards in test-allocation-clamps and the other allocation suites the mise test task runs.
+obs:0fb9193a	skill-called	spec-kickoff SKILL.md sits at its headroom floor; relief means relocating procedure out of the skill body.
+obs:11f65c68	dev-check	check-doc-links.sh does not scan .github/*.md.
+obs:131af768	dev-check	Hardening of the release-please workflow, guarded by the check-workflow-posture.sh CI gate.
+obs:14d6ef9f	skill-called	orchestrate and execute-task SKILL.md bodies sit at their headroom floor and need procedure relocated.
+obs:160f6a6d	skill-called	The orchestrate instruction closure is at its ceiling; a diet relocates SKILL.md procedure.
+obs:1bcfbe68	hook	marker_live identity token in fleet-liveness.sh.
+obs:222e4477	skill-called	Restoration-ladder rung for loosening rules in skill prose, which governs instruction headroom of SKILL.md bodies.
+obs:236d827e	library	Ledger write amplification in allocation-ledger.sh, a shared library.
+obs:244fe935	dev-check	The ci.yml comment and mise-root coupling of the check-no-ci-evals.sh and check-workflow-posture.sh guards.
+obs:2865c193	dev-check	Workflow run: shell blocks fall outside the lint:shell and lint:fmt gates, and no actionlint task exists.
+obs:286d53ee	library	Flaky lock release in fleet-register.sh, the library behind test-fleet-registration.sh.
+obs:2bba6bcf	skill-called	Sign-off marker handling in check-commit-msgs.sh and sign-off checklist regeneration that /polish and /self-review call.
+obs:33812f90	hook	The worker-settings.json allow rule misses git push -u; the settings fragment governs the hook-tier permission layer.
+obs:34ae9280	dev-check	Proposes a guard comparing doctrine tables, in the class of check-backend-capability-drift.sh.
+obs:37e8db32	hook,dev-check	check-purged-identifiers.sh is the heaviest check-aggregate member.
+obs:3905067f	skill-called,library	journal.lock break pattern in fleet-streamjson.sh, versus the shared lock_take primitive.
+obs:3d5b7d08	dev-check	Missing prompt-eval and behavioral-eval fixtures; prompt-eval.sh and behavioral-eval.sh are dev-check.
+obs:3e8a5d60	dev-check	The floor=0 knob makes headroom_check in check-instructions.sh a no-op.
+obs:43d7f787	library	Unauthenticated death-handle records in the fleet registry store kept by fleet-register.sh.
+obs:4683c7a9	hook	No markdownlint in the githooks pre-commit mirror, so MD013 is only caught in CI.
+obs:4b2d8e41	hook	Lockless observations TSV append in fleet-liveness.sh classify.
+obs:4bd26e05	dev-check	check-instructions.sh floor-breach warns but exits 0, plus how it caps the spec-format charge.
+obs:4dd41794	skill-called	The orphaned streamjson-dead tree with no pruning, kept by fleet-streamjson.sh.
+obs:4dda9fe1	hook	Concerns worker-command-guard.sh, the PreToolUse hook, and whether a hook allow can override a deny rule.
+obs:4fe3d8a4	skill-called	Skill rule-doc resolution (resolve-rule-doc.sh, resolve-root.sh) reads the plugin cache instead of repo HEAD.
+obs:54e8035d	skill-called	Doctrine resolution chain in resolve-rule-doc.sh, called from skill Bash, falls through to the installed plugin copy.
+obs:56d4b375	dev-check	Wants a diff-scoped CI guard around check-instructions budget knobs and the exemptions file.
+obs:5775c447	hook,skill-called	worker-settings deny blocks the sanctioned main-sync; the fix is a hook or a guard-approved helper like converge-sync-main.sh.
+obs:5893ec60	skill-called	execute-task pre-flight and orchestrate-select.sh never read a bundle-level dispatch gate.
+obs:59087817	dev-check,skill-called	False intra-bundle citation claims slip past spec-validate and the check-doc-links and check-ledger guards.
+obs:5acc5668	skill-called	orchestrate SKILL.md has zero instruction headroom, so procedure must relocate out of the skill body.
+obs:5d47a37e	library	Stale-pid seed lethality in the close verb's descendant walk, stop_tracked in fleet-stop-lib.sh.
+obs:63ce4e19	skill-called	orchestrate skill closure word budget is at the ceiling, which blocks SKILL.md additions.
+obs:65fea955	library	config-get resolves the machine-local layer per worktree toplevel, so workers miss personal review_sequence.
+obs:6712b6d1	skill-called	Stream-json worker result frames get misread as completion; this is fleet-streamjson.sh liveness handling.
+obs:680c2761	skill-called	review_sequence nestable predicate in resolve-steps.sh only accepts planwright plugin skills.
+obs:6bd8df61	hook,dev-check	Gatekeeper stalls on copied githooks in test-githooks.sh skew the test wall-clock budget guard.
+obs:6ee8bb6f	skill-called	execute-task and orchestrate SKILL.md bodies are at the per-file word ceiling over duplicated freshness-gate prose.
+obs:705d0d11	dev-check	check-instructions raise-entry staleness check misses an obsolete extra raise entry.
+obs:749d937c	dev-check	test-release-mise-task.sh awk extractor for the mise release task (release-arm.sh) is unanchored.
+obs:7ad46e46	skill-called	fleet-dispatch-worktree.sh and spec-kickoff shell out to git worktree add, against the native-worktree rule.
+obs:7fe26f10	skill-called	Each worker runs the full suite at its convergence gate (full-suite-run.sh), which causes host contention.
+obs:82b59dca	skill-called	orchestrate SKILL.md bookkeeping step drops the drain manual inventory that drain-gates.sh produces.
+obs:885870b4	library	Load-flaky interrupted-registration case in test-fleet-registration.sh exercises fleet-register.sh lock cleanup.
+obs:887225ff	skill-called	spec-kickoff sign-off ritual has no per-spec lock like orchestrate-lock.sh.
+obs:8a99fb7d	library	fleet-stuck-detector.sh treats a busy spinner as progress, so blocked workers look alive.
+obs:8b0691cd	hook	worker-command-guard PreToolUse hook is wired in gitignored settings.local.json, so fresh worktrees lack it.
+obs:8fa65f3f	dev-check	check-doctrine-manifest verifies citations, not that skill restatements match the doctrine terms.
+obs:8fdca68f	dev-check	check-instructions raise parser accepts non-integer values and reports them confusingly.
+obs:972182f6	skill-called	The instruction-diet discipline for skill and doctrine prose should keep example fidelity to cited REQs.
+obs:97dc8742	dev-check	getknob in check-instructions.sh reads leading-zero knob values as octal.
+obs:9eca198f	skill-called	resolve-steps cannot carry dotfiles review steps; detection belongs at the ready-flip.sh decision.
+obs:a345a39b	skill-called	instruction-hygiene evidence base licenses skill-body trims, the instruction headroom of skill prose.
+obs:a3abf3ba	skill-called	spec-kickoff SKILL.md headroom is spent, so mechanics must relocate out of the skill body.
+obs:a4a4fa59	hook	worker-settings PreToolUse hook references CLAUDE_PLUGIN_ROOT, which is unresolved under --settings delivery.
+obs:a7870ef6	library	Holes in the stop verb's self-close refusal in fleet-stop-lib.sh stop_candidates and the pid seeds.
+obs:a826597a	hook	Marketplace copy may strip the exec bit from hook scripts invoked by hooks.json and the settings profiles.
+obs:a88f696a	skill-called	Skills flip spec Status by ad-hoc edits; wants a deterministic helper like spec-status.sh.
+obs:aaf2fd57	skill-called	spec-draft lacks an adversarial shell-vector lens when drafting permission-parser specs.
+obs:ab878b9e	dev-check	A root CLAUDE.md would have to be enrolled in the check-instructions budget guard before it is written.
+obs:afaf925b	skill-called	The /spec-kickoff freshness re-walk uses spec-anchor and is held back by that skill's word budget.
+obs:b1414bbd	skill-called	The review_sequence resolver resolve-steps degrades the whole list for execute-task.
+obs:b47b3043	hook,skill-called	fleet-tower-marker writes the markers that the SessionStart hook fleet-tower-signpost reads.
+obs:b48fa0a1	library	The headless-oneshot detachment lives in fleet-dispatch-headless.
+obs:b587d36d	library	echo-safety sanitize_printable followed by echo re-expands escapes; reproduced through allocation-ledger.
+obs:b6c6fedb	dev-check,hook	Case-insensitive evasion of guards such as check-workflow-posture and the githooks core.hooksPath guard.
+obs:bae4922f	skill-called	SKILL.md bodies sit at the per-file budget and cannot absorb a shared convention.
+obs:c70484d6	dev-check	The check-instructions declared-exception staleness logic flags dormant entries.
+obs:c82f6661	dev-check	Test suites run by the mise test task that direct-exec temp script copies stall under macOS Gatekeeper.
+obs:c898c154	skill-called	Hardening backlog for the fence mechanism in fleet-fence (GC, strand dedup, fence pushes).
+obs:c97cda97	skill-called	execute-task and polish procedure gaps: step ordering, hard-disqualifier zones and the wider-suite stop.
+obs:cba0413b	skill-called	Diet guidance on worked examples in the doctrine docs that skills load as instruction prose.
+obs:cc6d5ac1	skill-called,hook	The session UUID for fleet-tower-marker could be captured from a SessionStart hook input.
+obs:d2abb33d	skill-called	The self-review and polish doctrine manifests front-load start-load instruction prose.
+obs:d41793eb	skill-called	The /orchestrate SKILL.md reachable-closure budget is at its ceiling.
+obs:d4d2236e	skill-called	Version skew between the tower and the workers on the fleet-dispatch-worktree dispatch path.
+obs:d95cb0da	skill-called	/spec-draft test-spec elicitation prose ignores the existing tests/ guard suites.
+obs:dd8e3d7e	skill-called	A kickoff must compute its anchor with the repo-merged spec-anchor, not the cached copy.
+obs:ddd6d5b9	library	NUL-to-newline path re-splitting fail-open in the inception-secret-screen staged-path walk.
+obs:eb4d0437	skill-called	The /spec-kickoff and /orchestrate closure headroom was consumed by skill and doctrine prose.
+obs:eca7625e	skill-called	The /spec-draft commit procedure runs no repository lint over what it wrote.
+obs:ecad4e04	library,skill-called	The allocation-ledger row is not retracted when an offload-dispatch spawn fails.
+obs:ecc9d77c	dev-check	The skill-injection sentinel grep in prompt-eval misses JSON-escaped H1s.
+obs:eea622de	skill-called	fleet-dispatch-worktree attach plans launch workers without --settings.
+obs:f618a38c	hook	The ready-guard hooks.json matcher pins a literal MCP tool name.
+obs:f6601f8f	skill-called	spec-validate does not check REQ-to-task coverage.
+obs:f7a90c3d	dev-check	Known limits of the check-cdpath guard: presence versus ordering, and no quoting awareness.
+obs:fb7cd43e	dev-check	The check-instructions --audit report does not flag surfaces with single-digit slack.
+obs:fc5bc12e	skill-called	Doctrine prose loaded by fleet skills is over the doctrine word-budget warn threshold.
+obs:fd0d5252	skill-called	The execute-task SKILL.md body is in the below-target headroom band.
+obs:fd55ba86	hook	The check-purged-identifiers guard does not re-derive its max-words floor.
+obs:fe11200a	tests-only,library,skill-called	fleet-tower-watchdog holds the lock while fleet-audit, fleet-attention and fleet-tower-marker spin on the fleet lock.
+obs:ff91ed4e	skill-called	The /orchestrate SKILL.md budget left no room for a headless-oneshot backend pointer.

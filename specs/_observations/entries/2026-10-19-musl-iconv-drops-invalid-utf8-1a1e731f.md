@@ -1,0 +1,1 @@
+- 2026-10-19 [planwright] Alpine (universal-binary Task 4): musl iconv -f UTF-8 -t UTF-8 silently drops invalid bytes and exits 0, so fleet-messaging accepted non-UTF-8 message bodies. Fixed by comparing the identity conversion with the input via cmp.

@@ -7,6 +7,8 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/poll-until.sh
+. "$REPO_ROOT/tests/lib/poll-until.sh"
 REVIEWER="$REPO_ROOT/scripts/review-backtest-reviewer.sh"
 ANNOTATE="$REPO_ROOT/scripts/review-backtest-annotate.sh"
 
@@ -116,11 +118,7 @@ term_check() {
   rm -f "$T/session.started" "$T/session.finished"
   "$@" >/dev/null 2>&1 &
   hpid=$!
-  n=0
-  until [ -e "$T/session.started" ] || [ "$n" -ge 200 ]; do
-    sleep 0.1
-    n=$((n + 1))
-  done
+  poll_until --what 'the session to start' -- test -e "$T/session.started" || :
   kill -TERM "$hpid"
   wait "$hpid" 2>/dev/null
   sleep 5

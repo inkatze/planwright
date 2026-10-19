@@ -647,3 +647,25 @@ Changelog: requirements.md `## Changelog` entry dated 2026-09-14
 found in the lint guard").
 Anchor: `de44389515d0af7c59ec6c67a96a9a799df6b7d7` — computed as
 `scripts/spec-anchor.sh specs/universal-binary`
+
+### Amendment — the drafting cost figures superseded, not regenerated (expression-only, 2026-10-19)
+
+**Mode:** in-flight amendment on the Task 3 PR (expression-only, per REQ-A3.3).
+
+The Sources bullet on the drafting-session cost baseline said the REQ-G1.1
+script regenerates its figures. Task 3 shipped that script with stated
+definitions, and its first snapshot does not reproduce the drafting figures,
+whose definitions were never recorded. The bullet now says the dated snapshot
+supersedes them.
+
+**No lens pass** (expression-only, per REQ-A3.3): no accepted decision changes
+and no REQ or D-ID is added. REQ-G1.1 still requires the script and the dated,
+regenerable snapshot; only a provenance claim about the older figures is
+corrected. Validator after the edit: 0 errors, 0 warnings.
+
+Class: expression-only
+Changelog: requirements.md `## Changelog` entry dated 2026-10-19
+("the Sources bullet on the drafting-session cost baseline said the REQ-G1.1
+script regenerates its figures").
+Anchor: `46a258246248edbacf357a7a1b14f0ff896dc04f` — computed as
+`scripts/spec-anchor.sh specs/universal-binary`

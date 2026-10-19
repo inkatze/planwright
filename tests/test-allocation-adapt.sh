@@ -42,6 +42,8 @@ FA="$here/../scripts/fleet-audit.sh"
 FUG="$here/../scripts/fleet-usage-gate.sh"
 FLV="$here/../scripts/fleet-liveness.sh"
 TAB=$(printf '\t')
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -459,13 +461,8 @@ chmod +x "$sigstub/date"
   exec /bin/bash "$AD" resolve sig:unit --key drain --step s1 --attempt 1
 ) >/dev/null 2>&1 &
 sig_pid=$!
-sig_waited=0
-while [ ! -e "$tmp/sig-blocked" ]; do
-  sleep 0.05
-  sig_waited=$((sig_waited + 1))
-  [ "$sig_waited" -lt 600 ] \
-    || fail "13k: the resolve never reached the locked append, so the signal had nothing to interrupt"
-done
+poll_until --what 'the resolve blocked inside the locked append' -- test -e "$tmp/sig-blocked" \
+  || fail "13k: the resolve never reached the locked append, so the signal had nothing to interrupt"
 kill -TERM "$sig_pid" 2>/dev/null \
   || fail "13k: the engine was gone before the signal could land"
 # Release the gate AFTER the signal is delivered: the pending TERM fires at the

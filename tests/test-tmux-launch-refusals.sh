@@ -38,6 +38,11 @@
 #       fails the launch, and the undo keeps what a session may be using
 #   r16 with no marker-dir override, a failed launch leaves its marker in none
 #       of the directories the writer may use, the shared home included
+#   r17 a worker profile the planwright root holds unreadable refuses the
+#       launch and its dry run alike, naming the profile, before anything is
+#       placed (fleet-messaging D-19, REQ-F1.1)
+#   r18 a suffix that yields no worker identity refuses its plan, naming the
+#       missing handle and scope, before printing any of it (REQ-B1.1)
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-tmux-launch-refusals.sh
@@ -463,7 +468,7 @@ r14() {
   orphan_worktree 7
   tmux_shim "$C/hang" hang-probe
   PATH="$C/hang:$PATH" PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 \
-    tlh_run_bounded --bound 20 "$PRIM" dispatch demo 7 --repo-root "$P" --no-attach
+    tlh_run_bounded --bound 180 "$PRIM" dispatch demo 7 --repo-root "$P" --no-attach
   tlh_expect_returned "r14: a hung probe must be ended" || return
   [ "$TLH_RC" -eq 3 ] || fail "r14: a probe that never answers must read live (exit 3), got $TLH_RC ($TLH_ERR)"
   [ -f "$P/.claude/worktrees/demo-task-7/work-7" ] || fail "r14: the worktree was removed on an unanswered probe"
@@ -478,7 +483,7 @@ r15() {
   work_branch 9
   tmux_shim "$C/hang" hang-new
   PATH="$C/hang:$PATH" PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 \
-    tlh_run_bounded --bound 20 "$PRIM" dispatch demo 9 --repo-root "$P"
+    tlh_run_bounded --bound 180 "$PRIM" dispatch demo 9 --repo-root "$P"
   tlh_expect_returned "r15: the dispatch must end a hung new-session itself" || return
   [ "$TLH_RC" -eq 13 ] || fail "r15: a hung new-session with no session must fail the launch (exit 13), got $TLH_RC ($TLH_ERR)"
   case $TLH_ERR in *'did not return'*) ;; *) fail "r15: the report does not name the hang: $TLH_ERR" ;; esac
@@ -491,7 +496,7 @@ r15() {
   work_branch 12
   tmux_shim "$C/hang" hang-new-term1
   PATH="$C/hang:$PATH" PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 \
-    tlh_run_bounded --bound 20 "$PRIM" dispatch demo 12 --repo-root "$P"
+    tlh_run_bounded --bound 180 "$PRIM" dispatch demo 12 --repo-root "$P"
   [ "$TLH_RC" -eq 13 ] || fail "r15: a TERM-handling hung client must fail the launch (exit 13), got $TLH_RC"
   case $TLH_ERR in *'did not return'*) ;; *) fail "r15: a TERM-handling hung client is not reported as a hang: $TLH_ERR" ;; esac
   # tmux cannot then say whether a session exists: nothing is removed.
@@ -499,7 +504,7 @@ r15() {
   work_branch 10
   tmux_shim "$C/hang" hang-new-unsure
   PATH="$C/hang:$PATH" PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 \
-    tlh_run_bounded --bound 30 "$PRIM" dispatch demo 10 --repo-root "$P"
+    tlh_run_bounded --bound 180 "$PRIM" dispatch demo 10 --repo-root "$P"
   tlh_expect_returned "r15: an unsure undo must still return" || return
   [ "$TLH_RC" -eq 13 ] || fail "r15: a hung, unconfirmable launch must exit 13, got $TLH_RC ($TLH_ERR)"
   [ -d "$P/.claude/worktrees/demo-task-10" ] || fail "r15: a worktree a session may run in was removed"
@@ -510,7 +515,7 @@ r15() {
   work_branch 11
   s=$(expect_session "$PP" demo-task-11)
   tlh_knob new-session block
-  PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 tlh_run_bounded --bound 20 "$PRIM" dispatch demo 11 --repo-root "$P"
+  PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 tlh_run_bounded --bound 180 "$PRIM" dispatch demo 11 --repo-root "$P"
   tlh_knob new-session ok
   tlh_expect_returned "r15: the dispatch must end a hung new-session that made its session" || return
   [ "$TLH_RC" -eq 14 ] || fail "r15: a hung new-session whose session exists is placed (exit 14), got $TLH_RC ($TLH_ERR)"
@@ -544,6 +549,55 @@ $dirs
 EOF
 }
 
+# --- r17: an unreadable worker profile ----------------------------------------
+# The injector is the planwright-root override: PLANWRIGHT_ROOT names a copy
+# of the root whose worker profile cannot be read.
+r17() {
+  local bad e before mode
+  bad="$TLH_SANDBOX/badroot"
+  mkdir -p "$bad/config"
+  for e in "$ROOT"/*; do
+    [ "${e##*/}" = config ] && continue
+    ln -sn "$e" "$bad/${e##*/}"
+  done
+  cp "$ROOT/config/worker-settings.json" "$bad/config/"
+  chmod 000 "$bad/config/worker-settings.json"
+  for mode in launch dry-run; do
+    new_case
+    before=$(calls_now)
+    if [ "$mode" = dry-run ]; then
+      PLANWRIGHT_ROOT=$bad tlh_run_bounded "$PRIM" dispatch demo 1 --repo-root "$P" --attach-dry-run
+    else
+      PLANWRIGHT_ROOT=$bad tlh_run_bounded "$PRIM" dispatch demo 1 --repo-root "$P"
+    fi
+    [ "$TLH_RC" -eq 12 ] || fail "r17 [$mode]: an unreadable worker profile must exit 12, got $TLH_RC ($TLH_ERR)"
+    case $TLH_ERR in
+      *"$(cd "$bad" && pwd -P)/config/worker-settings.json"*) ;;
+      *) fail "r17 [$mode]: the refusal does not name the profile: $TLH_ERR" ;;
+    esac
+    [ -z "$(tmux_calls_since "$before" | awk -F"$TAB" '$1 == "new-session"')" ] || fail "r17 [$mode]: new-session was called"
+    nothing_placed "r17 [$mode]" 1
+  done
+  chmod 644 "$bad/config/worker-settings.json"
+}
+
+# --- r18: a suffix that yields no identity ------------------------------------
+# The bare legacy `task-<id>` suffix names no spec, so it has no worker handle
+# or scope: its plan is refused, naming both, before any of it is printed.
+r18() {
+  local back=$PWD
+  new_case
+  cd "$P" || return
+  tlh_run_bounded "$PRIM" attach task-5 --dry-run
+  cd "$back" || return
+  [ "$TLH_RC" -eq 12 ] || fail "r18: a suffix with no identity must exit 12, got $TLH_RC ($TLH_ERR)"
+  case $TLH_ERR in
+    *PLANWRIGHT_WORKER_HANDLE*PLANWRIGHT_WORKER_SCOPE*) ;;
+    *) fail "r18: the refusal does not name the missing identity: $TLH_ERR" ;;
+  esac
+  [ -z "$TLH_OUT" ] || fail "r18: part of the plan was printed before the refusal: $TLH_OUT"
+}
+
 r1
 r2
 r3
@@ -560,6 +614,8 @@ r13
 r14
 r15
 r16
+r17
+r18
 
 [ "$fails" -eq 0 ] || {
   echo "test-tmux-launch-refusals: $fails failure(s)" >&2

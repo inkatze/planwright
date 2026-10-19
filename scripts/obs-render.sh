@@ -41,7 +41,10 @@
 #   --archived  also include the archive/ fragments (consumed history), merged
 #               into the same chronological order
 #   --obs-dir   the observations dir holding entries/ + archive/ and the frozen
-#               legacy files; defaults to specs/_observations under the repo cwd
+#               legacy files; defaults to _observations under the spec root's
+#               checkout-local view (scripts/resolve-root.sh spec, from the
+#               working directory); with no root resolving there is no
+#               default, which is a usage error (exit 2)
 #
 # Exit codes: 0 rendered (including the empty view); 2 usage error. Invalid
 # files are report content (skip-and-warn), never a non-zero exit.
@@ -61,6 +64,9 @@ export LC_ALL
 unset CDPATH
 
 prog=obs-render
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+# shellcheck source=scripts/obs-store-lib.sh
+. "$script_dir/obs-store-lib.sh"
 
 usage() {
   printf '%s\n' "usage: $prog [--archived] [--obs-dir <dir>]" >&2
@@ -183,7 +189,8 @@ is_entry_form() {
 # --- argument parsing ----------------------------------------------------
 
 archived=0
-obsdir="specs/_observations"
+obsdir=""
+have_obsdir=0
 while [ $# -gt 0 ]; do
   case $1 in
     --archived)
@@ -196,6 +203,7 @@ while [ $# -gt 0 ]; do
         exit 2
       }
       obsdir=$2
+      have_obsdir=1
       shift 2
       ;;
     -h | --help)
@@ -220,10 +228,16 @@ done
 # An empty or hyphen-leading --obs-dir is a caller error, refused up front
 # (mirrors obs-record.sh / check-obs.sh): an empty path would masquerade as
 # "no root" and a '-' is read as an option by the tooling below.
-[ -n "$obsdir" ] || {
+[ -n "$obsdir" ] || [ "$have_obsdir" -eq 0 ] || {
   printf '%s\n' "$prog: observations directory must not be empty" >&2
   exit 2
 }
+if [ "$have_obsdir" -eq 0 ]; then
+  obsdir=$(obs_default_store "$script_dir") || {
+    printf '%s\n' "$prog: the spec root did not resolve, so the observations directory has no default; name one with --obs-dir" >&2
+    exit 2
+  }
+fi
 case "$obsdir" in
   -*)
     printf '%s\n' "$prog: observations directory must not begin with a hyphen" >&2

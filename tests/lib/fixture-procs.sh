@@ -42,6 +42,9 @@
 # Matched in-shell over a captured `ps` snapshot: a `grep` or `pgrep` for the
 # path would find its own argv.
 
+# shellcheck source=tests/lib/poll-until.sh
+. "$(dirname "${BASH_SOURCE[0]}")/poll-until.sh"
+
 _fp_owner=$(exec sh -c 'echo "$PPID"')
 
 fixture_is_owner() {
@@ -95,6 +98,9 @@ fixture_procs() {
     return 2
   }
   snap=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || snap=''
+  # busybox ps has no -ww (it cuts argv at a fixed length, far past any
+  # fixture needle).
+  [ -n "$snap" ] || snap=$(ps -A -o pid=,ppid=,args= 2>/dev/null) || snap=''
   _fp_table_ok "$snap" || {
     echo "fixture_procs: no usable process table on this host" >&2
     return 2
@@ -128,12 +134,18 @@ fixture_report() {
 }
 
 # _fp_alive <pid...> — the given pids that are still running, zombies excluded.
+# One listing rather than ps -p per pid, which busybox ps lacks.
 _fp_alive() {
-  local p st
-  for p in "$@"; do
-    st=$(ps -p "$p" -o stat= 2>/dev/null) || continue
-    case $st in '' | Z*) ;; *) printf '%s\n' "$p" ;; esac
-  done
+  ps -A -o pid=,stat= 2>/dev/null | awk -v want=" $* " '
+    index(want, " " $1 " ") && $2 !~ /^Z/ { print $1 }'
+}
+
+# _fp_gone <dir/> <pid...> — no process matches the needle and none of the
+# given pids still runs.
+_fp_gone() {
+  local needle=$1
+  shift
+  fixture_none "$needle" && [ -z "$(_fp_alive "$@")" ]
 }
 
 fixture_reap() {
@@ -150,13 +162,21 @@ fixture_reap() {
     for p in $left; do
       kill -s "$sig" "$p" 2>/dev/null
     done
-    # Bounded by the clock, not a poll count: each poll takes a full `ps`
-    # snapshot, which on a loaded host costs more than the sleep between them.
-    end=$((SECONDS + 3))
-    # shellcheck disable=SC2086
-    while [ "$SECONDS" -lt "$end" ] && { ! fixture_none "$needle" || [ -n "$(_fp_alive $seen)" ]; }; do
-      sleep 0.1
-    done
+    if [ "$sig" = TERM ]; then
+      # Only a grace before the KILL pass, which reaches anything still
+      # running, so it stays short. Bounded by the clock, not a poll count:
+      # each poll takes a full `ps` snapshot, which on a loaded host costs
+      # more than the sleep between them.
+      end=$((SECONDS + 3))
+      # shellcheck disable=SC2086
+      while [ "$SECONDS" -lt "$end" ] && ! _fp_gone "$needle" $seen; do
+        sleep 0.1
+      done
+    else
+      # The verdict is the check below; this only waits for the deaths.
+      # shellcheck disable=SC2086
+      poll_until --what 'the fixture processes to die after SIGKILL' -- _fp_gone "$needle" $seen || :
+    fi
   done
   rows=$(fixture_procs "$needle") || return 1
   # shellcheck disable=SC2086

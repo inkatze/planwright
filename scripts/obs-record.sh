@@ -19,8 +19,9 @@
 #
 # Fragment filename grammar (REQ-A1.2): <date>-<slug>-<uid>.md where <date> is
 # a real calendar date YYYY-MM-DD, <slug> is a cosmetic kebab-case token
-# [a-z0-9]+(-[a-z0-9]+)* of at most 40 chars, and <uid> is exactly 8 lowercase
-# hex characters. Fragment content is the established one-line entry form
+# [a-z0-9]+(-[a-z0-9]+)* of at most 40 chars (except `review-miss`, which marks
+# a miss-ledger entry; doctrine/review-independence.md), and <uid> is exactly 8
+# lowercase hex characters. Fragment content is the established one-line entry form
 # `- <date> [<scope>] <text>` (REQ-A1.4); the date is minted as today, never a
 # caller-facing backfill date; `--today` only pins the minted date for tests
 # (no backfill exists — bulk conversion is out of scope).
@@ -38,22 +39,52 @@
 #
 # Usage:
 #   obs-record.sh --slug <slug> --scope <scope> --text <text>
-#                 [--today <YYYY-MM-DD>] [--obs-dir <dir>]
+#                 [--today <YYYY-MM-DD>] [--obs-dir <dir> | --target <alias>]
 #
-#   --slug     cosmetic kebab-case topic token (filename only; renameable)
+#   --slug     cosmetic kebab-case topic token (filename only; renameable,
+#              except review-miss)
 #   --scope    the `[<scope>]` bracket content (a repo/context identifier)
 #   --text     the observation prose (single line; no newlines/control chars)
 #   --today    pin the minted date (tests); defaults to the system date
 #   --obs-dir  the observations dir holding entries/ + archive/;
-#              defaults to specs/_observations under the host repo root (cwd) —
-#              never the plugin root (D-6: the fragment store is the host
-#              repo's even when the helper resolves plugin-relative)
+#              defaults to _observations under the spec root's checkout-local
+#              view, as scripts/resolve-root.sh spec resolves it from the
+#              working directory (custom-spec-location D-17) — never the plugin
+#              root (D-6: the fragment store is the host repo's even when the
+#              helper resolves plugin-relative). Outside any repository, or
+#              with a refused spec_root, there is no default and the helper
+#              refuses; so it does when a configured spec_root is absent
+#              from this checkout (ignored or untracked here), where a store
+#              would be lost with the checkout.
+#   --target   write into another root's store instead, named by an alias of
+#              the observation_targets option (a flat inline {alias: path}
+#              map; custom-spec-location D-18, REQ-F1.2, REQ-F1.3). The alias
+#              matches the identifier grammar; its path is absolute or ~/
+#              (never relative, never ~user) and must name, by shape, a
+#              directory carrying a valid planwright-spec-root.yml marker
+#              (scripts/resolve-root.sh marker) or the default root of a git
+#              checkout (a toplevel's specs, itself or a symlink). The target's own
+#              configuration is never read. A routed fragment then passes the
+#              hygiene screen over its scope and text, which refuses, never
+#              rewrites, anything matching one of three classes: an absolute
+#              path (a token opening /<segment>/; a slash command such as
+#              /spec-draft is not one), a ~ path (a ~ opening a token and
+#              followed by /, a letter, or the end of the text, so ~400s,
+#              a ~ b, and ~~struck~~ stay prose), and a dotted hostname whose
+#              last label is local, internal, or one of the public suffixes
+#              screen_class lists, which leave out those that double as common
+#              file extensions (sh, md, py, and the like) so a repo-relative
+#              file name is not read as a host; nor is a name opening right
+#              after a dot (.env.local) or a relative path's slash. Bytes past
+#              ASCII count as letters. Excludes --obs-dir.
 #
 # On success the created fragment path is printed to stdout and the exit is 0.
 #
 # Exit codes: 0 success; 1 refusal (grammar, containment, content, hostile
-#   input, or an internal filesystem error); 2 usage error; 3 collision retry
-#   exhausted; 4 entropy source unavailable.
+#   input, an unknown, malformed, or misshapen --target, a fragment the hygiene
+#   screen matches, no resolvable default store, or an internal filesystem
+#   error); 2 usage error; 3 collision retry exhausted; 4 entropy source
+#   unavailable.
 #
 # Portable: POSIX sh + BSD tooling (bash 3.2 / BSD compatible); no
 # fish/mise/tmux dependency (the framework-runtime portability rule).
@@ -76,11 +107,14 @@ unset CDPATH
 MAX_RETRIES=16
 
 prog=obs-record
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+# shellcheck source=scripts/obs-store-lib.sh
+. "$script_dir/obs-store-lib.sh"
 
 usage() {
   cat >&2 <<EOF
 usage: $prog --slug <slug> --scope <scope> --text <text>
-              [--today <YYYY-MM-DD>] [--obs-dir <dir>]
+              [--today <YYYY-MM-DD>] [--obs-dir <dir> | --target <alias>]
 EOF
 }
 
@@ -146,13 +180,109 @@ uid_present() {
   return 1
 }
 
+# target_entry <map> <alias> — print the alias's path from the flat inline
+# `{alias: path, ...}` map observation_targets holds. Returns 1 when the map is
+# well-formed and has no such alias, 2 when it is not such a map: an entry
+# with no `:`, a key outside the identifier grammar or repeated, an empty or
+# quoted value, or nested structure. The whole map is checked, so a broken
+# entry never hides behind a good one.
+target_entry() {
+  te_body=$(printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+  case $te_body in
+    "{"*"}") ;;
+    *) return 2 ;;
+  esac
+  te_body=${te_body#\{}
+  te_body=${te_body%\}}
+  case $te_body in
+    *[![:space:]]*) ;;
+    *) return 1 ;;
+  esac
+  case $te_body in
+    *[{}\"\'\[]* | *]* | ,* | *, | *,,*) return 2 ;;
+  esac
+  te_found=""
+  te_seen=" "
+  te_rest=$te_body
+  while [ -n "$te_rest" ]; do
+    case $te_rest in
+      *,*)
+        te_ent=${te_rest%%,*}
+        te_rest=${te_rest#*,}
+        ;;
+      *)
+        te_ent=$te_rest
+        te_rest=""
+        ;;
+    esac
+    case $te_ent in
+      *:*) ;;
+      *) return 2 ;;
+    esac
+    te_key=$(printf '%s' "${te_ent%%:*}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+    te_val=$(printf '%s' "${te_ent#*:}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+    case $te_key in
+      "" | [!a-z0-9]* | *[!a-z0-9-]*) return 2 ;;
+    esac
+    [ "${#te_key}" -le 64 ] && [ -n "$te_val" ] || return 2
+    case $te_seen in
+      *" $te_key "*) return 2 ;;
+    esac
+    te_seen="$te_seen$te_key "
+    [ "$te_key" = "$2" ] && te_found=$te_val
+  done
+  [ -n "$te_found" ] || return 1
+  printf '%s\n' "$te_found"
+}
+
+# screen_class <line> — print the hygiene screen class the line matches first
+# (absolute path, ~ path, hostname), or nothing when it is clean. The suffix
+# list is fixed here; a name ending in one only counts with a label before it.
+# Bytes past ASCII read as letters, so a word in any script is one token. A
+# lone ~ inside the text is prose, not a path; one ending it is the home
+# directory. A name opening right after a dot (.env.local) or after a slash
+# inside a relative path (dir/file.io) is a filename, not a host.
+screen_class() {
+  # busybox tr has no [a*] repeat, so the replacement set is spelled out in full.
+  sc_high=$(printf '%0128d' 0 | tr 0 a)
+  printf '%s\n' "$1" | LC_ALL=C tr '\200-\377' "$sc_high" | awk '
+    BEGIN {
+      n = split("com net org edu gov mil int info biz io ai app dev co me tv cloud " \
+        "us uk de fr ca au jp cn ru nl eu ch se no es it br be at dk fi ie nz kr " \
+        "tw hk sg za mx local internal", t, " ")
+      for (i = 1; i <= n; i++) tld[t[i]] = 1
+    }
+    {
+      s = " " $0 " "
+      if (s ~ /[^A-Za-z0-9._~-]\/[A-Za-z0-9._~-]+\//) { print "absolute path"; exit }
+      if (s ~ /[^A-Za-z0-9._~-]~(\/|[A-Za-z]|[ \t]*$)/) { print "~ path"; exit }
+      rest = s
+      off = 0
+      while (match(rest, /[A-Za-z0-9][A-Za-z0-9.-]*/)) {
+        st = off + RSTART
+        tok = substr(rest, RSTART, RLENGTH)
+        off = st + RLENGTH - 1
+        rest = substr(rest, RSTART + RLENGTH)
+        p1 = substr(s, st - 1, 1)
+        p2 = substr(s, st - 2, 1)
+        if (p1 == "." || (p1 == "/" && p2 ~ /[A-Za-z0-9._~-]/)) continue
+        sub(/[.-]+$/, "", tok)
+        k = split(tok, lab, ".")
+        if (k >= 2 && lab[k - 1] != "" && (tolower(lab[k]) in tld)) { print "hostname"; exit }
+      }
+    }'
+}
+
 # --- argument parsing ----------------------------------------------------
 
 slug=""
 scope=""
 text=""
 today=""
-obsdir="specs/_observations"
+obsdir=""
+have_obsdir=0
+target=""
+have_target=0
 have_text=0
 
 while [ $# -gt 0 ]; do
@@ -196,6 +326,16 @@ while [ $# -gt 0 ]; do
         exit 2
       }
       obsdir=$2
+      have_obsdir=1
+      shift 2
+      ;;
+    --target)
+      [ $# -ge 2 ] || {
+        usage
+        exit 2
+      }
+      target=$2
+      have_target=1
       shift 2
       ;;
     -h | --help)
@@ -229,6 +369,10 @@ done
   exit 2
 }
 [ "$have_text" -eq 1 ] || {
+  usage
+  exit 2
+}
+[ "$have_obsdir" -eq 0 ] || [ "$have_target" -eq 0 ] || {
   usage
   exit 2
 }
@@ -284,6 +428,95 @@ _tlen=$(printf '%s' "$text" | wc -c | tr -d ' ')
 _slen=$(printf '%s' "$text" | tr -d '\000-\037\177' | wc -c | tr -d ' ')
 [ "$_tlen" = "$_slen" ] \
   || refuse 1 "entry text must not contain newlines or control characters"
+
+# --- the store: named target, explicit, or the root's default ------------
+
+if [ "$have_target" -eq 1 ]; then
+  case $target in
+    "" | [!a-z0-9]* | *[!a-z0-9-]*)
+      refuse 1 "target alias must match the identifier grammar ^[a-z0-9][a-z0-9-]*\$"
+      ;;
+  esac
+  [ "${#target}" -le 64 ] || refuse 1 "target alias must be at most 64 characters"
+  tg_rc=0
+  tg_out=$("$script_dir/config-get.sh" --explain observation_targets) || tg_rc=$?
+  case $tg_rc in
+    0) ;;
+    3) refuse 1 "no observation target is configured under this alias (observation_targets is unset)" ;;
+    4) refuse 1 "the repo-tracked config is malformed, so observation_targets cannot be read" ;;
+    *) refuse 1 "observation_targets could not be read (config-get exit $tg_rc)" ;;
+  esac
+  tab=$(printf '\t')
+  tg_layer=${tg_out%%"$tab"*}
+  tg_rc=0
+  tg_path=$(target_entry "${tg_out#*"$tab"}" "$target") || tg_rc=$?
+  case $tg_rc in
+    0) ;;
+    1) refuse 1 "no observation target is configured under this alias (observation_targets)" ;;
+    *) refuse 1 "observation_targets in the $tg_layer layer is not a flat inline {alias: path} map" ;;
+  esac
+  # shellcheck disable=SC2088 # the patterns match a literal ~, expanded here
+  case $tg_path in
+    "~" | "~/"*)
+      case ${HOME:-} in
+        /*) ;;
+        *) refuse 1 "the observation target is a ~ path and HOME is not absolute" ;;
+      esac
+      tg_path=$HOME${tg_path#"~"}
+      ;;
+    "~"*) refuse 1 "an observation target takes ~/ only, never ~user" ;;
+    /*) ;;
+    *) refuse 1 "an observation target is an absolute or ~/ path, never a relative one" ;;
+  esac
+  [ "$(printf '%s' "$tg_path" | tr -d '\000-\037\177')" = "$tg_path" ] \
+    || refuse 1 "the observation target path carries a control byte"
+  [ -d "$tg_path" ] || refuse 1 "the observation target is not an existing directory"
+  tg_root=$(cd -P -- "$tg_path" 2>/dev/null && pwd -P) \
+    || refuse 1 "cannot resolve the observation target"
+  # A symlink can lead a clean configured path onto one that is not.
+  [ "$(printf '%s' "$tg_root" | tr -d '\000-\037\177')" = "$tg_root" ] \
+    || refuse 1 "the observation target's canonical path carries a control byte or tab"
+  # A checkout's own specs/ passes by shape whether the path names it as
+  # configured or as resolved: one symlinked out of its checkout is still that
+  # checkout's default root, as the resolver takes it.
+  tg_shape=0
+  tg_logical=$tg_path
+  while :; do
+    case $tg_logical in
+      */) tg_logical=${tg_logical%/} ;;
+      *) break ;;
+    esac
+  done
+  for tg_cand in "$tg_logical" "$tg_root"; do
+    [ "${tg_cand##*/}" = specs ] || continue
+    tg_parent=$(cd -P -- "${tg_cand%/*}/" 2>/dev/null && pwd -P) || continue
+    tg_top=$(
+      unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+        GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+      cd -- "$tg_parent" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null
+    ) || tg_top=""
+    if [ -n "$tg_top" ] && [ "$tg_top" = "$tg_parent" ]; then
+      tg_shape=1
+      break
+    fi
+  done
+  if [ "$tg_shape" -eq 0 ]; then
+    /bin/sh "$script_dir/resolve-root.sh" marker "$tg_root" >/dev/null 2>&1 \
+      || refuse 1 "the observation target is neither a marked spec root nor the default root of a git checkout"
+  fi
+  tg_class=$(screen_class "[$scope] $text")
+  [ -z "$tg_class" ] \
+    || refuse 1 "the hygiene screen refuses this routed fragment: it carries a $tg_class (refused, never rewritten; nothing written)"
+  obsdir=$tg_root/_observations
+elif [ "$have_obsdir" -eq 0 ]; then
+  ods_rc=0
+  obsdir=$(obs_default_store "$script_dir" write) || ods_rc=$?
+  case $ods_rc in
+    0) ;;
+    3) refuse 1 "the observations directory has no default in this checkout; record from the checkout that holds the spec root, or name one with --obs-dir" ;;
+    *) refuse 1 "the spec root did not resolve, so the observations directory has no default; name one with --obs-dir" ;;
+  esac
+fi
 
 # --- directory setup + containment ---------------------------------------
 

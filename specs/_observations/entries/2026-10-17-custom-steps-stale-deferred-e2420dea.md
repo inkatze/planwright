@@ -1,0 +1,1 @@
+- 2026-10-17 [planwright] custom-steps tasks.md Deferred still lists "Dropping the transitional review_sequence line", but #541 already dropped it from .claude/planwright.yml; the entry is resolved and can be retired at the next drain.

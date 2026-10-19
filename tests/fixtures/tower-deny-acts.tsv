@@ -1,0 +1,166 @@
+# The tower deny-to-act map: every config/tower-settings.json permissions.deny
+# entry, the scripts/policy-guard.sh act that refuses it at the tower tier, and
+# one command (or, for an MCP entry, one tool name) the entry blocks. The
+# spelling rows are the REQ-D1.2 spelling set that counts: each act refused
+# through git's global options, long-option prefixes, ref forms, and repo
+# aliases (tests/lib/tower-floor-harness.sh configures the aliases they use).
+# The tests/test-tower-floor-*.sh suites fail on a deny entry with no row, a
+# row naming no entry, a sample its entry does not match, and a sample or
+# spelling the plugin-wired floor does not refuse in a marked session.
+# A deny-list edit adds or removes its row here in the same commit.
+#
+# entry<TAB><deny entry><TAB><act><TAB><sample>
+# spelling<TAB><act><TAB><form><TAB><command>
+entry	Bash(gh pr merge:*)	pr-merge	gh pr merge 42 --squash
+entry	Bash(gh pr ready:*)	flip	gh pr ready 42
+entry	Bash(git merge:*)	base-merge	git merge origin/main
+entry	Bash(git pull:*)	base-merge	git pull origin main
+entry	Bash(git rebase:*)	rewrite	git rebase origin/main
+entry	Bash(git commit --amend:*)	rewrite	git commit --amend --no-edit
+entry	Bash(git commit * --amend*)	rewrite	git commit -m x --amend
+entry	Bash(git commit --squash:*)	rewrite	git commit --squash HEAD
+entry	Bash(git commit --squash*)	rewrite	git commit --squash=HEAD
+entry	Bash(git commit * --squash*)	rewrite	git commit -a --squash HEAD
+entry	Bash(git commit --fixup:*)	rewrite	git commit --fixup HEAD
+entry	Bash(git commit --fixup*)	rewrite	git commit --fixup=HEAD
+entry	Bash(git commit * --fixup*)	rewrite	git commit -a --fixup HEAD
+entry	Bash(git commit --am*)	rewrite	git commit --am
+entry	Bash(git commit * --am*)	rewrite	git commit -a --amen
+entry	Bash(git commit --sq*)	rewrite	git commit --sq HEAD
+entry	Bash(git commit * --sq*)	rewrite	git commit -a --squa HEAD
+entry	Bash(git commit --fix*)	rewrite	git commit --fix HEAD
+entry	Bash(git commit * --fix*)	rewrite	git commit -a --fixu HEAD
+entry	Bash(git reset --hard:*)	ref-surgery	git reset --hard origin/main
+entry	Bash(git filter-branch:*)	ref-surgery	git filter-branch --tree-filter true HEAD
+entry	Bash(git filter-repo:*)	ref-surgery	git filter-repo --path x
+entry	Bash(git branch -f:*)	ref-surgery	git branch -f main HEAD
+entry	Bash(git branch --force:*)	ref-surgery	git branch --force main HEAD
+entry	Bash(git update-ref:*)	ref-surgery	git update-ref refs/heads/main HEAD
+entry	Bash(git worktree add --force:*)	worktree	git worktree add --force ../w topic
+entry	Bash(git worktree add -f:*)	worktree	git worktree add -f ../w topic
+entry	Bash(git worktree add * --force*)	worktree	git worktree add ../w topic --force
+entry	Bash(git worktree add * -f*)	worktree	git worktree add ../w topic -f
+entry	Bash(git worktree add --detach:*)	worktree	git worktree add --detach ../w
+entry	Bash(git worktree add * --detach*)	worktree	git worktree add ../w --detach
+entry	Bash(git worktree add -b main:*)	worktree	git worktree add -b main ../w
+entry	Bash(git worktree add * -b main)	worktree	git worktree add ../w -b main
+entry	Bash(git worktree add * -b main *)	worktree	git worktree add ../w -b main HEAD
+entry	Bash(git worktree add -B main:*)	worktree	git worktree add -B main ../w
+entry	Bash(git worktree add * -B main)	worktree	git worktree add ../w -B main
+entry	Bash(git worktree add * -B main *)	worktree	git worktree add ../w -B main HEAD
+entry	Bash(git worktree add * main)	worktree	git worktree add ../w main
+entry	Bash(git worktree add * main *)	worktree	git worktree add ../w main --quiet
+entry	Bash(git worktree add *refs/heads/main)	worktree	git worktree add ../w refs/heads/main
+entry	Bash(git worktree add *refs/heads/main *)	worktree	git worktree add ../w refs/heads/main --quiet
+entry	Bash(git worktree add *heads/main)	worktree	git worktree add ../w heads/main
+entry	Bash(git worktree add *heads/main *)	worktree	git worktree add ../w heads/main --quiet
+entry	Bash(git worktree add *origin/main)	worktree	git worktree add ../w origin/main
+entry	Bash(git worktree add *origin/main *)	worktree	git worktree add ../w origin/main --quiet
+entry	Bash(git worktree remove --force:*)	worktree	git worktree remove --force ../w
+entry	Bash(git worktree remove -f:*)	worktree	git worktree remove -f ../w
+entry	Bash(git worktree remove * --force*)	worktree	git worktree remove ../w --force
+entry	Bash(git worktree remove * -f*)	worktree	git worktree remove ../w -f
+entry	Bash(git worktree move * --force*)	worktree	git worktree move ../w ../v --force
+entry	Bash(git worktree move --force:*)	worktree	git worktree move --force ../w ../v
+entry	Bash(git worktree move * -f*)	worktree	git worktree move ../w ../v -f
+entry	Bash(git worktree move -f:*)	worktree	git worktree move -f ../w ../v
+entry	Bash(git push --force:*)	push	git push --force origin topic
+entry	Bash(git push --force-with-lease:*)	push	git push --force-with-lease origin topic
+entry	Bash(git push --force-with-lease=*)	push	git push --force-with-lease=topic origin topic
+entry	Bash(git push -f:*)	push	git push -f origin topic
+entry	Bash(git push * --force*)	push	git push origin topic --force
+entry	Bash(git push * -f*)	push	git push origin topic -f
+entry	Bash(git push *+*)	push	git push origin +topic
+entry	Bash(git push *:main)	push	git push origin HEAD:main
+entry	Bash(git push *:main *)	push	git push origin HEAD:main --quiet
+entry	Bash(git push * main)	push	git push origin main
+entry	Bash(git push * main *)	push	git push origin main --quiet
+entry	Bash(git push *refs/heads/main)	push	git push origin HEAD:refs/heads/main
+entry	Bash(git push *heads/main)	push	git push origin HEAD:heads/main
+entry	Bash(git push *heads/main *)	push	git push origin HEAD:heads/main --quiet
+entry	Bash(git push *:master)	push	git push origin HEAD:master
+entry	Bash(git push *:master *)	push	git push origin HEAD:master --quiet
+entry	Bash(git push * master)	push	git push origin master
+entry	Bash(git push * master *)	push	git push origin master --quiet
+entry	Bash(git push *heads/master)	push	git push origin HEAD:refs/heads/master
+entry	Bash(git push *heads/master *)	push	git push origin HEAD:heads/master --quiet
+entry	Bash(git push *:planwright/*/spec)	push	git push origin HEAD:planwright/demo/spec
+entry	Bash(git push *:planwright/*/spec *)	push	git push origin HEAD:planwright/demo/spec --quiet
+entry	Bash(git push * planwright/*/spec)	push	git push origin planwright/demo/spec
+entry	Bash(git push * planwright/*/spec *)	push	git push origin planwright/demo/spec --quiet
+entry	Bash(git push *heads/planwright/*/spec)	push	git push origin HEAD:refs/heads/planwright/demo/spec
+entry	Bash(git push *heads/planwright/*/spec *)	push	git push origin HEAD:heads/planwright/demo/spec --quiet
+entry	Bash(git push --mirror:*)	push	git push --mirror origin
+entry	Bash(git push * --mirror*)	push	git push origin --mirror
+entry	Bash(git push --all:*)	push	git push --all origin
+entry	Bash(git push * --all*)	push	git push origin --all
+entry	Bash(git push --mi*)	push	git push --mi origin
+entry	Bash(git push * --mi*)	push	git push origin --mirr
+entry	Bash(git push --al*)	push	git push --al origin
+entry	Bash(git push * --al*)	push	git push origin --al
+entry	Bash(git push --b*)	push	git push --branches origin
+entry	Bash(git push * --b*)	push	git push origin --bra
+entry	Bash(git push * : *)	push	git push origin : --quiet
+entry	Bash(git -c * push:*)	push	git -c push.default=matching push origin topic
+entry	mcp__github__merge_pull_request	mcp-write	mcp__github__merge_pull_request
+entry	mcp__github__update_pull_request	mcp-write	mcp__github__update_pull_request
+entry	mcp__github__push_files	mcp-write	mcp__github__push_files
+entry	mcp__github__create_or_update_file	mcp-write	mcp__github__create_or_update_file
+entry	mcp__github__delete_file	mcp-write	mcp__github__delete_file
+entry	mcp__*__merge_pull_request	mcp-write	mcp__github__merge_pull_request
+entry	mcp__*__update_pull_request	mcp-write	mcp__github__update_pull_request
+entry	mcp__*__push_files	mcp-write	mcp__github__push_files
+entry	mcp__*__create_or_update_file	mcp-write	mcp__github__create_or_update_file
+entry	mcp__*__delete_file	mcp-write	mcp__github__delete_file
+entry	mcp__*__update_pull_request_branch	mcp-write	mcp__github__update_pull_request_branch
+entry	mcp__*__create_pull_request	mcp-write	mcp__github__create_pull_request
+entry	mcp__github__update_pull_request_branch	mcp-write	mcp__github__update_pull_request_branch
+spelling	ref-surgery	global-C	git -C . reset --hard HEAD
+spelling	ref-surgery	global-c	git -c core.abbrev=12 reset --hard HEAD
+spelling	ref-surgery	git-dir	git --git-dir=.git update-ref refs/heads/main HEAD
+spelling	ref-surgery	work-tree	git --work-tree=. branch -f main HEAD
+spelling	ref-surgery	long-prefix	git reset --ha HEAD
+spelling	ref-surgery	long-prefix	git branch --forc main HEAD
+spelling	ref-surgery	short-cluster	git branch -qf main HEAD
+spelling	ref-surgery	ref-form	git branch -f refs/heads/main HEAD
+spelling	ref-surgery	option-value	git branch -f main HEAD --sort -committerdate
+spelling	ref-surgery	option-value	git branch -f main HEAD --points-at -d
+spelling	ref-surgery	expansion	git branch "-$d" main HEAD
+spelling	ref-surgery	expansion	git branch -f$dd main HEAD
+spelling	ref-surgery	force-shorthand	git branch -M topic main
+spelling	ref-surgery	force-shorthand	git branch -C topic main
+spelling	ref-surgery	raw-fallback	git branch -M topic main $(true)
+spelling	ref-surgery	raw-fallback	x=$(git branch -M topic main)
+spelling	ref-surgery	case	git RESET --hard HEAD
+spelling	ref-surgery	alias	git hr HEAD
+spelling	ref-surgery	alias	git bf main HEAD
+spelling	ref-surgery	alias	git ur refs/heads/main HEAD
+spelling	worktree	global-C	git -C . worktree add --force ../w topic
+spelling	worktree	global-c	git -c core.abbrev=12 worktree add ../w main
+spelling	worktree	git-dir	git --git-dir=.git worktree add --detach ../w
+spelling	worktree	work-tree	git --work-tree=. worktree remove --force ../w
+spelling	worktree	long-prefix	git worktree add --forc ../w topic
+spelling	worktree	long-prefix	git worktree add --det ../w
+spelling	worktree	short-cluster	git worktree add -qf ../w topic
+spelling	worktree	ref-form	git worktree add ../w refs/remotes/origin/main
+spelling	worktree	ref-form	git worktree add ../w remotes/origin/main
+spelling	worktree	ref-form	git worktree add -b refs/heads/main ../w
+spelling	worktree	ref-form	git worktree add ../main
+spelling	worktree	expansion	git worktree add -- ../w "$BR"
+spelling	worktree	expansion	git worktree add -- "$P"
+spelling	worktree	raw-fallback	git worktree add ../w master $(true)
+spelling	worktree	alias	git wa --force ../w topic
+spelling	push	global-C	git -C . push --force origin topic
+spelling	push	global-c	git -c core.abbrev=12 push origin main
+spelling	push	git-dir	git --git-dir=.git push origin topic
+spelling	push	work-tree	git --work-tree=. push origin main
+spelling	push	long-prefix	git push --forc origin topic
+spelling	push	ref-form	git push origin HEAD:refs/heads/main
+spelling	push	alias	git pf origin topic
+spelling	base-merge	global-C	git -C . merge origin/main
+spelling	base-merge	git-dir	git --git-dir=.git pull origin main
+spelling	base-merge	alias	git mg origin/main
+spelling	rewrite	global-C	git -C . rebase origin/main
+spelling	rewrite	work-tree	git --work-tree=. commit --amen
+spelling	rewrite	long-prefix	git commit --fixu=HEAD
+spelling	rewrite	alias	git rb origin/main

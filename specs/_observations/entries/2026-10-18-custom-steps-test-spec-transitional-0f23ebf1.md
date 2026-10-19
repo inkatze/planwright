@@ -1,0 +1,1 @@
+- 2026-10-18 [planwright] custom-steps test-spec REQ-F1.2 still expects steps_convergence beside the dated transitional review_sequence line, which #541 removed; the entry needs a kickoff delta to describe the post-transition config.

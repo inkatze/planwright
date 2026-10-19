@@ -37,6 +37,8 @@ unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
 FS="$here/../scripts/fleet-state.sh"
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -192,11 +194,11 @@ done
 [ "$reg_rc" = 0 ] || fail "registry race: a concurrent register exited non-zero under contention"
 lines=$(wc -l <"$home_reg/registry" | tr -d ' ')
 [ "$lines" = "$N" ] || fail "registry race: $lines records, expected $N (lost or torn writes)"
-# Every record is well-formed: the seven-field dispatch record
-# <epoch> <worker> <scope> <owner> <backend> <state-dir> <death-handle>, with
-# `-` in every column this two-argument register left unsupplied. A torn write
-# would break the field count on some line.
-malformed=$(awk -F"$tab" 'NF != 7 || $1 !~ /^[0-9]+$/ { c++ } END { print c + 0 }' "$home_reg/registry")
+# Every record is well-formed: the nine-field dispatch record
+# <epoch> <worker> <scope> <owner> <backend> <state-dir> <death-handle> <name>
+# <inbox>, with `-` in every column this two-argument register left
+# unsupplied. A torn write would break the field count on some line.
+malformed=$(awk -F"$tab" 'NF != 9 || $1 !~ /^[0-9]+$/ { c++ } END { print c + 0 }' "$home_reg/registry")
 [ "$malformed" = "0" ] || fail "registry race: $malformed torn/malformed records"
 distinct=$(cut -f2 "$home_reg/registry" | sort -u | wc -l | tr -d ' ')
 [ "$distinct" = "$N" ] || fail "registry race: $distinct distinct workers, expected $N"
@@ -661,12 +663,9 @@ env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
 term_pid=$!
 # Wait for the LOCK to appear rather than for a wall-clock guess: its presence
 # is proof the acquire returned, which is the start of the window under test.
-term_waited=0
-while [ ! -L "$home_term/.fleet.lock" ]; do
-  term_waited=$((term_waited + 1))
-  [ "$term_waited" -lt 400 ] || fail "the fault-injected register never took the lock"
-  sleep 0.02
-done
+# The fine interval keeps the poll well inside the injected hold.
+poll_until --interval 0.02 --what 'the fault-injected register taking the lock' -- test -L "$home_term/.fleet.lock" \
+  || fail "the fault-injected register never took the lock"
 kill -TERM "$term_pid" 2>/dev/null || true
 wait "$term_pid" 2>/dev/null || true
 [ ! -L "$home_term/.fleet.lock" ] && [ ! -e "$home_term/.fleet.lock" ] \
@@ -970,8 +969,9 @@ if [ "${PLANWRIGHT_TEST_SKIP_PERM:-}" != 1 ]; then
     PLANWRIGHT_FLEET_STATE_DIR="$home_new" /bin/sh "$FS" registry >/dev/null \
     || fail "fresh home: registry should succeed"
   umask "$old_umask"
-  mode=$(stat -c '%a' "$home_new")
-  [ "$mode" = 700 ] \
+  # shellcheck disable=SC2012 # one known directory; stat has no portable mode format
+  mode=$(ls -ld "$home_new" | cut -c2-10)
+  [ "$mode" = rwx------ ] \
     || fail "fresh home: a home this script creates must be owner-only, got $mode"
   echo "ok: a fleet home this script creates is owner-only whatever the caller's umask"
 
@@ -981,8 +981,9 @@ if [ "${PLANWRIGHT_TEST_SKIP_PERM:-}" != 1 ]; then
   env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
     PLANWRIGHT_FLEET_STATE_DIR="$home_pre" /bin/sh "$FS" registry >/dev/null \
     || fail "pre-existing home: registry should succeed"
-  mode=$(stat -c '%a' "$home_pre")
-  [ "$mode" = 755 ] \
+  # shellcheck disable=SC2012 # one known directory; stat has no portable mode format
+  mode=$(ls -ld "$home_pre" | cut -c2-10)
+  [ "$mode" = rwxr-xr-x ] \
     || fail "pre-existing home: a home we did not create must be left alone, got $mode"
   echo "ok: a fleet home that already existed keeps the permissions its owner gave it"
 fi

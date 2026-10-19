@@ -66,6 +66,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 FL="$here/../scripts/fleet-liveness.sh"
 FA="$here/../scripts/fleet-attention.sh"
 FAU="$here/../scripts/fleet-audit.sh"
@@ -1377,13 +1379,13 @@ slowshim="$odir/slow-shim"
 {
   echo '#!/bin/sh'
   # The arg guard doubles as the warm-run fast path (below): a no-arg warm
-  # exec absorbs macOS first-exec latency without the 30s sleep, the same
+  # exec absorbs macOS first-exec latency without the long sleep, the same
   # discipline as the agents-shim pre-warm above — an unwarmed fresh shim
   # can stall past the probe bound and be killed before recording its pid.
   # shellcheck disable=SC2016 # $1 is literal shim-script source, expanded at shim runtime, not here
   echo '[ "$1" = agents ] || exit 9'
   echo "echo \$\$ >\"$odir/slow-pid\""
-  echo 'sleep 30'
+  echo 'exec sleep 120'
   echo 'printf "[]"'
 } >"$slowshim"
 chmod +x "$slowshim"
@@ -1394,7 +1396,7 @@ rc=0
 # A 5s timeout (not 1s) for THIS case: the kill assertion needs the shim to
 # have started and recorded its pid before the bound fires, and process
 # startup under a heavily parallel test runner can exceed a second. The
-# 30s shim sleep keeps the discrimination unambiguous.
+# 120s shim sleep keeps the discrimination unambiguous against the 30s bound.
 out=$(env PLANWRIGHT_ORACLE_TIMEOUT=5 PLANWRIGHT_FLEET_STATE_DIR="$home42" \
   PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
   PLANWRIGHT_REPO_ROOT=none PLANWRIGHT_LOCAL_CONFIG="" \
@@ -1402,27 +1404,19 @@ out=$(env PLANWRIGHT_ORACLE_TIMEOUT=5 PLANWRIGHT_FLEET_STATE_DIR="$home42" \
   /bin/sh "$FL" oracle --cwd /wt/alpha 2>/dev/null) || rc=$?
 t1=$(date +%s)
 [ "$rc" = 1 ] || fail "oracle hang: exit $rc, expected 1 (unavailable)"
-[ $((t1 - t0)) -lt 25 ] || fail "oracle hang: probe took $((t1 - t0))s, expected the 5s timeout to bound it"
+[ $((t1 - t0)) -lt 30 ] || fail "oracle hang: probe took $((t1 - t0))s, expected the 5s timeout to bound it"
 # Guard the read: a missing pid file must reach the named assertion below,
 # never a silent set -e abort mid-suite.
 slow_pid=$(cat "$odir/slow-pid" 2>/dev/null || true)
 [ -n "$slow_pid" ] || fail "oracle hang: the shim never recorded its pid"
-kill_ok=0
-for _ in 1 2 3 4 5 6 7 8 9 10; do
-  if ! kill -0 "$slow_pid" 2>/dev/null; then
-    kill_ok=1
-    break
-  fi
-  sleep 0.3
-done
-[ "$kill_ok" = 1 ] || fail "oracle hang: the timed-out probe process (pid $slow_pid) survived the watchdog"
+poll_until --what 'the timed-out probe gone' -- pid_gone "$slow_pid" || fail "oracle hang: the timed-out probe process (pid $slow_pid) survived the watchdog"
 # a TERM-resistant probe is KILL-escalated within the grace, never a wedge
 stubborn="$odir/stubborn-shim"
 # Same arg-guard + warm-run pattern as the slow shim: unwarmed, a first-exec
 # stall would let plain TERM kill the not-yet-started shim and this fixture
 # would pass without ever exercising the KILL escalation it exists to prove.
 # shellcheck disable=SC2016 # $1 is literal shim-script source, expanded at shim runtime, not here
-printf '#!/bin/sh\n[ "$1" = agents ] || exit 9\ntrap "" TERM\nsleep 30\nprintf "[]"\n' >"$stubborn"
+printf '#!/bin/sh\n[ "$1" = agents ] || exit 9\ntrap "" TERM\nexec sleep 120\n' >"$stubborn"
 chmod +x "$stubborn"
 "$stubborn" >/dev/null 2>&1 || true
 t0=$(date +%s)
@@ -1434,7 +1428,7 @@ env PLANWRIGHT_ORACLE_TIMEOUT=1 PLANWRIGHT_FLEET_STATE_DIR="$home42" \
   /bin/sh "$FL" oracle --cwd /wt/alpha >/dev/null 2>&1 || rc=$?
 t1=$(date +%s)
 [ "$rc" = 1 ] || fail "oracle TERM-resistant: exit $rc, expected 1 (unavailable)"
-[ $((t1 - t0)) -lt 15 ] || fail "oracle TERM-resistant: took $((t1 - t0))s, expected KILL escalation to bound it"
+[ $((t1 - t0)) -lt 30 ] || fail "oracle TERM-resistant: took $((t1 - t0))s, expected KILL escalation to bound it"
 # the TERM-COMPLIANT timeout path resolves promptly: the supervisor's trap
 # publishes the done flag after reaping, so the parent skips the KILL grace
 # ladder entirely (the broken shape burned ~timeout+4s and fired a stale

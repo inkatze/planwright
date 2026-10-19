@@ -1,7 +1,7 @@
 #!/bin/sh
 # flight-record.sh — render and land a visual flight's audit record
-# (tower-front-door Tasks 6 and 14; D-6, D-18 · REQ-E1.2, REQ-E1.4, REQ-E1.5,
-# REQ-E1.6, REQ-C1.11).
+# (tower-front-door Tasks 6, 14, and 16; D-6, D-18, D-20 · REQ-E1.2, REQ-E1.4,
+# REQ-E1.5, REQ-E1.6, REQ-E1.7, REQ-E1.8, REQ-E1.11, REQ-C1.11).
 #
 # The flight worker authors the record's human parts (what changed and why,
 # how it was verified) and hands over the review audit and the step tables of
@@ -71,7 +71,7 @@
 #     --grounds-file <file>       the route's one-line grounds
 #     --summary-file <file>       what changed and why (the lead)
 #     --verification-file <file>  how it was verified (the lead)
-#     --audit-file <file>         the review sequence's audit record: a heading
+#     --audit-file <file>         the convergence steps' audit record: a heading
 #                                 for each of Lens coverage, Auto-applicable,
 #                                 Agent-resolvable, Needs sign-off, Needs human
 #                                 judgment, Declined log, and Pending sign-off,
@@ -89,11 +89,21 @@
 #                                 means none was
 #     --revert-file <file>        optional: the revert path; absent takes the
 #                                 home's default
+#     --public-summary-file <file>
+#                                 optional: the tower's public summary of a
+#                                 private ask. The record then quotes it,
+#                                 screened as the ask would be, followed by
+#                                 BRIEFED_BEYOND, and never the ask, which
+#                                 is read only for the restate check. Not
+#                                 the lead's --summary-file.
 #
 # The lead may not restate the ask: a summary or verification carrying the
 # whole ask (of RESTATE_WHOLE_MIN characters or more) or one of its lines (of
 # RESTATE_LINE_MIN characters and RESTATE_LINE_WORDS words or more), up to case
-# and spacing, is refused (exit 2).
+# and spacing, is refused (exit 2). With a public summary the lead may restate
+# neither text, and the summary itself and the audit, scoping, and revert
+# inputs may not restate the private ask, read before redaction; no refusal
+# quotes the text it matched.
 #
 # Exit codes: 0 rendered or landed · 2 usage or an input refused · 3 refused
 # by state (over the PR-body limit; for land, the branch, an existing record
@@ -144,6 +154,8 @@ RESTATE_WHOLE_MIN=16
 RESTATE_LINE_MIN=24
 RESTATE_LINE_WORDS=5
 
+BRIEFED_BEYOND='The worker was briefed beyond this summary; the full ask is private to the flight.'
+
 die() {
   _rc=$1
   shift
@@ -158,7 +170,7 @@ usage: flight-record.sh render --home pr <inputs> [--post-pr]
        flight-record.sh land <inputs> --record-path <path> [--repo-root <dir>]
 inputs: --flight-id <id> --ask-file <f> --grounds-file <f> --summary-file <f>
         --verification-file <f> --audit-file <f> --handle <h>
-        [--scoping-file <f>] [--revert-file <f>]
+        [--scoping-file <f>] [--revert-file <f>] [--public-summary-file <f>]
 EOF
   exit 2
 }
@@ -214,8 +226,9 @@ screen_all() {
   esac
   _inputs=''
   for _n in "$@"; do _inputs="$_inputs$_n$LF"; done
-  awk -v inputs="$_inputs" '
-    BEGIN { n = split(inputs, a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") ok[a[i]] = 1 }
+  # Through the environment: BSD awk refuses a newline inside a -v value.
+  FR_INPUTS=$_inputs awk '
+    BEGIN { n = split(ENVIRON["FR_INPUTS"], a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") ok[a[i]] = 1 }
     match($0, /:[0-9]+: [a-z0-9-]+ \(value redacted\)$/) {
       path = substr($0, 1, RSTART - 1)
       rest = substr($0, RSTART + 1)
@@ -451,9 +464,9 @@ redact() {
   REDACTED=0
   REDACTED_PERSONAL=0
   if hits_for "$1.clean" "$work/$1.hits"; then
-    awk -F '\t' -v formats="$KEY_FORMATS" '
+    FR_FORMATS=$KEY_FORMATS awk -F '\t' '
       BEGIN {
-        nk = split(formats, f, "\n")
+        nk = split(ENVIRON["FR_FORMATS"], f, "\n")
         for (k = 1; k <= nk; k++) {
           split(f[k], pair, "\t")
           kb[k] = pair[1]
@@ -625,15 +638,15 @@ normalize() {
   tr '[:upper:]' '[:lower:]' <"$1" | tr '\t\r\n' '   ' | tr -s ' ' | sed 's/^ //;s/ $//'
 }
 
-# restates_ask — true when the lead carries the whole ask, or one of its lines
-# verbatim up to case and spacing (the RESTATE_ thresholds above).
-restates_ask() {
-  cat "$work/summary" "$work/verification" >"$work/lead.txt" || die 4 "cannot assemble the lead"
-  normalize "$work/lead.txt" >"$work/lead.norm"
-  normalize "$work/ask" >"$work/ask.norm"
+# restates <text> <source> — true when <text> carries the whole <source>, or
+# one of its lines verbatim up to case and spacing (the RESTATE_ thresholds
+# above).
+restates() {
+  normalize "$1" >"$work/text.norm"
+  normalize "$2" >"$work/source.norm"
   awk -v whole="$RESTATE_WHOLE_MIN" -v line="$RESTATE_LINE_MIN" -v words="$RESTATE_LINE_WORDS" '
     NR == FNR { lead = $0; next }
-    FILENAME ~ /ask\.norm$/ { if (length($0) >= whole && index(lead, $0)) hit = 1; next }
+    FILENAME ~ /source\.norm$/ { if (length($0) >= whole && index(lead, $0)) hit = 1; next }
     {
       s = tolower($0)
       gsub(/[ \t\r]+/, " ", s)
@@ -642,7 +655,7 @@ restates_ask() {
       if (s ~ /^\[redacted: /) next
       if (length(s) >= line && split(s, w, " ") >= words && index(lead, s)) hit = 1
     }
-    END { exit hit ? 0 : 1 }' "$work/lead.norm" "$work/ask.norm" "$work/ask"
+    END { exit hit ? 0 : 1 }' "$work/text.norm" "$work/source.norm" "$2"
 }
 
 # fenced <file> — the file as a `text` fence longer than any backtick run it
@@ -699,12 +712,17 @@ render_to() {
     fi
     printf '\n<details>\n<summary>Flight record</summary>\n\n'
     printf '### The ask\n\n'
-    printf 'Quoted as the operator gave it, fenced so its markup stays inert.\n'
-    [ "$ask_stripped" -eq 0 ] || printf 'Invisible or bidi-control characters were stripped from it.\n'
-    [ "$ask_redacted" -eq 0 ] || printf 'Lines carrying a token-shaped secret were redacted whole.\n'
-    [ "$ask_personal" -eq 0 ] || printf 'Lines carrying personal data were redacted whole.\n'
+    if [ -n "$public_file" ]; then
+      printf 'The tower'"'"'s public summary of the ask, fenced so its markup stays inert.\n'
+    else
+      printf 'Quoted as the operator gave it, fenced so its markup stays inert.\n'
+    fi
+    [ "$stmt_stripped" -eq 0 ] || printf 'Invisible or bidi-control characters were stripped from it.\n'
+    [ "$stmt_redacted" -eq 0 ] || printf 'Lines carrying a token-shaped secret were redacted whole.\n'
+    [ "$stmt_personal" -eq 0 ] || printf 'Lines carrying personal data were redacted whole.\n'
     printf '\n'
-    fenced "$work/ask" || return 1
+    fenced "$stmt" || return 1
+    [ -z "$public_file" ] || printf '\n%s\n' "$BRIEFED_BEYOND"
     printf '\n### Route and grounds\n\n'
     printf 'Visual flight. Grounds as the tower stated them:\n'
     [ "$grounds_stripped" -eq 0 ] || printf 'Invisible or bidi-control characters were stripped from them.\n'
@@ -767,6 +785,7 @@ audit_file=''
 handle=''
 scoping_file=''
 revert_file=''
+public_file=''
 repo_root=''
 record_path=''
 record_given=0
@@ -792,6 +811,7 @@ while [ $# -gt 0 ]; do
     --handle) handle=$2 ;;
     --scoping-file) scoping_file=$2 ;;
     --revert-file) revert_file=$2 ;;
+    --public-summary-file) public_file=$2 ;;
     --repo-root) repo_root=$2 ;;
     --record-path)
       record_path=$2
@@ -852,6 +872,10 @@ trap 'exit 129' HUP
 
 operator_text ask-file "$ask_file" "$ASK_MAX"
 ask_stripped=$CLEAN_STRIPPED
+if [ -n "$public_file" ]; then
+  operator_text public-summary-file "$public_file" "$ASK_MAX"
+  public_stripped=$CLEAN_STRIPPED
+fi
 operator_text grounds-file "$grounds_file" "$GROUNDS_MAX"
 grounds_stripped=$CLEAN_STRIPPED
 [ "$(grep -c '' "$work/grounds-file.clean")" -le 1 ] || die 2 "--grounds-file must hold one line"
@@ -860,6 +884,7 @@ worker_text summary-file "$summary_file" "$work/summary"
 worker_text verification-file "$verification_file" "$work/verification"
 worker_text audit-file "$audit_file" "$work/audit" audit
 set -- ask-file.clean grounds-file.clean summary verification audit
+[ -z "$public_file" ] || set -- "$@" public-summary-file.clean
 if [ -n "$scoping_file" ]; then
   worker_text scoping-file "$scoping_file" "$work/scoping"
   set -- "$@" scoping
@@ -873,8 +898,20 @@ screen_all "$@"
 personal_data ask-file.clean
 personal_data grounds-file.clean
 redact ask-file "$work/ask"
-ask_redacted=$REDACTED
-ask_personal=$REDACTED_PERSONAL
+# The public statement of the ask: the ask itself, or the public summary
+# standing in for a private one.
+stmt=$work/ask
+stmt_stripped=$ask_stripped
+stmt_redacted=$REDACTED
+stmt_personal=$REDACTED_PERSONAL
+if [ -n "$public_file" ]; then
+  personal_data public-summary-file.clean
+  redact public-summary-file "$work/public"
+  stmt=$work/public
+  stmt_stripped=$public_stripped
+  stmt_redacted=$REDACTED
+  stmt_personal=$REDACTED_PERSONAL
+fi
 redact grounds-file "$work/grounds"
 grounds_redacted=$REDACTED
 grounds_personal=$REDACTED_PERSONAL
@@ -899,15 +936,31 @@ if [ "$home" = file ] && grep -Eiq "^#{1,6}[[:space:]]+$POST_PR_HEADING" "$work/
   die 2 "--audit-file carries a post-pr step table, but post-pr never fires on the file home (no PR exists); remove it, the record states it was not fired"
 fi
 
-! restates_ask || die 2 "the summary or verification restates the ask; say what changed, why, and how it was verified in your own words (the ask is quoted in the collapsed record)"
+cat "$work/summary" "$work/verification" >"$work/lead.txt" || die 4 "cannot assemble the lead"
+if [ -z "$public_file" ]; then
+  ! restates "$work/lead.txt" "$work/ask" || die 2 "the summary or verification restates the ask; say what changed, why, and how it was verified in your own words (the ask is quoted in the collapsed record)"
+else
+  # Against the unredacted ask: a worker input is screened for secrets but not
+  # for personal data, so a redacted line could otherwise be copied out.
+  priv=$work/ask-file.clean
+  ! restates "$work/public" "$priv" || die 2 "the public summary restates the private ask; the tower must state the work at a level safe to publish"
+  ! restates "$work/lead.txt" "$priv" || die 2 "the summary or verification restates the private ask; say what changed, why, and how it was verified at the public summary's level, which the collapsed record quotes in its place"
+  ! restates "$work/lead.txt" "$work/public" || die 2 "the summary or verification restates the public summary; say what changed, why, and how it was verified in your own words (the summary is quoted in the collapsed record)"
+  for _in in audit scoping revert; do
+    [ -f "$work/$_in" ] || continue
+    ! restates "$work/$_in" "$priv" || die 2 "--$_in-file restates the private ask; keep it at the public summary's level"
+  done
+fi
 
 if [ "$cmd" = render ]; then
   render_to "$work/record.md" || die 4 "cannot write the record"
   if [ "$home" = pr ]; then
     _bytes=$(wc -c <"$work/record.md" | tr -d ' ')
-    _ask_bytes=$(wc -c <"$work/ask" | tr -d ' ')
+    _stmt_bytes=$(wc -c <"$stmt" | tr -d ' ')
+    _stmt_name='the ask'
+    [ -z "$public_file" ] || _stmt_name='the public summary'
     [ "$_bytes" -le "$PR_BODY_MAX" ] \
-      || die 3 "the record is $_bytes bytes, over the PR-body limit of $PR_BODY_MAX, and the ask alone is $_ask_bytes; trim the worker inputs, or park the flight when the ask leaves too little room (a truncated record would drop the contract's tail)"
+      || die 3 "the record is $_bytes bytes, over the PR-body limit of $PR_BODY_MAX, and $_stmt_name alone is $_stmt_bytes; trim the worker inputs, or park the flight when $_stmt_name leaves too little room (a truncated record would drop the contract's tail)"
   fi
   cat "$work/record.md" || die 4 "cannot print the record"
   exit 0

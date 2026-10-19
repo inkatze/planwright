@@ -2,11 +2,10 @@
 name: self-review
 description: >
   Gate-wired review pass of the current feature branch: Discovery Rigor
-  fan-out, multi-pass validation, act-then-review dispositions per the finding
-  categorization, full audit record (lens-coverage table, four bucket tables,
-  declined log, pending-sign-off checklist). Standalone runs push and open or
-  update a draft PR; pass --nested to stay local and return the audit record
-  to the invoking skill.
+  fan-out, multi-pass validation, and act-then-review dispositions per the
+  finding categorization. Standalone runs push and open or update a draft PR;
+  pass --nested to stay local and return the audit record to the invoking
+  skill.
 argument-hint: "[--nested]"
 ---
 
@@ -31,14 +30,14 @@ doc and the resolution chain consulted.
 Doctrine manifest (per `doctrine/instruction-hygiene.md`; `run-start` docs
 load before work begins, `point-of-use` at the named step):
 
-Doctrine: run-start discovery-rigor
-Doctrine: run-start validation-rigor
+Doctrine: point-of-use discovery-rigor (the Discovery step)
+Doctrine: point-of-use validation-rigor (Validation and fix validation)
 Doctrine: run-start finding-categorization
 Doctrine: run-start gate-wiring
 Doctrine: point-of-use research-rigor (the Validation step, where research triggers fire)
 Doctrine: point-of-use refactor-instinct (review mode, at the Discovery refactor filter)
 Doctrine: run-start security-posture (artifact data-hygiene)
-Doctrine: run-start proportionality (declared scoping)
+Doctrine: point-of-use proportionality (Discovery's fan-out and Validation's scoping)
 
 ## Invocation modes
 
@@ -256,7 +255,7 @@ is outside the branch's scope (complexity growth, outdated patterns, tooling
 gaps, doctrine gaps) as one fragment per observation through the shared
 helper: `scripts/obs-record.sh --slug <topic> --scope <repo> --text
 '<observation>'` (resolved under the planwright root; it writes one fragment
-file under the host repo's `specs/_observations/entries/`). Commit the
+file under the spec root's `_observations/entries/`). Commit the
 fragment within the pass (the action commit, or its own chore commit when
 nothing else landed); never leave the tree dirty at a pass boundary, and
 surface a non-zero helper exit rather than silently dropping the
