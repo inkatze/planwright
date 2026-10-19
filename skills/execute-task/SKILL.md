@@ -8,7 +8,7 @@ description: >
   draft PR referencing the brief, tasks, REQs, and tests. The execution
   workhorse of the planwright pipeline. Assumes the worktree already exists;
   never creates worktrees; merges or readies only through its helpers.
-argument-hint: "<task-id> [<task-id> …] [<spec>]"
+argument-hint: "<task-id> [<task-id> …] [<spec>] [--resume <run>:<point>]"
 ---
 
 # /execute-task
@@ -59,8 +59,8 @@ block staying in `## Tasks` (D-3); in a holder or plain store,
 protocol's dispatched arm); attended, present and wait.
 
 1. **Parse `$ARGUMENTS`.** Extract one or more task IDs (`5`, `3.5`, or `5 6`
-   for a bundle) and an optional bare `<spec>` (alias `specs/<spec>`, one
-   trailing slash allowed). Validate each
+   for a bundle), an optional `--resume <run>:<point>`, and an optional bare
+   `<spec>` (alias `specs/<spec>`, one trailing slash allowed). Validate each
    `<id>` against `^[0-9]+(\.[0-9]+)?$`, and the mapped identifier against the
    anchored identifier pattern `^[a-z0-9][a-z0-9-]*$` (≤64 chars, REQ-A1.8),
    refusing the reserved word `flight`, **before** it appears in any path
@@ -81,10 +81,8 @@ protocol's dispatched arm); attended, present and wait.
    started) and `Active` (work in flight) are both executable; refuse
    Draft, Done, Retired, and Superseded. The spec file **stays `Ready`** during
    execution: Ready↔Active is **derived, not stored** (D-2, D-3). On **Draft**,
-   halt and suggest `/spec-kickoff`; a terminal (Retired/Superseded) or Done
-   spec has nothing to execute. A `Ready` spec runs on the same terms as Active:
+   halt and suggest `/spec-kickoff`. A `Ready` spec runs on the same terms as Active:
    the freshness gate (step 7) still applies (REQ-C1.3); the two gates compose.
-   There is no bypass flag.
 5. **Run the validator.** `scripts/spec-validate.sh <root>/<spec>`. On this
    dispatch path a missing or non-executable validator fails closed and halts
    (REQ-K1.7). A Ready or Active bundle's findings are errors: surface them and
@@ -115,7 +113,7 @@ protocol's dispatched arm); attended, present and wait.
      **pre-change entry** (predating the header-`**Status:**` exclusion, or
      whole-file form) mismatches over unedited content; remedy: the one-time
      classify-then-self-re-anchor. Halts go to
-     Awaiting input; no bypass flag.
+     Awaiting input.
 8. **Read the brief slice and task block(s).** From the brief: the signed-off
    goal restatement, the task graph, and the unit's risk entries. From
    `tasks.md`: each
@@ -165,10 +163,12 @@ protocol's dispatched arm); attended, present and wait.
 
 This skill is the runner at its five in-run points; `custom-steps` owns the
 contract. Issue one run id (`scripts/step-record.sh new-run`) per invocation.
-**Run a point** in the worktree, the `PLANWRIGHT_STEP_*` context exported (a
-PR number whenever one exists):
+A `--resume <run>:<point>` run starts there, after
+`scripts/step-run.sh resume`, skipping the steps it prints. **Run a point**
+in the worktree, the `PLANWRIGHT_STEP_*` context exported (a PR number
+whenever one exists):
 
-1. **Resolve** it whole first: `scripts/resolve-steps.sh <point> --explain`,
+1. **Resolve** it whole first: `scripts/step-run.sh resolve --run <run> <point>`,
    `--unattended` exactly when the backend seam's launch record says headless,
    else `--attended`. Exit 1: `ask`, or attended all-`refuse` rows, presents
    and waits for a repair and re-resolve; otherwise park. Exit 2, 4, or 5: a stop condition.
@@ -177,16 +177,17 @@ PR number whenever one exists):
    `isolated` sessions launch through the backend seam (`offload-dispatch`)
    at their `execute_step` tier, recording the session id (a backend that
    cannot spawn degrades to `in-session`, recorded, a following `continue`
-   attaching to the unit's session), and an `isolated` command runs as a
-   subprocess, its output cached; `continue` resumes the predecessor's id or
-   records `failed`; session commands run their `--line` rendering. A refused
-   context value (exit 6) is `failed`.
-   Past its `timeout`, a runner-owned step is ended, a session-owned one
-   stopped through the seam or no longer waited on (recording which), outcome
+   attaching to the unit's session); `continue` resumes the predecessor's id
+   (behind a skip, the one its line names) or records `failed`. Commands run
+   through `step-run.sh` (backgrounded, waited in-turn): `isolated` by
+   `command`, session-hosted between `begin --owner $PPID`, whose printed
+   `run` line the shell tool runs, and `end`. A refused context value
+   (exit 6) is `failed`. Past its `timeout`, a session-owned step is stopped
+   through the seam or no longer waited on (recording which), outcome
    `failed`; an `in-session` command's goes to the shell tool.
-3. **Record** each outcome (a command's exit code; a session step's outcome
-   from its handoff) through `step-record.sh write`, which prints the next
-   step's `PREV_RECORD`; a `skip` line records `skipped`, code `missing`.
+3. **Record** each session step's outcome from its handoff through
+   `step-record.sh write`, which prints the next step's `PREV_RECORD`
+   (`step-record.sh heads`: the head move); a `skip` line records `skipped`, code `missing`.
 4. **Posture:** a `halted` or `failed` step under `on-failure: halt` ends the
    point and the unit through the pause protocol, the entry naming only the
    point, step id, outcome, and worktree-relative record path; `continue`
@@ -223,11 +224,6 @@ work or order.
 *Applying a resolved tier*. Exit 3 is withheld: do not launch; only exit 6
 degrades. The terminal rung advertises none, inheriting the operator's
 session.
-
-**State-safety holds in both modes (REQ-C1.4):** every `tasks.md` placement move
-goes **only** through the sibling reconcile under the per-spec lock, no per-step
-session writes dispatch/progress state or opens a PR — push and PR creation
-remain this skill's single terminal step (see Invariants).
 
 ### Commit convention (REQ-C1.4, D-2)
 
@@ -304,8 +300,8 @@ judgment.
 ### Run the full project CI (REQ-E1.2)
 
 Run the `pre-ci` point, then pre-flight step 9's command, saved to a `mktemp`
-file, as `scripts/full-suite-run.sh -- bash <file>` (each attempt backgrounded,
-waited in-turn); exit 75 parks, naming the holders. The full suite must pass
+file, as `scripts/full-suite-run.sh --run <run> -- bash <file>` (each attempt
+backgrounded, waited in-turn); exit 75 parks naming the holders, unretried. The full suite must pass
 before convergence; capture its output.
 
 ### Adaptive CI-failure handling (REQ-E1.2, D-25)
@@ -402,11 +398,14 @@ classify the edit on the amendment axis:
    printed recipe.
 
    Then run the
-   `post-pr` point, the PR number now in its context; after its list, re-emit
-   the tables into the body, and if the PR head moved fetch and regenerate the
+   `post-pr` point, the PR number now in its context; after its list and the
+   re-fire pass (`step-run.sh refire`'s lines, hosted with `--refire-of`,
+   before post-pr's completion), re-emit the tables, and if a post-pr record moved the
+   head fetch and regenerate the
    checklist (`step-record.sh regenerate --base origin/<base> --head
    origin/<branch> --checklist-only`) and re-emit the handoff; verify the PR is still a draft,
-   else park naming the post-pr steps (custom-steps REQ-E1.2). Earlier points
+   else park naming the post-pr steps (custom-steps REQ-E1.2); a failed
+   re-fire under `halt` then parks. Earlier points
    never re-run. When `ready_flip_policy` resolves `unit-owner`, run
    `scripts/ready-flip.sh`'s header sequence. Under `merge_policy:
    policy-class`, `scripts/merge-admitted.sh`'s follows.
@@ -445,8 +444,8 @@ admitting multiple valid interpretations; a point ending the unit (*Points*);
 These hold at every step:
 
 - **Never** act on a spec whose status is neither Ready nor Active, and
-  **never** bypass the execution freshness gate that composes with it — no
-  bypass flag for either (REQ-C1.1, superseding REQ-J1.2, D-33; D-2, D-3,
+  **never** bypass the execution freshness gate that composes with it —
+  no bypass flag for either (REQ-C1.1, superseding REQ-J1.2, D-33; D-2, D-3,
   REQ-F1.9, REQ-C1.3).
 - **Never** create a non-draft PR, or merge or flip one ready outside the two
   header sequences above (D-21; human-gates REQ-C1.5, REQ-D1.4).
@@ -455,7 +454,7 @@ These hold at every step:
   history: this skill owns push and PR creation (D-39; custom-steps REQ-D1.6).
 - **Never** let `per-step` isolation weaken state-safety: every `tasks.md`
   placement move goes through the sibling reconcile under the per-spec lock, and
-  no step session opens a PR (REQ-C1.4).
+  no step session writes dispatch or progress state or opens a PR (REQ-C1.4).
 - **Never** skip the test-first loop for a behavior-introducing unit with a
   `test-spec.md` verification path (REQ-E1.1).
 - **Never** silently proceed past a meaning-class contract drift; route to

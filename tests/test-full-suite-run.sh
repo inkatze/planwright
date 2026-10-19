@@ -328,6 +328,14 @@ rc=$?
 [ "$rc" -eq 0 ] && grep -qx 'mark=<unset>' "$tmp/log.mark" \
   && [ "$(grep -c 'pool helper failed' "$tmp/err")" -eq 1 ]
 verdict "a failing pool helper warns once and the suite runs unpooled" "helper: rc=$rc" "$tmp/err"
+cp "$repo_root/scripts/step-record.sh" "$repo_root/scripts/echo-safety.sh" "$repo_root/scripts/lock-lib.sh" \
+  "$repo_root/scripts/inception-secret-screen.sh" "$stub/"
+run=$(PLANWRIGHT_SECRET_SCREEN_TOOL=none "$repo_root/scripts/step-record.sh" --worktree "$repo" new-run)
+(cd "$repo" && unset PLANWRIGHT_STEP_POOL_HOLD && PLANWRIGHT_SECRET_SCREEN_TOOL=none "$stub/full-suite-run.sh" --run "$run" -- "$suite" "$tmp/log" 0 0) >/dev/null 2>"$tmp/err"
+rc=$?
+PLANWRIGHT_SECRET_SCREEN_TOOL=none "$repo_root/scripts/step-record.sh" --worktree "$repo" list --run "$run" >"$tmp/recs"
+[ "$rc" -eq 0 ] && grep -qx "wait-outcome${TAB}unpooled" "$tmp/recs"
+verdict "a failing pool helper under --run records the attempt as unpooled" "helper record: rc=$rc" "$tmp/recs"
 
 # --- a config read failure warns once and runs unpooled -------------------------------
 reset
@@ -339,6 +347,52 @@ rc=$?
 verdict "a config read failure warns once and the suite runs unpooled" "config: rc=$rc" "$tmp/err"
 
 # --- usage ---------------------------------------------------------------------------
+# --- --run writes each pooled attempt's full-suite record (REQ-I1.5, D-25) -------------
+SR="$repo_root/scripts/step-record.sh"
+srr() { PLANWRIGHT_SECRET_SCREEN_TOOL=none "$SR" --worktree "$repo" "$@"; }
+reset
+printf 'full_suite_pool: gate\n' >"$tracked"
+run=$(srr new-run)
+fsr -- --run "$run" -- "$suite" "$tmp/log" 0 0 >/dev/null 2>"$tmp/err"
+rc=$?
+srr list --run "$run" >"$tmp/recs"
+[ "$rc" -eq 0 ] && grep -qx "type${TAB}full-suite" "$tmp/recs" && grep -qx "pool${TAB}gate" "$tmp/recs" \
+  && grep -qx "wait-outcome${TAB}taken" "$tmp/recs"
+verdict "a pooled attempt under --run writes its full-suite record" "record: rc=$rc" "$tmp/recs"
+reset
+printf 'full_suite_pool: gate\nstep_pool_wait: 1s\n' >"$tracked"
+h=$(owner)
+sp take gate "$h" --step other-unit --worktree "$tmp/elsewhere" >/dev/null
+run=$(srr new-run)
+fsr -- --run "$run" -- "$suite" "$tmp/log" 0 0 >"$tmp/out" 2>"$tmp/err"
+rc=$?
+srr list --run "$run" >"$tmp/recs"
+[ "$rc" -eq 75 ] && [ ! -e "$tmp/log.pid" ] && grep -qx "wait-outcome${TAB}expired" "$tmp/recs" \
+  && grep -q "^holder${TAB}pid $h (step other-unit" "$tmp/recs"
+verdict "an expired wait under --run records the expiry and its holders" "expired record: rc=$rc" "$tmp/recs"
+sp release gate "$h" >/dev/null
+reset
+printf 'full_suite_pool: gate\n' >"$tracked"
+h=$(owner)
+sp take gate "$h" >/dev/null
+run=$(srr new-run)
+fsr "PLANWRIGHT_STEP_POOL_HOLD=gate:$h" -- --run "$run" -- "$suite" "$tmp/log" 0 0 >/dev/null 2>"$tmp/err"
+rc=$?
+srr list --run "$run" >"$tmp/recs"
+[ "$rc" -eq 0 ] && grep -qx "wait-outcome${TAB}nested" "$tmp/recs" && ! grep -q "^holder${TAB}" "$tmp/recs"
+verdict "a nested attempt under --run records its nested wait with no holder" "nested record: rc=$rc" "$tmp/recs"
+sp release gate "$h" >/dev/null
+reset
+run=$(srr new-run)
+fsr -- --run "$run" -- "$suite" "$tmp/log" 0 0 >/dev/null 2>"$tmp/err"
+rc=$?
+[ "$rc" -eq 0 ] && [ -z "$(srr list --run "$run")" ]
+verdict "an unpooled attempt under --run writes no record" "unpooled record: rc=$rc"
+fsr -- --run 12 -- touch "$tmp/ran" >/dev/null 2>&1
+rc=$?
+[ "$rc" -eq 2 ] && [ ! -e "$tmp/ran" ]
+verdict "a malformed --run is a usage error that runs nothing" "bad run: rc=$rc"
+
 reset
 fsr -- >/dev/null 2>&1
 rc1=$?
