@@ -127,6 +127,14 @@ if LC_ALL=C grep -q "$(printf '[\033\233]')" <<<"$out"; then
 else
   ok "printed paths carry no control bytes"
 fi
+printf -- '-a\233b.sh\n' >"$B/skipped-files.txt"
+out=$("$FENCE" --bundle "$B" 2>&1)
+if LC_ALL=C grep -q "$(printf '[\033\233]')" <<<"$out"; then
+  fail "a refused path is printed without its control bytes"
+else
+  ok "a refused path is printed without its control bytes"
+fi
+: >"$B/skipped-files.txt"
 
 # --- refused inputs -----------------------------------------------------------
 out=$("$FENCE" --changed "$T/mixed.txt" 2>&1)
