@@ -278,7 +278,7 @@ echo "ok: c5b git pull --rebase rejected"
 # ---------------------------------------------------------------------------
 zeros=0000000000000000000000000000000000000000
 pp="$r/githooks/pre-push"
-run_pre_push() { (cd "$r" && "$pp" origin "file://$origin"); }
+run_pre_push() { (cd "$r" && /bin/sh "$pp" origin "file://$origin"); }
 printf 'garbage\n' | run_pre_push >/dev/null 2>&1 \
   && fail "c6: one-token stdin line accepted (must fail closed)"
 printf 'a b c\n' | run_pre_push >/dev/null 2>&1 \
@@ -358,12 +358,12 @@ st=0
 [ "$st" -eq 2 ] || fail "c7b: wire with an extra argument must exit 2 (usage), got $st"
 cm="$r/githooks/commit-msg"
 st=0
-(cd "$r" && "$cm" >/dev/null 2>"$tmp/stderr.capture") || st=$?
+(cd "$r" && /bin/sh "$cm" >/dev/null 2>"$tmp/stderr.capture") || st=$?
 [ "$st" -eq 1 ] || fail "c7b: commit-msg with no argument must exit 1 (fail closed), got $st"
 grep -q "planwright githooks" "$tmp/stderr.capture" \
   || fail "c7b: commit-msg no-argument rejection lacks the hook's stderr marker"
 st=0
-(cd "$r" && "$cm" "$tmp/does-not-exist.msg" >/dev/null 2>"$tmp/stderr.capture") || st=$?
+(cd "$r" && /bin/sh "$cm" "$tmp/does-not-exist.msg" >/dev/null 2>"$tmp/stderr.capture") || st=$?
 [ "$st" -eq 1 ] || fail "c7b: commit-msg with a missing file must exit 1 (fail closed), got $st"
 grep -q "planwright githooks" "$tmp/stderr.capture" \
   || fail "c7b: commit-msg missing-file rejection lacks the hook's stderr marker"

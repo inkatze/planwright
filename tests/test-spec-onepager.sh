@@ -509,7 +509,7 @@ cp "$script" "$isolate/spec-onepager.sh"
 chmod +x "$isolate/spec-onepager.sh"
 # No spec-translate.sh exists alongside the copy: the guard must fire.
 rc=0
-out=$("$isolate/spec-onepager.sh" "$specs/demo" 2>&1) || rc=$?
+out=$(/bin/sh "$isolate/spec-onepager.sh" "$specs/demo" 2>&1) || rc=$?
 [ "$rc" -eq 2 ] \
   || fail "missing translate sibling: expected exit 2, got $rc — output: $out"
 case $out in
@@ -520,7 +520,7 @@ esac
 : >"$isolate/spec-translate.sh"
 chmod -x "$isolate/spec-translate.sh"
 rc=0
-out=$("$isolate/spec-onepager.sh" "$specs/demo" 2>&1) || rc=$?
+out=$(/bin/sh "$isolate/spec-onepager.sh" "$specs/demo" 2>&1) || rc=$?
 [ "$rc" -eq 2 ] \
   || fail "non-executable translate sibling: expected exit 2, got $rc — output: $out"
 

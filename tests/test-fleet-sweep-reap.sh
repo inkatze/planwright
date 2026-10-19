@@ -374,7 +374,7 @@ wait_until 10 gone "$sjx_sup" || fail "fixture: the crashed supervisor is still 
 wait_until 10 gone "$sjx_wrk" || fail "fixture: the crashed worker is still running"
 printf '#!/bin/sh\nwhile :; do sleep 1; done\n' >"$tmp/reissued.sh"
 chmod +x "$tmp/reissued.sh"
-"$tmp/reissued.sh" &
+/bin/sh "$tmp/reissued.sh" &
 reissued=$!
 printf '%s\n' "$reissued" >"$sjx_dir/supervisor.pid"
 printf '%s\n' "$reissued" >"$sjx_dir/worker.pid"

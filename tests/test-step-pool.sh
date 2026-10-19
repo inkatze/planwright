@@ -92,7 +92,7 @@ sp() {
       PLANWRIGHT_REPO_ROOT="$repo" \
       PLANWRIGHT_LOCAL_CONFIG="" \
       PLANWRIGHT_POOL_DIR="$pools" \
-      "$SP" "$@"
+      /bin/sh "$SP" "$@"
   )
 }
 

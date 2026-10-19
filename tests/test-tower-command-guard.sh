@@ -1409,7 +1409,7 @@ else
 fi
 # Prove the stub harness is actually reachable (a stub the guard could never
 # trigger would make the assertion vacuously green): a direct invocation records.
-"$STUBBIN/claude" --worktree probe >/dev/null 2>&1
+/bin/sh "$STUBBIN/claude" --worktree probe >/dev/null 2>&1
 if [ -f "$INVOCATIONS" ] && grep -q '^claude$' "$INVOCATIONS"; then
   pass "the no-LLM stub harness is verified reachable"
 else

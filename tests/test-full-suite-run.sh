@@ -323,7 +323,7 @@ cp "$FSR" "$stub/full-suite-run.sh"
 printf '#!/bin/sh\nprintf "gate\\n"\n' >"$stub/config-get.sh"
 printf '#!/bin/sh\nexit 1\n' >"$stub/step-pool.sh"
 chmod +x "$stub"/*.sh
-(cd "$repo" && unset PLANWRIGHT_STEP_POOL_HOLD && "$stub/full-suite-run.sh" -- "$suite" "$tmp/log" 0 0) >/dev/null 2>"$tmp/err"
+(cd "$repo" && unset PLANWRIGHT_STEP_POOL_HOLD && /bin/sh "$stub/full-suite-run.sh" -- "$suite" "$tmp/log" 0 0) >/dev/null 2>"$tmp/err"
 rc=$?
 [ "$rc" -eq 0 ] && grep -qx 'mark=<unset>' "$tmp/log.mark" \
   && [ "$(grep -c 'pool helper failed' "$tmp/err")" -eq 1 ]
@@ -332,7 +332,7 @@ verdict "a failing pool helper warns once and the suite runs unpooled" "helper: 
 # --- a config read failure warns once and runs unpooled -------------------------------
 reset
 printf '#!/bin/sh\nexit 4\n' >"$stub/config-get.sh"
-(cd "$repo" && unset PLANWRIGHT_STEP_POOL_HOLD && "$stub/full-suite-run.sh" -- "$suite" "$tmp/log" 0 0) >/dev/null 2>"$tmp/err"
+(cd "$repo" && unset PLANWRIGHT_STEP_POOL_HOLD && /bin/sh "$stub/full-suite-run.sh" -- "$suite" "$tmp/log" 0 0) >/dev/null 2>"$tmp/err"
 rc=$?
 [ "$rc" -eq 0 ] && grep -qx 'mark=<unset>' "$tmp/log.mark" \
   && [ "$(grep -c 'cannot read full_suite_pool' "$tmp/err")" -eq 1 ]

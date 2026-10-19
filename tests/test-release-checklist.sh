@@ -86,7 +86,7 @@ trap 'rm -rf "$tmp"' EXIT
 # 2. Fully-satisfied fixture with condition (c) attested → READY (exit 0).
 fx="$tmp/ready"
 make_fixture "$fx"
-out="$("$fx/scripts/release-checklist.sh" --confirm-workrepo-run "$fx" 2>&1)"
+out="$(bash "$fx/scripts/release-checklist.sh" --confirm-workrepo-run "$fx" 2>&1)"
 rc=$?
 assert_exit "satisfied + attested fixture is READY" 0 "$rc"
 assert_contains "READY output says READY" "READY FOR PUBLIC RELEASE" "$out"
@@ -98,7 +98,7 @@ assert_contains "flag attestation names the flag as the source" "attested (--con
 #    is named as the outstanding human attestation. The needle is specific
 #    ("work-repo run", not the generic "work" which also matches "working
 #    tree") so the assertion cannot pass for the wrong row.
-out="$("$fx/scripts/release-checklist.sh" "$fx" 2>&1)"
+out="$(bash "$fx/scripts/release-checklist.sh" "$fx" 2>&1)"
 rc=$?
 assert_exit "unattested work-repo run blocks release" 1 "$rc"
 assert_contains "unattested run is named" "work-repo run" "$out"
@@ -106,7 +106,7 @@ assert_contains "unattested run asks for attestation" "HUMAN ATTESTATION" "$out"
 
 # 3b. Condition (c) is equally attestable via the environment variable, not
 #     only the flag.
-out="$(RELEASE_WORKREPO_RUN_CONFIRMED=1 "$fx/scripts/release-checklist.sh" "$fx" 2>&1)"
+out="$(RELEASE_WORKREPO_RUN_CONFIRMED=1 bash "$fx/scripts/release-checklist.sh" "$fx" 2>&1)"
 rc=$?
 assert_exit "env-var attestation is honored" 0 "$rc"
 assert_contains "env-var attestation reaches READY" "READY FOR PUBLIC RELEASE" "$out"
@@ -118,11 +118,11 @@ assert_contains "env-var attestation names the env var as the source" "attested 
 # 3b-i. The attestation accepts only an explicit "1": a falsy
 #       RELEASE_WORKREPO_RUN_CONFIRMED (0, false, "") must NOT register as
 #       attested, so a mis-set env var cannot silently clear the human gate.
-out="$(RELEASE_WORKREPO_RUN_CONFIRMED=0 "$fx/scripts/release-checklist.sh" "$fx" 2>&1)"
+out="$(RELEASE_WORKREPO_RUN_CONFIRMED=0 bash "$fx/scripts/release-checklist.sh" "$fx" 2>&1)"
 rc=$?
 assert_exit "falsy RELEASE_WORKREPO_RUN_CONFIRMED=0 does not attest" 1 "$rc"
 assert_contains "falsy =0 still asks for attestation" "HUMAN ATTESTATION" "$out"
-out="$(RELEASE_WORKREPO_RUN_CONFIRMED=false "$fx/scripts/release-checklist.sh" "$fx" 2>&1)"
+out="$(RELEASE_WORKREPO_RUN_CONFIRMED=false bash "$fx/scripts/release-checklist.sh" "$fx" 2>&1)"
 rc=$?
 assert_exit "falsy RELEASE_WORKREPO_RUN_CONFIRMED=false does not attest" 1 "$rc"
 
@@ -134,7 +134,7 @@ make_fixture "$fxa"
 rm "$fxa/doctrine/engineering-decisions.md"
 git -C "$fxa" add -A
 git -C "$fxa" commit -qm "drop engineering doctrine"
-out="$("$fxa/scripts/release-checklist.sh" --confirm-workrepo-run "$fxa" 2>&1)"
+out="$(bash "$fxa/scripts/release-checklist.sh" --confirm-workrepo-run "$fxa" 2>&1)"
 rc=$?
 assert_exit "missing engineering doctrine blocks gate (a)" 1 "$rc"
 assert_contains "missing engineering doctrine is named" "engineering-decisions.md" "$out"
@@ -146,7 +146,7 @@ make_fixture "$fxe"
 : >"$fxe/doctrine/validation-rigor.md"
 git -C "$fxe" add -A
 git -C "$fxe" commit -qm "empty a rule doc" --allow-empty
-out="$("$fxe/scripts/release-checklist.sh" --confirm-workrepo-run "$fxe" 2>&1)"
+out="$(bash "$fxe/scripts/release-checklist.sh" --confirm-workrepo-run "$fxe" 2>&1)"
 rc=$?
 assert_exit "empty rule doc blocks gate (a)" 1 "$rc"
 assert_contains "empty rule doc is named" "validation-rigor.md" "$out"
@@ -157,7 +157,7 @@ make_fixture "$fx2"
 rm "$fx2/doctrine/spec-format.md"
 git -C "$fx2" add -A
 git -C "$fx2" commit -qm "drop meta-spec"
-out="$("$fx2/scripts/release-checklist.sh" --confirm-workrepo-run "$fx2" 2>&1)"
+out="$(bash "$fx2/scripts/release-checklist.sh" --confirm-workrepo-run "$fx2" 2>&1)"
 rc=$?
 assert_exit "missing meta-spec blocks release" 1 "$rc"
 assert_contains "missing meta-spec is named" "meta-spec" "$out"
@@ -174,7 +174,7 @@ git -C "$fx3" add -A
 git -C "$fx3" commit -qm "add reference/ (will be deleted but not purged)"
 git -C "$fx3" rm -qr reference
 git -C "$fx3" commit -qm "delete reference/ from the tree (history still has it)"
-out="$("$fx3/scripts/release-checklist.sh" --confirm-workrepo-run "$fx3" 2>&1)"
+out="$(bash "$fx3/scripts/release-checklist.sh" --confirm-workrepo-run "$fx3" 2>&1)"
 rc=$?
 assert_exit "reference/ in history blocks release" 1 "$rc"
 assert_contains "history leak is reported" "history" "$out"
@@ -187,7 +187,7 @@ echo "# v" >"$fx4/doctrine/validation-rigor.md"
 echo "# f" >"$fx4/doctrine/finding-categorization.md"
 echo "# e" >"$fx4/doctrine/engineering-decisions.md"
 echo "# s" >"$fx4/doctrine/spec-format.md"
-out="$("$fx4/scripts/release-checklist.sh" --confirm-workrepo-run "$fx4" 2>&1)"
+out="$(bash "$fx4/scripts/release-checklist.sh" --confirm-workrepo-run "$fx4" 2>&1)"
 rc=$?
 assert_exit "non-git target does not pass blind" 1 "$rc"
 assert_contains "non-git target says so clearly" "not a git repository" "$out"

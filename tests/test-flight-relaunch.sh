@@ -60,7 +60,7 @@ place_flight() {
 
 # kill_worker — end the worker's session, as a crash does.
 kill_worker() {
-  "$TLH_BIN/tmux" kill-session -t "=$SESS" >/dev/null 2>&1 || fail "fixture: could not end the worker's session"
+  /bin/sh "$TLH_BIN/tmux" kill-session -t "=$SESS" >/dev/null 2>&1 || fail "fixture: could not end the worker's session"
 }
 
 relaunch() {

@@ -204,7 +204,7 @@ gitc "$work" add -A
 gitc "$work" commit -q -m "version 0.2.0"
 gitc "$work" tag v0.1.0
 out=$(cd "$work" && CDPATH="$tmp/decoy" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
-  scripts/release-pending.sh)
+  bash scripts/release-pending.sh)
 assert_eq "a hostile CDPATH does not corrupt the comparator (unset CDPATH)" \
   "$out" "pending${TAB}0.2.0"
 
@@ -476,11 +476,11 @@ gitc "$inject" commit -q -m "version 0.2.0"
 gitc "$inject" tag v0.1.0 # a real tag so `latest` is non-empty and the comparator is reached
 rc=0
 out=$(cd "$inject" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
-  scripts/release-pending.sh 2>/dev/null) || rc=$?
+  bash scripts/release-pending.sh 2>/dev/null) || rc=$?
 assert_eq "a comparator-error status (2) propagates to exit 2 (fail closed)" "$rc" "2"
 assert_eq "a comparator-error status prints no none/pending on stdout" "$out" ""
 err=$(cd "$inject" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
-  scripts/release-pending.sh 2>&1 >/dev/null) || true
+  bash scripts/release-pending.sh 2>&1 >/dev/null) || true
 case "$err" in *"comparator"*) hit=yes ;; *) hit=no ;; esac
 assert_eq "the fail-closed diagnostic names the comparator failure" "$hit" "yes"
 

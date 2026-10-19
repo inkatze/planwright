@@ -545,7 +545,7 @@ printf '%s\n' "$perm_pane" >"$tmp/broken-fake/pane"
 : >"$tmp/broken-fake/log"
 rc=0
 FAKE_TMUX_DIR="$tmp/broken-fake" PATH="$tmp/fakebin:$PATH" \
-  "$broken/orchestrate-relay.sh" deliver tmux "@3" "$msg" >/dev/null 2>&1 || rc=$?
+  /bin/sh "$broken/orchestrate-relay.sh" deliver tmux "@3" "$msg" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "a vocabulary without the refusal checks must exit 2, got $rc"
 grep -qE '^(load-buffer|paste-buffer)' "$tmp/broken-fake/log" \
   && fail "a vocabulary without the refusal checks must paste nothing"
@@ -554,9 +554,9 @@ grep -qE '^(load-buffer|paste-buffer)' "$tmp/broken-fake/log" \
 esc_install="$tmp/esc$(printf '\033')[31m-install"
 mkdir -p "$esc_install"
 cp "$RELAY" "$here/../scripts/echo-safety.sh" "$esc_install/"
-"$esc_install/orchestrate-relay.sh" validate-handle tmux "@3" 2>"$tmp/esc-missing.err" && fail "a missing vocabulary must refuse"
+/bin/sh "$esc_install/orchestrate-relay.sh" validate-handle tmux "@3" 2>"$tmp/esc-missing.err" && fail "a missing vocabulary must refuse"
 cp "$broken/fleet-pane-vocabulary.sh" "$esc_install/"
-"$esc_install/orchestrate-relay.sh" validate-handle tmux "@3" 2>"$tmp/esc-undefined.err" && fail "a vocabulary without its checks must refuse"
+/bin/sh "$esc_install/orchestrate-relay.sh" validate-handle tmux "@3" 2>"$tmp/esc-undefined.err" && fail "a vocabulary without its checks must refuse"
 for e in esc-missing esc-undefined; do
   [ -s "$tmp/$e.err" ] || fail "the $e diagnostic must say why it refused"
   grep -q "$(printf '\033')" "$tmp/$e.err" && fail "the $e diagnostic must not carry a raw ESC from the install path"
@@ -590,9 +590,9 @@ EOF
   # so this kill can only reach the isolated server.
   # The kill fails once the server is gone, so it must not decide the exit status.
   trap '"$iso_tmux" kill-server >/dev/null 2>&1 || :; rm -rf "$tmp" "$iso_dir"' EXIT
-  "$iso_tmux" -f /dev/null new-session -d -s relaytest -x 200 -y 30 cat \
+  /bin/sh "$iso_tmux" -f /dev/null new-session -d -s relaytest -x 200 -y 30 cat \
     || fail "could not start an isolated tmux server for the end-to-end check"
-  resolved=$("$iso_tmux" display-message -p -t relaytest '#{socket_path}') \
+  resolved=$(/bin/sh "$iso_tmux" display-message -p -t relaytest '#{socket_path}') \
     || fail "could not read the isolated server's socket path"
   [ "$resolved" = "$iso_sock" ] && [ "$resolved" != "$host_sock" ] \
     || fail "the end-to-end tmux resolved to $resolved, not the isolated $iso_sock"
@@ -603,7 +603,7 @@ EOF
   rc=0
   out=$(PATH="$tmp/isobin:$PATH" PLANWRIGHT_RELAY_CONFIRM_TRIES=10 \
     "$RELAY" deliver tmux relaytest "$msg" 2>&1) || rc=$?
-  "$iso_tmux" kill-server >/dev/null 2>&1 || :
+  /bin/sh "$iso_tmux" kill-server >/dev/null 2>&1 || :
   [ "$rc" = 0 ] || fail "deliver to a real tmux pane: expected exit 0, got $rc: $out"
   echo "ok: deliver stages and confirms a paste in a real, socket-isolated tmux pane"
 else

@@ -628,7 +628,7 @@ c21() {
 $(w_decoy_args)
 EOF
   env SHIM_RECORD_DIR="$rec" SHIM_READ_FIRST=0 SHIM_SLEEP=120 \
-    "$tmp/bin/claude" "${decoy_args[@]}" </dev/null >/dev/null 2>&1 &
+    /bin/sh "$tmp/bin/claude" "${decoy_args[@]}" </dev/null >/dev/null 2>&1 &
   decoy=$!
   w=$(w_name 21)
   d=$(w_dir "$home" "$w")

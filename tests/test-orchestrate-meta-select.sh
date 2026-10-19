@@ -388,7 +388,7 @@ mkdir -p "$tmp/nohelpers"
 cp "$MSEL" "$tmp/nohelpers/orchestrate-meta-select.sh"
 chmod +x "$tmp/nohelpers/orchestrate-meta-select.sh"
 rc=0
-"$tmp/nohelpers/orchestrate-meta-select.sh" "$ealpha" >/dev/null 2>&1 || rc=$?
+/bin/sh "$tmp/nohelpers/orchestrate-meta-select.sh" "$ealpha" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "case 10: a missing required helper must fail closed (exit $rc, expected 2)"
 echo "ok: a missing / non-executable required helper fails closed with exit 2"
 

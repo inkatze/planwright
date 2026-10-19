@@ -331,7 +331,7 @@ c8() {
   cp "$FDE" "$aporepo/scripts/fleet-dispatch-env.sh"
   chmod +x "$aporepo/scripts/fleet-dispatch-env.sh"
   fde2="$aporepo/scripts/fleet-dispatch-env.sh"
-  emitted=$("$fde2" --emit-launch claude --worktree task-5) || {
+  emitted=$(/bin/sh "$fde2" --emit-launch claude --worktree task-5) || {
     fail "c8: emit from an apostrophe wrapper path failed"
     rm -rf "$tmp"
     return
