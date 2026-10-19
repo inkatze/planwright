@@ -87,19 +87,27 @@ chmod +x "$tmp/wlbin/git"
 # isolated fleet/fetch state so no case touches the machine's fleet home or
 # contends on its lock.
 n=0
+# Every case starts from the same origin and clone, so they are built once and
+# copied; the copy's fetch URL is the only part that names its case.
+case_template=""
 new_case() {
   n=$((n + 1))
   c="$tmp/c$n"
-  mkdir -p "$c"
-  git -c init.defaultBranch=main init -q --bare "$c/origin.git"
-  git clone -q "$c/origin.git" "$c/primary" 2>/dev/null
-  printf 'x\n' >"$c/primary/README.md"
-  gitc "$c/primary" add -A
-  gitc "$c/primary" commit -q -m init
-  gitc "$c/primary" branch -M main
-  gitc "$c/primary" push -q origin main
-  # Fetches stay local; the push destination is what the home is judged on.
-  gitc "$c/primary" remote set-url --push origin https://github.com/acme/widgets.git
+  if [ -z "$case_template" ]; then
+    case_template="$tmp/case-template"
+    mkdir -p "$case_template"
+    git -c init.defaultBranch=main init -q --bare "$case_template/origin.git"
+    git clone -q "$case_template/origin.git" "$case_template/primary" 2>/dev/null
+    printf 'x\n' >"$case_template/primary/README.md"
+    gitc "$case_template/primary" add -A
+    gitc "$case_template/primary" commit -q -m init
+    gitc "$case_template/primary" branch -M main
+    gitc "$case_template/primary" push -q origin main
+    # Fetches stay local; the push destination is what the home is judged on.
+    gitc "$case_template/primary" remote set-url --push origin https://github.com/acme/widgets.git
+  fi
+  cp -R "$case_template" "$c"
+  gitc "$c/primary" remote set-url origin "$c/origin.git"
   export PLANWRIGHT_FLEET_STATE_DIR="$c/fleet"
   export PLANWRIGHT_DISPATCH_FETCH_STATE_DIR="$c/fstate"
   export PLANWRIGHT_DISPATCH_LIVENESS_SKIP_TMUX=1

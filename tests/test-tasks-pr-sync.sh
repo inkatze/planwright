@@ -161,24 +161,30 @@ derived; the `Dependencies:` lines are authoritative.
 EOF
 }
 
+# Every case starts from the same repository, so it is built once and copied.
 make_repo() { # $1 = repo dir
-  mkdir -p "$1"
-  git -C "$1" init -q -b main
-  git -C "$1" config user.email test@example.com
-  git -C "$1" config user.name test
-  git -C "$1" config commit.gpgsign false
-  write_spec "$1/specs/demo"
-  git -C "$1" add -A
-  git -C "$1" commit -qm "chore: fixture"
-  # Task 1 completed: a base commit carrying its Planwright-Task trailer (D-2).
-  git -C "$1" commit -q --allow-empty -m "feat: task 1 done
+  _tpl="$tmp/repo-template"
+  if [ ! -d "$_tpl" ]; then
+    mkdir -p "$_tpl"
+    git -C "$_tpl" init -q -b main
+    git -C "$_tpl" config user.email test@example.com
+    git -C "$_tpl" config user.name test
+    git -C "$_tpl" config commit.gpgsign false
+    write_spec "$_tpl/specs/demo"
+    git -C "$_tpl" add -A
+    git -C "$_tpl" commit -qm "chore: fixture"
+    # Task 1 completed: a base commit carrying its Planwright-Task trailer (D-2).
+    git -C "$_tpl" commit -q --allow-empty -m "feat: task 1 done
 
 Planwright-Task: demo/1"
-  # Task 2 in-progress: a task branch with a commit ahead of base.
-  git -C "$1" branch planwright/demo/task-2
-  git -C "$1" checkout -q planwright/demo/task-2
-  git -C "$1" commit -q --allow-empty -m "wip: task 2"
-  git -C "$1" checkout -q main
+    # Task 2 in-progress: a task branch with a commit ahead of base.
+    git -C "$_tpl" branch planwright/demo/task-2
+    git -C "$_tpl" checkout -q planwright/demo/task-2
+    git -C "$_tpl" commit -q --allow-empty -m "wip: task 2"
+    git -C "$_tpl" checkout -q main
+  fi
+  mkdir -p "$(dirname "$1")"
+  cp -R "$_tpl" "$1"
 }
 
 # reconcile <repo> <spec-dir-relative> : run the direct CLI form.
@@ -612,7 +618,7 @@ chmod +x "$nolockdir/tasks-pr-sync.sh"
 err=$(
   cd "$repo" \
     && printf '{"tool_name":"Bash","tool_input":{"command":"gh pr create --draft"},"tool_response":{"stdout":"https://github.com/o/r/pull/12","stderr":""}}' \
-    | PATH="$stub:$PATH" "$nolockdir/tasks-pr-sync.sh" 2>&1 >/dev/null
+    | PATH="$stub:$PATH" /bin/sh "$nolockdir/tasks-pr-sync.sh" 2>&1 >/dev/null
 ) || fail "missing primitive: non-zero exit (should be a fail-soft no-op)"
 cmp -s "$tasks" "$pristine10" || fail "missing primitive: hook reconciled without the lock"
 case $err in
