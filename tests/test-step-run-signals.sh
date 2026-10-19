@@ -42,7 +42,7 @@ verdict $? "a step past its timeout is ended with everything it started, records
   "rc=$rc took $((t1 - t0))s record: $(cat "$tmp/l")"
 
 # --- a check that ignores TERM is killed ten seconds after its timeout ----------------------
-rm -f "$tmp/parent.pid"
+rm -f "$tmp/parent.pid" "$tmp/stub-child.pid"
 catalog "stub|kind: command|target: $bin/stubborn.sh|pool: gate|timeout: 1"
 config 'steps_pre_pr: [stub]'
 r=$(sr new-run)
@@ -52,7 +52,7 @@ srun command --run "$r" --point pre-pr --step stub >"$tmp/out" 2>/dev/null
 rc=$?
 t1=$(date +%s)
 [ "$rc" -eq 1 ] && [ $((t1 - t0)) -lt 25 ] && [ -s "$tmp/parent.pid" ] && ! kill -0 "$(cat "$tmp/parent.pid")" 2>/dev/null \
-  && [ -z "$(sp report gate)" ]
+  && [ -s "$tmp/stub-child.pid" ] && ! kill -0 "$(cat "$tmp/stub-child.pid")" 2>/dev/null && [ -z "$(sp report gate)" ]
 verdict $? "a check ignoring TERM is killed after the grace, then its slot freed" "rc=$rc took $((t1 - t0))s"
 
 # --- a signal to the runner ends the check's group before the slot goes -------------------

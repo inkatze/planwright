@@ -86,7 +86,9 @@ cat >"$bin/stubborn.sh" <<'EOF'
 t=$(dirname "$0")/..
 trap '' TERM
 printf '%s\n' "$$" >"$t/parent.pid"
-sleep 60
+sleep 60 &
+printf '%s\n' "$!" >"$t/stub-child.pid"
+wait
 EOF
 chmod +x "$bin/check.sh" "$bin/edit.sh" "$bin/show.sh" "$bin/grand.sh" "$bin/stubborn.sh"
 
@@ -149,7 +151,8 @@ owner() {
 # its command steps, write its completion. Records every result line.
 point_run() {
   _r=$1 _p=$2
-  srun resolve --run "$_r" "$_p" --unattended >"$tmp/rows" 2>"$tmp/resolve.err"
+  srun resolve --run "$_r" "$_p" --unattended >"$tmp/rows" 2>"$tmp/resolve.err" \
+    || fail "resolve $_p in run $_r exited $?: $(cat "$tmp/resolve.err")"
   while IFS=$TAB read -r _d _id _rest; do
     [ "$_d" = run ] || continue
     srun command --run "$_r" --point "$_p" --step "$_id" >>"$tmp/results" 2>>"$tmp/err"
@@ -158,7 +161,7 @@ point_run() {
 point_done() { sr write --completion --run "$1" --point "$2" >/dev/null; }
 # refire_pass <run>: the plan, then each planned step at post-pr.
 refire_pass() {
-  srun refire --run "$1" >"$tmp/plan"
+  srun refire --run "$1" >"$tmp/plan" || fail "refire in run $1 exited $?"
   while IFS=$TAB read -r _ _id _decl _; do
     srun command --run "$1" --point post-pr --step "$_id" --refire-of "$_decl" >>"$tmp/results" 2>>"$tmp/err"
   done <"$tmp/plan"
