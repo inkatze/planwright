@@ -179,12 +179,15 @@
 #                                             mark the worker's live record
 #                                             closed, only while it still
 #                                             carries exactly these fields.
-#   fleet-state.sh amend <worker> [--name <name>] [--inbox <basename>]
+#   fleet-state.sh amend <worker> [--name <name>]
+#       [--inbox <basename> | --clear-inbox]
 #                                             re-append the worker's last live
 #                                             record with the named identity
 #                                             columns replaced and every other
 #                                             field, the epoch included, as it
-#                                             was. At least one flag; 3 when the
+#                                             was. --clear-inbox writes the
+#                                             sentinel back, for a session
+#                                             whose record names no socket. At least one flag; 3 when the
 #                                             worker has no record or its last
 #                                             one is retired; 2 when that
 #                                             record is malformed. A row that
@@ -909,6 +912,7 @@ case $cmd in
     new_inbox=""
     have_name=0
     have_inbox=0
+    clear_inbox=0
     while [ "$#" -gt 0 ]; do
       case $1 in
         --name | --inbox)
@@ -928,6 +932,12 @@ case $cmd in
           esac
           shift 2
           ;;
+        --clear-inbox)
+          new_inbox=-
+          have_inbox=1
+          clear_inbox=1
+          shift
+          ;;
         --*)
           printf '%s\n' "fleet-state: amend: unknown flag '$(sanitize_printable "$1" "(unprintable flag)")'" >&2
           exit 2
@@ -943,7 +953,7 @@ case $cmd in
       esac
     done
     if [ -z "$worker" ] || [ "$have_name$have_inbox" = 00 ]; then
-      printf '%s\n' "usage: fleet-state.sh amend <worker> [--name <name>] [--inbox <basename>] (at least one)" >&2
+      printf '%s\n' "usage: fleet-state.sh amend <worker> [--name <name>] [--inbox <basename> | --clear-inbox] (at least one)" >&2
       exit 2
     fi
     if ! valid_field "$worker"; then
@@ -954,7 +964,7 @@ case $cmd in
       printf '%s\n' "fleet-state: refusing malformed session name '$(sanitize_printable "$new_name" "(unprintable name)")' (must match ^[A-Za-z0-9._=@:-]{1,128}\$, no leading dash)" >&2
       exit 2
     fi
-    if [ "$have_inbox" = 1 ] && ! valid_inbox "$new_inbox"; then
+    if [ "$have_inbox" = 1 ] && [ "$clear_inbox" = 0 ] && ! valid_inbox "$new_inbox"; then
       printf '%s\n' "fleet-state: refusing malformed inbox basename '$(sanitize_printable "$new_inbox" "(unprintable inbox)")' (must match ^[A-Za-z0-9._-]{1,128}\$, no leading dash)" >&2
       exit 2
     fi

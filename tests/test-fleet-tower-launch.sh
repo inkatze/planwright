@@ -162,9 +162,11 @@ for args in "../x" "Demo" "flight" 'a$(id)' "-x" "demo --checkout relative/dir" 
 done
 [ ! -e "$tmp/rec4/argv" ] || fail "t4: a refused launch started a tower"
 rc=0
-env -u PLANWRIGHT_TEST_SEAM PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet" PLANWRIGHT_TOWER_LAUNCH_CLAUDE="$tmp/claude" \
-  SHIM_REC="$tmp/rec4" /bin/sh "$FTL" demo --checkout "$tmp/checkout" >/dev/null 2>&1 || rc=$?
-[ "$rc" = 2 ] || fail "t4: the CLI seam was honoured without PLANWRIGHT_TEST_SEAM=1 (exit $rc)"
+env -u PLANWRIGHT_TEST_SEAM -u PLANWRIGHT_ROOT PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet" PLANWRIGHT_TOWER_LAUNCH_CLAUDE="$tmp/claude" \
+  SHIM_REC="$tmp/rec4" /bin/sh "$FTL" demo --checkout "$tmp/checkout" >/dev/null 2>"$tmp/err" || rc=$?
+if [ "$rc" != 2 ] || ! grep -q "test-only seam" "$tmp/err"; then
+  fail "t4: the CLI seam was honoured without PLANWRIGHT_TEST_SEAM=1 (exit $rc: $(cat "$tmp/err"))"
+fi
 [ ! -e "$tmp/rec4/argv" ] || fail "t4: the ungated seam started a tower"
 [ "$fails" = "$f0" ] && ok "t4 hostile or malformed arguments are refused"
 

@@ -43,7 +43,9 @@
 #                                           (fleet-hardening D-10, D-11). The
 #                                           fleet tower launches use this form
 #                                           too, with --inbound accept alone,
-#                                           which keeps the tower pins below.
+#                                           under which the wrapper keeps the
+#                                           pins below (fleet-tower-launch.sh
+#                                           drops the tower identity itself).
 #                                           The options, each at most once:
 #                                             --identity <handle> <scope>
 #                                               exported as PLANWRIGHT_WORKER_HANDLE

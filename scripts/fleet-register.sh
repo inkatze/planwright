@@ -87,15 +87,16 @@
 #       [--checkout <dir>] [--session-id <uuid> | --pid <pid>]
 #   fleet-register.sh --from-marker <path>
 #   fleet-register.sh --retire-marker <path> --expect <fields>
-#   fleet-register.sh --amend <worker> [--name <name>] [--inbox <basename>]
+#   fleet-register.sh --amend <worker> [--name <name>]
+#       [--inbox <basename> | --clear-inbox]
 #
 # Exit codes: 0 registered (healed, retired); 1 registration failed (warned on
 #   stderr — dispatch callers ignore this, by contract); 2 usage error; 3 the
 #   marker modes found nothing to do (the heal: the record is already as the
 #   marker says, or the marker is gone; the retirement: no live record carries
 #   the expected fields), or --amend found no live record to amend; 4 the
-#   marker was refused. --amend exits 1 when it dropped a field or the store
-#   write failed. A retirement closes a matching live record even when its
+#   marker was refused. --amend exits 1 when it dropped a field, the store
+#   write failed, or the worker's last record is malformed. A retirement closes a matching live record even when its
 #   marker is already gone.
 #
 # POSIX sh on the macOS + Linux support bar. No eval; every value is data
@@ -135,7 +136,7 @@ warn() {
 usage() {
   printf '%s\n' "usage: $me --handle <h> --backend <name> [--scope <s>] [--state-dir <abs-dir>] [--death-handle <handle>] [--checkout <dir>] [--session-id <uuid> | --pid <pid>]" >&2
   printf '%s\n' "       $me --from-marker <path> | --retire-marker <path> --expect <fields>" >&2
-  printf '%s\n' "       $me --amend <worker> [--name <name>] [--inbox <basename>]" >&2
+  printf '%s\n' "       $me --amend <worker> [--name <name>] [--inbox <basename> | --clear-inbox]" >&2
   exit 2
 }
 
@@ -155,6 +156,7 @@ amend_name=""
 amend_inbox=""
 amend_have_name=0
 amend_have_inbox=0
+amend_clear_inbox=0
 
 while [ "$#" -gt 0 ]; do
   case $1 in
@@ -173,6 +175,11 @@ while [ "$#" -gt 0 ]; do
       [ "$#" -ge 2 ] && [ -z "$amend_worker" ] || usage
       amend_worker=$2
       shift 2
+      ;;
+    --clear-inbox)
+      amend_clear_inbox=1
+      amend_have_inbox=1
+      shift
       ;;
     --name | --inbox)
       [ "$#" -ge 2 ] || usage
@@ -393,7 +400,9 @@ if [ -n "$amend_worker" ]; then
       warn "dropping the name '$(sanitize_printable "$amend_name" "(unprintable value)")' for $(sanitize_printable "$amend_worker" "(unprintable handle)"): it fails the registry's name grammar, so the row keeps its sentinel"
     fi
   fi
-  if [ "$amend_have_inbox" = 1 ]; then
+  if [ "$amend_clear_inbox" = 1 ]; then
+    set -- "$@" --clear-inbox
+  elif [ "$amend_have_inbox" = 1 ]; then
     if valid_inbox "$amend_inbox"; then
       set -- "$@" --inbox "$amend_inbox"
     else

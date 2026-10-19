@@ -64,7 +64,8 @@
 #       worker identity environment (a tower) writes nothing. Exit 0 with one
 #       stderr notice when CLAUDE_PID names no record; exit 2 on a malformed
 #       handle or a record whose name fails its screen (nothing recorded), or
-#       whose socket path does (the name recorded alone); otherwise the
+#       whose socket path does (the name recorded, the inbox cleared to the
+#       sentinel); otherwise the
 #       amend's own exit.
 #   fleet-messaging.sh socket-ok <path> [--owner-uid <uid>] [--socket-type <socket|other>]
 #       Exit 0 when <path> is a local socket path (absolute, only
@@ -734,7 +735,8 @@ cmd_self_register() {
     exit 2
   fi
   # A record with no usable socket still names the session: the name is
-  # recorded alone, the inbox keeps its sentinel, and the exit says so.
+  # recorded, the inbox set back to the sentinel (a resumed session's row
+  # would otherwise keep its earlier session's socket), and the exit says so.
   sg_rc=0
   md_box=''
   md_sock=$(json_top_string "$sg_f" messagingSocketPath) || sg_rc=$?
@@ -748,7 +750,7 @@ cmd_self_register() {
     fi
   fi
   if [ -z "$md_box" ]; then
-    /bin/sh "$FR" --amend "$sg_handle" --name "$md_name"
+    /bin/sh "$FR" --amend "$sg_handle" --name "$md_name" --clear-inbox
     sg_rc=$?
     [ "$sg_rc" != 0 ] || sg_rc=2
     exit "$sg_rc"

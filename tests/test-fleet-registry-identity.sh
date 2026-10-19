@@ -225,7 +225,12 @@ fs_at "$h" amend w2 --name n2 >/dev/null 2>"$tmp/err" || rc=$?
 [ "$rc" = 2 ] || fail "i9: amend of a torn record exited $rc, not 2"
 grep -q malformed "$tmp/err" || fail "i9: the torn-record refusal does not say so: $(cat "$tmp/err")"
 [ "$(grep -c . "$h/registry")" = "$n" ] || fail "i9: amend of a torn record wrote a record"
-[ "$fails" = "$f0" ] && ok "i9 a no-change amend writes nothing; a torn record is refused, not read as absent"
+fs_at "$h" amend w1 --clear-inbox || fail "i9: --clear-inbox exited non-zero"
+[ "$(field "$(last_row "$h" w1)" 8-9)" = "n${TAB}-" ] || fail "i9: --clear-inbox did not write the sentinel back: $(last_row "$h" w1)"
+rc=0
+fs_at "$h" amend w1 --inbox - >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "i9: the sentinel as an --inbox value was accepted (exit $rc)"
+[ "$fails" = "$f0" ] && ok "i9 a no-change amend writes nothing; a torn record is refused; --clear-inbox restores the sentinel"
 
 if [ "$fails" -ne 0 ]; then
   echo "FAIL: test-fleet-registry-identity.sh ($fails)" >&2

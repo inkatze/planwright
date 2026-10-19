@@ -151,6 +151,15 @@ hook 4247 PLANWRIGHT_WORKER_HANDLE=tmux-demo-task-7 PLANWRIGHT_WORKER_SCOPE=demo
 row=$(last tmux-demo-task-7)
 [ "$(printf '%s\n' "$row" | cut -f8-9)" = "tmux-demo-task-7${TAB}-" ] \
   || fail "s4b: the name was not recorded alone beside an unusable socket: $row"
+# A resumed session whose record names no socket clears the inbox an earlier
+# session recorded, rather than leaving it pointing at a dead socket.
+record 4248 tmux-demo-task-7 "$socks/4248.sock"
+hook 4248 PLANWRIGHT_WORKER_HANDLE=tmux-demo-task-7 PLANWRIGHT_WORKER_SCOPE=demo:7 2>/dev/null \
+  || fail "s4b: the resumed session's first registration failed"
+[ "$(last tmux-demo-task-7 | cut -f9)" = 4248.sock ] || fail "s4b: fixture: the inbox was not recorded"
+record 4249 tmux-demo-task-7 "relative/4249.sock"
+hook 4249 PLANWRIGHT_WORKER_HANDLE=tmux-demo-task-7 PLANWRIGHT_WORKER_SCOPE=demo:7 2>/dev/null
+[ "$(last tmux-demo-task-7 | cut -f9)" = - ] || fail "s4b: a session with no usable socket kept an earlier inbox: $(last tmux-demo-task-7)"
 [ "$fails" = "$f0" ] && ok "s4b a record with no usable socket still records the name"
 
 # --- s5 -----------------------------------------------------------------------

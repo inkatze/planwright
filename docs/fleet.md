@@ -998,7 +998,7 @@ Long fleet runs manage their own context instead of quietly degrading:
   [continue-as-new handover](../doctrine/context-budget-autoheal.md): it
   launches a fresh tower with `scripts/fleet-tower-launch.sh <spec>
   [--unattended]` (a detached headless session named
-  `planwright-tower-<spec>-<epoch>` under the tower profile, whose printed pid
+  `planwright-tower-<spec>-<epoch>-<pid>` under the tower profile, whose printed pid
   the retiring tower confirms alive before it stops) that rebuilds the
   entire in-flight picture from
   durable state (the `tasks.md` snapshot, `gh`, branches, markers, the worker
@@ -2303,10 +2303,10 @@ each with `PLANWRIGHT_MESSAGING_INBOUND=accept` exported beside it (the layer
 the messaging probe reads, since a `--settings` profile is not one of the
 settings files it parses). Each launch also names its session with `--name`:
 the worker's registry handle, `planwright-tower-<spec>` for a relaunch, and
-`planwright-tower-<spec>-<epoch>` for a handover, so the retiring tower and its
-replacement never share a name. The profile comes from the planwright root the
-launch pins its session to (`PLANWRIGHT_ROOT`, else the install the script runs
-from), resolved by `scripts/fleet-launch-profile.sh`; a profile that cannot be
+`planwright-tower-<spec>-<epoch>-<pid>` for a handover, so the retiring tower
+and its replacement never share a name, nor do two launches in one second.
+The profile comes from the planwright root the launch pins its session to
+(`PLANWRIGHT_ROOT`, else the install the script runs from), resolved by `scripts/fleet-launch-profile.sh`; a profile that cannot be
 read refuses the launch, naming the file, rather than starting a session under
 the operator's own settings. On Claude Code 2.1.303, two `-p` launches given
 the same `--name` both start and both carry that name: the CLI neither renames
