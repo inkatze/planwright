@@ -1396,7 +1396,7 @@ rc=0
 # A 5s timeout (not 1s) for THIS case: the kill assertion needs the shim to
 # have started and recorded its pid before the bound fires, and process
 # startup under a heavily parallel test runner can exceed a second. The
-# 120s shim sleep keeps the discrimination unambiguous against the 60s bound.
+# 120s shim sleep keeps the discrimination unambiguous against the 30s bound.
 out=$(env PLANWRIGHT_ORACLE_TIMEOUT=5 PLANWRIGHT_FLEET_STATE_DIR="$home42" \
   PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
   PLANWRIGHT_REPO_ROOT=none PLANWRIGHT_LOCAL_CONFIG="" \
@@ -1404,7 +1404,7 @@ out=$(env PLANWRIGHT_ORACLE_TIMEOUT=5 PLANWRIGHT_FLEET_STATE_DIR="$home42" \
   /bin/sh "$FL" oracle --cwd /wt/alpha 2>/dev/null) || rc=$?
 t1=$(date +%s)
 [ "$rc" = 1 ] || fail "oracle hang: exit $rc, expected 1 (unavailable)"
-[ $((t1 - t0)) -lt 60 ] || fail "oracle hang: probe took $((t1 - t0))s, expected the 5s timeout to bound it"
+[ $((t1 - t0)) -lt 30 ] || fail "oracle hang: probe took $((t1 - t0))s, expected the 5s timeout to bound it"
 # Guard the read: a missing pid file must reach the named assertion below,
 # never a silent set -e abort mid-suite.
 slow_pid=$(cat "$odir/slow-pid" 2>/dev/null || true)
@@ -1416,7 +1416,7 @@ stubborn="$odir/stubborn-shim"
 # stall would let plain TERM kill the not-yet-started shim and this fixture
 # would pass without ever exercising the KILL escalation it exists to prove.
 # shellcheck disable=SC2016 # $1 is literal shim-script source, expanded at shim runtime, not here
-printf '#!/bin/sh\n[ "$1" = agents ] || exit 9\ntrap "" TERM\nsleep 120\nprintf "[]"\n' >"$stubborn"
+printf '#!/bin/sh\n[ "$1" = agents ] || exit 9\ntrap "" TERM\nexec sleep 120\n' >"$stubborn"
 chmod +x "$stubborn"
 "$stubborn" >/dev/null 2>&1 || true
 t0=$(date +%s)
@@ -1428,7 +1428,7 @@ env PLANWRIGHT_ORACLE_TIMEOUT=1 PLANWRIGHT_FLEET_STATE_DIR="$home42" \
   /bin/sh "$FL" oracle --cwd /wt/alpha >/dev/null 2>&1 || rc=$?
 t1=$(date +%s)
 [ "$rc" = 1 ] || fail "oracle TERM-resistant: exit $rc, expected 1 (unavailable)"
-[ $((t1 - t0)) -lt 60 ] || fail "oracle TERM-resistant: took $((t1 - t0))s, expected KILL escalation to bound it"
+[ $((t1 - t0)) -lt 30 ] || fail "oracle TERM-resistant: took $((t1 - t0))s, expected KILL escalation to bound it"
 # the TERM-COMPLIANT timeout path resolves promptly: the supervisor's trap
 # publishes the done flag after reaping, so the parent skips the KILL grace
 # ladder entirely (the broken shape burned ~timeout+4s and fired a stale
