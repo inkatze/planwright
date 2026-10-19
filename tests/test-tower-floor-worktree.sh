@@ -26,6 +26,8 @@ for cmd in \
   'git branch --sort -committerdate -D planwright/flight/done-0123abcd' \
   "git branch --format='%(refname)' --list" \
   'git branch docs/main' \
+  'git branch -m topic other' \
+  'git worktree add -b topic ../w -- "$C"' \
   'git reset --soft HEAD' \
   'git worktree remove ../w' \
   'git worktree list --porcelain'; do

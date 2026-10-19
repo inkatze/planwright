@@ -90,14 +90,16 @@
 #               with no read. tower: defer, so it reaches the permission
 #               prompt (the tower's command guard never approves it).
 #   ref-surgery tower only: `git reset --hard`, `git filter-branch`,
-#               `git filter-repo`, a forced `git branch` (-f, --force) outside
-#               delete mode, and `git update-ref` deny with no read.
+#               `git filter-repo`, a forced `git branch` (-f, --force, and the
+#               -M and -C force shorthands) outside delete mode, and
+#               `git update-ref` deny with no read.
 #   worktree    tower only: `git worktree add`, `remove`, or `move` with
 #               --force, and `add` with --detach, deny with no read; an `add`
 #               whose new branch, or with none its commit-ish or (with
 #               neither) its path's last component, names a branch reads the
 #               protected set and denies a hit, a ref or remote-tracking form
-#               read as the branch it names.
+#               read as the branch it names; that name or path given through an
+#               expansion after `--` denies.
 #   mcp-write   tower only: the GitHub MCP merge, update, branch-update,
 #               create, push-files, create-or-update-file, and delete-file
 #               tools deny whatever their arguments.
@@ -2386,8 +2388,9 @@ classify_tower_git() {
       case $GP_LITSHORT in *[dD]*) return 0 ;; esac
       long_prefix_seen delete 1 "$GP_LITLONG" && return 0
       tower_opts_literal "$k" 'this git branch' || return 0
-      if long_prefix_seen force 1 || [[ $GP_SHORT == *f* ]]; then
-        deny_now 'a forced git branch (-f, --force) is denied to the tower under every policy value: it repoints an existing branch, and the tower never moves a branch.'
+      # -M and -C are git's --move --force and --copy --force.
+      if long_prefix_seen force 1 || [[ $GP_SHORT == *[fMC]* ]]; then
+        deny_now 'a forced git branch (-f, --force, -M, -C) is denied to the tower under every policy value: it repoints an existing branch, and the tower never moves a branch.'
       fi
       ;;
     worktree) classify_tower_worktree "$k" "$dir" "$dir_ok" ;;
@@ -2425,9 +2428,18 @@ classify_tower_worktree() {
     case $v in [bB]=*) names[${#names[@]}]=${v#?=} ;; esac
   done
   if [ "${#names[@]}" = 0 ]; then
+    # A name taken from a positional after `--` may be an expansion.
     if [ -n "${GP_POS[1]:-}" ]; then
+      [ "${GP_POSL[1]}" = 1 ] || {
+        deny_now 'this git worktree add names its branch through an expansion the guard cannot read, which could name a protected branch - refusing (fail closed). Name the branch literally.'
+        return 0
+      }
       names[0]=${GP_POS[1]}
     elif [ -n "${GP_POS[0]:-}" ]; then
+      [ "${GP_POSL[0]}" = 1 ] || {
+        deny_now 'this git worktree add takes its branch from a path the guard cannot read (an expansion), which could name a protected branch - refusing (fail closed). Name the path or the branch literally.'
+        return 0
+      }
       # With no branch and no commit-ish, git checks out (or creates) the
       # branch named after the path's last component.
       x=${GP_POS[0]%/}
