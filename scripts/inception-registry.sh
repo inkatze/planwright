@@ -55,6 +55,9 @@ set -u
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# Venture names and observations are the operator's private material; nothing
+# this writes is meant for another account on the machine.
+umask 077
 
 self_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 
@@ -249,7 +252,10 @@ cmd_add() {
   resolve_data ''
   ensure_registry
   st=$(bundle_status "$dir")
-  rows | awk -F '\t' -v OFS='\t' -v id="$1" -v path="$dir" -v st="$st" -v d="$(today)" -v header="$HEADER" '
+  # The path reaches awk through the environment: awk expands backslash
+  # escapes in a -v value, which would store a different path.
+  rows | REG_PATH=$dir awk -F '\t' -v OFS='\t' -v id="$1" -v st="$st" -v d="$(today)" -v header="$HEADER" '
+    BEGIN { path = ENVIRON["REG_PATH"] }
     BEGIN { print header }
     $1 == id { $2 = path; $3 = st; print; done = 1; next }
     { print }
@@ -493,10 +499,10 @@ cmd_portfolio() {
     printf 'venture\tnone\n'
   else
     printf '%s\n' "$report" | grep '^venture	'
-    rows | awk -F '\t' -v OFS='\t' -v header="$HEADER" -v rep="$report" '
+    rows | REG_REPORT=$report awk -F '\t' -v OFS='\t' -v header="$HEADER" '
       BEGIN {
         print header
-        n = split(rep, L, "\n")
+        n = split(ENVIRON["REG_REPORT"], L, "\n")
         for (i = 1; i <= n; i++) { split(L[i], c, "\t"); if (c[1] == "venture" && c[4] != "unreadable") F[c[2]] = c[4] }
       }
       ($1 in F) { $4 = F[$1] }

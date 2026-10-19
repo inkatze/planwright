@@ -130,6 +130,14 @@ assert_contains "A1.6 flags clear back to none" "	Exploring	none	" "$out"
 first_line="$(head -n 1 "$registry_file")"
 assert_contains "A1.6 the registry carries its version header" "inception registry v1" "$first_line"
 
+# A backslash in the path is stored as written, not read as an escape.
+odd="$tmp/back\\tslash"
+inception_fixture_write "$odd/zeta" || exit 1
+reg add zeta "$odd/zeta"
+reg get zeta
+assert_eq "A1.6 a path with a backslash round-trips verbatim" \
+  "$(printf 'venture\tzeta\t%s\tExploring\tnone\t2026-08-26' "$odd/zeta")" "$out"
+
 # ---------------------------------------------------------------------------
 # REQ-A1.8 — identifiers are re-validated at consumption.
 # ---------------------------------------------------------------------------
@@ -251,6 +259,10 @@ reg drop alpha "$(printf 'two\nlines')"
 assert_eq "J1.8 drop: multi-line text is refused" "1" "$rc"
 reg drop alpha "$(printf 'bell\007here')"
 assert_eq "J1.8 drop: control bytes are refused" "1" "$rc"
+assert_eq "J1.8 drop: the drop is private to the operator" "$data/inception/drop.tsv" \
+  "$(find "$data/inception/drop.tsv" -perm 0600)"
+assert_eq "J1.8 telemetry: the log is private to the operator" "$data/inception/telemetry.tsv" \
+  "$(find "$data/inception/telemetry.tsv" -perm 0600)"
 reg drop-read
 assert_eq "J1.8 drop-read: exit 0" "0" "$rc"
 assert_contains "J1.8 drop-read: the entry is read" "entry	2026-08-26	The gate prompt in" "$out"
