@@ -437,7 +437,6 @@ git -C "$v" -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=fal
 gitrun --spec bundles/demo --rows
 check_eq "an ignored, untracked input fails closed too" 5 "$rc"
 
-git -C "$v" rm -q --cached legacy.tsv >/dev/null 2>&1 || :
 ln -s "$v/legacy.tsv" "$tmp/link.tsv"
 gitrun --spec bundles/demo --legacy "$tmp/link.tsv" --rows
 check_eq "an input reached through a file symlink fails closed" 5 "$rc"
