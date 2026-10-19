@@ -87,6 +87,7 @@ reg_nodata() {
 venture() {
   inception_fixture_write "$roots/$1" || exit 1
 }
+sed_i() { sed "$2" "$1" >"$1.new" && mv "$1.new" "$1"; }
 registry_file="$data/inception/registry.tsv"
 
 # ---------------------------------------------------------------------------
@@ -99,6 +100,16 @@ assert_contains "H1.6 no data home: names the degradation" "degraded	" "$out"
 reg_nodata overlap
 assert_eq "H1.6 no data home: overlap exits 6" "6" "$rc"
 assert_contains "H1.6 no data home: overlap says it was skipped" "overlap scan skipped" "$out"
+: >"$tmp/not-a-dir"
+out="$(CLAUDE_PLUGIN_DATA="$tmp/not-a-dir" "$REG" list 2>&1)"
+assert_eq "H1.6 a data home that cannot be created: exit 6" "6" "$?"
+assert_contains "H1.6 a data home that cannot be created: says so" "degraded	" "$out"
+out="$(cd "$tmp" && CLAUDE_PLUGIN_DATA=relative-data "$REG" list 2>&1)"
+assert_eq "H1.6 a relative data home is refused: exit 6" "6" "$?"
+assert_eq "H1.6 a relative data home writes nothing in the working directory" "no" \
+  "$([ -e "$tmp/relative-data" ] && echo yes || echo no)"
+out="$(PLANWRIGHT_INCEPTION_TODAY=2026-02-30 CLAUDE_PLUGIN_DATA="$data" "$REG" list 2>&1)"
+assert_eq "A1.6 an impossible pinned date is refused: exit 2" "2" "$?"
 
 # ---------------------------------------------------------------------------
 # REQ-A1.6 — round trip: register, read, update status, attention flags.
@@ -150,7 +161,26 @@ reg add beta "$roots/alpha"
 assert_eq "A1.8 add: a path not named for the id is refused" "1" "$rc"
 reg add ghost "$roots/ghost"
 assert_eq "A1.8 add: a path with no bundle is refused" "1" "$rc"
+reg add alpha ""
+assert_eq "A1.8 add: an empty path is refused" "1" "$rc"
+reg add alpha /
+assert_eq "A1.8 add: the root directory is refused" "1" "$rc"
 assert_eq "A1.8 refused adds leave the registry untouched" "$before" "$(cat "$registry_file")"
+
+sed_i "$roots/alpha/brief.md" "s/^\*\*Status:\*\* Exploring\$/**Status:** On-hold/"
+reg add alpha "$roots/alpha"
+reg get alpha
+assert_contains "A1.6 re-adding refreshes the status from the bundle" "	On-hold	" "$out"
+sed_i "$roots/alpha/brief.md" "s/^\*\*Status:\*\* On-hold\$/**Status:** Exploring/"
+reg add alpha "$roots/alpha"
+
+# A failed write is a failure, never a reported success.
+mkdir -p "$tmp/failing-bin"
+printf '#!/bin/sh\nexit 1\n' >"$tmp/failing-bin/mktemp"
+chmod +x "$tmp/failing-bin/mktemp"
+PATH="$tmp/failing-bin:$PATH" reg add alpha "$roots/alpha"
+assert_eq "A1.6 an unwritable registry: add exits 6" "6" "$rc"
+assert_not_contains "A1.6 an unwritable registry: add claims nothing" "registered	" "$out"
 
 # ---------------------------------------------------------------------------
 # REQ-A1.6 — scan-rebuild: ventures_root recovers the fixture ventures,
@@ -159,7 +189,7 @@ assert_eq "A1.8 refused adds leave the registry untouched" "$before" "$(cat "$re
 venture beta
 inception_fixture_write "$roots/Bad Name" || exit 1
 mkdir -p "$roots/not-a-venture"
-sed "s/^\*\*Status:\*\* Exploring\$/**Status:** Killed/" "$roots/beta/brief.md" >"$tmp/b" && mv "$tmp/b" "$roots/beta/brief.md"
+sed_i "$roots/beta/brief.md" "s/^\*\*Status:\*\* Exploring\$/**Status:** Killed/"
 reg rebuild
 assert_eq "A1.6 rebuild: exit 0" "0" "$rc"
 assert_contains "A1.6 rebuild: recovers alpha" "$(printf 'venture\talpha\t%s\tExploring' "$roots/alpha")" "$out"
@@ -191,8 +221,70 @@ reg list
 assert_contains "A1.8 hostile registry row: rebuilt rather than trusted" "rebuilt	" "$out"
 assert_not_contains "A1.8 hostile registry row: never surfaced" "/etc" "$out"
 
-# Concurrency: interleaved writers never leave a torn registry.
+# A valid registry that lost a row to a racing session gets it back on read.
 reg rebuild
+grep -v '^alpha	' "$registry_file" >"$tmp/lost" && cp "$tmp/lost" "$registry_file"
+reg list
+assert_contains "A1.6 a lost update: the read reports the merge" "rebuilt	merged" "$out"
+assert_contains "A1.6 a lost update: the venture is back" "venture	alpha	" "$out"
+
+# A missing ventures root writes nothing, so the registry rebuilds once the
+# root is back.
+rm -f "$registry_file"
+mv "$roots" "$tmp/roots-away"
+reg list
+assert_eq "A1.6 missing root: the registry is unavailable" "6" "$rc"
+assert_eq "A1.6 missing root: no registry is written" "no" "$([ -e "$registry_file" ] && echo yes || echo no)"
+mv "$tmp/roots-away" "$roots"
+reg list
+assert_contains "A1.6 root back: the registry rebuilds" "venture	alpha	" "$out"
+
+# A ventures root spelled with dot segments still yields a stable registry.
+mkdir -p "$HOME/x"
+printf 'ventures_root: ~/x/../ventures\n' >"$core_cfg"
+rm -f "$registry_file"
+reg list
+reg set alpha --flags blocked
+reg get alpha
+assert_contains "A1.6 dot-segment root: a set survives the next read" "	blocked	" "$out"
+assert_not_contains "A1.6 dot-segment root: no rebuild loop" "rebuilt	" "$out"
+printf 'ventures_root: ~/ventures\n' >"$core_cfg"
+
+out="$(cd "$HOME" && CLAUDE_PLUGIN_DATA="$data" "$REG" rebuild --root ventures 2>&1)"
+assert_contains "A1.6 rebuild --root: a relative root is stored absolute" "$(printf 'venture\talpha\t%s\t' "$roots/alpha")" "$out"
+mkdir -p "$tmp/other-root"
+inception_fixture_write "$tmp/other-root/omega" || exit 1
+reg rebuild --root "$tmp/other-root"
+assert_contains "A1.6 rebuild --root: scans the named root" "venture	omega	" "$out"
+assert_not_contains "A1.6 rebuild --root: and only it" "venture	alpha	" "$out"
+
+# Symlinks: a linked registry is replaced, never written through; a linked
+# venture directory is not a venture.
+printf 'keep me\n' >"$tmp/link-target"
+rm -f "$registry_file"
+ln -s "$tmp/link-target" "$registry_file"
+reg list
+assert_contains "A1.6 symlinked registry: rebuilt" "rebuilt	" "$out"
+assert_eq "A1.6 symlinked registry: the link target is untouched" "keep me" "$(cat "$tmp/link-target")"
+assert_eq "A1.6 symlinked registry: replaced by a regular file" "no" "$([ -h "$registry_file" ] && echo yes || echo no)"
+mkdir -p "$tmp/outside"
+inception_fixture_write "$tmp/outside/linked" || exit 1
+ln -s "$tmp/outside/linked" "$roots/linked"
+reg rebuild
+assert_not_contains "A1.6 rebuild: a symlinked venture directory is skipped" "venture	linked	" "$out"
+rm -f "$roots/linked"
+
+# Concurrency: interleaved writers never leave a torn registry, and a reader
+# running alongside them never sees one.
+reg rebuild
+(
+  n=0
+  while [ $n -lt 150 ]; do
+    awk -F '\t' 'NR == 1 && $0 != "# planwright inception registry v1" { bad = 1 } NR > 1 && NF != 5 { bad = 1 } END { exit bad }' \
+      "$registry_file" 2>/dev/null || echo torn >>"$tmp/torn"
+    n=$((n + 1))
+  done
+) &
 i=0
 while [ $i -lt 12 ]; do
   CLAUDE_PLUGIN_DATA="$data" "$REG" set alpha --flags blocked >/dev/null 2>&1 &
@@ -201,6 +293,7 @@ while [ $i -lt 12 ]; do
   i=$((i + 1))
 done
 wait
+assert_eq "A1.6 interleaved writes: no reader saw a torn registry" "no" "$([ -s "$tmp/torn" ] && echo yes || echo no)"
 reg list
 assert_not_contains "A1.6 interleaved writes: the registry stays parseable" "rebuilt	" "$out"
 assert_contains "A1.6 interleaved writes: both ventures present" "venture	beta	" "$out"
@@ -238,6 +331,14 @@ reg status nobody
 assert_eq "J1.4 status: an unregistered venture exits 1" "1" "$rc"
 reg status '../alpha'
 assert_eq "J1.4 status: a hostile id is refused" "1" "$rc"
+venture epsilon
+reg add epsilon "$roots/epsilon"
+sed_i "$roots/epsilon/brief.md" 's/^\*\*Format-version:\*\* 1\.0$/**Format-version:** 9.0/'
+reg status epsilon
+assert_eq "J1.4 status: an unsupported bundle version passes exit 3 through" "3" "$rc"
+rm -rf "$roots/epsilon"
+reg status epsilon
+assert_eq "J1.4 status: a vanished bundle exits 2" "2" "$rc"
 
 # ---------------------------------------------------------------------------
 # REQ-J1.8 — telemetry and the feedback drop.
@@ -272,6 +373,29 @@ assert_not_contains "J1.8 drop-read: the email is neutralized" "ops@example.com"
 assert_not_contains "J1.8 drop-read: the URL is neutralized" "intranet.example.com" "$out"
 assert_not_contains "J1.8 drop-read: the token is neutralized" "ghp_ABCDEFGH" "$out"
 assert_contains "J1.8 drop-read: placeholders say what was removed" "<venture>" "$out"
+reg drop alpha "Compare beta with Alpha's flow (see ventures/alpha/brief.md, \`$roots/beta/plan.md\`), Northwind Signals at intranet.example.com, key AKIAIOSFODNN7EXAMPLE, ping @opslead"
+reg drop alpha "Café ops leads liked it"
+assert_eq "J1.8 drop: UTF-8 text is accepted" "0" "$rc"
+reg drop-read
+assert_not_contains "J1.8 drop-read: another registered venture is neutralized" "beta" "$out"
+assert_not_contains "J1.8 drop-read: capitalized and possessive ids are neutralized" "Alpha's" "$out"
+assert_not_contains "J1.8 drop-read: an id inside a relative path is neutralized" "ventures/alpha" "$out"
+assert_not_contains "J1.8 drop-read: the venture title is neutralized" "Northwind" "$out"
+assert_not_contains "J1.8 drop-read: a bare domain is neutralized" "intranet.example" "$out"
+assert_not_contains "J1.8 drop-read: an access-key id is neutralized" "AKIAIOSFODNN7EXAMPLE" "$out"
+assert_not_contains "J1.8 drop-read: a handle is neutralized" "@opslead" "$out"
+assert_contains "J1.8 drop-read: UTF-8 text survives" "Café ops leads" "$out"
+mv "$registry_file" "$tmp/registry-aside"
+mv "$roots" "$tmp/roots-aside"
+reg drop-read
+assert_eq "J1.8 drop-read without a registry: still reads" "0" "$rc"
+assert_not_contains "J1.8 drop-read without a registry: ids the drop names stay neutralized" " alpha " "$out"
+mv "$tmp/roots-aside" "$roots"
+mv "$tmp/registry-aside" "$registry_file"
+printf 'not-a-date\talpha\tescape %s[31m here\n' "$(printf '\033')" >>"$data/inception/drop.tsv"
+reg drop-read
+assert_not_contains "J1.8 drop-read: a hostile drop row loses its escape byte" "$(printf '\033')" "$out"
+assert_contains "J1.8 drop-read: a hostile drop row is undated" "entry	undated	escape" "$out"
 reg_nodata drop-read
 assert_eq "J1.8 drop-read without a data home: degrades, exit 6" "6" "$rc"
 
@@ -291,29 +415,31 @@ card() {
 card stale-medium 2025-01-10 medium
 card fresh-medium 2026-06-01 medium
 card fast-moving 2026-07-01 fast
+card fast-fresh 2026-08-20 fast
 card slow-method 2019-01-01 slow
 
 venture gamma
-sed 's/^_Skipped: appetite is set at the portfolio level.*$/Two weeks, then decide./' "$roots/gamma/brief.md" >"$tmp/g" && mv "$tmp/g" "$roots/gamma/brief.md"
+sed_i "$roots/gamma/brief.md" 's/^_Skipped: appetite is set at the portfolio level.*$/Two weeks, then decide./'
 venture delta
-sed "s/^\*\*Status:\*\* Exploring\$/**Status:** Abandoned/" "$roots/delta/brief.md" >"$tmp/d" && mv "$tmp/d" "$roots/delta/brief.md"
+sed_i "$roots/delta/brief.md" "s/^\*\*Status:\*\* Exploring\$/**Status:** Abandoned/"
 reg rebuild
 reg portfolio --cards "$cards"
 assert_eq "J1.7 portfolio: exit 0" "0" "$rc"
 assert_contains "J1.7 portfolio: alpha's attention flags" \
-  "$(printf 'venture\talpha\tExploring\tkill-approaching,blocked\t25\tskipped')" "$out"
+  "$(printf 'venture\talpha\tExploring\tkill-approaching,blocked,open-forks\t25\tskipped')" "$out"
 assert_contains "J1.7 portfolio: age versus appetite" \
-  "$(printf 'venture\tgamma\tExploring\tkill-approaching,blocked,over-appetite\t25\t14')" "$out"
+  "$(printf 'venture\tgamma\tExploring\tkill-approaching,blocked,open-forks,over-appetite\t25\t14')" "$out"
 assert_contains "J1.7 portfolio: a closed venture carries no flags" \
   "$(printf 'venture\tdelta\tAbandoned\tnone')" "$out"
 assert_contains "J1.7 portfolio: a medium card past its year" "$(printf 'card-review\tstale-medium\t2025-01-10\tmedium')" "$out"
 assert_not_contains "J1.7 portfolio: a fresh card is quiet" "fresh-medium" "$out"
 assert_contains "J1.7 portfolio: a fast card older than a live venture" "$(printf 'card-review\tfast-moving\t2026-07-01\tfast')" "$out"
 assert_not_contains "J1.7 portfolio: a slow card is never date-flagged" "slow-method" "$out"
-assert_contains "J1.7 portfolio: unstaffed-discipline frequency" "$(printf 'unstaffed\tlegal\t3')" "$out"
-assert_contains "J1.7 portfolio: every unstaffed discipline counted" "$(printf 'unstaffed\tsecurity\t1')" "$out"
+assert_not_contains "J1.7 portfolio: a fast card reviewed after every venture began is quiet" "fast-fresh" "$out"
+assert_eq "J1.7 portfolio: unstaffed disciplines, distinct ventures, most first" \
+  "$(printf 'unstaffed\tlegal\t2\nunstaffed\tsecurity\t1')" "$(printf '%s\n' "$out" | grep '^unstaffed	')"
 reg get alpha
-assert_contains "J1.7 portfolio writes the flags back to the registry" "kill-approaching,blocked" "$out"
+assert_contains "J1.7 portfolio writes the flags back to the registry" "kill-approaching,blocked,open-forks" "$out"
 
 PLANWRIGHT_INCEPTION_TODAY=2026-10-02 reg portfolio --cards "$cards"
 assert_contains "J1.7 portfolio: a tripped kill date" "$(printf 'venture\talpha\tExploring\tkill-tripped')" "$out"
@@ -321,6 +447,8 @@ assert_contains "J1.7 portfolio: a tripped kill date" "$(printf 'venture\talpha\
 rm -rf "$roots/gamma"
 reg portfolio --cards "$cards"
 assert_contains "J1.7 portfolio: a vanished venture is flagged, not fatal" "$(printf 'venture\tgamma\tExploring\tunreadable')" "$out"
+reg get gamma
+assert_contains "J1.7 portfolio: an unreadable venture keeps its last flags" "over-appetite" "$out"
 
 empty_data="$tmp/empty-data"
 mkdir -p "$tmp/empty-home/ventures"
