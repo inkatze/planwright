@@ -321,7 +321,11 @@ columns changed (`fleet-state.sh amend`). A value the registry's grammar
 refuses (a name with a space, say, which the session-name screen admits) is
 dropped with a warning naming it while the other still lands. Nothing reads a
 name back after a launch: a worker whose hook never ran keeps both sentinels,
-and a tower's downward messages to it take the fallback path. Records written
+and a tower's downward messages to it take the fallback path. Delivery of the
+identity is best-effort for now: every seam registers after its worker
+starts, so a hook that runs before the row exists records nothing, and a
+stream-json recovery re-registers with the sentinels after the resumed
+session has amended. Records written
 before these columns (seven fields, or three before the owner) still parse
 everywhere.
 

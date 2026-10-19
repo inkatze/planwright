@@ -196,6 +196,10 @@ if [ -f "$h/registry" ]; then
   [ "$(col "$h" 7)" = "process 4242" ] || fail "a1: column 7 is not the death handle"
   [ "$(col "$h" 8)" = - ] || fail "a1: column 8 (name) is not the sentinel before any amend"
   [ "$(col "$h" 9)" = - ] || fail "a1: column 9 (inbox) is not the sentinel before any amend"
+  fs_at "$h" amend worker-alpha --name sess-alpha --inbox 4242.sock >/dev/null 2>&1 \
+    || fail "a1: amend of the registered record failed"
+  [ "$(tail -n 1 "$h/registry" | cut -f8-9)" = "sess-alpha${tab}4242.sock" ] \
+    || fail "a1: the amend did not fill name (8) then inbox (9): $(tail -n 1 "$h/registry")"
 else
   fail "a1: no registry written"
 fi

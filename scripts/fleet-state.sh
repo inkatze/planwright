@@ -913,6 +913,7 @@ case $cmd in
     have_name=0
     have_inbox=0
     clear_inbox=0
+    inbox_given=0
     while [ "$#" -gt 0 ]; do
       case $1 in
         --name | --inbox)
@@ -928,6 +929,7 @@ case $cmd in
             --inbox)
               new_inbox=$2
               have_inbox=1
+              inbox_given=1
               ;;
           esac
           shift 2
@@ -952,6 +954,10 @@ case $cmd in
           ;;
       esac
     done
+    if [ "$clear_inbox" = 1 ] && [ "$inbox_given" = 1 ]; then
+      printf '%s\n' "fleet-state: amend: --inbox and --clear-inbox do not combine" >&2
+      exit 2
+    fi
     if [ -z "$worker" ] || [ "$have_name$have_inbox" = 00 ]; then
       printf '%s\n' "usage: fleet-state.sh amend <worker> [--name <name>] [--inbox <basename> | --clear-inbox] (at least one)" >&2
       exit 2

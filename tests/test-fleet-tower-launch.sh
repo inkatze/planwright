@@ -134,6 +134,13 @@ case $(field "$out" name) in
   planwright-tower-meta-[0-9]*-[0-9]*) ;;
   *) fail "t2: the meta tower's name is wrong: $out" ;;
 esac
+# An inherited git selector does not move the default checkout.
+mkdir -p "$tmp/other/.git"
+mkdir -p "$tmp/repo"
+git init -q "$tmp/repo"
+out=$(cd "$tmp/repo" && GIT_DIR="$tmp/other/.git" GIT_WORK_TREE="$tmp/other" \
+  launch SHIM_REC="$tmp/rec2g" /bin/sh "$FTL" demo --dry-run 2>/dev/null)
+[ "$(field "$out" checkout)" = "$tmp/repo" ] || fail "t2: an inherited GIT_DIR moved the tower's checkout: $out"
 [ "$fails" = "$f0" ] && ok "t2 --unattended, --meta, and --dry-run shape the launch"
 
 # --- t3 -----------------------------------------------------------------------

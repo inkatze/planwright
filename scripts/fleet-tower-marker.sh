@@ -397,8 +397,10 @@ case "$cmd" in
     fi
     # The name is the one field a reader may hand on as an address, so a
     # hostile one is refused here rather than passed through.
-    row_name=$(printf '%s\n' "$row" | awk -F'\t' 'NR == 1 && NF >= 8 { print $8 }')
-    if [ -n "$row_name" ] && [ "$row_name" != "-" ] && ! valid_name "$row_name"; then
+    row_name=$(printf '%s\n' "$row" | awk -F'\t' 'NR == 1 && NF >= 8 { print "=" $8 }')
+    row_name=${row_name#=}
+    if [ -n "$(printf '%s\n' "$row" | awk -F'\t' 'NR == 1 && NF >= 8')" ] && [ "$row_name" != "-" ] \
+      && ! valid_name "$row_name"; then
       echo "fleet-tower-marker: refusing a marker whose session-name field fails the screen; repair or clear it" >&2
       exit 2
     fi

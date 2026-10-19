@@ -47,10 +47,9 @@ core_cfg="$tmp/core-defaults.yml"
 cp "$REPO_ROOT/config/defaults.yml" "$core_cfg"
 mkdir -p "$tmp/cfg-repo/.claude"
 
-# A dead pid: a short-lived child, reaped.
-sh -c 'exit 0' &
-dead=$!
-wait "$dead"
+# A dead pid: one past the highest pid the host assigns, so no later process
+# can take it while the cases run.
+dead=$(($(cat /proc/sys/kernel/pid_max 2>/dev/null || echo 99999) + 1))
 
 run() {
   r_home=$1

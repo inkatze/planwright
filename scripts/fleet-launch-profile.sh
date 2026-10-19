@@ -7,10 +7,11 @@
 # when the seam already holds the one it pins its session to, else the one the
 # core root chain names (scripts/resolve-root.sh install), whose first arms are
 # the PLANWRIGHT_ROOT and CLAUDE_PLUGIN_ROOT values fleet-dispatch-env.sh pins
-# a session to, so the profile and the hooks it names come from one install. A launch without its profile would run under
-# whatever the operator's own settings say, which is the silent-delivery
-# failure obs:eea622de recorded, so a profile that is missing, unreadable, or
-# not a regular file is refused with the path named, and the seam refuses its
+# a session to, so the profile and the hooks it names come from one install.
+# A launch without its profile would run under whatever the operator's own
+# settings say, which is the silent-delivery failure obs:eea622de recorded, so
+# a profile that is missing, unreadable, not a regular file, or reached through
+# a symbolic link is refused with the path named, and the seam refuses its
 # launch on that exit.
 #
 # Usage: fleet-launch-profile.sh worker|tower [--root <abs-dir>]
@@ -60,7 +61,9 @@ if [ -z "$root" ]; then
 fi
 
 profile="$root/config/$kind-settings.json"
-if [ ! -f "$profile" ] || [ ! -r "$profile" ]; then
+# A link could load another install's policy while the session's hooks stay
+# pinned to this root.
+if [ -L "$root/config" ] || [ -L "$profile" ] || [ ! -f "$profile" ] || [ ! -r "$profile" ]; then
   printf '%s\n' "$me: cannot read the $kind settings profile $profile; refusing to launch without it" >&2
   exit 1
 fi

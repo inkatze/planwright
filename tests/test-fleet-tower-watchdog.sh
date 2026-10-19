@@ -494,7 +494,7 @@ out=$(PATH="$bin:$PATH" PLANWRIGHT_FLEET_STATE_DIR="$home" \
   PLANWRIGHT_REPO_ROOT="$fake_root" \
   PLANWRIGHT_LOCAL_CONFIG="$tmp/no-local.yml" \
   PLANWRIGHT_TOWER_READY_CHECK="$bin/ready-ok" \
-  env -u PLANWRIGHT_ROOT /bin/bash "$FTW" "$spec_dir" 2>/dev/null) || fail "default-launcher tick exited non-zero"
+  env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR /bin/bash "$FTW" "$spec_dir" 2>/dev/null) || fail "default-launcher tick exited non-zero"
 [ "$out" = relaunched ] || fail "default-launcher outcome '$out'"
 # The relaunched tower is named after its session, takes the tower profile with
 # --settings, and gets the inbound layer through the env wrapper beside it

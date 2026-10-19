@@ -236,7 +236,11 @@ printf 'bad-spec\tunattended\t4246\t-\t-\t%s\t100\ta/b\n' "$checkout" >"$towers/
 rc=0
 read_marker bad-spec >/dev/null 2>"$tmp/err" || rc=$?
 [ "$rc" = 2 ] || fail "read accepted a planted hostile name (exit $rc)"
-echo "ok: read takes seven- and eight-field rows and refuses a hostile name"
+printf 'empty-spec\tunattended\t4247\t-\t-\t%s\t100\t\n' "$checkout" >"$towers/empty-spec"
+rc=0
+read_marker empty-spec >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "read accepted an eighth field left empty (exit $rc)"
+echo "ok: read takes seven- and eight-field rows and refuses a hostile or empty name"
 
 # --- record is an upsert (one row per spec) -----------------------------------
 

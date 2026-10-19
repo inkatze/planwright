@@ -147,11 +147,12 @@ f0=$fails
 h=$(home i6)
 fs_at "$h" register w1 demo:4 --backend tmux >/dev/null
 n=$(grep -c . "$h/registry")
+: >"$tmp/err"
 # shellcheck disable=SC2016 # literal hostile values
 for v in "-" "" "a b" "a/b" ".." 'a$(id)' 'a`id`' "a;b" "$(printf 'a\tb')" \
   "$(printf 'a\nb')" "$(printf 'a\033[2Jb')" "$(printf '%0129d' 0)" "--name"; do
   rc=0
-  fs_at "$h" amend w1 --name "$v" >/dev/null 2>"$tmp/err" || rc=$?
+  fs_at "$h" amend w1 --name "$v" >/dev/null 2>>"$tmp/err" || rc=$?
   [ "$rc" = 2 ] || fail "i6: amend accepted the name [$v] (exit $rc)"
   rc=0
   fs_at "$h" amend w1 --inbox "$v" >/dev/null 2>>"$tmp/err" || rc=$?
@@ -230,6 +231,16 @@ fs_at "$h" amend w1 --clear-inbox || fail "i9: --clear-inbox exited non-zero"
 rc=0
 fs_at "$h" amend w1 --inbox - >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "i9: the sentinel as an --inbox value was accepted (exit $rc)"
+for order in "--clear-inbox --inbox" "--inbox"; do
+  rc=0
+  if [ "$order" = --inbox ]; then
+    fs_at "$h" amend w1 --inbox a/b --clear-inbox >/dev/null 2>&1 || rc=$?
+  else
+    fs_at "$h" amend w1 --clear-inbox --inbox a/b >/dev/null 2>&1 || rc=$?
+  fi
+  [ "$rc" = 2 ] || fail "i9: --inbox beside --clear-inbox ($order first) was accepted (exit $rc)"
+done
+grep -q 'a/b' "$h/registry" && fail "i9: a malformed inbox reached the registry through the flag combination"
 [ "$fails" = "$f0" ] && ok "i9 a no-change amend writes nothing; a torn record is refused; --clear-inbox restores the sentinel"
 
 if [ "$fails" -ne 0 ]; then

@@ -744,7 +744,7 @@ cmd_self_register() {
     printf '%s\n' "$me: self-register: the per-session record carries no usable socket path; recording the name alone" >&2
   else
     md_box=${md_sock##*/}
-    if ! valid_inbox "$md_box"; then
+    if ! valid_inbox "$md_box" || [ "${md_box#-}" != "$md_box" ]; then
       printf '%s\n' "$me: self-register: the socket basename fails the inbox screen; recording the name alone" >&2
       md_box=''
     fi

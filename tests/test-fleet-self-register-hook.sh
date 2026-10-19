@@ -40,7 +40,7 @@ command -v jq >/dev/null 2>&1 || {
   exit 1
 }
 
-tmp=$(cd "$(mktemp -d)" && pwd -P)
+tmp=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/fleet-self-register-hook.XXXXXX")" && pwd -P)
 trap 'rm -rf "$tmp"' EXIT
 TAB=$(printf '\t')
 home="$tmp/home"
@@ -160,6 +160,13 @@ hook 4248 PLANWRIGHT_WORKER_HANDLE=tmux-demo-task-7 PLANWRIGHT_WORKER_SCOPE=demo
 record 4249 tmux-demo-task-7 "relative/4249.sock"
 hook 4249 PLANWRIGHT_WORKER_HANDLE=tmux-demo-task-7 PLANWRIGHT_WORKER_SCOPE=demo:7 2>/dev/null
 [ "$(last tmux-demo-task-7 | cut -f9)" = - ] || fail "s4b: a session with no usable socket kept an earlier inbox: $(last tmux-demo-task-7)"
+# A socket basename starting with a dash is one the registry refuses, so it
+# reads as no usable socket: the earlier inbox is cleared, not left standing.
+record 4250 tmux-demo-task-7 "$socks/4250.sock"
+hook 4250 PLANWRIGHT_WORKER_HANDLE=tmux-demo-task-7 PLANWRIGHT_WORKER_SCOPE=demo:7 2>/dev/null
+record 4251 tmux-demo-task-7 "$socks/-4251.sock"
+hook 4251 PLANWRIGHT_WORKER_HANDLE=tmux-demo-task-7 PLANWRIGHT_WORKER_SCOPE=demo:7 2>/dev/null
+[ "$(last tmux-demo-task-7 | cut -f9)" = - ] || fail "s4b: a dash-led socket basename left an earlier inbox: $(last tmux-demo-task-7)"
 [ "$fails" = "$f0" ] && ok "s4b a record with no usable socket still records the name"
 
 # --- s5 -----------------------------------------------------------------------

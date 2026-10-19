@@ -765,16 +765,20 @@ grep -q "worker-settings.json" "$tmp/nocfg.err" \
 mkdir -p "$tmp/badroot/config" "$tmp/badroot/scripts"
 cp "$here/../config/worker-settings.json" "$tmp/badroot/config/"
 chmod 000 "$tmp/badroot/config/worker-settings.json"
-: >"$rec/argv"
-env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_ROOT="$tmp/badroot" \
-  PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" SHIM_RECORD_DIR="$rec" \
-  /bin/sh "$here/../scripts/fleet-streamjson.sh" \
-  launch sjw9e execution-backends:4 --prompt-file "$tmp/prompt9" --foreground \
-  >/dev/null 2>"$tmp/badroot.err"
-[ $? -eq 7 ] || fail "c9: an unreadable profile under PLANWRIGHT_ROOT must refuse the launch (exit 7)"
-grep -qF "$tmp/badroot/config/worker-settings.json" "$tmp/badroot.err" \
-  || fail "c9: the unreadable-profile refusal must name the profile: $(cat "$tmp/badroot.err")"
-[ ! -s "$rec/argv" ] || fail "c9: the unreadable-profile launch must never spawn the worker"
+if [ -r "$tmp/badroot/config/worker-settings.json" ]; then
+  echo "skip: c9 unreadable profile: mode 000 does not make a file unreadable to this user"
+else
+  : >"$rec/argv"
+  env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_ROOT="$tmp/badroot" \
+    PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" SHIM_RECORD_DIR="$rec" \
+    /bin/sh "$here/../scripts/fleet-streamjson.sh" \
+    launch sjw9e execution-backends:4 --prompt-file "$tmp/prompt9" --foreground \
+    >/dev/null 2>"$tmp/badroot.err"
+  [ $? -eq 7 ] || fail "c9: an unreadable profile under PLANWRIGHT_ROOT must refuse the launch (exit 7)"
+  grep -qF "$tmp/badroot/config/worker-settings.json" "$tmp/badroot.err" \
+    || fail "c9: the unreadable-profile refusal must name the profile: $(cat "$tmp/badroot.err")"
+  [ ! -s "$rec/argv" ] || fail "c9: the unreadable-profile launch must never spawn the worker"
+fi
 chmod 644 "$tmp/badroot/config/worker-settings.json"
 echo "ok: c9 pinned non-bare launch shape with the settings pin, prompt-as-data, --bare and --settings refused, missing fragment fails closed (REQ-A1.9, D-12, D-19)"
 

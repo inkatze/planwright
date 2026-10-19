@@ -313,7 +313,7 @@ case "$sub" in
         printf '%s\n' "'$script_dir/orchestrate-relay.sh' deliver tmux '$handle' '$msg_abs'"
         exit 0
         ;;
-      stream-json)
+      stream-json | stream-json-persistent)
         valid_handle stream-json "$handle" || reject_handle stream-json
         valid_msgfile "$msg" || {
           printf '%s\n' "$me: message file missing or path unsafe to relay: $(sanitize_printable "$msg" "(unprintable path)")" >&2
@@ -428,7 +428,7 @@ case "$sub" in
         printf '%s\n' "tmux capture-pane -p -t '$handle'"
         exit 0
         ;;
-      stream-json)
+      stream-json | stream-json-persistent)
         valid_handle stream-json "$handle" || reject_handle stream-json
         require_safe_script_dir
         printf '%s\n' "'$script_dir/fleet-streamjson.sh' status '$handle'"

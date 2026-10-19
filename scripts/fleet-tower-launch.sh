@@ -32,8 +32,8 @@
 #            [--checkout <abs-dir>] [--dry-run]
 #   --checkout   the tower's checkout (default: the git top level of the
 #                working directory)
-#   --dry-run    print the launch as `tower-launch<TAB>argv<TAB><word>...`
-#                and start nothing
+#   --dry-run    print the launch as `tower-launch<TAB>argv<TAB><word>...`,
+#                then its name and checkout, and start nothing
 # Report: `tower-launch<TAB>name|pid|log<TAB><value>` lines. The pid is the
 # fresh tower's process, still alive about a second after the launch: the
 # liveness evidence a retiring tower confirms before it stops. A tower that
@@ -117,6 +117,10 @@ else
 fi
 
 if [ -z "$checkout" ]; then
+  # An inherited selector would point the lookup, and so the fresh tower, at
+  # another repository (the resolve-root.sh discipline).
+  unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+    GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
   checkout=$(git rev-parse --show-toplevel 2>/dev/null) || checkout=$(pwd)
 fi
 case $checkout in
@@ -161,6 +165,7 @@ if [ "$dry" = 1 ]; then
   for w in "$@"; do printf '\t%s' "$(sanitize_printable "$w")"; done
   printf '\n'
   printf 'tower-launch\tname\t%s\n' "$name"
+  printf 'tower-launch\tcheckout\t%s\n' "$(sanitize_printable "$checkout")"
   exit 0
 fi
 

@@ -6,7 +6,8 @@
 # naming the profile, when it cannot be read (obs:eea622de).
 #   p1  `worker` and `tower` print the absolute profile path under the root
 #   p2  --root names the root explicitly, over PLANWRIGHT_ROOT
-#   p3  a missing, unreadable, or non-regular profile exits 1 naming it
+#   p3  a missing, unreadable, non-regular, or symlinked profile (or config
+#       directory) exits 1 naming it
 #   p4  an unknown kind or a relative --root is a usage error (2)
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
@@ -25,7 +26,7 @@ fail() {
   fails=$((fails + 1))
 }
 
-tmp=$(cd "$(mktemp -d)" && pwd -P)
+tmp=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/test-fleet-launch-profile.XXXXXX")" && pwd -P)
 trap 'chmod -R u+rwx "$tmp" 2>/dev/null; rm -rf "$tmp"' EXIT
 
 # copy_root <dir> — a planwright root holding the two shipped profiles.
@@ -58,7 +59,18 @@ mkdir -p "$tmp/r3/config" "$tmp/r3/scripts"
 check_refused "a missing profile" "$tmp/r3" worker
 copy_root "$tmp/r4"
 chmod 000 "$tmp/r4/config/tower-settings.json"
-check_refused "an unreadable profile" "$tmp/r4" tower
+if [ -r "$tmp/r4/config/tower-settings.json" ]; then
+  echo "skip p3: mode 000 does not make a file unreadable to this user"
+else
+  check_refused "an unreadable profile" "$tmp/r4" tower
+fi
+chmod 644 "$tmp/r4/config/tower-settings.json"
+mkdir -p "$tmp/r6/config" "$tmp/r6/scripts"
+ln -s "$REPO_ROOT/config/worker-settings.json" "$tmp/r6/config/worker-settings.json"
+check_refused "a symlinked profile" "$tmp/r6" worker
+mkdir -p "$tmp/r7/scripts"
+ln -s "$REPO_ROOT/config" "$tmp/r7/config"
+check_refused "a symlinked config directory" "$tmp/r7" worker
 mkdir -p "$tmp/r5/config/worker-settings.json" "$tmp/r5/scripts"
 check_refused "a directory in the profile's place" "$tmp/r5" worker
 
