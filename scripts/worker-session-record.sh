@@ -22,10 +22,13 @@
 # <fleet-home>/session-records/<sha1-of-worktree-root>.record, owner-only, by
 # an atomic rename, printing the path. A <launch-id> (16 to 64 lowercase hex
 # digits) names a record for that launch alone, <sha1>-<launch-id>.record, so
-# a launch that loses a race to another never rewrites the winner's. The launcher exports that path to the
-# worker as PLANWRIGHT_WORKER_SESSION_RECORD. The record lies outside the
-# worktree (a fleet home inside it is refused), so nothing the worker writes
-# there reaches it; relaunching rewrites it from current config.
+# a launch that loses a race to another never rewrites the winner's. The
+# launcher exports that path to the worker as
+# PLANWRIGHT_WORKER_SESSION_RECORD. The record lies outside the worktree (a
+# fleet home inside it is refused), so nothing the worker writes there reaches
+# it. A relaunch writes a fresh record from current config: the same file
+# without a launch id, a new one with. `fleet-cleanup.sh worktree` removes
+# every record for a worktree it reclaims.
 #
 # Exit: 0 written; 1 the record could not be resolved or written; 2 usage.
 set -uf

@@ -667,6 +667,20 @@ case "$cmd" in
       warn "git worktree remove '$path' failed — not reclaimed"
       exit 5
     fi
+    # The worktree's session records (scripts/worker-session-record.sh) name
+    # a worktree that no longer exists, and the tmux rung writes one per
+    # launch, so this is where they stop accumulating.
+    rec_home=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null </dev/null) || rec_home=""
+    rec_key=$(printf '%s' "$target_wt" | git hash-object --stdin 2>/dev/null) || rec_key=""
+    case $rec_home:$rec_key in
+      /*:[0-9a-f]*)
+        [ ! -d "$rec_home/session-records" ] \
+          || find "$rec_home/session-records" -maxdepth 1 -type f \
+            \( -name "$rec_key.record" -o -name "$rec_key-*.record" \) \
+            -exec rm -f -- {} + 2>/dev/null \
+          || warn "removed worktree '$path' but could not remove its session records"
+        ;;
+    esac
     if ! audit worktree-cleanup cleanup "$trigger" "$reasoning"; then
       warn "removed worktree '$path' but FAILED to record it in the audit trail"
       exit 6
