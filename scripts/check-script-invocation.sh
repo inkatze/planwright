@@ -190,7 +190,12 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
       op = ""
       for (j = i + 1; j <= n; j++) {
         a = w[j]
-        if (a == "--" || a == "-" || a == "<") continue
+        if (a == "--" || a == "-") continue
+        # `sh < scripts/x.sh` reads the script on stdin; `sh < in x.sh` runs x.sh.
+        if (a == "<") {
+          if (j < n && w[j + 1] !~ /scripts\//) j++
+          continue
+        }
         if (a ~ /^[-+]o$/) { j++; continue }
         if (a ~ /^[0-9]*>+$/ || a ~ /^[0-9]+<$/) { j++; continue }
         if (a ~ /^--[A-Za-z]/ || a ~ /^[0-9]*>/ || a ~ /^[0-9]+</) continue
