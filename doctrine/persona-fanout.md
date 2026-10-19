@@ -96,7 +96,8 @@ reuse its literal path in every call.
      `collect --run <dir> <seat-id>.md` for each seat every 15 seconds
      against an explicit timeout until every seat exits 0; 4 is still
      pending, and any other exit stops the fan-out. Then close the seat
-     windows. A `stray` line means the session wrote a file it was not asked
+     windows. On a timeout, tell the operator which seats never delivered and
+     where their drop directories are (each run's `drop-<seat-id>` file). A `stray` line means the session wrote a file it was not asked
      for: tell the operator.
    - **`print`**: the same briefs, through
      `scripts/offload-dispatch.sh dispatch print <brief-file>`; hand the
