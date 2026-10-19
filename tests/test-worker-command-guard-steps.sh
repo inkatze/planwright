@@ -231,8 +231,9 @@ assert_defer "declared line with no declaring overlay deferred" "$DECLARED --mod
 # a copy of the hook beside a stub resolver that prints the location given,
 # with the overlay-root helpers the guard's catalog check runs.
 stub_scripts() {
-  mkdir -p "$1/scripts"
+  mkdir -p "$1/scripts" "$1/config"
   cp "$REAL_HOOK" "$1/scripts/worker-command-guard.sh"
+  cp "$REPO_ROOT/config/worker-settings.json" "$1/config/"
   cp "$REPO_ROOT/scripts/resolve-overlay-root.sh" "$REPO_ROOT/scripts/resolve-root.sh" "$1/scripts/"
 }
 stub_root() {
@@ -253,6 +254,13 @@ assert_allow "stub: a clean printed location approved" "$DECLARED" Bash "$FXC"
 HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=09")
 assert_allow "stub: a zero-led deadline override reads as decimal" "$DECLARED" Bash "$FXC"
 HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
+# A declared line a deny rule of the profile matches is refused before the
+# declared steps are consulted (REQ-A1.11): the floor holds for every category.
+stub_root "$FX/stub-denied" "$DECLARED" "$DECLARED"
+jq --arg r "Bash($DECLARED:*)" '.permissions.deny += [$r]' "$REPO_ROOT/config/worker-settings.json" \
+  >"$FX/stub-denied/config/worker-settings.json"
+HOOK="$FX/stub-denied/scripts/worker-command-guard.sh"
+assert_defer "REQ-A1.11: a declared line a deny rule matches deferred" "$DECLARED" Bash "$FXC"
 stub_root "$FX/stub-dotdot" "$FX/repo/tools/../tools/declared.sh" "$FX/repo/tools/../tools/declared.sh"
 HOOK="$FX/stub-dotdot/scripts/worker-command-guard.sh"
 assert_defer "stub: a printed path location with a traversal segment deferred" \

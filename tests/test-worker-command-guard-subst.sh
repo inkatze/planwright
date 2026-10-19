@@ -152,7 +152,8 @@ SUBST_REPO="$(cd "$SANDBOX" && pwd -P)/substrepo"
 mkdir -p "$SUBST_REPO/scripts"
 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$SUBST_REPO"
 : >"$SUBST_REPO/scripts/ok.sh"
-HOOK_ENV=("GIT_CONFIG_GLOBAL=/dev/null" "GIT_CONFIG_NOSYSTEM=1")
+write_record "$SANDBOX/substrepo.record" "$SUBST_REPO"
+HOOK_ENV=("GIT_CONFIG_GLOBAL=/dev/null" "GIT_CONFIG_NOSYSTEM=1" "PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX/substrepo.record")
 assert_allow "REQ-E1.3: the inner-cd repository approves a plain cd" "cd scripts && ls" Bash "$SUBST_REPO"
 assert_defer "REQ-E1.3: an inner cd" "echo \$(cd scripts)" Bash "$SUBST_REPO"
 assert_defer "REQ-E1.3: an inner cd never carries past &&" "echo \$(cd scripts) && bash ok.sh" Bash "$SUBST_REPO"
@@ -181,7 +182,9 @@ echo "### REQ-E1.3 — the position fixtures discriminate against an over-broad 
 # The variant admits a substitution wherever its inner text passes the
 # read-only analysis, so every position fixture must allow there: one that
 # deferred anyway would not be testing the argument-independence check.
-mkdir -p "$SANDBOX/overbroad/scripts"
+# The variant reads the deny block beside it, as the guard does.
+mkdir -p "$SANDBOX/overbroad/scripts" "$SANDBOX/overbroad/config"
+cp "$REPO_ROOT/config/worker-settings.json" "$SANDBOX/overbroad/config/"
 awk '/^subst_reach_ok\(\) \{$/ { print "subst_reach_ok() { return 0; }"; skip = 1; next }
   skip && /^}$/ { skip = 0; next }
   !skip' "$REAL_HOOK" >"$SANDBOX/overbroad/scripts/worker-command-guard.sh"

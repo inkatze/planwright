@@ -14,23 +14,31 @@
 #   * No LLM in the decision path (REQ-A1.1); purely deterministic shell.
 #   * Allow-only: it emits `allow` or nothing. It NEVER emits deny/ask and
 #     NEVER exits non-zero — approval is upgrade-only; blocking stays with
-#     permissions.deny/ask (REQ-A1.2, REQ-B1.7). A hook `allow` therefore never
-#     needs to (and by design never does) auto-approve a deny-listed command:
-#     the enumerated allowlist is read-only shapes, trusted repo code, and the
-#     spec-root write zone, with zero overlap with the worker deny block, and
-#     the adversarial suite pins that (REQ-A1.3, REQ-B1.6). A declared step's
-#     line is the exception: it is whatever an operator declared, its trust
-#     resting on the declaring layer, not on the deny block (see
-#     declared_line_ok).
+#     permissions.deny/ask (REQ-A1.2, REQ-B1.7).
+#   * The floor first: before any approval is weighed,
+#     a simple command that a `Bash(…)` rule of the worker profile's deny
+#     block matches, or that is a reserved act (a push, rebase, reset, amend,
+#     hook skip, squash, or `gh` write), defers, declared steps' lines
+#     included. The guard reads the deny block itself rather than trusting
+#     Claude Code's evaluation order, and approves nothing when it cannot.
+#   * The self-approval policy: the read-only arm (read-only
+#     shapes, trusted repo code, declared steps, the spec-root write zone) is
+#     always in force; the own-branch arm, which approves writes confined to
+#     the unit branch and its worktree, only when the session record names it.
+#     The record is the launcher's (see session_record_load): the policy, the
+#     unit branch, and the worktree are never read from live config or the
+#     checkout.
 #   * The extracted command is treated strictly as INERT DATA — never eval-ed,
 #     re-expanded, glob-expanded, or used as a pattern/format/unquoted arg — so
 #     analyzing a hostile command can never execute it (REQ-B1.1).
-#   * One write class, live only when PLANWRIGHT_WORKER_SPEC_ROOT names a
-#     marked spec root, which the dispatchers hand in only when it lies outside
-#     the work repository (see in_spec_zone): a `>`/`>>` redirect, `tee
-#     [-a]`, or `mkdir [-p]` whose every target is a plain literal inside a
-#     bundle or reserved directory of that root. With no root handed in, or
-#     for any other target, it defers.
+#   * Two write classes. The spec-root write zone, live only when
+#     PLANWRIGHT_WORKER_SPEC_ROOT names a marked spec root, which the
+#     dispatchers hand in only when it lies outside the work repository (see
+#     in_spec_zone): a `>`/`>>` redirect, `tee [-a]`, or `mkdir [-p]` whose
+#     every target is a plain literal inside a bundle or reserved directory of
+#     that root. And the own-branch arm (see ob_path, ob_git), whose targets
+#     lie inside the recorded worktree and outside the paths a tool runs or
+#     trusts unprompted. Any other write defers.
 #   * Fail safe on EVERYTHING: jq absent, malformed/empty/non-string input,
 #     unknown construct, parser confusion, recursion past the depth bound, or
 #     any internal error all DEFER (empty stdout, exit 0). The fallthrough
@@ -126,7 +134,7 @@ readonly MAX_TRACKED_VARS=32
 # The fixed reason string. It is NEVER a reflection of the analyzed command
 # (REQ-B1.4): untrusted command content is never echoed to a terminal-driving
 # stream.
-readonly ALLOW_REASON='planwright worker-command-guard: enumerated known-safe read-only command shape (deterministic, no LLM)'
+readonly ALLOW_REASON='planwright worker-command-guard: enumerated known-safe command shape under the session self-approval policy (deterministic, no LLM)'
 
 # emit_allow: write the single allow decision (the only thing this hook ever
 # prints). Written as one final action after every check has passed, so there
@@ -875,11 +883,12 @@ spec_zone_redirect() {
   esac
 }
 
-# guard_tee / guard_mkdir: at least one operand, every operand a zone path;
-# the only flag `-a` (append) for tee and `-p` for mkdir, so no mode, context,
-# or ignore flag changes what lands.
+# guard_tee / guard_mkdir: at least one operand, every operand a zone path
+# or one the own-branch arm admits (ob_path); the only flag `-a` (append) for
+# tee and `-p` for mkdir, so no mode, context, or ignore flag changes what
+# lands.
 guard_tee() {
-  local i a ends=0 operands=0
+  local i a ends=0 operands=0 ob=0
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$ends" = 0 ]; then
@@ -892,19 +901,26 @@ guard_tee() {
         -*) return 1 ;;
       esac
     fi
-    in_spec_zone "$a" "$HOOK_CWD" || return 1
+    if ! in_spec_zone "$a" "$HOOK_CWD"; then
+      ob_live && ob_path "$a" leaf || return 1
+      ob=1
+    fi
     operands=$((operands + 1))
   done
-  [ "$operands" -ge 1 ]
+  [ "$operands" -ge 1 ] || return 1
+  [ "$ob" = 0 ] || ob_mark write
 }
 
 guard_mkdir() {
-  local i a ends=0 operands=0
+  local i a ends=0 operands=0 ob=0 mode=leaf
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$ends" = 0 ]; then
       case $a in
-        -p | --parents) continue ;;
+        -p | --parents)
+          mode=parents
+          continue
+          ;;
         --)
           ends=1
           continue
@@ -912,10 +928,897 @@ guard_mkdir() {
         -*) return 1 ;;
       esac
     fi
-    in_spec_zone "$a" "$HOOK_CWD" || return 1
+    if ! in_spec_zone "$a" "$HOOK_CWD"; then
+      ob_live && ob_path "$a" "$mode" || return 1
+      ob=1
+    fi
     operands=$((operands + 1))
   done
-  [ "$operands" -ge 1 ]
+  [ "$operands" -ge 1 ] || return 1
+  [ "$ob" = 0 ] || ob_mark write
+}
+
+# --------------------------------------------------------------------------
+# The session record. The launcher resolves the
+# self-approval policy, the unit branch, the worktree root, the PR base, and
+# the base-merge gate once, writes them to a record outside the worktree
+# (scripts/worker-session-record.sh), and hands its path in as
+# PLANWRIGHT_WORKER_SESSION_RECORD. The guard reads them from there and never
+# from live config or the checkout, so neither a Write to an overlay nor a
+# `git switch` changes what it approves. A field that is missing, repeated, or
+# outside its grammar is dropped, disabling whatever reads it: the
+# policy reads as the empty list, and without the worktree root and unit
+# branch neither the own-branch arm nor a `cd` approves anything. A record
+# that is unreadable, not this user's own regular file, or inside the
+# worktree it describes is no record.
+REC_POLICY=''
+REC_UNIT=''
+REC_WT=''
+REC_BASE=''
+REC_BASE_MERGE=''
+
+# rec_unit_branch_ok <name>: a task or flight branch, in policy-guard.sh's
+# grammar (is_unit_branch); a protected branch never matches it.
+rec_unit_branch_ok() {
+  local re_task='^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$'
+  local re_flight='^planwright/flight/[a-z0-9][a-z0-9-]*-[0-9a-f]{8}$'
+  case $1 in
+    planwright/flight/task-*) return 1 ;;
+  esac
+  [[ $1 =~ $re_task ]] || [[ $1 =~ $re_flight ]]
+}
+
+# rec_policy_norm <value>: the policy's members, or the empty list when any
+# member is unknown.
+rec_policy_norm() {
+  local m out=''
+  local -a members=()
+  IFS=' ' read -r -a members <<<"$1"
+  for m in ${members[@]+"${members[@]}"}; do
+    case $m in
+      own-branch | scratch) out="$out $m" ;;
+      *) return 0 ;;
+    esac
+  done
+  printf '%s' "${out# }"
+}
+
+session_record_load() {
+  local p=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line k v seen=' ' dup=' ' size dir
+  local policy='' unit='' wt='' base='' bm=''
+  case $p in
+    /?*) ;;
+    *) return 0 ;;
+  esac
+  [ -f "$p" ] && [ ! -L "$p" ] && [ -r "$p" ] && [ -O "$p" ] || return 0
+  size=$(wc -c <"$p" 2>/dev/null) || return 0
+  [ "${size// /}" -le 4096 ] 2>/dev/null || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case $line in
+      *=*) ;;
+      *) continue ;;
+    esac
+    k=${line%%=*}
+    v=${line#*=}
+    case $seen in
+      *" $k "*) dup="$dup$k " ;;
+    esac
+    seen="$seen$k "
+    case $k in
+      policy) policy=$v ;;
+      unit_branch) unit=$v ;;
+      worktree_root) wt=$v ;;
+      pr_base) base=$v ;;
+      worker_base_merge) bm=$v ;;
+    esac
+  done <"$p"
+  case $dup in *" policy "*) policy='' ;; esac
+  case $dup in *" unit_branch "*) unit='' ;; esac
+  case $dup in *" worktree_root "*) wt='' ;; esac
+  case $dup in *" pr_base "*) base='' ;; esac
+  case $dup in *" worker_base_merge "*) bm='' ;; esac
+  rec_unit_branch_ok "$unit" || unit=''
+  case $wt in
+    /?*) ;;
+    *) wt='' ;;
+  esac
+  case $wt in
+    *[[:cntrl:]]*) wt='' ;;
+  esac
+  if [ -n "$wt" ]; then
+    [ -d "$wt" ] && [ -e "$wt/.git" ] && [ "$(cd "$wt" 2>/dev/null && pwd -P)" = "$wt" ] || wt=''
+  fi
+  case $base in
+    [A-Za-z0-9]*/?*) ;;
+    *) base='' ;;
+  esac
+  case $base in
+    *[!A-Za-z0-9._/+@-]* | *..* | *//* | */ | *.lock | *.lock/* | */.* | *.) base='' ;;
+  esac
+  case ${base%%/*} in
+    *[!A-Za-z0-9._-]*) base='' ;;
+  esac
+  case $bm in
+    allow | deny) ;;
+    *) bm='' ;;
+  esac
+  # A record inside the worktree it describes is one the worker can rewrite.
+  dir=$(cd "$(dirname "$p")" 2>/dev/null && pwd -P) || return 0
+  if [ -n "$wt" ]; then
+    case $dir/ in
+      "$wt"/*) return 0 ;;
+    esac
+  fi
+  REC_POLICY=$(rec_policy_norm "$policy")
+  REC_UNIT=$unit
+  REC_WT=$wt
+  REC_BASE=$base
+  REC_BASE_MERGE=$bm
+}
+
+# --------------------------------------------------------------------------
+# The floor, checked for every simple command
+# before any arm or declared step is considered: whatever a `Bash(…)` rule of
+# the worker profile's deny block matches, and the reserved acts (any push, a
+# rebase or branch reset, an amend, fixup, squash, or hook skip on a commit, a
+# squash merge, and every `gh` act but the read-only ones the guard
+# enumerates), are never approved, whatever the policy. The arms below carry
+# the rest of the floor themselves: a write target outside the worktree or
+# inside an excluded path never passes ob_path.
+#
+# The deny rules come from the profile beside this guard
+# (<root>/config/worker-settings.json, the file the launchers pass as
+# --settings), compiled once per hook call with the documented matcher model
+# (tests/lib/permission-matcher.sh, docs/permission-matcher-model.md): a
+# trailing `:*` or ` *` matches at a word boundary, any other `*` anywhere.
+# The subject is the command's words joined by single spaces, as written and
+# again after substitution and the transparent prefixes, so the guard reads a
+# match wherever Claude Code's matcher would and in more places. A profile
+# that cannot be read, holds no Bash rule, or holds a malformed one leaves the
+# guard approving nothing.
+DENY_N=-1
+DENY_RE=()
+
+# deny_glob_ere <glob>: the glob as an ERE in DENY_ERE, its metacharacters
+# escaped and each `*` read as `.*`.
+deny_glob_ere() {
+  local g=$1 c
+  for c in "\\" '.' '+' '?' '(' ')' '[' ']' '{' '}' '^' '$' '|'; do
+    g=${g//"$c"/\\$c}
+  done
+  DENY_ERE=${g//\*/.*}
+}
+
+deny_load() {
+  local f rules rule pat n=0
+  DENY_N=0
+  DENY_RE=()
+  [ -n "${HOOK_SELF_ROOT:-}" ] || return 1
+  f=$HOOK_SELF_ROOT/config/worker-settings.json
+  [ -f "$f" ] && [ -r "$f" ] || return 1
+  rules=$(jq -r '.permissions.deny | if type == "array" then .[] | select(type == "string") else error("no deny array") end' "$f" 2>/dev/null) || return 1
+  while IFS= read -r rule; do
+    case $rule in
+      'Bash('*')') ;;
+      Bash*) return 1 ;;
+      *) continue ;;
+    esac
+    pat=${rule#Bash(}
+    pat=${pat%)}
+    case $pat in
+      *':*') pat="${pat%:\*} *" ;;
+    esac
+    case $pat in
+      *' *')
+        deny_glob_ere "${pat% \*}"
+        DENY_RE[n]="^$DENY_ERE( .*)?\$"
+        ;;
+      *)
+        deny_glob_ere "$pat"
+        DENY_RE[n]="^$DENY_ERE\$"
+        ;;
+    esac
+    n=$((n + 1))
+  done <<EOF
+$rules
+EOF
+  DENY_N=$n
+}
+
+# deny_hit <word>...: 0 when the words, joined by single spaces, match a deny
+# rule, or when the rules could not be read.
+deny_hit() {
+  local IFS=' ' subject i
+  subject="$*"
+  [ "$DENY_N" -ge 0 ] || deny_load
+  [ "$DENY_N" -gt 0 ] || return 0
+  for ((i = 0; i < DENY_N; i++)); do
+    [[ $subject =~ ${DENY_RE[i]} ]] && return 0
+  done
+  return 1
+}
+
+# floor_act: 0 when the current simple command (`cw`) is a reserved act.
+floor_act() {
+  local i a sub=''
+  [ "$cwn" -ne 2 ] || [ "${cw[1]}" != --version ] || return 1
+  case ${cw[0]-} in
+    git)
+      for ((i = 1; i < cwn; i++)); do
+        case ${cw[i]} in
+          -*) return 0 ;; # a global option: never approved, so never weighed
+        esac
+        sub=${cw[i]}
+        break
+      done
+      case $sub in
+        push | rebase | reset | filter-branch | filter-repo) return 0 ;;
+      esac
+      for ((i = i + 1; i < cwn; i++)); do
+        a=${cw[i]}
+        case $sub:$a in
+          *:--) break ;;
+          commit:--amend | commit:--fixup* | commit:--squash* | commit:--no-verify | commit:--no-veri* | merge:--squash) return 0 ;;
+          commit:--*) ;;
+          commit:-?*) short_flag_hit "$a" 'n' 'mFcCtuS' && return 0 ;;
+        esac
+      done
+      ;;
+    gh) guard_gh || return 0 ;;
+  esac
+  return 1
+}
+
+# --------------------------------------------------------------------------
+# The own-branch arm: live only when the
+# record's policy names it and the record carries the unit branch and the
+# worktree root, the payload directory lies inside that root, and the command
+# is the session's own (never inside a substitution or a `fish -c` string).
+# It approves file writes whose every target canonicalizes inside the worktree
+# and outside the excluded paths (ob_path), and the git acts that keep to the
+# unit branch (ob_git). A write never travels through a symlink, a `..`, or an
+# existing file with a second hard link. A segment that can leave a symlink
+# behind (a recursive copy, a move, a checkout, restore, or merge) is the only
+# writer its command may hold: the targets are checked before the command
+# runs, so a write after it could follow a link it created (ob_mark).
+OB_ON=0
+OB_WROTE=0
+OB_LINKY=0
+OB_EXCL_STATE=0
+OB_EXCL_DIRS=''
+
+ob_live() {
+  [ "$OB_ON" = 1 ] && [ "$IN_SUBST" = 0 ] && [ "$HOOK_DEPTH" -eq 0 ]
+}
+
+# ob_mark <write|link>: record an approved write, or a link-capable segment
+# (itself a write); 1 when the command already holds what that conflicts with.
+ob_mark() {
+  [ "$OB_LINKY" = 0 ] || return 1
+  case $1 in
+    write) OB_WROTE=1 ;;
+    link)
+      [ "$OB_WROTE" = 0 ] || return 1
+      OB_LINKY=1
+      ;;
+  esac
+}
+
+# canon_loose <abs>: the canonical form of an absolute path whose trailing
+# components may not exist yet.
+canon_loose() {
+  local p=$1 tail='' c
+  while [ ! -d "$p" ]; do
+    [ "$p" != / ] && [ -n "$p" ] || return 1
+    tail=/${p##*/}$tail
+    p=${p%/*}
+    [ -n "$p" ] || p=/
+  done
+  c=$(cd "$p" 2>/dev/null && pwd -P) || return 1
+  printf '%s' "${c%/}$tail"
+}
+
+# ob_excl_load: the git directory, the common directory, and the hooks
+# directory git runs from (core.hooksPath or the default), canonical, into
+# OB_EXCL_DIRS. Non-zero when git cannot name them, which refuses every
+# own-branch write.
+ob_excl_load() {
+  local raw line c out=''
+  case $OB_EXCL_STATE in
+    1) return 0 ;;
+    2) return 1 ;;
+  esac
+  OB_EXCL_STATE=2
+  raw=$(git -C "$REC_WT" rev-parse --path-format=absolute --git-dir --git-common-dir --git-path hooks 2>/dev/null) || return 1
+  while IFS= read -r line; do
+    case $line in
+      /*) ;;
+      *) return 1 ;;
+    esac
+    c=$(canon_loose "$line") || return 1
+    out="$out$c$NL"
+  done <<EOF
+$raw
+EOF
+  [ -n "$out" ] || return 1
+  OB_EXCL_DIRS=$out
+  OB_EXCL_STATE=1
+}
+
+# ob_excluded_name <component>: the names a tool runs or trusts without a
+# further prompt, matched case-insensitively at any depth, since
+# mise reads a config from whatever directory it starts in.
+ob_excluded_name() {
+  local low
+  low=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  case $low in
+    .git | .claude | .envrc | .tool-versions | .config | .mise | mise | mise.toml | .mise.toml | mise.*.toml | .mise.*.toml | lefthook | lefthook.* | lefthook-local.* | .lefthook | .lefthook.* | .lefthook-local | .lefthook-local.*) return 0 ;;
+  esac
+  return 1
+}
+
+# ob_excluded <canonical-path>: 0 when the path is, or lies under, an excluded
+# path.
+ob_excluded() {
+  local full=$1 d comp
+  local -a comps=()
+  ob_excl_load || return 0
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    case $full/ in
+      "$d"/*) return 0 ;;
+    esac
+  done <<EOF
+$OB_EXCL_DIRS
+EOF
+  IFS=/ read -r -a comps <<<"${full#"$REC_WT"/}"
+  for comp in ${comps[@]+"${comps[@]}"}; do
+    ob_excluded_name "$comp" && return 0
+  done
+  return 1
+}
+
+# ob_tree_clean <canonical-dir>: 0 when nothing under the directory is an
+# excluded path, for a recursive act on it.
+ob_tree_clean() {
+  local dir=$1 d hit
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    case $d/ in
+      "$dir"/*) return 1 ;;
+    esac
+  done <<EOF
+$OB_EXCL_DIRS
+EOF
+  hit=$(find "$dir" \( -iname .git -o -iname .claude -o -iname .envrc -o -iname .tool-versions \
+    -o -iname .config -o -iname .mise -o -iname mise -o -iname 'mise.toml' -o -iname '.mise.toml' \
+    -o -iname 'mise.*.toml' -o -iname '.mise.*.toml' -o -iname lefthook -o -iname 'lefthook.*' \
+    -o -iname 'lefthook-local.*' -o -iname '.lefthook' -o -iname '.lefthook.*' -o -iname '.lefthook-local' \
+    -o -iname '.lefthook-local.*' \) -print 2>/dev/null) || return 1
+  [ -z "$hit" ]
+}
+
+# ob_path <word> <mode>: 0 when <word> names a write target the arm admits,
+# its canonical path left in OB_PATH. The word must be a plain literal (no
+# expansion, glob, tilde, or `..` can hide in the charset), absolute only
+# when written under the canonical worktree root. <mode>: `leaf` (only the
+# last component may be missing), `parents` (any trailing components may be,
+# for `mkdir -p`), or `exists`. No component may be a symlink; the target
+# lies strictly inside the worktree, outside every excluded path, and, when
+# it exists, is a directory or a regular file with one link.
+ob_path() {
+  local w=$1 mode=$2 acc comp missing=0
+  local -a comps=()
+  OB_PATH=''
+  case $w in
+    '' | -* | *[!A-Za-z0-9._/@+%,:-]*) return 1 ;;
+  esac
+  case /$w/ in
+    */../*) return 1 ;;
+  esac
+  case $w in
+    /*)
+      case $w in
+        "$REC_WT"/*) ;;
+        *) return 1 ;;
+      esac
+      acc=$REC_WT
+      w=${w#"$REC_WT"/}
+      ;;
+    *) acc=$(cd "$HOOK_CWD" 2>/dev/null && pwd -P) || return 1 ;;
+  esac
+  IFS=/ read -r -a comps <<<"$w"
+  for comp in ${comps[@]+"${comps[@]}"}; do
+    case $comp in
+      '' | .) continue ;;
+    esac
+    if [ "$missing" = 1 ]; then
+      [ "$mode" = parents ] || return 1
+      acc=$acc/$comp
+      continue
+    fi
+    acc=$acc/$comp
+    [ -L "$acc" ] && return 1
+    [ -e "$acc" ] || missing=1
+  done
+  [ "$missing" = 0 ] || [ "$mode" != exists ] || return 1
+  case $acc in
+    "$REC_WT"/*) ;;
+    *) return 1 ;;
+  esac
+  ob_excluded "$acc" && return 1
+  if [ -e "$acc" ]; then
+    if [ -f "$acc" ]; then
+      [ "$(find "$acc" -maxdepth 0 -links 1 2>/dev/null)" = "$acc" ] || return 1
+    elif [ ! -d "$acc" ]; then
+      return 1
+    fi
+  fi
+  OB_PATH=$acc
+}
+
+# ob_target <word> <mode> <recursive>: ob_path, and for a recursive act on a
+# directory, nothing excluded beneath it.
+ob_target() {
+  ob_path "$1" "$2" || return 1
+  [ "$3" = 1 ] && [ -d "$OB_PATH" ] && ! ob_tree_clean "$OB_PATH" && return 1
+  return 0
+}
+
+# ob_redirect <op> <target>: a file-writing redirect whose target the arm
+# admits.
+ob_redirect() {
+  local bare=$1
+  while :; do
+    case $bare in
+      [0-9]*) bare=${bare#?} ;;
+      *) break ;;
+    esac
+  done
+  case $bare in
+    '>' | '>>' | '>|' | '&>' | '&>>') ;;
+    *) return 1 ;;
+  esac
+  ob_live && ob_path "$2" leaf && ob_mark write
+}
+
+# guard_rm: `rm` with the removal flags only (no `-i`, no
+# `--no-preserve-root`); a recursive removal is checked below its target.
+guard_rm() {
+  local i a ends=0 rec=0 n=0
+  ob_live || return 1
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    if [ "$ends" = 0 ]; then
+      case $a in
+        --)
+          ends=1
+          continue
+          ;;
+        --recursive)
+          rec=1
+          continue
+          ;;
+        --force | --verbose | --dir) continue ;;
+        --*) return 1 ;;
+        -?*)
+          case ${a#-} in
+            *[!rRfvd]*) return 1 ;;
+          esac
+          case $a in
+            *[rR]*) rec=1 ;;
+          esac
+          continue
+          ;;
+      esac
+    fi
+    ob_target "$a" leaf "$rec" || return 1
+    n=$((n + 1))
+  done
+  [ "$n" -ge 1 ] && ob_mark write
+}
+
+guard_touch() {
+  local i a ends=0 n=0
+  ob_live || return 1
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    if [ "$ends" = 0 ]; then
+      case $a in
+        --)
+          ends=1
+          continue
+          ;;
+        --no-create) continue ;;
+        --*) return 1 ;;
+        -?*)
+          case ${a#-} in
+            *[!amc]*) return 1 ;;
+          esac
+          continue
+          ;;
+      esac
+    fi
+    ob_path "$a" leaf || return 1
+    n=$((n + 1))
+  done
+  [ "$n" -ge 1 ] && ob_mark write
+}
+
+# ob_copy_move <cp|mv> <recursive> <operand>...: the operand rule `cp` and
+# `mv` share. Every source exists inside the worktree (a moved one is a
+# target too); the destination is a new path, or an existing directory whose
+# entry for each source is checked as the target. A recursive copy lands only
+# where nothing exists yet, so it never writes through an existing file.
+ob_copy_move() {
+  local verb=$1 rec=$2 n dst s b final
+  shift 2
+  n=$#
+  [ "$n" -ge 2 ] || return 1
+  dst=${!n}
+  ob_path "$dst" leaf || return 1
+  local dst_dir=0
+  [ -d "$OB_PATH" ] && dst_dir=1
+  [ "$dst_dir" = 1 ] || [ "$n" -eq 2 ] || return 1
+  while [ "$#" -gt 1 ]; do
+    s=$1
+    shift
+    ob_path "$s" exists || return 1
+    if [ -d "$OB_PATH" ]; then
+      [ "$verb" = mv ] || [ "$rec" = 1 ] || return 1
+      ob_tree_clean "$OB_PATH" || return 1
+    fi
+    if [ "$dst_dir" = 1 ]; then
+      b=${s%/}
+      b=${b##*/}
+      final=$dst/$b
+    else
+      final=$dst
+    fi
+    ob_path "$final" leaf || return 1
+    if [ "$rec" = 1 ] && [ -e "$OB_PATH" ]; then
+      return 1
+    fi
+  done
+  return 0
+}
+
+# guard_cp / guard_mv: no flag that links, preserves links, or picks the
+# target directory (`-l`, `-s`, `-a`, `-P`, `-d`, `-t`, `--parents`...). A
+# recursive copy and every move can leave a symlink behind (ob_mark).
+guard_cp() {
+  local i a ends=0 rec=0 n=0
+  local -a ops=()
+  ob_live || return 1
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    if [ "$ends" = 0 ]; then
+      case $a in
+        --)
+          ends=1
+          continue
+          ;;
+        --recursive)
+          rec=1
+          continue
+          ;;
+        --force | --verbose | --no-clobber) continue ;;
+        --*) return 1 ;;
+        -?*)
+          case ${a#-} in
+            *[!fvnprR]*) return 1 ;;
+          esac
+          case $a in
+            *[rR]*) rec=1 ;;
+          esac
+          continue
+          ;;
+      esac
+    fi
+    ops[n]=$a
+    n=$((n + 1))
+  done
+  ob_copy_move cp "$rec" ${ops[@]+"${ops[@]}"} || return 1
+  if [ "$rec" = 1 ]; then
+    ob_mark link
+  else
+    ob_mark write
+  fi
+}
+
+guard_mv() {
+  local i a ends=0 n=0
+  local -a ops=()
+  ob_live || return 1
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    if [ "$ends" = 0 ]; then
+      case $a in
+        --)
+          ends=1
+          continue
+          ;;
+        --force | --verbose | --no-clobber) continue ;;
+        --*) return 1 ;;
+        -?*)
+          case ${a#-} in
+            *[!fvn]*) return 1 ;;
+          esac
+          continue
+          ;;
+      esac
+    fi
+    ops[n]=$a
+    n=$((n + 1))
+  done
+  ob_copy_move mv 0 ${ops[@]+"${ops[@]}"} && ob_mark link
+}
+
+# ob_git_ready: the git acts run in the worktree the record names, with its
+# unit branch checked out (a session that switched away gets nothing).
+ob_git_ready() {
+  local top head
+  ob_live || return 1
+  top=$(git -C "$HOOK_CWD" rev-parse --show-toplevel 2>/dev/null) || return 1
+  [ "$(cd "$top" 2>/dev/null && pwd -P)" = "$REC_WT" ] || return 1
+  head=$(git -C "$REC_WT" symbolic-ref -q HEAD 2>/dev/null) || return 1
+  [ "$head" = "refs/heads/$REC_UNIT" ]
+}
+
+# ob_pathspec <word> <recursive>: a git pathspec naming a write target: no
+# magic (`:`), then ob_target.
+ob_pathspec() {
+  case $1 in
+    :*) return 1 ;;
+  esac
+  ob_target "$1" leaf "$2"
+}
+
+# ob_read_ok <word>: a file git reads a message from, inside the worktree.
+ob_read_ok() {
+  ob_path "$1" exists && [ -f "$OB_PATH" ]
+}
+
+# ob_ref_name <word>: a plain ref or revision name.
+ob_ref_name() {
+  case $1 in
+    '' | -* | *[!A-Za-z0-9._/-]* | *..* | *//* | */ | *.lock) return 1 ;;
+  esac
+  return 0
+}
+
+# ob_git <sub> <subidx>: the own-branch git acts. Git's own writes to its
+# object store and index are not write targets; the worktree
+# files a `rm`, `mv`, `restore`, or `checkout --` writes are.
+ob_git() {
+  local sub=$1 i=$(($2 + 1)) a ends=0 n=0 rec=0 expect='' worktree=1 staged=0 c rest remote='' src=''
+  ob_git_ready || return 1
+  case $sub in
+    add)
+      for (( ; i < cwn; i++)); do
+        a=${cw[i]}
+        [ "$ends" = 0 ] || continue
+        case $a in
+          --) ends=1 ;;
+          --all | --update | --verbose | --force | --intent-to-add | --no-all | --ignore-removal | --no-ignore-removal | --dry-run | --ignore-errors | --ignore-missing) ;;
+          --*) return 1 ;;
+          -?*)
+            case ${a#-} in
+              *[!AuvfNn]*) return 1 ;;
+            esac
+            ;;
+        esac
+      done
+      return 0
+      ;;
+    commit)
+      for (( ; i < cwn; i++)); do
+        a=${cw[i]}
+        if [ -n "$expect" ]; then
+          [ "$expect" != F ] || ob_read_ok "$a" || return 1
+          expect=''
+          continue
+        fi
+        [ "$ends" = 0 ] || continue
+        case $a in
+          --) ends=1 ;;
+          -m | --message | --trailer) expect=m ;;
+          -F | --file) expect=F ;;
+          --message=* | --trailer=* | --cleanup=* | --gpg-sign=*) ;;
+          --file=*) ob_read_ok "${a#--file=}" || return 1 ;;
+          --quiet | --signoff | --all | --allow-empty | --allow-empty-message | --gpg-sign | --no-gpg-sign | --verbose | --status | --no-status) ;;
+          --*) return 1 ;;
+          -?*)
+            rest=${a#-}
+            while [ -n "$rest" ]; do
+              c=${rest:0:1}
+              rest=${rest:1}
+              case $c in
+                a | q | s | v) ;;
+                m | S)
+                  [ -n "$rest" ] || [ "$c" = S ] || expect=m
+                  break
+                  ;;
+                F)
+                  if [ -n "$rest" ]; then
+                    ob_read_ok "$rest" || return 1
+                  else
+                    expect=F
+                  fi
+                  break
+                  ;;
+                *) return 1 ;;
+              esac
+            done
+            ;;
+        esac
+      done
+      [ -z "$expect" ]
+      return
+      ;;
+    rm)
+      local -a paths=()
+      for (( ; i < cwn; i++)); do
+        a=${cw[i]}
+        if [ "$ends" = 0 ]; then
+          case $a in
+            --)
+              ends=1
+              continue
+              ;;
+            --cached | --force | --quiet | --dry-run | --ignore-unmatch) continue ;;
+            --*) return 1 ;;
+            -?*)
+              case ${a#-} in
+                *[!rfqn]*) return 1 ;;
+              esac
+              case $a in
+                *r*) rec=1 ;;
+              esac
+              continue
+              ;;
+          esac
+        fi
+        paths[n]=$a
+        n=$((n + 1))
+      done
+      [ "$n" -ge 1 ] || return 1
+      for a in "${paths[@]}"; do
+        ob_pathspec "$a" "$rec" || return 1
+      done
+      ob_mark write
+      return
+      ;;
+    mv)
+      local -a ops=()
+      for (( ; i < cwn; i++)); do
+        a=${cw[i]}
+        if [ "$ends" = 0 ]; then
+          case $a in
+            --)
+              ends=1
+              continue
+              ;;
+            --force | --verbose | --dry-run) continue ;;
+            --*) return 1 ;;
+            -?*)
+              case ${a#-} in
+                *[!fkvn]*) return 1 ;;
+              esac
+              continue
+              ;;
+          esac
+        fi
+        case $a in
+          :*) return 1 ;;
+        esac
+        ops[n]=$a
+        n=$((n + 1))
+      done
+      ob_copy_move mv 0 ${ops[@]+"${ops[@]}"} && ob_mark link
+      return
+      ;;
+    restore | checkout)
+      local -a paths=()
+      for (( ; i < cwn; i++)); do
+        a=${cw[i]}
+        if [ -n "$expect" ]; then
+          ob_ref_name "$a" || return 1
+          expect=''
+          continue
+        fi
+        if [ "$ends" = 0 ]; then
+          case $a in
+            --)
+              ends=1
+              continue
+              ;;
+            -q | --quiet) continue ;;
+          esac
+          # `git checkout <tree> -- <paths>` and the branch forms switch, or
+          # change where the paths come from: only the `--` form is the arm's.
+          [ "$sub" = restore ] || return 1
+          case $a in
+            -S | --staged)
+              staged=1
+              continue
+              ;;
+            -W | --worktree)
+              worktree=2
+              continue
+              ;;
+            -s)
+              expect=s
+              continue
+              ;;
+            --source=*)
+              ob_ref_name "${a#--source=}" || return 1
+              continue
+              ;;
+            -*) return 1 ;;
+          esac
+        fi
+        paths[n]=$a
+        n=$((n + 1))
+      done
+      [ -z "$expect" ] && [ "$n" -ge 1 ] || return 1
+      [ "$sub" = restore ] || [ "$ends" = 1 ] || return 1
+      for a in "${paths[@]}"; do
+        ob_pathspec "$a" 1 || return 1
+      done
+      # `--staged` alone writes only the index.
+      [ "$staged" = 1 ] && [ "$worktree" = 1 ] && return 0
+      ob_mark link
+      return
+      ;;
+    fetch)
+      for (( ; i < cwn; i++)); do
+        a=${cw[i]}
+        case $a in
+          -q | --quiet | -v | --verbose | -p | --prune | --no-tags | --tags) continue ;;
+          -*) return 1 ;;
+        esac
+        if [ -z "$remote" ]; then
+          remote=$a
+        else
+          ob_ref_name "$a" || return 1
+        fi
+      done
+      case $remote in
+        '' | [!A-Za-z0-9]* | *[!A-Za-z0-9._-]*) return 1 ;;
+      esac
+      [ -e "$HOOK_CWD/$remote" ] || [ -e "$HOOK_CWD/$remote.git" ] && return 1
+      git -C "$HOOK_CWD" config --get "remote.$remote.url" >/dev/null 2>&1 || return 1
+      ls_remote_url_ok "$remote"
+      return
+      ;;
+    merge)
+      [ "$REC_BASE_MERGE" = allow ] && [ -n "$REC_BASE" ] || return 1
+      for (( ; i < cwn; i++)); do
+        a=${cw[i]}
+        if [ -n "$expect" ]; then
+          expect=''
+          continue
+        fi
+        case $a in
+          -m | --message) expect=m ;;
+          --message=* | --no-edit | -q | --quiet | --no-ff | --ff | --ff-only | --stat | --no-stat | --log | --no-log | --progress | --no-progress | --signoff | --no-signoff) ;;
+          -*) return 1 ;;
+          *)
+            [ -z "$src" ] || return 1
+            src=$a
+            ;;
+        esac
+      done
+      [ -z "$expect" ] && [ "$src" = "$REC_BASE" ] || return 1
+      # A local branch or tag of the same name would shadow the remote ref.
+      a=$(git -C "$REC_WT" rev-parse --verify -q "$src^{commit}" 2>/dev/null) || return 1
+      [ -n "$a" ] && [ "$a" = "$(git -C "$REC_WT" rev-parse --verify -q "refs/remotes/$src^{commit}" 2>/dev/null)" ] || return 1
+      ob_mark link
+      return
+      ;;
+  esac
+  return 1
 }
 
 # --------------------------------------------------------------------------
@@ -1147,12 +2050,17 @@ sed_script_safe() {
 }
 
 # guard_sed: strict flag allowlist (REQ-A1.8) plus the read-only script check.
-# `-i`/`--in-place`, `-f`/`--file` (an unverifiable external script file), any
-# bundled short-flag token, and any unrecognized flag all defer; only the
-# enumerated safe standalone flags pass, and every inline script (a bare
-# operand, a `-e` value, or a `--expression=` value) must be read-only.
+# `-f`/`--file` (an unverifiable external script file), any bundled
+# short-flag token, and any unrecognized flag all defer; only the enumerated
+# safe standalone flags pass, and every inline script (a bare operand, a `-e`
+# value, or a `--expression=` value) must be read-only. A bare `-i` /
+# `--in-place` (no backup suffix) edits files only under the own-branch arm,
+# every file an existing regular one ob_path admits. Each file must also read
+# as a read-only script: BSD sed takes the word after `-i` as its suffix, so
+# there the first file is the script.
 guard_sed() {
-  local i a expect_e=0 script_taken=0
+  local i a expect_e=0 script_taken=0 inplace=0 nfiles=0
+  local -a files=()
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$expect_e" = 1 ]; then
@@ -1168,17 +2076,26 @@ guard_sed() {
         script_taken=1
         ;;
       -n | -E | -r | -s | -z | -u | --posix | --quiet | --silent | --regexp-extended | --separate | --null-data | --unbuffered | --debug | --sandbox | --help | --version | --) ;;
-      -*) return 1 ;; # -i / -f / -l / bundled / unknown: defer
+      -i | --in-place) inplace=1 ;;
+      -*) return 1 ;; # -i<suffix> / -f / -l / bundled / unknown: defer
       *)
         if [ "$script_taken" = 0 ]; then
           zsh_opt_word_ok "$i" && sed_script_safe "$a" || return 1
           script_taken=1
+        else
+          files[nfiles]=$a
+          nfiles=$((nfiles + 1))
         fi
         ;;
     esac
   done
   [ "$expect_e" = 1 ] && return 1
-  return 0
+  [ "$inplace" = 1 ] || return 0
+  ob_live && [ "$nfiles" -ge 1 ] || return 1
+  for a in "${files[@]}"; do
+    sed_script_safe "$a" && ob_path "$a" exists && [ -f "$OB_PATH" ] || return 1
+  done
+  ob_mark write
 }
 
 # awk_program_safe <program>: 0 only when an awk program text is provably
@@ -2315,6 +3232,7 @@ guard_git() {
         *) return 1 ;;
       esac
       ;;
+    add | rm | mv | restore | checkout | commit | fetch | merge) ob_git "$sub" "$subidx" ;;
     *) return 1 ;;
   esac
 }
@@ -3333,9 +4251,14 @@ classify_verb() {
     gh) guard_gh ;;
     mise) guard_mise ;;
     lefthook) guard_lefthook ;;
-    # Writers, approved only inside the spec-root write zone.
+    # Writers, approved inside the spec-root write zone or under the
+    # own-branch arm.
     tee) guard_tee ;;
     mkdir) guard_mkdir ;;
+    rm) guard_rm ;;
+    touch) guard_touch ;;
+    cp) guard_cp ;;
+    mv) guard_mv ;;
     # Trusted repo-code runners (path-contained) and the fish recursor.
     bash | sh) guard_bashsh ;;
     fish) guard_fish ;;
@@ -3684,6 +4607,8 @@ verify_simple() {
     sw[i]=${cw[i]}
     swq[i]=${cqp[i]}
   done
+  # The floor comes before every arm and the declared steps.
+  [ "$cwn" -eq 0 ] || ! deny_hit "${sw[@]}" || return 1
   verify_known_simple && return 0
   # A declared step is an operator's exact line, never one around a
   # substitution, and is not read-only inside one.
@@ -3771,11 +4696,9 @@ cd_target_ok() {
   local t=${cw[1]-} base acc comp canon
   local -a comps=()
   [ "$cwn" -eq 2 ] && [ "$HOOK_DEPTH" -eq 0 ] && [ "$IN_SUBST" = 0 ] && [ "$HOOK_CDPATH_SET" = 0 ] || return 1
-  if [ "$HOOK_WT_RESOLVED" = 0 ]; then
-    HOOK_WT_ROOT=$(repo_root_of "$HOOK_PAYLOAD_CWD") || HOOK_WT_ROOT=''
-    HOOK_WT_RESOLVED=1
-  fi
-  [ -n "$HOOK_WT_ROOT" ] || return 1
+  # The worktree comes from the session record, never the checkout.
+  [ -n "$REC_WT" ] && [ -n "$REC_UNIT" ] || return 1
+  HOOK_WT_ROOT=$REC_WT
   word_unresolved "$t" "${cdyn[1]}" "${cglob[1]}" "${cx[1]}" && return 1
   # A plain operand only: bash tilde-expands after `=`, zsh reads `+N` / `-N`
   # as the directory stack and `=cmd` as a command path, and zsh glob options
@@ -3865,7 +4788,8 @@ verify_known_simple() {
   # unless its target is in the spec-root write zone (covers a leading
   # redirect with no command too, e.g. `> f cat x`).
   for ((i = 0; i < rn; i++)); do
-    classify_redirect "${ro[i]}" "${rt[i]}" || spec_zone_redirect "${ro[i]}" "${rt[i]}" || return 1
+    classify_redirect "${ro[i]}" "${rt[i]}" || spec_zone_redirect "${ro[i]}" "${rt[i]}" \
+      || ob_redirect "${ro[i]}" "${rt[i]}" || return 1
     environ_redirect_ok "${rt[i]}" || return 1
   done
   # A command with redirects but no words (pure `> file`) already handled;
@@ -3885,6 +4809,9 @@ verify_known_simple() {
   [ "$VAR_C" -eq 0 ] || expand_words
   [ "$cwn" -ge 1 ] || return 0
   strip_prefixes || return 1
+  # The floor again, on the words the shell will run.
+  deny_hit "${cw[@]}" && return 1
+  floor_act && return 1
   verb=${cw[0]}
   # A substitution's command must be read-only, and trusted repo code (a
   # script, `bash`/`sh` running one, `mise`, `lefthook`, `bats`) may write.
@@ -4301,9 +5228,22 @@ main() {
     *) return 0 ;; # present but not a string: defer
   esac
   local HOOK_CWD=$cwd HOOK_PAYLOAD_CWD=$cwd
-  # The session's own worktree, which a `cd` may not leave: the checkout the
-  # payload cwd sits in, resolved by the first `cd` (cd_target_ok).
-  local HOOK_WT_ROOT='' HOOK_WT_RESOLVED=0 HOOK_WT_GIT=''
+  # The session's own worktree, which a `cd` may not leave: the record's
+  # (cd_target_ok).
+  local HOOK_WT_ROOT='' HOOK_WT_GIT=''
+  local pcwd
+  # The own-branch arm, when the record names it and the payload directory
+  # lies inside the recorded worktree.
+  OB_ON=0
+  case " $REC_POLICY " in
+    *" own-branch "*)
+      if [ -n "$REC_UNIT" ] && [ -n "$REC_WT" ] && pcwd=$(cd "$cwd" 2>/dev/null && pwd -P); then
+        case $pcwd/ in
+          "$REC_WT"/*) OB_ON=1 ;;
+        esac
+      fi
+      ;;
+  esac
   # Shared across `fish -c` recursion so nesting cannot multiply the bound.
   LOOP_PASSES=0
   SIMPLE_N=0
@@ -4349,6 +5289,7 @@ spec_zone_load() {
   printf '%s' "$c"
 }
 SPEC_ZONE=$(spec_zone_load) || SPEC_ZONE=''
+session_record_load
 # plugin_root_unlinked <scripts-dir>: $CLAUDE_PLUGIN_ROOT, or nothing when
 # resolve-installed-roots.sh's symlink rule refuses it (or cannot be run). The
 # chain canonicalizes an arm, so a plugin cache root reached through a symlink
