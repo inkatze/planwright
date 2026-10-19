@@ -364,7 +364,7 @@ below; `scripts/spec-graph.sh` renders it on demand.
 
 ## Awaiting input
 
-- **Task 9** — PR #691: one cubic finding awaits an operator decision. The finding: the session record is writable by the same-user worker, so it is no launch-time trust anchor. The proposed rejection cites D-23 (the Task 12 Write/Edit deny rules close the tool route, and the guard never approves a Bash write outside the worktree); the alternative is to harden the record now.
+(none yet)
 
 ## Deferred
 
