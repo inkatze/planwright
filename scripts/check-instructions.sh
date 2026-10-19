@@ -1360,7 +1360,7 @@ chain_actual=""
 if [ "$chain_present" -eq 1 ]; then
   if [ "$chain_unmeasured" -eq 1 ]; then
     chain_state=unmeasured
-    echo "check-instructions: chain closure: $chain_label unmeasured (a member's manifest did not parse or resolve)"
+    echo "check-instructions: chain closure: $chain_label unmeasured (a member's manifest did not parse or resolve)" >&2
   else
     _cdocs="$(printf '%s\n' "$chain_docs" | awk -F '\t' 'NF == 3 && !seen[$1]++ { c += $2; a += $3 } END { printf "%d %d", c, a }')"
     chain_closure=$((chain_body + ${_cdocs%% *}))
@@ -1372,7 +1372,7 @@ if [ "$chain_present" -eq 1 ]; then
     else
       chain_state=ok
     fi
-    echo "check-instructions: chain closure: $chain_label $chain_closure words (error threshold $t_chain_error)"
+    echo "check-instructions: chain closure: $chain_label $chain_closure words (error threshold $t_chain_error)" >&2
     headroom_check "$chain_closure" "$t_chain_error" "$t_cl_floor" "chain:$chain_label"
   fi
 fi

@@ -37,7 +37,7 @@ Doctrine: run-start gate-wiring
 Doctrine: point-of-use research-rigor (the Validation step, where research triggers fire)
 Doctrine: point-of-use refactor-instinct (review mode, at the Discovery refactor filter)
 Doctrine: run-start security-posture (artifact data-hygiene)
-Doctrine: point-of-use proportionality (Validation's declared scoping)
+Doctrine: point-of-use proportionality (Discovery's fan-out and Validation's scoping)
 
 ## Invocation modes
 

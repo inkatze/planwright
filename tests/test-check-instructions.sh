@@ -8,7 +8,7 @@
 #
 # Split into seven files (guard-coverage Task 6, REQ-E1.2, D-9): at 342s locally
 # this was the suite's wall-clock floor, and its cost is ~3.5s per guard
-# invocation, so the sections are now grouped into seven files of comparable
+# invocation, so the sections were grouped into seven files of comparable
 # invocation count that the runner's tests/*.sh discovery runs in parallel. The
 # siblings, in the pre-split section order:
 #   tests/test-check-instructions-exemptions.sh       §7  suppression forms

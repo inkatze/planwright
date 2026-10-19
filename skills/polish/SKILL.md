@@ -22,7 +22,7 @@ checklist to the draft PR.
 
 ## Doctrine
 
-Resolve and read the same rule docs as `/self-review`, listed in the manifest
+Resolve the same rule docs as `/self-review`, listed in the manifest
 below, via `scripts/resolve-rule-doc.sh <doc-name>` through the core root
 chain. Their definitions govern wherever this skill names a concept.
 Issue one plain command per Bash call (`doctrine/plugin-script-invocation.md`).

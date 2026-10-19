@@ -224,7 +224,9 @@ inapplicability **recorded**:
    first move.
 2. **Point-of-use reclassification.** Move deferrable bulk from run-start to
    point-of-use. Requires the diet exhausted (no trimmable non-law prose
-   remains) or disproportionate, and **never moves gating law**.
+   remains) or disproportionate, and **never moves gating law**. It is
+   inapplicable to the composed chain, which charges point-of-use docs too;
+   record that when the chain climbs past it.
 3. **Deliberate budget raise.** Raise a named threshold knob. Requires both
    prior rungs exhausted or inapplicable, and carries a recorded rationale; a
    silent raise is forbidden.
@@ -239,7 +241,8 @@ per-file exemption.
 
 ### Capped charge for permanently exempt docs
 
-Aggregate enforcement (mandatory-at-start and reachable closure) charges a
+Aggregate enforcement (mandatory-at-start, reachable closure and the composed
+chain) charges a
 permanently per-file-exempt doc at **min(actual words, that doc's per-file error
 threshold)**, so dependents of a sanctioned over-floor doc absorb its bounded
 growth without per-edit budget ceremony. Measurement stays honest: the full word
