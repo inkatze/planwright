@@ -124,7 +124,8 @@ case "$class" in
       if [ -d "/proc/$$" ]; then
         [ -d "/proc/$pid" ] && ps_rc=0
       else
-        ps_rc=2
+        printf '%s\n' "fleet-death-evidence: ps has no -p and there is no procfs to ask — lost observability, refusing to report death" >&2
+        verdict unknown
       fi
     fi
     case "$ps_rc" in
