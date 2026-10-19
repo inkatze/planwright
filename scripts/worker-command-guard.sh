@@ -2053,17 +2053,12 @@ sed_script_safe() {
 }
 
 # guard_sed: strict flag allowlist (REQ-A1.8) plus the read-only script check.
-# `-f`/`--file` (an unverifiable external script file), any bundled
-# short-flag token, and any unrecognized flag all defer; only the enumerated
-# safe standalone flags pass, and every inline script (a bare operand, a `-e`
-# value, or a `--expression=` value) must be read-only. A bare `-i` /
-# `--in-place` (no backup suffix) edits files only under the own-branch arm,
-# every file an existing regular one ob_path admits. Each file must also read
-# as a read-only script: BSD sed takes the word after `-i` as its suffix, so
-# there the first file is the script.
+# `-i`/`--in-place`, `-f`/`--file` (an unverifiable external script file), any
+# bundled short-flag token, and any unrecognized flag all defer; only the
+# enumerated safe standalone flags pass, and every inline script (a bare
+# operand, a `-e` value, or a `--expression=` value) must be read-only.
 guard_sed() {
-  local i a expect_e=0 script_taken=0 inplace=0 nfiles=0
-  local -a files=()
+  local i a expect_e=0 script_taken=0
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$expect_e" = 1 ]; then
@@ -2079,11 +2074,52 @@ guard_sed() {
         script_taken=1
         ;;
       -n | -E | -r | -s | -z | -u | --posix | --quiet | --silent | --regexp-extended | --separate | --null-data | --unbuffered | --debug | --sandbox | --help | --version | --) ;;
-      -i | --in-place) inplace=1 ;;
-      -*) return 1 ;; # -i<suffix> / -f / -l / bundled / unknown: defer
+      -*) return 1 ;; # -i / -f / -l / bundled / unknown: defer
       *)
         if [ "$script_taken" = 0 ]; then
           zsh_opt_word_ok "$i" && sed_script_safe "$a" || return 1
+          script_taken=1
+        fi
+        ;;
+    esac
+  done
+  [ "$expect_e" = 1 ] && return 1
+  return 0
+}
+
+# guard_sed_inplace: a bare `-i` / `--in-place` (no backup suffix), which
+# edits files, only under the own-branch arm. Without the `-i` word the
+# command must pass guard_sed, the read-only screen the tower guard shares;
+# every file must then be an existing regular file ob_path admits, and must
+# also read as a read-only script, since BSD sed takes the word after `-i` as
+# its suffix and so the first file as the script.
+guard_sed_inplace() {
+  local i a inplace=0 expect_e=0 script_taken=0 nfiles=0
+  local -a words=() files=()
+  ob_live || return 1
+  for ((i = 0; i < cwn; i++)); do
+    a=${cw[i]}
+    if [ "$i" -gt 0 ] && [ "$expect_e" = 0 ]; then
+      case $a in
+        -i | --in-place)
+          inplace=1
+          continue
+          ;;
+      esac
+    fi
+    words[${#words[@]}]=$a
+    [ "$i" -gt 0 ] || continue
+    if [ "$expect_e" = 1 ]; then
+      expect_e=0
+      script_taken=1
+      continue
+    fi
+    case $a in
+      -e) expect_e=1 ;;
+      --expression=*) script_taken=1 ;;
+      -*) ;;
+      *)
+        if [ "$script_taken" = 0 ]; then
           script_taken=1
         else
           files[nfiles]=$a
@@ -2092,9 +2128,10 @@ guard_sed() {
         ;;
     esac
   done
-  [ "$expect_e" = 1 ] && return 1
-  [ "$inplace" = 1 ] || return 0
-  ob_live && [ "$nfiles" -ge 1 ] || return 1
+  [ "$inplace" = 1 ] && [ "$nfiles" -ge 1 ] || return 1
+  local -a cw=("${words[@]}")
+  local cwn=${#words[@]}
+  guard_sed || return 1
   for a in "${files[@]}"; do
     sed_script_safe "$a" && ob_path "$a" exists && [ -f "$OB_PATH" ] || return 1
   done
@@ -4239,7 +4276,7 @@ classify_verb() {
     date) guard_date ;;
     file) guard_file ;;
     find) guard_find ;;
-    sed) guard_sed ;;
+    sed) guard_sed || guard_sed_inplace ;;
     awk) guard_awk ;;
     jq) guard_jq ;;
     markdownlint | markdownlint-cli2) guard_mdlint ;;
