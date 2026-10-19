@@ -105,6 +105,7 @@ if printf '%s' "$flat" | grep -qE 'only the spec PR'; then
 else
   fail "skill does not restrict the ready-flip to 'only the spec PR' (REQ-D1.3)"
 fi
+# shellcheck disable=SC2016 # literal backticks of the skill's markdown
 if printf '%s' "$flat" | grep -qE 'task PRs follow `ready_flip_policy`'; then
   ok "task PRs follow ready_flip_policy (REQ-D1.3, superseded by human-gates REQ-C1.1)"
 else
