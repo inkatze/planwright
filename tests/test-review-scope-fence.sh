@@ -94,11 +94,34 @@ out=$("$FENCE" --changed "$T/mixed.txt" --deliverables "$T/deliv.txt" 2>/dev/nul
 assert_exit "a deliverables list stands in for the contract" 1 $?
 assert_lacks "a prefix entry admits its tree" "scripts/" "$out"
 assert_contains "outside the listed prefix" "outside	README.md" "$out"
+printf '%s\n' 'scripts/*/' './README.md' './doctrine/' >"$T/deliv2.txt"
+printf '%s\n' scripts/sub/a.sh README.md doctrine/x.md scripts/top.sh >"$T/c2.txt"
+out=$("$FENCE" --changed "$T/c2.txt" --deliverables "$T/deliv2.txt" 2>/dev/null)
+assert_exit "pattern and ./ entries admit" 1 $?
+assert_lacks "a pattern ending in / admits everything under its matches" "scripts/sub/a.sh" "$out"
+assert_lacks "a ./ path entry admits its path" "README.md" "$out"
+assert_lacks "a ./ directory entry admits its tree" "doctrine/x.md" "$out"
+assert_contains "a file beside the pattern's matches is outside" "outside	scripts/top.sh" "$out"
+
+# --- a last line without its newline is still fenced ----------------------------
+printf 'scripts/lib.sh\nscripts/unterminated.sh' >"$T/unterm.txt"
+out=$("$FENCE" --changed "$T/unterm.txt" --contract "$T/contract.md" 2>/dev/null)
+assert_exit "an unterminated last line is fenced" 1 $?
+assert_contains "the unterminated path is named" "outside	scripts/unterminated.sh" "$out"
 
 # --- a bundle supplies both inputs --------------------------------------------
-B=$T/bundle
+# The bundle sits in a repository whose HEAD it was built from.
+FR=$T/frepo
+git init -q "$FR"
+git -C "$FR" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m base
+FHEAD=$(git -C "$FR" rev-parse HEAD)
+B=$FR/.claude/review-handoff
 mkdir -p "$B"
-printf 'review-handoff\t1\n' >"$B/MANIFEST"
+manifest() {
+  printf 'review-handoff\t1\nhead\t%s\nbuild\tb1\n' "$FHEAD" >"$B/MANIFEST"
+  [ -z "${1:-}" ] || printf '%s\n' "$1" >>"$B/MANIFEST"
+}
+manifest
 cp "$T/mixed.txt" "$B/changed-files.txt"
 cp "$T/contract.md" "$B/contract-base.md"
 # The branch's own contract, widened to admit everything, is never read.
@@ -116,7 +139,21 @@ assert_exit "a refused path alone fails the fence" 1 $?
 rm "$B/skipped-files.txt"
 out=$("$FENCE" --bundle "$B" 2>&1)
 assert_exit "a bundle without skipped-files.txt is refused" 2 $?
+printf 'unterminated.txt' >"$B/skipped-files.txt"
+out=$("$FENCE" --bundle "$B" 2>/dev/null)
+assert_contains "an unterminated refused path is outside" "outside	unterminated.txt" "$out"
 : >"$B/skipped-files.txt"
+
+# A bundle built from another head is stale, and one with no build id cannot
+# be told from a concurrently swapped one.
+printf 'review-handoff\t1\nhead\t%s\nbuild\tb1\n' "0000000000000000000000000000000000000000" >"$B/MANIFEST"
+out=$("$FENCE" --bundle "$B" 2>&1)
+assert_exit "a bundle from another head is refused" 2 $?
+assert_contains "a stale bundle is named" "stale" "$out"
+printf 'review-handoff\t1\nhead\t%s\n' "$FHEAD" >"$B/MANIFEST"
+out=$("$FENCE" --bundle "$B" 2>&1)
+assert_exit "a bundle with no build id is refused" 2 $?
+manifest
 
 # --- printed paths carry no control bytes ----------------------------------------
 printf 'docs/a\033[31mb\233m.md\n' >"$T/ctl.txt"
@@ -146,6 +183,11 @@ assert_contains "says why" "no deliverable" "$out"
 rm "$B/contract-base.md"
 out=$("$FENCE" --bundle "$B" 2>&1)
 assert_exit "a bundle without a base contract is refused" 2 $?
+manifest "$(printf 'contract_base_absent\tsymlink\n')"
+out=$("$FENCE" --bundle "$B" 2>&1)
+assert_exit "a recorded absence is refused" 2 $?
+assert_contains "the refusal names why the base contract is absent" "symlink" "$out"
+assert_contains "the refusal names the fallback" "--changed" "$out"
 out=$("$FENCE" --bundle "$T" 2>&1)
 assert_exit "a directory that is not a bundle is refused" 2 $?
 

@@ -9,8 +9,10 @@
 # committed HEAD:
 #   MANIFEST          tab-separated key lines, first `review-handoff 1`: head,
 #                     base, merge_base, mode (full|delta), previous_head (delta
-#                     only), each task, tasks_file, each resolved doctrine
-#                     path, the brief path, each tooling file
+#                     only), each task, tasks_file, contract_base_absent (why
+#                     contract-base.md is absent, when it is), each resolved
+#                     doctrine path, the brief path, each tooling file, and
+#                     last build, an id unique to this build
 #   diff.patch        the diff from the merge base of --base and HEAD to HEAD
 #   name-status.txt   that diff's name-status, renames detected
 #   changed-files.txt every touched path, both sides of a rename
@@ -24,8 +26,13 @@
 #   caller-search.txt how the callers were found and what that misses
 #   contract.md       the task blocks named by --task, from --tasks-file
 #   contract-base.md  the same blocks as the --base revision holds them, the
-#                     scope fence's input; absent when the base lacks the
-#                     file or a block
+#                     scope fence's input; absent, its reason recorded, when
+#                     the tasks file is outside the repository
+#                     (outside-repo), it or a directory above it inside the
+#                     repository is a symlink on disk, at HEAD, or at the base
+#                     (symlink), the base lacks the file (not-at-base) or a
+#                     block (task-not-at-base), or the base's file ends inside
+#                     an open fence (open-fence-at-base)
 #   pr-title.txt, pr-body.md   the would-be PR title and body, when given
 #   tooling/<name>    each --tooling file, copied
 #   delta.patch, delta-files.txt   --delta only: the change since the previous
@@ -45,7 +52,9 @@
 # CONTAINMENT. The bundle directory must sit strictly inside <repo>/.claude/,
 # judged on the physical path, and neither it nor .claude may be a symlink; an existing
 # directory there is replaced only when it is a bundle (its MANIFEST says so).
-# The bundle is staged beside it and swapped in whole. A changed path that git
+# The bundle is staged beside it and swapped in whole; a build that finds
+# another one swapped in meanwhile (another build id) fails, leaving the other.
+# A changed path that git
 # quotes, is absolute, or holds a `..` component is not written and is noted
 # in caller-search.txt and listed in skipped-files.txt; so is one starting
 # with `-`.
@@ -123,6 +132,8 @@ readable() {
 one_line() {
   case $2 in *"$NL"*) die 2 "$1 must not contain a newline" ;; esac
 }
+# printable — the input without its non-printable bytes, tabs and newlines kept.
+printable() { tr -d '\000-\010\013-\037\177\200-\237'; }
 
 base=
 delta=
@@ -466,7 +477,7 @@ a whole-word match is not a call: comments, strings, and same-named symbols else
 max callers per symbol: $max_callers
 a symbol holding a character outside A-Za-z0-9_.:/@+- is not searched and is listed as skipped-symbol below
 EOF
-printf '%s' "$truncated$notes" >>"$stage/caller-search.txt"
+printf '%s' "$truncated$notes" | printable >>"$stage/caller-search.txt"
 
 # --- contract, PR text, tooling ----------------------------------------------
 
@@ -485,7 +496,50 @@ slice() {
       !s && (spec_parse_task_id($0) "") == (id "") { s = NR }
       END { spec_parse__fence_eof(); if (!s) exit 5; print s "," (e ? e : NR) }' "$1") || src=$?
     [ "$src" -eq 0 ] || return "$src"
-    sed -n "${range}p" "$1" >>"$2"
+    sed -n "${range}p" "$1" >>"$2" || return 1
+  done
+}
+# repo_rel <abs-path> — the path below the repository top by its own
+# components, never through a symlink below the top; prints the reason
+# (outside-repo or symlink) instead and fails when there is none.
+repo_rel() {
+  if [ -L "$1" ]; then
+    printf 'symlink\n'
+    return 1
+  fi
+  d=$(dirname "$1")
+  tail=${1##*/}
+  while :; do
+    p=$(cd "$d" 2>/dev/null && pwd -P) || {
+      printf 'outside-repo\n'
+      return 1
+    }
+    [ "$p" != "$top_p" ] || break
+    if [ "$d" = / ]; then
+      printf 'outside-repo\n'
+      return 1
+    fi
+    if [ -L "$d" ]; then
+      printf 'symlink\n'
+      return 1
+    fi
+    tail=${d##*/}/$tail
+    d=$(dirname "$d")
+  done
+  printf '%s\n' "$tail"
+}
+# tree_symlink <rev> <path> — 0 when the path or a directory above it is a
+# symlink in <rev>, 1 when none is, 2 when git fails.
+tree_symlink() {
+  rest=$2
+  pre=
+  while :; do
+    comp=${rest%%/*}
+    pre=${pre:+$pre/}$comp
+    entry=$(git ls-tree "$1" -- "$pre") || return 2
+    case $entry in 120000*) return 0 ;; esac
+    [ "$rest" != "$comp" ] || return 1
+    rest=${rest#*/}
   done
 }
 if [ -n "$tasks" ]; then
@@ -498,14 +552,48 @@ if [ -n "$tasks" ]; then
     *) die 2 "reading the task contract from --tasks-file failed (awk exit $rc)" ;;
   esac
   # The fence trusts only the base revision's contract, which the branch
-  # cannot edit; a tasks file or task the base lacks gets none.
-  rel=$(cd "$(dirname "$tasks_file")" && pwd -P)/${tasks_file##*/}
-  case $rel in "$top"/*) rel=${rel#"$top"/} ;; *) rel= ;; esac
-  if [ -n "$rel" ] && git cat-file -p "$base_sha:$rel" >"$stage/.base-tasks" 2>/dev/null \
-    && slice "$stage/.base-tasks" "$stage/contract-base.md"; then
-    :
-  else
+  # cannot edit, read at the path the caller named: a symlink the branch
+  # commits could otherwise point it at another spec's tasks file.
+  top_p=$(cd "$top" && pwd -P)
+  absent=
+  rel=$(repo_rel "$tasks_file") || {
+    absent=$rel
+    rel=
+  }
+  for r in "$head" "$base_sha"; do
+    [ -n "$rel" ] || break
+    rc=0
+    tree_symlink "$r" "$rel" || rc=$?
+    case $rc in
+      0)
+        absent=symlink
+        rel=
+        ;;
+      1) ;;
+      *) die 2 "git ls-tree failed reading the tasks file's path in $r" ;;
+    esac
+  done
+  if [ -n "$rel" ]; then
+    entry=$(git ls-tree "$base_sha" -- "$rel") || die 2 "git ls-tree failed reading the base's tasks file"
+    case $entry in
+      10*" blob "*)
+        git cat-file blob "$base_sha:$rel" >"$stage/.base-tasks" \
+          || die 2 "git cat-file failed reading the base's tasks file"
+        rc=0
+        slice "$stage/.base-tasks" "$stage/contract-base.md" || rc=$?
+        case $rc in
+          0) ;;
+          5) absent=task-not-at-base ;;
+          3) absent=open-fence-at-base ;;
+          *) die 2 "reading the base contract failed (exit $rc)" ;;
+        esac
+        ;;
+      *) absent=not-at-base ;;
+    esac
+  fi
+  if [ -n "$absent" ]; then
     rm -f "$stage/contract-base.md"
+    printf '%s\n' "$prog: no contract-base.md ($absent); the scope fence will refuse this bundle" >&2
   fi
   rm -f "$stage/.base-tasks"
 fi
@@ -539,7 +627,7 @@ if [ -n "$prev" ]; then
       printf '%s\n' "$p" >>"$stage/delta-files.txt"
     else
       printf '%s\n' "$p" >>"$stage/skipped-files.txt"
-      printf 'skipped-path\t%s\n' "$p" >>"$stage/caller-search.txt"
+      printf 'skipped-path\t%s\n' "$p" | printable >>"$stage/caller-search.txt"
     fi
   done <"$stage/.delta-files"
   rm -f "$stage/.delta-files"
@@ -561,9 +649,11 @@ fi
   fi
   for id in $tasks; do printf 'task\t%s\n' "$id"; done
   [ -z "$tasks" ] || printf 'tasks_file\t%s\n' "$tasks_file"
+  [ -z "${absent:-}" ] || printf 'contract_base_absent\t%s\n' "$absent"
   printf '%s' "$doctrine" | while IFS= read -r f; do printf 'doctrine\t%s\n' "$f"; done
   [ -z "$brief" ] || printf 'brief\t%s\n' "$brief"
   printf '%s' "$tooling_names"
+  printf 'build\t%s\n' "${stage##*/}"
 } >"$stage/MANIFEST"
 
 # The old bundle is renamed aside before the new one moves in, so a reader
@@ -574,11 +664,19 @@ if [ -e "$out" ]; then
   old_bundle=$stage.old
   mv "$out" "$old_bundle" || die 2 "cannot move the previous bundle aside: $out"
 fi
-mv "$stage" "$out" || die 2 "cannot move the bundle into place: $out"
+trap 'rm -rf "$stage"; [ -z "$old_bundle" ] || rm -rf "$old_bundle"' EXIT
+if ! mv "$stage" "$out"; then
+  # Put the previous bundle back unless another build took the place.
+  if [ -n "$old_bundle" ] && [ ! -e "$out" ] && mv "$old_bundle" "$out"; then old_bundle=; fi
+  die 2 "cannot move the bundle into place: $out"
+fi
 stage_name=${stage##*/}
-if [ -e "$out/$stage_name" ] || [ "$(sed -n 2p "$out/MANIFEST")" != "head${TAB}$head" ]; then
+if [ -e "$out/$stage_name" ]; then
+  rm -rf "${out:?}/$stage_name"
   die 2 "another build replaced $out while this one ran; rebuild"
 fi
+grep -qx "build${TAB}$stage_name" "$out/MANIFEST" 2>/dev/null \
+  || die 2 "another build replaced $out while this one ran; rebuild"
 trap - EXIT
 [ -z "$old_bundle" ] || rm -rf "$old_bundle" 2>/dev/null || true
 printf '%s\n' "$out"

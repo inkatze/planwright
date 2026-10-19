@@ -7,9 +7,10 @@
 # bundle's changed-files.txt (scripts/review-handoff.sh), which holds both
 # sides of a rename.
 #
-# THE DELIVERABLES are entries of three shapes: a path ending in `/` admits
-# everything under it; one holding `*`, `?`, or `[` is a shell pattern, `*`
-# crossing `/`; anything else admits that exact path. They come from
+# THE DELIVERABLES are entries of three shapes: one holding `*`, `?`, or `[`
+# is a shell pattern, `*` crossing `/`; a path ending in `/` admits everything
+# under it (under every match, for a pattern); anything else admits that exact
+# path. A leading `./` is dropped. They come from
 # --deliverables <file> (one entry per line), or are read from a task
 # contract (--contract, or the bundle's contract-base.md, the contract as the
 # base revision holds it, so a branch cannot widen its own fence by editing
@@ -27,6 +28,13 @@
 # path the builder refused to carry (its skipped-files.txt) is reported
 # outside too, whatever the deliverables say. A contract that yields no entry
 # is refused rather than fencing everything out.
+#
+# --bundle needs a bundle built from the repository's current HEAD (its
+# MANIFEST head) by a builder that records its build id, which must not change
+# while the fence reads it, and that holds contract-base.md; when the builder
+# recorded why that file is absent, the refusal names the reason, and
+# --changed <bundle>/changed-files.txt with a trusted --contract is the
+# fallback.
 #
 # Usage:
 #   review-scope-fence.sh (--bundle <dir> | --changed <file>
@@ -67,6 +75,18 @@ printable() { tr -d '\000-\010\013-\037\177\200-\237'; }
 readable() {
   [ -f "$2" ] && [ -r "$2" ] || die 2 "$1 is not a readable file: $2"
 }
+# manifest_value <key> — the bundle MANIFEST's first value for a key.
+manifest_value() {
+  awk -F '\t' -v k="$1" '$1 == k { print $2; exit }' "$bundle/MANIFEST"
+}
+# dot_slash <entry> — the entry without its leading `./` runs.
+dot_slash() {
+  e=$1
+  while :; do
+    case $e in ./*) e=${e#./} ;; *) break ;; esac
+  done
+  printf '%s\n' "$e"
+}
 
 bundle=
 changed=
@@ -85,7 +105,7 @@ while [ $# -gt 0 ]; do
         --deliverables) deliverables=$2 ;;
         --allow)
           case $2 in *"$NL"* | '') die 2 "--allow takes one non-empty entry" ;; esac
-          allow=$allow$2$NL
+          allow=$allow$(dot_slash "$2")$NL
           ;;
       esac
       shift 2
@@ -101,8 +121,16 @@ if [ -n "$bundle" ]; then
   changed=$bundle/changed-files.txt
   skipped=$bundle/skipped-files.txt
   [ -f "$skipped" ] || die 2 "the bundle holds no skipped-files.txt; rebuild it with scripts/review-handoff.sh"
+  build=$(manifest_value build)
+  [ -n "$build" ] || die 2 "the bundle records no build id; rebuild it with scripts/review-handoff.sh"
+  current=$(git -C "$bundle" rev-parse --verify --quiet 'HEAD^{commit}') \
+    || die 2 "cannot read the HEAD of the repository holding the bundle"
+  [ "$(manifest_value head)" = "$current" ] || die 2 "the bundle is stale: it was built from another head; rebuild it"
   contract=$bundle/contract-base.md
-  [ -f "$contract" ] || die 2 "the bundle holds no contract-base.md: build it with --tasks-file and --task, against a base whose tasks file holds every task"
+  if [ ! -f "$contract" ]; then
+    why=$(manifest_value contract_base_absent)
+    die 2 "the bundle holds no contract-base.md (${why:-no reason recorded}): build it with --tasks-file and --task against a base whose tasks file holds every task, or pass --changed $bundle/changed-files.txt with a trusted --contract"
+  fi
 fi
 [ -n "$changed" ] || usage
 [ -n "$contract" ] || [ -n "$deliverables" ] || usage
@@ -129,21 +157,25 @@ else
   readable "--deliverables" "$deliverables"
   entries=$(grep -v '^[[:space:]]*$' "$deliverables" || true)
 fi
+entries=$(printf '%s\n' "$entries" | while IFS= read -r e || [ -n "$e" ]; do dot_slash "$e"; done)
 entries=$entries$NL$allow
 
 status=0
-while IFS= read -r path; do
+while IFS= read -r path || [ -n "$path" ]; do
   [ -n "$path" ] || continue
   inside=0
   while IFS= read -r e; do
     [ -n "$e" ] || continue
+    # shellcheck disable=SC2254 # the entry is a pattern by contract
     case $e in
-      */)
-        case $path in "$e"*) inside=1 ;; esac
+      *[*?[]*/)
+        case $path in $e*) inside=1 ;; esac
         ;;
       *[*?[]*)
-        # shellcheck disable=SC2254 # the entry is a pattern by contract
         case $path in $e) inside=1 ;; esac
+        ;;
+      */)
+        case $path in "$e"*) inside=1 ;; esac
         ;;
       *)
         [ "$path" != "$e" ] || inside=1
@@ -159,10 +191,12 @@ EOF
   fi
 done <"$changed"
 if [ -n "$skipped" ]; then
-  while IFS= read -r path; do
+  while IFS= read -r path || [ -n "$path" ]; do
     [ -n "$path" ] || continue
     printf 'outside\t%s\n' "$path" | printable
     status=1
   done <"$skipped"
+  # A build that swapped in while the fence read could have mixed two bundles.
+  [ "$(manifest_value build)" = "$build" ] || die 2 "the bundle was rebuilt while the fence read it; run the fence again"
 fi
 exit "$status"

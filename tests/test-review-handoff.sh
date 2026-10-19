@@ -436,6 +436,18 @@ if LC_ALL=C grep -q "$(printf '[\033\233]')" "$R4/.claude/review-handoff/callers
 else
   ok "caller text carries no control bytes"
 fi
+# A refused path git prints raw (an 8-bit byte, unquoted) is noted without it.
+B4HEAD=$(g4 rev-parse HEAD)
+printf 'x\n' >"$R4/-$(printf '\233')x.txt"
+g4 add -A
+g4 commit -q -m "a refused name"
+build4 --base "$B4BASE" --delta "$B4HEAD" >/dev/null 2>&1
+assert_contains "the refused name is noted" "skipped-path" "$(cat "$R4/.claude/review-handoff/caller-search.txt" 2>/dev/null)"
+if LC_ALL=C grep -q "$(printf '\233')" "$R4/.claude/review-handoff/caller-search.txt"; then
+  fail "skipped-path notes carry no control bytes"
+else
+  ok "skipped-path notes carry no control bytes"
+fi
 
 # A committed .claude symlink must not carry the bundle out of the repository.
 R5=$T/repo5
@@ -497,6 +509,48 @@ assert_exit "a task the base lacks still builds" 0 $?
 if [ ! -e "$B6/contract-base.md" ]; then ok "a task the base lacks has no base contract"; else fail "a task the base lacks has no base contract"; fi
 out=$("$REPO_ROOT/scripts/review-scope-fence.sh" --bundle "$B6" 2>&1)
 assert_exit "the fence refuses a bundle without a base contract" 2 $?
+assert_contains "the manifest records why the base contract is absent" "contract_base_absent	task-not-at-base" "$(cat "$B6/MANIFEST" 2>/dev/null)"
+assert_contains "the fence names the recorded reason" "task-not-at-base" "$out"
+assert_contains "the manifest names its build" "build	" "$(cat "$B6/MANIFEST" 2>/dev/null)"
+(cd "$R6" && "$BUILD" --base "$B6BASE" --tasks-file specs/x/tasks.md --task 1 >/dev/null 2>&1)
+g6 commit -q --allow-empty -m "move on"
+out=$("$REPO_ROOT/scripts/review-scope-fence.sh" --bundle "$B6" 2>&1)
+assert_exit "the fence refuses a bundle built from an earlier head" 2 $?
+
+# The base contract is never read through a branch symlink, from outside the
+# repository, or from a base file ending inside a fence; each absence says why.
+R7=$T/repo7
+mkdir -p "$R7/specs/x" "$R7/specs/w" "$R7/specs/f" "$R7/scripts"
+git init -q "$R7"
+g7() { git -C "$R7" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
+# shellcheck disable=SC2016 # the backticks are literal markdown
+printf '### Task 1 — Narrow\n\n- **Deliverables:** `scripts/ok.sh`.\n' >"$R7/specs/x/tasks.md"
+# shellcheck disable=SC2016 # the backticks are literal markdown
+printf '### Task 1 — Wide\n\n- **Deliverables:** `scripts/`.\n' >"$R7/specs/w/tasks.md"
+# shellcheck disable=SC2016 # the backticks are literal markdown
+printf '### Task 1 — Open\n\n- **Deliverables:** `scripts/ok.sh`.\n\n```sh\n' >"$R7/specs/f/tasks.md"
+printf '#!/bin/sh\n' >"$R7/scripts/ok.sh"
+g7 add -A
+g7 commit -q -m base
+B7BASE=$(g7 rev-parse HEAD)
+B7=$R7/.claude/review-handoff
+g7 rm -q -r specs/x
+ln -s w "$R7/specs/x"
+printf '```\n' >>"$R7/specs/f/tasks.md"
+printf '#!/bin/sh\n' >"$R7/scripts/sneaky.sh"
+g7 add -A
+g7 commit -q -m "point the spec at a wider one"
+(cd "$R7" && "$BUILD" --base "$B7BASE" --tasks-file specs/x/tasks.md --task 1 >/dev/null 2>&1)
+assert_exit "a symlinked spec directory still builds" 0 $?
+if [ ! -e "$B7/contract-base.md" ]; then ok "a symlinked spec directory gives no base contract"; else fail "a symlinked spec directory gives no base contract"; fi
+assert_contains "a symlinked spec directory is the recorded reason" "contract_base_absent	symlink" "$(cat "$B7/MANIFEST" 2>/dev/null)"
+cp "$R7/specs/w/tasks.md" "$T/outside-tasks.md"
+(cd "$R7" && "$BUILD" --base "$B7BASE" --tasks-file "$T/outside-tasks.md" --task 1 >/dev/null 2>&1)
+assert_contains "a tasks file outside the repository is the recorded reason" "contract_base_absent	outside-repo" "$(cat "$B7/MANIFEST" 2>/dev/null)"
+(cd "$R7" && "$BUILD" --base "$B7BASE" --tasks-file specs/f/tasks.md --task 1 >/dev/null 2>&1)
+assert_contains "a base file ending in a fence is the recorded reason" "contract_base_absent	open-fence-at-base" "$(cat "$B7/MANIFEST" 2>/dev/null)"
+(cd "$R7" && "$BUILD" --base "$B7BASE" --tasks-file specs/w/tasks.md --task 1 >/dev/null 2>&1)
+if [ -e "$B7/contract-base.md" ]; then ok "a plain spec directory still gets its base contract"; else fail "a plain spec directory still gets its base contract"; fi
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
