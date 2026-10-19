@@ -642,10 +642,9 @@ normalize() {
 restates() {
   normalize "$1" >"$work/text.norm"
   normalize "$2" >"$work/source.norm"
-  awk -v whole="$RESTATE_WHOLE_MIN" -v line="$RESTATE_LINE_MIN" -v words="$RESTATE_LINE_WORDS" \
-    -v src="$work/source.norm" '
+  awk -v whole="$RESTATE_WHOLE_MIN" -v line="$RESTATE_LINE_MIN" -v words="$RESTATE_LINE_WORDS" '
     NR == FNR { lead = $0; next }
-    FILENAME == src { if (length($0) >= whole && index(lead, $0)) hit = 1; next }
+    FILENAME ~ /source\.norm$/ { if (length($0) >= whole && index(lead, $0)) hit = 1; next }
     {
       s = tolower($0)
       gsub(/[ \t\r]+/, " ", s)

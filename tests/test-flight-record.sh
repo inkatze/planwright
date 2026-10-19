@@ -49,6 +49,12 @@
 #      nor a stuck file, and write nothing outside the checkout; a link that
 #      fails for another reason exits 4. The file home's render names the
 #      passed path.
+#   7. A public summary stands in for a private ask (REQ-E1.6–E1.8,
+#      REQ-E1.11): both homes, first render and re-emit, and a landed record
+#      quote the summary, screened like the ask, and the fixed briefed-beyond
+#      line, never a private-ask line; a lead restating either text, or
+#      another worker input restating the private ask, is refused without
+#      echoing it.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -u
