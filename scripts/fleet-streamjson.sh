@@ -10,7 +10,11 @@
 # WHAT THIS IS (D-5). A supervisor process owns a stream-json worker's stdio:
 # it launches the worker (`claude -p --input-format stream-json
 # --output-format stream-json --verbose --permission-prompt-tool stdio
-# --settings <config/worker-settings.json>`; non-`--bare` pinned per
+# --settings <config/worker-settings.json> --name <worker>`, with the worker
+# identity and PLANWRIGHT_MESSAGING_INBOUND=accept exported, so its hooks
+# write attention rows and register its session name (fleet-messaging D-8,
+# D-19); a handle outside the relay's stream-json-persistent grammar, which
+# names the session, is refused; non-`--bare` pinned per
 # D-12/REQ-A1.5, and the worker-settings fragment pinned per fleet-autonomy
 # D-19/REQ-E1.4. Pinning means never passing `--bare`, always passing the
 # fragment resolved from this script's own location, and REFUSING a
@@ -1379,15 +1383,16 @@ refuse_mode_overrides() {
 }
 
 # worker_settings_path — print the reviewed permission fragment the launch
-# pins, resolved from this script's own location so a marketplace install
-# finds it. Fails closed when it cannot be read: an unverifiable mode source is
-# no mode source, and a worker launched without one inherits the operator's
-# (see the header).
+# pins: the worker profile under the root the dispatch-env wrapper pins the
+# worker to (PLANWRIGHT_ROOT, else this script's own root), so the profile and
+# the hooks it names come from one install. Fails closed when it cannot be
+# read: an unverifiable mode source is no mode source, and a worker launched
+# without one inherits the operator's (see the header).
 worker_settings_path() {
-  ws_dir=$(cd "$script_dir/../config" 2>/dev/null && pwd -P) || ws_dir="$script_dir/../config"
-  ws_path="$ws_dir/worker-settings.json"
-  if [ ! -f "$ws_path" ] || [ ! -r "$ws_path" ]; then
-    printf '%s\n' "$me: refusing to launch: worker-settings fragment $ws_path missing or unreadable - without it the worker inherits the operator's permission mode (fleet-autonomy D-19, REQ-E1.4)" >&2
+  ws_root=${PLANWRIGHT_ROOT:-}
+  [ -n "$ws_root" ] || ws_root=$(cd "$script_dir/.." 2>/dev/null && pwd -P) || ws_root="$script_dir/.."
+  if ! ws_path=$(/bin/sh "$script_dir/fleet-launch-profile.sh" worker --root "$ws_root" </dev/null); then
+    printf '%s\n' "$me: refusing to launch: without its worker-settings fragment the worker inherits the operator's permission mode (fleet-autonomy D-19, REQ-E1.4)" >&2
     return 7
   fi
   printf '%s\n' "$ws_path"
@@ -1877,6 +1882,12 @@ cmd_launch() {
   refuse_bare "$@" || exit 2
   refuse_settings "$@" || exit 2
   refuse_mode_overrides "$@" || exit 2
+  # The session is named after the handle (fleet-messaging D-8), so the handle
+  # must also be a name the relay's grammar for this rung owns.
+  if ! /bin/sh "$script_dir/orchestrate-relay.sh" validate-handle stream-json-persistent "$worker" 2>/dev/null; then
+    printf '%s\n' "$me: refusing to launch: the worker handle is outside the stream-json-persistent session-name grammar [A-Za-z0-9_.@-]" >&2
+    exit 2
+  fi
   worker_settings=$(worker_settings_path) || exit 7
   dispatch_env=$(dispatch_env_path) || exit 8
   guard_preflight "$dispatch_env" "${run_cwd:-$PWD}"
@@ -1943,6 +1954,20 @@ cmd_launch() {
   if [ -n "$scope" ]; then
     printf '%s\n' "$scope" >"$dir/scope"
   fi
+  # The worker identity its hooks key on (attention rows, liveness, and its
+  # self-registration), and the inbound layer the messaging probe reads beside
+  # the --settings profile (fleet-messaging D-8, D-17, D-19). A resume carries
+  # no scope argument, so it reads back the one its launch persisted.
+  id_scope=$scope
+  [ -n "$id_scope" ] || id_scope=$(cat "$dir/scope" 2>/dev/null) || id_scope=''
+  if ! valid_field "$id_scope"; then
+    printf '%s\n' "$me: refusing to launch $worker: no worker scope (PLANWRIGHT_WORKER_SCOPE) to export; its launch recorded none" >&2
+    exit 2
+  fi
+  PLANWRIGHT_WORKER_HANDLE=$worker
+  PLANWRIGHT_WORKER_SCOPE=$id_scope
+  PLANWRIGHT_MESSAGING_INBOUND=accept
+  export PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_MESSAGING_INBOUND
 
   init_msg=$(mktemp "$dir/.init.XXXXXX") || exit 2
   if [ -n "$resume_sid" ]; then
@@ -1963,7 +1988,7 @@ cmd_launch() {
   # prompt tool (the receipt channel), the reviewed worker-settings fragment
   # (the mode source), and NEVER --bare.
   set -- "$dispatch_env" "$cli" -p --input-format stream-json --output-format stream-json \
-    --verbose --permission-prompt-tool stdio --settings "$worker_settings" "$@"
+    --verbose --permission-prompt-tool stdio --settings "$worker_settings" --name "$worker" "$@"
   if [ -n "$resume_sid" ]; then
     set -- "$@" --resume "$resume_sid"
   fi

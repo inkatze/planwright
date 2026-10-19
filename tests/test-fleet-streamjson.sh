@@ -116,6 +116,9 @@ printf '%s\n' "$*" >>"$SHIM_RECORD_DIR/argv"
 printf 'ghost=%s\n' "${CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'plugin_root=%s\n' "${CLAUDE_PLUGIN_ROOT-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'spec_root=%s\n' "${PLANWRIGHT_WORKER_SPEC_ROOT-<unset>}" >>"$SHIM_RECORD_DIR/env"
+printf 'handle=%s\n' "${PLANWRIGHT_WORKER_HANDLE-<unset>}" >>"$SHIM_RECORD_DIR/env"
+printf 'scope=%s\n' "${PLANWRIGHT_WORKER_SCOPE-<unset>}" >>"$SHIM_RECORD_DIR/env"
+printf 'inbound=%s\n' "${PLANWRIGHT_MESSAGING_INBOUND-<unset>}" >>"$SHIM_RECORD_DIR/env"
 n=${SHIM_READ_FIRST:-1}
 i=0
 while [ "$i" -lt "$n" ]; do
@@ -671,6 +674,33 @@ esac
 # shellcheck disable=SC2086 # the recorded argv must re-split into the guard's argument vector
 "$here/../scripts/fleet-dispatch-guard.sh" check-launch $argv_line >/dev/null 2>&1 \
   || fail "c9: the pinned launch argv must pass fleet-dispatch-guard check-launch"
+# The session is named after the worker handle, which the relay's
+# stream-json-persistent grammar owns, and the worker identity and inbound
+# layer reach the worker's environment (fleet-messaging D-8, D-17, D-19).
+case "$argv_line " in
+  *" --name sjw9 "*) : ;;
+  *) fail "c9: the launch argv must name the session after its handle: $argv_line" ;;
+esac
+"$here/../scripts/orchestrate-relay.sh" validate-handle stream-json-persistent sjw9 \
+  || fail "c9: the derived name fails the stream-json-persistent grammar"
+for want in handle=sjw9 scope=execution-backends:4 inbound=accept; do
+  grep -qx "$want" "$rec/env" || fail "c9: the worker's environment lacks $want: $(cat "$rec/env")"
+done
+# A handle the stream-json-persistent grammar refuses names no session: the
+# launch is refused before anything is spawned.
+: >"$rec/argv"
+senv "$home" "$rec" -- \
+  launch "sjw9=x" execution-backends:4 --prompt-file "$tmp/prompt9" --foreground >/dev/null 2>"$tmp/c9name.err"
+[ $? -eq 2 ] || fail "c9: a handle outside the session-name grammar must be refused (exit 2)"
+[ ! -s "$rec/argv" ] || fail "c9: the refused name must never spawn the worker"
+# A relaunch whose launch persisted no scope has no worker scope to export: it
+# is refused, naming the missing variable, rather than launched unidentified.
+: >"$rec/argv"
+senv "$home" "$rec" -- \
+  launch sjw9r --resume-session 11111111-2222-3333-4444-555555555555 --foreground >/dev/null 2>"$tmp/c9scope.err"
+[ $? -eq 2 ] || fail "c9: a relaunch with no recorded scope must be refused (exit 2)"
+grep -q PLANWRIGHT_WORKER_SCOPE "$tmp/c9scope.err" || fail "c9: the scope refusal must name the variable: $(cat "$tmp/c9scope.err")"
+[ ! -s "$rec/argv" ] || fail "c9: the scope-less relaunch must never spawn the worker"
 # shellcheck disable=SC2016 # matching the literal '$(touch' substring, not expanding it
 grep -q '\$(touch PWNED-marker)' "$rec/stdin" \
   || fail "c9: the metacharacter prompt must reach the worker as literal data"
@@ -721,6 +751,23 @@ env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" \
 grep -q "worker-settings.json" "$tmp/nocfg.err" \
   || fail "c9: the fragment refusal must name the resolved path"
 [ ! -s "$rec/argv" ] || fail "c9: the fragment-less launch must never spawn the worker"
+# The same refusal through the planwright-root override: PLANWRIGHT_ROOT names a
+# copy of the root whose worker profile cannot be read.
+mkdir -p "$tmp/badroot/config"
+cp -R "$here/../scripts" "$tmp/badroot/scripts"
+cp "$here/../config/worker-settings.json" "$tmp/badroot/config/"
+chmod 000 "$tmp/badroot/config/worker-settings.json"
+: >"$rec/argv"
+env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_ROOT="$tmp/badroot" \
+  PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" SHIM_RECORD_DIR="$rec" \
+  /bin/sh "$here/../scripts/fleet-streamjson.sh" \
+  launch sjw9e execution-backends:4 --prompt-file "$tmp/prompt9" --foreground \
+  >/dev/null 2>"$tmp/badroot.err"
+[ $? -eq 7 ] || fail "c9: an unreadable profile under PLANWRIGHT_ROOT must refuse the launch (exit 7)"
+grep -qF "$tmp/badroot/config/worker-settings.json" "$tmp/badroot.err" \
+  || fail "c9: the unreadable-profile refusal must name the profile: $(cat "$tmp/badroot.err")"
+[ ! -s "$rec/argv" ] || fail "c9: the unreadable-profile launch must never spawn the worker"
+chmod 644 "$tmp/badroot/config/worker-settings.json"
 echo "ok: c9 pinned non-bare launch shape with the settings pin, prompt-as-data, --bare and --settings refused, missing fragment fails closed (REQ-A1.9, D-12, D-19)"
 
 # ---------------------------------------------------------------------------
@@ -1572,6 +1619,8 @@ else
   printf '1\n' >"$wdir30/worker.pid"
   printf '1\n' >"$wdir30/supervisor.pid"
   printf 'sess30\n' >"$wdir30/session"
+  # Every launch persists its scope; the recovery exports it as the worker's.
+  printf 'execution-backends:4\n' >"$wdir30/scope"
   out=$(senv "$home" "$tmp/r30" -- recover sjw30 2>&1)
   rc30=$?
   [ "$rc30" = 3 ] \

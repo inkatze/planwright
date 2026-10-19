@@ -33,6 +33,9 @@
 #       bounded runner (REQ-H1.1)
 #   l7  a flight dispatch whose tmux hangs returns at the tmux call bound,
 #       reports the failure, and leaves the flight lock free
+#   l8  the launch plan with the messaging environment present equals the one
+#       with it absent, and no launch seam consults the messaging script
+#       (fleet-messaging REQ-A1.5)
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-tmux-detached-launch.sh
@@ -408,6 +411,33 @@ l7_flight() {
   return 0
 }
 
+# --- l8: the launch argv does not depend on messaging -------------------------
+# The REQ-A1.5 naming comparand (fleet-messaging Task 4): the plan a dispatch
+# prints with the messaging environment absent equals the plan with it
+# present, and no seam consults the probe.
+l8() {
+  local absent present sock back=$PWD
+  new_case
+  sock="$TLH_SANDBOX/inbox.sock"
+  : >"$sock"
+  cd "$P" || return
+  unset CLAUDE_CODE_MESSAGING_SOCKET CLAUDE_CODE_MESSAGING_TOKEN
+  tlh_run_bounded "$PRIM" attach demo-task-8 --dry-run
+  [ "$TLH_RC" -eq 0 ] || fail "l8: the messaging-absent plan exited $TLH_RC ($TLH_ERR)"
+  absent=$TLH_OUT
+  CLAUDE_CODE_MESSAGING_SOCKET=$sock CLAUDE_CODE_MESSAGING_TOKEN=t0k3n tlh_run_bounded "$PRIM" attach demo-task-8 --dry-run
+  [ "$TLH_RC" -eq 0 ] || fail "l8: the messaging-present plan exited $TLH_RC ($TLH_ERR)"
+  present=$TLH_OUT
+  cd "$back" || return
+  [ -n "$absent" ] && [ "$absent" = "$present" ] \
+    || fail "l8: the launch plan moved with the messaging environment: '$absent' vs '$present'"
+  grep -l 'fleet-messaging.sh' "$ROOT/scripts/fleet-dispatch-worktree.sh" "$ROOT/scripts/fleet-streamjson.sh" \
+    "$ROOT/scripts/fleet-dispatch-headless.sh" "$ROOT/scripts/fleet-tower-watchdog.sh" \
+    "$ROOT/scripts/fleet-tower-launch.sh" 2>/dev/null \
+    && fail "l8: a launch seam consults the messaging script"
+  return 0
+}
+
 l1
 l2
 l3
@@ -415,6 +445,7 @@ l4
 l5
 l6
 l7
+l8
 
 [ "$fails" -eq 0 ] || {
   echo "test-tmux-detached-launch: $fails failure(s)" >&2

@@ -85,7 +85,8 @@ trap cleanup EXIT
 # run_fdh <args...>: invoke the primitive via /bin/sh (never a temp-script
 # direct exec) with a hermetic env.
 run_fdh() {
-  env -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE \
+  env -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE -u PLANWRIGHT_ROOT \
+    -u PLANWRIGHT_MESSAGING_INBOUND \
     PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" \
     PLANWRIGHT_HEADLESS_STATE_DIR="$STATE" \
     /bin/sh "$FDH" "$@"
@@ -110,6 +111,7 @@ printf '%s\n' "\${CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION-<unset>}" >"\$rec/ghost"
 printf '%s\n' "\${PLANWRIGHT_WORKER_HANDLE-<unset>}" >"\$rec/handle"
 printf '%s\n' "\${PLANWRIGHT_WORKER_SCOPE-<unset>}" >"\$rec/scope"
 printf '%s\n' "\${PLANWRIGHT_WORKER_SPEC_ROOT-<unset>}" >"\$rec/specroot"
+printf '%s\n' "\${PLANWRIGHT_MESSAGING_INBOUND-<unset>}" >"\$rec/inbound"
 cat >"\$rec/stdin"
 while [ -f "\$rec/hold" ]; do sleep 0.1; done
 [ -f "\$rec/emit" ] && cat "\$rec/emit"
@@ -124,7 +126,7 @@ EOF
   rm -f "$mf_rec/hold"
   "$FAKE" --prewarm </dev/null >/dev/null 2>&1 || true
   rm -f "$mf_rec/cwd" "$mf_rec/claude-pid" "$mf_rec/argv" "$mf_rec/ghost" \
-    "$mf_rec/handle" "$mf_rec/scope" "$mf_rec/specroot" "$mf_rec/stdin"
+    "$mf_rec/handle" "$mf_rec/scope" "$mf_rec/specroot" "$mf_rec/stdin" "$mf_rec/inbound"
 }
 
 # wait_for <path> <tenths>: poll for a file, bounded.
@@ -186,6 +188,15 @@ line two'
     && fail "h1: argv carries --permission-prompt-tool (one-shot posture violated)"
   grep -q "	headless-$SPEC-task-$ID	" "$PLANWRIGHT_FLEET_STATE_DIR/registry" 2>/dev/null \
     || fail "h1: the launch did not register its worker in the case's own fleet home"
+  # The session is named after the handle, and the worker profile rides
+  # --settings with the inbound layer beside it (fleet-messaging D-8, D-19).
+  awk 'p == "--name" && $0 == want { ok = 1 } { p = $0 } END { exit !ok }' \
+    want="headless-$SPEC-task-$ID" "$rec/argv" || fail "h1: argv does not name the session after its handle"
+  awk 'p == "--settings" && $0 == want { ok = 1 } { p = $0 } END { exit !ok }' \
+    want="$(cd "$REPO_ROOT" && pwd -P)/config/worker-settings.json" "$rec/argv" || fail "h1: argv does not pass the worker profile: $(tr '\n' ' ' <"$rec/argv")"
+  "$REPO_ROOT/scripts/orchestrate-relay.sh" validate-handle headless-oneshot "headless-$SPEC-task-$ID" \
+    || fail "h1: the derived name fails the headless-oneshot grammar"
+  [ "$(cat "$rec/inbound")" = accept ] || fail "h1: PLANWRIGHT_MESSAGING_INBOUND is not accept in the worker env"
   pass "h1: detached launch delivers the prompt as data with pinned flags and identity env (REQ-A1.9, REQ-A1.5)"
 }
 
@@ -809,7 +820,33 @@ h19() {
   pass "h19: the worker gets the outside spec root, and an inherited one never stands (REQ-E1.7)"
 }
 
-for c in h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 h12 h13 h14 h15 h16 h17 h18 h19; do
+# --- h20: an unreadable worker profile refuses the launch ---------------------
+# The injector is the planwright-root override: PLANWRIGHT_ROOT names a copy of
+# the root whose worker profile cannot be read (fleet-messaging D-19).
+h20() {
+  local rec wt bad rc=0
+  rec="$tmp/rec-h20"
+  STATE="$tmp/state-h20"
+  wt="$tmp/wt-h20"
+  bad="$tmp/badroot-h20"
+  mkdir -p "$wt" "$bad/config"
+  cp -R "$REPO_ROOT/scripts" "$bad/scripts"
+  cp "$REPO_ROOT/config/worker-settings.json" "$bad/config/"
+  chmod 000 "$bad/config/worker-settings.json"
+  make_fake "$rec"
+  printf 'task\n' | env -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE \
+    PLANWRIGHT_ROOT="$bad" PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" PLANWRIGHT_HEADLESS_STATE_DIR="$STATE" \
+    /bin/sh "$FDH" launch "$SPEC" 20 --worktree "$wt" >/dev/null 2>"$tmp/err-h20" || rc=$?
+  chmod 644 "$bad/config/worker-settings.json"
+  [ "$rc" = 2 ] || fail "h20: an unreadable worker profile must refuse the launch (exit 2), got $rc"
+  grep -qF "$bad/config/worker-settings.json" "$tmp/err-h20" \
+    || fail "h20: the refusal does not name the profile: $(cat "$tmp/err-h20")"
+  [ ! -e "$STATE/20" ] || fail "h20: the refused launch left a state dir"
+  [ ! -e "$rec/argv" ] || fail "h20: the refused launch started the worker"
+  pass "h20: an unreadable worker profile refuses the launch before anything is placed (fleet-messaging D-19)"
+}
+
+for c in h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 h12 h13 h14 h15 h16 h17 h18 h19 h20; do
   fleet_home_pin "$tmp/home-$c" || {
     fail "$c: cannot pin a fixture fleet home under $tmp"
     continue
