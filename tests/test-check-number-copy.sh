@@ -367,6 +367,13 @@ printf '# Nothing numeric\n' >"$v/snap/baseline-2026-10-18.md"
 run "$v"
 check_eq "snapshots carrying no figure fail closed" 5 "$rc"
 
+v=$tmp/badcomma
+build "$v"
+append "$v/b/test-spec.md" "A median of 41.5 seconds."
+printf 'test-spec.md\t4,,1.5\tmalformed grouping\n' >>"$v/exempt.tsv"
+run "$v"
+check_eq "an exemption with malformed comma groups fails closed" 5 "$rc"
+
 v=$tmp/badexempt
 build "$v"
 printf 'test-spec.md\tx\tnot a figure\n' >>"$v/exempt.tsv"

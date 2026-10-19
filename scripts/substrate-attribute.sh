@@ -72,7 +72,8 @@
 # uncommitted input; a UID resolving to no fragment, to two, to a symlink, or
 # to a name opening with no date; an item dated after --as-of; a Sources
 # citation outside an Observations group or one whose UID is not lowercase
-# hex; --out naming a directory; a legacy match on no line or on
+# hex followed by a delimiter; a symlinked requirements.md or frozen log; an
+# impossible date; --out naming a directory; a legacy match on no line or on
 # two, or two rows on one line; a malformed, duplicate or empty-listed legacy
 # or manual row; a group label, class, or tier outside the fixed sets; a
 # partition with no header or two scripts sharing a stem; an empty mined set;
@@ -84,6 +85,10 @@ set -uf
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# An inherited git environment (a hook exports it) would point every git call
+# below at another repository, or inject configuration into it.
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+  GIT_CEILING_DIRECTORIES GIT_DISCOVERY_ACROSS_FILESYSTEM GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 me=substrate-attribute
 script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
@@ -146,15 +151,31 @@ if [ "$mode" = obs-dir ]; then
   exit 0
 fi
 
-# A shape check plus month and day ranges; a newline or a trailing byte in the
-# value fails the case pattern, where a line-wise grep would pass it.
-case $as_of in
-  [0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]) ;;
-  *) usage ;;
-esac
-case $as_of in
-  *-00-* | *-1[3-9]-* | *-00 | *-3[2-9]) usage ;;
-esac
+# valid_date <YYYY-MM-DD>: a real calendar date (month lengths, leap years).
+valid_date() {
+  case $1 in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+    *) return 1 ;;
+  esac
+  vd_y=${1%%-*} vd_m=${1#*-} vd_d=${1##*-}
+  vd_m=${vd_m%-*}
+  # A leading 1 keeps a zero-padded field from reading as octal.
+  vd_y=$((1$vd_y - 10000)) vd_m=$((1$vd_m - 100)) vd_d=$((1$vd_d - 100))
+  case $vd_m in
+    1 | 3 | 5 | 7 | 8 | 10 | 12) vd_max=31 ;;
+    4 | 6 | 9 | 11) vd_max=30 ;;
+    2)
+      vd_max=28
+      if [ $((vd_y % 4)) -eq 0 ] && { [ $((vd_y % 100)) -ne 0 ] || [ $((vd_y % 400)) -eq 0 ]; }; then vd_max=29; fi
+      ;;
+    *) return 1 ;;
+  esac
+  [ "$vd_d" -ge 1 ] && [ "$vd_d" -le "$vd_max" ]
+}
+
+# A case pattern, unlike a line-wise grep, rejects a value carrying a second
+# line or a trailing byte.
+valid_date "$as_of" || usage
 case $mode in
   snapshot | rows) [ -n "$partition" ] || usage ;;
 esac
@@ -164,6 +185,10 @@ esac
 
 reqs=$spec/requirements.md
 [ -r "$reqs" ] || fail_closed "the bundle's requirements.md is unreadable"
+# A tracked symlink would pass the uncommitted-input check while reading a
+# file outside the committed tree.
+[ ! -h "$reqs" ] || fail_closed "the bundle's requirements.md is a symlink"
+[ ! -h "$obs_dir/opportunities.md" ] || fail_closed "the frozen log opportunities.md is a symlink"
 for d in entries archive; do
   [ -d "$obs_dir/$d" ] && [ -r "$obs_dir/$d" ] || fail_closed "the accumulator's $d/ is missing or unreadable"
 done
@@ -253,7 +278,7 @@ awk '
       pre = (pos + RSTART > 1) ? substr($0, pos + RSTART - 1, 1) : ""
       pos += RSTART + RLENGTH - 1; t = substr(t, RSTART + RLENGTH)
       if (pre ~ /[A-Za-z0-9_]/) continue
-      if (u !~ /^[0-9a-f]+$/) { print "malformed citation: obs:" clean(u) > "/dev/stderr"; bad = 1; exit }
+      if (u !~ /^[0-9a-f]+$/ || substr(t, 1, 1) == "-") { print "malformed citation: obs:" clean(u) > "/dev/stderr"; bad = 1; exit }
       if (grp == "") { print "obs:" u " is cited outside an Observations group" > "/dev/stderr"; bad = 1; exit }
       print "obs:" u "\t" grp
     }
@@ -283,10 +308,7 @@ while IFS= read -r u; do
   [ -r "$found" ] || fail_closed "obs:$u's fragment is unreadable"
   b=${found##*/}
   d=${b%"${b#??????????}"}
-  case $d in
-    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
-    *) fail_closed "obs:$u's fragment name opens with no date" ;;
-  esac
+  valid_date "$d" || fail_closed "obs:$u's fragment name opens with no real date"
   printf '%s\t%s\t%s\tfragment\n' "obs:$u" "$d" "$found" >>"$SA_ITEMS_RAW" || fail_closed "the item list could not be written"
 done <"$work/uids"
 
@@ -294,6 +316,14 @@ done <"$work/uids"
 # exactly one frozen-log line, never one another row already took.
 awk -F'\t' '
   function clean(s) { gsub(/[^[:print:]]/, "", s); return s }
+  function valid_date(d,   y, m, dd, mx) {
+    if (d !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) return 0
+    y = substr(d, 1, 4) + 0; m = substr(d, 6, 2) + 0; dd = substr(d, 9, 2) + 0
+    if (m < 1 || m > 12 || dd < 1) return 0
+    mx = (m == 4 || m == 6 || m == 9 || m == 11) ? 30 : 31
+    if (m == 2) mx = ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0) ? 29 : 28
+    return dd <= mx
+  }
   BEGIN {
     n = split(ENVIRON["SA_CLASSES"], c, " ")
     for (i = 1; i <= n; i++) cls[c[i]] = 1
@@ -304,6 +334,7 @@ awk -F'\t' '
       if (nf != 3 || p[1] !~ /^legacy:[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]:[a-z0-9-]+$/ || p[2] == "" || p[3] == "") {
         print "malformed legacy index row: " clean(p[1]) > "/dev/stderr"; bad = 1; exit
       }
+      if (!valid_date(substr(p[1], 8, 10))) { print "legacy id with an impossible date: " clean(p[1]) > "/dev/stderr"; bad = 1; exit }
       if (p[1] in seen) { print "duplicate legacy id: " clean(p[1]) > "/dev/stderr"; bad = 1; exit }
       seen[p[1]] = 1
       m = split(p[2], cc, ",")

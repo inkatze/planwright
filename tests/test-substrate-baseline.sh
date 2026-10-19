@@ -232,10 +232,21 @@ ctl=$(printf '\033')
 cp "$rec/wc.tsv" "$tmp/wc${ctl}x.tsv"
 out=$("$SB" --as-of 2026-10-31 --spec "$fx/bundles/demo" --legacy "$fx/legacy.tsv" \
   --wallclock "$tmp/wc${ctl}x.tsv" --hand-backs "$rec/hand-backs.tsv" 2>&1)
+check_eq "a control byte in a capture path still renders" 0 "$?"
+check_has "the cleaned path is printed" "$out" "wall-clock from \`$tmp/wcx.tsv\`"
 case $out in
   *"$ctl"*) bad "a control byte in a path reached the snapshot" ;;
   *) ok "a control byte in a path never reaches the snapshot" ;;
 esac
+
+printf '1\t2026-02-30T00:00:00Z\t%s\t5\n' "$sha" >"$tmp/wc-feb.tsv"
+run "$tmp/wc-feb.tsv"
+check_eq "a wall-clock run on an impossible date fails closed" 5 "$rc"
+out=$("$SB" --as-of 2026-02-31 --spec "$fx/bundles/demo" 2>&1)
+check_eq "an impossible as-of date is a usage error" 2 "$?"
+out=$(cd "$fx" && GIT_DIR=/nonexistent "$SB" --as-of 2026-10-31 --spec "$fx/bundles/demo" --legacy "$fx/legacy.tsv" \
+  --wallclock "$rec/wc.tsv" --hand-backs "$rec/hand-backs.tsv" 2>&1)
+check_eq "an inherited git environment is ignored" 0 "$?"
 
 printf '1\t2026-10-01T00:00:00Z\t%s\t5\n1\t2026-10-02T00:00:00Z\t%s\t6\n' "$sha" "$sha" >"$tmp/wc-dup.tsv"
 run "$tmp/wc-dup.tsv"
@@ -285,8 +296,10 @@ case "$1 $2" in
     printf '%s\n' '[{"databaseId":7,"createdAt":"2026-10-30T01:00:00Z","headSha":"7777777777777777777777777777777777777777"},{"databaseId":9,"createdAt":"2026-11-02T01:00:00Z","headSha":"9999999999999999999999999999999999999999"},{"databaseId":8,"createdAt":"2026-10-31T23:00:00Z","headSha":"8888888888888888888888888888888888888888"},{"databaseId":6,"createdAt":"2026-10-29T01:00:00Z","headSha":"6666666666666666666666666666666666666666"}]'
     ;;
   "run view")
-    jq -r "$7" <<'JSON'
-{"jobs":[{"name":"other","steps":[]},{"name":"check","steps":[{"name":"Run mise run check","startedAt":"2026-10-30T01:00:00Z","completedAt":"2026-10-30T01:10:05Z"}]}]}
+    # Each run its own duration, so a capture reading the wrong run shows.
+    end=$((10 + $3))
+    jq -r "$7" <<JSON
+{"jobs":[{"name":"other","steps":[]},{"name":"check","steps":[{"name":"Run mise run check","startedAt":"2026-10-30T01:00:00Z","completedAt":"2026-10-30T01:10:${end}Z"}]}]}
 JSON
     ;;
   *) exit 9 ;;
@@ -295,8 +308,8 @@ EOF
 chmod +x "$stub/gh"
 out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 2 2>"$tmp/err")
 check_eq "capture exits zero" 0 "$?"
-check_eq "capture keeps the newest runs on or before the date" "8	2026-10-31T23:00:00Z	8888888888888888888888888888888888888888	605
-7	2026-10-30T01:00:00Z	7777777777777777777777777777777777777777	605" "$(printf '%s\n' "$out" | grep -v '^#')"
+check_eq "capture keeps the newest runs on or before the date, each with its own time" "8	2026-10-31T23:00:00Z	8888888888888888888888888888888888888888	618
+7	2026-10-30T01:00:00Z	7777777777777777777777777777777777777777	617" "$(printf '%s\n' "$out" | grep -v '^#')"
 out=$(PATH="$stub:$PATH" "$SB" --capture-wallclock --as-of 2026-10-31 --runs 5 2>/dev/null)
 check_eq "a capture short of --runs fails closed" 5 "$?"
 cp "$stub/gh" "$tmp/gh.keep"

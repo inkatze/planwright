@@ -182,7 +182,7 @@ BEGIN {
   while ((r = (getline l < f)) > 0) {
     if (l ~ /^#/ || l ~ /^[ \t]*$/) continue
     n = split(l, p, "\t")
-    if (n != 3 || p[1] == "" || p[2] !~ /^[0-9][0-9,]*(\.[0-9]+)?$/ || p[3] == "") {
+    if (n != 3 || p[1] == "" || p[2] !~ /^([0-9]+|[0-9][0-9]?[0-9]?(,[0-9][0-9][0-9])+)(\.[0-9]+)?$/ || p[3] == "") {
       print ENVIRON["CN_ME"] ": malformed exemption row: " clean(p[1]) " " clean(p[2]) > "/dev/stderr"; malformed = 1; exit
     }
     ex[p[1] "\t" norm(p[2])] = 1

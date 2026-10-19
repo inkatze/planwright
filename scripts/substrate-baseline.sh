@@ -71,6 +71,10 @@ LC_ALL=C
 TZ=UTC
 export LC_ALL TZ
 unset CDPATH
+# An inherited git environment (a hook exports it) would point every git call
+# below at another repository, or inject configuration into it.
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+  GIT_CEILING_DIRECTORIES GIT_DISCOVERY_ACROSS_FILESYSTEM GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 me=substrate-baseline
 script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
@@ -102,15 +106,31 @@ while [ "$#" -gt 0 ]; do
     *) usage ;;
   esac
 done
-# Shape plus month and day ranges; a case pattern, unlike a line-wise grep,
-# rejects a value carrying a second line.
-case $as_of in
-  [0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]) ;;
-  *) usage ;;
-esac
-case $as_of in
-  *-00-* | *-1[3-9]-* | *-00 | *-3[2-9]) usage ;;
-esac
+# valid_date <YYYY-MM-DD>: a real calendar date (month lengths, leap years).
+valid_date() {
+  case $1 in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+    *) return 1 ;;
+  esac
+  vd_y=${1%%-*} vd_m=${1#*-} vd_d=${1##*-}
+  vd_m=${vd_m%-*}
+  # A leading 1 keeps a zero-padded field from reading as octal.
+  vd_y=$((1$vd_y - 10000)) vd_m=$((1$vd_m - 100)) vd_d=$((1$vd_d - 100))
+  case $vd_m in
+    1 | 3 | 5 | 7 | 8 | 10 | 12) vd_max=31 ;;
+    4 | 6 | 9 | 11) vd_max=30 ;;
+    2)
+      vd_max=28
+      if [ $((vd_y % 4)) -eq 0 ] && { [ $((vd_y % 100)) -ne 0 ] || [ $((vd_y % 400)) -eq 0 ]; }; then vd_max=29; fi
+      ;;
+    *) return 1 ;;
+  esac
+  [ "$vd_d" -ge 1 ] && [ "$vd_d" -le "$vd_max" ]
+}
+
+# A case pattern, unlike a line-wise grep, rejects a value carrying a second
+# line or a trailing byte.
+valid_date "$as_of" || usage
 case $runs in
   [1-9] | [1-9][0-9]) ;;
   *) usage ;;
@@ -263,6 +283,7 @@ for f in "$obs_dir"/entries/*.md "$obs_dir"/archive/*.md; do
   esac
 done
 set -f
+[ ! -h "$obs_dir/opportunities.md" ] || fail_closed "the frozen log opportunities.md is a symlink"
 grep -E '^- [0-9]{4}-[0-9]{2}-[0-9]{2} ' "$obs_dir/opportunities.md" >"$work/legacy-lines"
 [ "$?" -le 1 ] || fail_closed "the frozen log could not be read"
 cut -c3-12 "$work/legacy-lines" >>"$work/dates" || fail_closed "the frozen log dates could not be read"
@@ -277,6 +298,14 @@ export SB_CLASSES SB_CLASS_LIST SB_COMMITS SB_DATES SB_HANDBACKS SB_WC SB_WC_SHO
 
 awk -F'\t' -v asof="$as_of" '
   function clean(s) { gsub(/[^[:print:]]/, "", s); return s }
+  function valid_date(d,   y, m, dd, mx) {
+    if (d !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) return 0
+    y = substr(d, 1, 4) + 0; m = substr(d, 6, 2) + 0; dd = substr(d, 9, 2) + 0
+    if (m < 1 || m > 12 || dd < 1) return 0
+    mx = (m == 4 || m == 6 || m == 9 || m == 11) ? 30 : 31
+    if (m == 2) mx = ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0) ? 29 : 28
+    return dd <= mx
+  }
   function load(f, arr,   n, l, r) {
     while ((r = (getline l < f)) > 0) arr[++n] = l
     if (r < 0) { print "an intermediate file could not be read" > "/dev/stderr"; bad = 1 }
@@ -306,7 +335,7 @@ awk -F'\t' -v asof="$as_of" '
     n = load(ENVIRON["SB_DATES"], lines)
     for (i = 1; i <= n; i++) {
       d = lines[i]
-      if (substr(d, 6, 2) < "01" || substr(d, 6, 2) > "12" || substr(d, 9, 2) < "01" || substr(d, 9, 2) > "31") {
+      if (!valid_date(d)) {
         print "an observation carries an impossible date: " clean(d) > "/dev/stderr"; bad = 1; break
       }
       if (d > asof) continue
@@ -332,6 +361,7 @@ awk -F'\t' -v asof="$as_of" '
       }
       if (p[1] in runseen) { print "repeated wall-clock run: " p[1] > "/dev/stderr"; bad = 1; break }
       runseen[p[1]] = 1
+      if (!valid_date(substr(p[2], 1, 10))) { print "wall-clock run with an impossible date: " p[1] > "/dev/stderr"; bad = 1; break }
       if (substr(p[2], 1, 10) > asof) { print "wall-clock run after the as-of date: " p[1] > "/dev/stderr"; bad = 1; break }
       run[i] = p[1]; created[i] = p[2]; head[i] = p[3]; secs[i] = p[4] + 0; sorted[i] = p[4] + 0
     }

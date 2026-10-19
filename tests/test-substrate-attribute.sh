@@ -12,6 +12,8 @@
 #   ./tests/test-substrate-attribute.sh
 # shellcheck disable=SC2016 # fixture fragments carry literal Markdown backticks, never a substitution
 set -u
+# The fixture repositories must never see a git context a hook exports.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 LC_ALL=C
 export LC_ALL
 unset CDPATH
@@ -212,6 +214,10 @@ run "$base" --as-of 2026-9-30
 check_eq "a malformed date is a usage error" 2 "$rc"
 run "$base" --as-of 2026-13-01
 check_eq "a month out of range is a usage error" 2 "$rc"
+run "$base" --as-of 2026-02-29
+check_eq "a day past a short month's end is a usage error" 2 "$rc"
+run "$base" --as-of 2028-02-29 --rows
+check_eq "a leap day is a date" 0 "$rc"
 run "$base" --as-of "$(printf '2026-09-30\nX')"
 check_eq "a date with a second line is a usage error" 2 "$rc"
 run "$base" --as-of 2026-07-31
@@ -398,6 +404,20 @@ sed 's/obs:aaaaaaa1, obs:aaaaaaa3\./obs:aaaaaaa1, obs:aaaaaaa3, obs:AAAAAAA9./' 
 run "$v"
 check_eq "a citation whose UID is not lowercase hex fails closed" 5 "$rc"
 
+v=$tmp/typo
+build "$v"
+sed 's/obs:aaaaaaa1, obs:aaaaaaa3\./obs:aaaaaaa1-typo, obs:aaaaaaa3./' \
+  "$v/bundles/demo/requirements.md" >"$v/r" && mv "$v/r" "$v/bundles/demo/requirements.md"
+run "$v"
+check_eq "a UID glued to a hyphen fails closed rather than truncating" 5 "$rc"
+
+v=$tmp/reqlink
+build "$v"
+mv "$v/bundles/demo/requirements.md" "$v/real-requirements.md"
+ln -s "$v/real-requirements.md" "$v/bundles/demo/requirements.md"
+run "$v"
+check_eq "a symlinked requirements.md fails closed" 5 "$rc"
+
 v=$tmp/edges
 build "$v"
 printf -- '- 2026-08-04 [demo] replays githooks/pre-commit. Also myscripts/libbed and hooked.sh-old.\n' \
@@ -412,10 +432,10 @@ v=$tmp/gitrepo
 build "$v"
 mkdir -p "$v/scripts"
 cp "$SA" "$v/scripts/"
-git -C "$v" init -q
-git -C "$v" add -A >/dev/null
+git -C "$v" init -q || exit 1
+git -C "$v" add -A >/dev/null || exit 1
 git -C "$v" -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false -c core.hooksPath=/dev/null \
-  commit -q -m "fixture" >/dev/null
+  commit -q -m "fixture" >/dev/null || exit 1
 gitrun() {
   out=$(cd "$v" && /bin/sh scripts/substrate-attribute.sh --as-of 2026-09-30 --partition partition.tsv \
     --legacy legacy.tsv --manual manual.tsv "$@" 2>&1)
@@ -423,6 +443,12 @@ gitrun() {
 }
 gitrun --spec bundles/demo --rows
 check_eq "a clean repository runs" 0 "$rc"
+# An inherited GIT_DIR must not switch the uncommitted-input check off.
+printf -- '- 2026-08-09 [demo] untracked.\n' >"$v/bundles/_observations/entries/2026-08-09-new-ccccccc1.md"
+out=$(cd "$v" && GIT_DIR=/nonexistent /bin/sh scripts/substrate-attribute.sh --as-of 2026-09-30 \
+  --partition partition.tsv --legacy legacy.tsv --manual manual.tsv --spec bundles/demo --rows 2>&1)
+check_eq "an inherited git environment does not skip the uncommitted-input check" 5 "$?"
+rm "$v/bundles/_observations/entries/2026-08-09-new-ccccccc1.md"
 printf -- '- 2026-08-09 [demo] untracked.\n' >"$v/bundles/_observations/entries/2026-08-09-new-ccccccc1.md"
 gitrun --spec bundles/demo --rows
 check_eq "an untracked fragment fails closed through a relative --spec" 5 "$rc"
