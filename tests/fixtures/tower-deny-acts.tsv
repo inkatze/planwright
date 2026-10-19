@@ -3,10 +3,10 @@
 # one command (or, for an MCP entry, one tool name) the entry blocks. The
 # spelling rows are the REQ-D1.2 spelling set that counts: each act refused
 # through git's global options, long-option prefixes, ref forms, and repo
-# aliases (tests/test-tower-floor.sh configures the aliases they use).
-# tests/test-tower-floor.sh fails on a deny entry with no row, a row naming no
-# entry, a sample its entry does not match, and a sample or spelling the
-# plugin-wired floor does not refuse in a marked session.
+# aliases (tests/lib/tower-floor-harness.sh configures the aliases they use).
+# The tests/test-tower-floor-*.sh suites fail on a deny entry with no row, a
+# row naming no entry, a sample its entry does not match, and a sample or
+# spelling the plugin-wired floor does not refuse in a marked session.
 # A deny-list edit adds or removes its row here in the same commit.
 #
 # entry<TAB><deny entry><TAB><act><TAB><sample>

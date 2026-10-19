@@ -222,6 +222,9 @@ expect deny "a group-writable mark denies"
 chmod 602 "$STORE/$MARKED"
 ts_bash "$MARKED" 'ls'
 expect deny "a world-writable mark denies"
+chmod 000 "$STORE/$MARKED"
+ts_bash "$MARKED" 'ls'
+expect deny "an unreadable mark denies"
 reset_store
 printf 'tower\t1\tprompt\n' >"$SANDBOX/elsewhere"
 chmod 600 "$SANDBOX/elsewhere"
