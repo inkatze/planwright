@@ -404,7 +404,14 @@ run_mcp "$MCP_FLIP"
 assert_cell unreadable-count/mcp "mcp: an unreadable behind_by denies"
 assert_reason_matches "mcp: the unreadable-count denial names it" 'no readable'
 
-echo "# no-timeout-binary: neither timeout nor gtimeout on PATH"
+# Without timeout or gtimeout the guard falls back to its bundled runner, so
+# nothing can bound the call only when that is missing too.
+echo "# no-timeout-binary: neither timeout, gtimeout nor the bundled runner"
+mcm_bare="$SANDBOX/bare-scripts"
+cp -R "$REPO_ROOT/scripts" "$mcm_bare"
+rm -f "$mcm_bare/bounded-run.sh"
+mcm_hook=$HOOK
+HOOK="$mcm_bare/ready-guard.sh"
 reset_stub_env
 STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
 run_hook "$(bash_payload "$BASH_FLIP")" timeout gtimeout
@@ -417,6 +424,7 @@ run_mcp "$MCP_FLIP" timeout gtimeout
 assert_cell no-timeout-binary/mcp "mcp: no bounding binary denies rather than making an unbounded call"
 assert_reason_matches "mcp: the unbounded-call denial names the remedy" 'coreutils|timeout'
 assert_gh_calls "mcp: no query was attempted without a bound" 0
+HOOK=$mcm_hook
 
 echo "# invalid-selector: grammar validation refuses before any gh call"
 reset_stub_env

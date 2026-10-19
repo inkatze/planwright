@@ -285,6 +285,11 @@ valid_text() {
 # read as a permanently unreachable forge). Validation shape is deliberately
 # byte-for-byte fleet-liveness.sh's oracle_timeout, this tree's sibling
 # wall-clock bound, so the two behave identically on malformed input.
+# Run through sh rather than its own mode bits, which a plugin copy may drop.
+bounded_run() {
+  /bin/sh "$script_dir/bounded-run.sh" "$@"
+}
+
 gh_timeout() {
   gt_v="${PLANWRIGHT_CLEANUP_GH_TIMEOUT:-20}"
   case $gt_v in
@@ -581,23 +586,24 @@ case "$cmd" in
       # The query below is the ONLY network call in this actuator, and so the
       # only step that can hang without bound: a stalled forge, a wedged DNS
       # lookup, or a credential helper waiting on input would otherwise pin a
-      # cleanup sweep open indefinitely. `timeout` is this tree's established
-      # bound (fleet-liveness.sh, fleet-attention-watch.sh, release-arm.sh), but
-      # it is GNU coreutils and is NOT on stock macOS, which this script's
-      # support bar includes — so its ABSENCE must refuse rather than silently
-      # fall back to running unbounded. An unbounded network call in the decision
-      # path of a destructive actuator is exactly what "fail closed on any doubt"
-      # forbids; reclaiming a worktree is a capability, whereas not wedging the
-      # sweep that reclaims it is a safety property, and the capability yields.
+      # cleanup sweep open indefinitely. `timeout` is GNU coreutils and is NOT
+      # on stock macOS, which this script's support bar includes, so there the
+      # bundled bounded-run.sh bounds the call. With neither, the query refuses
+      # rather than silently running unbounded: an unbounded network call in
+      # the decision path of a destructive actuator is exactly what "fail
+      # closed on any doubt" forbids; reclaiming a worktree is a capability,
+      # whereas not wedging the sweep that reclaims it is a safety property,
+      # and the capability yields.
       #
       # release-arm.sh's poll budget is NOT the model here: it bounds how many
       # times a query is retried, not how long one call may hang, so a single
-      # wedged `gh` still hangs it. fleet-liveness.sh's oracle_fetch does bound a
-      # single call portably, but with ~70 lines of supervisor/pid/TERM-KILL
-      # choreography; putting that inside this decision path would add more
-      # failure surface than the bound removes.
-      if ! command -v timeout >/dev/null 2>&1; then
-        warn "--merged-pr given but no timeout binary on PATH — refusing rather than making an unbounded network call (fail closed)"
+      # wedged `gh` still hangs it.
+      if command -v timeout >/dev/null 2>&1; then
+        gh_bound=timeout
+      elif [ -r "$script_dir/bounded-run.sh" ]; then
+        gh_bound=bounded_run
+      else
+        warn "--merged-pr given but no timeout binary on PATH and no bundled bounded-run.sh — refusing rather than making an unbounded network call (fail closed)"
         exit 5
       fi
       head_oid=$(git -C "$path" rev-parse HEAD 2>/dev/null) || head_oid=""
@@ -612,7 +618,7 @@ case "$cmd" in
       # is DATA: parsed by prefix/suffix expansion and re-validated below.
       gh_t=$(gh_timeout)
       pr_rc=0
-      pr_pair=$(cd "$path" 2>/dev/null && timeout "$gh_t" gh pr view "$merged_pr" \
+      pr_pair=$(cd "$path" 2>/dev/null && "$gh_bound" "$gh_t" gh pr view "$merged_pr" \
         --json state,headRefOid \
         --template '{{.state}} {{.headRefOid}}' 2>/dev/null) || pr_rc=$?
       [ "$pr_rc" = 0 ] || pr_pair=""

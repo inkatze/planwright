@@ -74,18 +74,6 @@ if ! command -v jq >/dev/null 2>&1; then
   echo "FAIL: jq is required to run this suite" >&2
   exit 1
 fi
-# Probe the bounding binaries ONLY. jq was once in this loop, which set the
-# flag on any host with jq and let a host with neither timeout nor gtimeout
-# run the whole suite against the guard's "no timeout binary" denial instead
-# of stopping here with the reason.
-unset HAVE_ANY_TIMEOUT
-for t in timeout gtimeout; do
-  command -v "$t" >/dev/null 2>&1 && HAVE_ANY_TIMEOUT=1
-done
-if [ -z "${HAVE_ANY_TIMEOUT:-}" ]; then
-  echo "FAIL: neither timeout nor gtimeout is available; the suite cannot exercise the bounded path" >&2
-  exit 1
-fi
 
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/ready-guard.XXXXXX")" || exit 1
 trap 'rm -rf "$SANDBOX"' EXIT
@@ -97,7 +85,9 @@ mkdir -p "$BIN" "$STATE" "$WORK" "$WORK/sub"
 # A hermetic PATH holding ONLY what the guard may use. Absence fixtures delete
 # one entry from it, so "jq absent" and "gh absent" are genuinely absent rather
 # than shadowed — the ambient PATH is never consulted.
-HERMETIC_TOOLS="head tr sleep dirname cat env sed grep bash"
+# date, ps and awk are the bundled bounded-run.sh's, for a host with neither
+# timeout nor gtimeout.
+HERMETIC_TOOLS="head tr sleep dirname cat env sed grep bash date ps awk"
 for t in $HERMETIC_TOOLS; do
   p="$(command -v "$t" 2>/dev/null)" && ln -sf "$p" "$BIN/$t"
 done
@@ -121,6 +111,7 @@ cat >"$BIN/gh" <<'GHSTUB'
 } >>"$GH_ARGV_LOG"
 case "${1:-}" in
   pr)
+    [ -z "${STUB_VIEW_SLEEP:-}" ] || sleep "$STUB_VIEW_SLEEP"
     if [ -f "$PWD/view.json" ]; then
       cat "$PWD/view.json"
       exit 0
@@ -212,6 +203,7 @@ run_hook() {
       PLANWRIGHT_READY_GUARD_GH_TIMEOUT="${RG_GH_TIMEOUT:-}" \
       STUB_VIEW_JSON="${STUB_VIEW_JSON:-}" STUB_VIEW_JSON2="${STUB_VIEW_JSON2:-}" \
       STUB_VIEW_RC="${STUB_VIEW_RC:-0}" STUB_VIEW_RC2="${STUB_VIEW_RC2:-}" \
+      STUB_VIEW_SLEEP="${STUB_VIEW_SLEEP:-}" \
       STUB_COMPARE_OUT="${STUB_COMPARE_OUT:-0}" STUB_COMPARE_RC="${STUB_COMPARE_RC:-0}" \
       /bin/bash "$HOOK" "${RG_SURFACE:-bash}" 2>/dev/null)"
   CODE=$?
@@ -365,5 +357,6 @@ reset_stub_env() {
   RG_ADOPTER_OVERLAY=''
   RG_LOCAL_CONFIG=''
   RG_GH_TIMEOUT=''
+  STUB_VIEW_SLEEP=''
 }
 reset_stub_env

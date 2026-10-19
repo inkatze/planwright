@@ -282,12 +282,22 @@ retry_delay() {
 # because a guard that denied every flip on a stock macOS box would be a
 # false-deny surface far larger than the convention is worth. Neither present
 # still fails closed at the call site.
+# timeout_bin — the command that bounds a query: timeout or gtimeout, else the
+# bundled runner (stock macOS ships neither), else nothing.
 timeout_bin() {
   if command -v timeout >/dev/null 2>&1; then
     printf 'timeout'
   elif command -v gtimeout >/dev/null 2>&1; then
     printf 'gtimeout'
+  elif [ -n "$GUARD_DIR" ] && [ -r "$GUARD_DIR/bounded-run.sh" ]; then
+    printf 'bounded_run'
   fi
+}
+
+# Run through sh rather than its own mode bits, which a plugin copy may drop.
+# shellcheck disable=SC2329 # called through the name timeout_bin prints
+bounded_run() {
+  /bin/sh "$GUARD_DIR/bounded-run.sh" "$@"
 }
 
 # --------------------------------------------------------------------------
@@ -940,7 +950,7 @@ evaluate_predicate() {
   # hook, which can hang the tool call and produce no output at all - a silent
   # fail-OPEN, the single outcome this guard may never have. Refuse instead.
   [ -n "$RG_TIMEOUT_BIN" ] \
-    || emit_deny 'no timeout (or gtimeout) binary is on PATH, so the guard cannot bound its GitHub queries and will not make an unbounded call from a PreToolUse hook - refusing (fail closed). Install coreutils.'
+    || emit_deny 'no timeout (or gtimeout) binary is on PATH and the bundled bounded-run.sh is missing beside this guard, so the guard cannot bound its GitHub queries and will not make an unbounded call from a PreToolUse hook - refusing (fail closed). Reinstall planwright.'
   RG_GH_T=$(gh_timeout)
 
   local base head_oid mergeable is_draft url

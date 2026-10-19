@@ -527,6 +527,15 @@ set_knobs 'ready_flip_policy: unit-owner'
 STUB_SLEEP=3 PG_TIMEOUT=1 pg worker 'git push origin feature'
 expect deny "[worker] a protected-set read past the wall-clock bound denies"
 reason_has 'protected set did not finish' "the protected-set timeout deny names the timeout"
+# With neither timeout nor gtimeout on PATH (stock macOS) the guard bounds its
+# reads itself, so the same stall is still a timeout, not a missing tool.
+NT_PATH=$(no_timeout_path "$SANDBOX/no-timeout")
+PG_PATH=$NT_PATH STUB_SLEEP=3 PG_TIMEOUT=1 pg worker 'git push origin feature'
+expect deny "[worker] without timeout or gtimeout, a protected-set read past its bound denies"
+reason_has 'protected set did not finish' "without timeout or gtimeout, the deny still names the timeout"
+PG_PATH=$NT_PATH pg worker 'git push origin main'
+expect deny "[worker] without timeout or gtimeout, a push to main is still read and refused"
+reason_has 'targets a protected branch' "without timeout or gtimeout, the bounded read's own answer decides"
 # An upstream refresh that hangs is cut off at its bound and refuses.
 SLOW="$SANDBOX/slow"
 clone_on "$SLOW" planwright/demo/task-1 1
