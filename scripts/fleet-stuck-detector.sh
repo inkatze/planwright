@@ -899,8 +899,8 @@ read_completion() {
       "" | *[!A-Za-z0-9_-]*) rc_val=unknown ;;
     esac
     [ "${#rc_val}" -le 32 ] || rc_val=unknown
-    # Field 4 carries the frame's is_error flag; only `result` records write
-    # it today, though the column is read for either kind. A frame can report
+    # Field 4 carries the is_error flag: a `result` record's from its frame, an
+    # `exit` record's when the stream showed an API error. A frame can report
     # subtype success and is_error true at once, because an API error arrives
     # as assistant text: the turn completed, the run did not. Records
     # predating the field have three fields and keep their previous meaning.
