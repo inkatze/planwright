@@ -75,11 +75,10 @@ scripts or maintainer tasks reach it, where the precedents moved logic into a co
 
 ## library
 
-- **Audience:** adopter runtime for the scripts hook and skill-called scripts reach. The
-  tier also holds dev-only scripts that only maintainer tools call (the attribution script
-  under the cost baseline, the release and backtest helpers); those take the dev-check
-  profile below, since the call graph places them here and only their callers say who runs
-  them.
+- **Audience:** adopter runtime, set by the members hook and skill-called scripts reach.
+  The call graph also places here dev-only scripts that only maintainer tools call (the
+  attribution script under the cost baseline, the release and backtest helpers); they are
+  bound by this same profile, the stricter one, with no per-script exception.
 - **Latency budget:** none of its own: it inherits its caller's, so a library under a hook
   answers to the hook budget at the call sites a hook reaches.
 - **Correctness needs:** the shared primitives the other tiers trust: advisory locks,
