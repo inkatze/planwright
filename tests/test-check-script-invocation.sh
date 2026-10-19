@@ -125,7 +125,13 @@ for form in \
   'Run `sh +o errexit scripts/bash-tool.sh`.' \
   'Run `sh -e<scripts/bash-tool.sh`.' \
   'Run `"sh" scripts/bash-tool.sh`.' \
-  'Run **sh scripts/bash-tool.sh** or [sh scripts/bash-tool.sh](x).' \
+  'Run **sh scripts/bash-tool.sh** in bold.' \
+  'Run [sh scripts/bash-tool.sh](x) as a link.' \
+  'Run ${sh scripts/bash-tool.sh} in braces.' \
+  'Run `sh ~/dev/<repo>/scripts/bash-tool.sh`.' \
+  'Run `sh "${ROOT:-<root>}/scripts/bash-tool.sh"`.' \
+  'Run `sh > /dev/null scripts/bash-tool.sh`.' \
+  'Run `sh 2> /dev/null scripts/bash-tool.sh`.' \
   'Run `bash -c "sh scripts/bash-tool.sh"`.'; do
   variant form "$form"
   out="$("$CHECKER" --repo-root "$tmp/form" 2>&1)"

@@ -192,6 +192,7 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
         a = w[j]
         if (a == "--" || a == "-" || a == "<") continue
         if (a ~ /^[-+]o$/) { j++; continue }
+        if (a ~ /^[0-9]*>+$/ || a ~ /^[0-9]+<$/) { j++; continue }
         if (a ~ /^--[A-Za-z]/ || a ~ /^[0-9]*>/ || a ~ /^[0-9]+</) continue
         if (a ~ /^[-+][A-Za-z]+</) {
           op = a
@@ -208,10 +209,10 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
       }
       if (skip || op == "") continue
       gsub(/[\042\047]/, "", op)
-      # A leading <placeholder> is part of the path; any other < or > is a
-      # redirect, before the operand or glued after it.
-      if (match(op, /^<[A-Za-z0-9_-]+>/)) op = "R" substr(op, RLENGTH + 1)
-      else sub(/^</, "", op)
+      # A <placeholder> is part of the path; any other < or > is a redirect,
+      # before the operand or glued after it.
+      gsub(/<[A-Za-z0-9_-]+>/, "R", op)
+      sub(/^</, "", op)
       sub(/[]`;|&<>].*$/, "", op)
       sub(/[).,:*}]+$/, "", op)
       if (op !~ /(^|\/)scripts\/[^\/]+$/) continue
