@@ -143,7 +143,8 @@ tlh_reap() {
   # descendant whose parent obeyed is no longer under any recorded pid.
   # shellcheck disable=SC2086
   stub_kill_tree KILL $left $members
-  poll_until --what 'the stub processes to die after SIGKILL' -- _tlh_none_alive || :
+  # SIGKILL cannot be refused, so only reaping lags; a survivor is reported below.
+  poll_until --deadline 5 --what 'the stub processes to die after SIGKILL' -- _tlh_none_alive || :
   left=$(tlh_stub_pids_alive)
   [ -z "$left" ] && return 0
   printf '%s\n' "tlh_reap: stub-started process(es) still running: $(printf '%s\n' "$left" | tr '\n' ' ')" >&2
