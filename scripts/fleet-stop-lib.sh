@@ -69,10 +69,13 @@ stop_posnum() {
 }
 
 # `kill -0` answers "may I signal it", and EPERM means alive; `ps -p` answers
-# existence regardless of owner, and procfs where ps has no -p (busybox).
+# existence regardless of owner. procfs answers only where ps has no -p
+# (busybox, which rejects even this shell's own pid): elsewhere /proc/<n>
+# also resolves a thread id, which is no process at all.
 stop_pid_live() {
   kill -0 "$1" 2>/dev/null && return 0
-  ps -p "$1" >/dev/null 2>&1 || [ -d "/proc/$1" ]
+  ps -p "$1" >/dev/null 2>&1 && return 0
+  ! ps -p "$$" >/dev/null 2>&1 && [ -d "/proc/$1" ]
 }
 
 stop_now() {
@@ -147,7 +150,8 @@ stop_scratch_release() {
 # Every snapshot the close takes asks for `-ww` first, which is what keeps a
 # long argv, carrying the state-directory path the match keys on, from being
 # truncated to terminal width by BSD ps; a ps that rejects the flag degrades to
-# the narrow form rather than to nothing. Each candidate is shape-checked rather
+# the procfs table where there is one, then to the narrow form, rather than to
+# nothing (stop_snapshot). Each candidate is shape-checked rather
 # than trusted by exit status.
 stop_ps_rows_shaped() {
   [ -n "$1" ] || return 1
@@ -184,9 +188,16 @@ stop_proc_rows() {
   for spr_p in $(ls "$spr_root" 2>/dev/null); do
     case $spr_p in '' | *[!0-9]*) continue ;; esac
     { IFS= read -r spr_st <"$spr_root/$spr_p/stat"; } 2>/dev/null || continue
+    # A command name holding a newline splits the first line before its `) `.
+    case $spr_st in
+      *') '*) ;;
+      *) spr_st=$(cat "$spr_root/$spr_p/stat" 2>/dev/null) || continue ;;
+    esac
     # shellcheck disable=SC2086 # the fields after the command name, split
     set -- ${spr_st##*) }
-    spr_args=$(tr '\000' ' ' 2>/dev/null <"$spr_root/$spr_p/cmdline") || continue
+    # A newline in an argument would forge a row of its own, so it goes the
+    # way ps prints it, as a space.
+    spr_args=$(tr '\000\n' '  ' 2>/dev/null <"$spr_root/$spr_p/cmdline") || continue
     printf '%s %s %s\n' "$spr_p" "$2" "$spr_args"
   done
 }
