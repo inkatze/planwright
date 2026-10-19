@@ -325,3 +325,14 @@ the change this entry re-anchors against.
 Class: expression-only
 Anchor: `46942b430955ebb3ce122764f7d61e1fc3e63aa4` — computed as
 `scripts/spec-anchor.sh specs/inception`
+
+### Execution findings: Task 10 (2026-10-18)
+
+Appended by `/execute-task`; no row above is changed.
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| T10-F1 | Decision (data-storage, low stake, reversible). The format names `T-<n> findings` as the citation but leaves the findings document's home open. | `findings/T-<n>.md` beside the bundle: outside the five-file membership, so the validator ignores it, and one file per task keeps the per-commit check a path test. Owned by `doctrine/venture-task.md`. |
+| T10-F2 | The Done-when asks for findings plus register update in one change, while a dispatched worker's output has to survive until the operator reviews it. Leaving findings uncommitted would let any other save sweep them into an unrelated commit. | Two commits: delivery commits the findings with the task at `delivered` and touches no register; acceptance commits the register updates, the task flip, and the acceptance record appended to the findings, together or not at all. `venture-task.sh check` flags an acceptance without its findings or its updates, a register citing unaccepted findings, and findings for a task left undelivered. |
+| T10-F3 | `skills/execute-task/SKILL.md` sat one word above its declared-exception margin, so the venture-task route had to be funded in-file. | The hook (a manifest line and one sentence) was paid for by deduplicating two citations the Invariants section already carries. The new point-of-use doc drops the `/execute-task` closure below its restoration target (floor intact); recorded as a declared exception in `config/instruction-budget-exemptions.txt`. |
+| T10-F4 | The external-interaction ban's settings half: `venture-task.sh worker-settings` prints a deny-list for the common outward channels, but no backend launch in the seam takes a settings file today. | The doctrine states the deny-list as a floor and the ban as holding regardless; wiring a settings pass-through into the launch path is recorded as an observation, not done here. |
