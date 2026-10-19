@@ -139,8 +139,10 @@ reuse its literal path in every call.
 9. **Attribute.** `attribute` writes `table.md`: the amended synthesis with each
    table label followed by its seat. Once the run holds a challenge, it waits
    for the amendment rather than falling back to the first synthesis, and it
-   exits 4 while a challenge or amendment is still out through a drop; a
-   challenge asked in the conversation is saved before `attribute` runs.
+   exits 4 while a challenge or amendment is still out through a drop. Save a
+   challenge asked in the conversation as `challenge.md` before running
+   `attribute`: with neither the file nor its drop, it cannot tell the
+   challenge was asked and uses the first synthesis.
 10. **Gate 2, in the main conversation.** Present `table.md` for a silent read
     first. Then run `gate2`. Each `choice` line is an escalated item: put it to
     the operator as a structured forced choice whose options are the human

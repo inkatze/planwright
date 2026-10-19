@@ -885,10 +885,14 @@ issue_prompt() {
   ip_name=$1
   shift
   emit "$@"
-  [ -n "$deliver_file" ] || return 0
-  drop_pending=
-  printf '%s\n' "$drop_path" >"$run/drop-${ip_name%.md}" \
-    || die 2 "the prompt is out, but its drop could not be recorded: it is void, and $drop_path is left for you to remove"
+  if [ -n "$deliver_file" ]; then
+    drop_pending=
+    printf '%s\n' "$drop_path" >"$run/drop-${ip_name%.md}" \
+      || die 2 "the prompt is out, but its drop could not be recorded: it is void, and $drop_path is left for you to remove"
+  elif [ -n "$old_drop" ]; then
+    # Answered in the conversation: nothing is out through a drop any more.
+    rm -f "${run:?}/drop-${ip_name%.md}"
+  fi
   if [ -n "$old_drop" ] && [ -d "$old_drop" ] && [ ! -h "$old_drop" ] && ! rmdir "$old_drop" 2>/dev/null; then
     printf 'inception-fanout: the earlier drop for %s is not empty; kept at %s\n' "$ip_name" "$old_drop" >&2
   fi
@@ -1461,19 +1465,6 @@ check_retry() {
 commit_retry() {
   if [ "$retry_src" = "$run/$1" ]; then
     mv "$run/$1" "$run/${1%.md}-attempt-1.md" || die 2 "the re-ask is out, but $1 could not be set aside; move it to ${1%.md}-attempt-1.md"
-  fi
-  # A re-ask answered in the conversation leaves no drop to wait on; an earlier
-  # ask's drop record would otherwise read as a re-ask still out.
-  if [ -z "$deliver_file" ] && run_has "drop-${1%.md}"; then
-    cr_old=$(strip_controls <"$run/drop-${1%.md}")
-    case $cr_old in
-      /*)
-        if [ -d "$cr_old" ] && [ ! -h "$cr_old" ] && ! rmdir "$cr_old" 2>/dev/null; then
-          printf 'inception-fanout: the earlier drop for %s is not empty; kept at %s\n' "$1" "$cr_old" >&2
-        fi
-        ;;
-    esac
-    rm -f "${run:?}/drop-${1%.md}"
   fi
 }
 
