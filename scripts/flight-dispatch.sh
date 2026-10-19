@@ -1,7 +1,7 @@
 #!/bin/sh
 # flight-dispatch.sh — the visual-flight dispatch path (tower-front-door D-6,
-# D-7, D-11, D-16–D-18; REQ-B1.5, REQ-C1.1–C1.9, REQ-C1.11, REQ-C1.12,
-# REQ-E1.2, REQ-G1.5).
+# D-7, D-11, D-16–D-18, D-20; REQ-B1.5, REQ-C1.1–C1.9, REQ-C1.11, REQ-C1.12,
+# REQ-E1.2, REQ-E1.7, REQ-G1.5).
 #
 # The tower routes an ask onto visual flight; this primitive places it. It
 # composes existing seams and mints nothing beside them:
@@ -60,8 +60,8 @@
 #       lock: there a failed removal is only named on stderr, while a refused
 #       sweep stops the dispatch with exit 4 before anything is placed.
 #   dispatch <slug> --backend <tmux|print> --ask-file <file>
-#       --grounds-file <file> [--home pr|file] [--repo-root <dir>]
-#       [--attach-dry-run]
+#       --grounds-file <file> [--public-summary-file <file>] [--home pr|file]
+#       [--repo-root <dir>] [--attach-dry-run]
 #       Count the checkout's live flights against `max_parallel_units` under
 #       the checkout's flight lock, and in the same act mint the id, write the
 #       worker brief under the fleet home, and place the flight. At or over
@@ -103,7 +103,10 @@
 #
 # The ask travels as a file, is never evaluated, and reaches the worker only
 # inside the brief, quoted as data, and as the copy beside the brief that
-# scripts/flight-record.sh screens and quotes into the audit record. The
+# scripts/flight-record.sh screens and quotes into the audit record. With
+# --public-summary-file (REQ-E1.7) the ask is private: the record quotes the
+# summary instead, the brief tells the worker to keep every surface it writes
+# at the summary's level, and neither text is echoed into the report. The
 # grounds travel as a file too, holding one line: operator text never sits
 # inside a command's quoting. Invisible and bidi-control code points are
 # stripped from the text quoted in the brief, and the strip is flagged (stderr
@@ -120,8 +123,9 @@
 # `steps<TAB><point><TAB><ids>` per point (the step ids the check resolved to
 # run there, space-separated, empty for none), one
 # `skipped<TAB><point><TAB><id>` per step the check skipped, model, effort,
-# brief, `sanitized` (ask or grounds, one line each, only when invisible or
-# bidi-control characters were stripped from that text), backend, handle,
+# brief, `sanitized` (ask, grounds, or public-summary, one line each, only
+# when invisible or bidi-control characters were stripped from that text),
+# backend, handle,
 # outcome (tmux: started, started-unconfirmed, or failed-at-startup), observe
 # and attach (the session the launch's report line named), launch (print), the
 # primitive's `attach-plan` lines (--attach-dry-run),
@@ -189,6 +193,9 @@ MANIFEST_SKILL="$root_dir/skills/execute-task/SKILL.md"
 TEXT="$script_dir/flight-text.sh"
 COMMON="$script_dir/flight-common.sh"
 
+# The public summary's cap: a statement of the ask, never a second copy of it.
+PUBLIC_MAX=4096
+
 # How long a dispatch or retire waits on another holding the checkout's flight
 # lock before it declines to wait. fleet-sweep.sh passes 0, so its retire never
 # waits on a dispatch; tests shorten it too.
@@ -207,7 +214,8 @@ usage() {
 usage: flight-dispatch.sh home [--repo-root <dir>]
        flight-dispatch.sh retire [--repo-root <dir>]
        flight-dispatch.sh dispatch <slug> --backend <tmux|print> --ask-file <file>
-           --grounds-file <file> [--home pr|file] [--repo-root <dir>] [--attach-dry-run]
+           --grounds-file <file> [--public-summary-file <file>] [--home pr|file]
+           [--repo-root <dir>] [--attach-dry-run]
 EOF
   exit 2
 }
@@ -830,6 +838,10 @@ write_brief() {
   _inputs="--flight-id $flight_id"
   _inputs="$_inputs --ask-file $(sh_quote "$brief_dir/ask.txt")"
   _inputs="$_inputs --grounds-file $(sh_quote "$brief_dir/grounds.txt")"
+  if [ -n "$public_file" ]; then
+    cp "$work/public.raw" "$brief_dir/public-summary.txt" || return 1
+    _inputs="$_inputs --public-summary-file $(sh_quote "$brief_dir/public-summary.txt")"
+  fi
   _inputs="$_inputs --summary-file $(sh_quote "$_rd/summary.md")"
   _inputs="$_inputs --verification-file $(sh_quote "$_rd/verification.md")"
   _inputs="$_inputs --audit-file $(sh_quote "$_rd/audit.md")"
@@ -957,6 +969,20 @@ A non-zero exit from that line parks the flight, naming what the line printed."
     if [ "$ask_sanitized" -eq 1 ]; then
       printf '\n%s\n' "Invisible or bidi-control characters were stripped from the ask at dispatch."
     fi
+    if [ -n "$public_file" ]; then
+      printf '\n## The ask is private\n\n'
+      printf '%s\n' "The ask carries detail that stays off committed and remote surfaces, so it"
+      printf '%s\n' "lives only in this brief's directory. The record quotes the tower's public"
+      printf '%s\n' "summary in its place:"
+      printf '\n'
+      quote_block "$work/public"
+      printf '\n%s\n' "Keep every surface you write at that summary's level: commit messages, the"
+      printf '%s\n' "PR title, the record inputs under \`record/\`, and any PR comment. Never"
+      printf '%s\n' "quote, paraphrase, or describe the ask's private detail on any of them, and"
+      printf '%s\n' "never copy this brief or the ask file into the worktree. The renderer"
+      printf '%s\n' "refuses a record input that restates the ask, but it cannot catch a"
+      printf '%s\n' "paraphrase: that part is yours."
+    fi
     printf '\n## The route\n\n'
     printf '%s\n' "Visual flight. Grounds as the tower stated them:"
     printf '\n'
@@ -1024,8 +1050,13 @@ A non-zero exit from that line parks the flight, naming what the line printed."
     printf '%s\n' "Home: $record (declared at routing time). The record, per flight-rules"
     printf '%s\n' "*The audit record*, carries:"
     printf '\n'
-    printf '%s\n' "- the quoted ask, sanitized per security-posture data hygiene and"
-    printf '%s\n' "  markup-neutralized before it reaches any committed or remote surface;"
+    if [ -n "$public_file" ]; then
+      printf '%s\n' "- the public summary in place of the ask, followed by a fixed line saying"
+      printf '%s\n' "  you were briefed beyond it, sanitized and markup-neutralized;"
+    else
+      printf '%s\n' "- the quoted ask, sanitized per security-posture data hygiene and"
+      printf '%s\n' "  markup-neutralized before it reaches any committed or remote surface;"
+    fi
     printf '%s\n' "- the routing decision and its grounds, as quoted above;"
     printf '%s\n' "- the review audit tables: lens coverage, the four buckets, the declined"
     printf '%s\n' "  log, and the pending-sign-off checklist;"
@@ -1176,16 +1207,18 @@ cmd_dispatch() {
   backend=''
   ask_file=''
   grounds_file=''
+  public_file=''
   home=''
   dry=0
   while [ $# -gt 0 ]; do
     case $1 in
-      --backend | --ask-file | --grounds-file | --home | --repo-root)
+      --backend | --ask-file | --grounds-file | --public-summary-file | --home | --repo-root)
         [ $# -ge 2 ] || usage
         case $1 in
           --backend) backend=$2 ;;
           --ask-file) ask_file=$2 ;;
           --grounds-file) grounds_file=$2 ;;
+          --public-summary-file) public_file=$2 ;;
           --home) home=$2 ;;
           --repo-root) repo_root=$2 ;;
         esac
@@ -1261,6 +1294,18 @@ cmd_dispatch() {
     printf '%s\n' "$prog: NOTE: invisible or bidi-control characters were stripped from the grounds" >&2
     [ -n "$(printf '%s' "$grounds" | tr -d ' \t')" ] \
       || die 2 "the grounds are empty once invisible characters are stripped: a route is never silent"
+  fi
+  public_sanitized=0
+  if [ -n "$public_file" ]; then
+    [ -f "$public_file" ] && [ -r "$public_file" ] \
+      || die 2 "--public-summary-file must name a readable, non-empty regular file"
+    head -c "$((PUBLIC_MAX + 1))" <"$public_file" >"$work/public.raw" || die 2 "cannot read --public-summary-file"
+    [ "$(wc -c <"$work/public.raw" | tr -d ' ')" -le "$PUBLIC_MAX" ] \
+      || die 2 "--public-summary-file is larger than $PUBLIC_MAX bytes"
+    clean_text "$work/public.raw" "$work/public" || die 4 "cannot sanitize the public summary"
+    public_sanitized=$CLEAN_STRIPPED
+    [ -n "$(tr -d ' \t\n' <"$work/public")" ] \
+      || die 2 "the public summary is empty or blank: a private ask needs a public statement"
   fi
   case $home in
     '' | pr | file) ;;
@@ -1480,6 +1525,7 @@ cmd_dispatch() {
   printf 'brief\t%s\n' "$brief"
   [ "$ask_sanitized" -eq 0 ] || printf 'sanitized\task\n'
   [ "$grounds_sanitized" -eq 0 ] || printf 'sanitized\tgrounds\n'
+  [ "$public_sanitized" -eq 0 ] || printf 'sanitized\tpublic-summary\n'
   printf 'backend\t%s\n' "$backend"
   if [ "$backend" = print ]; then
     # The printed launch runs through the dispatch environment pin, as every

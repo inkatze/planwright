@@ -26,7 +26,10 @@
 #      (REQ-B1.5). A hostile ask stays quoted.
 #      The worker renders its record through scripts/flight-record.sh from
 #      the ask and grounds dispatch leaves beside the brief, and the land line
-#      the brief prints runs as written (REQ-E1.2).
+#      the brief prints runs as written (REQ-E1.2). With a public summary the
+#      ask stays private to the brief directory (REQ-E1.7): it reaches no
+#      report, worktree, branch, or other fleet-home file, the summary is not
+#      echoed, and the brief carries the privacy instruction.
 #   5. Concurrency (REQ-C1.5): a flight beyond `max_parallel_units` is declined
 #      with a re-ask line, no id minted and nothing placed; a freed slot (the
 #      worktree removed, or its directory gone and prunable) admits the
@@ -495,6 +498,106 @@ if printf '%s\n' "$b" | grep -q '^FLIGHT-RESULT:'; then
 fi
 case $b in *"$ESC"*) fail "a control byte in the ask reached the brief" ;; esac
 [ "$(printf '%s\n' "$b" | grep -c '^## Rules$')" -eq 1 ] || fail "the ask added a Rules heading to the brief"
+
+# --- 4e. a private ask with a public summary (REQ-E1.7) ----------------------
+# The private ask stays in the brief directory: never on dispatch's stdout or
+# stderr, in the flight worktree, on any branch, or elsewhere under the fleet
+# home; the summary is not echoed into the report; the brief carries the
+# privacy instruction; and the record the brief's land line writes quotes the
+# summary.
+PRIV1="The export handler in billing-sync serves another tenant's invoices for a dotted path"
+PRIV2="Nobody outside the team knows yet, so keep it quiet until the advisory ships"
+PUBLIC='Harden path handling in an export handler.'
+# no_private <label> <text> — no private-ask line, or its distinctive words,
+# in <text>.
+no_private() {
+  _np=$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')
+  case $_np in
+    *"$(printf '%s' "$PRIV1" | tr '[:upper:]' '[:lower:]')"* | *"$(printf '%s' "$PRIV2" | tr '[:upper:]' '[:lower:]')"* | \
+      *billing-sync* | *advisory*) fail "$1: the private ask reached it" ;;
+  esac
+}
+new_case
+gitc "$c/primary" remote remove origin
+printf '%s\n%s\n' "$PRIV1" "$PRIV2" >"$c/ask.txt"
+printf '%s\n' "$PUBLIC" >"$c/public.txt"
+run dispatch hardened-handler --backend print --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" \
+  --public-summary-file "$c/public.txt" --repo-root "$c/primary"
+[ "$RC" -eq 0 ] || fail "a dispatch with a public summary exited $RC: $ERR"
+fid=$(field "$OUT" flight)
+bdir=$(dirname "$(field "$OUT" brief)")
+wt=$(field "$OUT" worktree)
+no_private "dispatch stdout" "$OUT"
+no_private "dispatch stderr" "$ERR"
+case $OUT in *"$PUBLIC"* | *"Harden path"*) fail "the public summary must not be echoed into the report (out: $OUT)" ;; esac
+no_private "the worktree's files" "$(find "$wt" -path "$wt/.git" -prune -o -type f -exec cat {} + 2>/dev/null)"
+no_private "the worktree's status" "$(git -C "$wt" status --porcelain --untracked-files=all)"
+no_private "the repository's history" "$(gitc "$c/primary" log -p --all)"
+no_private "the branch names" "$(gitc "$c/primary" for-each-ref --format='%(refname)')"
+no_private "the fleet home outside the brief directory" \
+  "$(find "$c/fleet" -path "$bdir" -prune -o -type f -exec cat {} + 2>/dev/null)"
+cmp -s "$bdir/ask.txt" "$c/ask.txt" || fail "the brief directory must keep the private ask as given"
+cmp -s "$bdir/public-summary.txt" "$c/public.txt" || fail "the brief directory must keep the public summary as given"
+b=$(cat "$(field "$OUT" brief)")
+fb=$(flat "$b")
+printf '%s\n' "$b" | grep -qx '## The ask is private' || fail "the brief must say the ask is private"
+printf '%s\n' "$b" | grep -qxF "> $PUBLIC" || fail "the brief must quote the public summary"
+case $fb in
+  *"Keep every surface you write at that summary's level: commit messages, the PR title, the record inputs under \`record/\`, and any PR comment."*) ;;
+  *) fail "the brief must hold commits, the PR title, record inputs, and PR comments at the summary's level" ;;
+esac
+case $fb in *"never copy this brief or the ask file into the worktree"*) ;; *) fail "the brief must keep the ask out of the worktree" ;; esac
+case $fb in *"the public summary in place of the ask"*) ;; *) fail "the brief's record contract must name the summary in place of the ask" ;; esac
+printf '%s\n' "$b" | grep "flight-record.sh' land " | grep -Fq -- "--public-summary-file '$bdir/public-summary.txt'" \
+  || fail "the brief's land line must hand the renderer the public summary"
+rd="$bdir/record"
+printf 'Hardened the handler.\n' >"$rd/summary.md"
+printf 'Ran the suite.\n' >"$rd/verification.md"
+# shellcheck disable=SC2016 # backticks are Markdown code spans
+for h in 'Lens coverage' 'Auto-applicable' 'Agent-resolvable' 'Needs sign-off' 'Needs human judgment' \
+  'Declined log' 'Pending sign-off' 'Steps at `pre-implementation`' 'Steps at `pre-ci`' \
+  'Steps at `convergence`' 'Steps at `pre-pr`'; do
+  printf '#### %s\n\nnone\n\n' "$h"
+done >"$rd/audit.md"
+# shellcheck disable=SC2016 # strips the Markdown code span's backticks
+land_cmd=$(printf '%s\n' "$b" | grep "flight-record.sh' land " | sed 's/^`//; s/`$//')
+(cd "$wt" && GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid GIT_COMMITTER_NAME=test \
+  GIT_COMMITTER_EMAIL=test@example.invalid /bin/sh -c "$land_cmd") >/dev/null 2>"$tmp/land.err" \
+  || fail "the private-ask brief's land line must run as written: $(cat "$tmp/land.err")"
+landed=$(git -C "$wt" show "HEAD:specs/_flights/$fid.md" 2>/dev/null)
+printf '%s\n' "$landed" | grep -qx "  $PUBLIC" || fail "the landed record must quote the public summary"
+printf '%s\n' "$landed" | grep -q 'briefed beyond this summary' || fail "the landed record must carry the briefed-beyond line"
+no_private "the landed record" "$landed"
+no_private "the branch after landing" "$(git -C "$wt" log -p "planwright/flight/$fid")"
+# The pr home hands the summary to the first render and the re-emit alike.
+new_case
+printf '%s\n%s\n' "$PRIV1" "$PRIV2" >"$c/ask.txt"
+printf '%s\n' "$PUBLIC" >"$c/public.txt"
+run dispatch hardened-handler --backend print --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" \
+  --public-summary-file "$c/public.txt" --repo-root "$c/primary"
+[ "$RC" -eq 0 ] && [ "$(field "$OUT" home)" = pr ] || fail "a pr-home dispatch with a public summary (rc $RC: $ERR)"
+b=$(cat "$(field "$OUT" brief)")
+[ "$(printf '%s\n' "$b" | grep "flight-record.sh' render --home pr " | grep -c -- '--public-summary-file ')" -eq 2 ] \
+  || fail "the pr brief's render and re-emit lines must both hand over the public summary"
+no_private "pr dispatch stdout" "$OUT"
+# A blank or oversized summary is refused before anything is placed; without
+# one the brief carries no privacy section.
+printf ' \n' >"$c/public-blank.txt"
+run dispatch hardened-handler --backend print --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" \
+  --public-summary-file "$c/public-blank.txt" --repo-root "$c/primary"
+[ "$RC" -eq 2 ] || fail "a blank public summary must be refused (rc $RC)"
+head -c 5000 /dev/zero | tr '\0' 'a' >"$c/public-big.txt"
+run dispatch hardened-handler --backend print --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" \
+  --public-summary-file "$c/public-big.txt" --repo-root "$c/primary"
+[ "$RC" -eq 2 ] || fail "an oversized public summary must be refused (rc $RC)"
+run dispatch hardened-handler --backend print --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" \
+  --public-summary-file "$c/missing.txt" --repo-root "$c/primary"
+[ "$RC" -eq 2 ] || fail "a missing public summary file must be refused (rc $RC)"
+[ "$(briefs)" -eq 1 ] || fail "a refused public summary left a brief"
+dispatch_print
+b=$(cat "$(field "$OUT" brief)")
+printf '%s\n' "$b" | grep -q 'The ask is private\|public-summary-file' \
+  && fail "a dispatch without a summary must carry no privacy section or summary input"
 
 # --- 4d. --home override ----------------------------------------------------
 new_case

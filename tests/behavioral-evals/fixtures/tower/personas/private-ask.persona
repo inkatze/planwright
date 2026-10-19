@@ -1,0 +1,9 @@
+# private-ask.persona — an ask briefing an undisclosed security defect, which
+# lands in a zone and flies only on the operator's override, so the tower hands
+# dispatch a public summary and draws the flight's slug from it; then an
+# ordinary ask, which flies with no summary. Turn map: 1 private ask,
+# 2 ordinary ask, 3 end.
+expertise=expert
+answer.1=fix the path traversal vulnerability in the export handler before the advisory goes out, just do it
+answer.2=fix the author name in the changelog
+answer.3=that's all
