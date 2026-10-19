@@ -457,12 +457,13 @@ echo "ok: p7 fails closed on a missing task file, an unreadable or empty hook re
 
 # ---------------------------------------------------------------------------
 # p8: the repository's own partition runs, and places the script itself in
-#     the dev-check tier through its on-demand task.
+#     the library tier: substrate-attribute.sh calls it, and a script caller
+#     outranks its on-demand task.
 # ---------------------------------------------------------------------------
 run_sp "$REPO_ROOT" >"$tmp/real" || fail "p8: the real partition failed: $(cat "$tmp/err")"
 self=$(awk -F'\t' '$1 == "scripts/substrate-partition.sh" { print $2 "\t" $3 }' "$tmp/real")
-[ "$self" = "$(printf 'dev-check\t-')" ] || fail "p8: the script's own row is '$self'"
-echo "ok: p8 the repository partitions and the script sits in the dev-check tier"
+[ "$self" = "$(printf 'library\t-')" ] || fail "p8: the script's own row is '$self'"
+echo "ok: p8 the repository partitions and the script sits in the library tier"
 
 # ---------------------------------------------------------------------------
 # p9: a control byte in an unresolved invocation never reaches the output.
