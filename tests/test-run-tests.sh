@@ -230,7 +230,7 @@ done
 exit 1
 EOF
 done
-PLANWRIGHT_TEST_JOBS=2 /bin/bash "$RUNNER" "$tmp/overlap" >/dev/null 2>&1
+OVERLAP_TICKS=40 PLANWRIGHT_TEST_JOBS=2 /bin/bash "$RUNNER" "$tmp/overlap" >/dev/null 2>&1
 assert "overlapping fixtures pass: files genuinely run concurrently" 0 $?
 rm -f "$tmp/sync"/*.here
 OVERLAP_TICKS=4 PLANWRIGHT_TEST_FORCE_SERIAL=1 /bin/bash "$RUNNER" "$tmp/overlap" \

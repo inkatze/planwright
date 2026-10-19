@@ -43,6 +43,10 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 tmp=$(cd "$tmp" && pwd -P)
 
+# An inherited repository selector would point every fixture git call at the
+# caller's repository instead of the case's.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
+
 gitc() {
   _r=$1
   shift
