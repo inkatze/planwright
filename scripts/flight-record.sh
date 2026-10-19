@@ -71,7 +71,7 @@
 #     --grounds-file <file>       the route's one-line grounds
 #     --summary-file <file>       what changed and why (the lead)
 #     --verification-file <file>  how it was verified (the lead)
-#     --audit-file <file>         the review sequence's audit record: a heading
+#     --audit-file <file>         the convergence steps' audit record: a heading
 #                                 for each of Lens coverage, Auto-applicable,
 #                                 Agent-resolvable, Needs sign-off, Needs human
 #                                 judgment, Declined log, and Pending sign-off,
