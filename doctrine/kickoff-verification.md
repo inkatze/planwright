@@ -117,8 +117,8 @@ step 7) has already fired.
   still a draft; an already-ready or merged/closed PR is a benign skip whose
   non-zero exit must not trip the skill's flip-failure degradation arm.
 - **Refusal arm.** On **red, empty, unresolved, a query failure, an expired
-  wait, or a moved head**, or a point not passed, leave the PR draft and record the pending ready-flip
-  in the spec's `tasks.md` `## Awaiting input` section — the re-entry point, so
-  a re-run completes only the flip. The entry names the pending flip and the
-  **neutral failure class only**; full remedy detail stays operator-facing
+  wait, or a moved head**, or a point not passed, leave the PR draft and
+  record the pending ready-flip in the spec's `tasks.md` `## Awaiting input`
+  section — the re-entry point, so a re-run completes only the flip. The entry
+  names the pending flip and the **neutral failure class only**; full remedy detail stays operator-facing
   (`security-posture` data hygiene, per D-3).
