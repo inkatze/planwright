@@ -186,7 +186,9 @@
 #                                             field, the epoch included, as it
 #                                             was. At least one flag; 3 when the
 #                                             worker has no record or its last
-#                                             one is retired.
+#                                             one is retired; 2 when that
+#                                             record is malformed. A row that
+#                                             would not change is not written.
 #   fleet-state.sh registry                  print the registry records.
 #   fleet-state.sh bound-incr <max>           check-and-increment the fleet
 #                                             counter under the bound (0 granted
@@ -215,6 +217,11 @@ set -uf
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+
+TAB=$(printf '\t')
+# The amend's lock budget in tries, PW_LOCK_SLEEP (lock-lib.sh) apart: a few
+# seconds, where every other verb takes the library default.
+AMEND_LOCK_TRIES=250
 
 # The directory part of $0 without forking dirname: this script is on hot paths.
 case $0 in
@@ -489,6 +496,22 @@ atomic_write() {
     return 1
   fi
   return 0
+}
+
+# append_registry_row <row> — copy-append-rename one row onto the registry
+# under the caller's hold, so a concurrent reader sees only a complete file.
+# Returns 0 or 2; the temp is left in reg_tmp for the exit trap to clear.
+append_registry_row() {
+  arr_rc=0
+  reg_tmp=$(mktemp "$root/.registry.XXXXXX") || return 2
+  if [ -f "$registry" ]; then
+    cat "$registry" >"$reg_tmp" || arr_rc=2
+  fi
+  [ "$arr_rc" != 0 ] || printf '%s\n' "$1" >>"$reg_tmp" || arr_rc=2
+  [ "$arr_rc" != 0 ] || mv -f "$reg_tmp" "$registry" || arr_rc=2
+  [ "$arr_rc" = 0 ] || rm -f "$reg_tmp" 2>/dev/null
+  reg_tmp=""
+  return "$arr_rc"
 }
 
 # latest_record <registry> <worker> — the worker's last row, compared as
@@ -867,25 +890,11 @@ case $cmd in
       fi
     fi
     rc=0
-    # Copy-append-rename so a concurrent reader sees only a complete registry.
-    reg_tmp=$(mktemp "$root/.registry.XXXXXX") || rc=2
-    if [ "$rc" = 0 ]; then
-      if [ -f "$registry" ]; then
-        cat "$registry" >"$reg_tmp" || rc=2
-      fi
-    fi
     # A live record carries the two identity columns as the sentinel; a
     # retirement closes the first seven and needs neither.
     rec_tail="$closing"
-    [ "$cmd" = retire ] || rec_tail=$(printf '\t-\t-')
-    if [ "$rc" = 0 ]; then
-      printf '%s\t%s%s\n' "$now" "$want" "$rec_tail" >>"$reg_tmp" || rc=2
-    fi
-    if [ "$rc" = 0 ]; then
-      mv -f "$reg_tmp" "$registry" || rc=2
-    fi
-    [ "$rc" = 0 ] || rm -f "$reg_tmp" 2>/dev/null
-    reg_tmp=""
+    [ "$cmd" = retire ] || rec_tail="$TAB-$TAB-"
+    append_registry_row "$now$TAB$want$rec_tail" || rc=2
     pw_lock_release "$lock"
     if [ "$rc" != 0 ]; then
       printf '%s\n' "fleet-state: failed to append the registry record" >&2
@@ -949,12 +958,32 @@ case $cmd in
       printf '%s\n' "fleet-state: refusing malformed inbox basename '$(sanitize_printable "$new_inbox" "(unprintable inbox)")' (must match ^[A-Za-z0-9._-]{1,128}\$, no leading dash)" >&2
       exit 2
     fi
-    spin_acquire "$lock" || exit 2
+    # The amend runs from a session's SessionStart hook, so it waits a bounded
+    # few seconds for the lock rather than the default budget: a worker left
+    # unaddressable beats a session start held behind a wedged holder.
+    if ! pw_lock_acquire "$lock" "$AMEND_LOCK_TRIES"; then
+      printf '%s\n' "fleet-state: amend: gave up waiting for the fleet lock" >&2
+      exit 2
+    fi
     if ! cur=$(latest_record "$registry" "$worker"); then
       pw_lock_release "$lock"
       printf '%s\n' "fleet-state: could not read the registry" >&2
       exit 2
     fi
+    case $(printf '%s\n' "$cur" | awk -F'\t' 'NF == 0 { print "absent"; exit }
+      NF == 8 && $8 == "closed" { print "closed"; exit }
+      NF == 3 || NF == 7 || NF == 9 { print "live"; exit }
+      { print "torn" }') in
+      absent | closed)
+        pw_lock_release "$lock"
+        exit 3
+        ;;
+      torn)
+        pw_lock_release "$lock"
+        printf '%s\n' "fleet-state: amend: the worker's last registry record is malformed; nothing written" >&2
+        exit 2
+        ;;
+    esac
     # The new row is the last one with only the identity columns replaced,
     # the epoch kept: a reader comparing the two sees no other change. Older
     # arities are lifted to nine columns, their missing fields absent. The
@@ -962,7 +991,6 @@ case $cmd in
     # -v value, is not escape-processed.
     amended=$(printf '%s\n' "$cur" | AM_HAVE_NAME=$have_name AM_NAME=$new_name \
       AM_HAVE_INBOX=$have_inbox AM_INBOX=$new_inbox awk -F'\t' '
-      NF == 0 || (NF == 8 && $8 == "closed") || (NF != 3 && NF != 7 && NF != 9) { exit }
       {
         for (i = 1; i <= 9; i++) f[i] = (i <= NF) ? $i : "-"
         if (ENVIRON["AM_HAVE_NAME"] == 1) f[8] = ENVIRON["AM_NAME"]
@@ -971,23 +999,14 @@ case $cmd in
         for (i = 2; i <= 9; i++) row = row "\t" f[i]
         print row
       }')
-    if [ -z "$amended" ]; then
+    # A resumed session re-registering what is already recorded writes
+    # nothing, as a no-change register does.
+    if [ "$amended" = "$cur" ]; then
       pw_lock_release "$lock"
-      exit 3
+      exit 0
     fi
     rc=0
-    reg_tmp=$(mktemp "$root/.registry.XXXXXX") || rc=2
-    if [ "$rc" = 0 ]; then
-      cat "$registry" >"$reg_tmp" || rc=2
-    fi
-    if [ "$rc" = 0 ]; then
-      printf '%s\n' "$amended" >>"$reg_tmp" || rc=2
-    fi
-    if [ "$rc" = 0 ]; then
-      mv -f "$reg_tmp" "$registry" || rc=2
-    fi
-    [ "$rc" = 0 ] || rm -f "$reg_tmp" 2>/dev/null
-    reg_tmp=""
+    append_registry_row "$amended" || rc=2
     pw_lock_release "$lock"
     if [ "$rc" != 0 ]; then
       printf '%s\n' "fleet-state: failed to append the amended registry record" >&2

@@ -18,6 +18,8 @@
 #       inbox still is, and the exit is non-zero naming the dropped field
 #   i8  amend binds the worker's last record: an older record of the same
 #       worker is never the one copied
+#   i9  an amend that would change nothing writes nothing, and a torn last
+#       record is refused (2) rather than read as absent
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -u
@@ -192,6 +194,11 @@ row=$(last_row "$h" w1)
 rc=0
 fr_at "$h" --amend -w1 --name x >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "i7: a dash-led worker handle was not refused (exit $rc)"
+for flag in --name --inbox; do
+  rc=0
+  fr_at "$h" --handle w9 --backend tmux "$flag" x >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "i7: $flag beside a dispatch registration was not refused (exit $rc)"
+done
 [ "$fails" = "$f0" ] && ok "i7 fleet-register.sh --amend degrades per field and names the dropped one"
 
 # --- i8 -----------------------------------------------------------------------
@@ -202,6 +209,23 @@ fs_at "$h" register w1 demo:4 --backend tmux --state-dir "$tmp/new" >/dev/null
 fs_at "$h" amend w1 --name n --inbox b.sock || fail "i8: amend failed"
 [ "$(field "$(last_row "$h" w1)" 6)" = "$tmp/new" ] || fail "i8: amend copied an older record"
 [ "$fails" = "$f0" ] && ok "i8 amend binds the worker's last record"
+
+# --- i9 -----------------------------------------------------------------------
+f0=$fails
+h=$(home i9)
+fs_at "$h" register w1 demo:4 --backend tmux >/dev/null
+fs_at "$h" amend w1 --name n --inbox b.sock || fail "i9: amend failed"
+n=$(grep -c . "$h/registry")
+fs_at "$h" amend w1 --name n --inbox b.sock || fail "i9: a no-change amend exited non-zero"
+[ "$(grep -c . "$h/registry")" = "$n" ] || fail "i9: a no-change amend appended a record"
+printf '200\tw2\tdemo:5\t-\ttmux\n' >>"$h/registry"
+n=$(grep -c . "$h/registry")
+rc=0
+fs_at "$h" amend w2 --name n2 >/dev/null 2>"$tmp/err" || rc=$?
+[ "$rc" = 2 ] || fail "i9: amend of a torn record exited $rc, not 2"
+grep -q malformed "$tmp/err" || fail "i9: the torn-record refusal does not say so: $(cat "$tmp/err")"
+[ "$(grep -c . "$h/registry")" = "$n" ] || fail "i9: amend of a torn record wrote a record"
+[ "$fails" = "$f0" ] && ok "i9 a no-change amend writes nothing; a torn record is refused, not read as absent"
 
 if [ "$fails" -ne 0 ]; then
   echo "FAIL: test-fleet-registry-identity.sh ($fails)" >&2

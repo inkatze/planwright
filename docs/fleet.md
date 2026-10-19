@@ -1352,11 +1352,13 @@ dispatch-side wiring is in place for the `headless-oneshot` backend**
 (`fleet-dispatch-headless.sh` exports
 `PLANWRIGHT_WORKER_HANDLE=headless-<spec>-task-<id>` and
 `PLANWRIGHT_WORKER_SCOPE=<spec>:<id>` into the detached worker, so its
-session's hooks push) **and for the tmux worktree rung** (its launch runs the
+session's hooks push), **for the tmux worktree rung** (its launch runs the
 worker through `fleet-dispatch-env.sh --identity`, with the launch token the
-`SessionStart` row carries); the remaining backends' dispatch adaptation is a
-later task, so their sessions still no-op this handler and stay on the
-existing observation path (a graceful REQ-A1.1 degradation, no breakage).
+`SessionStart` row carries), **and for the `stream-json-persistent` rung**
+(`fleet-streamjson.sh launch` exports the handle and the scope its launch
+persisted, a relaunch included). Sessions no dispatch seam launched still
+no-op this handler and stay on the existing observation path (a graceful
+REQ-A1.1 degradation, no breakage).
 The hook payload is drained, never parsed,
 for every event **except `Notification`**: identity comes from the env contract,
 so no payload field is interpolated anywhere. The one exception is the
@@ -2214,8 +2216,8 @@ dollar-spend accounting ceiling (out of scope): it neither meters nor caps
 spend, it only refuses to incur it without opt-in.
 
 **Workers never run in `auto` permission mode.** The
-`config/worker-settings.json` allowlist — human-reviewed, human-installed,
-pinning a non-auto `defaultMode` — is the sole permission-approval mechanism
+`config/worker-settings.json` allowlist — human-reviewed, passed by every
+shipped dispatch seam with `--settings`, pinning a non-auto `defaultMode` — is the sole permission-approval mechanism
 for dispatched workers (D-19, REQ-E1.4). `scripts/fleet-dispatch-guard.sh`
 is the dispatch-time lint: `check-launch <argv>` refuses any launch carrying
 `--permission-mode auto` (either spelling) or a settings fragment pinning
@@ -2293,8 +2295,9 @@ launched with and picks up a changed profile only on relaunch.
 **Fleet launches pass the profiles themselves.** The three worker dispatch
 seams (`fleet-dispatch-worktree.sh`'s tmux rung, `fleet-streamjson.sh launch`,
 `fleet-dispatch-headless.sh launch`) launch every worker with `--settings`
-naming `config/worker-settings.json`, and the watchdog's relaunch and
-`scripts/fleet-tower-launch.sh` launch a tower with `config/tower-settings.json`,
+naming `config/worker-settings.json`, and the watchdog's default relaunch and
+`scripts/fleet-tower-launch.sh` launch a tower with `config/tower-settings.json`
+(a custom `PLANWRIGHT_TOWER_LAUNCHER` passes its own, or none),
 each with `PLANWRIGHT_MESSAGING_INBOUND=accept` exported beside it (the layer
 the messaging probe reads, since a `--settings` profile is not one of the
 settings files it parses). Each launch also names its session with `--name`:

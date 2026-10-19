@@ -17,8 +17,9 @@
 # names the session, is refused; non-`--bare` pinned per
 # D-12/REQ-A1.5, and the worker-settings fragment pinned per fleet-autonomy
 # D-19/REQ-E1.4. Pinning means never passing `--bare`, always passing the
-# fragment resolved from this script's own location, and REFUSING a
-# caller-supplied `--bare` or `--settings`. The fragment is the mode source:
+# fragment under the root the worker is pinned to (PLANWRIGHT_ROOT, else this
+# script's own install), and REFUSING a caller-supplied `--bare`,
+# `--settings`, or `--name`. The fragment is the mode source:
 # Claude Code honors a `defaultMode` of auto from the operator's own user
 # settings, so a worker launched without a readable fragment inherits the LLM
 # approval classifier in place of the human-reviewed allowlist, and the stdio
@@ -1361,6 +1362,10 @@ refuse_settings() {
         printf '%s\n' "$me: refusing '--settings' in the launch argv - the worker-settings pin is structural (fleet-autonomy D-19, REQ-E1.4)" >&2
         return 2
         ;;
+      --name | --name=* | -n)
+        printf '%s\n' "$me: refusing '--name' in the launch argv - the session is named after the worker handle (fleet-messaging D-8)" >&2
+        return 2
+        ;;
     esac
   done
 }
@@ -1384,14 +1389,13 @@ refuse_mode_overrides() {
 
 # worker_settings_path — print the reviewed permission fragment the launch
 # pins: the worker profile under the root the dispatch-env wrapper pins the
-# worker to (PLANWRIGHT_ROOT, else this script's own root), so the profile and
-# the hooks it names come from one install. Fails closed when it cannot be
+# worker to (PLANWRIGHT_ROOT, else this script's own root, as
+# fleet-launch-profile.sh resolves it), so the profile and the hooks it names
+# come from one install. Fails closed when it cannot be
 # read: an unverifiable mode source is no mode source, and a worker launched
 # without one inherits the operator's (see the header).
 worker_settings_path() {
-  ws_root=${PLANWRIGHT_ROOT:-}
-  [ -n "$ws_root" ] || ws_root=$(cd "$script_dir/.." 2>/dev/null && pwd -P) || ws_root="$script_dir/.."
-  if ! ws_path=$(/bin/sh "$script_dir/fleet-launch-profile.sh" worker --root "$ws_root" </dev/null); then
+  if ! ws_path=$(/bin/sh "$script_dir/fleet-launch-profile.sh" worker </dev/null); then
     printf '%s\n' "$me: refusing to launch: without its worker-settings fragment the worker inherits the operator's permission mode (fleet-autonomy D-19, REQ-E1.4)" >&2
     return 7
   fi
@@ -1885,7 +1889,7 @@ cmd_launch() {
   # The session is named after the handle (fleet-messaging D-8), so the handle
   # must also be a name the relay's grammar for this rung owns.
   if ! /bin/sh "$script_dir/orchestrate-relay.sh" validate-handle stream-json-persistent "$worker" 2>/dev/null; then
-    printf '%s\n' "$me: refusing to launch: the worker handle is outside the stream-json-persistent session-name grammar [A-Za-z0-9_.@-]" >&2
+    printf '%s\n' "$me: refusing to launch: the worker handle is outside the relay's stream-json-persistent grammar (orchestrate-relay.sh validate-handle), which names the session" >&2
     exit 2
   fi
   worker_settings=$(worker_settings_path) || exit 7

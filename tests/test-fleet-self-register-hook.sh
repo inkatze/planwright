@@ -14,6 +14,7 @@
 #       never a name, which is what the start-of-tower subscribe pass keys on)
 #   s4  a name the session-name screen admits but the registry charset refuses
 #       leaves the name sentinel in place and still records the inbox
+#   s4b a record with no usable socket path records the name alone (exit 2)
 #   s5  in a tower session (no worker identity) the hook writes nothing
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
@@ -124,6 +125,8 @@ grep -q "recorded no inbox" "$tmp/err" || fail "s3: the refusal does not say the
 rc=0
 mx notice-read - >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "s3: the name sentinel matched a row (exit $rc)"
+mx notice-read nobody-has-this-name >/dev/null 2>"$tmp/err"
+grep -q "no registry row carries" "$tmp/err" || fail "s3: a name-keyed read did not reach the registry: $(cat "$tmp/err")"
 [ "$fails" = "$f0" ] && ok "s3 a worker whose hook never ran keeps its sentinels and is unaddressable"
 
 # --- s4 -----------------------------------------------------------------------
@@ -137,6 +140,18 @@ row=$(last tmux-demo-task-6)
 [ "$(printf '%s\n' "$row" | cut -f8)" = - ] || fail "s4: a name the registry refuses replaced the sentinel: $row"
 [ "$(printf '%s\n' "$row" | cut -f9)" = 4246.sock ] || fail "s4: the inbox was not recorded beside a dropped name: $row"
 [ "$fails" = "$f0" ] && ok "s4 a name the registry charset refuses keeps the sentinel; the inbox still lands"
+
+# --- s4b: no usable socket path ----------------------------------------------
+f0=$fails
+reg tmux-demo-task-7
+record 4247 tmux-demo-task-7 "relative/4247.sock"
+rc=0
+hook 4247 PLANWRIGHT_WORKER_HANDLE=tmux-demo-task-7 PLANWRIGHT_WORKER_SCOPE=demo:7 2>"$tmp/err" || rc=$?
+[ "$rc" = 2 ] || fail "s4b: a record with no usable socket exited $rc, not 2"
+row=$(last tmux-demo-task-7)
+[ "$(printf '%s\n' "$row" | cut -f8-9)" = "tmux-demo-task-7${TAB}-" ] \
+  || fail "s4b: the name was not recorded alone beside an unusable socket: $row"
+[ "$fails" = "$f0" ] && ok "s4b a record with no usable socket still records the name"
 
 # --- s5 -----------------------------------------------------------------------
 f0=$fails

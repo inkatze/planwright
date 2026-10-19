@@ -4,13 +4,15 @@
 #   t1  a launch starts a detached headless tower whose argv names the session
 #       on the headless-oneshot grammar, passes the tower profile with
 #       --settings, and carries the fixed wake prompt; its environment carries
-#       PLANWRIGHT_MESSAGING_INBOUND=accept and the ghost-text pin; the report
-#       names the pid, the name, and the log
+#       PLANWRIGHT_MESSAGING_INBOUND=accept and the ghost-text pin, the caller's
+#       umask, and no tower or worker identity; the report names the pid, the
+#       name, and the owner-only log
 #   t2  --unattended and --meta shape the wake prompt; --dry-run prints the
 #       same argv and starts nothing
 #   t3  an unreadable tower profile under the planwright root refuses the
 #       launch, naming the profile, and starts nothing
-#   t4  a hostile spec, a relative checkout, and an unknown flag are refused
+#   t4  a hostile spec, a relative checkout, an unknown flag, and the CLI seam
+#       without PLANWRIGHT_TEST_SEAM=1 are refused
 #   t5  a tower that exits at once is reported as a failed launch
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
@@ -58,6 +60,9 @@ mv "$rec/argv.tmp" "$rec/argv"
 printf 'inbound=%s\n' "${PLANWRIGHT_MESSAGING_INBOUND-<unset>}" >"$rec/env"
 printf 'ghost=%s\n' "${CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION-<unset>}" >>"$rec/env"
 printf 'cwd=%s\n' "$(pwd -P)" >>"$rec/env"
+printf 'tower=%s\n' "${PLANWRIGHT_TOWER_ID-<unset>}" >>"$rec/env"
+printf 'worker=%s\n' "${PLANWRIGHT_WORKER_HANDLE-<unset>}" >>"$rec/env"
+printf 'umask=%s\n' "$(umask)" >>"$rec/env"
 [ -n "${SHIM_EXIT:-}" ] && exit "$SHIM_EXIT"
 while [ ! -e "$rec/release" ]; do sleep 0.1; done
 SHIM
@@ -65,6 +70,7 @@ chmod +x "$tmp/claude"
 
 launch() {
   env -u PLANWRIGHT_ROOT -u PLANWRIGHT_MESSAGING_INBOUND -u CLAUDE_PLUGIN_ROOT \
+    PLANWRIGHT_TOWER_ID=p9.t9.c9 PLANWRIGHT_WORKER_HANDLE=stale-worker PLANWRIGHT_TEST_SEAM=1 \
     PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet" PLANWRIGHT_TOWER_LAUNCH_CLAUDE="$tmp/claude" "$@"
 }
 
@@ -86,7 +92,7 @@ out=$(launch SHIM_REC="$tmp/rec1" /bin/sh "$FTL" demo --checkout "$tmp/checkout"
 wait_file "$tmp/rec1/argv" || fail "t1: the tower never started"
 name=$(field "$out" name)
 case $name in
-  planwright-tower-demo-[0-9]*) ;;
+  planwright-tower-demo-[0-9]*-[0-9]*) ;;
   *) fail "t1: the reported name is '$name'" ;;
 esac
 "$REPO_ROOT/scripts/orchestrate-relay.sh" validate-handle headless-oneshot "$name" \
@@ -97,12 +103,16 @@ want=$(printf '%s\n' -p --name "$name" --settings "$REPO_ROOT/config/tower-setti
 grep -qx 'inbound=accept' "$tmp/rec1/env" || fail "t1: the tower's inbound layer is not accept: $(cat "$tmp/rec1/env")"
 grep -qx 'ghost=false' "$tmp/rec1/env" || fail "t1: the tower lacks the ghost-text pin"
 grep -qx "cwd=$tmp/checkout" "$tmp/rec1/env" || fail "t1: the tower did not start in its checkout"
+grep -qx 'tower=<unset>' "$tmp/rec1/env" || fail "t1: the fresh tower inherited the retiring tower's identity"
+grep -qx 'worker=<unset>' "$tmp/rec1/env" || fail "t1: the fresh tower inherited a worker identity"
+grep -qx "umask=$(umask)" "$tmp/rec1/env" || fail "t1: the fresh tower did not keep the caller's umask: $(grep umask "$tmp/rec1/env")"
 [ "$(field "$out" pid)" = "$(cat "$tmp/rec1/pid")" ] || fail "t1: the reported pid is not the tower's"
 log=$(field "$out" log)
 case $log in
-  "$tmp/fleet/towers/launch/$name.log") ;;
+  "$tmp/fleet/tower-launch/$name.log") ;;
   *) fail "t1: the reported log is '$log'" ;;
 esac
+[ "$(stat -c %a "$log" 2>/dev/null || stat -f %Lp "$log")" = 600 ] || fail "t1: the tower log is not owner-only"
 touch "$tmp/rec1/release"
 [ "$fails" = "$f0" ] && ok "t1 the launch names the tower, passes the tower profile, and sets the inbound layer"
 
@@ -110,7 +120,6 @@ touch "$tmp/rec1/release"
 f0=$fails
 out=$(launch SHIM_REC="$tmp/rec2" /bin/sh "$FTL" demo --unattended --checkout "$tmp/checkout" --dry-run 2>"$tmp/err") \
   || fail "t2: the dry run exited non-zero: $(cat "$tmp/err")"
-sleep 0.3
 [ ! -e "$tmp/rec2/argv" ] || fail "t2: the dry run started a tower"
 plan=$(printf '%s\n' "$out" | awk -F"$TAB" '$1 == "tower-launch" && $2 == "argv" { for (i = 3; i <= NF; i++) print $i }')
 case $plan in
@@ -122,7 +131,7 @@ out=$(launch SHIM_REC="$tmp/rec2m" /bin/sh "$FTL" --meta --checkout "$tmp/checko
 [ "$(printf '%s\n' "$out" | awk -F"$TAB" '$2 == "argv" { print $NF }')" = "/orchestrate --meta --watch" ] \
   || fail "t2: the meta wake prompt is wrong: $out"
 case $(field "$out" name) in
-  planwright-tower-meta-[0-9]*) ;;
+  planwright-tower-meta-[0-9]*-[0-9]*) ;;
   *) fail "t2: the meta tower's name is wrong: $out" ;;
 esac
 [ "$fails" = "$f0" ] && ok "t2 --unattended, --meta, and --dry-run shape the launch"
@@ -131,16 +140,14 @@ esac
 f0=$fails
 bad="$tmp/badroot"
 mkdir -p "$bad/config"
-cp -R "$REPO_ROOT/scripts" "$bad/scripts"
 cp "$REPO_ROOT/config/tower-settings.json" "$bad/config/"
 chmod 000 "$bad/config/tower-settings.json"
 rc=0
-env PLANWRIGHT_ROOT="$bad" PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet" PLANWRIGHT_TOWER_LAUNCH_CLAUDE="$tmp/claude" \
+env PLANWRIGHT_ROOT="$bad" PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet" PLANWRIGHT_TOWER_LAUNCH_CLAUDE="$tmp/claude" PLANWRIGHT_TEST_SEAM=1 \
   SHIM_REC="$tmp/rec3" /bin/sh "$FTL" demo --checkout "$tmp/checkout" >/dev/null 2>"$tmp/err" || rc=$?
 chmod 644 "$bad/config/tower-settings.json"
 [ "$rc" = 2 ] || fail "t3: an unreadable tower profile exited $rc, not 2"
 grep -qF "$bad/config/tower-settings.json" "$tmp/err" || fail "t3: the refusal does not name the profile: $(cat "$tmp/err")"
-sleep 0.3
 [ ! -e "$tmp/rec3/argv" ] || fail "t3: the refused launch started a tower"
 [ "$fails" = "$f0" ] && ok "t3 an unreadable tower profile refuses the launch, naming it"
 
@@ -153,8 +160,12 @@ for args in "../x" "Demo" "flight" 'a$(id)' "-x" "demo --checkout relative/dir" 
   launch SHIM_REC="$tmp/rec4" /bin/sh "$FTL" $args >/dev/null 2>&1 || rc=$?
   [ "$rc" = 2 ] || fail "t4: '$args' exited $rc, not 2"
 done
-sleep 0.3
 [ ! -e "$tmp/rec4/argv" ] || fail "t4: a refused launch started a tower"
+rc=0
+env -u PLANWRIGHT_TEST_SEAM PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet" PLANWRIGHT_TOWER_LAUNCH_CLAUDE="$tmp/claude" \
+  SHIM_REC="$tmp/rec4" /bin/sh "$FTL" demo --checkout "$tmp/checkout" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "t4: the CLI seam was honoured without PLANWRIGHT_TEST_SEAM=1 (exit $rc)"
+[ ! -e "$tmp/rec4/argv" ] || fail "t4: the ungated seam started a tower"
 [ "$fails" = "$f0" ] && ok "t4 hostile or malformed arguments are refused"
 
 # --- t5 -----------------------------------------------------------------------

@@ -95,8 +95,8 @@
 #   marker says, or the marker is gone; the retirement: no live record carries
 #   the expected fields), or --amend found no live record to amend; 4 the
 #   marker was refused. --amend exits 1 when it dropped a field or the store
-#   write failed. A retirement closes a
-#   matching live record even when its marker is already gone.
+#   write failed. A retirement closes a matching live record even when its
+#   marker is already gone.
 #
 # POSIX sh on the macOS + Linux support bar. No eval; every value is data
 # (REQ-K1.5). Pathname expansion is disabled (set -f).
@@ -153,7 +153,8 @@ expect=""
 amend_worker=""
 amend_name=""
 amend_inbox=""
-amend_have=""
+amend_have_name=0
+amend_have_inbox=0
 
 while [ "$#" -gt 0 ]; do
   case $1 in
@@ -176,10 +177,15 @@ while [ "$#" -gt 0 ]; do
     --name | --inbox)
       [ "$#" -ge 2 ] || usage
       case $1 in
-        --name) amend_name=$2 ;;
-        --inbox) amend_inbox=$2 ;;
+        --name)
+          amend_name=$2
+          amend_have_name=1
+          ;;
+        --inbox)
+          amend_inbox=$2
+          amend_have_inbox=1
+          ;;
       esac
-      amend_have="$amend_have${1#--} "
       shift 2
       ;;
     --handle | --scope | --backend | --state-dir | --death-handle | --checkout | --session-id | --pid)
@@ -206,9 +212,13 @@ done
 if [ -n "$amend_worker" ]; then
   # The amend names its own worker and fields; any dispatch or marker flag
   # beside it would be a second record to write.
-  [ -n "$amend_have" ] \
+  [ "$amend_have_name$amend_have_inbox" != 00 ] \
     && [ -z "$marker_mode$expect$handle$scope$backend$state_dir$death_handle$checkout$session_id$pid" ] \
     || usage
+elif [ "$amend_have_name$amend_have_inbox" != 00 ]; then
+  # The identity columns are the amend's alone: a dispatch or a marker writes
+  # them as the sentinel, so a value passed beside either would be dropped.
+  usage
 elif [ -n "$marker_mode" ]; then
   # A marker carries the whole record; a field flag beside it would be a second
   # source for the same column.
@@ -375,26 +385,22 @@ if [ -n "$amend_worker" ]; then
   esac
   set --
   am_dropped=""
-  case $amend_have in
-    *name*)
-      if valid_name "$amend_name"; then
-        set -- "$@" --name "$amend_name"
-      else
-        am_dropped="$am_dropped name"
-        warn "dropping the name '$(sanitize_printable "$amend_name" "(unprintable value)")' for $(sanitize_printable "$amend_worker" "(unprintable handle)"): it fails the registry's name grammar, so the row keeps its sentinel"
-      fi
-      ;;
-  esac
-  case $amend_have in
-    *inbox*)
-      if valid_inbox "$amend_inbox"; then
-        set -- "$@" --inbox "$amend_inbox"
-      else
-        am_dropped="$am_dropped inbox"
-        warn "dropping the inbox '$(sanitize_printable "$amend_inbox" "(unprintable value)")' for $(sanitize_printable "$amend_worker" "(unprintable handle)"): it fails the registry's inbox grammar, so the row keeps its sentinel"
-      fi
-      ;;
-  esac
+  if [ "$amend_have_name" = 1 ]; then
+    if valid_name "$amend_name"; then
+      set -- "$@" --name "$amend_name"
+    else
+      am_dropped="$am_dropped name"
+      warn "dropping the name '$(sanitize_printable "$amend_name" "(unprintable value)")' for $(sanitize_printable "$amend_worker" "(unprintable handle)"): it fails the registry's name grammar, so the row keeps its sentinel"
+    fi
+  fi
+  if [ "$amend_have_inbox" = 1 ]; then
+    if valid_inbox "$amend_inbox"; then
+      set -- "$@" --inbox "$amend_inbox"
+    else
+      am_dropped="$am_dropped inbox"
+      warn "dropping the inbox '$(sanitize_printable "$amend_inbox" "(unprintable value)")' for $(sanitize_printable "$amend_worker" "(unprintable handle)"): it fails the registry's inbox grammar, so the row keeps its sentinel"
+    fi
+  fi
   st_rc=0
   if [ "$#" -gt 0 ]; then
     /bin/sh "$FS" amend "$amend_worker" "$@" >/dev/null || st_rc=$?

@@ -41,6 +41,8 @@
 #   r17 a worker profile the planwright root holds unreadable refuses the
 #       launch and its dry run alike, naming the profile, before anything is
 #       placed (fleet-messaging D-19, REQ-F1.1)
+#   r18 a suffix that yields no worker identity refuses its plan, naming the
+#       missing handle and scope, before printing any of it (REQ-B1.1)
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-tmux-launch-refusals.sh
@@ -579,6 +581,23 @@ r17() {
   chmod 644 "$bad/config/worker-settings.json"
 }
 
+# --- r18: a suffix that yields no identity ------------------------------------
+# The bare legacy `task-<id>` suffix names no spec, so it has no worker handle
+# or scope: its plan is refused, naming both, before any of it is printed.
+r18() {
+  local back=$PWD
+  new_case
+  cd "$P" || return
+  tlh_run_bounded "$PRIM" attach task-5 --dry-run
+  cd "$back" || return
+  [ "$TLH_RC" -eq 12 ] || fail "r18: a suffix with no identity must exit 12, got $TLH_RC ($TLH_ERR)"
+  case $TLH_ERR in
+    *PLANWRIGHT_WORKER_HANDLE*PLANWRIGHT_WORKER_SCOPE*) ;;
+    *) fail "r18: the refusal does not name the missing identity: $TLH_ERR" ;;
+  esac
+  [ -z "$TLH_OUT" ] || fail "r18: part of the plan was printed before the refusal: $TLH_OUT"
+}
+
 r1
 r2
 r3
@@ -596,6 +615,7 @@ r14
 r15
 r16
 r17
+r18
 
 [ "$fails" -eq 0 ] || {
   echo "test-tmux-launch-refusals: $fails failure(s)" >&2

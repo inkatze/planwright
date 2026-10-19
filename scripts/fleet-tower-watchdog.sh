@@ -294,7 +294,7 @@ read_backoff() {
   # shellcheck disable=SC2086
   set -- $rb_row
   IFS=$rb_old_ifs
-  # Strict field count, mirroring the marker parser's `[ "$#" -ne 7 ]` gate: a
+  # Strict field count, mirroring the marker parser's strict field gate: a
   # row with trailing junk (whose first three fields happen to parse) is
   # corrupt, not silently accepted — recovery must never run off it.
   [ "$#" -eq 3 ] || return 1
@@ -543,8 +543,9 @@ fi
 # named planwright-tower-<spec>, started at the checkout root, wrapped in
 # fleet-dispatch-env.sh (D-10 ghost-text hardening; --inbound accept), the
 # session named for messaging with --name and given the tower profile with
-# --settings, waking /orchestrate in unattended watch mode. Prints the fresh tower's pane pid. A session-name
-# collision is a refusal, never a window into an existing session.
+# --settings, waking /orchestrate in unattended watch mode. Prints the fresh
+# tower's pane pid. A session-name collision is a refusal, never a window
+# into an existing session.
 launch_default() {
   if ! command -v tmux >/dev/null 2>&1; then
     echo "fleet-tower-watchdog: tmux is unavailable for the default launcher" >&2
@@ -578,10 +579,17 @@ launch_default() {
 # the backoff is left alone.
 tower_profile=''
 if [ -z "$launcher_cmd" ]; then
-  tp_root=${PLANWRIGHT_ROOT:-}
-  [ -n "$tp_root" ] || tp_root=$(cd "$script_dir/.." 2>/dev/null && pwd -P) || tp_root="$script_dir/.."
-  tower_profile=$(/bin/sh "$script_dir/fleet-launch-profile.sh" tower --root "$tp_root" </dev/null) || {
+  tower_profile=$(/bin/sh "$script_dir/fleet-launch-profile.sh" tower </dev/null) || {
+    # A cron that drops stderr would hide this forever, so it also asks the
+    # human through the decision queue, as the disable does.
+    "$FAT" decide "tower-watchdog:$spec" "$spec" \
+      "The tower profile (config/tower-settings.json under the planwright root) cannot be read, so the watchdog cannot relaunch the tower for spec '$spec'; repair the install, then the next tick relaunches" \
+      "repair-install" "repair-install" high >/dev/null 2>&1 || true
     echo "fleet-tower-watchdog: refusing to relaunch without the tower profile" >&2
+    exit 2
+  }
+  /bin/sh "$script_dir/orchestrate-relay.sh" validate-handle tmux "$session_name" 2>/dev/null || {
+    echo "fleet-tower-watchdog: the tower session name is outside the tmux handle grammar" >&2
     exit 2
   }
 fi

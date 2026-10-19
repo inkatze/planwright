@@ -101,7 +101,8 @@ state**.
    reconcile sweep, which rebuilds the picture from disk.
 3. **Confirm the fresh tower is alive before retiring (R12).** The retiring tower
    does **not** stop until it has positive evidence the replacement is running
-   (the session id came back, the process is live). If the launch fails, it does
+   (the launcher's printed pid is still live; it exits non-zero for a tower
+   that died at once). If the launch fails, it does
    **not** retire into a zero-tower gap: it escalates to `tasks.md` `## Awaiting
    input` and stays up (or stops loudly) so a human restarts. Never retire the old
    tower on faith that the new one started.

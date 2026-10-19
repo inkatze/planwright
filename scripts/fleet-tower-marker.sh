@@ -19,9 +19,11 @@
 # `session_id`, `tmux_session` and `name` are `-` when unknown. `name` is the
 # tower's observed session name (fleet-messaging D-8), the address a peer
 # tower's advisory uses; no tower socket path is ever recorded. Rows written
-# before it carry seven fields, and both readers take seven or eight. Writes serialize
-# through fleet-state.sh's existing cross-spec advisory lock (no second lock
-# primitive, REQ-G1.3) and land via temp+RENAME, so a lockless reader (the
+# before it carry seven fields, and both readers take seven or eight.
+#
+# Writes serialize through fleet-state.sh's existing cross-spec advisory lock
+# (no second lock primitive, REQ-G1.3) and land via temp+RENAME, so a
+# lockless reader (the
 # SessionStart signpost hook) always sees a complete row, never a torn one.
 # The epoch is stamped under the lock (the fleet-state register discipline).
 #

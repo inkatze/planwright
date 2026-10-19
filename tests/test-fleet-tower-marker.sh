@@ -277,4 +277,23 @@ PLANWRIGHT_FLEET_STATE_DIR="" CLAUDE_PLUGIN_DATA="" CLAUDE_DIR="$tmp/blockfile" 
 [ "$rc" = 2 ] || fail "unwritable home record: exit $rc, expected 2"
 echo "ok: unwritable home fails closed"
 
+# The /orchestrate watch-loop step records the marker with the observed
+# session name from self-name and clears it on graceful exit (fleet-messaging
+# D-8); a single step records none.
+skill="$here/../skills/orchestrate/SKILL.md"
+step=$(awk '/^\*\*Tower marker/,/^$/' "$skill" | tr '\n' ' ')
+case $step in
+  *"At watch-loop start record the marker"*) ;;
+  *) fail "the /orchestrate marker step no longer records at watch-loop start" ;;
+esac
+case $step in
+  *"fleet-tower-marker.sh record"*"--name <name>"*"fleet-messaging.sh self-name"*) ;;
+  *) fail "the /orchestrate marker step does not record --name from self-name: $step" ;;
+esac
+case $step in
+  *"clear it on graceful exit"*) ;;
+  *) fail "the /orchestrate marker step does not clear the marker on graceful exit" ;;
+esac
+echo "ok: the /orchestrate watch loop records the named marker and clears it on exit"
+
 echo "ALL PASS: fleet-tower-marker"

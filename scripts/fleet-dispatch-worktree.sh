@@ -1075,11 +1075,9 @@ launch_roots() {
 # operator's own settings (fleet-messaging D-19, obs:eea622de).
 LAUNCH_PROFILE=''
 resolve_launch_profile() {
-  if [ -n "$LAUNCH_ROOT" ]; then
-    LAUNCH_PROFILE=$(/bin/sh "$script_dir/fleet-launch-profile.sh" worker --root "$LAUNCH_ROOT" </dev/null) || LAUNCH_PROFILE=''
-  else
-    LAUNCH_PROFILE=$(/bin/sh "$script_dir/fleet-launch-profile.sh" worker </dev/null) || LAUNCH_PROFILE=''
-  fi
+  set -- worker
+  [ -z "$LAUNCH_ROOT" ] || set -- worker --root "$LAUNCH_ROOT"
+  LAUNCH_PROFILE=$(/bin/sh "$script_dir/fleet-launch-profile.sh" "$@" </dev/null) || LAUNCH_PROFILE=""
   [ -n "$LAUNCH_PROFILE" ]
 }
 
@@ -1097,6 +1095,12 @@ print_plan() {
   pp_claude=$(command -v claude 2>/dev/null) || pp_claude=claude
   launch_roots "${_repo_root:-${_aroot:-}}"
   resolve_launch_profile || exit 12
+  # A plan with no identity would be refused at launch; refuse it before a
+  # word of it is printed (the bare legacy `task-<id>` suffix names no spec).
+  if [ -z "$pp_handle" ] || [ -z "$pp_scope" ]; then
+    warn "refusing the plan: $pp_suffix yields no worker handle or scope (PLANWRIGHT_WORKER_HANDLE, PLANWRIGHT_WORKER_SCOPE) to name the session after"
+    exit 12
+  fi
   printf 'attach-plan\tsuffix\t%s\n' "$(sanitize_printable "$pp_suffix")"
   printf 'attach-plan\tsession\t%s\n' "$(sanitize_printable "$pp_session")"
   printf 'attach-plan\tlaunch'

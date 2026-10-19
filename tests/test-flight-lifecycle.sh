@@ -657,6 +657,16 @@ out=$(supervise "$((t + 2000000))")
 g=$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$O7" '$2 == id')
 [ "$(field "$g" 1)" = backoff ] && [ "$(field "$g" 3)" = 1 ] \
   || fail "a seven-column registry row counts its crash by its death handle (got: $out)"
+# A three-column row (before the owner) carries no death handle: the sweep
+# reads its liveness unknown, so supervise counts no crash and says nothing.
+O3=oldthree-aaaaaad3
+gitc "$repo" worktree add -q -b "planwright/flight/$O3" "$repo/.claude/worktrees/flight-$O3" HEAD
+brief_dir "$O3"
+printf '101\ttmux-flight-%s\tflight:%s\n' "$O3" "$O3" >>"$tmp/fleet/registry"
+out=$(supervise "$((t + 2000000 + 5))")
+[ -z "$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$O3" '$2 == id')" ] \
+  || fail "a three-column registry row was supervised as a death (got: $out)"
+[ ! -e "$tmp/fleet/liveness/crash/tmux-flight-$O3" ] || fail "a three-column registry row counted a crash"
 
 if [ "$fails" -gt 0 ]; then
   echo "test-flight-lifecycle: $fails failure(s)" >&2

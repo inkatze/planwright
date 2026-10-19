@@ -41,7 +41,10 @@
 #                                           it builds is the worker's own whatever
 #                                           the tmux server's environment holds
 #                                           (fleet-hardening D-10, D-11). The
-#                                           options, each at most once:
+#                                           fleet tower launches use this form
+#                                           too, with --inbound accept alone,
+#                                           which keeps the tower pins below.
+#                                           The options, each at most once:
 #                                             --identity <handle> <scope>
 #                                               exported as PLANWRIGHT_WORKER_HANDLE
 #                                               and PLANWRIGHT_WORKER_SCOPE; both

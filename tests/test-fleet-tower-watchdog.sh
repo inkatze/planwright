@@ -521,7 +521,6 @@ echo "ok: a fresh tower lands in its own tmux session (REQ-G1.4)"
 # profile, before any session exists (fleet-messaging D-19).
 badroot="$tmp/badroot"
 mkdir -p "$badroot/config"
-cp -R "$here/../scripts" "$badroot/scripts"
 cp "$here/../config/tower-settings.json" "$badroot/config/"
 chmod 000 "$badroot/config/tower-settings.json"
 rm -f "$tmux_log"
@@ -541,6 +540,10 @@ chmod 644 "$badroot/config/tower-settings.json"
 grep -qF "$badroot/config/tower-settings.json" "$tmp/badroot.err" \
   || fail "the refusal must name the tower profile: $(cat "$tmp/badroot.err")"
 grep -q '^invoke new-session' "$tmux_log" 2>/dev/null && fail "an unreadable tower profile still created a session"
+case $(fleet_env "$FAT" queue 2>/dev/null) in
+  *"tower profile"*) ;;
+  *) fail "an unreadable tower profile queued no decision" ;;
+esac
 echo "ok: an unreadable tower profile fails the relaunch visibly, naming it"
 
 # A colliding session name is a launch failure, not a hijack.

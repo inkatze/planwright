@@ -172,6 +172,7 @@ env_scrub=(
   -u PLANWRIGHT_LOCAL_CONFIG -u PLANWRIGHT_CONFIG_DEFAULTS
   -u PLANWRIGHT_STREAMJSON_PENDING_AGE -u PLANWRIGHT_STREAMJSON_ALARM_TICK
   -u PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT
+  -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE
 )
 
 # senv <home> <record-dir> [SHIM_VAR=val...] -- <args...> — hermetic
@@ -638,7 +639,7 @@ cat >"$tmp/prompt9" <<'EOF'
 run this: $(touch PWNED-marker) `touch PWNED-marker` "quoted" 'single'
 second line	with a tab
 EOF
-senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+senv "$home" "$rec" SHIM_EVENTS="$ev" PLANWRIGHT_MESSAGING_INBOUND=refuse PLANWRIGHT_WORKER_HANDLE=stale -- \
   launch sjw9 execution-backends:4 --prompt-file "$tmp/prompt9" --foreground \
   || fail "c9: launch exited non-zero"
 argv_line=$(cat "$rec/argv")
@@ -693,6 +694,14 @@ senv "$home" "$rec" -- \
   launch "sjw9=x" execution-backends:4 --prompt-file "$tmp/prompt9" --foreground >/dev/null 2>"$tmp/c9name.err"
 [ $? -eq 2 ] || fail "c9: a handle outside the session-name grammar must be refused (exit 2)"
 [ ! -s "$rec/argv" ] || fail "c9: the refused name must never spawn the worker"
+# A caller-supplied --name would override the session name the handle sets.
+for nm in --name --name=other -n; do
+  : >"$rec/argv"
+  senv "$home" "$rec" -- \
+    launch sjw9n execution-backends:4 --prompt-file "$tmp/prompt9" --foreground -- "$nm" other >/dev/null 2>&1
+  [ $? -eq 2 ] || fail "c9: a caller-supplied '$nm' must be refused (exit 2)"
+  [ ! -s "$rec/argv" ] || fail "c9: the refused '$nm' launch must never spawn the worker"
+done
 # A relaunch whose launch persisted no scope has no worker scope to export: it
 # is refused, naming the missing variable, rather than launched unidentified.
 : >"$rec/argv"
@@ -754,7 +763,6 @@ grep -q "worker-settings.json" "$tmp/nocfg.err" \
 # The same refusal through the planwright-root override: PLANWRIGHT_ROOT names a
 # copy of the root whose worker profile cannot be read.
 mkdir -p "$tmp/badroot/config"
-cp -R "$here/../scripts" "$tmp/badroot/scripts"
 cp "$here/../config/worker-settings.json" "$tmp/badroot/config/"
 chmod 000 "$tmp/badroot/config/worker-settings.json"
 : >"$rec/argv"

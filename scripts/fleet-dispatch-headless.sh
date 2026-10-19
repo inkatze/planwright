@@ -558,9 +558,7 @@ do_launch() {
     warn "refusing: the session name $l_handle is outside the headless-oneshot grammar"
     exit 2
   fi
-  l_root=${PLANWRIGHT_ROOT:-}
-  [ -n "$l_root" ] || l_root=$(cd "$script_dir/.." 2>/dev/null && pwd -P) || l_root="$script_dir/.."
-  l_profile=$(/bin/sh "$script_dir/fleet-launch-profile.sh" worker --root "$l_root" </dev/null) || exit 2
+  l_profile=$(/bin/sh "$script_dir/fleet-launch-profile.sh" worker </dev/null) || exit 2
 
   # Collision guard: never double-dispatch a unit whose runner may be live.
   # Death is decided by positive evidence only; UNKNOWN refuses too (lost

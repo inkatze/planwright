@@ -431,10 +431,13 @@ l8() {
   cd "$back" || return
   [ -n "$absent" ] && [ "$absent" = "$present" ] \
     || fail "l8: the launch plan moved with the messaging environment: '$absent' vs '$present'"
-  grep -l 'fleet-messaging.sh' "$ROOT/scripts/fleet-dispatch-worktree.sh" "$ROOT/scripts/fleet-streamjson.sh" \
-    "$ROOT/scripts/fleet-dispatch-headless.sh" "$ROOT/scripts/fleet-tower-watchdog.sh" \
-    "$ROOT/scripts/fleet-tower-launch.sh" 2>/dev/null \
-    && fail "l8: a launch seam consults the messaging script"
+  local seam
+  for seam in fleet-dispatch-worktree.sh fleet-streamjson.sh fleet-dispatch-headless.sh \
+    fleet-tower-watchdog.sh fleet-tower-launch.sh; do
+    [ -f "$ROOT/scripts/$seam" ] || fail "l8: the launch seam $seam is missing"
+    grep -v '^[[:space:]]*#' "$ROOT/scripts/$seam" | grep -q 'fleet-messaging\.sh' \
+      && fail "l8: the launch seam $seam consults the messaging script"
+  done
   return 0
 }
 

@@ -7,15 +7,19 @@
 # The launch is `claude -p --name <name> --settings <tower profile>
 # --output-format json "<wake prompt>"`, run through fleet-dispatch-env.sh
 # with `--inbound accept` (the layer the messaging probe reads beside the
-# profile), detached under nohup in the tower's checkout. A tower's own Bash
+# profile), detached in its own session (setsid, else nohup) in the tower's
+# checkout, under the caller's umask, with the retiring tower's identity and
+# any worker identity dropped from its environment. A tower's own Bash
 # string carrying that --settings flag would be deferred by the tower command
 # guard; this script is approved wholesale like every planwright script, and
 # it builds the launch itself from validated parts, so no caller-supplied flag
 # reaches the CLI.
 #
-# The name is `planwright-tower-<spec>-<epoch>` (`meta` for a meta-tower),
-# held to the relay's headless-oneshot grammar. The epoch keeps it apart from
-# the retiring tower's, which is still running while its replacement starts.
+# The name is `planwright-tower-<spec>-<epoch>-<pid>` (`meta` for a
+# meta-tower), held to the relay's headless-oneshot grammar. The epoch and
+# this launcher's pid keep it apart from the retiring tower's, which is still
+# running while its replacement starts, and from a second launch in the same
+# second.
 # The tower records the name it actually got in its marker at watch-loop start
 # (`fleet-messaging.sh self-name`); nothing here reads a name back.
 #
@@ -31,14 +35,18 @@
 #   --dry-run    print the launch as `tower-launch<TAB>argv<TAB><word>...`
 #                and start nothing
 # Report: `tower-launch<TAB>name|pid|log<TAB><value>` lines. The pid is the
-# fresh tower's process: the liveness evidence a retiring tower confirms
-# before it stops.
+# fresh tower's process, still alive about a second after the launch: the
+# liveness evidence a retiring tower confirms before it stops. A tower that
+# dies later than that (a refused login, a rate limit) is not caught here;
+# the watchdog's next tick, or the next operator, is what notices it. The log
+# is `<fleet-home>/tower-launch/<name>.log`, owner-only, never overwritten.
 # Exit: 0 started (or planned); 2 usage, a refused input, the tower profile
-#   unreadable (named on stderr), or no usable CLI; 4 the tower exited at once
-#   (its log named on stderr).
+#   unreadable (named on stderr), no usable CLI, or a log already at the
+#   name; 4 the tower exited at once (its log named on stderr).
 #
-# Test seam: PLANWRIGHT_TOWER_LAUNCH_CLAUDE names the CLI (default `claude` on
-# PATH); it must be an absolute path to an executable file.
+# Test seam, refused unless PLANWRIGHT_TEST_SEAM=1: PLANWRIGHT_TOWER_LAUNCH_CLAUDE
+# names the CLI (default `claude` on PATH), an absolute path to an executable
+# file.
 #
 # POSIX sh; no eval; every input is data. Pathname expansion is disabled.
 set -uf
@@ -117,11 +125,12 @@ case $checkout in
 esac
 checkout=$(cd "$checkout" 2>/dev/null && pwd -P) || die "--checkout is not an existing directory"
 
-root=${PLANWRIGHT_ROOT:-}
-[ -n "$root" ] || root=$(cd "$script_dir/.." && pwd -P) || exit 2
-profile=$(/bin/sh "$script_dir/fleet-launch-profile.sh" tower --root "$root" </dev/null) || exit 2
+profile=$(/bin/sh "$script_dir/fleet-launch-profile.sh" tower </dev/null) || exit 2
 
 cli=${PLANWRIGHT_TOWER_LAUNCH_CLAUDE:-}
+if [ -n "$cli" ] && [ "${PLANWRIGHT_TEST_SEAM:-}" != 1 ]; then
+  die "PLANWRIGHT_TOWER_LAUNCH_CLAUDE is a test-only seam (needs PLANWRIGHT_TEST_SEAM=1)"
+fi
 [ -n "$cli" ] || cli=$(command -v claude 2>/dev/null) || cli=''
 case $cli in
   /*) [ -f "$cli" ] && [ -x "$cli" ] || die "the claude CLI is not an executable file: $(sanitize_printable "$cli")" ;;
@@ -132,7 +141,7 @@ epoch=$(date +%s)
 case $epoch in
   "" | *[!0-9]*) die "cannot read the clock" ;;
 esac
-name="planwright-tower-$scope-$epoch"
+name="planwright-tower-$scope-$epoch-$$"
 /bin/sh "$script_dir/orchestrate-relay.sh" validate-handle headless-oneshot "$name" 2>/dev/null \
   || die "the derived session name is outside the headless-oneshot grammar"
 
@@ -156,18 +165,29 @@ if [ "$dry" = 1 ]; then
 fi
 
 home=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null) || die "cannot resolve the fleet home for the tower's log"
-logdir="$home/towers/launch"
+# Outside towers/: every name there is a spec's marker, and `tower-launch` is
+# not a spec id the marker grammar could produce on its own.
+logdir="$home/tower-launch"
+log="$logdir/$name.log"
 old_umask=$(umask)
 umask 0077
-mkdir -p "$logdir" 2>/dev/null || {
+if ! mkdir -p "$logdir" 2>/dev/null || [ -L "$logdir" ] || [ -e "$log" ] || [ -L "$log" ] \
+  || ! (set -C && : >"$log") 2>/dev/null; then
   umask "$old_umask"
-  die "cannot create the tower log directory"
-}
-[ ! -L "$logdir" ] || die "refusing a symlinked tower log directory"
-log="$logdir/$name.log"
-(cd "$checkout" && exec nohup "$@" >"$log" 2>&1 </dev/null) &
-pid=$!
+  die "cannot create a fresh tower log at $(sanitize_printable "$log") (a symlinked directory, or a log already at that name)"
+fi
 umask "$old_umask"
+if command -v setsid >/dev/null 2>&1; then
+  detach=setsid
+else
+  detach=nohup
+fi
+(
+  unset PLANWRIGHT_TOWER_ID PLANWRIGHT_TOWER_SESSION_ID PLANWRIGHT_TOWER_PID \
+    PLANWRIGHT_TOWER_CHECKOUT PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE
+  cd "$checkout" && exec "$detach" "$@" >>"$log" 2>&1 </dev/null
+) &
+pid=$!
 
 # A tower that cannot start dies within moments; one still running after a
 # short wait is the live replacement a retiring tower may confirm.

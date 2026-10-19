@@ -830,7 +830,6 @@ h20() {
   wt="$tmp/wt-h20"
   bad="$tmp/badroot-h20"
   mkdir -p "$wt" "$bad/config"
-  cp -R "$REPO_ROOT/scripts" "$bad/scripts"
   cp "$REPO_ROOT/config/worker-settings.json" "$bad/config/"
   chmod 000 "$bad/config/worker-settings.json"
   make_fake "$rec"
