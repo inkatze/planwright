@@ -121,18 +121,20 @@ error fails it. A missing or non-numeric knob aborts the guard rather than
 falling back.
 
 **Two suppression forms** exist, both in `config/comment-budget-exemptions.txt`
-and both requiring a recorded reason; an entry without one is an error.
+and both requiring a recorded reason; an entry without one, or a malformed
+entry, is an error.
 
 - **`exempt`** is permanent, for an own-surface section the taxonomy offers
   no split and no other home, or for a file where the heredoc limit below
   misfires.
 - **`pending-cleanup`** is transitional: it names the cleanup task whose
-  family owns the file and is removed by that task's PR at the latest. An
-  entry whose file no longer trips any threshold draws a cleanup warning;
-  once the cleanup closes out, any remaining entry is an error.
+  family owns the file and is removed by that task's PR at the latest. Once
+  the cleanup closes out, every remaining `pending-cleanup` entry is an
+  error, whatever its file now measures.
 
-The guard's usage text holds the exact entry grammar and the surface it
-measures.
+Before closeout, an entry of either form whose file no longer trips any
+threshold draws a named cleanup warning, never an error. The guard's usage text holds the
+exact entry grammar and the surface it measures.
 
 **The known limit.** The guard reads lines, not a parse tree, so a heredoc
 body line beginning with `#` counts as a comment line. The limit is named
