@@ -90,6 +90,12 @@ mark the PR ready only on a genuine pass. The gate is
 skipped cleanly when the upstream no-remote/no-PR degradation arm (sign-off
 step 7) has already fired.
 
+- **Point status first (custom-steps REQ-A1.2, REQ-E1.3).** Proceed only when
+  this run's `pre-spec-ready-flip` point posted `success` and the PR's
+  `headRefOid` is the head that point ended on. A point that failed to
+  resolve, parked, or asked posts no status, and a step can move the head
+  without the PR following it; either is a **point not passed** and takes the
+  refusal arm.
 - **Rollup query, pinned to the head SHA.** Query the head commit's
   `statusCheckRollup` (`gh pr view <spec-PR> --json
   statusCheckRollup,headRefOid`) — checks **on the SHA**, never PR review
@@ -111,7 +117,7 @@ step 7) has already fired.
   still a draft; an already-ready or merged/closed PR is a benign skip whose
   non-zero exit must not trip the skill's flip-failure degradation arm.
 - **Refusal arm.** On **red, empty, unresolved, a query failure, an expired
-  wait, or a moved head**, leave the PR draft and record the pending ready-flip
+  wait, or a moved head**, or a point not passed, leave the PR draft and record the pending ready-flip
   in the spec's `tasks.md` `## Awaiting input` section — the re-entry point, so
   a re-run completes only the flip. The entry names the pending flip and the
   **neutral failure class only**; full remedy detail stays operator-facing

@@ -392,13 +392,12 @@ most recent anchor entry never describes spec content that was not walked.
 8. **Mark the spec PR ready (terminal step, D-6/D-7; REQ-D1.2, REQ-D1.3,
    REQ-D1.5).** Only on a **clean completion** — the
    sign-off record above is written with its anchor (no inconsistency halt, no
-   carried open question, every lens finding dispositioned) and the point
-   above posted `success`. Configured verification is the `pre-spec-ready-flip`
+   carried open question, every lens finding dispositioned). Configured verification is the `pre-spec-ready-flip`
    point (D-7), not a hardcoded core step. When
    `mark_spec_pr_ready_on_kickoff` is true and the
    completion is clean, un-draft the spec PR — but **first gate the flip on the
    head SHA's CI** per `kickoff-verification` (REQ-B1.1, D-3), which also owns
-   the draft-state check before `gh pr ready <spec-PR>`. This is the
+   the point-status and draft-state checks before `gh pr ready <spec-PR>`. This is the
    narrow exception to bootstrap D-26's all-drafts rule: **only the spec PR**,
    and only this skill, marks a PR ready; **task PRs stay drafts**. Merge stays
    the human's second key — **never auto-merge**.

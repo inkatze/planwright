@@ -92,6 +92,18 @@ verdict "REQ-F1.3: the skill no longer names the review-sequence knob" "REQ-F1.3
 printf '%s' "$doc_flat" | grep -qE 'excluding the `planwright/pre-ready-flip` and `planwright/pre-spec-ready-flip` contexts by name'
 verdict "REQ-E1.6: the kickoff CI gate excludes the flip-point contexts by name" "REQ-E1.6: kickoff-verification does not exclude the flip-point contexts"
 
+# REQ-A1.2 / REQ-E1.3: the gate proceeds only on the point's success status on
+# the PR head the point ended on; no status (unresolved, parked, asked) or a
+# head the PR does not carry refuses through the refusal arm.
+printf '%s' "$doc_flat" | grep -qE "posted .success. and the PR's .headRefOid. is the head that point ended on"
+verdict "REQ-E1.3: the gate requires the point's success on the head it ended on" "REQ-E1.3: kickoff-verification does not pin the gate to the point's success and end head"
+printf '%s' "$doc_flat" | grep -qE 'failed to resolve, parked, or asked posts no status.{0,120}point not passed'
+verdict "REQ-A1.2: an unresolved, parked, or asked point refuses the flip" "REQ-A1.2: kickoff-verification does not refuse when the point posted no status"
+printf '%s' "$doc_flat" | grep -qE 'or a point not passed, leave the PR draft and record the pending ready-flip'
+verdict "REQ-A1.2: a point not passed takes the Awaiting-input refusal arm" "REQ-A1.2: the refusal arm does not cover a point not passed"
+printf '%s' "$flat" | grep -qE 'kickoff-verification. \(REQ-B1\.1, D-3\), which also owns the point-status'
+verdict "the skill hands the point-status check to kickoff-verification" "the skill does not route the point-status check to kickoff-verification"
+
 # --- Scenarios: the script sequence the prose names --------------------------
 
 command -v git >/dev/null 2>&1 || {
