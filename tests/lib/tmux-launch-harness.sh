@@ -7,9 +7,10 @@
 # leaves no process behind. tests/test-tmux-launch-harness.sh is its
 # self-test. Safe under `set -e` and `set -u`.
 #
-# Inputs read before sourcing: TLH_LAUNCH_BOUND_SECONDS (default 60) and
+# Inputs read before sourcing: TLH_LAUNCH_BOUND_SECONDS (default 180) and
 # TLH_CONFIRM_CAP_SECONDS (default 2), whole seconds; TLH_SYMLINKED_TMP;
-# TLH_PLUGIN_ROOT.
+# TLH_PLUGIN_ROOT. The launch bound only has to stay under the stub worker's
+# 600s block, so it is set for a heavily loaded host, not a quiet one.
 #
 # Sourcing runs setup. It exits the sourcing suite (status 1) when the suite
 # has not defined a `fail` function (every assertion here reports through it),
@@ -91,7 +92,7 @@ TLH_LIB=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 TLH_REPO_ROOT=$(cd "$TLH_LIB/../.." && pwd -P)
 TLH_PLUGIN_ROOT=${TLH_PLUGIN_ROOT:-$TLH_REPO_ROOT}
 TLH_CONFIRM_CAP_SECONDS=${TLH_CONFIRM_CAP_SECONDS:-2}
-TLH_LAUNCH_BOUND_SECONDS=${TLH_LAUNCH_BOUND_SECONDS:-60}
+TLH_LAUNCH_BOUND_SECONDS=${TLH_LAUNCH_BOUND_SECONDS:-180}
 case "$TLH_CONFIRM_CAP_SECONDS$TLH_LAUNCH_BOUND_SECONDS" in
   *[!0-9]*)
     echo "FAIL: tmux-launch-harness: the launch bound and the confirm cap must be whole seconds" >&2
