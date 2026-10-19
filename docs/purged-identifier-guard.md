@@ -11,6 +11,14 @@ This page is the reference for the guard that replaced that vigilance: what it
 normalizes, which reintroduction shapes it catches, which it deliberately does
 not, and how the plaintext gets provisioned without ever being written down.
 
+The same seed file also carries a few short rule phrases that
+[Human Gates](../doctrine/human-gates.md) retired, each one checked absent from
+every frozen record before it was seeded, since the scan is tree-wide and
+reaches `specs/` and the changelog too. Retired sentences that frozen records
+still carry are refused instead by `scripts/check-retired-phrasings.sh`, which
+screens only `doctrine/`, `skills/`, `docs/`, and the README. A phrase seed
+widens the candidate window to its word count, which costs scan time.
+
 ## The three surfaces it covers
 
 | Surface | Where it runs | Invocation |
@@ -284,6 +292,8 @@ check green.
 
 - Design decision D-5 and requirements REQ-B1.1, REQ-B1.2, REQ-H1.3 in
   `specs/guard-coverage/`.
+- The retired-phrase seeds: human-gates D-10 and REQ-H1.2 in
+  `specs/human-gates/`.
 - The hook backstop this screen extends: [CONTRIBUTING.md](CONTRIBUTING.md).
 - Fixtures pinning every shape table above:
   `tests/test-check-purged-identifiers.sh`.

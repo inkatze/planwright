@@ -8,7 +8,7 @@ a copy that diverges from it is a defect.
 Citations: human-gates REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5,
 REQ-B1.1, REQ-C1.1, REQ-C1.5, REQ-C1.6, REQ-D1.1, REQ-D1.2, REQ-D1.4, REQ-D1.5,
 REQ-D1.6, REQ-D1.7, REQ-D1.9, REQ-E1.1, REQ-E1.2, REQ-F1.1, REQ-F1.2, REQ-F1.4,
-REQ-F1.5 · human-gates D-1, D-2, D-3, D-4, D-6, D-7, D-8, D-9, D-10, D-14,
+REQ-F1.5, REQ-G1.7 · human-gates D-1, D-2, D-3, D-4, D-6, D-7, D-8, D-9, D-10, D-14,
 D-15 · supersedes
 bootstrap D-26 (scoped), bootstrap REQ-J1.1, bootstrap REQ-J1.4.
 
@@ -52,7 +52,10 @@ cannot be named does not ship.
 No agent merges outside a policy the human configured, and no value exists
 under which an agent merges a PR carrying a sign-off item. The tower profile,
 which the orchestrator tier runs under, keeps its flip, PR-merge, and
-base-merge denies under every value. Pushed history stays append-only outside
+base-merge denies under every value: those are the tower tier's refusals.
+Separately, at every tier and with no knob read, the policy guard denies the
+`gh api` spelling of the flip, its undo, a PR merge, a base merge, or a forced
+ref update (REQ-G1.7). Pushed history stays append-only outside
 the force-push and secret-purge rows of the list. A doc stating this floor
 cites this section; it does not restate an unconditional never.
 

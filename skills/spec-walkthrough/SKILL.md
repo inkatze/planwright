@@ -134,7 +134,7 @@ verdict, score, or assessment of the spec at any point.
 
 ## Invariants
 
-These hold at every stage of the rendering pipeline:
+These hold at every stage (contracts per `doctrine/human-gates.md`):
 
 - **Strictly read-only** (REQ-A1.3). The command never edits a bundle file,
   commits, pushes, changes a status, or writes the kickoff brief. Its only

@@ -19,7 +19,7 @@ a signed-off kickoff brief and carry it from a failing test to a draft PR.
 `/orchestrate` dispatches it into a prepared worktree; a human may also run it
 inside one. It works from the kickoff
 brief, the durable contract (D-3), not by re-reading the spec; sign-off and
-merge are the human's reserved controls (see Invariants).
+merge authorization are human gates (see Invariants).
 
 ## Doctrine
 
@@ -442,17 +442,20 @@ admitting multiple valid interpretations; a point ending the unit (*Points*);
 
 ## Invariants
 
-These hold at every step:
+These hold at every step, each list rule labelled with its
+`doctrine/human-gates.md` kind:
 
-- **Never** act on a spec whose status is neither Ready nor Active, and
-  **never** bypass the execution freshness gate that composes with it —
-  no bypass flag for either (REQ-C1.1, superseding REQ-J1.2, D-33; D-2, D-3,
-  REQ-F1.9, REQ-C1.3).
-- **Never** create a non-draft PR, or merge or flip one ready outside the two
-  header sequences above (D-21; human-gates REQ-C1.5, REQ-D1.4).
+- **Gate:** **never** act on a spec neither Ready nor Active, nor bypass the
+  freshness gate composing with it; no bypass flag (REQ-C1.1, superseding
+  REQ-J1.2, D-33; D-2, D-3, REQ-F1.9, REQ-C1.3). Merge authorization is the
+  human's; pushed history stays append-only.
+- **Policy:** merge only under `merge_policy`, flip only under
+  `ready_flip_policy`, through both header sequences above (D-21;
+  human-gates REQ-C1.5, REQ-D1.4); reshape never-pushed commits only per
+  `unpushed_rewrite`.
+- **Contract:** this skill owns push and the draft PR; no step pushes before
+  `post-pr`, merges, flips, or rewrites history (D-39; custom-steps REQ-D1.6).
 - **Never** create a worktree; this skill runs inside one (D-37, D-44).
-- **Never** let a step push before `post-pr`, merge, mark ready, or rewrite
-  history: this skill owns push and PR creation (D-39; custom-steps REQ-D1.6).
 - **Never** let `per-step` isolation weaken state-safety: every `tasks.md`
   placement move goes through the sibling reconcile under the per-spec lock, and
   no step session writes dispatch or progress state or opens a PR (REQ-C1.4).
@@ -462,7 +465,6 @@ These hold at every step:
   `/spec-kickoff` (REQ-A3.3).
 - **Never** write a meaning-class anchor entry; the only one this skill writes
   is the marked `Class: expression-only` self-re-anchor (REQ-F1.10).
-- **Never** force-push, amend, squash, or rebase; new commits only (REQ-J1.4).
 
 ## Observations
 

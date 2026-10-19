@@ -52,7 +52,9 @@ first.
   wrote no machine re-anchor entry here and the freshness gate stays failed
   closed for this bundle. Remedy: the meta-spec reopen cycle this bundle's
   `Done` status admits, which re-records the anchor at sign-off and removes
-  this bullet.
+  this bullet. The human-gates Task 12 sweep (2026-10-18) added further
+  pointers (REQ-C1.3, D-5, D-44, D-45; named in the `## Changelog`), which the
+  same reopen cycle covers.
 
 ## Completed
 

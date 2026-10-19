@@ -889,9 +889,9 @@ the record and, only on a clean render, push the branch and open the PR as a
 draft on the checked repository with the push-and-create line:
 \`$_recorder render --home pr $_inputs > $_body && git push -u origin $branch && gh pr create --draft --repo $HOME_DEST --title '<conventional title>' --body-file $_body > $(sh_quote "$_rd/pr-url.tmp") && mv $(sh_quote "$_rd/pr-url.tmp") $(sh_quote "$_rd/pr-url")\`
 Add $_optional to the render only when you wrote them. The record is the PR
-body. Never mark it ready and never merge: the draft-to-ready flip and the
-merge are the human's. A non-zero exit from the push or the create parks the
-flight.
+body. Never mark it ready and never merge: a flight's flip and merge stay with
+the human (doctrine/human-gates.md). A non-zero exit from the push or the
+create parks the flight.
 
 A relaunched worker runs this landed check before it fires any point, in this
 order. When \`record/pr-url\` exists, it is the flight's own record of its PR:
@@ -1096,7 +1096,7 @@ A non-zero exit from that line parks the flight, naming what the line printed."
     printf '\n## Landing\n\n'
     printf '%s\n' "$_landing"
     printf '\n## Rules\n\n'
-    printf '%s\n' "- New commits only: no amend, rebase, squash, or force-push."
+    printf '%s\n' "- Pushed history stays append-only: no force-push (doctrine/human-gates.md)."
     printf '%s\n' "- Write no spec state and edit no spec bundle under \`$spec_rel/<spec>/\`; a flight"
     printf '%s\n' "  is specless. The record file under \`$spec_rel/_flights/\` is not a bundle."
     printf '%s\n' "- Unattended: never block on a question. What needs a human parks the flight."

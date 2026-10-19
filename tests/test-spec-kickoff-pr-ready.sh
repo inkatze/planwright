@@ -6,8 +6,9 @@
 # pre-spec-ready-flip point, D-7) has passed; it leaves the PR draft
 # when sign-off parked on a fork, when verification did not converge, or when the
 # mark_spec_pr_ready_on_kickoff opt-out is set; a flip failure degrades to
-# Awaiting input; and it never auto-merges. The runtime half of the bootstrap
-# D-26 supersede moves `gh pr ready` from the worker-settings deny block to allow.
+# Awaiting input; and the merge stays the human's under merge_policy. The
+# runtime half of the bootstrap D-26 supersede moves `gh pr ready` from the
+# worker-settings deny block to allow.
 #
 # Like Task 3's sibling guard (tests/test-spec-kickoff-ready-flip.sh), the
 # ready-flip BEHAVIOR is a skill-prose procedure the agent reads, not a script:
@@ -22,10 +23,12 @@
 #   - the skill marks the spec PR ready as the terminal step on clean completion
 #     (REQ-D1.2), tied to the configurable pre-spec-ready-flip point, not a
 #     hardcoded gauntlet (REQ-D1.5, D-7);
-#   - only the spec PR is readied and task PRs stay drafts (REQ-D1.3), gated by
-#     the mark_spec_pr_ready_on_kickoff opt-out;
-#   - the skill never auto-merges, and a ready-flip failure degrades to Awaiting
-#     input rather than retrying into an opaque failure (REQ-D1.2, K1.6/K1.7);
+#   - only the spec PR is readied and task PRs follow ready_flip_policy
+#     (REQ-D1.3, as human-gates REQ-C1.1 supersedes it), gated by the
+#     mark_spec_pr_ready_on_kickoff opt-out;
+#   - the merge stays the human's key under merge_policy, and a ready-flip
+#     failure degrades to Awaiting input rather than retrying into an opaque
+#     failure (REQ-D1.2, K1.6/K1.7);
 #   - the superseded absolute "never marks the PR ready" claim is gone, replaced
 #     by the narrowed "marks only the spec PR ready";
 #   - config/worker-settings.json permits `gh pr ready` (allow, not deny) — the
@@ -98,16 +101,17 @@ else
   fail "skill does not state the verification is not hardcoded (REQ-D1.5)"
 fi
 
-# REQ-D1.3: only the spec PR is readied; task PRs stay drafts.
+# REQ-D1.3: only the spec PR is readied; task PRs follow ready_flip_policy.
 if printf '%s' "$flat" | grep -qE 'only the spec PR'; then
   ok "only the spec PR is readied (REQ-D1.3)"
 else
   fail "skill does not restrict the ready-flip to 'only the spec PR' (REQ-D1.3)"
 fi
-if printf '%s' "$flat" | grep -qE 'task PRs stay drafts'; then
-  ok "task PRs stay drafts (REQ-D1.3)"
+# shellcheck disable=SC2016 # literal backticks of the skill's markdown
+if printf '%s' "$flat" | grep -qE 'task PRs follow `ready_flip_policy`'; then
+  ok "task PRs follow ready_flip_policy (REQ-D1.3, superseded by human-gates REQ-C1.1)"
 else
-  fail "skill does not state 'task PRs stay drafts' (REQ-D1.3)"
+  fail "skill does not state that task PRs follow ready_flip_policy (human-gates REQ-C1.1)"
 fi
 
 # REQ-D1.3: the opt-out gates the flip.
@@ -117,11 +121,12 @@ else
   fail "skill does not name the mark_spec_pr_ready_on_kickoff opt-out (REQ-D1.3)"
 fi
 
-# REQ-D1.2: never auto-merge.
-if grep -q 'never auto-merge' "$skill"; then
-  ok "the skill never auto-merges (REQ-D1.2)"
+# REQ-D1.2: the merge stays the human's second key, under the merge policy
+# (human-gates REQ-D1.6).
+if printf '%s' "$flat" | grep -qE "Merge stays the human's second key, under .merge_policy."; then
+  ok "the merge stays the human's key under merge_policy (REQ-D1.2, human-gates REQ-D1.6)"
 else
-  fail "skill does not state it never auto-merges (REQ-D1.2)"
+  fail "skill does not keep the merge as the human's key under merge_policy (REQ-D1.2)"
 fi
 
 # REQ-D1.2 / K1.6/K1.7: a ready-flip failure degrades to Awaiting input.

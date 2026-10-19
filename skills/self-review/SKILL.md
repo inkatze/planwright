@@ -234,8 +234,8 @@ pending-sign-off items; reject one before it by its printed recipe.
 Publishing is the pass's final action: the Observations and Maintenance
 steps below run first, so their chore commits land before the push.
 
-1. **Push:** `git push origin <branch>` (with `-u` on first push). Never
-   force-push. On push or authentication failure, degrade gracefully
+1. **Push:** `git push origin <branch>` (with `-u` on first push). Pushed
+   history stays append-only. On push or authentication failure, degrade gracefully
    (REQ-K1.6, REQ-K1.7): the local work is committed; surface what failed
    and stop.
 2. **Draft PR:** if a PR already exists for the branch, update its body;
@@ -244,8 +244,8 @@ steps below run first, so their chore commits land before the push.
    **PR-body assembly** section of the `gate-wiring` doctrine, the single
    normative home for the layout (D-2); the collapsed audit record is this
    pass's own (the sequence in **The audit record** above). The PR is always a
-   draft; never mark it ready and never merge (the draft→ready flip is the
-   human's call).
+   draft: a standalone review run never flips or merges
+   (`doctrine/human-gates.md`).
 
 ## Observations
 

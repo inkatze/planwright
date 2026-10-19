@@ -406,23 +406,23 @@ definition.
 
 ## Invariants
 
-These hold at every step:
+These hold at every step, each list rule labelled with its
+`doctrine/human-gates.md` kind:
 
-- **Never** act on a spec whose status is neither Ready nor Active (REQ-C1.1,
-  superseding the bootstrap non-Active refusal REQ-F1.4, REQ-J1.2, D-33);
-  **never** bypass the execution freshness gate (REQ-F1.9), which composes with
-  it and applies to a Ready spec exactly as to an Active one (REQ-C1.3). No
-  bypass flag exists for either.
-- **Never** auto-chain into `/spec-kickoff` (REQ-J1.3) — name the command, do not
-  run it.
-- **Never** merge a PR, mark one ready, or create a non-draft PR (REQ-J1.1,
-  REQ-F1.6) — `/execute-task` opens drafts; ready and merge are the human's.
+- **Gate:** **never** act on a spec neither Ready nor Active (REQ-C1.1,
+  superseding REQ-F1.4, REQ-J1.2, D-33), nor bypass the freshness gate
+  (REQ-F1.9), which applies to a Ready spec exactly as to an Active one
+  (REQ-C1.3); no bypass flag. **Never** auto-chain into `/spec-kickoff`
+  (REQ-J1.3): name the command. Pushed history stays append-only; this tier
+  reshapes no commit.
+- **Floor** (not a rule kind; `doctrine/human-gates.md` The floor): this
+  tier's profile denies the merge, the draft→ready flip, and the base merge
+  under every value (REQ-F1.6); `/execute-task` opens drafts.
+- **Contract:** every commit is local except the **one** sanctioned push, the
+  `--bookkeeping` observation carry's own chore branch (Task 9, D-9, REQ-D1.3):
+  a fast-forward, never `main` or a task branch.
 - **Never** write or commit `tasks.md` section placement at dispatch (D-1, D-3,
   REQ-A1.1, REQ-A1.2).
-- **Never** force-push, amend, squash, or rebase; new commits only (REQ-J1.4).
-  Every commit is local only except the **one** sanctioned push — the
-  `--bookkeeping` observation carry's own chore branch (Task 9, D-9, REQ-D1.3):
-  a fast-forward, never `main`, never a task branch, never a merge or ready-flip.
 - **Never** create a worktree by shelling out to `git worktree`; use the native
   mechanism and the `.claude/worktrees/` placement (D-37).
 - **Never** answer a worker's permission prompt on your own judgment (only a

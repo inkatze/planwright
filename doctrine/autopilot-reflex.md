@@ -1,7 +1,7 @@
 # The Autopilot Reflex
 
 **A recurring ritual that fires only when a human remembers it is a doctrine
-gap.** planwright's north star is that the human keeps the reserved controls
+gap.** planwright's north star is that the human keeps the [human gates](human-gates.md)
 and planwright flies the rest; a ceremony that survives on human memory
 violates it twice — the machine is not flying what it could, and the human's
 attention is spent on remembering instead of judging. The autopilot reflex is

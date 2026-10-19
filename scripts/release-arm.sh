@@ -324,7 +324,7 @@ echo "release-arm: observed the merge of PR #$pr at $merge_oid — syncing $MAIN
 
 # --- Fire: sync main, wait for green CI, then delegate to publish (step 3) ---
 
-# New commits only — fetch and fast-forward; never rewrite (REQ-J1.4 discipline).
+# Fetch and fast-forward only: pushed history stays append-only (doctrine/human-gates.md).
 git fetch origin >/dev/null 2>&1 \
   || die "could not fetch origin after the observed merge; main is unchanged — publish manually with $PUBLISH once synced"
 git merge-base --is-ancestor "$merge_oid" "$ORIGIN_MAIN_REF" 2>/dev/null \

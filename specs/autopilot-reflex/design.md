@@ -117,6 +117,10 @@ the irreversible publish (reflex step 1).
 
 ### D-5: The framework never merges; the human merges the release PR  (N)
 
+**Superseded-by: human-gates D-6, D-15** (2026-10-18) — scoped to "stays absolute and
+unrefined" and "no merge call sites exist": `scripts/merge-admitted.sh` merges
+admitted task-branch PRs under `policy-class`, never a release PR.
+
 **Decision:** Release approval is the human merging the release PR in
 GitHub's UI. No planwright command, script, or skill merges it — the carried
 never-auto-merge invariant stays absolute and unrefined. The publish step

@@ -152,6 +152,9 @@ The hard invariant carried in unchanged: **never auto-merge, at any tier.**
   unchanged at every tier — single tower, meta-tower, and any backend or ladder
   rung: no fleet mechanism SHALL merge a PR, and merge SHALL remain a reserved
   human control.
+  **Superseded-by: REQ-D1.6, REQ-D1.5 (human-gates)** (2026-10-18) — no agent merges
+  outside a policy the human configured; merge authorization stays a human
+  gate at every tier.
   *(Cites: D-1; bootstrap D-26; bootstrap REQ-F1.6.)*
 - **REQ-A1.3** The autonomous-safe-decision policy (REQ-D1.4) SHALL be expressed
   in terms of the existing finding-categorization buckets and hard-pause zones;
@@ -239,6 +242,8 @@ The hard invariant carried in unchanged: **never auto-merge, at any tier.**
   SHALL NOT drop any guard (worker-settings deny rules, never-auto-merge,
   never-force-push, the freshness gate); a descent that would drop a safety
   property is aborted instead of taken.
+  **Superseded-by: REQ-D1.6, REQ-F1.2 (human-gates)** (2026-10-18) — scoped to the
+  guard list: the guards are the merge floor and append-only pushed history.
   *(Cites: D-3; the backend-direction addendum §A, §E; proportionality (Sources).)*
 - **REQ-B1.6** The effective backend after any runtime failover SHALL be
   recorded as dispatch-adjacent state **spec-locally**, alongside the sibling's
@@ -524,6 +529,12 @@ The hard invariant carried in unchanged: **never auto-merge, at any tier.**
   tower-comms D-12 only what D-12 overrides (REQ-B1.7), and REQ-D1.3, which
   restates that rule, gains its own pointer back to REQ-B1.7's, so a reader
   landing on either sees the reading.
+- 2026-10-18 — human-gates Task 12 supersede pointers: REQ-A1.2 superseded-by
+  human-gates REQ-D1.6 and REQ-D1.5, REQ-B1.5 by human-gates REQ-D1.6 and
+  REQ-F1.2, D-1 and D-8 by human-gates D-6, and D-3 by human-gates D-6 and
+  D-8, the last four scoped to their guard-list or floor clause. Pointer edits only —
+  no record body, task, or status change; the anchored delta is meaning-class,
+  so the bundle parks for its reopen cycle (`tasks.md` Awaiting input).
 
 ## Sources
 

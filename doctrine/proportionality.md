@@ -19,7 +19,7 @@ Two questions size the rigor a change deserves:
   revert from undone. A merged migration, a published API, a deleted
   history are not. The hard-disqualifier zones in
   [finding-categorization.md](finding-categorization.md) are the canonical
-  list of low-reversibility territory, and the reserved human controls
+  list of low-reversibility territory, and the [human gates](human-gates.md)
   (sign-off, merge) sit exactly at the points of least reversibility.
 
 High stake or low reversibility pulls toward the full doctrine: all three

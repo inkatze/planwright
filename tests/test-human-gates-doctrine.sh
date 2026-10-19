@@ -243,35 +243,22 @@ else
   fail "specs/bootstrap no longer validates"
 fi
 
-# Retired phrasings: outside human-gates.md, doctrine carries none of them
-# except gate-wiring's one mapping line from the legacy marker to the trailer.
-# "Act-then-review gate" names the finding gate, not the flip, so it passes.
-retired='(^|[^-])review gate|universal gate|never[- ]auto-merge|no auto-merge|never[- ]force-push|never mark (a PR )?ready|two reserved controls|new commits only|history is never rewritten|drafts for the human to flip|autonomous PR-ready marking|never a planwright action|pending-sign-off\]|bootstrap (D-26|REQ-J1\.[14])'
-fired=$(printf '%s\n' 'the flip is the review gate' 'never auto-merge' 'x [pending-sign-off]' | grep -c -i -E "$retired")
-check "the retired-phrasing screen fires on known-bad lines" "$fired" 3 \
-  "the retired-phrasing screen fired on $fired of 3 known-bad lines"
-ndocs=$(find "$REPO_ROOT/doctrine" -name '*.md' | wc -l | tr -d ' ')
-[ "$ndocs" -gt 1 ] || fail "no doctrine docs found to scan"
-
-# shellcheck disable=SC2016 # an awk program, expanded by awk
-is_mapline='$1 ~ /\/doctrine\/gate-wiring\.md$/ && /pending-sign-off\]/ && /Planwright-Sign-Off/'
-# find selects the files rather than grep's --include, which busybox grep
-# lacks; /dev/null keeps the file-name prefix even on a single match.
-hits=$(find "$REPO_ROOT/doctrine" -name '*.md' ! -name 'human-gates.md' \
-  -exec grep -n -i -E "$retired" /dev/null {} +)
-mapcount=$(printf '%s\n' "$hits" | awk -F: "$is_mapline" | grep -c .)
-others=$(printf '%s\n' "$hits" | grep -v '^$' | awk -F: "!($is_mapline)")
-if [ -z "$others" ]; then
-  ok "no doctrine doc restates a retired phrasing"
+# Retired phrasings: scripts/check-retired-phrasings.sh owns the screen
+# (tests/test-check-retired-phrasings.sh); here it runs over the real tree, and
+# gate-wiring keeps its one mapping line from the legacy marker to the trailer.
+if /bin/sh "$REPO_ROOT/scripts/check-retired-phrasings.sh" >/dev/null 2>&1; then
+  ok "no doctrine doc, skill, or doc restates a retired phrasing"
 else
-  fail "retired phrasings remain in doctrine:
-$others"
+  fail "retired phrasings remain: run scripts/check-retired-phrasings.sh"
 fi
+
+maplines=$(grep -n 'pending-sign-off\]' "$REPO_ROOT/doctrine/gate-wiring.md" | grep 'Planwright-Sign-Off')
+mapcount=$(printf '%s\n' "$maplines" | grep -c .)
 check "gate-wiring carries exactly one legacy-marker mapping line" "$mapcount" 1 \
   "gate-wiring carries $mapcount legacy-marker mapping lines, expected 1"
 # The mapping line and the doc's README row name the id a legacy commit
 # renders under (REQ-B1.10).
-legacy_named=$(printf '%s\n' "$hits" | awk -F: "$is_mapline" | grep -c 'PS-legacy-<sha7>' || true)
+legacy_named=$(printf '%s\n' "$maplines" | grep -c 'PS-legacy-<sha7>' || true)
 check "the legacy-marker mapping line names PS-legacy-<sha7>" "$legacy_named" 1 \
   "the legacy-marker mapping line does not name PS-legacy-<sha7>"
 if grep '^| \[gate-wiring\.md\]' "$REPO_ROOT/doctrine/README.md" | grep -q 'PS-legacy-<sha7>'; then
@@ -280,21 +267,70 @@ else
   fail "the gate-wiring README row does not name PS-legacy-<sha7>"
 fi
 
-# Every doctrine doc that states the merge floor or the merge policy cites the
-# doc that owns it.
-floor_docs=0
-for f in "$REPO_ROOT"/doctrine/*.md; do
-  case "$f" in */README.md | */human-gates.md) continue ;; esac
-  if tr '\n' ' ' <"$f" | grep -q -i -E 'merge floor|merge policy'; then
-    floor_docs=$((floor_docs + 1))
-    if grep -q '(human-gates\.md)' "$f"; then
-      ok "$(basename "$f") cites human-gates where it states the merge floor"
-    else
-      fail "$(basename "$f") states the merge floor without citing human-gates"
+# floor_citations <root> <citation-ere>: every .md under <root> (its README and
+# human-gates.md aside) that states the merge floor or the merge policy also
+# carries the citation, in the form that root uses. Prints one ok/FAIL line per
+# floor-stating doc, then the count of such docs on the last line.
+floor_stmt='merge floor|merge policy|no agent merges'
+floor_citations() {
+  local root=$1 cite=$2 f n=0
+  for f in "$root"/*.md; do
+    [ -f "$f" ] || continue
+    case "$f" in */README.md | */human-gates.md) continue ;; esac
+    if tr '\n' ' ' <"$f" | tr -s ' \t' ' ' | grep -q -i -E "$floor_stmt"; then
+      n=$((n + 1))
+      if grep -q -E "$cite" "$f"; then
+        echo "ok: $(basename "$f") cites human-gates where it states the merge floor"
+      else
+        echo "FAIL: $(basename "$f") states the merge floor without citing human-gates"
+      fi
     fi
-  fi
+  done
+  echo "$n"
+}
+run_floor_citations() {
+  local out
+  out=$(floor_citations "$1" "$2")
+  printf '%s\n' "$out" | sed '$d' | while IFS= read -r line; do
+    case "$line" in ok:*) echo "$line" ;; *) echo "$line" >&2 ;; esac
+  done
+  floor_fails=$((floor_fails + $(printf '%s\n' "$out" | sed '$d' | grep -c '^FAIL:')))
+  floor_docs=$(printf '%s\n' "$out" | tail -n 1)
+}
+
+# Each root must state the floor somewhere, so a dropped run or an emptied
+# root fails rather than passing on the other root's count. The check is per
+# file: a doc stating the floor cites the doctrine somewhere in it.
+floor_fails=0
+for spec in "doctrine|\\(human-gates\\.md" "docs|doctrine/human-gates\\.md"; do
+  run_floor_citations "$REPO_ROOT/${spec%%|*}" "${spec#*|}"
+  [ "$floor_docs" -gt 0 ] || fail "no ${spec%%|*}/ doc states the merge floor, so its citation check ran on nothing"
 done
-[ "$floor_docs" -gt 0 ] || fail "no doctrine doc states the merge floor, so the citation check ran on nothing"
+failures=$((failures + floor_fails))
+
+# The check refuses a docs/ fixture stating the floor without the citation,
+# and accepts it once cited.
+fx=$(mktemp -d)
+printf '# Fixture\n\nNo agent merges outside a policy the human configured.\n' >"$fx/floor.md"
+fx_out=$(floor_citations "$fx" 'doctrine/human-gates\.md')
+if printf '%s\n' "$fx_out" | grep -q '^FAIL: floor.md states the merge floor'; then
+  ok "the floor-citation check fails a docs/ fixture stating the floor uncited"
+else
+  fail "the floor-citation check passed a docs/ fixture stating the floor uncited"
+fi
+printf 'See [the floor](../doctrine/human-gates.md#the-floor).\n' >>"$fx/floor.md"
+if floor_citations "$fx" 'doctrine/human-gates\.md' | grep -q '^FAIL:'; then
+  fail "the floor-citation check refused a cited docs/ fixture"
+else
+  ok "the floor-citation check accepts the cited docs/ fixture"
+fi
+printf '# Fixture\n\n- Agents respect the merge\n  floor at every tier.\n' >"$fx/wrapped.md"
+if floor_citations "$fx" 'doctrine/human-gates\.md' | grep -q '^FAIL: wrapped.md states the merge floor'; then
+  ok "the floor-citation check catches a floor statement wrapped onto a list continuation"
+else
+  fail "the floor-citation check missed a floor statement wrapped onto a list continuation"
+fi
+rm -rf "$fx"
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2

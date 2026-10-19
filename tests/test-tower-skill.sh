@@ -459,18 +459,18 @@ else
   fail "skill does not forbid editing a settings file from the tower (D-14)"
 fi
 
-# --- the reserved controls and the non-authoring boundary ---------------------
+# --- the human gates, the tier's floor, and the non-authoring boundary -------
 
-if has_phrase 'merge is a reserved human action'; then
-  ok "merge is refused as a reserved human control (REQ-G1.1)"
+if has_phrase 'merge it\."\*\* a human gate; the profile denies the merge under every value'; then
+  ok "merge is refused as a human gate the profile denies (REQ-G1.1)"
 else
-  fail "skill does not refuse merge as a reserved human control (REQ-G1.1)"
+  fail "skill does not refuse merge as a human gate the tower profile denies (REQ-G1.1)"
 fi
 
-if has_phrase 'never mark a PR ready' && has_phrase 'draft-to-ready flip is the (universal human review gate|human.s)'; then
-  ok "the draft-to-ready flip stays the human's (REQ-G1.4)"
+if has_phrase 'profile denies the flip likewise' && has_phrase '\*\*floor:\*\* the merge and flip denies above'; then
+  ok "the tower profile denies the draft-to-ready flip under every value (REQ-G1.4)"
 else
-  fail "skill does not keep the draft-to-ready flip with the human (REQ-G1.4)"
+  fail "skill does not state the tower profile's flip deny (REQ-G1.4)"
 fi
 
 if has_phrase 'has no shadow sign-off' && has_phrase 'no bypass flag exists'; then
@@ -479,7 +479,7 @@ else
   fail "skill does not rule out a shadow sign-off and a bypass flag (REQ-G1.2)"
 fi
 
-if has_phrase 'amend, squash, rebase' && has_phrase 'new commits only, on both rules' && has_phrase 'tower never runs them'; then
+if has_phrase 'amend, squash, rebase' && has_phrase 'pushed history stays append-only, on both rules' && has_phrase 'tower never runs them'; then
   ok "amend, squash and rebase are never run (REQ-G1.3)"
 else
   fail "skill does not state that amend, squash and rebase are never run (REQ-G1.3)"

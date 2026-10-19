@@ -192,6 +192,10 @@ run = "/bin/sh scripts/check-githooks.sh"
 description = "purged-identifier guard: fail if an identifier deliberately purged from this history reappears in the tracked tree, matched as SHA-256 over normalized candidates so no plaintext is committed; fails closed on a missing, malformed, or below-floor seed file (guard-coverage Task 3, REQ-B1.1, REQ-B1.2, REQ-H1.3, D-5)"
 run = "/bin/sh scripts/check-purged-identifiers.sh"
 
+[tasks."check:retired-phrasings"]
+description = "retired-phrasing screen: fail on a rule phrasing doctrine/human-gates.md superseded (the flip as the review gate, an unconditional never, a superseded bootstrap citation) reintroduced under doctrine/, skills/, docs/, or the README, matched per paragraph against config/retired-phrasings.txt; specs/, the changelog, and the observations log are not read; fails closed on a missing or empty pattern file or zero files scanned (human-gates REQ-H1.2, D-10)"
+run = "/bin/sh scripts/check-retired-phrasings.sh"
+
 [tasks."check:launch-shape"]
 description = "launch-shape prose guard: fail on shipped prose (docs/, doctrine/, skills/, scripts/, config/, READMEs; not specs/, tests/, or a changelog) that names the native worktree launcher, with or without its classic-tmux flag, without labeling it an operator's hand-launch; the tmux rung launches its worker in a detached session it creates itself. Fails closed when nothing is in scope (fleet-hardening Task 14, REQ-H1.5, D-10)"
 run = "/bin/sh scripts/check-launch-shape.sh"
@@ -325,6 +329,7 @@ depends = [
   "check:workflow-posture",
   "check:githooks",
   "check:purged-identifiers",
+  "check:retired-phrasings",
   "check:launch-shape",
   "check:coordination-hygiene",
   "check:hook-contracts",

@@ -32,8 +32,9 @@ bounded by spec quality:
    control; there is no bypass.
 3. **`/orchestrate` + `/execute-task`** — the framework advances tasks
    test-first, runs full CI, converges via `/polish`, and opens **draft** PRs.
-4. **Review and merge** — a human reviews the draft PR, flips it to ready, and
-   merges. planwright never auto-merges.
+4. **Review and merge** — a human reviews the PR and authorizes the merge,
+   under the `merge_policy` the repository configured
+   ([Human Gates](../doctrine/human-gates.md#the-floor)).
 
 If you are unsure which size your change is, draft a spec — the cost is low and
 the comprehension pass usually pays for itself.
@@ -274,9 +275,12 @@ wait for an event and keeps its own timing.
 
 ### The git hook backstop
 
-The hard history invariants (never push `main`, never amend, squash, fixup,
-or rebase) are enforced repo-side by the tracked hooks in
-[`githooks/`](../githooks/). Wire them once per clone:
+The history backstops (never push `main`; no amend, squash, fixup, or rebase)
+are enforced repo-side by the tracked hooks in [`githooks/`](../githooks/).
+They are deliberately stricter than the `unpushed_rewrite` policy
+([Human Gates](../doctrine/human-gates.md)): a hook refuses a rebase even of
+never-pushed commits, so a human reshaping local work bypasses it on purpose.
+Wire them once per clone:
 
 ```bash
 scripts/wire-githooks.sh   # sets core.hooksPath=githooks for the whole clone
@@ -293,8 +297,8 @@ refused by the tower profile's deny globs and, for a worker, decided by the
 policy guard's `unpushed_rewrite` check instead. The deliberate, human-only
 bypasses, per `githooks(5)`: `--no-verify` skips the `pre-push` and
 `commit-msg` hooks but does not suppress `prepare-commit-msg` (a deliberate
-amend — rare, and never on planwright branches — means `--amend -m`/`-F` or
-temporarily unsetting `core.hooksPath`), and `git rebase --no-verify`
+amend, rare, means `--amend -m`/`-F` or temporarily unsetting
+`core.hooksPath`), and `git rebase --no-verify`
 bypasses `pre-rebase`. One caution inherited from tracked hooks: on an
 untrusted fork checkout, unset `core.hooksPath` before running covered git
 commands, since the checkout's own hook files would execute locally.
@@ -335,8 +339,11 @@ one-time self-re-anchor described in `doctrine/spec-format.md`.
 
 - **Conventional commits** (`type(scope): subject`) — enforced on commits ahead
   of `origin/main` and on the PR title.
-- **New commits only.** Never force-push, amend, squash, or rebase a planwright
-  branch (REQ-J1.4); history is append-only.
+- **Pushed history is append-only**, outside the operator-requested
+  force-push and secret-purge gates
+  ([the floor](../doctrine/human-gates.md#the-floor)). Rewriting `main`, a
+  protected branch, or a spec branch is a human gate; reshaping a unit
+  branch's never-pushed commits is the `unpushed_rewrite` policy.
 - **Branch naming** follows `planwright/<spec>/task-<ids>` so the
   `tasks-pr-sync` hook can map a PR to its task. See
   [conventions.md](conventions.md).

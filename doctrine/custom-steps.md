@@ -328,7 +328,7 @@ the current one and re-fires included, holds a `passed` record of the same
 step id, target, and `args` digest with an equal fingerprint (D-27).
 
 **Re-fire.** When a `post-pr` step moved the head, after the post-pr list
-and before the regeneration (*Reserved controls*), each distinct step id
+and before the regeneration (*Step contracts*), each distinct step id
 declaring `refire: post-pr` in this run's resolved `pre-ci` and `pre-pr`
 lists (a resume's: its chain's first run) runs once more on the final head,
 at its first declaring list, subject to reuse; one skipped `missing` there
@@ -357,10 +357,10 @@ stands for its record in a later resume, so chained resumes skip the same
 prefix and carry its head move forward. A run held in its re-fire pass
 resumes inside it.
 
-## Reserved controls (REQ-D1.6, D-17)
+## Step contracts (custom-steps REQ-D1.6, D-17)
 
-A step **never** merges, marks a PR ready, force-pushes, amends, squashes, or
-rebases. A step at the **four no-push points**, `pre-implementation`,
+Contracts ([Human Gates](human-gates.md)): a step **never** merges, flips,
+or rewrites history. A step at the **four no-push points**, `pre-implementation`,
 `pre-ci`, `convergence`, and `pre-pr`, never pushes; a step at `post-pr` or
 either flip point may. The worker permission denies and the ready-guard keep
 applying to every session-hosted step, the ready-guard on its flip surfaces

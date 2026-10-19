@@ -264,5 +264,6 @@ through unweakened:
   peer's or worker's branch state. Separate clones make that boundary easier to
   hold, not weaker: a peer's branches are not even present in this clone's
   working tree.
-- **Merge and PR-ready remain reserved human controls.** Nothing in this
-  topology touches them.
+- **Merge authorization stays a human gate, and the flip follows
+  `ready_flip_policy`** ([Human Gates](../doctrine/human-gates.md)). Nothing
+  in this topology touches them.

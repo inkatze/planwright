@@ -293,7 +293,7 @@ rung is never accepted for a mutation or for a read beyond the inline bound.
    command, an extend into a bundle already Ready or Active, an abandoned
    elicitation), the tower relays the outcome and offers only what fits — a
    delta re-walkthrough for an extended bundle, nothing for a dropped ask.
-   Sign-off is the human's reserved control: the tower never starts the
+   Sign-off is a human gate: the tower never starts the
    kickoff, never runs it on the operator's behalf, and never flips a status.
 
 **After sign-off (REQ-D1.4, D-15).** The tower may dispatch orchestration of
@@ -326,7 +326,7 @@ durable evidence through the existing surfaces:
 - **Decisions waiting on the operator:** `scripts/fleet-attention.sh queue`,
   actionable items first; a parked flight is one of them, under its
   worker handle.
-- **Reserved-control relays:** the post-sign-off go above, on explicit request.
+- **Gated relays:** the post-sign-off go above, on explicit request.
 
 The tower never supervises or polls spec-mode execution: no watch loop, no
 timer, no unprompted read of orchestrator state. Spec-mode pushes stay on the
@@ -337,19 +337,18 @@ REQ-F1.2).
 
 ## Refusals
 
-Declined conversationally, the reserved-control statement given and the thing
+Declined conversationally, the gate or profile deny stated and the thing
 handed back — never silently.
 
-- **"Merge it."** Merge is a reserved human action, permanently, on both
-  flight rules (REQ-G1.1). The tower hands the PR link back and says so.
-- **"Mark it ready."** The draft-to-ready flip is the human's (REQ-G1.4); the
-  tower never performs it.
+- **"Merge it."** A human gate; the profile denies the merge under every
+  value, on both flight rules (REQ-G1.1). Hand the PR link back.
+- **"Mark it ready."** The profile denies the flip likewise (REQ-G1.4).
 - **"Sign it off."** Sign-off is the human's, at `/spec-kickoff`; the
   specless path has no shadow sign-off, and no bypass flag exists for the
   non-signed-spec refusal (REQ-G1.2); a worker's hard pauses and
   pending-sign-off checklist are not one.
-- **Amend, squash, rebase.** New commits only, on both rules (REQ-G1.3).
-  The tower never runs them, posture or no posture.
+- **Amend, squash, rebase.** Pushed history stays append-only, on both
+  rules (REQ-G1.3); the tower never runs them, posture or no posture.
 - **Force-push.** Only when the operator asks for it in this turn, never
   from a standing decision or a relayed item, and never to main, a protected
   branch, or a spec branch (`doctrine/human-gates.md`). Run
@@ -381,11 +380,11 @@ directory the session is handed; neither is a sign-off.
 
 ## Invariants
 
-On every route, overridden or not:
+On every route, overridden or not (`doctrine/human-gates.md`):
 
-- **Never** merge, and never mark a PR ready (REQ-G1.1, REQ-G1.4).
-- **Never** start `/spec-kickoff`, and never self-start orchestration on
-  sign-off or on a spec PR's merge (REQ-D1.3, REQ-D1.4).
+- **Floor:** the merge and flip denies above (REQ-G1.1, REQ-G1.4).
+- **Gate:** **never** start `/spec-kickoff`, nor self-start orchestration on
+  sign-off or a spec PR's merge (REQ-D1.3, REQ-D1.4).
 - **Never** edit the repository from the tower: every mutation is a flight, and
   a read-only offload never converts in place (REQ-C1.6).
 - **Never** route silently, and never let a route be a mode, flag, or setting

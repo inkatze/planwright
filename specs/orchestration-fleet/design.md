@@ -19,6 +19,9 @@ The 2026-06-29 re-draft folded the seed brief's 2026-06-26 design addendum
 
 ### D-1: Consume `orchestration-concurrency`'s derived-projection contract  (N)
 
+**Superseded-by: human-gates D-6** (2026-10-18) — scoped to the last sentence of the
+Decision: the merge floor rides along at every fleet tier.
+
 **Decision:** Fleet operation builds on the sibling `orchestration-concurrency`
 spec's state-safe concurrency contract and **consumes** it. The sibling's
 contract, as shipped: progress/dispatch state is a **derived projection** —
@@ -100,6 +103,9 @@ core finding: those two properties, not tmux, are what made the emergent fleet
 good.
 
 ### D-3: Autodetect-and-ask, over a graceful-degradation ladder  (N)
+
+**Superseded-by: human-gates D-6, D-8** (2026-10-18) — scoped to the guard list: the
+guards are the merge floor and append-only pushed history.
 
 **Decision:** `/orchestrate` autodetects candidate backends, collects each
 candidate's advertised capabilities, **presents** the set, and **asks** which to
@@ -271,6 +277,9 @@ Expect's match-then-send, which guards against the lost-observability misread th
 positive-evidence-of-death predicate exists to catch.
 
 ### D-8: Autonomous-safe-decision policy mapped onto the existing autonomy gate  (N (extends bootstrap D-5))
+
+**Superseded-by: human-gates D-6** (2026-10-18) — scoped to the rejected
+alternative's "never-auto-merge is the floor": the floor is the merge policy.
 
 **Decision:** Define an **autonomous-safe-decision policy** for an unattended
 tower as a *mapping onto the existing finding-categorization gate*, not a new

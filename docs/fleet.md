@@ -3,8 +3,8 @@
 planwright can run a **fleet**: several specs advancing at once, each unit
 executed by its own isolated worker, supervised by a meta-orchestrator. This is
 planwright as an **agentic software factory**: standardized inputs (signed
-specs), an automated assembly path, automated quality control, and a human
-review gate at the end of the line. This guide is
+specs), an automated assembly path, automated quality control, and your
+merge at the end of the line. This guide is
 the approachable path into that mode — one command, one surface to watch, no
 multiplexer knowledge required. The approachable path is the *default*
 presentation of fleet operation, not a simplified fallback: full execution
@@ -72,8 +72,10 @@ doctrine covers this in depth):
 
 The seams do not trade off: picking the richest execution backend never forces
 a richer surface on you, and the legible default surface never costs you
-worker quality. One hard invariant is carried at every tier: planwright
-**never auto-merges**; the draft-to-ready flip and the merge stay yours.
+worker quality. One floor is carried at every tier: no agent merges outside
+the merge policy you configured
+([Human Gates](../doctrine/human-gates.md#the-floor)), and the tower profile
+denies the merge and the draft-to-ready flip under every value.
 
 ## What you watch: the decision queue
 
@@ -945,7 +947,8 @@ Two properties hold on every rung:
   is refused — the run aborts rather than trading safety for progress. The
   guards: the worker-settings deny profile (the restricted permission set
   workers run under — reviewed and installed by you, with sign-off, never
-  applied by planwright itself), never-auto-merge, never-force-push, and the
+  applied by planwright itself), the merge floor and append-only pushed
+  history ([Human Gates](../doctrine/human-gates.md#the-floor)), and the
   execution freshness gate (the pre-dispatch check that the spec is unchanged
   since its sign-off).
 - **Never silent.** Every descent is logged and surfaced; you can always tell
@@ -2274,10 +2277,11 @@ GitHub MCP tools (`merge_pull_request`, `update_pull_request`, `push_files` /
 `create_or_update_file` / `delete_file` — denied wholesale by name because a
 Bash-string guard cannot intercept an MCP call, and on every MCP server by a
 tool-name glob, alongside the PR branch update and PR creation), and `gh pr ready`: a tower
-**never** performs the draft→ready flip. The one sanctioned ready-flip
-(kickoff-lifecycle D-6: `/spec-kickoff` marks the spec PR ready) runs in a
-kickoff session under different settings, not under this tower profile, so the
-deny does not block it. The guard's hand-launch allow (`claude --worktree`)
+**never** performs the draft→ready flip. The sanctioned flips (the spec-PR
+flip `/spec-kickoff` performs, and the unit-PR flip `ready_flip_policy:
+unit-owner` gives `/execute-task`; [Human Gates](../doctrine/human-gates.md)) run in kickoff or
+worker sessions under different settings, not under this tower profile, so the
+deny does not block them. The guard's hand-launch allow (`claude --worktree`)
 also **pins** against launching a worker with its permission layer weakened:
 any `--dangerously-*` or `--permission-*` flag, in any position, defers. The
 tmux rung itself never launches through that shape: its worker starts in a
@@ -2352,8 +2356,10 @@ nothing added:
   fork still irreducible after citation, research, and convention — design
   forks, spec drift, decisions you reserved. These arrive as decision-queue
   items, not as silent defaults.
-- **Never, on any rung, at any tier:** auto-merge. The draft-to-ready flip and
-  the merge are yours, permanently.
+- **Never, on any rung, at any tier:** a merge outside the merge policy you
+  configured, or a flip from the tower tier
+  ([the floor](../doctrine/human-gates.md#the-floor)). Merge authorization
+  stays yours.
 
 ### Standing decisions
 

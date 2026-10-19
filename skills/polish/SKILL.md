@@ -202,14 +202,15 @@ wiring's collapsed-is-not-abridged rule governs it, and surfaces the forks.
 
 ## Local-only invariants
 
-These hold at every step, in both modes:
+These hold at every step, in both modes, each list rule labelled with its
+`doctrine/human-gates.md` kind:
 
-- **Never** push, create a PR, or write to any remote. Remote interaction is
-  limited to the single read-only base-pinning fetch at pre-flight. Polish
-  converges the branch; publishing it is the owning skill's job.
-- **Never** mark any PR ready for review, and never merge. The draft→ready
-  flip and merge are the human's reserved controls.
-- **Never** force-push, amend, squash, or rebase; new commits only.
+- **Contract:** **never** push, create a PR, flip, merge, or write to any
+  remote; the owning skill publishes. Remote interaction is the single
+  read-only base-pinning fetch at pre-flight.
+- **Gate:** pushed history stays append-only. **Policy:** reshape
+  never-pushed commits only per `unpushed_rewrite`, never an iteration's
+  audit-trail commits.
 - **Never** apply a finding in a hard-disqualifier zone without the pause
   protocol's human direction, however clear the fix looks.
 - **Never** silently drop a finding: every routed finding ends in one of the

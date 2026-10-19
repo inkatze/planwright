@@ -68,7 +68,7 @@
 #       Guard-preserving = non-interactive (never strand an unattended run) AND
 #       not spawn-deferred (never the manual `print` rung) — the two advertised
 #       properties whose loss would drop a named guard (worker-settings deny,
-#       never-auto-merge, never-force-push, the freshness gate) by taking the
+#       the merge floor, append-only pushed history, the freshness gate) by taking the
 #       worker off planwright's driven, guarded path. It ESCALATES (exit 3) when
 #       no lower guard-preserving rung is available — the terminal-rung fatal
 #       crash, or a descent that would drop a guard — and if the record write
@@ -87,7 +87,7 @@
 # Exit codes: 0 success; 1 `read` with no record; 2 usage / hostile input /
 # unclassifiable / spec-dir or record-path failure; 3 failover escalation
 # (no safe descent, or a fail-closed record-write abort). No subcommand writes
-# tasks.md and none has a merge path (never-auto-merge, REQ-J1.1).
+# tasks.md and none has a merge path (the merge floor, doctrine/human-gates.md).
 #
 # Portable POSIX sh + coreutils (bash 3.2 / BSD compatible): no eval, no gawk
 # extensions; all input treated as data (REQ-K1.5, REQ-F1.1). Pathname expansion

@@ -210,8 +210,10 @@ The same controls hold on both flight rules, and the tower changes none of
 them:
 
 - **Merge.** On visual flight and instrument flight alike, every pull request
-  opens as a draft and merge stays yours. Authorizing it is the approval act,
-  which also signs off every item a PR lists for your approval.
+  opens as a draft and merge stays yours: no agent merges outside the
+  `merge_policy` you configured (default `human`: you merge by hand).
+  Authorizing it is the approval act, which also signs off every item a PR
+  lists for your approval.
 - **The draft→ready flip.** It moves a finished draft in front of reviewers and
   approves nothing. The tower never performs it; whether a task's own run may
   flip a converged PR, or the flip stays yours alone, is a policy you set.
@@ -387,7 +389,7 @@ you.
 > **Release-tag pushes vs. the worker push guardrails.** planwright's
 > [worker-settings profile](../config/worker-settings.json) denies force pushes
 > and any push whose destination is `main`, `master`, or a spec branch, to keep
-> the never-force-push / never-touch-`main` invariants intact for autonomous workers. A release-tag push
+> pushed history append-only and `main` untouched for autonomous workers. A release-tag push
 > (`git push origin <tag>`, e.g. `git push origin v0.2.1`; the publish step pushes the
 > same tag ref via `git push origin refs/tags/<tag>`) matches none of those deny rules
 > and stays allowed — the guardrails and the human publish path coexist. The publish
