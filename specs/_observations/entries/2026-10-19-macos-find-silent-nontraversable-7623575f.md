@@ -1,0 +1,1 @@
+- 2026-10-19 [planwright] macOS (universal-binary Task 4): macOS find lists a mode-400 directory without entering it and reports neither an error nor a non-zero exit, so spec-store-worktree link scan failed open on macOS (a hard link behind such a directory went unseen). Now refused by an explicit read-and-enter check per bundle directory.
