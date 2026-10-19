@@ -10,7 +10,9 @@ field REQ-B1.2 names and is derived from two inputs, both regenerable:
   recorded defects fall.
 
 The profiles are judgment applied to those inputs, written before any tier is screened. They
-are recorded by hand, not generated, so a later partition or matrix is a reason to revisit
+are recorded, not generated: the task that delivers them (universal-binary Task 3) records the
+profiles and names only the matrix and the cost baseline as regenerating, so what regenerates
+here is every input a profile rests on. A later partition or matrix is a reason to revisit
 them, never a silent update.
 
 ## Rubrics
@@ -44,8 +46,8 @@ scripts or maintainer tasks reach it, where the precedents moved logic into a co
 - **Platform reach:** every platform of the CI matrix (REQ-B1.4): Linux with glibc, macOS
   with its system bash 3.2 and BSD userland, Alpine with dash and busybox.
 - **Auditability weight:** high. The command guards and the ready guard decide permissions
-  on every call; the matrix's auditability column records offline replay of a plain hook as
-  what found a root cause.
+  on every call, and the bundle's Sources (its auditability and keep-shell evidence) record
+  offline replay of a plain hook as what found a root cause.
 - **Delivery modes:** the marketplace copy and the `~/.claude/` writer (REQ-B1.3), plus the
   `--settings` profile delivery that wires the guard into worker and tower sessions.
 - **Boundary side:** entry side. The host runs a command string, so the entry point stays a
@@ -73,7 +75,11 @@ scripts or maintainer tasks reach it, where the precedents moved logic into a co
 
 ## library
 
-- **Audience:** adopter runtime, reached only through hook and skill-called scripts.
+- **Audience:** adopter runtime for the scripts hook and skill-called scripts reach. The
+  tier also holds dev-only scripts that only maintainer tools call (the attribution script
+  under the cost baseline, the release and backtest helpers); those take the dev-check
+  profile below, since the call graph places them here and only their callers say who runs
+  them.
 - **Latency budget:** none of its own: it inherits its caller's, so a library under a hook
   answers to the hook budget at the call sites a hook reaches.
 - **Correctness needs:** the shared primitives the other tiers trust: advisory locks,
