@@ -59,15 +59,15 @@ block staying in `## Tasks` (D-3); in a holder or plain store,
 (custom-spec-location REQ-E1.9) — and ends the step (the `gate-wiring` pause
 protocol's dispatched arm); attended, present and wait.
 
-1. **Parse `$ARGUMENTS`.** Extract one or more task IDs (`5`, `3.5`, or `5 6`
+1. **Parse `$ARGUMENTS`.** A `T-<n>` ID and venture: follow `venture-task`
+   instead. Otherwise extract one or more task IDs (`5`, `3.5`, or `5 6`
    for a bundle) and an optional bare `<spec>` (alias `specs/<spec>`, one
    trailing slash allowed). Validate each
    `<id>` against `^[0-9]+(\.[0-9]+)?$`, and the mapped identifier against the
    anchored identifier pattern `^[a-z0-9][a-z0-9-]*$` (≤64 chars, REQ-A1.8),
    refusing the reserved word `flight`, **before** it appears in any path
    or command; a failing token is never interpolated. No task ID: halt and
-   ask which task to execute. A `T-<n>` ID and venture: follow
-   `venture-task` instead.
+   ask which task to execute.
 2. **Resolve the spec path**, in order: (a) an explicit spec argument
    (validated in step 1); (b) the branch name
    parsed against `planwright/<spec>/task-<ids>` (D-36); (c) the spec root's

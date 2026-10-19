@@ -3,9 +3,7 @@
 A venture's validation plan is run one `T-<n>` task at a time, under a
 contract lighter than a spec unit's: the deliverable is a findings document
 committed to the venture repository, with no pull request, no CI gauntlet,
-and no polish loop (inception D-13 records why). What the contract keeps is the
-discipline that makes the evidence worth having: a done-when per kind, human
-acceptance, and register updates that land with their findings or not at all.
+and no polish loop (inception D-13 records why).
 
 [inception-format.md](inception-format.md) owns the `plan.md` task fields,
 the status tokens, and the evidence grades; this doc owns how a task is run
@@ -23,7 +21,7 @@ at. `venture-task.sh contract` prints the same table in machine form.
 
 | Kind | Deliverable | Performed by | Acceptance looks at |
 | --- | --- | --- | --- |
-| `spike` | findings from a throwaway build, code under `spikes/T-<n>/` | the agent | the measured result against the linked thresholds |
+| `spike` | findings from a throwaway build, its code under a marked `spikes/T-<n>/` | the agent | the measured result against the linked thresholds |
 | `research` | findings from sources, each claim citing one | the agent | every claim traced to a cited source |
 | `analysis` | findings from data or a model, method stated | the agent | the method, then the result against the linked thresholds |
 | `demand-signal` | prepared materials, then the observed signal | a human | the signal as a human observed it, graded on the ladder |
@@ -40,9 +38,9 @@ interaction, and the document is delivered only once it records who ran it
 and what they observed. The agent never sends a message, posts, publishes, books a meeting,
 or otherwise contacts a person outside the session, on any rung. Nothing in
 `venture-task.sh` reaches the network, and `venture-task.sh worker-settings`
-prints a permission deny-list for the common outward channels, which a
-dispatcher passes to a worker launch that takes a settings file. That list is
-a floor, not the boundary: the ban holds whether or not a channel is listed.
+prints a permission deny-list for the common outward channels, but no backend
+launch passes it to a worker yet. The list is a floor, not the boundary: the
+ban holds whether or not a channel is listed.
 
 ## The findings document
 
@@ -93,14 +91,16 @@ reference to `spikes/` from the seed paths it is given.
    because tests got expensive" state, never a reason to keep spending.
 3. **Deliver.** `venture-task.sh deliver <venture> T-<n>` checks the findings
    document against the task, sets the task to `delivered`, and commits the
-   findings (with the spike directory, for a spike) as one PR-less commit. It
-   changes no register entry.
+   findings (with the spike directory, which a spike must have) as one
+   PR-less commit. It changes no register entry.
 4. **Accept or reject.** Present the findings and the proposed register
    updates to the operator, then wait. Only on an explicit yes, run
    `venture-task.sh accept --by <name> <venture> T-<n>`: it applies the
    updates, sets the task to `accepted`, appends the acceptance record to the
    findings document, and commits all of it as one change, or changes
-   nothing. On a no, `venture-task.sh reject --by <name> --reason <text>
+   nothing. The findings must be exactly as delivered (committed), so what is
+   accepted is what was presented, and a decided one-way-door decision is
+   accepted only by one of its `Deciders:`. On a no, `venture-task.sh reject --by <name> --reason <text>
    [--drop] <venture> T-<n>` records the rejection and returns the task to
    `running` (or `dropped`) with the registers untouched.
 
@@ -117,14 +117,14 @@ brings findings and register updates in together.
 
 ## Dispatch
 
-A venture task runs through the same machinery as any other unit, with no
-orchestration of its own. Inline, for a light venture, the session runs the
-steps above itself. Dispatched, `venture-task.sh brief <venture> T-<n>`
+A venture task has no orchestration of its own. Inline, for a light
+venture, the session runs the steps above itself. Dispatched, `venture-task.sh brief <venture> T-<n>`
 prints the petition (an `/execute-task` invocation naming the task and the
 venture's absolute path), which goes through the backend seam like any
 other: `offload-dispatch.sh` on the tmux and print rungs, the harness's agent
 tool and `offload-dispatch.sh report` on the subagent rung. A dispatched
-worker works through step 3 and stops: acceptance and rejection need the
-operator, so they happen in the operator's session, never in the worker's.
+worker stops after step 3 (for `demand-signal` and `alignment`, after
+preparing the materials): acceptance and rejection happen in the operator's
+session, never the worker's.
 Venture task state lives in `plan.md` and the registers, never in the spec
 pipeline's `tasks.md` derivation.

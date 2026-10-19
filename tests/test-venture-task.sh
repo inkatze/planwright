@@ -72,7 +72,7 @@ export GIT_AUTHOR_NAME=Fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
 export GIT_COMMITTER_NAME=Fixture GIT_COMMITTER_EMAIL=fixture@example.invalid
 export PLANWRIGHT_ROOT="$REPO_ROOT"
 export PLANWRIGHT_INCEPTION_TODAY=2026-10-18
-unset GIT_DIR GIT_WORK_TREE GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 # vt <args...> — run the helper; sets out (stdout+stderr) and rc.
 vt() {
@@ -183,6 +183,13 @@ assert_eq "D1.2 an alignment target naming no map row is refused" 1 "$rc"
 assert_contains "D1.2 the refusal names the missing stakeholder" "stakeholder" "$out"
 git -C "$v" checkout -q -- plan.md
 
+# shellcheck disable=SC2016 # literal backtick fence, not an expansion
+printf '\n```\n| pricing | Fenced Example | none | none |\n```\n' >>"$v/disciplines.md"
+sed 's/^- \*\*Target:\*\* venture direction/- **Target:** pricing/' "$v/plan.md" >"$tmp/plan.tmp" && mv "$tmp/plan.tmp" "$v/plan.md"
+vt show "$v" T-3
+assert_eq "D1.2 a fenced example row is not a stakeholder" 1 "$rc"
+git -C "$v" checkout -q -- plan.md disciplines.md
+
 sed 's/^\*\*Format-version:\*\* 1.0/**Format-version:** 9.0/' "$v/plan.md" >"$tmp/plan.tmp" && mv "$tmp/plan.tmp" "$v/plan.md"
 vt show "$v" T-1
 assert_eq "an unsupported format version fails closed" 3 "$rc"
@@ -269,6 +276,11 @@ assert_eq "D1.4 accept without a named acceptor is refused" 2 "$rc"
 vt accept --by "" "$v" T-2
 assert_eq "D1.4 accept with an empty acceptor is refused" 2 "$rc"
 
+sed 's/All three sinks/Two of the sinks/' "$v/findings/T-2.md" >"$tmp/f.tmp" && mv "$tmp/f.tmp" "$v/findings/T-2.md"
+vt accept --by "Dana Reyes" "$v" T-2
+assert_eq "D1.4 findings edited after delivery are not accepted" 1 "$rc"
+git -C "$v" checkout -q -- findings/T-2.md
+
 base=$(commit_count "$v")
 vt accept --by "Dana Reyes" "$v" T-2
 assert_eq "D1.3 accept exits 0" 0 "$rc"
@@ -300,6 +312,18 @@ git -C "$v" add -A && git -C "$v" commit -q -m "findings only"
 vt check "$v"
 assert_eq "D1.3 a findings-only completion commit fails the check" 1 "$rc"
 assert_contains "D1.3 the finding names the missing register update" "A-1" "$out"
+
+v=$(new_venture check1b) || exit 1
+# A Tests: field wrapped onto a continuation line still links both ids.
+awk '/^### T-1 /{a=1} /^### T-2 /{a=0} a && /^- \*\*Tests:\*\*/ { print "- **Tests:** A-1,"; print "  A-2"; next } { print }' "$v/plan.md" >"$tmp/p.tmp" && mv "$tmp/p.tmp" "$v/plan.md"
+git -C "$v" commit -q -am "T-1 also tests A-2"
+findings "$v" T-1 spike "A-1: validated — behavior"
+sed '/^### T-1 /,/^### T-2 /s/^- \*\*Status:\*\* running/- **Status:** accepted/' "$v/plan.md" >"$tmp/p.tmp" && mv "$tmp/p.tmp" "$v/plan.md"
+awk '/^### A-1 /{a=1} /^### A-2 /{a=0} a && /^- \*\*Status:\*\*/ { print "- **Status:** validated"; next } { print }' "$v/assumptions.md" >"$tmp/a.tmp" && mv "$tmp/a.tmp" "$v/assumptions.md"
+git -C "$v" add -A && git -C "$v" commit -q -m "accept without the A-2 update"
+vt check "$v"
+assert_eq "D1.3 a wrapped Tests id still needs its update in the acceptance" 1 "$rc"
+assert_contains "D1.3 the finding names the wrapped id" "A-2 register update" "$out"
 
 v=$(new_venture check2) || exit 1
 # A register update before acceptance: A-2 cites T-2 findings, T-2 untouched.
@@ -439,6 +463,11 @@ printf 'Reuse spikes/T-1/main.py as the starting point.\n' >>"$tmp/seed/seed.md"
 vt spikes "$v" "$tmp/seed"
 assert_eq "D1.5 spike code referenced from a seed package is flagged" 1 "$rc"
 assert_contains "D1.5 the finding names the seed file" "seed.md" "$out"
+
+sv2=$(new_venture spikes-nodir) || exit 1
+findings "$sv2" T-1 spike "A-1: testing — synthetic"
+vt deliver "$sv2" T-1
+assert_eq "D1.5 a spike delivery without its spike directory is refused" 1 "$rc"
 
 findings "$v" T-1 spike "A-1: testing — synthetic"
 mkdir -p "$v/spikes/T-1b"

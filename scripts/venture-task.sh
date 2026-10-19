@@ -250,7 +250,7 @@ load_task() {
 # stakeholder_for <area> — the Decides name for a stakeholder-map row.
 stakeholder_for() {
   [ -n "$1" ] || return 0
-  awk -v area="$1" '
+  awk -v area="$1" "$spec_parse_awk_fence"'
     function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
     /^## / { in_map = ($0 ~ /^## Stakeholder map[ \t]*$/); next }
     in_map && /^\|/ {
@@ -664,6 +664,9 @@ cmd_deliver() {
   _paths="findings/$2.md plan.md"
   if [ "$t_kind" = spike ] || [ -e "$vdir/spikes/$2" ]; then
     spike_dirs_ok >"$work/spikes" || die 1 "$(sanitize_printable "$(cut -f2 "$work/spikes" | head -n 1)" '?'); run spike-init"
+    if [ "$t_kind" = spike ] && [ ! -d "$vdir/spikes/$2" ]; then
+      die 1 "a spike delivers its throwaway build: spikes/$2 does not exist (run spike-init and put the spike code there)"
+    fi
     [ -d "$vdir/spikes/$2" ] && _paths="$_paths spikes/$2"
   fi
   require_clean plan.md
@@ -745,7 +748,7 @@ cmd_accept() {
   set_task_status "$rest_task" accepted
   validated_or_refuse "$work/stage"
   # shellcheck disable=SC2086 # file names from a fixed set
-  require_clean plan.md $_changed
+  require_clean "findings/$rest_task.md" plan.md $_changed
 
   {
     cat "$fdoc"
@@ -794,10 +797,13 @@ cmd_reject() {
 task_table() {
   [ -s "$1" ] || return 0
   awk "$spec_parse_awk_fence"'
-    function flush() { if (id != "" && !sup) print id "\t" st "\t" tests; id = ""; st = ""; tests = ""; sup = 0 }
+    function flush() { if (id != "" && !sup) print id "\t" st "\t" tests; id = ""; st = ""; tests = ""; sup = 0; intests = 0 }
     /^#/ { flush(); if ($0 ~ /^### T-[1-9][0-9]* /) id = $2; next }
     id != "" && /^- \*\*Status:\*\* / { st = $0; sub(/^- \*\*Status:\*\* /, "", st); sub(/[ \t]+$/, "", st) }
-    id != "" && /^- \*\*Tests:\*\* / { tests = $0; sub(/^- \*\*Tests:\*\* /, "", tests); gsub(/ /, "", tests) }
+    id != "" && /^- \*\*/ { intests = 0 }
+    id != "" && /^- \*\*Tests:\*\* / { tests = $0; sub(/^- \*\*Tests:\*\* /, "", tests); gsub(/ /, "", tests); intests = 1; next }
+    id != "" && intests && /^  / { t = $0; gsub(/ /, "", t); tests = tests "," t; next }
+    id != "" && !/^  / { intests = 0 }
     id != "" && /^- \*\*Superseded-by:\*\*/ { sup = 1 }
     END { flush() }
   ' "$1"
