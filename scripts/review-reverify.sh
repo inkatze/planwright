@@ -26,12 +26,14 @@
 # only PATH, LC_ALL, TERM, and a home, XDG directories, TMPDIR, fleet home
 # (PLANWRIGHT_FLEET_STATE_DIR), plugin-data home (CLAUDE_PLUGIN_DATA), and
 # CLAUDE_DIR inside the record's temporary directory, beside the clone (never
-# inside it), with system and global git
-# configuration off; no credential or token variable reaches it. Where
-# setsid(1) exists the command runs in its own session, and anything it left
-# running is killed when it returns. The copy isolates the repository and the
-# environment, not the host: a command naming an absolute path outside it
-# still reaches that path.
+# inside it), a fixed git identity, and the default INT and QUIT dispositions
+# where env(1) can restore them, with system and global git configuration off,
+# both for the command and for setting the copy up, where no hook runs; no
+# credential or token variable reaches it. Where setsid(1) exists the command
+# runs in its own session, and every process still in that session when it
+# returns is killed; one that leaves the session (setsid, a daemon) escapes.
+# The copy isolates the repository and the environment, not the host: a
+# command naming an absolute path outside it still reaches that path.
 #
 # Prints `held <id> <kind>` or `regressed <id> <kind> <why>` per record; with
 # --log-dir, each record's output is kept there as <id>.log, the evidence an
@@ -51,15 +53,19 @@
 #
 # Exit codes: 0 every fix held (or no records); 1 one or more regressed; 2
 #   usage or a malformed records file; 4 a copy, a working file, or a log
-#   could not be set up or written.
+#   could not be set up or written, or a record's command never started.
 set -eu
 LC_ALL=C
 export LC_ALL
 unset CDPATH
 # A git hook exports these, and every git command below must act on the
-# repository it names, never the one they point at.
+# repository it names, never the one they point at, under no inherited
+# configuration.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
-  GIT_COMMON_DIR GIT_NAMESPACE GIT_PREFIX
+  GIT_COMMON_DIR GIT_NAMESPACE GIT_PREFIX GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+GIT_CONFIG_NOSYSTEM=1
+GIT_CONFIG_GLOBAL=/dev/null
+export GIT_CONFIG_NOSYSTEM GIT_CONFIG_GLOBAL
 
 prog=review-reverify
 TAB=$(printf '\t')
@@ -96,7 +102,8 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$records" ] || usage
 [ -f "$records" ] && [ -r "$records" ] || die 2 "--records is not a readable file: $records"
-case $timeout_s in '' | 0 | *[!0-9]*) die 2 "--timeout must be a positive whole number of seconds" ;; esac
+case $timeout_s in '' | *[!0-9]*) die 2 "--timeout must be a positive whole number of seconds" ;; esac
+case $timeout_s in *[!0]*) ;; *) die 2 "--timeout must be a positive whole number of seconds" ;; esac
 if [ -n "$log_dir" ]; then
   [ -d "$log_dir" ] && [ -w "$log_dir" ] || die 2 "--log-dir is not a writable directory"
   log_dir=$(cd "$log_dir" && pwd)
@@ -171,6 +178,8 @@ runner=
 if command -v timeout >/dev/null 2>&1; then runner="timeout -k 10 $timeout_s"; fi
 session=
 if command -v setsid >/dev/null 2>&1; then session=setsid; fi
+signals=
+if env --default-signal=INT,QUIT true 2>/dev/null; then signals=--default-signal=INT,QUIT; fi
 
 # A record may leave read-only files in its copy (a module cache, a chmod);
 # removal makes them writable first, and a cleanup failure is never a verdict.
@@ -178,14 +187,17 @@ scrub() {
   chmod -R u+w "$1" 2>/dev/null || true
   rm -rf "$1" 2>/dev/null || true
 }
-# reap <pid> — end what a record left running in its session.
+# reap <pid> — end what a record left running in its session, whose id is the
+# pid of the record's session leader.
 grp=
 reap() {
   [ -n "$1" ] && [ -n "$session" ] || return 0
   kill -9 "-$1" 2>/dev/null || true
+  if command -v pkill >/dev/null 2>&1; then pkill -9 -s "$1" 2>/dev/null || true; fi
 }
 work=$(mktemp -d "${TMPDIR:-/tmp}/review-reverify.XXXXXX") || die 4 "could not create a working directory"
 trap 'reap "$grp"; scrub "$work"' EXIT
+work=$(cd "$work" && pwd) || die 4 "could not create a working directory"
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -198,24 +210,30 @@ while IFS="$TAB" read -r _ id kind code run; do
   c=$work/r/$id
   mkdir -p "$c/home" "$c/state" "$c/tmp" || die 4 "could not set up an isolated copy for finding $id"
   {
-    git clone -q --shared --no-checkout "$top" "$c/copy" \
-      && git -C "$c/copy" checkout -q --detach "$head" \
-      && git -C "$c/copy" remote remove origin
+    git -c core.hooksPath=/dev/null -c core.fsmonitor=false clone -q --shared --no-checkout "$top" "$c/copy" \
+      && git -C "$c/copy" -c core.hooksPath=/dev/null -c core.fsmonitor=false checkout -q --detach "$head" \
+      && git -C "$c/copy" -c core.hooksPath=/dev/null remote remove origin
   } >/dev/null 2>&1 </dev/null || die 4 "could not set up an isolated copy of $head for finding $id"
   rc=0
   # With job control off, a background child is not a group leader, so setsid
-  # runs the command in place and its pid names the new session's group.
-  # shellcheck disable=SC2086 # $session and $runner are command words or empty
-  (cd "$c/copy" && exec env -i PATH="$PATH" LC_ALL=C ${TERM:+TERM="$TERM"} \
+  # runs the command in place and its pid names the new session's group. The
+  # record's shell marks that it started, then runs the line with no
+  # positional parameters, as sh -c would.
+  # shellcheck disable=SC2086,SC2016 # $signals, $session and $runner are command words or empty; the inner script expands in the record's shell
+  (cd "$c/copy" && exec env -i $signals PATH="$PATH" LC_ALL=C ${TERM:+TERM="$TERM"} \
     HOME="$c/home" XDG_CONFIG_HOME="$c/home/.config" XDG_STATE_HOME="$c/home/.local/state" \
     XDG_CACHE_HOME="$c/home/.cache" XDG_DATA_HOME="$c/home/.local/share" TMPDIR="$c/tmp" \
     CLAUDE_PLUGIN_DATA="$c/state" PLANWRIGHT_FLEET_STATE_DIR="$c/state/fleet" \
     CLAUDE_DIR="$c/home/.claude" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
-    $session $runner sh -c "$run") >"$c/out" 2>&1 </dev/null &
+    GIT_AUTHOR_NAME=review-reverify GIT_AUTHOR_EMAIL=review-reverify@localhost \
+    GIT_COMMITTER_NAME=review-reverify GIT_COMMITTER_EMAIL=review-reverify@localhost \
+    $session $runner sh -c ': >"$1" || exit 125; eval "set --; $2"' sh "$c/started" "$run") \
+    >"$c/out" 2>&1 </dev/null &
   grp=$!
   wait "$grp" || rc=$?
   reap "$grp"
   grp=
+  [ -e "$c/started" ] || die 4 "the command for finding $id never started"
   why=
   [ "$rc" -eq "$code" ] || why="exit $rc, expected $code"
   # The command can reach its own output file; output that cannot be read

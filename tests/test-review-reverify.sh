@@ -48,6 +48,11 @@ cat >"$R/tests/test-gate.sh" <<'EOF'
 sh scripts/gate.sh --bad 2>/dev/null
 [ $? -eq 2 ]
 EOF
+# A branch-controlled hook; a host config pointing core.hooksPath at it must
+# never run it while the copy is set up.
+mkdir "$R/hk"
+printf '#!/bin/sh\ntouch %s/hook-ran\n' "$T" >"$R/hk/post-checkout"
+chmod +x "$R/hk/post-checkout"
 g add -A
 g commit -q -m fixed
 g remote add origin https://example.invalid/repo.git
@@ -131,6 +136,48 @@ out=$(GH_TOKEN=sentinel-token SSH_AUTH_SOCK=/sentinel/agent ANTHROPIC_API_KEY=se
 assert_exit "credentials and git config do not reach the copy" 0 $?
 assert_contains "the environment record held" "held	ENV-1	reproduction" "$out"
 
+# Host git configuration never reaches the copy's setup either.
+printf '[core]\n\thooksPath = hk\n' >"$T/global.gitconfig"
+out=$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=hk rv --records "$REC" 2>&1)
+assert_exit "an exported hooksPath still re-verifies" 0 $?
+if [ ! -e "$T/hook-ran" ]; then ok "an exported hooksPath runs no branch hook at setup"; else fail "an exported hooksPath runs no branch hook at setup"; fi
+rm -f "$T/hook-ran"
+out=$(GIT_CONFIG_GLOBAL=$T/global.gitconfig rv --records "$REC" 2>&1)
+if [ ! -e "$T/hook-ran" ]; then ok "a global hooksPath runs no branch hook at setup"; else fail "a global hooksPath runs no branch hook at setup"; fi
+rm -f "$T/hook-ran"
+
+# The record starts with the default INT and QUIT dispositions, so a
+# reproduction that signals itself sees what a terminal would.
+if env --default-signal=INT true 2>/dev/null; then
+  printf "review-repro 1\nfinding SIG\nkind reproduction\nrun sh -c 'kill -INT \$\$; sleep 1; exit 0'\nexit 130\n" >"$T/sig.txt"
+  out=$(rv --records "$T/sig.txt" 2>&1)
+  assert_contains "a record's INT is not ignored" "held	SIG	reproduction" "$out"
+else
+  echo "skip: env lacks --default-signal; the signal-disposition case is not run"
+fi
+
+# A record that commits has a git identity.
+printf 'review-repro 1\nfinding ID\nkind reproduction\nrun git commit -q --allow-empty -m probe\nexit 0\n' >"$T/ident.txt"
+out=$(rv --records "$T/ident.txt" 2>&1)
+assert_contains "a record can commit in its copy" "held	ID	reproduction" "$out"
+
+# A relative TMPDIR still gives the record absolute homes.
+# shellcheck disable=SC2016 # the record's line expands in the record's shell
+printf 'review-repro 1\nfinding REL\nkind reproduction\nrun case $HOME:$TMPDIR in /*:/*) test -d "$HOME" ;; *) exit 9 ;; esac\nexit 0\n' >"$T/rel.txt"
+mkdir "$R/.reltmp"
+out=$(cd "$R" && TMPDIR=.reltmp "$REVERIFY" --records "$T/rel.txt" 2>&1)
+assert_contains "a relative TMPDIR gives absolute homes" "held	REL	reproduction" "$out"
+rm -rf "$R/.reltmp"
+
+# A record that never started is a setup failure, never its verdict.
+mkdir "$T/fakebin"
+printf '#!/bin/sh\nexit 127\n' >"$T/fakebin/env"
+chmod +x "$T/fakebin/env"
+printf 'review-repro 1\nfinding NS\nkind reproduction\nrun true\nexit 127\n' >"$T/ns.txt"
+out=$(PATH=$T/fakebin:$PATH rv --records "$T/ns.txt" 2>&1)
+assert_exit "a record that never started is exit 4" 4 $?
+assert_lacks "a record that never started has no verdict" "held	NS" "$out"
+
 # A record's backgrounded process does not outlive its copy.
 if command -v setsid >/dev/null 2>&1; then
   printf 'review-repro 1\nfinding BG\nkind test\nrun sleep 60 >/dev/null 2>&1 & echo $! >%s/bg.pid\nexit 0\n' "$T" >"$T/bg.txt"
@@ -148,6 +195,22 @@ if command -v setsid >/dev/null 2>&1; then
   else
     fail "a backgrounded process is ended with its record (pid ${bg:-none} alive)"
     [ -z "$bg" ] || kill "$bg" 2>/dev/null
+  fi
+  # A job in its own process group is still in the record's session.
+  printf "review-repro 1\nfinding JOB\nkind test\nrun bash -c 'set -m; sleep 60 >/dev/null 2>&1 & echo \$! >%s/job.pid'\nexit 0\n" "$T" >"$T/job.txt"
+  out=$(rv --records "$T/job.txt" 2>&1)
+  job=$(cat "$T/job.pid" 2>/dev/null)
+  i=0
+  while [ -n "$job" ] && kill -0 "$job" 2>/dev/null && [ "$i" -lt 50 ]; do
+    case $(cut -d' ' -f3 "/proc/$job/stat" 2>/dev/null) in Z) break ;; esac
+    sleep 0.1
+    i=$((i + 1))
+  done
+  if [ -n "$job" ] && { ! kill -0 "$job" 2>/dev/null || [ "$(cut -d' ' -f3 "/proc/$job/stat" 2>/dev/null)" = Z ]; }; then
+    ok "a job in its own process group is ended with its record"
+  else
+    fail "a job in its own process group is ended with its record (pid ${job:-none} alive)"
+    [ -z "$job" ] || kill "$job" 2>/dev/null
   fi
 else
   echo "skip: setsid is not installed; the backgrounded-process case is not run"
@@ -237,6 +300,9 @@ if command -v timeout >/dev/null 2>&1; then
   out=$(rv --records "$T/slow.txt" --timeout 1 2>&1)
   assert_contains "a timed-out record reports 124" "regressed	slow	test	exit 124, expected 0" "$out"
 fi
+
+out=$(rv --records "$REC" --timeout 00 2>&1)
+assert_exit "an all-zero --timeout is refused" 2 $?
 
 # A log that cannot be written is a setup failure, never a regression verdict.
 mkdir "$T/ro-logs"
