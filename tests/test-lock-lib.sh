@@ -817,7 +817,7 @@ for sig in INT HUP; do
     pw_lock_acquire "$2/s.lock" || exit 9
     printf "held\n" >"$2/s.ready"
     i=0
-    while [ "$i" -lt 200 ]; do
+    while [ "$i" -lt 3000 ]; do
       sleep 0.1
       i=$((i + 1))
     done
