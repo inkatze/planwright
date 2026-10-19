@@ -42,8 +42,9 @@
 #            MERGED and that its head oid IS this worktree's HEAD. This covers
 #            the post-merge shape where the forge auto-deleted the remote branch:
 #            the upstream is gone, so A can never hold, even though the commits
-#            are provably merged. Verified, never trusted — no `gh`, no `timeout`
-#            to bound the query, a query that exceeds that bound, a reply that is
+#            are provably merged. Verified, never trusted — no `gh`, neither
+#            `timeout` nor the bundled bounded-run.sh to bound the query, a
+#            query that exceeds that bound, a reply that is
 #            not exactly the two fields asked for, an unreadable field, a
 #            non-MERGED state, or an oid mismatch all refuse.
 #            PLANWRIGHT_CLEANUP_GH_TIMEOUT bounds the query (default 20s).
@@ -279,17 +280,17 @@ valid_text() {
   [ "$(sanitize_printable "$vt_v")" = "$vt_v" ]
 }
 
+# Run through sh rather than its own mode bits, which a plugin copy may drop.
+bounded_run() {
+  /bin/sh "$script_dir/bounded-run.sh" "$@"
+}
+
 # gh_timeout — the wall-clock bound on the merged-PR evidence query, in seconds.
 # PLANWRIGHT_CLEANUP_GH_TIMEOUT overrides the default 20; a malformed, zero, or
 # absurdly long value falls back to it (a zero bound would kill every query and
 # read as a permanently unreachable forge). Validation shape is deliberately
 # byte-for-byte fleet-liveness.sh's oracle_timeout, this tree's sibling
 # wall-clock bound, so the two behave identically on malformed input.
-# Run through sh rather than its own mode bits, which a plugin copy may drop.
-bounded_run() {
-  /bin/sh "$script_dir/bounded-run.sh" "$@"
-}
-
 gh_timeout() {
   gt_v="${PLANWRIGHT_CLEANUP_GH_TIMEOUT:-20}"
   case $gt_v in
@@ -558,7 +559,7 @@ case "$cmd" in
     # B is a WIDER EVIDENCE CLASS, not a looser bar: an oid match against a
     # MERGED pr is strictly stronger than upstream parity (which only proves the
     # commits left this machine, not that anyone took them). Any doubt — no `gh`,
-    # no `timeout` to bound the query, a query that outruns that bound, an
+    # nothing to bound the query with, a query that outruns that bound, an
     # unreadable field, a non-MERGED state, an oid mismatch — refuses.
     evidence=""
     upstream=$(git -C "$path" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null) || upstream=""
@@ -622,11 +623,11 @@ case "$cmd" in
         --json state,headRefOid \
         --template '{{.state}} {{.headRefOid}}' 2>/dev/null) || pr_rc=$?
       [ "$pr_rc" = 0 ] || pr_pair=""
-      # 124 is GNU timeout's own "the command did not finish" status, 143
-      # (TERM's) busybox's. Distinguishing
-      # it matters operationally: a stalled forge should read as a stall an
-      # operator can act on, not as an unreadable answer that looks like a
-      # malformed reply. Either way it refuses — this only sharpens the message.
+      # 124 (timeout's and bounded-run.sh's) and 143 (busybox timeout's TERM)
+      # both mean the query did not finish. Telling that apart matters
+      # operationally: a stalled forge should read as a stall an operator can
+      # act on, not as an unreadable answer that looks like a malformed reply.
+      # Either way it refuses — this only sharpens the message.
       if [ "$pr_rc" = 124 ] || [ "$pr_rc" = 143 ]; then
         warn "--merged-pr $merged_pr: the gh query did not finish within ${gh_t}s — refusing (fail closed)"
         exit 5

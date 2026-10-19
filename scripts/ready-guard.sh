@@ -276,14 +276,11 @@ retry_delay() {
   printf '%s' "$rd_v"
 }
 
-# timeout_bin — the bounding binary, or empty when none is on PATH. 'timeout'
-# is coreutils and is NOT stock macOS, so gtimeout (the Homebrew coreutils
-# name) is probed as well; this widens fleet-cleanup.sh's 'timeout'-only probe
-# because a guard that denied every flip on a stock macOS box would be a
-# false-deny surface far larger than the convention is worth. Neither present
+# timeout_bin — the command that bounds a query: timeout, or gtimeout (the
+# Homebrew coreutils name), else the bundled runner, since stock macOS ships
+# neither binary and a guard that denied every flip there would be a
+# false-deny surface far larger than the convention is worth. Nothing at all
 # still fails closed at the call site.
-# timeout_bin — the command that bounds a query: timeout or gtimeout, else the
-# bundled runner (stock macOS ships neither), else nothing.
 timeout_bin() {
   if command -v timeout >/dev/null 2>&1; then
     printf 'timeout'
