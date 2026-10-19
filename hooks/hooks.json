@@ -83,6 +83,24 @@
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/fleet-liveness.sh hook session-start"
           }
         ]
+      },
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/fleet-messaging.sh self-register"
+          }
+        ]
+      },
+      {
+        "matcher": "resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/fleet-messaging.sh self-register"
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
