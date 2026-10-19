@@ -1,0 +1,1 @@
+- 2026-10-19 [planwright] universal-binary Task 4 review: fleet-streamjson json_input_object walks a req-*.json envelope one substr at a time with no size cap, the busybox/BSD awk quadratic that fleet-messaging json_top_string was rewritten to avoid; a large Write tool input could stall answer --allow on Alpine.
