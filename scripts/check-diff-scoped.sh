@@ -17,7 +17,8 @@
 # basename, so the sharing rule covers it too). A test reaching a file only
 # through a constructed path is not selected; the full suite covers it.
 #
-# THE LINTERS, per changed file that still exists: shellcheck and `shfmt -d`
+# THE LINTERS, per changed file that still exists: `shellcheck -x` (following
+# its `source=` directives, as the whole-tree lint does) and `shfmt -d`
 # on shell (`.sh`, `.bash`, or an extensionless file with a shell shebang),
 # markdownlint-cli2 on `.md`, `yamllint --strict` on `.yml` and `.yaml`. A
 # linter not on PATH is reported as skipped, never passed. A file matching a
@@ -30,7 +31,8 @@
 # Each test runs as scripts/run-tests.sh runs a file: PLANWRIGHT_FLEET_STATE_DIR,
 # and CLAUDE_PLUGIN_DATA and CLAUDE_DIR when set, point at a sentinel home of
 # its own, and a test that creates anything there fails, since under a fleet
-# worker it would have written the operator's real state.
+# worker it would have written the operator's real state; and
+# SPEC_WALKTHROUGH_DOT_TIMEOUT defaults to the suite's load headroom.
 #
 # Paths and output come from the branch, so non-printable bytes are stripped
 # from everything printed.
@@ -48,11 +50,15 @@
 # Exit codes: 0 no selected check failed (or nothing was selected); a
 #   skipped linter or path is reported on its own line and does not fail the
 #   check, so a consumer reads the `skipped` lines; 1 a test or linter failed;
-#   2 usage or a refused path.
+#   2 usage, a refused path, or a git or other internal failure (named on
+#   stderr).
 set -eu
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# --tests is a glob pathspec by contract; an inherited setting must not turn
+# it literal and select nothing.
+unset GIT_LITERAL_PATHSPECS GIT_GLOB_PATHSPECS GIT_NOGLOB_PATHSPECS GIT_ICASE_PATHSPECS
 
 prog=check-diff-scoped
 NL='
@@ -145,10 +151,11 @@ if [ -n "$base" ]; then
   case $base in -*) die 2 "--base must be a revision, not an option" ;; esac
   sha=$(git rev-parse --verify --quiet "$base^{commit}") || die 2 "--base names no commit: $base"
   mb=$(git merge-base "$sha" HEAD) || die 2 "--base shares no history with HEAD"
-  {
-    git -c core.quotePath=false diff --no-ext-diff --no-renames --name-only "$mb" --
-    git -c core.quotePath=false ls-files --others --exclude-standard
-  } | sort -u >"$work/listed"
+  git -c core.quotePath=false diff --no-ext-diff --no-renames --name-only "$mb" -- >"$work/diffed" \
+    || die 2 "git diff failed listing the changes against $mb"
+  git -c core.quotePath=false ls-files --others --exclude-standard >"$work/untracked" \
+    || die 2 "git ls-files failed listing the untracked files"
+  sort -u "$work/diffed" "$work/untracked" >"$work/listed"
   : >"$changed"
   while IFS= read -r f; do
     case $f in
@@ -173,12 +180,12 @@ fi
 
 # --- selection ---------------------------------------------------------------
 
-{
-  git -c core.quotePath=false ls-files -- "$tests_spec"
-  git -c core.quotePath=false ls-files --others --exclude-standard -- "$tests_spec"
-} | sort -u >"$work/all-tests"
-git -c core.quotePath=false ls-files --cached --others --exclude-standard \
-  | awk -F/ '{ n[$NF]++ } END { for (b in n) if (n[b] == 1) print b }' >"$work/unique-basenames"
+git -c core.quotePath=false ls-files --cached --others --exclude-standard -- "$tests_spec" >"$work/test-files" \
+  || die 2 "git ls-files failed listing the tests"
+sort -u -o "$work/all-tests" "$work/test-files"
+git -c core.quotePath=false ls-files --cached --others --exclude-standard >"$work/tree" \
+  || die 2 "git ls-files failed listing the tree"
+awk -F/ '{ n[$NF]++ } END { for (b in n) if (n[b] == 1) print b }' "$work/tree" >"$work/unique-basenames"
 
 # One pattern per changed file: its repo path when it has a directory, and its
 # basename when no other file shares it. One grep over the existing tests then
@@ -237,6 +244,7 @@ while IFS= read -r t; do
     export PLANWRIGHT_FLEET_STATE_DIR="$sentinel/fleet"
     [ -z "${CLAUDE_PLUGIN_DATA+set}" ] || export CLAUDE_PLUGIN_DATA="$sentinel/plugin-data"
     [ -z "${CLAUDE_DIR+set}" ] || export CLAUDE_DIR="$sentinel/claude"
+    export SPEC_WALKTHROUGH_DOT_TIMEOUT="${SPEC_WALKTHROUGH_DOT_TIMEOUT:-60}"
     # shellcheck disable=SC2086 # --runner is a command line by contract
     exec $runner "./$t"
   ) >"$work/out" 2>&1 </dev/null || rc=$?
@@ -265,6 +273,7 @@ for tool in shellcheck shfmt markdownlint-cli2 yamllint; do
   set --
   while IFS= read -r f; do set -- "$@" "./$f"; done <"$work/files"
   case $tool in
+    shellcheck) set -- -x "$@" ;;
     shfmt) set -- -d "$@" ;;
     yamllint) set -- --strict "$@" ;;
   esac

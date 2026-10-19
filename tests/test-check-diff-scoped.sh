@@ -113,7 +113,7 @@ assert_exit "a clean run passes" 0 $?
 assert_contains "the selected test passed" "pass	test	tests/test-alpha.sh" "$out"
 assert_contains "the linter passed" "pass	lint	shellcheck" "$out"
 calls=$(cat "$T/lint-calls")
-assert_contains "shellcheck ran on the file" "shellcheck ./scripts/alpha.sh" "$calls"
+assert_contains "shellcheck ran on the file, following its sourced files" "shellcheck -x ./scripts/alpha.sh" "$calls"
 assert_contains "shfmt ran in diff mode" "shfmt -d ./scripts/alpha.sh" "$calls"
 
 printf '#!/bin/bash\nsh scripts/alpha.sh\nexit 3\n' >"$R/tests/test-alpha.sh"
@@ -217,6 +217,12 @@ else
   ok "printed paths and dumped output carry no control bytes"
 fi
 assert_contains "the noisy test still fails visibly" "fail	test	tests/test-noisy.sh" "$all"
+out=$(cd "$R2" && "$CHECK" --list --base HEAD 2>&1 </dev/null)
+if LC_ALL=C grep -q "$(printf '[\033\233]')" <<<"$out"; then
+  fail "listed paths carry no control bytes"
+else
+  ok "listed paths carry no control bytes"
+fi
 rm "$R2/scripts/a${csi}b.sh" "$R2/tests/test-noisy.sh"
 
 mkdir -p "$T/realfleet"
@@ -226,7 +232,24 @@ out=$(cd "$R2" && PLANWRIGHT_FLEET_STATE_DIR=$T/realfleet "$CHECK" tests/test-wr
 assert_exit "a test writing the inherited fleet home fails" 1 $?
 assert_contains "names the fleet-home write" "fleet home" "$out"
 if [ -z "$(ls -A "$T/realfleet")" ]; then ok "the inherited fleet home is untouched"; else fail "the inherited fleet home is untouched"; fi
+for v in CLAUDE_PLUGIN_DATA CLAUDE_DIR; do
+  mkdir -p "$T/real-$v"
+  printf '#!/bin/bash\n# scripts/one.sh\nmkdir -p "$%s/x"\n' "$v" >"$R2/tests/test-writes-$v.sh"
+  out=$(cd "$R2" && env "$v=$T/real-$v" "$CHECK" "tests/test-writes-$v.sh" 2>&1 </dev/null)
+  assert_exit "a test writing the inherited $v fails" 1 $?
+  if [ -z "$(ls -A "$T/real-$v")" ]; then ok "the inherited $v is untouched"; else fail "the inherited $v is untouched"; fi
+  rm "$R2/tests/test-writes-$v.sh"
+done
 rm "$R2/tests/test-writes-fleet.sh"
+
+# Each test gets the suite's load headroom for spec-graph's dot watchdog.
+# shellcheck disable=SC2016 # the fixture's variable is for the fixture's shell
+printf '#!/bin/bash\n[ "$SPEC_WALKTHROUGH_DOT_TIMEOUT" = "${WANT:-60}" ]\n' >"$R2/tests/test-dot-headroom.sh"
+out=$(cd "$R2" && env -u SPEC_WALKTHROUGH_DOT_TIMEOUT "$CHECK" tests/test-dot-headroom.sh 2>&1 </dev/null)
+assert_exit "a test gets the suite's dot timeout headroom" 0 $?
+out=$(cd "$R2" && SPEC_WALKTHROUGH_DOT_TIMEOUT=90 WANT=90 "$CHECK" tests/test-dot-headroom.sh 2>&1 </dev/null)
+assert_exit "a caller's dot timeout is kept" 0 $?
+rm "$R2/tests/test-dot-headroom.sh"
 
 # --- --lint-exclude ----------------------------------------------------------------
 out=$(ck --list --lint-exclude docs/ --lint-exclude 'config/*.yml' --lint-exclude scripts/README.md \
@@ -239,6 +262,20 @@ assert_contains "an excluded file still selects its tests" "test	tests/test-doc-
 assert_contains "a file outside the exclusions is still linted" "lint	shellcheck	scripts/alpha.sh" "$out"
 out=$(ck --list --lint-exclude '' docs/README.md 2>&1)
 assert_exit "an empty --lint-exclude is refused" 2 $?
+out=$(ck --list --lint-exclude 'tests/*' tests/lib/helper.sh 2>&1)
+assert_lacks "a pattern's * crosses /" "shellcheck	tests/lib/helper.sh" "$out"
+
+# --- the environment and git failures ----------------------------------------------
+out=$(cd "$R" && GIT_LITERAL_PATHSPECS=1 "$CHECK" --list scripts/alpha.sh 2>&1)
+assert_contains "an inherited literal-pathspec setting still selects tests" "test	tests/test-alpha.sh" "$out"
+printf '# edit\n' >>"$R/docs/README.md"
+chmod 000 "$R/.git/index"
+out=$(ck --list --base HEAD 2>&1)
+rc=$?
+chmod 644 "$R/.git/index"
+assert_exit "a git failure listing the changes is an error, not an empty change set" 2 "$rc"
+assert_lacks "a git failure does not read as nothing changed" "nothing changed" "$out"
+g checkout -q -- docs/README.md
 # --- refused inputs ------------------------------------------------------------
 out=$(ck 2>&1)
 assert_exit "no files and no base is a usage error" 2 $?
