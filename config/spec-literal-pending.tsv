@@ -5,8 +5,3 @@
 # clears one occurrence of its line.
 #
 # task<TAB>path<TAB>line
-9	scripts/check-obs.sh	obsdir="specs/_observations"
-9	scripts/obs-consume.sh	obsdir="specs/_observations"
-9	scripts/obs-record.sh	obsdir="specs/_observations"
-9	scripts/obs-render.sh	obsdir="specs/_observations"
-9	scripts/observation-carry.sh	obs_dir="specs/_observations"

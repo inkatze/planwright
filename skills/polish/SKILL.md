@@ -223,7 +223,7 @@ outside the branch's scope (recurring tooling gaps, doctrine gaps, complexity
 trends) as one fragment per observation through the shared helper:
 `scripts/obs-record.sh --slug <topic> --scope <repo> --text '<observation>'`
 (resolved under the planwright root; it composes the one-line entry form and
-writes one file under the host repo's `specs/_observations/entries/`)
+writes one file under the spec root's `_observations/entries/`)
 (REQ-E2.1, REQ-H1.6). Commit fragments within the iteration that produced
 them (its action commit, or a chore commit), so the tree returns to clean at
 every iteration boundary; surface a non-zero helper exit rather than

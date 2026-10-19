@@ -46,6 +46,15 @@ CARRY="$here/../scripts/observation-carry.sh"
 . "$here/lib/poll-until.sh"
 TAB=$(printf '\t')
 
+# The carry's default store comes from the spec root the fixture repository
+# resolves, so no inherited overlay may relocate it.
+carry_adopter=$(mktemp -d "${TMPDIR:-/tmp}/obs-carry.adopter.XXXXXX") || exit 1
+trap 'rm -rf "$carry_adopter"' EXIT
+PLANWRIGHT_ADOPTER_OVERLAY=$carry_adopter
+export PLANWRIGHT_ADOPTER_OVERLAY
+unset PLANWRIGHT_REPO_ROOT PLANWRIGHT_LOCAL_CONFIG PLANWRIGHT_CONFIG_DEFAULTS PLANWRIGHT_ROOT \
+  CLAUDE_PLUGIN_ROOT CLAUDE_PLUGIN_DATA
+
 fail() {
   echo "FAIL: $1" >&2
   exit 1
