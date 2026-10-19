@@ -178,9 +178,9 @@ if ! mkdir -p "$logdir" 2>/dev/null || [ -L "$logdir" ] || [ -e "$log" ] || [ -L
 fi
 umask "$old_umask"
 if command -v setsid >/dev/null 2>&1; then
-  detach=setsid
+  detach="setsid"
 else
-  detach=nohup
+  detach="nohup"
 fi
 (
   unset PLANWRIGHT_TOWER_ID PLANWRIGHT_TOWER_SESSION_ID PLANWRIGHT_TOWER_PID \

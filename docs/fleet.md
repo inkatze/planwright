@@ -2217,8 +2217,9 @@ spend, it only refuses to incur it without opt-in.
 
 **Workers never run in `auto` permission mode.** The
 `config/worker-settings.json` allowlist — human-reviewed, passed by every
-shipped dispatch seam with `--settings`, pinning a non-auto `defaultMode` — is the sole permission-approval mechanism
-for dispatched workers (D-19, REQ-E1.4). `scripts/fleet-dispatch-guard.sh`
+shipped dispatch seam with `--settings`, pinning a non-auto `defaultMode` — is
+the sole permission-approval mechanism for dispatched workers (D-19,
+REQ-E1.4). `scripts/fleet-dispatch-guard.sh`
 is the dispatch-time lint: `check-launch <argv>` refuses any launch carrying
 `--permission-mode auto` (either spelling) or a settings fragment pinning
 auto, and — because absence of the flag proves nothing when an operator's own
