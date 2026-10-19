@@ -207,12 +207,24 @@ vt brief "$sv" T-2
 assert_eq "D1.6 a venture path that cannot travel as one argument is refused" 2 "$rc"
 
 # The print rung prepares the launch without spawning; the subagent rung is
-# harness-native and reported through the same seam.
-out=$("$OFFLOAD" dispatch print "$brief_file" 2>&1)
+# harness-native and reported through the same seam. Dispatch resolves a launch
+# tier through the allocation store, so it runs against this test's own fleet
+# home and config, never the operator's.
+mkdir -p "$tmp/fleet-home" "$tmp/adopter"
+cp "$REPO_ROOT/config/defaults.yml" "$tmp/offload-defaults.yml" || exit 1
+offload() {
+  PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet-home" \
+    PLANWRIGHT_CONFIG_DEFAULTS="$tmp/offload-defaults.yml" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter" \
+    PLANWRIGHT_REPO_ROOT=none \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    "$OFFLOAD" "$@"
+}
+out=$(offload dispatch print "$brief_file" 2>&1)
 rc=$?
 assert_eq "D1.6 the print rung takes the venture petition" 0 "$rc"
 assert_contains "D1.6 the print rung prepares the launch" "$(printf 'status\tprepared')" "$out"
-out=$("$OFFLOAD" report subagent agent-venture-t2 2>&1)
+out=$(offload report subagent agent-venture-t2 2>&1)
 rc=$?
 assert_eq "D1.6 the subagent rung reports the venture worker" 0 "$rc"
 assert_contains "D1.6 the subagent report names the backend" "$(printf 'backend\tsubagent')" "$out"

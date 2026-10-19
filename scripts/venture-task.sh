@@ -68,6 +68,15 @@ fi
 # shellcheck source=scripts/echo-safety.sh
 . "$self_dir/echo-safety.sh"
 
+# The shared fence lexer: a column-0 code fence hides its lines from every
+# reader below, exactly as it does from the validator.
+if [ ! -f "$self_dir/spec-parse.sh" ] || [ ! -r "$self_dir/spec-parse.sh" ]; then
+  printf '%s\n' "venture-task.sh: spec-parse.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
+# shellcheck source=scripts/spec-parse.sh
+. "$self_dir/spec-parse.sh" || exit 2
+
 KINDS='spike research analysis demand-signal alignment'
 GRADES='synthetic opinion stated-intent costly-signal behavior'
 MARKER=DISPOSABLE.md
@@ -162,10 +171,9 @@ version_gate() {
 # The register-entry reader: one H3 block per id, fields as `- **Name:** value`
 # with two-space-indented continuation lines joined by a space. Prints
 # `field<TAB>value` for the entry, or nothing when the id holds no block.
+# shellcheck disable=SC2016 # awk source, not a shell expansion
 ENTRY_AWK='
 function flush() { if (fld != "") print fld "\t" val; fld = "" }
-/^```/ { fence = !fence }
-fence { next }
 /^#/ {
   flush()
   if (in_entry) exit
@@ -184,17 +192,18 @@ fence { next }
 END { flush() }
 '
 
-entry_fields() { awk -v id="$2" "$ENTRY_AWK" "$1"; }
+entry_fields() { awk -v id="$2" "$spec_parse_awk_fence$ENTRY_AWK" "$1"; }
 field() { entry_fields "$1" "$2" | awk -F'\t' -v f="$3" '$1 == f { sub(/^[^\t]*\t/, ""); print; exit }'; }
 
 # set_fields <file> <id> <pairs-file> <out> — rewrite <id>'s named fields to
 # the values in <pairs-file> (`field<TAB>value` lines), each bullet and its
-# continuation lines replaced by one line.
+# continuation lines replaced by one line. Every line is copied through, so
+# this writer cannot take the fence lexer (which drops fenced lines); a fenced
+# line is only touched if it sits in the target entry and reads as one of its
+# field bullets, which a validated bundle does not carry.
 set_fields() {
   awk -v id="$2" -v pairs="$3" '
     BEGIN { while ((getline l < pairs) > 0) { t = index(l, "\t"); NEW[substr(l, 1, t - 1)] = substr(l, t + 1) } }
-    /^```/ { fence = !fence }
-    fence { print; next }
     /^#/ { in_entry = ($0 ~ /^### / && $2 == id); skip = 0; print; next }
     in_entry && /^- \*\*[^*]+:\*\*/ {
       f = $0; sub(/^- \*\*/, "", f); sub(/:\*\*.*$/, "", f)
@@ -342,10 +351,9 @@ EOF
 #   bad<TAB><n>                 an unparseable line under ## Register updates
 #   section<TAB><name>          every H2, in order
 parse_findings() {
-  awk '
+  awk "$spec_parse_awk_fence"'
     function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
-    /^```/ { fence = !fence }
-    /^## / && !fence { sect = trim(substr($0, 4)); print "section\t" sect; next }
+    /^## / { sect = trim(substr($0, 4)); print "section\t" sect; next }
     sect == "" && /^\*\*[^*]+:\*\*/ {
       k = $0; sub(/^\*\*/, "", k); sub(/:\*\*.*$/, "", k)
       v = $0; sub(/^\*\*[^*]+:\*\*[ ]*/, "", v)
@@ -785,10 +793,8 @@ cmd_reject() {
 # task_table <plan-file> — `T-n<TAB>status<TAB>ids` for every live task.
 task_table() {
   [ -s "$1" ] || return 0
-  awk '
+  awk "$spec_parse_awk_fence"'
     function flush() { if (id != "" && !sup) print id "\t" st "\t" tests; id = ""; st = ""; tests = ""; sup = 0 }
-    /^```/ { fence = !fence }
-    fence { next }
     /^#/ { flush(); if ($0 ~ /^### T-[1-9][0-9]* /) id = $2; next }
     id != "" && /^- \*\*Status:\*\* / { st = $0; sub(/^- \*\*Status:\*\* /, "", st); sub(/[ \t]+$/, "", st) }
     id != "" && /^- \*\*Tests:\*\* / { tests = $0; sub(/^- \*\*Tests:\*\* /, "", tests); gsub(/ /, "", tests) }
@@ -801,10 +807,8 @@ task_table() {
 # block flattened to one line so two versions compare as strings.
 entry_table() {
   [ -s "$1" ] || return 0
-  awk '
+  awk "$spec_parse_awk_fence"'
     function flush() { if (id != "") print id "\t" ev "\t" blk; id = ""; ev = ""; blk = "" }
-    /^```/ { fence = !fence }
-    fence { if (id != "") blk = blk "\034" $0; next }
     /^#/ { flush(); if ($0 ~ /^### (A|DEC)-[1-9][0-9]* /) id = $2; next }
     id != "" {
       blk = blk "\034" $0
