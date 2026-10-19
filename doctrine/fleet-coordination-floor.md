@@ -60,12 +60,14 @@ The only exceptions are planwright scripts performing an act the operator
 sanctioned for towers:
 
 - the release fast-forward of the primary checkout's `main`, through
+  `scripts/release-arm.sh` or
   `scripts/main-currency.sh sync --checkout <primary-checkout>`;
-- starting a forward-merge in a worker's worktree for the worker to resolve,
-  through `scripts/converge-sync-main.sh` run there, which leaves a conflict
-  for the worker under `worker_merge_conflict_policy: resolve`.
+- starting a forward-merge in a worker's worktree, through
+  `scripts/converge-sync-main.sh` run there, which under
+  `worker_merge_conflict_policy: resolve` leaves a conflict for the worker to
+  resolve.
 
-An unlisted act is not sanctioned by analogy, and an act the bundle's
+An unlisted act is not sanctioned by analogy, and an act tower-placement's
 mechanisms cannot see is still bound.
 
 ## The no-LLM-daemon-mechanics invariant
