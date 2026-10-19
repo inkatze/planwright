@@ -173,6 +173,7 @@ deny_internal() {
   emit_deny 'the tower floor stopped before reaching a decision in this tower session (an internal error or a signal), so this call could not be checked - refusing (fail closed). Retry; report a floor that keeps failing.'
 }
 
+# shellcheck disable=SC2329 # invoked through the EXIT trap
 deny_unless_decided() {
   [ "$DECIDED" = 1 ] || deny_internal
 }
