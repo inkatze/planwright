@@ -222,7 +222,7 @@ poll_until --deadline "\${OVERLAP_DEADLINE:-\$POLL_UNTIL_DEFAULT_DEADLINE}" --in
   --what 'the peer beacon' -- test -e "$tmp/sync/$peer.here"
 EOF
 done
-PLANWRIGHT_TEST_JOBS=2 /bin/bash "$RUNNER" "$tmp/overlap" >/dev/null 2>&1
+PLANWRIGHT_TEST_JOBS=2 PLANWRIGHT_TEST_SLOTS=2 /bin/bash "$RUNNER" "$tmp/overlap" >/dev/null 2>&1
 assert "overlapping fixtures pass: files genuinely run concurrently" 0 $?
 rm -f "$tmp/sync"/*.here
 OVERLAP_DEADLINE=10 PLANWRIGHT_TEST_FORCE_SERIAL=1 /bin/bash "$RUNNER" "$tmp/overlap" \
