@@ -1300,7 +1300,7 @@
 
 ## Awaiting input
 
-(none yet)
+- **Task 4** — post-pr step cubic-pr halted (human attention required); record .claude/steps/000002/009-step-post-pr.rec. PR #707 carries three queued review items, the D-8 collision-outcome classification, and two pending sign-offs.
 
 ## Deferred
 
