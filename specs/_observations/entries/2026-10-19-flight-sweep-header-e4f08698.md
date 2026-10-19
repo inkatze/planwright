@@ -1,0 +1,1 @@
+- 2026-10-19 [planwright] scripts/flight-sweep.sh header still says "/resume's tower mode is to" read the sweep; the mode now ships (tower-front-door task 8), which left the script untouched by its Done when, so the future tense is stale.

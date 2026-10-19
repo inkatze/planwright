@@ -220,7 +220,7 @@ is `agent-persona | named-human | unstaffed`):
 ```markdown
 | Discipline | Staffing | Card / person |
 | --- | --- | --- |
-| <discipline> | <token> | <card name, person, or none> |
+| <discipline> | <token> | <card id, person, or none> |
 ```
 
 At staffing time the skill auto-files every unstaffed senior discipline
