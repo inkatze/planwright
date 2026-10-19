@@ -1,7 +1,7 @@
 # Review effectiveness — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-09-24
+**Last reviewed:** 2026-10-19
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -450,6 +450,127 @@ repository content.
 **Chosen because:** the security-posture doctrine's artifact hygiene rule
 and the operator's instruction coincide.
 
+### D-17: Hermeticity is enforced by a lens rule, a static guard, and a perturbed CI run  (N)
+
+**Decision:** A test that passes only on the author's host is caught three
+ways, because each catches what the other two cannot. The Tests lens
+carries the judgment rule for shapes nobody has named yet (REQ-B1.11). A
+static guard over the test surface fails the recurring shapes the external
+review audit saw most: a mode-bit fixture with no access probe, a dead-owner
+fixture reusing a reaped PID, a suite reading a configuration or root
+variable it neither pins nor clears (REQ-F1.5); the shapes are served by two
+small libraries under `tests/lib/`, one clearing or pinning the listed
+variables (the single list the guard, the runner, and the CI run read) and
+one yielding a PID above the host's assignable range, so a fixture that
+conforms has somewhere to conform to. The CI run under a perturbed, legal
+environment, root included, catches a dependence neither the lens nor the
+guard named (REQ-F1.6). The runner clears the same list, but the library
+stays required: a suite run by hand inherits the operator's shell, which is
+where the audit's failures were found. The altitude follows D-1: the rule
+is doctrine, the guard and the CI run are mechanisms, the variable list is
+this repository's value.
+
+**Alternatives considered:**
+- The lens rule alone. Rejected because: the audit found this class on
+  branches a full nine-lens pass had declared clean; a judgment rule
+  without a mechanical catch is the silent-pruning shape the rigor docs
+  exist to prevent.
+- The static guard alone. Rejected because: it can only fail the shapes it
+  names, and a dependence on locale, a symlinked temporary root, or a
+  second shell has no textual shape to match.
+- The perturbed CI run alone. Rejected because: it finds the failure after
+  the push, with no attribution to a fixture, and nothing stops the next
+  branch from adding the same shape.
+- Perturbing the existing CI job instead of adding one. Rejected because: a
+  failure then needs a local rerun to tell perturbation from regression,
+  and the existing job cannot run as root without changing every other
+  check's posture.
+
+**Chosen because:** the audit's findings in this class split cleanly into
+named shapes a guard owns and unnamed dependences only a different
+environment exposes, and the two mechanisms cost one small guard and one
+more suite run per PR.
+
+### D-18: Guard-bypass is a Security sub-lens conditioned on the artifact; the authoring rules live in the guard catalog  (N)
+
+**Decision:** When a change touches a guard, the Security lens runs the
+bypass sweep REQ-B1.9 lists and records the spellings tried; when it does
+not, nothing is added to the lens walk. The two guard-authoring rules
+(REQ-F1.8) land in the guard catalog's extension prose, where a guard
+writer already reads before adding an entry, and the sub-lens cites them.
+
+**Alternatives considered:**
+- A tenth canonical lens. Rejected because: most changes touch no guard, so
+  every pass would carry a `none` row with the same reason, which is the
+  coverage table filling with noise rather than coverage.
+- Relying on the fuzz or corpus sweep a guard task already runs. Rejected
+  because: the recorded fuzz of one guard tested nothing (obs:af6048cb), and
+  the audit's bypasses were spellings (a command carrier, an assembled
+  variable, a hardlink) a random corpus does not generate.
+- A guard-authoring doc of its own. Rejected because: the catalog is where
+  guards are registered and where the builder reads, and a rule doc nobody
+  loads is the doctrine-buried-in-a-script failure D-1 names in reverse.
+
+**Chosen because:** the audit's guard findings were all evasions of a
+matching surface, the repository's own observations already name the two
+root causes (case semantics, deciding from unexecuted text), and a
+conditioned sub-lens adds cost only where the threat exists.
+
+### D-19: Procedure tracing joins the spec lens set; skill-command usage is checked mechanically against usage headers  (N)
+
+**Decision:** Procedural prose (skill steps, doctrine rituals, runbooks) is
+reviewed under the spec artifact class with one added lens, procedure
+tracing (REQ-B1.10), which walks the procedure as control flow. The
+mechanical half, whether a script invocation in prose matches the script,
+is a guard (REQ-F1.7) that parses each script's `# Usage` header; a script
+invoked from prose without a parseable header fails the guard, so the
+header becomes the contract the prose is checked against.
+
+**Alternatives considered:**
+- Reviewing skill instructions under the code class. Rejected because: the
+  performance, concurrency and error-handling lenses fire on a threat model
+  prose does not have (artifact-lenses), which is the noise that doc exists
+  to stop.
+- Leaving the order defects to claim-versus-code (REQ-B1.2). Rejected
+  because: a lock acquired after the step that needs it contradicts no
+  claim; it is a path defect, visible only by tracing the path.
+- Checking invocations by running each script with `--help`. Rejected
+  because: the scripts have no uniform help flag, and running them from a
+  guard executes repository code under CI with the guard's permissions;
+  the header is text and the parser treats it as data.
+
+**Chosen because:** the audit's skill findings were order and precondition
+defects a control-flow walk finds and a claim check does not, and its
+command-line findings (a missing required flag, a subcommand the script
+lacks) were all decidable from the usage header the scripts already carry.
+
+### D-20: Duplicate refusal lives in the recorder; a pass reviews its own fragments before commit  (N)
+
+**Decision:** `scripts/obs-record.sh` refuses a fragment that duplicates a
+live or archived fragment of the same scope, matching on the slug or on a
+shared test path plus quoted string, with `--recurrence <uid>` as the
+escape that links the chain (REQ-I1.1). The convergence passes review the
+fragments they recorded with the spec lens set before committing them
+(REQ-I1.2); the Observations step keeps its place at the end of the pass,
+since the fragments are born during it.
+
+**Alternatives considered:**
+- Moving the Observations step before discovery so the fragments ride the
+  reviewed diff. Rejected because: observations are what the pass notices
+  while reviewing; written first they would be empty, written again after
+  they would again escape review.
+- A CI guard over duplicates. Rejected because: `check-obs.sh` sees names
+  and shape, and a duplicate of the same failing test under a new slug is a
+  semantic match the recorder can make at write time with the text in hand.
+- Warning instead of refusing. Rejected because: write-time refusal is the
+  recorder's house pattern for grammar and containment, and a warning in a
+  fleet worker's log is read by nobody.
+
+**Chosen because:** the audit's fragment findings were duplicates of an
+earlier entry and claims the entry's own source contradicted; the first is
+decidable where the text is written, the second is the claim-versus-code
+read the bundle already requires, pointed at one more artifact.
+
 ## Cross-cutting concerns
 
 - **Security.** The blind agent and every lens agent read a bundle of
@@ -463,3 +584,12 @@ and the operator's instruction coincide.
   the convergence phase only.
 - **Overlay protection.** A doc that moves to point-of-use keeps its
   basename so overlay shadowing continues to resolve it.
+- **CI cost.** The perturbed run (D-17) is one more suite run per PR,
+  bounded by the same per-file budget the plain run keeps; a perturbation
+  that cannot run skips by name, never by lowering the budget.
+- **Decision domains touched by the extension.** `existing-seam-reuse`: the
+  recorder, the guard catalog, the lock library and the plain-commands test
+  surface are reused rather than minted beside (D-17 to D-20).
+  `llm-output-quality`: every lens change stays behind REQ-H1.3's replay
+  gate, now over the second corpus version (REQ-H1.5). No secret,
+  dependency, concurrency or deploy decision is introduced.

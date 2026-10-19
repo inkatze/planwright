@@ -1,7 +1,7 @@
 # Review effectiveness — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-09-24
+**Last reviewed:** 2026-10-19
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -134,6 +134,30 @@ artifact-lenses doctrine names the skills' duty. Task 3, Task 9.
 Scenario: given a merged finding list, when the self-critique runs, then it
 runs in a separate agent whose inputs are the bundle path and the list.
 The discovery doctrine states the independence rule. Task 3, Task 9.
+
+### REQ-B1.9 — Guard-bypass sub-lens [design-level + Gherkin]
+
+`doctrine/discovery-rigor.md` names the sub-lens under Security with its
+trigger and spelling classes. Scenario: given a fixture diff that touches a
+command guard and plants a bypass through a command carrier (`env -S`), when
+the pass runs, then the Security row lists the spellings tried and the
+bypass is a finding; given a fixture diff touching no guard, the Security
+row carries no sub-lens note. Task 3.1, Task 13.
+
+### REQ-B1.10 — Procedure tracing [design-level + Gherkin]
+
+`doctrine/artifact-lenses.md` lists procedure tracing in the spec set with
+its four finding shapes. Scenario: given a fixture skill whose writer lock
+is taken after a step that writes, when the pass reviews it under the spec
+class, then the out-of-order acquisition is a finding citing both steps.
+Task 3.1.
+
+### REQ-B1.11 — Host-dependent tests flagged [design-level + Gherkin]
+
+`doctrine/discovery-rigor.md` names the rule under Tests. Scenario: given a
+fixture test that reads a configuration variable it neither pins nor
+clears, when the pass runs, then the Tests row carries the finding naming
+the variable. Task 3.1.
 
 ## REQ-C — Validation
 
@@ -321,6 +345,33 @@ the wrong stage, a masked asserted command, a self-comparison) and a
 harness with a zero row floor each fail the check; a conforming test
 passes. Task 12.
 
+### REQ-F1.5 — Test-hermeticity guard [test]
+
+A fixture of each shape (a mode-bit fixture with no access probe, a
+dead-owner fixture reusing a reaped PID, a suite reading a listed variable
+without sourcing the clearing library) fails the check and its conforming
+twin passes; the check is wired under `mise run check`. Task 11.1.
+
+### REQ-F1.6 — Perturbed-environment CI run [test + manual]
+
+A test asserts the job's perturbation set matches the clearing library's
+variable list and that the job runs as root; the job passes on the task PR
+with the same verdict set as the plain job, read at PR review, and the
+one-off fixture that fails only under the job is recorded there. Task 11.1.
+
+### REQ-F1.7 — Skill-command usage guard [test]
+
+Fixture prose with an unknown subcommand, a flag the usage header lacks, a
+missing required argument, and an invocation of a script without a
+parseable header each fail the check; a conforming invocation with an
+angle-bracket placeholder passes; the check is wired under `mise run
+check`. Task 12.1.
+
+### REQ-F1.8 — Guard-authoring rules [design-level]
+
+`doctrine/guard-catalog.md` states both rules (case and normalization
+semantics first; never decide from unexecuted text). Task 3.1.
+
 ## REQ-G — Skill diet
 
 ### REQ-G1.1 — Run-start set reduced [test]
@@ -380,3 +431,29 @@ closeout run over a window of at least 15 bot-reviewed PRs merged after
 the last of Tasks 1 to 12 is human-exercised; its results file records
 both metrics, the bar's verdict, and, on a miss, the observation and the
 follow-up. Task 1, Task 14.
+
+### REQ-H1.5 — Second corpus version [manual + test]
+
+The `v2` directory passes the schema test and the hygiene screen under CI;
+the refresh run, its per-class row counts, the fallback count, and the
+baseline replay over the second version are recorded in the task PR body,
+and Task 13's results file names the second version. Task 1.1, Task 13.
+
+## REQ-I — Observation hygiene
+
+### REQ-I1.1 — Recorder duplicate refusal [test]
+
+The recorder's tests: a fragment sharing a live fragment's slug in scope is
+refused naming it; one sharing a test path and quoted string with an
+archived fragment is refused; the same call with `--recurrence <uid>`
+writes a fragment opening with the recurrence prefix; an unknown uid is
+refused; a matching fragment in another scope does not refuse;
+`check-obs.sh` accepts the prefix. Task 15.1.
+
+### REQ-I1.2 — Fragment review before commit [Gherkin + design-level]
+
+Both skills' Observations steps name the review and its destination in the
+audit record. Scenario: given a fixture pass that records a fragment
+quoting a failure message its named test does not emit, when the pass
+reaches its Observations step, then the audit record carries the finding
+and the committed fragment is corrected or absent. Task 15.1.

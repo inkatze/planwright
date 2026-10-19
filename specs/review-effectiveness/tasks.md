@@ -1,7 +1,7 @@
 # Review effectiveness — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-09-24
+**Last reviewed:** 2026-10-19
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -60,6 +60,25 @@ replays the backtest rows in the classes it targets before it lands (D-9).
 - **Citations:** D-7, D-9, D-16 · REQ-E1.5, REQ-E1.7, REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4
 - **Estimated effort:** 3 days
 
+### Task 1.1 — Corpus refresh to a second version from the external review threads
+
+- **Deliverables:** an operator-local run of
+  `scripts/review-backtest-refresh.sh` producing the `v2` corpus directory
+  from the PR history and the miss ledger since the first version's cut,
+  each new row's miss reason assigned under D-8's tokens by the annotator
+  and its gist paraphrased; the hygiene screen run over the new version;
+  the results file carrying the second version's row counts per class; a
+  baseline replay of today's pass over the second version's default sample,
+  recorded with its model, seed, cap and plugin commit, so Task 13 compares
+  like with like; nothing from the audit's own datasets committed.
+- **Done when:** the `v2` directory passes the schema test and the hygiene
+  screen; every new row carries a reason other than `other`, or the
+  fallback count is reported in the PR body; the baseline replay over the
+  second version is committed; `mise run check` passes.
+- **Dependencies:** 1
+- **Citations:** D-7, D-9, D-16 · REQ-H1.2, REQ-H1.5
+- **Estimated effort:** half day
+
 ### Task 2 — Skill diet and the composed-chain charge
 
 - **Deliverables:** `skills/self-review/SKILL.md` and
@@ -98,9 +117,32 @@ replays the backtest rows in the classes it targets before it lands (D-9).
   to these docs appears in them; the two docs' word counts are no larger
   than before; `check:doctrine-index`, `check:links`, `lint:md`, and
   `check:instructions` pass with no new exception.
-- **Dependencies:** Task 2
+- **Dependencies:** 2
 - **Citations:** D-2, D-3, D-4, D-8, D-14 · REQ-A1.1, REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-B1.7, REQ-B1.8, REQ-E1.5
 - **Estimated effort:** 1.5 days
+
+### Task 3.1 — Guard-bypass, procedure-tracing and host-dependence rules in the discovery doctrine
+
+- **Deliverables:** `doctrine/discovery-rigor.md` amended word-neutrally
+  with the guard-bypass sub-lens under Security (its trigger, the spelling
+  classes, the recorded-spellings rule) and the host-dependence rule under
+  Tests; `doctrine/artifact-lenses.md` with procedure tracing in the spec
+  set and its four finding shapes; `doctrine/guard-catalog.md` with the two
+  guard-authoring rules in its extension prose; the doctrine index rows;
+  the lens brief the handoff builder emits (Task 6) naming the sub-lens
+  trigger where the builder has landed, else a note in the Task 6 block's
+  owner PR; the targeted replay per REQ-H1.3 over the classes the three
+  rules target.
+- **Done when:** Task 3 is merged on main; every rule a `[design-level]`
+  test-spec entry assigns to these docs appears in them; the word counts of
+  `discovery-rigor.md` and `artifact-lenses.md` are no larger than before,
+  and `guard-catalog.md` stays below its doctrine warn line;
+  `check:doctrine-index`, `check:links`, `lint:md`, and `check:instructions`
+  pass with no new exception; the targeted replay's recall is recorded in
+  the PR body with no targeted class below its baseline.
+- **Dependencies:** 3
+- **Citations:** D-17, D-18, D-19 · REQ-B1.9, REQ-B1.10, REQ-B1.11, REQ-F1.8, REQ-H1.3
+- **Estimated effort:** 1 day
 
 ### Task 4 — Validation and loop doctrine amendments
 
@@ -123,7 +165,7 @@ replays the backtest rows in the classes it targets before it lands (D-9).
   the word counts of the three docs are no
   larger than before; `check:doctrine-index`, `check:links`, `lint:md`,
   and `check:instructions` pass with no new exception.
-- **Dependencies:** Task 2
+- **Dependencies:** 2
 - **Citations:** D-11, D-12, D-14 · REQ-C1.1, REQ-C1.2, REQ-C1.4, REQ-C1.5, REQ-D1.3, REQ-D1.4, REQ-D1.5
 - **Estimated effort:** 1 day
 
@@ -150,7 +192,7 @@ replays the backtest rows in the classes it targets before it lands (D-9).
 - **Done when:** every rule a `[design-level]` test-spec entry assigns to
   the doc appears in it; the grammar test and the verify script's tests
   pass; `check:doctrine-index`, `check:links`, and `lint:md` pass.
-- **Dependencies:** Task 1
+- **Dependencies:** 1
 - **Citations:** D-5, D-8, D-16 · REQ-E1.1, REQ-E1.4, REQ-E1.5, REQ-E1.6, REQ-E1.7
 - **Estimated effort:** 1 day
 
@@ -191,7 +233,7 @@ replays the backtest rows in the classes it targets before it lands (D-9).
 - **Done when:** every Gherkin scenario `test-spec.md` assigns to this task
   is recorded in the PR body; the targeted replay passes the no-drop gate
   against the baseline; the start-load is no larger than before the task.
-- **Dependencies:** Task 1, Task 3, Task 6
+- **Dependencies:** 1, 3, 6
 - **Citations:** D-2, D-9 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-A1.7, REQ-G1.3, REQ-H1.3
 - **Estimated effort:** 1.5 days
 
@@ -219,7 +261,7 @@ replays the backtest rows in the classes it targets before it lands (D-9).
   the task as Awaiting input for the operator's run until that run is
   recorded; the resolver test passes; the targeted replay passes the
   no-drop gate against the baseline.
-- **Dependencies:** Task 3, Task 5, Task 6
+- **Dependencies:** 3, 5, 6
 - **Citations:** D-5, D-6, D-9, D-15 · REQ-B1.6, REQ-D1.1, REQ-E1.2, REQ-E1.3, REQ-H1.3
 - **Estimated effort:** 1.5 days
 
@@ -252,7 +294,7 @@ replays the backtest rows in the classes it targets before it lands (D-9).
   entry assigns to this task appears in the skills; both start-loads are
   no larger than before the task; the targeted replay passes the no-drop
   gate against the baseline.
-- **Dependencies:** Task 3, Task 4, Task 6, Task 7, Task 8
+- **Dependencies:** 3, 4, 6, 7, 8
 - **Citations:** D-3, D-4, D-5, D-9, D-11, D-12, D-14 · REQ-A1.7, REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-B1.7, REQ-B1.8, REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-D1.4, REQ-D1.5, REQ-D1.6, REQ-E1.2, REQ-G1.3, REQ-H1.3
 - **Estimated effort:** 2.5 days
 
@@ -271,7 +313,7 @@ replays the backtest rows in the classes it targets before it lands (D-9).
 - **Done when:** custom-steps Task 5 and prose-disposition Task 12 are
   merged on main; every Gherkin scenario `test-spec.md` assigns to this
   task is recorded in the PR body; the execute-task start-load is no larger than before the task.
-- **Dependencies:** Task 4, Task 5
+- **Dependencies:** 4, 5
 - **Citations:** D-5, D-8 · REQ-E1.3, REQ-E1.4, REQ-E1.5, REQ-E1.6, REQ-G1.3
 - **Estimated effort:** 1.5 days
 
@@ -296,6 +338,34 @@ replays the backtest rows in the classes it targets before it lands (D-9).
 - **Citations:** D-13 · REQ-F1.1, REQ-F1.2
 - **Estimated effort:** 1.5 days
 
+### Task 11.1 — The test-hermeticity guard and the perturbed CI run
+
+- **Deliverables:** `tests/lib/hermetic-env.sh`, clearing or pinning the
+  listed configuration and root variables and holding that list as the one
+  source the guard, the runner and the CI run read, plus a dead-owner PID
+  helper in `tests/lib/` yielding a PID above the host's assignable range;
+  `scripts/check-test-hermeticity.sh` failing the three shapes REQ-F1.5
+  names, with a true-positive and a true-negative fixture per shape, its
+  guard catalog entry and `mise run check` wiring; the existing suites
+  brought to green (a suite reading a listed variable sources the library;
+  a mode-bit fixture gated on an access probe; a dead-owner fixture drawing
+  from the helper) or each exclusion recorded with its reason;
+  `scripts/run-tests.sh` clearing the same list per file; the perturbed job
+  in `.github/workflows/ci.yml` (a decoy value per listed variable pointing
+  at a fixture whose use changes a result, a `TMPDIR` reached through a
+  symlink and containing a space, a non-C locale, a non-UTC timezone, the
+  suite run as root) with named skips only, and a test that the job's
+  perturbation set matches the library's list.
+- **Done when:** the fixture pairs pass; `mise run check` is green with the
+  guard wired; the perturbed job passes on the task PR with the same
+  verdict set as the plain job, and the one-off proof that it can fail (a
+  fixture suite depending on the temporary root's shape, run under the job
+  before the fixture is removed) is recorded in the PR body; the guard
+  catalog lists the guard.
+- **Dependencies:** none
+- **Citations:** D-13, D-17 · REQ-F1.5, REQ-F1.6
+- **Estimated effort:** 1.5 days
+
 ### Task 12 — The count-versus-list and test-vacuity guards
 
 - **Deliverables:** `scripts/check-counts.sh` (a stated count adjacent to a
@@ -312,6 +382,26 @@ replays the backtest rows in the classes it targets before it lands (D-9).
 - **Citations:** D-13 · REQ-F1.3, REQ-F1.4
 - **Estimated effort:** 1 day
 
+### Task 12.1 — The skill-command usage guard
+
+- **Deliverables:** `scripts/check-skill-commands.sh`, parsing each
+  repository script's `# Usage` header into its subcommands, flags and
+  required arguments (the header is data, never executed) and checking
+  every `scripts/<name>.sh` invocation in `skills/*/SKILL.md` and
+  `doctrine/*.md` against it, an angle-bracket placeholder standing for a
+  required argument; a usage header added to every script the prose
+  invokes that lacks a parseable one; fixture pairs (an unknown subcommand,
+  a flag the header lacks, a missing required argument, a script without a
+  header, and a conforming invocation); its guard catalog entry and
+  `mise run check` wiring; the tracked prose brought to green or each
+  exclusion recorded with its reason.
+- **Done when:** the fixture pairs pass; the guard reports no finding over
+  the tracked skills and doctrine; `mise run check` is green with it wired;
+  the guard catalog lists it.
+- **Dependencies:** none
+- **Citations:** D-13, D-19 · REQ-F1.7
+- **Estimated effort:** 1 day
+
 ### Task 13 — Backtest evaluation of the landed pass
 
 - **Deliverables:** one replay of the full default sample (the default
@@ -326,7 +416,7 @@ replays the backtest rows in the classes it targets before it lands (D-9).
   the baseline re-run on the current model and both recorded; every
   regressed class is carried as a gated Deferred follow-up (the PR body
   may also explain it).
-- **Dependencies:** Task 7, Task 8, Task 9, Task 10
+- **Dependencies:** 1.1, 7, 8, 9, 10
 - **Citations:** D-7, D-9 · REQ-H1.2, REQ-H1.3
 - **Estimated effort:** half day
 
@@ -343,7 +433,7 @@ replays the backtest rows in the classes it targets before it lands (D-9).
 - **Done when:** the window holds at least 15 such PRs; the results file
   carries both metrics and the verdict; a missed bar has its observation
   and follow-up; the Changelog entry exists; `mise run check` passes.
-- **Dependencies:** Task 13, Task 11, Task 12
+- **Dependencies:** 13, 11, 12
 - **Citations:** D-7 · REQ-H1.4
 - **Estimated effort:** half day
 
@@ -358,9 +448,31 @@ replays the backtest rows in the classes it targets before it lands (D-9).
 - **Done when:** the operator-local hygiene screen over the observation
   fragments reports no listed product name, its run recorded in the PR
   body; `mise run check:obs` and `mise run check` pass.
-- **Dependencies:** Task 1
+- **Dependencies:** 1
 - **Citations:** D-16 · REQ-E1.7
 - **Estimated effort:** half day
+
+### Task 15.1 — Observation hygiene: duplicate refusal and the fragment review step
+
+- **Deliverables:** `scripts/obs-record.sh` refusing a duplicate per
+  REQ-I1.1 (the same slug in scope, or the same test path together with the
+  same quoted string, read across live and archived fragments), naming the
+  match, with `--recurrence <uid>` as the escape and the
+  `recurrence of obs:<uid>:` text prefix it writes; its tests (a slug
+  match, a path-plus-quote match, a recurrence accepted, an unknown uid
+  refused, no match across scopes); `scripts/check-obs.sh` accepting the
+  prefix; the Observations step of `skills/self-review/SKILL.md` and
+  `skills/polish/SKILL.md` reviewing the pass's fragments with the spec lens
+  set before their commit and recording the dispositions in the audit
+  record, landed word-neutral per REQ-G1.3; the accumulator-taxonomy
+  doctrine's drain ritual naming the recurrence form.
+- **Done when:** Task 2 is merged on main; the recorder tests pass; both
+  skills' start-loads are no larger than before; a fixture pass over a
+  seeded duplicate fragment records the finding in its audit record;
+  `mise run check` passes.
+- **Dependencies:** 2
+- **Citations:** D-20 · REQ-G1.3, REQ-I1.1, REQ-I1.2
+- **Estimated effort:** 1 day
 
 ## Awaiting input
 

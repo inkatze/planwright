@@ -1,7 +1,7 @@
 # Review effectiveness — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-24
+**Last reviewed:** 2026-10-19
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -66,6 +66,18 @@ scripts are the mechanisms filling them (D-1, the altitude record).
 - Measurement: the baselines, a committed backtest corpus of fixed external
   findings with a replay harness and a refresh script, a tokens-per-pass
   metric, and a closeout window that judges Done.
+- Hermetic tests: a Tests-lens rule for tests whose outcome depends on the
+  host, a static guard over the recurring shapes, and a perturbed-environment
+  run of the suite in CI.
+- Guard-bypass review: a Security sub-lens for a change that touches a
+  guard, and guard-authoring rules in the guard catalog.
+- Procedure tracing in the spec lens set, and a mechanical check of every
+  script invocation in skill and doctrine prose against the script's usage
+  header.
+- Observation hygiene: duplicate refusal in the recorder, and a review of a
+  pass's own fragments before they are committed.
+- A corpus refresh to a second version from the external review threads
+  merged since the first version's cut.
 
 ### Out of scope
 
@@ -88,6 +100,10 @@ scripts are the mechanisms filling them (D-1, the altitude record).
   never named in a committed artifact.
 - Context engineering of the implementation phase itself; only the review
   pass's context is bounded here.
+- The hosted reviewer's request discipline, thread completion and vendor
+  tuning: the operator's review-skills bundle, outside this repository.
+- A ready-flip or merge precondition on an external review of the final
+  head (human-gates; obs:3d66ac61 stays live for it).
 
 ## REQ-A — Reviewer basics
 
@@ -176,6 +192,38 @@ scripts are the mechanisms filling them (D-1, the altitude record).
   run in an agent that did not produce the list, with the handoff bundle
   and the list as its only inputs.
   *(Cites: D-3.)*
+- **REQ-B1.9** When the change under review touches a guard (a hook, a
+  catalogued guard, or any code whose job is to allow, deny, defer or
+  refuse an input), the Security lens SHALL run a guard-bypass sweep
+  against the matched surface, trying at least: quoting and word-splitting
+  variants, case variants, glob and brace expansion, command carriers such
+  as `env -S` and `time`, a value assembled across shell segments, a path
+  alias (a hardlink, a copy, an extensionless or renamed name), comment and
+  heredoc delimiter boundaries, line continuations, and every shell the
+  guard models; the finding, or the `none` row's Notes, SHALL list the
+  spellings tried, and a sweep none of whose inputs could have failed is no
+  evidence (REQ-C1.4).
+  *(Cites: D-18, obs:3ed95276, obs:15a7fdcb, obs:d59a0763, obs:20e044ff,
+  obs:aaf2fd57, the external review audit (Sources).)*
+- **REQ-B1.10** The spec lens set SHALL include procedure tracing: an
+  ordered procedure (a skill's steps, a doctrine ritual, a runbook) is
+  walked as control flow through every branch and every stop or exit
+  condition, and each of these is a finding: a precondition stated after
+  the step that needs it; a resource (a lock, a registration, a baseline, a
+  fetched surface) acquired, refreshed or released out of order with its
+  first use; a completion or convergence declared before a read it depends
+  on; and a branch whose handling one passage names and another
+  contradicts.
+  *(Cites: D-19, the external review audit (Sources).)*
+- **REQ-B1.11** The Tests lens SHALL flag a test whose outcome depends on
+  the running host rather than on the code under test: a configuration or
+  root variable inherited from the caller that the suite neither pins nor
+  clears; a privilege assumption behind a mode-bit fixture (root or a
+  capability override reads what the mode forbids); the liveness of a
+  process the test itself reaped; the shape of the temporary directory
+  (relative, symlinked, or containing a space); locale or timezone; and a
+  tool or flag outside the repository's portability floor.
+  *(Cites: D-17, obs:609656e8, the external review audit (Sources).)*
 
 ## REQ-C — Validation
 
@@ -351,6 +399,42 @@ scripts are the mechanisms filling them (D-1, the altitude record).
   a constant compared to itself — and a corpus harness with a zero row
   floor SHALL fail the suite, enforced by a guard over the test surface.
   *(Cites: D-13, obs:e9f5cc37, obs:af6048cb, kickoff §8 (2026-09-24).)*
+- **REQ-F1.5** A test-hermeticity guard over the test surface SHALL fail:
+  a fixture that makes a path unreadable or unwritable by mode bits and
+  asserts a refusal without first probing that the access is denied to the
+  running user; a dead-owner fixture that reuses a PID the test spawned and
+  reaped, instead of a PID above the host's assignable range or a token
+  minted through the lock library; and a suite that reads a listed
+  configuration or root variable without sourcing the shared clearing
+  library; each shape with a true-positive and a true-negative fixture, the
+  guard entered in the guard catalog and wired under the repository's
+  check task.
+  *(Cites: D-13, D-17, the external review audit (Sources).)*
+- **REQ-F1.6** The repository's CI SHALL run the whole test suite once more
+  under a perturbed, legal environment — a decoy value in every
+  configuration and root variable the shared clearing library names,
+  pointing at a fixture whose use would change a result; a temporary
+  directory reached through a symlink and containing a space; a non-C
+  locale and a non-UTC timezone; and the root user — and that run SHALL
+  pass with the same verdicts as the plain run; a case that cannot run
+  under a perturbation skips by name with its reason, never silently.
+  *(Cites: D-17, obs:609656e8, obs:20e044ff.)*
+- **REQ-F1.7** A guard over skill and doctrine prose SHALL check every
+  invocation of a repository script (an inline code span or fenced line
+  naming a path under `scripts/`) against that script's usage header: the
+  subcommand SHALL be one the header lists, every flag SHALL be one it
+  accepts, and every argument it marks required SHALL be supplied or stand
+  as an angle-bracket placeholder; a script invoked from prose without a
+  parseable usage header fails the guard.
+  *(Cites: D-19, the external review audit (Sources).)*
+- **REQ-F1.8** The guard catalog SHALL state two guard-authoring rules: a
+  guard that matches identifiers an external system owns establishes that
+  system's case and normalization semantics first and normalizes both the
+  match and every exemption; and a guard never decides a blessing or a
+  refusal from text the target system does not execute (a string, a
+  comment, a continuation), so a screen with no tokenizer still skips those
+  contexts.
+  *(Cites: D-18, obs:b6c6fedb, obs:15a7fdcb.)*
 
 ## REQ-G — Skill diet
 
@@ -425,6 +509,31 @@ scripts are the mechanisms filling them (D-1, the altitude record).
   and a gated follow-up, and does not hold Done; Done derives only when the
   record exists.
   *(Cites: D-7, the invocation (Sources), kickoff §8 (2026-09-24).)*
+- **REQ-H1.5** The corpus SHALL be refreshed to a second version from the
+  external review threads merged since the first version's cut, each new
+  row's miss reason assigned under D-8's tokens by the operator-local
+  annotator, and Task 13's replay SHALL run against that version; the
+  audit's own thread dispositions are never committed, only the rows the
+  refresh derives.
+  *(Cites: D-7, D-16, drafting-session decision (2026-10-19), the external
+  review audit (Sources).)*
+
+## REQ-I — Observation hygiene
+
+- **REQ-I1.1** The observation recorder SHALL refuse a fragment that
+  duplicates a live or archived fragment of the same scope (the same slug,
+  or the same test path together with the same quoted string) unless the
+  call names the prior fragment with `--recurrence <uid>`, in which case
+  the new fragment's text SHALL open with `recurrence of obs:<uid>:`; the
+  refusal names the matching fragment.
+  *(Cites: D-20, the external review audit (Sources).)*
+- **REQ-I1.2** Before a convergence pass commits the fragments it recorded,
+  it SHALL review them with the spec lens set (each quoted message, named
+  test, figure and attribution read against its source, as REQ-B1.2 reads
+  a claim against code; duplication; ambiguity) and disposition every
+  finding in the audit record; a fragment the review falsifies is
+  corrected or withdrawn, never committed as written.
+  *(Cites: D-20, REQ-B1.2, the external review audit (Sources).)*
 
 ## Changelog
 
@@ -461,6 +570,15 @@ scripts are the mechanisms filling them (D-1, the altitude record).
   isolated-clone reproduction; the declined class replayed with a seeded
   dismissal; the no-targeted-class-drops replay gate; corpus versions and
   the product-name screen; the miss grammar keyed on PR and path.
+- 2026-10-19 — Extension, meaning-class, Draft content pending a
+  `/spec-kickoff` delta re-walkthrough: the external review audit (Sources)
+  found five classes still leaking past the signed scope. New REQ-B1.9 to
+  REQ-B1.11, REQ-F1.5 to REQ-F1.8, REQ-H1.5 and the group REQ-I; decisions
+  D-17 to D-20; Tasks 1.1, 3.1, 11.1, 12.1 and 15.1, with Task 13 now
+  depending on Task 1.1; the scope lists gain the five items and the two
+  routings away. Expression-only in the same change: every task's
+  `Dependencies:` field written as bare task ids, which the status render
+  reads; the `Task <n>` spelling it carried was reported malformed.
 
 ## Sources
 
@@ -572,3 +690,31 @@ scripts are the mechanisms filling them (D-1, the altitude record).
   three-pass scoping but say nothing about the adversarial pass.
 - **proportionality** — `doctrine/proportionality.md`: rigor scales with
   stake and reversibility, and every scoping is declared.
+- **The external review audit** (2026-10-13) — a read of every thread the
+  bot reviewer posted on this repository's and the operator's dotfiles
+  repository's pull requests over the eleven days after the first corpus
+  version's cut, with the operator's disposition per thread and the request
+  timeline per PR; its datasets stayed in the drafting session's
+  scratchpad and are not committed (D-16). The classes it found still
+  leaking after the signed scope: tests whose outcome depends on the host;
+  prose procedures with step-order and precondition defects; guards with
+  evasion spellings; observation fragments duplicated or falsified; and
+  twin sites left unswept. Pinned altitude claim from its invocation: what
+  to improve about "our own review skills" so that external review churns
+  less, a statement about the passes as a class, resolved under D-1.
+- **The extension invocation** (2026-10-19) — the operator's ask for a
+  spec covering every detail the audit found; fold-detection placed the
+  planwright half here and the hosted-reviewer drain half in the operator's
+  review-skills bundle.
+- **The operator's review-skills bundle** — the dotfiles bundle that owns
+  the hosted-reviewer drain and its request discipline; it receives the
+  items this extension routes away.
+- **human-gates** (Ready) — the owner of the ready-flip preconditions;
+  obs:3d66ac61 (a worker handing off before the bot's review of its final
+  head lands) stays live for it.
+- **obs:d59a0763**, **obs:20e044ff**, **obs:b6c6fedb**, **obs:aaf2fd57**,
+  **obs:609656e8** — guard-bypass and hermeticity evidence: a shell-text
+  guard's tokenizer blind spots, a second shell modelled but never tested,
+  case-insensitive matching surfaces defeating case-sensitive guards, the
+  adversarial shell lens asked for at drafting, and a symlinked temporary
+  root failing tests on one platform only.
