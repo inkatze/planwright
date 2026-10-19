@@ -67,11 +67,12 @@
 # parsed field, before it is printed.
 #
 # Exit: 0 success · 1 findings (check-seat, check-synthesis, or an input that
-#   fails them), an unknown or unusable card, or a step that runs only once
-#   asked again · 2 usage or environment error (a missing frame, run file, or
+#   fails them), an unknown or unusable card, a step that runs only once
+#   asked again, or a prompt asked again while its delivery waits to be
+#   collected · 2 usage or environment error (a missing frame, run file, or
 #   helper; a refused path; a busy bundle lock) · 3 the validator refuses the
-#   bundle (passed through) · 4 a delivery is still pending (collect, or an
-#   amendment attribute waits for) · 5 a write-once run file (roster.tsv,
+#   bundle (passed through) · 4 a delivery is still pending (collect, or a
+#   challenge or amendment attribute waits for) · 5 a write-once run file (roster.tsv,
 #   labels.tsv, synthesis-input.md, table.md, or a carried or collected
 #   document) already exists.
 #
@@ -165,7 +166,9 @@ drop_pending=
 recording_mark=
 cleanup() {
   [ -z "$tmp_path" ] || rm -rf "$tmp_path"
-  if [ -n "$stage_dir" ]; then
+  # The marker goes only while the staged record has not moved: once it has,
+  # the marker is what lets a re-run finish the record instead of repeating it.
+  if [ -n "$stage_dir" ] && [ -d "$stage_dir" ]; then
     rm -rf "$stage_dir"
     [ -z "$recording_mark" ] || rm -f "$recording_mark"
   fi
@@ -212,14 +215,14 @@ strip_controls() {
 # string leaves the rest of the prompt inside the document's code block.
 AWK_EMBED='
 BEGIN { print "<data name=\"" NAME "\">" }
-function data_line(s,   t, at) {
+function data_line(s,   t, pre) {
   gsub(/</, "\\&lt;", s)
   t = s; sub(/^ ? ? ?/, "", t)
-  # A heading may also open inside a quote or a list item.
-  if (match(t, /^((> ?)|([-*+] +)|([0-9]+[.)] +))*#/)) {
-    at = RSTART + RLENGTH - 1
-    s = substr(t, 1, at - 1) "##" substr(t, at)
-  } else if (t ~ /^(```|~~~|=+[ \t]*$|-+[ \t]*$)/) s = "\\" t
+  # A heading, fence, or underline may also open inside a quote or a list item.
+  pre = ""
+  if (match(t, /^((>[ \t]*)|([-*+][ \t]+)|([0-9]+[.)][ \t]+))+/)) { pre = substr(t, 1, RLENGTH); t = substr(t, RLENGTH + 1) }
+  if (t ~ /^#/) s = pre "##" t
+  else if (t ~ /^(```|~~~|=+[ \t]*$|-+[ \t]*$)/) s = pre "\\" t
   print s
 }
 END { print "</data>" }
@@ -859,7 +862,6 @@ take_flags() {
 # written into is kept, and named, for the operator. The record is written only
 # once the prompt is out, so a failed prompt leaves nothing to collect.
 drop_path=
-drop_path=
 old_drop=
 prepare_drop() {
   [ -n "$deliver_file" ] || return 0
@@ -1020,8 +1022,8 @@ cmd_brief() {
   rc_rc=0
   path=$(resolve_card "$card") || rc_rc=$?
   [ "$rc_rc" -eq 0 ] || die 1 "no usable card for '$card' (see above)"
-  load_card_paths || die 2 "cannot read the seats' cards for their escalation contracts"
   if [ -n "$retry" ]; then
+    load_card_paths || die 2 "cannot read the seats' cards for their escalation contracts"
     check_retry "$seat.md" "$seat artifact" seat_findings
   elif run_has "$seat-attempt-1.md"; then
     die 1 "$seat has already been re-run once; stop for the operator"
@@ -1193,7 +1195,7 @@ function redact(s,   k, at, out) {
 }
 { sub(/\r$/, ""); $0 = strip($0) }
 # A leading H1 is the seat titling its own artifact, which often names it.
-!body && /^# / { body = 1; next }
+!body && /^# / { body = 1; if (!KEEP_H1) next }
 !body && /[^ \t]/ { body = 1 }
 { data_line(redact($0)) }
 '
@@ -1404,7 +1406,7 @@ retry_note() {
   printf '\n## The previous answer failed its check\n\nFix these findings and deliver the whole corrected %s.\n\n' "$2"
   synthesis_findings "$1" | embed findings /dev/stdin
   printf '\nThe previous answer:\n\n'
-  TERMS=$(identity_terms) awk -v NAME="previous answer" "$AWK_LIB$AWK_EMBED$AWK_REDACT" "$1"
+  TERMS=$(identity_terms) awk -v NAME="previous answer" -v KEEP_H1=1 "$AWK_LIB$AWK_EMBED$AWK_REDACT" "$1"
 }
 
 synthesis_doc() {
@@ -1433,14 +1435,14 @@ EOF
 
 # check_retry <file> <noun> <check>: the one re-ask of a failed answer is
 # still open, and the answer fails its check.
-# A re-ask whose delivery never arrived (its drop still recorded, no new answer)
-# may be issued again from the set-aside answer; that is not a second re-ask.
-# Sets retry_src to the failed answer the re-ask carries.
+# A re-ask that never brought an answer may be issued again from the set-aside
+# answer; that is not a second re-ask. Sets retry_src to the failed answer the
+# re-ask carries.
 retry_src=
 check_retry() {
   cr_attempt="${1%.md}-attempt-1.md"
   if run_has "$cr_attempt"; then
-    if ! run_has "$1" && run_has "drop-${1%.md}"; then
+    if ! run_has "$1"; then
       need_run_file "$cr_attempt"
       retry_src="$run/$cr_attempt"
       return 0
@@ -1463,7 +1465,13 @@ commit_retry() {
   # ask's drop record would otherwise read as a re-ask still out.
   if [ -z "$deliver_file" ] && run_has "drop-${1%.md}"; then
     cr_old=$(strip_controls <"$run/drop-${1%.md}")
-    case $cr_old in /*) [ ! -d "$cr_old" ] || [ -h "$cr_old" ] || rmdir "$cr_old" 2>/dev/null ;; esac
+    case $cr_old in
+      /*)
+        if [ -d "$cr_old" ] && [ ! -h "$cr_old" ] && ! rmdir "$cr_old" 2>/dev/null; then
+          printf 'inception-fanout: the earlier drop for %s is not empty; kept at %s\n' "$1" "$cr_old" >&2
+        fi
+        ;;
+    esac
     rm -f "${run:?}/drop-${1%.md}"
   fi
 }
@@ -1752,7 +1760,8 @@ cmd_record() {
     return 0
   fi
   # A record interrupted after its move but before its marker is finished, not
-  # recorded a second time.
+  # recorded a second time; a marker naming a record that is not this run's is
+  # dropped and the run recorded afresh.
   if [ -f "$run/recording" ]; then
     rg_dest=$(strip_controls <"$run/recording")
     case ${rg_dest#fanout/} in

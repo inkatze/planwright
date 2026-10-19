@@ -117,6 +117,11 @@ reuse its literal path in every call.
    seat is re-run once from `brief --retry`, which appends the findings and
    sets the failed artifact aside; if it fails again, stop the fan-out and
    offer the operator a re-run or a zero-seat finish.
+
+   A re-ask (a seat's, the synthesis's, or the amendment's) that never
+   brought an answer is issued again with the same `--retry`; one whose new
+   answer fails as well stops. Any prompt refuses while a delivery for it
+   waits in its drop: `collect` it instead.
 6. **Synthesize.** `anonymize` writes the label map and the blind input.
    Launch one fresh persona-free session from `synthesis-brief` (on the same
    rung; `--deliver-file` where the session hands nothing back), save or
@@ -130,11 +135,11 @@ reuse its literal path in every call.
 8. **Amend once.** The synthesis writer (resumed, or a fresh session) answers
    the challenge from `amend-brief`; save or `collect` `amended.md` and
    re-check it. A failing amendment is re-asked once with
-   `amend-brief --retry`; there is no second amendment. A re-ask whose
-   session never delivered is issued again with the same `--retry`.
+   `amend-brief --retry`; there is no second amendment.
 9. **Attribute.** `attribute` writes `table.md`: the amended synthesis with each
-   table label followed by its seat. Once a challenge has run, it waits for
-   the amendment rather than falling back to the first synthesis.
+   table label followed by its seat. Once a challenge is issued, it waits for
+   the challenge and then the amendment (exit 4 while one is still out)
+   rather than falling back to the first synthesis.
 10. **Gate 2, in the main conversation.** Present `table.md` for a silent read
     first. Then run `gate2`. Each `choice` line is an escalated item: put it to
     the operator as a structured forced choice whose options are the human
