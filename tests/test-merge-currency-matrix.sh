@@ -298,6 +298,7 @@ for knob in conflict-only refuse; do
   assert_cell "knob-$knob-behind/bash" "bash: $knob, a conflict-free behind PR"
   assert_no_sentinels "bash: $knob, the knob read invoked no git/curl/wget/claude"
   if [ "$knob" = refuse ]; then
+    assert_reason_matches "bash: the refuse denial names the staleness" 'commit\(s\) behind'
     assert_reason_lacks "bash: the refuse denial does not name the knob" 'ready_guard_behind_base|conflict-only'
   fi
   reset_stub_env

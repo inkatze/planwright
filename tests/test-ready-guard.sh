@@ -982,6 +982,7 @@ cd "$REPO_ROOT" || exit 1
 rm -f "$BIN/git"
 cp "$SANDBOX/git.sentinel" "$BIN/git"
 assert_deny_because "repo-tracked and machine-local conflict-only do not relax the guard" '7 commit'
+assert_no_sentinels "repo-tracked and machine-local conflict-only: no curl/wget/claude ran"
 if [ -s "$GIT_LOG" ]; then
   fail "the repo-side case ran git: $(cat "$GIT_LOG")"
 else
