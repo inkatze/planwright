@@ -616,11 +616,12 @@ case "$cmd" in
         --json state,headRefOid \
         --template '{{.state}} {{.headRefOid}}' 2>/dev/null) || pr_rc=$?
       [ "$pr_rc" = 0 ] || pr_pair=""
-      # 124 is timeout's own "the command did not finish" status. Distinguishing
+      # 124 is GNU timeout's own "the command did not finish" status, 143
+      # (TERM's) busybox's. Distinguishing
       # it matters operationally: a stalled forge should read as a stall an
       # operator can act on, not as an unreadable answer that looks like a
       # malformed reply. Either way it refuses — this only sharpens the message.
-      if [ "$pr_rc" = 124 ]; then
+      if [ "$pr_rc" = 124 ] || [ "$pr_rc" = 143 ]; then
         warn "--merged-pr $merged_pr: the gh query did not finish within ${gh_t}s — refusing (fail closed)"
         exit 5
       fi

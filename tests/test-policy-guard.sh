@@ -533,7 +533,7 @@ clone_on "$SLOW" planwright/demo/task-1 1
 gitq -C "$SLOW" remote set-url origin 'ssh://example.invalid/x.git'
 GIT_SSH_COMMAND='sleep 5; :' PLANWRIGHT_POLICY_GUARD_FETCH_TIMEOUT=1 pg worker 'git commit --amend --no-edit' "$SLOW" "$SLOW"
 expect deny "[worker] an upstream refresh past its bound denies the rewrite"
-reason_has 'exit 124' "the refresh-timeout deny reports the timeout's exit"
+reason_has 'exit 1(24|43)' "the refresh-timeout deny reports the timeout's exit"
 STUB_SLEEP=3 PG_TIMEOUT=1 pg worker 'gh pr ready 42'
 expect deny "[worker] a policy read past the wall-clock bound denies"
 reason_has 'timeout' "the timeout deny names the timeout"

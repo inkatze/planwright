@@ -995,7 +995,7 @@ evaluate_predicate() {
   behind=$("$RG_TIMEOUT_BIN" "$RG_GH_T" gh api \
     "repos/$owner/$repo/compare/$base...$head_oid?per_page=1" \
     --jq '.behind_by' 2>/dev/null) || rc=$?
-  if [ "$rc" = 124 ]; then
+  if [ "$rc" = 124 ] || [ "$rc" = 143 ]; then
     emit_deny "the GitHub compare query did not finish within ${RG_GH_T}s, so this pull request's currency with its base branch could not be confirmed - refusing (fail closed). Wait and retry."
   fi
   [ "$rc" = 0 ] \
@@ -1071,7 +1071,7 @@ read_view_fields() {
 # check_view_rc — map the query's exit status onto a denial, distinguishing a
 # timeout from an error so the operator sees a stall as a stall (REQ-K1.1).
 check_view_rc() {
-  if [ "$GH_VIEW_RC" = 124 ]; then
+  if [ "$GH_VIEW_RC" = 124 ] || [ "$GH_VIEW_RC" = 143 ]; then
     emit_deny "the GitHub query for this pull request did not finish within ${RG_GH_T}s, so its currency and mergeability could not be confirmed - refusing (fail closed). Wait and retry."
   fi
   [ "$GH_VIEW_RC" = 0 ] \

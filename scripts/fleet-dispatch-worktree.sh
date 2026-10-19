@@ -1704,7 +1704,7 @@ MERR
   parse_created "$LAUNCH_OUT" "$_session" || _death_parsed=0
   _ns_err=$(head -c 2048 "$LAUNCH_ERR" 2>/dev/null)
   if [ "$_ns_rc" -ne 0 ]; then
-    if [ "$_ns_rc" -eq 124 ]; then
+    if [ "$_ns_rc" -eq 124 ] || [ "$_ns_rc" -eq 143 ]; then
       _ns_why="did not return within ${TMUX_CALL_BOUND}s and was ended"
     else
       _ns_why="failed (exit $_ns_rc): ${_ns_err:-no message}"
