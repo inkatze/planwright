@@ -181,14 +181,27 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
     sub(/\r$/, "", line)
     n = split(line, w, /[ \t]+/)
     for (i = 1; i <= n; i++) {
-      # An sh command word: the token, unquoted, ends in sh, preceded by
-      # nothing, a path ending in /, or punctuation that opens a command.
+      # An sh command word: the token, unquoted and cut at a redirect glued
+      # to it, ends in sh, preceded by nothing, any path ending in /, or
+      # punctuation that opens a command.
       cw = w[i]
       gsub(/[\042\047]/, "", cw)
-      if (cw !~ /(^|[^A-Za-z0-9_.\/-])((\/[A-Za-z0-9_.-]+)*\/)?sh$/) continue
+      rd = ""
+      if (match(cw, /sh[0-9]*[<>]/)) {
+        rd = substr(cw, RSTART + 2)
+        cw = substr(cw, 1, RSTART + 1)
+      }
+      if (cw !~ /(^|[^A-Za-z0-9_.-])([^ \t]*\/)?sh$/) continue
       skip = 0
       op = ""
-      for (j = i + 1; j <= n; j++) {
+      j = i + 1
+      if (rd ~ /^</ && rd ~ /scripts\//) {
+        op = rd
+        j = n + 1
+      } else if (rd ~ /^[0-9]*[<>]+$/) {
+        if (!(rd == "<" && j <= n && w[j] ~ /scripts\//)) j++
+      }
+      for (; j <= n; j++) {
         a = w[j]
         if (a == "--" || a == "-") continue
         # `sh < scripts/x.sh` reads the script on stdin; `sh < in x.sh` runs x.sh.

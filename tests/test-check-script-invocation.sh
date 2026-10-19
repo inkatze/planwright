@@ -133,6 +133,12 @@ for form in \
   'Run `sh > /dev/null scripts/bash-tool.sh`.' \
   'Run `sh 2> /dev/null scripts/bash-tool.sh`.' \
   'Run `sh < /dev/null scripts/bash-tool.sh`.' \
+  'Run `sh</dev/null scripts/bash-tool.sh`.' \
+  'Run `sh>/dev/null scripts/bash-tool.sh`.' \
+  'Run `sh< /dev/null scripts/bash-tool.sh`.' \
+  'Run `sh<scripts/bash-tool.sh`.' \
+  'Run `./sh scripts/bash-tool.sh`.' \
+  'Run `bin/sh scripts/bash-tool.sh`.' \
   'Run `bash -c "sh scripts/bash-tool.sh"`.'; do
   variant form "$form"
   out="$("$CHECKER" --repo-root "$tmp/form" 2>&1)"
@@ -151,7 +157,9 @@ for form in \
   'Run `sh scripts/missing-tool.sh` (no such script).' \
   'Say sh, then scripts/bash-tool.sh, in prose.' \
   'Run `sh tests/fixtures/other/bash-tool.sh` (not under scripts/).' \
-  'Run `bashful scripts/bash-tool.sh` or `ssh scripts/bash-tool.sh`.'; do
+  'Run `bashful scripts/bash-tool.sh` or `ssh scripts/bash-tool.sh`.' \
+  'Run `fish scripts/bash-tool.sh` or `scripts/fish scripts/bash-tool.sh`.' \
+  'Run `scripts/posix-tool.sh scripts/bash-tool.sh`.'; do
   variant form "$form"
   out="$("$CHECKER" --repo-root "$tmp/form" 2>&1)"
   assert "not flagged: $form" 0 $?
