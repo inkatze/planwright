@@ -21,12 +21,16 @@
 #
 # THE COPY. Each record runs in its own fresh isolated copy of the committed
 # head (or --head): a shared clone in a temporary directory with its remote
-# removed, the command's home, XDG directories, and machine-local state home
-# (CLAUDE_PLUGIN_DATA) redirected into it, removed on exit. Never the live
-# worktree, whose uncommitted edits do not reach the copy. The copy isolates
-# the repository, not the host: a command naming an absolute path outside it
-# still reaches that path. The reviewing session's own home and credentials
-# are untouched, and none are copied in.
+# removed, removed on exit. Never the live worktree, whose uncommitted edits
+# do not reach the copy. The command starts from an empty environment holding
+# only PATH, LC_ALL, TERM, and a home, XDG directories, TMPDIR, fleet home
+# (PLANWRIGHT_FLEET_STATE_DIR), plugin-data home (CLAUDE_PLUGIN_DATA), and
+# CLAUDE_DIR inside the copy's directory, with system and global git
+# configuration off; no credential or token variable reaches it. Where
+# setsid(1) exists the command runs in its own session, and anything it left
+# running is killed when it returns. The copy isolates the repository and the
+# environment, not the host: a command naming an absolute path outside it
+# still reaches that path.
 #
 # Prints `held <id> <kind>` or `regressed <id> <kind> <why>` per record; with
 # --log-dir, each record's output is kept there as <id>.log, the evidence an
@@ -50,6 +54,10 @@ set -eu
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# A git hook exports these, and every git command below must act on the
+# repository it names, never the one they point at.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
+  GIT_COMMON_DIR GIT_NAMESPACE GIT_PREFIX
 
 prog=review-reverify
 TAB=$(printf '\t')
@@ -156,6 +164,8 @@ head=$(git rev-parse --verify --quiet "$head_rev^{commit}") || die 2 "--head nam
 
 runner=
 if command -v timeout >/dev/null 2>&1; then runner="timeout -k 10 $timeout_s"; fi
+session=
+if command -v setsid >/dev/null 2>&1; then session=setsid; fi
 
 # A record may leave read-only files in its copy (a module cache, a chmod);
 # removal makes them writable first, and a cleanup failure is never a verdict.
@@ -163,8 +173,14 @@ scrub() {
   chmod -R u+w "$1" 2>/dev/null || true
   rm -rf "$1" 2>/dev/null || true
 }
+# reap <pid> — end what a record left running in its session.
+grp=
+reap() {
+  [ -n "$1" ] && [ -n "$session" ] || return 0
+  kill -9 "-$1" 2>/dev/null || true
+}
 work=$(mktemp -d "${TMPDIR:-/tmp}/review-reverify.XXXXXX") || die 4 "could not create a working directory"
-trap 'scrub "$work"' EXIT
+trap 'reap "$grp"; scrub "$work"' EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -175,20 +191,26 @@ printf '%s\n' "$parsed" | grep '^R' >"$work/runs"
 printf '%s\n' "$parsed" | grep -v '^R' >"$work/expect" || true
 while IFS="$TAB" read -r _ id kind code run; do
   c=$work/r/$id
-  mkdir -p "$c/home" "$c/state"
+  mkdir -p "$c/home" "$c/state" "$c/tmp"
   {
     git clone -q --shared --no-checkout "$top" "$c/copy" \
       && git -C "$c/copy" checkout -q --detach "$head" \
       && git -C "$c/copy" remote remove origin
   } >/dev/null 2>&1 </dev/null || die 4 "could not set up an isolated copy of $head for finding $id"
   rc=0
-  (
-    unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
-    cd "$c/copy"
-    HOME=$c/home XDG_CONFIG_HOME=$c/home/.config XDG_STATE_HOME=$c/home/.local/state \
-      XDG_CACHE_HOME=$c/home/.cache XDG_DATA_HOME=$c/home/.local/share CLAUDE_PLUGIN_DATA=$c/state \
-      $runner sh -c "$run"
-  ) >"$c/out" 2>&1 </dev/null || rc=$?
+  # With job control off, a background child is not a group leader, so setsid
+  # runs the command in place and its pid names the new session's group.
+  # shellcheck disable=SC2086 # $session and $runner are command words or empty
+  (cd "$c/copy" && exec env -i PATH="$PATH" LC_ALL=C ${TERM:+TERM="$TERM"} \
+    HOME="$c/home" XDG_CONFIG_HOME="$c/home/.config" XDG_STATE_HOME="$c/home/.local/state" \
+    XDG_CACHE_HOME="$c/home/.cache" XDG_DATA_HOME="$c/home/.local/share" TMPDIR="$c/tmp" \
+    CLAUDE_PLUGIN_DATA="$c/state" PLANWRIGHT_FLEET_STATE_DIR="$c/state/fleet" \
+    CLAUDE_DIR="$c/home/.claude" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+    $session $runner sh -c "$run") >"$c/out" 2>&1 </dev/null &
+  grp=$!
+  wait "$grp" || rc=$?
+  reap "$grp"
+  grp=
   why=
   [ "$rc" -eq "$code" ] || why="exit $rc, expected $code"
   while IFS="$TAB" read -r op eid text; do
