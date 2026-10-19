@@ -437,9 +437,6 @@ git -C "$v" -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=fal
 gitrun --spec bundles/demo --rows
 check_eq "an ignored, untracked input fails closed too" 5 "$rc"
 
-ln -s "$v/legacy.tsv" "$tmp/link.tsv"
-gitrun --spec bundles/demo --legacy "$tmp/link.tsv" --rows
-check_eq "an input reached through a file symlink fails closed" 5 "$rc"
 # Pathspec magic in a path is literal: a dirty sibling a glob would match
 # does not taint a clean input.
 mkdir -p "$v/in*" "$v/inx"
@@ -452,6 +449,10 @@ git -C "$v" -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=fal
 printf '# dirty\n' >>"$v/inx/legacy.tsv"
 gitrun --spec bundles/demo --legacy 'in*/legacy.tsv' --rows
 check_eq "a glob character in an input path matches nothing else" 0 "$rc"
+ln -s "$v/legacy.tsv" "$tmp/link.tsv"
+gitrun --spec bundles/demo --legacy "$tmp/link.tsv" --rows
+check_eq "an input reached through a file symlink fails closed" 5 "$rc"
+check_has "the symlink is the reason" "$out" "is a symlink"
 
 out=$(cd "$tmp" && "$SA" --obs-dir --repo-root "$REPO_ROOT")
 check_eq "--repo-root resolves the default bundle from that repository" \
