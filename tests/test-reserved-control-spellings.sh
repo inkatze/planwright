@@ -136,7 +136,7 @@ EOF
   fi
   if { [ "$RC_ACT" = redraft-helper ] && [ "$RC_POLICY" != admitted ]; } \
     || { [ "$RC_ACT" != redraft-helper ] && [ "$RC_POLICY" = admitted ]; }; then
-    RC_ERR="admitted is the redraft-helper's policy, and only its"
+    RC_ERR="a redraft-helper line takes the admitted policy, and no other act's line may"
     return 1
   fi
   for v in $q $r $wg $tg $pg; do
