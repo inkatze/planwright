@@ -636,6 +636,7 @@ cmd_send() {
   fi
   # Compared, not just run: musl's iconv drops invalid bytes and exits 0, but
   # no iconv can round-trip them, so valid text is exactly what comes back.
+  # shellcheck disable=SC2094 # both ends only read the file
   iconv -f UTF-8 -t UTF-8 <"$sd_file" 2>/dev/null | cmp -s - "$sd_file" \
     || die_usage "send: the message file is not UTF-8 text"
 

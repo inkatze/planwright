@@ -246,6 +246,7 @@ owner_uid() {
       ;;
   esac
   [ -n "$_ou" ] || return 0
+  # shellcheck disable=SC2012 # one pid directory, and the numeric owner is all that is read
   ls -ldn "/proc/$owner" 2>/dev/null | awk '{ print $3 }'
 }
 # owner_check — 0 the owner runs as the running user, or the running uid is
