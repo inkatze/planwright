@@ -104,6 +104,15 @@ line_count() {
   fi
 }
 
+# rewind_marker — set this session's marker one second into the past and keep
+# that value in m_before. The marker holds whole seconds, so without the rewind
+# a write landing in the same second as the value it replaces is invisible,
+# both to a case that wants the marker to move and to one that wants it not to.
+rewind_marker() {
+  m_before=$(($(date +%s) - 1))
+  printf '%s\n' "$m_before" >"$marker_dir/$sid"
+}
+
 marker_value() { # marker_value [<session-id>]
   _m="$marker_dir/${1:-$sid}"
   if [ -f "$_m" ]; then
@@ -199,10 +208,10 @@ echo "ok: the marker directory and file are owner-only"
 
 # A second reply advances the marker and appends a second line in sequence,
 # carrying the payload's prompt id.
-sleep 1
+rewind_marker
 run_hook "$(payload "$sid" "$co" "second reply" "$pid_uuid")"
 m2=$(marker_value)
-later_than "$m2" "$m1" || fail "second reply: marker did not advance ($m1 -> $m2)"
+later_than "$m2" "$m_before" || fail "second reply: marker did not advance ($m_before -> $m2)"
 [ "$(line_count "$log_file")" = 2 ] || fail "second reply: $(line_count "$log_file") log lines, expected 2"
 seqs=$(awk -F'"seq":' '{ split($2, a, ","); print a[1] }' "$log_file" | tr '\n' ' ')
 [ "$seqs" = "1 2 " ] || fail "second reply: sequence is '$seqs', expected '1 2 '"
@@ -215,7 +224,6 @@ echo "ok: each reply advances the marker and lands in sequence with its prompt i
 # Thirty-six bytes in the UUID's shape are not a UUID unless 32 hex characters
 # remain once the separators are removed, the grammar fleet-presence.sh reads.
 dashy="0$(printf '%035d' 0 | tr 0 -)"
-sleep 1
 run_hook "$(payload "$sid" "$co" "third reply" "$dashy")"
 [ "$rc" = 0 ] || fail "dash-heavy prompt id: exit $rc"
 case "$(tail -n 1 "$log_file")" in
@@ -258,9 +266,8 @@ echo "ok: a composite-identity presence record does not gate the hook in"
 
 # The gate is repository-scoped: this session's record on one repository does
 # not gate a prompt submitted from a checkout of another.
-m_before=$(marker_value)
+rewind_marker
 before=$(line_count "$log_file")
-sleep 1
 run_hook "$(payload "$sid" "$co2" "prompt from another repository")"
 [ "$rc" = 0 ] || fail "other repository: exit $rc"
 [ "$(line_count "$log_file")" = "$before" ] || fail "other repository: a reply was logged"
@@ -274,8 +281,7 @@ echo "ok: the gate is scoped to the repository the tower published on"
 # log call would not.
 printf 'tower_hook_lock_wait: 30s\n' >"$local_cfg"
 PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$FS" lock || fail "could not take the fleet lock for the ordering case"
-sleep 1
-m_before=$(marker_value)
+rewind_marker
 printf '%s' "$(payload "$sid" "$co" "reply while the lock is held")" \
   | with_env /bin/sh "$HOOK" >"$tmp/out" 2>"$tmp/err" &
 hook_pid=$!
@@ -298,9 +304,8 @@ echo "ok: the marker advances before the hook waits for the lock"
 
 printf 'tower_hook_lock_wait: 200ms\n' >"$local_cfg"
 PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$FS" lock || fail "could not take the fleet lock for the saturation case"
-sleep 1
 before=$(line_count "$log_file")
-m_before=$(marker_value)
+rewind_marker
 start=$(date +%s)
 run_hook "$(payload "$sid" "$co" "reply under a busy lock")"
 end=$(date +%s)
@@ -376,8 +381,7 @@ echo "ok: a JSON-shaped or empty prompt is logged as a reply with its text omitt
 # --- refused inputs: nothing written, always exit 0 ----------------------------
 
 before=$(line_count "$log_file")
-m_before=$(marker_value)
-sleep 1
+rewind_marker
 run_hook '{"not":"json"'
 [ "$rc" = 0 ] || fail "malformed payload: exit $rc, expected 0"
 run_hook "$(payload "not-a-uuid" "$co" "x")"
@@ -421,8 +425,7 @@ echo "ok: an oversize payload is drained rather than left to break the writer"
 
 # A widened marker directory is refused, never narrowed, and the reply says so.
 chmod 0755 "$marker_dir"
-m_before=$(marker_value)
-sleep 1
+rewind_marker
 run_hook "$(payload "$sid" "$co" "after widening")"
 [ "$rc" = 0 ] || fail "widened dir: exit $rc, expected 0"
 [ "$(marker_value)" = "$m_before" ] || fail "widened dir: the marker was written through a widened directory"
@@ -445,9 +448,8 @@ echo "ok: a widened marker directory is refused with a reason, and the reply lin
 # at, even when it points at the sound one: the redirect is the finding.
 home_link="$tmp/home-link"
 ln -s "$home" "$home_link"
-m_before=$(marker_value)
+rewind_marker
 l_before=$(line_count "$log_file")
-sleep 1
 rc=0
 printf '%s' "$(payload "$sid" "$co" "through a redirected home")" \
   | PLANWRIGHT_FLEET_STATE_DIR="$home_link" \
@@ -490,9 +492,8 @@ for case_name in foreign-owner not-a-directory; do
     foreign-owner) shim_home_mode "drwx------ 1 99999 99999" ;;
     not-a-directory) shim_home_mode "-rw------- 1 $(id -u) $(id -u)" ;;
   esac
-  m_before=$(marker_value)
+  rewind_marker
   l_before=$(line_count "$log_file")
-  sleep 1
   rc=0
   printf '%s' "$(payload "$sid" "$co" "home is $case_name")" \
     | PATH="$home_shim:$PATH" with_env /bin/sh "$HOOK" >"$tmp/out" 2>"$tmp/err" || rc=$?
@@ -515,9 +516,8 @@ echo "ok: a foreign-owned home and a non-directory home leave no marker and no r
 # every such home, so the 0755 half is the half that catches over-narrowing.
 home_mode=$(stat -c '%a' "$home" 2>/dev/null || stat -f '%Lp' "$home")
 chmod 0770 "$home"
-m_before=$(marker_value)
+rewind_marker
 l_before=$(line_count "$log_file")
-sleep 1
 run_hook "$(payload "$sid" "$co" "the home went group-writable")"
 [ "$rc" = 0 ] || fail "group-writable home: exit $rc, expected 0"
 [ ! -s "$tmp/out" ] || fail "group-writable home: the hook printed to stdout"
@@ -528,7 +528,6 @@ grep -q 'tower-reply-hook: security: the fleet home .* is writable beyond its ow
   || fail "group-writable home: a reply line was written into a home the hook refused: $(tail -n 1 "$log_file")"
 chmod 0755 "$home"
 before=$(line_count "$log_file")
-sleep 1
 run_hook "$(payload "$sid" "$co" "the home is readable by others")"
 [ "$rc" = 0 ] || fail "0755 home: exit $rc, expected 0"
 later_than "$(marker_value)" "$m_before" || fail "0755 home: a home others may only read was refused ($(cat "$tmp/err"))"
@@ -537,9 +536,8 @@ chmod "$home_mode" "$home"
 echo "ok: a group-writable home is refused and a world-readable one is not"
 
 # And the sound home still writes: the check refuses a bad home, not every home.
-m_before=$(marker_value)
+rewind_marker
 before=$(line_count "$log_file")
-sleep 1
 run_hook "$(payload "$sid" "$co" "the home is sound again")"
 [ "$rc" = 0 ] || fail "sound home: exit $rc, expected 0"
 later_than "$(marker_value)" "$m_before" || fail "sound home: the marker did not advance ($m_before -> $(marker_value))"
