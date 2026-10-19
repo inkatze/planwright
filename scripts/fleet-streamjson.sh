@@ -508,7 +508,9 @@ write_pidfile() {
 # `kill -0` has already said no, so the common path stays fork-free.
 pid_live() {
   kill -0 "$1" 2>/dev/null && return 0
-  ps -p "$1" >/dev/null 2>&1 || [ -d "/proc/$1" ]
+  ps -p "$1" >/dev/null 2>&1 && return 0
+  # procfs only where ps has no -p: elsewhere /proc/<n> also resolves a thread.
+  ! ps -p "$$" >/dev/null 2>&1 && [ -d "/proc/$1" ]
 }
 
 # worker_alive <dir> — true when a pid this worker's own state records is live.
@@ -625,15 +627,24 @@ journal_pending_ids() {
 # prompt path and the deny-message path cannot drift apart.
 json_escape() {
   tr -d '\000-\010\013\014\016-\037\177' | awk '
+    # Escapes are joined in, never written as a gsub replacement: busybox awk
+    # strips the backslash from every escape in one (so \" came out as a bare
+    # quote), and no single spelling means the same in every awk. `&&` (the
+    # match twice) is the one replacement they all agree on.
+    function joined(s, sep, with,   p, n, i, o) {
+      n = split(s, p, sep)
+      o = p[1]
+      for (i = 2; i <= n; i++) o = o with p[i]
+      return o
+    }
+    BEGIN { bs = "\\" }
     NR > 1 { printf "\\n" }
     {
       s = $0
-      # `&&`, not "\\\\": busybox awk collapses a doubled backslash in the
-      # replacement to one, so the escape would vanish there.
       gsub(/\\/, "&&", s)
-      gsub(/"/, "\\\"", s)
-      gsub(/\t/, "\\t", s)
-      gsub(/\r/, "\\r", s)
+      s = joined(s, "\"", bs "\"")
+      s = joined(s, "\t", bs "t")
+      s = joined(s, "\r", bs "r")
       printf "%s", s
     }
   '
