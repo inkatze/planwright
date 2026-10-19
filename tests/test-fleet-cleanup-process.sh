@@ -37,6 +37,8 @@ export GIT_CONFIG_SYSTEM=/dev/null
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 FC_REAL="$here/../scripts/fleet-cleanup.sh"
 
 fail() {
@@ -668,18 +670,13 @@ bash -c 'exec -a "run-worker $0 x" sleep 600' "$xb" &
 xrun=$!
 printf '%s\n' "$xrun" >"$xb/pid"
 date +%s >"$xb/launched"
-wait_ps() {
-  wp_i=0
-  while [ "$wp_i" -lt 50 ]; do
-    case $(ps -o args= -p "$1" 2>/dev/null) in
-      "run-worker $2 "*) return 0 ;;
-    esac
-    sleep 0.1
-    wp_i=$((wp_i + 1))
-  done
+ps_named() {
+  case $(ps -o args= -p "$1" 2>/dev/null) in
+    "run-worker $2 "*) return 0 ;;
+  esac
   return 1
 }
-wait_ps "$xrun" "$xb" || fail "fixture: checkout B's runner never took its argv"
+poll_until --what "the runner's argv" -- ps_named "$xrun" "$xb" || fail "fixture: checkout B's runner never took its argv"
 xr_det() {
   DET_SD=$1 det finished-but-unreaped dead-or-unknown completion:result=success headless-oneshot dead
   sed "s/${tab}w1${tab}/${tab}$xw${tab}/" "$tmp/det-out" >"$tmp/det-out.x"
@@ -900,12 +897,7 @@ env "${env_scrub[@]}" \
   PATH="$sig_dir:$PATH" SIG_LOG="$tmp/sig-calls" SIG_RUNS="$tmp/sig-runs" \
   /bin/sh -c "$sig_harness" "$gs/fleet-cleanup.sh" process w1 trig why >"$tmp/out" 2>"$tmp/err" &
 sig_pid=$!
-sig_i=0
-until [ -s "$tmp/stop-calls" ] || [ "$sig_i" -ge 100 ]; do
-  sleep 0.1
-  sig_i=$((sig_i + 1))
-done
-[ -s "$tmp/stop-calls" ] || fail "interrupted close: the stop never started"
+poll_until --what 'the stop call' -- test -s "$tmp/stop-calls" || fail "interrupted close: the stop never started"
 kill -TERM "$sig_pid"
 rc=0
 wait "$sig_pid" || rc=$?
@@ -1073,18 +1065,6 @@ icleanup() {
   err=$(cat "$tmp/err")
 }
 
-# wait_until <secs> <cmd...> — bounded by wall clock: each poll can run the
-# whole detector, so a tick count would stretch with the host's load.
-wait_until() {
-  wu_end=$((SECONDS + $1))
-  shift
-  while [ "$SECONDS" -lt "$wu_end" ]; do
-    "$@" >/dev/null 2>&1 && return 0
-    sleep 0.1
-  done
-  "$@" >/dev/null 2>&1
-}
-
 classified() {
   ienv -- fleet-stuck-detector.sh classify "$1" --tower-id "$self_id" \
     | awk -F'\t' -v s="$2" '$1 == "worker" && $3 == s { f = 1 } END { exit f ? 0 : 1 }'
@@ -1150,7 +1130,7 @@ sj_launch() {
   ienv PLANWRIGHT_TOWER_ID="$2" SHIM_EVENTS="$ev_done" -- \
     fleet-streamjson.sh launch "$1" demo:4 --prompt-file "$tmp/prompt" --cwd "$wt" >/dev/null \
     || fail "stream-json launch of $1 failed"
-  wait_until 30 classified "$1" finished-but-unreaped \
+  poll_until --what 'finished-but-unreaped' -- classified "$1" finished-but-unreaped \
     || fail "$1 never classified finished-but-unreaped"
 }
 
@@ -1256,11 +1236,11 @@ ienv PLANWRIGHT_TOWER_ID="$peer_id" -- \
   fleet-dispatch-headless.sh launch demo 4 --worktree "$wt" <"$tmp/prompt" >/dev/null \
   || fail "headless launch failed"
 hdir="$ihome/headless/4"
-wait_until 30 test -s "$hdir/pid" || fail "the headless runner never recorded its pid"
+poll_until --what 'the runner pid' -- test -s "$hdir/pid" || fail "the headless runner never recorded its pid"
 runner=$(cat "$hdir/pid")
 attn heartbeat "$hw" demo:4 ended
 has_row "$hw" || fail "fixture: $hw has no attention row to release"
-wait_until 30 classified "$hw" finished-but-unreaped || fail "$hw never classified finished-but-unreaped"
+poll_until --what 'finished-but-unreaped' -- classified "$hw" finished-but-unreaped || fail "$hw never classified finished-but-unreaped"
 icleanup "$hw"
 [ "$rc" = 0 ] || fail "headless reap: exit $rc ($err)"
 case $out in

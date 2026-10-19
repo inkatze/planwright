@@ -81,6 +81,8 @@ trap cleanup EXIT
 
 # shellcheck source=tests/lib/fleet-home.sh
 . "$here/lib/fleet-home.sh"
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 
 # run_fdh <args...>: invoke the primitive via /bin/sh (never a temp-script
 # direct exec) with a hermetic env.
@@ -127,16 +129,6 @@ EOF
     "$mf_rec/handle" "$mf_rec/scope" "$mf_rec/specroot" "$mf_rec/stdin"
 }
 
-# wait_for <path> <tenths>: poll for a file, bounded.
-wait_for() {
-  wf_n=0
-  while [ ! -e "$1" ] && [ "$wf_n" -lt "$2" ]; do
-    sleep 0.1
-    wf_n=$((wf_n + 1))
-  done
-  [ -e "$1" ]
-}
-
 SPEC=execution-backends
 ID=3
 
@@ -164,7 +156,7 @@ line two'
     || fail "h1: launch did not print the pid line"
   printf '%s\n' "$out" | grep -q "headless	state-dir	" \
     || fail "h1: launch did not print the state-dir line"
-  wait_for "$STATE/$ID/exit" 300 || {
+  poll_until --what 'the exit record' -- test -e "$STATE/$ID/exit" || {
     fail "h1: worker never completed (no exit file)"
     return
   }
@@ -202,7 +194,7 @@ h2() {
     fail "h2: launch exited non-zero"
     return
   }
-  wait_for "$STATE/$ID/exit" 300 || {
+  poll_until --what 'the exit record' -- test -e "$STATE/$ID/exit" || {
     fail "h2: no completion signal"
     return
   }
@@ -228,7 +220,7 @@ h3() {
     fail "h3: launch exited non-zero"
     return
   }
-  wait_for "$rec/stdin" 300 || {
+  poll_until --what "the worker's stdin" -- test -e "$rec/stdin" || {
     fail "h3: worker never started"
     rm -f "$rec/hold"
     return
@@ -241,7 +233,7 @@ h3() {
     *) fail "h3: status should print 'running <pid>', got '$st'" ;;
   esac
   rm -f "$rec/hold"
-  wait_for "$STATE/$ID/exit" 300 || {
+  poll_until --what 'the exit record' -- test -e "$STATE/$ID/exit" || {
     fail "h3: worker never completed after release"
     return
   }
@@ -263,7 +255,7 @@ h4() {
     fail "h4: launch exited non-zero"
     return
   }
-  wait_for "$rec/stdin" 300 || {
+  poll_until --what "the worker's stdin" -- test -e "$rec/stdin" || {
     fail "h4: worker never started"
     rm -f "$rec/hold"
     return
@@ -273,11 +265,7 @@ h4() {
   kill -9 "$rpid" 2>/dev/null
   case $cpid in *[!0-9]* | '') ;; *) kill -9 "$cpid" 2>/dev/null ;; esac
   # Wait for the pid to actually be reaped before classifying.
-  wf_n=0
-  while kill -0 "$rpid" 2>/dev/null && [ "$wf_n" -lt 100 ]; do
-    sleep 0.1
-    wf_n=$((wf_n + 1))
-  done
+  poll_until --what 'the runner reaped' -- pid_gone "$rpid" || :
   code=0
   st=$(run_fdh status "$SPEC" "$ID") || code=$?
   [ "$code" -eq 3 ] || fail "h4: status on a killed runner should exit 3, got $code"
@@ -344,7 +332,7 @@ h6() {
     fail "h6: launch exited non-zero"
     return
   }
-  wait_for "$STATE/$ID/exit" 300 || {
+  poll_until --what 'the exit record' -- test -e "$STATE/$ID/exit" || {
     fail "h6: a permission-refused one-shot must still complete (no pend), but no completion signal fired"
     return
   }
@@ -368,7 +356,7 @@ h7() {
     fail "h7: first launch exited non-zero"
     return
   }
-  wait_for "$rec/stdin" 300 || {
+  poll_until --what "the worker's stdin" -- test -e "$rec/stdin" || {
     fail "h7: worker never started"
     rm -f "$rec/hold"
     return
@@ -380,7 +368,7 @@ h7() {
   [ "$(cat "$STATE/$ID/pid")" = "$pid1" ] \
     || fail "h7: the refused second launch must not disturb the live dispatch record"
   rm -f "$rec/hold"
-  wait_for "$STATE/$ID/exit" 300 || fail "h7: worker never completed after release"
+  poll_until --what 'the exit record' -- test -e "$STATE/$ID/exit" || fail "h7: worker never completed after release"
   pass "h7: a unit with a live runner refuses a concurrent re-dispatch (exit 3)"
 }
 
@@ -425,7 +413,7 @@ h9() {
     fail "h9: an allowlisted --model launch should succeed"
     return
   }
-  wait_for "$STATE/$ID/exit" 300 || fail "h9: allowlisted launch never completed"
+  poll_until --what 'the exit record' -- test -e "$STATE/$ID/exit" || fail "h9: allowlisted launch never completed"
   if ! { grep -qx -- '--model' "$rec/argv" && grep -qx -- 'opus' "$rec/argv"; }; then
     fail "h9: the sanctioned --model flag was not forwarded to the worker argv"
   fi
@@ -447,7 +435,7 @@ h9() {
   code=0
   printf 'p' | run_fdh launch "$SPEC" "$ID" --worktree "$wt" -- --effort low >/dev/null 2>&1 || code=$?
   [ "$code" -eq 0 ] || fail "h9: the sanctioned --effort flag was refused (exit $code)"
-  wait_for "$STATE/$ID/exit" 300 || fail "h9: the --effort launch never completed"
+  poll_until --what 'the exit record' -- test -e "$STATE/$ID/exit" || fail "h9: the --effort launch never completed"
   # Adjacency, not mere presence: the argv log accumulates across the launches
   # above, so two independent greps would pass on a spliced or reordered
   # forwarding. Discreteness is the property under test.
@@ -516,7 +504,7 @@ h11() {
     fail "h11: launch exited non-zero"
     return
   }
-  wait_for "$STATE/$ID/exit" 300 || {
+  poll_until --what 'the exit record' -- test -e "$STATE/$ID/exit" || {
     fail "h11: worker never completed"
     return
   }
@@ -564,7 +552,7 @@ h13() {
   printf 'prior task' >"$STATE/$ID/prompt"
   date +%s >"$STATE/$ID/launched"
   code=0
-  printf 'p' | env PLANWRIGHT_HEADLESS_LIVENESS_TTL=2 PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" \
+  printf 'p' | env PLANWRIGHT_HEADLESS_LIVENESS_TTL=60 PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" \
     PLANWRIGHT_HEADLESS_STATE_DIR="$STATE" /bin/sh "$FDH" launch "$SPEC" "$ID" \
     --worktree "$wt" >/dev/null 2>&1 || code=$?
   [ "$code" -eq 3 ] || fail "h13: a recent torn launch must be refused (exit 3), got $code"
@@ -575,21 +563,21 @@ h13() {
   # fails safe toward live (refuse), and must not clobber the state dir.
   rm -f "$STATE/$ID/launched"
   code=0
-  printf 'p' | env PLANWRIGHT_HEADLESS_LIVENESS_TTL=2 PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" \
+  printf 'p' | env PLANWRIGHT_HEADLESS_LIVENESS_TTL=60 PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" \
     PLANWRIGHT_HEADLESS_STATE_DIR="$STATE" /bin/sh "$FDH" launch "$SPEC" "$ID" \
     --worktree "$wt" >/dev/null 2>&1 || code=$?
   [ "$code" -eq 3 ] || fail "h13: an absent launch marker must be refused (exit 3), got $code"
   [ "$(cat "$STATE/$ID/prompt")" = "prior task" ] \
     || fail "h13: the refused absent-marker retry must not clobber the state dir"
   # An OLD launched marker (older than the TTL) is stale and reclaimable.
-  printf '%s\n' "$(($(date +%s) - 10))" >"$STATE/$ID/launched"
-  printf 'fresh task' | env PLANWRIGHT_HEADLESS_LIVENESS_TTL=2 PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" \
+  printf '%s\n' "$(($(date +%s) - 600))" >"$STATE/$ID/launched"
+  printf 'fresh task' | env PLANWRIGHT_HEADLESS_LIVENESS_TTL=60 PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" \
     PLANWRIGHT_HEADLESS_STATE_DIR="$STATE" /bin/sh "$FDH" launch "$SPEC" "$ID" \
     --worktree "$wt" >/dev/null 2>&1 || {
     fail "h13: a stale (aged-out) torn launch should be reclaimed, not refused"
     return
   }
-  wait_for "$STATE/$ID/exit" 300 || fail "h13: the reclaimed launch never completed"
+  poll_until --what 'the exit record' -- test -e "$STATE/$ID/exit" || fail "h13: the reclaimed launch never completed"
   pass "h13: the torn-launch window fails safe (refuse recent, refuse absent, reclaim stale) (C1)"
 }
 
@@ -606,7 +594,7 @@ h14() {
     fail "h14: launch exited non-zero"
     return
   }
-  wait_for "$rec/claude-pid" 300 || {
+  poll_until --what 'the worker pid' -- test -e "$rec/claude-pid" || {
     fail "h14: worker never started"
     rm -f "$rec/hold"
     return
@@ -617,20 +605,15 @@ h14() {
   # record a terminal completion (143), never orphan the worker.
   kill -TERM "$rpid" 2>/dev/null
   rm -f "$rec/hold"
-  if ! wait_for "$STATE/$ID/exit" 300; then
+  if ! poll_until --what 'the exit record' -- test -e "$STATE/$ID/exit"; then
     fail "h14: TERM of the runner did not produce a terminal completion record (orphan risk)"
     kill -9 "$cpid" 2>/dev/null
     return
   fi
   grep -Eq '^143 ' "$STATE/$ID/exit" \
     || fail "h14: a forwarded TERM should record exit 143, got: $(cat "$STATE/$ID/exit")"
-  # The worker must be gone (no orphan). Give it a beat to be reaped.
-  wf_n=0
-  while kill -0 "$cpid" 2>/dev/null && [ "$wf_n" -lt 100 ]; do
-    sleep 0.1
-    wf_n=$((wf_n + 1))
-  done
-  kill -0 "$cpid" 2>/dev/null && {
+  # The worker must be gone (no orphan).
+  poll_until --what 'the worker gone' -- pid_gone "$cpid" || {
     fail "h14: the worker survived the runner's TERM (orphaned)"
     kill -9 "$cpid" 2>/dev/null
   }
@@ -788,7 +771,7 @@ h19() {
     fail "h19: launch exited non-zero"
     return
   }
-  wait_for "$STATE/19/exit" 300 || {
+  poll_until --what 'the exit record' -- test -e "$STATE/19/exit" || {
     fail "h19: worker never completed (no exit file)"
     return
   }
@@ -800,7 +783,7 @@ h19() {
     fail "h19: second launch exited non-zero"
     return
   }
-  wait_for "$STATE/20/exit" 300 || {
+  poll_until --what 'the exit record' -- test -e "$STATE/20/exit" || {
     fail "h19: second worker never completed (no exit file)"
     return
   }

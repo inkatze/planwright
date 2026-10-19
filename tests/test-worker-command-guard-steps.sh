@@ -8,6 +8,8 @@ set -u
 unset CDPATH
 # shellcheck source=tests/lib/worker-command-guard-harness.sh
 . "$(cd "$(dirname "$0")" && pwd)/lib/worker-command-guard-harness.sh"
+# shellcheck source=tests/lib/poll-until.sh
+. "$(cd "$(dirname "$0")" && pwd)/lib/poll-until.sh"
 
 echo "### custom-steps REQ-G1.3 — declared command step lines"
 # A fixture overlay stack for scripts/resolve-steps.sh: a core root whose
@@ -475,7 +477,7 @@ stub_scripts "$FX/stub-slow"
 cat >"$FX/stub-slow/scripts/resolve-steps.sh" <<STUB
 #!/bin/bash
 echo \$\$ >'$FX/stub-slow/self'
-sleep 30 &
+sleep 300 &
 echo \$! >'$FX/stub-slow/child'
 wait
 STUB
@@ -494,12 +496,7 @@ fi
 alive=''
 for f in self child; do
   pid=$(cat "$FX/stub-slow/$f" 2>/dev/null) || continue
-  n=0
-  while kill -0 "$pid" 2>/dev/null && [ "$n" -lt 20 ]; do
-    sleep 0.1
-    n=$((n + 1))
-  done
-  ! kill -0 "$pid" 2>/dev/null || alive="$alive $f:$pid"
+  poll_until --what "the slow resolver's $f exiting" -- pid_gone "$pid" || alive="$alive $f:$pid"
 done
 if [ -s "$FX/stub-slow/self" ] && [ -z "$alive" ]; then
   pass "a resolver past the deadline leaves no process of its group running"
@@ -511,22 +508,17 @@ else
 fi
 
 # no_survivors <dir>: 0 when neither pid the stub in <dir> recorded is alive
-# within a short grace.
+# once the wait for it to exit ends.
 # A missing pid file (the stub never ran) fails too, and every survivor is
 # killed before returning, so none leaks into later rows.
 no_survivors() {
-  local f pid n rc=0
+  local f pid rc=0
   for f in self child; do
     pid=$(cat "$1/$f" 2>/dev/null) || {
       rc=1
       continue
     }
-    n=0
-    while kill -0 "$pid" 2>/dev/null && [ "$n" -lt 20 ]; do
-      sleep 0.1
-      n=$((n + 1))
-    done
-    if kill -0 "$pid" 2>/dev/null; then
+    if ! poll_until --what "the stub's $f exiting" -- pid_gone "$pid"; then
       kill "$pid" 2>/dev/null
       rc=1
     fi
@@ -539,7 +531,7 @@ cat >"$FX/stub-partial/scripts/resolve-steps.sh" <<STUB
 #!/bin/bash
 echo \$\$ >'$FX/stub-partial/self'
 printf 'run\tx\tpre-ci\trepo-tracked\trepo-tracked\t%s\tin-session\tcommand\t--mode strict\thalt\t-\t-\t%s\t-\t-\t-\n' '$DECLARED' '$DECLARED'
-sleep 30 &
+sleep 300 &
 echo \$! >'$FX/stub-partial/child'
 wait
 STUB
@@ -561,7 +553,7 @@ cat >"$FX/stub-straggler/scripts/resolve-steps.sh" <<STUB
 #!/bin/bash
 echo \$\$ >'$FX/stub-straggler/self'
 printf 'run\tx\tpre-ci\trepo-tracked\trepo-tracked\t%s\tin-session\tcommand\t--mode strict\thalt\t-\t-\t%s\t-\t-\t-\n' '$DECLARED' '$DECLARED'
-sleep 30 </dev/null >/dev/null 2>&1 &
+sleep 300 </dev/null >/dev/null 2>&1 &
 echo \$! >'$FX/stub-straggler/child'
 exit 0
 STUB
@@ -579,11 +571,7 @@ rm -f "$FX/stub-partial/self" "$FX/stub-partial/child"
 HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
 printf '%s' "$payload" | env -u CLAUDE_DIR HOME="$SANDBOX/no-home" "${HOOK_ENV[@]}" /bin/bash "$HOOK" >/dev/null 2>&1 &
 hook_pid=$!
-n=0
-while [ ! -s "$FX/stub-partial/child" ] && [ "$n" -lt 100 ]; do
-  sleep 0.1
-  n=$((n + 1))
-done
+poll_until --what 'the resolver starting its child' -- test -s "$FX/stub-partial/child" || true
 kill -TERM "$hook_pid" 2>/dev/null
 wait "$hook_pid"
 hook_rc=$?

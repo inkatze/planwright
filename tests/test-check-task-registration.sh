@@ -19,6 +19,8 @@ unset CDPATH
 here=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$here/.." && pwd)
 CHECKER="$REPO_ROOT/scripts/check-task-registration.sh"
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -171,12 +173,7 @@ mkrepo "$r"
 mv "$r/mise.toml.new" "$r/mise.toml"
 run_checker "$r" >/dev/null &
 pid=$!
-i=0
-while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 100 ]; do
-  sleep 0.1
-  i=$((i + 1))
-done
-if kill -0 "$pid" 2>/dev/null; then
+if ! poll_until --what 'the wildcard check to exit' -- pid_gone "$pid"; then
   kill "$pid" 2>/dev/null
   fail "t3b: a wildcard matching a task named with a '*' never terminated"
 fi

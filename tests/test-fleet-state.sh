@@ -37,6 +37,8 @@ unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
 FS="$here/../scripts/fleet-state.sh"
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -661,12 +663,9 @@ env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
 term_pid=$!
 # Wait for the LOCK to appear rather than for a wall-clock guess: its presence
 # is proof the acquire returned, which is the start of the window under test.
-term_waited=0
-while [ ! -L "$home_term/.fleet.lock" ]; do
-  term_waited=$((term_waited + 1))
-  [ "$term_waited" -lt 400 ] || fail "the fault-injected register never took the lock"
-  sleep 0.02
-done
+# The fine interval keeps the poll well inside the injected hold.
+poll_until --interval 0.02 --what 'the fault-injected register taking the lock' -- test -L "$home_term/.fleet.lock" \
+  || fail "the fault-injected register never took the lock"
 kill -TERM "$term_pid" 2>/dev/null || true
 wait "$term_pid" 2>/dev/null || true
 [ ! -L "$home_term/.fleet.lock" ] && [ ! -e "$home_term/.fleet.lock" ] \

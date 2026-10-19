@@ -7,6 +7,8 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/poll-until.sh
+. "$REPO_ROOT/tests/lib/poll-until.sh"
 REFRESH="$REPO_ROOT/scripts/review-backtest-refresh.sh"
 SCREEN="$REPO_ROOT/scripts/review-corpus-screen.sh"
 
@@ -306,11 +308,7 @@ mkdir -p "$T/croot2"
 "$REFRESH" --history "$hist" --remote "$remote" --corpus-root "$T/croot2" --ledger-dir "$ledger" \
   --annotate-cmd "$T/slow-annotate.sh" --names "$names" >/dev/null 2>&1 &
 rpid=$!
-n=0
-until [ -e "$T/annotate.started" ] || [ "$n" -ge 200 ]; do
-  sleep 0.1
-  n=$((n + 1))
-done
+poll_until --what 'the annotator to start' -- test -e "$T/annotate.started" || :
 kill -TERM "$rpid"
 wait "$rpid" 2>/dev/null
 sleep 5

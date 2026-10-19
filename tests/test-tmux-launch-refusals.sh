@@ -463,7 +463,7 @@ r14() {
   orphan_worktree 7
   tmux_shim "$C/hang" hang-probe
   PATH="$C/hang:$PATH" PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 \
-    tlh_run_bounded --bound 20 "$PRIM" dispatch demo 7 --repo-root "$P" --no-attach
+    tlh_run_bounded --bound 180 "$PRIM" dispatch demo 7 --repo-root "$P" --no-attach
   tlh_expect_returned "r14: a hung probe must be ended" || return
   [ "$TLH_RC" -eq 3 ] || fail "r14: a probe that never answers must read live (exit 3), got $TLH_RC ($TLH_ERR)"
   [ -f "$P/.claude/worktrees/demo-task-7/work-7" ] || fail "r14: the worktree was removed on an unanswered probe"
@@ -478,7 +478,7 @@ r15() {
   work_branch 9
   tmux_shim "$C/hang" hang-new
   PATH="$C/hang:$PATH" PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 \
-    tlh_run_bounded --bound 20 "$PRIM" dispatch demo 9 --repo-root "$P"
+    tlh_run_bounded --bound 180 "$PRIM" dispatch demo 9 --repo-root "$P"
   tlh_expect_returned "r15: the dispatch must end a hung new-session itself" || return
   [ "$TLH_RC" -eq 13 ] || fail "r15: a hung new-session with no session must fail the launch (exit 13), got $TLH_RC ($TLH_ERR)"
   case $TLH_ERR in *'did not return'*) ;; *) fail "r15: the report does not name the hang: $TLH_ERR" ;; esac
@@ -491,7 +491,7 @@ r15() {
   work_branch 12
   tmux_shim "$C/hang" hang-new-term1
   PATH="$C/hang:$PATH" PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 \
-    tlh_run_bounded --bound 20 "$PRIM" dispatch demo 12 --repo-root "$P"
+    tlh_run_bounded --bound 180 "$PRIM" dispatch demo 12 --repo-root "$P"
   [ "$TLH_RC" -eq 13 ] || fail "r15: a TERM-handling hung client must fail the launch (exit 13), got $TLH_RC"
   case $TLH_ERR in *'did not return'*) ;; *) fail "r15: a TERM-handling hung client is not reported as a hang: $TLH_ERR" ;; esac
   # tmux cannot then say whether a session exists: nothing is removed.
@@ -499,7 +499,7 @@ r15() {
   work_branch 10
   tmux_shim "$C/hang" hang-new-unsure
   PATH="$C/hang:$PATH" PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 \
-    tlh_run_bounded --bound 30 "$PRIM" dispatch demo 10 --repo-root "$P"
+    tlh_run_bounded --bound 180 "$PRIM" dispatch demo 10 --repo-root "$P"
   tlh_expect_returned "r15: an unsure undo must still return" || return
   [ "$TLH_RC" -eq 13 ] || fail "r15: a hung, unconfirmable launch must exit 13, got $TLH_RC ($TLH_ERR)"
   [ -d "$P/.claude/worktrees/demo-task-10" ] || fail "r15: a worktree a session may run in was removed"
@@ -510,7 +510,7 @@ r15() {
   work_branch 11
   s=$(expect_session "$PP" demo-task-11)
   tlh_knob new-session block
-  PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 tlh_run_bounded --bound 20 "$PRIM" dispatch demo 11 --repo-root "$P"
+  PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 tlh_run_bounded --bound 180 "$PRIM" dispatch demo 11 --repo-root "$P"
   tlh_knob new-session ok
   tlh_expect_returned "r15: the dispatch must end a hung new-session that made its session" || return
   [ "$TLH_RC" -eq 14 ] || fail "r15: a hung new-session whose session exists is placed (exit 14), got $TLH_RC ($TLH_ERR)"

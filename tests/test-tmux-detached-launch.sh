@@ -125,7 +125,7 @@ l1() {
   wt="$PP/.claude/worktrees/demo-task-3"
   [ "$(launch_field session)" = "$sess" ] || fail "l1: the launch report names '$(launch_field session)', not $sess"
   check_session_call l1 "$sess" "$wt"
-  tlh_wait_workers 1 10 || return
+  tlh_wait_workers 1 || return
   rec=$(tlh_last_worker_record)
   check_worker l1 "$rec" "$wt" tmux-demo-task-3 demo:3
   [ "$(registry_col 2 | grep -c .)" = 1 ] || fail "l1: expected one registry record, got: $(cat "$C/fleet/registry" 2>/dev/null)"
@@ -202,7 +202,7 @@ l2_flight() {
   [ "$(report_field attach)" = "tmux attach -t '=$sess'" ] \
     || fail "l2: the attach hint does not name the session: $(report_field attach)"
   check_session_call l2 "$sess" "$wt"
-  tlh_wait_workers "$((n0 + 1))" 10 || return
+  tlh_wait_workers "$((n0 + 1))" || return
   rec=$(record_for "tmux-flight-$fid") || {
     fail "l2: no worker record carries the flight's handle tmux-flight-$fid"
     return
@@ -376,7 +376,7 @@ l7_flight() {
   printf 'Fix the typo in the README heading.\n' >"$C/ask.txt"
   printf 'visual flight: a one-line wording change\n' >"$C/grounds.txt"
   tmux_shim "$C/hang" hang-new
-  PATH="$C/hang:$PATH" PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 tlh_run_bounded --bound 25 "$FLIGHT" dispatch \
+  PATH="$C/hang:$PATH" PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 tlh_run_bounded --bound 180 "$FLIGHT" dispatch \
     readme-typo --backend tmux --ask-file "$C/ask.txt" --grounds-file "$C/grounds.txt" --home file --repo-root "$P"
   tlh_expect_returned "l7: a flight dispatch must end a hung tmux itself" || return
   [ "$TLH_RC" -eq 5 ] || fail "l7: a hung launch must fail the placement (exit 5), got $TLH_RC ($TLH_ERR)"

@@ -21,6 +21,8 @@ repo_root=$(cd "$here/.." && pwd)
 SR="$repo_root/scripts/step-record.sh"
 GOLDEN="$here/fixtures/step-record/checklist.golden"
 TAB=$(printf '\t')
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 
 # The built-in screen, so the outcome does not depend on whether this host
 # has gitleaks installed.
@@ -777,12 +779,7 @@ r9=$("$slow/step-record.sh" --worktree "$w9" new-run)
   --target slowstep --hosting isolated --backend runner --head "$HEAD_SHA" \
   --start 2026-09-28T15:00:00Z --end 2026-09-28T15:00:01Z --outcome passed >/dev/null 2>"$tmp/err9" &
 slowpid=$!
-i=0
-while [ ! -e "$slow/slow-started" ] && [ "$i" -lt 60 ]; do
-  sleep 1
-  i=$((i + 1))
-done
-[ -e "$slow/slow-started" ]
+poll_until --what 'the slow step reaching its screen' -- test -e "$slow/slow-started"
 verdict "the slow step reached its screen before the completion" "the slow step never screened"
 "$slow/step-record.sh" --worktree "$w9" write --completion --run "$r9" --point pre-ci \
   --head "$HEAD_SHA" >/dev/null

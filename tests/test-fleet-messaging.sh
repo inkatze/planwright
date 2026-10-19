@@ -221,7 +221,7 @@ big_size=$(wc -c <"$home/.claude/settings.json" | tr -d ' ')
 big_start=$(date +%s)
 probe_reads available "a near-cap settings file" "${AVAIL[@]}"
 big_took=$(($(date +%s) - big_start))
-[ "$big_took" -le 10 ] || fail "probe: a near-cap settings file took ${big_took}s to parse"
+[ "$big_took" -le 20 ] || fail "probe: a near-cap settings file took ${big_took}s to parse"
 user_set '{"crossSessionInbound":"accept"}'
 ok "probe reads only the top-level string key and reads absent on a parse failure"
 

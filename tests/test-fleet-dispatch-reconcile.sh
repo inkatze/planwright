@@ -49,6 +49,8 @@ export GIT_CONFIG_SYSTEM=/dev/null
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 REPO_ROOT=$(cd "$here/.." && pwd -P)
 S="$REPO_ROOT/scripts"
 REC="$S/fleet-registry-reconcile.sh"
@@ -772,12 +774,7 @@ rm -f "$tmp/store-held"
 at "$h" "$slow/scripts" PLANWRIGHT_TOWER_ID="$owner" -- fleet-register.sh --handle w-c2b \
   --scope spec-c2:b --backend headless-oneshot >/dev/null 2>&1 &
 rp=$!
-c2_n=0
-until [ -e "$tmp/store-held" ] || [ "$c2_n" -ge 200 ]; do
-  sleep 0.05
-  c2_n=$((c2_n + 1))
-done
-[ -e "$tmp/store-held" ] || fail "c2: fixture: the dispatch never reached its store write"
+poll_until --what 'the held store write' -- test -e "$tmp/store-held" || fail "c2: fixture: the dispatch never reached its store write"
 reconcile "$h"
 printf '%s\n' "$out" | grep -q "^heal${tab}w-c2b${tab}" || fail "c2: the reconcile did not heal ahead of the dispatch's write: $out"
 rm -f "$tmp/hold-store"
