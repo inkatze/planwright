@@ -220,6 +220,34 @@ replays the backtest rows in the classes it targets before it lands (D-9).
 - **Citations:** D-2, D-3, D-11, D-14 · REQ-A1.6, REQ-A1.7, REQ-B1.1, REQ-B1.5, REQ-D1.1, REQ-D1.2, REQ-D1.3
 - **Estimated effort:** 2.5 days
 
+### Task 6.1 — Standing rules: file format, knob, handoff and triage consumption, exporter
+
+- **Deliverables:** the standing-rules file format in the review doctrine
+  (`doctrine/discovery-rigor.md` or the blind-review rule doc, whichever
+  Task 5 leaves owning the handoff's contents, word-neutral in a start-load
+  doc) with its version key and per-rule fields; the config knob in
+  `config/defaults.yml` (default none) with its options-reference row;
+  `scripts/review-rules.sh` (validate a file against the format and select
+  the rules whose scope matches a path set; the file is data, never
+  evaluated) and `scripts/review-rules-export.sh` (the vendor-neutral
+  block, grouped by disposition, and its content hash); the handoff builder
+  adding the matched rules as a bundle member and the lens brief and blind
+  pass citing them as context; the triage step in `/self-review` and
+  `/polish` applying a matching rule's disposition with the rule id in the
+  audit row and routing new evidence to Needs sign-off, word-neutral per
+  REQ-G1.3; fixture tests (an unknown version refused, scope matching by
+  glob and repository, a finding decided by a rule with the id in its row,
+  a finding with new evidence routed to sign-off, the export's grouping,
+  neutrality and stable hash).
+- **Done when:** Task 6 is merged on main; the fixture tests pass; with the
+  knob unset a fixture pass's audit record and bundle are byte-identical to
+  today's; `check:options`, `check:instructions`, `lint:md` and
+  `mise run check` pass with no new exception; both skills' start-loads are
+  no larger than before.
+- **Dependencies:** 6
+- **Citations:** D-21 · REQ-G1.3, REQ-J1.1, REQ-J1.2, REQ-J1.3, REQ-J1.4
+- **Estimated effort:** 1.5 days
+
 ### Task 7 — The reviewer-basics gate in self-review
 
 - **Deliverables:** `skills/self-review/SKILL.md` running the gate before

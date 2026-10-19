@@ -457,3 +457,35 @@ audit record. Scenario: given a fixture pass that records a fragment
 quoting a failure message its named test does not emit, when the pass
 reaches its Observations step, then the audit record carries the finding
 and the committed fragment is corrected or absent. Task 15.1.
+
+## REQ-J — Standing rules
+
+### REQ-J1.1 — Rules file format and knob [test + design-level]
+
+The doctrine states the format; the validator fixture refuses an unknown
+version and a rule missing a field, and accepts a conforming file; the knob
+has its options-reference row and `check:options` passes; with the knob
+unset a fixture pass's bundle and audit record are byte-identical to
+today's. Task 6.1.
+
+### REQ-J1.2 — Rules carried as context [test + Gherkin]
+
+The handoff builder's test adds only the rules whose scope matches the
+fixture change. Scenario: given a rule covering a finding's class, when a
+lens runs, then the finding is still reported and the lens brief shows the
+rule as context. Task 6.1.
+
+### REQ-J1.3 — Rule-decided triage [Gherkin]
+
+Scenario: given a validated finding a matching rule decides, when triage
+runs, then its audit row carries the rule's disposition and id; given the
+same finding citing evidence outside the rule's statement, then it routes to
+Needs sign-off naming the rule; in both cases the finding is present in the
+record. Task 6.1.
+
+### REQ-J1.4 — Vendor-neutral export [test]
+
+The exporter's fixture renders statements grouped by disposition, omits ids,
+citations and every name on a fixture product list, prints the same hash for
+the same input twice and a different one after an edit, and selects a
+repository's subset. Task 6.1.

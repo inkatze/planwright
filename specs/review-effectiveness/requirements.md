@@ -78,6 +78,9 @@ scripts are the mechanisms filling them (D-1, the altitude record).
   pass's own fragments before they are committed.
 - A corpus refresh to a second version from the external review threads
   merged since the first version's cut.
+- Standing rules: a versioned rules file an adopter may name through an
+  opt-in knob, carried in the handoff bundle, applied at triage, and
+  exported as a vendor-neutral instruction block for an external reviewer.
 
 ### Out of scope
 
@@ -102,6 +105,10 @@ scripts are the mechanisms filling them (D-1, the altitude record).
   pass's context is bounded here.
 - The hosted reviewer's request discipline, thread completion and vendor
   tuning: the operator's review-skills bundle, outside this repository.
+- Where an adopter's standing rules come from and how the exported block
+  reaches a vendor (a rendered secret store, a committed vendor file, a
+  dashboard): the adopter's overlay; this bundle defines the file, the knob,
+  the consumption and the export.
 - A ready-flip or merge precondition on an external review of the final
   head (human-gates; obs:3d66ac61 stays live for it).
 
@@ -535,6 +542,37 @@ scripts are the mechanisms filling them (D-1, the altitude record).
   corrected or withdrawn, never committed as written.
   *(Cites: D-20, REQ-B1.2, the external review audit (Sources).)*
 
+## REQ-J — Standing rules
+
+- **REQ-J1.1** The review doctrine SHALL define a standing-rules file: a
+  version key its readers refuse when unknown, and per rule a stable id, a
+  scope (path globs, repositories, or both), the statement in one
+  paragraph, the evidence it rests on (a citation, an observation, or a
+  recorded decision), and the disposition it decides (`reject`, `defer` with
+  its follow-up form, or `accept`); a config knob SHALL name the file, its
+  default naming none, under which every behaviour below is absent and
+  today's behaviour unchanged.
+  *(Cites: D-21, customization-boundary (Sources), the operator's
+  review-skills bundle (Sources).)*
+- **REQ-J1.2** When the knob names a file, the handoff bundle SHALL carry
+  the rules whose scope matches the change, and every lens brief and the
+  blind pass SHALL cite them as context, never as a filter: a lens still
+  reports a finding a rule covers, and the rule is applied at triage.
+  *(Cites: D-21, REQ-B1.1.)*
+- **REQ-J1.3** At triage, a validated finding that a matching rule decides
+  SHALL take the rule's disposition with the rule's id in its audit row,
+  unless the finding carries evidence the rule's statement did not consider,
+  in which case it SHALL route to Needs sign-off naming the rule; a rule
+  SHALL never remove a finding before the audit record sees it.
+  *(Cites: D-21, finding-categorization (Sources), the external review
+  audit (Sources).)*
+- **REQ-J1.4** An exporter SHALL render the rules file, or the subset
+  scoped to one repository, into one vendor-neutral instruction block (the
+  statements, grouped by disposition, without ids, citations, or product
+  names) and print its content hash, so an adopter can place the block on
+  any external reviewer's instruction surface and detect drift later.
+  *(Cites: D-21, REQ-E1.7.)*
+
 ## Changelog
 
 - 2026-09-24 — Drafted from the research seed and the drafting session;
@@ -579,6 +617,11 @@ scripts are the mechanisms filling them (D-1, the altitude record).
   routings away. Expression-only in the same change: every task's
   `Dependencies:` field written as bare task ids, which the status render
   reads; the `Task <n>` spelling it carried was reported malformed.
+- 2026-10-19 — Extension, meaning-class, same delta: the group REQ-J
+  (standing rules), D-21 and Task 6.1, after the operator asked that the
+  rule ledger the dotfiles drain needed be portable rather than personal;
+  the capability lands here under customization-boundary's split and the
+  operator's rules, rendering and vendor surface stay in that overlay.
 
 ## Sources
 
@@ -708,7 +751,16 @@ scripts are the mechanisms filling them (D-1, the altitude record).
   review-skills bundle.
 - **The operator's review-skills bundle** — the dotfiles bundle that owns
   the hosted-reviewer drain and its request discipline; it receives the
-  items this extension routes away.
+  items this extension routes away, and its D-13 (private machine-local
+  files rendered from a secret store) and D-17 (planwright-owned items are
+  seeded upstream, never overlaid) are why the standing-rules capability
+  lands here while its rules and rendering stay there.
+- **customization-boundary** — `doctrine/customization-boundary.md`: the
+  capability lands in core as an opt-in, default-preserving knob and the
+  value stays in an overlay; applied to the standing rules (D-21).
+- **finding-categorization** — `doctrine/finding-categorization.md`: a
+  rejection is a decision the operator makes, and a disposition changed by
+  new evidence routes to Needs sign-off; the rule triage REQ-J1.3 follows.
 - **human-gates** (Ready) — the owner of the ready-flip preconditions;
   obs:3d66ac61 (a worker handing off before the bot's review of its final
   head lands) stays live for it.

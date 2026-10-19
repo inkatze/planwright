@@ -571,6 +571,43 @@ earlier entry and claims the entry's own source contradicted; the first is
 decidable where the text is written, the second is the claim-versus-code
 read the bundle already requires, pointed at one more artifact.
 
+### D-21: Standing rules are a consumed input with a defined file, an opt-in knob, triage semantics and a vendor-neutral export  (N)
+
+**Decision:** planwright defines the standing-rules file (REQ-J1.1) and an
+opt-in config knob naming it, default none. With a file named, the handoff
+builder adds the rules scoped to the change, lens briefs and the blind pass
+read them as context, triage applies a matching rule's disposition with the
+rule id in the audit row and routes a finding carrying new evidence to Needs
+sign-off, and `scripts/review-rules-export.sh` renders the statements into
+one vendor-neutral block with a content hash. Where the file comes from (a
+rendered secret store, a tracked file, a hand-written one) and where the
+block goes (a vendor's dashboard, a committed vendor file, a configuration
+repository) are the adopter's overlay. The altitude follows D-1 and the
+customization-boundary split: the capability is core, the rules are style.
+
+**Alternatives considered:**
+- A per-adopter mechanism outside planwright (the operator's first shape:
+  a rendered rules file read by one drain skill). Rejected because: the
+  decline classes it records (a platform floor, a repository convention) are
+  exactly what this bundle's own passes re-raise after a decline (the
+  research seed's `pruned` and `declined` classes), so every adopter wants
+  the capability, and two formats would diverge.
+- Rules as a pre-filter that drops matching findings before the audit
+  record. Rejected because: a wrong rule would then hide a real finding with
+  no trace, the silent-pruning shape discovery-rigor forbids; applying the
+  rule at triage keeps the finding on record with the rule that decided it.
+- Rules written by the skill as it declines. Rejected because: a rejection
+  is the operator's decision (finding-categorization), so a rule is proposed
+  in the handoff and curated by the operator, never minted by the loop.
+- A vendor-specific exporter. Rejected because: REQ-E1.7 keeps product
+  names out of this repository, and every hosted reviewer this bundle knows
+  of takes free-text instructions, so one neutral block serves all.
+
+**Chosen because:** the external review audit found the same class decided
+one way on one PR and the opposite on the next, both by the same loop, and
+the operator asked that the fix be portable; a defined file plus an opt-in
+knob is the shape customization-boundary gives a general capability.
+
 ## Cross-cutting concerns
 
 - **Security.** The blind agent and every lens agent read a bundle of
@@ -591,5 +628,9 @@ read the bundle already requires, pointed at one more artifact.
   recorder, the guard catalog, the lock library and the plain-commands test
   surface are reused rather than minted beside (D-17 to D-20).
   `llm-output-quality`: every lens change stays behind REQ-H1.3's replay
-  gate, now over the second corpus version (REQ-H1.5). No secret,
-  dependency, concurrency or deploy decision is introduced.
+  gate, now over the second corpus version (REQ-H1.5). `secrets-config`:
+  one new config knob (the standing-rules path, D-21), documented in the
+  options reference, default none, naming a path and never a secret.
+  `api-surface`: the standing-rules file format is a new versioned surface
+  adopters write to, sign-off class under the kickoff delta. No dependency,
+  concurrency or deploy decision is introduced.
