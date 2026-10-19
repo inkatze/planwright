@@ -49,7 +49,8 @@
 #              ignores the signal is killed 10 seconds later
 #
 # Exit codes: 0 every fix held (or no records); 1 one or more regressed; 2
-#   usage or a malformed records file; 4 a copy could not be set up.
+#   usage or a malformed records file; 4 a copy, a working file, or a log
+#   could not be set up or written.
 set -eu
 LC_ALL=C
 export LC_ALL
@@ -104,6 +105,8 @@ fi
 # Each record becomes `R <id> <kind> <exit> <run>`, then `C <id> <text>` and
 # `L <id> <text>` per expected and forbidden output.
 
+parse_err=$(mktemp "${TMPDIR:-/tmp}/review-reverify-parse.XXXXXX") || die 4 "could not create a working file"
+trap 'rm -f "$parse_err"' EXIT
 parsed=$(awk '
   function bad(msg) { printf "line %d: %s\n", NR, msg > "/dev/stderr"; failed = 1; exit 2 }
   function close_rec() {
@@ -151,7 +154,8 @@ parsed=$(awk '
     if (failed) exit 2
     if (NR == 0) bad("an empty file: the first line must be: review-repro 1")
     close_rec()
-  }' "$records" 2>&1) || die 2 "malformed records file: $parsed"
+  }' "$records" 2>"$parse_err") || die 2 "malformed records file: $(cat "$parse_err")"
+rm -f "$parse_err"
 
 if ! printf '%s\n' "$parsed" | grep -q '^R'; then
   printf 'no records to re-verify\n'
@@ -184,14 +188,14 @@ trap 'reap "$grp"; scrub "$work"' EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
-mkdir "$work/r"
+mkdir "$work/r" || die 4 "could not create a working directory"
 
 status=0
 printf '%s\n' "$parsed" | grep '^R' >"$work/runs"
 printf '%s\n' "$parsed" | grep -v '^R' >"$work/expect" || true
 while IFS="$TAB" read -r _ id kind code run; do
   c=$work/r/$id
-  mkdir -p "$c/home" "$c/state" "$c/tmp"
+  mkdir -p "$c/home" "$c/state" "$c/tmp" || die 4 "could not set up an isolated copy for finding $id"
   {
     git clone -q --shared --no-checkout "$top" "$c/copy" \
       && git -C "$c/copy" checkout -q --detach "$head" \
@@ -213,15 +217,20 @@ while IFS="$TAB" read -r _ id kind code run; do
   grp=
   why=
   [ "$rc" -eq "$code" ] || why="exit $rc, expected $code"
+  # The command can reach its own output file; output that cannot be read
+  # proves nothing either way, so it is a regression, never a pass.
   while IFS="$TAB" read -r op eid text; do
     [ "$eid" = "$id" ] || continue
-    if grep -F -q -e "$text" "$c/out"; then
-      [ "$op" = C ] || why=${why:+$why; }"output holds '$text'"
-    else
-      [ "$op" = L ] || why=${why:+$why; }"output lacks '$text'"
-    fi
+    grc=0
+    grep -F -q -e "$text" "$c/out" 2>/dev/null || grc=$?
+    case $grc in
+      0) [ "$op" = C ] || why=${why:+$why; }"output holds '$text'" ;;
+      1) [ "$op" = L ] || why=${why:+$why; }"output lacks '$text'" ;;
+      *) why=${why:+$why; }"cannot read the output to check '$text'" ;;
+    esac
   done <"$work/expect"
-  [ -z "$log_dir" ] || cp "$c/out" "$log_dir/$id.log"
+  [ -z "$log_dir" ] || cp "$c/out" "$log_dir/$id.log" 2>/dev/null \
+    || die 4 "could not write the log for finding $id into --log-dir"
   if [ -z "$why" ]; then
     printf 'held\t%s\t%s\n' "$id" "$kind"
   else

@@ -111,13 +111,19 @@ out=$(GIT_DIR=$R/.git GIT_WORK_TREE=$R GIT_INDEX_FILE=$R/.git/index rv --records
 assert_exit "an exported GIT_DIR still re-verifies" 0 $?
 assert_contains "an exported GIT_DIR leaves the live branch checked out" "$live_head" "$(git -C "$R" symbolic-ref -q HEAD 2>&1)"
 assert_contains "an exported GIT_DIR leaves the live remote" "example.invalid" "$(git -C "$R" remote -v)"
+# GIT_DIR alone, as many hooks export it, is the case that would act on the
+# live repository without failing the clone.
+out=$(GIT_DIR=$R/.git rv --records "$REC" 2>&1)
+assert_exit "an exported GIT_DIR alone still re-verifies" 0 $?
+assert_contains "GIT_DIR alone leaves the live branch checked out" "$live_head" "$(git -C "$R" symbolic-ref -q HEAD 2>&1)"
+assert_contains "GIT_DIR alone leaves the live remote" "example.invalid" "$(git -C "$R" remote -v)"
 
 # Credentials, git configuration, and the shared temporary directory stay out.
 cat >"$T/env.txt" <<EOF
 review-repro 1
 finding ENV-1
 kind reproduction
-run test -z "\${GH_TOKEN-}\${SSH_AUTH_SOCK-}\${ANTHROPIC_API_KEY-}" && ! git config sentinel.key && test -d "\$TMPDIR" && test "\$TMPDIR" != "$T/tmp"
+run test -z "\${GH_TOKEN-}\${SSH_AUTH_SOCK-}\${ANTHROPIC_API_KEY-}" && ! git config sentinel.key && test -d "\$TMPDIR" && test "\$TMPDIR" != "$T/tmp" && test "\${TMPDIR%/tmp}" = "\${HOME%/home}"
 exit 0
 EOF
 out=$(GH_TOKEN=sentinel-token SSH_AUTH_SOCK=/sentinel/agent ANTHROPIC_API_KEY=sentinel-key \
@@ -130,12 +136,21 @@ if command -v setsid >/dev/null 2>&1; then
   printf 'review-repro 1\nfinding BG\nkind test\nrun sleep 60 >/dev/null 2>&1 & echo $! >%s/bg.pid\nexit 0\n' "$T" >"$T/bg.txt"
   out=$(rv --records "$T/bg.txt" 2>&1)
   bg=$(cat "$T/bg.pid" 2>/dev/null)
-  if [ -n "$bg" ] && ! kill -0 "$bg" 2>/dev/null; then
+  # A killed process may linger briefly as a zombie on a loaded host.
+  i=0
+  while [ -n "$bg" ] && kill -0 "$bg" 2>/dev/null && [ "$i" -lt 50 ]; do
+    case $(cut -d' ' -f3 "/proc/$bg/stat" 2>/dev/null) in Z) break ;; esac
+    sleep 0.1
+    i=$((i + 1))
+  done
+  if [ -n "$bg" ] && { ! kill -0 "$bg" 2>/dev/null || [ "$(cut -d' ' -f3 "/proc/$bg/stat" 2>/dev/null)" = Z ]; }; then
     ok "a backgrounded process is ended with its record"
   else
     fail "a backgrounded process is ended with its record (pid ${bg:-none} alive)"
     [ -z "$bg" ] || kill "$bg" 2>/dev/null
   fi
+else
+  echo "skip: setsid is not installed; the backgrounded-process case is not run"
 fi
 
 # --- the copy is the committed head, never the dirty worktree -----------------
@@ -223,6 +238,19 @@ if command -v timeout >/dev/null 2>&1; then
   assert_contains "a timed-out record reports 124" "regressed	slow	test	exit 124, expected 0" "$out"
 fi
 
+# A log that cannot be written is a setup failure, never a regression verdict.
+mkdir "$T/ro-logs"
+printf 'review-repro 1\nfinding RO\nkind test\nrun chmod a-w %s/ro-logs\nexit 0\n' "$T" >"$T/ro.txt"
+out=$(rv --records "$T/ro.txt" --log-dir "$T/ro-logs" 2>&1)
+assert_exit "an unwritable log is exit 4, not regressed" 4 $?
+chmod u+w "$T/ro-logs"
+
+# Output that cannot be read never passes an output-lacks check.
+printf 'review-repro 1\nfinding UNREAD\nkind test\nrun echo forbidden-text; chmod 000 ../out\nexit 0\noutput-lacks forbidden-text\n' >"$T/unread.txt"
+out=$(rv --records "$T/unread.txt" 2>&1)
+assert_exit "unreadable output is not a held fix" 1 $?
+assert_contains "unreadable output is named" "cannot read" "$out"
+
 # --- malformed records are refused before anything runs -----------------------
 refused() {
   # refused <label> <needle> <record body>
@@ -248,6 +276,9 @@ assert_exit "a file without the format header is refused" 2 $?
 printf 'review-repro 1\nfinding X\nkind test\nrun touch %s/ran-anyway\nexit 0\nfinding Y\nkind vibes\nrun true\nexit 0\n' "$T" >"$T/bad.txt"
 out=$(rv --records "$T/bad.txt" 2>&1)
 if [ ! -e "$T/ran-anyway" ]; then ok "nothing runs when a later record is malformed"; else fail "nothing runs when a later record is malformed"; fi
+printf 'review-repro 1\nfinding X\nkind test\nrun true\nexit 0\noutput-lacks partial-marker\nfinding Y\nkind vibes\n' >"$T/bad.txt"
+out=$(rv --records "$T/bad.txt" 2>&1)
+assert_lacks "a malformed file's message carries no normalized records" "partial-marker" "$out"
 out=$(rv 2>&1)
 assert_exit "no records file is a usage error" 2 $?
 
