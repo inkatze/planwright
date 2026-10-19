@@ -316,7 +316,7 @@ cmd_brief() {
   version_gate "$vdir"
   load_task "$2"
   case $vdir in
-    *[[:cntrl:]]*) die 2 "the venture path carries a control character" ;;
+    *[[:space:][:cntrl:]]*) die 2 "the venture path holds whitespace or a control character, so it cannot travel as one argument" ;;
   esac
   printf '/planwright:execute-task %s %s\n\n' "$2" "$vdir"
   cat <<'EOF'

@@ -186,6 +186,11 @@ assert_eq "D1.6 the petition is an /execute-task invocation of the venture task"
   "/planwright:execute-task T-2 $v" "$first"
 assert_contains "D1.7 the petition carries the no-contact rule" "Never contact" "$(cat "$brief_file")"
 
+sv="$tmp/spaced venture"
+inception_fixture_write "$sv" || exit 1
+vt brief "$sv" T-2
+assert_eq "D1.6 a venture path that cannot travel as one argument is refused" 2 "$rc"
+
 # The print rung prepares the launch without spawning; the subagent rung is
 # harness-native and reported through the same seam.
 out=$("$OFFLOAD" dispatch print "$brief_file" 2>&1)
