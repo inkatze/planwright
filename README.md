@@ -163,7 +163,7 @@ Claude Code.
 | | `/spec-walkthrough` | Render a spec into a plain-language artifact for an unaided cold read. |
 | **Execute** | `/orchestrate` | Pick the next ready task, create its worktree, dispatch execution. |
 | | `/execute-task` | Test-first build of one task → full CI → draft PR. |
-| | `/resume` | Load context for a fresh session in an in-flight worktree; `/resume tower` lists every flight in the checkout. |
+| | `/resume` | Load context for a fresh session in an in-flight worktree; `/resume tower` surfaces the checkout's flights needing attention and a count per state. |
 | | `/offload` | Place one free-form petition on the smallest sufficient execution rung. |
 | **Converge** | `/self-review` | Discovery + validation review of the branch; opens or updates a draft PR. |
 | | `/polish` | Autonomous review loop that drains every fixable finding, locally. |
