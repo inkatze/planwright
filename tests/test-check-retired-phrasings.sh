@@ -5,11 +5,14 @@
 #
 # Properties: a fixture tree with no retired phrasing passes; a retired
 # sentence reintroduced under docs/, skills/, or doctrine/ fails, including one
-# wrapped across lines; the same sentence under specs/, the changelog, or the
+# wrapped across lines, set in emphasis or a blockquote, or spelled with a
+# typographic apostrophe or an ASCII arrow; the same sentence under specs/, the changelog, or the
 # observations log is ignored; doctrine/human-gates.md and gate-wiring's one
-# legacy-marker mapping line are exempt, the marker anywhere else is not; a
-# scan over nothing, or with no pattern file, fails closed; the real tree
+# legacy-marker mapping line are exempt, the marker anywhere else is not;
+# every pattern fires on its own known-bad sentence; a scan over nothing, with
+# no pattern file, or through a symlink fails closed; the real tree
 # passes; and the screen is wired into the check aggregate.
+# shellcheck disable=SC2016 # fixture text quotes Markdown code spans
 set -u
 unset CDPATH
 
@@ -83,14 +86,28 @@ else
   fail "the hit is not reported on its closing line: $(cat "$TMP/out")"
 fi
 
+for variant in 'planwright **never** auto-merges.' '> planwright never
+> auto-merges.' "planwright never$(printf '\302\240')auto-merges." \
+  "the draft-to-ready flip is the human$(printf '\342\200\231')s." \
+  'the draft->ready flip is yours.' 'the draft to ready flip is yours.'; do
+  r="$TMP/variant"
+  rm -rf "$r"
+  mkfixture "$r"
+  printf '\n%s\n' "$variant" >>"$r/docs/guide.md"
+  run "$r"
+  rc=$?
+  assert_exit "a variant spelling fails: $(printf '%s' "$variant" | tr '\n' ' ')" 1 "$rc"
+done
+
 r="$TMP/crlf"
 mkfixture "$r"
 printf '\r\nplanwright never  \r\nauto-merges.\r\n' >>"$r/docs/guide.md"
 run "$r"
 assert_exit "a CRLF file with a trailing-space break still fails" 1 $?
 
-# One known-bad sentence per pattern line, in the pattern file's order, so a
-# typo that kills a pattern fails here.
+# One known-bad sentence per pattern line, in the pattern file's order; each
+# pattern must fire on its own sentence's line, so a typo that kills a pattern
+# fails here even when another pattern also matches.
 r="$TMP/each"
 mkfixture "$r"
 npat=0
@@ -106,8 +123,11 @@ workers never force-push.
 new commits only.
 history is never rewritten.
 the two reserved controls hold.
+merge is a reserved human action.
 autonomous PR-ready marking is reserved.
 the all-drafts rule holds.
+task PRs stay drafts.
+all framework-created PRs are drafts.
 two actions are human-reserved, permanently.
 a subject ending in [pending-sign-off] is legacy.
 see bootstrap REQ-J1.4.
@@ -122,12 +142,16 @@ else
   fail "$pats patterns but $npat known-bad sentences; add one per new pattern"
 fi
 run "$r"
-fired=$(grep -c ': retired phrasing /' "$TMP/out")
-if [ "$fired" -eq "$pats" ]; then
-  ok "every pattern fires on its known-bad sentence"
-else
-  fail "$fired of $pats patterns fired: $(cat "$TMP/out")"
-fi
+k=0
+while IFS= read -r p; do
+  case "$p" in '#'* | '') continue ;; esac
+  k=$((k + 1))
+  if grep -qF -- ":$((3 + 2 * k)): retired phrasing /$p/" "$TMP/out"; then
+    ok "pattern $k fires on its known-bad sentence"
+  else
+    fail "pattern $k (/$p/) does not fire on its known-bad sentence"
+  fi
+done <"$REPO_ROOT/config/retired-phrasings.txt"
 
 r="$TMP/actthen"
 mkfixture "$r"
@@ -194,6 +218,37 @@ mv "$r/docs" "$r/real-docs"
 ln -s real-docs "$r/docs"
 run "$r"
 assert_exit "a symlinked surface directory fails closed" 2 $?
+
+r="$TMP/c1"
+mkfixture "$r"
+printf '\nwe never auto-merge.\n' >>"$r/docs/guide.md"
+mv "$r/docs/guide.md" "$r/docs/x$(printf '\302\233\033')y.md"
+run "$r"
+if grep -q "$(printf '\302\233')" "$TMP/out" || grep -q "$(printf '\033')" "$TMP/out"; then
+  fail "a control byte in a path reaches the report"
+else
+  ok "C0 and C1 control bytes in a path are stripped from the report"
+fi
+
+r="$TMP/huge"
+mkfixture "$r"
+yes 'ordinary prose that never states a retired rule at all' | head -n 5000 >>"$r/docs/guide.md"
+run "$r"
+assert_exit "a paragraph over the size cap fails closed" 2 $?
+
+r="$TMP/filelink"
+mkfixture "$r"
+printf 'we never auto-merge.\n' >"$r/specs/demo/hidden.md"
+ln -s ../../specs/demo/hidden.md "$r/skills/demo/LINKED.md"
+run "$r"
+assert_exit "a symlinked file under a surface fails closed" 2 $?
+
+r="$TMP/readmelink"
+mkfixture "$r"
+mv "$r/README.md" "$r/real.md"
+ln -s real.md "$r/README.md"
+run "$r"
+assert_exit "a symlinked README fails closed" 2 $?
 
 r="$TMP/onlyexempt"
 mkdir -p "$r/config" "$r/doctrine"

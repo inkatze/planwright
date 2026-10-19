@@ -11,12 +11,14 @@
 # SCANNED: every regular file under doctrine/, skills/, and docs/, and the
 # root README.md. The historical surfaces (specs/, the changelog, the
 # observations log) are never read: they record the old rules on purpose.
-# Symlinks are not followed.
+# A symlink under them, or as the README, fails closed rather than being
+# skipped or followed.
 #
 # MATCHED: each POSIX ERE in config/retired-phrasings.txt against every
 # paragraph (a run of non-blank lines) lowercased with its whitespace
-# collapsed, so a phrasing wrapped across lines is caught; a hit is reported
-# by the line it ends on. Patterns are lowercase; an uppercase one is refused.
+# collapsed, Markdown emphasis, code ticks, and blockquote markers dropped,
+# and a no-break space read as a space, so a phrasing wrapped across lines or
+# set in emphasis is caught; a hit is reported by the line it ends on. Patterns are lowercase; an uppercase one is refused.
 #
 # EXEMPT: doctrine/human-gates.md, which names what it supersedes, and the
 # first paragraph of doctrine/gate-wiring.md that maps the legacy subject
@@ -29,11 +31,12 @@
 # Usage: check-retired-phrasings.sh [--root <dir>]
 #   --root  the tree to screen (default: this script's repository)
 # Exit: 0 clean · 1 a retired phrasing · 2 usage, or an input that would make
-#   the scan vacuous (a missing, unreadable, or empty pattern file, a symlinked
-#   surface directory, a failed listing, an unreadable file, zero files).
+#   the scan vacuous (a missing, unreadable, or empty pattern file, a symlink
+#   in a surface, a failed listing, an unreadable file, zero files), or a
+#   paragraph over 256 KiB, whose quadratic join would stall the gate.
 #
 # Scanned files are PR-controllable data: read by awk, never executed, and
-# every reported path stripped of control bytes.
+# every reported path and pattern stripped of control bytes, C1 included.
 #
 # POSIX sh and awk.
 set -uf
@@ -76,30 +79,41 @@ fi
 
 list=$(mktemp) || exit 2
 trap 'rm -f "$list"' EXIT
+trap 'exit 2' HUP INT TERM
+symlink() {
+  printf '%s: %s is a symlink, which the scan does not follow; failing closed.\n' "$me" "$1" >&2
+  exit 2
+}
 for d in doctrine skills docs; do
-  if [ -h "$root/$d" ]; then
-    printf '%s: %s/ is a symlink, which the scan does not follow; failing closed.\n' "$me" "$d" >&2
-    exit 2
-  fi
+  [ -h "$root/$d" ] && symlink "$d/"
   [ -d "$root/$d" ] || continue
-  find "$root/$d" -type f -print >>"$list" || {
+  links=$(find "$root/$d" -type l -print) || links=failed
+  find "$root/$d" -type f -print >>"$list" && [ "$links" != failed ] || {
     printf '%s: listing %s/ failed; failing closed.\n' "$me" "$d" >&2
     exit 2
   }
+  [ -z "$links" ] || symlink "a path under $d/"
 done
-[ -f "$root/README.md" ] && [ ! -h "$root/README.md" ] && printf '%s\n' "$root/README.md" >>"$list"
+[ -h "$root/README.md" ] && symlink README.md
+[ -f "$root/README.md" ] && printf '%s\n' "$root/README.md" >>"$list"
 
 ROOT=$root PATTERNS=$patterns LIST=$list ME=$me awk '
-function clean(s) { gsub(/[[:cntrl:]]/, "?", s); return s }
+# C0 controls, DEL, and C1 controls in their UTF-8 form; other UTF-8 (an
+# arrow in a pattern) passes through.
+function clean(s) { gsub(/[\001-\037\177]|\302[\200-\237]/, "?", s); return s }
 function closed(msg) {
   printf "%s: %s; failing closed.\n", ENVIRON["ME"], msg > "/dev/stderr"
   failed = 1
   exit 2
 }
 # The line a match ends on: the first paragraph line whose cumulative text
-# already matches.
-function hitline(p,   k) {
-  for (k = 1; k <= nl; k++) if (cum[k] ~ p) return ln[k]
+# already matches. Built only on a hit, so a long clean paragraph stays linear.
+function hitline(p,   k, cum) {
+  cum = ""
+  for (k = 1; k <= nl; k++) {
+    cum = (cum == "" ? "" : cum " ") txt[k]
+    if (cum ~ p) return ln[k]
+  }
   return ln[1]
 }
 function check(rel,   i, n, m) {
@@ -112,7 +126,7 @@ function check(rel,   i, n, m) {
       n = gsub(/pending-sign-off\]/, "", m)
       if (n == 1) { mapped = 1; continue }
     }
-    printf "%s:%d: retired phrasing /%s/ (doctrine/human-gates.md)\n", clean(rel), hitline(pat[i]), pat[i]
+    printf "%s:%d: retired phrasing /%s/ (doctrine/human-gates.md)\n", clean(rel), hitline(pat[i]), clean(pat[i])
     hits++
   }
 }
@@ -135,10 +149,16 @@ BEGIN {
     while ((rc = (getline line < path)) > 0) {
       lineno++
       if (line ~ /^[ \t\r]*$/) { check(rel); para = ""; nl = 0; continue }
+      gsub(/\302\240/, " ", line)
+      sub(/^[ \t]*(>[ \t]*)+/, "", line)
+      gsub(/[*_`]/, "", line)
       gsub(/[ \t\r]+/, " ", line)
       sub(/^ /, "", line); sub(/ $/, "", line)
-      para = (para == "" ? "" : para " ") tolower(line)
-      nl++; ln[nl] = lineno; cum[nl] = para
+      if (line == "") continue
+      line = tolower(line)
+      para = (para == "" ? "" : para " ") line
+      if (length(para) > 262144) closed(clean(rel) ":" lineno ": a paragraph over 256 KiB; break it with a blank line")
+      nl++; ln[nl] = lineno; txt[nl] = line
     }
     if (rc < 0) closed(clean(rel) " could not be read")
     check(rel)

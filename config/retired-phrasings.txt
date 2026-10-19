@@ -17,12 +17,15 @@ no auto-merge
 never[- ]force-push
 new commits only
 history is never rewritten
-two reserved controls
+reserved (human )?controls?
+reserved human action
 autonomous pr-ready marking
 all-drafts
+task prs (stay|remain) drafts
+prs are drafts
 human-reserved, permanently
 pending-sign-off\]
 bootstrap (d-26|req-j1\.[14])
-(draft→ready|draft-to-ready) flip (is|stays) (the human'?s|yours)
-(ready and merge|flip and (the )?merge) (are|stay) (the human'?s|yours)
+draft( ?(→|->) ?|-to-| to )ready flip (is|stays) (the human('|’)?s|yours)
+(ready and merge|flip and (the )?merge) (are|stay) (the human('|’)?s|yours)
 every pr (the framework (creates|opens) )?is a draft
