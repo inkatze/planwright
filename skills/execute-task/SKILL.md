@@ -471,7 +471,7 @@ convergence (complexity growth, an outdated pattern, a newly available
 dependency feature, an uncatalogued decision domain), record it as its own
 fragment through the shared helper: `scripts/obs-record.sh --slug <topic>
 --scope <repo> --text '<observation>'` (resolved under the planwright root; it
-writes one file under `specs/_observations/entries/`). Commit the fragment
+writes into the spec root's `_observations/entries/`). Commit the fragment
 within the iteration that produced it so the tree returns to clean; on a
 non-zero helper exit, surface the failure rather than dropping it. Do not act on
 observations during the unit; they are seed material for `/spec-draft`

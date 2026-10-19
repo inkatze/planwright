@@ -257,6 +257,8 @@ extract_invocation() {
 fill() {
   fi_cmd=$1
   fi_cmd=${fi_cmd//<absolute-primary-checkout>/$co}
+  # The skill's <root> is the spec root's primary view: specs/ with spec_root unset.
+  fi_cmd=${fi_cmd//<root>/$co/specs}
   fi_cmd=${fi_cmd//<spec>/demo}
   # The batched form first: the gc line takes several ids, so `<unit-id>...` has
   # to resolve before the bare token would eat its stem and leave a stray `...`.

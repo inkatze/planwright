@@ -256,7 +256,7 @@ is outside the branch's scope (complexity growth, outdated patterns, tooling
 gaps, doctrine gaps) as one fragment per observation through the shared
 helper: `scripts/obs-record.sh --slug <topic> --scope <repo> --text
 '<observation>'` (resolved under the planwright root; it writes one fragment
-file under the host repo's `specs/_observations/entries/`). Commit the
+file under the spec root's `_observations/entries/`). Commit the
 fragment within the pass (the action commit, or its own chore commit when
 nothing else landed); never leave the tree dirty at a pass boundary, and
 surface a non-zero helper exit rather than silently dropping the

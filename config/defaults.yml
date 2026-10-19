@@ -207,8 +207,8 @@ steps_post_pr: []
 steps_pre_ready_flip: []
 steps_pre_spec_ready_flip: []
 # Named, not wired (gated under custom-steps' Deferred): a non-empty list here
-# resolves no steps and is reported as unwired by the resolver (and by
-# check:steps once that guard is wired).
+# resolves no steps and is reported as unwired by the resolver and by
+# check:steps.
 steps_spec_drafted: []
 steps_kickoff_signed_off: []
 steps_unit_selected: []
@@ -925,3 +925,11 @@ protected_branches:
 # value warns and falls back to ~/ventures (a control byte passes to the next
 # lower layer); a malformed repo-tracked value fails.
 ventures_root: ~/ventures
+
+# Named observation targets (custom-spec-location D-18, REQ-F1.2): a flat
+# inline {alias: path} map, each path absolute or ~/ and naming a marked spec
+# root or the default root of a git checkout, that `obs-record.sh --target
+# <alias>` writes a fragment into after the hygiene screen. Ships empty; the
+# values are paths on one machine, so the machine-local or adopter layer is
+# their usual home.
+observation_targets: {}
