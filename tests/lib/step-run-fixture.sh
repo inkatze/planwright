@@ -17,11 +17,13 @@ fail() {
   failures=$((failures + 1))
 }
 ok() { printf 'ok: %s\n' "$1"; }
+# verdict <status> <ok-message> <fail-detail>: callers pass $? first, since
+# bash sets $? from any command substitution in the later arguments.
 verdict() {
-  if [ $? -eq 0 ]; then
-    ok "$1"
+  if [ "$1" -eq 0 ]; then
+    ok "$2"
   else
-    fail "$2"
+    fail "$3"
   fi
 }
 

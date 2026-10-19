@@ -10,6 +10,7 @@
 #
 # Runs standalone under /bin/sh (the bash 3.2 / dash floor):
 #   ./tests/test-step-run-resume.sh
+# shellcheck disable=SC2319 # each verdict judges the condition just before it
 set -u
 LC_ALL=C
 export LC_ALL
@@ -44,17 +45,17 @@ srun resume --run "$r2" --from "$r1:post-pr" >"$tmp/skips"
 [ "$(cut -f 2 "$tmp/skips" | tr '\n' ' ')" = "one two " ] \
   && [ "$(recs "$r2" post-pr | grep -c "^skip-code${TAB}resume$")" -eq 2 ] \
   && [ -z "$(recs "$r2" pre-pr)" ]
-verdict "a resume skips the interrupted run's passing prefix and records nothing at other points" "skips: $(cat "$tmp/skips")"
+verdict $? "a resume skips the interrupted run's passing prefix and records nothing at other points" "skips: $(cat "$tmp/skips")"
 r3=$(sr new-run)
 srun resume --run "$r3" --from "$r2:post-pr" >"$tmp/skips3"
 [ "$(cut -f 2 "$tmp/skips3" | tr '\n' ' ')" = "one two " ] \
   && recs "$r3" post-pr | grep -q "^stands-on${TAB}$r1:post-pr:"
-verdict "a chained resume skips the same prefix, standing on the original records" "skips: $(cat "$tmp/skips3")"
+verdict $? "a chained resume skips the same prefix, standing on the original records" "skips: $(cat "$tmp/skips3")"
 git -C "$wt" commit -q --allow-empty -m "chore: move"
 r4=$(sr new-run)
 srun resume --run "$r4" --from "$r1:post-pr" >"$tmp/skips4"
 [ ! -s "$tmp/skips4" ]
-verdict "a head moved since the interruption skips nothing" "skips: $(cat "$tmp/skips4")"
+verdict $? "a head moved since the interruption skips nothing" "skips: $(cat "$tmp/skips4")"
 for bad in "12:post-pr" "abcdef:post-pr" "$r1:pre-ready-flip" "$r1:nowhere" "$r1"; do
   srun resume --run "$r4" --from "$bad" >/dev/null 2>&1
   [ $? -eq 2 ] || fail "resume accepted --from '$bad'"
@@ -63,7 +64,7 @@ ok "a malformed run id or a point outside the in-run points is refused"
 mkdir -p "$tmp/norec"
 srun resume --run 999999 --from "x:post-pr" >/dev/null 2>"$tmp/e"
 grep -q 'six-digit run id' "$tmp/e"
-verdict "the --from grammar is checked before the run is read" "err: $(cat "$tmp/e")"
+verdict $? "the --from grammar is checked before the run is read" "err: $(cat "$tmp/e")"
 
 # --- a resume-skipped head move still triggers re-fire and reaches the next step -----------
 fresh
@@ -82,7 +83,7 @@ srun command --run "$r2" --point post-pr --step show >/dev/null 2>&1
 srun refire --run "$r2" >"$tmp/plan"
 grep -q "^refire${TAB}gate${TAB}pre-pr${TAB}" "$tmp/plan" \
   && grep -qx "PLANWRIGHT_STEP_NEW_HEAD=$(head_of)" "$tmp/show.show.env"
-verdict "a resume-skipped move triggers the re-fire and reaches the next step" \
+verdict $? "a resume-skipped move triggers the re-fire and reaches the next step" \
   "plan: $(cat "$tmp/plan"); env: $(cat "$tmp/show.show.env")"
 
 # --- a run held in its re-fire pass resumes inside it, from the chain's first lists -------
@@ -103,7 +104,7 @@ srun resume --run "$r3" --from "$r2:post-pr" >"$tmp/skips3"
 srun refire --run "$r3" >"$tmp/plan"
 [ "$(cut -f 2 "$tmp/skips3" | tr '\n' ' ')" = "pushfix gate " ] \
   && [ "$(cat "$tmp/plan")" = "refire${TAB}gate2${TAB}pre-pr${TAB}isolated" ]
-verdict "a resumed re-fire pass skips what ran and plans the rest from the chain's first run" \
+verdict $? "a resumed re-fire pass skips what ran and plans the rest from the chain's first run" \
   "skips: $(cat "$tmp/skips3"); plan: $(cat "$tmp/plan")"
 
 # --- a continue step attaches to the session behind a reused predecessor (REQ-D1.11) -------
@@ -115,15 +116,15 @@ r1=$(sr new-run)
 srun resolve --run "$r1" pre-pr --unattended >/dev/null 2>&1
 srun begin --run "$r1" --point pre-pr --step sess --owner "$me" --session unit-sess-1 >"$tmp/begin"
 grep -q "^run${TAB}PLANWRIGHT_STEP_SPEC='demo' .* '$bin/check.sh'$" "$tmp/begin"
-verdict "begin prints the session line for an in-session step" "begin: $(cat "$tmp/begin")"
+verdict $? "begin prints the session line for an in-session step" "begin: $(cat "$tmp/begin")"
 srun end --run "$r1" --point pre-pr --step sess --exit 0 >"$tmp/end"
 grep -q "^passed${TAB}.*${TAB}in-session${TAB}unit-sess-1$" "$tmp/end"
-verdict "end writes the session step's record" "end: $(cat "$tmp/end")"
+verdict $? "end writes the session step's record" "end: $(cat "$tmp/end")"
 r2=$(sr new-run)
 srun resolve --run "$r2" pre-pr --unattended >/dev/null 2>&1
 srun begin --run "$r2" --point pre-pr --step sess --owner "$me" --session unit-sess-2 >"$tmp/begin"
 grep -q "^skipped${TAB}.*${TAB}in-session${TAB}unit-sess-1$" "$tmp/begin"
-verdict "a reused predecessor names the hosting and session a continue step attaches to" \
+verdict $? "a reused predecessor names the hosting and session a continue step attaches to" \
   "begin: $(cat "$tmp/begin")"
 
 # --- a pooled in-session step holds its slot for the session's process -------------------
@@ -137,10 +138,10 @@ srun begin --run "$r" --point pre-pr --step sp1 --owner "$me" >"$tmp/begin"
 held=$(sp report gate)
 grep -q "PLANWRIGHT_STEP_POOL_HOLD='gate:$me'" "$tmp/begin" \
   && printf '%s\n' "$held" | grep -q "^holder${TAB}1${TAB}$me${TAB}sp1${TAB}"
-verdict "begin takes the slot for the session's process and renders its hold mark" "held=$held"
+verdict $? "begin takes the slot for the session's process and renders its hold mark" "held=$held"
 srun end --run "$r" --point pre-pr --step sp1 --exit 0 >/dev/null
 [ -z "$(sp report gate)" ] && recs "$r" pre-pr | grep -qx "pool${TAB}gate"
-verdict "end releases the session's slot and records the pool" "still held"
+verdict $? "end releases the session's slot and records the pool" "still held"
 
 # --- a re-fire reads only the chain's first run's lists (REQ-I1.9) ------------------------
 fresh
@@ -155,7 +156,7 @@ point_done "$r2" pre-pr
 point_run "$r2" post-pr
 srun refire --run "$r2" >"$tmp/plan" 2>"$tmp/e"
 [ ! -s "$tmp/plan" ] && grep -q "run $r1 resolved no pre-pr list" "$tmp/e"
-verdict "a chain whose first run never resolved pre-pr plans nothing for it, and warns" \
+verdict $? "a chain whose first run never resolved pre-pr plans nothing for it, and warns" \
   "plan: $(cat "$tmp/plan"); err: $(cat "$tmp/e")"
 
 # --- a session-hosted re-fire runs through begin and end, once -------------------------------
@@ -176,13 +177,13 @@ srun end --run "$r" --point post-pr --step sgate --exit 0 >"$tmp/end"
 recs "$r" post-pr >"$tmp/l"
 grep -q "^refire${TAB}sgate${TAB}pre-pr${TAB}in-session$" "$tmp/plan" && grep -q "^passed${TAB}" "$tmp/end" \
   && grep -qx "refire-of${TAB}pre-pr" "$tmp/l" && [ -z "$(sp report gate)" ]
-verdict "a session-hosted re-fire runs through begin and end and records its refire-of" "$(cat "$tmp/plan" "$tmp/end")"
+verdict $? "a session-hosted re-fire runs through begin and end and records its refire-of" "$(cat "$tmp/plan" "$tmp/end")"
 srun begin --run "$r" --point post-pr --step sgate --owner "$me" --refire-of pre-pr >/dev/null 2>&1
 [ $? -eq 2 ]
-verdict "a second re-fire of the same step in the run is refused" "not refused"
+verdict $? "a second re-fire of the same step in the run is refused" "not refused"
 srun end --run "$r" --point post-pr --step sgate --exit 0 --refire-of pre-pr >/dev/null 2>&1
 [ $? -eq 2 ]
-verdict "end refuses a re-fire flag of its own" "end accepted --refire-of"
+verdict $? "end refuses a re-fire flag of its own" "end accepted --refire-of"
 
 # --- refusals: nothing recorded, nothing taken ----------------------------------------------
 fresh
@@ -220,7 +221,7 @@ ln -s "$tmp/elsewhere" "$wt/.claude/steps/$r/runner-pending-pre-pr-ses"
 refuse "a symlinked pending state" end --run "$r" --point pre-pr --step ses --exit 0
 rm -f "$wt/.claude/steps/$r/runner-pending-pre-pr-ses"
 [ "$failures" -eq "$before_refusals" ]
-verdict "misrouted, undeclared, malformed, and stateless calls are refused with nothing recorded or taken" \
+verdict $? "misrouted, undeclared, malformed, and stateless calls are refused with nothing recorded or taken" \
   "a refusal case failed (above)"
 
 # --- a failure after the take still releases the session's slot -----------------------------
@@ -230,7 +231,7 @@ if [ "$(id -u)" -ne 0 ]; then
   rc=$?
   chmod 700 "$wt/.claude/steps/$r"
   [ "$rc" -eq 4 ] && [ -z "$(sp report gate)" ]
-  verdict "a begin failing after its take releases the slot" "rc=$rc held=$(sp report gate)"
+  verdict $? "a begin failing after its take releases the slot" "rc=$rc held=$(sp report gate)"
 else
   ok "a begin failing after its take releases the slot (skipped as root: a read-only run directory cannot fail a write)"
 fi
@@ -240,7 +241,7 @@ PR=abc srun command --run "$r" --point pre-pr --step iso >"$tmp/out" 2>/dev/null
 rc=$?
 [ "$rc" -eq 1 ] && [ ! -e "$tmp/check.log" ] && [ -z "$(sp report gate)" ] \
   && recs "$r" pre-pr | grep -q "^excerpt${TAB}.*PLANWRIGHT_STEP_PR_NUMBER"
-verdict "a refused context value fails the step, names the field, runs nothing, and frees the slot" \
+verdict $? "a refused context value fails the step, names the field, runs nothing, and frees the slot" \
   "rc=$rc: $(recs "$r" pre-pr)"
 
 # --- begin and end: a second begin, a timeout, an output file, a failing exit --------------
@@ -249,7 +250,7 @@ srun begin --run "$r" --point pre-pr --step ses --owner "$me" >/dev/null 2>&1
 rc=$?
 held=$(sp report gate | wc -l | tr -d ' ')
 [ "$rc" -eq 2 ] && [ "$held" -eq 1 ]
-verdict "a second begin before end is refused and takes no second slot" "rc=$rc held=$held"
+verdict $? "a second begin before end is refused and takes no second slot" "rc=$rc held=$held"
 printf 'line output\n' >"$tmp/line.out"
 srun end --run "$r" --point pre-pr --step ses --exit 124 --timed-out 30 --output "$tmp/line.out" >"$tmp/end"
 rc=$?
@@ -257,7 +258,7 @@ recs "$r" pre-pr >"$tmp/l"
 [ "$rc" -eq 1 ] && grep -q "^failed${TAB}" "$tmp/end" && grep -qx "excerpt${TAB}line output" "$tmp/l" \
   && grep -q "^excerpt${TAB}step-run: timed out after 30s; ended by the session" "$tmp/l" \
   && [ -z "$(sp report gate)" ] && [ ! -e "$wt/.claude/steps/$r/runner-pending-pre-pr-ses" ]
-verdict "end records a shell-tool timeout with the line's output and frees the session's slot" "rc=$rc: $(cat "$tmp/l")"
+verdict $? "end records a shell-tool timeout with the line's output and frees the session's slot" "rc=$rc: $(cat "$tmp/l")"
 
 # --- /execute-task wires the runner's calls ------------------------------------------------
 skill=$(tr '\n' ' ' <"$repo_root/skills/execute-task/SKILL.md")
