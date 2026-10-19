@@ -6,6 +6,10 @@
 # (no interleaved garbage, no silently skipped siblings).
 set -u
 unset CDPATH
+# Knobs an outer run may carry: a nested run below that inherited one would
+# write its report, order its queue or size itself by the outer setting.
+unset PLANWRIGHT_TEST_TIMING_REPORT PLANWRIGHT_TEST_DURATIONS PLANWRIGHT_TEST_JOBS \
+  PLANWRIGHT_TEST_SLOTS PLANWRIGHT_TEST_FORCE_SERIAL
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RUNNER="$REPO_ROOT/scripts/run-tests.sh"
@@ -207,7 +211,9 @@ esac
 #     the other's can only both pass when they overlap. The serial run of
 #     the same fixture is the negative control — it must time out and
 #     fail, proving the fixture detects serialized execution (and so that
-#     the parallel path is not accidentally serial).
+#     the parallel path is not accidentally serial). The wait for the peer
+#     is generous only where a peer is expected: the control waits it out
+#     whole, so it runs with a short one.
 mkdir -p "$tmp/overlap" "$tmp/sync"
 for pair in one:two two:one; do
   me="${pair%%:*}"
@@ -216,7 +222,7 @@ for pair in one:two two:one; do
 #!/bin/bash
 : >"$tmp/sync/$me.here"
 i=0
-while [ \$i -lt 40 ]; do
+while [ \$i -lt \${OVERLAP_TICKS:-40} ]; do
   [ -e "$tmp/sync/$peer.here" ] && exit 0
   sleep 0.25
   i=\$((i + 1))
@@ -227,7 +233,7 @@ done
 PLANWRIGHT_TEST_JOBS=2 /bin/bash "$RUNNER" "$tmp/overlap" >/dev/null 2>&1
 assert "overlapping fixtures pass: files genuinely run concurrently" 0 $?
 rm -f "$tmp/sync"/*.here
-PLANWRIGHT_TEST_FORCE_SERIAL=1 /bin/bash "$RUNNER" "$tmp/overlap" \
+OVERLAP_TICKS=4 PLANWRIGHT_TEST_FORCE_SERIAL=1 /bin/bash "$RUNNER" "$tmp/overlap" \
   >/dev/null 2>&1
 assert "negative control: serialized execution fails the overlap fixture" \
   1 $?
