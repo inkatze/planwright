@@ -503,7 +503,7 @@ write_pidfile() {
 # `kill -0` has already said no, so the common path stays fork-free.
 pid_live() {
   kill -0 "$1" 2>/dev/null && return 0
-  ps -p "$1" >/dev/null 2>&1
+  ps -p "$1" >/dev/null 2>&1 || [ -d "/proc/$1" ]
 }
 
 # worker_alive <dir> — true when a pid this worker's own state records is live.
@@ -623,7 +623,9 @@ json_escape() {
     NR > 1 { printf "\\n" }
     {
       s = $0
-      gsub(/\\/, "\\\\", s)
+      # `&&`, not "\\\\": busybox awk collapses a doubled backslash in the
+      # replacement to one, so the escape would vanish there.
+      gsub(/\\/, "&&", s)
       gsub(/"/, "\\\"", s)
       gsub(/\t/, "\\t", s)
       gsub(/\r/, "\\r", s)
