@@ -79,5 +79,14 @@ rh_wiring() {
   else
     fail "[$tier] the profile's rules did not load into the matcher model"
   fi
+  if [ "$tier" = worker ]; then
+    local about
+    about=$(jq -r '._about // ""' "$settings")
+    if [[ $about == *scripts/request-reviewer.sh* ]] && [[ $about != *"never re-draft one"* ]]; then
+      ok "[$tier] the profile's description names the helper's corrective re-draft (REQ-C1.8)"
+    else
+      fail "[$tier] the profile's description still says a worker never re-drafts, or omits the helper (REQ-C1.8)"
+    fi
+  fi
   rm -rf "$sb"
 }
