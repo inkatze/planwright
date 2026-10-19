@@ -256,7 +256,8 @@ poll_until --what 'the run to end on TERM' -- test -s "$tmp/take.rc" || {
 took=$POLL_UNTIL_ELAPSED
 wait "$bg"
 rc=$(cat "$tmp/take.rc" 2>/dev/null)
-[ "$ended" = yes ] && [ "$rc" = 143 ] && [ ! -e "$tmp/log.pid" ]
+# "At once" with room for a loaded host; ignoring TERM would wait out the 600s bound.
+[ "$ended" = yes ] && [ "$rc" = 143 ] && [ "$took" -le 20 ] && [ ! -e "$tmp/log.pid" ]
 verdict "TERM during the take ends the wait at once and runs no suite" \
   "take signal: rc=$rc took=${took}s holders=$waiter" "$tmp/err"
 sp release gate "$h" >/dev/null
