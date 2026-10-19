@@ -37,6 +37,8 @@ SJ="$here/../scripts/fleet-streamjson.sh"
 RELAY="$here/../scripts/orchestrate-relay.sh"
 # shellcheck source=tests/lib/fixture-procs.sh
 . "$here/lib/fixture-procs.sh"
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -106,20 +108,6 @@ senv() {
     ${se_pre[@]+"${se_pre[@]}"} /bin/sh "$SJ" "$@"
 }
 
-wait_until() {
-  wu_n=$1
-  shift
-  wu_i=0
-  while [ "$wu_i" -lt "$wu_n" ]; do
-    if "$@" >/dev/null 2>&1; then
-      return 0
-    fi
-    sleep 0.1
-    wu_i=$((wu_i + 1))
-  done
-  return 1
-}
-
 lines_of() {
   if [ -f "$1" ]; then
     wc -l <"$1" | tr -d ' '
@@ -128,7 +116,7 @@ lines_of() {
   fi
 }
 
-# lines_cmp <file> <test-op> <n> — for wait_until, which re-runs its command:
+# lines_cmp <file> <test-op> <n> — for poll_until, which re-runs its command:
 # the count has to be taken inside it, not expanded once by the caller.
 lines_cmp() {
   test "$(lines_of "$1")" "$2" "$3"
@@ -147,7 +135,7 @@ start_worker() {
     launch "$sw_h" fleet-lifecycle-closure:9 --prompt-file "$tmp/prompt-$sw_h" --foreground \
     >/dev/null 2>&1 &
   live_pids="$live_pids $!"
-  wait_until 100 grep -q '"type":"user"' "$sw_rec/stdin" \
+  poll_until --what 'the user turn' -- grep -q '"type":"user"' "$sw_rec/stdin" \
     || fail "$sw_h: the worker never received its initial prompt"
 }
 
@@ -176,7 +164,7 @@ case $out in
   "steered sjs1 "[0-9]*) : ;;
   *) fail "s1: unexpected steer output: $out" ;;
 esac
-wait_until 100 lines_cmp "$rec/stdin" -ge 2 \
+poll_until --what 'the stdin line count' -- lines_cmp "$rec/stdin" -ge 2 \
   || fail "s1: the steer never reached the worker's stdin"
 sed -n 2p "$rec/stdin" >"$tmp/s1frame"
 jq -e . "$tmp/s1frame" >/dev/null 2>&1 || fail "s1: the delivered frame is not valid JSON: $(cat "$tmp/s1frame")"
@@ -190,7 +178,7 @@ want=$(printf '[planwright tower relay -> sjs1]\n%s' "$msg")
 printf 'second\n' >"$tmp/steer1b"
 senv "$home" "$rec" -- steer sjs1 --message-file "$tmp/steer1b" >/dev/null \
   || fail "s1: the second steer exited non-zero"
-wait_until 100 lines_cmp "$rec/stdin" -ge 3 \
+poll_until --what 'the stdin line count' -- lines_cmp "$rec/stdin" -ge 3 \
   || fail "s1: the worker stopped consuming after the first steer"
 [ "$(cat "$wdir/worker.pid")" = "$pid_before" ] || fail "s1: the worker was restarted by a steer"
 kill -0 "$pid_before" 2>/dev/null || fail "s1: the worker died after being steered"
@@ -268,7 +256,7 @@ home="$tmp/h3"
 rec="$tmp/r3"
 start_worker "$home" "$rec" sjs3 SHIM_EVENTS="$tmp/ev-perm"
 wdir3="$home/streamjson/sjs3"
-wait_until 100 grep -q "^$req" "$wdir3/journal" || fail "s3: the pending journal row never appeared"
+poll_until --what 'the journal row' -- grep -q "^$req" "$wdir3/journal" || fail "s3: the pending journal row never appeared"
 before=$(lines_of "$rec/stdin")
 printf '{"behavior":"allow"\n' >"$tmp/bad-resp"
 senv "$home" "$rec" -- answer sjs3 "$req" --response-file "$tmp/bad-resp" >/dev/null 2>"$tmp/s3.err"
@@ -281,7 +269,7 @@ senv "$home" "$rec" -- answer sjs3 "$req" --response-file "$tmp/splice-resp" >/d
 [ $? -eq 2 ] || fail "s3: a response body that closes the envelope early must be refused (exit 2)"
 # A valid answer after it still delivers: the refusal left the channel usable.
 senv "$home" "$rec" -- answer sjs3 "$req" --allow >/dev/null || fail "s3: the follow-up answer failed"
-wait_until 100 grep -q control_response "$rec/stdin" || fail "s3: the follow-up answer never arrived"
+poll_until --what 'the answer on stdin' -- grep -q control_response "$rec/stdin" || fail "s3: the follow-up answer never arrived"
 [ "$(lines_of "$rec/stdin")" = $((before + 1)) ] \
   || fail "s3: exactly one frame should have reached the worker, stdin: $(cat "$rec/stdin")"
 while IFS= read -r s3_line; do
@@ -340,7 +328,7 @@ out=$(cd "$tmp/cwd5" && senv "$tmp/h1" "$tmp/r1" -- steer sjs1 --message-file -n
   || fail "s5: a dash-leading message path must be read as a file, got: $out"
 [ "$out" = "steered sjs1 $(wc -c <"$tmp/cwd5/-n" | tr -d ' ')" ] \
   || fail "s5: the dash-named file must be measured as a file, not parsed as an option: $out"
-wait_until 100 lines_cmp "$tmp/r1/stdin" -gt "$before" \
+poll_until --what 'the stdin line count' -- lines_cmp "$tmp/r1/stdin" -gt "$before" \
   || fail "s5: the dash-named message never arrived"
 tail -n 1 "$tmp/r1/stdin" | jq -r '.message.content[0].text' | grep -q 'from a dashed file' \
   || fail "s5: the dash-named file's content was not what arrived"
@@ -351,7 +339,7 @@ out=$(senv "$tmp/h1" "$tmp/r1" -- steer sjs1 --message-file "$tmp/steer5" 2>&1) 
   || fail "s5: a control-byte message should still deliver, got: $out"
 [ "$(printf '%s' "$out" | LC_ALL=C tr -d '\000-\037\177')" = "$out" ] \
   || fail "s5: steer echoed a control byte"
-wait_until 100 lines_cmp "$tmp/r1/stdin" -gt $((before + 1)) \
+poll_until --what 'the stdin line count' -- lines_cmp "$tmp/r1/stdin" -gt $((before + 1)) \
   || fail "s5: the control-byte message never arrived"
 tail -n 1 "$tmp/r1/stdin" | jq -e . >/dev/null 2>&1 \
   || fail "s5: the control-byte message did not arrive as valid JSON"
@@ -369,10 +357,10 @@ req6='aaaa1111-bbbb-cccc-dddd-eeee00000006'
 line_del='{"type":"control_request","request_id":"'$req6'","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"echo a'$del'b"},"tool_use_id":"t6"}}'
 printf '%s\n%s\n' "$line_init" "$line_del" >"$tmp/ev-del"
 start_worker "$home" "$rec" sjs6 SHIM_EVENTS="$tmp/ev-del"
-wait_until 100 grep -q "^$req6" "$home/streamjson/sjs6/journal" || fail "s6: the pending journal row never appeared"
+poll_until --what 'the journal row' -- grep -q "^$req6" "$home/streamjson/sjs6/journal" || fail "s6: the pending journal row never appeared"
 out=$(senv "$home" "$rec" -- answer sjs6 "$req6" --allow 2>&1) \
   || fail "s6: --allow over a tool input carrying DEL must deliver, got: $out"
-wait_until 100 grep -q control_response "$rec/stdin" || fail "s6: the allow never reached the worker"
+poll_until --what 'the answer on stdin' -- grep -q control_response "$rec/stdin" || fail "s6: the allow never reached the worker"
 got=$(grep control_response "$rec/stdin" | jq -r '.response.response.updatedInput.command')
 [ "$got" = "echo a${del}b" ] || fail "s6: the spliced input must decode to the original command, got: $got"
 # A deeply nested tool input is valid JSON the CLI can emit, so its allow must
@@ -382,10 +370,10 @@ deep_in=$(awk 'BEGIN { for (i = 0; i < 100; i++) printf "{\"a\":"; printf "1"; f
 line_deep='{"type":"control_request","request_id":"'$req7'","request":{"subtype":"can_use_tool","tool_name":"mcp__x__y","input":{"doc":'$deep_in'},"tool_use_id":"t7"}}'
 printf '%s\n%s\n' "$line_init" "$line_deep" >"$tmp/ev-deep"
 start_worker "$tmp/h7" "$tmp/r7" sjs7 SHIM_EVENTS="$tmp/ev-deep"
-wait_until 100 grep -q "^$req7" "$tmp/h7/streamjson/sjs7/journal" || fail "s6: the deep request's journal row never appeared"
+poll_until --what 'the journal row' -- grep -q "^$req7" "$tmp/h7/streamjson/sjs7/journal" || fail "s6: the deep request's journal row never appeared"
 out=$(senv "$tmp/h7" "$tmp/r7" -- answer sjs7 "$req7" --allow 2>&1) \
   || fail "s6: --allow over a tool input nested 100 deep must deliver, got: $out"
-wait_until 100 grep -q control_response "$tmp/r7/stdin" || fail "s6: the deep allow never reached the worker"
+poll_until --what 'the answer on stdin' -- grep -q control_response "$tmp/r7/stdin" || fail "s6: the deep allow never reached the worker"
 got=$(grep control_response "$tmp/r7/stdin" | jq -c '.response.response.updatedInput.doc')
 [ "$got" = "$deep_in" ] || fail "s6: the deep input must arrive intact, got: $got"
 echo "ok: s6 --allow over a worker input carrying a raw DEL, or nested 100 deep, delivers it intact as a valid frame (REQ-G1.2)"
@@ -402,7 +390,7 @@ line_result='{"type":"result","subtype":"success","is_error":false,"session_id":
 printf '%s\n%s\n' "$line_init" "$line_result" >"$tmp/ev-result"
 start_worker "$home" "$rec" sjs8 SHIM_EVENTS="$tmp/ev-result"
 wdir="$home/streamjson/sjs8"
-wait_until 100 test -f "$wdir/result" || fail "s8: the turn's result was never recorded"
+poll_until --what 'the result' -- test -f "$wdir/result" || fail "s8: the turn's result was never recorded"
 out=$(senv "$home" "$rec" -- status sjs8)
 case $out in
   "status sjs8 completed result=success") : ;;
@@ -431,7 +419,7 @@ for sp in "$tmp/h1:sjs1" "$tmp/h3:sjs3" "$tmp/h6:sjs6" "$tmp/h7:sjs7" "$tmp/h8:s
 done
 # The suite leaves nothing running: a close above that missed a worker shows
 # here as a survivor carrying this run's scratch path, not as a silent leak.
-wait_until 50 fixture_none "$tmp/" \
+poll_until --what 'no fixture process left' -- fixture_none "$tmp/" \
   || fail "s7: fixture process(es) still running after every case: $(fixture_report "$tmp/")"
 echo "ok: s7 no supervisor, tick, or shim from this run outlives the suite"
 echo "all fleet-streamjson-steer tests passed"

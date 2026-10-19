@@ -24,6 +24,8 @@ FSR="$repo_root/scripts/full-suite-run.sh"
 SP="$repo_root/scripts/step-pool.sh"
 DEFAULTS="$repo_root/config/defaults.yml"
 TAB=$(printf '\t')
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 
 failures=0
 fail() {
@@ -129,15 +131,6 @@ owner() {
   printf '%s\n' "$_o" >>"$owners"
   printf '%s' "$_o"
 }
-# await <file> — wait (bounded) until <file> is non-empty.
-await() {
-  _n=0
-  while [ ! -s "$1" ] && [ "$_n" -lt 600 ]; do
-    sleep 0.1
-    _n=$((_n + 1))
-  done
-  [ -s "$1" ]
-}
 reset() {
   rm -rf "$pools" "$tmp"/log* "$tmp/running" "$tmp/running.overlap" "$tmp/ran"
   rm -f "$tracked" "$mlocal" "$adopter/planwright.yml"
@@ -166,7 +159,7 @@ reset
 printf 'full_suite_pool: gate\n' >"$tracked"
 (fsr -- -- "$suite" "$tmp/log" hold 0 >/dev/null 2>"$tmp/err") &
 bg=$!
-await "$tmp/log.pid"
+poll_until --what "the suite's pid file" -- test -s "$tmp/log.pid" || :
 held=$(sp report gate)
 : >"$tmp/log.go"
 wait "$bg"
@@ -220,7 +213,7 @@ sig_case() {
   printf 'full_suite_pool: gate\n' >"$tracked"
   (fsr -- -- "$suite" "$tmp/log" hold 0 >/dev/null 2>"$tmp/err") &
   _bg=$!
-  await "$tmp/log.pid"
+  poll_until --what "the suite's pid file" -- test -s "$tmp/log.pid" || :
   _wrapper=$(sed -n 's/^mark=gate://p' "$tmp/log.mark")
   _spid=$(cat "$tmp/log.pid")
   kill "-$1" "$_wrapper"
@@ -241,23 +234,29 @@ verdict "HUP to the wrapper keeps the slot until the suite ends, then exits 129"
 
 # --- a signal during the take ends the wait at once, running no suite ------------------
 reset
-printf 'full_suite_pool: gate\nstep_pool_wait: 60s\n' >"$tracked"
+# The take's bound sits far past the poll's deadline, so a run that ends
+# inside the deadline was ended by the signal, not by the bound expiring.
+printf 'full_suite_pool: gate\nstep_pool_wait: 600s\n' >"$tracked"
 h=$(owner)
 sp take gate "$h" >/dev/null
-(fsr -- -- "$suite" "$tmp/log" 0 0 >/dev/null 2>"$tmp/err") &
+rm -f "$tmp/take.rc"
+(
+  fsr -- -- "$suite" "$tmp/log" 0 0 >/dev/null 2>"$tmp/err"
+  echo "$?" >"$tmp/take.rc"
+) &
 bg=$!
-_n=0
-until grep -q 'waiting up to' "$tmp/err" 2>/dev/null || [ "$_n" -ge 600 ]; do
-  sleep 0.1
-  _n=$((_n + 1))
-done
+poll_until --what 'the take to start waiting' -- grep -q 'waiting up to' "$tmp/err" || :
 waiter=$(sp report gate | wc -l)
 pkill -TERM -f "full-suite-run.sh -- $suite $tmp/log "
-start=$(date +%s)
+ended=yes
+poll_until --what 'the run to end on TERM' -- test -s "$tmp/take.rc" || {
+  ended=no
+  pkill -KILL -f "full-suite-run.sh -- $suite $tmp/log "
+}
+took=$POLL_UNTIL_ELAPSED
 wait "$bg"
-rc=$?
-took=$(($(date +%s) - start))
-[ "$rc" -eq 143 ] && [ "$took" -le 10 ] && [ ! -e "$tmp/log.pid" ]
+rc=$(cat "$tmp/take.rc" 2>/dev/null)
+[ "$ended" = yes ] && [ "$rc" = 143 ] && [ ! -e "$tmp/log.pid" ]
 verdict "TERM during the take ends the wait at once and runs no suite" \
   "take signal: rc=$rc took=${took}s holders=$waiter" "$tmp/err"
 sp release gate "$h" >/dev/null

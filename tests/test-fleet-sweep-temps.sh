@@ -23,6 +23,8 @@ export GIT_CONFIG_SYSTEM=/dev/null
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 SWEEP="$here/../scripts/fleet-sweep.sh"
 
 fail() {
@@ -106,13 +108,15 @@ plain_sweep() {
   "${SW[@]}" /bin/sh "$SWEEP" --repo "$repo" >/dev/null 2>&1 || :
 }
 
-wait_for() {
-  wf_end=$((SECONDS + $1))
-  while [ "$SECONDS" -lt "$wf_end" ]; do
-    [ -e "$2" ] && return 0
-    sleep 0.05
-  done
-  [ -e "$2" ]
+# no_temps <dir> <prefix> — true once <dir> holds no entry starting with
+# <prefix>; what is left is in `left`.
+no_temps() {
+  left=$(cd "$1" && find . -maxdepth 1 -name "$2*" -print)
+  [ -z "$left" ]
+}
+
+lock_free() {
+  [ ! -e "$1" ] && [ ! -L "$1" ]
 }
 
 # parked_sweep <signal> <park-on> <dir> <prefix> <what> — run a sweep cycle
@@ -129,20 +133,14 @@ parked_sweep() {
     /bin/sh "$SWEEP" --repo "$repo" >/dev/null 2>"$tmp/err") &
   ps_pid=$!
   set +m
-  wait_for 60 "$reached" || fail "$5 ($ps_sig): the sweep never reached the site: $(cat "$tmp/err")"
+  poll_until --what 'the parking site' -- test -e "$reached" || fail "$5 ($ps_sig): the sweep never reached the site: $(cat "$tmp/err")"
   kill -"$ps_sig" -- "-$ps_pid"
   ps_rc=0
   wait "$ps_pid" || ps_rc=$?
   [ "$ps_rc" != 0 ] || fail "$5 ($ps_sig): a sweep stopped by a signal exited 0"
   # A site several processes below the sweep runs its trap after the sweep
-  # itself has exited, so the check waits, boundedly, for the group to finish.
-  ps_end=$((SECONDS + 10))
-  while :; do
-    left=$(cd "$3" && find . -maxdepth 1 -name "$4*" -print)
-    [ -n "$left" ] && [ "$SECONDS" -lt "$ps_end" ] || break
-    sleep 0.1
-  done
-  [ -z "$left" ] || fail "$5 ($ps_sig): the signal left temp artifacts behind: $left"
+  # itself has exited, so the check waits for the group to finish.
+  poll_until --what 'the temps cleared' -- no_temps "$3" "$4" || fail "$5 ($ps_sig): the signal left temp artifacts behind: $left"
 }
 
 n=0
@@ -187,11 +185,7 @@ for sig in INT TERM HUP; do
   printf 'w-temps\tspec:1\t-\theadless-oneshot\t-\t-\n' >"$home/dispatch-markers/w-temps"
   parked_sweep "$sig" "$home/.registry." "$home" .registry. "the dispatch registry heal"
   # The store's lock goes with its temp: a held one wedges every fleet writer.
-  lk_end=$((SECONDS + 10))
-  while { [ -e "$home/.fleet.lock" ] || [ -L "$home/.fleet.lock" ]; } && [ "$SECONDS" -lt "$lk_end" ]; do
-    sleep 0.1
-  done
-  [ ! -e "$home/.fleet.lock" ] && [ ! -L "$home/.fleet.lock" ] \
+  poll_until --what 'the fleet lock released' -- lock_free "$home/.fleet.lock" \
     || fail "the dispatch registry heal ($sig): the signal left the fleet lock held"
   echo "ok: $sig mid-sweep leaves no temp at any site (dirty-since clock, scan list, registry rewrite, audit write, queue write, queue retraction, dispatch registry heal)"
 done

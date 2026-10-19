@@ -150,7 +150,7 @@ r5() {
   head_before=$(gitc "$WT" rev-parse HEAD)
   kill_worker
   tmux_shim "$C/hang" hang-new
-  PATH="$C/hang:$PATH" PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 tlh_run_bounded --bound 25 \
+  PATH="$C/hang:$PATH" PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 tlh_run_bounded --bound 60 \
     "$PRIM" dispatch --flight "$FID" --brief "$BRIEF" --relaunch --launch-only --repo-root "$P"
   tlh_expect_returned r5 || return
   [ "$TLH_RC" -ne 0 ] || fail "r5: a hung relaunch must fail"

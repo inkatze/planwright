@@ -26,6 +26,9 @@ fail() {
   exit 1
 }
 
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
+
 command -v jq >/dev/null 2>&1 || fail "jq is required: the stream-json launch preflight runs the auto-approve hook"
 
 tmp=$(cd "$(mktemp -d)" && pwd -P)
@@ -185,14 +188,13 @@ icleanup() {
   err=$(cat "$tmp/err")
 }
 
+# wait_until <secs> <cmd...> — poll_until under the call shape
+# tests/test-fleet-adversarial.sh still uses; <secs> never lowers the default.
 wait_until() {
-  wu_end=$((SECONDS + $1))
+  wu_s=$1
   shift
-  while [ "$SECONDS" -lt "$wu_end" ]; do
-    "$@" >/dev/null 2>&1 && return 0
-    sleep 0.1
-  done
-  "$@" >/dev/null 2>&1
+  [ "$wu_s" -ge "$POLL_UNTIL_DEFAULT_DEADLINE" ] || wu_s=$POLL_UNTIL_DEFAULT_DEADLINE
+  poll_until --deadline "$wu_s" -- "$@"
 }
 
 classified() {
@@ -293,7 +295,7 @@ sj_launch() {
   ienv PLANWRIGHT_TOWER_ID="$3" SHIM_EVENTS="$2" -- \
     fleet-streamjson.sh launch "$1" demo:4 --prompt-file "$tmp/prompt" --cwd "$wt" >/dev/null \
     || fail "stream-json launch of $1 failed"
-  wait_until 30 test -s "$ihome/streamjson/$1/worker.pid" || fail "$1 never recorded its worker pid"
+  poll_until --what 'the worker pid' -- test -s "$ihome/streamjson/$1/worker.pid" || fail "$1 never recorded its worker pid"
   sup=$(cat "$ihome/streamjson/$1/supervisor.pid")
   wrk=$(cat "$ihome/streamjson/$1/worker.pid")
 }
@@ -305,7 +307,7 @@ hl_launch() {
     fleet-dispatch-headless.sh launch demo "$1" --worktree "$wt" <"$tmp/prompt" >/dev/null \
     || fail "headless launch of task $1 failed"
   hw="headless-demo-task-$1"
-  wait_until 30 test -s "$ihome/headless/$1/pid" || fail "$hw never recorded its runner pid"
+  poll_until --what 'the runner pid' -- test -s "$ihome/headless/$1/pid" || fail "$hw never recorded its runner pid"
   runner=$(cat "$ihome/headless/$1/pid")
 }
 

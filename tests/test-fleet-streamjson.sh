@@ -52,6 +52,8 @@ SJ="$here/../scripts/fleet-streamjson.sh"
 FA="$here/../scripts/fleet-attention.sh"
 # shellcheck source=tests/lib/fixture-procs.sh
 . "$here/lib/fixture-procs.sh"
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -231,21 +233,6 @@ plant_lock() {
 # process can hold it. A reaped child's pid would not do: the host can hand it
 # out again while the cases below still read it as gone.
 dead_pid=999999999
-
-# wait_until <timeout-tenths> <cmd...> — poll a condition.
-wait_until() {
-  wu_n=$1
-  shift
-  wu_i=0
-  while [ "$wu_i" -lt "$wu_n" ]; do
-    if "$@" >/dev/null 2>&1; then
-      return 0
-    fi
-    sleep 0.1
-    wu_i=$((wu_i + 1))
-  done
-  return 1
-}
 
 # ---------------------------------------------------------------------------
 # c1 (REQ-E1.1, REQ-A1.3): a can_use_tool receipt produces exactly one
@@ -435,7 +422,7 @@ senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_RESULT_LINE="$li
   launch sjw5 execution-backends:4 --prompt-file "$tmp/prompt5" --foreground &
 launch_pid=$!
 wdir5="$home/streamjson/sjw5"
-wait_until 100 grep -q "^$req_perm$tab" "$wdir5/journal" \
+poll_until --what 'the journal row' -- grep -q "^$req_perm$tab" "$wdir5/journal" \
   || fail "c5: the pending journal row never appeared"
 out=$(senv "$home" "$rec" -- status sjw5) || fail "c5: status exited non-zero"
 # A live worker parked on a pending receipt is waiting, not running: the
@@ -454,7 +441,7 @@ case $out in
   "steered sjw5 "[0-9]*) : ;;
   *) fail "c5: unexpected steer output: $out" ;;
 esac
-wait_until 100 grep -q '"type":"user"' "$rec/stdin" \
+poll_until --what 'the steered turn' -- grep -q '"type":"user"' "$rec/stdin" \
   || fail "c5: the steered user turn never reached the worker stdin"
 grep '"type":"user"' "$rec/stdin" | grep -q '\[planwright tower relay -> sjw5\]\\nmerge main into your branch.\\nthen \\"re-run\\" the gate' \
   || fail "c5: the steer must carry the attribution header and the JSON-encoded message text"
@@ -547,14 +534,14 @@ senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_SLEEP=60 -- \
   launch sjw7 execution-backends:4 --prompt-file "$tmp/prompt7" --foreground &
 launch_pid=$!
 wdir7="$home/streamjson/sjw7"
-wait_until 100 grep -q "^$req_perm$tab" "$wdir7/journal" \
+poll_until --what 'the journal row' -- grep -q "^$req_perm$tab" "$wdir7/journal" \
   || fail "c7: the pending journal row never appeared"
 sup_pid=$(cat "$wdir7/supervisor.pid")
 wrk_pid=$(cat "$wdir7/worker.pid")
 kill -9 "$wrk_pid" 2>/dev/null
 kill -9 "$sup_pid" 2>/dev/null
 wait "$launch_pid" 2>/dev/null
-wait_until 50 sh -c "! kill -0 $sup_pid 2>/dev/null && ! kill -0 $wrk_pid 2>/dev/null" \
+poll_until --what 'the processes gone' -- sh -c "! kill -0 $sup_pid 2>/dev/null && ! kill -0 $wrk_pid 2>/dev/null" \
   || fail "c7: the crashed processes did not die"
 # The durable receipt survived the kill (REQ-E1.5).
 grep -q "^$req_perm$tab.*${tab}pending" "$wdir7/journal" \
@@ -839,7 +826,7 @@ env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
   SHIM_RECORD_DIR="$rec" SHIM_EVENTS="$ev" \
   /bin/sh "$SJ" launch bigw execution-backends:4 --prompt-file "$tmp/bigprompt" --foreground &
 big_pid=$!
-if wait_until 300 sh -c "! kill -0 $big_pid 2>/dev/null"; then
+if poll_until --what 'the processes gone' -- sh -c "! kill -0 $big_pid 2>/dev/null"; then
   wait "$big_pid" || fail "c11: large-prompt launch exited non-zero"
 else
   kill -9 "$big_pid" 2>/dev/null
@@ -868,7 +855,7 @@ senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_RESULT_LINE="$li
   launch sjw12 execution-backends:4 --prompt-file "$tmp/prompt12" --foreground &
 launch12=$!
 wdir12="$home/streamjson/sjw12"
-wait_until 100 grep -q "^$req_perm$tab" "$wdir12/journal" \
+poll_until --what 'the journal row' -- grep -q "^$req_perm$tab" "$wdir12/journal" \
   || fail "c12: the pending journal row never appeared"
 senv "$home" "$rec" -- answer sjw12 "$req_perm" --allow >/dev/null \
   || fail "c12: answer exited non-zero"
@@ -992,7 +979,7 @@ case $out in
 esac
 # `launched` was printed only after supervisor.pid appeared: it exists now.
 wdir15="$home/streamjson/sjw15"
-wait_until 100 sh -c "[ -f '$wdir15/result' ]" \
+poll_until --what 'the result' -- sh -c "[ -f '$wdir15/result' ]" \
   || fail "c15: the detached supervisor never ran to a result"
 # A failed detached launch surfaces non-zero. Force the supervisor's mkfifo to
 # fail by pre-planting `in.fifo` as a NON-EMPTY directory: supervise's `rm -f`
@@ -1029,7 +1016,7 @@ senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_RESULT_LINE="$li
   launch sjw16 execution-backends:4 --prompt-file "$tmp/prompt16" --foreground &
 launch16=$!
 wdir16="$home/streamjson/sjw16"
-wait_until 100 grep -q "^$req_perm$tab" "$wdir16/journal" \
+poll_until --what 'the journal row' -- grep -q "^$req_perm$tab" "$wdir16/journal" \
   || fail "c16: the pending journal row never appeared"
 senv "$home" "$rec" -- answer sjw16 "$req_perm" --allow >/dev/null \
   || fail "c16: answer exited non-zero"
@@ -1082,7 +1069,7 @@ senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_RESULT_LINE="$li
   launch sjw17 execution-backends:4 --prompt-file "$tmp/prompt17" --foreground &
 launch17=$!
 wdir17="$home/streamjson/sjw17"
-wait_until 100 grep -q "^$req_perm$tab" "$wdir17/journal" \
+poll_until --what 'the journal row' -- grep -q "^$req_perm$tab" "$wdir17/journal" \
   || fail "c17: the pending journal row never appeared"
 senv "$home" "$rec" -- answer sjw17 "$req_perm" --deny --message "$deny_msg" >/dev/null \
   || fail "c17: deny answer exited non-zero"
@@ -1264,7 +1251,7 @@ senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
   launch sjw25 execution-backends:4 --prompt-file "$tmp/prompt25" \
   >/dev/null || fail "c25: the first launch exited non-zero"
 wdir25="$home/streamjson/sjw25"
-wait_until 100 test -s "$wdir25/supervisor.pid" || fail "c25: supervisor.pid never appeared"
+poll_until --what 'the supervisor pid' -- test -s "$wdir25/supervisor.pid" || fail "c25: supervisor.pid never appeared"
 sup25=$(cat "$wdir25/supervisor.pid")
 # (a) a launch arriving while this worker's supervisor is up is refused, so a
 #     second supervisor never overwrites the first one's pid file.
@@ -1646,7 +1633,7 @@ else
   #   covers a worker that does get as far as exec; no earlier case leaves one
   #   running, so any match there is this one.
   for c31d in "$tmp/c31/" "$tmp/bin/"; do
-    wait_until 20 fixture_none "$c31d" || {
+    poll_until --what 'no fixture process left' -- fixture_none "$c31d" || {
       c31left=$(fixture_report "$c31d")
       fixture_reap "$c31d"
       fail "c31: a process survived a failed pid publish: $c31left"
@@ -1790,13 +1777,13 @@ senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_RESULT_LINE="$li
   launch sjw34 execution-backends:4 --prompt-file "$tmp/prompt34" --foreground &
 launch34=$!
 wdir34="$home/streamjson/sjw34"
-wait_until 100 grep -q "^$req_perm$tab" "$wdir34/journal" \
+poll_until --what 'the journal row' -- grep -q "^$req_perm$tab" "$wdir34/journal" \
   || fail "c34: the pending journal row never appeared"
 # The receipt queues its row at normal priority; the tick promotes it to
 # high once the age passes the threshold. Bounded wait: 1s threshold + 1s
 # tick, plus scheduling slack.
 overdue34() { aenv "$home" queue | grep "sjw34" | grep -q '^- \[high\]'; }
-wait_until 100 overdue34 \
+poll_until --what 'the escalated receipt' -- overdue34 \
   || fail "c34: the supervisor tick never escalated the overdue receipt, queue: $(aenv "$home" queue)"
 grep -q "^$req_perm$tab.*${tab}pending" "$wdir34/journal" \
   || fail "c34: escalation must not settle the request"
@@ -1904,17 +1891,17 @@ senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_READ_FIRST=2 SHIM_WAIT_RESPONSE=1 \
   launch sjw38 execution-backends:4 --prompt-file "$tmp/prompt38" --foreground &
 launch38=$!
 wdir38="$home/streamjson/sjw38"
-wait_until 100 test -s "$wdir38/supervisor.pid" || fail "c38a: the supervisor never came up"
+poll_until --what 'the supervisor pid' -- test -s "$wdir38/supervisor.pid" || fail "c38a: the supervisor never came up"
 sleep 120 >/dev/null 2>&1 &
 fl_holder=$!
 ln -s "$fl_holder-$(date +%s)-1" "$home/.fleet.lock" || fail "c38: cannot plant the fleet lock"
 printf 'go on\n' >"$tmp/steer38"
 senv "$home" "$rec" -- steer sjw38 --message-file "$tmp/steer38" >/dev/null \
   || fail "c38a: the steer that releases the request failed"
-wait_until 100 grep -q "^$req_perm$tab" "$wdir38/journal" \
+poll_until --what 'the journal row' -- grep -q "^$req_perm$tab" "$wdir38/journal" \
   || fail "c38a: the receipt was not journaled while the fleet lock was held"
 journal_free38() { [ ! -L "$wdir38/journal.lock" ] && [ ! -e "$wdir38/journal.lock" ]; }
-wait_until 30 journal_free38 \
+poll_until --what 'the journal lock free' -- journal_free38 \
   || fail "c38a: the journal lock is held across the attention call (it stays taken while the fleet lock is busy)"
 [ -L "$home/.fleet.lock" ] || fail "c38a: the fleet lock was released early, so the leg proved nothing"
 kill "$fl_holder" 2>/dev/null || :
@@ -1939,8 +1926,9 @@ launch38b=$!
 # The supervisor waits out its journal-lock budget, then spools the receipt.
 # Asserting the spool is what makes this leg exercise the deferral at all; the
 # holder is released only after it, so what journals the receipt is the tick's
-# drain, not the supervisor's own wait.
-wait_until 300 test -f "$wdir38b/deferred-$req_perm" \
+# drain, not the supervisor's own wait. That budget counts lock attempts, each
+# of which forks, so on a loaded host it outlasts the default deadline.
+poll_until --deadline 300 --what 'the spool' -- test -f "$wdir38b/deferred-$req_perm" \
   || fail "c38b: a receipt the journal lock refused was not spooled"
 grep -q "^$req_perm$tab" "$wdir38b/journal" 2>/dev/null \
   && fail "c38b: the receipt was journaled through a lock a live process holds"
@@ -1951,9 +1939,9 @@ case $out in
 esac
 kill "$jl_holder" 2>/dev/null || :
 wait "$jl_holder" 2>/dev/null || :
-wait_until 150 grep -q "^$req_perm$tab.*${tab}pending" "$wdir38b/journal" \
+poll_until --what 'the pending journal row' -- grep -q "^$req_perm$tab.*${tab}pending" "$wdir38b/journal" \
   || fail "c38b: a receipt the journal lock refused was lost instead of journaled once the lock freed"
-wait_until 100 test ! -e "$wdir38b/deferred-$req_perm" || fail "c38b: the spool outlived the journaled receipt"
+poll_until --what 'the spool drained' -- test ! -e "$wdir38b/deferred-$req_perm" || fail "c38b: the spool outlived the journaled receipt"
 senv "$home" "$rec" -- answer sjw38b "$req_perm" --allow >/dev/null \
   || fail "c38b: the deferred receipt is not answerable"
 wait "$launch38b" || fail "c38b: the run did not end cleanly after the answer"
@@ -1984,7 +1972,7 @@ printf '%s\n' "$dead_pid" >"$wdir38d/journal.lock/holder"
 senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_RESULT_LINE="$line_result" -- \
   launch sjw38d execution-backends:4 --prompt-file "$tmp/prompt38" --foreground &
 launch38d=$!
-wait_until 100 grep -q "^$req_perm$tab" "$wdir38d/journal" \
+poll_until --what 'the journal row' -- grep -q "^$req_perm$tab" "$wdir38d/journal" \
   || fail "c38d: a launch over a legacy journal lock directory never journaled its receipt"
 senv "$home" "$rec" -- answer sjw38d "$req_perm" --allow >/dev/null \
   || fail "c38d: answer exited non-zero"
@@ -1997,7 +1985,7 @@ home="$tmp/h38e"
 wdir38e="$home/streamjson/sjw38e"
 senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_SLEEP=60 -- \
   launch sjw38e execution-backends:4 --prompt-file "$tmp/prompt38" &
-wait_until 100 grep -q "^$req_perm$tab" "$wdir38e/journal" \
+poll_until --what 'the journal row' -- grep -q "^$req_perm$tab" "$wdir38e/journal" \
   || fail "c38e: the receipt was never journaled"
 senv "$home" "$rec" -- answer sjw38e "$req_perm" --allow >/dev/null \
   || fail "c38e: answer exited non-zero"
@@ -2005,16 +1993,16 @@ grep -q "^$req_perm$tab.*${tab}answered" "$wdir38e/journal" || fail "c38e: the a
 # A duplicate received BEFORE the answer, spooled while the answer held the
 # lock, is not a re-ask: drained, it is dropped and the request stays settled.
 printf '%s\n%s\n' 1000 "$line_perm" >"$wdir38e/deferred-$req_perm"
-wait_until 100 test ! -e "$wdir38e/deferred-$req_perm" \
+poll_until --what 'the spool drained' -- test ! -e "$wdir38e/deferred-$req_perm" \
   || fail "c38e: the tick never drained the stale spool"
 grep -q "^$req_perm$tab.*${tab}answered" "$wdir38e/journal" \
   || fail "c38e: a duplicate received before the answer re-opened the settled request"
 sleep 1
 printf '%s\n%s\n' "$(date +%s)" "$line_perm" >"$wdir38e/deferred-$req_perm"
-wait_until 100 grep -q "^$req_perm$tab.*${tab}pending" "$wdir38e/journal" \
+poll_until --what 'the pending journal row' -- grep -q "^$req_perm$tab.*${tab}pending" "$wdir38e/journal" \
   || fail "c38e: a spooled re-ask of a settled request was dropped instead of re-opened"
 # The spool goes only after the journal write it backs, so it is waited for.
-wait_until 100 test ! -e "$wdir38e/deferred-$req_perm" || fail "c38e: the drained spool was left behind"
+poll_until --what 'the spool drained' -- test ! -e "$wdir38e/deferred-$req_perm" || fail "c38e: the drained spool was left behind"
 senv "$home" "$rec" -- stop sjw38e --grace 2 >/dev/null || fail "c38e: stop exited non-zero"
 echo "ok: c38 a spooled re-ask of a settled request is re-opened, not dropped"
 # (f) A spool whose journal write fails is set aside once, not retried and
@@ -2028,13 +2016,13 @@ else
   wdir38f="$home/streamjson/sjw38f"
   senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_SLEEP=60 -- \
     launch sjw38f execution-backends:4 --prompt-file "$tmp/prompt38" &
-  wait_until 100 grep -q "^$req_perm$tab" "$wdir38f/journal" \
+  poll_until --what 'the journal row' -- grep -q "^$req_perm$tab" "$wdir38f/journal" \
     || fail "c38f: the receipt was never journaled"
   senv "$home" "$rec" -- answer sjw38f "$req_perm" --allow >/dev/null \
     || fail "c38f: answer exited non-zero"
   chmod 444 "$wdir38f/journal"
   printf '%s\n%s\n' "$(date +%s)" "$line_q" >"$wdir38f/deferred-$req_q"
-  wait_until 100 test -f "$wdir38f/undrained-$req_q" \
+  poll_until --what 'the set-aside spool' -- test -f "$wdir38f/undrained-$req_q" \
     || fail "c38f: a spool whose journal write failed was not set aside"
   [ ! -e "$wdir38f/deferred-$req_q" ] || fail "c38f: the failed spool was left where the drain retries it"
   out=$(senv "$home" "$rec" -- status sjw38f) || fail "c38f: status exited non-zero"
@@ -2045,11 +2033,11 @@ else
   chmod 644 "$wdir38f/journal"
   # Once the journal takes the same request, the set-aside copy is answered.
   printf '%s\n%s\n' "$(date +%s)" "$line_q" >"$wdir38f/deferred-$req_q"
-  wait_until 100 grep -q "^$req_q$tab.*${tab}pending" "$wdir38f/journal" \
+  poll_until --what 'the pending journal row' -- grep -q "^$req_q$tab.*${tab}pending" "$wdir38f/journal" \
     || fail "c38f: the re-spooled receipt was not journaled once the journal was writable"
   # The drain removes the set-aside copy after the journal row lands, inside
   # the lock hold this lock-free read does not take, so it is waited for.
-  wait_until 100 test ! -e "$wdir38f/undrained-$req_q" \
+  poll_until --what 'the set-aside spool removed' -- test ! -e "$wdir38f/undrained-$req_q" \
     || fail "c38f: a set-aside receipt outlived its journaled request"
   : >"$wdir38f/undrained-$req_q"
   senv "$home" "$rec" -- stop sjw38f --grace 2 >/dev/null || fail "c38f: stop exited non-zero"
@@ -2103,7 +2091,7 @@ echo "ok: c39 a pending request outranks an earlier turn's result while the work
 #     only at its next step, so the set gets a short window to drain before it
 #     counts as leaked.
 # ---------------------------------------------------------------------------
-wait_until 50 fixture_none "$tmp/" \
+poll_until --what 'no fixture process left' -- fixture_none "$tmp/" \
   || fail "c37: fixture process(es) still running after every case: $(fixture_report "$tmp/")"
 echo "ok: c37 no supervisor, tick, or shim from this run outlives the suite"
 

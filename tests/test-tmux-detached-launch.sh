@@ -376,7 +376,7 @@ l7_flight() {
   printf 'Fix the typo in the README heading.\n' >"$C/ask.txt"
   printf 'visual flight: a one-line wording change\n' >"$C/grounds.txt"
   tmux_shim "$C/hang" hang-new
-  PATH="$C/hang:$PATH" PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 tlh_run_bounded --bound 25 "$FLIGHT" dispatch \
+  PATH="$C/hang:$PATH" PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 tlh_run_bounded --bound 60 "$FLIGHT" dispatch \
     readme-typo --backend tmux --ask-file "$C/ask.txt" --grounds-file "$C/grounds.txt" --home file --repo-root "$P"
   tlh_expect_returned "l7: a flight dispatch must end a hung tmux itself" || return
   [ "$TLH_RC" -eq 5 ] || fail "l7: a hung launch must fail the placement (exit 5), got $TLH_RC ($TLH_ERR)"

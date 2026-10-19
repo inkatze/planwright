@@ -64,6 +64,8 @@ unset CDPATH
 export PLANWRIGHT_DISPATCH_CONFIRM_CAP=1 PLANWRIGHT_DISPATCH_CONFIRM_INTERVAL=0.2
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 REPO_ROOT=$(cd "$here/.." && pwd)
 FS="$REPO_ROOT/scripts/fleet-state.sh"
 FR="$REPO_ROOT/scripts/fleet-register.sh"
@@ -84,6 +86,10 @@ fail() {
   echo "not ok: $1"
   echo "FAIL: $1" >&2
   rc=$((rc + 1))
+}
+
+pid_gone() {
+  ! kill -0 "$1" 2>/dev/null
 }
 
 # ok <id> <text> — announce a case only when it added no failure of its own,
@@ -617,12 +623,7 @@ EOF
     kill -0 "$sjpid" 2>/dev/null \
       || fail "c3: the recorded supervisor was already gone — this close proves nothing"
     kill "$sjpid" 2>/dev/null
-    sjwait=0
-    while kill -0 "$sjpid" 2>/dev/null && [ "$sjwait" -lt 100 ]; do
-      sjwait=$((sjwait + 1))
-      sleep 0.05
-    done
-    if kill -0 "$sjpid" 2>/dev/null; then
+    if ! poll_until --what 'the supervisor gone' -- pid_gone "$sjpid"; then
       kill -9 "$sjpid" 2>/dev/null
       fail "c3: the supervisor survived a TERM and had to be killed — it would have leaked"
     fi

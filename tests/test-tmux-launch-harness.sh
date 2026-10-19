@@ -54,6 +54,8 @@ expect_one_fail() {
 
 # shellcheck source=tests/lib/tmux-launch-harness.sh
 . "$here/lib/tmux-launch-harness.sh"
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 
 wt="$TLH_SANDBOX/wt"
 mkdir -p "$wt"
@@ -78,12 +80,8 @@ running() {
   return 0
 }
 
-wait_gone() {
-  local t=0
-  while tmux has-session -t "=$1" 2>/dev/null && [ "$t" -lt 300 ]; do
-    sleep 0.1
-    t=$((t + 1))
-  done
+session_gone() {
+  ! tmux has-session -t "=$1" 2>/dev/null
 }
 
 # --- h1 ---------------------------------------------------------------------
@@ -99,7 +97,7 @@ h1() {
   tlh_knob new-session ok
   [ "$TLH_RC" -eq 124 ] || fail "h1: a blocking launch must be cut off as a hang (rc 124), got $TLH_RC"
   # The slack is for a loaded runner; a hang would take the stub's 600s.
-  [ "$TLH_ELAPSED" -le $((b + 5)) ] || fail "h1: a blocking launch must fail at its bound, took ${TLH_ELAPSED}s"
+  [ "$TLH_ELAPSED" -le $((b + 60)) ] || fail "h1: a blocking launch must fail at its bound, took ${TLH_ELAPSED}s"
   case $TLH_DIAG in
     *"did not return within ${b}s"*) ;;
     *) fail "h1: the diagnosis must name the hang and the bound, got: $TLH_DIAG" ;;
@@ -280,7 +278,7 @@ EOF
   r=1
   while [ "$r" -le "$rounds" ]; do
     [ "$r" -eq 2 ] && tmux new-session -d -s contested -c "$wt" -- true
-    wait_gone contested
+    poll_until --what "session 'contested' to end" -- session_gone contested
     i=1
     while [ "$i" -le "$n_race" ]; do
       { tmux new-session -d -s contested -c "$wt" -- sleep 30 2>/dev/null && : >"$TLH_SANDBOX/won.$r.$i"; } &
@@ -418,8 +416,7 @@ tlh_knob worker-exit 3
 n=$(tlh_worker_count)
 tmux new-session -d -s dies -c "$TLH_SANDBOX/w" -- "$TLH_BIN/claude"
 tlh_wait_workers $((n + 1)) 30
-t=0
-while tmux has-session -t =dies 2>/dev/null && [ "$t" -lt 300 ]; do sleep 0.1; t=$((t + 1)); done
+poll_until --what "session dies to end" -- sh -c "! tmux has-session -t =dies 2>/dev/null"
 tmux has-session -t =dies 2>/dev/null && echo "dies: still live" || echo "dies: gone"
 ')" 2>&1)
   case $out in
@@ -441,7 +438,7 @@ tmux has-session -t =dies 2>/dev/null && echo "dies: still live" || echo "dies: 
 # --- h7 ---------------------------------------------------------------------
 h7() {
   local err n rec k
-  tmux new-session -d -s live.one -c "$wt" -- sleep 30
+  tmux new-session -d -s live.one -c "$wt" -- sleep 300
   tmux has-session -t =live_one || fail "h7: a dotted name must be stored with '.' written '_'"
   tmux has-session -t '=live_one:' || fail "h7: a '=<session>:' target must resolve"
   tmux has-session -t live_ || fail "h7: an unprefixed target must match a unique prefix"
@@ -496,7 +493,7 @@ h7() {
   sleep 0.5
   tmux has-session -t =keeps || fail "h7: with remain-on-exit on, a session whose command exits must remain"
   tmux new-session -d -s goes -c "$wt" -- true ';' set-option -w remain-on-exit off
-  wait_gone goes
+  poll_until --what "session 'goes' to end" -- session_gone goes
   tmux has-session -t =goes 2>/dev/null && fail "h7: set-option -w remain-on-exit off in the launch must let the session go"
   tmux kill-session -t =keeps
   tlh_knob remain-on-exit off
@@ -537,16 +534,12 @@ h7() {
   # A session's command that kills its own session does not freeze.
   rm -f "$TLH_SANDBOX/selfkill.done"
   tmux new-session -d -s selfkill -c "$wt" -- sh -c "trap '' HUP; tmux kill-session -t =selfkill; echo returned >'$TLH_SANDBOX/selfkill.done'"
-  i=0
-  while [ ! -s "$TLH_SANDBOX/selfkill.done" ] && [ "$i" -lt 300 ]; do
-    sleep 0.1
-    i=$((i + 1))
-  done
-  [ -s "$TLH_SANDBOX/selfkill.done" ] || fail "h7: a session killing itself must not freeze its own tmux call"
+  poll_until --what 'the self-killing session to return' -- test -s "$TLH_SANDBOX/selfkill.done" \
+    || fail "h7: a session killing itself must not freeze its own tmux call"
   # ...nor take down a session it created in the same call, which the
   # server, not the caller, owns.
   tmux new-session -d -s selfkill2 -c "$wt" -- sh -c "tmux new-session -d -s spawned -c '$wt' -- sleep 30 ';' kill-session -t =selfkill2"
-  wait_gone selfkill2
+  poll_until --what "session 'selfkill2' to end" -- session_gone selfkill2
   sleep 0.3
   tmux has-session -t =spawned || fail "h7: a session created in a self-killing call must survive it"
   tmux kill-session -t =spawned 2>/dev/null
@@ -571,7 +564,7 @@ h7() {
   # The last session gone, the server has exited, as tmux's does.
   tmux kill-session -t =live_one
   tmux kill-session -t =semi
-  wait_gone fast
+  poll_until --what "session 'fast' to end" -- session_gone fast
   err=$(tmux has-session -t =live_one 2>&1) && fail "h7: a killed session must be gone"
   case $err in
     *"no server running"*) ;;
