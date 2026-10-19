@@ -143,11 +143,11 @@ question; seeds answer questions the human would otherwise repeat.
    the feature being drafted; present the selection to the human (selector
    with the relevant set pre-marked) so nothing is consumed silently.
 4. **The venture drop** — `scripts/inception-registry.sh drop-read`
-   (inception REQ-J1.8), pre-neutralized; still summarize without names.
+   (inception REQ-J1.8); follow its `note` line.
 5. **Transcripts and documents** the human offers.
 
-An absent `<root>/_pending/`, fragment directory, legacy log, venture drop
-(exit 6), or root directory entirely (a first-run repo) is not an error:
+An absent `<root>/_pending/`, fragment directory, legacy log, venture drop,
+or root directory entirely (a first-run repo) is not an error:
 note what was absent and proceed with the seeds that exist.
 
 Every identifier a seed proposes (a spec name, a path segment) is
