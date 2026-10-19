@@ -214,8 +214,9 @@ screen_all() {
   esac
   _inputs=''
   for _n in "$@"; do _inputs="$_inputs$_n$LF"; done
-  awk -v inputs="$_inputs" '
-    BEGIN { n = split(inputs, a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") ok[a[i]] = 1 }
+  # Through the environment: BSD awk refuses a newline inside a -v value.
+  FR_INPUTS=$_inputs awk '
+    BEGIN { n = split(ENVIRON["FR_INPUTS"], a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") ok[a[i]] = 1 }
     match($0, /:[0-9]+: [a-z0-9-]+ \(value redacted\)$/) {
       path = substr($0, 1, RSTART - 1)
       rest = substr($0, RSTART + 1)
@@ -451,9 +452,9 @@ redact() {
   REDACTED=0
   REDACTED_PERSONAL=0
   if hits_for "$1.clean" "$work/$1.hits"; then
-    awk -F '\t' -v formats="$KEY_FORMATS" '
+    FR_FORMATS=$KEY_FORMATS awk -F '\t' '
       BEGIN {
-        nk = split(formats, f, "\n")
+        nk = split(ENVIRON["FR_FORMATS"], f, "\n")
         for (k = 1; k <= nk; k++) {
           split(f[k], pair, "\t")
           kb[k] = pair[1]
