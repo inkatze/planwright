@@ -16,6 +16,9 @@ RBT_HEADER='id	pr	commit	path	line	category	reason	replayable	label_source	gist	
 # the same list.
 RBT_REASONS='outside-diff runtime-tracing claim-vs-code pruned spec-conflict lintable declined other'
 
+# The miss-ledger grammar's lens tokens (doctrine/review-independence.md).
+RBT_LENSES='correctness security error-handling performance concurrency naming documentation tests cross-file sibling-sweep reviewer-basics other'
+
 RBT_CATEGORIES='correctness security portability error-handling concurrency tests docs performance style other'
 
 # Where a row's labels came from: an annotating model, a miss-ledger entry, a
@@ -91,16 +94,81 @@ rbt_safe_relpath() {
   [ -z "$_rsr_bad" ]
 }
 
+# rbt_miss_row <text> — parse one miss-ledger entry text (the fragment line
+# after its `- <date> [<scope>] ` prefix) under the grammar
+# doctrine/review-independence.md states:
+# `review-miss(<lens>, <reason>): #<pr> <path>: <description>`. Print
+# `<pr><TAB><path><TAB><reason><TAB><lens>` and return 0, or set RBT_MISS_WHY
+# and return 1.
+rbt_miss_row() {
+  RBT_MISS_WHY=
+  _rmr_row=$(printf '%s\n' "$1" | sed -n 's/^review-miss(\([a-z0-9][a-z0-9-]*\), \([a-z-]*\)): #\([1-9][0-9]*\) \([^ :][^ :]*\): [^ ].*$/\3	\4	\2	\1/p')
+  case $1 in
+    *"
+"*) _rmr_row= ;;
+  esac
+  if [ -z "$_rmr_row" ]; then
+    RBT_MISS_WHY='does not match review-miss(<lens>, <reason>): #<pr> <path>: <description>'
+    return 1
+  fi
+  _rmr_lens=$(printf '%s\n' "$_rmr_row" | cut -f4)
+  _rmr_reason=$(printf '%s\n' "$_rmr_row" | cut -f3)
+  if ! rbt_in_list "$_rmr_lens" "$RBT_LENSES"; then
+    RBT_MISS_WHY="lens '$_rmr_lens' is not one of: $RBT_LENSES"
+    return 1
+  fi
+  if ! rbt_in_list "$_rmr_reason" "$RBT_REASONS"; then
+    RBT_MISS_WHY="reason '$_rmr_reason' is not one of: $RBT_REASONS"
+    return 1
+  fi
+  if ! rbt_safe_relpath "$(printf '%s\n' "$_rmr_row" | cut -f2)"; then
+    RBT_MISS_WHY='the path is not repository-relative'
+    return 1
+  fi
+  printf '%s\n' "$_rmr_row"
+}
+
+# rbt_miss_fragment <file> — classify an observation fragment for the miss
+# ledger. Return 1 when it is no miss: its slug is not review-miss and its
+# entry text does not begin with review-miss. Otherwise print the entry text
+# and return 0, or return 2 when it claims to be a miss but cannot be read or
+# carries the text under another slug (RBT_MISS_WHY says which).
+rbt_miss_fragment() {
+  RBT_MISS_WHY=
+  _rmf_named=0
+  case ${1##*/} in
+    ????-??-??-review-miss-????????.md) _rmf_named=1 ;;
+  esac
+  _rmf_rc=0
+  _rmf_line=$(sed -n '1p' "$1" 2>/dev/null) || _rmf_rc=$?
+  if [ "$_rmf_rc" -ne 0 ] || [ ! -r "$1" ]; then
+    RBT_MISS_WHY='the fragment cannot be read'
+    return 2
+  fi
+  _rmf_text=$(printf '%s\n' "$_rmf_line" | sed -n 's/^- [0-9-]* \[[^]]*\] //p')
+  case $_rmf_text in
+    review-miss*) ;;
+    *)
+      [ "$_rmf_named" -eq 1 ] || return 1
+      RBT_MISS_WHY='its first line is not a review-miss entry'
+      return 2
+      ;;
+  esac
+  if [ "$_rmf_named" -ne 1 ]; then
+    RBT_MISS_WHY='a review-miss entry must use the review-miss slug'
+    return 2
+  fi
+  printf '%s\n' "$_rmf_text"
+}
+
 # rbt_read_ledger <out-tsv> <dir>... — parse every miss-ledger fragment in the
 # given observation directories (entries and archive both: a drained fragment
 # is still a recorded miss) into `<pr><TAB><path><TAB><reason><TAB><lens>`
-# rows. The grammar (review-effectiveness D-8): a fragment line
-# `- <date> [<scope>] review-miss(<lens>, <reason>): #<pr> <path>: <text>`,
-# the lens a lowercase name, the reason one of RBT_REASONS, the PR a positive
-# integer, the path repository-relative. A fragment naming review-miss that
-# breaks the grammar, or cannot be read, is counted in RBT_LEDGER_MALFORMED,
-# never read. A fragment is read once even when a drain left it in both
-# directories for a moment (the filename carries its UID).
+# rows, by rbt_miss_fragment and rbt_miss_row, the grammar
+# scripts/check-review-miss.sh guards. A miss that breaks the grammar, or
+# cannot be read, is counted in RBT_LEDGER_MALFORMED, never read. A fragment is
+# read once even when a drain left it in both directories for a moment (the
+# filename carries its UID).
 rbt_read_ledger() {
   _rrl_out=$1
   shift
@@ -114,16 +182,11 @@ rbt_read_ledger() {
       case $_rrl_seen in *" ${_rrl_f##*/} "*) continue ;; esac
       _rrl_seen="$_rrl_seen${_rrl_f##*/} "
       _rrl_rc=0
-      _rrl_line=$(grep -m1 'review-miss' "$_rrl_f") || _rrl_rc=$?
+      _rrl_text=$(rbt_miss_fragment "$_rrl_f") || _rrl_rc=$?
       [ "$_rrl_rc" -ne 1 ] || continue
-      if [ "$_rrl_rc" -ne 0 ]; then
-        RBT_LEDGER_MALFORMED=$((RBT_LEDGER_MALFORMED + 1))
-        continue
-      fi
-      _rrl_row=$(printf '%s\n' "$_rrl_line" | sed -n 's/^- [0-9-]* \[[^]]*\] review-miss(\([a-z0-9][a-z0-9-]*\), \([a-z-]*\)): #\([1-9][0-9]*\) \([^ :][^ :]*\): .*$/\3	\4	\2	\1/p')
-      _rrl_reason=$(printf '%s\n' "$_rrl_row" | cut -f3)
-      if [ -z "$_rrl_row" ] || ! rbt_in_list "$_rrl_reason" "$RBT_REASONS" \
-        || ! rbt_safe_relpath "$(printf '%s\n' "$_rrl_row" | cut -f2)"; then
+      _rrl_row=
+      [ "$_rrl_rc" -ne 0 ] || _rrl_row=$(rbt_miss_row "$_rrl_text") || _rrl_row=
+      if [ -z "$_rrl_row" ]; then
         RBT_LEDGER_MALFORMED=$((RBT_LEDGER_MALFORMED + 1))
         continue
       fi
