@@ -17,10 +17,13 @@ worker quality.
 meta-orchestrator. **Tower** now names the standing conversational `/tower`
 front-door session instead (the
 [spec-format glossary](../doctrine/spec-format.md) is the definition's
-home). This guide's body still says "tower" for the orchestrator, and the
-tower-named scripts and knobs it cites (`tower-settings`, the tower marker and
-watchdog family) keep their names until renames land; read "tower" below as
-the orchestrator.
+home), which routes each change onto visual flight (specless) or instrument
+flight (the spec pipeline). The names are the aviation analogy: visual rules
+when conditions are clear enough to fly by what you can see, instrument rules
+when you file a plan and trust the gauges. This guide's body still says
+"tower" for the orchestrator, and the tower-named scripts and knobs it cites
+(`tower-settings`, the tower marker and watchdog family) keep their names
+until renames land; read "tower" below as the orchestrator.
 
 ## The one command
 

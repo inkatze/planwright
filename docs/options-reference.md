@@ -6,6 +6,11 @@ per-repo overrides live in `<repo>/.claude/planwright.local.yml` (gitignored,
 agent-maintained, per-repo entries written only on human confirmation per
 REQ-K1.1).
 
+Rows that name visual flight or instrument flight mean the tower's two flight
+rules: specless work and the spec pipeline. The names are the aviation
+analogy: visual rules when conditions are clear enough to fly by what you can
+see, instrument rules when you file a plan and trust the gauges.
+
 Every option present in the default config must have a row here.
 `scripts/check-options-reference.sh` enforces that; planwright's CI runs it
 (wired in by the self-hosting CI task) and fails on an undocumented option.
