@@ -82,6 +82,16 @@ umask 077
 
 self_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 
+# The status declaration is the meta-spec's header grammar, read through the
+# shared lib rather than a private copy (as the renderer and validator do);
+# sourced, never executed, and required.
+if [ ! -f "$self_dir/spec-parse.sh" ] || [ ! -r "$self_dir/spec-parse.sh" ]; then
+  printf '%s\n' "inception-registry: required helper $self_dir/spec-parse.sh missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/spec-parse.sh
+. "$self_dir/spec-parse.sh" || exit 2
+
 HEADER='# planwright inception registry v1'
 STATUSES='Exploring On-hold Graduated Killed Abandoned'
 CLOSED='Graduated Killed Abandoned'
@@ -246,10 +256,7 @@ registry_ok() {
 
 # bundle_status <venture-dir> — the brief's declared status, or `unknown`.
 bundle_status() {
-  bs=$(awk '
-    /^\*\*Status:\*\*/ { v = $0; sub(/^\*\*Status:\*\*[ \t]*/, "", v); sub(/[ \t]+$/, "", v); print v; exit }
-    /^## / { exit }
-  ' "$1/brief.md" 2>/dev/null)
+  bs=$(spec_parse_header_value "$1/brief.md" Status 2>/dev/null) || bs=
   if in_list "$bs" "$STATUSES"; then printf '%s\n' "$bs"; else printf 'unknown\n'; fi
 }
 
