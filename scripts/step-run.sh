@@ -149,6 +149,18 @@ is_in_run_point() {
   return 1
 }
 
+# Inherited git selectors (a hook's GIT_DIR) are cleared only around the
+# runner's own git and record reads, so they stay on the unit's worktree; the
+# step inherits them untouched (REQ-A1.6 forbids scrubbing its environment).
+no_git_selectors() {
+  unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+    GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+}
+rgit() (
+  no_git_selectors
+  exec git "$@"
+)
+
 worktree=''
 if [ "${1:-}" = --worktree ]; then
   [ $# -ge 2 ] || usage
@@ -159,13 +171,16 @@ fi
 verb=$1
 shift
 if [ -z "$worktree" ]; then
-  worktree=$(git rev-parse --show-toplevel 2>/dev/null) || die 2 "not inside a git work tree"
+  worktree=$(rgit rev-parse --show-toplevel 2>/dev/null) || die 2 "not inside a git work tree"
 fi
 worktree=$(cd -P -- "$worktree" 2>/dev/null && pwd -P) || die 2 "--worktree: not a directory"
 cd "$worktree" || die 2 "--worktree: cannot enter it"
 cache="$worktree/.claude/steps"
 
-sr() { /bin/sh "$SR" --worktree "$worktree" "$@"; }
+sr() (
+  no_git_selectors
+  exec /bin/sh "$SR" --worktree "$worktree" "$@"
+)
 
 # A slot taken for an owner is released on every exit until its record is
 # written or, for begin, its pending state hands it to end.
@@ -191,6 +206,7 @@ field() { printf '%s\n' "$1" | cut -f "$2"; }
 # run_dir <id>: the run's directory, refused unless the helper issued it.
 run_dir() {
   is_run "$1" || die 2 "--run: not a run id"
+  [ ! -L "$worktree/.claude" ] && [ ! -L "$cache" ] || die 2 "the record cache holds a symlink; refusing it"
   [ -d "$cache/$1" ] && [ ! -L "$cache/$1" ] || die 2 "--run: no such run in the cache"
   printf '%s' "$cache/$1"
 }
@@ -292,7 +308,7 @@ cmd_resume() {
   first=${chain%% *}
   printf '%s\t%s\t%s\n' "$first" "$fpoint" "$chain" >"$work/resume" || die 4 "cannot write runner state"
   put_state "$dir/runner-resume" <"$work/resume"
-  head=$(git rev-parse --verify -q 'HEAD^{commit}') || die 4 "cannot read the worktree's HEAD"
+  head=$(rgit rev-parse --verify -q 'HEAD^{commit}') || die 4 "cannot read the worktree's HEAD"
   sr lookup resume --run "$frun" --point "$fpoint" --head "$head" >"$work/prefix"
   case $? in
     0 | 3) ;;
@@ -526,7 +542,7 @@ prepare() {
       local ref h0 hosting session
       hit=${hit%%"$NL"*}
       ref=$(field "$hit" 2) hosting=$(field "$hit" 6) session=$(field "$hit" 7)
-      h0=$(git rev-parse --verify -q 'HEAD^{commit}') || die 4 "cannot read the worktree's HEAD"
+      h0=$(rgit rev-parse --verify -q 'HEAD^{commit}') || die 4 "cannot read the worktree's HEAD"
       out=$(sr write --run "$RUN" --point "$CTX_POINT" --step "$STEP" --kind command \
         --target "$ROW_TARGET" --hosting "$ROW_HOSTING" --backend "$BACKEND" --head "$h0" \
         --end-head "$h0" --start "$(stamp)" --outcome skipped --skip-code reuse \
@@ -561,7 +577,7 @@ prepare() {
     [ "$STATE" != unpooled ] || POOL_ARGS+=(--unpooled)
     [ "$STATE" = expired ] || START=$(stamp)
   fi
-  HEAD0=$(git rev-parse --verify -q 'HEAD^{commit}') || die 4 "cannot read the worktree's HEAD"
+  HEAD0=$(rgit rev-parse --verify -q 'HEAD^{commit}') || die 4 "cannot read the worktree's HEAD"
 }
 
 # finish <outcome> <output-file> [<exit>]: release a taken slot, then write
@@ -573,7 +589,7 @@ finish() {
     sed 's/^state\ttaken$/state\treleased/' "$PENDING" >"$work/pending-released" \
       && put_state "$PENDING" <"$work/pending-released"
   fi
-  end_head=$(git rev-parse --verify -q 'HEAD^{commit}') || die 4 "cannot read the worktree's HEAD"
+  end_head=$(rgit rev-parse --verify -q 'HEAD^{commit}') || die 4 "cannot read the worktree's HEAD"
   [ -z "$SESSION" ] || session_args=(--session "$SESSION")
   out=$(sr write --run "$RUN" --point "$CTX_POINT" --step "$STEP" --kind command \
     --target "$ROW_TARGET" --hosting "$ROW_HOSTING" --backend "$BACKEND" ${session_args[@]+"${session_args[@]}"} \

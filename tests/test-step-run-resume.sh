@@ -217,9 +217,13 @@ awk -F '\t' -v OFS='\t' '$2 == "iso" { $11 = "x" } { print }' "$tmp/rows.keep" >
 refuse "a row whose timeout is not whole seconds" command --run "$r" --point pre-pr --step iso
 cp "$tmp/rows.keep" "$wt/.claude/steps/$r/runner-rows-pre-pr"
 refuse "end with no begin" end --run "$r" --point pre-pr --step ses --exit 0
+: >"$tmp/elsewhere"
 ln -s "$tmp/elsewhere" "$wt/.claude/steps/$r/runner-pending-pre-pr-ses"
 refuse "a symlinked pending state" end --run "$r" --point pre-pr --step ses --exit 0
 rm -f "$wt/.claude/steps/$r/runner-pending-pre-pr-ses"
+mv "$wt/.claude/steps" "$tmp/steps-real" && ln -s "$tmp/steps-real" "$wt/.claude/steps"
+refuse "a symlinked record cache" command --run "$r" --point pre-pr --step iso
+rm "$wt/.claude/steps" && mv "$tmp/steps-real" "$wt/.claude/steps"
 [ "$failures" -eq "$before_refusals" ]
 verdict $? "misrouted, undeclared, malformed, and stateless calls are refused with nothing recorded or taken" \
   "a refusal case failed (above)"
@@ -249,6 +253,17 @@ PR="7
 rc=$?
 [ "$rc" -eq 1 ] && [ ! -e "$tmp/check.log" ] && [ -z "$(sp report gate)" ]
 verdict $? "a context value with a trailing newline is refused, not trimmed" "rc=$rc: $(recs "$r" pre-pr)"
+
+git init -q "$tmp/other"
+git -C "$tmp/other" -c user.name=Other -c user.email=other@example.invalid -c commit.gpgsign=false \
+  commit -q --allow-empty -m "chore: other"
+GIT_DIR="$tmp/other/.git" srun command --run "$r" --point pre-pr --step iso >"$tmp/out" 2>/dev/null
+rc=$?
+recs "$r" pre-pr >"$tmp/l"
+[ "$rc" -eq 0 ] && [ "$(awk -F '\t' '$1 == "head" { h = $2 } END { print h }' "$tmp/l")" = "$(head_of)" ] \
+  && [ "$(awk -F '\t' '$1 == "outcome" { o = $2 } END { print o }' "$tmp/l")" = passed ]
+verdict $? "an inherited GIT_DIR does not redirect the runner's own git reads" "rc=$rc: $(cat "$tmp/l")"
+rm -f "$tmp/check.log"
 
 # --- begin and end: a second begin, a timeout, an output file, a failing exit --------------
 srun begin --run "$r" --point pre-pr --step ses --owner "$me" >"$tmp/begin"
