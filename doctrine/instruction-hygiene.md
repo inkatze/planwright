@@ -144,10 +144,13 @@ authoring ceiling converted through the measured corpus density:
 | Rule doc (per file) | 2,500 | 4,000 |
 | Mandatory-at-start (body + run-start docs) | 8,000 | 10,000 |
 | Reachable closure (start-load + point-of-use docs) | 15,000 | 20,000 |
+| Composed chain (`/polish` and its nested `/self-review`, each doc once) | none | 20,000 |
 
 The start-load budget is the primary one: what degrades instruction-following
 is total instruction context per invocation, and a fat rule doc automatically
-charges every skill that front-loads it. Per-file floors are the cheap
+charges every skill that front-loads it. The composed chain is the closure of
+one session that runs a skill nested inside another: moving a doc to
+point-of-use relieves a start-load but never the chain. Per-file floors are the cheap
 early-warning signal. Threshold comparison is boundary-inclusive: a count
 equal to a threshold trips it (`>=`).
 
@@ -157,7 +160,8 @@ Task 2 deliverable), overlay-tunable; the mechanism is core. The
 run-start law). Two suppression
 forms exist, each requiring a recorded reason: a **permanent exemption**
 (per-file floor only, never start-load or closure, standing rationale) and a
-**transitional `pending diet (Task N)` allowance** (any budget, temporary,
+**transitional `pending diet (Task N)` allowance** (any budget but the
+composed chain, temporary,
 removed by that diet's own PR, forbidden at closeout).
 
 ## Headroom: floors, targets, and the restoration ladder
@@ -183,7 +187,8 @@ margin-to-warn. The four floors ship as overlay-tunable core knobs in
 | Mandatory-at-start | `instruction_budget_startload_floor` | 500 |
 | Reachable closure | `instruction_budget_closure_floor` | 1,000 |
 
-The knobs map one-to-one to the four classes in the order listed. A surface
+The knobs map one-to-one to the four classes in the order listed; the composed
+chain takes the reachable-closure floor and target. A surface
 whose margin is **strictly below** its floor is in breach and triggers the
 restoration ladder; margin equal to the floor is compliant. Breach is a **named
 warning on every guard run**, never an error — an error would recreate the
@@ -219,7 +224,9 @@ inapplicability **recorded**:
    first move.
 2. **Point-of-use reclassification.** Move deferrable bulk from run-start to
    point-of-use. Requires the diet exhausted (no trimmable non-law prose
-   remains) or disproportionate, and **never moves gating law**.
+   remains) or disproportionate, and **never moves gating law**. It is
+   inapplicable to the composed chain, which charges point-of-use docs too;
+   record that when the chain climbs past it.
 3. **Deliberate budget raise.** Raise a named threshold knob. Requires both
    prior rungs exhausted or inapplicable, and carries a recorded rationale; a
    silent raise is forbidden.
@@ -228,13 +235,14 @@ inapplicability **recorded**:
 **No rung defers gating law.** The safety floor (gating law loads run-start) is
 inviolable on every rung; a surface that cannot restore margin without deferring
 it escalates to the human. Rung 4 is **per-file only**: an aggregate surface
-(mandatory-at-start, reachable closure) tops out at rung 3 and escalates to the
+(mandatory-at-start, reachable closure, composed chain) tops out at rung 3 and escalates to the
 human thereafter. The capped charge below is the aggregate-side analog of a
 per-file exemption.
 
 ### Capped charge for permanently exempt docs
 
-Aggregate enforcement (mandatory-at-start and reachable closure) charges a
+Aggregate enforcement (mandatory-at-start, reachable closure and the composed
+chain) charges a
 permanently per-file-exempt doc at **min(actual words, that doc's per-file error
 threshold)**, so dependents of a sanctioned over-floor doc absorb its bounded
 growth without per-edit budget ceremony. Measurement stays honest: the full word

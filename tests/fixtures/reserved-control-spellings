@@ -10,12 +10,14 @@
 # acts. tier: any, worker, or tower. policy: `floor` (no value permits the
 # act), `floor-guard` (no value permits it either, but only the policy guard
 # can refuse it: the profiles leave it at the permission prompt), or
-# <knob>=<value>, the value the policy guard reads for the line. A floor line
+# <knob>=<value>, the value the policy guard reads for the line, or
+# `admitted` (the redraft-helper's alone: no value governs it, and every copy
+# but the command guards defers it). A floor line
 # is tier `any`, denied by both profiles, by the policy guard where it is
 # wired for the tool, and by the tower queue where it screens the call. A
 # floor-guard line expects prompt from every profile that sees it and deny
 # from the policy guard, except an `other` line, which the guard defers.
-# Verdicts: deny, defer, allow (a command guard's, for the merge helper
+# Verdicts: deny, defer, allow (a command guard's, for the two helpers
 # only), or n/a (outside the copy's jurisdiction: another
 # tier, or a tool the copy is not wired for); the test derives n/a from the
 # wiring and fails a line that claims it anywhere else. A profile column may
@@ -62,6 +64,18 @@ merge-helper     tower  merge_policy=policy-class deny   defer  n/a    allow  de
 
 undo-flip        any    floor                        deny   defer  defer  defer  deny   deny   deny   gh pr ready 42 --undo
 undo-flip        any    floor                        deny   defer  defer  defer  deny   deny   deny   gh pr ready --undo 42
+undo-flip        any    floor                        deny   defer  defer  defer  deny   deny   deny   scripts/request-reviewer.sh --repo acme/widgets --pr 42 --copilot && gh pr ready 42 --undo
+
+# The re-draft helper: its own corrective runs below the hooks, so no copy
+# classifies a call to it as a reserved act and the policy guard admits it at
+# both tiers, reading no value. Both command guards allow it as a repository
+# script, and it confines itself to the checkout's origin and to bots. A
+# wrapper naming it still performs nothing the guard classifies.
+redraft-helper   worker admitted                     n/a    defer  allow  n/a    defer  defer  n/a    scripts/request-reviewer.sh --repo acme/widgets --pr 42 --copilot
+redraft-helper   worker admitted                     n/a    defer  allow  n/a    defer  defer  n/a    bash scripts/request-reviewer.sh --repo acme/widgets --pr 42 --reviewer 'cubic-dev-ai[bot]'
+redraft-helper   worker admitted                     n/a    defer  defer  n/a    defer  defer  n/a    env FOO=1 scripts/request-reviewer.sh --repo acme/widgets --pr 42 --copilot
+redraft-helper   tower  admitted                     defer  defer  n/a    allow  defer  n/a    defer  scripts/request-reviewer.sh --repo acme/widgets --pr 42 --copilot
+redraft-helper   tower  admitted                     defer  defer  n/a    allow  defer  n/a    defer  bash scripts/request-reviewer.sh --repo acme/widgets --pr 42 --reviewer 'cubic-dev-ai[bot]'
 
 force-push       any    floor                        deny   defer  defer  defer  deny   deny   deny   git push --force origin feature
 force-push       any    floor                        deny   defer  defer  defer  deny   deny   deny   git push -f origin feature

@@ -464,6 +464,13 @@ arities; the marker at loop start, written by the loop from a new
 `self-name` verb;
 the identity environment exported at every worker seam; the handover
 launch named; a custom launcher out of scope.)*
+*(Amended at Task 4 execution 2026-10-19: the collision outcome recorded.
+On CLI 2.1.303 two concurrent `claude -p --name` launches with one name
+both start and both carry it unchanged: a duplicate, with no rename and
+no refusal. The operator classified this note expression-only. The residual registry identity race (a hook
+that runs before the row exists, or a re-register that resets the
+sentinels) is accepted as written above and healed by the reconcile
+floor.)*
 
 **Alternatives considered:**
 - Relying on harness-generated names plus listing round-trips. Rejected

@@ -80,8 +80,8 @@ hl_launch 4 "$peer_id"
 cB=$hw
 cB_pids=$runner
 attn heartbeat "$cB" demo:4 ended
-wait_until 30 classified cA finished-but-unreaped || fail "fixture: cA never finished"
-wait_until 30 classified "$cB" finished-but-unreaped || fail "fixture: $cB never finished"
+poll_until --what 'finished-but-unreaped' -- classified cA finished-but-unreaped || fail "fixture: cA never finished"
+poll_until --what 'finished-but-unreaped' -- classified "$cB" finished-but-unreaped || fail "fixture: $cB never finished"
 
 for spec in "sj:cA" "hl:$cB"; do
   rung=${spec%%:*}
@@ -97,7 +97,7 @@ for spec in "sj:cA" "hl:$cB"; do
     hl) pids=$cB_pids ;;
   esac
   for p in $pids; do
-    wait_until 10 gone "$p" || fail "conc:$rung:double-reap: pid $p survived $N concurrent reaps"
+    poll_until --what 'the pid gone' -- gone "$p" || fail "conc:$rung:double-reap: pid $p survived $N concurrent reaps"
   done
   untouched "conc:$rung:double-reap"
   strand_intact "conc:$rung:double-reap"
@@ -115,7 +115,7 @@ c3=$hw
 c3p=$runner
 attn heartbeat "$c3" demo:5 ended
 for w in cC1 cC2 "$c3"; do
-  wait_until 30 classified "$w" finished-but-unreaped || fail "fixture: $w never finished"
+  poll_until --what 'finished-but-unreaped' -- classified "$w" finished-but-unreaped || fail "fixture: $w never finished"
 done
 # Four sweepers released together, each walking all three candidates one
 # after another from a different start, the way a terminating sweep does.
@@ -148,7 +148,7 @@ for w in cC1 cC2 "$c3"; do
   [ "$(reaps_of "$w")" = 1 ] || fail "conc:no-lost-sweep: $w has $(reaps_of "$w") terminations, expected exactly one"
 done
 for p in $c1p $c2p $c3p; do
-  wait_until 10 gone "$p" || fail "conc:no-lost-sweep: pid $p was left running by every sweeper"
+  poll_until --what 'the pid gone' -- gone "$p" || fail "conc:no-lost-sweep: pid $p was left running by every sweeper"
 done
 untouched "conc:no-lost-sweep"
 strand_intact "conc:no-lost-sweep"
@@ -158,7 +158,7 @@ echo "ok: four sweepers over three candidates in different orders close each can
 # --- induced contention: the fleet lock held across the race ----------------
 sj_launch cD "$ev_done" "$peer_id"
 cDp="$sup $wrk"
-wait_until 30 classified cD finished-but-unreaped || fail "fixture: cD never finished"
+poll_until --what 'finished-but-unreaped' -- classified cD finished-but-unreaped || fail "fixture: cD never finished"
 ienv -- fleet-state.sh lock || fail "fixture: could not take the fleet lock"
 args=''
 for _ in $(seq 1 "$N"); do args="$args cD"; done
@@ -171,7 +171,7 @@ wait "$rh" || :
 race_ok "conc:contended:fleet-lock" "$tmp/race-held"
 [ "$(reaps_of cD)" = 1 ] || fail "conc:contended:fleet-lock: $(reaps_of cD) terminations under a held fleet lock"
 for p in $cDp; do
-  wait_until 10 gone "$p" || fail "conc:contended:fleet-lock: pid $p survived"
+  poll_until --what 'the pid gone' -- gone "$p" || fail "conc:contended:fleet-lock: pid $p survived"
 done
 untouched "conc:contended:fleet-lock"
 strand_intact "conc:contended:fleet-lock"
@@ -182,7 +182,7 @@ ran conc:contended:fleet-lock
 # break it on the holder's absence and close the worker, once.
 sj_launch cE "$ev_done" "$peer_id"
 cEp="$sup $wrk"
-wait_until 30 classified cE finished-but-unreaped || fail "fixture: cE never finished"
+poll_until --what 'finished-but-unreaped' -- classified cE finished-but-unreaped || fail "fixture: cE never finished"
 sleep 0 &
 dead_holder=$!
 wait "$dead_holder" || :
@@ -195,7 +195,7 @@ race "$tmp/race-stale" $args
 race_ok "conc:contended:stale-reap-lock" "$tmp/race-stale"
 [ "$(reaps_of cE)" = 1 ] || fail "conc:contended:stale-reap-lock: $(reaps_of cE) terminations past a dead reaper's lock"
 for p in $cEp; do
-  wait_until 10 gone "$p" || fail "conc:contended:stale-reap-lock: pid $p survived"
+  poll_until --what 'the pid gone' -- gone "$p" || fail "conc:contended:stale-reap-lock: pid $p survived"
 done
 [ ! -L "$ihome/reap-locks/cE" ] || fail "conc:contended:stale-reap-lock: the reap lock was left held"
 untouched "conc:contended:stale-reap-lock"
@@ -210,8 +210,8 @@ hl_launch 6 "$peer_id"
 cG=$hw
 cGp=$runner
 attn heartbeat "$cG" demo:6 ended
-wait_until 30 classified cF finished-but-unreaped || fail "fixture: cF never finished"
-wait_until 30 classified "$cG" finished-but-unreaped || fail "fixture: $cG never finished"
+poll_until --what 'finished-but-unreaped' -- classified cF finished-but-unreaped || fail "fixture: cF never finished"
+poll_until --what 'finished-but-unreaped' -- classified "$cG" finished-but-unreaped || fail "fixture: $cG never finished"
 before=$(reaps_recorded)
 sw_pids=''
 for i in $(seq 1 4); do

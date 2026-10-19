@@ -61,6 +61,8 @@ trap 'exit 143' TERM
 
 # shellcheck source=tests/lib/fleet-home.sh
 . "$here/lib/fleet-home.sh"
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 
 core_cfg="$tmp/core-defaults.yml"
 repo="$tmp/repo"
@@ -199,12 +201,8 @@ srun() {
 : >"$tmp/late-pushes"
 QH_GO="$tmp/go-first" srun hold --vendor sample-cli --unit spec-a:task-1 --step panel --reason "quota" --now "$NOW" >/dev/null 2>&1 &
 first=$!
-n=0
-until [ -s "$home/fleet/quota/sample-cli/hold.tsv" ]; do
-  n=$((n + 1))
-  [ "$n" -lt 60 ] || fail "late-push: the first hold never landed"
-  sleep 1
-done
+poll_until --what 'the first hold landing' -- test -s "$home/fleet/quota/sample-cli/hold.tsv" \
+  || fail "late-push: the first hold never landed"
 : >"$tmp/go-now"
 QH_GO="$tmp/go-now" srun resume --vendor sample-cli --now $((NOW + 50)) >/dev/null || fail "late-push: resume failed"
 QH_GO="$tmp/go-now" srun hold --vendor sample-cli --unit spec-b:task-1 --step panel --reason "quota" --now $((NOW + 100)) >/dev/null 2>&1 || fail "late-push: the second hold failed"
@@ -240,7 +238,10 @@ fi
 cat >"$stub/fleet-attention.sh" <<'STUB'
 #!/bin/sh
 case ${QH_STUB_MODE:-ok} in
-  slow) sleep 30 ;;
+  slow)
+    : >"$QH_PUSHES.started"
+    sleep 30
+    ;;
   slowfail)
     n=0
     while [ ! -e "$QH_GO" ] && [ "$n" -lt 60 ]; do
@@ -255,14 +256,14 @@ STUB
 chmod 755 "$stub/fleet-attention.sh"
 new_home killed-push
 : >"$tmp/late-pushes"
+rm -f "$tmp/late-pushes.started"
 QH_STUB_MODE=slow srun hold --vendor sample-cli --unit spec-a:task-1 --step panel --reason quota --now "$NOW" >/dev/null 2>&1 &
 victim=$!
-n=0
-until [ -s "$home/fleet/quota/sample-cli/pushed" ]; do
-  n=$((n + 1))
-  [ "$n" -lt 60 ] || fail "killed-push: the push was never reserved"
-  sleep 1
-done
+# Wait for the push itself, not just its reservation: the reservation is on
+# disk a moment before the holder records it as its own.
+poll_until --what 'the push in flight' -- test -e "$tmp/late-pushes.started" \
+  || fail "killed-push: the push never started"
+[ -s "$home/fleet/quota/sample-cli/pushed" ] || fail "killed-push: the push was never reserved"
 # TERM the whole tree, as a timeout wrapper's process-group signal would.
 term_tree() {
   for tt_c in $(pgrep -P "$1" 2>/dev/null); do
@@ -272,11 +273,8 @@ term_tree() {
 }
 term_tree "$victim"
 wait "$victim" 2>/dev/null || :
-n=0
-while [ -s "$home/fleet/quota/sample-cli/pushed" ] && [ "$n" -lt 20 ]; do
-  n=$((n + 1))
-  sleep 1
-done
+poll_until --what 'the killed holder releasing its reservation' -- test ! -s "$home/fleet/quota/sample-cli/pushed" \
+  || fail "killed-push: the killed holder never released its reservation"
 srun hold --vendor sample-cli --unit spec-b:task-2 --step panel --reason quota --now "$NOW" >/dev/null 2>&1 || fail "killed-push: the next joiner failed"
 [ "$(grep -c "quota-hold-sample-cli-$NOW" "$tmp/late-pushes")" = 1 ] \
   || fail "killed-push: the next joiner did not push the hold a killed holder had reserved"
@@ -287,12 +285,8 @@ new_home same-second
 rm -f "$tmp/go-a"
 QH_STUB_MODE=slowfail QH_GO="$tmp/go-a" srun hold --vendor sample-cli --unit spec-a:task-1 --step panel --reason quota --now "$NOW" >/dev/null 2>&1 &
 holder_a=$!
-n=0
-until [ -s "$home/fleet/quota/sample-cli/pushed" ]; do
-  n=$((n + 1))
-  [ "$n" -lt 60 ] || fail "same-second: the first push was never reserved"
-  sleep 1
-done
+poll_until --what 'the first push reservation' -- test -s "$home/fleet/quota/sample-cli/pushed" \
+  || fail "same-second: the first push was never reserved"
 srun resume --vendor sample-cli --now "$NOW" >/dev/null || fail "same-second: resume failed"
 srun hold --vendor sample-cli --unit spec-b:task-2 --step panel --reason quota --now "$NOW" >/dev/null 2>&1 || fail "same-second: the new hold failed"
 : >"$tmp/go-a"
@@ -401,18 +395,14 @@ pass "a hold store that is not a regular file is refused"
 # The other store files are held to the same rule, and no verb blocks on a
 # FIFO where a store file belongs.
 # bg_run <fifo> <args>: run the script in the background; one still running
-# after 20s is released by opening <fifo> for writing, and bg_rc reads hung.
+# at the poll deadline is released by opening <fifo> for writing, and bg_rc
+# reads hung.
 bg_run() {
   bg_fifo=$1
   shift
   run "$@" >/dev/null 2>&1 &
   bg_pid=$!
-  n=0
-  while kill -0 "$bg_pid" 2>/dev/null && [ "$n" -lt 20 ]; do
-    sleep 1
-    n=$((n + 1))
-  done
-  if kill -0 "$bg_pid" 2>/dev/null; then
+  if ! poll_until --what "quota-hold $1 finishing" -- pid_gone "$bg_pid"; then
     (: >"$bg_fifo") >/dev/null 2>&1 &
     bg_w=$!
     wait "$bg_pid" 2>/dev/null || :

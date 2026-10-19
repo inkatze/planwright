@@ -276,18 +276,25 @@ retry_delay() {
   printf '%s' "$rd_v"
 }
 
-# timeout_bin — the bounding binary, or empty when none is on PATH. 'timeout'
-# is coreutils and is NOT stock macOS, so gtimeout (the Homebrew coreutils
-# name) is probed as well; this widens fleet-cleanup.sh's 'timeout'-only probe
-# because a guard that denied every flip on a stock macOS box would be a
-# false-deny surface far larger than the convention is worth. Neither present
+# timeout_bin — the command that bounds a query: timeout, or gtimeout (the
+# Homebrew coreutils name), else the bundled runner, since stock macOS ships
+# neither binary and a guard that denied every flip there would be a
+# false-deny surface far larger than the convention is worth. Nothing at all
 # still fails closed at the call site.
 timeout_bin() {
   if command -v timeout >/dev/null 2>&1; then
     printf 'timeout'
   elif command -v gtimeout >/dev/null 2>&1; then
     printf 'gtimeout'
+  elif [ -n "$GUARD_DIR" ] && [ -r "$GUARD_DIR/bounded-run.sh" ]; then
+    printf 'bounded_run'
   fi
+}
+
+# Run through sh rather than its own mode bits, which a plugin copy may drop.
+# shellcheck disable=SC2329 # called through the name timeout_bin prints
+bounded_run() {
+  /bin/sh "$GUARD_DIR/bounded-run.sh" "$@"
 }
 
 # --------------------------------------------------------------------------
@@ -940,7 +947,7 @@ evaluate_predicate() {
   # hook, which can hang the tool call and produce no output at all - a silent
   # fail-OPEN, the single outcome this guard may never have. Refuse instead.
   [ -n "$RG_TIMEOUT_BIN" ] \
-    || emit_deny 'no timeout (or gtimeout) binary is on PATH, so the guard cannot bound its GitHub queries and will not make an unbounded call from a PreToolUse hook - refusing (fail closed). Install coreutils.'
+    || emit_deny 'no timeout (or gtimeout) binary is on PATH and the bundled bounded-run.sh is missing beside this guard, so the guard cannot bound its GitHub queries and will not make an unbounded call from a PreToolUse hook - refusing (fail closed). Reinstall planwright.'
   RG_GH_T=$(gh_timeout)
 
   local base head_oid mergeable is_draft url
@@ -995,7 +1002,7 @@ evaluate_predicate() {
   behind=$("$RG_TIMEOUT_BIN" "$RG_GH_T" gh api \
     "repos/$owner/$repo/compare/$base...$head_oid?per_page=1" \
     --jq '.behind_by' 2>/dev/null) || rc=$?
-  if [ "$rc" = 124 ]; then
+  if [ "$rc" = 124 ] || [ "$rc" = 143 ]; then
     emit_deny "the GitHub compare query did not finish within ${RG_GH_T}s, so this pull request's currency with its base branch could not be confirmed - refusing (fail closed). Wait and retry."
   fi
   [ "$rc" = 0 ] \
@@ -1071,7 +1078,7 @@ read_view_fields() {
 # check_view_rc — map the query's exit status onto a denial, distinguishing a
 # timeout from an error so the operator sees a stall as a stall (REQ-K1.1).
 check_view_rc() {
-  if [ "$GH_VIEW_RC" = 124 ]; then
+  if [ "$GH_VIEW_RC" = 124 ] || [ "$GH_VIEW_RC" = 143 ]; then
     emit_deny "the GitHub query for this pull request did not finish within ${RG_GH_T}s, so its currency and mergeability could not be confirmed - refusing (fail closed). Wait and retry."
   fi
   [ "$GH_VIEW_RC" = 0 ] \

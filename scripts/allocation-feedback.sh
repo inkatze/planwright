@@ -69,7 +69,7 @@
 #
 # THE FRAGMENT AND THE MARK HAVE DIFFERENT LIFETIMES, and a caller should know
 # it. The mark goes to the cross-spec fleet home; the fragment goes to the host
-# repo's own `specs/_observations` (obs-record.sh's D-6), which on a worker means
+# repo's own store under its spec root (obs-record.sh's D-6), which on a worker means
 # a branch. A branch abandoned without merging loses its fragment while the mark
 # survives, and the unit then reads as recorded forever. That is the same
 # exposure every observation a branch records carries, and it is why the caller
@@ -101,8 +101,9 @@
 #                  invented fields.
 #     --obs-dir    the observations store, passed through to obs-record.sh
 #                  (which contains and canonicalizes it). Omitted, the helper's
-#                  own cwd-relative default applies, so a caller whose cwd is
-#                  not a repo root should always pass this.
+#                  own default applies, the store under the spec root the
+#                  working directory resolves, which outside a repository is
+#                  none at all.
 #
 #     Prints the evaluation as TAB-separated `key<TAB>value` lines:
 #       fired         yes | no

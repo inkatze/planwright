@@ -11,6 +11,8 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 S="$REPO_ROOT/scripts"
+# shellcheck source=tests/lib/poll-until.sh
+. "$REPO_ROOT/tests/lib/poll-until.sh"
 
 failures=0
 ok() { echo "ok: $1"; }
@@ -354,11 +356,8 @@ cp "$p/demo/tasks.md" "$tmp/before-signal.md"
     PLANWRIGHT_ROOT="$REPO_ROOT" PATH="$tmp/slowbin:$PATH" "$sig_sh" "$S/halt-note.sh" demo 1 "interrupted"
 ) >/dev/null 2>&1 &
 sig_pid=$!
-n=0
-while [ -z "$(find "$p/demo" -name '.tasks.md.halt.??????')" ] && [ "$n" -lt 100 ]; do
-  sleep 0.1
-  n=$((n + 1))
-done
+halt_temp_present() { [ -n "$(find "$p/demo" -name '.tasks.md.halt.??????')" ]; }
+poll_until --what "the rewrite's temp file" -- halt_temp_present || :
 kill -TERM "$sig_pid" 2>/dev/null
 wait "$sig_pid"
 sig_rc=$?

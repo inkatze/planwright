@@ -62,6 +62,8 @@ ROOT=""
 LIVE=0
 # shellcheck source=tests/lib/worker-guard-corpus.sh
 . "$REPO_ROOT/tests/lib/worker-guard-corpus.sh"
+# shellcheck source=tests/lib/poll-until.sh
+. "$REPO_ROOT/tests/lib/poll-until.sh"
 
 usage() {
   cat >&2 <<'USAGE'
@@ -292,25 +294,18 @@ if [ "$LIVE" = 1 ]; then
     probe_dir="$fleet_root/fleet/streamjson/smoke-probe"
     # Poll to completion or to the first permission request, whichever lands
     # first: a stall is the thing under test, so it must not be waited out.
-    waited=0
     perms=0
     settled=0
-    while :; do
+    # shellcheck disable=SC2329  # polled through poll_until
+    probe_done() {
       if [ -r "$probe_dir/journal" ]; then
         perms=$(awk -F'\t' '$2 == "permission"' "$probe_dir/journal" 2>/dev/null | wc -l)
-        [ "$perms" -gt 0 ] && break
+        [ "$perms" -gt 0 ] && return 0
       fi
-      if [ -r "$probe_dir/result" ]; then
-        settled=1
-        break
-      fi
-      # Check once more at the bound before calling it a timeout: sleeping past
-      # the deadline and then never re-reading reports a worker that finished
-      # in the last window as a failure.
-      [ "$waited" -ge 300 ] && break
-      sleep 5
-      waited=$((waited + 5))
-    done
+      [ -r "$probe_dir/result" ] || return 1
+      settled=1
+    }
+    poll_until --deadline 300 --interval 1 --what 'the probe worker to finish or ask permission' -- probe_done || :
 
     if [ "${perms:-0}" -gt 0 ]; then
       failures=$((failures + 1))

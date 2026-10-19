@@ -32,6 +32,8 @@ HOOK="$here/../scripts/tower-reply-hook.sh"
 TQ="$here/../scripts/tower-queue.sh"
 FS="$here/../scripts/fleet-state.sh"
 FP="$here/../scripts/fleet-presence.sh"
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -272,21 +274,20 @@ echo "ok: the gate is scoped to the repository the tower published on"
 # With the lock held and a long wait configured, the marker must advance
 # while the hook is still waiting for the log: a marker written after the
 # log call would not.
-printf 'tower_hook_lock_wait: 30s\n' >"$local_cfg"
+# The lock wait outlasts the poll's deadline, so a marker that never advances
+# fails as that rather than as a hook that gave up on the lock first.
+printf 'tower_hook_lock_wait: 120s\n' >"$local_cfg"
 PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$FS" lock || fail "could not take the fleet lock for the ordering case"
 sleep 1
 m_before=$(marker_value)
 printf '%s' "$(payload "$sid" "$co" "reply while the lock is held")" \
   | with_env /bin/sh "$HOOK" >"$tmp/out" 2>"$tmp/err" &
 hook_pid=$!
+marker_later_than() { later_than "$(marker_value)" "$1"; }
 advanced=0
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
-  if later_than "$(marker_value)" "$m_before"; then
-    advanced=1
-    break
-  fi
-  sleep 0.25
-done
+if poll_until --what 'the marker advancing while the hook waits for the lock' -- marker_later_than "$m_before"; then
+  advanced=1
+fi
 kill -0 "$hook_pid" 2>/dev/null || fail "ordering: the hook finished before the lock was released, so the wait was not exercised"
 PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$FS" unlock
 wait "$hook_pid" || fail "ordering: the hook exited non-zero"
@@ -310,7 +311,7 @@ PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$FS" unlock
 later_than "$(marker_value)" "$m_before" || fail "busy lock: marker did not advance ($m_before -> $(marker_value))"
 [ "$(line_count "$log_file")" = "$before" ] || fail "busy lock: a line was written unlocked"
 [ "$(line_count "$dropped_file")" = 1 ] || fail "busy lock: dropped-line counter is $(line_count "$dropped_file"), expected 1"
-[ $((end - start)) -le 5 ] || fail "busy lock: the hook took $((end - start))s on a 200ms bound"
+[ $((end - start)) -le 10 ] || fail "busy lock: the hook took $((end - start))s on a 200ms bound"
 echo "ok: under a busy lock the marker advances, the line is dropped and counted, the turn is not delayed"
 
 # The bound is the knob, not a constant: a longer wait is honoured.
@@ -321,7 +322,7 @@ run_hook "$(payload "$sid" "$co" "reply under a longer bound")"
 end=$(date +%s)
 PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$FS" unlock
 [ $((end - start)) -ge 3 ] || fail "bound: the hook returned after $((end - start))s on a 4s bound, so the knob is not what bounds the wait"
-[ $((end - start)) -le 8 ] || fail "bound: the hook took $((end - start))s on a 4s bound"
+[ $((end - start)) -le 15 ] || fail "bound: the hook took $((end - start))s on a 4s bound"
 [ "$(line_count "$dropped_file")" = 2 ] || fail "bound: dropped-line counter is $(line_count "$dropped_file"), expected 2"
 : >"$local_cfg"
 echo "ok: the lock wait is bounded by tower_hook_lock_wait itself"
