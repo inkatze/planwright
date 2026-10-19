@@ -67,7 +67,23 @@ for _ in 1 2 3 4 5; do
 done
 out=$(printf 'from stdin\n' | br 5 cat)
 [ "$out" = 'from stdin' ] || fail "stdin: the command read '$out', not the caller's stdin"
+out=$(br 5 cat <&-) && rc=0 || rc=$?
+[ "$rc" != 125 ] && [ "$rc" != 2 ] || fail "closed stdin: the runner failed ($rc) rather than running the command"
 echo "ok: the bound is the full number of seconds and the caller's stdin reaches the command"
+
+# A command that ends at once ends the call at once, and the watcher leaves no
+# sleep behind.
+start=$(date +%s)
+for _ in 1 2 3 4 5 6 7 8; do
+  br 4321 true || fail "prompt return: a 4321s-bounded true failed"
+done
+took=$(($(date +%s) - start))
+[ "$took" -le 6 ] || fail "prompt return: eight instant commands took ${took}s"
+sleep 0.3
+# shellcheck disable=SC2009 # pgrep is not on every host the suite runs on
+left=$(ps -A -o args= 2>/dev/null | grep -c '^sleep 4321$' || :)
+[ "$left" = 0 ] || fail "prompt return: $left watcher sleep(s) outlived their runner"
+echo "ok: a command that ends at once ends the call, and no watcher sleep is left"
 
 # --- an overrun: 124, promptly, the whole group ---------------------------------
 
@@ -103,6 +119,22 @@ while alive "$st" && [ "$i" -lt 50 ]; do
   i=$((i + 1))
 done
 ! alive "$st" || fail "TERM-ignoring overrun: its TERM-ignoring child $st outlived the grace"
+# A command that dies on TERM inside the grace still has its TERM-ignoring
+# child killed once the grace is spent, and the call does not wait on it.
+start=$(date +%s)
+rc=0
+# shellcheck disable=SC2016 # expanded by the inner shell
+out=$(br -k 1 1 /bin/sh -c '/bin/sh -c "trap \"\" TERM; exec sleep 30" & echo "$!" >"$1/orphan"; sleep 30' _ "$tmp") || rc=$?
+took=$(($(date +%s) - start))
+[ "$rc" = 124 ] || fail "TERM-dying overrun: exit $rc, expected 124"
+[ "$took" -le 8 ] || fail "TERM-dying overrun: took ${took}s, its TERM-ignoring child held the call"
+orph=$(cat "$tmp/orphan")
+i=0
+while alive "$orph" && [ "$i" -lt 50 ]; do
+  sleep 0.1
+  i=$((i + 1))
+done
+! alive "$orph" || fail "TERM-dying overrun: its TERM-ignoring child $orph outlived the grace"
 echo "ok: -k kills a command that ignores TERM once the grace is spent"
 
 # --- usage ----------------------------------------------------------------------
