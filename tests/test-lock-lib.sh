@@ -817,7 +817,7 @@ for sig in INT HUP; do
     pw_lock_acquire "$2/s.lock" || exit 9
     printf "held\n" >"$2/s.ready"
     i=0
-    while [ "$i" -lt 3000 ]; do
+    while [ "$i" -lt 200 ]; do
       sleep 0.1
       i=$((i + 1))
     done
@@ -825,6 +825,9 @@ for sig in INT HUP; do
   sig_pid=$!
   poll_until --what "the $sig holder to take its lock" -- test -f "$tmp/s.ready" \
     || fail "a $sig'd holder releases its lock (holder never started)"
+  # A background sh starts with INT ignored, so the INT holder runs its loop
+  # out; the loop stays short, and one already gone would misread as exit 0.
+  kill -0 "$sig_pid" 2>/dev/null || fail "a $sig'd holder releases its lock (holder exited before the signal)"
   got=0
   kill -"$sig" "$sig_pid" 2>/dev/null
   wait "$sig_pid" || got=$?
