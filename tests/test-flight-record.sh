@@ -1620,6 +1620,7 @@ printf '%s\n%s\n' "$PRIV1" "$PRIV3" >"$in/ask-private-pd.txt"
 } >"$in/audit-private-pd.md"
 run_render pr --ask-file "$in/ask-private-pd.txt" --public-summary-file "$in/public.txt" --audit-file "$in/audit-private-pd.md"
 [ "$RC" -eq 2 ] || fail "an audit copying a redacted private-ask line must be refused with 2 (got $RC)"
+case $ERR in *"$PRIV3"* | *415-555-0134*) fail "the redacted-line refusal must not echo the private line: $ERR" ;; esac
 # Without a summary the ask is public anyway, so only the lead is checked.
 run_render pr --ask-file "$in/ask-private.txt" --audit-file "$in/audit-private.md"
 [ "$RC" -eq 0 ] || fail "without a public summary an audit quoting the ask still renders (got $RC: $ERR)"
