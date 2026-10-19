@@ -289,7 +289,13 @@ compute_stranded() {
     exit 2
   }
   printf '%s\n%s\n' "$_main_list" "$_chore_list" | grep -v '^$' | LC_ALL=C sort -u >"$_bf" || true
-  stranded=$(printf '%s\n' "$src_list" | grep -v '^$' | grep -Fxv -f "$_bf" 2>/dev/null || true)
+  # An empty pattern file must filter nothing, but busybox grep reads it as
+  # matching every line, so the filter runs only when there is a baseline.
+  if [ -s "$_bf" ]; then
+    stranded=$(printf '%s\n' "$src_list" | grep -v '^$' | grep -Fxv -f "$_bf" 2>/dev/null || true)
+  else
+    stranded=$src_list
+  fi
   rm -f -- "$_bf" 2>/dev/null || true
   stranded=$(printf '%s\n' "$stranded" | grep -v '^$' || true)
   stranded_count=$(printf '%s\n' "$stranded" | grep -c . || true)
