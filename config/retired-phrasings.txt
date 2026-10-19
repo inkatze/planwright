@@ -7,7 +7,8 @@
 # A short phrase that no frozen record carries verbatim belongs in the
 # purged-identifier seed instead (config/purged-identifiers.seed), which also
 # covers specs/ and history; it must not be listed here, because this file is
-# part of the tree that seed scans.
+# part of the tree that seed scans. That seed matches within one line, so a
+# seeded phrase wrapped across two lines escapes both screens.
 
 (^|[^-])review gate
 universal gate

@@ -23,19 +23,26 @@ fail() {
 }
 
 # --- skill invariant sections cite the doctrine source (REQ-H1.1, REQ-A1.3) ---
-nsec=0
+# The skills that carry an invariant section are pinned, so renaming a heading
+# cannot drop a skill from the check; a new section must be added here.
+expected="execute-task inception orchestrate polish resume spec-walkthrough tower"
+found=""
 for f in "$REPO_ROOT"/skills/*/SKILL.md; do
   sec=$(awk '/^## .*[Ii]nvariants/ { on = 1; print; next } on && /^## / { exit } on' "$f")
   [ -n "$sec" ] || continue
-  nsec=$((nsec + 1))
   skill=$(basename "$(dirname "$f")")
+  found="$found $skill"
   if printf '%s\n' "$sec" | grep -q 'doctrine/human-gates\.md'; then
     ok "the $skill invariant section cites doctrine/human-gates.md"
   else
     fail "the $skill invariant section does not cite doctrine/human-gates.md"
   fi
 done
-[ "$nsec" -gt 0 ] || fail "no skill invariant section found, so the citation check ran on nothing"
+if [ "$(printf '%s\n' $found | sort | tr '\n' ' ')" = "$(printf '%s\n' $expected | sort | tr '\n' ' ')" ]; then
+  ok "the invariant sections found are exactly the pinned set"
+else
+  fail "invariant sections found in:$found; expected: $expected"
+fi
 
 # --- the purge seed refuses a retired short phrase tree-wide (REQ-H1.2) -----
 TMP=$(mktemp -d)
@@ -69,8 +76,10 @@ if [ "$(git -C "$REPO_ROOT" rev-parse --is-shallow-repository 2>/dev/null)" = fa
   else
     fail "no commit in the history carries the ready_flip_policy BREAKING CHANGE footer"
   fi
-else
+elif git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
   echo "skip: a shallow clone cannot show the BREAKING CHANGE footer"
+else
+  echo "skip: not a git checkout, so the history cannot show the BREAKING CHANGE footer"
 fi
 
 # --- pointers into Done bundles (REQ-H1.4) -----------------------------------
@@ -133,7 +142,7 @@ autopilot-reflex dec D-5 D-6,D-15 2668884748
 bootstrap req REQ-C1.3 REQ-B1.1,REQ-C1.1 41155439
 bootstrap dec D-5 D-3,D-4 1919611608
 bootstrap dec D-44 D-4,D-6 1369961528
-bootstrap dec D-45 D-4,D-6 3141464267
+bootstrap dec D-45 D-5,D-6 3141464267
 orchestration-fleet req REQ-A1.2 REQ-D1.6,REQ-D1.5 1966049157
 orchestration-fleet req REQ-B1.5 REQ-D1.6,REQ-F1.2 2792854552
 orchestration-fleet dec D-1 D-6 3666193499
@@ -142,7 +151,7 @@ output-hygiene req REQ-C1.1 REQ-B1.2 3962808769
 output-hygiene req REQ-C1.2 REQ-B1.2 3416305186
 output-hygiene req REQ-C1.3 REQ-B1.4 3302499141
 output-hygiene req REQ-C1.4 REQ-B1.2,REQ-B1.3 3816469930
-output-hygiene dec D-3 D-3,D-8 294329669
+output-hygiene dec D-3 D-3,D-6 294329669
 EOF
 
 for b in kickoff-lifecycle autopilot-reflex bootstrap orchestration-fleet output-hygiene; do
@@ -167,6 +176,27 @@ done
 
 # --- live bundles wait as gated Deferred bullets (REQ-H1.4, D-17) ------------
 deferred=$(awk '/^## Deferred/ { on = 1; next } on && /^## / { exit } on' "$REPO_ROOT/specs/human-gates/tasks.md")
+# bundle record replacing-ids, one row per pointer a Deferred bullet carries.
+pins='tower-front-door REQ-G1.1 REQ-D1.6
+tower-front-door REQ-G1.3 REQ-F1.1,REQ-F1.2
+tower-front-door REQ-G1.4 REQ-B1.1,REQ-C1.1
+tower-front-door REQ-H1.3 REQ-C1.1
+tower-front-door D-5 D-6
+fleet-lifecycle-closure REQ-J1.1 REQ-D1.6
+fleet-lifecycle-closure REQ-J1.2 REQ-F1.1,REQ-F1.2
+operator-dialogue REQ-F1.4 REQ-D1.6
+tower-comms REQ-H1.1 REQ-F1.2
+tower-placement REQ-G1.1 REQ-C1.5
+tower-placement REQ-G1.3 REQ-F1.1,REQ-F1.2
+merge-currency-guard REQ-B1.4 REQ-C1.1,REQ-C1.5
+merge-currency-guard D-9 D-4
+test-throughput D-5 D-4,D-6
+test-throughput D-15 D-4
+custom-steps D-2 D-4
+fleet-messaging REQ-G1.3 REQ-D1.6
+guard-coverage REQ-A1.2 REQ-F1.1
+concurrent-orchestrator-coordination REQ-B1.2 REQ-F1.1,REQ-F1.2
+concurrent-orchestrator-coordination REQ-D1.3 REQ-C1.1,REQ-D1.6'
 for b in tower-front-door fleet-lifecycle-closure operator-dialogue tower-comms tower-placement \
   merge-currency-guard test-throughput custom-steps fleet-messaging \
   guard-coverage concurrent-orchestrator-coordination; do
@@ -176,12 +206,27 @@ for b in tower-front-door fleet-lifecycle-closure operator-dialogue tower-comms 
     guard-coverage | concurrent-orchestrator-coordination) gate="the reopen cycle of $b" ;;
     *) gate="GATE(when: spec $b done)." ;;
   esac
-  if printf '%s\n' "$deferred" | grep -q "^- \*\*Supersede pointers into $b\.\*\*" \
-    && printf '%s\n' "$deferred" | grep -qF "  **Gate:** $gate"; then
+  bullet=$(printf '%s\n' "$deferred" | awk -v h="- **Supersede pointers into $b.**" '
+    index($0, h) == 1 { on = 1; print; next }
+    on && /^- / { exit }
+    on { print }' | tr '\n' ' ' | tr -s ' ')
+  if [ -n "$bullet" ] && printf '%s\n' "$bullet" | grep -qF "**Gate:** $gate"; then
     ok "the pointers into $b wait as a gated Deferred bullet"
   else
     fail "no gated Deferred bullet carries the pointers into $b"
   fi
+  for pair in $(printf '%s\n' "$pins" | awk -v b="$b" '$1 == b { print $2 "=" $3 }'); do
+    rec=${pair%%=*} with=$(printf '%s' "${pair#*=}" | sed 's/,/, /g')
+    case "$rec" in
+      REQ-*) want="**Superseded-by: $with (human-gates)** (<date>)\` on $rec" ;;
+      *) want="**Superseded-by: human-gates $with** (<date>)\` on $rec" ;;
+    esac
+    if printf '%s\n' "$bullet" | grep -qF -- "$want"; then
+      ok "the $b bullet names the pointer on $rec"
+    else
+      fail "the $b bullet does not name $want"
+    fi
+  done
   if grep -q '2026-10-18) — human-gates\|(human-gates)\*\* (2026-10-18)\|human-gates D-[0-9]*\*\* (2026-10-18)' \
     "$REPO_ROOT/specs/$b/requirements.md" "$REPO_ROOT/specs/$b/design.md"; then
     fail "a sweep pointer landed in live bundle $b"

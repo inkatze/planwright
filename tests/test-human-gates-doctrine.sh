@@ -271,12 +271,13 @@ fi
 # human-gates.md aside) that states the merge floor or the merge policy also
 # carries the citation, in the form that root uses. Prints one ok/FAIL line per
 # floor-stating doc, then the count of such docs on the last line.
+floor_stmt='merge floor|merge policy|no agent merges'
 floor_citations() {
   local root=$1 cite=$2 f n=0
   for f in "$root"/*.md; do
     [ -f "$f" ] || continue
     case "$f" in */README.md | */human-gates.md) continue ;; esac
-    if tr '\n' ' ' <"$f" | grep -q -i -E 'merge floor|merge policy|no agent merges'; then
+    if tr '\n' ' ' <"$f" | grep -q -i -E "$floor_stmt"; then
       n=$((n + 1))
       if grep -q -E "$cite" "$f"; then
         echo "ok: $(basename "$f") cites human-gates where it states the merge floor"
@@ -294,14 +295,18 @@ run_floor_citations() {
     case "$line" in ok:*) echo "$line" ;; *) echo "$line" >&2 ;; esac
   done
   floor_fails=$((floor_fails + $(printf '%s\n' "$out" | sed '$d' | grep -c '^FAIL:')))
-  floor_docs=$((floor_docs + $(printf '%s\n' "$out" | tail -n 1)))
+  floor_docs=$(printf '%s\n' "$out" | tail -n 1)
 }
 
-floor_fails=0 floor_docs=0
-run_floor_citations "$REPO_ROOT/doctrine" '\(human-gates\.md'
-run_floor_citations "$REPO_ROOT/docs" 'doctrine/human-gates\.md'
+# Each root must state the floor somewhere, so a dropped run or an emptied
+# root fails rather than passing on the other root's count. The check is per
+# file: a doc stating the floor cites the doctrine somewhere in it.
+floor_fails=0
+for spec in "doctrine|\\(human-gates\\.md" "docs|doctrine/human-gates\\.md"; do
+  run_floor_citations "$REPO_ROOT/${spec%%|*}" "${spec#*|}"
+  [ "$floor_docs" -gt 0 ] || fail "no ${spec%%|*}/ doc states the merge floor, so its citation check ran on nothing"
+done
 failures=$((failures + floor_fails))
-[ "$floor_docs" -gt 0 ] || fail "no doctrine doc or doc states the merge floor, so the citation check ran on nothing"
 
 # The check refuses a docs/ fixture stating the floor without the citation,
 # and accepts it once cited.

@@ -16,11 +16,11 @@
 # MATCHED: each POSIX ERE in config/retired-phrasings.txt against every
 # paragraph (a run of non-blank lines) lowercased with its whitespace
 # collapsed, so a phrasing wrapped across lines is caught; a hit is reported
-# by the paragraph's first line.
+# by the line it ends on. Patterns are lowercase; an uppercase one is refused.
 #
-# EXEMPT: doctrine/human-gates.md, which names what it supersedes, and the one
-# paragraph of doctrine/gate-wiring.md that maps the legacy subject marker to
-# its trailer id, for the marker pattern only.
+# EXEMPT: doctrine/human-gates.md, which names what it supersedes, and the
+# first paragraph of doctrine/gate-wiring.md that maps the legacy subject
+# marker to its trailer id, for the marker pattern only.
 #
 # Short phrases no frozen record carries are screened tree-wide by the
 # purged-identifier seed instead; config/retired-phrasings.txt says why they
@@ -29,7 +29,8 @@
 # Usage: check-retired-phrasings.sh [--root <dir>]
 #   --root  the tree to screen (default: this script's repository)
 # Exit: 0 clean · 1 a retired phrasing · 2 usage, or an input that would make
-#   the scan vacuous (a missing or empty pattern file, zero files scanned).
+#   the scan vacuous (a missing, unreadable, or empty pattern file, a symlinked
+#   surface directory, a failed listing, an unreadable file, zero files).
 #
 # Scanned files are PR-controllable data: read by awk, never executed, and
 # every reported path stripped of control bytes.
@@ -76,55 +77,74 @@ fi
 list=$(mktemp) || exit 2
 trap 'rm -f "$list"' EXIT
 for d in doctrine skills docs; do
-  [ -d "$root/$d" ] && find "$root/$d" -type f -print
-done >"$list"
+  if [ -h "$root/$d" ]; then
+    printf '%s: %s/ is a symlink, which the scan does not follow; failing closed.\n' "$me" "$d" >&2
+    exit 2
+  fi
+  [ -d "$root/$d" ] || continue
+  find "$root/$d" -type f -print >>"$list" || {
+    printf '%s: listing %s/ failed; failing closed.\n' "$me" "$d" >&2
+    exit 2
+  }
+done
 [ -f "$root/README.md" ] && [ ! -h "$root/README.md" ] && printf '%s\n' "$root/README.md" >>"$list"
 
 ROOT=$root PATTERNS=$patterns LIST=$list ME=$me awk '
 function clean(s) { gsub(/[[:cntrl:]]/, "?", s); return s }
-function check(rel, start, para,   i, n, m) {
+function closed(msg) {
+  printf "%s: %s; failing closed.\n", ENVIRON["ME"], msg > "/dev/stderr"
+  failed = 1
+  exit 2
+}
+# The line a match ends on: the first paragraph line whose cumulative text
+# already matches.
+function hitline(p,   k) {
+  for (k = 1; k <= nl; k++) if (cum[k] ~ p) return ln[k]
+  return ln[1]
+}
+function check(rel,   i, n, m) {
   if (para == "") return
   for (i = 1; i <= npat; i++) {
     if (para !~ pat[i]) continue
     if (rel == "doctrine/gate-wiring.md" && pat[i] == "pending-sign-off\\]" &&
-        index(para, "planwright-sign-off: ps-legacy-<sha7>") > 0) {
+        index(para, "planwright-sign-off: ps-legacy-<sha7>") > 0 && !mapped) {
       m = para
       n = gsub(/pending-sign-off\]/, "", m)
-      if (n == 1) continue
+      if (n == 1) { mapped = 1; continue }
     }
-    printf "%s:%d: retired phrasing /%s/ (doctrine/human-gates.md)\n", clean(rel), start, pat[i]
+    printf "%s:%d: retired phrasing /%s/ (doctrine/human-gates.md)\n", clean(rel), hitline(pat[i]), pat[i]
     hits++
   }
 }
 BEGIN {
   root = ENVIRON["ROOT"]
-  while ((getline line < ENVIRON["PATTERNS"]) > 0) {
+  while ((rc = (getline line < ENVIRON["PATTERNS"])) > 0) {
+    sub(/\r$/, "", line)
     if (line ~ /^#/ || line ~ /^[ \t]*$/) continue
+    sub(/[ \t]+$/, "", line)
+    if (line != tolower(line)) closed("config/retired-phrasings.txt holds an uppercase pattern, which never matches the lowercased text")
     pat[++npat] = line
   }
-  if (npat == 0) {
-    printf "%s: config/retired-phrasings.txt holds no pattern; failing closed.\n", ENVIRON["ME"] > "/dev/stderr"
-    exit 2
-  }
+  if (rc < 0) closed("config/retired-phrasings.txt could not be read")
+  if (npat == 0) closed("config/retired-phrasings.txt holds no pattern")
   while ((getline path < ENVIRON["LIST"]) > 0) {
     rel = substr(path, length(root) + 2)
-    if (rel == "doctrine/human-gates.md") { files++; continue }
+    if (rel == "doctrine/human-gates.md") continue
     files++
-    para = ""; start = 0; lineno = 0
-    while ((getline line < path) > 0) {
+    para = ""; nl = 0; lineno = 0
+    while ((rc = (getline line < path)) > 0) {
       lineno++
-      if (line ~ /^[ \t\r]*$/) { check(rel, start, para); para = ""; continue }
-      if (para == "") start = lineno
+      if (line ~ /^[ \t\r]*$/) { check(rel); para = ""; nl = 0; continue }
       gsub(/[ \t\r]+/, " ", line)
-      para = para " " tolower(line)
+      sub(/^ /, "", line); sub(/ $/, "", line)
+      para = (para == "" ? "" : para " ") tolower(line)
+      nl++; ln[nl] = lineno; cum[nl] = para
     }
-    check(rel, start, para)
+    if (rc < 0) closed(clean(rel) " could not be read")
+    check(rel)
     close(path)
   }
-  if (files == 0) {
-    printf "%s: zero files scanned under doctrine/, skills/, docs/, or README.md; failing closed.\n", ENVIRON["ME"] > "/dev/stderr"
-    exit 2
-  }
+  if (files == 0) closed("zero files screened under doctrine/, skills/, docs/, or README.md")
   if (hits > 0) {
     printf "%s: %d retired phrasing(s); restate the rule by citing doctrine/human-gates.md.\n", ENVIRON["ME"], hits > "/dev/stderr"
     exit 1
