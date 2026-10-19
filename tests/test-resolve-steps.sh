@@ -146,9 +146,9 @@ run() {
       PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
       PLANWRIGHT_REPO_ROOT="$repo" \
       PLANWRIGHT_LOCAL_CONFIG="" \
-      CLAUDE_DIR="$claude" HOME="$tmp/home" PATH="$bin:$PATH" \
+      CLAUDE_DIR="$claude" HOME="$tmp/home" \
       ${overrides[@]+"${overrides[@]}"}
-    exec /bin/bash "$RS" "$@"
+    PATH="$bin:$PATH" exec /bin/bash "$RS" "$@"
   )
 }
 # out / err / code: run once and capture all three (stdout, stderr, exit).

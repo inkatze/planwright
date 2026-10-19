@@ -824,8 +824,8 @@ for sig in INT HUP; do
     pw_lock_acquire "$2/s.lock" || exit 9
     printf "held\n" >"$2/s.ready"
     i=0
-    while [ "$i" -lt 200 ]; do
-      sleep 0.1
+    while [ "$i" -lt 600 ]; do
+      sleep 0.5
       i=$((i + 1))
     done
   ' sh "$LIB" "$tmp" &
@@ -837,25 +837,30 @@ for sig in INT HUP; do
     i=$((i + 1))
   done
   kill -"$sig" "$sig_pid" 2>/dev/null
-  # Skip only on a holder the signal left running: one that died without
-  # releasing is the library's failure, and must fail below.
-  i=0
-  while [ "$i" -lt 50 ]; do
+  # Skip only on a holder the signal left running with its lock held: one that
+  # died without releasing, or released without exiting, is the library's
+  # failure, and must fail below. The holder outlives this wait by far, so
+  # only the signal can have ended it.
+  deadline=$((SECONDS + 10))
+  while :; do
     st=$(ps -o stat= -p "$sig_pid" 2>/dev/null)
     case $st in '' | *Z*) break ;; esac
+    [ "$SECONDS" -lt "$deadline" ] || break
     sleep 0.1
-    i=$((i + 1))
   done
   case $st in
     '' | *Z*) ;;
     *)
-      # A suite started as a background job of a non-interactive shell (or
-      # under nohup) inherits the signal ignored, and nothing beneath it can
-      # restore it.
-      echo "skip: a $sig'd holder releases its lock (the signal is ignored in this test's environment)"
+      if [ -L "$tmp/s.lock" ]; then
+        # A suite started as a background job of a non-interactive shell (or
+        # under nohup) inherits the signal ignored, and nothing beneath it can
+        # restore it.
+        echo "skip: a $sig'd holder releases its lock (the signal is ignored in this test's environment)"
+        kill "$sig_pid" 2>/dev/null
+        wait "$sig_pid" 2>/dev/null
+        continue
+      fi
       kill "$sig_pid" 2>/dev/null
-      wait "$sig_pid" 2>/dev/null
-      continue
       ;;
   esac
   got=0
