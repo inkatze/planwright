@@ -98,6 +98,13 @@ semantics) is not admitted in a comment beyond its one-line pointer, because
 its normative home is wherever every file that obeys it can cite. Restatement
 and history are the prohibitions; history is provenance under another name.
 
+A constraint and a protocol are told apart by who must obey the fact. One
+that only this code depends on (a single caller's guarantee, a platform
+quirk) is a why and stays beside the code. One that several files must obey
+alike (a precedence order, a locking rule) is a protocol, even where a single
+line depends on it: its statement moves to its owner, and the line keeps the
+one-line pointer.
+
 Where the protocol's normative home already is a spec bundle, the pointer
 names the bundle; a bundle is not the default destination, since each edit
 to a signed-off bundle's contract is an amendment.
