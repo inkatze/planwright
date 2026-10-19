@@ -238,7 +238,10 @@ fi
 cat >"$stub/fleet-attention.sh" <<'STUB'
 #!/bin/sh
 case ${QH_STUB_MODE:-ok} in
-  slow) sleep 30 ;;
+  slow)
+    : >"$QH_PUSHES.started"
+    sleep 30
+    ;;
   slowfail)
     n=0
     while [ ! -e "$QH_GO" ] && [ "$n" -lt 60 ]; do
@@ -253,10 +256,14 @@ STUB
 chmod 755 "$stub/fleet-attention.sh"
 new_home killed-push
 : >"$tmp/late-pushes"
+rm -f "$tmp/late-pushes.started"
 QH_STUB_MODE=slow srun hold --vendor sample-cli --unit spec-a:task-1 --step panel --reason quota --now "$NOW" >/dev/null 2>&1 &
 victim=$!
-poll_until --what 'the push reservation' -- test -s "$home/fleet/quota/sample-cli/pushed" \
-  || fail "killed-push: the push was never reserved"
+# Wait for the push itself, not just its reservation: the reservation is on
+# disk a moment before the holder records it as its own.
+poll_until --what 'the push in flight' -- test -e "$tmp/late-pushes.started" \
+  || fail "killed-push: the push never started"
+[ -s "$home/fleet/quota/sample-cli/pushed" ] || fail "killed-push: the push was never reserved"
 # TERM the whole tree, as a timeout wrapper's process-group signal would.
 term_tree() {
   for tt_c in $(pgrep -P "$1" 2>/dev/null); do
