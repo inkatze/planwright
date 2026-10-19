@@ -352,6 +352,13 @@ append "$v/b/design.md" "Then 663 more."
 run "$v"
 check_eq "a deeper heading ends a measurement paragraph" 1 "$rc"
 
+v=$tmp/hashline
+build "$v"
+append "$v/b/design.md" "**Measurement:** 41.5 s median, as recorded in"
+append "$v/b/design.md" "#408 and 663 commits."
+run "$v"
+check_eq "a line opening with #408 is not a heading" 0 "$rc"
+
 v=$tmp/nofigure
 build "$v"
 printf '# Nothing numeric\n' >"$v/snap/baseline-2026-10-18.md"

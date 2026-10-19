@@ -228,6 +228,15 @@ out=$("$SB" --as-of 2026-10-31 --spec "$fx/bundles/demo" --legacy "$fx/legacy.ts
   --wallclock "$rec/wc.tsv" --hand-backs "$rec/hand-backs.tsv" 2>&1)
 check_has "the snapshot names the capture it read" "$out" "wall-clock from \`$rec/wc.tsv\`"
 
+ctl=$(printf '\033')
+cp "$rec/wc.tsv" "$tmp/wc${ctl}x.tsv"
+out=$("$SB" --as-of 2026-10-31 --spec "$fx/bundles/demo" --legacy "$fx/legacy.tsv" \
+  --wallclock "$tmp/wc${ctl}x.tsv" --hand-backs "$rec/hand-backs.tsv" 2>&1)
+case $out in
+  *"$ctl"*) bad "a control byte in a path reached the snapshot" ;;
+  *) ok "a control byte in a path never reaches the snapshot" ;;
+esac
+
 printf '1\t2026-10-01T00:00:00Z\t%s\t5\n1\t2026-10-02T00:00:00Z\t%s\t6\n' "$sha" "$sha" >"$tmp/wc-dup.tsv"
 run "$tmp/wc-dup.tsv"
 check_eq "a repeated wall-clock run fails closed" 5 "$rc"

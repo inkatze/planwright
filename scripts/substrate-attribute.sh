@@ -47,8 +47,9 @@
 # Lists are comma-separated and must not be empty. Inside a git work tree,
 # an uncommitted, untracked or ignored change to the bundle, the accumulator,
 # or either input file fails closed, however the path is spelt: the snapshot
-# records the committed tree, not a working copy. The substrate:attribute task
-# holds the partition's own inputs to the same rule.
+# records the committed tree, not a working copy; an input file that is a
+# symlink fails closed. The substrate:attribute task refuses uncommitted or
+# untracked changes to the partition's own inputs.
 #
 # Output (default): the dated pain-matrix snapshot as Markdown. --rows prints
 # one TSV row per item instead: id, date, tiers, classes, basis (`script` or
@@ -172,12 +173,14 @@ if [ "$mode" != class-map ]; then
   [ -r "$manual" ] || fail_closed "the manual attribution file is unreadable"
 fi
 
-# canon <path>: the physical absolute path, so a relative or symlinked input
-# is still recognised as inside the repo.
+# canon <path>: the physical absolute path, so a relative input or one under
+# a symlinked directory is still recognised as inside the repo. A file input
+# that is itself a symlink does not resolve: its target could sit anywhere.
 canon() {
   if [ -d "$1" ]; then
     (cd -P -- "$1" 2>/dev/null && pwd -P)
   else
+    [ ! -h "$1" ] || return 1
     cn_dir=$(cd -P -- "$(dirname -- "$1")" 2>/dev/null && pwd -P) || return 1
     printf '%s/%s\n' "$cn_dir" "$(basename -- "$1")"
   fi
@@ -189,7 +192,7 @@ if git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   set -- "$spec" "$obs_dir" "$legacy"
   [ "$mode" = class-map ] || set -- "$@" "$manual"
   for p in "$@"; do
-    p=$(canon "$p") || fail_closed "an input path does not resolve"
+    p=$(canon "$p") || fail_closed "an input path is a symlink or does not resolve"
     case $p in
       "$repo_root"/*)
         dirty=$(git --literal-pathspecs -C "$repo_root" status --porcelain --untracked-files=all --ignored=matching -- "$p") \

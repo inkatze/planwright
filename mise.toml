@@ -71,7 +71,7 @@ trap 'rm -f "$p"' EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
-/bin/sh scripts/substrate-partition.sh >"$p" || exit $?
+/bin/sh scripts/substrate-partition.sh >"$p" || { rc=$?; [ "$rc" -gt 128 ] && exit "$rc"; exit 5; }
 /bin/sh scripts/substrate-attribute.sh --partition "$p"
 '''
 

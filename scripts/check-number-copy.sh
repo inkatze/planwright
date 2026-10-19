@@ -160,7 +160,7 @@ cat >"$work/prose.awk" <<'EOF'
 FNR == 1 { name = FILENAME; sub(/^.*\//, "", name); skip = 0; verdict = 0; indec = 0 }
 /^## / { skip = ($0 == "## Sources" || $0 == "## Changelog"); verdict = 0; indec = 0 }
 /^### / { indec = ($0 ~ /^### D-/); verdict = 0 }
-/^[ \t]*$/ || /^#/ { verdict = 0 }
+/^[ \t]*$/ || /^#+([ \t]|$)/ { verdict = 0 }
 verdict && /^[ \t]*- / { match($0, /^[ \t]*/); if (RLENGTH <= vindent) verdict = 0 }
 indec && /^[ \t]*(- )?\*\*(Measurements?|Cost-benefit):\*\*/ { verdict = 1; match($0, /^[ \t]*/); vindent = RLENGTH }
 skip || verdict { next }

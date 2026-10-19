@@ -40,9 +40,10 @@
 #   wall-clock capture   run  created  sha  seconds
 #   hand-back record     id  runs  reason
 # Inside a git work tree, an uncommitted, untracked or ignored change to the
-# accumulator or either input file fails closed however its path is spelt,
-# and so does a shallow clone, whose history is cut. Every fragment name must
-# open with a real date, and a fragment must be a regular file.
+# accumulator or either input file fails closed however its path is spelt (an
+# input file that is a symlink fails closed too), and so does a shallow clone,
+# whose history is cut. Every fragment name must open with a real date, and a
+# fragment must be a regular file.
 #
 # Usage: substrate-baseline.sh --as-of <YYYY-MM-DD> [--repo-root <dir>]
 #          [--spec <bundle-dir>] [--legacy <tsv>] [--wallclock <tsv>]
@@ -205,12 +206,14 @@ obs_dir=$(/bin/sh "$script_dir/substrate-attribute.sh" "$@" --obs-dir) || fail_c
 /bin/sh "$script_dir/substrate-attribute.sh" "$@" --class-map >"$work/classes.tsv" || fail_closed "the attribution class map failed"
 /bin/sh "$script_dir/substrate-attribute.sh" --classes >"$work/class-list" || fail_closed "the class list failed"
 
-# canon <path>: the physical absolute path, so a relative or symlinked input
-# is still recognised as inside the repo.
+# canon <path>: the physical absolute path, so a relative input or one under
+# a symlinked directory is still recognised as inside the repo. A file input
+# that is itself a symlink does not resolve: its target could sit anywhere.
 canon() {
   if [ -d "$1" ]; then
     (cd -P -- "$1" 2>/dev/null && pwd -P)
   else
+    [ ! -h "$1" ] || return 1
     cn_dir=$(cd -P -- "$(dirname -- "$1")" 2>/dev/null && pwd -P) || return 1
     printf '%s/%s\n' "$cn_dir" "$(basename -- "$1")"
   fi
@@ -225,10 +228,10 @@ rel() {
   esac
 }
 
-wallclock=$(canon "$wallclock") || fail_closed "the wall-clock capture path does not resolve"
-handbacks=$(canon "$handbacks") || fail_closed "the hand-back record path does not resolve"
+wallclock=$(canon "$wallclock") || fail_closed "the wall-clock capture path is a symlink or does not resolve"
+handbacks=$(canon "$handbacks") || fail_closed "the hand-back record path is a symlink or does not resolve"
 for p in "$obs_dir" "$wallclock" "$handbacks"; do
-  p=$(canon "$p") || fail_closed "an input path does not resolve"
+  p=$(canon "$p") || fail_closed "an input path is a symlink or does not resolve"
   case $p in
     "$repo_root"/*)
       dirty=$(git --literal-pathspecs -C "$repo_root" status --porcelain --untracked-files=all --ignored=matching -- "$p") \
@@ -348,8 +351,8 @@ awk -F'\t' -v asof="$as_of" '
     print "Every count stops at the as-of date (UTC). The script header defines each field: the"
     print "commits touching `scripts/` or `githooks/`, the observations recorded (fragments and"
     print "frozen-log lines) split by the pain matrix'\''s classes, the check aggregate'\''s CI"
-    print "wall-clock from `" ENVIRON["SB_WC_SHOWN"] "`, and the load-flake hand-backs from"
-    print "`" ENVIRON["SB_HB_SHOWN"] "`. Only the pain matrix'\''s mined set"
+    print "wall-clock from `" clean(ENVIRON["SB_WC_SHOWN"]) "`, and the load-flake hand-backs from"
+    print "`" clean(ENVIRON["SB_HB_SHOWN"]) "`. Only the pain matrix'\''s mined set"
     print "carries classes, so an observation recorded after it was mined counts as outside"
     print "the mined set: a zero class cell in a later month means unclassified, not no inflow."
     print "The drafting-session figures in the universal-binary bundle'\''s Sources were counted"
