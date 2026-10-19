@@ -204,6 +204,16 @@ Appended by `/execute-task`; no row above is changed.
 | --- | --- | --- |
 | R12 | Ephemeral-environment detection rests on a platform claim: Claude Code's env-var reference documents `CLAUDE_CODE_REMOTE` as set to `true` in a cloud session (source: code.claude.com/docs/en/env-vars, read 2026-10-11). Other ephemeral hosts (Cowork, third-party sandboxes) set nothing the helper reads. | The helper reads the documented variable and takes `PLANWRIGHT_INCEPTION_EPHEMERAL=1\|0` as the operator's override either way; Task 14's detection and build-time re-verification own the wider host set (R5). Early signal: a dogfood run on a cloud session that reports the local arm as durable. |
 
+### Execution research — Task 5 (2026-10-18)
+
+Appended by `/execute-task`; no row above is changed.
+
+| # | Finding | Tradeoff / handling |
+| --- | --- | --- |
+| R13 | As with R9, the per-discipline research distillations are operator-side material a worker cannot reach. The six cards were authored from primary sources re-verified on 2026-10-18 by web search and, where reachable, the source page itself. Research depth, declared per `proportionality`: each named source checked for title, author, venue, year, current edition and link, plus a spot-check of the specific claim each misuse caveat rests on; full texts of books and paywalled articles were not read. | Each card's `## Sources` says per entry when a source was confirmed only through publisher listings or secondary material (Ramanujam & Tacke, Mohammed, Goold & Campbell, Rogers & Blenko, Nygard among them). The operator can diff the cards against the distillations at review. |
+| R14 | Choices the spec leaves open, all low-stake and one header edit from undone: card ids `pricing-packaging`, `domain-knowledge-engineering`, `org-design`, `intellectual-property`, `ai-agent-architecture`, `software-engineering`; domain and knowledge engineering defaulted `structure-only` (D-4 places the other six; correctness there belongs to a named domain authority, as the `knowledge-engineering` decision domain says); rot `fast` for IP and AI architecture (the task's high-rot flag), `medium` for pricing and software engineering, `slow` for domain and org design; RAPID `R, I` for the two `agent-senior` cards and `I` elsewhere; only the IP card benched, with pull-in triggers, since its default tier makes it a briefing seat a frame calls on when it touches licences, names or generated assets. | The test pins only what the spec decides (the seven ids shipping, D-4's six tiers, fast rot on IP and AI architecture). The rest is reviewable in each card's header. |
+| R15 | Fast-rot facts current at authoring: *Thaler v. Perlmutter* certiorari was denied on 2026-03-02; the Copyright Office's Part 3 training report is still a pre-publication version; MCP's 2026-07-28 revision replaced the stateful session handshake; OWASP's LLM Top 10 and NIST AI 600-1 have no newer edition. | The IP and AI architecture cards cite these with their dates and carry `Rot-rate: fast`, so the format doc's staleness rule (re-verify before each venture that relies on the card) applies; the portfolio view (Task 8) is where staleness surfaces. |
+
 ### Execution findings: Task 9 (2026-10-18)
 
 | # | Finding | Disposition |

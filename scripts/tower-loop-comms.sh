@@ -451,9 +451,9 @@ owned_by_me() {
 # window between a check and a re-open: a swap before the open leaves the name
 # and the descriptor on different files, and a swap after it cannot change what
 # fd 7 reads. The caller screens the directory after this returns, for the same
-# reason, and closes fd 7 whatever the outcome.
+# reason. It runs inside screened_read's subshell, which owns fd 7.
 open_screened() {
-  { command exec 7<"$1"; } 2>/dev/null || {
+  { exec 7<"$1"; } 2>/dev/null || {
     content_why=unreadable
     return 1
   }
@@ -483,10 +483,41 @@ open_screened() {
 # residual neither this nor the ledger read can see. With a key the home is a
 # ledger holding many items, and only that key's `text` line is the content.
 read_path_content() {
-  _rpok=0
-  read_path_screened "$@" || _rpok=1
-  exec 7<&-
-  return "$_rpok"
+  screened_read path "$@"
+}
+
+# screened_read path|row <args...> — run one reader in a subshell and carry
+# its verdict back to this shell through a file. The subshell is what makes a
+# failed open survivable: an `exec` redirection that fails exits a POSIX
+# shell outright, and the one escape, `command exec 7<...`, corrupts bash
+# 3.2's function-return state (macOS /bin/sh), so the next `return` crashes or
+# spins forever. It also bounds fd 7 to the read. A subshell that ends without
+# its record is an open that killed it: unreadable.
+screened_read() {
+  _srrec="$TMPDIR_STEP/screen"
+  rm -f "$_srrec"
+  _srok=0
+  _srkind=$1
+  shift
+  (
+    _srrc=0
+    case $_srkind in
+      path) read_path_screened "$@" || _srrc=1 ;;
+      *) read_row_screened "$@" || _srrc=1 ;;
+    esac
+    printf '%s\n%s\n' "$content_why" "$content_truncated" >"$_srrec" || exit 1
+    exit "$_srrc"
+  ) || _srok=1
+  if [ -s "$_srrec" ]; then
+    { read -r content_why && read -r content_truncated; } <"$_srrec" || {
+      content_why=unreadable
+      return 1
+    }
+  else
+    content_why=unreadable
+    return 1
+  fi
+  return "$_srok"
 }
 
 read_path_screened() {
@@ -552,10 +583,7 @@ read_path_screened() {
 # (REQ-C1.1). Field order is scripts/fleet-attention.sh's upsert_row: 1 handle,
 # 6 question, 7 default, 8 options, 10 instance, 12 command.
 read_row_content() {
-  _rrok=0
-  read_row_screened "$@" || _rrok=1
-  exec 7<&-
-  return "$_rrok"
+  screened_read row "$@"
 }
 
 read_row_screened() {

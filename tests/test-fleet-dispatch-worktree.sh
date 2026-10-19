@@ -931,6 +931,8 @@ c23() {
 c24() {
   for variant in bare work; do
     tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c24.XXXXXX")
+    # The refusal names physical paths (pwd -P); compare in kind.
+    tmp=$(cd "$tmp" && pwd -P)
     iso_env "$tmp"
     seed_repo "$tmp"
     base=$(gitc "$tmp/primary" rev-parse main)
@@ -1186,7 +1188,7 @@ c29() {
   run_prim dispatch --flight demo-0123abcd --brief "$tmp/alias/brief.md" --repo-root "$tmp/primary" --attach-dry-run
   [ "$RC" -eq 0 ] || fail "c29: the flight's own brief must be accepted, got exit $RC"
   case $OUT in
-    *"claude${TAB}--${TAB}Read $_own/brief.md and follow it exactly.${TAB};${TAB}set-window-option${TAB}"*) ;;
+    *"claude${TAB}--name${TAB}tmux-flight-demo-0123abcd${TAB}--settings${TAB}$(cd "$here/.." && pwd -P)/config/worker-settings.json${TAB}--${TAB}Read $_own/brief.md and follow it exactly.${TAB};${TAB}set-window-option${TAB}"*) ;;
     *) fail "c29: the attach plan must hand the worker its own brief, got: $OUT" ;;
   esac
 
@@ -1209,7 +1211,7 @@ c29() {
   run_prim attach flight-demo-0123abcd --brief "$_own/brief.md" --dry-run
   [ "$RC" -eq 0 ] || fail "c29: a standalone flight attach must take its brief, got exit $RC"
   case $OUT in
-    *"claude${TAB}--${TAB}Read $_own/brief.md and follow it exactly.${TAB};${TAB}set-window-option${TAB}"*) ;;
+    *"claude${TAB}--name${TAB}tmux-flight-demo-0123abcd${TAB}--settings${TAB}$(cd "$here/.." && pwd -P)/config/worker-settings.json${TAB}--${TAB}Read $_own/brief.md and follow it exactly.${TAB};${TAB}set-window-option${TAB}"*) ;;
     *) fail "c29: a standalone flight attach must hand the worker its brief, got: $OUT" ;;
   esac
   run_prim attach flight-demo-0123abcd --brief "$tmp/brief.md" --dry-run

@@ -61,6 +61,25 @@ run = "scripts/tower-queue.sh report"
 description = "Print the script layer's tier partition (hook, skill-called, library, dev-check, tests-only), derived from the call graph on every run: per script its tier, the no-live-caller flag, its caller kinds, the shell-mutation flag, its coupling profile, and any invocation it cannot resolve. On demand only, never wired into check or CI; scripts/substrate-partition.sh's header documents each column"
 run = "/bin/sh scripts/substrate-partition.sh"
 
+[tasks."substrate:attribute"]
+description = "Print the substrate pain matrix: every observation the universal-binary bundle's Sources cite, plus the frozen-log lines docs/substrate/legacy-lines.tsv lists, attributed to tiers through the scripts it names (or docs/substrate/manual-attribution.tsv) and to defect classes; computes the partition from a clean tree and passes it in. Pass --as-of <date> and --out <file>. On demand only; scripts/substrate-attribute.sh's header documents the rules"
+run = '''
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_CEILING_DIRECTORIES GIT_DISCOVERY_ACROSS_FILESYSTEM GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+dirty=$(git status --porcelain --untracked-files=all -- scripts githooks skills hooks config .github tests mise.toml) || exit 5
+[ -z "$dirty" ] || { echo "substrate:attribute: the partition's inputs have uncommitted changes; commit them, then regenerate" >&2; exit 5; }
+p=$(mktemp "${TMPDIR:-/tmp}/substrate-partition.XXXXXX") || exit 5
+trap 'rm -f "$p"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+/bin/sh scripts/substrate-partition.sh >"$p" || { rc=$?; [ "$rc" -gt 128 ] && exit "$rc"; exit 5; }
+/bin/sh scripts/substrate-attribute.sh --partition "$p"
+'''
+
+[tasks."substrate:baseline"]
+description = "Print the script layer's maintenance-cost baseline as of --as-of <date>: fix-typed commits per month, observation inflow by class per month, the check aggregate's CI wall-clock from a committed capture (--capture-wallclock writes one through gh), and load-flake hand-backs. On demand only; scripts/substrate-baseline.sh's header documents each field"
+run = "/bin/sh scripts/substrate-baseline.sh"
+
 [tasks."lint:shell"]
 description = "shellcheck on scripts, tests, sourced test libraries under tests/lib/, and the extensionless githooks/ hooks (whole-directory glob: everything in githooks/ must be shell; the tools read the shebang)"
 run = "shellcheck scripts/*.sh tests/*.sh tests/lib/*.sh githooks/*"
@@ -70,11 +89,11 @@ description = "shfmt diff check on scripts, tests, sourced test libraries under 
 run = "shfmt -d scripts/*.sh tests/*.sh tests/lib/*.sh githooks/*"
 
 [tasks."lint:md"]
-description = "markdownlint on prose (the spec root, from scripts/resolve-root.sh, gets the scoped relaxation from a .markdownlint.jsonc it carries, specs/.markdownlint.jsonc by default; the _observations accumulator is data, excluded)"
+description = "markdownlint on prose, the dated substrate snapshots under docs/substrate/ included (the spec root, from scripts/resolve-root.sh, gets the scoped relaxation from a .markdownlint.jsonc it carries, specs/.markdownlint.jsonc by default; the _observations accumulator is data, excluded)"
 run = '''
 root=$(/bin/sh scripts/resolve-root.sh spec) || exit 1
 case $root in "$(pwd -P)"/*) root=${root#"$(pwd -P)"/} ;; esac
-markdownlint-cli2 README.md 'doctrine/*.md' 'docs/*.md' 'cards/*.md' 'skills/**/*.md' "$root/**/*.md" 'templates/**/*.md' "!$root/_observations/**"
+markdownlint-cli2 README.md 'doctrine/*.md' 'docs/*.md' 'docs/substrate/*.md' 'cards/*.md' 'skills/**/*.md' "$root/**/*.md" 'templates/**/*.md' "!$root/_observations/**"
 '''
 
 [tasks."lint:yaml"]
@@ -150,8 +169,8 @@ description = "anchor-freshness guard over every non-Draft, non-terminal bundle:
 run = "/bin/sh scripts/check-anchor-freshness.sh"
 
 [tasks."check:obs"]
-description = "observation fragment store guard: filename grammar, one-entry shape, UID uniqueness, no stray files (REQ-D1.4, REQ-A1.2, REQ-A1.3, REQ-A1.4)"
-run = "/bin/bash scripts/check-obs.sh"
+description = "observation fragment store guard: filename grammar, one-entry shape, UID uniqueness, no stray files (REQ-D1.4, REQ-A1.2, REQ-A1.3, REQ-A1.4); then the miss-ledger grammar over every review-miss fragment (review-effectiveness REQ-E1.5)"
+run = ["/bin/bash scripts/check-obs.sh", "/bin/sh scripts/check-review-miss.sh"]
 
 [tasks."check:instructions"]
 description = "instruction-hygiene size guard: per-file / start-load / closure word budgets, manifest resolution, injected-context measurement, and the Task-8 closeout direction (no lingering pending-diet allowance) (prompt-hygiene Task 2, REQ-D1.4)"
@@ -221,12 +240,25 @@ run = "/bin/bash scripts/check-script-modes.sh"
 description = "flag the spec home composed as a literal path instead of resolved through scripts/resolve-root.sh (custom-spec-location REQ-G1.1)"
 run = "/bin/sh scripts/check-spec-literals.sh"
 
+[tasks."check:steps"]
+description = "custom-steps guard: resolve every named point (wired and unwired) through scripts/resolve-steps.sh in check mode against this repository's core and repo-tracked configuration, the adopter overlay and machine-local config file held out (a gitignored catalogs.local/ catalog is still read), failing on a step that does not resolve, a malformation, or a non-empty list at an unwired point; and fail on the retired review_sequence key outside the transitional line scripts/check-steps.sh describes"
+run = "/bin/bash scripts/check-steps.sh"
+
 [tasks."check:task-registration"]
 description = "task-registration check: every check:/lint:/scan: task in this mise.toml must be reachable from the `check` aggregate through depends/depends_post (wildcards expanded; wait_for only orders a task already scheduled, so it is not an edge), so no guard task is discoverable only by reading CI logs. The complement of check:guard-wiring one level up: that one asks whether each check-*.sh script is run by something, this one whether each guard task is part of the gate. Parse boundary: mise.toml only, read as text; a name in a description, comment, or run body is not an edge. Fails closed on a missing or unreadable file, a zero-task parse, no `check` task, zero namespaced tasks, or a tasks header outside the parsed form (a bare [tasks] table, an array of tables) (guard-coverage Task 11, REQ-H1.2, REQ-H1.3, D-13)"
 run = "/bin/sh scripts/check-task-registration.sh"
+
+[tasks."check:number-copy"]
+description = "cite-don't-copy guard: fail when the universal-binary bundle's prose (outside its Sources and Changelog sections and a verdict decision's measurement and cost-benefit lines) carries a figure that a dated snapshot (docs/substrate/*.md or docs/substrate-*.md) also carries, so the bundle cites the snapshot instead of freezing its numbers; task, section, step and wave numerals and the id-valued metadata fields are references, not figures; exemptions live in scripts/check-number-copy-exempt.tsv with a reason each, and a stale one fails (universal-binary Task 3, REQ-A1.4, D-4)"
+run = "/bin/sh scripts/check-number-copy.sh"
+
 [tasks."check:lock-primitive"]
 description = "retired-mkdir guard over advisory locking: fail on any shell file under scripts/, tests/, or githooks/ that reads a `mkdir`'s exit status as a lock-acquisition signal, the primitive that was measured losing mutual exclusion in the ordinary acquire/read-modify-write/release cycle; scripts/lock-lib.sh is the one acquisition primitive now, and a site that consumes mkdir's status for something else (a mode-pinned bootstrap where EEXIST is success, a best-effort creation, a deliberate atomicity probe) says so with a `# not-a-lock: <reason>` annotation; enumerates by shebang or .sh suffix so the extensionless hooks and the sourced libraries are covered, and fails closed on anything that would narrow the scan (universal-binary Task 1, D-11, REQ-E1.5)"
 run = "/bin/bash scripts/check-lock-primitive.sh"
+
+[tasks."check:script-invocation"]
+description = "shebang-honoring invocation guard: fail on a line in a .md file under skills/ or doctrine/ that runs, through an `sh` command word (bare or a path ending /sh), a top-level scripts/*.sh whose shebang names bash, the operand read past options, `--`, a `<` redirect, quotes, and `<placeholder>` prefixes; `sh -c` strings, by-path calls, and calls through bash pass; fails closed on no shebanged script, no instruction file, an unreadable file, or a symbolic link or newline-bearing name in scope (test-throughput REQ-E1.2, D-12)"
+run = "/bin/sh scripts/check-script-invocation.sh"
 
 [tasks."check:bash32"]
 description = "bash 3.2 construct lint over every tracked shell file outside tests/fixtures/bash32/: flag the constructs macOS's bash 3.2 misparses inside a $( ) command substitution (a heredoc whose body it lexes unbalanced, a case pattern without its leading (, an unbalanced comment in a double-quoted one, a ) inside ${ }), a heredoc, quote, or $( ) that never closes, and any tracked .sh file declaring no dialect (neither a shebang nor a `# shellcheck shell=` directive); the real 3.2 parse of every file runs as a step of CI's check job (test-throughput REQ-E1.6, REQ-E1.7, D-11)"
@@ -301,9 +333,12 @@ depends = [
   "check:cdpath",
   "check:echo-discipline",
   "check:script-modes",
+  "check:script-invocation",
   "check:spec-literals",
+  "check:steps",
   "check:task-registration",
   "check:lock-primitive",
+  "check:number-copy",
   "check:bash32",
   "check:guard-wiring",
   "check:sidedness",

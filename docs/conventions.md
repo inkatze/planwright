@@ -40,7 +40,10 @@ planwright/flight/<flight-id>
 ```
 
 carries a visual flight: a specless unit the tower dispatches straight from
-the conversation. `flight` is a **reserved segment**: no spec may be named
+the conversation, where instrument flight is the spec pipeline. The names are
+the aviation analogy: visual rules when conditions are clear enough to fly by
+what you can see, instrument rules when you file a plan and trust the gauges.
+`flight` is a **reserved segment**: no spec may be named
 `flight` (the validator refuses the bundle, and every script that checks a
 spec identifier refuses the word), so a `planwright/` branch whose second
 segment is `flight` is always a flight, never a spec. The `tasks-pr-sync`

@@ -1,0 +1,1 @@
+- 2026-10-19 [planwright] Alpine (universal-binary Task 4): busybox grep treats an empty -f pattern file as matching every line (GNU and BSD match nothing), so observation-carry computed zero stranded fragments when main had none. Fixed by filtering only against a non-empty baseline; it was the only grep -f in the tree.

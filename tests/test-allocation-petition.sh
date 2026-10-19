@@ -55,6 +55,9 @@ fail() {
 [ -x "$AD" ] || fail "scripts/allocation-adapt.sh missing or not executable"
 
 tmp=$(mktemp -d)
+# The script resolves worktrees with pwd -P, and TMPDIR may sit behind a
+# symlink (/var is /private/var on macOS), so expectations use the canonical form.
+tmp=$(cd -P -- "$tmp" && pwd -P)
 trap 'rm -rf "$tmp"' EXIT
 
 fleet_home="$tmp/fleet"

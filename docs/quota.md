@@ -117,6 +117,38 @@ within the throttle's hold ceiling. No match exits 1 and prints nothing, so an u
 failure keeps its ordinary outcome. The script's header pins the output
 lines, the reset-time rules, and the exit codes.
 
+## When a worker dies on a limit
+
+A Claude worker killed by an API error still ends its run in good order: a
+result frame reporting `success`, a zero exit. What says it died is the
+result's `is_error` flag and the error text, so `scripts/worker-death.sh`
+reads those, from a stream-json worker's event stream or a headless worker's
+`result.json`. A stream-json run can also end with no result frame at all,
+the error only in the synthetic assistant message Claude Code writes for it;
+the supervisor then records the cause on its exit row, whatever the exit
+code. A rate-limit death is `limited` against `claude`: the unit is
+held at step `worker`, and the fleet's dispatch throttle is engaged until the
+reset time the error states, or, when it states none, until the time the
+throttle reads from the error text (its default hold when it finds none). Any
+other API error, a 529 overload say, is a failure naming its cause.
+
+The completion readers report both, never a clean completion, and a run whose
+result flags `is_error` for any other reason (a refused permission, say) reads
+`ended` too:
+
+- `scripts/fleet-streamjson.sh status <worker>` prints `limited` or `ended`,
+  the detail ending `/limited=claude` or `/cause=<cause>`;
+- `scripts/fleet-dispatch-headless.sh status <spec> <id>` prints
+  `limited <rc> claude` (exit 7) or `ended <rc> <cause>` (exit 6);
+- `scripts/fleet-stuck-detector.sh` reports the worker `unclassified` with
+  the same cause in its `completion-failed` reason.
+
+When the hold or the throttle cannot be recorded, the worker's verdict still
+stands and an attention item says what did not land.
+
+Releasing the hold (`scripts/quota-hold.sh resume --vendor claude`) does not
+clear the throttle; `scripts/fleet-throttle.sh clear` does.
+
 ## Holds and the usage ledger
 
 A held vendor is held for the whole host: each unit holding it is recorded in

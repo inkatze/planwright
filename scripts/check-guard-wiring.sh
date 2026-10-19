@@ -144,6 +144,8 @@ overlay_envs=$(
     find "$repo_root/mise" "$repo_root/.mise" "$repo_root/.config/mise" -mindepth 1 -maxdepth 1 ! -type d -name 'config.*.toml'
   } 2>/dev/null | awk '{ sub(/.*\//, ""); sub(/^\.?(mise|config)\./, ""); sub(/\.toml$/, ""); sub(/\.local$/, ""); print }' | sort -u
 )
+# mise names a task's source by its physical path, so that is the one the
+# graph is matched against when the root is reached through a symlink.
 root_p=$(cd "$repo_root" && pwd -P) || exit 5
 
 # A `--cd` directory counts only when it resolves inside the repo and neither
@@ -338,7 +340,7 @@ prog='
     end
     end
 '
-cd_dirs=$(printf '%s' "$graph" | jq -r --arg phase dirs --arg src "$misefile" --arg root "$repo_root" \
+cd_dirs=$(printf '%s' "$graph" | jq -r --arg phase dirs --arg src "$root_p/mise.toml" --arg root "$repo_root" \
   --arg overlays "$overlay_envs" --arg safe '' "$prog") || {
   printf '%s\n' "$me: could not read the task graph — failing closed" >&2
   exit 5
@@ -346,7 +348,7 @@ cd_dirs=$(printf '%s' "$graph" | jq -r --arg phase dirs --arg src "$misefile" --
 safe_dirs=$(printf '%s\n' "$cd_dirs" | while IFS= read -r d; do
   [ -n "$d" ] && cd_safe "$d" && printf '%s\n' "$d"
 done)
-report=$(printf '%s' "$graph" | jq -r --arg phase walk --arg src "$misefile" --arg root "$repo_root" \
+report=$(printf '%s' "$graph" | jq -r --arg phase walk --arg src "$root_p/mise.toml" --arg root "$repo_root" \
   --arg overlays "$overlay_envs" --arg safe "$safe_dirs" "$prog") || {
   printf '%s\n' "$me: could not read the task graph — failing closed" >&2
   exit 5

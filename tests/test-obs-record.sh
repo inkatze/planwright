@@ -58,8 +58,10 @@
 #      content refusal (exit 1); an unusable observations dir exits 1;
 #      -h/--help prints usage and exits 0; the default-date path (no --today)
 #      mints the system date into the fragment name; and the default --obs-dir
-#      (no flag) roots the store at ./specs/_observations with a matching
-#      relative stdout path.
+#      (no flag), run from the top of a repository on the default root, roots
+#      the store at ./specs/_observations with a matching relative stdout path,
+#      while outside any repository there is no default and the helper refuses
+#      (custom-spec-location D-17).
 #
 # Exit codes asserted throughout: 1 refusal/fs-error, 2 usage, 3 collision
 # exhaustion, 4 entropy failure — the header contract of scripts/obs-record.sh.
@@ -77,6 +79,8 @@ unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
 REC="$here/../scripts/obs-record.sh"
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 
 fail() {
   printf '%s\n' "FAIL: $1" >&2
@@ -436,6 +440,7 @@ printf '#!/bin/sh\nprintf deadbeef\n' >"$sigbin/od"
 chmod +x "$sigbin/od"
 cat >"$sigbin/ln" <<EOF
 #!/bin/sh
+: >"$sigbin/ln-entered"
 sleep 1
 exec "$REAL_LN" "\$@"
 EOF
@@ -443,7 +448,11 @@ chmod +x "$sigbin/ln"
 PATH="$sigbin:$PATH" "$REC" --obs-dir "$o" --slug sig --scope planwright \
   --text 'x' --today 2026-07-09 >/dev/null 2>&1 &
 _sigpid=$!
-sleep 0.3
+poll_until --what 'the publish to reach ln' -- test -e "$sigbin/ln-entered" || {
+  kill -TERM "$_sigpid" 2>/dev/null || true
+  wait "$_sigpid" 2>/dev/null || true
+  fail "8c: the publish never reached ln before TERM"
+}
 kill -TERM "$_sigpid" 2>/dev/null || true
 _sigrc=0
 wait "$_sigpid" || _sigrc=$?
@@ -671,23 +680,42 @@ case "$defbase" in
   *) fail "11: default-date fragment [$defbase] lacks the system date ($d1/$d2)" ;;
 esac
 
-# Default --obs-dir: omitting the flag roots the store at ./specs/_observations
-# (relative to cwd) and reports the fragment in that same relative frame — a
+# Default --obs-dir: omitting the flag roots the store at the spec root's
+# _observations, ./specs/_observations from the top of a repository with
+# spec_root unset, and reports the fragment in that same relative frame — a
 # documented CLI contract every other check bypasses by passing --obs-dir. Run
-# in a subshell from a scratch cwd so the default resolves there, with a stubbed
-# od for a deterministic UID; assert both the store location and the stdout shape.
+# in a subshell from the top of a scratch repository so the default resolves
+# there, with a stubbed od for a deterministic UID; assert both the store
+# location and the stdout shape.
 odef="$tmp/o11def"
 mkdir -p "$odef/specs/_observations/entries"
+git init -q "$odef" || fail "11: cannot create the default-store repository"
 make_od_stub "$tmp/od11def" abcd1234
+mkdir -p "$tmp/o11home" "$tmp/o11adopter"
 defout=$(
   cd "$odef" \
-    && PATH="$tmp/od11def:$PATH" "$REC" --slug topic --scope planwright \
+    && env -u PLANWRIGHT_REPO_ROOT -u PLANWRIGHT_LOCAL_CONFIG -u CLAUDE_PLUGIN_DATA \
+      -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT \
+      HOME="$tmp/o11home" PLANWRIGHT_ADOPTER_OVERLAY="$tmp/o11adopter" \
+      GIT_CONFIG_GLOBAL=/dev/null PATH="$tmp/od11def:$PATH" "$REC" --slug topic --scope planwright \
       --text 'default store' --today 2026-07-09
 ) || fail "11: default --obs-dir invocation failed"
 [ "$defout" = "specs/_observations/entries/2026-07-09-topic-abcd1234.md" ] \
   || fail "11: default --obs-dir stdout [$defout] is not the expected relative path"
 [ -f "$odef/specs/_observations/entries/2026-07-09-topic-abcd1234.md" ] \
   || fail "11: default --obs-dir did not write under ./specs/_observations/entries"
+# Outside any repository the spec root does not resolve: a refusal, with no
+# store composed in the working directory.
+onorepo="$tmp/o11norepo"
+mkdir -p "$onorepo"
+_rc=0
+(
+  cd "$onorepo" \
+    && env -u PLANWRIGHT_REPO_ROOT GIT_CEILING_DIRECTORIES="$tmp" "$REC" --slug topic --scope planwright \
+      --text 'no store' --today 2026-07-09 >/dev/null 2>&1
+) || _rc=$?
+[ "$_rc" -eq 1 ] || fail "11: no default store outside a repository expected exit 1, got $_rc"
+[ ! -e "$onorepo/specs" ] || fail "11: a store was composed outside any repository"
 
 # -h/--help prints the usage synopsis and exits 0 — the sole exit-0 non-record
 # path; a regression flipping it to a usage error (exit 2) would be invisible.

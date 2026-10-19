@@ -1,0 +1,8 @@
+# Exemptions for scripts/check-number-copy.sh: a figure a bundle file may carry
+# although a dated snapshot (the set check-number-copy.sh's header defines)
+# carries the same number. One row per figure per bundle file, with the reason
+# it is not a copied measurement. A row that matches no finding fails the
+# guard, so delete it with its cause.
+#
+# file	figure	reason
+design.md	3.2	the macOS system bash version D-13 names, a platform fact, not a measured figure

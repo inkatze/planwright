@@ -42,19 +42,6 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 other=$(fixture_scratch) || fail "no second scratch directory"
 
-# wait_until <timeout-tenths> <cmd...> — poll a condition.
-wait_until() {
-  wu_n=$1
-  shift
-  wu_i=0
-  while [ "$wu_i" -lt "$wu_n" ]; do
-    "$@" >/dev/null 2>&1 && return 0
-    sleep 0.1
-    wu_i=$((wu_i + 1))
-  done
-  return 1
-}
-
 # spawn <path> <script> — start `sh -c <script>` with <path> as its $0, outside
 # this shell's job table (no kill report in the log), and wait until it has
 # written its own pid to <path>.pid, which every script below does once its
@@ -62,7 +49,7 @@ wait_until() {
 # status: a `fail` here would only leave the subshell.
 spawn() {
   (sh -c "$2" "$1" >/dev/null 2>&1 &)
-  wait_until 100 test -s "$1.pid" || return 1
+  poll_until --what "$1 to write its pid" -- test -s "$1.pid" || return 1
   cat "$1.pid"
 }
 
@@ -94,14 +81,14 @@ link_rc=$?
 rm -rf "$planted"
 [ "$planted_rc" = 2 ] || fail "f1: a marker planted outside a fixture_scratch directory was trusted"
 [ "$link_rc" = 2 ] || fail "f1: a symlink named like a scratch directory was trusted"
-bystander=$(spawn "$other/bystander" 'echo $$ >"$0.pid"; sleep 30') || fail "f1: the bystander never started"
+bystander=$(spawn "$other/bystander" 'echo $$ >"$0.pid"; sleep 300') || fail "f1: the bystander never started"
 fixture_reap / 2>/dev/null && fail "f1: fixture_reap reported success on a refused needle"
 kill -0 "$bystander" 2>/dev/null || fail "f1: a refused reap still signalled a process"
 echo "ok: f1 a needle outside a scratch directory is refused and nothing is signalled"
 
 # f2
-holder=$(spawn "$tmp/holder" 'echo $$ >"$0.pid"; sleep 30; :') || fail "f2: the holder never started"
-wait_until 100 sh -c 'pgrep -P "$1" sleep' _ "$holder" || fail "f2: the holder never forked its child"
+holder=$(spawn "$tmp/holder" 'echo $$ >"$0.pid"; sleep 300; :') || fail "f2: the holder never started"
+poll_until --what 'the holder to fork its child' -- pgrep -P "$holder" sleep || fail "f2: the holder never forked its child"
 child=$(pgrep -P "$holder" sleep)
 matched "$tmp/" "$holder" || fail "f2: the process naming the directory was not matched: $(fixture_report "$tmp/")"
 matched "$tmp/" "$child" || fail "f2: its pathless child was not matched: $(fixture_report "$tmp/")"
@@ -121,7 +108,7 @@ kill -0 "$stubborn" 2>/dev/null && fail "f3: a TERM-ignoring process outlived th
 printf '%s\n' 'trap "" TERM; echo $$ >"$KID"; while :; do sleep 0.1; done' >"$other/kid.sh"
 parent=$(spawn "$tmp/parent" "echo \$\$ >\"\$0.pid\"; KID=\"\$0.kid\" sh '$other/kid.sh'; :") \
   || fail "f3: the parent never started"
-wait_until 100 test -s "$tmp/parent.kid" || fail "f3: the pathless child never started"
+poll_until --what 'the pathless child to start' -- test -s "$tmp/parent.kid" || fail "f3: the pathless child never started"
 kid=$(cat "$tmp/parent.kid")
 matched "$tmp/" "$kid" || fail "f3: the pathless child was not matched through its parent"
 fixture_reap "$tmp/" || fail "f3: the reap left survivors"

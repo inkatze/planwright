@@ -56,7 +56,8 @@
 #               segment composed with the bullets the fetched <branch> carries
 #               for the unit; a <branch> that cannot be fetched or read refuses
 #               (exit 5) rather than park without them. The merge helper's park
-#               after a failed merge.
+#               after a failed merge, and scripts/request-reviewer.sh's after a
+#               failed re-draft (`redraft-pr-<n>`).
 #
 # The unit-PR flip, as /execute-task runs it after its post-pr point when
 # ready_flip_policy resolves unit-owner: `reconcile`; then the pre-ready-flip
@@ -77,7 +78,9 @@
 #                     indented continuation line) is live
 #   review-converged  the newest unit run with a `convergence` completion
 #                     record (scripts/step-record.sh) has no halted or failed
-#                     step at `convergence` or `post-pr`, and its last
+#                     step at `convergence` or `post-pr`, no unretired
+#                     `limited` record of any run ends on the pinned head
+#                     (step-record.sh lookup limited), and its last
 #                     completion there names a head every later commit of
 #                     which touches only the Awaiting-input section of tasks.md
 #   ci-rollup         the PR head's check rollup is a positive green (at least
@@ -211,7 +214,7 @@ case $MODE in
   *) [ "$FOR_MERGE" = 0 ] || usage '--for-merge belongs to evaluate and flip' ;;
 esac
 [ "$MODE" != awaiting ] || [ -n "$BASE_ARG" ] || usage 'awaiting needs --base'
-[ "$MODE" != park ] || [[ $REASON =~ ^[a-z][a-z-]{0,39}$ ]] || usage 'park needs --reason, a lower-case predicate name'
+[ "$MODE" != park ] || [[ $REASON =~ ^[a-z][a-z0-9-]{0,39}$ ]] || usage 'park needs --reason, a lower-case predicate name (digits allowed after the first letter)'
 # The base reaches git as an argument, so no option shape.
 [ -z "$BASE_ARG" ] || { [[ $BASE_ARG =~ ^[A-Za-z0-9_][A-Za-z0-9._/-]*$ ]] && git check-ref-format --branch "$BASE_ARG" >/dev/null 2>&1; } \
   || usage '--base must be a branch name'
@@ -710,7 +713,7 @@ park_only() {
 }
 
 pred_review() {
-  local rec rh bad run c n=0
+  local rec rh bad run c lim n=0
   if ! /bin/sh "$SCRIPTS/step-record.sh" --worktree "$WT" list >"$SCRATCH/records" 2>/dev/null; then
     set_pred review-converged fail 'the step records could not be read'
     return
@@ -758,6 +761,20 @@ pred_review() {
     set_pred review-converged fail "a review step halted or failed in run $run"
     return
   fi
+  lim=$(/bin/sh "$SCRIPTS/step-record.sh" --worktree "$WT" lookup limited --head "$HEAD_SHA" 2>/dev/null)
+  case $? in
+    3) ;;
+    0)
+      lim=${lim%%$'\n'*}
+      lim=${lim#record$'\t'}
+      set_pred review-converged fail "an unretired limited record ends on ${HEAD_SHA:0:12} (${lim%%$'\t'*})"
+      return
+      ;;
+    *)
+      set_pred review-converged fail 'the step records could not be read'
+      return
+      ;;
+  esac
   if ! [[ $rh =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] \
     || ! git merge-base --is-ancestor "$rh" "$HEAD_SHA" 2>/dev/null; then
     set_pred review-converged fail "the reviewed head of run $run is not in this branch's history"

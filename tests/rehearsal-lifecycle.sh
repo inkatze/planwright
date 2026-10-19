@@ -61,6 +61,8 @@ export LC_ALL
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 S="$REPO_ROOT/scripts"
+# shellcheck source=tests/lib/poll-until.sh
+. "$REPO_ROOT/tests/lib/poll-until.sh"
 BUNDLE_SRC="$REPO_ROOT/tests/fixtures/lifecycle-rehearsal/bundle"
 SPEC=rehearsal-wedge
 UNIT=1
@@ -83,7 +85,7 @@ usage: tests/rehearsal-lifecycle.sh [--live] [--rung sj|hl] [--model <name>] [--
   --live    rehearse against the real claude CLI (spends tokens; opt-in only)
   --rung    one rung only: sj (stream-json-persistent) or hl (headless-oneshot)
   --model   the worker model under --live (default: haiku)
-  --wait    seconds to wait for the worker to wedge (default: 180 live, 30 scripted)
+  --wait    seconds to wait for the worker to wedge (default: 180 live, poll_until's default scripted)
 USAGE
   exit 2
 }
@@ -127,9 +129,9 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$WAIT" ]; then
-  # The scripted CLI wedges at once; a long wait there only turns a broken
-  # wedge into a blown test-time budget instead of a quick failure.
-  if [ "$LIVE" = 1 ]; then WAIT=180; else WAIT=30; fi
+  # The scripted CLI wedges at once, so its wait is only the generous
+  # deadline a loaded machine needs; a live session takes minutes to start.
+  if [ "$LIVE" = 1 ]; then WAIT=180; else WAIT=$POLL_UNTIL_DEFAULT_DEADLINE; fi
 fi
 
 failures=0
@@ -186,14 +188,27 @@ fi
 
 # proc_table — one `<pid> TAB <ppid> TAB <start> TAB <argv>` row per process.
 # The start time is what tells a process from a later one reissued its pid.
+# busybox ps has neither -ww nor lstart, so there the table comes from procfs,
+# its start being the clock ticks since boot.
 proc_table() {
-  ps -A -ww -o pid=,ppid=,lstart=,args= 2>/dev/null | awk '
+  pt_rows=$(ps -A -ww -o pid=,ppid=,lstart=,args= 2>/dev/null | awk '
     {
       a = $0
       for (i = 1; i <= 7; i++) sub(/^[ \t]*[^ \t]+/, "", a)
       sub(/^[ \t]+/, "", a)
       printf "%s\t%s\t%s%s%s%s%s\t%s\n", $1, $2, $3, $4, $5, $6, $7, a
-    }'
+    }')
+  if [ -n "$pt_rows" ]; then
+    printf '%s\n' "$pt_rows"
+    return 0
+  fi
+  for pt_d in /proc/[0-9]*; do
+    { IFS= read -r pt_st <"$pt_d/stat"; } 2>/dev/null || continue
+    # shellcheck disable=SC2086 # the fields after the command name, split
+    set -- ${pt_st##*) }
+    printf '%s\t%s\tboot+%s\t%s\n' "${pt_d#/proc/}" "$2" "${20}" \
+      "$(tr '\000\n' '  ' 2>/dev/null <"$pt_d/cmdline")"
+  done
 }
 
 # Every process assertion below rests on the table; an unreadable one would
@@ -277,31 +292,42 @@ final_check() {
       ;;
   esac
   fc_seen=''
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
-    if [ -z "$(proc_table)" ]; then
-      echo "the process table could not be read"
-      return 3
-    fi
-    # shellcheck disable=SC2046  # pid lists, one word each
-    fc_rows=$(rows_of $({
-      pids_under "$mk"
-      same_pids "${tracked:-}"
-    } | awk 'NF' | sort -u))
-    if [ -z "$fc_rows" ]; then
-      [ -z "$fc_seen" ] && return 0
-      printf '%s\n' "$fc_seen"
-      return 1
-    fi
-    fc_seen=$(printf '%s\n%s\n' "$fc_seen" "$(printf '%s\n' "$fc_rows" | cut -f1)" | awk 'NF' | sort -u)
-    # Re-checked against a fresh table immediately before the kill, so a pid
-    # reissued since the scan is spared.
-    for fc_p in $(same_pids "$fc_rows"); do
-      kill -9 "$fc_p" 2>/dev/null
-    done
-    sleep 0.5
-  done
+  fc_unread=''
+  if ! poll_until --interval 0.5 --what 'the rehearsal processes to exit' -- final_round; then
+    printf '%s\n' "$fc_seen"
+    return 2
+  fi
+  if [ -n "$fc_unread" ]; then
+    echo "the process table could not be read"
+    return 3
+  fi
+  [ -z "$fc_seen" ] && return 0
   printf '%s\n' "$fc_seen"
-  return 2
+  return 1
+}
+
+# final_round — one pass of final_check: true once nothing under the root is
+# left (or the table cannot be read, setting fc_unread), else kill -9 what is
+# left, adding it to fc_seen, and false.
+# shellcheck disable=SC2329  # polled through poll_until
+final_round() {
+  if [ -z "$(proc_table)" ]; then
+    fc_unread=1
+    return 0
+  fi
+  # shellcheck disable=SC2046  # pid lists, one word each
+  fc_rows=$(rows_of $({
+    pids_under "$mk"
+    same_pids "${tracked:-}"
+  } | awk 'NF' | sort -u))
+  [ -z "$fc_rows" ] && return 0
+  fc_seen=$(printf '%s\n%s\n' "$fc_seen" "$(printf '%s\n' "$fc_rows" | cut -f1)" | awk 'NF' | sort -u)
+  # Re-checked against a fresh table immediately before the kill, so a pid
+  # reissued since the scan is spared.
+  for fc_p in $(same_pids "$fc_rows"); do
+    kill -9 "$fc_p" 2>/dev/null
+  done
+  return 1
 }
 
 sig=''
@@ -614,17 +640,6 @@ if [ "$resolved_home" != "$mk/home" ]; then
   exit 2
 fi
 
-# wait_for <secs> <cmd...> — poll <cmd> until it holds or <secs> pass.
-wait_for() {
-  wf_end=$((SECONDS + $1))
-  shift
-  while [ "$SECONDS" -lt "$wf_end" ]; do
-    "$@" && return 0
-    sleep 0.2
-  done
-  "$@"
-}
-
 # --- per-rung helpers ---------------------------------------------------------
 
 # The stream-json handle is a variable so the scripted skip path can launch a
@@ -767,7 +782,7 @@ ended_in_error() {
   esac
 }
 
-# shellcheck disable=SC2329  # polled through wait_for
+# shellcheck disable=SC2329  # polled through poll_until
 wedge_or_end() {
   wedged "$1" || ended "$1"
 }
@@ -880,6 +895,14 @@ held_classes() {
   printf '%s' "${hc_out# }"
 }
 
+# release_set_empty <rung> <tree-rows> — true once nothing is held, leaving
+# what still is in `held`.
+# shellcheck disable=SC2329  # polled through poll_until
+release_set_empty() {
+  held=$(held_classes "$1" "$2")
+  [ -z "$held" ]
+}
+
 machine_local="$repo/.claude/planwright.local.yml"
 
 # worktree_state — what a close must leave as it found it: every tracked,
@@ -913,7 +936,7 @@ rehearse() {
   pass "$r" "launched $w"
 
   # 2. wedge, or the visible skip when no session could be established
-  wait_for "$WAIT" wedge_or_end "$r"
+  poll_until --deadline "$WAIT" --what "the $r worker to wedge or end" -- wedge_or_end "$r" || :
   verdict=$(wedge_verdict "$r")
   case $verdict in
     wedged) ;;
@@ -1027,11 +1050,7 @@ rehearse() {
     *) flunk "$r" "stop exited $stop_rc: $(clip "$stop_out")" ;;
   esac
   held=''
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
-    held=$(held_classes "$r" "$tree")
-    [ -z "$held" ] && break
-    sleep 0.5
-  done
+  poll_until --interval 0.5 --what 'the release set to empty' -- release_set_empty "$r" "$tree" || :
   if [ -z "$held" ]; then
     pass "$r" "after the close every class of the release set is empty"
   else
@@ -1108,8 +1127,8 @@ skip_path() {
     flunk skip-path "the no-session worker's launch exited $sp_rc: $(clip "$(cat "$mk/launch-sj.out")")"
   else
     sp_wait=$WAIT
-    WAIT=30
-    wait_for "$WAIT" wedge_or_end sj
+    WAIT=$POLL_UNTIL_DEFAULT_DEADLINE
+    poll_until --deadline "$WAIT" --what 'the no-session worker to end' -- wedge_or_end sj || :
     sp_verdict=$(wedge_verdict sj)
     WAIT=$sp_wait
     case $sp_verdict in
@@ -1131,7 +1150,7 @@ skip_path() {
   if [ "$sp_rc" != 0 ]; then
     flunk skip-path "the session-error worker's launch exited $sp_rc: $(clip "$(cat "$mk/launch-hl.out")")"
   else
-    wait_for 30 wedge_or_end hl
+    poll_until --what 'the session-error worker to end' -- wedge_or_end hl || :
     sp_verdict=$(wedge_verdict hl)
     case $sp_verdict in
       fail\ *) pass skip-path "a headless session that answered and then failed is a failure, not a skip" ;;

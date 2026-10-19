@@ -42,8 +42,9 @@
 #            MERGED and that its head oid IS this worktree's HEAD. This covers
 #            the post-merge shape where the forge auto-deleted the remote branch:
 #            the upstream is gone, so A can never hold, even though the commits
-#            are provably merged. Verified, never trusted — no `gh`, no `timeout`
-#            to bound the query, a query that exceeds that bound, a reply that is
+#            are provably merged. Verified, never trusted — no `gh`, neither
+#            `timeout` nor the bundled bounded-run.sh to bound the query, a
+#            query that exceeds that bound, a reply that is
 #            not exactly the two fields asked for, an unreadable field, a
 #            non-MERGED state, or an oid mismatch all refuse.
 #            PLANWRIGHT_CLEANUP_GH_TIMEOUT bounds the query (default 20s).
@@ -277,6 +278,11 @@ valid_text() {
   [ -n "$vt_v" ] || return 1
   [ "${#vt_v}" -le 512 ] || return 1
   [ "$(sanitize_printable "$vt_v")" = "$vt_v" ]
+}
+
+# Run through sh rather than its own mode bits, which a plugin copy may drop.
+bounded_run() {
+  /bin/sh "$script_dir/bounded-run.sh" "$@"
 }
 
 # gh_timeout — the wall-clock bound on the merged-PR evidence query, in seconds.
@@ -553,7 +559,7 @@ case "$cmd" in
     # B is a WIDER EVIDENCE CLASS, not a looser bar: an oid match against a
     # MERGED pr is strictly stronger than upstream parity (which only proves the
     # commits left this machine, not that anyone took them). Any doubt — no `gh`,
-    # no `timeout` to bound the query, a query that outruns that bound, an
+    # nothing to bound the query with, a query that outruns that bound, an
     # unreadable field, a non-MERGED state, an oid mismatch — refuses.
     evidence=""
     upstream=$(git -C "$path" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null) || upstream=""
@@ -581,23 +587,24 @@ case "$cmd" in
       # The query below is the ONLY network call in this actuator, and so the
       # only step that can hang without bound: a stalled forge, a wedged DNS
       # lookup, or a credential helper waiting on input would otherwise pin a
-      # cleanup sweep open indefinitely. `timeout` is this tree's established
-      # bound (fleet-liveness.sh, fleet-attention-watch.sh, release-arm.sh), but
-      # it is GNU coreutils and is NOT on stock macOS, which this script's
-      # support bar includes — so its ABSENCE must refuse rather than silently
-      # fall back to running unbounded. An unbounded network call in the decision
-      # path of a destructive actuator is exactly what "fail closed on any doubt"
-      # forbids; reclaiming a worktree is a capability, whereas not wedging the
-      # sweep that reclaims it is a safety property, and the capability yields.
+      # cleanup sweep open indefinitely. `timeout` is GNU coreutils and is NOT
+      # on stock macOS, which this script's support bar includes, so there the
+      # bundled bounded-run.sh bounds the call. With neither, the query refuses
+      # rather than silently running unbounded: an unbounded network call in
+      # the decision path of a destructive actuator is exactly what "fail
+      # closed on any doubt" forbids; reclaiming a worktree is a capability,
+      # whereas not wedging the sweep that reclaims it is a safety property,
+      # and the capability yields.
       #
       # release-arm.sh's poll budget is NOT the model here: it bounds how many
       # times a query is retried, not how long one call may hang, so a single
-      # wedged `gh` still hangs it. fleet-liveness.sh's oracle_fetch does bound a
-      # single call portably, but with ~70 lines of supervisor/pid/TERM-KILL
-      # choreography; putting that inside this decision path would add more
-      # failure surface than the bound removes.
-      if ! command -v timeout >/dev/null 2>&1; then
-        warn "--merged-pr given but no timeout binary on PATH — refusing rather than making an unbounded network call (fail closed)"
+      # wedged `gh` still hangs it.
+      if command -v timeout >/dev/null 2>&1; then
+        gh_bound=timeout
+      elif [ -r "$script_dir/bounded-run.sh" ]; then
+        gh_bound=bounded_run
+      else
+        warn "--merged-pr given but no timeout binary on PATH and no bundled bounded-run.sh — refusing rather than making an unbounded network call (fail closed)"
         exit 5
       fi
       head_oid=$(git -C "$path" rev-parse HEAD 2>/dev/null) || head_oid=""
@@ -612,15 +619,16 @@ case "$cmd" in
       # is DATA: parsed by prefix/suffix expansion and re-validated below.
       gh_t=$(gh_timeout)
       pr_rc=0
-      pr_pair=$(cd "$path" 2>/dev/null && timeout "$gh_t" gh pr view "$merged_pr" \
+      pr_pair=$(cd "$path" 2>/dev/null && "$gh_bound" "$gh_t" gh pr view "$merged_pr" \
         --json state,headRefOid \
         --template '{{.state}} {{.headRefOid}}' 2>/dev/null) || pr_rc=$?
       [ "$pr_rc" = 0 ] || pr_pair=""
-      # 124 is timeout's own "the command did not finish" status. Distinguishing
-      # it matters operationally: a stalled forge should read as a stall an
-      # operator can act on, not as an unreadable answer that looks like a
-      # malformed reply. Either way it refuses — this only sharpens the message.
-      if [ "$pr_rc" = 124 ]; then
+      # 124 (timeout's and bounded-run.sh's) and 143 (busybox timeout's TERM)
+      # both mean the query did not finish. Telling that apart matters
+      # operationally: a stalled forge should read as a stall an operator can
+      # act on, not as an unreadable answer that looks like a malformed reply.
+      # Either way it refuses — this only sharpens the message.
+      if [ "$pr_rc" = 124 ] || [ "$pr_rc" = 143 ]; then
         warn "--merged-pr $merged_pr: the gh query did not finish within ${gh_t}s — refusing (fail closed)"
         exit 5
       fi

@@ -7,3 +7,4 @@
 #   <script basename>    <who runs it>
 
 check-confirmation.sh   invoked with a confirmation on stdin by scripts/rubric-grade.sh and the behavioral-eval fixtures; it is a validator the eval harness calls per confirmation, not a repo-wide gate, and check:no-ci-evals deliberately keeps that harness out of CI
+check-diff-scoped.sh    the review convergence loop's per-fix check (/polish, /self-review), run per applied fix once that loop's wiring lands and by hand until then; it checks one diff, not the repository, so the gate's full suite stands in for it

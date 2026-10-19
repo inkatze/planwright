@@ -207,10 +207,11 @@ recognize; the authoring recipe's styling pass covers the rest.
 - **`slow`** — durable method whose primary sources change rarely; re-verify
   when a source publishes a new edition.
 
-The `/inception` portfolio view is specified to surface cards past their rate
-as catalog-health notes (inception D-17); it is not built yet, so until it
-ships a card's staleness is visible only in its own header. A stale card is
-worse than an honest unstaffed flag.
+The `/inception` portfolio view surfaces cards past their rate as
+catalog-health notes (inception D-17): a `medium` card more than a year past
+`Reviewed:`, and a `fast` card reviewed before the newest live venture
+started. A `slow` card's edition trigger has no date to compare, so the view
+never flags it. A stale card is worse than an honest unstaffed flag.
 
 ## Versioning
 

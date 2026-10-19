@@ -163,3 +163,72 @@ jobs:
           /bin/sh tests/test-bsd-awk-multiline.sh
           /bin/sh tests/test-spec-validate.sh
           /bin/bash tests/test-spec-parse-corpus.sh
+
+  # The full shell suite on the two platforms the matrix adds beside Ubuntu,
+  # held to this branch until the suite is green on both: a platform joins
+  # the pull-request workflow only once it passes there, and the filter's
+  # removal is that join. Both run it as `mise run test` with the pinned dev
+  # toolchain, as the check job does, so a tool-gated case runs rather than
+  # skipping. Full history, for the tests that check fixture provenance.
+  #
+  # The macOS run narrows PATH to the system directories, so the suite meets
+  # the system bash 3.2 and the BSD awk and sed rather than the GNU tools the
+  # runner image layers on top; gh, mise, and node (for markdownlint-cli2)
+  # are linked into a directory of their own instead of exposing Homebrew's.
+  macos-suite:
+    if: github.head_ref == 'planwright/universal-binary/task-4'
+    runs-on: macos-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          fetch-depth: 0
+      - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925  # v4.1.0
+        with:
+          version: 2026.6.1
+      - run: |
+          allow="$RUNNER_TEMP/allow-bin"
+          mkdir -p "$allow"
+          ln -s "$(command -v gh)" "$(command -v node)" "$(command -v mise)" "$allow/"
+      - run: |
+          allow="$RUNNER_TEMP/allow-bin"
+          mise_bin=$(command -v mise)
+          PATH="$allow:/usr/bin:/bin:/usr/sbin:/sbin"
+          /bin/bash --version
+          /usr/bin/awk --version
+          "$mise_bin" run test
+
+  # musl, dash as /bin/sh, and busybox for every other tool, in a stock
+  # Alpine container pinned by digest, with an init so orphaned fixtures are
+  # reaped as they are on a real host. Only the suite's own needs are added:
+  # bash for the runner, git, jq, perl for the purged-identifier screen, and
+  # the pinned mise (checksummed) with node and pipx for the npm and pipx
+  # tools it installs; no GNU userland, so awk, sed and the rest stay busybox.
+  # The suite runs as an unprivileged user, since root passes the permission
+  # checks several tests rely on failing.
+  alpine-suite:
+    if: github.head_ref == 'planwright/universal-binary/task-4'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    container:
+      image: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+      options: --init
+    env:
+      MISE_VERSION: v2026.6.1
+      MISE_SHA256: f37f4be1f22e5f81d2bbdcdbf239a48f002acd345e001b07dddd3431fd808b60
+    steps:
+      - run: apk add --no-cache bash git jq dash-binsh perl nodejs npm pipx
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          fetch-depth: 0
+      - run: |
+          test "$(readlink -f /bin/sh)" = /usr/bin/dash
+          test "$(readlink -f "$(command -v awk)")" = /bin/busybox
+          test "$(readlink -f "$(command -v sed)")" = /bin/busybox
+          wget -q -O /usr/local/bin/mise \
+            "https://github.com/jdx/mise/releases/download/$MISE_VERSION/mise-$MISE_VERSION-linux-x64-musl"
+          printf '%s  %s\n' "$MISE_SHA256" /usr/local/bin/mise | sha256sum -c -
+          chmod 755 /usr/local/bin/mise
+          adduser -D suite
+          chown -R suite "$GITHUB_WORKSPACE"
+          su suite -c 'mise trust -q . && mise install && mise run test'

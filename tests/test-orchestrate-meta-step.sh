@@ -48,6 +48,8 @@ SCRIPTS=$(cd "$here/../scripts" && pwd -P)
 CONFIG=$(cd "$here/../config" && pwd -P)
 STEP="$SCRIPTS/orchestrate-meta-step.sh"
 TAB=$(printf '\t')
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 
 failures=0
 case_f0=0
@@ -250,15 +252,6 @@ halt_reason() {
   printf '%s\n' "$OUT" | awk -F"$TAB" '$1=="halt" {print $2 "/" $3; exit}'
 }
 
-# wait_launch — the headless runner is detached; give the fake a moment.
-wait_launch() {
-  i=0
-  while [ ! -f "$C/rec/launches" ] && [ "$i" -lt 100 ]; do
-    sleep 0.1
-    i=$((i + 1))
-  done
-}
-
 # nothing_created <label> — no branch, worktree, marker, or launch record.
 # The headless launcher writes its unit directory before it returns, so its
 # absence shows no launch began without waiting on the detached fake.
@@ -289,7 +282,8 @@ m1() {
     || fail "m1: the task branch was not created"
   [ -f "$C/markers/1" ] || fail "m1: the dispatch marker was not written"
   [ "$(field handle)" = headless-demo-task-1 ] || fail "m1: handle line '$(field handle)'"
-  wait_launch
+  # The headless runner is detached, so the fake's launch lands after it returns.
+  poll_until --what 'the worker launch record' -- test -f "$C/rec/launches" || :
   [ "$(wc -l <"$C/rec/launches" 2>/dev/null | tr -d ' ')" = 1 ] \
     || fail "m1: expected exactly one worker launch"
   wt=$(cd "$P/.claude/worktrees/demo-task-1" 2>/dev/null && pwd -P)
@@ -508,7 +502,7 @@ m14() {
   wrap_record "printf '/orchestrate specs/demo\n' >\"$C/prompt\""
   RUN_STEP=$STEP_COPY dispatch
   [ "$RC" -eq 0 ] || fail "m14: dispatch exited $RC: $ERR"
-  wait_launch
+  poll_until --what 'the worker launch record' -- test -f "$C/rec/launches" || :
   head -n 1 "$C/rec/stdin" 2>/dev/null | grep -q '^/planwright:execute-task specs/demo 1$' \
     || fail "m14: a prompt swapped after the screen reached the worker"
   # A prompt path that starts with a dash is a path, not a cp option.
@@ -662,7 +656,7 @@ m9() {
   seed m9 || return
   dispatch
   [ "$RC" -eq 0 ] || fail "m9: first dispatch exited $RC: $ERR"
-  wait_launch
+  poll_until --what 'the worker launch record' -- test -f "$C/rec/launches" || :
   dispatch
   [ "$RC" -eq 1 ] || fail "m9: a second dispatch of an in-flight unit should exit 1, got $RC: $ERR"
   [ "$(field record)" = in-flight ] || fail "m9: record line '$(field record)'"

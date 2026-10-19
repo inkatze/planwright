@@ -252,6 +252,27 @@ case "$queue" in
 esac
 echo "ok: an ambiguous marker refuses both paths and queues a decision"
 
+# Marker arity (fleet-messaging Task 4): seven fields before the session name,
+# eight since. Both parse by position (the pid read from field 3 decides the
+# outcome); a nine-field row is ambiguous, as is an eight-field one whose
+# field 8 the session-name screen refuses.
+printf 'my-spec\tunattended\t%s\t-\t-\t%s\t123\n' "$alive_pid" "$repo" >"$home/towers/my-spec"
+out=$(run "$spec_dir" 2>/dev/null) || fail "seven-field tick exited non-zero"
+[ "$out" = alive ] || fail "a seven-field marker naming a live pid read '$out'"
+printf 'my-spec\tunattended\t%s\t-\t-\t%s\t123\tplanwright tower (demo)\n' "$alive_pid" "$repo" >"$home/towers/my-spec"
+out=$(run "$spec_dir" 2>/dev/null) || fail "eight-field tick exited non-zero"
+[ "$out" = alive ] || fail "an eight-field marker naming a live pid read '$out'"
+printf 'my-spec\tunattended\t%s\t-\t-\t%s\t123\tn8\textra\n' "$alive_pid" "$repo" >"$home/towers/my-spec"
+out=$(run "$spec_dir" 2>/dev/null) || fail "nine-field tick exited non-zero"
+[ "$out" = ambiguous-marker ] || fail "a nine-field marker must be escalated as ambiguous, got '$out'"
+[ "$(launch_calls)" = 0 ] || fail "a nine-field marker must not relaunch"
+printf 'my-spec\tunattended\t%s\t-\t-\t%s\t123\ta/b\n' "$dead_pid" "$repo" >"$home/towers/my-spec"
+rc=0
+out=$(run "$spec_dir" 2>/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "a marker carrying a hostile name must fail the tick closed (exit 2), got $rc ($out)"
+[ "$(launch_calls)" = 0 ] || fail "a marker carrying a hostile name must not relaunch"
+echo "ok: seven- and eight-field markers parse by position; nine fields escalate; a hostile name fails closed"
+
 # --- death evidence (D-5 predicate) -------------------------------------------
 
 record_marker unattended "$alive_pid"
@@ -312,9 +333,12 @@ echo "ok: a dead tower with ready work is relaunched from disk state alone"
 
 # The marker now records the relaunched tower.
 row=$(fleet_env "$FTM" read my-spec) || fail "marker missing after relaunch"
-IFS=$(printf '\t') read -r _ m_mode m_pid _ m_tmux m_checkout m_epoch <<EOF
+IFS=$(printf '\t') read -r _ m_mode m_pid _ m_tmux m_checkout m_epoch m_name <<EOF
 $row
 EOF
+# The relaunched tower records its own observed name at loop start; the
+# watchdog never claims one it did not observe.
+[ "$m_name" = - ] || fail "post-relaunch marker name '$m_name', expected the sentinel"
 [ "$m_mode" = unattended ] || fail "post-relaunch marker mode '$m_mode'"
 [ "$m_pid" = "$dead_pid" ] || fail "post-relaunch marker pid '$m_pid' (launcher printed $dead_pid)"
 [ "$m_tmux" = planwright-tower-my-spec ] || fail "post-relaunch marker tmux session '$m_tmux'"
@@ -470,8 +494,16 @@ out=$(PATH="$bin:$PATH" PLANWRIGHT_FLEET_STATE_DIR="$home" \
   PLANWRIGHT_REPO_ROOT="$fake_root" \
   PLANWRIGHT_LOCAL_CONFIG="$tmp/no-local.yml" \
   PLANWRIGHT_TOWER_READY_CHECK="$bin/ready-ok" \
-  /bin/bash "$FTW" "$spec_dir" 2>/dev/null) || fail "default-launcher tick exited non-zero"
+  env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR /bin/bash "$FTW" "$spec_dir" 2>/dev/null) || fail "default-launcher tick exited non-zero"
 [ "$out" = relaunched ] || fail "default-launcher outcome '$out'"
+# The relaunched tower is named after its session, takes the tower profile with
+# --settings, and gets the inbound layer through the env wrapper beside it
+# (fleet-messaging D-8, D-17, D-19).
+wd_root=$(cd "$here/.." && pwd -P)
+grep '^invoke new-session' "$tmux_log" | grep -qF -- "/fleet-dispatch-env.sh --inbound accept claude --name planwright-tower-my-spec --settings $wd_root/config/tower-settings.json /orchestrate" \
+  || fail "the relaunch argv must carry --inbound accept, --name, and the tower profile: $(grep '^invoke new-session' "$tmux_log")"
+"$here/../scripts/orchestrate-relay.sh" validate-handle tmux planwright-tower-my-spec \
+  || fail "the relaunched tower's name fails the tmux handle grammar"
 grep -q '^invoke new-session' "$tmux_log" || fail "default launcher must create a session"
 grep '^invoke new-session' "$tmux_log" | grep -q -- '-s planwright-tower-my-spec' \
   || fail "the fresh tower must land in its own planwright-tower-<spec> session"
@@ -484,6 +516,35 @@ if grep '^invoke new-session' "$tmux_log" | grep -q 'operator-main'; then
   fail "the launcher targeted a pre-existing, unrelated session"
 fi
 echo "ok: a fresh tower lands in its own tmux session (REQ-G1.4)"
+
+# A tower profile the root holds unreadable fails the tick visibly, naming the
+# profile, before any session exists (fleet-messaging D-19).
+badroot="$tmp/badroot"
+mkdir -p "$badroot/config" "$badroot/scripts"
+cp "$here/../config/tower-settings.json" "$badroot/config/"
+chmod 000 "$badroot/config/tower-settings.json"
+rm -f "$tmux_log"
+record_marker unattended "$dead_pid"
+rm -f "$backoff_file"
+rc=0
+out=$(PATH="$bin:$PATH" PLANWRIGHT_FLEET_STATE_DIR="$home" \
+  PLANWRIGHT_CONFIG_DEFAULTS="$defaults" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$tmp/no-adopter.yml" \
+  PLANWRIGHT_REPO_ROOT="$fake_root" \
+  PLANWRIGHT_LOCAL_CONFIG="$tmp/no-local.yml" \
+  PLANWRIGHT_TOWER_READY_CHECK="$bin/ready-ok" \
+  PLANWRIGHT_ROOT="$badroot" \
+  /bin/bash "$FTW" "$spec_dir" 2>"$tmp/badroot.err") || rc=$?
+chmod 644 "$badroot/config/tower-settings.json"
+[ "$rc" = 2 ] || fail "an unreadable tower profile must fail the tick (exit 2), got $rc ($out)"
+grep -qF "$badroot/config/tower-settings.json" "$tmp/badroot.err" \
+  || fail "the refusal must name the tower profile: $(cat "$tmp/badroot.err")"
+grep -q '^invoke new-session' "$tmux_log" 2>/dev/null && fail "an unreadable tower profile still created a session"
+case $(fleet_env "$FAT" queue 2>/dev/null) in
+  *"tower profile"*) ;;
+  *) fail "an unreadable tower profile queued no decision" ;;
+esac
+echo "ok: an unreadable tower profile fails the relaunch visibly, naming it"
 
 # A colliding session name is a launch failure, not a hijack.
 cat >"$bin/tmux" <<EOF

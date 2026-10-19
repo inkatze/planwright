@@ -249,7 +249,7 @@ seam_forms fleet-fence fence_form
 marker_form() {
   outcome sh -c '"$1" record "$2" --mode unattended --pid 4242 --checkout "$3" >/dev/null &&
     "$1" read "$2"; r=$?; "$1" clear "$2" >/dev/null; exit $r' \
-    sh "$S/fleet-tower-marker.sh" "$1" "$tmp/repo" | sed 's/	[0-9]*$/	<EPOCH>/'
+    sh "$S/fleet-tower-marker.sh" "$1" "$tmp/repo" | sed -e 's/	[0-9]\{9,\}	/	<EPOCH>	/' -e 's/	[0-9]\{9,\}$/	<EPOCH>/'
 }
 seam_forms fleet-tower-marker marker_form
 # A marker recorded under the alias is the bare identifier's marker.

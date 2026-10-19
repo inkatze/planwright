@@ -108,6 +108,21 @@ case $cmd in
       printf '%s\n' "$me: refusing an invalid $(sanitize_printable "$backend" "(backend)") handle '$(sanitize_printable "$handle" "(handle)")' before answering" >&2
       exit 2
     fi
+    # A handle grammar also names rungs the relay cannot deliver to (a one-shot
+    # session has no channel), so the delivery command is asked for once, over
+    # an empty stand-in file, before the claim: it only prints, and a backend it
+    # refuses is refused here with nothing consumed.
+    probe=$(mktemp "${TMPDIR:-/tmp}/fleet-decision-probe.XXXXXX") || {
+      printf '%s\n' "$me: could not stage the delivery check before answering" >&2
+      exit 2
+    }
+    probe_rc=0
+    "$RELAY" relay-command "$backend" "$handle" "$probe" >/dev/null 2>&1 || probe_rc=$?
+    rm -f "$probe"
+    if [ "$probe_rc" -ne 0 ]; then
+      printf '%s\n' "$me: refusing to answer: the relay has no delivery path to a $(sanitize_printable "$backend" "(backend)") worker" >&2
+      exit 2
+    fi
     # Atomic claim by label under the store lock (first-answer-wins). Its stderr
     # already diagnoses the refusal class; PROPAGATE its exit code faithfully — 2
     # for a malformed input / lock error (nothing consumed), 3 for a semantic

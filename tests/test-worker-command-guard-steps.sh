@@ -8,6 +8,8 @@ set -u
 unset CDPATH
 # shellcheck source=tests/lib/worker-command-guard-harness.sh
 . "$(cd "$(dirname "$0")" && pwd)/lib/worker-command-guard-harness.sh"
+# shellcheck source=tests/lib/poll-until.sh
+. "$(cd "$(dirname "$0")" && pwd)/lib/poll-until.sh"
 
 echo "### custom-steps REQ-G1.3 — declared command step lines"
 # A fixture overlay stack for scripts/resolve-steps.sh: a core root whose
@@ -443,6 +445,45 @@ defers_quickly "a nested loop over long words defers quickly (scan budget)" \
 defers_quickly "a plain loop over long words defers quickly (scan budget)" \
   "for f in $(seq -s ' ' 16); do echo $long_words; done"
 assert_allow "one long command substitution still allows within the scan budget" "echo \$(echo $long_words)"
+# A loop whose passes cannot fit the budget is charged for all of them at its
+# `for`, so it defers in about the time one walk of the same words takes,
+# rather than after the first passes have run. Measured against that walk on
+# the same host, best of three each, so a slow or loaded runner moves both.
+# hook_secs <command> — the fastest of three hook runs, in seconds.
+hook_secs() {
+  local hs_best='' hs_t hs_p
+  hs_p=$(jq -n --arg c "$1" --arg w "$SANDBOX" '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}')
+  for _ in 1 2 3; do
+    hs_t=$({
+      TIMEFORMAT=%R
+      time printf '%s' "$hs_p" | env -u CLAUDE_DIR HOME="$SANDBOX/no-home" /bin/bash "$HOOK" >/dev/null 2>&1
+    } 2>&1)
+    if [ -z "$hs_best" ] || awk -v a="$hs_t" -v b="$hs_best" 'BEGIN { exit !(a < b) }'; then
+      hs_best=$hs_t
+    fi
+  done
+  printf '%s\n' "$hs_best"
+}
+# The subst shape's one walk is the substitution's: its inner text is
+# analysed once, whatever the loop does.
+for shape in plain subst; do
+  case $shape in
+    plain)
+      one_walk=$(hook_secs "echo $long_words")
+      loop_cmd="for f in $(seq -s ' ' 16); do echo $long_words; done"
+      ;;
+    *)
+      one_walk=$(hook_secs "echo \$(echo $long_words)")
+      loop_cmd="for f in $(seq -s ' ' 16); do echo \$(echo $long_words); done"
+      ;;
+  esac
+  loop_secs=$(hook_secs "$loop_cmd")
+  if awk -v l="$loop_secs" -v o="$one_walk" 'BEGIN { exit !(l <= o * 1.5 + 0.1) }'; then
+    pass "an over-budget $shape loop defers at its for, in about one walk's time (${loop_secs}s vs ${one_walk}s)"
+  else
+    fail "an over-budget $shape loop walked its passes before deferring: ${loop_secs}s against one walk's ${one_walk}s"
+  fi
+done
 # The budget leaves room for an ordinary loop: sixteen passes over a body of
 # about a hundred and fifty pattern words.
 mid_words="$(for i in $(seq 150); do printf 'p%d ' "$i"; done)"
@@ -475,7 +516,7 @@ stub_scripts "$FX/stub-slow"
 cat >"$FX/stub-slow/scripts/resolve-steps.sh" <<STUB
 #!/bin/bash
 echo \$\$ >'$FX/stub-slow/self'
-sleep 30 &
+sleep 300 &
 echo \$! >'$FX/stub-slow/child'
 wait
 STUB
@@ -494,12 +535,7 @@ fi
 alive=''
 for f in self child; do
   pid=$(cat "$FX/stub-slow/$f" 2>/dev/null) || continue
-  n=0
-  while kill -0 "$pid" 2>/dev/null && [ "$n" -lt 20 ]; do
-    sleep 0.1
-    n=$((n + 1))
-  done
-  ! kill -0 "$pid" 2>/dev/null || alive="$alive $f:$pid"
+  poll_until --what "the slow resolver's $f exiting" -- pid_gone "$pid" || alive="$alive $f:$pid"
 done
 if [ -s "$FX/stub-slow/self" ] && [ -z "$alive" ]; then
   pass "a resolver past the deadline leaves no process of its group running"
@@ -511,22 +547,17 @@ else
 fi
 
 # no_survivors <dir>: 0 when neither pid the stub in <dir> recorded is alive
-# within a short grace.
+# once the wait for it to exit ends.
 # A missing pid file (the stub never ran) fails too, and every survivor is
 # killed before returning, so none leaks into later rows.
 no_survivors() {
-  local f pid n rc=0
+  local f pid rc=0
   for f in self child; do
     pid=$(cat "$1/$f" 2>/dev/null) || {
       rc=1
       continue
     }
-    n=0
-    while kill -0 "$pid" 2>/dev/null && [ "$n" -lt 20 ]; do
-      sleep 0.1
-      n=$((n + 1))
-    done
-    if kill -0 "$pid" 2>/dev/null; then
+    if ! poll_until --what "the stub's $f exiting" -- pid_gone "$pid"; then
       kill "$pid" 2>/dev/null
       rc=1
     fi
@@ -539,7 +570,7 @@ cat >"$FX/stub-partial/scripts/resolve-steps.sh" <<STUB
 #!/bin/bash
 echo \$\$ >'$FX/stub-partial/self'
 printf 'run\tx\tpre-ci\trepo-tracked\trepo-tracked\t%s\tin-session\tcommand\t--mode strict\thalt\t-\t-\t%s\t-\t-\t-\n' '$DECLARED' '$DECLARED'
-sleep 30 &
+sleep 300 &
 echo \$! >'$FX/stub-partial/child'
 wait
 STUB
@@ -561,7 +592,7 @@ cat >"$FX/stub-straggler/scripts/resolve-steps.sh" <<STUB
 #!/bin/bash
 echo \$\$ >'$FX/stub-straggler/self'
 printf 'run\tx\tpre-ci\trepo-tracked\trepo-tracked\t%s\tin-session\tcommand\t--mode strict\thalt\t-\t-\t%s\t-\t-\t-\n' '$DECLARED' '$DECLARED'
-sleep 30 </dev/null >/dev/null 2>&1 &
+sleep 300 </dev/null >/dev/null 2>&1 &
 echo \$! >'$FX/stub-straggler/child'
 exit 0
 STUB
@@ -579,11 +610,7 @@ rm -f "$FX/stub-partial/self" "$FX/stub-partial/child"
 HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
 printf '%s' "$payload" | env -u CLAUDE_DIR HOME="$SANDBOX/no-home" "${HOOK_ENV[@]}" /bin/bash "$HOOK" >/dev/null 2>&1 &
 hook_pid=$!
-n=0
-while [ ! -s "$FX/stub-partial/child" ] && [ "$n" -lt 100 ]; do
-  sleep 0.1
-  n=$((n + 1))
-done
+poll_until --what 'the resolver starting its child' -- test -s "$FX/stub-partial/child" || true
 kill -TERM "$hook_pid" 2>/dev/null
 wait "$hook_pid"
 hook_rc=$?

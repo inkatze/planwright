@@ -282,7 +282,7 @@ regs_before=$(regs)
 out=$(supervise "$((t + 31))")
 [ "$(field "$(line "$out")" 1)" = relaunched ] || fail "past the backoff the worker relaunches (got: $out; $(cat "$tmp/err"))"
 [ "$(launches)" = 1 ] || fail "the relaunch launched exactly one worker"
-tlh_wait_workers 1 10 || fail "the relaunched worker did not start"
+tlh_wait_workers 1 || fail "the relaunched worker did not start"
 rec=$(tlh_last_worker_record)
 tlh_assert_path_eq "the relaunch resumes the flight's own worktree" "$repo/.claude/worktrees/flight-$C" \
   "$(tlh_record_field "$rec" cwd)"
@@ -309,7 +309,7 @@ out=$(supervise "$((t + 35))")
 # brief, not the sweep's own.
 pinned="$tmp/pinned-root"
 mkdir -p "$pinned"
-cp -R "$ROOT/scripts" "$ROOT/doctrine" "$pinned/"
+cp -R "$ROOT/scripts" "$ROOT/doctrine" "$ROOT/config" "$pinned/"
 printf '%s\n' "$pinned" >"$tmp/fleet/flights/$C/root"
 die_as 2
 out=$(supervise "$((t + 40))")
@@ -317,7 +317,7 @@ out=$(supervise "$((t + 40))")
 out=$(supervise "$((t + 40 + 61))")
 [ "$(field "$(line "$out")" 1)" = relaunched ] || fail "the doubled backoff passes and the worker relaunches (got: $out)"
 [ "$(launches)" = 2 ] || fail "two relaunches so far"
-tlh_wait_workers 2 10 || fail "the pinned relaunch's worker did not start"
+tlh_wait_workers 2 || fail "the pinned relaunch's worker did not start"
 [ "$(tlh_worker_env "$(tlh_last_worker_record)" PLANWRIGHT_ROOT)" = "$pinned" ] \
   || fail "the relaunch must pin the worker to the recorded root (got: $(tlh_worker_env "$(tlh_last_worker_record)" PLANWRIGHT_ROOT))"
 rm -f "$tmp/fleet/flights/$C/root"
@@ -641,6 +641,32 @@ for bad in $bad_records; do
   esac
   calls_matching new-session | grep -q "flight-$B" && fail "a $bad root record must launch nothing"
 done
+
+# --- Registry arity (fleet-messaging Task 4) -------------------------------------
+# The crash count reads the death handle by position: the writer's rows are nine
+# columns (the session name and inbox appended), and a seven-column row written
+# before them still counts its crash.
+[ -n "$(/bin/sh "$STATE" registry 2>/dev/null | awk -F "$TAB" -v h="$HC" '$2 == h && NF == 9')" ] \
+  || fail "fixture: the writer laid down no nine-column registry row"
+O7=oldseven-aaaaaad7
+gitc "$repo" worktree add -q -b "planwright/flight/$O7" "$repo/.claude/worktrees/flight-$O7" HEAD
+brief_dir "$O7"
+printf '100\ttmux-flight-%s\tflight:%s\t-\ttmux\t%s\tprocess %s\n' "$O7" "$O7" \
+  "$repo/.claude/worktrees/flight-$O7" "$(dead_pid 40)" >>"$tmp/fleet/registry"
+out=$(supervise "$((t + 2000000))")
+g=$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$O7" '$2 == id')
+[ "$(field "$g" 1)" = backoff ] && [ "$(field "$g" 3)" = 1 ] \
+  || fail "a seven-column registry row counts its crash by its death handle (got: $out)"
+# A three-column row (before the owner) carries no death handle: the sweep
+# reads its liveness unknown, so supervise counts no crash and says nothing.
+O3=oldthree-aaaaaad3
+gitc "$repo" worktree add -q -b "planwright/flight/$O3" "$repo/.claude/worktrees/flight-$O3" HEAD
+brief_dir "$O3"
+printf '101\ttmux-flight-%s\tflight:%s\n' "$O3" "$O3" >>"$tmp/fleet/registry"
+out=$(supervise "$((t + 2000000 + 5))")
+[ -z "$(printf '%s\n' "$out" | awk -F "$TAB" -v id="$O3" '$2 == id')" ] \
+  || fail "a three-column registry row was supervised as a death (got: $out)"
+[ ! -e "$tmp/fleet/liveness/crash/tmux-flight-$O3" ] || fail "a three-column registry row counted a crash"
 
 if [ "$fails" -gt 0 ]; then
   echo "test-flight-lifecycle: $fails failure(s)" >&2

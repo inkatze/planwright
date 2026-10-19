@@ -472,5 +472,5 @@ if [ "$truncated" -gt 0 ]; then
   printf '%s\n' "$prog: warning: $truncated PR(s) had more reviews, threads, or comments than one fetch page holds; their extra findings are missing" >&2
 fi
 if [ "$malformed_miss" -gt 0 ]; then
-  printf '%s\n' "$prog: warning: $malformed_miss malformed review-miss fragment(s) ignored (grammar: review-miss(<lens>, <reason>): #<pr> <path>: ...)" >&2
+  printf '%s\n' "$prog: warning: $malformed_miss malformed review-miss fragment(s) ignored (grammar: review-miss(<lens>, <reason>): #<pr> <path>: <description>; check one with scripts/check-review-miss.sh --text)" >&2
 fi

@@ -78,7 +78,8 @@ mise run check      # the full local equivalent of the CI gate
 - the ledger structural-corruption + duplicate-Status guard over `tasks.md`
   snapshots, and the machine-local memory-link guard over spec files;
 - the spec validator over the resolved spec root (`specs/` by default), the
-  anchor-freshness guard over every signed bundle, and the observation-store guard;
+  anchor-freshness guard over every signed bundle, the observation-store guard,
+  and the miss-ledger grammar guard;
 - the literal spec-home guard (`check:spec-literals`): a `specs/` path composed
   in a script, a hook, a `mise.toml` task body, `lefthook.yml`, `.gitignore`,
   or a workflow fails unless `config/spec-literal-allowlist.tsv` exempts it or
@@ -106,6 +107,8 @@ mise run check      # the full local equivalent of the CI gate
   test before every source of `scripts/echo-safety.sh`, and every
   `scripts/*.sh` committed at the mode its first line declares (100755 with a
   shebang, 100644 for a shebang-less sourced library), read from the git index;
+- the shebang-honoring invocation check (`check:script-invocation`): no line in
+  a skill or doctrine doc runs a script whose shebang names bash through `sh`;
 - the bash 3.2 construct lint (`check:bash32`): macOS ships bash 3.2 as
   `/bin/bash` and `/bin/sh`, and it misparses constructs inside a `$( )`
   such as a heredoc whose body it lexes unbalanced and a `case` pattern
@@ -258,6 +261,16 @@ there by the time it exits. Pin a fixture home per case with `fleet_home_pin` fr
 [`tests/lib/fleet-home.sh`](../tests/lib/fleet-home.sh), whose
 `fleet_home_leaked` also lets a suite run on its own check that it left the
 inherited registry alone.
+
+### Waits hold up on a busy machine
+
+A test that waits for an event (a file, a process exit, a log line) polls with
+`poll_until` from [`tests/lib/poll-until.sh`](../tests/lib/poll-until.sh)
+instead of sleeping a fixed time or counting ticks: it waits up to a generous
+default deadline and, on a timeout, reports how long it actually waited. A
+shorter deadline needs a reason at the call site. A check that something does
+*not* happen within a window, or that at least some time has passed, is not a
+wait for an event and keeps its own timing.
 
 ### The git hook backstop
 

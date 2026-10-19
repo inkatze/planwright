@@ -370,6 +370,20 @@ denv "$h8b" answer tmux "bad handle!" w1 "iid-h" "Apply" >/dev/null 2>&1 || rc=$
 out=$(denv "$h8b" answer tmux "dev:1.0" w1 "iid-h" "Apply") \
   || fail "valid-handle answer after a rejected one exited non-zero"
 [ "$(row_field "$h8b" w1 11)" = "Apply" ] || fail "the fork did not close on the valid retry"
+# A handle the grammar admits on a rung the relay cannot deliver to (a one-shot
+# has no channel) is refused before the claim too, and the contract name of
+# the stream-json rung delivers as that rung does.
+aenv "$h8b" fork w2 spec-a "Approve?" "Apply" "Apply|Skip" "iid-g" || fail "fork exited non-zero"
+rc=0
+denv "$h8b" answer headless-oneshot "headless-spec-a-task-1" w2 "iid-g" "Apply" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "answer to an undeliverable rung exited $rc, expected 2 (refused before claim)"
+[ -z "$(row_field "$h8b" w2 11)" ] || fail "answer closed the fork for a rung the relay cannot deliver to"
+out=$(denv "$h8b" answer stream-json-persistent "sjw2" w2 "iid-g" "Apply") \
+  || fail "answer over the stream-json-persistent name exited non-zero"
+case $out in
+  *"fleet-streamjson.sh' steer 'sjw2'"*) ;;
+  *) fail "the stream-json-persistent name did not deliver as stream-json does: $out" ;;
+esac
 ok "answer validates the handle before claiming; an invalid handle refuses without closing the fork (REQ-A1.5)"
 
 # ---------------------------------------------------------------------------

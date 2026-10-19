@@ -604,7 +604,7 @@ Read it before writing a rule whose correctness turns on where a wildcard sits.
 ## 10. Where to go next
 
 - [`docs/getting-started.md`](getting-started.md) — installing planwright and
-  operating the pilot-in-command model; §4 summarizes overlays and links here.
+  starting with the tower; §5 summarizes overlays and links here.
 - [`doctrine/customization-boundary.md`](../doctrine/customization-boundary.md)
   — the decision-time rule for capability versus style.
 - [`docs/options-reference.md`](options-reference.md) — every config option,
