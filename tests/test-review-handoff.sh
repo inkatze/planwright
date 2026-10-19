@@ -390,6 +390,52 @@ dfiles=$(cat "$B3/delta-files.txt" 2>/dev/null)
 assert_contains "the fix's file is in the delta" "scripts/one.sh" "$dfiles"
 assert_lacks "the base's file is not a fix-touched file" "mainonly.txt" "$dfiles"
 
+# --- branch-controlled names and bytes, in a third fixture ----------------------
+R4=$T/repo4
+mkdir -p "$R4/docs"
+git init -q "$R4"
+g4() { git -C "$R4" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
+build4() { (cd "$R4" && "$BUILD" "$@"); }
+weird=':(glob)*.sh'
+printf '#!/bin/sh\nplanted() {\n  :\n  :\n  :\n}\n\n\n\n\n\nx=1\n' >"$R4/$weird"
+printf '#!/bin/sh\nx=1\ny=2\nz=3\n' >"$R4/other.sh"
+printf 'planted\nshow() is called here\n' >"$R4/docs/ref.txt"
+printf '#!/bin/sh\nshow() {\n  :\n}\n' >"$R4/lib.sh"
+g4 add -A
+g4 commit -q -m base
+B4BASE=$(g4 rev-parse HEAD)
+sed -i 's/^x=1$/x=2/' "$R4/$weird"
+sed -i 's/^z=3$/z=4/' "$R4/other.sh"
+printf '#!/bin/sh\nshow() {\n  printf changed\n}\n' >"$R4/lib.sh"
+printf 'show \033[31mred\233m bytes\n' >>"$R4/docs/ref.txt"
+g4 commit -q -am "change"
+build4 --base "$B4BASE" >/dev/null 2>&1
+assert_exit "the names-and-bytes bundle builds" 0 $?
+callers=$(cat "$R4/.claude/review-handoff/callers.tsv" 2>/dev/null)
+assert_lacks "a pathspec-magic file name matches only itself" "planted	function" "$callers"
+assert_contains "a caller line with control bytes is still listed" "show	function	docs/ref.txt:3" "$callers"
+if LC_ALL=C grep -q "$(printf '[\033\233]')" "$R4/.claude/review-handoff/callers.tsv"; then
+  fail "caller text carries no control bytes"
+else
+  ok "caller text carries no control bytes"
+fi
+
+# A committed .claude symlink must not carry the bundle out of the repository.
+R5=$T/repo5
+mkdir -p "$R5" "$T/outside5"
+git init -q "$R5"
+g5() { git -C "$R5" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
+printf 'a\n' >"$R5/a.txt"
+ln -s "$T/outside5" "$R5/.claude"
+g5 add -A
+g5 commit -q -m base
+B5BASE=$(g5 rev-parse HEAD)
+printf 'b\n' >"$R5/a.txt"
+g5 commit -q -am change
+out=$(cd "$R5" && "$BUILD" --base "$B5BASE" 2>&1)
+assert_exit "a symlinked .claude is refused" 2 $?
+if [ -z "$(ls -A "$T/outside5")" ]; then ok "symlinked .claude: nothing written outside"; else fail "symlinked .claude: nothing written outside"; fi
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

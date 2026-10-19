@@ -19,7 +19,8 @@
 #                     changed-files.txt
 #   files/<path>      every changed file whole, as HEAD holds it
 #   callers.tsv       `<symbol> <kind> <path>:<line> <text>` per reference to a
-#                     changed symbol, kind `function` or `path`
+#                     changed symbol, kind `function` or `path`, its path
+#                     and text stripped of non-printable bytes
 #   caller-search.txt how the callers were found and what that misses
 #   contract.md       the task blocks named by --task, from --tasks-file
 #   pr-title.txt, pr-body.md   the would-be PR title and body, when given
@@ -39,7 +40,7 @@
 # caller, nor a file as its own path consumer.
 #
 # CONTAINMENT. The bundle directory must sit strictly inside <repo>/.claude/,
-# judged on the physical path, and must not be a symlink; an existing
+# judged on the physical path, and neither it nor .claude may be a symlink; an existing
 # directory there is replaced only when it is a bundle (its MANIFEST says so).
 # The bundle is staged beside it and swapped in whole. A changed path that git
 # quotes, is absolute, or holds a `..` component is not written and is noted
@@ -70,6 +71,10 @@ set -eu
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# Changed paths come from the branch: as pathspecs they must match only
+# themselves, never as `:(glob)` or other magic.
+GIT_LITERAL_PATHSPECS=1
+export GIT_LITERAL_PATHSPECS
 
 prog=review-handoff
 TAB=$(printf '\t')
@@ -191,6 +196,8 @@ fi
 
 mkdir -p "$top/.claude" 2>/dev/null || die 2 "cannot create $top/.claude"
 claude=$(cd "$top/.claude" && pwd -P)
+[ "$claude" = "$(cd "$top" && pwd -P)/.claude" ] \
+  || die 2 "$top/.claude is a symlink or resolves outside the repository; refusing to write through it"
 [ -n "$out" ] || out=.claude/review-handoff
 case $out in /*) ;; *) out=$top/$out ;; esac
 out=${out%/}
@@ -426,9 +433,11 @@ while IFS="$TAB" read -r sym kind owns; do
       text = substr(line, RSTART + RLENGTH)
       if (kind == "path" && (path in own)) next
       if (kind == "function" && ((path SUBSEP num) in isdef)) next
-      gsub(/\r/, "", text)
+      gsub(/[^[:print:]]/, "", text)
+      shown = path
+      gsub(/[^[:print:]]/, "", shown)
       total++
-      if (total <= max) printf "%s\t%s\t%s:%s\t%s\n", sym, kind, path, num, substr(text, 1, 200)
+      if (total <= max) printf "%s\t%s\t%s:%s\t%s\n", sym, kind, shown, num, substr(text, 1, 200)
     }
     END { if (total > max) printf "truncated\t%s\t%d\n", sym, total >> report }' "$stage/.grep" >>"$stage/callers.tsv"
 done <"$stage/.symbol-set"
