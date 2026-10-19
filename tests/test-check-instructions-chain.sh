@@ -162,6 +162,9 @@ assert_contains "REQ-G1.2: the chain error names the chain and the knob value" \
   "chain closure over budget: polish+self-review (1516 words >= 1516)" "$out"
 assert_absent "REQ-G1.2: neither member's own closure is in error" \
   "ERROR: closure over budget" "$out"
+out="$(/bin/bash "$CHECKER" --root "$t20b" --audit 2>&1)"
+assert_contains "REQ-G1.2: an over-budget chain is on the audit's offender shortlist" \
+  "chain polish+self-review (1516 words >= 1516 chain budget) [unsuppressed]" "$out"
 
 # 20c. REQ-G1.2: the chain's headroom is floored like a closure, and a
 #      declared-exception on the chain surface excuses its below-target warning.

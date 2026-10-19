@@ -1368,6 +1368,7 @@ if [ "$chain_present" -eq 1 ]; then
     if [ "$chain_closure" -ge "$t_chain_error" ]; then
       chain_state=ERROR
       err "chain closure over budget: $chain_label ($chain_closure words >= $t_chain_error)"
+      printf 'chain\t%s\t%s\t%s\t%s\t%s\n' "$chain_label" "$chain_closure" "$t_chain_error" "unsuppressed" "none" >>"$shortlist"
     else
       chain_state=ok
     fi
