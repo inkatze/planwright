@@ -8,12 +8,13 @@
 # effect, so that narrow window is re-drafted too.
 #
 # Usage:
-#   request-reviewer.sh --repo <owner/repo> --pr <n> (--copilot | --reviewer <login>)
+#   request-reviewer.sh --repo <owner/repo> --pr <n> (--copilot | --reviewer <app>[bot])
 #       [--spec <dir> --task <id>...]
 #
 #   --copilot   request Copilot through `gh pr edit --add-reviewer @copilot`
-#   --reviewer  request <login> through the REST requested_reviewers endpoint
-#               (an App's login in its `name[bot]` form)
+#   --reviewer  request a bot through the REST requested_reviewers endpoint,
+#               by its App login in the `name[bot]` form
+#   --repo      the repository this checkout's origin names, and no other
 #   --spec, --task  the unit the PR belongs to, as scripts/ready-flip.sh takes
 #               them; given, a failed re-draft parks it
 #
@@ -34,9 +35,10 @@
 # so a host change is caught.
 #
 # Exit: 0 requested, the draft state held or restored; 1 the request failed,
-# the draft state held or restored; 2 usage, or a broken install; 3 skipped,
-# no request made; 4 the re-draft failed and the unit is parked; 5 the re-draft
-# failed and the park did not complete (the output names why).
+# the draft state held or restored; 2 usage, a repository other than origin's
+# or a reviewer that is not a bot, or a broken install; 3 skipped, no request
+# made; 4 the re-draft failed and the unit is parked; 5 the re-draft failed
+# and the park did not complete (the output names why).
 #
 # No model in the decision path: every step is a comparison.
 set -u
@@ -55,7 +57,7 @@ fi
 say() { printf 'request-reviewer: %s\n' "$*"; }
 usage() {
   printf 'request-reviewer: %s\n' "$1" >&2
-  echo 'usage: request-reviewer.sh --repo <owner/repo> --pr <n> (--copilot | --reviewer <login>) [--spec <dir> --task <id>...]' >&2
+  echo 'usage: request-reviewer.sh --repo <owner/repo> --pr <n> (--copilot | --reviewer <app>[bot]) [--spec <dir> --task <id>...]' >&2
   exit 2
 }
 
@@ -85,8 +87,18 @@ done
 if [ "$COPILOT" = 1 ]; then
   [ -z "$REVIEWER" ] || usage '--copilot and --reviewer are exclusive'
 else
-  [[ $REVIEWER =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}(\[bot\])?$ ]] || usage 'name the reviewer: --copilot, or --reviewer <login>'
+  [[ $REVIEWER =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}\[bot\]$ ]] \
+    || usage 'name a bot reviewer: --copilot, or --reviewer <app>[bot]; a person is requested by hand'
 fi
+# The command guards run this helper unprompted, so it reaches only the
+# repository this checkout's origin names; any other is requested by hand.
+origin=$(git config --get remote.origin.url 2>/dev/null) || origin=''
+origin=${origin%/}
+origin=${origin%.git}
+own=$(printf '%s' "$origin" | sed -E 's#^.*[:/]([^:/]+/[^:/]+)$#\1#' | tr '[:upper:]' '[:lower:]')
+lower=$(printf '%s' "$REPO" | tr '[:upper:]' '[:lower:]')
+[ -n "$origin" ] && [ "$own" = "$lower" ] \
+  || usage "--repo must be the repository this checkout's origin names"
 UNIT=()
 for id in "${IDS[@]+"${IDS[@]}"}"; do
   [[ $id =~ ^[0-9]+(\.[0-9]+)?$ ]] || usage "task id '$(sanitize_printable "$id" '?')' is malformed"
