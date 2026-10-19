@@ -427,7 +427,8 @@ real_ls=$(command -v ls)
 cat >"$shim/ls" <<EOF
 #!/bin/sh
 if [ -f "$swap9" ]; then
-  case \$(ps -o args= -p "\$PPID" 2>/dev/null) in
+  # procfs where ps has no -p (busybox)
+  case \$({ ps -o args= -p "\$PPID" || tr '\\000' ' ' <"/proc/\$PPID/cmdline"; } 2>/dev/null) in
     *tower-loop-comms.sh*)
       for a in "\$@"; do
         case \$a in

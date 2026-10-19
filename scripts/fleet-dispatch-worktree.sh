@@ -30,13 +30,16 @@
 #      remain-on-exit off for its window:
 #        tmux new-session -d -s <session> -c <physical worktree> \
 #          -P -F '#{session_name}<TAB>#{window_id}' -- fleet-dispatch-env.sh \
-#          <wrapper options> <absolute claude> <launch args> [-- <prompt>] \
-#          ';' set-window-option -t '=<session>:' remain-on-exit off
+#          <wrapper options> <absolute claude> --name <handle> \
+#          --settings <root>/config/worker-settings.json <launch args> \
+#          [-- <prompt>] ';' set-window-option -t '=<session>:' remain-on-exit off
 #      and return once the session exists, never waiting on the worker and
 #      never moving a tmux client. The launch runs ONLY if step 1 exited zero.
 #      The worker runs THROUGH scripts/fleet-dispatch-env.sh inside the
 #      session, so the ghost-text pin, the dispatcher's root and fleet home,
-#      the worker identity, a per-launch token, and the spec root outside the
+#      the worker identity, the messaging inbound layer
+#      (PLANWRIGHT_MESSAGING_INBOUND=accept, read beside the --settings
+#      profile), a per-launch token, and the spec root outside the
 #      work repository its guard admits as a write zone (worker-spec-root.sh)
 #      reach the worker itself whatever the tmux server's environment holds. The registry record is
 #      written once, after the session exists (even when new-session itself
@@ -230,8 +233,11 @@
 #   11 the start directory is missing or is not the placed worktree; this
 #      run's creations are undone.
 #   12 the env wrapper is not executable or its --check refused the launch
-#      options, a launch token could not be minted, or the dispatcher's
-#      planwright root or fleet home could not be resolved.
+#      options, a launch token could not be minted, the dispatcher's
+#      planwright root or fleet home could not be resolved, the worker
+#      settings profile under that root cannot be read (named on stderr; a
+#      dry run is refused the same way), or the worktree yields no worker
+#      handle or scope to name the session and export as its identity.
 #   13 new-session failed for a reason other than a lost race, or did not
 #      return within the tmux call bound, and no session can be confirmed to
 #      hold the name; or the launch could not get a scratch directory. This
@@ -1063,6 +1069,18 @@ launch_roots() {
   [ -z "${1:-}" ] || LAUNCH_SPEC_ROOT=$(/bin/sh "$script_dir/worker-spec-root.sh" "$1" 2>/dev/null </dev/null) || LAUNCH_SPEC_ROOT=''
 }
 
+# resolve_launch_profile — set LAUNCH_PROFILE to the worker settings profile
+# under LAUNCH_ROOT (the root chain's when that is empty), or fail with the
+# profile named on stderr: a worker launched without it would run under the
+# operator's own settings (fleet-messaging D-19, obs:eea622de).
+LAUNCH_PROFILE=''
+resolve_launch_profile() {
+  set -- worker
+  [ -z "$LAUNCH_ROOT" ] || set -- worker --root "$LAUNCH_ROOT"
+  LAUNCH_PROFILE=$(/bin/sh "$script_dir/fleet-launch-profile.sh" "$@" </dev/null) || LAUNCH_PROFILE=""
+  [ -n "$LAUNCH_PROFILE" ]
+}
+
 # print_plan <suffix> <worktree> <handle> <scope> [<extra launch args>...] —
 # the launch plan, for a dry run: no tmux call, no `claude` exec, no
 # model/API call. Every token is sanitized: a validated `--model` VALUE can
@@ -1076,6 +1094,13 @@ print_plan() {
   pp_session=$(worker_session "$pp_suffix")
   pp_claude=$(command -v claude 2>/dev/null) || pp_claude=claude
   launch_roots "${_repo_root:-${_aroot:-}}"
+  resolve_launch_profile || exit 12
+  # A plan with no identity would be refused at launch; refuse it before a
+  # word of it is printed (the bare legacy `task-<id>` suffix names no spec).
+  if [ -z "$pp_handle" ] || [ -z "$pp_scope" ]; then
+    warn "refusing the plan: $pp_suffix yields no worker handle or scope (PLANWRIGHT_WORKER_HANDLE, PLANWRIGHT_WORKER_SCOPE) to name the session after"
+    exit 12
+  fi
   printf 'attach-plan\tsuffix\t%s\n' "$(sanitize_printable "$pp_suffix")"
   printf 'attach-plan\tsession\t%s\n' "$(sanitize_printable "$pp_session")"
   printf 'attach-plan\tlaunch'
@@ -1102,7 +1127,25 @@ tmux_launch() {
   tl_scope=$6
   tl_token=$7
   shift 7
+  # A worker with no identity could neither be addressed nor register itself,
+  # and its hooks would write no attention rows; refuse rather than launch one.
+  if [ -z "$tl_handle" ] || [ -z "$tl_scope" ]; then
+    [ -n "$tl_handle" ] || warn "refusing the tmux rung: cannot derive the worker handle (PLANWRIGHT_WORKER_HANDLE) for this worktree"
+    [ -n "$tl_scope" ] || warn "refusing the tmux rung: cannot derive the worker scope (PLANWRIGHT_WORKER_SCOPE) for this worktree"
+    exit 12
+  fi
+  if ! /bin/sh "$script_dir/orchestrate-relay.sh" validate-handle tmux "$tl_handle" 2>/dev/null; then
+    warn "refusing the tmux rung: the session name $tl_handle fails the tmux handle grammar"
+    exit 12
+  fi
+  # The session is named after the registry handle, and the worker profile
+  # rides --settings with the inbound layer the messaging probe reads beside it
+  # (fleet-messaging D-8, D-17, D-19).
+  tl_cli=$1
+  shift
+  set -- "$tl_cli" --name "$tl_handle" --settings "$LAUNCH_PROFILE" "$@"
   [ -z "$ATTACH_PROMPT" ] || set -- "$@" -- "$ATTACH_PROMPT"
+  set -- --inbound accept "$@"
   [ -z "$LAUNCH_SPEC_ROOT" ] || set -- --spec-root "$LAUNCH_SPEC_ROOT" "$@"
   [ -z "$LAUNCH_HOME" ] || set -- --fleet-home "$LAUNCH_HOME" "$@"
   [ -z "$LAUNCH_ROOT" ] || set -- --root "$LAUNCH_ROOT" "$@"
@@ -1442,11 +1485,18 @@ do_dispatch() {
         exit 12
         ;;
     esac
+    resolve_launch_profile || exit 12
     if ! tmux_launch check "$TMUX_BIN" "$_session" "$_worktree" "$_handle" "$_scope" \
       "$_token" "$WORKER_CLI" "$@"; then
       warn "refusing the tmux rung: the dispatch environment wrapper refused the launch options; nothing was placed"
       exit 12
     fi
+  fi
+  # A dry run prints the profile it would pass, so it is held to the same
+  # refusal before anything is placed.
+  if [ "$_tmux_rung" -eq 1 ] && [ "$_attach_dry" -eq 1 ]; then
+    launch_roots "$_repo_root"
+    resolve_launch_profile || exit 12
   fi
 
   _made_branch=0

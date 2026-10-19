@@ -3,7 +3,7 @@
 # runtime exception (Task 4 of specs/kickoff-lifecycle; REQ-D1.2, REQ-D1.3,
 # REQ-D1.5, D-6, D-7). On clean completion /spec-kickoff marks the *spec* PR
 # ready as its terminal step, after any configured verification (the
-# review_sequence-class mechanism, D-7) has converged; it leaves the PR draft
+# pre-spec-ready-flip point, D-7) has passed; it leaves the PR draft
 # when sign-off parked on a fork, when verification did not converge, or when the
 # mark_spec_pr_ready_on_kickoff opt-out is set; a flip failure degrades to
 # Awaiting input; and the merge stays the human's under merge_policy. The
@@ -21,7 +21,7 @@
 #
 # Asserted properties:
 #   - the skill marks the spec PR ready as the terminal step on clean completion
-#     (REQ-D1.2), tied to the configurable review_sequence verification, not a
+#     (REQ-D1.2), tied to the configurable pre-spec-ready-flip point, not a
 #     hardcoded gauntlet (REQ-D1.5, D-7);
 #   - only the spec PR is readied and task PRs follow ready_flip_policy
 #     (REQ-D1.3, as human-gates REQ-C1.1 supersedes it), gated by the
@@ -87,15 +87,15 @@ else
   fail "skill does not name the spec-PR ready-flip as a terminal step (REQ-D1.2)"
 fi
 
-# REQ-D1.5 / D-7: the pre-flip verification is the configurable review_sequence
-# mechanism, not a hardcoded gauntlet.
+# REQ-D1.5 / D-7: the pre-flip verification is the configurable flip point
+# (custom-steps REQ-A1.2), not a hardcoded gauntlet.
 # shellcheck disable=SC2016 # the backticks are literal markdown, not expansion
-if printf '%s' "$flat" | grep -qE 'configurable `review_sequence`-class mechanism'; then
-  ok "verification is the configurable review_sequence-class mechanism (REQ-D1.5, D-7)"
+if printf '%s' "$flat" | grep -qE '[Cc]onfigured verification is the `pre-spec-ready-flip` point'; then
+  ok "verification is the configurable pre-spec-ready-flip point (REQ-D1.5, D-7)"
 else
-  fail "skill does not express the pre-flip verification as the review_sequence-class mechanism (REQ-D1.5)"
+  fail "skill does not express the pre-flip verification as the pre-spec-ready-flip point (REQ-D1.5)"
 fi
-if printf '%s' "$flat" | grep -qE 'not a hardcoded\*\* core step'; then
+if printf '%s' "$flat" | grep -qE 'not a hardcoded core step'; then
   ok "the verification is explicitly not a hardcoded core step (REQ-D1.5, D-7)"
 else
   fail "skill does not state the verification is not hardcoded (REQ-D1.5)"
@@ -284,6 +284,15 @@ if printf '%s' "$doc_flat" | grep -qE 'neutral failure class only'; then
   ok "the Awaiting-input entry names only the neutral failure class (REQ-B1.1, D-3 hygiene)"
 else
   fail "the gate doc does not restrict to the neutral failure class (REQ-B1.1)"
+fi
+
+# custom-steps REQ-E1.6: the flip points' own statuses never count toward the
+# positive-green judgement, excluded by context name.
+# shellcheck disable=SC2016 # the backticks are literal markdown, not expansion
+if printf '%s' "$doc_flat" | grep -qE 'excluding the `planwright/pre-ready-flip` and `planwright/pre-spec-ready-flip` contexts by name'; then
+  ok "the positive-green judgement excludes the flip-point contexts by name (custom-steps REQ-E1.6)"
+else
+  fail "the gate doc does not exclude the flip-point contexts from its positive-green judgement (custom-steps REQ-E1.6)"
 fi
 
 # REQ-B1.1: the gate skips cleanly when the upstream no-remote/no-PR arm fired.

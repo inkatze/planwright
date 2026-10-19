@@ -193,6 +193,45 @@ out=$(run "$checkout" '{"source":"resume","session_id":"x"}') \
 [ -z "$out" ] || fail "a non-startup source must stay silent, got '$out'"
 echo "ok: a non-startup source stays silent"
 
+# --- marker arity and the session name (fleet-messaging Task 4) --------------
+# The signpost parses rows of seven fields (before the name) and eight, reading
+# the name by its position and naming it; a nine-field row, and an eight-field
+# row whose name fails the screen, are skipped silently.
+canon=$(cd "$checkout" && pwd -P)
+mrow() { printf 'my-spec\tinteractive\t%s\t%s\t-\t%s\t100%s\n' "$dead_pid" "$uuid" "$canon" "$1" >"$home/towers/my-spec"; }
+mrow ""
+out=$(run "$checkout" 2>/dev/null) || fail "seven-field marker: exit non-zero"
+case "$out" in
+  *"claude --resume $uuid"*) ;;
+  *) fail "a seven-field marker must still be signposted, got '$out'" ;;
+esac
+case "$out" in
+  *"session name"*) fail "a seven-field marker has no name to surface, got '$out'" ;;
+esac
+mrow "$(printf '\tplanwright tower (demo)')"
+out=$(run "$checkout" 2>/dev/null) || fail "eight-field marker: exit non-zero"
+case "$out" in
+  *"claude --resume $uuid"*"session name was planwright tower (demo)."*) ;;
+  *) fail "an eight-field marker must surface its field-8 name, got '$out'" ;;
+esac
+mrow "$(printf '\t-')"
+out=$(run "$checkout" 2>/dev/null) || fail "eight-field unnamed marker: exit non-zero"
+case "$out" in
+  *"claude --resume $uuid"*) ;;
+  *) fail "an eight-field marker with the name sentinel must be signposted, got '$out'" ;;
+esac
+case "$out" in
+  *"session name"*) fail "the name sentinel must not be surfaced as a name, got '$out'" ;;
+esac
+mrow "$(printf '\tn8\textra')"
+out=$(run "$checkout" 2>/dev/null) || fail "nine-field marker: exit non-zero"
+[ -z "$out" ] || fail "a nine-field marker must be skipped silently, got '$out'"
+mrow "$(printf '\ta/b')"
+out=$(run "$checkout" 2>/dev/null) || fail "hostile-name marker: exit non-zero"
+[ -z "$out" ] || fail "a marker whose name fails the screen must be skipped, got '$out'"
+rm -f "$home/towers/my-spec"
+echo "ok: seven- and eight-field markers parse by position; nine fields and a hostile name are skipped"
+
 # --- hook safety: an unresolvable home is a silent no-op ----------------------
 
 : >"$tmp/blockfile"

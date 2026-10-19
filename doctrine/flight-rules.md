@@ -130,7 +130,9 @@ those, never a scraped pane:
   flight. A route carries the `ask_seq` it answers, `route`, `trigger`,
   `grounds`, `override`, `crossed`, `reservation`, and the `statement` as said;
   a dispatch its `target` and the `on_seq` of the operator turn that authorized
-  it (for a flight flown on a reply to its one-page case, that reply).
+  it (for a flight flown on a reply to its one-page case, that reply); a
+  flight's dispatch also its `slug` and its `summary`, the public summary
+  handed to dispatch or null (D-20).
 - **The run record**, `sign-off.json` (the harness's completion marker names
   the file): eval-only, non-authoritative, unpublished, and a sign-off of
   nothing (REQ-G1.2) — the routes, dispatches, and refusals, and that no

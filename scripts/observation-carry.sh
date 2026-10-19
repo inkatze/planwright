@@ -33,12 +33,22 @@
 #
 # Usage: observation-carry.sh [options] <repo-root>
 #   <repo-root>          the checkout whose current branch (HEAD) carries the
-#                        tower observation fragments to carry.
+#                        tower observation fragments to carry. When the default
+#                        store is a holder's (separate-repo, below), the carry
+#                        runs in the holder instead: HEAD, --source, --base,
+#                        --branch, the lock, and the PR are all the holder's,
+#                        and only fragments committed there are carried.
 #   --branch <name>      chore branch name (default planwright/chore/observations).
 #   --base <ref>         base ref the carry lands toward (default origin/main).
 #   --source <ref>       ref whose fragments are carried (default HEAD).
-#   --obs-dir <rel>      observations dir under the repo (default
-#                        specs/_observations); its entries/ subdir holds fragments.
+#   --obs-dir <rel>      observations dir under the repo; its entries/ subdir
+#                        holds fragments. Default: _observations under the spec
+#                        root scripts/resolve-root.sh spec resolves from
+#                        <repo-root>, by its posture (custom-spec-location D-17):
+#                        same-repo carries in <repo-root>; separate-repo carries
+#                        in the holder, whose chore branch, lock, and PR the
+#                        carry then uses; plain has no git to carry through, so
+#                        the carry is a no-op that says so on stderr.
 #   --dry-run            compute + report the stranded set; push nothing, open no PR.
 #
 # Output — a tagged TSV stream on stdout (consumers switch on column 1):
@@ -57,7 +67,8 @@
 #
 # Environment overrides (tests, worktree callers):
 #   PLANWRIGHT_OBSERVATION_CARRY_STATE_DIR  dir holding the advisory lock
-#       (default <repo>/.claude/orchestrate.local, gitignored by `.claude/*.local/`).
+#       (default <repo>/.claude/orchestrate.local, gitignored by `.claude/*.local/`
+#       in planwright's own repositories; a holder ignores it only if told to).
 #
 # Portable POSIX sh + git + gh (bash 3.2 / BSD compatible, no eval; all external
 # input is treated as data). Pathname expansion is disabled (set -f).
@@ -67,6 +78,12 @@ export LC_ALL
 unset CDPATH
 
 TAB=$(printf '\t')
+
+# The carry addresses each repository by its path. An inherited GIT_DIR or its
+# kin (a hook exports them) would redirect every git call, discovery included,
+# to whichever repository the caller's environment names.
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+  GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 script_dir=$(cd -- "$(dirname -- "$0")" && pwd) || exit 2
 if [ -f "$script_dir/echo-safety.sh" ] && [ -r "$script_dir/echo-safety.sh" ]; then
@@ -94,7 +111,8 @@ usage() {
 branch="planwright/chore/observations"
 base_ref="origin/main"
 source_ref="HEAD"
-obs_dir="specs/_observations"
+obs_dir=""
+have_obs_dir=0
 dry_run=0
 repo_root=""
 
@@ -143,10 +161,12 @@ while [ $# -gt 0 ]; do
     --obs-dir)
       [ $# -ge 2 ] || usage
       obs_dir="$2"
+      have_obs_dir=1
       shift 2
       ;;
     --obs-dir=*)
       obs_dir="${1#--obs-dir=}"
+      have_obs_dir=1
       shift
       ;;
     --dry-run)
@@ -189,13 +209,14 @@ valid_ref "$source_ref" || {
   exit 2
 }
 # The obs-dir must be a plain repo-relative path (no traversal / absolute).
-case "$obs_dir" in
-  '' | /* | *..*)
-    printf '%s\n' "observation-carry: invalid --obs-dir '$(sanitize_printable "$obs_dir")'" >&2
-    exit 2
-    ;;
-esac
-entries_dir="$obs_dir/entries"
+if [ "$have_obs_dir" -eq 1 ]; then
+  case "$obs_dir" in
+    '' | /* | *..*)
+      printf '%s\n' "observation-carry: invalid --obs-dir '$(sanitize_printable "$obs_dir")'" >&2
+      exit 2
+      ;;
+  esac
+fi
 
 # Repo-root must be inside a git work tree; resolve its top so refs/paths are
 # unambiguous regardless of the caller's cwd.
@@ -205,6 +226,47 @@ if [ -z "$repo_top" ]; then
   exit 2
 fi
 repo_root=$repo_top
+
+# With no --obs-dir the store is the spec root's, and so is the repository the
+# carry runs in: a holder's fragments are carried on the holder's branches.
+if [ "$have_obs_dir" -eq 0 ]; then
+  sr_line=$(cd -- "$repo_root" && /bin/sh "$script_dir/resolve-root.sh" --explain spec) || {
+    printf '%s\n' "observation-carry: the spec root did not resolve from '$(sanitize_printable "$repo_root")', so the observations directory has no default" >&2
+    exit 2
+  }
+  sr_rest=${sr_line#*"$TAB"}
+  sr_path=${sr_rest%%"$TAB"*}
+  sr_rest=${sr_rest#*"$TAB"}
+  sr_posture=${sr_rest%%"$TAB"*}
+  case $sr_posture in
+    plain)
+      printf '%s\n' "observation-carry: the spec root is a plain directory outside any git repository; the carry is a git mechanism, so it has nothing to do" >&2
+      printf 'carry%snoop\n' "$TAB"
+      printf 'stranded%s0\n' "$TAB"
+      exit 0
+      ;;
+    separate-repo)
+      repo_root=$(cd -- "$sr_path" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || {
+        printf '%s\n' "observation-carry: the holder of the spec root '$(sanitize_printable "$sr_path")' is not a git work tree" >&2
+        exit 2
+      }
+      ;;
+    same-repo) ;;
+    *)
+      printf '%s\n' "observation-carry: unexpected spec root posture '$(sanitize_printable "$sr_posture")'" >&2
+      exit 2
+      ;;
+  esac
+  case $sr_path in
+    "$repo_root") obs_dir=_observations ;;
+    "$repo_root"/*) obs_dir=${sr_path#"$repo_root"/}/_observations ;;
+    *)
+      printf '%s\n' "observation-carry: the spec root '$(sanitize_printable "$sr_path")' is not inside '$(sanitize_printable "$repo_root")'" >&2
+      exit 2
+      ;;
+  esac
+fi
+entries_dir="$obs_dir/entries"
 
 g() { git -C "$repo_root" "$@"; }
 
@@ -288,7 +350,13 @@ compute_stranded() {
     exit 2
   }
   printf '%s\n%s\n' "$_main_list" "$_chore_list" | grep -v '^$' | LC_ALL=C sort -u >"$_bf" || true
-  stranded=$(printf '%s\n' "$src_list" | grep -v '^$' | grep -Fxv -f "$_bf" 2>/dev/null || true)
+  # An empty pattern file must filter nothing, but busybox grep reads it as
+  # matching every line, so the filter runs only when there is a baseline.
+  if [ -s "$_bf" ]; then
+    stranded=$(printf '%s\n' "$src_list" | grep -v '^$' | grep -Fxv -f "$_bf" 2>/dev/null || true)
+  else
+    stranded=$src_list
+  fi
   rm -f -- "$_bf" 2>/dev/null || true
   stranded=$(printf '%s\n' "$stranded" | grep -v '^$' || true)
   stranded_count=$(printf '%s\n' "$stranded" | grep -c . || true)

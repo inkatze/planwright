@@ -364,8 +364,6 @@ replays the backtest rows in the classes it targets before it lands (D-9).
 
 ## Awaiting input
 
-(none yet)
-
 ## Deferred
 
 - **The private reviewer's design lessons.** A private reviewer the

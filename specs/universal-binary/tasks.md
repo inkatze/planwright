@@ -536,7 +536,7 @@
 
 ## Awaiting input
 
-(none yet)
+Task 4: no floor-forbidden failures.
 
 ## Deferred
 

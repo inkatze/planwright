@@ -1,0 +1,1 @@
+- 2026-10-18 [planwright] custom-steps says an unusable pool runs the step unpooled with one recorded warning naming the cause, but step-record.sh write --full-suite has no warning or excerpt field, so full-suite-run.sh can only record wait-outcome unpooled and print the cause on stderr; a failed take writes no full-suite record at all (found reviewing custom-steps Task 14)

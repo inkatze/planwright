@@ -231,7 +231,7 @@ to a log the harness provides, outside the repository, so it touches neither.
 - **Contract** (`doctrine/human-gates.md`): **never** push, open or update a
   PR, or merge.
 - **Never** edit `tasks.md`, the brief, or any spec bundle file. The
-  observations fragment store under `specs/_observations/` is the carved-out
+  observations fragment store under the spec root's `_observations/` is the carved-out
   drift-log exception above, not a spec file. State moves belong to
   `/orchestrate` and `/execute-task`, not to a context loader.
 - **Never** hard-fail opaquely on a missing prerequisite: outside a git repo,

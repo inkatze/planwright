@@ -1,0 +1,1 @@
+- 2026-10-19 [planwright] universal-binary Task 4 review: worker-command-guard loop_fits finds the loop body end by counting unquoted do/done words, so an argument spelled do (echo do) over-charges the loop and can defer a small one. Fails closed (a false defer, never an allow).

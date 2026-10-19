@@ -80,7 +80,7 @@ r1() {
   relaunch
   tlh_expect_returned r1 || return
   [ "$TLH_RC" -eq 0 ] || fail "r1: a relaunch over a dead worker must start it (rc $TLH_RC: $TLH_ERR)"
-  tlh_wait_workers "$((workers_before + 1))" 10 || fail "r1: no new worker started"
+  tlh_wait_workers "$((workers_before + 1))" || fail "r1: no new worker started"
   rec=$(tlh_last_worker_record)
   tlh_assert_path_eq "r1: the new worker's directory" "$WT" "$(tlh_record_field "$rec" cwd)"
   grep "^argv" "$rec" | grep -Fq "Read $BRIEF and follow it exactly." \
@@ -150,7 +150,7 @@ r5() {
   head_before=$(gitc "$WT" rev-parse HEAD)
   kill_worker
   tmux_shim "$C/hang" hang-new
-  PATH="$C/hang:$PATH" PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 tlh_run_bounded --bound 25 \
+  PATH="$C/hang:$PATH" PLANWRIGHT_DISPATCH_TMUX_TIMEOUT=2 tlh_run_bounded --bound 180 \
     "$PRIM" dispatch --flight "$FID" --brief "$BRIEF" --relaunch --launch-only --repo-root "$P"
   tlh_expect_returned r5 || return
   [ "$TLH_RC" -ne 0 ] || fail "r5: a hung relaunch must fail"

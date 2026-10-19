@@ -296,7 +296,7 @@ The out-of-session drain pass. Dispatches nothing; it:
    interpreting the lanes.
 3. **Surfaces observation staleness**: report the accumulator's unmined count and
    oldest-entry age as the evaluator derives them — live fragments under
-   `specs/_observations/entries/` plus the frozen legacy file's unconsumed lines,
+   `<root>/_observations/entries/` plus the frozen legacy file's unconsumed lines,
    naming both, flagging stuck consumes and skipped invalid fragments.
 4. **Reports a pending release** (autopilot-reflex REQ-F1.2, D-7, D-8): runs
    `scripts/release-bookkeeping.sh` over the shared comparator (`release-pending.sh`,
@@ -307,7 +307,8 @@ The out-of-session drain pass. Dispatches nothing; it:
    pass.
 5. **Carries stranded tower observations toward `main`** (fleet-hardening D-9,
    REQ-D1.3): runs `scripts/observation-carry.sh <repo-root>` in the tower's
-   checkout — pushes the current `HEAD` (tower-branch) observation fragments absent
+   checkout (in the holder when the spec root sits in one, and a no-op on a
+   plain root) — pushes the current `HEAD` (tower-branch) observation fragments absent
    from `origin/main` onto ONE chore branch (`planwright/chore/observations`) and
    opens or reuses ONE **draft** chore PR, so learnings are not stranded unpushed.
    Idempotent (deduped against `origin/main` and the chore branch — a repeat opens

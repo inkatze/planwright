@@ -1,14 +1,14 @@
 # Getting started with planwright
 
-This guide takes a non-author from a clean machine to operating planwright's
-**pilot-in-command** model: install it, confirm it resolves its own rule docs,
-understand the controls you keep, and supply your project's own tooling and
-rigor without editing planwright's core.
+This guide takes a newcomer from a clean machine to a first draft pull
+request: install planwright, start `/tower`, bring it a request, and review
+what lands, then supply your project's own tooling and rigor without editing
+planwright's core.
 
 If you read only one thing: planwright is an **autopilot**, not a replacement
-crew. It flies a spec once you have signed it off, and it stops at the controls
-that are yours — **sign-off** and **merge**. How well it flies is bounded by
-how good the spec is.
+crew. You say what you want to the tower, it chooses how carefully the work
+flies and tells you why, and it stops at the controls that are yours. Merging
+is always one of them.
 
 ## 1. Install
 
@@ -94,14 +94,13 @@ core doctrine beside its own script. See
 
 The `review_sequence` config key is gone: rename it to `steps_convergence`
 in every layer that sets it, keeping the value as an inline flow list
-(`[polish]`, not a bare `polish`, and no empty entries). A visual flight
-converges through that list now, and `/execute-task` does once it is wired
-to the step resolver. Its ids name entries in the `steps` catalog; the core
-catalog seeds `polish` and `self-review` with `--nested`, so a list naming
-them runs what it ran before. A layer still setting the old key is ignored,
-with a warning naming the layer on every resolution. The new
-list also admits steps planwright does not ship (your own review commands,
-shell commands, prompts), declared in an overlay catalog; see
+(`[polish]`, not a bare `polish`, and no empty entries). Both specless work
+and spec tasks converge through that list. Its ids name entries in the
+`steps` catalog; the core catalog seeds `polish` and `self-review` with
+`--nested`, so a list naming them runs what it ran before. A layer still
+setting the old key is ignored, with a warning naming the layer on every
+resolution. The new list also admits steps planwright does not ship (your
+own review commands, shell commands, prompts), declared in an overlay catalog; see
 [overlays §8](overlays.md#8-worked-example-b--custom-steps-a-runnable-style-overlay).
 
 #### One-time: re-anchor bundles signed before the anchor-scope change
@@ -157,80 +156,80 @@ So you can run the comprehension and execution phases offline; only the
 PR-creation tail needs `gh`. Authenticate with `gh auth login` when you are
 ready to push and open draft PRs.
 
-## 3. Operating the pilot-in-command model
+## 3. Start with the tower
 
-Two human gates frame every run, at every tier; the rest of the list is in
-[Human Gates](../doctrine/human-gates.md). Everything between them the
-framework handles once a spec is signed off.
+Open Claude Code in your repository and type `/tower`. It is a standing
+conversation: keep it open and bring it each request in your own words, the
+way you would brief a colleague.
 
-- **Sign-off (before execution).** A spec executes only after you walk it
-  section by section at kickoff and sign the resulting brief. No sign-off, no
-  execution — there is no bypass flag.
-- **Merge (after execution).** You authorize every merge. No agent merges
-  outside the `merge_policy` you configured (default `human`: you merge by
-  hand), and no value lets an agent merge a PR that carries a sign-off item
-  ([the floor](../doctrine/human-gates.md#the-floor)). Your merge (under
-  `on-approval`, enabling auto-merge) is also the sign-off of any pending
-  item; marking a PR ready approves nothing.
+The first time, the tower checks that it runs under its own permission
+profile, the guardrails that keep it from merging or rewriting history. If they
+are missing, it says so once and names the step that wires them; until you take
+it, or tell the tower to go ahead without them, it keeps answering questions
+and starts no change.
 
-Between those, the intervention contract has three phases: **sign-off before**
-execution, **rare hard pauses during** it (security-sensitive zones,
-destructive operations, irreducible judgment forks), and **PR review plus
-merge after**. Everything the agent applied on a branch is one revert from
-undone until you merge.
+What happens next depends on the ask.
 
-### The pipeline, end to end
+- **A question** is answered in the conversation. One that needs a large look,
+  such as reading a whole subsystem, is handed to a helper, and the answer
+  comes back to you.
+- **A change** takes a route. The tower picks one of two flight rules for each
+  request and states it with its grounds in one line, for example *"visual
+  flight: a one-line copy fix, one revert from undone"*. The names are the
+  aviation analogy: visual rules when conditions are clear enough to fly by
+  what you can see, instrument rules when you file a plan and trust the gauges.
+  - **Visual flight** is clear, reversible work with no spec. An isolated agent
+    makes the change, runs the project's checks, reviews its own work until it
+    converges, and lands it with an audit record: what you asked, what it heard,
+    what changed, and how it was verified. The record lives in a draft pull
+    request once you allow flights to push to your host, and stays local until
+    then; the tower tells you which before the flight leaves.
+  - **Instrument flight** is risky or unclear work: security-sensitive code,
+    anything not one revert from undone, or an ask without a clear "done when".
+    The tower first makes a one-page case for writing a spec, alternatives
+    included. On your yes it starts drafting one with your ask as the seed; you
+    walk the draft with `/spec-kickoff` and sign it off. After sign-off, tell
+    the tower to go, and the work is built task by task, each task landing as
+    its own draft pull request.
+- **Disagree with a route?** One sentence moves it either way (*"just do it"*,
+  *"this needs a spec"*). The tower states any reservation in one line and
+  complies; no override reaches the controls in the next section.
+- **Ask for status** whenever you like (*"what's in flight?"*). The tower
+  answers from what is recorded, decisions waiting on you first.
 
-You drive these in order; planwright does the work between your two controls:
+Then you review. Each draft pull request explains itself and lists anything it
+needs you to approve; merge it when you are satisfied. You can also skip the
+tower for spec work: `/spec-draft <feature>` drafts a spec directly,
+`/spec-walkthrough <spec-path>` renders one as a plain-language read, and
+`/drain` reviews the decisions deferred across specs. What runs underneath,
+and how to drive it by hand, is in [Architecture](architecture.md).
 
-1. **`/spec-draft <feature>`** — elicit the four-file spec bundle
-   (`requirements.md`, `design.md`, `tasks.md`, `test-spec.md`) at Status
-   `Draft`. Never commits a flip to Ready.
-2. **`/spec-kickoff <spec-path>`** — walk the spec to mutual understanding,
-   producing the signed-off **kickoff brief** (the durable contract every
-   downstream skill executes from). On your sign-off it flips Draft → Ready
-   (signed off and executable, nothing started); the first dispatch derives
-   Ready → Active. *This is your first control.*
-3. **`/orchestrate <spec-path>`** — pick the next ready task, create or reuse its
-   worktree, and dispatch execution. Stateless: one step per invocation; run it
-   in several sessions for intra-spec parallelism. Never merges, never marks a
-   PR ready.
-4. **`/execute-task <ids>`** — the execution workhorse: test-first, full CI with
-   adaptive retry, convergence via `/polish`, then a **draft PR** referencing
-   the brief, task IDs, REQs, tests, and the pending-sign-off checklist.
-5. **Review and merge** — review the draft PR, flip it to ready, and merge.
-   *This is your second control.*
+## 4. The controls you keep
 
-`/spec-walkthrough <spec-path>` renders a bundle (or a chosen slice) into a
-plain-language, read-only comprehension artifact you read and judge for
-yourself: an independent cold read before kickoff sign-off, re-orientation
-mid-execution, or onboarding to a finished or abandoned bundle. It complements
-`/spec-kickoff`'s guided dialogue and never signs off, edits, or mutates the
-pipeline. `/resume` reloads context for a fresh session in an in-flight
-worktree, and `/drain` evaluates deferred gate conditions across specs. All
-three are read-only.
+The same controls hold on both flight rules, and the tower changes none of
+them:
 
-### Invariants the framework holds everywhere
+- **Merge.** On visual flight and instrument flight alike, every pull request
+  opens as a draft and merge stays yours: no agent merges outside the
+  `merge_policy` you configured (default `human`: you merge by hand).
+  Authorizing it is the approval act, which also signs off every item a PR
+  lists for your approval.
+- **The draft→ready flip.** It moves a finished draft in front of reviewers and
+  approves nothing. The tower never performs it; whether a task's own run may
+  flip a converged PR, or the flip stays yours alone, is a policy you set.
+- **Sign-off, on instrument flight.** A spec executes only after you walk it at
+  kickoff and sign the resulting brief; there is no bypass flag. Visual flight
+  has no shadow sign-off: its audit record carries the trust.
 
-The list of human gates, policies, and skill ownership rules is
-[Human Gates](../doctrine/human-gates.md), each policy with its knob and
-default; its floor section states what no setting changes. Among the gates:
-never act on a spec that is not Ready or Active, and pushed history stays
-append-only outside the force-push and secret-purge gates. These are
-constraints, not future capabilities.
+Between them, the intervention contract has three phases: sign-off before
+execution on instrument flight, **rare hard pauses during** it on either rule
+(security-sensitive zones, destructive operations, irreducible judgment forks),
+and **PR review plus merge after**. Everything an agent applied on a branch is
+one revert from undone until you merge. The authoritative list of what stays
+yours, what is a policy, and which skill owns which act is
+[the human-gates doctrine](../doctrine/human-gates.md).
 
-In the planwright repo itself the history invariants are additionally
-backstopped repo-side by tracked git hooks (`githooks/`, wired once per
-clone via `scripts/wire-githooks.sh`; `mise run check` fails loudly on an
-unwired clone). They are accident-catchers with an honestly stated
-boundary (`--amend -m`/`-F` is for the tower deny globs and the policy
-guard's `unpushed_rewrite` check, not the hooks),
-they bind humans too, and the deliberate bypasses are `--no-verify` for
-the push and commit-msg hooks and `git rebase --no-verify` for
-`pre-rebase` (`prepare-commit-msg` is not suppressed by `--no-verify`).
-See [CONTRIBUTING](CONTRIBUTING.md#the-git-hook-backstop) for details.
-
-## 4. Supplying your own tooling and rigor (without editing core)
+## 5. Supplying your own tooling and rigor (without editing core)
 
 planwright core ships **general** doctrine and skills. Your project carries its
 own preferences — which review steps run and when, a dispatch-isolation default,
@@ -278,7 +277,7 @@ Three customization mechanisms exist, all of which avoid editing core:
 > environment layer and reference them indirectly. See [`docs/overlays.md`
 > §6](overlays.md#6-secrets-and-data-hygiene--read-this).
 
-## 5. Releasing planwright
+## 6. Releasing planwright
 
 Cutting a release follows the [release-tagging policy](../doctrine/release-tagging.md):
 detection and proposal are automated, **approval is your merge** of the release
@@ -396,9 +395,12 @@ you.
 > and stays allowed — the guardrails and the human publish path coexist. The publish
 > step is a conscious human action and does not run under the worker profile in any case.
 
-## 6. Where to go next
+## 7. Where to go next
 
 - [`README.md`](../README.md) — the one-screen overview and repository layout.
+- [`docs/architecture.md`](architecture.md) — the pipeline under the tower:
+  the commands it drives, both flight rules end to end, and running them by
+  hand.
 - [`docs/overlays.md`](overlays.md) — customizing planwright with overlays: the
   four layers, per-kind locations, merge rules, and worked examples.
 - [`doctrine/`](../doctrine/) — the rule docs skills cite (rigor, finding
