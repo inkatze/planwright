@@ -860,7 +860,7 @@ for sig in INT HUP; do
         wait "$sig_pid" 2>/dev/null
         continue
       fi
-      kill "$sig_pid" 2>/dev/null
+      kill -KILL "$sig_pid" 2>/dev/null
       ;;
   esac
   got=0
