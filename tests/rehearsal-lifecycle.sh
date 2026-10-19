@@ -85,7 +85,7 @@ usage: tests/rehearsal-lifecycle.sh [--live] [--rung sj|hl] [--model <name>] [--
   --live    rehearse against the real claude CLI (spends tokens; opt-in only)
   --rung    one rung only: sj (stream-json-persistent) or hl (headless-oneshot)
   --model   the worker model under --live (default: haiku)
-  --wait    seconds to wait for the worker to wedge (default: 180 live, 60 scripted)
+  --wait    seconds to wait for the worker to wedge (default: 180 live, poll_until's default scripted)
 USAGE
   exit 2
 }

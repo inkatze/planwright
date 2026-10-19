@@ -125,7 +125,7 @@ l1() {
   wt="$PP/.claude/worktrees/demo-task-3"
   [ "$(launch_field session)" = "$sess" ] || fail "l1: the launch report names '$(launch_field session)', not $sess"
   check_session_call l1 "$sess" "$wt"
-  tlh_wait_workers 1 10 || return
+  tlh_wait_workers 1 || return
   rec=$(tlh_last_worker_record)
   check_worker l1 "$rec" "$wt" tmux-demo-task-3 demo:3
   [ "$(registry_col 2 | grep -c .)" = 1 ] || fail "l1: expected one registry record, got: $(cat "$C/fleet/registry" 2>/dev/null)"
@@ -202,7 +202,7 @@ l2_flight() {
   [ "$(report_field attach)" = "tmux attach -t '=$sess'" ] \
     || fail "l2: the attach hint does not name the session: $(report_field attach)"
   check_session_call l2 "$sess" "$wt"
-  tlh_wait_workers "$((n0 + 1))" 10 || return
+  tlh_wait_workers "$((n0 + 1))" || return
   rec=$(record_for "tmux-flight-$fid") || {
     fail "l2: no worker record carries the flight's handle tmux-flight-$fid"
     return

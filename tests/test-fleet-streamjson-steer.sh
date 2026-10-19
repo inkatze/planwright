@@ -37,8 +37,6 @@ SJ="$here/../scripts/fleet-streamjson.sh"
 RELAY="$here/../scripts/orchestrate-relay.sh"
 # shellcheck source=tests/lib/fixture-procs.sh
 . "$here/lib/fixture-procs.sh"
-# shellcheck source=tests/lib/poll-until.sh
-. "$here/lib/poll-until.sh"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -68,14 +66,15 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 # The shim worker: records every stdin line, emits the event file once, then
-# keeps reading until stdin closes or the watchdog fires.
+# keeps reading until stdin closes or the watchdog fires. The watchdog outlives
+# s7's poll deadline, so a worker a close missed is still running there.
 mkdir -p "$tmp/bin"
 cat >"$tmp/bin/claude" <<'SHIM'
 #!/bin/sh
 if [ -n "${SHIM_EVENTS:-}" ]; then
   cat "$SHIM_EVENTS"
 fi
-(sleep "${SHIM_WATCHDOG:-30}" && kill "$$" 2>/dev/null) &
+(sleep "${SHIM_WATCHDOG:-300}" && kill "$$" 2>/dev/null) &
 while IFS= read -r line; do
   printf '%s\n' "$line" >>"$SHIM_RECORD_DIR/stdin"
 done

@@ -521,7 +521,7 @@ c19() {
   d=$(w_dir "$home" "$w")
   printf 'hold open\n' >"$tmp/$rung/prompt19"
   w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt19" "$wt" \
-    SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 || fail "c19: detached launch exited non-zero"
+    SHIM_EVENTS="$ev_hold" SHIM_SLEEP=600 || fail "c19: detached launch exited non-zero"
   poll_until --what 'the worker up' -- w_up "$d" || fail "c19: the worker never came up"
   recorded=$(w_recorded "$d")
   wrk=$(w_worker_pid "$d")
@@ -609,14 +609,14 @@ c21() {
   while IFS= read -r a; do decoy_args+=("$a"); done <<EOF
 $(w_decoy_args)
 EOF
-  env SHIM_RECORD_DIR="$rec" SHIM_READ_FIRST=0 SHIM_SLEEP=120 \
+  env SHIM_RECORD_DIR="$rec" SHIM_READ_FIRST=0 SHIM_SLEEP=600 \
     "$tmp/bin/claude" "${decoy_args[@]}" </dev/null >/dev/null 2>&1 &
   decoy=$!
   w=$(w_name 21)
   d=$(w_dir "$home" "$w")
   printf 'decoy neighbour\n' >"$tmp/$rung/prompt21"
   w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt21" "$wt" \
-    SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 || fail "c21: detached launch exited non-zero"
+    SHIM_EVENTS="$ev_hold" SHIM_SLEEP=600 || fail "c21: detached launch exited non-zero"
   poll_until --what 'the worker up' -- w_up "$d" || fail "c21: the worker never came up"
   wrk=$(w_worker_pid "$d")
   kill -0 "$decoy" 2>/dev/null || fail "c21: the decoy session did not start"
@@ -635,7 +635,7 @@ EOF
   ds=$(w_dir "$home" "$ws")
   printf 'prefix sibling\n' >"$tmp/$rung/prompt21x"
   w_launch "$home" "$rec" "$ws" "$tmp/$rung/prompt21x" "$wt" \
-    SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 || fail "c21: the prefix-sibling launch exited non-zero"
+    SHIM_EVENTS="$ev_hold" SHIM_SLEEP=600 || fail "c21: the prefix-sibling launch exited non-zero"
   poll_until --what 'the worker up' -- w_up "$ds" || fail "c21: the sibling never came up"
   sib_recorded=$(w_recorded "$ds")
   sib_wrk=$(w_worker_pid "$ds")
@@ -732,7 +732,7 @@ c22b() {
   d=$(w_dir "$home" "$w")
   printf 'stubborn grandchild\n' >"$tmp/$rung/prompt22b"
   w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt22b" "$wt" \
-    SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 SHIM_STUBBORN_CHILD="$rec/stubborn.pid" \
+    SHIM_EVENTS="$ev_hold" SHIM_SLEEP=600 SHIM_STUBBORN_CHILD="$rec/stubborn.pid" \
     || fail "c22b: detached launch exited non-zero"
   poll_until --what 'the stubborn pid' -- test -s "$rec/stubborn.pid" || fail "c22b: the stubborn grandchild never started"
   stubborn=$(cat "$rec/stubborn.pid")
@@ -767,7 +767,7 @@ c22d() {
   d=$(w_dir "$home" "$w")
   printf 'self close\n' >"$tmp/$rung/prompt22d"
   w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt22d" "$wt" \
-    SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 \
+    SHIM_EVENTS="$ev_hold" SHIM_SLEEP=600 \
     SHIM_SELF_CLOSE="/bin/sh '$(rung_script)' stop $w --grace 2" \
     SHIM_SELF_CLOSE_WHEN="$rec/go" || fail "c22d: detached launch exited non-zero"
   poll_until --what 'the worker up' -- w_up "$d" || fail "c22d: the worker never came up"
@@ -789,7 +789,7 @@ c22d() {
   done
   [ "$rung" != sj ] || [ -p "$d/in.fifo" ] || fail "c22d: the refused close deleted the worker's channel"
   w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt22d" "$wt" \
-    SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 2>/dev/null
+    SHIM_EVENTS="$ev_hold" SHIM_SLEEP=600 2>/dev/null
   [ $? -eq 3 ] || fail "c22d: a launch over the still-live worker must still be refused"
   renv "$home" "$rec" -- stop "$w" --grace 2 >/dev/null || fail "c22d: the outside close failed"
   # shellcheck disable=SC2086 # the pid list is split on purpose
@@ -997,7 +997,7 @@ c40() {
   w=$(w_name 401)
   d=$(w_dir "$home" "$w")
   printf 'die\n' >"$tmp/$rung/prompt401"
-  w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt401" "$wt" SHIM_SLEEP=120 \
+  w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt401" "$wt" SHIM_SLEEP=600 \
     || fail "c40: launch exited non-zero"
   poll_until --what 'the worker up' -- w_up "$d" || fail "c40: the worker never came up"
   runner=$(cat "$d/pid")
@@ -1102,7 +1102,7 @@ c41() {
     env "${env_scrub[@]}" -u PLANWRIGHT_HEADLESS_STATE_DIR \
       PLANWRIGHT_FLEET_STATE_DIR="$home" \
       PLANWRIGHT_HEADLESS_CLAUDE="$tmp/bin/claude" \
-      SHIM_RECORD_DIR="$rec" SHIM_SLEEP=120 /bin/sh "$FDH" "$@"
+      SHIM_RECORD_DIR="$rec" SHIM_SLEEP=600 /bin/sh "$FDH" "$@"
   }
   w=$(w_name 41)
   d="$repo/specs/$SPEC/.orchestrate/headless/41"

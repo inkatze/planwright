@@ -52,8 +52,6 @@ SJ="$here/../scripts/fleet-streamjson.sh"
 FA="$here/../scripts/fleet-attention.sh"
 # shellcheck source=tests/lib/fixture-procs.sh
 . "$here/lib/fixture-procs.sh"
-# shellcheck source=tests/lib/poll-until.sh
-. "$here/lib/poll-until.sh"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -979,7 +977,7 @@ case $out in
 esac
 # `launched` was printed only after supervisor.pid appeared: it exists now.
 wdir15="$home/streamjson/sjw15"
-poll_until --what 'the result' -- sh -c "[ -f '$wdir15/result' ]" \
+poll_until --what 'the result' -- test -f "$wdir15/result" \
   || fail "c15: the detached supervisor never ran to a result"
 # A failed detached launch surfaces non-zero. Force the supervisor's mkfifo to
 # fail by pre-planting `in.fifo` as a NON-EMPTY directory: supervise's `rm -f`
@@ -1901,7 +1899,10 @@ senv "$home" "$rec" -- steer sjw38 --message-file "$tmp/steer38" >/dev/null \
 poll_until --what 'the journal row' -- grep -q "^$req_perm$tab" "$wdir38/journal" \
   || fail "c38a: the receipt was not journaled while the fleet lock was held"
 journal_free38() { [ ! -L "$wdir38/journal.lock" ] && [ ! -e "$wdir38/journal.lock" ]; }
-poll_until --what 'the journal lock free' -- journal_free38 \
+# Shorter than the default on purpose: held across the attention call, the
+# lock frees only when fleet-attention's lock spin gives up, which sleeps at
+# least 20s (1000 tries of 0.02s) on any host, so the wait must end first.
+poll_until --deadline 15 --what 'the journal lock free' -- journal_free38 \
   || fail "c38a: the journal lock is held across the attention call (it stays taken while the fleet lock is busy)"
 [ -L "$home/.fleet.lock" ] || fail "c38a: the fleet lock was released early, so the leg proved nothing"
 kill "$fl_holder" 2>/dev/null || :
@@ -1983,7 +1984,7 @@ echo "ok: c38 a launch clears a retired-shape journal lock directory"
 #     it. The worker stays up after its answer so its tick does the drain.
 home="$tmp/h38e"
 wdir38e="$home/streamjson/sjw38e"
-senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_SLEEP=60 -- \
+senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_SLEEP=300 -- \
   launch sjw38e execution-backends:4 --prompt-file "$tmp/prompt38" &
 poll_until --what 'the journal row' -- grep -q "^$req_perm$tab" "$wdir38e/journal" \
   || fail "c38e: the receipt was never journaled"
@@ -2014,7 +2015,7 @@ if [ "$(id -u)" = 0 ]; then
 else
   home="$tmp/h38f"
   wdir38f="$home/streamjson/sjw38f"
-  senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_SLEEP=60 -- \
+  senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_SLEEP=300 -- \
     launch sjw38f execution-backends:4 --prompt-file "$tmp/prompt38" &
   poll_until --what 'the journal row' -- grep -q "^$req_perm$tab" "$wdir38f/journal" \
     || fail "c38f: the receipt was never journaled"
@@ -2088,8 +2089,9 @@ echo "ok: c39 a pending request outranks an earlier turn's result while the work
 #     case starts carries this run's scratch directory in its argv, so one still
 #     running once the cases are done, or a descendant of one, is something a
 #     case launched and never closed. A tick notices its supervisor is gone
-#     only at its next step, so the set gets a short window to drain before it
-#     counts as leaked.
+#     only at its next step, so the set gets the poll deadline to drain before
+#     it counts as leaked; every shim a case starts outlives that deadline, so
+#     a close that missed one is still caught.
 # ---------------------------------------------------------------------------
 poll_until --what 'no fixture process left' -- fixture_none "$tmp/" \
   || fail "c37: fixture process(es) still running after every case: $(fixture_report "$tmp/")"

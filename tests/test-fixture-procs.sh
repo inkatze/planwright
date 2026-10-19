@@ -21,8 +21,6 @@ unset CDPATH
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=tests/lib/fixture-procs.sh
 . "$here/lib/fixture-procs.sh"
-# shellcheck source=tests/lib/poll-until.sh
-. "$here/lib/poll-until.sh"
 
 fail() {
   echo "FAIL: $1" >&2

@@ -80,7 +80,7 @@ r1() {
   relaunch
   tlh_expect_returned r1 || return
   [ "$TLH_RC" -eq 0 ] || fail "r1: a relaunch over a dead worker must start it (rc $TLH_RC: $TLH_ERR)"
-  tlh_wait_workers "$((workers_before + 1))" 10 || fail "r1: no new worker started"
+  tlh_wait_workers "$((workers_before + 1))" || fail "r1: no new worker started"
   rec=$(tlh_last_worker_record)
   tlh_assert_path_eq "r1: the new worker's directory" "$WT" "$(tlh_record_field "$rec" cwd)"
   grep "^argv" "$rec" | grep -Fq "Read $BRIEF and follow it exactly." \

@@ -255,8 +255,9 @@ start_watch() {
 cycles() {
   awk -F'\t' '$1 == "summary" { n++ } END { print n + 0 }' "$1"
 }
-# stop_watch <what> — TERM the loop; it must end well inside the interval it
-# was parked in (an hour, or the 10m default) and not exit 0.
+# stop_watch <what> — TERM the loop; it must end within 60s and not exit 0. A
+# loop that ignored TERM would run on, and one parked in an hour or the 10m
+# default shows the wait between cycles is interrupted, not sat out.
 stop_watch() {
   kill -TERM "$watch_pid"
   sw_start=$SECONDS

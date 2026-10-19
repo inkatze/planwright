@@ -346,9 +346,7 @@ PLANWRIGHT_TEST_TIMING_REPORT="$tmp/inner-report.tsv" /bin/bash "$RUNNER" "$tmp/
 EOF
 PLANWRIGHT_TEST_SLOT_DIR="$tmp/npool" PLANWRIGHT_TEST_SLOTS=1 /bin/bash "$RUNNER" "$tmp/outer" >"$tmp/o8" 2>&1 &
 outer=$!
-# shellcheck disable=SC2329  # polled through poll_until
-exited() { ! kill -0 "$1" 2>/dev/null; }
-if ! poll_until --what 'the outer run to finish' -- exited "$outer"; then
+if ! poll_until --what 'the outer run to finish' -- pid_gone "$outer"; then
   kill -9 "$outer" 2>/dev/null
   fail "the outer run hung on a nested runner"
 else
@@ -368,7 +366,6 @@ assert_contains "the nested run is unpooled" "pool=off" "$(head -n 1 "$tmp/inner
 # ---------------------------------------------------------------------------
 # tickets_cleared <pool> — true once no ticket stands, leaving the count in
 # sc_left.
-# shellcheck disable=SC2329  # polled through poll_until
 tickets_cleared() {
   sc_left="$(find "$1" -name 'slot-*' 2>/dev/null | wc -l | tr -d ' ')"
   [ "$sc_left" -eq 0 ]

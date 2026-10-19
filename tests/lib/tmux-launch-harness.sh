@@ -33,7 +33,8 @@
 #     or loses its own exit status.
 #
 # The stubs are tests/lib/tmux-launch-stub-tmux.sh and
-# tests/lib/tmux-launch-stub-worker.sh, over tests/lib/tmux-launch-stub-common.sh;
+# tests/lib/tmux-launch-stub-worker.sh, over tests/lib/tmux-launch-stub-common.sh
+# (the tmux stub also sources tests/lib/poll-until.sh beside it);
 # their headers own what each one does and which knobs it reads. The worker
 # stub's confirmation hook resolves under TLH_PLUGIN_ROOT (default: this
 # checkout), which a fixture may point at a recording stand-in before sourcing.
@@ -59,9 +60,8 @@
 #                                 tab-separated argv per line
 #   tlh_worker_records            every stub worker record path, oldest first
 #   tlh_worker_count / tlh_last_worker_record
-#   tlh_wait_workers <n> [<s>]    wait until n worker records exist, for <s>
-#                                 seconds but never less than poll_until's
-#                                 default deadline
+#   tlh_wait_workers <n>          wait until n worker records exist, for
+#                                 poll_until's default deadline
 #   tlh_record_field <record> <key>   the first <key> line's value
 #   tlh_worker_env <record> <VAR>     the worker's value of VAR; status 1 when
 #                                     VAR was not in its environment
@@ -402,19 +402,14 @@ _tlh_has_workers() {
 }
 
 tlh_wait_workers() {
-  local want=$1 bound=${2:-$POLL_UNTIL_DEFAULT_DEADLINE}
+  local want=$1
   case $want in '' | *[!0-9]*)
     fail "tlh_wait_workers: '$want' is not a record count"
     return 1
     ;;
   esac
-  _tlh_whole_seconds "$bound" || {
-    fail "tlh_wait_workers: the bound must be a positive whole number of seconds, got '$bound'"
-    return 1
-  }
-  [ "$bound" -ge "$POLL_UNTIL_DEFAULT_DEADLINE" ] || bound=$POLL_UNTIL_DEFAULT_DEADLINE
-  poll_until --deadline "$bound" --what "$want worker record(s)" -- _tlh_has_workers "$want" && return 0
-  fail "tlh_wait_workers: $want worker record(s) did not appear within ${bound}s (waited ${POLL_UNTIL_ELAPSED}s)"
+  poll_until --what "$want worker record(s)" -- _tlh_has_workers "$want" && return 0
+  fail "tlh_wait_workers: $want worker record(s) did not appear within ${POLL_UNTIL_DEFAULT_DEADLINE}s (waited ${POLL_UNTIL_ELAPSED}s)"
   return 1
 }
 

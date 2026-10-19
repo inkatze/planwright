@@ -756,9 +756,6 @@ plant_live_lock() {
   printf '%s\n' "$_pl_pid"
 }
 
-# shellcheck disable=SC2329  # polled through poll_until
-holder_gone() { ! kill -0 "$1" 2>/dev/null; }
-
 # Plant a lock whose owner cannot exist, so `kill -0` on its pid answers ESRCH,
 # the only staleness the library recognizes. The pid is above every host's pid
 # ceiling; a reaped child's pid can be handed out again before the probe.
@@ -824,7 +821,7 @@ c19() {
   kill "$holder" 2>/dev/null || true
   # Not this shell's child, so waited out by polling: the retry must not race
   # the holder's exit and still find its owner alive.
-  poll_until --what 'the lock holder to exit' -- holder_gone "$holder" || :
+  poll_until --what 'the lock holder to exit' -- pid_gone "$holder" || :
 
   [ "$rc" = 0 ] || fail "c19: a live holder is a clean no-op (exit 0), got $rc — $(cat "$tmp/err")"
   [ "$(tag_val "$out" carry)" = noop ] || fail "c19: expected carry=noop, got: $out"
@@ -859,7 +856,7 @@ c20() {
   kill "$holder" 2>/dev/null || true
   # Not this shell's child, so waited out by polling: the retry must not race
   # the holder's exit and still find its owner alive.
-  poll_until --what 'the lock holder to exit' -- holder_gone "$holder" || :
+  poll_until --what 'the lock holder to exit' -- pid_gone "$holder" || :
   [ "$rc" = 0 ] || fail "c20: contention is a clean no-op (exit 0), got $rc — $(cat "$tmp/err")"
   [ "$(tag_val "$out" carry)" = noop ] || fail "c20: expected carry=noop under contention, got: $out"
   [ "$(tag_val "$out" stranded)" = 0 ] \

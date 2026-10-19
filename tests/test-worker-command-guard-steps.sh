@@ -493,8 +493,6 @@ if [ "$CODE" -eq 0 ] && is_empty && [ -s "$FX/stub-slow/child" ] && [ "$elapsed"
 else
   fail "slow resolver — code=$CODE empty=$(is_empty && echo y || echo n) secs=$elapsed"
 fi
-# shellcheck disable=SC2329  # polled through poll_until
-pid_gone() { ! kill -0 "$1" 2>/dev/null; }
 alive=''
 for f in self child; do
   pid=$(cat "$FX/stub-slow/$f" 2>/dev/null) || continue

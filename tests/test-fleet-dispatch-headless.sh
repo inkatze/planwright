@@ -129,10 +129,6 @@ EOF
     "$mf_rec/handle" "$mf_rec/scope" "$mf_rec/specroot" "$mf_rec/stdin"
 }
 
-pid_gone() {
-  ! kill -0 "$1" 2>/dev/null
-}
-
 SPEC=execution-backends
 ID=3
 

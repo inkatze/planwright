@@ -188,15 +188,6 @@ icleanup() {
   err=$(cat "$tmp/err")
 }
 
-# wait_until <secs> <cmd...> — poll_until under the call shape
-# tests/test-fleet-adversarial.sh still uses; <secs> never lowers the default.
-wait_until() {
-  wu_s=$1
-  shift
-  [ "$wu_s" -ge "$POLL_UNTIL_DEFAULT_DEADLINE" ] || wu_s=$POLL_UNTIL_DEFAULT_DEADLINE
-  poll_until --deadline "$wu_s" -- "$@"
-}
-
 classified() {
   ienv -- fleet-stuck-detector.sh classify "$1" --tower-id "$self_id" \
     | awk -F'\t' -v s="$2" '$1 == "worker" && $3 == s { f = 1 } END { exit f ? 0 : 1 }'

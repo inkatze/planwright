@@ -54,8 +54,6 @@ expect_one_fail() {
 
 # shellcheck source=tests/lib/tmux-launch-harness.sh
 . "$here/lib/tmux-launch-harness.sh"
-# shellcheck source=tests/lib/poll-until.sh
-. "$here/lib/poll-until.sh"
 
 wt="$TLH_SANDBOX/wt"
 mkdir -p "$wt"
@@ -158,7 +156,7 @@ h2() {
   tlh_run_bounded tmux new-session -d -s envprobe -e TLH_PROBE_DASH_E=from-e -c "$wt" -- "$TLH_BIN/claude" envprobe
   tlh_expect_returned "h2: the probe launch"
   unset TLH_PROBE_DISPATCHER_ONLY
-  tlh_wait_workers $((n + 1)) 30 || return
+  tlh_wait_workers $((n + 1)) || return
   rec=$(tlh_last_worker_record)
   [ "$(tlh_worker_env "$rec" TLH_PROBE_SERVER_ONLY)" = from-server ] \
     || fail "h2: the session's command must see the server's environment"
@@ -196,7 +194,7 @@ h3() {
   n=$(tlh_worker_count)
   tlh_run_bounded tmux new-session -d -s pathprobe -c "$wt" -- "$TLH_BIN/claude"
   tlh_expect_returned "h3: the probe launch"
-  tlh_wait_workers $((n + 1)) 30 || return
+  tlh_wait_workers $((n + 1)) || return
   rec=$(tlh_last_worker_record)
   cwd=$(tlh_record_field "$rec" cwd)
   [ "$cwd" != "$wt" ] || fail "h3: the worker's physical cwd must differ from the symlinked path as given"
@@ -216,7 +214,7 @@ h3() {
   tlh_run_bounded tmux new-session -d -s nodir -c "$TLH_SANDBOX/missing" -- "$TLH_BIN/claude"
   tlh_expect_returned "h3: the missing-directory launch"
   [ "$TLH_RC" -eq 0 ] || fail "h3: a missing -c must not fail the stub launch, got $TLH_RC"
-  tlh_wait_workers $((n + 1)) 30 || return
+  tlh_wait_workers $((n + 1)) || return
   tlh_assert_path_eq "h3: a missing start directory falls back to the server HOME" \
     "$TLH_SANDBOX/server-home" "$(tlh_record_field "$(tlh_last_worker_record)" cwd)"
   tmux kill-session -t =nodir
@@ -256,7 +254,7 @@ h4() {
       || fail "h4: new-session record $i is missing or torn"
     i=$((i + 1))
   done
-  tlh_wait_workers $((w0 + n_new)) 30 || return
+  tlh_wait_workers $((w0 + n_new)) || return
   i=1
   while [ "$i" -le "$n_new" ]; do
     hit=0
@@ -329,7 +327,7 @@ tlh_stub_pids_alive >'$TLH_SANDBOX/child.pids'")
   out=$(TZ=XXX-14 /bin/bash "$(child_suite tz 'mkdir -p "$TLH_SANDBOX/w"
 tlh_knob worker-confirm off
 tmux new-session -d -s tzw -c "$TLH_SANDBOX/w" -- "$TLH_BIN/claude"
-tlh_wait_workers 1 30
+tlh_wait_workers 1
 p=$(tlh_record_field "$(tlh_last_worker_record)" pid)
 tlh_stub_pids_alive | grep -qx "$p" && echo "worker: recognized" || echo "worker: missed"')" 2>&1)
   case $out in *"worker: recognized"*) ;; *) fail "h5: a worker must be recognized whatever the suite's timezone, got: $out" ;; esac
@@ -400,7 +398,7 @@ launch() {
   shift
   n=$(tlh_worker_count)
   tmux new-session -d -s "$s" -c "$TLH_SANDBOX/w" -- "$@"
-  tlh_wait_workers $((n + 1)) 30
+  tlh_wait_workers $((n + 1))
   rec=$(tlh_last_worker_record)
   printf "%s confirm=%s\n" "$s" "$(tlh_record_field "$rec" confirm)"
   for f in "$hook_log".*; do [ -f "$f" ] && { printf "%s hook:" "$s"; tr "\n" "|" <"$f"; echo; rm -f "$f"; }; done
@@ -415,7 +413,7 @@ tlh_knob worker-confirm on
 tlh_knob worker-exit 3
 n=$(tlh_worker_count)
 tmux new-session -d -s dies -c "$TLH_SANDBOX/w" -- "$TLH_BIN/claude"
-tlh_wait_workers $((n + 1)) 30
+tlh_wait_workers $((n + 1))
 poll_until --what "session dies to end" -- sh -c "! tmux has-session -t =dies 2>/dev/null"
 tmux has-session -t =dies 2>/dev/null && echo "dies: still live" || echo "dies: gone"
 ')" 2>&1)
@@ -474,7 +472,7 @@ h7() {
   n=$(tlh_worker_count)
   tmux new-session -d -s semi -c "$wt" -- "$TLH_BIN/claude" 'a\;' 'b;' has-session -t =semi \
     || fail "h7: a word ending in ';' must end the command"
-  tlh_wait_workers $((n + 1)) 30 || return
+  tlh_wait_workers $((n + 1)) || return
   rec=$(tlh_last_worker_record)
   [ "$(tlh_record_field "$rec" argv)" = "a;${TAB}b" ] \
     || fail "h7: '\\;' must reach the command as ';' and a trailing ';' must be stripped, got: $(tlh_record_field "$rec" argv)"

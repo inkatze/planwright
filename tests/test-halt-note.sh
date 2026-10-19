@@ -356,7 +356,6 @@ cp "$p/demo/tasks.md" "$tmp/before-signal.md"
     PLANWRIGHT_ROOT="$REPO_ROOT" PATH="$tmp/slowbin:$PATH" "$sig_sh" "$S/halt-note.sh" demo 1 "interrupted"
 ) >/dev/null 2>&1 &
 sig_pid=$!
-# shellcheck disable=SC2329  # polled through poll_until
 halt_temp_present() { [ -n "$(find "$p/demo" -name '.tasks.md.halt.??????')" ]; }
 poll_until --what "the rewrite's temp file" -- halt_temp_present || :
 kill -TERM "$sig_pid" 2>/dev/null

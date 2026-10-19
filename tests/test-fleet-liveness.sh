@@ -1385,7 +1385,7 @@ slowshim="$odir/slow-shim"
   # shellcheck disable=SC2016 # $1 is literal shim-script source, expanded at shim runtime, not here
   echo '[ "$1" = agents ] || exit 9'
   echo "echo \$\$ >\"$odir/slow-pid\""
-  echo 'sleep 120'
+  echo 'exec sleep 120'
   echo 'printf "[]"'
 } >"$slowshim"
 chmod +x "$slowshim"
@@ -1409,9 +1409,6 @@ t1=$(date +%s)
 # never a silent set -e abort mid-suite.
 slow_pid=$(cat "$odir/slow-pid" 2>/dev/null || true)
 [ -n "$slow_pid" ] || fail "oracle hang: the shim never recorded its pid"
-pid_gone() {
-  ! kill -0 "$1" 2>/dev/null
-}
 poll_until --what 'the timed-out probe gone' -- pid_gone "$slow_pid" || fail "oracle hang: the timed-out probe process (pid $slow_pid) survived the watchdog"
 # a TERM-resistant probe is KILL-escalated within the grace, never a wedge
 stubborn="$odir/stubborn-shim"

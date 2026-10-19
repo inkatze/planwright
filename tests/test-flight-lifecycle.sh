@@ -282,7 +282,7 @@ regs_before=$(regs)
 out=$(supervise "$((t + 31))")
 [ "$(field "$(line "$out")" 1)" = relaunched ] || fail "past the backoff the worker relaunches (got: $out; $(cat "$tmp/err"))"
 [ "$(launches)" = 1 ] || fail "the relaunch launched exactly one worker"
-tlh_wait_workers 1 10 || fail "the relaunched worker did not start"
+tlh_wait_workers 1 || fail "the relaunched worker did not start"
 rec=$(tlh_last_worker_record)
 tlh_assert_path_eq "the relaunch resumes the flight's own worktree" "$repo/.claude/worktrees/flight-$C" \
   "$(tlh_record_field "$rec" cwd)"
@@ -317,7 +317,7 @@ out=$(supervise "$((t + 40))")
 out=$(supervise "$((t + 40 + 61))")
 [ "$(field "$(line "$out")" 1)" = relaunched ] || fail "the doubled backoff passes and the worker relaunches (got: $out)"
 [ "$(launches)" = 2 ] || fail "two relaunches so far"
-tlh_wait_workers 2 10 || fail "the pinned relaunch's worker did not start"
+tlh_wait_workers 2 || fail "the pinned relaunch's worker did not start"
 [ "$(tlh_worker_env "$(tlh_last_worker_record)" PLANWRIGHT_ROOT)" = "$pinned" ] \
   || fail "the relaunch must pin the worker to the recorded root (got: $(tlh_worker_env "$(tlh_last_worker_record)" PLANWRIGHT_ROOT))"
 rm -f "$tmp/fleet/flights/$C/root"

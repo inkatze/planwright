@@ -144,11 +144,10 @@ owner() {
 }
 
 # kill_owner <pid> — end an owner and wait until it is gone.
-owner_gone() { ! kill -0 "$1" 2>/dev/null; }
 kill_owner() {
   kill "$1" 2>/dev/null
   wait "$1" 2>/dev/null
-  poll_until --what "fixture owner $1 exiting" -- owner_gone "$1" \
+  poll_until --what "fixture owner $1 exiting" -- pid_gone "$1" \
     || fail "the fixture owner $1 outlived its kill"
 }
 

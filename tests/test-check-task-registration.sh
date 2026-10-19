@@ -173,9 +173,7 @@ mkrepo "$r"
 mv "$r/mise.toml.new" "$r/mise.toml"
 run_checker "$r" >/dev/null &
 pid=$!
-# shellcheck disable=SC2329  # polled through poll_until
-exited() { ! kill -0 "$1" 2>/dev/null; }
-if ! poll_until --what 'the wildcard check to exit' -- exited "$pid"; then
+if ! poll_until --what 'the wildcard check to exit' -- pid_gone "$pid"; then
   kill "$pid" 2>/dev/null
   fail "t3b: a wildcard matching a task named with a '*' never terminated"
 fi

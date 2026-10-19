@@ -390,13 +390,12 @@ pass "a hold store that is not a regular file is refused"
 # bg_run <fifo> <args>: run the script in the background; one still running
 # at the poll deadline is released by opening <fifo> for writing, and bg_rc
 # reads hung.
-bg_gone() { ! kill -0 "$bg_pid" 2>/dev/null; }
 bg_run() {
   bg_fifo=$1
   shift
   run "$@" >/dev/null 2>&1 &
   bg_pid=$!
-  if ! poll_until --what "quota-hold $1 finishing" -- bg_gone; then
+  if ! poll_until --what "quota-hold $1 finishing" -- pid_gone "$bg_pid"; then
     (: >"$bg_fifo") >/dev/null 2>&1 &
     bg_w=$!
     wait "$bg_pid" 2>/dev/null || :

@@ -462,7 +462,10 @@ echo 2 >"$shim_rc"
 # instead of hanging the suite. Its firing IS the failure signal.
 fired="$tmp/watchdog.fired"
 (
-  sleep 60
+  sleep 60 &
+  wd_sleep=$!
+  trap 'kill "$wd_sleep" 2>/dev/null; exit 0' TERM
+  wait "$wd_sleep"
   kill -TERM "$fpid" 2>/dev/null && : >"$fired"
 ) >/dev/null 2>&1 &
 kpid=$!
@@ -508,7 +511,10 @@ poll_until --what 'the pacing sleep child' -- pacing_child \
   || fail "watch-prompt-stop: the pacing sleep child never appeared"
 pfired="$tmp/prompt-watchdog.fired"
 (
-  sleep 60
+  sleep 60 &
+  wd_sleep=$!
+  trap 'kill "$wd_sleep" 2>/dev/null; exit 0' TERM
+  wait "$wd_sleep"
   kill -KILL "$ppid" 2>/dev/null && : >"$pfired"
 ) >/dev/null 2>&1 &
 pkpid=$!
@@ -526,8 +532,7 @@ wait "$pkpid" 2>/dev/null || true
 # recorded above, not by `pgrep -P`. Once the parent exits, a surviving child is
 # reparented, so a parent-PID query comes back empty whether or not the child
 # lived: that assertion would always have passed.
-pchild_gone() { ! kill -0 "$pchild" 2>/dev/null; }
-if ! poll_until --what 'the pacing sleep child exiting' -- pchild_gone; then
+if ! poll_until --what 'the pacing sleep child exiting' -- pid_gone "$pchild"; then
   kill "$pchild" 2>/dev/null || true
   fail "watch-prompt-stop: the pacing sleep child outlived the loop"
 fi
@@ -551,7 +556,10 @@ slpid=$!
 # never hang the suite.
 slfired="$tmp/sleep-watchdog.fired"
 (
-  sleep 60
+  sleep 60 &
+  wd_sleep=$!
+  trap 'kill "$wd_sleep" 2>/dev/null; exit 0' TERM
+  wait "$wd_sleep"
   kill -TERM "$slpid" 2>/dev/null && : >"$slfired"
 ) >/dev/null 2>&1 &
 slkpid=$!

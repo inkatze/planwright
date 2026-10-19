@@ -88,10 +88,6 @@ fail() {
   rc=$((rc + 1))
 }
 
-pid_gone() {
-  ! kill -0 "$1" 2>/dev/null
-}
-
 # ok <id> <text> — announce a case only when it added no failure of its own,
 # so a green line never sits under a red one. Called exactly once per case.
 ok() {
