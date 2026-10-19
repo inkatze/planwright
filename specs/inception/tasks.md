@@ -240,7 +240,7 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 
 ## Awaiting input
 
-- **Task 9** — convergence paused for operator direction on four hard-disqualifier findings (what file-delivering sessions can see in the run directory, prompt-heading imitation in embedded text, and two symbolic-link reads) and one design fork (D-7's per-seat tmux model); details in the kickoff brief's T9-F7 row.
+(none yet)
 
 ## Deferred
 

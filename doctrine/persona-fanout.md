@@ -28,8 +28,11 @@ shuffled order, keyed by labels (`Input A`, `Input B`); seat ids, card ids,
 models, and phrases where a seat names its own discipline or pole are
 redacted. The frame it reads withholds the staffing table's card ids. The
 seat-to-label map stays in the orchestrator's run directory and is never put
-into a prompt; a session that delivers by file (below) writes into that
-directory and is told to read nothing there. Attribution is re-attached only
+into a prompt, and no prompt names that directory: a session that delivers by
+file (below) writes into its own empty drop directory outside the run. Seat,
+synthesis, and challenge text reaches a later prompt as a marked data block,
+its headings demoted and any fence it leaves open closed, so it cannot pass
+for the prompt's own instructions. Attribution is re-attached only
 into the human-facing table, after the amendment. The challenge pass sees the
 frame and the synthesis, never a seat's own output.
 
@@ -86,13 +89,16 @@ reuse its literal path in every call.
      answer as `<seat-id>.md` in the run directory.
    - **`tmux`**: write each `brief --deliver-file` to a brief file and launch
      it with `scripts/offload-dispatch.sh dispatch tmux <brief-file>`; each
-     seat writes its artifact under a `.partial` name and renames it when
-     done. Wait in-turn, polling every 15 seconds against an explicit
-     timeout, until every final name exists, then close the seat windows.
+     seat writes its artifact into its drop directory under a `.partial` name
+     and renames it when done. Wait in-turn, running
+     `collect --run <dir> <seat-id>.md` for each seat every 15 seconds
+     against an explicit timeout until none exits 4 (pending), then close the
+     seat windows. A `stray` line means the session wrote a file it was not
+     asked for: tell the operator.
    - **`print`**: the same briefs, through
      `scripts/offload-dispatch.sh dispatch print <brief-file>`; hand the
-     operator the printed launch commands, and resume when the artifacts
-     exist.
+     operator the printed launch commands, and resume when `collect` finds
+     every artifact.
    - **`in-session`**: run the seats one after another in this session, each
      from its brief alone. This only approximates independence, and `roster`
      reports it.
@@ -108,16 +114,16 @@ reuse its literal path in every call.
    finish.
 6. **Synthesize.** `anonymize` writes the label map and the blind input.
    Launch one fresh persona-free session from `synthesis-brief` (on the same
-   rung; `--deliver-file` where the session hands nothing back), save its
-   answer as `synthesis.md`, and run `check-synthesis --run`. A failing
+   rung; `--deliver-file` where the session hands nothing back, then
+   `collect`), save its answer as `synthesis.md`, and run `check-synthesis --run`. A failing
    synthesis is re-asked once with `synthesis-brief --retry`, which sets the
    failed answer aside and appends it with its findings; a second failure
    stops the fan-out for the operator.
 7. **Challenge once.** A second fresh persona-free session from
-   `challenge-brief`; save `challenge.md`. `challenge-brief` refuses a second
+   `challenge-brief`; save or `collect` `challenge.md`. `challenge-brief` refuses a second
    challenge.
 8. **Amend once.** The synthesis writer (resumed, or a fresh session) answers
-   the challenge from `amend-brief`; save `amended.md` and re-check it. A
+   the challenge from `amend-brief`; save or `collect` `amended.md` and re-check it. A
    failing amendment is re-asked once with `amend-brief --retry`; there is no
    second amendment.
 9. **Attribute.** `attribute` writes `table.md`: the amended synthesis with each
@@ -148,7 +154,7 @@ reuse its literal path in every call.
 
 An exit the steps above do not act on follows the helper's header: 2 is an
 environment problem, relayed and stopping the step; 3 is the validator's
-refusal of the bundle; 5 means a write-once run file already exists, so the
+refusal of the bundle; 4 is a delivery still pending; 5 means a write-once run file already exists, so the
 step needs a new run directory.
 
 ## Reading the table
