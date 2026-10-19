@@ -113,8 +113,8 @@ assert_exit "a clean run passes" 0 $?
 assert_contains "the selected test passed" "pass	test	tests/test-alpha.sh" "$out"
 assert_contains "the linter passed" "pass	lint	shellcheck" "$out"
 calls=$(cat "$T/lint-calls")
-assert_contains "shellcheck ran on the file" "shellcheck scripts/alpha.sh" "$calls"
-assert_contains "shfmt ran in diff mode" "shfmt -d scripts/alpha.sh" "$calls"
+assert_contains "shellcheck ran on the file" "shellcheck ./scripts/alpha.sh" "$calls"
+assert_contains "shfmt ran in diff mode" "shfmt -d ./scripts/alpha.sh" "$calls"
 
 printf '#!/bin/bash\nsh scripts/alpha.sh\nexit 3\n' >"$R/tests/test-alpha.sh"
 out=$(cd "$R" && PATH="$STUB:$PATH" "$CHECK" scripts/alpha.sh 2>/dev/null)
@@ -130,8 +130,8 @@ g checkout -q -- scripts/alpha.sh
 
 out=$(cd "$R" && PATH="$STUB:$PATH" "$CHECK" config/settings.yml docs/README.md 2>&1)
 calls=$(cat "$T/lint-calls")
-assert_contains "yamllint runs strict" "yamllint --strict config/settings.yml" "$calls"
-assert_contains "markdownlint runs on the doc" "markdownlint-cli2 docs/README.md" "$calls"
+assert_contains "yamllint runs strict" "yamllint --strict ./config/settings.yml" "$calls"
+assert_contains "markdownlint runs on the doc" "markdownlint-cli2 ./docs/README.md" "$calls"
 printf '#!/bin/bash\n# scripts/alpha.sh\necho distinctive-failure-text\nexit 3\n' >"$R/tests/test-alpha.sh"
 err=$(cd "$R" && PATH="$STUB:$PATH" "$CHECK" scripts/alpha.sh 2>&1 >/dev/null)
 assert_contains "a failing test's output goes to stderr" "distinctive-failure-text" "$err"
@@ -196,6 +196,49 @@ rm "$R2/scripts/back\\slash.sh"
 
 out=$(cd "$R2/scripts" && "$CHECK" --list .husky/pre-commit 2>&1)
 assert_contains "paths are read from the repository root" "lint	shellcheck	.husky/pre-commit" "$out"
+
+# --- branch-controlled names, bytes, and state ------------------------------------
+printf '#!/bin/sh\nexit 0\n' >"$R2/-hook"
+printf '#!/bin/sh\nexit 0\n' >"$R2/-l.sh"
+out=$(ck2 --list --base HEAD 2>&1 </dev/null)
+assert_contains "a dash-leading extensionless hook is read as a file" "lint	shellcheck	-hook" "$out"
+: >"$T/lint-calls"
+out=$(cd "$R2" && PATH="$STUB:$PATH" "$CHECK" --base HEAD 2>&1 </dev/null)
+assert_contains "a dash-leading file reaches the linter as a path" "./-l.sh" "$(grep '^shellcheck' "$T/lint-calls")"
+rm "$R2/-hook" "$R2/-l.sh"
+
+csi=$(printf '\233')
+printf '#!/bin/sh\nexit 0\n' >"$R2/scripts/a${csi}b.sh"
+printf '#!/bin/bash\n# scripts/one.sh\nprintf "\\033[31mred\\233m\\n"\nexit 3\n' >"$R2/tests/test-noisy.sh"
+all=$(cd "$R2" && PATH="$STUB:$PATH" "$CHECK" --base HEAD 2>&1 </dev/null)
+if LC_ALL=C grep -q "$(printf '[\033\233]')" <<<"$all"; then
+  fail "printed paths and dumped output carry no control bytes"
+else
+  ok "printed paths and dumped output carry no control bytes"
+fi
+assert_contains "the noisy test still fails visibly" "fail	test	tests/test-noisy.sh" "$all"
+rm "$R2/scripts/a${csi}b.sh" "$R2/tests/test-noisy.sh"
+
+mkdir -p "$T/realfleet"
+# shellcheck disable=SC2016 # the fixture's variable is for the fixture's shell
+printf '#!/bin/bash\n# scripts/one.sh\nmkdir -p "$PLANWRIGHT_FLEET_STATE_DIR" && touch "$PLANWRIGHT_FLEET_STATE_DIR/ledger"\n' >"$R2/tests/test-writes-fleet.sh"
+out=$(cd "$R2" && PLANWRIGHT_FLEET_STATE_DIR=$T/realfleet "$CHECK" tests/test-writes-fleet.sh 2>&1 </dev/null)
+assert_exit "a test writing the inherited fleet home fails" 1 $?
+assert_contains "names the fleet-home write" "fleet home" "$out"
+if [ -z "$(ls -A "$T/realfleet")" ]; then ok "the inherited fleet home is untouched"; else fail "the inherited fleet home is untouched"; fi
+rm "$R2/tests/test-writes-fleet.sh"
+
+# --- --lint-exclude ----------------------------------------------------------------
+out=$(ck --list --lint-exclude docs/ --lint-exclude 'config/*.yml' --lint-exclude scripts/README.md \
+  docs/README.md config/settings.yml scripts/README.md scripts/alpha.sh 2>&1)
+assert_exit "--lint-exclude lists" 0 $?
+assert_lacks "a directory exclusion skips its files' linting" "markdownlint-cli2	docs/README.md" "$out"
+assert_lacks "a pattern exclusion skips matching files' linting" "yamllint	config/settings.yml" "$out"
+assert_lacks "an exact exclusion skips that file's linting" "markdownlint-cli2	scripts/README.md" "$out"
+assert_contains "an excluded file still selects its tests" "test	tests/test-doc-path.sh" "$out"
+assert_contains "a file outside the exclusions is still linted" "lint	shellcheck	scripts/alpha.sh" "$out"
+out=$(ck --list --lint-exclude '' docs/README.md 2>&1)
+assert_exit "an empty --lint-exclude is refused" 2 $?
 # --- refused inputs ------------------------------------------------------------
 out=$(ck 2>&1)
 assert_exit "no files and no base is a usage error" 2 $?

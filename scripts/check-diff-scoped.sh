@@ -20,7 +20,20 @@
 # THE LINTERS, per changed file that still exists: shellcheck and `shfmt -d`
 # on shell (`.sh`, `.bash`, or an extensionless file with a shell shebang),
 # markdownlint-cli2 on `.md`, `yamllint --strict` on `.yml` and `.yaml`. A
-# linter not on PATH is reported as skipped, never passed.
+# linter not on PATH is reported as skipped, never passed. A file matching a
+# --lint-exclude entry is linted by nothing but still selects its tests; an
+# entry ending in `/` covers everything under it, one holding `*`, `?`, or `[`
+# is a shell pattern with `*` crossing `/`, and anything else names one path.
+# The caller passes the scopes its own lint tasks exclude (data, fixtures that
+# are malformed on purpose).
+#
+# Each test runs as scripts/run-tests.sh runs a file: PLANWRIGHT_FLEET_STATE_DIR,
+# and CLAUDE_PLUGIN_DATA and CLAUDE_DIR when set, point at a sentinel home of
+# its own, and a test that creates anything there fails, since under a fleet
+# worker it would have written the operator's real state.
+#
+# Paths and output come from the branch, so non-printable bytes are stripped
+# from everything printed.
 #
 # Prints `test <file>` and `lint <tool> <file>` lines with --list, running
 # nothing; otherwise `pass|fail test <file>`, `pass|fail lint <tool>`, and
@@ -30,7 +43,7 @@
 #
 # Usage:
 #   check-diff-scoped.sh [--list] [--tests <pathspec>] [--runner <command>]
-#       (--base <rev> | <path>...)
+#       [--lint-exclude <entry> ...] (--base <rev> | <path>...)
 #
 # Exit codes: 0 no selected check failed (or nothing was selected); a
 #   skipped linter or path is reported on its own line and does not fail the
@@ -47,7 +60,8 @@ NL='
 
 usage() {
   cat >&2 <<EOF
-usage: $prog [--list] [--tests <pathspec>] [--runner <command>] (--base <rev> | <path>...)
+usage: $prog [--list] [--tests <pathspec>] [--runner <command>]
+         [--lint-exclude <entry> ...] (--base <rev> | <path>...)
 EOF
   exit 2
 }
@@ -55,23 +69,52 @@ die() {
   printf '%s\n' "$prog: $2" >&2
   exit "$1"
 }
+# printable — the input without its non-printable bytes, tabs and newlines kept.
+printable() { tr -d '\000-\010\013-\037\177\200-\237'; }
+# say <format> <arg>... — printf through printable.
+say() {
+  # shellcheck disable=SC2059 # the format is always a literal at the call site
+  printf "$@" | printable
+}
+# lint_excluded <path> — the path matches a --lint-exclude entry.
+lint_excluded() {
+  while IFS= read -r e; do
+    [ -n "$e" ] || continue
+    case $e in
+      */) case $1 in "$e"*) return 0 ;; esac ;;
+      *[*?[]*)
+        # shellcheck disable=SC2254 # the entry is a pattern by contract
+        case $1 in $e) return 0 ;; esac
+        ;;
+      *) [ "$1" != "$e" ] || return 0 ;;
+    esac
+  done <<EOF
+$lint_exclude
+EOF
+  return 1
+}
 
 list=0
 base=
 tests_spec='tests/test-*.sh'
 runner=
+lint_exclude=
 while [ $# -gt 0 ]; do
   case $1 in
     --list)
       list=1
       shift
       ;;
-    --base | --tests | --runner)
+    --base | --tests | --runner | --lint-exclude)
       [ $# -ge 2 ] || usage
       case $1 in
         --base) base=$2 ;;
         --tests) tests_spec=$2 ;;
         --runner) runner=$2 ;;
+        --lint-exclude)
+          case $2 in *"$NL"* | '') die 2 "--lint-exclude takes one non-empty entry" ;; esac
+          lint_exclude=$lint_exclude$2$NL
+          ;;
       esac
       shift 2
       ;;
@@ -109,7 +152,7 @@ if [ -n "$base" ]; then
   : >"$changed"
   while IFS= read -r f; do
     case $f in
-      '"'*) printf 'skipped\tpath\t%s\n' "$f" ;;
+      '"'*) say 'skipped\tpath\t%s\n' "$f" ;;
       *) printf '%s\n' "$f" >>"$changed" ;;
     esac
   done <"$work/listed"
@@ -159,15 +202,16 @@ if [ -s "$work/patterns" ] && [ -s "$work/existing-tests" ]; then
   sed 's#^\./##' "$work/selected" >>"$work/tests"
 fi
 while IFS= read -r f; do
-  if grep -Fxq -e "$f" "$work/all-tests" && [ -f "$f" ]; then printf '%s\n' "$f" >>"$work/tests"; fi
-  [ -f "$f" ] || continue
+  if grep -Fxq -e "$f" "$work/all-tests" && [ -f "./$f" ]; then printf '%s\n' "$f" >>"$work/tests"; fi
+  [ -f "./$f" ] || continue
+  ! lint_excluded "$f" || continue
   case ${f##*/} in
     *.sh | *.bash) printf 'shellcheck\t%s\nshfmt\t%s\n' "$f" "$f" >>"$work/lint" ;;
     *.md) printf 'markdownlint-cli2\t%s\n' "$f" >>"$work/lint" ;;
     *.yml | *.yaml) printf 'yamllint\t%s\n' "$f" >>"$work/lint" ;;
     *.*) ;;
     *)
-      if sed -n 1p "$f" | grep -Eq '^#!.*(/|env[[:space:]]+)(ba|da|k|z)?sh([[:space:]]|$)'; then
+      if sed -n 1p "./$f" | grep -Eq '^#!.*(/|env[[:space:]]+)(ba|da|k|z)?sh([[:space:]]|$)'; then
         printf 'shellcheck\t%s\nshfmt\t%s\n' "$f" "$f" >>"$work/lint"
       fi
       ;;
@@ -176,21 +220,38 @@ done <"$changed"
 sort -u -o "$work/tests" "$work/tests"
 
 if [ "$list" -eq 1 ]; then
-  sed 's/^/test\t/' "$work/tests"
-  sed 's/^/lint\t/' "$work/lint"
+  sed 's/^/test\t/' "$work/tests" | printable
+  sed 's/^/lint\t/' "$work/lint" | printable
   exit 0
 fi
 
 # --- running -----------------------------------------------------------------
 
 status=0
+n=0
 while IFS= read -r t; do
-  # shellcheck disable=SC2086 # --runner is a command line by contract
-  if $runner "$t" >"$work/out" 2>&1 </dev/null; then
-    printf 'pass\ttest\t%s\n' "$t"
+  n=$((n + 1))
+  sentinel=$work/sentinel/$n
+  rc=0
+  (
+    export PLANWRIGHT_FLEET_STATE_DIR="$sentinel/fleet"
+    [ -z "${CLAUDE_PLUGIN_DATA+set}" ] || export CLAUDE_PLUGIN_DATA="$sentinel/plugin-data"
+    [ -z "${CLAUDE_DIR+set}" ] || export CLAUDE_DIR="$sentinel/claude"
+    # shellcheck disable=SC2086 # --runner is a command line by contract
+    exec $runner "./$t"
+  ) >"$work/out" 2>&1 </dev/null || rc=$?
+  for fh in "$sentinel/fleet" "$sentinel/plugin-data" "$sentinel/claude"; do
+    if [ -e "$fh" ] || [ -L "$fh" ]; then
+      printf '%s\n' "$prog: the test wrote into the fleet home it inherited (under a fleet worker, the operator's real one); pin a fixture home per case (tests/lib/fleet-home.sh)" >>"$work/out"
+      rc=1
+      break
+    fi
+  done
+  if [ "$rc" -eq 0 ]; then
+    say 'pass\ttest\t%s\n' "$t"
   else
-    printf 'fail\ttest\t%s\n' "$t"
-    cat "$work/out" >&2
+    say 'fail\ttest\t%s\n' "$t"
+    printable <"$work/out" >&2
     status=1
   fi
 done <"$work/tests"
@@ -202,7 +263,7 @@ for tool in shellcheck shfmt markdownlint-cli2 yamllint; do
     continue
   fi
   set --
-  while IFS= read -r f; do set -- "$@" "$f"; done <"$work/files"
+  while IFS= read -r f; do set -- "$@" "./$f"; done <"$work/files"
   case $tool in
     shfmt) set -- -d "$@" ;;
     yamllint) set -- --strict "$@" ;;
@@ -211,7 +272,7 @@ for tool in shellcheck shfmt markdownlint-cli2 yamllint; do
     printf 'pass\tlint\t%s\n' "$tool"
   else
     printf 'fail\tlint\t%s\n' "$tool"
-    cat "$work/out" >&2
+    printable <"$work/out" >&2
     status=1
   fi
 done
