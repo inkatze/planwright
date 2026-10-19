@@ -16,8 +16,8 @@
 #
 # MATCHED: each POSIX ERE in config/retired-phrasings.txt against every
 # paragraph (a run of non-blank lines) lowercased with its whitespace
-# collapsed, Markdown emphasis, code ticks, and blockquote markers dropped,
-# and a no-break space read as a space, so a phrasing wrapped across lines or
+# collapsed, Markdown emphasis, code ticks, escapes, inline HTML tags, and
+# blockquote markers dropped, and Unicode or entity spaces read as spaces, so a phrasing wrapped across lines or
 # set in emphasis is caught; a hit is reported by the line it ends on. Patterns are lowercase; an uppercase one is refused.
 #
 # EXEMPT: doctrine/human-gates.md, which names what it supersedes, and the
@@ -106,14 +106,12 @@ function closed(msg) {
   failed = 1
   exit 2
 }
-# The line a match ends on: the first paragraph line whose cumulative text
-# already matches. Built only on a hit, so a long clean paragraph stays linear.
-function hitline(p,   k, cum) {
-  cum = ""
-  for (k = 1; k <= nl; k++) {
-    cum = (cum == "" ? "" : cum " ") txt[k]
-    if (cum ~ p) return ln[k]
-  }
+# The line the first match ends on: the first line whose joined end offset
+# reaches the end of the match.
+function hitline(p,   k, end) {
+  match(para, p)
+  end = RSTART + RLENGTH - 1
+  for (k = 1; k <= nl; k++) if (off[k] >= end) return ln[k]
   return ln[1]
 }
 function check(rel,   i, n, m) {
@@ -121,7 +119,7 @@ function check(rel,   i, n, m) {
   for (i = 1; i <= npat; i++) {
     if (para !~ pat[i]) continue
     if (rel == "doctrine/gate-wiring.md" && pat[i] == "pending-sign-off\\]" &&
-        index(para, "planwright-sign-off: ps-legacy-<sha7>") > 0 && !mapped) {
+        index(para, "planwright-sign-off: ps-legacy-") > 0 && !mapped) {
       m = para
       n = gsub(/pending-sign-off\]/, "", m)
       if (n == 1) { mapped = 1; continue }
@@ -149,16 +147,18 @@ BEGIN {
     while ((rc = (getline line < path)) > 0) {
       lineno++
       if (line ~ /^[ \t\r]*$/) { check(rel); para = ""; nl = 0; continue }
-      gsub(/\302\240/, " ", line)
+      gsub(/\302\240|\342\200[\200-\213\257]|\342\201\237|&nbsp;|&#160;/, " ", line)
+      gsub(/&rarr;/, "\342\206\222", line)
       sub(/^[ \t]*(>[ \t]*)+/, "", line)
-      gsub(/[*_`]/, "", line)
+      gsub(/<[^>]*>/, "", line)
+      gsub(/[*_`\\]/, "", line)
       gsub(/[ \t\r]+/, " ", line)
       sub(/^ /, "", line); sub(/ $/, "", line)
       if (line == "") continue
       line = tolower(line)
       para = (para == "" ? "" : para " ") line
       if (length(para) > 262144) closed(clean(rel) ":" lineno ": a paragraph over 256 KiB; break it with a blank line")
-      nl++; ln[nl] = lineno; txt[nl] = line
+      nl++; ln[nl] = lineno; off[nl] = length(para)
     }
     if (rc < 0) closed(clean(rel) " could not be read")
     check(rel)

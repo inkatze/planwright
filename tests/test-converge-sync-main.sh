@@ -1148,8 +1148,9 @@ w2() {
     && fail "w2: SKILL.md gained a direct ready-flip call — the flip goes only through scripts/ready-flip.sh"
   grep -q 'gh pr create --draft' "$SKILL" \
     || fail "w2: SKILL.md lost its draft-only PR creation instruction"
-  tr '\n' ' ' <"$SKILL" | grep -Eq -- '- \*\*Policy:\*\* open drafts only; merge or flip ready only through the two +header sequences above' \
-    || fail "w2: SKILL.md lost the never-merge invariant"
+  # shellcheck disable=SC2016 # literal backticks of the skill's markdown
+  tr '\n' ' ' <"$SKILL" | grep -Eq -- '- \*\*Policy:\*\* merge only under `merge_policy`, flip only under +`ready_flip_policy`, through both header sequences above' \
+    || fail "w2: SKILL.md lost the policy-bound merge and flip invariant"
   # shellcheck disable=SC2016 # literal backticks of the skill's markdown
   tr '\n' ' ' <"$SKILL" | grep -Eq "unit-owner\`, run +\`scripts/ready-flip\\.sh\`'s header sequence\\. Under \`merge_policy: +policy-class\`, \`scripts/merge-admitted\\.sh\`'s follows\\." \
     || fail "w2: SKILL.md lost the two header sequences the invariant confines the flip and merge to"

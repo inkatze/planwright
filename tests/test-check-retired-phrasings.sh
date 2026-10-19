@@ -89,7 +89,10 @@ fi
 for variant in 'planwright **never** auto-merges.' '> planwright never
 > auto-merges.' "planwright never$(printf '\302\240')auto-merges." \
   "the draft-to-ready flip is the human$(printf '\342\200\231')s." \
-  'the draft->ready flip is yours.' 'the draft to ready flip is yours.'; do
+  'the draft->ready flip is yours.' 'the draft to ready flip is yours.' \
+  'planwright never&nbsp;auto-merges.' 'planwright never auto\-merges.' \
+  'planwright <em>never</em> auto-merges.' 'planwright never <!-- x --> auto-merges.' \
+  "planwright never$(printf '\342\200\257')auto-merges." 'the draft&rarr;ready flip is yours.'; do
   r="$TMP/variant"
   rm -rf "$r"
   mkfixture "$r"
@@ -235,6 +238,24 @@ mkfixture "$r"
 yes 'ordinary prose that never states a retired rule at all' | head -n 5000 >>"$r/docs/guide.md"
 run "$r"
 assert_exit "a paragraph over the size cap fails closed" 2 $?
+
+r="$TMP/longhit"
+mkfixture "$r"
+{
+  printf '\n'
+  yes a | head -n 60000
+  printf 'the review gate.\n'
+} >>"$r/docs/guide.md"
+SECONDS=0
+run "$r"
+rc=$?
+assert_exit "a hit at the end of a long paragraph is reported" 1 "$rc"
+if [ "$SECONDS" -le 20 ]; then
+  ok "a hit in a long paragraph is located without a quadratic rebuild"
+else
+  fail "locating a hit in a long paragraph took ${SECONDS}s"
+fi
+grep -q '^docs/guide.md:60005:' "$TMP/out" || fail "the long-paragraph hit is not reported on its own line: $(head -n 3 "$TMP/out")"
 
 r="$TMP/filelink"
 mkfixture "$r"
