@@ -22,7 +22,9 @@ or you run the commands below yourself:
 - **The draft→ready flip.** It moves a finished draft in front of reviewers and
   approves nothing. The tower never performs it; whether a unit's own
   `/execute-task` run may flip a converged PR is the `ready_flip_policy`
-  policy, and `human` reserves the flip to you.
+  policy, and `human` reserves the flip to you. The one other flip is the
+  spec PR's: `/spec-kickoff` marks it ready after a clean sign-off, under the
+  `mark_spec_pr_ready_on_kickoff` policy.
 - **Sign-off, on instrument flight.** A spec executes only after you walk it at
   `/spec-kickoff` and sign the brief; no bypass flag exists. Visual flight
   invents no shadow sign-off: a worker's hard pauses and its PR's
@@ -115,8 +117,9 @@ In the planwright repo itself the history invariants are also backstopped
 repo-side by tracked git hooks (`githooks/`, wired once per clone via
 `scripts/wire-githooks.sh`; `mise run check` fails loudly on an unwired
 clone). They are accident-catchers with an honestly stated boundary
-(`--amend -m`/`-F` is for the tower deny globs and the policy guard's
-`unpushed_rewrite` check, not the hooks), they bind humans too, and the
+(`--amend -m`/`-F` carries no client-hook signal, so the tower profile's deny
+globs refuse it and, for a worker, the policy guard's `unpushed_rewrite` check
+decides it), they bind humans too, and the
 deliberate bypasses are `--no-verify` for the push and commit-msg hooks and
 `git rebase --no-verify` for `pre-rebase` (`prepare-commit-msg` is not
 suppressed by `--no-verify`). See

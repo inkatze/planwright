@@ -36,8 +36,9 @@ from a clean machine to your first draft PR.
 - **Rigor that fits the work.** A typo fix does not pay for a spec; a change
   to authentication does not skip one. The choice is made per request, by
   stake and reversibility, and you can override it in one sentence.
-- **You keep the controls.** Every change lands as a draft PR, and merging is
-  always your call. Work that runs from a spec runs only after you sign it off.
+- **You keep the controls.** Every pull request opens as a draft, and merging
+  is always your call; a change that cannot reach your host yet stays local.
+  Work that runs from a spec runs only after you sign it off.
 - **Guardrailed autonomy.** Review and execution run in bounded loops —
   iteration caps, convergence criteria, no-progress detection — with hard pauses
   at security-sensitive or irreversible steps.

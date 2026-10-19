@@ -62,7 +62,7 @@ section() {
 }
 
 TOWER_CMD="\`/tower\`"
-DEMOTED="\`/(orchestrate|execute-task|resume|offload)[\` ]"
+DEMOTED="/(orchestrate|execute-task|resume|offload)([^[:alnum:]_-]|$)"
 MACHINERY="$DEMOTED|scripts/|worktree|branch|config/|\\.ya?ml|\\.json|\`[a-z]+_[a-z_]+\`|(^|[ \`])--[a-z]"
 
 # machinery <text>: the lines of a newcomer-path block naming pipeline
@@ -99,8 +99,9 @@ bad_lines=$(machinery "\`/orchestrate\` runs it
 see scripts/x.sh
 set \`max_parallel_units\`
 in its own worktree
-run with --fleet" | grep -c .)
-if [ "$bad_lines" -eq 5 ]; then ok "the machinery screen fires on known-bad lines"; else fail "the machinery screen fired on $bad_lines of 5 known-bad lines"; fi
+run with --fleet
+then /execute-task builds it" | grep -c .)
+if [ "$bad_lines" -eq 6 ]; then ok "the machinery screen fires on known-bad lines"; else fail "the machinery screen fired on $bad_lines of 6 known-bad lines"; fi
 
 # README lead (REQ-H1.3).
 readme_lead=$(lead "$README")
