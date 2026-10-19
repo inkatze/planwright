@@ -1,0 +1,37 @@
+# The frozen legacy-log lines (specs/_observations/opportunities.md) the
+# universal-binary bundle's Sources cite by date and topic, since the frozen log
+# carries no fragment UIDs. One row per line: an id of the form
+# legacy:<date>:<topic>, the defect classes the attribution assigns it (the
+# Sources' class groups name fragments only), and a fixed string that occurs on
+# exactly one line of that date. Read by scripts/substrate-attribute.sh.
+#
+# id	classes	match
+legacy:2026-06-11:locale-range-globs	portability	range globs are locale-dependent
+legacy:2026-07-09:awk-nul-screen	portability,parser-fragility	screens NUL-bearing fragments only reactively
+legacy:2026-06-12:selector-fence-awareness	parser-fragility	is NOT fence-aware
+legacy:2026-07-01:three-parser-dependency-lines	parser-fragility,duplicated-primitive	parser-parity-straggler(orchestrate-deps)
+legacy:2026-06-18:scope-grammar-triplication	parser-fragility,duplicated-primitive	introduces a third place that parses
+legacy:2026-06-12:config-parser-duplication	parser-fragility,duplicated-primitive	Two scripts now parse the flat-YAML config independently
+legacy:2026-06-12:lock-duplication	lock-concurrency,duplicated-primitive	the advisory-lock acquire/stale-break and
+legacy:2026-06-16:echo-discipline-copies	echo-sanitization,duplicated-primitive	The echo-discipline pattern (strip non-printables
+legacy:2026-07-02:echo-consolidation-partial	echo-sanitization,duplicated-primitive	echo-consolidation-partial(esc-consolidation)
+legacy:2026-07-03:resolver-echo-discipline-gap	echo-sanitization	resolver-echo-discipline-gap(resolve-*.sh family)
+legacy:2026-07-03:c1-control-bytes	echo-sanitization	c1-control-bytes-unstripped(echo-safety sanitizer family)
+legacy:2026-07-10:echo-inline-copy-drift	echo-sanitization,duplicated-primitive	Inline-copy drift in the echo-discipline family
+legacy:2026-06-18:esc-copies	duplicated-primitive	two more byte-identical copies of the
+legacy:2026-07-02:plugin-data-namespace	duplicated-primitive,plugin-delivery	shared-helper-candidate(plugin-data-namespace)
+legacy:2026-07-02:stale-break-race	lock-concurrency	shared-lock-stale-break-race(orchestrate-lock,fleet-state)
+legacy:2026-07-03:stale-break-window	lock-concurrency	decision-writes-in-stale-break-window(fleet-state lock)
+legacy:2026-06-11:concurrent-install	lock-concurrency,plugin-delivery	Concurrent install.sh runs into the same claude dir
+legacy:2026-07-03:double-derivation	perf-spawn-cost	double-derivation-per-spec(orchestrate-meta-select,task-6)
+legacy:2026-06-17:double-chain	perf-spawn-cost	runs the model→translate chain twice
+legacy:2026-06-12:membership-check-cost	perf-spawn-cost	membership checks (set_in) are O(n*m)
+legacy:2026-06-18:runner-fail-fast	test-flakiness	runner is fail-fast
+legacy:2026-06-18:hermeticity-adopter-arm	test-flakiness	is not hermetic: its "no adopter arm
+legacy:2026-06-18:hermeticity-home	test-flakiness	is non-hermetic with respect to
+legacy:2026-06-11:shfmt-absent	lint-gap	is absent on the dev host while Task 2 plans it in CI
+legacy:2026-06-11:plugin-data	plugin-delivery	Claude Code provides
+legacy:2026-06-11:writer-ghost	plugin-delivery	writer refresh-copies and never deletes
+legacy:2026-06-15:change-signal	plugin-delivery	emits no changed/unchanged signal
+legacy:2026-06-15:coexistence	plugin-delivery	Multi-install coexistence gap
+legacy:2026-06-16:worktree-invariant	portability	worktree invariant (D-37
