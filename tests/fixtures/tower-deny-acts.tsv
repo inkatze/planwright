@@ -125,6 +125,8 @@ spelling	ref-surgery	short-cluster	git branch -qf main HEAD
 spelling	ref-surgery	ref-form	git branch -f refs/heads/main HEAD
 spelling	ref-surgery	option-value	git branch -f main HEAD --sort -committerdate
 spelling	ref-surgery	option-value	git branch -f main HEAD --points-at -d
+spelling	ref-surgery	expansion	git branch "-$d" main HEAD
+spelling	ref-surgery	expansion	git branch -f$dd main HEAD
 spelling	ref-surgery	case	git RESET --hard HEAD
 spelling	ref-surgery	alias	git hr HEAD
 spelling	ref-surgery	alias	git bf main HEAD

@@ -2204,17 +2204,21 @@ git_alias_check() {
 # parse_git_opts <start> <value-longs> <value-shorts> <optval-shorts> — walk
 # the words from <start>, setting GP_POS[] (positionals with GP_POSL[]),
 # GP_LONG (space-joined long option names seen, values dropped), GP_SHORT
-# (short flag chars seen). Returns 1 with GP_ERR when a flag cannot be read.
+# (short flag chars seen), and GP_LITLONG and GP_LITSHORT, the same from
+# literal words only. Returns 1 with GP_ERR when a flag cannot be read.
 parse_git_opts() {
-  local k=$1 vlong=" $2 " vshort=$3 ovshort=$4 n=${#SW[@]} w name endopts=0 b c
+  local k=$1 vlong=" $2 " vshort=$3 ovshort=$4 n=${#SW[@]} w lit name endopts=0 b c
   GP_POS=()
   GP_POSL=()
   GP_LONG=' '
   GP_SHORT=''
+  GP_LITLONG=' '
+  GP_LITSHORT=''
   GP_VALS=()
   GP_ERR=''
   while [ "$k" -lt "$n" ]; do
     w=${SW[$k]}
+    lit=${SWL[$k]}
     if [ "$endopts" = 1 ]; then
       GP_POS[${#GP_POS[@]}]=$w
       GP_POSL[${#GP_POSL[@]}]=${SWL[$k]}
@@ -2228,6 +2232,7 @@ parse_git_opts() {
       --*=*)
         name=${w%%=*}
         GP_LONG="$GP_LONG${name#--} "
+        [ "$lit" != 1 ] || GP_LITLONG="$GP_LITLONG${name#--} "
         ;;
       --*)
         name=${w#--}
@@ -2239,12 +2244,16 @@ parse_git_opts() {
               return 1
             }
             GP_LONG="$GP_LONG$name "
+            [ "$lit" != 1 ] || GP_LITLONG="$GP_LITLONG$name "
             ;;
           *" $name"*)
             GP_ERR="--$name abbreviates an option that takes a value"
             return 1
             ;;
-          *) GP_LONG="$GP_LONG$name " ;;
+          *)
+            GP_LONG="$GP_LONG$name "
+            [ "$lit" != 1 ] || GP_LITLONG="$GP_LITLONG$name "
+            ;;
         esac
         ;;
       -)
@@ -2257,6 +2266,7 @@ parse_git_opts() {
           c=${b:0:1}
           b=${b:1}
           GP_SHORT="$GP_SHORT$c"
+          [ "$lit" != 1 ] || GP_LITSHORT="$GP_LITSHORT$c"
           case $vshort in
             *"$c"*)
               if [ -z "$b" ]; then
@@ -2289,12 +2299,13 @@ parse_git_opts() {
   return 0
 }
 
-# long_prefix_seen <full-name> <min-length> — 0 when GP_LONG carries an
-# option git would read as <full-name>: the name itself or a prefix of it at
-# least <min-length> long (git takes any unique prefix of a long option).
+# long_prefix_seen <full-name> <min-length> [<names>] — 0 when <names>
+# (default GP_LONG) carries an option git would read as <full-name>: the name
+# itself or a prefix of it at least <min-length> long (git takes any unique
+# prefix of a long option).
 long_prefix_seen() {
   local t name
-  for t in $GP_LONG; do
+  for t in ${3-$GP_LONG}; do
     name=${t%%=*}
     [ "${#name}" -ge "$2" ] || continue
     [ "$name" != "${1:0:${#name}}" ] || return 0
@@ -2369,10 +2380,11 @@ classify_tower_git() {
           return 0
         }
       # Deletion stays the tower's, and in delete mode a force only deletes an
-      # unmerged branch, so a parsed delete flag settles the call; the parse
-      # keeps an option's value from reading as one.
-      case $GP_SHORT in *[dD]*) return 0 ;; esac
-      long_prefix_seen delete 1 && return 0
+      # unmerged branch, so a literal, parsed delete flag settles the call: the
+      # parse keeps an option's value from reading as one, and an expansion
+      # never counts, since it could spell -f instead.
+      case $GP_LITSHORT in *[dD]*) return 0 ;; esac
+      long_prefix_seen delete 1 "$GP_LITLONG" && return 0
       tower_opts_literal "$k" 'this git branch' || return 0
       if long_prefix_seen force 1 || [[ $GP_SHORT == *f* ]]; then
         deny_now 'a forced git branch (-f, --force) is denied to the tower under every policy value: it repoints an existing branch, and the tower never moves a branch.'
