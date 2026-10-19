@@ -47,6 +47,7 @@ Doctrine: point-of-use finding-categorization
 Doctrine: point-of-use gate-wiring
 Doctrine: point-of-use decision-domains
 Doctrine: point-of-use custom-steps
+Doctrine: point-of-use venture-task
 
 ## Pre-flight
 
@@ -58,8 +59,9 @@ block staying in `## Tasks` (D-3); in a holder or plain store,
 (custom-spec-location REQ-E1.9) — and ends the step (the `gate-wiring` pause
 protocol's dispatched arm); attended, present and wait.
 
-1. **Parse `$ARGUMENTS`.** Extract one or more task IDs (`5`, `3.5`, or `5 6`
-   for a bundle), an optional `--resume <run>:<point>`, and an optional bare
+1. **Parse `$ARGUMENTS`.** A `T-<n>` ID and venture: follow `venture-task`
+   instead. Otherwise extract one or more task IDs (`5`, `3.5`, or `5 6`
+   for a bundle), plus optional `--resume <run>:<point>` and bare
    `<spec>` (alias `specs/<spec>`, one trailing slash allowed). Validate each
    `<id>` against `^[0-9]+(\.[0-9]+)?$`, and the mapped identifier against the
    anchored identifier pattern `^[a-z0-9][a-z0-9-]*$` (≤64 chars, REQ-A1.8),
@@ -75,12 +77,11 @@ protocol's dispatched arm); attended, present and wait.
    not bundles). Verify the directory holds `requirements.md`, `design.md`,
    `tasks.md`, and `test-spec.md`.
 3. **Resolve the run-start doctrine docs** (above).
-4. **Verify the spec is Ready or Active** (REQ-C1.1, superseding the bootstrap
-   non-Active refusal REQ-J1.2, D-33; kickoff-lifecycle D-2, D-3). Read the
+4. **Verify the spec is Ready or Active** (see Invariants). Read the
    `**Status:**` line in `requirements.md`. `Ready` (signed off, no work
    started) and `Active` (work in flight) are both executable; refuse
    Draft, Done, Retired, and Superseded. The spec file **stays `Ready`** during
-   execution: Ready↔Active is **derived, not stored** (D-2, D-3). On **Draft**,
+   execution: Ready↔Active is **derived, not stored**. On **Draft**,
    halt and suggest `/spec-kickoff`. A `Ready` spec runs on the same terms as Active:
    the freshness gate (step 7) still applies (REQ-C1.3); the two gates compose.
 5. **Run the validator.** `scripts/spec-validate.sh <root>/<spec>`. On this
