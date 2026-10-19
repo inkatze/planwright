@@ -148,6 +148,10 @@ QUEUED=queued-aaaaaaa6
 PRINT=print-aaaaaaa7
 TMUXF=tmuxf-aaaaaaa8
 NOREG=noreg-aaaaaaa9
+# One flight per older registry arity (fleet-messaging Task 4): the rows the
+# writer lays down now are nine columns, so these two are hand-written.
+OLD7=oldseven-aaaaaab7
+OLD3=oldthree-aaaaaab3
 EVIL=evil-aaaaaab1
 FORK=fork-aaaaaab2
 
@@ -177,7 +181,7 @@ gitc "$repo" branch "planwright/flight/NOT_AN_ID" main
 place() {
   gitc "$repo" worktree add -q -b "planwright/flight/$1" "$repo/.claude/worktrees/flight-$1" main
 }
-for f in "$AIR" "$DEAD" "$QUEUED" "$PRINT" "$TMUXF" "$NOREG"; do place "$f"; done
+for f in "$AIR" "$DEAD" "$QUEUED" "$PRINT" "$TMUXF" "$NOREG" "$OLD7" "$OLD3"; do place "$f"; done
 
 sleep 3600 &
 live_pid=$!
@@ -192,6 +196,9 @@ reg "tmux-flight-$DEAD" "$DEAD" tmux "process $dead_pid"
 reg "tmux-flight-$QUEUED" "$QUEUED" tmux "process $live_pid"
 reg "print-flight-$PRINT" "$PRINT" print none
 reg "tmux-flight-$TMUXF" "$TMUXF" tmux "tmux-window w1 @1"
+printf '100\ttmux-flight-%s\tflight:%s\t-\ttmux\t-\tprocess %s\n' "$OLD7" "$OLD7" "$dead_pid" \
+  >>"$PLANWRIGHT_FLEET_STATE_DIR/registry"
+printf '101\ttmux-flight-%s\tflight:%s\n' "$OLD3" "$OLD3" >>"$PLANWRIGHT_FLEET_STATE_DIR/registry"
 /bin/sh "$ATTN" decide "tmux-flight-$QUEUED" "flight:$QUEUED" "Which way?" a "a|b" >/dev/null \
   || fail "fixture: could not queue a decision"
 
@@ -246,6 +253,14 @@ r=$(row "$out" "$AIR")
 r=$(row "$out" "$DEAD")
 [ "$(field "$r" 3)" = dead ] && [ "$(field "$r" 5)" = dead ] \
   || fail "positive death evidence reads dead (got: $r)"
+[ "$(/bin/sh "$STATE" registry | awk -F "$TAB" -v h="tmux-flight-$DEAD" '$2 == h { print NF }')" = 9 ] \
+  || fail "fixture: the writer's row for $DEAD is not nine columns"
+r=$(row "$out" "$OLD7")
+[ "$(field "$r" 3)" = dead ] && [ "$(field "$r" 6)" = "tmux-flight-$OLD7" ] \
+  || fail "a seven-column registry row reads its death handle (got: $r)"
+r=$(row "$out" "$OLD3")
+[ "$(field "$r" 3)" = in-air ] && [ "$(field "$r" 5)" = unknown ] \
+  || fail "a three-column registry row reads unknown liveness, never dead (got: $r)"
 r=$(row "$out" "$QUEUED")
 [ "$(field "$r" 3)" = awaiting-operator ] || fail "a queued decision reads awaiting-operator (got: $r)"
 r=$(row "$out" "$PRINT")
@@ -302,7 +317,7 @@ printf '%s\n' "$out" | grep -q "^forge${TAB}unavailable" || fail "a failing forg
 : >"$c/gh.log"
 (cd "$repo" && GH_STUB_LOG="$c/gh.log" "$SCRIPT" sweep --no-write >/dev/null 2>&1)
 asked=$(sed -n 's#^pr list .*--head planwright/flight/\([^ ]*\) .*#\1#p' "$c/gh.log")
-printf '%s\n' "$asked" | awk -v wt=" $AIR $DEAD $QUEUED $PRINT $TMUXF $NOREG " '
+printf '%s\n' "$asked" | awk -v wt=" $AIR $DEAD $QUEUED $PRINT $TMUXF $NOREG $OLD7 $OLD3 " '
   index(wt, " " $0 " ") { if (seen_other) bad = 1; next }
   { seen_other = 1 }
   END { exit bad }' || fail "the forge is asked about worktree flights before the rest (asked: $(printf "%s" "$asked" | tr "\n" " "))"

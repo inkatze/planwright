@@ -296,8 +296,9 @@ read_registry() {
     return 0
   fi
   rr_n=0
-  # Registry rows: ts worker scope owner backend state-dir death-handle (an
-  # append log; the last record for a worker is its current dispatch record).
+  # Registry rows: ts worker scope owner backend state-dir death-handle name
+  # inbox (an append log; the last record for a worker is its current dispatch
+  # record; the two identity columns are not rendered).
   # A read FAILURE (nonzero exit) is distinct from an empty registry: mark it
   # unavailable rather than conflating "cannot read" with "no records" (the
   # degrade taxonomy).

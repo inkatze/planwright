@@ -11,8 +11,10 @@
 #       the dispatcher's root and fleet home, the launch token, and the
 #       registry record's handle and scope; the registry's death handle is the
 #       session-creation output; a liveness hook run with the worker's
-#       environment records a transition for its handle (REQ-F1.1-F1.5,
-#       REQ-G1.2, REQ-G1.6, REQ-H1.2)
+#       environment records a transition for its handle; the session is
+#       named after that handle and the worker profile rides --settings with
+#       PLANWRIGHT_MESSAGING_INBOUND=accept beside it (REQ-F1.1-F1.5,
+#       REQ-G1.2, REQ-G1.6, REQ-H1.2; fleet-messaging REQ-B1.1, REQ-F1.1)
 #   l2  a flight dispatch does the same for a flight's identity, names the
 #       session from the launch's report line, treats started-unconfirmed as
 #       placed, and releases its lock: a second dispatch with
@@ -31,6 +33,9 @@
 #       bounded runner (REQ-H1.1)
 #   l7  a flight dispatch whose tmux hangs returns at the tmux call bound,
 #       reports the failure, and leaves the flight lock free
+#   l8  the launch plan with the messaging environment present equals the one
+#       with it absent, and no launch seam consults the messaging script
+#       (fleet-messaging REQ-A1.5)
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-tmux-detached-launch.sh
@@ -64,6 +69,21 @@ check_worker() {
   case "$argv$TAB" in
     *"$TAB--worktree"* | *"$TAB--tmux"*) fail "$label: the worker argv carries --worktree or --tmux: $argv" ;;
   esac
+  # The session is named after the registry handle, and the worker profile
+  # rides --settings with the inbound layer beside it (fleet-messaging D-8,
+  # D-17, D-19).
+  case "$argv$TAB" in
+    *"$TAB--name$TAB$handle$TAB"*) ;;
+    *) fail "$label: the worker argv does not name the session '$handle': $argv" ;;
+  esac
+  case "$argv$TAB" in
+    *"$TAB--settings$TAB$ROOT/config/worker-settings.json$TAB"*) ;;
+    *) fail "$label: the worker argv does not pass the worker profile: $argv" ;;
+  esac
+  "$ROOT/scripts/orchestrate-relay.sh" validate-handle tmux "$handle" \
+    || fail "$label: the derived name '$handle' fails the tmux handle grammar"
+  v=$(tlh_worker_env "$rec" PLANWRIGHT_MESSAGING_INBOUND) || v='<unset>'
+  [ "$v" = accept ] || fail "$label: the worker's inbound layer is '$v', not accept"
   v=$(tlh_worker_env "$rec" CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION) || v='<unset>'
   [ "$v" = false ] || fail "$label: the ghost-text pin did not reach the worker ($v)"
   v=$(tlh_worker_env "$rec" PLANWRIGHT_ROOT) || v='<unset>'
@@ -391,6 +411,36 @@ l7_flight() {
   return 0
 }
 
+# --- l8: the launch argv does not depend on messaging -------------------------
+# The REQ-A1.5 naming comparand (fleet-messaging Task 4): the plan a dispatch
+# prints with the messaging environment absent equals the plan with it
+# present, and no seam consults the probe.
+l8() {
+  local absent present sock back=$PWD
+  new_case
+  sock="$TLH_SANDBOX/inbox.sock"
+  : >"$sock"
+  cd "$P" || return
+  unset CLAUDE_CODE_MESSAGING_SOCKET CLAUDE_CODE_MESSAGING_TOKEN
+  tlh_run_bounded "$PRIM" attach demo-task-8 --dry-run
+  [ "$TLH_RC" -eq 0 ] || fail "l8: the messaging-absent plan exited $TLH_RC ($TLH_ERR)"
+  absent=$TLH_OUT
+  CLAUDE_CODE_MESSAGING_SOCKET=$sock CLAUDE_CODE_MESSAGING_TOKEN=t0k3n tlh_run_bounded "$PRIM" attach demo-task-8 --dry-run
+  [ "$TLH_RC" -eq 0 ] || fail "l8: the messaging-present plan exited $TLH_RC ($TLH_ERR)"
+  present=$TLH_OUT
+  cd "$back" || return
+  [ -n "$absent" ] && [ "$absent" = "$present" ] \
+    || fail "l8: the launch plan moved with the messaging environment: '$absent' vs '$present'"
+  local seam
+  for seam in fleet-dispatch-worktree.sh fleet-streamjson.sh fleet-dispatch-headless.sh \
+    fleet-tower-watchdog.sh fleet-tower-launch.sh; do
+    [ -f "$ROOT/scripts/$seam" ] || fail "l8: the launch seam $seam is missing"
+    grep -v '^[[:space:]]*#' "$ROOT/scripts/$seam" | grep -q 'fleet-messaging\.sh' \
+      && fail "l8: the launch seam $seam consults the messaging script"
+  done
+  return 0
+}
+
 l1
 l2
 l3
@@ -398,6 +448,7 @@ l4
 l5
 l6
 l7
+l8
 
 [ "$fails" -eq 0 ] || {
   echo "test-tmux-detached-launch: $fails failure(s)" >&2

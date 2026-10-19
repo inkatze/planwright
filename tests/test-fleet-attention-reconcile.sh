@@ -268,6 +268,11 @@ printf 'sess-a @1\n' >"$tmp/tmux-windows"
 reg tmux-demo-task-2 demo:task-2 tmux "$repo/.claude/worktrees/demo-2" "tmux-window sess-a @9"
 reg tmux-demo-task-4 demo:task-4 tmux "$repo/.claude/worktrees/demo-4" "tmux-window sess-a @1"
 reg proc-demo-task-2b demo:task-2 headless "$repo/specs/demo/.orchestrate/headless/2" "process $dead_pid"
+# The current nine-column row (session name and inbox appended) is judged on
+# the same columns (fleet-messaging Task 4).
+printf '1700000000\tnine-demo-task-2\tdemo:task-2\t-\theadless\t%s\tprocess %s\tnine-demo-task-2\t77.sock\n' \
+  "$repo/specs/demo/.orchestrate/headless/2" "$dead_pid" >>"$home/registry"
+seed nine-demo-task-2 demo:task-2 hung
 reg pr-demo-task-4 demo:task-4 tmux "$repo/.claude/worktrees/demo-4b" "tmux-window sess-gone @3"
 reg far-demo-task-1 demo:task-1 tmux "$other/wt" "tmux-window sess-a @1"
 seed tmux-demo-task-2 demo:task-2 working
@@ -288,6 +293,7 @@ has_row dot-demo-task-1 || fail "x1: a state dir climbing out of this checkout c
 says d1 clear tmux-demo-task-2 tmux-window-dead
 says d1 keep tmux-demo-task-4 alive
 says d2 clear proc-demo-task-2b process-dead
+says d2 clear nine-demo-task-2 process-dead
 says p1 keep pr-demo-task-4 in-flight
 says x1 keep far-demo-task-1 foreign
 says x1 keep dot-demo-task-1 foreign

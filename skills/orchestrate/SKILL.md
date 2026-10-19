@@ -268,9 +268,10 @@ it when relaying to or cleaning up after a worker.
 
 **Tower marker (fleet-autonomy D-4).** At watch-loop start record the marker,
 `scripts/fleet-tower-marker.sh record <spec> --mode <mode> --pid <pid>
---checkout <primary>`: `<mode>` is `unattended` under `--unattended`, else
-`interactive` plus `--session-id <uuid>`, the signpost's resume handle; clear
-it on graceful exit.
+--checkout <primary> --name <name>`: `<mode>` is `unattended` under
+`--unattended`, else `interactive` plus `--session-id <uuid>`, the signpost's
+resume handle; `<name>` is `scripts/fleet-messaging.sh self-name`'s output,
+the flag dropped when it fails; clear it on graceful exit.
 
 **Presence (coordination D-2).** Next, before any step launches a worker
 (else it registers ownerless), and each iteration:

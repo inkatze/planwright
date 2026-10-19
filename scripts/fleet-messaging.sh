@@ -59,10 +59,13 @@
 #   fleet-messaging.sh self-register
 #       From a worker session's own SessionStart hook: record its observed
 #       name and inbox socket basename in its registry row through
-#       `fleet-state.sh amend`. A session without the worker identity
-#       environment (a tower) writes nothing. Exit 0 with one stderr notice
-#       when CLAUDE_PID names no record; exit 2 on a malformed handle or a
-#       record whose name or socket path fails its screen; otherwise the
+#       `fleet-register.sh --amend`, which drops a value the registry's
+#       grammar refuses and still writes the other. A session without the
+#       worker identity environment (a tower) writes nothing. Exit 0 with one
+#       stderr notice when CLAUDE_PID names no record; exit 2 on a malformed
+#       handle or a record whose name fails its screen (nothing recorded), or
+#       whose socket path does (the name recorded, the inbox cleared to the
+#       sentinel); otherwise the
 #       amend's own exit.
 #   fleet-messaging.sh socket-ok <path> [--owner-uid <uid>] [--socket-type <socket|other>]
 #       Exit 0 when <path> is a local socket path (absolute, only
@@ -105,6 +108,7 @@ fi
 . "$script_dir/echo-safety.sh"
 
 FS="$script_dir/fleet-state.sh"
+FR="$script_dir/fleet-register.sh"
 FA="$script_dir/fleet-attention.sh"
 OB="$script_dir/orchestrate-backends.sh"
 RCK="$script_dir/resolve-config-knob.sh"
@@ -178,7 +182,8 @@ valid_field() {
   [ "${#vf_v}" -le 128 ]
 }
 
-# The session-name screen: printable ASCII, no path separator, 1 to 128 bytes.
+# The session-name screen: printable ASCII, no path separator, no leading dash
+# (an option-shaped word, and the registry's `-` sentinel), 1 to 128 bytes.
 # It is a path-safe screen of its own, not the relay's handle grammar: a
 # session name is whatever the harness recorded, so it admits spaces and
 # punctuation the handle grammar refuses, and refuses any separator a name
@@ -188,7 +193,7 @@ valid_session_name() {
   [ -n "$vs_v" ] || return 1
   [ "${#vs_v}" -le 128 ] || return 1
   case $vs_v in
-    */* | *\\*) return 1 ;;
+    -* | */* | *\\*) return 1 ;;
   esac
   case $vs_v in
     *[!\ -~]*) return 1 ;;
@@ -729,18 +734,28 @@ cmd_self_register() {
     printf '%s\n' "$me: self-register: the per-session record's name is absent or fails the session-name screen; nothing recorded" >&2
     exit 2
   fi
+  # A record with no usable socket still names the session: the name is
+  # recorded, the inbox set back to the sentinel (a resumed session's row
+  # would otherwise keep its earlier session's socket), and the exit says so.
   sg_rc=0
+  md_box=''
   md_sock=$(json_top_string "$sg_f" messagingSocketPath) || sg_rc=$?
   if [ "$sg_rc" != 0 ] || ! valid_socket_path "$md_sock"; then
-    printf '%s\n' "$me: self-register: the per-session record carries no usable socket path; nothing recorded" >&2
-    exit 2
+    printf '%s\n' "$me: self-register: the per-session record carries no usable socket path; recording the name alone" >&2
+  else
+    md_box=${md_sock##*/}
+    if ! valid_inbox "$md_box" || [ "${md_box#-}" != "$md_box" ]; then
+      printf '%s\n' "$me: self-register: the socket basename fails the inbox screen; recording the name alone" >&2
+      md_box=''
+    fi
   fi
-  md_box=${md_sock##*/}
-  if ! valid_inbox "$md_box"; then
-    printf '%s\n' "$me: self-register: the socket basename fails the inbox screen; nothing recorded" >&2
-    exit 2
+  if [ -z "$md_box" ]; then
+    /bin/sh "$FR" --amend "$sg_handle" --name "$md_name" --clear-inbox
+    sg_rc=$?
+    [ "$sg_rc" != 0 ] || sg_rc=2
+    exit "$sg_rc"
   fi
-  "$FS" amend "$sg_handle" --name "$md_name" --inbox "$md_box"
+  /bin/sh "$FR" --amend "$sg_handle" --name "$md_name" --inbox "$md_box"
 }
 
 # --- notice-read -------------------------------------------------------------

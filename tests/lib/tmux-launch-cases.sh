@@ -41,7 +41,7 @@ unset CLAUDE_PLUGIN_ROOT PLANWRIGHT_DISPATCH_LIVENESS_SKIP_TMUX PLANWRIGHT_REPO_
 PLANWRIGHT_TOWER_ID=p1.t1.c1
 export PLANWRIGHT_TOWER_ID
 tlh_server_env PLANWRIGHT_ROOT=/decoy-root CLAUDE_PLUGIN_ROOT=/decoy-root \
-  PLANWRIGHT_FLEET_STATE_DIR=/decoy-fleet
+  PLANWRIGHT_FLEET_STATE_DIR=/decoy-fleet PLANWRIGHT_MESSAGING_INBOUND=refuse
 tlh_knob worker-confirm off
 # The launch's confirm seams, so an unconfirmed launch waits the harness's
 # short cap rather than the real one.

@@ -313,7 +313,7 @@ nollm_check
 # a worker session (or to print the command for one): the launch is the worker,
 # not a decision. Their decision paths are covered by the runtime recorder.
 # Each exemption must still match, so a stale one fails here.
-launchers='fleet-dispatch-headless.sh fleet-dispatch-worktree.sh fleet-tower-signpost.sh fleet-tower-watchdog.sh'
+launchers='fleet-dispatch-headless.sh fleet-dispatch-worktree.sh fleet-tower-launch.sh fleet-tower-signpost.sh fleet-tower-watchdog.sh'
 client='(^|[^A-Za-z0-9_./-])(claude|anthropic|curl|wget)([[:space:]]|$|")|api\.anthropic'
 # The messaging probe reads the CLI's version, which reaches no model; that one
 # read is all fleet-messaging.sh may carry, and it must still be there. The
