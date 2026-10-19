@@ -98,7 +98,9 @@ what the human should do with each:
    lines and naming both surfaces, plus any stuck consumes (fragments
    annotated `Consumed-by:` but not yet moved to `archive/`) and skipped
    invalid fragments; the reminder that its canonical reader is `/spec-draft`
-   (mining happens there, not here).
+   (mining happens there, not here). Then the venture drop's entry count from
+   `scripts/inception-registry.sh drop-read` (already neutralized; exit 6
+   named as unavailable), mined in `/spec-draft` too.
 
 Items within each lane of each spec's section arrive ordered
 low-confidence first (REQ-H1.5); when merging lanes across specs, re-sort
