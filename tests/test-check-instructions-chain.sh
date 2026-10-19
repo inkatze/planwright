@@ -3,7 +3,8 @@
 # (review-effectiveness REQ-G1.2, D-12). /polish runs /self-review nested in
 # its own session, so the guard charges the two bodies plus the union of the
 # doctrine both manifests load as one closure, against its own error knob,
-# instruction_budget_chain_closure_error.
+# instruction_budget_chain_closure_error. §20i also pins the real corpus's
+# diet (REQ-G1.1): both members load the methodology docs point-of-use.
 #
 # Added after the guard-coverage split; tests/test-check-instructions.sh names
 # the other siblings and carries the guard's full contract.
@@ -191,15 +192,21 @@ out="$(/bin/bash "$CHECKER" --root "$t20d" 2>&1)"
 assert_exit "REQ-G1.2: a missing chain knob aborts the guard" 1 $?
 assert_contains "REQ-G1.2: the abort names the chain knob" \
   "instruction_budget_chain_closure_error" "$out"
+assert_contains "REQ-G1.2: a missing chain knob is the fail-loud knob abort" \
+  "aborting — threshold knobs could not be read" "$out"
+assert_absent "REQ-G1.2: no chain figure is scored without its knob" \
+  "chain closure:" "$out"
 
 # 20e. REQ-G1.2: a tree without the chain needs no chain knob and prints no
 #      chain line.
-t20e="$tmproot/t20e"
-scaffold "$t20e" none
-make_skill "$t20e" polish 100
-out="$(/bin/bash "$CHECKER" --root "$t20e" 2>&1)"
-assert_exit "REQ-G1.2: a tree without the chain needs no chain knob" 0 $?
-assert_absent "REQ-G1.2: no chain line without the chain" "chain closure" "$out"
+for member in polish self-review; do
+  t20e="$tmproot/t20e-$member"
+  scaffold "$t20e" none
+  make_skill "$t20e" "$member" 100
+  out="$(/bin/bash "$CHECKER" --root "$t20e" 2>&1)"
+  assert_exit "REQ-G1.2: a tree with only $member needs no chain knob" 0 $?
+  assert_absent "REQ-G1.2: no chain line with only $member" "chain closure" "$out"
+done
 
 # 20f. REQ-G1.2: the chain knob is raise-governed like every other error knob.
 t20f="$tmproot/t20f"
@@ -224,6 +231,50 @@ out="$(/bin/bash "$CHECKER" --root "$t20g" 2>&1)"
 assert_exit "REQ-G1.2: an unresolvable member manifest fails the guard" 1 $?
 assert_contains "REQ-G1.2: the chain is reported unmeasured" \
   "chain closure: polish+self-review unmeasured" "$out"
+out="$(/bin/bash "$CHECKER" --root "$t20g" --audit 2>&1)"
+assert_contains "REQ-G1.2: the audit reports the unmeasured chain" \
+  "chain polish+self-review closure=unmeasured" "$out"
+
+# 20h. REQ-G1.2: a permanently exempt doc is charged at its cap in the chain
+#      figure, and the audit prints the honest actual beside it. The `big` doc
+#      (5000) caps at the doctrine error threshold (4000); polish gains five
+#      words naming and loading it: charged 1516 + 5 + 4000, actual + 5000.
+t20h="$tmproot/t20h"
+chain_fixture "$t20h" 20000
+make_doc "$t20h" big 5000
+echo "exempt|doctrine/big.md|fixture: kept large on purpose" \
+  >>"$t20h/config/instruction-budget-exemptions.txt"
+make_skill "$t20h" polish 100 \
+  "alpha" \
+  "big" \
+  "Doctrine: run-start shared" \
+  "Doctrine: point-of-use alpha (iteration)" \
+  "Doctrine: point-of-use big (iteration)"
+out="$(/bin/bash "$CHECKER" --root "$t20h" 2>&1)"
+assert_exit "REQ-G1.2: a capped exempt doc keeps the chain green" 0 $?
+assert_contains "REQ-G1.2: the chain charges an exempt doc at its cap" \
+  "chain closure: polish+self-review 5521 words" "$out"
+out="$(/bin/bash "$CHECKER" --root "$t20h" --audit 2>&1)"
+assert_contains "REQ-G1.2: the audit prints the chain's honest actual" \
+  "chain polish+self-review closure=5521 (ok) (actual 6521) margin-to-error=14479" "$out"
+
+# 20i. REQ-G1.1: on the real corpus, both review skills load the methodology
+#      docs point-of-use and their start-loads sit below the warn line.
+for member in polish self-review; do
+  for doc in discovery-rigor validation-rigor proportionality; do
+    if grep -q "^Doctrine: point-of-use $doc " "$REPO_ROOT/skills/$member/SKILL.md"; then
+      echo "ok: REQ-G1.1: $member loads $doc point-of-use"
+    else
+      echo "FAIL: REQ-G1.1: $member does not load $doc point-of-use" >&2
+      failures=$((failures + 1))
+    fi
+  done
+done
+out="$(/bin/bash "$CHECKER" --root "$REPO_ROOT" --audit 2>&1)"
+for member in polish self-review; do
+  state="$(printf '%s\n' "$out" | awk -v m="$member" '$1 == m && $2 ~ /^start-load=/ { print $3; exit }')"
+  assert_exit "REQ-G1.1: $member start-load is classed ok" 0 "$([ "$state" = "(ok)" ] && echo 0 || echo 1)"
+done
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
