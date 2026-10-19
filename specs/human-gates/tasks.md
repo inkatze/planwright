@@ -383,7 +383,7 @@ every surface it restates exists.
 
 ## Awaiting input
 
-(none yet)
+- **Task 12** — post-pr step `cubic-pr` halted: ten declined bot-review findings await the operator's decision on PR #693 (record `.claude/steps/000002/006-step-post-pr.rec`).
 
 ## Deferred
 
