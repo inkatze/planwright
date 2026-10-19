@@ -119,7 +119,13 @@ for marker in "$towers_dir"/*; do
   # shellcheck disable=SC2086
   set -- $row
   IFS=$old_ifs
-  [ "$#" -eq 7 ] || continue
+  # Seven fields before the session name was recorded, eight since
+  # (fleet-messaging D-8); any other count is not a marker this reads.
+  case $# in
+    7) m_name=- ;;
+    8) m_name=$8 ;;
+    *) continue ;;
+  esac
   m_spec=$1
   m_mode=$2
   m_pid=$3
@@ -135,6 +141,12 @@ for marker in "$towers_dir"/*; do
   case "$m_pid" in
     "" | *[!0-9]* | 0*) continue ;;
   esac
+  # The name screen fleet-tower-marker.sh records under.
+  case "$m_name" in
+    - ) ;;
+    "" | -* | */* | *\\* | *[!\ -~]*) continue ;;
+  esac
+  [ "${#m_name}" -le 128 ] || continue
   ev_rc=0
   "$FDE" process "$m_pid" >/dev/null 2>&1 || ev_rc=$?
   [ "$ev_rc" -eq 0 ] || continue
@@ -142,11 +154,14 @@ for marker in "$towers_dir"/*; do
     printf '%s\n' "fleet-tower-signpost: an orphaned interactive-tower marker for spec '$(sanitize_printable "$m_spec" "(spec)")' carries no valid session id; repair or clear it with scripts/fleet-tower-marker.sh" >&2
     continue
   fi
-  printf 'planwright: an interactively-led tower for spec %s appears to have died (pid %s: positive evidence, no live process). Resume that conversation with:\n\n    claude --resume %s\n\n(run it from %s). Nothing was auto-resumed and the marker was kept; after resuming or abandoning it, clear it with: scripts/fleet-tower-marker.sh clear %s\n' \
+  m_named=''
+  [ "$m_name" = - ] || m_named=" Its session name was $(sanitize_printable "$m_name" "(name)")."
+  printf 'planwright: an interactively-led tower for spec %s appears to have died (pid %s: positive evidence, no live process). Resume that conversation with:\n\n    claude --resume %s\n\n(run it from %s).%s Nothing was auto-resumed and the marker was kept; after resuming or abandoning it, clear it with: scripts/fleet-tower-marker.sh clear %s\n' \
     "$(sanitize_printable "$m_spec" "(spec)")" \
     "$m_pid" \
     "$m_sid" \
     "$(sanitize_printable "$cwd" "(checkout)")" \
+    "$m_named" \
     "$(sanitize_printable "$m_spec" "(spec)")"
 done
 set -f

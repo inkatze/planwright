@@ -103,7 +103,8 @@
 # Usage: fleet-tower-watchdog.sh <spec-dir>
 # Exit codes: 0 tick completed (any outcome above except backoff-corrupt);
 #   2 usage / refused hostile input / lock or filesystem error / corrupt
-#   backoff record / a failed escalation write (fail closed, visibly); 4/5
+#   backoff record / a failed escalation write / an unreadable tower profile
+#   under the default launcher (fail closed, visibly); 4/5
 #   propagate a config-resolver hard-fail (malformed team-shared overlay /
 #   broken install) so a scheduler surfaces it as a real failure.
 #
@@ -243,9 +244,13 @@ read_marker_state() {
   IFS=$rms_old_ifs
   m_mode="${2:-}"
   m_pid="${3:-}"
-  if [ "$#" -ne 7 ]; then
-    escalate_ambiguous
-  fi
+  # Seven fields before the observed session name, eight since
+  # (fleet-messaging D-8); fleet-tower-marker.sh read has already refused a
+  # name failing its screen.
+  case $# in
+    7 | 8) ;;
+    *) escalate_ambiguous ;;
+  esac
   case "$m_pid" in
     "" | *[!0-9]* | 0*) escalate_ambiguous ;;
   esac
@@ -536,8 +541,9 @@ fi
 # --- the launch ---------------------------------------------------------------
 # Default launcher: a fresh DETACHED tmux session of its own (D-21/REQ-G1.4)
 # named planwright-tower-<spec>, started at the checkout root, wrapped in
-# fleet-dispatch-env.sh (D-10 ghost-text hardening), waking /orchestrate in
-# unattended watch mode. Prints the fresh tower's pane pid. A session-name
+# fleet-dispatch-env.sh (D-10 ghost-text hardening; --inbound accept), the
+# session named for messaging with --name and given the tower profile with
+# --settings, waking /orchestrate in unattended watch mode. Prints the fresh tower's pane pid. A session-name
 # collision is a refusal, never a window into an existing session.
 launch_default() {
   if ! command -v tmux >/dev/null 2>&1; then
@@ -549,7 +555,8 @@ launch_default() {
     return 1
   fi
   tmux new-session -d -s "$session_name" -c "$checkout" \
-    "$script_dir/fleet-dispatch-env.sh" claude \
+    "$script_dir/fleet-dispatch-env.sh" --inbound accept claude \
+    --name "$session_name" --settings "$tower_profile" \
     "/orchestrate --watch --unattended $spec" 2>/dev/null || {
     echo "fleet-tower-watchdog: tmux new-session failed" >&2
     return 1
@@ -563,6 +570,21 @@ launch_default() {
   esac
   printf '%s\n' "$ld_pid"
 }
+
+# The default launcher names the tower after its session and passes the tower
+# profile with --settings, the inbound layer beside it (fleet-messaging D-8,
+# D-17, D-19). A profile that cannot be read is a broken install, not a failed
+# relaunch: the tick fails visibly, naming it, before any session exists, and
+# the backoff is left alone.
+tower_profile=''
+if [ -z "$launcher_cmd" ]; then
+  tp_root=${PLANWRIGHT_ROOT:-}
+  [ -n "$tp_root" ] || tp_root=$(cd "$script_dir/.." 2>/dev/null && pwd -P) || tp_root="$script_dir/.."
+  tower_profile=$(/bin/sh "$script_dir/fleet-launch-profile.sh" tower --root "$tp_root" </dev/null) || {
+    echo "fleet-tower-watchdog: refusing to relaunch without the tower profile" >&2
+    exit 2
+  }
+fi
 
 launch_rc=0
 if [ -n "$launcher_cmd" ]; then

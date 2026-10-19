@@ -15,8 +15,11 @@
 #
 # STORAGE. One single-row TSV file per spec under the cross-spec fleet home
 # (fleet-state.sh root, orchestration-fleet D-11): <fleet-home>/towers/<spec>
-#   <spec>\t<mode>\t<pid>\t<session_id>\t<tmux_session>\t<checkout>\t<epoch>
-# `session_id` and `tmux_session` are `-` when unknown. Writes serialize
+#   <spec>\t<mode>\t<pid>\t<session_id>\t<tmux_session>\t<checkout>\t<epoch>\t<name>
+# `session_id`, `tmux_session` and `name` are `-` when unknown. `name` is the
+# tower's observed session name (fleet-messaging D-8), the address a peer
+# tower's advisory uses; no tower socket path is ever recorded. Rows written
+# before it carry seven fields, and both readers take seven or eight. Writes serialize
 # through fleet-state.sh's existing cross-spec advisory lock (no second lock
 # primitive, REQ-G1.3) and land via temp+RENAME, so a lockless reader (the
 # SessionStart signpost hook) always sees a complete row, never a torn one.
@@ -33,14 +36,16 @@
 # session id against the UUID shape `claude --resume` accepts (a surfaced
 # resume command must never carry a token that matches no real session), the
 # tmux session name against the death-evidence tmux charset, and the
-# checkout as an existing absolute directory free of control bytes. A
-# refused field is never echoed raw.
+# checkout as an existing absolute directory free of control bytes, and the
+# name against the session-name screen (printable ASCII, no path separator,
+# no leading dash, at most 128 bytes). `read` refuses a row whose name field
+# fails that screen. A refused field is never echoed raw.
 #
 # Usage (<spec> is the bare identifier or its `specs/<spec>` alias, with or
 # without one trailing slash; scripts/spec-id-lib.sh):
 #   fleet-tower-marker.sh record <spec> --mode unattended|interactive
 #       --pid <pid> --checkout <dir> [--session-id <uuid>]
-#       [--tmux-session <name>]
+#       [--tmux-session <name>] [--name <session name>]
 #   fleet-tower-marker.sh read <spec>     print the row; exit 1 when absent.
 #   fleet-tower-marker.sh clear <spec>    remove the marker (idempotent).
 #
@@ -74,7 +79,7 @@ fi
 FS="$script_dir/fleet-state.sh"
 
 usage() {
-  echo "usage: fleet-tower-marker.sh record <spec> --mode unattended|interactive --pid <pid> --checkout <dir> [--session-id <uuid>] [--tmux-session <name>] | read <spec> | clear <spec>" >&2
+  echo "usage: fleet-tower-marker.sh record <spec> --mode unattended|interactive --pid <pid> --checkout <dir> [--session-id <uuid>] [--tmux-session <name>] [--name <session name>] | read <spec> | clear <spec>" >&2
 }
 
 # The overlay identifier grammar (fleet-state.sh valid_identifier): a kebab
@@ -122,6 +127,22 @@ valid_tmux_session() {
     "" | -* | *[!A-Za-z0-9_@%.-]*) return 1 ;;
   esac
   [ "${#vts_v}" -le 128 ]
+}
+
+# The session-name screen for the observed name (fleet-messaging.sh
+# valid_session_name), narrowed by a leading dash and the `-` sentinel: the
+# name rides a tab-separated row and reaches a peer's prompt as an address.
+valid_name() {
+  vn_v=$1
+  [ -n "$vn_v" ] || return 1
+  [ "${#vn_v}" -le 128 ] || return 1
+  case $vn_v in
+    -* | */* | *\\*) return 1 ;;
+  esac
+  case $vn_v in
+    *[!\ -~]*) return 1 ;;
+  esac
+  return 0
 }
 
 # The control-free text grammar (fleet-attention.sh valid_text): non-empty,
@@ -215,6 +236,8 @@ case "$cmd" in
     checkout=""
     session_id="-"
     tmux_session="-"
+    name="-"
+    name_set=0
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --mode)
@@ -257,6 +280,15 @@ case "$cmd" in
           tmux_session=$2
           shift 2
           ;;
+        --name)
+          if [ "$#" -lt 2 ]; then
+            usage
+            exit 2
+          fi
+          name=$2
+          name_set=1
+          shift 2
+          ;;
         *)
           usage
           exit 2
@@ -280,6 +312,10 @@ case "$cmd" in
     fi
     if [ "$tmux_session" != "-" ] && ! valid_tmux_session "$tmux_session"; then
       echo "fleet-tower-marker: refusing malformed tmux session name" >&2
+      exit 2
+    fi
+    if [ "$name_set" = 1 ] && ! valid_name "$name"; then
+      echo "fleet-tower-marker: refusing malformed session name (printable ASCII, no path separator, no leading dash, at most 128 bytes)" >&2
       exit 2
     fi
     case "$checkout" in
@@ -326,8 +362,8 @@ case "$cmd" in
       exit 2
     }
     PENDING_TMP=$tmpfile
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$spec" "$mode" "$pid" "$session_id" "$tmux_session" "$checkout" "$ts" \
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$spec" "$mode" "$pid" "$session_id" "$tmux_session" "$checkout" "$ts" "$name" \
       >"$tmpfile" || {
       rm -f "$tmpfile"
       echo "fleet-tower-marker: cannot write the marker row" >&2
@@ -355,6 +391,13 @@ case "$cmd" in
     if ! row=$(cat "$marker" 2>/dev/null); then
       [ -f "$marker" ] || exit 1
       echo "fleet-tower-marker: cannot read the marker" >&2
+      exit 2
+    fi
+    # The name is the one field a reader may hand on as an address, so a
+    # hostile one is refused here rather than passed through.
+    row_name=$(printf '%s\n' "$row" | awk -F'\t' 'NR == 1 && NF >= 8 { print $8 }')
+    if [ -n "$row_name" ] && [ "$row_name" != "-" ] && ! valid_name "$row_name"; then
+      echo "fleet-tower-marker: refusing a marker whose session-name field fails the screen; repair or clear it" >&2
       exit 2
     fi
     printf '%s\n' "$row"
