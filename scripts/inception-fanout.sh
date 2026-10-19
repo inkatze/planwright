@@ -889,9 +889,10 @@ issue_prompt() {
     drop_pending=
     printf '%s\n' "$drop_path" >"$run/drop-${ip_name%.md}" \
       || die 2 "the prompt is out, but its drop could not be recorded: it is void, and $drop_path is left for you to remove"
-  elif [ -n "$old_drop" ]; then
+  elif run_has "drop-${ip_name%.md}"; then
     # Answered in the conversation: nothing is out through a drop any more.
-    rm -f "${run:?}/drop-${ip_name%.md}"
+    rm -f "${run:?}/drop-${ip_name%.md}" \
+      || die 2 "the prompt is out, but its earlier drop record could not be removed; remove $run/drop-${ip_name%.md}"
   fi
   if [ -n "$old_drop" ] && [ -d "$old_drop" ] && [ ! -h "$old_drop" ] && ! rmdir "$old_drop" 2>/dev/null; then
     printf 'inception-fanout: the earlier drop for %s is not empty; kept at %s\n' "$ip_name" "$old_drop" >&2

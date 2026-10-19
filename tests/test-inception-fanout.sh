@@ -908,6 +908,9 @@ cdrop="$(cat "$run/drop-challenge")"
 assert_eq "challenge-brief: an undelivered ask may be asked again in the conversation" "0" "$?"
 assert_no_file "challenge-brief: which retires the drop's record" "$run/drop-challenge"
 assert_eq "challenge-brief: and its empty directory" "no" "$([ -d "$cdrop" ] && echo yes || echo no)"
+printf 'relative\n' >"$run/drop-challenge"
+"$FANOUT" challenge-brief --run "$run" "$v" >/dev/null 2>&1
+assert_no_file "challenge-brief: an unreadable earlier drop record is retired too" "$run/drop-challenge"
 
 "$FANOUT" amend-brief --run "$run" "$v" >/dev/null 2>&1
 assert_eq "amend-brief: needs the challenge first" "2" "$?"
