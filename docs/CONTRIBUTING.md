@@ -259,6 +259,16 @@ there by the time it exits. Pin a fixture home per case with `fleet_home_pin` fr
 `fleet_home_leaked` also lets a suite run on its own check that it left the
 inherited registry alone.
 
+### Waits hold up on a busy machine
+
+A test that waits for an event (a file, a process exit, a log line) polls with
+`poll_until` from [`tests/lib/poll-until.sh`](../tests/lib/poll-until.sh)
+instead of sleeping a fixed time or counting ticks: it waits up to a generous
+default deadline and, on a timeout, reports how long it actually waited. A
+shorter deadline needs a reason at the call site. A check that something does
+*not* happen within a window, or that at least some time has passed, is not a
+wait for an event and keeps its own timing.
+
 ### The git hook backstop
 
 The hard history invariants (never push `main`, never amend, squash, fixup,
