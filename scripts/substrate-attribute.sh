@@ -25,9 +25,10 @@
 # TIERS. A fragment or line takes the tier of every layer script it names, the
 # tier coming from the partition (scripts/substrate-partition.sh's output,
 # read from --partition). It names a script by writing `<stem>.sh` (any path
-# prefix, not followed by a name character), `test-<stem>.sh` (the suite for
-# that script), `scripts/<stem>` or `githooks/<hook>` (not followed by `.` or
-# `/`), or the bare stem in backticks; a bare stem outside backticks is prose
+# prefix, not followed by a letter, digit, `_` or `-`), `test-<stem>.sh` (the
+# suite for that script), `scripts/<stem>` or `githooks/<hook>` (not inside a
+# longer word, and not followed by `/` or by `.` and a name character), or the
+# bare stem in backticks; a bare stem outside backticks is prose
 # (`ready-flip` is a step as often as a script). A `.sh` name that is no layer
 # script is listed as not in the layer and names nothing.
 #
@@ -44,8 +45,10 @@
 #                  the frozen log, opportunities.md, no two rows on one line)
 #   manual file    id  tiers  reason
 # Lists are comma-separated and must not be empty. Inside a git work tree,
-# an uncommitted change to the bundle, the accumulator, or either input file
-# fails closed: the snapshot records the committed tree, not a working copy.
+# an uncommitted, untracked or ignored change to the bundle, the accumulator,
+# or either input file fails closed, however the path is spelt: the snapshot
+# records the committed tree, not a working copy. The substrate:attribute task
+# holds the partition's own inputs to the same rule.
 #
 # Output (default): the dated pain-matrix snapshot as Markdown. --rows prints
 # one TSV row per item instead: id, date, tiers, classes, basis (`script` or
@@ -67,7 +70,8 @@
 # orphan one; 2 usage error; 5 fail-closed (a missing or unreadable input; an
 # uncommitted input; a UID resolving to no fragment, to two, to a symlink, or
 # to a name opening with no date; an item dated after --as-of; a Sources
-# citation outside an Observations group; a legacy match on no line or on
+# citation outside an Observations group or one whose UID is not lowercase
+# hex; --out naming a directory; a legacy match on no line or on
 # two, or two rows on one line; a malformed, duplicate or empty-listed legacy
 # or manual row; a group label, class, or tier outside the fixed sets; a
 # partition with no header or two scripts sharing a stem; an empty mined set;
@@ -132,7 +136,7 @@ fail_closed() {
 case $repo_root in -*) repo_root=./$repo_root ;; esac
 repo_root=$(cd "$repo_root" 2>/dev/null && pwd -P) || fail_closed "the repo root is not a readable directory"
 if [ -z "$spec" ]; then
-  spec_root=$(/bin/sh "$repo_root/scripts/resolve-root.sh" spec) || fail_closed "the spec root does not resolve"
+  spec_root=$(cd "$repo_root" && /bin/sh scripts/resolve-root.sh spec) || fail_closed "the spec root does not resolve"
   spec=$spec_root/universal-binary
 fi
 obs_dir=$(dirname "$spec")/_observations
@@ -168,15 +172,27 @@ if [ "$mode" != class-map ]; then
   [ -r "$manual" ] || fail_closed "the manual attribution file is unreadable"
 fi
 
-# Inputs inside a git work tree must match HEAD, or the snapshot would record
-# a working copy nobody can regenerate it from.
+# canon <path>: the physical absolute path, so a relative or symlinked input
+# is still recognised as inside the repo.
+canon() {
+  if [ -d "$1" ]; then
+    (cd -P -- "$1" 2>/dev/null && pwd -P)
+  else
+    cn_dir=$(cd -P -- "$(dirname -- "$1")" 2>/dev/null && pwd -P) || return 1
+    printf '%s/%s\n' "$cn_dir" "$(basename -- "$1")"
+  fi
+}
+
+# Inputs inside a git work tree must match HEAD, ignored files included, or
+# the snapshot would record a working copy nobody can regenerate it from.
 if git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   set -- "$spec" "$obs_dir" "$legacy"
   [ "$mode" = class-map ] || set -- "$@" "$manual"
   for p in "$@"; do
+    p=$(canon "$p") || fail_closed "an input path does not resolve"
     case $p in
       "$repo_root"/*)
-        dirty=$(git -C "$repo_root" status --porcelain --untracked-files=all -- "$p") \
+        dirty=$(git --literal-pathspecs -C "$repo_root" status --porcelain --untracked-files=all --ignored=matching -- "$p") \
           || fail_closed "git cannot read the state of an input"
         [ -z "$dirty" ] || fail_closed "an input has uncommitted changes (commit it, then regenerate)"
         ;;
@@ -186,7 +202,8 @@ fi
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/substrate-attribute.XXXXXX") || fail_closed "mktemp -d failed"
 [ -n "$work" ] && [ -d "$work" ] || fail_closed "mktemp -d produced no directory"
-trap 'rm -rf "$work"' EXIT
+tmp_out=""
+trap 'rm -rf "$work"; [ -z "$tmp_out" ] || rm -f "$tmp_out"' EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -228,11 +245,12 @@ awk '
   !/^- / && !/^[ \t]+[^ \t]/ { grp = "" }
   {
     t = $0; pos = 0
-    while (match(t, /obs:[0-9a-f]+/)) {
+    while (match(t, /obs:[A-Za-z0-9_]+/)) {
       u = substr(t, RSTART + 4, RLENGTH - 4)
       pre = (pos + RSTART > 1) ? substr($0, pos + RSTART - 1, 1) : ""
       pos += RSTART + RLENGTH - 1; t = substr(t, RSTART + RLENGTH)
       if (pre ~ /[A-Za-z0-9_]/) continue
+      if (u !~ /^[0-9a-f]+$/) { print "malformed citation: obs:" clean(u) > "/dev/stderr"; bad = 1; exit }
       if (grp == "") { print "obs:" u " is cited outside an Observations group" > "/dev/stderr"; bad = 1; exit }
       print "obs:" u "\t" grp
     }
@@ -318,11 +336,15 @@ write_out() {
     cat "$1" || exit 5
     return
   fi
+  case $out in -*) out=./$out ;; esac
+  [ ! -d "$out" ] || fail_closed "--out names a directory"
   tmp_out=$(mktemp "$out.XXXXXX") || fail_closed "cannot create a file beside --out"
-  if ! cat "$1" >"$tmp_out" || ! mv -f "$tmp_out" "$out"; then
-    rm -f "$tmp_out"
+  # mktemp creates the file private; the snapshot gets the mode a plain
+  # redirect would.
+  if ! chmod "$(printf '%o' $((0666 & ~$(umask))))" "$tmp_out" || ! cat "$1" >"$tmp_out" || ! mv -f "$tmp_out" "$out"; then
     fail_closed "cannot write --out"
   fi
+  tmp_out=""
 }
 
 if [ "$mode" = class-map ]; then
@@ -396,16 +418,19 @@ awk -F'\t' '
     named = ""; tset = ""; stray = ""; t = txt
     while (match(t, /[A-Za-z0-9_.\/-]*[A-Za-z0-9_-]\.sh/)) {
       w = substr(t, RSTART, RLENGTH); t = substr(t, RSTART + RLENGTH)
-      if (substr(t, 1, 1) ~ /[A-Za-z0-9_]/) continue
+      if (substr(t, 1, 1) ~ /[A-Za-z0-9_-]/) continue
       w = stem(w)
       if (note_script(w)) continue
       if (w ~ /^test-/ && note_script(substr(w, 6))) continue
       stray = add(stray, w ".sh")
     }
-    t = txt
+    t = txt; pos = 0
     while (match(t, /(scripts|githooks)\/[A-Za-z0-9_-]+/)) {
-      w = substr(t, RSTART, RLENGTH); t = substr(t, RSTART + RLENGTH)
-      if (substr(t, 1, 1) ~ /[.\/]/) continue
+      w = substr(t, RSTART, RLENGTH)
+      pre = (pos + RSTART > 1) ? substr(txt, pos + RSTART - 1, 1) : ""
+      pos += RSTART + RLENGTH - 1; t = substr(t, RSTART + RLENGTH)
+      if (pre ~ /[A-Za-z0-9_.-]/) continue
+      if (substr(t, 1, 1) == "/" || substr(t, 1, 2) ~ /^[.][A-Za-z0-9_]/) continue
       note_script(stem(w))
     }
     t = txt
@@ -479,7 +504,7 @@ awk -F'\t' -v asof="$as_of" '
     print "Sources (fragment UIDs) plus the frozen legacy-log lines listed in"
     print "`docs/substrate/legacy-lines.tsv`. Each item counts once in every cell of its"
     print "tiers crossed with its classes, so a row or column does not sum to the item"
-    print "count. Tiers come from the partition (`scripts/substrate-partition.sh`) through"
+    print "count. Tiers come from the partition (the `substrate:partition` task) through"
     print "the scripts an item names; an item naming none is attributed by"
     print "`docs/substrate/manual-attribution.tsv`. The script header defines both rules."
     print ""

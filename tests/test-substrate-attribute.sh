@@ -308,10 +308,10 @@ check_eq "a symlinked fragment fails closed" 5 "$rc"
 
 v=$tmp/ctl
 build "$v"
-printf 'obs:bbbbbbb1\thook\tnot mined\033]0;x\007\n' >>"$v/manual.tsv"
-printf 'obs:bbbbbbb1z\033[2J\thook\tbad id\n' >"$v/bad.tsv"
+printf 'obs:bbbbbbb1z\033[2J\thook\tbad id\n' >>"$v/manual.tsv"
 run "$v"
-check_eq "an orphan row still exits 1" 1 "$rc"
+check_eq "a malformed manual id fails closed" 5 "$rc"
+check_has "the malformed id is named" "$err" "malformed manual row: obs:bbbbbbb1z[2J"
 case $err in
   *"$(printf '\033')"*) bad "a control byte reached stderr" ;;
   *) ok "no control byte reaches stderr" ;;
@@ -387,6 +387,65 @@ build "$v"
 printf 'obs:bbbbbbb3\thook\t\n' >>"$v/manual.tsv"
 run "$v"
 check_eq "a manual row with no reason fails closed" 5 "$rc"
+
+out=$("$SA" --as-of 2026-09-30 --spec "$base/bundles/demo" --legacy "$base/legacy.tsv" --manual "$base/manual.tsv" 2>&1)
+check_eq "the snapshot needs a partition" 2 "$?"
+
+v=$tmp/upper
+build "$v"
+sed 's/obs:aaaaaaa1, obs:aaaaaaa3\./obs:aaaaaaa1, obs:aaaaaaa3, obs:AAAAAAA9./' \
+  "$v/bundles/demo/requirements.md" >"$v/r" && mv "$v/r" "$v/bundles/demo/requirements.md"
+run "$v"
+check_eq "a citation whose UID is not lowercase hex fails closed" 5 "$rc"
+
+v=$tmp/edges
+build "$v"
+printf -- '- 2026-08-04 [demo] replays githooks/pre-commit. Also myscripts/libbed and hooked.sh-old.\n' \
+  >"$v/bundles/_observations/entries/2026-08-04-none-aaaaaaa6.md"
+grep -v '^obs:aaaaaaa6' "$v/manual.tsv" >"$v/m" && mv "$v/m" "$v/manual.tsv"
+run "$v" --rows
+check_has "a hook ending a sentence is named; a longer word and suffix are not" "$out" "obs:aaaaaaa6	2026-08-04	hook	parser-fragility	script	githooks/pre-commit"
+
+# A working copy: inputs inside a git repository must match HEAD, however the
+# path is spelt.
+v=$tmp/gitrepo
+build "$v"
+mkdir -p "$v/scripts"
+cp "$SA" "$v/scripts/"
+git -C "$v" init -q
+git -C "$v" add -A >/dev/null
+git -C "$v" -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false -c core.hooksPath=/dev/null \
+  commit -q -m "fixture" >/dev/null
+gitrun() {
+  out=$(cd "$v" && /bin/sh scripts/substrate-attribute.sh --as-of 2026-09-30 --partition partition.tsv \
+    --legacy legacy.tsv --manual manual.tsv "$@" 2>&1)
+  rc=$?
+}
+gitrun --spec bundles/demo --rows
+check_eq "a clean repository runs" 0 "$rc"
+printf -- '- 2026-08-09 [demo] untracked.\n' >"$v/bundles/_observations/entries/2026-08-09-new-ccccccc1.md"
+gitrun --spec bundles/demo --rows
+check_eq "an untracked fragment fails closed through a relative --spec" 5 "$rc"
+gitrun --spec ./bundles/../bundles/demo --rows
+check_eq "and through a non-canonical one" 5 "$rc"
+rm "$v/bundles/_observations/entries/2026-08-09-new-ccccccc1.md"
+printf 'manual.tsv\n' >"$v/.gitignore"
+git -C "$v" add .gitignore >/dev/null
+git -C "$v" rm -q --cached manual.tsv >/dev/null
+git -C "$v" -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false -c core.hooksPath=/dev/null \
+  commit -q -m "ignore" >/dev/null
+gitrun --spec bundles/demo --rows
+check_eq "an ignored, untracked input fails closed too" 5 "$rc"
+
+mkdir "$tmp/outdir"
+run "$base" --out "$tmp/outdir"
+check_eq "--out naming a directory fails closed" 5 "$rc"
+(umask 022 && "$SA" --as-of 2026-09-30 --spec "$base/bundles/demo" --partition "$base/partition.tsv" \
+  --legacy "$base/legacy.tsv" --manual "$base/manual.tsv" --out "$tmp/mode.md") 2>/dev/null
+case $(ls -l "$tmp/mode.md") in
+  -rw-r--r--*) ok "--out writes the mode a redirect would" ;;
+  *) bad "--out wrote $(ls -l "$tmp/mode.md")" ;;
+esac
 
 out=$("$SA" --obs-dir --spec "$base/bundles/demo")
 check_eq "--obs-dir prints the accumulator beside the bundle" "$base/bundles/_observations" "$out"

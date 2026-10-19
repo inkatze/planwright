@@ -62,11 +62,16 @@ description = "Print the script layer's tier partition (hook, skill-called, libr
 run = "/bin/sh scripts/substrate-partition.sh"
 
 [tasks."substrate:attribute"]
-description = "Print the substrate pain matrix: every observation the universal-binary bundle's Sources cite, plus the frozen-log lines docs/substrate/legacy-lines.tsv lists, attributed to tiers through the scripts it names (or docs/substrate/manual-attribution.tsv) and to defect classes; computes the partition and passes it in, so pass --as-of <date> and --out <file>. On demand only; scripts/substrate-attribute.sh's header documents the rules"
+description = "Print the substrate pain matrix: every observation the universal-binary bundle's Sources cite, plus the frozen-log lines docs/substrate/legacy-lines.tsv lists, attributed to tiers through the scripts it names (or docs/substrate/manual-attribution.tsv) and to defect classes; computes the partition from a clean tree and passes it in. Pass --as-of <date> and --out <file>. On demand only; scripts/substrate-attribute.sh's header documents the rules"
 run = '''
+dirty=$(git status --porcelain --untracked-files=all -- scripts githooks skills hooks config .github tests mise.toml) || exit 5
+[ -z "$dirty" ] || { echo "substrate:attribute: the partition's inputs have uncommitted changes; commit them, then regenerate" >&2; exit 5; }
 p=$(mktemp "${TMPDIR:-/tmp}/substrate-partition.XXXXXX") || exit 5
 trap 'rm -f "$p"' EXIT
-/bin/sh scripts/substrate-partition.sh >"$p" || exit 5
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+/bin/sh scripts/substrate-partition.sh >"$p" || exit $?
 /bin/sh scripts/substrate-attribute.sh --partition "$p"
 '''
 
