@@ -536,7 +536,20 @@
 
 ## Awaiting input
 
-(none yet)
+- **Task 4** — two macOS failures need a decision in the guard code, a
+  hard-disqualifier zone. (1) Stock macOS has no `timeout` or `gtimeout`;
+  `scripts/policy-guard.sh`, `scripts/ready-guard.sh` and `fleet-cleanup.sh
+  --merged-pr` fail closed without one, and ten test files fail or refuse to
+  run (test-policy-guard, -gh-api, -hidden, test-ready-guard, test-ready-flip,
+  test-merge-admitted, test-merge-class, test-merge-currency-matrix,
+  test-reserved-control-spellings, test-fleet-cleanup). The fix inside the
+  floor is a POSIX bounded runner in the guards (recommended); the
+  alternatives are amending REQ-B1.1 to name coreutils, or quarantining the
+  files on macOS. (2) test-worker-command-guard-steps' scan-budget rows take
+  15-18s on the macOS runner against an 8s bound; options are a guard
+  tokenizer speedup (measured, about 0.3-1s per call, likely not enough
+  alone), charging a loop's passes up front, or quarantining the rows on
+  macOS with a recorded reason.
 
 ## Deferred
 
