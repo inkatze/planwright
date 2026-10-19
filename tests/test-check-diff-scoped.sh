@@ -131,7 +131,7 @@ g checkout -q -- scripts/alpha.sh
 out=$(cd "$R" && PATH="$STUB:$PATH" "$CHECK" config/settings.yml docs/README.md 2>&1)
 calls=$(cat "$T/lint-calls")
 assert_contains "yamllint runs strict" "yamllint --strict ./config/settings.yml" "$calls"
-assert_contains "markdownlint runs on the doc" "markdownlint-cli2 ./docs/README.md" "$calls"
+assert_contains "markdownlint runs on the doc as a literal path" "markdownlint-cli2 :./docs/README.md" "$calls"
 printf '#!/bin/bash\n# scripts/alpha.sh\necho distinctive-failure-text\nexit 3\n' >"$R/tests/test-alpha.sh"
 err=$(cd "$R" && PATH="$STUB:$PATH" "$CHECK" scripts/alpha.sh 2>&1 >/dev/null)
 assert_contains "a failing test's output goes to stderr" "distinctive-failure-text" "$err"
@@ -264,6 +264,23 @@ out=$(ck --list --lint-exclude '' docs/README.md 2>&1)
 assert_exit "an empty --lint-exclude is refused" 2 $?
 out=$(ck --list --lint-exclude 'tests/*' tests/lib/helper.sh 2>&1)
 assert_lacks "a pattern's * crosses /" "shellcheck	tests/lib/helper.sh" "$out"
+out=$(ck --list --lint-exclude 'tests/*/' tests/lib/helper.sh 2>&1)
+assert_lacks "a pattern ending in / covers everything under its matches" "shellcheck	tests/lib/helper.sh" "$out"
+out=$(ck --list --lint-exclude ./docs/ --lint-exclude ./config/settings.yml docs/README.md config/settings.yml 2>&1)
+assert_lacks "a ./ directory entry excludes" "markdownlint-cli2	docs/README.md" "$out"
+assert_lacks "a ./ path entry excludes" "yamllint	config/settings.yml" "$out"
+
+# markdownlint-cli2 reads its arguments as globs; a branch file named like one
+# is still linted, itself and nothing else.
+if command -v markdownlint-cli2 >/dev/null 2>&1; then
+  printf '#bad heading\n' >"$R/docs/(b).md"
+  out=$(ck 'docs/(b).md' 2>/dev/null)
+  assert_exit "a glob-shaped markdown name is linted" 1 $?
+  assert_contains "a glob-shaped markdown name fails its lint" "fail	lint	markdownlint-cli2" "$out"
+  rm -f "$R/docs/(b).md"
+else
+  echo "skip: markdownlint-cli2 is not installed; the glob-shaped name case is not run"
+fi
 
 # --- the environment and git failures ----------------------------------------------
 out=$(cd "$R" && GIT_LITERAL_PATHSPECS=1 "$CHECK" --list scripts/alpha.sh 2>&1)

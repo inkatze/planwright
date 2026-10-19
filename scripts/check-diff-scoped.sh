@@ -23,8 +23,10 @@
 # markdownlint-cli2 on `.md`, `yamllint --strict` on `.yml` and `.yaml`. A
 # linter not on PATH is reported as skipped, never passed. A file matching a
 # --lint-exclude entry is linted by nothing but still selects its tests; an
-# entry ending in `/` covers everything under it, one holding `*`, `?`, or `[`
-# is a shell pattern with `*` crossing `/`, and anything else names one path.
+# entry holding `*`, `?`, or `[` is a shell pattern with `*` crossing `/`, one
+# ending in `/` covers everything under it (under every match, for a pattern),
+# and anything else names one path; a leading `./` is dropped. Markdown files
+# reach markdownlint-cli2 as literal paths, never as its globs.
 # The caller passes what its own lint tasks leave out, by an exclusion or by an
 # include list that never names the file (data, fixtures that are malformed on
 # purpose, generated files).
@@ -87,12 +89,11 @@ say() {
 lint_excluded() {
   while IFS= read -r e; do
     [ -n "$e" ] || continue
+    # shellcheck disable=SC2254 # the entry is a pattern by contract
     case $e in
+      *[*?[]*/) case $1 in $e*) return 0 ;; esac ;;
+      *[*?[]*) case $1 in $e) return 0 ;; esac ;;
       */) case $1 in "$e"*) return 0 ;; esac ;;
-      *[*?[]*)
-        # shellcheck disable=SC2254 # the entry is a pattern by contract
-        case $1 in $e) return 0 ;; esac
-        ;;
       *) [ "$1" != "$e" ] || return 0 ;;
     esac
   done <<EOF
@@ -119,8 +120,12 @@ while [ $# -gt 0 ]; do
         --tests) tests_spec=$2 ;;
         --runner) runner=$2 ;;
         --lint-exclude)
-          case $2 in *"$NL"* | '') die 2 "--lint-exclude takes one non-empty entry" ;; esac
-          lint_exclude=$lint_exclude$2$NL
+          e=$2
+          while :; do
+            case $e in ./*) e=${e#./} ;; *) break ;; esac
+          done
+          case $e in *"$NL"* | '') die 2 "--lint-exclude takes one non-empty entry" ;; esac
+          lint_exclude=$lint_exclude$e$NL
           ;;
       esac
       shift 2
@@ -272,7 +277,9 @@ for tool in shellcheck shfmt markdownlint-cli2 yamllint; do
     continue
   fi
   set --
-  while IFS= read -r f; do set -- "$@" "./$f"; done <"$work/files"
+  # markdownlint-cli2 reads a `:`-prefixed argument as a literal path.
+  case $tool in markdownlint-cli2) lit=: ;; *) lit= ;; esac
+  while IFS= read -r f; do set -- "$@" "$lit./$f"; done <"$work/files"
   case $tool in
     shellcheck) set -- -x "$@" ;;
     shfmt) set -- -d "$@" ;;
