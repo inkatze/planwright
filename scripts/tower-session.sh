@@ -154,6 +154,13 @@ read_payload() {
   IFS= read -r -d '' -n "$(($1 + 1))" PAYLOAD || :
 }
 
+# read_rest <cap> — extend a truncated PAYLOAD to at most <cap>+1 bytes.
+read_rest() {
+  local more=''
+  IFS= read -r -d '' -n "$(($1 + 1 - ${#PAYLOAD}))" more || :
+  PAYLOAD=$PAYLOAD$more
+}
+
 # drain — consume what a bounded read left, so the harness's write never
 # meets a closed pipe.
 drain() {
@@ -411,10 +418,16 @@ guard() {
 # The prompt hook.
 
 prompt_hook() {
-  local fields sid prompt re
+  local fields sid prompt re cap=$MAX_PROMPT_BYTES
   trap 'exit 0' HUP INT TERM PIPE
-  read_payload "$MAX_PROMPT_BYTES"
-  drain "$MAX_PROMPT_BYTES"
+  read_payload "$cap"
+  # Only a prompt that opens with the command earns the full read.
+  if [ "${#PAYLOAD}" -gt "$cap" ] && [[ $PAYLOAD =~ $RE_PROMPT ]]; then
+    cap=$MAX_PAYLOAD_BYTES
+    read_rest "$cap"
+  fi
+  drain "$cap"
+  [ "${#PAYLOAD}" -le "$cap" ] || exit 0
   [[ $PAYLOAD =~ $RE_PROMPT ]] || exit 0
   [[ $PAYLOAD =~ $RE_SID ]] || exit 0
   fleet_home || exit 0

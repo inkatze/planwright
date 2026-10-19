@@ -137,6 +137,27 @@ for p in 'please run /tower' 'see <command-name>/tower</command-name>' '/towers'
   fi
 done
 
+long_sid=bbbbbbbb-0000-4000-8000-000000000001
+prompt "$long_sid" "/tower $(head -c 70000 /dev/zero | tr '\0' a)"
+if is_marked "$long_sid" && [ ! -s "$SANDBOX/prompt.out" ] && [ "$PCODE" = 0 ]; then
+  pass "a /tower prompt longer than the first read still marks the session"
+else
+  fail "a /tower prompt longer than the first read did not mark the session (exit $PCODE)"
+fi
+huge_sid=bbbbbbbb-0000-4000-8000-000000000002
+{
+  printf '{"session_id":"%s","hook_event_name":"UserPromptSubmit","prompt":"/tower ' "$huge_sid"
+  head -c 2000100 /dev/zero | tr '\0' a
+  printf '"}'
+} >"$SANDBOX/huge-prompt"
+ts_run prompt-hook <"$SANDBOX/huge-prompt" >"$SANDBOX/prompt.out"
+PCODE=$?
+if ! is_marked "$huge_sid" && [ ! -s "$SANDBOX/prompt.out" ] && [ "$PCODE" = 0 ]; then
+  pass "a /tower prompt past the payload cap is read to its end and left unmarked, silently"
+else
+  fail "a /tower prompt past the payload cap: exit $PCODE, marked $(is_marked "$huge_sid" && echo yes || echo no)"
+fi
+
 echo "# the activation handshake marks and is refused as ACTIVE (REQ-C1.3, REQ-B1.4)"
 ts_bash "$FRESH" "$ACTIVATE"
 expect deny "the handshake is refused in a wired session"
