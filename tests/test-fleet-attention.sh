@@ -61,10 +61,14 @@ tab=$(printf '\t')
 aenv() {
   _home=$1
   shift
-  env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
-    -u PLANWRIGHT_ROOT -u PLANWRIGHT_ADOPTER_OVERLAY -u PLANWRIGHT_REPO_ROOT \
-    -u PLANWRIGHT_LOCAL_CONFIG -u PLANWRIGHT_CONFIG_DEFAULTS \
-    PLANWRIGHT_FLEET_STATE_DIR="$_home" /bin/sh "$FA" "$@"
+  # A subshell rather than env(1): one process launch fewer per call.
+  (
+    unset CLAUDE_PLUGIN_DATA CLAUDE_PLUGIN_ROOT CLAUDE_DIR HOME \
+      PLANWRIGHT_ROOT PLANWRIGHT_ADOPTER_OVERLAY PLANWRIGHT_REPO_ROOT \
+      PLANWRIGHT_LOCAL_CONFIG PLANWRIGHT_CONFIG_DEFAULTS
+    export PLANWRIGHT_FLEET_STATE_DIR="$_home"
+    exec /bin/sh "$FA" "$@"
+  )
 }
 
 # ---------------------------------------------------------------------------

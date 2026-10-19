@@ -136,17 +136,20 @@ run() {
       *) break ;;
     esac
   done
-  # shellcheck disable=SC2086 # the unset flags are meant to word-split
-  env $STEP_UNSETS -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
-    -u PLANWRIGHT_JQ \
-    PLANWRIGHT_ROOT="$core" \
-    PLANWRIGHT_CONFIG_DEFAULTS="$core/config/defaults.yml" \
-    PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
-    PLANWRIGHT_REPO_ROOT="$repo" \
-    PLANWRIGHT_LOCAL_CONFIG="" \
-    CLAUDE_DIR="$claude" HOME="$tmp/home" PATH="$bin:$PATH" \
-    ${overrides[@]+"${overrides[@]}"} \
-    /bin/bash "$RS" "$@"
+  # A subshell rather than env(1): one process launch fewer per call.
+  (
+    # shellcheck disable=SC2086 # the names are meant to word-split
+    unset ${STEP_UNSETS//-u /} CLAUDE_PLUGIN_ROOT CLAUDE_PLUGIN_DATA PLANWRIGHT_SKILLS_ROOT \
+      PLANWRIGHT_JQ
+    export PLANWRIGHT_ROOT="$core" \
+      PLANWRIGHT_CONFIG_DEFAULTS="$core/config/defaults.yml" \
+      PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
+      PLANWRIGHT_REPO_ROOT="$repo" \
+      PLANWRIGHT_LOCAL_CONFIG="" \
+      CLAUDE_DIR="$claude" HOME="$tmp/home" PATH="$bin:$PATH" \
+      ${overrides[@]+"${overrides[@]}"}
+    exec /bin/bash "$RS" "$@"
+  )
 }
 # out / err / code: run once and capture all three (stdout, stderr, exit).
 capture() {
