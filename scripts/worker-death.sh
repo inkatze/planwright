@@ -124,17 +124,26 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/worker-death.XXXXXX") || die 6 "cannot create 
 trap 'rm -rf "$work"' EXIT
 trap 'exit 6' HUP INT TERM
 
-# The tail bound keeps a long capture's read cheap; a line it cuts is the
-# oldest and can only belong to an earlier turn.
-tail -c 1048576 "$src" 2>/dev/null | tr -d '\000' >"$work/in" || die 6 "cannot read the input"
+# A headless result is one JSON object whose flag comes early, so it is read
+# from the start; an event stream's last turn is at its end, and the tail bound
+# keeps a long capture's read cheap, a line it cuts being the oldest. Read and
+# sanitize are separate steps so a failed read is never classified.
+if [ "$src_kind" = result-json ]; then
+  head -c 16777216 "$src" >"$work/raw" 2>/dev/null || die 6 "cannot read the input"
+else
+  tail -c 4194304 "$src" >"$work/raw" 2>/dev/null || die 6 "cannot read the input"
+fi
+tr -d '\000' <"$work/raw" >"$work/in" || die 6 "cannot read the input"
 
 # Writes the error lines to err, the human-readable error text to text, and
 # prints the cause token, or nothing when there is no error signal.
 WD_ERR="$work/err" WD_TEXT="$work/text" awk -v kind="$src_kind" '
   BEGIN { errf = ENVIRON["WD_ERR"]; textf = ENVIRON["WD_TEXT"] }
   function is_result(s) { return index(s, "\"type\":\"result\"") > 0 }
+  # JSON allows blanks around the colon; Claude Code writes none.
+  function flagged(s) { return s ~ /"is_error"[ \t]*:[ \t]*true/ }
   function is_err_line(s) {
-    if (is_result(s)) return index(s, "\"is_error\":true") > 0
+    if (is_result(s)) return flagged(s)
     return index(s, "\"type\":\"assistant\"") && index(s, "\"model\":\"<synthetic>\"") && index(s, "\"error\":\"")
   }
   # str_after <s> <key>: the JSON string value after "<key>":", unescaped
@@ -167,12 +176,12 @@ WD_ERR="$work/err" WD_TEXT="$work/text" awk -v kind="$src_kind" '
       r1 = 0; r0 = 0
       for (i = 1; i <= last; i++) if (is_result(line[i])) { r0 = r1; r1 = i }
       start = (r1 == last) ? r0 + 1 : r1 + 1
-      if (r1 == last && last > 0 && index(line[last], "\"is_error\":true") == 0) exit 0
+      if (r1 == last && last > 0 && !flagged(line[last])) exit 0
     }
     ne = 0
     for (i = start; i <= last; i++) {
       if (kind == "events" && !is_err_line(line[i])) continue
-      if (kind == "result-json" && index(line[i], "\"is_error\":true") == 0) continue
+      if (kind == "result-json" && !flagged(line[i])) continue
       el[++ne] = line[i]
     }
     if (kind == "result-json" && ne > 0) {

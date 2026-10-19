@@ -965,7 +965,7 @@ read_completion() {
 read_headless_result() {
   rh_f="$1/result.json"
   [ -f "$rh_f" ] && [ -r "$rh_f" ] || return 0
-  head -c 1048576 "$rh_f" 2>/dev/null | grep -q '"is_error":true' || return 0
+  head -c 1048576 "$rh_f" 2>/dev/null | grep -Eq '"is_error"[[:space:]]*:[[:space:]]*true' || return 0
   completion="$completion/is_error=true"
   completion_ok=0
   rh_out=$(/bin/sh "$script_dir/worker-death.sh" classify --result-json "$rh_f" 2>/dev/null) || rh_out=""

@@ -821,9 +821,15 @@ do_run_worker() {
   # An API error leaves a zero exit and a flagged result. Classified before the
   # completion record lands, so a rate-limited unit is already held, and the
   # throttle engaged, by the time a reader sees the run end.
-  if head -c 1048576 "$r_unit/result.json" 2>/dev/null | grep -q '"is_error":true'; then
-    /bin/sh "$WDEATH" record --unit "$r_scope" --result-json "$r_unit/result.json" \
-      >/dev/null 2>>"$r_unit/stderr.log" || :
+  if head -c 1048576 "$r_unit/result.json" 2>/dev/null | grep -Eq '"is_error"[[:space:]]*:[[:space:]]*true'; then
+    # A hold or throttle that did not land is surfaced to the operator, never
+    # swallowed: the run still died on the limit, so the record says so.
+    if ! /bin/sh "$WDEATH" record --unit "$r_scope" --result-json "$r_unit/result.json" \
+      >/dev/null 2>>"$r_unit/stderr.log"; then
+      r_msg="worker $r_handle died on an API error, but its classification, hold, or throttle did not complete; see $r_unit/stderr.log and check scripts/fleet-throttle.sh check before dispatching"
+      /bin/sh "$FA" decide "$r_handle" "$r_scope" "$r_msg" acknowledge "acknowledge|investigate" high >/dev/null 2>&1 || :
+      /bin/sh "$FA" notify "$r_msg" >/dev/null 2>&1 || :
+    fi
   fi
   finish "$r_rc"
   exit 0
@@ -896,7 +902,7 @@ do_status() {
         exit 4
         ;;
     esac
-    if head -c 1048576 "$unit_dir/result.json" 2>/dev/null | grep -q '"is_error":true'; then
+    if head -c 1048576 "$unit_dir/result.json" 2>/dev/null | grep -Eq '"is_error"[[:space:]]*:[[:space:]]*true'; then
       re_v=$(/bin/sh "$WDEATH" classify --result-json "$unit_dir/result.json" 2>/dev/null) || re_v=''
       case $re_v in
         limited"$TAB"*)

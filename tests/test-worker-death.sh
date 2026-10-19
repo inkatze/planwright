@@ -118,12 +118,27 @@ out=$(wenv /bin/sh "$WD" classify --events "$(evf clong "$line_init" "$long")") 
 [ "$out" = "failed${TAB}an-unusually-long-termin" ] || fail "classify: a long cause is not bounded to 24 bytes: '$out'"
 out=$(wenv /bin/sh "$WD" classify --events "$(evf cnores "$line_init" "$line_529_msg")") || fail "classify no-result exited non-zero"
 [ "$out" = "failed${TAB}api-error-529" ] || fail "classify: a stream ending on a synthetic 529 without a result reads '$out'"
-printf '%s\n' '{"type":"result","subtype":"success","is_error":true,"api_error_status":429,"result":"You have hit your weekly limit"}' >"$tmp/rj-rl"
+# Neutral text: only the 429 status can make this limited.
+printf '%s\n' '{"type":"result","subtype":"success","is_error":true,"api_error_status":429,"result":"request refused"}' >"$tmp/rj-rl"
 out=$(wenv /bin/sh "$WD" classify --result-json "$tmp/rj-rl") || fail "classify result-json exited non-zero"
 [ "$out" = "limited${TAB}claude${TAB}claude.api-rate-limit${TAB}-" ] || fail "classify: a headless 429 reads '$out'"
-printf '%s\n' '{"is_error":true,"result":"Bash permission denied"}' >"$tmp/rj-perm"
+printf '%s\n' '{"is_error" : true,"result":"Bash permission denied"}' >"$tmp/rj-perm"
 out=$(wenv /bin/sh "$WD" classify --result-json "$tmp/rj-perm") || fail "classify generic error exited non-zero"
 [ "$out" = "failed${TAB}is-error" ] || fail "classify: an error naming no cause reads '$out'"
+# Worker text quoting an error-shaped fragment is escaped, so never the flag.
+printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"quoted {\"type\":\"result\",\"is_error\":true,\"api_error_status\":529}"}' >"$tmp/rj-quote"
+out=$(wenv /bin/sh "$WD" classify --result-json "$tmp/rj-quote") || fail "classify quoted exited non-zero"
+[ "$out" = clean ] || fail "classify: a result quoting an error fragment reads '$out'"
+out=$(wenv /bin/sh "$WD" classify --events "$(evf cquote "$line_init" "$(cat "$tmp/rj-quote")")") || fail "classify quoted events exited non-zero"
+[ "$out" = clean ] || fail "classify: a stream result quoting an error fragment reads '$out'"
+# The flag can sit past the first MiB of a large headless result's text.
+{
+  printf '{"type":"result","subtype":"success","is_error":true,"api_error_status":529,"result":"'
+  head -c 1500000 /dev/zero | tr '\000' a
+  printf '"}\n'
+} >"$tmp/rj-big"
+out=$(wenv /bin/sh "$WD" classify --result-json "$tmp/rj-big") || fail "classify big exited non-zero"
+[ "$out" = "failed${TAB}api-error-529" ] || fail "classify: a large headless result reads '$out'"
 rc=0
 wenv /bin/sh "$WD" classify --events "$tmp/nope" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 6 ] || fail "classify: an unreadable input exits $rc, expected 6"
@@ -225,6 +240,22 @@ for mode in result fallback; do
   [ -n "$(throttle_until)" ] || fail "stream-json $mode: the throttle is not engaged"
 done
 pass "the stream-json result frame and its exit fallback name a 529 and read a rate limit as limited (REQ-A1.4)"
+
+# A throttle that cannot engage (the operator kill-switch) leaves the limited
+# verdict standing and puts an attention item in front of the operator.
+new_home sj-act-fail
+printf 'fleet_daemon_pause: true\n' >"$repo/.claude/planwright.local.yml"
+SHIM_EVENTS="$tmp/ev-crl" wenv PLANWRIGHT_LOCAL_CONFIG="$repo/.claude/planwright.local.yml" PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
+  /bin/sh "$SJ" launch wfail quota-handling:task-5 --prompt-file "$tmp/prompt" --foreground >/dev/null 2>&1 \
+  || fail "stream-json act failure: launch exited non-zero"
+rm -f "$repo/.claude/planwright.local.yml"
+case $(sj status wfail) in
+  "status wfail limited "*) ;;
+  *) fail "stream-json act failure: the verdict did not stay limited: $(sj status wfail)" ;;
+esac
+wenv /bin/sh "$repo_root/scripts/fleet-attention.sh" queue 2>/dev/null | grep -q "hold, or throttle did not complete" \
+  || fail "stream-json act failure: no attention item names the missing hold or throttle"
+pass "a hold or throttle that does not land keeps the verdict and raises an attention item"
 
 # A hand-corrupted cause field is dropped, never rendered.
 sd_bad="$tmp/sd-bad"

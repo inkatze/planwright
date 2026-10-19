@@ -1158,7 +1158,12 @@ death_cause() {
     *:*) ;;
     *) dc_unit="$dc_unit:$1" ;;
   esac
-  dc_out=$(/bin/sh "$WDEATH" record --unit "$dc_unit" --events "$2/events.jsonl" 2>>"$2/supervisor.log")
+  dc_rc=0
+  dc_out=$(/bin/sh "$WDEATH" record --unit "$dc_unit" --events "$2/events.jsonl" 2>>"$2/supervisor.log") || dc_rc=$?
+  # The verdict still stands when an act failed (the run did die on the
+  # limit); the missing hold or throttle goes to the operator instead.
+  [ "$dc_rc" = 0 ] || attention_failure "$1" "$2" \
+    "worker $1 died on an API error, but its classification, hold, or throttle did not complete (worker-death exit $dc_rc); see $2/supervisor.log and check scripts/fleet-throttle.sh check before dispatching"
   case $dc_out in
     limited"$TAB"*)
       dc_v=${dc_out#limited"$TAB"}
