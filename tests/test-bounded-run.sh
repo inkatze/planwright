@@ -67,8 +67,10 @@ for _ in 1 2 3 4 5; do
 done
 out=$(printf 'from stdin\n' | br 5 cat)
 [ "$out" = 'from stdin' ] || fail "stdin: the command read '$out', not the caller's stdin"
-out=$(br 5 cat <&-) && rc=0 || rc=$?
-[ "$rc" != 125 ] && [ "$rc" != 2 ] || fail "closed stdin: the runner failed ($rc) rather than running the command"
+rm -f "$tmp/ran"
+# shellcheck disable=SC2016 # expanded by the inner shell
+br 5 /bin/sh -c ': >"$1/ran"' _ "$tmp" <&- || :
+[ -e "$tmp/ran" ] || fail "closed stdin: the runner failed rather than running the command"
 echo "ok: the bound is the full number of seconds and the caller's stdin reaches the command"
 
 # A command that ends at once ends the call at once, and the watcher leaves no
@@ -148,7 +150,12 @@ done
 rc=0
 br 0 /bin/sh -c 'exit 7' || rc=$?
 [ "$rc" = 7 ] || fail "a 0 bound: exit $rc, expected the command's own 7 (0 means unbounded)"
-echo "ok: a malformed bound or a missing command is a usage error (125), and 0 is unbounded"
+start=$(date +%s)
+rc=0
+br -k 0 1 /bin/sh -c 'trap "" TERM; sleep 3' || rc=$?
+took=$(($(date +%s) - start))
+[ "$rc" = 124 ] && [ "$took" -ge 2 ] || fail "a 0 grace: exit $rc after ${took}s, expected 124 with no KILL"
+echo "ok: a malformed bound or a missing command is a usage error (125), a 0 bound is unbounded and a 0 grace sends no KILL"
 
 # --- a terminated runner takes its command with it ------------------------------
 

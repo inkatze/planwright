@@ -17,9 +17,9 @@
 # spent get KILL, the command's own exit inside the grace included. A process
 # of the set counts as still running only while its parent is in the set,
 # init, or this runner, so a pid reissued to an unrelated process is not
-# taken for it. A process that left the tree before the bound fired (it
-# daemonized) is out of reach, where timeout(1)'s process group would still
-# hold it. A signal that ends the runner is passed on the same way. The
+# taken for it; one re-parented to a subreaper other than init is missed. A
+# process that left the tree before the bound fired (it daemonized) is out of
+# reach, where timeout(1)'s process group would still hold it. A signal that ends the runner is passed on the same way. The
 # command's stdin is the caller's, by way of fd 9, which the command does not
 # inherit.
 set -u
@@ -85,14 +85,19 @@ _br_still() {
 }
 
 # _br_term_then_kill — TERM the command's tree; with a grace, KILL what of it
-# is still running once the grace is spent.
+# is still running once the grace is spent. The grace ends early when nothing
+# of the set is left, so a tree that honours TERM costs no extra wait.
 _br_term_then_kill() {
   _br_v=$(_br_tree "$pid")
   _br_signal TERM "$_br_v"
-  if [ -n "$grace" ]; then
-    sleep "$grace"
-    _br_signal KILL "$(_br_still "$_br_v")"
-  fi
+  [ -n "$grace" ] || return 0
+  _br_ticks=$((grace * 10))
+  while [ "$_br_ticks" -gt 0 ]; do
+    [ -n "$(_br_still "$_br_v")" ] || return 0
+    sleep 0.1 2>/dev/null || sleep 1
+    _br_ticks=$((_br_ticks - 1))
+  done
+  _br_signal KILL "$(_br_still "$_br_v")"
 }
 
 # _br_end <status> — the runner was signalled: end the command's tree as the
@@ -100,14 +105,23 @@ _br_term_then_kill() {
 # shellcheck disable=SC2329 # called from the traps below
 _br_end() {
   trap - TERM INT HUP QUIT
-  [ -z "$dog" ] || _br_signal KILL "$(_br_tree "$dog")"
-  [ -z "$pid" ] || _br_term_then_kill
+  # A fired watcher already holds the TERM-time set and is spending the grace
+  # on it; anything else is ended here. Nothing more is said on stderr, where
+  # a shell would report the watcher's KILL.
+  exec 2>/dev/null
+  if [ "$fired" = 1 ]; then
+    wait "$dog"
+  else
+    [ -z "$dog" ] || _br_signal KILL "$(_br_tree "$dog")"
+    [ "$reaped" = 1 ] || [ -z "$pid" ] || _br_term_then_kill
+  fi
   exit "$1"
 }
 
 pid=''
 dog=''
 fired=0
+reaped=0
 trap '_br_end 143' TERM
 trap '_br_end 130' INT
 trap '_br_end 129' HUP
@@ -117,7 +131,8 @@ trap 'fired=1' USR1
 
 # An asynchronous command's stdin is /dev/null unless redirected, and dash
 # applies that before an explicit `<&0`, so the caller's stdin goes by fd 9.
-# A closed stdin stays closed to the command rather than failing the runner.
+# A closed stdin is not passed on (the command gets the shell's default for an
+# asynchronous command) rather than failing the runner.
 if (exec 8<&0) 2>/dev/null; then
   exec 9<&0
   "$@" <&9 9<&- &
@@ -147,8 +162,11 @@ rc=$?
 if [ "$fired" = 1 ] && [ "$rc" -gt 128 ]; then
   wait "$pid" 2>/dev/null
 fi
+reaped=1
 if [ "$fired" = 0 ]; then
-  # KILL, which no trap can lose, to the watcher and the sleep under it.
+  # KILL, which no trap can lose, to the watcher and the sleep under it, with
+  # stderr closed first: the command is done, and a shell reports the KILL.
+  exec 2>/dev/null
   _br_signal KILL "$(_br_tree "$dog")"
 fi
 # A fired watcher is left to finish its grace, which is bounded.
