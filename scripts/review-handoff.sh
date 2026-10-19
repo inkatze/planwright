@@ -69,7 +69,8 @@
 #   --max-callers  references listed per symbol, default 200; the rest are
 #                  counted in caller-search.txt
 #
-# Prints the bundle path. Exit codes: 0 written; 2 usage or a refused input.
+# Prints the bundle path. Exit codes: 0 written; 2 usage, a refused input, or
+# an internal failure (named on stderr).
 set -eu
 LC_ALL=C
 export LC_ALL

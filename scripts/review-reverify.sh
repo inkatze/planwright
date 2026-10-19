@@ -25,7 +25,8 @@
 # do not reach the copy. The command starts from an empty environment holding
 # only PATH, LC_ALL, TERM, and a home, XDG directories, TMPDIR, fleet home
 # (PLANWRIGHT_FLEET_STATE_DIR), plugin-data home (CLAUDE_PLUGIN_DATA), and
-# CLAUDE_DIR inside the copy's directory, with system and global git
+# CLAUDE_DIR inside the record's temporary directory, beside the clone (never
+# inside it), with system and global git
 # configuration off; no credential or token variable reaches it. Where
 # setsid(1) exists the command runs in its own session, and anything it left
 # running is killed when it returns. The copy isolates the repository and the
@@ -45,8 +46,8 @@
 #       [--log-dir <dir>]
 #
 #   --timeout  per record, default 600, applied when timeout(1) exists; a
-#              timed-out command reports its exit code (124), and one that
-#              ignores the signal is killed 10 seconds later
+#              timed-out command reports exit 124, or 137 when it ignored the
+#              signal and was killed 10 seconds later
 #
 # Exit codes: 0 every fix held (or no records); 1 one or more regressed; 2
 #   usage or a malformed records file; 4 a copy, a working file, or a log

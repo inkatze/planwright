@@ -25,8 +25,9 @@
 # --lint-exclude entry is linted by nothing but still selects its tests; an
 # entry ending in `/` covers everything under it, one holding `*`, `?`, or `[`
 # is a shell pattern with `*` crossing `/`, and anything else names one path.
-# The caller passes the scopes its own lint tasks exclude (data, fixtures that
-# are malformed on purpose).
+# The caller passes what its own lint tasks leave out, by an exclusion or by an
+# include list that never names the file (data, fixtures that are malformed on
+# purpose, generated files).
 #
 # Each test runs as scripts/run-tests.sh runs a file: PLANWRIGHT_FLEET_STATE_DIR,
 # and CLAUDE_PLUGIN_DATA and CLAUDE_DIR when set, point at a sentinel home of
