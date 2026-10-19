@@ -97,8 +97,9 @@ reuse its literal path in every call.
      against an explicit timeout until every seat exits 0; 4 is still
      pending, and any other exit stops the fan-out. Then close the seat
      windows. On a timeout, tell the operator which seats never delivered and
-     where their drop directories are (each run's `drop-<seat-id>` file). A `stray` line means the session wrote a file it was not asked
-     for: tell the operator.
+     where their drop directories are (the run's `drop-<seat-id>` files). A
+     `stray` line means the session wrote a file it was not asked for: tell
+     the operator.
    - **`print`**: the same briefs, through
      `scripts/offload-dispatch.sh dispatch print <brief-file>`; hand the
      operator the printed launch commands, and resume when `collect` finds
@@ -129,7 +130,8 @@ reuse its literal path in every call.
 8. **Amend once.** The synthesis writer (resumed, or a fresh session) answers
    the challenge from `amend-brief`; save or `collect` `amended.md` and
    re-check it. A failing amendment is re-asked once with
-   `amend-brief --retry`; there is no second amendment.
+   `amend-brief --retry`; there is no second amendment. A re-ask whose
+   session never delivered is issued again with the same `--retry`.
 9. **Attribute.** `attribute` writes `table.md`: the amended synthesis with each
    table label followed by its seat. Once a challenge has run, it waits for
    the amendment rather than falling back to the first synthesis.
