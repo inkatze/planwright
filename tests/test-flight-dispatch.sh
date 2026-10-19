@@ -748,7 +748,7 @@ grep -q "tmux-flight-$fid" "$brief" || fail "the brief must carry the tmux worke
   || fail "a dry run launches nothing, so it pushes no dispatch event"
 plan=$(printf '%s\n' "$OUT" | awk -F"$TAB" '$1=="attach-plan" && $2=="launch"')
 case $plan in
-  *"${TAB}tmux${TAB}new-session${TAB}-d${TAB}-s${TAB}primary-"*"_flight-$fid${TAB}-c${TAB}$(field "$OUT" worktree)${TAB}-P${TAB}"*"${TAB}--${TAB}"*"/fleet-dispatch-env.sh${TAB}--identity${TAB}tmux-flight-$fid${TAB}flight:$fid${TAB}"*"claude${TAB}--${TAB}Read $brief and follow it exactly.${TAB};${TAB}set-window-option${TAB}"*) ;;
+  *"${TAB}tmux${TAB}new-session${TAB}-d${TAB}-s${TAB}primary-"*"_flight-$fid${TAB}-c${TAB}$(field "$OUT" worktree)${TAB}-P${TAB}"*"${TAB}--${TAB}"*"/fleet-dispatch-env.sh${TAB}--identity${TAB}tmux-flight-$fid${TAB}flight:$fid${TAB}"*"claude${TAB}--name${TAB}tmux-flight-$fid${TAB}--settings${TAB}"*"/config/worker-settings.json${TAB}--${TAB}Read $brief and follow it exactly.${TAB};${TAB}set-window-option${TAB}"*) ;;
   *) fail "the tmux plan must launch claude detached in flight-<id>'s worktree with its identity and the brief prompt, got: $plan" ;;
 esac
 

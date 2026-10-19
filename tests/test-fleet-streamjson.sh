@@ -762,7 +762,7 @@ grep -q "worker-settings.json" "$tmp/nocfg.err" \
 [ ! -s "$rec/argv" ] || fail "c9: the fragment-less launch must never spawn the worker"
 # The same refusal through the planwright-root override: PLANWRIGHT_ROOT names a
 # copy of the root whose worker profile cannot be read.
-mkdir -p "$tmp/badroot/config"
+mkdir -p "$tmp/badroot/config" "$tmp/badroot/scripts"
 cp "$here/../config/worker-settings.json" "$tmp/badroot/config/"
 chmod 000 "$tmp/badroot/config/worker-settings.json"
 : >"$rec/argv"
@@ -1809,8 +1809,12 @@ grep -q "$preset/scripts/worker-command-guard.sh" "$tmp/pf33p.err" \
 [ ! -s "$rec/argv" ] || fail "c33: a missing worker-side guard must never spawn the worker"
 # A root carrying the command guard but no policy guard refuses too: the worker
 # profile leaves merges and rewrites to that guard.
-mkdir -p "$preset/scripts"
+mkdir -p "$preset/scripts" "$preset/config"
 cp "$here/../scripts/worker-command-guard.sh" "$preset/scripts/"
+# Once it holds scripts/ the root is an arm of the core root chain, so the
+# worker profile resolves under it too; give it one so the guard proof is what
+# refuses.
+cp "$here/../config/worker-settings.json" "$preset/config/"
 : >"$rec/argv"
 senv "$home" "$rec" "CLAUDE_DIR=$cdir" "CLAUDE_PLUGIN_ROOT=$preset" SHIM_EVENTS="$ev" -- \
   launch sjw33q execution-backends:4 --prompt-file "$tmp/prompt33" --foreground \

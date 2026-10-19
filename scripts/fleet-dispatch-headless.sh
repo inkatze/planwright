@@ -549,9 +549,8 @@ do_launch() {
 
   # The session is named after the handle, which the relay's headless-oneshot
   # grammar owns, and the worker profile rides --settings: the one under the
-  # root the env wrapper pins the worker to (PLANWRIGHT_ROOT, else this
-  # script's own), refused when unreadable rather than launched without
-  # (fleet-messaging D-8, D-19).
+  # root the core root chain names (fleet-launch-profile.sh), refused when
+  # unreadable rather than launched without (fleet-messaging D-8, D-19).
   l_handle="headless-$l_spec-task-$l_id"
   l_scope="$l_spec:$l_id"
   if ! /bin/sh "$script_dir/orchestrate-relay.sh" validate-handle headless-oneshot "$l_handle" 2>/dev/null; then

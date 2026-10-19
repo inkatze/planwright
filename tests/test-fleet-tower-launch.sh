@@ -139,7 +139,7 @@ esac
 # --- t3 -----------------------------------------------------------------------
 f0=$fails
 bad="$tmp/badroot"
-mkdir -p "$bad/config"
+mkdir -p "$bad/config" "$bad/scripts"
 cp "$REPO_ROOT/config/tower-settings.json" "$bad/config/"
 chmod 000 "$bad/config/tower-settings.json"
 rc=0

@@ -4,10 +4,10 @@
 # worker dispatch seams, `tower` for the fleet tower launches.
 #
 # The profile is `<root>/config/<kind>-settings.json`, the root being --root
-# when the seam already holds the one it pins its session to, else the one
-# fleet-dispatch-env.sh pins a session to when given none: PLANWRIGHT_ROOT,
-# else the install this script runs from. The profile and the hooks it names
-# then come from one install. A launch without its profile would run under
+# when the seam already holds the one it pins its session to, else the one the
+# core root chain names (scripts/resolve-root.sh install), whose first arms are
+# the PLANWRIGHT_ROOT and CLAUDE_PLUGIN_ROOT values fleet-dispatch-env.sh pins
+# a session to, so the profile and the hooks it names come from one install. A launch without its profile would run under
 # whatever the operator's own settings say, which is the silent-delivery
 # failure obs:eea622de recorded, so a profile that is missing, unreadable, or
 # not a regular file is refused with the path named, and the seam refuses its
@@ -51,11 +51,12 @@ case $# in
 esac
 
 if [ -z "$root" ]; then
-  root=${PLANWRIGHT_ROOT:-}
-  [ -n "$root" ] || root=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd -P) || {
+  script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+  root=$(/bin/sh "$script_dir/resolve-root.sh" install 2>/dev/null </dev/null) || root=''
+  if [ -z "$root" ]; then
     printf '%s\n' "$me: no planwright root resolves, so the $kind settings profile cannot be found; refusing to launch without it" >&2
     exit 2
-  }
+  fi
 fi
 
 profile="$root/config/$kind-settings.json"

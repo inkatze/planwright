@@ -520,7 +520,7 @@ echo "ok: a fresh tower lands in its own tmux session (REQ-G1.4)"
 # A tower profile the root holds unreadable fails the tick visibly, naming the
 # profile, before any session exists (fleet-messaging D-19).
 badroot="$tmp/badroot"
-mkdir -p "$badroot/config"
+mkdir -p "$badroot/config" "$badroot/scripts"
 cp "$here/../config/tower-settings.json" "$badroot/config/"
 chmod 000 "$badroot/config/tower-settings.json"
 rm -f "$tmux_log"

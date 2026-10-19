@@ -17,8 +17,8 @@
 # names the session, is refused; non-`--bare` pinned per
 # D-12/REQ-A1.5, and the worker-settings fragment pinned per fleet-autonomy
 # D-19/REQ-E1.4. Pinning means never passing `--bare`, always passing the
-# fragment under the root the worker is pinned to (PLANWRIGHT_ROOT, else this
-# script's own install), and REFUSING a caller-supplied `--bare`,
+# fragment under the root the core root chain names (fleet-launch-profile.sh),
+# and REFUSING a caller-supplied `--bare`,
 # `--settings`, or `--name`. The fragment is the mode source:
 # Claude Code honors a `defaultMode` of auto from the operator's own user
 # settings, so a worker launched without a readable fragment inherits the LLM
@@ -1388,10 +1388,10 @@ refuse_mode_overrides() {
 }
 
 # worker_settings_path — print the reviewed permission fragment the launch
-# pins: the worker profile under the root the dispatch-env wrapper pins the
-# worker to (PLANWRIGHT_ROOT, else this script's own root, as
-# fleet-launch-profile.sh resolves it), so the profile and the hooks it names
-# come from one install. Fails closed when it cannot be
+# pins: the worker profile under the root the core root chain names
+# (fleet-launch-profile.sh), whose first arms are the roots the dispatch-env
+# wrapper pins the worker to, so the profile and the hooks it names come from
+# one install. Fails closed when it cannot be
 # read: an unverifiable mode source is no mode source, and a worker launched
 # without one inherits the operator's (see the header).
 worker_settings_path() {
