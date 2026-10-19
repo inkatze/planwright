@@ -1,13 +1,18 @@
 #!/bin/sh
 # check-number-copy.sh — fail when a spec bundle's prose copies a figure from
-# the dated snapshots it is meant to cite (universal-binary REQ-A1.4, D-4).
+# the dated snapshots it is meant to cite.
 #
-# SNAPSHOT VALUES. Every figure in the snapshot directory's Markdown files.
-# A figure is a run of digits, optionally with a decimal part or with
-# thousands commas (`1,234` and `1234` are the same figure), standing alone:
-# not glued to a letter, digit, `_`, `-`, `/`, `#`, `@`, `:` or `.` on either
-# side, so identifiers (`REQ-A1.4`, `D-15`, `obs:0087f433`), dates, times,
-# versions written as part of a word, and paths are not figures.
+# SNAPSHOTS. Every Markdown file under docs/substrate/ and every
+# docs/substrate-*.md (--snapshots names the directory instead, alone).
+#
+# FIGURES. A run of digits, optionally with a decimal part or with thousands
+# commas, compared as a number: `1,234`, `1234` and `01234` are one figure,
+# and so are `12.5` and `12.50`. A run is not a figure when the character
+# before it is a letter, digit, `_`, `-`, `/`, `#`, `@`, `:`, `.` or `,`, or
+# when the one after it is a letter, digit, `_`, `/` or `-`, or a `.`, `:` or
+# `,` followed by a digit. So identifiers (`REQ-A1.4`, `D-15`,
+# `obs:0087f433`), dates, times and paths are not figures, while a figure
+# ending a sentence (`663.`) still is.
 #
 # PROSE. Every line of the bundle's requirements.md, design.md, tasks.md and
 # test-spec.md, except:
@@ -15,16 +20,17 @@
 #   - inside a `### D-` decision, a verdict's measurement or cost-benefit
 #     line: the paragraph or list item opening with `**Measurement:**`,
 #     `**Measurements:**` or `**Cost-benefit:**`, through the line before
-#     the next blank line, list item, or heading;
+#     the next blank line, heading, or list item indented no deeper than it
+#     (its own sub-items belong to it);
 #   - the metadata field lines whose values are ids or plans, not figures:
 #     `**Format-version:**`, and a task's `**Dependencies:**` and
-#     `**Estimated effort:**`;
-#   - a numeral that is a reference, not a quantity: one following `Task`,
-#     `Tasks`, `task`, `tasks`, `section`, `sections`, `Section`, `step`,
-#     `steps`, `Step`, `wave` or `waves`, or continuing such a list
-#     (`Tasks 11 and 12`, `Tasks 5, 9, 10`).
-# A prose figure equal to a snapshot value is a finding. Only snapshot values
-# count, so a number no snapshot carries never fires.
+#     `**Estimated effort:**`, at any indent;
+#   - a numeral that is a reference, not a quantity: one following task,
+#     section, step or wave (singular or plural, either case of the first
+#     letter), or continuing such a list (`Tasks 11 and 12`, `Tasks 5, 9,
+#     10`, `Tasks 3 through 5`, `Tasks 3–5`).
+# A prose figure equal to a snapshot figure is a finding. Only snapshot
+# figures count, so a number no snapshot carries never fires.
 #
 # EXEMPTIONS. scripts/check-number-copy-exempt.tsv (or --exempt): one
 # `file<TAB>figure<TAB>reason` row per exempted figure in one bundle file
@@ -33,10 +39,13 @@
 #
 # Usage: check-number-copy.sh [--bundle <dir>] [--snapshots <dir>]
 #          [--exempt <tsv>]
-# Defaults: universal-binary under the resolved spec root; docs/substrate.
+# Defaults: universal-binary under the resolved spec root; the snapshots
+# above.
 # Exit codes: 0 clean; 1 a finding or a stale exemption (each printed); 2
-# usage error; 5 fail-closed (a bundle file or the snapshot directory
-# missing or unreadable, no snapshot file, or a malformed exemption row).
+# usage error; 5 fail-closed (the spec root not resolving; a bundle file, a
+# snapshot, the snapshot directory or the exemption list missing or
+# unreadable; no snapshot or no snapshot figure; a malformed exemption row;
+# or a failed scan); 128 plus the signal number on HUP, INT or TERM.
 #
 # POSIX sh on the macOS + Linux support bar. All input is data.
 set -uf
@@ -54,7 +63,7 @@ usage() {
   exit 2
 }
 
-bundle="" snapshots=$repo_root/docs/substrate exempt=$script_dir/check-number-copy-exempt.tsv
+bundle="" snapshots="" exempt=$script_dir/check-number-copy-exempt.tsv
 while [ "$#" -gt 0 ]; do
   case $1 in
     --bundle | --snapshots | --exempt)
@@ -82,32 +91,48 @@ fi
 for f in requirements.md design.md tasks.md test-spec.md; do
   [ -r "$bundle/$f" ] || fail_closed "the bundle's $f is missing or unreadable"
 done
-[ -d "$snapshots" ] && [ -r "$snapshots" ] || fail_closed "the snapshot directory is missing or unreadable"
 [ -r "$exempt" ] || fail_closed "the exemption list is unreadable"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/check-number-copy.XXXXXX") || fail_closed "mktemp -d failed"
 [ -n "$work" ] && [ -d "$work" ] || fail_closed "mktemp -d produced no directory"
 trap 'rm -rf "$work"' EXIT
-trap 'exit 1' HUP INT TERM
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
-set +f
+if [ -n "$snapshots" ]; then
+  [ -d "$snapshots" ] && [ -r "$snapshots" ] || fail_closed "the snapshot directory is missing or unreadable"
+  set +f
+  set -- "$snapshots"/*.md
+else
+  [ -d "$repo_root/docs/substrate" ] && [ -r "$repo_root/docs/substrate" ] \
+    || fail_closed "docs/substrate/ is missing or unreadable"
+  set +f
+  set -- "$repo_root"/docs/substrate/*.md "$repo_root"/docs/substrate-*.md
+fi
+set -f
 : >"$work/snaps"
-for f in "$snapshots"/*.md; do
-  [ -f "$f" ] || continue
-  [ -r "$f" ] || {
-    set -f
-    fail_closed "a snapshot file is unreadable"
-  }
+for f in "$@"; do
+  [ -e "$f" ] || [ -h "$f" ] || continue
+  [ -f "$f" ] && [ -r "$f" ] || fail_closed "a snapshot is not a readable file"
   printf '%s\n' "$f" >>"$work/snaps"
 done
-set -f
-[ -s "$work/snaps" ] || fail_closed "the snapshot directory holds no snapshot"
+[ -s "$work/snaps" ] || fail_closed "no snapshot file"
 
-# figures(): one `figure<TAB>line-number` record per figure a line holds that
-# is not a reference; the awk library both passes share.
+# The tokenizer every pass shares; norm() is the comparison form.
 cat >"$work/figures.awk" <<'EOF'
-function figures(s, lineno, keep_refs,   out, t, pre, post, tok, pos, prefix) {
-  out = ""; t = s; pos = 0
+function clean(s) { gsub(/[^[:print:]]/, "", s); return s }
+function norm(tok) {
+  gsub(/,/, "", tok)
+  if (tok ~ /\./) { sub(/0+$/, "", tok); sub(/\.$/, "", tok) }
+  sub(/^0+/, "", tok)
+  if (tok == "" || tok ~ /^\./) tok = "0" tok
+  return tok
+}
+# figures(s, out, keep_refs): fill out[1..n] with the figures line s holds,
+# references dropped unless keep_refs; return n.
+function figures(s, out, keep_refs,   n, t, pre, post, tok, pos, prefix) {
+  n = 0; t = s; pos = 0
   while (match(t, /[0-9]+(,[0-9][0-9][0-9])*(\.[0-9]+)?/)) {
     tok = substr(t, RSTART, RLENGTH)
     pre = (pos + RSTART > 1) ? substr(s, pos + RSTART - 1, 1) : ""
@@ -118,52 +143,75 @@ function figures(s, lineno, keep_refs,   out, t, pre, post, tok, pos, prefix) {
     if (pre ~ /[A-Za-z0-9_\/#@:.,-]/) continue
     if (substr(post, 1, 1) ~ /[A-Za-z0-9_\/-]/) continue
     if (post ~ /^[.:,][0-9]/) continue
-    if (!keep_refs && prefix ~ /(^|[^A-Za-z])([Tt]asks?|[Ss]ections?|[Ss]teps?|waves?)[ ]+([0-9.]+(, | and | or | to |, and |, or ))*$/) continue
-    gsub(/,/, "", tok)
-    out = out tok "\t" lineno "\n"
+    if (!keep_refs && prefix ~ /(^|[^A-Za-z])([Tt]asks?|[Ss]ections?|[Ss]teps?|[Ww]aves?)[ ]+([0-9.]+(, | and | or | to | through |, and |, or |–|-))*$/) continue
+    out[++n] = norm(tok)
   }
-  return out
+  return n
+}
+EOF
+cat >"$work/values.awk" <<'EOF'
+FNR == 1 { name = FILENAME; sub(/^.*\//, "", name) }
+{ n = figures($0, f, 1); for (i = 1; i <= n; i++) print f[i] "\t" clean(name) }
+EOF
+cat >"$work/prose.awk" <<'EOF'
+FNR == 1 { name = FILENAME; sub(/^.*\//, "", name); skip = 0; verdict = 0; indec = 0 }
+/^## / { skip = ($0 == "## Sources" || $0 == "## Changelog"); verdict = 0; indec = 0 }
+/^### / { indec = ($0 ~ /^### D-/); verdict = 0 }
+/^[ \t]*$/ { verdict = 0 }
+verdict && /^[ \t]*- / { match($0, /^[ \t]*/); if (RLENGTH <= vindent) verdict = 0 }
+indec && /^[ \t]*(- )?\*\*(Measurements?|Cost-benefit):\*\*/ { verdict = 1; match($0, /^[ \t]*/); vindent = RLENGTH }
+skip || verdict { next }
+/^[ \t]*(- )?\*\*(Format-version|Dependencies|Estimated effort):\*\*/ { next }
+{ n = figures($0, f, 0); for (i = 1; i <= n; i++) print name "\t" f[i] "\t" FNR }
+EOF
+cat >"$work/compare.awk" <<'EOF'
+BEGIN {
+  FS = "\t"
+  f = ENVIRON["CN_VALUES"]
+  while ((r = (getline l < f)) > 0) { split(l, p, "\t"); if (!(p[1] in v)) v[p[1]] = p[2] }
+  if (r < 0) { print ENVIRON["CN_ME"] ": the snapshot figures could not be read" > "/dev/stderr"; malformed = 1; exit }
+  f = ENVIRON["CN_EXEMPT"]
+  while ((r = (getline l < f)) > 0) {
+    if (l ~ /^#/ || l ~ /^[ \t]*$/) continue
+    n = split(l, p, "\t")
+    if (n != 3 || p[1] == "" || p[2] !~ /^[0-9][0-9,]*(\.[0-9]+)?$/ || p[3] == "") {
+      print ENVIRON["CN_ME"] ": malformed exemption row: " clean(p[1]) " " clean(p[2]) > "/dev/stderr"; malformed = 1; exit
+    }
+    ex[p[1] "\t" norm(p[2])] = 1
+  }
+  if (r < 0) { print ENVIRON["CN_ME"] ": the exemption list could not be read" > "/dev/stderr"; malformed = 1; exit }
+}
+($2 in v) {
+  if (($1 "\t" $2) in ex) { used[$1 "\t" $2] = 1; next }
+  printf "%s:%s: figure %s also appears in snapshot %s; cite the snapshot instead\n", $1, $3, $2, v[$2]
+  bad = 1
+}
+END {
+  if (malformed) exit 5
+  for (k in ex) if (!(k in used)) { split(k, p, "\t"); stale[++ns] = "stale exemption: " clean(p[1]) " " p[2] " matches no finding"; bad = 1 }
+  for (i = 2; i <= ns; i++) { x = stale[i]; for (j = i - 1; j >= 1 && stale[j] > x; j--) stale[j + 1] = stale[j]; stale[j + 1] = x }
+  for (i = 1; i <= ns; i++) print stale[i]
+  exit bad ? 1 : 0
 }
 EOF
 
+: >"$work/values.raw"
 while IFS= read -r f; do
-  awk -v name="$(basename "$f")" "$(cat "$work/figures.awk")"'
-    { r = figures($0, FNR, 1); n = split(r, a, "\n"); for (i = 1; i < n; i++) { split(a[i], p, "\t"); print p[1] "\t" name } }
-  ' "$f"
-done <"$work/snaps" | sort -u -t "$(printf '\t')" -k1,1 >"$work/values"
+  awk -f "$work/figures.awk" -f "$work/values.awk" "$f" >>"$work/values.raw" \
+    || fail_closed "a snapshot could not be scanned"
+done <"$work/snaps"
+sort -u -t "$(printf '\t')" -k1,1 "$work/values.raw" >"$work/values" || fail_closed "sort failed"
+[ -s "$work/values" ] || fail_closed "the snapshots carry no figure"
 
-: >"$work/findings"
-for f in requirements.md design.md tasks.md test-spec.md; do
-  awk -v name="$f" "$(cat "$work/figures.awk")"'
-    /^## / { skip = ($0 == "## Sources" || $0 == "## Changelog"); verdict = 0; indec = 0 }
-    /^### / { indec = ($0 ~ /^### D-/); verdict = 0 }
-    /^[ \t]*$/ { verdict = 0 }
-    /^[ \t]*- / { verdict = 0 }
-    indec && /^[ \t]*(- )?\*\*(Measurements?|Cost-benefit):\*\*/ { verdict = 1 }
-    skip || verdict { next }
-    /^(- )?\*\*(Format-version|Dependencies|Estimated effort):\*\*/ { next }
-    { r = figures($0, FNR, 0); n = split(r, a, "\n"); for (i = 1; i < n; i++) print name "\t" a[i] }
-  ' "$bundle/$f" >>"$work/findings"
-done
+awk -f "$work/figures.awk" -f "$work/prose.awk" \
+  "$bundle/requirements.md" "$bundle/design.md" "$bundle/tasks.md" "$bundle/test-spec.md" >"$work/findings" \
+  || fail_closed "the bundle could not be scanned"
 
-awk -F'\t' -v values="$work/values" -v exempt="$exempt" '
-  BEGIN {
-    while ((getline l < values) > 0) { split(l, p, "\t"); if (!(p[1] in v)) v[p[1]] = p[2] }
-    while ((getline l < exempt) > 0) {
-      if (l ~ /^#/ || l ~ /^[ \t]*$/) continue
-      n = split(l, p, "\t")
-      if (n != 3 || p[3] == "") { print "check-number-copy: malformed exemption row: " p[1] " " p[2] > "/dev/stderr"; malformed = 1; exit }
-      ex[p[1] "\t" p[2]] = 1
-    }
-  }
-  ($2 in v) {
-    if (($1 "\t" $2) in ex) { used[$1 "\t" $2] = 1; next }
-    printf "%s:%s: figure %s also appears in snapshot %s; cite the snapshot instead\n", $1, $3, $2, v[$2]
-    bad = 1
-  }
-  END {
-    if (malformed) exit 5
-    for (k in ex) if (!(k in used)) { split(k, p, "\t"); printf "stale exemption: %s %s matches no finding\n", p[1], p[2]; bad = 1 }
-    exit bad ? 1 : 0
-  }
-' "$work/findings"
+CN_VALUES=$work/values CN_EXEMPT=$exempt CN_ME=$me
+export CN_VALUES CN_EXEMPT CN_ME
+awk -f "$work/figures.awk" -f "$work/compare.awk" "$work/findings"
+rc=$?
+case $rc in
+  0 | 1) exit "$rc" ;;
+  *) fail_closed "the comparison failed" ;;
+esac

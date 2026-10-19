@@ -103,6 +103,16 @@ run() { # run <fixture>; sets out, rc
 
 append() { printf '%s\n' "$2" >>"$1"; }
 
+# after <file> <ere> <line>...: insert the lines after the first line matching
+# the pattern (awk, since BSD sed has no `\n` in a replacement).
+after() {
+  af_file=$1 af_re=$2
+  shift 2
+  awk -v re="$af_re" 'BEGIN { for (i = 1; i < ARGC; i++) { add[i] = ARGV[i]; delete ARGV[i] }; n = ARGC - 1; ARGC = 1 }
+    { print } !done && $0 ~ re { for (i = 1; i <= n; i++) print add[i]; done = 1 }' "$@" <"$af_file" >"$af_file.new" \
+    && mv "$af_file.new" "$af_file"
+}
+
 v=$tmp/clean
 build "$v"
 run "$v"
@@ -111,7 +121,7 @@ check_eq "a clean bundle passes (metadata and dates are not figures)" 0 "$rc"
 # REQ-A1.4: a snapshot figure copied into a requirement fails.
 v=$tmp/req
 build "$v"
-sed 's/^- \*\*REQ-A1.1\*\* .*/&\n- **REQ-A1.2** Fix commits SHALL stay under 663 a month./' "$v/b/requirements.md" >"$v/r" && mv "$v/r" "$v/b/requirements.md"
+after "$v/b/requirements.md" '^- \*\*REQ-A1\.1\*\* ' "- **REQ-A1.2** Fix commits SHALL stay under 663 a month."
 run "$v"
 check_eq "a copied figure in a requirement fails" 1 "$rc"
 check_has "the finding names file, line and figure" "$out" "requirements.md:8: figure 663"
@@ -130,7 +140,7 @@ check_eq "the figure only under Changelog passes" 0 "$rc"
 
 v=$tmp/verdict
 build "$v"
-sed 's/^\*\*Measurement:\*\* pending./**Measurement:** median 41.5 s against\nthe shell median, 663 commits (report field `x`)./' "$v/b/design.md" >"$v/d" && mv "$v/d" "$v/b/design.md"
+after "$v/b/design.md" '^\*\*Measurement:\*\* pending' 'and a median of 41.5 s against the shell median, 663 commits (report field `x`).'
 run "$v"
 check_eq "the figure in a verdict's measurement line passes" 0 "$rc"
 
@@ -142,7 +152,7 @@ check_eq "the figure in a verdict's cost-benefit line passes" 0 "$rc"
 
 v=$tmp/afterverdict
 build "$v"
-sed 's/^\*\*Measurement:\*\* pending./**Measurement:** pending.\n\nThe body then says 663 again./' "$v/b/design.md" >"$v/d" && mv "$v/d" "$v/b/design.md"
+after "$v/b/design.md" '^\*\*Measurement:\*\* pending' "" "The body then says 663 again."
 run "$v"
 check_eq "a paragraph after the measurement line is prose again" 1 "$rc"
 
@@ -202,6 +212,60 @@ build "$v"
 printf 'test-spec.md\t41.5\t\n' >>"$v/exempt.tsv"
 run "$v"
 check_eq "an exemption without a reason fails closed" 5 "$rc"
+
+v=$tmp/indentmeta
+build "$v"
+append "$v/b/tasks.md" "  **Estimated effort:** 663 days"
+run "$v"
+check_eq "an indented metadata line is not prose" 0 "$rc"
+
+v=$tmp/nested
+build "$v"
+append "$v/b/design.md" "- **Measurement:** the report fields:"
+append "$v/b/design.md" "  - median 41.5 s"
+append "$v/b/design.md" "    and 663 commits"
+append "$v/b/design.md" "- A sibling bullet says 663 again."
+run "$v"
+check_eq "a measurement's sub-items belong to it; its sibling does not" 1 "$rc"
+check_has "only the sibling fires" "$out" "design.md:15: figure 663"
+check_eq "exactly one finding" 1 "$(printf '%s\n' "$out" | grep -c figure)"
+
+v=$tmp/ranges
+build "$v"
+append "$v/b/tasks.md" "See Tasks 1 through 663, Tasks 1–663 and Waves 663."
+run "$v"
+check_eq "task ranges and capitalised waves are references" 0 "$rc"
+
+v=$tmp/formats
+build "$v"
+append "$v/b/test-spec.md" "A median of 41.50 seconds and 0663 commits."
+run "$v"
+check_eq "trailing and leading zeros compare as the same figure" 1 "$rc"
+check_eq "both variants fire" 2 "$(printf '%s\n' "$out" | grep -c figure)"
+
+v=$tmp/commaexempt
+build "$v"
+append "$v/b/test-spec.md" "There were 1,234 of them."
+printf 'test-spec.md\t1,234\ta coincidence\n' >>"$v/exempt.tsv"
+run "$v"
+check_eq "an exemption written with commas matches" 0 "$rc"
+
+v=$tmp/dangling
+build "$v"
+ln -s "$v/missing.md" "$v/snap/gone.md"
+run "$v"
+check_eq "a dangling snapshot symlink fails closed" 5 "$rc"
+
+v=$tmp/ctl
+build "$v"
+printf 'test-spec.md\t41.5\tstale\033]0;x\007\n' >>"$v/exempt.tsv"
+printf 'design.md\t9999\tstale too\n' >>"$v/exempt.tsv"
+run "$v"
+check_eq "stale exemptions still fail" 1 "$rc"
+case $out in
+  *"$(printf '\033')"*) bad "a control byte reached the output" ;;
+  *) ok "no control byte reaches the output" ;;
+esac
 
 v=$tmp/nobundle
 build "$v"
