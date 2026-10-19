@@ -791,9 +791,9 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   (its rewrite prohibition) and REQ-C1.1 (its all-drafts rule). Pointer edits
   only — no REQ body, task, or status change.
 - 2026-10-18 — human-gates Task 12 supersede pointers: REQ-C1.3 superseded-by
-  human-gates REQ-B1.1 and REQ-C1.1, D-5 by human-gates D-3 and D-4, and D-44
-  and D-45 by human-gates D-4 and D-6, each scoped to its flip or draft-PR
-  clause. Pointer edits only — no record body, task, or status change; the
+  human-gates REQ-B1.1 and REQ-C1.1, D-5 by human-gates D-3 and D-4, D-44 by
+  human-gates D-4 and D-6, and D-45 by human-gates D-5 and D-6, each scoped
+  to its flip or draft-PR clause. Pointer edits only — no record body, task, or status change; the
   anchored delta is meaning-class, so the bundle parks for its reopen cycle
   (`tasks.md` Awaiting input).
 

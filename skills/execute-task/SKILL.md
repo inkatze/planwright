@@ -447,12 +447,13 @@ These hold at every step, each list rule labelled with its
 
 - **Gate:** **never** act on a spec neither Ready nor Active, nor bypass the
   freshness gate composing with it; no bypass flag (REQ-C1.1, superseding
-  REQ-J1.2, D-33; D-2, D-3, REQ-F1.9, REQ-C1.3). Pushed history stays
-  append-only.
-- **Policy:** open drafts only; merge or flip ready only through the two
-  header sequences above (D-21; human-gates REQ-C1.5, REQ-D1.4); reshape
-  never-pushed commits only per `unpushed_rewrite`.
-- **Contract:** this skill owns push and PR creation; no step pushes before
+  REQ-J1.2, D-33; D-2, D-3, REQ-F1.9, REQ-C1.3). Merge authorization is the
+  human's; pushed history stays append-only.
+- **Policy:** merge only under `merge_policy`, flip only under
+  `ready_flip_policy`, through the two header sequences above (D-21;
+  human-gates REQ-C1.5, REQ-D1.4); reshape never-pushed commits only per
+  `unpushed_rewrite`.
+- **Contract:** this skill owns push and the draft PR; no step pushes before
   `post-pr`, merges, flips, or rewrites history (D-39; custom-steps REQ-D1.6).
 - **Never** create a worktree; this skill runs inside one (D-37, D-44).
 - **Never** let `per-step` isolation weaken state-safety: every `tasks.md`

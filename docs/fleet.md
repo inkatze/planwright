@@ -2237,10 +2237,11 @@ GitHub MCP tools (`merge_pull_request`, `update_pull_request`, `push_files` /
 `create_or_update_file` / `delete_file` — denied wholesale by name because a
 Bash-string guard cannot intercept an MCP call, and on every MCP server by a
 tool-name glob, alongside the PR branch update and PR creation), and `gh pr ready`: a tower
-**never** performs the draft→ready flip. The one sanctioned ready-flip
-(kickoff-lifecycle D-6: `/spec-kickoff` marks the spec PR ready) runs in a
-kickoff session under different settings, not under this tower profile, so the
-deny does not block it. The guard's hand-launch allow (`claude --worktree`)
+**never** performs the draft→ready flip. The sanctioned flips (the spec-PR
+flip `/spec-kickoff` performs, and the unit-PR flip `ready_flip_policy` gives
+`/execute-task`; [Human Gates](../doctrine/human-gates.md)) run in kickoff or
+worker sessions under different settings, not under this tower profile, so the
+deny does not block them. The guard's hand-launch allow (`claude --worktree`)
 also **pins** against launching a worker with its permission layer weakened:
 any `--dangerously-*` or `--permission-*` flag, in any position, defers. The
 tmux rung itself never launches through that shape: its worker starts in a
@@ -2296,8 +2297,10 @@ nothing added:
   fork still irreducible after citation, research, and convention — design
   forks, spec drift, decisions you reserved. These arrive as decision-queue
   items, not as silent defaults.
-- **Never, on any rung, at any tier:** auto-merge. The draft-to-ready flip and
-  the merge are yours, permanently.
+- **Never, on any rung, at any tier:** a merge outside the merge policy you
+  configured, or a flip from the tower tier
+  ([the floor](../doctrine/human-gates.md#the-floor)). Merge authorization
+  stays yours.
 
 ### Standing decisions
 

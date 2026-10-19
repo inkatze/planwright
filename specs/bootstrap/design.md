@@ -816,8 +816,8 @@ supersede ritual (REQ-B2.4 supersedes REQ-B2.1).
 
 ### D-45: Pre-execution spec-freshness gate  (N, delta re-walkthrough 2026-06-11)
 
-**Superseded-by: human-gates D-4, D-6** (2026-10-18) — scoped to "the draft-PR-only +
-human-merge invariant backstops it": the backstop is the merge floor and the
+**Superseded-by: human-gates D-5, D-6** (2026-10-18) — scoped to "the
+draft-PR-only + human-merge invariant backstops it": the backstop is the merge floor and the
 flip preconditions.
 
 **Decision:** Execution skills refuse to dispatch when the spec bundle has changed

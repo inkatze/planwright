@@ -214,8 +214,8 @@ The list of human gates, policies, and skill ownership rules is
 [Human Gates](../doctrine/human-gates.md), each policy with its knob and
 default; its floor section states what no setting changes. Among the gates:
 never act on a spec that is not Ready or Active, and pushed history stays
-append-only outside an operator-requested force-push. These are constraints,
-not future capabilities.
+append-only outside the force-push and secret-purge gates. These are
+constraints, not future capabilities.
 
 In the planwright repo itself the history invariants are additionally
 backstopped repo-side by tracked git hooks (`githooks/`, wired once per

@@ -432,7 +432,7 @@ every surface it restates exists.
   and the bundle derived Active, so the pointers wait for its own amendment
   rather than change its anchor: `**Superseded-by: REQ-D1.6 (human-gates)**
   (<date>)` on REQ-F1.4, scoped to the never-auto-merge and draft-PR-only
-  invariant names, each with a dated `## Changelog` entry naming it, landed
+  invariant names, with a dated `## Changelog` entry naming it, landed
   by a `/spec-kickoff` amendment on operator-dialogue or, once it derives
   Done, with its reopen cycle. Confidence: high.
   **Gate:** GATE(when: spec operator-dialogue done).
@@ -442,7 +442,7 @@ every surface it restates exists.
   bundle derived Active, so the pointers wait for its own amendment rather
   than change its anchor: `**Superseded-by: REQ-F1.2 (human-gates)**
   (<date>)` on REQ-H1.1, scoped to "never force-pushes": the tower
-  force-pushes on the operator's same-turn request, each with a dated `## Changelog`
+  force-pushes on the operator's same-turn request, with a dated `## Changelog`
   entry naming it, landed by a `/spec-kickoff` amendment on
   tower-comms or, once it derives Done, with its reopen cycle. Confidence:
   high.
@@ -454,7 +454,7 @@ every surface it restates exists.
   rather than change its anchor: `**Superseded-by: REQ-C1.5 (human-gates)**
   (<date>)` on REQ-G1.1, scoped to the flip as a reserved control, and
   `**Superseded-by: REQ-F1.1, REQ-F1.2 (human-gates)** (<date>)` on
-  REQ-G1.3, each with a dated `## Changelog` entry naming it, landed by a
+  REQ-G1.3, with a dated `## Changelog` entry naming it, landed by a
   `/spec-kickoff` amendment on tower-placement or, once it derives Done,
   with its reopen cycle. Confidence: high.
   **Gate:** GATE(when: spec tower-placement done).
@@ -486,7 +486,7 @@ every surface it restates exists.
   found records there still stating a rule this bundle changed, and the
   bundle derived Active, so the pointers wait for its own amendment rather
   than change its anchor: `**Superseded-by: human-gates D-4** (<date>)` on
-  D-2, scoped to the premise "since `/execute-task` never flips", each with
+  D-2, scoped to the premise "since `/execute-task` never flips", with
   a dated `## Changelog` entry naming it, landed by a `/spec-kickoff`
   amendment on custom-steps or, once it derives Done, with its reopen cycle.
   Confidence: high.
@@ -496,8 +496,8 @@ every surface it restates exists.
   (2026-10-18) found records there still stating a rule this bundle changed,
   and the bundle derived Active, so the pointers wait for its own amendment
   rather than change its anchor: `**Superseded-by: REQ-D1.6 (human-gates)**
-  (<date>)` on REQ-G1.3, scoped to the never-auto-merge invariant name, each
-  with a dated `## Changelog` entry naming it, landed by a `/spec-kickoff`
+  (<date>)` on REQ-G1.3, scoped to the never-auto-merge invariant name, with a
+  dated `## Changelog` entry naming it, landed by a `/spec-kickoff`
   amendment on fleet-messaging or, once it derives Done, with its reopen
   cycle. Confidence: high.
   **Gate:** GATE(when: spec fleet-messaging done).
@@ -508,7 +508,7 @@ every surface it restates exists.
   `## Awaiting input` admits no `anchor re-review pending` park, so a pointer landed from
   the sweep would leave its recorded anchor failing the freshness check with
   no sanctioned park: `**Superseded-by: REQ-F1.1 (human-gates)** (<date>)`
-  on REQ-A1.2, scoped to its never-amend/squash/rebase clause, each with a
+  on REQ-A1.2, scoped to its never-amend/squash/rebase clause, with a
   dated `## Changelog` entry naming it, landed by the bundle's reopen cycle
   (Ready→Draft, then a scoped `/spec-kickoff`), which re-records the anchor.
   Confidence: high.

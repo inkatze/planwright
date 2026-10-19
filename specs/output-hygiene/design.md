@@ -119,9 +119,10 @@ uncatalogued human-comprehension / information-UX decision domain (observations 
 
 ### D-3: Marker canonical placement end-of-subject; enforcement at emit time; branch-scoped consumption  (drafting-session decision (2026-07-02))
 
-**Superseded-by: human-gates D-3, D-8** (2026-10-18) — the subject marker is a
-trailer, and rebase is forbidden only on pushed history and protected or spec
-branches.
+**Superseded-by: human-gates D-3, D-6** (2026-10-18) — scoped to the
+end-of-subject placement and the rebase-merge exclusion: the marker is a
+trailer, and a rebase merge is a `merge_class_strategy` value; the
+branch-scoped consumption stands.
 
 **Decision:** The canonical `[pending-sign-off]` placement is the end of the subject:
 `type(scope): description [pending-sign-off]`. Enforcement is emit-time: any skill writing

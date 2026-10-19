@@ -222,14 +222,14 @@ These hold at every step. The skill's one and only write is the REQ-B3.2
 self-healing drift-log note (Maintenance section): recording one observation
 fragment through `scripts/obs-record.sh` and committing it as its own chore
 commit. That chore never touches the resumed work; every invariant below
-describes the read-only guarantee over that work, and the drift-log note is
-the sole carved-out exception. Step 8's `turn` record goes to a log the
-harness provides, outside the repository, so it touches neither.
+describes the read-only guarantee over that work. Step 8's `turn` record goes
+to a log the harness provides, outside the repository, so it touches neither.
 
 - **Never** modify the working tree of the resumed work: no stash, clean,
   checkout, reset, or commit of in-flight changes. `/resume` only reads it
   (REQ-F2.1); D-30 specifically forbids auto-resolving uncommitted state.
-- **Contract** (`doctrine/human-gates.md`): **never** push, open a PR, or merge.
+- **Contract:** **never** push, or open or update a PR. **Gate:** never merge
+  (`doctrine/human-gates.md`).
 - **Never** edit `tasks.md`, the brief, or any spec bundle file. The
   observations fragment store under `specs/_observations/` is the carved-out
   drift-log exception above, not a spec file. State moves belong to

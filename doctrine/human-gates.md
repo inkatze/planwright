@@ -52,10 +52,10 @@ cannot be named does not ship.
 No agent merges outside a policy the human configured, and no value exists
 under which an agent merges a PR carrying a sign-off item. The tower profile,
 which the orchestrator tier runs under, keeps its flip, PR-merge, and
-base-merge denies under every value; those are the tower tier's refusals, a
-profile deny or, for a `gh api` spelling of the flip, its undo, a PR merge, a
-base merge, or a forced ref update, a policy-guard deny at every tier with no
-knob read (REQ-G1.7). Pushed history stays append-only outside
+base-merge denies under every value: those are the tower tier's refusals.
+Separately, at every tier and with no knob read, the policy guard denies the
+`gh api` spelling of the flip, its undo, a PR merge, a base merge, or a forced
+ref update (REQ-G1.7). Pushed history stays append-only outside
 the force-push and secret-purge rows of the list. A doc stating this floor
 cites this section; it does not restate an unconditional never.
 

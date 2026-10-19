@@ -313,7 +313,7 @@ durable evidence through the existing surfaces:
 - **Decisions waiting on the operator:** `scripts/fleet-attention.sh queue`,
   actionable items first; a parked flight is one of them, under its
   worker handle.
-- **Reserved-control relays:** the post-sign-off go above, on explicit request.
+- **Gated relays:** the post-sign-off go above, on explicit request.
 
 The tower never supervises or polls spec-mode execution: no watch loop, no
 timer, no unprompted read of orchestrator state. Spec-mode pushes stay on the
@@ -324,7 +324,7 @@ REQ-F1.2).
 
 ## Refusals
 
-Declined conversationally, the reserved-control statement given and the thing
+Declined conversationally, the gate or profile deny stated and the thing
 handed back — never silently.
 
 - **"Merge it."** A human gate; the profile denies the merge under every
@@ -369,7 +369,7 @@ directory the session is handed; neither is a sign-off.
 
 On every route, overridden or not, kinds per `doctrine/human-gates.md`:
 
-- **Policy floor:** the merge and flip denies above (REQ-G1.1, REQ-G1.4).
+- **Floor:** the merge and flip denies above (REQ-G1.1, REQ-G1.4).
 - **Gate:** **never** start `/spec-kickoff`, nor self-start orchestration on
   sign-off or a spec PR's merge (REQ-D1.3, REQ-D1.4).
 - **Never** edit the repository from the tower: every mutation is a flight, and

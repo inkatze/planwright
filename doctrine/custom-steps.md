@@ -356,7 +356,7 @@ stands for its record in a later resume, so chained resumes skip the same
 prefix and carry its head move forward. A run held in its re-fire pass
 resumes inside it.
 
-## Step contracts (REQ-D1.6, D-17)
+## Step contracts (custom-steps REQ-D1.6, D-17)
 
 Contracts ([Human Gates](human-gates.md)): a step **never** merges, flips,
 or rewrites history. A step at the **four no-push points**, `pre-implementation`,

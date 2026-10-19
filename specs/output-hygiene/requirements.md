@@ -289,7 +289,8 @@ supersede pointer; bodies are frozen per the stable-ID rule (bootstrap D-20).)*
 - 2026-10-18 — human-gates Task 12 supersede pointers: REQ-C1.1 and REQ-C1.2
   superseded-by human-gates REQ-B1.2, REQ-C1.3 by human-gates REQ-B1.4,
   REQ-C1.4 (scoped to the marker noun) by human-gates REQ-B1.2 and REQ-B1.3,
-  and D-3 by human-gates D-3 and D-8. Pointer edits only — no record body,
+  and D-3 (scoped to its marker placement and rebase-merge clauses) by
+  human-gates D-3 and D-6. Pointer edits only — no record body,
   task, or status change; the anchored delta is meaning-class, so the bundle
   parks for its reopen cycle (`tasks.md` Awaiting input).
 
