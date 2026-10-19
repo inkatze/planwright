@@ -280,6 +280,23 @@ out=$(build --base "$BASE" --doctrine "$T/missing.md" 2>&1)
 assert_exit "a doctrine path that does not exist is refused" 2 $?
 out=$(build --base "$BASE" --tooling "$T/missing.txt" 2>&1)
 assert_exit "an unreadable tooling file is refused" 2 $?
+out=$(build --base "$BASE" --max-callers 00 2>&1)
+assert_exit "an all-zero --max-callers is refused" 2 $?
+mkdir -p "$T/ta" "$T/tb" "$T/tc"
+printf 'tool-a\n' >"$T/ta/3-lint.txt"
+printf 'tool-b\n' >"$T/tb/lint.txt"
+printf 'tool-c\n' >"$T/tc/lint.txt"
+build --base "$BASE" --tooling "$T/ta/3-lint.txt" --tooling "$T/tb/lint.txt" --tooling "$T/tc/lint.txt" >/dev/null 2>&1
+held=$(cat "$R/.claude/review-handoff/tooling/"* 2>/dev/null | sort | tr '\n' ' ')
+assert_contains "colliding tooling names each keep their own copy" "tool-a tool-b tool-c" "$held"
+RU=$T/unborn
+git init -q "$RU"
+git -C "$RU" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m base
+git -C "$RU" branch -q trunk
+git -C "$RU" checkout -q --orphan fresh
+out=$(cd "$RU" && "$BUILD" --base trunk 2>&1)
+assert_exit "an unborn HEAD is refused with the documented code" 2 $?
+assert_contains "an unborn HEAD is named" "HEAD" "$out"
 leftover=$(find "$R/.claude" -maxdepth 1 -name 'review-handoff.*' | head -1)
 if [ -z "$leftover" ]; then ok "a refused build leaves no staging dir"; else fail "a refused build leaves no staging dir ($leftover)"; fi
 
@@ -453,7 +470,7 @@ B6BASE=$(g6 rev-parse HEAD)
 cat >"$R6/specs/x/tasks.md" <<'EOF'
 ### Task 1 — Narrow
 
-- **Deliverables:** `scripts/ok.sh`, `scripts/sneaky.sh`, `*`.
+- **Deliverables:** `scripts/ok.sh`, `scripts/sneaky.sh`, `*.*`.
 EOF
 printf '#!/bin/sh\nexit 0\n' >"$R6/scripts/ok.sh"
 printf '#!/bin/sh\n' >"$R6/scripts/sneaky.sh"

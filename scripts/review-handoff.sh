@@ -167,7 +167,10 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$base" ] || usage
-case $max_callers in '' | 0 | *[!0-9]*) die 2 "--max-callers must be a positive integer" ;; esac
+# Leading zeros are dropped as text, since sh arithmetic would read them as octal.
+case $max_callers in '' | *[!0-9]*) die 2 "--max-callers must be a positive integer" ;; esac
+max_callers=${max_callers#"${max_callers%%[!0]*}"}
+[ -n "$max_callers" ] || die 2 "--max-callers must be a positive integer"
 if [ -n "$tasks" ]; then
   [ -n "$tasks_file" ] || die 2 "--task needs --tasks-file"
   readable "--tasks-file" "$tasks_file"
@@ -186,7 +189,7 @@ rev() {
   git rev-parse --verify --quiet "$2^{commit}" || die 2 "$1 names no commit: $2"
 }
 base_sha=$(rev --base "$base")
-head=$(git rev-parse --verify "HEAD^{commit}")
+head=$(git rev-parse --verify --quiet "HEAD^{commit}") || die 2 "HEAD names no commit (an unborn branch?)"
 mb=$(git merge-base "$base_sha" "$head") || die 2 "--base shares no history with HEAD"
 prev=
 if [ -n "$delta" ]; then
@@ -513,7 +516,7 @@ printf '%s' "$tooling" >"$stage/.tooling"
 while IFS= read -r f; do
   n=$((n + 1))
   t=$(basename "$f")
-  [ ! -e "$stage/tooling/$t" ] || t=$n-$t
+  while [ -e "$stage/tooling/$t" ]; do t=$n-$t; done
   cp "$f" "$stage/tooling/$t" || die 2 "cannot copy --tooling file: $f"
   tooling_names=$tooling_names"tooling${TAB}$t$NL"
 done <"$stage/.tooling"
