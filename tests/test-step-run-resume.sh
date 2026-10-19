@@ -244,6 +244,12 @@ rc=$?
 verdict $? "a refused context value fails the step, names the field, runs nothing, and frees the slot" \
   "rc=$rc: $(recs "$r" pre-pr)"
 
+PR="7
+" srun command --run "$r" --point pre-pr --step iso >"$tmp/out" 2>/dev/null
+rc=$?
+[ "$rc" -eq 1 ] && [ ! -e "$tmp/check.log" ] && [ -z "$(sp report gate)" ]
+verdict $? "a context value with a trailing newline is refused, not trimmed" "rc=$rc: $(recs "$r" pre-pr)"
+
 # --- begin and end: a second begin, a timeout, an output file, a failing exit --------------
 srun begin --run "$r" --point pre-pr --step ses --owner "$me" >"$tmp/begin"
 srun begin --run "$r" --point pre-pr --step ses --owner "$me" >/dev/null 2>&1

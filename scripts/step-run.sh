@@ -467,9 +467,12 @@ context() {
     *) die 4 "cannot read the run's head moves" ;;
   esac
   export PLANWRIGHT_STEP_PREV_HEAD="${moves%%"$TAB"*}" PLANWRIGHT_STEP_NEW_HEAD="${moves#*"$TAB"}"
-  local v
+  local v n
+  # Copied by indirection: a command substitution would strip a trailing
+  # newline that resolve-steps.sh must see to refuse the value.
   for v in SPEC TASK_IDS UNIT_KIND BRANCH BASE_BRANCH WORKTREE PR_NUMBER; do
-    export "PLANWRIGHT_STEP_$v=$(printenv "PLANWRIGHT_STEP_$v" || :)"
+    n=PLANWRIGHT_STEP_$v
+    export "$n=${!n-}"
   done
 }
 
