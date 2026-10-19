@@ -1,0 +1,1 @@
+- 2026-10-19 [planwright] macOS (universal-binary Task 4): BSD awk rejects a newline inside a -v value, which killed flight-record input screening and redaction on macOS; the values now go through ENVIRON. Any awk -v carrying a multi-line value has the same defect.

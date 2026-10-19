@@ -41,6 +41,9 @@ fail() {
 [ -x "$FS" ] || fail "scripts/fleet-state.sh missing or not executable"
 
 tmp=$(mktemp -d)
+# The script stores canonical roots, and TMPDIR may sit behind a symlink
+# (/var is /private/var on macOS), so expectations use the canonical form.
+tmp=$(cd -P -- "$tmp" && pwd -P)
 trap 'rm -rf "$tmp"' EXIT
 
 home="$tmp/fleet-home"

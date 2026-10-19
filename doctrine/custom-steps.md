@@ -5,7 +5,8 @@ which an operator declares, per point and through the overlay layers, an
 ordered list of **steps** to run there. This doc is the one normative home for the point
 vocabulary, when each point fires, and the step contract (REQ-A1.5, D-9).
 Skills carry the invocation; `scripts/resolve-steps.sh`,
-`scripts/step-record.sh`, and `scripts/step-pool.sh` carry the mechanics,
+`scripts/step-record.sh`, `scripts/step-pool.sh`, and `scripts/step-run.sh`
+(the command-step runner) carry the mechanics,
 their usage headers pinning what this doc delegates to them; the operator's
 own chain lives in their overlay (D-1,
 [customization-boundary](customization-boundary.md)).

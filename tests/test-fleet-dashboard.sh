@@ -27,6 +27,8 @@ unset CDPATH
 here=$(cd "$(dirname "$0")" && pwd)
 DASH="$here/../scripts/fleet-dashboard.sh"
 ES="$here/../scripts/echo-safety.sh"
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -417,13 +419,8 @@ full_fixture
 wtarget="$tmp/out/watched.html"
 /bin/sh "$DASHC" watch --out "$wtarget" --interval 1 >/dev/null 2>&1 &
 wpid=$!
-waited=0
-while [ "$waited" -lt 100 ]; do
-  n=$(wc -l <"$shimlog" | tr -d ' ')
-  [ "$n" -ge 2 ] && break
-  sleep 0.1 2>/dev/null || sleep 1
-  waited=$((waited + 1))
-done
+rendered_twice() { [ "$(wc -l <"$shimlog" | tr -d ' ')" -ge 2 ]; }
+poll_until --what 'a second watch render' -- rendered_twice || :
 n=$(wc -l <"$shimlog" | tr -d ' ')
 kill -TERM "$wpid" 2>/dev/null || true
 wait "$wpid" 2>/dev/null || true
@@ -440,13 +437,8 @@ mkdir -p "$tmp/sig"
 sigtarget="$tmp/sig/page.html"
 /bin/sh "$DASHC" watch --out "$sigtarget" --interval 1 >/dev/null 2>&1 &
 spid=$!
-waited=0
-while [ "$waited" -lt 100 ]; do
-  [ -s "$shimlog" ] && break
-  sleep 0.1 2>/dev/null || sleep 1
-  waited=$((waited + 1))
-done
-[ -s "$shimlog" ] || fail "signal-cleanup: the render never started"
+poll_until --what 'the first render starting' -- test -s "$shimlog" \
+  || fail "signal-cleanup: the render never started"
 kill -TERM "$spid" 2>/dev/null || true
 wait "$spid" 2>/dev/null || true
 residue=$(find "$tmp/sig" -name '.planwright-dash*' | wc -l | tr -d ' ')
@@ -463,21 +455,19 @@ full_fixture
 ftarget="$tmp/out/failwatch.html"
 /bin/sh "$DASHC" watch --out "$ftarget" --interval 1 >/dev/null 2>&1 &
 fpid=$!
-waited=0
-while [ "$waited" -lt 100 ]; do
-  [ -f "$ftarget" ] && break
-  sleep 0.1 2>/dev/null || sleep 1
-  waited=$((waited + 1))
-done
-[ -f "$ftarget" ] || fail "watch-fail-closed: the first page was never written"
+poll_until --what 'the first page' -- test -f "$ftarget" \
+  || fail "watch-fail-closed: the first page was never written"
 echo 2 >"$shim_rc"
 # A watchdog bounds the wait, so a watch that keeps looping fails the assertion
 # instead of hanging the suite. Its firing IS the failure signal.
 fired="$tmp/watchdog.fired"
 (
-  sleep 20
+  sleep 60 &
+  wd_sleep=$!
+  trap 'kill "$wd_sleep" 2>/dev/null; exit 0' TERM
+  wait "$wd_sleep"
   kill -TERM "$fpid" 2>/dev/null && : >"$fired"
-) &
+) >/dev/null 2>&1 &
 kpid=$!
 set +e
 wait "$fpid"
@@ -504,33 +494,29 @@ full_fixture
 ptarget="$tmp/out/prompt.html"
 /bin/sh "$DASHC" watch --out "$ptarget" --interval 300 >/dev/null 2>&1 &
 ppid=$!
-waited=0
-while [ "$waited" -lt 100 ]; do
-  [ -f "$ptarget" ] && break
-  sleep 0.1 2>/dev/null || sleep 1
-  waited=$((waited + 1))
-done
-[ -f "$ptarget" ] || fail "watch-prompt-stop: the first page was never written"
+poll_until --what 'the first page' -- test -f "$ptarget" \
+  || fail "watch-prompt-stop: the first page was never written"
 # Synchronise on the pacing child EXISTING, not merely on the page appearing.
 # The signal has to land while the loop is parked on it; a TERM that arrives
 # between the render and the sleep would be handled promptly by a foreground
 # implementation too, and this case would pass by luck. Its PID is recorded
 # here, while the parent is still alive, because it is the only way to check
 # for an orphan afterwards (see below).
-waited=0
 pchild=""
-while [ "$waited" -lt 100 ]; do
+pacing_child() {
   pchild=$(pgrep -P "$ppid" 2>/dev/null | head -1)
-  [ -n "$pchild" ] && break
-  sleep 0.1 2>/dev/null || sleep 1
-  waited=$((waited + 1))
-done
-[ -n "$pchild" ] || fail "watch-prompt-stop: the pacing sleep child never appeared"
+  [ -n "$pchild" ]
+}
+poll_until --what 'the pacing sleep child' -- pacing_child \
+  || fail "watch-prompt-stop: the pacing sleep child never appeared"
 pfired="$tmp/prompt-watchdog.fired"
 (
-  sleep 15
+  sleep 60 &
+  wd_sleep=$!
+  trap 'kill "$wd_sleep" 2>/dev/null; exit 0' TERM
+  wait "$wd_sleep"
   kill -KILL "$ppid" 2>/dev/null && : >"$pfired"
-) &
+) >/dev/null 2>&1 &
 pkpid=$!
 kill -TERM "$ppid" 2>/dev/null || true
 set +e
@@ -546,8 +532,7 @@ wait "$pkpid" 2>/dev/null || true
 # recorded above, not by `pgrep -P`. Once the parent exits, a surviving child is
 # reparented, so a parent-PID query comes back empty whether or not the child
 # lived: that assertion would always have passed.
-sleep 1
-if kill -0 "$pchild" 2>/dev/null; then
+if ! poll_until --what 'the pacing sleep child exiting' -- pid_gone "$pchild"; then
   kill "$pchild" 2>/dev/null || true
   fail "watch-prompt-stop: the pacing sleep child outlived the loop"
 fi
@@ -571,9 +556,12 @@ slpid=$!
 # never hang the suite.
 slfired="$tmp/sleep-watchdog.fired"
 (
-  sleep 20
+  sleep 60 &
+  wd_sleep=$!
+  trap 'kill "$wd_sleep" 2>/dev/null; exit 0' TERM
+  wait "$wd_sleep"
   kill -TERM "$slpid" 2>/dev/null && : >"$slfired"
-) &
+) >/dev/null 2>&1 &
 slkpid=$!
 set +e
 wait "$slpid"

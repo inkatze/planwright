@@ -23,6 +23,8 @@ export LC_ALL
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 REAL_SCRIPTS="$REPO_ROOT/scripts"
+# shellcheck source=tests/lib/no-timeout-path.sh
+. "$REPO_ROOT/tests/lib/no-timeout-path.sh"
 
 passes=0
 failures=0
@@ -35,7 +37,7 @@ fail() {
   failures=$((failures + 1))
 }
 
-for t in jq git timeout; do
+for t in jq git; do
   command -v "$t" >/dev/null 2>&1 || {
     printf '%s\n' "FAIL: $t is required to run this suite" >&2
     exit 1
@@ -52,7 +54,8 @@ BIN="$SANDBOX/bin"
 LOG="$SANDBOX/resolver.log"
 GHLOG="$SANDBOX/gh.log"
 mkdir -p "$S" "$BIN" "$SANDBOX/adopter"
-cp "$REAL_SCRIPTS/policy-guard.sh" "$REAL_SCRIPTS/protected-branch.sh" "$REAL_SCRIPTS/echo-safety.sh" "$S/"
+cp "$REAL_SCRIPTS/policy-guard.sh" "$REAL_SCRIPTS/protected-branch.sh" "$REAL_SCRIPTS/echo-safety.sh" \
+  "$REAL_SCRIPTS/bounded-run.sh" "$S/"
 HOOK="$S/policy-guard.sh"
 
 cat >"$S/resolve-policy-knob.sh" <<EOF
@@ -114,15 +117,15 @@ pg() {
 
 # PG_LOCAL_CONFIG='' and PG_REPO_ROOT='' drop the explicit machine-local file
 # and repository root, so both layers are derived from the repository the
-# guard reads policy from.
+# guard reads policy from. PG_PATH replaces the PATH after the stub bin.
 # A subshell rather than env(1): one process launch fewer per call.
 pg_run() { # <tier> <surface> <project-dir>; the payload on stdin
   (
-    export PATH="$BIN:$PATH" CLAUDE_PROJECT_DIR="$3" \
+    export CLAUDE_PROJECT_DIR="$3" \
       PLANWRIGHT_ADOPTER_OVERLAY="$SANDBOX/adopter" PLANWRIGHT_REPO_ROOT="${PG_REPO_ROOT-$UNIT}" \
       PLANWRIGHT_LOCAL_CONFIG="${PG_LOCAL_CONFIG-$LOCAL_CFG}" PLANWRIGHT_POLICY_GUARD_TIMEOUT="${PG_TIMEOUT:-10}" \
       STUB_FAIL_KNOB="${STUB_FAIL_KNOB:-}" STUB_SLEEP="${STUB_SLEEP:-}"
-    exec /bin/bash "$HOOK" "$1" "$2"
+    PATH="$BIN:${PG_PATH:-$PATH}" exec /bin/bash "$HOOK" "$1" "$2"
   ) 2>/dev/null
 }
 

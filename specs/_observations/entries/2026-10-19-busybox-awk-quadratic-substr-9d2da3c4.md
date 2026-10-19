@@ -1,0 +1,1 @@
+- 2026-10-19 [planwright] Alpine (universal-binary Task 4): busybox awk rescans the whole string on every substr and runs plain loops about 100x slower than gawk, so fleet-messaging json_top_string took minutes on a near-cap settings file. Rewritten to split records on quotes. Any other per-character awk walk over large input will show the same cliff on Alpine.

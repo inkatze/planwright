@@ -132,7 +132,7 @@ question; seeds answer questions the human would otherwise repeat.
 2. **Pending notes** — files under `<root>/_pending/`. Read them; ask which
    apply if more than one plausibly does.
 3. **The observations accumulator** — the live fragments under
-   `specs/_observations/entries/` plus the frozen legacy
+   `<root>/_observations/entries/` plus the frozen legacy
    `opportunities.md`'s unconsumed lines, read as **one candidate set** and
    mined as a first-class seed source (D-23; this skill is its canonical
    reader, REQ-H1.6; `mise run obs:log` renders the chronological view). An
@@ -142,11 +142,13 @@ question; seeds answer questions the human would otherwise repeat.
    silently dropping it. Read every candidate; select the ones relevant to
    the feature being drafted; present the selection to the human (selector
    with the relevant set pre-marked) so nothing is consumed silently.
-4. **Transcripts and documents** the human offers.
+4. **The venture drop** — `<planwright-root>/scripts/inception-registry.sh drop-read`
+   (inception REQ-J1.8); follow its `note` line.
+5. **Transcripts and documents** the human offers.
 
-An absent `<root>/_pending/`, fragment directory, legacy log, or root
-directory entirely (a first-run repo) is not an error: note what was absent
-and proceed with the seeds that exist.
+An absent `<root>/_pending/`, fragment directory, legacy log, venture drop,
+or root directory entirely (a first-run repo) is not an error:
+note what was absent and proceed with the seeds that exist.
 
 Every identifier a seed proposes (a spec name, a path segment) is
 re-validated against REQ-A1.8 at consumption, before any interpolation —

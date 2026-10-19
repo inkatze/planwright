@@ -83,6 +83,8 @@ STUB_STATE=$1
 shift
 # shellcheck source=tests/lib/tmux-launch-stub-common.sh
 . "${0%/*}/tmux-launch-stub-common.sh"
+# shellcheck source=tests/lib/poll-until.sh
+. "${0%/*}/poll-until.sh"
 
 # The internal command separator. A command word that is a lone newline
 # would be read as one, which no launch passes.
@@ -522,14 +524,16 @@ pane_target() {
   return 1
 }
 
+# pid_settled <session dir> — the pid is recorded, or no creator is left to
+# record it.
+pid_settled() {
+  [ -r "$1/pid" ] || ! dir_live "$1"
+}
+
 # kill_dir <session dir> — mark the session killed and end its command,
-# waiting briefly for a creator still starting it to record the pid.
+# waiting for a creator still starting it to record the pid.
 kill_dir() {
-  kd_t=0
-  while [ ! -r "$1/pid" ] && [ "$kd_t" -lt 20 ] && dir_live "$1"; do
-    sleep 0.1
-    kd_t=$((kd_t + 1))
-  done
+  poll_until --what "the session's pid under $1" -- pid_settled "$1" || :
   : >"$1/killed"
   kd_p=''
   if [ -r "$1/pid" ]; then

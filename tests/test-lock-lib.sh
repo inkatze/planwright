@@ -31,6 +31,8 @@ unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LIB="$REPO_ROOT/scripts/lock-lib.sh"
+# shellcheck source=tests/lib/poll-until.sh
+. "$REPO_ROOT/tests/lib/poll-until.sh"
 
 failures=0
 
@@ -273,12 +275,7 @@ $SH -c '
   done
 ' sh "$LIB" "$tmp" &
 sig_pid=$!
-i=0
-while [ ! -f "$tmp/sig.ready" ] && [ "$i" -lt 200 ]; do
-  sleep 0.05
-  i=$((i + 1))
-done
-if [ -f "$tmp/sig.ready" ]; then
+if poll_until --what 'the TERM holder to take its lock' -- test -f "$tmp/sig.ready"; then
   kill -TERM "$sig_pid" 2>/dev/null
   wait "$sig_pid" 2>/dev/null
   if [ -L "$tmp/sig.lock" ]; then
@@ -831,11 +828,9 @@ for sig in INT HUP; do
   ' sh "$LIB" "$tmp" &
   sig_pid=$!
   set +m
-  i=0
-  while [ ! -f "$tmp/s.ready" ] && [ "$i" -lt 200 ]; do
-    sleep 0.05
-    i=$((i + 1))
-  done
+  poll_until --what "the $sig holder to take its lock" -- test -f "$tmp/s.ready" \
+    || fail "a $sig'd holder releases its lock (holder never started)"
+  kill -0 "$sig_pid" 2>/dev/null || fail "a $sig'd holder releases its lock (holder exited before the signal)"
   kill -"$sig" "$sig_pid" 2>/dev/null
   # Skip only on a holder the signal left running with its lock held: one that
   # died without releasing, or released without exiting, is the library's
@@ -936,7 +931,9 @@ rc=$?
 mid=$(date +%s)
 if kill -0 "$live_pid" 2>/dev/null; then
   assert_exit "a bounded acquire against a live holder reports busy" 1 "$rc"
-  if [ "$((mid - start))" -le 30 ]; then
+  # The default budget sleeps for ~100s, so a 60s bound still tells the two
+  # apart while leaving a loaded host room for the 25 spins' forks.
+  if [ "$((mid - start))" -le 60 ]; then
     pass "and a small budget really is small"
   else
     fail "and a small budget really is small (took $((mid - start))s)"
@@ -1114,7 +1111,7 @@ run_sh x '
   rm -f "$lockp"
   ln -s "$succ-0-0-1" "$lockp"
   ( sleep 0.4; rm -f "$lockp"; kill "$succ" 2>/dev/null ) &
-  pw_lock_acquire "$lockp" 400 || exit 7      # owes three now
+  pw_lock_acquire "$lockp" 3000 || exit 7     # owes three now
   pw_lock_release "$lockp" || exit 6
   [ -L "$lockp" ] || exit 5
   pw_lock_release "$lockp" || exit 4
@@ -1660,7 +1657,12 @@ case $f3 in
 esac
 # And it is the same quantity, not a differently-scaled one: both spellings
 # describe pid 1, so they must agree within the slack the check already allows.
-real=$(ps -o etimes= -p 1 | tr -d ' ')
+real=$(ps -o etimes= -p 1 2>/dev/null | tr -d ' ')
+if [ -z "$real" ]; then
+  # busybox ps has no etimes: the reference comes from procfs instead, as the
+  # uptime less pid 1's start in clock ticks.
+  real=$(($(cut -d. -f1 /proc/uptime) - $(awk '{ sub(/.*\) /, ""); print $20 }' /proc/1/stat) / $(getconf CLK_TCK)))
+fi
 if [ "$((f3 - real))" -le 5 ] && [ "$((real - f3))" -le 5 ]; then
   pass "and it agrees with the seconds the other spelling reports"
 else

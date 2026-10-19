@@ -88,14 +88,22 @@
 # REQ-D1.5). A record is what a close verb reads when the dispatching tower is
 # gone, so it carries what closing a worker needs without its dispatcher:
 #
-#   <epoch> <worker> <scope> <owner> <backend> <state-dir> <death-handle>
+#   <epoch> <worker> <scope> <owner> <backend> <state-dir> <death-handle> <name> <inbox>
 #
 # tab-separated, one per line, append-only, last record for a worker wins — so a
 # seam that learns a column only after the launch supersedes its own earlier
 # record rather than updating one in place.
 #
-# A RETIRED record is the same row with an eighth column, `closed`, appended by
-# `retire` once the dispatch-record reconcile has positive death evidence for
+# `name` and `inbox` are the worker session's observed name and its messaging
+# socket's basename (fleet-messaging D-8). Registration knows neither, so
+# `register` writes both as `-`; the session's own SessionStart hook fills them
+# afterwards through `amend` (reached via fleet-register.sh), which copies the
+# last record with only those two columns replaced. A worker whose hook never
+# runs keeps the sentinels. Rows of seven columns (before these two) and three
+# (before the owner) stay readable, and every reader tolerates all three.
+#
+# A RETIRED record is the first seven columns with an eighth, `closed`, appended
+# by `retire` once the dispatch-record reconcile has positive death evidence for
 # the worker. Nothing is deleted: the live row stays readable per handle, and a
 # reader listing the live inventory skips a worker whose last row is closed.
 #
@@ -171,6 +179,19 @@
 #                                             mark the worker's live record
 #                                             closed, only while it still
 #                                             carries exactly these fields.
+#   fleet-state.sh amend <worker> [--name <name>]
+#       [--inbox <basename> | --clear-inbox]
+#                                             re-append the worker's last live
+#                                             record with the named identity
+#                                             columns replaced and every other
+#                                             field, the epoch included, as it
+#                                             was. --clear-inbox writes the
+#                                             sentinel back, for a session
+#                                             whose record names no socket. At least one flag; 3 when the
+#                                             worker has no record or its last
+#                                             one is retired; 2 when that
+#                                             record is malformed. A row that
+#                                             would not change is not written.
 #   fleet-state.sh registry                  print the registry records.
 #   fleet-state.sh bound-incr <max>           check-and-increment the fleet
 #                                             counter under the bound (0 granted
@@ -180,8 +201,8 @@
 # Exit codes: 0 success/granted; 1 a holder has the lock (`lock`), a different
 #   holder has it (`unlock <token>`), or the bound is reached (`bound-incr`);
 #   2 usage error, unresolvable home, refused hostile input, or a
-#   filesystem/lock error (fail closed); 3 a conditional `register` or a
-#   `retire` found nothing to write.
+#   filesystem/lock error (fail closed); 3 a conditional `register`, a
+#   `retire`, or an `amend` found nothing to write.
 #
 # POSIX sh targeting the macOS + Linux support bar (bash 3.2 / BSD tooling), not
 # strict POSIX: it deliberately uses `date +%s` plus mkdir/mktemp/awk, and it
@@ -199,6 +220,11 @@ set -uf
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+
+TAB=$(printf '\t')
+# The amend's lock budget in tries, PW_LOCK_SLEEP (lock-lib.sh) apart: a few
+# seconds, where every other verb takes the library default.
+AMEND_LOCK_TRIES=250
 
 # The directory part of $0 without forking dirname: this script is on hot paths.
 case $0 in
@@ -350,6 +376,29 @@ valid_death_handle() {
   esac
 }
 
+# The NAME grammar: the worker field charset with the `-` sentinel and a
+# leading dash refused, so a stored name is never mistaken for an absent one
+# and never reads as an option. It is the narrowest of the screens a session
+# name meets, so a name the session-name screen admits can still be refused
+# here, and the row then keeps its sentinel.
+valid_name() {
+  vn_v=$1
+  case $vn_v in
+    "" | . | .. | -* | *[!A-Za-z0-9._=@:-]*) return 1 ;;
+  esac
+  [ "${#vn_v}" -le 128 ]
+}
+
+# The INBOX grammar: a socket basename, never a path (fleet-messaging.sh
+# valid_inbox), with the sentinel and a leading dash refused.
+valid_inbox() {
+  vib_v=$1
+  case $vib_v in
+    "" | . | .. | -* | *[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  [ "${#vib_v}" -le 128 ]
+}
+
 # resolve_root — print the fleet home per the D-11 chain, or fail (exit 2) when
 # no arm is derivable (a fleet with no durable home is an error for a writer,
 # unlike an absent overlay layer which is a normal state). The result is used
@@ -452,6 +501,22 @@ atomic_write() {
   return 0
 }
 
+# append_registry_row <row> — copy-append-rename one row onto the registry
+# under the caller's hold, so a concurrent reader sees only a complete file.
+# Returns 0 or 2; the temp is left in reg_tmp for the exit trap to clear.
+append_registry_row() {
+  arr_rc=0
+  reg_tmp=$(mktemp "$root/.registry.XXXXXX") || return 2
+  if [ -f "$registry" ]; then
+    cat "$registry" >"$reg_tmp" || arr_rc=2
+  fi
+  [ "$arr_rc" != 0 ] || printf '%s\n' "$1" >>"$reg_tmp" || arr_rc=2
+  [ "$arr_rc" != 0 ] || mv -f "$reg_tmp" "$registry" || arr_rc=2
+  [ "$arr_rc" = 0 ] || rm -f "$reg_tmp" 2>/dev/null
+  reg_tmp=""
+  return "$arr_rc"
+}
+
 # latest_record <registry> <worker> — the worker's last row, compared as
 # strings (an all-numeric handle must not match `1e2`), or nothing.
 latest_record() {
@@ -500,7 +565,7 @@ read_counter() {
 # ---------------------------------------------------------------------------
 cmd="${1:-}"
 if [ -z "$cmd" ]; then
-  echo "usage: fleet-state.sh root|lock|unlock|register|retire|registry|bound-incr|bound-decr [args]" >&2
+  echo "usage: fleet-state.sh root|lock|unlock|register|retire|amend|registry|bound-incr|bound-decr [args]" >&2
   exit 2
 fi
 
@@ -509,19 +574,19 @@ case $cmd in
     resolve_root
     exit $?
     ;;
-  lock | unlock | register | retire | registry | bound-incr | bound-decr) ;;
+  lock | unlock | register | retire | amend | registry | bound-incr | bound-decr) ;;
   *)
     # Reject an unknown command HERE, before resolving/creating the fleet home,
     # so a typo is a clean usage error (exit 2) that never materializes any
     # fleet-state artifacts (fail-closed / data hygiene, REQ-A1.6). Without this
     # the unconditional mkdir below would create the fleet home on a typo.
-    printf '%s\n' "fleet-state: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (root|lock|unlock|register|retire|registry|bound-incr|bound-decr)" >&2
+    printf '%s\n' "fleet-state: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (root|lock|unlock|register|retire|amend|registry|bound-incr|bound-decr)" >&2
     exit 2
     ;;
 esac
 
 # Every command below needs the resolved home to exist. cmd is now guaranteed to
-# be one of the six above (unknown was rejected before this point).
+# be one of the commands above (unknown was rejected before this point).
 root=$(resolve_root) || exit 2
 # A home we create is owner-only from birth: `mkdir -p` alone takes the caller's
 # umask, so a umask-002 host got 0775, and everything private underneath (the
@@ -828,24 +893,139 @@ case $cmd in
       fi
     fi
     rc=0
-    # Copy-append-rename so a concurrent reader sees only a complete registry.
-    reg_tmp=$(mktemp "$root/.registry.XXXXXX") || rc=2
-    if [ "$rc" = 0 ]; then
-      if [ -f "$registry" ]; then
-        cat "$registry" >"$reg_tmp" || rc=2
-      fi
-    fi
-    if [ "$rc" = 0 ]; then
-      printf '%s\t%s%s\n' "$now" "$want" "$closing" >>"$reg_tmp" || rc=2
-    fi
-    if [ "$rc" = 0 ]; then
-      mv -f "$reg_tmp" "$registry" || rc=2
-    fi
-    [ "$rc" = 0 ] || rm -f "$reg_tmp" 2>/dev/null
-    reg_tmp=""
+    # A live record carries the two identity columns as the sentinel; a
+    # retirement closes the first seven and needs neither.
+    rec_tail="$closing"
+    [ "$cmd" = retire ] || rec_tail="$TAB-$TAB-"
+    append_registry_row "$now$TAB$want$rec_tail" || rc=2
     pw_lock_release "$lock"
     if [ "$rc" != 0 ]; then
       printf '%s\n' "fleet-state: failed to append the registry record" >&2
+    fi
+    exit "$rc"
+    ;;
+
+  amend)
+    shift
+    worker=""
+    new_name=""
+    new_inbox=""
+    have_name=0
+    have_inbox=0
+    clear_inbox=0
+    inbox_given=0
+    while [ "$#" -gt 0 ]; do
+      case $1 in
+        --name | --inbox)
+          if [ "$#" -lt 2 ]; then
+            printf '%s\n' "fleet-state: amend: $1 needs a value" >&2
+            exit 2
+          fi
+          case $1 in
+            --name)
+              new_name=$2
+              have_name=1
+              ;;
+            --inbox)
+              new_inbox=$2
+              have_inbox=1
+              inbox_given=1
+              ;;
+          esac
+          shift 2
+          ;;
+        --clear-inbox)
+          new_inbox=-
+          have_inbox=1
+          clear_inbox=1
+          shift
+          ;;
+        --*)
+          printf '%s\n' "fleet-state: amend: unknown flag '$(sanitize_printable "$1" "(unprintable flag)")'" >&2
+          exit 2
+          ;;
+        *)
+          if [ -n "$worker" ]; then
+            printf '%s\n' "fleet-state: amend: unexpected argument" >&2
+            exit 2
+          fi
+          worker=$1
+          shift
+          ;;
+      esac
+    done
+    if [ "$clear_inbox" = 1 ] && [ "$inbox_given" = 1 ]; then
+      printf '%s\n' "fleet-state: amend: --inbox and --clear-inbox do not combine" >&2
+      exit 2
+    fi
+    if [ -z "$worker" ] || [ "$have_name$have_inbox" = 00 ]; then
+      printf '%s\n' "usage: fleet-state.sh amend <worker> [--name <name>] [--inbox <basename> | --clear-inbox] (at least one)" >&2
+      exit 2
+    fi
+    if ! valid_field "$worker"; then
+      printf '%s\n' "fleet-state: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")' (must match ^[A-Za-z0-9._=@:-]{1,128}\$)" >&2
+      exit 2
+    fi
+    if [ "$have_name" = 1 ] && ! valid_name "$new_name"; then
+      printf '%s\n' "fleet-state: refusing malformed session name '$(sanitize_printable "$new_name" "(unprintable name)")' (must match ^[A-Za-z0-9._=@:-]{1,128}\$, no leading dash)" >&2
+      exit 2
+    fi
+    if [ "$have_inbox" = 1 ] && [ "$clear_inbox" = 0 ] && ! valid_inbox "$new_inbox"; then
+      printf '%s\n' "fleet-state: refusing malformed inbox basename '$(sanitize_printable "$new_inbox" "(unprintable inbox)")' (must match ^[A-Za-z0-9._-]{1,128}\$, no leading dash)" >&2
+      exit 2
+    fi
+    # The amend runs from a session's SessionStart hook, so it waits a bounded
+    # few seconds for the lock rather than the default budget: a worker left
+    # unaddressable beats a session start held behind a wedged holder.
+    if ! pw_lock_acquire "$lock" "$AMEND_LOCK_TRIES"; then
+      printf '%s\n' "fleet-state: amend: gave up waiting for the fleet lock" >&2
+      exit 2
+    fi
+    if ! cur=$(latest_record "$registry" "$worker"); then
+      pw_lock_release "$lock"
+      printf '%s\n' "fleet-state: could not read the registry" >&2
+      exit 2
+    fi
+    case $(printf '%s\n' "$cur" | awk -F'\t' 'NF == 0 { print "absent"; exit }
+      NF == 8 && $8 == "closed" { print "closed"; exit }
+      NF == 3 || NF == 7 || NF == 9 { print "live"; exit }
+      { print "torn" }') in
+      absent | closed)
+        pw_lock_release "$lock"
+        exit 3
+        ;;
+      torn)
+        pw_lock_release "$lock"
+        printf '%s\n' "fleet-state: amend: the worker's last registry record is malformed; nothing written" >&2
+        exit 2
+        ;;
+    esac
+    # The new row is the last one with only the identity columns replaced,
+    # the epoch kept: a reader comparing the two sees no other change. Older
+    # arities are lifted to nine columns, their missing fields absent. The
+    # replacement values reach awk through the environment, which, unlike a
+    # -v value, is not escape-processed.
+    amended=$(printf '%s\n' "$cur" | AM_HAVE_NAME=$have_name AM_NAME=$new_name \
+      AM_HAVE_INBOX=$have_inbox AM_INBOX=$new_inbox awk -F'\t' '
+      {
+        for (i = 1; i <= 9; i++) f[i] = (i <= NF) ? $i : "-"
+        if (ENVIRON["AM_HAVE_NAME"] == 1) f[8] = ENVIRON["AM_NAME"]
+        if (ENVIRON["AM_HAVE_INBOX"] == 1) f[9] = ENVIRON["AM_INBOX"]
+        row = f[1]
+        for (i = 2; i <= 9; i++) row = row "\t" f[i]
+        print row
+      }')
+    # A resumed session re-registering what is already recorded writes
+    # nothing, as a no-change register does.
+    if [ "$amended" = "$cur" ]; then
+      pw_lock_release "$lock"
+      exit 0
+    fi
+    rc=0
+    append_registry_row "$amended" || rc=2
+    pw_lock_release "$lock"
+    if [ "$rc" != 0 ]; then
+      printf '%s\n' "fleet-state: failed to append the amended registry record" >&2
     fi
     exit "$rc"
     ;;
@@ -909,7 +1089,7 @@ case $cmd in
     # home is created (first case above). This guards against the two command
     # lists drifting — a command added to the fall-through list but not handled
     # here fails loudly rather than silently no-op'ing.
-    printf '%s\n' "fleet-state: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (root|lock|unlock|register|retire|registry|bound-incr|bound-decr)" >&2
+    printf '%s\n' "fleet-state: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (root|lock|unlock|register|retire|amend|registry|bound-incr|bound-decr)" >&2
     exit 2
     ;;
 esac

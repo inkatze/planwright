@@ -215,6 +215,7 @@ PHRASES
 zone_of() {
   case "$1" in
     *" auth "* | *" authentication "* | *" authorization "* | *" login "*) printf 'authentication code' ;;
+    *" vulnerability "* | *" traversal "* | *" injection "* | *" exploit "*) printf 'security-sensitive code' ;;
     *" credential "* | *" credentials "* | *" secret "* | *" secrets "*) printf 'a secrets file' ;;
     *" permission "* | *" permissions "*) printf 'the permission checks' ;;
     *" migration "* | *" migrations "*) printf 'a schema migration' ;;
@@ -230,6 +231,18 @@ irreversible_of() {
     *" send "*" email "* | *" notify customers "* | *" publish "*) printf 'an external side effect' ;;
   esac
 }
+# sensitive — the ask carries detail the data-hygiene rule keeps off committed
+# and remote surfaces (an undisclosed security defect), so the flight gets a
+# public summary and the ask stays private.
+sensitive() {
+  case "$1" in
+    *" vulnerability "* | *" traversal "* | *" injection "* | *" exploit "* | *" advisory "* | *" undisclosed "*) return 0 ;;
+  esac
+  return 1
+}
+# The public summary the stand-in hands dispatch for a sensitive ask: a
+# keyword model cannot summarize, so it states the work at a fixed level.
+PUBLIC_SUMMARY="Harden a privately reported weakness"
 is_ambiguous() {
   case "$1" in
     *" better somehow "* | *" not sure "* | *" improve things "* | *" whatever you think "*) return 0 ;;
@@ -313,11 +326,22 @@ decide_route() {
 
 # dispatch_flight <ask-seq> <ask-words> <on-seq> — on-seq is the operator turn
 # that authorized the flight: the ask itself, or the reply that answered its case.
+# A sensitive ask flies with a public summary, and its slug is drawn from it.
 dispatch_flight() {
-  _df_fid="fl-$1-$(slug_of "$2" ask)"
-  say "Sending it to an isolated worker on its own branch; the record goes in the draft PR body, and I will hand the PR back when it lands."
-  log_entry decision '{action: "dispatch", target: "flight", ask_seq: $ask, on_seq: $on, flight_id: $fid,
-      isolated_worktree: true, home: "draft PR body", draft: true}' --argjson ask "$1" --argjson on "$3" --arg fid "$_df_fid"
+  _df_summary=""
+  _df_slug="$(slug_of "$2" ask)"
+  _df_note=""
+  if sensitive "$2"; then
+    _df_summary="$PUBLIC_SUMMARY"
+    _df_slug="$(slug_of "$(words "$_df_summary")" flight)"
+    _df_note=" The record quotes a public summary, not your ask, which stays in the worker's private brief."
+  fi
+  _df_fid="fl-$1-$_df_slug"
+  say "Sending it to an isolated worker on its own branch; the record goes in the draft PR body, and I will hand the PR back when it lands.$_df_note"
+  log_entry decision '{action: "dispatch", target: "flight", ask_seq: $ask, on_seq: $on, flight_id: $fid, slug: $slug,
+      summary: (if $summary == "" then null else $summary end),
+      isolated_worktree: true, home: "draft PR body", draft: true}' \
+    --argjson ask "$1" --argjson on "$3" --arg fid "$_df_fid" --arg slug "$_df_slug" --arg summary "$_df_summary"
   evidence_add "$(jq -cn --arg fid "$_df_fid" '{type: "flight", flight_id: $fid}')"
 }
 

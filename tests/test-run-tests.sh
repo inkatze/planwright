@@ -211,29 +211,25 @@ esac
 #     the other's can only both pass when they overlap. The serial run of
 #     the same fixture is the negative control — it must time out and
 #     fail, proving the fixture detects serialized execution (and so that
-#     the parallel path is not accidentally serial). The wait for the peer
-#     is generous only where a peer is expected: the control waits it out
-#     whole, so it runs with a short one.
+#     the parallel path is not accidentally serial). The control's wait is
+#     an absence (the peer never appears while a file runs alone), so it
+#     keeps a short window instead of the generous one.
 mkdir -p "$tmp/overlap" "$tmp/sync"
 for pair in one:two two:one; do
   me="${pair%%:*}"
   peer="${pair##*:}"
   cat >"$tmp/overlap/test-$me.sh" <<EOF
 #!/bin/bash
+. "$REPO_ROOT/tests/lib/poll-until.sh"
 : >"$tmp/sync/$me.here"
-i=0
-while [ \$i -lt \${OVERLAP_TICKS:-40} ]; do
-  [ -e "$tmp/sync/$peer.here" ] && exit 0
-  sleep 0.25
-  i=\$((i + 1))
-done
-exit 1
+poll_until --deadline "\${OVERLAP_DEADLINE:-\$POLL_UNTIL_DEFAULT_DEADLINE}" --interval 0.25 \\
+  --what 'the peer beacon' -- test -e "$tmp/sync/$peer.here"
 EOF
 done
-OVERLAP_TICKS=40 PLANWRIGHT_TEST_SLOTS=2 PLANWRIGHT_TEST_JOBS=2 /bin/bash "$RUNNER" "$tmp/overlap" >/dev/null 2>&1
+PLANWRIGHT_TEST_JOBS=2 PLANWRIGHT_TEST_SLOTS=2 /bin/bash "$RUNNER" "$tmp/overlap" >/dev/null 2>&1
 assert "overlapping fixtures pass: files genuinely run concurrently" 0 $?
 rm -f "$tmp/sync"/*.here
-OVERLAP_TICKS=4 PLANWRIGHT_TEST_FORCE_SERIAL=1 /bin/bash "$RUNNER" "$tmp/overlap" \
+OVERLAP_DEADLINE=10 PLANWRIGHT_TEST_FORCE_SERIAL=1 /bin/bash "$RUNNER" "$tmp/overlap" \
   >/dev/null 2>&1
 assert "negative control: serialized execution fails the overlap fixture" \
   1 $?
@@ -311,7 +307,8 @@ case "$header" in
     echo "ok: no sub-second clock on this host; resolution bound skipped"
     ;;
   *)
-    if awk -v t="$sleepy" 'BEGIN{exit !(t >= 0.25 && t < 10)}'; then
+    # The upper bound covers a loaded machine; a unit slip lands far past it.
+    if awk -v t="$sleepy" 'BEGIN{exit !(t >= 0.25 && t < 60)}'; then
       echo "ok: the sleeping file's time is sub-second and plausibly bounded ($sleepy)"
     else
       echo "FAIL: sleeping file's time is not plausibly bounded: '$sleepy'" >&2

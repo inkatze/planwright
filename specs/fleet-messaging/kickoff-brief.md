@@ -1986,3 +1986,25 @@ Class: meaning
 Lens-pass: Lens review pass (2026-10-07) — delta-scoped, A1 §8
 Anchor: `a909ab3194705e919941d9edba7c7a1e139df03f` — computed as
 `scripts/spec-anchor.sh specs/fleet-messaging`
+
+### Re-anchor — Task 4 D-8 collision-outcome note (2026-10-19)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Sign-off records and content anchors*),
+recorded by the Task 4 session carrying out the operator's 2026-10-19
+rulings.
+
+**Why the anchor moved:** D-8 asks Task 4's live collision check to record
+its outcome in the decision's amendment note. On CLI 2.1.303 the outcome
+is a duplicate (both launches keep the name). The note records it, and
+the registry identity race stays the accepted residual D-8 already states,
+healed by the reconcile floor. The operator classified the note
+expression-only. `requirements.md` carries the paired changelog entry. No
+REQ, D-ID, or `Done when:` condition changes meaning.
+
+**Cites the changelog line:** the 2026-10-19 `## Changelog` entry in
+`specs/fleet-messaging/requirements.md` ("D-8 collision-outcome note").
+
+Class: expression-only
+Anchor: `e12059fc38a9bd26c2286929c62f775c9d2e7a56` — computed as
+`scripts/spec-anchor.sh specs/fleet-messaging`

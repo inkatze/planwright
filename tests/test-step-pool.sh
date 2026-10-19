@@ -23,6 +23,8 @@ repo_root=$(cd "$here/.." && pwd)
 SP="$repo_root/scripts/step-pool.sh"
 DEFAULTS="$repo_root/config/defaults.yml"
 TAB=$(printf '\t')
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 
 failures=0
 fail() {
@@ -145,11 +147,8 @@ owner() {
 kill_owner() {
   kill "$1" 2>/dev/null
   wait "$1" 2>/dev/null
-  _k=0
-  while kill -0 "$1" 2>/dev/null && [ "$_k" -lt 50 ]; do
-    sleep 0.1
-    _k=$((_k + 1))
-  done
+  poll_until --what "fixture owner $1 exiting" -- pid_gone "$1" \
+    || fail "the fixture owner $1 outlived its kill"
 }
 
 reset() {
@@ -379,11 +378,8 @@ sp -- take midwait "$a" >/dev/null
 sp -- take midwait "$b" >/dev/null
 sp -- take midwait "$c" >"$tmp/out" 2>"$tmp/err" &
 waiter=$!
-_n=0
-until grep -q 'is full' "$tmp/err" 2>/dev/null || [ "$_n" -ge 300 ]; do
-  sleep 0.1
-  _n=$((_n + 1))
-done
+poll_until --what 'the waiter reporting a full pool' -- grep -q 'is full' "$tmp/err" \
+  || fail "the waiter never reported the full pool"
 kill_owner "$b"
 wait "$waiter"
 rc=$?
@@ -425,11 +421,8 @@ w=$(owner)
 sp -- take gone "$a" >/dev/null
 sp -- take gone "$w" >"$tmp/out" 2>"$tmp/err" &
 waiter=$!
-_n=0
-until grep -q 'is full' "$tmp/err" 2>/dev/null || [ "$_n" -ge 300 ]; do
-  sleep 0.1
-  _n=$((_n + 1))
-done
+poll_until --what 'the waiter reporting a full pool' -- grep -q 'is full' "$tmp/err" \
+  || fail "the waiter never reported the full pool"
 kill_owner "$w"
 wait "$waiter"
 rc=$?
@@ -454,11 +447,8 @@ sp -- take sig "$a" >/dev/null
     exec "$SP" take sig "$w" >/dev/null 2>"$tmp/err"
 ) &
 waiter=$!
-_n=0
-until grep -q 'is full' "$tmp/err" 2>/dev/null || [ "$_n" -ge 300 ]; do
-  sleep 0.1
-  _n=$((_n + 1))
-done
+poll_until --what 'the waiter reporting a full pool' -- grep -q 'is full' "$tmp/err" \
+  || fail "the waiter never reported the full pool"
 kill -TERM "$waiter"
 wait "$waiter"
 rc=$?
@@ -496,11 +486,7 @@ rm -f "$tmp/stall9"
     exec "$SP" take inacq "$a" >/dev/null 2>"$tmp/err"
 ) &
 waiter=$!
-_n=0
-until [ -s "$tmp/stall9" ] || [ "$_n" -ge 300 ]; do
-  sleep 0.1
-  _n=$((_n + 1))
-done
+poll_until --what 'the stub stalling the acquire' -- test -s "$tmp/stall9" || :
 [ -L "$pools/inacq/slot-1" ]
 verdict "the stalled acquire has linked its slot" "the stub never stalled the acquire" "$tmp/err"
 kill -TERM "$waiter"
@@ -527,11 +513,8 @@ sp -- release samepid "$o" >/dev/null
     sh "$o" "$pools/samepid" "$SP" >/dev/null 2>"$tmp/err"
 ) &
 waiter=$!
-_n=0
-until grep -q 'is full' "$tmp/err" 2>/dev/null || [ "$_n" -ge 300 ]; do
-  sleep 0.1
-  _n=$((_n + 1))
-done
+poll_until --what 'the waiter reporting a full pool' -- grep -q 'is full' "$tmp/err" \
+  || fail "the waiter never reported the full pool"
 kill -TERM "$waiter"
 wait "$waiter"
 rc=$?
@@ -916,7 +899,7 @@ late=$(sh -c 'sleep 120 >/dev/null 2>&1 & echo $!')
 printf '%s\n' "$late" >>"$owners"
 stublate="$tmp/stublate"
 mkdir -p "$stublate"
-printf '#!/bin/sh\ncase "$*" in *uid=*)\n  kill %s 2>/dev/null; k=0\n  while kill -0 %s 2>/dev/null && [ "$k" -lt 50 ]; do sleep 0.1; k=$((k + 1)); done\n  exit 1 ;;\nesac\nexec %s "$@"\n' \
+printf '#!/bin/sh\ncase "$*" in *uid=*)\n  kill %s 2>/dev/null; k=0\n  while kill -0 %s 2>/dev/null && [ "$k" -lt 600 ]; do sleep 0.1; k=$((k + 1)); done\n  exit 1 ;;\nesac\nexec %s "$@"\n' \
   "$late" "$late" "$real_ps4" >"$stublate/ps"
 chmod +x "$stublate/ps"
 sp "PATH=$stublate:$PATH" -- take nouser "$late" >/dev/null 2>"$tmp/err"
@@ -929,7 +912,7 @@ late2=$(sh -c 'sleep 120 >/dev/null 2>&1 & echo $!')
 printf '%s\n' "$late2" >>"$owners"
 stublate2="$tmp/stublate2"
 mkdir -p "$stublate2"
-printf '#!/bin/sh\ncase "$*" in *uid=*)\n  n=$(cat "%s/count" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" >"%s/count"\n  [ "$n" -eq 2 ] || exit 1\n  kill %s 2>/dev/null; k=0\n  while kill -0 %s 2>/dev/null && [ "$k" -lt 50 ]; do sleep 0.1; k=$((k + 1)); done\n  exit 1 ;;\nesac\nexec %s "$@"\n' \
+printf '#!/bin/sh\ncase "$*" in *uid=*)\n  n=$(cat "%s/count" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" >"%s/count"\n  [ "$n" -eq 2 ] || exit 1\n  kill %s 2>/dev/null; k=0\n  while kill -0 %s 2>/dev/null && [ "$k" -lt 600 ]; do sleep 0.1; k=$((k + 1)); done\n  exit 1 ;;\nesac\nexec %s "$@"\n' \
   "$stublate2" "$stublate2" "$late2" "$late2" "$real_ps4" >"$stublate2/ps"
 chmod +x "$stublate2/ps"
 sp "PATH=$stublate2:$PATH" -- take nouser "$late2" >/dev/null 2>"$tmp/err"

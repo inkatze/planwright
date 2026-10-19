@@ -8,6 +8,8 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/poll-until.sh
+. "$REPO_ROOT/tests/lib/poll-until.sh"
 RUNNER="$REPO_ROOT/scripts/run-tests.sh"
 MARK=PLANWRIGHT_TEST_IN_POOLED_FILE
 
@@ -172,11 +174,7 @@ done
 PLANWRIGHT_TEST_SLOT_DIR="$kpool" PLANWRIGHT_TEST_SLOTS=2 PLANWRIGHT_TEST_JOBS=2 \
   /bin/bash "$RUNNER" "$tmp/hang" >/dev/null 2>&1 &
 victim=$!
-i=0
-while [ "$i" -lt 150 ] && { [ ! -s "$tmp/beacons/1" ] || [ ! -s "$tmp/beacons/2" ]; }; do
-  sleep 0.1
-  i=$((i + 1))
-done
+poll_until --what 'both hanging files to start' -- test -s "$tmp/beacons/1" -a -s "$tmp/beacons/2" || :
 held="$(find "$kpool" -name 'slot-*' -type l 2>/dev/null | wc -l | tr -d ' ')"
 assert_exit "the killed run held both tickets while its files ran" 2 "$held"
 {
@@ -195,14 +193,9 @@ for pair in one:two two:one; do
   peer="${pair##*:}"
   cat >"$tmp/overlap/test-$me.sh" <<EOF
 #!/bin/bash
+. "$REPO_ROOT/tests/lib/poll-until.sh"
 : >"$tmp/sync/$me.here"
-i=0
-while [ \$i -lt 80 ]; do
-  [ -e "$tmp/sync/$peer.here" ] && exit 0
-  sleep 0.25
-  i=\$((i + 1))
-done
-exit 1
+poll_until --interval 0.25 --what 'the peer beacon' -- test -e "$tmp/sync/$peer.here"
 EOF
 done
 PLANWRIGHT_TEST_SLOT_DIR="$kpool" PLANWRIGHT_TEST_SLOTS=2 PLANWRIGHT_TEST_JOBS=2 \
@@ -322,15 +315,12 @@ wpool="$tmp/wpool"
 mkdir -p "$wpool" "$tmp/quick"
 chmod 700 "$wpool"
 printf '#!/bin/bash\nexit 0\n' >"$tmp/quick/test-quick.sh"
-# A live holder of the only ticket for a known interval.
+# A live holder of the only ticket for a known interval, long enough that a
+# runner started late on a loaded machine still waits on it.
 LIB="$REPO_ROOT/scripts/lock-lib.sh" SLOT="$wpool/slot-1" /bin/sh -c \
-  '. "$LIB"; pw_lock_trap_install; pw_lock_acquire "$SLOT" || exit 1; sleep 2' &
+  '. "$LIB"; pw_lock_trap_install; pw_lock_acquire "$SLOT" || exit 1; sleep 6' &
 holder=$!
-i=0
-while [ "$i" -lt 100 ] && [ ! -L "$wpool/slot-1" ]; do
-  sleep 0.05
-  i=$((i + 1))
-done
+poll_until --what 'the holder to take the ticket' -- test -L "$wpool/slot-1" || :
 PLANWRIGHT_TEST_SLOT_DIR="$wpool" PLANWRIGHT_TEST_SLOTS=1 /bin/bash "$RUNNER" "$tmp/quick" >"$tmp/o7" 2>&1
 assert_exit "a file that waited for its ticket passes" 0 $?
 wait "$holder"
@@ -357,12 +347,7 @@ PLANWRIGHT_TEST_TIMING_REPORT="$tmp/inner-report.tsv" /bin/bash "$RUNNER" "$tmp/
 EOF
 PLANWRIGHT_TEST_SLOT_DIR="$tmp/npool" PLANWRIGHT_TEST_SLOTS=1 /bin/bash "$RUNNER" "$tmp/outer" >"$tmp/o8" 2>&1 &
 outer=$!
-i=0
-while [ "$i" -lt 300 ] && kill -0 "$outer" 2>/dev/null; do
-  sleep 0.1
-  i=$((i + 1))
-done
-if kill -0 "$outer" 2>/dev/null; then
+if ! poll_until --what 'the outer run to finish' -- pid_gone "$outer"; then
   kill -9 "$outer" 2>/dev/null
   fail "the outer run hung on a nested runner"
 else
@@ -380,6 +365,12 @@ assert_contains "the nested run is unpooled" "pool=off" "$(head -n 1 "$tmp/inner
 #    would reach it; a background job would otherwise start with SIGINT
 #    ignored.
 # ---------------------------------------------------------------------------
+# tickets_cleared <pool> — true once no ticket stands, leaving the count in
+# sc_left.
+tickets_cleared() {
+  sc_left="$(find "$1" -name 'slot-*' 2>/dev/null | wc -l | tr -d ' ')"
+  [ "$sc_left" -eq 0 ]
+}
 # signal_case <serial:0|1> <SIG>
 signal_case() {
   sc_dir="$tmp/sig-$1-$2"
@@ -392,11 +383,7 @@ signal_case() {
     PLANWRIGHT_TEST_FORCE_SERIAL="$1" /bin/bash "$RUNNER" "$sc_dir/suite" >"$sc_dir/out" 2>&1 &
   sc_run=$!
   set +m
-  sc_i=0
-  while [ "$sc_i" -lt 150 ] && [ ! -e "$sc_dir/started-1" ]; do
-    sleep 0.1
-    sc_i=$((sc_i + 1))
-  done
+  poll_until --what 'the first file to start' -- test -e "$sc_dir/started-1" || :
   kill -s "$2" -- "-$sc_run" 2>/dev/null
   wait "$sc_run" 2>/dev/null
   sc_rc=$?
@@ -404,13 +391,7 @@ signal_case() {
   if [ ! -e "$sc_dir/started-2" ]; then pass "SIG$2 stops a pooled run (serial=$1)"; else fail "a pooled run went on to the next file after SIG$2 (serial=$1)"; fi
   # The parent can die before its worker's release finishes; a leaked ticket
   # is one still standing after that settles.
-  sc_i=0
-  while :; do
-    sc_left="$(find "$sc_dir/pool" -name 'slot-*' 2>/dev/null | wc -l | tr -d ' ')"
-    [ "$sc_left" -ne 0 ] && [ "$sc_i" -lt 50 ] || break
-    sleep 0.1
-    sc_i=$((sc_i + 1))
-  done
+  poll_until --what 'the tickets to clear' -- tickets_cleared "$sc_dir/pool" || :
   assert_exit "SIG$2 returns the worker's ticket (serial=$1)" 0 "$sc_left"
 }
 signal_case 1 INT

@@ -54,6 +54,8 @@ SJ="$here/../scripts/fleet-streamjson.sh"
 FDH="$here/../scripts/fleet-dispatch-headless.sh"
 LIB="$here/../scripts/fleet-stop-lib.sh"
 FA="$here/../scripts/fleet-attention.sh"
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 
 fail() {
   printf '%s\n' "FAIL: [${rung:-}] $1" >&2
@@ -72,6 +74,13 @@ command -v jq >/dev/null 2>&1 || fail "jq is required: the stream-json launch pr
 # compared physically.
 tmp=$(cd "$(mktemp -d)" && pwd -P)
 strangers=''
+# pid_args <pid> — the pid's argv, or nothing. busybox ps has no -p, so the
+# pid is picked out of a full listing there.
+pid_args() {
+  ps -p "$1" -o args= 2>/dev/null \
+    || ps -A -o pid=,args= 2>/dev/null | awk -v p="$1" '$1 == p { sub(/^ *[0-9]+ +/, ""); print; exit }'
+}
+
 cleanup() {
   # A failed cell can leave a worker holding open; nothing may outlive the run.
   # A headless unit keeps its pid file after its runner is gone, so a pid is
@@ -81,14 +90,14 @@ cleanup() {
     [ -f "$pf" ] || continue
     p=$(cat "$pf" 2>/dev/null) || continue
     case $p in '' | *[!0-9]*) continue ;; esac
-    case $(ps -p "$p" -o args= 2>/dev/null) in
+    case $(pid_args "$p") in
       *"$tmp"*) kill -9 "$p" 2>/dev/null ;;
     esac
   done
   # The processes the cells plant as reissued pids, named by nothing in the tree.
   # Checked first: an exited sleep's pid may already belong to something else.
   for p in $strangers; do
-    case $(ps -p "$p" -o args= 2>/dev/null) in
+    case $(pid_args "$p") in
       'sleep 120') kill "$p" 2>/dev/null ;;
     esac
   done
@@ -101,6 +110,7 @@ cleanup() {
     kill -9 "$p" 2>/dev/null
   done
   cl_snap=$(ps -A -ww -o pid=,args= 2>/dev/null) || cl_snap=''
+  [ -n "$cl_snap" ] || cl_snap=$(ps -A -o pid=,args= 2>/dev/null) || cl_snap=''
   while read -r p a; do
     case $a in
       *"$tmp"*) [ "$p" = "$$" ] || kill -9 "$p" 2>/dev/null ;;
@@ -198,6 +208,7 @@ env_scrub=(
   -u PLANWRIGHT_LOCAL_CONFIG -u PLANWRIGHT_CONFIG_DEFAULTS
   -u PLANWRIGHT_STREAMJSON_PENDING_AGE -u PLANWRIGHT_STREAMJSON_ALARM_TICK
   -u PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT
+  -u PLANWRIGHT_STOP_PROC_ROOT
   -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE
 )
 
@@ -310,7 +321,7 @@ w_finished() {
       ;;
     hl)
       w_launch "$home" "$rec" "$1" "$3" "$wt" || fail "launch exited non-zero"
-      wait_until 100 test -s "$2/exit" || fail "the one-shot never completed"
+      poll_until --what 'the exit record' -- test -s "$2/exit" || fail "the one-shot never completed"
       ;;
   esac
 }
@@ -348,11 +359,10 @@ w_occupy_attention() {
     sj) : ;;
     hl) aenv "$1" heartbeat "$2" "$SPEC:${2##*-task-}" working >/dev/null ;;
   esac
-  i=0
-  while [ "$i" -lt 100 ] && [ "$(attention_rows "$1" "$2")" = 0 ]; do
-    sleep 0.1
-    i=$((i + 1))
-  done
+  poll_until --what 'an attention row' -- attention_held "$1" "$2"
+}
+
+attention_held() {
   [ "$(attention_rows "$1" "$2")" != 0 ]
 }
 
@@ -454,6 +464,12 @@ no_proc_under() {
   ! printf '%s\n' "$np_snap" | grep -Fq -- "$1"
 }
 
+# child_seen <pid> — true once <pid> has a child, left in `kid`.
+child_seen() {
+  kid=$(first_child "$1")
+  [ -n "$kid" ]
+}
+
 first_child() {
   [ -n "$1" ] || return 0
   fc_snap=$(ps_rows) || fail "first_child: this host produced no usable process table"
@@ -461,7 +477,7 @@ first_child() {
 }
 
 # Every close assertion rests on the process table, and the helpers above are
-# called through `wait_until`, which discards both streams. Prove the table is
+# called through `poll_until`, which discards both streams. Prove the table is
 # readable once, here, where the message survives.
 ps_rows >/dev/null \
   || fail "this host produced no usable process table; the close assertions cannot run"
@@ -479,34 +495,15 @@ attention_rows() {
 # SHIM_HOLDING=<marker> to reach its hold loop, then set `wrk` to the worker the
 # rung recorded, which must be that same process. The marker, not a child of
 # the worker, is the proof: the shim's `cat` and each loop `sleep` come and go,
-# so a child seen once may be gone by the next look. The deadline is wall-clock
-# and far above any plausible scheduling delay, since the suite runs beside the
-# whole gate; only a worker that never gets there spends it.
+# so a child seen once may be gone by the next look.
 w_hold() {
-  wh_end=$(($(date +%s) + 120))
-  while [ ! -s "$1" ]; do
-    [ "$(date +%s)" -lt "$wh_end" ] || fail "$3: the worker never reached its hold loop"
-    sleep 0.1
-  done
+  poll_until --deadline 120 --what 'the hold-loop marker' -- test -s "$1" \
+    || fail "$3: the worker never reached its hold loop (${POLL_UNTIL_ELAPSED}s)"
   wh_pid=$(cat "$1")
   wrk=$(w_worker_pid "$2")
   [ "$wh_pid" = "$wrk" ] \
     || fail "$3: the process in the hold loop ($wh_pid) is not the worker the rung recorded (${wrk:-none})"
   kill -0 "$wrk" 2>/dev/null || fail "$3: the worker left its hold loop"
-}
-
-wait_until() {
-  wu_n=$1
-  shift
-  wu_i=0
-  while [ "$wu_i" -lt "$wu_n" ]; do
-    if "$@" >/dev/null 2>&1; then
-      return 0
-    fi
-    sleep 0.1
-    wu_i=$((wu_i + 1))
-  done
-  return 1
 }
 
 all_gone() {
@@ -533,19 +530,13 @@ c19() {
   d=$(w_dir "$home" "$w")
   printf 'hold open\n' >"$tmp/$rung/prompt19"
   w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt19" "$wt" \
-    SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 || fail "c19: detached launch exited non-zero"
-  wait_until 100 w_up "$d" || fail "c19: the worker never came up"
+    SHIM_EVENTS="$ev_hold" SHIM_SLEEP=600 || fail "c19: detached launch exited non-zero"
+  poll_until --what 'the worker up' -- w_up "$d" || fail "c19: the worker never came up"
   recorded=$(w_recorded "$d")
   wrk=$(w_worker_pid "$d")
   kid=''
-  i=0
-  while [ "$i" -lt 100 ]; do
-    kid=$(first_child "$wrk")
-    [ -n "$kid" ] && break
-    sleep 0.1
-    i=$((i + 1))
-  done
-  [ -n "$kid" ] || fail "c19: the worker's own child never appeared"
+  poll_until --what "the worker's child" -- child_seen "$wrk" \
+    || fail "c19: the worker's own child never appeared"
   w_occupy_attention "$home" "$w" || fail "c19: no attention record to release"
   w_occupy_scratch "$d" || fail "c19: no scratch to release"
 
@@ -563,9 +554,9 @@ c19() {
     esac
   done
   # shellcheck disable=SC2086 # the pid lists are split on purpose
-  wait_until 100 all_gone $recorded "$wrk" "$kid" \
+  poll_until --what 'the processes gone' -- all_gone $recorded "$wrk" "$kid" \
     || fail "c19: the re-exec, the worker, and the worker's child must all be gone"
-  wait_until 50 no_proc_under "$d" \
+  poll_until --what 'the state directory unreferenced' -- no_proc_under "$d" \
     || fail "c19: no process may still reference the worker's state directory"
   w_scratch_gone "$d" || fail "c19: the scratch temp must be released"
   [ "$(attention_rows "$home" "$w")" = 0 ] || fail "c19: the attention record must be released"
@@ -585,7 +576,7 @@ c20_stop() {
   w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt$1" "$wt" \
     SHIM_EVENTS="$ev_hold" SHIM_IGNORE_TERM=1 SHIM_HOLDING="$rec/holding$1" \
     || fail "c20: detached launch exited non-zero"
-  wait_until 100 w_up "$d" || fail "c20: the worker never came up"
+  poll_until --what 'the worker up' -- w_up "$d" || fail "c20: the worker never came up"
   # SIGTERM before the handler is in place would kill the shim outright.
   w_hold "$rec/holding$1" "$d" c20
   started=$(date +%s)
@@ -593,9 +584,9 @@ c20_stop() {
   rc=$?
   elapsed=$(($(date +%s) - started))
   [ "$rc" = 0 ] || fail "c20: stop should exit 0 after escalating, got rc=$rc ($out)"
-  wait_until 100 all_gone "$wrk" \
+  poll_until --what 'the processes gone' -- all_gone "$wrk" \
     || fail "c20: a worker ignoring SIGTERM must be SIGKILLed after the grace"
-  wait_until 50 no_proc_under "$d" \
+  poll_until --what 'the state directory unreferenced' -- no_proc_under "$d" \
     || fail "c20: no process may still reference the state directory after the escalation"
   w_terminated_ok "$home" "$rec" "$w"
 }
@@ -627,19 +618,19 @@ c21() {
   while IFS= read -r a; do decoy_args+=("$a"); done <<EOF
 $(w_decoy_args)
 EOF
-  env SHIM_RECORD_DIR="$rec" SHIM_READ_FIRST=0 SHIM_SLEEP=120 \
+  env SHIM_RECORD_DIR="$rec" SHIM_READ_FIRST=0 SHIM_SLEEP=600 \
     /bin/sh "$tmp/bin/claude" "${decoy_args[@]}" </dev/null >/dev/null 2>&1 &
   decoy=$!
   w=$(w_name 21)
   d=$(w_dir "$home" "$w")
   printf 'decoy neighbour\n' >"$tmp/$rung/prompt21"
   w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt21" "$wt" \
-    SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 || fail "c21: detached launch exited non-zero"
-  wait_until 100 w_up "$d" || fail "c21: the worker never came up"
+    SHIM_EVENTS="$ev_hold" SHIM_SLEEP=600 || fail "c21: detached launch exited non-zero"
+  poll_until --what 'the worker up' -- w_up "$d" || fail "c21: the worker never came up"
   wrk=$(w_worker_pid "$d")
   kill -0 "$decoy" 2>/dev/null || fail "c21: the decoy session did not start"
   renv "$home" "$rec" -- stop "$w" --grace 2 >/dev/null || fail "c21: stop exited non-zero"
-  wait_until 100 all_gone "$wrk" || fail "c21: the worker must be terminated"
+  poll_until --what 'the processes gone' -- all_gone "$wrk" || fail "c21: the worker must be terminated"
   kill -0 "$decoy" 2>/dev/null \
     || fail "c21: the operator session sharing the worker's command shape must survive"
   decoy_kid=$(first_child "$decoy")
@@ -653,8 +644,8 @@ EOF
   ds=$(w_dir "$home" "$ws")
   printf 'prefix sibling\n' >"$tmp/$rung/prompt21x"
   w_launch "$home" "$rec" "$ws" "$tmp/$rung/prompt21x" "$wt" \
-    SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 || fail "c21: the prefix-sibling launch exited non-zero"
-  wait_until 100 w_up "$ds" || fail "c21: the sibling never came up"
+    SHIM_EVENTS="$ev_hold" SHIM_SLEEP=600 || fail "c21: the prefix-sibling launch exited non-zero"
+  poll_until --what 'the worker up' -- w_up "$ds" || fail "c21: the sibling never came up"
   sib_recorded=$(w_recorded "$ds")
   sib_wrk=$(w_worker_pid "$ds")
   out=$(renv "$home" "$rec" -- stop "$w" --grace 2)
@@ -699,7 +690,7 @@ c22() {
   printf 'idempotent\n' >"$tmp/$rung/prompt22"
   w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt22" "$wt" \
     SHIM_EVENTS="$ev_hold" SHIM_IGNORE_TERM=1 || fail "c22: detached launch exited non-zero"
-  wait_until 100 w_up "$d" || fail "c22: the worker never came up"
+  poll_until --what 'the worker up' -- w_up "$d" || fail "c22: the worker never came up"
   renv "$home" "$rec" -- stop "$w" --grace 1 >/dev/null || fail "c22: the first stop failed"
   # The shim records every SIGTERM it survives. A repeat stop that re-signalled
   # the stale recorded pids would add to that file.
@@ -750,17 +741,17 @@ c22b() {
   d=$(w_dir "$home" "$w")
   printf 'stubborn grandchild\n' >"$tmp/$rung/prompt22b"
   w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt22b" "$wt" \
-    SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 SHIM_STUBBORN_CHILD="$rec/stubborn.pid" \
+    SHIM_EVENTS="$ev_hold" SHIM_SLEEP=600 SHIM_STUBBORN_CHILD="$rec/stubborn.pid" \
     || fail "c22b: detached launch exited non-zero"
-  wait_until 100 test -s "$rec/stubborn.pid" || fail "c22b: the stubborn grandchild never started"
+  poll_until --what 'the stubborn pid' -- test -s "$rec/stubborn.pid" || fail "c22b: the stubborn grandchild never started"
   stubborn=$(cat "$rec/stubborn.pid")
   kill -0 "$stubborn" 2>/dev/null || fail "c22b: the stubborn grandchild is not running"
-  wait_until 100 w_up "$d" || fail "c22b: the worker never came up"
+  poll_until --what 'the worker up' -- w_up "$d" || fail "c22b: the worker never came up"
   [ "$stubborn" != "$(w_worker_pid "$d")" ] \
     || fail "c22b: the grandchild pid must not be the worker's own"
   # It must also be invisible to a state-directory match, so that only the
   # accumulated target set can account for it once it reparents.
-  stub_args=$(ps -p "$stubborn" -o args= 2>/dev/null)
+  stub_args=$(pid_args "$stubborn")
   [ -n "$stub_args" ] || fail "c22b: cannot read the grandchild's argv to check it"
   case $stub_args in
     *"$d"*) fail "c22b: the grandchild must not carry the state dir in its argv" ;;
@@ -772,9 +763,9 @@ c22b() {
     "stop $w stopped released="*) : ;;
     *) fail "c22b: expected a stopped result, got: $out" ;;
   esac
-  wait_until 100 all_gone "$stubborn" \
+  poll_until --what 'the processes gone' -- all_gone "$stubborn" \
     || fail "c22b: a reparented grandchild must not survive a close that reports success"
-  wait_until 50 no_proc_under "$d" || fail "c22b: the state directory is still referenced"
+  poll_until --what 'the state directory unreferenced' -- no_proc_under "$d" || fail "c22b: the state directory is still referenced"
   printf '%s\n' "ok: [$rung] c22b a reparented SIGTERM-surviving grandchild is still closed (REQ-B1.2)"
 }
 
@@ -785,14 +776,14 @@ c22d() {
   d=$(w_dir "$home" "$w")
   printf 'self close\n' >"$tmp/$rung/prompt22d"
   w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt22d" "$wt" \
-    SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 \
+    SHIM_EVENTS="$ev_hold" SHIM_SLEEP=600 \
     SHIM_SELF_CLOSE="/bin/sh '$(rung_script)' stop $w --grace 2" \
     SHIM_SELF_CLOSE_WHEN="$rec/go" || fail "c22d: detached launch exited non-zero"
-  wait_until 100 w_up "$d" || fail "c22d: the worker never came up"
+  poll_until --what 'the worker up' -- w_up "$d" || fail "c22d: the worker never came up"
   recorded=$(w_recorded "$d")
   wrk=$(w_worker_pid "$d")
   : >"$rec/go"
-  wait_until 100 test -s "$rec/selfclose.rc" || fail "c22d: the self-close never ran"
+  poll_until --what 'the self-close result' -- test -s "$rec/selfclose.rc" || fail "c22d: the self-close never ran"
   [ "$(cat "$rec/selfclose.rc")" = 3 ] \
     || fail "c22d: a self-close must be refused (exit 3), got $(cat "$rec/selfclose.rc"): $(cat "$rec/selfclose.out")"
   grep -q 'from inside its own process tree' "$rec/selfclose.out" \
@@ -807,11 +798,11 @@ c22d() {
   done
   [ "$rung" != sj ] || [ -p "$d/in.fifo" ] || fail "c22d: the refused close deleted the worker's channel"
   w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt22d" "$wt" \
-    SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 2>/dev/null
+    SHIM_EVENTS="$ev_hold" SHIM_SLEEP=600 2>/dev/null
   [ $? -eq 3 ] || fail "c22d: a launch over the still-live worker must still be refused"
   renv "$home" "$rec" -- stop "$w" --grace 2 >/dev/null || fail "c22d: the outside close failed"
   # shellcheck disable=SC2086 # the pid list is split on purpose
-  wait_until 100 all_gone $recorded || fail "c22d: the re-exec survived the outside close"
+  poll_until --what 'the processes gone' -- all_gone $recorded || fail "c22d: the re-exec survived the outside close"
   printf '%s\n' "ok: [$rung] c22d a close from inside the worker's own tree is refused (REQ-B1.3)"
 }
 
@@ -874,7 +865,7 @@ NPS
   w=$(w_name 226)
   d=$(w_dir "$home" "$w")
   mkdir -p "$d" || fail "c22f: cannot plant the state dir"
-  out=$(selfpid_close "$home" "$rec" "$d/$pf" "$w" PATH="$tmp/narrowbin:$PATH")
+  out=$(selfpid_close "$home" "$rec" "$d/$pf" "$w" PATH="$tmp/narrowbin:$PATH" PLANWRIGHT_STOP_PROC_ROOT="$tmp/no-proc")
   rc=$?
   [ "$rc" = 3 ] \
     || fail "c22f: with truncated argv the recorded pid must fail closed (exit 3), got rc=$rc ($out)"
@@ -891,7 +882,7 @@ NPS
   w=$(w_name 227)
   d=$(w_dir "$home" "$w")
   mkdir -p "$d" || fail "c22g: cannot plant the state dir"
-  out=$(selfpid_close "$home" "$rec" "$d/$pf" "$w" PATH="$tmp/deadbin:$PATH")
+  out=$(selfpid_close "$home" "$rec" "$d/$pf" "$w" PATH="$tmp/deadbin:$PATH" PLANWRIGHT_STOP_PROC_ROOT="$tmp/no-proc")
   rc=$?
   [ "$rc" = 2 ] \
     || fail "c22g: an unreadable process table must refuse the close (exit 2), got rc=$rc ($out)"
@@ -908,10 +899,14 @@ NPS
   # argv, so that rung runs this leg on the narrow shim c22f built; on a full
   # `ps` it would pass without ever opening the fifo.
   c22h_path=$PATH
-  [ "$rung" != hl ] || c22h_path="$tmp/narrowbin:$PATH"
-  PATH=$c22h_path renv "$home" "$rec" -- stop "$w" --grace 1 >"$rec/c22h.out" 2>&1 &
+  c22h_proc=/proc
+  if [ "$rung" = hl ]; then
+    c22h_path="$tmp/narrowbin:$PATH"
+    c22h_proc="$tmp/no-proc"
+  fi
+  PATH=$c22h_path renv "$home" "$rec" PLANWRIGHT_STOP_PROC_ROOT="$c22h_proc" -- stop "$w" --grace 1 >"$rec/c22h.out" 2>&1 &
   closer=$!
-  wait_until 200 sh -c "! kill -0 $closer 2>/dev/null" || {
+  poll_until --what 'the close to return' -- sh -c "! kill -0 $closer 2>/dev/null" || {
     kill -9 "$closer" 2>/dev/null
     : >"$d/$pf" &
     fail "c22h: a fifo at the pid file hung the close"
@@ -926,7 +921,7 @@ NPS
     mkfifo "$d/launched" || fail "c22h: cannot plant the marker fifo"
     renv "$home" "$rec" -- stop "$w" --grace 1 >"$rec/c22h2.out" 2>&1 &
     closer=$!
-    wait_until 200 sh -c "! kill -0 $closer 2>/dev/null" || {
+    poll_until --what 'the close to return' -- sh -c "! kill -0 $closer 2>/dev/null" || {
       kill -9 "$closer" 2>/dev/null
       : >"$d/launched" &
       fail "c22h: a fifo at the launch marker hung the close"
@@ -995,7 +990,7 @@ c40() {
   d=$(w_dir "$home" "$w")
   printf 'done\n' >"$tmp/$rung/prompt40"
   w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt40" "$wt" || fail "c40: launch exited non-zero"
-  wait_until 100 test -s "$d/exit" || fail "c40: the one-shot never completed"
+  poll_until --what 'the exit record' -- test -s "$d/exit" || fail "c40: the one-shot never completed"
   sleep 120 &
   stranger=$!
   strangers="$strangers $stranger"
@@ -1015,14 +1010,14 @@ c40() {
   w=$(w_name 401)
   d=$(w_dir "$home" "$w")
   printf 'die\n' >"$tmp/$rung/prompt401"
-  w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt401" "$wt" SHIM_SLEEP=120 \
+  w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt401" "$wt" SHIM_SLEEP=600 \
     || fail "c40: launch exited non-zero"
-  wait_until 100 w_up "$d" || fail "c40: the worker never came up"
+  poll_until --what 'the worker up' -- w_up "$d" || fail "c40: the worker never came up"
   runner=$(cat "$d/pid")
   wrk=$(w_worker_pid "$d")
   kid=$(first_child "$wrk")
   kill -9 "$runner" "$wrk" ${kid:+"$kid"} 2>/dev/null
-  wait_until 100 all_gone "$runner" "$wrk" || fail "c40: the planted death did not take"
+  poll_until --what 'the processes gone' -- all_gone "$runner" "$wrk" || fail "c40: the planted death did not take"
   out=$(renv "$home" "$rec" -- status "$SPEC" 401)
   case $out in
     "died $runner") : ;;
@@ -1120,13 +1115,13 @@ c41() {
     env "${env_scrub[@]}" -u PLANWRIGHT_HEADLESS_STATE_DIR \
       PLANWRIGHT_FLEET_STATE_DIR="$home" \
       PLANWRIGHT_HEADLESS_CLAUDE="$tmp/bin/claude" \
-      SHIM_RECORD_DIR="$rec" SHIM_SLEEP=120 /bin/sh "$FDH" "$@"
+      SHIM_RECORD_DIR="$rec" SHIM_SLEEP=600 /bin/sh "$FDH" "$@"
   }
   w=$(w_name 41)
   d="$repo/specs/$SPEC/.orchestrate/headless/41"
   printf 'default layout\n' | denv launch "$SPEC" 41 --worktree "$wt" --repo-root "$repo" \
     >/dev/null || fail "c41: launch in the default layout exited non-zero"
-  wait_until 100 w_up "$d" || fail "c41: the worker never came up"
+  poll_until --what 'the worker up' -- w_up "$d" || fail "c41: the worker never came up"
   runner=$(cat "$d/pid")
   denv stop "headless-other-task-41" --repo-root "$repo" --grace 1 >/dev/null 2>&1
   [ $? -eq 2 ] || fail "c41: another spec's handle for the same task id must be unknown (exit 2)"
@@ -1136,7 +1131,7 @@ c41() {
     "stop $w stopped released=process"*) : ;;
     *) fail "c41: expected the default-layout close to stop the runner, got: $out" ;;
   esac
-  wait_until 100 all_gone "$runner" || fail "c41: the runner survived its close"
+  poll_until --what 'the processes gone' -- all_gone "$runner" || fail "c41: the runner survived its close"
   out=$(denv status "$SPEC" 41 --repo-root "$repo")
   [ "$out" = "completed 143" ] || fail "c41: the closed unit must read completed 143, got: $out"
 
@@ -1220,7 +1215,7 @@ c43() {
   w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt43" "$wt" \
     SHIM_EVENTS="$ev_hold" SHIM_IGNORE_TERM=1 SHIM_HOLDING="$rec/holding43" \
     || fail "c43: detached launch exited non-zero"
-  wait_until 100 w_up "$d" || fail "c43: the worker never came up"
+  poll_until --what 'the worker up' -- w_up "$d" || fail "c43: the worker never came up"
   w_hold "$rec/holding43" "$d" c43
   w_occupy_attention "$home" "$w" || fail "c43: no attention record to hold"
   w_occupy_scratch "$d" || fail "c43: no scratch to hold"

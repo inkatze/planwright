@@ -3231,6 +3231,32 @@ loop_header() {
   return 0
 }
 
+# loop_fits — whether every pass of the loop loop_enter just opened can fit
+# the scan budget, charged up front from the body's text: one pass's words,
+# each `$` at DOLLAR_COST as verify_simple charges them, times the head words.
+# A loop that cannot fit then defers at its `for` instead of after its first
+# passes have been walked. The body runs to its matching `done`, counting the
+# do/done pairs nested inside it; a `done` that is only an argument ends it
+# early, which can only under-charge, and the per-pass charge still holds.
+loop_fits() {
+  local j=$LH_NEXT nest=1 cost=0 d
+  while [ "$j" -lt "$TOK_N" ]; do
+    if [ "${TOK_TYPE[j]}" = W ] && [ "${TOK_QUOTED[j]}" = 0 ]; then
+      case ${TOK_VAL[j]} in
+        do) nest=$((nest + 1)) ;;
+        done)
+          nest=$((nest - 1))
+          [ "$nest" -gt 0 ] || break
+          ;;
+      esac
+    fi
+    d=${TOK_VAL[j]//[!\$]/}
+    cost=$((cost + ${#TOK_VAL[j]} + ${#d} * DOLLAR_COST))
+    j=$((j + 1))
+  done
+  [ $((SCANNED + cost * LH_COUNT)) -le "$MAX_SCANNED" ]
+}
+
 # loop_enter / loop_next: the `for` modelling inside verify_tokens, reading and
 # writing its walk state (idx, ctl_depth, case_depth, the LF_* frames) by
 # dynamic scope. loop_enter opens a loop at the `for` token: its variable takes
@@ -4128,6 +4154,7 @@ verify_tokens() {
           # (REQ-E1.1); `done` loops the walk back to the body for the next one.
           fin ctl || return 1
           loop_enter || return 1
+          loop_fits || return 1
           continue
           ;;
         select)

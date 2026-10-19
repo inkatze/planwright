@@ -193,9 +193,10 @@ fi
 # five GitHub write acts as the literal mcp__github__ names above, matched on
 # every MCP server by a tool-name glob, plus the PR branch update, which merges
 # the base into the PR branch on the host, and PR creation, which can open a PR
-# that is not a draft. A change to the extension updates
-# this list in the same commit.
-expected_extension='["mcp__*__merge_pull_request","mcp__*__update_pull_request","mcp__*__push_files","mcp__*__create_or_update_file","mcp__*__delete_file","mcp__*__update_pull_request_branch","mcp__*__create_pull_request"]'
+# that is not a draft, then the PR branch update's literal mcp__github__ name,
+# which the plugin-wired tower floor's MCP hook matches by name. A change to
+# the extension updates this list in the same commit.
+expected_extension='["mcp__*__merge_pull_request","mcp__*__update_pull_request","mcp__*__push_files","mcp__*__create_or_update_file","mcp__*__delete_file","mcp__*__update_pull_request_branch","mcp__*__create_pull_request","mcp__github__update_pull_request_branch"]'
 actual_extension="$(jq -cS --argjson n "$baseline_len" '.permissions.deny[$n:]' "$tower_settings")"
 if [ "$actual_extension" = "$(printf '%s' "$expected_extension" | jq -cS .)" ]; then
   ok "the deny block past the floor is exactly the front-door extension (tower-front-door REQ-A1.3)"
@@ -290,6 +291,11 @@ else
     fi
   done
 fi
+
+# --- human-gates REQ-C1.8, REQ-G1.5: the re-draft corrective helper ----------
+# shellcheck source=tests/lib/redraft-helper-wiring.sh
+. "$REPO_ROOT/tests/lib/redraft-helper-wiring.sh"
+rh_wiring tower "$tower_settings" "$hook_script"
 
 # --- REQ-C1.2: the tower safe set DIFFERS from the worker set -----------------
 # The two allow lists are not identical: the tower's non-Bash-tool allow set and

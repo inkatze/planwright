@@ -6,6 +6,8 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/poll-until.sh
+. "$REPO_ROOT/tests/lib/poll-until.sh"
 HARNESS="$REPO_ROOT/scripts/review-backtest.sh"
 
 failures=0
@@ -283,11 +285,7 @@ chmod +x "$T/slow.sh"
 rm -f "$T/slow.started" "$T/slow.finished"
 "$HARNESS" --corpus "$corpus_dir" --remote "$remote" --reviewer "$T/slow.sh" --model m-1 --seed 7 --classes claim-vs-code >/dev/null 2>&1 &
 hpid=$!
-n=0
-until [ -e "$T/slow.started" ] || [ "$n" -ge 200 ]; do
-  sleep 0.1
-  n=$((n + 1))
-done
+poll_until --what 'the reviewer to start' -- test -e "$T/slow.started" || :
 kill -TERM "$hpid"
 hrc=0
 wait "$hpid" 2>/dev/null || hrc=$?

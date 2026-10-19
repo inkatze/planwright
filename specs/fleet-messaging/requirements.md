@@ -1415,6 +1415,12 @@ obs:fc7fe636.)*
   "task brief" for the launch file throughout, and REQ-A1.1's and D-12's
   bare `REQ-K1.5` qualified as `bootstrap REQ-K1.5`, with the no-eval half
   cited to the security-posture doctrine.
+- 2026-10-19 — D-8 collision-outcome note (expression-only, operator
+  ruling relayed by the tower). Task 4's live collision check on CLI
+  2.1.303 found a duplicate (both launches keep the name); recorded in
+  D-8's amendment note as the decision asks. The registry identity race
+  is accepted as the residual D-8 already states, healed by the reconcile
+  floor. No REQ, D-ID, or `Done when:` condition changes meaning.
 
 ## Sources
 

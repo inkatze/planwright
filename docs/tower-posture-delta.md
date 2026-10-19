@@ -24,7 +24,7 @@ stall the extension removes.
 | Shape | Where the skill runs it | Before | After |
 | --- | --- | --- | --- |
 | `jq '<filter>' <settings file>` | bring-up's posture check, one projection per settings layer | defer | allow |
-| `mktemp` | a flight petition's ask and grounds temp files | defer | allow |
+| `mktemp` | a flight petition's ask, grounds, and public-summary temp files | defer | allow |
 | `rm [-f] [--] <temp directory>/tmp.<suffix> …` | removing those files once the dispatch returns | defer | allow |
 | `<planwright root>/scripts/<name>.sh …` | the flight sweep, dispatch, attention queue, catch-up, spec status, rule-doc resolution | allow | allow (unchanged) |
 | `git branch --list …`, `git cat-file -e …` | bring-up's fallback flight reads | allow | allow (unchanged) |
@@ -124,7 +124,7 @@ before defer, in code the two guards share:
 
 ## The deny delta
 
-Seven entries are appended after the existing floor, which stays byte-identical
+Eight entries are appended after the existing floor, which stays byte-identical
 and in order:
 
 - `mcp__*__merge_pull_request`, `mcp__*__update_pull_request`,
@@ -142,6 +142,11 @@ and in order:
   a draft, the same end state as the ready flip the floor denies. The tower
   opens no PR itself (a flight's worker does, under its own profile), so the
   tool is denied wholesale on every server.
+- `mcp__github__update_pull_request_branch`: the same branch update by its
+  literal name on the server this profile names, as the floor names the other
+  GitHub write tools. The plugin-wired tower floor (`scripts/tower-session.sh`)
+  matches the `mcp__github__` names of every GitHub tool in this list, so a
+  tower launched without this profile is refused the same calls.
 
 The `gh api` spellings of the merge and the ready flip are the policy guard's
 (`scripts/policy-guard.sh`, wired with the `tower` tier), not this profile's.

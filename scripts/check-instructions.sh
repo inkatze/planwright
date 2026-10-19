@@ -15,6 +15,10 @@
 #     (instruction-headroom D-4, REQ-B1.1); --audit prints the honest actual
 #     beside the charged total (REQ-B1.2),
 #     parsing the doctrine manifest defined by doctrine/instruction-hygiene.md.
+#     The composed chain (/polish running /self-review nested, review-effectiveness
+#     D-12) is charged as one more closure, both bodies plus each manifest doc
+#     once, against instruction_budget_chain_closure_error and the closure floor;
+#     only when both exist is the knob read and the figure (or unmeasured) printed.
 #     A skill with no manifest is scored body-only, which is not an error
 #     (REQ-A1.2); a malformed manifest entry is a fail-loud error (REQ-B1.8);
 #   - runs a deterministic resolution check: every manifest doc name must
@@ -128,7 +132,7 @@ while [ "$#" -gt 0 ]; do
       root="${1#--root=}"
       ;;
     -h | --help)
-      sed -n '2,66p' "$0"
+      sed -n '2,83p' "$0"
       exit 0
       ;;
     *)
@@ -242,6 +246,21 @@ t_skill_floor="$(getknob instruction_budget_skill_floor)" || knob_ok=0
 t_doc_floor="$(getknob instruction_budget_doctrine_floor)" || knob_ok=0
 t_sl_floor="$(getknob instruction_budget_startload_floor)" || knob_ok=0
 t_cl_floor="$(getknob instruction_budget_closure_floor)" || knob_ok=0
+# The composed chain (review-effectiveness D-12, REQ-G1.2): /polish runs
+# /self-review nested in its own session, so both bodies and the union of their
+# manifest docs land in one context and are charged as one closure. The knob is
+# read only when both members exist, so a tree without the chain (an adopter, a
+# fixture) needs no chain knob.
+chain_skills="polish self-review"
+chain_label="polish+self-review"
+chain_present=1
+for _cs in $chain_skills; do
+  [ -f "$skills_dir/$_cs/SKILL.md" ] || chain_present=0
+done
+t_chain_error=""
+if [ "$chain_present" -eq 1 ]; then
+  t_chain_error="$(getknob instruction_budget_chain_closure_error)" || knob_ok=0
+fi
 
 # A missing/non-numeric knob is fail-loud: without the thresholds no honest
 # measurement is possible, so stop here (an input that cannot be measured is
@@ -649,6 +668,9 @@ fi
 # below), a fixed set of reads that does not scale with the corpus.
 ########################################################################
 raise_governed_knobs="instruction_budget_skill_warn instruction_budget_skill_error instruction_budget_doctrine_warn instruction_budget_doctrine_error instruction_budget_startload_warn instruction_budget_startload_error instruction_budget_closure_warn instruction_budget_closure_error instruction_budget_injected_warn"
+if [ "$chain_present" -eq 1 ]; then
+  raise_governed_knobs="$raise_governed_knobs instruction_budget_chain_closure_error"
+fi
 
 # effective_knob <knob> -> echo the effective (layered) value already read above;
 # returns 1 for a knob outside the governed set.
@@ -663,6 +685,7 @@ effective_knob() {
     instruction_budget_closure_warn) printf '%s' "$t_cl_warn" ;;
     instruction_budget_closure_error) printf '%s' "$t_cl_error" ;;
     instruction_budget_injected_warn) printf '%s' "$t_inj_warn" ;;
+    instruction_budget_chain_closure_error) printf '%s' "$t_chain_error" ;;
     *) return 1 ;;
   esac
 }
@@ -1116,6 +1139,11 @@ parse_manifest='
 # manifest-completeness assertion (REQ-A1.2): collect the skills that declare no
 # doctrine manifest (zero entry lines); asserted after the walk if the knob is on.
 manifestless_skills=""
+# Chain accumulators (D-12): each member's body, and one "<doc>\t<charged>\t<actual>"
+# row per manifest doc, deduplicated by name after the walk.
+chain_body=0
+chain_docs=""
+chain_unmeasured=0
 if [ -d "$skills_dir" ]; then
   for skill_md in "$skills_dir"/*/SKILL.md; do
     [ -f "$skill_md" ] || continue
@@ -1144,6 +1172,13 @@ if [ -d "$skills_dir" ]; then
     # Reverse use-site check (D-7, REQ-D1.3): point-of-use doc names the parse
     # pass found named nowhere in body prose (its END emits USESITE-MISS markers).
     pou_miss=""
+    in_chain=0
+    case " $chain_skills " in
+      *" $sname "*) [ "$chain_present" -eq 1 ] && in_chain=1 ;;
+    esac
+    if [ "$in_chain" -eq 1 ]; then
+      chain_body=$((chain_body + body_words))
+    fi
 
     while IFS= read -r rec; do
       [ -n "$rec" ] || continue
@@ -1215,6 +1250,10 @@ $name"
         closure=$((closure + charged))
         closure_actual=$((closure_actual + dw))
       fi
+      if [ "$in_chain" -eq 1 ]; then
+        chain_docs="$chain_docs
+$name	$charged	$dw"
+      fi
     done <<EOF
 $(awk "$parse_manifest" "$skill_md")
 EOF
@@ -1232,6 +1271,7 @@ $sname"
       # (D-7). The unmeasured aggregates carry the malformed/unresolved twins.
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$sname" "$startload" "$closure" \
         "unmeasured" "unmeasured" "$startload_actual" "$closure_actual" >>"$skill_list"
+      [ "$in_chain" -eq 1 ] && chain_unmeasured=1
       continue
     fi
 
@@ -1307,6 +1347,33 @@ EOF
       [ -n "$ml" ] || continue
       err "manifest-completeness assertion: skills/$ml/SKILL.md declares no doctrine manifest (every skill must declare one; set instruction_manifest_completeness_required=false to disable)"
     done
+  fi
+fi
+
+# Composed-chain charge (D-12, REQ-G1.2): both bodies plus each manifest doc
+# once, whichever member loads it and at whichever class. A member with an
+# untrusted manifest leaves the chain unmeasured, never scored under budget (its
+# manifest error already fails the run).
+chain_state=""
+chain_closure=""
+chain_actual=""
+if [ "$chain_present" -eq 1 ]; then
+  if [ "$chain_unmeasured" -eq 1 ]; then
+    chain_state=unmeasured
+    echo "check-instructions: chain closure: $chain_label unmeasured (a member's manifest did not parse or resolve)" >&2
+  else
+    _cdocs="$(printf '%s\n' "$chain_docs" | awk -F '\t' 'NF == 3 && !seen[$1]++ { c += $2; a += $3 } END { printf "%d %d", c, a }')"
+    chain_closure=$((chain_body + ${_cdocs%% *}))
+    chain_actual=$((chain_body + ${_cdocs#* }))
+    if [ "$chain_closure" -ge "$t_chain_error" ]; then
+      chain_state=ERROR
+      err "chain closure over budget: $chain_label ($chain_closure words >= $t_chain_error)"
+      printf 'chain\t%s\t%s\t%s\t%s\t%s\n' "$chain_label" "$chain_closure" "$t_chain_error" "unsuppressed" "none" >>"$shortlist"
+    else
+      chain_state=ok
+    fi
+    echo "check-instructions: chain closure: $chain_label $chain_closure words (error threshold $t_chain_error)" >&2
+    headroom_check "$chain_closure" "$t_chain_error" "$t_cl_floor" "chain:$chain_label"
   fi
 fi
 
@@ -1583,6 +1650,18 @@ if [ "$audit" -eq 1 ]; then
     printf '  %s start-load=%s (%s)%s%s closure=%s (%s)%s%s\n' \
       "$name" "$sl" "$sls" "$slc" "$slm" "$cl" "$cls" "$clc" "$clm"
   done <"$skill_list"
+  if [ -n "$chain_state" ]; then
+    echo
+    echo "Composed chain:"
+    if [ "$chain_state" = unmeasured ]; then
+      printf '  chain %s closure=unmeasured\n' "$chain_label"
+    else
+      chc=""
+      [ "$chain_actual" != "$chain_closure" ] && chc=" (actual $chain_actual)"
+      printf '  chain %s closure=%s (%s)%s margin-to-error=%s\n' \
+        "$chain_label" "$chain_closure" "$chain_state" "$chc" "$((t_chain_error - chain_closure))"
+    fi
+  fi
   echo
   echo "Injected-context hooks:"
   if [ -s "$injected_list" ]; then

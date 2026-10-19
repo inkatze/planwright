@@ -42,6 +42,8 @@ unset CDPATH
 here=$(cd "$(dirname "$0")" && pwd)
 FT="$here/../scripts/fleet-throttle.sh"
 FA="$here/../scripts/fleet-audit.sh"
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -114,25 +116,20 @@ reset_state
 started=$(now)
 printf "5-hour limit reached %s try again in 3 seconds\n" "$(printf '\342\210\231')" \
   | run observe >/dev/null 2>&1 || fail "observe (relative form) failed"
-resumed=""
-allowed_early=0
-while :; do
-  t=$(now)
+# Stops on anything but "still throttled", so an unexpected exit fails at once.
+# The clock is read BEFORE the check, so an early resume is never excused by
+# the check's own run time.
+throttle_settled() {
+  resumed=$(now)
   rc=0
   run check >/dev/null || rc=$?
-  if [ "$rc" = 0 ]; then
-    resumed=$t
-    break
-  fi
-  [ "$rc" = 1 ] || fail "check while throttled: exit $rc, expected 1"
-  # Paused while the reset time is still in the future: expected. A pause
-  # observed AFTER started+3 has not resumed yet — tolerate loaded-CI
-  # scheduling up to a generous bound, then fail.
-  [ $((t - started)) -le 30 ] || fail "dispatch did not resume within 30s of a 3s reset"
-  sleep 0.3
-done
-[ $((resumed - started)) -ge 2 ] || allowed_early=1
-[ "$allowed_early" = 0 ] || fail "dispatch resumed ${resumed}s vs start ${started}s — before the signaled reset"
+  [ "$rc" != 1 ]
+}
+poll_until --what 'dispatch resuming after a 3s reset' -- throttle_settled \
+  || fail "dispatch did not resume within ${POLL_UNTIL_ELAPSED}s of a 3s reset"
+[ "$rc" = 0 ] || fail "check while throttled: exit $rc, expected 1"
+[ $((resumed - started)) -ge 2 ] \
+  || fail "dispatch resumed ${resumed}s vs start ${started}s — before the signaled reset"
 echo "ok: rate-limit signal pauses dispatch and resumes at the signaled reset time"
 
 # 4. While throttled, check prints the until-epoch so a tower can render it.

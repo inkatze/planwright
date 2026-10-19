@@ -58,11 +58,13 @@ stub_knob() {
   [ -n "$STUB_KNOB" ] || STUB_KNOB=$2
 }
 
-# stub_proc_stamp <pid> — the process's start time as ps prints it, empty
-# when unknown. Pinned locale and zone: a stamp recorded in a session's
-# environment is compared from the suite's, which may set TZ differently.
+# stub_proc_stamp <pid> — the process's start time as ps prints it (procfs's
+# where ps has no lstart, as busybox's has not), empty when unknown. Pinned
+# locale and zone: a stamp recorded in a session's environment is compared
+# from the suite's, which may set TZ differently.
 stub_proc_stamp() {
-  LC_ALL=C TZ=UTC ps -o lstart= -p "$1" 2>/dev/null
+  LC_ALL=C TZ=UTC ps -o lstart= -p "$1" 2>/dev/null \
+    || awk '{ sub(/.*\) /, ""); print "boot+" $20 }' "/proc/$1/stat" 2>/dev/null
 }
 
 stub_record_pid() {

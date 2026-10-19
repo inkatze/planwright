@@ -73,7 +73,7 @@
 #       Print the observe-in-flight status-read command (REQ-D1.3). tmux:
 #       `capture-pane -p` — a read, never a write; the handle is validated first.
 #       stream-json: `fleet-streamjson.sh status <handle>` (running,
-#       awaiting-input, completed, ended, dead, unknown). subagent:
+#       awaiting-input, completed, ended, limited, dead, unknown). subagent:
 #       harness-native (completion/notification is the surface); empty stdout,
 #       exit 0. Exit 2 on an invalid handle, an unknown backend, or usage.
 #
@@ -161,12 +161,22 @@ valid_handle() {
         *[!A-Za-z0-9_.-]*) return 1 ;;
       esac
       ;;
-    stream-json)
+    stream-json | stream-json-persistent)
       # The supervisor's own worker-handle grammar (fleet-streamjson.sh
       # valid_field), minus `=` and `:`, which a handle never needs and which
-      # would otherwise ride into the emitted single-quoted argument.
+      # would otherwise ride into the emitted single-quoted argument. The
+      # rung's contract name is the second spelling; a launch names its
+      # session after the handle, so the session name is held to it too.
       case "$2" in
         *[!A-Za-z0-9_.@-]*) return 1 ;;
+        . | ..) return 1 ;;
+      esac
+      ;;
+    headless-oneshot)
+      # `headless-<spec>-task-<id>` and a launched tower's name: no sigil,
+      # since nothing targets this rung through tmux or a supervisor.
+      case "$2" in
+        *[!A-Za-z0-9_.-]*) return 1 ;;
         . | ..) return 1 ;;
       esac
       ;;
@@ -303,7 +313,7 @@ case "$sub" in
         printf '%s\n' "'$script_dir/orchestrate-relay.sh' deliver tmux '$handle' '$msg_abs'"
         exit 0
         ;;
-      stream-json)
+      stream-json | stream-json-persistent)
         valid_handle stream-json "$handle" || reject_handle stream-json
         valid_msgfile "$msg" || {
           printf '%s\n' "$me: message file missing or path unsafe to relay: $(sanitize_printable "$msg" "(unprintable path)")" >&2
@@ -418,7 +428,7 @@ case "$sub" in
         printf '%s\n' "tmux capture-pane -p -t '$handle'"
         exit 0
         ;;
-      stream-json)
+      stream-json | stream-json-persistent)
         valid_handle stream-json "$handle" || reject_handle stream-json
         require_safe_script_dir
         printf '%s\n' "'$script_dir/fleet-streamjson.sh' status '$handle'"
