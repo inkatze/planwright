@@ -243,7 +243,9 @@ target_entry() {
 # directory. A name opening right after a dot (.env.local) or after a slash
 # inside a relative path (dir/file.io) is a filename, not a host.
 screen_class() {
-  printf '%s\n' "$1" | LC_ALL=C tr '\200-\377' '[a*]' | awk '
+  # busybox tr has no [a*] repeat, so the replacement set is spelled out in full.
+  sc_high=$(printf '%0128d' 0 | tr 0 a)
+  printf '%s\n' "$1" | LC_ALL=C tr '\200-\377' "$sc_high" | awk '
     BEGIN {
       n = split("com net org edu gov mil int info biz io ai app dev co me tv cloud " \
         "us uk de fr ca au jp cn ru nl eu ch se no es it br be at dk fi ie nz kr " \
