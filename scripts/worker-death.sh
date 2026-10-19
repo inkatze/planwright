@@ -22,7 +22,9 @@
 #
 # The error signal is a result frame flagging `"is_error":true`, or, in an event
 # stream, the synthetic assistant frame Claude Code writes for an API error
-# (model `<synthetic>` with an `error` key). Only those lines are the error
+# (model `<synthetic>` with an `error` key). A turn that ends with a result
+# frame is read by that frame alone: an unflagged one is clean, whatever error
+# the turn met and recovered from. Only those lines are the error
 # text: a tool result quoting a refusal is the worker's content, not its death.
 #
 # Prints one tab-separated line:
@@ -33,7 +35,7 @@
 # scripts/classify-limit.sh. <cause> names the error, first found of: the API
 # status (`api-error-529`), the error kind a synthetic frame carries, the
 # result's terminal reason or subtype, else `is-error`; one token of [a-z0-9-],
-# at most 32 bytes.
+# at most 24 bytes, so a reader's bounded detail never cuts it.
 #
 # `record` prints the same line, and for `limited` first appends the refusal
 # to the claude ledger, then holds <unit> at step `worker`
@@ -154,7 +156,7 @@ WD_ERR="$work/err" WD_TEXT="$work/text" awk -v kind="$src_kind" '
     s = tolower(s)
     gsub(/_/, "-", s)
     gsub(/[^a-z0-9-]/, "", s)
-    return substr(s, 1, 32)
+    return substr(s, 1, 24)
   }
   { line[++n] = $0 }
   END {
@@ -165,6 +167,7 @@ WD_ERR="$work/err" WD_TEXT="$work/text" awk -v kind="$src_kind" '
       r1 = 0; r0 = 0
       for (i = 1; i <= last; i++) if (is_result(line[i])) { r0 = r1; r1 = i }
       start = (r1 == last) ? r0 + 1 : r1 + 1
+      if (r1 == last && last > 0 && index(line[last], "\"is_error\":true") == 0) exit 0
     }
     ne = 0
     for (i = start; i <= last; i++) {
@@ -202,7 +205,7 @@ WD_ERR="$work/err" WD_TEXT="$work/text" awk -v kind="$src_kind" '
       if ((t = str_after(el[i], "result")) != "") print t > textf
       if ((t = str_after(el[i], "text")) != "") print t > textf
     }
-    print substr(cause, 1, 32)
+    print substr(cause, 1, 24)
   }
 ' "$work/in" >"$work/cause" || die 6 "cannot read the error signal"
 cause=$(cat "$work/cause")

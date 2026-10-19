@@ -111,6 +111,11 @@ out=$(wenv /bin/sh "$WD" classify --events "$(evf cok "$line_init" "$line_quote"
 [ "$out" = clean ] || fail "classify: a clean run quoting a refusal reads '$out'"
 out=$(wenv /bin/sh "$WD" classify --events "$(evf cturn "$line_init" "$line_529" "$line_clean")") || fail "classify later turn exited non-zero"
 [ "$out" = clean ] || fail "classify: an earlier turn's error marks the clean last turn: '$out'"
+out=$(wenv /bin/sh "$WD" classify --events "$(evf crecov "$line_init" "$line_529_msg" "$line_clean")") || fail "classify recovered exited non-zero"
+[ "$out" = clean ] || fail "classify: an unflagged result after a recovered error reads '$out'"
+long='{"type":"result","subtype":"success","is_error":true,"terminal_reason":"an_unusually_long_terminal_reason_name","result":"x"}'
+out=$(wenv /bin/sh "$WD" classify --events "$(evf clong "$line_init" "$long")") || fail "classify long cause exited non-zero"
+[ "$out" = "failed${TAB}an-unusually-long-termin" ] || fail "classify: a long cause is not bounded to 24 bytes: '$out'"
 out=$(wenv /bin/sh "$WD" classify --events "$(evf cnores "$line_init" "$line_529_msg")") || fail "classify no-result exited non-zero"
 [ "$out" = "failed${TAB}api-error-529" ] || fail "classify: a stream ending on a synthetic 529 without a result reads '$out'"
 printf '%s\n' '{"type":"result","subtype":"success","is_error":true,"api_error_status":429,"result":"You have hit your weekly limit"}' >"$tmp/rj-rl"
@@ -220,6 +225,15 @@ for mode in result fallback; do
   [ -n "$(throttle_until)" ] || fail "stream-json $mode: the throttle is not engaged"
 done
 pass "the stream-json result frame and its exit fallback name a 529 and read a rate limit as limited (REQ-A1.4)"
+
+# A hand-corrupted cause field is dropped, never rendered.
+sd_bad="$tmp/sd-bad"
+mkdir -p "$sd_bad"
+printf 'result\tsuccess\t1700000000\ttrue\tcause=$(x)\n' >"$sd_bad/result"
+new_home sd-bad
+d=$(detect wbad "$sd_bad" stream-json-persistent)
+[ "$d" = "unclassified completion-failed:result=success/is_error=true" ] || fail "stuck detector: a hostile cause field reads '$d'"
+pass "the stuck detector drops a cause field outside its grammar"
 
 # --- 4. the headless reader: result.json -------------------------------------
 cat >"$tmp/bin/headless-claude" <<'SHIM'
