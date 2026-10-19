@@ -455,8 +455,6 @@ router has not demonstrated (REQ-B1.6).
 
 ## Awaiting input
 
-- **Task 12** — post-pr step cubic-pr halted: cubic's finding that visual flights run skill convergence steps only awaits the operator's decision on a drafted decline (PR #692); record `.claude/steps/000001/009-step-post-pr.rec`.
-
 ## Deferred
 
 - **Tower floor bypass paths from the skill core's review.** The deny
