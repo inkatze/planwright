@@ -364,7 +364,8 @@ replays the backtest rows in the classes it targets before it lands (D-9).
 
 ## Awaiting input
 
-(none yet)
+- **Task 6** — post-pr point, step `cubic-pr`, outcome `halted`
+  (`.claude/steps/000001/009-step-post-pr.rec`).
 
 ## Deferred
 
