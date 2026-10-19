@@ -1,0 +1,1 @@
+- 2026-10-19 [planwright] Alpine (universal-binary Task 4): busybox timeout exits 143 (TERM) when it ends a command where GNU timeout exits 124, so every guard that names a stalled read as a timeout misreported it as a generic failure. The guards now accept both. timeout itself is not POSIX and macOS has none without coreutils; the policy and ready guards fail closed there.
