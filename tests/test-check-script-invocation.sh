@@ -116,7 +116,17 @@ for form in \
   'Run `sh $(pwd)/scripts/bash-tool.sh`.' \
   "Run sh${tab}scripts/bash-tool.sh with a tab." \
   "Run sh scripts/bash-tool.sh${cr}" \
-  'Run sh scripts/bash-tool.sh, in prose.'; do
+  'Run sh scripts/bash-tool.sh, in prose.' \
+  'Run `sh scripts/bash-tool.sh>/dev/null`.' \
+  'Run `sh scripts/bash-tool.sh<in`.' \
+  'Run `sh 2>/dev/null scripts/bash-tool.sh`.' \
+  'Run `sh - scripts/bash-tool.sh`.' \
+  'Run `sh --posix scripts/bash-tool.sh`.' \
+  'Run `sh +o errexit scripts/bash-tool.sh`.' \
+  'Run `sh -e<scripts/bash-tool.sh`.' \
+  'Run `"sh" scripts/bash-tool.sh`.' \
+  'Run **sh scripts/bash-tool.sh** or [sh scripts/bash-tool.sh](x).' \
+  'Run `bash -c "sh scripts/bash-tool.sh"`.'; do
   variant form "$form"
   out="$("$CHECKER" --repo-root "$tmp/form" 2>&1)"
   assert "flagged: $form" 1 $?
@@ -225,6 +235,29 @@ zz.md" || exit 1
 out="$("$CHECKER" --repo-root "$tmp/newline" 2>&1)"
 assert "a name containing a newline fails closed" 2 $?
 assert_not_contains "the forged list does not read as clean" "$out" "clean ("
+
+for d in scripts doctrine; do
+  cp -R "$FIXTURES/clean" "$tmp/odd" || exit 1
+  ln -s demo.md "$tmp/odd/$d/LINK.md" || exit 1
+  "$CHECKER" --repo-root "$tmp/odd" >/dev/null 2>&1
+  assert "a symbolic link under $d/ fails closed" 2 $?
+  rm -f "$tmp/odd/$d/LINK.md"
+  : >"$tmp/odd/$d/a
+b.md" || exit 1
+  "$CHECKER" --repo-root "$tmp/odd" >/dev/null 2>&1
+  assert "a name containing a newline under $d/ fails closed" 2 $?
+  rm -rf "$tmp/odd"
+done
+
+# Names reach the terminal: C0 and C1 control bytes are stripped from them.
+cp -R "$FIXTURES/sh-runs-bash" "$tmp/ctl" || exit 1
+esc="$(printf '\033')"
+csi="$(printf '\233')"
+mv "$tmp/ctl/skills/demo" "$tmp/ctl/skills/de${esc}[2Jmo${csi}2J" || exit 1
+out="$("$CHECKER" --repo-root "$tmp/ctl" 2>&1)"
+assert "the control-byte fixture still fails" 1 $?
+assert_not_contains "no ESC reaches the output" "$out" "$esc"
+assert_not_contains "no 8-bit CSI reaches the output" "$out" "$csi"
 
 if [ "$(id -u)" -ne 0 ]; then
   cp -R "$FIXTURES/clean" "$tmp/unreadable" || exit 1

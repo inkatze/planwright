@@ -15,13 +15,14 @@
 # never run, so they are not compared against.
 #
 # WHAT COUNTS AS AN OFFENSE. In any .md file under skills/ or doctrine/, an
-# `sh` command word (bare, or a path ending /sh such as /bin/sh) whose
-# operand, past any options, `--`, and a `<` redirect, names
+# `sh` command word (bare, quoted, or a path ending /sh such as /bin/sh)
+# whose operand, past any options, `--`, and redirects, names
 # `scripts/<name>` for a bash-shebanged <name>. The operand may be quoted, a
-# variable, or a `<placeholder>` such as `<root>/scripts/<name>`. Not
-# offenses: `sh -c <string>` (the string runs the script by path), a call by
-# path, a call through `bash`. Not read: a script piped into `sh` on stdin,
-# and an invocation split by a backslash-newline.
+# variable, or a `<placeholder>` such as `<root>/scripts/<name>`, and a
+# redirect may be glued to it. Not offenses: `sh -c <string>` (the string
+# runs the script by path), a call by path, a call through `bash`. Not read:
+# a script piped into `sh` on stdin, and an invocation split by a
+# backslash-newline.
 #
 # FAILS CLOSED on anything that would narrow the scan: no scripts/, no
 # shebanged script, no instruction file, a file it cannot read, and a symbolic
@@ -180,15 +181,23 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
     sub(/\r$/, "", line)
     n = split(line, w, /[ \t]+/)
     for (i = 1; i <= n; i++) {
-      # An sh command word: the token ends in sh, preceded by nothing, a
-      # path ending in /, or punctuation that opens a command.
-      if (w[i] !~ /(^|[^A-Za-z0-9_.\/-])((\/[A-Za-z0-9_.-]+)*\/)?sh$/) continue
+      # An sh command word: the token, unquoted, ends in sh, preceded by
+      # nothing, a path ending in /, or punctuation that opens a command.
+      cw = w[i]
+      gsub(/[\042\047]/, "", cw)
+      if (cw !~ /(^|[^A-Za-z0-9_.\/-])((\/[A-Za-z0-9_.-]+)*\/)?sh$/) continue
       skip = 0
       op = ""
       for (j = i + 1; j <= n; j++) {
         a = w[j]
-        if (a == "--" || a == "<") continue
+        if (a == "--" || a == "-" || a == "<") continue
         if (a ~ /^[-+]o$/) { j++; continue }
+        if (a ~ /^--[A-Za-z]/ || a ~ /^[0-9]*>/ || a ~ /^[0-9]+</) continue
+        if (a ~ /^[-+][A-Za-z]+</) {
+          op = a
+          sub(/^[^<]*/, "", op)
+          break
+        }
         if (a ~ /^[-+][A-Za-z]+$/) {
           if (a ~ /^-[A-Za-z]*c/) skip = 1
           if (skip) break
@@ -198,10 +207,13 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
         break
       }
       if (skip || op == "") continue
-      if (op !~ /^<[A-Za-z0-9_-]+>/) sub(/^</, "", op)
       gsub(/[\042\047]/, "", op)
-      sub(/[`;|&].*$/, "", op)
-      sub(/[).,:]+$/, "", op)
+      # A leading <placeholder> is part of the path; any other < or > is a
+      # redirect, before the operand or glued after it.
+      if (match(op, /^<[A-Za-z0-9_-]+>/)) op = "R" substr(op, RLENGTH + 1)
+      else sub(/^</, "", op)
+      sub(/[]`;|&<>].*$/, "", op)
+      sub(/[).,:*}]+$/, "", op)
       if (op !~ /(^|\/)scripts\/[^\/]+$/) continue
       name = op
       sub(/.*\//, "", name)
@@ -213,7 +225,7 @@ CSI_ROOT="$root/" CSI_SCRIPTS="$work/scripts" CSI_DOCS="$work/docs" \
   }
   END {
     if (failed) exit 2
-    print ndocs, nbash > ENVIRON["CSI_SUMMARY"]
+    print ndocs + 0, nbash + 0 > ENVIRON["CSI_SUMMARY"]
     exit found ? 1 : 0
   }
 ' </dev/null >"$work/out" 2>"$work/awkerr" || rc=$?
@@ -224,6 +236,7 @@ case "$rc" in
   0) ;;
   1)
     n=$(grep -c '' "$work/out") || n=0
+    [ "$n" -gt 0 ] || fail_closed "the scan did not complete (awk exit 1, no findings)"
     printf 'check-script-invocation: %s flagged invocation(s)\n' "$n" >&2
     exit 1
     ;;
