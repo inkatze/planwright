@@ -38,6 +38,7 @@ for f in "$REPO_ROOT"/skills/*/SKILL.md; do
     fail "the $skill invariant section does not cite doctrine/human-gates.md"
   fi
 done
+# shellcheck disable=SC2086 # word-split on purpose: one skill per line
 if [ "$(printf '%s\n' $found | sort | tr '\n' ' ')" = "$(printf '%s\n' $expected | sort | tr '\n' ' ')" ]; then
   ok "the invariant sections found are exactly the pinned set"
 else
@@ -48,26 +49,38 @@ fi
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
-r="$TMP/repo"
-mkdir -p "$r/specs/demo"
-git -C "$r" init -q
-# Built from two pieces so this file never carries the phrase on one line.
-w1='never a'
-w2='planwright action'
-printf '# Demo\n\nMerging is %s %s.\n' "$w1" "$w2" >"$r/specs/demo/requirements.md"
-git -C "$r" add -A
-(cd "$r" && "$SCAN" --seed-file "$REPO_ROOT/config/purged-identifiers.seed" >"$TMP/out" 2>&1)
-rc=$?
-if [ "$rc" -eq 1 ]; then
-  ok "the purge seed refuses a reintroduced retired phrase, even under specs/"
-else
-  fail "the purge seed did not refuse a reintroduced retired phrase (exit $rc)"
-fi
-if grep -qi "$w2" "$TMP/out"; then
-  fail "the purge scan echoed the matched phrase"
-else
-  ok "the purge scan reports the location without the phrase"
-fi
+# One fixture per seeded phrase, each read as two lines so this file never
+# carries the phrase on one line.
+n=0
+while IFS= read -r w1 && IFS= read -r w2; do
+  n=$((n + 1))
+  r="$TMP/repo$n"
+  mkdir -p "$r/specs/demo"
+  git -C "$r" init -q
+  printf '# Demo\n\nThe rule: %s %s.\n' "$w1" "$w2" >"$r/specs/demo/requirements.md"
+  git -C "$r" add -A
+  (cd "$r" && "$SCAN" --seed-file "$REPO_ROOT/config/purged-identifiers.seed" >"$TMP/out" 2>&1)
+  rc=$?
+  if [ "$rc" -eq 1 ]; then
+    ok "the purge seed refuses retired phrase $n, even under specs/"
+  else
+    fail "the purge seed did not refuse retired phrase $n (exit $rc)"
+  fi
+  if grep -qi "$w2" "$TMP/out"; then
+    fail "the purge scan echoed retired phrase $n"
+  else
+    ok "the purge scan reports phrase $n's location without the phrase"
+  fi
+done <<'EOF'
+never a
+planwright action
+never mark
+a pr ready
+never
+mark ready
+drafts for
+the human to flip
+EOF
 
 # --- the BREAKING CHANGE footer on the knob commit (REQ-H1.3) ---------------
 if [ "$(git -C "$REPO_ROOT" rev-parse --is-shallow-repository 2>/dev/null)" = false ]; then

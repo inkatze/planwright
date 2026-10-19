@@ -277,7 +277,7 @@ floor_citations() {
   for f in "$root"/*.md; do
     [ -f "$f" ] || continue
     case "$f" in */README.md | */human-gates.md) continue ;; esac
-    if tr '\n' ' ' <"$f" | grep -q -i -E "$floor_stmt"; then
+    if tr '\n' ' ' <"$f" | tr -s ' \t' ' ' | grep -q -i -E "$floor_stmt"; then
       n=$((n + 1))
       if grep -q -E "$cite" "$f"; then
         echo "ok: $(basename "$f") cites human-gates where it states the merge floor"
@@ -323,6 +323,12 @@ if floor_citations "$fx" 'doctrine/human-gates\.md' | grep -q '^FAIL:'; then
   fail "the floor-citation check refused a cited docs/ fixture"
 else
   ok "the floor-citation check accepts the cited docs/ fixture"
+fi
+printf '# Fixture\n\n- Agents respect the merge\n  floor at every tier.\n' >"$fx/wrapped.md"
+if floor_citations "$fx" 'doctrine/human-gates\.md' | grep -q '^FAIL: wrapped.md states the merge floor'; then
+  ok "the floor-citation check catches a floor statement wrapped onto a list continuation"
+else
+  fail "the floor-citation check missed a floor statement wrapped onto a list continuation"
 fi
 rm -rf "$fx"
 
