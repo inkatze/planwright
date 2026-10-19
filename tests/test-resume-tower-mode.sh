@@ -90,6 +90,16 @@ case $mode in
   *) fail "the mode does not invoke '$sweep_cmd'" ;;
 esac
 
+# A forge skipped for want of gh or a timeout is a degraded read, as the
+# tower's bring-up treats it; only no-flights and no-origin are clean skips.
+# shellcheck disable=SC2016
+case $mode in
+  *'`forge`, `registry`, or `queue` row other than `ok`'*'`no-flights` or `no-origin`'*)
+    ok "the mode names every degraded read a partial load, as the tower does"
+    ;;
+  *) fail "the mode does not tie partial load to any non-ok forge, registry, or queue row" ;;
+esac
+
 case $tower_bringup in
   *'scripts/flight-sweep.sh'*) ok "the tower's bring-up reads the same sweep" ;;
   *) fail "the tower's bring-up does not read scripts/flight-sweep.sh" ;;
