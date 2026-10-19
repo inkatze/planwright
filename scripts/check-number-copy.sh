@@ -20,15 +20,16 @@
 #   - inside a `### D-` decision, a verdict's measurement or cost-benefit
 #     line: the paragraph or list item opening with `**Measurement:**`,
 #     `**Measurements:**` or `**Cost-benefit:**`, through the line before
-#     the next blank line, heading, or list item indented no deeper than it
-#     (its own sub-items belong to it);
+#     the next blank line, heading of any level, or list item indented no
+#     deeper than it (its own sub-items belong to it);
 #   - the metadata field lines whose values are ids or plans, not figures:
 #     `**Format-version:**`, and a task's `**Dependencies:**` and
 #     `**Estimated effort:**`, at any indent;
-#   - a numeral that is a reference, not a quantity: one following task,
-#     section, step or wave (singular or plural, either case of the first
-#     letter), or continuing such a list (`Tasks 11 and 12`, `Tasks 5, 9,
-#     10`, `Tasks 3 through 5`, `Tasks 3–5`).
+#   - a numeral that is a reference, not a quantity: one directly following
+#     task, section, step or wave (either case of the first letter), one
+#     continuing a plural's list (`Tasks 11 and 12`, `Tasks 5, 9, 10`), and
+#     the end of a range (`Tasks 3 through 5`, `Task 3–5`). A singular's
+#     comma does not continue it: in `After Task 3, 663 remain` 663 counts.
 # A prose figure equal to a snapshot figure is a finding. Only snapshot
 # figures count, so a number no snapshot carries never fires.
 #
@@ -143,7 +144,9 @@ function figures(s, out, keep_refs,   n, t, pre, post, tok, pos, prefix) {
     if (pre ~ /[A-Za-z0-9_\/#@:.,-]/) continue
     if (substr(post, 1, 1) ~ /[A-Za-z0-9_\/-]/) continue
     if (post ~ /^[.:,][0-9]/) continue
-    if (!keep_refs && prefix ~ /(^|[^A-Za-z])([Tt]asks?|[Ss]ections?|[Ss]teps?|[Ww]aves?)[ ]+([0-9.]+(, | and | or | to | through |, and |, or |–|-))*$/) continue
+    if (!keep_refs && prefix ~ /(^|[^A-Za-z])([Tt]ask|[Ss]ection|[Ss]tep|[Ww]ave)[ ]+$/) continue
+    if (!keep_refs && prefix ~ /(^|[^A-Za-z])([Tt]asks|[Ss]ections|[Ss]teps|[Ww]aves)[ ]+([0-9.]+(, | and | or | to | through |, and |, or |–|-))*$/) continue
+    if (!keep_refs && prefix ~ /(^|[^A-Za-z])([Tt]ask|[Ss]ection|[Ss]tep|[Ww]ave)[ ]+[0-9.]+(–|-| to | through )$/) continue
     out[++n] = norm(tok)
   }
   return n
@@ -157,7 +160,7 @@ cat >"$work/prose.awk" <<'EOF'
 FNR == 1 { name = FILENAME; sub(/^.*\//, "", name); skip = 0; verdict = 0; indec = 0 }
 /^## / { skip = ($0 == "## Sources" || $0 == "## Changelog"); verdict = 0; indec = 0 }
 /^### / { indec = ($0 ~ /^### D-/); verdict = 0 }
-/^[ \t]*$/ { verdict = 0 }
+/^[ \t]*$/ || /^#/ { verdict = 0 }
 verdict && /^[ \t]*- / { match($0, /^[ \t]*/); if (RLENGTH <= vindent) verdict = 0 }
 indec && /^[ \t]*(- )?\*\*(Measurements?|Cost-benefit):\*\*/ { verdict = 1; match($0, /^[ \t]*/); vindent = RLENGTH }
 skip || verdict { next }

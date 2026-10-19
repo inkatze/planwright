@@ -258,10 +258,10 @@ check_eq "a dangling snapshot symlink fails closed" 5 "$rc"
 
 v=$tmp/ctl
 build "$v"
-printf 'test-spec.md\t41.5\tstale\033]0;x\007\n' >>"$v/exempt.tsv"
-printf 'design.md\t9999\tstale too\n' >>"$v/exempt.tsv"
+printf 'test-spec.md\0339\t41.5\tstale\n' | tr '9' '[' >>"$v/exempt.tsv"
 run "$v"
-check_eq "stale exemptions still fail" 1 "$rc"
+check_eq "a stale exemption with a control byte in its file still fails" 1 "$rc"
+check_has "the stale row is printed" "$out" "stale exemption: test-spec.md[ 41.5"
 case $out in
   *"$(printf '\033')"*) bad "a control byte reached the output" ;;
   *) ok "no control byte reaches the output" ;;
@@ -331,6 +331,51 @@ out=$("$CN" --bundle "$v/b" --snapshots "$v/nosuch" --exempt "$v/exempt.tsv" 2>&
 check_eq "a missing snapshot directory fails closed" 5 "$?"
 out=$("$CN" --bundle "$v/b" --snapshots "$v/snap" --exempt "$v/nosuch.tsv" 2>&1)
 check_eq "a missing exemption list fails closed" 5 "$?"
+
+v=$tmp/singularcomma
+build "$v"
+append "$v/b/tasks.md" "After Task 3, 663 items remain."
+run "$v"
+check_eq "a singular reference's comma does not continue it" 1 "$rc"
+
+v=$tmp/singularrange
+build "$v"
+append "$v/b/tasks.md" "Done in Task 3–663 and Task 1 through 663."
+run "$v"
+check_eq "the end of a singular's range is a reference" 0 "$rc"
+
+v=$tmp/deepheading
+build "$v"
+append "$v/b/design.md" "**Measurement:** 663 measured."
+append "$v/b/design.md" "#### Follow-up"
+append "$v/b/design.md" "Then 663 more."
+run "$v"
+check_eq "a deeper heading ends a measurement paragraph" 1 "$rc"
+
+v=$tmp/nofigure
+build "$v"
+printf '# Nothing numeric\n' >"$v/snap/baseline-2026-10-18.md"
+run "$v"
+check_eq "snapshots carrying no figure fail closed" 5 "$rc"
+
+v=$tmp/badexempt
+build "$v"
+printf 'test-spec.md\tx\tnot a figure\n' >>"$v/exempt.tsv"
+run "$v"
+check_eq "an exemption whose figure is not a number fails closed" 5 "$rc"
+
+# The default snapshot set, from a copy laid out like the repository.
+v=$tmp/defaults
+build "$v"
+mkdir -p "$v/repo/scripts" "$v/repo/docs/substrate"
+cp "$CN" "$v/repo/scripts/"
+printf '# file\tfigure\treason\n' >"$v/repo/scripts/check-number-copy-exempt.tsv"
+printf '# Screen\n\n4127 candidates.\n' >"$v/repo/docs/substrate-screen.md"
+cp "$v/snap/baseline-2026-10-18.md" "$v/repo/docs/substrate/"
+append "$v/b/test-spec.md" "Screened 4127 of them."
+out=$("$v/repo/scripts/check-number-copy.sh" --bundle "$v/b" 2>&1)
+check_eq "docs/substrate-*.md is a snapshot by default" 1 "$?"
+check_has "the flat snapshot is named" "$out" "snapshot substrate-screen.md"
 
 v=$tmp/nobundle
 build "$v"
