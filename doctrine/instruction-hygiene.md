@@ -160,7 +160,8 @@ Task 2 deliverable), overlay-tunable; the mechanism is core. The
 run-start law). Two suppression
 forms exist, each requiring a recorded reason: a **permanent exemption**
 (per-file floor only, never start-load or closure, standing rationale) and a
-**transitional `pending diet (Task N)` allowance** (any budget, temporary,
+**transitional `pending diet (Task N)` allowance** (any budget but the
+composed chain, temporary,
 removed by that diet's own PR, forbidden at closeout).
 
 ## Headroom: floors, targets, and the restoration ladder
@@ -186,7 +187,8 @@ margin-to-warn. The four floors ship as overlay-tunable core knobs in
 | Mandatory-at-start | `instruction_budget_startload_floor` | 500 |
 | Reachable closure | `instruction_budget_closure_floor` | 1,000 |
 
-The knobs map one-to-one to the four classes in the order listed. A surface
+The knobs map one-to-one to the four classes in the order listed; the composed
+chain takes the reachable-closure floor and target. A surface
 whose margin is **strictly below** its floor is in breach and triggers the
 restoration ladder; margin equal to the floor is compliant. Breach is a **named
 warning on every guard run**, never an error — an error would recreate the
@@ -231,7 +233,7 @@ inapplicability **recorded**:
 **No rung defers gating law.** The safety floor (gating law loads run-start) is
 inviolable on every rung; a surface that cannot restore margin without deferring
 it escalates to the human. Rung 4 is **per-file only**: an aggregate surface
-(mandatory-at-start, reachable closure) tops out at rung 3 and escalates to the
+(mandatory-at-start, reachable closure, composed chain) tops out at rung 3 and escalates to the
 human thereafter. The capped charge below is the aggregate-side analog of a
 per-file exemption.
 

@@ -18,7 +18,7 @@
 #     The composed chain (/polish running /self-review nested, review-effectiveness
 #     D-12) is charged as one more closure, both bodies plus each manifest doc
 #     once, against instruction_budget_chain_closure_error and the closure floor;
-#     every run prints its figure, and the knob is read only when both exist.
+#     only when both exist is the knob read and the figure (or unmeasured) printed.
 #     A skill with no manifest is scored body-only, which is not an error
 #     (REQ-A1.2); a malformed manifest entry is a fail-loud error (REQ-B1.8);
 #   - runs a deterministic resolution check: every manifest doc name must
