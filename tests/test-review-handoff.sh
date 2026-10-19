@@ -436,6 +436,51 @@ out=$(cd "$R5" && "$BUILD" --base "$B5BASE" 2>&1)
 assert_exit "a symlinked .claude is refused" 2 $?
 if [ -z "$(ls -A "$T/outside5")" ]; then ok "symlinked .claude: nothing written outside"; else fail "symlinked .claude: nothing written outside"; fi
 
+# --- the fence's contract comes from the base revision -------------------------
+R6=$T/repo6
+mkdir -p "$R6/specs/x" "$R6/scripts"
+git init -q "$R6"
+g6() { git -C "$R6" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
+cat >"$R6/specs/x/tasks.md" <<'EOF'
+### Task 1 — Narrow
+
+- **Deliverables:** `scripts/ok.sh`.
+EOF
+printf '#!/bin/sh\n' >"$R6/scripts/ok.sh"
+g6 add -A
+g6 commit -q -m base
+B6BASE=$(g6 rev-parse HEAD)
+cat >"$R6/specs/x/tasks.md" <<'EOF'
+### Task 1 — Narrow
+
+- **Deliverables:** `scripts/ok.sh`, `scripts/sneaky.sh`, `*`.
+EOF
+printf '#!/bin/sh\nexit 0\n' >"$R6/scripts/ok.sh"
+printf '#!/bin/sh\n' >"$R6/scripts/sneaky.sh"
+g6 add -A
+g6 commit -q -m "widen the fence from the branch"
+(cd "$R6" && "$BUILD" --base "$B6BASE" --tasks-file specs/x/tasks.md --task 1 >/dev/null 2>&1)
+assert_exit "a bundle whose branch edits its contract builds" 0 $?
+B6=$R6/.claude/review-handoff
+assert_contains "the base contract is carried" "scripts/ok.sh" "$(cat "$B6/contract-base.md" 2>/dev/null)"
+assert_lacks "the base contract lacks the branch's widening" "sneaky" "$(cat "$B6/contract-base.md" 2>/dev/null)"
+out=$("$REPO_ROOT/scripts/review-scope-fence.sh" --bundle "$B6" 2>&1)
+assert_exit "the branch cannot widen its own fence" 1 $?
+assert_contains "the file the branch admitted itself is outside" "outside	scripts/sneaky.sh" "$out"
+assert_lacks "the base-listed file is inside" "outside	scripts/ok.sh" "$out"
+cat >>"$R6/specs/x/tasks.md" <<'EOF'
+
+### Task 2 — New
+
+- **Deliverables:** `scripts/ok.sh`.
+EOF
+g6 commit -q -am "add a task the base lacks"
+(cd "$R6" && "$BUILD" --base "$B6BASE" --tasks-file specs/x/tasks.md --task 2 >/dev/null 2>&1)
+assert_exit "a task the base lacks still builds" 0 $?
+if [ ! -e "$B6/contract-base.md" ]; then ok "a task the base lacks has no base contract"; else fail "a task the base lacks has no base contract"; fi
+out=$("$REPO_ROOT/scripts/review-scope-fence.sh" --bundle "$B6" 2>&1)
+assert_exit "the fence refuses a bundle without a base contract" 2 $?
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

@@ -23,6 +23,9 @@
 #                     and text stripped of non-printable bytes
 #   caller-search.txt how the callers were found and what that misses
 #   contract.md       the task blocks named by --task, from --tasks-file
+#   contract-base.md  the same blocks as the --base revision holds them, the
+#                     scope fence's input; absent when the base lacks the
+#                     file or a block
 #   pr-title.txt, pr-body.md   the would-be PR title and body, when given
 #   tooling/<name>    each --tooling file, copied
 #   delta.patch, delta-files.txt   --delta only: the change since the previous
@@ -463,25 +466,44 @@ printf '%s' "$truncated$notes" >>"$stage/caller-search.txt"
 
 # --- contract, PR text, tooling ----------------------------------------------
 
-if [ -n "$tasks" ]; then
-  : >"$stage/contract.md"
+# slice <tasks-file> <out> — append each --task block to <out>; returns 5 when
+# a block is missing, 3 when the file ends inside a fence, else awk's status.
+# The block's line range comes from the shared fence lexer, so a heading
+# inside a column-0 fence neither starts nor ends it, and is then printed
+# whole, fenced lines included. Ids compare as strings, so 2.0 or 02 never
+# selects Task 2.
+slice() {
+  : >"$2"
   for id in $tasks; do
-    # The block's line range comes from the shared fence lexer, so a heading
-    # inside a column-0 fence neither starts nor ends it, and is then printed
-    # whole, fenced lines included. Ids compare as strings, so 2.0 or 02
-    # never selects Task 2.
-    rc=0
+    src=0
     range=$(awk -v id="$id" "$spec_parse_awk_fence$spec_parse_awk_grammar"'
       s && !e && /^#{1,3} / { e = NR - 1 }
       !s && (spec_parse_task_id($0) "") == (id "") { s = NR }
-      END { spec_parse__fence_eof(); if (!s) exit 5; print s "," (e ? e : NR) }' "$tasks_file") || rc=$?
-    case $rc in
-      0) sed -n "${range}p" "$tasks_file" >>"$stage/contract.md" ;;
-      5) die 2 "--tasks-file holds no block for Task $id" ;;
-      3) die 2 "--tasks-file ends inside an open code fence" ;;
-      *) die 2 "reading the task contract from --tasks-file failed (awk exit $rc)" ;;
-    esac
+      END { spec_parse__fence_eof(); if (!s) exit 5; print s "," (e ? e : NR) }' "$1") || src=$?
+    [ "$src" -eq 0 ] || return "$src"
+    sed -n "${range}p" "$1" >>"$2"
   done
+}
+if [ -n "$tasks" ]; then
+  rc=0
+  slice "$tasks_file" "$stage/contract.md" || rc=$?
+  case $rc in
+    0) ;;
+    5) die 2 "--tasks-file holds no block for Task $id" ;;
+    3) die 2 "--tasks-file ends inside an open code fence" ;;
+    *) die 2 "reading the task contract from --tasks-file failed (awk exit $rc)" ;;
+  esac
+  # The fence trusts only the base revision's contract, which the branch
+  # cannot edit; a tasks file or task the base lacks gets none.
+  rel=$(cd "$(dirname "$tasks_file")" && pwd -P)/${tasks_file##*/}
+  case $rel in "$top"/*) rel=${rel#"$top"/} ;; *) rel= ;; esac
+  if [ -n "$rel" ] && git cat-file -p "$base_sha:$rel" >"$stage/.base-tasks" 2>/dev/null \
+    && slice "$stage/.base-tasks" "$stage/contract-base.md"; then
+    :
+  else
+    rm -f "$stage/contract-base.md"
+  fi
+  rm -f "$stage/.base-tasks"
 fi
 [ "$title_set" -eq 0 ] || printf '%s\n' "$title" >"$stage/pr-title.txt"
 [ -z "$body_file" ] || cp "$body_file" "$stage/pr-body.md" || die 2 "cannot copy --body-file"

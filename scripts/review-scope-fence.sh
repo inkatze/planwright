@@ -11,7 +11,9 @@
 # everything under it; one holding `*`, `?`, or `[` is a shell pattern, `*`
 # crossing `/`; anything else admits that exact path. They come from
 # --deliverables <file> (one entry per line), or are read from a task
-# contract (--contract, or the bundle's contract.md): every backticked token
+# contract (--contract, or the bundle's contract-base.md, the contract as the
+# base revision holds it, so a branch cannot widen its own fence by editing
+# its tasks file): every backticked token
 # in a `Deliverables:` field that holds a `/` or a `.`, has no whitespace or
 # `<`, and does not start with `-`. The field is read with the shared task
 # grammar (scripts/spec-parse.sh): it runs over its indented continuation
@@ -20,7 +22,8 @@
 # admits nothing, so the fence errs toward reporting; --allow <entry> adds an
 # entry, repeatable.
 #
-# Prints `outside <path>` per file outside the fence. With --bundle, every
+# Prints `outside <path>` per file outside the fence, the path stripped of
+# non-printable bytes. With --bundle, every
 # path the builder refused to carry (its skipped-files.txt) is reported
 # outside too, whatever the deliverables say. A contract that yields no entry
 # is refused rather than fencing everything out.
@@ -59,6 +62,8 @@ die() {
   printf '%s\n' "$prog: $2" >&2
   exit "$1"
 }
+# printable — the input without its non-printable bytes, tabs and newlines kept.
+printable() { tr -d '\000-\010\013-\037\177\200-\237'; }
 readable() {
   [ -f "$2" ] && [ -r "$2" ] || die 2 "$1 is not a readable file: $2"
 }
@@ -96,8 +101,8 @@ if [ -n "$bundle" ]; then
   changed=$bundle/changed-files.txt
   skipped=$bundle/skipped-files.txt
   [ -f "$skipped" ] || die 2 "the bundle holds no skipped-files.txt; rebuild it with scripts/review-handoff.sh"
-  contract=$bundle/contract.md
-  [ -f "$contract" ] || die 2 "the bundle holds no contract.md; build it with --tasks-file and --task"
+  contract=$bundle/contract-base.md
+  [ -f "$contract" ] || die 2 "the bundle holds no contract-base.md: build it with --tasks-file and --task, against a base whose tasks file holds every task"
 fi
 [ -n "$changed" ] || usage
 [ -n "$contract" ] || [ -n "$deliverables" ] || usage
@@ -149,14 +154,14 @@ while IFS= read -r path; do
 $entries
 EOF
   if [ "$inside" -eq 0 ]; then
-    printf 'outside\t%s\n' "$path"
+    printf 'outside\t%s\n' "$path" | printable
     status=1
   fi
 done <"$changed"
 if [ -n "$skipped" ]; then
   while IFS= read -r path; do
     [ -n "$path" ] || continue
-    printf 'outside\t%s\n' "$path"
+    printf 'outside\t%s\n' "$path" | printable
     status=1
   done <"$skipped"
 fi

@@ -100,7 +100,11 @@ B=$T/bundle
 mkdir -p "$B"
 printf 'review-handoff\t1\n' >"$B/MANIFEST"
 cp "$T/mixed.txt" "$B/changed-files.txt"
-cp "$T/contract.md" "$B/contract.md"
+cp "$T/contract.md" "$B/contract-base.md"
+# The branch's own contract, widened to admit everything, is never read.
+cat >"$B/contract.md" <<'EOF'
+- **Deliverables:** `scripts/other.sh`, `*.*`, `scripts/`.
+EOF
 printf '%s\n' '"we\"ird.txt"' >"$B/skipped-files.txt"
 out=$("$FENCE" --bundle "$B" 2>/dev/null)
 assert_exit "a bundle's changed files and contract are fenced" 1 $?
@@ -114,6 +118,16 @@ out=$("$FENCE" --bundle "$B" 2>&1)
 assert_exit "a bundle without skipped-files.txt is refused" 2 $?
 : >"$B/skipped-files.txt"
 
+# --- printed paths carry no control bytes ----------------------------------------
+printf 'docs/a\033[31mb\233m.md\n' >"$T/ctl.txt"
+out=$("$FENCE" --changed "$T/ctl.txt" --contract "$T/contract.md" 2>&1)
+assert_exit "a control-byte path outside the fence is reported" 1 $?
+if LC_ALL=C grep -q "$(printf '[\033\233]')" <<<"$out"; then
+  fail "printed paths carry no control bytes"
+else
+  ok "printed paths carry no control bytes"
+fi
+
 # --- refused inputs -----------------------------------------------------------
 out=$("$FENCE" --changed "$T/mixed.txt" 2>&1)
 assert_exit "no deliverables source is a usage error" 2 $?
@@ -121,9 +135,9 @@ printf -- '- **Done when:** nothing listed.\n' >"$T/empty-contract.md"
 out=$("$FENCE" --changed "$T/mixed.txt" --contract "$T/empty-contract.md" 2>&1)
 assert_exit "a contract naming no deliverable path is refused" 2 $?
 assert_contains "says why" "no deliverable" "$out"
-rm "$B/contract.md"
+rm "$B/contract-base.md"
 out=$("$FENCE" --bundle "$B" 2>&1)
-assert_exit "a bundle without a contract is refused" 2 $?
+assert_exit "a bundle without a base contract is refused" 2 $?
 out=$("$FENCE" --bundle "$T" 2>&1)
 assert_exit "a directory that is not a bundle is refused" 2 $?
 
