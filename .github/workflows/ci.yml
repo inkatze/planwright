@@ -194,7 +194,7 @@ jobs:
       # that failed or hung on the last run, alone, bounded, its output shown.
       - if: ${{ !cancelled() }}
         continue-on-error: true
-        timeout-minutes: 45
+        timeout-minutes: 70
         run: |
           allow="$RUNNER_TEMP/allow-bin"
           mise_bin=$(command -v mise)
@@ -236,11 +236,12 @@ jobs:
             test-tower-loop-relay.sh \
             >"$out/list"
           cat >"$out/one.sh" <<'ONE'
-          "$1" exec -- perl -e 'alarm 600; exec @ARGV' /bin/bash "tests/$2" >"$3/$2.log" 2>&1
-          echo "rc=$? $2" >>"$3/$2.log"
+          "$1" exec -- perl -e 'alarm 300; exec @ARGV' /bin/bash "tests/$2" >"$3/$2.log" 2>&1
+          rc=$?
+          { echo "===== rc=$rc $2"; tail -n 80 "$3/$2.log"; } >"$3/$2.out"
+          cat "$3/$2.out"
           ONE
           xargs -P 3 -I{} /bin/sh "$out/one.sh" "$mise_bin" {} "$out" <"$out/list"
-          for f in "$out"/*.log; do echo "===== $f"; tail -n 60 "$f"; done
       - if: ${{ !cancelled() }}
         run: |
           allow="$RUNNER_TEMP/allow-bin"
