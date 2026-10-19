@@ -62,7 +62,7 @@ for where in docs/guide.md skills/demo/SKILL.md doctrine/demo.md README.md; do
   printf '\n%s\n' "$retired_sentence" >>"$r/$where"
   run "$r"
   assert_exit "a retired sentence in $where fails" 1 $?
-  if grep -q "$where:" "$TMP/out"; then
+  if grep -qF "$where:" "$TMP/out"; then
     ok "the report names $where"
   else
     fail "the report does not name $where: $(cat "$TMP/out")"
@@ -228,10 +228,14 @@ mkfixture "$r"
 printf '\nwe never auto-merge.\n' >>"$r/docs/guide.md"
 mv "$r/docs/guide.md" "$r/docs/x$(printf '\302\233\033')y.md"
 run "$r"
+rc=$?
+assert_exit "a hit in a file whose name carries control bytes still fails" 1 "$rc"
 if grep -q "$(printf '\302\233')" "$TMP/out" || grep -q "$(printf '\033')" "$TMP/out"; then
   fail "a control byte in a path reaches the report"
+elif grep -qF 'docs/x??y.md:' "$TMP/out"; then
+  ok "C0 and C1 control bytes in a path are replaced in the report"
 else
-  ok "C0 and C1 control bytes in a path are stripped from the report"
+  fail "the report does not name the sanitized path: $(cat "$TMP/out")"
 fi
 
 r="$TMP/huge"
@@ -285,6 +289,12 @@ sed 's/$/\r/' "$REPO_ROOT/config/retired-phrasings.txt" >"$r/config/retired-phra
 printf '\nplanwright never auto-merges.\n' >>"$r/docs/guide.md"
 run "$r"
 assert_exit "a CRLF pattern file still matches" 1 $?
+
+r="$TMP/badpat"
+mkfixture "$r"
+printf 'foo(bar\n' >"$r/config/retired-phrasings.txt"
+run "$r"
+assert_exit "a malformed pattern fails closed" 2 $?
 
 r="$TMP/upperpat"
 mkfixture "$r"
